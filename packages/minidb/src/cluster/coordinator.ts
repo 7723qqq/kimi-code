@@ -7,13 +7,16 @@
 // semantics depend on the configured CrossShardMode.
 
 import type { BatchInputOp, MiniDb } from '../index.js';
-import type { CrossShardMode } from './types.js';
 import type { Router } from './router.js';
+import type { CrossShardMode } from './types.js';
 
 export class Coordinator<V = unknown> {
   constructor(
     private readonly router: Router,
-    private readonly runOnShard: <T>(shardId: number, fn: (db: MiniDb<V>) => T | Promise<T>) => Promise<T>,
+    private readonly runOnShard: <T>(
+      shardId: number,
+      fn: (db: MiniDb<V>) => T | Promise<T>,
+    ) => Promise<T>,
     private readonly mode: CrossShardMode,
   ) {}
 
@@ -55,7 +58,10 @@ export class Coordinator<V = unknown> {
       }
     }
     if (errors.length > 0) {
-      throw new AggregateError(errors, `${opName} failed on ${errors.length}/${groups.length} shard(s); partial writes possible`);
+      throw new AggregateError(
+        errors,
+        `${opName} failed on ${errors.length}/${groups.length} shard(s); partial writes possible`,
+      );
     }
   }
 
@@ -65,7 +71,9 @@ export class Coordinator<V = unknown> {
     await this.runGroups(
       groups,
       (id, items) =>
-        this.runOnShard(id, (db) => db.batch(items.map(([key, value]) => ({ op: 'set' as const, key, value })))),
+        this.runOnShard(id, (db) =>
+          db.batch(items.map(([key, value]) => ({ op: 'set' as const, key, value }))),
+        ),
       'mset',
     );
   }
@@ -80,7 +88,8 @@ export class Coordinator<V = unknown> {
       try {
         removed += await this.runOnShard(id, async (db) => {
           const existing = ks.filter((k) => db.has(k));
-          if (existing.length > 0) await db.batch(existing.map((key) => ({ op: 'del' as const, key })));
+          if (existing.length > 0)
+            await db.batch(existing.map((key) => ({ op: 'del' as const, key })));
           return existing.length;
         });
       } catch (error) {
@@ -88,7 +97,10 @@ export class Coordinator<V = unknown> {
       }
     }
     if (errors.length > 0) {
-      throw new AggregateError(errors, `mdel failed on ${errors.length}/${groups.length} shard(s); partial writes possible`);
+      throw new AggregateError(
+        errors,
+        `mdel failed on ${errors.length}/${groups.length} shard(s); partial writes possible`,
+      );
     }
     return removed;
   }
@@ -96,6 +108,10 @@ export class Coordinator<V = unknown> {
   /** Multi-shard atomic-per-shard batch (set/del ops with optional ttl/dt). */
   async batch(ops: readonly BatchInputOp<V>[]): Promise<void> {
     const groups = this.group(ops, (op) => op.key);
-    await this.runGroups(groups, (id, items) => this.runOnShard(id, (db) => db.batch(items)), 'batch');
+    await this.runGroups(
+      groups,
+      (id, items) => this.runOnShard(id, (db) => db.batch(items)),
+      'batch',
+    );
   }
 }

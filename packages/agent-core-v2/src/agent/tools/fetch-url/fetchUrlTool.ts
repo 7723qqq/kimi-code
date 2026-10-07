@@ -1,4 +1,9 @@
+import { isProxyConfigured } from '#/_base/utils/proxy';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import { HttpFetchError } from '#/app/web/tools/fetch-url-types';
+import { IWebFetchService } from '#/app/web/web';
 import { toInputJsonSchema } from '#/tool/input-schema';
+import { ToolOutputAccumulator } from '#/tool/output-accumulator';
 import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
 import {
   ToolAccesses,
@@ -6,12 +11,7 @@ import {
   type ExecutableToolResult,
   type ToolExecution,
 } from '#/tool/toolContract';
-import { ToolOutputAccumulator } from '#/tool/output-accumulator';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-import { isProxyConfigured } from '#/_base/utils/proxy';
 
-import { IWebFetchService } from '#/app/web/web';
-import { HttpFetchError } from '#/app/web/tools/fetch-url-types';
 import { FetchURLInputSchema, IFetchURLTool, type FetchURLInput } from './fetch-url';
 import DESCRIPTION from './fetch-url.md?raw';
 

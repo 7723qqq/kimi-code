@@ -26,14 +26,14 @@ import {
   getLiveSessionById,
   resumeSessionById,
 } from '@moonshot-ai/agent-core-v2';
-import { sessionSnapshotResponseSchema } from '../src/protocol/rest-snapshot';
-import { emptySessionUsage } from '../src/protocol/session';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { sessionSnapshotResponseSchema } from '../src/protocol/rest-snapshot';
+import { emptySessionUsage } from '../src/protocol/session';
 import { registerSnapshotRoutes } from '../src/routes/snapshot';
 import { type RunningServer, startServer } from '../src/start';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
 function fakeAccessor(entries: ReadonlyArray<readonly [unknown, unknown]>) {
   const services = new Map<unknown, unknown>(entries);
@@ -56,10 +56,7 @@ describe('server-v2 snapshot route enrichment', () => {
     const main = {
       accessor: fakeAccessor([
         [IAgentContextMemoryService, { get: () => [] }],
-        [
-          IAgentLoopService,
-          { snapshot: () => ({ activePromptId: promptId }) },
-        ],
+        [IAgentLoopService, { snapshot: () => ({ activePromptId: promptId }) }],
         [IWireService, { flush: async () => {} }],
         [IAgentScopeContext, { scope: () => 'scope/sess_snapshot' }],
         [IAgentBlobService, { loadParts: async (parts: unknown) => parts }],
@@ -108,10 +105,7 @@ describe('server-v2 snapshot route enrichment', () => {
     };
     const handler = {
       accessor: fakeAccessor([
-        [
-          ISessionLifecycleService,
-          { resume: async () => session, get: () => undefined },
-        ],
+        [ISessionLifecycleService, { resume: async () => session, get: () => undefined }],
       ]),
     };
     const core = {
@@ -273,10 +267,7 @@ describe('server-v2 snapshot route enrichment', () => {
     };
     const handler = {
       accessor: fakeAccessor([
-        [
-          ISessionLifecycleService,
-          { resume: async () => session, get: () => undefined },
-        ],
+        [ISessionLifecycleService, { resume: async () => session, get: () => undefined }],
       ]),
     };
     const core = {
@@ -364,7 +355,13 @@ describe('server-v2 GET /api/v1/sessions/:id/snapshot', () => {
 
   beforeAll(async () => {
     home = await mkdtemp(join(tmpdir(), 'kimi-snapshot-test-'));
-    server = await startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent' });
+    server = await startServer({
+      hostIdentity: TEST_HOST_IDENTITY,
+      host: '127.0.0.1',
+      port: 0,
+      homeDir: home,
+      logLevel: 'silent',
+    });
     base = `http://127.0.0.1:${server.port}`;
   });
 
@@ -482,7 +479,13 @@ describe('server-v2 GET /api/v1/sessions/:id/snapshot', () => {
 
     await server!.close();
     server = undefined;
-    server = await startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent' });
+    server = await startServer({
+      hostIdentity: TEST_HOST_IDENTITY,
+      host: '127.0.0.1',
+      port: 0,
+      homeDir: home,
+      logLevel: 'silent',
+    });
     base = `http://127.0.0.1:${server.port}`;
 
     expect(getLiveSessionById(server!.core.accessor, sid)).toBeUndefined();
@@ -503,7 +506,11 @@ describe('server-v2 GET /api/v1/sessions/:id/snapshot', () => {
       { type: 'metadata', protocol_version: '1.4', created_at: Date.now() },
       {
         type: 'context.append_message',
-        message: { role: 'user', content: [{ type: 'text', text: 'hello-from-disk' }], toolCalls: [] },
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'hello-from-disk' }],
+          toolCalls: [],
+        },
       },
       {
         type: 'context.append_message',
@@ -522,7 +529,13 @@ describe('server-v2 GET /api/v1/sessions/:id/snapshot', () => {
 
     await server!.close();
     server = undefined;
-    server = await startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent' });
+    server = await startServer({
+      hostIdentity: TEST_HOST_IDENTITY,
+      host: '127.0.0.1',
+      port: 0,
+      homeDir: home,
+      logLevel: 'silent',
+    });
     base = `http://127.0.0.1:${server.port}`;
 
     expect(getLiveSessionById(server!.core.accessor, sid)).toBeUndefined();
@@ -555,7 +568,13 @@ describe('server-v2 GET /api/v1/sessions/:id/snapshot', () => {
       }),
     );
 
-    server = await startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent' });
+    server = await startServer({
+      hostIdentity: TEST_HOST_IDENTITY,
+      host: '127.0.0.1',
+      port: 0,
+      homeDir: home,
+      logLevel: 'silent',
+    });
     base = `http://127.0.0.1:${server.port}`;
 
     const resumed = await resumeSessionById(server!.core.accessor, sid);

@@ -1,6 +1,6 @@
-import type { SyncDescriptor, SyncDescriptor0 } from './descriptors';
-import type { CascadeEngine } from './cascadeEngine';
 import type { Event } from '../event';
+import type { CascadeEngine } from './cascadeEngine';
+import type { SyncDescriptor, SyncDescriptor0 } from './descriptors';
 import type { DisposableStore, IDisposable } from './lifecycle';
 import type { ServiceCollection } from './serviceCollection';
 
@@ -17,18 +17,12 @@ export namespace _util {
     readonly kind: DependencyKind;
   }
 
-  export function getServiceDependencies(
-    ctor: DI_TARGET_OBJ,
-  ): ServiceDependency[] {
+  export function getServiceDependencies(ctor: DI_TARGET_OBJ): ServiceDependency[] {
     return ctor[DI_DEPENDENCIES] || [];
   }
 
-  export function getInstanceDependencies(
-    ctor: DI_TARGET_OBJ,
-  ): ServiceDependency[] {
-    return getServiceDependencies(ctor).filter(
-      (dependency) => dependency.kind === 'instance',
-    );
+  export function getInstanceDependencies(ctor: DI_TARGET_OBJ): ServiceDependency[] {
+    return getServiceDependencies(ctor).filter((dependency) => dependency.kind === 'instance');
   }
 
   export interface DI_TARGET_OBJ extends Function {
@@ -43,10 +37,11 @@ export interface IConstructorSignature<T, Args extends any[] = []> {
   new <Services extends BrandedService[]>(...args: [...Args, ...Services]): T;
 }
 
-export type GetLeadingNonServiceArgs<TArgs extends any[]> =
-  TArgs extends [] ? []
-  : TArgs extends [...infer TFirst, BrandedService] ? GetLeadingNonServiceArgs<TFirst>
-  : TArgs;
+export type GetLeadingNonServiceArgs<TArgs extends any[]> = TArgs extends []
+  ? []
+  : TArgs extends [...infer TFirst, BrandedService]
+    ? GetLeadingNonServiceArgs<TFirst>
+    : TArgs;
 
 export interface ServiceIdentifier<T> {
   (target: any, key: string | symbol | undefined, index: number): void;
@@ -92,9 +87,7 @@ export function createDecorator<T>(name: string): ServiceIdentifier<T> {
     index: number,
   ): void {
     if (arguments.length !== 3) {
-      throw new Error(
-        '@IServiceName-decorator can only be used to decorate a parameter',
-      );
+      throw new Error('@IServiceName-decorator can only be used to decorate a parameter');
     }
     storeServiceDependency(id, target, index);
   } as unknown as ServiceIdentifier<T>;
@@ -141,7 +134,11 @@ export interface LiveRef<T> {
 export function ref<T>(
   id: ServiceIdentifier<T>,
 ): (target: object, key: string | symbol | undefined, index: number) => void {
-  return function refDecorator(target: any, _key: string | symbol | undefined, index: number): void {
+  return function refDecorator(
+    target: any,
+    _key: string | symbol | undefined,
+    index: number,
+  ): void {
     if (arguments.length !== 3) {
       throw new Error('@ref-decorator can only be used to decorate a parameter');
     }
@@ -178,12 +175,7 @@ export interface IInstantiationService {
     ...args: TS
   ): R;
   createInstance<T>(descriptor: SyncDescriptor0<T>): T;
-  createInstance<
-    Ctor extends new (
-      ...args: any[]
-    ) => unknown,
-    R extends InstanceType<Ctor>,
-  >(
+  createInstance<Ctor extends new (...args: any[]) => unknown, R extends InstanceType<Ctor>>(
     ctor: Ctor,
     ...args: GetLeadingNonServiceArgs<ConstructorParameters<Ctor>>
   ): R;
@@ -206,7 +198,5 @@ export interface ServiceCollectionLike {
   set<T>(id: ServiceIdentifier<T>, instanceOrDescriptor: any): unknown;
   get<T>(id: ServiceIdentifier<T>): any;
   has(id: ServiceIdentifier<any>): boolean;
-  forEach(
-    callback: (id: ServiceIdentifier<any>, value: any) => void,
-  ): void;
+  forEach(callback: (id: ServiceIdentifier<any>, value: any) => void): void;
 }

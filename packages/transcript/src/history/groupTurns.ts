@@ -1,10 +1,10 @@
-import type { AgentTranscriptSnapshot } from '../ops/operation';
+import { daemonFileRefFromPairingPart } from '../contract/mediaRef';
+import { projectTranscriptUserOrigin, projectTranscriptUserTurnOrigin } from '../contract/origin';
 import type { TranscriptAttachment } from '../model/attachment';
 import type { TranscriptFrame, TranscriptUserOrigin } from '../model/frame';
 import type { TranscriptItem, TranscriptMarker } from '../model/item';
 import type { StepTiming, StepUsage, TurnOrigin } from '../model/turn';
-import { daemonFileRefFromPairingPart } from '../contract/mediaRef';
-import { projectTranscriptUserOrigin, projectTranscriptUserTurnOrigin } from '../contract/origin';
+import type { AgentTranscriptSnapshot } from '../ops/operation';
 
 export type HistoryMediaSource =
   | { readonly kind: 'url'; readonly url: string }
@@ -21,7 +21,11 @@ export interface HistoryTextPartMeta {
 export type HistoryContentPart =
   | { readonly type: 'text'; readonly text: string; readonly meta?: HistoryTextPartMeta }
   | { readonly type: 'think'; readonly think: string; readonly hidden?: boolean }
-  | { readonly type: 'image' | 'video' | 'audio'; readonly source: HistoryMediaSource; readonly name?: string }
+  | {
+      readonly type: 'image' | 'video' | 'audio';
+      readonly source: HistoryMediaSource;
+      readonly name?: string;
+    }
   | {
       readonly type: 'file';
       readonly file_id: string;
@@ -46,8 +50,7 @@ const SKILL_ACTIVATION_PART_SOURCE = 'skill activation';
 export function isSkillActivationPart(part: { readonly type: string }): boolean {
   return (
     part.type === 'text' &&
-    (part as { readonly meta?: HistoryTextPartMeta }).meta?.source ===
-      SKILL_ACTIVATION_PART_SOURCE
+    (part as { readonly meta?: HistoryTextPartMeta }).meta?.source === SKILL_ACTIVATION_PART_SOURCE
   );
 }
 
@@ -185,8 +188,7 @@ export function groupMessagesIntoSnapshot(
         const source = part.source as HistoryMediaSource;
         const entity: TranscriptAttachment = {
           attachmentId: `att_${attachments.length + 1}`,
-          mediaType:
-            source.kind === 'base64' ? source.media_type : `${part.type}/*`,
+          mediaType: source.kind === 'base64' ? source.media_type : `${part.type}/*`,
           name: part.name,
           source:
             source.kind === 'url'
@@ -285,7 +287,15 @@ export function groupMessagesIntoSnapshot(
     const ordinal = nextOrdinal;
     nextOrdinal += 1;
     pendingNotificationFrames = [];
-    turn = { turnId: `t${ordinal}`, ordinal, triggerPromptId, origin, prompt, attachmentIds, steps: [] };
+    turn = {
+      turnId: `t${ordinal}`,
+      ordinal,
+      triggerPromptId,
+      origin,
+      prompt,
+      attachmentIds,
+      steps: [],
+    };
     items.push(draftToTurnItem(turn));
     return turn;
   };
@@ -322,7 +332,9 @@ export function groupMessagesIntoSnapshot(
     if (message.role === 'system') continue;
     const originKind = message.origin?.kind;
     const isTaskOrigin =
-      originKind === 'task' || originKind === 'background_task' || originKind === 'task_notification';
+      originKind === 'task' ||
+      originKind === 'background_task' ||
+      originKind === 'task_notification';
     const prevRoleAtEntry = prevNonTaskRole;
     if (!isTaskOrigin) prevNonTaskRole = message.role;
 
@@ -355,7 +367,8 @@ export function groupMessagesIntoSnapshot(
           : undefined;
       const steeredById = steeredPromptIds !== undefined;
       if (steeredById && message.id !== undefined) steeredByMessageId.delete(message.id);
-      const steeredByKind = opensAsTurnPrompt || steeredById ? undefined : steeredContents.get(contentKey);
+      const steeredByKind =
+        opensAsTurnPrompt || steeredById ? undefined : steeredContents.get(contentKey);
       const steeredRemaining = steeredByKind?.get(steerKind) ?? 0;
       if (steeredById || (steeredByKind !== undefined && steeredRemaining > 0)) {
         if (!steeredById) steeredByKind!.set(steerKind, steeredRemaining - 1);
@@ -377,18 +390,24 @@ export function groupMessagesIntoSnapshot(
         const opening = isUserSlashPrompt(message) ? foldTurnOpeningInput(message) : undefined;
         pushMarker(markerKey, { text: opening?.text ?? textOf(message), origin: message.origin });
         if (opening !== undefined) {
-          startTurn(mapOrigin(message), opening.text, opening.attachmentIds, triggerPromptIdOf(message));
+          startTurn(
+            mapOrigin(message),
+            opening.text,
+            opening.attachmentIds,
+            triggerPromptIdOf(message),
+          );
         }
         continue;
       }
       if (isTaskOrigin) {
         const origin = message.origin as { taskId?: unknown } | undefined;
         const taskId = typeof origin?.taskId === 'string' ? origin.taskId : undefined;
-        const opensOwn = options?.taskOriginTurnTaskIds === undefined
-          ? prevRoleAtEntry !== 'assistant' && prevRoleAtEntry !== 'tool'
-          : taskId === undefined ||
-            options.taskOriginTurnTaskIds.has(taskId) ||
-            originKind === 'background_task';
+        const opensOwn =
+          options?.taskOriginTurnTaskIds === undefined
+            ? prevRoleAtEntry !== 'assistant' && prevRoleAtEntry !== 'tool'
+            : taskId === undefined ||
+              options.taskOriginTurnTaskIds.has(taskId) ||
+              originKind === 'background_task';
         if (opensOwn) {
           const opening = foldTurnOpeningInput(message);
           startTurn(mapOrigin(message), opening.text, opening.attachmentIds);
@@ -401,11 +420,21 @@ export function groupMessagesIntoSnapshot(
       if (bundled.length > 0) {
         const callerMessage = extractBundledSkillMarkers(message);
         const opening = foldTurnOpeningInput(callerMessage);
-        startTurn(mapOrigin(message), opening.text, opening.attachmentIds, triggerPromptIdOf(message));
+        startTurn(
+          mapOrigin(message),
+          opening.text,
+          opening.attachmentIds,
+          triggerPromptIdOf(message),
+        );
         continue;
       }
       const opening = foldTurnOpeningInput(message);
-      startTurn(mapOrigin(message), opening.text, opening.attachmentIds, triggerPromptIdOf(message));
+      startTurn(
+        mapOrigin(message),
+        opening.text,
+        opening.attachmentIds,
+        triggerPromptIdOf(message),
+      );
       continue;
     }
 
@@ -439,9 +468,25 @@ export function groupMessagesIntoSnapshot(
       }
       pendingNotificationFrames = [];
       for (const part of message.content ?? []) {
-        if (part.type === 'text' && 'text' in part && typeof part.text === 'string' && part.text.length > 0) {
-          step.frames.push({ kind: 'text', frameId: nextFrameId(), role: 'assistant', text: part.text });
-        } else if (part.type === 'think' && 'think' in part && typeof part.think === 'string' && part.think.length > 0 && part.hidden !== true) {
+        if (
+          part.type === 'text' &&
+          'text' in part &&
+          typeof part.text === 'string' &&
+          part.text.length > 0
+        ) {
+          step.frames.push({
+            kind: 'text',
+            frameId: nextFrameId(),
+            role: 'assistant',
+            text: part.text,
+          });
+        } else if (
+          part.type === 'think' &&
+          'think' in part &&
+          typeof part.think === 'string' &&
+          part.think.length > 0 &&
+          part.hidden !== true
+        ) {
           step.frames.push({ kind: 'thinking', frameId: nextFrameId(), text: part.think });
         }
       }
@@ -535,10 +580,8 @@ function triggerPromptIdOf(message: HistoryMessage): string | undefined {
   if (typeof message.id !== 'string' || message.id.length === 0) return undefined;
   const origin = message.origin as { kind?: unknown; trigger?: unknown } | undefined;
   if (origin?.kind === undefined || origin.kind === 'user') return message.id;
-  return (
-    (origin.kind === 'skill_activation' || origin.kind === 'plugin_command') &&
+  return (origin.kind === 'skill_activation' || origin.kind === 'plugin_command') &&
     origin.trigger === 'user-slash'
-  )
     ? message.id
     : undefined;
 }
@@ -549,7 +592,11 @@ function mapOrigin(message: HistoryMessage): TurnOrigin {
     case 'cron_job':
     case 'cron_missed': {
       const jobId = (origin as { jobId?: unknown }).jobId;
-      return { kind: 'cron', taskId: typeof jobId === 'string' ? jobId : undefined, payload: origin };
+      return {
+        kind: 'cron',
+        taskId: typeof jobId === 'string' ? jobId : undefined,
+        payload: origin,
+      };
     }
     case 'task':
     case 'background_task': {
@@ -617,7 +664,10 @@ function originFileAttachments(message: HistoryMessage): readonly OriginFileAtta
 
 function textOf(message: HistoryMessage): string {
   return (message.content ?? [])
-    .filter((part): part is { readonly type: 'text'; readonly text: string } => part.type === 'text' && 'text' in part)
+    .filter(
+      (part): part is { readonly type: 'text'; readonly text: string } =>
+        part.type === 'text' && 'text' in part,
+    )
     .map((part) => part.text)
     .join('');
 }
@@ -659,7 +709,10 @@ function syncTurnItem(items: TranscriptItem[], draft: TurnDraft): void {
   if (index >= 0) items[index] = draftToTurnItem(draft);
 }
 
-function currentTurnToolFrame(turn: TurnDraft | undefined, toolCallId: string | undefined): TranscriptFrame | undefined {
+function currentTurnToolFrame(
+  turn: TurnDraft | undefined,
+  toolCallId: string | undefined,
+): TranscriptFrame | undefined {
   if (!turn || toolCallId === undefined) return undefined;
   for (let s = turn.steps.length - 1; s >= 0; s -= 1) {
     const frames = turn.steps[s]?.frames ?? [];
@@ -675,7 +728,9 @@ function replaceToolFrame(turn: TurnDraft, toolCallId: string, next: TranscriptF
   for (let s = turn.steps.length - 1; s >= 0; s -= 1) {
     const step = turn.steps[s];
     if (!step) continue;
-    const index = step.frames.findIndex((frame) => frame.kind === 'tool' && frame.toolCallId === toolCallId);
+    const index = step.frames.findIndex(
+      (frame) => frame.kind === 'tool' && frame.toolCallId === toolCallId,
+    );
     if (index >= 0) {
       step.frames[index] = next;
       return;

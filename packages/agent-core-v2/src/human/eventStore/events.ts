@@ -50,12 +50,18 @@ export function parseEvent(
 export function validateEvent(event: ExternalEvent): StoreError | undefined {
   const schema = registry.get(event.type);
   if (schema === undefined) {
-    return new StoreError('unregistered-event', `event '${event.type}' is not a registered external event`);
+    return new StoreError(
+      'unregistered-event',
+      `event '${event.type}' is not a registered external event`,
+    );
   }
   const { type: _type, time: _time, ...payload } = event;
   const parsed = schema.safeParse(payload);
   if (!parsed.success) {
-    return new StoreError('schema', `event '${event.type}' failed schema validation: ${parsed.error.message}`);
+    return new StoreError(
+      'schema',
+      `event '${event.type}' failed schema validation: ${parsed.error.message}`,
+    );
   }
   return undefined;
 }

@@ -1,8 +1,4 @@
-import {
-  AUDIO_MIME_BY_SUFFIX,
-  IMAGE_MIME_BY_SUFFIX,
-  VIDEO_MIME_BY_SUFFIX,
-} from './mediaRef';
+import { AUDIO_MIME_BY_SUFFIX, IMAGE_MIME_BY_SUFFIX, VIDEO_MIME_BY_SUFFIX } from './mediaRef';
 
 export { AUDIO_MIME_BY_SUFFIX, IMAGE_MIME_BY_SUFFIX, VIDEO_MIME_BY_SUFFIX };
 
@@ -296,8 +292,10 @@ function readExifOrientation(buf: Buffer, start: number, end: number): number | 
   const byteOrder = buf.toString('latin1', tiff, tiff + 2);
   const le = byteOrder === 'II';
   if (!le && byteOrder !== 'MM') return null;
-  const u16 = (offset: number): number => (le ? buf.readUInt16LE(offset) : buf.readUInt16BE(offset));
-  const u32 = (offset: number): number => (le ? buf.readUInt32LE(offset) : buf.readUInt32BE(offset));
+  const u16 = (offset: number): number =>
+    le ? buf.readUInt16LE(offset) : buf.readUInt16BE(offset);
+  const u32 = (offset: number): number =>
+    le ? buf.readUInt32LE(offset) : buf.readUInt32BE(offset);
   if (u16(tiff + 2) !== 42) return null;
   const ifd = tiff + u32(tiff + 4);
   if (ifd + 2 > boundedEnd) return null;

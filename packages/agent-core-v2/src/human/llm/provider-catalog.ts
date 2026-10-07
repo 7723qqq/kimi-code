@@ -4,7 +4,15 @@ import type { LlmModel } from '#/llm/model';
 import type { ProtocolName } from '#/llm/protocol/base';
 import type { Provider } from '#/llm/provider/definition';
 import type { LlmRequester } from '#/llm/requester/requester';
-import { assign, createActor, emit, enqueueActions, fromPromise, setup, type Actor } from '#/xstate2';
+import {
+  assign,
+  createActor,
+  emit,
+  enqueueActions,
+  fromPromise,
+  setup,
+  type Actor,
+} from '#/xstate2';
 
 export interface CatalogOAuthRef {
   readonly storage: 'file' | 'keyring';

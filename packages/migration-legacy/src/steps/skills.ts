@@ -1,6 +1,7 @@
-import { cp, mkdir, readdir, rename, rm, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { cp, mkdir, readdir, rename, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
+
 import { sourceSkillsDir, targetSkillsDir } from '../paths.js';
 import type { SessionMigrationFailure } from '../types.js';
 

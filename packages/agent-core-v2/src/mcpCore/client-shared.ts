@@ -1,5 +1,6 @@
-import { getCoreVersion } from '#/_base/version';
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
+
+import { getCoreVersion } from '#/_base/version';
 
 import type { MCPClient, MCPToolDefinition, MCPToolResult } from './types';
 

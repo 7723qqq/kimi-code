@@ -31,7 +31,9 @@ export type Payload =
   | { kind: string; size: number; data: unknown }
   | { kind: string; size: number; ref: string };
 
-export function isOffloadedPayload(payload: Payload): payload is { kind: string; size: number; ref: string } {
+export function isOffloadedPayload(
+  payload: Payload,
+): payload is { kind: string; size: number; ref: string } {
   return 'ref' in payload;
 }
 

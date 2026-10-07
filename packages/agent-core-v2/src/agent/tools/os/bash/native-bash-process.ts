@@ -88,8 +88,7 @@ export class NativeBashProcess implements IProcess {
       if (exit !== undefined && this.exitCodeValue === null) {
         this.settleExit(exit.exitCode);
       }
-    } catch {
-    }
+    } catch {}
   }
 
   private settleExit(code: number): void {

@@ -5,8 +5,6 @@
  * differs per file.
  */
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -18,6 +16,7 @@ import {
   resetModelsDevUpstreamForTest,
   setModelsDevUpstreamForTest,
 } from '@moonshot-ai/agent-core-v2/app/kosongConfig/modelsDevUpstream';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import type { Klient } from '../../src/index.js';
 import type { TestEngine } from './engine.js';
@@ -245,9 +244,9 @@ export function defineKlientConformance(
       const { config, kosong } = target.klient.global;
       const domains = ['providers', 'models', 'defaultModel', 'defaultProvider', 'thinking'];
       const before = Object.fromEntries(
-        await Promise.all(domains.map(async (domain) => [
-          domain, (await config.inspect(domain)).userValue,
-        ])),
+        await Promise.all(
+          domains.map(async (domain) => [domain, (await config.inspect(domain)).userValue]),
+        ),
       );
       const url = 'https://registry.example.test/api.json';
       const source = { kind: 'apiJson', url, apiKey: '' };
@@ -365,7 +364,7 @@ export function defineKlientConformance(
     it('flags / plugins / auth read models respond', async () => {
       expect(Array.isArray(await target.klient.global.flags.list())).toBe(true);
       expect(Array.isArray(await target.klient.global.flags.enabledIds())).toBe(true);
-      expect(typeof await target.klient.global.flags.snapshot()).toBe('object');
+      expect(typeof (await target.klient.global.flags.snapshot())).toBe('object');
       expect(Array.isArray(await target.klient.global.plugins.list())).toBe(true);
       const status = await target.klient.global.auth.status();
       expect(typeof status.loggedIn).toBe('boolean');

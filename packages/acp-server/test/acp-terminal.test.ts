@@ -1,5 +1,3 @@
-import { describe, expect, it } from 'vitest';
-
 import type {
   HostProcessOptions,
   IHostEnvironment,
@@ -8,6 +6,7 @@ import type {
   Runtime,
   RuntimeProviderHost,
 } from '@moonshot-ai/agent-core-v2';
+import { describe, expect, it } from 'vitest';
 
 import type { IAcpConnection, IAcpTerminalHandle } from '../src/acp-fs/acpConnection';
 import { AcpHostFileSystem } from '../src/acp-fs/acpFsService';
@@ -191,6 +190,10 @@ describe('AcpProcessService local fallback', () => {
 
     expect(created).toBe(0);
     expect(calls).toHaveLength(1);
-    expect(calls[0]).toMatchObject({ command: 'rg', args: ['--files', '--hidden'], options: { cwd: '/repo' } });
+    expect(calls[0]).toMatchObject({
+      command: 'rg',
+      args: ['--files', '--hidden'],
+      options: { cwd: '/repo' },
+    });
   });
 });

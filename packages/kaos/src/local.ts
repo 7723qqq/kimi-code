@@ -11,8 +11,9 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { isAbsolute, join, normalize } from 'pathe';
 import type { Readable, Writable } from 'node:stream';
+
+import { isAbsolute, join, normalize } from 'pathe';
 
 import { detectEnvironmentFromNode, type Environment } from './environment';
 import { KaosFileExistsError } from './errors';
@@ -756,7 +757,9 @@ export class LocalKaos implements Kaos {
     return new LocalProcess(child);
   }
 
-  private _buildExecEnv(invocationEnv?: Record<string, string>): Record<string, string> | undefined {
+  private _buildExecEnv(
+    invocationEnv?: Record<string, string>,
+  ): Record<string, string> | undefined {
     if (this._envLayers.length === 0) return invocationEnv;
     const merged: Record<string, string> = {
       ...(process.env as Record<string, string>),

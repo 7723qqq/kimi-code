@@ -650,10 +650,15 @@ describe('Session.prompt events', () => {
       const wireFiles = (await readdir(homeDir, { recursive: true })).filter((path) =>
         path.endsWith(join('agents', 'main', 'wire.jsonl')),
       );
-      const forkedLines = (await readFile(
-        join(homeDir, wireFiles.find((path) => path.includes(fork.id))!),
-        'utf8',
-      ))
+      const forkedLines = (
+        await readFile(
+          join(
+            homeDir,
+            wireFiles.find((path) => path.includes(fork.id))!,
+          ),
+          'utf8',
+        )
+      )
         .trimEnd()
         .split('\n');
       const types = forkedLines.map((line) => (JSON.parse(line) as { type: string }).type);
@@ -661,10 +666,15 @@ describe('Session.prompt events', () => {
       expect(types).not.toContain('context.undo');
       expect(types).not.toContain('context.undone');
 
-      const sourceLines = (await readFile(
-        join(homeDir, wireFiles.find((path) => path.includes(source.id))!),
-        'utf8',
-      ))
+      const sourceLines = (
+        await readFile(
+          join(
+            homeDir,
+            wireFiles.find((path) => path.includes(source.id))!,
+          ),
+          'utf8',
+        )
+      )
         .trimEnd()
         .split('\n');
       const sourceTypes = sourceLines.map((line) => (JSON.parse(line) as { type: string }).type);
@@ -731,9 +741,7 @@ describe('Session.prompt events', () => {
     try {
       const source = await harness.createSession({ id: 'ses_turn_fork_negative', workDir });
 
-      await expect(
-        harness.forkSession({ id: source.id, turnIndex: -1 }),
-      ).rejects.toMatchObject({
+      await expect(harness.forkSession({ id: source.id, turnIndex: -1 })).rejects.toMatchObject({
         name: 'KimiError',
         code: 'request.invalid',
       });

@@ -12,7 +12,11 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { DeviceCodeTimeoutError, OAuthAccessDeniedError, OAuthUnauthorizedError } from '../src/errors';
+import {
+  DeviceCodeTimeoutError,
+  OAuthAccessDeniedError,
+  OAuthUnauthorizedError,
+} from '../src/errors';
 import type { DevicePollResult } from '../src/oauth';
 import { OAuthManager } from '../src/oauth-manager';
 import { FileTokenStorage } from '../src/storage';

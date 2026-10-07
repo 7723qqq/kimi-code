@@ -2,10 +2,10 @@ import { stateUpdated } from '#/agent/events';
 import type { AgentEventStore } from '#/agent/slices';
 import { defineTool, type ToolDefinition } from '#/tool/tool';
 
-import { readTodoItems, renderTodoList, TODO_LIST_TOOL_NAME } from './todoItem';
 import { readTodoState } from './slice';
-import DESCRIPTION from './todo-list.md?raw';
 import TODO_LIST_WRITE_REMINDER from './todo-list-write-reminder.md?raw';
+import DESCRIPTION from './todo-list.md?raw';
+import { readTodoItems, renderTodoList, TODO_LIST_TOOL_NAME } from './todoItem';
 
 export function createTodoListTool(store: AgentEventStore): ToolDefinition {
   return defineTool({

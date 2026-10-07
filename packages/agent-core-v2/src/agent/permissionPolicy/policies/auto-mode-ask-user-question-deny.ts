@@ -1,9 +1,6 @@
-import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import type {
-  PermissionPolicy,
-  PermissionPolicyResult,
-} from '#/agent/permissionPolicy/types';
+import type { PermissionPolicy, PermissionPolicyResult } from '#/agent/permissionPolicy/types';
+import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
 
 export class AutoModeAskUserQuestionDenyPermissionPolicyService implements PermissionPolicy {
   readonly name = 'auto-mode-ask-user-question-deny';

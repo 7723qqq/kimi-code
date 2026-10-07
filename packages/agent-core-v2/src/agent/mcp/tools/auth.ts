@@ -1,14 +1,14 @@
 import { z } from 'zod';
 
+import { AlreadyAuthorizedError, type McpOAuthService } from '#/mcpCore/oauth/service';
+import { qualifyMcpToolName } from '#/mcpCore/tool-naming';
+import { toInputJsonSchema } from '#/tool/input-schema';
 import {
   MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE,
   type ExecutableTool,
   type ExecutableToolContext,
   type ExecutableToolResult,
 } from '#/tool/toolContract';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import { AlreadyAuthorizedError, type McpOAuthService } from '#/mcpCore/oauth/service';
-import { qualifyMcpToolName } from '#/mcpCore/tool-naming';
 
 export { MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE } from '#/tool/toolContract';
 

@@ -1,5 +1,5 @@
-import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
 import { canonicalWorkspaceRoot } from '#/_base/utils/paths';
+import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
 import type { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 
@@ -44,10 +44,7 @@ export function writeWorkspaceTrust(
   return docs.set(TRUST_SCOPE, trustKey(root), { root, trustedAt });
 }
 
-export function deleteWorkspaceTrust(
-  docs: IAtomicDocumentStore,
-  root: string,
-): Promise<void> {
+export function deleteWorkspaceTrust(docs: IAtomicDocumentStore, root: string): Promise<void> {
   const canonicalKey = trustKey(root);
   const legacyKey = encodeWorkDirKey(root);
   return (async () => {

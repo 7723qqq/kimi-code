@@ -74,9 +74,10 @@ export interface TaskWaitDelivered {
   readonly keys: string[];
 }
 
-export const taskKey = defineState('task', (): TaskModelState => new Map()).replayable({
-  schema: z.custom<TaskModelState>(),
-})
+export const taskKey = defineState('task', (): TaskModelState => new Map())
+  .replayable({
+    schema: z.custom<TaskModelState>(),
+  })
   .on(TaskStarted, (s, e) => {
     s.set(e.info.taskId, e.info);
   })

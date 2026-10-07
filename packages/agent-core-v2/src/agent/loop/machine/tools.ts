@@ -1,10 +1,10 @@
+import { toErrorMessage } from '#/_base/errors/errorMessage';
 import type {
   IAgentToolExecutorService,
   ToolCallStartedPayload,
   ToolExecutionResult,
 } from '#/agent/toolExecutor/toolExecutor';
 import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
-import { toErrorMessage } from '#/_base/errors/errorMessage';
 import type {
   ToolDelivery,
   ToolInfo,
@@ -92,7 +92,9 @@ export function createMachineTools(options: CreateMachineToolsOptions): MachineT
 
   const settleAborted = (entry: PendingEntry): void => {
     settleEntry(entry, {
-      content: [{ type: 'text', text: `Tool "${entry.input.toolCall.name}" aborted before execution.` }],
+      content: [
+        { type: 'text', text: `Tool "${entry.input.toolCall.name}" aborted before execution.` },
+      ],
       isError: true,
     });
   };
@@ -266,7 +268,9 @@ export function createMachineTools(options: CreateMachineToolsOptions): MachineT
         return;
       }
       expectedIds = [
-        ...new Set(expectedCalls.filter((call) => definitions.has(call.name)).map((call) => call.id)),
+        ...new Set(
+          expectedCalls.filter((call) => definitions.has(call.name)).map((call) => call.id),
+        ),
       ];
       flushIfReady();
     },

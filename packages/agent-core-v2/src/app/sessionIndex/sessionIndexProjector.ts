@@ -4,11 +4,7 @@ import { IQueryStore, type WriteOp } from '#/persistence/interface/queryStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 
 import { PARENT_SESSION_ID_KEY, type SessionSummary } from './sessionIndex';
-import {
-  clearDirtyMarks,
-  dirtyMarkSessionIds,
-  listDirtyMarks,
-} from './sessionIndexDirtyJournal';
+import { clearDirtyMarks, dirtyMarkSessionIds, listDirtyMarks } from './sessionIndexDirtyJournal';
 import {
   PARENT_INDEX_NAME,
   SESSION_INDEX_MANIFEST,

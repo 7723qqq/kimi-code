@@ -8,10 +8,10 @@
 
 import { describe, expect, it } from 'vitest';
 
-import { pluginManifestSchema } from '../src/contract/global/plugins.js';
-import { mcpServerAuthFlowHandleSchema } from '../src/contract/global/mcpManagement.js';
-import { createSessionOptionsSchema } from '../src/contract/session/lifecycle.js';
 import { promptPayloadSchema } from '../src/contract/agent/schemas.js';
+import { mcpServerAuthFlowHandleSchema } from '../src/contract/global/mcpManagement.js';
+import { pluginManifestSchema } from '../src/contract/global/plugins.js';
+import { createSessionOptionsSchema } from '../src/contract/session/lifecycle.js';
 
 type McpTimeoutField = 'startupTimeoutMs' | 'toolTimeoutMs';
 
@@ -111,6 +111,8 @@ describe('prompt contract validation', () => {
   });
 
   it('accepts a non-empty caller-chosen promptId', () => {
-    expect(promptPayloadSchema.safeParse({ input: [], promptId: 'submission-1' }).success).toBe(true);
+    expect(promptPayloadSchema.safeParse({ input: [], promptId: 'submission-1' }).success).toBe(
+      true,
+    );
   });
 });

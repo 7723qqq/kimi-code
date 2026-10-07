@@ -27,10 +27,11 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
+
+import { FINGERPRINT_FILES } from '../generation.js';
 import type { MiniDb } from '../index.js';
 import { LockError } from '../lockfile.js';
 import { OpTracker } from '../op-tracker.js';
-import { FINGERPRINT_FILES } from '../generation.js';
 import { ShardHandle } from './shard.js';
 import type { ShardOpenOptions } from './shard.js';
 import { sleep } from './utils.js';
@@ -133,7 +134,11 @@ export class ShardLockPool {
 
   /** Run fn against the shard's writer, opening it (with lock retry) if this
    *  process does not hold it yet. The writer cannot be evicted while busy. */
-  async withWriter<T>(shardId: number, dir: string, fn: (db: MiniDb<unknown>) => T | Promise<T>): Promise<T> {
+  async withWriter<T>(
+    shardId: number,
+    dir: string,
+    fn: (db: MiniDb<unknown>) => T | Promise<T>,
+  ): Promise<T> {
     if (this.opts.readOnly) throw new Error('ClusterDb is open in read-only mode');
     if (!this.writerOps.enter()) throw new Error('ClusterDb is closed');
     try {
@@ -160,7 +165,11 @@ export class ShardLockPool {
   /** Run fn against the best available read view of the shard: the cached
    *  writer when this process holds the shard (current and lock-free), else a
    *  fingerprint-revalidated read-only instance. */
-  async withReader<T>(shardId: number, dir: string, fn: (db: MiniDb<unknown>) => T | Promise<T>): Promise<T> {
+  async withReader<T>(
+    shardId: number,
+    dir: string,
+    fn: (db: MiniDb<unknown>) => T | Promise<T>,
+  ): Promise<T> {
     if (!this.readerOps.enter()) throw new Error('ClusterDb is closed');
     try {
       if (!this.opts.readOnly) {
@@ -235,7 +244,9 @@ export class ShardLockPool {
     }
     const inflight = this.openingWriters.get(shardId);
     if (inflight) return inflight;
-    const opening = this.openWriter(shardId, dir).finally(() => this.openingWriters.delete(shardId));
+    const opening = this.openWriter(shardId, dir).finally(() =>
+      this.openingWriters.delete(shardId),
+    );
     this.openingWriters.set(shardId, opening);
     return opening;
   }
@@ -245,7 +256,12 @@ export class ShardLockPool {
     let delay = 10;
     for (;;) {
       try {
-        const handle = await ShardHandle.openWriter(shardId, dir, this.opts.writerOpts, this.opts.lockRenewMs);
+        const handle = await ShardHandle.openWriter(
+          shardId,
+          dir,
+          this.opts.writerOpts,
+          this.opts.lockRenewMs,
+        );
         this.stats.writerOpens++;
         try {
           await this.opts.applyDefs(handle.db);
@@ -310,7 +326,9 @@ export class ShardLockPool {
   private async acquireReader(shardId: number, dir: string): Promise<ReaderEntry> {
     const inflight = this.openingReaders.get(shardId);
     if (inflight) return inflight;
-    const opening = this.refreshReader(shardId, dir).finally(() => this.openingReaders.delete(shardId));
+    const opening = this.refreshReader(shardId, dir).finally(() =>
+      this.openingReaders.delete(shardId),
+    );
     this.openingReaders.set(shardId, opening);
     return opening;
   }
@@ -390,7 +408,11 @@ export class ShardLockPool {
    *  anchored to, and it never shrank below the applied offset. Returns false
    *  on every divergence, leaving the cached reader untouched for the caller
    *  to fully reopen. */
-  private async tryCatchUpReader(cached: ReaderEntry, dir: string, parts: string[]): Promise<boolean> {
+  private async tryCatchUpReader(
+    cached: ReaderEntry,
+    dir: string,
+    parts: string[],
+  ): Promise<boolean> {
     const mark = cached.walMark;
     if (!mark) return false;
     const st = await fs.stat(path.join(dir, 'db.wal')).catch(() => null);

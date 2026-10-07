@@ -1,9 +1,8 @@
+import type { AgentTaskStatus } from '#/agent/task/task';
 import type { Message } from '#/llm-adapter/contract/message';
+import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 import type { ContentPart } from '#human/llm/message';
 import type { TokenUsage } from '#human/llm/usage';
-import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
-
-import type { AgentTaskStatus } from '#/agent/task/task';
 
 export type SkillSource = 'project' | 'user' | 'extra' | 'builtin';
 

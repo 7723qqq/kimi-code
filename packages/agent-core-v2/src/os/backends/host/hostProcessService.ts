@@ -3,10 +3,9 @@ import { statSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Readable, Writable } from 'node:stream';
 
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { BufferedReadable } from '#/_base/execEnv/bufferedReadable';
 import { LifecycleScope } from '#/app/scopes';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-
 import {
   HostProcessError,
   HostProcessErrorCode,
@@ -35,7 +34,9 @@ function buildSpawnOptions(options: HostProcessOptions): SpawnOptions {
   return spawnOptions;
 }
 
-function buildEnv(overrides: Record<string, string> | undefined): Record<string, string> | undefined {
+function buildEnv(
+  overrides: Record<string, string> | undefined,
+): Record<string, string> | undefined {
   if (overrides === undefined) {
     return undefined;
   }
@@ -158,9 +159,7 @@ class HostProcess implements IHostProcess {
     this._child = child;
     this.stdin = child.stdin;
     this.stdout = new BufferedReadable(child.stdout);
-    this.stderr = mergeStderr
-      ? this.stdout
-      : new BufferedReadable(child.stderr as Readable);
+    this.stderr = mergeStderr ? this.stdout : new BufferedReadable(child.stderr as Readable);
     this.pid = child.pid ?? -1;
 
     this._exitPromise = new Promise<number>((resolve, reject) => {
@@ -225,8 +224,7 @@ class HostProcess implements IHostProcess {
       if (err.code === 'EPERM') {
         try {
           this._child.kill(signal ?? 'SIGTERM');
-        } catch {
-        }
+        } catch {}
         return;
       }
       throw new HostProcessError(

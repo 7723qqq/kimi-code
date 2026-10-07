@@ -1,7 +1,7 @@
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { LifecycleScope } from '#/app/scopes';
 import { IHostRequestHeaders } from '#/llm-adapter/model/host-request-headers';
 
 export class HostRequestHeadersAdapter implements IHostRequestHeaders {

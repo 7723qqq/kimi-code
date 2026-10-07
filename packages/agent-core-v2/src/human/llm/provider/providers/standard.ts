@@ -1,11 +1,11 @@
 import type { ProviderConnection } from '#/llm/protocol/connection';
 import { createProvider } from '#/llm/provider/definition';
-import type { AntigravityTrait } from '#/llm/requester/bases/antigravity/trait';
 import { anthropicBase } from '#/llm/requester/bases/anthropic/requester';
 import { antigravityBase } from '#/llm/requester/bases/antigravity/requester';
+import type { AntigravityTrait } from '#/llm/requester/bases/antigravity/trait';
 import { googleGenAIBase } from '#/llm/requester/bases/google-genai/requester';
-import { openAIBase } from '#/llm/requester/bases/openai/requester';
 import { openAIResponsesBase } from '#/llm/requester/bases/openai-responses/requester';
+import { openAIBase } from '#/llm/requester/bases/openai/requester';
 
 const openAIConnection: ProviderConnection = {
   endpoint: () => ({ apiKeyEnv: 'OPENAI_API_KEY', baseUrlEnv: 'OPENAI_BASE_URL' }),

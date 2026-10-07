@@ -1,5 +1,5 @@
-import type { ITelemetryAppender, TelemetryAppenderRecord } from './telemetry';
 import type { TelemetryProperties } from './context';
+import type { ITelemetryAppender, TelemetryAppenderRecord } from './telemetry';
 
 export interface ConsoleAppenderOptions {
   readonly prefix?: string;

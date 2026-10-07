@@ -1,7 +1,7 @@
-import { IFeatureManager } from '#/app/feature/featureManager';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
+import { IFeatureManager } from '#/app/feature/featureManager';
+import { LifecycleScope } from '#/app/scopes';
 
 import { IFeatureAssemblyService } from './featureAssembly';
 import { getFeatureRecipes } from './featureRegistry';

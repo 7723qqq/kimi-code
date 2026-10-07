@@ -1,24 +1,24 @@
 import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { AsyncEmitter, type Event } from '#/_base/event';
-import { defineState } from '#/state/state';
+import { LifecycleScope } from '#/app/scopes';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionStateService } from '#/session/state/sessionState';
+import { defineState } from '#/state/state';
 
-import {
-  ISessionToolPolicy,
-  type SessionToolPolicyChangedEvent,
-} from './sessionToolPolicy';
+import { ISessionToolPolicy, type SessionToolPolicyChangedEvent } from './sessionToolPolicy';
 
 interface SessionToolPolicyState {
   readonly disabledTools: readonly string[];
 }
 
-export const sessionToolPolicyStateKey = defineState<SessionToolPolicyState>('sessionToolPolicy.state', () => ({
-  disabledTools: [],
-}));
+export const sessionToolPolicyStateKey = defineState<SessionToolPolicyState>(
+  'sessionToolPolicy.state',
+  () => ({
+    disabledTools: [],
+  }),
+);
 
 const STATE_KEY = 'state.json';
 

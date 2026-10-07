@@ -12,11 +12,7 @@ import {
 } from '#/index';
 import type { SDKRpcClientBase } from '#/rpc';
 
-import {
-  makeTempDir,
-  removeTempDirs,
-  waitForSDKEvent,
-} from './session-runtime-helpers';
+import { makeTempDir, removeTempDirs, waitForSDKEvent } from './session-runtime-helpers';
 import { TEST_IDENTITY } from './test-identity';
 
 const { Session } = await import('#/index');
@@ -78,10 +74,10 @@ describe('Session skills', () => {
       });
       const ended = waitForSDKEvent(session, (event) => event.type === 'turn.ended');
 
-      await session.promptWithSkills(
-        'Review this change.',
-        [{ name: 'review' }, { name: 'security' }],
-      );
+      await session.promptWithSkills('Review this change.', [
+        { name: 'review' },
+        { name: 'security' },
+      ]);
       await ended;
       unsubscribe();
 

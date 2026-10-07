@@ -1,10 +1,7 @@
-import { APIProviderRateLimitError, isProviderRateLimitError } from '#/llm-adapter/contract/errors';
-
-import { linkAbortSignal, userCancellationReason } from '#/_base/utils/abort';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
+import { linkAbortSignal, userCancellationReason } from '#/_base/utils/abort';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
-import { Error2, ErrorCodes, toKimiErrorPayload, type KimiErrorPayload } from '#/errors';
 import {
   IAgentLoopService,
   isMaxStepsExceededError,
@@ -12,6 +9,8 @@ import {
   type TurnResult,
 } from '#/agent/loop/loop';
 import { agentContextOf } from '#/agent/scopeContext/scopeContext';
+import { Error2, ErrorCodes, toKimiErrorPayload, type KimiErrorPayload } from '#/errors';
+import { APIProviderRateLimitError, isProviderRateLimitError } from '#/llm-adapter/contract/errors';
 import { ISessionUsageService } from '#/session/usage/sessionUsage';
 
 import type { AgentRunCompletion, AgentRunHandle, AgentRunRequest } from './subagent';
@@ -38,15 +37,16 @@ export async function runAgentTurn(
 ): Promise<AgentRunHandle> {
   options.signal.throwIfAborted();
   const loop = target.accessor.get(IAgentLoopService);
-  const { id } = request.kind === 'prompt'
-    ? loop.submit({
-        message: { role: 'user', content: [{ type: 'text', text: request.prompt }] },
-        meta: { origin: AGENT_RUN_PROMPT_ORIGIN, tracked: true },
-      })
-    : loop.submit({
-        message: { role: 'user', content: [] },
-        meta: { origin: { kind: 'retry' } },
-      });
+  const { id } =
+    request.kind === 'prompt'
+      ? loop.submit({
+          message: { role: 'user', content: [{ type: 'text', text: request.prompt }] },
+          meta: { origin: AGENT_RUN_PROMPT_ORIGIN, tracked: true },
+        })
+      : loop.submit({
+          message: { role: 'user', content: [] },
+          meta: { origin: { kind: 'retry' } },
+        });
   const turn = await loop.promptHandle(id)?.launched;
   if (turn === undefined) throw new Error2(ErrorCodes.INTERNAL, 'Agent turn could not be started');
 
@@ -178,7 +178,9 @@ function latestAssistantText(messages: readonly ContextMessage[]): string {
 function contentText(content: ContextMessage['content']): string {
   if (typeof content === 'string') return content;
   return content
-    .filter((part): part is Extract<(typeof content)[number], { type: 'text' }> => part.type === 'text')
+    .filter(
+      (part): part is Extract<(typeof content)[number], { type: 'text' }> => part.type === 'text',
+    )
     .map((part) => part.text)
     .join('');
 }

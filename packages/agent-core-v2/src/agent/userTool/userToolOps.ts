@@ -54,9 +54,10 @@ function equalRegistration(a: UserToolRegistration, b: UserToolRegistration): bo
   );
 }
 
-export const userToolKey = defineState('userTool', (): UserToolModelState => new Map()).replayable({
-  schema: z.custom<UserToolModelState>(),
-})
+export const userToolKey = defineState('userTool', (): UserToolModelState => new Map())
+  .replayable({
+    schema: z.custom<UserToolModelState>(),
+  })
   .on(ToolsRegisterUserTool, (s, e) => {
     const existing = s.get(e.name);
     if (existing !== undefined && equalRegistration(original(existing), e)) return;

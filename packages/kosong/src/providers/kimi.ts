@@ -23,6 +23,7 @@ import type { Tool } from '#/tool';
 import type { TokenUsage } from '#/usage';
 
 import { createSharedFetch } from '../http/undici-agent';
+import type { ToolCallIdPolicy } from '../provider';
 import {
   convertChatCompletionStreamToolCall,
   type BufferedChatCompletionToolCall,
@@ -47,7 +48,6 @@ import {
   resolveAuthBackedClient,
   AuthClientLRU,
 } from './request-auth';
-import type { ToolCallIdPolicy } from '../provider';
 import { normalizeToolCallIdsForProvider, sanitizeToolCallId } from './tool-call-id';
 export interface KimiOptions {
   apiKey?: string | undefined;

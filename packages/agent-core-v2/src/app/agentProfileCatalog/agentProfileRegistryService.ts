@@ -1,14 +1,14 @@
 import { type CollectionChange, type CollectionView } from '#/_base/di/collection';
 import type { IDisposable } from '#/_base/di/lifecycle';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
 import { Emitter, type Event } from '#/_base/event';
 import { LifecycleScope } from '#/app/scopes';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+
 import {
   AgentProfileContribution,
   type AgentProfileContributionRecord,
 } from './agentProfileContribution';
-
 import type {
   AgentProfileRegistration,
   AgentProfileRegistryChange,
@@ -25,15 +25,10 @@ function decodeKey(key: string): AgentProfileRegistryChange {
   return { sourceId, workspaceKey: workspaceKey ?? undefined };
 }
 
-export class AgentProfileRegistryService
-  extends Service
-  implements IAgentProfileRegistry
-{
+export class AgentProfileRegistryService extends Service implements IAgentProfileRegistry {
   declare readonly _serviceBrand: undefined;
 
-  private readonly onDidChangeEmitter = this._register(
-    new Emitter<AgentProfileRegistryChange>(),
-  );
+  private readonly onDidChangeEmitter = this._register(new Emitter<AgentProfileRegistryChange>());
   readonly onDidChange: Event<AgentProfileRegistryChange> = this.onDidChangeEmitter.event;
 
   private folded: ReadonlyMap<string, AgentProfileContributionRecord> = new Map();

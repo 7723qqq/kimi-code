@@ -1,6 +1,6 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
-import type { McpConnectionManager } from '#/mcpCore/connection-manager';
 import type { McpServerConfig } from '#/mcpCore/config-schema';
+import type { McpConnectionManager } from '#/mcpCore/connection-manager';
 import type { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
 
 export interface ISessionMcpOverlay {

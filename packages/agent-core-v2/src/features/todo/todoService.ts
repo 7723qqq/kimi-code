@@ -2,7 +2,6 @@ import { assign, fromCallback, setup, type Snapshot } from 'xstate';
 
 import { createDecorator, IInstantiationService } from '#/_base/di/instantiation';
 import type { Event } from '#/_base/event';
-import { registerEvent2Class } from '#/app/event/event2';
 import {
   AgentActorService,
   type AgentActorContext,
@@ -11,6 +10,7 @@ import {
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
+import { registerEvent2Class } from '#/app/event/event2';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { IEventDispatcher } from '#/state/eventDispatcher';
@@ -40,26 +40,30 @@ interface TodoUsedEvent {
 
 type TodoActorSnapshot = Snapshot<unknown> & { readonly context: TodoActorContext };
 
-const todoReminder = fromCallback(({
-  input,
-}: {
-  input: {
-    readonly runtime: AgentActorContext<TodoState>;
-  };
-}) => {
-  if (input.runtime.agent.agentId !== MAIN_AGENT_ID) return;
-  const injector = input.runtime.get(IAgentReminderService);
-  const memory = input.runtime.get(IAgentContextMemoryService);
-  const toolPolicy = input.runtime.get(IAgentToolPolicyService);
-  const registration = injector.register(TODO_LIST_REMINDER_VARIANT, () =>
-    todoListStaleReminder({
-      active: toolPolicy.isToolActive(TODO_LIST_TOOL_NAME, 'builtin'),
-      history: memory.get(),
-      todos: input.runtime.getState(),
-    }),
-  );
-  return () => { registration.dispose(); };
-});
+const todoReminder = fromCallback(
+  ({
+    input,
+  }: {
+    input: {
+      readonly runtime: AgentActorContext<TodoState>;
+    };
+  }) => {
+    if (input.runtime.agent.agentId !== MAIN_AGENT_ID) return;
+    const injector = input.runtime.get(IAgentReminderService);
+    const memory = input.runtime.get(IAgentContextMemoryService);
+    const toolPolicy = input.runtime.get(IAgentToolPolicyService);
+    const registration = injector.register(TODO_LIST_REMINDER_VARIANT, () =>
+      todoListStaleReminder({
+        active: toolPolicy.isToolActive(TODO_LIST_TOOL_NAME, 'builtin'),
+        history: memory.get(),
+        todos: input.runtime.getState(),
+      }),
+    );
+    return () => {
+      registration.dispose();
+    };
+  },
+);
 
 const todoActorLogic = setup({
   types: {} as {
@@ -132,7 +136,9 @@ export class AgentTodoService extends AgentActorService<TodoState> implements IA
           return readTodoItems(event.value);
         },
         read: (snapshot) => (snapshot as TodoActorSnapshot).context.todos,
-        commit: (actor, todos) => { actor.send({ type: 'todo.commit', todos }); },
+        commit: (actor, todos) => {
+          actor.send({ type: 'todo.commit', todos });
+        },
       },
     });
     this.onDidChange = this.actor.onDidChange;
@@ -145,19 +151,23 @@ export class AgentTodoService extends AgentActorService<TodoState> implements IA
 
   replace(todos: readonly TodoItem[]): Promise<void> {
     this.actor.send({ type: 'todo.used' });
-    return this.actor.dispatch(new ToolsUpdateStore({
-      agentId: this.actor.agent.agentId,
-      key: 'todo',
-      value: todos,
-    }));
+    return this.actor.dispatch(
+      new ToolsUpdateStore({
+        agentId: this.actor.agent.agentId,
+        key: 'todo',
+        value: todos,
+      }),
+    );
   }
 
   clear(): Promise<void> {
     this.actor.send({ type: 'todo.used' });
-    return this.actor.dispatch(new ToolsUpdateStore({
-      agentId: this.actor.agent.agentId,
-      key: 'todo',
-      value: [],
-    }));
+    return this.actor.dispatch(
+      new ToolsUpdateStore({
+        agentId: this.actor.agent.agentId,
+        key: 'todo',
+        value: [],
+      }),
+    );
   }
 }

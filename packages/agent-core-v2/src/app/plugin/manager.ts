@@ -2,11 +2,11 @@ import { cp, mkdir, mkdtemp, realpath, rename, rm, stat } from 'node:fs/promises
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import { BugIndicatingError, Error2, ErrorCodes, PluginErrors } from '#/errors';
 import type { HookDef } from '#/features/externalHooks/internal/types';
 import { discoverFileSkills } from '#/features/skill/catalog/fileSkillDiscovery';
 import type { SkillDiscoveryResult } from '#/features/skill/catalog/skillDiscovery';
 import type { SkillRoot } from '#/features/skill/catalog/types';
-import { BugIndicatingError, Error2, ErrorCodes, PluginErrors } from '#/errors';
 import type { McpServerConfig } from '#/mcpCore/config-schema';
 
 import { downloadZip, extractZip } from './archive';
@@ -763,9 +763,8 @@ function isElectron(): boolean {
  */
 function isKimiNativeBinary(): boolean {
   if (!path.basename(process.execPath).toLowerCase().startsWith('node')) {
-    const assets = (
-      globalThis as { __KIMI_BUN_ASSETS__?: Record<string, unknown> }
-    ).__KIMI_BUN_ASSETS__;
+    const assets = (globalThis as { __KIMI_BUN_ASSETS__?: Record<string, unknown> })
+      .__KIMI_BUN_ASSETS__;
     return assets !== undefined && assets !== null && Object.keys(assets).length > 0;
   }
   return false;

@@ -4,8 +4,8 @@ import { z } from 'zod';
 
 import type { EnvironmentDisclosureSnapshot } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import { AgentEvent2 } from '#/app/event/event2';
-import type { ThinkingEffort } from '#human/llm/thinking';
 import { defineState } from '#/state/state';
+import type { ThinkingEffort } from '#human/llm/thinking';
 
 import { ProfileError, ProfileErrors } from './profile';
 
@@ -127,14 +127,12 @@ export class WarningIssued extends AgentEvent2<WarningIssuedPayload> {
 }
 export interface WarningIssued extends WarningIssuedPayload {}
 
-export const profileKey = defineState(
-  'profile',
-  (): ProfileModelState => ({
-    thinkingLevel: 'off',
-    systemPrompt: '',
-    renderGeneration: 0,
-  }),
-).replayable({ schema: z.custom<ProfileModelState>() })
+export const profileKey = defineState('profile', (): ProfileModelState => ({
+  thinkingLevel: 'off',
+  systemPrompt: '',
+  renderGeneration: 0,
+}))
+  .replayable({ schema: z.custom<ProfileModelState>() })
   .on(ProfileBind, (s, e) => ({
     modelAlias: e.modelAlias ?? s.modelAlias,
     profileName: e.profileName ?? s.profileName,
@@ -211,7 +209,8 @@ export type ActiveToolsState = readonly string[] | undefined;
 export const profileActiveToolsKey = defineState(
   'profile.activeTools',
   (): ActiveToolsState => undefined,
-).replayable({ schema: z.custom<ActiveToolsState>() })
+)
+  .replayable({ schema: z.custom<ActiveToolsState>() })
   .on(ToolsSetActiveTools, (s, e) => {
     if (s !== undefined && e.names === original(s)) return;
     return e.names;

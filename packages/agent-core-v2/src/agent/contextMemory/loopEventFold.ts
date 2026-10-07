@@ -1,13 +1,13 @@
 import { freeze, isDraft, original } from 'immer';
 
-import type { FinishReason } from '#human/llm/finish-reason';
 import { createToolMessage } from '#/llm-adapter/contract/message';
+import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
+import type { FinishReason } from '#human/llm/finish-reason';
 import type { ContentPart, ToolCall } from '#human/llm/message';
 import type { TokenUsage } from '#human/llm/usage';
-import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 
-import type { ContextMessage, ContextMessageTiming } from './types';
 import { shouldRenderWallTime } from './toolResultRender';
+import type { ContextMessage, ContextMessageTiming } from './types';
 import { isVacuousContentPart } from './vacuousContent';
 
 const TOOL_INTERRUPTED_ON_RESUME_OUTPUT =
@@ -299,7 +299,10 @@ function createImmutableFoldSink(initial: readonly ContextMessage[]): ImmutableF
     openAssistant: () => {
       current = Object.freeze([
         ...current,
-        freeze<ContextMessage>({ role: 'assistant', content: [], toolCalls: [], partial: true }, true),
+        freeze<ContextMessage>(
+          { role: 'assistant', content: [], toolCalls: [], partial: true },
+          true,
+        ),
       ]);
       openIndex = current.length - 1;
     },

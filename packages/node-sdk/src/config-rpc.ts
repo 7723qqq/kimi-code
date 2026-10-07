@@ -69,9 +69,7 @@ function extractValidationIssues(error: unknown): readonly KimiConfigValidationI
   const zodError = findZodError(error);
   if (zodError === undefined) return undefined;
   return zodError.issues.map((issue) => ({
-    path: issue.path.map((segment) =>
-      typeof segment === 'number' ? segment : String(segment),
-    ),
+    path: issue.path.map((segment) => (typeof segment === 'number' ? segment : String(segment))),
     message: issue.message,
   }));
 }

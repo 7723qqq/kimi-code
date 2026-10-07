@@ -1,8 +1,7 @@
-import { LifecycleScope } from '#/app/scopes';
-
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { LifecycleScope } from '#/app/scopes';
 import { IBlobStore, type BlobReadRange } from '#/persistence/interface/blobStore';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
 
 export class BlobStoreService implements IBlobStore {
   declare readonly _serviceBrand: undefined;

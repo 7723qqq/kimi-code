@@ -136,7 +136,8 @@ export class McpOAuthService {
     this.log = options.log ?? defaultLog;
     this.scheduler = options.scheduler ?? defaultScheduler;
     this.authRequestTimeoutMs = options.authRequestTimeoutMs ?? DEFAULT_AUTH_REQUEST_TIMEOUT_MS;
-    this.shutdownDrainTimeoutMs = options.shutdownDrainTimeoutMs ?? DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_MS;
+    this.shutdownDrainTimeoutMs =
+      options.shutdownDrainTimeoutMs ?? DEFAULT_SHUTDOWN_DRAIN_TIMEOUT_MS;
   }
 
   dispose(): Promise<void> {
@@ -694,8 +695,7 @@ export class McpOAuthService {
     for (const listener of this.listeners) {
       try {
         listener(event);
-      } catch {
-      }
+      } catch {}
     }
   }
 }
@@ -735,7 +735,11 @@ async function readStoreMeta(
 
 const CONCURRENT_GRANT_GRACE_MS = 10_000;
 
-function isConcurrentGrant(tokens: StoredMcpOAuthTokens, now: number, connectedAt?: number): boolean {
+function isConcurrentGrant(
+  tokens: StoredMcpOAuthTokens,
+  now: number,
+  connectedAt?: number,
+): boolean {
   if (typeof tokens.obtained_at !== 'number') return false;
   const age = now - tokens.obtained_at;
   if (age < 0 || age >= CONCURRENT_GRANT_GRACE_MS) return false;

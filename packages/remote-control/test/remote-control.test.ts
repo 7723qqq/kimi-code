@@ -1,7 +1,7 @@
-import { createServer, type IncomingMessage } from 'node:http';
 import { spawn } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { createServer, type IncomingMessage } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
@@ -16,6 +16,7 @@ import {
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
 
+import { remoteControlLockPath } from '../src/lock';
 import {
   buildRemoteControlUrl,
   filterForwardRequestHeaders,
@@ -25,7 +26,6 @@ import {
   startRemoteControl,
   type RemoteControlHandle,
 } from '../src/remote-control';
-import { remoteControlLockPath } from '../src/lock';
 
 const CLIENT_VERSION = 'kimi-code/test';
 
@@ -48,9 +48,7 @@ afterEach(async () => {
 describe('Remote Control URLs', () => {
   it('builds the public device entry without a local token', () => {
     const url = buildRemoteControlUrl('device/one', undefined, 'https://code-rc.kimi.com');
-    expect(url).toBe(
-      'https://code-rc.kimi.com/devices/device%2Fone/?rc=1&from=kimi_code_cli',
-    );
+    expect(url).toBe('https://code-rc.kimi.com/devices/device%2Fone/?rc=1&from=kimi_code_cli');
     expect(url).not.toContain('token');
   });
 
@@ -62,9 +60,9 @@ describe('Remote Control URLs', () => {
 
   it('falls back to the default relay origin when the env is unset or blank', () => {
     expect(resolveRemoteControlRelayOrigin({})).toBe('https://code-rc.kimi.com');
-    expect(
-      resolveRemoteControlRelayOrigin({ KIMI_CODE_REMOTE_CONTROL_RELAY_URL: '  ' }),
-    ).toBe('https://code-rc.kimi.com');
+    expect(resolveRemoteControlRelayOrigin({ KIMI_CODE_REMOTE_CONTROL_RELAY_URL: '  ' })).toBe(
+      'https://code-rc.kimi.com',
+    );
     expect(resolveRemoteControlRelayOrigin({}, 'https://code-rc.kimi.ai')).toBe(
       'https://code-rc.kimi.ai',
     );
@@ -111,19 +109,21 @@ describe('Remote Control HTTP forwarding', () => {
     const prefix = '/coding-relay/devices/device-1';
     const html = rewriteRemoteControlResponse(
       'text/html; charset=utf-8',
-      Buffer.from('<html><head></head><body><script src="/boot.js"></script><a href="/x">x</a></body></html>'),
+      Buffer.from(
+        '<html><head></head><body><script src="/boot.js"></script><a href="/x">x</a></body></html>',
+      ),
       prefix,
     ).toString();
     expect(html).toContain(`src="${prefix}/boot.js"`);
     expect(html).toContain(`href="${prefix}/x"`);
-    expect(html).toContain("sessionStorage.setItem('kimi-desktop-server-origin',location.origin+p)");
+    expect(html).toContain(
+      "sessionStorage.setItem('kimi-desktop-server-origin',location.origin+p)",
+    );
     expect(html).toContain('history.pushState=w(history.pushState)');
 
     const js = rewriteRemoteControlResponse(
       'text/javascript',
-      Buffer.from(
-        'const a="/assets/a.js";const s="/sessions/";const p=function(e){return"/"+e};',
-      ),
+      Buffer.from('const a="/assets/a.js";const s="/sessions/";const p=function(e){return"/"+e};'),
       prefix,
     ).toString();
     expect(js).toBe(
@@ -210,9 +210,9 @@ describe('Remote Control tunnel', () => {
 
     expect(relay.requests).toHaveLength(2);
     expect(relay.requests.every((request) => request.protocol === undefined)).toBe(true);
-    expect(relay.requests.every((request) => request.authorization === 'Bearer invalid/token=')).toBe(
-      true,
-    );
+    expect(
+      relay.requests.every((request) => request.authorization === 'Bearer invalid/token='),
+    ).toBe(true);
   });
 
   it('retries with only Authorization when the relay rejects the subprotocol handshake', async () => {
@@ -230,9 +230,9 @@ describe('Remote Control tunnel', () => {
       stderr: { write: () => true },
     });
 
-    expect(relay.requests.some((request) => request.protocol?.startsWith('kimi-code.bearer.'))).toBe(
-      true,
-    );
+    expect(
+      relay.requests.some((request) => request.protocol?.startsWith('kimi-code.bearer.')),
+    ).toBe(true);
     expect(
       relay.requests.some(
         (request) =>
@@ -340,7 +340,9 @@ describe('Remote Control tunnel', () => {
     });
     localServer.on('upgrade', (request, socket, head) => {
       localWsRequest = request;
-      localWsServer.handleUpgrade(request, socket, head, (ws) => localWsServer.emit('connection', ws, request));
+      localWsServer.handleUpgrade(request, socket, head, (ws) =>
+        localWsServer.emit('connection', ws, request),
+      );
     });
     const localPort = await listen(localServer);
     cleanups.push(() => closeServer(localServer));
@@ -599,7 +601,9 @@ describe('Remote Control tunnel', () => {
 
     const largeBody = Buffer.alloc(4 * 1024 * 1024 + 512 * 1024, 0x61);
     const largeRequest = Buffer.concat([
-      Buffer.from(`POST /upload HTTP/1.1\r\nHost: relay.test\r\nContent-Length: ${largeBody.length}\r\n\r\n`),
+      Buffer.from(
+        `POST /upload HTTP/1.1\r\nHost: relay.test\r\nContent-Length: ${largeBody.length}\r\n\r\n`,
+      ),
       largeBody,
     ]);
     const largeResponsePromise = nextJsonMessage(httpConnections[0]!);
@@ -612,7 +616,10 @@ describe('Remote Control tunnel', () => {
       }),
     );
     const largeResponseMessage = await largeResponsePromise;
-    const largeResponse = Buffer.from(largeResponseMessage['body_base64'] as string, 'base64').toString();
+    const largeResponse = Buffer.from(
+      largeResponseMessage['body_base64'] as string,
+      'base64',
+    ).toString();
     expect(largeResponse).toContain('HTTP/1.1 200 OK');
     expect(localHttpBodyBytes).toBe(largeBody.length);
 
@@ -718,7 +725,8 @@ describe('Remote Control tunnel', () => {
 
     await waitFor(() => relay.registrations.length >= 3, 10_000);
     await waitFor(
-      () => relay.managementSockets.some((socket) => socket.readyState === 1) &&
+      () =>
+        relay.managementSockets.some((socket) => socket.readyState === 1) &&
         relay.httpSockets.some((socket) => socket.readyState === 1),
     );
     expect(logs).toContain('DEPLOYING');
@@ -947,9 +955,7 @@ async function startAuthRelay(
       return;
     }
     const pathname = new URL(request.url!, 'http://relay.test').pathname;
-    const target = pathname.endsWith('/v1/remote/create')
-      ? managementServer
-      : httpTunnelServer;
+    const target = pathname.endsWith('/v1/remote/create') ? managementServer : httpTunnelServer;
     const upgrade = (): void => {
       target.handleUpgrade(request, socket, head, (ws) => target.emit('connection', ws, request));
     };
@@ -992,7 +998,9 @@ function rawDataText(data: RawData): string {
 
 function nextJsonMessage(socket: WebSocket): Promise<Record<string, unknown>> {
   return new Promise((resolve) => {
-    socket.once('message', (data) => resolve(JSON.parse(rawDataText(data)) as Record<string, unknown>));
+    socket.once('message', (data) =>
+      resolve(JSON.parse(rawDataText(data)) as Record<string, unknown>),
+    );
   });
 }
 

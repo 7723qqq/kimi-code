@@ -6,7 +6,12 @@ import {
   inputSteered,
   inputSubmitted,
 } from '#/agent/events';
-import { createUserEntry, type HistoryMessage, type SystemEntry, type UserEntry } from '#/agent/turn';
+import {
+  createUserEntry,
+  type HistoryMessage,
+  type SystemEntry,
+  type UserEntry,
+} from '#/agent/turn';
 import type { ExternalEvent } from '#/eventStore/events';
 import type { UserMessage } from '#/llm/message';
 import type { AgentActorRef } from '#/session/machine';
@@ -186,7 +191,11 @@ function replayPendingDelta(
   for (const entry of pending.reminders) {
     if (snapReminders.has(entry) || entry.meta?.key === undefined) continue;
     if (entry.message.role !== 'system' && entry.message.role !== 'user') continue;
-    deps.actor.send({ type: 'input.remind', key: entry.meta.key, entry: entry as SystemEntry | UserEntry });
+    deps.actor.send({
+      type: 'input.remind',
+      key: entry.meta.key,
+      entry: entry as SystemEntry | UserEntry,
+    });
   }
 }
 
@@ -197,7 +206,9 @@ function waitForResetApplied(deps: CompactionMachineDeps, branchId: string): Pro
   return new Promise((resolve, reject) => {
     const timer = setTimeout(() => {
       subscription.unsubscribe();
-      reject(new CompactError('reset-timeout', `machine did not apply branch '${branchId}' in time`));
+      reject(
+        new CompactError('reset-timeout', `machine did not apply branch '${branchId}' in time`),
+      );
     }, RESET_TIMEOUT_MS);
     const subscription = deps.actor.on('context.reset', (event) => {
       if (event.branchId !== branchId) return;
@@ -224,7 +235,9 @@ export function createCompactionMachine(deps: CompactionMachineDeps) {
           throw new CompactError('unknown-agent', `unknown agent: '${deps.agentId}'`);
         }
         deps.actor.send({ type: 'input.pause' });
-        const waiting = waitFor(deps.actor, (s) => s.matches('idle'), { timeout: PAUSE_TIMEOUT_MS });
+        const waiting = waitFor(deps.actor, (s) => s.matches('idle'), {
+          timeout: PAUSE_TIMEOUT_MS,
+        });
         void waiting.catch(() => undefined);
         await Promise.race([waiting, aborted(signal)]);
         await store.flush();
@@ -312,16 +325,17 @@ export function createCompactionMachine(deps: CompactionMachineDeps) {
         await waitForResetApplied(deps, branchId);
         return { branchId, pending };
       }),
-      resume: fromPromise<void, { snap: QuiesceSnapshot; pending: PendingSnapshot; reason: CompactionReason }>(
-        async ({ input }) => {
-          replayPendingDelta(deps, input.snap, input.pending);
-          const continuation = (deps.continuation ?? defaultContinuation)(input.reason);
-          if (continuation !== undefined) {
-            deps.actor.send({ type: 'input.submit', entry: createUserEntry(continuation) });
-          }
-          deps.actor.send({ type: 'input.continue' });
-        },
-      ),
+      resume: fromPromise<
+        void,
+        { snap: QuiesceSnapshot; pending: PendingSnapshot; reason: CompactionReason }
+      >(async ({ input }) => {
+        replayPendingDelta(deps, input.snap, input.pending);
+        const continuation = (deps.continuation ?? defaultContinuation)(input.reason);
+        if (continuation !== undefined) {
+          deps.actor.send({ type: 'input.submit', entry: createUserEntry(continuation) });
+        }
+        deps.actor.send({ type: 'input.continue' });
+      }),
     },
   }).createMachine({
     id: 'compaction',
@@ -432,7 +446,10 @@ export function createCompactionMachine(deps: CompactionMachineDeps) {
           },
           onError: {
             target: 'cancelled',
-            actions: assign({ cause: 'failed' as CompactionCancelCause, error: ({ event }) => event.error }),
+            actions: assign({
+              cause: 'failed' as CompactionCancelCause,
+              error: ({ event }) => event.error,
+            }),
           },
         },
       },
@@ -447,7 +464,10 @@ export function createCompactionMachine(deps: CompactionMachineDeps) {
           onDone: { target: 'completed' },
           onError: {
             target: 'cancelled',
-            actions: assign({ cause: 'failed' as CompactionCancelCause, error: ({ event }) => event.error }),
+            actions: assign({
+              cause: 'failed' as CompactionCancelCause,
+              error: ({ event }) => event.error,
+            }),
           },
         },
       },

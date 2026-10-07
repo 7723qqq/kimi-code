@@ -6,11 +6,11 @@ import {
 } from 'openai';
 import { describe, expect, it, vi } from 'vitest';
 
+import { classifyKimiQuotaError } from '#/llm-kimi/errors';
+import { kimiConnection, kimiOpenAITrait } from '#/llm-kimi/trait';
 import { UNKNOWN_CAPABILITY } from '#/llm/capability';
 import { createAssistantMessage, createUserMessage, type Message } from '#/llm/message';
 import type { LlmModel } from '#/llm/model';
-import { classifyKimiQuotaError } from '#/llm-kimi/errors';
-import { kimiConnection, kimiOpenAITrait } from '#/llm-kimi/trait';
 import { createGoogleGenAIRequester } from '#/llm/requester/bases/google-genai/requester';
 import { convertOpenAIError } from '#/llm/requester/bases/openai/format';
 import { createOpenAIRequester } from '#/llm/requester/bases/openai/requester';
@@ -315,9 +315,10 @@ describe('requester error conversion', () => {
     const clientFactory = vi.fn(() => ({}) as never);
     const requester = createGoogleGenAIRequester({ clientFactory });
     const events = await generateEvents(requester, [
-      createAssistantMessage([], [
-        { type: 'function', id: 'call-1', name: 'some_tool', arguments: 'not json' },
-      ]),
+      createAssistantMessage(
+        [],
+        [{ type: 'function', id: 'call-1', name: 'some_tool', arguments: 'not json' }],
+      ),
     ]);
     expect(events.at(-1)).toMatchObject({
       type: 'llm.failed.syntax',

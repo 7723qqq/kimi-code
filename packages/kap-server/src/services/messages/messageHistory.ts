@@ -15,8 +15,8 @@ import {
   type WireRecord,
 } from '@moonshot-ai/agent-core-v2';
 
-import { ensureMainAgent } from '../../transport/mainAgent';
 import type { Message, MessageRole } from '../../protocol/message';
+import { ensureMainAgent } from '../../transport/mainAgent';
 import { toProtocolMessage } from './messageProjection';
 
 const DEFAULT_PAGE_SIZE = 50;

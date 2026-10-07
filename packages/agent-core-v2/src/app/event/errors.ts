@@ -11,8 +11,7 @@ export const EventErrors = {
       title: 'Duplicate event type',
       retryable: false,
       public: true,
-      action:
-        'Two event classes registered the same type; rename one. This is a build-time bug.',
+      action: 'Two event classes registered the same type; rename one. This is a build-time bug.',
     },
     'event.schema_missing': {
       title: 'Durable event without schema',

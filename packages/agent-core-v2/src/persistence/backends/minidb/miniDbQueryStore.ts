@@ -1,13 +1,12 @@
-import { join } from 'pathe';
-
 import { classifyStorageError, type QueryOptions } from '@moonshot-ai/minidb';
 import { ClusterDb, wipeCluster } from '@moonshot-ai/minidb/cluster';
+import { join } from 'pathe';
 
 import { Disposable, toDisposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { LifecycleScope } from '#/app/scopes';
 import {
   IQueryStore,
   QueryStoreRebuiltError,
@@ -61,11 +60,13 @@ export class MiniDbQueryStore extends Disposable implements IQueryStore {
   ) {
     super();
     this.dir = join(this.bootstrap.cacheDir, STORE_SUBDIR);
-    this._register(toDisposable(() => {
-      const pending = this.close().catch(() => {});
-      pendingDisposals.add(pending);
-      void pending.finally(() => pendingDisposals.delete(pending));
-    }));
+    this._register(
+      toDisposable(() => {
+        const pending = this.close().catch(() => {});
+        pendingDisposals.add(pending);
+        void pending.finally(() => pendingDisposals.delete(pending));
+      }),
+    );
   }
 
   private openDb(): Promise<ClusterDb> {
@@ -141,9 +142,7 @@ export class MiniDbQueryStore extends Disposable implements IQueryStore {
     } catch (error) {
       if (classifyStorageError(error) !== 'rebuild') {
         const failures =
-          kind === 'write'
-            ? (this.transientWriteFailures += 1)
-            : (this.transientReadFailures += 1);
+          kind === 'write' ? (this.transientWriteFailures += 1) : (this.transientReadFailures += 1);
         if (failures < TRANSIENT_ESCALATION_LIMIT) throw error;
       }
       this.transientReadFailures = 0;
@@ -191,7 +190,10 @@ export class MiniDbQueryStore extends Disposable implements IQueryStore {
   }
 
   async get<T>(collection: string, key: string): Promise<T | undefined> {
-    return this.withDb((db) => db.get(physicalKey(collection, key)) as Promise<T | undefined>, 'read');
+    return this.withDb(
+      (db) => db.get(physicalKey(collection, key)) as Promise<T | undefined>,
+      'read',
+    );
   }
 
   async getMany<T>(collection: string, keys: readonly string[]): Promise<Map<string, T>> {
@@ -342,7 +344,10 @@ class MiniDbQuery<T> implements IQuery<T> {
     }
     q.skip = this.skip;
     if (this.lim !== undefined) q.limit = this.lim + 1;
-    const rows = (await this.withDb((db) => db.query(q))) as ReadonlyArray<{ key: string; value: T }>;
+    const rows = (await this.withDb((db) => db.query(q))) as ReadonlyArray<{
+      key: string;
+      value: T;
+    }>;
     let items = rows.map((r) => r.value);
     let nextCursor: string | undefined;
     if (this.lim !== undefined && items.length > this.lim) {

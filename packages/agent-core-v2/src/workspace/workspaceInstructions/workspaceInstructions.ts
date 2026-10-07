@@ -1,7 +1,7 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { Event } from '#/_base/event';
-import type { WatchChange } from '#human/utils/watch';
 import type { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
+import type { WatchChange } from '#human/utils/watch';
 
 export interface WorkspaceInstructionsSnapshot {
   readonly agentsMd: string | undefined;

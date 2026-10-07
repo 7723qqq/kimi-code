@@ -1,13 +1,17 @@
-import { ErrorCodes, Error2 } from '#/errors';
 import { renderToolResultForModel } from '#/agent/contextMemory/toolResultRender';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { isVacuousContentPart } from '#/agent/contextMemory/vacuousContent';
+import { ErrorCodes, Error2 } from '#/errors';
 import type { Message } from '#/llm-adapter/contract/message';
 import type { ContentPart } from '#human/llm/message';
 
 export type ProjectionAnomaly =
   | { readonly kind: 'tool_result_reordered'; readonly toolCallId: string }
-  | { readonly kind: 'tool_result_synthesized'; readonly toolCallId: string; readonly trailing: boolean }
+  | {
+      readonly kind: 'tool_result_synthesized';
+      readonly toolCallId: string;
+      readonly trailing: boolean;
+    }
   | { readonly kind: 'orphan_tool_result_dropped'; readonly toolCallId: string }
   | { readonly kind: 'duplicate_tool_call_dropped'; readonly toolCallId: string }
   | { readonly kind: 'duplicate_tool_result_dropped'; readonly toolCallId: string }
@@ -318,7 +322,10 @@ function mergeConsecutiveAssistantMessages(
   return out;
 }
 
-function dropLeadingNonUserMessages(messages: readonly Message[], onAnomaly?: OnAnomaly): Message[] {
+function dropLeadingNonUserMessages(
+  messages: readonly Message[],
+  onAnomaly?: OnAnomaly,
+): Message[] {
   let start = 0;
   while (start < messages.length && messages[start]?.role !== 'user') {
     onAnomaly?.({ kind: 'leading_non_user_dropped', role: messages[start]!.role });

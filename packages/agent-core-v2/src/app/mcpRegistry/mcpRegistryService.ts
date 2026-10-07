@@ -1,22 +1,17 @@
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { canonicalPath, canonicalWorkspaceRoot } from '#/_base/utils/paths';
-
-import { ErrorCodes, Error2 } from '#/errors';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { loadMcpServersDetailed } from '#/app/mcpConfig/configLoader';
 import { IMcpConfigStore } from '#/app/mcpConfig/configStore';
 import { IPluginService } from '#/app/plugin/plugin';
+import { LifecycleScope } from '#/app/scopes';
+import { ErrorCodes, Error2 } from '#/errors';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { readWorkspaceTrust } from '#/workspace/workspaceTrust/trustRecord';
 import { trustWorkspaceEnvTrusted } from '#/workspace/workspaceTrust/workspaceTrustService';
 
-import {
-  IMcpRegistryService,
-  type McpRegistryEntry,
-  type McpRegistryQuery,
-} from './mcpRegistry';
+import { IMcpRegistryService, type McpRegistryEntry, type McpRegistryQuery } from './mcpRegistry';
 
 export class McpRegistryService implements IMcpRegistryService {
   declare readonly _serviceBrand: undefined;

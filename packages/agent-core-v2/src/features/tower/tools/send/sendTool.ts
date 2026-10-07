@@ -1,13 +1,13 @@
 import { IAgentScopeContext, agentContextOfScope } from '#/agent/scopeContext/scopeContext';
 import { IAgentTaskService } from '#/agent/task/task';
 import { ISessionEventBus } from '#/app/event/eventBus';
+import { BROADCAST_NAME, TOWER_NAME } from '#/features/tower/protocol/index';
+import { TowerInboxSent } from '#/features/tower/towerOps';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionUsageService } from '#/session/usage/sessionUsage';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import type { ToolExecution } from '#/tool/toolContract';
 
-import { BROADCAST_NAME, TOWER_NAME } from '#/features/tower/protocol/index';
-import { TowerInboxSent } from '#/features/tower/towerOps';
 import { callerName, callerTokens, newTowerStore, runTowerTool } from '../support';
 import type { ITowerSendTool } from './send';
 import { TowerSendToolInputSchema, type TowerSendToolInput } from './send';
@@ -51,7 +51,9 @@ export class TowerSendTool implements ITowerSendTool {
             caller !== TOWER_NAME &&
             (to === TOWER_NAME || to === BROADCAST_NAME)
           ) {
-            this.sessionBus.publish(new TowerInboxSent({ from: caller, to, subject: args.subject }));
+            this.sessionBus.publish(
+              new TowerInboxSent({ from: caller, to, subject: args.subject }),
+            );
           }
           const entry =
             caller === TOWER_NAME && to !== TOWER_NAME && to !== BROADCAST_NAME

@@ -1,25 +1,24 @@
-import { LifecycleScope } from '#/app/scopes';
-
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { UNKNOWN_CAPABILITY, toLlmCapability, type ModelCapability } from '../contract/capability';
-import type { ModelThinkingMetadata } from '#human/llm/thinking';
+import { LifecycleScope } from '#/app/scopes';
+import { KimiFiles, kimiFilesBaseUrl } from '#human/llm-kimi/files';
 import type { ProviderMediaContribution } from '#human/llm/media/upload';
 import type { LlmModel } from '#human/llm/model';
 import type { ProtocolBase } from '#human/llm/protocol/base';
 import type { ProviderConnection } from '#human/llm/protocol/connection';
 import type { ProtocolTraitFor } from '#human/llm/provider/definition';
-import type { LlmErrorClassifier } from '#human/llm/requester/requester';
 import { anthropicBase, anthropicBetaBase } from '#human/llm/requester/bases/anthropic/requester';
 import { antigravityBase } from '#human/llm/requester/bases/antigravity/requester';
 import {
   createGoogleGenAIBase,
   googleGenAIBase,
 } from '#human/llm/requester/bases/google-genai/requester';
-import type { OpenAITrait } from '#human/llm/requester/bases/openai/trait';
-import { openAIBase } from '#human/llm/requester/bases/openai/requester';
 import { openAIResponsesBase } from '#human/llm/requester/bases/openai-responses/requester';
-import { KimiFiles, kimiFilesBaseUrl } from '#human/llm-kimi/files';
+import { openAIBase } from '#human/llm/requester/bases/openai/requester';
+import type { OpenAITrait } from '#human/llm/requester/bases/openai/trait';
+import type { LlmErrorClassifier } from '#human/llm/requester/requester';
+import type { ModelThinkingMetadata } from '#human/llm/thinking';
 
+import { UNKNOWN_CAPABILITY, toLlmCapability, type ModelCapability } from '../contract/capability';
 import type { Model } from '../model/catalog';
 import type { ResolvedLlmModel } from '../model/model-requester-impl';
 import {
@@ -29,7 +28,6 @@ import {
   openAIConnection,
   vertexConnection,
 } from '../provider/provider-definition';
-
 import { IProtocolAdapterRegistry, type Protocol } from './protocol';
 import { getProtocolBase, listProtocolBases, type ProtocolBaseId } from './protocol-base';
 
@@ -199,7 +197,9 @@ export class ProtocolAdapterRegistry implements IProtocolAdapterRegistry {
   }
 }
 
-function toV2Capability(capability: import('#human/llm/capability').ModelCapability): ModelCapability {
+function toV2Capability(
+  capability: import('#human/llm/capability').ModelCapability,
+): ModelCapability {
   return {
     image_in: capability.image_in,
     video_in: capability.video_in,

@@ -1,9 +1,6 @@
 import type { ILogService } from '#/_base/log/log';
 import type { ITelemetryService } from '#/app/telemetry/telemetry';
-import type {
-  AppendLogTruncation,
-  IAppendLogStore,
-} from '#/persistence/interface/appendLogStore';
+import type { AppendLogTruncation, IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import type { IFileSystemStorageService } from '#/persistence/interface/storage';
 
 export interface WireJournalRepairServices {

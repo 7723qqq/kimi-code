@@ -1,7 +1,10 @@
 import { z } from 'zod';
 
 import { isoDateTimeSchema } from '#/_base/utils/isoDateTime';
-import type { SessionPendingInteraction, SessionTurnOutcome } from '#/session/sessionActivity/sessionActivity';
+import type {
+  SessionPendingInteraction,
+  SessionTurnOutcome,
+} from '#/session/sessionActivity/sessionActivity';
 
 export const sessionWarningSchema = z.object({
   code: z.string(),
@@ -126,7 +129,12 @@ export interface SessionCreatedEvent {
 export interface SessionStatusChangedEvent {
   readonly type: 'event.session.status_changed';
   readonly status: 'idle' | 'running' | 'awaiting_approval' | 'awaiting_question' | 'aborted';
-  readonly previous_status: 'idle' | 'running' | 'awaiting_approval' | 'awaiting_question' | 'aborted';
+  readonly previous_status:
+    | 'idle'
+    | 'running'
+    | 'awaiting_approval'
+    | 'awaiting_question'
+    | 'aborted';
   readonly current_prompt_id?: string;
 }
 

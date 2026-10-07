@@ -6,8 +6,6 @@ import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 
-import type { ITelemetryAppender, TelemetryAppenderRecord } from './telemetry';
-import type { TelemetryProperties } from './context';
 import {
   type CloudContext,
   type CloudPrimitive,
@@ -16,8 +14,10 @@ import {
   type EnrichedCloudEvent,
   isCloudPrimitive,
 } from './cloudTransport';
+import type { TelemetryProperties } from './context';
 import { resolveCoreVersion } from './coreVersion';
 import { cleanTelemetryProperties } from './privacy';
+import type { ITelemetryAppender, TelemetryAppenderRecord } from './telemetry';
 
 export interface CloudAppenderOptions {
   readonly storage: IFileSystemStorageService;
@@ -103,8 +103,7 @@ export class CloudAppender implements ITelemetryAppender {
     const enriched: EnrichedCloudEvent = {
       event_id: randomUUID().replaceAll('-', ''),
       device_id: this.deviceId,
-      session_id:
-        typeof ambientSessionId === 'string' ? ambientSessionId : this.sessionId,
+      session_id: typeof ambientSessionId === 'string' ? ambientSessionId : this.sessionId,
       event: record.event,
       timestamp: Date.now() / 1000,
       properties: cleanTelemetryProperties(sanitizeProperties(record.properties)),

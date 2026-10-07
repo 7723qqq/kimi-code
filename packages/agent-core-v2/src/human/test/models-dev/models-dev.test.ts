@@ -1,17 +1,15 @@
 import { describe, expect, it } from 'vitest';
 
-import { modelsDevProviderModels, resolveModelsDevImport } from '#/models-dev/models-dev';
-import type { Provider } from '#/llm/provider/definition';
 import {
   createMemoryProviderCatalogStore,
   createProviderCatalog,
   type CatalogModelDefinition,
   type ProviderCatalogRefreshFailed,
 } from '#/llm/provider-catalog';
+import type { Provider } from '#/llm/provider/definition';
+import { modelsDevProviderModels, resolveModelsDevImport } from '#/models-dev/models-dev';
 
-function byId(
-  models: readonly CatalogModelDefinition[],
-): Map<string, CatalogModelDefinition> {
+function byId(models: readonly CatalogModelDefinition[]): Map<string, CatalogModelDefinition> {
   return new Map(models.map((model) => [model.model, model]));
 }
 
@@ -27,9 +25,11 @@ describe('resolveModelsDevImport', () => {
       wire: 'openai',
       guessed: false,
     });
-    expect(
-      resolveModelsDevImport({ id: 'google-vertex', npm: '@ai-sdk/google-vertex' }),
-    ).toEqual({ kind: 'ok', wire: 'google-vertex', guessed: false });
+    expect(resolveModelsDevImport({ id: 'google-vertex', npm: '@ai-sdk/google-vertex' })).toEqual({
+      kind: 'ok',
+      wire: 'google-vertex',
+      guessed: false,
+    });
     expect(resolveModelsDevImport({ id: 'gemini', npm: '@ai-sdk/google' })).toMatchObject({
       kind: 'ok',
       wire: 'google-genai',
@@ -46,9 +46,9 @@ describe('resolveModelsDevImport', () => {
     expect(
       resolveModelsDevImport({ id: 'x', type: 'kokub', npm: '@ai-sdk/openai-compatible' }),
     ).toEqual({ kind: 'invalid', reason: 'unknown-explicit-type' });
-    expect(
-      resolveModelsDevImport({ id: 'amazon-bedrock', npm: '@ai-sdk/amazon-bedrock' }),
-    ).toEqual({ kind: 'invalid', reason: 'proprietary-sdk' });
+    expect(resolveModelsDevImport({ id: 'amazon-bedrock', npm: '@ai-sdk/amazon-bedrock' })).toEqual(
+      { kind: 'invalid', reason: 'proprietary-sdk' },
+    );
     expect(resolveModelsDevImport({ id: 'cohere', npm: '@ai-sdk/cohere' })).toEqual({
       kind: 'invalid',
       reason: 'proprietary-sdk',
@@ -89,9 +89,9 @@ describe('resolveModelsDevImport', () => {
         api: '${NEON_BASE_URL}/v1',
       }),
     ).toEqual({ kind: 'needs-base-url', wire: 'openai', guessed: false });
-    expect(resolveModelsDevImport({ id: 'xai', npm: '@ai-sdk/xai' }, ' https://api.x.ai/v1 ')).toEqual(
-      { kind: 'ok', wire: 'openai', guessed: true, baseUrl: 'https://api.x.ai/v1' },
-    );
+    expect(
+      resolveModelsDevImport({ id: 'xai', npm: '@ai-sdk/xai' }, ' https://api.x.ai/v1 '),
+    ).toEqual({ kind: 'ok', wire: 'openai', guessed: true, baseUrl: 'https://api.x.ai/v1' });
     expect(
       resolveModelsDevImport(
         { id: 'google-vertex-anthropic', npm: '@ai-sdk/google-vertex/anthropic' },

@@ -42,8 +42,7 @@ export class ConnectionRegistry implements IConnectionRegistry {
     for (const conn of snapshot) {
       try {
         conn.close(1001, reason);
-      } catch {
-      }
+      } catch {}
     }
   }
 

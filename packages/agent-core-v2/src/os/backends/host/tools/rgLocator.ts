@@ -6,9 +6,9 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
 import { kimiRegionProfile, resolveKimiRegion } from '@moonshot-ai/kimi-code-oauth';
+import { basename, join } from 'pathe';
 import { extract as extractTar } from 'tar';
 import { type Entry, fromBuffer as yauzlFromBuffer } from 'yauzl';
-import { basename, join } from 'pathe';
 
 import { abortable } from '#/_base/utils/abort';
 import { ErrorCodes, Error2 } from '#/errors';

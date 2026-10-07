@@ -17,7 +17,11 @@ import {
   type Interaction,
   type ISessionScopeHandle,
 } from '@moonshot-ai/agent-core-v2';
-import type { AgentDescriptor, TranscriptChangeEvent, TranscriptStore } from '@moonshot-ai/transcript';
+import type {
+  AgentDescriptor,
+  TranscriptChangeEvent,
+  TranscriptStore,
+} from '@moonshot-ai/transcript';
 
 import { legacyApprovalsOf } from '../legacyStatus/legacyActivity';
 import {
@@ -78,7 +82,10 @@ export function bindSessionTranscript(
     if (projector === undefined) {
       projector = new AgentTranscriptProjector(agentId, store.sessionId, {
         stepFrames: (turnId, stepId) =>
-          store.getAgent(agentId)?.getTurn(turnId)?.steps.find((s) => s.stepId === stepId)?.frames,
+          store
+            .getAgent(agentId)
+            ?.getTurn(turnId)
+            ?.steps.find((s) => s.stepId === stepId)?.frames,
         toolFrame: (toolCallId) => {
           const transcript = store.getAgent(agentId);
           if (transcript === undefined) return undefined;
@@ -122,7 +129,11 @@ export function bindSessionTranscript(
       if (agentHandle !== undefined) {
         const tasks = agentHandle.accessor.get(IAgentTaskService)?.list() ?? [];
         for (const info of tasks) {
-          if (info.kind === 'agent' && typeof info.agentId === 'string' && info.agentId.length > 0) {
+          if (
+            info.kind === 'agent' &&
+            typeof info.agentId === 'string' &&
+            info.agentId.length > 0
+          ) {
             applyOps(
               agentId,
               projector.seedSubagentTask({
@@ -160,14 +171,16 @@ export function bindSessionTranscript(
     const list = agentDisposables.get(handle.id) ?? [];
     list.push(busD);
     if (reconcileAfterUndo !== undefined) {
-      list.push(handle.accessor.get(IAgentConversationUndoParticipantRegistry).register({
-        id: 'transcript',
-        phase: 'after-flush',
-        reconcileAfterUndo: async () => {
-          await reconcileAfterUndo(handle.id);
-          projectors.delete(handle.id);
-        },
-      }));
+      list.push(
+        handle.accessor.get(IAgentConversationUndoParticipantRegistry).register({
+          id: 'transcript',
+          phase: 'after-flush',
+          reconcileAfterUndo: async () => {
+            await reconcileAfterUndo(handle.id);
+            projectors.delete(handle.id);
+          },
+        }),
+      );
     }
     agentDisposables.set(handle.id, list);
   };
@@ -204,8 +217,7 @@ export function bindSessionTranscript(
           store.describeAgent(descriptorFromMeta(agentId, meta.agents?.[agentId]));
         }
       })
-      .catch(() => {
-      });
+      .catch(() => {});
   };
 
   for (const agent of agents.list()) {

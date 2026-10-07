@@ -11,6 +11,7 @@
 // Internal to the package — NEVER re-exported from the root entry point.
 
 import { parentPort, workerData } from 'node:worker_threads';
+
 import { TEXT_BUILD_WORKER_PROTOCOL_VERSION } from '../worker-runtime.ts';
 import { buildTextArtifacts } from './text-build-core.ts';
 import type { TextBuildCoreSpec, TextBuildCoreResult } from './text-build-core.ts';

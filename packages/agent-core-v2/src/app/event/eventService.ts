@@ -1,8 +1,8 @@
 import { type IDisposable } from '#/_base/di/lifecycle';
-import { Service } from '#/_base/di/service';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Service } from '#/_base/di/service';
 import { Emitter, type Event } from '#/_base/event';
+import { LifecycleScope } from '#/app/scopes';
 
 import { IEventService } from './event';
 import type { Event2 } from './event2';

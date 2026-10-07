@@ -1,39 +1,32 @@
-import type { GoalSnapshot } from '#/features/goal/types';
-
-import type { SessionStatusResponse } from './sessionProtocol';
-import { LifecycleScope } from '#/app/scopes';
+import { IInstantiationService, type ServicesAccessor } from '#/_base/di/instantiation';
 import {
   type IAgentScopeHandle,
   type ISessionScopeHandle,
   ScopeActivation,
   registerScopedService,
 } from '#/_base/di/scope';
-import {
-  IInstantiationService,
-  type ServicesAccessor,
-} from '#/_base/di/instantiation';
-import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
-import { IAgentGoalService } from '#/features/goal/goalService';
+import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
+import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import { IAgentPlanService } from '#/features/plan/plan';
 import { IAgentProfileService } from '#/agent/profile/profile';
+import { agentContextOf } from '#/agent/scopeContext/scopeContext';
+import { IAgentTaskService } from '#/agent/task/task';
+import { LifecycleScope } from '#/app/scopes';
+import { getLiveSessionById, resumeSessionById } from '#/app/sessionManager/sessionLookup';
+import { ErrorCodes, Error2 } from '#/errors';
+import { IAgentGoalService } from '#/features/goal/goalService';
+import type { GoalSnapshot } from '#/features/goal/types';
+import { IAgentPlanService } from '#/features/plan/plan';
 import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
 import { IAgentTowerService } from '#/features/tower/tower';
-import { agentContextOf } from '#/agent/scopeContext/scopeContext';
-import {
-  getLiveSessionById,
-  resumeSessionById,
-} from '#/app/sessionManager/sessionLookup';
 import { IModelCatalog } from '#/llm-adapter/model/catalog';
 import { IModelService } from '#/llm-adapter/model/model';
-import { ErrorCodes, Error2 } from '#/errors';
-import { ensureMainAgent } from '#/session/agentLifecycle/mainAgent';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import { IAgentLoopService } from '#/agent/loop/loop';
-import { IAgentTaskService } from '#/agent/task/task';
-import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
+import { ensureMainAgent } from '#/session/agentLifecycle/mainAgent';
+import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
 
 import { ISessionLegacyService } from './sessionLegacy';
+import type { SessionStatusResponse } from './sessionProtocol';
 
 export class SessionLegacyService implements ISessionLegacyService {
   declare readonly _serviceBrand: undefined;

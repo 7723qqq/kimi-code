@@ -10,14 +10,8 @@ import * as undiciNpm from 'undici/index.js';
  * `@moonshot-ai/kosong`'s `src/http/undici-npm.ts`; remove both once Bun
  * prefers the installed package natively.
  */
-const {
-  Agent,
-  EnvHttpProxyAgent,
-  ProxyAgent,
-  buildConnector,
-  fetch,
-  setGlobalDispatcher,
-} = undiciNpm;
+const { Agent, EnvHttpProxyAgent, ProxyAgent, buildConnector, fetch, setGlobalDispatcher } =
+  undiciNpm;
 
 export { Agent, EnvHttpProxyAgent, ProxyAgent, buildConnector, fetch, setGlobalDispatcher };
 

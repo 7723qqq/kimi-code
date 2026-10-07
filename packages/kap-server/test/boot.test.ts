@@ -4,9 +4,6 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Writable } from 'node:stream';
 
-import { pino } from 'pino';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-
 import {
   IBootstrapService,
   IFileSystemStorageService,
@@ -16,11 +13,13 @@ import {
   ITelemetryService,
   noopTelemetryService,
 } from '@moonshot-ai/agent-core-v2';
+import { pino } from 'pino';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { listLiveServerInstances } from '../src/instanceRegistry';
 import { listenWithPortRetry, type RunningServer, startServer } from '../src/start';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authedFetch } from './helpers/auth';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
 describe('server-v2 boot', () => {
   let server: RunningServer | undefined;
@@ -51,7 +50,7 @@ describe('server-v2 boot', () => {
 
     const healthz = await fetch(`${base}/api/v1/healthz`);
     expect(healthz.status).toBe(200);
-    const healthBody = await healthz.json() as {
+    const healthBody = (await healthz.json()) as {
       code: number;
       data: { ok: boolean };
       request_id: string;
@@ -62,7 +61,7 @@ describe('server-v2 boot', () => {
 
     const meta = await authedFetch(server, base, '/api/v1/meta');
     expect(meta.status).toBe(200);
-    const metaBody = await meta.json() as {
+    const metaBody = (await meta.json()) as {
       code: number;
       data: { server_id: string; server_version: string; capabilities: Record<string, boolean> };
     };
@@ -73,7 +72,7 @@ describe('server-v2 boot', () => {
 
     const auth = await authedFetch(server, base, '/api/v1/auth');
     expect(auth.status).toBe(200);
-    const authBody = await auth.json() as {
+    const authBody = (await auth.json()) as {
       code: number;
       data: { models_ready: boolean; providers_count: number };
     };
@@ -83,7 +82,7 @@ describe('server-v2 boot', () => {
 
     const oauthPoll = await authedFetch(server, base, '/api/v1/oauth/login');
     expect(oauthPoll.status).toBe(200);
-    const oauthBody = await oauthPoll.json() as { code: number; data: null };
+    const oauthBody = (await oauthPoll.json()) as { code: number; data: null };
     expect(oauthBody.code).toBe(0);
     expect(oauthBody.data).toBeNull();
   });
@@ -105,7 +104,7 @@ describe('server-v2 boot', () => {
 
     const base = `http://127.0.0.1:${server.port}`;
     const meta = await authedFetch(server, base, '/api/v1/meta');
-    const metaBody = await meta.json() as {
+    const metaBody = (await meta.json()) as {
       code: number;
       data: { server_version: string };
     };

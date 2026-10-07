@@ -24,5 +24,7 @@ export const WaitForInputSchema = z.object({
 
 export type WaitForInput = z.infer<typeof WaitForInputSchema>;
 
-export interface IWaitForTool extends AgentTool<WaitForInput> { readonly _serviceBrand: undefined }
+export interface IWaitForTool extends AgentTool<WaitForInput> {
+  readonly _serviceBrand: undefined;
+}
 export const IWaitForTool = createDecorator<IWaitForTool>('waitForTool');

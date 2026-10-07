@@ -12,13 +12,13 @@ import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IEventService } from '#/app/event/event';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ErrorCodes, Error2 } from '#/errors';
-import type { ContentPart } from '#human/llm/message';
-import { skillActivationPart } from '#human/agent/origin';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { applyPromptMetadataUpdate } from '#/session/sessionMetadata/promptMetadata';
+import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { IEventDispatcher } from '#/state/eventDispatcher';
+import { skillActivationPart } from '#human/agent/origin';
+import type { ContentPart } from '#human/llm/message';
 
 import { isUserActivatableSkillType, type SkillDefinition } from './catalog/types';
 import { promptMetadataTextFromSkill, renderUserSlashSkillPrompt } from './prompt';
@@ -127,10 +127,7 @@ export class AgentSkillService implements IAgentSkillService {
       throw new Error2(ErrorCodes.REQUEST_INVALID, 'promptWithSkills requires a non-empty prompt');
     }
     if (input.skills.length === 0) {
-      throw new Error2(
-        ErrorCodes.REQUEST_INVALID,
-        'promptWithSkills requires at least one skill',
-      );
+      throw new Error2(ErrorCodes.REQUEST_INVALID, 'promptWithSkills requires at least one skill');
     }
     const catalog = this.catalog;
     await catalog.ready;

@@ -1,7 +1,6 @@
-import { waitFor, type ActorRefFrom } from '#/xstate2';
-
 import type { TaskWaitInput, TaskWaitOutcome } from '#/tool/executor';
 import { createToolMachine } from '#/tool/machine';
+import { waitFor, type ActorRefFrom } from '#/xstate2';
 
 export type ToolActorRef = ActorRefFrom<ReturnType<typeof createToolMachine>>;
 

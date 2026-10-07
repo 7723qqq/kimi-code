@@ -1,15 +1,15 @@
 import { randomUUID } from 'node:crypto';
 
-import type { SkillActivationOrigin } from '#/agent/contextMemory/types';
-import { renderModelToolSkillPrompt } from '#/features/skill/prompt';
-import { IAgentSkillService } from '#/features/skill/skillService';
-import type { ExecutableToolResult, ToolDeliveryMessage, ToolExecution } from '#/tool/toolContract';
-import { isInlineSkillType } from '#/features/skill/catalog/types';
-import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { renderPrompt } from '#/_base/utils/render-prompt';
+import type { SkillActivationOrigin } from '#/agent/contextMemory/types';
+import { isInlineSkillType } from '#/features/skill/catalog/types';
+import { renderModelToolSkillPrompt } from '#/features/skill/prompt';
+import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
+import { IAgentSkillService } from '#/features/skill/skillService';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { matchesGlobRuleSubject } from '#/tool/rule-match';
+import type { ExecutableToolResult, ToolDeliveryMessage, ToolExecution } from '#/tool/toolContract';
 
 import {
   ISkillTool,

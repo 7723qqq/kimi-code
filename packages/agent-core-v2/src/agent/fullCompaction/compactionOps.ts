@@ -1,13 +1,13 @@
 /* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import { z } from 'zod';
 
-import { AgentEvent2, type AgentDomainTrait } from '#/app/event/event2';
-import { defineState } from '#/state/state';
 import {
   ContextApplyCompaction,
   ContextClear,
   type ContextApplyCompactionPayload,
 } from '#/agent/contextMemory/contextEvents';
+import { AgentEvent2, type AgentDomainTrait } from '#/app/event/event2';
+import { defineState } from '#/state/state';
 import type { WireLineRange } from '#/wire/record';
 
 import type { CompactionBeginData, CompactionResult, CompactionSource } from './types';
@@ -24,9 +24,7 @@ const fullCompactionBeginSchema = z.object({
   source: z.custom<CompactionSource>(),
 });
 
-export class FullCompactionBegin extends AgentEvent2<
-  z.infer<typeof fullCompactionBeginSchema>
-> {
+export class FullCompactionBegin extends AgentEvent2<z.infer<typeof fullCompactionBeginSchema>> {
   static override readonly type = 'full_compaction.begin';
   static override readonly durable = true;
   static override readonly schema = fullCompactionBeginSchema;
@@ -37,9 +35,7 @@ export interface FullCompactionBegin extends CompactionBeginData {
 
 const fullCompactionCancelSchema = z.object({ agentId: z.string() });
 
-export class FullCompactionCancel extends AgentEvent2<
-  z.infer<typeof fullCompactionCancelSchema>
-> {
+export class FullCompactionCancel extends AgentEvent2<z.infer<typeof fullCompactionCancelSchema>> {
   static override readonly type = 'full_compaction.cancel';
   static override readonly durable = true;
   static override readonly schema = fullCompactionCancelSchema;
@@ -119,10 +115,10 @@ export interface CompactionCompletedEvent extends Omit<CompactionCompletedPayloa
   readonly type: 'compaction.completed';
 }
 
-export const fullCompactionKey = defineState(
-  'fullCompaction',
-  (): CompactionState => ({ phase: 'idle' }),
-).replayable({ schema: z.custom<CompactionState>() })
+export const fullCompactionKey = defineState('fullCompaction', (): CompactionState => ({
+  phase: 'idle',
+}))
+  .replayable({ schema: z.custom<CompactionState>() })
   .on(FullCompactionBegin, (s, e, ctx) => {
     if (s.phase !== 'running') {
       s.phase = 'running';

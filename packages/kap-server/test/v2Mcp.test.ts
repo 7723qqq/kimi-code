@@ -465,7 +465,11 @@ describe('server /api/v2/mcp', () => {
         serverName: 's',
       });
       expect(reset.body).toMatchObject({ code: 0, data: null });
-      expect(stub.state.lastResetLocator).toEqual({ source: 'plugin', pluginId: 'p', serverName: 's' });
+      expect(stub.state.lastResetLocator).toEqual({
+        source: 'plugin',
+        pluginId: 'p',
+        serverName: 's',
+      });
     });
 
     it('rejects an overflowing auth:complete timeoutMs with 40001', async () => {

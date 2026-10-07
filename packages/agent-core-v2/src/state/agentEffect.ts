@@ -18,22 +18,17 @@ export interface AgentEffectDefinition<
 export function defineAgentEffect<
   Context extends AgentEffectContext,
   Runtime extends DomainResourceRuntime,
->(
-  definition: AgentEffectDefinition<Context, Runtime>,
-): AgentEffectDefinition<Context, Runtime> {
+>(definition: AgentEffectDefinition<Context, Runtime>): AgentEffectDefinition<Context, Runtime> {
   return Object.freeze(definition);
 }
 
-export const AgentEffectContribution = collection<AgentEffectDefinition<any, any>>(
-  'agent-effect',
-  {
-    validate: (value, existing) => {
-      if (existing.some((definition) => definition.id === value.id)) {
-        throw new Error(`Agent effect '${value.id}' already has an active provider`);
-      }
-    },
+export const AgentEffectContribution = collection<AgentEffectDefinition<any, any>>('agent-effect', {
+  validate: (value, existing) => {
+    if (existing.some((definition) => definition.id === value.id)) {
+      throw new Error(`Agent effect '${value.id}' already has an active provider`);
+    }
   },
-);
+});
 
 export interface SessionEffectContext {
   readonly sessionId: string;

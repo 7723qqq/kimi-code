@@ -54,9 +54,13 @@ export async function runHeadlessMigrate(
   };
 
   const source = resolveLegacySourceHome(resolved.env, resolved.userHome, resolved.cwd);
-  log(`source: ${source.sourceHome} (${source.origin === 'share-dir' ? 'KIMI_SHARE_DIR' : 'default ~/.kimi'})`);
+  log(
+    `source: ${source.sourceHome} (${source.origin === 'share-dir' ? 'KIMI_SHARE_DIR' : 'default ~/.kimi'})`,
+  );
   if (source.skillsSourceHome !== undefined) {
-    log(`skills source: ${source.skillsSourceHome} (kimi-cli skills are not relocated by KIMI_SHARE_DIR)`);
+    log(
+      `skills source: ${source.skillsSourceHome} (kimi-cli skills are not relocated by KIMI_SHARE_DIR)`,
+    );
   }
   log(`target: ${resolved.targetHome}`);
 
@@ -72,7 +76,9 @@ export async function runHeadlessMigrate(
     skills: true,
     sessions: !input.configOnly,
   };
-  log(`scope: ${input.configOnly ? 'config-only (config, mcp, user-history, skills)' : 'full (config, mcp, user-history, skills, sessions)'}`);
+  log(
+    `scope: ${input.configOnly ? 'config-only (config, mcp, user-history, skills)' : 'full (config, mcp, user-history, skills, sessions)'}`,
+  );
 
   log('detecting legacy data…');
   const plansSourceHome = join(resolved.userHome, '.kimi', 'plans');
@@ -147,14 +153,20 @@ function logReport(
   log(
     `config: migrated=${c.migrated} tui-extracted=${c.tuiExtracted}` +
       ` hooks-migrated=${c.migratedHooks} hooks-dropped=${c.droppedHooks}` +
-      (c.droppedProviders.length > 0 ? ` dropped-providers=[${c.droppedProviders.join(', ')}]` : '') +
+      (c.droppedProviders.length > 0
+        ? ` dropped-providers=[${c.droppedProviders.join(', ')}]`
+        : '') +
       (c.droppedModels.length > 0 ? ` dropped-models=[${c.droppedModels.join(', ')}]` : '') +
       (c.droppedKeys.length > 0 ? ` dropped-keys=[${c.droppedKeys.join(', ')}]` : '') +
-      (c.configConflicts.length > 0 ? ` conflicts-kept-yours=[${c.configConflicts.join(', ')}]` : '') +
+      (c.configConflicts.length > 0
+        ? ` conflicts-kept-yours=[${c.configConflicts.join(', ')}]`
+        : '') +
       (c.sourceUnreadable ? ' SOURCE-UNREADABLE' : ''),
   );
   if (c.wroteSiblingDueToConflict) {
-    log(`config: live config.toml unparseable — migrated copy at config.migrated-from-kimi-cli.toml (${c.siblingContents.providers.length} providers, ${c.siblingContents.models.length} models, ${c.siblingContents.hooks} hooks)`);
+    log(
+      `config: live config.toml unparseable — migrated copy at config.migrated-from-kimi-cli.toml (${c.siblingContents.providers.length} providers, ${c.siblingContents.models.length} models, ${c.siblingContents.hooks} hooks)`,
+    );
   }
   if (c.wroteTuiSibling) {
     log('config: tui.toml conflicted — migrated copy at tui.migrated-from-kimi-cli.toml');
@@ -162,12 +174,16 @@ function logReport(
   const m = sum.mcp;
   log(
     `mcp: merged=[${m.mergedServers.join(', ')}]` +
-      (m.keptNewForConflicts.length > 0 ? ` kept-existing=[${m.keptNewForConflicts.join(', ')}]` : '') +
+      (m.keptNewForConflicts.length > 0
+        ? ` kept-existing=[${m.keptNewForConflicts.join(', ')}]`
+        : '') +
       (m.droppedServers.length > 0 ? ` dropped=[${m.droppedServers.join(', ')}]` : '') +
       (m.wroteSiblingDueToConflict ? ' wrote mcp.migrated-from-kimi-cli.json' : '') +
       (m.sourceUnreadable ? ' SOURCE-UNREADABLE' : ''),
   );
-  log(`user-history: copied=${sum.userHistory.copied} skipped-existing=${sum.userHistory.skippedExisting}`);
+  log(
+    `user-history: copied=${sum.userHistory.copied} skipped-existing=${sum.userHistory.skippedExisting}`,
+  );
   log(`skills: copied=${sum.skills.copied} skipped-existing=${sum.skills.skippedExisting}`);
   log(`plans: copied=${sum.plans.copied} skipped-existing=${sum.plans.skippedExisting}`);
   const s = sum.sessions;
@@ -177,8 +193,12 @@ function logReport(
         ` already-migrated=${s.sessionsAlreadyMigrated} skipped-empty=${s.sessionsSkippedEmpty}` +
         ` skipped-malformed=${s.sessionsSkippedMalformed} skipped-placeholder=${s.sessionsSkippedPlaceholder}` +
         ` failed=${s.sessionsFailed.length} conflicts=${s.sessionsConflicts.length}` +
-        (s.bucketsSkippedNonlocalKaos > 0 ? ` buckets-skipped-nonlocal-kaos=${s.bucketsSkippedNonlocalKaos}` : '') +
-        (s.bucketsSkippedNoWorkdirFound > 0 ? ` buckets-skipped-no-workdir=${s.bucketsSkippedNoWorkdirFound}` : ''),
+        (s.bucketsSkippedNonlocalKaos > 0
+          ? ` buckets-skipped-nonlocal-kaos=${s.bucketsSkippedNonlocalKaos}`
+          : '') +
+        (s.bucketsSkippedNoWorkdirFound > 0
+          ? ` buckets-skipped-no-workdir=${s.bucketsSkippedNoWorkdirFound}`
+          : ''),
     );
     for (const failure of s.sessionsFailed) {
       log(`  failed: ${failure.sourcePath} — ${failure.reason}`);
@@ -191,7 +211,9 @@ function logReport(
     log(`notice: run /login for: ${report.notices.oauthLoginsRequiringRelogin.join(', ')}`);
   }
   if (report.notices.mcpOauthServersRequiringReauth.length > 0) {
-    log(`notice: re-authenticate MCP servers: ${report.notices.mcpOauthServersRequiringReauth.join(', ')}`);
+    log(
+      `notice: re-authenticate MCP servers: ${report.notices.mcpOauthServersRequiringReauth.join(', ')}`,
+    );
   }
   if (report.notices.configConflictNotice !== null) {
     log(`notice: ${report.notices.configConflictNotice}`);

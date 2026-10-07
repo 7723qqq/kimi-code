@@ -810,10 +810,7 @@ function experimentalToToml(
   return out;
 }
 
-function githubToToml(
-  github: GithubConfig,
-  _rawGithub: unknown,
-): Record<string, unknown> {
+function githubToToml(github: GithubConfig, _rawGithub: unknown): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(github)) {
     setDefined(out, camelToSnake(key), value);

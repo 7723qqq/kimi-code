@@ -1,7 +1,6 @@
-import type { TokenUsage } from '#human/llm/usage';
-
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { SubagentSpawnPlan } from '#/session/subagent/spawn';
+import type { TokenUsage } from '#human/llm/usage';
 
 type SessionSwarmTaskBase<T> = {
   readonly data: T;

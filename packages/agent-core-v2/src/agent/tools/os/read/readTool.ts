@@ -6,15 +6,17 @@ import {
   type LineEndingStyle,
 } from '#/_base/text/line-endings';
 import { renderPrompt } from '#/_base/utils/render-prompt';
+import { renderToolResultForModel } from '#/agent/contextMemory/toolResultRender';
 import { MEDIA_SNIFF_BYTES, detectFileType } from '#/agent/media/file-type';
-import { isDaemonFileUrl } from '#/agent/media/mediaRef';
 import { IMediaReadContext } from '#/agent/media/mediaReadContext';
+import { isDaemonFileUrl } from '#/agent/media/mediaRef';
 import { ISessionMediaStore } from '#/agent/media/sessionMediaStore';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentRuntimeService, inspectAgentRuntime } from '#/agent/runtimeBinding/agentRuntime';
 import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
 import {
   attachmentFileSource,
   runtimeFileSource,
@@ -23,13 +25,12 @@ import {
 } from '#/agent/tools/fileReadSource';
 import { executeMediaRead } from '#/agent/tools/read-media-file/execute-media-read';
 import { MAX_MEDIA_MEGABYTES } from '#/agent/tools/read-media-file/read-media-file';
+import { IConfigService } from '#/app/config/config';
+import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 import type { HostEnvironmentInfo } from '#/os/interface/hostEnvironment';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
-import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import { IConfigService } from '#/app/config/config';
-import { renderToolResultForModel } from '#/agent/contextMemory/toolResultRender';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { resolvePathAccessPath, type WorkspaceConfig } from '#/tool/path-access';
 import {
@@ -38,6 +39,8 @@ import {
   matchesPathRuleSubject,
 } from '#/tool/rule-match';
 import { ToolAccesses, type ExecutableToolResult, type ToolExecution } from '#/tool/toolContract';
+
+import { READ_SECTION, type ReadConfig } from './configSection';
 import {
   DEFAULT_MAX_CHARS,
   DEFAULT_MAX_CHARS_LIMIT,
@@ -46,8 +49,6 @@ import {
   TRANSCODE_MAX_BYTES,
   type ReadInput,
 } from './read';
-import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
-import { READ_SECTION, type ReadConfig } from './configSection';
 import readDescriptionTemplate from './read.md?raw';
 
 interface LineEndingFlags {
@@ -193,7 +194,8 @@ export class ReadTool implements IReadTool {
     @ISessionWorkspaceContext private readonly workspaceCtx: ISessionWorkspaceContext,
     @ISessionSkillCatalog private readonly skillCatalog: ISessionSkillCatalog,
     @IMediaReadContext private readonly mediaRead: IMediaReadContext,
-    @IAgentToolResultTruncationService private readonly resultTruncation: IAgentToolResultTruncationService,
+    @IAgentToolResultTruncationService
+    private readonly resultTruncation: IAgentToolResultTruncationService,
     @IConfigService private readonly config: IConfigService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @IAgentToolPolicyService private readonly toolPolicy: IAgentToolPolicyService,
@@ -382,13 +384,21 @@ export class ReadTool implements IReadTool {
       };
       const lineOffset = args.line_offset ?? 1;
       if (lineOffset >= 0) return await this.readForward(readLines(), request);
-      const rereadsFile = detectedEncoding === undefined && (args.n_lines ?? Infinity) < -lineOffset;
+      const rereadsFile =
+        detectedEncoding === undefined && (args.n_lines ?? Infinity) < -lineOffset;
       const result = await this.readTail(readLines, request);
       if (!result.isError && rereadsFile) {
         const currentStat = await source.stat();
-        if (!currentStat.isFile || currentStat.size !== stat.size ||
-          currentStat.mtimeMs !== stat.mtimeMs || currentStat.ino !== stat.ino) {
-          return { isError: true, output: 'File changed while reading its tail. Retry Read with the updated file.' };
+        if (
+          !currentStat.isFile ||
+          currentStat.size !== stat.size ||
+          currentStat.mtimeMs !== stat.mtimeMs ||
+          currentStat.ino !== stat.ino
+        ) {
+          return {
+            isError: true,
+            output: 'File changed while reading its tail. Retry Read with the updated file.',
+          };
         }
       }
       return result;
@@ -430,11 +440,16 @@ export class ReadTool implements IReadTool {
         continue;
       }
       const rawContent = stripTrailingLf(rawLine);
-      const lineChars = String(currentLineNo).length + 1 + Math.max(
-        0,
-        rawContent.length - (rawContent.endsWith('\r') ? 1 : 0) -
-          (currentLineNo === lineOffset ? columnOffset : 0),
-      ) + (selectedEntries.length === 0 ? 0 : 1);
+      const lineChars =
+        String(currentLineNo).length +
+        1 +
+        Math.max(
+          0,
+          rawContent.length -
+            (rawContent.endsWith('\r') ? 1 : 0) -
+            (currentLineNo === lineOffset ? columnOffset : 0),
+        ) +
+        (selectedEntries.length === 0 ? 0 : 1);
       if (minimumChars + lineChars > maxChars && selectedEntries.length > 0) {
         collectionClosed = true;
         continue;
@@ -456,10 +471,16 @@ export class ReadTool implements IReadTool {
       const prefix = `${String(lineOffset)}\t`;
       const text = firstLine?.slice(prefix.length);
       if (text === undefined || columnOffset > text.length) {
-        return { isError: true, output: `column_offset=${String(columnOffset)} is past the end of the starting line ${String(lineOffset)}. Read the line from column 0 to inspect its current contents.` };
+        return {
+          isError: true,
+          output: `column_offset=${String(columnOffset)} is past the end of the starting line ${String(lineOffset)}. Read the line from column 0 to inspect its current contents.`,
+        };
       }
       if (splitsSurrogatePair(text, columnOffset)) {
-        return { isError: true, output: `column_offset=${String(columnOffset)} splits a Unicode character in line ${String(lineOffset)}. Use a character boundary or the Next Read arguments.` };
+        return {
+          isError: true,
+          output: `column_offset=${String(columnOffset)} splits a Unicode character in line ${String(lineOffset)}. Use a character boundary or the Next Read arguments.`,
+        };
       }
       renderedLines[0] = prefix + text.slice(columnOffset);
     }
@@ -476,11 +497,12 @@ export class ReadTool implements IReadTool {
   }
 
   private finishPage(page: ReadPage): ExecutableToolResult {
-    const { args, maxChars, maxCharsLimit, eventLog, detectedEncoding, lossyDecoding } = page.request;
+    const { args, maxChars, maxCharsLimit, eventLog, detectedEncoding, lossyDecoding } =
+      page.request;
     let first = 0;
     let end = page.renderedLines.length;
     let contentChars = page.renderedLines.reduce((sum, line) => sum + line.length + 1, -1);
-    const firstColumn = page.fromTail ? 0 : args.column_offset ?? 0;
+    const firstColumn = page.fromTail ? 0 : (args.column_offset ?? 0);
     const firstPrefix = `${String(page.startLine)}\t`;
     const firstText = page.renderedLines[0]?.slice(firstPrefix.length) ?? '';
     let fragmentEnd: number | undefined;
@@ -490,8 +512,12 @@ export class ReadTool implements IReadTool {
       const startLine = page.startLine + first;
       const endLine = page.startLine + end - 1;
       const lineIncomplete = fragmentEnd !== undefined;
-      const complete = page.rangeStart > page.rangeEnd ||
-        (count > 0 && startLine === page.rangeStart && endLine === page.rangeEnd && !lineIncomplete);
+      const complete =
+        page.rangeStart > page.rangeEnd ||
+        (count > 0 &&
+          startLine === page.rangeStart &&
+          endLine === page.rangeEnd &&
+          !lineIncomplete);
       const parts = [
         count > 0
           ? `${String(count)} ${count === 1 ? 'line' : 'lines'} read from file starting from line ${String(startLine)}.`
@@ -500,51 +526,73 @@ export class ReadTool implements IReadTool {
         complete ? 'Requested range complete.' : 'Character limit reached.',
         `Effective max_chars: ${String(maxChars)}.`,
       ];
-      if (!lineIncomplete && ((count > 0 && endLine === page.totalLines) || page.rangeStart > page.totalLines)) {
+      if (
+        !lineIncomplete &&
+        ((count > 0 && endLine === page.totalLines) || page.rangeStart > page.totalLines)
+      ) {
         parts.push('End of file reached.');
       }
       if (count > 0 && !page.fromTail && (firstColumn > 0 || fragmentEnd !== undefined)) {
-        parts.push(`Line ${String(startLine)} fragment: columns [${String(firstColumn)}, ${String(firstColumn + (fragmentEnd ?? firstText.length))}) of ${String(firstColumn + firstText.length)}. ${lineIncomplete ? 'Line continues.' : 'Line complete.'}`);
+        parts.push(
+          `Line ${String(startLine)} fragment: columns [${String(firstColumn)}, ${String(firstColumn + (fragmentEnd ?? firstText.length))}) of ${String(firstColumn + firstText.length)}. ${lineIncomplete ? 'Line continues.' : 'Line complete.'}`,
+        );
       }
       if (args.max_chars !== undefined && args.max_chars > maxCharsLimit) {
-        parts.push(`Requested max_chars=${String(args.max_chars)} was capped at the configured maximum ${String(maxCharsLimit)}.`);
+        parts.push(
+          `Requested max_chars=${String(args.max_chars)} was capped at the configured maximum ${String(maxCharsLimit)}.`,
+        );
       }
       if (!complete && (count > 0 || page.fromTail)) {
-        const nextStart = page.fromTail ? page.rangeStart : lineIncomplete ? startLine : endLine + 1;
+        const nextStart = page.fromTail
+          ? page.rangeStart
+          : lineIncomplete
+            ? startLine
+            : endLine + 1;
         const nextEnd = page.fromTail && count > 0 ? startLine - 1 : page.rangeEnd;
         const next = {
           path: args.path,
           line_offset: nextStart,
           column_offset: fragmentEnd !== undefined ? firstColumn + fragmentEnd : undefined,
-          n_lines: page.fromTail || args.n_lines !== undefined ? nextEnd - nextStart + 1 : undefined,
+          n_lines:
+            page.fromTail || args.n_lines !== undefined ? nextEnd - nextStart + 1 : undefined,
           max_chars: maxChars,
         };
         parts.push(`Next Read: ${JSON.stringify(next)}`);
       }
       if (eventLog) {
-        parts.push('Kimi Code agent event log: read one record at a time (n_lines=1); increase max_chars for a longer record or extract fields with Bash.');
+        parts.push(
+          'Kimi Code agent event log: read one record at a time (n_lines=1); increase max_chars for a longer record or extract fields with Bash.',
+        );
       }
       if (page.lineEndingStyle === 'mixed') {
-        parts.push('Mixed or lone carriage-return line endings are shown as \\r. Use exact \\r\\n or \\r escapes in Edit.old_string for those lines.');
+        parts.push(
+          'Mixed or lone carriage-return line endings are shown as \\r. Use exact \\r\\n or \\r escapes in Edit.old_string for those lines.',
+        );
       }
       if (detectedEncoding !== undefined) {
-        parts.push(`Detected file encoding: ${encodingDisplayName(detectedEncoding)}; content transcoded to UTF-8 for display. Edit and Write expect UTF-8 — convert the file's encoding first (e.g. \`iconv\` via Bash).`);
+        parts.push(
+          `Detected file encoding: ${encodingDisplayName(detectedEncoding)}; content transcoded to UTF-8 for display. Edit and Write expect UTF-8 — convert the file's encoding first (e.g. \`iconv\` via Bash).`,
+        );
       }
       if (lossyDecoding) {
-        parts.push('Lossy UTF-16 decoding: malformed sequences were replaced with U+FFFD. The decoded text may differ from the original file.');
+        parts.push(
+          'Lossy UTF-16 decoding: malformed sequences were replaced with U+FFFD. The decoded text may differ from the original file.',
+        );
       }
       const note = `<system>${parts.join(' ')}</system>`;
-      const renderedChars = count === 0
-        ? renderToolResultForModel({ output: '', note }).reduce(
-          (sum, part) => sum + (part.type === 'text' ? part.text.length : 0),
-          0,
-        )
-        : contentChars + 1 + note.length;
+      const renderedChars =
+        count === 0
+          ? renderToolResultForModel({ output: '', note }).reduce(
+              (sum, part) => sum + (part.type === 'text' ? part.text.length : 0),
+              0,
+            )
+          : contentChars + 1 + note.length;
       if (renderedChars <= maxChars && (complete || count > 0)) {
         return {
-          output: fragmentEnd !== undefined
-            ? firstPrefix + firstText.slice(0, fragmentEnd)
-            : page.renderedLines.slice(first, end).join('\n'),
+          output:
+            fragmentEnd !== undefined
+              ? firstPrefix + firstText.slice(0, fragmentEnd)
+              : page.renderedLines.slice(first, end).join('\n'),
           note,
           truncated: complete ? undefined : true,
         };
@@ -554,7 +602,10 @@ export class ReadTool implements IReadTool {
         fragmentEnd = Math.min(previousEnd - 1, previousEnd - (renderedChars - maxChars));
         if (splitsSurrogatePair(firstText, fragmentEnd)) fragmentEnd -= 1;
         if (fragmentEnd <= 0) {
-          return { isError: true, output: `max_chars=${String(maxChars)} is too small for file text and the Read status. Increase max_chars.` };
+          return {
+            isError: true,
+            output: `max_chars=${String(maxChars)} is too small for file text and the Read status. Increase max_chars.`,
+          };
         }
         contentChars = firstPrefix.length + fragmentEnd;
         continue;
@@ -573,7 +624,10 @@ export class ReadTool implements IReadTool {
           );
           if (recoveryChars <= maxChars) return recovery;
         }
-        return { isError: true, output: `max_chars=${String(maxChars)} is too small for the Read status. Increase max_chars.` };
+        return {
+          isError: true,
+          output: `max_chars=${String(maxChars)} is too small for the Read status. Increase max_chars.`,
+        };
       }
       const dropped = page.fromTail ? first++ : --end;
       contentChars -= page.renderedLines[dropped]!.length + 1;
@@ -594,10 +648,14 @@ export class ReadTool implements IReadTool {
     let chars = 0;
     const retainLine = (rawLine: string, lineNo: number): void => {
       const rawContent = stripTrailingLf(rawLine);
-      const minChars = String(lineNo).length + 2 + rawContent.length - (rawContent.endsWith('\r') ? 1 : 0);
+      const minChars =
+        String(lineNo).length + 2 + rawContent.length - (rawContent.endsWith('\r') ? 1 : 0);
       entries.push({ lineNo, rawContent, minChars });
       chars += minChars;
-      while (first < entries.length && (chars - 1 > maxChars || entries.length - first > tailCount)) {
+      while (
+        first < entries.length &&
+        (chars - 1 > maxChars || entries.length - first > tailCount)
+      ) {
         chars -= entries[first]!.minChars;
         entries[first++] = undefined;
       }
@@ -632,7 +690,10 @@ export class ReadTool implements IReadTool {
         retainLine(rawLine, currentLine);
       }
       if (currentLine < rangeEnd || currentLine > totalLines) {
-        return { isError: true, output: 'File changed while reading its tail. Retry Read with the updated file.' };
+        return {
+          isError: true,
+          output: 'File changed while reading its tail. Retry Read with the updated file.',
+        };
       }
     }
     const selected = entries.slice(first).map((entry) => renderLine(entry!, lineEndingStyle));
@@ -647,7 +708,6 @@ export class ReadTool implements IReadTool {
       lineEndingStyle,
     });
   }
-
 }
 
 registerAgentToolService(IReadTool, ReadTool, {

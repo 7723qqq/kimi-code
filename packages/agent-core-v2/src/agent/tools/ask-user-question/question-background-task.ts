@@ -1,9 +1,5 @@
 import { isAbortError } from '#/_base/utils/abort';
-import {
-  type AgentTask,
-  type AgentTaskInfoBase,
-  type AgentTaskSink,
-} from '#/agent/task/types';
+import { type AgentTask, type AgentTaskInfoBase, type AgentTaskSink } from '#/agent/task/types';
 import type { ExecutableToolResult } from '#/tool/toolContract';
 
 export interface QuestionTaskInfo extends AgentTaskInfoBase {

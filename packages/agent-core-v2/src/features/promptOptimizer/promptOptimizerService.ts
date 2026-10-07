@@ -1,12 +1,12 @@
-import { IFlagService } from '#/app/flag/flag';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { LifecycleScope } from '#/app/scopes';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { denyToolExecution } from '#/agent/toolExecutor/beforeToolExecuteEvent';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { IAgentReminderService } from '#/features/reminder/reminderService';
+import { IFlagService } from '#/app/flag/flag';
+import { LifecycleScope } from '#/app/scopes';
 import { ErrorCodes, Error2 } from '#/errors';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
 
@@ -68,14 +68,13 @@ export class SessionPromptOptimizerService implements ISessionPromptOptimizerSer
         .get(IAgentReminderService)
         .notify(PROMPT_OPTIMIZER_SYSTEM_REMINDER, { variant: 'prompt_optimizer' });
       const reason =
-        child.accessor.get(IAgentToolApprovalService)?.formatDenyMessage(
-          PROMPT_OPTIMIZER_TOOL_DISABLED_MESSAGE,
-        ) ?? PROMPT_OPTIMIZER_TOOL_DISABLED_MESSAGE;
-      child.accessor
-        .get(IAgentToolExecutorService)
-        ?.onBeforeExecuteTool((event) => {
-          event.veto(denyToolExecution(reason));
-        });
+        child.accessor
+          .get(IAgentToolApprovalService)
+          ?.formatDenyMessage(PROMPT_OPTIMIZER_TOOL_DISABLED_MESSAGE) ??
+        PROMPT_OPTIMIZER_TOOL_DISABLED_MESSAGE;
+      child.accessor.get(IAgentToolExecutorService)?.onBeforeExecuteTool((event) => {
+        event.veto(denyToolExecution(reason));
+      });
 
       const run = await this.subagents.run(
         childContext,

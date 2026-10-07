@@ -55,9 +55,7 @@ export function redactCtx(ctx: LogContext): LogContext {
     }
     const out: Record<string, unknown> = {};
     for (const [key, raw] of Object.entries(value as Record<string, unknown>)) {
-      out[key] = REDACTED_KEYS.has(normalizeKey(key))
-        ? REDACTED
-        : walk(raw, depth + 1);
+      out[key] = REDACTED_KEYS.has(normalizeKey(key)) ? REDACTED : walk(raw, depth + 1);
     }
     return out;
   };
@@ -88,8 +86,7 @@ function serializeValue(raw: unknown): string {
   try {
     const json = JSON.stringify(raw);
     if (json !== undefined) return json;
-  } catch {
-  }
+  } catch {}
   if (typeof raw === 'function') return raw.name === '' ? '[Function]' : `[Function: ${raw.name}]`;
   return Object.prototype.toString.call(raw);
 }
@@ -155,13 +152,13 @@ export function formatEntry(entry: LogEntry): FormattedEntry {
 
   const time = new Date(entry.t).toISOString();
   const label = LEVEL_LABEL[entry.level];
-  const rendered = pairs.length === 0
-    ? `${time} ${label} ${msg}`
-    : `${time} ${label} ${msg}  ${pairs.join(' ')}`;
+  const rendered =
+    pairs.length === 0 ? `${time} ${label} ${msg}` : `${time} ${label} ${msg}  ${pairs.join(' ')}`;
 
-  let head = Buffer.byteLength(rendered, 'utf-8') > ENTRY_MAX_BYTES
-    ? clipBytes(rendered, ENTRY_MAX_BYTES)
-    : rendered;
+  let head =
+    Buffer.byteLength(rendered, 'utf-8') > ENTRY_MAX_BYTES
+      ? clipBytes(rendered, ENTRY_MAX_BYTES)
+      : rendered;
 
   if (entry.error?.stack) {
     head = `${head}\n${indentStack(clipStack(redactString(entry.error.stack)))}`;

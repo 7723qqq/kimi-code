@@ -1,5 +1,5 @@
-import type { WebSocket } from 'ws';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { WebSocket } from 'ws';
 
 import type { IConnectionRegistry } from '../src/transport/ws/connectionRegistry';
 import type { SessionEventBroadcaster } from '../src/transport/ws/v1/sessionEventBroadcaster';
@@ -124,7 +124,12 @@ describe('coalesceFrames', () => {
       delta('s1', 'main', 1, 'world', 6),
     ]);
     expect(out).toHaveLength(1);
-    const f = out[0] as { offset: number; volatile: boolean; seq: number; payload: { delta: string } };
+    const f = out[0] as {
+      offset: number;
+      volatile: boolean;
+      seq: number;
+      payload: { delta: string };
+    };
     expect(f.payload.delta).toBe('Hello world');
     expect(f.offset).toBe(0);
     expect(f.volatile).toBe(true);
@@ -220,7 +225,11 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
         return true;
       },
       unsubscribe: () => {},
-      unsubscribeTranscript: (sessionId: string, _target: unknown, agentIds?: readonly string[]) => {
+      unsubscribeTranscript: (
+        sessionId: string,
+        _target: unknown,
+        agentIds?: readonly string[],
+      ) => {
         detaches.push({ sessionId, agentIds });
       },
       addGlobalTarget: () => {},
@@ -388,7 +397,12 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
       addGlobalTarget: () => {},
       removeGlobalTarget: () => {},
       getCursor: async () => ({ seq: 10, epoch: 'e1' }),
-      getBufferedSince: async (_sid: string, _cursor: unknown, _filter: unknown, grades: unknown) => {
+      getBufferedSince: async (
+        _sid: string,
+        _cursor: unknown,
+        _filter: unknown,
+        grades: unknown,
+      ) => {
         seenGrades = grades;
         return {
           events: backlog
@@ -426,7 +440,10 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
     expect(types).not.toContain('turn.started');
     expect(types).not.toContain('assistant.delta');
     expect(
-      types.slice(types.indexOf('event.session.work_changed'), types.lastIndexOf('transcript.reset') + 1),
+      types.slice(
+        types.indexOf('event.session.work_changed'),
+        types.lastIndexOf('transcript.reset') + 1,
+      ),
     ).toEqual(['event.session.work_changed', 'transcript.reset']);
     conn.close();
   });
@@ -532,10 +549,7 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
     const conn = makeConn(socket, { broadcaster });
 
     socket.emit('message', controlFrame('unsubscribe_v2', { agent_ids: ['main'] }));
-    socket.emit(
-      'message',
-      controlFrame('unsubscribe_v2', { session_id: 's1', agent_ids: [] }),
-    );
+    socket.emit('message', controlFrame('unsubscribe_v2', { session_id: 's1', agent_ids: [] }));
     await vi.waitFor(() =>
       expect(socket.sent.filter((f) => JSON.parse(f).type === 'ack')).toHaveLength(2),
     );
@@ -578,9 +592,7 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
       controlFrame('subscribe_v2', { session_id: 's1', transcript: { '*': 'delta' } }),
     );
     socket.emit('message', controlFrame('unsubscribe_v2', { session_id: 's1' }));
-    await vi.waitFor(() =>
-      expect(conn.subscriptions.get('s1')?.transcriptGrades).toBeUndefined(),
-    );
+    await vi.waitFor(() => expect(conn.subscriptions.get('s1')?.transcriptGrades).toBeUndefined());
 
     socket.emit(
       'message',

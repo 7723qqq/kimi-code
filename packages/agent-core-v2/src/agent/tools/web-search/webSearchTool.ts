@@ -1,4 +1,7 @@
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import { IWebSearchProviderService } from '#/app/auth/webSearch/webSearch';
 import { toInputJsonSchema } from '#/tool/input-schema';
+import { ToolOutputAccumulator } from '#/tool/output-accumulator';
 import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
 import {
   ToolAccesses,
@@ -6,15 +9,8 @@ import {
   type ExecutableToolResult,
   type ToolExecution,
 } from '#/tool/toolContract';
-import { ToolOutputAccumulator } from '#/tool/output-accumulator';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-import { IWebSearchProviderService } from '#/app/auth/webSearch/webSearch';
 
-import {
-  IWebSearchTool,
-  WebSearchInputSchema,
-  type WebSearchInput,
-} from './web-search';
+import { IWebSearchTool, WebSearchInputSchema, type WebSearchInput } from './web-search';
 import DESCRIPTION from './web-search.md?raw';
 
 export class WebSearchTool implements IWebSearchTool {
@@ -47,7 +43,8 @@ export class WebSearchTool implements IWebSearchTool {
     if (provider === undefined) {
       return {
         isError: true,
-        output: 'Web search is no longer configured; the provider was removed after this session started.',
+        output:
+          'Web search is no longer configured; the provider was removed after this session started.',
       };
     }
     try {

@@ -4,22 +4,21 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { createActor, waitFor } from '#/xstate2';
-
+import type { StateUpdated } from '#/agent/events';
+import { createAgentMachine } from '#/agent/machine';
+import type { AgentEventStore, TurnIndexState } from '#/agent/slices';
+import type { HistoryMessage } from '#/agent/turn';
+import { createSlice } from '#/eventStore/slice';
 import { UNKNOWN_CAPABILITY } from '#/llm/capability';
 import { createUserMessage, extractText } from '#/llm/message';
 import type { LlmModel } from '#/llm/model';
 import type { LlmRequester } from '#/llm/requester/requester';
-import { createAgentMachine } from '#/agent/machine';
-import type { StateUpdated } from '#/agent/events';
-import type { AgentEventStore, TurnIndexState } from '#/agent/slices';
-import type { HistoryMessage } from '#/agent/turn';
-import { createSessionMachine, type AgentActorRef } from '#/session/machine';
-import type { SessionStores } from '#/session/stores';
-import { createSlice } from '#/eventStore/slice';
 import { openSessionStore } from '#/persist/open';
 import { migrateV2Session } from '#/persist/v2/migrate';
+import { createSessionMachine, type AgentActorRef } from '#/session/machine';
+import type { SessionStores } from '#/session/stores';
 import { testScopeFactory } from '#/test/agent/scope-factory';
+import { createActor, waitFor } from '#/xstate2';
 
 const MAIN = 'main';
 
@@ -96,7 +95,14 @@ async function makeV2SessionDir(fixture: V2SessionFixture): Promise<string> {
     const header =
       agent.header === null
         ? []
-        : [agent.header ?? JSON.stringify({ type: 'metadata', protocol_version: '1.5', created_at: 1700000000000 })];
+        : [
+            agent.header ??
+              JSON.stringify({
+                type: 'metadata',
+                protocol_version: '1.5',
+                created_at: 1700000000000,
+              }),
+          ];
     const lines = [...header, ...agent.records.map((record) => JSON.stringify(record))];
     await writeFile(join(agentDir, 'wire.jsonl'), `${lines.join('\n')}\n`);
     if (agent.blobs !== undefined) {
@@ -115,36 +121,86 @@ function appendUser(text: string, agentId = MAIN, origin?: unknown): Record<stri
     type: 'context.append_message',
     agentId,
     time: 1,
-    message: { role: 'user', content: [{ type: 'text', text }], toolCalls: [], origin: origin ?? { kind: 'user' } },
+    message: {
+      role: 'user',
+      content: [{ type: 'text', text }],
+      toolCalls: [],
+      origin: origin ?? { kind: 'user' },
+    },
   };
 }
 
 function turnPrompt(agentId = MAIN): Record<string, unknown> {
-  return { type: 'turn.prompt', agentId, time: 1, input: [{ type: 'text', text: 'x' }], origin: { kind: 'user' } };
+  return {
+    type: 'turn.prompt',
+    agentId,
+    time: 1,
+    input: [{ type: 'text', text: 'x' }],
+    origin: { kind: 'user' },
+  };
 }
 
 function stepBegin(uuid: string, agentId = MAIN): Record<string, unknown> {
-  return { type: 'context.append_loop_event', agentId, time: 1, event: { type: 'step.begin', uuid, turnId: '0' } };
+  return {
+    type: 'context.append_loop_event',
+    agentId,
+    time: 1,
+    event: { type: 'step.begin', uuid, turnId: '0' },
+  };
 }
 
 function contentPart(stepUuid: string, text: string, agentId = MAIN): Record<string, unknown> {
-  return { type: 'context.append_loop_event', agentId, time: 1, event: { type: 'content.part', stepUuid, part: { type: 'text', text } } };
+  return {
+    type: 'context.append_loop_event',
+    agentId,
+    time: 1,
+    event: { type: 'content.part', stepUuid, part: { type: 'text', text } },
+  };
 }
 
-function toolCall(stepUuid: string, toolCallId: string, name: string, args: unknown, agentId = MAIN): Record<string, unknown> {
-  return { type: 'context.append_loop_event', agentId, time: 1, event: { type: 'tool.call', stepUuid, toolCallId, name, args } };
+function toolCall(
+  stepUuid: string,
+  toolCallId: string,
+  name: string,
+  args: unknown,
+  agentId = MAIN,
+): Record<string, unknown> {
+  return {
+    type: 'context.append_loop_event',
+    agentId,
+    time: 1,
+    event: { type: 'tool.call', stepUuid, toolCallId, name, args },
+  };
 }
 
 function toolResult(toolCallId: string, output: unknown, agentId = MAIN): Record<string, unknown> {
-  return { type: 'context.append_loop_event', agentId, time: 1, event: { type: 'tool.result', toolCallId, result: { output } } };
+  return {
+    type: 'context.append_loop_event',
+    agentId,
+    time: 1,
+    event: { type: 'tool.result', toolCallId, result: { output } },
+  };
 }
 
-function stepEnd(uuid: string, extra: Record<string, unknown> = {}, agentId = MAIN): Record<string, unknown> {
-  return { type: 'context.append_loop_event', agentId, time: 1, event: { type: 'step.end', uuid, ...extra } };
+function stepEnd(
+  uuid: string,
+  extra: Record<string, unknown> = {},
+  agentId = MAIN,
+): Record<string, unknown> {
+  return {
+    type: 'context.append_loop_event',
+    agentId,
+    time: 1,
+    event: { type: 'step.end', uuid, ...extra },
+  };
 }
 
 function assistantStep(uuid: string, text: string, agentId = MAIN): Record<string, unknown>[] {
-  return [stepBegin(uuid, agentId), contentPart(uuid, text, agentId), stepEnd(uuid, { finishReason: 'end_turn' }, agentId)];
+  return [
+    stepBegin(uuid, agentId),
+    contentPart(uuid, text, agentId),
+    stepEnd(uuid, { finishReason: 'end_turn' }, agentId),
+  ];
 }
 
 const statesSlice = createSlice({
@@ -219,7 +275,18 @@ describe('migrateV2Session', () => {
           records: [
             turnPrompt(),
             appendUser('hi'),
-            { type: 'llm.request', agentId: MAIN, time: 1, kind: 'loop', provider: 'prov', model: 'mod', toolSelect: 'auto', systemPromptHash: 'h', toolsHash: 't', messageCount: 1 },
+            {
+              type: 'llm.request',
+              agentId: MAIN,
+              time: 1,
+              kind: 'loop',
+              provider: 'prov',
+              model: 'mod',
+              toolSelect: 'auto',
+              systemPromptHash: 'h',
+              toolsHash: 't',
+              messageCount: 1,
+            },
             stepBegin('s1'),
             contentPart('s1', 'hello '),
             contentPart('s1', 'world'),
@@ -265,8 +332,16 @@ describe('migrateV2Session', () => {
       expect(first.message.toolCalls).toEqual([
         { type: 'function', id: 'c1', name: 'bash', arguments: '{"cmd":"ls"}' },
       ]);
-      expect(first.meta?.usage).toEqual({ inputOther: 1, output: 2, inputCacheRead: 3, inputCacheCreation: 4 });
-      expect(first.meta?.finish).toEqual({ finishReason: 'tool_calls', rawFinishReason: 'stop_raw' });
+      expect(first.meta?.usage).toEqual({
+        inputOther: 1,
+        output: 2,
+        inputCacheRead: 3,
+        inputCacheCreation: 4,
+      });
+      expect(first.meta?.finish).toEqual({
+        finishReason: 'tool_calls',
+        rawFinishReason: 'stop_raw',
+      });
       expect(first.meta?.messageId).toBe('msg_v2_1');
       expect(first.meta?.model).toEqual({ provider: 'prov', model: 'mod' });
     }
@@ -303,7 +378,11 @@ describe('migrateV2Session', () => {
     });
     const loaded = await loadMigrated(dir);
     const agent = loaded.agents[0]!;
-    expect(agent.messages.map((entry) => entry.message.role)).toEqual(['user', 'assistant', 'tool']);
+    expect(agent.messages.map((entry) => entry.message.role)).toEqual([
+      'user',
+      'assistant',
+      'tool',
+    ]);
     expect(extractText(agent.messages[2]!.message)).toBe(
       'Tool execution was interrupted before its result was recorded. Do not assume the tool completed successfully.',
     );
@@ -329,7 +408,10 @@ describe('migrateV2Session', () => {
       },
     });
     const loaded = await loadMigrated(dir);
-    expect(loaded.agents[0]!.messages.map((entry) => extractText(entry.message))).toEqual(['one', 'a1']);
+    expect(loaded.agents[0]!.messages.map((entry) => extractText(entry.message))).toEqual([
+      'one',
+      'a1',
+    ]);
 
     const boundary = await makeV2SessionDir({
       agents: {
@@ -366,7 +448,12 @@ describe('migrateV2Session', () => {
           records: [
             appendUser('u1'),
             ...assistantStep('s1', 'a1'),
-            appendUser('u2', MAIN, { kind: 'task', taskId: 't1', status: 'done', notificationId: 'n1' }),
+            appendUser('u2', MAIN, {
+              kind: 'task',
+              taskId: 't1',
+              status: 'done',
+              notificationId: 'n1',
+            }),
             appendUser('u3'),
             {
               type: 'context.apply_compaction',
@@ -384,7 +471,11 @@ describe('migrateV2Session', () => {
     const loaded = await loadMigrated(dir);
     const agent = loaded.agents[0]!;
     expect(agent.messages.map((entry) => extractText(entry.message))).toEqual(['u1', 'u3', 'CTX']);
-    expect(agent.messages.map((entry) => entry.meta?.source)).toEqual(['input', 'input', 'compaction_summary']);
+    expect(agent.messages.map((entry) => entry.meta?.source)).toEqual([
+      'input',
+      'input',
+      'compaction_summary',
+    ]);
 
     const big = 'x'.repeat(90_000);
     const elided = await makeV2SessionDir({
@@ -424,13 +515,22 @@ describe('migrateV2Session', () => {
             appendUser('u1'),
             appendUser('u2'),
             appendUser('u3'),
-            { type: 'context.apply_compaction', agentId: MAIN, time: 1, summary: 'LEG', compactedCount: 2 },
+            {
+              type: 'context.apply_compaction',
+              agentId: MAIN,
+              time: 1,
+              summary: 'LEG',
+              compactedCount: 2,
+            },
           ],
         },
       },
     });
     const loadedLegacy = await loadMigrated(legacy);
-    expect(loadedLegacy.agents[0]!.messages.map((entry) => extractText(entry.message))).toEqual(['LEG', 'u3']);
+    expect(loadedLegacy.agents[0]!.messages.map((entry) => extractText(entry.message))).toEqual([
+      'LEG',
+      'u3',
+    ]);
   });
 
   it('migrates multiple agents with todo state', async () => {
@@ -440,16 +540,18 @@ describe('migrateV2Session', () => {
         'agent-1': {
           records: [
             turnPrompt('agent-1'),
-            appendUser('sub', 'agent-1', { kind: 'task', taskId: 't1', status: 'done', notificationId: 'n1' }),
+            appendUser('sub', 'agent-1', {
+              kind: 'task',
+              taskId: 't1',
+              status: 'done',
+              notificationId: 'n1',
+            }),
             {
               type: 'tools.update_store',
               agentId: 'agent-1',
               time: 1,
               key: 'todo',
-              value: [
-                { title: 'task a', status: 'in_progress' },
-                { title: 'missing status' },
-              ],
+              value: [{ title: 'task a', status: 'in_progress' }, { title: 'missing status' }],
             },
           ],
         },
@@ -511,12 +613,18 @@ describe('migrateV2Session', () => {
       agents: { [MAIN]: { header: null, records: [appendUser('legacy')] } },
     });
     const loadedHeaderless = await loadMigrated(headerless);
-    expect(loadedHeaderless.agents[0]!.messages.map((entry) => extractText(entry.message))).toEqual(['legacy']);
+    expect(loadedHeaderless.agents[0]!.messages.map((entry) => extractText(entry.message))).toEqual(
+      ['legacy'],
+    );
 
     const v10 = await makeV2SessionDir({
       agents: {
         [MAIN]: {
-          header: JSON.stringify({ type: 'metadata', protocol_version: '1.0', created_at: 1700000000000 }),
+          header: JSON.stringify({
+            type: 'metadata',
+            protocol_version: '1.0',
+            created_at: 1700000000000,
+          }),
           records: [
             {
               type: 'context.append_message',
@@ -525,7 +633,9 @@ describe('migrateV2Session', () => {
               message: {
                 role: 'assistant',
                 content: [],
-                toolCalls: [{ type: 'function', id: 'c1', function: { name: 'bash', arguments: '{"a":1}' } }],
+                toolCalls: [
+                  { type: 'function', id: 'c1', function: { name: 'bash', arguments: '{"a":1}' } },
+                ],
               },
             },
           ],
@@ -543,12 +653,18 @@ describe('migrateV2Session', () => {
     const newer = await makeV2SessionDir({
       agents: {
         [MAIN]: {
-          header: JSON.stringify({ type: 'metadata', protocol_version: '9.9', created_at: 1700000000000 }),
+          header: JSON.stringify({
+            type: 'metadata',
+            protocol_version: '9.9',
+            created_at: 1700000000000,
+          }),
           records: [appendUser('future')],
         },
       },
     });
-    await expect(migrateV2Session(newer)).rejects.toMatchObject({ code: 'unsupported-wire-version' });
+    await expect(migrateV2Session(newer)).rejects.toMatchObject({
+      code: 'unsupported-wire-version',
+    });
   });
 
   it('openSessionStore migrates once, and the restored session continues and undoes', async () => {

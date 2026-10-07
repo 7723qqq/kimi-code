@@ -39,5 +39,6 @@ export interface ISessionTokenCountingService {
   estimateTools(tools: readonly Tool[]): number;
 }
 
-export const ISessionTokenCountingService =
-  createDecorator<ISessionTokenCountingService>('sessionTokenCountingService');
+export const ISessionTokenCountingService = createDecorator<ISessionTokenCountingService>(
+  'sessionTokenCountingService',
+);

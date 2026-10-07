@@ -13,7 +13,13 @@ describe('server-v2 exposure hardening hooks', () => {
 
   beforeAll(async () => {
     home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-exposure-'));
-    server = await startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent' });
+    server = await startServer({
+      hostIdentity: TEST_HOST_IDENTITY,
+      host: '127.0.0.1',
+      port: 0,
+      homeDir: home,
+      logLevel: 'silent',
+    });
   });
 
   afterAll(async () => {
@@ -55,7 +61,13 @@ describe('server-v2 exposure hardening hooks', () => {
 
   it('refuses to bind non-loopback hosts without TLS opt-out', async () => {
     await expect(
-      startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '0.0.0.0', port: 0, homeDir: home, logLevel: 'silent' }),
+      startServer({
+        hostIdentity: TEST_HOST_IDENTITY,
+        host: '0.0.0.0',
+        port: 0,
+        homeDir: home,
+        logLevel: 'silent',
+      }),
     ).rejects.toThrow(/Refusing to bind 0\.0\.0\.0/);
   });
 

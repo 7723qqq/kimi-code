@@ -17,5 +17,4 @@ export interface BlobReadRange {
   readonly end: number;
 }
 
-export const IBlobStore: ServiceIdentifier<IBlobStore> =
-  createDecorator<IBlobStore>('blobStore');
+export const IBlobStore: ServiceIdentifier<IBlobStore> = createDecorator<IBlobStore>('blobStore');

@@ -1,34 +1,31 @@
 import { createHash } from 'node:crypto';
-import { LifecycleScope } from '#/app/scopes';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { defineState } from '#/state/state';
-import type { ToolDescription as KosongTool } from '#human/llm/message';
 
-import { type IDisposable } from "#/_base/di/lifecycle";
-import { Service } from "#/_base/di/service";
-import { ErrorCodes, makeErrorPayload } from "#/errors";
+import { type IDisposable } from '#/_base/di/lifecycle';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Service } from '#/_base/di/service';
 import { abortable } from '#/_base/utils/abort';
-import { IAgentProfileService } from '#/agent/profile/profile';
-import { IAgentStateService } from '#/agent/state/agentState';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { ISessionMediaStore } from '#/agent/media/sessionMediaStore';
-import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { createMcpAuthTool } from '#/agent/mcp/tools/auth';
 import { createMcpTool } from '#/agent/mcp/tools/mcp';
-import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
+import { ISessionMediaStore } from '#/agent/media/sessionMediaStore';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentStateService } from '#/agent/state/agentState';
+import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { LifecycleScope } from '#/app/scopes';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { ErrorCodes, makeErrorPayload } from '#/errors';
 import type { McpServerEntry } from '#/mcpCore/connection-manager';
-import { IAgentMcpService } from './mcp';
 import { qualifyMcpToolName } from '#/mcpCore/tool-naming';
 import type { MCPClient, MCPToolDefinition } from '#/mcpCore/types';
+import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
 import { IEventDispatcher } from '#/state/eventDispatcher';
-import {
-  mcpDiscoveryKey,
-  McpToolsDiscovered,
-  type McpToolCollision,
-} from './mcpDiscoveryOps';
+import { defineState } from '#/state/state';
+import type { ToolDescription as KosongTool } from '#human/llm/message';
+
+import { IAgentMcpService } from './mcp';
+import { mcpDiscoveryKey, McpToolsDiscovered, type McpToolCollision } from './mcpDiscoveryOps';
 import { AgentErrorEvent, McpServerStatus, ToolListUpdated } from './mcpEvents';
 
 interface McpToolRegistration {
@@ -298,8 +295,7 @@ export class AgentMcpService extends Service implements IAgentMcpService {
             telemetry: this.telemetry,
             providerType: () => this.profile.getModelProviderType(),
             reconnect: (signal) => this.reconnectForToolCall(serverName, client, signal),
-            isRemoved: () =>
-              this.mcpHandle.connectionManager.get(serverName)?.status === 'removed',
+            isRemoved: () => this.mcpHandle.connectionManager.get(serverName)?.status === 'removed',
             onUnauthorized: (error, failedClient) =>
               this.mcpHandle.connectionManager.markNeedsAuth(serverName, error, failedClient),
           }),
@@ -364,10 +360,7 @@ export class AgentMcpService extends Service implements IAgentMcpService {
     }
   }
 
-  private emitMcpToolCollisions(
-    serverName: string,
-    collisions: readonly McpToolCollision[],
-  ): void {
+  private emitMcpToolCollisions(serverName: string, collisions: readonly McpToolCollision[]): void {
     if (collisions.length === 0) return;
     const summary = collisions
       .map((collision) =>

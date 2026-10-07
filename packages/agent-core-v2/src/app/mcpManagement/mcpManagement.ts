@@ -1,12 +1,11 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
-
-import type { McpServerConfig } from '#/mcpCore/config-schema';
-import type { McpServerConfigView } from '#/mcpCore/configView';
 import type {
   McpRegistryPluginOrigin,
   McpRegistryQuery,
   McpServerSource,
 } from '#/app/mcpRegistry/mcpRegistry';
+import type { McpServerConfig } from '#/mcpCore/config-schema';
+import type { McpServerConfigView } from '#/mcpCore/configView';
 
 export type GlobalMcpServerConfig = McpServerConfig & { readonly name: string };
 

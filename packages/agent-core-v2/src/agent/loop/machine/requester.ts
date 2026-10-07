@@ -101,7 +101,10 @@ export function createMachineRequester(
         },
       });
       if (finish.providerMessageId !== undefined) {
-        control.onEvent?.({ type: 'llm.streaming.message_id', messageId: finish.providerMessageId });
+        control.onEvent?.({
+          type: 'llm.streaming.message_id',
+          messageId: finish.providerMessageId,
+        });
       }
       control.onEvent?.({ type: 'llm.done' });
     } catch (error) {

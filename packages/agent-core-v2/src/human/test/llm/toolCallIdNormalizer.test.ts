@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Message, ToolCall } from '#/llm/message';
-
 import { ToolCallIdNormalizer } from '#/llm/toolCallIdNormalizer';
 
 function call(id: string, streamIndex?: number): ToolCall {
@@ -103,7 +102,11 @@ describe('ToolCallIdNormalizer', () => {
     const response = normalizer.beginResponse();
     response.remapStreamedId('Bash_0', 0);
 
-    const finalized = response.remapFinalizedCalls([call('Bash_0'), call('late_1'), call('late_1')]);
+    const finalized = response.remapFinalizedCalls([
+      call('Bash_0'),
+      call('late_1'),
+      call('late_1'),
+    ]);
     expect(finalized.map((c) => c.id)).toEqual(['Bash_0', 'late_1', 'late_1__2']);
   });
 

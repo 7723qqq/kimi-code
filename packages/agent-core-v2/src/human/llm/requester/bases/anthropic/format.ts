@@ -14,26 +14,19 @@ import {
   type LlmRemoteErrorMessage,
 } from '#/llm/errors';
 import { NO_FINISH, type FinishInfo, type FinishReason } from '#/llm/finish-reason';
-import type { FormatRequestInput, ProtocolFormat } from '#/llm/protocol/format';
-import type { ResponseFormat } from '#/llm/response-format';
-import { SyntaxRequestFormatError } from '#/llm/syntax-errors';
 import type { Message, ToolDescription } from '#/llm/message';
+import type { FormatRequestInput, ProtocolFormat } from '#/llm/protocol/format';
 import { mergeConsecutiveUsers } from '#/llm/protocol/patterns';
 import { applyPatterns } from '#/llm/protocol/rewrite';
+import type { ResponseFormat } from '#/llm/response-format';
+import { SyntaxRequestFormatError } from '#/llm/syntax-errors';
 import type { TokenUsage } from '#/llm/usage';
 
 import { CONTEXT_MANAGEMENT_BETA } from './contract';
-import type {
-  AnthropicRawStreamEvent,
-  AnthropicRawUsage,
-  AnthropicWireMessage,
-} from './contract';
+import type { AnthropicRawStreamEvent, AnthropicRawUsage, AnthropicWireMessage } from './contract';
 import { lowerMessage, messageContent } from './lower';
 import { audioToPlaceholder, stripUnsignedThinking } from './patterns';
-import {
-  resolveDefaultMaxTokens,
-  shouldPreserveUnsignedThinking,
-} from './profile';
+import { resolveDefaultMaxTokens, shouldPreserveUnsignedThinking } from './profile';
 
 const CLEAR_THINKING_EDIT = 'clear_thinking_20251015';
 
@@ -123,9 +116,7 @@ export function applyAnthropicResponseFormat(
   }
   const existing = kwargs['output_config'];
   const outputConfig =
-    existing !== undefined && existing !== null
-      ? { ...(existing as Record<string, unknown>) }
-      : {};
+    existing !== undefined && existing !== null ? { ...(existing as Record<string, unknown>) } : {};
   outputConfig['format'] = { type: 'json_schema', schema: format.jsonSchema.schema };
   return { ...kwargs, output_config: outputConfig };
 }
@@ -135,9 +126,7 @@ export function applyAnthropicThinkingKeep(
   keep: string,
 ): Record<string, unknown> {
   const betaFeatures = kwargs['betaFeatures'];
-  const existing = kwargs['context_management'] as
-    | { edits?: Array<{ type: string }> }
-    | undefined;
+  const existing = kwargs['context_management'] as { edits?: Array<{ type: string }> } | undefined;
   return {
     ...kwargs,
     betaFeatures: Array.isArray(betaFeatures)
@@ -253,9 +242,7 @@ export function assembleAnthropicRequest(
   return { params, betas, useBetaApi };
 }
 
-export function encodeAnthropicRequest(
-  assembly: AnthropicRequestAssembly,
-): AnthropicRequestParams {
+export function encodeAnthropicRequest(assembly: AnthropicRequestAssembly): AnthropicRequestParams {
   return {
     params: assembly.params as unknown as Anthropic.MessageCreateParamsStreaming,
     betas: assembly.betas,

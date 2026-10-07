@@ -3,13 +3,7 @@ import { z } from 'zod';
 
 import { AgentEvent2 } from '#/app/event/event2';
 
-import type {
-  GoalActor,
-  GoalBudgetLimits,
-  GoalChange,
-  GoalSnapshot,
-  GoalStatus,
-} from './types';
+import type { GoalActor, GoalBudgetLimits, GoalChange, GoalSnapshot, GoalStatus } from './types';
 
 export interface GoalState {
   readonly goalId: string;

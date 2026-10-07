@@ -335,15 +335,13 @@ function parseJsonResult(text: string): unknown {
     if (match && match[1]) {
       try {
         return JSON.parse(match[1].trim());
-      } catch {
-      }
+      } catch {}
     }
     const objMatch = text.match(/\{[\s\S]*\}/);
     if (objMatch) {
       try {
         return JSON.parse(objMatch[0]);
-      } catch {
-      }
+      } catch {}
     }
     return null;
   }
@@ -394,8 +392,7 @@ async function walkDir(
       } else {
         fn(childRel);
       }
-    } catch {
-    }
+    } catch {}
   }
 }
 

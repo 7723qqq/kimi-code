@@ -1,8 +1,4 @@
-import {
-  headersToRecord,
-  parseRetryAfterMs,
-  type LlmRemoteErrorMessage,
-} from '#/llm/errors';
+import { headersToRecord, parseRetryAfterMs, type LlmRemoteErrorMessage } from '#/llm/errors';
 
 const KIMI_QUOTA_EXHAUSTED_ERROR_CODES = new Set(['exceeded_current_quota_error']);
 

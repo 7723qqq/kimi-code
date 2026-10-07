@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
 
-import { Disposable, type IDisposable } from '#/_base/di/lifecycle';
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
-import { LifecycleScope } from '#/app/scopes';
+import { Disposable, type IDisposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { LifecycleScope } from '#/app/scopes';
+import { ErrorCodes, Error2 } from '#/errors';
 import type {
   CreateTerminalRequest,
   Terminal,
@@ -14,13 +15,11 @@ import type {
   TerminalOutputMessage,
   TerminalProcess,
 } from '#/os/interface/terminal';
-import { ErrorCodes, Error2 } from '#/errors';
+import type { RuntimeLease } from '#/runtime/runtime';
+import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { IRuntimeResolver } from '#/workspace/workspaceInstance/workspaceInstanceManager';
-
-import type { RuntimeLease } from '#/runtime/runtime';
-import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
 
 const DEFAULT_COLS = 80;
 const DEFAULT_ROWS = 24;
@@ -79,7 +78,8 @@ export class SessionTerminalService extends Disposable implements ISessionTermin
       ['terminal'],
     );
     const view = new RuntimeWorkspaceView(lease.runtime, this.workspace);
-    const cwd = input.cwd === undefined ? view.workDir : view.assertAllowed(view.resolve(input.cwd));
+    const cwd =
+      input.cwd === undefined ? view.workDir : view.assertAllowed(view.resolve(input.cwd));
     const shell = input.shell ?? lease.runtime.environment.shellPath;
     let process: TerminalProcess;
     try {
@@ -118,9 +118,7 @@ export class SessionTerminalService extends Disposable implements ISessionTermin
   }
 
   list(): Promise<readonly Terminal[]> {
-    return Promise.resolve(
-      [...this.records.values()].map((record) => ({ ...record.terminal })),
-    );
+    return Promise.resolve([...this.records.values()].map((record) => ({ ...record.terminal })));
   }
 
   async get(terminalId: string): Promise<Terminal> {
@@ -179,8 +177,7 @@ export class SessionTerminalService extends Disposable implements ISessionTermin
       record.lease.dispose();
       try {
         record.process.kill();
-      } catch {
-      }
+      } catch {}
     }
     this.records.clear();
     super.dispose();

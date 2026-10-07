@@ -1,10 +1,9 @@
 import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { AsyncEmitter, type Event, type IWaitUntil } from '#/_base/event';
+import { LifecycleScope } from '#/app/scopes';
 
 import { deepEqual, diffRecords, isEmptyDiff } from '../record-diff';
-
 import {
   type DefaultProviderChangedEvent,
   type ProviderConfig,

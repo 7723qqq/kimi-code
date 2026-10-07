@@ -1,6 +1,5 @@
 import { KIMI_CODE_PROVIDER_NAME } from '@moonshot-ai/kimi-code-oauth';
-import type { AuthSummary } from './authLegacy';
-import { LifecycleScope } from '#/app/scopes';
+
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IOAuthService } from '#/app/auth/auth';
 import { IConfigService } from '#/app/config/config';
@@ -10,10 +9,12 @@ import {
   MODELS_SECTION,
   PROVIDERS_SECTION,
 } from '#/app/kosongConfig/configSection';
-import { resolveModelForReady } from '#/llm-adapter/model/model-auth';
+import { LifecycleScope } from '#/app/scopes';
 import type { ModelRecord } from '#/llm-adapter/model/model';
+import { resolveModelForReady } from '#/llm-adapter/model/model-auth';
 import type { ProviderConfig } from '#/llm-adapter/provider/provider';
 
+import type { AuthSummary } from './authLegacy';
 import { IAuthLegacyService } from './authLegacy';
 
 const MANAGED_PROVIDER_NAME = KIMI_CODE_PROVIDER_NAME;
@@ -37,7 +38,12 @@ export class AuthLegacyService implements IAuthLegacyService {
     const defaultModel = snapshot[DEFAULT_MODEL_SECTION] as string | undefined;
     const defaultProvider = snapshot[DEFAULT_PROVIDER_SECTION] as string | undefined;
     const providers_count = Object.keys(providers).length;
-    const models_ready = resolveModelForReady(defaultModel, models, providers, defaultProvider).resolved;
+    const models_ready = resolveModelForReady(
+      defaultModel,
+      models,
+      providers,
+      defaultProvider,
+    ).resolved;
 
     let managed_provider: AuthSummary['managed_provider'] = null;
     if (providers[MANAGED_PROVIDER_NAME] !== undefined) {

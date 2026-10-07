@@ -10,13 +10,13 @@ import {
   type TerminalProcess,
   type TerminalSpawnOptions,
 } from '@moonshot-ai/agent-core-v2';
-import { ErrorCode } from '../src/protocol/error-codes';
 import type { Terminal } from '@moonshot-ai/agent-core-v2';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
+import { ErrorCode } from '../src/protocol/error-codes';
 import { type RunningServer, startServer } from '../src/start';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
 class FakeTerminalProcess implements TerminalProcess {
   private readonly dataListeners = new Set<(data: string) => void>();
@@ -153,7 +153,9 @@ describe('server-v2 /api/v1/sessions/{sid}/terminals', () => {
   }
 
   async function post<T>(path: string, body: unknown): Promise<Envelope<T>> {
-    const requestBody = path.endsWith('/terminals') ? { runtime_id: 'local', ...(body as object) } : body;
+    const requestBody = path.endsWith('/terminals')
+      ? { runtime_id: 'local', ...(body as object) }
+      : body;
     const res = await fetch(`${base}${path}`, {
       method: 'POST',
       headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
@@ -176,8 +178,9 @@ describe('server-v2 /api/v1/sessions/{sid}/terminals', () => {
       const sidA = await createSession(rootA);
       const sidB = await createSession(rootB);
 
-      const termA = (await post<Terminal>(`/api/v1/sessions/${sidA}/terminals`, { cols: 100, rows: 30 }))
-        .data;
+      const termA = (
+        await post<Terminal>(`/api/v1/sessions/${sidA}/terminals`, { cols: 100, rows: 30 })
+      ).data;
       const termB = (await post<Terminal>(`/api/v1/sessions/${sidB}/terminals`, {})).data;
 
       expect(termA.session_id).toBe(sidA);

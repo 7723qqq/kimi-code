@@ -1,3 +1,6 @@
+import type { PermissionOption, RequestPermissionResponse } from '@agentclientprotocol/sdk';
+import type { SessionApprovalRequest } from '@moonshot-ai/agent-core-v2';
+import type { ToolInputDisplay } from '@moonshot-ai/agent-core-v2/contract';
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -15,10 +18,6 @@ import {
   SPEC_REJECT_AND_EXIT_OPTION_ID,
   SPEC_REVISE_OPTION_ID,
 } from '../src/approval';
-
-import type { PermissionOption, RequestPermissionResponse } from '@agentclientprotocol/sdk';
-import type { SessionApprovalRequest } from '@moonshot-ai/agent-core-v2';
-import type { ToolInputDisplay } from '@moonshot-ai/agent-core-v2/contract';
 
 function selected(optionId: string): RequestPermissionResponse {
   return { outcome: { outcome: 'selected', optionId } };
@@ -169,7 +168,9 @@ describe('permissionResponseToApprovalResponse', () => {
       plan: 'p',
       options: [{ label: 'Alpha' }, { label: 'Beta' }],
     } as unknown as ToolInputDisplay;
-    expect(permissionResponseToApprovalResponse(makeRequest(display), selected('plan_opt_1'))).toEqual({
+    expect(
+      permissionResponseToApprovalResponse(makeRequest(display), selected('plan_opt_1')),
+    ).toEqual({
       decision: 'approved',
       selectedLabel: 'Beta',
     });

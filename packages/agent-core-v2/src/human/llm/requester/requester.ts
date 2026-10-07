@@ -1,10 +1,6 @@
 import type { LlmErrorMessage, LlmRemoteErrorMessage } from '#/llm/errors';
 import type { FinishInfo } from '#/llm/finish-reason';
-import type {
-  Message,
-  StreamedMessagePart,
-  ToolDescription,
-} from '#/llm/message';
+import type { Message, StreamedMessagePart, ToolDescription } from '#/llm/message';
 import type { LlmModel } from '#/llm/model';
 import type { ResponseFormat } from '#/llm/response-format';
 import type { ThinkingRequestOptions } from '#/llm/thinking';
@@ -12,8 +8,8 @@ import type { TokenUsage } from '#/llm/usage';
 
 import type { AnthropicExtraParams } from './bases/anthropic/extra-params';
 import type { GoogleGenAIExtraParams } from './bases/google-genai/extra-params';
-import type { OpenAIExtraParams } from './bases/openai/extra-params';
 import type { OpenAIResponsesExtraParams } from './bases/openai-responses/extra-params';
+import type { OpenAIExtraParams } from './bases/openai/extra-params';
 
 export interface ToolCallIdPolicy {
   normalize: (id: string) => string;

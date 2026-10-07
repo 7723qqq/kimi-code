@@ -71,7 +71,10 @@ export class OAuthTokenTransaction<T extends object> {
       // reads the body, so a shutdown drain that outlives this promise also
       // covers the durable commit (which is itself tracked from save()).
       const operation = request.then((response) =>
-        response.clone().arrayBuffer().catch(() => undefined),
+        response
+          .clone()
+          .arrayBuffer()
+          .catch(() => undefined),
       );
       this.options.track?.(operation);
       return request;
@@ -202,7 +205,10 @@ export class OAuthTokenTransaction<T extends object> {
       return response;
     }
 
-    const payload: unknown = await response.clone().json().catch(() => undefined);
+    const payload: unknown = await response
+      .clone()
+      .json()
+      .catch(() => undefined);
     const parsed = this.options.parse(payload);
     if (parsed === undefined) return response;
     const tokens =
@@ -257,7 +263,9 @@ export class OAuthTokenTransaction<T extends object> {
     return effect.tokens;
   }
 
-  private takeInvalidate(scope: 'tokens' | 'all'): Extract<Effect<T>, { kind: 'invalidate' }> | undefined {
+  private takeInvalidate(
+    scope: 'tokens' | 'all',
+  ): Extract<Effect<T>, { kind: 'invalidate' }> | undefined {
     const index = this.effects.findIndex(
       (effect) =>
         effect.kind === 'invalidate' &&
@@ -290,7 +298,10 @@ function refreshToken(tokens: object | undefined): string | undefined {
 }
 
 async function oauthErrorCode(response: Response): Promise<string | undefined> {
-  const payload: unknown = await response.clone().json().catch(() => undefined);
+  const payload: unknown = await response
+    .clone()
+    .json()
+    .catch(() => undefined);
   if (typeof payload !== 'object' || payload === null || !('error' in payload)) return undefined;
   return typeof payload.error === 'string' ? payload.error : undefined;
 }

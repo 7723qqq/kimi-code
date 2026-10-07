@@ -1,22 +1,15 @@
-import {
-  resolvePathAccessPath,
-  type WorkspaceConfig,
-} from '#/tool/path-access';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import { literalRulePattern, matchesPathRuleSubject } from '#/tool/rule-match';
+import { IAgentRuntimeService, inspectAgentRuntime } from '#/agent/runtimeBinding/agentRuntime';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { IFileEditService } from '#/app/edit/fileEdit';
+import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { Runtime } from '#/runtime/runtime';
 import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
-import { IAgentRuntimeService, inspectAgentRuntime } from '#/agent/runtimeBinding/agentRuntime';
-import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import {
-  ToolAccesses,
-  type ExecutableToolResult,
-  type ToolExecution,
-} from '#/tool/toolContract';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import { resolvePathAccessPath, type WorkspaceConfig } from '#/tool/path-access';
+import { literalRulePattern, matchesPathRuleSubject } from '#/tool/rule-match';
+import { ToolAccesses, type ExecutableToolResult, type ToolExecution } from '#/tool/toolContract';
 
 import { EditInputSchema, IEditTool, type EditInput } from './edit';
 import editDescriptionTemplate from './edit.md?raw';
@@ -75,7 +68,10 @@ export class EditTool implements IEditTool {
         const lease = this.runtime.acquire(['fs']);
         try {
           if (lease.runtime.identity.generation !== inspected.identity.generation) {
-            return { isError: true, output: 'Runtime changed before execution. Retry the tool call.' };
+            return {
+              isError: true,
+              output: 'Runtime changed before execution. Retry the tool call.',
+            };
           }
           return await this.execution(args, path, lease.runtime.fs!);
         } finally {
@@ -97,13 +93,16 @@ export class EditTool implements IEditTool {
       };
     }
 
-    const result = await this.editor.edit({
-      path: safePath,
-      displayPath: args.path,
-      old_string: args.old_string,
-      new_string: args.new_string,
-      replace_all: args.replace_all ?? false,
-    }, fs);
+    const result = await this.editor.edit(
+      {
+        path: safePath,
+        displayPath: args.path,
+        old_string: args.old_string,
+        new_string: args.new_string,
+        replace_all: args.replace_all ?? false,
+      },
+      fs,
+    );
     if (!result.ok) {
       return { isError: true, output: result.error };
     }

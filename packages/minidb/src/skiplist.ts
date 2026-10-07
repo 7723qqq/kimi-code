@@ -67,7 +67,11 @@ export class SkipList<K = number, V = string> {
   constructor(opts: SkipListOptions<K, V> = {}) {
     this.cmpK = opts.compareKey ?? (cmpNumber as unknown as Comparator<K>);
     this.cmpV = opts.compareVal ?? (cmpString as unknown as Comparator<V>);
-    this.header = new SkipNode<K, V>(undefined as unknown as K, undefined as unknown as V, MAX_LEVEL);
+    this.header = new SkipNode<K, V>(
+      undefined as unknown as K,
+      undefined as unknown as V,
+      MAX_LEVEL,
+    );
   }
 
   /** Deterministic O(N) construction from entries already sorted by (key, val)
@@ -79,7 +83,10 @@ export class SkipList<K = number, V = string> {
    *  invariants insert()/delete() maintain; later mutations re-randomize
    *  locally through the normal paths. Duplicate (key, val) pairs are skipped
    *  (insert() would never create them either). */
-  static bulkLoad<K, V>(entries: readonly RangeEntry<K, V>[], opts: SkipListOptions<K, V> = {}): SkipList<K, V> {
+  static bulkLoad<K, V>(
+    entries: readonly RangeEntry<K, V>[],
+    opts: SkipListOptions<K, V> = {},
+  ): SkipList<K, V> {
     const list = new SkipList<K, V>(opts);
     const n = entries.length;
     if (n === 0) return list;
@@ -285,13 +292,17 @@ export class SkipList<K = number, V = string> {
     const target = { key, val };
     for (let i = this.level - 1; i >= 0; i--) {
       let f = x.level[i]!.forward;
-      while (f && (this.nodeLess(f, target) || (this.cmpK(f.key, key) === 0 && this.cmpV(f.val, val) === 0))) {
+      while (
+        f &&
+        (this.nodeLess(f, target) || (this.cmpK(f.key, key) === 0 && this.cmpV(f.val, val) === 0))
+      ) {
         rank += x.level[i]!.span;
         x = f;
         f = x.level[i]!.forward;
       }
     }
-    if (x !== this.header && this.cmpK(x.key, key) === 0 && this.cmpV(x.val, val) === 0) return rank - 1;
+    if (x !== this.header && this.cmpK(x.key, key) === 0 && this.cmpV(x.val, val) === 0)
+      return rank - 1;
     return null;
   }
 
@@ -345,7 +356,9 @@ export class SkipList<K = number, V = string> {
 
     const hasLower = opts.gte !== undefined || opts.gt !== undefined;
     let x = hasLower
-      ? this.lowerBound(opts.gte !== undefined ? opts.gte : (opts.gt as K), { strict: opts.gt !== undefined })
+      ? this.lowerBound(opts.gte !== undefined ? opts.gte : (opts.gt as K), {
+          strict: opts.gt !== undefined,
+        })
       : this.header.level[0]!.forward;
     while (x) {
       if (opts.lte !== undefined && this.cmpK(x.key, opts.lte) > 0) break;
@@ -393,7 +406,9 @@ export class SkipList<K = number, V = string> {
 
     const hasLower = opts.gte !== undefined || opts.gt !== undefined;
     let x = hasLower
-      ? this.lowerBound(opts.gte !== undefined ? opts.gte : (opts.gt as K), { strict: opts.gt !== undefined })
+      ? this.lowerBound(opts.gte !== undefined ? opts.gte : (opts.gt as K), {
+          strict: opts.gt !== undefined,
+        })
       : this.header.level[0]!.forward;
     while (x) {
       if (opts.lte !== undefined && this.cmpK(x.key, opts.lte) > 0) break;

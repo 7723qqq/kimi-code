@@ -8,8 +8,7 @@ function reportNativeFailure(name: string, error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
   try {
     process.stderr.write(`[native-tools] native ${name} threw: ${message}\n`);
-  } catch {
-  }
+  } catch {}
 }
 
 function getNativeModule(): Record<string, unknown> | undefined {

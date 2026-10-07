@@ -1,8 +1,10 @@
+import type { ContextMessage } from '@moonshot-ai/agent-core-v2';
 import { describe, expect, it } from 'vitest';
 
-import type { ContextMessage } from '@moonshot-ai/agent-core-v2';
-
-import { projectPromptContentParts, toProtocolMessage } from '../../../src/services/messages/messageProjection';
+import {
+  projectPromptContentParts,
+  toProtocolMessage,
+} from '../../../src/services/messages/messageProjection';
 
 const SESSION_ID = 'session_1';
 const CREATED_AT = 1_700_000_000_000;
@@ -226,7 +228,10 @@ describe('toProtocolMessage', () => {
 
   it('retains composer metadata separately from the projected model content', () => {
     const clientMetadata = [{ composer: { version: 1, refs: ['example-ref'] } }];
-    const msg: ContextMessage = { ...userText('visible'), origin: { kind: 'user', clientMetadata } };
+    const msg: ContextMessage = {
+      ...userText('visible'),
+      origin: { kind: 'user', clientMetadata },
+    };
     const projected = toProtocolMessage(SESSION_ID, 0, msg, CREATED_AT);
     expect(projected.content).toEqual([{ type: 'text', text: 'visible' }]);
     expect(projected.metadata).toEqual({ origin: { kind: 'user', clientMetadata } });

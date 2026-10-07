@@ -1,9 +1,9 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { Event } from '#/_base/event';
-import type { TokenUsage } from '#human/llm/usage';
 import type { AgentContext } from '#/agent/agentContext/agentContext';
 import type { Turn } from '#/agent/loop/loop';
 import type { Hooks } from '#/hooks';
+import type { TokenUsage } from '#human/llm/usage';
 
 import type {
   SpawnSubagentOptions,
@@ -55,7 +55,11 @@ export interface ISessionSubagentService {
 
   readonly onDidStopAgentTask: Event<AgentTaskStopHookContext>;
 
-  run(agent: AgentContext, request: AgentRunRequest, opts: RunAgentOptions): Promise<AgentRunHandle>;
+  run(
+    agent: AgentContext,
+    request: AgentRunRequest,
+    opts: RunAgentOptions,
+  ): Promise<AgentRunHandle>;
 
   planSpawn(input: SubagentSpawnPlanInput): Promise<SubagentSpawnPlan>;
 

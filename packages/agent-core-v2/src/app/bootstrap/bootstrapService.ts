@@ -1,8 +1,8 @@
+import type { KimiHostIdentity } from '@moonshot-ai/kimi-code-oauth';
 import { basename, join, relative } from 'pathe';
 
-import type { KimiHostIdentity } from '@moonshot-ai/kimi-code-oauth';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { LifecycleScope } from '#/app/scopes';
 
 import {
   IBootstrapOptions,
@@ -68,4 +68,10 @@ export class BootstrapService implements IBootstrapService {
   }
 }
 
-registerScopedService(LifecycleScope.App, IBootstrapService, BootstrapService, ScopeActivation.OnScopeCreated, 'bootstrap');
+registerScopedService(
+  LifecycleScope.App,
+  IBootstrapService,
+  BootstrapService,
+  ScopeActivation.OnScopeCreated,
+  'bootstrap',
+);

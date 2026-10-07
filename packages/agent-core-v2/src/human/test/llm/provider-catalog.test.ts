@@ -108,7 +108,10 @@ describe('providerCatalog ping', () => {
     const catalog = await createProviderCatalog();
     const changed: string[][] = [];
     catalog.onChanged((event) => changed.push([...event.providers]));
-    catalog.upsert({ provider: stubProvider('test', failingRequester('boom')), models: [modelDef] });
+    catalog.upsert({
+      provider: stubProvider('test', failingRequester('boom')),
+      models: [modelDef],
+    });
     await until(() => changed.length >= 2);
 
     changed.length = 0;
@@ -123,7 +126,10 @@ describe('providerCatalog ping', () => {
 
   it('pings through the latest provider instance after a re-upsert', async () => {
     const catalog = await createProviderCatalog();
-    catalog.upsert({ provider: stubProvider('test', failingRequester('first')), models: [modelDef] });
+    catalog.upsert({
+      provider: stubProvider('test', failingRequester('first')),
+      models: [modelDef],
+    });
     catalog.upsert({
       provider: stubProvider('test', failingRequester('second')),
       models: [modelDef],

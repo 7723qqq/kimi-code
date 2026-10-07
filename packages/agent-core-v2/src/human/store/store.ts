@@ -143,8 +143,12 @@ export class TreeStore {
     }
     const header = branch.header;
     if (header.parentBranch !== undefined) {
-      const parent = tree.has(header.parentBranch) ? tree.openBranch(header.parentBranch) : undefined;
-      const parentExists = (await this.backend.trees.listBranches(name)).includes(header.parentBranch);
+      const parent = tree.has(header.parentBranch)
+        ? tree.openBranch(header.parentBranch)
+        : undefined;
+      const parentExists = (await this.backend.trees.listBranches(name)).includes(
+        header.parentBranch,
+      );
       if (parent === undefined || !parentExists) {
         reports.push({
           tree: name,
@@ -170,7 +174,10 @@ export class TreeStore {
         try {
           await readBlob(this.backend.blobs, ref);
         } catch (error) {
-          if (error instanceof StoreError && (error.code === 'blob-missing' || error.code === 'blob-crc')) {
+          if (
+            error instanceof StoreError &&
+            (error.code === 'blob-missing' || error.code === 'blob-crc')
+          ) {
             reports.push({
               tree: name,
               branch: branchName,

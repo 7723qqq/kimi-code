@@ -3,6 +3,8 @@ import { join } from 'node:path';
 
 import { KIMI_CODE_FLOW_CONFIG } from './constants';
 import { OAuthUnauthorizedError } from './errors';
+import { GOOGLE_GEMINI_PROVIDER_ID } from './google-models';
+import { GoogleOAuthManager } from './google-oauth';
 import {
   assertKimiHostIdentity,
   createKimiDefaultHeaders,
@@ -31,18 +33,16 @@ import {
   type ManagedKimiConfigAdapter,
 } from './managed-kimi-code';
 import {
-  fetchManagedUserInfo,
-  kimiCodeUserInfoUrl,
-  type ManagedUserInfoResult,
-} from './managed-userinfo';
-import { GOOGLE_GEMINI_PROVIDER_ID } from './google-models';
-import { GoogleOAuthManager } from './google-oauth';
-import {
   fetchManagedUsage,
   kimiCodeUsageUrl,
   type FetchManagedUsageError,
   type ManagedQuota,
 } from './managed-usage';
+import {
+  fetchManagedUserInfo,
+  kimiCodeUserInfoUrl,
+  type ManagedUserInfoResult,
+} from './managed-userinfo';
 import { OAuthManager, type LoginOptions, type OAuthManagerOptions } from './oauth-manager';
 import { FileTokenStorage, type TokenStorage } from './storage';
 import type { OAuthFlowConfig } from './types';
@@ -369,10 +369,8 @@ export class KimiOAuthToolkit<TConfig = unknown> {
       readonly baseUrl?: string | undefined;
     } = {},
   ): Promise<FetchSubmitFeedbackResult> {
-    return this.withAccessToken(
-      providerName,
-      options,
-      (accessToken) => fetchSubmitFeedback(managedFeedbackUrl(options.baseUrl), accessToken, body),
+    return this.withAccessToken(providerName, options, (accessToken) =>
+      fetchSubmitFeedback(managedFeedbackUrl(options.baseUrl), accessToken, body),
     );
   }
 
@@ -406,10 +404,8 @@ export class KimiOAuthToolkit<TConfig = unknown> {
       readonly baseUrl?: string | undefined;
     } = {},
   ): Promise<FetchCreateFeedbackUploadUrlResult> {
-    return this.withAccessToken(
-      providerName,
-      options,
-      (accessToken) => fetchCreateFeedbackUploadUrl(accessToken, body, { baseUrl: options.baseUrl }),
+    return this.withAccessToken(providerName, options, (accessToken) =>
+      fetchCreateFeedbackUploadUrl(accessToken, body, { baseUrl: options.baseUrl }),
     );
   }
 
@@ -421,10 +417,8 @@ export class KimiOAuthToolkit<TConfig = unknown> {
       readonly baseUrl?: string | undefined;
     } = {},
   ): Promise<FetchCompleteFeedbackUploadResult> {
-    return this.withAccessToken(
-      providerName,
-      options,
-      (accessToken) => fetchCompleteFeedbackUpload(accessToken, body, { baseUrl: options.baseUrl }),
+    return this.withAccessToken(providerName, options, (accessToken) =>
+      fetchCompleteFeedbackUpload(accessToken, body, { baseUrl: options.baseUrl }),
     );
   }
 
@@ -465,10 +459,7 @@ export class KimiOAuthToolkit<TConfig = unknown> {
     return manager;
   }
 
-  private defaultOAuthKey(
-    baseUrl?: string | undefined,
-    oauthHost?: string | undefined,
-  ): string {
+  private defaultOAuthKey(baseUrl?: string | undefined, oauthHost?: string | undefined): string {
     return resolveKimiCodeOAuthKey({
       oauthHost: oauthHost ?? this.flowConfig.oauthHost,
       baseUrl,

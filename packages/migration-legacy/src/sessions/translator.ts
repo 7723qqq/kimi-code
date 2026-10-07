@@ -174,8 +174,7 @@ function buildAssistant(
     role: 'assistant',
     content: normalizeContent(obj['content']),
     toolCalls,
-    toolCallDisplays:
-      Object.keys(toolCallDisplays).length === 0 ? undefined : toolCallDisplays,
+    toolCallDisplays: Object.keys(toolCallDisplays).length === 0 ? undefined : toolCallDisplays,
   };
 }
 

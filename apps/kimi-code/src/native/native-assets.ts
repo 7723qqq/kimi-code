@@ -428,7 +428,7 @@ export function cleanupStaleNativeCache(options: CleanupOptions): CleanupResult 
       if (!st.isDirectory()) continue;
       siblings.push({ path, mtimeMs: st.mtimeMs });
     } catch (error) {
-    result.errors.push({ path, error });
+      result.errors.push({ path, error });
     }
   }
 
@@ -452,7 +452,7 @@ export function cleanupStaleNativeCache(options: CleanupOptions): CleanupResult 
       rmSync(path, { recursive: true, force: true });
       result.removed.push(path);
     } catch (error) {
-    result.errors.push({ path, error });
+      result.errors.push({ path, error });
     }
   }
 

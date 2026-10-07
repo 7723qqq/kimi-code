@@ -8,8 +8,8 @@
  * remaining local `$ref` pointers stay resolvable to a JSON Schema validator.
  */
 
-import { Error2 } from '../errors/errors';
 import { PROVIDER_API_ERROR_CODE } from '../errors';
+import { Error2 } from '../errors/errors';
 
 export function derefJsonSchema(schema: Record<string, unknown>): Record<string, unknown> {
   const visited = new Set<string>();

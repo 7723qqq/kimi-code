@@ -2,11 +2,7 @@ export { KimiHarness } from '#/kimi-harness';
 export type { KimiHarnessRuntimeOptions } from '#/kimi-harness';
 export { Session } from '#/session';
 export { KimiAuthFacade } from '#/auth';
-export {
-  createKimiHarness,
-  SDKRpcClientV2,
-  type SDKRpcClientV2Options,
-} from '#/sdk-rpc-client-v2';
+export { createKimiHarness, SDKRpcClientV2, type SDKRpcClientV2Options } from '#/sdk-rpc-client-v2';
 export {
   createKimiConfigRpc,
   KimiConfigRpcClient,
@@ -114,10 +110,7 @@ export {
   matchSingleMediaPathTag,
   parseDaemonFileUrl,
 } from '@moonshot-ai/agent-core-v2/agent/media/mediaRef';
-export type {
-  DaemonFileRef,
-  MediaKind,
-} from '@moonshot-ai/agent-core-v2/agent/media/mediaRef';
+export type { DaemonFileRef, MediaKind } from '@moonshot-ai/agent-core-v2/agent/media/mediaRef';
 
 export type {
   KimiAuthCompleteFeedbackUploadInput,

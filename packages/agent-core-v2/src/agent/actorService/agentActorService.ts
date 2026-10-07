@@ -1,9 +1,7 @@
-import { createActor, type ActorLogic, type AnyActorRef, type Snapshot } from '#human/xstate2';
-
-import { BugIndicatingError } from '#/_base/errors/errors';
-import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import { IInstantiationService, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { Disposable, toDisposable, type IDisposable } from '#/_base/di/lifecycle';
+import { BugIndicatingError } from '#/_base/errors/errors';
+import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import type { Event } from '#/_base/event';
 import type { AgentContext } from '#/agent/agentContext/agentContext';
 import type { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
@@ -11,6 +9,7 @@ import type { Event2, Event2Class } from '#/app/event/event2';
 import type { IEventDispatcher } from '#/state/eventDispatcher';
 import type { DurableAgentRuntimeParticipant } from '#/state/eventDispatcher';
 import type { StateFold } from '#/state/state';
+import { createActor, type ActorLogic, type AnyActorRef, type Snapshot } from '#human/xstate2';
 
 export interface AgentActorContext<State> {
   readonly agent: AgentContext;
@@ -68,10 +67,14 @@ export abstract class AgentActorService<State> extends Disposable {
       },
       getLogicState: <T>() => actor.getSnapshot().context as T,
       dispatch: (event) => this.dispatcher.dispatch(event),
-      send: (event) => { actor.send(event); },
+      send: (event) => {
+        actor.send(event);
+      },
       onDidChange: (listener) => {
         listeners.add(listener);
-        return toDisposable(() => { listeners.delete(listener); });
+        return toDisposable(() => {
+          listeners.delete(listener);
+        });
       },
     };
     actor = createActor(logic, { input: options.input ?? context });
@@ -99,14 +102,18 @@ export abstract class AgentActorService<State> extends Disposable {
             undoable: durable.undoable,
             transition: durable.transition,
             getState: () => durable.read(actor.getSnapshot()),
-            commit: (state) => { durable.commit(actor, state); },
+            commit: (state) => {
+              durable.commit(actor, state);
+            },
           };
     let disposed = false;
     const sendRestore = async (): Promise<void> => {
       const readiness: Promise<unknown>[] = [];
       const event: AgentActorRestoreEvent = {
         type: 'runtime.restore',
-        waitUntil: (work) => { readiness.push(work); },
+        waitUntil: (work) => {
+          readiness.push(work);
+        },
       };
       actor.send(event);
       await Promise.all(readiness);
@@ -134,21 +141,20 @@ export abstract class AgentActorService<State> extends Disposable {
       if (participant !== undefined) {
         attachment = this.dispatcher.attach(participant);
       }
-      restoreHook = this.dispatcher.hooks.onDidRestore.register(
-        options.id,
-        async (_ctx, next) => {
-          await sendRestore();
-          await next();
-        },
-      );
+      restoreHook = this.dispatcher.hooks.onDidRestore.register(options.id, async (_ctx, next) => {
+        await sendRestore();
+        await next();
+      });
     }
-    this._register(toDisposable(() => {
-      disposed = true;
-      attachment?.dispose();
-      restoreHook?.dispose();
-      subscription.unsubscribe();
-      actor.stop();
-    }));
+    this._register(
+      toDisposable(() => {
+        disposed = true;
+        attachment?.dispose();
+        restoreHook?.dispose();
+        subscription.unsubscribe();
+        actor.stop();
+      }),
+    );
     return context;
   }
 }

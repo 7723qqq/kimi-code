@@ -19,8 +19,7 @@ afterEach(async () => {
   for (const r of running.splice(0)) {
     try {
       await r.close();
-    } catch {
-    }
+    } catch {}
   }
   for (const dir of createdDirs.splice(0)) {
     await rm(dir, { recursive: true, force: true });

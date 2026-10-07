@@ -99,26 +99,14 @@ export type { AgentEventPayloads } from './contract/agent/events.js';
 
 // Wire types re-exported for consumer convenience (type-only; the engine is
 // not pulled in at runtime for http consumers).
-export type {
-  SessionListQuery,
-  SessionSummary,
-} from '@moonshot-ai/agent-core-v2';
+export type { SessionListQuery, SessionSummary } from '@moonshot-ai/agent-core-v2';
 export type { Page } from '@moonshot-ai/agent-core-v2';
-export type {
-  Workspace,
-  WorkspaceUpdate,
-} from '@moonshot-ai/agent-core-v2';
-export type {
-  ConfigDiagnostic,
-  ConfigInspectValue,
-} from '@moonshot-ai/agent-core-v2';
+export type { Workspace, WorkspaceUpdate } from '@moonshot-ai/agent-core-v2';
+export type { ConfigDiagnostic, ConfigInspectValue } from '@moonshot-ai/agent-core-v2';
 export type { ProviderConfig } from '@moonshot-ai/agent-core-v2';
 export type { AuthStatus } from '@moonshot-ai/agent-core-v2';
 export type { ExperimentalFeatureState } from '@moonshot-ai/agent-core-v2';
-export type {
-  FsBrowseResponse,
-  FsHomeResponse,
-} from '@moonshot-ai/agent-core-v2';
+export type { FsBrowseResponse, FsHomeResponse } from '@moonshot-ai/agent-core-v2';
 export type { FileMeta } from '@moonshot-ai/agent-core-v2';
 export type {
   PluginCommandDef,
@@ -127,11 +115,7 @@ export type {
   PluginUpdateStatus,
   ReloadSummary,
 } from '@moonshot-ai/agent-core-v2';
-export type {
-  AgentMeta,
-  SessionMeta,
-  SessionMetaPatch,
-} from '@moonshot-ai/agent-core-v2';
+export type { AgentMeta, SessionMeta, SessionMetaPatch } from '@moonshot-ai/agent-core-v2';
 export type {
   ApprovalRequest,
   ApprovalResponse,
@@ -140,10 +124,7 @@ export type {
   QuestionRequest,
   QuestionResult,
 } from '@moonshot-ai/agent-core-v2/agent/interaction/question';
-export type {
-  Interaction,
-  InteractionKind,
-} from '@moonshot-ai/agent-core-v2';
+export type { Interaction, InteractionKind } from '@moonshot-ai/agent-core-v2';
 export type { SkillSummary } from '@moonshot-ai/agent-core-v2';
 export type {
   GlobalMcpServerConfig,

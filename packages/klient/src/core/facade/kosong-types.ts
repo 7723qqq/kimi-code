@@ -5,8 +5,8 @@
  * `providerService`/`modelService` wire formats.
  */
 
-import type { Message } from '@moonshot-ai/agent-core-v2/contract';
 import type { StreamedMessagePart, Tool } from '@moonshot-ai/agent-core-v2';
+import type { Message } from '@moonshot-ai/agent-core-v2/contract';
 import type { TokenUsage } from '@moonshot-ai/agent-core-v2/contract';
 import type { ResponseFormat } from '@moonshot-ai/agent-core-v2/human/llm/response-format';
 
@@ -15,9 +15,7 @@ import type { ResponseFormat } from '@moonshot-ai/agent-core-v2/human/llm/respon
 // ---------------------------------------------------------------------------
 
 /** How the provider authenticates — API key or managed OAuth. */
-export type ProviderAuth =
-  | { method: 'api-key'; apiKey: string }
-  | { method: 'oauth' };
+export type ProviderAuth = { method: 'api-key'; apiKey: string } | { method: 'oauth' };
 
 // ---------------------------------------------------------------------------
 // Provider / model inputs
@@ -71,5 +69,15 @@ export interface GenerateParams {
 export type GenerateEvent =
   | { readonly type: 'part'; readonly part: StreamedMessagePart }
   | { readonly type: 'usage'; readonly usage: TokenUsage; readonly model?: string }
-  | { readonly type: 'finish'; readonly message: Message; readonly finishReason?: string; readonly id?: string }
-  | { readonly type: 'timing'; readonly firstTokenLatencyMs: number; readonly streamDurationMs: number; readonly [key: string]: unknown };
+  | {
+      readonly type: 'finish';
+      readonly message: Message;
+      readonly finishReason?: string;
+      readonly id?: string;
+    }
+  | {
+      readonly type: 'timing';
+      readonly firstTokenLatencyMs: number;
+      readonly streamDurationMs: number;
+      readonly [key: string]: unknown;
+    };

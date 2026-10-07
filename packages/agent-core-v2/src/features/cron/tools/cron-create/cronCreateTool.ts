@@ -1,10 +1,17 @@
-import { type ToolExecution } from '#/tool/toolContract';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { CRON_MAIN_AGENT_ONLY, mainAgentOnlyExecution } from '#/agent/tools/mainAgentOnly';
+import { IAgentCronService } from '#/features/cron/cronService';
+import {
+  computeNextCronRun,
+  cronToHuman,
+  hasFireWithinYears,
+  parseCronExpression,
+  type ParsedCronExpression,
+} from '#/features/cron/internal/cron-expr';
+import { formatLocalIsoWithOffset } from '#/features/cron/internal/format';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { literalRulePattern } from '#/tool/rule-match';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentCronService } from '#/features/cron/cronService';
-import { computeNextCronRun, cronToHuman, hasFireWithinYears, parseCronExpression, type ParsedCronExpression } from '#/features/cron/internal/cron-expr';
-import { formatLocalIsoWithOffset } from '#/features/cron/internal/format';
+import { type ToolExecution } from '#/tool/toolContract';
 
 import {
   ICronCreateTool,
@@ -14,7 +21,6 @@ import {
   type CronCreateInput,
   type CronCreateOutput,
 } from './cron-create';
-import { CRON_MAIN_AGENT_ONLY, mainAgentOnlyExecution } from '#/agent/tools/mainAgentOnly';
 import CRON_CREATE_DESCRIPTION from './cron-create.md?raw';
 
 const ONE_SHOT_MAX_FUTURE_MS = 350 * 24 * 60 * 60 * 1000;
@@ -24,9 +30,7 @@ export class CronCreateTool implements ICronCreateTool {
 
   readonly name = 'CronCreate' as const;
   readonly description = CRON_CREATE_DESCRIPTION;
-  readonly parameters: Record<string, unknown> = toInputJsonSchema(
-    CronCreateInputSchema,
-  );
+  readonly parameters: Record<string, unknown> = toInputJsonSchema(CronCreateInputSchema);
 
   constructor(
     @IAgentCronService private readonly cron: IAgentCronService,
@@ -51,9 +55,7 @@ export class CronCreateTool implements ICronCreateTool {
     } catch (err) {
       return {
         isError: true,
-        output: `Invalid cron expression: ${
-          err instanceof Error ? err.message : String(err)
-        }`,
+        output: `Invalid cron expression: ${err instanceof Error ? err.message : String(err)}`,
       };
     }
 
@@ -70,9 +72,7 @@ export class CronCreateTool implements ICronCreateTool {
     if (this.cron.list().length >= MAX_CRON_JOBS_PER_SESSION) {
       return {
         isError: true,
-        output: `Cron job cap reached (max ${String(
-          MAX_CRON_JOBS_PER_SESSION,
-        )} per session).`,
+        output: `Cron job cap reached (max ${String(MAX_CRON_JOBS_PER_SESSION)} per session).`,
       };
     }
 
@@ -80,9 +80,7 @@ export class CronCreateTool implements ICronCreateTool {
     if (byteLen > MAX_PROMPT_BYTES) {
       return {
         isError: true,
-        output: `Prompt exceeds ${String(
-          MAX_PROMPT_BYTES,
-        )} bytes (got ${String(byteLen)}).`,
+        output: `Prompt exceeds ${String(MAX_PROMPT_BYTES)} bytes (got ${String(byteLen)}).`,
       };
     }
 
@@ -90,10 +88,7 @@ export class CronCreateTool implements ICronCreateTool {
 
     if (!recurring) {
       const firstFire = computeNextCronRun(parsed, nowAtPrepare);
-      if (
-        firstFire !== null &&
-        firstFire - nowAtPrepare > ONE_SHOT_MAX_FUTURE_MS
-      ) {
+      if (firstFire !== null && firstFire - nowAtPrepare > ONE_SHOT_MAX_FUTURE_MS) {
         return {
           isError: true,
           output: `One-shot cron ${JSON.stringify(
@@ -123,9 +118,7 @@ export class CronCreateTool implements ICronCreateTool {
         if (this.cron.list().length >= MAX_CRON_JOBS_PER_SESSION) {
           return {
             isError: true,
-            output: `Cron job cap reached (max ${String(
-              MAX_CRON_JOBS_PER_SESSION,
-            )} per session).`,
+            output: `Cron job cap reached (max ${String(MAX_CRON_JOBS_PER_SESSION)} per session).`,
           };
         }
 
@@ -166,9 +159,7 @@ function formatOutput(o: CronCreateOutput): string {
     `cron: ${o.cron}`,
     `humanSchedule: ${o.humanSchedule}`,
     `recurring: ${String(o.recurring)}`,
-    `nextFireAt: ${
-      o.nextFireAt === null ? 'null' : formatLocalIsoWithOffset(o.nextFireAt)
-    }`,
+    `nextFireAt: ${o.nextFireAt === null ? 'null' : formatLocalIsoWithOffset(o.nextFireAt)}`,
   ];
   return lines.join('\n');
 }

@@ -1,9 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { Readable } from 'node:stream';
 
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { LifecycleScope } from '#/app/scopes';
 import { IBlobStore } from '#/persistence/interface/blobStore';
+
 import {
   IFileService,
   fileNotFoundError,
@@ -175,12 +176,14 @@ export class FileServiceImpl implements IFileService {
   }
 
   private async writeIndex(): Promise<void> {
-    const write = this.indexWritePromise.catch(() => undefined).then(async () => {
-      const cache = this.indexCache;
-      if (cache === undefined) return;
-      const payload: IndexFile = { version: 1, files: Array.from(cache.values()) };
-      await this.blobs.put(INDEX_SCOPE, INDEX_KEY, textEncoder.encode(JSON.stringify(payload)));
-    });
+    const write = this.indexWritePromise
+      .catch(() => undefined)
+      .then(async () => {
+        const cache = this.indexCache;
+        if (cache === undefined) return;
+        const payload: IndexFile = { version: 1, files: Array.from(cache.values()) };
+        await this.blobs.put(INDEX_SCOPE, INDEX_KEY, textEncoder.encode(JSON.stringify(payload)));
+      });
     this.indexWritePromise = write;
     await write;
   }

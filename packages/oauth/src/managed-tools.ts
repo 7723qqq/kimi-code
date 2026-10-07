@@ -78,8 +78,7 @@ export async function fetchChatTitle(
     return { kind: 'ok', title };
   } catch (error) {
     if (error instanceof Error && error.name === 'AbortError') {
-      const reason =
-        opts.signal?.aborted === true ? 'request aborted.' : 'request timed out.';
+      const reason = opts.signal?.aborted === true ? 'request aborted.' : 'request timed out.';
       return { kind: 'error', message: `Failed to generate session title: ${reason}` };
     }
     const msg = error instanceof Error ? error.message : String(error);

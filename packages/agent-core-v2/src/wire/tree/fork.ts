@@ -100,10 +100,7 @@ export function computeForkLine(
   return messages[cutIndex]!.line - 1;
 }
 
-export function restorableChain(
-  entries: readonly WireLine[],
-  tree: WireTree,
-): WireLine[] {
+export function restorableChain(entries: readonly WireLine[], tree: WireTree): WireLine[] {
   const chain = activeChain(entries, tree).filter(({ record, line }) => {
     if (record.type === 'context.undone') return false;
     if (record.type === 'context.undo' && tree.pairedLegacyUndoLines.has(line)) return false;

@@ -8,9 +8,9 @@
 // Multiple order columns (multiple dt) are supported by creating one compound
 // index per order column.
 
+import type { CompoundImageIndex } from './gen-codec.js';
 import { SkipList, cmpNumber, cmpString } from './skiplist.js';
 import type { Comparator, RangeOptions } from './skiplist.js';
-import type { CompoundImageIndex } from './gen-codec.js';
 
 export type OrderType = 'number' | 'string';
 
@@ -37,7 +37,12 @@ interface CompoundEntry {
 }
 
 function getPath(doc: unknown, path: string): unknown {
-  return path.split('.').reduce<unknown>((o, k) => (o === null || o === undefined ? undefined : (o as Record<string, unknown>)[k]), doc);
+  return path
+    .split('.')
+    .reduce<unknown>(
+      (o, k) => (o === null || o === undefined ? undefined : (o as Record<string, unknown>)[k]),
+      doc,
+    );
 }
 
 export class CompoundIndexManager {
@@ -50,8 +55,15 @@ export class CompoundIndexManager {
 
   private static entry(def: CompoundIndexDef): CompoundEntry {
     const orderType = def.orderType ?? 'number';
-    const full: Required<CompoundIndexDef> = { groupBy: def.groupBy, orderBy: def.orderBy, orderType };
-    const cmp = orderType === 'string' ? (cmpString as Comparator<unknown>) : (cmpNumber as Comparator<unknown>);
+    const full: Required<CompoundIndexDef> = {
+      groupBy: def.groupBy,
+      orderBy: def.orderBy,
+      orderType,
+    };
+    const cmp =
+      orderType === 'string'
+        ? (cmpString as Comparator<unknown>)
+        : (cmpNumber as Comparator<unknown>);
     return { def: full, cmp, groups: new Map(), byPk: new Map() };
   }
 
@@ -62,17 +74,26 @@ export class CompoundIndexManager {
 
   /** Stage a new compound index definition off to the side (see `staged`). */
   stage(name: string, def: CompoundIndexDef): void {
-    if (this.indexes.has(name) || this.staged.has(name)) throw new Error(`compound index "${name}" already exists`);
+    if (this.indexes.has(name) || this.staged.has(name))
+      throw new Error(`compound index "${name}" already exists`);
     this.staged.set(name, CompoundIndexManager.entry(def));
   }
 
   /** Rebuild ONE staged index from entries of { key, value, dt }. Touches
    *  nothing live, so a failure midway leaves every published index intact. */
-  rebuildStaged(name: string, entries: Iterable<{ key: string | Buffer; value: unknown; dt?: Record<string, number> | null }>): void {
+  rebuildStaged(
+    name: string,
+    entries: Iterable<{ key: string | Buffer; value: unknown; dt?: Record<string, number> | null }>,
+  ): void {
     const entry = this.staged.get(name);
     if (!entry) throw new Error(`no staged compound index: ${name}`);
     for (const { key, value, dt } of entries) {
-      this.addToEntry(entry, typeof key === 'string' ? key : Buffer.from(key).toString('binary'), value, dt ?? null);
+      this.addToEntry(
+        entry,
+        typeof key === 'string' ? key : Buffer.from(key).toString('binary'),
+        value,
+        dt ?? null,
+      );
     }
   }
 
@@ -125,20 +146,32 @@ export class CompoundIndexManager {
     return list;
   }
 
-  private extract(entry: CompoundEntry, doc: unknown, dt: Record<string, number> | null): { group: unknown; order: unknown } {
+  private extract(
+    entry: CompoundEntry,
+    doc: unknown,
+    dt: Record<string, number> | null,
+  ): { group: unknown; order: unknown } {
     const group = getPath(doc, entry.def.groupBy);
     const order =
-      dt && entry.def.orderBy in dt ? (dt as Record<string, unknown>)[entry.def.orderBy] : getPath(doc, entry.def.orderBy);
+      dt && entry.def.orderBy in dt
+        ? (dt as Record<string, unknown>)[entry.def.orderBy]
+        : getPath(doc, entry.def.orderBy);
     return { group, order };
   }
 
   private validOrder(entry: CompoundEntry, order: unknown): boolean {
-    if (entry.def.orderType === 'number') return typeof order === 'number' && Number.isFinite(order);
+    if (entry.def.orderType === 'number')
+      return typeof order === 'number' && Number.isFinite(order);
     return typeof order === 'string';
   }
 
   /** Add/update a document in one compound index entry. */
-  private addToEntry(entry: CompoundEntry, pk: string, doc: unknown, dt: Record<string, number> | null): void {
+  private addToEntry(
+    entry: CompoundEntry,
+    pk: string,
+    doc: unknown,
+    dt: Record<string, number> | null,
+  ): void {
     const { group, order } = this.extract(entry, doc, dt);
     const prev = entry.byPk.get(pk);
     const valid = group !== undefined && group !== null && this.validOrder(entry, order);
@@ -208,7 +241,9 @@ export class CompoundIndexManager {
   }
 
   /** Rebuild from entries of { key, value, dt }. */
-  rebuild(entries: Iterable<{ key: string | Buffer; value: unknown; dt?: Record<string, number> | null }>): void {
+  rebuild(
+    entries: Iterable<{ key: string | Buffer; value: unknown; dt?: Record<string, number> | null }>,
+  ): void {
     const b = this.beginRebuild();
     for (const { key, value, dt } of entries) {
       b.add(typeof key === 'string' ? key : Buffer.from(key).toString('binary'), value, dt ?? null);
@@ -218,7 +253,10 @@ export class CompoundIndexManager {
 
   /** Stage a rebuild in fresh per-index state and swap it in on commit(), so
    *  a rebuild that fails midway leaves the previous indexes fully intact. */
-  beginRebuild(): { add(pk: string, doc: unknown, dt: Record<string, number> | null): void; commit(): void } {
+  beginRebuild(): {
+    add(pk: string, doc: unknown, dt: Record<string, number> | null): void;
+    commit(): void;
+  } {
     const staged: { entry: CompoundEntry; next: CompoundEntry }[] = [];
     for (const entry of this.indexes.values()) {
       staged.push({ entry, next: { ...entry, groups: new Map(), byPk: new Map() } });
@@ -299,7 +337,10 @@ export class CompoundIndexManager {
    *  synchronous segment (the containers are detached until then), and the
    *  store is not published until open() returns, so a mid-load yield is
    *  never observable. */
-  async loadImageAsync(image: CompoundImageIndex, opts: { sliceEvery?: number } = {}): Promise<void> {
+  async loadImageAsync(
+    image: CompoundImageIndex,
+    opts: { sliceEvery?: number } = {},
+  ): Promise<void> {
     const sliceEvery = opts.sliceEvery ?? 32768;
     const entry = this.indexes.get(image.name);
     if (!entry) throw new Error(`no such compound index: ${image.name}`);

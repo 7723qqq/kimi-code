@@ -1,28 +1,23 @@
 import { Disposable } from '#/_base/di/lifecycle';
 import { Emitter } from '#/_base/event';
 import { parseBooleanEnv } from '#/_base/utils/env';
-import { defineState } from '#/state/state';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import { defineState } from '#/state/state';
 import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 
-import { IWorkspaceTrust, type WorkspaceTrustChange } from './workspaceTrust';
 import { deleteWorkspaceTrust, readWorkspaceTrust, writeWorkspaceTrust } from './trustRecord';
+import { IWorkspaceTrust, type WorkspaceTrustChange } from './workspaceTrust';
 
 export const TRUST_WORKSPACE_ENV = 'KIMI_CODE_TRUST_WORKSPACE';
 
-export function trustWorkspaceEnvTrusted(
-  getEnv: (name: string) => string | undefined,
-): boolean {
+export function trustWorkspaceEnvTrusted(getEnv: (name: string) => string | undefined): boolean {
   return parseBooleanEnv(getEnv(TRUST_WORKSPACE_ENV)) === true;
 }
 
-export const workspaceTrustTrustedKey = defineState<boolean>(
-  'workspaceTrust.trusted',
-  () => false,
-);
+export const workspaceTrustTrustedKey = defineState<boolean>('workspaceTrust.trusted', () => false);
 
 export class WorkspaceTrustService extends Disposable implements IWorkspaceTrust {
   declare readonly _serviceBrand: undefined;

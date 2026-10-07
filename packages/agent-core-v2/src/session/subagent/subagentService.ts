@@ -1,50 +1,38 @@
+import { type IAgentScopeHandle, ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
-import type { AgentContext } from '#/agent/agentContext/agentContext';
-import { Error2, ErrorCodes } from '#/errors';
-import { LifecycleScope } from '#/app/scopes';
-import {
-  type IAgentScopeHandle,
-  ScopeActivation,
-  registerScopedService,
-} from '#/_base/di/scope';
 import { Emitter } from '#/_base/event';
-import { applyProfilePromptPrefix } from '#/app/agentProfileCatalog/promptPrefix';
+import { ILogService } from '#/_base/log/log';
+import type { AgentContext } from '#/agent/agentContext/agentContext';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import { agentContextOf } from '#/agent/scopeContext/scopeContext';
+import { IAgentUserToolService } from '#/agent/userTool/userTool';
 import {
   rootDelegationExtras,
   subagentAllowlistFor,
   subagentTypeNotAllowedMessage,
   withoutDelegatingTargets,
 } from '#/app/agentProfileCatalog/profile-shared';
-import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
-import { IAgentProfileService } from '#/agent/profile/profile';
-import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import { IAgentUserToolService } from '#/agent/userTool/userTool';
-import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
-import type { Runtime } from '#/runtime/runtime';
+import { applyProfilePromptPrefix } from '#/app/agentProfileCatalog/promptPrefix';
 import { IConfigService } from '#/app/config/config';
-import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
-import { ILogService } from '#/_base/log/log';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
-import { createHooks } from '#/hooks';
-import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
-import { agentContextOf } from '#/agent/scopeContext/scopeContext';
+import { LifecycleScope } from '#/app/scopes';
+import { Error2, ErrorCodes } from '#/errors';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
+import { createHooks } from '#/hooks';
+import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
+import type { Runtime } from '#/runtime/runtime';
+import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
+import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
+import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
 
-import {
-  type AgentRunHandle,
-  type AgentRunRequest,
-  type AgentTaskHooks,
-  type AgentTaskStopHookContext,
-  ISessionSubagentService,
-  type RunAgentOptions,
-} from './subagent';
-import { runAgentTurn } from './runAgentTurn';
 import {
   resolveSubagentBinding,
   resolveSubagentThinking,
   wrapSubagentModelError,
 } from './configSection';
+import { runAgentTurn } from './runAgentTurn';
 import {
   DEFAULT_PROFILE_NAME,
   FORK_CONTEXT_NOTICE,
@@ -53,6 +41,14 @@ import {
   type SubagentSpawnPlan,
   type SubagentSpawnPlanInput,
 } from './spawn';
+import {
+  type AgentRunHandle,
+  type AgentRunRequest,
+  type AgentTaskHooks,
+  type AgentTaskStopHookContext,
+  ISessionSubagentService,
+  type RunAgentOptions,
+} from './subagent';
 
 export class SessionSubagentService extends Service implements ISessionSubagentService {
   declare readonly _serviceBrand: undefined;
@@ -77,7 +73,11 @@ export class SessionSubagentService extends Service implements ISessionSubagentS
     super();
   }
 
-  run(agent: AgentContext, request: AgentRunRequest, opts: RunAgentOptions): Promise<AgentRunHandle> {
+  run(
+    agent: AgentContext,
+    request: AgentRunRequest,
+    opts: RunAgentOptions,
+  ): Promise<AgentRunHandle> {
     const handle = this.agentLifecycle.handleOf(agent.agentId);
     if (handle === undefined) {
       throw new Error2(ErrorCodes.AGENT_NOT_FOUND, `Agent "${agent.agentId}" does not exist`, {
@@ -92,9 +92,10 @@ export class SessionSubagentService extends Service implements ISessionSubagentS
     const fork = input.fork === true;
     await this.catalog.ready;
     const own = caller.accessor.get(IAgentProfileService).data();
-    const requested = input.profileName !== undefined && input.profileName.length > 0
-      ? input.profileName
-      : undefined;
+    const requested =
+      input.profileName !== undefined && input.profileName.length > 0
+        ? input.profileName
+        : undefined;
     const requestedProfileName =
       requested ?? (fork ? (own.profileName ?? DEFAULT_PROFILE_NAME) : DEFAULT_PROFILE_NAME);
     const extras =
@@ -114,9 +115,13 @@ export class SessionSubagentService extends Service implements ISessionSubagentS
     }
     const profile = this.catalog.get(requestedProfileName);
     if (!fork && profile === undefined) {
-      throw new Error2(ErrorCodes.PROFILE_UNKNOWN, `Unknown agent type: "${requestedProfileName}"`, {
-        details: { profileName: requestedProfileName },
-      });
+      throw new Error2(
+        ErrorCodes.PROFILE_UNKNOWN,
+        `Unknown agent type: "${requestedProfileName}"`,
+        {
+          details: { profileName: requestedProfileName },
+        },
+      );
     }
     if (own.modelAlias === undefined) {
       throw new Error2(ErrorCodes.MODEL_NOT_CONFIGURED, 'Caller agent has no model bound', {

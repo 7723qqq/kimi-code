@@ -1,3 +1,21 @@
+import {
+  agentContextOf,
+  INTERACTION_TAG_AGENT_ID,
+  INTERACTION_TAG_SESSION_ID,
+  IAgentLifecycleService,
+  IAgentProfileService,
+  IEventBus,
+  interactions,
+  ISessionTokenCountingService,
+  ISessionUsageService,
+  MAIN_AGENT_ID,
+  toDisposable,
+  type Event2,
+  type IAgentScopeHandle,
+  type IDisposable,
+  type Interaction,
+  type ISessionScopeHandle,
+} from '@moonshot-ai/agent-core-v2';
 /**
  * Per-live-session event/interaction wiring for the v2 client.
  *
@@ -25,24 +43,6 @@
  */
 import type { Event } from '@moonshot-ai/agent-core-v2/contract';
 import type { ToolInputDisplay } from '@moonshot-ai/agent-core-v2/contract';
-import {
-  agentContextOf,
-  INTERACTION_TAG_AGENT_ID,
-  INTERACTION_TAG_SESSION_ID,
-  IAgentLifecycleService,
-  IAgentProfileService,
-  IEventBus,
-  interactions,
-  ISessionTokenCountingService,
-  ISessionUsageService,
-  MAIN_AGENT_ID,
-  toDisposable,
-  type Event2,
-  type IAgentScopeHandle,
-  type IDisposable,
-  type Interaction,
-  type ISessionScopeHandle,
-} from '@moonshot-ai/agent-core-v2';
 
 import type {
   ApprovalRequest,

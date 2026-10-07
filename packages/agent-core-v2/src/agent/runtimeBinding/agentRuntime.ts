@@ -1,7 +1,7 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
+import type { IDisposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Emitter, type Event } from '#/_base/event';
-import type { IDisposable } from '#/_base/di/lifecycle';
 import { LifecycleScope } from '#/app/scopes';
 import type { Runtime, RuntimeBinding, RuntimeCapability, RuntimeLease } from '#/runtime/runtime';
 import { runtimeStatusAllows, type RuntimeGenerationSnapshot } from '#/runtime/runtimeRegistry';
@@ -82,7 +82,10 @@ export class AgentRuntimeService implements IAgentRuntimeService {
   isAvailable(required: readonly RuntimeCapability[] = []): boolean {
     try {
       const runtime = this.inspect();
-      return runtimeStatusAllows(runtime, required) && required.every((capability) => runtime.capabilities.has(capability));
+      return (
+        runtimeStatusAllows(runtime, required) &&
+        required.every((capability) => runtime.capabilities.has(capability))
+      );
     } catch {
       return false;
     }

@@ -1,13 +1,13 @@
+import { abortable } from '#/_base/utils/abort';
+import type { McpServerConfig } from '#/mcpCore/config-schema';
 import type {
   McpConnectionManager,
   McpConnectionView,
   McpServerEntry,
   McpStatusListener,
 } from '#/mcpCore/connection-manager';
-import type { McpServerConfig } from '#/mcpCore/config-schema';
 import type { McpOAuthService } from '#/mcpCore/oauth/service';
 import type { MCPClient } from '#/mcpCore/types';
-import { abortable } from '#/_base/utils/abort';
 
 export class MergedMcpConnectionView implements McpConnectionView {
   constructor(

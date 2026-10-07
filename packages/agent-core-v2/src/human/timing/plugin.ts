@@ -80,9 +80,7 @@ export function createTimingPlugin(input?: { now?: () => number }): TimingPlugin
           serverDecodeMs += t - lastHandledAt;
           current = {
             requestBuildMs:
-              attemptStartedAt === undefined
-                ? undefined
-                : Math.max(0, sentAt - attemptStartedAt),
+              attemptStartedAt === undefined ? undefined : Math.max(0, sentAt - attemptStartedAt),
             ttftMs: Math.max(0, firstDeltaAt - (attemptStartedAt ?? sentAt)),
             serverFirstTokenMs: Math.max(0, firstDeltaAt - sentAt),
             streamDurationMs: Math.max(0, t - firstDeltaAt),

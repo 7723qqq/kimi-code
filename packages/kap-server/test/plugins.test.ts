@@ -4,12 +4,11 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-
 import { WebSocket } from 'ws';
 
 import { type RunningServer, startServer } from '../src/start';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders, bearerToken } from './helpers/auth';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
 interface Envelope<T> {
   code: number;
@@ -184,7 +183,11 @@ describe('server-v2 /api/v1 plugins', () => {
       { source },
     );
     expect(installed.body.code).toBe(0);
-    expect(installed.body.data).toMatchObject({ id: 'demo-plugin', version: '1.0.0', enabled: true });
+    expect(installed.body.data).toMatchObject({
+      id: 'demo-plugin',
+      version: '1.0.0',
+      enabled: true,
+    });
 
     const list = await call<{ plugins: { id: string; enabled: boolean }[] }>(
       'GET',
@@ -336,10 +339,9 @@ describe('server-v2 /api/v1 plugins', () => {
       'fetch',
       vi.fn(async (url: string | URL, init?: RequestInit) => {
         if (url === CATALOG_URL) {
-          return new Response(
-            JSON.stringify({ plugins: [{ id: 'bad', source: '   ' }] }),
-            { status: 200 },
-          );
+          return new Response(JSON.stringify({ plugins: [{ id: 'bad', source: '   ' }] }), {
+            status: 200,
+          });
         }
         return realFetch(url as never, init);
       }),
@@ -393,7 +395,8 @@ describe('server-v2 /api/v1 plugins', () => {
       'kimi-webbridge',
     );
 
-    const cuSupported = process.platform === 'darwin' || (process.platform === 'win32' && process.arch === 'x64');
+    const cuSupported =
+      process.platform === 'darwin' || (process.platform === 'win32' && process.arch === 'x64');
     const after0 = await call<{
       entries: { id: string; capabilityId?: string; installed?: { version?: string } }[];
     }>('GET', '/api/v1/plugins/marketplace');
@@ -527,7 +530,8 @@ describe('server-v2 /api/v1 plugins', () => {
     expect(datasource?.source.endsWith(join('plugins', 'official', 'kimi-datasource'))).toBe(true);
     const webbridge = body.data.entries.find((e) => e.id === 'kimi-webbridge');
     expect(webbridge?.capabilityId).toBe('kimi-webbridge');
-    const cuSupported = process.platform === 'darwin' || (process.platform === 'win32' && process.arch === 'x64');
+    const cuSupported =
+      process.platform === 'darwin' || (process.platform === 'win32' && process.arch === 'x64');
     const cu = body.data.entries.find((e) => e.id === 'kimi-cu');
     if (!cuSupported) {
       expect(cu).toBeUndefined();

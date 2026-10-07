@@ -65,8 +65,7 @@ export async function atomicWrite(
     if (!renamed) {
       try {
         await unlink(tmpPath);
-      } catch {
-      }
+      } catch {}
     }
   }
 }

@@ -10,7 +10,8 @@
 import { appendFileSync, mkdirSync } from 'node:fs';
 import path from 'node:path';
 
-const enabled = process.env['KIMI_STARTUP_TRACE'] !== undefined && process.env['KIMI_STARTUP_TRACE'] !== '';
+const enabled =
+  process.env['KIMI_STARTUP_TRACE'] !== undefined && process.env['KIMI_STARTUP_TRACE'] !== '';
 const logPath = process.env['KIMI_STARTUP_TRACE_LOG'] ?? '/tmp/kimi-startup-trace.log';
 const t0 = performance.now();
 let prepared = false;

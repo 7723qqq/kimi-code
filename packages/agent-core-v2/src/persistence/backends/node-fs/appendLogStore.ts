@@ -1,9 +1,7 @@
 import { Disposable, toDisposable, type IDisposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Emitter, type Event } from '#/_base/event';
-
-import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { LifecycleScope } from '#/app/scopes';
 import {
   AppendLogCorruptedError,
   IAppendLogStore,
@@ -12,6 +10,7 @@ import {
   type AppendLogRewriteOptions,
   type AppendLogWrite,
 } from '#/persistence/interface/appendLogStore';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
 
 const textEncoder = new TextEncoder();
 

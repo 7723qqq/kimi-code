@@ -130,8 +130,7 @@ async function writeFileAtomic(filePath: string, content: string): Promise<void>
     if (!renamed) {
       try {
         await unlink(tmpPath);
-      } catch {
-      }
+      } catch {}
     }
   }
 }
@@ -227,8 +226,7 @@ export function createInstanceRegistry(options: InstanceRegistryOptions = {}): I
       await write();
 
       const timer = setInterval(() => {
-        void write().catch(() => {
-        });
+        void write().catch(() => {});
       }, heartbeatIntervalMs);
       timer.unref();
 

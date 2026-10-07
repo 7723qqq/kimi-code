@@ -118,14 +118,10 @@ describe.skipIf(process.platform === 'win32')('ipc transport specifics', () => {
     const management = app.accessor.get(IMcpManagementService);
     const completeSpy = vi
       .spyOn(management, 'completeServerAuth')
-      .mockImplementation(
-        () => new Promise<void>((resolve) => setTimeout(resolve, 200)),
-      );
+      .mockImplementation(() => new Promise<void>((resolve) => setTimeout(resolve, 200)));
     const cancelSpy = vi
       .spyOn(management, 'cancelServerAuth')
-      .mockImplementation(
-        () => new Promise<void>((resolve) => setTimeout(resolve, 200)),
-      );
+      .mockImplementation(() => new Promise<void>((resolve) => setTimeout(resolve, 200)));
     const klient = createKlient({ socketPath, token: host!.token, callTimeoutMs: 25 });
     try {
       // completeAuth passes the engine wait + margin as its per-call deadline,
@@ -150,9 +146,7 @@ describe.skipIf(process.platform === 'win32')('ipc transport specifics', () => {
     const management = app.accessor.get(IMcpManagementService);
     const completeSpy = vi
       .spyOn(management, 'completeServerAuth')
-      .mockImplementation(
-        () => new Promise<void>((resolve) => setTimeout(resolve, 50)),
-      );
+      .mockImplementation(() => new Promise<void>((resolve) => setTimeout(resolve, 50)));
     const klient = createKlient({ socketPath, token: host!.token, callTimeoutMs: 25 });
     try {
       // timeoutMs at the contract max plus the facade margin would overflow

@@ -1,7 +1,8 @@
-import { Disposable, type IDisposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
+import { Disposable, type IDisposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { LifecycleScope } from '#/app/scopes';
+import type { ModelCapability } from '#human/llm/capability';
 import {
   createProviderCatalogSync,
   type CatalogModel,
@@ -11,11 +12,9 @@ import {
   type ProviderCatalog,
   type ProviderCatalogChanged,
 } from '#human/llm/provider-catalog';
-import type { ModelCapability } from '#human/llm/capability';
 
-import { deepEqual } from '../record-diff';
 import { IProviderService, type ProviderConfig } from '../provider/provider';
-
+import { deepEqual } from '../record-diff';
 import { IModelService, type ModelOverride, type ModelRecord } from './model';
 import { deriveProviderId, nonEmpty } from './model-auth';
 
@@ -88,7 +87,9 @@ export function toCatalogModelDefinition(
   };
 }
 
-function toCatalogOverrides(overrides: ModelOverride | undefined): CatalogModelOverrides | undefined {
+function toCatalogOverrides(
+  overrides: ModelOverride | undefined,
+): CatalogModelOverrides | undefined {
   if (overrides === undefined) return undefined;
   const out: {
     -readonly [K in keyof CatalogModelOverrides]?: CatalogModelOverrides[K];
@@ -216,7 +217,10 @@ export class ProviderCatalogRuntimeService extends Disposable implements IProvid
     const providers = this.providerService.list();
     const models = this.modelService.list();
     const defaultProvider = this.providerService.getDefaultProvider();
-    const desired = new Map<string, { info?: CatalogProviderInfo; models: CatalogModelDefinition[] }>();
+    const desired = new Map<
+      string,
+      { info?: CatalogProviderInfo; models: CatalogModelDefinition[] }
+    >();
     for (const [providerId, config] of Object.entries(providers)) {
       desired.set(providerId, { info: toCatalogProviderInfo(config), models: [] });
     }

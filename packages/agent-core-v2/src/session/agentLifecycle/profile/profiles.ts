@@ -1,4 +1,3 @@
-import { collectGitContext } from './gitContext';
 import {
   GITHUB_MUTATING_TOOL_NAMES,
   GITHUB_READONLY_TOOL_NAMES,
@@ -11,6 +10,7 @@ import {
 } from '#/app/agentProfileCatalog/profile-shared';
 
 import EXPLORE_ROLE from './explore-overlay.md?raw';
+import { collectGitContext } from './gitContext';
 
 const AGENT_TOOLS = [
   'Read',

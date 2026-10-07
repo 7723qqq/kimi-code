@@ -1,5 +1,5 @@
-import { ErrorCodes, Error2 } from '#/errors';
 import { getShellPathBridge } from '#/_base/execEnv/shellPathBridge';
+import { ErrorCodes, Error2 } from '#/errors';
 
 import type { Runtime, RuntimeBinding, RuntimeWorkspaceRoots } from './runtime';
 
@@ -23,7 +23,9 @@ export class RuntimeWorkspaceView {
     this.generation = runtime.identity.generation;
     const mapped = runtime.workspace.mapRoots(roots);
     this.workDir = runtime.path.resolve(mapped.workDir);
-    this.additionalDirs = [...new Set((mapped.additionalDirs ?? []).map((root) => runtime.path.resolve(root)))];
+    this.additionalDirs = [
+      ...new Set((mapped.additionalDirs ?? []).map((root) => runtime.path.resolve(root))),
+    ];
     this.roots = [this.workDir, ...this.additionalDirs];
   }
 
@@ -49,5 +51,9 @@ export class RuntimeWorkspaceView {
 function contains(runtime: Runtime, root: string, candidate: string): boolean {
   const relative = runtime.path.relative(root, candidate);
   if (relative === '') return true;
-  return relative !== '..' && !relative.startsWith(`..${runtime.path.separator}`) && !runtime.path.isAbsolute(relative);
+  return (
+    relative !== '..' &&
+    !relative.startsWith(`..${runtime.path.separator}`) &&
+    !runtime.path.isAbsolute(relative)
+  );
 }

@@ -23,9 +23,7 @@ export const refreshProviderModelsResponseSchema = z.object({
   unchanged: z.array(z.string().min(1)),
   failed: z.array(providerRefreshFailureSchema),
 });
-export type RefreshProviderModelsResponse = z.infer<
-  typeof refreshProviderModelsResponseSchema
->;
+export type RefreshProviderModelsResponse = z.infer<typeof refreshProviderModelsResponseSchema>;
 
 export type RefreshProviderModelsScope = 'all' | 'oauth';
 

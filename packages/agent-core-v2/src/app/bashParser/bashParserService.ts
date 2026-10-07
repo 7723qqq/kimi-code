@@ -1,7 +1,8 @@
 import { parse } from '@moonshot-ai/tree-sitter-bash';
 import type { SyntaxNode } from '@moonshot-ai/tree-sitter-bash';
-import { LifecycleScope } from '#/app/scopes';
+
 import { registerScopedService, ScopeActivation } from '#/_base/di/scope';
+import { LifecycleScope } from '#/app/scopes';
 
 import type { BashParseOptions, BashParseResult, BashSyntaxNode } from './bashParser';
 import { IBashParserService } from './bashParser';

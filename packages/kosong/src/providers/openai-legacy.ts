@@ -32,6 +32,7 @@ import type {
 import type { Tool } from '#/tool';
 import type { TokenUsage } from '#/usage';
 
+import type { ToolCallIdPolicy } from '../provider';
 import {
   convertChatCompletionStreamToolCall,
   type BufferedChatCompletionToolCall,
@@ -57,7 +58,6 @@ import {
   resolveAuthBackedClient,
   AuthClientLRU,
 } from './request-auth';
-import type { ToolCallIdPolicy } from '../provider';
 import { normalizeToolCallIdsForProvider, sanitizeToolCallId } from './tool-call-id';
 
 // Inbound: scan the known reasoning field names in priority order; first

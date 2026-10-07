@@ -2,10 +2,10 @@ import { rm } from 'node:fs/promises';
 
 import { describe, expect, it } from 'vitest';
 
-import { defineKlientConformance } from './helpers/conformance.js';
-import { createKlient } from '../src/transports/memory/index.js';
-import { createMemoryDispatcher } from '../src/transports/memory/dispatcher.js';
 import { RPCError } from '../src/core/errors.js';
+import { createMemoryDispatcher } from '../src/transports/memory/dispatcher.js';
+import { createKlient } from '../src/transports/memory/index.js';
+import { defineKlientConformance } from './helpers/conformance.js';
 import { makeEngine } from './helpers/engine.js';
 
 defineKlientConformance('memory', async () => {
@@ -77,16 +77,21 @@ describe('memory dispatcher specifics', () => {
     const first = await klient.global.sessions.create({ workDir: process.cwd() });
     const second = await klient.global.sessions.create({ workDir: process.cwd() });
     try {
-      const parked = (await dispatcher.call({ sessionId: first.id }, 'sessionInteractionService', 'enqueue', [
-        {
-          kind: 'approval',
-          payload: {
-            toolName: 'Bash',
-            action: 'run',
-            display: { kind: 'command', command: 'ls' },
+      const parked = (await dispatcher.call(
+        { sessionId: first.id },
+        'sessionInteractionService',
+        'enqueue',
+        [
+          {
+            kind: 'approval',
+            payload: {
+              toolName: 'Bash',
+              action: 'run',
+              display: { kind: 'command', command: 'ls' },
+            },
           },
-        },
-      ])) as { id: string };
+        ],
+      )) as { id: string };
 
       await dispatcher.call({ sessionId: second.id }, 'sessionInteractionService', 'respond', [
         parked.id,

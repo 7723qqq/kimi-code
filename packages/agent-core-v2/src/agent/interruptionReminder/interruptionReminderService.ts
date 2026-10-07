@@ -1,14 +1,14 @@
 import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { isUndoAnchor } from '#/agent/contextMemory/conversationTime';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { isVacuousContentPart } from '#/agent/contextMemory/vacuousContent';
 import { TurnEnded } from '#/agent/loop/turnOps';
-import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IEventBus } from '#/app/event/eventBus';
+import { LifecycleScope } from '#/app/scopes';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
 
 import { IAgentInterruptionReminderService } from './interruptionReminder';
 import { INTERRUPTION_REMINDER_VARIANT, interruptionReminderKey } from './interruptionReminderOps';
@@ -38,7 +38,8 @@ export class AgentInterruptionReminderService
         if (event.reason !== 'cancelled' || event.interruptReason !== 'user_cancelled') return;
         const history = this.context.get();
         const origin = lastComparableMessage(history)?.origin;
-        if (origin?.kind === 'injection' && origin.variant === INTERRUPTION_REMINDER_VARIANT) return;
+        if (origin?.kind === 'injection' && origin.variant === INTERRUPTION_REMINDER_VARIANT)
+          return;
         this.reminder.notify(INTERRUPTION_REMINDER, {
           variant: INTERRUPTION_REMINDER_VARIANT,
           ownerPromptId: history.findLast(isUndoAnchor)?.id,

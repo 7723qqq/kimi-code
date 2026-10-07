@@ -13,8 +13,7 @@ export interface AccessTokenResolver {
 
 export function createStaticCredentialProvider(apiKey?: string): LlmCredentialProvider {
   return {
-    resolve: () =>
-      apiKey === undefined || apiKey.trim().length === 0 ? undefined : { apiKey },
+    resolve: () => (apiKey === undefined || apiKey.trim().length === 0 ? undefined : { apiKey }),
   };
 }
 
@@ -37,10 +36,7 @@ export function createOAuthCredentialProvider(
   };
 }
 
-export function applyCredential(
-  model: LlmModel,
-  credential: LlmCredential | undefined,
-): LlmModel {
+export function applyCredential(model: LlmModel, credential: LlmCredential | undefined): LlmModel {
   if (credential === undefined) {
     return model;
   }

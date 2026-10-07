@@ -1,6 +1,6 @@
-import type { ToolExecution } from '#/tool/toolContract';
 import type { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
+import type { ToolExecution } from '#/tool/toolContract';
 
 export const CRON_MAIN_AGENT_ONLY = 'Cron tools are only supported by the main agent.';
 

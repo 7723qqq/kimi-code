@@ -3,14 +3,14 @@ import { KIMI_CODE_PROVIDER_NAME } from '@moonshot-ai/kimi-code-oauth';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
 import { AsyncEmitter, Emitter, type Event } from '#/_base/event';
-import type { HookDef } from '#/features/externalHooks/internal/types';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { LifecycleScope } from '#/app/scopes';
 import type { PluginToggleEvent } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { BugIndicatingError, Error2, PluginErrors } from '#/errors';
+import type { HookDef } from '#/features/externalHooks/internal/types';
 import { ISkillDiscovery } from '#/features/skill/catalog/skillDiscovery';
 import type { SkillRoot } from '#/features/skill/catalog/types';
-import { BugIndicatingError, Error2, PluginErrors } from '#/errors';
 import { IProviderService } from '#/llm-adapter/provider/provider';
 import type { McpServerConfig } from '#/mcpCore/config-schema';
 

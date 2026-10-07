@@ -11,8 +11,8 @@ import {
 import { isUndoAnchorOrigin } from '#/agent/contextMemory/conversationTime';
 import type { PromptOrigin } from '#/agent/contextMemory/types';
 import { AgentEvent2, type SerializedEvent2 } from '#/app/event/event2';
-import type { ContentPart } from '#human/llm/message';
 import { defineState } from '#/state/state';
+import type { ContentPart } from '#human/llm/message';
 
 import type { TurnEndReason, TurnInterruptReason } from './turnEvents';
 
@@ -135,10 +135,12 @@ export class TurnEnded extends AgentEvent2<TurnEndedPayload> {
 }
 export interface TurnEnded extends TurnEndedPayload {}
 
-export const turnKey = defineState(
-  'turn',
-  (): TurnModelState => ({ nextTurnId: 0, cancelledTurnIds: [], anchorTurnIds: [] }),
-).replayable({ schema: z.custom<TurnModelState>() })
+export const turnKey = defineState('turn', (): TurnModelState => ({
+  nextTurnId: 0,
+  cancelledTurnIds: [],
+  anchorTurnIds: [],
+}))
+  .replayable({ schema: z.custom<TurnModelState>() })
   .on(ContextAppendLoopEvent, (s, e) => {
     const { event } = e;
     if (event.type === 'tool.result' || event.turnId === undefined) return;
@@ -165,8 +167,7 @@ export const turnKey = defineState(
       ...s,
       anchorTurnIds: s.anchorTurnIds.slice(0, Math.max(0, s.anchorTurnIds.length - e.count)),
       lastEnded:
-        lastEnded !== undefined &&
-        (firstRemoved === undefined || lastEnded.turnId >= firstRemoved)
+        lastEnded !== undefined && (firstRemoved === undefined || lastEnded.turnId >= firstRemoved)
           ? undefined
           : lastEnded,
     };
@@ -199,9 +200,7 @@ function advanceTurnClock(
   nextTurnId: number,
   cancelledTurnIds: readonly number[] = state.cancelledTurnIds,
 ): TurnModelState {
-  const pendingCancellations = new Set(
-    cancelledTurnIds.filter((turnId) => turnId >= nextTurnId),
-  );
+  const pendingCancellations = new Set(cancelledTurnIds.filter((turnId) => turnId >= nextTurnId));
   while (pendingCancellations.delete(nextTurnId)) nextTurnId += 1;
   return {
     ...state,

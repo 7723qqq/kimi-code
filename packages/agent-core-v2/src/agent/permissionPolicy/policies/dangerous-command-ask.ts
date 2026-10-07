@@ -1,16 +1,13 @@
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import type { PermissionPolicy, PermissionPolicyResult } from '#/agent/permissionPolicy/types';
+import { isDangerousCommandGuardEnabled } from '#/agent/permissionRules/configSection';
+import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
 import {
   IBashParserService,
   type BashParseResult,
   type BashSyntaxNode,
 } from '#/app/bashParser/bashParser';
 import { IConfigService } from '#/app/config/config';
-import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import { isDangerousCommandGuardEnabled } from '#/agent/permissionRules/configSection';
-import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
-import type {
-  PermissionPolicy,
-  PermissionPolicyResult,
-} from '#/agent/permissionPolicy/types';
 
 const PARSE_OPTIONS = { timeoutMs: 500, maxNodes: 10_000 } as const;
 
@@ -134,9 +131,7 @@ export class DangerousCommandAskPermissionPolicyService implements PermissionPol
     const verdict =
       command === undefined
         ? ({ kind: 'unanalyzable' } as const)
-        : analyzeSource(command, 0, (source) =>
-            this.bashParser.parse(source, PARSE_OPTIONS),
-          );
+        : analyzeSource(command, 0, (source) => this.bashParser.parse(source, PARSE_OPTIONS));
     if (verdict === undefined) return undefined;
     if (verdict.kind === 'dangerous') {
       return { kind: 'ask', reason: { dangerous_command: verdict.command } };

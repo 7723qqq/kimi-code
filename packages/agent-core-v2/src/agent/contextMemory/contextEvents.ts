@@ -14,9 +14,7 @@ const contextAppendMessageSchema = z.object({
   message: contextMessageSchema,
 });
 
-export class ContextAppendMessage extends AgentEvent2<
-  z.infer<typeof contextAppendMessageSchema>
-> {
+export class ContextAppendMessage extends AgentEvent2<z.infer<typeof contextAppendMessageSchema>> {
   static override readonly type = 'context.append_message';
   static override readonly durable = true;
   static override readonly schema = contextAppendMessageSchema;

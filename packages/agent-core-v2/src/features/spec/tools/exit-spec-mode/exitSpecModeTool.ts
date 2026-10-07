@@ -76,9 +76,8 @@ export class ExitSpecModeTool implements IExitSpecModeTool {
     }
 
     this.telemetry.track2('spec_submitted', {
-      file_count: SPEC_REQUIRED_FILES.filter(
-        (name) => (status.files[name] ?? '').trim().length > 0,
-      ).length,
+      file_count: SPEC_REQUIRED_FILES.filter((name) => (status.files[name] ?? '').trim().length > 0)
+        .length,
     } as SpecSubmittedEvent);
 
     const failed = this.exitSpecMode();

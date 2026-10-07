@@ -25,7 +25,8 @@ export interface TurnTelemetryContext {
 }
 
 export interface TelemetryContextPatch
-  extends Partial<SessionTelemetryContext>,
+  extends
+    Partial<SessionTelemetryContext>,
     Partial<AgentTelemetryContext>,
     Partial<TurnTelemetryContext> {
   readonly model?: string;

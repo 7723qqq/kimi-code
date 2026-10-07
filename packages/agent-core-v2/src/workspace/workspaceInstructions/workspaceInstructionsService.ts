@@ -1,14 +1,14 @@
 import { Disposable } from '#/_base/di/lifecycle';
 import { Emitter, type Event } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
-import { defineState } from '#/state/state';
-import { TimeoutTimer } from '#/_base/utils/timer';
 import { subtreeWatchFilter } from '#/_base/utils/paths';
+import { TimeoutTimer } from '#/_base/utils/timer';
 import { agentsMdWatchRoots, loadAgentsMdForRoots } from '#/agent/profile/context';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IHostEnvironment, type HostEnvironmentInfo } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { ISessionInstructionsProvider } from '#/session/sessionInstructions/instructionsProvider';
+import { defineState } from '#/state/state';
 import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 import { watchCandidates, type WatchChange } from '#human/utils/watch';
@@ -66,29 +66,31 @@ export class WorkspaceInstructionsService
   }
 
   reload(): Promise<void> {
-    const tail = this.reloadTail.catch(() => undefined).then(async () => {
-      const result = await loadAgentsMdForRoots(
-        { fs: this.fs, homeDir: this.env.homeDir },
-        this.bootstrap.homeDir,
-        [this.workspace.cwd],
-      );
-      const next: WorkspaceInstructionsSnapshot = {
-        agentsMd: result.content,
-        agentsMdWarning: result.warning,
-        agentsMdPaths: result.paths,
-      };
-      const changed =
-        next.agentsMd !== this.current.agentsMd ||
-        next.agentsMdWarning !== this.current.agentsMdWarning;
-      this.current = next;
-      const changes = [...this.pendingChanges.values()];
-      this.pendingChanges.clear();
-      const loaded = this.loaded;
-      this.loaded = true;
-      if (changed && loaded) {
-        this.onDidChangeEmitter.fire(changes);
-      }
-    });
+    const tail = this.reloadTail
+      .catch(() => undefined)
+      .then(async () => {
+        const result = await loadAgentsMdForRoots(
+          { fs: this.fs, homeDir: this.env.homeDir },
+          this.bootstrap.homeDir,
+          [this.workspace.cwd],
+        );
+        const next: WorkspaceInstructionsSnapshot = {
+          agentsMd: result.content,
+          agentsMdWarning: result.warning,
+          agentsMdPaths: result.paths,
+        };
+        const changed =
+          next.agentsMd !== this.current.agentsMd ||
+          next.agentsMdWarning !== this.current.agentsMdWarning;
+        this.current = next;
+        const changes = [...this.pendingChanges.values()];
+        this.pendingChanges.clear();
+        const loaded = this.loaded;
+        this.loaded = true;
+        if (changed && loaded) {
+          this.onDidChangeEmitter.fire(changes);
+        }
+      });
     this.reloadTail = tail;
     return tail;
   }
@@ -141,4 +143,3 @@ export class WorkspaceInstructionsService
     }
   }
 }
-

@@ -1,5 +1,4 @@
 import { onUnexpectedError } from '../errors/unexpectedError';
-import type { IDisposable } from './lifecycle';
 import { Ledger, type LedgerEntry } from '../lifecycle/ledger';
 import type { StoredRecord } from './collection';
 import {
@@ -10,6 +9,7 @@ import {
   type ServiceRecipe,
 } from './fiber';
 import type { InstantiationService } from './instantiationService';
+import type { IDisposable } from './lifecycle';
 import type { ScopeKind } from './scope';
 
 export function watchScopeUnits(container: InstantiationService, kind: ScopeKind): void {

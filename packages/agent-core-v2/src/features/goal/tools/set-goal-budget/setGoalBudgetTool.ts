@@ -1,17 +1,16 @@
-import { toInputJsonSchema } from '#/tool/input-schema';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { GOAL_MAIN_AGENT_ONLY, mainAgentOnlyExecution } from '#/agent/tools/mainAgentOnly';
-import { type ToolExecution } from '#/tool/toolContract';
-
 import { IAgentGoalService } from '#/features/goal/goalService';
 import type { GoalBudgetLimits, GoalSnapshot } from '#/features/goal/types';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import { type ToolExecution } from '#/tool/toolContract';
 
-import DESCRIPTION from './set-goal-budget.md?raw';
 import {
   SetGoalBudgetToolInputSchema,
   ISetGoalBudgetTool,
   type SetGoalBudgetToolInput,
 } from './set-goal-budget';
+import DESCRIPTION from './set-goal-budget.md?raw';
 
 const MIN_REASONABLE_TIME_BUDGET_MS = 1_000;
 
@@ -89,7 +88,6 @@ export class SetGoalBudgetTool implements ISetGoalBudgetTool {
     );
   }
 }
-
 
 function normalizeBudgetInput(input: SetGoalBudgetToolInput): SetGoalBudgetToolInput {
   switch (input.unit) {

@@ -15,7 +15,9 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
+
 import { fsyncDir } from './compaction.js';
+import { GenerationCorruptError } from './gen-codec.js';
 import {
   CURRENT_FILE,
   GENERATIONS_DIR,
@@ -25,7 +27,6 @@ import {
   parseGenerationId,
 } from './generation.js';
 import type { GenerationManifest } from './generation.js';
-import { GenerationCorruptError } from './gen-codec.js';
 import { renameReplace } from './rename-replace.js';
 
 export function generationsDir(dir: string): string {
@@ -52,7 +53,9 @@ export async function readCurrent(dir: string): Promise<string | null> {
 
 /** List generation directories (both published and stray tmp dirs), newest
  *  first by numeric id. */
-export async function listGenerations(dir: string): Promise<{ id: string; n: number; tmp: boolean }[]> {
+export async function listGenerations(
+  dir: string,
+): Promise<{ id: string; n: number; tmp: boolean }[]> {
   let names: string[];
   try {
     names = await fs.readdir(generationsDir(dir));
@@ -87,13 +90,21 @@ export async function readManifest(dir: string, id: string): Promise<GenerationM
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       throw new GenerationCorruptError(`generation ${id}: manifest missing`);
     }
-    throw new GenerationCorruptError(`generation ${id}: manifest unreadable: ${(error as Error).message}`);
+    throw new GenerationCorruptError(
+      `generation ${id}: manifest unreadable: ${(error as Error).message}`,
+    );
   }
-  if (typeof parsed !== 'object' || parsed === null) throw new GenerationCorruptError(`generation ${id}: manifest not an object`);
+  if (typeof parsed !== 'object' || parsed === null)
+    throw new GenerationCorruptError(`generation ${id}: manifest not an object`);
   if (parsed.format !== GENERATION_FORMAT_VERSION) {
-    throw new GenerationCorruptError(`generation ${id}: unknown format version ${String(parsed.format)}`);
+    throw new GenerationCorruptError(
+      `generation ${id}: unknown format version ${String(parsed.format)}`,
+    );
   }
-  if (parsed.id !== id) throw new GenerationCorruptError(`generation ${id}: manifest id mismatch (${String(parsed.id)})`);
+  if (parsed.id !== id)
+    throw new GenerationCorruptError(
+      `generation ${id}: manifest id mismatch (${String(parsed.id)})`,
+    );
   const cp = parsed.checkpoint;
   if (
     !cp ||
@@ -185,6 +196,9 @@ export async function cleanupGenerations(dir: string, keep: ReadonlySet<string>)
 /** Open-time sweep (writer only): remove stranded build tmp dirs. */
 export async function sweepGenerationTemps(dir: string): Promise<void> {
   for (const g of await listGenerations(dir)) {
-    if (g.tmp) await fs.rm(path.join(generationsDir(dir), g.id), { recursive: true, force: true }).catch(() => {});
+    if (g.tmp)
+      await fs
+        .rm(path.join(generationsDir(dir), g.id), { recursive: true, force: true })
+        .catch(() => {});
   }
 }

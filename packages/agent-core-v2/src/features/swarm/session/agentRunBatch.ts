@@ -1,11 +1,12 @@
-import { isProviderRateLimitError } from '#/llm-adapter/contract/errors';
-import { type TokenUsage } from '#human/llm/usage';
 import * as retry from 'retry';
 
 import { isUserCancellation } from '#/_base/utils/abort';
 import { setClampedTimeout } from '#/_base/utils/timer';
 import { BugIndicatingError, Error2, ErrorCodes } from '#/errors';
+import { isProviderRateLimitError } from '#/llm-adapter/contract/errors';
 import type { SubagentSpawnPlan } from '#/session/subagent/spawn';
+import { type TokenUsage } from '#human/llm/usage';
+
 import type { SessionSwarmRunResult, SessionSwarmTask } from './sessionSwarm';
 
 export interface AgentRunAttemptOptions {
@@ -489,10 +490,7 @@ export class AgentRunBatch<T> {
       return Number.POSITIVE_INFINITY;
     }
 
-    const latestCapacityChangeAt = Math.max(
-      this.lastRateLimitAt,
-      this.lastCapacityRecoveryAt ?? 0,
-    );
+    const latestCapacityChangeAt = Math.max(this.lastRateLimitAt, this.lastCapacityRecoveryAt ?? 0);
     return latestCapacityChangeAt + RATE_LIMIT_CAPACITY_RECOVERY_INTERVAL_MS;
   }
 
@@ -674,4 +672,3 @@ export function resolveSwarmMaxConcurrency(
   }
   return value;
 }
-

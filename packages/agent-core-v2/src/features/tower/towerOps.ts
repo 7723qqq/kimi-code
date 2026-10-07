@@ -45,9 +45,10 @@ export class TowerInboxSent extends Event2<TowerInboxSentPayload> {
 }
 export interface TowerInboxSent extends TowerInboxSentPayload {}
 
-export const towerKey = defineState('tower', () => false).replayable({
-  schema: z.boolean(),
-})
+export const towerKey = defineState('tower', () => false)
+  .replayable({
+    schema: z.boolean(),
+  })
   .on(TowerModeEnter, (_s, e, ctx) => {
     ctx.emit(new AgentStatusUpdated({ agentId: e.agentId, towerMode: true }));
     return true;

@@ -1,6 +1,5 @@
-import { createSlice } from '#/eventStore/slice';
-
 import { stateUpdated, turnStarted, type StateUpdated, type TurnStarted } from '#/agent/events';
+import { createSlice } from '#/eventStore/slice';
 
 import { readTodoItems, type TodoItem } from './todoItem';
 

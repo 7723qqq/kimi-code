@@ -1,17 +1,16 @@
-import { describe, expect, it } from 'vitest';
-
 import {
   daemonFileRefFromPart as engineRefFromPart,
   matchSingleMediaPathTag as engineMatchTag,
   parseDaemonFileUrl as engineParse,
 } from '@moonshot-ai/agent-core-v2';
+import type { ContentPart } from '@moonshot-ai/agent-core-v2';
 import {
   daemonFileRefFromPairingPart as mirrorRefFromPart,
   matchMediaPathTagText as mirrorMatchTag,
   parseDaemonFileRef as mirrorParse,
   type MediaRefPart,
 } from '@moonshot-ai/transcript';
-import type { ContentPart } from '@moonshot-ai/agent-core-v2';
+import { describe, expect, it } from 'vitest';
 
 const URLS = [
   'kimi-file://f_1?path=%2Fcache%2Fshot.png',
@@ -69,9 +68,7 @@ const PARTS: ReadonlyArray<MediaRefPart> = [
 describe('daemon ref extraction parity', () => {
   for (const [index, part] of PARTS.entries()) {
     it(`part ${index}: ${part.type}`, () => {
-      expect(mirrorRefFromPart(part)).toEqual(
-        engineRefFromPart(part as unknown as ContentPart),
-      );
+      expect(mirrorRefFromPart(part)).toEqual(engineRefFromPart(part as unknown as ContentPart));
     });
   }
 });

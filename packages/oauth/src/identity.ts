@@ -194,7 +194,9 @@ const MACOS_SYSTEM_VERSION_PLIST = '/System/Library/CoreServices/SystemVersion.p
 function macOsProductVersion(): string | undefined {
   try {
     const plist = readFileSync(MACOS_SYSTEM_VERSION_PLIST, 'utf-8');
-    const version = /<key>ProductVersion<\/key>\s*<string>([^<]*)<\/string>/.exec(plist)?.[1]?.trim();
+    const version = /<key>ProductVersion<\/key>\s*<string>([^<]*)<\/string>/
+      .exec(plist)?.[1]
+      ?.trim();
     return version !== undefined && version.length > 0 ? version : undefined;
   } catch {
     return undefined;

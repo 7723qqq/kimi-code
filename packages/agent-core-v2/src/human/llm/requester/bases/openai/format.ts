@@ -16,13 +16,13 @@ import {
   type LlmRemoteErrorMessage,
 } from '#/llm/errors';
 import { NO_FINISH, type FinishInfo, type FinishReason } from '#/llm/finish-reason';
+import { type Message, type StreamedMessagePart, type ToolDescription } from '#/llm/message';
 import type {
   FormatRequestInput,
   ProtocolFormat,
   StreamParser,
   StreamParserOptions,
 } from '#/llm/protocol/format';
-import { type Message, type StreamedMessagePart, type ToolDescription } from '#/llm/message';
 import { toolResultToPlainText } from '#/llm/protocol/patterns';
 import { applyPatterns } from '#/llm/protocol/rewrite';
 import type { ToolMessageConversion } from '#/llm/requester/requester';

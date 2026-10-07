@@ -1,13 +1,12 @@
 import type { Kaos } from '@moonshot-ai/kaos';
 
+import type { KimiAuthFacade } from '#/auth';
 import { ErrorCodes, KimiError } from '#/errors';
 import type { ExperimentalFeatureState } from '#/flag';
 import type { ImageLimits } from '#/image';
-import { withTelemetryContext } from '#/telemetry';
-
-import { capabilityRpc, Session } from '#/session';
-import type { KimiAuthFacade } from '#/auth';
 import type { SDKRpcClientBase } from '#/rpc';
+import { capabilityRpc, Session } from '#/session';
+import { withTelemetryContext } from '#/telemetry';
 import type {
   AuthenticateMcpServerOptions,
   AppMcpServerInspection,
@@ -144,7 +143,11 @@ export class KimiHarness {
     const summary =
       kaos === undefined && persistenceKaos === undefined
         ? await this.rpc.createSession(coreOptions)
-        : await this.rpc.createSessionWithKaos(coreOptions, kaos ?? persistenceKaos as Kaos, persistenceKaos);
+        : await this.rpc.createSessionWithKaos(
+            coreOptions,
+            kaos ?? (persistenceKaos as Kaos),
+            persistenceKaos,
+          );
     const session = new Session({
       id: summary.id,
       workDir: summary.workDir,
@@ -179,7 +182,11 @@ export class KimiHarness {
     // the engine serializes behind that close.
     if (active !== undefined && !active.isClosed) {
       if (kaos !== undefined || persistenceKaos !== undefined) {
-        await this.rpc.resumeSessionWithKaos({ ...resumeInput, id }, kaos ?? persistenceKaos as Kaos, persistenceKaos);
+        await this.rpc.resumeSessionWithKaos(
+          { ...resumeInput, id },
+          kaos ?? (persistenceKaos as Kaos),
+          persistenceKaos,
+        );
       } else if (input.agentProfile !== undefined) {
         await this.rpc.resumeSession({ ...resumeInput, id });
       }
@@ -209,7 +216,11 @@ export class KimiHarness {
     const summary =
       kaos === undefined && persistenceKaos === undefined
         ? await this.rpc.resumeSession({ ...resumeInput, id })
-        : await this.rpc.resumeSessionWithKaos({ ...resumeInput, id }, kaos ?? persistenceKaos as Kaos, persistenceKaos);
+        : await this.rpc.resumeSessionWithKaos(
+            { ...resumeInput, id },
+            kaos ?? (persistenceKaos as Kaos),
+            persistenceKaos,
+          );
     const session = new Session({
       id: summary.id,
       workDir: summary.workDir,
@@ -300,9 +311,7 @@ export class KimiHarness {
 
   async renameSession(input: RenameSessionInput): Promise<void> {
     await this.rpc.renameSession(input);
-    this.activeSessions
-      .get(input.id)
-      ?.emitMetaUpdated({ title: input.title, isCustomTitle: true });
+    this.activeSessions.get(input.id)?.emitMetaUpdated({ title: input.title, isCustomTitle: true });
   }
 
   /**
@@ -346,7 +355,10 @@ export class KimiHarness {
    * session required. `undefined` on the v1 engine, which has no equivalent
    * capability; callers fall back to their own file search there.
    */
-  async suggestFiles(workDir: string, input: SuggestFilesInput): Promise<SuggestFilesResult | undefined> {
+  async suggestFiles(
+    workDir: string,
+    input: SuggestFilesInput,
+  ): Promise<SuggestFilesResult | undefined> {
     return this.rpc.suggestFiles(workDir, input);
   }
 
@@ -556,10 +568,7 @@ export class KimiHarness {
     return this.rpc.removeGlobalMcpServer(name, options);
   }
 
-  async authenticateMcpServer(
-    name: string,
-    options: AuthenticateMcpServerOptions,
-  ): Promise<void> {
+  async authenticateMcpServer(name: string, options: AuthenticateMcpServerOptions): Promise<void> {
     const started = await this.rpc.beginGlobalMcpServerAuth(name, { cwd: options.cwd });
     if (started.status === 'already-authorized') return;
     try {
@@ -577,10 +586,7 @@ export class KimiHarness {
     }
   }
 
-  async resetMcpServerAuth(
-    name: string,
-    options: { readonly cwd?: string } = {},
-  ): Promise<void> {
+  async resetMcpServerAuth(name: string, options: { readonly cwd?: string } = {}): Promise<void> {
     return this.rpc.resetGlobalMcpServerAuth(name, options);
   }
 
@@ -618,10 +624,7 @@ export class KimiHarness {
     return this.rpc.resetMcpServerAuth(locator, options);
   }
 
-  async testMcpServer(
-    name: string,
-    options: TestMcpServerOptions = {},
-  ): Promise<McpTestResult> {
+  async testMcpServer(name: string, options: TestMcpServerOptions = {}): Promise<McpTestResult> {
     return this.rpc.testGlobalMcpServer(name, options);
   }
 

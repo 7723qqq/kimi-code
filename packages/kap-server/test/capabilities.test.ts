@@ -75,11 +75,10 @@ describe('server-v2 /api/v1 capabilities', () => {
     expect(bogus.body.code).toBe(40001);
   });
 
-  it.skipIf(process.platform === 'darwin' || (process.platform === 'win32' && process.arch === 'x64'))(
-    'rejects kimi-cu install on unsupported platforms with 40925',
-    async () => {
-      const { body } = await postJson<unknown>('/api/v1/capabilities/kimi-cu:install');
-      expect(body.code).toBe(40925);
-    },
-  );
+  it.skipIf(
+    process.platform === 'darwin' || (process.platform === 'win32' && process.arch === 'x64'),
+  )('rejects kimi-cu install on unsupported platforms with 40925', async () => {
+    const { body } = await postJson<unknown>('/api/v1/capabilities/kimi-cu:install');
+    expect(body.code).toBe(40925);
+  });
 });

@@ -1,8 +1,7 @@
-import { Emitter } from '#/_base/event';
-import { Service } from '#/_base/di/service';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-
+import { Service } from '#/_base/di/service';
+import { Emitter } from '#/_base/event';
+import { LifecycleScope } from '#/app/scopes';
 import {
   IHostTerminalService,
   type HostTerminalBunRuntime,
@@ -79,8 +78,7 @@ export class HostTerminalService extends Service implements IHostTerminalService
     for (const process of this.processes) {
       try {
         process.kill();
-      } catch {
-      }
+      } catch {}
     }
     this.processes.clear();
     super.dispose();

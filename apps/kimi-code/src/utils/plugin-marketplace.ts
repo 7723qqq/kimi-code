@@ -97,9 +97,10 @@ export async function loadPluginMarketplace(
     }
     throw error;
   }
-  const marketplace = options.skipLatestVersions === true
-    ? parsePluginMarketplace(read.raw, read.location)
-    : await withLatestVersions(parsePluginMarketplace(read.raw, read.location), fetchImpl);
+  const marketplace =
+    options.skipLatestVersions === true
+      ? parsePluginMarketplace(read.raw, read.location)
+      : await withLatestVersions(parsePluginMarketplace(read.raw, read.location), fetchImpl);
   return options.builtInEntries !== undefined
     ? withBuiltInEntries(marketplace, options.builtInEntries)
     : marketplace;

@@ -4,7 +4,6 @@ import {
   IFeatureManager,
   LifecycleScope,
 } from '@moonshot-ai/agent-core-v2';
-
 import type { Scope, ScopedEntry, ServiceIdentifier } from '@moonshot-ai/agent-core-v2';
 
 export interface ChannelMethodDescriptor {
@@ -32,11 +31,7 @@ let serviceNameIndex: Map<string, ServiceIdentifier<unknown>> | undefined;
 function scopedServiceNameIndex(): Map<string, ServiceIdentifier<unknown>> {
   serviceNameIndex ??= (() => {
     const map = new Map<string, ServiceIdentifier<unknown>>();
-    for (const scope of [
-      LifecycleScope.App,
-      LifecycleScope.Session,
-      LifecycleScope.Agent,
-    ]) {
+    for (const scope of [LifecycleScope.App, LifecycleScope.Session, LifecycleScope.Agent]) {
       for (const entry of getScopedServiceDescriptors(scope)) {
         const name = entry.id.toString();
         if (!map.has(name)) map.set(name, entry.id);

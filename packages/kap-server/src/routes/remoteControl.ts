@@ -1,10 +1,9 @@
+import type { ITelemetryService } from '@moonshot-ai/agent-core-v2';
 import {
   RemoteControlAlreadyRunningError,
   type RemoteControlManager,
   type RemoteControlStatusInfo,
 } from '@moonshot-ai/remote-control';
-
-import type { ITelemetryService } from '@moonshot-ai/agent-core-v2';
 
 import { errEnvelope, okEnvelope } from '../envelope';
 import { requestLog } from '../lib/requestLog';
@@ -97,9 +96,7 @@ export function registerRemoteControlRoutes(
       } catch (error) {
         if (error instanceof RemoteControlAlreadyRunningError) {
           opts.telemetry?.track2('remote_control_toggle', { enabled, outcome: 'already_running' });
-          reply.send(
-            errEnvelope(ErrorCode.REMOTE_CONTROL_ALREADY_RUNNING, error.message, req.id),
-          );
+          reply.send(errEnvelope(ErrorCode.REMOTE_CONTROL_ALREADY_RUNNING, error.message, req.id));
           return;
         }
         opts.telemetry?.track2('remote_control_toggle', { enabled, outcome: 'error' });

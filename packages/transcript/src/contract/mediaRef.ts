@@ -49,7 +49,9 @@ export interface MediaRefPart {
 
 export function daemonFileRefFromPairingPart(
   part: MediaRefPart,
-): { readonly kind: 'image' | 'video'; readonly ref: DaemonFileRef; readonly name?: string } | undefined {
+):
+  | { readonly kind: 'image' | 'video'; readonly ref: DaemonFileRef; readonly name?: string }
+  | undefined {
   if (part.type !== 'image_url' && part.type !== 'video_url') return undefined;
   const media = part.type === 'image_url' ? part.imageUrl : part.videoUrl;
   const url = media?.url;

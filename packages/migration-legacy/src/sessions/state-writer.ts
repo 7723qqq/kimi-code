@@ -60,9 +60,7 @@ export async function writeSessionState(sessionDir: string, input: StateWriteInp
     lastPrompt: input.lastUserPrompt.slice(0, 200),
     lastTurnReason: input.lastTurnReason,
     additionalDirs:
-      input.oldState.additional_dirs?.length === 0
-        ? undefined
-        : input.oldState.additional_dirs,
+      input.oldState.additional_dirs?.length === 0 ? undefined : input.oldState.additional_dirs,
     agents: {
       main: {
         // kimi-core's `Session.resume()` treats `agents.main.homedir` as the

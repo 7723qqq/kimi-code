@@ -1,6 +1,8 @@
 import { readFile, mkdir } from 'node:fs/promises';
 import { dirname } from 'node:path';
+
 import { McpServerConfigSchema } from '@moonshot-ai/agent-core-v2/mcpCore/config-schema';
+
 import { atomicWrite } from '../atomic-write.js';
 import { siblingMcpJson, sourceMcpJson, targetMcpFile } from '../paths.js';
 
@@ -31,9 +33,7 @@ function emptyResult(sourceUnreadable: boolean): McpStepResult {
 
 function isEnoent(error: unknown): boolean {
   return (
-    typeof error === 'object' &&
-    error !== null &&
-    (error as { code?: unknown }).code === 'ENOENT'
+    typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 'ENOENT'
   );
 }
 
@@ -120,5 +120,11 @@ export async function migrateMcpStep(input: McpStepInput): Promise<McpStepResult
   await mkdir(dirname(outPath), { recursive: true, mode: 0o700 });
   await atomicWrite(outPath, JSON.stringify({ mcpServers: mergedTargetServers }, null, 2));
 
-  return { mergedServers, keptNewForConflicts, droppedServers, wroteSiblingDueToConflict: targetUnparseable, sourceUnreadable: false };
+  return {
+    mergedServers,
+    keptNewForConflicts,
+    droppedServers,
+    wroteSiblingDueToConflict: targetUnparseable,
+    sourceUnreadable: false,
+  };
 }

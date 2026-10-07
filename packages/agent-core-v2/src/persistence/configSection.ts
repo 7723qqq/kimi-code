@@ -25,15 +25,12 @@ export const DatabaseConfigSchema = z.object({
 
 export type DatabaseConfig = z.infer<typeof DatabaseConfigSchema>;
 
-export const databaseEnvBindings: EnvBindings<DatabaseConfig> = envBindings(
-  DatabaseConfigSchema,
-  {
-    base: { env: PERSISTENCE_MINIDB_READMODEL_ENV, parse: parseBooleanEnv },
-    search: { env: SEARCH_WORKER_ENV, parse: parseBooleanEnv },
-    searchSyncSessionCap: { env: SEARCH_SYNC_SESSION_CAP_ENV, parse: parseNumberEnv },
-    searchSyncDebounceMs: { env: SEARCH_SYNC_DEBOUNCE_MS_ENV, parse: parseNumberEnv },
-  },
-);
+export const databaseEnvBindings: EnvBindings<DatabaseConfig> = envBindings(DatabaseConfigSchema, {
+  base: { env: PERSISTENCE_MINIDB_READMODEL_ENV, parse: parseBooleanEnv },
+  search: { env: SEARCH_WORKER_ENV, parse: parseBooleanEnv },
+  searchSyncSessionCap: { env: SEARCH_SYNC_SESSION_CAP_ENV, parse: parseNumberEnv },
+  searchSyncDebounceMs: { env: SEARCH_SYNC_DEBOUNCE_MS_ENV, parse: parseNumberEnv },
+});
 
 export const stripDatabaseEnv = stripEnvBoundFields(databaseEnvBindings);
 

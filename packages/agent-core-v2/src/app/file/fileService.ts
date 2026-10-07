@@ -41,7 +41,8 @@ export interface IFileService {
   delete(fileId: string): Promise<void>;
 }
 
-export const IFileService: ServiceIdentifier<IFileService> = createDecorator<IFileService>('fileService');
+export const IFileService: ServiceIdentifier<IFileService> =
+  createDecorator<IFileService>('fileService');
 
 export const FILE_ID_REGEX = /^f_[A-Za-z0-9][A-Za-z0-9_-]*$/;
 
@@ -80,6 +81,9 @@ export function fileNotFoundError(fileId: string): FileError {
   return new FileError(FileErrors.codes.FILE_NOT_FOUND, `file not found: ${fileId}`, { fileId });
 }
 
-export function isFileError(error: unknown, code: (typeof FileErrors.codes)[keyof typeof FileErrors.codes]): boolean {
+export function isFileError(
+  error: unknown,
+  code: (typeof FileErrors.codes)[keyof typeof FileErrors.codes],
+): boolean {
   return error instanceof Error2 && error.code === code;
 }

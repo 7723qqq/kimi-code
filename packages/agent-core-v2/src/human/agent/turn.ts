@@ -1,5 +1,3 @@
-import { assign, fromPromise, raise, setup } from '#/xstate2';
-
 import { emptyResponseError } from '#/llm/empty-response';
 import type { LlmErrorMessage } from '#/llm/errors';
 import { NO_FINISH, type FinishInfo } from '#/llm/finish-reason';
@@ -37,9 +35,10 @@ import { emptyUsage, type TokenUsage } from '#/llm/usage';
 import type { ToolResult } from '#/tool/executor';
 import type { ToolOutput } from '#/tool/machine';
 import { createAbortScope, withAbort, type AbortScope } from '#/utils/abort';
+import { assign, fromPromise, raise, setup } from '#/xstate2';
 
-import { MaxStepsExceededError } from './errors';
 import { estimateUsedContextTokens } from './context-usage';
+import { MaxStepsExceededError } from './errors';
 import type { PromptOrigin } from './origin';
 
 export interface EntryMeta {
@@ -254,9 +253,7 @@ function asyncAckOutcome(toolCall: ToolCall, text: string): ToolOutput {
   return {
     type: 'succeeded',
     result: {
-      content: [
-        { type: 'text', text: text === '' ? `async running: ${toolCall.name}` : text },
-      ],
+      content: [{ type: 'text', text: text === '' ? `async running: ${toolCall.name}` : text }],
     },
   };
 }
@@ -306,7 +303,11 @@ function proposeRecovery(
   if (recovery === undefined) return undefined;
   const proposal = recovery.propose(ctx);
   if (proposal === undefined) return undefined;
-  if (proposal.attemptMessageOverride !== undefined && proposal.attemptMessageOverride === ctx.messages) return undefined;
+  if (
+    proposal.attemptMessageOverride !== undefined &&
+    proposal.attemptMessageOverride === ctx.messages
+  )
+    return undefined;
   return proposal;
 }
 
@@ -362,10 +363,7 @@ export interface CreateTurnMachineOptions {
   readonly onBeforeStep?: TurnBeforeStep;
 }
 
-export function createTurnMachine(
-  requester: LlmRequester,
-  options?: CreateTurnMachineOptions,
-) {
+export function createTurnMachine(requester: LlmRequester, options?: CreateTurnMachineOptions) {
   const recovery = options?.recovery;
   const retry = options?.retry;
   const abortGraceMs = options?.abortGraceMs ?? 2_500;
@@ -571,8 +569,7 @@ export function createTurnMachine(
           },
           'llm.done': [
             {
-              guard: ({ context }) =>
-                context.accumulator.finish().message.toolCalls.length > 0,
+              guard: ({ context }) => context.accumulator.finish().message.toolCalls.length > 0,
               target: 'acting',
               actions: [
                 {
@@ -658,7 +655,8 @@ export function createTurnMachine(
                       ...context.appliedRecoveries,
                       { strategy: proposal.strategy, action: proposal.action },
                     ],
-                    attemptMessageOverride: proposal.attemptMessageOverride ?? context.attemptMessageOverride,
+                    attemptMessageOverride:
+                      proposal.attemptMessageOverride ?? context.attemptMessageOverride,
                     attempt: 1,
                   };
                 }),
@@ -673,8 +671,7 @@ export function createTurnMachine(
               ],
             },
             {
-              guard: ({ context, event }) =>
-                shouldRetry(retry, context.attempt, event.cause.error),
+              guard: ({ context, event }) => shouldRetry(retry, context.attempt, event.cause.error),
               target: 'retrying',
               actions: [
                 ({ context }) => {
@@ -682,8 +679,7 @@ export function createTurnMachine(
                 },
                 assign({
                   delayMs: ({ context, event }) =>
-                    readRetryAfterMs(event.cause.error) ??
-                    retryBackoffDelay(context.attempt - 1),
+                    readRetryAfterMs(event.cause.error) ?? retryBackoffDelay(context.attempt - 1),
                 }),
                 {
                   type: 'sendToParent',
@@ -875,10 +871,10 @@ export function createTurnMachine(
     output: ({ context }): TurnOutput =>
       context.outcome === 'failed'
         ? {
-          type: 'failed',
-          error: context.error,
-          produced: context.produced,
-        }
+            type: 'failed',
+            error: context.error,
+            produced: context.produced,
+          }
         : context.outcome === 'aborted'
           ? { type: 'aborted', produced: context.produced }
           : { type: 'done', produced: context.produced },

@@ -5,9 +5,9 @@ export const DEFAULT_PROFILE_NAME = 'coder';
 export const FORK_WITH_RESUME_UNAVAILABLE =
   'Cannot set resume when forking the current context. Fork creates a new agent; resume continues an existing one.';
 export const FORK_WITH_TYPE_UNAVAILABLE =
-  'Cannot set a different subagent_type when forking the current context. A fork inherits this agent\'s own agent type.';
+  "Cannot set a different subagent_type when forking the current context. A fork inherits this agent's own agent type.";
 export const FORK_WITH_MODEL_UNAVAILABLE =
-  'Cannot override the model when forking the current context. A fork inherits this agent\'s model.';
+  "Cannot override the model when forking the current context. A fork inherits this agent's model.";
 export const FORK_EXPERIMENTAL_UNAVAILABLE =
   'fork is disabled: the subagent_fork experimental flag is off.';
 export const FORK_CONTEXT_NOTICE =

@@ -1,8 +1,7 @@
-import { LifecycleScope } from '#/app/scopes';
-
 import { Disposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { encodeWorkDirKey, workspaceRootKey } from '#/_base/utils/workdir-slug';
+import { LifecycleScope } from '#/app/scopes';
 import { IWorkspaceService, type Workspace } from '#/app/workspace/workspace';
 import {
   readSessionIndexEntries,
@@ -48,10 +47,10 @@ export class WorkspaceAliasesService extends Disposable implements IWorkspaceAli
   declare readonly _serviceBrand: undefined;
 
   private catalogCache: CatalogSnapshot | undefined;
-  private sessionIndexCache: { snapshot: SessionIndexSnapshot; size: number | undefined } | undefined;
-  private catalogPromise:
-    | Promise<{ snapshot: CatalogSnapshot; generation: number }>
+  private sessionIndexCache:
+    | { snapshot: SessionIndexSnapshot; size: number | undefined }
     | undefined;
+  private catalogPromise: Promise<{ snapshot: CatalogSnapshot; generation: number }> | undefined;
   private sessionIndexPromise:
     | Promise<{ snapshot: SessionIndexSnapshot; generation: number }>
     | undefined;
@@ -151,13 +150,18 @@ export class WorkspaceAliasesService extends Disposable implements IWorkspaceAli
     return snapshot;
   }
 
-  private async loadSessionIndex(): Promise<{ snapshot: SessionIndexSnapshot; generation: number }> {
+  private async loadSessionIndex(): Promise<{
+    snapshot: SessionIndexSnapshot;
+    generation: number;
+  }> {
     try {
       const generation = this.invalidationGeneration;
       const entries = await readSessionIndexEntries(this.storage);
       const snapshot: SessionIndexSnapshot = {
-        idsByRootKey: rootKeyIndex(entries, (entry) => entry.workDir, (entry) =>
-          encodeWorkDirKey(entry.workDir),
+        idsByRootKey: rootKeyIndex(
+          entries,
+          (entry) => entry.workDir,
+          (entry) => encodeWorkDirKey(entry.workDir),
         ),
       };
       if (generation === this.invalidationGeneration) {

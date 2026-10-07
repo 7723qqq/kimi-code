@@ -1,14 +1,14 @@
-import { Service } from '#/_base/di/service';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Service } from '#/_base/di/service';
 import { Emitter, type Event } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
-import { defineState } from '#/state/state';
+import { LifecycleScope } from '#/app/scopes';
 import { ISessionIndexMirror } from '#/app/sessionIndex/sessionIndex';
 import { buildSessionSummary } from '#/app/sessionIndex/sessionIndexSource';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionStateService } from '#/session/state/sessionState';
+import { defineState } from '#/state/state';
 
 import {
   ISessionMetadata,
@@ -122,7 +122,9 @@ export class SessionMetadata extends Service implements ISessionMetadata {
 
   async setArchived(archived: boolean): Promise<void> {
     await this.update(
-      archived ? { archived: true, archivedAt: Date.now() } : { archived: false, archivedAt: undefined },
+      archived
+        ? { archived: true, archivedAt: Date.now() }
+        : { archived: false, archivedAt: undefined },
       { touchUpdatedAt: false },
     );
   }
@@ -241,9 +243,8 @@ export function normalizeSessionMeta(raw: SessionMeta, sessionId: string): Sessi
     ...clean
   } = legacy;
   const cwd =
-    clean.cwd ?? (typeof legacyWorkDir === 'string' && legacyWorkDir.length > 0
-      ? legacyWorkDir
-      : undefined);
+    clean.cwd ??
+    (typeof legacyWorkDir === 'string' && legacyWorkDir.length > 0 ? legacyWorkDir : undefined);
   const { title, titleKind } = normalizedTitle;
   return {
     ...clean,
@@ -267,9 +268,7 @@ type LegacySessionMeta = Omit<SessionMeta, 'createdAt' | 'updatedAt'> & {
   readonly customTitle?: unknown;
 };
 
-function normalizeSessionTitle(
-  raw: LegacySessionMeta,
-): Pick<SessionMeta, 'title' | 'titleKind'> {
+function normalizeSessionTitle(raw: LegacySessionMeta): Pick<SessionMeta, 'title' | 'titleKind'> {
   const title = typeof raw.title === 'string' ? raw.title : undefined;
   if (title !== undefined && raw.isCustomTitle === true) {
     return { title, titleKind: 'custom' };

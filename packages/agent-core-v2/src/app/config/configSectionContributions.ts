@@ -1,4 +1,5 @@
 import { collection } from '#/_base/di/collection';
+
 import type { ConfigSchema, RegisterSectionOptions } from './config';
 
 export interface ConfigSectionContribution {

@@ -18,10 +18,16 @@ export function paginateTurns(items: readonly TranscriptItem[], query: TurnPageQ
   if (segments.length === 0) return { items: [], hasMore: false };
 
   if (query.afterTurn !== undefined) {
-    return page(segments.filter((seg) => seg.turnId && compareTurnIds(seg.turnId, query.afterTurn!) > 0), pageSize, 'newer');
+    return page(
+      segments.filter((seg) => seg.turnId && compareTurnIds(seg.turnId, query.afterTurn!) > 0),
+      pageSize,
+      'newer',
+    );
   }
   if (query.beforeTurn !== undefined) {
-    const older = segments.filter((seg) => !seg.turnId || compareTurnIds(seg.turnId, query.beforeTurn!) < 0);
+    const older = segments.filter(
+      (seg) => !seg.turnId || compareTurnIds(seg.turnId, query.beforeTurn!) < 0,
+    );
     return page(older, pageSize, 'older');
   }
   return page(segments, pageSize, 'older');
@@ -54,7 +60,11 @@ function splitSegments(items: readonly TranscriptItem[]): Segment[] {
   return segments;
 }
 
-function page(segments: readonly Segment[], pageSize: number, direction: 'older' | 'newer'): TurnPage {
+function page(
+  segments: readonly Segment[],
+  pageSize: number,
+  direction: 'older' | 'newer',
+): TurnPage {
   const head = segments[0]?.turnId === undefined ? segments[0] : undefined;
   const turnSegments = head !== undefined ? segments.slice(1) : segments;
   if (direction === 'older') {

@@ -4,10 +4,17 @@ import type { Runtime, RuntimeBinding, RuntimeCapability, RuntimeLease } from '.
 
 export const RUNTIME_DRAIN_TIMEOUT_MS = 5_000;
 
-export type RuntimeErrorCode = 'runtime.not_found' | 'runtime.unavailable' | 'runtime.capability_unavailable' | 'runtime.conflict';
+export type RuntimeErrorCode =
+  | 'runtime.not_found'
+  | 'runtime.unavailable'
+  | 'runtime.capability_unavailable'
+  | 'runtime.conflict';
 
 export class RuntimeError extends Error {
-  constructor(readonly code: RuntimeErrorCode, message: string) {
+  constructor(
+    readonly code: RuntimeErrorCode,
+    message: string,
+  ) {
     super(message);
     this.name = 'RuntimeError';
   }
@@ -96,17 +103,27 @@ export class RuntimeRegistry {
 
   inspect(binding: RuntimeBinding): Runtime {
     if (binding.workspaceId !== this.workspaceId) {
-      throw new RuntimeError('runtime.not_found', `workspace ${binding.workspaceId} is not ${this.workspaceId}`);
+      throw new RuntimeError(
+        'runtime.not_found',
+        `workspace ${binding.workspaceId} is not ${this.workspaceId}`,
+      );
     }
     const runtime = this.currentGenerations.get(binding.runtimeId)?.runtime;
     if (runtime === undefined) {
-      throw new RuntimeError('runtime.not_found', `runtime ${binding.runtimeId} does not exist in workspace ${this.workspaceId}`);
+      throw new RuntimeError(
+        'runtime.not_found',
+        `runtime ${binding.runtimeId} does not exist in workspace ${this.workspaceId}`,
+      );
     }
     return runtime;
   }
 
   prepare(runtime: Runtime, expectedRuntimeId?: string): void {
-    if (this.disposing) throw new RuntimeError('runtime.unavailable', `runtime registry ${this.workspaceId} is disposing`);
+    if (this.disposing)
+      throw new RuntimeError(
+        'runtime.unavailable',
+        `runtime registry ${this.workspaceId} is disposing`,
+      );
     this.assertPrepared(runtime, expectedRuntimeId);
   }
 
@@ -115,30 +132,47 @@ export class RuntimeRegistry {
   }
 
   publishBatch(entries: readonly RuntimeRegistryBatchEntry[]): RuntimeRegistryBatchResult {
-    if (this.disposing) throw new RuntimeError('runtime.unavailable', `runtime registry ${this.workspaceId} is disposing`);
+    if (this.disposing)
+      throw new RuntimeError(
+        'runtime.unavailable',
+        `runtime registry ${this.workspaceId} is disposing`,
+      );
     const runtimeIds = new Set<string>();
     const prepared = entries.map((entry) => {
       const runtimeId = entry.runtime.identity.runtimeId;
       if (runtimeIds.has(runtimeId)) {
-        throw new RuntimeError('runtime.conflict', `runtime ${runtimeId} appears twice in one registry batch`);
+        throw new RuntimeError(
+          'runtime.conflict',
+          `runtime ${runtimeId} appears twice in one registry batch`,
+        );
       }
       runtimeIds.add(runtimeId);
       const replacement = entry.current !== undefined || entry.registration !== undefined;
       if (replacement && (entry.current === undefined || entry.registration === undefined)) {
-        throw new Error(`runtime ${runtimeId} replacement requires its current runtime and registration`);
+        throw new Error(
+          `runtime ${runtimeId} replacement requires its current runtime and registration`,
+        );
       }
       this.assertPrepared(entry.runtime, replacement ? runtimeId : undefined);
       const previous = this.currentGenerations.get(runtimeId);
       if (!replacement) {
         if (previous !== undefined) {
-          throw new RuntimeError('runtime.conflict', `runtime ${runtimeId} already exists in workspace ${this.workspaceId}`);
+          throw new RuntimeError(
+            'runtime.conflict',
+            `runtime ${runtimeId} already exists in workspace ${this.workspaceId}`,
+          );
         }
       } else {
         if (entry.registration!.runtimeId !== runtimeId) {
-          throw new Error(`runtime registration ${entry.registration!.runtimeId} cannot replace ${runtimeId}`);
+          throw new Error(
+            `runtime registration ${entry.registration!.runtimeId} cannot replace ${runtimeId}`,
+          );
         }
         if (previous?.runtime !== entry.current) {
-          throw new RuntimeError('runtime.conflict', `runtime ${runtimeId} changed before registry batch publication`);
+          throw new RuntimeError(
+            'runtime.conflict',
+            `runtime ${runtimeId} changed before registry batch publication`,
+          );
         }
       }
       return { entry, previous };
@@ -150,8 +184,9 @@ export class RuntimeRegistry {
       for (const generation of generations) generation.statusSubscription.dispose();
       throw error;
     }
-    const registrations = prepared.map((item) =>
-      item.entry.registration ?? this.createRegistration(item.entry.runtime.identity.runtimeId),
+    const registrations = prepared.map(
+      (item) =>
+        item.entry.registration ?? this.createRegistration(item.entry.runtime.identity.runtimeId),
     );
     for (let index = 0; index < prepared.length; index += 1) {
       const runtimeId = prepared[index]!.entry.runtime.identity.runtimeId;
@@ -159,25 +194,37 @@ export class RuntimeRegistry {
     }
     for (const generation of generations) this.publish(generation);
     const cleanup = Promise.all(
-      prepared.flatMap((item) => item.previous === undefined ? [] : [this.drain(item.previous)]),
+      prepared.flatMap((item) => (item.previous === undefined ? [] : [this.drain(item.previous)])),
     ).then(() => {});
     return { registrations, cleanup };
   }
 
   acquire(binding: RuntimeBinding, required: readonly RuntimeCapability[] = []): RuntimeLease {
     if (binding.workspaceId !== this.workspaceId) {
-      throw new RuntimeError('runtime.not_found', `workspace ${binding.workspaceId} is not ${this.workspaceId}`);
+      throw new RuntimeError(
+        'runtime.not_found',
+        `workspace ${binding.workspaceId} is not ${this.workspaceId}`,
+      );
     }
     const generation = this.currentGenerations.get(binding.runtimeId);
     if (generation === undefined) {
-      throw new RuntimeError('runtime.not_found', `runtime ${binding.runtimeId} does not exist in workspace ${this.workspaceId}`);
+      throw new RuntimeError(
+        'runtime.not_found',
+        `runtime ${binding.runtimeId} does not exist in workspace ${this.workspaceId}`,
+      );
     }
     if (generation.draining || !runtimeStatusAllows(generation.runtime, required)) {
-      throw new RuntimeError('runtime.unavailable', `runtime ${binding.runtimeId} is ${generation.draining ? 'draining' : generation.runtime.status}`);
+      throw new RuntimeError(
+        'runtime.unavailable',
+        `runtime ${binding.runtimeId} is ${generation.draining ? 'draining' : generation.runtime.status}`,
+      );
     }
     for (const capability of required) {
       if (!generation.runtime.capabilities.has(capability)) {
-        throw new RuntimeError('runtime.capability_unavailable', `runtime ${binding.runtimeId} does not provide ${capability}`);
+        throw new RuntimeError(
+          'runtime.capability_unavailable',
+          `runtime ${binding.runtimeId} does not provide ${capability}`,
+        );
       }
     }
     generation.leases += 1;
@@ -191,7 +238,8 @@ export class RuntimeRegistry {
     return {
       runtime: generation.runtime,
       track: <T extends RuntimeResource>(resource: T): T => {
-        if (!active || generation.draining) throw new RuntimeError('runtime.unavailable', `runtime ${binding.runtimeId} is draining`);
+        if (!active || generation.draining)
+          throw new RuntimeError('runtime.unavailable', `runtime ${binding.runtimeId} is draining`);
         const originalDispose = resource.dispose.bind(resource);
         let disposed = false;
         resource.dispose = function () {
@@ -227,38 +275,42 @@ export class RuntimeRegistry {
     let handle: RuntimeRegistrationHandle;
     handle = {
       runtimeId,
-      replace: (replacement) => enqueue(async () => {
-        if (!active || this.disposing) {
-          await replacement.dispose();
-          throw new Error(`runtime registration ${runtimeId} is disposed`);
-        }
-        const previous = this.currentGenerations.get(runtimeId);
-        if (previous === undefined) {
-          await replacement.dispose();
-          throw new Error(`runtime ${runtimeId} is not registered`);
-        }
-        let publication: RuntimeRegistryBatchResult;
-        try {
-          publication = this.publishBatch([{
-            runtime: replacement,
-            current: previous.runtime,
-            registration: handle,
-          }]);
-        } catch (error) {
-          await replacement.dispose();
-          throw error;
-        }
-        await publication.cleanup;
-      }),
-      remove: () => enqueue(async () => {
-        if (!active) return;
-        active = false;
-        const previous = this.currentGenerations.get(runtimeId);
-        if (previous === undefined) return;
-        this.currentGenerations.delete(runtimeId);
-        this.changeEmitter.fire({ runtimeId });
-        await this.drain(previous);
-      }),
+      replace: (replacement) =>
+        enqueue(async () => {
+          if (!active || this.disposing) {
+            await replacement.dispose();
+            throw new Error(`runtime registration ${runtimeId} is disposed`);
+          }
+          const previous = this.currentGenerations.get(runtimeId);
+          if (previous === undefined) {
+            await replacement.dispose();
+            throw new Error(`runtime ${runtimeId} is not registered`);
+          }
+          let publication: RuntimeRegistryBatchResult;
+          try {
+            publication = this.publishBatch([
+              {
+                runtime: replacement,
+                current: previous.runtime,
+                registration: handle,
+              },
+            ]);
+          } catch (error) {
+            await replacement.dispose();
+            throw error;
+          }
+          await publication.cleanup;
+        }),
+      remove: () =>
+        enqueue(async () => {
+          if (!active) return;
+          active = false;
+          const previous = this.currentGenerations.get(runtimeId);
+          if (previous === undefined) return;
+          this.currentGenerations.delete(runtimeId);
+          this.changeEmitter.fire({ runtimeId });
+          await this.drain(previous);
+        }),
     };
     return handle;
   }
@@ -273,8 +325,16 @@ export class RuntimeRegistry {
       statusSubscription: undefined as unknown as { dispose(): void },
     };
     generation.statusSubscription = runtime.onDidChangeStatus((status) => {
-      if (!generation.draining && !generation.disposed && this.currentGenerations.get(runtime.identity.runtimeId) === generation) {
-        this.changeEmitter.fire({ runtimeId: runtime.identity.runtimeId, current: runtime, status });
+      if (
+        !generation.draining &&
+        !generation.disposed &&
+        this.currentGenerations.get(runtime.identity.runtimeId) === generation
+      ) {
+        this.changeEmitter.fire({
+          runtimeId: runtime.identity.runtimeId,
+          current: runtime,
+          status,
+        });
       }
     });
     return generation;
@@ -289,11 +349,21 @@ export class RuntimeRegistry {
   }
 
   private assertPrepared(runtime: Runtime, expectedRuntimeId?: string): void {
-    if (runtime.identity.workspaceId !== this.workspaceId) throw new Error(`runtime belongs to workspace ${runtime.identity.workspaceId}`);
-    if (expectedRuntimeId !== undefined && runtime.identity.runtimeId !== expectedRuntimeId) throw new Error(`replacement runtime id must remain ${expectedRuntimeId}`);
-    if (runtime.status === 'draining' || runtime.status === 'disposed') throw new RuntimeError('runtime.unavailable', `runtime ${runtime.identity.runtimeId} is ${runtime.status}`);
+    if (runtime.identity.workspaceId !== this.workspaceId)
+      throw new Error(`runtime belongs to workspace ${runtime.identity.workspaceId}`);
+    if (expectedRuntimeId !== undefined && runtime.identity.runtimeId !== expectedRuntimeId)
+      throw new Error(`replacement runtime id must remain ${expectedRuntimeId}`);
+    if (runtime.status === 'draining' || runtime.status === 'disposed')
+      throw new RuntimeError(
+        'runtime.unavailable',
+        `runtime ${runtime.identity.runtimeId} is ${runtime.status}`,
+      );
     for (const capability of runtime.capabilities) {
-      if (runtime[capability] === undefined) throw new RuntimeError('runtime.capability_unavailable', `runtime ${runtime.identity.runtimeId} declares ${capability} without an implementation`);
+      if (runtime[capability] === undefined)
+        throw new RuntimeError(
+          'runtime.capability_unavailable',
+          `runtime ${runtime.identity.runtimeId} declares ${capability} without an implementation`,
+        );
     }
   }
 
@@ -315,7 +385,9 @@ export class RuntimeRegistry {
       }
       if (generation.leases > 0) {
         await Promise.race([
-          new Promise<void>((resolve) => { generation.releaseDrain = resolve; }),
+          new Promise<void>((resolve) => {
+            generation.releaseDrain = resolve;
+          }),
           new Promise<void>((resolve) => setTimeout(resolve, this.drainTimeoutMs)),
         ]);
       }
@@ -328,7 +400,13 @@ export class RuntimeRegistry {
   }
 }
 
-export function runtimeStatusAllows(runtime: Runtime, required: readonly RuntimeCapability[]): boolean {
+export function runtimeStatusAllows(
+  runtime: Runtime,
+  required: readonly RuntimeCapability[],
+): boolean {
   if (runtime.status === 'ready') return true;
-  return runtime.status === 'degraded' && required.every((capability) => runtime.capabilities.has(capability));
+  return (
+    runtime.status === 'degraded' &&
+    required.every((capability) => runtime.capabilities.has(capability))
+  );
 }

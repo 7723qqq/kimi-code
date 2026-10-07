@@ -5,8 +5,8 @@ import { join, parse } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
 interface Envelope<T> {
   code: number;
@@ -323,10 +323,7 @@ describe('server-v2 /api/v1 fs:content', () => {
     return `${base}/api/v1/fs:content?path=${encodeURIComponent(path)}`;
   }
 
-  async function getContent(
-    path: string,
-    headers: Record<string, string> = {},
-  ): Promise<Response> {
+  async function getContent(path: string, headers: Record<string, string> = {}): Promise<Response> {
     return fetch(contentUrl(path), {
       headers: { connection: 'close', ...authHeaders(server as RunningServer), ...headers },
     } as never);

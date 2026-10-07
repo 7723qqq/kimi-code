@@ -14,7 +14,6 @@
  * ref.
  */
 
-import { loadRuntimeConfigSafe, resolveConfigPath } from '@moonshot-ai/kimi-code-sdk';
 import {
   KIMI_CODE_OAUTH_KEY,
   KIMI_REGION_PROFILES,
@@ -22,6 +21,7 @@ import {
   type KimiRegion,
   type KimiRegionProfile,
 } from '@moonshot-ai/kimi-code-oauth';
+import { loadRuntimeConfigSafe, resolveConfigPath } from '@moonshot-ai/kimi-code-sdk';
 
 // Same value as DEFAULT_OAUTH_PROVIDER_NAME in '#/constant/app' — inlined here
 // to keep the import one-directional (constant/app derives URLs from this

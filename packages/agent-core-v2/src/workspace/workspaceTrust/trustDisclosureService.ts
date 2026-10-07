@@ -187,8 +187,9 @@ export class WorkspaceTrustDisclosureService implements IWorkspaceTrustDisclosur
           )
         : this.projectSkillRootPaths(),
       Promise.all(
-        (profiles.length > 0 ? workspaceProfiles?.contribution.scannedRoots ?? [] : [])
-          .map(async (root) => `${await realpathOrSelf(this.fs, root)}/`),
+        (profiles.length > 0 ? (workspaceProfiles?.contribution.scannedRoots ?? []) : []).map(
+          async (root) => `${await realpathOrSelf(this.fs, root)}/`,
+        ),
       ),
     ]);
     return {

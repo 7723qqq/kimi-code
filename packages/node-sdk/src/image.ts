@@ -39,12 +39,18 @@ export class ImageLimits {
   }
 
   maxEdgePx(): number {
-    return positiveIntFromEnv(this.env, 'KIMI_IMAGE_MAX_EDGE_PX') ?? this.config?.maxEdgePx ?? MAX_IMAGE_EDGE_PX;
+    return (
+      positiveIntFromEnv(this.env, 'KIMI_IMAGE_MAX_EDGE_PX') ??
+      this.config?.maxEdgePx ??
+      MAX_IMAGE_EDGE_PX
+    );
   }
 
   readByteBudget(): number {
     return (
-      positiveIntFromEnv(this.env, 'KIMI_IMAGE_READ_BYTE_BUDGET') ?? this.config?.readByteBudget ?? READ_IMAGE_BYTE_BUDGET
+      positiveIntFromEnv(this.env, 'KIMI_IMAGE_READ_BYTE_BUDGET') ??
+      this.config?.readByteBudget ??
+      READ_IMAGE_BYTE_BUDGET
     );
   }
 }

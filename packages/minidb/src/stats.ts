@@ -7,7 +7,6 @@
 /** Create the MiniDb stats object (all counters zeroed). */
 export function createMiniDbStats() {
   return {
-
     compactions: 0,
     compactErrors: 0,
     walBytesWritten: 0,

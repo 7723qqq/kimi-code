@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 
 import { storeActor } from '#/eventStore/actor';
-import { createEventStore, type Cause } from '#/eventStore/eventStore';
 import { defineEvent } from '#/eventStore/events';
+import { createEventStore, type Cause } from '#/eventStore/eventStore';
 import { journalFromBranch } from '#/eventStore/journal';
 import { createSlice } from '#/eventStore/slice';
 import { MemoryBackend } from '#/store/backend/memory';
@@ -11,7 +11,10 @@ import { TreeStore } from '#/store/store';
 import type { Tree } from '#/store/tree';
 import { createActor, waitFor } from '#/xstate2';
 
-const counterAdded = defineEvent({ type: 'test.counter_added', schema: z.object({ amount: z.number() }) });
+const counterAdded = defineEvent({
+  type: 'test.counter_added',
+  schema: z.object({ amount: z.number() }),
+});
 type CounterAdded = ReturnType<typeof counterAdded>;
 
 const noteTagged = defineEvent({ type: 'test.note_tagged', schema: z.object({ tag: z.string() }) });
@@ -48,7 +51,10 @@ async function openJournal(tree: Tree, branch = 'main') {
   return journalFromBranch(tree.openBranch(branch), tree);
 }
 
-async function openStore(tree: Tree, opts?: { drainLimit?: number; extraSlices?: Record<string, never> }) {
+async function openStore(
+  tree: Tree,
+  opts?: { drainLimit?: number; extraSlices?: Record<string, never> },
+) {
   const journal = await openJournal(tree);
   return createEventStore({ journal, slices, drainLimit: opts?.drainLimit });
 }
@@ -96,7 +102,11 @@ describe('createEventStore', () => {
   it('skips unknown event types when folding', async () => {
     const tree = await openTree();
     const journal = await openJournal(tree);
-    await journal.append({ type: 'test.unknown_event', kind: 'event', data: { type: 'test.unknown_event' } });
+    await journal.append({
+      type: 'test.unknown_event',
+      kind: 'event',
+      data: { type: 'test.unknown_event' },
+    });
     await journal.append({
       type: 'test.counter_added',
       kind: 'event',
@@ -116,7 +126,9 @@ describe('dispatch', () => {
     ).rejects.toMatchObject({
       code: 'unregistered-event',
     });
-    await expect(store.dispatch(counterAdded({ amount: 'x' as unknown as number }))).rejects.toMatchObject({
+    await expect(
+      store.dispatch(counterAdded({ amount: 'x' as unknown as number })),
+    ).rejects.toMatchObject({
       code: 'schema',
     });
     expect(store.slice('counter')).toBe(0);
@@ -142,7 +154,12 @@ describe('dispatch', () => {
     const records = [];
     for await (const record of (await openJournal(tree)).read()) records.push(record);
     expect(records).toHaveLength(1);
-    expect(records[0]).toMatchObject({ branch: 'main', seq: 0, type: 'test.note_tagged', kind: 'event' });
+    expect(records[0]).toMatchObject({
+      branch: 'main',
+      seq: 0,
+      type: 'test.note_tagged',
+      kind: 'event',
+    });
   });
 });
 
@@ -160,7 +177,10 @@ describe('internal events', () => {
       },
     });
     const journal = await openJournal(tree);
-    const store = await createEventStore({ journal, slices: { counter: counterSlice, raiser: raiserSlice } });
+    const store = await createEventStore({
+      journal,
+      slices: { counter: counterSlice, raiser: raiserSlice },
+    });
     await store.dispatch(counterAdded({ amount: 5 }));
     expect(store.getState()).toEqual({ counter: 105, raiser: 5 });
 
@@ -168,7 +188,10 @@ describe('internal events', () => {
     for await (const record of journal.read()) records.push(record);
     expect(records).toHaveLength(1);
 
-    const reopened = await createEventStore({ journal, slices: { counter: counterSlice, raiser: raiserSlice } });
+    const reopened = await createEventStore({
+      journal,
+      slices: { counter: counterSlice, raiser: raiserSlice },
+    });
     expect(reopened.getState()).toEqual({ counter: 105, raiser: 5 });
   });
 

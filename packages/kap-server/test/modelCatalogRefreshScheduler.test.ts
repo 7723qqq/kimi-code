@@ -1,10 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
 import type {
   IConfigService,
   IProviderDiscoveryService,
   ModelCatalogConfig,
 } from '@moonshot-ai/agent-core-v2';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ModelCatalogRefreshScheduler } from '../src/services/modelCatalog/modelCatalogRefreshScheduler';
 import type { ServerLogger } from '../src/services/pinoLoggerService';

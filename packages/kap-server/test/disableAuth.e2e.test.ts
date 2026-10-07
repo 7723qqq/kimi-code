@@ -6,8 +6,8 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 import { WebSocket, type RawData } from 'ws';
 
 import { type RunningServer, startServer } from '../src/start';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { fixedTokenAuth } from './helpers/fixedAuth';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
 const TOKEN = 'test-token';
 
@@ -54,8 +54,7 @@ describe('server-v2 disableAuth (--dangerous-bypass-auth)', () => {
     for (const ws of sockets.splice(0)) {
       try {
         ws.close();
-      } catch {
-      }
+      } catch {}
     }
   });
 

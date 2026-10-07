@@ -160,7 +160,9 @@ export function canonicalizePath(
       `Cannot resolve "${path}" against non-absolute cwd "${cwd}".`,
     );
   }
-  const abs = pathe.isAbsolute(normalizedPath) ? normalizedPath : pathe.resolve(cwd, normalizedPath);
+  const abs = pathe.isAbsolute(normalizedPath)
+    ? normalizedPath
+    : pathe.resolve(cwd, normalizedPath);
   return pathe.normalize(abs);
 }
 
@@ -356,10 +358,7 @@ export function resolvePathAccess(
   return { path: canonical, outsideWorkspace };
 }
 
-export function resolvePathAccessPath(
-  path: string,
-  options: ResolvePathAccessPathOptions,
-): string {
+export function resolvePathAccessPath(path: string, options: ResolvePathAccessPathOptions): string {
   const { env, workspace, operation, policy, expandHome = true } = options;
   return resolvePathAccess(path, workspace.workspaceDir, workspace, {
     operation,

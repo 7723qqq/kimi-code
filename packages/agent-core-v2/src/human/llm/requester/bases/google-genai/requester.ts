@@ -2,11 +2,10 @@ import { GoogleGenAI as GenAIClient, type GenerateContentParameters } from '@goo
 import { assign, shake } from 'radashi';
 
 import type { LlmModel } from '#/llm/model';
-import { toLlmSyntaxErrorMessage } from '#/llm/syntax-errors';
 import type { ProtocolBase, ProtocolRequesterOptions, TraitContext } from '#/llm/protocol/base';
 import { resolveModelConnection } from '#/llm/protocol/connection';
-import { applyThinking } from '#/llm/protocol/thinking';
 import { resolveMaxCompletionCap, type FormatRequestInput } from '#/llm/protocol/format';
+import { applyThinking } from '#/llm/protocol/thinking';
 import {
   mergeRequestHeaders,
   type LlmClientContext,
@@ -17,9 +16,9 @@ import {
   type LlmRequesterOptions,
   type LlmRequestEvent,
 } from '#/llm/requester/requester';
+import { toLlmSyntaxErrorMessage } from '#/llm/syntax-errors';
 
 import { getGoogleGenAIModelCapability } from './capability';
-import type { GoogleGenAITrait } from './trait';
 import {
   applyGoogleGenAIResponseFormat,
   assembleGoogleGenAIRequest,
@@ -32,10 +31,10 @@ import {
   defaultGoogleGenAITool,
   type GoogleGenAIRequestParams,
 } from './format';
+import type { GoogleGenAITrait } from './trait';
 
 export interface GoogleGenAIRequesterOptions
-  extends ProtocolRequesterOptions<GoogleGenAITrait>,
-    LlmRequesterOptions<GenAIClient> {
+  extends ProtocolRequesterOptions<GoogleGenAITrait>, LlmRequesterOptions<GenAIClient> {
   readonly vertexai?: boolean;
 }
 

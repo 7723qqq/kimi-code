@@ -177,9 +177,9 @@ export function defaultThinkingEffortForModel(model: LlmModel): ThinkingEffort {
   const efforts = effortsFor(meta);
   if (efforts.length > 0) {
     const declared = nonEmpty(meta?.defaultEffort);
-    return (declared !== undefined && efforts.includes(declared)
-      ? declared
-      : middleOf(efforts)) as ThinkingEffort;
+    return (
+      declared !== undefined && efforts.includes(declared) ? declared : middleOf(efforts)
+    ) as ThinkingEffort;
   }
   return 'on';
 }
@@ -193,9 +193,7 @@ function normalizeThinkingEffortForModel(
   if (effort === 'off' && meta?.alwaysThinking !== true) return 'off';
   const efforts = effortsFor(meta);
   if (!strictValidation) {
-    return effort === 'on' && efforts.length > 0
-      ? defaultThinkingEffortForModel(model)
-      : effort;
+    return effort === 'on' && efforts.length > 0 ? defaultThinkingEffortForModel(model) : effort;
   }
   if (!modelSupportsThinking(model)) return 'off';
   if (efforts.length === 0) return 'on';

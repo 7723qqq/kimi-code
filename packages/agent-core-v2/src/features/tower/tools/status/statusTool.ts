@@ -109,9 +109,7 @@ export class TowerStatusTool implements ITowerStatusTool {
   }
 
   private async renderReviewGate(store: TowerStore, state: TowerState): Promise<string[]> {
-    const pending = state.missions.filter(
-      (m) => m.status !== 'merged' && m.status !== 'abandoned',
-    );
+    const pending = state.missions.filter((m) => m.status !== 'merged' && m.status !== 'abandoned');
     if (pending.length === 0) return ['(no open missions — or none planned yet)'];
     const lines: string[] = [];
     for (const mission of pending) {

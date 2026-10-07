@@ -1,18 +1,18 @@
 import { randomUUID } from 'node:crypto';
 
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { IEventService } from '#/app/event/event';
-import { ErrorCodes, Error2 } from '#/errors';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
-import { expandCommandArguments } from '#/app/plugin/commands';
-import { IPluginService } from '#/app/plugin/plugin';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { promptMetadataTextFromText } from '#/agent/prompt/promptMetadataText';
-import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IEventService } from '#/app/event/event';
+import { expandCommandArguments } from '#/app/plugin/commands';
+import { IPluginService } from '#/app/plugin/plugin';
+import { LifecycleScope } from '#/app/scopes';
+import { ErrorCodes, Error2 } from '#/errors';
+import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { applyPromptMetadataUpdate } from '#/session/sessionMetadata/promptMetadata';
+import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 
 import {
@@ -32,7 +32,7 @@ export class AgentPluginCommandService implements IAgentPluginCommandService {
     @IEventService private readonly eventService: IEventService,
     @ISessionContext private readonly sessionContext: ISessionContext,
     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
-  ) { }
+  ) {}
 
   async activate(payload: ActivatePluginCommandPayload): Promise<void> {
     const commands = await this.plugins.listPluginCommands();

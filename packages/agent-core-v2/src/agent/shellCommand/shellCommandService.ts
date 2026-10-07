@@ -1,8 +1,4 @@
-/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
-import { LifecycleScope } from '#/app/scopes';
-
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { defineState } from '#/state/state';
 import { userCancellationReason } from '#/_base/utils/abort';
 import { escapeXml } from '#/_base/utils/xml-escape';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
@@ -10,12 +6,15 @@ import type { PromptOrigin } from '#/agent/contextMemory/types';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
-import type { ToolUpdate } from '#/tool/toolContract';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { AgentEvent2 } from '#/app/event/event2';
+/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
+import { LifecycleScope } from '#/app/scopes';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { Error2, ErrorCodes } from '#/errors';
 import { IEventDispatcher } from '#/state/eventDispatcher';
+import { defineState } from '#/state/state';
+import type { ToolUpdate } from '#/tool/toolContract';
 
 import {
   IAgentShellCommandService,
@@ -256,7 +255,9 @@ export class AgentShellCommandService implements IAgentShellCommandService {
     this.loop.submit(
       {
         message: { role: 'user', content: [{ type: 'text', text: output }] },
-        meta: { origin: { kind: 'injection', variant: 'shell_command_backgrounded' } as PromptOrigin },
+        meta: {
+          origin: { kind: 'injection', variant: 'shell_command_backgrounded' } as PromptOrigin,
+        },
       },
       { steerIfActive: true },
     );

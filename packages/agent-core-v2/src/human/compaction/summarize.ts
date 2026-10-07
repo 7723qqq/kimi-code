@@ -114,9 +114,7 @@ function compactionInstructionText(customInstruction?: string): string {
   return instructionTemplate.replace('${custom_instruction_block}', () => block).trimEnd();
 }
 
-function dropOldestAndLeadingToolResults(
-  history: readonly HistoryMessage[],
-): HistoryMessage[] {
+function dropOldestAndLeadingToolResults(history: readonly HistoryMessage[]): HistoryMessage[] {
   const rest = history.slice(1);
   let start = 0;
   while (start < rest.length && rest[start]?.message.role === 'tool') {

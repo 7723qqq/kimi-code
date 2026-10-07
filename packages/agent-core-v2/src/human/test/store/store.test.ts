@@ -4,7 +4,10 @@ import { MemoryBackend } from '#/store/backend/memory';
 import { TreeStore } from '#/store/store';
 import type { CorruptionReport, EntryLine } from '#/store/types';
 
-function openStore(backend: MemoryBackend = new MemoryBackend(), opts?: { offloadThreshold?: number }) {
+function openStore(
+  backend: MemoryBackend = new MemoryBackend(),
+  opts?: { offloadThreshold?: number },
+) {
   return TreeStore.open(backend, opts);
 }
 
@@ -46,7 +49,10 @@ describe('append', () => {
 
   it('rejects appends on a degraded branch', async () => {
     const backend = new MemoryBackend();
-    backend.trees.files.set('chat', new Map([['main', `${HEADER}\n${entryJson(0, 'a')}\n${entryJson(5, 'b')}\n`]]));
+    backend.trees.files.set(
+      'chat',
+      new Map([['main', `${HEADER}\n${entryJson(0, 'a')}\n${entryJson(5, 'b')}\n`]]),
+    );
     const store = await openStore(backend);
     const main = (await store.tree('chat')).openBranch('main');
     expect(main.degraded).toBe(true);
@@ -62,7 +68,9 @@ describe('branch management', () => {
     expect(() => tree.createBranch('main')).toThrow('already exists');
     expect(() => tree.createBranch('bad name')).toThrow('invalid branch name');
     expect(() => tree.openBranch('nope')).toThrow('unknown branch');
-    expect(() => tree.createBranch('x', { from: { branch: 'nope', seq: 0 } })).toThrow('unknown branch');
+    expect(() => tree.createBranch('x', { from: { branch: 'nope', seq: 0 } })).toThrow(
+      'unknown branch',
+    );
   });
 
   it('rejects a fork point outside the parent branch', async () => {
@@ -70,8 +78,12 @@ describe('branch management', () => {
     const tree = await store.tree('chat');
     const main = tree.createBranch('main');
     await main.append(entryData('a'));
-    expect(() => tree.createBranch('x', { from: { branch: 'main', seq: 1 } })).toThrow('cannot fork');
-    expect(() => tree.createBranch('x', { from: { branch: 'main', seq: -1 } })).toThrow('cannot fork');
+    expect(() => tree.createBranch('x', { from: { branch: 'main', seq: 1 } })).toThrow(
+      'cannot fork',
+    );
+    expect(() => tree.createBranch('x', { from: { branch: 'main', seq: -1 } })).toThrow(
+      'cannot fork',
+    );
     expect(() => tree.createBranch('x', { from: { branch: 'main', seq: 0 } })).not.toThrow();
   });
 
@@ -121,7 +133,9 @@ describe('fork', () => {
     await forked.settled();
     backend.trees.files.get('chat')?.delete('main');
     const reports = await store.verify();
-    expect(reports.some((report) => report.kind === 'parent-ref' && report.detail.includes('main'))).toBe(true);
+    expect(
+      reports.some((report) => report.kind === 'parent-ref' && report.detail.includes('main')),
+    ).toBe(true);
   });
 
   it('reports a parent seq beyond the parent branch on verify', async () => {
@@ -138,7 +152,9 @@ describe('fork', () => {
     );
     const store = await openStore(backend);
     const reports = await store.verify();
-    expect(reports.some((report) => report.kind === 'parent-ref' && report.detail.includes('beyond'))).toBe(true);
+    expect(
+      reports.some((report) => report.kind === 'parent-ref' && report.detail.includes('beyond')),
+    ).toBe(true);
   });
 });
 
@@ -157,8 +173,14 @@ describe('concurrent branches', () => {
     ]);
     expect([a0?.seq, a1?.seq]).toEqual([0, 1]);
     expect([b0?.seq, b1?.seq]).toEqual([0, 1]);
-    expect([...first.walk()].map((entry) => entry.payload.data)).toEqual([{ text: 'a1' }, { text: 'a0' }]);
-    expect([...second.walk()].map((entry) => entry.payload.data)).toEqual([{ text: 'b1' }, { text: 'b0' }]);
+    expect([...first.walk()].map((entry) => entry.payload.data)).toEqual([
+      { text: 'a1' },
+      { text: 'a0' },
+    ]);
+    expect([...second.walk()].map((entry) => entry.payload.data)).toEqual([
+      { text: 'b1' },
+      { text: 'b0' },
+    ]);
     expect(fileOf(backend, 'chat', 'a')).not.toContain('b0');
     expect(fileOf(backend, 'chat', 'b')).not.toContain('a0');
   });
@@ -192,7 +214,11 @@ describe('offload', () => {
     const store = await openStore(backend, { offloadThreshold: 16 });
     const tree = await store.tree('chat');
     const main = tree.createBranch('main');
-    const entry = await main.append({ type: 'chat.message', kind: 'json', data: { text: 'z'.repeat(100) } });
+    const entry = await main.append({
+      type: 'chat.message',
+      kind: 'json',
+      data: { text: 'z'.repeat(100) },
+    });
     backend.blobs.files.set(refOf(entry), 'tampered');
     await expect(tree.resolve(entry)).rejects.toThrow('hash check');
     const reports = await store.verify({ blobs: true });
@@ -203,7 +229,11 @@ describe('offload', () => {
     const backend = new MemoryBackend();
     const store = await openStore(backend, { offloadThreshold: 16 });
     const main = (await store.tree('chat')).createBranch('main');
-    const entry = await main.append({ type: 'chat.message', kind: 'json', data: { text: 'q'.repeat(100) } });
+    const entry = await main.append({
+      type: 'chat.message',
+      kind: 'json',
+      data: { text: 'q'.repeat(100) },
+    });
     backend.blobs.files.delete(refOf(entry));
     const reports = await store.verify({ blobs: true });
     expect(reports.some((report) => report.kind === 'blob-missing')).toBe(true);
@@ -222,7 +252,10 @@ describe('persistence', () => {
     const reopened = await openStore(backend);
     expect(reopened.names().sort()).toEqual(['a', 'b']);
     const loaded = (await reopened.tree('a')).openBranch('main');
-    expect([...loaded.walk()].map((entry) => entry.payload.data)).toEqual([{ text: '3' }, { text: '1' }]);
+    expect([...loaded.walk()].map((entry) => entry.payload.data)).toEqual([
+      { text: '3' },
+      { text: '1' },
+    ]);
     const appended = await loaded.append(entryData('4'));
     expect(appended.seq).toBe(2);
   });
@@ -240,7 +273,10 @@ describe('persistence', () => {
     const loaded = (await reopened.tree('chat')).openBranch('fork');
     expect(loaded.header.parentBranch).toBe('main');
     expect(loaded.header.parentSeq).toBe(0);
-    expect([...loaded.walk()].map((entry) => entry.payload.data)).toEqual([{ text: 'c' }, { text: 'a' }]);
+    expect([...loaded.walk()].map((entry) => entry.payload.data)).toEqual([
+      { text: 'c' },
+      { text: 'a' },
+    ]);
   });
 
   it('terminates an unterminated tail on load', async () => {

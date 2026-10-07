@@ -4,38 +4,39 @@ import { Disposable, toDisposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService, type ISessionScopeHandle } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { userCancellationReason } from '#/_base/utils/abort';
-import { IAgentReminderService } from '#/features/reminder/reminderService';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentLoopService, type LoopNotifyHandle } from '#/agent/loop/loop';
 import { TurnStarted } from '#/agent/loop/turnEvents';
 import { TurnEnded } from '#/agent/loop/turnOps';
-import { PromptSubmitted } from '#/agent/prompt/promptEvents';
 import { IAgentProfileService } from '#/agent/profile/profile';
+import { PromptSubmitted } from '#/agent/prompt/promptEvents';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
-import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
-import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
-import type { AgentTaskInfo } from '#/agent/task/types';
 import { TaskTerminatedNotice } from '#/agent/task/taskOps';
+import type { AgentTaskInfo } from '#/agent/task/types';
+import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { denyToolExecution } from '#/agent/toolExecutor/beforeToolExecuteEvent';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { AgentStatusUpdated } from '#/agent/usage/usageEvents';
 import { IConfigService } from '#/app/config/config';
 import { IEventBus, ISessionEventBus } from '#/app/event/eventBus';
 import { IFeatureManager } from '#/app/feature/featureManager';
-import { LifecycleScope } from '#/app/scopes';
 import { IFlagService } from '#/app/flag/flag';
+import { LifecycleScope } from '#/app/scopes';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IEventDispatcher } from '#/state/eventDispatcher';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionActivityView } from '#/session/sessionActivity/sessionActivity';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { isUntitled } from '#/session/sessionMetadata/promptMetadata';
+import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
+import { SubagentStarted } from '#/session/subagent/mirrorAgentRun';
+import { IEventDispatcher } from '#/state/eventDispatcher';
 import { isWithinDirectory } from '#/tool/path-access';
 import type { ToolFileAccess } from '#/tool/toolContract';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
-import { isUntitled } from '#/session/sessionMetadata/promptMetadata';
-import { SubagentStarted } from '#/session/subagent/mirrorAgentRun';
+
 import { TowerModeInjection } from './injection/towerModeInjection';
 import {
   BROADCAST_NAME,
@@ -59,7 +60,14 @@ import {
   type TowerExitReason,
 } from './tower';
 import { isTowerFeatureAssembled } from './towerFeature';
-import { TowerInboxSent, TowerModeEnter, TowerModeExit, towerBaseKey, towerKey, towerOwnerKey } from './towerOps';
+import {
+  TowerInboxSent,
+  TowerModeEnter,
+  TowerModeExit,
+  towerBaseKey,
+  towerKey,
+  towerOwnerKey,
+} from './towerOps';
 
 export const TOWER_MODE_TOOLS: readonly string[] = ['TowerInit', ...TOWER_TOOL_NAMES];
 
@@ -155,7 +163,10 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
         if (this.agentCtx.agentId !== 'main') return;
         if (!this.isActive) return;
         if (event.agentId !== this.agentCtx.agentId) return;
-        if (event.origin.kind !== 'injection' || event.origin.variant !== TOWER_INBOX_WAKE_VARIANT) {
+        if (
+          event.origin.kind !== 'injection' ||
+          event.origin.variant !== TOWER_INBOX_WAKE_VARIANT
+        ) {
           return;
         }
         this.wakeTurnId = event.turnId;
@@ -255,12 +266,10 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
           this.toolPolicy.isToolActive('TaskStop');
         if (!backgroundAvailable) return;
         const store = new TowerStore(resolveTowerRepoRoot(this.sessionCtx.cwd));
-        const entry = await store
-          .load()
-          .then(
-            (state) => store.resolveAgent(state, resumeId),
-            () => undefined,
-          );
+        const entry = await store.load().then(
+          (state) => store.resolveAgent(state, resumeId),
+          () => undefined,
+        );
         if (entry === undefined) return;
         event.veto(
           denyToolExecution(
@@ -278,12 +287,10 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
         if (toolName !== 'Write' && toolName !== 'Edit') return;
 
         const store = new TowerStore(resolveTowerRepoRoot(this.sessionCtx.cwd));
-        const entry = await store
-          .load()
-          .then(
-            (state) => store.resolveAgent(state, this.agentCtx.agentId),
-            () => undefined,
-          );
+        const entry = await store.load().then(
+          (state) => store.resolveAgent(state, this.agentCtx.agentId),
+          () => undefined,
+        );
         const slot = entry?.worktree;
         if (slot === undefined) return;
         const worktree = store.abs(join(WORKTREES_DIR, slot));
@@ -321,7 +328,8 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
   private async resolveEnter(base?: string): Promise<TowerEnterResult> {
     if (this.agentCtx.agentId !== 'main') return { entered: false, reason: 'not-main-agent' };
     if (!this.flags.enabled(TOWER_FLAG_ID)) return { entered: false, reason: 'experiment-off' };
-    if (!isTowerFeatureAssembled(this.flags)) return { entered: false, reason: 'feature-not-assembled' };
+    if (!isTowerFeatureAssembled(this.flags))
+      return { entered: false, reason: 'feature-not-assembled' };
     if (base !== undefined) {
       await this.prepareUserBase(base);
     }
@@ -519,13 +527,16 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
     const store = new TowerStore(resolveTowerRepoRoot(this.sessionCtx.cwd));
     const foreignOwner = await this.resolveForeignStoreOwner(store);
     if (foreignOwner !== undefined) {
-      this.log.info('tower: skipping roster agent death mark — tower store is owned by another session', {
-        event: 'TaskTerminatedNotice',
-        agentId: info.agentId,
-        sessionId: this.sessionCtx.sessionId,
-        owner: foreignOwner,
-        pid: process.pid,
-      });
+      this.log.info(
+        'tower: skipping roster agent death mark — tower store is owned by another session',
+        {
+          event: 'TaskTerminatedNotice',
+          agentId: info.agentId,
+          sessionId: this.sessionCtx.sessionId,
+          owner: foreignOwner,
+          pid: process.pid,
+        },
+      );
       return;
     }
     this.log.info('tower: marking roster agent died', {
@@ -554,13 +565,16 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
     const store = new TowerStore(resolveTowerRepoRoot(this.sessionCtx.cwd));
     const foreignOwner = await this.resolveForeignStoreOwner(store);
     if (foreignOwner !== undefined) {
-      this.log.info('tower: skipping roster agent death clear — tower store is owned by another session', {
-        event: 'SubagentStarted',
-        agentId,
-        sessionId: this.sessionCtx.sessionId,
-        owner: foreignOwner,
-        pid: process.pid,
-      });
+      this.log.info(
+        'tower: skipping roster agent death clear — tower store is owned by another session',
+        {
+          event: 'SubagentStarted',
+          agentId,
+          sessionId: this.sessionCtx.sessionId,
+          owner: foreignOwner,
+          pid: process.pid,
+        },
+      );
       return;
     }
     this.log.info('tower: clearing roster agent death mark', {
@@ -625,7 +639,8 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
     if (count === 0 || latest === undefined) return;
     this.inboxWakeSignals = 0;
     this.inboxWakePending = true;
-    const countText = count === 1 ? '1 new tower inbox message' : `${String(count)} new tower inbox messages`;
+    const countText =
+      count === 1 ? '1 new tower inbox message' : `${String(count)} new tower inbox messages`;
     const subject =
       latest.subject.length > WAKE_SUBJECT_PREVIEW_MAX
         ? `${latest.subject.slice(0, WAKE_SUBJECT_PREVIEW_MAX)}…`
@@ -661,7 +676,9 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
     if (this.agentCtx.agentId !== 'main') return;
     for (const name of TOWER_MODE_TOOLS) this.profile.addActiveTool(name);
     this.lastPublished = true;
-    void this.dispatcher.dispatch(new AgentStatusUpdated({ agentId: this.agentCtx.agentId, towerMode: true }));
+    void this.dispatcher.dispatch(
+      new AgentStatusUpdated({ agentId: this.agentCtx.agentId, towerMode: true }),
+    );
   }
 
   private lastPublished: boolean | undefined;

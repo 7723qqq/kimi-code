@@ -1,12 +1,13 @@
 import { createDecorator } from '#/_base/di/instantiation';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IFlagService } from '#/app/flag/flag';
-import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import { LifecycleScope } from '#/app/scopes';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
+import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
+
 import { notifyUserAvailable } from './notifyUserAvailability';
 
 export interface ISessionNotify {

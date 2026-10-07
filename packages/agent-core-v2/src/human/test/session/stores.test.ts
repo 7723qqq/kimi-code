@@ -1,20 +1,20 @@
 import { describe, expect, it } from 'vitest';
-import { createActor, waitFor, type ActorRefFrom } from '#/xstate2';
 
+import { inputSubmitted, messageAppended, turnEnded, turnStarted } from '#/agent/events';
+import { createAgentMachine } from '#/agent/machine';
+import type { AgentEventStore } from '#/agent/slices';
+import { createUserEntry } from '#/agent/turn';
 import { UNKNOWN_CAPABILITY } from '#/llm/capability';
 import { createUserMessage, extractText } from '#/llm/message';
 import type { LlmModel } from '#/llm/model';
 import type { LlmRequester } from '#/llm/requester/requester';
-import { createAgentMachine } from '#/agent/machine';
-import { inputSubmitted, messageAppended, turnEnded, turnStarted } from '#/agent/events';
-import { createUserEntry } from '#/agent/turn';
-import type { AgentEventStore } from '#/agent/slices';
-import { SessionStores } from '#/session/stores';
 import type { AgentSwitched } from '#/session/events';
+import { SessionStores } from '#/session/stores';
 import { MemoryBackend } from '#/store/backend/memory';
 import { TreeStore } from '#/store/store';
 import type { Tree } from '#/store/tree';
 import { testScopeFactory } from '#/test/agent/scope-factory';
+import { createActor, waitFor, type ActorRefFrom } from '#/xstate2';
 
 const model: LlmModel = { provider: 'test', model: 'test-model', capability: UNKNOWN_CAPABILITY };
 
@@ -53,7 +53,10 @@ async function reopen(env: TestEnv): Promise<TestEnv> {
   return { backend: env.backend, tree, stores: new SessionStores(tree, env.backend) };
 }
 
-function startAgent(store: AgentEventStore, requester: LlmRequester = createEchoRequester()): AgentActor {
+function startAgent(
+  store: AgentEventStore,
+  requester: LlmRequester = createEchoRequester(),
+): AgentActor {
   const actor = createActor(createAgentMachine({}), {
     input: { request: { model }, scopeFactory: testScopeFactory({ store, requester }) },
   });
@@ -61,11 +64,20 @@ function startAgent(store: AgentEventStore, requester: LlmRequester = createEcho
   return actor;
 }
 
-async function runTurn(actor: AgentActor, store: AgentEventStore, text: string, historyLength: number): Promise<void> {
+async function runTurn(
+  actor: AgentActor,
+  store: AgentEventStore,
+  text: string,
+  historyLength: number,
+): Promise<void> {
   actor.send({ type: 'input.submit', entry: { message: createUserMessage(text) } });
-  await waitFor(actor, (s) => s.matches('idle') && store.getState().history.length === historyLength, {
-    timeout: 5000,
-  });
+  await waitFor(
+    actor,
+    (s) => s.matches('idle') && store.getState().history.length === historyLength,
+    {
+      timeout: 5000,
+    },
+  );
 }
 
 function historyTexts(store: AgentEventStore): string[] {
@@ -264,7 +276,9 @@ describe('SessionStores switchBranch', () => {
     expect(main.ref.branch).toBe('main~2');
     expect(historyTexts(main)).toEqual(['seed-user', 'seed-summary']);
     expect(main.getState().turnIndex).toEqual({
-      turns: [{ turnId: 1, start: { branch: 'main~2', seq: 0 }, end: { branch: 'main~2', seq: 3 } }],
+      turns: [
+        { turnId: 1, start: { branch: 'main~2', seq: 0 }, end: { branch: 'main~2', seq: 3 } },
+      ],
       nextTurnId: 2,
     });
     expect(main.getState().queue).toEqual([

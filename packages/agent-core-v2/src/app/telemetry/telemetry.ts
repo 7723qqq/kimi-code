@@ -1,16 +1,8 @@
 import { createDecorator } from '#/_base/di/instantiation';
 import type { IDisposable } from '#/_base/di/lifecycle';
 
-import type {
-  TelemetryContextPatch,
-  TelemetryPrimitive,
-  TelemetryProperties,
-} from './context';
-import type {
-  StrictPropertyCheck,
-  TelemetryEventName,
-  TelemetryEventPayload,
-} from './events';
+import type { TelemetryContextPatch, TelemetryPrimitive, TelemetryProperties } from './context';
+import type { StrictPropertyCheck, TelemetryEventName, TelemetryEventPayload } from './events';
 
 export type { TelemetryContextPatch, TelemetryPrimitive, TelemetryProperties } from './context';
 
@@ -64,6 +56,4 @@ export const noopTelemetryService: ITelemetryService = {
   shutdown: async () => {},
 };
 
-export const ITelemetryService = createDecorator<ITelemetryService>(
-  'agentTelemetryService',
-);
+export const ITelemetryService = createDecorator<ITelemetryService>('agentTelemetryService');

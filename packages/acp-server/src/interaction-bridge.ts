@@ -24,7 +24,6 @@ import type {
 import type { IDisposable, SessionHandle } from '@moonshot-ai/klient';
 
 import type { AcpClient } from './acp-client';
-
 import {
   approvalRequestToPermissionOptions,
   attachSelectedLabel,

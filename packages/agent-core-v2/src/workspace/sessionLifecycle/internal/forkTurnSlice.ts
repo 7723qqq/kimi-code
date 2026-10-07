@@ -1,17 +1,17 @@
+import { isUserPromptSubmitHookPart } from '#/agent/contextMemory/hookParts';
+import {
+  promptMetadataTextFromContentParts,
+  promptMetadataTextFromText,
+} from '#/agent/prompt/promptMetadataText';
 import { Error2, ErrorCodes } from '#/errors';
 import { FILE_HISTORY_RECORD_PREFIX } from '#/features/fileHistory/fileHistoryOps';
-import { isUserPromptSubmitHookPart } from '#/agent/contextMemory/hookParts';
+import type { WireRecord } from '#/wire/record';
 import {
   annotateBundledSkillParts,
   isSkillActivationPart,
   type BundledSkillActivation,
 } from '#human/agent/origin';
 import type { ContentPart } from '#human/llm/message';
-import {
-  promptMetadataTextFromContentParts,
-  promptMetadataTextFromText,
-} from '#/agent/prompt/promptMetadataText';
-import type { WireRecord } from '#/wire/record';
 
 export interface MainTurnSlice {
   readonly records: readonly WireRecord[];
@@ -56,9 +56,7 @@ export function sliceMainRecordsAtTurn(
         !record.type.startsWith(FILE_HISTORY_RECORD_PREFIX) &&
         (!isUserVisibleTurnInputRecord(record) || retainedTurnInputs.has(index)),
     );
-  const cutoffTimes = retained
-    .map(recordTime)
-    .filter((time): time is number => time !== undefined);
+  const cutoffTimes = retained.map(recordTime).filter((time): time is number => time !== undefined);
   const lastPrompt = promptMetadataFromTurnRecord(records[start]!);
   return {
     records: retained,
@@ -190,8 +188,7 @@ function turnInputMatchesRecord(
     return promptId === messageId;
   }
   return (
-    !compareContent ||
-    JSON.stringify(inputRecord['input']) === JSON.stringify(message['content'])
+    !compareContent || JSON.stringify(inputRecord['input']) === JSON.stringify(message['content'])
   );
 }
 
@@ -217,7 +214,10 @@ function promptMetadataFromTurnRecord(record: WireRecord): string | undefined {
   if (origin?.['kind'] === 'skill_activation') {
     const name = origin['skillName'];
     if (typeof name !== 'string') return undefined;
-    return promptMetadataTextFromContentParts([{ type: 'text', text: slashCommandText(`/${name}`, origin['skillArgs']) }], origin['clientMetadata']);
+    return promptMetadataTextFromContentParts(
+      [{ type: 'text', text: slashCommandText(`/${name}`, origin['skillArgs']) }],
+      origin['clientMetadata'],
+    );
   }
   if (origin?.['kind'] === 'plugin_command') {
     const pluginId = origin['pluginId'];

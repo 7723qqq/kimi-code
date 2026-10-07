@@ -1,26 +1,28 @@
 import { createHash, randomUUID } from 'node:crypto';
+
 import { join } from 'pathe';
 
-import { Service } from '#/_base/di/service';import { generateHeroSlug } from '#/_base/utils/hero-slug';
+import { Service } from '#/_base/di/service';
+import { generateHeroSlug } from '#/_base/utils/hero-slug';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import { defaultPathClass } from '#/agent/permissionPolicy/policies/path-utils';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { denyToolExecution } from '#/agent/toolExecutor/beforeToolExecuteEvent';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import type { BeforeToolExecuteEvent } from '#/agent/toolExecutor/toolHooks';
+import { ContextUndone } from '#/agent/undo/undoService';
+import { AgentStatusUpdated } from '#/agent/usage/usageEvents';
 import { IEventBus } from '#/app/event/eventBus';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { Error2 } from '#/errors';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IBlobStore } from '#/persistence/interface/blobStore';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { IEventDispatcher } from '#/state/eventDispatcher';
-import { IAgentReminderService } from '#/features/reminder/reminderService';
-import { AgentStatusUpdated } from '#/agent/usage/usageEvents';
-import { ContextUndone } from '#/agent/undo/undoService';
-import { defaultPathClass } from '#/agent/permissionPolicy/policies/path-utils';
 import { isWithinDirectoryResolved } from '#/tool/path-access';
 import type { ToolFileAccess } from '#/tool/toolContract';
 

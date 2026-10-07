@@ -13,10 +13,7 @@ import type {
 import { DATABASE_SECTION } from '@moonshot-ai/agent-core-v2';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
-import {
-  GlobalSearchService,
-  drainGlobalSearchDisposals,
-} from '../../src/search/searchService';
+import { GlobalSearchService, drainGlobalSearchDisposals } from '../../src/search/searchService';
 
 const WS = 'ws_test';
 
@@ -128,8 +125,18 @@ describe('baseline: synthetic corpus', () => {
       summaries.push(summary(id, `session ${i} 索引讨论`, T1 + i));
       const lines: string[] = [];
       for (let j = 0; j < 8; j++) {
-        lines.push(userLine(`session ${i} message ${j} about ${TOPICS[(i + j) % TOPICS.length]!}`, T1 + i * 100 + j));
-        lines.push(assistantLine(`reply ${j} covering ${TOPICS[(i + 2 * j) % TOPICS.length]!}`, T1 + i * 100 + j + 1));
+        lines.push(
+          userLine(
+            `session ${i} message ${j} about ${TOPICS[(i + j) % TOPICS.length]!}`,
+            T1 + i * 100 + j,
+          ),
+        );
+        lines.push(
+          assistantLine(
+            `reply ${j} covering ${TOPICS[(i + 2 * j) % TOPICS.length]!}`,
+            T1 + i * 100 + j + 1,
+          ),
+        );
       }
       await writeWire(home!, id, 'main', lines);
     }
@@ -157,18 +164,24 @@ describe('baseline: synthetic corpus', () => {
     await service.reindex();
     const index100 = performance.now() - t0;
     const terms100 = await medianMs(() => service.search({ query: 'compaction' }));
-    const literal100 = await medianMs(() => service.search({ query: 'message 3 about', mode: 'literal' }));
+    const literal100 = await medianMs(() =>
+      service.search({ query: 'message 3 about', mode: 'literal' }),
+    );
 
     all.push(...(await writeCorpus(100, 400)));
     const t1 = performance.now();
     await service.reindex();
     const index400 = performance.now() - t1;
     const terms400 = await medianMs(() => service.search({ query: 'compaction' }));
-    const literal400 = await medianMs(() => service.search({ query: 'message 3 about', mode: 'literal' }));
+    const literal400 = await medianMs(() =>
+      service.search({ query: 'message 3 about', mode: 'literal' }),
+    );
 
     const hits = await service.search({ query: 'compaction' });
     expect(hits.items.length).toBeGreaterThan(0);
-    expect((await service.search({ query: 'message 3 about', mode: 'literal' })).items.length).toBeGreaterThan(0);
+    expect(
+      (await service.search({ query: 'message 3 about', mode: 'literal' })).items.length,
+    ).toBeGreaterThan(0);
 
     console.log(
       `[baseline] searchService ${JSON.stringify({

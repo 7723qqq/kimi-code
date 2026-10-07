@@ -1,5 +1,6 @@
-import { envelopeSchema } from '../protocol/envelope';
 import { z } from 'zod';
+
+import { envelopeSchema } from '../protocol/envelope';
 
 export function jsonSchema(schema: z.ZodTypeAny): Record<string, unknown> {
   return jsonSchemaForTarget(schema, 'input', 'draft-7');
@@ -32,9 +33,7 @@ function jsonSchemaForTarget(
   return converted;
 }
 
-export function envelopeJsonSchema(
-  dataSchema: z.ZodTypeAny,
-): Record<string, unknown> {
+export function envelopeJsonSchema(dataSchema: z.ZodTypeAny): Record<string, unknown> {
   return outputJsonSchema(envelopeSchema(dataSchema));
 }
 

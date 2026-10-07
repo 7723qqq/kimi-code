@@ -1,34 +1,34 @@
-import { execSync } from "node:child_process";
-import { homedir } from "node:os";
-import { isAbsolute } from "node:path";
-import { pathToFileURL } from "node:url";
+import { execSync } from 'node:child_process';
+import { homedir } from 'node:os';
+import { isAbsolute } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
-export type ImageProtocol = "kitty" | "iterm2" | "sixel" | null;
+export type ImageProtocol = 'kitty' | 'iterm2' | 'sixel' | null;
 
 export interface TerminalCapabilities {
-	images: ImageProtocol;
-	trueColor: boolean;
-	hyperlinks: boolean;
+  images: ImageProtocol;
+  trueColor: boolean;
+  hyperlinks: boolean;
 }
 
 export interface CellDimensions {
-	widthPx: number;
-	heightPx: number;
+  widthPx: number;
+  heightPx: number;
 }
 
 export interface ImageDimensions {
-	widthPx: number;
-	heightPx: number;
+  widthPx: number;
+  heightPx: number;
 }
 
 export interface ImageRenderOptions {
-	maxWidthCells?: number;
-	maxHeightCells?: number;
-	preserveAspectRatio?: boolean;
-	/** Kitty image ID. If provided, reuses/replaces existing image with this ID. */
-	imageId?: number;
-	/** Whether Kitty should apply its default cursor movement after placement. */
-	moveCursor?: boolean;
+  maxWidthCells?: number;
+  maxHeightCells?: number;
+  preserveAspectRatio?: boolean;
+  /** Kitty image ID. If provided, reuses/replaces existing image with this ID. */
+  imageId?: number;
+  /** Whether Kitty should apply its default cursor movement after placement. */
+  moveCursor?: boolean;
 }
 
 let cachedCapabilities: TerminalCapabilities | null = null;
@@ -40,11 +40,11 @@ let capabilityOverrides: Partial<TerminalCapabilities> = {};
 let cellDimensions: CellDimensions = { widthPx: 9, heightPx: 18 };
 
 export function getCellDimensions(): CellDimensions {
-	return cellDimensions;
+  return cellDimensions;
 }
 
 export function setCellDimensions(dims: CellDimensions): void {
-	cellDimensions = dims;
+  cellDimensions = dims;
 }
 
 /**
@@ -53,146 +53,158 @@ export function setCellDimensions(dims: CellDimensions): void {
  * `hyperlinks`, and strips them otherwise. On any error fallbacks `false`.
  */
 function probeTmuxHyperlinks(): boolean {
-	try {
-		const termfeatures = execSync("tmux display-message -p '#{client_termfeatures}'", {
-			encoding: "utf8",
-			timeout: 250,
-			stdio: ["ignore", "pipe", "ignore"],
-		});
-		return termfeatures
-			.split(",")
-			.map((feature) => feature.trim())
-			.includes("hyperlinks");
-	} catch {
-		return false;
-	}
+  try {
+    const termfeatures = execSync("tmux display-message -p '#{client_termfeatures}'", {
+      encoding: 'utf8',
+      timeout: 250,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+    return termfeatures
+      .split(',')
+      .map((feature) => feature.trim())
+      .includes('hyperlinks');
+  } catch {
+    return false;
+  }
 }
 
-function detectCapabilitiesFromEnvironment(tmuxForwardsHyperlink: () => boolean): TerminalCapabilities {
-	const termProgram = process.env['TERM_PROGRAM']?.toLowerCase() || "";
-	const terminalEmulator = process.env['TERMINAL_EMULATOR']?.toLowerCase() || "";
-	const term = process.env['TERM']?.toLowerCase() || "";
-	const colorTerm = process.env['COLORTERM']?.toLowerCase() || "";
-	const hasTrueColorHint = colorTerm === "truecolor" || colorTerm === "24bit";
-	const isWindowsConsole = process.platform === "win32";
+function detectCapabilitiesFromEnvironment(
+  tmuxForwardsHyperlink: () => boolean,
+): TerminalCapabilities {
+  const termProgram = process.env['TERM_PROGRAM']?.toLowerCase() || '';
+  const terminalEmulator = process.env['TERMINAL_EMULATOR']?.toLowerCase() || '';
+  const term = process.env['TERM']?.toLowerCase() || '';
+  const colorTerm = process.env['COLORTERM']?.toLowerCase() || '';
+  const hasTrueColorHint = colorTerm === 'truecolor' || colorTerm === '24bit';
+  const isWindowsConsole = process.platform === 'win32';
 
-	// Emit OSC 8 hyperlinks only when tmux confirms it forwards.
-	// Image protocols are unreliable under tmux, so leave `images: null`.
-	if (process.env['TMUX'] || term.startsWith("tmux")) {
-		return { images: null, trueColor: hasTrueColorHint, hyperlinks: tmuxForwardsHyperlink() };
-	}
+  // Emit OSC 8 hyperlinks only when tmux confirms it forwards.
+  // Image protocols are unreliable under tmux, so leave `images: null`.
+  if (process.env['TMUX'] || term.startsWith('tmux')) {
+    return { images: null, trueColor: hasTrueColorHint, hyperlinks: tmuxForwardsHyperlink() };
+  }
 
-	// screen does not forward OSC 8 hyperlinks, so keep them off there.
-	if (term.startsWith("screen")) {
-		return { images: null, trueColor: hasTrueColorHint, hyperlinks: false };
-	}
+  // screen does not forward OSC 8 hyperlinks, so keep them off there.
+  if (term.startsWith('screen')) {
+    return { images: null, trueColor: hasTrueColorHint, hyperlinks: false };
+  }
 
-	if (process.env['KITTY_WINDOW_ID'] || termProgram === "kitty") {
-		return { images: "kitty", trueColor: true, hyperlinks: true };
-	}
+  if (process.env['KITTY_WINDOW_ID'] || termProgram === 'kitty') {
+    return { images: 'kitty', trueColor: true, hyperlinks: true };
+  }
 
-	if (termProgram === "ghostty" || term.includes("ghostty") || process.env['GHOSTTY_RESOURCES_DIR']) {
-		return { images: "kitty", trueColor: true, hyperlinks: true };
-	}
+  if (
+    termProgram === 'ghostty' ||
+    term.includes('ghostty') ||
+    process.env['GHOSTTY_RESOURCES_DIR']
+  ) {
+    return { images: 'kitty', trueColor: true, hyperlinks: true };
+  }
 
-	if (process.env['WEZTERM_PANE'] || termProgram === "wezterm") {
-		return { images: "kitty", trueColor: true, hyperlinks: true };
-	}
+  if (process.env['WEZTERM_PANE'] || termProgram === 'wezterm') {
+    return { images: 'kitty', trueColor: true, hyperlinks: true };
+  }
 
-	// Warp supports the Kitty graphics protocol and OSC 8 hyperlinks.
-	if (termProgram === "warpterminal" || process.env['WARP_SESSION_ID'] || process.env['WARP_TERMINAL_SESSION_UUID']) {
-		return { images: "kitty", trueColor: true, hyperlinks: true };
-	}
+  // Warp supports the Kitty graphics protocol and OSC 8 hyperlinks.
+  if (
+    termProgram === 'warpterminal' ||
+    process.env['WARP_SESSION_ID'] ||
+    process.env['WARP_TERMINAL_SESSION_UUID']
+  ) {
+    return { images: 'kitty', trueColor: true, hyperlinks: true };
+  }
 
-	if (process.env['ITERM_SESSION_ID'] || termProgram === "iterm.app") {
-		return { images: "iterm2", trueColor: true, hyperlinks: true };
-	}
+  if (process.env['ITERM_SESSION_ID'] || termProgram === 'iterm.app') {
+    return { images: 'iterm2', trueColor: true, hyperlinks: true };
+  }
 
-	if (process.env['WT_SESSION']) {
-		// Windows Terminal 1.22+ renders sixel and its ConPTY passes the DCS
-		// through from client applications. Older terminals on Windows fall
-		// through to the platform default below.
-		return { images: "sixel", trueColor: true, hyperlinks: true };
-	}
+  if (process.env['WT_SESSION']) {
+    // Windows Terminal 1.22+ renders sixel and its ConPTY passes the DCS
+    // through from client applications. Older terminals on Windows fall
+    // through to the platform default below.
+    return { images: 'sixel', trueColor: true, hyperlinks: true };
+  }
 
-	if (termProgram === "vscode" || termProgram === "zed") {
-		return { images: null, trueColor: true, hyperlinks: true };
-	}
+  if (termProgram === 'vscode' || termProgram === 'zed') {
+    return { images: null, trueColor: true, hyperlinks: true };
+  }
 
-	if (termProgram === "alacritty") {
-		// Alacritty 0.13+ enables the sixel graphics protocol by default.
-		return { images: "sixel", trueColor: true, hyperlinks: true };
-	}
+  if (termProgram === 'alacritty') {
+    // Alacritty 0.13+ enables the sixel graphics protocol by default.
+    return { images: 'sixel', trueColor: true, hyperlinks: true };
+  }
 
-	// Sixel-capable terminals that identify themselves through TERM.
-	if (
-		term.startsWith("foot") ||
-		term.startsWith("mlterm") ||
-		term.startsWith("yaft") ||
-		term.startsWith("contour") ||
-		term.startsWith("rio") ||
-		process.env['MLTERM']
-	) {
-		return { images: "sixel", trueColor: true, hyperlinks: true };
-	}
+  // Sixel-capable terminals that identify themselves through TERM.
+  if (
+    term.startsWith('foot') ||
+    term.startsWith('mlterm') ||
+    term.startsWith('yaft') ||
+    term.startsWith('contour') ||
+    term.startsWith('rio') ||
+    process.env['MLTERM']
+  ) {
+    return { images: 'sixel', trueColor: true, hyperlinks: true };
+  }
 
-	if (terminalEmulator === "jetbrains-jediterm") {
-		return { images: null, trueColor: true, hyperlinks: false };
-	}
+  if (terminalEmulator === 'jetbrains-jediterm') {
+    return { images: null, trueColor: true, hyperlinks: false };
+  }
 
-	// Windows Terminal does not always set WT_SESSION, for example when it hosts
-	// a cmd.exe launched directly from Win+R. Modern Windows consoles support
-	// truecolor; keep hyperlinks off unless we positively detected support above.
-	if (isWindowsConsole) {
-		return { images: null, trueColor: true, hyperlinks: false };
-	}
+  // Windows Terminal does not always set WT_SESSION, for example when it hosts
+  // a cmd.exe launched directly from Win+R. Modern Windows consoles support
+  // truecolor; keep hyperlinks off unless we positively detected support above.
+  if (isWindowsConsole) {
+    return { images: null, trueColor: true, hyperlinks: false };
+  }
 
-	// Unknown terminal: be conservative. OSC 8 is rendered invisibly as "just
-	// text" on terminals that swallow it, which means the URL disappears from
-	// the rendered output. Default to the legacy `text (url)` behavior unless we
-	// have positively identified a hyperlink-capable terminal above.
-	return { images: null, trueColor: hasTrueColorHint, hyperlinks: false };
+  // Unknown terminal: be conservative. OSC 8 is rendered invisibly as "just
+  // text" on terminals that swallow it, which means the URL disappears from
+  // the rendered output. Default to the legacy `text (url)` behavior unless we
+  // have positively identified a hyperlink-capable terminal above.
+  return { images: null, trueColor: hasTrueColorHint, hyperlinks: false };
 }
 
 function parseBooleanCapabilityOverride(value: string | undefined): boolean | undefined {
-	return value === "1" ? true : value === "0" ? false : undefined;
+  return value === '1' ? true : value === '0' ? false : undefined;
 }
 
-export function detectCapabilities(tmuxForwardsHyperlink: () => boolean = probeTmuxHyperlinks): TerminalCapabilities {
-	const hyperlinks = parseBooleanCapabilityOverride(process.env['PI_HYPERLINKS']);
-	const detected = detectCapabilitiesFromEnvironment(
-		hyperlinks === undefined ? tmuxForwardsHyperlink : () => hyperlinks,
-	);
-	const imageProtocol = process.env['PI_IMAGE_PROTOCOL']?.toLowerCase();
-	const images =
-		imageProtocol === "kitty" || imageProtocol === "iterm2"
-			? imageProtocol
-			: imageProtocol === "none" || imageProtocol === "0"
-				? null
-				: undefined;
-	const trueColor = parseBooleanCapabilityOverride(process.env['PI_TRUE_COLOR']);
-	return {
-		...detected,
-		...(images !== undefined ? { images } : {}),
-		...(trueColor !== undefined ? { trueColor } : {}),
-		...(hyperlinks !== undefined ? { hyperlinks } : {}),
-	};
+export function detectCapabilities(
+  tmuxForwardsHyperlink: () => boolean = probeTmuxHyperlinks,
+): TerminalCapabilities {
+  const hyperlinks = parseBooleanCapabilityOverride(process.env['PI_HYPERLINKS']);
+  const detected = detectCapabilitiesFromEnvironment(
+    hyperlinks === undefined ? tmuxForwardsHyperlink : () => hyperlinks,
+  );
+  const imageProtocol = process.env['PI_IMAGE_PROTOCOL']?.toLowerCase();
+  const images =
+    imageProtocol === 'kitty' || imageProtocol === 'iterm2'
+      ? imageProtocol
+      : imageProtocol === 'none' || imageProtocol === '0'
+        ? null
+        : undefined;
+  const trueColor = parseBooleanCapabilityOverride(process.env['PI_TRUE_COLOR']);
+  return {
+    ...detected,
+    ...(images !== undefined ? { images } : {}),
+    ...(trueColor !== undefined ? { trueColor } : {}),
+    ...(hyperlinks !== undefined ? { hyperlinks } : {}),
+  };
 }
 
 export function getCapabilities(): TerminalCapabilities {
-	if (!cachedCapabilities) {
-		const hyperlinks = capabilityOverrides.hyperlinks;
-		cachedCapabilities = {
-			...detectCapabilities(hyperlinks === undefined ? undefined : () => hyperlinks),
-			...capabilityOverrides,
-		};
-	}
-	return cachedCapabilities;
+  if (!cachedCapabilities) {
+    const hyperlinks = capabilityOverrides.hyperlinks;
+    cachedCapabilities = {
+      ...detectCapabilities(hyperlinks === undefined ? undefined : () => hyperlinks),
+      ...capabilityOverrides,
+    };
+  }
+  return cachedCapabilities;
 }
 
 export type ImageCapabilityResponse =
-	| { kind: "detected"; protocol: ImageProtocol }
-	| { kind: "unsupported" };
+  | { kind: 'detected'; protocol: ImageProtocol }
+  | { kind: 'unsupported' };
 
 /**
  * Parse a terminal reply to the image-capability queries sent at startup
@@ -202,47 +214,47 @@ export type ImageCapabilityResponse =
  * and null when the data is not a capability response at all.
  */
 export function parseImageCapabilityResponse(data: string): ImageCapabilityResponse | null {
-	// Kitty graphics query reply: ESC _ G i=1 ; OK ESC \ (supported) or
-	// ESC _ G i=1 ; ENOENT ESC \ (unsupported).
-	const kittyMatch = /^\x1b_Gi=1;([A-Z]+)\x1b\\$/.exec(data);
-	if (kittyMatch) {
-		return kittyMatch[1] === "OK"
-			? { kind: "detected", protocol: "kitty" }
-			: { kind: "unsupported" };
-	}
-	// DA1 reply: ESC [ ? <params> c, where param 62 means sixel graphics.
-	const da1Match = /^\x1b\[\?([0-9;]*)c$/.exec(data);
-	if (da1Match) {
-		const params = da1Match[1]!.split(";");
-		return params.includes("62")
-			? { kind: "detected", protocol: "sixel" }
-			: { kind: "unsupported" };
-	}
-	return null;
+  // Kitty graphics query reply: ESC _ G i=1 ; OK ESC \ (supported) or
+  // ESC _ G i=1 ; ENOENT ESC \ (unsupported).
+  const kittyMatch = /^\x1b_Gi=1;([A-Z]+)\x1b\\$/.exec(data);
+  if (kittyMatch) {
+    return kittyMatch[1] === 'OK'
+      ? { kind: 'detected', protocol: 'kitty' }
+      : { kind: 'unsupported' };
+  }
+  // DA1 reply: ESC [ ? <params> c, where param 62 means sixel graphics.
+  const da1Match = /^\x1b\[\?([0-9;]*)c$/.exec(data);
+  if (da1Match) {
+    const params = da1Match[1]!.split(';');
+    return params.includes('62')
+      ? { kind: 'detected', protocol: 'sixel' }
+      : { kind: 'unsupported' };
+  }
+  return null;
 }
 
 export function resetCapabilitiesCache(): void {
-	cachedCapabilities = null;
-	capabilitiesExplicitlySet = false;
+  cachedCapabilities = null;
+  capabilitiesExplicitlySet = false;
 }
 
 /** Override selected auto-detected capabilities. */
 export function setCapabilityOverrides(overrides: Partial<TerminalCapabilities>): void {
-	if (
-		capabilityOverrides.images === overrides.images &&
-		capabilityOverrides.trueColor === overrides.trueColor &&
-		capabilityOverrides.hyperlinks === overrides.hyperlinks
-	) {
-		return;
-	}
-	capabilityOverrides = { ...overrides };
-	cachedCapabilities = null;
+  if (
+    capabilityOverrides.images === overrides.images &&
+    capabilityOverrides.trueColor === overrides.trueColor &&
+    capabilityOverrides.hyperlinks === overrides.hyperlinks
+  ) {
+    return;
+  }
+  capabilityOverrides = { ...overrides };
+  cachedCapabilities = null;
 }
 
 /** Override the cached capabilities. Useful in tests to exercise both code paths. */
 export function setCapabilities(caps: TerminalCapabilities): void {
-	cachedCapabilities = caps;
-	capabilitiesExplicitlySet = true;
+  cachedCapabilities = caps;
+  capabilitiesExplicitlySet = true;
 }
 
 /**
@@ -253,26 +265,24 @@ export function setCapabilities(caps: TerminalCapabilities): void {
  * the cache was explicitly pinned.
  */
 export function isCapabilitiesExplicitlySet(): boolean {
-	return capabilitiesExplicitlySet;
+  return capabilitiesExplicitlySet;
 }
 
-const KITTY_PREFIX = "\x1b_G";
-const ITERM2_PREFIX = "\x1b]1337;File=";
-const SIXEL_DCS = "\x1bPq";
+const KITTY_PREFIX = '\x1b_G';
+const ITERM2_PREFIX = '\x1b]1337;File=';
+const SIXEL_DCS = '\x1bPq';
 
 export function isImageLine(line: string): boolean {
-	// Fast path: sequence at line start (single-row images)
-	if (
-		line.startsWith(KITTY_PREFIX) ||
-		line.startsWith(ITERM2_PREFIX) ||
-		line.startsWith(SIXEL_DCS)
-	) {
-		return true;
-	}
-	// Slow path: sequence elsewhere (multi-row images have cursor-up prefix)
-	return (
-		line.includes(KITTY_PREFIX) || line.includes(ITERM2_PREFIX) || line.includes(SIXEL_DCS)
-	);
+  // Fast path: sequence at line start (single-row images)
+  if (
+    line.startsWith(KITTY_PREFIX) ||
+    line.startsWith(ITERM2_PREFIX) ||
+    line.startsWith(SIXEL_DCS)
+  ) {
+    return true;
+  }
+  // Slow path: sequence elsewhere (multi-row images have cursor-up prefix)
+  return line.includes(KITTY_PREFIX) || line.includes(ITERM2_PREFIX) || line.includes(SIXEL_DCS);
 }
 
 /**
@@ -281,54 +291,54 @@ export function isImageLine(line: string): boolean {
  * (e.g., main app vs extensions).
  */
 export function allocateImageId(): number {
-	// Use random ID in range [1, 0xffffffff] to avoid collisions
-	return Math.floor(Math.random() * 0xfffffffe) + 1;
+  // Use random ID in range [1, 0xffffffff] to avoid collisions
+  return Math.floor(Math.random() * 0xfffffffe) + 1;
 }
 
 export function encodeKitty(
-	base64Data: string,
-	options: {
-		columns?: number;
-		rows?: number;
-		imageId?: number;
-		/** Whether Kitty should apply its default cursor movement after placement. Default: true. */
-		moveCursor?: boolean;
-	} = {},
+  base64Data: string,
+  options: {
+    columns?: number;
+    rows?: number;
+    imageId?: number;
+    /** Whether Kitty should apply its default cursor movement after placement. Default: true. */
+    moveCursor?: boolean;
+  } = {},
 ): string {
-	const CHUNK_SIZE = 4096;
+  const CHUNK_SIZE = 4096;
 
-	const params: string[] = ["a=T", "f=100", "q=2"];
+  const params: string[] = ['a=T', 'f=100', 'q=2'];
 
-	if (options.moveCursor === false) params.push("C=1");
-	if (options.columns) params.push(`c=${options.columns}`);
-	if (options.rows) params.push(`r=${options.rows}`);
-	if (options.imageId) params.push(`i=${options.imageId}`);
+  if (options.moveCursor === false) params.push('C=1');
+  if (options.columns) params.push(`c=${options.columns}`);
+  if (options.rows) params.push(`r=${options.rows}`);
+  if (options.imageId) params.push(`i=${options.imageId}`);
 
-	if (base64Data.length <= CHUNK_SIZE) {
-		return `\x1b_G${params.join(",")};${base64Data}\x1b\\`;
-	}
+  if (base64Data.length <= CHUNK_SIZE) {
+    return `\x1b_G${params.join(',')};${base64Data}\x1b\\`;
+  }
 
-	const chunks: string[] = [];
-	let offset = 0;
-	let isFirst = true;
+  const chunks: string[] = [];
+  let offset = 0;
+  let isFirst = true;
 
-	while (offset < base64Data.length) {
-		const chunk = base64Data.slice(offset, offset + CHUNK_SIZE);
-		const isLast = offset + CHUNK_SIZE >= base64Data.length;
+  while (offset < base64Data.length) {
+    const chunk = base64Data.slice(offset, offset + CHUNK_SIZE);
+    const isLast = offset + CHUNK_SIZE >= base64Data.length;
 
-		if (isFirst) {
-			chunks.push(`\x1b_G${params.join(",")},m=1;${chunk}\x1b\\`);
-			isFirst = false;
-		} else if (isLast) {
-			chunks.push(`\x1b_Gm=0;${chunk}\x1b\\`);
-		} else {
-			chunks.push(`\x1b_Gm=1;${chunk}\x1b\\`);
-		}
+    if (isFirst) {
+      chunks.push(`\x1b_G${params.join(',')},m=1;${chunk}\x1b\\`);
+      isFirst = false;
+    } else if (isLast) {
+      chunks.push(`\x1b_Gm=0;${chunk}\x1b\\`);
+    } else {
+      chunks.push(`\x1b_Gm=1;${chunk}\x1b\\`);
+    }
 
-		offset += CHUNK_SIZE;
-	}
+    offset += CHUNK_SIZE;
+  }
 
-	return chunks.join("");
+  return chunks.join('');
 }
 
 /**
@@ -336,7 +346,7 @@ export function encodeKitty(
  * Uses uppercase 'I' to also free the image data.
  */
 export function deleteKittyImage(imageId: number): string {
-	return `\x1b_Ga=d,d=I,i=${imageId},q=2\x1b\\`;
+  return `\x1b_Ga=d,d=I,i=${imageId},q=2\x1b\\`;
 }
 
 /**
@@ -344,345 +354,351 @@ export function deleteKittyImage(imageId: number): string {
  * Uses uppercase 'A' to also free the image data.
  */
 export function deleteAllKittyImages(): string {
-	return "\x1b_Ga=d,d=A,q=2\x1b\\";
+  return '\x1b_Ga=d,d=A,q=2\x1b\\';
 }
 
 /** Delete all visible Kitty placements while retaining their uploaded image data. */
 export function deleteAllKittyPlacements(): string {
-	return "\x1b_Ga=d,d=a,q=2\x1b\\";
+  return '\x1b_Ga=d,d=a,q=2\x1b\\';
 }
 
 export function encodeITerm2(
-	base64Data: string,
-	options: {
-		width?: number | string;
-		height?: number | string;
-		name?: string;
-		preserveAspectRatio?: boolean;
-		inline?: boolean;
-	} = {},
+  base64Data: string,
+  options: {
+    width?: number | string;
+    height?: number | string;
+    name?: string;
+    preserveAspectRatio?: boolean;
+    inline?: boolean;
+  } = {},
 ): string {
-	const params: string[] = [
-		`inline=${options.inline !== false ? 1 : 0}`,
-		`size=${Buffer.byteLength(base64Data, "base64")}`,
-	];
+  const params: string[] = [
+    `inline=${options.inline !== false ? 1 : 0}`,
+    `size=${Buffer.byteLength(base64Data, 'base64')}`,
+  ];
 
-	if (options.width !== undefined) params.push(`width=${options.width}`);
-	if (options.height !== undefined) params.push(`height=${options.height}`);
-	if (options.name) {
-		const nameBase64 = Buffer.from(options.name).toString("base64");
-		params.push(`name=${nameBase64}`);
-	}
-	if (options.preserveAspectRatio === false) {
-		params.push("preserveAspectRatio=0");
-	}
+  if (options.width !== undefined) params.push(`width=${options.width}`);
+  if (options.height !== undefined) params.push(`height=${options.height}`);
+  if (options.name) {
+    const nameBase64 = Buffer.from(options.name).toString('base64');
+    params.push(`name=${nameBase64}`);
+  }
+  if (options.preserveAspectRatio === false) {
+    params.push('preserveAspectRatio=0');
+  }
 
-	return `\x1b]1337;File=${params.join(";")}:${base64Data}\x07`;
+  return `\x1b]1337;File=${params.join(';')}:${base64Data}\x07`;
 }
 
 export interface ImageCellSize {
-	columns: number;
-	rows: number;
+  columns: number;
+  rows: number;
 }
 
 export interface KittyImageMetadata extends ImageCellSize {
-	imageId: number;
-	widthPx: number;
-	heightPx: number;
+  imageId: number;
+  widthPx: number;
+  heightPx: number;
 }
 
 interface RegisteredKittyImageMetadata extends KittyImageMetadata {
-	transmissionGeneration: number;
+  transmissionGeneration: number;
 }
 
 export interface KittyImagePlacement {
-	imageId: number;
-	transmissionGeneration: number;
-	transmissionBytes: number;
-	estimatedDecodedBytes: number;
-	sequence: string;
-	replacementLine: string;
+  imageId: number;
+  transmissionGeneration: number;
+  transmissionBytes: number;
+  estimatedDecodedBytes: number;
+  sequence: string;
+  replacementLine: string;
 }
 
 const kittyImageMetadata = new Map<number, RegisteredKittyImageMetadata>();
 let kittyTransmissionGeneration = 0;
 
 export function registerKittyImageMetadata(metadata: KittyImageMetadata): void {
-	kittyTransmissionGeneration += 1;
-	kittyImageMetadata.delete(metadata.imageId);
-	kittyImageMetadata.set(metadata.imageId, { ...metadata, transmissionGeneration: kittyTransmissionGeneration });
-	if (kittyImageMetadata.size > 1000) {
-		const oldestImageId = kittyImageMetadata.keys().next().value;
-		if (oldestImageId !== undefined) kittyImageMetadata.delete(oldestImageId);
-	}
+  kittyTransmissionGeneration += 1;
+  kittyImageMetadata.delete(metadata.imageId);
+  kittyImageMetadata.set(metadata.imageId, {
+    ...metadata,
+    transmissionGeneration: kittyTransmissionGeneration,
+  });
+  if (kittyImageMetadata.size > 1000) {
+    const oldestImageId = kittyImageMetadata.keys().next().value;
+    if (oldestImageId !== undefined) kittyImageMetadata.delete(oldestImageId);
+  }
 }
 
 function getRegisteredKittyImageMetadata(line: string): RegisteredKittyImageMetadata | undefined {
-	const controls = /\x1b_G([^;]*);/.exec(line)?.[1];
-	if (!controls) return undefined;
-	const imageId = /(?:^|,)i=(\d+)(?:,|$)/.exec(controls)?.[1];
-	return imageId === undefined ? undefined : kittyImageMetadata.get(Number.parseInt(imageId, 10));
+  const controls = /\x1b_G([^;]*);/.exec(line)?.[1];
+  if (!controls) return undefined;
+  const imageId = /(?:^|,)i=(\d+)(?:,|$)/.exec(controls)?.[1];
+  return imageId === undefined ? undefined : kittyImageMetadata.get(Number.parseInt(imageId, 10));
 }
 
 export function getKittyImageMetadata(line: string): KittyImageMetadata | undefined {
-	const metadata = getRegisteredKittyImageMetadata(line);
-	if (!metadata) return undefined;
-	return {
-		imageId: metadata.imageId,
-		columns: metadata.columns,
-		rows: metadata.rows,
-		widthPx: metadata.widthPx,
-		heightPx: metadata.heightPx,
-	};
+  const metadata = getRegisteredKittyImageMetadata(line);
+  if (!metadata) return undefined;
+  return {
+    imageId: metadata.imageId,
+    columns: metadata.columns,
+    rows: metadata.rows,
+    widthPx: metadata.widthPx,
+    heightPx: metadata.heightPx,
+  };
 }
 
 const KITTY_PLACEMENT_CONTROL_KEYS = new Set([
-	"i",
-	"p",
-	"x",
-	"y",
-	"w",
-	"h",
-	"X",
-	"Y",
-	"c",
-	"r",
-	"C",
-	"U",
-	"z",
-	"P",
-	"Q",
-	"H",
-	"V",
+  'i',
+  'p',
+  'x',
+  'y',
+  'w',
+  'h',
+  'X',
+  'Y',
+  'c',
+  'r',
+  'C',
+  'U',
+  'z',
+  'P',
+  'Q',
+  'H',
+  'V',
 ]);
 
 /** Build a placement-only command for an image line emitted by {@link renderImage}. */
 export function getKittyImagePlacement(line: string): KittyImagePlacement | undefined {
-	const match = /\x1b_G([^;]*);/.exec(line);
-	const metadata = getRegisteredKittyImageMetadata(line);
-	if (!match || !metadata) return undefined;
+  const match = /\x1b_G([^;]*);/.exec(line);
+  const metadata = getRegisteredKittyImageMetadata(line);
+  if (!match || !metadata) return undefined;
 
-	let commandStart = match.index;
-	let commandControls = match[1]!;
-	let transmissionEnd: number;
-	while (true) {
-		const terminator = line.indexOf("\x1b\\", commandStart + KITTY_PREFIX.length);
-		if (terminator === -1) return undefined;
-		transmissionEnd = terminator + 2;
-		if (!/(?:^|,)m=1(?:,|$)/.test(commandControls)) break;
-		commandStart = transmissionEnd;
-		if (!line.startsWith(KITTY_PREFIX, commandStart)) return undefined;
-		const controlsEnd = line.indexOf(";", commandStart + KITTY_PREFIX.length);
-		if (controlsEnd === -1) return undefined;
-		commandControls = line.slice(commandStart + KITTY_PREFIX.length, controlsEnd);
-	}
+  let commandStart = match.index;
+  let commandControls = match[1]!;
+  let transmissionEnd: number;
+  while (true) {
+    const terminator = line.indexOf('\x1b\\', commandStart + KITTY_PREFIX.length);
+    if (terminator === -1) return undefined;
+    transmissionEnd = terminator + 2;
+    if (!/(?:^|,)m=1(?:,|$)/.test(commandControls)) break;
+    commandStart = transmissionEnd;
+    if (!line.startsWith(KITTY_PREFIX, commandStart)) return undefined;
+    const controlsEnd = line.indexOf(';', commandStart + KITTY_PREFIX.length);
+    if (controlsEnd === -1) return undefined;
+    commandControls = line.slice(commandStart + KITTY_PREFIX.length, controlsEnd);
+  }
 
-	const controls = match[1]!
-		.split(",")
-		.filter((control) => KITTY_PLACEMENT_CONTROL_KEYS.has(control.split("=", 1)[0] ?? ""));
-	const sequence = `\x1b_Ga=p,q=2,${controls.join(",")}\x1b\\`;
-	return {
-		imageId: metadata.imageId,
-		transmissionGeneration: metadata.transmissionGeneration,
-		transmissionBytes: transmissionEnd - match.index,
-		estimatedDecodedBytes: metadata.widthPx * metadata.heightPx * 4,
-		sequence,
-		replacementLine: `${line.slice(0, match.index)}${sequence}${line.slice(transmissionEnd)}`,
-	};
+  const controls = match[1]!
+    .split(',')
+    .filter((control) => KITTY_PLACEMENT_CONTROL_KEYS.has(control.split('=', 1)[0] ?? ''));
+  const sequence = `\x1b_Ga=p,q=2,${controls.join(',')}\x1b\\`;
+  return {
+    imageId: metadata.imageId,
+    transmissionGeneration: metadata.transmissionGeneration,
+    transmissionBytes: transmissionEnd - match.index,
+    estimatedDecodedBytes: metadata.widthPx * metadata.heightPx * 4,
+    sequence,
+    replacementLine: `${line.slice(0, match.index)}${sequence}${line.slice(transmissionEnd)}`,
+  };
 }
 
 export function cropKittyImageLine(line: string, hiddenRows: number, visibleRows: number): string {
-	const metadata = getKittyImageMetadata(line);
-	const match = /\x1b_G([^;]*);/.exec(line);
-	if (!metadata || !match || hiddenRows < 0 || hiddenRows >= metadata.rows || visibleRows <= 0) return line;
-	const croppedRows = Math.min(visibleRows, metadata.rows - hiddenRows);
-	if (hiddenRows === 0 && croppedRows === metadata.rows) return line;
-	const sourceY = Math.floor((metadata.heightPx * hiddenRows) / metadata.rows);
-	const sourceEnd = Math.ceil((metadata.heightPx * (hiddenRows + croppedRows)) / metadata.rows);
-	const sourceHeight = Math.max(1, Math.min(metadata.heightPx, sourceEnd) - sourceY);
-	const controls = match[1]!.split(",").filter((control) => !/^[yhr]=/.test(control));
-	controls.push(`y=${sourceY}`, `h=${sourceHeight}`, `r=${croppedRows}`);
-	return `${line.slice(0, match.index)}\x1b_G${controls.join(",")};${line.slice(match.index + match[0].length)}`;
+  const metadata = getKittyImageMetadata(line);
+  const match = /\x1b_G([^;]*);/.exec(line);
+  if (!metadata || !match || hiddenRows < 0 || hiddenRows >= metadata.rows || visibleRows <= 0)
+    return line;
+  const croppedRows = Math.min(visibleRows, metadata.rows - hiddenRows);
+  if (hiddenRows === 0 && croppedRows === metadata.rows) return line;
+  const sourceY = Math.floor((metadata.heightPx * hiddenRows) / metadata.rows);
+  const sourceEnd = Math.ceil((metadata.heightPx * (hiddenRows + croppedRows)) / metadata.rows);
+  const sourceHeight = Math.max(1, Math.min(metadata.heightPx, sourceEnd) - sourceY);
+  const controls = match[1]!.split(',').filter((control) => !/^[yhr]=/.test(control));
+  controls.push(`y=${sourceY}`, `h=${sourceHeight}`, `r=${croppedRows}`);
+  return `${line.slice(0, match.index)}\x1b_G${controls.join(',')};${line.slice(match.index + match[0].length)}`;
 }
 
 export function calculateImageCellSize(
-	imageDimensions: ImageDimensions,
-	maxWidthCells: number,
-	maxHeightCells?: number,
-	cellDimensions: CellDimensions = { widthPx: 9, heightPx: 18 },
+  imageDimensions: ImageDimensions,
+  maxWidthCells: number,
+  maxHeightCells?: number,
+  cellDimensions: CellDimensions = { widthPx: 9, heightPx: 18 },
 ): ImageCellSize {
-	const maxWidth = Math.max(1, Math.floor(maxWidthCells));
-	const maxHeight = maxHeightCells === undefined ? undefined : Math.max(1, Math.floor(maxHeightCells));
-	const imageWidth = Math.max(1, imageDimensions.widthPx);
-	const imageHeight = Math.max(1, imageDimensions.heightPx);
+  const maxWidth = Math.max(1, Math.floor(maxWidthCells));
+  const maxHeight =
+    maxHeightCells === undefined ? undefined : Math.max(1, Math.floor(maxHeightCells));
+  const imageWidth = Math.max(1, imageDimensions.widthPx);
+  const imageHeight = Math.max(1, imageDimensions.heightPx);
 
-	const widthScale = (maxWidth * cellDimensions.widthPx) / imageWidth;
-	const heightScale = maxHeight === undefined ? widthScale : (maxHeight * cellDimensions.heightPx) / imageHeight;
-	const scale = Math.min(widthScale, heightScale);
+  const widthScale = (maxWidth * cellDimensions.widthPx) / imageWidth;
+  const heightScale =
+    maxHeight === undefined ? widthScale : (maxHeight * cellDimensions.heightPx) / imageHeight;
+  const scale = Math.min(widthScale, heightScale);
 
-	const scaledWidthPx = imageWidth * scale;
-	const scaledHeightPx = imageHeight * scale;
-	const columns = Math.ceil(scaledWidthPx / cellDimensions.widthPx);
-	const rows = Math.ceil(scaledHeightPx / cellDimensions.heightPx);
+  const scaledWidthPx = imageWidth * scale;
+  const scaledHeightPx = imageHeight * scale;
+  const columns = Math.ceil(scaledWidthPx / cellDimensions.widthPx);
+  const rows = Math.ceil(scaledHeightPx / cellDimensions.heightPx);
 
-	return {
-		columns: Math.max(1, Math.min(maxWidth, columns)),
-		rows: Math.max(1, maxHeight === undefined ? rows : Math.min(maxHeight, rows)),
-	};
+  return {
+    columns: Math.max(1, Math.min(maxWidth, columns)),
+    rows: Math.max(1, maxHeight === undefined ? rows : Math.min(maxHeight, rows)),
+  };
 }
 
 export function calculateImageRows(
-	imageDimensions: ImageDimensions,
-	targetWidthCells: number,
-	cellDimensions: CellDimensions = { widthPx: 9, heightPx: 18 },
+  imageDimensions: ImageDimensions,
+  targetWidthCells: number,
+  cellDimensions: CellDimensions = { widthPx: 9, heightPx: 18 },
 ): number {
-	return calculateImageCellSize(imageDimensions, targetWidthCells, undefined, cellDimensions).rows;
+  return calculateImageCellSize(imageDimensions, targetWidthCells, undefined, cellDimensions).rows;
 }
 
 export function getPngDimensions(base64Data: string): ImageDimensions | null {
-	try {
-		const buffer = Buffer.from(base64Data, "base64");
+  try {
+    const buffer = Buffer.from(base64Data, 'base64');
 
-		if (buffer.length < 24) {
-			return null;
-		}
+    if (buffer.length < 24) {
+      return null;
+    }
 
-		if (buffer[0] !== 0x89 || buffer[1] !== 0x50 || buffer[2] !== 0x4e || buffer[3] !== 0x47) {
-			return null;
-		}
+    if (buffer[0] !== 0x89 || buffer[1] !== 0x50 || buffer[2] !== 0x4e || buffer[3] !== 0x47) {
+      return null;
+    }
 
-		const width = buffer.readUInt32BE(16);
-		const height = buffer.readUInt32BE(20);
+    const width = buffer.readUInt32BE(16);
+    const height = buffer.readUInt32BE(20);
 
-		return { widthPx: width, heightPx: height };
-	} catch {
-		return null;
-	}
+    return { widthPx: width, heightPx: height };
+  } catch {
+    return null;
+  }
 }
 
 export function getJpegDimensions(base64Data: string): ImageDimensions | null {
-	try {
-		const buffer = Buffer.from(base64Data, "base64");
+  try {
+    const buffer = Buffer.from(base64Data, 'base64');
 
-		if (buffer.length < 2) {
-			return null;
-		}
+    if (buffer.length < 2) {
+      return null;
+    }
 
-		if (buffer[0] !== 0xff || buffer[1] !== 0xd8) {
-			return null;
-		}
+    if (buffer[0] !== 0xff || buffer[1] !== 0xd8) {
+      return null;
+    }
 
-		let offset = 2;
-		while (offset < buffer.length - 9) {
-			if (buffer[offset] !== 0xff) {
-				offset++;
-				continue;
-			}
+    let offset = 2;
+    while (offset < buffer.length - 9) {
+      if (buffer[offset] !== 0xff) {
+        offset++;
+        continue;
+      }
 
-			const marker = buffer[offset + 1]!;
+      const marker = buffer[offset + 1]!;
 
-			if (marker >= 0xc0 && marker <= 0xc2) {
-				const height = buffer.readUInt16BE(offset + 5);
-				const width = buffer.readUInt16BE(offset + 7);
-				return { widthPx: width, heightPx: height };
-			}
+      if (marker >= 0xc0 && marker <= 0xc2) {
+        const height = buffer.readUInt16BE(offset + 5);
+        const width = buffer.readUInt16BE(offset + 7);
+        return { widthPx: width, heightPx: height };
+      }
 
-			if (offset + 3 >= buffer.length) {
-				return null;
-			}
-			const length = buffer.readUInt16BE(offset + 2);
-			if (length < 2) {
-				return null;
-			}
-			offset += 2 + length;
-		}
+      if (offset + 3 >= buffer.length) {
+        return null;
+      }
+      const length = buffer.readUInt16BE(offset + 2);
+      if (length < 2) {
+        return null;
+      }
+      offset += 2 + length;
+    }
 
-		return null;
-	} catch {
-		return null;
-	}
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 export function getGifDimensions(base64Data: string): ImageDimensions | null {
-	try {
-		const buffer = Buffer.from(base64Data, "base64");
+  try {
+    const buffer = Buffer.from(base64Data, 'base64');
 
-		if (buffer.length < 10) {
-			return null;
-		}
+    if (buffer.length < 10) {
+      return null;
+    }
 
-		const sig = buffer.slice(0, 6).toString("ascii");
-		if (sig !== "GIF87a" && sig !== "GIF89a") {
-			return null;
-		}
+    const sig = buffer.slice(0, 6).toString('ascii');
+    if (sig !== 'GIF87a' && sig !== 'GIF89a') {
+      return null;
+    }
 
-		const width = buffer.readUInt16LE(6);
-		const height = buffer.readUInt16LE(8);
+    const width = buffer.readUInt16LE(6);
+    const height = buffer.readUInt16LE(8);
 
-		return { widthPx: width, heightPx: height };
-	} catch {
-		return null;
-	}
+    return { widthPx: width, heightPx: height };
+  } catch {
+    return null;
+  }
 }
 
 export function getWebpDimensions(base64Data: string): ImageDimensions | null {
-	try {
-		const buffer = Buffer.from(base64Data, "base64");
+  try {
+    const buffer = Buffer.from(base64Data, 'base64');
 
-		if (buffer.length < 30) {
-			return null;
-		}
+    if (buffer.length < 30) {
+      return null;
+    }
 
-		const riff = buffer.slice(0, 4).toString("ascii");
-		const webp = buffer.slice(8, 12).toString("ascii");
-		if (riff !== "RIFF" || webp !== "WEBP") {
-			return null;
-		}
+    const riff = buffer.slice(0, 4).toString('ascii');
+    const webp = buffer.slice(8, 12).toString('ascii');
+    if (riff !== 'RIFF' || webp !== 'WEBP') {
+      return null;
+    }
 
-		const chunk = buffer.slice(12, 16).toString("ascii");
-		if (chunk === "VP8 ") {
-			if (buffer.length < 30) return null;
-			const width = buffer.readUInt16LE(26) & 0x3fff;
-			const height = buffer.readUInt16LE(28) & 0x3fff;
-			return { widthPx: width, heightPx: height };
-		} else if (chunk === "VP8L") {
-			if (buffer.length < 25) return null;
-			const bits = buffer.readUInt32LE(21);
-			const width = (bits & 0x3fff) + 1;
-			const height = ((bits >> 14) & 0x3fff) + 1;
-			return { widthPx: width, heightPx: height };
-		} else if (chunk === "VP8X") {
-			if (buffer.length < 30) return null;
-			const width = (buffer[24]! | (buffer[25]! << 8) | (buffer[26]! << 16)) + 1;
-			const height = (buffer[27]! | (buffer[28]! << 8) | (buffer[29]! << 16)) + 1;
-			return { widthPx: width, heightPx: height };
-		}
+    const chunk = buffer.slice(12, 16).toString('ascii');
+    if (chunk === 'VP8 ') {
+      if (buffer.length < 30) return null;
+      const width = buffer.readUInt16LE(26) & 0x3fff;
+      const height = buffer.readUInt16LE(28) & 0x3fff;
+      return { widthPx: width, heightPx: height };
+    } else if (chunk === 'VP8L') {
+      if (buffer.length < 25) return null;
+      const bits = buffer.readUInt32LE(21);
+      const width = (bits & 0x3fff) + 1;
+      const height = ((bits >> 14) & 0x3fff) + 1;
+      return { widthPx: width, heightPx: height };
+    } else if (chunk === 'VP8X') {
+      if (buffer.length < 30) return null;
+      const width = (buffer[24]! | (buffer[25]! << 8) | (buffer[26]! << 16)) + 1;
+      const height = (buffer[27]! | (buffer[28]! << 8) | (buffer[29]! << 16)) + 1;
+      return { widthPx: width, heightPx: height };
+    }
 
-		return null;
-	} catch {
-		return null;
-	}
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 export function getImageDimensions(base64Data: string, mimeType: string): ImageDimensions | null {
-	if (mimeType === "image/png") {
-		return getPngDimensions(base64Data);
-	}
-	if (mimeType === "image/jpeg") {
-		return getJpegDimensions(base64Data);
-	}
-	if (mimeType === "image/gif") {
-		return getGifDimensions(base64Data);
-	}
-	if (mimeType === "image/webp") {
-		return getWebpDimensions(base64Data);
-	}
-	return null;
+  if (mimeType === 'image/png') {
+    return getPngDimensions(base64Data);
+  }
+  if (mimeType === 'image/jpeg') {
+    return getJpegDimensions(base64Data);
+  }
+  if (mimeType === 'image/gif') {
+    return getGifDimensions(base64Data);
+  }
+  if (mimeType === 'image/webp') {
+    return getWebpDimensions(base64Data);
+  }
+  return null;
 }
 
 export interface SixelEncodeOptions {
-	maxWidthCells?: number;
-	maxHeightCells?: number;
+  maxWidthCells?: number;
+  maxHeightCells?: number;
 }
 
 const SIXEL_CUBE_STEP = 51;
@@ -694,46 +710,46 @@ const SIXEL_GRAY_STEP = 10;
  * (6x6x6 RGB cube + 24-step grayscale ramp), returning the palette index.
  */
 function quantizeSixelColor(r: number, g: number, b: number): number {
-	const ri = Math.min(5, Math.round((r / 255) * 5));
-	const gi = Math.min(5, Math.round((g / 255) * 5));
-	const bi = Math.min(5, Math.round((b / 255) * 5));
-	const cubeIndex = 36 * ri + 6 * gi + bi;
-	const cubeR = ri * SIXEL_CUBE_STEP;
-	const cubeG = gi * SIXEL_CUBE_STEP;
-	const cubeB = bi * SIXEL_CUBE_STEP;
-	const cubeDist = (r - cubeR) ** 2 + (g - cubeG) ** 2 + (b - cubeB) ** 2;
+  const ri = Math.min(5, Math.round((r / 255) * 5));
+  const gi = Math.min(5, Math.round((g / 255) * 5));
+  const bi = Math.min(5, Math.round((b / 255) * 5));
+  const cubeIndex = 36 * ri + 6 * gi + bi;
+  const cubeR = ri * SIXEL_CUBE_STEP;
+  const cubeG = gi * SIXEL_CUBE_STEP;
+  const cubeB = bi * SIXEL_CUBE_STEP;
+  const cubeDist = (r - cubeR) ** 2 + (g - cubeG) ** 2 + (b - cubeB) ** 2;
 
-	const lum = 0.299 * r + 0.587 * g + 0.114 * b;
-	const grayStep = Math.max(0, Math.min(23, Math.round((lum - SIXEL_GRAY_BASE) / SIXEL_GRAY_STEP)));
-	const gray = SIXEL_GRAY_BASE + grayStep * SIXEL_GRAY_STEP;
-	const grayDist = (r - gray) ** 2 + (g - gray) ** 2 + (b - gray) ** 2;
+  const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+  const grayStep = Math.max(0, Math.min(23, Math.round((lum - SIXEL_GRAY_BASE) / SIXEL_GRAY_STEP)));
+  const gray = SIXEL_GRAY_BASE + grayStep * SIXEL_GRAY_STEP;
+  const grayDist = (r - gray) ** 2 + (g - gray) ** 2 + (b - gray) ** 2;
 
-	return grayDist < cubeDist ? 216 + grayStep : cubeIndex;
+  return grayDist < cubeDist ? 216 + grayStep : cubeIndex;
 }
 
 /** Sixel palette color values are 0-100 percentages, not 0-255. */
 function sixelPercent(value: number): number {
-	return Math.round((value / 255) * 100);
+  return Math.round((value / 255) * 100);
 }
 
 /** Build the `#<i>;2;<r>;<g>;<b>` palette definition for the fixed 240 colors. */
 function buildSixelPalette(): string {
-	let out = "";
-	for (let r = 0; r < 6; r++) {
-		for (let g = 0; g < 6; g++) {
-			for (let b = 0; b < 6; b++) {
-				const idx = 36 * r + 6 * g + b;
-				// (channel * 51 / 255) * 100 == channel * 20
-				out += `#${idx};2;${r * 20};${g * 20};${b * 20}`;
-			}
-		}
-	}
-	for (let i = 0; i < 24; i++) {
-		const idx = 216 + i;
-		const v = sixelPercent(SIXEL_GRAY_BASE + i * SIXEL_GRAY_STEP);
-		out += `#${idx};2;${v};${v};${v}`;
-	}
-	return out;
+  let out = '';
+  for (let r = 0; r < 6; r++) {
+    for (let g = 0; g < 6; g++) {
+      for (let b = 0; b < 6; b++) {
+        const idx = 36 * r + 6 * g + b;
+        // (channel * 51 / 255) * 100 == channel * 20
+        out += `#${idx};2;${r * 20};${g * 20};${b * 20}`;
+      }
+    }
+  }
+  for (let i = 0; i < 24; i++) {
+    const idx = 216 + i;
+    const v = sixelPercent(SIXEL_GRAY_BASE + i * SIXEL_GRAY_STEP);
+    out += `#${idx};2;${v};${v};${v}`;
+  }
+  return out;
 }
 
 /**
@@ -747,110 +763,115 @@ function buildSixelPalette(): string {
  * sixel.
  */
 export function encodeSixel(
-	pixels: Uint8Array,
-	widthPx: number,
-	heightPx: number,
-	options: SixelEncodeOptions = {},
+  pixels: Uint8Array,
+  widthPx: number,
+  heightPx: number,
+  options: SixelEncodeOptions = {},
 ): string {
-	const cell = getCellDimensions();
-	const size = calculateImageCellSize(
-		{ widthPx, heightPx },
-		options.maxWidthCells ?? 80,
-		options.maxHeightCells,
-		cell,
-	);
-	const targetW = Math.max(1, size.columns * cell.widthPx);
-	const targetH = Math.max(1, size.rows * cell.heightPx);
-	const bands = Math.ceil(targetH / 6);
+  const cell = getCellDimensions();
+  const size = calculateImageCellSize(
+    { widthPx, heightPx },
+    options.maxWidthCells ?? 80,
+    options.maxHeightCells,
+    cell,
+  );
+  const targetW = Math.max(1, size.columns * cell.widthPx);
+  const targetH = Math.max(1, size.rows * cell.heightPx);
+  const bands = Math.ceil(targetH / 6);
 
-	const parts: string[] = ["\x1bPq", buildSixelPalette()];
-	for (let band = 0; band < bands; band++) {
-		if (band > 0) parts.push("-");
-		// Sample the band: one quantized color per (column, row-in-band).
-		// Row colors are stored column-major so the emit pass below can read
-		// a full pixel column contiguously.
-		const colors: number[] = [];
-		const colorsPresent = new Set<number>();
-		for (let tx = 0; tx < targetW; tx++) {
-			const sx = Math.min(widthPx - 1, Math.floor((tx * widthPx) / targetW));
-			for (let bit = 0; bit < 6; bit++) {
-				const ty = band * 6 + bit;
-				if (ty >= targetH) {
-					colors.push(-1);
-					continue;
-				}
-				const sy = Math.min(heightPx - 1, Math.floor((ty * heightPx) / targetH));
-				const offset = (sy * widthPx + sx) * 4;
-				const color = quantizeSixelColor(
-					pixels[offset] ?? 0,
-					pixels[offset + 1] ?? 0,
-					pixels[offset + 2] ?? 0,
-				);
-				colors.push(color);
-				colorsPresent.add(color);
-			}
-		}
-		// One sixel char paints one pixel column across the band's 6 rows in
-		// the currently selected color (bit 0 = topmost row), so emit one
-		// `#<color>` run over all columns per color present in the band.
-		for (const color of colorsPresent) {
-			parts.push(`#${color}`);
-			for (let tx = 0; tx < targetW; tx++) {
-				let bits = 0;
-				for (let bit = 0; bit < 6; bit++) {
-					if (colors[tx * 6 + bit] === color) bits |= 1 << bit;
-				}
-				parts.push(String.fromCharCode(63 + bits));
-			}
-		}
-	}
-	parts.push("\x1b\\");
-	return parts.join("");
+  const parts: string[] = ['\x1bPq', buildSixelPalette()];
+  for (let band = 0; band < bands; band++) {
+    if (band > 0) parts.push('-');
+    // Sample the band: one quantized color per (column, row-in-band).
+    // Row colors are stored column-major so the emit pass below can read
+    // a full pixel column contiguously.
+    const colors: number[] = [];
+    const colorsPresent = new Set<number>();
+    for (let tx = 0; tx < targetW; tx++) {
+      const sx = Math.min(widthPx - 1, Math.floor((tx * widthPx) / targetW));
+      for (let bit = 0; bit < 6; bit++) {
+        const ty = band * 6 + bit;
+        if (ty >= targetH) {
+          colors.push(-1);
+          continue;
+        }
+        const sy = Math.min(heightPx - 1, Math.floor((ty * heightPx) / targetH));
+        const offset = (sy * widthPx + sx) * 4;
+        const color = quantizeSixelColor(
+          pixels[offset] ?? 0,
+          pixels[offset + 1] ?? 0,
+          pixels[offset + 2] ?? 0,
+        );
+        colors.push(color);
+        colorsPresent.add(color);
+      }
+    }
+    // One sixel char paints one pixel column across the band's 6 rows in
+    // the currently selected color (bit 0 = topmost row), so emit one
+    // `#<color>` run over all columns per color present in the band.
+    for (const color of colorsPresent) {
+      parts.push(`#${color}`);
+      for (let tx = 0; tx < targetW; tx++) {
+        let bits = 0;
+        for (let bit = 0; bit < 6; bit++) {
+          if (colors[tx * 6 + bit] === color) bits |= 1 << bit;
+        }
+        parts.push(String.fromCharCode(63 + bits));
+      }
+    }
+  }
+  parts.push('\x1b\\');
+  return parts.join('');
 }
 
 export function renderImage(
-	base64Data: string,
-	imageDimensions: ImageDimensions,
-	options: ImageRenderOptions = {},
+  base64Data: string,
+  imageDimensions: ImageDimensions,
+  options: ImageRenderOptions = {},
 ): { sequence: string; columns: number; rows: number; imageId?: number } | null {
-	const caps = getCapabilities();
+  const caps = getCapabilities();
 
-	if (!caps.images) {
-		return null;
-	}
+  if (!caps.images) {
+    return null;
+  }
 
-	const maxWidth = options.maxWidthCells ?? 80;
-	const size = calculateImageCellSize(imageDimensions, maxWidth, options.maxHeightCells, getCellDimensions());
+  const maxWidth = options.maxWidthCells ?? 80;
+  const size = calculateImageCellSize(
+    imageDimensions,
+    maxWidth,
+    options.maxHeightCells,
+    getCellDimensions(),
+  );
 
-	if (caps.images === "kitty") {
-		if (options.imageId !== undefined) {
-			registerKittyImageMetadata({
-				imageId: options.imageId,
-				columns: size.columns,
-				rows: size.rows,
-				widthPx: imageDimensions.widthPx,
-				heightPx: imageDimensions.heightPx,
-			});
-		}
-		const sequence = encodeKitty(base64Data, {
-			columns: size.columns,
-			rows: size.rows,
-			imageId: options.imageId,
-			moveCursor: options.moveCursor,
-		});
-		return { sequence, columns: size.columns, rows: size.rows, imageId: options.imageId };
-	}
+  if (caps.images === 'kitty') {
+    if (options.imageId !== undefined) {
+      registerKittyImageMetadata({
+        imageId: options.imageId,
+        columns: size.columns,
+        rows: size.rows,
+        widthPx: imageDimensions.widthPx,
+        heightPx: imageDimensions.heightPx,
+      });
+    }
+    const sequence = encodeKitty(base64Data, {
+      columns: size.columns,
+      rows: size.rows,
+      imageId: options.imageId,
+      moveCursor: options.moveCursor,
+    });
+    return { sequence, columns: size.columns, rows: size.rows, imageId: options.imageId };
+  }
 
-	if (caps.images === "iterm2") {
-		const sequence = encodeITerm2(base64Data, {
-			width: size.columns,
-			height: "auto",
-			preserveAspectRatio: options.preserveAspectRatio ?? true,
-		});
-		return { sequence, columns: size.columns, rows: size.rows };
-	}
+  if (caps.images === 'iterm2') {
+    const sequence = encodeITerm2(base64Data, {
+      width: size.columns,
+      height: 'auto',
+      preserveAspectRatio: options.preserveAspectRatio ?? true,
+    });
+    return { sequence, columns: size.columns, rows: size.rows };
+  }
 
-	return null;
+  return null;
 }
 
 /**
@@ -864,16 +885,19 @@ export function renderImage(
  * @param url - The URL to link to
  */
 export function hyperlink(text: string, url: string): string {
-	return `\x1b]8;;${url}\x1b\\${text}\x1b]8;;\x1b\\`;
+  return `\x1b]8;;${url}\x1b\\${text}\x1b]8;;\x1b\\`;
 }
 
 /** Shorten home-prefixed absolute paths to ~/... for compact display. */
 function shortenImagePath(filename: string): string {
-	const home = homedir();
-	if (home && (filename === home || filename.startsWith(`${home}/`) || filename.startsWith(`${home}\\`))) {
-		return `~${filename.slice(home.length)}`;
-	}
-	return filename;
+  const home = homedir();
+  if (
+    home &&
+    (filename === home || filename.startsWith(`${home}/`) || filename.startsWith(`${home}\\`))
+  ) {
+    return `~${filename.slice(home.length)}`;
+  }
+  return filename;
 }
 
 /**
@@ -881,17 +905,21 @@ function shortenImagePath(filename: string): string {
  * Absolute paths are shown shortened (~/...) and, when OSC 8 hyperlinks are
  * available, linked to file:// so the full path remains openable.
  */
-export function imageFallback(mimeType: string, dimensions?: ImageDimensions, filename?: string): string {
-	const parts: string[] = [];
-	if (filename) {
-		const display = shortenImagePath(filename);
-		if (getCapabilities().hyperlinks && isAbsolute(filename)) {
-			parts.push(hyperlink(display, pathToFileURL(filename).href));
-		} else {
-			parts.push(display);
-		}
-	}
-	parts.push(`[${mimeType}]`);
-	if (dimensions) parts.push(`${dimensions.widthPx}x${dimensions.heightPx}`);
-	return `[Image: ${parts.join(" ")}]`;
+export function imageFallback(
+  mimeType: string,
+  dimensions?: ImageDimensions,
+  filename?: string,
+): string {
+  const parts: string[] = [];
+  if (filename) {
+    const display = shortenImagePath(filename);
+    if (getCapabilities().hyperlinks && isAbsolute(filename)) {
+      parts.push(hyperlink(display, pathToFileURL(filename).href));
+    } else {
+      parts.push(display);
+    }
+  }
+  parts.push(`[${mimeType}]`);
+  if (dimensions) parts.push(`${dimensions.widthPx}x${dimensions.heightPx}`);
+  return `[Image: ${parts.join(' ')}]`;
 }

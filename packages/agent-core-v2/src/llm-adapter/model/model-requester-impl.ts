@@ -3,14 +3,18 @@ import * as nodePath from 'node:path';
 import { performance, type EventLoopUtilization } from 'node:perf_hooks';
 
 import { AsyncEventQueue } from '#/_base/asyncEventQueue';
-import type { LlmErrorMessage } from '#human/llm/errors';
+import { applyCredential } from '#human/credentials/credentials';
 import { emptyResponseError } from '#human/llm/empty-response';
+import type { LlmErrorMessage } from '#human/llm/errors';
 import { NO_FINISH, type FinishInfo } from '#human/llm/finish-reason';
-import type { ProviderMediaContribution, ImageUploadInput, VideoUploadInput } from '#human/llm/media/upload';
+import type {
+  ProviderMediaContribution,
+  ImageUploadInput,
+  VideoUploadInput,
+} from '#human/llm/media/upload';
 import { createMessageAccumulator, type ImageURLPart, type VideoURLPart } from '#human/llm/message';
 import type { LlmModel } from '#human/llm/model';
 import type { ProtocolName } from '#human/llm/protocol/base';
-import { applyCredential } from '#human/credentials/credentials';
 import {
   type ExtraParams,
   type LlmRequestConfig,
@@ -19,6 +23,7 @@ import {
   type LlmRequester,
 } from '#human/llm/requester/requester';
 import type { TokenUsage } from '#human/llm/usage';
+import { mergeUsagePatch } from '#human/llm/usage';
 
 import {
   ChatProviderError,
@@ -29,9 +34,13 @@ import {
   traceIdFromHeadersRecord,
   VideoUploadUnsupportedError,
 } from '../contract/errors';
-import { fromLlmAssistantMessage, toLlmMessage, type StreamedMessagePart, type Tool } from '../contract/message';
-import { mergeUsagePatch } from '#human/llm/usage';
-
+import {
+  fromLlmAssistantMessage,
+  toLlmMessage,
+  type StreamedMessagePart,
+  type Tool,
+} from '../contract/message';
+import { translateProviderError } from '../protocol/errors';
 import type { Model } from './catalog';
 import type {
   ModelRequestEvent,
@@ -41,7 +50,6 @@ import type {
   ModelRequestTiming,
   SamplingOptions,
 } from './model-requester';
-import { translateProviderError } from '../protocol/errors';
 
 export interface ResolvedLlmModel {
   readonly requester: LlmRequester;
@@ -422,7 +430,9 @@ function readVideoFile(path: string): VideoUploadInput {
   return { data: new Uint8Array(data), mimeType, filename };
 }
 
-type MutableModelRequestTiming = { -readonly [K in keyof ModelRequestTiming]: ModelRequestTiming[K] };
+type MutableModelRequestTiming = {
+  -readonly [K in keyof ModelRequestTiming]: ModelRequestTiming[K];
+};
 
 export function buildStreamTiming(
   requestStartedAt: number,

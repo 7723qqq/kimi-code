@@ -1,9 +1,9 @@
 import type { Scope } from '@moonshot-ai/agent-core-v2';
 
 import { requestLog } from '../lib/requestLog';
-import { reservePromptId, type PromptIdReservation } from '../routes/prompts';
 import { okEnvelope } from '../protocol/envelope';
 import { ErrorCode } from '../protocol/error-codes';
+import { reservePromptId, type PromptIdReservation } from '../routes/prompts';
 import type { ScopeKind } from './channel';
 import {
   type ChannelDescriptor,
@@ -60,9 +60,7 @@ export function registerServiceDispatcherRoutes(
   }
 
   const describe = opts.describe ?? describeAllChannels;
-  app.get(`${basePath}/channels`, async (req, reply) =>
-    reply.send(okEnvelope(describe(), req.id)),
-  );
+  app.get(`${basePath}/channels`, async (req, reply) => reply.send(okEnvelope(describe(), req.id)));
 }
 
 function makeHandler(
@@ -101,7 +99,9 @@ function makeHandler(
           req.params as Record<string, string>,
           service,
           method,
-          promptReservation === undefined ? arg : { ...(arg as object), promptId: promptReservation.id },
+          promptReservation === undefined
+            ? arg
+            : { ...(arg as object), promptId: promptReservation.id },
           lookup,
         ),
         opts.callTimeoutMs ?? 30_000,

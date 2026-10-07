@@ -142,13 +142,21 @@ async function wireFileUnchanged(meta: FileMetaDoc): Promise<boolean> {
 
 const querySourceChecks = { running: false, waiters: new Set<() => void>() };
 
-async function queryDirectoryIdentity(dir: string, deadlineAt: number, deadline: Promise<null>): Promise<string | undefined | null> {
+async function queryDirectoryIdentity(
+  dir: string,
+  deadlineAt: number,
+  deadline: Promise<null>,
+): Promise<string | undefined | null> {
   while (querySourceChecks.running) {
     let wake!: () => void;
-    const available = new Promise<boolean>((resolve) => { wake = () => { resolve(true); }; });
+    const available = new Promise<boolean>((resolve) => {
+      wake = () => {
+        resolve(true);
+      };
+    });
     querySourceChecks.waiters.add(wake);
     try {
-      if (await Promise.race([available, deadline]) === null) return null;
+      if ((await Promise.race([available, deadline])) === null) return null;
     } finally {
       querySourceChecks.waiters.delete(wake);
     }
@@ -169,7 +177,12 @@ async function sessionDirectoryTitle(dir: string, log: SearchCoreLog): Promise<s
   for (const scope of ['', 'session-meta']) {
     try {
       const meta: unknown = JSON.parse(await fs.readFile(join(dir, scope, 'state.json'), 'utf8'));
-      if (typeof meta === 'object' && meta !== null && 'title' in meta && typeof meta.title === 'string') {
+      if (
+        typeof meta === 'object' &&
+        meta !== null &&
+        'title' in meta &&
+        typeof meta.title === 'string'
+      ) {
         return meta.title;
       }
       return '';
@@ -600,10 +613,13 @@ export class SearchIndexCore {
   }
 
   private async recoverByRebuild(cause: unknown): Promise<void> {
-    this.log.warn('global search: search-index state is unrecoverable; wiping and rebuilding from the transcripts', {
-      dir: this.indexDir,
-      error: errorMessage(cause),
-    });
+    this.log.warn(
+      'global search: search-index state is unrecoverable; wiping and rebuilding from the transcripts',
+      {
+        dir: this.indexDir,
+        error: errorMessage(cause),
+      },
+    );
     await this.reindex();
   }
 
@@ -689,7 +705,10 @@ export class SearchIndexCore {
     const metaCount = db.query({ key: { prefix: '\0meta\\' }, project: [] }).length;
     const stats: StatsDoc = {
       kind: 'stats',
-      degraded: indexed < sessions.length ? `Skipped ${sessions.length - indexed} session(s) during indexing` : undefined,
+      degraded:
+        indexed < sessions.length
+          ? `Skipped ${sessions.length - indexed} session(s) during indexing`
+          : undefined,
       sessions: indexed,
       documents: db.size - metaCount,
       lastIndexedAt: Date.now(),
@@ -752,12 +771,21 @@ export class SearchIndexCore {
       return undefined;
     }
     const title = await sessionDirectoryTitle(summary.dir, this.log);
-    if (previous?.kind !== 'sessionMeta' || previous.identity !== identity || previous.dir !== summary.dir) {
+    if (
+      previous?.kind !== 'sessionMeta' ||
+      previous.identity !== identity ||
+      previous.dir !== summary.dir
+    ) {
       await this.deleteSessionDocs(db, summary.id);
       if (previous !== undefined) this.syncReplaced = true;
     }
     const meta: SessionMetaDoc = { kind: 'sessionMeta', dir: summary.dir, identity, title };
-    if (previous?.kind !== 'sessionMeta' || previous.identity !== identity || previous.dir !== summary.dir || previous.title !== title) {
+    if (
+      previous?.kind !== 'sessionMeta' ||
+      previous.identity !== identity ||
+      previous.dir !== summary.dir ||
+      previous.title !== title
+    ) {
       await db.set(metaKey, meta);
     }
     const wireFiles = await collectWireFiles(summary.dir);
@@ -775,7 +803,12 @@ export class SearchIndexCore {
     let failed = false;
     let error: string | undefined;
     for (const file of wireFiles) {
-      const result = await this.syncWireFile(db, { ...summary, title, sessionIdentity: identity }, file, budget);
+      const result = await this.syncWireFile(
+        db,
+        { ...summary, title, sessionIdentity: identity },
+        file,
+        budget,
+      );
       if (result.truncated) truncated = true;
       if (result.failed) {
         failed = true;
@@ -1219,7 +1252,11 @@ export class SearchIndexCore {
           break;
         }
         const meta = sources.get(row.value.sessionId);
-        if (meta?.dir === undefined || row.value.sessionIdentity === undefined || meta.identity !== row.value.sessionIdentity) {
+        if (
+          meta?.dir === undefined ||
+          row.value.sessionIdentity === undefined ||
+          meta.identity !== row.value.sessionIdentity
+        ) {
           freshnessStale = true;
           continue;
         }
@@ -1232,7 +1269,10 @@ export class SearchIndexCore {
             }
             identities.set(meta.dir, identity);
           } catch (error) {
-            throw new GlobalSearchError('index_unavailable', `cannot verify search source: ${errorMessage(error)}`);
+            throw new GlobalSearchError(
+              'index_unavailable',
+              `cannot verify search source: ${errorMessage(error)}`,
+            );
           }
         }
         if (identities.get(meta.dir) === row.value.sessionIdentity) {
@@ -1310,9 +1350,12 @@ export class SearchIndexCore {
     const previous = this.lastMaintenanceDetail;
     this.lastMaintenanceDetail = detail;
     if (detail !== undefined) {
-      this.log.warn('global search: index maintenance is failing; the WAL keeps growing until it recovers', {
-        error: detail,
-      });
+      this.log.warn(
+        'global search: index maintenance is failing; the WAL keeps growing until it recovers',
+        {
+          error: detail,
+        },
+      );
     } else if (previous !== undefined) {
       this.log.info('global search: index maintenance recovered');
     }
@@ -1332,7 +1375,10 @@ export class SearchIndexCore {
       generation: this.generation,
       readOnly: this.db?.readOnly === true,
       lockToken: this.lockToken,
-      degraded: this.lastRefreshError?.message ?? maintenance ?? (stats?.kind === 'stats' ? stats.degraded : undefined),
+      degraded:
+        this.lastRefreshError?.message ??
+        maintenance ??
+        (stats?.kind === 'stats' ? stats.degraded : undefined),
       lifecycle: this.lifecycleState(),
     };
   }
@@ -1347,7 +1393,8 @@ export class SearchIndexCore {
       documents: stats?.kind === 'stats' ? stats.documents : 0,
       readOnly: handle?.readOnly === true,
       freshnessStale: true,
-      degraded: this.lastRefreshError?.message ?? (stats?.kind === 'stats' ? stats.degraded : undefined),
+      degraded:
+        this.lastRefreshError?.message ?? (stats?.kind === 'stats' ? stats.degraded : undefined),
       lockToken: this.lockToken,
     };
   }
@@ -1358,12 +1405,19 @@ export class SearchIndexCore {
     const documents = stats?.kind === 'stats' ? stats.documents : 0;
     const building = db.textIndexBuilding(TEXT_INDEX_NAME) || db.textIndexBuilding(TRI_INDEX_NAME);
     return {
-      state: building ? 'building' : db.readOnly ? 'readonly' : this.fullSyncDone ? 'ready' : 'building',
+      state: building
+        ? 'building'
+        : db.readOnly
+          ? 'readonly'
+          : this.fullSyncDone
+            ? 'ready'
+            : 'building',
       indexedSessions: indexed,
       documents,
       readOnly: db.readOnly,
       freshnessStale,
-      degraded: this.lastRefreshError?.message ?? (stats?.kind === 'stats' ? stats.degraded : undefined),
+      degraded:
+        this.lastRefreshError?.message ?? (stats?.kind === 'stats' ? stats.degraded : undefined),
       lockToken: this.lockToken,
     };
   }
@@ -1380,8 +1434,7 @@ async function collectWireFiles(sessionDir: string): Promise<WireFileRef[]> {
   const root = join(sessionDir, WIRE_FILENAME);
   try {
     if ((await fs.stat(root)).isFile()) files.push({ path: root, agentId: 'main', source: 'root' });
-  } catch {
-  }
+  } catch {}
   const agentsDir = join(sessionDir, 'agents');
   try {
     const entries = await fs.readdir(agentsDir, { recursive: true, withFileTypes: true });
@@ -1390,8 +1443,7 @@ async function collectWireFiles(sessionDir: string): Promise<WireFileRef[]> {
       const path = join(entry.parentPath, entry.name);
       files.push({ path, agentId: relative(agentsDir, entry.parentPath), source: 'agents' });
     }
-  } catch {
-  }
+  } catch {}
   return files;
 }
 

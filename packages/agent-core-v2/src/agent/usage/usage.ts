@@ -1,9 +1,8 @@
+import { Error2 } from '#/_base/errors/errors';
 import type { AgentContext } from '#/agent/agentContext/agentContext';
 import type { AgentLLMRequestSource } from '#/agent/llmRequester/llmRequester';
-import type { TokenUsage } from '#human/llm/usage';
-
 import { type ErrorCode } from '#/errors';
-import { Error2 } from '#/_base/errors/errors';
+import type { TokenUsage } from '#human/llm/usage';
 
 import { UsageErrors } from './errors';
 

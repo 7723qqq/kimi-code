@@ -8,12 +8,12 @@ import {
   type Message,
 } from '#/llm/message';
 import type { LlmModel } from '#/llm/model';
-import type { ResponseFormat } from '#/llm/response-format';
-import type { LlmClientContext, LlmRequestEvent } from '#/llm/requester/requester';
 import { createAnthropicRequester } from '#/llm/requester/bases/anthropic/requester';
 import { createGoogleGenAIRequester } from '#/llm/requester/bases/google-genai/requester';
-import { createOpenAIRequester } from '#/llm/requester/bases/openai/requester';
 import { createOpenAIResponsesRequester } from '#/llm/requester/bases/openai-responses/requester';
+import { createOpenAIRequester } from '#/llm/requester/bases/openai/requester';
+import type { LlmClientContext, LlmRequestEvent } from '#/llm/requester/requester';
+import type { ResponseFormat } from '#/llm/response-format';
 
 const model: LlmModel = {
   provider: 'test',
@@ -67,9 +67,7 @@ const responsesStreamEvents: readonly Record<string, unknown>[] = [
 
 const googleGenAIStreamChunks: readonly Record<string, unknown>[] = [
   {
-    candidates: [
-      { content: { role: 'model', parts: [{ text: 'hi' }] }, finishReason: 'STOP' },
-    ],
+    candidates: [{ content: { role: 'model', parts: [{ text: 'hi' }] }, finishReason: 'STOP' }],
     usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1 },
   },
 ];
@@ -90,9 +88,7 @@ interface ClientStub {
   called: () => boolean;
 }
 
-function createClientStub(
-  client: (captured: Record<string, unknown>[]) => unknown,
-): ClientStub {
+function createClientStub(client: (captured: Record<string, unknown>[]) => unknown): ClientStub {
   const captured: Record<string, unknown>[] = [];
   return {
     clientFactory: () => client(captured) as never,
@@ -288,9 +284,10 @@ describe('requester toolMessageConversion', () => {
   it('forces tool results to plain text when set to extract_text', async () => {
     const toolMessages: readonly Message[] = [
       createUserMessage('hi'),
-      createAssistantMessage([], [
-        { type: 'function', id: 'call_1', name: 'snap', arguments: '{}' },
-      ]),
+      createAssistantMessage(
+        [],
+        [{ type: 'function', id: 'call_1', name: 'snap', arguments: '{}' }],
+      ),
       createToolMessage('call_1', [
         { type: 'text', text: 'shot taken' },
         { type: 'image_url', imageUrl: { url: 'https://example.test/shot.png' } },
@@ -302,11 +299,7 @@ describe('requester toolMessageConversion', () => {
     await createOpenAIRequester({
       trait: { toolMessageConversion: 'extract_text' },
       clientFactory: openAIClient.clientFactory,
-    }).generate(
-      { model },
-      { messages: toolMessages },
-      { signal: new AbortController().signal },
-    );
+    }).generate({ model }, { messages: toolMessages }, { signal: new AbortController().signal });
     const chatMessages = openAIClient.body()['messages'] as Record<string, unknown>[];
     expect(chatMessages.find((message) => message['role'] === 'tool')?.['content']).toBe(
       expectedText,
@@ -318,15 +311,11 @@ describe('requester toolMessageConversion', () => {
     await createOpenAIResponsesRequester({
       trait: { toolMessageConversion: 'extract_text' },
       clientFactory: responsesClient.clientFactory,
-    }).generate(
-      { model },
-      { messages: toolMessages },
-      { signal: new AbortController().signal },
-    );
+    }).generate({ model }, { messages: toolMessages }, { signal: new AbortController().signal });
     const inputItems = responsesClient.body()['input'] as Record<string, unknown>[];
-    expect(
-      inputItems.find((item) => item['type'] === 'function_call_output')?.['output'],
-    ).toBe(expectedText);
+    expect(inputItems.find((item) => item['type'] === 'function_call_output')?.['output']).toBe(
+      expectedText,
+    );
     expect(JSON.stringify(inputItems)).not.toContain('input_image');
   });
 });

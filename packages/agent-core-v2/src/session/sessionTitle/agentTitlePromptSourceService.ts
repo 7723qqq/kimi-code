@@ -1,14 +1,14 @@
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { LifecycleScope } from '#/app/scopes';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
 import { isUserPromptSubmitHookPart } from '#/agent/contextMemory/hookParts';
-import { annotateBundledSkillParts, isSkillActivationPart } from '#human/agent/origin';
+import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import {
   promptMetadataTextFromContentParts,
   promptMetadataTextFromText,
 } from '#/agent/prompt/promptMetadataText';
+import { LifecycleScope } from '#/app/scopes';
+import { annotateBundledSkillParts, isSkillActivationPart } from '#human/agent/origin';
 import type { ContentPart } from '#human/llm/message';
 
 import {
@@ -112,8 +112,7 @@ function isNaturalLanguagePrompt(message: ContextMessage): boolean {
 }
 
 function promptMetadataTextFromUserMessage(message: ContextMessage): string | undefined {
-  const bundled =
-    message.origin?.kind === 'user' ? (message.origin.skillActivations ?? []) : [];
+  const bundled = message.origin?.kind === 'user' ? (message.origin.skillActivations ?? []) : [];
   return promptMetadataTextFromContentParts(
     annotateBundledSkillParts(message.content, bundled).filter(
       (part) => !isSkillActivationPart(part) && !isUserPromptSubmitHookPart(part),

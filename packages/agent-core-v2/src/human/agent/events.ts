@@ -80,7 +80,10 @@ export type QueueDrained = ReturnType<typeof queueDrained>;
 export const inputDrained = defineEvent({ type: 'input.drained', schema: z.object({}) });
 export type InputDrained = ReturnType<typeof inputDrained>;
 
-export const notificationsDrained = defineEvent({ type: 'notifications.drained', schema: z.object({}) });
+export const notificationsDrained = defineEvent({
+  type: 'notifications.drained',
+  schema: z.object({}),
+});
 export type NotificationsDrained = ReturnType<typeof notificationsDrained>;
 
 export const stateUpdated = defineEvent({

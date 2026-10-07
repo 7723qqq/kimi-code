@@ -3,10 +3,10 @@ import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/sdk/shared/s
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 
+import { proxyEnvForChild, reconcileChildNoProxy } from '#/_base/utils/proxy';
 import { ErrorCodes, Error2 } from '#/errors';
 import type { IHostProcess } from '#/os/interface/hostProcess';
 import type { IRuntimeResolver } from '#/workspace/workspaceInstance/workspaceInstanceManager';
-import { proxyEnvForChild, reconcileChildNoProxy } from '#/_base/utils/proxy';
 
 import {
   buildRequestOptions,
@@ -53,7 +53,10 @@ export class StdioMcpClient implements MCPClient {
 
   constructor(config: McpServerStdioConfig, options: StdioMcpClientOptions) {
     if (config.executor !== undefined && config.executor !== 'local') {
-      throw new Error2(ErrorCodes.NOT_IMPLEMENTED, `MCP stdio executor '${config.executor}' is not yet implemented`);
+      throw new Error2(
+        ErrorCodes.NOT_IMPLEMENTED,
+        `MCP stdio executor '${config.executor}' is not yet implemented`,
+      );
     }
     this.transport = new RuntimeStdioTransport(config, options, this.stderrBuffer);
     this.client = new Client({
@@ -72,10 +75,7 @@ export class StdioMcpClient implements MCPClient {
     this.started = true;
     this.installTransportHooks();
     try {
-      await this.client.connect(
-        this.transport,
-        buildRequestOptions(this.startupTimeoutMs),
-      );
+      await this.client.connect(this.transport, buildRequestOptions(this.startupTimeoutMs));
     } catch (error) {
       await this.closeStartedClient();
       throw error;
@@ -189,17 +189,21 @@ class RuntimeStdioTransport implements Transport {
     );
     this.lease = lease;
     try {
-      const base = lease.runtime.path.resolve(this.options.defaultCwd ?? lease.runtime.environment.homeDir);
-      const cwd = this.config.cwd === undefined ? base : lease.runtime.path.resolve(base, this.config.cwd);
+      const base = lease.runtime.path.resolve(
+        this.options.defaultCwd ?? lease.runtime.environment.homeDir,
+      );
+      const cwd =
+        this.config.cwd === undefined ? base : lease.runtime.path.resolve(base, this.config.cwd);
       const processService = lease.runtime.process;
       if (processService === undefined) {
         throw new Error2(ErrorCodes.NOT_IMPLEMENTED, 'process capability is not available');
       }
-      const process = lease.track(await processService.spawn(
-        this.config.command,
-        this.config.args,
-        { cwd, env: mergeStdioEnv(this.config.env) },
-      ));
+      const process = lease.track(
+        await processService.spawn(this.config.command, this.config.args, {
+          cwd,
+          env: mergeStdioEnv(this.config.env),
+        }),
+      );
       this.process = process;
       lease.track(this);
       process.stdin.on('error', (error: Error) => this.onerror?.(error));
@@ -234,7 +238,8 @@ class RuntimeStdioTransport implements Transport {
 
   async send(message: JSONRPCMessage): Promise<void> {
     const process = this.process;
-    if (process === undefined || this.closed) throw new Error('Runtime stdio transport is not running');
+    if (process === undefined || this.closed)
+      throw new Error('Runtime stdio transport is not running');
     const data = serializeMessage(message);
     await new Promise<void>((resolve, reject) => {
       process.stdin.write(data, (error) => {
@@ -329,7 +334,8 @@ export class BoundedTail {
     let bytes = Buffer.byteLength(this.buffer);
     while (bytes > this.capacity && start < this.buffer.length) {
       const code = this.buffer.codePointAt(start);
-      const size = code === undefined ? 1 : code > 0xffff ? 4 : code >= 0x800 ? 3 : code >= 0x80 ? 2 : 1;
+      const size =
+        code === undefined ? 1 : code > 0xffff ? 4 : code >= 0x800 ? 3 : code >= 0x80 ? 2 : 1;
       bytes -= size;
       start += code !== undefined && code > 0xffff ? 2 : 1;
     }

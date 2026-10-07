@@ -1,3 +1,5 @@
+import { isAbsolute, join, normalize, resolve } from 'node:path';
+
 import type { IWorkspaceTrust } from '@moonshot-ai/agent-core-v2';
 import {
   IBootstrapService,
@@ -8,7 +10,6 @@ import {
   type Scope,
   type Workspace,
 } from '@moonshot-ai/agent-core-v2';
-import { isAbsolute, join, normalize, resolve } from 'node:path';
 import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';
@@ -304,7 +305,11 @@ export function registerWorkspacesRoutes(app: WorkspaceRouteHost, core: Scope): 
       const ws = await core.accessor.get(IWorkspaceService).get(workspace_id);
       if (ws === undefined) {
         reply.send(
-          errEnvelope(ErrorCode.WORKSPACE_NOT_FOUND, `workspace ${workspace_id} does not exist`, req.id),
+          errEnvelope(
+            ErrorCode.WORKSPACE_NOT_FOUND,
+            `workspace ${workspace_id} does not exist`,
+            req.id,
+          ),
         );
         return;
       }
@@ -314,7 +319,11 @@ export function registerWorkspacesRoutes(app: WorkspaceRouteHost, core: Scope): 
         const stat = await hostFs.stat(resolved);
         if (!stat.isDirectory) {
           reply.send(
-            errEnvelope(ErrorCode.FS_PATH_NOT_FOUND, `path ${req.body.path} is not a directory`, req.id),
+            errEnvelope(
+              ErrorCode.FS_PATH_NOT_FOUND,
+              `path ${req.body.path} is not a directory`,
+              req.id,
+            ),
           );
           return;
         }
@@ -324,8 +333,8 @@ export function registerWorkspacesRoutes(app: WorkspaceRouteHost, core: Scope): 
         );
         return;
       }
-      const workspace = await core
-        .accessor.get(IWorkspaceInstanceManager)
+      const workspace = await core.accessor
+        .get(IWorkspaceInstanceManager)
         .getOrCreate({ workspaceId: workspace_id, root: ws.root });
       const result = await workspace.program.dirs.addDir({
         path: req.body.path,

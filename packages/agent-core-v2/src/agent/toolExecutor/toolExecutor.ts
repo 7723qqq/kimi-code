@@ -1,17 +1,17 @@
 import { createDecorator } from '#/_base/di/instantiation';
 import type { IDisposable } from '#/_base/di/lifecycle';
 import type { Event } from '#/_base/event';
-import type { ToolResult } from '#/tool/toolContract';
 import type {
   BeforeToolExecuteEvent,
   ToolDidExecuteContext,
   WillExecuteToolEvent,
 } from '#/agent/toolExecutor/toolHooks';
-import type { ToolCall } from '#human/llm/message';
 import type { OrderedHookSlot } from '#/hooks';
 import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
-import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
+import type { ToolResult } from '#/tool/toolContract';
 import type { ToolSource } from '#/tool/toolContract';
+import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
+import type { ToolCall } from '#human/llm/message';
 
 export interface ToolCallStartedPayload {
   readonly toolCallId: string;
@@ -47,7 +47,10 @@ export type ToolCallDupType = 'same_step' | 'cross_step';
 export interface IAgentToolExecutorService {
   readonly _serviceBrand: undefined;
 
-  execute(calls: ToolCall[], options: ToolExecutorExecuteOptions): AsyncIterable<ToolExecutionResult>;
+  execute(
+    calls: ToolCall[],
+    options: ToolExecutorExecuteOptions,
+  ): AsyncIterable<ToolExecutionResult>;
 
   readonly onBeforeExecuteTool: Event<BeforeToolExecuteEvent>;
 
@@ -64,5 +67,6 @@ export interface IAgentToolExecutorService {
   registerMissingToolDescriber(describer: MissingToolDescriber): IDisposable;
 }
 
-export const IAgentToolExecutorService =
-  createDecorator<IAgentToolExecutorService>('agentToolExecutorService');
+export const IAgentToolExecutorService = createDecorator<IAgentToolExecutorService>(
+  'agentToolExecutorService',
+);

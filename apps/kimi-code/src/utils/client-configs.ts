@@ -70,7 +70,11 @@ function cacheFileFor(name: string, options: ClientConfigFetchOptions): string |
   if (options.cacheFile !== undefined) return options.cacheFile;
   // encodeURIComponent keeps the mapping collision-free: a lossy sanitize
   // would fold distinct keys (e.g. '/a/b' vs '/a:b') onto one file.
-  return join(getCacheDir(), 'client-configs', `${encodeURIComponent(cacheKeyFor(name, options.path))}.json`);
+  return join(
+    getCacheDir(),
+    'client-configs',
+    `${encodeURIComponent(cacheKeyFor(name, options.path))}.json`,
+  );
 }
 
 /** Fresh disk entry, or undefined when missing/stale/invalid. */
@@ -179,12 +183,15 @@ export async function fetchClientConfig<S extends z.ZodType>(
     headers['authorization'] = `Bearer ${options.accessToken}`;
   }
   try {
-    const response = await fetchFn(`${clientConfigsBaseUrl()}${options.path ?? CLIENT_CONFIGS_PATH}`, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ name }),
-      signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-    });
+    const response = await fetchFn(
+      `${clientConfigsBaseUrl()}${options.path ?? CLIENT_CONFIGS_PATH}`,
+      {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ name }),
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+      },
+    );
     if (!response.ok) return undefined;
     const body: unknown = await response.json();
     if (typeof body !== 'object' || body === null) return undefined;

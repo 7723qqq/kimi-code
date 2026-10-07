@@ -16,11 +16,7 @@ export function resolveMaxCompletionCap(input: FormatRequestInput): number | und
     return undefined;
   }
   let cap = maxCompletionTokens;
-  if (
-    usedContextTokens !== undefined &&
-    maxContextTokens !== undefined &&
-    maxContextTokens > 0
-  ) {
+  if (usedContextTokens !== undefined && maxContextTokens !== undefined && maxContextTokens > 0) {
     cap = Math.min(cap, maxContextTokens - usedContextTokens);
   }
   return Math.max(1, cap);
@@ -41,10 +37,7 @@ export interface StreamParserOptions<TChunk> {
   ): Partial<TokenUsage> | undefined;
 }
 
-export type StreamParser<TChunk = unknown> = (
-  chunk: TChunk,
-  sink: StreamParseSink,
-) => void;
+export type StreamParser<TChunk = unknown> = (chunk: TChunk, sink: StreamParseSink) => void;
 
 export interface ProtocolFormat<TChunk = unknown> {
   createStreamParser(options?: StreamParserOptions<TChunk>): StreamParser<TChunk>;

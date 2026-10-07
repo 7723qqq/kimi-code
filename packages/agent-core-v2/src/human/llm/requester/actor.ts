@@ -1,17 +1,16 @@
-import { fromCallback } from '#/xstate2';
-
 import { applyCredential } from '#/credentials/credentials';
 import { isAbortError, toLlmErrorMessage } from '#/llm/errors';
 import type { Message } from '#/llm/message';
 import type { LlmModel } from '#/llm/model';
+import { fromCallback } from '#/xstate2';
 
+import type { LlmRecoveryRecord } from './recovery';
 import type {
   LlmRequestConfig,
   LlmRequestContent,
   LlmRequestEvent,
   LlmRequester,
 } from './requester';
-import type { LlmRecoveryRecord } from './recovery';
 
 export interface LlmInput {
   readonly config: LlmRequestConfig;
@@ -26,10 +25,7 @@ export interface MessageResolveContext {
 
 export interface MessageResolver {
   readonly id: string;
-  resolve(
-    messages: readonly Message[],
-    ctx: MessageResolveContext,
-  ): Promise<readonly Message[]>;
+  resolve(messages: readonly Message[], ctx: MessageResolveContext): Promise<readonly Message[]>;
 }
 
 export type LlmEvent =

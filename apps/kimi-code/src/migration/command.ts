@@ -14,16 +14,8 @@ export function registerMigrateCommand(
   parent
     .command('migrate')
     .description(t('cli.commandDescriptions.migrate'))
-    .option(
-      '--run',
-      'Run the migration non-interactively and print step-by-step logs. Migrates everything unless --config-only is also given.',
-      false,
-    )
-    .option(
-      '--config-only',
-      'With --run: migrate config, MCP servers, REPL history and skills, but skip chat sessions.',
-      false,
-    )
+    .option('--run', t('cli.optionDescriptions.migrateRun'), false)
+    .option('--config-only', t('cli.optionDescriptions.migrateConfigOnly'), false)
     .action((options: { run?: boolean; configOnly?: boolean }) => {
       onMigrate({ run: options.run === true, configOnly: options.configOnly === true });
     });

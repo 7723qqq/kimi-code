@@ -4,10 +4,10 @@ import { isIP, type LookupFunction } from 'node:net';
 
 import { Readability } from '@mozilla/readability';
 import { parseHTML as rawParseHTML } from 'linkedom';
-import { Agent, fetch as undiciFetch, type Dispatcher } from '#/_base/utils/undici-npm';
 
 import { isBlockedIpAddress } from '#/_base/utils/private-address';
 import { isProxyConfigured, makeNoProxyMatcher, resolveNoProxy } from '#/_base/utils/proxy';
+import { Agent, fetch as undiciFetch, type Dispatcher } from '#/_base/utils/undici-npm';
 import { Error2, ErrorCodes } from '#/errors';
 
 import { HttpFetchError, type UrlFetcher, type UrlFetchResult } from '../tools/fetch-url-types';
@@ -91,26 +91,16 @@ export class LocalFetchURLProvider implements UrlFetcher {
   ): Promise<UrlFetchResult> {
     const dispatchers: Dispatcher[] = [];
     try {
-      const response = await this.requestWithValidatedRedirects(
-        url,
-        options?.signal,
-        dispatchers,
-      );
+      const response = await this.requestWithValidatedRedirects(url, options?.signal, dispatchers);
       return await this.readResponse(response);
     } finally {
-      await Promise.all(
-        dispatchers.map((dispatcher) =>
-          dispatcher.close().catch(() => {
-          }),
-        ),
-      );
+      await Promise.all(dispatchers.map((dispatcher) => dispatcher.close().catch(() => {})));
     }
   }
 
   private async readResponse(response: Response): Promise<UrlFetchResult> {
     if (response.status >= 400) {
-      await response.body?.cancel().catch(() => {
-      });
+      await response.body?.cancel().catch(() => {});
       throw new HttpFetchError(
         response.status,
         `HTTP ${String(response.status)} ${response.statusText}`,
@@ -121,8 +111,7 @@ export class LocalFetchURLProvider implements UrlFetcher {
     if (contentLengthRaw !== null) {
       const cl = Number(contentLengthRaw);
       if (Number.isFinite(cl) && cl > this.maxBytes) {
-        await response.body?.cancel().catch(() => {
-        });
+        await response.body?.cancel().catch(() => {});
         throw tooLargeError(cl, this.maxBytes);
       }
     }
@@ -147,7 +136,13 @@ export class LocalFetchURLProvider implements UrlFetcher {
     let redirects = 0;
     for (;;) {
       const target = await resolveSafeFetchTarget(currentUrl, this.allowPrivateAddresses);
-      const response = await this.fetchWithDeadline(currentUrl, target, signal, dispatchers, deadline);
+      const response = await this.fetchWithDeadline(
+        currentUrl,
+        target,
+        signal,
+        dispatchers,
+        deadline,
+      );
       if (!REDIRECT_STATUSES.has(response.status)) return response;
       const location = response.headers.get('location');
       if (location === null) return response;
@@ -224,8 +219,7 @@ export class LocalFetchURLProvider implements UrlFetcher {
           return title.length > 0 ? `# ${title}\n\n${text}` : text;
         }
       }
-    } catch {
-    }
+    } catch {}
 
     const { document } = parseHTML(html);
     const titleText = (document.querySelector('title')?.textContent ?? '').trim();
@@ -295,7 +289,10 @@ interface SafeFetchTarget {
   addresses?: LookupAddress[];
 }
 
-async function resolveSafeFetchTarget(url: string, allowPrivate: boolean): Promise<SafeFetchTarget> {
+async function resolveSafeFetchTarget(
+  url: string,
+  allowPrivate: boolean,
+): Promise<SafeFetchTarget> {
   let parsed: URL;
   try {
     parsed = new URL(url);
@@ -315,9 +312,13 @@ async function resolveSafeFetchTarget(url: string, allowPrivate: boolean): Promi
   if (allowPrivate) return { host, port };
   if (isIP(host) !== 0) {
     if (isBlockedIpAddress(host)) {
-      throw new Error2(ErrorCodes.WEB_PRIVATE_ADDRESS, `Refusing to fetch private address: "${host}"`, {
-        details: { host },
-      });
+      throw new Error2(
+        ErrorCodes.WEB_PRIVATE_ADDRESS,
+        `Refusing to fetch private address: "${host}"`,
+        {
+          details: { host },
+        },
+      );
     }
     return { host, port };
   }

@@ -1,11 +1,8 @@
-
-import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { WebSocket, type RawData } from 'ws';
 import {
   IAgentLifecycleService,
   IConfigService,
@@ -14,11 +11,12 @@ import {
   getLiveSessionById,
   resumeSessionById,
 } from '@moonshot-ai/agent-core-v2';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { WebSocket, type RawData } from 'ws';
 
 import { type RunningServer, startServer } from '../src/start';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders, bearerToken } from './helpers/auth';
-
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
 function sseLines(...events: readonly string[]): string {
   return events.map((event) => `data: ${event}\n\n`).join('') + 'data: [DONE]\n\n';
@@ -85,7 +83,10 @@ interface MockLlm {
   readonly close: () => Promise<void>;
 }
 
-async function startMockLlm(routes: readonly LlmRoute[], fallback: () => string = () => sseText('ok')): Promise<MockLlm> {
+async function startMockLlm(
+  routes: readonly LlmRoute[],
+  fallback: () => string = () => sseText('ok'),
+): Promise<MockLlm> {
   const hits: string[] = [];
   const server: Server = createServer((req: IncomingMessage, res: ServerResponse) => {
     const chunks: Buffer[] = [];
@@ -105,14 +106,13 @@ async function startMockLlm(routes: readonly LlmRoute[], fallback: () => string 
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const address = server.address();
-  if (address === null || typeof address === 'object' === false) throw new Error('no llm port');
+  if (address === null || (typeof address === 'object') === false) throw new Error('no llm port');
   return {
     port: address.port,
     hits,
     close: () => new Promise<void>((resolve) => server.close(() => resolve())),
   };
 }
-
 
 function configToml(llmPort: number): string {
   return [
@@ -137,14 +137,23 @@ interface Envelope<T> {
   data: T;
 }
 
-async function rest<T>(server: RunningServer, base: string, path: string, init?: { method?: string; body?: unknown }): Promise<T> {
+async function rest<T>(
+  server: RunningServer,
+  base: string,
+  path: string,
+  init?: { method?: string; body?: unknown },
+): Promise<T> {
   const res = await fetch(`${base}${path}`, {
     method: init?.method ?? 'GET',
-    headers: authHeaders(server, init?.body !== undefined ? { 'content-type': 'application/json' } : {}),
+    headers: authHeaders(
+      server,
+      init?.body !== undefined ? { 'content-type': 'application/json' } : {},
+    ),
     body: init?.body !== undefined ? JSON.stringify(init.body) : undefined,
   });
   const envelope = (await res.json()) as Envelope<T> & { data: T };
-  if (envelope.code !== 0) throw new Error(`REST ${path} failed: ${JSON.stringify(envelope).slice(0, 300)}`);
+  if (envelope.code !== 0)
+    throw new Error(`REST ${path} failed: ${JSON.stringify(envelope).slice(0, 300)}`);
   return envelope.data;
 }
 
@@ -159,9 +168,17 @@ interface TxSnapshot {
 }
 
 const getTranscript = (server: RunningServer, base: string, sid: string): Promise<TxSnapshot> =>
-  rest<TxSnapshot>(server, base, `/api/v1/sessions/${encodeURIComponent(sid)}/transcript?agent_id=main`);
+  rest<TxSnapshot>(
+    server,
+    base,
+    `/api/v1/sessions/${encodeURIComponent(sid)}/transcript?agent_id=main`,
+  );
 
-const getSessionFacts = (server: RunningServer, base: string, sid: string): Promise<{ busy: boolean; pendingInteraction: string }> =>
+const getSessionFacts = (
+  server: RunningServer,
+  base: string,
+  sid: string,
+): Promise<{ busy: boolean; pendingInteraction: string }> =>
   rest(server, base, `/api/v1/sessions/${encodeURIComponent(sid)}`);
 
 async function createSession(server: RunningServer, base: string): Promise<string> {
@@ -172,14 +189,30 @@ async function createSession(server: RunningServer, base: string): Promise<strin
   return data.id;
 }
 
-function submitPrompt(server: RunningServer, base: string, sid: string, text: string, permissionMode: 'manual' | 'yolo' = 'yolo'): Promise<{ prompt_id: string }> {
-  return rest<{ prompt_id: string }>(server, base, `/api/v1/sessions/${encodeURIComponent(sid)}/prompts`, {
-    method: 'POST',
-    body: { content: [{ type: 'text', text }], model: 'stub', permission_mode: permissionMode },
-  });
+function submitPrompt(
+  server: RunningServer,
+  base: string,
+  sid: string,
+  text: string,
+  permissionMode: 'manual' | 'yolo' = 'yolo',
+): Promise<{ prompt_id: string }> {
+  return rest<{ prompt_id: string }>(
+    server,
+    base,
+    `/api/v1/sessions/${encodeURIComponent(sid)}/prompts`,
+    {
+      method: 'POST',
+      body: { content: [{ type: 'text', text }], model: 'stub', permission_mode: permissionMode },
+    },
+  );
 }
 
-async function until(label: string, fn: () => Promise<boolean> | boolean, timeoutMs = 30000, intervalMs = 150): Promise<void> {
+async function until(
+  label: string,
+  fn: () => Promise<boolean> | boolean,
+  timeoutMs = 30000,
+  intervalMs = 150,
+): Promise<void> {
   const start = Date.now();
   for (;;) {
     if (await fn()) return;
@@ -203,7 +236,9 @@ function rawToString(data: RawData): string {
 }
 
 async function subscribeTranscript(server: RunningServer, sid: string): Promise<TranscriptChannel> {
-  const ws = new WebSocket(`ws://127.0.0.1:${server.port}/api/v1/ws`, [`kimi-code.bearer.${bearerToken(server)}`]);
+  const ws = new WebSocket(`ws://127.0.0.1:${server.port}/api/v1/ws`, [
+    `kimi-code.bearer.${bearerToken(server)}`,
+  ]);
   const frames: any[] = [];
   const ops: any[] = [];
   let resetFrame: any;
@@ -216,10 +251,15 @@ async function subscribeTranscript(server: RunningServer, sid: string): Promise<
     }
     frames.push(frame);
     const payload = frame.payload as { agent_id?: string; ops?: any[] } | undefined;
-    if (frame.type === 'transcript.reset' && payload?.agent_id === 'main' && resetFrame === undefined) {
+    if (
+      frame.type === 'transcript.reset' &&
+      payload?.agent_id === 'main' &&
+      resetFrame === undefined
+    ) {
       resetFrame = frame;
     }
-    if (frame.type === 'transcript.ops' && payload?.agent_id === 'main') ops.push(...(payload.ops ?? []));
+    if (frame.type === 'transcript.ops' && payload?.agent_id === 'main')
+      ops.push(...(payload.ops ?? []));
   });
   await new Promise<void>((resolve, reject) => {
     ws.once('open', () => {
@@ -227,7 +267,13 @@ async function subscribeTranscript(server: RunningServer, sid: string): Promise<
     });
     ws.once('error', reject);
   });
-  ws.send(JSON.stringify({ type: 'subscribe_v2', id: 'sub-1', payload: { session_id: sid, transcript: { '*': 'delta' } } }));
+  ws.send(
+    JSON.stringify({
+      type: 'subscribe_v2',
+      id: 'sub-1',
+      payload: { session_id: sid, transcript: { '*': 'delta' } },
+    }),
+  );
   await until('transcript.reset', () => resetFrame !== undefined, 15000);
   return {
     frames,
@@ -237,7 +283,6 @@ async function subscribeTranscript(server: RunningServer, sid: string): Promise<
   };
 }
 
-
 describe('transcript contract e2e', () => {
   let home: string | undefined;
   let server: RunningServer | undefined;
@@ -246,7 +291,13 @@ describe('transcript contract e2e', () => {
 
   beforeAll(async () => {
     home = await mkdtemp(join(tmpdir(), 'kimi-transcript-contract-'));
-    server = await startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent' });
+    server = await startServer({
+      hostIdentity: TEST_HOST_IDENTITY,
+      host: '127.0.0.1',
+      port: 0,
+      homeDir: home,
+      logLevel: 'silent',
+    });
     base = `http://127.0.0.1:${server.port}`;
   });
 
@@ -281,7 +332,9 @@ describe('transcript contract e2e', () => {
         steps: t.steps.map((s: any) => ({
           ordinal: s.ordinal,
           state: s.state,
-          frames: s.frames.map((f: any) => `${f.kind}:${f.role ?? ''}:${f.name ?? ''}:${f.state ?? ''}`),
+          frames: s.frames.map(
+            (f: any) => `${f.kind}:${f.role ?? ''}:${f.name ?? ''}:${f.state ?? ''}`,
+          ),
         })),
       }));
     const markers = hits
@@ -295,7 +348,10 @@ describe('transcript contract e2e', () => {
       await idle(server, base, sid);
     } catch (error) {
       const tx = await getTranscript(server, base, sid);
-      throw new Error(`${(error as Error).message}\ntranscript at timeout: ${dumpState(tx, llm?.hits ?? [])}`, { cause: error });
+      throw new Error(
+        `${(error as Error).message}\ntranscript at timeout: ${dumpState(tx, llm?.hits ?? [])}`,
+        { cause: error },
+      );
     }
   };
 
@@ -337,14 +393,20 @@ describe('transcript contract e2e', () => {
     expect(opTypes.has('step.upsert')).toBe(true);
     expect(opTypes.has('frame.upsert') || opTypes.has('append')).toBe(true);
     expect(opTypes.has('prompt.upsert')).toBe(true);
-    const activityMerges = channel.ops.filter((o: any) => o.op === 'meta.merge' && o.meta?.activity !== undefined);
+    const activityMerges = channel.ops.filter(
+      (o: any) => o.op === 'meta.merge' && o.meta?.activity !== undefined,
+    );
     expect(activityMerges.map((o: any) => o.meta.activity)).toContain('idle');
     channel.close();
   });
 
   it('S2: a prompt submitted mid-turn is tracked as queued through settlement', async () => {
     await boot([
-      { match: (body) => body.includes('first prompt'), respond: () => sseText('first done'), delayMs: 2500 },
+      {
+        match: (body) => body.includes('first prompt'),
+        respond: () => sseText('first done'),
+        delayMs: 2500,
+      },
       { match: () => true, respond: () => sseText('second done') },
     ]);
     const sid = await createSession(server!, base);
@@ -356,21 +418,35 @@ describe('transcript contract e2e', () => {
     await submitPrompt(server!, base, sid, 'second prompt');
     await until('second prompt queued', async () => {
       const tx = await getTranscript(server!, base, sid);
-      return tx.prompts.some((p) => p.status === 'queued') && tx.prompts.some((p) => p.status === 'running');
+      return (
+        tx.prompts.some((p) => p.status === 'queued') &&
+        tx.prompts.some((p) => p.status === 'running')
+      );
     });
     const mid = await getTranscript(server!, base, sid);
     expect(mid.prompts.map((p) => p.status).toSorted()).toEqual(['queued', 'running']);
 
-    await until('both settled', async () => {
-      const tx = await getTranscript(server!, base, sid);
-      return tx.prompts.length > 0 && tx.prompts.every((p) => p.status === 'completed');
-    }, 45000);
+    await until(
+      'both settled',
+      async () => {
+        const tx = await getTranscript(server!, base, sid);
+        return tx.prompts.length > 0 && tx.prompts.every((p) => p.status === 'completed');
+      },
+      45000,
+    );
   });
 
   it('undo rebuilds a steered turn consistently over REST and WebSocket', async () => {
     await boot([
-      { match: (body) => body.includes('steered request'), respond: () => sseText('answer after steer') },
-      { match: (body) => body.includes('original request'), respond: () => sseText('answer before steer'), delayMs: 1500 },
+      {
+        match: (body) => body.includes('steered request'),
+        respond: () => sseText('answer after steer'),
+      },
+      {
+        match: (body) => body.includes('original request'),
+        respond: () => sseText('answer before steer'),
+        delayMs: 1500,
+      },
     ]);
     const sid = await createSession(server!, base);
     await submitPrompt(server!, base, sid, 'original request');
@@ -378,13 +454,19 @@ describe('transcript contract e2e', () => {
     const channel = await subscribeTranscript(server!, sid);
     try {
       const steer = await submitPrompt(server!, base, sid, 'steered request');
-      await rest(server!, base, `/api/v1/sessions/${sid}/prompts/${steer.prompt_id}:steer`, { method: 'POST', body: {} });
+      await rest(server!, base, `/api/v1/sessions/${sid}/prompts/${steer.prompt_id}:steer`, {
+        method: 'POST',
+        body: {},
+      });
       await idle(server!, base, sid);
       const before = await getTranscript(server!, base, sid);
       expect(JSON.stringify(before.items)).toContain('answer after steer');
       expect(before.items.filter((item) => item.kind === 'turn')).toHaveLength(1);
       expect(before.prompts.some((prompt) => prompt.promptId === steer.prompt_id)).toBe(true);
-      await rest(server!, base, `/api/v1/sessions/${sid}:undo`, { method: 'POST', body: { count: 1 } });
+      await rest(server!, base, `/api/v1/sessions/${sid}:undo`, {
+        method: 'POST',
+        body: { count: 1 },
+      });
       const after = await getTranscript(server!, base, sid);
       expect(after.items.filter((item) => item.kind === 'turn')).toEqual([]);
       expect(JSON.stringify(after.items)).not.toContain('original request');
@@ -392,7 +474,9 @@ describe('transcript contract e2e', () => {
       expect(JSON.stringify(after.items)).not.toContain('steered request');
       expect(JSON.stringify(after.items)).not.toContain('answer after steer');
       expect(after.prompts).toEqual([]);
-      await until('undo reset reaches subscriber', () => channel.ops.some((op) => op.op === 'reset'));
+      await until('undo reset reaches subscriber', () =>
+        channel.ops.some((op) => op.op === 'reset'),
+      );
       expect(channel.ops.find((op) => op.op === 'reset').snapshot.items).toEqual(after.items);
       const reconnected = await subscribeTranscript(server!, sid);
       try {
@@ -404,12 +488,19 @@ describe('transcript contract e2e', () => {
       await submitPrompt(server!, base, sid, 'steered request');
       await idle(server!, base, sid);
       const resent = await getTranscript(server!, base, sid);
-      expect(resent.items.filter((item) => item.kind === 'turn').map((turn) => turn.prompt)).toEqual(['steered request']);
+      expect(
+        resent.items.filter((item) => item.kind === 'turn').map((turn) => turn.prompt),
+      ).toEqual(['steered request']);
       expect(resent.prompts.some((prompt) => prompt.promptId === steer.prompt_id)).toBe(false);
       await closeSessionById(server!.core.accessor, sid);
       const reopened = await getTranscript(server!, base, sid);
-      expect(reopened.items.filter((item) => item.kind === 'turn').map((turn) => turn.prompt)).toEqual(['steered request']);
-      await rest(server!, base, `/api/v1/sessions/${sid}:undo`, { method: 'POST', body: { count: 1 } });
+      expect(
+        reopened.items.filter((item) => item.kind === 'turn').map((turn) => turn.prompt),
+      ).toEqual(['steered request']);
+      await rest(server!, base, `/api/v1/sessions/${sid}:undo`, {
+        method: 'POST',
+        body: { count: 1 },
+      });
       const empty = await getTranscript(server!, base, sid);
       expect(empty.items.filter((item) => item.kind === 'turn')).toEqual([]);
       expect(empty.prompts).toEqual([]);
@@ -420,7 +511,10 @@ describe('transcript contract e2e', () => {
 
   it('S3: a pending approval appears as an interaction with tool linkage, then resolves', async () => {
     await boot([
-      { match: (body) => !body.includes('echo contract-hi'), respond: () => sseToolCall('call_1', 'Bash', '{"command":"echo contract-hi"}') },
+      {
+        match: (body) => !body.includes('echo contract-hi'),
+        respond: () => sseToolCall('call_1', 'Bash', '{"command":"echo contract-hi"}'),
+      },
       { match: () => true, respond: () => sseText('tool done') },
     ]);
     const sid = await createSession(server!, base);
@@ -428,19 +522,28 @@ describe('transcript contract e2e', () => {
 
     await until('approval pending', async () => {
       const tx = await getTranscript(server!, base, sid);
-      return tx.interactions.some((x: any) => x.interactionKind === 'approval' && x.state === 'pending');
+      return tx.interactions.some(
+        (x: any) => x.interactionKind === 'approval' && x.state === 'pending',
+      );
     });
     const mid = await getTranscript(server!, base, sid);
-    const approval = mid.interactions.find((x: any) => x.interactionKind === 'approval' && x.state === 'pending');
+    const approval = mid.interactions.find(
+      (x: any) => x.interactionKind === 'approval' && x.state === 'pending',
+    );
     expect(approval).toBeDefined();
     expect(approval.toolCallId).toBe('call_1');
     expect((approval.request as any)?.toolName).toBe('Bash');
     expect(mid.meta.agent).toBeDefined();
 
-    await rest(server!, base, `/api/v1/sessions/${encodeURIComponent(sid)}/approvals/${encodeURIComponent(approval.interactionId)}`, {
-      method: 'POST',
-      body: { decision: 'approved' },
-    });
+    await rest(
+      server!,
+      base,
+      `/api/v1/sessions/${encodeURIComponent(sid)}/approvals/${encodeURIComponent(approval.interactionId)}`,
+      {
+        method: 'POST',
+        body: { decision: 'approved' },
+      },
+    );
     await idle(server!, base, sid);
 
     const end = await getTranscript(server!, base, sid);
@@ -459,9 +562,18 @@ describe('transcript contract e2e', () => {
     await boot([
       {
         match: (body) => body.includes('spawn-bg') && !body.includes('"role":"tool"'),
-        respond: () => sseToolCall('call_a', 'Agent', '{"prompt":"bg-answer-42","description":"bg ans","run_in_background":true}'),
+        respond: () =>
+          sseToolCall(
+            'call_a',
+            'Agent',
+            '{"prompt":"bg-answer-42","description":"bg ans","run_in_background":true}',
+          ),
       },
-      { match: (body) => body.includes('bg-answer-42'), respond: () => sseText('42'), delayMs: 2500 },
+      {
+        match: (body) => body.includes('bg-answer-42'),
+        respond: () => sseText('42'),
+        delayMs: 2500,
+      },
       { match: () => true, respond: () => sseText('noted') },
     ]);
     const sid = await createSession(server!, base);
@@ -476,10 +588,14 @@ describe('transcript contract e2e', () => {
     expect(task).toMatchObject({ state: 'running', detached: true });
     expect(typeof task.agentId).toBe('string');
 
-    await until('task completed', async () => {
-      const tx = await getTranscript(server!, base, sid);
-      return tx.tasks.some((t: any) => t.taskId === task.taskId && t.state === 'completed');
-    }, 45000).catch(async (error) => {
+    await until(
+      'task completed',
+      async () => {
+        const tx = await getTranscript(server!, base, sid);
+        return tx.tasks.some((t: any) => t.taskId === task.taskId && t.state === 'completed');
+      },
+      45000,
+    ).catch(async (error) => {
       const tx = await getTranscript(server!, base, sid);
       const opsData = await rest<{ batches: { seq: number; ops: any[] }[] }>(
         server!,
@@ -491,12 +607,19 @@ describe('transcript contract e2e', () => {
           .filter((o: any) => o.op === 'task.upsert')
           .map((o: any) => `${b.seq}:${o.task.taskId}:${o.task.state}`),
       );
-      throw new Error(`${(error as Error).message}\ntasks: ${JSON.stringify(tx.tasks)}\ntaskOps: ${JSON.stringify(taskOps)}`, { cause: error });
+      throw new Error(
+        `${(error as Error).message}\ntasks: ${JSON.stringify(tx.tasks)}\ntaskOps: ${JSON.stringify(taskOps)}`,
+        { cause: error },
+      );
     });
-    await until('notification turn exists', async () => {
-      const tx = await getTranscript(server!, base, sid);
-      return tx.items.some((i: any) => i.kind === 'turn' && i.origin?.kind === 'task');
-    }, 45000);
+    await until(
+      'notification turn exists',
+      async () => {
+        const tx = await getTranscript(server!, base, sid);
+        return tx.items.some((i: any) => i.kind === 'turn' && i.origin?.kind === 'task');
+      },
+      45000,
+    );
 
     const end = await getTranscript(server!, base, sid);
     const taskTurn = end.items.find((i: any) => i.kind === 'turn' && i.origin?.kind === 'task');
@@ -525,7 +648,10 @@ describe('transcript contract e2e', () => {
 
   it('S6: REST snapshot and WS reset agree on every global entity', async () => {
     await boot([
-      { match: (body) => !body.includes('echo s6'), respond: () => sseToolCall('call_s6', 'Bash', '{"command":"echo s6"}') },
+      {
+        match: (body) => !body.includes('echo s6'),
+        respond: () => sseToolCall('call_s6', 'Bash', '{"command":"echo s6"}'),
+      },
       { match: () => true, respond: () => sseText('s6 done') },
     ]);
     const sid = await createSession(server!, base);
@@ -564,12 +690,17 @@ describe('transcript contract e2e', () => {
           sseToolCall(
             'call_spawn',
             'Agent',
-            JSON.stringify({ prompt: 'remember the token quartz-7731 and reply with ok', description: 'child' }),
+            JSON.stringify({
+              prompt: 'remember the token quartz-7731 and reply with ok',
+              description: 'child',
+            }),
           ),
       },
       {
         match: (body) =>
-          body.includes('remember the token') && !body.includes('spawn-child') && !body.includes('recall the token'),
+          body.includes('remember the token') &&
+          !body.includes('spawn-child') &&
+          !body.includes('recall the token'),
         respond: () => sseText('ok, remembered'),
       },
       {
@@ -578,7 +709,11 @@ describe('transcript contract e2e', () => {
           sseToolCall(
             'call_resume',
             'Agent',
-            JSON.stringify({ prompt: 'recall the token', description: 'child again', resume: childAgentId }),
+            JSON.stringify({
+              prompt: 'recall the token',
+              description: 'child again',
+              resume: childAgentId,
+            }),
           ),
       },
       {
@@ -606,7 +741,13 @@ describe('transcript contract e2e', () => {
     childAgentId = childIds[0];
 
     await server!.close();
-    server = await startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '127.0.0.1', port: 0, homeDir: home!, logLevel: 'silent' });
+    server = await startServer({
+      hostIdentity: TEST_HOST_IDENTITY,
+      host: '127.0.0.1',
+      port: 0,
+      homeDir: home!,
+      logLevel: 'silent',
+    });
     base = `http://127.0.0.1:${server.port}`;
 
     const resumed = await resumeSessionById(server.core.accessor, sid);

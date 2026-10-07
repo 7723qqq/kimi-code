@@ -5,9 +5,7 @@ import { type AgentTool } from '#/tool/toolContract';
 
 export const TowerSendToolInputSchema = z
   .object({
-    to: z
-      .string()
-      .describe('Recipient: a roster agent name, "tower", or "all" (broadcast)'),
+    to: z.string().describe('Recipient: a roster agent name, "tower", or "all" (broadcast)'),
     subject: z.string().describe('One-line subject; keep it greppable'),
     body: z.string().describe('Full message body (markdown)'),
     scope: z.string().optional().describe('Optional scope tag (e.g. the mission id)'),

@@ -1,3 +1,5 @@
+import { resolve, win32 } from 'node:path';
+
 /**
  * Pure mapping between the agent-core-v2 session shapes and the v1 SDK wire
  * shapes. Two gaps are bridged here:
@@ -14,8 +16,6 @@ import type {
   SessionMeta as V2SessionMeta,
   SessionSummary as V2SessionSummary,
 } from '@moonshot-ai/agent-core-v2';
-
-import { resolve, win32 } from 'node:path';
 
 import type { AgentMeta, SessionMeta } from '#/replay';
 import type { JsonObject, SessionSummary } from '#/types';

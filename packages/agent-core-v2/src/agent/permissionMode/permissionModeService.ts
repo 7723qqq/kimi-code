@@ -1,21 +1,19 @@
-import type { PermissionMode } from '#/agent/permissionPolicy/types';
-import { Service } from '#/_base/di/service';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Service } from '#/_base/di/service';
 import { Emitter, type Event } from '#/_base/event';
 import { parseBooleanEnv } from '#/_base/utils/env';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { PermissionModeInjection } from '#/agent/permissionMode/injection/permissionModeInjection';
-import { IAgentReminderService } from '#/features/reminder/reminderService';
+import type { PermissionMode } from '#/agent/permissionPolicy/types';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import {
-  IAgentLifecycleService,
-  MAIN_AGENT_ID,
-} from '#/session/agentLifecycle/agentLifecycle';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStatusUpdated } from '#/agent/usage/usageEvents';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { LifecycleScope } from '#/app/scopes';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
+import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { IEventDispatcher } from '#/state/eventDispatcher';
+
 import { IAgentPermissionModeService, type PermissionModeChangedContext } from './permissionMode';
 import {
   permissionModeConfiguredKey,

@@ -1,4 +1,3 @@
-import type { Event } from '#/_base/event';
 import type {
   FiberHandle,
   FiberProvideOptions,
@@ -7,6 +6,8 @@ import type {
   ServiceRecipe,
 } from '#/_base/di/fiber';
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
+import type { Event } from '#/_base/event';
+
 import type { ContributedFeatureService } from './featureServiceContribution';
 
 export interface ManagedUnitInfo {

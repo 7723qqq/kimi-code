@@ -5,13 +5,13 @@ import { join, sep } from 'node:path';
 import { IModelCatalog, IWorkspaceInstanceManager } from '@moonshot-ai/agent-core-v2';
 import { HostFileSystem } from '@moonshot-ai/agent-core-v2/os/backends/host/hostFsService';
 import { FakeRuntime } from '@moonshot-ai/agent-core-v2/runtime/fakeRuntime';
-import { ErrorCode } from '../src/protocol/error-codes';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
+import { ErrorCode } from '../src/protocol/error-codes';
 import { type RunningServer, startServer } from '../src/start';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
 import { fakeModelCatalog } from './helpers/fakeModelCatalog';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
 interface Envelope<T> {
   code: number;
@@ -83,7 +83,12 @@ describe('server-v2 /api/v1 fs routes', () => {
     return body.data.id;
   }
 
-  async function postFs<T>(id: string, action: string, body: unknown, runtimeId = 'local'): Promise<Envelope<T>> {
+  async function postFs<T>(
+    id: string,
+    action: string,
+    body: unknown,
+    runtimeId = 'local',
+  ): Promise<Envelope<T>> {
     const res = await fetch(`${base}/api/v1/sessions/${id}/fs:${action}`, {
       method: 'POST',
       headers: authHeaders(server as RunningServer, { 'content-type': 'application/json' }),
@@ -126,11 +131,9 @@ describe('server-v2 /api/v1 fs routes', () => {
   it('fs:read returns utf-8 content', async () => {
     await writeFile(join(work!, 'a.txt'), 'hello world');
     const id = await createSession();
-    const body = await postFs<{ content: string; encoding: string; size: number }>(
-      id,
-      'read',
-      { path: 'a.txt' },
-    );
+    const body = await postFs<{ content: string; encoding: string; size: number }>(id, 'read', {
+      path: 'a.txt',
+    });
     expect(body.code).toBe(0);
     expect(body.data.content).toBe('hello world');
     expect(body.data.encoding).toBe('utf-8');
@@ -221,11 +224,9 @@ describe('server-v2 /api/v1 fs routes', () => {
   it('fs:stat_many returns null for missing paths', async () => {
     await writeFile(join(work!, 'a.txt'), 'hi');
     const id = await createSession();
-    const body = await postFs<{ entries: Record<string, FsEntryWire | null> }>(
-      id,
-      'stat_many',
-      { paths: ['a.txt', 'missing.txt'] },
-    );
+    const body = await postFs<{ entries: Record<string, FsEntryWire | null> }>(id, 'stat_many', {
+      paths: ['a.txt', 'missing.txt'],
+    });
     expect(body.code).toBe(0);
     expect(body.data.entries['a.txt']?.kind).toBe('file');
     expect(body.data.entries['missing.txt']).toBeNull();
@@ -235,11 +236,9 @@ describe('server-v2 /api/v1 fs routes', () => {
     await writeFile(join(work!, 'alpha.ts'), '');
     await writeFile(join(work!, 'beta.ts'), '');
     const id = await createSession();
-    const body = await postFs<{ items: { path: string }[]; truncated: boolean }>(
-      id,
-      'search',
-      { query: 'alpha' },
-    );
+    const body = await postFs<{ items: { path: string }[]; truncated: boolean }>(id, 'search', {
+      query: 'alpha',
+    });
     expect(body.code).toBe(0);
     expect(body.data.items.map((i) => i.path)).toContain('alpha.ts');
   });
@@ -281,11 +280,9 @@ describe('server-v2 /api/v1 fs routes', () => {
   it('fs:grep finds matching lines', async () => {
     await writeFile(join(work!, 'a.txt'), 'hello world\nfoo bar\n');
     const id = await createSession();
-    const body = await postFs<{ files: { path: string; matches: unknown[] }[] }>(
-      id,
-      'grep',
-      { pattern: 'hello' },
-    );
+    const body = await postFs<{ files: { path: string; matches: unknown[] }[] }>(id, 'grep', {
+      pattern: 'hello',
+    });
     expect(body.code).toBe(0);
     expect(body.data.files.length).toBeGreaterThanOrEqual(1);
   });
@@ -323,9 +320,12 @@ describe('server-v2 /api/v1 fs routes', () => {
       const body = await postFs<null>(id, 'read', { path: 'docs/secret.txt' });
       expect(body.code).toBe(ErrorCode.FS_PATH_ESCAPES_SESSION);
 
-      const res = await fetch(`${base}/api/v1/sessions/${id}/fs/docs/secret.txt:download?runtime_id=local`, {
-        headers: authHeaders(server as RunningServer),
-      } as never);
+      const res = await fetch(
+        `${base}/api/v1/sessions/${id}/fs/docs/secret.txt:download?runtime_id=local`,
+        {
+          headers: authHeaders(server as RunningServer),
+        } as never,
+      );
       const downloadBody = (await res.json()) as Envelope<null>;
       expect(downloadBody.code).toBe(ErrorCode.FS_PATH_ESCAPES_SESSION);
     } finally {
@@ -604,7 +604,10 @@ describe('server-v2 /api/v1 fs routes', () => {
     await mkdir(join(work!, 'apps', 'desktop'));
     await writeFile(join(work!, 'apps', 'desktop', 'package.json'), '{}');
     await writeFile(join(work!, 'README.md'), '');
-    const viaWorkspace = await postWorkspaceSuggest<{ items: SuggestItemWire[]; truncated: boolean }>({
+    const viaWorkspace = await postWorkspaceSuggest<{
+      items: SuggestItemWire[];
+      truncated: boolean;
+    }>({
       workspace: work,
       query: 'apps/de',
     });
@@ -628,7 +631,9 @@ describe('server-v2 /api/v1 fs routes', () => {
         query: 'util',
       });
       expect(body.code).toBe(0);
-      expect(body.data.items.map((i) => i.path)).toContain(join(extra, 'lib', 'util.ts').split(sep).join('/'));
+      expect(body.data.items.map((i) => i.path)).toContain(
+        join(extra, 'lib', 'util.ts').split(sep).join('/'),
+      );
       const shared = await postRootSuggest<{ items: SuggestItemWire[] }>({
         roots: [work, extra],
         query: 'shared',
@@ -666,7 +671,9 @@ describe('server-v2 /api/v1 fs routes', () => {
       query: 'dup',
     });
     expect(nested.code).toBe(0);
-    expect(nested.data.items.filter((i) => i.path === join('sub', 'dup.ts').split(sep).join('/'))).toHaveLength(1);
+    expect(
+      nested.data.items.filter((i) => i.path === join('sub', 'dup.ts').split(sep).join('/')),
+    ).toHaveLength(1);
 
     const reversed = await postRootSuggest<{ items: SuggestItemWire[] }>({
       roots: [join(work!, 'sub'), work],

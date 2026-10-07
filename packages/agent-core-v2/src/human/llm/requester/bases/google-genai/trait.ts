@@ -14,10 +14,7 @@ export interface GoogleGenAITrait {
 
   convertTool?(tool: ToolDescription, ctx: TraitContext): Record<string, unknown> | undefined;
 
-  mergeHistory?(
-    contents: readonly GoogleContent[],
-    ctx: TraitContext,
-  ): GoogleContent[] | undefined;
+  mergeHistory?(contents: readonly GoogleContent[], ctx: TraitContext): GoogleContent[] | undefined;
 
   buildParams?(
     params: Record<string, unknown>,

@@ -1,10 +1,11 @@
 import { Service } from '#/_base/di/service';
-import { defineState } from '#/state/state';
-import type { IAgentReminderService } from '#/features/reminder/reminderService';
-import type { ContextInjectionContext } from '#/features/reminder/types';
 import type { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import type { PermissionMode } from '#/agent/permissionPolicy/types';
 import { IAgentStateService } from '#/agent/state/agentState';
+import type { IAgentReminderService } from '#/features/reminder/reminderService';
+import type { ContextInjectionContext } from '#/features/reminder/types';
+import { defineState } from '#/state/state';
+
 import AUTO_MODE_ENTER_REMINDER from './permission-mode-auto-enter-reminder.md?raw';
 import AUTO_MODE_EXIT_REMINDER from './permission-mode-auto-exit-reminder.md?raw';
 

@@ -5,19 +5,12 @@
  * `interactions:resolved`).
  */
 
+import type { Interaction, InteractionResolution } from '@moonshot-ai/agent-core-v2';
+import type { SessionMetadataChangedEvent } from '@moonshot-ai/agent-core-v2';
 import { z } from 'zod';
 
-import type {
-  Interaction,
-  InteractionResolution,
-} from '@moonshot-ai/agent-core-v2';
-import type { SessionMetadataChangedEvent } from '@moonshot-ai/agent-core-v2';
-
 import type { EventRegistration } from '../types.js';
-import {
-  interactionResolutionSchema,
-  interactionSchema,
-} from './interaction.js';
+import { interactionResolutionSchema, interactionSchema } from './interaction.js';
 import { sessionMetadataChangedEventSchema } from './metadata.js';
 
 /**

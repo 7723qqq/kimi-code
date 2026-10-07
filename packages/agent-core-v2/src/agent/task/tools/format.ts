@@ -15,9 +15,9 @@ export function formatPlainObject(record: object): string {
     .join('\n');
 }
 
-export function formatTaskRecord<T extends { readonly startedAt: number; readonly endedAt: number | null }>(
-  record: T,
-): string {
+export function formatTaskRecord<
+  T extends { readonly startedAt: number; readonly endedAt: number | null },
+>(record: T): string {
   const { startedAt: _startedAt, endedAt: _endedAt, ...rest } = record;
   const body = formatPlainObject(rest);
   const wallTime = `Wall time: ${formatTaskWallTime(record)}`;

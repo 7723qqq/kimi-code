@@ -32,6 +32,13 @@ import type {
 import { RequestError } from '@agentclientprotocol/sdk';
 import type { ContextMessage } from '@moonshot-ai/agent-core-v2';
 import type {
+  ToolCallDeltaEvent,
+  ToolCallStartedEvent,
+  ToolProgressEvent,
+} from '@moonshot-ai/agent-core-v2/agent/toolExecutor/toolExecutorEvents';
+import type { ToolResultEvent } from '@moonshot-ai/agent-core-v2/contract';
+import type { ToolInputDisplay } from '@moonshot-ai/agent-core-v2/contract';
+import type {
   AgentEventPayloads,
   AgentHandle,
   ContentPart,
@@ -42,13 +49,6 @@ import type {
   SessionHandle,
   SkillSummary,
 } from '@moonshot-ai/klient';
-import type { ToolResultEvent } from '@moonshot-ai/agent-core-v2/contract';
-import type {
-  ToolCallDeltaEvent,
-  ToolCallStartedEvent,
-  ToolProgressEvent,
-} from '@moonshot-ai/agent-core-v2/agent/toolExecutor/toolExecutorEvents';
-import type { ToolInputDisplay } from '@moonshot-ai/agent-core-v2/contract';
 
 import type { AcpClient } from './acp-client';
 import type { AcpTerminalCreatedEvent, IAcpConnection } from './acp-fs';
@@ -256,16 +256,19 @@ export class AcpSession {
      * shared temp-dir fallback applies.
      */
     private readonly resolveOriginalsDir?: (sessionId: string) => string | undefined,
-    private readonly hostCommands:
-      | ReadonlyArray<AvailableCommand>
-      | HostSlashCommandsSnapshot = [],
+    private readonly hostCommands: ReadonlyArray<AvailableCommand> | HostSlashCommandsSnapshot = [],
   ) {
     this.klient = klient;
     this.session = klient.session(sessionId);
     // `main` is auto-materialized by the transport's scope resolution on the
     // first call — no explicit agent bootstrap is needed here.
     this.agent = this.session.agent('main');
-    this.interactionBridge = new AcpInteractionBridge(conn, this.session, sessionId, elicitationForm);
+    this.interactionBridge = new AcpInteractionBridge(
+      conn,
+      this.session,
+      sessionId,
+      elicitationForm,
+    );
   }
 
   /**

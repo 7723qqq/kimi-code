@@ -1,23 +1,17 @@
 import { dirname } from 'pathe';
 
-import type { HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { IAgentRuntimeService, inspectAgentRuntime } from '#/agent/runtimeBinding/agentRuntime';
-import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
 import { unwrapErrorCause } from '#/_base/errors/errors';
-import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
-import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import {
-  ToolAccesses,
-  type ExecutableToolResult,
-  type ToolExecution,
-} from '#/tool/toolContract';
+import { IAgentRuntimeService, inspectAgentRuntime } from '#/agent/runtimeBinding/agentRuntime';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-import {
-  resolvePathAccessPath,
-  type WorkspaceConfig,
-} from '#/tool/path-access';
+import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
+import type { HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
+import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
+import { resolvePathAccessPath, type WorkspaceConfig } from '#/tool/path-access';
 import { literalRulePattern, matchesPathRuleSubject } from '#/tool/rule-match';
+import { ToolAccesses, type ExecutableToolResult, type ToolExecution } from '#/tool/toolContract';
+
 import { IWriteTool, WriteInputSchema, type WriteInput } from './write';
 import WRITE_DESCRIPTION from './write.md?raw';
 
@@ -68,7 +62,10 @@ export class WriteTool implements IWriteTool {
         const lease = this.runtime.acquire(['fs']);
         try {
           if (lease.runtime.identity.generation !== inspected.identity.generation) {
-            return { isError: true, output: 'Runtime changed before execution. Retry the tool call.' };
+            return {
+              isError: true,
+              output: 'Runtime changed before execution. Retry the tool call.',
+            };
           }
           return await this.execution(lease.runtime.fs!, args, path);
         } finally {
@@ -78,7 +75,11 @@ export class WriteTool implements IWriteTool {
     };
   }
 
-  private async execution(fs: IHostFileSystem, args: WriteInput, safePath: string): Promise<ExecutableToolResult> {
+  private async execution(
+    fs: IHostFileSystem,
+    args: WriteInput,
+    safePath: string,
+  ): Promise<ExecutableToolResult> {
     const parentError = await this.ensureParentDirectory(fs, safePath);
     if (parentError !== undefined) {
       return { isError: true, output: parentError };
@@ -110,7 +111,10 @@ export class WriteTool implements IWriteTool {
     }
   }
 
-  private async ensureParentDirectory(fs: IHostFileSystem, safePath: string): Promise<string | undefined> {
+  private async ensureParentDirectory(
+    fs: IHostFileSystem,
+    safePath: string,
+  ): Promise<string | undefined> {
     const parent = dirname(safePath);
     let stat: HostFileStat;
     try {

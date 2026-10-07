@@ -1,15 +1,14 @@
+import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { randomUUID } from 'node:crypto';
 
 import { ensureMainAgent, getLiveSessionById, interactions } from '@moonshot-ai/agent-core-v2';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
 interface Envelope<T> {
   code: number;
@@ -183,7 +182,9 @@ describe('server-v2 /api/v1/sessions/{sid}/approvals', () => {
     expect(first).not.toBe(second);
 
     const { body } = await getJson<ListWire>(`/api/v1/sessions/${sid}/approvals?status=pending`);
-    expect(body.data.items.map((i) => i.approval_id).toSorted()).toEqual([first, second].toSorted());
+    expect(body.data.items.map((i) => i.approval_id).toSorted()).toEqual(
+      [first, second].toSorted(),
+    );
     expect(body.data.items.every((i) => i.tool_call_id === 'Bash_0')).toBe(true);
 
     for (const aid of [first, second]) {

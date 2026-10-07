@@ -59,7 +59,10 @@ describe('extractFromWireLine', () => {
   it('filters out subagent system triggers even though they open transcript turns', () => {
     expect(
       extractFromWireLine(
-        userRecord('scan the repo', 1_700_000_000_000, { kind: 'system_trigger', name: 'subagent' }),
+        userRecord('scan the repo', 1_700_000_000_000, {
+          kind: 'system_trigger',
+          name: 'subagent',
+        }),
       ),
     ).toEqual([]);
   });
@@ -135,7 +138,9 @@ describe('extractFromWireLine', () => {
 
     expect(extractFromWireLine(record(legacyPair))).toEqual([]);
     expect(
-      extractFromWireLine(userRecord('<image path="/tmp/shot.png">', 1_700_000_000_000, { kind: 'user' })),
+      extractFromWireLine(
+        userRecord('<image path="/tmp/shot.png">', 1_700_000_000_000, { kind: 'user' }),
+      ),
     ).toEqual([]);
     expect(
       extractFromWireLine(

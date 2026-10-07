@@ -67,6 +67,5 @@ export async function applyRecommendedEffort(deps: ApplyRecommendedEffortDeps): 
       effort: campaign.recommended_default_effort,
       previous_effort: previousEffort,
     });
-  } catch {
-  }
+  } catch {}
 }

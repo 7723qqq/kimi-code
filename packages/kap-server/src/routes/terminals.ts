@@ -1,4 +1,3 @@
-
 import {
   ErrorCodes,
   ISessionTerminalService,
@@ -112,7 +111,9 @@ export function registerTerminalsRoutes(app: TerminalsRouteHost, core: Scope): v
     async (req, reply) => {
       try {
         const { session_id } = req.params;
-        const terminal = await (await resolveTerminal(core, session_id)).create({
+        const terminal = await (
+          await resolveTerminal(core, session_id)
+        ).create({
           ...req.body,
           runtime_id: req.body.runtime_id ?? 'local',
         });

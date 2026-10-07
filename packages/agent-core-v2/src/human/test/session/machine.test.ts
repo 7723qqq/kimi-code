@@ -1,17 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createActor, waitFor, type ActorRefFrom } from '#/xstate2';
 
-import { UNKNOWN_CAPABILITY } from '#/llm/capability';
-import {
-  createAssistantMessage,
-  createUserMessage,
-  extractText,
-} from '#/llm/message';
-import type { LlmModel } from '#/llm/model';
-import type { LlmRequester } from '#/llm/requester/requester';
-import { emptyUsage } from '#/llm/usage';
-import { createAgentMachine, type AgentInput } from '#/agent/machine';
 import { messageAppended, turnEnded } from '#/agent/events';
+import { createAgentMachine, type AgentInput } from '#/agent/machine';
 import { agentSlices, type AgentEventStore } from '#/agent/slices';
 import {
   createAssistantEntry,
@@ -19,17 +9,20 @@ import {
   toInputMessages,
   type HistoryMessage,
 } from '#/agent/turn';
-import {
-  createSessionMachine,
-  type AgentActorRef,
-} from '#/session/machine';
 import { createEventStore } from '#/eventStore/eventStore';
 import { journalFromBranch } from '#/eventStore/journal';
+import { UNKNOWN_CAPABILITY } from '#/llm/capability';
+import { createAssistantMessage, createUserMessage, extractText } from '#/llm/message';
+import type { LlmModel } from '#/llm/model';
+import type { LlmRequester } from '#/llm/requester/requester';
+import { emptyUsage } from '#/llm/usage';
+import { createSessionMachine, type AgentActorRef } from '#/session/machine';
 import { MemoryBackend } from '#/store/backend/memory';
 import { TreeStore } from '#/store/store';
-import type { BranchRef } from '#/store/types';
 import type { Tree } from '#/store/tree';
+import type { BranchRef } from '#/store/types';
 import { testScopeFactory } from '#/test/agent/scope-factory';
+import { createActor, waitFor, type ActorRefFrom } from '#/xstate2';
 
 const model: LlmModel = { provider: 'test', model: 'test-model', capability: UNKNOWN_CAPABILITY };
 
@@ -86,12 +79,19 @@ async function testEnv(): Promise<TestEnv> {
       if (!tree.has(branch)) {
         tree.createBranch(branch, from !== undefined ? { from } : undefined);
       }
-      return createEventStore({ journal: journalFromBranch(tree.openBranch(branch), tree), slices: agentSlices });
+      return createEventStore({
+        journal: journalFromBranch(tree.openBranch(branch), tree),
+        slices: agentSlices,
+      });
     },
   };
 }
 
-function forkStore(env: TestEnv, source: AgentEventStore, branch: string): Promise<AgentEventStore> {
+function forkStore(
+  env: TestEnv,
+  source: AgentEventStore,
+  branch: string,
+): Promise<AgentEventStore> {
   const sourceBranch = env.tree.openBranch(source.ref.branch);
   const head = sourceBranch.head;
   return env.open(branch, head === null ? undefined : { branch: sourceBranch.name, seq: head });
@@ -144,7 +144,10 @@ describe('session machine agent lifecycle', () => {
       { agentId: 'agent-1', branchId: 'agent-1' },
       { agentId: 'agent-2', branchId: 'agent-2' },
     ]);
-    expect(Object.keys(session.getSnapshot().context.agents).toSorted()).toEqual(['agent-1', 'agent-2']);
+    expect(Object.keys(session.getSnapshot().context.agents).toSorted()).toEqual([
+      'agent-1',
+      'agent-2',
+    ]);
   });
 
   it('creates a agent with restored messages and turnId', async () => {
@@ -156,10 +159,13 @@ describe('session machine agent lifecycle', () => {
     );
     await store.dispatch(
       messageAppended({
-        message: createAssistantEntry(createAssistantMessage([{ type: 'text', text: 'echo:old' }]), {
-          source: 'llm',
-          usage: emptyUsage(),
-        }),
+        message: createAssistantEntry(
+          createAssistantMessage([{ type: 'text', text: 'echo:old' }]),
+          {
+            source: 'llm',
+            usage: emptyUsage(),
+          },
+        ),
       }),
     );
     await store.dispatch(turnEnded({ turnId: 6, outcome: 'done' }));
@@ -363,7 +369,11 @@ describe('session machine agent fork', () => {
     };
     const env = await testEnv();
     const storeA = await env.open('a');
-    const sourceModel: LlmModel = { provider: 'test', model: 'source-model', capability: UNKNOWN_CAPABILITY };
+    const sourceModel: LlmModel = {
+      provider: 'test',
+      model: 'source-model',
+      capability: UNKNOWN_CAPABILITY,
+    };
     session.send({
       type: 'agent.create',
       agentId: 'a',
@@ -400,10 +410,7 @@ describe('session machine agent fork', () => {
     await waitIdle(refB, storeB, 2);
     expect(refB.getSnapshot().value).toEqual({ idle: 'ready' });
     expect(storeB.getState().turnIndex.nextTurnId).toBe(1);
-    expect(rolesAndTexts(storeB.getState().history)).toEqual([
-      'user:hi',
-      'assistant:echo:hi',
-    ]);
+    expect(rolesAndTexts(storeB.getState().history)).toEqual(['user:hi', 'assistant:echo:hi']);
 
     submit(session, 'b', 'fork-hi');
     await waitIdle(refB, storeB, 4);

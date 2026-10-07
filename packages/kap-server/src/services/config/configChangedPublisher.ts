@@ -1,4 +1,9 @@
-import { ConfigChanged, IConfigService, IEventService, type Scope } from '@moonshot-ai/agent-core-v2';
+import {
+  ConfigChanged,
+  IConfigService,
+  IEventService,
+  type Scope,
+} from '@moonshot-ai/agent-core-v2';
 
 import { toConfigResponse } from '../../routes/config';
 

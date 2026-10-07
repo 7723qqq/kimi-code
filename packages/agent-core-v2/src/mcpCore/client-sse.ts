@@ -1,9 +1,13 @@
-import { ErrorCodes, Error2 } from '#/errors';
-import type { McpServerSseConfig } from './config-schema';
+import {
+  UnauthorizedError,
+  type OAuthClientProvider,
+} from '@modelcontextprotocol/sdk/client/auth.js';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { UnauthorizedError, type OAuthClientProvider } from '@modelcontextprotocol/sdk/client/auth.js';
 import { SSEClientTransport, SseError } from '@modelcontextprotocol/sdk/client/sse.js';
 
+import { ErrorCodes, Error2 } from '#/errors';
+
+import { buildMcpRemoteHeaders } from './client-remote';
 import {
   buildRequestOptions,
   KIMI_MCP_CLIENT_NAME,
@@ -14,7 +18,7 @@ import {
   type UnexpectedCloseListener,
   type UnexpectedCloseReason,
 } from './client-shared';
-import { buildMcpRemoteHeaders } from './client-remote';
+import type { McpServerSseConfig } from './config-schema';
 import type { MCPClient, MCPToolDefinition, MCPToolResult } from './types';
 
 export interface SseMcpClientOptions {
@@ -66,10 +70,7 @@ export class SseMcpClient implements MCPClient {
     this.started = true;
     this.installTransportHooks();
     try {
-      await this.client.connect(
-        this.transport,
-        buildRequestOptions(this.startupTimeoutMs),
-      );
+      await this.client.connect(this.transport, buildRequestOptions(this.startupTimeoutMs));
     } catch (error) {
       await this.closeStartedClient();
       throw error;

@@ -1,10 +1,7 @@
 import { z } from 'zod';
 
-import {
-  type ConfigDiagnostic,
-  type ConfigStripEnv,
-  envBindings,
-} from '#/app/config/config';
+import { type AssertExact, type Equal } from '#/_base/utils/typeEquality';
+import { type ConfigDiagnostic, type ConfigStripEnv, envBindings } from '#/app/config/config';
 import { registerConfigSection } from '#/app/config/configSectionContributions';
 import {
   camelToSnake,
@@ -15,12 +12,11 @@ import {
   snakeToCamel,
   transformPlainObject,
 } from '#/app/config/toml';
-import { type AssertExact, type Equal } from '#/_base/utils/typeEquality';
 import type { ModelOverride, ModelRecord, ModelsSection } from '#/llm-adapter/model/model';
 import type { ModelOverrides } from '#/llm-adapter/model/model.types';
 import type { ThinkingConfig } from '#/llm-adapter/model/thinking';
-import type { OAuthRef, ProviderConfig, ProvidersSection } from '#/llm-adapter/provider/provider';
 import { ProtocolSchema } from '#/llm-adapter/protocol/protocol';
+import type { OAuthRef, ProviderConfig, ProvidersSection } from '#/llm-adapter/provider/provider';
 
 export const PROVIDERS_SECTION = 'providers';
 
@@ -195,13 +191,9 @@ export const ModelRecordSchema = ModelBaseSchema.extend({
 
 export const ModelsSectionSchema = z.record(z.string(), ModelRecordSchema);
 
-type _AssertModelOverride = AssertExact<
-  Equal<z.infer<typeof ModelOverrideSchema>, ModelOverride>
->;
+type _AssertModelOverride = AssertExact<Equal<z.infer<typeof ModelOverrideSchema>, ModelOverride>>;
 type _AssertModelRecord = AssertExact<Equal<z.infer<typeof ModelRecordSchema>, ModelRecord>>;
-type _AssertModelsSection = AssertExact<
-  Equal<z.infer<typeof ModelsSectionSchema>, ModelsSection>
->;
+type _AssertModelsSection = AssertExact<Equal<z.infer<typeof ModelsSectionSchema>, ModelsSection>>;
 
 const MODEL_OBJECT_FIELDS = new Set(
   Object.entries(ModelRecordSchema.shape)

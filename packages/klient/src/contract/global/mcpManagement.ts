@@ -127,7 +127,12 @@ export const mcpServerAuthFlowHandleSchema = z.object({
   flowId: z.string().min(1),
   // Node overflows setTimeout delays above 2^31-1 into ~1ms; the REST schema
   // and the engine reject the same range.
-  timeoutMs: z.number().int().min(1).max(2 ** 31 - 1).optional(),
+  timeoutMs: z
+    .number()
+    .int()
+    .min(1)
+    .max(2 ** 31 - 1)
+    .optional(),
 });
 
 export const mcpManagementContract = {
@@ -160,10 +165,7 @@ export const mcpManagementContract = {
     output: z.array(mcpServerAuthStatusSchema),
   },
   inspectServers: {
-    input: z.tuple([
-      z.array(mcpServerLocatorSchema).optional(),
-      mcpRegistryQuerySchema.optional(),
-    ]),
+    input: z.tuple([z.array(mcpServerLocatorSchema).optional(), mcpRegistryQuerySchema.optional()]),
     output: z.array(mcpServerInspectionSchema),
   },
   resolveServerByName: {

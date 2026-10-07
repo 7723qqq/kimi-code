@@ -1,3 +1,7 @@
+import type { createAgentMachine, AgentEvent, AgentInput } from '#/agent/machine';
+import type { TurnLlmEvent, TurnToolEvent } from '#/agent/turn';
+import type { LlmRequestConfig } from '#/llm/requester/requester';
+import type { ToolUpdate } from '#/tool/executor';
 import {
   assign,
   emit,
@@ -10,11 +14,6 @@ import {
   type DoneActorEvent,
   type InputFrom,
 } from '#/xstate2';
-
-import type { createAgentMachine, AgentEvent, AgentInput } from '#/agent/machine';
-import type { LlmRequestConfig } from '#/llm/requester/requester';
-import type { TurnLlmEvent, TurnToolEvent } from '#/agent/turn';
-import type { ToolUpdate } from '#/tool/executor';
 
 export interface SessionInput {
   request: LlmRequestConfig;
@@ -44,7 +43,13 @@ export type SessionEvent =
 
 export type SessionEmitted =
   | { type: 'agent.created'; agentId: string; branchId: string; ref: AgentActorRef }
-  | { type: 'agent.forked'; sourceId: string; agentId: string; branchId: string; ref: AgentActorRef }
+  | {
+      type: 'agent.forked';
+      sourceId: string;
+      agentId: string;
+      branchId: string;
+      ref: AgentActorRef;
+    }
   | { type: 'agent.restarted'; agentId: string; ref: AgentActorRef }
   | { type: 'agent.stopped'; agentId: string }
   | { type: 'agent.failed'; agentId: string; error: string };
@@ -272,10 +277,9 @@ export function createSessionMachine() {
                     },
                   };
                 }),
-                sendTo(
-                  ({ context, event }) => (context.agents[event.agentId] as AgentEntry).ref,
-                  { type: 'input.close' as const },
-                ),
+                sendTo(({ context, event }) => (context.agents[event.agentId] as AgentEntry).ref, {
+                  type: 'input.close' as const,
+                }),
               ],
             },
           ],
@@ -299,10 +303,9 @@ export function createSessionMachine() {
                     },
                   };
                 }),
-                sendTo(
-                  ({ context, event }) => (context.agents[event.agentId] as AgentEntry).ref,
-                  { type: 'input.close' as const },
-                ),
+                sendTo(({ context, event }) => (context.agents[event.agentId] as AgentEntry).ref, {
+                  type: 'input.close' as const,
+                }),
               ],
             },
           ],

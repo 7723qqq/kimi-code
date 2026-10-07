@@ -63,11 +63,7 @@ export function createKimiWebbridgeEntry(ctx: CapabilityEntryContext): Capabilit
       path: path.join(ctx.userHomeDir, '.agents', 'skills', 'kimi-webbridge'),
     },
   ];
-  const standaloneSkillBackupDir = path.join(
-    ctx.kimiHomeDir,
-    'backups',
-    'kimi-webbridge-skills',
-  );
+  const standaloneSkillBackupDir = path.join(ctx.kimiHomeDir, 'backups', 'kimi-webbridge-skills');
   const supported = binaryAssetName(ctx.platform, ctx.arch) !== undefined;
   let standaloneSkillBackupPath: string | undefined;
   let standaloneSkillMigrationError: string | undefined;
@@ -121,8 +117,7 @@ export function createKimiWebbridgeEntry(ctx: CapabilityEntryContext): Capabilit
     const steps: CapabilityStep[] = [];
 
     const binaryPresent = await exists(binPath);
-    const binaryUsable =
-      binaryPresent && (ctx.platform === 'win32' || (await executable(binPath)));
+    const binaryUsable = binaryPresent && (ctx.platform === 'win32' || (await executable(binPath)));
     steps.push({
       id: 'daemon-binary',
       state: binaryUsable ? 'ok' : 'missing',
@@ -189,7 +184,9 @@ export function createKimiWebbridgeEntry(ctx: CapabilityEntryContext): Capabilit
         setTimeout(resolve, START_POLL_INTERVAL_MS);
       });
     }
-    throw new Error(`WebBridge daemon did not come up on ${baseUrl} — check ~/.kimi-webbridge/logs`);
+    throw new Error(
+      `WebBridge daemon did not come up on ${baseUrl} — check ~/.kimi-webbridge/logs`,
+    );
   }
 
   async function install(report: CapabilityInstallReporter): Promise<string | undefined> {
@@ -236,8 +233,7 @@ export function createKimiWebbridgeEntry(ctx: CapabilityEntryContext): Capabilit
         standaloneSkillBackupPath = await migrateStandaloneSkills();
         standaloneSkillMigrationError = undefined;
       } catch (error) {
-        standaloneSkillMigrationError =
-          `Could not back up the standalone kimi-webbridge skill: ${error instanceof Error ? error.message : String(error)}`;
+        standaloneSkillMigrationError = `Could not back up the standalone kimi-webbridge skill: ${error instanceof Error ? error.message : String(error)}`;
       }
     }
     return standaloneSkillMigrationPending && standaloneSkillMigrationError === undefined
@@ -245,10 +241,7 @@ export function createKimiWebbridgeEntry(ctx: CapabilityEntryContext): Capabilit
       : undefined;
   }
 
-  async function installBinary(
-    report: CapabilityInstallReporter,
-    asset: string,
-  ): Promise<void> {
+  async function installBinary(report: CapabilityInstallReporter, asset: string): Promise<void> {
     report('download', 0);
     const url = kimiCdnContentUrl(`${BINARY_CDN_PATH}/${asset}`);
     const staging = path.join(

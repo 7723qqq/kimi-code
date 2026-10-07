@@ -1,10 +1,7 @@
 import { Disposable } from '#/_base/di/lifecycle';
-import type { IAgentReminderService } from '#/features/reminder/reminderService';
-import type {
-  ContextInjectionContext,
-  ContextInjectionResult,
-} from '#/features/reminder/types';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import type { IAgentReminderService } from '#/features/reminder/reminderService';
+import type { ContextInjectionContext, ContextInjectionResult } from '#/features/reminder/types';
 
 import SWARM_MODE_ENTER_REMINDER from '../enter-reminder.md?raw';
 import SWARM_MODE_EXIT_REMINDER from '../exit-reminder.md?raw';
@@ -30,9 +27,8 @@ export class SwarmInjection extends Disposable {
   ) {
     super();
     this._register(
-      injector.register<SwarmModeInjectionDisclosure>(
-        SWARM_MODE_INJECTION_VARIANT,
-        (ctx) => this.reminder(ctx),
+      injector.register<SwarmModeInjectionDisclosure>(SWARM_MODE_INJECTION_VARIANT, (ctx) =>
+        this.reminder(ctx),
       ),
     );
   }

@@ -34,10 +34,7 @@ export async function detectPendingMigration(
 ): Promise<MigrationPlan | null> {
   const { sourceHome, targetHome } = input;
   if (!existsSync(sourceHome)) return null;
-  if (
-    input.ignoreMarker !== true &&
-    shouldSuppressMigration({ sourceHome, targetHome })
-  ) {
+  if (input.ignoreMarker !== true && shouldSuppressMigration({ sourceHome, targetHome })) {
     return null;
   }
 

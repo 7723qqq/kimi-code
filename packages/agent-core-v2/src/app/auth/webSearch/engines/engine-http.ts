@@ -1,15 +1,8 @@
+import { isProxyConfigured, makeNoProxyMatcher, resolveNoProxy } from '#/_base/utils/proxy';
 import { ProxyAgent, type Dispatcher } from '#/_base/utils/undici-npm';
 
-import { isProxyConfigured, makeNoProxyMatcher, resolveNoProxy } from '#/_base/utils/proxy';
-
 import { undiciFetch } from './engine-undici';
-import {
-  h3Fetch,
-  h3OriginState,
-  isBunRuntime,
-  markH3Origin,
-  scheduleH3Probe,
-} from './http3';
+import { h3Fetch, h3OriginState, isBunRuntime, markH3Origin, scheduleH3Probe } from './http3';
 
 const DEFAULT_USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 ' +
@@ -136,11 +129,7 @@ export async function engineFetch(
     ) {
       markH3Origin(origin, 'ok');
     }
-    if (
-      h3Eligible &&
-      h3OriginState(origin) === 'unknown' &&
-      (options.method ?? 'GET') === 'GET'
-    ) {
+    if (h3Eligible && h3OriginState(origin) === 'unknown' && (options.method ?? 'GET') === 'GET') {
       scheduleH3Probe(origin, async () => {
         const probe = await bunH3EngineFetch(
           url,

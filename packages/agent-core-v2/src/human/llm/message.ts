@@ -133,9 +133,7 @@ export function mergeInPlace(target: StreamedMessagePart, source: StreamedMessag
   if (target.type === 'function' && source.type === 'tool_call_part') {
     if (source.argumentsPart !== null) {
       target.arguments =
-        target.arguments === null
-          ? source.argumentsPart
-          : target.arguments + source.argumentsPart;
+        target.arguments === null ? source.argumentsPart : target.arguments + source.argumentsPart;
     }
     return true;
   }
@@ -143,7 +141,10 @@ export function mergeInPlace(target: StreamedMessagePart, source: StreamedMessag
   return false;
 }
 
-export function extractText(message: { readonly content: readonly ContentPart[] }, sep: string = ''): string {
+export function extractText(
+  message: { readonly content: readonly ContentPart[] },
+  sep: string = '',
+): string {
   return message.content
     .filter((part): part is TextPart => part.type === 'text')
     .map((part) => part.text)

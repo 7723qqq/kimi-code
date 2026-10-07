@@ -1,22 +1,11 @@
-import type { ToolExecution } from '#/tool/toolContract';
+import { TODO_LIST_TOOL_NAME, readTodoItems, renderTodoList } from '#/features/todo/todoItem';
+import { IAgentTodoService } from '#/features/todo/todoService';
 import { toInputJsonSchema } from '#/tool/input-schema';
+import type { ToolExecution } from '#/tool/toolContract';
 
-import {
-  IAgentTodoService,
-} from '#/features/todo/todoService';
-import {
-  TODO_LIST_TOOL_NAME,
-  readTodoItems,
-  renderTodoList,
-} from '#/features/todo/todoItem';
-
-import {
-  ITodoListTool,
-  TodoListInputSchema,
-  type TodoListInput,
-} from './todo-list';
-import DESCRIPTION from './todo-list.md?raw';
+import { ITodoListTool, TodoListInputSchema, type TodoListInput } from './todo-list';
 import TODO_LIST_WRITE_REMINDER from './todo-list-write-reminder.md?raw';
+import DESCRIPTION from './todo-list.md?raw';
 
 export class TodoListTool implements ITodoListTool {
   declare readonly _serviceBrand: undefined;
@@ -24,9 +13,7 @@ export class TodoListTool implements ITodoListTool {
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(TodoListInputSchema);
 
-  constructor(
-    @IAgentTodoService private readonly todo: IAgentTodoService,
-  ) {}
+  constructor(@IAgentTodoService private readonly todo: IAgentTodoService) {}
 
   resolveExecution(args: TodoListInput): ToolExecution {
     const description =

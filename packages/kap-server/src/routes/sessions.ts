@@ -32,7 +32,12 @@ import {
   type SessionSummary,
 } from '@moonshot-ai/agent-core-v2';
 import { SessionMetaUpdated } from '@moonshot-ai/agent-core-v2/session/sessionMetadata/sessionMetaEvents';
+import { z } from 'zod';
+
+import { errEnvelope, okEnvelope } from '../envelope';
 import { t } from '../i18n';
+import { requestLog } from '../lib/requestLog';
+import { defineRoute } from '../middleware/defineRoute';
 import { ErrorCode } from '../protocol/error-codes';
 import { pageResponseSchema } from '../protocol/pagination';
 import {
@@ -60,13 +65,8 @@ import {
   type SessionPendingInteraction,
 } from '../protocol/session';
 import { workspaceIdSchema } from '../protocol/workspace';
-import { toProtocolMessage } from '../services/messages/messageProjection';
-import { z } from 'zod';
-
-import { errEnvelope, okEnvelope } from '../envelope';
-import { requestLog } from '../lib/requestLog';
-import { defineRoute } from '../middleware/defineRoute';
 import { readLegacyStatus } from '../services/legacyStatus/legacyStatus';
+import { toProtocolMessage } from '../services/messages/messageProjection';
 import { ensureMainAgent, MAIN_AGENT_ID } from '../transport/mainAgent';
 import { type ActionTable, dispatchAction } from './action-dispatch';
 import { applySessionAgentConfig } from './sessionAgentConfig';
@@ -248,14 +248,16 @@ export function registerSessionsRoutes(
           await handle.accessor.get(ISessionMetadata).setTitle(body.title);
         }
         const meta = await handle.accessor.get(ISessionMetadata).read();
-        const session = toWireSession(
-          { ...meta, workspaceId: touched.id },
-          touched.root,
-          { busy: false, mainTurnActive: false, pendingInteraction: 'none' },
-        );
-        core.accessor.get(IEventService).publish(
-          new SessionCreated({ payload: { agentId: 'main', sessionId: session.id, session } }),
-        );
+        const session = toWireSession({ ...meta, workspaceId: touched.id }, touched.root, {
+          busy: false,
+          mainTurnActive: false,
+          pendingInteraction: 'none',
+        });
+        core.accessor
+          .get(IEventService)
+          .publish(
+            new SessionCreated({ payload: { agentId: 'main', sessionId: session.id, session } }),
+          );
         reply.send(okEnvelope(session, req.id));
       } catch (error) {
         sendMappedError(reply, req, error);
@@ -324,7 +326,9 @@ export function registerSessionsRoutes(
         readonly facts?: SessionFacts;
       }
 
-      const collect = async (pageSize: number): Promise<{ visible: Eligible[]; hasMore: boolean }> => {
+      const collect = async (
+        pageSize: number,
+      ): Promise<{ visible: Eligible[]; hasMore: boolean }> => {
         const wanted = pageSize + 1;
         const collected: Eligible[] = [];
         let before = raw.before_id;
@@ -697,13 +701,15 @@ export function registerSessionsRoutes(
         const roots = new Map(
           (await core.accessor.get(IWorkspaceService).list()).map((w) => [w.id, w.root]),
         );
-        const items = matched.slice(0, pageSize).map((summary) =>
-          toWireSession(
-            summary,
-            summary.cwd ?? roots.get(summary.workspaceId) ?? '',
-            resolveSessionFacts(core, summary.id),
-          ),
-        );
+        const items = matched
+          .slice(0, pageSize)
+          .map((summary) =>
+            toWireSession(
+              summary,
+              summary.cwd ?? roots.get(summary.workspaceId) ?? '',
+              resolveSessionFacts(core, summary.id),
+            ),
+          );
         reply.send(okEnvelope({ items, has_more: matched.length > pageSize }, req.id));
       } catch (error) {
         sendMappedError(reply, req, error);
@@ -748,9 +754,11 @@ export function registerSessionsRoutes(
           meta.cwd ?? '',
           resolveSessionFacts(core, meta.id),
         );
-        core.accessor.get(IEventService).publish(
-          new SessionCreated({ payload: { agentId: 'main', sessionId: session.id, session } }),
-        );
+        core.accessor
+          .get(IEventService)
+          .publish(
+            new SessionCreated({ payload: { agentId: 'main', sessionId: session.id, session } }),
+          );
         reply.send(okEnvelope(session, req.id));
       } catch (error) {
         sendMappedError(reply, req, error);

@@ -1,9 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { createActor } from '#/xstate2';
 
-import { isInteractionCancellation, type InteractionPendingChangedEvent } from '#/interaction/interaction';
 import { createInteractionFacade, type InteractionFacade } from '#/interaction/facade';
+import {
+  isInteractionCancellation,
+  type InteractionPendingChangedEvent,
+} from '#/interaction/interaction';
 import { createInteractionMachine, type InteractionEmitted } from '#/interaction/machine';
+import { createActor } from '#/xstate2';
 
 function createTestFacade(now?: () => number): InteractionFacade {
   const actor = createActor(createInteractionMachine());
@@ -17,14 +20,18 @@ describe('interaction facade', () => {
     const changes: InteractionPendingChangedEvent[] = [];
     facade.onDidChangePending((event) => changes.push(event));
 
-    const first = facade.enqueue({ kind: 'approval', payload: { toolCallId: 'tc-1' }, tags: { agentId: 'a1', turnId: 1, toolCallId: 'tc-1' } });
+    const first = facade.enqueue({
+      kind: 'approval',
+      payload: { toolCallId: 'tc-1' },
+      tags: { agentId: 'a1', turnId: 1, toolCallId: 'tc-1' },
+    });
     expect(first.id).toBe('a1:interaction-0');
     expect(facade.findAll({ resolved: false })).toHaveLength(1);
     expect(changes).toEqual([{ pending: ['a1:interaction-0'] }]);
 
-    expect(() =>
-      facade.enqueue({ id: first.id, kind: 'approval', payload: {} }),
-    ).toThrow(`Interaction "${first.id}" is already pending`);
+    expect(() => facade.enqueue({ id: first.id, kind: 'approval', payload: {} })).toThrow(
+      `Interaction "${first.id}" is already pending`,
+    );
 
     facade.respond(first.id, { decision: 'approved' });
     const again = facade.enqueue({ id: first.id, kind: 'approval', payload: {} });
@@ -42,7 +49,11 @@ describe('interaction facade', () => {
     const item = facade.enqueue({ kind: 'question', payload: { questions: [] } });
     expect(facade.respond(item.id, { answer: 1 })).toBe(true);
     expect(emitted).toHaveLength(1);
-    expect(emitted[0]).toMatchObject({ type: 'interaction.resolved', id: item.id, response: { answer: 1 } });
+    expect(emitted[0]).toMatchObject({
+      type: 'interaction.resolved',
+      id: item.id,
+      response: { answer: 1 },
+    });
     expect(facade.findAll({ resolved: true }).map((i) => i.id)).toEqual([item.id]);
     expect(facade.respond(item.id, { answer: 2 })).toBe(false);
     expect(facade.respond('missing', null)).toBe(false);
@@ -50,7 +61,12 @@ describe('interaction facade', () => {
 
   it('finds interactions by id, kind, resolved state and tag subsets', () => {
     const facade = createTestFacade();
-    facade.enqueue({ id: 'i1', kind: 'approval', payload: {}, tags: { agentId: 'a1', turnId: 1, toolCallId: 'tc-1' } });
+    facade.enqueue({
+      id: 'i1',
+      kind: 'approval',
+      payload: {},
+      tags: { agentId: 'a1', turnId: 1, toolCallId: 'tc-1' },
+    });
     facade.enqueue({ id: 'i2', kind: 'question', payload: {}, tags: { agentId: 'a1', turnId: 2 } });
     facade.enqueue({ id: 'i3', kind: 'approval', payload: {}, tags: { agentId: 'a2', turnId: 1 } });
     facade.respond('i3', { decision: 'approved' });

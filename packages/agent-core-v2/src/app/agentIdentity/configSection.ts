@@ -1,10 +1,6 @@
 import { z } from 'zod';
 
-import {
-  type EnvBindings,
-  envBindings,
-  stripEnvBoundFields,
-} from '#/app/config/config';
+import { type EnvBindings, envBindings, stripEnvBoundFields } from '#/app/config/config';
 import { registerConfigSection } from '#/app/config/configSectionContributions';
 
 export const IDENTITY_SECTION = 'identity';
@@ -24,13 +20,10 @@ function parseIdentityEnv(raw: string): string | undefined {
   return trimmed.length > 0 ? trimmed : undefined;
 }
 
-export const identityEnvBindings: EnvBindings<IdentityConfig> = envBindings(
-  IdentityConfigSchema,
-  {
-    name: { env: IDENTITY_NAME_ENV, parse: parseIdentityEnv },
-    slug: { env: IDENTITY_SLUG_ENV, parse: parseIdentityEnv },
-  },
-);
+export const identityEnvBindings: EnvBindings<IdentityConfig> = envBindings(IdentityConfigSchema, {
+  name: { env: IDENTITY_NAME_ENV, parse: parseIdentityEnv },
+  slug: { env: IDENTITY_SLUG_ENV, parse: parseIdentityEnv },
+});
 
 export const stripIdentityEnv = stripEnvBoundFields(identityEnvBindings);
 

@@ -1,20 +1,19 @@
-import { toInputJsonSchema } from '#/tool/input-schema';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { GOAL_MAIN_AGENT_ONLY, mainAgentOnlyExecution } from '#/agent/tools/mainAgentOnly';
-import { type ToolExecution } from '#/tool/toolContract';
-
 import { IAgentGoalService } from '#/features/goal/goalService';
 import {
   buildGoalBlockedReasonPrompt,
   buildGoalCompletionSummaryPrompt,
 } from '#/features/goal/tools/outcome-prompts';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import { type ToolExecution } from '#/tool/toolContract';
 
-import DESCRIPTION from './update-goal.md?raw';
 import {
   UpdateGoalToolInputSchema,
   IUpdateGoalTool,
   type UpdateGoalToolInput,
 } from './update-goal';
+import DESCRIPTION from './update-goal.md?raw';
 
 export class UpdateGoalTool implements IUpdateGoalTool {
   declare readonly _serviceBrand: undefined;
@@ -98,4 +97,3 @@ function changedGoalOutput(status: UpdateGoalToolInput['status']): string {
   if (status === 'complete') return 'Goal not completed: the current goal changed.';
   return 'Goal not blocked: the current goal changed.';
 }
-

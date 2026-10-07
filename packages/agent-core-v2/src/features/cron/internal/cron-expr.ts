@@ -116,9 +116,13 @@ function addTerm(out: Set<number>, term: string, min: number, max: number, name:
     rangePart = term.slice(0, slash);
     const stepStr = term.slice(slash + 1);
     if (stepStr === '') {
-      throw new Error2(ErrorCodes.CRON_EXPRESSION_INVALID, `cron ${name} step is empty in "${term}"`, {
-        details: { field: name, term },
-      });
+      throw new Error2(
+        ErrorCodes.CRON_EXPRESSION_INVALID,
+        `cron ${name} step is empty in "${term}"`,
+        {
+          details: { field: name, term },
+        },
+      );
     }
     const parsedStep = parseCronInt(stepStr, name, 'step');
     if (parsedStep <= 0) {
@@ -318,12 +322,7 @@ export function cronToHuman(expr: ParsedCronExpression): string {
     }
   }
 
-  if (
-    expr.minutes.size === 1 &&
-    expr.hours.size === 1 &&
-    allDom &&
-    allMonth
-  ) {
+  if (expr.minutes.size === 1 && expr.hours.size === 1 && allDom && allMonth) {
     const h = [...expr.hours][0]!;
     const m = [...expr.minutes][0]!;
     if (allDow) return `at ${pad(h)}:${pad(m)} every day`;

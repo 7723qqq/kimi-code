@@ -3,8 +3,8 @@ import type { ProtocolTraitFor } from '#human/llm/provider/definition';
 import { anthropicBase } from '#human/llm/requester/bases/anthropic/requester';
 import { antigravityBase } from '#human/llm/requester/bases/antigravity/requester';
 import { googleGenAIBase } from '#human/llm/requester/bases/google-genai/requester';
-import { openAIBase } from '#human/llm/requester/bases/openai/requester';
 import { openAIResponsesBase } from '#human/llm/requester/bases/openai-responses/requester';
+import { openAIBase } from '#human/llm/requester/bases/openai/requester';
 
 import type { Protocol } from './protocol';
 

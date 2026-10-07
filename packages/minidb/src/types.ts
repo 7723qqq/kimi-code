@@ -5,10 +5,10 @@
 // path's prepared-mutation shape, shared with the memory guard; NOT
 // re-exported from index.ts).
 
-import type { FsyncPolicy } from './wal.js';
 import type { RecoveryMode, ValueMode } from './recovery.js';
 import type { RangeOptions } from './skiplist.js';
 import type { TextIndex } from './text-index/index.js';
+import type { FsyncPolicy } from './wal.js';
 
 export type ValueCodecName = 'buffer' | 'string' | 'json';
 

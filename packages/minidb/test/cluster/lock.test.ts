@@ -10,12 +10,12 @@ import path from 'node:path';
 
 import { test } from 'vitest';
 
-import { MiniDb } from '../../src/index.js';
 import { ClusterDb, wipeCluster } from '../../src/cluster/index.js';
-import { LockError, LockFile } from '../../src/lockfile.js';
 import { ShardLockPool } from '../../src/cluster/lock-pool.js';
 import { ShardHandle } from '../../src/cluster/shard.js';
 import { shardDirName } from '../../src/cluster/utils.js';
+import { MiniDb } from '../../src/index.js';
+import { LockError, LockFile } from '../../src/lockfile.js';
 import { tmpDir, rmrf } from '../e2e/helpers/tmp.js';
 import { deferred } from '../helpers.js';
 import { keyOnShard, sleep } from './helpers.js';
@@ -98,14 +98,17 @@ test('wipe refuses while any shard writer is held and proceeds once released', a
       await fresh.set('k', 'v');
       await wiper.release();
       assert.equal(
-        await fs.stat(path.join(moved, 'db.lock')).then(() => true, () => false),
+        await fs.stat(path.join(moved, 'db.lock')).then(
+          () => true,
+          () => false,
+        ),
         true,
         'release after the rename neither follows the moved corpse nor errors',
       );
       await assert.rejects(
         () => MiniDb.open({ dir: single, valueCodec: 'string' }),
         LockError,
-        'release after the rename never unlinks the new owner\'s lock',
+        "release after the rename never unlinks the new owner's lock",
       );
       await fresh.close();
       await rmrf(moved);
@@ -390,10 +393,13 @@ test('closeAll() waits for the lockHold timer’s in-flight writer close', async
       readOnly: false,
       applyDefs: async () => {},
     });
-    assert.deepEqual(await pool2.withWriter(1, shardDir, (db) => db.get('k')), { v: 1 }, 'the shard lock was released');
+    assert.deepEqual(
+      await pool2.withWriter(1, shardDir, (db) => db.get('k')),
+      { v: 1 },
+      'the shard lock was released',
+    );
     await pool2.closeAll();
   } finally {
     await rmrf(dir);
   }
 });
-

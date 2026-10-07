@@ -6,7 +6,12 @@ import type { AppendInput, EntryLine } from '#human/store/types';
 
 export const ENGINE_JOURNAL_DOMAIN = HUMAN_AGENT_DOMAIN;
 
-function toJournalRecord(line: WireLine, domain: string, branch: string, seq: number): JournalRecord | undefined {
+function toJournalRecord(
+  line: WireLine,
+  domain: string,
+  branch: string,
+  seq: number,
+): JournalRecord | undefined {
   const type = humanEventType(line.record.type, domain);
   if (type === undefined) return undefined;
   const ts = typeof line.record.time === 'number' ? line.record.time : 0;
@@ -43,7 +48,11 @@ export function wireStoreJournal(wire: IWireService, domain: string): SyncStoreJ
       return { tree: wire.journalRef.tree, branch: wire.journalRef.branch };
     },
     append: (input) => {
-      wire.append({ ...(input.data as Record<string, unknown>), type: humanRecordType(domain, input.type), kind: input.kind });
+      wire.append({
+        ...(input.data as Record<string, unknown>),
+        type: humanRecordType(domain, input.type),
+        kind: input.kind,
+      });
       const journalRecord: JournalRecord = {
         branch: wire.journalRef.branch,
         seq: read().length,

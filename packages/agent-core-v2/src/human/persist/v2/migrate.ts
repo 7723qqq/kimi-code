@@ -4,8 +4,8 @@ import { basename, join } from 'node:path';
 import { messageAppended, stateUpdated, turnEnded } from '#/agent/events';
 import { agentOpened, SESSION_LOG_BRANCH, sessionMetaUpdated } from '#/session/events';
 import { NodeBackend } from '#/store/backend/node';
-import { TreeStore } from '#/store/store';
 import type { Branch } from '#/store/branch';
+import { TreeStore } from '#/store/store';
 
 import { convertV2Message, type V2BlobResolver } from './convert';
 import { foldV2WireRecords } from './fold';
@@ -85,8 +85,10 @@ function normalizeTitle(raw: Record<string, unknown>): { title?: string; titleKi
   ) {
     return { title, titleKind: raw['titleKind'] };
   }
-  if (title !== undefined && raw['isCustomTitle'] === false) return { title, titleKind: 'replaceable' };
-  if (typeof raw['customTitle'] === 'string') return { title: raw['customTitle'], titleKind: 'custom' };
+  if (title !== undefined && raw['isCustomTitle'] === false)
+    return { title, titleKind: 'replaceable' };
+  if (typeof raw['customTitle'] === 'string')
+    return { title: raw['customTitle'], titleKind: 'custom' };
   return title === undefined ? {} : { title, titleKind: 'replaceable' };
 }
 
@@ -205,7 +207,11 @@ export async function migrateV2Session(dir: string): Promise<V2MigrationResult> 
         data: agentOpened({ agentId, branch: agentId }),
       });
     }
-    await log.append({ type: sessionMetaUpdated.type, kind: 'event', data: sessionMetaUpdated({ meta }) });
+    await log.append({
+      type: sessionMetaUpdated.type,
+      kind: 'event',
+      data: sessionMetaUpdated({ meta }),
+    });
     for (const branchName of tree.branches()) {
       await tree.openBranch(branchName).settled();
     }

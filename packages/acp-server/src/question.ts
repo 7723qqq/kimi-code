@@ -182,9 +182,7 @@ export function elicitationResponseToQuestionAnswers(
     const value = content[questionPropertyKey(i)];
     if (q.multiSelect === true) {
       if (!Array.isArray(value)) return;
-      const picked = q.options
-        .map((opt) => opt.label)
-        .filter((label) => value.includes(label));
+      const picked = q.options.map((opt) => opt.label).filter((label) => value.includes(label));
       if (picked.length > 0) answers[q.question] = picked.join(', ');
       return;
     }

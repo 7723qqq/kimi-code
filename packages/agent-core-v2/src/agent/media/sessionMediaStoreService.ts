@@ -1,8 +1,8 @@
 import { extname } from 'node:path';
 
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { LifecycleScope } from '#/app/scopes';
 import { isFileId } from '#/app/file/fileService';
+import { LifecycleScope } from '#/app/scopes';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
@@ -138,8 +138,7 @@ export class SessionMediaStoreService implements ISessionMediaStore {
   private async findKey(fileId: string): Promise<string | undefined> {
     const keys = await this.storage.list(this.scope, fileId);
     return keys.find(
-      (key) =>
-        key === fileId || (key.startsWith(`${fileId}.`) && !key.includes('.tmp.')),
+      (key) => key === fileId || (key.startsWith(`${fileId}.`) && !key.includes('.tmp.')),
     );
   }
 }

@@ -97,7 +97,11 @@ const textFrameShape = {
 
 export const textFrameSchema = z.discriminatedUnion('role', [
   z.object({ ...textFrameShape, role: z.literal('assistant'), origin: z.never().optional() }),
-  z.object({ ...textFrameShape, role: z.literal('user'), origin: transcriptUserOriginSchema.optional() }),
+  z.object({
+    ...textFrameShape,
+    role: z.literal('user'),
+    origin: transcriptUserOriginSchema.optional(),
+  }),
 ]);
 
 export const thinkingFrameSchema = z.object({
@@ -411,7 +415,11 @@ export const appendTargetSchema = z.discriminatedUnion('type', [
 ]);
 
 export const transcriptOperationSchema = z.discriminatedUnion('op', [
-  z.object({ op: z.literal('reset'), agentId: agentIdSchema, snapshot: agentTranscriptSnapshotSchema }),
+  z.object({
+    op: z.literal('reset'),
+    agentId: agentIdSchema,
+    snapshot: agentTranscriptSnapshotSchema,
+  }),
   z.object({ op: z.literal('turn.upsert'), turn: turnHeaderSchema }),
   z.object({ op: z.literal('step.upsert'), turnId: turnIdSchema, step: stepHeaderSchema }),
   z.object({
@@ -514,9 +522,7 @@ export const transcriptResponseSchema = z.object({
 
 export const transcriptOpsCatchupResponseSchema = z.object({
   agent_id: agentIdSchema,
-  batches: z.array(
-    z.object({ seq: transcriptSeqSchema, ops: z.array(transcriptOperationSchema) }),
-  ),
+  batches: z.array(z.object({ seq: transcriptSeqSchema, ops: z.array(transcriptOperationSchema) })),
   latest_seq: transcriptSeqSchema,
   complete: z.boolean(),
 });
@@ -553,9 +559,7 @@ export const transcriptPlanEntrySchema = z.object({
   source: z.enum(['interaction', 'display', 'output']),
   plan: z.string(),
   path: z.string().optional(),
-  options: z
-    .array(z.object({ label: z.string(), description: z.string().optional() }))
-    .optional(),
+  options: z.array(z.object({ label: z.string(), description: z.string().optional() })).optional(),
   review: transcriptPlanReviewSchema.optional(),
 });
 

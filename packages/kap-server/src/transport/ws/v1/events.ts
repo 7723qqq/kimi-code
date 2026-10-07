@@ -1,13 +1,13 @@
+import type { UsageStatus } from '@moonshot-ai/agent-core-v2';
+import type { PermissionMode } from '@moonshot-ai/agent-core-v2/contract';
 import type { z } from 'zod';
 
 import type { agentEventSchema } from '../../../protocol/events-zod';
 import type { MessageContent } from '../../../protocol/message';
-import type { PermissionMode } from '@moonshot-ai/agent-core-v2/contract';
-import type { UsageStatus } from '@moonshot-ai/agent-core-v2';
-import type { AgentPhase } from '../../../services/legacyStatus/legacyStatus';
 import type { ConfigResponse } from '../../../protocol/rest-config';
 import type { Session, SessionPendingInteraction } from '../../../protocol/session';
 import type { Workspace } from '../../../protocol/workspace';
+import type { AgentPhase } from '../../../services/legacyStatus/legacyStatus';
 
 export interface AgentStatusUpdatedEvent {
   readonly type: 'agent.status.updated';
@@ -199,10 +199,7 @@ export interface QuestionTaskInfo extends TaskInfoBase {
   readonly toolCallId?: string;
 }
 
-export type TaskInfo =
-  | ProcessTaskInfo
-  | AgentTaskInfo
-  | QuestionTaskInfo;
+export type TaskInfo = ProcessTaskInfo | AgentTaskInfo | QuestionTaskInfo;
 
 export interface BackgroundTaskStartedEvent {
   readonly type: 'background.task.started';

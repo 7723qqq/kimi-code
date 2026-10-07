@@ -71,9 +71,7 @@ export async function branchTip(cwd: string, ref: string): Promise<string> {
 }
 
 export async function branchExists(cwd: string, branch: string): Promise<boolean> {
-  return (
-    (await tryGit(cwd, ['show-ref', '--verify', '--quiet', `refs/heads/${branch}`])) !== null
-  );
+  return (await tryGit(cwd, ['show-ref', '--verify', '--quiet', `refs/heads/${branch}`])) !== null;
 }
 
 const ADD_PATHS_CHUNK = 100;

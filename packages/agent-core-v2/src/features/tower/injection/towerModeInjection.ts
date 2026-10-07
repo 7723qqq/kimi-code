@@ -1,9 +1,10 @@
 import { Service } from '#/_base/di/service';
-import type { IAgentReminderService } from '#/features/reminder/reminderService';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IFlagService } from '#/app/flag/flag';
+import type { IAgentReminderService } from '#/features/reminder/reminderService';
 import { IAgentTowerService, TOWER_FLAG_ID } from '#/features/tower/tower';
+
 import TOWER_MODE_EXIT_REMINDER from './tower-mode-exit-reminder.md?raw';
 import TOWER_MODE_FULL_REMINDER from './tower-mode-full-reminder.md?raw';
 import TOWER_MODE_SPARSE_REMINDER from './tower-mode-sparse-reminder.md?raw';

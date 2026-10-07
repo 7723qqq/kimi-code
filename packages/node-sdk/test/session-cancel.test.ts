@@ -87,7 +87,9 @@ describe('Session.cancel', () => {
     try {
       const session = await harness.createSession({ id: 'ses_cancel_compaction', workDir });
 
-      await expect(session.compact({ instruction: 'Keep the compact test pending.' })).rejects.toMatchObject({
+      await expect(
+        session.compact({ instruction: 'Keep the compact test pending.' }),
+      ).rejects.toMatchObject({
         code: 'compaction.unable',
       });
     } finally {

@@ -24,9 +24,10 @@ const PRIVATE_ADDRESS_BLOCKLIST = (() => {
  */
 export function isBlockedIpAddress(address: string): boolean {
   const withoutZone = address.split('%', 1)[0] ?? address;
-  const host = withoutZone.startsWith('[') && withoutZone.endsWith(']')
-    ? withoutZone.slice(1, -1)
-    : withoutZone;
+  const host =
+    withoutZone.startsWith('[') && withoutZone.endsWith(']')
+      ? withoutZone.slice(1, -1)
+      : withoutZone;
   if (isIP(host) === 4) return PRIVATE_ADDRESS_BLOCKLIST.check(host, 'ipv4');
   return isIP(host) === 6 && PRIVATE_ADDRESS_BLOCKLIST.check(host, 'ipv6');
 }

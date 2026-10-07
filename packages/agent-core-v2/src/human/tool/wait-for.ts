@@ -84,7 +84,9 @@ export const waitForTool: ToolDefinition = defineTool({
     }
     if (waitForTasks === undefined) {
       return {
-        content: [{ type: 'text', text: 'WaitFor requires background task support from the agent' }],
+        content: [
+          { type: 'text', text: 'WaitFor requires background task support from the agent' },
+        ],
         isError: true,
       };
     }
@@ -98,6 +100,8 @@ export const waitForTool: ToolDefinition = defineTool({
         isError: true,
       };
     }
-    return { content: [{ type: 'text', text: formatWaitForOutcome(outcome, parsed.args.timeoutMs) }] };
+    return {
+      content: [{ type: 'text', text: formatWaitForOutcome(outcome, parsed.args.timeoutMs) }],
+    };
   },
 });

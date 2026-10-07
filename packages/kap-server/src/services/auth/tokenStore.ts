@@ -45,8 +45,7 @@ export async function createTokenStore(homeDir: string): Promise<TokenStore> {
       if (token.length > 0) {
         cache = { token, mtimeMs: st.mtimeMs, ino: st.ino };
       }
-    } catch {
-    }
+    } catch {}
     return cache.token;
   };
 
@@ -61,7 +60,6 @@ export async function createTokenStore(homeDir: string): Promise<TokenStore> {
       }
       return timingSafeEqual(candidateBuf, tokenBuf);
     },
-    async dispose(): Promise<void> {
-    },
+    async dispose(): Promise<void> {},
   };
 }

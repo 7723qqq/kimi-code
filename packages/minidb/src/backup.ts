@@ -9,6 +9,7 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
+
 import { fsyncDir } from './compaction.js';
 import { isPersistentFile } from './generation.js';
 
@@ -38,9 +39,12 @@ export interface BackupDeps {
  *  fence is short (file copies) and retryable, so callers can simply
  *  re-issue the write afterwards. */
 export function backupInProgressError(): Error {
-  return Object.assign(new Error('MiniDb backup is in progress: writes are fenced until it completes'), {
-    code: 'BACKUP_IN_PROGRESS',
-  });
+  return Object.assign(
+    new Error('MiniDb backup is in progress: writes are fenced until it completes'),
+    {
+      code: 'BACKUP_IN_PROGRESS',
+    },
+  );
 }
 
 /** Write a consistent online backup of this database directory.
@@ -57,7 +61,11 @@ export function backupInProgressError(): Error {
  *  restored if the rename fails). A failure anywhere before the rename
  *  leaves the destination untouched and the temp dir removed — never a half
  *  backup. Concurrent backups serialize on serializeBackups. */
-export async function backup(deps: BackupDeps, destDir: string, opts: { compact?: boolean } = {}): Promise<void> {
+export async function backup(
+  deps: BackupDeps,
+  destDir: string,
+  opts: { compact?: boolean } = {},
+): Promise<void> {
   deps.ensureOpen();
   if (!destDir) throw new TypeError('backup: destDir is required');
   if (deps.compacting()) await deps.compactDone();
@@ -129,7 +137,11 @@ async function copyBackupAtomic(deps: BackupDeps, destDir: string): Promise<void
       }
     }
     const manifest = path.join(tmp, 'backup.manifest.json');
-    await fs.writeFile(manifest, JSON.stringify({ version: 1, createdAt: Date.now(), files: copied }, null, 2), 'utf8');
+    await fs.writeFile(
+      manifest,
+      JSON.stringify({ version: 1, createdAt: Date.now(), files: copied }, null, 2),
+      'utf8',
+    );
     const mh = await fs.open(manifest, 'r');
     try {
       await mh.sync();

@@ -337,7 +337,9 @@ describe('watch signal mode', () => {
       await writeFile(join(target, 'config.toml'), 'x');
 
       await expect
-        .poll(() => events.some((e) => e.path === join(requested, 'config.toml') && e.action === 'created'))
+        .poll(() =>
+          events.some((e) => e.path === join(requested, 'config.toml') && e.action === 'created'),
+        )
         .toBe(true);
       expect(events.every((e) => e.path.startsWith(requested))).toBe(true);
       expect(ignoredPaths.every((path) => path.startsWith(requested))).toBe(true);
@@ -434,9 +436,9 @@ describe('watch chokidar mode', () => {
 
     await writeFile(file, 'hello');
     await expect.poll(() => events.some((e) => e.path === file), { timeout: 5000 }).toBe(true);
-    expect(events.some((e) => e.path === kimi || e.path === root || e.path.includes('sessions'))).toBe(
-      false,
-    );
+    expect(
+      events.some((e) => e.path === kimi || e.path === root || e.path.includes('sessions')),
+    ).toBe(false);
   });
 
   it('prunes events matching a custom ignored predicate', async () => {
@@ -498,10 +500,14 @@ describe('watch chokidar mode', () => {
       root = await mkdtemp(join(tmpdir(), 'watch-'));
       const long = join(root, 'long directory name');
       await mkdir(long);
-      const short = execFileSync('cmd.exe', ['/d', '/s', '/c', `"for %I in ("${long}") do @echo %~sI"`], {
-        encoding: 'utf8',
-        windowsVerbatimArguments: true,
-      }).trim();
+      const short = execFileSync(
+        'cmd.exe',
+        ['/d', '/s', '/c', `"for %I in ("${long}") do @echo %~sI"`],
+        {
+          encoding: 'utf8',
+          windowsVerbatimArguments: true,
+        },
+      ).trim();
       expect(basename(short)).toMatch(/~\d/);
       expect(existsSync(short)).toBe(true);
       await writeFile(join(long, 'config.toml'), 'v1');

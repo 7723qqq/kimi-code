@@ -380,7 +380,8 @@ export const KIMI_ERROR_INFO = {
     title: 'Unable to compact',
     retryable: false,
     public: true,
-    action: 'The current history has no prefix that can be compacted (e.g. only a pending user message). Start a new turn or session instead.',
+    action:
+      'The current history has no prefix that can be compacted (e.g. only a pending user message). Start a new turn or session instead.',
   },
 
   'task.task_id_empty': {
@@ -456,7 +457,8 @@ export const KIMI_ERROR_INFO = {
     title: 'Git Bash not found',
     retryable: false,
     public: true,
-    action: 'Install Git for Windows from https://gitforwindows.org/ or set KIMI_SHELL_PATH to a bash.exe.',
+    action:
+      'Install Git for Windows from https://gitforwindows.org/ or set KIMI_SHELL_PATH to a bash.exe.',
   },
 
   not_implemented: {

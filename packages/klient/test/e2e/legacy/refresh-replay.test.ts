@@ -212,11 +212,7 @@ describeLive('refresh-replay (live server required)', () => {
 
       let maxSeq = 0;
       client.onFrame((f) => {
-        if (
-          typeof f.seq === 'number' &&
-          f.session_id === session.id &&
-          f.seq > maxSeq
-        ) {
+        if (typeof f.seq === 'number' && f.session_id === session.id && f.seq > maxSeq) {
           maxSeq = f.seq;
         }
       });
@@ -274,11 +270,7 @@ describeLive('refresh-replay (live server required)', () => {
 
       let maxSeq = 0;
       client.onFrame((f) => {
-        if (
-          typeof f.seq === 'number' &&
-          f.session_id === session.id &&
-          f.seq > maxSeq
-        ) {
+        if (typeof f.seq === 'number' && f.session_id === session.id && f.seq > maxSeq) {
           maxSeq = f.seq;
         }
       });

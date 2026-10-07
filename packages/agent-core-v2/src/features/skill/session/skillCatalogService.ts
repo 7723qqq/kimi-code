@@ -1,12 +1,16 @@
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
 import { Emitter, type Event } from '#/_base/event';
 import { LifecycleScope } from '#/app/scopes';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { defineState } from '#/state/state';
 import { InMemorySkillCatalog } from '#/features/skill/catalog/registry';
 import type { SkillContribution } from '#/features/skill/catalog/skillSource';
-import { summarizeSkill, type SkillCatalog, type SkillSummary } from '#/features/skill/catalog/types';
+import {
+  summarizeSkill,
+  type SkillCatalog,
+  type SkillSummary,
+} from '#/features/skill/catalog/types';
 import { ISessionStateService } from '#/session/state/sessionState';
+import { defineState } from '#/state/state';
 
 import { ISessionSkillCatalog, type ISkillCatalogSink } from './skillCatalog';
 import { ISessionSkillCatalogData } from './skillCatalogData';

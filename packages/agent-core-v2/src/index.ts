@@ -479,11 +479,7 @@ export * from '#/session/agentLifecycle/forked';
 export * from '#/session/agentLifecycle/mainAgent';
 export * from '#/session/mcp/sessionMcpHandle';
 import '#/app/mcpConfig/configSection';
-export {
-  MCP_SECTION,
-  McpSectionSchema,
-  type McpSection,
-} from '#/app/mcpConfig/configSection';
+export { MCP_SECTION, McpSectionSchema, type McpSection } from '#/app/mcpConfig/configSection';
 export * from '#/app/mcpConfig/oauthStore';
 export { IMcpConfigStore } from '#/app/mcpConfig/configStore';
 import '#/app/mcpConfig/configStore';
@@ -623,10 +619,7 @@ export {
   resolveEffectiveImageMime,
   unsupportedImageMimeFromUrl,
 } from '#/agent/media/image-format-policy';
-export {
-  persistOriginalImage,
-  sessionMediaOriginalsDir,
-} from '#/agent/media/image-originals';
+export { persistOriginalImage, sessionMediaOriginalsDir } from '#/agent/media/image-originals';
 export * from '#/app/edit/fileEdit';
 export * from '#/app/edit/fileEditService';
 export * from '#/app/edit/editService';
@@ -769,7 +762,10 @@ import '#/agent/toolRegistry/toolRegistry';
 import '#/agent/toolRegistry/toolRegistryService';
 export { IAgentToolActivationService } from '#/agent/toolActivation/toolActivation';
 export { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-export { registerAgentToolService, AgentToolContribution } from '#/agent/toolRegistry/toolContribution';
+export {
+  registerAgentToolService,
+  AgentToolContribution,
+} from '#/agent/toolRegistry/toolContribution';
 export type { AgentToolContributionOptions } from '#/agent/toolRegistry/toolContribution';
 export * from '#/agent/userTool/userTool';
 export * from '#/agent/userTool/userToolOps';

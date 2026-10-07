@@ -1,9 +1,7 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { ExecutableToolResult } from '#/tool/toolContract';
 
-export interface ToolResultTruncationInput<
-  T extends ExecutableToolResult = ExecutableToolResult,
-> {
+export interface ToolResultTruncationInput<T extends ExecutableToolResult = ExecutableToolResult> {
   readonly toolName: string;
   readonly toolCallId: string;
   readonly result: T;
@@ -12,15 +10,12 @@ export interface ToolResultTruncationInput<
 export interface IAgentToolResultTruncationService {
   readonly _serviceBrand: undefined;
 
-  truncateForModel<T extends ExecutableToolResult>(
-    input: ToolResultTruncationInput<T>,
-  ): Promise<T>;
+  truncateForModel<T extends ExecutableToolResult>(input: ToolResultTruncationInput<T>): Promise<T>;
 
   isSpillFilePath(path: string): boolean;
 
   isWireJournalPath(path: string): boolean;
 }
 
-export const IAgentToolResultTruncationService: ServiceIdentifier<
-  IAgentToolResultTruncationService
-> = createDecorator<IAgentToolResultTruncationService>('agentToolResultTruncationService');
+export const IAgentToolResultTruncationService: ServiceIdentifier<IAgentToolResultTruncationService> =
+  createDecorator<IAgentToolResultTruncationService>('agentToolResultTruncationService');

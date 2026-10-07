@@ -25,25 +25,23 @@
  * rather than a full cartesian product.
  */
 
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-
 import { bootstrap, logSeed, resolveLoggingConfig } from '@moonshot-ai/agent-core-v2';
-
-import { TEST_CLIENT_IDENTITY } from '../helpers/engine.js';
 import type { ContentPart } from '@moonshot-ai/agent-core-v2';
 import { IModelService } from '@moonshot-ai/agent-core-v2/llm-adapter/model/model';
+import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
-import type { Klient } from '../../src/index.js';
-import type { AgentHandle } from '../../src/core/klient.js';
 import type { KlientEvents } from '../../src/core/events/hub.js';
+import type { AgentHandle } from '../../src/core/klient.js';
 import { KlientValidationError } from '../../src/core/validation.js';
+import type { Klient } from '../../src/index.js';
 import { createKlient as createMemoryKlient } from '../../src/transports/memory/index.js';
+import { TEST_CLIENT_IDENTITY } from '../helpers/engine.js';
 
 // The dual/http e2e suites (and their `helpers/dual.ts`) were dropped with the
 // http transport; the two wait primitives they exported are re-declared here.
@@ -203,9 +201,7 @@ function openAiToolCallSse(id: string, name: string, args: string): string[] {
             index: 0,
             delta: {
               role: 'assistant',
-              tool_calls: [
-                { index: 0, id, type: 'function', function: { name, arguments: args } },
-              ],
+              tool_calls: [{ index: 0, id, type: 'function', function: { name, arguments: args } }],
             },
             finish_reason: null,
           },
@@ -274,9 +270,7 @@ function anthropicSse(text: string): string[] {
 function googleSse(text: string): string[] {
   return sseLines(
     JSON.stringify({
-      candidates: [
-        { content: { role: 'model', parts: [{ text }] }, finishReason: 'STOP' },
-      ],
+      candidates: [{ content: { role: 'model', parts: [{ text }] }, finishReason: 'STOP' }],
       usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 2 },
       responseId: 'resp-mock',
     }),
@@ -499,9 +493,7 @@ describe('l1: klient input validation', () => {
     const ctx = await newCase(M_OPENAI, 'l1-image-missing-url');
     resetMock(queueScript(OK_OPENAI));
 
-    const badInput = [
-      { type: 'image_url', imageUrl: {} },
-    ] as unknown as readonly ContentPart[];
+    const badInput = [{ type: 'image_url', imageUrl: {} }] as unknown as readonly ContentPart[];
     const failure = await ctx.agent.prompt({ input: badInput }).catch((error: unknown) => error);
     expect(failure).toBeInstanceOf(KlientValidationError);
     expect((failure as KlientValidationError).phase).toBe('input');
@@ -746,9 +738,9 @@ describe('daemon file references (kimi-file://)', () => {
     expect(requests).toHaveLength(1);
     expect(JSON.stringify(requests[0]?.json)).not.toContain(`kimi-file://${meta.id}`);
     const content = openAiMessages(0).at(-1)?.['content'] as unknown[];
-    const imagePart = content.find(
-      (part) => (part as { type?: string }).type === 'image_url',
-    ) as { image_url?: { url?: string } } | undefined;
+    const imagePart = content.find((part) => (part as { type?: string }).type === 'image_url') as
+      | { image_url?: { url?: string } }
+      | undefined;
     expect(imagePart?.image_url?.url ?? '').toMatch(/^data:image\/png;base64,/);
     expect(ctx.payloads('prompt.completed')[0]?.['reason']).toBe('completed');
   }, 60_000);
@@ -793,12 +785,12 @@ describe('daemon file references (kimi-file://)', () => {
     const chatCalls = requests.filter((request) => request.url === '/v1/chat/completions');
     expect(chatCalls).toHaveLength(1);
     expect(JSON.stringify(chatCalls[0]?.json)).not.toContain(`kimi-file://${meta.id}`);
-    const content = (chatCalls[0]?.json as { messages?: Record<string, unknown>[] })
-      .messages?.filter((message) => !isDateReminderMessage(message))
+    const content = (chatCalls[0]?.json as { messages?: Record<string, unknown>[] }).messages
+      ?.filter((message) => !isDateReminderMessage(message))
       .at(-1)?.['content'] as unknown[];
-    const imagePart = content.find(
-      (part) => (part as { type?: string }).type === 'image_url',
-    ) as { image_url?: { url?: string } } | undefined;
+    const imagePart = content.find((part) => (part as { type?: string }).type === 'image_url') as
+      | { image_url?: { url?: string } }
+      | undefined;
     expect(imagePart?.image_url?.url ?? '').toBe('ms://file-mock-image');
     expect(ctx.payloads('prompt.completed')[0]?.['reason']).toBe('completed');
   }, 60_000);
@@ -1020,9 +1012,9 @@ describe('tool exchange structure', () => {
     const assistant = messages.find(
       (message) => message['role'] === 'assistant' && message['tool_calls'] !== undefined,
     );
-    expect(
-      (assistant?.['tool_calls'] as { id: string }[]).map((call) => call.id),
-    ).toContain('call_unknown_1');
+    expect((assistant?.['tool_calls'] as { id: string }[]).map((call) => call.id)).toContain(
+      'call_unknown_1',
+    );
     const toolMessage = messages.find(
       (message) => message['role'] === 'tool' && message['tool_call_id'] === 'call_unknown_1',
     );
@@ -1170,9 +1162,7 @@ describe('provider HTTP errors', () => {
 
   it('a 400 structure error is retried once with the strict projection, then succeeds (l3 + engine fallback)', async () => {
     const ctx = await newCase(M_OPENAI, 'openai-400-strict');
-    resetMock(
-      queueScript(jsonError(400, "tool_call_id 'call_x' not found"), OK_OPENAI),
-    );
+    resetMock(queueScript(jsonError(400, "tool_call_id 'call_x' not found"), OK_OPENAI));
 
     await promptAndWait(ctx, [{ type: 'text', text: 'hello' }]);
 

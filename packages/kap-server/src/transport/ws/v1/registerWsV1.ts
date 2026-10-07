@@ -2,11 +2,11 @@ import type { Scope } from '@moonshot-ai/agent-core-v2';
 import { WebSocketServer } from 'ws';
 
 import type { CredentialValidator } from '../../../services/auth/credentials';
+import { selectWsBearerProtocol } from '../bearerProtocol';
 import { type IConnectionRegistry } from '../connectionRegistry';
 import type { SessionEventBroadcaster } from './sessionEventBroadcaster';
 import type { JournalLogger } from './sessionEventJournal';
 import { WsConnectionV1 } from './wsConnectionV1';
-import { selectWsBearerProtocol } from '../bearerProtocol';
 
 export const WS_PATH = '/api/v1/ws';
 

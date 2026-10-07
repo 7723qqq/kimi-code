@@ -1,5 +1,5 @@
-import { addUsage, type TokenUsage } from '#human/llm/usage';
 import type { PersistentSubagentHost } from '#/session/subagent/persistentSubagent';
+import { addUsage, type TokenUsage } from '#human/llm/usage';
 
 import { DiscussionContext, type DiscussionEntry } from './context';
 
@@ -248,8 +248,7 @@ export class TeamCoordinator {
     for (const agentId of this.agentIds) {
       try {
         await this.subagentHost.destroyPersistent(agentId);
-      } catch {
-      }
+      } catch {}
     }
     this.agentIds.length = 0;
   }

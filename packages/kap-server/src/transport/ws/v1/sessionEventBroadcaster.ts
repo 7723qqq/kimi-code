@@ -26,22 +26,6 @@ import {
   interactions,
   toDisposable,
 } from '@moonshot-ai/agent-core-v2';
-import type {
-  ConfigWarningItem,
-  DiUnitChangedEvent,
-  ModelCatalogRefreshChange,
-  ModelCatalogRefreshFailure,
-  SessionCreatedEvent,
-  SessionMetaUpdatedEvent,
-  Event,
-} from './events';
-import { isVolatileEventType } from './events';
-import type { SessionCursor } from '../../../protocol/ws-control';
-import {
-  configChangedEventSchema,
-  modelCatalogChangedEventSchema,
-} from '../../../protocol/events-zod';
-import type { InFlightTurn, SnapshotSubagent } from '../../../protocol/rest-snapshot';
 import {
   detachGrades,
   filterOpsForGrade,
@@ -57,25 +41,41 @@ import {
   type TranscriptStore,
 } from '@moonshot-ai/transcript';
 
-import { interactionAgentId, toWireApproval } from '../../../routes/approvals';
+import {
+  configChangedEventSchema,
+  modelCatalogChangedEventSchema,
+} from '../../../protocol/events-zod';
 import { toWireQuestion } from '../../../protocol/question-wire';
+import type { InFlightTurn, SnapshotSubagent } from '../../../protocol/rest-snapshot';
+import type { SessionCursor } from '../../../protocol/ws-control';
+import { interactionAgentId, toWireApproval } from '../../../routes/approvals';
 import { toWireWorkspace } from '../../../routes/workspaces';
-import { projectPromptContentParts } from '../../../services/messages/messageProjection';
-import { readLegacyStatus } from '../../../services/legacyStatus/legacyStatus';
 import {
   legacyApprovalsOf,
   LegacyActivityTracker,
   phaseFromDomainEvent,
 } from '../../../services/legacyStatus/legacyActivity';
+import { readLegacyStatus } from '../../../services/legacyStatus/legacyStatus';
+import { projectPromptContentParts } from '../../../services/messages/messageProjection';
 import type { TranscriptService } from '../../../services/transcript/transcriptService';
+import type {
+  ConfigWarningItem,
+  DiUnitChangedEvent,
+  ModelCatalogRefreshChange,
+  ModelCatalogRefreshFailure,
+  SessionCreatedEvent,
+  SessionMetaUpdatedEvent,
+  Event,
+} from './events';
+import { isVolatileEventType } from './events';
 import { InFlightTurnTracker } from './inFlightTurnTracker';
-import { SubagentRosterTracker } from './subagentRosterTracker';
 import {
   type EventEnvelope,
   type JournalLogger,
   SessionEventJournal,
   sessionJournalPath,
 } from './sessionEventJournal';
+import { SubagentRosterTracker } from './subagentRosterTracker';
 
 export type ResyncReason = 'buffer_overflow' | 'session_recreated' | 'epoch_changed';
 
@@ -122,7 +122,10 @@ interface SessionState {
   queue: Promise<void>;
   readonly agentDisposables: Map<string, IDisposable>;
   readonly lifecycleDisposables: IDisposable[];
-  readonly knownInteractions: Map<string, { readonly kind: InteractionKind; readonly agentId: string }>;
+  readonly knownInteractions: Map<
+    string,
+    { readonly kind: InteractionKind; readonly agentId: string }
+  >;
   transcriptStream?: TranscriptStream;
   readonly transcriptSeeded: Set<BroadcastTarget>;
   readonly deferredTranscriptSeeds: Map<
@@ -162,11 +165,11 @@ export class SessionEventBroadcaster {
     },
   ) {
     this.maxBufferSize = opts.maxBufferSize ?? DEFAULT_MAX_BUFFER_SIZE;
-    this.deletionSubscription = opts.core.accessor.get(ISessionManager).onWillDeleteSession?.(
-      (event) => {
+    this.deletionSubscription = opts.core.accessor
+      .get(ISessionManager)
+      .onWillDeleteSession?.((event) => {
         event.waitUntil(this.purgeSession(event.sessionId));
-      },
-    );
+      });
     this.coreEventSubscription = opts.core.accessor
       .get(IEventService)
       .subscribe((event) => this.onCoreEvent(event));
@@ -245,7 +248,13 @@ export class SessionEventBroadcaster {
     const deferred = state.deferredTranscriptSeeds.get(target);
     if (deferred === undefined) return;
     state.deferredTranscriptSeeds.delete(target);
-    await this.subscribeTranscript(state, target, deferred.spec, undefined, deferred.transcriptSince);
+    await this.subscribeTranscript(
+      state,
+      target,
+      deferred.spec,
+      undefined,
+      deferred.transcriptSince,
+    );
     if (state.targets.has(target)) state.transcriptSeeded.add(target);
   }
 
@@ -266,8 +275,7 @@ export class SessionEventBroadcaster {
     if (state === undefined) return;
     const sub = state.targets.get(target);
     if (sub === undefined) return;
-    const next =
-      agentIds === undefined ? undefined : detachGrades(sub.transcriptGrades, agentIds);
+    const next = agentIds === undefined ? undefined : detachGrades(sub.transcriptGrades, agentIds);
     if (next === undefined) {
       state.targets.set(target, { agentFilter: sub.agentFilter, transcriptGrades: undefined });
       state.transcriptSeeded.delete(target);
@@ -340,8 +348,7 @@ export class SessionEventBroadcaster {
             seq: batch.seq,
           }),
         );
-      } catch {
-      }
+      } catch {}
     }
   }
 
@@ -369,8 +376,7 @@ export class SessionEventBroadcaster {
               seq,
             }),
           );
-        } catch {
-        }
+        } catch {}
       }
     });
     if (opsDisposable !== undefined) state.lifecycleDisposables.push(opsDisposable);
@@ -388,8 +394,7 @@ export class SessionEventBroadcaster {
             if (grade === 'off') continue;
             try {
               this.sendTranscriptReset(state, target, transcript, grade);
-            } catch {
-            }
+            } catch {}
           }
         }
       }),
@@ -609,7 +614,8 @@ export class SessionEventBroadcaster {
       this.sessions.delete(sessionId);
       await disposeSessionState(state);
       this.dropActivityTrackers(sessionId);
-      if (error instanceof Error && error.message === 'InstantiationService has been disposed') return undefined;
+      if (error instanceof Error && error.message === 'InstantiationService has been disposed')
+        return undefined;
       throw error;
     }
     return state;
@@ -968,8 +974,14 @@ export class SessionEventBroadcaster {
         promptAttachments?: unknown;
       };
       wireEvent = Object.assign({}, wireFields, { agentId, sessionId }) as unknown as Event;
-    } else if (event.type === 'prompt.steered' || event.type === 'prompt.queued' || event.type === 'prompt.submitted') {
-      const content = (event as unknown as { content: Parameters<typeof projectPromptContentParts>[0] }).content;
+    } else if (
+      event.type === 'prompt.steered' ||
+      event.type === 'prompt.queued' ||
+      event.type === 'prompt.submitted'
+    ) {
+      const content = (
+        event as unknown as { content: Parameters<typeof projectPromptContentParts>[0] }
+      ).content;
       wireEvent = Object.assign({}, event, {
         content: projectPromptContentParts(content),
         agentId,
@@ -1000,15 +1012,14 @@ export class SessionEventBroadcaster {
         } as unknown as Event;
         state.queue = state.queue
           .then(() => this.dispatch(state, phaseEvent, true))
-          .catch((error: unknown) => this.logDispatchDropped(state.sessionId, phaseEvent.type, error));
+          .catch((error: unknown) =>
+            this.logDispatchDropped(state.sessionId, phaseEvent.type, error),
+          );
       }
     }
   }
 
-  private attachInteractions(
-    sessionId: string,
-    state: SessionState,
-  ): void {
+  private attachInteractions(sessionId: string, state: SessionState): void {
     const pendingOfSession = (): readonly Interaction[] =>
       interactions.findAll({
         resolved: false,
@@ -1038,7 +1049,13 @@ export class SessionEventBroadcaster {
           const known = state.knownInteractions.get(id);
           if (known === undefined) return;
           state.knownInteractions.delete(id);
-          const event = interactionResolvedEvent(known.kind, id, response, sessionId, known.agentId);
+          const event = interactionResolvedEvent(
+            known.kind,
+            id,
+            response,
+            sessionId,
+            known.agentId,
+          );
           if (event !== undefined) {
             this.enqueueDurable(state, event);
           }
@@ -1120,8 +1137,7 @@ export class SessionEventBroadcaster {
         if (diGated && !this.diEventTargets.has(target)) continue;
         try {
           target.send(envelope, 'immediate');
-        } catch {
-        }
+        } catch {}
       }
     } else {
       for (const [target, sub] of targets) {
@@ -1129,8 +1145,7 @@ export class SessionEventBroadcaster {
         if (suppressedByTranscript(envelope, sub.transcriptGrades)) continue;
         try {
           target.send(envelope);
-        } catch {
-        }
+        } catch {}
       }
     }
   }
@@ -1146,9 +1161,7 @@ export class SessionEventBroadcaster {
       seq,
       session_id: sessionId,
       timestamp:
-        event.time !== undefined
-          ? new Date(event.time).toISOString()
-          : new Date().toISOString(),
+        event.time !== undefined ? new Date(event.time).toISOString() : new Date().toISOString(),
       payload: event,
       ...extras,
     };
@@ -1178,7 +1191,11 @@ function isVolatileSignal(type: string): boolean {
   return volatileSignalTypeSet.has(type);
 }
 
-function legacyTaskEvent(event: Event2<any>, agentId: string, sessionId: string): Event | undefined {
+function legacyTaskEvent(
+  event: Event2<any>,
+  agentId: string,
+  sessionId: string,
+): Event | undefined {
   if (event.type !== 'task.started' && event.type !== 'task.terminated') return undefined;
   const legacyType =
     event.type === 'task.started' ? 'background.task.started' : 'background.task.terminated';
@@ -1369,8 +1386,8 @@ function sessionMetaUpdatedPayload(
   const title = typeof candidate.title === 'string' ? candidate.title : undefined;
   const patch =
     typeof candidate.patch === 'object' &&
-      candidate.patch !== null &&
-      !Array.isArray(candidate.patch)
+    candidate.patch !== null &&
+    !Array.isArray(candidate.patch)
       ? candidate.patch
       : undefined;
   if (title === undefined && patch === undefined) return undefined;
@@ -1420,8 +1437,8 @@ function sessionCreatedPayload(
       : undefined;
   const session =
     typeof candidate.session === 'object' &&
-      candidate.session !== null &&
-      !Array.isArray(candidate.session)
+    candidate.session !== null &&
+    !Array.isArray(candidate.session)
       ? (candidate.session as SessionCreatedEvent['session'])
       : undefined;
   if (sessionId === undefined || session === undefined) return undefined;
@@ -1544,9 +1561,7 @@ function configChangedPayload(
   return { changedFields: parsed.data.changedFields, config: parsed.data.config };
 }
 
-function modelCatalogChangedPayload(
-  payload: unknown,
-):
+function modelCatalogChangedPayload(payload: unknown):
   | {
       changed: ModelCatalogRefreshChange[];
       unchanged: string[];

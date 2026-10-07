@@ -26,7 +26,9 @@ export async function workspaceSnapshot(
   core: Scope,
   workspaceId: string,
 ): Promise<WorkspaceInstanceSnapshot> {
-  return (await core.accessor.get(IWorkspaceInstanceManager).getOrCreate({ workspaceId })).snapshot();
+  return (
+    await core.accessor.get(IWorkspaceInstanceManager).getOrCreate({ workspaceId })
+  ).snapshot();
 }
 
 export function sessionWorkspaceAssociation(
@@ -49,9 +51,10 @@ export async function agentRuntimeBindingSnapshot(
   if (session === undefined) {
     throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session ${sessionId} not found`);
   }
-  const agent = agentId === MAIN_AGENT_ID
-    ? await ensureMainAgent(session)
-    : session.accessor.get(IAgentLifecycleService).handleOf(agentId);
+  const agent =
+    agentId === MAIN_AGENT_ID
+      ? await ensureMainAgent(session)
+      : session.accessor.get(IAgentLifecycleService).handleOf(agentId);
   if (agent === undefined) {
     throw new Error2(
       ErrorCodes.AGENT_NOT_FOUND,

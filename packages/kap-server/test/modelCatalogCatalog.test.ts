@@ -3,16 +3,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { IConfigService } from '@moonshot-ai/agent-core-v2';
-import { parse as parseToml } from 'smol-toml';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-
 import {
   resetModelsDevUpstreamForTest,
   setModelsDevUpstreamForTest,
 } from '@moonshot-ai/agent-core-v2/app/kosongConfig/modelsDevUpstream';
+import { parse as parseToml } from 'smol-toml';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+
 import { type RunningServer, startServer } from '../src/start';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
 interface Envelope<T> {
   code: number;
@@ -321,7 +321,10 @@ describe('server-v2 /api/v1 catalog browse + import endpoints', () => {
       display_name: 'GPT-4.1',
     });
     expect(models['openai/gpt-4.1']?.['capabilities']).toEqual(['image_in', 'tool_use']);
-    expect(models['openai/gpt-4o-mini']).toMatchObject({ provider: 'openai', model: 'gpt-4o-mini' });
+    expect(models['openai/gpt-4o-mini']).toMatchObject({
+      provider: 'openai',
+      model: 'gpt-4o-mini',
+    });
   });
 
   it('never touches the global default pointers on import', async () => {

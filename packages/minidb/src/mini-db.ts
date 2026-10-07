@@ -1192,7 +1192,8 @@ export class MiniDb<V = unknown> {
       // un-acked tail, so skipping the truncate is the correct recovery.
       await withWindowsEpermRetry(async () => {
         const st = await fs.stat(this.walPath);
-        if (poison.failedAtOffset <= st.size) await fs.truncate(this.walPath, poison.failedAtOffset);
+        if (poison.failedAtOffset <= st.size)
+          await fs.truncate(this.walPath, poison.failedAtOffset);
       });
     } catch (error) {
       this.writeDisabled = error;

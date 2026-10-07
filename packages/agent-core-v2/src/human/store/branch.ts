@@ -1,7 +1,14 @@
 import { writeBlob } from './internal/blob';
 import { encodeHeader, encodeLine, parseHeader, parseLine } from './internal/codec';
 import type { TreeContext } from './internal/context';
-import type { AppendInput, BranchHeader, BranchRef, CorruptionKind, EntryLine, Payload } from './types';
+import type {
+  AppendInput,
+  BranchHeader,
+  BranchRef,
+  CorruptionKind,
+  EntryLine,
+  Payload,
+} from './types';
 import { StoreError } from './types';
 
 const textEncoder = new TextEncoder();
@@ -85,7 +92,13 @@ export class Branch {
     let header: BranchHeader = { version: 1, tree, branch: name, createdAt: Date.now() };
     let degraded = false;
     let truncateAt: number | null = null;
-    const report = (kind: CorruptionKind, seq: number | null, line: number, detail: string, raw?: string): void => {
+    const report = (
+      kind: CorruptionKind,
+      seq: number | null,
+      line: number,
+      detail: string,
+      raw?: string,
+    ): void => {
       ctx.notifyCorruption({ tree, branch: name, seq, line, kind, raw, detail });
     };
     const first = physical[0];
@@ -114,7 +127,13 @@ export class Branch {
           truncated = true;
           break;
         }
-        report(error.kind === 'seq' ? 'seq-gap' : error.kind, expectedSeq, i + 1, error.detail, raw);
+        report(
+          error.kind === 'seq' ? 'seq-gap' : error.kind,
+          expectedSeq,
+          i + 1,
+          error.detail,
+          raw,
+        );
         if (error.kind === 'seq') {
           degraded = true;
           truncateAt = i;
@@ -211,7 +230,10 @@ export class Branch {
 
   private assertWritable(): void {
     if (this.degradedFlag) {
-      throw new StoreError('degraded', `branch ${this.tree}/${this.name} is degraded; call repair() first`);
+      throw new StoreError(
+        'degraded',
+        `branch ${this.tree}/${this.name} is degraded; call repair() first`,
+      );
     }
   }
 

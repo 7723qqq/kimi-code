@@ -187,9 +187,8 @@ function parseMarketplaceEntry(
   }
   const id = requiredString(value, 'id', index);
   validateMarketplaceEntryType(value, id);
-  const source = stringField(value, 'source') ??
-    stringField(value, 'url') ??
-    stringField(value, 'downloadUrl');
+  const source =
+    stringField(value, 'source') ?? stringField(value, 'url') ?? stringField(value, 'downloadUrl');
   if (source === undefined) {
     throw new Error(`Plugin marketplace entry ${id} must define "source".`);
   }

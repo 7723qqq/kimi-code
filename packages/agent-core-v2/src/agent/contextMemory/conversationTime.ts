@@ -28,10 +28,7 @@ export function isUndoAnchor(message: ContextMessage): boolean {
   return isUndoAnchorOrigin(message.origin);
 }
 
-export function isPromptOwnedInjection(
-  message: ContextMessage,
-  prompt: ContextMessage,
-): boolean {
+export function isPromptOwnedInjection(message: ContextMessage, prompt: ContextMessage): boolean {
   const origin = message.origin;
   return (
     origin?.kind === 'injection' &&

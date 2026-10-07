@@ -31,7 +31,6 @@ function walkForPackageVersion(): string {
       if (parent === dir) break;
       dir = parent;
     }
-  } catch {
-  }
+  } catch {}
   return UNKNOWN_VERSION;
 }

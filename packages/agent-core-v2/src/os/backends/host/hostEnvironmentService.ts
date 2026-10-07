@@ -1,5 +1,3 @@
-import { LifecycleScope } from '#/app/scopes';
-
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { BugIndicatingError } from '#/_base/errors/errors';
 import {
@@ -7,7 +5,7 @@ import {
   ProbeShellNotFoundError,
 } from '#/_base/execEnv/environmentProbe';
 import { applyLoginShellPathFromNode } from '#/_base/execEnv/loginShellPath';
-
+import { LifecycleScope } from '#/app/scopes';
 import {
   type HostEnvironmentInfo,
   IHostEnvironment,
@@ -56,11 +54,10 @@ export class HostEnvironmentService implements IHostEnvironment {
 
   private toHostProcessError(error: unknown): Error {
     if (error instanceof ProbeShellNotFoundError) {
-      return new HostProcessError(
-        OsProcessErrors.codes.SHELL_GIT_BASH_NOT_FOUND,
-        error.message,
-        { details: { checkedPaths: error.checked }, cause: error },
-      );
+      return new HostProcessError(OsProcessErrors.codes.SHELL_GIT_BASH_NOT_FOUND, error.message, {
+        details: { checkedPaths: error.checked },
+        cause: error,
+      });
     }
     return error instanceof Error ? error : new Error(String(error));
   }

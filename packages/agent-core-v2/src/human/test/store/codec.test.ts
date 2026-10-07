@@ -5,7 +5,12 @@ import type { BranchHeader, EntryLine } from '#/store/types';
 
 describe('codec header', () => {
   it('round-trips a minimal header', () => {
-    const header: BranchHeader = { version: 1, tree: 'chat', branch: 'main', createdAt: 1788300000000 };
+    const header: BranchHeader = {
+      version: 1,
+      tree: 'chat',
+      branch: 'main',
+      createdAt: 1788300000000,
+    };
     expect(parseHeader(encodeHeader(header))).toEqual({ ok: true, value: header });
   });
 
@@ -34,7 +39,9 @@ describe('codec header', () => {
   });
 
   it('rejects an unsupported version', () => {
-    const result = parseHeader('{"kind":"header","version":2,"tree":"a","branch":"b","createdAt":1}');
+    const result = parseHeader(
+      '{"kind":"header","version":2,"tree":"a","branch":"b","createdAt":1}',
+    );
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.error.kind).toBe('schema');
   });
@@ -62,7 +69,10 @@ describe('codec line', () => {
   });
 
   it('round-trips an offloaded payload', () => {
-    const offloaded: EntryLine = { ...entry, payload: { kind: 'json', size: 99999, ref: 'abc123' } };
+    const offloaded: EntryLine = {
+      ...entry,
+      payload: { kind: 'json', size: 99999, ref: 'abc123' },
+    };
     expect(parseLine(encodeLine(offloaded), 2)).toEqual({ ok: true, value: offloaded });
   });
 

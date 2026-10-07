@@ -1,10 +1,10 @@
-import type { UserPromptOrigin } from '#/agent/contextMemory/types';
 /* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import { z } from 'zod';
 
+import type { UserPromptOrigin } from '#/agent/contextMemory/types';
+import type { MessageContent } from '#/agent/prompt/messageContent';
 import { AgentEvent2, registerEvent2Class } from '#/app/event/event2';
 import type { ContentPart } from '#human/llm/message';
-import type { MessageContent } from '#/agent/prompt/messageContent';
 
 export interface PromptCompletedPayload {
   readonly agentId: string;

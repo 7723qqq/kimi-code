@@ -1,11 +1,7 @@
 import { createDecorator } from '#/_base/di/instantiation';
 import type { ITaskHandle } from '#/app/task/task';
-import type {
-  AgentTask,
-  AgentTaskInfo,
-  AgentTaskInfoBase,
-  AgentTaskStatus,
-} from './types';
+
+import type { AgentTask, AgentTaskInfo, AgentTaskInfoBase, AgentTaskStatus } from './types';
 
 export { AgentTaskPersistence } from './persist';
 export type {
@@ -79,10 +75,7 @@ export interface IAgentTaskService {
   getTask(taskId: string): AgentTaskInfo | undefined;
   list(activeOnly?: boolean, limit?: number): readonly AgentTaskInfo[];
   persistOutput(taskId: string): void;
-  getOutputSnapshot(
-    taskId: string,
-    maxPreviewBytes: number,
-  ): Promise<AgentTaskOutputSnapshot>;
+  getOutputSnapshot(taskId: string, maxPreviewBytes: number): Promise<AgentTaskOutputSnapshot>;
   readOutput(taskId: string, tail?: number): Promise<string>;
   suppressTerminalNotification(taskId: string): Promise<void>;
   suppressAllTerminalNotifications(): Promise<void>;
@@ -99,10 +92,7 @@ export interface IAgentTaskService {
     timeoutMs?: number,
     signal?: AbortSignal,
   ): Promise<AgentTaskInfo | undefined>;
-  waitForForegroundRelease(
-    taskId: string,
-  ): Promise<ForegroundTaskReleaseReason | undefined>;
+  waitForForegroundRelease(taskId: string): Promise<ForegroundTaskReleaseReason | undefined>;
 }
 
-export const IAgentTaskService =
-  createDecorator<IAgentTaskService>('agentTaskService');
+export const IAgentTaskService = createDecorator<IAgentTaskService>('agentTaskService');

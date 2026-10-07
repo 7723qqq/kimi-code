@@ -5,19 +5,10 @@ import { join } from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { startServer, type RunningServer } from '../src';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
-const HTTP_METHODS = new Set([
-  'get',
-  'put',
-  'post',
-  'delete',
-  'options',
-  'head',
-  'patch',
-  'trace',
-]);
+const HTTP_METHODS = new Set(['get', 'put', 'post', 'delete', 'options', 'head', 'patch', 'trace']);
 
 const META_ENDPOINTS = ['/openapi.json', '/asyncapi.json', '/'];
 
@@ -41,8 +32,7 @@ describe('API surface snapshot', () => {
     if (server !== undefined) {
       try {
         await server.close();
-      } catch {
-      }
+      } catch {}
       server = undefined;
     }
     if (home !== undefined) {
@@ -54,7 +44,9 @@ describe('API surface snapshot', () => {
   it('matches the documented v2 route table and meta endpoints', async () => {
     const base = `http://${server!.host}:${server!.port}`;
 
-    const openApiRes = await fetch(`${base}/openapi.json`, { headers: authHeaders(server as RunningServer) } as never);
+    const openApiRes = await fetch(`${base}/openapi.json`, {
+      headers: authHeaders(server as RunningServer),
+    } as never);
     expect(openApiRes.status).toBe(200);
     const openApi = (await openApiRes.json()) as {
       paths?: Record<string, Record<string, unknown>>;
@@ -74,7 +66,9 @@ describe('API surface snapshot', () => {
 
     const meta: Array<[string, string, number]> = [];
     for (const endpoint of META_ENDPOINTS) {
-      const res = await fetch(`${base}${endpoint}`, { headers: authHeaders(server as RunningServer) } as never);
+      const res = await fetch(`${base}${endpoint}`, {
+        headers: authHeaders(server as RunningServer),
+      } as never);
       meta.push(['GET', endpoint, res.status]);
     }
     meta.sort((a, b) => a[0].localeCompare(b[0]) || a[1].localeCompare(b[1]) || a[2] - b[2]);

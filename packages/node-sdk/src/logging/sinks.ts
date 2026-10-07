@@ -60,8 +60,7 @@ export class RotatingFileSink implements Sink {
     this.closed = true;
     try {
       await this.flush();
-    } catch {
-    }
+    } catch {}
   }
 
   flushSync(): void {

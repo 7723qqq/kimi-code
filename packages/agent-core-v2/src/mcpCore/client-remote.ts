@@ -1,5 +1,6 @@
-import type { McpRemoteServerConfig, McpServerConfig } from './config-schema';
 import { ErrorCodes, Error2 } from '#/errors';
+
+import type { McpRemoteServerConfig, McpServerConfig } from './config-schema';
 
 export function buildMcpRemoteHeaders(
   config: McpRemoteServerConfig,

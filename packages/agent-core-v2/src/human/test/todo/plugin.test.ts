@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'vitest';
 
 import { turnStarted } from '#/agent/events';
+import type { AgentEmitted } from '#/agent/machine';
 import { agentSlices, type AgentEventStore } from '#/agent/slices';
 import { createEventStoreSync } from '#/eventStore/eventStore';
 import { memoryJournal } from '#/eventStore/journal';
 import { extractText, type SystemMessage, type ToolCall, type UserMessage } from '#/llm/message';
-import type { AgentEmitted } from '#/agent/machine';
 import { connectPlugins, type AgentPluginTarget, type Plugin } from '#/plugin';
-import type { ToolExecuteInput } from '#/tool/executor';
-import type { ToolDefinition } from '#/tool/tool';
 import { createTodoPlugin, type TodoPlugin } from '#/todo/plugin';
 import { todoSlice } from '#/todo/slice';
+import type { ToolExecuteInput } from '#/tool/executor';
+import type { ToolDefinition } from '#/tool/tool';
 
 function testStore(): AgentEventStore {
   return createEventStoreSync({
@@ -92,7 +92,9 @@ describe('todo plugin tool', () => {
 
   it('clears the list with an empty array', async () => {
     const plugin = createTodoPlugin(testStore());
-    await pluginTool(plugin).execute(executeInput({ todos: [{ title: 'task a', status: 'pending' }] }));
+    await pluginTool(plugin).execute(
+      executeInput({ todos: [{ title: 'task a', status: 'pending' }] }),
+    );
     const result = await pluginTool(plugin).execute(executeInput({ todos: [] }));
     expect(result.content).toEqual([{ type: 'text', text: 'Todo list cleared.' }]);
 
@@ -108,9 +110,7 @@ describe('todo plugin tool', () => {
       }),
     );
     const read = await pluginTool(plugin).execute(executeInput({}));
-    expect(read.content).toEqual([
-      { type: 'text', text: 'Current todo list:\n  [done] task b' },
-    ]);
+    expect(read.content).toEqual([{ type: 'text', text: 'Current todo list:\n  [done] task b' }]);
   });
 });
 
@@ -122,7 +122,9 @@ describe('todo plugin reminder', () => {
     plugin.connect?.(target);
 
     await turnStart();
-    await pluginTool(plugin).execute(executeInput({ todos: [{ title: 'task a', status: 'pending' }] }));
+    await pluginTool(plugin).execute(
+      executeInput({ todos: [{ title: 'task a', status: 'pending' }] }),
+    );
 
     await turnStart();
     expect(notified).toHaveLength(0);
@@ -144,7 +146,9 @@ describe('todo plugin reminder', () => {
     plugin.connect?.(target);
 
     await turnStart();
-    await pluginTool(plugin).execute(executeInput({ todos: [{ title: 'task a', status: 'done' }] }));
+    await pluginTool(plugin).execute(
+      executeInput({ todos: [{ title: 'task a', status: 'done' }] }),
+    );
     await turnStart();
     await turnStart();
     expect(notified).toHaveLength(0);

@@ -4,8 +4,8 @@ import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
-import { createKimiConfigRpc } from '#/index';
 import { parseConfigString } from '#/config/index';
+import { createKimiConfigRpc } from '#/index';
 
 const toPosix = (p: string): string => p.replaceAll('\\', '/');
 
@@ -28,7 +28,9 @@ describe('SDK config TOML', () => {
     const dir = await makeTempDir();
     const rpc = createKimiConfigRpc();
 
-    await expect(rpc.resolveConfigPath({ homeDir: dir })).resolves.toBe(toPosix(join(dir, 'config.toml')));
+    await expect(rpc.resolveConfigPath({ homeDir: dir })).resolves.toBe(
+      toPosix(join(dir, 'config.toml')),
+    );
   });
 
   it('returns structured validation issues through the config RPC wrapper', async () => {

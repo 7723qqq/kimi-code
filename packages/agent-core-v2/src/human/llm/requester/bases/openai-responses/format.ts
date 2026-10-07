@@ -2,12 +2,12 @@ import type OpenAI from 'openai';
 
 import type { LlmRemoteErrorMessage } from '#/llm/errors';
 import { NO_FINISH, type FinishInfo } from '#/llm/finish-reason';
+import type { StreamedMessagePart, ToolDescription } from '#/llm/message';
 import type {
   FormatRequestInput,
   ProtocolFormat,
   StreamParserOptions,
 } from '#/llm/protocol/format';
-import type { StreamedMessagePart, ToolDescription } from '#/llm/message';
 import type { ResponseFormat } from '#/llm/response-format';
 import type { TokenUsage } from '#/llm/usage';
 
@@ -358,7 +358,9 @@ export function normalizeOpenAIResponsesReasoning(
   };
 }
 
-export function parseOpenAIResponsesUsage(usage: RawObject | null | undefined): TokenUsage | undefined {
+export function parseOpenAIResponsesUsage(
+  usage: RawObject | null | undefined,
+): TokenUsage | undefined {
   if (usage === null || usage === undefined) {
     return undefined;
   }
@@ -467,7 +469,10 @@ export function createOpenAIResponsesFormat(): ProtocolFormat {
             `received function-call arguments for unknown stream index ${formatResponseStreamIndex(streamIndex)}.`,
           );
         }
-        setFunctionCallArguments(streamIndex, getFunctionCallArguments(streamIndex) + argumentsPart);
+        setFunctionCallArguments(
+          streamIndex,
+          getFunctionCallArguments(streamIndex) + argumentsPart,
+        );
       };
 
       const finalArgumentsSuffix = (

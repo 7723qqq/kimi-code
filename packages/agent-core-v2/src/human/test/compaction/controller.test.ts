@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import { createAgentMachine, type AgentMachineContext } from '#/agent/machine';
 import { messageAppended } from '#/agent/events';
+import { createAgentMachine, type AgentMachineContext } from '#/agent/machine';
 import type { AgentEventStore } from '#/agent/slices';
 import { createUserEntry, type TurnBeforeStep } from '#/agent/turn';
 import { createCompactionController, type CompactionEvent } from '#/compaction/controller';
@@ -219,11 +219,15 @@ describe('compaction controller manual', () => {
     await waitFor(actor, (s) => s.matches('running'), { timeout: 5000 });
     actor.send({ type: 'input.submit', entry: { message: createUserMessage('q1') } });
     actor.send({ type: 'input.submit', entry: { message: createUserMessage('q2') } });
-    await vi.waitFor(() => expect(actor.getSnapshot().context.queue).toHaveLength(2), { timeout: 5000 });
+    await vi.waitFor(() => expect(actor.getSnapshot().context.queue).toHaveLength(2), {
+      timeout: 5000,
+    });
     const harness = startController(env, actor);
 
     const compactPromise = harness.controller.compact();
-    await vi.waitFor(() => expect(actor.getSnapshot().context.paused).toBe(true), { timeout: 5000 });
+    await vi.waitFor(() => expect(actor.getSnapshot().context.paused).toBe(true), {
+      timeout: 5000,
+    });
     (release as () => void)();
 
     const result = await compactPromise;
@@ -299,13 +303,20 @@ describe('compaction controller manual', () => {
     const harness = startController(env, actor, { summarize });
 
     const compactPromise = harness.controller.compact();
-    await vi.waitFor(() => expect(actor.getSnapshot().context.paused).toBe(true), { timeout: 5000 });
+    await vi.waitFor(() => expect(actor.getSnapshot().context.paused).toBe(true), {
+      timeout: 5000,
+    });
     (release as () => void)();
     await vi.waitFor(() => expect(summaryCalled).toBe(true), { timeout: 5000 });
     expect(harness.controller.status().phase).toBe('summarizing');
-    actor.send({ type: 'input.submit', entry: { message: createUserMessage('late'), meta: { promptId: 's1' } } });
+    actor.send({
+      type: 'input.submit',
+      entry: { message: createUserMessage('late'), meta: { promptId: 's1' } },
+    });
     actor.send({ type: 'input.submit', entry: { message: createUserMessage('queued') } });
-    await vi.waitFor(() => expect(actor.getSnapshot().context.queue).toHaveLength(3), { timeout: 5000 });
+    await vi.waitFor(() => expect(actor.getSnapshot().context.queue).toHaveLength(3), {
+      timeout: 5000,
+    });
     actor.send({ type: 'input.steer', id: 'e1' });
     actor.send({ type: 'input.steer', id: 's1' });
     await vi.waitFor(() => expect(actor.getSnapshot().context.notifications).toHaveLength(2), {
@@ -393,7 +404,9 @@ describe('compaction controller manual', () => {
       'compaction.cancelled',
     ]);
     const cancelled = harness.events.at(-1);
-    expect(cancelled?.type === 'compaction.cancelled' && cancelled.cause === 'cancelled').toBe(true);
+    expect(cancelled?.type === 'compaction.cancelled' && cancelled.cause === 'cancelled').toBe(
+      true,
+    );
     expect(
       cancelled?.type === 'compaction.cancelled' &&
         typeof cancelled.tokensBefore === 'number' &&
@@ -428,7 +441,9 @@ describe('compaction controller manual', () => {
     const harness = startController(env, actor);
 
     const compactPromise = harness.controller.compact();
-    await vi.waitFor(() => expect(actor.getSnapshot().context.paused).toBe(true), { timeout: 5000 });
+    await vi.waitFor(() => expect(actor.getSnapshot().context.paused).toBe(true), {
+      timeout: 5000,
+    });
     expect(harness.controller.status().phase).toBe('quiescing');
     actor.send({ type: 'input.abort' });
 
@@ -440,10 +455,14 @@ describe('compaction controller manual', () => {
       'compaction.cancelled',
     ]);
     const cancelled = harness.events.at(-1);
-    expect(cancelled?.type === 'compaction.cancelled' && cancelled.cause === 'user-abort').toBe(true);
+    expect(cancelled?.type === 'compaction.cancelled' && cancelled.cause === 'user-abort').toBe(
+      true,
+    );
 
     actor.send({ type: 'input.submit', entry: { message: createUserMessage('later') } });
-    await vi.waitFor(() => expect(actor.getSnapshot().context.queue).toHaveLength(1), { timeout: 5000 });
+    await vi.waitFor(() => expect(actor.getSnapshot().context.queue).toHaveLength(1), {
+      timeout: 5000,
+    });
     expect(actor.getSnapshot().matches('idle')).toBe(true);
     expect(actor.getSnapshot().context.paused).toBe(true);
     expect(historyTexts(main)).toEqual(['first']);
@@ -480,9 +499,15 @@ describe('compaction controller manual', () => {
     const compactPromise = harness.controller.compact();
     await vi.waitFor(() => expect(summaryCalled).toBe(true), { timeout: 5000 });
     await main.dispatch([
-      messageAppended({ message: createUserEntry(createUserMessage('foreign'), { source: 'input' }) }),
+      messageAppended({
+        message: createUserEntry(createUserMessage('foreign'), { source: 'input' }),
+      }),
     ]);
-    (resolveSummary as (outcome: SummaryOutcome) => void)({ text: 'TOO LATE', attempts: 1, droppedCount: 0 });
+    (resolveSummary as (outcome: SummaryOutcome) => void)({
+      text: 'TOO LATE',
+      attempts: 1,
+      droppedCount: 0,
+    });
 
     await expect(compactPromise).rejects.toMatchObject({ code: 'drift' });
     expect(main.ref.branch).toBe('main');
@@ -529,7 +554,9 @@ describe('compaction controller auto', () => {
     actor.send({ type: 'input.submit', entry: { message: createUserMessage('next') } });
     await vi.waitFor(
       () => {
-        expect(harness.events.filter((event) => event.type === 'compaction.completed')).toHaveLength(1);
+        expect(
+          harness.events.filter((event) => event.type === 'compaction.completed'),
+        ).toHaveLength(1);
       },
       { timeout: 5000 },
     );
@@ -578,7 +605,9 @@ describe('compaction controller auto', () => {
     await vi.waitFor(() => expect(failedCount).toBe(3), { timeout: 5000 });
     await vi.waitFor(
       () => {
-        expect(harness.events.filter((event) => event.type === 'compaction.completed')).toHaveLength(2);
+        expect(
+          harness.events.filter((event) => event.type === 'compaction.completed'),
+        ).toHaveLength(2);
       },
       { timeout: 5000 },
     );

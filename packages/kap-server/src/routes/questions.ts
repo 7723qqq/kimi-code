@@ -7,6 +7,11 @@ import {
   type QuestionResult,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
+import { z } from 'zod';
+
+import { errEnvelope, okEnvelope } from '../envelope';
+import { requestLog } from '../lib/requestLog';
+import { defineRoute } from '../middleware/defineRoute';
 import { ErrorCode } from '../protocol/error-codes';
 import {
   type QuestionItem as ProtocolQuestionItem,
@@ -22,14 +27,9 @@ import {
   questionResolveRequestSchema,
   questionResolveResultSchema,
 } from '../protocol/rest-question';
-import { z } from 'zod';
-
-import { errEnvelope, okEnvelope } from '../envelope';
-import { requestLog } from '../lib/requestLog';
-import { defineRoute } from '../middleware/defineRoute';
 import { type ActionTable, runAction } from './action-dispatch';
-import { interactionAgentId } from './approvals';
 import { parseActionSuffix } from './action-suffix';
+import { interactionAgentId } from './approvals';
 
 interface QuestionRouteHost {
   get(
@@ -94,7 +94,11 @@ export function registerQuestionsRoutes(app: QuestionRouteHost, core: Scope): vo
       reply.send(okEnvelope({ items }, req.id));
     },
   );
-  app.get(listRoute.path, listRoute.options, listRoute.handler as Parameters<QuestionRouteHost['get']>[2]);
+  app.get(
+    listRoute.path,
+    listRoute.options,
+    listRoute.handler as Parameters<QuestionRouteHost['get']>[2],
+  );
 
   const resolveRoute = defineRoute(
     {
@@ -245,10 +249,15 @@ async function resolveQuestionAction(ctx: QuestionActionCtx): Promise<void> {
     return;
   }
 
-  const result = toInProcessResponse(bodyParse.data, toWireQuestion(pendingInteraction, session_id));
+  const result = toInProcessResponse(
+    bodyParse.data,
+    toWireQuestion(pendingInteraction, session_id),
+  );
   interactions.respond(id, result);
   requestLog(req)?.info({ session_id, question_id: id, action: 'answer' }, 'question answered');
-  reply.send(okEnvelope({ resolved: true as const, resolved_at: new Date().toISOString() }, req.id));
+  reply.send(
+    okEnvelope({ resolved: true as const, resolved_at: new Date().toISOString() }, req.id),
+  );
 }
 
 async function dismissQuestionAction(ctx: QuestionActionCtx): Promise<void> {
@@ -276,8 +285,7 @@ function toInProcessResponse(
   for (const [qid, ans] of Object.entries(resp.answers)) {
     const item = itemsById.get(qid);
     const key = item?.question ?? qid;
-    const optionText = (id: string): string =>
-      item?.options.find((o) => o.id === id)?.label ?? id;
+    const optionText = (id: string): string => item?.options.find((o) => o.id === id)?.label ?? id;
     switch (ans.kind) {
       case 'single':
         flattened[key] = optionText(ans.option_id);

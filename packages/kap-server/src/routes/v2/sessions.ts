@@ -1,4 +1,3 @@
-
 import { createHash } from 'node:crypto';
 
 import {
@@ -37,13 +36,7 @@ interface V2SessionsRouteHost {
   ): unknown;
 }
 
-export const v2ActivityStatusSchema = z.enum([
-  'running',
-  'approval',
-  'question',
-  'failed',
-  'idle',
-]);
+export const v2ActivityStatusSchema = z.enum(['running', 'approval', 'question', 'failed', 'idle']);
 export type V2ActivityStatus = z.infer<typeof v2ActivityStatusSchema>;
 
 const v2SortSchema = z.enum([
@@ -454,9 +447,7 @@ async function runBatchArchive(
   );
   await core.accessor.get(ISessionIndexMirror).drain();
   const succeeded = results.filter((result) => result.ok).length;
-  reply.send(
-    okEnvelope({ results, succeeded, failed: results.length - succeeded }, requestId),
-  );
+  reply.send(okEnvelope({ results, succeeded, failed: results.length - succeeded }, requestId));
 }
 export function registerV2SessionsRoutes(app: V2SessionsRouteHost, core: Scope): void {
   const gitResolver = new GitDomainResolver(core);
@@ -536,7 +527,7 @@ export function registerV2SessionsRoutes(app: V2SessionsRouteHost, core: Scope):
         if (query.archived === 'true' && !summary.archived) return false;
         if (
           query.hasPrompt !== undefined &&
-          ((summary.lastPrompt ?? '').length > 0) !== query.hasPrompt
+          (summary.lastPrompt ?? '').length > 0 !== query.hasPrompt
         ) {
           return false;
         }
@@ -623,7 +614,7 @@ export function registerV2SessionsRoutes(app: V2SessionsRouteHost, core: Scope):
           let canonical = canonicalById.get(workspaceId);
           if (canonical === undefined) {
             const set = await aliasService.resolveAliasIds(workspaceId);
-            canonical = set.length === 0 ? workspaceId : set.toSorted()[0] as string;
+            canonical = set.length === 0 ? workspaceId : (set.toSorted()[0] as string);
             for (const id of set) canonicalById.set(id, canonical);
           }
           return canonical;
@@ -679,9 +670,7 @@ export function registerV2SessionsRoutes(app: V2SessionsRouteHost, core: Scope):
             const served = group.items.slice(0, query.groupPageSize);
             return {
               workspace: { id: group.workspaceId, cwd: cwdOf(group.rep) },
-              sessions: query.projection
-                ? projectIds(served)
-                : await buildItems(served, cwdOf),
+              sessions: query.projection ? projectIds(served) : await buildItems(served, cwdOf),
               total: group.items.length,
             };
           }),

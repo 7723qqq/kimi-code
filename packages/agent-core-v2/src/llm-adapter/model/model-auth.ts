@@ -1,8 +1,9 @@
-import { Error2 } from '#/_base/errors/errors';
 import {
   credentialConflictMessage,
   declaredProviderCredential,
 } from '@moonshot-ai/kimi-code-oauth/provider-credential';
+
+import { Error2 } from '#/_base/errors/errors';
 import {
   BUDGET_THINKING_EFFORTS,
   matchKnownAnthropicModelProfile,
@@ -13,7 +14,6 @@ import { CONFIG_INVALID_ERROR_CODE } from '../contract/errors';
 import { ProtocolSchema, type Protocol } from '../protocol/protocol';
 import type { ProviderConfig } from '../provider/provider';
 import { explainProviderEndpoint, getProviderDefinition } from '../provider/provider-definition';
-
 import type { ModelRecord } from './model';
 import type { ResolvedModelAuthMaterial } from './model.types';
 import { drivesThinkingThroughTraits } from './thinking';
@@ -75,10 +75,7 @@ export function resolveModelAuthMaterial(args: {
   return {};
 }
 
-export function effectiveModelConfig(
-  model: ModelRecord,
-  providerType?: string,
-): ModelRecord {
+export function effectiveModelConfig(model: ModelRecord, providerType?: string): ModelRecord {
   const { overrides, ...base } = model;
   const effective: ModelRecord = overrides === undefined ? model : { ...base, ...overrides };
   if (
@@ -104,7 +101,9 @@ export function withAnthropicProfile(model: ModelRecord, providerType?: string):
   const profile =
     wireName === undefined
       ? undefined
-      : providerType !== undefined && !drivesThinkingThroughTraits(providerType) && protocol === 'anthropic'
+      : providerType !== undefined &&
+          !drivesThinkingThroughTraits(providerType) &&
+          protocol === 'anthropic'
         ? (matchKnownAnthropicModelProfile(wireName) ?? matchUnknownClaudeProfile(wireName))
         : matchKnownAnthropicModelProfile(wireName);
   if (profile === undefined) return model;
@@ -120,8 +119,7 @@ export function withAnthropicProfile(model: ModelRecord, providerType?: string):
     ...model,
     capabilities: hasCapability ? capabilities : [...capabilities, capability],
     supportEfforts,
-    defaultEffort:
-      model.defaultEffort ?? (supportEfforts.includes('high') ? 'high' : undefined),
+    defaultEffort: model.defaultEffort ?? (supportEfforts.includes('high') ? 'high' : undefined),
   };
 }
 
@@ -203,7 +201,9 @@ export function resolveModelForReady(
   }
   const model = effectiveModelConfig(configured);
   const fallbackProvider =
-    defaultProvider === undefined || defaultProvider.trim().length === 0 ? undefined : defaultProvider;
+    defaultProvider === undefined || defaultProvider.trim().length === 0
+      ? undefined
+      : defaultProvider;
   const providerId = model.providerId ?? model.provider ?? fallbackProvider;
   const provider = providerId === undefined ? undefined : providers[providerId];
   if (providerId !== undefined && provider === undefined) {

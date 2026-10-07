@@ -27,9 +27,7 @@ export interface ResolvedRuntimeProvider {
   readonly protocol: ModelAlias['protocol'];
 }
 
-type AuthorizedRequest = <T>(
-  request: (auth: ProviderRequestAuth) => Promise<T>,
-) => Promise<T>;
+type AuthorizedRequest = <T>(request: (auth: ProviderRequestAuth) => Promise<T>) => Promise<T>;
 
 export interface ModelProvider {
   readonly defaultModel?: string;

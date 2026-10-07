@@ -1,13 +1,13 @@
 import { createDecorator } from '#/_base/di/instantiation';
-import type { FinishReason } from '#human/llm/finish-reason';
-import type { LlmCredentialProvider } from '#human/llm/requester/requester';
-import type { ThinkingEffort } from '#human/llm/thinking';
+import type { LogContext } from '#/_base/log/log';
 import type { Message } from '#/llm-adapter/contract/message';
-import type { StreamedMessagePart, ToolDescription as Tool } from '#human/llm/message';
-import type { TokenUsage } from '#human/llm/usage';
 import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
 import type { ModelRequestTiming } from '#/llm-adapter/model/model-requester';
-import type { LogContext } from '#/_base/log/log';
+import type { FinishReason } from '#human/llm/finish-reason';
+import type { StreamedMessagePart, ToolDescription as Tool } from '#human/llm/message';
+import type { LlmCredentialProvider } from '#human/llm/requester/requester';
+import type { ThinkingEffort } from '#human/llm/thinking';
+import type { TokenUsage } from '#human/llm/usage';
 
 export type AgentLLMRequestLogFields = Readonly<LogContext>;
 

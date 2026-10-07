@@ -110,7 +110,9 @@ describe('openai requester cacheKey', () => {
       {
         model,
         cacheKey: 'session-1',
-        extraParams: { openai: { stop: ['END'], presence_penalty: 0.5, extra_body: { trace_id: 't1' } } },
+        extraParams: {
+          openai: { stop: ['END'], presence_penalty: 0.5, extra_body: { trace_id: 't1' } },
+        },
       },
       { messages },
       { signal: new AbortController().signal },
@@ -139,11 +141,7 @@ describe('openai requester cacheKey', () => {
   it('omits prompt_cache_key when no cache key is given', async () => {
     const client = stubOpenAIClient(chatCompletionChunks);
     const requester = createOpenAIRequester({ clientFactory: client.clientFactory });
-    await requester.generate(
-      { model },
-      { messages },
-      { signal: new AbortController().signal },
-    );
+    await requester.generate({ model }, { messages }, { signal: new AbortController().signal });
     expect(client.body()['prompt_cache_key']).toBeUndefined();
   });
 });

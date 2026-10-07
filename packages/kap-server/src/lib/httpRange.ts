@@ -1,7 +1,4 @@
-export function pickHeader(
-  headers: Record<string, unknown>,
-  name: string,
-): string | undefined {
+export function pickHeader(headers: Record<string, unknown>, name: string): string | undefined {
   const v = headers[name];
   if (v === undefined) return undefined;
   return Array.isArray(v) ? (v[0] as string | undefined) : (v as string);

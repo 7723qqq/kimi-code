@@ -29,5 +29,4 @@ export interface IWSGateway {
   broadcast(sessionId: string, event: unknown): void;
 }
 
-export const IWSGateway: ServiceIdentifier<IWSGateway> =
-  createDecorator<IWSGateway>('wsGateway');
+export const IWSGateway: ServiceIdentifier<IWSGateway> = createDecorator<IWSGateway>('wsGateway');

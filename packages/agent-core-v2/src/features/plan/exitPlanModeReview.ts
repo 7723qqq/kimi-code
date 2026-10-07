@@ -1,7 +1,4 @@
-import type {
-  ApprovalResponse,
-  PermissionPolicyResolution,
-} from '#/agent/permissionPolicy/types';
+import type { ApprovalResponse, PermissionPolicyResolution } from '#/agent/permissionPolicy/types';
 import type { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import type {
   BeforeExecuteDecision,

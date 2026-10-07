@@ -1,7 +1,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 
-import { analyzeContextContent } from './translator.js';
 import { readMergedSessionState, type LegacySessionRef } from './source.js';
+import { analyzeContextContent } from './translator.js';
 
 export type SessionClass = 'placeholder' | 'empty' | 'malformed' | 'real';
 

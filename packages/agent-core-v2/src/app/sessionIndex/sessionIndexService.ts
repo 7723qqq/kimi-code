@@ -1,12 +1,12 @@
 import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { IntervalTimer } from '#/_base/utils/timer';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { LifecycleScope } from '#/app/scopes';
 import type { SessionIndexDegradedEvent } from '#/app/telemetry/events';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import {
   SESSION_INDEX_KEY,
   SESSION_INDEX_SCOPE,
@@ -172,9 +172,12 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
               .getCheckpoint(SESSION_INDEX_MANIFEST)
               .catch(() => undefined);
             if (published === undefined) throw error;
-            this.log.warn('session index startup reconciliation failed; serving the published generation', {
-              error: String(error),
-            });
+            this.log.warn(
+              'session index startup reconciliation failed; serving the published generation',
+              {
+                error: String(error),
+              },
+            );
           }
         }
       }
@@ -453,8 +456,7 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
                 .where(filter)
                 .orderBy('updatedAt', 'desc')
                 .limit(fetchLimit);
-              const q =
-                Object.keys(bounds).length > 0 ? base.whereColumn(column, bounds) : base;
+              const q = Object.keys(bounds).length > 0 ? base.whereColumn(column, bounds) : base;
               return q.execute().then((p) => strip([...p.items]));
             },
             cursor.bounds,
@@ -477,10 +479,7 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
     return this.mergePending(page, query, cursor.position);
   }
 
-  private async countFromReadModel(
-    generation: number,
-    query: SessionCountQuery,
-  ): Promise<number> {
+  private async countFromReadModel(generation: number, query: SessionCountQuery): Promise<number> {
     const counters = sessionCountersCollection(generation);
     const restricted = query.workspaceIds;
     const workspaceIds = restricted ?? (await this.queryStore.listKeys(counters));
@@ -562,7 +561,11 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
     generation: number,
     query: SessionListQuery,
   ): Promise<
-    | { filter: QueryFilter; bounds: ColumnBounds; position?: { u: number; id: string; before: boolean } }
+    | {
+        filter: QueryFilter;
+        bounds: ColumnBounds;
+        position?: { u: number; id: string; before: boolean };
+      }
     | undefined
   > {
     const id = query.before ?? query.after;
@@ -576,10 +579,7 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
       return {
         bounds: { lte: u },
         filter: {
-          $or: [
-            { updatedAt: { $lt: u } },
-            { updatedAt: u, id: { $lt: id } },
-          ],
+          $or: [{ updatedAt: { $lt: u } }, { updatedAt: u, id: { $lt: id } }],
         },
         position: { u, id, before: true },
       };
@@ -587,10 +587,7 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
     return {
       bounds: { gte: u },
       filter: {
-        $or: [
-          { updatedAt: { $gt: u } },
-          { updatedAt: u, id: { $gt: id } },
-        ],
+        $or: [{ updatedAt: { $gt: u } }, { updatedAt: u, id: { $gt: id } }],
       },
       position: { u, id, before: false },
     };
@@ -600,9 +597,7 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
     const filter: Record<string, unknown> = {};
     if (query.workspaceIds !== undefined) {
       filter['workspaceId'] =
-        query.workspaceIds.length === 1
-          ? query.workspaceIds[0]
-          : { $in: [...query.workspaceIds] };
+        query.workspaceIds.length === 1 ? query.workspaceIds[0] : { $in: [...query.workspaceIds] };
     }
     if (query.childOf !== undefined) {
       filter[`custom.${PARENT_SESSION_ID_KEY}`] = query.childOf;
@@ -718,10 +713,7 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
     workspaceIds: readonly string[] | undefined,
   ): Promise<SessionSummary[]> {
     let collected: SessionSummary[];
-    if (
-      this.readModelEnabled() &&
-      (this.state === 'uninitialized' || this.state === 'preparing')
-    ) {
+    if (this.readModelEnabled() && (this.state === 'uninitialized' || this.state === 'preparing')) {
       const { summaries } = await this.projector.sharedScanForRead();
       collected =
         workspaceIds === undefined
@@ -731,8 +723,17 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
       const ids = workspaceIds ?? (await listWorkspaceIds(this.storage, this.sessionsScope));
       collected = [];
       for (const workspaceId of ids) {
-        for (const sessionId of await listSessionIds(this.storage, this.sessionsScope, workspaceId)) {
-          const summary = await readSessionSummary(this.docs, this.sessionsScope, workspaceId, sessionId);
+        for (const sessionId of await listSessionIds(
+          this.storage,
+          this.sessionsScope,
+          workspaceId,
+        )) {
+          const summary = await readSessionSummary(
+            this.docs,
+            this.sessionsScope,
+            workspaceId,
+            sessionId,
+          );
           if (summary !== undefined) collected.push(summary);
         }
       }

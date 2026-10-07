@@ -1,20 +1,18 @@
-import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
-
-import { toInputJsonSchema } from '#/tool/input-schema';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { GOAL_MAIN_AGENT_ONLY, mainAgentOnlyExecution } from '#/agent/tools/mainAgentOnly';
-import { type ToolExecution } from '#/tool/toolContract';
-
 import { IAgentGoalService } from '#/features/goal/goalService';
 import { goalForModel } from '#/features/goal/tools/serialize';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import { type ToolExecution } from '#/tool/toolContract';
+import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 
-import DESCRIPTION from './create-goal.md?raw';
 import {
   CreateGoalToolInputSchema,
   ICreateGoalTool,
   type CreateGoalToolInput,
 } from './create-goal';
+import DESCRIPTION from './create-goal.md?raw';
 
 export class CreateGoalTool implements ICreateGoalTool {
   declare readonly _serviceBrand: undefined;
@@ -68,4 +66,3 @@ export class CreateGoalTool implements ICreateGoalTool {
     };
   }
 }
-

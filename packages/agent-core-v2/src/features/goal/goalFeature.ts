@@ -21,9 +21,14 @@ export class GoalFeature extends Feature {
   constructor() {
     super();
     this.contributeAgentService(IAgentGoalService, AgentGoalService);
-    this.contributeService(LifecycleScope.App, IGoalDeadlineScheduler, GoalDeadlineSchedulerService, {
-      activation: ScopeActivation.OnDemand,
-    });
+    this.contributeService(
+      LifecycleScope.App,
+      IGoalDeadlineScheduler,
+      GoalDeadlineSchedulerService,
+      {
+        activation: ScopeActivation.OnDemand,
+      },
+    );
     this.contributeTool(ICreateGoalTool, CreateGoalTool, {
       name: 'CreateGoal',
       domain: 'goal',

@@ -3,7 +3,6 @@ import { Disposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import type { GoalSnapshot } from '#/features/goal/types';
 import {
   IAgentLLMRequesterService,
   type AgentLLMRequestFinish,
@@ -13,13 +12,11 @@ import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import type { Message } from '#/app/llmProtocol/message';
 import { createUserMessage, extractText } from '#/app/llmProtocol/message';
 import { LifecycleScope } from '#/app/scopes';
+import type { GoalSnapshot } from '#/features/goal/types';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
 
-import {
-  JUDGE_SYSTEM_PROMPT,
-  buildJudgeUserPrompt,
-} from './judgePrompt';
+import { JUDGE_SYSTEM_PROMPT, buildJudgeUserPrompt } from './judgePrompt';
 
 const RETRY_SYSTEM_PROMPT = `You are a judge. Return ONLY a JSON object with fields "ok" (boolean) and "reason" (string). No other text.`;
 
@@ -167,8 +164,7 @@ export class AgentGoalJudgeService extends Disposable implements IAgentGoalJudge
       const retryText = extractText(retryFinish.message).trim();
       const retryVerdict = parseVerdict(retryText);
       if (retryVerdict !== undefined) return retryVerdict;
-    } catch {
-    }
+    } catch {}
 
     this.log.warn('goal.judge.transcript.retryFailed', { goalId: goal.goalId });
     return {
@@ -243,8 +239,7 @@ function tryParseVerdictJson(raw: string): JudgeVerdict | undefined {
         reason: parsed.reason,
       };
     }
-  } catch {
-  }
+  } catch {}
   return undefined;
 }
 

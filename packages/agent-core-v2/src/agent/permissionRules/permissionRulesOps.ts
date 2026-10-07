@@ -45,13 +45,11 @@ export interface PermissionRecordApprovalResult extends PermissionApprovalResult
   readonly agentId: string;
 }
 
-export const permissionRulesKey = defineState(
-  'permissionRules',
-  (): PermissionRulesModelState => ({
-    rules: [],
-    sessionApprovalRulePatterns: [],
-  }),
-).replayable({ schema: z.custom<PermissionRulesModelState>() })
+export const permissionRulesKey = defineState('permissionRules', (): PermissionRulesModelState => ({
+  rules: [],
+  sessionApprovalRulePatterns: [],
+}))
+  .replayable({ schema: z.custom<PermissionRulesModelState>() })
   .on(PermissionRulesAdd, (s, e) => {
     if (e.rules.length === 0) return;
     s.rules = [...s.rules, ...e.rules];

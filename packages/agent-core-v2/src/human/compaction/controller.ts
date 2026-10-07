@@ -1,14 +1,10 @@
 import { estimateUsedContextTokens } from '#/agent/context-usage';
+import type { TurnBeforeStep, TurnBeforeStepContext } from '#/agent/turn';
 import type { ExternalEvent } from '#/eventStore/events';
 import type { UserMessage } from '#/llm/message';
-import {
-  compactionCancelled,
-  compactionCompleted,
-  compactionStarted,
-} from '#/session/events';
+import { compactionCancelled, compactionCompleted, compactionStarted } from '#/session/events';
 import type { AgentActorRef } from '#/session/machine';
 import type { SessionStores } from '#/session/stores';
-import type { TurnBeforeStep, TurnBeforeStepContext } from '#/agent/turn';
 import { createActor, waitFor, type ActorRefFrom, type Subscription } from '#/xstate2';
 
 import { CompactError, isContextOverflowError } from './errors';
@@ -220,7 +216,10 @@ export function createCompactionController(deps: CompactionControllerDeps): Comp
     });
     if (!budgetExceeded(used)) return;
     queueMicrotask(() => void run('budget'));
-    throw new CompactError('budget-blocked', 'context budget exceeded; compacting before next step');
+    throw new CompactError(
+      'budget-blocked',
+      'context budget exceeded; compacting before next step',
+    );
   };
 
   return {

@@ -10,9 +10,7 @@ export type ReasoningKey = (typeof KNOWN_REASONING_KEYS)[number];
 
 export const DEFAULT_REASONING_KEY: ReasoningKey = KNOWN_REASONING_KEYS[0];
 
-export function extractReasoningStrings(
-  source: unknown,
-): { key: string; value: string }[] {
+export function extractReasoningStrings(source: unknown): { key: string; value: string }[] {
   if (typeof source !== 'object' || source === null) return [];
   const record = source as Record<string, unknown>;
   const found: { key: string; value: string }[] = [];
@@ -77,9 +75,7 @@ function toReasoningDetailsElement(
   return { type, index, summary, encrypted };
 }
 
-export function extractReasoningDetails(
-  source: unknown,
-): ReasoningDetailsElement[] | undefined {
+export function extractReasoningDetails(source: unknown): ReasoningDetailsElement[] | undefined {
   if (typeof source !== 'object' || source === null) return undefined;
   const value = (source as Record<string, unknown>)[REASONING_DETAILS_KEY];
   if (!Array.isArray(value)) return undefined;
@@ -97,7 +93,11 @@ export function convertReasoningDetails(
 ): StreamedMessagePart[] {
   const parts: StreamedMessagePart[] = [];
   for (const element of elements) {
-    if (element.type !== 'encrypted' && element.summary !== undefined && element.summary.length > 0) {
+    if (
+      element.type !== 'encrypted' &&
+      element.summary !== undefined &&
+      element.summary.length > 0
+    ) {
       parts.push({
         type: 'think',
         think: element.summary,
@@ -106,7 +106,11 @@ export function convertReasoningDetails(
         reasoningKey: REASONING_DETAILS_KEY,
       } satisfies ThinkPart);
     }
-    if (element.type !== 'summary' && element.encrypted !== undefined && element.encrypted.length > 0) {
+    if (
+      element.type !== 'summary' &&
+      element.encrypted !== undefined &&
+      element.encrypted.length > 0
+    ) {
       parts.push({
         type: 'think',
         think: '',

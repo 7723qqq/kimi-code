@@ -10,15 +10,12 @@ import {
   IModelCatalog,
   type ExecutableTool,
 } from '@moonshot-ai/agent-core-v2';
-import {
-  listMcpServersResponseSchema,
-  listToolsResponseSchema,
-} from '../src/protocol/rest-tool';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { listMcpServersResponseSchema, listToolsResponseSchema } from '../src/protocol/rest-tool';
 import { type RunningServer, startServer } from '../src/start';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
 interface Envelope<T> {
   code: number;
@@ -181,9 +178,7 @@ describe('server-v2 /api/v1 tools + mcp', () => {
     it('accepts an explicit session_id query', async () => {
       const sid = await createSession();
       await ensureMainAgent(sid);
-      const { body } = await getJson<{ tools: ToolWire[] }>(
-        `/api/v1/tools?session_id=${sid}`,
-      );
+      const { body } = await getJson<{ tools: ToolWire[] }>(`/api/v1/tools?session_id=${sid}`);
       expect(body.code).toBe(0);
       expect(listToolsResponseSchema.safeParse(body.data).success).toBe(true);
     });

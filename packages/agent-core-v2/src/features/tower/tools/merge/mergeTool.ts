@@ -5,8 +5,8 @@ import { toInputJsonSchema } from '#/tool/input-schema';
 import type { ToolExecution } from '#/tool/toolContract';
 
 import { newTowerStore, runTowerTool, TOWER_MAIN_AGENT_ONLY } from '../support';
-import DESCRIPTION from './merge.md?raw';
 import { ITowerMergeTool, TowerMergeToolInputSchema, type TowerMergeToolInput } from './merge';
+import DESCRIPTION from './merge.md?raw';
 
 export class TowerMergeTool implements ITowerMergeTool {
   declare readonly _serviceBrand: undefined;
@@ -67,11 +67,12 @@ export class TowerMergeTool implements ITowerMergeTool {
           } else if (allClosed) {
             lines.push(`The mission is now marked merged. ${teardownHint}`);
           } else {
-            lines.push('The mission is now marked merged. Continue with the remaining missions in Dependency Flow order.');
+            lines.push(
+              'The mission is now marked merged. Continue with the remaining missions in Dependency Flow order.',
+            );
           }
           return { output: lines.join('\n') };
         }),
     };
   }
 }
-

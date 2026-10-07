@@ -3,11 +3,7 @@ import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import { EventError, EventErrors } from '#/app/event/errors';
 import { EVENT2_REGISTRY, type Event2Class } from '#/app/event/event2';
 
-import {
-  expandedStateFolds,
-  type ReplayableStateKey,
-  type StateFold,
-} from './state';
+import { expandedStateFolds, type ReplayableStateKey, type StateFold } from './state';
 
 export interface EventStateContributionRecord {
   readonly events?: readonly Event2Class<any, any>[];

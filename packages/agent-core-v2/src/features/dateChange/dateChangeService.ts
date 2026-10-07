@@ -9,10 +9,7 @@ import {
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
-import type {
-  ContextInjectionContext,
-  ContextInjectionResult,
-} from '#/features/reminder/types';
+import type { ContextInjectionContext, ContextInjectionResult } from '#/features/reminder/types';
 import { IHostClock } from '#/os/interface/hostClock';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { IEventDispatcher } from '#/state/eventDispatcher';
@@ -38,7 +35,9 @@ interface DateChangeDiscloseEvent {
   readonly seed: DateDisclosure;
 }
 
-let cachedLocalDateFormat: { readonly timeZone: string; readonly format: Intl.DateTimeFormat } | undefined;
+let cachedLocalDateFormat:
+  | { readonly timeZone: string; readonly format: Intl.DateTimeFormat }
+  | undefined;
 
 function localDateFormat(timeZone: string): Intl.DateTimeFormat {
   if (cachedLocalDateFormat?.timeZone !== timeZone) {
@@ -67,40 +66,60 @@ function currentDateDisclosure(clock: IHostClock): Omit<DateDisclosure, 'renderG
   };
 }
 
-const dateChangeInjection = fromCallback(({
-  input,
-}: {
-  input: {
-    readonly runtime: AgentActorContext<null>;
-  };
-}) => {
-  const runtime = input.runtime;
-  const reminder = runtime.get(IAgentReminderService);
-  const profile = runtime.get(IAgentProfileService);
-  const clock = runtime.get(IHostClock);
-  const sessionContext = runtime.get(ISessionContext);
-  const belongsToCurrentCwd = (): boolean => {
-    const environment = profile.data().environmentDisclosure;
-    return !(
-      environment !== undefined &&
-      environment.cwd !== '' &&
-      environment.cwd !== sessionContext.cwd
-    );
-  };
-  const registration = reminder.register<DateInjectionDisclosure>(
-    DATE_CHANGE_INJECTION_VARIANT,
-    ({
-      lastDisclosure,
-    }: ContextInjectionContext<DateInjectionDisclosure>): ContextInjectionResult<DateInjectionDisclosure> | undefined => {
-      const profileData = profile.data();
-      if (!belongsToCurrentCwd()) return undefined;
-      const renderGeneration = profileData.renderGeneration ?? 0;
-      const current = currentDateDisclosure(clock);
-      const seed = runtime.getLogicState<DateChangeActorContext>().seed;
-      const baseline = pickDisclosureBaseline<DateDisclosure>(lastDisclosure, seed);
-      if (baseline !== undefined && baseline.localDate !== current.localDate) {
+const dateChangeInjection = fromCallback(
+  ({
+    input,
+  }: {
+    input: {
+      readonly runtime: AgentActorContext<null>;
+    };
+  }) => {
+    const runtime = input.runtime;
+    const reminder = runtime.get(IAgentReminderService);
+    const profile = runtime.get(IAgentProfileService);
+    const clock = runtime.get(IHostClock);
+    const sessionContext = runtime.get(ISessionContext);
+    const belongsToCurrentCwd = (): boolean => {
+      const environment = profile.data().environmentDisclosure;
+      return !(
+        environment !== undefined &&
+        environment.cwd !== '' &&
+        environment.cwd !== sessionContext.cwd
+      );
+    };
+    const registration = reminder.register<DateInjectionDisclosure>(
+      DATE_CHANGE_INJECTION_VARIANT,
+      ({
+        lastDisclosure,
+      }: ContextInjectionContext<DateInjectionDisclosure>):
+        | ContextInjectionResult<DateInjectionDisclosure>
+        | undefined => {
+        const profileData = profile.data();
+        if (!belongsToCurrentCwd()) return undefined;
+        const renderGeneration = profileData.renderGeneration ?? 0;
+        const current = currentDateDisclosure(clock);
+        const seed = runtime.getLogicState<DateChangeActorContext>().seed;
+        const baseline = pickDisclosureBaseline<DateDisclosure>(lastDisclosure, seed);
+        if (baseline !== undefined && baseline.localDate !== current.localDate) {
+          return {
+            content: `The date has changed. Today's date is now ${current.localDate}. Rely on this reminder over any earlier date statement for the current date. DO NOT mention this to the user explicitly.`,
+            disclosure: {
+              kind: 'date',
+              renderGeneration,
+              localDate: current.localDate,
+              timeZone: current.timeZone,
+            },
+          };
+        }
+        if (lastDisclosure !== undefined) return undefined;
+        if (seed === undefined) {
+          runtime.send({
+            type: 'dateChange.disclose',
+            seed: { ...current, renderGeneration },
+          });
+        }
         return {
-          content: `The date has changed. Today's date is now ${current.localDate}. Rely on this reminder over any earlier date statement for the current date. DO NOT mention this to the user explicitly.`,
+          content: `Today's date is ${current.localDate}. The current date is restated in a reminder whenever it changes; rely on the latest such reminder for the current date. DO NOT mention this to the user explicitly.`,
           disclosure: {
             kind: 'date',
             renderGeneration,
@@ -108,27 +127,13 @@ const dateChangeInjection = fromCallback(({
             timeZone: current.timeZone,
           },
         };
-      }
-      if (lastDisclosure !== undefined) return undefined;
-      if (seed === undefined) {
-        runtime.send({
-          type: 'dateChange.disclose',
-          seed: { ...current, renderGeneration },
-        });
-      }
-      return {
-        content: `Today's date is ${current.localDate}. The current date is restated in a reminder whenever it changes; rely on the latest such reminder for the current date. DO NOT mention this to the user explicitly.`,
-        disclosure: {
-          kind: 'date',
-          renderGeneration,
-          localDate: current.localDate,
-          timeZone: current.timeZone,
-        },
-      };
-    },
-  );
-  return () => { registration.dispose(); };
-});
+      },
+    );
+    return () => {
+      registration.dispose();
+    };
+  },
+);
 
 const dateChangeActorLogic = setup({
   types: {} as {
@@ -162,9 +167,13 @@ export interface IAgentDateChangeService {
   readonly _serviceBrand: undefined;
 }
 
-export const IAgentDateChangeService = createDecorator<IAgentDateChangeService>('agentDateChangeService');
+export const IAgentDateChangeService =
+  createDecorator<IAgentDateChangeService>('agentDateChangeService');
 
-export class AgentDateChangeService extends AgentActorService<null> implements IAgentDateChangeService {
+export class AgentDateChangeService
+  extends AgentActorService<null>
+  implements IAgentDateChangeService
+{
   declare readonly _serviceBrand: undefined;
 
   constructor(

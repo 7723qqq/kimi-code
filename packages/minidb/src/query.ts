@@ -108,7 +108,11 @@ function matchCond(val: unknown, cond: Cond): boolean {
         break;
       case '$regex': {
         const re =
-          arg instanceof RegExp ? arg : Array.isArray(arg) ? new RegExp(arg[0] as string, arg[1] as string | undefined) : new RegExp(arg as string);
+          arg instanceof RegExp
+            ? arg
+            : Array.isArray(arg)
+              ? new RegExp(arg[0] as string, arg[1] as string | undefined)
+              : new RegExp(arg as string);
         if (typeof val !== 'string') return false;
         // Reset a stateful (global/sticky) RegExp so a reused instance does not
         // carry lastIndex over from the previous document.
@@ -138,11 +142,14 @@ export function match(doc: Doc, filter?: Record<string, unknown> | null): boolea
   for (const key of Object.keys(filter)) {
     const cond = filter[key];
     if (key === '$and') {
-      if (!Array.isArray(cond) || !cond.every((f) => match(doc, f as Record<string, unknown>))) return false;
+      if (!Array.isArray(cond) || !cond.every((f) => match(doc, f as Record<string, unknown>)))
+        return false;
     } else if (key === '$or') {
-      if (!Array.isArray(cond) || !cond.some((f) => match(doc, f as Record<string, unknown>))) return false;
+      if (!Array.isArray(cond) || !cond.some((f) => match(doc, f as Record<string, unknown>)))
+        return false;
     } else if (key === '$nor') {
-      if (!Array.isArray(cond) || cond.some((f) => match(doc, f as Record<string, unknown>))) return false;
+      if (!Array.isArray(cond) || cond.some((f) => match(doc, f as Record<string, unknown>)))
+        return false;
     } else if (key === '$not') {
       if (match(doc, cond as Record<string, unknown>)) return false;
     } else {
@@ -151,4 +158,3 @@ export function match(doc: Doc, filter?: Record<string, unknown> | null): boolea
   }
   return true;
 }
-

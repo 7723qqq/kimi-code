@@ -11,11 +11,19 @@ import {
   stat as nodeStat,
   writeFile,
 } from 'node:fs/promises';
-import { LifecycleScope } from '#/app/scopes';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { decodeTextWithErrors, readUtf8Lines, type TextDecodeErrors } from '#/_base/execEnv/decodeText';
 
-import { type HostDirEntry, type HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import {
+  decodeTextWithErrors,
+  readUtf8Lines,
+  type TextDecodeErrors,
+} from '#/_base/execEnv/decodeText';
+import { LifecycleScope } from '#/app/scopes';
+import {
+  type HostDirEntry,
+  type HostFileStat,
+  IHostFileSystem,
+} from '#/os/interface/hostFileSystem';
 import { toHostFsError } from '#/os/interface/hostFsErrors';
 
 const READ_CHUNK_SIZE = 64 * 1024;

@@ -102,9 +102,7 @@ export async function startCallbackServer(): Promise<CallbackServer> {
       res.writeHead(400, { 'content-type': 'text/html; charset=utf-8' }).end(ERROR_HTML);
       settle({
         status: 'rejected',
-        reason: new Error(
-          `OAuth error: ${errorParam}${description ? ` — ${description}` : ''}`,
-        ),
+        reason: new Error(`OAuth error: ${errorParam}${description ? ` — ${description}` : ''}`),
       });
       return;
     }
@@ -169,8 +167,7 @@ export async function startCallbackServer(): Promise<CallbackServer> {
       const onAbort = () => {
         settle({
           status: 'rejected',
-          reason:
-            signal?.reason instanceof Error ? signal.reason : new Error('OAuth flow aborted'),
+          reason: signal?.reason instanceof Error ? signal.reason : new Error('OAuth flow aborted'),
         });
       };
       const cleanup = () => {

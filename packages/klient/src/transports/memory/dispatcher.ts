@@ -14,15 +14,26 @@
  * memory behave identically by construction.
  */
 
+import { Readable } from 'node:stream';
+
 import type { ServiceIdentifier } from '@moonshot-ai/agent-core-v2';
 import type { IAgentScopeHandle } from '@moonshot-ai/agent-core-v2';
-import { IWorkspaceInstanceManager } from '@moonshot-ai/agent-core-v2/workspace/workspaceInstance/workspaceInstanceManager';
-import { ISessionManager } from '@moonshot-ai/agent-core-v2/app/sessionManager/sessionManager';
-import { getLiveSessionById } from '@moonshot-ai/agent-core-v2/app/sessionManager/sessionLookup';
-import { IAgentLifecycleService } from '@moonshot-ai/agent-core-v2/session/agentLifecycle/agentLifecycle';
-import { MAIN_AGENT_ID } from '@moonshot-ai/agent-core-v2/session/agentLifecycle/agentLifecycle';
-import { ensureMainAgent } from '@moonshot-ai/agent-core-v2/session/agentLifecycle/mainAgent';
+import type { SkillActivationOrigin } from '@moonshot-ai/agent-core-v2';
+import type { FileMeta, GetResult, SaveOptions } from '@moonshot-ai/agent-core-v2';
+import { IAgentLoopService } from '@moonshot-ai/agent-core-v2/agent/loop/loop';
 import { agentContextOf } from '@moonshot-ai/agent-core-v2/agent/scopeContext/scopeContext';
+import { IEventBus } from '@moonshot-ai/agent-core-v2/app/event/eventBus';
+import { FileErrors } from '@moonshot-ai/agent-core-v2/app/file/fileService';
+import { getLiveSessionById } from '@moonshot-ai/agent-core-v2/app/sessionManager/sessionLookup';
+import { ISessionManager } from '@moonshot-ai/agent-core-v2/app/sessionManager/sessionManager';
+import { ITelemetryService } from '@moonshot-ai/agent-core-v2/app/telemetry/telemetry';
+import type {
+  PromptWithSkillsInput,
+  SkillActivationInput,
+} from '@moonshot-ai/agent-core-v2/contract';
+import { Error2, ErrorCodes } from '@moonshot-ai/agent-core-v2/errors';
+import { IAgentSkillService } from '@moonshot-ai/agent-core-v2/features/skill/skillService';
+import { interactions } from '@moonshot-ai/agent-core-v2/human/interaction/facade';
 import {
   INTERACTION_TAG_AGENT_ID,
   INTERACTION_TAG_SESSION_ID,
@@ -30,25 +41,10 @@ import {
   type InteractionKind,
   type InteractionRequest,
 } from '@moonshot-ai/agent-core-v2/human/interaction/interaction';
-import { interactions } from '@moonshot-ai/agent-core-v2/human/interaction/facade';
-import { IAgentLoopService } from '@moonshot-ai/agent-core-v2/agent/loop/loop';
-import type { SkillActivationOrigin } from '@moonshot-ai/agent-core-v2';
-import { ITelemetryService } from '@moonshot-ai/agent-core-v2/app/telemetry/telemetry';
-import type {
-  PromptWithSkillsInput,
-  SkillActivationInput,
-} from '@moonshot-ai/agent-core-v2/contract';
-import { IAgentSkillService } from '@moonshot-ai/agent-core-v2/features/skill/skillService';
-import { IEventBus } from '@moonshot-ai/agent-core-v2/app/event/eventBus';
-import type {
-  FileMeta,
-  GetResult,
-  SaveOptions,
-} from '@moonshot-ai/agent-core-v2';
-import { FileErrors } from '@moonshot-ai/agent-core-v2/app/file/fileService';
-import { Error2, ErrorCodes } from '@moonshot-ai/agent-core-v2/errors';
-
-import { Readable } from 'node:stream';
+import { IAgentLifecycleService } from '@moonshot-ai/agent-core-v2/session/agentLifecycle/agentLifecycle';
+import { MAIN_AGENT_ID } from '@moonshot-ai/agent-core-v2/session/agentLifecycle/agentLifecycle';
+import { ensureMainAgent } from '@moonshot-ai/agent-core-v2/session/agentLifecycle/mainAgent';
+import { IWorkspaceInstanceManager } from '@moonshot-ai/agent-core-v2/workspace/workspaceInstance/workspaceInstanceManager';
 
 import type { EventSourceRef, IDisposable, ScopeRef } from '../../core/channel.js';
 import { RPCError } from '../../core/errors.js';
@@ -133,8 +129,7 @@ function interactionServiceView(sessionId: string): Record<string, unknown> {
       }) !== undefined,
     onDidChangePending: (listener: (event: unknown) => void) =>
       interactions.onDidChangePending(listener),
-    onDidResolve: (listener: (event: unknown) => void) =>
-      interactions.onDidResolve(listener),
+    onDidResolve: (listener: (event: unknown) => void) => interactions.onDidResolve(listener),
   };
 }
 
@@ -296,7 +291,9 @@ export function createMemoryDispatcher(root: ScopeLike): MemoryDispatcher {
       return { kind: 'workspace', like: root };
     }
     if (scope.sessionId === undefined) return { kind: 'core', like: root };
-    const session = root.accessor.get(ISessionManager).get(scope.sessionId) ?? getLiveSessionById(root.accessor, scope.sessionId);
+    const session =
+      root.accessor.get(ISessionManager).get(scope.sessionId) ??
+      getLiveSessionById(root.accessor, scope.sessionId);
     if (session === undefined) {
       throw new RPCError(NOT_FOUND, `session not found: ${scope.sessionId}`);
     }
@@ -338,19 +335,28 @@ export function createMemoryDispatcher(root: ScopeLike): MemoryDispatcher {
     ) {
       const view = sessionInteractionView(resolved, service);
       if (view === undefined) {
-        throw new RPCError(REQUEST_INVALID, `service not available in ${resolved.kind} scope: ${service}`);
+        throw new RPCError(
+          REQUEST_INVALID,
+          `service not available in ${resolved.kind} scope: ${service}`,
+        );
       }
       return view;
     }
     if (service === 'agentSkillService') {
       if (resolved.kind !== 'agent') {
-        throw new RPCError(REQUEST_INVALID, `service not available in ${resolved.kind} scope: ${service}`);
+        throw new RPCError(
+          REQUEST_INVALID,
+          `service not available in ${resolved.kind} scope: ${service}`,
+        );
       }
       return agentSkillServiceView(resolved.like as IAgentScopeHandle);
     }
     if (service === 'agentLoopService') {
       if (resolved.kind !== 'agent') {
-        throw new RPCError(REQUEST_INVALID, `service not available in ${resolved.kind} scope: ${service}`);
+        throw new RPCError(
+          REQUEST_INVALID,
+          `service not available in ${resolved.kind} scope: ${service}`,
+        );
       }
       return agentLoopServiceView(resolved.like as IAgentScopeHandle);
     }

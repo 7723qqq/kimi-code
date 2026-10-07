@@ -1,6 +1,6 @@
 import { Disposable, type IDisposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { LifecycleScope } from '#/app/scopes';
 import { BugIndicatingError } from '#/errors';
 
 import {

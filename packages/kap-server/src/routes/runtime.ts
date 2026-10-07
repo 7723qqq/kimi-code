@@ -53,7 +53,11 @@ export function registerRuntimeRoutes(app: RuntimeRouteHost, core: Scope): void 
       reply.send(okEnvelope(toResponse(service.get()), req.id));
     },
   );
-  app.get(getRoute.path, getRoute.options, getRoute.handler as Parameters<RuntimeRouteHost['get']>[2]);
+  app.get(
+    getRoute.path,
+    getRoute.options,
+    getRoute.handler as Parameters<RuntimeRouteHost['get']>[2],
+  );
 
   const switchRoute = defineRoute(
     {
@@ -77,9 +81,10 @@ export function registerRuntimeRoutes(app: RuntimeRouteHost, core: Scope): void 
         reply.send(okEnvelope(toResponse(service.switch(req.body.runtime_id)), req.id));
       } catch (error) {
         if (error instanceof RuntimeError) {
-          const code = error.code === 'runtime.not_found'
-            ? ErrorCode.RUNTIME_NOT_FOUND
-            : ErrorCode.RUNTIME_UNAVAILABLE;
+          const code =
+            error.code === 'runtime.not_found'
+              ? ErrorCode.RUNTIME_NOT_FOUND
+              : ErrorCode.RUNTIME_UNAVAILABLE;
           reply.send(errEnvelope(code, error.message, req.id));
           return;
         }
@@ -87,10 +92,17 @@ export function registerRuntimeRoutes(app: RuntimeRouteHost, core: Scope): void 
       }
     },
   );
-  app.post(switchRoute.path, switchRoute.options, switchRoute.handler as Parameters<RuntimeRouteHost['post']>[2]);
+  app.post(
+    switchRoute.path,
+    switchRoute.options,
+    switchRoute.handler as Parameters<RuntimeRouteHost['post']>[2],
+  );
 }
 
-async function resolveRuntime(core: Scope, sessionId: string): Promise<IAgentRuntimeBindingService> {
+async function resolveRuntime(
+  core: Scope,
+  sessionId: string,
+): Promise<IAgentRuntimeBindingService> {
   const session = await resumeSessionById(core.accessor, sessionId);
   if (session === undefined) {
     throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session ${sessionId} does not exist`);

@@ -1,5 +1,3 @@
-import { z } from 'zod';
-
 import { isoDateTimeSchema } from '@moonshot-ai/agent-core-v2/_base/utils/isoDateTime';
 import {
   permissionRuleSchema,
@@ -7,6 +5,7 @@ import {
   sessionAgentConfigSchema,
   sessionMetadataSchema,
 } from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionProtocol';
+import { z } from 'zod';
 
 import { workspaceIdSchema } from './workspace';
 

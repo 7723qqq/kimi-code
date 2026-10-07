@@ -2,20 +2,21 @@ import { randomUUID } from 'node:crypto';
 
 import { CoreErrors } from '#/_base/errors/codes';
 import { Error2 } from '#/_base/errors/errors';
-import { toInputJsonSchema } from '#/tool/input-schema';
 import { isAbortError } from '#/_base/utils/abort';
-import { IAgentTaskService } from '#/agent/task/task';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import type { QuestionAnsweredEvent, QuestionDismissedEvent } from '#/app/telemetry/events';
 import type {
-  ExecutableToolContext,
-  ExecutableToolResult,
-  ToolExecution,
-} from '#/tool/toolContract';
+  QuestionAnswers,
+  QuestionAnswerMethod,
+  QuestionRequest,
+  QuestionResponse,
+  QuestionResult,
+} from '#/agent/interaction/question';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentTaskService } from '#/agent/task/task';
+import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-
+import type { QuestionAnsweredEvent, QuestionDismissedEvent } from '#/app/telemetry/events';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { interactions } from '#/human/interaction/facade';
 import {
   INTERACTION_TAG_AGENT_ID,
   INTERACTION_TAG_SESSION_ID,
@@ -24,15 +25,14 @@ import {
   isInteractionCancellation,
   type InteractionTags,
 } from '#/human/interaction/interaction';
-import { interactions } from '#/human/interaction/facade';
-import type {
-  QuestionAnswers,
-  QuestionAnswerMethod,
-  QuestionRequest,
-  QuestionResponse,
-  QuestionResult,
-} from '#/agent/interaction/question';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import type {
+  ExecutableToolContext,
+  ExecutableToolResult,
+  ToolExecution,
+} from '#/tool/toolContract';
+
 import {
   AskUserQuestionInputSchema,
   AskUserQuestionInputSchemaWithBackground,
@@ -134,7 +134,8 @@ export class AskUserQuestionTool implements IAskUserQuestionTool {
     try {
       taskId = this.tasks.registerTask(
         new QuestionBackgroundTask(
-          (taskSignal) => this.executeQuestion(args, { toolCallId, turnId, signal: taskSignal, trace }),
+          (taskSignal) =>
+            this.executeQuestion(args, { toolCallId, turnId, signal: taskSignal, trace }),
           description,
           { questionCount: args.questions.length, toolCallId },
         ),
@@ -204,11 +205,7 @@ export class AskUserQuestionTool implements IAskUserQuestionTool {
 
   private requestQuestion(
     args: AskUserQuestionInput,
-    {
-      toolCallId,
-      signal,
-      turnId,
-    }: Pick<ExecutableToolContext, 'toolCallId' | 'signal' | 'turnId'>,
+    { toolCallId, signal, turnId }: Pick<ExecutableToolContext, 'toolCallId' | 'signal' | 'turnId'>,
   ): Promise<QuestionResult> {
     const id = `question_${randomUUID()}`;
     const tags: InteractionTags = {
@@ -236,7 +233,9 @@ export class AskUserQuestionTool implements IAskUserQuestionTool {
         },
         tags,
       })
-      .then((response) => (isInteractionCancellation(response) ? null : (response as QuestionResult)));
+      .then((response) =>
+        isInteractionCancellation(response) ? null : (response as QuestionResult),
+      );
     if (signal.aborted) {
       interactions.respond(id, null);
     } else {
@@ -274,9 +273,10 @@ function dismissedQuestionResult(): ExecutableToolResult {
   };
 }
 
-function normalizeQuestionResult(
-  result: QuestionResult,
-): { readonly answers: QuestionAnswers; readonly method?: QuestionAnswerMethod | undefined } | null {
+function normalizeQuestionResult(result: QuestionResult): {
+  readonly answers: QuestionAnswers;
+  readonly method?: QuestionAnswerMethod | undefined;
+} | null {
   if (result === null) return null;
   if (isQuestionResponse(result)) {
     return {

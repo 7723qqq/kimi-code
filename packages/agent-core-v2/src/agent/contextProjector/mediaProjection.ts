@@ -1,9 +1,8 @@
 import { createHash } from 'node:crypto';
 
+import { buildMediaPathTag, mediaKindOfPart } from '#/agent/media/mediaRef';
 import type { Message } from '#/llm-adapter/contract/message';
 import type { ContentPart } from '#human/llm/message';
-
-import { buildMediaPathTag, mediaKindOfPart } from '#/agent/media/mediaRef';
 
 import type { MediaStripSnapshot } from './contextProjector';
 
@@ -21,18 +20,13 @@ const MEDIA_DEGRADED_PLACEHOLDERS = {
 export const MEDIA_STRIPPED_PLACEHOLDERS = {
   image_url:
     '[image omitted for provider compatibility; re-read the file to view it or get conversion guidance]',
-  audio_url:
-    '[audio omitted for provider compatibility; re-read the file to hear it]',
-  video_url:
-    '[video omitted for provider compatibility; re-read the file to view it]',
+  audio_url: '[audio omitted for provider compatibility; re-read the file to hear it]',
+  video_url: '[video omitted for provider compatibility; re-read the file to view it]',
 } as const;
 
 type MediaPlaceholderSet = typeof MEDIA_DEGRADED_PLACEHOLDERS | typeof MEDIA_STRIPPED_PLACEHOLDERS;
 
-type DegradableMediaPart = Extract<
-  ContentPart,
-  { readonly type: keyof MediaPlaceholderSet }
->;
+type DegradableMediaPart = Extract<ContentPart, { readonly type: keyof MediaPlaceholderSet }>;
 
 interface MediaContainer {
   readonly url: string;
@@ -47,9 +41,7 @@ type MediaContainerKeyCache = Partial<Record<DegradableMediaPart['type'], string
 
 const MEDIA_CONTAINER_KEY_CACHE = new WeakMap<MediaContainer, MediaContainerKeyCache>();
 
-function isDegradableMediaPart(
-  part: ContentPart,
-): part is DegradableMediaPart {
+function isDegradableMediaPart(part: ContentPart): part is DegradableMediaPart {
   return part.type in MEDIA_DEGRADED_PLACEHOLDERS;
 }
 
@@ -95,9 +87,7 @@ function mediaPathTag(
   return { type: 'text', text: buildMediaPathTag(kind, path) };
 }
 
-export function captureMediaStripSnapshot(
-  messages: readonly Message[],
-): MediaStripSnapshot {
+export function captureMediaStripSnapshot(messages: readonly Message[]): MediaStripSnapshot {
   const keys = new Set<string>();
   for (const message of messages) {
     for (const part of message.content) {
@@ -120,7 +110,12 @@ export function stripMediaPartsBySnapshot(
       if (!isDegradableMediaPart(part) || !keys.has(mediaStripKey(part))) return part;
       changed = true;
       messageChanged = true;
-      return mediaPathTag(part, mediaPaths) ?? { type: 'text', text: MEDIA_STRIPPED_PLACEHOLDERS[part.type] };
+      return (
+        mediaPathTag(part, mediaPaths) ?? {
+          type: 'text',
+          text: MEDIA_STRIPPED_PLACEHOLDERS[part.type],
+        }
+      );
     });
     return messageChanged ? { ...message, content } : message;
   });

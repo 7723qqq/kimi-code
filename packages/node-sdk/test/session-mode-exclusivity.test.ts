@@ -8,8 +8,8 @@
 
 import { writeFile } from 'node:fs/promises';
 
-import { afterEach, describe, expect, it } from 'vitest';
 import { join } from 'pathe';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import { createKimiHarness } from '#/index';
 

@@ -4,7 +4,13 @@ import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { IHostProcessService } from '#/os/interface/hostProcess';
 import type { IHostTerminalService } from '#/os/interface/terminal';
 
-export type RuntimeStatus = 'connecting' | 'ready' | 'degraded' | 'disconnected' | 'draining' | 'disposed';
+export type RuntimeStatus =
+  | 'connecting'
+  | 'ready'
+  | 'degraded'
+  | 'disconnected'
+  | 'draining'
+  | 'disposed';
 export type RuntimeCapability = 'fs' | 'process' | 'terminal';
 
 export interface RuntimeBinding {

@@ -21,10 +21,7 @@ export function computeFuzzyScore(name: string, queryLower: string): number {
   return Math.min(1, Math.max(0, score));
 }
 
-export function computeMatchPositions(
-  pathStr: string,
-  queryLower: string,
-): number[] {
+export function computeMatchPositions(pathStr: string, queryLower: string): number[] {
   if (queryLower.length === 0) return [];
   const lower = pathStr.toLowerCase();
   const out: number[] = [];

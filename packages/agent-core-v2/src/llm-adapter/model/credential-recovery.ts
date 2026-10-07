@@ -25,7 +25,11 @@ export async function* streamWithCredentialRecovery<T>(
       yield* stream();
       return;
     } catch (error) {
-      if (recovered || signal?.aborted === true || credentialProvider?.canRecover?.(error) !== true) {
+      if (
+        recovered ||
+        signal?.aborted === true ||
+        credentialProvider?.canRecover?.(error) !== true
+      ) {
         throw error;
       }
       recovered = true;

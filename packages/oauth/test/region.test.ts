@@ -60,9 +60,7 @@ describe('resolveKimiRegion', () => {
     expect(resolveKimiRegion({ env: { KIMI_CODE_OAUTH_HOST: 'https://auth.kimi.ai' } })).toBe(
       'global',
     );
-    expect(resolveKimiRegion({ env: { KIMI_OAUTH_HOST: 'https://auth.kimi.ai' } })).toBe(
-      'global',
-    );
+    expect(resolveKimiRegion({ env: { KIMI_OAUTH_HOST: 'https://auth.kimi.ai' } })).toBe('global');
     expect(
       resolveKimiRegion({
         env: {
@@ -89,7 +87,9 @@ describe('resolveKimiRegion', () => {
     expect(resolveKimiRegion({ env: {}, configuredOAuthHost: 'https://auth.kimi.ai/' })).toBe(
       'global',
     );
-    expect(resolveKimiRegion({ env: {}, configuredOAuthHost: 'https://auth.kimi.com' })).toBe('mainland-cn');
+    expect(resolveKimiRegion({ env: {}, configuredOAuthHost: 'https://auth.kimi.com' })).toBe(
+      'mainland-cn',
+    );
   });
 
   it('ignores an unrecognized persisted host and continues down the chain', async () => {
@@ -104,7 +104,9 @@ describe('resolveKimiRegion', () => {
 
   it('reads the install-channel marker when nothing else decides', async () => {
     expect(resolveKimiRegion({ env: {}, homeDir: await markerDir('global\n') })).toBe('global');
-    expect(resolveKimiRegion({ env: {}, homeDir: await markerDir('  mainland-cn  ') })).toBe('mainland-cn');
+    expect(resolveKimiRegion({ env: {}, homeDir: await markerDir('  mainland-cn  ') })).toBe(
+      'mainland-cn',
+    );
   });
 
   it('ignores a malformed or missing marker', async () => {
@@ -162,7 +164,9 @@ describe('resolveKimiRegion', () => {
         homeDir: dir,
       }),
     ).toBe('global');
-    expect(resolveKimiRemoteControlAuth({ env: {}, configuredOAuthKey: key, homeDir: dir })).toEqual({
+    expect(
+      resolveKimiRemoteControlAuth({ env: {}, configuredOAuthKey: key, homeDir: dir }),
+    ).toEqual({
       region: 'global',
       oauthKey: key,
       relayOrigin: 'https://code-rc.kimi.com',

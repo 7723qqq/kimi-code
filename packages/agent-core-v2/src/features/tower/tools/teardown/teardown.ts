@@ -14,9 +14,7 @@ export const TowerTeardownToolInputSchema = z
     exclude: z
       .array(z.string())
       .optional()
-      .describe(
-        'Worktree names to keep — they are skipped and reported, whatever their state',
-      ),
+      .describe('Worktree names to keep — they are skipped and reported, whatever their state'),
     dry_run: z
       .boolean()
       .optional()

@@ -1,6 +1,7 @@
 import { createReadStream } from 'node:fs';
 import { appendFile, mkdir } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
+
 import { ulid } from 'ulid';
 
 const JOURNAL_VERSION = 1;
@@ -63,7 +64,10 @@ export class SessionEventJournal {
     return this._seq;
   }
 
-  static async open(filePath: string, logger: JournalLogger = noopLogger): Promise<SessionEventJournal> {
+  static async open(
+    filePath: string,
+    logger: JournalLogger = noopLogger,
+  ): Promise<SessionEventJournal> {
     let epoch: string | undefined;
     let lastSeq = 0;
     let sawAnyLine = false;

@@ -1,11 +1,14 @@
 import type { AgentContext } from '../../agent/agentContext/agentContext';
 import type { IAgentTodoService } from '../todo/todoService';
-import type { PlanData } from './plan';
 import { parsePlanToTodos } from './parsePlanToTodos';
+import type { PlanData } from './plan';
 
 export type PlanToTodoOutcome =
   | { readonly kind: 'converted'; readonly count: number }
-  | { readonly kind: 'skipped'; readonly reason: 'empty-plan' | 'no-structure' | 'existing-todos' | 'no-agent' };
+  | {
+      readonly kind: 'skipped';
+      readonly reason: 'empty-plan' | 'no-structure' | 'existing-todos' | 'no-agent';
+    };
 
 export async function tryConvertPlanToTodos(
   planData: PlanData,

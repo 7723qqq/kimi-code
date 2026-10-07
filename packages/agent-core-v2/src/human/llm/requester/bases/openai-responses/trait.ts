@@ -4,7 +4,11 @@ import type { TraitContext } from '#/llm/protocol/base';
 import type { ThinkingStrategy } from '#/llm/protocol/thinking';
 import type { ToolCallIdPolicy, ToolMessageConversion } from '#/llm/requester/requester';
 
-import type { OpenAIResponsesRawChunk, OpenAIResponsesRawUsage, ResponsesInputItem } from './contract';
+import type {
+  OpenAIResponsesRawChunk,
+  OpenAIResponsesRawUsage,
+  ResponsesInputItem,
+} from './contract';
 
 export interface OpenAIResponsesTrait {
   readonly toolCallIdPolicy?: ToolCallIdPolicy;

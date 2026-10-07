@@ -13,17 +13,17 @@ import {
   type HostFileStat,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
-import {
-  fsBrowseQuerySchema,
-  fsBrowseResponseSchema,
-  fsHomeResponseSchema,
-} from '@moonshot-ai/agent-core-v2/app/hostFolderBrowser/hostFolderBrowser';
+import { classifyTextSample } from '@moonshot-ai/agent-core-v2/_base/text/encoding';
 import {
   buildEtag,
   FS_BINARY_SAMPLE_BYTES,
   guessMime,
 } from '@moonshot-ai/agent-core-v2/_base/utils/fileMeta';
-import { classifyTextSample } from '@moonshot-ai/agent-core-v2/_base/text/encoding';
+import {
+  fsBrowseQuerySchema,
+  fsBrowseResponseSchema,
+  fsHomeResponseSchema,
+} from '@moonshot-ai/agent-core-v2/app/hostFolderBrowser/hostFolderBrowser';
 import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';
@@ -203,18 +203,12 @@ async function handleFsContent(
   }
 
   if (st.isDirectory) {
-    reply.send(
-      errEnvelope(ErrorCode.FS_IS_DIRECTORY, `path is a directory: ${path}`, requestId),
-    );
+    reply.send(errEnvelope(ErrorCode.FS_IS_DIRECTORY, `path is a directory: ${path}`, requestId));
     return;
   }
   if (!st.isFile) {
     reply.send(
-      errEnvelope(
-        ErrorCode.VALIDATION_FAILED,
-        `path is not a regular file: ${path}`,
-        requestId,
-      ),
+      errEnvelope(ErrorCode.VALIDATION_FAILED, `path is not a regular file: ${path}`, requestId),
     );
     return;
   }
@@ -222,8 +216,7 @@ async function handleFsContent(
   let isBinary = false;
   try {
     const sampleSize = Math.min(FS_BINARY_SAMPLE_BYTES, st.size);
-    const sample =
-      sampleSize === 0 ? new Uint8Array() : await hostFs.readBytes(abs, sampleSize);
+    const sample = sampleSize === 0 ? new Uint8Array() : await hostFs.readBytes(abs, sampleSize);
     const classification = classifyTextSample(sample);
     isBinary = classification.isBinary || classification.encoding !== 'utf-8';
   } catch (error) {
@@ -247,8 +240,7 @@ async function handleFsContent(
     log?.warn({ path, err: error }, 'fs content stream error');
     try {
       stream.destroy();
-    } catch {
-    }
+    } catch {}
   };
 
   const range = parseRangeHeader(pickHeader(req.headers, 'range'), st.size);
@@ -333,9 +325,7 @@ function sendOsFsError(
     switch (err.code) {
       case ErrorCodes.OS_FS_NOT_FOUND:
       case ErrorCodes.OS_FS_NOT_DIRECTORY:
-        reply.send(
-          errEnvelope(ErrorCode.FS_PATH_NOT_FOUND, `path not found: ${path}`, requestId),
-        );
+        reply.send(errEnvelope(ErrorCode.FS_PATH_NOT_FOUND, `path not found: ${path}`, requestId));
         return;
       case ErrorCodes.OS_FS_PERMISSION_DENIED:
         reply.send(

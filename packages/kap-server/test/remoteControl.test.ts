@@ -1,21 +1,28 @@
-import { createServer } from 'node:http';
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import type { ITelemetryService } from '@moonshot-ai/agent-core-v2';
 import {
   FileTokenStorage,
   KIMI_CODE_PROVIDER_NAME,
   resolveKimiTokenStorageName,
   type TokenInfo,
 } from '@moonshot-ai/kimi-code-oauth';
-import { remoteControlLockPath, RemoteControlAlreadyRunningError, type RemoteControlManager } from '@moonshot-ai/remote-control';
-import type { ITelemetryService } from '@moonshot-ai/agent-core-v2';
+import {
+  remoteControlLockPath,
+  RemoteControlAlreadyRunningError,
+  type RemoteControlManager,
+} from '@moonshot-ai/remote-control';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
 
 import { ErrorCode } from '../src/protocol/error-codes';
-import { registerRemoteControlRoutes, type RemoteControlRouteOptions } from '../src/routes/remoteControl';
+import {
+  registerRemoteControlRoutes,
+  type RemoteControlRouteOptions,
+} from '../src/routes/remoteControl';
 import { writeServerToken } from '../src/services/auth/persistentToken';
 import { type RunningServer, startServer } from '../src/start';
 import { authedFetch } from './helpers/auth';
@@ -139,9 +146,9 @@ describe('server-v2 /api/v1/remote-control', () => {
     expect(rotatedResponse).toContain('HTTP/1.1 200');
     expect(rotatedResponse).toContain('"ok":true');
 
-    relay.managementSockets.at(-1)!.send(
-      JSON.stringify({ type: 'disconnect', payload: { reason: 'user_requested' } }),
-    );
+    relay.managementSockets
+      .at(-1)!
+      .send(JSON.stringify({ type: 'disconnect', payload: { reason: 'user_requested' } }));
     await waitFor(async () => {
       const after = await authedFetch(server as RunningServer, base, '/api/v1/remote-control');
       const body = (await after.json()) as Envelope<RemoteControlStatusWire>;

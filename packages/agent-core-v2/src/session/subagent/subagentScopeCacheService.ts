@@ -1,17 +1,22 @@
 import { Disposable } from '#/_base/di/lifecycle';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
-import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { LifecycleScope } from '#/app/scopes';
-import { ISessionEventBus } from '#/app/event/eventBus';
+import { onUnexpectedError } from '#/_base/errors/unexpectedError';
+import { ILogService } from '#/_base/log/log';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentTaskService } from '#/agent/task/task';
+import { ISessionEventBus } from '#/app/event/eventBus';
+import { LifecycleScope } from '#/app/scopes';
 import { SubagentSuspended } from '#/features/swarm/session/sessionSwarmService';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import { ILogService } from '#/_base/log/log';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 
-import { SubagentCancelled, SubagentCompleted, SubagentFailed, SubagentStarted } from './mirrorAgentRun';
+import {
+  SubagentCancelled,
+  SubagentCompleted,
+  SubagentFailed,
+  SubagentStarted,
+} from './mirrorAgentRun';
 import {
   ISessionSubagentScopeCacheService,
   resolveSubagentScopeCacheSize,

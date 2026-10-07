@@ -127,7 +127,12 @@ function recoveryContext(
   appliedRecoveries: readonly LlmRecoveryRecord[] = [],
   credentialProvider?: LlmCredentialProvider,
 ): LlmRecoveryContext {
-  return { error: error as LlmRecoveryContext['error'], messages: [], appliedRecoveries, credentialProvider };
+  return {
+    error: error as LlmRecoveryContext['error'],
+    messages: [],
+    appliedRecoveries,
+    credentialProvider,
+  };
 }
 
 const unauthorized = Object.assign(new Error('unauthorized'), { status: 401 });

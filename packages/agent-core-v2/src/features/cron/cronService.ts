@@ -3,32 +3,43 @@ import { assign, fromCallback, sendTo, setup, type Snapshot } from 'xstate';
 
 import { createDecorator, IInstantiationService } from '#/_base/di/instantiation';
 import { IntervalTimer } from '#/_base/utils/timer';
-import type { CronJobOrigin, CronMissedOrigin } from '#/agent/contextMemory/types';
-import { IAgentLoopService, type Turn } from '#/agent/loop/loop';
 import {
   AgentActorService,
   type AgentActorContext,
   type AgentActorRestoreEvent,
 } from '#/agent/actorService/agentActorService';
+import { ContextAppendMessage } from '#/agent/contextMemory/contextEvents';
+import type { CronJobOrigin, CronMissedOrigin } from '#/agent/contextMemory/types';
+import type { ContextMessage } from '#/agent/contextMemory/types';
+import { IAgentLoopService, type Turn } from '#/agent/loop/loop';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { registerEvent2Class } from '#/app/event/event2';
 import { IConfigService } from '#/app/config/config';
-import { type ClockSources, resolveClockSources, SYSTEM_CLOCKS } from '#/features/cron/internal/clock';
-import { type CronConfig, CRON_SECTION, DEFAULT_CRON_CONFIG } from '#/features/cron/configSection';
-import { computeNextCronRun, parseCronExpression, type ParsedCronExpression } from '#/features/cron/internal/cron-expr';
-import type { CronTask, CronTaskInit } from '#/features/cron/cronTask';
-import { renderCronFireXml } from '#/features/cron/internal/format';
-import { jitteredNextCronRunMs, oneShotJitteredNextCronRunMs } from '#/features/cron/internal/jitter';
+import { registerEvent2Class } from '#/app/event/event2';
 import type { CronDeletedEvent, CronScheduledEvent } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { BugIndicatingError } from '#/errors';
-import type { ContentPart } from '#human/llm/message';
-import { ContextAppendMessage } from '#/agent/contextMemory/contextEvents';
-import type { ContextMessage } from '#/agent/contextMemory/types';
+import { type CronConfig, CRON_SECTION, DEFAULT_CRON_CONFIG } from '#/features/cron/configSection';
+import type { CronTask, CronTaskInit } from '#/features/cron/cronTask';
+import {
+  type ClockSources,
+  resolveClockSources,
+  SYSTEM_CLOCKS,
+} from '#/features/cron/internal/clock';
+import {
+  computeNextCronRun,
+  parseCronExpression,
+  type ParsedCronExpression,
+} from '#/features/cron/internal/cron-expr';
+import { renderCronFireXml } from '#/features/cron/internal/format';
+import {
+  jitteredNextCronRunMs,
+  oneShotJitteredNextCronRunMs,
+} from '#/features/cron/internal/jitter';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { Forked } from '#/session/agentLifecycle/forked';
 import { IEventDispatcher } from '#/state/eventDispatcher';
+import type { ContentPart } from '#human/llm/message';
 
 import { CronAdd, CronCursor, CronDelete, CronFired, type CronModelState } from './cronOps';
 
@@ -157,9 +168,10 @@ function countCoalesced(
   while (count < MAX_COALESCE_ITERATIONS) {
     const next = computeNextCronRun(parsed, cursor);
     if (next === null || next > nowMs) break;
-    const jitteredNext = task.recurring === false
-      ? oneShotJitteredNextCronRunMs(task, next, undefined, noJitter)
-      : jitteredNextCronRunMs(task, parsed, next, undefined, noJitter);
+    const jitteredNext =
+      task.recurring === false
+        ? oneShotJitteredNextCronRunMs(task, next, undefined, noJitter)
+        : jitteredNextCronRunMs(task, parsed, next, undefined, noJitter);
     if (jitteredNext > nowMs) break;
     count += 1;
     cursor = next;
@@ -194,13 +206,19 @@ function deliverFire(
   try {
     runtime.get(IAgentLoopService).submit(
       {
-        message: { role: 'user', content: [{ type: 'text', text: renderCronFireXml(origin, task.prompt) }] },
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: renderCronFireXml(origin, task.prompt) }],
+        },
         meta: { origin },
       },
       { steerIfActive: true },
     );
   } catch (error) {
-    debugLog(runtime, `steer threw for task ${task.id}: ${error instanceof Error ? error.message : String(error)}`);
+    debugLog(
+      runtime,
+      `steer threw for task ${task.id}: ${error instanceof Error ? error.message : String(error)}`,
+    );
     return Promise.resolve(false);
   }
   void runtime.dispatch(new CronFired({ origin, prompt: task.prompt }));
@@ -224,7 +242,10 @@ async function processDue(
   try {
     parsed = parsedCron(state, task.cron);
   } catch (error) {
-    debugLog(runtime, `tick failed to parse cron for task ${task.id}: ${error instanceof Error ? error.message : String(error)}`);
+    debugLog(
+      runtime,
+      `tick failed to parse cron for task ${task.id}: ${error instanceof Error ? error.message : String(error)}`,
+    );
     return;
   }
   if (
@@ -255,7 +276,10 @@ async function processDue(
   try {
     delivered = await deliverFire(runtime, task, { coalescedCount, firedAt });
   } catch (error) {
-    debugLog(runtime, `deliverDue threw for task ${task.id}: ${error instanceof Error ? error.message : String(error)}`);
+    debugLog(
+      runtime,
+      `deliverDue threw for task ${task.id}: ${error instanceof Error ? error.message : String(error)}`,
+    );
   } finally {
     state.inFlight.delete(task.id);
   }
@@ -289,72 +313,83 @@ async function tickCron(
   if (cronConfigOf(runtime).disabled || runtime.getState().tasks.size === 0) return;
   if (runtime.get(IAgentLoopService).snapshot().state === 'running') return;
   const now = state.clocks.wallNow();
-  await Promise.all([...runtime.getState().tasks.values()].map((task) => processDue(runtime, state, task, now)));
+  await Promise.all(
+    [...runtime.getState().tasks.values()].map((task) => processDue(runtime, state, task, now)),
+  );
 }
 
-const cronEffects = fromCallback(({
-  input,
-  receive,
-  sendBack,
-}: {
-  input: {
-    readonly runtime: AgentActorContext<CronModelState>;
-    readonly restore: AgentActorRestoreEvent;
-  };
-  receive: (listener: (event: CronTickEvent) => void) => void;
-  sendBack: (event: CronActorEvent) => void;
-}) => {
-  if (input.runtime.agent.agentId !== MAIN_AGENT_ID) return;
-  if (input.runtime.getState().forkNotice.reminderPending) {
-    input.runtime.get(IAgentReminderService).notify(CRON_FORK_CLEARED_REMINDER, {
-      variant: CRON_FORK_CLEARED_REMINDER_NAME,
+const cronEffects = fromCallback(
+  ({
+    input,
+    receive,
+    sendBack,
+  }: {
+    input: {
+      readonly runtime: AgentActorContext<CronModelState>;
+      readonly restore: AgentActorRestoreEvent;
+    };
+    receive: (listener: (event: CronTickEvent) => void) => void;
+    sendBack: (event: CronActorEvent) => void;
+  }) => {
+    if (input.runtime.agent.agentId !== MAIN_AGENT_ID) return;
+    if (input.runtime.getState().forkNotice.reminderPending) {
+      input.runtime.get(IAgentReminderService).notify(CRON_FORK_CLEARED_REMINDER, {
+        variant: CRON_FORK_CLEARED_REMINDER_NAME,
+      });
+    }
+    const timer = new IntervalTimer({ unref: true });
+    const state: CronEffectState = {
+      clocks: SYSTEM_CLOCKS,
+      parsedCache: new Map(),
+      lastSeenAt: new Map(),
+      seededFromStore: new Set(),
+      inFlight: new Set(),
+    };
+    let disposed = false;
+    let signalHandler: NodeJS.SignalsListener | undefined;
+    receive((event) => {
+      void tickCron(input.runtime, state).then(
+        () => {
+          event.resolve?.();
+        },
+        (error: unknown) => {
+          event.reject?.(error);
+        },
+      );
     });
-  }
-  const timer = new IntervalTimer({ unref: true });
-  const state: CronEffectState = {
-    clocks: SYSTEM_CLOCKS,
-    parsedCache: new Map(),
-    lastSeenAt: new Map(),
-    seededFromStore: new Set(),
-    inFlight: new Set(),
-  };
-  let disposed = false;
-  let signalHandler: NodeJS.SignalsListener | undefined;
-  receive((event) => {
-    void tickCron(input.runtime, state).then(
-      () => { event.resolve?.(); },
-      (error: unknown) => { event.reject?.(error); },
+    input.restore.waitUntil(
+      configOf(input.runtime).ready.then(() => {
+        if (disposed) return;
+        const config = cronConfigOf(input.runtime);
+        state.clocks = resolveClockSources(config.clock, config.debug) ?? SYSTEM_CLOCKS;
+        const poll = config.manualTick ? null : config.pollIntervalMs;
+        const interval = poll === undefined ? DEFAULT_POLL_INTERVAL_MS : poll;
+        if (interval !== null && interval !== 0) {
+          timer.cancelAndSet(() => {
+            sendBack({ type: 'cron.tick' });
+          }, interval);
+        }
+        if (process.platform !== 'win32' && config.manualTick) {
+          signalHandler = () => {
+            sendBack({ type: 'cron.tick' });
+          };
+          process.on('SIGUSR1', signalHandler);
+        }
+      }),
     );
-  });
-  input.restore.waitUntil(configOf(input.runtime).ready.then(() => {
-    if (disposed) return;
-    const config = cronConfigOf(input.runtime);
-    state.clocks = resolveClockSources(config.clock, config.debug) ?? SYSTEM_CLOCKS;
-    const poll = config.manualTick ? null : config.pollIntervalMs;
-    const interval = poll === undefined ? DEFAULT_POLL_INTERVAL_MS : poll;
-    if (interval !== null && interval !== 0) {
-      timer.cancelAndSet(() => { sendBack({ type: 'cron.tick' }); }, interval);
-    }
-    if (process.platform !== 'win32' && config.manualTick) {
-      signalHandler = () => { sendBack({ type: 'cron.tick' }); };
-      process.on('SIGUSR1', signalHandler);
-    }
-  }));
-  return () => {
-    disposed = true;
-    timer.dispose();
-    if (signalHandler !== undefined) process.off('SIGUSR1', signalHandler);
-    state.inFlight.clear();
-    state.lastSeenAt.clear();
-    state.seededFromStore.clear();
-    state.parsedCache.clear();
-  };
-});
+    return () => {
+      disposed = true;
+      timer.dispose();
+      if (signalHandler !== undefined) process.off('SIGUSR1', signalHandler);
+      state.inFlight.clear();
+      state.lastSeenAt.clear();
+      state.seededFromStore.clear();
+      state.parsedCache.clear();
+    };
+  },
+);
 
-function nextFireFor(
-  runtime: AgentActorContext<CronModelState>,
-  task: CronTask,
-): number | null {
+function nextFireFor(runtime: AgentActorContext<CronModelState>, task: CronTask): number | null {
   try {
     const clocks = clocksOf(runtime);
     const parsed = parseCronExpression(task.cron);
@@ -370,7 +405,10 @@ function nextFireFor(
         : task.createdAt;
     return computeJitteredNext(runtime, task, parsed, baseFromMs);
   } catch (error) {
-    debugLog(runtime, `nextFireFor skipping task ${task.id}: ${error instanceof Error ? error.message : String(error)}`);
+    debugLog(
+      runtime,
+      `nextFireFor skipping task ${task.id}: ${error instanceof Error ? error.message : String(error)}`,
+    );
     return null;
   }
 }
@@ -393,7 +431,9 @@ const cronActorLogic = setup({
       on: {
         'runtime.restore': 'active',
         'cron.tick': {
-          actions: ({ event }) => { event.reject?.(new Error('Cron runtime is not restored')); },
+          actions: ({ event }) => {
+            event.reject?.(new Error('Cron runtime is not restored'));
+          },
         },
       },
     },
@@ -445,7 +485,10 @@ export interface IAgentCronService {
 
 export const IAgentCronService = createDecorator<IAgentCronService>('agentCronService');
 
-export class AgentCronService extends AgentActorService<CronModelState> implements IAgentCronService {
+export class AgentCronService
+  extends AgentActorService<CronModelState>
+  implements IAgentCronService
+{
   declare readonly _serviceBrand: undefined;
 
   private readonly actor: AgentActorContext<CronModelState>;
@@ -472,7 +515,8 @@ export class AgentCronService extends AgentActorService<CronModelState> implemen
           }
           if (event instanceof CronCursor) {
             const task = state.tasks.get(event.id);
-            if (task !== undefined) state.tasks.set(event.id, { ...task, lastFiredAt: event.lastFiredAt });
+            if (task !== undefined)
+              state.tasks.set(event.id, { ...task, lastFiredAt: event.lastFiredAt });
             return;
           }
           if (event instanceof Forked) {
@@ -488,7 +532,9 @@ export class AgentCronService extends AgentActorService<CronModelState> implemen
           }
         },
         read: (snapshot) => (snapshot as CronActorSnapshot).context.model,
-        commit: (actor, model) => { actor.send({ type: 'cron.commit', model }); },
+        commit: (actor, model) => {
+          actor.send({ type: 'cron.commit', model });
+        },
       },
     });
   }
@@ -512,7 +558,9 @@ export class AgentCronService extends AgentActorService<CronModelState> implemen
       }
     }
     if (id === undefined) {
-      throw new BugIndicatingError(`SessionCronService: failed to generate a unique ULID after ${MAX_ID_ATTEMPTS} attempts`);
+      throw new BugIndicatingError(
+        `SessionCronService: failed to generate a unique ULID after ${MAX_ID_ATTEMPTS} attempts`,
+      );
     }
     const task: CronTask = { ...init, id, createdAt: this.now() };
     void this.actor.dispatch(new CronAdd({ task }));
@@ -579,7 +627,10 @@ export class AgentCronService extends AgentActorService<CronModelState> implemen
   }
 
   emitScheduled(task: CronTask, agentId?: string): void {
-    const properties: CronScheduledEvent = { recurring: task.recurring !== false, agent_id: agentId };
+    const properties: CronScheduledEvent = {
+      recurring: task.recurring !== false,
+      agent_id: agentId,
+    };
     telemetryOf(this.actor).track2(CRON_SCHEDULED, properties);
   }
 

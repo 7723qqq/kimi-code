@@ -3,8 +3,8 @@ import { createUserMessage } from '#/llm/message';
 import type { Plugin } from '#/plugin';
 
 import { readTodoState } from './slice';
-import { createTodoListTool } from './tool';
 import { renderTodoList } from './todoItem';
+import { createTodoListTool } from './tool';
 
 const STALE_TURNS = 2;
 

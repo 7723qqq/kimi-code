@@ -56,6 +56,7 @@ import {
   type SetSessionModeRequest,
   type SetSessionModeResponse,
 } from '@agentclientprotocol/sdk';
+import { ErrorCodes, isError2 } from '@moonshot-ai/agent-core-v2';
 import type {
   AgentHandle,
   Klient,
@@ -63,7 +64,6 @@ import type {
   SessionRestoreOptions,
   SessionSummary,
 } from '@moonshot-ai/klient';
-import { ErrorCodes, isError2 } from '@moonshot-ai/agent-core-v2';
 import { RPCError } from '@moonshot-ai/klient';
 
 import type { AcpClient } from './acp-client';
@@ -285,10 +285,7 @@ export class AcpServer {
     }
     const restored = await this.klient.session(forkedId).restore();
     if (!restored) {
-      throw RequestError.invalidParams(
-        { sessionId: forkedId },
-        `Unknown sessionId: ${forkedId}`,
-      );
+      throw RequestError.invalidParams({ sessionId: forkedId }, `Unknown sessionId: ${forkedId}`);
     }
     return { sessionId: forkedId, ...(await this.activateSession(forkedId)) };
   }

@@ -2,11 +2,13 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type { AgentContext } from '#/agent/agentContext/agentContext';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentTaskService } from '#/agent/task/task';
 import { isAgentTaskTerminal } from '#/agent/task/taskService';
+import { SubagentTask, type SubagentHandle } from '#/agent/tools/agent/subagent-task';
+import { IConfigService } from '#/app/config/config';
 import {
   GitError,
   MISSIONS_DIR,
@@ -25,14 +27,7 @@ import {
 } from '#/features/tower/protocol/index';
 import { IAgentTowerService, TOWER_WORKER_PROFILE } from '#/features/tower/tower';
 import { ITowerRateLimitService } from '#/features/tower/towerRateLimit';
-import { IConfigService } from '#/app/config/config';
 import { IModelCatalog } from '#/llm-adapter/model/catalog';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import {
-  type ExecutableToolContext,
-  type ExecutableToolResult,
-  type ToolExecution,
-} from '#/tool/toolContract';
 import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { subagentLabels } from '#/session/agentLifecycle/subagentMetadata';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
@@ -45,8 +40,12 @@ import {
 } from '#/session/subagent/configSection';
 import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/subagent/mirrorAgentRun';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
-
-import { SubagentTask, type SubagentHandle } from '#/agent/tools/agent/subagent-task';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import {
+  type ExecutableToolContext,
+  type ExecutableToolResult,
+  type ToolExecution,
+} from '#/tool/toolContract';
 
 import { TOWER_MAIN_AGENT_ONLY, TOWER_MODE_USER_ENABLED_ONLY } from '../support';
 import { ITowerSpawnTool, TowerSpawnToolInputSchema, type TowerSpawnToolInput } from './spawn';
@@ -175,7 +174,12 @@ export class TowerSpawnTool implements ITowerSpawnTool {
         try {
           const added = await store.addWorktree(mission.worktree, mission.branch, state.base);
           if (added.spawnBase !== undefined) {
-            await store.updateMission(TOWER_NAME, mission.id, { spawnBase: added.spawnBase }, { silent: true });
+            await store.updateMission(
+              TOWER_NAME,
+              mission.id,
+              { spawnBase: added.spawnBase },
+              { silent: true },
+            );
             mission = { ...mission, spawnBase: added.spawnBase };
             notes.push(
               `base snapshot: ${added.spawnBase.slice(0, 7)} — the base checkout had uncommitted changes; they are committed as the branch's first commit (the checkout itself was left untouched)`,

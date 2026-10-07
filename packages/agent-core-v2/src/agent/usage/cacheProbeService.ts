@@ -1,11 +1,11 @@
-import { Service } from '#/_base/di/service';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { LifecycleScope } from '#/app/scopes';
+import { Service } from '#/_base/di/service';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { LifecycleScope } from '#/app/scopes';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { inputTotal } from '#human/llm/usage';
 import { IModelCatalog } from '#/llm-adapter/model/catalog';
 import { ISessionUsageService } from '#/session/usage/sessionUsage';
+import { inputTotal } from '#human/llm/usage';
 
 import { IAgentCacheProbeService } from './cacheProbe';
 import { type UsageRecordedContext } from './usage';
@@ -36,7 +36,7 @@ export class AgentCacheProbeService extends Service implements IAgentCacheProbeS
       const model = this.models.get(e.model);
       providerType = model.providerType ?? model.protocol;
       protocol = model.protocol;
-    } catch { }
+    } catch {}
     this.telemetry.track2('prompt_cache_probe', {
       source: 'fork',
       turn_id: e.source.turnId,

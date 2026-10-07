@@ -1,15 +1,12 @@
+import { IAgentTaskService } from '#/agent/task/task';
+import type { AgentTaskInfo, AgentTaskOutputSnapshot } from '#/agent/task/task';
+import { formatTaskRecord } from '#/agent/task/tools/format';
+import { type AgentTaskStatus, TERMINAL_STATUSES } from '#/agent/task/types';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { matchesGlobRuleSubject } from '#/tool/rule-match';
 import { type ExecutableToolResult, type ToolExecution } from '#/tool/toolContract';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 
-import { IAgentTaskService } from '#/agent/task/task';
-import type {
-  AgentTaskInfo,
-  AgentTaskOutputSnapshot,
-} from '#/agent/task/task';
-import { type AgentTaskStatus, TERMINAL_STATUSES } from '#/agent/task/types';
-import { formatTaskRecord } from '#/agent/task/tools/format';
 import { ITaskOutputTool, TaskOutputInputSchema, type TaskOutputInput } from './task-output';
 import TASK_OUTPUT_DESCRIPTION from './task-output.md?raw';
 
@@ -104,4 +101,7 @@ export class TaskOutputTool implements ITaskOutputTool {
   }
 }
 
-registerAgentToolService(ITaskOutputTool, TaskOutputTool, { name: 'TaskOutput', domain: 'agentTask' });
+registerAgentToolService(ITaskOutputTool, TaskOutputTool, {
+  name: 'TaskOutput',
+  domain: 'agentTask',
+});

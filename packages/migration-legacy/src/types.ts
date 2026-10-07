@@ -150,7 +150,10 @@ export interface SessionsSummary {
   readonly sessionsSkippedEmpty: number;
   readonly sessionsSkippedMalformed: number;
   readonly sessionsFailed: readonly SessionMigrationFailure[];
-  readonly sessionsConflicts: ReadonlyArray<{ readonly sourcePath: string; readonly targetPath: string }>;
+  readonly sessionsConflicts: ReadonlyArray<{
+    readonly sourcePath: string;
+    readonly targetPath: string;
+  }>;
   /**
    * Debris target dirs (a prior run crashed before `state.json` was written)
    * that were renamed aside as `<dir>.debris-<timestamp>` instead of deleted,

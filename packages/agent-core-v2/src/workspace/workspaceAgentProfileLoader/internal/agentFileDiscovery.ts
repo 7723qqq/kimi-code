@@ -48,10 +48,7 @@ export async function discoverAgentFiles(
         byName.set(agent.name, agent);
       }
     } catch (error) {
-      if (
-        error instanceof HostFsError &&
-        error.code === OsFsErrors.codes.OS_FS_UNAVAILABLE
-      ) {
+      if (error instanceof HostFsError && error.code === OsFsErrors.codes.OS_FS_UNAVAILABLE) {
         throw error;
       }
       if (error instanceof AgentFileParseError) {
@@ -71,7 +68,11 @@ export async function discoverAgentFiles(
       entries = (await fs.readdir(dirPath)).map((entry) => entry.name).toSorted();
     } catch (error) {
       if (depth > 0) {
-        warnCapped(dirPath, `Skipping unreadable directory ${dirPath}: ${errorMessage(error)}`, error);
+        warnCapped(
+          dirPath,
+          `Skipping unreadable directory ${dirPath}: ${errorMessage(error)}`,
+          error,
+        );
         return;
       }
       if (
@@ -95,13 +96,14 @@ export async function discoverAgentFiles(
         if (!entry.endsWith('.md') || !(await isFilePath(fs, entryPath))) continue;
         await parseAndRegister(entryPath, root);
       } catch (error) {
-        if (
-          error instanceof HostFsError &&
-          error.code === OsFsErrors.codes.OS_FS_UNAVAILABLE
-        ) {
+        if (error instanceof HostFsError && error.code === OsFsErrors.codes.OS_FS_UNAVAILABLE) {
           throw error;
         }
-        warnCapped(entryPath, `Skipping unreadable agent path ${entryPath}: ${errorMessage(error)}`, error);
+        warnCapped(
+          entryPath,
+          `Skipping unreadable agent path ${entryPath}: ${errorMessage(error)}`,
+          error,
+        );
       }
     }
   }
@@ -110,13 +112,14 @@ export async function discoverAgentFiles(
     try {
       await walk(root.path, root, 0);
     } catch (error) {
-      if (
-        error instanceof HostFsError &&
-        error.code === OsFsErrors.codes.OS_FS_UNAVAILABLE
-      ) {
+      if (error instanceof HostFsError && error.code === OsFsErrors.codes.OS_FS_UNAVAILABLE) {
         throw error;
       }
-      warnCapped(root.path, `Skipping unreadable agent root ${root.path}: ${errorMessage(error)}`, error);
+      warnCapped(
+        root.path,
+        `Skipping unreadable agent root ${root.path}: ${errorMessage(error)}`,
+        error,
+      );
     }
   }
 

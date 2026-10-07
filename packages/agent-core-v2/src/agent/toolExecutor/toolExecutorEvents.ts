@@ -1,9 +1,6 @@
 /* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import type { ToolCallDeltaPayload } from '#/agent/loop/turnEvents';
-import type {
-  McpServerStatusEventPayload,
-  ToolListUpdatedPayload,
-} from '#/agent/mcp/mcpEvents';
+import type { McpServerStatusEventPayload, ToolListUpdatedPayload } from '#/agent/mcp/mcpEvents';
 import type {
   ShellCompletedPayload,
   ShellOutputPayload,

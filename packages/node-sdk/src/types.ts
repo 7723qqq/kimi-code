@@ -1,19 +1,12 @@
 import type { HostUiCapability } from '@moonshot-ai/agent-core-v2';
-import type {
-  ExportSessionManifest,
-  ShellEnvironment,
-} from '@moonshot-ai/agent-core-v2';
+import type { ExportSessionManifest, ShellEnvironment } from '@moonshot-ai/agent-core-v2';
 import type { Kaos } from '@moonshot-ai/kaos';
 import type { KimiHostIdentity, OAuthRefreshOutcome } from '@moonshot-ai/kimi-code-oauth';
 import type { ContentPart } from '@moonshot-ai/kosong';
 
-import type { ResumeSessionResult } from '#/replay';
 import type { PermissionMode } from '#/permission';
-import type {
-  TelemetryClient,
-  TelemetryContextPatch,
-  TelemetryProperties,
-} from '#/telemetry';
+import type { ResumeSessionResult } from '#/replay';
+import type { TelemetryClient, TelemetryContextPatch, TelemetryProperties } from '#/telemetry';
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { readonly [key: string]: JsonValue };
@@ -30,10 +23,7 @@ export interface AgentRuntimeBinding {
 
 export type { CapabilityStatus } from '@moonshot-ai/agent-core-v2/app/capability/types';
 
-export type {
-  AgentReplayRecord,
-  ResumedAgentState,
-} from '#/replay';
+export type { AgentReplayRecord, ResumedAgentState } from '#/replay';
 export type {
   AgentBackgroundTaskInfo,
   BackgroundTaskInfo,
@@ -97,10 +87,7 @@ export type {
 } from '@moonshot-ai/agent-core-v2';
 export type { SkillSummary } from '@moonshot-ai/agent-core-v2';
 export type { ToolInfo } from '#/tool';
-export type {
-  ExportSessionManifest,
-  ShellEnvironment,
-} from '@moonshot-ai/agent-core-v2';
+export type { ExportSessionManifest, ShellEnvironment } from '@moonshot-ai/agent-core-v2';
 
 export interface CronTaskSnapshot {
   readonly id: string;
@@ -370,9 +357,7 @@ export interface GetConfigOptions {
 }
 
 export interface AuthenticateMcpServerOptions {
-  readonly onAuthorizationUrl: (
-    url: string,
-  ) => void | boolean | PromiseLike<void | boolean>;
+  readonly onAuthorizationUrl: (url: string) => void | boolean | PromiseLike<void | boolean>;
   readonly signal?: AbortSignal;
   readonly timeoutMs?: number;
   readonly cwd?: string;
@@ -488,6 +473,9 @@ export interface AddAdditionalDirResult {
   readonly persisted: boolean;
 }
 
-export type ResumedSessionState = Pick<ResumeSessionResult, 'sessionMetadata' | 'agents' | 'warning'>;
+export type ResumedSessionState = Pick<
+  ResumeSessionResult,
+  'sessionMetadata' | 'agents' | 'warning'
+>;
 
-export interface ResumedSessionSummary extends SessionSummary, ResumedSessionState { }
+export interface ResumedSessionSummary extends SessionSummary, ResumedSessionState {}

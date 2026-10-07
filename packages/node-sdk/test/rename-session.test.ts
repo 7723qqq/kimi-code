@@ -13,9 +13,8 @@ import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
-
 import { drainQueryStoreDisposals, drainSessionIndexMirror } from '@moonshot-ai/agent-core-v2';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import type { KimiError } from '#/index';
 import { createKimiHarness, type Event } from '#/index';

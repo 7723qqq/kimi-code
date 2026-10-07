@@ -1,14 +1,12 @@
-import { LifecycleScope } from '#/app/scopes';
-
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { defineState } from '#/state/state';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { ISessionStateService } from '#/session/state/sessionState';
-
-import { ILogService, type LogLevel } from '#/_base/log/log';
 import { createFileLogWriter, type FileLogWriter } from '#/_base/log/fileLog';
+import { ILogService, type LogLevel } from '#/_base/log/log';
 import { ILogOptions, resolveSessionLogPath } from '#/_base/log/logConfig';
 import { BoundLogger, trackLogClose, type LogLevelState } from '#/_base/log/logService';
+import { LifecycleScope } from '#/app/scopes';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { ISessionStateService } from '#/session/state/sessionState';
+import { defineState } from '#/state/state';
 
 export const sessionLogRootLevelKey = defineState<LogLevelState>('sessionLog.rootLevel', () => ({
   level: 'info',

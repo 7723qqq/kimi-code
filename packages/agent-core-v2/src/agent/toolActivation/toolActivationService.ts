@@ -1,18 +1,18 @@
 import { type CollectionView } from '#/_base/di/collection';
 import { IInstantiationService } from '#/_base/di/instantiation';
 import { type IDisposable } from '#/_base/di/lifecycle';
-import { Service } from '#/_base/di/service';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { IEventBus } from '#/app/event/eventBus';
+import { Service } from '#/_base/di/service';
 import { IAgentProfileService } from '#/agent/profile/profile';
-import { AgentStatusUpdated } from '#/agent/usage/usageEvents';
-import { isToolActive } from '#/agent/toolPolicy/evaluate';
-import { SELECT_TOOLS_TOOL_NAME } from '#/agent/toolSelect/toolSelect';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { AgentToolContribution } from '#/agent/toolRegistry/toolContribution';
-import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionToolPolicyGate';
 import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import { isToolActive } from '#/agent/toolPolicy/evaluate';
+import { AgentToolContribution } from '#/agent/toolRegistry/toolContribution';
+import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { SELECT_TOOLS_TOOL_NAME } from '#/agent/toolSelect/toolSelect';
+import { AgentStatusUpdated } from '#/agent/usage/usageEvents';
+import { IEventBus } from '#/app/event/eventBus';
+import { LifecycleScope } from '#/app/scopes';
+import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionToolPolicyGate';
 
 import { IAgentToolActivationService } from './toolActivation';
 

@@ -7,15 +7,17 @@
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
+
 import { fsyncDir } from './compaction.js';
 import { SNAPSHOT_FILE, WAL_FILE } from './generation.js';
-import type { RangeOptions } from './skiplist.js';
 import type { ValueMode } from './recovery.js';
+import type { RangeOptions } from './skiplist.js';
 import type { ValueCodec, ValueCodecName, ValueModeSetting } from './types.js';
 
 export const BUFFER: ValueCodec<Buffer> = {
   encode: (v) => {
-    if (!Buffer.isBuffer(v)) throw new TypeError('value must be a Buffer (use valueCodec: "string" or "json")');
+    if (!Buffer.isBuffer(v))
+      throw new TypeError('value must be a Buffer (use valueCodec: "string" or "json")');
     return v;
   },
   // Return a copy so a caller mutating the result cannot corrupt the stored
@@ -30,7 +32,11 @@ export const JSON_CODEC: ValueCodec<unknown> = {
   encode: (v) => Buffer.from(JSON.stringify(v), 'utf8'),
   decode: (b) => JSON.parse(b.toString('utf8')),
 };
-export const CODECS: Record<ValueCodecName, ValueCodec<unknown>> = { buffer: BUFFER, string: STRING, json: JSON_CODEC };
+export const CODECS: Record<ValueCodecName, ValueCodec<unknown>> = {
+  buffer: BUFFER,
+  string: STRING,
+  json: JSON_CODEC,
+};
 export const MAX_KEY_LEN = 128;
 
 export function toBuf(key: string | Buffer): Buffer {
@@ -44,7 +50,9 @@ export function toBuf(key: string | Buffer): Buffer {
 // path) but looked up under another (the raw UTF-16 string), so get/del/scan and
 // every index miss it.
 export function toKStr(key: string | Buffer): string {
-  return typeof key === 'string' ? Buffer.from(key, 'utf8').toString('binary') : key.toString('binary');
+  return typeof key === 'string'
+    ? Buffer.from(key, 'utf8').toString('binary')
+    : key.toString('binary');
 }
 // Inverse of toKStr: turn a canonical byte-string back into the original UTF-8
 // string for keys returned to callers (scan / findEq / dtRange / ...).
@@ -114,9 +122,14 @@ export async function writeFileAtomic(
   await fsyncDir(path.dirname(file), { strict: true, stats: opts.stats });
 }
 
-export async function resolveValueMode(mode: ValueModeSetting, dir: string, maxMemoryBytes: number | null): Promise<ValueMode> {
+export async function resolveValueMode(
+  mode: ValueModeSetting,
+  dir: string,
+  maxMemoryBytes: number | null,
+): Promise<ValueMode> {
   if (mode !== 'auto') return mode;
   if (maxMemoryBytes === null) return 'memory';
-  const total = (await fileSize(path.join(dir, SNAPSHOT_FILE))) + (await fileSize(path.join(dir, WAL_FILE)));
+  const total =
+    (await fileSize(path.join(dir, SNAPSHOT_FILE))) + (await fileSize(path.join(dir, WAL_FILE)));
   return total > maxMemoryBytes ? 'disk' : 'memory';
 }

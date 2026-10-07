@@ -6,12 +6,8 @@ import type { ReplayableStateKey } from '#/state/state';
 export interface IAgentStateService extends IStateRegistry {
   readonly _serviceBrand: undefined;
   replayableKeys(): readonly ReplayableStateKey<any>[];
-  onDidContributeReplayable(
-    listener: (key: ReplayableStateKey<any>) => void,
-  ): IDisposable;
-  onDidWithdrawReplayable(
-    listener: (key: ReplayableStateKey<any>) => void,
-  ): IDisposable;
+  onDidContributeReplayable(listener: (key: ReplayableStateKey<any>) => void): IDisposable;
+  onDidWithdrawReplayable(listener: (key: ReplayableStateKey<any>) => void): IDisposable;
 }
 
 export const IAgentStateService: ServiceIdentifier<IAgentStateService> =

@@ -21,7 +21,10 @@ export interface RenameReplaceOptions {
   baseDelayMs?: number;
 }
 
-export async function retryEperm<T>(op: () => Promise<T>, opts: RenameReplaceOptions = {}): Promise<T> {
+export async function retryEperm<T>(
+  op: () => Promise<T>,
+  opts: RenameReplaceOptions = {},
+): Promise<T> {
   const retries = opts.retries ?? 100;
   const base = opts.baseDelayMs ?? 20;
   for (let attempt = 0; ; attempt++) {
@@ -34,11 +37,18 @@ export async function retryEperm<T>(op: () => Promise<T>, opts: RenameReplaceOpt
   }
 }
 
-export async function withWindowsEpermRetry<T>(op: () => Promise<T>, opts: RenameReplaceOptions = {}): Promise<T> {
+export async function withWindowsEpermRetry<T>(
+  op: () => Promise<T>,
+  opts: RenameReplaceOptions = {},
+): Promise<T> {
   if (process.platform !== 'win32') return op();
   return retryEperm(op, opts);
 }
 
-export async function renameReplace(src: string, dst: string, opts: RenameReplaceOptions = {}): Promise<void> {
+export async function renameReplace(
+  src: string,
+  dst: string,
+  opts: RenameReplaceOptions = {},
+): Promise<void> {
   return withWindowsEpermRetry(() => fs.rename(src, dst), opts);
 }

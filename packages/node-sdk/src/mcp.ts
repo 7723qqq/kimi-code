@@ -7,10 +7,7 @@ import type {
   McpServerLocator,
   McpServerTestResult,
 } from '@moonshot-ai/agent-core-v2';
-import type {
-  McpRegistryPluginOrigin,
-  McpServerSource,
-} from '@moonshot-ai/agent-core-v2';
+import type { McpRegistryPluginOrigin, McpServerSource } from '@moonshot-ai/agent-core-v2';
 import type { McpServerConfigView } from '@moonshot-ai/agent-core-v2/mcpCore/configView';
 
 export type { McpServerSource };

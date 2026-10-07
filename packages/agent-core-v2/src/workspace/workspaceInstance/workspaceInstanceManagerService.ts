@@ -2,43 +2,51 @@ import { IInstantiationService, ref, type LiveRef } from '#/_base/di/instantiati
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Emitter } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
+import { canonicalWorkspaceRoot } from '#/_base/utils/paths';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
-import { IBuiltinAgentProfileLoader } from '#/app/agentProfileCatalog/builtinAgentProfileLoader';
 import { IAgentProfileRegistry } from '#/app/agentProfileCatalog/agentProfileRegistry';
+import { IBuiltinAgentProfileLoader } from '#/app/agentProfileCatalog/builtinAgentProfileLoader';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { IEventService } from '#/app/event/event';
 import { IFlagService } from '#/app/flag/flag';
 import { IGitService } from '#/app/git/git';
-import { IMcpOAuthService } from '#/app/mcpConfig/oauthService';
-import type { McpOAuthService } from '#/mcpCore/oauth/service';
 import { IMcpConfigStore } from '#/app/mcpConfig/configStore';
+import { IMcpOAuthService } from '#/app/mcpConfig/oauthService';
 import { IPluginService } from '#/app/plugin/plugin';
+import { LifecycleScope } from '#/app/scopes';
 import { ISessionIndex, ISessionIndexMirror } from '#/app/sessionIndex/sessionIndex';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
-import { IBuiltinSkillSource } from '#/features/skill/catalog/builtinSkillSource';
-import { IUserFileSkillSource } from '#/features/skill/catalog/userFileSkillSource';
 import { IAppStateService } from '#/app/state/appState';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { LifecycleScope } from '#/app/scopes';
 import { IWorkspaceService, type Workspace } from '#/app/workspace/workspace';
+import { Error2, ErrorCodes } from '#/errors';
+import { IBuiltinSkillSource } from '#/features/skill/catalog/builtinSkillSource';
+import { IUserFileSkillSource } from '#/features/skill/catalog/userFileSkillSource';
 import { IModelService } from '#/llm-adapter/model/model';
 import { IProviderService } from '#/llm-adapter/provider/provider';
+import type { McpOAuthService } from '#/mcpCore/oauth/service';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { Error2, ErrorCodes } from '#/errors';
-import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { LocalRuntimeProviderFactory } from '#/runtime/localRuntime';
-import { canonicalWorkspaceRoot } from '#/_base/utils/paths';
 import type { Runtime, RuntimeBinding, RuntimeCapability, RuntimeLease } from '#/runtime/runtime';
-import { RuntimeError, RuntimeRegistry } from '#/runtime/runtimeRegistry';
 import type { RuntimeProviderFactory } from '#/runtime/runtimeProvider';
-import { SharedRuntimeUnitHostFactory, type RuntimeUnitHandle, type RuntimeUnitHostFactory } from '#/runtime/runtimeUnitHost';
+import { RuntimeError, RuntimeRegistry } from '#/runtime/runtimeRegistry';
+import {
+  SharedRuntimeUnitHostFactory,
+  type RuntimeUnitHandle,
+  type RuntimeUnitHostFactory,
+} from '#/runtime/runtimeUnitHost';
 import { SessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycleService';
 
 import { WorkspaceInstance } from './workspaceInstance';
-import { IRuntimeResolver, IWorkspaceInstanceManager, type WorkspaceInstanceRef } from './workspaceInstanceManager';
+import {
+  IRuntimeResolver,
+  IWorkspaceInstanceManager,
+  type WorkspaceInstanceRef,
+} from './workspaceInstanceManager';
 
 export class WorkspaceInstanceManager implements IWorkspaceInstanceManager {
   declare readonly _serviceBrand: undefined;
@@ -47,7 +55,10 @@ export class WorkspaceInstanceManager implements IWorkspaceInstanceManager {
   private readonly inflight = new Map<string, Promise<WorkspaceInstance>>();
   private readonly providers = new Map<string, RuntimeProviderFactory>();
   private readonly attachments = new Map<string, Map<string, RuntimeUnitHandle>>();
-  private readonly changeEmitter = new Emitter<{ workspaceId: string; instance?: WorkspaceInstance }>();
+  private readonly changeEmitter = new Emitter<{
+    workspaceId: string;
+    instance?: WorkspaceInstance;
+  }>();
   readonly onDidChange = this.changeEmitter.event;
 
   constructor(
@@ -89,7 +100,9 @@ export class WorkspaceInstanceManager implements IWorkspaceInstanceManager {
 
   findByRoot(root: string): WorkspaceInstance | undefined {
     const normalized = root.replace(/[\\/]$/, '');
-    return [...this.instances.values()].find((instance) => instance.root.replace(/[\\/]$/, '') === normalized);
+    return [...this.instances.values()].find(
+      (instance) => instance.root.replace(/[\\/]$/, '') === normalized,
+    );
   }
 
   findContaining(cwd: string): WorkspaceInstance | undefined {
@@ -115,25 +128,31 @@ export class WorkspaceInstanceManager implements IWorkspaceInstanceManager {
   }
 
   async getOrCreate(ref: WorkspaceInstanceRef): Promise<WorkspaceInstance> {
-    const key = 'workspaceId' in ref
-      ? `id:${ref.workspaceId}`
-      : `root:${ref.root.replace(/[\\/]$/, '')}`;
+    const key =
+      'workspaceId' in ref ? `id:${ref.workspaceId}` : `root:${ref.root.replace(/[\\/]$/, '')}`;
     const request = this.requests.get(key);
     if (request !== undefined) return request;
     const promise = (async () => {
       let workspace: Workspace | undefined;
       if ('workspaceId' in ref) {
         workspace = await this.workspaces.get(ref.workspaceId);
-        if (workspace === undefined && ref.root !== undefined) workspace = await this.workspaces.createOrTouch(ref.root);
+        if (workspace === undefined && ref.root !== undefined)
+          workspace = await this.workspaces.createOrTouch(ref.root);
       } else {
         workspace = await this.workspaces.createOrTouch(ref.root);
       }
-      if (workspace === undefined) throw new Error2(ErrorCodes.WORKSPACE_NOT_FOUND, `workspace ${'workspaceId' in ref ? ref.workspaceId : ref.root} does not exist`);
+      if (workspace === undefined)
+        throw new Error2(
+          ErrorCodes.WORKSPACE_NOT_FOUND,
+          `workspace ${'workspaceId' in ref ? ref.workspaceId : ref.root} does not exist`,
+        );
       const existing = this.instances.get(workspace.id);
       if (existing !== undefined) return existing;
       const pending = this.inflight.get(workspace.id);
       if (pending !== undefined) return pending;
-      const materialization = this.materialize(workspace).finally(() => this.inflight.delete(workspace.id));
+      const materialization = this.materialize(workspace).finally(() =>
+        this.inflight.delete(workspace.id),
+      );
       this.inflight.set(workspace.id, materialization);
       return materialization;
     })().finally(() => this.requests.delete(key));
@@ -155,13 +174,15 @@ export class WorkspaceInstanceManager implements IWorkspaceInstanceManager {
     this.instances.delete(workspaceId);
     const attachments = this.attachments.get(workspaceId);
     this.attachments.delete(workspaceId);
-    if (attachments !== undefined) for (const attachment of [...attachments.values()].toReversed()) await attachment.dispose();
+    if (attachments !== undefined)
+      for (const attachment of [...attachments.values()].toReversed()) await attachment.dispose();
     await instance.dispose();
     this.changeEmitter.fire({ workspaceId });
   }
 
   async addProvider(factory: RuntimeProviderFactory): Promise<{ dispose(): Promise<void> }> {
-    if (this.providers.has(factory.id)) throw new Error(`runtime provider ${factory.id} already exists`);
+    if (this.providers.has(factory.id))
+      throw new Error(`runtime provider ${factory.id} already exists`);
     this.providers.set(factory.id, factory);
     const attached: WorkspaceInstance[] = [];
     try {
@@ -174,15 +195,19 @@ export class WorkspaceInstanceManager implements IWorkspaceInstanceManager {
       for (const instance of attached.toReversed()) await this.detach(instance.id, factory.id);
       throw error;
     }
-    return { dispose: async () => {
-      if (this.providers.get(factory.id) !== factory) return;
-      this.providers.delete(factory.id);
-      for (const workspaceId of [...this.attachments.keys()].toReversed()) await this.detach(workspaceId, factory.id);
-    } };
+    return {
+      dispose: async () => {
+        if (this.providers.get(factory.id) !== factory) return;
+        this.providers.delete(factory.id);
+        for (const workspaceId of [...this.attachments.keys()].toReversed())
+          await this.detach(workspaceId, factory.id);
+      },
+    };
   }
 
   async dispose(): Promise<void> {
-    for (const workspaceId of [...this.instances.keys()].toReversed()) await this.close(workspaceId);
+    for (const workspaceId of [...this.instances.keys()].toReversed())
+      await this.close(workspaceId);
     this.changeEmitter.dispose();
   }
 
@@ -219,39 +244,41 @@ export class WorkspaceInstanceManager implements IWorkspaceInstanceManager {
         userSkills: this.userSkills,
         telemetry: this.telemetry,
         docs: this.docs,
-        createSessionController: (input) => new SessionLifecycleService(
-          this.instantiation,
-          input.context,
-          this.bootstrap,
-          this.config,
-          this.index,
-          this.indexMirror,
-          this.appendLogStore,
-          this.docs,
-          this.storage,
-          this.log,
-          input.fs,
-          this.event,
-          this.telemetry,
-          this.flags,
-          input.workspaceAgentProfiles,
-          input.extraAgentProfiles,
-          input.explicitAgentProfiles,
-          input.userAgentProfiles,
-          input.pluginAgentProfiles,
-          input.dirs,
-          input.skills,
-          input.instructions,
-          input.mcp,
-          this.models,
-          this.modelProviders,
-          input.onDispose,
-        ),
+        createSessionController: (input) =>
+          new SessionLifecycleService(
+            this.instantiation,
+            input.context,
+            this.bootstrap,
+            this.config,
+            this.index,
+            this.indexMirror,
+            this.appendLogStore,
+            this.docs,
+            this.storage,
+            this.log,
+            input.fs,
+            this.event,
+            this.telemetry,
+            this.flags,
+            input.workspaceAgentProfiles,
+            input.extraAgentProfiles,
+            input.explicitAgentProfiles,
+            input.userAgentProfiles,
+            input.pluginAgentProfiles,
+            input.dirs,
+            input.skills,
+            input.instructions,
+            input.mcp,
+            this.models,
+            this.modelProviders,
+            input.onDispose,
+          ),
       },
     );
     try {
       for (const provider of this.providers.values()) await this.attach(instance, provider);
-      if (instance.runtimes.current('local') === undefined) throw new Error(`workspace ${workspace.id} has no local runtime`);
+      if (instance.runtimes.current('local') === undefined)
+        throw new Error(`workspace ${workspace.id} has no local runtime`);
       instance.activate();
       this.instances.set(workspace.id, instance);
       this.changeEmitter.fire({ workspaceId: workspace.id, instance });
@@ -267,14 +294,25 @@ export class WorkspaceInstanceManager implements IWorkspaceInstanceManager {
     }
   }
 
-  private async attach(instance: WorkspaceInstance, provider: RuntimeProviderFactory): Promise<void> {
+  private async attach(
+    instance: WorkspaceInstance,
+    provider: RuntimeProviderFactory,
+  ): Promise<void> {
     const existing = this.attachments.get(instance.id);
-    if (existing?.has(provider.id) === true) throw new Error(`runtime provider ${provider.id} is already attached to workspace ${instance.id}`);
-    const attachment = await instance.unitHost.provide(provider.imports, (host) => provider.attach({
-      id: instance.id,
-      root: instance.root,
-      metadata: instance.metadata,
-    }, host));
+    if (existing?.has(provider.id) === true)
+      throw new Error(
+        `runtime provider ${provider.id} is already attached to workspace ${instance.id}`,
+      );
+    const attachment = await instance.unitHost.provide(provider.imports, (host) =>
+      provider.attach(
+        {
+          id: instance.id,
+          root: instance.root,
+          metadata: instance.metadata,
+        },
+        host,
+      ),
+    );
     let attachments = this.attachments.get(instance.id);
     if (attachments === undefined) {
       attachments = new Map();
@@ -299,18 +337,36 @@ export class RuntimeResolver implements IRuntimeResolver {
   inspect(binding: RuntimeBinding): Runtime {
     const workspace = this.workspaces.get(binding.workspaceId);
     if (workspace === undefined) {
-      throw new RuntimeError('runtime.not_found', `workspace ${binding.workspaceId} is not materialized`);
+      throw new RuntimeError(
+        'runtime.not_found',
+        `workspace ${binding.workspaceId} is not materialized`,
+      );
     }
     return workspace.runtimes.inspect(binding);
   }
   acquire(binding: RuntimeBinding, required: readonly RuntimeCapability[] = []): RuntimeLease {
     const workspace = this.workspaces.get(binding.workspaceId);
     if (workspace === undefined) {
-      throw new RuntimeError('runtime.not_found', `workspace ${binding.workspaceId} is not materialized`);
+      throw new RuntimeError(
+        'runtime.not_found',
+        `workspace ${binding.workspaceId} is not materialized`,
+      );
     }
     return workspace.runtimes.acquire(binding, required);
   }
 }
 
-registerScopedService(LifecycleScope.App, IWorkspaceInstanceManager, WorkspaceInstanceManager, ScopeActivation.OnScopeCreated, 'workspaceInstanceManager');
-registerScopedService(LifecycleScope.App, IRuntimeResolver, RuntimeResolver, ScopeActivation.OnScopeCreated, 'runtimeResolver');
+registerScopedService(
+  LifecycleScope.App,
+  IWorkspaceInstanceManager,
+  WorkspaceInstanceManager,
+  ScopeActivation.OnScopeCreated,
+  'workspaceInstanceManager',
+);
+registerScopedService(
+  LifecycleScope.App,
+  IRuntimeResolver,
+  RuntimeResolver,
+  ScopeActivation.OnScopeCreated,
+  'runtimeResolver',
+);

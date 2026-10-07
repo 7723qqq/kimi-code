@@ -1,7 +1,10 @@
-import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
+
+import { getConfigSectionContributions } from '@moonshot-ai/agent-core-v2/app/config/configSectionContributions';
+import { camelToSnake } from '@moonshot-ai/agent-core-v2/app/config/toml';
+import { getContributedFlags } from '@moonshot-ai/agent-core-v2/app/flag/flagRegistry';
 import {
   ModelRecordSchema,
   ProviderConfigSchema,
@@ -9,10 +12,7 @@ import {
   providersFromToml,
 } from '@moonshot-ai/agent-core-v2/app/kosongConfig/configSection';
 import { HookDefSchema } from '@moonshot-ai/agent-core-v2/features/externalHooks/configSection';
-import { getConfigSectionContributions } from '@moonshot-ai/agent-core-v2/app/config/configSectionContributions';
-import { getContributedFlags } from '@moonshot-ai/agent-core-v2/app/flag/flagRegistry';
-import { camelToSnake } from '@moonshot-ai/agent-core-v2/app/config/toml';
-
+import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
 import '@moonshot-ai/agent-core-v2/agent/loop/configSection';
 import '@moonshot-ai/agent-core-v2/agent/task/configSection';
 import '@moonshot-ai/agent-core-v2/agent/permissionMode/configSection';
@@ -20,7 +20,6 @@ import '@moonshot-ai/agent-core-v2/app/mcpConfig/configSection';
 import '@moonshot-ai/agent-core-v2/app/auth/configSection';
 import '@moonshot-ai/agent-core-v2/app/flag/flag';
 import '@moonshot-ai/agent-core-v2/features/skill/catalog/configSection';
-
 import '@moonshot-ai/agent-core-v2/session/subagent/flag';
 import '@moonshot-ai/agent-core-v2/features/tower/flag';
 import '@moonshot-ai/agent-core-v2/agent/toolSelect/flag';
@@ -29,25 +28,15 @@ import '@moonshot-ai/agent-core-v2/agent/toolSelect/flag';
 import '@moonshot-ai/agent-core-v2/persistence/configSection';
 
 import { atomicWrite } from '../atomic-write.js';
-import { DEFAULT_CONFIG_FILE_TEXT, isTuiStubOrMissing } from '../stub-detect.js';
+import { targetConfigFile, targetTuiFile, siblingConfigToml, siblingTuiToml } from '../paths.js';
 import { readSourceConfig } from '../source-config.js';
-import {
-  targetConfigFile,
-  targetTuiFile,
-  siblingConfigToml,
-  siblingTuiToml,
-} from '../paths.js';
+import { DEFAULT_CONFIG_FILE_TEXT, isTuiStubOrMissing } from '../stub-detect.js';
 
 // `theme` / `default_editor` belong in tui.toml, not config.toml.
 const TUI_TOP_LEVEL_KEYS = new Set(['theme', 'default_editor']);
 const TOP_LEVEL_KEYS_TO_DROP = new Set(['plan_mode', 'yolo']);
-const LOOP_CONTROL_FIELDS_TO_KEEP = new Set([
-  'reserved_context_size',
-]);
-const BACKGROUND_FIELDS_TO_KEEP = new Set([
-  'max_running_tasks',
-  'keep_alive_on_exit',
-]);
+const LOOP_CONTROL_FIELDS_TO_KEEP = new Set(['reserved_context_size']);
+const BACKGROUND_FIELDS_TO_KEEP = new Set(['max_running_tasks', 'keep_alive_on_exit']);
 const REGISTERED_EXPERIMENTAL_FLAGS: ReadonlySet<string> = new Set(
   getContributedFlags().map((definition) => definition.id),
 );
@@ -481,8 +470,7 @@ export async function migrateConfigStep(input: ConfigStepInput): Promise<ConfigS
     if (k === 'providers' || k === 'models' || k === 'hooks') continue;
     const section = sectionsBySnake.get(k);
     if (section === undefined) continue;
-    const transformed =
-      section.options.fromToml === undefined ? v : section.options.fromToml(v);
+    const transformed = section.options.fromToml === undefined ? v : section.options.fromToml(v);
     try {
       section.schema.parse(transformed);
     } catch {
@@ -536,8 +524,7 @@ export async function migrateConfigStep(input: ConfigStepInput): Promise<ConfigS
   // not `migratedHooks`.
   const hooksLandedInLiveConfig =
     keptHooks.length > 0 &&
-    (targetMode === 'overwrite' ||
-      (targetMode === 'merge' && targetParsed['hooks'] === undefined));
+    (targetMode === 'overwrite' || (targetMode === 'merge' && targetParsed['hooks'] === undefined));
   const migratedHooks = hooksLandedInLiveConfig ? keptHooks.length : 0;
 
   // In sibling mode, enumerate what landed in the sibling file so the result

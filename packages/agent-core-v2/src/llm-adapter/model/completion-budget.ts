@@ -1,5 +1,4 @@
 import type { ModelCapability } from '../contract/capability';
-
 import type { CompletionBudgetParams } from './model.types';
 
 const MIN_FLOOR = 1;

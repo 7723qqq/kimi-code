@@ -1,13 +1,9 @@
-import type { ServiceIdentifier, ServicesAccessor } from '#/_base/di/instantiation';
 import { collection } from '#/_base/di/collection';
-import { LifecycleScope } from '#/app/scopes';
+import type { ServiceIdentifier, ServicesAccessor } from '#/_base/di/instantiation';
 import { ScopeActivation, overrideScopedService, registerScopedService } from '#/_base/di/scope';
-import type {
-  AgentTool,
-  ToolDisclosure,
-  ToolSource,
-} from '#/tool/toolContract';
+import { LifecycleScope } from '#/app/scopes';
 import type { RuntimeCapability } from '#/runtime/runtime';
+import type { AgentTool, ToolDisclosure, ToolSource } from '#/tool/toolContract';
 
 export type AnyAgentTool = AgentTool<any>;
 

@@ -1,20 +1,23 @@
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { defineState } from '#/state/state';
 import type { IDisposable } from '#/_base/di/lifecycle';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Emitter } from '#/_base/event';
-import { LifecycleScope } from '#/app/scopes';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
+import { LifecycleScope } from '#/app/scopes';
 import type { RuntimeBinding } from '#/runtime/runtime';
 import { RuntimeError } from '#/runtime/runtimeRegistry';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { IEventDispatcher } from '#/state/eventDispatcher';
+import { defineState } from '#/state/state';
 import { IRuntimeResolver } from '#/workspace/workspaceInstance/workspaceInstanceManager';
 
 import { IAgentRuntimeBindingSeed, IAgentRuntimeBindingService } from './runtimeBinding';
 import { RuntimeSetBinding, runtimeBindingKey } from './runtimeBindingOps';
 
-export const agentRuntimeBindingKey = defineState<RuntimeBinding>('runtime.binding', () => ({ workspaceId: '', runtimeId: 'local' }));
+export const agentRuntimeBindingKey = defineState<RuntimeBinding>('runtime.binding', () => ({
+  workspaceId: '',
+  runtimeId: 'local',
+}));
 
 export class AgentRuntimeBindingService implements IAgentRuntimeBindingService {
   declare readonly _serviceBrand: undefined;
@@ -35,18 +38,21 @@ export class AgentRuntimeBindingService implements IAgentRuntimeBindingService {
     const initial = this.state.get(runtimeBindingKey) ?? seed.binding;
     this.assertSessionWorkspace(initial);
     this.state.set(agentRuntimeBindingKey, initial);
-    this.restoreHook = dispatcher.hooks.onDidRestore.register('agent-runtime-binding', async (_ctx, next) => {
-      const replayed = this.state.get(runtimeBindingKey);
-      if (replayed === undefined) {
-        void this.dispatcher.dispatch(
-          new RuntimeSetBinding({ ...this.current, agentId: this.scopeContext.agentId }),
-        );
-      } else {
-        this.assertSessionWorkspace(replayed);
-        this.state.set(agentRuntimeBindingKey, replayed);
-      }
-      await next();
-    });
+    this.restoreHook = dispatcher.hooks.onDidRestore.register(
+      'agent-runtime-binding',
+      async (_ctx, next) => {
+        const replayed = this.state.get(runtimeBindingKey);
+        if (replayed === undefined) {
+          void this.dispatcher.dispatch(
+            new RuntimeSetBinding({ ...this.current, agentId: this.scopeContext.agentId }),
+          );
+        } else {
+          this.assertSessionWorkspace(replayed);
+          this.state.set(agentRuntimeBindingKey, replayed);
+        }
+        await next();
+      },
+    );
   }
 
   private assertSessionWorkspace(binding: RuntimeBinding): void {
@@ -70,7 +76,10 @@ export class AgentRuntimeBindingService implements IAgentRuntimeBindingService {
     this.assertSessionWorkspace(binding);
     const lease = this.resolver.acquire(binding, []);
     lease.dispose();
-    if (binding.workspaceId === this.current.workspaceId && binding.runtimeId === this.current.runtimeId) {
+    if (
+      binding.workspaceId === this.current.workspaceId &&
+      binding.runtimeId === this.current.runtimeId
+    ) {
       return this.current;
     }
     const next = { workspaceId: binding.workspaceId, runtimeId: binding.runtimeId };
@@ -92,4 +101,10 @@ export class AgentRuntimeBindingService implements IAgentRuntimeBindingService {
   }
 }
 
-registerScopedService(LifecycleScope.Agent, IAgentRuntimeBindingService, AgentRuntimeBindingService, ScopeActivation.OnScopeCreated, 'agentRuntimeBinding');
+registerScopedService(
+  LifecycleScope.Agent,
+  IAgentRuntimeBindingService,
+  AgentRuntimeBindingService,
+  ScopeActivation.OnScopeCreated,
+  'agentRuntimeBinding',
+);

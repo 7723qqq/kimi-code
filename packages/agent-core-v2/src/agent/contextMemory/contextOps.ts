@@ -1,10 +1,10 @@
 import { z } from 'zod';
 
 import { ErrorCodes, Error2 } from '#/errors';
-import type { ContentPart } from '#human/llm/message';
 import { defineState } from '#/state/state';
 import type { PartsTransformer } from '#/wire/record';
 import type { WireRecord } from '#/wire/record';
+import type { ContentPart } from '#human/llm/message';
 
 import {
   buildContextCompactionShape,
@@ -262,10 +262,7 @@ export function computeUndoCut(state: readonly ContextMessage[], count: number):
       remaining--;
       removedCount++;
       cutIndex = i;
-      while (
-        cutIndex > 0 &&
-        isPromptOwnedInjection(state[cutIndex - 1]!, message)
-      ) {
+      while (cutIndex > 0 && isPromptOwnedInjection(state[cutIndex - 1]!, message)) {
         cutIndex--;
       }
     }
@@ -277,10 +274,7 @@ export function isFullyUndoable(cut: UndoCut, count: number): boolean {
   return cut.cutIndex >= 0 && cut.removedCount >= count;
 }
 
-export type UndoUnavailableReason =
-  | 'empty'
-  | 'compaction_boundary'
-  | 'insufficient';
+export type UndoUnavailableReason = 'empty' | 'compaction_boundary' | 'insufficient';
 
 export type UndoPrecheck =
   | { readonly ok: true }

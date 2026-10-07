@@ -1,8 +1,7 @@
+import { SessionStores } from '#/session/stores';
 import { NodeBackend } from '#/store/backend/node';
 import { TreeStore } from '#/store/store';
 import type { Tree } from '#/store/tree';
-
-import { SessionStores } from '#/session/stores';
 
 import { isV2SessionDir, migrateV2Session, V2_SESSION_TREE_NAME } from './v2/migrate';
 

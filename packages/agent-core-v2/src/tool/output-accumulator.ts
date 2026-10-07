@@ -50,10 +50,7 @@ export class ToolOutputAccumulator {
     };
   }
 
-  error(
-    message: string,
-    options: { readonly brief?: string } = {},
-  ): ToolOutputAccumulatorResult {
+  error(message: string, options: { readonly brief?: string } = {}): ToolOutputAccumulatorResult {
     const output = this.buffer.join('');
     return {
       isError: true,

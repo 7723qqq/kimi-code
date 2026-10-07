@@ -2,22 +2,23 @@ import { existsSync } from 'node:fs';
 import { readFile, mkdir, rename, rm, stat, utimes } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import type { OldSessionState } from '../kimi-cli-schema.js';
 import { readTodoItems } from '@moonshot-ai/agent-core-v2/features/todo/todoItem';
+
+import type { OldSessionState } from '../kimi-cli-schema.js';
 import { targetSessionsDir } from '../paths.js';
-import { computeWorkdirBucket } from './workdir-bucket.js';
 import { closeDanglingToolCalls } from './close-tool-calls.js';
+import { readMergedSessionState, type LegacySessionRef } from './source.js';
+import { writeSessionState } from './state-writer.js';
+import { buildSubagentTaskRecords, migrateLegacySubagents } from './subagents.js';
+import { extractToolCallDisplays } from './tool-call-display.js';
 import {
   analyzeContextContent,
   extractLastUsageTokenCount,
   translateContextLines,
   type NormalizedMessage,
 } from './translator.js';
-import { readMergedSessionState, type LegacySessionRef } from './source.js';
 import { writeMainAgentWire } from './wire-writer.js';
-import { writeSessionState } from './state-writer.js';
-import { extractToolCallDisplays } from './tool-call-display.js';
-import { buildSubagentTaskRecords, migrateLegacySubagents } from './subagents.js';
+import { computeWorkdirBucket } from './workdir-bucket.js';
 
 export type MigrateOneResult =
   | {
@@ -83,9 +84,7 @@ export async function migrateOneSession(input: MigrateOneInput): Promise<Migrate
     }
     const toolCallDisplays =
       oldWireText === undefined ? undefined : extractToolCallDisplays(oldWireText);
-    messages = closeDanglingToolCalls(
-      translateContextLines(contextLines, toolCallDisplays),
-    );
+    messages = closeDanglingToolCalls(translateContextLines(contextLines, toolCallDisplays));
     lastUserPrompt = extractLastUserText(messages);
   } catch {
     return { outcome: 'failed', reason: 'cannot read context.jsonl' };
@@ -120,7 +119,7 @@ export async function migrateOneSession(input: MigrateOneInput): Promise<Migrate
     // `SessionStore.list()` ordering matches the detected "most recent" order.
     // `Date.now()` would stamp every such session with the migration time and
     // break resume ordering.
-    createdAtMs = await readSourceMtime(input.source) ?? Date.now();
+    createdAtMs = (await readSourceMtime(input.source)) ?? Date.now();
   }
 
   let wireProtocolFromOld: string | null = null;

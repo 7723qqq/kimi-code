@@ -1,8 +1,8 @@
 import type { LoopRecordedEvent } from '#/agent/contextMemory/loopEventFold';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import type { CompactionResult } from '#/agent/fullCompaction/types';
-import type { PermissionApprovalResultRecord } from '#/agent/permissionRules/permissionRules';
 import type { PermissionMode } from '#/agent/permissionPolicy/types';
+import type { PermissionApprovalResultRecord } from '#/agent/permissionRules/permissionRules';
 import type { AgentConfigUpdateData } from '#/agent/profile/profile';
 import type {
   GoalActor,
@@ -143,10 +143,7 @@ class WireReplayFoldState {
         this.applyCompaction(record);
         return;
       case 'full_compaction.begin':
-        this.push(
-          { type: 'compaction', instruction: readString(record, 'instruction') },
-          time,
-        );
+        this.push({ type: 'compaction', instruction: readString(record, 'instruction') }, time);
         return;
       case 'full_compaction.cancel':
         this.patchLastCompaction({ result: 'cancelled' });
@@ -478,7 +475,10 @@ class WireReplayFoldState {
       {
         role: 'user',
         content: [
-          { type: 'text', text: `<system-reminder>\n${GOAL_FORK_CLEARED_REMINDER}\n</system-reminder>` },
+          {
+            type: 'text',
+            text: `<system-reminder>\n${GOAL_FORK_CLEARED_REMINDER}\n</system-reminder>`,
+          },
         ],
         toolCalls: [],
         origin: { kind: 'system_trigger', name: 'goal_fork_cleared' },

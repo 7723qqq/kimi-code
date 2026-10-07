@@ -5,16 +5,16 @@ import { parse as parseToml } from 'smol-toml';
 
 import { type CollectionView } from '#/_base/di/collection';
 import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Emitter, type Event } from '#/_base/event';
-import { TimeoutTimer } from '#/_base/utils/timer';
-import { BugIndicatingError, Error2, ErrorCodes, onUnexpectedError } from '#/errors';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { ILogService } from '#/_base/log/log';
+import { TimeoutTimer } from '#/_base/utils/timer';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { LifecycleScope } from '#/app/scopes';
+import { WATCH_SECTION, type WatchConfig } from '#/app/watch/configSection';
+import { BugIndicatingError, Error2, ErrorCodes, onUnexpectedError } from '#/errors';
 import { IAtomicTomlDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { setWatchEnabled, watchCandidates } from '#human/utils/watch';
-import { WATCH_SECTION, type WatchConfig } from '#/app/watch/configSection';
 
 import {
   type AnyEnvBindings,
@@ -38,12 +38,12 @@ import {
   IConfigRegistry,
   IConfigService,
 } from './config';
+import { getConfigOverlayContributions } from './configOverlayContributions';
 import { deepEqual, deepMerge, describeUnknownError, isPlainObject } from './configPure';
 import {
   ConfigSectionContribution,
   getConfigSectionContributions,
 } from './configSectionContributions';
-import { getConfigOverlayContributions } from './configOverlayContributions';
 import { collectKeyDeprecations } from './deprecations';
 import {
   applySectionToToml,
@@ -126,9 +126,7 @@ function applyEnvBindings(
       const resolved = resolveBinding(binding, getEnv, target[key], onDeprecatedEnv);
       if (resolved !== undefined) target[key] = resolved;
     } else if (binding !== undefined) {
-      const child: Record<string, unknown> = isPlainObject(target[key])
-        ? { ...target[key] }
-        : {};
+      const child: Record<string, unknown> = isPlainObject(target[key]) ? { ...target[key] } : {};
       target[key] = child;
       applyEnvBindings(child, binding as AnyEnvBindings, getEnv, onDeprecatedEnv);
       if (Object.keys(child).length === 0) {
@@ -224,9 +222,7 @@ export class ConfigRegistry extends Disposable implements IConfigRegistry {
     this._onDidRegisterOverlay.event;
   private readonly foldDomains = new Set<string>();
 
-  constructor(
-    @ConfigSectionContribution view?: CollectionView<ConfigSectionContribution>,
-  ) {
+  constructor(@ConfigSectionContribution view?: CollectionView<ConfigSectionContribution>) {
     super();
     for (const c of getConfigSectionContributions()) {
       this.registerSection(c.domain, c.schema, c.options);
@@ -342,7 +338,8 @@ export class ConfigRegistry extends Disposable implements IConfigRegistry {
 export class ConfigService extends Disposable implements IConfigService {
   declare readonly _serviceBrand: undefined;
   private readonly _onDidChangeConfiguration = this._register(new Emitter<ConfigChangedEvent>());
-  readonly onDidChangeConfiguration: Event<ConfigChangedEvent> = this._onDidChangeConfiguration.event;
+  readonly onDidChangeConfiguration: Event<ConfigChangedEvent> =
+    this._onDidChangeConfiguration.event;
   private readonly _onDidSectionChange = this._register(new Emitter<ConfigSectionChangedEvent>());
   readonly onDidSectionChange: Event<ConfigSectionChangedEvent> = this._onDidSectionChange.event;
   private readonly _onDidChangeDiagnostics = this._register(
@@ -704,9 +701,7 @@ export class ConfigService extends Disposable implements IConfigService {
     this.effective = next;
     this.applyWatchEnabled();
 
-    const candidates = new Set(
-      domains ?? [...Object.keys(previous), ...Object.keys(next)],
-    );
+    const candidates = new Set(domains ?? [...Object.keys(previous), ...Object.keys(next)]);
     for (const domain of new Set([...Object.keys(previous), ...Object.keys(next)])) {
       if (!deepEqual(previous[domain], next[domain])) candidates.add(domain);
     }

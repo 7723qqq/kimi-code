@@ -40,7 +40,11 @@ export class LegacyActivityTracker {
     this.toolSince.delete(toolCallId);
   }
 
-  interrupted(event: { readonly turnId: number; readonly step: number; readonly reason: string }): AgentPhase | undefined {
+  interrupted(event: {
+    readonly turnId: number;
+    readonly step: number;
+    readonly reason: string;
+  }): AgentPhase | undefined {
     if (event.reason !== 'aborted' && event.reason !== 'max_steps' && event.reason !== 'error') {
       return undefined;
     }
@@ -113,7 +117,14 @@ export class LegacyActivityTracker {
 
 export function phaseFromDomainEvent(
   tracker: LegacyActivityTracker,
-  event: { readonly type: string; readonly toolCallId?: string; readonly turnId?: number; readonly step?: number; readonly reason?: string; readonly durationMs?: number },
+  event: {
+    readonly type: string;
+    readonly toolCallId?: string;
+    readonly turnId?: number;
+    readonly step?: number;
+    readonly reason?: string;
+    readonly durationMs?: number;
+  },
 ): AgentPhase | undefined {
   switch (event.type) {
     case 'turn.started':

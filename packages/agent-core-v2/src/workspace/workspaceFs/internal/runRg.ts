@@ -20,8 +20,7 @@ export type RunRgOutcome = RunRgResult | { readonly kind: 'aborted' };
 async function disposeProcess(proc: IHostProcess): Promise<void> {
   try {
     await proc.dispose();
-  } catch {
-  }
+  } catch {}
 }
 
 export async function runRgOnce(
@@ -40,8 +39,7 @@ export async function runRgOnce(
 
   try {
     proc.stdin.end();
-  } catch {
-  }
+  } catch {}
 
   let timedOut = false;
   let aborted = false;
@@ -52,8 +50,7 @@ export async function runRgOnce(
     killed = true;
     try {
       await proc.kill('SIGTERM');
-    } catch {
-    }
+    } catch {}
     const exited = proc
       .wait()
       .then(() => true)
@@ -69,8 +66,7 @@ export async function runRgOnce(
     if (!raced && proc.exitCode === null) {
       try {
         await proc.kill('SIGKILL');
-      } catch {
-      }
+      } catch {}
     }
     await disposeProcess(proc);
   };
@@ -135,8 +131,7 @@ function isEagainRipgrepError(stderr: string): boolean {
 
 function isPrematureCloseError(error: unknown): boolean {
   return (
-    error instanceof Error &&
-    (error as NodeJS.ErrnoException).code === 'ERR_STREAM_PREMATURE_CLOSE'
+    error instanceof Error && (error as NodeJS.ErrnoException).code === 'ERR_STREAM_PREMATURE_CLOSE'
   );
 }
 

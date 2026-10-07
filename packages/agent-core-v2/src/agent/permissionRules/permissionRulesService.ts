@@ -1,10 +1,9 @@
-import { LifecycleScope } from '#/app/scopes';
-
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
+import { LifecycleScope } from '#/app/scopes';
 import { IEventDispatcher } from '#/state/eventDispatcher';
+
 import {
   IAgentPermissionRulesService,
   type PermissionApprovalResultRecord,

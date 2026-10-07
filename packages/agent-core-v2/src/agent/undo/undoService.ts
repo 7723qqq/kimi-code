@@ -1,24 +1,20 @@
-import type { UserPromptOrigin } from '#/agent/contextMemory/types';
 /* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import { type IDisposable } from '#/_base/di/lifecycle';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
 import { BugIndicatingError } from '#/_base/errors/errors';
-import { LifecycleScope } from '#/app/scopes';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import { IAgentConversationUndoParticipantRegistry } from '#/agent/contextMemory/conversationUndoParticipants';
 import {
   computeUndoCut,
   formatUndoUnavailableMessage,
   precheckUndo,
 } from '#/agent/contextMemory/contextOps';
-import {
-  isUndoAnchor,
-  isValidUndoCount,
-} from '#/agent/contextMemory/conversationTime';
-import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
+import { isUndoAnchor, isValidUndoCount } from '#/agent/contextMemory/conversationTime';
+import { IAgentConversationUndoParticipantRegistry } from '#/agent/contextMemory/conversationUndoParticipants';
 import { isUserPromptSubmitHookPart } from '#/agent/contextMemory/hookParts';
+import type { UserPromptOrigin } from '#/agent/contextMemory/types';
+import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { turnKey } from '#/agent/loop/turnOps';
 import { promptMetadataTextFromContentParts } from '#/agent/prompt/promptMetadataText';
@@ -26,6 +22,7 @@ import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IEventService } from '#/app/event/event';
 import { AgentEvent2 } from '#/app/event/event2';
+import { LifecycleScope } from '#/app/scopes';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ErrorCodes, Error2 } from '#/errors';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
@@ -52,10 +49,7 @@ export interface ContextUndone {
   readonly fromTurnId?: number;
 }
 
-export class AgentConversationUndoService
-  extends Service
-  implements IAgentConversationUndoService
-{
+export class AgentConversationUndoService extends Service implements IAgentConversationUndoService {
   declare readonly _serviceBrand: undefined;
 
   private undoQueue: Promise<void> = Promise.resolve();
@@ -90,11 +84,9 @@ export class AgentConversationUndoService
 
   async undo(turns: number): Promise<number> {
     if (!isValidUndoCount(turns)) {
-      throw new Error2(
-        ErrorCodes.REQUEST_INVALID,
-        'Undo count must be a positive safe integer',
-        { details: { field: 'count' } },
-      );
+      throw new Error2(ErrorCodes.REQUEST_INVALID, 'Undo count must be a positive safe integer', {
+        details: { field: 'count' },
+      });
     }
     const run = this.undoQueue.then(() => this.undoNow(turns));
     this.undoQueue = run.then(
@@ -133,10 +125,7 @@ export class AgentConversationUndoService
         await this.dispatcher.restore();
       }
       await this.loop.resetMachineEngine();
-      this.tokenCounting.recordTruncation(
-        this.agentCtx.agentContext,
-        this.context.get().length,
-      );
+      this.tokenCounting.recordTruncation(this.agentCtx.agentContext, this.context.get().length);
       await this.reconcileParticipants();
       await this.flushAfterReconcile();
       await this.reconcileParticipants('after-flush');
@@ -181,30 +170,29 @@ export class AgentConversationUndoService
   }
 
   private busyError(reason: 'loop' | 'compaction'): Error2 {
-    const message = reason === 'loop'
-      ? 'Cannot undo while a turn is active or queued. Wait for it to finish, then retry.'
-      : 'Cannot undo while conversation compaction is running. Wait for it to finish, then retry.';
+    const message =
+      reason === 'loop'
+        ? 'Cannot undo while a turn is active or queued. Wait for it to finish, then retry.'
+        : 'Cannot undo while conversation compaction is running. Wait for it to finish, then retry.';
     return new Error2(ErrorCodes.SESSION_BUSY, message, { details: { reason } });
   }
 
   private assertUndoAvailable(turns: number): void {
     const check = precheckUndo(this.context.get(), turns);
     if (check.ok) return;
-    throw new Error2(
-      ErrorCodes.SESSION_UNDO_UNAVAILABLE,
-      formatUndoUnavailableMessage(check),
-      {
-        details: {
-          reason: check.reason,
-          requestedCount: check.requested,
-          undoableCount: check.undoable,
-        },
+    throw new Error2(ErrorCodes.SESSION_UNDO_UNAVAILABLE, formatUndoUnavailableMessage(check), {
+      details: {
+        reason: check.reason,
+        requestedCount: check.requested,
+        undoableCount: check.undoable,
       },
-    );
+    });
   }
 
   private async reconcileParticipants(phase?: 'after-flush'): Promise<void> {
-    const participants = this.participants.list().filter((participant) => participant.phase === phase);
+    const participants = this.participants
+      .list()
+      .filter((participant) => participant.phase === phase);
     const results = await Promise.allSettled(
       participants.map((participant) => participant.reconcileAfterUndo()),
     );
@@ -239,16 +227,28 @@ export class AgentConversationUndoService
 
   private async reconcileLastPrompt(): Promise<void> {
     if (this.agentCtx.agentId !== MAIN_AGENT_ID) return;
-    const pending = this.loop.snapshot().queue.filter((item) => item.meta?.tracked === true).at(-1);
-    let lastPrompt = pending === undefined
-      ? undefined
-      : promptMetadataTextFromContentParts(pending.message.content.filter((part) => !isUserPromptSubmitHookPart(part)), (pending.meta?.origin as UserPromptOrigin | undefined)?.clientMetadata);
+    const pending = this.loop
+      .snapshot()
+      .queue.filter((item) => item.meta?.tracked === true)
+      .at(-1);
+    let lastPrompt =
+      pending === undefined
+        ? undefined
+        : promptMetadataTextFromContentParts(
+            pending.message.content.filter((part) => !isUserPromptSubmitHookPart(part)),
+            (pending.meta?.origin as UserPromptOrigin | undefined)?.clientMetadata,
+          );
     if (lastPrompt === undefined) {
       const history = this.context.get();
       for (let i = history.length - 1; i >= 0; i--) {
         const message = history[i]!;
         if (!isUndoAnchor(message)) continue;
-        lastPrompt = promptMetadataTextFromContentParts(message.content.filter((part) => !isUserPromptSubmitHookPart(part)), message.origin?.kind === 'user' || message.origin?.kind === 'skill_activation' ? message.origin.clientMetadata : undefined);
+        lastPrompt = promptMetadataTextFromContentParts(
+          message.content.filter((part) => !isUserPromptSubmitHookPart(part)),
+          message.origin?.kind === 'user' || message.origin?.kind === 'skill_activation'
+            ? message.origin.clientMetadata
+            : undefined,
+        );
         if (lastPrompt !== undefined) break;
       }
     }

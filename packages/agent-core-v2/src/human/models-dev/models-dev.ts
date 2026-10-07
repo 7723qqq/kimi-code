@@ -193,8 +193,7 @@ function normalizeModelsDevModel(
       image_in: inputs.includes('image'),
       video_in: inputs.includes('video'),
       audio_in: inputs.includes('audio'),
-      thinking:
-        Boolean(model.reasoning) || thinking.efforts !== undefined || thinking.hasToggle,
+      thinking: Boolean(model.reasoning) || thinking.efforts !== undefined || thinking.hasToggle,
       tool_use: model.tool_call ?? true,
       dynamically_loaded_tools: model.dynamically_loaded_tools === true,
     },
@@ -239,7 +238,9 @@ function modelsDevThinkingOptions(options: ModelsDevModelEntry['reasoning_option
   return { efforts, offEffort, hasToggle, alwaysThinking };
 }
 
-function modelsDevReasoningKey(interleaved: ModelsDevModelEntry['interleaved']): string | undefined {
+function modelsDevReasoningKey(
+  interleaved: ModelsDevModelEntry['interleaved'],
+): string | undefined {
   if (typeof interleaved !== 'object' || interleaved === null) return undefined;
   const field = interleaved.field?.trim();
   return field !== undefined && field.length > 0 ? field : undefined;

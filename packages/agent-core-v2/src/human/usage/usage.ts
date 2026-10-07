@@ -44,6 +44,9 @@ export function accumulateUsage(summary: UsageSummary, record: UsageRecord): Usa
     byTurn:
       record.turnId === undefined
         ? summary.byTurn
-        : { ...summary.byTurn, [record.turnId]: addUsage(summary.byTurn[record.turnId], record.usage) },
+        : {
+            ...summary.byTurn,
+            [record.turnId]: addUsage(summary.byTurn[record.turnId], record.usage),
+          },
   };
 }

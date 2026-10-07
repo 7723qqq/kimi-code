@@ -1,23 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { isUnknownCapability, UNKNOWN_CAPABILITY, type ModelCapability } from '#/llm/capability';
-import type { FinishInfo } from '#/llm/finish-reason';
-import {
-  createAssistantMessage,
-  createToolMessage,
-  createUserMessage,
-  extractText,
-  isToolCall,
-  type Message,
-  type StreamedMessagePart,
-  type ToolDescription,
-  type VideoURLPart,
-} from '#/llm/message';
-import { createMemoryMediaUploadCache } from '#/llm/media/cache';
-import { createMediaRefResolver } from '#/llm/media/resolver';
-import { createMemoryMediaSource } from '#/llm/media/source';
-import type { LlmModel } from '#/llm/model';
-import { createProvider } from '#/llm/provider/definition';
+import { classifyKimiQuotaError } from '#/llm-kimi/errors';
 import { KimiFiles, kimiFilesBaseUrl } from '#/llm-kimi/files';
 import { kimiMediaContribution } from '#/llm-kimi/media';
 import { kimiProvider } from '#/llm-kimi/provider';
@@ -29,21 +12,39 @@ import {
   kimiConnection,
   kimiOpenAITrait,
 } from '#/llm-kimi/trait';
-import { classifyKimiQuotaError } from '#/llm-kimi/errors';
-import { anthropicProvider, googleGenAIConnection, openaiProvider } from '#/llm/provider/providers/standard';
-import type { LlmClientContext, LlmRequester, LlmRequestEvent } from '#/llm/requester/requester';
-import type { TokenUsage } from '#/llm/usage';
+import { isUnknownCapability, UNKNOWN_CAPABILITY, type ModelCapability } from '#/llm/capability';
+import type { FinishInfo } from '#/llm/finish-reason';
+import { createMemoryMediaUploadCache } from '#/llm/media/cache';
+import { createMediaRefResolver } from '#/llm/media/resolver';
+import { createMemoryMediaSource } from '#/llm/media/source';
+import {
+  createAssistantMessage,
+  createToolMessage,
+  createUserMessage,
+  extractText,
+  isToolCall,
+  type Message,
+  type StreamedMessagePart,
+  type ToolDescription,
+  type VideoURLPart,
+} from '#/llm/message';
+import type { LlmModel } from '#/llm/model';
+import { createProvider } from '#/llm/provider/definition';
+import {
+  anthropicProvider,
+  googleGenAIConnection,
+  openaiProvider,
+} from '#/llm/provider/providers/standard';
+import { createAnthropicRequester } from '#/llm/requester/bases/anthropic/requester';
+import { createGoogleGenAIRequester } from '#/llm/requester/bases/google-genai/requester';
+import { createOpenAIResponsesRequester } from '#/llm/requester/bases/openai-responses/requester';
+import { createOpenAIRequester, openAIBase } from '#/llm/requester/bases/openai/requester';
 import {
   normalizeToolCallIdsForProvider,
   sanitizeToolCallId,
 } from '#/llm/requester/bases/tool-call-id';
-import { createAnthropicRequester } from '#/llm/requester/bases/anthropic/requester';
-import { createGoogleGenAIRequester } from '#/llm/requester/bases/google-genai/requester';
-import { createOpenAIResponsesRequester } from '#/llm/requester/bases/openai-responses/requester';
-import {
-  createOpenAIRequester,
-  openAIBase,
-} from '#/llm/requester/bases/openai/requester';
+import type { LlmClientContext, LlmRequester, LlmRequestEvent } from '#/llm/requester/requester';
+import type { TokenUsage } from '#/llm/usage';
 
 const model: LlmModel = {
   provider: 'test',
@@ -65,9 +66,7 @@ const kimiAnthropic = {
   classifyError: classifyKimiQuotaError,
 } as const;
 
-async function generateAndCollectUsage(
-  requester: LlmRequester,
-): Promise<TokenUsage | undefined> {
+async function generateAndCollectUsage(requester: LlmRequester): Promise<TokenUsage | undefined> {
   let usage: TokenUsage | undefined;
   await requester.generate(
     { model },
@@ -103,7 +102,10 @@ const chatCompletionChunks: readonly Record<string, unknown>[] = [
 ];
 
 const anthropicStreamEvents: readonly Record<string, unknown>[] = [
-  { type: 'message_start', message: { id: 'msg_1', usage: { input_tokens: 10, output_tokens: 1 } } },
+  {
+    type: 'message_start',
+    message: { id: 'msg_1', usage: { input_tokens: 10, output_tokens: 1 } },
+  },
   { type: 'content_block_start', index: 0, content_block: { type: 'text', text: '' } },
   { type: 'content_block_delta', index: 0, delta: { type: 'text_delta', text: 'hi' } },
   { type: 'content_block_stop', index: 0 },
@@ -193,10 +195,7 @@ function stubResponsesClient(events: readonly Record<string, unknown>[]): Client
 function stubAnthropicClient(events: readonly Record<string, unknown>[]): ClientStub {
   return createClientStub((captured, request) => ({
     messages: {
-      create: (
-        params: Record<string, unknown>,
-        options?: { headers?: Record<string, string> },
-      ) => {
+      create: (params: Record<string, unknown>, options?: { headers?: Record<string, string> }) => {
         captured.push({ params, headers: request.headers, options });
         return withResponseStream(events);
       },
@@ -233,11 +232,7 @@ describe('defaultHeaders', () => {
       connection: { defaultHeaders: () => ({ 'x-trait': 'a' }) },
       clientFactory: client.clientFactory,
     });
-    await requester.generate(
-      { model },
-      { messages },
-      { signal: new AbortController().signal },
-    );
+    await requester.generate({ model }, { messages }, { signal: new AbortController().signal });
     expect(client.headers()?.['x-trait']).toBe('a');
   });
 
@@ -305,9 +300,7 @@ describe('capability', () => {
     expect(textOnly.tool_use).toBe(true);
     expect(textOnly.image_in).toBe(false);
     expect(textOnly.thinking).toBe(false);
-    expect(isUnknownCapability(openaiProvider.resolveModel('no-such-model').capability)).toBe(
-      true,
-    );
+    expect(isUnknownCapability(openaiProvider.resolveModel('no-such-model').capability)).toBe(true);
 
     const thinkingVision = anthropicProvider.resolveModel('claude-sonnet-4-20250514').capability;
     expect(thinkingVision.thinking).toBe(true);
@@ -315,9 +308,9 @@ describe('capability', () => {
     const legacyVision = anthropicProvider.resolveModel('claude-3-haiku').capability;
     expect(legacyVision.image_in).toBe(true);
     expect(legacyVision.thinking).toBe(false);
-    expect(
-      isUnknownCapability(anthropicProvider.resolveModel('no-such-model').capability),
-    ).toBe(true);
+    expect(isUnknownCapability(anthropicProvider.resolveModel('no-such-model').capability)).toBe(
+      true,
+    );
 
     const variantCapProvider = createProvider({
       id: 'test-variant-cap',
@@ -411,7 +404,11 @@ describe('media', () => {
       'https://api.example.test/v1',
     );
     expect(kimiFilesBaseUrl(anthropic)).toBe(KIMI_DEFAULT_BASE_URL);
-    const openai: LlmModel = { ...mediaModel, provider: 'openai', baseUrl: 'https://api.example.test' };
+    const openai: LlmModel = {
+      ...mediaModel,
+      provider: 'openai',
+      baseUrl: 'https://api.example.test',
+    };
     expect(kimiFilesBaseUrl(openai)).toBe('https://api.example.test');
   });
 
@@ -485,7 +482,6 @@ describe('media', () => {
     ]);
   });
 });
-
 
 describe('endpoint', () => {
   afterEach(() => {
@@ -585,7 +581,6 @@ describe('endpoint', () => {
     expect(plain.vertexai).toBeUndefined();
   });
 });
-
 
 describe('protocol variant flags', () => {
   afterEach(() => {
@@ -737,7 +732,11 @@ describe('message-level tools', () => {
     expect(bodyMessages[0]?.['tools']).toEqual([
       {
         type: 'function',
-        function: { name: 'get_weather', description: 'get weather', parameters: { type: 'object' } },
+        function: {
+          name: 'get_weather',
+          description: 'get weather',
+          parameters: { type: 'object' },
+        },
       },
     ]);
   });
@@ -829,11 +828,7 @@ describe('withMaxCompletionTokens', () => {
       { signal: new AbortController().signal },
     );
     expect(client.body()['max_tokens']).toBe(300);
-    await requester.generate(
-      { model },
-      { messages },
-      { signal: new AbortController().signal },
-    );
+    await requester.generate({ model }, { messages }, { signal: new AbortController().signal });
     expect(client.body()['max_tokens']).toBe(64000);
 
     const sonnet35 = { ...model, model: 'claude-3-5-sonnet-20241022' };
@@ -865,11 +860,7 @@ describe('buildParams', () => {
       trait: { buildParams: (params) => ({ ...params, x_custom: 1 }) },
       clientFactory: client.clientFactory,
     });
-    await requester.generate(
-      { model },
-      { messages },
-      { signal: new AbortController().signal },
-    );
+    await requester.generate({ model }, { messages }, { signal: new AbortController().signal });
     expect(client.body()['x_custom']).toBe(1);
   });
 });
@@ -903,8 +894,27 @@ describe('extractUsage', () => {
 
   it('reads usage from stream choice chunks', async () => {
     const client = stubOpenAIClient([
-      { id: 'c1', object: 'chat.completion.chunk', created: 0, model: 'test-model', choices: [{ index: 0, delta: { content: 'hi' }, finish_reason: null }] },
-      { id: 'c1', object: 'chat.completion.chunk', created: 0, model: 'test-model', choices: [{ index: 0, delta: {}, finish_reason: 'stop', usage: { prompt_tokens: 4, completion_tokens: 6 } }] },
+      {
+        id: 'c1',
+        object: 'chat.completion.chunk',
+        created: 0,
+        model: 'test-model',
+        choices: [{ index: 0, delta: { content: 'hi' }, finish_reason: null }],
+      },
+      {
+        id: 'c1',
+        object: 'chat.completion.chunk',
+        created: 0,
+        model: 'test-model',
+        choices: [
+          {
+            index: 0,
+            delta: {},
+            finish_reason: 'stop',
+            usage: { prompt_tokens: 4, completion_tokens: 6 },
+          },
+        ],
+      },
     ]);
     const requester = createOpenAIRequester({
       ...kimiOpenAI,
@@ -947,7 +957,6 @@ describe('extractUsage', () => {
     expect(messageId).toBe('chatcmpl-1');
   });
 });
-
 
 describe('toolCallIdPolicy', () => {
   it('sanitizes unsafe characters and truncates', () => {
@@ -1109,7 +1118,6 @@ describe('toolCallIdPolicy', () => {
   });
 });
 
-
 describe('mergeHistory', () => {
   it('lets the trait merge the converted history', async () => {
     const client = stubOpenAIClient(chatCompletionChunks);
@@ -1117,11 +1125,7 @@ describe('mergeHistory', () => {
       trait: { mergeHistory: (history) => [...history, { role: 'user', content: 'extra' }] },
       clientFactory: client.clientFactory,
     });
-    await requester.generate(
-      { model },
-      { messages },
-      { signal: new AbortController().signal },
-    );
+    await requester.generate({ model }, { messages }, { signal: new AbortController().signal });
     const bodyMessages = client.body()['messages'] as Record<string, unknown>[];
     expect(bodyMessages.at(-1)).toEqual({ role: 'user', content: 'extra' });
   });
@@ -1175,7 +1179,9 @@ describe('request pipeline', () => {
         systemPrompt: 'sys',
         cacheKey: 'cache-1',
         thinking: { effort: 'high' },
-        tools: [{ name: 'get_weather', description: 'get weather', parameters: { type: 'object' } }],
+        tools: [
+          { name: 'get_weather', description: 'get weather', parameters: { type: 'object' } },
+        ],
       },
       { messages },
       { signal: new AbortController().signal },
@@ -1226,7 +1232,9 @@ describe('toolMessageConversion request config', () => {
     const tool = bodyMessages.find((message) => message['role'] === 'tool');
     expect(tool?.['content']).toBe('sunny\n(image omitted: tool result converted to plain text)');
     expect(
-      bodyMessages.some((message) => message['role'] === 'user' && Array.isArray(message['content'])),
+      bodyMessages.some(
+        (message) => message['role'] === 'user' && Array.isArray(message['content']),
+      ),
     ).toBe(false);
   });
 
@@ -1312,7 +1320,9 @@ describe('anthropic trait', () => {
     await requester.generate(
       {
         model,
-        tools: [{ name: 'get_weather', description: 'Get weather', parameters: { type: 'object' } }],
+        tools: [
+          { name: 'get_weather', description: 'Get weather', parameters: { type: 'object' } },
+        ],
       },
       { messages: [createUserMessage('hi'), createUserMessage('drop me')] },
       { signal: new AbortController().signal },
@@ -1354,9 +1364,7 @@ describe('anthropic user message merging', () => {
     const merged = await generate([createUserMessage('hi'), createToolMessage('call_1', 'sunny')]);
     expect(merged).toHaveLength(2);
     expect(merged[0]?.['content']).toEqual([{ type: 'text', text: 'hi' }]);
-    expect((merged[1]?.['content'] as Record<string, unknown>[])[0]?.['type']).toBe(
-      'tool_result',
-    );
+    expect((merged[1]?.['content'] as Record<string, unknown>[])[0]?.['type']).toBe('tool_result');
   });
 
   it('merges user text into a preceding tool result message', async () => {
@@ -1387,7 +1395,6 @@ describe('anthropic user message merging', () => {
     expect(merged[1]?.['role']).toBe('assistant');
   });
 });
-
 
 describe('anthropic cache control', () => {
   async function generate(
@@ -1456,7 +1463,6 @@ describe('anthropic cache control', () => {
     expect(system[0]?.['cache_control']).toEqual({ type: 'ephemeral' });
   });
 });
-
 
 describe('anthropic thinking kwargs', () => {
   it('applies the kimi thinking trait, the anthropic-beta protocol, and thinking echo rules', async () => {
@@ -1682,10 +1688,7 @@ describe('anthropic thinking kwargs', () => {
     await requester.generate(
       { model, thinking: { effort: 'off' } },
       {
-        messages: [
-          createAssistantMessage([{ type: 'think', think: '' }]),
-          createUserMessage('hi'),
-        ],
+        messages: [createAssistantMessage([{ type: 'think', think: '' }]), createUserMessage('hi')],
       },
       { signal: new AbortController().signal },
     );
@@ -1782,7 +1785,9 @@ describe('openai responses base', () => {
       {
         model,
         systemPrompt: 'be brief',
-        tools: [{ name: 'get_weather', description: 'Get weather', parameters: { type: 'object' } }],
+        tools: [
+          { name: 'get_weather', description: 'Get weather', parameters: { type: 'object' } },
+        ],
         thinking: { effort: 'high' },
         maxCompletionTokens: 500,
       },
@@ -1901,7 +1906,11 @@ describe('google genai base', () => {
             finishReason: 'STOP',
           },
         ],
-        usageMetadata: { promptTokenCount: 10, candidatesTokenCount: 5, cachedContentTokenCount: 4 },
+        usageMetadata: {
+          promptTokenCount: 10,
+          candidatesTokenCount: 5,
+          cachedContentTokenCount: 4,
+        },
       },
     ]);
     const requester = createGoogleGenAIRequester({
@@ -1915,7 +1924,9 @@ describe('google genai base', () => {
       {
         model: { ...model, model: 'gemini-2.5-flash', apiKey: 'test-key' },
         systemPrompt: 'be brief',
-        tools: [{ name: 'get_weather', description: 'Get weather', parameters: { type: 'object' } }],
+        tools: [
+          { name: 'get_weather', description: 'Get weather', parameters: { type: 'object' } },
+        ],
         thinking: { effort: 'medium' },
         maxCompletionTokens: 500,
       },
@@ -1980,7 +1991,11 @@ describe('google genai base', () => {
     const bodyTools = config['tools'] as Record<string, unknown>[];
     expect(bodyTools[0]).toEqual({
       functionDeclarations: [
-        { name: 'get_weather', description: 'Get weather', parametersJsonSchema: { type: 'object' } },
+        {
+          name: 'get_weather',
+          description: 'Get weather',
+          parametersJsonSchema: { type: 'object' },
+        },
       ],
     });
     expect(usage).toEqual({

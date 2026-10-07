@@ -1,6 +1,8 @@
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
+
 import type { TodoItem } from '@moonshot-ai/agent-core-v2';
+
 import { atomicWrite } from '../atomic-write.js';
 import type { NormalizedMessage } from './translator.js';
 import { buildTurnRecords, splitIntoTurns, type WireRecord } from './turn-structure.js';
@@ -97,7 +99,11 @@ export function insertSubagentTaskRecords(
         ) {
           callIndex = i;
         }
-        if (resultIndex === -1 && message.role === 'tool' && message.toolCallId === parentToolCallId) {
+        if (
+          resultIndex === -1 &&
+          message.role === 'tool' &&
+          message.toolCallId === parentToolCallId
+        ) {
           resultIndex = i;
         }
       }

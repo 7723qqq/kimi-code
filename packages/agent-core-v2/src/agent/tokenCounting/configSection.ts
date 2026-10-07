@@ -7,6 +7,7 @@ import {
   stripEnvBoundFields,
 } from '#/app/config/config';
 import { registerConfigSection } from '#/app/config/configSectionContributions';
+
 import type { TokenCountingStrategy } from './tokenCounting';
 
 export const TOKEN_COUNTING_SECTION = 'tokenCounting';
@@ -35,9 +36,8 @@ export const tokenCountingEnvBindings: EnvBindings<TokenCountingConfig> =
     strategy: { env: TOKEN_COUNTING_STRATEGY_ENV, parse: parseStrategy },
   });
 
-export const stripTokenCountingEnv = stripEnvBoundFields<TokenCountingConfig>(
-  tokenCountingEnvBindings,
-);
+export const stripTokenCountingEnv =
+  stripEnvBoundFields<TokenCountingConfig>(tokenCountingEnvBindings);
 
 export const DEFAULT_TOKEN_COUNTING_CONFIG: TokenCountingConfig = {
   strategy: 'measured+estimated',

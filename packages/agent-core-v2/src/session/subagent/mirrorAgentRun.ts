@@ -3,19 +3,19 @@ import { z } from 'zod';
 
 import type { IAgentScopeHandle } from '#/_base/di/scope';
 import { isAbortError, isUserCancellation, userCancellationReason } from '#/_base/utils/abort';
-import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { tryAgentContextOf } from '#/agent/scopeContext/scopeContext';
-import { isProviderRateLimitError } from '#/llm-adapter/contract/errors';
-import { type TokenUsage } from '#human/llm/usage';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import type { SubagentCreatedEvent } from '#/app/telemetry/events';
 import { Event2, registerEvent2Class } from '#/app/event/event2';
+import type { SubagentCreatedEvent } from '#/app/telemetry/events';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { isProviderRateLimitError } from '#/llm-adapter/contract/errors';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
 import { IEventDispatcher } from '#/state/eventDispatcher';
+import { type TokenUsage } from '#human/llm/usage';
 
-import { type AgentRunCompletion, type AgentRunHandle, ISessionSubagentService } from './subagent';
 import type { SubagentModelSource } from './configSection';
+import { type AgentRunCompletion, type AgentRunHandle, ISessionSubagentService } from './subagent';
 
 export interface SubagentSpawnedPayload {
   readonly subagentId: string;

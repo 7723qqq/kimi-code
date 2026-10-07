@@ -29,9 +29,7 @@ export function createSelectToolsTool(state: ToolSelectState): ToolDefinition {
     async execute({ toolCall }) {
       if (!state.enabled()) {
         return {
-          content: [
-            { type: 'text', text: 'select_tools is not available for the current model.' },
-          ],
+          content: [{ type: 'text', text: 'select_tools is not available for the current model.' }],
           isError: true,
         };
       }

@@ -8,12 +8,12 @@ import { toInputJsonSchema } from '#/tool/input-schema';
 import type { ToolExecution } from '#/tool/toolContract';
 
 import { newTowerStore, runTowerTool, TOWER_MAIN_AGENT_ONLY } from '../support';
-import DESCRIPTION from './teardown.md?raw';
 import {
   ITowerTeardownTool,
   TowerTeardownToolInputSchema,
   type TowerTeardownToolInput,
 } from './teardown';
+import DESCRIPTION from './teardown.md?raw';
 
 export class TowerTeardownTool implements ITowerTeardownTool {
   declare readonly _serviceBrand: undefined;

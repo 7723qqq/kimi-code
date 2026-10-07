@@ -1,3 +1,15 @@
+import { abortError, isAbortError, linkAbortSignal } from '#/_base/utils/abort';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentTaskService } from '#/agent/task/task';
+import type { AgentTaskInfo, AgentTaskOutputSnapshot } from '#/agent/task/task';
+import { formatPlainObject, formatTaskRecord } from '#/agent/task/tools/format';
+import { TERMINAL_STATUSES } from '#/agent/task/types';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import { formatTaskList } from '#/agent/tools/task/task-list/taskListTool';
+import { IFlagService } from '#/app/flag/flag';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { IAgentGoalService } from '#/features/goal/goalService';
+import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { matchesGlobRuleSubject } from '#/tool/rule-match';
 import {
@@ -6,23 +18,11 @@ import {
   type ToolExecution,
   type ToolUpdate,
 } from '#/tool/toolContract';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentTaskService } from '#/agent/task/task';
-import type { AgentTaskInfo, AgentTaskOutputSnapshot } from '#/agent/task/task';
-import { TERMINAL_STATUSES } from '#/agent/task/types';
-import { formatPlainObject, formatTaskRecord } from '#/agent/task/tools/format';
-import { formatTaskList } from '#/agent/tools/task/task-list/taskListTool';
-import { IFlagService } from '#/app/flag/flag';
-import { IAgentGoalService } from '#/features/goal/goalService';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
-import { abortError, isAbortError, linkAbortSignal } from '#/_base/utils/abort';
 import { WAIT_FOR_FLAG_ID } from './flag';
 import { IWaitForTool, WaitForInputSchema, type WaitForInput } from './task-wait';
-import WAIT_FOR_DESCRIPTION from './task-wait.md?raw';
 import WAIT_FOR_SUBAGENT_GUIDANCE from './task-wait-subagent.md?raw';
+import WAIT_FOR_DESCRIPTION from './task-wait.md?raw';
 
 const OUTPUT_PREVIEW_BYTES = 32 * 1024;
 
@@ -185,13 +185,15 @@ export class WaitForTool implements IWaitForTool {
       }
     } else if (this.tasks.getTask(args.task_id) === undefined) {
       this.track(args, startedAt, timeoutMs, 'task_not_found', 0);
-      return { isError: true, output: this.withRepeatWarning(`Task not found: ${args.task_id}`, tally) };
+      return {
+        isError: true,
+        output: this.withRepeatWarning(`Task not found: ${args.task_id}`, tally),
+      };
     }
 
     let waited: AgentTaskInfo | undefined;
-    const signal = ctx.steerSignal === undefined
-      ? ctx.signal
-      : AbortSignal.any([ctx.signal, ctx.steerSignal]);
+    const signal =
+      ctx.steerSignal === undefined ? ctx.signal : AbortSignal.any([ctx.signal, ctx.steerSignal]);
     const progress = startWaitProgress(args, this.tasks, ctx.onUpdate, startedAt);
     try {
       waited =
@@ -200,7 +202,8 @@ export class WaitForTool implements IWaitForTool {
           : await this.tasks.wait(args.task_id, timeoutMs, signal);
     } catch (error) {
       if (
-        !ctx.signal.aborted && ctx.steerSignal?.aborted &&
+        !ctx.signal.aborted &&
+        ctx.steerSignal?.aborted &&
         (error === ctx.steerSignal.reason || isAbortError(error))
       ) {
         this.track(args, startedAt, timeoutMs, 'interrupted', 0);
@@ -219,7 +222,10 @@ export class WaitForTool implements IWaitForTool {
 
     if (waited === undefined) {
       this.track(args, startedAt, timeoutMs, 'task_not_found', 0);
-      return { isError: true, output: this.withRepeatWarning(`Task not found: ${args.task_id ?? ''}`, tally) };
+      return {
+        isError: true,
+        output: this.withRepeatWarning(`Task not found: ${args.task_id ?? ''}`, tally),
+      };
     }
 
     if (!TERMINAL_STATUSES.has(waited.status)) {
@@ -256,12 +262,12 @@ export class WaitForTool implements IWaitForTool {
 
   private repeatWaitAdvice(): string {
     if (this.isSubagent) {
-      return "Stop waiting by reflex: repeated waits burn time your caller is waiting on. Before calling WaitFor again, do every part of your task that does not depend on the running background task. Wait again only for a result you truly cannot finish without — ending your turn is your final hand-off, so do not hand off without it, but never wait for tasks you do not need.";
+      return 'Stop waiting by reflex: repeated waits burn time your caller is waiting on. Before calling WaitFor again, do every part of your task that does not depend on the running background task. Wait again only for a result you truly cannot finish without — ending your turn is your final hand-off, so do not hand off without it, but never wait for tasks you do not need.';
     }
     if (this.goals.getGoal().goal?.status === 'active') {
       return 'Stop waiting by reflex: repeated waits stall the goal. Before calling WaitFor again, do every piece of remaining goal work that does not depend on the running background task — there is almost always some. Wait again only if nothing else can proceed until it finishes; even then, WaitFor beats polling with Bash sleep or ending the turn only to be continued again.';
     }
-    return 'Stop calling WaitFor. Repeated waiting wastes the user\'s time and is almost never the right move. Do not call it again in this turn unless the user explicitly asked you to wait. Do something useful now — another part of the task, or verifying earlier work — or end your turn with a progress update. Finished background tasks notify you automatically, so you will not miss the result.';
+    return "Stop calling WaitFor. Repeated waiting wastes the user's time and is almost never the right move. Do not call it again in this turn unless the user explicitly asked you to wait. Do something useful now — another part of the task, or verifying earlier work — or end your turn with a progress update. Finished background tasks notify you automatically, so you will not miss the result.";
   }
 
   private async waitAny(

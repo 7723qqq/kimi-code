@@ -156,7 +156,12 @@ function scanStringEnd(text: string, offset: number): number | undefined {
   return undefined;
 }
 
-function scanBalanced(text: string, offset: number, open: string, close: string): number | undefined {
+function scanBalanced(
+  text: string,
+  offset: number,
+  open: string,
+  close: string,
+): number | undefined {
   let depth = 0;
   let i = offset;
   while (i < text.length) {
@@ -194,7 +199,10 @@ function scanValueEnd(text: string, offset: number): number | undefined {
   return i === offset ? undefined : i;
 }
 
-function decodeBasicEscape(body: string, offset: number): { char: string; end: number } | undefined {
+function decodeBasicEscape(
+  body: string,
+  offset: number,
+): { char: string; end: number } | undefined {
   const code = body.charAt(offset + 1);
   switch (code) {
     case 'b':
@@ -389,7 +397,8 @@ function scanRootRegions(text: string): ScannedDocument | undefined {
     }
     i = endLine + 1;
   }
-  if (triviaStart >= 0) segments.push({ kind: 'trivia', start: triviaStart, end: lines.length - 1 });
+  if (triviaStart >= 0)
+    segments.push({ kind: 'trivia', start: triviaStart, end: lines.length - 1 });
   if (region !== undefined) segments.push({ kind: 'region', region });
   return { lines, offsets, eol, segments };
 }
@@ -465,9 +474,13 @@ function pathsEqual(a: readonly string[], b: readonly string[]): boolean {
   return true;
 }
 
-function blocksNestedUnder(blocks: readonly DomainBlock[], path: readonly string[]): readonly DomainBlock[] {
+function blocksNestedUnder(
+  blocks: readonly DomainBlock[],
+  path: readonly string[],
+): readonly DomainBlock[] {
   return blocks.filter(
-    (block) => block.path.length >= path.length && pathsEqual(block.path.slice(0, path.length), path),
+    (block) =>
+      block.path.length >= path.length && pathsEqual(block.path.slice(0, path.length), path),
   );
 }
 
@@ -490,7 +503,12 @@ function statementSuffix(text: string, statement: DomainStatement): string {
   return text.slice(statement.valueEnd, end).replace(/\r$/, '');
 }
 
-function renderStatement(text: string, statement: DomainStatement, valueText: string, eol: string): string {
+function renderStatement(
+  text: string,
+  statement: DomainStatement,
+  valueText: string,
+  eol: string,
+): string {
   const suffix = statementSuffix(text, statement);
   const rendered = `${statement.indent}${statement.key}${statement.separator}${valueText}${suffix}`;
   return rendered.endsWith('\n') ? rendered : `${rendered}${eol}`;
@@ -650,7 +668,19 @@ function planDomainKeyEdit(
   }
   const edits: LineEdit[] = [];
   const appends: string[] = [];
-  if (!planObjectLevel(text, update.snakeKey, scan.blocks, [], previousValue, nextValue, edits, appends, eol)) {
+  if (
+    !planObjectLevel(
+      text,
+      update.snakeKey,
+      scan.blocks,
+      [],
+      previousValue,
+      nextValue,
+      edits,
+      appends,
+      eol,
+    )
+  ) {
     return undefined;
   }
   if (appends.length > 0) {
@@ -668,7 +698,11 @@ function applyLineEdits(lines: readonly string[], edits: readonly LineEdit[], eo
   const out = [...lines];
   for (const edit of ordered) {
     if (edit.type === 'replace') {
-      out.splice(edit.startLine, edit.endLine - edit.startLine + 1, ...splitLinesKeepEnds(edit.text));
+      out.splice(
+        edit.startLine,
+        edit.endLine - edit.startLine + 1,
+        ...splitLinesKeepEnds(edit.text),
+      );
     } else {
       const prefix = edit.afterLine < out.length && !out[edit.afterLine]!.endsWith('\n') ? eol : '';
       out.splice(edit.afterLine + 1, 0, ...splitLinesKeepEnds(prefix + edit.text));
@@ -732,13 +766,24 @@ export function planConfigWriteback(
       continue;
     }
     const region = regions[0]!;
-    const scan = scanDomainRegion(originalText, scanned.lines, scanned.offsets, region, update.snakeKey);
+    const scan = scanDomainRegion(
+      originalText,
+      scanned.lines,
+      scanned.offsets,
+      region,
+      update.snakeKey,
+    );
     const planned =
       scan === undefined
         ? undefined
         : planDomainKeyEdit(originalText, scan, region, update, scanned.eol);
     if (planned === undefined) {
-      edits.push({ type: 'replace', startLine: region.start, endLine: region.end, text: replacement });
+      edits.push({
+        type: 'replace',
+        startLine: region.start,
+        endLine: region.end,
+        text: replacement,
+      });
       continue;
     }
     edits.push(...planned);

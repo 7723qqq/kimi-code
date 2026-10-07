@@ -2,8 +2,8 @@
 import { z } from 'zod';
 
 import type { CronJobOrigin } from '#/agent/contextMemory/types';
-import type { CronTask } from '#/features/cron/cronTask';
 import { Event2 } from '#/app/event/event2';
+import type { CronTask } from '#/features/cron/cronTask';
 
 export interface CronModelState {
   readonly tasks: Map<string, CronTask>;

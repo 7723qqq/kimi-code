@@ -37,10 +37,9 @@ async function daemonReachable(): Promise<boolean> {
 
 async function debugPromptsReachable(): Promise<boolean> {
   try {
-    const res = await fetchWithReport(
-      `${BASE_URL}${API_PREFIX}/debug/prompts/debug_probe/state`,
-      { signal: AbortSignal.timeout(500) },
-    );
+    const res = await fetchWithReport(`${BASE_URL}${API_PREFIX}/debug/prompts/debug_probe/state`, {
+      signal: AbortSignal.timeout(500),
+    });
     return res.ok;
   } catch {
     return false;
@@ -143,9 +142,7 @@ describeLive('send prompt + cancel prompt (live server required)', () => {
       const listedBefore = await client.listPrompts(session.id);
       log('prompt list before abort', listedBefore);
       expect(listedBefore.active?.prompt_id).toBe(active.prompt_id);
-      expect(listedBefore.queued.map((prompt) => prompt.prompt_id)).toEqual([
-        queued.prompt_id,
-      ]);
+      expect(listedBefore.queued.map((prompt) => prompt.prompt_id)).toEqual([queued.prompt_id]);
 
       const abortedFramePromise = client.waitForFrame(
         (f) =>

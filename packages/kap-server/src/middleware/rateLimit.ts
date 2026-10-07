@@ -24,9 +24,7 @@ const DEFAULT_MAX_FAILURES = 10;
 const DEFAULT_WINDOW_MS = 60_000;
 const DEFAULT_BAN_MS = 60_000;
 
-export function createAuthFailureLimiter(
-  opts?: AuthFailureLimiterOptions,
-): AuthFailureLimiter {
+export function createAuthFailureLimiter(opts?: AuthFailureLimiterOptions): AuthFailureLimiter {
   const maxFailures = opts?.maxFailures ?? DEFAULT_MAX_FAILURES;
   const windowMs = opts?.windowMs ?? DEFAULT_WINDOW_MS;
   const banMs = opts?.banMs ?? DEFAULT_BAN_MS;

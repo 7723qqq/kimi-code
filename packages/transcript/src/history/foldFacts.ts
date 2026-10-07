@@ -246,7 +246,10 @@ function readTodoItems(raw: unknown): TodoItem[] {
 export function foldWireRecordFacts(
   records: Iterable<HistoryWireRecord>,
   base: AgentTranscriptSnapshot,
-  options?: { readonly agentId?: string; readonly resolvePlanRevisionKey?: (key: string) => string },
+  options?: {
+    readonly agentId?: string;
+    readonly resolvePlanRevisionKey?: (key: string) => string;
+  },
 ): AgentTranscriptSnapshot {
   const tasks = new Map<string, TranscriptTask>();
   const interactions = new Map<string, TranscriptInteraction>();
@@ -336,9 +339,7 @@ export function foldWireRecordFacts(
       description: typeof info.description === 'string' ? info.description : prev?.description,
       agentId: typeof info.agentId === 'string' ? info.agentId : prev?.agentId,
       outputTail:
-        typeof record['outputTail'] === 'string'
-          ? record['outputTail']
-          : (prev?.outputTail ?? ''),
+        typeof record['outputTail'] === 'string' ? record['outputTail'] : (prev?.outputTail ?? ''),
       startedAt: prev?.startedAt ?? epochMsToIso(info.startedAt),
       endedAt: epochMsToIso(info.endedAt) ?? prev?.endedAt,
     };
@@ -369,7 +370,10 @@ export function foldWireRecordFacts(
         subagentTasks.set(agentId, taskId);
         const index = typeof record['swarmIndex'] === 'number' ? record['swarmIndex'] : undefined;
         const refs = subagentRefs.get(toolCallId) ?? new Map();
-        refs.set(agentId, { ref: { agentId, role: index === undefined ? 'child' : 'member' }, index });
+        refs.set(agentId, {
+          ref: { agentId, role: index === undefined ? 'child' : 'member' },
+          index,
+        });
         subagentRefs.set(toolCallId, refs);
         tasks.set(taskId, {
           taskId,
@@ -377,9 +381,11 @@ export function foldWireRecordFacts(
           state: 'running',
           detached: record['runInBackground'] === true,
           agentId,
-          description: typeof record['description'] === 'string' ? record['description'] : undefined,
+          description:
+            typeof record['description'] === 'string' ? record['description'] : undefined,
           model: typeof record['model'] === 'string' ? record['model'] : undefined,
-          thinkingEffort: typeof record['thinkingEffort'] === 'string' ? record['thinkingEffort'] : undefined,
+          thinkingEffort:
+            typeof record['thinkingEffort'] === 'string' ? record['thinkingEffort'] : undefined,
           startedAt: recordTimeIso(record),
           outputTail: '',
         });
@@ -392,9 +398,14 @@ export function foldWireRecordFacts(
         const agentId = record['subagentId'];
         if (typeof agentId !== 'string') break;
         const taskId = subagentTasks.get(agentId) ?? agentId;
-        const state = record.type === 'subagent.completed' ? 'completed'
-          : record.type === 'subagent.failed' ? 'failed'
-            : record.type === 'subagent.cancelled' ? 'killed' : 'running';
+        const state =
+          record.type === 'subagent.completed'
+            ? 'completed'
+            : record.type === 'subagent.failed'
+              ? 'failed'
+              : record.type === 'subagent.cancelled'
+                ? 'killed'
+                : 'running';
         const terminalise = (key: string): void => {
           const task = tasks.get(key);
           if (task === undefined) return;
@@ -402,7 +413,10 @@ export function foldWireRecordFacts(
             ...task,
             state,
             endedAt: state === 'running' ? undefined : recordTimeIso(record),
-            resultSummary: typeof record['resultSummary'] === 'string' ? record['resultSummary'] : task.resultSummary,
+            resultSummary:
+              typeof record['resultSummary'] === 'string'
+                ? record['resultSummary']
+                : task.resultSummary,
             usage: readStepUsage(record['usage']) ?? task.usage,
             error: typeof record['error'] === 'string' ? record['error'] : task.error,
           });
@@ -444,8 +458,7 @@ export function foldWireRecordFacts(
           goal = {
             ...goal,
             status:
-              typeof payload.status === 'string' &&
-              GOAL_STATUSES.has(payload.status as GoalStatus)
+              typeof payload.status === 'string' && GOAL_STATUSES.has(payload.status as GoalStatus)
                 ? (payload.status as GoalStatus)
                 : goal.status,
             budgetUsed:
@@ -688,19 +701,14 @@ export function foldWireRecordFacts(
     predicate: (turn: TranscriptTurn) => boolean = () => true,
   ): number | undefined => {
     const turn = baseTurns.find(
-      (candidate) =>
-        !claimedOrdinals.has(candidate.ordinal) &&
-        predicate(candidate),
+      (candidate) => !claimedOrdinals.has(candidate.ordinal) && predicate(candidate),
     );
     if (turn === undefined) return undefined;
     claimedOrdinals.add(turn.ordinal);
     return turn.ordinal;
   };
   const lastRawTurnId = Math.max(nextTurnId - 1, ...endedTurns.keys(), ...interruptedSteps.keys());
-  const rawTurnIds = Array.from(
-    { length: lastRawTurnId + 1 },
-    (_, turnId) => turnId,
-  ).filter(
+  const rawTurnIds = Array.from({ length: lastRawTurnId + 1 }, (_, turnId) => turnId).filter(
     (turnId) =>
       !hiddenTurnIds.has(turnId) &&
       (!hasExplicitTurnId ||
@@ -723,8 +731,7 @@ export function foldWireRecordFacts(
     if (!strictOrigin) continue;
     const fallbackOrdinal = claimBaseOrdinal(
       (candidate) =>
-        candidate.triggerPromptId === undefined &&
-        candidate.origin.kind === turnOriginKind(origin),
+        candidate.triggerPromptId === undefined && candidate.origin.kind === turnOriginKind(origin),
     );
     if (fallbackOrdinal !== undefined) ordinalByRawTurnId.set(turnId, fallbackOrdinal);
   }
@@ -735,8 +742,7 @@ export function foldWireRecordFacts(
     const strictOrigin = turnOrigins.has(turnId) && !isUndoAnchorTurnOrigin(origin);
     if (promptId === undefined || strictOrigin) continue;
     const emptyPromptOrdinal = claimBaseOrdinal(
-      (candidate) =>
-        candidate.triggerPromptId === undefined && candidate.origin.kind === 'other',
+      (candidate) => candidate.triggerPromptId === undefined && candidate.origin.kind === 'other',
     );
     if (emptyPromptOrdinal !== undefined) {
       ordinalByRawTurnId.set(turnId, emptyPromptOrdinal);
@@ -822,7 +828,8 @@ export function foldWireRecordFacts(
         })
       : base.items;
 
-  const modesTouched = planActive !== undefined || swarmActive !== undefined || towerActive !== undefined;
+  const modesTouched =
+    planActive !== undefined || swarmActive !== undefined || towerActive !== undefined;
   const meta: TranscriptMeta = {
     ...base.meta,
     goal: goalTouched ? goal : base.meta.goal,

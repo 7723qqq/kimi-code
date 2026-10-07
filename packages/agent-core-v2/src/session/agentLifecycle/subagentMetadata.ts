@@ -35,9 +35,7 @@ export function withSubagentProfile(
   return { ...labels, profileName };
 }
 
-export function labelsFromAgentMeta(
-  meta: AgentMeta,
-): Readonly<Record<string, string>> | undefined {
+export function labelsFromAgentMeta(meta: AgentMeta): Readonly<Record<string, string>> | undefined {
   const labels: Record<string, string> = { ...meta.labels };
   const parentAgentId = subagentParentAgentId(meta);
   if (parentAgentId !== undefined) {

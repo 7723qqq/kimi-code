@@ -1,31 +1,27 @@
-import { IAgentTaskService } from '#/agent/task/task';
+import { getShellPathBridge } from '#/_base/execEnv/shellPathBridge';
+import { userCancellationReason } from '#/_base/utils/abort';
+import { renderPrompt } from '#/_base/utils/render-prompt';
+import { IAgentRuntimeService, inspectAgentRuntime } from '#/agent/runtimeBinding/agentRuntime';
 import { resolveAgentTaskConfig } from '#/agent/task/configSection';
+import { IAgentTaskService } from '#/agent/task/task';
+import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { IConfigService } from '#/app/config/config';
 import type { HostEnvironmentInfo } from '#/os/interface/hostEnvironment';
 import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
+import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import { IAgentRuntimeService, inspectAgentRuntime } from '#/agent/runtimeBinding/agentRuntime';
-import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
-import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
-import { getShellPathBridge } from '#/_base/execEnv/shellPathBridge';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import { type ToolOutputAccumulatorResult, ToolOutputAccumulator } from '#/tool/output-accumulator';
+import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
 import {
   DEFAULT_TOOL_RESULT_MAX_CHARS,
   type ExecutableToolResult,
   type ToolExecution,
   type ToolUpdate,
 } from '#/tool/toolContract';
-import {
-  type ToolOutputAccumulatorResult,
-  ToolOutputAccumulator,
-} from '#/tool/output-accumulator';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
-import { renderPrompt } from '#/_base/utils/render-prompt';
-import { userCancellationReason } from '#/_base/utils/abort';
-import bashDescriptionTemplate from './bash.md?raw';
-import { ProcessTask } from './process-task';
+
 import {
   type BashInput,
   BashInputSchema,
@@ -35,6 +31,8 @@ import {
   MAX_BACKGROUND_TIMEOUT_S,
   MAX_TIMEOUT_S,
 } from './bash';
+import bashDescriptionTemplate from './bash.md?raw';
+import { ProcessTask } from './process-task';
 
 const MS_PER_SECOND = 1000;
 
@@ -58,8 +56,7 @@ function normalizeTimeoutMs(timeout: number | undefined, isBackground: boolean):
 async function disposeProcess(proc: IHostProcess): Promise<void> {
   try {
     await proc.dispose();
-  } catch {
-  }
+  } catch {}
 }
 
 function renderBashDescription(shellName: string): string {
@@ -126,7 +123,9 @@ export class BashTool implements IBashTool {
   }
 
   get description(): string {
-    const renderedDescription = renderBashDescription(inspectAgentRuntime(this.runtime).environment.shellName);
+    const renderedDescription = renderBashDescription(
+      inspectAgentRuntime(this.runtime).environment.shellName,
+    );
     if (!this.allowBackground()) return withoutBackgroundDescription(renderedDescription);
     if (!this.autoBackgroundOnTimeout()) {
       return withoutAutoBackgroundOnTimeout(renderedDescription);
@@ -187,7 +186,8 @@ export class BashTool implements IBashTool {
     const lease = this.runtime.acquire(['process']);
     const view = new RuntimeWorkspaceView(lease.runtime, this.workspaceCtx);
     const env = lease.runtime.environment;
-    const command = env.osKind === 'Windows' ? rewriteWindowsNullRedirect(args.command) : args.command;
+    const command =
+      env.osKind === 'Windows' ? rewriteWindowsNullRedirect(args.command) : args.command;
     const effectiveCwd = view.resolve(args.cwd ?? view.workDir);
     const description = startsInBackground ? args.description!.trim() : foregroundDescription(args);
     const timeoutMs = startsInBackground
@@ -231,7 +231,14 @@ export class BashTool implements IBashTool {
     let taskId: string;
     try {
       taskId = this.tasks.registerTask(
-        new ProcessTask(proc, command, description, onProcessOutput, () => lease.dispose(), toolCallId),
+        new ProcessTask(
+          proc,
+          command,
+          description,
+          onProcessOutput,
+          () => lease.dispose(),
+          toolCallId,
+        ),
         {
           detached: startsInBackground,
           timeoutMs,
@@ -380,10 +387,14 @@ export class BashTool implements IBashTool {
     description: string,
     labels: { title: string; brief: string },
     builder = new ToolOutputAccumulator(),
-    scenario: 'background_started' | 'foreground_detached' | 'foreground_detached_by_user' = 'background_started',
+    scenario:
+      | 'background_started'
+      | 'foreground_detached'
+      | 'foreground_detached_by_user' = 'background_started',
   ): ExecutableToolResult {
     const status = this.tasks.getTask(taskId)?.status ?? 'running';
-    const detachedByUser = scenario === 'foreground_detached_by_user' ? 'detached_by_user: true\n' : '';
+    const detachedByUser =
+      scenario === 'foreground_detached_by_user' ? 'detached_by_user: true\n' : '';
     const metadata =
       `task_id: ${taskId}\n` +
       `pid: ${String(proc.pid)}\n` +
@@ -456,8 +467,7 @@ function foregroundDescription(args: BashInput): string {
 function closeProcessStdin(proc: IHostProcess): void {
   try {
     proc.stdin.end();
-  } catch {
-  }
+  } catch {}
 }
 
 async function killSpawnedProcess(proc: IHostProcess): Promise<void> {

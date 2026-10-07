@@ -1,7 +1,7 @@
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
-import { IAgentTowerService } from '#/features/tower/tower';
 import { TowerProtocolError } from '#/features/tower/protocol/index';
+import { IAgentTowerService } from '#/features/tower/tower';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
@@ -13,8 +13,8 @@ import {
   TOWER_MAIN_AGENT_ONLY,
   TOWER_MODE_USER_ENABLED_ONLY,
 } from '../support';
-import DESCRIPTION from './init.md?raw';
 import { ITowerInitTool, TowerInitToolInputSchema, type TowerInitToolInput } from './init';
+import DESCRIPTION from './init.md?raw';
 
 export class TowerInitTool implements ITowerInitTool {
   declare readonly _serviceBrand: undefined;

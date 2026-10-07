@@ -116,12 +116,8 @@ export interface LegacyStatusSnapshot {
 }
 
 export function readLegacyStatus(agent: IAgentScopeHandle): LegacyStatusSnapshot | undefined {
-  const profile = agent.accessor.get(IAgentProfileService) as
-    | IAgentProfileService
-    | undefined;
-  const usageService = agent.accessor.get(ISessionUsageService) as
-    | ISessionUsageService
-    | undefined;
+  const profile = agent.accessor.get(IAgentProfileService) as IAgentProfileService | undefined;
+  const usageService = agent.accessor.get(ISessionUsageService) as ISessionUsageService | undefined;
   const tokenCounting = agent.accessor.get(ISessionTokenCountingService) as
     | ISessionTokenCountingService
     | undefined;

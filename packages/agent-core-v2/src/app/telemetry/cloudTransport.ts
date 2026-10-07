@@ -57,9 +57,7 @@ const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
 function defaultTelemetryEndpoint(homeDir?: string, readMarker = true): string | undefined {
-  return kimiRegionProfile(
-    resolveKimiRegion({ readMarker, homeDir }),
-  ).telemetryEndpoint;
+  return kimiRegionProfile(resolveKimiRegion({ readMarker, homeDir })).telemetryEndpoint;
 }
 
 export class CloudTransport {

@@ -17,16 +17,13 @@ import {
 import { inlineVideoPart, isMediaUploadAuthError } from '#/agent/media/videoUpload';
 import type { FileReadSource } from '#/agent/tools/fileReadSource';
 import type { ITelemetryService } from '#/app/telemetry/telemetry';
-import {
-  isUnknownCapability,
-  type ModelCapability,
-} from '#/llm-adapter/contract/capability';
+import { isUnknownCapability, type ModelCapability } from '#/llm-adapter/contract/capability';
 import { VideoUploadUnsupportedError } from '#/llm-adapter/contract/errors';
-import { providerImagePolicy } from '#human/llm/media/image-formats';
-import type { ContentPart } from '#human/llm/message';
 import type { HostEnvironmentInfo } from '#/os/interface/hostEnvironment';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { ExecutableToolResult } from '#/tool/toolContract';
+import { providerImagePolicy } from '#human/llm/media/image-formats';
+import type { ContentPart } from '#human/llm/message';
 
 import { MAX_MEDIA_BYTES, MAX_MEDIA_MEGABYTES, type VideoUploader } from './read-media-file';
 

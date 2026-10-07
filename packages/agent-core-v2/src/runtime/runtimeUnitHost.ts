@@ -1,6 +1,11 @@
 import { SyncDescriptor } from '#/_base/di/descriptors';
-import { _util, type IInstantiationService, type ServiceIdentifier } from '#/_base/di/instantiation';
+import {
+  _util,
+  type IInstantiationService,
+  type ServiceIdentifier,
+} from '#/_base/di/instantiation';
 import { ServiceCollection } from '#/_base/di/serviceCollection';
+
 import type { Runtime } from './runtime';
 import type { RuntimeRegistrationHandle, RuntimeRegistry } from './runtimeRegistry';
 
@@ -20,7 +25,11 @@ export interface RuntimeProviderRuntimeHandle {
 
 export interface RuntimeProviderHost {
   get<T>(id: ServiceIdentifier<T>): T;
-  provide<T>(id: ServiceIdentifier<T>, ctor: RuntimeUnitConstructor<T>, ...staticArguments: unknown[]): T;
+  provide<T>(
+    id: ServiceIdentifier<T>,
+    ctor: RuntimeUnitConstructor<T>,
+    ...staticArguments: unknown[]
+  ): T;
   registerRuntime(runtime: Runtime): RuntimeProviderRuntimeHandle;
 }
 
@@ -91,7 +100,10 @@ class SharedRuntimeUnitHost implements RuntimeUnitHost {
   private tail = Promise.resolve();
   private closing = false;
 
-  constructor(private readonly root: IInstantiationService, private readonly registry: RuntimeRegistry) {}
+  constructor(
+    private readonly root: IInstantiationService,
+    private readonly registry: RuntimeRegistry,
+  ) {}
 
   provide<T extends { dispose(): void | Promise<void> }>(
     imports: RuntimeUnitImports,
@@ -241,7 +253,10 @@ class SharedRuntimeUnitHost implements RuntimeUnitHost {
 
   private enqueue<T>(work: () => Promise<T>): Promise<T> {
     const next = this.tail.then(work, work);
-    this.tail = next.then(() => {}, () => {});
+    this.tail = next.then(
+      () => {},
+      () => {},
+    );
     return next;
   }
 
@@ -249,7 +264,10 @@ class SharedRuntimeUnitHost implements RuntimeUnitHost {
     if (this.closing) throw new Error('runtime unit host is disposed');
   }
 
-  private createTransaction(imports: RuntimeUnitImports, previous?: RuntimeUnitTransaction): RuntimeUnitTransaction {
+  private createTransaction(
+    imports: RuntimeUnitImports,
+    previous?: RuntimeUnitTransaction,
+  ): RuntimeUnitTransaction {
     const declared = new Set([...imports.root, ...imports.imports, ...imports.local]);
     if (declared.size !== imports.root.length + imports.imports.length + imports.local.length) {
       throw new Error('runtime unit dependency manifest contains duplicate declarations');
@@ -261,42 +279,68 @@ class SharedRuntimeUnitHost implements RuntimeUnitHost {
     let active = true;
     let committed = false;
     for (const id of imports.root) {
-      services.set(id, this.root.invokeFunction((accessor) => accessor.get(id)));
+      services.set(
+        id,
+        this.root.invokeFunction((accessor) => accessor.get(id)),
+      );
     }
     for (const id of imports.imports) {
       const registration = this.locals.get(id);
-      if (registration === undefined) throw new Error(`runtime unit import is not available ${id.toString()}`);
+      if (registration === undefined)
+        throw new Error(`runtime unit import is not available ${id.toString()}`);
       services.set(id, registration.value);
     }
     const child = this.root.createChild(services);
     const host: RuntimeProviderHost = {
       get: <T>(id: ServiceIdentifier<T>): T => {
-        if (!active || !declared.has(id)) throw new Error(`runtime unit dependency is not declared ${id.toString()}`);
+        if (!active || !declared.has(id))
+          throw new Error(`runtime unit dependency is not declared ${id.toString()}`);
         if (imports.local.includes(id) && !local.some((registration) => registration.id === id)) {
           throw new Error(`runtime unit local dependency is not available ${id.toString()}`);
         }
         return child.invokeFunction((accessor) => accessor.get(id));
       },
-      provide: <T>(id: ServiceIdentifier<T>, ctor: RuntimeUnitConstructor<T>, ...staticArguments: unknown[]): T => {
-        if (!active || !imports.local.includes(id)) throw new Error(`runtime unit local registration is not declared ${id.toString()}`);
-        if (local.some((registration) => registration.id === id)) throw new Error(`runtime unit local registration already exists ${id.toString()}`);
-        for (const dependency of _util.getInstanceDependencies(ctor as unknown as _util.DI_TARGET_OBJ)) {
-          if (!declared.has(dependency.id)) throw new Error(`runtime unit dependency is not declared ${dependency.id.toString()}`);
-          if (imports.local.includes(dependency.id) && !local.some((registration) => registration.id === dependency.id)) {
-            throw new Error(`runtime unit local dependency is not available ${dependency.id.toString()}`);
+      provide: <T>(
+        id: ServiceIdentifier<T>,
+        ctor: RuntimeUnitConstructor<T>,
+        ...staticArguments: unknown[]
+      ): T => {
+        if (!active || !imports.local.includes(id))
+          throw new Error(`runtime unit local registration is not declared ${id.toString()}`);
+        if (local.some((registration) => registration.id === id))
+          throw new Error(`runtime unit local registration already exists ${id.toString()}`);
+        for (const dependency of _util.getInstanceDependencies(
+          ctor as unknown as _util.DI_TARGET_OBJ,
+        )) {
+          if (!declared.has(dependency.id))
+            throw new Error(`runtime unit dependency is not declared ${dependency.id.toString()}`);
+          if (
+            imports.local.includes(dependency.id) &&
+            !local.some((registration) => registration.id === dependency.id)
+          ) {
+            throw new Error(
+              `runtime unit local dependency is not available ${dependency.id.toString()}`,
+            );
           }
         }
-        const unit = child.createInstance(new SyncDescriptor<T>(ctor as never, staticArguments)) as T;
+        const unit = child.createInstance(
+          new SyncDescriptor<T>(ctor as never, staticArguments),
+        ) as T;
         services.set(id, unit);
         local.push({ id, value: unit });
         const disposable = unit as { dispose?: () => void | Promise<void> };
-        if (typeof disposable.dispose === 'function') units.push(disposable as { dispose(): void | Promise<void> });
+        if (typeof disposable.dispose === 'function')
+          units.push(disposable as { dispose(): void | Promise<void> });
         return unit;
       },
       registerRuntime: (runtime) => {
         if (!active) throw new Error('runtime unit transaction is disposed');
-        if (runtimes.some((entry) => entry.runtime.identity.runtimeId === runtime.identity.runtimeId)) {
-          throw new Error(`runtime ${runtime.identity.runtimeId} is registered twice in one transaction`);
+        if (
+          runtimes.some((entry) => entry.runtime.identity.runtimeId === runtime.identity.runtimeId)
+        ) {
+          throw new Error(
+            `runtime ${runtime.identity.runtimeId} is registered twice in one transaction`,
+          );
         }
         const staged: StagedRuntime = { runtime, active: true };
         if (committed) staged.registration = this.registry.register(runtime);
@@ -326,7 +370,9 @@ class SharedRuntimeUnitHost implements RuntimeUnitHost {
         const previousRuntimes = new Map(
           previous?.runtimes.map((staged) => [staged.runtime.identity.runtimeId, staged]) ?? [],
         );
-        const previousLocals = new Set(previous?.local.map((registration) => registration.id) ?? []);
+        const previousLocals = new Set(
+          previous?.local.map((registration) => registration.id) ?? [],
+        );
         for (const staged of runtimes) {
           const current = this.registry.current(staged.runtime.identity.runtimeId);
           const previousRuntime = previousRuntimes.get(staged.runtime.identity.runtimeId);
@@ -340,18 +386,22 @@ class SharedRuntimeUnitHost implements RuntimeUnitHost {
         }
         for (const registration of local) {
           if (this.locals.has(registration.id) && !previousLocals.has(registration.id)) {
-            throw new Error(`runtime unit local registration already exists ${registration.id.toString()}`);
+            throw new Error(
+              `runtime unit local registration already exists ${registration.id.toString()}`,
+            );
           }
         }
-        const publication = this.registry.publishBatch(runtimes.map((staged) => {
-          const previousRuntime = previousRuntimes.get(staged.runtime.identity.runtimeId);
-          if (previousRuntime?.registration === undefined) return { runtime: staged.runtime };
-          return {
-            runtime: staged.runtime,
-            current: previousRuntime.runtime,
-            registration: previousRuntime.registration,
-          };
-        }));
+        const publication = this.registry.publishBatch(
+          runtimes.map((staged) => {
+            const previousRuntime = previousRuntimes.get(staged.runtime.identity.runtimeId);
+            if (previousRuntime?.registration === undefined) return { runtime: staged.runtime };
+            return {
+              runtime: staged.runtime,
+              current: previousRuntime.runtime,
+              registration: previousRuntime.registration,
+            };
+          }),
+        );
         for (let index = 0; index < runtimes.length; index += 1) {
           const staged = runtimes[index]!;
           const previousRuntime = previousRuntimes.get(staged.runtime.identity.runtimeId);
@@ -379,7 +429,8 @@ class SharedRuntimeUnitHost implements RuntimeUnitHost {
           }
         }
         for (const registration of local.reverse()) {
-          if (this.locals.get(registration.id) === registration) this.locals.delete(registration.id);
+          if (this.locals.get(registration.id) === registration)
+            this.locals.delete(registration.id);
         }
         for (const unit of units.reverse()) {
           try {
@@ -401,19 +452,25 @@ class SharedRuntimeUnitHost implements RuntimeUnitHost {
     return transaction;
   }
 
-  private updateRuntime(staged: StagedRuntime, prepare: () => Runtime | Promise<Runtime>): Promise<void> {
+  private updateRuntime(
+    staged: StagedRuntime,
+    prepare: () => Runtime | Promise<Runtime>,
+  ): Promise<void> {
     if (this.closing) return Promise.reject(new Error('runtime unit host is disposed'));
     return this.enqueue(async () => {
-      if (!staged.active || staged.registration === undefined) throw new Error('runtime registration is not active');
+      if (!staged.active || staged.registration === undefined)
+        throw new Error('runtime registration is not active');
       const replacement = await prepare();
       let cleanup: Promise<void>;
       try {
         this.registry.prepare(replacement, staged.runtime.identity.runtimeId);
-        cleanup = this.registry.publishBatch([{
-          runtime: replacement,
-          current: staged.runtime,
-          registration: staged.registration,
-        }]).cleanup;
+        cleanup = this.registry.publishBatch([
+          {
+            runtime: replacement,
+            current: staged.runtime,
+            registration: staged.registration,
+          },
+        ]).cleanup;
       } catch (error) {
         await replacement.dispose();
         throw error;

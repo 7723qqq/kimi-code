@@ -30,7 +30,8 @@ async function resolvePart(part: ContentPart, resolveBlob: V2BlobResolver): Prom
     const ref = parseBlobRef(url);
     if (ref === undefined) continue;
     const payload = await resolveBlob(ref.hash);
-    const resolved = payload === null ? MISSING_MEDIA_PLACEHOLDER : `data:${ref.mimeType};base64,${payload}`;
+    const resolved =
+      payload === null ? MISSING_MEDIA_PLACEHOLDER : `data:${ref.mimeType};base64,${payload}`;
     if (updated === undefined) updated = { ...part };
     updated[key] = { ...(value as object), url: resolved };
   }

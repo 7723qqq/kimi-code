@@ -2,7 +2,11 @@ import { PassThrough, Readable, Writable } from 'node:stream';
 
 import { ndJsonStream } from '@agentclientprotocol/sdk';
 
-import { runAcpServerWithStream, type RunningAcpServer, type RunAcpServerOptions } from '../../src/start';
+import {
+  runAcpServerWithStream,
+  type RunningAcpServer,
+  type RunAcpServerOptions,
+} from '../../src/start';
 
 interface RpcMessage {
   readonly id?: number;
@@ -71,11 +75,7 @@ export async function createTestClient(opts: {
   }> = [];
   let buffer = '';
 
-  async function handleIncomingRequest(
-    id: number,
-    method: string,
-    params: unknown,
-  ): Promise<void> {
+  async function handleIncomingRequest(id: number, method: string, params: unknown): Promise<void> {
     const handler = requestHandlers.get(method);
     try {
       if (handler === undefined) {

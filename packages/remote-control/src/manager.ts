@@ -1,4 +1,10 @@
-import { assign, createActor, fromPromise, setup, waitFor } from '@moonshot-ai/agent-core-v2/human/xstate2';
+import {
+  assign,
+  createActor,
+  fromPromise,
+  setup,
+  waitFor,
+} from '@moonshot-ai/agent-core-v2/human/xstate2';
 
 import { startRemoteControl, type RemoteControlHandle } from './remote-control';
 
@@ -36,7 +42,10 @@ interface RemoteControlMachineContext {
   readonly error?: unknown;
 }
 
-type RemoteControlMachineEvent = { type: 'enable' } | { type: 'disable' } | { type: 'tunnel.exited' };
+type RemoteControlMachineEvent =
+  | { type: 'enable' }
+  | { type: 'disable' }
+  | { type: 'tunnel.exited' };
 
 function createRemoteControlMachine(
   options: RemoteControlManagerOptions,
@@ -143,8 +152,7 @@ export function createRemoteControlManager(
     };
   };
 
-  const settle = () =>
-    waitFor(actor, (snap) => snap.value === 'on' || snap.value === 'off');
+  const settle = () => waitFor(actor, (snap) => snap.value === 'on' || snap.value === 'off');
 
   const enable = async (): Promise<RemoteControlStatusInfo> => {
     const snap = actor.getSnapshot();

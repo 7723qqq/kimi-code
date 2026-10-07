@@ -55,10 +55,11 @@
 import fs from 'node:fs/promises';
 import type { FileHandle } from 'node:fs/promises';
 import path from 'node:path';
-import { WAL } from './wal.js';
+
 import { renameReplace } from './rename-replace.js';
 import { writeSnapshot } from './snapshot.js';
 import type { Store, ValueLoc } from './store.js';
+import { WAL } from './wal.js';
 import type { FsyncPolicy, WalStats } from './wal.js';
 
 /** Structural interface of the bits compaction needs from a MiniDb. */
@@ -193,7 +194,8 @@ export async function copyFileRange(
           let written = 0;
           while (written < bytesRead) {
             const { bytesWritten } = await dst.write(buf, written, bytesRead - written);
-            if (bytesWritten === 0) throw new Error('copyFileRange: write made no progress (short write)');
+            if (bytesWritten === 0)
+              throw new Error('copyFileRange: write made no progress (short write)');
             written += bytesWritten;
           }
           pos += bytesRead;
@@ -220,7 +222,8 @@ export async function compact(db: CompactionTarget): Promise<void> {
       // throws is counted as a compactError, not a successful compaction.
       await db.onCompacted?.();
       db.stats.compactions++;
-      db.stats.compactionDurationMs = (db.stats.compactionDurationMs ?? 0) + (performance.now() - t0);
+      db.stats.compactionDurationMs =
+        (db.stats.compactionDurationMs ?? 0) + (performance.now() - t0);
       db.lastCompactError = null;
     } catch (error) {
       db.stats.compactErrors = (db.stats.compactErrors ?? 0) + 1;
@@ -253,10 +256,13 @@ async function runCompaction(db: CompactionTarget): Promise<void> {
   // synchronous positioned read per record on the event loop.
   const snapT0 = performance.now();
   const snapRes = await writeSnapshot(db.store, tmp, {
-    readValueAsync: db.valueReader?.readAsync ? (loc) => db.valueReader!.readAsync!(loc) : undefined,
+    readValueAsync: db.valueReader?.readAsync
+      ? (loc) => db.valueReader!.readAsync!(loc)
+      : undefined,
   });
   db.stats.snapshotBytesWritten += snapRes.bytes;
-  db.stats.compactionSnapshotDurationMs = (db.stats.compactionSnapshotDurationMs ?? 0) + (performance.now() - snapT0);
+  db.stats.compactionSnapshotDurationMs =
+    (db.stats.compactionSnapshotDurationMs ?? 0) + (performance.now() - snapT0);
 
   // Phase 2.5: pre-copy the post-fence WAL tail into db.wal.tmp. NON-BLOCKING.
   // Each pass flushes to get a stable `head`, then copies the bytes that landed
@@ -362,7 +368,11 @@ async function runCompaction(db: CompactionTarget): Promise<void> {
     rotated = true;
     await fsyncDir(db.dir, { strict: true, stats: db.stats });
 
-    const fresh = new WAL(db.walPath, { fsyncPolicy: db.fsyncPolicy, syncIntervalMs: db.syncIntervalMs, stats: db.stats });
+    const fresh = new WAL(db.walPath, {
+      fsyncPolicy: db.fsyncPolicy,
+      syncIntervalMs: db.syncIntervalMs,
+      stats: db.stats,
+    });
     db.wal = fresh;
     await fresh.open();
 
@@ -377,7 +387,11 @@ async function runCompaction(db: CompactionTarget): Promise<void> {
       // comes first: it both restores appendability and stops late in-flight
       // writers from publishing old-file value pointers against the fresh WAL.
       await db.wal.close().catch(() => {});
-      const fresh = new WAL(db.walPath, { fsyncPolicy: db.fsyncPolicy, syncIntervalMs: db.syncIntervalMs, stats: db.stats });
+      const fresh = new WAL(db.walPath, {
+        fsyncPolicy: db.fsyncPolicy,
+        syncIntervalMs: db.syncIntervalMs,
+        stats: db.stats,
+      });
       await fresh.open();
       db.wal = fresh;
       if (rotated) {
@@ -395,6 +409,7 @@ async function runCompaction(db: CompactionTarget): Promise<void> {
     // Wall time of the rotation critical section — the window writers were
     // parked (their per-op waits accumulate separately in MiniDb's
     // compactionRotationPauseMs).
-    db.stats.compactionRotationDurationMs = (db.stats.compactionRotationDurationMs ?? 0) + (performance.now() - rotateT0);
+    db.stats.compactionRotationDurationMs =
+      (db.stats.compactionRotationDurationMs ?? 0) + (performance.now() - rotateT0);
   }
 }

@@ -186,9 +186,9 @@ describe('managedUsageResultSchema', () => {
       },
     };
     expect(managedUsageResultSchema.parse(ok)).toEqual(ok);
-    expect(
-      managedUsageResultSchema.parse({ kind: 'error', message: 'nope', status: 401 }),
-    ).toEqual({ kind: 'error', message: 'nope', status: 401 });
+    expect(managedUsageResultSchema.parse({ kind: 'error', message: 'nope', status: 401 })).toEqual(
+      { kind: 'error', message: 'nope', status: 401 },
+    );
   });
 });
 
@@ -249,7 +249,10 @@ describe('fetchManagedUsage', () => {
   });
 
   it('falls back to the local usage hint on an empty 404 body', async () => {
-    vi.stubGlobal('fetch', vi.fn(async () => new Response('', { status: 404 })));
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => new Response('', { status: 404 })),
+    );
 
     const result = await fetchManagedUsage('https://api.example/usages', 'access-token');
 

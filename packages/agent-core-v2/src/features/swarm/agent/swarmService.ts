@@ -1,21 +1,21 @@
+import { t } from '@moonshot-ai/kimi-i18n';
+
 import { Service } from '#/_base/di/service';
-import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { TurnEnded } from '#/agent/loop/turnOps';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { denyToolExecution } from '#/agent/toolExecutor/beforeToolExecuteEvent';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IEventBus } from '#/app/event/eventBus';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentStateService } from '#/agent/state/agentState';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 
-import { t } from '@moonshot-ai/kimi-i18n';
-
+import { SwarmModeEnter, SwarmModeExit, swarmKey } from '../swarmOps';
 import { SwarmInjection } from './injection/swarmInjection';
 import { IAgentSwarmService, type SwarmModeTrigger } from './swarm';
-import { SwarmModeEnter, SwarmModeExit, swarmKey } from '../swarmOps';
 
 export class AgentSwarmService extends Service implements IAgentSwarmService {
   declare readonly _serviceBrand: undefined;
@@ -45,9 +45,7 @@ export class AgentSwarmService extends Service implements IAgentSwarmService {
         if (!this.isActive) return;
         if (event.toolCall.name !== 'Agent') return;
         event.veto(
-          denyToolExecution(
-            this.toolApproval.formatDenyMessage(agentDeniedInSwarmModeMessage()),
-          ),
+          denyToolExecution(this.toolApproval.formatDenyMessage(agentDeniedInSwarmModeMessage())),
         );
       }),
     );

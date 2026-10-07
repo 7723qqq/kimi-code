@@ -28,6 +28,7 @@ import type {
 import type { Tool } from '#/tool';
 import type { TokenUsage } from '#/usage';
 
+import type { ToolCallIdPolicy } from '../provider';
 import { usesOpenAIResponsesDeveloperRole } from './capability-registry';
 import { tryNativeLlmStream, tryNativeLlmStreamIncremental } from './native-stream';
 import {
@@ -44,7 +45,6 @@ import {
   resolveAuthBackedClient,
   AuthClientLRU,
 } from './request-auth';
-import type { ToolCallIdPolicy } from '../provider';
 import { normalizeToolCallIdsForProvider, sanitizeOpenAIResponsesCallId } from './tool-call-id';
 
 /**

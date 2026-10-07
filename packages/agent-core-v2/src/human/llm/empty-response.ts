@@ -5,8 +5,7 @@ import type { LlmModel } from '#/llm/model';
 
 function formatFinishReasonHint(finish: FinishInfo): string {
   if (finish.finishReason === null && finish.rawFinishReason === null) return '';
-  const raw =
-    finish.rawFinishReason === null ? '' : `, rawFinishReason=${finish.rawFinishReason}`;
+  const raw = finish.rawFinishReason === null ? '' : `, rawFinishReason=${finish.rawFinishReason}`;
   const filteredHint =
     finish.finishReason === 'filtered'
       ? ' The provider filtered the response before visible output was emitted.'

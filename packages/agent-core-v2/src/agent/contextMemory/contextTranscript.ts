@@ -1,6 +1,6 @@
+import type { WireRecord } from '#/wire/record';
 import { type ContentPart, type ToolCall } from '#human/llm/message';
 import type { TokenUsage } from '#human/llm/usage';
-import type { WireRecord } from '#/wire/record';
 
 import {
   COMPACT_USER_MESSAGE_MAX_TOKENS,
@@ -107,10 +107,7 @@ export function createContextTranscriptReducer(): ContextTranscriptReducer {
       foldedLength = Math.max(0, foldedLength - 1);
       if (isUndoAnchor(message)) {
         removedUserCount++;
-        while (
-          i > clearFloor &&
-          isPromptOwnedInjection(transcript[i - 1]!.message, message)
-        ) {
+        while (i > clearFloor && isPromptOwnedInjection(transcript[i - 1]!.message, message)) {
           transcript.splice(i - 1, 1);
           i--;
           foldedLength = Math.max(0, foldedLength - 1);

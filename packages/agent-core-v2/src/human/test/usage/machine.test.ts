@@ -1,28 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import { createActor, waitFor } from '#/xstate2';
 
-import { connectPlugins } from '#/plugin';
+import { createAgentMachine } from '#/agent/machine';
+import { agentSlices, type AgentEventStore } from '#/agent/slices';
+import { createEventStore } from '#/eventStore/eventStore';
+import { journalFromBranch } from '#/eventStore/journal';
 import { UNKNOWN_CAPABILITY } from '#/llm/capability';
 import { createUserMessage } from '#/llm/message';
 import type { LlmModel } from '#/llm/model';
 import type { LlmRequester } from '#/llm/requester/requester';
 import type { TokenUsage } from '#/llm/usage';
-import { createAgentMachine } from '#/agent/machine';
-import { agentSlices, type AgentEventStore } from '#/agent/slices';
-import { createEventStore } from '#/eventStore/eventStore';
-import { journalFromBranch } from '#/eventStore/journal';
+import { connectPlugins } from '#/plugin';
 import { MemoryBackend } from '#/store/backend/memory';
 import { TreeStore } from '#/store/store';
 import { testScopeFactory } from '#/test/agent/scope-factory';
+import { createTimingPlugin } from '#/timing/plugin';
 import { createUsageMachine } from '#/usage/machine';
 import type { UsageEmitted } from '#/usage/machine';
 import { createUsagePlugin } from '#/usage/plugin';
 import type { UsageRecord } from '#/usage/usage';
-import { createTimingPlugin } from '#/timing/plugin';
-import {
-  xstateInspectionCollector,
-  type XstateInspectionEnvelope,
-} from '#/xstateInspection';
+import { createActor, waitFor } from '#/xstate2';
+import { xstateInspectionCollector, type XstateInspectionEnvelope } from '#/xstateInspection';
 
 const model: LlmModel = { provider: 'test', model: 'test-model', capability: UNKNOWN_CAPABILITY };
 
@@ -43,7 +40,10 @@ async function testStore(): Promise<AgentEventStore> {
   const store = await TreeStore.open(backend, {});
   const tree = await store.tree('test');
   tree.createBranch('main');
-  return createEventStore({ journal: journalFromBranch(tree.openBranch('main'), tree), slices: agentSlices });
+  return createEventStore({
+    journal: journalFromBranch(tree.openBranch('main'), tree),
+    slices: agentSlices,
+  });
 }
 
 describe('xstate inspection collector', () => {
@@ -63,7 +63,9 @@ describe('xstate inspection collector', () => {
       expect(typeof envelope.actorSessionId).toBe('string');
       expect(typeof envelope.timestamp).toBe('number');
     }
-    expect(delivered.find((envelope) => envelope.type === '@xstate.microstep')?.stateValue).toBeDefined();
+    expect(
+      delivered.find((envelope) => envelope.type === '@xstate.microstep')?.stateValue,
+    ).toBeDefined();
     const serialized = JSON.stringify(envelopes);
     expect(serialized).not.toContain('inputOther');
     expect(JSON.parse(serialized)).toEqual(envelopes);
@@ -75,16 +77,36 @@ describe('usage machine', () => {
     const actor = createActor(createUsageMachine());
     actor.start();
 
-    const a1: LlmModel = { provider: 'p1', model: 'm', capability: UNKNOWN_CAPABILITY, baseUrl: 'https://a.test/v1' };
-    const a2: LlmModel = { provider: 'p2', model: 'm', capability: UNKNOWN_CAPABILITY, baseUrl: 'https://a.test/v1' };
-    const b: LlmModel = { provider: 'p1', model: 'm', capability: UNKNOWN_CAPABILITY, baseUrl: 'https://b.test/v1' };
+    const a1: LlmModel = {
+      provider: 'p1',
+      model: 'm',
+      capability: UNKNOWN_CAPABILITY,
+      baseUrl: 'https://a.test/v1',
+    };
+    const a2: LlmModel = {
+      provider: 'p2',
+      model: 'm',
+      capability: UNKNOWN_CAPABILITY,
+      baseUrl: 'https://a.test/v1',
+    };
+    const b: LlmModel = {
+      provider: 'p1',
+      model: 'm',
+      capability: UNKNOWN_CAPABILITY,
+      baseUrl: 'https://b.test/v1',
+    };
     actor.send({ type: 'usage.record', record: record(10, 2, { model: a1 }) });
     actor.send({ type: 'usage.record', record: record(5, 3, { model: a2 }) });
     actor.send({ type: 'usage.record', record: record(1, 1, { model: b }) });
 
     const { summary } = actor.getSnapshot().context;
     expect(summary.byModel).toEqual({
-      'https://a.test/v1#m': { inputOther: 15, output: 5, inputCacheRead: 0, inputCacheCreation: 0 },
+      'https://a.test/v1#m': {
+        inputOther: 15,
+        output: 5,
+        inputCacheRead: 0,
+        inputCacheCreation: 0,
+      },
       'https://b.test/v1#m': { inputOther: 1, output: 1, inputCacheRead: 0, inputCacheCreation: 0 },
     });
   });
@@ -137,11 +159,9 @@ describe('usage plugin', () => {
     actor.start();
     actor.send({ type: 'input.submit', entry: { message: createUserMessage('hi') } });
     actor.send({ type: 'input.submit', entry: { message: createUserMessage('again') } });
-    await waitFor(
-      actor,
-      (s) => s.matches('idle') && store.getState().history.length === 4,
-      { timeout: 5000 },
-    );
+    await waitFor(actor, (s) => s.matches('idle') && store.getState().history.length === 4, {
+      timeout: 5000,
+    });
 
     const { records, summary } = plugin.actor.getSnapshot().context;
     expect(records).toHaveLength(2);

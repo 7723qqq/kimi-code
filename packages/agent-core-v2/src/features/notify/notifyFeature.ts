@@ -1,7 +1,10 @@
 import { Feature } from '#/features/feature';
 import { registerFeature } from '#/features/featureRegistry';
 
-import { AgentNotifyUserNudgeService, IAgentNotifyUserNudgeService } from './notifyUserNudgeService';
+import {
+  AgentNotifyUserNudgeService,
+  IAgentNotifyUserNudgeService,
+} from './notifyUserNudgeService';
 import { ISessionNotify } from './sessionNotify';
 import { INotifyUserTool, NOTIFY_USER_TOOL_NAME } from './tools/notify-user/notify-user';
 import { NotifyUserTool } from './tools/notify-user/notifyUserTool';

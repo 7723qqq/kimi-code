@@ -1,3 +1,10 @@
+import { storeActor } from '#/eventStore/actor';
+import { createUserMessage, type ToolCall, type UserMessage } from '#/llm/message';
+import type { LlmRequestConfig } from '#/llm/requester/requester';
+import type { ToolExecutor, ToolResult } from '#/tool/executor';
+import { createToolMachine, type ToolEvent, type ToolOutput } from '#/tool/machine';
+import type { ToolDefinition } from '#/tool/tool';
+import { createAbortScope, withAbort, type AbortScope } from '#/utils/abort';
 import {
   assign,
   emit,
@@ -16,21 +23,20 @@ import {
   type Subscription,
 } from '#/xstate2';
 
-import { createUserMessage, type ToolCall, type UserMessage } from '#/llm/message';
-import type { LlmRequestConfig } from '#/llm/requester/requester';
-import type { ToolExecutor, ToolResult } from '#/tool/executor';
-import { createToolMachine, type ToolEvent, type ToolOutput } from '#/tool/machine';
-import type { ToolDefinition } from '#/tool/tool';
-
-import { createWaitForTasks, type ToolActorRef } from './wait-for';
 import { interruptReasonOf, type TurnInterruptReason } from './errors';
 import { messageAppended, turnEnded, turnStarted } from './events';
 import { mergeSteerMessages } from './origin';
-import { createSystemEntry, createUserEntry } from './turn';
-import { createAbortScope, withAbort, type AbortScope } from '#/utils/abort';
-import type { createTurnMachine, HistoryMessage, SystemEntry, TurnLlmEvent, TurnOutput, UserEntry } from './turn';
-import { storeActor } from '#/eventStore/actor';
 import type { AgentEventStore, AgentStoreState } from './slices';
+import { createSystemEntry, createUserEntry } from './turn';
+import type {
+  createTurnMachine,
+  HistoryMessage,
+  SystemEntry,
+  TurnLlmEvent,
+  TurnOutput,
+  UserEntry,
+} from './turn';
+import { createWaitForTasks, type ToolActorRef } from './wait-for';
 
 export interface AgentInput {
   request: LlmRequestConfig;
@@ -105,7 +111,13 @@ export type AgentEvent =
 export type AgentEmitted =
   | TurnLlmEvent
   | ToolEvent
-  | { type: 'turn.started'; turnId: number; branchId: string; queueItemId?: string; entry?: UserEntry }
+  | {
+      type: 'turn.started';
+      turnId: number;
+      branchId: string;
+      queueItemId?: string;
+      entry?: UserEntry;
+    }
   | { type: 'step.started'; step: number }
   | { type: 'turn.aborting' }
   | { type: 'turn.reminders_consumed'; reminders: HistoryMessage[] }
@@ -160,7 +172,9 @@ function completionNotification(toolCall: ToolCall, output: ToolOutput): UserEnt
   if (output.type === 'failed') {
     const text = output.error instanceof Error ? output.error.message : String(output.error);
     return createUserEntry(
-      createUserMessage(`[async tool failed] ${toolCall.name} (tool_call_id=${toolCall.id})\n${text}`),
+      createUserMessage(
+        `[async tool failed] ${toolCall.name} (tool_call_id=${toolCall.id})\n${text}`,
+      ),
       { source: 'async-tool' },
     );
   }
@@ -247,7 +261,10 @@ function hasBackgroundWork(context: AgentMachineContext): boolean {
 
 function drainPendingPatch(
   context: AgentMachineContext,
-): Pick<AgentMachineContext, 'messages' | 'notifications' | 'queue' | 'drainedId' | 'drainedEntry'> {
+): Pick<
+  AgentMachineContext,
+  'messages' | 'notifications' | 'queue' | 'drainedId' | 'drainedEntry'
+> {
   const [head, ...rest] = context.queue;
   return {
     messages: [
@@ -262,10 +279,9 @@ function drainPendingPatch(
   };
 }
 
-function mirrorPatch(state: AgentStoreState): Pick<
-  AgentMachineContext,
-  'messages' | 'notifications' | 'reminders'
-> {
+function mirrorPatch(
+  state: AgentStoreState,
+): Pick<AgentMachineContext, 'messages' | 'notifications' | 'reminders'> {
   return {
     messages: [...state.history],
     notifications: [...state.notifications],
@@ -300,10 +316,7 @@ export function dispatchTools(tools: readonly ToolDefinition[]): ToolExecutor {
   };
 }
 
-export function createAgentMachine({
-  abortTimeoutMs,
-  maxStepsPerTurn,
-}: CreateAgentMachineOptions) {
+export function createAgentMachine({ abortTimeoutMs, maxStepsPerTurn }: CreateAgentMachineOptions) {
   return setup({
     types: {
       input: {} as AgentInput,
@@ -326,7 +339,8 @@ export function createAgentMachine({
         { gate?: PromptGate; head?: UserEntry }
       >(async ({ input }) => {
         const { gate, head } = input;
-        if (gate === undefined || head === undefined) return { id: head?.meta?.promptId, block: false };
+        if (gate === undefined || head === undefined)
+          return { id: head?.meta?.promptId, block: false };
         try {
           const verdict = await gate(head.meta?.promptId, head.message);
           if (typeof verdict === 'boolean') return { id: head.meta?.promptId, block: verdict };
@@ -349,9 +363,7 @@ export function createAgentMachine({
           type: 'store.append' as const,
           event: [
             ...context.notifications.map((entry) => messageAppended({ message: entry })),
-            ...(head === undefined
-              ? []
-              : [messageAppended({ message: head })]),
+            ...(head === undefined ? [] : [messageAppended({ message: head })]),
           ],
         });
         enqueue.assign(drainPendingPatch(context));
@@ -369,7 +381,10 @@ export function createAgentMachine({
           branchId: event.branch,
         };
       }),
-      emitReset: emit(({ context }) => ({ type: 'context.reset' as const, branchId: context.branchId })),
+      emitReset: emit(({ context }) => ({
+        type: 'context.reset' as const,
+        branchId: context.branchId,
+      })),
       abortScope: ({ context }) => {
         context.scope.abort();
       },
@@ -702,7 +717,9 @@ export function createAgentMachine({
                       const rewritten = event.output.message;
                       const head = context.queue[0];
                       if (rewritten === undefined || head === undefined) return {};
-                      return { queue: [{ ...head, message: rewritten }, ...context.queue.slice(1)] };
+                      return {
+                        queue: [{ ...head, message: rewritten }, ...context.queue.slice(1)],
+                      };
                     }),
                     'commitPendingToHistory',
                   ],
@@ -804,18 +821,16 @@ export function createAgentMachine({
           },
           'store.reset': {
             target: '#agent.idle',
-            actions: [
-              'abortScope',
-              'resetMirror',
-              'emitReset',
-              'forwardToParent',
-            ],
+            actions: ['abortScope', 'resetMirror', 'emitReset', 'forwardToParent'],
           },
           'input.pause': {
             actions: [assign({ paused: true }), sendTo('turn', { type: 'turn.pause' as const })],
           },
           'input.continue': {
-            actions: [assign({ paused: false }), sendTo('turn', { type: 'turn.continue' as const })],
+            actions: [
+              assign({ paused: false }),
+              sendTo('turn', { type: 'turn.continue' as const }),
+            ],
           },
           'turn.drain': {
             actions: enqueueActions(({ context, enqueue }) => {

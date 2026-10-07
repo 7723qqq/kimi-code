@@ -353,7 +353,12 @@ function selectCompactionUserMessages(
       headRemaining -= tokens;
       continue;
     }
-    head.push(replaceMessageText(message, truncateTextToTokens(extractText(message.content), headRemaining)));
+    head.push(
+      replaceMessageText(
+        message,
+        truncateTextToTokens(extractText(message.content), headRemaining),
+      ),
+    );
     break;
   }
   let keptTokens = 0;
@@ -380,7 +385,11 @@ function buildCompactionMessages(
     COMPACT_USER_MESSAGE_HEAD_TOKENS,
   );
   const kept = selection.elided
-    ? [...selection.head, createCompactionElisionMessage(selection.omittedTokens), ...selection.tail]
+    ? [
+        ...selection.head,
+        createCompactionElisionMessage(selection.omittedTokens),
+        ...selection.tail,
+      ]
     : [...selection.head, ...selection.tail];
   return [...kept, createCompactionSummaryMessage(contextSummary)];
 }
@@ -402,7 +411,10 @@ function computeUndoCut(state: readonly V2ContextMessage[], count: number): Undo
       remaining--;
       removedCount++;
       cutIndex = i;
-      while (cutIndex > 0 && isPromptOwnedInjection(state[cutIndex - 1] as V2ContextMessage, message)) {
+      while (
+        cutIndex > 0 &&
+        isPromptOwnedInjection(state[cutIndex - 1] as V2ContextMessage, message)
+      ) {
         cutIndex--;
       }
     }

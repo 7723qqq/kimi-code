@@ -141,7 +141,12 @@ export interface IFileSystemStorageService {
     source: AsyncIterable<Uint8Array>,
     options?: StorageWriteOptions,
   ): Promise<void>;
-  append(scope: string, key: string, data: Uint8Array, options?: StorageAppendOptions): Promise<void>;
+  append(
+    scope: string,
+    key: string,
+    data: Uint8Array,
+    options?: StorageAppendOptions,
+  ): Promise<void>;
   list(scope: string, prefix?: string): Promise<readonly string[]>;
   delete(scope: string, key: string): Promise<void>;
   size(scope: string, key: string): Promise<number | undefined>;

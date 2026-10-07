@@ -1,5 +1,4 @@
 import { isAbsolute, join, parse } from 'pathe';
-
 import picomatch from 'picomatch';
 
 import { canonicalizePath, type PathClass } from './path-access';
@@ -75,11 +74,7 @@ function canonicalizePathPattern(
   }
 }
 
-function expandUserPath(
-  value: string,
-  pathClass: PathClass,
-  homeDir: string | undefined,
-): string {
+function expandUserPath(value: string, pathClass: PathClass, homeDir: string | undefined): string {
   if (homeDir === undefined) return value;
   if (value === '~') return homeDir;
   if (value.startsWith('~/') || (pathClass === 'win32' && value.startsWith('~\\'))) {

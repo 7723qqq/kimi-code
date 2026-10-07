@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
+import { request as httpRequest, validateHeaderName, validateHeaderValue } from 'node:http';
 import { hostname, platform } from 'node:os';
 import { join } from 'node:path';
-import { request as httpRequest, validateHeaderName, validateHeaderValue } from 'node:http';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { promisify } from 'node:util';
 import { gzip } from 'node:zlib';
@@ -257,10 +257,7 @@ function rewrittenResponseETag(body: Buffer): string {
   return `W/"${createHash('sha256').update(body).digest('hex')}"`;
 }
 
-function requestMatchesETag(
-  headers: readonly [string, string][],
-  etag: string,
-): boolean {
+function requestMatchesETag(headers: readonly [string, string][], etag: string): boolean {
   const candidates = [etag, etag.replace(/^W\//, '')];
   for (const [name, value] of headers) {
     if (name.toLowerCase() !== 'if-none-match') continue;
@@ -631,9 +628,19 @@ class RemoteControlClient {
   private async openStream(payload: Record<string, unknown>): Promise<void> {
     const streamId = stringField(payload, 'stream_id');
     const path = stringField(payload, 'path');
-    if (streamId === undefined || path === undefined || !path.startsWith('/') || path.startsWith('//')) {
+    if (
+      streamId === undefined ||
+      path === undefined ||
+      !path.startsWith('/') ||
+      path.startsWith('//')
+    ) {
       if (streamId !== undefined) {
-        this.sendOpenStreamResult(streamId, false, 'LOCAL_WS_FAILED', 'invalid local WebSocket path');
+        this.sendOpenStreamResult(
+          streamId,
+          false,
+          'LOCAL_WS_FAILED',
+          'invalid local WebSocket path',
+        );
       }
       return;
     }
@@ -821,7 +828,10 @@ function isWebSocketProtocolToken(value: string): boolean {
 
 function waitForRelayMessage(socket: WebSocket, timeoutMs: number): Promise<RelayMessage> {
   return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => finish(new Error('Remote Control registration timed out')), timeoutMs);
+    const timer = setTimeout(
+      () => finish(new Error('Remote Control registration timed out')),
+      timeoutMs,
+    );
     const onMessage = (data: RawData): void => {
       try {
         finish(undefined, parseRelayMessage(data));
@@ -876,11 +886,7 @@ function requestLocalHttp(
         port: origin.port,
         method: parsed.method,
         path: parsed.path,
-        headers: [
-          ...filterForwardRequestHeaders(parsed.headers, serverToken),
-          'Host',
-          origin.host,
-        ],
+        headers: [...filterForwardRequestHeaders(parsed.headers, serverToken), 'Host', origin.host],
         timeout: HTTP_REQUEST_TIMEOUT_MS,
       },
       (response) => {
@@ -918,8 +924,7 @@ function requestLocalHttp(
               let varyCovers = false;
               for (let index = 0; index < headers.length; index += 2) {
                 if (headers[index]!.toLowerCase() !== 'vary') continue;
-                const tokens = headers[index + 1]!
-                  .toLowerCase()
+                const tokens = headers[index + 1]!.toLowerCase()
                   .split(',')
                   .map((token) => token.trim());
                 if (tokens.includes('*') || tokens.includes('accept-encoding')) varyCovers = true;
@@ -934,7 +939,9 @@ function requestLocalHttp(
             const statusCode = response.statusCode ?? 502;
             const statusMessage = response.statusMessage ?? 'Bad Gateway';
             return Buffer.concat([
-              Buffer.from(`HTTP/1.1 ${statusCode} ${statusMessage}\r\n${headerLines(headers)}\r\n\r\n`),
+              Buffer.from(
+                `HTTP/1.1 ${statusCode} ${statusMessage}\r\n${headerLines(headers)}\r\n\r\n`,
+              ),
               body,
             ]);
           })().then(resolve, reject);
@@ -947,7 +954,10 @@ function requestLocalHttp(
   });
 }
 
-function filterResponseHeaders(rawHeaders: readonly string[], blockCacheValidators = false): string[] {
+function filterResponseHeaders(
+  rawHeaders: readonly string[],
+  blockCacheValidators = false,
+): string[] {
   const connectionHeaders = new Set<string>();
   for (let index = 0; index < rawHeaders.length; index += 2) {
     if (rawHeaders[index]!.toLowerCase() === 'connection') {
@@ -1068,10 +1078,7 @@ function buildErrorResponse(status: number): Buffer {
   return Buffer.from(`HTTP/1.1 ${status} ${reason}\r\nContent-Length: 0\r\n\r\n`);
 }
 
-function stringField(
-  value: Record<string, unknown> | undefined,
-  key: string,
-): string | undefined {
+function stringField(value: Record<string, unknown> | undefined, key: string): string | undefined {
   const field = value?.[key];
   return typeof field === 'string' ? field : undefined;
 }

@@ -24,10 +24,7 @@ const QuestionItemSchema = z.object({
     .describe(
       "2-4 meaningful, distinct options. Do NOT include an 'Other' option — the system adds one automatically.",
     ),
-  multi_select: z
-    .boolean()
-    .optional()
-    .describe('Whether the user can select multiple options.'),
+  multi_select: z.boolean().optional().describe('Whether the user can select multiple options.'),
   multiSelect: z
     .boolean()
     .optional()

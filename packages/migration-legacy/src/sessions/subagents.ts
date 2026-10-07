@@ -1,5 +1,5 @@
-import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { mkdir, readdir, readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { readTodoItems } from '@moonshot-ai/agent-core-v2/features/todo/todoItem';
@@ -288,9 +288,10 @@ async function writeSubagentWire(
  * The task.started/task.terminated records that make a migrated subagent show
  * up in the main agent's task list, exactly as a native run would leave them.
  */
-export function buildSubagentTaskRecords(
-  info: LegacySubagentInfo,
-): { readonly started: WireRecord; readonly terminated: WireRecord } {
+export function buildSubagentTaskRecords(info: LegacySubagentInfo): {
+  readonly started: WireRecord;
+  readonly terminated: WireRecord;
+} {
   const base = {
     kind: 'agent',
     taskId: info.agentId,

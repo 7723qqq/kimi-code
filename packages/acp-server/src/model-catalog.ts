@@ -79,9 +79,7 @@ export function deriveDefaultThinkingEffort(item: ModelCatalogItem): string {
  * model-registry id — the value `agent.setModel()` takes — so it doubles as
  * the ACP picker value.
  */
-export function projectModelCatalog(
-  items: readonly ModelCatalogItem[],
-): readonly AcpModelEntry[] {
+export function projectModelCatalog(items: readonly ModelCatalogItem[]): readonly AcpModelEntry[] {
   return items.map((item) => ({
     id: item.model,
     name: item.display_name ?? item.model,

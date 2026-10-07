@@ -1,6 +1,11 @@
 import type { ContextMessage } from '#/agent/contextMemory/types';
 
-import { computeTodoProgress, renderTodoList, TODO_LIST_TOOL_NAME, type TodoItem } from './todoItem';
+import {
+  computeTodoProgress,
+  renderTodoList,
+  TODO_LIST_TOOL_NAME,
+  type TodoItem,
+} from './todoItem';
 
 export const TODO_LIST_REMINDER_VARIANT = 'todo_list_reminder';
 export const TODO_ACTIVE_REMINDER_VARIANT = 'todo_active';
@@ -117,8 +122,7 @@ function hasTodoListWrite(message: ContextMessage): boolean {
 
 function isTodoListReminder(message: ContextMessage): boolean {
   return (
-    message.origin?.kind === 'injection' &&
-    message.origin.variant === TODO_LIST_REMINDER_VARIANT
+    message.origin?.kind === 'injection' && message.origin.variant === TODO_LIST_REMINDER_VARIANT
   );
 }
 

@@ -5,9 +5,8 @@ import { isIP } from 'node:net';
 import { Readability } from '@mozilla/readability';
 import { parseHTML as rawParseHTML } from 'linkedom';
 
-import { Error2, ErrorCodes } from '#/errors';
-
 import { isBlockedIpAddress } from '#/_base/utils/private-address';
+import { Error2, ErrorCodes } from '#/errors';
 
 import { loadHtml, type EngineElement } from '../engine-html';
 import { debugLog, engineFetch, type EngineHttpResponse } from '../engine-http';

@@ -26,7 +26,10 @@ interface SharedFetchOptions {
   readonly signal?: AbortSignal;
 }
 
-export async function sharedAuthedFetch(path: string, init: SharedFetchOptions = {}): Promise<Response> {
+export async function sharedAuthedFetch(
+  path: string,
+  init: SharedFetchOptions = {},
+): Promise<Response> {
   return fetch(`${sharedServer().base}${path}`, {
     ...init,
     headers: sharedAuthHeaders(init.headers),

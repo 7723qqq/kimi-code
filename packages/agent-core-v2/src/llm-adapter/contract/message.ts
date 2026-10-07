@@ -108,7 +108,12 @@ export function fromLlmMessage(message: LlmMessage): Message {
     case 'assistant':
       return { role: 'assistant', content: message.content, toolCalls: message.toolCalls };
     case 'tool':
-      return { role: 'tool', content: message.content, toolCalls: [], toolCallId: message.toolCallId };
+      return {
+        role: 'tool',
+        content: message.content,
+        toolCalls: [],
+        toolCallId: message.toolCallId,
+      };
   }
 }
 

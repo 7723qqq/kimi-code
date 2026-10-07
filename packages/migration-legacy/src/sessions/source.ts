@@ -1,5 +1,5 @@
-import { readdir, readFile, stat } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import {

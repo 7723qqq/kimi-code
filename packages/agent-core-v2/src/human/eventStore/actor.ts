@@ -1,7 +1,7 @@
 import { fromCallback } from '#/xstate2';
 
-import type { CombinedState, EventStore, SliceMap } from './eventStore';
 import type { ExternalEvent } from './events';
+import type { CombinedState, EventStore, SliceMap } from './eventStore';
 import type { StoreJournal } from './journal';
 
 export type StoreActorEvent =

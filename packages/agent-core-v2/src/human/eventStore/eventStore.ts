@@ -211,7 +211,10 @@ class EventStoreImpl<SM extends SliceMap> implements EventStore<SM> {
     const event = parseEvent(record.type, record.data);
     if (event === undefined) {
       this.report(
-        new StoreError('schema', `event '${record.type}' at seq ${record.seq} failed schema validation`),
+        new StoreError(
+          'schema',
+          `event '${record.type}' at seq ${record.seq} failed schema validation`,
+        ),
       );
       return;
     }
@@ -235,7 +238,11 @@ class EventStoreImpl<SM extends SliceMap> implements EventStore<SM> {
           this.report(error);
         }
       }
-      const entry = await this.journal.append({ type: event.type, kind: EVENT_ENTRY_KIND, data: event });
+      const entry = await this.journal.append({
+        type: event.type,
+        kind: EVENT_ENTRY_KIND,
+        data: event,
+      });
       entries.push(entry);
       causes.push({ kind: 'event', event, entry }, ...internalCauses);
     }
@@ -293,7 +300,10 @@ class EventStoreImpl<SM extends SliceMap> implements EventStore<SM> {
     while (queue.length > 0) {
       count += 1;
       if (count > this.drainLimit) {
-        throw new StoreError('drain-limit', `internal event drain exceeded limit ${this.drainLimit}`);
+        throw new StoreError(
+          'drain-limit',
+          `internal event drain exceeded limit ${this.drainLimit}`,
+        );
       }
       const internal = queue.shift() as InternalEvent;
       const { raised, effects } = this.applyEvent(internal, ref, ts, replaying);

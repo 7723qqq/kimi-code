@@ -1,14 +1,14 @@
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
 import { Emitter, type Event } from '#/_base/event';
-import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { LifecycleScope } from '#/app/scopes';
+import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { BugIndicatingError } from '#/errors';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
 import type { SessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycleService';
-import { IWorkspaceInstanceManager } from '#/workspace/workspaceInstance/workspaceInstanceManager';
 import type { WorkspaceInstance } from '#/workspace/workspaceInstance/workspaceInstance';
+import { IWorkspaceInstanceManager } from '#/workspace/workspaceInstance/workspaceInstanceManager';
 
 import {
   IWorkspaceLifecycleService,

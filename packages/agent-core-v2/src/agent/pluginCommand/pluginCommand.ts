@@ -23,7 +23,10 @@ export class PluginCommandActivated extends AgentEvent2<PluginCommandActivatedPa
 }
 export interface PluginCommandActivated extends PluginCommandActivatedPayload {}
 
-export interface PluginCommandActivatedEvent extends Omit<PluginCommandActivatedPayload, 'agentId'> {
+export interface PluginCommandActivatedEvent extends Omit<
+  PluginCommandActivatedPayload,
+  'agentId'
+> {
   readonly type: 'plugin_command.activated';
 }
 

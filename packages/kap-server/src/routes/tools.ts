@@ -13,7 +13,6 @@ import {
 
 import { errEnvelope, okEnvelope } from '../envelope';
 import { defineRoute } from '../middleware/defineRoute';
-import { ensureMainAgent } from '../transport/mainAgent';
 import { ErrorCode } from '../protocol/error-codes';
 import {
   listMcpServersResponseSchema,
@@ -22,6 +21,7 @@ import {
   restartMcpServerResultSchema,
 } from '../protocol/rest-tool';
 import type { McpServer, ToolDescriptor } from '../protocol/tool';
+import { ensureMainAgent } from '../transport/mainAgent';
 import { parseActionSuffix } from './action-suffix';
 
 const MCP_NAME_PREFIX = 'mcp__';
@@ -125,9 +125,7 @@ export function registerToolsRoutes(app: ToolsRouteHost, core: Scope): void {
         return;
       }
       if (parsed.kind === 'bare') {
-        reply.send(
-          errEnvelope(ErrorCode.VALIDATION_FAILED, `unsupported action: ${tail}`, req.id),
-        );
+        reply.send(errEnvelope(ErrorCode.VALIDATION_FAILED, `unsupported action: ${tail}`, req.id));
         return;
       }
 

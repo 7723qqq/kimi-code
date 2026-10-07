@@ -130,11 +130,6 @@
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
-import { McpConnectionManager } from '@moonshot-ai/agent-core-v2/mcpCore/connection-manager';
-import { loadMcpServers } from '@moonshot-ai/agent-core-v2/app/mcpConfig/configLoader';
-import { fsSuggestRequestSchema } from '@moonshot-ai/agent-core-v2/workspace/workspaceFs/fs';
-import { IAppendLogStore } from '@moonshot-ai/agent-core-v2/persistence/interface/appendLogStore';
 import {
   bootstrap,
   DEFAULT_AGENT_PROFILE_NAME,
@@ -227,6 +222,12 @@ import {
   type ServicesAccessor,
   type SessionSummary as V2SessionSummary,
 } from '@moonshot-ai/agent-core-v2';
+import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
+import { loadMcpServers } from '@moonshot-ai/agent-core-v2/app/mcpConfig/configLoader';
+import { McpConnectionManager } from '@moonshot-ai/agent-core-v2/mcpCore/connection-manager';
+import { IAppendLogStore } from '@moonshot-ai/agent-core-v2/persistence/interface/appendLogStore';
+import { fsSuggestRequestSchema } from '@moonshot-ai/agent-core-v2/workspace/workspaceFs/fs';
+import { assertKimiHostIdentity, createKimiDefaultHeaders } from '@moonshot-ai/kimi-code-oauth';
 import {
   RPCError,
   type AgentHandle,
@@ -234,18 +235,16 @@ import {
   type ImportCustomRegistryOptions,
   type ImportCustomRegistryResult,
 } from '@moonshot-ai/klient';
-import { RegistryImportError } from '#/catalog';
 import { createKlient } from '@moonshot-ai/klient/memory';
-import { assertKimiHostIdentity, createKimiDefaultHeaders } from '@moonshot-ai/kimi-code-oauth';
 
 import { KimiAuthFacade } from '#/auth';
+import { RegistryImportError } from '#/catalog';
 import { ensureConfigFile, HookDefSchema } from '#/config/index';
 import type { AgentContextData } from '#/context';
 import { ErrorCodes, isKimiErrorCode, KimiError, type KimiErrorCode } from '#/errors';
 import type { ExperimentalFeatureState } from '#/flag';
 import { KimiHarness } from '#/kimi-harness';
 import type { BeginGlobalMcpServerAuthResult } from '#/mcp';
-import { noopTelemetryClient } from '#/telemetry';
 import {
   SDKRpcClientBase,
   type ActivatePluginCommandRpcInput,
@@ -269,6 +268,7 @@ import {
   type SetSessionTowerModeRpcInput,
   type UpdateSessionMetadataRpcInput,
 } from '#/rpc';
+import { noopTelemetryClient } from '#/telemetry';
 import type {
   AddAdditionalDirInput,
   AddAdditionalDirResult,
@@ -333,14 +333,14 @@ import {
   resolvedConfigToKimiConfig,
 } from '#/v2/config-mapper';
 import { translateGlobalEvent } from '#/v2/event-mapper';
-import { assertImportFits, buildImportContextMessage } from '#/v2/import-context';
-import { foldAgentWireReplay, type FoldedAgentReplay } from '#/v2/resume-replay';
 import {
   mcpConfigWithoutName,
   normalizeServerName,
   parseInlineMcpServer,
   parseReconnectMcpServerConfig,
 } from '#/v2/global-mcp';
+import { assertImportFits, buildImportContextMessage } from '#/v2/import-context';
+import { foldAgentWireReplay, type FoldedAgentReplay } from '#/v2/resume-replay';
 import {
   normalizeWorkDir,
   v2MetaToSessionMeta,
@@ -656,7 +656,10 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    * directories included, gitignore respected), so in-process hosts match
    * the web client's @ mention results.
    */
-  override async suggestFiles(workDir: string, input: SuggestFilesInput): Promise<SuggestFilesResult | undefined> {
+  override async suggestFiles(
+    workDir: string,
+    input: SuggestFilesInput,
+  ): Promise<SuggestFilesResult | undefined> {
     const parsed = fsSuggestRequestSchema.safeParse({
       query: input.query,
       limit: input.limit ?? 50,
@@ -665,7 +668,8 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     });
     if (!parsed.success) {
       const issue = parsed.error.issues[0];
-      const where = issue !== undefined && issue.path.length > 0 ? `${String(issue.path[0])}: ` : '';
+      const where =
+        issue !== undefined && issue.path.length > 0 ? `${String(issue.path[0])}: ` : '';
       throw new KimiError(
         ErrorCodes.REQUEST_INVALID,
         `suggestFiles ${where}${issue?.message ?? 'invalid input'}`,
@@ -975,7 +979,10 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    * sorted order so concurrent multi-key operations (fork A→B vs fork B→A)
    * cannot deadlock.
    */
-  private runSessionAccessAll<T>(sessionIds: readonly string[], work: () => Promise<T>): Promise<T> {
+  private runSessionAccessAll<T>(
+    sessionIds: readonly string[],
+    work: () => Promise<T>,
+  ): Promise<T> {
     const keys = [...new Set(sessionIds)].toSorted();
     let chained: () => Promise<T> = work;
     for (const key of [...keys].toReversed()) {
@@ -993,10 +1000,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    * {@link runSessionAccess} — the queue is what makes the resume/close pair
    * atomic against the public lifecycle operations.
    */
-  private async withTemporarySession<T>(
-    sessionId: string,
-    action: () => Promise<T>,
-  ): Promise<T> {
+  private async withTemporarySession<T>(sessionId: string, action: () => Promise<T>): Promise<T> {
     if (this.liveSession(sessionId) !== undefined) return action();
     const handle = await resumeSessionById(this.engineAccessor, sessionId);
     if (handle === undefined) throw SDKRpcClientV2.sessionNotFound(sessionId);
@@ -1027,10 +1031,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    * untrusted: a user-level write must not create a shadow that springs into
    * conflict when the workspace is trusted later.
    */
-  private async rejectProjectLayerPersistedMcpAdd(
-    cwd: string,
-    name: string,
-  ): Promise<void> {
+  private async rejectProjectLayerPersistedMcpAdd(cwd: string, name: string): Promise<void> {
     const fs = this.engineAccessor.get(IHostFileSystem);
     const [withProject, userOnly] = await Promise.all([
       loadMcpServers({ fs, cwd, homeDir: this.homeDir, includeProject: true }),
@@ -1194,12 +1195,15 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     ]);
     const profile = agent.accessor.get(IAgentProfileService).data();
     const toolPolicy = agent.accessor.get(IAgentToolPolicyService);
-    const tools = agent.accessor.get(IAgentToolRegistryService).list().map((tool) => ({
-      name: tool.name,
-      description: tool.description,
-      active: toolPolicy.isToolActive(tool.name, tool.source),
-      source: tool.source,
-    }));
+    const tools = agent.accessor
+      .get(IAgentToolRegistryService)
+      .list()
+      .map((tool) => ({
+        name: tool.name,
+        description: tool.description,
+        active: toolPolicy.isToolActive(tool.name, tool.source),
+        source: tool.source,
+      }));
     return {
       type,
       config: {
@@ -1358,8 +1362,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     const workDir = normalizeRequiredWorkDir('createSession', input.workDir);
     if (input.id !== undefined) {
       const existing =
-        this.liveSession(input.id) ??
-        (await this.engineAccessor.get(ISessionIndex).get(input.id));
+        this.liveSession(input.id) ?? (await this.engineAccessor.get(ISessionIndex).get(input.id));
       if (existing !== undefined) {
         throw new KimiError(
           ErrorCodes.SESSION_ALREADY_EXISTS,
@@ -1634,15 +1637,11 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
         const sessions = this.engineAccessor
           .get(ISessionManager)
           .list()
-          .filter(
-            (session) => session.accessor.get(ISessionContext).workspaceId === handler.id,
-          );
+          .filter((session) => session.accessor.get(ISessionContext).workspaceId === handler.id);
         await Promise.all(
           sessions.map(async (session) => {
             if (session.id === excludedSessionId) return;
-            const main = session.accessor
-              .get(IAgentLifecycleService)
-              .handleOf(MAIN_AGENT_ID);
+            const main = session.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID);
             if (main === undefined) return;
             await main.accessor.get(IAgentPluginService).refreshSessionStart();
           }),
@@ -2156,9 +2155,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    */
   override async activateSkill(input: ActivateSkillRpcInput): Promise<void> {
     const agent = await this.agentScope(input.sessionId);
-    await agent.accessor
-      .get(IAgentSkillService)
-      .activate({ name: input.name, args: input.args });
+    await agent.accessor.get(IAgentSkillService).activate({ name: input.name, args: input.args });
   }
 
   /**
@@ -2700,9 +2697,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     },
     signal?: AbortSignal,
   ): Promise<void> {
-    return this.mcpManagement((management) =>
-      management.completeServerAuth(input, { signal }),
-    );
+    return this.mcpManagement((management) => management.completeServerAuth(input, { signal }));
   }
 
   override async cancelGlobalMcpServerAuth(flowId: string): Promise<void> {
@@ -2736,9 +2731,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     name: string,
     options: { readonly cwd?: string } = {},
   ): Promise<McpTestResult> {
-    return this.mcpManagement((management) =>
-      management.testServer({ name, cwd: options.cwd }),
-    );
+    return this.mcpManagement((management) => management.testServer({ name, cwd: options.cwd }));
   }
 
   /**
@@ -2749,9 +2742,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     server: McpServerConfig,
     options: { readonly cwd?: string } = {},
   ): Promise<McpTestResult> {
-    return this.mcpManagement((management) =>
-      management.testServer({ server, cwd: options.cwd }),
-    );
+    return this.mcpManagement((management) => management.testServer({ server, cwd: options.cwd }));
   }
 
   /**
@@ -2814,10 +2805,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     // Parity with v1's manager reconnect: a disabled replacement is rejected
     // before anything is applied, not upserted over the live connection.
     if (replacement.enabled === false) {
-      throw new KimiError(
-        ErrorCodes.MCP_SERVER_DISABLED,
-        `MCP server is disabled: ${input.name}`,
-      );
+      throw new KimiError(ErrorCodes.MCP_SERVER_DISABLED, `MCP server is disabled: ${input.name}`);
     }
     await manager.connect(input.name, replacement);
   }
@@ -2937,4 +2925,3 @@ const EMPTY_INSTRUCTION_SOURCES: WorkspaceTrustInstructionSources = {
   agentProfiles: [],
   paths: [],
 };
-

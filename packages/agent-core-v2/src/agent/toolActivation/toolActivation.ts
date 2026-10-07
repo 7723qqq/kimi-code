@@ -6,5 +6,6 @@ export interface IAgentToolActivationService {
   activate(): Promise<void>;
 }
 
-export const IAgentToolActivationService =
-  createDecorator<IAgentToolActivationService>('agentToolActivationService');
+export const IAgentToolActivationService = createDecorator<IAgentToolActivationService>(
+  'agentToolActivationService',
+);

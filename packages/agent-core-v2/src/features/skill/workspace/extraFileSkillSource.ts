@@ -7,8 +7,8 @@ import {
   EXTRA_SKILL_DIRS_SECTION,
   type ExtraSkillDirsConfig,
 } from '#/features/skill/catalog/configSection';
-import { configuredRoots } from '#/features/skill/catalog/skillRoots';
 import { ISkillDiscovery } from '#/features/skill/catalog/skillDiscovery';
+import { configuredRoots } from '#/features/skill/catalog/skillRoots';
 import {
   SKILL_SOURCE_PRIORITY,
   type ISkillSource,
@@ -53,4 +53,3 @@ export class ExtraFileSkillSource extends Disposable implements IExtraFileSkillS
     );
   }
 }
-

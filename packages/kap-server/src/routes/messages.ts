@@ -1,4 +1,3 @@
-
 import { type Scope } from '@moonshot-ai/agent-core-v2';
 import { z } from 'zod';
 
@@ -133,7 +132,11 @@ function sendMappedError(
   }
   if (err instanceof MessageCursorNotFoundError) {
     reply.send(
-      errEnvelope(ErrorCode.PAGE_TOKEN_MISMATCH, t('serverErrors.invalidCursorId', { id: err.messageId }), requestId),
+      errEnvelope(
+        ErrorCode.PAGE_TOKEN_MISMATCH,
+        t('serverErrors.invalidCursorId', { id: err.messageId }),
+        requestId,
+      ),
     );
     return;
   }

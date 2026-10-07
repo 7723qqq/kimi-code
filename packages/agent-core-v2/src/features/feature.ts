@@ -10,15 +10,6 @@ import { ScopeActivation, type ServiceIdentifier } from '#/_base/di/instantiatio
 import { toDisposable } from '#/_base/di/lifecycle';
 import { Service } from '#/_base/di/service';
 import {
-  AgentProfileContribution,
-  AGENT_PROFILE_SOURCE_PRIORITY,
-} from '#/app/agentProfileCatalog/agentProfileContribution';
-import { FeatureServiceContribution } from '#/app/feature/featureServiceContribution';
-import type { AgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import type { ConfigSchema, RegisterSectionOptions } from '#/app/config/config';
-import { ConfigSectionContribution } from '#/app/config/configSectionContributions';
-import { LifecycleScope } from '#/app/scopes';
-import {
   CommandContribution,
   type CommandContribution as CommandContributionPayload,
 } from '#/agent/command/commandContribution';
@@ -28,11 +19,16 @@ import {
   type AgentToolCtor,
   type AnyAgentTool,
 } from '#/agent/toolRegistry/toolContribution';
-import type {
-  AgentModel,
-  AgentModelDefinition,
-  SessionModelDefinition,
-} from '#/state/agentModel';
+import type { AgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
+import {
+  AgentProfileContribution,
+  AGENT_PROFILE_SOURCE_PRIORITY,
+} from '#/app/agentProfileCatalog/agentProfileContribution';
+import type { ConfigSchema, RegisterSectionOptions } from '#/app/config/config';
+import { ConfigSectionContribution } from '#/app/config/configSectionContributions';
+import { FeatureServiceContribution } from '#/app/feature/featureServiceContribution';
+import { LifecycleScope } from '#/app/scopes';
+import type { AgentModel, AgentModelDefinition, SessionModelDefinition } from '#/state/agentModel';
 import { AgentModelContribution, SessionModelContribution } from '#/state/agentModel';
 
 export abstract class Feature extends Service {

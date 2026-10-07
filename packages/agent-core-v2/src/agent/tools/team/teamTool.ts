@@ -1,11 +1,8 @@
 import { t } from '@moonshot-ai/kimi-i18n';
 
-import { TeamCoordinator, type DiscussionResult } from '#/agent/team/coordinator';
-import {
-  StructuredDebateCoordinator,
-  type DebateResult,
-} from '#/agent/team/debate-coordinator';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { TeamCoordinator, type DiscussionResult } from '#/agent/team/coordinator';
+import { StructuredDebateCoordinator, type DebateResult } from '#/agent/team/debate-coordinator';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
 import { IPersistentSubagentService } from '#/session/subagent/persistentSubagent';

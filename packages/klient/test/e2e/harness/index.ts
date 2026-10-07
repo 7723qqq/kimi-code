@@ -67,4 +67,3 @@ export { installReverseRpcHandler } from './reverse-rpc.js';
 export type { ReverseRpcOptions } from './reverse-rpc.js';
 
 export { DEFAULT_FRAME_TIMEOUT_MS, waitForFrame, waitForSessionBusy } from './wait.js';
-

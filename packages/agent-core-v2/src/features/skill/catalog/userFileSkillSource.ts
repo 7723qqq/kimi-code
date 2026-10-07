@@ -2,13 +2,13 @@ import { join } from 'pathe';
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { Disposable, DisposableStore } from '#/_base/di/lifecycle';
-import { Emitter, type Event } from '#/_base/event';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Emitter, type Event } from '#/_base/event';
+import { subtreeWatchFilter } from '#/_base/utils/paths';
+import { TimeoutTimer } from '#/_base/utils/timer';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
-import { TimeoutTimer } from '#/_base/utils/timer';
-import { subtreeWatchFilter } from '#/_base/utils/paths';
+import { LifecycleScope } from '#/app/scopes';
 import { watchCandidates } from '#human/utils/watch';
 
 import {
@@ -64,7 +64,9 @@ export class UserFileSkillSource extends Disposable implements IUserFileSkillSou
     const mergeAllAvailableSkills =
       this.config.get<MergeAllAvailableSkillsConfig>(MERGE_ALL_AVAILABLE_SKILLS_SECTION) ?? true;
     return this.discovery.discover(
-      await userRoots(this.bootstrap.homeDir, this.bootstrap.osHomeDir, { mergeAllAvailableSkills }),
+      await userRoots(this.bootstrap.homeDir, this.bootstrap.osHomeDir, {
+        mergeAllAvailableSkills,
+      }),
     );
   }
 

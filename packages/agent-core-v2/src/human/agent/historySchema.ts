@@ -86,7 +86,9 @@ const tokenUsageSchema = z.object({
 });
 
 const finishInfoSchema = z.object({
-  finishReason: z.enum(['completed', 'tool_calls', 'truncated', 'filtered', 'paused', 'other']).nullable(),
+  finishReason: z
+    .enum(['completed', 'tool_calls', 'truncated', 'filtered', 'paused', 'other'])
+    .nullable(),
   rawFinishReason: z.string().nullable(),
 });
 

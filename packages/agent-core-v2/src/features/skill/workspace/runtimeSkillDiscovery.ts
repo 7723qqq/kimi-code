@@ -1,8 +1,15 @@
 import path from 'pathe';
 
 import type { ILogService, LogPayload } from '#/_base/log/log';
-import type { ISkillDiscovery, SkillDiscoveryResult } from '#/features/skill/catalog/skillDiscovery';
-import { SkillParseError, UnsupportedSkillTypeError, parseSkillText } from '#/features/skill/catalog/parser';
+import {
+  SkillParseError,
+  UnsupportedSkillTypeError,
+  parseSkillText,
+} from '#/features/skill/catalog/parser';
+import type {
+  ISkillDiscovery,
+  SkillDiscoveryResult,
+} from '#/features/skill/catalog/skillDiscovery';
 import type { SkillDefinition, SkillRoot, SkippedSkill } from '#/features/skill/catalog/types';
 import { normalizeSkillName } from '#/features/skill/catalog/types';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
@@ -18,7 +25,9 @@ export class RuntimeSkillDiscovery implements ISkillDiscovery {
   ) {}
 
   async discover(roots: readonly SkillRoot[]): Promise<SkillDiscoveryResult> {
-    return discoverRuntimeSkills(this.fs, roots, (message, payload) => this.log.warn(message, payload));
+    return discoverRuntimeSkills(this.fs, roots, (message, payload) =>
+      this.log.warn(message, payload),
+    );
   }
 }
 
@@ -45,17 +54,20 @@ async function discoverRuntimeSkills(
         source: input.root.source,
         text,
       });
-      const skill = input.subSkillParentName === undefined
-        ? parsed
-        : {
-            ...parsed,
-            name: qualifySubSkillName(input.subSkillParentName, parsed.name),
-            metadata: { ...parsed.metadata, isSubSkill: true },
-          };
-      const discovered = input.root.plugin === undefined ? skill : { ...skill, plugin: input.root.plugin };
-      const key = input.root.plugin === undefined
-        ? normalizeSkillName(discovered.name)
-        : `${input.root.plugin.id}\0${normalizeSkillName(discovered.name)}`;
+      const skill =
+        input.subSkillParentName === undefined
+          ? parsed
+          : {
+              ...parsed,
+              name: qualifySubSkillName(input.subSkillParentName, parsed.name),
+              metadata: { ...parsed.metadata, isSubSkill: true },
+            };
+      const discovered =
+        input.root.plugin === undefined ? skill : { ...skill, plugin: input.root.plugin };
+      const key =
+        input.root.plugin === undefined
+          ? normalizeSkillName(discovered.name)
+          : `${input.root.plugin.id}\0${normalizeSkillName(discovered.name)}`;
       if (!byDiscoveryKey.has(key)) byDiscoveryKey.set(key, discovered);
       return discovered;
     } catch (error) {
@@ -108,7 +120,9 @@ async function discoverRuntimeSkills(
 
     let entries;
     try {
-      entries = [...await fs.readdir(dirPath)].toSorted((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+      entries = [...(await fs.readdir(dirPath))].toSorted((a, b) =>
+        a.name < b.name ? -1 : a.name > b.name ? 1 : 0,
+      );
     } catch {
       return;
     }
@@ -118,8 +132,9 @@ async function discoverRuntimeSkills(
     const subdirs: string[] = [];
     for (const entry of entries) {
       const entryPath = path.join(dirPath, entry.name);
-      const directory = entry.isDirectory || (entry.isSymbolicLink === true && await isDirectory(entryPath));
-      if (directory && await isFile(path.join(entryPath, 'SKILL.md'))) {
+      const directory =
+        entry.isDirectory || (entry.isSymbolicLink === true && (await isDirectory(entryPath)));
+      if (directory && (await isFile(path.join(entryPath, 'SKILL.md')))) {
         directorySkills.add(entry.name);
       }
       if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
@@ -186,9 +201,12 @@ function qualifySubSkillName(parentName: string, skillName: string): string {
 
 function hasSubSkillEnabled(skill: SkillDefinition): boolean {
   const nested = skill.metadata['metadata'];
-  const nestedFlag = typeof nested === 'object' && nested !== null
-    ? (nested as Record<string, unknown>)['has-sub-skill'] === true ||
-      (nested as Record<string, unknown>)['hasSubSkill'] === true
-    : false;
-  return skill.metadata['has-sub-skill'] === true || skill.metadata['hasSubSkill'] === true || nestedFlag;
+  const nestedFlag =
+    typeof nested === 'object' && nested !== null
+      ? (nested as Record<string, unknown>)['has-sub-skill'] === true ||
+        (nested as Record<string, unknown>)['hasSubSkill'] === true
+      : false;
+  return (
+    skill.metadata['has-sub-skill'] === true || skill.metadata['hasSubSkill'] === true || nestedFlag
+  );
 }

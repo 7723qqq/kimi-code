@@ -66,7 +66,7 @@ export function unsupportedImageMimeFromUrl(url: string, providerType?: string):
 }
 
 export function parseImageDataUrl(url: string): { mimeType: string; base64: string } | null {
-  const match = /^data:([^;,]+)(?:;[^;,]+)*?;base64,(.*)$/si.exec(url);
+  const match = /^data:([^;,]+)(?:;[^;,]+)*?;base64,(.*)$/is.exec(url);
   if (match === null) return null;
   return { mimeType: match[1]!, base64: match[2]! };
 }

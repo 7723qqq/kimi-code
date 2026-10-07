@@ -1,13 +1,12 @@
 import { z } from 'zod';
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
-
-import type { ModelCapability } from '../contract/capability';
 import type { LlmCredentialProvider } from '#human/llm/requester/requester';
 import type { TokenUsage } from '#human/llm/usage';
+
+import type { ModelCapability } from '../contract/capability';
 import type { Protocol, ProtocolProviderOptions } from '../protocol/protocol';
 import type { ProviderConfig } from '../provider/provider';
-
 import type { ModelRecord } from './model';
 import { effectiveModelConfig } from './model-auth';
 import type {
@@ -62,11 +61,7 @@ export const modelCatalogItemSchema = z.object({
 });
 export type ModelCatalogItem = z.infer<typeof modelCatalogItemSchema>;
 
-export const providerCatalogStatusSchema = z.enum([
-  'connected',
-  'error',
-  'unconfigured',
-]);
+export const providerCatalogStatusSchema = z.enum(['connected', 'error', 'unconfigured']);
 export type ProviderCatalogStatus = z.infer<typeof providerCatalogStatusSchema>;
 
 export const providerCatalogItemSchema = z.object({

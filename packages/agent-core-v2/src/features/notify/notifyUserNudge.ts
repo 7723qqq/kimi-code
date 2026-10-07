@@ -64,10 +64,7 @@ export function lastMidResponsePosition(history: readonly ContextMessage[]): num
   return -1;
 }
 
-export function shouldNudgeNotifyUser(
-  streak: number,
-  callsSinceLastNudge: number | null,
-): boolean {
+export function shouldNudgeNotifyUser(streak: number, callsSinceLastNudge: number | null): boolean {
   if (streak < NOTIFY_USER_NUDGE_THRESHOLD) return false;
   return callsSinceLastNudge === null || callsSinceLastNudge >= NOTIFY_USER_NUDGE_THRESHOLD;
 }

@@ -1,34 +1,52 @@
-import type { IAgentLLMRequesterService, AgentLLMRequestFinish, AgentLLMRequestSource } from '#/agent/llmRequester/llmRequester';
+import type {
+  IAgentLLMRequesterService,
+  AgentLLMRequestFinish,
+  AgentLLMRequestSource,
+} from '#/agent/llmRequester/llmRequester';
 import type { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
 import type { ModelRequestTiming } from '#/llm-adapter/model/model-requester';
-import type { ToolInfo, ToolResult as AgentToolResult, ToolUpdate as AgentToolUpdate } from '#/tool/toolContract';
+import type {
+  ToolInfo,
+  ToolResult as AgentToolResult,
+  ToolUpdate as AgentToolUpdate,
+} from '#/tool/toolContract';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
-import { createAgentMachine, type PromptGate, type PromptGateVerdict } from '#human/agent/machine';
-import { createTurnMachine, type AssistantEntry, type HistoryMessage, type SystemEntry, type UserEntry } from '#human/agent/turn';
 import { messageAppended, turnEnded } from '#human/agent/events';
+import { createAgentMachine, type PromptGate, type PromptGateVerdict } from '#human/agent/machine';
 import { agentSlices, type AgentEventStore } from '#human/agent/slices';
+import {
+  createTurnMachine,
+  type AssistantEntry,
+  type HistoryMessage,
+  type SystemEntry,
+  type UserEntry,
+} from '#human/agent/turn';
 import { credentialsRecovery } from '#human/credentials/credentials';
-import { createEventStoreSync } from '#human/eventStore/eventStore';
 import type { ExternalEvent } from '#human/eventStore/events';
+import { createEventStoreSync } from '#human/eventStore/eventStore';
 import { memoryJournal, type SyncStoreJournal } from '#human/eventStore/journal';
+import { UNKNOWN_CAPABILITY } from '#human/llm/capability';
 import type { LlmErrorMessage } from '#human/llm/errors';
 import type { FinishInfo } from '#human/llm/finish-reason';
 import type { StreamedMessagePart } from '#human/llm/message';
-import { UNKNOWN_CAPABILITY } from '#human/llm/capability';
 import type { LlmModel } from '#human/llm/model';
 import type { LlmRecovery, LlmRecoveryRecord } from '#human/llm/requester/recovery';
 import type { LlmCredentialProvider, LlmRequestConfig } from '#human/llm/requester/requester';
 import { resolveMaxAttempts } from '#human/llm/requester/retry';
+import { emptyUsage, type TokenUsage } from '#human/llm/usage';
 import type { ToolResult as MachineToolResult, ToolUpdate } from '#human/tool/executor';
 import { createToolMachine } from '#human/tool/machine';
 import type { ToolDefinition } from '#human/tool/tool';
-import { emptyUsage, type TokenUsage } from '#human/llm/usage';
 import type { Actor, Subscription } from '#human/xstate2';
 
-import { createMachineRequester, type MachineRequester, type MachineRequesterGateDecision } from './requester';
-import { createMachineTools, type MachineTools, type ToolResultExtras } from './tools';
+import {
+  createMachineRequester,
+  type MachineRequester,
+  type MachineRequesterGateDecision,
+} from './requester';
 import { appendedStoreJournal, seededStoreJournal } from './storeJournal';
+import { createMachineTools, type MachineTools, type ToolResultExtras } from './tools';
 
 export type { PromptGateVerdict };
 
@@ -53,7 +71,12 @@ export type MachineEngineDelta =
 export type MachineTurnOutcome = 'done' | 'failed' | 'aborted';
 
 export type MachineEngineEvent =
-  | { readonly type: 'turnStarted'; readonly machineTurnId: number; readonly queueItemId?: string; readonly entry?: UserEntry }
+  | {
+      readonly type: 'turnStarted';
+      readonly machineTurnId: number;
+      readonly queueItemId?: string;
+      readonly entry?: UserEntry;
+    }
   | {
       readonly type: 'turnSettled';
       readonly outcome: MachineTurnOutcome;
@@ -72,7 +95,12 @@ export type MachineEngineEvent =
       readonly timing?: ModelRequestTiming;
       readonly traceId?: string;
     }
-  | { readonly type: 'stepFailed'; readonly step: number; readonly error: LlmErrorMessage; readonly rawError?: unknown }
+  | {
+      readonly type: 'stepFailed';
+      readonly step: number;
+      readonly error: LlmErrorMessage;
+      readonly rawError?: unknown;
+    }
   | { readonly type: 'delta'; readonly delta: MachineEngineDelta }
   | {
       readonly type: 'retrying';
@@ -110,8 +138,17 @@ export type MachineEngineEvent =
   | { readonly type: 'toolBatchFailed'; readonly error: unknown }
   | { readonly type: 'remindersConsumed'; readonly reminders: HistoryMessage[] }
   | { readonly type: 'promptBlocked'; readonly queueItemId?: string; readonly entry?: UserEntry }
-  | { readonly type: 'promptGateFailed'; readonly queueItemId?: string; readonly error: unknown; readonly entry?: UserEntry }
-  | { readonly type: 'promptSteered'; readonly queueItemIds: readonly string[]; readonly entries: readonly UserEntry[] }
+  | {
+      readonly type: 'promptGateFailed';
+      readonly queueItemId?: string;
+      readonly error: unknown;
+      readonly entry?: UserEntry;
+    }
+  | {
+      readonly type: 'promptSteered';
+      readonly queueItemIds: readonly string[];
+      readonly entries: readonly UserEntry[];
+    }
   | { readonly type: 'aborting' };
 
 export interface CreateMachineEngineOptions {
@@ -281,7 +318,9 @@ export interface MachineEngineAttachBundle {
   readonly promptGate?: PromptGate;
 }
 
-export function machineEngineAttachBundle(options: CreateMachineEngineOptions): MachineEngineAttachBundle {
+export function machineEngineAttachBundle(
+  options: CreateMachineEngineOptions,
+): MachineEngineAttachBundle {
   const publish = (event: MachineEngineEvent): void => {
     options.onEvent?.(event);
   };
@@ -366,7 +405,12 @@ export function attachMachineEngine(
       split = createDeltaSplitter();
       pendingFailure = undefined;
       lastRetry = undefined;
-      publish({ type: 'turnStarted', machineTurnId: event.turnId, queueItemId: event.queueItemId, entry: event.entry });
+      publish({
+        type: 'turnStarted',
+        machineTurnId: event.turnId,
+        queueItemId: event.queueItemId,
+        entry: event.entry,
+      });
     }),
     ref.on('step.started', (event) => {
       currentStep = event.step;
@@ -468,7 +512,12 @@ export function attachMachineEngine(
       publish({ type: 'promptBlocked', queueItemId: event.queueItemId, entry: event.entry });
     }),
     ref.on('prompt.gate_failed', (event) => {
-      publish({ type: 'promptGateFailed', queueItemId: event.queueItemId, error: event.error, entry: event.entry });
+      publish({
+        type: 'promptGateFailed',
+        queueItemId: event.queueItemId,
+        error: event.error,
+        entry: event.entry,
+      });
     }),
     ref.on('prompt.steered', (event) => {
       publish({ type: 'promptSteered', queueItemIds: event.queueItemIds, entries: event.entries });
@@ -537,7 +586,8 @@ export function attachMachineEngine(
         events.push(turnEnded({ turnId: nextTurnId - 1, outcome: 'done' }));
       }
       const seed = seedRecords(events);
-      const next = currentJournal === undefined ? seed : seededStoreJournal(currentJournal, seed.readSync());
+      const next =
+        currentJournal === undefined ? seed : seededStoreJournal(currentJournal, seed.readSync());
       return store.reset(next);
     },
     resetJournal: (journal) => {
@@ -571,7 +621,9 @@ export function attachMachineEngine(
               ? (lastRetry ?? {
                   failedAttempt: context.attempt - 1,
                   nextAttempt: context.attempt,
-                  maxAttempts: resolveMaxAttempts({ maxAttemptsPerStep: options.maxAttemptsPerStep }),
+                  maxAttempts: resolveMaxAttempts({
+                    maxAttemptsPerStep: options.maxAttemptsPerStep,
+                  }),
                   delayMs: context.delayMs,
                 })
               : undefined,
@@ -581,11 +633,18 @@ export function attachMachineEngine(
         };
       }
       return {
-        running: value === 'running' || (typeof value === 'object' && value !== null && 'running' in value),
-        aborting: typeof value === 'object' && value !== null && 'running' in value &&
+        running:
+          value === 'running' ||
+          (typeof value === 'object' && value !== null && 'running' in value),
+        aborting:
+          typeof value === 'object' &&
+          value !== null &&
+          'running' in value &&
           (value as { running?: unknown }).running === 'aborting',
         waitingForBackground:
-          typeof value === 'object' && value !== null && 'idle' in value &&
+          typeof value === 'object' &&
+          value !== null &&
+          'idle' in value &&
           (value as { idle?: unknown }).idle === 'waiting',
         paused: snapshot.context.paused,
         queue: snapshot.context.queue,
@@ -614,7 +673,10 @@ function seedRecords(events: readonly ExternalEvent[]): SyncStoreJournal {
   return journal;
 }
 
-export function engineJournal(base: SyncStoreJournal | undefined, initialTurnId: number): SyncStoreJournal {
+export function engineJournal(
+  base: SyncStoreJournal | undefined,
+  initialTurnId: number,
+): SyncStoreJournal {
   if (base === undefined) {
     if (initialTurnId <= 0) return memoryJournal();
     return seedRecords([turnEnded({ turnId: initialTurnId - 1, outcome: 'done' })]);

@@ -17,7 +17,7 @@ export class TranscriptStore {
   readonly #descriptors = new Map<AgentId, AgentDescriptor>();
   readonly #rosterListeners = new Set<RosterListener>();
 
-  constructor(readonly sessionId: string) { }
+  constructor(readonly sessionId: string) {}
 
   ensureAgent(agentId: AgentId, descriptor?: AgentDescriptor): AgentTranscript {
     let transcript = this.#agents.get(agentId);

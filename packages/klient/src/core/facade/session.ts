@@ -7,27 +7,14 @@
  * wire).
  */
 
-import type {
-  ApprovalRequest,
-  ApprovalResponse,
-} from '@moonshot-ai/agent-core-v2/contract';
-import type {
-  Interaction,
-  InteractionKind,
-} from '@moonshot-ai/agent-core-v2';
-import type {
-  QuestionRequest,
-  QuestionResult,
-} from '@moonshot-ai/agent-core-v2/contract';
-import type {
-  AgentMeta,
-  SessionMeta,
-  SessionMetaPatch,
-} from '@moonshot-ai/agent-core-v2';
+import type { Interaction, InteractionKind } from '@moonshot-ai/agent-core-v2';
+import type { AgentMeta, SessionMeta, SessionMetaPatch } from '@moonshot-ai/agent-core-v2';
 import type { SkillSummary } from '@moonshot-ai/agent-core-v2';
+import type { ApprovalRequest, ApprovalResponse } from '@moonshot-ai/agent-core-v2/contract';
+import type { QuestionRequest, QuestionResult } from '@moonshot-ai/agent-core-v2/contract';
 
-import type { ScopeRef } from '../channel.js';
 import type { McpServerConfig } from '../../contract/mcp.js';
+import type { ScopeRef } from '../channel.js';
 import type { ScopedCaller } from './global.js';
 
 export type { ScopedCaller } from './global.js';
@@ -132,9 +119,7 @@ export function createSessionFacade(call: ScopedCaller, sessionId: string): Sess
     get: read,
     setTitle: (title) => call(scope, 'sessionMetadata', 'setTitle', [title]) as Promise<void>,
     generateTitle: (opts) =>
-      call(scope, 'sessionTitleService', 'generateTitle', [opts]) as Promise<
-        string | undefined
-      >,
+      call(scope, 'sessionTitleService', 'generateTitle', [opts]) as Promise<string | undefined>,
     update: (patch) => call(scope, 'sessionMetadata', 'update', [patch]) as Promise<void>,
     setArchived: (archived) =>
       call(scope, 'sessionMetadata', 'setArchived', [archived]) as Promise<void>,
@@ -150,7 +135,10 @@ export function createSessionFacade(call: ScopedCaller, sessionId: string): Sess
     close: () => call({}, 'sessionManager', 'close', [sessionId]) as Promise<void>,
     archive: () => call({}, 'sessionManager', 'archive', [sessionId]) as Promise<void>,
     restore: async (opts) => {
-      const handle = (await call({}, 'sessionManager', 'restore', [sessionId, opts])) as HandleWire | null;
+      const handle = (await call({}, 'sessionManager', 'restore', [
+        sessionId,
+        opts,
+      ])) as HandleWire | null;
       return handle !== null && handle !== undefined;
     },
     delete: () => call({}, 'sessionManager', 'delete', [sessionId]) as Promise<void>,

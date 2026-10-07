@@ -5,7 +5,6 @@ import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiatio
 import type { ModelCapability } from '../contract/capability';
 import type { Model } from '../model/catalog';
 import type { ResolvedLlmModel } from '../model/model-requester-impl';
-
 import type { ProtocolBaseId, ResolvedAdapterIdentity } from './protocol-base';
 
 export const ProtocolSchema = z.enum([
@@ -50,11 +49,7 @@ export interface IProtocolAdapterRegistry {
 
   resolveProviderBaseId(protocol: Protocol, providerType?: string): ProtocolBaseId;
 
-  resolveCapability(
-    protocol: Protocol,
-    modelName: string,
-    providerType?: string,
-  ): ModelCapability;
+  resolveCapability(protocol: Protocol, modelName: string, providerType?: string): ModelCapability;
 
   resolve(model: Model): ResolvedLlmModel;
 }

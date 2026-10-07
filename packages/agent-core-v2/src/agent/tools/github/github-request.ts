@@ -43,7 +43,8 @@ export async function githubRequest(
     return { status: 0, ok: false, body: '', error: GITHUB_NO_TOKEN_ERROR };
   }
 
-  const baseUrl = firstNonEmpty(options.baseUrl, GITHUB_DEFAULT_BASE_URL) ?? GITHUB_DEFAULT_BASE_URL;
+  const baseUrl =
+    firstNonEmpty(options.baseUrl, GITHUB_DEFAULT_BASE_URL) ?? GITHUB_DEFAULT_BASE_URL;
   const url = `${buildGitHubUrl(baseUrl, path)}${buildGitHubQuery(options.query)}`;
 
   const headers: Record<string, string> = {

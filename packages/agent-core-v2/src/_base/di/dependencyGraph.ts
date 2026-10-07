@@ -14,10 +14,7 @@ export interface DependencyEdge {
 }
 
 export class PairIndex<V> {
-  private readonly _map = new Map<object, Map<
-    ServiceIdentifier<any>,
-    V
-  >>();
+  private readonly _map = new Map<object, Map<ServiceIdentifier<any>, V>>();
 
   get(scope: object, token: ServiceIdentifier<unknown>): V | undefined {
     return this._map.get(scope)?.get(token);
@@ -70,11 +67,7 @@ export class DependencyGraph {
   private readonly _out = new Map<object, PairIndex<DependencyEdgeKind>>();
   private readonly _in = new PairIndex<Map<object, DependencyEdgeKind>>();
 
-  addInstance(
-    instance: object,
-    scope: object,
-    token: ServiceIdentifier<any>,
-  ): void {
+  addInstance(instance: object, scope: object, token: ServiceIdentifier<any>): void {
     const ref: ScopedToken = { scope, token };
     this._refByInstance.set(instance, ref);
     this._instanceByRef.set(scope, token, instance);
@@ -202,8 +195,7 @@ export class DependencyGraph {
         if (mark === 'done') continue;
         if (mark === 'visiting') {
           const start = path.findIndex(
-            (entry) =>
-              entry.scope === dependency.scope && entry.token === dependency.token,
+            (entry) => entry.scope === dependency.scope && entry.token === dependency.token,
           );
           return [...path.slice(start), dependency].map(label);
         }

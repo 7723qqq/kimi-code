@@ -1,8 +1,13 @@
+import type { ToolCall } from '#/llm/message';
 import { assign, emit, fromCallback, fromPromise, setup } from '#/xstate2';
 
-import type { ToolCall } from '#/llm/message';
-
-import type { TaskWaitInput, TaskWaitOutcome, ToolExecutor, ToolResult, ToolUpdate } from './executor';
+import type {
+  TaskWaitInput,
+  TaskWaitOutcome,
+  ToolExecutor,
+  ToolResult,
+  ToolUpdate,
+} from './executor';
 
 export interface ToolInput {
   toolCall: ToolCall;
@@ -84,9 +89,10 @@ export function createToolMachine(executor: ToolExecutor) {
       output: {} as ToolOutput,
     },
     actors: {
-      preparingActor: fromPromise<ToolBeforeDecision, ToolBeforeInput>(
-        async ({ input }) => ({ type: 'proceed', toolCall: input.toolCall }),
-      ),
+      preparingActor: fromPromise<ToolBeforeDecision, ToolBeforeInput>(async ({ input }) => ({
+        type: 'proceed',
+        toolCall: input.toolCall,
+      })),
       executeActor,
       finishingActor: fromPromise<ToolResult, ToolAfterInput>(async ({ input }) => input.result),
     },

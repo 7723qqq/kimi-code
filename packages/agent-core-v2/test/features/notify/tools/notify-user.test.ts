@@ -10,14 +10,12 @@ import {
 } from '#/features/notify/notifyUserAvailability';
 import {
   INotifyUserTool,
+  NOTIFY_USER_DELIVERED_OUTPUT,
+  NOTIFY_USER_SUPPRESSED_OUTPUT,
   NOTIFY_USER_TOOL_NAME,
   NotifyUserInputSchema,
 } from '#/features/notify/tools/notify-user/notify-user';
-import {
-  NOTIFY_USER_DELIVERED_OUTPUT,
-  NOTIFY_USER_EMPTY_MESSAGE,
-  NOTIFY_USER_SUPPRESSED_OUTPUT,
-} from '#/features/notify/tools/notify-user/notifyUserTool';
+import { NOTIFY_USER_EMPTY_MESSAGE } from '#/features/notify/tools/notify-user/notifyUserTool';
 import { executeTool } from '../../../tools/fixtures/execute-tool';
 
 import { createTestAgent, type TestAgentContext } from '../../../harness';

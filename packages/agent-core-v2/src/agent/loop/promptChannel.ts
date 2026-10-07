@@ -1,14 +1,14 @@
 import { createDecorator } from '#/_base/di/instantiation';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { IEventService } from '#/app/event/event';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { promptMetadataTextFromContentParts } from '#/agent/prompt/promptMetadataText';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IEventService } from '#/app/event/event';
+import { LifecycleScope } from '#/app/scopes';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { applyPromptMetadataUpdate } from '#/session/sessionMetadata/promptMetadata';
+import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 
 import {
   IAgentLoopService,

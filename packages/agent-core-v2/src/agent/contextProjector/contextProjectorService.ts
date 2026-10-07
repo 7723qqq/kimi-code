@@ -1,11 +1,12 @@
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
-import { defineState } from '#/state/state';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentStateService } from '#/agent/state/agentState';
-import type { Message } from '#/llm-adapter/contract/message';
+import { LifecycleScope } from '#/app/scopes';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
+import type { Message } from '#/llm-adapter/contract/message';
+import { defineState } from '#/state/state';
+
 import {
   IAgentContextProjectorService,
   type MediaStripSnapshot,
@@ -88,7 +89,9 @@ export class AgentContextProjectorService implements IAgentContextProjectorServi
       return;
     }
     const signature = notable
-      .map((anomaly) => ('toolCallId' in anomaly ? `${anomaly.kind}:${anomaly.toolCallId}` : anomaly.kind))
+      .map((anomaly) =>
+        'toolCallId' in anomaly ? `${anomaly.kind}:${anomaly.toolCallId}` : anomaly.kind,
+      )
       .toSorted()
       .join('|');
     if (signature === this.lastRepairSignature) return;

@@ -198,7 +198,11 @@ describe('TelemetryClient', () => {
     const onUnexpectedError = vi.fn();
     client.setUnexpectedErrorHandler(onUnexpectedError);
 
-    const properties = { nested: { a: 1 }, list: [1, 2], keep: 1 } as unknown as TelemetryProperties;
+    const properties = {
+      nested: { a: 1 },
+      list: [1, 2],
+      keep: 1,
+    } as unknown as TelemetryProperties;
     client.track('bad_props', properties);
     client.withContext({ sessionId: 'scoped' }).track('bad_props_scoped', properties);
     await client.flush();
@@ -700,8 +704,8 @@ describe('AsyncTransport', () => {
   });
 
   it('resolves a function endpoint per send, so an in-process switch needs no rebuild', async () => {
-    const fetchImpl = vi.fn(async (_url: string | URL, _init?: RequestInit) =>
-      new Response('', { status: 200 }),
+    const fetchImpl = vi.fn(
+      async (_url: string | URL, _init?: RequestInit) => new Response('', { status: 200 }),
     );
     let endpoint: string | undefined = 'https://cn.test/events';
     const homeDir = await tempHome();
@@ -1531,10 +1535,7 @@ describe('crash handler', () => {
     emitCrash(new DOMException('The operation was aborted.', 'AbortError'));
     emitCrash(Object.assign(new Error('aborted'), { name: 'AbortError' }));
     emitCrash(new DOMException('The operation was aborted.', 'AbortError'), 'unhandledRejection');
-    emitCrash(
-      Object.assign(new Error('aborted'), { name: 'AbortError' }),
-      'unhandledRejection',
-    );
+    emitCrash(Object.assign(new Error('aborted'), { name: 'AbortError' }), 'unhandledRejection');
 
     expect(transport.saved).toHaveLength(0);
   });

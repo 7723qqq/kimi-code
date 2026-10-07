@@ -23,9 +23,7 @@ export function closeTrailingOpenToolExchange(
       .map((message) => message.toolCallId)
       .filter((toolCallId): toolCallId is string => typeof toolCallId === 'string'),
   );
-  const openCalls = assistant.toolCalls.filter(
-    (toolCall) => !answeredToolCallIds.has(toolCall.id),
-  );
+  const openCalls = assistant.toolCalls.filter((toolCall) => !answeredToolCallIds.has(toolCall.id));
   if (openCalls.length === 0) return [...history];
   const settledAssistant =
     assistant.partial === true ? { ...assistant, partial: undefined } : assistant;
@@ -33,8 +31,6 @@ export function closeTrailingOpenToolExchange(
     ...history.slice(0, lastNonToolIndex),
     settledAssistant,
     ...history.slice(lastNonToolIndex + 1),
-    ...openCalls.map((toolCall) =>
-      createToolMessage(toolCall.id, INHERITED_IN_FLIGHT_TOOL_OUTPUT),
-    ),
+    ...openCalls.map((toolCall) => createToolMessage(toolCall.id, INHERITED_IN_FLIGHT_TOOL_OUTPUT)),
   ];
 }

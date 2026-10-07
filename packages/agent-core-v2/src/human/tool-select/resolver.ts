@@ -27,9 +27,7 @@ function shapeMessage(message: Message, state: ToolSelectState): Message | undef
   if (message.role !== 'system' || message.tools === undefined || message.tools.length === 0) {
     return message;
   }
-  const kept = state.enabled()
-    ? message.tools.filter((tool) => state.isLoadable(tool.name))
-    : [];
+  const kept = state.enabled() ? message.tools.filter((tool) => state.isLoadable(tool.name)) : [];
   if (kept.length === message.tools.length) return message;
   if (kept.length > 0) return { ...message, tools: kept };
   if (message.content.length === 0) return undefined;

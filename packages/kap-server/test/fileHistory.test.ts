@@ -24,8 +24,7 @@ beforeAll(async () => {
 afterAll(async () => {
   try {
     await server?.close();
-  } catch {
-  }
+  } catch {}
   server = undefined;
   rmSync(home, { recursive: true, force: true });
 });

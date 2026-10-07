@@ -6,6 +6,7 @@
 
 import fsSync from 'node:fs';
 import { Worker } from 'node:worker_threads';
+
 import { crc32 } from '../crc32.ts';
 import {
   getTextBuildWorkerRuntimeState,
@@ -79,11 +80,12 @@ export async function verifyFileCrcAsync(
     let pos = 0;
     while (pos < st.size) {
       const { bytesRead } = await fh.read(buf, 0, Math.min(buf.length, st.size - pos), pos);
-      if (bytesRead === 0) throw new Error(`worker artifact ${filePath}: shrank during verification`);
+      if (bytesRead === 0)
+        throw new Error(`worker artifact ${filePath}: shrank during verification`);
       crc = crc32(buf.subarray(0, bytesRead), crc);
       pos += bytesRead;
     }
-    if ((crc >>> 0) !== expected.crc32) {
+    if (crc >>> 0 !== expected.crc32) {
       throw new Error(`worker artifact ${filePath}: crc mismatch`);
     }
   } finally {
@@ -292,7 +294,8 @@ export function startWorkerTextBuild(
         if (message.type === 'done') {
           await stopWorker();
           if (cancelRequested) throw abortError();
-          if (!message.result) throw new WorkerTextBuildError('text build worker returned no result', false);
+          if (!message.result)
+            throw new WorkerTextBuildError('text build worker returned no result', false);
           return message.result;
         }
         if (message.type === 'failed') {

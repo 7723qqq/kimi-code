@@ -25,5 +25,6 @@ export interface RuntimeSetBinding {
 export const runtimeBindingKey = defineState(
   'runtimeBinding',
   (): RuntimeBinding | undefined => undefined,
-).replayable({ schema: z.custom<RuntimeBinding | undefined>() })
+)
+  .replayable({ schema: z.custom<RuntimeBinding | undefined>() })
   .on(RuntimeSetBinding, (_s, e) => ({ workspaceId: e.workspaceId, runtimeId: e.runtimeId }));

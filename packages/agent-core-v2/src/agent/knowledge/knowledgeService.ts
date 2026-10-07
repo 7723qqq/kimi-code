@@ -108,8 +108,7 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
       if (this.currentDbPath !== null) {
         try {
           nativeKnowledge.knowledgeClose(this.currentDbPath);
-        } catch {
-        }
+        } catch {}
       }
       nativeKnowledge.knowledgeOpen(projectDbPath);
       this.initialized = true;

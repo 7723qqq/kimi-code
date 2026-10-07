@@ -1,6 +1,11 @@
 import { z } from 'zod';
 
-import { fileContentSchema, imageContentSchema, textContentSchema, videoContentSchema } from './message';
+import {
+  fileContentSchema,
+  imageContentSchema,
+  textContentSchema,
+  videoContentSchema,
+} from './message';
 import { skillDescriptorSchema } from './skill';
 
 export const listSkillsResponseSchema = z.object({

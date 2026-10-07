@@ -1,10 +1,10 @@
-import { createEventStore, type EventStore } from '#/eventStore/eventStore';
-import type { ExternalEvent } from '#/eventStore/events';
-import { journalFromBranch } from '#/eventStore/journal';
 import { agentSlices, type AgentEventStore } from '#/agent/slices';
+import type { ExternalEvent } from '#/eventStore/events';
+import { createEventStore, type EventStore } from '#/eventStore/eventStore';
+import { journalFromBranch } from '#/eventStore/journal';
 import type { StoreBackend } from '#/store/backend/backend';
-import { StoreError, type BranchRef } from '#/store/types';
 import type { Tree } from '#/store/tree';
+import { StoreError, type BranchRef } from '#/store/types';
 
 import { agentClosed, agentOpened, agentSwitched, SESSION_LOG_BRANCH } from './events';
 import { sessionSlices } from './slices';
@@ -155,7 +155,9 @@ export class SessionStores {
       await seedStore.close();
     }
     await store.reset(journal);
-    await (await this.session()).dispatch(
+    await (
+      await this.session()
+    ).dispatch(
       agentSwitched({ agentId, branch: branchId, reason: opts.reason, stats: opts.stats }),
     );
     return { branchId };

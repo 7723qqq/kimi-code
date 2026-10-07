@@ -3,9 +3,18 @@ import { existsSync } from 'node:fs';
 export type NormalizedContentPart =
   | { readonly type: 'text'; readonly text: string }
   | { readonly type: 'think'; readonly think: string; readonly encrypted?: string }
-  | { readonly type: 'image_url'; readonly imageUrl: { readonly url: string; readonly id?: string } }
-  | { readonly type: 'audio_url'; readonly audioUrl: { readonly url: string; readonly id?: string } }
-  | { readonly type: 'video_url'; readonly videoUrl: { readonly url: string; readonly id?: string } };
+  | {
+      readonly type: 'image_url';
+      readonly imageUrl: { readonly url: string; readonly id?: string };
+    }
+  | {
+      readonly type: 'audio_url';
+      readonly audioUrl: { readonly url: string; readonly id?: string };
+    }
+  | {
+      readonly type: 'video_url';
+      readonly videoUrl: { readonly url: string; readonly id?: string };
+    };
 
 export function normalizeContentPart(part: unknown): NormalizedContentPart {
   if (typeof part !== 'object' || part === null) {
@@ -46,9 +55,7 @@ export function normalizeContentPart(part: unknown): NormalizedContentPart {
 }
 
 function asMediaRecord(value: unknown): Record<string, unknown> {
-  return typeof value === 'object' && value !== null
-    ? (value as Record<string, unknown>)
-    : {};
+  return typeof value === 'object' && value !== null ? (value as Record<string, unknown>) : {};
 }
 
 /** Safely coerce an unknown value to string for text fields. Avoids

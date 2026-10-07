@@ -24,7 +24,14 @@ function cronTurn(text: string, time: number): AgentReplayRecord {
       role: 'user',
       content: [{ type: 'text', text }],
       toolCalls: [],
-      origin: { kind: 'cron_job', jobId: 'job-1', cron: '*/15 * * * *', recurring: true, coalescedCount: 1, stale: false },
+      origin: {
+        kind: 'cron_job',
+        jobId: 'job-1',
+        cron: '*/15 * * * *',
+        recurring: true,
+        coalescedCount: 1,
+        stale: false,
+      },
     },
   };
 }

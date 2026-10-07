@@ -1,10 +1,11 @@
 import { Service } from '#/_base/di/service';
-import { defineState } from '#/state/state';
-import type { IAgentReminderService } from '#/features/reminder/reminderService';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
-import { IAgentSpecService } from '#/features/spec/spec';
 import { IAgentStateService } from '#/agent/state/agentState';
+import type { IAgentReminderService } from '#/features/reminder/reminderService';
+import { IAgentSpecService } from '#/features/spec/spec';
+import { defineState } from '#/state/state';
+
 import SPEC_MODE_EXIT_REMINDER from './spec-mode-exit-reminder.md?raw';
 import SPEC_MODE_FULL_REMINDER from './spec-mode-full-reminder.md?raw';
 import SPEC_MODE_REENTRY_REMINDER from './spec-mode-reentry-reminder.md?raw';

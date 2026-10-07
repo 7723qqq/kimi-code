@@ -11,8 +11,7 @@ export interface IAuthTokenService {
   isValid(candidate: string): Promise<boolean>;
 }
 
-export const IAuthTokenService =
-  createDecorator<IAuthTokenService>('authTokenService');
+export const IAuthTokenService = createDecorator<IAuthTokenService>('authTokenService');
 
 export function createAuthTokenService(deps: {
   readonly tokenStore: TokenStore;
@@ -22,7 +21,6 @@ export function createAuthTokenService(deps: {
     _serviceBrand: undefined,
     getToken: () => deps.tokenStore.getToken(),
     isValid: async (candidate) =>
-      deps.tokenStore.isValid(candidate) ||
-      (await verifyPassword(candidate, deps.passwordHash)),
+      deps.tokenStore.isValid(candidate) || (await verifyPassword(candidate, deps.passwordHash)),
   };
 }

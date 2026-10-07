@@ -1,5 +1,5 @@
-import fsSync from 'node:fs';
 import { randomUUID } from 'node:crypto';
+import fsSync from 'node:fs';
 import { readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -54,7 +54,11 @@ export interface SearchWorkerHostOptions {
   readonly syncTimeoutMs?: number;
   readonly maxOldSpaceMb?: number;
   readonly syncSessionCap?: number;
-  readonly workerFactory?: (entry: { url: URL; data: SearchWorkerData; execArgv: string[] }) => Worker;
+  readonly workerFactory?: (entry: {
+    url: URL;
+    data: SearchWorkerData;
+    execArgv: string[];
+  }) => Worker;
 }
 
 interface WorkerEntryResolution {
@@ -196,8 +200,8 @@ export class SearchWorkerHost {
       if (type !== 'close') {
         const timeoutMs =
           type === 'sync' || type === 'reindex' || type === 'open'
-            ? this.options.syncTimeoutMs ?? DEFAULT_SYNC_TIMEOUT_MS
-            : this.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+            ? (this.options.syncTimeoutMs ?? DEFAULT_SYNC_TIMEOUT_MS)
+            : (this.options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS);
         watchdog = setTimeout(() => this.onRequestTimeout(id), timeoutMs);
         watchdog.unref?.();
       }
@@ -247,7 +251,8 @@ export class SearchWorkerHost {
     if (result === null || typeof result !== 'object') return;
     const direct = (result as { lockToken?: unknown }).lockToken;
     const nested = (result as { index?: { lockToken?: unknown } }).index?.lockToken;
-    const token = typeof direct === 'string' ? direct : typeof nested === 'string' ? nested : undefined;
+    const token =
+      typeof direct === 'string' ? direct : typeof nested === 'string' ? nested : undefined;
     if (token !== undefined) this.lockToken = token;
     const readOnly =
       (result as { readOnly?: unknown }).readOnly === true ||
@@ -303,15 +308,13 @@ export class SearchWorkerHost {
           ],
         };
       }
-    } catch {
-    }
+    } catch {}
     const bundled = new URL('./search-worker.mjs', import.meta.url);
     try {
       if (fsSync.statSync(bundled).isFile()) {
         return { url: bundled, execArgv: [] };
       }
-    } catch {
-    }
+    } catch {}
     throw new SearchWorkerError(
       'runtime-unavailable',
       'search worker entry not found (no configured packaged asset, no sibling source, no bundled sibling)',
@@ -326,7 +329,9 @@ export class SearchWorkerHost {
       dir: this.dir,
       bootSalt: randomUUID(),
       textBuildWorkerPath:
-        textBuild.configured && textBuild.entry.kind === 'packaged' ? textBuild.entry.path : undefined,
+        textBuild.configured && textBuild.entry.kind === 'packaged'
+          ? textBuild.entry.path
+          : undefined,
       syncSessionCap: this.options.syncSessionCap,
     };
     let worker: Worker;
@@ -340,7 +345,9 @@ export class SearchWorkerHost {
         new Worker(entry.url, {
           workerData: data,
           execArgv: entry.execArgv,
-          resourceLimits: { maxOldGenerationSizeMb: this.options.maxOldSpaceMb ?? DEFAULT_MAX_OLD_SPACE_MB },
+          resourceLimits: {
+            maxOldGenerationSizeMb: this.options.maxOldSpaceMb ?? DEFAULT_MAX_OLD_SPACE_MB,
+          },
           name: 'kimi-search-worker',
         });
     } catch (error) {
@@ -366,8 +373,7 @@ export class SearchWorkerHost {
     if (this.exiting) {
       try {
         worker.postMessage({ v: SEARCH_WORKER_PROTOCOL_VERSION, type: 'beginClose' });
-      } catch {
-      }
+      } catch {}
     }
     this.log.info('global search: worker started', { dir: this.dir });
   }
@@ -442,7 +448,8 @@ export class SearchWorkerHost {
     this.reapPromise = this.reapLockFile(deadToken).finally(() => {
       this.reapPromise = null;
     });
-    this.failures = sessionMs > STABLE_SESSION_MS ? Math.max(1, this.failures - 1) : this.failures + 1;
+    this.failures =
+      sessionMs > STABLE_SESSION_MS ? Math.max(1, this.failures - 1) : this.failures + 1;
     const backoff = Math.min(BACKOFF_BASE_MS * 2 ** (this.failures - 1), BACKOFF_CAP_MS);
     this.nextRetryAfter = Date.now() + backoff;
     this.log.warn('global search: worker exited unexpectedly; restart backed off', {
@@ -469,15 +476,18 @@ export class SearchWorkerHost {
         await rm(lockPath, { force: true });
         this.log.warn('global search: reaped the lock left by the dead worker', { dir: this.dir });
       }
-    } catch {
-    }
+    } catch {}
   }
 
   private awaitReady(worker: Worker): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       const timer = setTimeout(() => {
         cleanup();
-        reject(new Error(`ready handshake timed out after ${this.options.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS}ms`));
+        reject(
+          new Error(
+            `ready handshake timed out after ${this.options.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS}ms`,
+          ),
+        );
       }, this.options.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS);
       timer.unref?.();
       const onMessage = (event: SearchWorkerEvent): void => {
@@ -528,8 +538,7 @@ export class SearchWorkerHost {
     this.exiting = true;
     try {
       this.worker?.postMessage({ v: SEARCH_WORKER_PROTOCOL_VERSION, type: 'beginClose' });
-    } catch {
-    }
+    } catch {}
   }
 
   private scheduleOrphanCheck(): void {

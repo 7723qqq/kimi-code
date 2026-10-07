@@ -12,23 +12,20 @@ import {
 import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';
-import { ensureMainAgent } from '../transport/mainAgent';
 import { defineRoute } from '../middleware/defineRoute';
 import { ErrorCode } from '../protocol/error-codes';
+import { toWireQuestion } from '../protocol/question-wire';
 import {
   sessionSnapshotResponseSchema,
   type InFlightTurn,
   type SessionSnapshotResponse,
 } from '../protocol/rest-snapshot';
 import { emptySessionUsage, type SessionUsage } from '../protocol/session';
-import {
-  readLegacyStatus,
-  type LegacyStatusSnapshot,
-} from '../services/legacyStatus/legacyStatus';
+import { readLegacyStatus, type LegacyStatusSnapshot } from '../services/legacyStatus/legacyStatus';
 import { loadMessageHistory } from '../services/messages/messageHistory';
+import { ensureMainAgent } from '../transport/mainAgent';
 import { type SessionEventBroadcaster } from '../transport/ws/v1/sessionEventBroadcaster';
 import { interactionAgentId, toWireApproval } from './approvals';
-import { toWireQuestion } from '../protocol/question-wire';
 import { resolveSessionFacts, toWireSession } from './sessions';
 
 const SNAPSHOT_MESSAGE_PAGE_SIZE = 100;
@@ -114,11 +111,7 @@ async function assembleSnapshot(
   const main = await ensureMainAgent(handle);
   const status = readLegacyStatus(main);
   const session = {
-    ...toWireSession(
-      { ...meta, workspaceId },
-      cwd,
-      resolveSessionFacts(core, sessionId),
-    ),
+    ...toWireSession({ ...meta, workspaceId }, cwd, resolveSessionFacts(core, sessionId)),
     agent_config: { model: status?.model ?? '' },
     usage: toSnapshotUsage(status),
   };

@@ -137,10 +137,7 @@ export function lowerMessage(message: Message, lower: OpenAILowerContext): OpenA
     }
     if (part.reasoningKey !== undefined && part.reasoningKey !== REASONING_DETAILS_KEY) {
       const current = stringFields.get(part.reasoningKey) ?? '';
-      stringFields.set(
-        part.reasoningKey,
-        part.hidden === true ? current : current + part.think,
-      );
+      stringFields.set(part.reasoningKey, part.hidden === true ? current : current + part.think);
       continue;
     }
     hasUnstamped = true;

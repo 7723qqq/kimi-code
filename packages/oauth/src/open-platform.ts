@@ -10,6 +10,7 @@ import {
 } from '@moonshot-ai/kosong/providers/astron-models';
 
 import { readApiErrorMessage } from './api-error';
+import { GOOGLE_GEMINI_DEFAULT_MODELS } from './google-models';
 import { parseKimiCodeCustomHeaders } from './identity';
 import { parseSupportsThinkingType, parseThinkEfforts } from './managed-kimi-code';
 import type {
@@ -17,7 +18,6 @@ import type {
   ManagedKimiConfigShape,
   ManagedKimiModelAlias,
 } from './managed-kimi-code';
-import { GOOGLE_GEMINI_DEFAULT_MODELS } from './google-models';
 import { MANAGED_KIMI_MODEL_FIELDS, mergeRefreshedModelAlias } from './model-alias-merge';
 import { isRecord } from './utils';
 
@@ -91,7 +91,9 @@ function toModelInfo(item: unknown): ManagedKimiCodeModelInfo | undefined {
     : undefined;
   const supportsToolUse = Object.hasOwn(item, 'supports_tool_use')
     ? Boolean(item['supports_tool_use'])
-    : (rawCaps !== undefined ? rawCaps.includes('tool_use') : true);
+    : rawCaps !== undefined
+      ? rawCaps.includes('tool_use')
+      : true;
   // Effort levels come from the nested `think_efforts` object
   // ({ support, valid_efforts, default_effort }) returned by /models.
   const thinkEfforts = parseThinkEfforts(item['think_efforts']);
@@ -102,12 +104,8 @@ function toModelInfo(item: unknown): ManagedKimiCodeModelInfo | undefined {
       Boolean(item['supports_reasoning']) ||
       (rawCaps?.includes('thinking') ?? false) ||
       (rawCaps?.includes('always_thinking') ?? false),
-    supportsImageIn:
-      Boolean(item['supports_image_in']) ||
-      (rawCaps?.includes('image_in') ?? false),
-    supportsVideoIn:
-      Boolean(item['supports_video_in']) ||
-      (rawCaps?.includes('video_in') ?? false),
+    supportsImageIn: Boolean(item['supports_image_in']) || (rawCaps?.includes('image_in') ?? false),
+    supportsVideoIn: Boolean(item['supports_video_in']) || (rawCaps?.includes('video_in') ?? false),
     supportsToolUse,
     supportsThinkingType: parseSupportsThinkingType(item['supports_thinking_type']),
     supportEfforts: thinkEfforts.supportEfforts,

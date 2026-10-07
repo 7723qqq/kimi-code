@@ -3,12 +3,10 @@ import { assign, shake } from 'radashi';
 
 import { headersToRecord } from '#/llm/errors';
 import { modelKey, type LlmModel } from '#/llm/model';
-import { toLlmSyntaxErrorMessage } from '#/llm/syntax-errors';
 import type { ProtocolBase, ProtocolRequesterOptions, TraitContext } from '#/llm/protocol/base';
 import { resolveModelConnection } from '#/llm/protocol/connection';
-import { applyThinking } from '#/llm/protocol/thinking';
 import { resolveMaxCompletionCap, type FormatRequestInput } from '#/llm/protocol/format';
-import { encodeReasoningEffortFallback } from '#/llm/thinking';
+import { applyThinking } from '#/llm/protocol/thinking';
 import {
   mergeRequestHeaders,
   type LlmClientContext,
@@ -20,14 +18,12 @@ import {
   type LlmRequestEvent,
   type ToolCallIdPolicy,
 } from '#/llm/requester/requester';
+import { toLlmSyntaxErrorMessage } from '#/llm/syntax-errors';
+import { encodeReasoningEffortFallback } from '#/llm/thinking';
 
-import {
-  normalizeToolCallIdsForProvider,
-  sanitizeToolCallId,
-} from '../tool-call-id';
+import { normalizeToolCallIdsForProvider, sanitizeToolCallId } from '../tool-call-id';
 import { getOpenAILegacyModelCapability } from './capability';
 import type { OpenAIWireMessage } from './contract';
-import type { OpenAITrait } from './trait';
 import {
   assembleOpenAIRequest,
   convertOpenAIError,
@@ -43,6 +39,7 @@ import {
   type OpenAIRequestParams,
 } from './format';
 import { DEFAULT_REASONING_KEY, ReasoningKeyDialect } from './reasoning-key';
+import type { OpenAITrait } from './trait';
 
 const OPENAI_CHAT_TOOL_CALL_ID_POLICY: ToolCallIdPolicy = {
   normalize: (id) => sanitizeToolCallId(id, 64),
@@ -59,8 +56,7 @@ function createClient(model: LlmModel, headers: Record<string, string> | undefin
 }
 
 export interface OpenAIRequesterOptions
-  extends ProtocolRequesterOptions<OpenAITrait>,
-    LlmRequesterOptions<OpenAI> {}
+  extends ProtocolRequesterOptions<OpenAITrait>, LlmRequesterOptions<OpenAI> {}
 
 export interface OpenAIRequestPreparationOptions {
   readonly trait?: OpenAITrait;

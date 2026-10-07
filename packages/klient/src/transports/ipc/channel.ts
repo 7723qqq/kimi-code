@@ -138,7 +138,12 @@ export class IpcChannel implements KlientChannel {
     return promise;
   }
 
-  stream(scope: ScopeRef, service: string, method: string, args: unknown[]): AsyncIterable<unknown> {
+  stream(
+    scope: ScopeRef,
+    service: string,
+    method: string,
+    args: unknown[],
+  ): AsyncIterable<unknown> {
     return {
       [Symbol.asyncIterator]: () => {
         // Simple queue: push/pull with deferred promises. `buffer` holds

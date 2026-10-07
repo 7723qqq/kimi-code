@@ -10,10 +10,13 @@ export class GoalDeadlineSchedulerService implements IGoalDeadlineScheduler {
   }
 
   schedule(delayMs: number, callback: () => void): IDisposable {
-    let timeout: ReturnType<typeof setTimeout> | undefined = setTimeout(() => {
-      timeout = undefined;
-      callback();
-    }, Math.max(0, delayMs));
+    let timeout: ReturnType<typeof setTimeout> | undefined = setTimeout(
+      () => {
+        timeout = undefined;
+        callback();
+      },
+      Math.max(0, delayMs),
+    );
     timeout.unref?.();
     return toDisposable(() => {
       if (timeout !== undefined) clearTimeout(timeout);

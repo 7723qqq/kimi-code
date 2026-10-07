@@ -2,9 +2,9 @@
 import { z } from 'zod';
 
 import type { PromptOrigin } from '#/agent/contextMemory/types';
-import { annotateBundledSkillParts, isSkillActivationPart } from '#human/agent/origin';
 import { parseDaemonFileUrl } from '#/agent/media/mediaRef';
 import { AgentEvent2, registerEvent2Class } from '#/app/event/event2';
+import { annotateBundledSkillParts, isSkillActivationPart } from '#human/agent/origin';
 import type { FinishReason } from '#human/llm/finish-reason';
 import type { ContentPart, TextPart } from '#human/llm/message';
 import type { TokenUsage } from '#human/llm/usage';
@@ -50,8 +50,7 @@ export function turnPromptText(
   input: readonly ContentPart[],
   origin?: PromptOrigin,
 ): string | undefined {
-  const bundledActivations =
-    origin?.kind === 'user' ? (origin.skillActivations ?? []) : [];
+  const bundledActivations = origin?.kind === 'user' ? (origin.skillActivations ?? []) : [];
   const text = annotateBundledSkillParts(input, bundledActivations)
     .filter((part): part is TextPart => part.type === 'text' && !isSkillActivationPart(part))
     .map((part) => part.text)
@@ -72,10 +71,12 @@ export function turnPromptAttachments(
   for (const part of input) {
     if (part.type === 'image_url') {
       const fileId = promptMediaFileId(part.imageUrl.url, part.imageUrl.id);
-      if (fileId !== undefined) attachments.push({ kind: 'image', fileId, name: part.imageUrl.name });
+      if (fileId !== undefined)
+        attachments.push({ kind: 'image', fileId, name: part.imageUrl.name });
     } else if (part.type === 'video_url') {
       const fileId = promptMediaFileId(part.videoUrl.url, part.videoUrl.id);
-      if (fileId !== undefined) attachments.push({ kind: 'video', fileId, name: part.videoUrl.name });
+      if (fileId !== undefined)
+        attachments.push({ kind: 'video', fileId, name: part.videoUrl.name });
     } else if (part.type === 'audio_url') {
       const fileId = promptMediaFileId(part.audioUrl.url, part.audioUrl.id);
       if (fileId !== undefined) attachments.push({ kind: 'audio', fileId });

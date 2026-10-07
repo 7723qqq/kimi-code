@@ -1,5 +1,6 @@
-import { CoreErrors, errorInfo, isErrorCode } from './codes';
 import type { ErrorCode } from '#/errors';
+
+import { CoreErrors, errorInfo, isErrorCode } from './codes';
 import { Error2 } from './errors';
 
 export interface ErrorPayload {

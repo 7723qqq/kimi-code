@@ -119,15 +119,10 @@ export interface H3FetchInit {
  * OS-level tunnel capture the UDP traffic while everything else keeps
  * riding the proxy.
  */
-export async function h3Fetch(
-  url: string,
-  init: H3FetchInit,
-): Promise<Response> {
+export async function h3Fetch(url: string, init: H3FetchInit): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), init.timeoutMs);
-  const signals = init.signal
-    ? [controller.signal, init.signal]
-    : [controller.signal];
+  const signals = init.signal ? [controller.signal, init.signal] : [controller.signal];
   let routedDirectly = false;
   if (isProxyConfigured(process.env)) {
     pushDirectHost(new URL(url).hostname.toLowerCase());

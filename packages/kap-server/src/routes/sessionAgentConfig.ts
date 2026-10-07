@@ -59,10 +59,7 @@ export async function applySessionAgentConfig(
     if (agentConfig.tower_mode) {
       const result = await tower.enter(agentConfig.tower_base);
       if (!result.entered) {
-        throw new Error2(
-          ErrorCodes.SESSION_TOWER_MODE_INVALID,
-          towerEnterFailureMessage(result),
-        );
+        throw new Error2(ErrorCodes.SESSION_TOWER_MODE_INVALID, towerEnterFailureMessage(result));
       }
     } else {
       await tower.exit();

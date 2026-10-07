@@ -1,3 +1,4 @@
+import { interactions } from '#/human/interaction/facade';
 import {
   INTERACTION_TAG_AGENT_ID,
   INTERACTION_TAG_SESSION_ID,
@@ -5,7 +6,6 @@ import {
   type InteractionCancellation,
   type InteractionTags,
 } from '#/human/interaction/interaction';
-import { interactions } from '#/human/interaction/facade';
 import type { InteractionEmitted } from '#/human/interaction/machine';
 import type { IEventDispatcher } from '#/state/eventDispatcher';
 
@@ -32,7 +32,11 @@ export function detachInteractionAgent(agentId: string, sessionId: string): void
   }
 }
 
-export function cancelInteractionsForTurn(agentId: string, sessionId: string, turnId: number): void {
+export function cancelInteractionsForTurn(
+  agentId: string,
+  sessionId: string,
+  turnId: number,
+): void {
   for (const interaction of interactions.findAll({
     resolved: false,
     tags: {

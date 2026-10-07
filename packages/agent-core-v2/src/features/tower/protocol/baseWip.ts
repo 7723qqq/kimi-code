@@ -14,7 +14,13 @@ const UNMERGED_CODES = new Set(['DD', 'AU', 'UD', 'UA', 'DU', 'AA', 'UU']);
 const ADD_PATHS_CHUNK = 100;
 
 export async function listBaseDirtyEntries(cwd: string): Promise<readonly BaseDirtyEntry[]> {
-  const out = await git(cwd, ['status', '--porcelain', '-z', '--no-renames', '--untracked-files=normal']);
+  const out = await git(cwd, [
+    'status',
+    '--porcelain',
+    '-z',
+    '--no-renames',
+    '--untracked-files=normal',
+  ]);
   const entries: BaseDirtyEntry[] = [];
   for (const record of out.split('\0')) {
     if (record.length < 4) continue;

@@ -133,10 +133,10 @@ function checkpointIndexOf(
   return index;
 }
 
-export const fileHistoryKey = defineState(
-  'fileHistory',
-  (): FileHistoryState => ({ checkpoints: [], tracked: [] }),
-)
+export const fileHistoryKey = defineState('fileHistory', (): FileHistoryState => ({
+  checkpoints: [],
+  tracked: [],
+}))
   .replayable({ schema: z.custom<FileHistoryState>() })
   .on(FileHistoryCheckpointed, (s, e) => {
     const phase = checkpointPhaseOf(e);

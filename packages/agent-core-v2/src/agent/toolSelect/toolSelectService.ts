@@ -1,20 +1,20 @@
-import { Service } from '#/_base/di/service';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { defineState } from '#/state/state';
-import { IEventBus } from '#/app/event/eventBus';
-import { IFlagService } from '#/app/flag/flag';
-import type { ToolDescription as Tool } from '#human/llm/message';
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { Service } from '#/_base/di/service';
 import { ContextSpliced } from '#/agent/contextMemory/contextEvents';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { CompactionCompleted } from '#/agent/fullCompaction/compactionOps';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentStateService } from '#/agent/state/agentState';
-import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
-import { isMcpToolName, type ToolInfo } from '#/tool/toolContract';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { IEventBus } from '#/app/event/eventBus';
+import { IFlagService } from '#/app/flag/flag';
+import { LifecycleScope } from '#/app/scopes';
+import { defineState } from '#/state/state';
+import { isMcpToolName, type ToolInfo } from '#/tool/toolContract';
+import type { ToolDescription as Tool } from '#human/llm/message';
 
 import {
   collectLoadedDynamicToolNames,
@@ -215,8 +215,7 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
       .list()
       .filter(
         (info) =>
-          this.isDynamicallyLoadable(info) &&
-          this.toolPolicy.isToolActive(info.name, info.source),
+          this.isDynamicallyLoadable(info) && this.toolPolicy.isToolActive(info.name, info.source),
       )
       .map((info) => info.name)
       .toSorted((a, b) => a.localeCompare(b));
@@ -244,10 +243,7 @@ export class AgentToolSelectService extends Service implements IAgentToolSelectS
   private isLoadedToolActive(name: string): boolean {
     const info = this.toolRegistry.list().find((entry) => entry.name === name);
     if (info !== undefined) {
-      return (
-        this.isDynamicallyLoadable(info) &&
-        this.toolPolicy.isToolActive(name, info.source)
-      );
+      return this.isDynamicallyLoadable(info) && this.toolPolicy.isToolActive(name, info.source);
     }
     if (isMcpToolName(name)) return this.toolPolicy.isToolActive(name, 'mcp');
     return false;

@@ -1,7 +1,7 @@
 import { Disposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { ContextSpliced } from '#/agent/contextMemory/contextEvents';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentProfileService } from '#/agent/profile/profile';
@@ -12,9 +12,12 @@ import { IFlagService } from '#/app/flag/flag';
 import { LifecycleScope } from '#/app/scopes';
 import type { MicroCompactionFinishedEvent } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { estimateTokensForContentParts, estimateTokensForMessages } from '#/llm-adapter/contract/tokens';
-import { IEventDispatcher } from '#/state/eventDispatcher';
+import {
+  estimateTokensForContentParts,
+  estimateTokensForMessages,
+} from '#/llm-adapter/contract/tokens';
 import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
+import { IEventDispatcher } from '#/state/eventDispatcher';
 
 import { MICRO_COMPACTION_FLAG_ID } from './flag';
 import {

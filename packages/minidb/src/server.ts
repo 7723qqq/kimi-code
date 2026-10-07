@@ -5,6 +5,7 @@
 
 import net from 'node:net';
 import type { Socket } from 'node:net';
+
 import { MiniDb } from './index.js';
 
 const CRLF = '\r\n';
@@ -80,7 +81,10 @@ export class RespParser {
       this.buf = this.buf.subarray(idx + 2);
       return {
         kind: 'command',
-        args: line.split(' ').filter(Boolean).map((s) => Buffer.from(s)),
+        args: line
+          .split(' ')
+          .filter(Boolean)
+          .map((s) => Buffer.from(s)),
       };
     }
 
@@ -126,7 +130,8 @@ export class RespParser {
 async function handle(db: MiniDb<string>, args: Buffer[]): Promise<string | Buffer | null> {
   const cmd = args[0]?.toString().toUpperCase();
   if (cmd === undefined) return reply.err('empty command');
-  const S = (i: number): string | undefined => (args[i] === undefined ? undefined : args[i]!.toString());
+  const S = (i: number): string | undefined =>
+    args[i] === undefined ? undefined : args[i]!.toString();
 
   switch (cmd) {
     case 'PING':
@@ -141,7 +146,8 @@ async function handle(db: MiniDb<string>, args: Buffer[]): Promise<string | Buff
     case 'SET': {
       const key = S(1);
       const val = S(2);
-      if (key === undefined || val === undefined) return reply.err("wrong number of arguments for 'set'");
+      if (key === undefined || val === undefined)
+        return reply.err("wrong number of arguments for 'set'");
       let ttl: number | undefined;
       for (let i = 3; i < args.length; i++) {
         const opt = S(i)!.toUpperCase();
@@ -186,7 +192,9 @@ async function handle(db: MiniDb<string>, args: Buffer[]): Promise<string | Buff
       await db.compact();
       return reply.ok();
     case 'INFO':
-      return reply.bulk(`minidb_version:0.0.1${CRLF}keys:${db.size}${CRLF}compactions:${db.stats.compactions}${CRLF}`);
+      return reply.bulk(
+        `minidb_version:0.0.1${CRLF}keys:${db.size}${CRLF}compactions:${db.stats.compactions}${CRLF}`,
+      );
     case 'QUIT':
       return null;
     default:
@@ -209,7 +217,12 @@ export interface ServerHandle {
   host: string;
 }
 
-export async function startServer({ dir, port = 6379, host = '127.0.0.1', fsyncPolicy = 'everysec' }: ServerOptions): Promise<ServerHandle> {
+export async function startServer({
+  dir,
+  port = 6379,
+  host = '127.0.0.1',
+  fsyncPolicy = 'everysec',
+}: ServerOptions): Promise<ServerHandle> {
   const db = (await MiniDb.open({ dir, valueCodec: 'string', fsyncPolicy })) as MiniDb<string>;
   const server = net.createServer((socket: Socket) => {
     const parser = new RespParser();

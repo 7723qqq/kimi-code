@@ -59,5 +59,4 @@ export interface IDebugCascadeService {
   dispose(scopePath: string, token: string): Promise<void>;
 }
 
-export const IDebugCascadeService =
-  createDecorator<IDebugCascadeService>('debugCascadeService');
+export const IDebugCascadeService = createDecorator<IDebugCascadeService>('debugCascadeService');

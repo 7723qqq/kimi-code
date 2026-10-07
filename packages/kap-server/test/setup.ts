@@ -1,6 +1,5 @@
-import { afterEach } from 'vitest';
-
 import { drainQueryStoreDisposals, drainSessionIndexMirror } from '@moonshot-ai/agent-core-v2';
+import { afterEach } from 'vitest';
 
 for (const key of Object.keys(process.env)) {
   if (key.startsWith('KIMI_CODE_')) {

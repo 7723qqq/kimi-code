@@ -34,8 +34,7 @@ const toPosix = (p: string): string => p.replaceAll('\\', '/');
 // `session_started` row (see SDKRpcClientV2.enabledExperimentalFlags), so the
 // clean-env expectation carries the default-enabled set next to the
 // attribution / canonical fields.
-const DEFAULT_EXPERIMENTAL_FLAGS =
-  'tool_select,wait_for';
+const DEFAULT_EXPERIMENTAL_FLAGS = 'tool_select,wait_for';
 
 const tempDirs: string[] = [];
 
@@ -113,10 +112,7 @@ class StubRpc {
     };
   }
 
-  async resumeSession(input: {
-    id: string;
-    workDir?: string;
-  }): Promise<ResumedSessionSummary> {
+  async resumeSession(input: { id: string; workDir?: string }): Promise<ResumedSessionSummary> {
     return {
       id: input.id,
       workDir: '/tmp/work',

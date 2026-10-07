@@ -10,6 +10,11 @@ import {
   type Interaction,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
+import { z } from 'zod';
+
+import { errEnvelope, okEnvelope } from '../envelope';
+import { requestLog } from '../lib/requestLog';
+import { defineRoute } from '../middleware/defineRoute';
 import { ErrorCode } from '../protocol/error-codes';
 import {
   approvalAlreadyResolvedDataSchema,
@@ -18,11 +23,6 @@ import {
   listPendingApprovalsQuerySchema,
   listPendingApprovalsResponseSchema,
 } from '../protocol/rest-approval';
-import { z } from 'zod';
-
-import { errEnvelope, okEnvelope } from '../envelope';
-import { requestLog } from '../lib/requestLog';
-import { defineRoute } from '../middleware/defineRoute';
 
 interface ApprovalRouteHost {
   get(
@@ -89,7 +89,11 @@ export function registerApprovalsRoutes(app: ApprovalRouteHost, core: Scope): vo
       reply.send(okEnvelope({ items }, req.id));
     },
   );
-  app.get(listRoute.path, listRoute.options, listRoute.handler as Parameters<ApprovalRouteHost['get']>[2]);
+  app.get(
+    listRoute.path,
+    listRoute.options,
+    listRoute.handler as Parameters<ApprovalRouteHost['get']>[2],
+  );
 
   const resolveRoute = defineRoute(
     {
@@ -178,7 +182,10 @@ export function interactionAgentId(interaction: Interaction): string {
   return typeof tag === 'string' ? tag : MAIN_AGENT_ID;
 }
 
-export function toWireApproval(interaction: Interaction, sessionId: string): {
+export function toWireApproval(
+  interaction: Interaction,
+  sessionId: string,
+): {
   approval_id: string;
   session_id: string;
   agent_id: string;

@@ -38,7 +38,10 @@ import type { PromptSubmission } from '../protocol/rest-prompt';
 
 type WireContent = PromptSubmission['content'];
 
-export async function assertPromptFileRefs(content: WireContent, store: IFileService): Promise<void> {
+export async function assertPromptFileRefs(
+  content: WireContent,
+  store: IFileService,
+): Promise<void> {
   for (const part of content) {
     if (part.type === 'file') {
       if (part.file_id !== undefined) await store.get(part.file_id);
@@ -75,7 +78,9 @@ function promptPartPath(part: WireContent[number]): string | undefined {
   return undefined;
 }
 
-async function statAttachmentFile(sourcePath: string): Promise<{ resolvedPath: string; info: Stats }> {
+async function statAttachmentFile(
+  sourcePath: string,
+): Promise<{ resolvedPath: string; info: Stats }> {
   const resolvedPath = await realpath(sourcePath).catch(() => undefined);
   if (resolvedPath === undefined) throw fileNotFoundError(sourcePath);
   const info = await stat(resolvedPath).catch(() => undefined);
@@ -94,10 +99,7 @@ export async function resolvePromptSessionMediaRefs(
   const resolved: WireContent = [];
   let changed = false;
   for (const part of content) {
-    if (
-      (part.type !== 'image' && part.type !== 'video') ||
-      part.source.kind !== 'session_media'
-    ) {
+    if ((part.type !== 'image' && part.type !== 'video') || part.source.kind !== 'session_media') {
       resolved.push(part);
       continue;
     }
@@ -117,12 +119,50 @@ export function contentToCoreParts(content: WireContent): ContentPart[] {
   const parts: ContentPart[] = [];
   for (const part of content) {
     if (part.type === 'text') parts.push({ type: 'text', text: part.text });
-    else if (part.type === 'image' && part.source.kind === 'url') parts.push({ type: 'image_url', imageUrl: { url: part.source.url, id: part.source.id, name: part.name } });
-    else if (part.type === 'image' && part.source.kind === 'base64') parts.push({ type: 'image_url', imageUrl: { url: `data:${part.source.media_type};base64,${part.source.data}`, name: part.name } });
-    else if (part.type === 'image' && part.source.kind === 'session_media') parts.push({ type: 'image_url', imageUrl: { url: buildDaemonFileUrl(part.source.file_id), id: part.source.file_id, name: part.name } });
-    else if (part.type === 'video' && part.source.kind === 'url') parts.push({ type: 'video_url', videoUrl: { url: part.source.url, id: part.source.id, name: part.name } });
-    else if (part.type === 'video' && part.source.kind === 'base64') parts.push({ type: 'video_url', videoUrl: { url: `data:${part.source.media_type};base64,${part.source.data}`, name: part.name } });
-    else if (part.type === 'video' && part.source.kind === 'session_media') parts.push({ type: 'video_url', videoUrl: { url: buildDaemonFileUrl(part.source.file_id), id: part.source.file_id, name: part.name } });
+    else if (part.type === 'image' && part.source.kind === 'url')
+      parts.push({
+        type: 'image_url',
+        imageUrl: { url: part.source.url, id: part.source.id, name: part.name },
+      });
+    else if (part.type === 'image' && part.source.kind === 'base64')
+      parts.push({
+        type: 'image_url',
+        imageUrl: {
+          url: `data:${part.source.media_type};base64,${part.source.data}`,
+          name: part.name,
+        },
+      });
+    else if (part.type === 'image' && part.source.kind === 'session_media')
+      parts.push({
+        type: 'image_url',
+        imageUrl: {
+          url: buildDaemonFileUrl(part.source.file_id),
+          id: part.source.file_id,
+          name: part.name,
+        },
+      });
+    else if (part.type === 'video' && part.source.kind === 'url')
+      parts.push({
+        type: 'video_url',
+        videoUrl: { url: part.source.url, id: part.source.id, name: part.name },
+      });
+    else if (part.type === 'video' && part.source.kind === 'base64')
+      parts.push({
+        type: 'video_url',
+        videoUrl: {
+          url: `data:${part.source.media_type};base64,${part.source.data}`,
+          name: part.name,
+        },
+      });
+    else if (part.type === 'video' && part.source.kind === 'session_media')
+      parts.push({
+        type: 'video_url',
+        videoUrl: {
+          url: buildDaemonFileUrl(part.source.file_id),
+          id: part.source.file_id,
+          name: part.name,
+        },
+      });
   }
   return parts;
 }
@@ -193,12 +233,18 @@ export async function resolvePromptMediaFiles(
           );
           content.push({
             type: 'text',
-            text: persisted === null
-              ? buildUnsupportedImageNotice(effectiveMime, undefined, options.providerType)
-              : buildAttachedFileNotice(name, effectiveMime, bytes.length, persisted),
+            text:
+              persisted === null
+                ? buildUnsupportedImageNotice(effectiveMime, undefined, options.providerType)
+                : buildAttachedFileNotice(name, effectiveMime, bytes.length, persisted),
           });
           if (persisted !== null) {
-            attachments.push({ name, mediaType: effectiveMime, size: bytes.length, path: persisted });
+            attachments.push({
+              name,
+              mediaType: effectiveMime,
+              size: bytes.length,
+              path: persisted,
+            });
           }
           changed = true;
           continue;
@@ -280,7 +326,12 @@ export async function resolvePromptMediaFiles(
         const attachedPath = await materializeAttachmentToDir(file, await resolveAttachmentsDir());
         content.push({
           type: 'text',
-          text: buildAttachedFileNotice(file.meta.name, file.meta.media_type, file.meta.size, attachedPath),
+          text: buildAttachedFileNotice(
+            file.meta.name,
+            file.meta.media_type,
+            file.meta.size,
+            attachedPath,
+          ),
         });
         attachments.push({
           name: file.meta.name,
@@ -403,9 +454,10 @@ export async function resolvePromptMediaFiles(
           );
           content.push({
             type: 'text',
-            text: persisted === null
-              ? buildUnsupportedImageNotice(mediaType, name, options.providerType)
-              : buildAttachedFileNotice(name, mediaType, file.meta.size, persisted),
+            text:
+              persisted === null
+                ? buildUnsupportedImageNotice(mediaType, name, options.providerType)
+                : buildAttachedFileNotice(name, mediaType, file.meta.size, persisted),
           });
           if (persisted !== null) {
             attachments.push({
@@ -545,7 +597,12 @@ function pathMediaMime(
   return sniffed?.mimeType ?? 'application/octet-stream';
 }
 
-function buildAttachedFileNotice(name: string, mediaType: string, size: number, path: string): string {
+function buildAttachedFileNotice(
+  name: string,
+  mediaType: string,
+  size: number,
+  path: string,
+): string {
   return `Attached file "${name}" (${mediaType}, ${size} bytes): ${path} — open it with the Read tool`;
 }
 

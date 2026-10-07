@@ -9,7 +9,10 @@ export interface IEventBus {
 
   publish(event: Event2<any>, agent?: AgentContext): void;
   subscribe(handler: (event: Event2<any>) => void): IDisposable;
-  subscribe<P, E extends Event2<P>>(cls: Event2Class<P, E>, handler: (event: E) => void): IDisposable;
+  subscribe<P, E extends Event2<P>>(
+    cls: Event2Class<P, E>,
+    handler: (event: E) => void,
+  ): IDisposable;
   subscribe(type: string, handler: (event: Event2<any>) => void): IDisposable;
 }
 

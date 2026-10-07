@@ -1,7 +1,7 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { ContextMessage } from '#/agent/contextMemory/types';
-import type { ToolDescription as Tool } from '#human/llm/message';
 import type { ToolInfo } from '#/tool/toolContract';
+import type { ToolDescription as Tool } from '#human/llm/message';
 
 export const SELECT_TOOLS_TOOL_NAME = 'select_tools';
 

@@ -1,13 +1,11 @@
-/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
-import type { TokenUsage } from '#human/llm/usage';
-import { Error2, ErrorCodes } from '#/errors';
-import { linkAbortSignal } from '#/_base/utils/abort';
 import type { IAgentScopeHandle } from '#/_base/di/scope';
-import { IAgentProfileService } from '#/agent/profile/profile';
+import { linkAbortSignal } from '#/_base/utils/abort';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import { Event2 } from '#/app/event/event2';
+import { IAgentProfileService } from '#/agent/profile/profile';
 import { agentContextOf } from '#/agent/scopeContext/scopeContext';
+import { Event2 } from '#/app/event/event2';
+import { Error2, ErrorCodes } from '#/errors';
 import { hasPinnedPermissionMode } from '#/features/tower/tower';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { createAgentAwaitingClose } from '#/session/agentLifecycle/createAwaitingClose';
@@ -18,6 +16,7 @@ import {
   subagentParentAgentId,
   subagentSwarmItem,
 } from '#/session/agentLifecycle/subagentMetadata';
+import { ISessionMetadata, type AgentMeta } from '#/session/sessionMetadata/sessionMetadata';
 import {
   classifyRunTermination,
   emitAgentRunSpawned,
@@ -26,15 +25,10 @@ import {
   SubagentFailed,
 } from '#/session/subagent/mirrorAgentRun';
 import { type AgentRunHandle, ISessionSubagentService } from '#/session/subagent/subagent';
-import { ISessionMetadata, type AgentMeta } from '#/session/sessionMetadata/sessionMetadata';
 import { IEventDispatcher } from '#/state/eventDispatcher';
+/* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
+import type { TokenUsage } from '#human/llm/usage';
 
-import {
-  ISessionSwarmService,
-  type SessionSwarmRunArgs,
-  type SessionSwarmRunResult,
-  type SessionSwarmTask,
-} from './sessionSwarm';
 import {
   resolveSwarmMaxConcurrency,
   AgentRunBatch,
@@ -43,6 +37,12 @@ import {
   type AgentRunBatchLauncher,
   type AgentRunAttemptHandle,
 } from './agentRunBatch';
+import {
+  ISessionSwarmService,
+  type SessionSwarmRunArgs,
+  type SessionSwarmRunResult,
+  type SessionSwarmTask,
+} from './sessionSwarm';
 
 export interface SubagentSuspendedPayload {
   readonly subagentId: string;
@@ -101,8 +101,10 @@ export class SessionSwarmService implements ISessionSwarmService {
     };
     const launcher: AgentRunBatchLauncher = {
       spawn: (options) => this.spawnAttempt(callerAgentId, options, terminalize),
-      resume: (agentId, options) => this.resumeAttempt(callerAgentId, agentId, options, false, terminalize),
-      retry: (agentId, options) => this.resumeAttempt(callerAgentId, agentId, options, true, terminalize),
+      resume: (agentId, options) =>
+        this.resumeAttempt(callerAgentId, agentId, options, false, terminalize),
+      retry: (agentId, options) =>
+        this.resumeAttempt(callerAgentId, agentId, options, true, terminalize),
       suspended: (event) => {
         this.dispatchSubagentEvent(
           callerAgentId,
@@ -302,9 +304,13 @@ export class SessionSwarmService implements ISessionSwarmService {
   private async requireOwnedSubagent(callerAgentId: string, agentId: string): Promise<AgentMeta> {
     const meta = await this.agentMeta(agentId);
     if (meta === undefined || !isSubagentMeta(meta)) {
-      throw new Error2(ErrorCodes.AGENT_NOT_A_SUBAGENT, `Agent instance "${agentId}" is not a subagent`, {
-        details: { agentId },
-      });
+      throw new Error2(
+        ErrorCodes.AGENT_NOT_A_SUBAGENT,
+        `Agent instance "${agentId}" is not a subagent`,
+        {
+          details: { agentId },
+        },
+      );
     }
     if (subagentParentAgentId(meta) !== callerAgentId) {
       throw new Error2(

@@ -15,5 +15,8 @@ export interface RuntimeProviderContext {
 export interface RuntimeProviderFactory {
   readonly id: string;
   readonly imports: RuntimeUnitImports;
-  attach(context: RuntimeProviderContext, host: RuntimeProviderHost): Promise<RuntimeProviderAttachment>;
+  attach(
+    context: RuntimeProviderContext,
+    host: RuntimeProviderHost,
+  ): Promise<RuntimeProviderAttachment>;
 }

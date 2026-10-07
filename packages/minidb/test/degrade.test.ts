@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+
 // test/degrade.test.ts
 import { test } from 'vitest';
 
@@ -185,19 +186,31 @@ test('classifyStorageError and retryEperm drive the rebuild/transient recovery p
   assert.equal(classifyStorageError(walPoisoned), 'rebuild');
   assert.equal(classifyStorageError(new CorruptFrameError('bad frame', 0)), 'rebuild');
   assert.equal(classifyStorageError(new SyntaxError('unexpected token')), 'rebuild');
-  assert.equal(classifyStorageError(new AggregateError([new Error('x'), walPoisoned], 'partial')), 'rebuild');
-  assert.equal(classifyStorageError(new AggregateError([new Error('x'), new LockError('locked')], 'partial')), 'transient');
+  assert.equal(
+    classifyStorageError(new AggregateError([new Error('x'), walPoisoned], 'partial')),
+    'rebuild',
+  );
+  assert.equal(
+    classifyStorageError(new AggregateError([new Error('x'), new LockError('locked')], 'partial')),
+    'transient',
+  );
   assert.equal(classifyStorageError(new LockError('locked')), 'transient');
-  assert.equal(classifyStorageError(Object.assign(new Error('perm'), { code: 'EPERM' })), 'transient');
+  assert.equal(
+    classifyStorageError(Object.assign(new Error('perm'), { code: 'EPERM' })),
+    'transient',
+  );
   assert.equal(classifyStorageError(new Error('unknown')), 'transient');
 
   const eperm = () => Object.assign(new Error('operation not permitted'), { code: 'EPERM' });
   let attempts = 0;
-  const recovered = await retryEperm(async () => {
-    attempts += 1;
-    if (attempts < 3) throw eperm();
-    return 'ok';
-  }, { baseDelayMs: 1 });
+  const recovered = await retryEperm(
+    async () => {
+      attempts += 1;
+      if (attempts < 3) throw eperm();
+      return 'ok';
+    },
+    { baseDelayMs: 1 },
+  );
   assert.equal(recovered, 'ok');
   assert.equal(attempts, 3);
 
@@ -213,10 +226,13 @@ test('classifyStorageError and retryEperm drive the rebuild/transient recovery p
 
   attempts = 0;
   await assert.rejects(
-    retryEperm(async () => {
-      attempts += 1;
-      throw eperm();
-    }, { retries: 2, baseDelayMs: 1 }),
+    retryEperm(
+      async () => {
+        attempts += 1;
+        throw eperm();
+      },
+      { retries: 2, baseDelayMs: 1 },
+    ),
     /operation not permitted/,
   );
   assert.equal(attempts, 3);

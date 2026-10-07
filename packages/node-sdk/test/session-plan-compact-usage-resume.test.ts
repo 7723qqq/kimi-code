@@ -116,10 +116,12 @@ describe('Session plan, compact, usage, and resume APIs', () => {
     try {
       const session = await harness.createSession({ id: 'ses_compact_runtime', workDir });
 
-      await expect(session.compact({ instruction: 'Keep important facts.' })).rejects.toMatchObject({
-        name: 'Error2',
-        code: 'compaction.unable',
-      });
+      await expect(session.compact({ instruction: 'Keep important facts.' })).rejects.toMatchObject(
+        {
+          name: 'Error2',
+          code: 'compaction.unable',
+        },
+      );
     } finally {
       await harness.close();
     }
@@ -274,7 +276,9 @@ describe('Session plan, compact, usage, and resume APIs', () => {
       expect(forkPlan).toEqual({
         id: sourcePlan.id,
         content: 'source plan',
-        path: toPosix(join(forkSummary!.sessionDir, 'agents', 'main', 'plans', `${sourcePlan.id}.md`)),
+        path: toPosix(
+          join(forkSummary!.sessionDir, 'agents', 'main', 'plans', `${sourcePlan.id}.md`),
+        ),
       });
       expect(forkPlan?.path).not.toBe(sourcePlan.path);
       const forkWire = await readFile(

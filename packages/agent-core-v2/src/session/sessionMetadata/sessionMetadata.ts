@@ -1,5 +1,5 @@
-import type { Event } from '#/_base/event';
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
+import type { Event } from '#/_base/event';
 
 export interface AgentMeta {
   readonly homedir?: string;
@@ -45,10 +45,7 @@ export interface ISessionMetadata {
   read(): Promise<SessionMeta>;
   update(patch: SessionMetaPatch, opts?: { readonly touchUpdatedAt?: boolean }): Promise<void>;
   setTitle(title: string): Promise<void>;
-  setGeneratedTitleIfUncustomized(
-    title: string,
-    opts?: { force?: boolean },
-  ): Promise<boolean>;
+  setGeneratedTitleIfUncustomized(title: string, opts?: { force?: boolean }): Promise<boolean>;
   setArchived(archived: boolean): Promise<void>;
   registerAgent(agentId: string, meta: AgentMeta): Promise<void>;
 }

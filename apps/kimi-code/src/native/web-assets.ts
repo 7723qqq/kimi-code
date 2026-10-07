@@ -7,7 +7,11 @@ import {
   buildWebManifestKey,
 } from '../../scripts/native/manifest.mjs';
 import { currentTarget, ensureFile, sanitizeSegment, sha256, toBuffer } from './asset-utils';
-import { getNativeCacheBase, getEmbeddedAssetSource, type NativeAssetSource } from './native-assets';
+import {
+  getNativeCacheBase,
+  getEmbeddedAssetSource,
+  type NativeAssetSource,
+} from './native-assets';
 
 export const WEB_ASSET_MANIFEST_VERSION = MANIFEST_VERSION;
 

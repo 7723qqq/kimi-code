@@ -1,3 +1,4 @@
+import type { Event2 } from '@moonshot-ai/agent-core-v2';
 /**
  * v2 → v1 event translation for the SDK event channel (pure mapping layer).
  *
@@ -15,7 +16,6 @@
  * `{type, payload}` envelope.
  */
 import type { Event } from '@moonshot-ai/agent-core-v2/contract';
-import type { Event2 } from '@moonshot-ai/agent-core-v2';
 
 /**
  * DomainEvent types the v1 SDK event stream never carries:

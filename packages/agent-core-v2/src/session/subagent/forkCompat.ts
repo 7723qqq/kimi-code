@@ -1,9 +1,9 @@
 export const FORK_CANNOT_COMBINE_WITH_RESUME =
-  'Cannot use fork with resume — fork creates a new subagent from the caller\'s snapshot; resume targets an existing agent by id.';
+  "Cannot use fork with resume — fork creates a new subagent from the caller's snapshot; resume targets an existing agent by id.";
 export const FORK_CANNOT_COMBINE_WITH_SUBAGENT_TYPE =
-  'Cannot use fork with subagent_type — a forked subagent inherits the caller\'s profile. Omit subagent_type to use fork.';
+  "Cannot use fork with subagent_type — a forked subagent inherits the caller's profile. Omit subagent_type to use fork.";
 export const FORK_CANNOT_COMBINE_WITH_MODEL =
-  'Cannot use fork with model — a forked subagent inherits the caller\'s model. Omit model to use fork.';
+  "Cannot use fork with model — a forked subagent inherits the caller's model. Omit model to use fork.";
 
 export interface ForkCompatInputLike {
   readonly fork?: boolean;

@@ -64,19 +64,18 @@ export interface LlmStatusErrorInfo {
   readonly headers: Record<string, string> | null;
 }
 
-export type LlmErrorMessage<T extends LlmErrorKind = LlmErrorKind> =
-  T extends LlmStatusErrorKind
-    ? { readonly kind: T; readonly message: string } & LlmStatusErrorInfo
-    : T extends 'syntax'
-      ? { readonly kind: T; readonly message: string; readonly code: LlmSyntaxErrorCode }
-      : T extends 'empty_response'
-        ? {
-            readonly kind: T;
-            readonly message: string;
-            readonly finishReason: FinishReason | null;
-            readonly rawFinishReason: string | null;
-          }
-        : { readonly kind: T; readonly message: string };
+export type LlmErrorMessage<T extends LlmErrorKind = LlmErrorKind> = T extends LlmStatusErrorKind
+  ? { readonly kind: T; readonly message: string } & LlmStatusErrorInfo
+  : T extends 'syntax'
+    ? { readonly kind: T; readonly message: string; readonly code: LlmSyntaxErrorCode }
+    : T extends 'empty_response'
+      ? {
+          readonly kind: T;
+          readonly message: string;
+          readonly finishReason: FinishReason | null;
+          readonly rawFinishReason: string | null;
+        }
+      : { readonly kind: T; readonly message: string };
 
 export type LlmRemoteErrorMessage = LlmErrorMessage<LlmRemoteErrorKind>;
 

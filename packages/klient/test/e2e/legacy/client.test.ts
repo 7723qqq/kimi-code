@@ -1,3 +1,9 @@
+import type { FileMeta } from '@moonshot-ai/agent-core-v2';
+import type { ModelCatalogItem, ProviderCatalogItem } from '@moonshot-ai/agent-core-v2';
+import { ErrorCode } from '@moonshot-ai/kap-server/protocol/error-codes';
+import type { Message } from '@moonshot-ai/kap-server/protocol/message';
+import type { SessionStatusResponse } from '@moonshot-ai/kap-server/protocol/rest-session';
+import type { Session } from '@moonshot-ai/kap-server/protocol/session';
 /**
  * Self-tests for `DaemonClient` against a live server at
  * `process.env.KIMI_SERVER_URL ?? http://127.0.0.1:58627`.
@@ -14,16 +20,6 @@
  *   5. Created session is observable via `getSession`.
  */
 import { afterEach, describe, expect, it } from 'vitest';
-
-import type { FileMeta } from '@moonshot-ai/agent-core-v2';
-import type {
-  ModelCatalogItem,
-  ProviderCatalogItem,
-} from '@moonshot-ai/agent-core-v2';
-import { ErrorCode } from '@moonshot-ai/kap-server/protocol/error-codes';
-import type { Message } from '@moonshot-ai/kap-server/protocol/message';
-import type { SessionStatusResponse } from '@moonshot-ai/kap-server/protocol/rest-session';
-import type { Session } from '@moonshot-ai/kap-server/protocol/session';
 
 import { DaemonClient, EnvelopeError } from '../harness/index.js';
 import { fetchWithReport } from '../harness/report.js';
@@ -245,7 +241,8 @@ describeLive('DaemonClient (live server required)', () => {
       expect(beforeCompact.items.some((m) => m.role === 'assistant')).toBe(true);
 
       const populatedCompactRequest = {
-        instruction: 'Preserve the compact-test code word and the fact that the assistant replied OK.',
+        instruction:
+          'Preserve the compact-test code word and the fact that the assistant replied OK.',
       };
       successLog('request', {
         method: 'POST',
@@ -507,10 +504,16 @@ describe('DaemonClient session action helpers', () => {
     log('fetch calls', calls);
     expect(calls.map((call) => [call.init.method, call.url])).toEqual([
       ['POST', 'http://server.example.test/api/v1/sessions/sess_parent/children'],
-      ['GET', 'http://server.example.test/api/v1/sessions/sess_parent/children?page_size=5&busy=false'],
+      [
+        'GET',
+        'http://server.example.test/api/v1/sessions/sess_parent/children?page_size=5&busy=false',
+      ],
       ['GET', 'http://server.example.test/api/v1/sessions/sess_parent/approvals?status=pending'],
       ['GET', 'http://server.example.test/api/v1/sessions/sess_parent/questions?status=pending'],
-      ['POST', 'http://server.example.test/api/v1/sessions/sess_parent/questions/question_1:dismiss'],
+      [
+        'POST',
+        'http://server.example.test/api/v1/sessions/sess_parent/questions/question_1:dismiss',
+      ],
     ]);
     expect(parseRecordedJsonBody(calls[0])).toEqual({
       title: 'Child session',
@@ -525,13 +528,7 @@ describe('DaemonClient session action helpers', () => {
     const file = testFile({ id: 'file_png', name: 'tiny.png', media_type: 'image/png', size: 3 });
     const client = new DaemonClient({
       baseUrl: 'http://server.example.test',
-      fetchImpl: recordingFetchSequence(
-        [
-          okEnvelope(file),
-          okEnvelope({ deleted: true }),
-        ],
-        calls,
-      ),
+      fetchImpl: recordingFetchSequence([okEnvelope(file), okEnvelope({ deleted: true })], calls),
     });
 
     await expect(
@@ -717,7 +714,9 @@ function testSessionStatus(): SessionStatusResponse {
   };
 }
 
-function textFromMessages(messages: Array<{ content: Array<{ type: string; text?: string }> }>): string {
+function textFromMessages(
+  messages: Array<{ content: Array<{ type: string; text?: string }> }>,
+): string {
   return messages
     .flatMap((message) => message.content)
     .filter((part) => part.type === 'text')

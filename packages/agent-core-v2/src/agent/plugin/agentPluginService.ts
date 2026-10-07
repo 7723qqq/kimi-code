@@ -1,28 +1,25 @@
-import { Service } from '#/_base/di/service';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Service } from '#/_base/di/service';
 import { ILogService } from '#/_base/log/log';
-import { defineState } from '#/state/state';
 import { escapeXmlAttr } from '#/_base/utils/xml-escape';
-import { IAgentReminderService } from '#/features/reminder/reminderService';
-import type { ContextInjectionContext } from '#/features/reminder/types';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
-import { systemReminderContent } from '#/features/reminder/systemReminder';
 import { IPluginService } from '#/app/plugin/plugin';
 import type { EnabledPluginSessionStart, PluginMutation } from '#/app/plugin/types';
+import { LifecycleScope } from '#/app/scopes';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
+import { systemReminderContent } from '#/features/reminder/systemReminder';
+import type { ContextInjectionContext } from '#/features/reminder/types';
 import { PLUGIN_SKILL_SOURCE_ID } from '#/features/skill/catalog/skillSource';
 import type { SkillCatalog, SkillDefinition } from '#/features/skill/catalog/types';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { IEventDispatcher } from '#/state/eventDispatcher';
+import { defineState } from '#/state/state';
 
 import { IAgentPluginService } from './agentPlugin';
-import {
-  PluginSessionStartEvent,
-  pluginSessionStartSnapshotKey,
-} from './agentPluginOps';
+import { PluginSessionStartEvent, pluginSessionStartSnapshotKey } from './agentPluginOps';
 
 const SESSION_START_INJECTION_VARIANT = 'plugin_session_start';
 
@@ -49,8 +46,7 @@ const MAIN_AGENT_ID = 'main';
 const SUPERSEDES_SUFFIX =
   'This supersedes any earlier plugin_session_start reminder in this session.';
 
-const NO_ACTIVE_SESSION_STARTS =
-  `There are currently no active plugin session starts. ${SUPERSEDES_SUFFIX}`;
+const NO_ACTIVE_SESSION_STARTS = `There are currently no active plugin session starts. ${SUPERSEDES_SUFFIX}`;
 
 export const pluginSessionStartRefreshPendingKey = defineState<boolean>(
   'agentPlugin.sessionStartRefreshPending',
@@ -225,7 +221,11 @@ function renderPluginSessionStartReminder(
       continue;
     }
     blocks.push(
-      renderSessionStartBlock(sessionStart, skill, catalog.renderSkillPrompt(skill, '', { sessionId })),
+      renderSessionStartBlock(
+        sessionStart,
+        skill,
+        catalog.renderSkillPrompt(skill, '', { sessionId }),
+      ),
     );
   }
   return blocks.length > 0 ? blocks.join('\n') : undefined;

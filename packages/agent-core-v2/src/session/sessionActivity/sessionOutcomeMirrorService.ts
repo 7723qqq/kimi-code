@@ -1,17 +1,14 @@
 import { Disposable, DisposableStore } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { LifecycleScope } from '#/app/scopes';
-import { IEventBus } from '#/app/event/eventBus';
 import { TurnStarted } from '#/agent/loop/turnEvents';
 import { TurnEnded, turnKey } from '#/agent/loop/turnOps';
-import { ContextUndone } from '#/agent/undo/undoService';
 import { IAgentStateService } from '#/agent/state/agentState';
-import { IEventDispatcher } from '#/state/eventDispatcher';
-import {
-  IAgentLifecycleService,
-  MAIN_AGENT_ID,
-} from '#/session/agentLifecycle/agentLifecycle';
+import { ContextUndone } from '#/agent/undo/undoService';
+import { IEventBus } from '#/app/event/eventBus';
+import { LifecycleScope } from '#/app/scopes';
+import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
+import { IEventDispatcher } from '#/state/eventDispatcher';
 
 import type { SessionTurnOutcome } from './sessionActivity';
 import { ISessionOutcomeMirror } from './sessionOutcomeMirror';
@@ -38,14 +35,18 @@ export class SessionOutcomeMirror extends Disposable implements ISessionOutcomeM
       })
       .catch(() => {});
     this.attachMain();
-    this._register(this.agents.onDidCreate((agent) => {
-      if (agent.agentId === MAIN_AGENT_ID) this.attachMain();
-    }));
-    this._register(this.agents.onDidClose((agent) => {
-      if (agent.agentId !== MAIN_AGENT_ID) return;
-      this.mainSubscription?.dispose();
-      this.mainSubscription = undefined;
-    }));
+    this._register(
+      this.agents.onDidCreate((agent) => {
+        if (agent.agentId === MAIN_AGENT_ID) this.attachMain();
+      }),
+    );
+    this._register(
+      this.agents.onDidClose((agent) => {
+        if (agent.agentId !== MAIN_AGENT_ID) return;
+        this.mainSubscription?.dispose();
+        this.mainSubscription = undefined;
+      }),
+    );
     this._register({
       dispose: () => {
         this.mainSubscription?.dispose();

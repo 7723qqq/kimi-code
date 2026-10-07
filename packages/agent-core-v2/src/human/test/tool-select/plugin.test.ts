@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { createActor, waitFor } from '#/xstate2';
+import { createAgentMachine, type AgentEmitted } from '#/agent/machine';
+import { agentSlices, type AgentEventStore } from '#/agent/slices';
+import type { HistoryMessage } from '#/agent/turn';
+import { createEventStore } from '#/eventStore/eventStore';
+import { journalFromBranch } from '#/eventStore/journal';
 import { UNKNOWN_CAPABILITY } from '#/llm/capability';
 import {
   createAssistantMessage,
@@ -13,28 +17,24 @@ import {
 import type { LlmModel } from '#/llm/model';
 import type { LlmRequestConfig, LlmRequester, LlmRequestEvent } from '#/llm/requester/requester';
 import { connectPlugins, type AgentPluginTarget } from '#/plugin';
-import { createAgentMachine, type AgentEmitted } from '#/agent/machine';
-import { agentSlices, type AgentEventStore } from '#/agent/slices';
-import type { HistoryMessage } from '#/agent/turn';
-import { createEventStore } from '#/eventStore/eventStore';
-import { journalFromBranch } from '#/eventStore/journal';
 import { MemoryBackend } from '#/store/backend/memory';
 import { TreeStore } from '#/store/store';
 import { testScopeFactory } from '#/test/agent/scope-factory';
-import type { ToolExecuteInput } from '#/tool/executor';
-import { defineTool, type ToolDefinition } from '#/tool/tool';
-import {
-  createToolSelectState,
-  SELECT_TOOLS_TOOL_NAME,
-  type ToolSelectState,
-} from '#/tool-select/state';
-import { createSelectToolsTool, deferTool } from '#/tool-select/tool';
 import {
   createToolSelectPlugin,
   DYNAMIC_TOOL_SCHEMA_REMINDER_KEY,
   LOADABLE_TOOLS_REMINDER_KEY,
 } from '#/tool-select/plugin';
 import { createToolSelectMessageResolver } from '#/tool-select/resolver';
+import {
+  createToolSelectState,
+  SELECT_TOOLS_TOOL_NAME,
+  type ToolSelectState,
+} from '#/tool-select/state';
+import { createSelectToolsTool, deferTool } from '#/tool-select/tool';
+import type { ToolExecuteInput } from '#/tool/executor';
+import { defineTool, type ToolDefinition } from '#/tool/tool';
+import { createActor, waitFor } from '#/xstate2';
 
 const model: LlmModel = { provider: 'test', model: 'test-model', capability: UNKNOWN_CAPABILITY };
 
@@ -51,7 +51,10 @@ async function testStore(): Promise<AgentEventStore> {
   const store = await TreeStore.open(backend, {});
   const tree = await store.tree('test');
   tree.createBranch('main');
-  return createEventStore({ journal: journalFromBranch(tree.openBranch('main'), tree), slices: agentSlices });
+  return createEventStore({
+    journal: journalFromBranch(tree.openBranch('main'), tree),
+    slices: agentSlices,
+  });
 }
 
 function weatherTool(execute?: ToolDefinition['execute']): ToolDefinition {
@@ -59,9 +62,7 @@ function weatherTool(execute?: ToolDefinition['execute']): ToolDefinition {
     name: 'get_weather',
     description: 'get weather',
     parameters: { type: 'object', properties: { city: { type: 'string' } } },
-    execute:
-      execute ??
-      (() => Promise.resolve({ content: [{ type: 'text', text: 'sunny' }] })),
+    execute: execute ?? (() => Promise.resolve({ content: [{ type: 'text', text: 'sunny' }] })),
   });
 }
 
@@ -202,8 +203,14 @@ describe('tool select plugin', () => {
     emit({
       type: 'turn.reminders_consumed',
       reminders: [
-        { message: reminded[0]?.message as UserMessage, meta: { source: 'reminder', key: LOADABLE_TOOLS_REMINDER_KEY } },
-        { message: schemaMessage, meta: { source: 'reminder', key: DYNAMIC_TOOL_SCHEMA_REMINDER_KEY } },
+        {
+          message: reminded[0]?.message as UserMessage,
+          meta: { source: 'reminder', key: LOADABLE_TOOLS_REMINDER_KEY },
+        },
+        {
+          message: schemaMessage,
+          meta: { source: 'reminder', key: DYNAMIC_TOOL_SCHEMA_REMINDER_KEY },
+        },
       ],
     });
     expect(state.isLoaded('get_weather')).toBe(true);
@@ -315,20 +322,18 @@ describe('tool select agent flow', () => {
     connectPlugins(actor, [plugin]);
     actor.start();
     actor.send({ type: 'input.submit', entry: { message: createUserMessage('weather?') } });
-    await waitFor(
-      actor,
-      (s) => s.matches('idle') && store.getState().history.length > 1,
-      { timeout: 5000 },
-    );
+    await waitFor(actor, (s) => s.matches('idle') && store.getState().history.length > 1, {
+      timeout: 5000,
+    });
 
     const firstTools = configs[0]?.tools?.map((tool) => tool.name) ?? [];
     expect(firstTools).toContain(SELECT_TOOLS_TOOL_NAME);
     expect(firstTools).not.toContain('get_weather');
     expect(executed).toEqual(['get_weather']);
 
-    const schemaEntry = store.getState().history.find(
-      (entry: HistoryMessage) => entry.message.role === 'system',
-    );
+    const schemaEntry = store
+      .getState()
+      .history.find((entry: HistoryMessage) => entry.message.role === 'system');
     expect(schemaEntry?.meta?.key).toBe(DYNAMIC_TOOL_SCHEMA_REMINDER_KEY);
     const schemaMessage = schemaEntry?.message as SystemMessage;
     expect(schemaMessage.tools?.map((tool) => tool.name)).toEqual(['get_weather']);

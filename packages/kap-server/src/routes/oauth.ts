@@ -46,10 +46,7 @@ interface RouteHost {
   ): unknown;
 }
 
-const oauthFlowSnapshotOrNullSchema = z.union([
-  oauthFlowSnapshotSchema,
-  z.null(),
-]);
+const oauthFlowSnapshotOrNullSchema = z.union([oauthFlowSnapshotSchema, z.null()]);
 
 export function registerOAuthRoutes(app: RouteHost, core: Scope): void {
   const loginStartRoute = defineRoute(
@@ -65,7 +62,10 @@ export function registerOAuthRoutes(app: RouteHost, core: Scope): void {
       const result = await core.accessor
         .get(IOAuthService)
         .startLogin(req.body.provider, { region: req.body.region });
-      requestLog(req)?.info({ provider: req.body.provider, action: 'login' }, 'oauth login started');
+      requestLog(req)?.info(
+        { provider: req.body.provider, action: 'login' },
+        'oauth login started',
+      );
       reply.send(okEnvelope(result, req.id));
     },
   );

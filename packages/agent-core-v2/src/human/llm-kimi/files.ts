@@ -3,8 +3,8 @@ import { Blob, File } from 'node:buffer';
 import type OpenAI from 'openai';
 import OpenAIClient from 'openai';
 
-import type { ImageURLPart, VideoURLPart } from '#/llm/message';
 import type { ImageUploadInput, VideoUploadInput } from '#/llm/media/upload';
+import type { ImageURLPart, VideoURLPart } from '#/llm/message';
 import type { LlmModel } from '#/llm/model';
 
 import { KIMI_DEFAULT_BASE_URL } from './trait';
@@ -39,10 +39,7 @@ export class KimiFiles {
           });
   }
 
-  async uploadVideo(
-    input: VideoUploadInput,
-    options?: KimiUploadOptions,
-  ): Promise<VideoURLPart> {
+  async uploadVideo(input: VideoUploadInput, options?: KimiUploadOptions): Promise<VideoURLPart> {
     if (!input.mimeType.startsWith('video/')) {
       throw new Error(`Expected a video mime type, got ${input.mimeType}`);
     }
@@ -56,10 +53,7 @@ export class KimiFiles {
     };
   }
 
-  async uploadImage(
-    input: ImageUploadInput,
-    options?: KimiUploadOptions,
-  ): Promise<ImageURLPart> {
+  async uploadImage(input: ImageUploadInput, options?: KimiUploadOptions): Promise<ImageURLPart> {
     if (!input.mimeType.startsWith('image/')) {
       throw new Error(`Expected an image mime type, got ${input.mimeType}`);
     }

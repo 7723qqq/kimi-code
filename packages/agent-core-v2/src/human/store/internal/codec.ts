@@ -21,7 +21,10 @@ function parseObject(raw: string): Record<string, unknown> {
   try {
     value = JSON.parse(raw);
   } catch (error) {
-    throw new CodecException('syntax', error instanceof Error ? error.message : 'is not valid JSON');
+    throw new CodecException(
+      'syntax',
+      error instanceof Error ? error.message : 'is not valid JSON',
+    );
   }
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
     throw new CodecException('schema', 'is not a JSON object');

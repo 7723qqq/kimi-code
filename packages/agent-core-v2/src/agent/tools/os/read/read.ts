@@ -28,9 +28,14 @@ export const ReadInputSchema = z.object({
     .describe(
       'The line number to start reading from. Omit to start at line 1. Negative values read from the end of the file (for example, -100 reads the last 100 lines).',
     ),
-  column_offset: z.number().int().nonnegative().optional().describe(
-    'Zero-based character offset within the first line of a forward read, excluding its line-number prefix. Uses JavaScript string length in the displayed text. Copy continuation arguments from the previous result to resume a long line.',
-  ),
+  column_offset: z
+    .number()
+    .int()
+    .nonnegative()
+    .optional()
+    .describe(
+      'Zero-based character offset within the first line of a forward read, excluding its line-number prefix. Uses JavaScript string length in the displayed text. Copy continuation arguments from the previous result to resume a long line.',
+    ),
   n_lines: z
     .number()
     .int()
@@ -60,9 +65,14 @@ export const ReadInputSchema = z.object({
         'explicit error when the payload would exceed the per-image byte limit; use region for ' +
         'files that large.',
     ),
-  max_chars: z.number().int().positive().optional().describe(
-    'Maximum characters in the returned text, including line numbers and status. Omit for the configured default; requests above the configured maximum are capped.',
-  ),
+  max_chars: z
+    .number()
+    .int()
+    .positive()
+    .optional()
+    .describe(
+      'Maximum characters in the returned text, including line numbers and status. Omit for the configured default; requests above the configured maximum are capped.',
+    ),
 });
 
 export const ReadOutputSchema = z.object({

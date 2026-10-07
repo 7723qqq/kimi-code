@@ -1,15 +1,10 @@
-import { LifecycleScope } from '#/app/scopes';
-
-import {
-  type IAgentScopeHandle,
-  ScopeActivation,
-  registerScopedService,
-} from '#/_base/di/scope';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import { Error2, ErrorCodes } from '#/errors';
+import { type IAgentScopeHandle, ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
-import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { IAgentLoopService } from '#/agent/loop/loop';
+import { LifecycleScope } from '#/app/scopes';
+import { ISessionManager } from '#/app/sessionManager/sessionManager';
+import { Error2, ErrorCodes } from '#/errors';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 
 import { IRestGateway, IWSGateway } from './gateway';
 
@@ -19,7 +14,7 @@ export class RestGateway implements IRestGateway {
   constructor(
     @ISessionManager private readonly sessions: ISessionManager,
     @ILogService private readonly log: ILogService,
-  ) { }
+  ) {}
 
   private agent(sessionId: string, agentId: string): IAgentScopeHandle {
     const session = this.liveSession(sessionId);
@@ -103,9 +98,20 @@ export class WSGateway implements IWSGateway {
   connect(connectionId: string): void {
     this.connections.add(connectionId);
   }
-  broadcast(_sessionId: string, _event: unknown): void {
-  }
+  broadcast(_sessionId: string, _event: unknown): void {}
 }
 
-registerScopedService(LifecycleScope.App, IRestGateway, RestGateway, ScopeActivation.OnScopeCreated, 'gateway');
-registerScopedService(LifecycleScope.App, IWSGateway, WSGateway, ScopeActivation.OnScopeCreated, 'gateway');
+registerScopedService(
+  LifecycleScope.App,
+  IRestGateway,
+  RestGateway,
+  ScopeActivation.OnScopeCreated,
+  'gateway',
+);
+registerScopedService(
+  LifecycleScope.App,
+  IWSGateway,
+  WSGateway,
+  ScopeActivation.OnScopeCreated,
+  'gateway',
+);

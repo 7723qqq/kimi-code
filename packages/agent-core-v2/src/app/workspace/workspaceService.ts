@@ -1,9 +1,10 @@
 import { basename, isAbsolute } from 'pathe';
-import { LifecycleScope } from '#/app/scopes';
+
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { encodeWorkDirKey, workspaceRootKey } from '#/_base/utils/workdir-slug';
 import { IEventService } from '#/app/event/event';
+import { LifecycleScope } from '#/app/scopes';
 import { ErrorCodes, Error2, unwrapErrorCause } from '#/errors';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
@@ -11,17 +12,13 @@ import { IFileSystemStorageService } from '#/persistence/interface/storage';
 
 import { IWorkspaceService, type Workspace, type WorkspaceUpdate } from './workspace';
 import {
-  WorkspaceCreated,
-  WorkspaceDeleted,
-  WorkspaceUpdated,
-} from './workspaceEvents';
-import {
   collectAliasIds,
   compactSessionIndexIfStale,
   dedupeByRoot,
   readSessionIndexEntries,
   readSessionIndexWorkDirs,
 } from './workspaceAlias';
+import { WorkspaceCreated, WorkspaceDeleted, WorkspaceUpdated } from './workspaceEvents';
 import { IWorkspacePersistence, type WorkspaceCatalog } from './workspacePersistence';
 
 export class WorkspaceService implements IWorkspaceService {
@@ -71,8 +68,7 @@ export class WorkspaceService implements IWorkspaceService {
       if (!stat.isDirectory) {
         try {
           stat = await this.hostFs.stat(await this.hostFs.realpath(root));
-        } catch {
-        }
+        } catch {}
       }
       if (!stat.isDirectory) {
         throw new Error2(ErrorCodes.FS_PATH_NOT_FOUND, `workspace root ${root} is not a directory`);

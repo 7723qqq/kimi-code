@@ -1,6 +1,15 @@
 import { normalize, resolve } from 'pathe';
 
-import { ensureRgPath, rgUnavailableMessage, type RgProbe } from '#/os/backends/host/tools/rgLocator';
+import { unwrapErrorCause } from '#/_base/errors/errors';
+import { IAgentRuntimeService, inspectAgentRuntime } from '#/agent/runtimeBinding/agentRuntime';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
+import {
+  ensureRgPath,
+  rgUnavailableMessage,
+  type RgProbe,
+} from '#/os/backends/host/tools/rgLocator';
 import {
   DEFAULT_TIMEOUT_MS,
   MAX_OUTPUT_BYTES,
@@ -10,19 +19,9 @@ import {
 import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import type { IHostProcessService } from '#/os/interface/hostProcess';
-import { IAgentRuntimeService, inspectAgentRuntime } from '#/agent/runtimeBinding/agentRuntime';
-import { unwrapErrorCause } from '#/_base/errors/errors';
 import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
-import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import {
-  DEFAULT_TOOL_RESULT_MAX_RETAINED_CHARS,
-  ToolAccesses,
-  type ExecutableToolResult,
-  type ToolExecution,
-} from '#/tool/toolContract';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import { toInputJsonSchema } from '#/tool/input-schema';
 import {
   isWithinDirectory,
   resolvePathAccessPath,
@@ -31,9 +30,14 @@ import {
   SENSITIVE_DOT_VARIANT_SUFFIXES,
   type WorkspaceConfig,
 } from '#/tool/path-access';
-import { toInputJsonSchema } from '#/tool/input-schema';
 import { literalRulePattern, matchesGlobRuleSubject } from '#/tool/rule-match';
-import globDescription from './glob.md?raw';
+import {
+  DEFAULT_TOOL_RESULT_MAX_RETAINED_CHARS,
+  ToolAccesses,
+  type ExecutableToolResult,
+  type ToolExecution,
+} from '#/tool/toolContract';
+
 import {
   type GlobInput,
   GlobInputSchema,
@@ -41,6 +45,7 @@ import {
   DEFAULT_HEAD_LIMIT,
   WINDOWS_PATH_HINT,
 } from './glob';
+import globDescription from './glob.md?raw';
 
 const VCS_DIRECTORIES_TO_EXCLUDE = ['.git', '.svn', '.hg', '.bzr', '.jj', '.sl'] as const;
 
@@ -124,7 +129,10 @@ export class GlobTool implements IGlobTool {
         const lease = this.runtime.acquire(['fs', 'process']);
         try {
           if (lease.runtime.identity.generation !== inspected.identity.generation) {
-            return { isError: true, output: 'Runtime changed before execution. Retry the tool call.' };
+            return {
+              isError: true,
+              output: 'Runtime changed before execution. Retry the tool call.',
+            };
           }
           return await this.execution(
             lease.runtime.fs!,
@@ -202,7 +210,9 @@ export class GlobTool implements IGlobTool {
 
     if (shouldRetryRipgrepEagain(run)) {
       try {
-        run = await runRgOnce(processService, buildRgArgs(rgPath, args, true), signal, { cwd: searchRoot });
+        run = await runRgOnce(processService, buildRgArgs(rgPath, args, true), signal, {
+          cwd: searchRoot,
+        });
       } catch (error) {
         return { isError: true, output: formatSpawnError(error) };
       }
@@ -289,12 +299,12 @@ export class GlobTool implements IGlobTool {
           : String(kept.length);
         lines.push(`Showing matches ${String(offset + 1)}–${String(offset + count)} of ${total}.`);
       }
-      if (characterLimited) lines.push('Character limit reached; only complete paths are returned.');
+      if (characterLimited)
+        lines.push('Character limit reached; only complete paths are returned.');
       if (truncated) {
-        lines.push(
-          `Continue with the same search arguments and offset=${String(offset + count)}.`,
-        );
-        if (!characterLimited) lines.push('To remove the match-count limit, omit offset and use head_limit=0.');
+        lines.push(`Continue with the same search arguments and offset=${String(offset + count)}.`);
+        if (!characterLimited)
+          lines.push('To remove the match-count limit, omit offset and use head_limit=0.');
       }
       if (filteredSensitive > 0 && (kept.length > 0 || partial)) {
         footer.push(`Filtered ${String(filteredSensitive)} sensitive file(s).`);
@@ -304,10 +314,12 @@ export class GlobTool implements IGlobTool {
       }
       return { lines, footer };
     };
-    const noticeChars = Math.max(...[false, true].map((characterLimited) => {
-      const { lines, footer } = pageNotices(candidates.length, characterLimited);
-      return [...lines, ...footer].join('\n').length + 2;
-    }));
+    const noticeChars = Math.max(
+      ...[false, true].map((characterLimited) => {
+        const { lines, footer } = pageNotices(candidates.length, characterLimited);
+        return [...lines, ...footer].join('\n').length + 2;
+      }),
+    );
     let remaining = DEFAULT_TOOL_RESULT_MAX_RETAINED_CHARS - noticeChars;
     const displayLines: string[] = [];
     for (const path of candidates) {
@@ -318,7 +330,8 @@ export class GlobTool implements IGlobTool {
     if (candidates.length > 0 && displayLines.length === 0) {
       return {
         isError: true,
-        output: 'Glob cannot fit a complete path and its diagnostics within the output limit. Narrow the search path or pattern.',
+        output:
+          'Glob cannot fit a complete path and its diagnostics within the output limit. Narrow the search path or pattern.',
       };
     }
     const notices = pageNotices(displayLines.length, displayLines.length < candidates.length);
@@ -340,15 +353,13 @@ function createRgProbe(processService: IHostProcessService): RgProbe {
       const proc = await processService.spawn(command, rest);
       try {
         proc.stdin.end();
-      } catch {
-      }
+      } catch {}
       proc.stdout.resume();
       proc.stderr.resume();
       const exitCode = await proc.wait();
       try {
         void proc.dispose();
-      } catch {
-      }
+      } catch {}
       return { exitCode };
     },
   };

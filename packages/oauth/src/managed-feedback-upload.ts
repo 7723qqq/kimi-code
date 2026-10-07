@@ -65,7 +65,10 @@ export async function fetchCreateFeedbackUploadUrl(
   if (result.kind === 'error') return result;
   const parsed = readUpload(result.payload);
   if (parsed === undefined) {
-    return { kind: 'error', message: 'Feedback upload request failed: missing upload id or parts.' };
+    return {
+      kind: 'error',
+      message: 'Feedback upload request failed: missing upload id or parts.',
+    };
   }
   return { kind: 'ok', upload_id: parsed.uploadId, parts: parsed.parts };
 }
@@ -75,7 +78,12 @@ export async function fetchCompleteFeedbackUpload(
   body: CompleteFeedbackUploadBody,
   opts: { timeoutMs?: number; baseUrl?: string } = {},
 ): Promise<FetchCompleteFeedbackUploadResult> {
-  const result = await postJson(kimiCodeFeedbackUploadCompleteUrl(opts.baseUrl), accessToken, body, opts);
+  const result = await postJson(
+    kimiCodeFeedbackUploadCompleteUrl(opts.baseUrl),
+    accessToken,
+    body,
+    opts,
+  );
   if (result.kind === 'error') return result;
   return { kind: 'ok' };
 }
@@ -105,7 +113,10 @@ async function postJson(
       return {
         kind: 'error',
         status: res.status,
-        message: await readApiErrorMessage(res, `Feedback upload request failed: HTTP ${res.status}`),
+        message: await readApiErrorMessage(
+          res,
+          `Feedback upload request failed: HTTP ${res.status}`,
+        ),
       };
     }
     const text = await res.text();

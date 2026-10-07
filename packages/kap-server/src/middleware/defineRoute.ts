@@ -49,20 +49,12 @@ function buildUnifiedResponseSchema(
     .sort((a, b) => a[0] - b[0]);
 
   if (errorEntries.length === 0) {
-    return openApiDocumentJsonSchema(
-      buildSuccessEnvelopeSchema(successDataSchema),
-      'output',
-    );
+    return openApiDocumentJsonSchema(buildSuccessEnvelopeSchema(successDataSchema), 'output');
   }
 
   const variants: Record<string, unknown>[] = [];
 
-  variants.push(
-    openApiDocumentJsonSchema(
-      buildSuccessEnvelopeSchema(successDataSchema),
-      'output',
-    ),
-  );
+  variants.push(openApiDocumentJsonSchema(buildSuccessEnvelopeSchema(successDataSchema), 'output'));
 
   for (const [code, cfg] of errorEntries) {
     variants.push(
@@ -76,9 +68,7 @@ function buildUnifiedResponseSchema(
   return { oneOf: variants };
 }
 
-type InferZod<T extends z.ZodTypeAny | undefined> = T extends z.ZodTypeAny
-  ? z.infer<T>
-  : unknown;
+type InferZod<T extends z.ZodTypeAny | undefined> = T extends z.ZodTypeAny ? z.infer<T> : unknown;
 
 export interface DefineRouteOptions<
   TBody extends z.ZodTypeAny | undefined,

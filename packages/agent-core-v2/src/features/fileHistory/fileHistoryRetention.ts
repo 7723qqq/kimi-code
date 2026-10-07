@@ -38,9 +38,9 @@ export function touchFileHistorySession(input: FileHistoryRetentionInput): Promi
 }
 
 async function applyTouch(input: FileHistoryRetentionInput): Promise<void> {
-  const doc =
-    (await input.docs.get<RetentionDoc>(RETENTION_DOC_SCOPE, input.workspaceId)) ??
-    { sessions: [] };
+  const doc = (await input.docs.get<RetentionDoc>(RETENTION_DOC_SCOPE, input.workspaceId)) ?? {
+    sessions: [],
+  };
   const sessions = doc.sessions.filter((entry) => entry.id !== input.sessionId);
   sessions.push({ id: input.sessionId, touchedAt: Date.now() });
   sessions.sort((a, b) => a.touchedAt - b.touchedAt);

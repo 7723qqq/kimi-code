@@ -1,16 +1,11 @@
 import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
+import { LifecycleScope } from '#/app/scopes';
 import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 
-import {
-  IAgentContextMemoryService,
-  type ContextCompactionInput,
-  type ContextCompactionResult,
-} from './contextMemory';
 import { buildContextCompactionShape, type TokenEstimate } from './compactionHandoff';
 import {
   ContextApplyCompaction,
@@ -20,6 +15,11 @@ import {
   ContextSpliced,
   type ContextSplicedPayload,
 } from './contextEvents';
+import {
+  IAgentContextMemoryService,
+  type ContextCompactionInput,
+  type ContextCompactionResult,
+} from './contextMemory';
 import { contextMemoryKey } from './contextOps';
 import type { LoopRecordedEvent } from './loopEventFold';
 import type { ContextMessage } from './types';

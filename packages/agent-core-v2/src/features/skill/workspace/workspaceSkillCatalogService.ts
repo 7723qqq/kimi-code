@@ -1,12 +1,12 @@
 import { Disposable } from '#/_base/di/lifecycle';
 import { Emitter, type Event } from '#/_base/event';
-import { defineState } from '#/state/state';
 import { IBuiltinSkillSource } from '#/features/skill/catalog/builtinSkillSource';
 import { InMemorySkillCatalog } from '#/features/skill/catalog/registry';
 import type { ISkillSource, SkillContribution } from '#/features/skill/catalog/skillSource';
 import type { SkillCatalog } from '#/features/skill/catalog/types';
 import { IUserFileSkillSource } from '#/features/skill/catalog/userFileSkillSource';
 import type { ISessionSkillCatalogData } from '#/features/skill/session/skillCatalogData';
+import { defineState } from '#/state/state';
 import { IWorkspaceStateService } from '#/workspace/state/workspaceState';
 
 import { IExplicitFileSkillSource } from './explicitFileSkillSource';
@@ -117,14 +117,16 @@ export class WorkspaceSkillCatalogService extends Disposable implements IWorkspa
 
   private loadSource(source: ISkillSource, fireChange = false): Promise<void> {
     const previous = this.sourceLoadTails.get(source) ?? Promise.resolve();
-    const current = previous.catch(() => undefined).then(async () => {
-      const contribution = await source.load();
-      this.contributions.set(source.id, { c: contribution, priority: source.priority });
-      if (fireChange) {
-        this.remerge();
-        this.onDidChangeEmitter.fire(source.id);
-      }
-    });
+    const current = previous
+      .catch(() => undefined)
+      .then(async () => {
+        const contribution = await source.load();
+        this.contributions.set(source.id, { c: contribution, priority: source.priority });
+        if (fireChange) {
+          this.remerge();
+          this.onDidChangeEmitter.fire(source.id);
+        }
+      });
     this.sourceLoadTails.set(source, current);
     const clear = () => {
       if (this.sourceLoadTails.get(source) === current) {
@@ -146,4 +148,3 @@ export class WorkspaceSkillCatalogService extends Disposable implements IWorkspa
     this.merged = m;
   }
 }
-

@@ -1,10 +1,16 @@
 import { createHash } from 'node:crypto';
 
-import { Service } from '#/_base/di/service';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { defineState } from '#/state/state';
+import { Service } from '#/_base/di/service';
 import { canonicalTelemetryArgs } from '#/_base/utils/canonical-args';
+import { parseBooleanEnv } from '#/_base/utils/env';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import { TurnEnded } from '#/agent/loop/turnOps';
+import { IAgentStateService } from '#/agent/state/agentState';
+import { IAgentToolExecutorService, type ToolCallDupType } from '#/agent/toolExecutor/toolExecutor';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IEventBus } from '#/app/event/eventBus';
+import { LifecycleScope } from '#/app/scopes';
 import type {
   ToolCallDedupDetectedEvent,
   ToolCallRepeatEvent,
@@ -12,17 +18,12 @@ import type {
   ToolCallTurnRepeatEvent,
 } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
-import { parseBooleanEnv } from '#/_base/utils/env';
-import { parseToolCallArguments } from '#/tool/tool-args-parse';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { IAgentLoopService } from '#/agent/loop/loop';
-import { IAgentStateService } from '#/agent/state/agentState';
-import { IEventBus } from '#/app/event/eventBus';
-import { TurnEnded } from '#/agent/loop/turnOps';
 import { wrapSystemReminder } from '#/features/reminder/systemReminder';
-import { IAgentToolExecutorService, type ToolCallDupType } from '#/agent/toolExecutor/toolExecutor';
+import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
+import { defineState } from '#/state/state';
+import { parseToolCallArguments } from '#/tool/tool-args-parse';
 import type { ContentPart } from '#human/llm/message';
+
 import {
   IAgentToolDedupeService,
   REPEAT_BREAKER_STOP_REASON,

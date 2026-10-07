@@ -4,8 +4,13 @@ import type { ResponseFormat } from '#human/llm/response-format';
 import type { ThinkingEffort } from '#human/llm/thinking';
 import type { TokenUsage } from '#human/llm/usage';
 
-import type { Message, StreamedMessagePart, Tool, ImageURLPart, VideoURLPart } from '../contract/message';
-
+import type {
+  Message,
+  StreamedMessagePart,
+  Tool,
+  ImageURLPart,
+  VideoURLPart,
+} from '../contract/message';
 import type { Model } from './catalog';
 
 export interface SamplingOptions {

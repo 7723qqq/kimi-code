@@ -1,22 +1,25 @@
 import { join, resolve } from 'pathe';
-import { LifecycleScope } from '#/app/scopes';
+
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import type { ISessionScopeHandle } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { resolveGlobalLogPath } from '#/_base/log/logConfig';
-import { IWireService } from '#/wire/wire';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { LifecycleScope } from '#/app/scopes';
 import { ISessionIndex, type SessionSummary } from '#/app/sessionIndex/sessionIndex';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { IWorkspaceService } from '#/app/workspace/workspace';
+import { ErrorCodes, Error2 } from '#/errors';
+import { FILE_HISTORY_BLOB_PREFIX } from '#/features/fileHistory/fileHistoryService';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
+import { IWireService } from '#/wire/wire';
 import {
   sessionDirOf,
   workspacePersistenceScope,
 } from '#/workspace/sessionLifecycle/internal/addressing';
-import { ErrorCodes, Error2 } from '#/errors';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 
+import { openZipSource, type ZipSource } from './file-source';
 import { buildExportManifest, type ExportSessionManifestSummary } from './manifest';
 import {
   type ExportSessionPayload,
@@ -31,8 +34,6 @@ import {
   collectFilesRecursive,
   writeExportZip,
 } from './zip';
-import { openZipSource, type ZipSource } from './file-source';
-import { FILE_HISTORY_BLOB_PREFIX } from '#/features/fileHistory/fileHistoryService';
 
 const SESSION_LOG_REL = 'logs/kimi-code.log';
 const GLOBAL_LOG_REL = 'logs/global/kimi-code.log';
@@ -204,8 +205,7 @@ export async function exportSessionDirectory(input: {
     const sessionScan = await scanSessionWire(sessionDir, input.signal);
     const stableSessionLog = sessionLogSource;
     const selectedSessionFiles: SessionZipEntry[] = sessionFiles.filter(
-      (file) =>
-        file !== sessionLogPath && !file.split(/[\\/]/).includes(FILE_HISTORY_BLOB_PREFIX),
+      (file) => file !== sessionLogPath && !file.split(/[\\/]/).includes(FILE_HISTORY_BLOB_PREFIX),
     );
     if (stableSessionLog !== undefined) {
       selectedSessionFiles.push({ path: sessionLogPath, source: stableSessionLog });

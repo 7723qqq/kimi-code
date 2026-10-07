@@ -1,14 +1,8 @@
 import type { IHostProcessService } from '#/os/interface/hostProcess';
 
-import { runHook } from './runHook';
-import type {
-  HookBlockDecision,
-  HookDef,
-  HookMatcherValue,
-  HookResult,
-} from './types';
-
 import type { ExternalHooksRunnerTriggerArgs } from '../app/externalHooksRunner';
+import { runHook } from './runHook';
+import type { HookBlockDecision, HookDef, HookMatcherValue, HookResult } from './types';
 
 const DEFAULT_HOOK_TIMEOUT_SECONDS = 30;
 

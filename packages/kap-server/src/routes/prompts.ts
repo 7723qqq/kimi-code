@@ -35,19 +35,11 @@ import {
   type ISessionScopeHandle,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
-import { annotateBundledSkillParts, isSkillActivationPart } from '@moonshot-ai/agent-core-v2/human/agent/origin';
 import { isUserPromptSubmitHookPart } from '@moonshot-ai/agent-core-v2/agent/contextMemory/hookParts';
-import { ErrorCode } from '../protocol/error-codes';
-import { projectPromptContentParts } from '../services/messages/messageProjection';
 import {
-  promptAbortResponseSchema,
-  promptListResponseSchema,
-  promptSteerRequestSchema,
-  promptSteerResultSchema,
-  promptSubmissionSchema,
-  promptSubmitResultSchema,
-  type PromptSkillActivation,
-} from '../protocol/rest-prompt';
+  annotateBundledSkillParts,
+  isSkillActivationPart,
+} from '@moonshot-ai/agent-core-v2/human/agent/origin';
 import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';
@@ -62,6 +54,17 @@ import {
 } from '../lib/promptMedia';
 import { requestLog } from '../lib/requestLog';
 import { defineRoute } from '../middleware/defineRoute';
+import { ErrorCode } from '../protocol/error-codes';
+import {
+  promptAbortResponseSchema,
+  promptListResponseSchema,
+  promptSteerRequestSchema,
+  promptSteerResultSchema,
+  promptSubmissionSchema,
+  promptSubmitResultSchema,
+  type PromptSkillActivation,
+} from '../protocol/rest-prompt';
+import { projectPromptContentParts } from '../services/messages/messageProjection';
 import { ensureMainAgent, MAIN_AGENT_ID } from '../transport/mainAgent';
 import { type ActionTable, resolveActionTarget, runAction } from './action-dispatch';
 
@@ -185,7 +188,11 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
       }
     },
   );
-  app.get(listRoute.path, listRoute.options, listRoute.handler as Parameters<PromptRouteHost['get']>[2]);
+  app.get(
+    listRoute.path,
+    listRoute.options,
+    listRoute.handler as Parameters<PromptRouteHost['get']>[2],
+  );
 
   const submitRoute = defineRoute(
     {
@@ -281,7 +288,8 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
         if (req.body.model !== undefined) await resolved.profile.setModel(req.body.model);
         if (req.body.thinking !== undefined && !thinkingConsumed)
           resolved.profile.setThinking(req.body.thinking);
-        if (req.body.permission_mode !== undefined) resolved.permissionMode.setMode(req.body.permission_mode);
+        if (req.body.permission_mode !== undefined)
+          resolved.permissionMode.setMode(req.body.permission_mode);
         if (req.body.disabled_tools !== undefined) {
           try {
             await resolved.toolPolicy.setSessionDisabledTools(req.body.disabled_tools);
@@ -293,14 +301,18 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
           }
         }
         const parts = contentToCoreParts(resolvedContent);
-        const clientMetadata = req.body.metadata === undefined ? undefined : [structuredClone(req.body.metadata)];
+        const clientMetadata =
+          req.body.metadata === undefined ? undefined : [structuredClone(req.body.metadata)];
         if (req.body.skills !== undefined) {
           if (req.body.agent_id !== undefined && req.body.agent_id !== MAIN_AGENT_ID) {
-            await applyPromptMetadataUpdate({
-              metadata: session.accessor.get(ISessionMetadata),
-              eventService: core.accessor.get(IEventService),
-              sessionId: session_id,
-            }, promptMetadataTextFromContentParts(parts, clientMetadata));
+            await applyPromptMetadataUpdate(
+              {
+                metadata: session.accessor.get(ISessionMetadata),
+                eventService: core.accessor.get(IEventService),
+                sessionId: session_id,
+              },
+              promptMetadataTextFromContentParts(parts, clientMetadata),
+            );
           }
           const settlement = watchPromptSettlements(resolved.events);
           let result: PromptWithSkillsResult;
@@ -332,17 +344,24 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
           );
           return;
         }
-        await applyPromptMetadataUpdate({
-          metadata: session.accessor.get(ISessionMetadata),
-          eventService: core.accessor.get(IEventService),
-          sessionId: session_id,
-        }, promptMetadataTextFromContentParts(parts, clientMetadata));
+        await applyPromptMetadataUpdate(
+          {
+            metadata: session.accessor.get(ISessionMetadata),
+            eventService: core.accessor.get(IEventService),
+            sessionId: session_id,
+          },
+          promptMetadataTextFromContentParts(parts, clientMetadata),
+        );
         const status = resolved.prompt.snapshot();
         const { id } = resolved.prompt.submit({
           message: { role: 'user', content: parts },
           meta: {
             promptId: reservation.id,
-            origin: { kind: 'user', attachments: promptAttachments, clientMetadata } as PromptOrigin,
+            origin: {
+              kind: 'user',
+              attachments: promptAttachments,
+              clientMetadata,
+            } as PromptOrigin,
             tracked: true,
           },
         });
@@ -366,7 +385,11 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
       }
     },
   );
-  app.post(submitRoute.path, submitRoute.options, submitRoute.handler as Parameters<PromptRouteHost['post']>[2]);
+  app.post(
+    submitRoute.path,
+    submitRoute.options,
+    submitRoute.handler as Parameters<PromptRouteHost['post']>[2],
+  );
 
   const steerManyRoute = defineRoute(
     {
@@ -395,7 +418,11 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
       }
     },
   );
-  app.post(steerManyRoute.path, steerManyRoute.options, steerManyRoute.handler as Parameters<PromptRouteHost['post']>[2]);
+  app.post(
+    steerManyRoute.path,
+    steerManyRoute.options,
+    steerManyRoute.handler as Parameters<PromptRouteHost['post']>[2],
+  );
 
   const actionRoute = defineRoute(
     {
@@ -435,7 +462,11 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
       }
     },
   );
-  app.post(actionRoute.path, actionRoute.options, actionRoute.handler as Parameters<PromptRouteHost['post']>[2]);
+  app.post(
+    actionRoute.path,
+    actionRoute.options,
+    actionRoute.handler as Parameters<PromptRouteHost['post']>[2],
+  );
 }
 
 type PromptActionExtra = {
@@ -468,9 +499,7 @@ async function steerPromptAction(ctx: PromptActionCtx): Promise<void> {
 function projectPromptList(loop: IAgentLoopService) {
   const snapshot = loop.snapshot();
   const active =
-    snapshot.activePromptId === undefined
-      ? undefined
-      : loop.promptHandle(snapshot.activePromptId);
+    snapshot.activePromptId === undefined ? undefined : loop.promptHandle(snapshot.activePromptId);
   return {
     active: active === undefined ? null : projectPromptSnapshot(active),
     queued: snapshot.queue
@@ -481,7 +510,11 @@ function projectPromptList(loop: IAgentLoopService) {
           userMessageId: item.meta?.userMessageId ?? '',
           createdAt: item.meta?.createdAt ?? '',
           state: 'pending',
-          message: { ...item.message, toolCalls: [], origin: item.meta?.origin as PromptOrigin | undefined },
+          message: {
+            ...item.message,
+            toolCalls: [],
+            origin: item.meta?.origin as PromptOrigin | undefined,
+          },
         }),
       ),
   };
@@ -498,9 +531,12 @@ export function projectPromptSnapshot(prompt: {
   readonly state: PromptState;
   readonly message: ContextMessage;
 }) {
-  const status = prompt.state === 'running' || prompt.state === 'steered'
-    ? 'running'
-    : prompt.state === 'blocked' ? 'blocked' : 'queued';
+  const status =
+    prompt.state === 'running' || prompt.state === 'steered'
+      ? 'running'
+      : prompt.state === 'blocked'
+        ? 'blocked'
+        : 'queued';
   const origin = prompt.message.origin;
   const bundled = origin?.kind === 'user' ? (origin.skillActivations ?? []) : [];
   const content = annotateBundledSkillParts(prompt.message.content, bundled).filter(
@@ -512,7 +548,10 @@ export function projectPromptSnapshot(prompt: {
     status,
     content: projectPromptContentParts(content),
     created_at: prompt.createdAt,
-    metadata: origin?.kind === 'user' || origin?.kind === 'skill_activation' ? origin.clientMetadata?.[0] : undefined,
+    metadata:
+      origin?.kind === 'user' || origin?.kind === 'skill_activation'
+        ? origin.clientMetadata?.[0]
+        : undefined,
   };
 }
 

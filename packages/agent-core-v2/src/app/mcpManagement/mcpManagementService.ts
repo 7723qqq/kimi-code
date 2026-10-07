@@ -3,14 +3,23 @@ import { randomUUID } from 'node:crypto';
 import { normalize } from 'pathe';
 
 import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
-
+import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
+import { IConfigService } from '#/app/config/config';
+import { MCP_SECTION, type McpSection } from '#/app/mcpConfig/configSection';
+import { IMcpConfigStore, normalizeServerName } from '#/app/mcpConfig/configStore';
+import { IMcpOAuthService } from '#/app/mcpConfig/oauthService';
+import {
+  IMcpRegistryService,
+  type McpRegistryEntry,
+  type McpRegistryQuery,
+} from '#/app/mcpRegistry/mcpRegistry';
+import { LifecycleScope } from '#/app/scopes';
 import { ErrorCodes, Error2 } from '#/errors';
-import { McpConnectionManager } from '#/mcpCore/connection-manager';
 import { McpServerConfigSchema, type McpServerConfig } from '#/mcpCore/config-schema';
 import { toMcpServerConfigView } from '#/mcpCore/configView';
+import { McpConnectionManager } from '#/mcpCore/connection-manager';
 import {
   AlreadyAuthorizedError,
   type BeginAuthorizationResult,
@@ -22,16 +31,6 @@ import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostProcessService } from '#/os/interface/hostProcess';
 import { LocalRuntime } from '#/runtime/localRuntime';
 import { RuntimeRegistry } from '#/runtime/runtimeRegistry';
-import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
-import { IConfigService } from '#/app/config/config';
-import { MCP_SECTION, type McpSection } from '#/app/mcpConfig/configSection';
-import { IMcpConfigStore, normalizeServerName } from '#/app/mcpConfig/configStore';
-import { IMcpOAuthService } from '#/app/mcpConfig/oauthService';
-import {
-  IMcpRegistryService,
-  type McpRegistryEntry,
-  type McpRegistryQuery,
-} from '#/app/mcpRegistry/mcpRegistry';
 import {
   IRuntimeResolver,
   IWorkspaceInstanceManager,
@@ -431,7 +430,10 @@ export class McpManagementService extends Disposable implements IMcpManagementSe
     const runtimeNameCounts = new Map<string, number>();
     for (const server of new Map(catalog.map((item) => [item.serverId, item])).values()) {
       if (!server.enabled) continue;
-      runtimeNameCounts.set(server.runtimeName, (runtimeNameCounts.get(server.runtimeName) ?? 0) + 1);
+      runtimeNameCounts.set(
+        server.runtimeName,
+        (runtimeNameCounts.get(server.runtimeName) ?? 0) + 1,
+      );
     }
     const credentialStates = new Map<string, McpOAuthTokenState>();
     const probeConfigs = Object.create(null) as Record<string, McpServerConfig>;
@@ -542,10 +544,7 @@ function requireRemoteMcpConfig(name: string, config: McpServerConfig): McpRemot
 function requireOAuthMcpConfig(name: string, input: McpServerConfig): McpRemoteServerConfig {
   const config = requireRemoteMcpConfig(name, input);
   if (config.bearerTokenEnvVar !== undefined) {
-    throw new Error2(
-      ErrorCodes.REQUEST_INVALID,
-      `MCP server "${name}" uses a static bearer token`,
-    );
+    throw new Error2(ErrorCodes.REQUEST_INVALID, `MCP server "${name}" uses a static bearer token`);
   }
   if (config.headers !== undefined && config.auth !== 'oauth') {
     throw new Error2(
@@ -583,9 +582,7 @@ function serverDescriptor(entry: McpRegistryEntry): McpServerRuntimeDescriptor {
     locator,
     runtimeName: entry.name,
     canonicalUrl:
-      entry.config.transport === 'stdio'
-        ? undefined
-        : canonicalMcpOAuthResource(entry.config.url),
+      entry.config.transport === 'stdio' ? undefined : canonicalMcpOAuthResource(entry.config.url),
     origin: entry.source,
     config: entry.config,
     enabled: entry.config.enabled !== false,
@@ -622,15 +619,13 @@ function configuredMcpAuthState(
   return undefined;
 }
 
-function standaloneTestResult(
-  name: string,
-  manager: McpConnectionManager,
-): McpServerTestResult {
+function standaloneTestResult(name: string, manager: McpConnectionManager): McpServerTestResult {
   const entry = manager.get(name);
   if (entry?.status !== 'connected') {
     return {
       success: false,
-      output: entry?.error ?? `MCP server "${name}" finished with status ${entry?.status ?? 'unknown'}`,
+      output:
+        entry?.error ?? `MCP server "${name}" finished with status ${entry?.status ?? 'unknown'}`,
     };
   }
   const tools = manager.resolved(name)?.rawTools ?? [];

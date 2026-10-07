@@ -1,12 +1,10 @@
 import { createHash } from 'node:crypto';
-import type { ContentPart } from '#human/llm/message';
+
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IBlobStore } from '#/persistence/interface/blobStore';
-import {
-  BLOBREF_PROTOCOL,
-  IAgentBlobService,
-  MISSING_MEDIA_PLACEHOLDER,
-} from './agentBlobService';
+import type { ContentPart } from '#human/llm/message';
+
+import { BLOBREF_PROTOCOL, IAgentBlobService, MISSING_MEDIA_PLACEHOLDER } from './agentBlobService';
 import { ByteLruCache } from './byteLruCache';
 
 const DEFAULT_THRESHOLD = 4096;

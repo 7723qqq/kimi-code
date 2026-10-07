@@ -179,7 +179,12 @@ describeLive('session resume + activity (live server required)', () => {
   );
 });
 
-function frameForLog(frame: { type: string; seq?: number; session_id?: string; payload?: unknown }): Record<string, unknown> {
+function frameForLog(frame: {
+  type: string;
+  seq?: number;
+  session_id?: string;
+  payload?: unknown;
+}): Record<string, unknown> {
   return {
     type: frame.type,
     seq: frame.seq,

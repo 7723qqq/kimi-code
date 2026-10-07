@@ -8,10 +8,7 @@ import type {} from '@moonshot-ai/agent-core-v2/agent/tools/os/bash/process-task
 
 export * from './types.js';
 export { detectMigration } from './detect.js';
-export {
-  shouldSuppressMigration,
-  type MigrationSuppressionInput,
-} from './marker.js';
+export { shouldSuppressMigration, type MigrationSuppressionInput } from './marker.js';
 export { defaultPlansSourceDir } from './steps/plans.js';
 export { runMigration, type RunMigrationInput } from './run-migration.js';
 export {

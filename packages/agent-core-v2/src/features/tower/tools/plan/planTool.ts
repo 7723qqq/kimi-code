@@ -1,6 +1,6 @@
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { IAgentTowerService } from '#/features/tower/tower';
+import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import type { ToolExecution } from '#/tool/toolContract';
@@ -11,8 +11,8 @@ import {
   TOWER_MAIN_AGENT_ONLY,
   TOWER_MODE_USER_ENABLED_ONLY,
 } from '../support';
-import DESCRIPTION from './plan.md?raw';
 import { ITowerPlanTool, TowerPlanToolInputSchema, type TowerPlanToolInput } from './plan';
+import DESCRIPTION from './plan.md?raw';
 
 export class TowerPlanTool implements ITowerPlanTool {
   declare readonly _serviceBrand: undefined;
@@ -65,4 +65,3 @@ export class TowerPlanTool implements ITowerPlanTool {
     };
   }
 }
-

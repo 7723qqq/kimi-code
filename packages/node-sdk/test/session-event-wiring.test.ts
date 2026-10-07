@@ -1,3 +1,13 @@
+import {
+  IAgentLifecycleService,
+  IAgentProfileService,
+  IAgentScopeContext,
+  IEventBus,
+  ISessionTokenCountingService,
+  ISessionUsageService,
+  makeAgentScopeContext,
+  type ISessionScopeHandle,
+} from '@moonshot-ai/agent-core-v2';
 /**
  * `SessionEventWiring` — the in-process v1 edge over the v2 per-agent event
  * bus. Covers the status-snapshot fold: v2 emits `agent.status.updated` in
@@ -9,17 +19,6 @@
 import { describe, expect, it } from 'vitest';
 
 import type { Event } from '#/index';
-import {
-  IAgentLifecycleService,
-  IAgentProfileService,
-  IAgentScopeContext,
-  IEventBus,
-  ISessionTokenCountingService,
-  ISessionUsageService,
-  makeAgentScopeContext,
-  type ISessionScopeHandle,
-} from '@moonshot-ai/agent-core-v2';
-
 import { SessionEventWiring, type SessionEventSink } from '#/v2/session-wiring';
 
 // ---------------------------------------------------------------------------

@@ -62,14 +62,20 @@ function migrateV1_0Record(record: V2WireRecord): V2WireRecord {
   const messageRecord = message as Record<string, unknown>;
   const toolCalls = messageRecord['toolCalls'];
   if (!Array.isArray(toolCalls)) return record;
-  return { ...record, message: { ...messageRecord, toolCalls: toolCalls.map(migrateV1_0ToolCall) } };
+  return {
+    ...record,
+    message: { ...messageRecord, toolCalls: toolCalls.map(migrateV1_0ToolCall) },
+  };
 }
 
 function isValidCompactionRecord(record: V2WireRecord): boolean {
   if (typeof record['summary'] === 'string' && typeof record['compactedCount'] === 'number') {
     return true;
   }
-  if (typeof record['contextSummary'] === 'string' && typeof record['compactedCount'] === 'number') {
+  if (
+    typeof record['contextSummary'] === 'string' &&
+    typeof record['compactedCount'] === 'number'
+  ) {
     return true;
   }
   return 'summary' in record && typeof record['count'] === 'number';
@@ -91,9 +97,7 @@ function passesValidation(record: V2WireRecord): boolean {
       const turnId = record['turnId'];
       const reason = record['reason'];
       return (
-        typeof turnId === 'number' &&
-        typeof reason === 'string' &&
-        TURN_END_REASONS.has(reason)
+        typeof turnId === 'number' && typeof reason === 'string' && TURN_END_REASONS.has(reason)
       );
     }
     case 'llm.request':

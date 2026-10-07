@@ -230,8 +230,7 @@ export class MemoryTool implements IMemoryTool {
     const fullPath = joinPath(scopeDir(memoryDir(homeDir), entry.scope, entry.scopeId), fileName);
     try {
       await unlink(fullPath);
-    } catch {
-    }
+    } catch {}
 
     await this.store.delete(path);
     return { output: t('toolsV2.memory.deleted', { path }) };

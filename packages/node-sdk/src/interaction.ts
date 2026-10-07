@@ -1,10 +1,7 @@
 import type { ToolInputDisplay } from '@moonshot-ai/agent-core-v2/contract';
 import type { ContentPart } from '@moonshot-ai/kosong';
 
-export type {
-  ApprovalDecision,
-  ApprovalResponse,
-} from '@moonshot-ai/agent-core-v2/contract';
+export type { ApprovalDecision, ApprovalResponse } from '@moonshot-ai/agent-core-v2/contract';
 export type {
   QuestionAnswerMethod,
   QuestionAnswers,

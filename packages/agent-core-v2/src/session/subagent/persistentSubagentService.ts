@@ -9,7 +9,6 @@ import { agentContextOf } from '#/agent/scopeContext/scopeContext';
 import { IAgentUserToolService } from '#/agent/userTool/userTool';
 import { LifecycleScope } from '#/app/scopes';
 import { Error2, ErrorCodes } from '#/errors';
-import type { TokenUsage } from '#human/llm/usage';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import {
   assertSubagentDepthAllowed,
@@ -20,6 +19,7 @@ import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/subagent/mirrorAgentRun';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
 import { ISessionUsageService } from '#/session/usage/sessionUsage';
+import type { TokenUsage } from '#human/llm/usage';
 
 import {
   IPersistentSubagentService,

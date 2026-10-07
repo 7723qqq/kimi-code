@@ -27,13 +27,13 @@ import { join } from 'node:path';
 import { z } from 'zod';
 
 import { DEFAULT_KIMI_CODE_OAUTH_HOST } from './constants';
-import { DEFAULT_KIMI_CODE_BASE_URL } from './managed-usage';
 import {
   kimiCodeEnvBaseUrl,
   kimiCodeEnvOAuthHost,
   KIMI_CODE_OAUTH_KEY,
   resolveKimiCodeOAuthRef,
 } from './managed-kimi-code';
+import { DEFAULT_KIMI_CODE_BASE_URL } from './managed-usage';
 
 export type KimiRegion = 'mainland-cn' | 'global';
 

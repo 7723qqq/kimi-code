@@ -2,7 +2,6 @@ import type { ThinkingEffort } from '#human/llm/thinking';
 
 import type { IProtocolAdapterRegistry, Protocol } from '../protocol/protocol';
 import { getProviderDefinitions } from '../provider/provider-definition';
-
 import type { ModelThinkingMetadata, ThinkingDefaults } from './model.types';
 
 export interface ThinkingConfig {
@@ -26,9 +25,7 @@ export function usesTraitDrivenThinking(
   protocol: Protocol,
   providerType?: string,
 ): boolean {
-  return (
-    registry.resolveAdapterIdentity(protocol, providerType).trait?.thinking !== undefined
-  );
+  return registry.resolveAdapterIdentity(protocol, providerType).trait?.thinking !== undefined;
 }
 
 export function requiresStrictThinkingValidation(
@@ -115,9 +112,11 @@ export function defaultThinkingEffortForModel(
   const efforts = effortsFor(model);
   if (efforts.length > 0) {
     const declaredDefault = nonEmpty(model.defaultEffort);
-    return (declaredDefault !== undefined && efforts.includes(declaredDefault)
-      ? declaredDefault
-      : middleOf(efforts)) as ThinkingEffort;
+    return (
+      declaredDefault !== undefined && efforts.includes(declaredDefault)
+        ? declaredDefault
+        : middleOf(efforts)
+    ) as ThinkingEffort;
   }
   return 'on';
 }
@@ -150,9 +149,7 @@ function normalizeThinkingEffortForModel(
   if (effort === 'off' && model?.alwaysThinking !== true) return 'off';
   const efforts = effortsFor(model);
   if (!strictValidation) {
-    return effort === 'on' && efforts.length > 0
-      ? defaultThinkingEffortForModel(model)
-      : effort;
+    return effort === 'on' && efforts.length > 0 ? defaultThinkingEffortForModel(model) : effort;
   }
   if (!modelSupportsThinking(model)) return 'off';
   if (efforts.length === 0) return 'on';

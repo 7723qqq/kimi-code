@@ -7,7 +7,12 @@ import type { SkillActivationInput } from './skill';
 export function promptMetadataTextFromSkill(input: SkillActivationInput): string | undefined {
   const args = input.args?.trim();
   return promptMetadataTextFromContentParts(
-    [{ type: 'text', text: args === undefined || args.length === 0 ? `/${input.name}` : `/${input.name} ${args}` }],
+    [
+      {
+        type: 'text',
+        text: args === undefined || args.length === 0 ? `/${input.name}` : `/${input.name} ${args}`,
+      },
+    ],
     input.clientMetadata,
   );
 }

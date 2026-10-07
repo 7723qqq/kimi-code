@@ -40,8 +40,6 @@ export async function clearDirtyMarks(
   marks: readonly string[],
 ): Promise<void> {
   await Promise.all(
-    marks.map((name) =>
-      storage.delete(dirtyScope(sessionsScope), name).catch(() => undefined),
-    ),
+    marks.map((name) => storage.delete(dirtyScope(sessionsScope), name).catch(() => undefined)),
   );
 }

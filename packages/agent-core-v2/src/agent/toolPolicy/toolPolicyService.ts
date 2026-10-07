@@ -1,15 +1,15 @@
 import { Disposable } from '#/_base/di/lifecycle';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IAgentProfileService, ProfileError, ProfileErrors } from '#/agent/profile/profile';
-import { TOOLS_SECTION, type ToolsConfig } from './configSection';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { SELECT_TOOLS_TOOL_NAME } from '#/agent/toolSelect/toolSelect';
 import { IConfigService } from '#/app/config/config';
+import { LifecycleScope } from '#/app/scopes';
 import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
 import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionToolPolicyGate';
-import { SELECT_TOOLS_TOOL_NAME } from '#/agent/toolSelect/toolSelect';
 import type { ToolSource } from '#/tool/toolContract';
 
+import { TOOLS_SECTION, type ToolsConfig } from './configSection';
 import { isToolActiveComposed, type ToolActivationPolicy } from './evaluate';
 import { IAgentToolPolicyService } from './toolPolicy';
 
@@ -38,9 +38,7 @@ export class AgentToolPolicyService extends Disposable implements IAgentToolPoli
           name === SELECT_TOOLS_TOOL_NAME
             ? this.isToolActiveForDisclosure(name, source)
             : this.isToolActive(name, source);
-        return active
-          ? undefined
-          : `Tool "${name}" is disabled by the active tool policy`;
+        return active ? undefined : `Tool "${name}" is disabled by the active tool policy`;
       }),
     );
   }

@@ -1,9 +1,9 @@
 import { createReadStream } from 'node:fs';
 import { mkdir, open, readFile, readdir, stat, unlink } from 'node:fs/promises';
+
 import { dirname, join } from 'pathe';
 
 import { atomicWrite, atomicWriteStream, syncDir } from '#/_base/utils/fs';
-
 import type {
   IFileSystemStorageService,
   StorageAppendOptions,
@@ -175,8 +175,7 @@ export class FileStorageService implements IFileSystemStorageService {
     }
   }
 
-  async flush(): Promise<void> {
-  }
+  async flush(): Promise<void> {}
 
   async close(): Promise<void> {}
 

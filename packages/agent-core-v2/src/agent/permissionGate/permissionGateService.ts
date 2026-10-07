@@ -1,6 +1,5 @@
-import { Service } from '#/_base/di/service';
-import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Service } from '#/_base/di/service';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentPermissionPolicyService } from '#/agent/permissionPolicy/permissionPolicy';
 import type { PermissionData } from '#/agent/permissionPolicy/types';
@@ -12,6 +11,7 @@ import type {
   BeforeToolExecuteEvent,
   ResolvedToolExecutionHookContext,
 } from '#/agent/toolExecutor/toolHooks';
+import { LifecycleScope } from '#/app/scopes';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 
 import { IAgentPermissionGate } from './permissionGate';

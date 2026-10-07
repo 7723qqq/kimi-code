@@ -151,7 +151,10 @@ export class LifecycleTracker {
    *  the last pending clear flips a completed open back to 'ready'. A finally
    *  failed build stays pending — the index keeps raising
    *  TextIndexBuildingError, which IS the degraded state. */
-  clearTextIndexPending(name: string, source: Exclude<OpenTextIndexSource, 'image' | 'deferred'>): void {
+  clearTextIndexPending(
+    name: string,
+    source: Exclude<OpenTextIndexSource, 'image' | 'deferred'>,
+  ): void {
     this.pending.delete(name);
     this.textSources.set(name, source);
     if (this.pending.size === 0 && this.completedAt !== null && this.current === 'degraded') {

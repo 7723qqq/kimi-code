@@ -8,9 +8,8 @@
  * Rust estimator is used as the primary path.
  */
 
-import { tryNativeEstimateTokens, tryNativeEstimateTokensBatch } from './native-tools';
-
 import type { ContentPart, Message } from './message';
+import { tryNativeEstimateTokens, tryNativeEstimateTokensBatch } from './native-tools';
 import type { Tool } from './tool';
 
 const messageTokenEstimateCache = new WeakMap<Message, number>();

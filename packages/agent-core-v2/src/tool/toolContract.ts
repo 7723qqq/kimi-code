@@ -1,6 +1,6 @@
-import type { ContentPart, ToolCall, ToolDescription as Tool } from '#human/llm/message';
 import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
+import type { ContentPart, ToolCall, ToolDescription as Tool } from '#human/llm/message';
 
 export type ExecutableToolOutput = string | ContentPart[];
 

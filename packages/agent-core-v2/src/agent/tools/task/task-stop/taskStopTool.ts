@@ -1,11 +1,11 @@
-import { toInputJsonSchema } from '#/tool/input-schema';
-import { matchesGlobRuleSubject } from '#/tool/rule-match';
-import { type ToolExecution } from '#/tool/toolContract';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-
 import { IAgentTaskService } from '#/agent/task/task';
 import { TERMINAL_STATUSES } from '#/agent/task/types';
 import { formatTaskWallTime } from '#/agent/task/wallTime';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import { matchesGlobRuleSubject } from '#/tool/rule-match';
+import { type ToolExecution } from '#/tool/toolContract';
+
 import { ITaskStopTool, TaskStopInputSchema, type TaskStopInput } from './task-stop';
 import TASK_STOP_DESCRIPTION from './task-stop.md?raw';
 

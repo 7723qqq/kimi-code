@@ -1,22 +1,23 @@
 import { createHash } from 'node:crypto';
+
 import { isAbsolute, relative, resolve } from 'pathe';
 
 import { Service } from '#/_base/di/service';
 import { unwrapErrorCause } from '#/_base/errors/errors';
 import { onUnexpectedError } from '#/_base/errors/unexpectedError';
+import { TurnStarted } from '#/agent/loop/turnEvents';
+import { TurnEnded } from '#/agent/loop/turnOps';
 import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import type { WillExecuteToolEvent } from '#/agent/toolExecutor/toolHooks';
-import { TurnStarted } from '#/agent/loop/turnEvents';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { IEventBus } from '#/app/event/eventBus';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
-import { TurnEnded } from '#/agent/loop/turnOps';
-import { IEventBus } from '#/app/event/eventBus';
 import { IBlobStore } from '#/persistence/interface/blobStore';
 import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
@@ -73,9 +74,7 @@ export class AgentFileHistoryService extends Service implements IAgentFileHistor
       return;
     }
 
-    this._register(
-      toolExecutor.onWillExecuteTool((event) => this.onWillExecuteTool(event)),
-    );
+    this._register(toolExecutor.onWillExecuteTool((event) => this.onWillExecuteTool(event)));
     this._register(
       eventBus.subscribe(TurnStarted, (event) => {
         if (event.agentId !== this.agentCtx.agentId) return;
@@ -115,9 +114,7 @@ export class AgentFileHistoryService extends Service implements IAgentFileHistor
         (c) => c.turnId === turnId && checkpointPhaseOf(c) === 'end',
       );
       const live =
-        end === undefined &&
-        index === state.checkpoints.length - 1 &&
-        this.activeTurnId === turnId;
+        end === undefined && index === state.checkpoints.length - 1 && this.activeTurnId === turnId;
       if (end === undefined && !live) return false;
       const keys = new Set<string>();
       for (const entry of [
@@ -143,9 +140,7 @@ export class AgentFileHistoryService extends Service implements IAgentFileHistor
       (c) => c.turnId === turnId && checkpointPhaseOf(c) === 'end',
     );
     const live =
-      end === undefined &&
-      index === state.checkpoints.length - 1 &&
-      this.activeTurnId === turnId;
+      end === undefined && index === state.checkpoints.length - 1 && this.activeTurnId === turnId;
     if (end === undefined && !live) return [];
 
     const start = state.checkpoints[index]!;
@@ -163,7 +158,8 @@ export class AgentFileHistoryService extends Service implements IAgentFileHistor
         }
         continue;
       }
-      const beforeMissing = before === undefined || (before.key === null && before.oversize !== true);
+      const beforeMissing =
+        before === undefined || (before.key === null && before.oversize !== true);
       let liveOversize: { size: number; mtimeMs?: number } | undefined;
       let liveMissing = false;
       let afterBytes: Uint8Array | undefined;
@@ -196,8 +192,7 @@ export class AgentFileHistoryService extends Service implements IAgentFileHistor
         continue;
       }
       const beforeBytes = await this.entryBytes(before);
-      const beforeLost =
-        before !== undefined && before.key !== null && beforeBytes === undefined;
+      const beforeLost = before !== undefined && before.key !== null && beforeBytes === undefined;
       const afterLost =
         end !== undefined && after !== undefined && after.key !== null && afterBytes === undefined;
       if (beforeLost || afterLost) {
@@ -383,7 +378,12 @@ export class AgentFileHistoryService extends Service implements IAgentFileHistor
 
     const evictable = displacedCheckpoints(state.checkpoints, turnId);
     await this.dispatcher.dispatch(
-      new FileHistoryCheckpointed({ agentId: this.agentCtx.agentId, turnId, phase: 'end', entries }),
+      new FileHistoryCheckpointed({
+        agentId: this.agentCtx.agentId,
+        turnId,
+        phase: 'end',
+        entries,
+      }),
     );
     if (evictable.length > 0) {
       await this.dispatcher.flush();
@@ -460,9 +460,7 @@ export class AgentFileHistoryService extends Service implements IAgentFileHistor
 
   private async readCurrent(
     pathKey: string,
-  ): Promise<
-    Uint8Array | 'missing' | 'unreadable' | { oversizeBytes: number; mtimeMs?: number }
-  > {
+  ): Promise<Uint8Array | 'missing' | 'unreadable' | { oversizeBytes: number; mtimeMs?: number }> {
     const absolute = isAbsolute(pathKey) ? pathKey : resolve(this.workspaceCtx.workDir, pathKey);
     const lease = this.runtime.acquire(['fs']);
     try {
@@ -507,9 +505,7 @@ export class AgentFileHistoryService extends Service implements IAgentFileHistor
       }
     }
     const key = this.comparisonKey(raw);
-    const existing = this.history().tracked.find(
-      (tracked) => this.comparisonKey(tracked) === key,
-    );
+    const existing = this.history().tracked.find((tracked) => this.comparisonKey(tracked) === key);
     return existing ?? raw;
   }
 
@@ -539,10 +535,7 @@ function latestEntry(
   return undefined;
 }
 
-function maxVersion(
-  checkpoints: readonly FileHistoryCheckpointRecord[],
-  path: string,
-): number {
+function maxVersion(checkpoints: readonly FileHistoryCheckpointRecord[], path: string): number {
   let max = 0;
   for (const checkpoint of checkpoints) {
     const entry = Object.hasOwn(checkpoint.entries, path) ? checkpoint.entries[path] : undefined;
@@ -678,9 +671,7 @@ function lcsLength(a: readonly string[], b: readonly string[]): number {
   for (let i = 1; i <= a.length; i += 1) {
     for (let j = 1; j <= b.length; j += 1) {
       current[j] =
-        a[i - 1] === b[j - 1]
-          ? previous[j - 1]! + 1
-          : Math.max(previous[j]!, current[j - 1]!);
+        a[i - 1] === b[j - 1] ? previous[j - 1]! + 1 : Math.max(previous[j]!, current[j - 1]!);
     }
     [previous, current] = [current, previous];
   }

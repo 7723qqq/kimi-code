@@ -5,11 +5,7 @@ import type { Kaos } from '@moonshot-ai/kaos';
 
 import type { AgentContextData } from '#/context';
 import { ErrorCodes, makeErrorPayload } from '#/errors';
-import type {
-  ApprovalHandler,
-  Event,
-  QuestionHandler,
-} from '#/events';
+import type { ApprovalHandler, Event, QuestionHandler } from '#/events';
 import type { ExperimentalFeatureState } from '#/flag';
 import type {
   ApprovalRequest,
@@ -319,7 +315,10 @@ export abstract class SDKRpcClientBase {
 
   abstract cancelMcpServerAuth(flowId: string): Promise<void>;
 
-  abstract resetGlobalMcpServerAuth(name: string, options?: { readonly cwd?: string }): Promise<void>;
+  abstract resetGlobalMcpServerAuth(
+    name: string,
+    options?: { readonly cwd?: string },
+  ): Promise<void>;
 
   abstract resetMcpServerAuth(
     locator: McpServerLocator,

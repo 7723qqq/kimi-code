@@ -78,8 +78,7 @@ export class WsConnectionDebug {
       if (this.closed || this.socket.readyState !== this.socket.OPEN) return;
       try {
         this.socket.send(JSON.stringify(envelope));
-      } catch {
-      }
+      } catch {}
     }
   }
 
@@ -90,16 +89,14 @@ export class WsConnectionDebug {
     }
     try {
       this.socket.ping();
-    } catch {
-    }
+    } catch {}
   }
 
   close(): void {
     if (this.closed) return;
     try {
       this.socket.close(1000);
-    } catch {
-    }
+    } catch {}
     this.onClose();
   }
 

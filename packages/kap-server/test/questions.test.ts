@@ -1,8 +1,7 @@
+import { randomUUID } from 'node:crypto';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { randomUUID } from 'node:crypto';
 
 import {
   ensureMainAgent,
@@ -15,8 +14,8 @@ import {
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 import { type RunningServer, startServer } from '../src/start';
-import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { authHeaders } from './helpers/auth';
+import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 
 interface Envelope<T> {
   code: number;
@@ -246,9 +245,7 @@ describe('server-v2 /api/v1/sessions/{sid}/questions', () => {
 
   it('translates ids to text across single / other / multi_with_other kinds', async () => {
     const sid = await createSession();
-    const single: Promise<QuestionResult> = requestQuestion(sid, 
-      makeTwoQuestionRequest('q-t1'),
-    );
+    const single: Promise<QuestionResult> = requestQuestion(sid, makeTwoQuestionRequest('q-t1'));
     await postJson<ResolveWire>(`/api/v1/sessions/${sid}/questions/q-t1`, {
       answers: {
         q_0: { kind: 'single', option_id: 'opt_0_1' },
@@ -263,9 +260,7 @@ describe('server-v2 /api/v1/sessions/{sid}/questions', () => {
       answers: { 'Which animal?': 'Dog', 'Which colors?': 'Red, Green, Custom' },
     });
 
-    const other: Promise<QuestionResult> = requestQuestion(sid, 
-      makeTwoQuestionRequest('q-t2'),
-    );
+    const other: Promise<QuestionResult> = requestQuestion(sid, makeTwoQuestionRequest('q-t2'));
     await postJson<ResolveWire>(`/api/v1/sessions/${sid}/questions/q-t2`, {
       answers: {
         q_0: { kind: 'other', text: 'Hippopotamus' },
@@ -279,7 +274,8 @@ describe('server-v2 /api/v1/sessions/{sid}/questions', () => {
 
   it('keeps unknown and cross-question option ids verbatim (stale client)', async () => {
     const sid = await createSession();
-    const resultPromise: Promise<QuestionResult> = requestQuestion(sid, 
+    const resultPromise: Promise<QuestionResult> = requestQuestion(
+      sid,
       makeTwoQuestionRequest('q-t3'),
     );
 
@@ -302,7 +298,8 @@ describe('server-v2 /api/v1/sessions/{sid}/questions', () => {
 
   it('produces an empty answers record when all questions are skipped (not a dismissal)', async () => {
     const sid = await createSession();
-    const resultPromise: Promise<QuestionResult> = requestQuestion(sid, 
+    const resultPromise: Promise<QuestionResult> = requestQuestion(
+      sid,
       makeTwoQuestionRequest('q-t4'),
     );
 
@@ -320,9 +317,7 @@ describe('server-v2 /api/v1/sessions/{sid}/questions', () => {
     const sid = await createSession();
     const resultPromise: Promise<QuestionResult> = requestQuestion(sid, makeRequest('q-4'));
 
-    const { body } = await postJson<DismissWire>(
-      `/api/v1/sessions/${sid}/questions/q-4:dismiss`,
-    );
+    const { body } = await postJson<DismissWire>(`/api/v1/sessions/${sid}/questions/q-4:dismiss`);
     expect(body.code).toBe(40909);
     expect(body.data.dismissed).toBe(true);
     expect(Number.isNaN(Date.parse(body.data.dismissed_at))).toBe(false);

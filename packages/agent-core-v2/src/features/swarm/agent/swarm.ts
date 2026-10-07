@@ -1,4 +1,4 @@
-import { createDecorator } from "#/_base/di/instantiation";
+import { createDecorator } from '#/_base/di/instantiation';
 
 export type SwarmModeTrigger = 'manual' | 'task' | 'tool';
 

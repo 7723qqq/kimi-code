@@ -261,9 +261,21 @@ describe('startServer — instance registry wiring', () => {
 
   it('lets two servers share one homeDir, each registering a distinct instance and port', async () => {
     home = mkdtempSync(join(tmpdir(), 'kimi-server-multi-server-'));
-    const a = await startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent' });
+    const a = await startServer({
+      hostIdentity: TEST_HOST_IDENTITY,
+      host: '127.0.0.1',
+      port: 0,
+      homeDir: home,
+      logLevel: 'silent',
+    });
     servers.push(a);
-    const b = await startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent' });
+    const b = await startServer({
+      hostIdentity: TEST_HOST_IDENTITY,
+      host: '127.0.0.1',
+      port: 0,
+      homeDir: home,
+      logLevel: 'silent',
+    });
     servers.push(b);
 
     expect(b.port).not.toBe(a.port);
@@ -279,9 +291,21 @@ describe('startServer — instance registry wiring', () => {
 
   it('removes its instance file on close so peers no longer list it', async () => {
     home = mkdtempSync(join(tmpdir(), 'kimi-server-multi-server-'));
-    const a = await startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent' });
+    const a = await startServer({
+      hostIdentity: TEST_HOST_IDENTITY,
+      host: '127.0.0.1',
+      port: 0,
+      homeDir: home,
+      logLevel: 'silent',
+    });
     servers.push(a);
-    const b = await startServer({ hostIdentity: TEST_HOST_IDENTITY, host: '127.0.0.1', port: 0, homeDir: home, logLevel: 'silent' });
+    const b = await startServer({
+      hostIdentity: TEST_HOST_IDENTITY,
+      host: '127.0.0.1',
+      port: 0,
+      homeDir: home,
+      logLevel: 'silent',
+    });
     servers.push(b);
     expect(await listLiveServerInstances(home)).toHaveLength(2);
 

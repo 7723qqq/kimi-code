@@ -11,11 +11,13 @@ export interface IAgentRuntimeBindingService {
   switch(runtimeId: string): RuntimeBinding;
 }
 
-export const IAgentRuntimeBindingService: ServiceIdentifier<IAgentRuntimeBindingService> = createDecorator<IAgentRuntimeBindingService>('agentRuntimeBindingService');
+export const IAgentRuntimeBindingService: ServiceIdentifier<IAgentRuntimeBindingService> =
+  createDecorator<IAgentRuntimeBindingService>('agentRuntimeBindingService');
 
 export interface IAgentRuntimeBindingSeed {
   readonly _serviceBrand: undefined;
   readonly binding: RuntimeBinding;
 }
 
-export const IAgentRuntimeBindingSeed: ServiceIdentifier<IAgentRuntimeBindingSeed> = createDecorator<IAgentRuntimeBindingSeed>('agentRuntimeBindingSeed');
+export const IAgentRuntimeBindingSeed: ServiceIdentifier<IAgentRuntimeBindingSeed> =
+  createDecorator<IAgentRuntimeBindingSeed>('agentRuntimeBindingSeed');

@@ -8,11 +8,7 @@ export interface IAgentToolPolicyService {
 
   isToolActive(name: string, source?: ToolSource): boolean;
   isToolActiveForDisclosure(name: string, source?: ToolSource): boolean;
-  isToolActiveForProfile(
-    profile: ToolActivationPolicy,
-    name: string,
-    source?: ToolSource,
-  ): boolean;
+  isToolActiveForProfile(profile: ToolActivationPolicy, name: string, source?: ToolSource): boolean;
   setSessionDisabledTools(names: readonly string[]): Promise<void>;
 }
 

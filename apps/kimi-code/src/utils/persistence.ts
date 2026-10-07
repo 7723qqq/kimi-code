@@ -118,10 +118,7 @@ export async function createFileIfAbsent(filePath: string, content: string): Pro
   }
 }
 
-export async function readJsonlFile<T>(
-  filePath: string,
-  lineSchema: z.ZodType<T>,
-): Promise<T[]> {
+export async function readJsonlFile<T>(filePath: string, lineSchema: z.ZodType<T>): Promise<T[]> {
   let raw: string;
   try {
     raw = await readFile(filePath, 'utf-8');

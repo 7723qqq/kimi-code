@@ -1,7 +1,8 @@
+import { Service } from '#/_base/di/service';
+import { renderPrompt } from '#/_base/utils/render-prompt';
 import type { GoalSnapshot } from '#/features/goal/types';
-import { Service } from "#/_base/di/service";
-import { renderPrompt } from "#/_base/utils/render-prompt";
 import type { IAgentReminderService } from '#/features/reminder/reminderService';
+
 import GOAL_ACTIVE_REMINDER from './goal-active-reminder.md?raw';
 import GOAL_BLOCKED_REMINDER from './goal-blocked-reminder.md?raw';
 import GOAL_PAUSED_REMINDER from './goal-paused-reminder.md?raw';
@@ -120,10 +121,7 @@ function maxBudgetFraction(goal: GoalSnapshot): number {
 }
 
 function escapeUntrustedText(text: string): string {
-  return text
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;');
+  return text.replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;');
 }
 
 function formatElapsed(ms: number): string {

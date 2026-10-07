@@ -10,11 +10,11 @@ import {
   type Event2,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
-import { configResponseSchema, type ConfigResponse } from '../src/protocol/rest-config';
-import { ErrorCode } from '../src/protocol/error-codes';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import { WebSocket } from 'ws';
 
+import { ErrorCode } from '../src/protocol/error-codes';
+import { configResponseSchema, type ConfigResponse } from '../src/protocol/rest-config';
 import { startConfigChangedPublisher } from '../src/services/config/configChangedPublisher';
 import { type RunningServer, startServer } from '../src/start';
 import { authedFetch, bearerToken } from './helpers/auth';

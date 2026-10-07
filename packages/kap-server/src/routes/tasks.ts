@@ -5,6 +5,11 @@ import {
   type AgentTaskInfo,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
+import { z } from 'zod';
+
+import { errEnvelope, okEnvelope } from '../envelope';
+import { requestLog } from '../lib/requestLog';
+import { defineRoute } from '../middleware/defineRoute';
 import { ErrorCode } from '../protocol/error-codes';
 import {
   cancelTaskResultSchema,
@@ -15,11 +20,6 @@ import {
   listTasksResponseSchema,
 } from '../protocol/rest-task';
 import type { Task, TaskKind, TaskStatus } from '../protocol/task';
-import { z } from 'zod';
-
-import { errEnvelope, okEnvelope } from '../envelope';
-import { requestLog } from '../lib/requestLog';
-import { defineRoute } from '../middleware/defineRoute';
 import { ensureMainAgent } from '../transport/mainAgent';
 import { parseActionSuffix } from './action-suffix';
 
@@ -78,16 +78,17 @@ export function registerTasksRoutes(app: TasksRouteHost, core: Scope): void {
         return;
       }
 
-      const all = (resolved.tasks?.list(false) ?? []).map((info) =>
-        toWireTask(session_id, info),
-      );
+      const all = (resolved.tasks?.list(false) ?? []).map((info) => toWireTask(session_id, info));
       const query = req.query as { status?: TaskStatus };
-      const items =
-        query.status !== undefined ? all.filter((t) => t.status === query.status) : all;
+      const items = query.status !== undefined ? all.filter((t) => t.status === query.status) : all;
       reply.send(okEnvelope({ items }, req.id));
     },
   );
-  app.get(listRoute.path, listRoute.options, listRoute.handler as Parameters<TasksRouteHost['get']>[2]);
+  app.get(
+    listRoute.path,
+    listRoute.options,
+    listRoute.handler as Parameters<TasksRouteHost['get']>[2],
+  );
 
   const getRoute = defineRoute(
     {
@@ -127,14 +128,17 @@ export function registerTasksRoutes(app: TasksRouteHost, core: Scope): void {
           if (preview.length > 0) {
             output = { preview, bytes: Buffer.byteLength(preview, 'utf-8') };
           }
-        } catch {
-        }
+        } catch {}
       }
 
       reply.send(okEnvelope(toWireTask(session_id, found, output), req.id));
     },
   );
-  app.get(getRoute.path, getRoute.options, getRoute.handler as Parameters<TasksRouteHost['get']>[2]);
+  app.get(
+    getRoute.path,
+    getRoute.options,
+    getRoute.handler as Parameters<TasksRouteHost['get']>[2],
+  );
 
   const taskActionRoute = defineRoute(
     {
@@ -169,9 +173,7 @@ export function registerTasksRoutes(app: TasksRouteHost, core: Scope): void {
         return;
       }
       if (parsed.kind === 'bare') {
-        reply.send(
-          errEnvelope(ErrorCode.VALIDATION_FAILED, `unsupported action: ${tail}`, req.id),
-        );
+        reply.send(errEnvelope(ErrorCode.VALIDATION_FAILED, `unsupported action: ${tail}`, req.id));
         return;
       }
       const task_id = parsed.id;
@@ -213,7 +215,11 @@ export function registerTasksRoutes(app: TasksRouteHost, core: Scope): void {
       reply.send(okEnvelope({ detached, status: mapStatus(info.status) }, req.id));
     },
   );
-  app.post(taskActionRoute.path, taskActionRoute.options, taskActionRoute.handler as Parameters<TasksRouteHost['post']>[2]);
+  app.post(
+    taskActionRoute.path,
+    taskActionRoute.options,
+    taskActionRoute.handler as Parameters<TasksRouteHost['post']>[2],
+  );
 }
 
 type ResolvedTasks =
@@ -304,10 +310,7 @@ function toWireTask(
   if (info.kind === 'agent' && info.subagentType !== undefined) {
     base.subagent_type = info.subagentType;
   }
-  if (
-    (info.kind === 'agent' || info.kind === 'process') &&
-    info.parentToolCallId !== undefined
-  ) {
+  if ((info.kind === 'agent' || info.kind === 'process') && info.parentToolCallId !== undefined) {
     base.parent_tool_call_id = info.parentToolCallId;
   }
   if (output !== undefined) {

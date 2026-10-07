@@ -100,7 +100,10 @@ async function uploadParts(
 ): Promise<CompletedUploadPart[]> {
   const layout = layoutParts(parts);
   const results: CompletedUploadPart[] = Array.from({ length: layout.length });
-  const concurrency = Math.max(1, Math.min(options.concurrency ?? DEFAULT_CONCURRENCY, layout.length));
+  const concurrency = Math.max(
+    1,
+    Math.min(options.concurrency ?? DEFAULT_CONCURRENCY, layout.length),
+  );
   let nextIndex = 0;
   let uploadedBytes = 0;
 
@@ -173,7 +176,9 @@ async function uploadOnePart(
   } catch (error) {
     stream.destroy();
     if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error(`Failed to upload part ${part.partNumber}: upload timed out.`, { cause: error });
+      throw new Error(`Failed to upload part ${part.partNumber}: upload timed out.`, {
+        cause: error,
+      });
     }
     throw error;
   } finally {

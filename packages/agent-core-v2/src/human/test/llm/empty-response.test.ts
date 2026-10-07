@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { UNKNOWN_CAPABILITY } from '#/llm/capability';
+import { emptyResponseError } from '#/llm/empty-response';
 import { NO_FINISH } from '#/llm/finish-reason';
 import {
   createMessageAccumulator,
@@ -8,7 +9,6 @@ import {
   type StreamedMessagePart,
 } from '#/llm/message';
 import type { LlmModel } from '#/llm/model';
-import { emptyResponseError } from '#/llm/empty-response';
 
 const model: LlmModel = { provider: 'test', model: 'test-model', capability: UNKNOWN_CAPABILITY };
 

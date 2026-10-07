@@ -25,7 +25,8 @@ export async function* readUtf8Lines(
     }
     offset += chunk.length;
   }
-  if (pending.length > 0) yield decodeTextWithErrors(Buffer.concat(pending), 'utf-8', errors, pendingOffset !== 0);
+  if (pending.length > 0)
+    yield decodeTextWithErrors(Buffer.concat(pending), 'utf-8', errors, pendingOffset !== 0);
 }
 
 function isUtf8Continuation(byte: number): boolean {

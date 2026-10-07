@@ -1,7 +1,6 @@
-import { IInstantiationService } from "#/_base/di/instantiation";
-import { Service } from "#/_base/di/service";
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
+import { IInstantiationService } from '#/_base/di/instantiation';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Service } from '#/_base/di/service';
 import { AutoModeApprovePermissionPolicyService } from '#/agent/permissionPolicy/policies/auto-mode-approve';
 import { AutoModeAskUserQuestionDenyPermissionPolicyService } from '#/agent/permissionPolicy/policies/auto-mode-ask-user-question-deny';
 import { DangerousCommandAskPermissionPolicyService } from '#/agent/permissionPolicy/policies/dangerous-command-ask';
@@ -15,18 +14,14 @@ import { UserConfiguredAllowPermissionPolicyService } from '#/agent/permissionPo
 import { UserConfiguredAskPermissionPolicyService } from '#/agent/permissionPolicy/policies/user-configured-ask';
 import { UserConfiguredDenyPermissionPolicyService } from '#/agent/permissionPolicy/policies/user-configured-deny';
 import { YoloModeApprovePermissionPolicyService } from '#/agent/permissionPolicy/policies/yolo-mode-approve';
-import {
-  IAgentPermissionPolicyService,
-  type PermissionPolicyEvaluation,
-} from './permissionPolicy';
-import type { PermissionPolicy } from "./types";
+import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { LifecycleScope } from '#/app/scopes';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 
-export class AgentPermissionPolicyService
-  extends Service
-  implements IAgentPermissionPolicyService
-{
+import { IAgentPermissionPolicyService, type PermissionPolicyEvaluation } from './permissionPolicy';
+import type { PermissionPolicy } from './types';
+
+export class AgentPermissionPolicyService extends Service implements IAgentPermissionPolicyService {
   declare readonly _serviceBrand: undefined;
 
   private readonly policies: readonly PermissionPolicy[];

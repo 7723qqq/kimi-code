@@ -9,7 +9,6 @@ import {
   type SystemPromptRenderResult,
 } from './agentProfileCatalog';
 import { BUILTIN_AGENT_PROFILE_SOURCE_ID } from './builtinAgentProfileLoader';
-
 import SYSTEM_PROMPT_TEMPLATE from './system.md?raw';
 
 export const TASK_AGENT_ROLE_PREFIX =
@@ -94,10 +93,7 @@ export function withoutDelegatingTargets(
   });
 }
 
-export function subagentTypeNotAllowedMessage(
-  name: string,
-  allowlist: readonly string[],
-): string {
+export function subagentTypeNotAllowedMessage(name: string, allowlist: readonly string[]): string {
   const allowed = allowlist.length === 0 ? 'none' : allowlist.join(', ');
   return `Subagent type "${name}" is not allowed for this agent. Allowed subagent types: ${allowed}.`;
 }
@@ -136,14 +132,15 @@ export const DEFAULT_REPLY_STYLE_GUIDE =
   "Your text replies render as Markdown in the user's terminal. Keep structure light and shallow — deep nesting, large tables, and heavy headings read poorly there. Cite code locations as `path/to/file.ts:42` so the user can navigate to them. Do not use emoji unless the user does first or asks for it.";
 
 export const NOTIFY_USER_GUIDANCE =
-  'When `NotifyUser` is available, use it proactively to keep the end user informed while you work. For a multi-step task, send an early update describing your approach, then report meaningful findings, phase conclusions, long waits, and blockers. Keep each update to one or two sentences in the end user\'s language; avoid repeating unchanged status. The UI adds the source label automatically. If you are working as a subagent, report only your own subtask\'s progress, do not present its completion as completion of the whole task, and do not ask the end user questions or request decisions. Updates do not automatically reach your parent agent: include every important finding in your final handoff. Updates remain visible until the main agent starts its next turn, so your final reply must still stand on its own.';
+  "When `NotifyUser` is available, use it proactively to keep the end user informed while you work. For a multi-step task, send an early update describing your approach, then report meaningful findings, phase conclusions, long waits, and blockers. Keep each update to one or two sentences in the end user's language; avoid repeating unchanged status. The UI adds the source label automatically. If you are working as a subagent, report only your own subtask's progress, do not present its completion as completion of the whole task, and do not ask the end user questions or request decisions. Updates do not automatically reach your parent agent: include every important finding in your final handoff. Updates remain visible until the main agent starts its next turn, so your final reply must still stand on its own.";
 
 export function renderAgentProfilePrompt(
   profile: AgentProfile,
   context: AgentProfileContext,
 ): SystemPromptRenderResult {
   const rendered = profile.renderSystemPrompt(context);
-  if (context.notifyUserActive !== true || rendered.text.includes(NOTIFY_USER_GUIDANCE)) return rendered;
+  if (context.notifyUserActive !== true || rendered.text.includes(NOTIFY_USER_GUIDANCE))
+    return rendered;
   return { ...rendered, text: `${rendered.text}\n\n${NOTIFY_USER_GUIDANCE}` };
 }
 
@@ -210,7 +207,10 @@ export function renderPromptTemplateResult(
   }
   return {
     text: renderPrompt(template, vars),
-    environment: mergeEnvironmentDisclosure(environmentForTemplate(context), baseResult?.environment),
+    environment: mergeEnvironmentDisclosure(
+      environmentForTemplate(context),
+      baseResult?.environment,
+    ),
   };
 }
 

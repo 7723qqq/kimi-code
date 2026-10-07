@@ -1,17 +1,20 @@
 import { randomUUID } from 'node:crypto';
-import { LifecycleScope } from '#/app/scopes';
+
+import { basename, join, normalize } from 'pathe';
+
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { LifecycleScope } from '#/app/scopes';
+import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import {
   DEFAULT_TOOL_RESULT_MAX_CHARS,
   DEFAULT_TOOL_RESULT_MAX_RETAINED_CHARS,
   type ExecutableToolResult,
 } from '#/tool/toolContract';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { AGENT_WIRE_RECORD_KEY } from '#/wire/record';
 import type { ContentPart } from '#human/llm/message';
-import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { basename, join, normalize } from 'pathe';
+
 import {
   IAgentToolResultTruncationService,
   type ToolResultTruncationInput,
@@ -121,7 +124,9 @@ export class ToolResultTruncationService implements IAgentToolResultTruncationSe
   isWireJournalPath(path: string): boolean {
     const sessionsDir = normalize(join(this.bootstrap.homeDir, this.bootstrap.scope('sessions')));
     const normalized = normalize(path);
-    return normalized.startsWith(`${sessionsDir}/`) && basename(normalized) === AGENT_WIRE_RECORD_KEY;
+    return (
+      normalized.startsWith(`${sessionsDir}/`) && basename(normalized) === AGENT_WIRE_RECORD_KEY
+    );
   }
 
   private async saveToolResult(
@@ -142,10 +147,7 @@ export class ToolResultTruncationService implements IAgentToolResultTruncationSe
   }
 }
 
-function shapeOutput(
-  output: ExecutableToolResult['output'],
-  maxLineChars: number,
-): ShapedOutput {
+function shapeOutput(output: ExecutableToolResult['output'], maxLineChars: number): ShapedOutput {
   if (typeof output === 'string') {
     const shaped = shapeStringPerLine(output, maxLineChars);
     return { output: shaped.text, textChars: shaped.text.length, hasMedia: false };
@@ -322,9 +324,7 @@ function dropInlineSuffixLines(suffix: string, shapedText: string): string {
   if (suffix.length === 0) return '';
   const lines = suffix.split('\n');
   if (!lines.some((line) => line.length > 0 && shapedText.includes(line))) return suffix;
-  return lines
-    .filter((line) => line.length > 0 && !shapedText.includes(line))
-    .join('\n');
+  return lines.filter((line) => line.length > 0 && !shapedText.includes(line)).join('\n');
 }
 
 function safeToolResultFileStem(toolName: string, toolCallId: string): string {

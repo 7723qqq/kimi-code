@@ -38,7 +38,5 @@ registerConfigSection(SWARM_SECTION, SwarmConfigSchema, {
 });
 
 export function resolveSwarmTimeoutMs(config: IConfigService): number {
-  return (
-    config.get<SwarmConfig | undefined>(SWARM_SECTION)?.timeoutMs ?? DEFAULT_SWARM_TIMEOUT_MS
-  );
+  return config.get<SwarmConfig | undefined>(SWARM_SECTION)?.timeoutMs ?? DEFAULT_SWARM_TIMEOUT_MS;
 }

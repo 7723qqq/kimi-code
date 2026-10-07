@@ -1,4 +1,3 @@
-
 import {
   IAgentCronService,
   IAgentLifecycleService,
@@ -6,7 +5,10 @@ import {
   resumeSessionById,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
-import { cronToHuman, parseCronExpression } from '@moonshot-ai/agent-core-v2/features/cron/internal/cron-expr';
+import {
+  cronToHuman,
+  parseCronExpression,
+} from '@moonshot-ai/agent-core-v2/features/cron/internal/cron-expr';
 import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';
@@ -90,8 +92,7 @@ export function registerCronRoutes(app: CronRouteHost, core: Scope): void {
               let humanSchedule: string | undefined;
               try {
                 humanSchedule = cronToHuman(parseCronExpression(task.cron));
-              } catch {
-              }
+              } catch {}
               return {
                 id: task.id,
                 cron: task.cron,

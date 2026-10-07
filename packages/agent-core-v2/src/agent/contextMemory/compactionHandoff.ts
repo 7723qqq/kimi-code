@@ -1,9 +1,14 @@
-import { estimateTokens, estimateTokensForMessage, estimateTokensForMessages } from '#/llm-adapter/contract/tokens';
+import { wrapSystemReminder } from '#/features/reminder/systemReminder';
+import {
+  estimateTokens,
+  estimateTokensForMessage,
+  estimateTokensForMessages,
+} from '#/llm-adapter/contract/tokens';
 import { isSkillActivationPart } from '#human/agent/origin';
 import type { ContentPart } from '#human/llm/message';
-import { wrapSystemReminder } from '#/features/reminder/systemReminder';
-import { isUserPromptSubmitHookPart } from './hookParts';
+
 import summaryPrefixTemplate from './compaction-summary-prefix.md?raw';
+import { isUserPromptSubmitHookPart } from './hookParts';
 import type { ContextMessage, PromptOrigin } from './types';
 
 export const COMPACTION_SUMMARY_PREFIX = summaryPrefixTemplate.trimEnd();
@@ -93,9 +98,10 @@ export function buildContextCompactionShape(
   const elisionMessage = selection.elided
     ? createCompactionElisionMessage(selection.omittedTokens)
     : undefined;
-  const keptMessages = elisionMessage === undefined
-    ? [...selection.head, ...selection.tail]
-    : [...selection.head, elisionMessage, ...selection.tail];
+  const keptMessages =
+    elisionMessage === undefined
+      ? [...selection.head, ...selection.tail]
+      : [...selection.head, elisionMessage, ...selection.tail];
   const contextSummary = input.contextSummary ?? input.summary;
   const continuationMessage = createCompactionContinuationMessage();
   const tokensAfter =

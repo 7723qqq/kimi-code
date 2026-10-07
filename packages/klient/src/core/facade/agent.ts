@@ -12,7 +12,6 @@ import type { IAgentCommandService } from '@moonshot-ai/agent-core-v2';
 import type { IAgentContextMemoryService } from '@moonshot-ai/agent-core-v2';
 import type { IAgentMcpService } from '@moonshot-ai/agent-core-v2';
 import type { IAgentRuntimeBindingService } from '@moonshot-ai/agent-core-v2';
-
 import type { ISessionTokenCountingService } from '@moonshot-ai/agent-core-v2';
 import type { IAgentPlanService } from '@moonshot-ai/agent-core-v2';
 import type { IAgentProfileService } from '@moonshot-ai/agent-core-v2';
@@ -28,7 +27,9 @@ import type { ScopedCaller } from './session.js';
 
 // Wire-type aliases derived through the engine service interfaces (keeps
 // klient free of protocol-package imports).
-export type PromptLaunchResult = import('@moonshot-ai/agent-core-v2').PromptLaunchResult | undefined;
+export type PromptLaunchResult =
+  | import('@moonshot-ai/agent-core-v2').PromptLaunchResult
+  | undefined;
 export type PromptWithSkillsInput = Parameters<IAgentSkillService['promptWithSkills']>[0];
 export type PromptWithSkillsResult = Awaited<ReturnType<IAgentSkillService['promptWithSkills']>>;
 export type ShellCommandResult = Awaited<ReturnType<IAgentShellCommandService['run']>>;
@@ -46,10 +47,7 @@ export type AgentTaskInfo = Awaited<ReturnType<IAgentTaskService['list']>>[numbe
 export type McpServerEntry = ReturnType<IAgentMcpService['list']>[number];
 
 export interface AgentFacade {
-  prompt(input: {
-    input: readonly ContentPart[];
-    promptId?: string;
-  }): Promise<PromptLaunchResult>;
+  prompt(input: { input: readonly ContentPart[]; promptId?: string }): Promise<PromptLaunchResult>;
   /**
    * Submit one prompt with one or more skill activations bundled into the
    * same user message: the skills are validated up front (an unknown name or
@@ -108,7 +106,9 @@ export function createAgentFacade(call: ScopedCaller, scope: ScopeRef): AgentFac
     prompt: (input) =>
       call(scope, 'agentPromptService', 'submit', [input]) as Promise<PromptLaunchResult>,
     promptWithSkills: (input) =>
-      call(scope, 'agentSkillService', 'promptWithSkills', [input]) as Promise<PromptWithSkillsResult>,
+      call(scope, 'agentSkillService', 'promptWithSkills', [
+        input,
+      ]) as Promise<PromptWithSkillsResult>,
     steer: (input) =>
       call(scope, 'agentPromptService', 'submitSteer', [input]) as Promise<PromptLaunchResult>,
     activateSkill: (input) =>
@@ -116,7 +116,12 @@ export function createAgentFacade(call: ScopedCaller, scope: ScopeRef): AgentFac
     cancel: (input) =>
       // No turnId sends an empty arg list: `[undefined]` would cross the wire
       // as `[null]`, and `cancelFromUser(null)` would not match the active turn.
-      call(scope, 'agentLoopService', 'cancelFromUser', input?.turnId === undefined ? [] : [input.turnId]) as Promise<void>,
+      call(
+        scope,
+        'agentLoopService',
+        'cancelFromUser',
+        input?.turnId === undefined ? [] : [input.turnId],
+      ) as Promise<void>,
     runShellCommand: (input) =>
       call(scope, 'agentShellCommandService', 'run', [input]) as Promise<ShellCommandResult>,
     cancelShellCommand: (input) =>
@@ -156,8 +161,7 @@ export function createAgentFacade(call: ScopedCaller, scope: ScopeRef): AgentFac
     getPlan: () => call(scope, 'agentPlanService', 'status', []) as Promise<PlanData>,
     enterPlan: () => call(scope, 'agentPlanService', 'enter', []) as Promise<void>,
     clearPlan: () => call(scope, 'agentPlanService', 'clear', []) as Promise<void>,
-    cancelPlan: (input) =>
-      call(scope, 'agentPlanService', 'cancel', [input?.id]) as Promise<void>,
+    cancelPlan: (input) => call(scope, 'agentPlanService', 'cancel', [input?.id]) as Promise<void>,
     getTasks: (input) =>
       call(scope, 'agentTaskService', 'list', [
         input?.activeOnly ?? false,

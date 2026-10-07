@@ -1,14 +1,12 @@
-import {
-  KIMI_CODE_PROVIDER_NAME,
-  kimiCodeBaseUrl,
-} from '@moonshot-ai/kimi-code-oauth';
-import { LifecycleScope } from '#/app/scopes';
+import { KIMI_CODE_PROVIDER_NAME, kimiCodeBaseUrl } from '@moonshot-ai/kimi-code-oauth';
+
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IOAuthService } from '#/app/auth/auth';
 import { SERVICES_SECTION, type ServicesConfig } from '#/app/auth/configSection';
-import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
+import { LifecycleScope } from '#/app/scopes';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IProviderService } from '#/llm-adapter/provider/provider';
 import { isOAuthCatalogVendor } from '#/llm-adapter/provider/provider-definition';
@@ -59,13 +57,14 @@ export class WebFetchService implements IWebFetchService {
 
   private fromManagedOAuth(): UrlFetcher | undefined {
     const provider = this.providers.get(KIMI_CODE_PROVIDER_NAME);
-    if (provider === undefined || !isOAuthCatalogVendor(provider.type) || provider.oauth === undefined) {
+    if (
+      provider === undefined ||
+      !isOAuthCatalogVendor(provider.type) ||
+      provider.oauth === undefined
+    ) {
       return undefined;
     }
-    const tokenProvider = this.oauth.resolveTokenProvider(
-      KIMI_CODE_PROVIDER_NAME,
-      provider.oauth,
-    );
+    const tokenProvider = this.oauth.resolveTokenProvider(KIMI_CODE_PROVIDER_NAME, provider.oauth);
     if (tokenProvider === undefined) {
       return undefined;
     }

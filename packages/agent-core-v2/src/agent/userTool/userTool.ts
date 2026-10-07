@@ -12,10 +12,7 @@ export interface IAgentUserToolService {
   readonly _serviceBrand: undefined;
 
   list(): readonly UserToolRegistration[];
-  inheritUserTools(
-    parent: IAgentUserToolService,
-    activeToolNames?: readonly string[],
-  ): void;
+  inheritUserTools(parent: IAgentUserToolService, activeToolNames?: readonly string[]): void;
   register(input: UserToolRegistration): void;
   unregister(name: string): void;
 }

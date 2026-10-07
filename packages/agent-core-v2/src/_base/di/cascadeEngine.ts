@@ -1,12 +1,8 @@
 import { onUnexpectedError } from '../errors/unexpectedError';
 import { Emitter, type Event } from '../event';
 import { isPromiseLike } from '../lifecycle/disposer';
+import { PairIndex, type DependencyGraph, type ScopedToken } from './dependencyGraph';
 import type { SyncDescriptor } from './descriptors';
-import {
-  PairIndex,
-  type DependencyGraph,
-  type ScopedToken,
-} from './dependencyGraph';
 import { CascadeConflictError } from './errors';
 import type { ServiceIdentifier } from './instantiation';
 
@@ -54,10 +50,7 @@ export interface UnitStateChange {
 }
 
 export interface CascadeEngineOptions {
-  onWillCascade?: (
-    affected: readonly ScopedToken[],
-    reason: string,
-  ) => void | Promise<void>;
+  onWillCascade?: (affected: readonly ScopedToken[], reason: string) => void | Promise<void>;
   readonly abortWaitMs?: number;
   readonly resolveTimeoutMs?: number;
   readonly historyCapacity?: number;
@@ -75,16 +68,10 @@ export interface CascadeHost {
     descriptor: SyncDescriptor<unknown>,
     config: unknown,
   ): number;
-  applyProvideInstance(
-    token: ServiceIdentifier<any>,
-    instance: unknown,
-    config: unknown,
-  ): number;
+  applyProvideInstance(token: ServiceIdentifier<any>, instance: unknown, config: unknown): number;
   applyUnprovide(token: ServiceIdentifier<any>): void;
   recipeOf(token: ServiceIdentifier<any>): SyncDescriptor<unknown> | undefined;
-  dependenciesOf(
-    recipe: SyncDescriptor<unknown>,
-  ): Array<ServiceIdentifier<any>>;
+  dependenciesOf(recipe: SyncDescriptor<unknown>): Array<ServiceIdentifier<any>>;
 }
 
 export interface CascadeScopeHandle {
@@ -191,14 +178,8 @@ export class CascadeTree {
 }
 
 export class CascadeEngine {
-  private readonly _units = new Map<
-    ServiceIdentifier<any>,
-    UnitRecord
-  >();
-  private readonly _pendingIndex = new Map<
-    ServiceIdentifier<any>,
-    Set<ServiceIdentifier<any>>
-  >();
+  private readonly _units = new Map<ServiceIdentifier<any>, UnitRecord>();
+  private readonly _pendingIndex = new Map<ServiceIdentifier<any>, Set<ServiceIdentifier<any>>>();
   private readonly _history: CascadeHistoryEntry[] = [];
   private _historySeq = 0;
   private _disposed = false;
@@ -350,10 +331,7 @@ export class CascadeEngine {
     }
   }
 
-  resolveWhenAvailable<T>(
-    token: ServiceIdentifier<any>,
-    timeoutMs?: number,
-  ): Promise<T> {
+  resolveWhenAvailable<T>(token: ServiceIdentifier<any>, timeoutMs?: number): Promise<T> {
     if (!this.isInFlight(token)) {
       try {
         return Promise.resolve(this._host.materialize(token) as T);
@@ -362,14 +340,17 @@ export class CascadeEngine {
       }
     }
     return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        reject(
-          new CascadeConflictError(
-            String(token),
-            'timed out waiting for the in-flight cascade to settle',
-          ),
-        );
-      }, timeoutMs ?? this._options.resolveTimeoutMs ?? DEFAULT_RESOLVE_TIMEOUT_MS);
+      const timer = setTimeout(
+        () => {
+          reject(
+            new CascadeConflictError(
+              String(token),
+              'timed out waiting for the in-flight cascade to settle',
+            ),
+          );
+        },
+        timeoutMs ?? this._options.resolveTimeoutMs ?? DEFAULT_RESOLVE_TIMEOUT_MS,
+      );
       this._tree.addSettleWaiter(() => {
         clearTimeout(timer);
         try {
@@ -485,8 +466,12 @@ export class CascadeEngine {
       const out = orchestrator._transact(batch);
       if (isPromiseLike(out)) {
         Promise.resolve(out).then(
-          () => { finish(); },
-          (error: unknown) => { finish(error); },
+          () => {
+            finish();
+          },
+          (error: unknown) => {
+            finish(error);
+          },
         );
       } else {
         finish();
@@ -563,7 +548,9 @@ export class CascadeEngine {
         },
       ),
       new Promise<{ waited: boolean; timedOut: boolean }>((resolve) => {
-        setTimeout(() => { resolve({ waited: true, timedOut: true }); }, waitMs);
+        setTimeout(() => {
+          resolve({ waited: true, timedOut: true });
+        }, waitMs);
       }),
     ]);
   }
@@ -736,9 +723,7 @@ export class CascadeEngine {
     if (recipe === undefined) {
       return [token];
     }
-    return this._host
-      .dependenciesOf(recipe)
-      .filter((dep) => !this._isAvailable(dep));
+    return this._host.dependenciesOf(recipe).filter((dep) => !this._isAvailable(dep));
   }
 
   private _isAvailable(dep: ServiceIdentifier<any>): boolean {

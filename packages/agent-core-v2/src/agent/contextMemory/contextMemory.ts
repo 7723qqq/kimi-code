@@ -1,4 +1,4 @@
-import { createDecorator } from "#/_base/di/instantiation";
+import { createDecorator } from '#/_base/di/instantiation';
 import type { WireLineRange } from '#/wire/record';
 
 import type { LoopRecordedEvent } from './loopEventFold';
@@ -45,4 +45,6 @@ export interface IAgentContextMemoryService {
   applyCompaction(input: ContextCompactionInput): ContextCompactionResult;
 }
 
-export const IAgentContextMemoryService = createDecorator<IAgentContextMemoryService>('agentContextMemoryService');
+export const IAgentContextMemoryService = createDecorator<IAgentContextMemoryService>(
+  'agentContextMemoryService',
+);

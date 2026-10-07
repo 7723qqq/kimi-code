@@ -1,14 +1,12 @@
+import type { PermissionPolicy, PermissionPolicyResult } from '#/agent/permissionPolicy/types';
+import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
-import { isWithinWorkspace } from '#/tool/path-access';
 import { IGitService } from '#/app/git/git';
 import type { IGitService as GitService } from '#/app/git/git';
-import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import type { ISessionWorkspaceContext as WorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import type {
-  PermissionPolicy,
-  PermissionPolicyResult,
-} from '#/agent/permissionPolicy/types';
+import { isWithinWorkspace } from '#/tool/path-access';
+
 import { writeFileAccesses } from './path-utils';
 
 export class GitCwdWriteApprovePermissionPolicyService implements PermissionPolicy {
@@ -47,8 +45,6 @@ export class GitCwdWriteApprovePermissionPolicyService implements PermissionPoli
       return undefined;
     }
 
-    return (await this.git.findWorkTree(cwd)) === null
-      ? undefined
-      : { kind: 'approve' };
+    return (await this.git.findWorkTree(cwd)) === null ? undefined : { kind: 'approve' };
   }
 }
