@@ -50,6 +50,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     env:
       APPLE_SECRETS_CONFIGURED: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
+      # Windows signing needs secrets *and* repo variables. Callers ask for it
+      # via sign-windows, but a repo that has not configured the three
+      # AZURE_TRUSTED_SIGNING_* variables would otherwise fail the build at the
+      # sign step after the executable is already compiled. Detect them here so
+      # an unconfigured repo degrades to an unsigned build instead.
+      AZURE_SIGNING_CONFIGURED: ${{ secrets.AZURE_TENANT_ID != '' && secrets.AZURE_CLIENT_ID != '' && secrets.AZURE_CLIENT_SECRET != '' && vars.AZURE_TRUSTED_SIGNING_ENDPOINT != '' && vars.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME != '' && vars.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME != '' }}
     strategy:
       fail-fast: false
       matrix:
@@ -103,6 +109,11 @@ jobs:
         shell: bash
         run: echo "::warning::APPLE_* secrets are not configured in this repo; skipping macOS code signing and notarization (building local profile instead)."
 
+      - name: Warn when Azure signing credentials are missing
+        if: runner.os == 'Windows' && inputs.sign-windows && env.AZURE_SIGNING_CONFIGURED != 'true'
+        shell: bash
+        run: echo "::warning::AZURE_* secrets and/or AZURE_TRUSTED_SIGNING_* variables are not configured in this repo; skipping Windows code signing and publishing an unsigned executable."
+
       - name: Setup macOS keychain (release only)
         if: runner.os == 'macOS' && inputs.sign-macos && env.APPLE_SECRETS_CONFIGURED == 'true'
         uses: ./.github/actions/macos-keychain-setup
@@ -130,7 +141,7 @@ jobs:
       - name: Build native executable (Bun, local profile)
         if: '!(runner.os == ''macOS'' && inputs.sign-macos && env.APPLE_SECRETS_CONFIGURED == ''true'')'
         env:
-          KIMI_AZURE_TRUSTED_SIGNING: ${{ runner.os == 'Windows' && inputs.sign-windows && 'true' || 'false' }}
+          KIMI_AZURE_TRUSTED_SIGNING: ${{ runner.os == 'Windows' && inputs.sign-windows && env.AZURE_SIGNING_CONFIGURED == 'true' && 'true' || 'false' }}
           AZURE_TRUSTED_SIGNING_ENDPOINT: ${{ vars.AZURE_TRUSTED_SIGNING_ENDPOINT }}
           AZURE_TRUSTED_SIGNING_ACCOUNT_NAME: ${{ vars.AZURE_TRUSTED_SIGNING_ACCOUNT_NAME }}
           AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME: ${{ vars.AZURE_TRUSTED_SIGNING_CERTIFICATE_PROFILE_NAME }}
