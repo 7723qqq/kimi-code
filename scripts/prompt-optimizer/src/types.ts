@@ -50,8 +50,12 @@ export type EvaluatorType =
   | 'output-length' // Output length within range
   | 'regex-match' // Output matches regex
   | 'regex-not-match' // Output must NOT match regex
-  | 'json-schema' // Output conforms to JSON schema
-  | 'llm-judge'; // Use another LLM to judge (last resort)
+  | 'json-schema'; // Output conforms to JSON schema
+// No 'llm-judge': a judge needs a second model call, which runEvaluator cannot
+// make (it is synchronous and has no caller). Declaring the type while scoring
+// every such case 0 was worse than not offering it, so it was removed. The
+// external contract to follow if it returns is Promptfoo's `llm-rubric`
+// ({reason, score, pass} plus a threshold).
 
 export interface MockToolResponse {
   toolName: string;
@@ -75,7 +79,10 @@ export interface BenchmarkScores {
   taskSuccess: boolean;
   /** 0-1, proportion of rules followed */
   ruleCompliance: number;
-  /** Total tokens used (lower is better) */
+  /**
+   * Total tokens processed: billed input + cache-read input + output.
+   * Lower is better. Counting only billed input would measure cache hits.
+   */
   tokenEfficiency: number;
   /** 0-1, correct tool selection rate */
   toolAccuracy: number;
@@ -142,6 +149,13 @@ export interface ABComparison {
   deltaPercent: number;
   significant: boolean;
   verdict: 'A wins' | 'B wins' | 'tie';
+  /** The smallest effect this sample size could have detected. */
+  power: {
+    readonly n: number;
+    readonly detectableDelta: number;
+    readonly sigma: number;
+    readonly alpha: number;
+  };
 }
 
 // ─── Pruner Types ───────────────────────────────────────────────────────────
@@ -149,8 +163,8 @@ export interface ABComparison {
 export interface PruneResult {
   section: string;
   tokens: number;
-  impact: 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH';
-  verdict: 'PRUNE' | 'KEEP';
+  impact: 'NONE' | 'LOW' | 'MEDIUM' | 'HIGH' | 'IMPROVES' | 'UNKNOWN';
+  verdict: 'PRUNE' | 'KEEP' | 'UNKNOWN';
   reason: string;
   /** Score deltas when this section is removed */
   scoreDeltas: Partial<Record<keyof BenchmarkScores, number>>;
@@ -162,6 +176,8 @@ export interface PruneReport {
   totalTokens: number;
   prunableTokens: number;
   sections: PruneResult[];
+  /** Tokens in sections no benchmark case covers; excluded from `prunableTokens`. */
+  unmeasuredTokens: number;
 }
 
 // ─── Model Probe Types ──────────────────────────────────────────────────────
@@ -176,10 +192,22 @@ export type ProbeDimension =
 
 export interface ProbeResult {
   dimension: ProbeDimension;
+  /** Normalised to 0-1 so `overallStrength` stays comparable across dimensions. */
   score: number;
   recommendation: string;
   /** Suggested prompt patch for this weakness */
   suggestedPatch?: string;
+  /**
+   * For a contrast dimension, the measured difference between the two prompts.
+   * Kept alongside the normalised `score` so the report shows the real number.
+   */
+  raw?: number;
+  /** What the contrast varied, for the report line. */
+  contrastLabel?: string;
+  /** Min/max across the repeats, so an unstable dimension is visible. */
+  sampleSpread?: { readonly min: number; readonly max: number; readonly samples: number };
+  /** True when the repeats disagree enough that the mean is not representative. */
+  unstable?: boolean;
 }
 
 export interface ModelProfile {

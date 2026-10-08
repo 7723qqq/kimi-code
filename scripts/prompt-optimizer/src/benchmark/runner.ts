@@ -5,6 +5,7 @@
  * collects results, and outputs a structured report.
  */
 
+import { avg } from '../format';
 import { estimateTokens } from '../prompt-parser';
 import type { BenchmarkCase, BenchmarkResult, BenchmarkScores, PromptVariant } from '../types';
 import { runAllEvaluators, type EvalContext } from './evaluators';
@@ -25,7 +26,14 @@ export interface ToolDefinition {
 export interface ModelResponse {
   content: string;
   toolCalls: { name: string; input: string }[];
-  usage: { input: number; output: number };
+  /**
+   * Token accounting as the provider reports it.
+   *
+   * `input` is what was billed at full rate; `cacheRead` is what was served from
+   * the provider's prompt cache. Both are prompt tokens the model processed, so
+   * a comparison that counts only `input` measures cache hits rather than work.
+   */
+  usage: { input: number; output: number; cacheRead?: number };
   latencyMs: number;
 }
 
@@ -51,6 +59,45 @@ export const dryRunCaller: LLMCaller = async (_system, userMessages, _config, _t
   };
 };
 
+/** How many times a transient provider fault is retried before giving up. */
+export const CALL_ATTEMPTS = 3;
+/** Delay between attempts; the failures observed are independent per call. */
+export const RETRY_DELAY_MS = 400;
+
+/**
+ * Call the model, retrying a transient provider fault.
+ *
+ * Providers answer 200 with a dropped body often enough that a run of a hundred
+ * calls would otherwise abort partway through — measured at roughly 6% of calls
+ * for one provider, and independent between calls, so a retry almost always
+ * succeeds. The label names what was being evaluated when it finally failed.
+ */
+export async function callWithRetry(
+  caller: LLMCaller,
+  systemPrompt: string,
+  userMessages: string[],
+  config: RunnerConfig,
+  tools: ToolDefinition[] | undefined,
+  label: string,
+): Promise<ModelResponse> {
+  let lastError: unknown;
+  for (let attempt = 1; attempt <= CALL_ATTEMPTS; attempt++) {
+    try {
+      return await caller(systemPrompt, userMessages, config, tools);
+    } catch (error: unknown) {
+      lastError = error;
+      if (attempt < CALL_ATTEMPTS) {
+        await new Promise((resolve) => setTimeout(resolve, RETRY_DELAY_MS * attempt));
+      }
+    }
+  }
+  throw new Error(
+    `${label} failed after ${CALL_ATTEMPTS} attempts: ` +
+      `${lastError instanceof Error ? lastError.message : String(lastError)}`,
+    { cause: lastError },
+  );
+}
+
 /**
  * Run a single benchmark case against a prompt variant.
  */
@@ -62,11 +109,13 @@ export async function runCase(
 ): Promise<BenchmarkResult> {
   const start = Date.now();
 
-  const response = await caller(
+  const response = await callWithRetry(
+    caller,
     variant.content,
     benchCase.userMessages,
     config,
     benchCase.availableTools,
+    `case "${benchCase.id}"`,
   );
 
   const latencyMs = Date.now() - start;
@@ -82,7 +131,12 @@ export async function runCase(
   const scores: BenchmarkScores = {
     taskSuccess: violations.length === 0,
     ruleCompliance,
-    tokenEfficiency: response.usage.input + response.usage.output,
+    // Every prompt token the model processed, whether billed at full rate or
+    // served from cache. Counting only `input` measures how often the provider
+    // happened to have the prompt cached — which depends on call ordering, not
+    // on the variant being compared.
+    tokenEfficiency:
+      response.usage.input + (response.usage.cacheRead ?? 0) + response.usage.output,
     toolAccuracy: computeToolAccuracy(benchCase, response.toolCalls),
     outputConciseness: computeConciseness(response.content),
   };
@@ -209,7 +263,3 @@ function computeConciseness(output: string): number {
   return 0.2;
 }
 
-function avg(nums: number[]): number {
-  if (nums.length === 0) return 0;
-  return nums.reduce((a, b) => a + b, 0) / nums.length;
-}

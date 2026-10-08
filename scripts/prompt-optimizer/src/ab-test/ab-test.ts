@@ -6,6 +6,12 @@
  */
 
 import { BENCHMARK_CASES } from '../benchmark/cases';
+import { avg, formatNum, padRight } from '../format';
+import {
+  estimatePower,
+  pairedDifferences,
+  pairedPermutationP,
+} from './statistics';
 import { runSuite, aggregateResults, type LLMCaller, type RunnerConfig } from '../benchmark/runner';
 import type {
   ABComparison,
@@ -75,13 +81,24 @@ function generateComparisons(
         const scoresA = resultsA.map((r) => getScore(r.scores, dim));
         const scoresB = resultsB.map((r) => getScore(r.scores, dim));
 
-        const meanA = mean(scoresA);
-        const meanB = mean(scoresB);
+        const meanA = avg(scoresA);
+        const meanB = avg(scoresB);
         const delta = meanB - meanA;
         const deltaPercent = meanA !== 0 ? (delta / Math.abs(meanA)) * 100 : 0;
 
-        // Simple significance test: bootstrap confidence interval
-        const significant = isSignificant(scoresA, scoresB);
+        // Both variants ran the same cases, so compare per case rather than
+        // treating the two sets as independent samples.
+        const byTask = (results: BenchmarkResult[]): Map<string, number[]> => {
+          const map = new Map<string, number[]>();
+          for (const r of results) {
+            const list = map.get(r.taskId) ?? [];
+            list.push(getScore(r.scores, dim));
+            map.set(r.taskId, list);
+          }
+          return map;
+        };
+        const differences = pairedDifferences({ a: byTask(resultsA), b: byTask(resultsB) });
+        const significant = pairedPermutationP(differences) < 0.05;
 
         let verdict: ABComparison['verdict'];
         if (!significant) verdict = 'tie';
@@ -99,6 +116,7 @@ function generateComparisons(
           deltaPercent,
           significant,
           verdict,
+          power: estimatePower(scoresB, differences),
         });
       }
     }
@@ -134,7 +152,8 @@ export function formatABReport(result: ABResult): string {
       padRight('B mean', 10) +
       padRight('Delta', 10) +
       padRight('Sig?', 6) +
-      'Verdict',
+      padRight('Verdict', 10) +
+      'Detectable',
   );
   lines.push('─'.repeat(80));
 
@@ -145,11 +164,19 @@ export function formatABReport(result: ABResult): string {
         padRight(formatNum(c.meanB), 10) +
         padRight(`${c.deltaPercent >= 0 ? '+' : ''}${c.deltaPercent.toFixed(1)}%`, 10) +
         padRight(c.significant ? 'YES' : 'no', 6) +
-        c.verdict,
+        padRight(c.verdict, 10) +
+        `±${c.power.detectableDelta.toFixed(3)} (n=${c.power.n})`,
     );
   }
 
   lines.push('─'.repeat(80));
+  const { n } = result.comparison[0]?.power ?? { n: 0 };
+  lines.push(
+    '',
+    `"Detectable" is the smallest effect this run (n=${n} cases per variant, α=0.05) could`,
+    'distinguish from zero. A tie with a large detectable effect means the sample was too',
+    'small to see the difference, not that no difference exists.',
+  );
   return lines.join('\n');
 }
 
@@ -166,44 +193,6 @@ function getScore(scores: BenchmarkScores, dim: keyof BenchmarkScores): number {
   return val;
 }
 
-function mean(nums: number[]): number {
-  if (nums.length === 0) return 0;
-  return nums.reduce((a, b) => a + b, 0) / nums.length;
-}
 
-/**
- * Simple bootstrap significance test.
- * Returns true if 95% CI of (B - A) does not include 0.
- */
-function isSignificant(scoresA: number[], scoresB: number[], iterations = 1000): boolean {
-  if (scoresA.length < 3 || scoresB.length < 3) return false;
 
-  const observedDiff = mean(scoresB) - mean(scoresA);
-  if (Math.abs(observedDiff) < 0.01) return false;
 
-  const combined = [...scoresA, ...scoresB];
-  let moreExtreme = 0;
-
-  for (let i = 0; i < iterations; i++) {
-    // Shuffle and split
-    const shuffled = [...combined].toSorted(() => Math.random() - 0.5);
-    const permA = shuffled.slice(0, scoresA.length);
-    const permB = shuffled.slice(scoresA.length);
-    const permDiff = mean(permB) - mean(permA);
-
-    if (Math.abs(permDiff) >= Math.abs(observedDiff)) {
-      moreExtreme++;
-    }
-  }
-
-  const pValue = moreExtreme / iterations;
-  return pValue < 0.05;
-}
-
-function padRight(str: string, len: number): string {
-  return str.length >= len ? str + ' ' : str + ' '.repeat(len - str.length);
-}
-
-function formatNum(n: number): string {
-  return n < 10 ? n.toFixed(3) : n.toFixed(1);
-}

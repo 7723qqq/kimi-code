@@ -1,15 +1,13 @@
 /**
  * Prompt Optimizer — Report generator.
  *
- * Generates comparison reports between multiple benchmark runs,
- * renders formatted tables, and writes JSON/text outputs.
+ * Renders the multi-variant comparison table. The CLI owns writing report
+ * files, so this module only formats text.
  */
 
-import { writeFileSync, mkdirSync, existsSync, readdirSync, readFileSync } from 'node:fs';
-import { resolve, basename } from 'node:path';
-
 import { aggregateResults } from '../benchmark/runner';
-import type { BenchmarkResult, PruneReport, ModelProfile } from '../types';
+import { padRight, sign } from '../format';
+import type { BenchmarkResult } from '../types';
 
 export interface CompareInput {
   name: string;
@@ -102,83 +100,7 @@ export function generateComparisonReport(inputs: CompareInput[]): string {
   return lines.join('\n');
 }
 
-/**
- * Load all reports from a directory matching a pattern.
- */
-export function loadReports(dir: string, prefix: string): CompareInput[] {
-  if (!existsSync(dir)) return [];
-  const files = readdirSync(dir)
-    .filter((f) => f.startsWith(prefix) && f.endsWith('.json'))
-    .toSorted();
-
-  return files.map((f) => {
-    const content = JSON.parse(readFileSync(resolve(dir, f), 'utf-8'));
-    const name = basename(f, '.json');
-    const results: BenchmarkResult[] = content.results ?? [];
-    return { name, results };
-  });
-}
-
-/**
- * Write a report to disk in both JSON and text formats.
- */
-export function writeReport(
-  outputDir: string,
-  name: string,
-  data: unknown,
-  textContent?: string,
-): { jsonPath: string; textPath?: string } {
-  mkdirSync(outputDir, { recursive: true });
-  const jsonPath = resolve(outputDir, `${name}.json`);
-  writeFileSync(jsonPath, JSON.stringify(data, null, 2));
-
-  let textPath: string | undefined;
-  if (textContent) {
-    textPath = resolve(outputDir, `${name}.txt`);
-    writeFileSync(textPath, textContent);
-  }
-
-  return { jsonPath, textPath };
-}
-
-/**
- * Generate a summary dashboard combining prune + probe data.
- */
-export function generateDashboard(pruneReport?: PruneReport, modelProfile?: ModelProfile): string {
-  const lines: string[] = ['Prompt Optimizer Dashboard', '═'.repeat(60), ''];
-
-  if (pruneReport) {
-    lines.push(`Prompt Size: ${pruneReport.totalTokens} tokens`);
-    lines.push(
-      `Prunable: ${pruneReport.prunableTokens} tokens (${((pruneReport.prunableTokens / pruneReport.totalTokens) * 100).toFixed(1)}%)`,
-    );
-    lines.push(
-      `Sections: ${pruneReport.sections.length} total, ${pruneReport.sections.filter((s) => s.verdict === 'PRUNE').length} removable`,
-    );
-    lines.push('');
-  }
-
-  if (modelProfile) {
-    lines.push(`Model: ${modelProfile.model}`);
-    lines.push(`Overall Strength: ${(modelProfile.overallStrength * 100).toFixed(0)}%`);
-    const weak = modelProfile.dimensions.filter((d) => d.score < 0.7);
-    if (weak.length > 0) {
-      lines.push(
-        `Weak dimensions: ${weak.map((d) => `${d.dimension}(${(d.score * 100).toFixed(0)}%)`).join(', ')}`,
-      );
-    }
-    lines.push('');
-  }
-
-  return lines.join('\n');
-}
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
-function padRight(str: string, len: number): string {
-  return str.length >= len ? str + ' ' : str + ' '.repeat(len - str.length);
-}
 
-function sign(val: string): string {
-  return Number(val) >= 0 ? `+${val}` : val;
-}

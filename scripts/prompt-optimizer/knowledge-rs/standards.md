@@ -48,7 +48,7 @@ scope: packages/
 tags: dependency, kimi-code, agent-core
 scope: apps/kimi-code/
 
-CLI/TUI 应用通过 `@moonshot-ai/kimi-code-sdk` 消费核心能力，不可直接依赖 `@moonshot-ai/agent-core-v2`。
+CLI/TUI 应用通过 `@moonshot-ai/kimi-code-sdk` 消费核心能力，不可直接依赖 `@moonshot-ai/agent-core-v2`（`cli/v2` runner 例外）。
 
 ---
 
@@ -60,11 +60,11 @@ Web UI 不依赖 `@moonshot-ai/agent-core-v2`，wire types 在本地重新实现
 
 ---
 
-# architecture: Agent 类必须独立于 Session
-tags: agent-core, class-design, session
-scope: packages/agent-core-v2/src/agent/
+# architecture: Agent 的上下文与生命周期分离
+tags: agent-core, session, lifecycle
+scope: packages/agent-core-v2/src/agent/agentContext/
 
-`Agent` 类构造函数不可强制要求创建 `Session` 实例，不可要求 `agentId` 或 `session`。可接受可选 `sessionId` 作为 hint，但实例不可持有 `sessionId`，不可依赖 Session 生命周期。
+`AgentContext` 是纯值对象（`agentId` / `generation` / `space`），不持有 session 状态；agent 的创建、fork、关闭由 `src/session/agentLifecycle/agentLifecycleService.ts` 统一负责，agent 子目录里的实现不自行管理 Session 生命周期。
 
 ---
 
@@ -128,7 +128,7 @@ scope:
 tags: nix, ci, workspace
 scope: 
 
-`scripts/check-nix-workspace.mjs` 只验证 `@moonshot-ai/kimi-code` 的依赖闭包。闭包外的叶子包（如 e2e）即使缺失也不会报错。不能依赖绿色 CI 判断 flake.nix 是否完整。
+`scripts/check-nix-workspace.mjs` 只验证 `@moonshot-ai/kimi-code` 的依赖闭包。闭包外的叶子包（如 `apps/kimi-web`，根本不在 workspace 里）即使缺失也不会报错。不能依赖绿色 CI 判断 flake.nix 是否完整。
 
 ---
 
@@ -136,7 +136,7 @@ scope:
 tags: node, bun, environment
 scope: 
 
-需要 Node.js >= 24.15.0、Bun >= 1.4.0（`bunfig.toml` 钉了 hoisted linker）。Node 版本不满足会让原生打包脚本（`bun run build:native:bun`）直接报错。
+Bun >= 1.4.0（`bunfig.toml` 钉了 hoisted linker）。Node.js >= 24.15.0 只对 Nix 构建路径成立：`flake.nix` 的 `minNodeVersion` 要求 nixpkgs 提供的 24.x 不低于该版本，否则 evaluation 直接失败。原生打包脚本（`bun run build:native:bun`）全程由 Bun 执行，不做任何 Node 版本校验。
 
 ---
 

@@ -5,6 +5,7 @@
  * Grouped by category for selective running.
  */
 
+import { assertSupportedEvaluators } from './evaluators';
 import type { BenchmarkCase } from '../types';
 import type { ToolDefinition } from './runner';
 
@@ -667,3 +668,8 @@ export function getCasesBySection(section: string): BenchmarkCase[] {
 export function getCaseById(id: string): BenchmarkCase | undefined {
   return BENCHMARK_CASES.find((c) => c.id === id);
 }
+
+// A case declaring an evaluator the runner cannot execute would score as a
+// permanent violation rather than failing loudly, so the set is checked once
+// at load.
+assertSupportedEvaluators(BENCHMARK_CASES);

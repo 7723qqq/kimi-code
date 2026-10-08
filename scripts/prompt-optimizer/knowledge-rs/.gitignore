@@ -1,1 +1,7 @@
 /target
+
+# Test databases and their SQLite sidecars. These are scratch files the
+# integration test creates and deletes; committing them only produces churn.
+*.db
+*.db-wal
+*.db-shm

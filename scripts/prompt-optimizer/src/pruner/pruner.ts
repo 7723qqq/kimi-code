@@ -6,6 +6,7 @@
  */
 
 import { getCasesBySection } from '../benchmark/cases';
+import { padRight } from '../format';
 import { runSuite, aggregateResults, type LLMCaller, type RunnerConfig } from '../benchmark/runner';
 import { generateBaselineVariant, generatePruneVariant } from '../prompt-parser';
 import type { BenchmarkCase, PromptSection, PruneReport, PruneResult } from '../types';
@@ -54,17 +55,34 @@ export async function runPruner(
       continue;
     }
 
-    // Find cases relevant to this section
+    // Find cases relevant to this section. When none cover it there is nothing
+    // to measure: scoring it against unrelated cases tells us about those cases,
+    // not this section, so it is reported as UNKNOWN rather than guessed at.
     const relevantCases = getCasesBySection(section.heading);
-    const casesToRun = relevantCases.length > 0 ? relevantCases : allCases.slice(0, 5);
+    if (relevantCases.length === 0) {
+      pruneResults.push({
+        section: section.heading,
+        tokens: section.tokens,
+        impact: 'UNKNOWN',
+        verdict: 'UNKNOWN',
+        reason: 'No benchmark case covers this section',
+        scoreDeltas: {},
+      });
+      continue;
+    }
 
     // Run pruned variant against the same case set
     const prunedVariant = generatePruneVariant(sections, section.heading);
-    const prunedResults = await runSuite(casesToRun, prunedVariant, config.caller, config.runner);
+    const prunedResults = await runSuite(
+      relevantCases,
+      prunedVariant,
+      config.caller,
+      config.runner,
+    );
     const prunedAgg = aggregateResults(prunedResults);
 
     // Compare against baseline scores on the SAME case subset (not all cases)
-    const relevantCaseIds = new Set(casesToRun.map((c) => c.id));
+    const relevantCaseIds = new Set(relevantCases.map((c) => c.id));
     const relevantBaselineResults = baselineResults.filter((r) => relevantCaseIds.has(r.taskId));
     const relevantBaselineAgg = aggregateResults(relevantBaselineResults);
 
@@ -72,28 +90,36 @@ export async function runPruner(
     const toolDelta = prunedAgg.avgToolAccuracy - relevantBaselineAgg.avgToolAccuracy;
     const passRateDelta = prunedAgg.passRate - relevantBaselineAgg.passRate;
 
-    const maxNegativeDelta = Math.min(complianceDelta, toolDelta, passRateDelta);
+    // The verdict is driven by the worst dimension, but a delta on every
+    // dimension that is positive is its own signal: removing the section helped,
+    // which the old `min(...)` folded into "no measurable impact".
+    const worstDelta = Math.min(complianceDelta, toolDelta, passRateDelta);
+    const bestDelta = Math.max(complianceDelta, toolDelta, passRateDelta);
 
     let impact: PruneResult['impact'];
     let verdict: PruneResult['verdict'];
     let reason: string;
 
-    if (maxNegativeDelta >= -0.02) {
+    if (bestDelta >= 0.02 && worstDelta >= 0) {
+      impact = 'IMPROVES';
+      verdict = 'PRUNE';
+      reason = `Removal improved every measured dimension (best ${(bestDelta * 100).toFixed(1)}%)`;
+    } else if (worstDelta >= -0.02) {
       impact = 'NONE';
       verdict = 'PRUNE';
       reason = 'No measurable impact when removed';
-    } else if (maxNegativeDelta >= -threshold) {
+    } else if (worstDelta >= -threshold) {
       impact = 'LOW';
       verdict = 'PRUNE';
-      reason = `Minor impact (${(maxNegativeDelta * 100).toFixed(1)}% delta)`;
-    } else if (maxNegativeDelta >= -threshold * 2) {
+      reason = `Minor impact (${(worstDelta * 100).toFixed(1)}% delta)`;
+    } else if (worstDelta >= -threshold * 2) {
       impact = 'MEDIUM';
       verdict = 'KEEP';
-      reason = `Moderate impact (${(maxNegativeDelta * 100).toFixed(1)}% delta)`;
+      reason = `Moderate impact (${(worstDelta * 100).toFixed(1)}% delta)`;
     } else {
       impact = 'HIGH';
       verdict = 'KEEP';
-      reason = `Critical section (${(maxNegativeDelta * 100).toFixed(1)}% delta)`;
+      reason = `Critical section (${(worstDelta * 100).toFixed(1)}% delta)`;
     }
 
     pruneResults.push({
@@ -113,6 +139,9 @@ export async function runPruner(
   const prunableTokens = pruneResults
     .filter((r) => r.verdict === 'PRUNE')
     .reduce((sum, r) => sum + r.tokens, 0);
+  const unmeasuredTokens = pruneResults
+    .filter((r) => r.verdict === 'UNKNOWN')
+    .reduce((sum, r) => sum + r.tokens, 0);
 
   return {
     promptVersion: 'current',
@@ -120,6 +149,7 @@ export async function runPruner(
     totalTokens,
     prunableTokens,
     sections: pruneResults,
+    unmeasuredTokens,
   };
 }
 
@@ -127,10 +157,17 @@ export async function runPruner(
  * Format prune report as a readable table.
  */
 export function formatPruneReport(report: PruneReport): string {
+  const pct = (part: number): string =>
+    report.totalTokens > 0 ? ((part / report.totalTokens) * 100).toFixed(1) : '0.0';
   const lines: string[] = [
     'Prompt Health Report',
     '═'.repeat(80),
-    `Model: ${report.model} | Total: ${report.totalTokens} tokens | Prunable: ${report.prunableTokens} tokens (${((report.prunableTokens / report.totalTokens) * 100).toFixed(1)}%)`,
+    `Model: ${report.model} | Total: ${report.totalTokens} tokens | Prunable: ${report.prunableTokens} tokens (${pct(report.prunableTokens)}%)`,
+    ...(report.unmeasuredTokens > 0
+      ? [
+          `Unmeasured: ${report.unmeasuredTokens} tokens (${pct(report.unmeasuredTokens)}%) — no benchmark case covers these sections`,
+        ]
+      : []),
     '─'.repeat(80),
     padRight('Section', 35) +
       padRight('Tokens', 8) +
@@ -154,6 +191,3 @@ export function formatPruneReport(report: PruneReport): string {
   return lines.join('\n');
 }
 
-function padRight(str: string, len: number): string {
-  return str.length >= len ? str + ' ' : str + ' '.repeat(len - str.length);
-}
