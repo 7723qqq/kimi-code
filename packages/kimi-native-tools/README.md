@@ -15,9 +15,11 @@ bun run build:debug
 # Release build for the current platform
 bun run build
 
-# Run the Rust unit tests (--lib: this is a cdylib crate, so `cargo test`
-# without `--lib` fails on the unsupported doc-test target)
-cargo test --lib
+# Run the Rust unit tests (same as the package's `test` script)
+cargo test
+
+# Note: `cargo test --doc` does not work here — doc tests are unsupported for
+# a cdylib crate, so rustdoc exits with an error
 ```
 
 ## Cross-platform artifacts

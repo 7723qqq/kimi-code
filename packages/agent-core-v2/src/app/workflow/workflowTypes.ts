@@ -1,12 +1,3 @@
-/**
- * Workflow domain — types and interfaces.
- *
- * A workflow is a JavaScript script that orchestrates multi-phase agent work
- * using injected primitives: `agent()`, `parallel()`, `pipeline()`, `phase()`,
- * `log()`, and file IO. Scripts run in a Node.js `vm` sandbox with no access
- * to Node APIs — only the injected host functions.
- */
-
 export interface WorkflowMeta {
   readonly name: string;
   readonly description: string;

@@ -64,11 +64,6 @@ export function parsePattern(pattern: string): ParsedPattern {
 
 export const parsePermissionPattern = parsePattern;
 
-/**
- * Tools renamed by a merge keep their old name matchable here so that
- * user-configured rules and session replays written against the previous
- * name continue to apply. Map: current tool name -> legacy names.
- */
 export const LEGACY_TOOL_NAME_ALIASES: Readonly<Record<string, readonly string[]>> = {
   Read: ['ReadMediaFile'],
 };

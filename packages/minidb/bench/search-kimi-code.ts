@@ -3,7 +3,7 @@
 // Import ~/.kimi-code sessions (useful extraction) and full-text-search for a
 // query, printing hits with context snippets.
 //
-// Run:  node bench/search-kimi-code.ts <query>  [--full]
+// Run:  bun bench/search-kimi-code.ts <query>  [--full]
 
 import { existsSync, readFileSync } from 'node:fs';
 import fs from 'node:fs/promises';
@@ -16,7 +16,7 @@ const argv = process.argv.slice(2);
 const FULL = argv.includes('--full');
 const query = argv.find((a) => !a.startsWith('--'));
 if (!query) {
-  console.error('usage: node bench/search-kimi-code.ts <query> [--full]');
+  console.error('usage: bun bench/search-kimi-code.ts <query> [--full]');
   process.exit(1);
 }
 

@@ -2,7 +2,7 @@
  * CI check: verify every `t('namespace.key')` call in source code has a
  * corresponding entry in the locale file that source tree is translated from.
  *
- * Usage: node scripts/check-t-call-coverage.mjs
+ * Usage: bun scripts/check-t-call-coverage.mjs
  * Exit code: 0 if all keys are covered, 1 if any key is missing.
  */
 

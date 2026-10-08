@@ -177,14 +177,7 @@ export class ModelRequesterImpl implements ModelRequester {
     let requestSentAt: number | undefined;
     let firstChunkAt: number | undefined;
     let streamEndedAt: number | undefined;
-    // The token-bearing-part window is reported in epoch milliseconds even
-    // though its endpoints are read from `performance.now()`: the two differ by
-    // a constant captured once here, so the interval between them is exactly
-    // the monotonic one — a wall-clock step mid-stream cancels out — while the
-    // absolute value stays comparable with the frame timestamps that carry it
-    // to another process. `performance.now()` on its own shares no epoch with
-    // anything outside this process, which is why the values are named
-    // `...OffsetMs` rather than `...AtMs`.
+
     const epochOffset = Date.now() - performance.now();
     let firstTokenAt: number | undefined;
     let lastTokenAt: number | undefined;
@@ -252,12 +245,7 @@ export class ModelRequesterImpl implements ModelRequester {
               } else {
                 serverDecodeMs += arrivedAt - lastResumeAt;
               }
-              // The throughput window is bracketed by the parts that carry
-              // generated tokens — text, thinking and streamed tool-call
-              // arguments, which are what `usage.output` counts. Media parts
-              // describe the input side and never delimit it. This is the only
-              // place every part is visible; the host-facing event stream
-              // drops the tool-call-argument parts that precede any text.
+
               if (carriesOutputTokens(event.part)) {
                 const outputPartAt = epochOffset + performance.now();
                 if (firstTokenAt === undefined) firstTokenAt = outputPartAt;
@@ -344,10 +332,6 @@ export class ModelRequesterImpl implements ModelRequester {
   }
 }
 
-/** True for streamed parts whose content is counted in `usage.output`: visible
- *  text, reasoning, and tool-call argument deltas. Media parts carry input.
- *  Kept next to the throughput window it defines, since the window is only
- *  meaningful as long as this predicate matches the provider's accounting. */
 export function carriesOutputTokens(part: StreamedMessagePart): boolean {
   return part.type === 'text' || part.type === 'think' || part.type === 'tool_call_part';
 }
@@ -457,8 +441,7 @@ export function buildStreamTiming(
     timing.llmLastTokenOffsetMs = outputParts.lastTokenAt;
   }
   if (outputParts.firstTokenAt !== undefined && outputParts.lastTokenAt !== undefined) {
-    // The caller derived both from this process's epoch base, so they are on
-    // the clock `Date.now()` — and therefore the frame timestamps — uses.
+
     timing.llmWindowOnFrameClock = true;
   }
   if (requestSentAt !== undefined) {

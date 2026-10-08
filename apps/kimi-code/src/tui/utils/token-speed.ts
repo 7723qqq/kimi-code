@@ -71,8 +71,9 @@
  *
  * The error is one-sided and has a closed form: the window's two ends are each
  * quantized by the batch interval, and both lost slices are decode, so the rate
- * reads high by about `batchInterval / window`. That is 3% at 900 tokens and
- * 50–100% at 24, which is what the table shows.
+ * reads high by about `batchInterval / window`. That is a few tenths of a
+ * percent at 900 tokens and tens of percent at 24 — roughly 5% and 125%
+ * respectively, which is the direction the table shows.
  *
  * Three things follow, all tested rather than assumed. Widening the window to
  * cover the missing tail overshoots by about the margin it fixes (measured

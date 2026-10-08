@@ -13,7 +13,6 @@ export const AttachmentErrors = {
 
 registerErrorDomain(AttachmentErrors);
 
-/** Structured attachment failure with a stable code. */
 export class AttachmentError extends Error {
   readonly code: string;
 

@@ -1,7 +1,8 @@
 // test/cluster/mp-worker.ts
 //
 // Child-process entrypoint for the multi-process cluster tests. Not a test
-// file itself; spawned via `node --import tsx mp-worker.ts <mode> ...`.
+// file itself; spawned via `process.execPath` on the worker path (i.e. `bun
+// mp-worker.ts <mode> ...` under Bun, `node --import tsx` under Node).
 // Always prints a final JSON report line and exits non-zero on failure.
 
 import { ClusterDb } from '../../src/cluster/index.js';

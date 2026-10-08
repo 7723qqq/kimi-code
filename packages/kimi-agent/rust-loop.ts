@@ -1,10 +1,11 @@
 /// Rust agent engine adapter (experimental).
 ///
 /// Not wired into the app in this build: the `agent.engine = "rust"`
-/// configuration key does not exist and `createRunTurnOverride` has no
-/// importers, so the JS turn loop always runs. Kept as the integration
-/// surface for the planned Rust engine. Two transport modes are
-/// supported, selected automatically at startup:
+/// configuration key exists (`packages/node-sdk/src/config/schema.ts`), but
+/// nothing outside this package imports `createRunTurnOverride`, so the JS
+/// turn loop always runs. Kept as the integration surface for the planned
+/// Rust engine. Two transport modes are supported, selected automatically
+/// at startup:
 ///
 /// 1. **napi-rs** (preferred): The native `kimi_agent.node` addon is
 ///    loaded directly into the Node.js process. Host callbacks are

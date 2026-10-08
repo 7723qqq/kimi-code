@@ -23,7 +23,6 @@ function specData(): SpecData {
   };
 }
 
-/** Records what the mutex was asked to do, and mimics eviction on switchTo. */
 function mutex(): {
   readonly service: IAgentModeMutexService;
   readonly switchTo: ReturnType<typeof vi.fn>;

@@ -109,7 +109,7 @@ Then open a new conversation in Zed's Agent panel. See [Using in IDEs](https://m
 
 ## Develop
 
-Requirements: Bun >= 1.4. Node.js is not required for development — install, build, lint, typecheck, and the test suites all run through Bun.
+Requirements: Bun >= 1.4. Node.js is not required for the Bun-based dev workflow — install, build, lint, typecheck, and the test suites all run through Bun. The Nix build path is the exception: `flake.nix` requires Node.js >= 24.15.0.
 
 ```sh
 git clone https://github.com/7723qqq/kimi-code.git

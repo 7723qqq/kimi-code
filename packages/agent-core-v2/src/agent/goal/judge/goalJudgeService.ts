@@ -62,10 +62,6 @@ export class AgentGoalJudgeService extends Disposable implements IAgentGoalJudge
     return this.evaluateFromTranscript(goal, signal);
   }
 
-  /**
-   * Launch a judge subagent that independently verifies the goal by executing
-   * commands. Returns `undefined` if the subagent path fails (caller falls back).
-   */
   private async evaluateViaSubagent(
     goal: GoalSnapshot,
     _signal?: AbortSignal,
@@ -78,10 +74,6 @@ export class AgentGoalJudgeService extends Disposable implements IAgentGoalJudge
     return undefined;
   }
 
-  /**
-   * Fallback: evaluate goal completion by asking an LLM to judge the transcript.
-   * Used when the subagent path is unavailable or fails.
-   */
   private async evaluateFromTranscript(
     goal: GoalSnapshot,
     signal?: AbortSignal,

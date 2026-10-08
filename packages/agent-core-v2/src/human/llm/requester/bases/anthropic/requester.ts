@@ -67,7 +67,6 @@ function anthropicCustomHeaderEnvNames(): string[] {
   return names;
 }
 
-/** Anthropic OAuth tokens are sent as `Authorization: Bearer <token>`. */
 function isAnthropicOAuthApiKey(apiKey: string): boolean {
   return apiKey.startsWith('sk-ant-oat01-');
 }

@@ -89,6 +89,7 @@ packages/agent-core-v2/src/agent/llmRequester/llmRequesterService.ts  3
 packages/agent-core-v2/src/agent/media/image-compress.ts  2
 packages/agent-core-v2/src/agent/media/mediaReadContext.ts  1
 packages/agent-core-v2/src/agent/media/mediaResolverService.ts  1
+packages/agent-core-v2/src/agent/modeMutex/modeMutexService.ts  1
 packages/agent-core-v2/src/agent/profile/profileService.ts  1
 packages/agent-core-v2/src/agent/task/taskService.ts  3
 packages/agent-core-v2/src/agent/team/coordinator.ts  1
@@ -124,6 +125,8 @@ packages/agent-core-v2/src/features/lsp/lspInstance.ts  3
 packages/agent-core-v2/src/features/lsp/lspStdioProvider.ts  1
 packages/agent-core-v2/src/features/plan/tools/exit-plan-mode/exitPlanModeTool.ts  1
 packages/agent-core-v2/src/features/reminder/reminderService.ts  1
+packages/agent-core-v2/src/features/spec/specService.ts  1
+packages/agent-core-v2/src/features/spec/tools/exit-spec-mode/exitSpecModeTool.ts  1
 packages/agent-core-v2/src/features/tower/protocol/store.ts  2
 packages/agent-core-v2/src/human/llm-kimi/schema.ts  2
 packages/agent-core-v2/src/human/llm/requester/bases/antigravity/antigravity.ts  4

@@ -33,20 +33,10 @@ export interface ModelRequestTiming {
   readonly serverDecodeMs?: number;
   readonly clientConsumeMs?: number;
   readonly clientBlockedMs?: number;
-  /** Epoch ms of the first and last streamed parts carrying generated tokens —
-   *  text, reasoning, tool-call argument deltas. Their difference is the
-   *  interval the step's tokens were produced over, which is the denominator a
-   *  decode rate needs; the absolute values locate those endpoints on the same
-   *  clock as the frame timestamps that ship them, so a consumer in another
-   *  process can use them too. Unlike the `*Ms` fields above they are instants,
-   *  not durations, despite the `OffsetMs` suffix marking their derivation. */
+
   readonly llmFirstTokenOffsetMs?: number;
   readonly llmLastTokenOffsetMs?: number;
-  /** Whether the two offsets above share the clock this process stamps its
-   *  frames with. Set unconditionally where they are taken, since they are
-   *  derived from the local epoch; a consumer may rely on it to sanity-check
-   *  the pair against a frame timestamp, and must treat an absent claim as
-   *  "difference only". */
+
   readonly llmWindowOnFrameClock?: boolean;
 }
 

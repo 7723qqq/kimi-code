@@ -1,6 +1,6 @@
 # @moonshot-ai/kimi-web
 
-> **Note**: kimi-web is excluded from the root Bun workspace (it keeps its own pnpm setup)
+> **Note**: kimi-web is excluded from the root Bun workspace (it keeps its own Bun setup)
 > and does not maintain an independent changelog.
 > It ships as part of the Kimi Code CLI release (see `apps/kimi-code/CHANGELOG.md`); entries
 > below only cover the period when it was published separately.

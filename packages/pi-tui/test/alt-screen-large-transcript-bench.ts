@@ -14,7 +14,7 @@
  * final assistant message, and width changes that invalidate Markdown caches.
  *
  * Run from the repository root:
- *   node --experimental-strip-types packages/tui/test/alt-screen-large-transcript-bench.ts
+ *   bun packages/pi-tui/test/alt-screen-large-transcript-bench.ts
  */
 
 import { performance } from "node:perf_hooks";

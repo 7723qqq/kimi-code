@@ -15,7 +15,7 @@
 // real scale (~7.2k user messages) and at scaled-up sizes to find the
 // crossover where the index starts winning.
 //
-// Run:  node --import tsx bench/message-range.ts
+// Run:  bun bench/message-range.ts
 
 import { existsSync, readFileSync } from 'node:fs';
 import fs from 'node:fs/promises';

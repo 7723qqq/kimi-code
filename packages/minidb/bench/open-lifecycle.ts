@@ -1,6 +1,6 @@
 // bench/open-lifecycle.ts
 //
-// Phase-1 baseline (plan/01-baseline-and-boundaries.md): what MiniDb's open()
+// Phase-1 baseline: what MiniDb's open()
 // costs the host process, per lifecycle path. Four scenario families —
 //   1. small corpus with a healthy published generation;
 //   2. a large WAL delta past the generation checkpoint (wal-catch-up);
@@ -13,9 +13,9 @@
 // recording the lifecycleStatus() phase breakdown so a generation attach can
 // be told apart from a full rebuild by numbers, not by inference.
 //
-// Run:  node --import tsx bench/open-lifecycle.ts            (full sizes)
-//       node --import tsx bench/open-lifecycle.ts --quick    (smoke sizes)
-//       node --import tsx bench/open-lifecycle.ts --json .tmp/open-lifecycle.json
+// Run:  bun bench/open-lifecycle.ts            (full sizes)
+//       bun bench/open-lifecycle.ts --quick    (smoke sizes)
+//       bun bench/open-lifecycle.ts --json .tmp/open-lifecycle.json
 //
 // Knobs (env): BENCH_SEED.
 

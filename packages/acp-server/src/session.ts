@@ -1110,7 +1110,7 @@ export class AcpSession {
     } else {
       // KLIENT-GAP(plan): `exitPlan` (`planService.exit()`) is not on the
       // klient surface; `cancelPlan` (`planModeCancel`) has the identical
-      // state effect (see `agent/plan/planOps.ts`) — only the persisted op
+      // state effect (see `features/plan/planOps.ts`) — only the persisted op
       // name differs.
       await this.agent.cancelPlan();
     }

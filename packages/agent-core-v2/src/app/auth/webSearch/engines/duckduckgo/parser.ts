@@ -33,7 +33,6 @@ function hasClass(
   return classList !== null && classList.split(/\s+/).includes(className);
 }
 
-/** The preload URL is only trusted when it points at DDG's own `d.js` endpoint. */
 export function isTrustedDuckDuckGoPreloadUrl(value: string): boolean {
   try {
     const parsed = new URL(value);
@@ -82,11 +81,6 @@ function sanitizeDuckDuckGoUrl(rawUrl: string | null | undefined): string {
   }
 }
 
-/**
- * Finds the trusted preload `d.js` URL in the DuckDuckGo search page: first
- * through `link[rel="preload"]` / `#deep_preload_script` markup, then as a
- * regex fallback over the raw HTML. Returns '' when no trusted URL is found.
- */
 export function extractDuckDuckGoPreloadUrl(pageHtml: string): string {
   const $ = loadHtml(pageHtml);
   for (const el of $('link[rel="preload"]').toArray()) {
@@ -108,7 +102,6 @@ export function extractDuckDuckGoPreloadUrl(pageHtml: string): string {
   return '';
 }
 
-/** Extracts organic results from one html.duckduckgo.com result page. */
 export function parseDuckDuckGoResults(
   htmlContent: string,
   limit: number,
@@ -139,7 +132,6 @@ export function parseDuckDuckGoResults(
   return results;
 }
 
-/** Parses one `d.js` JSONP payload (`DDG.pageLayout.load('d', …)`); navigation entries are skipped. */
 export function parseDuckDuckGoJsonp(jsonpText: string): DuckDuckGoSearchResult[] {
   const jsonpMatch = jsonpText.match(JSONP_PATTERN);
   if (jsonpMatch === null || jsonpMatch[1] === undefined) {

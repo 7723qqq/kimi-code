@@ -17,8 +17,9 @@ const workflow = @import("../workflow.zig");
 /// exactly the kind of silent drift this tool exists to catch.
 ///
 /// Two things keep it quiet on purpose:
-///   * a workflow with no `on: pull_request:` is skipped entirely, because the
-///     `nix-build.yml` and `docs-deploy.yml` shapes are a different claim;
+///   * a workflow with no `on: pull_request:` is skipped entirely — `findJob`
+///     matches jobs by name against the documented bullets, and a push-only
+///     workflow's jobs carry none of those names, so nothing is reported;
 ///   * a job that CI disables outright (`if: false`) is reported as information
 ///     rather than an error, since "temporarily disabled" is a decision someone
 ///     made and the check should not fail the run over it.

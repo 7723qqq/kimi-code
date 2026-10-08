@@ -11,7 +11,7 @@
 //   AFTER (incremental WAL catch-up):
 //     only the appended WAL frames are scanned and applied — O(delta).
 //
-// Run:  node --import tsx bench/reader-catchup.ts
+// Run:  bun bench/reader-catchup.ts
 // Env:  READER_BENCH_KEYS=10000,50000  READER_BENCH_WINDOW_MS=8000
 //       READER_BENCH_VALUE_BYTES=150   READER_BENCH_SHARDS=4
 //       READER_BENCH_PACE_MS=5 (writer sleep between ops ~190 ops/s; the WAL
@@ -22,7 +22,7 @@
 // RESULTS (this machine, node v24.15.0, valueBytes=150, poll=20ms, window
 // 8000ms, 4 shards, hot shard = 1, writer pace=5ms):
 //
-// BEFORE (2026-07-17, pre-change; run: node --import tsx bench/reader-catchup.ts):
+// BEFORE (2026-07-17, pre-change; run: bun bench/reader-catchup.ts):
 //       keys |    build | reads | qps |  p50 ms |  p95 ms |  p99 ms | reopens | catchups | frames
 //     10,000 |  1,054ms |    52 | 6/s |   130.5 |   157.2 |   238.7 |      52 |        0 |      0
 //     50,000 |  5,054ms |    14 | 2/s |   532.2 |   860.8 |   860.8 |      14 |        0 |      0

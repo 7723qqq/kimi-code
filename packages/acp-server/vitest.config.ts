@@ -22,7 +22,7 @@ function findPackageRoot(importer: string | undefined): string | undefined {
  * `@moonshot-ai/agent-core-v2` source (the full barrel), whose internal `#/foo`
  * imports must resolve against that package's own `src/`.
  *
- * Mirrors `packages/server-v2/vitest.config.ts`.
+ * Mirrors `packages/kap-server/vitest.config.ts`.
  */
 function hashImportsPlugin(): Plugin {
   return {

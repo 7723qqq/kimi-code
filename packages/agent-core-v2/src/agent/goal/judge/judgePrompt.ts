@@ -1,10 +1,3 @@
-/**
- * Goal Judge — prompt templates for independent goal-completion verification.
- *
- * When the agent calls `UpdateGoal('complete')`, the judge sends the conversation
- * transcript to the same model with a verdict schema. The judge must independently
- * confirm the goal is satisfied — it must not defer to the agent's self-assessment.
- */
 
 export const JUDGE_SYSTEM_PROMPT = `You are an independent judge evaluating whether a goal has been completed.
 
@@ -82,13 +75,6 @@ export function buildJudgeUserPrompt(objective: string, completionCriterion?: st
   return lines.join('\n');
 }
 
-/**
- * Build the prompt for the judge verification subagent.
- *
- * Unlike `buildJudgeUserPrompt` (which provides transcript context to an LLM),
- * this prompt instructs the judge subagent to independently execute commands
- * and verify the completion criterion from system state.
- */
 export function buildJudgeVerificationPrompt(
   objective: string,
   completionCriterion?: string,

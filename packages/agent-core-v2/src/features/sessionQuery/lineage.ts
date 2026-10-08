@@ -1,11 +1,5 @@
 import type { SessionLineageNode, SessionLineageTrace, SessionRecord } from './types';
 
-/**
- * Trace one session's known ancestry and complete descendant trees.
- * @param records - the detached logical corpus (every record once).
- * @param targetId - session to trace.
- * @returns the trace; the target itself must be present in `records`.
- */
 export function traceLineage(
   records: readonly SessionRecord[],
   targetId: string,

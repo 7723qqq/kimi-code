@@ -516,11 +516,7 @@ function resolveModelCapabilities(
     dynamically_loaded_tools:
       declared.has('dynamically_loaded_tools') || detected.dynamically_loaded_tools === true,
   };
-  // The detected capability may be UNKNOWN (model id missing from every
-  // static table). Declaring e.g. `thinking` alone must not turn that into a
-  // confirmed "no image input" — media gates treat a known capability set as
-  // authoritative, so keep the unknown marker unless the declaration itself
-  // speaks about media input.
+
   if (
     isUnknownCapability(detected) &&
     !declared.has('image_in') &&

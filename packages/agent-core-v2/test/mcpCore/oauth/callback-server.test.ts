@@ -106,9 +106,6 @@ describe('startCallbackServer', () => {
     const server = await startCallbackServer();
     trackServer(server);
 
-    // The browser-style request that completed the flow leaves an idle
-    // keep-alive socket behind. Node's server.close() would wait for it to time
-    // out (~3s); the fix destroys it instead, so this must return promptly.
     await fetch(`${server.redirectUri}?code=code-1&state=state-1`);
 
     const startedAt = Date.now();

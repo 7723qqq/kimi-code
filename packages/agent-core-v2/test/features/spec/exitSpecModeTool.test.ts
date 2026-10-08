@@ -181,8 +181,6 @@ describe('ExitSpecModeTool telemetry and read cost', () => {
 
     const result = await runTool(tool);
 
-    // The auto path deliberately withholds the "work through tasks.md"
-    // instruction — the user never approved execution.
     expect(result.output).not.toContain('Work through');
     expect(result.output).toContain('progress.md');
   });

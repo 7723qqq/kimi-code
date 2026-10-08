@@ -1094,10 +1094,6 @@ describe('McpConnectionManager', () => {
         },
         (error: unknown) => error,
       );
-      // Fork flow: the OAuth token transaction removes the revoked tokens while
-      // the refresh fails, and the transport closes before the caller can flip
-      // the entry into needs-auth — the server is marked failed instead. The
-      // security-relevant part (stale tokens are gone) still holds.
       await expect(cm.markNeedsAuth('hyper', callError, client)).resolves.toBe(false);
       expect(cm.get('hyper')?.status).toBe('failed');
       expect(await oauthService.hasTokens('hyper', server.url)).toBe(false);

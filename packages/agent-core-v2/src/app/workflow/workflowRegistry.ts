@@ -45,10 +45,6 @@ export function getBuiltin(name: string): WorkflowEntry | undefined {
   return REGISTRY[name];
 }
 
-/**
- * Resolve a user-defined workflow by name. Walks `~/.kimi-code/workflows/`
- * for `<name>.js`. Returns undefined if not found.
- */
 export async function resolveUserWorkflow(
   homeDir: string,
   name: string,
@@ -65,11 +61,6 @@ export async function resolveUserWorkflow(
   }
 }
 
-/**
- * Parse `export const meta = { name: "...", description: "...", ... }`
- * from a script source. Regex-based — no eval. Only accepts string
- * keys with string values and optional trailing commas.
- */
 export function parseMeta(script: string): WorkflowMeta | undefined {
   const metaMatch = script.match(/export\s+const\s+meta\s*=\s*\{([\s\S]*?)\}/);
   if (!metaMatch || !metaMatch[1]) return undefined;

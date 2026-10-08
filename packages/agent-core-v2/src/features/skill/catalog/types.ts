@@ -1,11 +1,5 @@
 export type SkillSource = 'project' | 'user' | 'extra' | 'builtin';
 
-/**
- * Which source wins when multiple sources register the same skill name.
- * Project-defined skills win over user-level ones, user over plugin extras,
- * and built-ins only fill gaps — a local definition always shadows a bundled
- * one. Within one source, first registration wins.
- */
 export const SKILL_SOURCE_RANK: Readonly<Record<SkillSource, number>> = {
   project: 400,
   user: 300,

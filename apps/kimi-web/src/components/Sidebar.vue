@@ -997,7 +997,7 @@ onBeforeUnmount(() => {
 .ch-logo:hover {
   transform: scale(1.08);
 }
-/* Dev-only: tint the mark yellow so a `pnpm dev:web` tab is obvious at a
+/* Dev-only: tint the mark yellow so a `bun run dev` tab is obvious at a
    glance. `--logo` is read by the mark's `fill`; overriding it on the svg
    recolors just this instance. */
 .ch-logo.is-dev {

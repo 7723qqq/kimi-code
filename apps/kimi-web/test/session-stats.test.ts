@@ -5,7 +5,7 @@
  * tool wall time from frame timestamps, first-token latency, decode
  * throughput, cache-hit share, and billed-token accumulation; subagent
  * (non-main) frames are ignored.
- * Run: pnpm --filter @moonshot-ai/kimi-web exec vitest run test/session-stats.test.ts
+ * Run: cd apps/kimi-web && bun --bun run test -- test/session-stats.test.ts
  */
 
 import { describe, expect, it } from 'vitest';

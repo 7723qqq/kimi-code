@@ -180,12 +180,6 @@ function toWebSearchResult(result: DuckDuckGoSearchResult): WebSearchResult {
   };
 }
 
-/**
- * Search DuckDuckGo and return up to `limit` results.
- *
- * The preloaded `d.js` path is tried first; when it yields nothing (or fails
- * at the HTTP layer) the html.duckduckgo.com form endpoint is used instead.
- */
 export async function searchDuckDuckGo(
   query: string,
   limit: number,

@@ -16,10 +16,10 @@ const walk = @import("../walk.zig");
 /// tool is not an error anywhere — it is just dead.
 ///
 /// The check reads two things and compares them: every name a tool declares
-/// itself by, and every string in a constant whose name mentions `TOOL`. It
-/// deliberately does not read prose — a prompt file mentions parameter names
-/// and file names far more often than tool names, and guessing which backticked
-/// word is which would bury the real findings.
+/// itself by, and every string in a constant whose name ends in `TOOLS` or
+/// `TOOL_NAMES`. It deliberately does not read prose — a prompt file mentions
+/// parameter names and file names far more often than tool names, and guessing
+/// which backticked word is which would bury the real findings.
 const BASELINE_PATH = "tools/review/dangling-refs-baseline.txt";
 
 const SKIP_DIRS = [_][]const u8{

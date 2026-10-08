@@ -24,9 +24,7 @@ const MemoryActionSchema = z.enum(['search', 'read', 'write', 'list', 'delete'])
 
 export const MemoryToolInputSchema = z
   .object({
-    action: MemoryActionSchema.describe(
-      'The memory operation to perform. `search` is the default.',
-    ),
+    action: MemoryActionSchema.describe('The memory operation to perform. Required.'),
     query: z.string().optional().describe('Search query (for `search` action).'),
     path: z
       .string()

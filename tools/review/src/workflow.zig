@@ -590,9 +590,10 @@ fn isDocumentMarker(line: []const u8) bool {
 /// `run:` written inside a block scalar or a comment from being mistaken for a
 /// step of its own.
 ///
-/// Every node carries the file line it was written on, so a finding points at
-/// the command rather than at the key that introduced it — which is what makes
-/// the line usable in an editor.
+/// Every `run:` scalar comes out at the line `Walk` has counted its way to, so
+/// a finding points at the command rather than at the key that introduced it —
+/// which is what makes the line usable in an editor. The count lives on the
+/// walk itself; `Node` keeps no line of its own.
 const Walk = struct {
     alloc: std.mem.Allocator,
     out: *std.ArrayList(u8),

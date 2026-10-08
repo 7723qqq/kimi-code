@@ -25,11 +25,11 @@ export interface RunCodeInput {
 }
 
 export interface CodeRunOutcome {
-  /** Captured console output lines, in emission order. */
+
   readonly logs: readonly string[];
-  /** The program's completion value, when it is JSON-serializable. */
+
   readonly value?: unknown;
-  /** Program failure (exception / invalid-output / output-limit / timeout / cancelled / worker-error). */
+
   readonly error?: { readonly kind: string; readonly message: string };
 }
 

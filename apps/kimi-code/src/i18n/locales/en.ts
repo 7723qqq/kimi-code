@@ -1702,7 +1702,7 @@ export default {
       reloadTuiConfigReloaded: 'TUI config reloaded.',
       reloadSession: 'Session reloaded.',
       reloadNoActiveSession: 'Runtime and TUI config reloaded; no active session.',
-      // commands/undo.ts
+      // tui/commands/undo.ts
       undoCannotWhileStreaming: 'Cannot undo while streaming — press Esc or Ctrl-C first.',
       undoUsage: 'Usage: /undo [count], where count is a positive integer.',
       undoNothingToUndo: 'Nothing to undo.',
@@ -1722,8 +1722,7 @@ export default {
       copyNative: 'Copied to clipboard ({{count}} characters).',
       copyEscape: 'Copied via terminal escape sequence (unverified, {{count}} characters).',
       copyFailed: 'Failed to copy to clipboard: {{error}}',
-      // sub/server/lifecycle.ts
-      // sub/server/run.ts
+      // sub/web/run.ts
       serverReadyBanner: 'Kimi server ready',
       serverReadyLocalUi: 'Local web UI is available from this machine.',
       serverDangerAuthDisabled: '⚠ DANGER: authentication is DISABLED (--dangerous-bypass-auth).',
@@ -1740,24 +1739,22 @@ export default {
       serverLogsLabel: 'Logs:     ',
       serverLogsOffHint: '  use --log-level info to enable',
       serverStopLabel: 'Stop:     ',
-      // sub/server/kill.ts
+      // sub/web/legacy-kill.ts
       serverKillFailedPermissions:
         'Failed to stop legacy Kimi server (pid {{pid}}); insufficient permissions?',
-      // sub/server/daemon.ts
-      // sub/server/rotate-token.ts
+      // sub/web/rotate-token.ts
       serverTokenRotated:
         'The previous token is now invalid. A running server picks up the new token automatically.',
       serverNewToken: 'New server token: {{token}}',
-      // sub/server/access-urls.ts
+      // sub/web/access-urls.ts
       serverAccessLocal: 'Local:    ',
       serverAccessNetwork: 'Network:  ',
       serverAccessUrl: 'URL:      ',
-      // sub/server/shared.ts
+      // sub/web/shared.ts
       serverInvalidValue: 'error: invalid {{label}} value: {{raw}}',
       serverInvalidLogLevel: 'error: invalid --log-level value: {{raw}} (allowed: {{allowed}})',
       serverTokenNotFound:
         'unable to read server token at {{path}}; has the server been started at least once?',
-      // sub/server/ps.ts
       // sub/login-flow.ts
       loginOpeningBrowser: 'Opening browser for Kimi device login: {{url}}',
       loginPasteUrl: 'If the browser did not open, paste the URL above and enter code: {{code}}',
@@ -1957,7 +1954,7 @@ export default {
       sessionDifferentDirectory: 'Session "{{sessionId}}" was created under a different directory.',
       noModelPrompt:
         'No model configured. Run `kimi` and use /login to sign in, then retry; or set default_model in config.toml.',
-      // sub/server/run.ts
+      // sub/web/run.ts
       serverStopCmd: 'kimi server kill',
       legacyKillNoRunning: 'No running legacy Kimi server.',
       legacyKillOutcome: 'Legacy Kimi server (pid {{pid}}) {{outcome}}.',

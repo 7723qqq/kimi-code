@@ -42,7 +42,6 @@ export class MessageNotFoundError extends Error {
   }
 }
 
-/** Sentinel — the route maps it to 40922. */
 export class MessageCursorNotFoundError extends Error {
   readonly messageId: string;
   constructor(messageId: string) {

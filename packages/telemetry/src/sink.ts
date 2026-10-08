@@ -108,15 +108,23 @@ export class EventSink {
   }
 }
 
+function isBunRuntime(): boolean {
+  return typeof (globalThis as { Bun?: unknown }).Bun !== 'undefined';
+}
+
+function runtimeVersion(): string {
+  return process.versions['bun'] ?? process.versions.node;
+}
+
 function buildContext(options: EventSinkContextOptions): TelemetryContext {
   const env = options.env ?? process.env;
   const context: TelemetryContext = {
     app_name: options.appName,
     version: options.version,
-    runtime: 'node',
+    runtime: isBunRuntime() ? 'bun' : 'node',
     platform: platform(),
     arch: arch(),
-    node_version: process.versions.node,
+    node_version: runtimeVersion(),
     os_version: release(),
     ci: env['CI'] !== undefined,
     locale: options.locale ?? env['LANG'] ?? '',

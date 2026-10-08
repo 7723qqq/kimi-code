@@ -364,8 +364,8 @@ defineExpose({ closeMenu });
   align-items: center;
   gap: var(--sb-gap, 6px);
   min-width: 0;
-  /* Row height is font-driven: title line-height (13×1.25≈16px) + 2×5px
-     .se padding ≈ 26px. The hover kebab is absolutely positioned (see .act)
+  /* Row height is font-driven: title line-height (13×1.25≈16px) + 2×8px
+     .se padding ≈ 32px. The hover kebab is absolutely positioned (see .act)
      so it never contributes to row height and can't cause hover jitter. */
 }
 

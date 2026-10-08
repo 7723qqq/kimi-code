@@ -376,8 +376,9 @@ fn trimStart(comptime T: type, s: []const T, set: []const T) []const T {
 }
 
 /// A `bun run X` / `npm run X` edge, wherever it appears in a script body.
-/// `--filter './packages/*'` between `bun` and `run` is honoured because the
-/// directory it selects is what `resolveScript` uses to pick the target.
+/// `--filter './packages/*'` between `run` and the script name is honoured
+/// because the directory it selects is what `resolveScript` uses to pick the
+/// target.
 const Invocation = struct {
     name: []const u8,
     /// The `--filter` selector preceding the invocation, when there is one.

@@ -65,9 +65,6 @@ export async function startCallbackServer(): Promise<CallbackServer> {
     handle(req, res);
   });
 
-  // The callback listener serves exactly one request, so every socket on it is
-  // disposable the moment that request is answered. Tracking them lets close()
-  // cut them explicitly instead of waiting for the runtime to drain them.
   const sockets = new Set<Socket>();
   server.on('connection', (socket) => {
     sockets.add(socket);
@@ -136,12 +133,7 @@ export async function startCallbackServer(): Promise<CallbackServer> {
       server.close(() => {
         resolve();
       });
-      // `server.close` only stops accepting connections: whether its callback
-      // waits for the ones already open is runtime-defined (Node drains an idle
-      // keep-alive socket — ~3s, bounded by the client's idle timeout; Bun
-      // returns without waiting). Destroying the sockets ourselves makes this
-      // independent of that difference, so close never blocks on a connection
-      // that will never send another request.
+
       for (const socket of sockets) socket.destroy();
       sockets.clear();
     });

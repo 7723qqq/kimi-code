@@ -13,11 +13,6 @@ const TEXT_FIELDS = [
   'description',
 ] as const;
 
-/**
- * Extract the semantic text of one wire record.
- * @param record - the wire record to render.
- * @returns the joined text, or '' when the record carries no textual payload.
- */
 export function wireRecordText(record: WireRecord): string {
   const parts: string[] = [];
   for (const field of TEXT_FIELDS) {

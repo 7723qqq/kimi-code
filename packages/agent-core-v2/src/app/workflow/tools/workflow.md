@@ -49,8 +49,6 @@ Workflow scripts are JavaScript that runs in a sandbox with these injected globa
   - `opts.agentType` — subagent profile (default 'coder')
   - `opts.schema` — JSON schema for structured output
   - `opts.label` — display label
-  - `opts.phase` — phase tag
-  - `opts.timeoutMs` — per-agent timeout
 
 - **`parallel(thunks)`** — Run thunks concurrently. Returns array of results.
 

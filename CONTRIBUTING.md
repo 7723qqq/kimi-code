@@ -37,7 +37,7 @@ For the full project map, see [DEVELOP.md](DEVELOP.md).
 
 ## Development Setup
 
-Prerequisites: Bun >= 1.4, Git. Node.js is no longer required for any development workflow — the vitest suites run under the Bun runtime (`bun --bun run test`; plain `bun run test` keeps working under a local Node too).
+Prerequisites: Bun >= 1.4, Git. Node.js is no longer required for the Bun-based development workflow — the vitest suites run under the Bun runtime (`bun --bun run test`; plain `bun run test` keeps working under a local Node too). The Nix build path (`flake.nix`, `nix-build.yml`) still requires Node.js >= 24.15.0.
 
 ```sh
 git clone https://github.com/7723qqq/kimi-code.git
@@ -119,7 +119,7 @@ Copy-Item -Force packages/kimi-native-tools/kimi-native-tools.win32-x64-msvc.nod
 
 ```powershell
 $env:KIMI_LANG="zh"
-node $env:USERPROFILE\.kimi-code\dist\main.mjs
+bun $env:USERPROFILE\.kimi-code\dist\main.mjs
 ```
 
 To make `kimi` command use the local build, rename the CDN binary and create a launcher:
@@ -139,7 +139,7 @@ if "%KIMI_LANG%"=="" (
     ) do set KIMI_LANG=%%~a
 )
 set KIMI_CODE_HOME=%USERPROFILE%\.kimi-code
-node "%KIMI_CODE_HOME%\dist\main.mjs" %*
+bun "%KIMI_CODE_HOME%\dist\main.mjs" %*
 ```
 
 ### Native build (self-contained binary)
@@ -251,10 +251,9 @@ This repo uses [changesets](https://github.com/changesets/changesets) to manage 
 
 ### Release flow on this fork
 
-Every push to `main` runs the Release workflow: the changesets action opens or updates a **"ci: release packages"** PR (branch `changeset-release/main`) that bumps package versions and assembles the changelog.
+Every push to `main` runs the Release workflow, which installs dependencies, builds all workspace packages, and builds the built-in catalog. The `changesets/action@v1` step that used to open or update a **"ci: release packages"** PR (branch `changeset-release/main`) is **commented out on this fork**, so no such PR is opened and nothing is published to npm.
 
-- **Never merge that PR.** This fork follows upstream versions — package version fields must stay identical to upstream, and the release flow is kept only as a changelog source. Close the PR instead; the changelog preview in its description remains viewable after closing.
-- The workflow requires the repo setting **Actions → General → "Allow GitHub Actions to create and approve pull requests"** to be enabled. If Release fails with `GitHub Actions is not permitted to create or approve pull requests`, flip that toggle (or via API: `PUT /repos/{owner}/{repo}/actions/permissions/workflow` with `can_approve_pull_request_reviews: true`).
+- Changesets are still required on PRs: they are the changelog source, and the action is re-enabled when a standalone release is needed.
 - Before an intentional release, preview the user-facing changelog with the `pre-changelog` skill, then prune accumulated non-user-facing changesets from `main`.
 
 ### Publishing binaries

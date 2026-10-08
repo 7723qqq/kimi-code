@@ -15,7 +15,7 @@
 //                                     takes .length). Motivates a count/keys
 //                                     API.
 //
-// Run:  node --import tsx bench/message-composed.ts
+// Run:  bun bench/message-composed.ts
 
 import { existsSync, readFileSync } from 'node:fs';
 import fs from 'node:fs/promises';

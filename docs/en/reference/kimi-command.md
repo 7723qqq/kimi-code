@@ -187,7 +187,7 @@ Multiple instances can share one home directory: each registers itself under `~/
 | `--log-level <level>` | Enable server logs at the selected level; omitted by default |
 | `--debug-endpoints` | Mount `/api/v1/debug/*` routes (off by default) |
 | `--dangerous-bypass-auth` | Disable bearer-token auth on all REST and WebSocket routes so the web UI connects without a token; only for trusted networks or behind an authenticating proxy |
-| `--web-title <title>` | Custom browser tab title for the web UI; defaults to `<workspace dir> \| Kimi Code` |
+| `--web-title <title>` | Custom browser tab title for the web UI; no default. The value is passed through to the server and exposed as `web_title` in `GET /api/v1/meta`; it does not set the browser tab title, which is always `Kimi Code Web` |
 | `--rc, --remote-control` | Expose the web UI through Kimi Remote Control |
 | `--no-open` | Do not open the browser once the server is ready |
 
@@ -342,7 +342,7 @@ Immediately check for the latest version and display an update prompt; exits aft
 kimi upgrade [-y]
 ```
 
-For global npm, pnpm, yarn, and bun installations, `kimi upgrade` shows update options; selecting `Install update now` runs the corresponding foreground install command. For native installations (including Windows), it downloads and verifies the new binary in the foreground and swaps it in on the next start. When the current installation method cannot be upgraded automatically, the manual update command is printed instead. Pass `-y, --yes` to skip the confirmation prompt and install the update directly.
+For global npm, yarn, and bun installations, `kimi upgrade` shows update options; selecting `Install update now` runs the corresponding foreground install command. For native installations (including Windows), it downloads and verifies the new binary in the foreground and swaps it in on the next start. When the current installation method cannot be upgraded automatically (for example a global pnpm install), the manual update command is printed instead. Pass `-y, --yes` to skip the confirmation prompt and install the update directly.
 
 ### `kimi vis`
 

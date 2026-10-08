@@ -116,14 +116,6 @@ function nonEmptyString(value: string | undefined): string | undefined {
   return trimmed === undefined || trimmed.length === 0 ? undefined : trimmed;
 }
 
-/**
- * Try each provider in order; an auth failure (missing/expired managed
- * token) falls through to the next candidate instead of surfacing a
- * dead-end, while caller aborts propagate immediately. Empty result sets
- * also cascade — engines can legitimately miss a query — and when every
- * candidate comes back empty without erroring, that empty set is the
- * final answer.
- */
 export function createFailoverWebSearchProvider(
   candidates: readonly WebSearchProvider[],
 ): WebSearchProvider {

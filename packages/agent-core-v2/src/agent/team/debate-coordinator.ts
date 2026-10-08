@@ -4,66 +4,31 @@ import { addUsage, type TokenUsage } from '#human/llm/usage';
 import { DiscussionContext, type DebatePhase, type DiscussionEntry } from './context';
 import type { DiscussionObserver, DiscussionTurnEvent } from './coordinator';
 
-/**
- * Configuration for a single debate participant.
- */
 export interface DebateParticipantConfig {
-  /** Agent profile name, e.g. 'researcher', 'coder', 'explore'. */
   readonly profileName: string;
-  /** Role description injected into the agent's prompt each turn. */
   readonly roleDescription: string;
-  /** Optional stance this participant should take (e.g. "argue for migration"). */
   readonly assignedStance?: string;
 }
 
-/**
- * Options for starting a structured debate.
- */
 export interface DebateOptions {
-  /** The topic or question to debate. */
   readonly topic: string;
-  /** The participants in the debate. */
   readonly participants: DebateParticipantConfig[];
-  /** Maximum number of free-debate rounds before closing (default: 2). */
   readonly maxDebateRounds?: number;
-  /** Optional: prompt used to generate a final summary/consensus. */
   readonly consensusPrompt?: string;
-  /** Whether to include a voting phase (default: false). */
   readonly enableVoting?: boolean;
 }
 
-/**
- * The result of a completed debate.
- */
 export interface DebateResult {
-  /** Ordered list of every speech in the debate. */
   readonly transcript: readonly DiscussionEntry[];
-  /** Phase-by-phase breakdown. */
   readonly phases: readonly { phase: DebatePhase; entryCount: number }[];
-  /** A final consensus/summary (empty string if none was generated). */
   readonly consensus: string;
-  /** Voting result (empty string if voting was not enabled). */
   readonly votingResult: string;
-  /** How the debate ended. */
   readonly endedBy: 'completed' | 'cancelled' | 'failed';
-  /** Aggregate token usage across all participants. */
   readonly usage: TokenUsage;
-  /** Cross-references detected during the debate. */
   readonly crossReferencesCount: number;
-  /** How many participants changed their stated position. */
   readonly positionChanges: number;
 }
 
-/**
- * StructuredDebateCoordinator — orchestrates a structured, multi-phase debate
- * among multiple persistent subagents.
- *
- * Phases:
- *   1. Opening Statements — each participant presents their initial stance
- *   2. Free Debate — participants respond to and challenge each other
- *   3. Closing Arguments — each participant delivers a final summary
- *   4. Consensus (optional) — extract agreed/disagreed points
- */
 export class StructuredDebateCoordinator {
   private readonly agentIds: string[] = [];
   private readonly observer: DiscussionObserver | undefined;
@@ -75,9 +40,6 @@ export class StructuredDebateCoordinator {
     this.observer = options?.observer;
   }
 
-  /**
-   * Run a structured debate and return the result.
-   */
   async debate(options: DebateOptions, signal: AbortSignal): Promise<DebateResult> {
     const context = new DiscussionContext();
     let endedBy: DebateResult['endedBy'] = 'completed';
@@ -398,9 +360,6 @@ export class StructuredDebateCoordinator {
     }
   }
 
-  /**
-   * Run a voting phase where each participant votes on key questions.
-   */
   private async runVoting(
     topic: string,
     context: DiscussionContext,

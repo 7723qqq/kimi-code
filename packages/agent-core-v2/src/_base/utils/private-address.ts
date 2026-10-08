@@ -16,12 +16,6 @@ const PRIVATE_ADDRESS_BLOCKLIST = (() => {
   return list;
 })();
 
-/**
- * Whether an IP address falls into a private, loopback, link-local,
- * CGNAT, or IPv6 unique-local range — the SSRF denylist shared by the
- * URL-fetch and web-search network paths. Accepts bare addresses as well
- * as bracketed or zone-indexed IPv6 forms (`[::1]`, `fe80::1%eth0`).
- */
 export function isBlockedIpAddress(address: string): boolean {
   const withoutZone = address.split('%', 1)[0] ?? address;
   const host =

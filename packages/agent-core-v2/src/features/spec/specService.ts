@@ -113,11 +113,10 @@ export class AgentSpecService extends Service implements IAgentSpecService {
       throw new Error2(SpecErrors.codes.SPEC_MODE_INVALID, 'Already in spec mode');
     }
     const dir = this.specDirPathFor(id);
-    // Fails before anything is observable, so there is nothing to roll back.
+
     await this.hostFs.mkdir(dir, { recursive: true });
     await this.dispatcher.dispatch(new SpecModeEnter({ agentId: this.agentCtx.agentId, id }));
-    // From here spec mode is observable, so a later failure must be undone
-    // rather than reported as a plain failure.
+
     try {
       this.telemetry.setContext({ mode: 'spec' });
     } catch (error) {
@@ -143,7 +142,7 @@ export class AgentSpecService extends Service implements IAgentSpecService {
       try {
         await this.hostFs.remove(join(dir, name));
       } catch {
-        // A document that was never written is already cleared.
+
       }
     }
   }
@@ -180,7 +179,6 @@ export class AgentSpecService extends Service implements IAgentSpecService {
     return this.documentData(state.id);
   }
 
-  /** Read all spec documents once and derive the spec's completeness. */
   private async documentData(id: string): Promise<SpecData | null> {
     const state = this.agentState.get(specKey);
     if (!state.active || state.id !== id) return null;
@@ -192,8 +190,7 @@ export class AgentSpecService extends Service implements IAgentSpecService {
       files[name] = content;
       if (content.trim().length === 0) missing.push(name);
     }
-    // The progress file is a working note, not a deliverable: it is read for
-    // whoever asked, but it never gates completion.
+
     const progress = await this.readSpecFile(dir, SPEC_PROGRESS_FILE);
     return {
       id,
@@ -240,8 +237,7 @@ export class AgentSpecService extends Service implements IAgentSpecService {
     const accesses = event.execution.accesses ?? [];
     const unidentified = accesses.filter((access) => access.kind !== 'file');
     if (unidentified.length > 0) {
-      // An access kind the guard cannot inspect (`all`, or a kind added to the
-      // contract later) must not read as "nothing to check" — fail closed.
+
       event.veto(denyToolExecution(this.toolApproval.formatDenyMessage(this.writeDenied)));
       return;
     }

@@ -10,7 +10,7 @@
 // compound indexes, full-text index).
 //
 // Run:
-//   node --import tsx --expose-gc --max-old-space-size=12288 \
+//   bun --expose-gc --max-old-space-size=12288 \
 //        bench/measure-session-memory.ts [N=30000] [TEXT=4000]
 
 import fs from 'node:fs/promises';

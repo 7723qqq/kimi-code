@@ -23,7 +23,7 @@ export interface SpecData {
   readonly id: string;
   readonly dir: string;
   readonly files: Readonly<Record<string, string>>;
-  /** Contents of `progress.md`, or `''` when it has not been written yet. */
+
   readonly progress: string;
   readonly missing: readonly SpecRequiredFile[];
   readonly complete: boolean;

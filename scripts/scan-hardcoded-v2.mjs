@@ -10,9 +10,9 @@
  * Also catches common patterns like throw new Error() with user-facing text.
  *
  * Usage:
- *   node scripts/scan-hardcoded-v2.mjs                        # scan all modules
- *   node scripts/scan-hardcoded-v2.mjs --module=agent-core   # scan one module
- *   node scripts/scan-hardcoded-v2.mjs --output=reports/scan.json
+ *   bun scripts/scan-hardcoded-v2.mjs                        # scan all modules
+ *   bun scripts/scan-hardcoded-v2.mjs --module=agent-core   # scan one module
+ *   bun scripts/scan-hardcoded-v2.mjs --output=reports/scan.json
  *
  * Exit code: 0 if no issues found, 1 if any found.
  */

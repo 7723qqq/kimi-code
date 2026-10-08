@@ -1,7 +1,8 @@
 // src/cluster/types.ts
 //
 // Public option and result types for ClusterDb, the sharded multi-process
-// layer on top of MiniDb. See plan/minidb-cluster-plan.md for the design.
+// layer on top of MiniDb. The design notes for this layer were never shipped
+// with the repository.
 
 import type { CompoundIndexDef } from '../compound-index.js';
 import type { IndexDef } from '../index-manager.js';

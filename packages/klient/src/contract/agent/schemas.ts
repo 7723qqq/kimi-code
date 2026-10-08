@@ -4,7 +4,7 @@
  * engine types by `test/contract-parity.ts`. `PromptPayload.input` mirrors the
  * `PromptPart` subset of `ContentPart` (text / image_url / video_url) from
  * `agent-core-v2/llm-adapter/contract/message.ts`. Task wire shapes mirror the
- * `TaskInfo` union in `protocol/src/events.ts`.
+ * `TaskInfo` union in `kap-server/src/protocol/events-zod.ts`.
  */
 
 import { z } from 'zod';
@@ -193,7 +193,7 @@ const taskInfoBaseFields = {
   timeoutMs: z.number().optional(),
 } as const;
 
-/** Protocol `TaskInfo` union (`protocol/src/events.ts`). */
+/** Protocol `TaskInfo` union (`kap-server/src/protocol/events-zod.ts`). */
 export const agentTaskInfoSchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('process'),

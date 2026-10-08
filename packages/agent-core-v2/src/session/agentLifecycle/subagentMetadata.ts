@@ -3,12 +3,6 @@ import { t } from '@moonshot-ai/kimi-i18n';
 import { Error2, ErrorCodes } from '#/errors';
 import type { AgentMeta } from '#/session/sessionMetadata/sessionMetadata';
 
-/**
- * Delegation-depth ceiling for subagent chains (ported from
- * deepseek-harness `subagent`'s delegation-depth accounting, MIT). A parent
- * spawns a child at depth + 1; spawning at or beyond this cap is rejected so
- * a recursive delegation loop cannot nest without bound.
- */
 export const MAX_SUBAGENT_DEPTH = 8;
 
 const SUBAGENT_DEPTH_LABEL = 'subagentDepth';
@@ -64,12 +58,6 @@ export function subagentSwarmItem(meta: AgentMeta | undefined): string | undefin
   return firstNonEmpty(meta.labels?.['swarmItem'], meta.swarmItem);
 }
 
-/**
- * Read an agent's delegation depth from its persisted metadata, treating
- * absence (and malformed values) as top-level depth zero. The persisted
- * label is authoritative and monotone: a resumed child keeps its depth
- * instead of counting from zero as if it were top-level.
- */
 export function subagentDepthOf(meta: AgentMeta | undefined): number {
   if (meta === undefined) return 0;
   const raw = meta.labels?.[SUBAGENT_DEPTH_LABEL];
@@ -79,13 +67,6 @@ export function subagentDepthOf(meta: AgentMeta | undefined): number {
   return depth;
 }
 
-/**
- * Enforce the delegation-depth ceiling for one caller, returning the depth
- * to stamp on the child (`callerDepth + 1`). Throws
- * `SUBAGENT_DEPTH_EXCEEDED` when the caller already sits at the cap, so any
- * spawning path (Agent tool, swarm, persistent subagents) fails closed the
- * same way and a recursive delegation loop cannot nest without bound.
- */
 export function assertSubagentDepthAllowed(meta: AgentMeta | undefined): number {
   const callerDepth = subagentDepthOf(meta);
   if (callerDepth >= MAX_SUBAGENT_DEPTH) {

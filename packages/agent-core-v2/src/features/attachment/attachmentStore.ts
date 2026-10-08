@@ -8,12 +8,10 @@ import { AttachmentId, type ImageAttachmentRef } from './types';
 
 const ID_PATTERN = /^sha256:([a-f0-9]{64})$/;
 
-/** Digest the payload as `sha256:<hex>`. */
 export function digest(data: Uint8Array): string {
   return `sha256:${createHash('sha256').update(data).digest('hex')}`;
 }
 
-/** Strip local path information from a caller-supplied display name. */
 export function displayName(value: string | undefined): string | undefined {
   if (value === undefined) return undefined;
   const leaf = value.slice(Math.max(value.lastIndexOf('/'), value.lastIndexOf('\\')) + 1);
@@ -25,12 +23,10 @@ export function displayName(value: string | undefined): string | undefined {
   return clean === '' ? undefined : clean;
 }
 
-/** The on-disk object path for one sha256 digest. */
 export function objectPath(root: string, sha256: string): string {
   return join(root, 'objects', sha256.slice(0, 2), sha256);
 }
 
-/** Extract the bare sha256 from a reference id, rejecting malformed ids. */
 export function requireSha256(ref: ImageAttachmentRef | string): string {
   const id = typeof ref === 'string' ? ref : String(ref.attachmentId);
   const match = ID_PATTERN.exec(id);
@@ -50,12 +46,6 @@ async function syncDirectory(path: string): Promise<void> {
   }
 }
 
-/**
- * Durably store one object, deduplicating by digest.
- * @param root - the attachment root directory.
- * @param data - the payload to store.
- * @returns the content-addressed id.
- */
 export async function saveObject(root: string, data: Uint8Array): Promise<AttachmentId> {
   const id = digest(data);
   const sha = id.slice('sha256:'.length);
@@ -76,12 +66,6 @@ export async function saveObject(root: string, data: Uint8Array): Promise<Attach
   return AttachmentId(id);
 }
 
-/**
- * Read a stored object back.
- * @param root - the attachment root directory.
- * @param attachmentId - the reference to read.
- * @returns the stored bytes; rejects when absent or unreadable.
- */
 export async function readObject(root: string, attachmentId: AttachmentId): Promise<Uint8Array> {
   const sha = requireSha256(attachmentId);
   return new Uint8Array(await readFile(objectPath(root, sha)));

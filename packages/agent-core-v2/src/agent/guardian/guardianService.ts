@@ -14,9 +14,7 @@ export const GUARDIAN_REVIEW_MAX_TOKENS = 256;
 export const GUARDIAN_CIRCUIT_CONSECUTIVE_DENIALS = 3;
 export const GUARDIAN_CIRCUIT_RECENT_DENIALS = 10;
 export const GUARDIAN_CIRCUIT_RECENT_WINDOW = 50;
-/** Cap on the transcript excerpt fed to the reviewer. */
 export const GUARDIAN_TRANSCRIPT_CHARS = 4000;
-/** Cap on tool arguments serialized into the review prompt. */
 export const GUARDIAN_ARGS_CHARS = 2000;
 
 export interface GuardianAssessmentPayload {
@@ -212,11 +210,6 @@ export class GuardianService extends Disposable implements IAgentGuardianService
   }
 }
 
-/**
- * Parse the reviewer's JSON verdict. Tolerant: extracts the first balanced
- * `{...}` block and reads the four fields; anything else yields undefined
- * (the caller decides the fallback).
- */
 export function parseAssessment(text: string): ParsedGuardianAssessment | undefined {
   const start = text.indexOf('{');
   if (start < 0) return undefined;

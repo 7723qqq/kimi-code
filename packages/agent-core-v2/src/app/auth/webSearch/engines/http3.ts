@@ -80,12 +80,6 @@ export function h3Disabled(env: Record<string, string | undefined>): boolean {
   return env['KIMI_CODE_SEARCH_H3'] === '0';
 }
 
-/**
- * Register a one-shot background probe for an origin whose H3 support is
- * still unknown. The attempt callback should perform a cheap request over
- * HTTP/3 and resolve true when it succeeded. Probes are deduplicated per
- * origin while in flight and never throw.
- */
 export function scheduleH3Probe(origin: string, attempt: () => Promise<boolean>): void {
   if (!isBunRuntime()) return;
   if ((process.env['KIMI_CODE_SEARCH_H3'] ?? '') === '0') return;
@@ -108,17 +102,6 @@ export interface H3FetchInit {
   timeoutMs?: number;
 }
 
-/**
- * Issue a request over HTTP/3 through the Bun runtime. Throws whenever the
- * origin does not complete a QUIC handshake or the request fails for any
- * other reason — callers are expected to fall back to the regular stack.
- *
- * The request always leaves directly: when a proxy is configured for the
- * process, the target host is exempted via `NO_PROXY` for the duration of
- * this call so the runtime's forced-h3 path does not refuse it, letting an
- * OS-level tunnel capture the UDP traffic while everything else keeps
- * riding the proxy.
- */
 export async function h3Fetch(url: string, init: H3FetchInit): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), init.timeoutMs);

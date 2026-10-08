@@ -21,7 +21,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 - **Team** — Multi-agent discussion and collaboration tool; agents can debate, cross-review, and reach consensus before output.
 - **Rust Native Tools** — Performance-critical tools (grep, glob, edit, read, write, bash, token counting, output truncation) rewritten in Rust as a native Node addon, significantly faster than JS.
 - **Windows launchers** — `start-native.bat` builds the native Rust tools if needed and launches the CLI in dev mode (`bun run dev:cli`, Bun executing `src/main.ts` directly); `start-desktop.bat` builds and launches a locally vendored desktop shell when `apps/kimi-desktop` is present (the shell source is not tracked in this fork).
-- **Bun toolchain & packaging** — Bun is both the package manager (hoisted workspace, `bun.lock`) and the sole native-binary packaging engine (`bun build --compile` via `apps/kimi-code/scripts/native/build-bun.mjs`); the former pnpm workspace setup and the Node SEA build chain were retired. Install, build, lint, typecheck, the native build pipeline, and the vitest suites (`bun --bun run test`) all run on Bun; CI installs no Node. Self-update remains engine-aware for legacy SEA installs.
+- **Bun toolchain & packaging** — Bun is both the package manager (hoisted workspace, `bun.lock`) and the sole native-binary packaging engine (`bun build --compile` via `apps/kimi-code/scripts/native/build-bun.mjs`); the former pnpm workspace setup and the Node SEA build chain were retired. Install, build, lint, typecheck, the native build pipeline, and the vitest suites (`bun --bun run test`) all run on Bun, and no CI job installs Node; the Nix build path (`flake.nix`, `nix-build.yml`) still requires Node. Self-update remains engine-aware for legacy SEA installs.
 - **DeepSeek Harness capability fusion** — Selected capabilities ported from [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) (MIT): subagent delegation-depth accounting (`session/agentLifecycle/subagentMetadata.ts`), the eval-mode code-runtime worker (`features/codeRuntime/codeWorkerSource.ts`), and the session-query record types (`features/sessionQuery/types.ts`). Ported modules carry a source note in their header; capability selection and comparison notes live in the session report.
 
 > For a user-facing summary of these additions, see `README.md` → "What's Different in This Fork" (and its Chinese mirror `README.zh-CN.md` → "本 Fork 新增特性").
@@ -177,15 +177,15 @@ packages/
 
 #### Key Package Details
 
-**`agent-core-v2`** (v0.4.1) — Next-gen agent engine with DI × Scope architecture. Service interfaces, DI containers, scope-bound session management. Consumed by `kap-server` and `klient`. Includes dependency graph analysis, domain layer linting, and contract type generation scripts.
+**`agent-core-v2`** (v0.4.3) — Next-gen agent engine with DI × Scope architecture. Service interfaces, DI containers, scope-bound session management. Consumed by `kap-server` and `klient`. Includes dependency graph analysis, domain layer linting, and contract type generation scripts.
 
-**`kosong`** (v0.5.5) — The LLM / provider abstraction layer — the single shared home for the provider wire contract. Owns the contract types (`Message` / `ChatProvider` / `Tool` / `TokenUsage` / `ModelCapability`), the coded-error infrastructure (`Error2` + provider error taxonomy), and the pure-function layer (`generate()`, token estimation, error classification, provider wire helpers). `agent-core-v2`'s `src/kosong/` keeps the DI/trait composition machinery and imports the shared layers from here (its `contract/` directory is a thin re-export). Supports Anthropic, Google Gemini, and OpenAI-compatible providers. Uses `zod-to-json-schema` for tool schema conversion.
+**`kosong`** (v0.5.6) — The LLM / provider abstraction layer — the single shared home for the provider wire contract. Owns the contract types (`Message` / `ChatProvider` / `Tool` / `TokenUsage` / `ModelCapability`), the coded-error infrastructure (`Error2` + provider error taxonomy), and the pure-function layer (`generate()`, token estimation, error classification, provider wire helpers). `agent-core-v2`'s `src/kosong/` keeps the DI/trait composition machinery and imports the shared layers from here (its `contract/` directory is a thin re-export). Supports Anthropic, Google Gemini, and OpenAI-compatible providers. Uses `zod-to-json-schema` for tool schema conversion.
 
 **`klient`** (v0.1.2) — Client SDK. A contract-driven facade over agent-core-v2 with aggregated `global.*` / `session(id).*` / `agent(id).*` methods, zod validation on every call, and transport abstraction (ipc or memory). Also hosts e2e suites.
 
 **`kap-server`** — The Kimi Code local server. Backed by DI × Scope agent engine. Exposes sessions over REST + WebSocket (`/api/v1` + `/api/v1/ws`). Debug surface at `/api/v1/debug/*`. Bootstrapped from `src/start.ts`.
 
-**`transcript`** (v0.0.1) — Isomorphic transcript rendering data layer. Pure TypeScript (browser-safe). Agent-granular L1 store, idempotent L2 operations, granularity-gated L3 subscriptions (`off/turn/block/delta`), framework-free L4 view registry. Owns all transcript contract types in `src/contract/`.
+**`transcript`** (v0.0.2) — Isomorphic transcript rendering data layer. Pure TypeScript (browser-safe). Agent-granular L1 store, idempotent L2 operations, granularity-gated L3 subscriptions (`off/turn/block/delta`), framework-free L4 view registry. Owns all transcript contract types in `src/contract/`.
 
 **`kimi-native-tools`** — Rust native addon via napi-rs. Implements: bash execution, grep, glob, read, write, edit, token counting, output truncation, web fetching (HTML rendering via scraper), image processing, SSE/eventsource streaming, SQLite (rusqlite), ULID generation, and more. Single `cdylib` crate (no Cargo workspace).
 
@@ -227,9 +227,10 @@ about 1.5 s over the whole monorepo.
 ```
 tools/review/
   src/checks/                   — one file per check
-  orphan-exports-baseline.txt   — accepted findings, one per line
-  silent-catch-baseline.txt     — accepted findings, one per line
   dangling-refs-baseline.txt    — accepted findings, one per line
+  orphan-exports-baseline.txt   — accepted findings, one per line
+  scripts-wiring-baseline.txt   — accepted findings, one per line
+  silent-catch-baseline.txt     — accepted findings, one per line
 ```
 
 ```bash
@@ -248,12 +249,15 @@ cd tools/review && zig build          # needs Zig 0.17 (the devShell provides it
 | `upstream-drift` | A file upstream carries that this branch dropped |
 | `orphan-exports` | An exported function only its own test calls |
 | `silent-catch` | A file with more bare `catch {}` blocks than its baseline allows |
+| `workflow-triggers` | A CI job the docs list that no pull request ever runs |
 | `dangling-refs` | A tool name in a `*TOOLS` list that no tool registers |
+| `scripts-wiring` | A package script nothing invokes |
 
-Findings at `error` severity fail the run; `warn` and `info` do not. The three
-baseline files are ledgers of findings someone has already looked at: a finding
-listed there is suppressed, and an entry that stops matching anything is reported
-so the ledger cannot rot. Regenerate one with `--check=<name> --json`.
+Findings at `error` severity fail the run; `warn` and `info` do not. The four
+baseline ledgers (`dangling-refs-`, `orphan-exports-`, `scripts-wiring-`,
+`silent-catch-baseline.txt`) record findings someone has already looked at: a
+finding listed there is suppressed, and an entry that stops matching anything is
+reported so the ledger cannot rot. Regenerate one with `--check=<name> --json`.
 
 To add a check, drop a file in `src/checks/`, export `run(ctx: *check.Context)`,
 and register it in `src/checks.zig`. `zig build test` covers every module listed in
@@ -265,7 +269,7 @@ not run.
 ## Environment Requirements
 
 - **Bun**: `>= 1.4` — required. Package manager, script runner, and dev-toolchain runtime (`bun.lock` is the lockfile, specified via `bunVersion` in `flake.nix`); build, lint, typecheck, locale checks, and the vitest suites (`bun --bun run test`) all run through bun.
-- **Node.js**: no longer required for any development workflow — build, lint, typecheck, the native pipeline, and the test suites all run under Bun (pi-tui's node:test suite included). CI installs no Node.
+- **Node.js**: not required for the Bun-based dev workflow — build, lint, typecheck, the native pipeline, and the test suites all run under Bun (pi-tui's node:test suite included), and no CI job installs Node. The Nix build path is the exception: `flake.nix` pins `minNodeVersion = "24.15.0"` and fails evaluation below it, keeps `nodejs` in the derivation's `nativeBuildInputs` and the devShell, and runs `node apps/kimi-code/scripts/check-web-assets.mjs` as a build step, so `nix-build.yml` needs Node on every PR.
 - **Published package engines**: the published package declares `"bun": ">=1.4.0"` — the same floor the dev toolchain requires.
 - **Rust** (optional, for native tools): Stable toolchain, MSVC on Windows.
 - **Git for Windows** (Windows only): Optional; used as the POSIX shell fallback when PowerShell is unavailable. Set `KIMI_SHELL_PATH` to pin a specific shell.
@@ -304,7 +308,7 @@ make build            # bun run build
 make typecheck        # Full typecheck
 make lint             # oxlint
 make test             # vitest
-make rust-build       # cargo build --release -p kimi-agent
+make rust-build       # cargo build --release (run from packages/kimi-agent)
 make rust-check       # cargo check
 make rust-test        # cargo test + kimi-agent --test
 ```
@@ -343,7 +347,7 @@ GitHub Actions (`ci.yml`) runs on every PR and push to `main`. Every job install
 3. **test-pi-tui** — `pi-tui` suite (dispatches to `bun test` under Bun, `node --test` under Node)
 4. **test-minidb** — `minidb` suite, which the root vitest projects exclude
 5. **test-kimi-web** — `apps/kimi-web` typecheck, tests, and style check (the app sits outside the root workspace)
-6. **lint** — `bun run lint` (oxlint --type-aware), `bun run sherif`, locale key parity (`check-locale-keys.mjs`), locale placeholder validity (`check-locale-placeholders.cjs`), and locale JSON freshness (regenerate via `generate-locale-json.cjs` and fail on any tracked diff)
+6. **lint** — `bun run lint` (oxlint --type-aware), `bun run sherif`, engine boundaries (`check:deep-imports`, then `check:boundaries`), locale key parity (`check-locale-keys.mjs`), locale placeholder validity (`check-locale-placeholders.cjs`), `t()` call-site coverage (`check-t-call-coverage.mjs`), and locale JSON freshness (regenerate via `generate-locale-json.cjs` and fail on any tracked diff)
 7. **typecheck** — TypeScript check across all packages (`tsgo` from `@typescript/native-preview`, run via `bunx --bun`)
 8. **review** — `zig build` in `tools/review` (Zig installed via `mlugg/setup-zig`), then the structural checks described under "Structural review" above.
 
@@ -355,7 +359,7 @@ Additional workflows: `_native-build.yml`, `codeql.yml`, `docs-deploy.yml`, `man
 
 ### Release flow (fork)
 
-Pushes to `main` run `release.yml`: the changesets action opens/updates a **"ci: release packages"** PR that bumps versions and assembles the changelog. **Never merge it** — this fork follows upstream versions; close the PR (its description keeps the changelog preview). Requires the repo setting *Actions → General → "Allow GitHub Actions to create and approve pull requests"* to stay enabled. See CONTRIBUTING → "Release flow on this fork".
+Pushes to `main` run `release.yml`, which installs, builds all workspace packages, and builds the built-in catalog. The `changesets/action@v1` step is **commented out on this fork** (this fork follows upstream versions and never publishes to npm independently), so no "ci: release packages" PR is opened or updated and nothing is published; the `release` job's `packages_published` / `kimi_native_release` outputs are permanently empty, and the downstream jobs gated on them never run. Re-enable the step when a standalone release is needed. See CONTRIBUTING → "Release flow on this fork".
 
 ### Native release
 
@@ -407,7 +411,7 @@ The macOS and Windows signing steps degrade safely when their secrets are unset:
 
 ### General Coding Rules
 
-- `packages/agent-core-v2`, `packages/kap-server`, and `packages/transcript` are comment-free zones: no comments of any kind — no line/block comments, no JSDoc (not even on exported symbols); the only exception is load-bearing lint-suppression directives (`oxlint-disable` / `eslint-disable`), while other tooling directives (`@ts-expect-error`, …) stay banned. `scripts/check-no-comments.mjs` reports violations over `.ts`/`.tsx`/`.mts`/`.mjs` under `src/`/`test/`/`scripts/`; run it directly — it is not wired into `bun run lint`.
+- `packages/agent-core-v2`, `packages/kap-server`, and `packages/transcript` are comment-free zones: no comments of any kind — no line/block comments, no JSDoc (not even on exported symbols); the only exception is load-bearing lint-suppression directives (`oxlint-disable` / `eslint-disable`), while other tooling directives (`@ts-expect-error`, …) stay banned. `scripts/check-no-comments.mjs` reports violations over `.ts`/`.tsx`/`.mts`/`.mjs` under `src/`/`test/`/`scripts/`, and the lint job in `ci.yml` runs it on every PR.
 - For optional object properties, pass `undefined` directly instead of using conditional spread.
   - YES: `{ user }`
   - NO: `{ ...(user ? { user } : undefined) }`
@@ -436,7 +440,7 @@ The macOS and Windows signing steps degrade safely when their secrets are unset:
 ### Test Framework
 
 - **vitest 4.1.10** for all TypeScript/JavaScript tests (root-level)
-- **node:test** for `@moonshot-ai/pi-tui` (not part of vitest workspace; this suite still runs under Node)
+- **node:test** for `@moonshot-ai/pi-tui` (not part of vitest workspace; CI runs it with `bun --bun run test`, which dispatches to `bun test` under Bun and to `node --test` under a Node runtime)
 - **cargo test** for Rust packages (`kimi-native-tools`)
 - **Coverage**: v8 provider, reports in text + HTML
 

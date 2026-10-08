@@ -1,8 +1,9 @@
 /**
  * `oauthService` + `authSummaryService` — app-scope OAuth flow and auth
  * summary. Mirrors `agent-core-v2/app/auth/auth.ts`; wire shapes mirror
- * `protocol/src/rest/oauth.ts` (snake_case fields). `resolveTokenProvider`
- * and `getCachedAccessToken` are excluded (non-serializable).
+ * `agent-core-v2/app/auth/oauthProtocol.ts` (snake_case fields).
+ * `resolveTokenProvider` and `getCachedAccessToken` are excluded
+ * (non-serializable).
  */
 
 import { z } from 'zod';

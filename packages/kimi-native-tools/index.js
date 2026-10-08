@@ -1019,6 +1019,82 @@ function nativeGoalEngineRenderPausedNote(json) {
 }
 
 // ============================================================================
+// Knowledge base
+//
+// These are exported under the Rust `#[napi]` names rather than the usual
+// `native*` prefix: `agent/knowledge/knowledgeService.ts` calls
+// `require('@moonshot-ai/kimi-native-tools').knowledgeOpen(...)` directly, so the
+// prefix would leave every call undefined.
+// ============================================================================
+
+/**
+ * Open the knowledge database, replacing any connection already held.
+ * @param {string} dbPath - absolute path to the SQLite file
+ */
+function knowledgeOpen(dbPath) {
+  return binding.knowledgeOpen(dbPath);
+}
+
+/**
+ * Close the connection held for `dbPath`, if any.
+ * @param {string|null} [dbPath]
+ */
+function knowledgeClose(dbPath) {
+  if (typeof binding.knowledgeClose !== 'function') return;
+  return binding.knowledgeClose(dbPath ?? null);
+}
+
+/**
+ * Add an entry and return it as JSON.
+ *
+ * `status` is accepted for the caller's shape but not forwarded: the Rust schema
+ * has no such column, so passing it would be silently dropped downstream.
+ * @returns {string} the stored entry as JSON
+ */
+function knowledgeAdd(title, category, content, tags, scope, source, confidence) {
+  return binding.knowledgeAdd(title, category, content, tags, scope ?? null, source, confidence);
+}
+
+/**
+ * Search entries.
+ * @returns {string} JSON array of {entry, relevance, match_source}
+ */
+function knowledgeSearch(query, scopePath, tags, limit, minConfidence) {
+  return binding.knowledgeSearch(query, scopePath ?? null, tags ?? null, limit, minConfidence);
+}
+
+/** @returns {boolean} whether an entry was removed */
+function knowledgeRemove(id) {
+  return binding.knowledgeRemove(id);
+}
+
+/** @returns {boolean} whether an entry was confirmed */
+function knowledgeConfirm(id) {
+  return binding.knowledgeConfirm(id);
+}
+
+/**
+ * Reject an entry.
+ *
+ * The Rust layer exposes no `knowledge_reject`; rejection is expressed by
+ * removing the entry, which is what the caller means by it.
+ * @returns {boolean}
+ */
+function knowledgeReject(id) {
+  return binding.knowledgeRemove(id);
+}
+
+/** @returns {string} JSON: {total, by_category, by_source, avg_confidence} */
+function knowledgeStats() {
+  return binding.knowledgeStats();
+}
+
+/** @returns {string} JSON */
+function knowledgeImport(markdown) {
+  return binding.knowledgeImport(markdown);
+}
+
+// ============================================================================
 // Exports
 // ============================================================================
 
@@ -1139,4 +1215,15 @@ module.exports = {
 
   // LLM Stream (incremental)
   nativeLlmStreamStreaming,
+
+  // Knowledge base (exported under the Rust #[napi] names on purpose)
+  knowledgeOpen,
+  knowledgeClose,
+  knowledgeAdd,
+  knowledgeSearch,
+  knowledgeRemove,
+  knowledgeConfirm,
+  knowledgeReject,
+  knowledgeStats,
+  knowledgeImport,
 };

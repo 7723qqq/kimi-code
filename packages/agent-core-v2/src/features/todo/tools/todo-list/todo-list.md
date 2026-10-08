@@ -29,8 +29,8 @@ Use this tool to maintain a structured TODO list as you work through a multi-ste
 - `done` implies 100; omit `progress` on done items.
 
 **Keep updates cheap:**
-- For small changes — marking one item done, bumping a progress percent, reordering a status — prefer `updates: [{ id, ... }]` over rewriting the whole list. Only the fields you pass change; unknown ids are an error naming the current ids.
-- Use `todos` only when the structure itself changes (add/remove items, re-tier milestones).
+- Every write passes the whole list through `todos`. To mark one item done or bump a progress percent, send the full list back with that one item changed — keep `id` and `parentId` on every item so the change lands on the same item rather than as a new one.
+- A partial list replaces the list: items you leave out are removed, `id` values you invent are new items. Add or remove items only when the structure itself changes (add/remove items, re-tier milestones).
 
 **Avoid churn:**
 - Do not re-call this tool when nothing meaningful has changed since the last call — update the list only after real progress.
@@ -38,10 +38,8 @@ Use this tool to maintain a structured TODO list as you work through a multi-ste
 - If no available tool can move any task forward, tell the user where you are stuck instead of repeatedly re-ordering the same todos.
 
 **How to use:**
-- Call with `updates: [{ id, status?, progress?, title?, description?, parentId?, kind? }]` to patch existing items in place — the cheap path for daily progress.
-- Call with `todos: [...]` to replace the full list (when structure changes). Each item has `title`, `status`, and optionally `id`, `parentId`, `kind`, `progress`, `description`.
+- Call with `todos: [...]` to write the list. Each item has `title` and `status`. This is the only write parameter: the array you pass becomes the whole list.
 - Call with no arguments to retrieve the current list without changing it.
 - Call with `todos: []` to clear the list.
-- `todos` and `updates` are mutually exclusive.
 - Keep titles short and actionable (e.g. "Read session-control.ts", "Add planMode flag to TurnManager").
 - Update statuses as you make progress.

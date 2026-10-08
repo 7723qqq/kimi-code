@@ -21,9 +21,9 @@ const MODULE_DIR = import.meta.dirname;
 
 export function getHostPackageJsonPath(): string {
   // Walk upwards from this file's directory until a `package.json` shows up,
-  // so both dev (`tsx src/main.ts` — this file in `src/cli/`, pkg 2 levels
-  // up) and prod (`node dist/main.mjs` — this code bundled into `dist/`,
-  // pkg 1 level up) resolve correctly.
+  // so both dev (`bun scripts/dev.mjs` runs `src/main.ts` — this file in
+  // `src/cli/`, pkg 2 levels up) and prod (`bun dist/main.mjs` — this code
+  // bundled into `dist/`, pkg 1 level up) resolve correctly.
   let dir = MODULE_DIR;
   for (let i = 0; i < 6; i++) {
     const candidate = resolve(dir, 'package.json');

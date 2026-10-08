@@ -40,36 +40,10 @@ export interface LocalFetchURLProviderOptions {
   fetchImpl?: typeof fetch;
   maxBytes?: number;
   allowPrivateAddresses?: boolean;
-  /** Budget shared by the whole fetch call, across all redirect hops. */
+
   timeoutMs?: number;
 }
 
-/**
- * UrlFetcher with SSRF guards: literal private/loopback addresses and
- * `.localhost` hosts are refused outright, and hostnames are resolved and
- * checked against a private-address blocklist before each hop. When undici's
- * global proxy dispatcher (`installGlobalProxyDispatcher`) carries the
- * request instead of a per-request pinned Agent, that resolution step is
- * skipped — resolved addresses are discarded anyway (no pinning is
- * possible), while a poisoned or unreachable local DNS, common exactly on
- * networks that need a proxy, would fail the request before it starts; the
- * literal-IP and localhost refusals still apply on that path. One predicate
- * decides whether a host:port rides the global proxy, shared by the SSRF
- * pre-check and the dispatcher selection so both agree on when DNS pinning
- * applies.
- *
- * The default fetch is undici's own `fetch` rather than `globalThis.fetch`:
- * the pinned-DNS `dispatcher` option only exists in undici, and on runtimes
- * whose global fetch is not undici (Bun) it would be ignored — silently
- * dropping DNS pinning and re-resolving through whatever resolver the runtime
- * prefers. Pinning the implementation keeps Node and Bun semantics identical.
- *
- * The whole call runs against one shared deadline (`timeoutMs`, default
- * 30s): every redirect hop gets the remaining budget, a hung server surfaces
- * as a "timed out" error instead of riding undici's multi-minute defaults,
- * and response bodies are streamed with the same `maxBytes` cap applied
- * incrementally rather than buffered first.
- */
 export class LocalFetchURLProvider implements UrlFetcher {
   private readonly userAgent: string;
   private readonly fetchImpl: typeof fetch;

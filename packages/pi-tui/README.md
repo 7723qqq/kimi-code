@@ -190,7 +190,7 @@ When a `Focusable` component has focus, TUI:
 3. Positions the hardware terminal cursor at that location
 4. Shows the hardware cursor only when `showHardwareCursor` is enabled
 
-The cursor remains hidden by default. This keeps the fake cursor rendering, while still positioning the hardware cursor for terminals that track IME candidate windows with hidden cursors. Some terminals require a visible hardware cursor for IME positioning; enable it with the `TUI` constructor option, `setShowHardwareCursor(true)`, or `PI_HARDWARE_CURSOR=1`. The `Editor` and `Input` built-in components already implement this interface.
+The cursor remains hidden by default. This keeps the fake cursor rendering, while still positioning the hardware cursor for terminals that track IME candidate windows with hidden cursors. Some terminals require a visible hardware cursor for IME positioning; enable it with the `TUI` constructor option or `setShowHardwareCursor(true)`. The `Editor` and `Input` built-in components already implement this interface.
 
 **Container components with embedded inputs:** When a container component (dialog, selector, etc.) contains an `Input` or `Editor` child, the container must implement `Focusable` and propagate the focus state to the child:
 
@@ -326,7 +326,7 @@ editor.getPaddingX();  // Get current padding
 
 **Key Bindings:**
 - `Enter` - Submit
-- `Shift+Enter`, `Ctrl+Enter`, or `Alt+Enter` - New line (terminal-dependent, Alt+Enter most reliable)
+- `Shift+Enter`, `Ctrl+J`, or `Alt+Enter` - New line (terminal-dependent, Alt+Enter most reliable)
 - `Tab` - Autocomplete
 - `Ctrl+K` - Delete to end of line
 - `Ctrl+U` - Delete to start of line
@@ -560,7 +560,7 @@ editor.setAutocompleteProvider(provider);
 - Type `/` to see slash commands
 - Press `Tab` for file path completion
 - Works with `~/`, `./`, `../`, and `@` prefix
-- Filters to attachable files for `@` prefix
+- Filters file suggestions by a fuzzy match on the path, not by file type
 
 ## Key Detection
 
@@ -606,21 +606,26 @@ The TUI works with any object implementing the `Terminal` interface:
 interface Terminal {
   start(onInput: (data: string) => void, onResize: () => void): void;
   stop(): void;
+  drainInput(maxMs?: number, idleMs?: number): Promise<void>;
   write(data: string): void;
   get columns(): number;
   get rows(): number;
+  get kittyProtocolActive(): boolean;
   moveBy(lines: number): void;
   hideCursor(): void;
   showCursor(): void;
   clearLine(): void;
   clearFromCursor(): void;
   clearScreen(): void;
+  setTitle(title: string): void;
+  setProgress(active: boolean): void;
 }
 ```
 
 **Built-in implementations:**
 - `ProcessTerminal` - Uses `process.stdin/stdout`
-- `VirtualTerminal` - For testing (uses `@xterm/headless`)
+
+`VirtualTerminal` (in `test/virtual-terminal.ts`, backed by `@xterm/headless`) is a test-only helper and is not exported by the package.
 
 ## Utilities
 
@@ -766,20 +771,20 @@ See `test/chat-simple.ts` for a complete chat interface example with:
 
 Run it:
 ```bash
-npx tsx test/chat-simple.ts
+bun test/chat-simple.ts
 ```
 
 ## Development
 
 ```bash
 # Install dependencies (from monorepo root)
-npm install
+bun install
 
 # Run type checking
-npm run typecheck
+bun run typecheck
 
 # Run the demo
-npx tsx test/chat-simple.ts
+bun test/chat-simple.ts
 ```
 
 ### Debug logging
@@ -787,5 +792,5 @@ npx tsx test/chat-simple.ts
 Set `PI_TUI_WRITE_LOG` to capture the raw ANSI stream written to stdout.
 
 ```bash
-PI_TUI_WRITE_LOG=/tmp/tui-ansi.log npx tsx test/chat-simple.ts
+PI_TUI_WRITE_LOG=/tmp/tui-ansi.log bun test/chat-simple.ts
 ```

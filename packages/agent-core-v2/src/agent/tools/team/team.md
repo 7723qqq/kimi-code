@@ -77,7 +77,7 @@ Use this when you need multiple perspectives on a complex topic, want agents to 
 - Each participant receives the full discussion transcript before their turn.
 - Participants speak naturally — no special tools or communication primitives needed.
 - The discussion ends after `maxRounds` rounds.
-- Results include the full transcript, summary, and aggregate token usage.
+- Results include the full transcript and, when a `summaryPrompt` is provided, the final summary.
 
 ### Debate
 - **Phase 1 — Opening Statements**: Each participant presents their initial stance.

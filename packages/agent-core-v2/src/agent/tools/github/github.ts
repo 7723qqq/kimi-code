@@ -15,7 +15,6 @@ export interface GitHubToolSpec<Input extends z.ZodTypeAny = z.ZodTypeAny> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly body?: (args: z.infer<Input>) => unknown;
   readonly accept?: string;
-  /** Mutating tools are omitted from the auto-approve allowlist (they prompt). */
   readonly mutating?: boolean;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly subject: (args: z.infer<Input>) => string;

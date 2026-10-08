@@ -45,7 +45,7 @@ export interface MarketplaceLocation {
 export interface ReadPluginMarketplaceOptions {
   readonly source: string;
   readonly workDir: string;
-  /** Home directory for `~` expansion; defaults to `os.homedir()`. */
+
   readonly homeDir?: string;
   readonly fetchImpl?: typeof fetch;
   readonly sourceCheckoutLocation?: () => Promise<MarketplaceLocation | undefined>;

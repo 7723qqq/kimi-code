@@ -260,7 +260,8 @@ function toProviderEntry(value: unknown): CustomRegistryProviderEntry | undefine
  * `entry.id`); callers should iterate `Object.values` to apply each entry.
  *
  * `userAgent` identifies the host product (e.g. `kimi-code-cli/1.2.3`); when
- * omitted the request falls back to the runtime default (`User-Agent: node`).
+ * omitted no `User-Agent` header is set and the runtime decides (`node` under
+ * Node, `Bun/<version>` under Bun).
  */
 export async function fetchCustomRegistry(
   source: CustomRegistrySource,

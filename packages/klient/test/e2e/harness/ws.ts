@@ -53,8 +53,8 @@ interface PendingWaiter {
  *
  * Both queue and waiters are needed because the server's first `server_hello`
  * can land in the same tick as `open`, before the test has a chance to
- * register its first waiter (see `server/test/ws-handshake.e2e.test.ts:88-117`
- * for the pattern this is ported from).
+ * register its first waiter (the pattern this is ported from lived in the
+ * v1 server package's `test/ws-handshake.e2e.test.ts`, since removed).
  */
 export class WsClient {
   private ws: WsWebSocket | null = null;

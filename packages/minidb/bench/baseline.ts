@@ -12,7 +12,7 @@
 //     O_APPEND, so each write lands atomically at EOF, like minidb's WAL fd)
 //   - snapshot = serialize the whole map to JSON and fsync it
 //
-// Run:  node --import tsx bench/baseline.ts
+// Run:  bun bench/baseline.ts
 
 import fs from 'node:fs/promises';
 import os from 'node:os';

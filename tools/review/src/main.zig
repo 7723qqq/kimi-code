@@ -6,9 +6,10 @@ const report = @import("report.zig");
 const checks = @import("checks.zig");
 
 // Zig only runs tests from files the test build actually analyzes, and a
-// top-level `const x = @import(...)` is analyzed lazily. Naming every module
-// here is what makes `zig build test` cover the whole tool rather than just
-// this file.
+// top-level `const x = @import(...)` is analyzed lazily. Naming a module here is
+// what makes `zig build test` cover it rather than just this file; every module
+// under `src/` is listed except `probe_main.zig`, whose only job is to be run by
+// hand against `workflow_triggers`. A new module belongs in this list.
 test {
     _ = @import("check.zig");
     _ = @import("fsutil.zig");

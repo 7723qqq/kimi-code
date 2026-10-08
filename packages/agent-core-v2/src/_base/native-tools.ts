@@ -79,20 +79,9 @@ export interface NativeReadResult {
   readonly content: string;
   readonly lineCount: number;
   readonly error?: string;
-  /**
-   * Machine-readable error class — `not_found` / `not_a_file` / `media` /
-   * `binary` / `invalid_utf8` / `io` / `panic` / `native_error`.
-   * Observability metadata only: every native error is a final verdict
-   * regardless of whether the kind is present.
-   */
   readonly errorKind?: string;
 }
 
-/**
- * Try the Rust native file read. Returns `undefined` when the native
- * module is unavailable, letting the caller fall through to the TS path.
- * A native call that throws is a final error verdict (never re-run in TS).
- */
 export function tryNativeRead(
   path: string,
   options?: { lineOffset?: number; nLines?: number },
@@ -108,21 +97,9 @@ export function tryNativeRead(
 export interface NativeWriteResult {
   readonly bytesWritten: number;
   readonly error?: string;
-  /**
-   * Machine-readable error class — `io` / `parent_not_dir` / `panic`.
-   * Observability metadata only: every native error is a final verdict
-   * regardless of whether the kind is present.
-   */
   readonly errorKind?: string;
 }
 
-/**
- * Try the Rust native file write. Creates parent dirs automatically.
- * Overwrite uses an atomic temp-file-and-rename by default; pass
- * `atomic: false` to opt into the legacy in-place truncating write.
- * Returns `undefined` when the native module is unavailable.
- * A native call that throws is a final error verdict (never re-run in TS).
- */
 export function tryNativeWrite(
   path: string,
   content: string,
@@ -169,12 +146,6 @@ export interface NativeCompressImageResult {
   readonly finalByteLength: number;
 }
 
-/**
- * Try the Rust native image compression codec. Returns `undefined` when the
- * native module is unavailable, the call fails, or the result is `null`
- * (unsupported format / passthrough). The caller falls back to the jimp
- * pipeline.
- */
 export async function tryNativeCompressImage(
   data: Uint8Array,
   mimeType: string,
@@ -193,12 +164,6 @@ export async function tryNativeCompressImage(
   return result ?? undefined;
 }
 
-/**
- * Try the Rust native glob-set matcher. Returns `undefined` when the native
- * module is unavailable or the call fails, so the caller's `globToRegExp`
- * fallback runs. Case-sensitive, matching the TS `matchesAnyGlob` fallback
- * (no `i` flag).
- */
 export function tryNativeGlobMatchesAny(
   globs: readonly string[],
   path: string,
@@ -206,36 +171,20 @@ export function tryNativeGlobMatchesAny(
   return callNativeSync<boolean>('nativeGlobMatchesAny', [[...globs], path]);
 }
 
-/** Lightweight projection of a Message for the compaction algorithm. */
 export interface NativeCompactionMessageMeta {
   readonly role: string;
-  /** napi-rs: `tool_calls_count` → camelCase */
   readonly toolCallsCount: number;
   readonly tokens: number;
 }
 
-/** Knobs for the compaction algorithm (mirrors CompactionConfig). */
 export interface NativeCompactionConfigMeta {
-  /** napi-rs: `max_size` → camelCase */
   readonly maxSize: number;
-  /** napi-rs: `max_recent_messages` → camelCase */
   readonly maxRecentMessages: number;
-  /** napi-rs: `max_recent_user_messages` → camelCase */
   readonly maxRecentUserMessages: number;
-  /** napi-rs: `max_recent_size_ratio` */
   readonly maxRecentSizeRatio: number;
-  /** napi-rs: `min_overflow_reduction_ratio` */
   readonly minOverflowReductionRatio: number;
 }
 
-/**
- * Try the Rust native compaction count. Returns `undefined` when the
- * native module is unavailable or the call fails; the caller falls back
- * to the TS implementation.
- *
- * Returns N where `messages[0..N]` is compacted and `messages[N..]` is
- * preserved. 0 means no compaction possible (no valid split point).
- */
 export function tryNativeComputeCompactCount(
   messages: readonly NativeCompactionMessageMeta[],
   config: NativeCompactionConfigMeta,
@@ -244,14 +193,6 @@ export function tryNativeComputeCompactCount(
   return callNativeSync<number>('nativeComputeCompactCount', [[...messages], config, isManual]);
 }
 
-/**
- * Try the Rust native overflow reduction. Returns `undefined` when the
- * native module is unavailable or the call fails; the caller falls back
- * to the TS implementation.
- *
- * Returns a split index — the number of messages to keep in the tail
- * after reducing the compacted prefix.
- */
 export function tryNativeReduceCompactOnOverflow(
   messages: readonly NativeCompactionMessageMeta[],
   config: NativeCompactionConfigMeta,
@@ -286,12 +227,6 @@ export interface NativeCropImageOutcome {
   readonly finalByteLength: number;
 }
 
-/**
- * Try the Rust native image-crop codec. Returns `undefined` when the native
- * module is unavailable or the call fails; the caller falls back to the jimp
- * pipeline. When present, napi-rs exposes the Rust struct fields as
- * `camelCase` (e.g. `region_x` → `regionX`).
- */
 export async function tryNativeCropImage(
   data: Uint8Array,
   mimeType: string,
@@ -376,12 +311,10 @@ export function tryNativeDetectFileType(
   return undefined;
 }
 
-/** Validate a goal objective. Returns error message on failure, or empty string on success. */
 export function tryNativeGoalValidateObjective(objective: string): string | undefined {
   return callNativeSync<string>('nativeGoalValidateObjective', [objective]);
 }
 
-/** Apply a goal state update. Returns updated goal object or error. */
 export function tryNativeGoalApplyUpdate(
   goalJson: string,
   updateJson: string,
@@ -389,7 +322,6 @@ export function tryNativeGoalApplyUpdate(
   return callNativeSync('nativeGoalApplyUpdate', [goalJson, updateJson]);
 }
 
-/** Compute the chargeable token delta between two usage snapshots. */
 export function tryNativeGoalComputeTokenDelta(
   prevInput: number,
   prevCached: number,
@@ -408,7 +340,6 @@ export function tryNativeGoalComputeTokenDelta(
   ]);
 }
 
-/** Render the continuation steering prompt. */
 export function tryNativeGoalRenderContinuation(
   objective: string,
   tokensUsed: number,
@@ -421,7 +352,6 @@ export function tryNativeGoalRenderContinuation(
   ]);
 }
 
-/** Render the budget-limit wrap-up prompt. */
 export function tryNativeGoalRenderBudgetLimit(
   objective: string,
   tokensUsed: number,
@@ -436,7 +366,6 @@ export function tryNativeGoalRenderBudgetLimit(
   ]);
 }
 
-/** Render the objective-updated prompt. */
 export function tryNativeGoalRenderObjectiveUpdated(
   objective: string,
   tokensUsed: number,
@@ -456,11 +385,6 @@ export interface NativeFetchUrlResult {
   readonly error?: string;
 }
 
-/**
- * Fetch a URL via Rust native HTTP client with SSRF protection and HTML
- * extraction. Returns `undefined` when the native module is unavailable.
- * A native call that throws is a final error verdict (never re-run in TS).
- */
 export function tryNativeFetchUrl(
   url: string,
   options?: { userAgent?: string; maxBytes?: number; allowPrivate?: boolean; timeoutMs?: number },
@@ -489,11 +413,6 @@ export interface NativeWebSearchResult {
   readonly error?: string;
 }
 
-/**
- * Search DuckDuckGo via Rust native HTTP + HTML scraping.
- * Returns `undefined` when the native module is unavailable.
- * A native call that throws is a final error verdict (never re-run in TS).
- */
 export function tryNativeWebSearch(
   query: string,
   options?: { timeoutMs?: number; maxResults?: number },
@@ -506,7 +425,6 @@ export function tryNativeWebSearch(
 }
 
 export interface NativeBashSpawnConfig {
-  /** Full command line: shell executable + flags + script. */
   readonly argv: string[];
   readonly cwd?: string;
   readonly timeoutMs?: number;
@@ -514,7 +432,6 @@ export interface NativeBashSpawnConfig {
 }
 
 export interface NativeBashEvent {
-  /** Handle id of the emitting process (`0` for a spawn failure). */
   readonly id: number;
   readonly kind: 'stdout' | 'stderr' | 'exit' | 'error';
   readonly data?: string;
@@ -533,11 +450,6 @@ export interface NativeBashExit {
   readonly error?: string;
 }
 
-/**
- * Spawn a shell command via Rust and stream its output to `onEvent`.
- * Stdin is closed at spawn. Returns `undefined` when the native module is
- * unavailable (the caller falls back to the host spawn).
- */
 export function tryNativeBashSpawn(
   config: NativeBashSpawnConfig,
   onEvent: (event: NativeBashEvent) => void,
@@ -572,17 +484,14 @@ export function tryNativeBashSpawn(
   );
 }
 
-/** Resolve with the cached exit result of a managed bash process. */
 export async function tryNativeBashWait(id: number): Promise<NativeBashExit | undefined> {
   return callNativeAsync<NativeBashExit>('nativeBashWait', [id]);
 }
 
-/** Kill a managed bash process tree. Returns false when the handle is unknown. */
 export function tryNativeBashKill(id: number): boolean | undefined {
   return callNativeSync<boolean>('nativeBashKill', [id]);
 }
 
-/** Drop a managed bash process handle. Returns false when the handle is unknown. */
 export function tryNativeBashDispose(id: number): boolean | undefined {
   return callNativeSync<boolean>('nativeBashDispose', [id]);
 }
@@ -592,7 +501,6 @@ export interface NativeGrepResult {
   readonly error?: string;
   readonly matchCount: number;
   readonly fileCount: number;
-  /** Absolute paths of sensitive files that matched but were redacted. */
   readonly filteredSensitive: string[];
   readonly timedOut: boolean;
 }
@@ -611,17 +519,6 @@ export interface NativeGrepOptions {
   readonly timeoutMs?: number;
 }
 
-/**
- * Run the Rust native grep engine (full ripgrep-compatible feature set).
- *
- * `head_limit` / `offset` are pinned to 0 (unlimited in native) — the caller
- * applies its own pagination so truncation notices stay accurate. Native
- * output uses absolute paths, so the caller's display relativization (which
- * is workspace-relative, not search-path-relative) stays correct.
- *
- * Returns `undefined` when the native module is unavailable. A native call
- * that throws is a final error verdict (never re-run in TS).
- */
 export function tryNativeGrep(
   pattern: string,
   path: string,
@@ -679,11 +576,6 @@ export interface NativeGrepStructuredResult {
   readonly error?: string;
 }
 
-/**
- * Structured grep via Rust native directory walker + regex engine.
- * Use as a fallback when ripgrep is not available on PATH.
- * Returns `undefined` when the native module is unavailable.
- */
 export function tryNativeGrepStructured(
   pattern: string,
   path: string,
@@ -731,12 +623,6 @@ export interface NativeEditResult {
   readonly replacements: number;
 }
 
-/**
- * Try the Rust native file edit. Returns `undefined` when the native module
- * is unavailable, letting the caller fall through to the TS edit path.
- * A native call that throws is a final error verdict (never re-run in TS).
- * `replaceAll` defaults to false (exactly one occurrence).
- */
 export function tryNativeEdit(
   path: string,
   oldString: string,

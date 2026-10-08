@@ -33,53 +33,19 @@ import type {
 export interface ISessionQueryService {
   readonly _serviceBrand: undefined;
 
-  /**
-   * List the complete logical corpus, newest first.
-   * @param filters - ANDed logical-session predicates applied after listing.
-   * @returns detached session records.
-   */
   listSessions(filters?: readonly SessionResultFilter[]): Promise<SessionRecord[]>;
 
-  /**
-   * Resolve one session's record.
-   * @param sessionId - session to resolve.
-   * @returns the detached record.
-   */
   getSession(sessionId: string): Promise<SessionRecord>;
 
-  /**
-   * Trace one session's known ancestry and complete descendant trees.
-   * @param sessionId - session to trace.
-   * @returns the lineage trace.
-   */
   traceLineage(sessionId: string): Promise<SessionLineageTrace>;
 
-  /**
-   * Filter one session's events by metadata/literal-text predicates.
-   * @param sessionId - session whose main-agent journal is scanned.
-   * @param filters - ANDed event predicates.
-   * @returns matching events in journal order.
-   */
   filterEvents(
     sessionId: string,
     filters?: readonly SessionEventResultFilter[],
   ): Promise<readonly SessionEventSearchDocument[]>;
 
-  /**
-   * Full-text search within one session's events.
-   * @param request - session, query, optional metadata filters, page size and cursor.
-   * @returns the ranked page with an opaque continuation cursor.
-   */
   searchEvents(request: SessionEventSearchRequest): Promise<SessionEventSearchPage>;
 
-  /**
-   * Cross-session full-text search. The corpus is narrowed by
-   * `sessionFilters`; with none given, only live sessions are searched
-   * (bounded work — persisted archives are covered by the session-scoped
-   * `searchEvents`).
-   * @param request - query, optional session/event filters, page size and cursor.
-   * @returns one hit per matching session, ranked by the strongest event.
-   */
   searchSessions(request: SessionSearchRequest): Promise<SessionSearchPage<SessionSearchHit>>;
 }
 

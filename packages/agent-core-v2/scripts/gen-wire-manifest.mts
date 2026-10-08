@@ -18,7 +18,6 @@ const PKG = join(import.meta.dirname, '..');
 const SRC = join(PKG, 'src');
 export const MANIFEST_PATH = join(PKG, 'docs', 'wire-manifest.d.ts');
 
-/** Owner paths in the generated manifest are always POSIX (forward slashes), even on Windows. */
 function posixRelPath(from: string, to: string): string {
   return relative(from, to).replaceAll('\\', '/');
 }

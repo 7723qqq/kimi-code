@@ -101,9 +101,11 @@ web UI of the `kimi` CLI (`apps/kimi-code`).
    anything; it runs `scripts/check-web-assets.mjs`, which only verifies that
    the committed bundle is present and that every asset referenced by
    `index.html` exists.
-4. **Publish** — the root `.github/workflows/release.yml` publishes
-   `@moonshot-ai/kimi-code` to npm; `dist-web` is listed in the package `files`
-   array, so the built web assets travel with the CLI package.
+4. **Publish** — the root `.github/workflows/release.yml` only builds packages;
+   its changesets publish step is commented out (the fork follows upstream
+   versions and never publishes to npm, so the downstream release jobs never
+   run). `dist-web` is listed in the package `files` array, so the built web
+   assets travel with the CLI package whenever it is published.
 5. **Serve** — `kimi web` serves `dist-web` from the
    installed package.
 

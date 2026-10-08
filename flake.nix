@@ -51,27 +51,27 @@
       # derivation shape as nixpkgs' bun package, with the version and source
       # swapped. Hashes are the official sha256 digests published on the
       # GitHub release (SRI form).
-      bunVersion = "1.4.0";
+      bunVersion = "1.4.2";
       bunSources = {
         "aarch64-darwin" = {
           url = "bun-darwin-aarch64.zip";
           sourceRoot = "bun-darwin-aarch64";
-          hash = "sha256-xmnpf2Fk4cluBwF0jbmN+ndJKQjL2DlMdVcTSnNd44E=";
+          hash = "sha256-kJh6OhbX21VtiGrD1VHnttPt8KHPQ6yu1iLoZ2vh0S8=";
         };
         "x86_64-darwin" = {
           url = "bun-darwin-x64-baseline.zip";
           sourceRoot = "bun-darwin-x64-baseline";
-          hash = "sha256-2pufG0unZsbymXEfON+qmGI+HtnECJaqU9uAPFLsH6A=";
+          hash = "sha256-utW71s8U0JgNEV9ZVMn/kE32GdXplNLaH/zNPzFjALA=";
         };
         "aarch64-linux" = {
           url = "bun-linux-aarch64.zip";
           sourceRoot = null;
-          hash = "sha256-SxozLuhhmD65O8/m93D/+U4+MbLDiL2uo8jtNeWO7Q4=";
+          hash = "sha256-VDKLvC2cjgyfiSxUTWbFeoO4QTnjSQnl7oF1jxrI/ac=";
         };
         "x86_64-linux" = {
           url = "bun-linux-x64.zip";
           sourceRoot = null;
-          hash = "sha256-LQP7X7g6yLVnrKCigbLOGhoZ1Ij1bClo2Iw/Jekv5FI=";
+          hash = "sha256-NjaPrvdSeHXV/6UuU81IAhdB8qg+tiCKjdZAaNQiqRM=";
         };
       };
 

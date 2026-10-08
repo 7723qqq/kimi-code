@@ -53,7 +53,6 @@ function toResult(elements: readonly EngineElement[]): EngineQueryResult {
   };
 }
 
-/** `load(html)` returns a query function like cheerio's top-level `$`. */
 export function loadHtml(html: string): (selector: string) => EngineQueryResult {
   const { document } = parseHTML(html) as unknown as {
     document: { querySelectorAll(selector: string): readonly EngineElement[] };
@@ -61,7 +60,6 @@ export function loadHtml(html: string): (selector: string) => EngineQueryResult 
   return (selector: string) => toResult(document.querySelectorAll(selector));
 }
 
-/** Convenience: `$(html).find(selector)` chain for one-shot queries. */
 export function queryHtml(html: string, selector: string): EngineQueryResult {
   return loadHtml(html)(selector);
 }

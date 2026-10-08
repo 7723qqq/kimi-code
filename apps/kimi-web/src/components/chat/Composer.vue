@@ -2293,8 +2293,8 @@ function selectModel(modelId: string): void {
 }
 
 /* ---- Mobile composer (prototype): round attach + rounded panel input +
-       round blue send with a soft shadow. The .cin container loses its border
-       and acts as a flex row; the textarea itself becomes the pill input. ---- */
+       round blue send with a soft shadow. The input row acts as a flex row;
+       the textarea itself becomes the pill input. ---- */
 @media (max-width: 640px) {
   .composer {
     padding: 9px var(--dock-inline-right, max(12px, var(--safe-right)))
@@ -2421,8 +2421,8 @@ function selectModel(modelId: string): void {
   }
 }
 
-/* NOTE: Composer overrides live in src/style.css (global), NOT here. Scoped
-   `.cin` rules did NOT reliably win the cascade against the base `.cin` (the
-   input stayed square + mono), so they were moved to the global sheet where they
+/* NOTE: the composer lives in style.css (global), NOT here. Scoped rules for
+   the input did NOT reliably win the cascade against the base rules (the input
+   stayed square + mono), so they were moved to the global sheet where they
    apply. */
 </style>

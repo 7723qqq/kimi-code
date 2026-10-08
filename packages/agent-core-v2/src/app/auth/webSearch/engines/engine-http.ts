@@ -15,9 +15,9 @@ export interface EngineRequestOptions {
   timeoutMs?: number;
   method?: 'GET' | 'POST';
   body?: string;
-  /** Caller-supplied abort signal, combined with the internal timeout. */
+
   signal?: AbortSignal;
-  /** Do not follow redirects (the caller inspects the Location header). */
+
   manualRedirect?: boolean;
 }
 
@@ -155,7 +155,6 @@ export async function engineFetch(
 
 export { DEFAULT_USER_AGENT };
 
-/** No-op unless OPEN_WEBSEARCH_DEBUG=1; keeps library chatter out of the TUI. */
 export function debugLog(message: string): void {
   if ((process.env['OPEN_WEBSEARCH_DEBUG'] ?? '') !== '1') return;
   console.warn(message);

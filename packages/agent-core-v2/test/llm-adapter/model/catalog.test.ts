@@ -291,15 +291,12 @@ describe('Model assembly (pure data)', () => {
     const { host, catalog } = createHost({
       providers: { openai: { type: 'openai', apiKey: 'sk-o' } },
       models: {
-        // 'glm-5.3-flash' matches no static capability table, so the detected
-        // set is UNKNOWN; the declaration only speaks about thinking.
         relay: {
           provider: 'openai',
           model: 'glm-5.3-flash',
           maxContextSize: 1000000,
           capabilities: ['thinking'],
         },
-        // A declaration that does speak about media input is authoritative.
         relayVision: {
           provider: 'openai',
           model: 'glm-5.3-flash',

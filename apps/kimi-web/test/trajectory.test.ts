@@ -2,7 +2,7 @@
  * Trajectory pure-logic tests: ledger filtering, layout folding,
  * timeline projection, and virtual-row windowing. Ported from
  * deepseek-harness ui-trajectory semantics (MIT).
- * Run: pnpm --filter @moonshot-ai/kimi-web exec vitest run test/trajectory.test.ts
+ * Run: cd apps/kimi-web && bun --bun run test -- test/trajectory.test.ts
  */
 
 import { describe, expect, it } from 'vitest';

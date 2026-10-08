@@ -25,12 +25,10 @@ export function deferred<T = void>(): Deferred<T> {
   return { promise, resolve };
 }
 
-/** A user-text turn message for `submitTurn`, like `rpc.prompt`. */
 export function nextTurnMessage(text: string): UserMessage {
   return { role: 'user', content: [{ type: 'text', text }] };
 }
 
-/** Submit a user-text prompt and return the launched turn handle. */
 export function submitTurn(
   loop: IAgentLoopService,
   input: { readonly message: UserMessage },
@@ -73,7 +71,6 @@ export function makeEchoTool(): EchoTool {
   return Object.assign(tool, { calls });
 }
 
-/** A tool that blocks until released (or aborted) so tests can steer timing. */
 export interface GatedTool extends ExecutableTool<Record<string, never>> {
   readonly started: Deferred<void>;
   readonly calls: Array<{ readonly id: string; readonly turnId: number }>;
@@ -104,7 +101,6 @@ export function makeGatedTool(): GatedTool {
   return Object.assign(tool, { started, calls, release: () => release() });
 }
 
-/** Activate a tool through the profile and register it with the registry. */
 export function registerTool(ctx: TestAgentContext, tool: ExecutableTool): void {
   ctx.get(IAgentToolRegistryService).register(tool);
   const profile = ctx.get(IAgentProfileService);
@@ -114,7 +110,6 @@ export function registerTool(ctx: TestAgentContext, tool: ExecutableTool): void 
   }
 }
 
-/** Loop-suite agent factory (plain `createTestAgent`). */
 export function createLoopTestAgent(
   ...inputs: readonly (TestAgentServiceOverride | TestAgentOptions)[]
 ): TestAgentContext {

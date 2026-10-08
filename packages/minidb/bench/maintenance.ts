@@ -6,9 +6,9 @@
 // (p95/p99/max), process RSS peaks (worker threads share the process) and the
 // temp-generation disk peak, emitted as machine-readable JSON.
 //
-// Run:  node --import tsx bench/maintenance.ts            (full: 1M messages)
-//       node --import tsx bench/maintenance.ts --quick    (small sizes, smoke)
-//       node --import tsx bench/maintenance.ts --json .tmp/maintenance.json
+// Run:  bun bench/maintenance.ts            (full: 1M messages)
+//       bun bench/maintenance.ts --quick    (small sizes, smoke)
+//       bun bench/maintenance.ts --json .tmp/maintenance.json
 //
 // Knobs (env): N (corpus messages), NDISK (disk-mode size), BENCH_SEED,
 // BENCH_DIR (reuse an already-populated corpus dir instead of a fresh tmp

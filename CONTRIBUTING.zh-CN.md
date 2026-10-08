@@ -37,7 +37,7 @@ Kimi Code 对 CLI/TUI 行为、agent 工作流和公开 API 已有自己的主�
 
 ## 开发环境
 
-前置要求：Bun >= 1.4、Git。任何开发流程都不再需要 Node.js——vitest 测试套件在 Bun 运行时下执行（`bun --bun run test`；本机装有 Node 时，普通 `bun run test` 依旧可用）。
+前置要求：Bun >= 1.4、Git。Bun 开发流程不再需要 Node.js——vitest 测试套件在 Bun 运行时下执行（`bun --bun run test`；本机装有 Node 时，普通 `bun run test` 依旧可用）。Nix 构建路径（`flake.nix`、`nix-build.yml`）仍要求 Node.js >= 24.15.0。
 
 ```sh
 git clone https://github.com/7723qqq/kimi-code.git
@@ -118,7 +118,7 @@ Copy-Item -Force packages/kimi-native-tools/kimi-native-tools.win32-x64-msvc.nod
 
 ```powershell
 $env:KIMI_LANG="zh"
-node $env:USERPROFILE\.kimi-code\dist\main.mjs
+bun $env:USERPROFILE\.kimi-code\dist\main.mjs
 ```
 
 要让 `kimi` 命令使用本地构建，先把 CDN 二进制改名，再创建一个启动器：
@@ -138,7 +138,7 @@ if "%KIMI_LANG%"=="" (
     ) do set KIMI_LANG=%%~a
 )
 set KIMI_CODE_HOME=%USERPROFILE%\.kimi-code
-node "%KIMI_CODE_HOME%\dist\main.mjs" %*
+bun "%KIMI_CODE_HOME%\dist\main.mjs" %*
 ```
 
 ### 原生构建（自包含二进制）
@@ -250,10 +250,9 @@ PR 标题由 `pr-title-checker` 工作流强制校验——不合规的标题会
 
 ### 本 fork 的发版流程
 
-每次向 `main` 推送都会运行 Release 工作流：changesets action 会打开或更新一个 **「ci: release packages」** PR（分支 `changeset-release/main`），内容是提升包版本并汇总 changelog。
+每次向 `main` 推送都会运行 Release 工作流：安装依赖、构建全部 workspace 包，并构建内置目录。此前用于打开或更新 **「ci: release packages」** PR（分支 `changeset-release/main`）的 `changesets/action@v1` 步骤在本 fork 上**已被注释停用**，因此不会再打开该 PR，也不会向 npm 发布任何内容。
 
-- **永远不要合并那个 PR。** 本 fork 的版本跟随上游——各包 version 字段必须与上游保持一致，发版流程仅作为 changelog 来源。直接关闭该 PR 即可；其描述中的 changelog 预览在关闭后仍可查看。
-- 该工作流依赖仓库设置 **Actions → General → "Allow GitHub Actions to create and approve pull requests"** 处于开启状态。若 Release 失败并报 `GitHub Actions is not permitted to create or approve pull requests`，打开该开关（或经 API：`PUT /repos/{owner}/{repo}/actions/permissions/workflow`，`can_approve_pull_request_reviews: true`）。
+- changeset 仍然是 PR 的必备项：它是 changelog 的来源，将来需要独立发版时会重新启用该 action。
 - 有意发版前，用 `pre-changelog` 技能预览面向用户的 changelog，并从 `main` 清理掉累积的非用户向 changesets。
 
 ### 发布二进制

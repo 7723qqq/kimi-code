@@ -684,8 +684,7 @@ export class AgentTowerService extends Disposable implements IAgentTowerService 
   private lastPublished: boolean | undefined;
 
   private readonly warn = (message: string): void => {
-    // Called from error handlers. A missing logger must not turn a handled
-    // failure into an unhandled rejection, so this never throws.
+
     this.log?.warn(message);
   };
 

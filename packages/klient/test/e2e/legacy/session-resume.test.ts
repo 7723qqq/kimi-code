@@ -2,12 +2,12 @@
  * Session-resume / activity invariants — assertions for the two gaps the
  * "browser refresh" walkthrough flagged:
  *
- *   1. **Cold-session `GET /messages` must NOT 401.** Pre-fix, the
- *      messageService threw `SESSION_NOT_FOUND` (40401) for any session that
- *      wasn't loaded in the bridge's in-memory map. Fixed by
- *      `services/src/message/messageService.ts:106` calling
- *      `core.rpc.resumeSession({sessionId})` before `getContext`, so any
- *      session whose snapshot exists on disk is rehydrated transparently.
+ *   1. **Cold-session `GET /messages` must NOT 401.** Pre-fix, the message
+ *      service threw `SESSION_NOT_FOUND` (40401) for any session that wasn't
+ *      loaded in the bridge's in-memory map. Fixed in the retired services
+ *      package by calling `core.rpc.resumeSession({sessionId})` before
+ *      `getContext`, so any session whose snapshot exists on disk is
+ *      rehydrated transparently.
  *
  *   2. **`GET /sessions/{sid}.busy` must reflect runtime work.** Session
  *      activity is aggregated from agent turns and background tasks, so this

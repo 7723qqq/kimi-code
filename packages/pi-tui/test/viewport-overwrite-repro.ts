@@ -1,12 +1,12 @@
 /**
  * TUI viewport overwrite repro
  *
- * Place this file at: packages/tui/test/viewport-overwrite-repro.ts
- * Run from repo root: npx tsx packages/tui/test/viewport-overwrite-repro.ts
+ * Place this file at: packages/pi-tui/test/viewport-overwrite-repro.ts
+ * Run from repo root: bun packages/pi-tui/test/viewport-overwrite-repro.ts
  *
  * For reliable repro, run in a small terminal (8-12 rows) or a tmux session:
  *   tmux new-session -d -s tui-bug -x 80 -y 12
- *   tmux send-keys -t tui-bug "npx tsx packages/tui/test/viewport-overwrite-repro.ts" Enter
+ *   tmux send-keys -t tui-bug "bun packages/pi-tui/test/viewport-overwrite-repro.ts" Enter
  *   tmux attach -t tui-bug
  *
  * Expected behavior:

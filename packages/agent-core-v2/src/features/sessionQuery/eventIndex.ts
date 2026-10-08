@@ -20,23 +20,10 @@ export class SessionEventIndex {
     private readonly storage: IFileSystemStorageService,
   ) {}
 
-  /**
-   * The wire journal scope of a session's main agent.
-   * @param workspaceId - owning workspace id.
-   * @param sessionId - owning session id.
-   * @returns the append-log scope for `read`/`size`.
-   */
   wireScopeOf(workspaceId: string, sessionId: string): string {
     return `${this.bootstrap.scope('sessions')}/${workspaceId}/${sessionId}/agents/main`;
   }
 
-  /**
-   * Detached event documents for one session, rebuilt when the journal
-   * changed since the last read.
-   * @param workspaceId - owning workspace id.
-   * @param sessionId - owning session id.
-   * @returns event documents in journal order.
-   */
   async eventsOf(workspaceId: string, sessionId: string): Promise<SessionEventSearchDocument[]> {
     const scope = this.wireScopeOf(workspaceId, sessionId);
     const revision = await this.storage.size(scope, AGENT_WIRE_RECORD_KEY);
@@ -61,7 +48,6 @@ export class SessionEventIndex {
     return events;
   }
 
-  /** Drop a session's cached events (e.g. after the session is deleted). */
   invalidate(sessionId: string): void {
     this.cache.delete(sessionId);
   }

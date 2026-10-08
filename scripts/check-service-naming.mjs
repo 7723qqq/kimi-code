@@ -3,12 +3,19 @@
  * Enforce the VS Code-style service naming convention finalized in
  * Phase 5 of the 2026.06.07 services-alignment plan:
  *
- *   - packages/services/src/<domain>/<domain>.ts (+ <domain>Service.ts)
  *   - packages/kap-server/src/services/<domain>/<domain>.ts (+ <domain>Service.ts)
+ *   - packages/services/src/<domain>/<domain>.ts (+ <domain>Service.ts)
+ *
+ * The second root is gone from this repo, so `SERVICES_SRC` points at a path
+ * that no longer exists and a missing root is skipped; `SERVER_SERVICES_SRC`
+ * is live and today carries the whole check.
  *
  * Domain dirs and service-related .ts files must be camelCase — never
- * kebab-case (no `-` in the name). Anything outside these two roots is
- * ignored (test fixtures, etc.).
+ * kebab-case (no `-` in the name). Anything outside those roots is ignored
+ * (test fixtures, etc.).
+ *
+ * Nothing invokes this script: it has no entry in package.json, in
+ * .github/workflows/, or in the git hooks, so it only runs by hand.
  *
  * Exit code 0 if clean, 1 with an actionable report otherwise.
  */

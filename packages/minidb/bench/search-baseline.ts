@@ -7,7 +7,7 @@
 // range). Paired with import-kimi-code.ts, this shows what minidb's indexes
 // buy you on real data.
 //
-// Run:  node --import tsx bench/search-baseline.ts [--data ~/.kimi-code]
+// Run:  bun bench/search-baseline.ts [--data ~/.kimi-code]
 
 import { existsSync, readFileSync } from 'node:fs';
 import os from 'node:os';

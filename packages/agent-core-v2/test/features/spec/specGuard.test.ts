@@ -347,8 +347,6 @@ describe('AgentSpecService write guard', () => {
   it('sets the spec telemetry context on a successful enter', async () => {
     await enterSpec();
 
-    // Spec is its own mode: reporting it as `plan` made the two
-    // indistinguishable to anything reading the telemetry context.
     expect(setContext).toHaveBeenCalledWith({ mode: 'spec' });
     expect(await spec().status()).not.toBeNull();
   });

@@ -184,16 +184,6 @@ export interface PathRealpathResolver {
   realpath(path: string): Promise<string>;
 }
 
-/**
- * Containment test that survives symlinks: the lexical check must pass AND the
- * resolved form of the candidate's deepest existing ancestor must resolve
- * inside the resolved base. A path that does not exist yet (a document about to
- * be written) resolves its parent instead of failing.
- *
- * `undefined` means containment could not be decided at all — the base itself
- * is unresolvable. A candidate that simply does not exist yet still resolves to
- * `true`/`false`.
- */
 export async function isWithinDirectoryResolved(
   candidate: string,
   base: string,
@@ -222,11 +212,6 @@ async function resolveExisting(
   }
 }
 
-/**
- * Resolve the deepest ancestor of `path` that exists, then re-append the
- * missing tail lexically. Writing a new file inside the base therefore still
- * resolves to a path inside it.
- */
 async function resolveDeepestExisting(
   resolver: PathRealpathResolver,
   path: string,

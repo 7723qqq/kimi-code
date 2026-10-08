@@ -659,16 +659,10 @@ export const GITHUB_SPECS: GitHubToolSpec<any>[] = [
   },
 ];
 
-/**
- * Read-only GitHub tool names — added to the default auto-approve allowlist so
- * they run without a prompt (like Read/FetchURL). Mutating tools are excluded
- * and therefore prompt for approval in non-auto permission modes.
- */
 export const GITHUB_READONLY_TOOL_NAMES: readonly string[] = GITHUB_SPECS.filter(
   (spec) => spec.mutating !== true,
 ).map((spec) => spec.name);
 
-/** Mutating GitHub tools (the complement of `GITHUB_READONLY_TOOL_NAMES`). */
 export const GITHUB_MUTATING_TOOL_NAMES: readonly string[] = GITHUB_SPECS.filter(
   (spec) => spec.mutating === true,
 ).map((spec) => spec.name);

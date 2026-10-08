@@ -1,7 +1,3 @@
-// Minimal fake Codex app-server for tests: newline-delimited JSON-RPC over stdio.
-// Env knobs:
-//   FAKE_CODEX_CRASH_AFTER=<n> — exit(1) after the n-th runTurn
-//   FAKE_CODEX_SLOW_MS=<ms>    — delay the turn/complete notification
 import { createInterface } from 'node:readline';
 
 const crashAfter = Number(process.env.FAKE_CODEX_CRASH_AFTER ?? '0');
@@ -20,7 +16,6 @@ function send(message) {
 
 function handleMessage(message) {
   if (message.id === undefined) {
-    // Notification (e.g. approval/respond) — nothing to answer.
     return;
   }
   if (message.method === 'initialize') {

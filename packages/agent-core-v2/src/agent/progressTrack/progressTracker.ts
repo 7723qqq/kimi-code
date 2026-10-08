@@ -1,24 +1,7 @@
-/**
- * `progressTrack` — outcome-based tool-receipt tracking (ported from
- * Reasonix's `internal/evidence/outcome.go`).
- *
- * Classifies each tool round by *outcome* instead of novelty: exploration
- * (new information), verification (commands that can falsify the working
- * hypothesis), objective/regression (verification state transitions),
- * churn (unverified mutations). Two derived signals feed the
- * Evidence-Before-More-Mutation reminder:
- *   - `blindMutations`: mutations since the last discriminating observation
- *   - `debtAge`: rounds carrying an unverified mutation
- * The tracker is pure and deterministic — the service layer owns wiring,
- * config and reminder injection.
- */
 
-/** One tool round's receipts, normalized for classification. */
 export interface ToolReceipt {
   readonly toolName: string;
-  /** Raw command text (Bash tool only). */
   readonly command?: string | undefined;
-  /** File paths touched by the call (from ToolAccesses). */
   readonly paths?:
     | {
         readonly read: readonly string[];
@@ -29,7 +12,6 @@ export interface ToolReceipt {
   readonly isError?: boolean | undefined;
 }
 
-/** One round's outcome decomposition (unit-weighted counts). */
 export interface ProgressSample {
   exploration: number;
   verification: number;
@@ -92,7 +74,6 @@ export const EMPTY_TRACKER: TrackerState = {
 export class ProgressTracker {
   private state: TrackerState = EMPTY_TRACKER;
 
-  /** Fold one round's receipts and return the outcome sample. */
   scoreRound(receipts: readonly ToolReceipt[]): ProgressSample {
     const sample = { ...EMPTY_SAMPLE };
     let next: TrackerState = {

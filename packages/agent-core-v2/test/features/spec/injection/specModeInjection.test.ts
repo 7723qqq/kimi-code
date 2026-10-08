@@ -107,8 +107,6 @@ describe('SpecModeInjection reminder variants', () => {
     await injectDynamic(ctx);
 
     const text = lastSpecReminder(context);
-    // The directory may have content without any prior in-session work, so the
-    // wording must not claim documents are there.
     expect(text).toContain('may already contain documents');
     expect(text).not.toContain('earlier documents may be present');
   });

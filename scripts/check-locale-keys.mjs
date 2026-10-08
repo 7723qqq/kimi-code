@@ -4,7 +4,7 @@
  * For each locale source, collects all leaf keys from the English and Chinese
  * message trees and reports any keys that exist in one but not the other.
  *
- * Usage: node scripts/check-locale-keys.mjs
+ * Usage: bun scripts/check-locale-keys.mjs
  * Exit code: 0 if all keys match, 1 if any mismatch is found.
  */
 
@@ -82,7 +82,8 @@ try {
   try {
     register('tsx/esm', pathToFileURL(import.meta.url));
   } catch {
-    // Fallback: use require via createRequire for CommonJS TS files
+    // No fallback: this script only runs under Bun, which transpiles the
+    // locale .ts files on import.
   }
 }
 
@@ -93,13 +94,8 @@ async function loadModule(p) {
     const mod = await import(fileUrl);
     return mod.default || mod;
   } catch (error) {
-    // Try .ts extension explicitly
-    try {
-      const mod = await import(`${fileUrl}`);
-      return mod.default || mod;
-    } catch {
-      throw new Error(`Cannot load ${p}: ${error.message}`);
-    }
+    // The file does not load at all, so there is nothing to retry.
+    throw new Error(`Cannot load ${p}: ${error.message}`);
   }
 }
 
@@ -112,8 +108,8 @@ for (const source of LOCALE_SOURCES) {
     let enData, zhData;
 
     if (source.extract) {
-      // Unused now that kimi-web source lives outside this repo; kept for
-      // future single-file locale modules: exports { messages: { en, zh } }.
+      // Single-file locale module for sources that export their messages from
+      // one file instead of separate en/zh modules.
       const mod = await loadModule(source.src);
       const m = mod.default || mod;
       if (m.messages) {

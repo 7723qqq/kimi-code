@@ -38,7 +38,7 @@ The browser web UI for Kimi Code — a peer to the TUI in `apps/kimi-code`. It t
 - Locale files: `src/i18n/locales/{en,zh}/<namespace>.ts`, each `export default { ... } as const`. New namespaces are registered in `src/i18n/locales/index.ts`.
 - Reference with `const { t } = useI18n()` and `t('namespace.key')` (same form in templates).
 - **Adding a key:** add it to **both** `en/<ns>.ts` and `zh/<ns>.ts`. **Adding a namespace:** create the file in both locales **and** register it in `locales/index.ts`.
-- There is **no automated missing-key or en/zh parity check**. Keeping the two locales in sync is a manual responsibility — do not leave a key present in only one locale.
+- `scripts/check-locale-keys.mjs` **does** cover this app (en/zh key parity; CI runs it at `.github/workflows/ci.yml`). Alongside it, `scripts/check-locale-placeholders.cjs`, `scripts/check-t-call-coverage.mjs`, and `scripts/generate-locale-json.cjs` cover placeholder validity, call-site coverage, and JSON freshness. Keeping the two locales in sync is otherwise a manual responsibility — do not leave a key present in only one locale.
 
 ## Commands
 

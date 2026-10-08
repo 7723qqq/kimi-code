@@ -113,7 +113,7 @@ into runtime code or packaging scripts.
 | File changes and baselines | `apps/vscode/src/managers` |
 | Legacy migration coordination | `apps/vscode/src/migration` |
 | React UI | `apps/vscode/webview-ui` |
-| Packaging and smoke tests | `apps/vscode/scripts`, `.github/workflows/ci.yml` |
+| Packaging and smoke tests | `apps/vscode/scripts` (`.github/workflows/vscode-publish.yml` runs them; `.github/workflows/ci.yml` only typechecks) |
 
 ## Data ownership
 
@@ -332,11 +332,12 @@ The extension produces six target artifacts:
 - `linux-x64`, `linux-arm64`
 - `win32-x64`, `win32-arm64`
 
-The CI matrix builds and audits the target VSIX files. Installed-extension smoke
-tests run on Linux, macOS, and Windows x64 runners. Linux checks the declared
-minimum VS Code version and stable; macOS and Windows check the declared
-minimum. Architecture targets without a matching runner remain package/audit
-evidence rather than runtime E2E evidence.
+The `.github/workflows/vscode-publish.yml` job builds and audits the target VSIX
+files and runs installed-extension smoke tests, all on a single `ubuntu-latest`
+runner: the Extension Host smoke covers the x64 target on Linux and checks the
+declared minimum VS Code version (`xvfb-run … test:extension-host -- --version
+1.100.0`). The other architecture targets remain package/audit evidence rather
+than runtime E2E evidence.
 
 Packaging never publishes. Marketplace and Open VSX publication require a
 separate authorized release action.
@@ -354,7 +355,7 @@ The migration was validated with:
 - six target VSIX package audits;
 - an upgrade from the released `0.5.10` extension to local `0.6.0` in an
   isolated profile;
-- installed VSIX Extension Host smoke on Linux, macOS, and Windows x64 CI;
+- installed VSIX Extension Host smoke on Linux x64 CI (the published VSIX job);
 - local installed `darwin-arm64` VSIX smoke on VS Code `1.100.0`;
 - repository lint, typecheck, tests, Nix build, workspace sync, changeset
   status, and whitespace checks.

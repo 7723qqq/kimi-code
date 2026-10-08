@@ -3,7 +3,7 @@
 // Import all workspaces + sessions from ~/.kimi-code into minidb and build a
 // full-text index over the session content, then measure import + search speed.
 //
-// Run:  node bench/import-kimi-code.ts [--data ~/.kimi-code] [--out <dir>]
+// Run:  bun bench/import-kimi-code.ts [--data ~/.kimi-code] [--out <dir>]
 
 import { existsSync, readFileSync } from 'node:fs';
 import fs from 'node:fs/promises';

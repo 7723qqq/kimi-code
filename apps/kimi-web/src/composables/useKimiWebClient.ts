@@ -1,5 +1,5 @@
 // apps/kimi-web/src/composables/useKimiWebClient.ts
-// Vue state composable — the only place that imports both src/api/* and src/types.ts.
+// Vue state composable — bridges src/api/* and src/types.ts into app state.
 // Components consume computed view props and call actions; they never touch the API or reducer.
 
 import { computed, reactive, ref, watch } from 'vue';
@@ -2546,12 +2546,13 @@ function isUserWatching(sid: string): boolean {
  * Authoritative-quiet escape hatch. The session's idle/aborted status means no
  * main turn can still be in flight (an awaiting interaction would report
  * awaiting_*, not idle), so both working-moon flags are cleared even when the
- * turn.ended that owned them never arrived (e.g. abrupt agent disposal). This
- * is the ONLY writer of `turnActiveBySession` outside the reducer /
- * snapshot seed, and the ONLY clearer of `inFlightBySession` outside
- * finishPromptLocal / the entry points' error paths. Drain and completion
- * side effects are NOT run here — they stay single-owned by the turn.ended
- * path (onMainTurnEnd).
+ * turn.ended that owned them never arrived (e.g. abrupt agent disposal).
+ * Alongside the reducer, the snapshot seed and forgetSession, this is one of
+ * the writers of `turnActiveBySession`; alongside finishPromptLocal, the
+ * entry points' error paths, handleSessionSnapshot's reconciliation and
+ * forgetSession, one of the clearers of `inFlightBySession`. Drain and
+ * completion side effects are NOT run here — they stay single-owned by the
+ * turn.ended path (onMainTurnEnd).
  */
 function clearWorkingFlags(sid: string): void {
   if (rawState.turnActiveBySession[sid]) {

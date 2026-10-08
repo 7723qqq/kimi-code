@@ -2,12 +2,7 @@ import { Error2 } from '#/errors';
 
 import { SessionQueryErrors } from './errors';
 import type { SessionRecord, SessionResultFilter, SessionResultRange } from './types';
-/**
- * Apply ANDed logical-session filters while preserving input order.
- * @param records - detached logical-session records to inspect.
- * @param filters - clauses whose list values are ORed within each clause.
- * @returns records accepted by every clause.
- */
+
 export function filterSessionResults<T extends SessionRecord>(
   records: readonly T[],
   filters: readonly SessionResultFilter[] = [],
@@ -16,11 +11,6 @@ export function filterSessionResults<T extends SessionRecord>(
   return records.filter((record) => predicates.every((predicate) => predicate(record)));
 }
 
-/**
- * Copy and validate logical-session filters before an asynchronous boundary.
- * @param filters - caller-owned clauses to materialize.
- * @returns detached validated clauses.
- */
 export function materializeSessionResultFilters(
   filters: readonly SessionResultFilter[],
 ): SessionResultFilter[] {

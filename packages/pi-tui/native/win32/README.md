@@ -21,11 +21,11 @@ node packages/pi-tui/native/win32/build.mjs
 
 ## Testing clipboard writes
 
-On a Windows test desktop, run from `packages/tui` in PowerShell:
+On a Windows test desktop, run from `packages/pi-tui` in PowerShell:
 
 ```powershell
 $env:PI_TEST_NATIVE_CLIPBOARD = "1"
-node --test test/native-platform.test.ts
+bun --bun run test
 ```
 
 This opt-in test checks native text writes and reads. **It replaces the system clipboard contents.**

@@ -38,12 +38,6 @@ export function todoListStaleReminder(input: TodoListReminderInput): string | un
   return renderTodoListReminder(input.todos);
 }
 
-/**
- * Turn-head reference injection: a one-line digest of the active todo list so
- * the model plans the next step against its own tracking — the payoff for
- * keeping the list fine-grained. Injected only when the list is non-empty,
- * the tool is active, and at least one item is in_progress.
- */
 export function todoActiveReminder(todos: readonly TodoItem[]): string | undefined {
   if (todos.length === 0) return undefined;
   const inProgress = todos.filter((item) => item.status === 'in_progress');
@@ -111,9 +105,8 @@ function hasTodoListWrite(message: ContextMessage): boolean {
     try {
       const args = JSON.parse(toolCall.arguments) as {
         todos?: unknown;
-        updates?: unknown;
       };
-      return Array.isArray(args.todos) || Array.isArray(args.updates);
+      return Array.isArray(args.todos);
     } catch {
       return false;
     }

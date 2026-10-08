@@ -358,6 +358,7 @@ export * from '#/features/plan/plan';
 export * from '#/features/plan/planOps';
 export * from '#/features/plan/planService';
 import '#/features/dateChange/dateChangeFeature';
+import '#/agent/knowledge/knowledgeService';
 import '#/features/plan/planFeature';
 export * from '#/features/fileHistory/fileHistory';
 export * from '#/features/fileHistory/fileHistoryOps';

@@ -454,7 +454,6 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
             }),
           );
         } catch {
-          // A failed warning dispatch must not fail the request.
         }
       }
       const estimatedBytes = estimateLlmRequestBytes(input.messages);

@@ -49,7 +49,6 @@ export class FlagService extends Disposable implements IFlagService {
     this.configOverrides = this.canonicalizeOverrides(overrides ?? {});
   }
 
-  /** Legacy configs may carry dashed ids; resolve them onto registered flag ids. */
   private canonicalizeOverrides(raw: ExperimentalFlagConfig): ExperimentalFlagConfig {
     const out: ExperimentalFlagConfig = {};
     for (const [key, value] of Object.entries(raw)) {

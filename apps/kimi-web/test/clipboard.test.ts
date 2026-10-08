@@ -1,7 +1,7 @@
 // Scenario: clipboard writes in secure and plain-HTTP web contexts.
 // Responsibilities: preserve native selection copies and provide the legacy
 // code-block fallback. The test stubs only navigator/document browser APIs.
-// Run: pnpm --filter @moonshot-ai/kimi-web test -- clipboard.test.ts
+// Run: cd apps/kimi-web && bun --bun run test -- clipboard.test.ts
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { copyCodeBlockFallback, copyTextToClipboard } from '../src/lib/clipboard';

@@ -16,17 +16,17 @@ const STORE_SUBDIR = 'memory';
 
 export interface IMemoryStore {
   readonly _serviceBrand: undefined;
-  /** Get a memory entry by its relative path. */
+
   get(path: string): Promise<MemoryEntry | undefined>;
-  /** Put or update a memory entry. */
+
   put(entry: MemoryEntry): Promise<void>;
-  /** Delete a memory entry by path. */
+
   delete(path: string): Promise<void>;
-  /** List all memory entry paths. */
+
   list(): Promise<readonly string[]>;
-  /** Full-text search over memory entries. */
+
   search(query: string, limit?: number): Promise<readonly MemorySearchResult[]>;
-  /** Sync disk files into the index. */
+
   reconcile(): Promise<void>;
 }
 

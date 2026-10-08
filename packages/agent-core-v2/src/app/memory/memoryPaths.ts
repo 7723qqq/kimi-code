@@ -40,12 +40,6 @@ export function scopeDir(base: string, scope: MemoryScope, scopeId: string): str
   return join(base, 'sessions', scopeId);
 }
 
-/**
- * Parse a relative path into scope components.
- * `global/foo.md` → { scope: 'global', scopeId: '', relPath: 'foo.md' }
- * `projects/abc123/foo.md` → { scope: 'project', scopeId: 'abc123', relPath: 'foo.md' }
- * `sessions/xyz/foo.md` → { scope: 'session', scopeId: 'xyz', relPath: 'xyz' }
- */
 export function parseMemoryPath(
   relPath: string,
 ): { scope: MemoryScope; scopeId: string; fileName: string } | undefined {
@@ -63,19 +57,12 @@ export function parseMemoryPath(
   return undefined;
 }
 
-/**
- * Extract a title from markdown content — first H1 heading, or the filename.
- */
 export function extractTitle(body: string, fileName: string): string {
   const h1Match = body.match(/^#\s+(.+)$/m);
   if (h1Match && h1Match[1]) return h1Match[1].trim();
   return fileName.replace(/\.md$/i, '');
 }
 
-/**
- * Detect memory type from markdown frontmatter or heading.
- * Falls back to 'note'.
- */
 export function detectType(body: string): MemoryType {
   const fmMatch = body.match(/^---[\s\S]*?type:\s*(\w+)/m);
   if (fmMatch && fmMatch[1]) {
@@ -94,10 +81,6 @@ function isValidMemoryType(t: string): boolean {
   return t === 'note' || t === 'decision' || t === 'pattern' || t === 'lesson' || t === 'reference';
 }
 
-/**
- * Build a snippet from the body — find the first matching line and
- * surround it with context. Simple alternative to FTS5 snippet().
- */
 export function buildSnippet(body: string, query: string, maxLen = 200): string {
   const lowerBody = body.toLowerCase();
   const lowerQuery = query.toLowerCase();

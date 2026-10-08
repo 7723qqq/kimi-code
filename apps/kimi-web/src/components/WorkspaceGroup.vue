@@ -272,8 +272,8 @@ function onHeaderDragStart(event: DragEvent): void {
   display: flex;
   align-items: center;
   gap: var(--sb-gap);
-  /* Header height is font-driven: name line-height (13×1.25≈16px) + 2×5px
-     .gh padding ≈ 26px. The floating .gh-actions never contribute to height. */
+  /* Header height is font-driven: name line-height (13×1.25≈16px) + 2×8px
+     .gh padding ≈ 32px. The floating .gh-actions never contribute to height. */
 }
 
 .gh-folder {

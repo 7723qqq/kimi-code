@@ -1,7 +1,3 @@
-/**
- * `goal` domain — public goal lifecycle and budget models.
- */
-
 export type GoalStatus =
   | 'active'
   | 'paused'
@@ -12,8 +8,6 @@ export type GoalStatus =
 
 export type GoalActor = 'user' | 'model' | 'runtime' | 'system';
 
-/** Controls which goal statuses are eligible for usage accounting.
- *  Mirrors Codex `GoalAccountingMode`. */
 export type GoalAccountingMode =
   | 'active_status_only'
   | 'active_only'
@@ -47,19 +41,19 @@ export interface GoalSnapshot {
   readonly completionCriterion?: string;
   readonly status: GoalStatus;
   readonly turnsUsed: number;
-  /** Total tokens used (input + output). */
+
   readonly tokensUsed: number;
-  /** Input tokens used (inputOther + inputCacheRead + inputCacheCreation). */
+
   readonly inputTokensUsed: number;
-  /** Output tokens used. */
+
   readonly outputTokensUsed: number;
   readonly wallClockMs: number;
   readonly budget: GoalBudgetReport;
   readonly terminalReason?: string;
   readonly blockedStreak?: number;
-  /** Epoch milliseconds when the goal was created. */
+
   readonly createdAt: number;
-  /** Epoch milliseconds when the goal was last updated. */
+
   readonly updatedAt: number;
 }
 

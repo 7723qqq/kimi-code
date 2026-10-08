@@ -3,10 +3,10 @@
  *
  * Published alongside the release and consumed by the install scripts; the
  * staged updater reuses the same file so checksums and file names have a
- * single source of truth. Entries point at the bare platform binary
- * (`kimi-code-<target>[.exe]`), not an archive; an entry may additionally
+ * single source of truth. Entries point at the per-target release archive
+ * (`kimi-code-bun-<target>.zip`), not a bare binary; an entry may additionally
  * carry `zstd` (or the legacy `compressed` field), pointing at the
- * zstd-compressed variant of that binary.
+ * zstd-compressed variant of that archive.
  */
 
 import { valid } from 'semver';

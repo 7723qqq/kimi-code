@@ -1,8 +1,9 @@
 // test/cluster/concurrent.test.ts
 //
 // True multi-process concurrent read/write tests. Each scenario spawns real
-// child processes (node --import tsx mp-worker.ts) that open the same cluster
-// directory concurrently, and verifies data integrity afterwards.
+// child processes running mp-worker.ts through `process.execPath` (i.e. `bun
+// mp-worker.ts` under Bun) that open the same cluster directory concurrently,
+// and verifies data integrity afterwards.
 
 import assert from 'node:assert/strict';
 import path from 'node:path';

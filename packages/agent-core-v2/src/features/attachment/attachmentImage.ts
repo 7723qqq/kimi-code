@@ -5,7 +5,6 @@ import { sniffImageDimensions, sniffMediaFromMagic } from '#/agent/media/file-ty
 import { AttachmentError } from './errors';
 import type { ImageMediaType } from './types';
 
-/** Decoded metadata from a supported image. */
 export interface DetectedImage {
   readonly mediaType: ImageMediaType;
   readonly width: number;
@@ -19,13 +18,6 @@ const MEDIA_TYPES: Readonly<Record<string, ImageMediaType>> = {
   'image/gif': 'image/gif',
 };
 
-/**
- * Parse a supported raster's header and return its intrinsic metadata
- * without decoding pixels. Digest-verified reads use this: admission already
- * proved that these exact bytes decode completely.
- * @param data - complete encoded image bytes.
- * @returns verified format and dimensions.
- */
 export function probeImage(data: Uint8Array): DetectedImage {
   const detected = sniff(data);
   if (detected === null) {
@@ -34,12 +26,6 @@ export function probeImage(data: Uint8Array): DetectedImage {
   return detected;
 }
 
-/**
- * Fully decode a supported raster and return its intrinsic metadata.
- * @param data - complete encoded image bytes.
- * @param maxPixels - decoded-pixel admission limit.
- * @returns verified format and dimensions.
- */
 export async function detectImage(data: Uint8Array, maxPixels?: number): Promise<DetectedImage> {
   const detected = sniff(data);
   if (detected === null) {

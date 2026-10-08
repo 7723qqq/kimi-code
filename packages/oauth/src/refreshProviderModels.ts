@@ -48,8 +48,8 @@ export interface RefreshProviderHost {
   resolveOAuthToken(providerName: string, oauthRef?: ManagedKimiOAuthRef): Promise<string>;
   /**
    * Product User-Agent sent on custom-registry (api.json) fetches, e.g.
-   * `kimi-code-cli/1.2.3`. When omitted the fetch falls back to the runtime
-   * default (`User-Agent: node`).
+   * `kimi-code-cli/1.2.3`. When omitted no `User-Agent` header is set and the
+   * runtime decides (`node` under Node, `Bun/<version>` under Bun).
    */
   readonly userAgent?: string;
 }

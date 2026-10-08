@@ -22,7 +22,6 @@ export function encodeFrame(content: string): Buffer {
 export class MessageDecoder {
   private buffer: Buffer<ArrayBufferLike> = Buffer.alloc(0);
 
-  /** Feed a chunk of raw bytes; returns every complete message it contains. */
   feed(chunk: Buffer): string[] {
     this.buffer = this.buffer.byteLength === 0 ? chunk : Buffer.concat([this.buffer, chunk]);
     const messages: string[] = [];

@@ -22,7 +22,7 @@
 //
 // Run
 // ---
-//   node --import tsx bench/session-children.ts
+//   bun bench/session-children.ts
 //
 // Knobs (env):
 //   TOTAL      total sessions            (default 1_000)

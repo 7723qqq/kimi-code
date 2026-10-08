@@ -1646,7 +1646,7 @@ export default {
       reloadTuiConfigReloaded: 'TUI 配置已重新加载。',
       reloadSession: '会话已重新加载。',
       reloadNoActiveSession: '运行时和 TUI 配置已重新加载；无活动会话。',
-      // commands/undo.ts
+      // tui/commands/undo.ts
       undoCannotWhileStreaming: '流式传输时无法撤销——请先按 Esc 或 Ctrl-C。',
       undoUsage: '用法：/undo [count]，count 为正整数。',
       undoNothingToUndo: '没有可撤销的内容。',
@@ -1670,8 +1670,7 @@ export default {
       swarmModeAlreadyOn: 'Swarm 模式已开启。',
       swarmModeAlreadyOff: 'Swarm 模式已关闭。',
       swarmModeNotEnabled: 'Swarm 模式未启用。',
-      // sub/server/lifecycle.ts
-      // sub/server/run.ts
+      // sub/web/run.ts
       serverReadyBanner: 'Kimi 服务器就绪',
       serverReadyLocalUi: '本机可访问本地 Web UI。',
       serverDangerAuthDisabled: '⚠ 危险：认证已禁用（--dangerous-bypass-auth）。',
@@ -1688,21 +1687,19 @@ export default {
       serverLogsLabel: '日志：    ',
       serverLogsOffHint: '  用 --log-level info 开启',
       serverStopLabel: '停止：    ',
-      // sub/server/kill.ts
+      // sub/web/legacy-kill.ts
       serverKillFailedPermissions: '停止旧版 Kimi 服务器（PID {{pid}}）失败；权限不足？',
-      // sub/server/daemon.ts
-      // sub/server/rotate-token.ts
+      // sub/web/rotate-token.ts
       serverTokenRotated: '之前的令牌已失效。运行中的服务器会自动使用新令牌。',
       serverNewToken: '新的服务器令牌：{{token}}',
-      // sub/server/access-urls.ts
+      // sub/web/access-urls.ts
       serverAccessLocal: '本地：    ',
       serverAccessNetwork: '网络：    ',
       serverAccessUrl: 'URL：     ',
-      // sub/server/shared.ts
+      // sub/web/shared.ts
       serverInvalidValue: '错误：无效的 {{label}} 值：{{raw}}',
       serverInvalidLogLevel: '错误：无效的 --log-level 值：{{raw}}（允许：{{allowed}}）',
       serverTokenNotFound: '无法读取 {{path}} 处的服务器令牌；服务器是否至少启动过一次？',
-      // sub/server/ps.ts
       // sub/login-flow.ts
       loginOpeningBrowser: '正在打开浏览器进行 Kimi 设备登录：{{url}}',
       loginPasteUrl: '如果浏览器未打开，请粘贴上方 URL 并输入验证码：{{code}}',
@@ -1889,7 +1886,7 @@ export default {
       sessionDifferentDirectory: '会话 "{{sessionId}}" 是在其他目录下创建的。',
       noModelPrompt:
         '未配置模型。请运行 `kimi` 并使用 /login 登录后重试；或在 config.toml 中设置 default_model。',
-      // sub/server/run.ts
+      // sub/web/run.ts
       serverStopCmd: 'kimi server kill',
       legacyKillNoRunning: '没有正在运行的旧版 Kimi 服务器。',
       legacyKillOutcome: '旧版 Kimi 服务器（pid {{pid}}）{{outcome}}。',

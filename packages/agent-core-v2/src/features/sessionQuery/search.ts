@@ -15,12 +15,6 @@ const SNIPPET_RADIUS = 40;
 const DEFAULT_PAGE_LIMIT = 10;
 const MAX_PAGE_LIMIT = 100;
 
-/**
- * Apply ANDed event filters, preserving input order.
- * @param documents - event documents to inspect.
- * @param filters - clauses whose list values are ORed within each clause.
- * @returns documents accepted by every clause, in input order.
- */
 export function filterSessionEvents(
   documents: readonly SessionEventSearchDocument[],
   filters: readonly SessionEventResultFilter[] = [],
@@ -29,14 +23,6 @@ export function filterSessionEvents(
   return documents.filter((document) => predicates.every((predicate) => predicate(document)));
 }
 
-/**
- * Rank event documents by full-text relevance and page them.
- * @param documents - event documents (already metadata-filtered) to rank.
- * @param query - literal query text, tokenized for matching.
- * @param limit - page size (default 10, capped at 100).
- * @param cursor - opaque page cursor from a previous identical request.
- * @returns the ranked page and the continuation cursor.
- */
 export function searchEventDocuments(
   documents: readonly SessionEventSearchDocument[],
   query: string,
@@ -103,12 +89,6 @@ function eventPredicate(
   }
 }
 
-/**
- * Compile a literal case-insensitive, whitespace-flexible semantic-text
- * match safe from regex injection.
- * @param text - caller-provided literal text.
- * @returns Unicode-aware regular expression.
- */
 export function compileSessionTextFilter(text: string): RegExp {
   const trimmed = text.trim();
   if (trimmed.length === 0) {

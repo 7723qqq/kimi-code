@@ -97,11 +97,6 @@ export interface EventSearchInput {
   readonly event_types?: readonly string[];
 }
 
-/**
- * Build session filters from tool args.
- * @param args - validated tool arguments.
- * @returns ANDed session predicates.
- */
 export function buildSessionFilters(args: SessionSearchInput): SessionResultFilter[] {
   const filters: SessionResultFilter[] = [];
   if (args.session_ids !== undefined) {
@@ -125,11 +120,6 @@ export function buildSessionFilters(args: SessionSearchInput): SessionResultFilt
   return filters;
 }
 
-/**
- * Build event filters from tool args.
- * @param input - sequence/time/type bounds, or undefined for none.
- * @returns ANDed event predicates.
- */
 export function buildEventFilters(input: {
   readonly seqFrom?: number;
   readonly seqTo?: number;
@@ -149,11 +139,6 @@ export function buildEventFilters(input: {
   return filters;
 }
 
-/**
- * Normalize a search query: trim, collapse whitespace, reject empties and NUL.
- * @param value - raw query text.
- * @returns the normalized literal query.
- */
 export function normalizeQuery(value: string): string {
   const query = value.trim().replaceAll(/\s+/gu, ' ');
   if (query.length === 0) {

@@ -9,8 +9,8 @@ import { defineConfig, type Plugin } from 'vite';
 
 const webPort = Number(process.env.WEB_PORT) || 5175;
 // Dev-proxy backend presets: `default` is the kap-server started by the root
-// `pnpm dev:server` (port 58627); `multi` is a second kap-server instance
-// started with `pnpm dev:v2` (port 58628 — instances share the home dir, so
+// `bun run dev:server` (port 58627); `multi` is a second kap-server instance
+// started with `bun run dev:v2` (port 58628 — instances share the home dir, so
 // both can run at once) for multi-instance debugging. Override with
 // KIMI_BACKEND_DEFAULT_URL / KIMI_BACKEND_MULTI_URL.
 const backendPresets = {
@@ -133,10 +133,11 @@ export default defineConfig({
         kimi: FileSystemIconLoader(fileURLToPath(new URL('./src/icons/kimi', import.meta.url))),
       },
       // Pin node resolution for @iconify-json/* to this package directory.
-      // unplugin-icons defaults to process.cwd(), which is the repo root when
-      // tests run via `pnpm vitest run --project @moonshot-ai/kimi-web` — and
-      // kimi-web is excluded from the root workspace, so @iconify-json/tabler
-      // and @iconify-json/ri only exist in this package's own node_modules.
+      // unplugin-icons defaults to process.cwd(), which is not this package
+      // directory when vitest is invoked from elsewhere (CI runs
+      // `cd apps/kimi-web && bun --bun run test`) — and kimi-web is excluded
+      // from the root workspace, so @iconify-json/tabler and @iconify-json/ri
+      // only exist in this package's own node_modules.
       // Without this, every `~icons/tabler/*` / `~icons/ri/*` import throws
       // "Icon ... not found" under vitest (the Vite build is unaffected: its
       // cwd is already this directory).

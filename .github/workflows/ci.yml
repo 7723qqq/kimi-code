@@ -18,7 +18,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.0
+          bun-version: 1.4.2
 
       - uses: actions/cache@v4
         with:
@@ -42,7 +42,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.0
+          bun-version: 1.4.2
 
       - uses: actions/cache@v4
         with:
@@ -71,7 +71,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.0
+          bun-version: 1.4.2
 
       - uses: actions/cache@v4
         with:
@@ -92,7 +92,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.0
+          bun-version: 1.4.2
 
       - uses: actions/cache@v4
         with:
@@ -112,7 +112,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.0
+          bun-version: 1.4.2
 
       - uses: actions/cache@v4
         with:
@@ -134,7 +134,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.0
+          bun-version: 1.4.2
 
       - uses: actions/cache@v4
         with:
@@ -161,7 +161,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.0
+          bun-version: 1.4.2
 
       - uses: actions/cache@v4
         with:
@@ -176,6 +176,9 @@ jobs:
       # checker does not cover.
       - run: bun --bun run check:deep-imports
       - run: bun --bun run check:boundaries
+      # Comment-free zones: agent-core-v2, kap-server and transcript carry no
+      # comments at all (DEVELOP.md, "General Coding Rules").
+      - run: bun scripts/check-no-comments.mjs
       # Locale consistency: en/zh key parity, placeholder validity, call-site
       # coverage, and JSON freshness (regenerate, then fail if tracked JSON
       # drifted from the TS sources).
@@ -197,7 +200,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.0
+          bun-version: 1.4.2
 
       - uses: mlugg/setup-zig@v2
         with:
@@ -217,7 +220,7 @@ jobs:
 
       - uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.0
+          bun-version: 1.4.2
 
       - uses: actions/cache@v4
         with:

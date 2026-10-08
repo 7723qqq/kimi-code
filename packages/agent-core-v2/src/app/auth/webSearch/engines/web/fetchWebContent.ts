@@ -42,11 +42,11 @@ interface DomParseResult {
 const parseHTML = rawParseHTML as unknown as (html: string) => DomParseResult;
 
 export interface FetchWebContentOptions extends SearchEngineOptions {
-  /** Maximum characters to keep; clamped to 1 000–200 000. */
+
   maxChars?: number;
-  /** Run the `@mozilla/readability` article parser when the response is HTML. */
+
   readability?: boolean;
-  /** With `readability`, also extract links from the parsed article. */
+
   includeLinks?: boolean;
 }
 

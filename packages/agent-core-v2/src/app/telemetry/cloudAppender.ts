@@ -170,6 +170,14 @@ function sanitizeProperties(input?: TelemetryProperties): CloudProperties {
   return out;
 }
 
+function isBunRuntime(): boolean {
+  return typeof (globalThis as { Bun?: unknown }).Bun !== 'undefined';
+}
+
+function runtimeVersion(): string {
+  return process.versions['bun'] ?? process.versions.node;
+}
+
 function buildContext(options: CloudAppenderOptions): CloudContext {
   const { bootstrap } = options;
   const context: CloudContext = {
@@ -177,10 +185,10 @@ function buildContext(options: CloudAppenderOptions): CloudContext {
     client_version: bootstrap.clientIdentity.version,
     version: bootstrap.clientIdentity.version,
     core_version: resolveCoreVersion(),
-    runtime: 'node',
+    runtime: isBunRuntime() ? 'bun' : 'node',
     platform: bootstrap.platform,
     arch: bootstrap.arch,
-    node_version: process.versions.node,
+    node_version: runtimeVersion(),
     os_version: release(),
     ci: bootstrap.getEnv('CI') !== undefined,
     locale: options.locale ?? bootstrap.getEnv('LANG') ?? '',

@@ -61,10 +61,6 @@ function recordingTelemetry(): {
   };
 }
 
-/**
- * A mutex stub that actually drives the plan service, so these telemetry tests
- * exercise the real entry path now that the tool routes through the mutex.
- */
 function mutexStub(plan: IAgentPlanService): IAgentModeMutexService {
   let active: ExclusiveReviewMode | null = null;
   return {

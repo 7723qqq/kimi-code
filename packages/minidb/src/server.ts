@@ -286,7 +286,7 @@ export async function startServer({
   return { server, db, close, port: actualPort, host };
 }
 
-// Run directly: node --import tsx src/server.ts --dir ./data --port 6379
+// Run directly: bun src/server.ts --dir ./data --port 6379
 if (import.meta.url === `file://${process.argv[1]}`) {
   const argv = process.argv.slice(2);
   const arg = (name: string, def: string): string => {

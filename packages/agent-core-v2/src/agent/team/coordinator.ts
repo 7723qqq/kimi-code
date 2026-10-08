@@ -3,52 +3,27 @@ import { addUsage, type TokenUsage } from '#human/llm/usage';
 
 import { DiscussionContext, type DiscussionEntry } from './context';
 
-/**
- * Configuration for a single discussion participant.
- */
 export interface DiscussionParticipantConfig {
-  /** Agent profile name, e.g. 'researcher', 'coder', 'explore'. */
   readonly profileName: string;
-  /** Role description injected into the agent's prompt each turn. */
   readonly roleDescription: string;
-  /** How many times this participant speaks per round (default: 1). */
   readonly turnsPerRound?: number;
 }
 
-/**
- * Options for starting a roundtable discussion.
- */
 export interface DiscussionOptions {
-  /** The topic or question to discuss. */
   readonly topic: string;
-  /** The participants in the discussion. */
   readonly participants: DiscussionParticipantConfig[];
-  /** Maximum number of full rounds before the discussion ends (default: 3). */
   readonly maxRounds?: number;
-  /** Optional: prompt used to generate a final summary after the discussion. */
   readonly summaryPrompt?: string;
 }
 
-/**
- * The result of a completed discussion.
- */
 export interface DiscussionResult {
-  /** Ordered list of every speech in the discussion. */
   readonly transcript: readonly DiscussionEntry[];
-  /** A final summary (empty string if none was generated). */
   readonly summary: string;
-  /** How many full rounds were completed. */
   readonly roundsCompleted: number;
-  /** How the discussion ended. */
   readonly endedBy: 'max_rounds' | 'cancelled' | 'failed';
-  /** Aggregate token usage across all participants. */
   readonly usage: TokenUsage;
 }
 
-/**
- * DiscussionTurnEvent — emitted by the coordinator so external code (e.g. the
- * TUI) can observe each turn as it happens.
- */
 export interface DiscussionTurnEvent {
   readonly agentId: string;
   readonly roleName: string;
@@ -58,14 +33,6 @@ export interface DiscussionTurnEvent {
 
 export type DiscussionObserver = (event: DiscussionTurnEvent) => void;
 
-/**
- * TeamCoordinator — orchestrates a roundtable discussion among
- * multiple persistent subagents.
- *
- * Each participant is a persistent subagent that receives the full discussion
- * transcript before their turn. They speak naturally, like a human in a
- * roundtable, with no special tools or communication primitives.
- */
 export class TeamCoordinator {
   private readonly agentIds: string[] = [];
   private readonly observer: DiscussionObserver | undefined;
@@ -77,9 +44,6 @@ export class TeamCoordinator {
     this.observer = options?.observer;
   }
 
-  /**
-   * Run a roundtable discussion and return the result.
-   */
   async discuss(options: DiscussionOptions, signal: AbortSignal): Promise<DiscussionResult> {
     const maxRounds = options.maxRounds ?? 3;
     const context = new DiscussionContext();
@@ -167,9 +131,6 @@ export class TeamCoordinator {
     }
   }
 
-  /**
-   * Build the prompt for a single participant's turn.
-   */
   private buildTurnPrompt(
     roleDescription: string,
     topic: string,
@@ -199,9 +160,6 @@ export class TeamCoordinator {
     return parts.join('\n');
   }
 
-  /**
-   * Generate a final summary by running a turn on the first participant.
-   */
   private async generateSummary(
     summaryPrompt: string,
     context: DiscussionContext,
@@ -226,9 +184,6 @@ export class TeamCoordinator {
     }
   }
 
-  /**
-   * Aggregate token usage across all participants.
-   */
   private collectUsage(): TokenUsage {
     let total: TokenUsage | undefined;
 
@@ -241,9 +196,6 @@ export class TeamCoordinator {
     return total ?? { inputOther: 0, output: 0, inputCacheRead: 0, inputCacheCreation: 0 };
   }
 
-  /**
-   * Destroy all persistent subagents.
-   */
   private async destroyAll(): Promise<void> {
     for (const agentId of this.agentIds) {
       try {

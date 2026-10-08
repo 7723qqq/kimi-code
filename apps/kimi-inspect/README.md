@@ -22,8 +22,8 @@ there is no fallback data source.
 - **Chat workspace** — session list (activity badges from the global-events WS)
   plus a transcript-driven per-session chat; the right dock hosts the
   Agent-scope Service panels, a plan lookup card, and the transcript audit
-  panel. The Session scope has its own column (pending interactions + session
-  Service panels, and a State tab).
+  panel. The Session scope lives in the same right dock, as its `Session` tab
+  (pending interactions + session Service panels, and a State tab).
 - **Search** — cross-session full-text search over `POST /api/v1/search`
   (cursor-paged; exact-match maps to the API's `literal` mode; a `live`/`index`
   badge shows which server route served the results).

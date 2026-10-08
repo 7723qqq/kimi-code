@@ -6,8 +6,8 @@
 // field names, `schemaVersion: 1`) so later phases can diff before/after.
 //
 // Run:  bun run bench                 (human output + JSON on stdout)
-//       node --import tsx bench/bench.ts --json .tmp/bench.json
-//       node --import tsx bench/bench.ts --quick   (small sizes, for tests)
+//       bun bench/bench.ts --json .tmp/bench.json
+//       bun bench/bench.ts --quick   (small sizes, for tests)
 //
 // Knobs (env): N, NSMALL (throughput sizes), BENCH_SEED, BENCH_IDLE_MS.
 

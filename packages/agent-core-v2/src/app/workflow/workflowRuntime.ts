@@ -62,7 +62,6 @@ export interface WorkflowRunOptions {
   readonly deadlineMs?: number;
 }
 
-/** Execute a workflow script in a vm sandbox. */
 export async function executeWorkflow(opts: WorkflowRunOptions): Promise<unknown> {
   const { script, args, deps, entry } = opts;
   const deadlineMs = opts.deadlineMs ?? 12 * 60 * 60 * 1000;

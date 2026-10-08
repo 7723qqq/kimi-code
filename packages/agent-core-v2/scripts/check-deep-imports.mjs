@@ -1,22 +1,5 @@
 #!/usr/bin/env bun
 
-// Cross-package deep imports into the agent engine.
-//
-// `@moonshot-ai/agent-core-v2/*` reaches past the package's public surface into
-// its file tree. Every such import is coupled to an internal module path, so a
-// refactor inside the engine becomes a breaking change in a package that never
-// declared a dependency on that module.
-//
-// Two shapes are legitimate and stay:
-//   * a type-only import, which is erased before anything is bundled; and
-//   * a value import of a DI service identifier, whose narrow module is exactly
-//     what keeps the engine's implementation (and its `?raw` assets) out of the
-//     consumer's bundle.
-//
-// A value import that is not a service identifier, and any import of a module
-// the engine already re-exports from its root, belongs on the public surface.
-// Known exceptions live in the baseline ledger, which only shrinks.
-
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 
@@ -27,9 +10,6 @@ const ENGINE_PREFIX = '@moonshot-ai/agent-core-v2/';
 const SCAN_ROOTS = ['packages', 'apps'];
 const SKIP_DIRS = new Set(['node_modules', 'dist', 'dist-web', 'coverage', '.git', '参考目录']);
 
-/// A DI service identifier: a `ServiceIdentifier` value named `I<Something>`.
-/// Importing one is a runtime dependency on the decorator, not on the service
-/// that implements it, so the narrow module path is deliberate.
 const SERVICE_IDENTIFIER_RE = /\bI[A-Z][A-Za-z0-9]*(?:Service|Catalog|Index|Manager|Browser|Store|Registry)\b/;
 
 const IMPORT_STATEMENT_RE = /^\s*(?:import|export)\b/;
@@ -56,8 +36,6 @@ function walk(dir, out = []) {
   return out;
 }
 
-/// Every module path the engine's root entry re-exports, so an import of one is
-/// provably redundant.
 function rootReachableModules() {
   const index = readFileSync(join(REPO_ROOT, 'packages/agent-core-v2/src/index.ts'), 'utf8');
   const out = new Set();
@@ -81,12 +59,9 @@ function loadBaseline() {
   return out;
 }
 
-/// The statement a given line belongs to, used to tell a type-only import from
-/// one that carries a value at runtime.
 function statementOpener(lines, index) {
   for (let i = index; i >= 0 && index - i < 40; i--) {
     if (IMPORT_STATEMENT_RE.test(lines[i])) return lines[i];
-    // A blank line between statements means the opener was missed.
     if (lines[i].trim() === '' && i !== index) return null;
   }
   return null;

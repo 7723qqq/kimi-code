@@ -9,7 +9,6 @@ export function formatEmptySessionSearch(): string {
   return 'No matching sessions found.';
 }
 
-/** Render a cross-session search page for the model. */
 export function formatSessionSearch(items: readonly SessionSearchHit[], capped: boolean): string {
   if (items.length === 0) return formatEmptySessionSearch();
   const lines = [`Session search results (${items.length}):`];
@@ -37,7 +36,6 @@ export function formatSessionSearch(items: readonly SessionSearchHit[], capped: 
   return lines.join('\n');
 }
 
-/** Render a within-session event search page for the model. */
 export function formatEventSearch(
   sessionId: string,
   items: readonly SessionEventSearchHit[],
@@ -61,7 +59,6 @@ export function formatEventSearch(
   return lines.join('\n');
 }
 
-/** Render a lineage trace for the model. */
 export function formatSessionTrace(trace: SessionLineageTrace): string {
   const lines = [`Session ${trace.target.id}:`];
   const ancestry = trace.ancestors.map((record) => record.id).toReversed();

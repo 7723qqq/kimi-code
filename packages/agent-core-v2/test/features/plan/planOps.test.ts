@@ -196,9 +196,6 @@ describe('plan ops (wire-backed)', () => {
     await dispatcher.dispatch(new ContextUndo({ agentId: 'test-agent', count: 0.5 }));
 
     expect(agentState.get(planKey)).toBe(checkpointed);
-    // The undo must not have activated plan mode. Asserting the exact state
-    // shape here made this test depend on no earlier test leaving a
-    // `lastTransition` behind, so it only checked the fields it cares about.
     expect(agentState.get(planKey).active).toBe(false);
   });
 

@@ -112,7 +112,7 @@ Kimi Code CLI 支持 [Agent Client Protocol](https://agentclientprotocol.com/)�
 
 ## 本地开发
 
-环境要求：Bun >= 1.4。本地开发不再需要 Node.js——安装、构建、lint、类型检查与测试套件全部通过 Bun 运行。
+环境要求：Bun >= 1.4。Bun 开发流程不再需要 Node.js——安装、构建、lint、类型检查与测试套件全部通过 Bun 运行。例外是 Nix 构建路径：`flake.nix` 要求 Node.js >= 24.15.0。
 
 ```sh
 git clone https://github.com/7723qqq/kimi-code.git

@@ -41,7 +41,6 @@ export class NativeBashProcess implements IProcess {
     return this.exitCodeValue;
   }
 
-  /** Feed a native lifecycle event into the streams / exit promise. */
   handleEvent(event: NativeBashEvent): void {
     if (event.kind === 'stdout') {
       this.stdout.write(event.data ?? '');
@@ -77,11 +76,6 @@ export class NativeBashProcess implements IProcess {
     this.stdin.destroy();
   }
 
-  /**
-   * Race the native exit cache against the streamed `exit` event. Whichever
-   * settles first wins; the other path is a no-op (promise resolution is
-   * idempotent, and `exitCodeValue` guards against overwrites).
-   */
   private async armWait(): Promise<void> {
     try {
       const exit = await tryNativeBashWait(this.id);

@@ -1,24 +1,3 @@
-/**
- * `codeRuntime` domain — the eval-mode worker entry source.
- *
- * The program-visible execution substrate, kept as a string so the worker can
- * be spawned with `eval: true` from the bundled package (a separate worker
- * file would need its own bundling story). Semantics ported from
- * deepseek-harness `code-runtime-worker-thread` (MIT): the program body runs
- * as a strict-mode async function (top-level `await` / `return` work), the
- * five `console.*` methods are captured in emission order under a shared
- * character budget, programs additionally receive the worker's own
- * `require`, and the completion value must be JSON-serializable —
- * `undefined` becomes an absent value, anything else un-serializable becomes
- * an `invalid-output` failure. Log lines stream to the host eagerly so
- * captured output survives a mid-run termination. The worker is a soft
- * isolation boundary, not a security sandbox.
- *
- * Wire protocol:
- *   host → worker: `{ type: 'run', code, maxOutputChars }`
- *   worker → host: `{ type: 'log', text }` × n, then `{ type: 'done', value?, error? }`
- */
-
 export const CODE_WORKER_SOURCE = String.raw`
 const { parentPort } = require('node:worker_threads');
 const { inspect } = require('node:util');

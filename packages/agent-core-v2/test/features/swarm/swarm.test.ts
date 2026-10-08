@@ -140,12 +140,6 @@ function mockSwarmMode() {
   return { _serviceBrand: undefined, isActive: false, enter: vi.fn(), exit: vi.fn() };
 }
 
-/**
- * The tool now enters swarm mode through the mutex instead of calling
- * `swarmMode.enter` directly, so the stub drives the swarm mock it is paired
- * with — otherwise `isActive` would never flip and the tool's own guard would
- * keep denying `Agent`.
- */
 function mockModeMutex(swarmMode: ReturnType<typeof mockSwarmMode>) {
   return {
     _serviceBrand: undefined,

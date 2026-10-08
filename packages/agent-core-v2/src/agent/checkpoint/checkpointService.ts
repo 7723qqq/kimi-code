@@ -17,9 +17,7 @@ import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 
-/** Hard cap on a single captured file (mirrors Reasonix's 32 MiB). */
 export const CHECKPOINT_MAX_FILE_BYTES = 32 * 1024 * 1024;
-/** Checkpoint groups kept per session (oldest evicted on overflow). */
 export const CHECKPOINT_MAX_TURNS = 20;
 
 export interface CheckpointRestoredPayload {

@@ -10,8 +10,7 @@ export interface PlanState {
   readonly active: boolean;
   readonly id?: string;
   readonly revisionCount?: Readonly<Record<string, number>>;
-  /** How the most recent plan session ended, so a replay can tell a user
-   *  cancel apart from a model-driven exit. Retained across re-entry. */
+
   readonly lastTransition?: 'cancel' | 'exit';
 }
 
@@ -113,9 +112,7 @@ function deactivate(
   transition: 'cancel' | 'exit',
   ctx: { emit(event: AgentStatusUpdated): void },
 ): void {
-  // A cancel/exit while already inactive is a true no-op: recording the
-  // transition would mutate state and break the identity the gate relies on
-  // to stay quiet, so only a real deactivation records one.
+
   if (s.active) {
     s.active = false;
     delete s.id;

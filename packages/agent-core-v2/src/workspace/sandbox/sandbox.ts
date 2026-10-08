@@ -6,13 +6,12 @@ import { registerConfigSection } from '#/app/config/configSectionContributions';
 
 export const SANDBOX_SECTION = 'sandbox';
 
-/** File-effect modes for confined executions. `off` disables confinement. */
 export type SandboxMode = 'off' | 'read-only' | 'workspace-write';
 
 export interface SandboxExecutionPolicy {
-  /** The file-effect mode this execution runs under. */
+
   readonly mode: SandboxMode;
-  /** Absolute workspace root `workspace-write` may write under. */
+
   readonly workspaceRoot: string;
 }
 
@@ -34,24 +33,10 @@ export function resolveSandboxPolicy(
   };
 }
 
-/**
- * Whether any sandbox backend is available on this host. Always false today:
- * the actual isolation backends (Windows restricted-token, Linux Landlock,
- * macOS Seatbelt) are not yet implemented in this fork — a backend registers
- * itself here when it lands.
- */
 export function isSandboxBackendAvailable(): boolean {
   return false;
 }
 
-/**
- * Fail-closed guard for tool paths that write to the filesystem (Write /
- * Edit) or execute code (run_code). Returns an error message when the
- * configured sandbox mode blocks the operation, or `undefined` when it is
- * allowed. `read-only` blocks every write; `workspace-write` blocks writes
- * outside the workspace root. Mirrors the BashTool execution boundary so a
- * configured sandbox cannot be bypassed through another tool.
- */
 export function sandboxWriteGuard(
   policy: SandboxExecutionPolicy,
   targetPath: string,

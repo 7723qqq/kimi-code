@@ -1,7 +1,3 @@
-// Minimal fake LSP server for tests: speaks Content-Length framing over stdio.
-// Env knobs:
-//   FAKE_LSP_CRASH_AFTER=<n>  — exit(1) after the n-th semantic query
-//   FAKE_LSP_SLOW_MS=<ms>     — delay every semantic response
 import { Buffer } from 'node:buffer';
 
 const crashAfter = Number(process.env.FAKE_LSP_CRASH_AFTER ?? '0');

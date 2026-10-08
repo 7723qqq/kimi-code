@@ -32,14 +32,6 @@ function isHostMessage(message: unknown): message is WorkerHostMessage {
   return type === 'log' || type === 'done';
 }
 
-/**
- * Run one program in a fresh worker thread.
- *
- * @param code - The program body; executed as a strict-mode async function.
- * @param options - Timeout budget (default 30s, capped at 120s), output
- *   character budget (default 100_000), and an optional abort signal.
- * @returns The structured outcome; never rejects for program failures.
- */
 export async function runCodeInWorker(
   code: string,
   options: CodeRunOptions = {},

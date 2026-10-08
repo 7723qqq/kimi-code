@@ -15,13 +15,11 @@ import type {
   ToolDescription as Tool,
 } from '#human/llm/message';
 
-/** Request options the Antigravity bridge consumes from the requester layer. */
 export interface AntigravityGenerateOptions {
   signal?: AbortSignal;
   onRequestSent?: () => void;
 }
 
-/** Streamed message surface produced by {@link AntigravityChatProvider}. */
 export interface StreamedMessage {
   [Symbol.asyncIterator](): AsyncIterator<StreamedMessagePart>;
   readonly id: string | null;
@@ -177,18 +175,12 @@ export class AntigravityStreamedMessage implements StreamedMessage {
 }
 
 export interface AntigravityPromptPlan {
-  /** Flat text to hand to the `agy` CLI via `-p`. */
+
   readonly promptText: string;
-  /** Existing agy conversation to append to, when the thread is still trusted. */
+
   readonly useConversationId: string | undefined;
 }
 
-/**
- * Thread decision for the agy bridge: history lives in the external agy
- * conversation store, so a known thread appends only the newest message,
- * while an unknown thread rebuilds the full transcript inline. Think parts
- * never reach the wire text; a fully empty prompt degrades to `'hi'`.
- */
 export function buildAntigravityPrompt(
   history: Message[],
   lastConversationId: string | undefined,

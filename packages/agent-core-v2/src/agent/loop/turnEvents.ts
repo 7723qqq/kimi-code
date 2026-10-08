@@ -126,15 +126,8 @@ export interface TurnStepCompletedPayload {
   readonly llmServerDecodeMs?: number;
   readonly llmClientConsumeMs?: number;
   readonly llmClientBlockedMs?: number;
-  /** Epoch ms of the first and last streamed parts carrying generated tokens
-   *  (text, reasoning, tool-call arguments): the interval that brackets what
-   *  `usage.output` counts, and the only denominator a true decode rate can
-   *  use. Epoch rather than the monotonic reading they are sampled from, so the
-   *  pair means the same thing whichever process consumes it. */
   readonly llmFirstTokenOffsetMs?: number;
   readonly llmLastTokenOffsetMs?: number;
-  /** True when the offsets above share the clock this process stamps frames
-   *  with; a consumer may check them against a frame timestamp if set. */
   readonly llmWindowOnFrameClock?: boolean;
   readonly providerFinishReason?: FinishReason;
   readonly rawFinishReason?: string;

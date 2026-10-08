@@ -9,15 +9,15 @@ Coding-agent falls back to command-line tools when native reads are unavailable.
 Install a C compiler and XCB development headers, then run from the repository root on each supported Linux architecture:
 
 ```sh
-npm --prefix packages/tui run build:native:linux
+bash packages/pi-tui/native/linux/build.sh
 ```
 
 ## Testing
 
-Install the build dependencies plus `pkg-config`, `Xvfb`, and `xclip`, then run from `packages/tui`:
+Install the build dependencies plus `pkg-config`, `Xvfb`, and `xclip`, then run from `packages/pi-tui`:
 
 ```sh
-node --test test/native-clipboard-linux.test.ts
+bun --bun run test
 ```
 
 Tests use isolated X11 servers, not the desktop clipboard. They skip when dependencies are missing.

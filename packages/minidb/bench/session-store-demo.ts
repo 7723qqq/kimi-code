@@ -1,7 +1,7 @@
 // bench/session-store-demo.ts
 //
 // Demonstrate the 4 core queries against ~/.kimi-code with timing.
-// Run: node --import tsx bench/session-store-demo.ts
+// Run: bun bench/session-store-demo.ts
 
 import fs from 'node:fs/promises';
 import os from 'node:os';

@@ -14,13 +14,6 @@ import { TowerModeEnter } from '#/features/tower/towerOps';
 
 import { IAgentModeMutexService, type ExclusiveReviewMode } from './modeMutex';
 
-/**
- * Which modes each mode conflicts with. Entering a mode evicts everything it
- * conflicts with; the relation is intentionally asymmetric in one cell only —
- * `plan` does not evict `swarm`, and `swarm` does not evict `plan` — because a
- * plan-scoped swarm is a supported state that the footer advertises with its
- * combined badge.
- */
 const CONFLICTS: Record<ExclusiveReviewMode, readonly ExclusiveReviewMode[]> = {
   plan: ['spec', 'tower'],
   spec: ['plan', 'swarm', 'tower'],
@@ -40,10 +33,6 @@ export class AgentModeMutexService extends Disposable implements IAgentModeMutex
     @IEventBus eventBus: IEventBus,
   ) {
     super();
-    // The subscriptions stay alongside `switchTo` because events can be
-    // dispatched by code that never called the mutex — a resumed session
-    // replaying its records, or a host integration dispatching directly.
-    // `switchTo` is the path every entry point should use; these are the net.
     this._register(
       eventBus.subscribe(PlanModeEnter, () => {
         this.evictConflictsOf('plan');
@@ -67,8 +56,6 @@ export class AgentModeMutexService extends Disposable implements IAgentModeMutex
   }
 
   activeMode(): ExclusiveReviewMode | null {
-    // `plan` before `swarm`: with both active `plan` is the stricter guard, so
-    // reporting it keeps `activeMode` consistent with what constrains the model.
     if (this.agentState.get(planKey).active) return 'plan';
     if (this.agentState.get(specKey).active) return 'spec';
     if (this.swarm.isActive) return 'swarm';
@@ -80,8 +67,6 @@ export class AgentModeMutexService extends Disposable implements IAgentModeMutex
     const previous = this.activeMode();
     if (previous === target) return;
 
-    // `plan` and `swarm` may coexist, so a switch to one of them must not evict
-    // the other even though `previous` reads back as only one of the pair.
     if (previous !== null && !isAllowedPair(previous, target)) {
       await this.leave(previous);
     }
@@ -93,9 +78,6 @@ export class AgentModeMutexService extends Disposable implements IAgentModeMutex
         try {
           await this.enter(previous);
         } catch {
-          // The restore failed too. Propagate the original error: the caller
-          // needs to know what it asked for failed, and the session is now in
-          // no mode, which the caller can observe via activeMode().
         }
       }
       throw error;
@@ -136,11 +118,6 @@ export class AgentModeMutexService extends Disposable implements IAgentModeMutex
     }
   }
 
-  /**
-   * Evict everything `entered` conflicts with. Runs synchronously for the modes
-   * whose exit is synchronous (`plan`, `spec`, `swarm`); tower's exit is async
-   * and is detached, matching how the entry paths already treat it.
-   */
   private evictConflictsOf(entered: ExclusiveReviewMode): void {
     for (const conflicting of CONFLICTS[entered]) {
       switch (conflicting) {
@@ -161,7 +138,6 @@ export class AgentModeMutexService extends Disposable implements IAgentModeMutex
   }
 }
 
-/** `plan` + `swarm` is the only pair a session may hold at once. */
 function isAllowedPair(a: ExclusiveReviewMode, b: ExclusiveReviewMode): boolean {
   return (a === 'plan' && b === 'swarm') || (a === 'swarm' && b === 'plan');
 }

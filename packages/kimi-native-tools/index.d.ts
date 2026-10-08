@@ -659,3 +659,81 @@ export function nativeLlmStreamStreaming(
   config: NativeLlmStreamConfig,
   onEvent: (error: unknown, event: NativeLlmStreamEvent) => void,
 ): void;
+
+// ============================================================================
+// Knowledge base
+//
+// Exported under the Rust `#[napi]` names: `agent/knowledge/knowledgeService.ts`
+// calls them unprefixed.
+// ============================================================================
+
+/** Types as stored by the Rust layer; note the absence of `status`. */
+export interface NativeKnowledgeEntry {
+  id: string;
+  category: 'coding-style' | 'pitfall' | 'architecture' | 'workflow';
+  title: string;
+  content: string;
+  tags: string[];
+  scope: string | null;
+  confidence: number;
+  source: 'human' | 'ai-learned' | 'ai-confirmed';
+  created_at: string;
+  updated_at: string;
+}
+
+/** One row of `knowledgeSearch` output, after JSON.parse. */
+export interface NativeKnowledgeSearchResult {
+  entry: NativeKnowledgeEntry;
+  relevance: number;
+  match_source: string[];
+}
+
+export interface NativeKnowledgeStats {
+  total: number;
+  by_category: Record<string, number>;
+  by_source: Record<string, number>;
+  avg_confidence: number;
+}
+
+/** Open the database, replacing any connection already held. */
+export function knowledgeOpen(dbPath: string): void;
+
+/** Close the connection held for `dbPath`. Not implemented natively; a no-op. */
+export function knowledgeClose(dbPath?: string | null): void;
+
+/**
+ * Store an entry and return it as a JSON string.
+ *
+ * `status` is deliberately not a parameter: the Rust schema has no such column.
+ */
+export function knowledgeAdd(
+  title: string,
+  category: string,
+  content: string,
+  tags: string,
+  scope: string | null,
+  source: string,
+  confidence: number,
+): string;
+
+/** @returns JSON string of `NativeKnowledgeSearchResult[]` */
+export function knowledgeSearch(
+  query: string,
+  scopePath: string | null,
+  tags: string | null,
+  limit: number,
+  minConfidence: number,
+): string;
+
+export function knowledgeRemove(id: string): boolean;
+
+export function knowledgeConfirm(id: string): boolean;
+
+/** Rejection is expressed as removal; the Rust layer has no separate reject. */
+export function knowledgeReject(id: string): boolean;
+
+/** @returns JSON string of `NativeKnowledgeStats` */
+export function knowledgeStats(): string;
+
+/** @returns JSON string */
+export function knowledgeImport(markdown: string): string;

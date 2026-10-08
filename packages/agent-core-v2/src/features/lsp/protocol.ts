@@ -1,13 +1,3 @@
-/**
- * `lsp` domain — minimal LSP wire vocabulary.
- *
- * Hand-written subset of the Language Server Protocol types (zero-based
- * UTF-16 positions, matching the wire protocol) plus the JSON-RPC message
- * envelope. Kept deliberately small: only the shapes the four semantic
- * operations (definition / references / implementation / hover) and the
- * stdio handshake need. No external protocol dependency.
- */
-
 export interface LspPosition {
   readonly line: number;
   readonly character: number;

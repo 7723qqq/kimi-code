@@ -8,7 +8,13 @@ that is byte-identical:
 import { bootstrap, logSeed, resolveLoggingConfig } from '@moonshot-ai/agent-core-v2';
 import { createKlient } from '@moonshot-ai/klient/memory';   // or '/ipc'
 
-const { app } = bootstrap({ homeDir }, [
+const clientIdentity = {
+  productName: 'kimi-code-example',
+  version: '0.0.0-example',
+  platform: 'example',
+};
+
+const { app } = bootstrap({ homeDir, clientIdentity }, [
   ...logSeed(resolveLoggingConfig({ homeDir, env: process.env })),
 ]);
 const klient = createKlient({ scope: app });
@@ -41,8 +47,9 @@ ipc │ memory
   `onDid*`/`onWill*` event names. There is no escape hatch to raw services:
   the facade is the public contract.
   - `klient.global.*` — `sessions.*` (incl. `create`), `workspaces.*`,
-    `config.*`, `providers.*`, `models.*`, `catalog.*`, `auth.*`, `flags.*`,
-    `plugins.*`, `hostFs.*`, `env()`.
+    `config.*`, `kosong.*` (providers, models, streaming `generate`),
+    `auth.*`, `flags.*`, `plugins.*`, `capabilities.*`, `hostFs.*`,
+    `files.*`, `mcp.*`, `env()`.
   - `klient.session(id).*` — `get/setTitle/update/status/close/archive/
     restore/fork/createChild`, `approvals.*`, `questions.*`,
     `interactions.*`, `agents()`.
@@ -91,9 +98,8 @@ rules.
 
 The facade covers the global (app), session, and agent surfaces shown above.
 What it deliberately leaves out (for now): onWill/hook-style interception
-(engine hooks are in-process `OrderedHookSlot`s and not wire-exposable), file
-upload (v1 multipart REST only), and the terminal surface (v1 REST + WS
-only).
+(engine hooks are in-process `OrderedHookSlot`s and not wire-exposable), and
+the terminal surface (v1 REST + WS only).
 
 ## Smoke check
 

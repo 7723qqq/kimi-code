@@ -7,8 +7,8 @@ Memory files are markdown documents stored under `~/.kimi-code/memory/`, organiz
 
 ## Actions
 
-### `search` (default)
-Full-text search over all memory entries. Returns matching snippets with scope and relevance score.
+### `search`
+Full-text search over all memory entries. Returns matching snippets with scope and relevance score. Requires `query`.
 ```
 Memory({ action: "search", query: "authentication pattern" })
 ```

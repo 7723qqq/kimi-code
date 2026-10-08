@@ -29,10 +29,10 @@ Fetch pages with **FetchURL** before answering. All page links below are relativ
 | Community guidelines; contact and feedback | `kimi-code/community-guidelines.html`, `kimi-code/contact-and-feedback.html` |
 | `config.toml` fields, providers/models, environment variables, data locations, config overrides | `kimi-code-cli/configuration/` — `config-files.html`, `providers.html`, `env-vars.html`, `data-locations.html`, `overrides.html` |
 | Skills, MCP, hooks, plugins, themes, agents/sub-agents, Kimi Datasource | `kimi-code-cli/customization/` — `skills.html`, `mcp.html`, `hooks.html`, `plugins.html`, `themes.html`, `agents.html`; Kimi Datasource lives at `plugins.html#kimi-datasource` |
-| Getting started, sessions and context, goals, interaction and input, IDEs, migration, use cases | `kimi-code-cli/guides/` — `getting-started.html`, `sessions.html`, `goals.html`, `interaction.html`, `ides.html`, `migration.html`, `use-cases.html` |
+| Getting started, sessions and context, interaction and input, IDEs, migration, use cases | `kimi-code-cli/guides/` — `getting-started.html`, `sessions.html`, `interaction.html`, `ides.html`, `migration.html`, `use-cases.html` |
 | Slash commands, keyboard shortcuts, builtin tools, `kimi` command flags, ACP | `kimi-code-cli/reference/` — `slash-commands.html`, `keyboard.html`, `tools.html`, `kimi-command.html`, `kimi-acp.html` |
 | CLI changelog | `kimi-code-cli/release-notes/changelog.html` |
-| Using Kimi Code in Claude Code and other third-party agents | `third-party-tools/other-coding-agents.html` |
+| Using Kimi Code in Claude Code, Codex, OpenCode and other third-party agents | `third-party-tools/` — `claude-code.html`, `codex.html`, `opencode.html` |
 
 If no row fits the question, fetch the docs home page and follow its navigation links.
 

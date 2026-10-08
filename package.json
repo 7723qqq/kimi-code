@@ -126,7 +126,7 @@
       "oxlint --type-aware --quiet"
     ]
   },
-  "packageManager": "bun@1.4.0",
+  "packageManager": "bun@1.4.2",
   "patchedDependencies": {
     "ssh2@1.17.0": "patches/ssh2@1.17.0.patch"
   },

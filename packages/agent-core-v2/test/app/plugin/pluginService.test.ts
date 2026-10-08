@@ -351,8 +351,6 @@ describe('PluginService (plugin boundary)', () => {
 
   it('reports committed plugin state on toggle events with canonical ids', async () => {
     const home = await makeHome();
-    // The fork's removePlugin deletes the plugin root from disk and refuses
-    // roots outside the managed directory, so the fixture lives there.
     const pluginRoot = path.join(home, 'plugins', 'managed', 'alpha');
     await mkdir(pluginRoot, { recursive: true });
     await writeFile(path.join(pluginRoot, 'kimi.plugin.json'), '{"name":"alpha"}', 'utf8');

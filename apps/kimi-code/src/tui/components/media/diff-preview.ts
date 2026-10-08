@@ -1,8 +1,8 @@
 /**
  * Diff preview rendering as plain ANSI strings.
  *
- * Reuses the diff algorithm from approval/DiffPreview.tsx, but outputs
- * formatted text lines instead of React elements.
+ * computeDiffLines is self-contained — it does not borrow from a React diff
+ * view — and outputs formatted text lines instead of React elements.
  */
 
 import chalk from 'chalk';

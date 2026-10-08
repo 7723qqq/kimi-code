@@ -1,13 +1,3 @@
-/**
- * `team` domain — shared transcript value object for multi-agent
- * roundtables and debates.
- *
- * Pure data: stores the ordered discussion entries (speaker, agentId, content,
- * round), per-speaker position records, and auto-detected cross-references,
- * and renders the transcript / positions as text blocks injected into each
- * participant agent's prompt. No dependency on `agent`, `loop`, or any other
- * core module.
- */
 
 export interface DiscussionEntry {
   readonly speaker: string;
@@ -45,7 +35,6 @@ export class DiscussionContext {
     this.detectCrossReferences(speaker, content, round);
   }
 
-  /** The current round number (1-based). 0 before any entry. */
   getRound(): number {
     if (this.entries.length === 0) return 0;
     return this.entries.at(-1)!.round;
@@ -69,7 +58,6 @@ export class DiscussionContext {
     return [...this.entries];
   }
 
-  /** Total number of entries (speeches) recorded. */
   entryCount(): number {
     return this.entries.length;
   }
@@ -82,7 +70,6 @@ export class DiscussionContext {
     return this.currentPhase;
   }
 
-  /** Record a participant's stated position on the topic. */
   recordPosition(
     speaker: string,
     stance: string,
@@ -98,24 +85,18 @@ export class DiscussionContext {
     }
   }
 
-  /** Get the latest recorded position for a speaker. */
   getPosition(speaker: string): PositionRecord | undefined {
     return this.positions.find((p) => p.speaker === speaker);
   }
 
-  /** All recorded positions. */
   allPositions(): readonly PositionRecord[] {
     return [...this.positions];
   }
 
-  /** All detected cross-references. */
   allCrossReferences(): readonly CrossReference[] {
     return [...this.crossRefs];
   }
 
-  /**
-   * Render positions as a text block for injection into debate prompts.
-   */
   getPositionsText(): string {
     if (this.positions.length === 0) return '';
     return this.positions
@@ -123,17 +104,12 @@ export class DiscussionContext {
       .join('\n');
   }
 
-  /**
-   * Render the full discussion transcript as a text block suitable for
-   * injection into a participant agent's context.
-   */
   getTranscript(): string {
     if (this.entries.length === 0) return '';
 
     return this.entries.map((entry) => `[${entry.speaker}] ${entry.content}`).join('\n\n');
   }
 
-  /** Render transcript with phase markers. */
   getDebateTranscript(): string {
     if (this.entries.length === 0) return '';
 
@@ -156,10 +132,6 @@ export class DiscussionContext {
     return this.currentPhase;
   }
 
-  /**
-   * Detect simple cross-references in speech content.
-   * Looks for patterns like "@Speaker", "as Speaker said", "Speaker's point".
-   */
   private detectCrossReferences(speaker: string, content: string, round: number): void {
     const knownSpeakers = new Set(this.entries.map((e) => e.speaker));
     for (const target of knownSpeakers) {

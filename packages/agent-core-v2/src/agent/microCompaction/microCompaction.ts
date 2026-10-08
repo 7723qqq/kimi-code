@@ -2,15 +2,10 @@ import { createDecorator } from '#/_base/di/instantiation';
 import type { ContextMessage } from '#/agent/contextMemory/types';
 
 export interface MicroCompactionConfig {
-  /** Number of trailing messages exempt from truncation. */
   keepRecentMessages: number;
-  /** Minimum content tokens for a tool result to be truncated. */
   minContentTokens: number;
-  /** Idle time (ms) after the last assistant output that counts as a cache miss. */
   cacheMissedThresholdMs: number;
-  /** Text marker replacing a truncated tool result. */
   truncatedMarker: string;
-  /** Minimum context-window usage ratio for truncation to apply. */
   minContextUsageRatio: number;
 }
 
@@ -27,16 +22,12 @@ export interface IAgentMicroCompactionService {
 
   readonly config: MicroCompactionConfig;
 
-  /** Merge a partial configuration into the current one. */
   setConfig(config: Partial<MicroCompactionConfig>): void;
 
-  /** Detect a prompt-cache miss and raise the truncation cutoff. */
   detect(): void;
 
-  /** Replace truncated tool results in an outgoing message view. */
   compact(messages: readonly ContextMessage[]): readonly ContextMessage[];
 
-  /** Lower the cutoff (v1 semantics: it can only ever shrink). */
   reset(maxCutoff?: number): void;
 }
 

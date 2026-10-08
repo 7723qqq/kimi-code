@@ -208,10 +208,6 @@ export async function executeMediaRead(
       };
     }
 
-    // An all-false capability set may mean the model id is simply missing
-    // from the static detection tables (custom relays, new model names).
-    // Only hard-block on a confirmed negative; let unknown capabilities
-    // through so a genuinely multimodal upstream can accept the image.
     const capabilitiesUnknown = isUnknownCapability(ctx.capabilities);
     if (fileType.kind === 'image' && !ctx.capabilities.image_in && !capabilitiesUnknown) {
       return {

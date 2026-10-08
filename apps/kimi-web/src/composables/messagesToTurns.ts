@@ -266,7 +266,7 @@ export function toAgentMember(task: AppTask): AgentMember {
 }
 
 // ---------------------------------------------------------------------------
-// Inline buildApprovalBlock (mirrors the one in useKimiWebClient.ts; kept
+// Inline buildApprovalBlock (mirrors the one in lib/approvalView.ts; kept
 // here to avoid a circular import when tests import this module directly).
 // ---------------------------------------------------------------------------
 

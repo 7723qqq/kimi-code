@@ -9,9 +9,8 @@ import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { SpillLocator, type ISpillService, type SpillRef, type SaveTextSpill } from './spill';
 import { privateRoot, saveTextFile } from './spillStore';
 
-/** Configured `[spill]` section shape. */
 export interface SpillConfig {
-  /** Absolute spill root; defaults to a private per-process temp directory. */
+
   readonly root?: string;
 }
 

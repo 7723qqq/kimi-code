@@ -25,13 +25,13 @@ Part of the [Kimi Code](https://github.com/MoonshotAI/kimi-code) monorepo.
   The engine (agent-core-v2) composes its own trait-based providers from
   the shared layer above instead.
 
-## Relationship to agent-core-v2
+## Relationship to other packages
 
-`agent-core-v2` depends on this package. Its `src/kosong/` layer keeps the
-DI/trait composition machinery (model services, protocol adapter registry,
-protocol bases) and imports the contract/error/pure-function layers from
-here — the engine's `contract/` directory is a thin re-export of this
-package.
+Nothing in `agent-core-v2` imports this package — the engine carries its own
+provider wire layer (`src/llm-adapter/`), its own contract (`src/contract.ts`)
+and its own error base. The consumers of this package are `@moonshot-ai/oauth`
+and `@moonshot-ai/kimi-code-sdk`, which use the contract types, the error
+taxonomy and the standalone `createProvider` surface directly.
 
 ## License
 

@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 
 /**
  * Check locale files for malformed i18n placeholders.
@@ -7,7 +7,7 @@
  * properly closed (no missing `}`) and that en/zh use the same placeholder
  * names for corresponding keys.
  *
- * Usage: node scripts/check-locale-placeholders.cjs
+ * Usage: bun scripts/check-locale-placeholders.cjs
  *
  * Exit code 0 = all good, 1 = issues found.
  */
@@ -52,8 +52,8 @@ function collectStrings(obj, prefix = '') {
 function checkPlaceholders(filePath) {
   const errors = [];
 
-  // We need to load the TS file. Since this is a CJS script, we use require()
-  // which works for TS files in this monorepo thanks to tsx registration.
+  // We need to load the TS file. Since this is a CJS script, we use require(),
+  // which works for TS files in this monorepo because Bun transpiles them.
   let data;
   try {
     // Clear require cache so we always get fresh data

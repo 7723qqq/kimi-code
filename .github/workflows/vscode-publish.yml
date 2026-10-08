@@ -46,17 +46,13 @@ jobs:
         with:
           fetch-depth: 0 # 需要按 push 事件的 before SHA 取旧版本号比较
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v6
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v6
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          node-version-file: .nvmrc
-          cache: pnpm
+          bun-version: 1.4.2
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: bun install --frozen-lockfile
 
       - name: Resolve publish gate
         id: gate
@@ -67,7 +63,7 @@ jobs:
         run: |
           set -euo pipefail
           pkg="apps/vscode/package.json"
-          version="$(node -p "require('./${pkg}').version")"
+          version="$(bun -p "require('./${pkg}').version")"
           echo "version=${version}" >> "$GITHUB_OUTPUT"
           echo "extension version: ${version}"
 
@@ -80,7 +76,7 @@ jobs:
             prev=""
             if [ -n "${BEFORE_SHA}" ] && [ -n "${BEFORE_SHA//0/}" ]; then
               if git show "${BEFORE_SHA}:${pkg}" > /tmp/prev-vscode-pkg.json 2> /dev/null; then
-                prev="$(node -p "require('/tmp/prev-vscode-pkg.json').version")"
+                prev="$(bun -p "require('/tmp/prev-vscode-pkg.json').version")"
               fi
             else
               echo "push event has no usable before SHA ('${BEFORE_SHA}') — treating as a version change"
