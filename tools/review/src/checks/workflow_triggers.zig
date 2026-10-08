@@ -25,11 +25,6 @@ const workflow = @import("../workflow.zig");
 ///     made and the check should not fail the run over it.
 const DOCS = [_][]const u8{"DEVELOP.md"};
 
-const SKIP_DIRS = [_][]const u8{
-    "node_modules", "dist", "dist-web", "dist-native", "coverage",
-    ".git",         ".zig-cache", "zig-out", "target", "参考目录",
-};
-
 /// A `N. **name** — …` bullet as it appears in the CI pipeline section.
 const Claim = struct {
     name: []const u8,
@@ -43,18 +38,101 @@ const Job = struct {
     runs_on_pr: bool,
     /// The job carries `if: false`, so it never runs at all.
     disabled: bool,
-    /// The job carries a non-empty `uses:`, making it a called workflow.
-    reusable: bool,
+    /// The workflow is triggered only by `workflow_call`: it is a library, and
+    /// its jobs run exactly when some other workflow calls it. This is a
+    /// property of the workflow, not of the job — the job that ends up in the
+    /// callee carries no `uses:` of its own, so asking the job is the wrong
+    /// question and answers "no" for every reusable workflow's jobs.
+    from_reusable_workflow: bool,
 };
+
+/// A `workflow_call`-only workflow has no triggers of its own, so asking
+/// whether *it* runs on a pull request always answers no. What decides the
+/// question is its callers: `_native-build.yml` never runs on a PR by itself,
+/// but a PR-triggered workflow calling it makes its jobs pre-merge gates. The
+/// check therefore reads every workflow's job-level
+/// `uses: ./.github/workflows/<file>` references before judging such a job.
+///
+/// The relation is not transitive. A workflow called only by another
+/// `workflow_call`-only workflow is still not reached on a pull request, so a
+/// candidate's own callers are inspected rather than the closure.
+const Workflow = struct {
+    /// Path relative to the repository root, e.g. `.github/workflows/ci.yml`.
+    path: []const u8,
+    /// The basename, which is what a `uses:` edge names.
+    file_name: []const u8,
+    /// The workflow has an `on: pull_request:` trigger.
+    runs_on_pr: bool,
+    /// `on:` carries `workflow_call` and no other trigger.
+    call_only: bool,
+    /// The files this workflow calls at job level: the basenames after
+    /// `uses: ./.github/workflows/`.
+    calls: []const []const u8,
+};
+
+/// True when `path` names a called workflow that some pull-request-triggered
+/// workflow reaches.
+fn calledByPrWorkflow(workflows: []const Workflow, path: []const u8) bool {
+    const target = std.fs.path.basename(path);
+    for (workflows) |caller| {
+        if (!caller.runs_on_pr) continue;
+        for (caller.calls) |callee| {
+            if (std.mem.eql(u8, callee, target)) return true;
+        }
+    }
+    return false;
+}
+
+/// The check could not read the pipeline list, so it reports nothing about it.
+/// Silence here would read as "no problem", which is the failure mode this
+/// tool exists to remove: a gate that cannot run must say so.
+fn reportNoClaims(ctx: *check.Context) !void {
+    try ctx.report.add(.{
+        .check = "workflow-triggers",
+        .severity = .info,
+        .file = DOCS[0],
+        .message = "no CI pipeline job list found, so no documented gate could be checked",
+        .evidence = try std.fmt.allocPrint(
+            ctx.alloc,
+            "expected numbered `**job**` bullets under a `### CI pipeline` heading in {s}",
+            .{DOCS[0]},
+        ),
+    });
+}
+
+/// No workflow file could be read, so the question cannot be answered either
+/// way. Reported rather than skipped.
+fn reportNoWorkflows(ctx: *check.Context) !void {
+    try ctx.report.add(.{
+        .check = "workflow-triggers",
+        .severity = .info,
+        .file = ".github/workflows",
+        .message = "no workflow could be read, so no documented gate could be matched to a job",
+        .evidence = "expected parseable YAML files under .github/workflows/",
+    });
+}
 
 pub fn run(ctx: *check.Context) !void {
     const claims = try pipelineClaims(ctx);
     defer freeStrings(ctx.alloc, claims);
-    if (claims.len == 0) return;
+    if (claims.len == 0) {
+        try reportNoClaims(ctx);
+        return;
+    }
 
-    const jobs = try workflowJobs(ctx);
+    const workflows = try workflowTable(ctx);
+    defer freeWorkflows(ctx.alloc, workflows);
+    if (workflows.len == 0) {
+        try reportNoWorkflows(ctx);
+        return;
+    }
+
+    const jobs = try workflowJobs(ctx, workflows);
     defer freeJobs(ctx.alloc, jobs);
-    if (jobs.len == 0) return;
+    if (jobs.len == 0) {
+        try reportNoWorkflows(ctx);
+        return;
+    }
 
     for (claims) |claim| {
         const job = findJob(jobs, claim.name) orelse continue;
@@ -80,6 +158,10 @@ pub fn run(ctx: *check.Context) !void {
         }
 
         if (job.runs_on_pr) continue;
+
+        // A workflow that only `workflow_call` reaches inherits its callers'
+        // triggers, so its jobs are reported only when no caller runs on a PR.
+        if (job.from_reusable_workflow and calledByPrWorkflow(workflows, job.workflow_path)) continue;
 
         try ctx.report.add(.{
             .check = "workflow-triggers",
@@ -153,9 +235,17 @@ fn bulletName(line: []const u8) ?[]const u8 {
     return rest[0..end];
 }
 
-fn workflowJobs(ctx: *check.Context) ![]const Job {
-    var out: std.ArrayList(Job) = .empty;
-    errdefer out.deinit(ctx.alloc);
+/// Read every workflow once: its triggers, the files it calls, and its jobs.
+///
+/// The table is built before the jobs so a reusable job can be judged against
+/// its callers, which requires knowing every workflow's `on:` — including the
+/// caller's — before deciding.
+fn workflowTable(ctx: *check.Context) ![]const Workflow {
+    var out: std.ArrayList(Workflow) = .empty;
+    errdefer freeWorkflows(ctx.alloc, out.items);
+
+    var unparsed: std.ArrayList([]const u8) = .empty;
+    defer unparsed.deinit(ctx.alloc);
 
     const dir = Io.Dir.openDir(ctx.root_dir, ctx.io, ".github/workflows", .{ .iterate = true }) catch
         return out.toOwnedSlice(ctx.alloc);
@@ -175,13 +265,75 @@ fn workflowJobs(ctx: *check.Context) ![]const Job {
 
         var root = try workflow.parse(ctx.alloc, text);
         defer root.deinit();
-        // A workflow this reader cannot follow is skipped; a wrong answer about
-        // which jobs a pull request runs is worse than no answer.
+        // A workflow this reader cannot follow is skipped rather than guessed
+        // at, and the file is recorded so the skip is reported instead of
+        // passing as success.
+        if (root.unsupported) {
+            try unparsed.append(ctx.alloc, try ctx.alloc.dupe(u8, rel));
+            continue;
+        }
+
+        const doc = root.map() orelse continue;
+
+        try out.append(ctx.alloc, .{
+            .path = try ctx.alloc.dupe(u8, path),
+            .file_name = try ctx.alloc.dupe(u8, std.fs.path.basename(path)),
+            .runs_on_pr = triggersOnPullRequest(doc),
+            .call_only = triggersOnlyOnWorkflowCall(doc),
+            .calls = try calledWorkflowFiles(ctx, doc),
+        });
+    }
+
+    defer {
+        for (unparsed.items) |u| ctx.alloc.free(u);
+    }
+    try reportUnsupportedWorkflows(ctx, unparsed.items);
+
+    return out.toOwnedSlice(ctx.alloc);
+}
+
+/// The `./.github/workflows/<file>` basenames a workflow calls at job level.
+///
+/// Only job-level `uses:` counts. A step-level `uses:` names an action
+/// (`actions/checkout@v4`, or a local `./.github/actions/...` composite), which
+/// is not a workflow and carries no triggers of its own.
+fn calledWorkflowFiles(ctx: *check.Context, doc: workflow.Node.Map) ![]const []const u8 {
+    var out: std.ArrayList([]const u8) = .empty;
+    errdefer {
+        for (out.items) |f| ctx.alloc.free(f);
+        out.deinit(ctx.alloc);
+    }
+
+    const jobs = doc.getMap("jobs") orelse return out.toOwnedSlice(ctx.alloc);
+    const prefix = "./.github/workflows/";
+    for (jobs.entries) |entry| {
+        const job = switch (entry.value) {
+            .map => |m| m,
+            else => continue,
+        };
+        const uses = job.getScalar("uses") orelse continue;
+        const trimmed = std.mem.trim(u8, uses, " \t'\"");
+        if (!std.mem.startsWith(u8, trimmed, prefix)) continue;
+        const file = trimmed[prefix.len..];
+        if (file.len == 0) continue;
+        try out.append(ctx.alloc, try ctx.alloc.dupe(u8, file));
+    }
+    return out.toOwnedSlice(ctx.alloc);
+}
+
+fn workflowJobs(ctx: *check.Context, workflows: []const Workflow) ![]const Job {
+    var out: std.ArrayList(Job) = .empty;
+    errdefer out.deinit(ctx.alloc);
+
+    for (workflows) |wf| {
+        const text = fsutil.readFileAllocOrNull(ctx.alloc, ctx.io, ctx.root_dir, wf.path) orelse continue;
+        defer ctx.alloc.free(text);
+
+        var root = try workflow.parse(ctx.alloc, text);
+        defer root.deinit();
         if (root.unsupported) continue;
 
         const doc = root.map() orelse continue;
-        const runs_on_pr = triggersOnPullRequest(doc);
-
         const jobs = doc.getMap("jobs") orelse continue;
         for (jobs.entries) |entry| {
             const job = switch (entry.value) {
@@ -193,14 +345,85 @@ fn workflowJobs(ctx: *check.Context) ![]const Job {
             const display = job.getScalar("name") orelse entry.key;
             try out.append(ctx.alloc, .{
                 .name = try ctx.alloc.dupe(u8, display),
-                .workflow_path = try ctx.alloc.dupe(u8, path),
-                .runs_on_pr = runs_on_pr,
+                .workflow_path = try ctx.alloc.dupe(u8, wf.path),
+                .runs_on_pr = wf.runs_on_pr,
                 .disabled = isDisabled(job),
-                .reusable = job.get("uses") != null,
+                .from_reusable_workflow = wf.call_only,
             });
         }
     }
     return out.toOwnedSlice(ctx.alloc);
+}
+
+fn freeWorkflows(alloc: std.mem.Allocator, workflows: []const Workflow) void {
+    for (workflows) |wf| {
+        alloc.free(wf.path);
+        alloc.free(wf.file_name);
+        for (wf.calls) |f| alloc.free(f);
+        alloc.free(wf.calls);
+    }
+    alloc.free(workflows);
+}
+
+/// Workflows the reader could not follow. Each is named rather than dropped:
+/// a file silently skipped here is a set of jobs the check never judged, and
+/// the run would still report success.
+fn reportUnsupportedWorkflows(ctx: *check.Context, files: []const []const u8) !void {
+    for (files) |rel| {
+        const path = try std.fs.path.join(ctx.alloc, &.{ ".github/workflows", rel });
+        try ctx.report.add(.{
+            .check = "workflow-triggers",
+            .severity = .info,
+            .file = path,
+            .message = "workflow could not be parsed, so its jobs were not checked",
+            .evidence = "the file uses syntax this reader does not follow; its jobs are neither confirmed nor denied as pull-request gates",
+        });
+    }
+}
+
+
+
+/// True when the workflow's `on:` names `workflow_call` and nothing else.
+///
+/// A file can carry both, as `release.yml` does with `push` and
+/// `workflow_dispatch`; only a workflow with no trigger of its own is a pure
+/// library whose reachability is entirely its callers' business.
+fn triggersOnlyOnWorkflowCall(doc: workflow.Node.Map) bool {
+    const on = doc.get("on") orelse return false;
+
+    var saw_workflow_call = false;
+    var saw_other = false;
+    switch (on) {
+        .map => |m| {
+            for (m.entries) |entry| {
+                if (std.mem.eql(u8, entry.key, "workflow_call")) {
+                    saw_workflow_call = true;
+                } else {
+                    saw_other = true;
+                }
+            }
+        },
+        .scalar => |s| {
+            var it = std.mem.splitScalar(u8, std.mem.trim(u8, s, " \t[]"), ',');
+            while (it.next()) |item| {
+                const name = std.mem.trim(u8, item, " \t'\"");
+                if (name.len == 0) continue;
+                if (std.mem.eql(u8, name, "workflow_call")) saw_workflow_call = true else saw_other = true;
+            }
+        },
+        .seq => |s| {
+            for (s.items) |item| {
+                switch (item) {
+                    .scalar => |v| {
+                        const name = std.mem.trim(u8, v, " \t'\"");
+                        if (std.mem.eql(u8, name, "workflow_call")) saw_workflow_call = true else saw_other = true;
+                    },
+                    else => saw_other = true,
+                }
+            }
+        },
+    }
+    return saw_workflow_call and !saw_other;
 }
 
 /// True when the workflow's `on:` includes `pull_request`.
@@ -327,9 +550,9 @@ test "isDisabled reads only a literal if: false" {
 
 test "findJob prefers the job a pull request actually runs" {
     const jobs = [_]Job{
-        .{ .name = "build", .workflow_path = "docs-deploy.yml", .runs_on_pr = false, .disabled = false, .reusable = false },
-        .{ .name = "Native bundle (linux-x64)", .workflow_path = "_native-build.yml", .runs_on_pr = false, .disabled = false, .reusable = false },
-        .{ .name = "build", .workflow_path = "ci.yml", .runs_on_pr = true, .disabled = false, .reusable = false },
+        .{ .name = "build", .workflow_path = "docs-deploy.yml", .runs_on_pr = false, .disabled = false, .from_reusable_workflow = false },
+        .{ .name = "Native bundle (linux-x64)", .workflow_path = "_native-build.yml", .runs_on_pr = false, .disabled = false, .from_reusable_workflow = false },
+        .{ .name = "build", .workflow_path = "ci.yml", .runs_on_pr = true, .disabled = false, .from_reusable_workflow = false },
     };
     // Three workflows carry a `build` job; the CI one is the one meant.
     try testing.expectEqualStrings("ci.yml", findJob(&jobs, "build").?.workflow_path);
@@ -342,9 +565,121 @@ test "findJob prefers the job a pull request actually runs" {
 
 test "findJob still reports a name whose only matches are push-only" {
     const jobs = [_]Job{
-        .{ .name = "Analyze (javascript-typescript)", .workflow_path = "codeql.yml", .runs_on_pr = false, .disabled = false, .reusable = false },
+        .{ .name = "Analyze (javascript-typescript)", .workflow_path = "codeql.yml", .runs_on_pr = false, .disabled = false, .from_reusable_workflow = false },
     };
     const found = findJob(&jobs, "Analyze (javascript-typescript)").?;
     try testing.expectEqualStrings("codeql.yml", found.workflow_path);
     try testing.expect(!found.runs_on_pr);
+}
+
+test "calledByPrWorkflow finds a reusable workflow a pull request reaches" {
+    const calls = [_][]const u8{"_native-build.yml"};
+
+    // A reusable workflow has no trigger of its own; what decides the question
+    // is whether any caller runs on a pull request.
+    const with_pr_caller = [_]Workflow{
+        .{ .path = "ci.yml", .file_name = "ci.yml", .runs_on_pr = true, .call_only = false, .calls = &calls },
+        .{ .path = "release.yml", .file_name = "release.yml", .runs_on_pr = false, .call_only = false, .calls = &calls },
+        .{ .path = "_native-build.yml", .file_name = "_native-build.yml", .runs_on_pr = false, .call_only = true, .calls = &.{} },
+    };
+    try testing.expect(calledByPrWorkflow(&with_pr_caller, ".github/workflows/_native-build.yml"));
+
+    // Every caller is push-only, so nothing runs it before the merge.
+    const push_only_callers = [_]Workflow{
+        .{ .path = "ci.yml", .file_name = "ci.yml", .runs_on_pr = true, .call_only = false, .calls = &.{} },
+        .{ .path = "release.yml", .file_name = "release.yml", .runs_on_pr = false, .call_only = false, .calls = &calls },
+        .{ .path = "_native-build.yml", .file_name = "_native-build.yml", .runs_on_pr = false, .call_only = true, .calls = &.{} },
+    };
+    try testing.expect(!calledByPrWorkflow(&push_only_callers, ".github/workflows/_native-build.yml"));
+
+    // Nothing calls it at all.
+    const uncalled = [_]Workflow{
+        .{ .path = "ci.yml", .file_name = "ci.yml", .runs_on_pr = true, .call_only = false, .calls = &.{} },
+        .{ .path = "_native-build.yml", .file_name = "_native-build.yml", .runs_on_pr = false, .call_only = true, .calls = &.{} },
+    };
+    try testing.expect(!calledByPrWorkflow(&uncalled, ".github/workflows/_native-build.yml"));
+}
+
+test "triggersOnlyOnWorkflowCall separates a library from a workflow with its own triggers" {
+    const alloc = testing.allocator;
+
+    // `workflow_call` alone: a library, reachable only through its callers.
+    var call_only = try workflow.parse(alloc, "on:\n  workflow_call:\n");
+    defer call_only.deinit();
+    try testing.expect(triggersOnlyOnWorkflowCall(call_only.map().?));
+
+    // `workflow_call` plus a real trigger is a workflow in its own right.
+    var mixed = try workflow.parse(alloc, "on:\n  workflow_call:\n  workflow_dispatch:\n");
+    defer mixed.deinit();
+    try testing.expect(!triggersOnlyOnWorkflowCall(mixed.map().?));
+
+    var push_only = try workflow.parse(alloc, "on:\n  push:\n    branches:\n      - main\n");
+    defer push_only.deinit();
+    try testing.expect(!triggersOnlyOnWorkflowCall(push_only.map().?));
+
+    // The flow and bare forms reach the same answer.
+    var flow = try workflow.parse(alloc, "on: [workflow_call]\n");
+    defer flow.deinit();
+    try testing.expect(triggersOnlyOnWorkflowCall(flow.map().?));
+
+    var bare = try workflow.parse(alloc, "on: workflow_call\n");
+    defer bare.deinit();
+    try testing.expect(triggersOnlyOnWorkflowCall(bare.map().?));
+
+    var no_on = try workflow.parse(alloc, "jobs:\n  x:\n    runs-on: ubuntu-latest\n");
+    defer no_on.deinit();
+    try testing.expect(!triggersOnlyOnWorkflowCall(no_on.map().?));
+}
+
+test "calledWorkflowFiles reads job-level uses and ignores steps and actions" {
+    const alloc = testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(alloc);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    const src =
+        \\on:
+        \\  push:
+        \\jobs:
+        \\  release:
+        \\    uses: ./.github/workflows/_native-build.yml
+        \\  docs:
+        \\    uses: "./.github/workflows/docs-deploy.yml"
+        \\  build:
+        \\    runs-on: ubuntu-latest
+        \\    steps:
+        \\      # a step-level action is not a workflow and carries no triggers
+        \\      - uses: ./.github/actions/macos-notarize
+        \\      - uses: actions/checkout@v4
+    ;
+    var root = try workflow.parse(a, src);
+    defer root.deinit();
+
+    const calls = try calledWorkflowFiles(dummyCtx(a), root.map().?);
+    try testing.expectEqual(@as(usize, 2), calls.len);
+    try testing.expectEqualStrings("_native-build.yml", calls[0]);
+    try testing.expectEqualStrings("docs-deploy.yml", calls[1]);
+}
+
+test "calledWorkflowFiles returns nothing for a workflow with no jobs" {
+    const alloc = testing.allocator;
+    var arena = std.heap.ArenaAllocator.init(alloc);
+    defer arena.deinit();
+    const a = arena.allocator();
+
+    var root = try workflow.parse(a, "on:\n  push:\n");
+    defer root.deinit();
+
+    const calls = try calledWorkflowFiles(dummyCtx(a), root.map().?);
+    try testing.expectEqual(@as(usize, 0), calls.len);
+}
+
+/// `calledWorkflowFiles` only allocates, so the context it needs never has to
+/// touch the filesystem or the report.
+fn dummyCtx(alloc: std.mem.Allocator) *check.Context {
+    const holder = struct {
+        var ctx: check.Context = undefined;
+    };
+    holder.ctx = .{ .alloc = alloc, .io = testing.io, .root_dir = Io.Dir.cwd(), .report = undefined };
+    return &holder.ctx;
 }

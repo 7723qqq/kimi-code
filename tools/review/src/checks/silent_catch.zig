@@ -4,6 +4,7 @@ const Io = std.Io;
 const check = @import("../check.zig");
 const fsutil = @import("../fsutil.zig");
 const lexer = @import("../lexer.zig");
+const paths = @import("../paths.zig");
 const ts_scan = @import("../ts_scan.zig");
 const walk = @import("../walk.zig");
 
@@ -16,14 +17,9 @@ const walk = @import("../walk.zig");
 /// count past what was accepted and fails the run.
 const BASELINE_PATH = "tools/review/silent-catch-baseline.txt";
 
-const SKIP_DIRS = [_][]const u8{
-    "node_modules", "dist",      "dist-web",  "dist-native", "coverage",
-    ".git",         ".zig-cache", "zig-out",   "target",      "参考目录",
-};
-
 pub fn run(ctx: *check.Context) !void {
     const files = try walk.collectFiles(ctx.alloc, ctx.io, ctx.root_dir, .{
-        .skip_dirs = &SKIP_DIRS,
+        .skip_dirs = &paths.SKIP_DIRS,
         .suffixes = &.{ ".ts", ".tsx", ".vue", ".js", ".mjs" },
     });
     defer walk.freeFiles(ctx.alloc, files);
@@ -106,12 +102,10 @@ fn lineList(alloc: std.mem.Allocator, found: []const ts_scan.EmptyCatch) ![]cons
     return try alloc.realloc(buf, n);
 }
 
-fn isSource(rel: []const u8) bool {
-    if (!std.mem.startsWith(u8, rel, "packages/") and !std.mem.startsWith(u8, rel, "apps/")) return false;
-    if (std.mem.indexOf(u8, rel, "/src/") == null) return false;
-    if (std.mem.endsWith(u8, rel, ".d.ts")) return false;
-    return true;
-}
+/// Unlike the other lexer checks this one reads test files too: a bare
+/// `catch {}` swallows an error wherever it sits. `paths` keeps that
+/// difference named rather than left to a copy of the predicate.
+const isSource = paths.isSrcSourceIncludingTests;
 
 const testing = std.testing;
 

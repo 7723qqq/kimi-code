@@ -35,7 +35,20 @@ const HookManager = enum {
 };
 
 pub fn run(ctx: *check.Context) !void {
-    const pkg = fsutil.readFileAllocOrNull(ctx.alloc, ctx.io, ctx.root_dir, "package.json") orelse return;
+    // The wiring text is assembled from this file plus the workflows, so
+    // without it every documented gate would look unwired. Reported, not
+    // skipped, for the same reason as the other checks: silence must not read
+    // as a pass.
+    const pkg = fsutil.readFileAllocOrNull(ctx.alloc, ctx.io, ctx.root_dir, "package.json") orelse {
+        try ctx.report.add(.{
+            .check = "gate-wiring",
+            .severity = .info,
+            .file = "package.json",
+            .message = "the root package.json could not be read, so no documented gate was checked",
+            .evidence = "the scripts and the hook configuration this check resolves against live in this file",
+        });
+        return;
+    };
     defer ctx.alloc.free(pkg);
 
     const manager = detectHookManager(pkg);
@@ -96,7 +109,18 @@ fn collectWiring(
     if (Io.Dir.openDir(ctx.root_dir, ctx.io, ".github/workflows", .{ .iterate = true })) |dir| {
         defer Io.Dir.close(dir, ctx.io);
         try appendTree(ctx, out, dir, ".github/workflows");
-    } else |_| {}
+    } else |_| {
+        // Without the workflows the wiring text is incomplete, so every script
+        // a workflow runs would be reported as invoked by nothing. Saying so
+        // is better than emitting a page of findings that are all wrong.
+        try ctx.report.add(.{
+            .check = "gate-wiring",
+            .severity = .info,
+            .file = ".github/workflows",
+            .message = "the workflows directory could not be read, so scripts they invoke may look unwired",
+            .evidence = "the wiring text is assembled from package.json, the active hook, and .github/workflows/",
+        });
+    }
 }
 
 fn appendTree(

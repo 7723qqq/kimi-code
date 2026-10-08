@@ -14,6 +14,7 @@ test {
     _ = @import("check.zig");
     _ = @import("fsutil.zig");
     _ = @import("lexer.zig");
+    _ = @import("paths.zig");
     _ = @import("pkgjson.zig");
     _ = @import("proc.zig");
     _ = @import("report.zig");

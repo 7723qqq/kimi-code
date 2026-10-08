@@ -9,7 +9,19 @@ const walk = @import("../walk.zig");
 /// A workspace member whose tests or typecheck never run in CI is invisible to
 /// every other gate: the suite is green because the suite never sees it.
 pub fn run(ctx: *check.Context) !void {
-    var root_pkg = pkgjson.loadOrNull(ctx.alloc, ctx.io, ctx.root_dir, "package.json") orelse return;
+    // Without the root manifest the workspace membership is unknown, so no
+    // member can be judged. Reported rather than skipped: a check that quietly
+    // does nothing reports the same green as one that found nothing wrong.
+    var root_pkg = pkgjson.loadOrNull(ctx.alloc, ctx.io, ctx.root_dir, "package.json") orelse {
+        try ctx.report.add(.{
+            .check = "ci-coverage",
+            .severity = .info,
+            .file = "package.json",
+            .message = "the root package.json could not be read, so no workspace member was checked",
+            .evidence = "the workspace list and the root typecheck script both live in this file",
+        });
+        return;
+    };
     defer root_pkg.deinit();
 
     const globs = try workspaceGlobs(ctx, &root_pkg);

@@ -4,6 +4,7 @@ const Io = std.Io;
 const check = @import("../check.zig");
 const fsutil = @import("../fsutil.zig");
 const lexer = @import("../lexer.zig");
+const paths = @import("../paths.zig");
 const ts_scan = @import("../ts_scan.zig");
 const walk = @import("../walk.zig");
 
@@ -15,11 +16,6 @@ const walk = @import("../walk.zig");
 /// much noisier) question, and a function referenced by production code is
 /// simply in use.
 const BASELINE_PATH = "tools/review/orphan-exports-baseline.txt";
-
-const SKIP_DIRS = [_][]const u8{
-    "node_modules", "dist",      "dist-web",  "dist-native", "coverage",
-    ".git",         ".zig-cache", "zig-out",   "target",      "参考目录",
-};
 
 const ExportRec = struct {
     name: []const u8,
@@ -37,7 +33,7 @@ const ExportRec = struct {
 
 pub fn run(ctx: *check.Context) !void {
     const files = try walk.collectFiles(ctx.alloc, ctx.io, ctx.root_dir, .{
-        .skip_dirs = &SKIP_DIRS,
+        .skip_dirs = &paths.SKIP_DIRS,
         .suffixes = &.{ ".ts", ".tsx", ".vue", ".js", ".mjs" },
     });
     defer walk.freeFiles(ctx.alloc, files);
@@ -155,30 +151,13 @@ fn freeMap(alloc: std.mem.Allocator, map: *std.StringHashMap(u32)) void {
 /// to `/src/` would drop the package-root `test/` directories — `kosong/test`,
 /// `klient/test` and friends — and with them every reference the tests make,
 /// which is the whole signal this check runs on.
-fn isTypeScriptSource(rel: []const u8) bool {
-    if (!std.mem.startsWith(u8, rel, "packages/") and !std.mem.startsWith(u8, rel, "apps/")) return false;
-    if (std.mem.endsWith(u8, rel, ".d.ts")) return false;
-    return true;
-}
+const isTypeScriptSource = paths.isTypeScriptSource;
 
-fn isTestSource(rel: []const u8) bool {
-    if (std.mem.indexOf(u8, rel, "/test/") != null) return true;
-    if (std.mem.endsWith(u8, rel, ".test.ts") or std.mem.endsWith(u8, rel, ".test.tsx")) return true;
-    if (std.mem.endsWith(u8, rel, ".spec.ts") or std.mem.endsWith(u8, rel, ".spec.tsx")) return true;
-    return false;
-}
+const isTestSource = paths.isTestSource;
 
 /// Only `src/` TypeScript counts, and tests never count: a symbol its own test
 /// calls is still unused by the product.
-fn isProductionSource(rel: []const u8) bool {
-    if (!std.mem.startsWith(u8, rel, "packages/") and !std.mem.startsWith(u8, rel, "apps/")) return false;
-    if (std.mem.indexOf(u8, rel, "/src/") == null) return false;
-    if (std.mem.indexOf(u8, rel, "/test/") != null) return false;
-    if (std.mem.endsWith(u8, rel, ".test.ts") or std.mem.endsWith(u8, rel, ".test.tsx")) return false;
-    if (std.mem.endsWith(u8, rel, ".spec.ts") or std.mem.endsWith(u8, rel, ".spec.tsx")) return false;
-    if (std.mem.endsWith(u8, rel, ".d.ts")) return false;
-    return true;
-}
+const isProductionSource = paths.isProductionSource;
 
 fn countIdentifiers(
     alloc: std.mem.Allocator,

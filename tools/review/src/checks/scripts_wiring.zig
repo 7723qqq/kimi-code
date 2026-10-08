@@ -37,7 +37,16 @@ pub fn run(ctx: *check.Context) !void {
     const alloc = arena.allocator();
 
     const scripts = try collectScripts(ctx, alloc);
-    if (scripts.len == 0) return;
+    if (scripts.len == 0) {
+        try ctx.report.add(.{
+            .check = "scripts-wiring",
+            .severity = .info,
+            .file = "package.json",
+            .message = "no package script was found, so nothing could be judged wired or dead",
+            .evidence = "every workspace package.json was read; none declared a scripts block",
+        });
+        return;
+    }
 
     const wiring = try collectExternalWiring(ctx, alloc);
 

@@ -11,14 +11,32 @@ const proc = @import("../proc.zig");
 /// intentional ones.
 const ALLOWLIST_PATH = "tools/review/upstream-drift-allow.txt";
 
+/// The ref this check diffs against. A fork that never fetched `upstream`
+/// cannot answer the question at all, which is reported rather than passed.
+const UPSTREAM_REF = "upstream/main";
+
 pub fn run(ctx: *check.Context) !void {
     const diff = proc.run(ctx.alloc, ctx.io, ctx.root_dir, &.{
-        "git", "diff", "--diff-filter=D", "--name-only", "upstream/main", "HEAD",
-    }) catch return;
+        "git", "diff", "--diff-filter=D", "--name-only", UPSTREAM_REF, "HEAD",
+    }) catch |e| {
+        try reportSkipped(ctx, "git could not be run", @errorName(e));
+        return;
+    };
     defer diff.deinit(ctx.alloc);
 
-    // No upstream remote (a plain clone, or CI): nothing to compare against.
-    if (!diff.ok()) return;
+    // No upstream remote (a plain clone, or CI whose checkout carries only the
+    // fork): there is nothing to compare against. Reported, because an unrun
+    // check that exits silently is indistinguishable from a passing one — and
+    // this is exactly how a dropped file reaches `main` unnoticed.
+    if (!diff.ok()) {
+        const detail = std.mem.trim(u8, diff.stderr, " \t\r\n");
+        try reportSkipped(
+            ctx,
+            "the upstream ref is unavailable, so no dropped file could be detected",
+            if (detail.len > 0) detail else "git diff exited non-zero with no message",
+        );
+        return;
+    }
 
     const allow = fsutil.readFileAllocOrNull(ctx.alloc, ctx.io, ctx.root_dir, ALLOWLIST_PATH) orelse "";
     defer if (allow.len > 0) ctx.alloc.free(allow);
@@ -41,6 +59,25 @@ pub fn run(ctx: *check.Context) !void {
             ),
         });
     }
+}
+
+/// The check could not run, so it says so instead of returning quietly.
+///
+/// `info` rather than `err`: a clone without the upstream remote is a normal
+/// state, and failing CI over it would be wrong. But the run must not look
+/// clean either — the whole point is that an unrun gate is not a passed gate.
+fn reportSkipped(ctx: *check.Context, message: []const u8, detail: []const u8) !void {
+    try ctx.report.add(.{
+        .check = "upstream-drift",
+        .severity = .info,
+        .file = ".git",
+        .message = message,
+        .evidence = try std.fmt.allocPrint(
+            ctx.alloc,
+            "{s}; to enable this check run `git remote add upstream https://github.com/MoonshotAI/kimi-code.git && git fetch upstream`",
+            .{detail},
+        ),
+    });
 }
 
 fn isAllowed(allow: []const u8, path: []const u8) bool {

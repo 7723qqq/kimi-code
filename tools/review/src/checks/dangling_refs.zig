@@ -4,6 +4,7 @@ const Io = std.Io;
 const check = @import("../check.zig");
 const fsutil = @import("../fsutil.zig");
 const lexer = @import("../lexer.zig");
+const paths = @import("../paths.zig");
 const ts_scan = @import("../ts_scan.zig");
 const walk = @import("../walk.zig");
 
@@ -22,11 +23,6 @@ const walk = @import("../walk.zig");
 /// which backticked word is which would bury the real findings.
 const BASELINE_PATH = "tools/review/dangling-refs-baseline.txt";
 
-const SKIP_DIRS = [_][]const u8{
-    "node_modules", "dist",      "dist-web",  "dist-native", "coverage",
-    ".git",         ".zig-cache", "zig-out",   "target",      "参考目录",
-};
-
 /// Calls whose options carry the tool's registered name.
 const REGISTERING_CALLS = [_][]const u8{ "defineTool", "registerAgentToolService", "contributeTool" };
 
@@ -39,7 +35,7 @@ const Mention = struct {
 
 pub fn run(ctx: *check.Context) !void {
     const files = try walk.collectFiles(ctx.alloc, ctx.io, ctx.root_dir, .{
-        .skip_dirs = &SKIP_DIRS,
+        .skip_dirs = &paths.SKIP_DIRS,
         .suffixes = &.{ ".ts", ".tsx", ".vue", ".js", ".mjs" },
     });
     defer walk.freeFiles(ctx.alloc, files);
@@ -218,13 +214,10 @@ fn stringBody(lexed: lexer.Lexed, token: lexer.Token) []const u8 {
     return raw;
 }
 
-fn isSource(rel: []const u8) bool {
-    if (!std.mem.startsWith(u8, rel, "packages/") and !std.mem.startsWith(u8, rel, "apps/")) return false;
-    if (std.mem.indexOf(u8, rel, "/src/") == null) return false;
-    if (std.mem.indexOf(u8, rel, "/test/") != null) return false;
-    if (std.mem.endsWith(u8, rel, ".d.ts")) return false;
-    return true;
-}
+/// Production source only: a tool name listed in a test fixture is not a
+/// claim about the shipped policy, so including tests would report names no
+/// production list ever mentions.
+const isSource = paths.isProductionSource;
 
 const testing = std.testing;
 

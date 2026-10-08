@@ -227,6 +227,7 @@ about 1.5 s over the whole monorepo.
 ```
 tools/review/
   src/checks/                   — one file per check
+  src/paths.zig                 — the shared directory and file classification
   dangling-refs-baseline.txt    — accepted findings, one per line
   orphan-exports-baseline.txt   — accepted findings, one per line
   scripts-wiring-baseline.txt   — accepted findings, one per line
@@ -259,10 +260,27 @@ baseline ledgers (`dangling-refs-`, `orphan-exports-`, `scripts-wiring-`,
 finding listed there is suppressed, and an entry that stops matching anything is
 reported so the ledger cannot rot. Regenerate one with `--check=<name> --json`.
 
+### A check that cannot run says so
+
+A check whose input is missing reports what it could not do instead of returning
+quietly. An unrun gate and a passing gate look identical otherwise, which is the
+failure this tool exists to catch, so a checkout with no `upstream` remote, a tree
+that is not a git repository, or a `package.json` that cannot be read each produce
+an `info` finding naming the reason and the fix. These never fail CI — but they are
+never absent from the report either.
+
 To add a check, drop a file in `src/checks/`, export `run(ctx: *check.Context)`,
 and register it in `src/checks.zig`. `zig build test` covers every module listed in
 the `test` block of `src/main.zig` — add the new file there too, or its tests will
-not run.
+not run. Reach for `src/paths.zig` rather than writing another copy of the
+vendor-directory list or a file classifier: the checks ask subtly different
+questions ("is this production source", "does this count as a test"), and the
+predicates live there so the difference is named instead of accidental.
+
+`stale-artifacts` runs each generator and diffs `git status` before and after, so it
+reports only the files that generator rewrote. Adding a generator means giving it
+the `cwd` its script expects — `bun run` resolves relative to the package — and a
+`marker` that names its output's exact path.
 
 ---
 

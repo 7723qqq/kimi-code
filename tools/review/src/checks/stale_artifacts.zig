@@ -10,15 +10,42 @@ const proc = @import("../proc.zig");
 const Generator = struct {
     label: []const u8,
     argv: []const []const u8,
+    /// Working directory relative to the repository root. Empty means the root
+    /// itself; `bun run` scripts resolve relative to their own package, so a
+    /// generator that lives in a package must be run from that package.
+    cwd: []const u8 = "",
     /// Substring that identifies the generated files in `git status` output.
+    /// Each generator must claim a distinct path fragment: a marker that
+    /// matches another generator's output would report the same file twice.
     marker: []const u8,
 };
 
+/// Every committed artifact with a generator. A generator whose output is
+/// tracked but never regenerated in CI is how a source change ships beside a
+/// stale manifest.
 const GENERATORS = [_]Generator{
     .{
         .label = "locale JSON",
         .argv = &.{ "bun", "scripts/generate-locale-json.cjs" },
         .marker = "/locales/",
+    },
+    .{
+        .label = "config manifest",
+        .argv = &.{ "bun", "scripts/gen-config-manifest.mts" },
+        .cwd = "packages/agent-core-v2",
+        .marker = "/docs/config-manifest.toml",
+    },
+    .{
+        .label = "wire manifest",
+        .argv = &.{ "bun", "scripts/gen-wire-manifest.mts" },
+        .cwd = "packages/agent-core-v2",
+        .marker = "/docs/wire-manifest.d.ts",
+    },
+    .{
+        .label = "state manifest",
+        .argv = &.{ "bun", "scripts/gen-state-manifest.mts" },
+        .cwd = "packages/agent-core-v2",
+        .marker = "/docs/state-manifest.d.ts",
     },
 };
 
@@ -27,17 +54,33 @@ pub fn run(ctx: *check.Context) !void {
         // Snapshot before and after so only the files this generator actually
         // rewrote are reported. Comparing against HEAD instead would flag
         // every uncommitted edit the developer happens to have in the tree.
-        const before = try snapshot(ctx);
+        //
+        // A snapshot needs a git repository. Without one the diff cannot be
+        // drawn and the generator must not run at all: rewriting artifacts in
+        // an untracked tree could not be detected, so "no drift" would be a
+        // claim this check has no evidence for.
+        const before = snapshot(ctx) catch |e| {
+            try reportUnusableTree(ctx, gen, @errorName(e));
+            return;
+        };
         defer before.deinit(ctx.alloc);
 
-        const out = proc.run(ctx.alloc, ctx.io, ctx.root_dir, gen.argv) catch {
+        if (!before.ok()) {
+            try reportUnusableTree(ctx, gen, "git status failed");
+            return;
+        }
+
+        const cwd = try generatorDir(ctx, gen);
+        defer if (gen.cwd.len > 0) Io.Dir.close(cwd, ctx.io);
+
+        const out = proc.run(ctx.alloc, ctx.io, cwd, gen.argv) catch {
             try ctx.report.add(.{
                 .check = "stale-artifacts",
                 .severity = .info,
-                .file = gen.argv[1],
+                .file = try ctx.alloc.dupe(u8, gen.argv[1]),
                 .message = try std.fmt.allocPrint(
                     ctx.alloc,
-                    "could not run the {s} generator; freshness not verified",
+                    "could not run the {s} generator, so its output was not checked for freshness",
                     .{gen.label},
                 ),
                 .evidence = "the generator command could not be started",
@@ -61,14 +104,20 @@ pub fn run(ctx: *check.Context) !void {
             continue;
         }
 
-        const after = try snapshot(ctx);
+        const after = snapshot(ctx) catch |e| {
+            try reportUnusableTree(ctx, gen, @errorName(e));
+            return;
+        };
         defer after.deinit(ctx.alloc);
 
         var lines = std.mem.splitScalar(u8, after.stdout, '\n');
         while (lines.next()) |line| {
+            // The marker names the artifact's exact path, so it is the filter.
+            // An extension check here would silently drop every non-`.json`
+            // output, which is how a stale `.toml` or `.d.ts` would slip past.
             if (std.mem.indexOf(u8, line, gen.marker) == null) continue;
             const path = pathOf(line) orelse continue;
-            if (!std.mem.endsWith(u8, path, ".json")) continue;
+            if (!std.mem.endsWith(u8, path, gen.marker)) continue;
             if (containsPath(before.stdout, path)) continue;
 
             try ctx.report.add(.{
@@ -88,6 +137,30 @@ pub fn run(ctx: *check.Context) !void {
             });
         }
     }
+}
+
+/// The directory a generator runs in: the repository root, or the package the
+/// generator's script belongs to.
+fn generatorDir(ctx: *check.Context, gen: Generator) !Io.Dir {
+    if (gen.cwd.len == 0) return ctx.root_dir;
+    return Io.Dir.openDir(ctx.root_dir, ctx.io, gen.cwd, .{});
+}
+
+/// The tree cannot be diffed with `git status`, so freshness cannot be judged.
+/// Reported once and the check stops: without a snapshot every generator would
+/// re-report the same condition.
+fn reportUnusableTree(ctx: *check.Context, gen: Generator, detail: []const u8) !void {
+    try ctx.report.add(.{
+        .check = "stale-artifacts",
+        .severity = .info,
+        .file = try ctx.alloc.dupe(u8, gen.argv[1]),
+        .message = "the working tree is not a git repository, so no generated artifact was checked",
+        .evidence = try std.fmt.allocPrint(
+            ctx.alloc,
+            "git status is how a rewritten artifact is detected ({s}); run this check inside the checkout",
+            .{detail},
+        ),
+    });
 }
 
 fn snapshot(ctx: *check.Context) !proc.Output {
