@@ -25,6 +25,7 @@ import { IConfigService } from '#/app/config/config';
 import { THINKING_SECTION } from '#/app/kosongConfig/configSection';
 import { IPluginService } from '#/app/plugin/plugin';
 import { LifecycleScope } from '#/app/scopes';
+import { ILogService } from '#/_base/log/log';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ErrorCodes, Error2 } from '#/errors';
 import { ISessionNotify } from '#/features/notify/sessionNotify';
@@ -72,6 +73,12 @@ import type {
   ProfileSetModelResult,
   ProfileUpdateData,
 } from './profile';
+import {
+  loadModelAdaptation,
+  modelAdaptationsEnabled,
+  renderAdaptationSection,
+} from '#/app/agentProfileCatalog/modelAdaptations';
+
 import { IAgentProfileService, ProfileError, ProfileErrors } from './profile';
 import {
   profileActiveToolsKey,
@@ -145,6 +152,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
   constructor(
     @IEventDispatcher private readonly dispatcher: IEventDispatcher,
     @ITelemetryService private readonly telemetry: ITelemetryService,
+    @ILogService private readonly log: ILogService,
     @IConfigService private readonly config: IConfigService,
     @IModelCatalog private readonly modelCatalog: IModelCatalog,
     @IProtocolAdapterRegistry private readonly protocolAdapters: IProtocolAdapterRegistry,
@@ -854,8 +862,10 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     }
     const skills = await this.resolveSkillListing();
     const pluginSections = await this.resolvePluginSections();
+    const modelAdaptation = await this.resolveModelAdaptation();
     return {
       ...base,
+      modelAdaptation,
       cwd: view.workDir,
       osKind: env.osKind,
       shellName: env.shellName,
@@ -868,6 +878,30 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
       notifyUserActive:
         this.notify.enabled && this.isToolActiveForProfile(profile, NOTIFY_USER_TOOL_NAME),
     };
+  }
+
+  /**
+   * The adaptation measured for the active model, or '' when it has none.
+   *
+   * Off by default. The committed adaptations carry figures with no recorded
+   * provenance — nothing in the repository produces them — so injecting them by
+   * default would put unverified advice in every prompt for the models they
+   * name. Set `KIMI_MODEL_ADAPTATIONS=1` to opt in.
+   *
+   * Failing to read one is never fatal: the prompt is simply emitted without it.
+   */
+  private async resolveModelAdaptation(): Promise<string> {
+    if (!modelAdaptationsEnabled(this.bootstrap.getEnv('KIMI_MODEL_ADAPTATIONS'))) return '';
+
+    const alias = this.modelAlias;
+    if (alias === undefined || alias === '') return '';
+    try {
+      const adaptation = await loadModelAdaptation({ model: alias, log: this.log });
+      return adaptation === undefined ? '' : renderAdaptationSection(alias, adaptation);
+    } catch (error: unknown) {
+      this.log.warn(`model adaptation lookup failed for "${alias}": ${String(error)}`);
+      return '';
+    }
   }
 
   private async workspaceInstructionsSnapshot(): Promise<LoadedAgentsMd> {
