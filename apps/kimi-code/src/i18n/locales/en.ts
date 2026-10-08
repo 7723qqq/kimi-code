@@ -242,6 +242,8 @@ export default {
     promptOptimizerEmptyDraftAction: 'Provide a prompt draft to optimize.',
     promptOptimizerNoOutput: 'Prompt optimizer returned no output',
     promptOptimizerNoOutputAction: 'Retry the optimization.',
+    promptOptimizerBusy: 'A prompt rewrite is already in progress',
+    promptOptimizerBusyAction: 'Wait for the current rewrite to finish before starting another.',
     // spec.*
     specModeInvalid: 'Invalid spec mode',
     specModeInvalidAction: 'Exit spec mode before entering it again.',

@@ -1,10 +1,10 @@
 import { isKimiError } from '@moonshot-ai/kimi-code-sdk';
 
-import { t } from '#/i18n';
 import {
   STREAMING_ARGS_FIELD_RE,
   STREAMING_ARGS_PREVIEW_MAX_CHARS,
 } from '#/tui/constant/streaming';
+import { formatLocalizedError } from '#/tui/utils/error-display';
 
 export function appendStreamingArgsPreview(
   current: string | undefined,
@@ -122,7 +122,7 @@ export function normalizeTodoItems(raw: unknown): readonly NormalizedTodoItem[] 
 
 export function formatErrorMessage(error: unknown): string {
   if (isKimiError(error)) {
-    return formatErrorPayload({
+    return formatLocalizedError({
       code: error.code,
       message: error.message,
       details: error.details,
@@ -131,41 +131,7 @@ export function formatErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-interface ErrorPayloadLike {
-  readonly code: string;
-  readonly message: string;
-  readonly details?: Record<string, unknown>;
-}
-
-export function formatErrorPayload(error: Partial<ErrorPayloadLike> | undefined): string {
-  if (!error) return '';
-  const filteredMessage = formatProviderFilteredMessage(error.details);
-  const msg = filteredMessage ?? error.message;
-  if (error.code && msg) return `[${error.code}] ${msg}`;
-  if (msg) return String(msg);
-  if (error.code) return `[${error.code}]`;
-  return '';
-}
-
-function formatProviderFilteredMessage(
-  details: Record<string, unknown> | undefined,
-): string | undefined {
-  const finishReason = stringDetail(details, 'finishReason');
-  const rawFinishReason = stringDetail(details, 'rawFinishReason');
-  if (finishReason !== 'filtered' && rawFinishReason !== 'content_filter') return undefined;
-
-  const normalizedFinishReason = finishReason ?? 'filtered';
-  const raw = rawFinishReason === undefined ? '' : `, rawFinishReason=${rawFinishReason}`;
-  return t('tui.messages.eventFilteredResponse', { reason: normalizedFinishReason, raw });
-}
-
-function stringDetail(
-  details: Record<string, unknown> | undefined,
-  key: string,
-): string | undefined {
-  const value = details?.[key];
-  return typeof value === 'string' ? value : undefined;
-}
+export { formatErrorPayload } from '#/tui/utils/error-display';
 
 export function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' ? value : undefined;

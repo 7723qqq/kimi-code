@@ -234,6 +234,8 @@ export default {
     promptOptimizerEmptyDraftAction: '请提供要优化的提示词草稿。',
     promptOptimizerNoOutput: '提示词优化器未返回内容',
     promptOptimizerNoOutputAction: '请重试优化。',
+    promptOptimizerBusy: '已有提示词重写正在进行',
+    promptOptimizerBusyAction: '请等待当前重写完成后再开始新的重写。',
     // spec.*
     specModeInvalid: '规格模式无效',
     specModeInvalidAction: '请先退出规格模式再重新进入。',

@@ -9,7 +9,6 @@ import {
 import type { TUIState } from '../tui-state';
 import { formatErrorMessage } from '../utils/event-payload';
 
-const MAX_RECENT_TURNS = 6;
 const MAX_RECENT_TURN_CHARS = 400;
 
 export interface PromptOptimizerHost {
@@ -83,7 +82,7 @@ export class PromptOptimizerController {
     });
   }
 
-  private async recentTurns(session: Session): Promise<string | undefined> {
+  private async recentTurns(session: Session): Promise<readonly string[] | undefined> {
     try {
       const context = await session.getContext();
       const prompts: string[] = [];
@@ -94,10 +93,10 @@ export class PromptOptimizerController {
         const text = messageText(message.content);
         if (text.trim().length === 0) continue;
         prompts.unshift(text.slice(0, MAX_RECENT_TURN_CHARS));
-        if (prompts.length >= MAX_RECENT_TURNS) break;
       }
-      return prompts.length === 0 ? undefined : prompts.join('\n');
-    } catch {
+      return prompts.length === 0 ? undefined : prompts;
+    } catch (error) {
+      this.host.track('prompt_optimize_context_failed', { error: formatErrorMessage(error) });
       return undefined;
     }
   }

@@ -92,7 +92,7 @@ export interface SessionIdRpcInput {
 
 export interface OptimizePromptRpcInput extends SessionIdRpcInput {
   readonly text: string;
-  readonly recentTurns?: string;
+  readonly recentTurns?: readonly string[];
 }
 
 export interface ImportContextRpcInput extends SessionIdRpcInput {

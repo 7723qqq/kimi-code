@@ -13,6 +13,7 @@ import {
   ISessionIndex,
   ISessionMetadata,
   ISessionLegacyService,
+  ISessionPromptOptimizerService,
   ISessionTitleService,
   IEventService,
   SessionCreated,
@@ -50,6 +51,8 @@ import {
   forkSessionRequestSchema,
   getSessionGoalResponseSchema,
   listSessionChildrenResponseSchema,
+  optimizePromptSessionRequestSchema,
+  optimizePromptSessionResponseSchema,
   sessionAbortResponseSchema,
   sessionStatusResponseSchema,
   sessionWarningsResponseSchema,
@@ -163,6 +166,8 @@ const sessionActionRequestSchema = z.preprocess(
     instruction: z.string().optional(),
     count: z.number().int().positive().optional(),
     page_size: z.number().int().min(1).max(100).optional(),
+    text: z.string().optional(),
+    recent_turns: z.array(z.string()).optional(),
   }),
 );
 
@@ -615,6 +620,7 @@ export function registerSessionsRoutes(
           undoSessionResponseSchema,
           sessionAbortResponseSchema,
           startBtwSessionResponseSchema,
+          optimizePromptSessionResponseSchema,
           archiveSessionResponseSchema,
           deleteSessionResponseSchema,
         ]),
@@ -883,6 +889,7 @@ type SessionAction =
   | 'undo'
   | 'abort'
   | 'btw'
+  | 'optimize'
   | 'restore'
   | 'archive'
   | 'delete';
@@ -904,6 +911,7 @@ const sessionActions: ActionTable<SessionAction, SessionActionExtra> = {
   undo: { body: undoSessionRequestSchema, handle: undoSessionAction },
   abort: { handle: abortSessionAction },
   btw: { handle: btwSessionAction },
+  optimize: { body: optimizePromptSessionRequestSchema, handle: optimizePromptSessionAction },
   restore: { handle: restoreSessionAction },
   archive: { handle: archiveSessionAction },
   delete: { handle: deleteSessionAction },
@@ -992,6 +1000,24 @@ async function btwSessionAction(ctx: SessionActionCtx): Promise<void> {
   await core.accessor.get(IAuthSummaryService).ensureReady(sessionModel || undefined);
   const agentId = await session.accessor.get(ISessionBtwService).start();
   reply.send(okEnvelope({ agent_id: agentId }, req.id));
+}
+
+async function optimizePromptSessionAction(
+  ctx: SessionActionCtx<z.infer<typeof optimizePromptSessionRequestSchema>>,
+): Promise<void> {
+  const { core, req, reply, id, body } = ctx;
+  const session = await resumeSessionById(core.accessor, id);
+  if (session === undefined) {
+    throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session ${id} does not exist`);
+  }
+  await ensureMainAgent(session);
+  const prompt = await session.accessor.get(ISessionPromptOptimizerService).optimize(body.text, {
+    cwd: session.accessor.get(ISessionContext).cwd,
+    recentTurns: body.recent_turns,
+    sessionKey: id,
+  });
+  requestLog(req)?.info({ session_id: id, action: 'optimize' }, 'session action completed');
+  reply.send(okEnvelope({ prompt }, req.id));
 }
 
 async function restoreSessionAction(ctx: SessionActionCtx): Promise<void> {

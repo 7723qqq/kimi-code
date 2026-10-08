@@ -24,6 +24,7 @@ const ESC = '\u001B';
 const ENTER = '\r';
 const LEFT = '\u001B[D';
 const RIGHT = '\u001B[C';
+const CTRL_O = '\u000F';
 
 function makePanel() {
   const onSelect = vi.fn();
@@ -75,5 +76,28 @@ describe('PromptOptimizePanelComponent', () => {
     for (const line of panel.render(40)) {
       expect(line.length).toBeLessThanOrEqual(80);
     }
+  });
+
+  it('reveals the hidden changes on ctrl+o and collapses them again', () => {
+    const onSelect = vi.fn();
+    const original = Array.from({ length: 60 }, (_, i) => `line-${i}`).join('\n');
+    const optimized = Array.from({ length: 60 }, (_, i) => `changed-${i}`).join('\n');
+    const panel = new PromptOptimizePanelComponent({ original, optimized, onSelect });
+
+    const collapsed = panel.render(80).length;
+    expect(panel.render(80).join('\n')).toContain('moreChangesHidden');
+
+    panel.handleInput(CTRL_O);
+    const expanded = panel.render(80).length;
+    expect(expanded).toBeGreaterThan(collapsed);
+
+    panel.handleInput(CTRL_O);
+    expect(panel.render(80).length).toBe(collapsed);
+  });
+
+  it('does not select or dismiss when toggling the diff', () => {
+    const { panel, onSelect } = makePanel();
+    panel.handleInput(CTRL_O);
+    expect(onSelect).not.toHaveBeenCalled();
   });
 });

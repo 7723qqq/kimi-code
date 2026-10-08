@@ -237,7 +237,7 @@ export class Session {
     return this.rpc.startBtw({ sessionId: this.id });
   }
 
-  async optimizePrompt(text: string, options?: { recentTurns?: string }): Promise<string> {
+  async optimizePrompt(text: string, options?: { recentTurns?: readonly string[] }): Promise<string> {
     this.ensureOpen();
     return this.rpc.optimizePrompt({
       sessionId: this.id,

@@ -104,6 +104,17 @@ export const startBtwSessionResponseSchema = z.object({
 });
 export type StartBtwSessionResponse = z.infer<typeof startBtwSessionResponseSchema>;
 
+export const optimizePromptSessionRequestSchema = z.object({
+  text: z.string(),
+  recent_turns: z.array(z.string()).optional(),
+});
+export type OptimizePromptSessionRequest = z.infer<typeof optimizePromptSessionRequestSchema>;
+
+export const optimizePromptSessionResponseSchema = z.object({
+  prompt: z.string(),
+});
+export type OptimizePromptSessionResponse = z.infer<typeof optimizePromptSessionResponseSchema>;
+
 export const listSessionChildrenQuerySchema = cursorQuerySchema.and(
   z.object({
     busy: booleanQueryParam,

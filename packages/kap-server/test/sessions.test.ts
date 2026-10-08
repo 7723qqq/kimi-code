@@ -2239,6 +2239,38 @@ describe('server-v2 /api/v1/sessions', () => {
     expect(meta).toBeDefined();
     expect((meta?.payload as { title?: string } | undefined)?.title).toBe('hello web title');
   });
+
+  it('reports the optimizer as unavailable while the experimental flag is off', async () => {
+    const created = await postJson<SessionWire>('/api/v1/sessions', {
+      metadata: { cwd: home as string },
+    });
+    const id = created.body.data.id;
+
+    const { body } = await postJson<{ prompt: string }>(`/api/v1/sessions/${id}:optimize`, {
+      text: 'fix the parser',
+    });
+
+    expect(body.code).toBe(50001);
+    expect(body.msg).toContain('prompt_optimizer');
+  });
+
+  it('rejects an optimize request with no text field', async () => {
+    const created = await postJson<SessionWire>('/api/v1/sessions', {
+      metadata: { cwd: home as string },
+    });
+    const id = created.body.data.id;
+    const { body } = await postJson<null>(`/api/v1/sessions/${id}:optimize`, {});
+
+    expect(body.code).not.toBe(0);
+  });
+
+  it('rejects the optimize action for a session that does not exist', async () => {
+    const { body } = await postJson<unknown>('/api/v1/sessions/no-such-session:optimize', {
+      text: 'fix the parser',
+    });
+
+    expect(body.code).toBe(40401);
+  });
 });
 
 async function listExportTempDirs(sessionId: string): Promise<string[]> {

@@ -1,9 +1,13 @@
 # Prompt optimizer — implementation review
 
-Read at commit `e1dd2db419`. Every claim names a file and line that resolves on that tree. This
-document is the review requested alongside the translation-key fix; **no change to the optimizer's
-implementation is proposed or made**, and the only optimizer code touched by this spec is the five
-mis-pathed translation keys covered by `tasks.md` tasks 2–5.
+Read at commit `e1dd2db419`. Every claim names a file and line that resolves on that tree.
+
+> **Update, 2026-10-08.** This document was originally a read-only review: "no change to the
+> optimizer's implementation is proposed or made". That is no longer true — items 2–5 below have been
+> fixed and items 1 and 6 are scheduled, each annotated in place with its current status. Two claims in
+> the original text were also wrong and are corrected in the sections that carry them: the REST
+> `optimize-prompt` action does not exist, and the translation defect's root cause is deeper than a
+> mis-pathed key. Read the status annotations rather than the surrounding prose where the two disagree.
 
 ## What it is
 
@@ -84,30 +88,47 @@ choice; `accept` writes the text back via `editor.setText(optimized, { preserveP
 
 None of these are the translation-key defect; that is tracked separately.
 
-**1. The engine's `MAX_CONTEXT_TURNS` constant has no reader.** `PROMPT_OPTIMIZER_MAX_CONTEXT_TURNS = 6`
+> **Status, updated 2026-10-08.** Items 2, 3, 4 and 5 have since been fixed; item 1 is scheduled and
+> item 6 is scheduled. Each entry below carries its current state and the commit-level evidence. The
+> REST claim further down turned out to be false and is corrected there.
+
+**1. The engine's `MAX_CONTEXT_TURNS` constant has no reader.** — **OPEN (fix scheduled).**
+`PROMPT_OPTIMIZER_MAX_CONTEXT_TURNS = 6`
 (`promptOptimizer.ts:7`) is exported but referenced nowhere. The actual limit lives in the TUI as
 `MAX_RECENT_TURNS = 6` plus `MAX_RECENT_TURN_CHARS = 400`
 (`controllers/prompt-optimizer.ts:9-10, 94`). The two agree today by coincidence; nothing keeps them
 agreeing, and a caller other than the TUI (the flag is `surface: 'both'`) inherits no turn limit at all.
 
-**2. The draft is silently truncated.** `buildOptimizerInput` slices to
-`PROMPT_OPTIMIZER_MAX_INPUT_LENGTH` (`promptOptimizerService.ts:106`) with no notice to the caller. A
+**2. The draft is silently truncated.** — **FIXED.**
+`buildOptimizerInput` slices to
+`PROMPT_OPTIMIZER_MAX_INPUT_LENGTH` with no notice to the caller. A
 user pasting a long prompt gets a rewrite of its first 8000 characters and no indication that the tail
 was dropped. The same applies to the context slice on line 104.
+Both slices now go through `clamp()`, which appends `PROMPT_OPTIMIZER_TRUNCATION_MARKER`
+(`…(truncated)`), matching the existing `lspTool` / `spawnTool` convention.
+Covered by "marks a draft that exceeds the input limit as truncated" and "does not mark a draft that
+fits as truncated" in `promptOptimizerService.test.ts`.
 
-**3. The output is truncated to a character count, not a boundary.**
-`rewritten.slice(0, PROMPT_OPTIMIZER_MAX_OUTPUT_LENGTH)` (`promptOptimizerService.ts:90`) can cut a
+**3. The output is truncated to a character count, not a boundary.** — **FIXED.**
+`rewritten.slice(0, PROMPT_OPTIMIZER_MAX_OUTPUT_LENGTH)` could cut a
 sentence — or an instruction — mid-way, and the result is written straight into the user's editor.
+`clampOutput()` now backs up to the last line break, sentence end or full stop, and the system reminder
+asks the model to stay under the limit so the backstop rarely fires.
+Covered by "backs the over-long rewrite up to a sentence boundary rather than cutting mid-word".
 
-**4. Context failures are swallowed.** `recentTurns` wraps everything in `catch { return undefined }`
-(`controllers/prompt-optimizer.ts:97-99`). A broken `getContext()` silently degrades the rewrite to
-draft-only with no log line, so there is nothing to diagnose from.
+**4. Context failures are swallowed.** — **FIXED.**
+`recentTurns` wrapped everything in `catch { return undefined }`. A broken `getContext()` silently
+degraded the rewrite to draft-only with no log line, so there was nothing to diagnose from.
+The catch now reports `prompt_optimize_context_failed` through the host's analytics channel and still
+returns `undefined`, so the rewrite degrades exactly as before.
 
-**5. The child's removal failure is swallowed.** `agentLifecycle.remove(childContext).catch(() => {})`
-(`promptOptimizerService.ts:94`). Defensible in a `finally`, but it means a leaked optimizer agent
-leaves no trace.
+**5. The child's removal failure is swallowed.** — **FIXED.**
+`agentLifecycle.remove(childContext).catch(() => {})` was defensible in a `finally`, but a leaked
+optimizer agent left no trace. The catch now logs a warning through `ILogService` with the agent id.
+Covered by "logs when the throwaway agent cannot be removed".
 
-**6. Re-entrancy is guarded only in the TUI.** `PromptOptimizerController.inFlight`
+**6. Re-entrancy is guarded only in the TUI.** — **OPEN (fix scheduled).**
+`PromptOptimizerController.inFlight`
 (`controllers/prompt-optimizer.ts:23,29,39`) prevents a second rewrite from one keystroke pattern, but
 the service itself has no guard — an SDK caller can fork concurrent optimizer agents. Nothing breaks;
 the child contexts are independent. Worth knowing rather than fixing.
@@ -125,3 +146,20 @@ tests mock `t()` with a table that returned whatever key they were given
 (`apps/kimi-code/test/tui/controllers/prompt-optimizer.test.ts:11-16` and
 `components/dialogs/prompt-optimize-panel.test.ts:8-11`). A mock keyed on the same wrong paths as
 production is a test that asserts the bug. Both now use the production paths.
+
+**Correction, 2026-10-08.** Fixing the key paths was necessary but not sufficient. The keys still
+resolve to nothing at runtime for a second, independent reason: the error code never reaches the TUI.
+`sdk-rpc-client-v2.ts:2899` restates any engine code missing from the SDK's `KIMI_ERROR_INFO` as
+`internal`, and `prompt_optimizer.*` is one of 102 engine codes absent from that table. So even with
+the correct paths, `formatLocalizedError` had no matching code to look up. See
+`reports/error-code-registry-gap.md`; the optimizer's three codes still need either a registry fix or
+an entry-level workaround before the translated copy becomes reachable.
+
+## Correction: the REST claim
+
+An earlier revision of this document, and `.changeset/prompt-optimizer-shortcut.md`, stated that the
+feature is "reachable outside the TUI too: … as the `optimize-prompt` session action over REST." That
+is false on this tree. `packages/kap-server/src/routes/sessions.ts:880` declares a `SessionAction`
+union of `fork | compact | undo | abort | btw | restore | archive | delete` — there is no `optimize`
+member, no handler, and no route. `grep -r optimize packages/kap-server` returns nothing. The SDK path
+(`session.optimizePrompt`) does exist; only the REST path is missing.

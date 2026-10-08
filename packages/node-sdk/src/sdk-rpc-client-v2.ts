@@ -2254,6 +2254,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     return session.accessor.get(ISessionPromptOptimizerService).optimize(input.text, {
       cwd: session.accessor.get(ISessionContext).cwd,
       recentTurns: input.recentTurns,
+      sessionKey: input.sessionId,
     });
   }
 

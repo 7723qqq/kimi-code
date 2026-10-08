@@ -210,6 +210,7 @@ export type KimiErrorCode =
   | 'prompt_optimizer.disabled'
   | 'prompt_optimizer.empty_draft'
   | 'prompt_optimizer.no_output'
+  | 'prompt_optimizer.busy'
   | 'spec.mode_invalid'
   | 'spec.incomplete'
   | 'spec.write_denied'

@@ -34,6 +34,7 @@ interface Harness {
   readonly track: ReturnType<typeof vi.fn>;
   readonly mount: ReturnType<typeof vi.fn>;
   readonly restoreEditor: ReturnType<typeof vi.fn>;
+  readonly session: { getContext: ReturnType<typeof vi.fn> };
   lastPanel(): {
     handleInput(data: string): void;
   };
@@ -80,6 +81,7 @@ function createHarness(draft = 'fix the parser'): Harness {
     track,
     mount,
     restoreEditor,
+    session,
     lastPanel: () => {
       if (panel === undefined) throw new Error('no panel mounted');
       return panel;
@@ -100,6 +102,26 @@ describe('PromptOptimizerController', () => {
 
     expect(h.optimizePrompt).toHaveBeenCalledWith('fix the parser', { recentTurns: undefined });
     expect(h.editor.setText).not.toHaveBeenCalled();
+    h.lastPanel().handleInput(ESC);
+    await pending;
+  });
+
+  it('passes recent user turns as an array for the engine to cap', async () => {
+    const h = createHarness();
+    h.session.getContext.mockResolvedValueOnce({
+      history: [
+        { role: 'user', origin: { kind: 'user' }, content: 'first ask' },
+        { role: 'assistant', content: 'a reply' },
+        { role: 'user', origin: { kind: 'user' }, content: 'second ask' },
+      ],
+      tokenCount: 0,
+    });
+    const pending = h.controller.optimize();
+    await vi.waitFor(() => expect(h.mount).toHaveBeenCalledOnce());
+
+    expect(h.optimizePrompt).toHaveBeenCalledWith('fix the parser', {
+      recentTurns: ['first ask', 'second ask'],
+    });
     h.lastPanel().handleInput(ESC);
     await pending;
   });

@@ -23,12 +23,14 @@ export interface PromptOptimizePanelOptions {
 }
 
 const MAX_DIFF_LINES = 24;
+const MAX_EXPANDED_DIFF_LINES = 200;
 
 export class PromptOptimizePanelComponent extends Container implements Focusable {
   focused = false;
 
   private readonly opts: PromptOptimizePanelOptions;
   private selected: PromptOptimizeChoice = 'accept';
+  private expanded = false;
 
   constructor(opts: PromptOptimizePanelOptions) {
     super();
@@ -38,6 +40,10 @@ export class PromptOptimizePanelComponent extends Container implements Focusable
   handleInput(data: string): void {
     if (matchesKey(data, Key.escape)) {
       this.opts.onSelect('discard');
+      return;
+    }
+    if (matchesKey(data, Key.ctrl('o'))) {
+      this.expanded = !this.expanded;
       return;
     }
     if (matchesKey(data, Key.left) || matchesKey(data, Key.up)) {
@@ -70,7 +76,8 @@ export class PromptOptimizePanelComponent extends Container implements Focusable
     ];
     for (const line of renderDiffLinesClustered(this.opts.original, this.opts.optimized, '', {
       contextLines: 2,
-      maxLines: MAX_DIFF_LINES,
+      maxLines: this.expanded ? MAX_EXPANDED_DIFF_LINES : MAX_DIFF_LINES,
+      expandKeyHint: this.expanded ? 'ctrl+o' : undefined,
     })) {
       lines.push(truncateToWidth(line, width));
     }

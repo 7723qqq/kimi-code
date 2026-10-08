@@ -928,13 +928,24 @@ describe('AgentTowerService', () => {
       expect(activityLog).not.toContain(' revived ');
 
       const skips = infos.filter((entry) => entry.msg.includes('skipping'));
-      expect(skips.map((entry) => entry.msg)).toEqual([
-        'tower: skipping roster agent death mark — tower store is owned by another session',
-        'tower: skipping roster agent death clear — tower store is owned by another session',
-      ]);
-      expect(skips[0]?.payload).toMatchObject({
+      expect(skips.map((entry) => entry.msg).toSorted()).toEqual(
+        [
+          'tower: skipping roster agent death mark — tower store is owned by another session',
+          'tower: skipping roster agent death clear — tower store is owned by another session',
+        ].toSorted(),
+      );
+      const markSkip = skips.find((entry) => entry.msg.includes('death mark'));
+      const clearSkip = skips.find((entry) => entry.msg.includes('death clear'));
+      expect(markSkip?.payload).toMatchObject({
         event: 'TaskTerminatedNotice',
         agentId: 'agent-w1',
+        sessionId: 'session-main',
+        owner: 'session-other',
+        pid: process.pid,
+      });
+      expect(clearSkip?.payload).toMatchObject({
+        event: 'SubagentStarted',
+        agentId: 'agent-w2',
         sessionId: 'session-main',
         owner: 'session-other',
         pid: process.pid,

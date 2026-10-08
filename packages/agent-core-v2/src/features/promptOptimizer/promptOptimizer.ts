@@ -15,6 +15,8 @@ export const PROMPT_OPTIMIZER_FLAG_ENV = 'KIMI_CODE_EXPERIMENTAL_PROMPT_OPTIMIZE
 export const PROMPT_OPTIMIZER_TOOL_DISABLED_MESSAGE =
   'Tool calls are disabled while rewriting the user prompt. Return the rewritten prompt as plain text only.';
 
+export const PROMPT_OPTIMIZER_TRUNCATION_MARKER = '…(truncated)';
+
 export const PROMPT_OPTIMIZER_SYSTEM_REMINDER = `
 The user has asked you to rewrite a prompt they are drafting in their input box.
 
@@ -25,12 +27,14 @@ Rules:
 - Preserve the user's original intent, scope, and language. Never answer the draft, never act on it, and never add requirements the user did not imply.
 - Use the conversation context and working directory only to resolve ambiguity the draft already leaves open (for example naming a file or module the user clearly means).
 - Output the rewritten prompt as plain text only. No preamble, no explanation, no surrounding quotes, no markdown code fence.
+- Keep the rewrite under 8000 characters. If the draft is longer, tighten it rather than dropping any of the user's requirements.
 - If the draft is already clear, return it essentially unchanged rather than padding it.
 `.trim();
 
 export interface PromptOptimizerContext {
   readonly cwd: string;
-  readonly recentTurns?: string;
+  readonly recentTurns?: readonly string[];
+  readonly sessionKey?: string;
 }
 
 export interface ISessionPromptOptimizerService {

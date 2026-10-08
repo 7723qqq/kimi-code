@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
+import { ILogService } from '#/_base/log/log';
 import { IFlagService } from '#/app/flag/flag';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
@@ -11,9 +12,12 @@ import { IAgentReminderService } from '#/features/reminder/reminderService';
 import {
   ISessionPromptOptimizerService,
   PROMPT_OPTIMIZER_FLAG_ID,
+  PROMPT_OPTIMIZER_MAX_CONTEXT_TURNS,
+  PROMPT_OPTIMIZER_MAX_INPUT_LENGTH,
   PROMPT_OPTIMIZER_MAX_OUTPUT_LENGTH,
   PROMPT_OPTIMIZER_SYSTEM_REMINDER,
   PROMPT_OPTIMIZER_TOOL_DISABLED_MESSAGE,
+  PROMPT_OPTIMIZER_TRUNCATION_MARKER,
 } from '#/features/promptOptimizer/promptOptimizer';
 import { SessionPromptOptimizerService } from '#/features/promptOptimizer/promptOptimizerService';
 import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
@@ -23,7 +27,7 @@ import type { ToolCall } from '#human/llm/message';
 import { stubAgentContext } from '../../agent/agentContext/stubs';
 import { stubToolExecutorEvents, type ToolExecutorEventStubs } from '../../agent/toolExecutor/stubs';
 
-const CONTEXT = { cwd: 'C:/work/demo', recentTurns: 'user: fix the parser' };
+const CONTEXT = { cwd: 'C:/work/demo', recentTurns: ['user: fix the parser'] };
 
 describe('SessionPromptOptimizerService', () => {
   let disposables: DisposableStore;
@@ -93,6 +97,13 @@ describe('SessionPromptOptimizerService', () => {
       _serviceBrand: undefined,
       run: (agent: unknown, request: unknown) => run(agent, request),
     } as unknown as ISessionSubagentService);
+    ix.stub(ILogService, {
+      _serviceBrand: undefined,
+      warn: vi.fn(),
+      info: vi.fn(),
+      error: vi.fn(),
+      debug: vi.fn(),
+    } as unknown as ILogService);
     ix.stub(IFlagService, {
       _serviceBrand: undefined,
       enabled: (id: string) => (id === PROMPT_OPTIMIZER_FLAG_ID ? enabled : false),
@@ -170,6 +181,104 @@ describe('SessionPromptOptimizerService', () => {
     stubRunSummary('x'.repeat(PROMPT_OPTIMIZER_MAX_OUTPUT_LENGTH + 500));
     const svc = ix.get(ISessionPromptOptimizerService);
     const result = await svc.optimize('fix the thing', CONTEXT);
-    expect(result).toHaveLength(PROMPT_OPTIMIZER_MAX_OUTPUT_LENGTH);
+    expect(result.length).toBeLessThanOrEqual(PROMPT_OPTIMIZER_MAX_OUTPUT_LENGTH);
+  });
+
+  it('backs the over-long rewrite up to a sentence boundary rather than cutting mid-word', async () => {
+    const sentence = 'Do the thing. ';
+    const body = sentence
+      .repeat(Math.ceil(PROMPT_OPTIMIZER_MAX_OUTPUT_LENGTH / sentence.length) + 20)
+      .trimEnd();
+    stubRunSummary(body);
+    const svc = ix.get(ISessionPromptOptimizerService);
+    const result = await svc.optimize('fix the thing', CONTEXT);
+    expect(result.length).toBeLessThanOrEqual(PROMPT_OPTIMIZER_MAX_OUTPUT_LENGTH);
+    expect(result.endsWith('.')).toBe(true);
+    expect(body.startsWith(result)).toBe(true);
+  });
+
+  it('marks a draft that exceeds the input limit as truncated', async () => {
+    const svc = ix.get(ISessionPromptOptimizerService);
+    await svc.optimize('y'.repeat(PROMPT_OPTIMIZER_MAX_INPUT_LENGTH + 100), CONTEXT);
+
+    const prompt = run.mock.calls[0]?.[1] as { prompt: string };
+    expect(prompt.prompt).toContain(PROMPT_OPTIMIZER_TRUNCATION_MARKER);
+  });
+
+  it('does not mark a draft that fits as truncated', async () => {
+    const svc = ix.get(ISessionPromptOptimizerService);
+    await svc.optimize('fix the thing', CONTEXT);
+
+    const prompt = run.mock.calls[0]?.[1] as { prompt: string };
+    expect(prompt.prompt).not.toContain(PROMPT_OPTIMIZER_TRUNCATION_MARKER);
+  });
+
+  it('logs when the throwaway agent cannot be removed', async () => {
+    remove.mockRejectedValueOnce(new Error('remove exploded'));
+    const warn = vi.fn();
+    ix.stub(ILogService, { _serviceBrand: undefined, warn } as unknown as ILogService);
+    const svc = ix.get(ISessionPromptOptimizerService);
+
+    await expect(svc.optimize('fix the thing', CONTEXT)).resolves.toBe('Rewritten prompt.');
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it('caps the recent turns the engine forwards to the child', async () => {
+    const svc = ix.get(ISessionPromptOptimizerService);
+    const turns = Array.from({ length: PROMPT_OPTIMIZER_MAX_CONTEXT_TURNS + 4 }, (_, i) => `turn-${i}`);
+    await svc.optimize('fix the thing', { ...CONTEXT, recentTurns: turns });
+
+    const prompt = run.mock.calls[0]?.[1] as { prompt: string };
+    for (const dropped of turns.slice(0, 4)) {
+      expect(prompt.prompt).not.toContain(dropped);
+    }
+    for (const kept of turns.slice(4)) {
+      expect(prompt.prompt).toContain(kept);
+    }
+  });
+
+  it('rejects a second rewrite while one is already running for the session', async () => {
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    run = vi.fn(async () => ({
+      agentId: 'agent-opt-1',
+      turn: {},
+      completion: gate.then(() => ({ summary: 'Rewritten prompt.' })),
+    }));
+    const svc = ix.get(ISessionPromptOptimizerService);
+
+    const first = svc.optimize('fix the thing', { ...CONTEXT, sessionKey: 'session-1' });
+    await expect(
+      svc.optimize('fix the thing again', { ...CONTEXT, sessionKey: 'session-1' }),
+    ).rejects.toThrow(/already running/i);
+
+    release?.();
+    await expect(first).resolves.toBe('Rewritten prompt.');
+  });
+
+  it('allows a rewrite for a different session while one is running', async () => {
+    let release: (() => void) | undefined;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let calls = 0;
+    run = vi.fn(async () => {
+      calls++;
+      return {
+        agentId: 'agent-opt-1',
+        turn: {},
+        completion: gate.then(() => ({ summary: 'Rewritten prompt.' })),
+      };
+    });
+    const svc = ix.get(ISessionPromptOptimizerService);
+
+    const first = svc.optimize('fix the thing', { ...CONTEXT, sessionKey: 'session-1' });
+    const second = svc.optimize('fix the other thing', { ...CONTEXT, sessionKey: 'session-2' });
+
+    release?.();
+    await expect(Promise.all([first, second])).resolves.toHaveLength(2);
+    expect(calls).toBe(2);
   });
 });

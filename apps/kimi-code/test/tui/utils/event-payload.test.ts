@@ -70,6 +70,20 @@ describe('error payload formatting', () => {
 
     expect(formatErrorMessage(error)).toBe(conciseFilteredMessage);
   });
+
+  it('localizes a KimiError whose code has a locale entry', () => {
+    const error = new KimiError(ErrorCodes.GOAL_NOT_FOUND, 'No goal found');
+
+    const formatted = formatErrorMessage(error);
+    expect(formatted).toContain('[goal.not_found]');
+    expect(formatted).toContain('No goal found');
+  });
+
+  it('falls back to the raw payload for a KimiError with no locale entry', () => {
+    const error = new KimiError(ErrorCodes.PROVIDER_API_ERROR, 'boom');
+
+    expect(formatErrorMessage(error)).toBe('[provider.api_error] boom');
+  });
 });
 
 describe('isTodoItemShape', () => {
