@@ -20,13 +20,6 @@ import {
 import { KnowledgeInjection } from './knowledgeInjection';
 import { KnowledgeLearner } from './knowledgeLearner';
 
-/**
- * The native knowledge API, or undefined when this build does not export it.
- *
- * The check is per-function rather than a truthiness test on the module: the
- * module loads fine without the knowledge bindings, so `!nativeKnowledge` let a
- * missing API through and every call below failed at `undefined(...)`.
- */
 interface NativeKnowledgeApi {
   knowledgeOpen(dbPath: string): void;
   knowledgeClose(dbPath?: string | null): void;
@@ -79,12 +72,6 @@ try {
   nativeKnowledge = undefined;
 }
 
-/**
- * Confidence an entry needs before it is injected into a prompt.
- *
- * Sits above `LEARNED_CONFIDENCE` (0.4) so a freshly learned entry is stored but
- * withheld, and below 1.0 so `confirm()` — which sets exactly 1.0 — admits it.
- */
 export const INJECTION_CONFIDENCE_FLOOR = 0.5;
 
 export class AgentKnowledgeService extends Disposable implements IAgentKnowledgeService {
@@ -113,11 +100,6 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
     }
   }
 
-  /**
-   * The native API, valid only once `ensureDatabase()` has returned true.
-   * An accessor rather than a cast at each call site, so a mistake is a throw
-   * rather than a silently undefined method.
-   */
   private get native(): NativeKnowledgeApi {
     if (nativeKnowledge === undefined) {
       throw new Error('knowledge database is not open');
@@ -125,15 +107,6 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
     return nativeKnowledge;
   }
 
-  /**
-   * Open a knowledge database if one is not already open.
-   *
-   * Opening a path creates it, so this is only reached from a call that intends
-   * to write. Reads use `openExisting()` instead: searching must not leave a
-   * database behind on a machine that has never stored anything.
-   *
-   * @returns whether a database is open
-   */
   private ensureDatabase(): boolean {
     if (this.initialized) return true;
     if (!nativeKnowledge) return false;
@@ -150,11 +123,6 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
     return this.openAt(userDb);
   }
 
-  /**
-   * Open a database that already exists, without creating one.
-   *
-   * @returns whether a database is open
-   */
   private openExisting(): boolean {
     if (this.initialized) return true;
     if (!nativeKnowledge) return false;
@@ -171,7 +139,6 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
     return existsSync(userDb) ? this.openAt(userDb) : false;
   }
 
-  /** @returns whether the database opened */
   private openAt(path: string): boolean {
     if (!nativeKnowledge) return false;
     try {
@@ -213,8 +180,6 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
   }
 
   search(query: string, scopePath?: string, tags?: string[], limit = 5): KnowledgeSearchResult[] {
-    // A read must not create: on a machine that has never stored anything,
-    // searching should find nothing and leave nothing behind.
     if (!this.openExisting()) return [];
     try {
       const tagsStr = tags?.join(',') ?? null;
@@ -226,12 +191,6 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
         INJECTION_CONFIDENCE_FLOOR,
       );
       const results: KnowledgeSearchResult[] = JSON.parse(json);
-      // The stored entries carry no `status` column, so an entry is
-      // "unconfirmed" by virtue of its confidence sitting below the floor:
-      // `KnowledgeLearner` writes at LEARNED_CONFIDENCE, and `confirm()` raises
-      // it to 1.0. Filtering on the field the schema actually has keeps the
-      // gate honest — the previous `status !== 'pending'` test compared against
-      // undefined and let everything through.
       return results.filter((r) => r.entry.confidence >= INJECTION_CONFIDENCE_FLOOR);
     } catch (error) {
       this.log.error('knowledge.search failed', { error: error, query });
@@ -274,8 +233,6 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
   reject(id: string): boolean {
     if (!this.ensureDatabase()) return false;
     try {
-      // The Rust layer has no `knowledge_reject`; the binding falls back to
-      // removal, which is what rejecting an entry means here.
       const api = this.native;
       const reject = api.knowledgeReject?.bind(api) ?? api.knowledgeRemove.bind(api);
       return reject(id);

@@ -10,11 +10,6 @@ import { LEARNED_CONFIDENCE } from '#/agent/knowledge/knowledgeLearner';
 
 import { createTestAgent, type TestAgentContext } from '../../harness';
 
-/**
- * The native layer holds ONE process-global database, shared by every test in a
- * vitest worker. Anything opened here would otherwise be visible to later tests
- * in the same worker, so each test closes it on the way out.
- */
 const nativeKnowledge = (() => {
   try {
     return require('@moonshot-ai/kimi-native-tools') as {
@@ -25,18 +20,12 @@ const nativeKnowledge = (() => {
   }
 })();
 
-/**
- * The confidence-based gate that replaced the dead `status` filter is only
- * meaningful if the two constants bracket each other: a learned entry must sit
- * below the floor so it is withheld, and `confirm()` must lift it above.
- */
 describe('the learned-to-confirmed gate', () => {
   it('withholds a freshly learned entry', () => {
     expect(LEARNED_CONFIDENCE).toBeLessThan(INJECTION_CONFIDENCE_FLOOR);
   });
 
   it('admits a confirmed entry', () => {
-    // Rust `knowledge_confirm` sets confidence = 1.0.
     expect(1.0).toBeGreaterThanOrEqual(INJECTION_CONFIDENCE_FLOOR);
   });
 });
@@ -47,10 +36,6 @@ describe('learning loop over the real native module', () => {
   let dir: string;
 
   beforeEach(() => {
-    // The native layer holds one process-global database and the test harness
-    // points every agent at the same home directory, so a write here would be
-    // visible to unrelated tests. KIMI_KNOWLEDGE_DB pins this suite to its own
-    // file, and afterEach releases it.
     dir = mkdtempSync(join(tmpdir(), 'knowledge-loop-'));
     process.env['KIMI_KNOWLEDGE_DB'] = join(dir, 'knowledge.db');
     ctx = createTestAgent({ autoConfigure: false });
@@ -77,7 +62,6 @@ describe('learning loop over the real native module', () => {
       confidence: LEARNED_CONFIDENCE,
     });
 
-    // Without the native API wired up this is null; that is the regression.
     expect(entry, 'knowledge.add returned null — is the native API wired?').not.toBeNull();
     expect(entry!.id.length).toBeGreaterThan(0);
     expect(entry).not.toHaveProperty('status');

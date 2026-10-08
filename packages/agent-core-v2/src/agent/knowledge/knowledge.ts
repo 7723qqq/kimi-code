@@ -7,12 +7,6 @@ export interface KnowledgeEntry {
   content: string;
   tags: string[];
   scope: string | null;
-  /**
-   * Whether an entry counts as confirmed is expressed here rather than by a
-   * `status` field: the store has no such column. `KnowledgeLearner` writes at
-   * `LEARNED_CONFIDENCE`, `confirm()` raises it to 1.0, and `search` admits only
-   * entries at or above `INJECTION_CONFIDENCE_FLOOR`.
-   */
   confidence: number;
   source: 'human' | 'ai-learned' | 'ai-confirmed';
   created_at: string;

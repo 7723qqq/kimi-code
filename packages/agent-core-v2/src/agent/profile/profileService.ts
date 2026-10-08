@@ -880,16 +880,6 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     };
   }
 
-  /**
-   * The adaptation measured for the active model, or '' when it has none.
-   *
-   * Off by default. The committed adaptations carry figures with no recorded
-   * provenance — nothing in the repository produces them — so injecting them by
-   * default would put unverified advice in every prompt for the models they
-   * name. Set `KIMI_MODEL_ADAPTATIONS=1` to opt in.
-   *
-   * Failing to read one is never fatal: the prompt is simply emitted without it.
-   */
   private async resolveModelAdaptation(): Promise<string> {
     if (!modelAdaptationsEnabled(this.bootstrap.getEnv('KIMI_MODEL_ADAPTATIONS'))) return '';
 

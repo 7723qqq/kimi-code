@@ -5,13 +5,6 @@ import { IEventBus } from '#/app/event/eventBus';
 
 import { IAgentKnowledgeService } from './knowledge';
 
-/**
- * Confidence given to an entry learned from a correction.
- *
- * Below the 0.5 floor `search` uses, so a freshly learned entry is stored but
- * not injected until something raises its confidence — human review, via
- * `confirm()`, which sets it to 1.0.
- */
 export const LEARNED_CONFIDENCE = 0.4;
 
 const CORRECTION_PATTERNS = [

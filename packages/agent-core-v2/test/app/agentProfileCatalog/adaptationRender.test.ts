@@ -6,12 +6,6 @@ import {
 } from '#/app/agentProfileCatalog/modelAdaptations';
 import { renderPromptTemplateResult, systemPromptVars } from '#/app/agentProfileCatalog/profile-shared';
 
-/**
- * A stand-in for `system.md`, which a test cannot import directly: the `?raw`
- * loader is configured for the source tree only. These assertions therefore
- * cover the contract the real template consumes — the `model_adaptation_section`
- * variable — rather than the shipped file.
- */
 const TEMPLATE = 'BODY\n${model_adaptation_section}END';
 
 async function sectionFor(model: string): Promise<string> {

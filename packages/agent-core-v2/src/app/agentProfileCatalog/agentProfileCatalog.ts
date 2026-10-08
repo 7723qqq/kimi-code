@@ -30,7 +30,6 @@ export interface AgentProfileContext {
   readonly skills?: string;
   readonly skillActive?: boolean;
   readonly pluginSections?: string;
-  /** Reference notes measured for the active model, or ''. */
   readonly modelAdaptation?: string;
   readonly productName?: string;
   readonly replyStyleGuide?: string;
