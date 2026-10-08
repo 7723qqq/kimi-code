@@ -157,6 +157,21 @@ pub fn knowledge_open(db_path: String) -> Result<()> {
     Ok(())
 }
 
+/// Close the connection currently held, if any.
+///
+/// The database is process-global, so this is the only way to release it —
+/// without it a second `knowledge_open` is the sole means of switching, and a
+/// test or a workspace change cannot return to a closed state.
+#[napi]
+pub fn knowledge_close() -> Result<()> {
+    let mut guard = DB
+        .lock()
+        .map_err(|e| Error::from_reason(format!("DB lock: {e}")))?;
+    // Dropping the connection flushes WAL and releases the file handle.
+    *guard = None;
+    Ok(())
+}
+
 #[napi]
 pub fn knowledge_add(
     title: String,

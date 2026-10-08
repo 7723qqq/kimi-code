@@ -1,7 +1,5 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 
-export type KnowledgeEntryStatus = 'pending' | 'confirmed' | 'rejected';
-
 export interface KnowledgeEntry {
   id: string;
   category: 'coding-style' | 'pitfall' | 'architecture' | 'workflow';
@@ -9,9 +7,14 @@ export interface KnowledgeEntry {
   content: string;
   tags: string[];
   scope: string | null;
+  /**
+   * Whether an entry counts as confirmed is expressed here rather than by a
+   * `status` field: the store has no such column. `KnowledgeLearner` writes at
+   * `LEARNED_CONFIDENCE`, `confirm()` raises it to 1.0, and `search` admits only
+   * entries at or above `INJECTION_CONFIDENCE_FLOOR`.
+   */
   confidence: number;
   source: 'human' | 'ai-learned' | 'ai-confirmed';
-  status: KnowledgeEntryStatus;
   created_at: string;
   updated_at: string;
 }
@@ -30,24 +33,20 @@ export interface KnowledgeAddInput {
   scope?: string;
   source?: 'human' | 'ai-learned';
   confidence?: number;
-  status?: KnowledgeEntryStatus;
 }
 
 export interface KnowledgeStats {
   total: number;
   by_category: Record<string, number>;
   by_source: Record<string, number>;
-  by_status: Record<string, number>;
   avg_confidence: number;
 }
 
 export interface IAgentKnowledgeService {
   readonly _serviceBrand: undefined;
 
-  /** Initialize the database (called once at agent start) */
   open(projectDbPath: string, userDbPath: string): void;
 
-  /** Search for relevant standards given context */
   search(
     query: string,
     scopePath?: string,
@@ -55,19 +54,14 @@ export interface IAgentKnowledgeService {
     limit?: number,
   ): KnowledgeSearchResult[];
 
-  /** Add a new knowledge entry */
   add(input: KnowledgeAddInput): KnowledgeEntry | null;
 
-  /** Confirm an AI-learned entry (sets confidence to 1.0) */
   confirm(id: string): boolean;
 
-  /** Reject/remove an entry */
   remove(id: string): boolean;
 
-  /** Get statistics */
   stats(): KnowledgeStats;
 
-  /** Import from markdown string */
   importMarkdown(markdown: string): KnowledgeEntry[];
 }
 

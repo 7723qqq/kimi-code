@@ -1,8 +1,18 @@
 import { Disposable } from '#/_base/di/lifecycle';
+import { ILogService } from '#/_base/log/log';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IEventBus } from '#/app/event/eventBus';
 
 import { IAgentKnowledgeService } from './knowledge';
+
+/**
+ * Confidence given to an entry learned from a correction.
+ *
+ * Below the 0.5 floor `search` uses, so a freshly learned entry is stored but
+ * not injected until something raises its confidence — human review, via
+ * `confirm()`, which sets it to 1.0.
+ */
+export const LEARNED_CONFIDENCE = 0.4;
 
 const CORRECTION_PATTERNS = [
   /不对[，,]?应该/,
@@ -22,6 +32,7 @@ export class KnowledgeLearner extends Disposable {
     @IAgentKnowledgeService private readonly knowledge: IAgentKnowledgeService,
     @IEventBus private readonly eventBus: IEventBus,
     @IAgentContextMemoryService private readonly contextMemory: IAgentContextMemoryService,
+    @ILogService private readonly log: ILogService,
   ) {
     super();
     this._register(this.eventBus.subscribe('turn.ended', () => this.onTurnEnded()));
@@ -72,10 +83,20 @@ export class KnowledgeLearner extends Disposable {
       content: text,
       tags,
       source: 'ai-learned',
-      confidence: 0.7,
+      confidence: LEARNED_CONFIDENCE,
     });
 
     if (entry) {
+      this.log.info('knowledge learned from a user correction', {
+        id: entry.id,
+        category: entry.category,
+        title: entry.title,
+      });
+    } else {
+      this.log.warn('knowledge learn failed; the correction was not stored', {
+        title,
+        category,
+      });
     }
   }
 }
