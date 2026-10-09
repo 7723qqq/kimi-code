@@ -215,11 +215,28 @@ export function extractUsage(usage: unknown): TokenUsage | null {
   let cached = 0;
   let miss: number | undefined;
   // DeepSeek proprietary: prompt_cache_hit_tokens / prompt_cache_miss_tokens
-  // (top-level, alongside prompt_tokens / completion_tokens).
-  if (typeof u['prompt_cache_hit_tokens'] === 'number') {
-    cached = u['prompt_cache_hit_tokens'];
-    if (typeof u['prompt_cache_miss_tokens'] === 'number') {
-      miss = u['prompt_cache_miss_tokens'];
+  // (top-level, alongside prompt_tokens / completion_tokens). When the pair is
+  // present but its parts sum to more than prompt_tokens the fields cannot both
+  // be right, so they are rejected and the OpenAI/Moonshot counters below are
+  // used instead. A sum that is merely less than prompt_tokens is not an error:
+  // an endpoint may report only part of the split.
+  const deepSeekHit = u['prompt_cache_hit_tokens'];
+  if (typeof deepSeekHit === 'number') {
+    const deepSeekMiss = u['prompt_cache_miss_tokens'];
+    const contradicts =
+      typeof deepSeekMiss === 'number' && deepSeekHit + deepSeekMiss > promptTokens;
+    if (contradicts) {
+      cached = typeof u['cached_tokens'] === 'number' ? u['cached_tokens'] : 0;
+      if (cached === 0) {
+        const details = u['prompt_tokens_details'];
+        if (typeof details === 'object' && details !== null) {
+          const detailed = (details as Record<string, unknown>)['cached_tokens'];
+          if (typeof detailed === 'number') cached = detailed;
+        }
+      }
+    } else {
+      cached = deepSeekHit;
+      if (typeof deepSeekMiss === 'number') miss = deepSeekMiss;
     }
   } else if (typeof u['cached_tokens'] === 'number') {
     // Moonshot proprietary: top-level cached_tokens

@@ -2206,6 +2206,53 @@ describe('extractUsage', () => {
     });
   });
 
+  it('rejects a DeepSeek split that adds up to more than the prompt', () => {
+    const usage = extractUsage({
+      prompt_tokens: 100,
+      completion_tokens: 20,
+      prompt_cache_hit_tokens: 5000,
+      prompt_cache_miss_tokens: 0,
+      cached_tokens: 0,
+    });
+    expect(usage).toEqual({
+      inputOther: 100,
+      output: 20,
+      inputCacheRead: 0,
+      inputCacheCreation: 0,
+    });
+  });
+
+  it('falls back to the cached count when the DeepSeek split is rejected', () => {
+    const usage = extractUsage({
+      prompt_tokens: 100,
+      completion_tokens: 20,
+      prompt_cache_hit_tokens: 5000,
+      prompt_cache_miss_tokens: 0,
+      cached_tokens: 40,
+    });
+    expect(usage).toEqual({
+      inputOther: 60,
+      output: 20,
+      inputCacheRead: 40,
+      inputCacheCreation: 0,
+    });
+  });
+
+  it('keeps a DeepSeek split that reports less than the prompt', () => {
+    const usage = extractUsage({
+      prompt_tokens: 500,
+      completion_tokens: 20,
+      prompt_cache_hit_tokens: 10,
+      prompt_cache_miss_tokens: 20,
+    });
+    expect(usage).toEqual({
+      inputOther: 20,
+      output: 20,
+      inputCacheRead: 10,
+      inputCacheCreation: 0,
+    });
+  });
+
   it('returns null for null/undefined', () => {
     const undef: unknown = undefined;
     expect(extractUsage(null)).toBeNull();
