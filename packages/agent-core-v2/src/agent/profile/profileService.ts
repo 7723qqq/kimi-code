@@ -74,13 +74,10 @@ import type {
   ProfileUpdateData,
 } from './profile';
 import {
-  adaptationFileStem,
-  isCuratedAdaptationModel,
-  MODEL_ADAPTATIONS_ENV,
-  resolveModelAdaptationText,
+  adaptationDeliveredByReminder,
+  loadCuratedAdaptation,
 } from '#/app/agentProfileCatalog/modelAdaptations';
 import type { SystemPromptRenderResult } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import { familyAdaptationPrefixes } from '#/llm-adapter/contract/modelFamily';
 
 import { IAgentProfileService, ProfileError, ProfileErrors } from './profile';
 import {
@@ -933,22 +930,17 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
   private async resolveModelAdaptation(pendingModelAlias?: string): Promise<string> {
     const alias = this.modelAlias ?? pendingModelAlias;
     if (alias === undefined || alias === '') return '';
-    const wireName = this.resolveModelForThinking(alias)?.name;
-    const model = wireName ?? alias;
-    // Families whose curated guidance ships as a per-agent reminder own that
-    // delivery channel, and their prompt shape is `minimal`, which has no
-    // `${model_adaptation_section}` placeholder. Resolving here would load the
-    // file only to have the template discard it — and would then be reported as
-    // a dropped variable. Let the reminder path carry it.
-    if (isCuratedAdaptationModel(model)) return '';
+    const model = this.resolveModelForThinking(alias)?.name ?? alias;
+    // A family whose prompt shape is `minimal` has no
+    // `${model_adaptation_section}` placeholder, so its guidance is delivered by
+    // the per-agent reminder instead. Loading it here would put the text into a
+    // variable the template then discards, and the renderer would report that as
+    // a dropped variable. The two channels are complementary: exactly one of
+    // them owns a given family.
+    if (adaptationDeliveredByReminder(model)) return '';
     try {
-      const resolved = await resolveModelAdaptationText({
-        model,
-        candidates: adaptationCandidates(wireName, alias),
-        optIn: this.bootstrap.getEnv(MODEL_ADAPTATIONS_ENV),
-        log: this.log,
-      });
-      return resolved ?? '';
+      const adaptation = await loadCuratedAdaptation(model, this.log);
+      return adaptation ?? '';
     } catch (error: unknown) {
       this.log.warn(`model adaptation lookup failed for "${model}": ${String(error)}`);
       return '';
@@ -1038,18 +1030,3 @@ registerScopedService(
   'profile',
 );
 
-function adaptationCandidates(
-  wireName: string | undefined,
-  alias: string | undefined,
-): readonly string[] {
-  const stems: string[] = [];
-  const push = (value: string | undefined): void => {
-    if (value === undefined) return;
-    const stem = adaptationFileStem(value);
-    if (stem.length > 0 && !stems.includes(stem)) stems.push(stem);
-  };
-  push(wireName);
-  push(alias);
-  for (const prefix of familyAdaptationPrefixes(wireName ?? alias ?? '')) push(prefix);
-  return stems;
-}

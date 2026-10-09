@@ -68,12 +68,16 @@ The same rule also exists in `packages/kosong/src/providers/openai-common.ts`, b
 
 ## Model adaptations
 
-`app/agentProfileCatalog/model-adaptations/` holds two kinds, split by directory:
+`app/agentProfileCatalog/model-adaptations/curated/` holds hand-authored family guidance, and every family resolves to it through the prefix the family table declares. A versioned or provider-qualified id (`deepseek-v4-pro`, `xopdeepseekv32`, `workbuddy/deepseek-v4.1-flash`) therefore needs no adaptation file of its own.
 
-- `curated/` — hand-authored family guidance. Loaded by default.
-- `measured/` — probe output. Loaded only when `KIMI_MODEL_ADAPTATIONS=1`.
+There is deliberately no second kind of adaptation file. A `measured/` directory existed and was removed with the mechanism that read it, because nothing in this repository writes such files: `scripts/prompt-optimizer probe` writes JSON into the gitignored `reports/` directory, and no code path targets `model-adaptations`. Every file that shipped there had hand-written numbers presented as probe output, for models that had already been retired or had never existed as wire ids. If a real producer is ever built, reintroduce the directory *together* with the code that writes it — a file without a producer is an unverifiable claim.
 
-`resolveModelAdaptationText` owns the precedence in one place: measured output outranks the curated family file when the flag is set, and curated is all that is reachable when it is not. Both the system-prompt path and the reminder-injection path call it, so they cannot disagree about which file a model receives. Families whose prompt shape is `minimal` have no `${model_adaptation_section}` placeholder, so their guidance is delivered by the reminder injection instead — see `features/deepseekAdaptation`.
+The two delivery channels are complementary, and a family is served by exactly one:
+
+- **Reminder injection** — for families whose `promptShape` is `minimal`. Those templates have no `${model_adaptation_section}` placeholder, so the prompt path could only load the file and have the renderer report it as a dropped variable. `adaptationDeliveredByReminder` names this case, and `features/deepseekAdaptation` implements it.
+- **System-prompt section** — for any future family that carries curated guidance without the minimal shape.
+
+`loadCuratedAdaptation` and `hasCuratedAdaptation` gate on the family declaring `curatedAdaptation`, so an unregistered model is never given guidance.
 
 ## Testing
 

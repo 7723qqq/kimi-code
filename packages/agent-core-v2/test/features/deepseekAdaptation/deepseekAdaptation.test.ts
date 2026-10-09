@@ -1,3 +1,7 @@
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
 import { afterEach, describe, expect, it } from 'vitest';
 
 import type { ILogger } from '#/_base/log/log';
@@ -9,14 +13,16 @@ import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { DEFAULT_AGENT_PROFILE_NAME } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import {
-  isCuratedAdaptationModel,
+  adaptationDeliveredByReminder,
+  hasCuratedAdaptation,
   loadCuratedAdaptation,
 } from '#/app/agentProfileCatalog/modelAdaptations';
 import { IEventBus } from '#/app/event/eventBus';
 import { PendingAdaptationCache } from '#/features/deepseekAdaptation/deepseekAdaptationService';
+import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 
 import { runWillBeginStepHooks, type StubLoop } from '../../agent/loop/stubs';
-import { createTestAgent, type TestAgentContext } from '../../harness';
+import { createTestAgent, logServices, type TestAgentContext } from '../../harness';
 
 const log: ILogger = {
   error() {},
@@ -27,8 +33,6 @@ const log: ILogger = {
     return log;
   },
 };
-
-const ADAPTATIONS_ENV = 'KIMI_MODEL_ADAPTATIONS';
 
 describe('curated adaptation lookup', () => {
   it('loads the curated family file for a deepseek wire name', async () => {
@@ -52,10 +56,9 @@ describe('curated adaptation lookup', () => {
   });
 
   it('routes every deepseek wire name through the curated family file', async () => {
-    // The measured/ directory only loads under KIMI_MODEL_ADAPTATIONS=1, and the
-    // curated file outranks it as the family default. Pinning the curated-vs-
-    // measured decision here means a future change to the precedence cannot
-    // silently make the curated guidance unreachable.
+    // The family prefix is the only key: every deepseek-shaped name resolves to
+    // the single curated file, so a new versioned or provider-qualified id does
+    // not need its own adaptation file to receive guidance.
     for (const wire of [
       'deepseek-v3',
       'deepseek-v4-pro',
@@ -63,7 +66,8 @@ describe('curated adaptation lookup', () => {
       'workbuddy/deepseek-v4.1-flash',
       'xopdeepseekv32',
     ]) {
-      expect(isCuratedAdaptationModel(wire)).toBe(true);
+      expect(hasCuratedAdaptation(wire)).toBe(true);
+      expect(adaptationDeliveredByReminder(wire)).toBe(true);
       expect(await loadCuratedAdaptation(wire, log)).toContain('# Model Adaptation:');
     }
   });
@@ -153,10 +157,12 @@ function spliceContext(
 
 describe('DeepSeek minimal adaptation injection', () => {
   let ctx: TestAgentContext | undefined;
+  const tempDirs: string[] = [];
 
   afterEach(async () => {
     await ctx?.dispose();
     ctx = undefined;
+    for (const dir of tempDirs.splice(0)) await rm(dir, { recursive: true, force: true });
   });
 
   async function boot(model: string): Promise<{
@@ -194,6 +200,57 @@ describe('DeepSeek minimal adaptation injection', () => {
     expect(deepseekInjections(context)).toHaveLength(0);
   });
 
+  it('reports the variables the minimal shape cannot carry, but not the adaptation', async () => {
+    // Two halves of the same mechanism. The minimal template drops most of its
+    // context, so `applyProfile` must report those losses — that is what makes a
+    // silent drop visible. The adaptation is *not* among them: this family is
+    // served by the reminder channel, so the prompt path declines the file
+    // rather than load it into a variable the template then discards. Without
+    // that gate the guidance would be fetched, thrown away, and reported as
+    // dropped on every applyProfile.
+    //
+    // Only `applyProfile` warns (`bind` renders without reporting), and the
+    // logger is opt-in in the harness, so both have to be wired explicitly.
+    const workDir = await mkdtemp(join(tmpdir(), 'ds-adapt-'));
+    tempDirs.push(workDir);
+    await writeFile(join(workDir, 'AGENTS.md'), 'PROJECT RULES', 'utf-8');
+    const warnings: { message: string }[] = [];
+    ctx = createTestAgent(
+      logServices({
+        warn: (message: string) => {
+          warnings.push({ message });
+        },
+        info: () => {},
+        debug: () => {},
+        error: () => {},
+        createChild: () => undefined as never,
+      }),
+      {
+        autoConfigure: false,
+        initialConfig: deepseekConfig('deepseek-v4-pro') as never,
+        cwd: workDir,
+      },
+    );
+    await ctx.restorePersisted();
+    const profile = ctx.get(IAgentProfileService);
+    await profile.bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: 'ds' });
+    const resolved = ctx.get(ISessionAgentProfileCatalog).get(DEFAULT_AGENT_PROFILE_NAME);
+    expect(resolved).toBeDefined();
+
+    await profile.applyProfile(resolved!);
+
+    expect(profile.getSystemPrompt()).not.toContain('PROJECT RULES');
+    expect(profile.getSystemPrompt()).not.toContain('standing instructions for how to work');
+
+    const dropped = warnings.filter((w) => w.message.includes('ignored supplied variables'));
+    // The loss is reported...
+    expect(dropped.length, JSON.stringify(warnings)).toBeGreaterThan(0);
+    // ...and the adaptation is not among what was lost, because it never loaded.
+    for (const warning of dropped) {
+      expect(warning.message).not.toContain('model_adaptation_section');
+    }
+  });
+
   it('does not inject a second copy while the first survives', async () => {
     const { context, loop } = await boot('deepseek-v4-pro');
     await runWillBeginStepHooks(loop, true);
@@ -224,19 +281,15 @@ describe('DeepSeek minimal adaptation injection', () => {
   });
 });
 
-describe('DeepSeek adaptation under KIMI_MODEL_ADAPTATIONS=1', () => {
+describe('DeepSeek adaptation delivery end to end', () => {
   let ctx: TestAgentContext | undefined;
-  const originalEnv = process.env[ADAPTATIONS_ENV];
 
   afterEach(async () => {
     await ctx?.dispose();
     ctx = undefined;
-    if (originalEnv === undefined) delete process.env[ADAPTATIONS_ENV];
-    else process.env[ADAPTATIONS_ENV] = originalEnv;
   });
 
   async function bootAndInject(model: string): Promise<string> {
-    process.env[ADAPTATIONS_ENV] = '1';
     ctx = createTestAgent({
       autoConfigure: false,
       initialConfig: deepseekConfig(model) as never,
@@ -253,31 +306,31 @@ describe('DeepSeek adaptation under KIMI_MODEL_ADAPTATIONS=1', () => {
     return injected[0]?.text ?? '';
   }
 
-  it('delivers the measured file through the reminder channel for deepseek-v3', async () => {
-    // End to end: the measured file is reachable only under this flag, the
-    // prompt shape for this family is `minimal` so the system-prompt path
-    // cannot carry it, and the reminder injection is therefore the only route
-    // by which it can reach the model. Pinning the shipped text here means a
-    // precedence change that silences the measured file fails loudly instead of
-    // quietly reverting to the curated family guidance.
-    const text = await bootAndInject('deepseek-v3');
-
-    expect(text).toContain('# Model Adaptation: deepseek-v3');
-    expect(text).toContain('Negation Rewrite Patch');
-    expect(text).toMatch(/reference data, not an/);
-    expect(text).not.toContain('standing instructions for how to work');
-  });
-
-  it('falls back to the curated family file when no measured file exists', async () => {
+  it('delivers the curated family guidance through the reminder channel', async () => {
+    // End to end: this family's prompt shape is `minimal`, so the system-prompt
+    // path cannot carry the guidance, and the reminder injection is the only
+    // route by which it reaches the model. Pinning the shipped text here means a
+    // change that silences the reminder fails loudly rather than quietly leaving
+    // the model without its family guidance.
     const text = await bootAndInject('deepseek-v4-pro');
 
     expect(text).toContain('# Model Adaptation: deepseek-v4-pro');
     expect(text).toContain('standing instructions for how to work');
+    expect(text).toContain('## Autonomy and persistence');
+    expect(text).toMatch(/<system-reminder>/);
+  });
+
+  it('carries the same guidance for a versioned wire name', async () => {
+    // The family prefix is the only key, so a dated or differently-versioned id
+    // still receives guidance without an adaptation file of its own.
+    const text = await bootAndInject('deepseek-v3');
+
+    expect(text).toContain('# Model Adaptation: deepseek-v3');
+    expect(text).toContain('standing instructions for how to work');
     expect(text).not.toContain('Negation Rewrite Patch');
   });
 
-  it('leaves the system prompt minimal under the opt-in', async () => {
-    process.env[ADAPTATIONS_ENV] = '1';
+  it('keeps the system prompt minimal so the prompt path stays empty', async () => {
     ctx = createTestAgent({
       autoConfigure: false,
       initialConfig: deepseekConfig('deepseek-v3') as never,
@@ -288,5 +341,6 @@ describe('DeepSeek adaptation under KIMI_MODEL_ADAPTATIONS=1', () => {
 
     // The adaptation reaches the model as a reminder, never as a prompt section.
     expect(profile.getSystemPrompt()).not.toContain('# Model Adaptation');
+    expect(profile.getSystemPrompt()).toContain('helpful software engineer assistant');
   });
 });

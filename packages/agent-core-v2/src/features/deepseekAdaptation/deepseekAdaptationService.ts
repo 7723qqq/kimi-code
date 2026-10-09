@@ -1,12 +1,8 @@
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { createDecorator } from '#/_base/di/instantiation';
 import { Service } from '#/_base/di/service';
 import { ILogService, type ILogger } from '#/_base/log/log';
 import { IAgentProfileService } from '#/agent/profile/profile';
-import {
-  MODEL_ADAPTATIONS_ENV,
-  resolveModelAdaptationText,
-} from '#/app/agentProfileCatalog/modelAdaptations';
+import { loadCuratedAdaptation } from '#/app/agentProfileCatalog/modelAdaptations';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { systemReminderContent } from '#/features/reminder/systemReminder';
 import type { ContextInjectionContext } from '#/features/reminder/types';
@@ -57,7 +53,6 @@ export class DeepseekAdaptationService extends Service implements IDeepseekAdapt
   constructor(
     @IAgentReminderService reminder: IAgentReminderService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
-    @IBootstrapService private readonly bootstrap: IBootstrapService,
     @ILogService private readonly log: ILogger,
   ) {
     super();
@@ -71,12 +66,12 @@ export class DeepseekAdaptationService extends Service implements IDeepseekAdapt
   /**
    * Resolves the family guidance for this model.
    *
-   * The text is standing guidance for the whole session, so it is computed from
-   * the wire name and the opt-in flag — neither of which changes mid-session —
-   * rather than re-derived from the conversation on every step. Re-deriving cost
-   * a file read per step and put the injection point back at the end of the
-   * context repeatedly, which is where a cache prefix is most likely to be
-   * invalidated; the value only needs rebuilding once compaction has dropped it.
+   * The text is standing guidance for the whole session, so it is derived from
+   * the wire name — which does not change mid-session — rather than re-derived
+   * from the conversation on every step. Re-deriving cost a file read per step
+   * and put the injection point back at the end of the context repeatedly, which
+   * is where a cache prefix is most likely to be invalidated; the value only
+   * needs rebuilding once compaction has dropped it.
    */
   private async resolve(injection: ContextInjectionContext): Promise<string | undefined> {
     const wire = this.profile.getModelWireName();
@@ -88,12 +83,6 @@ export class DeepseekAdaptationService extends Service implements IDeepseekAdapt
       if (present !== undefined && present.length > 0) return undefined;
     }
 
-    return this.adaptationCache.load(wire, () =>
-      resolveModelAdaptationText({
-        model: wire,
-        optIn: this.bootstrap.getEnv(MODEL_ADAPTATIONS_ENV),
-        log: this.log,
-      }),
-    );
+    return this.adaptationCache.load(wire, () => loadCuratedAdaptation(wire, this.log));
   }
 }

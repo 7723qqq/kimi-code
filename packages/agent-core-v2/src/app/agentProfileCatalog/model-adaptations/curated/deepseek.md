@@ -1,9 +1,9 @@
 # Model Adaptation: deepseek
 #
 # Curated guidance for the DeepSeek family, authored for this repository.
-# Not measured: no script generated this file, and the figures below are not
-# probe output. Version-specific files (deepseek-v3.md, …) carry measured notes
-# and are injected only under KIMI_MODEL_ADAPTATIONS=1.
+# Not measured: no script generated this file and no probe produced the
+# guidance below. It is hand-written standing guidance, the only kind this
+# directory carries.
 
 ## Autonomy and persistence
 

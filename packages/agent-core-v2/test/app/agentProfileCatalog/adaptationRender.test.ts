@@ -1,17 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  loadModelAdaptation,
-  renderAdaptationSection,
-} from '#/app/agentProfileCatalog/modelAdaptations';
 import { renderPromptTemplateResult, systemPromptVars } from '#/app/agentProfileCatalog/profile-shared';
 
 const TEMPLATE = 'BODY\n${model_adaptation_section}END';
-
-async function sectionFor(model: string): Promise<string> {
-  const adaptation = await loadModelAdaptation({ model });
-  return adaptation === undefined ? '' : renderAdaptationSection(model, adaptation);
-}
 
 describe('model_adaptation_section in the prompt vars', () => {
   it('is empty when the context carries no adaptation', () => {
@@ -20,32 +11,31 @@ describe('model_adaptation_section in the prompt vars', () => {
 
   it('wraps a supplied adaptation with the reference-data prose', () => {
     const vars = systemPromptVars(
-      { cwd: '/tmp', modelAdaptation: '# Model Adaptation: gpt-4o\n\nBody.' },
+      { cwd: '/tmp', modelAdaptation: '# Model Adaptation: deepseek\n\nBody.' },
       { skillActive: false },
     );
     const section = vars['model_adaptation_section'] ?? '';
-    expect(section).toContain('# Model Adaptation: gpt-4o');
+    expect(section).toContain('# Model Adaptation: deepseek');
     expect(section).toContain('Body.');
-    expect(section).toMatch(/reference data produced by/);
+    // The framing must describe hand-authored family guidance. It used to credit
+    // a probe that no longer produces anything this section can carry.
+    expect(section).toMatch(/standing guidance for the model family/);
+    expect(section).not.toMatch(/produced by `scripts\/prompt-optimizer probe`/);
     expect(section).toMatch(/instructions above win/);
   });
 
-  it('a real adaptation renders into the placeholder', async () => {
+  it('a supplied adaptation renders into the placeholder', () => {
     const text = renderPromptTemplateResult(
       TEMPLATE,
-      { cwd: '/tmp', modelAdaptation: await sectionFor('gpt-4o') },
+      { cwd: '/tmp', modelAdaptation: 'Body.' },
       { skillActive: false },
     ).text;
-    expect(text).toContain('# Model Adaptation: gpt-4o');
+    expect(text).toContain('Body.');
     expect(text).not.toContain('${');
   });
 
-  it('a model without an adaptation leaves the placeholder empty', async () => {
-    const text = renderPromptTemplateResult(
-      TEMPLATE,
-      { cwd: '/tmp', modelAdaptation: await sectionFor('workbuddy/deepseek-v4.1-flash') },
-      { skillActive: false },
-    ).text;
+  it('an absent adaptation leaves the placeholder empty', () => {
+    const text = renderPromptTemplateResult(TEMPLATE, { cwd: '/tmp' }, { skillActive: false }).text;
     expect(text).not.toContain('# Model Adaptation');
     expect(text).not.toContain('${');
   });

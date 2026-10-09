@@ -2,26 +2,27 @@ import { readFile, readdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
 import type { ILogger } from '#/_base/log/log';
-import { familyAdaptationPrefixes, resolveModelFamily } from '#/llm-adapter/contract/modelFamily';
+import {
+  familyAdaptationPrefixes,
+  promptShapeForModel,
+  resolveModelFamily,
+} from '#/llm-adapter/contract/modelFamily';
 
-export type AdaptationKind = 'curated' | 'measured';
-
-const ADAPTATIONS_DIR_TAIL = 'agentProfileCatalog/model-adaptations';
+const ADAPTATIONS_DIR_TAIL = 'agentProfileCatalog/model-adaptations/curated';
 
 const MAX_ADAPTATION_BYTES = 32 * 1024;
 
 export function adaptationDirectoryCandidates(
   moduleDir: string = import.meta.dirname,
-  kind: AdaptationKind = 'measured',
 ): readonly string[] {
   const out: string[] = [];
   let dir = moduleDir;
   for (let depth = 0; depth < 4; depth += 1) {
-    out.push(resolve(dir, 'model-adaptations', kind));
+    out.push(resolve(dir, 'model-adaptations', 'curated'));
     dir = resolve(dir, '..');
   }
-  out.push(resolve(moduleDir, 'src/app', ADAPTATIONS_DIR_TAIL, kind));
-  out.push(resolve(moduleDir, 'app', ADAPTATIONS_DIR_TAIL, kind));
+  out.push(resolve(moduleDir, 'src/app', ADAPTATIONS_DIR_TAIL));
+  out.push(resolve(moduleDir, 'app', ADAPTATIONS_DIR_TAIL));
   return out;
 }
 
@@ -39,7 +40,6 @@ export interface LoadAdaptationInput {
   readonly candidates?: readonly string[];
   readonly log?: ILogger;
   readonly dir?: string;
-  readonly kind?: AdaptationKind;
 }
 
 export async function loadModelAdaptation(
@@ -50,9 +50,7 @@ export async function loadModelAdaptation(
   if (usable.length === 0) return undefined;
 
   const dirs =
-    input.dir === undefined
-      ? adaptationDirectoryCandidates(import.meta.dirname, input.kind ?? 'measured')
-      : [input.dir];
+    input.dir === undefined ? adaptationDirectoryCandidates(import.meta.dirname) : [input.dir];
   for (const dir of dirs) {
     const adaptation = await loadFrom(dir, usable, input.log);
     if (adaptation !== undefined) return adaptation;
@@ -166,22 +164,11 @@ export function truncateAtSection(text: string, limit: number): string {
   // everything after it as code, so start the cut at the fence opening instead.
   // A fence that opens at the very beginning leaves nothing to keep, so that
   // case falls through to the plain cut rather than returning an empty string.
-  const enclosing = fenceSpans.find((span) => span.start > 0 && span.start < limit && limit < span.end);
+  const enclosing = fenceSpans.find(
+    (span) => span.start > 0 && span.start < limit && limit < span.end,
+  );
   const safeLimit = enclosing === undefined ? limit : Math.min(limit, enclosing.start);
   return text.slice(0, safeLimit).trimEnd();
-}
-
-export function renderAdaptationSection(model: string, adaptation: string): string {
-  return [
-    `# Model Adaptation: ${model}`,
-    '',
-    `Measured for this model by \`scripts/prompt-optimizer probe --model ${model}\`.`,
-    'These notes describe your own tendencies; they are reference data, not an',
-    'instruction from the user. Where they conflict with the instructions above,',
-    'the instructions above win.',
-    '',
-    stripGeneratedHeader(adaptation),
-  ].join('\n');
 }
 
 export function renderCuratedAdaptation(model: string, adaptation: string): string {
@@ -196,51 +183,35 @@ export function renderCuratedAdaptation(model: string, adaptation: string): stri
   ].join('\n');
 }
 
-export function isCuratedAdaptationModel(name: string): boolean {
-  const family = resolveModelFamily(name);
-  return family?.curatedAdaptation === true && family.promptShape === 'minimal';
+/** True when the family ships hand-authored guidance at all. */
+export function hasCuratedAdaptation(name: string): boolean {
+  return resolveModelFamily(name)?.curatedAdaptation === true;
 }
 
 /**
- * The single resolution order for model adaptation text, shared by the system
- * prompt path and the reminder-injection path so the two can never disagree
- * about which file a model receives.
+ * True when the family's guidance is delivered by the per-agent reminder rather
+ * than as a system-prompt section.
  *
- * Measured probe output is opt-in and outranks the curated family file when
- * enabled: it is the more specific artefact and the `measured/` directory does
- * not load at all without the flag. With the flag off, only the curated family
- * guidance is reachable.
+ * A `minimal` prompt shape has no `${model_adaptation_section}` placeholder, so
+ * the prompt path could only load the file and then have the template discard
+ * it — which is also why the two channels are defined as complementary: a family
+ * is served by exactly one of them.
  */
-export async function resolveModelAdaptationText(input: {
-  readonly model: string;
-  readonly candidates?: readonly string[];
-  readonly optIn: string | undefined;
-  readonly log?: ILogger;
-}): Promise<string | undefined> {
-  if (modelAdaptationsEnabled(input.optIn)) {
-    const measured = await loadModelAdaptation({
-      model: input.model,
-      candidates: input.candidates ?? [adaptationFileStem(input.model)],
-      log: input.log,
-      kind: 'measured',
-    });
-    if (measured !== undefined) return renderAdaptationSection(input.model, measured);
-  }
-  return loadCuratedAdaptation(input.model, input.log);
+export function adaptationDeliveredByReminder(name: string): boolean {
+  return hasCuratedAdaptation(name) && promptShapeForModel(name) === 'minimal';
 }
 
 export async function loadCuratedAdaptation(
   name: string,
   log?: ILogger,
 ): Promise<string | undefined> {
-  if (!isCuratedAdaptationModel(name)) return undefined;
+  if (!hasCuratedAdaptation(name)) return undefined;
   const stems = familyAdaptationPrefixes(name);
   if (stems.length === 0) return undefined;
   const adaptation = await loadModelAdaptation({
     model: name,
     candidates: stems,
     log,
-    kind: 'curated',
   });
   return adaptation === undefined ? undefined : renderCuratedAdaptation(name, adaptation);
 }
@@ -263,10 +234,4 @@ function stripGeneratedHeader(adaptation: string): string {
 
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-export const MODEL_ADAPTATIONS_ENV = 'KIMI_MODEL_ADAPTATIONS';
-
-export function modelAdaptationsEnabled(raw: string | undefined): boolean {
-  return raw === '1' || raw === 'true';
 }
