@@ -1,6 +1,7 @@
 import OpenAI from 'openai';
 import { assign, shake } from 'radashi';
 
+import type { LlmLogger } from '#/log/log';
 import { headersToRecord } from '#/llm/errors';
 import { modelKey, type LlmModel } from '#/llm/model';
 import type { ProtocolBase, ProtocolRequesterOptions, TraitContext } from '#/llm/protocol/base';
@@ -56,7 +57,9 @@ function createClient(model: LlmModel, headers: Record<string, string> | undefin
 }
 
 export interface OpenAIRequesterOptions
-  extends ProtocolRequesterOptions<OpenAITrait>, LlmRequesterOptions<OpenAI> {}
+  extends ProtocolRequesterOptions<OpenAITrait>, LlmRequesterOptions<OpenAI> {
+  readonly log?: LlmLogger;
+}
 
 export interface OpenAIRequestPreparationOptions {
   readonly trait?: OpenAITrait;
@@ -87,7 +90,7 @@ export function prepareOpenAIRequest(
     kwargs['reasoning_effort'] === undefined &&
     input.messages.some((message) => message.content.some((part) => part.type === 'think'))
   ) {
-    kwargs = { ...kwargs, ...encodeOpenAIThinkHistoryKwargs() };
+    kwargs = { ...kwargs, ...encodeOpenAIThinkHistoryKwargs(ctx.model.model) };
   }
   if (input.responseFormat !== undefined) {
     kwargs = { ...kwargs, response_format: responseFormatToOpenAI(input.responseFormat) };
@@ -139,13 +142,15 @@ interface OpenAITransport {
   readonly resolveClient: (request: LlmClientContext) => OpenAI;
   readonly signal: AbortSignal;
   readonly onEvent?: (event: LlmRequestEvent) => void;
+  readonly log?: LlmLogger;
 }
 
 async function executeOpenAIRequest(
   request: OpenAIRequestParams,
   transport: OpenAITransport,
 ): Promise<void> {
-  const { connection, trait, ctx, format, reasoning, resolveClient, signal, onEvent } = transport;
+  const { connection, trait, ctx, format, reasoning, resolveClient, signal, onEvent, log } =
+    transport;
   const client = resolveClient({
     model: ctx.model,
     headers: mergeRequestHeaders(
@@ -165,7 +170,7 @@ async function executeOpenAIRequest(
         ? undefined
         : (chunk, defaultUsage) => {
             const hooked = trait.extractUsage?.(chunk);
-            return hooked !== undefined ? parseOpenAIUsage(hooked) : defaultUsage;
+            return hooked !== undefined ? parseOpenAIUsage(hooked, log) : defaultUsage;
           },
   });
   let messageId: string | undefined;
@@ -197,7 +202,7 @@ export function createOpenAIRequester(options?: OpenAIRequesterOptions): LlmRequ
   const connection = options?.connection;
   const trait = options?.trait;
   const classifyError = options?.classifyError;
-  const format = createOpenAIFormat();
+  const format = createOpenAIFormat(options?.log);
   const resolveClient =
     options?.clientFactory ??
     ((request: LlmClientContext) => createClient(request.model, request.headers));
@@ -251,6 +256,7 @@ export function createOpenAIRequester(options?: OpenAIRequesterOptions): LlmRequ
           resolveClient,
           signal,
           onEvent,
+          log: options?.log,
         });
       } catch (error) {
         onEvent?.({

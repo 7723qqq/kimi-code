@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { createScopedTestHost } from '#/_base/di/test';
+import { createScopedTestHost, SILENT_TEST_LOGGER, stubPair } from '#/_base/di/test';
 import { isErrorCode } from '#/_base/errors/codes';
+import { ILogService } from '#/_base/log/log';
 import { isError2 } from '#/_base/errors/errors';
 import { IConfigService } from '#/app/config/config';
 import { ConfigErrors } from '#/app/config/errors';
@@ -66,6 +67,7 @@ function createHost(
 } {
   const config = new StubConfigService(sections);
   const host = createScopedTestHost([
+    stubPair(ILogService, SILENT_TEST_LOGGER),
     [IConfigService, config],
     [IModelOAuthTokens, oauthTokens],
     [IHostRequestHeaders, hostHeadersPort(hostHeaders)],

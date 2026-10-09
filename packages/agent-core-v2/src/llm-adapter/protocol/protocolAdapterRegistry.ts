@@ -1,4 +1,5 @@
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { ILogService, type ILogger } from '#/_base/log/log';
 import { LifecycleScope } from '#/app/scopes';
 import { KimiFiles, kimiFilesBaseUrl } from '#human/llm-kimi/files';
 import type { ProviderMediaContribution } from '#human/llm/media/upload';
@@ -140,6 +141,8 @@ function routeFor(model: Model): AdapterRoute {
 export class ProtocolAdapterRegistry implements IProtocolAdapterRegistry {
   declare readonly _serviceBrand: undefined;
 
+  constructor(@ILogService private readonly log?: ILogger) {}
+
   supportedProtocols(): readonly Protocol[] {
     return listProtocolBases().map((base) => base.id);
   }
@@ -178,6 +181,7 @@ export class ProtocolAdapterRegistry implements IProtocolAdapterRegistry {
       connection: route.connection,
       trait: route.trait,
       classifyError: route.classifyError,
+      log: this.log,
     });
     const llmModel: LlmModel & ModelThinkingMetadata = {
       provider: route.providerId,

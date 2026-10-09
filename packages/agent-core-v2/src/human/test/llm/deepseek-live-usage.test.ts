@@ -76,4 +76,41 @@ describe('deepseek-v4.1-flash payloads captured from the live endpoint', () => {
     });
     expect(usage).toMatchObject({ inputCacheRead: 10, inputOther: 20 });
   });
+
+  it('reports the rejected split through the supplied logger', () => {
+    const warnings: { message: string; payload?: unknown }[] = [];
+    const usage = parseOpenAIUsage(
+      {
+        prompt_tokens: 100,
+        completion_tokens: 1,
+        prompt_cache_hit_tokens: 5000,
+        prompt_cache_miss_tokens: 0,
+      },
+      { warn: (message, payload) => warnings.push({ message, payload }) },
+    );
+    expect(usage).toMatchObject({ inputCacheRead: 0, inputOther: 100 });
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]?.message).toMatch(/cache fields disagree/);
+    expect(warnings[0]?.payload).toMatchObject({
+      promptTokens: 100,
+      promptCacheHitTokens: 5000,
+      promptCacheMissTokens: 0,
+    });
+  });
+
+  it('stays silent when the split is accepted and when no logger is given', () => {
+    const warnings: string[] = [];
+    const log = { warn: (message: string) => warnings.push(message) };
+    parseOpenAIUsage(
+      { prompt_tokens: 2011, completion_tokens: 1, prompt_cache_hit_tokens: 1792, prompt_cache_miss_tokens: 219 },
+      log,
+    );
+    parseOpenAIUsage({
+      prompt_tokens: 100,
+      completion_tokens: 1,
+      prompt_cache_hit_tokens: 5000,
+      prompt_cache_miss_tokens: 0,
+    });
+    expect(warnings).toEqual([]);
+  });
 });

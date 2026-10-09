@@ -5,9 +5,27 @@ export type {
   ServiceRegistration,
 } from './testInstantiationService';
 
+import { ILogService } from '#/_base/log/log';
+
 import { type ServiceIdentifier } from './instantiation';
 import type { Scope } from './scope';
 import { createAppScope, createScopedChildHandle, type ScopeKind, type ScopeSeed } from './scope';
+
+export const SILENT_TEST_LOGGER: ILogService = {
+  _serviceBrand: undefined,
+  level: 'off',
+  error() {},
+  warn() {},
+  info() {},
+  debug() {},
+  setLevel() {},
+  flush() {
+    return Promise.resolve();
+  },
+  child() {
+    return SILENT_TEST_LOGGER;
+  },
+};
 
 export interface ScopedTestHost {
   readonly app: Scope;

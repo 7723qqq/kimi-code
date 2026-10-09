@@ -1,3 +1,4 @@
+import type { LlmLogger } from '#/log/log';
 import type { ModelCapability } from '#/llm/capability';
 import type { LlmModel } from '#/llm/model';
 import type { LlmErrorClassifier, LlmRequester } from '#/llm/requester/requester';
@@ -19,6 +20,7 @@ export interface ProtocolRequesterOptions<TTrait> {
   readonly connection?: ProviderConnection;
   readonly trait?: TTrait;
   readonly classifyError?: LlmErrorClassifier;
+  readonly log?: LlmLogger;
 }
 
 export interface ProtocolBase<TTrait = unknown> {

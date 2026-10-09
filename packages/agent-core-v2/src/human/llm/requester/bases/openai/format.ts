@@ -17,6 +17,7 @@ import {
 } from '#/llm/errors';
 import { NO_FINISH, type FinishInfo, type FinishReason } from '#/llm/finish-reason';
 import { type Message, type StreamedMessagePart, type ToolDescription } from '#/llm/message';
+import type { LlmLogger } from '#/log/log';
 import { reasoningEffortForModel } from '#/llm/modelFamily';
 import type {
   FormatRequestInput,
@@ -194,7 +195,7 @@ export interface OpenAIProtocolFormat extends ProtocolFormat<OpenAIRawChunk> {
   createStreamParser(options?: OpenAIStreamParserOptions): StreamParser<OpenAIRawChunk>;
 }
 
-export function createOpenAIFormat(): OpenAIProtocolFormat {
+export function createOpenAIFormat(log?: LlmLogger): OpenAIProtocolFormat {
   return {
     createStreamParser(options?: OpenAIStreamParserOptions) {
       const bufferedToolCalls = new Map<number | string, BufferedStreamToolCall>();
@@ -268,7 +269,7 @@ export function createOpenAIFormat(): OpenAIProtocolFormat {
         if (typeof chunk.id === 'string' && chunk.id.length > 0) {
           sink.onMessageId?.(chunk.id);
         }
-        const defaultUsage = parseOpenAIUsage(chunk.usage);
+        const defaultUsage = parseOpenAIUsage(chunk.usage, log);
         const usage =
           options?.resolveUsage === undefined
             ? defaultUsage
