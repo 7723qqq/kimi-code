@@ -8,6 +8,12 @@ export interface ImageTokenPricing {
 
 export type PromptShape = 'minimal';
 
+/**
+ * Per-model-family constants for pricing and prompt shape. Wire encoding
+ * (thinking fields, effort names) is not modelled here: it belongs to the
+ * protocol bases in `human/llm/requester/bases` and to the provider wire
+ * contract in `@moonshot-ai/kosong`.
+ */
 export interface ModelFamilyProfile {
   readonly id: string;
   readonly prefixes: readonly string[];
