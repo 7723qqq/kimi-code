@@ -34,6 +34,7 @@ interface Harness {
   readonly track: ReturnType<typeof vi.fn>;
   readonly mount: ReturnType<typeof vi.fn>;
   readonly restoreEditor: ReturnType<typeof vi.fn>;
+  readonly setEditorOptimizing: ReturnType<typeof vi.fn>;
   readonly session: { getContext: ReturnType<typeof vi.fn> };
   lastPanel(): {
     handleInput(data: string): void;
@@ -50,6 +51,7 @@ function createHarness(draft = 'fix the parser'): Harness {
   const track = vi.fn();
   const mount = vi.fn();
   const restoreEditor = vi.fn();
+  const setEditorOptimizing = vi.fn();
   const session = {
     optimizePrompt,
     getContext: vi.fn(async () => ({ history: [], tokenCount: 0 })),
@@ -70,6 +72,7 @@ function createHarness(draft = 'fix the parser'): Harness {
       mount(mounted);
     },
     restoreEditor,
+    setEditorOptimizing,
   } as unknown as PromptOptimizerHost;
 
   return {
@@ -81,6 +84,7 @@ function createHarness(draft = 'fix the parser'): Harness {
     track,
     mount,
     restoreEditor,
+    setEditorOptimizing,
     session,
     lastPanel: () => {
       if (panel === undefined) throw new Error('no panel mounted');
@@ -153,6 +157,65 @@ describe('PromptOptimizerController', () => {
     expect(h.editor.setText).not.toHaveBeenCalled();
     expect(h.restoreEditor).toHaveBeenCalled();
     expect(h.track).toHaveBeenCalledWith('prompt_optimize_discarded');
+  });
+
+  it('shows the editor as busy for the whole rewrite, then clears it', async () => {
+    const h = createHarness();
+    // Hold the rewrite open so the busy window can be observed while it is
+    // pending; resolving it straight away would hide the very interval this
+    // signal exists to cover.
+    let release!: (value: string) => void;
+    const gate = new Promise<string>((resolve) => {
+      release = resolve;
+    });
+    h.optimizePrompt.mockReturnValueOnce(gate);
+
+    const pending = h.controller.optimize();
+    await vi.waitFor(() => expect(h.optimizePrompt).toHaveBeenCalledOnce());
+
+    expect(h.setEditorOptimizing).toHaveBeenCalledWith(true);
+    // Not cleared while the request is still outstanding.
+    expect(h.setEditorOptimizing).toHaveBeenCalledTimes(1);
+
+    release('Rewrite the parser to reject trailing input.');
+    await vi.waitFor(() => expect(h.mount).toHaveBeenCalledOnce());
+    expect(h.setEditorOptimizing).toHaveBeenLastCalledWith(false);
+
+    h.lastPanel().handleInput(ESC);
+    await pending;
+  });
+
+  it('clears the busy state when the rewrite fails', async () => {
+    const h = createHarness();
+    h.optimizePrompt.mockRejectedValueOnce(new Error('provider exploded'));
+
+    await h.controller.optimize();
+
+    expect(h.setEditorOptimizing).toHaveBeenCalledWith(true);
+    expect(h.setEditorOptimizing).toHaveBeenLastCalledWith(false);
+  });
+
+  it('clears the busy state when the model returns the draft unchanged', async () => {
+    const h = createHarness();
+    h.optimizePrompt.mockResolvedValueOnce('fix the parser');
+
+    await h.controller.optimize();
+
+    expect(h.setEditorOptimizing).toHaveBeenLastCalledWith(false);
+  });
+
+  it('reports busy before the session is resolved', async () => {
+    const h = createHarness();
+    const slowContext = new Promise<{ history: never[]; tokenCount: number }>((resolve) => {
+      setTimeout(() => resolve({ history: [], tokenCount: 0 }), 5);
+    });
+    h.session.getContext.mockReturnValueOnce(slowContext);
+
+    const pending = h.controller.optimize();
+    await vi.waitFor(() => expect(h.setEditorOptimizing).toHaveBeenCalledWith(true));
+    await vi.waitFor(() => expect(h.mount).toHaveBeenCalledOnce());
+    h.lastPanel().handleInput(ESC);
+    await pending;
   });
 
   it('does nothing for an empty draft', async () => {

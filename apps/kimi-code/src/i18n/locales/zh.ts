@@ -2415,6 +2415,7 @@ export default {
       editorExternalFailed: '外部编辑器失败：{{msg}}',
       // tui/components/editor/custom-editor.ts
       shellModeLabel: '! Shell 模式',
+      promptOptimizingLabel: '正在重写提示词…',
       // tui/controllers/tasks-browser.ts
       tasksLoadFailed: '加载任务失败：{{error}}',
       tasksOutputRefreshFailed: '输出刷新失败：{{message}}',
@@ -2606,6 +2607,7 @@ export default {
       moreChangesHidden: '还有 {{n}} 处变更已隐藏（ctrl+o 展开）',
       unchangedLines: '{{n}} 行未变更…',
       moreChangesHiddenWithHint: '还有 {{n}} 处变更已隐藏（{{hint}} 展开）',
+      wrappedRowsTruncated: '预览已截断——长行折行后超出面板上限',
     },
     shellOutput: {
       noOutput: '（无输出）',

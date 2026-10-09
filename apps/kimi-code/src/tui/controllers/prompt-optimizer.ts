@@ -19,6 +19,12 @@ export interface PromptOptimizerHost {
   track(event: string, props?: Record<string, unknown>): void;
   mountEditorReplacement(panel: PromptOptimizePanelComponent): void;
   restoreEditor(): void;
+  /**
+   * Show or clear the in-flight rewrite signal on the editor. The rewrite waits
+   * on a full LLM round-trip, so without it the editor looks frozen for the
+   * whole request.
+   */
+  setEditorOptimizing(optimizing: boolean): void;
 }
 
 export class PromptOptimizerController {
@@ -39,9 +45,15 @@ export class PromptOptimizerController {
     }
 
     this.inFlight = true;
+    host.setEditorOptimizing(true);
     try {
       const recentTurns = await this.recentTurns(session);
       const optimized = await session.optimizePrompt(draft, { recentTurns });
+      // The wait is over here. Clear before anything else so the signal covers
+      // exactly the model round-trip and not the review step that follows —
+      // `confirm` awaits the user, and holding the busy state across it would
+      // leave the editor marked busy long after the rewrite finished.
+      host.setEditorOptimizing(false);
       if (optimized.trim().length === 0 || optimized.trim() === draft) {
         host.track('prompt_optimize_unchanged');
         return;
@@ -51,6 +63,9 @@ export class PromptOptimizerController {
       host.track('prompt_optimize_failed');
       host.showError(t('tui.dialogs.promptOptimize.failed', { error: formatErrorMessage(error) }));
     } finally {
+      // Safety net for the throwing and early-return paths; the host makes a
+      // repeated toggle a no-op.
+      host.setEditorOptimizing(false);
       this.inFlight = false;
     }
   }

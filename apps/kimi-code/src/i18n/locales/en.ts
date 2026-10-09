@@ -2493,6 +2493,7 @@ export default {
       editorExternalFailed: 'External editor failed: {{msg}}',
       // tui/components/editor/custom-editor.ts
       shellModeLabel: '! shell mode',
+      promptOptimizingLabel: 'rewriting prompt…',
       // tui/controllers/tasks-browser.ts
       tasksLoadFailed: 'Failed to load tasks: {{error}}',
       tasksOutputRefreshFailed: 'Output refresh failed: {{message}}',
@@ -2688,6 +2689,7 @@ export default {
       moreChangesHidden: '{{n}} more change(s) hidden (ctrl+o to expand)',
       unchangedLines: '{{n}} unchanged line(s) …',
       moreChangesHiddenWithHint: '{{n}} more change(s) hidden ({{hint}} to expand)',
+      wrappedRowsTruncated: 'preview truncated — long lines wrapped beyond the panel limit',
     },
     shellOutput: {
       noOutput: '(no output)',

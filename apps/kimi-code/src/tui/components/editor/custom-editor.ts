@@ -179,6 +179,17 @@ export class CustomEditor extends Editor {
   public connectedAbove = false;
   public borderHighlighted = false;
   /**
+   * True while a prompt rewrite is in flight. The border takes a distinct
+   * colour and carries a label, so the wait is visible instead of looking like
+   * a frozen UI.
+   *
+   * This lives on the editor rather than being applied by the host through
+   * `borderColor`, because typing during the rewrite runs
+   * `updateEditorBorderHighlight`, which reassigns `borderColor` and would
+   * otherwise wipe the busy signal while the request is still outstanding.
+   */
+  public optimizing = false;
+  /**
    * Called when the user triggers "paste image" (Ctrl-V on Unix,
    * Alt-V on Windows — Ctrl-V is terminal-reserved there). Return
    * `true` to consume the key (image was read and handled); return
@@ -372,11 +383,20 @@ export class CustomEditor extends Editor {
     // overwrite it (e.g. plan-mode / slash-context highlight via
     // `editor.borderColor = chalk.hex(primary)`), so we route corners and
     // side bars through the same hook to stay in sync.
-    return wrapWithSideBorders(lines, (s) => this.borderColor(s), {
-      connectedAbove: this.connectedAbove && !this.borderHighlighted,
-      label: isBash
+    //
+    // The busy state overrides both the colour and the label: a rewrite is in
+    // flight, so that is the most important thing the border can say.
+    const paint = this.optimizing
+      ? (s: string) => currentTheme.fg('borderFocus', s)
+      : (s: string) => this.borderColor(s);
+    const label = this.optimizing
+      ? ` ${currentTheme.boldFg('borderFocus', t('tui.messages.promptOptimizingLabel'))} `
+      : isBash
         ? ` ${currentTheme.boldFg('shellMode', t('tui.messages.shellModeLabel'))} `
-        : undefined,
+        : undefined;
+    return wrapWithSideBorders(lines, paint, {
+      connectedAbove: this.connectedAbove && !this.borderHighlighted && !this.optimizing,
+      label,
     });
   }
 

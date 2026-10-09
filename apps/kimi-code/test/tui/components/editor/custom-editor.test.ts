@@ -652,6 +652,44 @@ describe('CustomEditor shortcut telemetry hooks', () => {
     expect(editor.getText()).toBe(baseline.getText());
   });
 
+  it('marks the border as busy while a rewrite is in flight', () => {
+    const editor = makeEditor();
+    editor.setText('fix the parser');
+
+    const idle = editor.render(60).join('\n');
+    editor.optimizing = true;
+    const busy = editor.render(60).join('\n');
+
+    expect(busy).not.toBe(idle);
+    // The top border carries a label naming what is happening, so the wait is
+    // legible rather than just a colour change.
+    expect(busy).toContain('rewriting prompt');
+    expect(idle).not.toContain('rewriting prompt');
+  });
+
+  it('keeps the busy border even if the host repaints the border colour', () => {
+    const editor = makeEditor();
+    editor.setText('fix the parser');
+    editor.optimizing = true;
+
+    // Typing during the rewrite runs the host's border-highlight update, which
+    // reassigns `borderColor`. The busy flag lives on the editor precisely so
+    // that repaint cannot wipe the signal.
+    editor.borderColor = (s: string) => s;
+    expect(editor.render(60).join('\n')).toContain('rewriting prompt');
+  });
+
+  it('drops the busy label and returns to its own border once cleared', () => {
+    const editor = makeEditor();
+    editor.setText('fix the parser');
+    const idle = editor.render(60).join('\n');
+    editor.optimizing = true;
+    editor.render(60);
+    editor.optimizing = false;
+
+    expect(editor.render(60).join('\n')).toBe(idle);
+  });
+
   it('invokes onToggleTodoExpand on Ctrl+T', () => {
     const editor = makeEditor();
     const onToggleTodoExpand = vi.fn().mockReturnValue(true);

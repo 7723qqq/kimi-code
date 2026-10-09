@@ -2623,6 +2623,19 @@ export class KimiTUI {
     this.dialogController.restoreEditor();
   }
 
+  /**
+   * Toggle the editor's in-flight rewrite signal.
+   *
+   * The flag lives on the editor so it survives the border repaints that typing
+   * triggers mid-request (see `CustomEditor.optimizing`); this only has to flip
+   * it and ask for a frame.
+   */
+  setEditorOptimizing(optimizing: boolean): void {
+    if (this.state.editor.optimizing === optimizing) return;
+    this.state.editor.optimizing = optimizing;
+    this.state.ui.requestRender();
+  }
+
   restoreInputText(text: string): void {
     this.dialogController.restoreInputText(text);
   }
