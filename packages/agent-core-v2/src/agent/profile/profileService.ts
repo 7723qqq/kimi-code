@@ -74,10 +74,14 @@ import type {
   ProfileUpdateData,
 } from './profile';
 import {
+  adaptationFileStem,
+  loadCuratedAdaptation,
   loadModelAdaptation,
+  MODEL_ADAPTATIONS_ENV,
   modelAdaptationsEnabled,
   renderAdaptationSection,
 } from '#/app/agentProfileCatalog/modelAdaptations';
+import { familyAdaptationPrefixes } from '#/llm-adapter/contract/modelFamily';
 
 import { IAgentProfileService, ProfileError, ProfileErrors } from './profile';
 import {
@@ -308,7 +312,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     }
 
     await this.sessionToolPolicy.ready;
-    const context = await this.buildSystemPromptContext(profile);
+    const context = await this.buildSystemPromptContext(profile, { pendingModelAlias: alias });
     this.assertBindable(profile.name);
     const currentProfileName = this.profileName;
     const rendered = renderAgentProfilePrompt(profile, context);
@@ -492,6 +496,10 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
 
   getModelCapabilities(): ModelCapability {
     return this.tryResolveRawModel()?.capabilities ?? UNKNOWN_CAPABILITY;
+  }
+
+  getModelWireName(): string | undefined {
+    return this.tryResolveRawModel()?.name;
   }
 
   getModelProviderType(alias?: string): string | undefined {
@@ -833,7 +841,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
 
   private async buildSystemPromptContext(
     profile: ResolvedAgentProfile,
-    options?: ApplyProfileOptions,
+    options?: ApplyProfileOptions & { readonly pendingModelAlias?: string },
   ): Promise<SystemPromptContext> {
     await this.notify.ready;
     const preloadedAgentsMd = await this.workspaceInstructionsSnapshot();
@@ -862,10 +870,11 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     }
     const skills = await this.resolveSkillListing();
     const pluginSections = await this.resolvePluginSections();
-    const modelAdaptation = await this.resolveModelAdaptation();
+    const modelAdaptation = await this.resolveModelAdaptation(options?.pendingModelAlias);
     return {
       ...base,
       modelAdaptation,
+      modelName: this.wireModelNameFor(options?.pendingModelAlias),
       cwd: view.workDir,
       osKind: env.osKind,
       shellName: env.shellName,
@@ -880,18 +889,41 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     };
   }
 
-  private async resolveModelAdaptation(): Promise<string> {
-    if (!modelAdaptationsEnabled(this.bootstrap.getEnv('KIMI_MODEL_ADAPTATIONS'))) return '';
-
-    const alias = this.modelAlias;
-    if (alias === undefined || alias === '') return '';
+  private wireModelNameFor(pendingModelAlias?: string): string | undefined {
+    const alias = this.modelAlias ?? pendingModelAlias;
+    if (alias === undefined || alias === '') return undefined;
     try {
-      const adaptation = await loadModelAdaptation({ model: alias, log: this.log });
-      return adaptation === undefined ? '' : renderAdaptationSection(alias, adaptation);
+      return this.resolveModelForThinking(alias)?.name;
     } catch (error: unknown) {
-      this.log.warn(`model adaptation lookup failed for "${alias}": ${String(error)}`);
+      this.log.warn(`model name resolution failed for "${alias}": ${String(error)}`);
+      return undefined;
+    }
+  }
+
+  private async resolveModelAdaptation(pendingModelAlias?: string): Promise<string> {
+    const alias = this.modelAlias ?? pendingModelAlias;
+    if (alias === undefined || alias === '') return '';
+    const wireName = this.resolveModelForThinking(alias)?.name;
+    try {
+      const curated = await this.resolveCuratedAdaptation(wireName ?? alias);
+      if (curated !== undefined) return curated;
+
+      const optIn = this.bootstrap.getEnv(MODEL_ADAPTATIONS_ENV);
+      if (!modelAdaptationsEnabled(optIn)) return '';
+      const adaptation = await loadModelAdaptation({
+        model: wireName ?? alias,
+        candidates: adaptationCandidates(wireName, alias),
+        log: this.log,
+      });
+      return adaptation === undefined ? '' : renderAdaptationSection(wireName ?? alias, adaptation);
+    } catch (error: unknown) {
+      this.log.warn(`model adaptation lookup failed for "${wireName ?? alias}": ${String(error)}`);
       return '';
     }
+  }
+
+  private async resolveCuratedAdaptation(name: string): Promise<string | undefined> {
+    return loadCuratedAdaptation(name, this.log);
   }
 
   private async workspaceInstructionsSnapshot(): Promise<LoadedAgentsMd> {
@@ -976,3 +1008,19 @@ registerScopedService(
   ScopeActivation.OnScopeCreated,
   'profile',
 );
+
+function adaptationCandidates(
+  wireName: string | undefined,
+  alias: string | undefined,
+): readonly string[] {
+  const stems: string[] = [];
+  const push = (value: string | undefined): void => {
+    if (value === undefined) return;
+    const stem = adaptationFileStem(value);
+    if (stem.length > 0 && !stems.includes(stem)) stems.push(stem);
+  };
+  push(wireName);
+  push(alias);
+  for (const prefix of familyAdaptationPrefixes(wireName ?? alias ?? '')) push(prefix);
+  return stems;
+}

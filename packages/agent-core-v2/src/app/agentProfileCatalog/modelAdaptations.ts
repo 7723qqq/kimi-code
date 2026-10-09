@@ -2,18 +2,24 @@ import { readFile, readdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
 import type { ILogger } from '#/_base/log/log';
+import { familyAdaptationPrefixes, resolveModelFamily } from '#/llm-adapter/contract/modelFamily';
 
 const ADAPTATIONS_DIR_TAIL = 'agentProfileCatalog/model-adaptations';
 
 const MAX_ADAPTATION_BYTES = 32 * 1024;
 
-function adaptationDirectoryCandidates(): readonly string[] {
-  const moduleDir = import.meta.dirname;
-  return [
-    resolve(moduleDir, 'model-adaptations'),
-    resolve(moduleDir, 'src/app', ADAPTATIONS_DIR_TAIL),
-    resolve(moduleDir, 'app', ADAPTATIONS_DIR_TAIL),
-  ];
+export function adaptationDirectoryCandidates(
+  moduleDir: string = import.meta.dirname,
+): readonly string[] {
+  const out: string[] = [];
+  let dir = moduleDir;
+  for (let depth = 0; depth < 4; depth += 1) {
+    out.push(resolve(dir, 'model-adaptations'));
+    dir = resolve(dir, '..');
+  }
+  out.push(resolve(moduleDir, 'src/app', ADAPTATIONS_DIR_TAIL));
+  out.push(resolve(moduleDir, 'app', ADAPTATIONS_DIR_TAIL));
+  return out;
 }
 
 export function adaptationFileStem(model: string): string {
@@ -27,6 +33,7 @@ export function adaptationFileStem(model: string): string {
 
 export interface LoadAdaptationInput {
   readonly model: string;
+  readonly candidates?: readonly string[];
   readonly log?: ILogger;
   readonly dir?: string;
 }
@@ -34,12 +41,13 @@ export interface LoadAdaptationInput {
 export async function loadModelAdaptation(
   input: LoadAdaptationInput,
 ): Promise<string | undefined> {
-  const stem = adaptationFileStem(input.model);
-  if (stem.length === 0) return undefined;
+  const stems = input.candidates ?? [adaptationFileStem(input.model)];
+  const usable = stems.filter((stem) => stem.length > 0);
+  if (usable.length === 0) return undefined;
 
   const dirs = input.dir === undefined ? adaptationDirectoryCandidates() : [input.dir];
   for (const dir of dirs) {
-    const adaptation = await loadFrom(dir, stem, input.log);
+    const adaptation = await loadFrom(dir, usable, input.log);
     if (adaptation !== undefined) return adaptation;
   }
   return undefined;
@@ -47,7 +55,7 @@ export async function loadModelAdaptation(
 
 async function loadFrom(
   dir: string,
-  stem: string,
+  stems: readonly string[],
   log: ILogger | undefined,
 ): Promise<string | undefined> {
   let names: readonly string[];
@@ -61,7 +69,15 @@ async function loadFrom(
     return undefined;
   }
 
-  const match = names.find((name) => name.toLowerCase() === `${stem}.md`);
+  const byLowerName = new Map(names.map((name) => [name.toLowerCase(), name]));
+  let match: string | undefined;
+  for (const stem of stems) {
+    const found = byLowerName.get(`${stem}.md`);
+    if (found !== undefined) {
+      match = found;
+      break;
+    }
+  }
   if (match === undefined) return undefined;
 
   try {
@@ -89,6 +105,34 @@ export function renderAdaptationSection(model: string, adaptation: string): stri
     '',
     stripGeneratedHeader(adaptation),
   ].join('\n');
+}
+
+export function renderCuratedAdaptation(model: string, adaptation: string): string {
+  return [
+    `# Model Adaptation: ${model}`,
+    '',
+    'Curated guidance for this model family, taken from the vendor of that family.',
+    'These are standing instructions for how to work, not measured tendencies.',
+    'Where they conflict with the instructions above, the instructions above win.',
+    '',
+    stripGeneratedHeader(adaptation),
+  ].join('\n');
+}
+
+export function isCuratedAdaptationModel(name: string): boolean {
+  const family = resolveModelFamily(name);
+  return family?.curatedAdaptation === true && family.promptShape === 'minimal';
+}
+
+export async function loadCuratedAdaptation(
+  name: string,
+  log?: ILogger,
+): Promise<string | undefined> {
+  if (!isCuratedAdaptationModel(name)) return undefined;
+  const stems = familyAdaptationPrefixes(name);
+  if (stems.length === 0) return undefined;
+  const adaptation = await loadModelAdaptation({ model: name, candidates: stems, log });
+  return adaptation === undefined ? undefined : renderCuratedAdaptation(name, adaptation);
 }
 
 function stripGeneratedHeader(adaptation: string): string {
