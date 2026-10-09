@@ -914,6 +914,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
         model: wireName ?? alias,
         candidates: adaptationCandidates(wireName, alias),
         log: this.log,
+        kind: 'measured',
       });
       return adaptation === undefined ? '' : renderAdaptationSection(wireName ?? alias, adaptation);
     } catch (error: unknown) {

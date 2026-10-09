@@ -4,21 +4,24 @@ import { join, resolve } from 'node:path';
 import type { ILogger } from '#/_base/log/log';
 import { familyAdaptationPrefixes, resolveModelFamily } from '#/llm-adapter/contract/modelFamily';
 
+export type AdaptationKind = 'curated' | 'measured';
+
 const ADAPTATIONS_DIR_TAIL = 'agentProfileCatalog/model-adaptations';
 
 const MAX_ADAPTATION_BYTES = 32 * 1024;
 
 export function adaptationDirectoryCandidates(
   moduleDir: string = import.meta.dirname,
+  kind: AdaptationKind = 'measured',
 ): readonly string[] {
   const out: string[] = [];
   let dir = moduleDir;
   for (let depth = 0; depth < 4; depth += 1) {
-    out.push(resolve(dir, 'model-adaptations'));
+    out.push(resolve(dir, 'model-adaptations', kind));
     dir = resolve(dir, '..');
   }
-  out.push(resolve(moduleDir, 'src/app', ADAPTATIONS_DIR_TAIL));
-  out.push(resolve(moduleDir, 'app', ADAPTATIONS_DIR_TAIL));
+  out.push(resolve(moduleDir, 'src/app', ADAPTATIONS_DIR_TAIL, kind));
+  out.push(resolve(moduleDir, 'app', ADAPTATIONS_DIR_TAIL, kind));
   return out;
 }
 
@@ -36,6 +39,7 @@ export interface LoadAdaptationInput {
   readonly candidates?: readonly string[];
   readonly log?: ILogger;
   readonly dir?: string;
+  readonly kind?: AdaptationKind;
 }
 
 export async function loadModelAdaptation(
@@ -45,7 +49,10 @@ export async function loadModelAdaptation(
   const usable = stems.filter((stem) => stem.length > 0);
   if (usable.length === 0) return undefined;
 
-  const dirs = input.dir === undefined ? adaptationDirectoryCandidates() : [input.dir];
+  const dirs =
+    input.dir === undefined
+      ? adaptationDirectoryCandidates(import.meta.dirname, input.kind ?? 'measured')
+      : [input.dir];
   for (const dir of dirs) {
     const adaptation = await loadFrom(dir, usable, input.log);
     if (adaptation !== undefined) return adaptation;
@@ -131,7 +138,12 @@ export async function loadCuratedAdaptation(
   if (!isCuratedAdaptationModel(name)) return undefined;
   const stems = familyAdaptationPrefixes(name);
   if (stems.length === 0) return undefined;
-  const adaptation = await loadModelAdaptation({ model: name, candidates: stems, log });
+  const adaptation = await loadModelAdaptation({
+    model: name,
+    candidates: stems,
+    log,
+    kind: 'curated',
+  });
   return adaptation === undefined ? undefined : renderCuratedAdaptation(name, adaptation);
 }
 
