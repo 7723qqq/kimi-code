@@ -13,8 +13,9 @@ import {
   modelAdaptationsEnabled,
   renderAdaptationSection,
   renderCuratedAdaptation,
+  resolveModelAdaptationText,
+  truncateAtSection,
 } from '#/app/agentProfileCatalog/modelAdaptations';
-import { loadCuratedDeepseekAdaptation } from '#/features/deepseekAdaptation/deepseekAdaptationService';
 
 const tempDirs: string[] = [];
 
@@ -87,18 +88,160 @@ describe('loadModelAdaptation', () => {
     expect(await loadModelAdaptation({ model: 'demo-model', dir })).toBeUndefined();
   });
 
-  it('ignores an oversized file and reports it', async () => {
+  it('truncates an oversized file at a section boundary instead of dropping it', async () => {
     const warnings: string[] = [];
-    const dir = adaptationsDir({ 'demo-model.md': 'x'.repeat(40 * 1024) });
+    // Two sections that fit, then a third that pushes the file over the cap.
+    const body = [
+      '## First section',
+      'A'.repeat(30 * 1024),
+      '## Second section',
+      'B'.repeat(10 * 1024),
+    ].join('\n');
+    const dir = adaptationsDir({ 'demo-model.md': body });
     const loaded = await loadModelAdaptation({
       model: 'demo-model',
       dir,
       log: { warn: (message: string) => warnings.push(message) } as never,
     });
-    expect(loaded).toBeUndefined();
-    expect(warnings.join(' ')).toMatch(/oversized/);
+
+    expect(loaded).toBeDefined();
+    expect(loaded).toContain('## First section');
+    expect(loaded).not.toContain('## Second section');
+    expect(warnings.join(' ')).toMatch(/truncated/);
+  });
+
+  it('keeps the head of the file when even the first section is too large', async () => {
+    const dir = adaptationsDir({ 'demo-model.md': `## Huge\n${'x'.repeat(40 * 1024)}` });
+    const loaded = await loadModelAdaptation({ model: 'demo-model', dir });
+
+    expect(loaded).toBeDefined();
+    expect(loaded).toContain('## Huge');
+    expect(loaded!.length).toBeLessThanOrEqual(32 * 1024);
   });
 });
+
+describe('truncateAtSection boundaries', () => {
+  const LIMIT = 1024;
+
+  it('returns short text untouched', () => {
+    expect(truncateAtSection('## A\nbody', LIMIT)).toBe('## A\nbody');
+  });
+
+  it('cuts at the last real heading that fits', () => {
+    // `## A` is at 0 and `## B` at 106, `## C` at 212. A limit of 212 admits the
+    // first two and excludes the third.
+    const text = ['## A', 'a'.repeat(100), '## B', 'b'.repeat(100), '## C', 'c'.repeat(2000)].join(
+      '\n',
+    );
+
+    const out = truncateAtSection(text, 212);
+    expect(out).toContain('## A');
+    expect(out).toContain('## B');
+    expect(out).not.toContain('## C');
+  });
+
+  it('drops an earlier heading too when the limit does not reach it', () => {
+    const text = ['## A', 'a'.repeat(100), '## B', 'b'.repeat(100), '## C'].join('\n');
+    const out = truncateAtSection(text, 200);
+
+    expect(out).toContain('## A');
+    expect(out).not.toContain('## B');
+  });
+
+  it('never cuts in the middle of a code fence', () => {
+    // The regression guard: a quoted `##` heading inside a fence must not be
+    // treated as a boundary, and the hard-cut fallback must not land inside the
+    // fence either — that would leave the marker unterminated and reframe the
+    // remaining guidance as code.
+    const cases = [
+      ['## Intro', 'i'.repeat(50), '```', '## Quoted', 'q'.repeat(50), '```', '## Real', 'r'.repeat(80)],
+      ['## A', '```', 'code', '```', '## B', 'b'.repeat(100), '## C', 'c'.repeat(2000)],
+      ['## A', '~~~', '## Quoted', '~~~', '## B', 'b'.repeat(100), '## C', 'c'.repeat(2000)],
+    ].map((lines) => lines.join('\n'));
+
+    for (const text of cases) {
+      for (let limit = 10; limit <= text.length; limit += 7) {
+        const out = truncateAtSection(text, limit);
+        expect(
+          fenceCount(out) % 2,
+          `unbalanced fence at limit ${limit} for ${JSON.stringify(text.slice(0, 24))}`,
+        ).toBe(0);
+        expect(out.length, `over limit ${limit}`).toBeLessThanOrEqual(limit);
+      }
+    }
+  });
+
+  it('stops before the fence when the limit would land inside it', () => {
+    // `## Real` is at 129 and the fence spans 60..129, so a limit of 100 cannot
+    // take the second heading; the cut is pulled back to the fence opening.
+    const text = [
+      '## Intro',
+      'i'.repeat(50),
+      '```',
+      '## Quoted',
+      'q'.repeat(50),
+      '```',
+      '## Real',
+      'r'.repeat(80),
+    ].join('\n');
+
+    const out = truncateAtSection(text, 100);
+    expect(out).toContain('## Intro');
+    expect(out).not.toContain('## Real');
+    expect(fenceCount(out)).toBe(0);
+  });
+
+  it('keeps a heading that follows a closed fence as a real boundary', () => {
+    // `## B` sits at 18, after the closed fence, and must still be usable as a
+    // cut point; the fence markers stay balanced in the result.
+    const text = ['## A', '```', 'code', '```', '## B', 'b'.repeat(100), '## C', 'c'.repeat(2000)].join(
+      '\n',
+    );
+
+    const out = truncateAtSection(text, 124);
+    expect(out).toContain('## A');
+    expect(out).toContain('## B');
+    expect(out).not.toContain('## C');
+    expect(fenceCount(out) % 2).toBe(0);
+  });
+
+  it('treats tildes as fence markers too', () => {
+    const text = ['## A', '~~~', '## Quoted', '~~~', '## B', 'b'.repeat(100), '## C', 'c'.repeat(2000)].join(
+      '\n',
+    );
+
+    const out = truncateAtSection(text, 129);
+    expect(out).toContain('## A');
+    expect(out).toContain('## B');
+    expect(out).not.toContain('## C');
+    expect(fenceCount(out) % 2).toBe(0);
+  });
+
+  it('keeps the head of the file when the first section is oversized', () => {
+    const text = ['## Only', 'x'.repeat(50), '~~~', 'y'.repeat(2000)].join('\n');
+    const out = truncateAtSection(text, 200);
+
+    expect(out).toContain('## Only');
+    expect(out).toBe(out.trimEnd());
+    expect(fenceCount(out)).toBe(0);
+  });
+
+  it('never exceeds the limit', () => {
+    const cases = [
+      'x'.repeat(4096),
+      ['## A', 'a'.repeat(3000), '## B', 'b'.repeat(3000)].join('\n'),
+      ['## A', '```', 'y'.repeat(3000)].join('\n'),
+      ['## A', 'a'.repeat(200), '```', '## Q', 'c'.repeat(3000)].join('\n'),
+    ];
+    for (const text of cases) {
+      expect(truncateAtSection(text, LIMIT).length).toBeLessThanOrEqual(LIMIT);
+    }
+  });
+});
+
+function fenceCount(text: string): number {
+  return text.split('\n').filter((line) => /^\s*(?:`{3,}|~{3,})/.test(line)).length;
+}
 
 describe('adaptation directory candidates', () => {
   it('searches upward from the packaged chunk directory', () => {
@@ -230,11 +373,15 @@ describe('renderCuratedAdaptation', () => {
 });
 
 describe('loadCuratedAdaptation', () => {
-  it('is reachable under both names the two call sites use', async () => {
+  it('is what the shared resolver returns when the opt-in is off', async () => {
     const viaShared = await loadCuratedAdaptation('deepseek-v4-pro', silent);
-    const viaFeature = await loadCuratedDeepseekAdaptation('deepseek-v4-pro', silent);
+    const viaResolver = await resolveModelAdaptationText({
+      model: 'deepseek-v4-pro',
+      optIn: undefined,
+      log: silent,
+    });
     expect(viaShared).toBeDefined();
-    expect(viaFeature).toBe(viaShared);
+    expect(viaResolver).toBe(viaShared);
   });
 
   it('gates on the curated flag and the minimal shape together', () => {
@@ -247,6 +394,43 @@ describe('loadCuratedAdaptation', () => {
 
   it('returns undefined outside a curated family', async () => {
     expect(await loadCuratedAdaptation('gpt-4o', silent)).toBeUndefined();
+  });
+});
+
+describe('resolveModelAdaptationText precedence', () => {
+  it('uses the curated family file while the opt-in is off', async () => {
+    const text = await resolveModelAdaptationText({
+      model: 'deepseek-v3',
+      optIn: undefined,
+      log: silent,
+    });
+    expect(text).toContain('standing instructions for how to work');
+    expect(text).not.toContain('Not reproducible');
+  });
+
+  it('prefers measured probe output for a model that has a file', async () => {
+    const text = await resolveModelAdaptationText({
+      model: 'deepseek-v3',
+      optIn: '1',
+      log: silent,
+    });
+    expect(text).toContain('Negation Rewrite Patch');
+    expect(text).toMatch(/reference data, not an/);
+  });
+
+  it('falls back to the curated file when the opt-in finds no measured file', async () => {
+    const text = await resolveModelAdaptationText({
+      model: 'deepseek-v4-pro',
+      optIn: '1',
+      log: silent,
+    });
+    expect(text).toContain('standing instructions for how to work');
+  });
+
+  it('leaves a non-curated family unadapted with the opt-in off', async () => {
+    expect(
+      await resolveModelAdaptationText({ model: 'gpt-4o', optIn: undefined, log: silent }),
+    ).toBeUndefined();
   });
 });
 
@@ -278,6 +462,49 @@ describe('the shipped adaptations load', () => {
       });
       expect(loaded).not.toContain('Auto-generated by');
     }
+  });
+
+  it('the curated DeepSeek file states that it is not measured', async () => {
+    // Provenance claims are load-bearing: this file is injected by default, so a
+    // reader deciding whether to trust it needs the statement that no probe
+    // produced it. Asserting it stops a later edit from quietly dropping the
+    // disclaimer while keeping the guidance.
+    const loaded = await loadModelAdaptation({ model: 'deepseek', kind: 'curated' });
+    expect(loaded).toContain('Not measured');
+    expect(loaded).toMatch(/no script generated this file/i);
+  });
+
+  it('the measured DeepSeek file states that it is not reproducible', async () => {
+    const loaded = await loadModelAdaptation({ model: 'deepseek-v3', kind: 'measured' });
+    expect(loaded).toContain('Not reproducible');
+    expect(loaded).toMatch(/no code in this repository writes this file/i);
+  });
+
+  it('the measured file names the flag that gates it and its precedence', async () => {
+    const loaded = await loadModelAdaptation({ model: 'deepseek-v3', kind: 'measured' });
+    expect(loaded).toContain('KIMI_MODEL_ADAPTATIONS=1');
+    // The file is only loadable under the flag, and under the flag it is what
+    // resolveModelAdaptationText returns for this model — the comment has to
+    // say so, or it repeats the drift this review fixed.
+    expect(loaded).toMatch(/outranks the curated/i);
+  });
+
+  it('the primacy/recency guidance cites its evidence instead of asserting it', async () => {
+    const loaded = await loadModelAdaptation({ model: 'deepseek-v3', kind: 'measured' });
+    expect(loaded).toContain('Lost in the Middle');
+    expect(loaded).toContain('arXiv:2307.03172');
+    // The old wording presented it as an unconditional rule ("MUST appear both
+    // at the start and end"), which the source does not support.
+    expect(loaded).not.toContain('MUST appear both at the start and end');
+  });
+
+  it('the curated DeepSeek file leads with positive directives and shows an example', async () => {
+    const loaded = await loadModelAdaptation({ model: 'deepseek', kind: 'curated' });
+    expect(loaded).toContain('## Worked example');
+    // Negation non-compliance is the weakness the measured notes attribute to
+    // this family, so the curated guidance must not be built on prohibitions.
+    expect(loaded).not.toContain('Do not stop at a plan');
+    expect(loaded).not.toContain('Do not quietly drop');
   });
 
   it('reads the curated family file, never the measured one', async () => {

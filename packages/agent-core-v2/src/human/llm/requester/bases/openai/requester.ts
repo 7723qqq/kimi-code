@@ -9,6 +9,10 @@ import { resolveModelConnection } from '#/llm/protocol/connection';
 import { resolveMaxCompletionCap, type FormatRequestInput } from '#/llm/protocol/format';
 import { applyThinking } from '#/llm/protocol/thinking';
 import {
+  fullReasoningEchoRequired,
+  ignoredSamplingParamsForModel,
+} from '#/llm/modelFamily';
+import {
   mergeRequestHeaders,
   type LlmClientContext,
   type LlmRequestConfig,
@@ -37,6 +41,7 @@ import {
   lowerOpenAIMessages,
   parseOpenAIUsage,
   responseFormatToOpenAI,
+  stripIgnoredSamplingParams,
   type OpenAIRequestParams,
 } from './format';
 import { DEFAULT_REASONING_KEY, ReasoningKeyDialect } from './reasoning-key';
@@ -92,6 +97,14 @@ export function prepareOpenAIRequest(
   ) {
     kwargs = { ...kwargs, ...encodeOpenAIThinkHistoryKwargs(ctx.model.model) };
   }
+  // Families that demand the whole reasoning history whenever tools are present
+  // (DeepSeek rejects the request with HTTP 400 otherwise) get it regardless of
+  // what the trait reports, because the requirement is a property of the request
+  // shape rather than of any provider hook.
+  const echoFullReasoning = fullReasoningEchoRequired(
+    ctx.model.model,
+    input.tools.length > 0,
+  );
   if (input.responseFormat !== undefined) {
     kwargs = { ...kwargs, response_format: responseFormatToOpenAI(input.responseFormat) };
   }
@@ -108,10 +121,18 @@ export function prepareOpenAIRequest(
     };
   }
   kwargs = shake(assign(kwargs, input.extraParams?.openai ?? {}));
+  // Applied after the caller's extra params merge: `samplingExtraParams` feeds
+  // temperature/top_p in through `extraParams.openai`, so filtering any earlier
+  // would let them straight back in.
+  kwargs = stripIgnoredSamplingParams(
+    kwargs,
+    ignoredSamplingParamsForModel(ctx.model.model),
+  );
 
   const lowered = lowerOpenAIMessages(input, {
     reasoningKey: options?.reasoningKey ?? DEFAULT_REASONING_KEY,
     preserveThinking,
+    echoFullReasoning,
     toolMessageConversion: input.toolMessageConversion ?? trait?.toolMessageConversion,
   });
   const converted = lowered.flatMap(({ source, message }) => {

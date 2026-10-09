@@ -1,7 +1,7 @@
 export type OpenAIContentPart = {
   type: 'text' | 'image_url' | 'audio_url' | 'video_url';
   text?: string | undefined;
-  image_url?: { url: string; id?: string | null } | undefined;
+  image_url?: { url: string; id?: string | null; detail?: string } | undefined;
   audio_url?: { url: string; id?: string | null } | undefined;
   video_url?: { url: string; id?: string | null } | undefined;
 };
@@ -25,6 +25,8 @@ export type OpenAIRawUsage = {
   prompt_tokens?: number;
   completion_tokens?: number;
   cached_tokens?: number;
+  prompt_cache_hit_tokens?: number;
+  prompt_cache_miss_tokens?: number;
   prompt_tokens_details?: { cached_tokens?: number } | null;
 };
 

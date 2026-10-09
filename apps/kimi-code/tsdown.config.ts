@@ -24,6 +24,12 @@ export default defineConfig({
     ].join('\n'),
   },
   plugins: [rawTextPlugin()],
+  copy: [
+    {
+      from: resolve(appRoot, '../../packages/agent-core-v2/src/app/agentProfileCatalog/model-adaptations'),
+      to: resolve(appRoot, 'dist/chunks'),
+    },
+  ],
   alias: {
     '@': resolve(appRoot, 'src'),
     '#/i18n': resolve(appRoot, 'src', 'i18n', 'index.ts'),

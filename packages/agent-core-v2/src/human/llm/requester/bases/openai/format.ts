@@ -133,6 +133,7 @@ export interface OpenAIRequestParams {
 export interface OpenAILowerOptions {
   readonly reasoningKey: string;
   readonly preserveThinking: boolean;
+  readonly echoFullReasoning: boolean;
   readonly toolMessageConversion: ToolMessageConversion | undefined;
 }
 
@@ -158,6 +159,7 @@ export function lowerOpenAIMessages(
     lowerMessage(message, {
       reasoningKey: options.reasoningKey,
       preserveThinking: options.preserveThinking,
+      echoFullReasoning: options.echoFullReasoning,
       toolMessageConversion: conversion,
     }).map((wire) => ({ source: message, message: wire })),
   );
@@ -167,6 +169,32 @@ export interface OpenAIRequestParts {
   readonly messages: readonly OpenAIWireMessage[];
   readonly tools: readonly Record<string, unknown>[];
   readonly kwargs: Readonly<Record<string, unknown>>;
+}
+
+/**
+ * Drop sampling parameters the family silently ignores while thinking is on.
+ *
+ * DeepSeek documents (https://api-docs.deepseek.com/guides/thinking_mode) that
+ * thinking mode "does not support the temperature, presence_penalty, or
+ * frequency_penalty parameters" and that setting them "will not trigger an
+ * error but will also have no effect". Forwarding them would let a user believe
+ * a knob is applied when it is not, so they are removed at the last point where
+ * the request shape is still visible. Only names the family itself declares are
+ * touched — every other key in `kwargs` passes through untouched.
+ */
+export function stripIgnoredSamplingParams(
+  kwargs: Record<string, unknown>,
+  ignored: readonly string[],
+): Record<string, unknown> {
+  if (ignored.length === 0) return kwargs;
+  const absent = ignored.every((name) => !(name in kwargs));
+  if (absent) return kwargs;
+  const filtered: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(kwargs)) {
+    if (ignored.includes(key)) continue;
+    filtered[key] = value;
+  }
+  return filtered;
 }
 
 export function assembleOpenAIRequest(

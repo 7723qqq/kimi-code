@@ -12,6 +12,7 @@ import { IFlagService } from '#/app/flag/flag';
 import { LifecycleScope } from '#/app/scopes';
 import type { MicroCompactionFinishedEvent } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { imagePricingForModel } from '#/llm-adapter/contract/modelFamily';
 import {
   estimateTokensForContentParts,
   estimateTokensForMessages,
@@ -113,7 +114,10 @@ export class AgentMicroCompactionService
 
     const effect = this.measureEffect(history, nextCutoff);
     const previousEffect = this.measureEffect(history, previousCutoff);
-    const rawContextTokens = estimateTokensForMessages(history);
+    const rawContextTokens = estimateTokensForMessages(
+      history,
+      imagePricingForModel(this.profile.getModelWireName()),
+    );
     const tokensBefore =
       rawContextTokens -
       previousEffect.truncatedToolResultTokensBefore +

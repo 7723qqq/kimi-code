@@ -1,4 +1,5 @@
 import type { ContentPart, ToolCall } from '#/llm/message';
+import { estimateTokensForMessage } from '#/llm/tokens';
 import type { TokenUsage } from '#/llm/usage';
 import { readTodoItems, type TodoItem } from '#/todo/todoItem';
 
@@ -9,7 +10,6 @@ const TOOL_INTERRUPTED_ON_RESUME_OUTPUT =
 
 const COMPACT_USER_MESSAGE_MAX_TOKENS = 20_000;
 const COMPACT_USER_MESSAGE_HEAD_TOKENS = 2_000;
-const MEDIA_TOKEN_ESTIMATE = 2000;
 
 export interface V2PromptOrigin {
   kind: string;
@@ -117,43 +117,6 @@ function isPromptOwnedInjection(message: V2ContextMessage, prompt: V2ContextMess
     origin.ownerPromptId !== undefined &&
     origin.ownerPromptId === prompt.id
   );
-}
-
-function estimateTokens(text: string): number {
-  let asciiCount = 0;
-  let nonAsciiCount = 0;
-  for (const char of text) {
-    if ((char.codePointAt(0) as number) <= 127) {
-      asciiCount++;
-    } else {
-      nonAsciiCount++;
-    }
-  }
-  return Math.ceil(asciiCount / 4) + nonAsciiCount;
-}
-
-function estimateTokensForMessage(message: V2ContextMessage): number {
-  let total = estimateTokens(message.role);
-  for (const part of message.content) {
-    switch (part.type) {
-      case 'text':
-        total += estimateTokens(part.text);
-        break;
-      case 'think':
-        total += estimateTokens(part.think);
-        break;
-      case 'image_url':
-      case 'audio_url':
-      case 'video_url':
-        total += MEDIA_TOKEN_ESTIMATE;
-        break;
-    }
-  }
-  for (const call of message.toolCalls ?? []) {
-    total += estimateTokens(call.name);
-    total += estimateTokens(JSON.stringify(call.arguments));
-  }
-  return total;
 }
 
 function extractText(content: readonly ContentPart[]): string {

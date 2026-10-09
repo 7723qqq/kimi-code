@@ -10,6 +10,11 @@ import {
   type Message,
 } from '#/llm/message';
 import type { LlmModel } from '#/llm/model';
+import {
+  fullReasoningEchoRequired,
+  ignoredSamplingParamsForModel,
+  thinkingHistoryForModel,
+} from '#/llm/modelFamily';
 import type { TraitContext } from '#/llm/protocol/base';
 import { createOpenAIRequester } from '#/llm/requester/bases/openai/requester';
 import type { LlmClientContext, LlmRequestEvent } from '#/llm/requester/requester';
@@ -181,6 +186,44 @@ describe('kimiOpenAITrait thinking', () => {
       kimiOpenAITrait.thinking?.({ effort: 'on', keep: '1' }, ctx)?.preserveThinking,
     ).toBeUndefined();
   });
+
+  it('is not affected by the deepseek full-echo rule, which keys off the request shape', () => {
+    // The kimi path is driven by `preserveThinking` from its own trait, while
+    // the deepseek rule is driven by the presence of tools plus the family
+    // entry. A kimi model must not match the deepseek family entry, so the two
+    // mechanisms cannot overlap on this provider.
+    expect(fullReasoningEchoRequired(model.model, true)).toBe(false);
+    expect(fullReasoningEchoRequired('kimi-k3-1', true)).toBe(false);
+    expect(thinkingHistoryForModel('kimi-k3-1')).toBeUndefined();
+    expect(ignoredSamplingParamsForModel('kimi-k3-1')).toEqual([]);
+  });
+
+  it('keeps the kimi trait thinking kwargs while a deepseek-shaped request adds nothing', async () => {
+    const client = stubOpenAIClient(chatCompletionChunks());
+    const requester = createOpenAIRequester({
+      ...kimiOpenAI,
+      clientFactory: client.clientFactory,
+    });
+    // A real kimi model id, not the generic fixture: the assertion is that this
+    // name does not resolve to the deepseek family, so it has to be the kind of
+    // name the provider actually serves. Tools are present, which is exactly the
+    // condition that triggers the deepseek echo rule; the kimi trait must still
+    // own its thinking kwargs and keep its own sampling parameters.
+    await requester.generate(
+      {
+        model: { ...model, model: 'kimi-k3-1' },
+        tools: [{ name: 'noop', description: 'noop', parameters: { type: 'object' } }],
+        thinking: { effort: 'high', keep: 'all' },
+        extraParams: { openai: { temperature: 0.3 } },
+      },
+      { messages },
+      { signal: new AbortController().signal },
+    );
+
+    expect(client.body()['thinking']).toEqual({ type: 'enabled', effort: 'high', keep: 'all' });
+    expect(client.body()['temperature']).toBe(0.3);
+    expect(client.body()['reasoning_effort']).toBeUndefined();
+  });
 });
 
 describe('openai requester thinking', () => {
@@ -335,7 +378,7 @@ describe('openai requester thinking', () => {
     expect(events.some((event) => event.type === 'llm.sent')).toBe(false);
   });
 
-  it('keeps reasoning alive with medium effort when history has think parts', async () => {
+  it('keeps reasoning alive with high effort when history has think parts', async () => {
     const client = stubOpenAIClient(chatCompletionChunks());
     const requester = createOpenAIRequester({ clientFactory: client.clientFactory });
     await requester.generate(
@@ -351,7 +394,7 @@ describe('openai requester thinking', () => {
       },
       { signal: new AbortController().signal },
     );
-    expect(client.body()['reasoning_effort']).toBe('medium');
+    expect(client.body()['reasoning_effort']).toBe('high');
   });
 
   it('echoes think parts under reasoning_content by default and restores marked reasoning_details', async () => {

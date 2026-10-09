@@ -726,31 +726,29 @@ export class OpenAIResponsesStreamedMessage implements StreamedMessage {
   private _extractUsage(usage: RawObject): void {
     const inputTokens = readNumberField(usage, 'input_tokens') ?? 0;
     const outputTokens = readNumberField(usage, 'output_tokens') ?? 0;
-    let cached = 0;
-    let miss: number | undefined;
     // DeepSeek proprietary: prompt_cache_hit_tokens / prompt_cache_miss_tokens
-    // (top-level, alongside input_tokens / output_tokens).
+    // (top-level, alongside input_tokens / output_tokens). Both buckets are
+    // reported directly, so read them verbatim — the same classification the
+    // Chat Completions extractor uses (see `openai-common.ts`).
     const hit = readNumberField(usage, 'prompt_cache_hit_tokens');
     if (hit !== undefined) {
-      cached = hit;
-      const deepSeekMiss = readNumberField(usage, 'prompt_cache_miss_tokens');
-      if (deepSeekMiss !== undefined) miss = deepSeekMiss;
-    } else {
-      const details = readObjectField(usage, 'input_tokens_details');
-      cached = details ? (readNumberField(details, 'cached_tokens') ?? 0) : 0;
+      const miss = readNumberField(usage, 'prompt_cache_miss_tokens');
+      this._usage = {
+        inputOther: miss ?? Math.max(inputTokens - hit, 0),
+        output: outputTokens,
+        inputCacheRead: hit,
+        inputCacheCreation: 0,
+      };
+      return;
     }
-    // Cache writes are not reported by OpenAI-compatible APIs; the "miss"
-    // bucket (DeepSeek's `prompt_cache_miss_tokens`, or the non-cached
-    // remainder of the input) is the closest proxy — without it the hit rate
+    const details = readObjectField(usage, 'input_tokens_details');
+    const cached = details ? (readNumberField(details, 'cached_tokens') ?? 0) : 0;
+    // Cache writes are not reported by OpenAI-compatible APIs; the non-cached
+    // remainder of the input is the closest proxy — without it the hit rate
     // reads/(reads+writes) would always be 100% whenever any token was read.
-    const hasMissField = miss !== undefined;
-    const cacheCreation = hasMissField
-      ? (miss ?? 0)
-      : cached > 0
-        ? Math.max(inputTokens - cached, 0)
-        : 0;
+    const cacheCreation = cached > 0 ? Math.max(inputTokens - cached, 0) : 0;
     this._usage = {
-      inputOther: hasMissField ? 0 : cached > 0 ? 0 : Math.max(inputTokens - cached, 0),
+      inputOther: cached > 0 ? 0 : Math.max(inputTokens - cached, 0),
       output: outputTokens,
       inputCacheRead: cached,
       inputCacheCreation: cacheCreation,

@@ -18,7 +18,7 @@ function contentPartsToInputItems(parts: readonly ContentPart[]): ResponsesInput
       case 'image_url':
         items.push({
           type: 'input_image',
-          detail: 'auto',
+          detail: part.imageUrl.detail ?? 'auto',
           image_url: part.imageUrl.url,
         });
         break;

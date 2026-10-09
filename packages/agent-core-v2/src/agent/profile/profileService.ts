@@ -75,12 +75,11 @@ import type {
 } from './profile';
 import {
   adaptationFileStem,
-  loadCuratedAdaptation,
-  loadModelAdaptation,
+  isCuratedAdaptationModel,
   MODEL_ADAPTATIONS_ENV,
-  modelAdaptationsEnabled,
-  renderAdaptationSection,
+  resolveModelAdaptationText,
 } from '#/app/agentProfileCatalog/modelAdaptations';
+import type { SystemPromptRenderResult } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import { familyAdaptationPrefixes } from '#/llm-adapter/contract/modelFamily';
 
 import { IAgentProfileService, ProfileError, ProfileErrors } from './profile';
@@ -346,7 +345,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
       systemPrompt: rendered.text,
       disallowedTools: profile.disallowedTools ?? [],
     });
-    this.seedAgentsMdReminder(context);
+    this.seedAgentsMdReminder(context, rendered);
 
     this.publishAgentsMdWarning();
     this.publishToolPatternWarnings(profile);
@@ -401,7 +400,10 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     return this.modelAlias ?? '';
   }
 
-  useProfile(profile: ResolvedAgentProfile, context: SystemPromptContext): void {
+  useProfile(
+    profile: ResolvedAgentProfile,
+    context: SystemPromptContext,
+  ): SystemPromptRenderResult {
     this.activeProfile = profile;
     const rendered = renderAgentProfilePrompt(profile, context);
     this.update({
@@ -412,22 +414,50 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
       disallowedTools: profile.disallowedTools ?? [],
     });
     this.setActiveTools(profile.tools);
+    return rendered;
   }
 
   async applyProfile(profile: ResolvedAgentProfile, options?: ApplyProfileOptions): Promise<void> {
     const context = await this.buildSystemPromptContext(profile, options);
-    this.useProfile(profile, context);
-    this.seedAgentsMdReminder(context);
+    const rendered = this.useProfile(profile, context);
+    this.warnAboutDroppedVars(rendered, profile.name);
+    this.seedAgentsMdReminder(context, rendered);
     this.cacheAgentsMdWarning(context);
     this.publishAgentsMdWarning();
     this.publishToolPatternWarnings(profile);
   }
 
-  private seedAgentsMdReminder(context: SystemPromptContext): void {
-    this.agentsMdReminder.seedInjected(
-      context.agentsMdPaths ?? [],
-      context.cwd ?? this.sessionContext.cwd,
+  /**
+   * Surface variables that were supplied but that the active template never
+   * referenced. The minimal DeepSeek prompt keeps only the persona and the
+   * working directory, so AGENTS.md content, skill listings and plugin sections
+   * that are present in the context would otherwise vanish without a trace.
+   * The reminder that tells the model to read those files is driven separately —
+   * see seedAgentsMdReminder — so this only has to make the loss observable.
+   */
+  private warnAboutDroppedVars(rendered: SystemPromptRenderResult, profileName: string): void {
+    const dropped = rendered.droppedVars;
+    if (dropped === undefined || dropped.length === 0) return;
+    this.log.warn(
+      `system prompt template for profile "${profileName}" ignored supplied variables: ${dropped.join(', ')}`,
     );
+  }
+
+  private seedAgentsMdReminder(
+    context: SystemPromptContext,
+    rendered: SystemPromptRenderResult,
+  ): void {
+    const paths = context.agentsMdPaths ?? [];
+    // Under the minimal prompt shape the AGENTS.md body never reaches the system
+    // prompt, so marking those paths as already injected would suppress the
+    // reminder that points the model at them. Seed only what the template
+    // actually carried; anything else stays eligible for the discovery nudge.
+    if (this.promptDroppedAgentsMd(rendered)) return;
+    this.agentsMdReminder.seedInjected(paths, context.cwd ?? this.sessionContext.cwd);
+  }
+
+  private promptDroppedAgentsMd(rendered: SystemPromptRenderResult): boolean {
+    return rendered.droppedVars?.includes('agents_md') === true;
   }
 
   getAgentsMdWarning(): string | undefined {
@@ -904,27 +934,25 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     const alias = this.modelAlias ?? pendingModelAlias;
     if (alias === undefined || alias === '') return '';
     const wireName = this.resolveModelForThinking(alias)?.name;
+    const model = wireName ?? alias;
+    // Families whose curated guidance ships as a per-agent reminder own that
+    // delivery channel, and their prompt shape is `minimal`, which has no
+    // `${model_adaptation_section}` placeholder. Resolving here would load the
+    // file only to have the template discard it — and would then be reported as
+    // a dropped variable. Let the reminder path carry it.
+    if (isCuratedAdaptationModel(model)) return '';
     try {
-      const curated = await this.resolveCuratedAdaptation(wireName ?? alias);
-      if (curated !== undefined) return curated;
-
-      const optIn = this.bootstrap.getEnv(MODEL_ADAPTATIONS_ENV);
-      if (!modelAdaptationsEnabled(optIn)) return '';
-      const adaptation = await loadModelAdaptation({
-        model: wireName ?? alias,
+      const resolved = await resolveModelAdaptationText({
+        model,
         candidates: adaptationCandidates(wireName, alias),
+        optIn: this.bootstrap.getEnv(MODEL_ADAPTATIONS_ENV),
         log: this.log,
-        kind: 'measured',
       });
-      return adaptation === undefined ? '' : renderAdaptationSection(wireName ?? alias, adaptation);
+      return resolved ?? '';
     } catch (error: unknown) {
-      this.log.warn(`model adaptation lookup failed for "${wireName ?? alias}": ${String(error)}`);
+      this.log.warn(`model adaptation lookup failed for "${model}": ${String(error)}`);
       return '';
     }
-  }
-
-  private async resolveCuratedAdaptation(name: string): Promise<string | undefined> {
-    return loadCuratedAdaptation(name, this.log);
   }
 
   private async workspaceInstructionsSnapshot(): Promise<LoadedAgentsMd> {

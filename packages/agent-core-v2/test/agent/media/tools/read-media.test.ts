@@ -528,6 +528,10 @@ describe('Read tool media reads', () => {
       width: 400,
       height: 300,
     });
+    expect((parts[1] as { imageUrl: { dimensions?: unknown } }).imageUrl.dimensions).toEqual({
+      width: 400,
+      height: 300,
+    });
     const systemText = noteText(result);
     expect(systemText).toContain('2100x2100');
     expect(systemText).toMatch(/region \(x=100, y=50, width=400, height=300\)/);

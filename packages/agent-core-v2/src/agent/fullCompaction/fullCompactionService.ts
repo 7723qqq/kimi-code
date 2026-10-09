@@ -47,6 +47,7 @@ import {
   isRetryableGenerateError,
 } from '#/llm-adapter/contract/errors';
 import { createUserMessage, type Message } from '#/llm-adapter/contract/message';
+import { imagePricingForModel, type ImageTokenPricing } from '#/llm-adapter/contract/modelFamily';
 import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
 import { estimateTokensForMessage } from '#/llm-adapter/contract/tokens';
 import { runWithCredentialRecovery } from '#/llm-adapter/model/credential-recovery';
@@ -172,7 +173,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     this.states.contributeState(fullCompactionActiveTurnIdKey);
     this.strategy = new RuntimeCompactionStrategy(
       () => this.resolveModelContextWithEffectiveMax(),
-      (message) => this.tokenCounting.estimateMessage(message),
+      (message) => this.tokenCounting.estimateMessage(message, this.imagePricing()),
     );
     this._register(
       this.dispatcher.hooks.onDidRestore.register('full-compaction', async (_ctx, next) => {
@@ -282,16 +283,23 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     };
   }
 
+  private imagePricing(): ImageTokenPricing | undefined {
+    return imagePricingForModel(this.profile.getModelWireName());
+  }
+
   private currentRequestTokens(): number {
     return this.requestTokens(this.context.get());
   }
 
   private requestTokens(messages: readonly Message[]): number {
-    return this.tokenCounting.requestSize({
-      systemPrompt: this.profile.getSystemPrompt(),
-      tools: this.defaultTools().filter((tool) => tool.deferred !== true),
-      messages,
-    });
+    return this.tokenCounting.requestSize(
+      {
+        systemPrompt: this.profile.getSystemPrompt(),
+        tools: this.defaultTools().filter((tool) => tool.deferred !== true),
+        messages,
+      },
+      this.imagePricing(),
+    );
   }
 
   private defaultTools(): readonly Tool[] {
@@ -703,7 +711,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
             historyForModel = shrinkCompactionHistoryAfterOverflow(
               messagesToCompact,
               overflowShrinkCount,
-              (message) => this.tokenCounting.estimateMessage(message),
+              (message) => this.tokenCounting.estimateMessage(message, this.imagePricing()),
             );
             if (historyForModel.length === 0) throw error;
             droppedCount += before - historyForModel.length;
@@ -828,11 +836,11 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
       Math.floor((effectiveMaxTokens - outputReserve) * OVERFLOW_CONTEXT_SAFETY_RATIO) -
       this.requestTokens([]);
     const estimatedMessagesTokens =
-      this.tokenCounting.estimateMessages(history) +
-      this.tokenCounting.estimateMessage(createUserMessage(instruction));
+      this.tokenCounting.estimateMessages(history, this.imagePricing()) +
+      this.tokenCounting.estimateMessage(createUserMessage(instruction), this.imagePricing());
     if (messageBudget <= 0 || estimatedMessagesTokens <= messageBudget) return history;
     const preShrunk = takeRecentMessagesWithinTokenBudget(history, messageBudget, (message) =>
-      this.tokenCounting.estimateMessage(message),
+      this.tokenCounting.estimateMessage(message, this.imagePricing()),
     );
     return preShrunk.length === 0 ? history : preShrunk;
   }

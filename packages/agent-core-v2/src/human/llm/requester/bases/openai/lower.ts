@@ -17,10 +17,11 @@ function convertContentPart(part: ContentPart): OpenAIContentPart | null {
     case 'image_url':
       return {
         type: 'image_url',
-        image_url:
-          part.imageUrl.id === undefined
-            ? { url: part.imageUrl.url }
-            : { url: part.imageUrl.url, id: part.imageUrl.id },
+        image_url: {
+          url: part.imageUrl.url,
+          ...(part.imageUrl.id === undefined ? {} : { id: part.imageUrl.id }),
+          ...(part.imageUrl.detail === undefined ? {} : { detail: part.imageUrl.detail }),
+        },
       };
     case 'audio_url':
       return {
@@ -63,18 +64,28 @@ function convertToolMessageMediaText(message: Message): string {
 export interface OpenAILowerContext {
   readonly reasoningKey: string;
   readonly preserveThinking: boolean;
+  /**
+   * Replay the entire reasoning history, including parts marked `hidden`.
+   *
+   * DeepSeek requires this on every request that carries `tools`; omitting any
+   * part of the prior reasoning is rejected with HTTP 400. `preserveThinking`
+   * answers a different question (whether an assistant turn with no reasoning
+   * part should still emit the field), so the two are tracked separately.
+   */
+  readonly echoFullReasoning: boolean;
   readonly toolMessageConversion: ToolMessageConversion | undefined;
 }
 
 export function lowerMessage(message: Message, lower: OpenAILowerContext): OpenAIWireMessage[] {
-  const { reasoningKey, preserveThinking } = lower;
+  const { reasoningKey, preserveThinking, echoFullReasoning } = lower;
+  const includeHidden = echoFullReasoning;
   let reasoningContent = '';
   let hasReasoningPart = false;
   const nonThinkParts: ContentPart[] = [];
   for (const part of message.content) {
     if (part.type === 'think') {
       hasReasoningPart = true;
-      if (part.hidden !== true) {
+      if (includeHidden || part.hidden !== true) {
         reasoningContent += part.think;
       }
     } else {
@@ -137,11 +148,12 @@ export function lowerMessage(message: Message, lower: OpenAILowerContext): OpenA
     }
     if (part.reasoningKey !== undefined && part.reasoningKey !== REASONING_DETAILS_KEY) {
       const current = stringFields.get(part.reasoningKey) ?? '';
-      stringFields.set(part.reasoningKey, part.hidden === true ? current : current + part.think);
+      const keep = includeHidden || part.hidden !== true;
+      stringFields.set(part.reasoningKey, keep ? current + part.think : current);
       continue;
     }
     hasUnstamped = true;
-    if (part.hidden !== true) {
+    if (includeHidden || part.hidden !== true) {
       unstamped += part.think;
     }
   }

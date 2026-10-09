@@ -1377,7 +1377,7 @@ describe('OpenAILegacyChatProvider', () => {
       const body = await captureRequestBody(provider, '', [], history);
 
       // reasoning_effort should be auto-set because history contains ThinkPart
-      expect(body['reasoning_effort']).toBe('medium');
+      expect(body['reasoning_effort']).toBe('high');
       // reasoning_content should still be present in the message
       const messages = body['messages'] as Record<string, unknown>[];
       expect(messages[1]!['reasoning_content']).toBe('Let me think...');
@@ -1418,7 +1418,7 @@ describe('OpenAILegacyChatProvider', () => {
       ];
       const body = await captureRequestBody(provider, '', [], history);
 
-      expect(body['reasoning_effort']).toBe('medium');
+      expect(body['reasoning_effort']).toBe('high');
     });
 
     it('does not overwrite reasoning_effort pinned via withGenerationKwargs', async () => {
@@ -1487,7 +1487,7 @@ describe('OpenAILegacyChatProvider', () => {
       ];
       const body = await captureRequestBody(provider, '', [], history);
 
-      expect(body['reasoning_effort']).toBe('medium');
+      expect(body['reasoning_effort']).toBe('high');
       expect(provider.thinkingEffort).toBe('on');
     });
   });

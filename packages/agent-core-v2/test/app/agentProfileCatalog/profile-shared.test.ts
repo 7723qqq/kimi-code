@@ -277,6 +277,169 @@ describe('renderSystemPromptResult', () => {
   });
 });
 
+describe('renderSystemPromptResult family prompt shape', () => {
+  const base = { agentsMd: 'AGENTS', skills: 'SKILLS', cwd: '/work', osKind: 'macOS' };
+
+  it('uses the minimal shape for a deepseek model', () => {
+    const prompt = renderSystemPromptResult(
+      '',
+      { ...base, modelName: 'deepseek-v4.1-flash' },
+      { skillActive: true },
+    ).text;
+
+    expect(prompt).toContain('helpful software engineer assistant');
+    expect(prompt).toContain('/work');
+    expect(prompt).not.toContain('# Tool use');
+    expect(prompt).not.toContain('# Coding');
+    expect(prompt).not.toContain('The dedicated tools skip VCS metadata');
+  });
+
+  it('drops the injected sections in the minimal shape', () => {
+    const prompt = renderSystemPromptResult(
+      '',
+      { ...base, modelName: 'deepseek-v4.1-flash' },
+      { skillActive: true },
+    ).text;
+
+    expect(prompt).not.toContain('AGENTS');
+    expect(prompt).not.toContain('# Skills');
+    expect(prompt).not.toContain('SKILLS');
+    expect(prompt).toContain('/work');
+  });
+
+  it('matches every shipped deepseek name, current and retired alike', () => {
+    const names = [
+      'deepseek-v4.1-flash',
+      'deepseek-v4-flash',
+      'deepseek-v4-pro',
+      'deepseek-v3-2-volc',
+      'workbuddy/deepseek-v4.1-flash',
+      'DeepSeek-V4.1-Flash',
+      'xopdeepseekv4pro',
+    ];
+    for (const modelName of names) {
+      const prompt = renderSystemPromptResult('', { ...base, modelName }, { skillActive: true })
+        .text;
+      expect(prompt, modelName).toContain('helpful software engineer assistant');
+      expect(prompt, modelName).not.toContain('# Tool use');
+    }
+  });
+
+  it('leaves every other model on the shipped template, byte for byte', () => {
+    const withoutModel = renderSystemPromptResult('', base, { skillActive: true }).text;
+    for (const modelName of ['gpt-4o', 'claude-3.5-sonnet', 'kimi-k3-1', 'my-deepseek-clone']) {
+      const prompt = renderSystemPromptResult('', { ...base, modelName }, { skillActive: true })
+        .text;
+      expect(prompt, modelName).toBe(withoutModel);
+      expect(prompt, modelName).toContain('# Tool use');
+    }
+  });
+});
+
+describe('droppedVars', () => {
+  // A context rich enough that every variable a template might reference has a
+  // value. The distinction under test is which of them the template used.
+  const richContext = {
+    modelName: 'gpt-4o',
+    productName: 'Kimi',
+    cwd: '/work',
+    cwdListing: 'a.ts\nb.ts',
+    osKind: 'Linux',
+    shellName: 'bash',
+    shellPath: '/bin/bash',
+    agentsMd: '# AGENTS',
+    skills: 'SKILLS_BODY',
+    pluginSections: 'PLUGIN_BODY',
+    modelAdaptation: 'ADAPTATION_BODY',
+    replyStyleGuide: 'be brief',
+    notifyUserActive: true,
+    jsRuntimes: [],
+    additionalDirsInfo: '/extra',
+  };
+
+  it('reports nothing when the full template carries every supplied variable', () => {
+    // Regression: `skills`, `plugin_sections` and `additional_dirs_info` are
+    // composed into `*_section` blocks. Comparing raw key names against template
+    // placeholders alone reported them as dropped even though the content
+    // reached the prompt, which made every applyProfile log false warnings.
+    const rendered = renderSystemPromptResult('', richContext, { skillActive: true });
+
+    expect(rendered.droppedVars).toBeUndefined();
+  });
+
+  it('still reports a variable the full template genuinely never references', () => {
+    const rendered = renderSystemPromptResult(
+      '',
+      { ...richContext, replyStyleGuide: '' },
+      { skillActive: true },
+    );
+
+    // With no reply-style value supplied there is nothing to lose, so the
+    // warning must stay silent — the check is about supplied values only.
+    expect(rendered.droppedVars).toBeUndefined();
+  });
+
+  it('reports the sections the minimal shape cannot carry', () => {
+    const rendered = renderSystemPromptResult(
+      '',
+      { ...richContext, modelName: 'deepseek-v4-pro' },
+      { skillActive: true },
+    );
+
+    // The minimal template keeps only the persona and the working directory, so
+    // the loss here is real and must still be reported.
+    expect(rendered.droppedVars).toContain('agents_md');
+    expect(rendered.droppedVars).toContain('skills_section');
+    expect(rendered.droppedVars).toContain('plugin_sections');
+    expect(rendered.droppedVars).toContain('notify_user_guidance');
+    expect(rendered.droppedVars).toContain('cwd_listing');
+    expect(rendered.droppedVars).not.toContain('cwd');
+    expect(rendered.droppedVars).not.toContain('product_name');
+  });
+
+  it('does not report a raw variable whose composed block is referenced', () => {
+    // The composed block carries the raw value, so naming only the block is a
+    // delivery, not a loss — for the built-in templates and for a user-supplied
+    // SYSTEM.md, which documents the raw names as the supported surface.
+    // A custom template naturally drops whatever else it does not name, so the
+    // assertion is about these two variables and not about the whole list.
+    const rendered = renderPromptTemplateResult(
+      'body ${skills_section} ${additional_dirs_section}',
+      richContext,
+      { skillActive: true },
+    );
+
+    expect(rendered.text).toContain('SKILLS_BODY');
+    expect(rendered.text).toContain('/extra');
+    expect(rendered.droppedVars ?? []).not.toContain('skills');
+    expect(rendered.droppedVars ?? []).not.toContain('additional_dirs_info');
+  });
+
+  it('reports a raw variable when neither it nor its block is referenced', () => {
+    const rendered = renderPromptTemplateResult('body only', richContext, { skillActive: true });
+
+    expect(rendered.droppedVars).toContain('skills');
+    expect(rendered.droppedVars).toContain('additional_dirs_info');
+  });
+
+  it('passes a user template that names the raw variables verbatim', () => {
+    // SYSTEM.md is documented to accept the raw names directly
+    // (docs/en/customization/agents.md), so a template using them is correct and
+    // must not have them reported as dropped.
+    const rendered = renderPromptTemplateResult(
+      'at ${cwd}\n\n${agents_md}\n\n${skills}\n\n${plugin_sections}',
+      richContext,
+      { skillActive: true },
+    );
+
+    expect(rendered.text).toContain('SKILLS_BODY');
+    expect(rendered.text).toContain('PLUGIN_BODY');
+    for (const name of ['cwd', 'agents_md', 'skills', 'plugin_sections']) {
+      expect(rendered.droppedVars ?? [], name).not.toContain(name);
+    }
+  });
+});
+
 describe('normalizeAgentProfile', () => {
   it('derives a disclosure-free renderSystemPrompt for text-only input', () => {
     const profile = normalizeAgentProfile({

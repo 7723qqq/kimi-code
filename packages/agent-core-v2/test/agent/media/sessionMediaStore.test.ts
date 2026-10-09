@@ -198,6 +198,7 @@ describe('SessionMediaStoreService', () => {
       ? lowerOpenAI(message, {
           reasoningKey: 'reasoning_content',
           preserveThinking: false,
+          echoFullReasoning: false,
           toolMessageConversion: undefined,
         })
       : lowerAnthropic(message, providerImagePolicy().acceptedMimes);

@@ -745,6 +745,11 @@ export interface AgentStateSnapshot {
         url: string;
         id?: string;
         name?: string;
+        dimensions?: /* ImageDimensions — packages/agent-core-v2/src/human/llm/message.ts */ {
+          readonly width: number;
+          readonly height: number;
+        };
+        detail?: string;
       };
     } | /* AudioURLPart — packages/agent-core-v2/src/human/llm/message.ts */ {
       type: 'audio_url';
@@ -1072,6 +1077,11 @@ export interface AgentStateSnapshot {
       url: string;
       id?: string;
       name?: string;
+      dimensions?: /* ImageDimensions — packages/agent-core-v2/src/human/llm/message.ts */ {
+        readonly width: number;
+        readonly height: number;
+      };
+      detail?: string;
     };
   } | /* AudioURLPart — packages/agent-core-v2/src/human/llm/message.ts */ {
     type: 'audio_url';

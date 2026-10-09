@@ -318,7 +318,12 @@ export async function executeMediaRead(
         const base64 = Buffer.from(outcome.data).toString('base64');
         mediaPart = {
           type: 'image_url',
-          imageUrl: { url: `data:${outcome.mimeType};base64,${base64}` },
+          imageUrl: {
+            url: `data:${outcome.mimeType};base64,${base64}`,
+            ...(outcome.width > 0 && outcome.height > 0
+              ? { dimensions: { width: outcome.width, height: outcome.height } }
+              : {}),
+          },
         };
         delivery = {
           kind: 'crop',
@@ -340,7 +345,12 @@ export async function executeMediaRead(
         const base64 = data.toString('base64');
         mediaPart = {
           type: 'image_url',
-          imageUrl: { url: `data:${fileType.mimeType};base64,${base64}` },
+          imageUrl: {
+            url: `data:${fileType.mimeType};base64,${base64}`,
+            ...(dimensions !== null && dimensions.width > 0 && dimensions.height > 0
+              ? { dimensions: { width: dimensions.width, height: dimensions.height } }
+              : {}),
+          },
         };
         delivery = {
           kind: 'full',
@@ -388,7 +398,12 @@ export async function executeMediaRead(
         const base64 = Buffer.from(compressed.data).toString('base64');
         mediaPart = {
           type: 'image_url',
-          imageUrl: { url: `data:${compressed.mimeType};base64,${base64}` },
+          imageUrl: {
+            url: `data:${compressed.mimeType};base64,${base64}`,
+            ...(compressed.width > 0 && compressed.height > 0
+              ? { dimensions: { width: compressed.width, height: compressed.height } }
+              : {}),
+          },
         };
         delivery = {
           kind: compressed.changed ? 'downsampled' : 'untouched',

@@ -14,6 +14,7 @@ import type {
 import { IConfigService } from '#/app/config/config';
 import { ISessionEventBus } from '#/app/event/eventBus';
 import type { Message } from '#/llm-adapter/contract/message';
+import type { ImageTokenPricing } from '#/llm-adapter/contract/modelFamily';
 import {
   estimateTokens,
   estimateTokensForMessage,
@@ -98,11 +99,11 @@ export class SessionTokenCountingService
     void agentSpaceOf(agent).use(TokenCountingAgentModelDefinition, (model) => model.rebase(input));
   }
 
-  requestSize(request: TokenCountingRequest): number {
+  requestSize(request: TokenCountingRequest, pricing?: ImageTokenPricing): number {
     return (
       this.estimateText(request.systemPrompt) +
       this.estimateTools(request.tools) +
-      this.estimateMessages(request.messages)
+      this.estimateMessages(request.messages, pricing)
     );
   }
 
@@ -110,12 +111,12 @@ export class SessionTokenCountingService
     return estimateTokens(text);
   }
 
-  estimateMessage(message: Message): number {
-    return estimateTokensForMessage(message);
+  estimateMessage(message: Message, pricing?: ImageTokenPricing): number {
+    return estimateTokensForMessage(message, pricing);
   }
 
-  estimateMessages(messages: readonly Message[]): number {
-    return estimateTokensForMessages(messages);
+  estimateMessages(messages: readonly Message[], pricing?: ImageTokenPricing): number {
+    return estimateTokensForMessages(messages, pricing);
   }
 
   estimateTools(tools: readonly Tool[]): number {

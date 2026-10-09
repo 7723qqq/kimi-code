@@ -650,6 +650,7 @@ export * from '#/features/reminder/reminderService';
 export * from '#/features/reminder/systemReminder';
 export * from '#/features/reminder/types';
 import '#/features/reminder/reminderFeature';
+import '#/features/deepseekAdaptation/deepseekAdaptationFeature';
 export * from '#/features/dateChange/dateChange';
 export * from '#/features/dateChange/dateChangeService';
 export * from '#/agent/contextProjector/contextProjector';

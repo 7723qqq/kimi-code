@@ -179,6 +179,7 @@ function createUnit(
       thinkingLevel: 'off',
       systemPrompt: '',
     }),
+    getModelWireName: () => 'test-model',
   });
   ix.stub(IAgentLoopService, loop);
   ix.stub(ITelemetryService, recordingTelemetry(telemetryRecords));

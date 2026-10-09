@@ -1,4 +1,5 @@
 import { renderPrompt } from '#/_base/utils/render-prompt';
+import { promptShapeForModel } from '#/llm-adapter/contract/modelFamily';
 import type { JsRuntimeInfo } from '#/os/interface/hostEnvironment';
 
 import {
@@ -9,6 +10,7 @@ import {
   type SystemPromptRenderResult,
 } from './agentProfileCatalog';
 import { BUILTIN_AGENT_PROFILE_SOURCE_ID } from './builtinAgentProfileLoader';
+import SYSTEM_MINIMAL_TEMPLATE from './system.minimal.md?raw';
 import SYSTEM_PROMPT_TEMPLATE from './system.md?raw';
 
 export const TASK_AGENT_ROLE_PREFIX =
@@ -199,6 +201,56 @@ export function systemPromptVars(
   };
 }
 
+/**
+ * Placeholder names a template actually references.
+ *
+ * `renderPrompt` substitutes what it can and leaves everything else alone, so a
+ * variable the template never mentions simply disappears. Comparing this set
+ * against the values that were supplied is how that silent loss becomes visible.
+ */
+export function promptVariableNames(template: string): ReadonlySet<string> {
+  const names = new Set<string>();
+  for (const match of template.matchAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g)) {
+    const name = match[1];
+    if (name !== undefined) names.add(name);
+  }
+  return names;
+}
+
+/**
+ * Pre-composed blocks and the supplied variables whose content they carry.
+ *
+ * `systemPromptVars` offers both a raw value (`skills`) and a composed block
+ * (`skills_section`) built from it. A template that references the block has
+ * delivered the content even though the raw variable is never named, so the raw
+ * one must not be reported as dropped. The pairing is declared explicitly
+ * rather than inferred from the names, so a new block has to state what it
+ * carries. Blocks composed from a value that is not itself exposed as a
+ * variable (`plugin_sections`, `model_adaptation_section`) have nothing to
+ * declare and are absent.
+ */
+const COMPOSED_VAR_SOURCES: Readonly<Record<string, readonly string[]>> = {
+  additional_dirs_section: ['additional_dirs_info'],
+  skills_section: ['skills'],
+};
+
+function droppedVariables(
+  template: string,
+  vars: Record<string, string>,
+): readonly string[] | undefined {
+  const referenced = promptVariableNames(template);
+  const carried = new Set<string>();
+  for (const [block, sources] of Object.entries(COMPOSED_VAR_SOURCES)) {
+    if (!referenced.has(block)) continue;
+    for (const source of sources) carried.add(source);
+  }
+  const dropped = Object.keys(vars).filter(
+    (name) =>
+      !referenced.has(name) && !carried.has(name) && vars[name] !== undefined && vars[name] !== '',
+  );
+  return dropped.length === 0 ? undefined : dropped;
+}
+
 export function renderPromptTemplateResult(
   template: string,
   context: AgentProfileContext,
@@ -211,12 +263,14 @@ export function renderPromptTemplateResult(
     baseResult = basePrompt(context);
     vars['base_prompt'] = baseResult.text;
   }
+  const dropped = droppedVariables(template, vars);
   return {
     text: renderPrompt(template, vars),
     environment: mergeEnvironmentDisclosure(
       environmentForTemplate(context),
       baseResult?.environment,
     ),
+    ...(dropped === undefined ? {} : { droppedVars: dropped }),
   };
 }
 
@@ -225,12 +279,19 @@ export function renderSystemPromptResult(
   context: AgentProfileContext,
   options: { readonly skillActive: boolean },
 ): SystemPromptRenderResult {
+  const template =
+    promptShapeForModel(context.modelName) === 'minimal'
+      ? SYSTEM_MINIMAL_TEMPLATE
+      : SYSTEM_PROMPT_TEMPLATE;
+  const vars: Record<string, string> = {
+    ...systemPromptVars(context, options),
+    role_additional: roleAdditional,
+  };
+  const dropped = droppedVariables(template, vars);
   return {
-    text: renderPrompt(SYSTEM_PROMPT_TEMPLATE, {
-      ...systemPromptVars(context, options),
-      role_additional: roleAdditional,
-    }),
+    text: renderPrompt(template, vars),
     environment: environmentForTemplate(context),
+    ...(dropped === undefined ? {} : { droppedVars: dropped }),
   };
 }
 

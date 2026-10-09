@@ -1,9 +1,8 @@
+import { estimateTokens, estimateTokensForMessage } from '#/llm/tokens';
 import type { Message, ToolDescription } from '#/llm/message';
 import { emptyUsage, type TokenUsage } from '#/llm/usage';
 
 import type { AssistantEntry, HistoryMessage } from './turn';
-
-const MEDIA_TOKEN_ESTIMATE = 2000;
 
 export interface ContextUsagePrefix {
   systemPrompt?: string;
@@ -15,42 +14,11 @@ export function calculateContextTokens(usage: TokenUsage): number {
 }
 
 export function estimateTextTokens(text: string): number {
-  let asciiCount = 0;
-  let nonAsciiCount = 0;
-  for (const char of text) {
-    if ((char.codePointAt(0) as number) <= 127) {
-      asciiCount++;
-    } else {
-      nonAsciiCount++;
-    }
-  }
-  return Math.ceil(asciiCount / 4) + nonAsciiCount;
+  return estimateTokens(text);
 }
 
 export function estimateMessageTokens(message: Message): number {
-  let total = estimateTextTokens(message.role);
-  for (const part of message.content) {
-    switch (part.type) {
-      case 'text':
-        total += estimateTextTokens(part.text);
-        break;
-      case 'think':
-        total += estimateTextTokens(part.think);
-        break;
-      case 'image_url':
-      case 'audio_url':
-      case 'video_url':
-        total += MEDIA_TOKEN_ESTIMATE;
-        break;
-    }
-  }
-  if (message.role === 'assistant') {
-    for (const call of message.toolCalls) {
-      total += estimateTextTokens(call.name);
-      total += estimateTextTokens(call.arguments ?? '');
-    }
-  }
-  return total;
+  return estimateTokensForMessage(message);
 }
 
 export function estimateUsedContextTokens(

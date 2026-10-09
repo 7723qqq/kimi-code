@@ -8,6 +8,12 @@ export default defineConfig({
   dts: true,
   outDir: 'dist',
   clean: true,
+  copy: [
+    {
+      from: 'src/app/agentProfileCatalog/model-adaptations',
+      to: 'dist',
+    },
+  ],
   plugins: [rawTextPlugin()],
   deps: {
     neverBundle: [

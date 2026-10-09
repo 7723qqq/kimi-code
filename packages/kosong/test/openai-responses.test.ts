@@ -1543,6 +1543,45 @@ describe('OpenAIResponsesChatProvider', () => {
       });
     });
 
+    it('reads DeepSeek cache hit/miss usage verbatim', async () => {
+      const provider = createProvider();
+
+      const events = [
+        {
+          type: 'response.completed',
+          response: {
+            id: 'resp_ds_1',
+            usage: {
+              input_tokens: 2011,
+              output_tokens: 1,
+              prompt_cache_hit_tokens: 1792,
+              prompt_cache_miss_tokens: 219,
+            },
+          },
+        },
+      ];
+
+      ((provider as any)._client.responses as unknown as Record<string, unknown>)['create'] = vi
+        .fn()
+        .mockImplementation(() => Promise.resolve(makeAsyncIterable(events)));
+
+      const stream = await provider.generate(
+        '',
+        [],
+        [{ role: 'user', content: [{ type: 'text', text: 'Hi' }], toolCalls: [] }],
+      );
+      for await (const part of stream) {
+        void part;
+      }
+
+      expect(stream.usage).toEqual({
+        inputOther: 219,
+        output: 1,
+        inputCacheRead: 1792,
+        inputCacheCreation: 0,
+      });
+    });
+
     it('streams tool call with arguments delta', async () => {
       const events = [
         {

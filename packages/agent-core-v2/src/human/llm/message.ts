@@ -29,9 +29,20 @@ export interface ThinkPart {
   reasoningKey?: string;
 }
 
+export interface ImageDimensions {
+  readonly width: number;
+  readonly height: number;
+}
+
 export interface ImageURLPart {
   type: 'image_url';
-  imageUrl: { url: string; id?: string; name?: string };
+  imageUrl: {
+    url: string;
+    id?: string;
+    name?: string;
+    dimensions?: ImageDimensions;
+    detail?: string;
+  };
 }
 
 export interface AudioURLPart {

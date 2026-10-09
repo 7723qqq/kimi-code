@@ -6,6 +6,7 @@ import type {
   TokenCountingStrategy,
 } from '#/agent/tokenCounting/tokenCounting';
 import type { Message } from '#/llm-adapter/contract/message';
+import type { ImageTokenPricing } from '#/llm-adapter/contract/modelFamily';
 import type { ToolDescription as Tool } from '#human/llm/message';
 import type { TokenUsage } from '#human/llm/usage';
 
@@ -31,11 +32,11 @@ export interface ISessionTokenCountingService {
   statusSize(agent: AgentContext): number;
   recordTruncation(agent: AgentContext, cutIndex: number): void;
   rebase(agent: AgentContext, input: TokenCountingRebaseInput): void;
-  requestSize(request: TokenCountingRequest): number;
+  requestSize(request: TokenCountingRequest, pricing?: ImageTokenPricing): number;
 
   estimateText(text: string): number;
-  estimateMessage(message: Message): number;
-  estimateMessages(messages: readonly Message[]): number;
+  estimateMessage(message: Message, pricing?: ImageTokenPricing): number;
+  estimateMessages(messages: readonly Message[], pricing?: ImageTokenPricing): number;
   estimateTools(tools: readonly Tool[]): number;
 }
 
