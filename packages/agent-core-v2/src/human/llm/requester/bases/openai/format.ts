@@ -17,6 +17,7 @@ import {
 } from '#/llm/errors';
 import { NO_FINISH, type FinishInfo, type FinishReason } from '#/llm/finish-reason';
 import { type Message, type StreamedMessagePart, type ToolDescription } from '#/llm/message';
+import { reasoningEffortForModel } from '#/llm/modelFamily';
 import type {
   FormatRequestInput,
   ProtocolFormat,
@@ -27,12 +28,10 @@ import { toolResultToPlainText } from '#/llm/protocol/patterns';
 import { applyPatterns } from '#/llm/protocol/rewrite';
 import type { ToolMessageConversion } from '#/llm/requester/requester';
 import type { ResponseFormat } from '#/llm/response-format';
-import type { TokenUsage } from '#/llm/usage';
 
 import type {
   OpenAIRawChunk,
   OpenAIRawStreamToolCallDelta,
-  OpenAIRawUsage,
   OpenAIWireMessage,
 } from './contract';
 import { lowerMessage } from './lower';
@@ -42,6 +41,7 @@ import {
   extractReasoningDetails,
   extractReasoningStrings,
 } from './reasoning-key';
+import { parseOpenAIUsage } from './usage';
 
 export function responseFormatToOpenAI(format: ResponseFormat): Record<string, unknown> {
   if (format.type === 'json_object') {
@@ -62,8 +62,8 @@ export function encodeOpenAICacheKey(cacheKey: string): Record<string, unknown> 
   return { prompt_cache_key: cacheKey };
 }
 
-export function encodeOpenAIThinkHistoryKwargs(): Record<string, unknown> {
-  return { reasoning_effort: 'medium' };
+export function encodeOpenAIThinkHistoryKwargs(model: string): Record<string, unknown> {
+  return { reasoning_effort: reasoningEffortForModel(model)?.historyDefault ?? 'high' };
 }
 
 const CHAT_COMPLETIONS_MAX_OUTPUT_TOKENS_CEILING = 128 * 1024;
@@ -122,20 +122,7 @@ function normalizeFinishReason(raw: string | null | undefined): FinishInfo {
   return { finishReason, rawFinishReason: raw };
 }
 
-export function parseOpenAIUsage(usage: OpenAIRawUsage | null | undefined): TokenUsage | undefined {
-  if (usage === null || usage === undefined) {
-    return undefined;
-  }
-  const promptTokens = usage.prompt_tokens ?? 0;
-  const cached = usage.cached_tokens ?? usage.prompt_tokens_details?.cached_tokens ?? 0;
-  return {
-    inputOther: promptTokens - cached,
-    output: usage.completion_tokens ?? 0,
-    inputCacheRead: cached,
-    inputCacheCreation: 0,
-    raw: usage as Record<string, unknown>,
-  };
-}
+export { parseOpenAIUsage };
 
 export interface OpenAIRequestParams {
   readonly params: OpenAI.Chat.ChatCompletionCreateParamsStreaming;
