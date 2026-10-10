@@ -91,15 +91,20 @@ export class NotifyController {
     return true;
   }
 
-  handlePanelKey(key: 'left' | 'right' | 'up' | 'down' | 'escape'): boolean {
+  handlePanelKey(
+    key: 'left' | 'right' | 'up' | 'down' | 'pageUp' | 'pageDown' | 'escape',
+  ): boolean {
     if (!this.enabled || !this.state.notifyPanel.isFocused()) return false;
     const panel = this.state.notifyPanel;
-    if (key === 'escape') panel.blur();
-    else if (key === 'left') panel.prevChannel();
-    else if (key === 'right') panel.nextChannel();
-    else if (key === 'up') panel.prevPage();
-    else panel.nextPage();
-    this.state.ui.requestRender();
+    let changed: boolean;
+    if (key === 'escape') changed = panel.blur();
+    else if (key === 'left') changed = panel.prevChannel();
+    else if (key === 'right') changed = panel.nextChannel();
+    else if (key === 'up') changed = panel.scrollBy(-1);
+    else if (key === 'down') changed = panel.scrollBy(1);
+    else if (key === 'pageUp') changed = panel.prevPage();
+    else changed = panel.nextPage();
+    if (changed) this.state.ui.requestRender();
     return true;
   }
 
@@ -120,6 +125,10 @@ export class NotifyController {
       case 'subagent.cancelled':
         this.running.delete(event.subagentId);
         this.dropPending(event.subagentId);
+        // Fold the finished agent's tab so a fan-out of short-lived subagents
+        // cannot crowd the strip past the width budget, where it would be
+        // dropped wholesale and take navigation with it.
+        this.state.notifyPanel.markFinished(event.subagentId);
         break;
       case 'background.task.started':
       case 'background.task.terminated': {

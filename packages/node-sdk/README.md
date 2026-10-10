@@ -14,7 +14,7 @@ A programmatic interface to the Kimi Code agent: create a harness (`KimiHarness`
 npm install @moonshot-ai/kimi-code-sdk
 ```
 
-Requires Node.js 22.19.0 or later.
+Requires [Bun](https://bun.sh) 1.4 or later — the same runtime floor the rest of this workspace uses.
 
 ## Quick start
 

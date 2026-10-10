@@ -22,6 +22,56 @@ describe('QueuePaneComponent', () => {
     expect(output).toContain('ctrl-s to steer immediately');
   });
 
+  it('caps a deep queue and keeps the newest messages visible', () => {
+    // A queue grows while the user keeps typing; without a ceiling the pane
+    // pushed the editor off screen on a short terminal.
+    const messages = Array.from({ length: 30 }, (_, i) => ({ text: `queued ${String(i + 1)}` }));
+    const component = new QueuePaneComponent({
+      isCompacting: false,
+      isStreaming: true,
+      canSteerImmediately: true,
+      messages,
+      terminalRows: () => 24,
+    });
+
+    const output = stripAnsi(component.render(120).join('\n'));
+
+    expect(output).toContain('queued 30');
+    expect(output).not.toContain('queued 1 ');
+    expect(output).toContain('earlier queued message(s) hidden');
+  });
+
+  it('shrinks to the terminal on a short screen', () => {
+    const messages = Array.from({ length: 30 }, (_, i) => ({ text: `queued ${String(i + 1)}` }));
+    const component = new QueuePaneComponent({
+      isCompacting: false,
+      isStreaming: true,
+      canSteerImmediately: true,
+      messages,
+      terminalRows: () => 6,
+    });
+
+    // 6 rows => a 3-row total budget; the pane must fit inside it.
+    expect(component.render(120).length).toBeLessThanOrEqual(3);
+    expect(stripAnsi(component.render(120).join('\n'))).toContain('queued 30');
+  });
+
+  it('renders every message when the queue fits the budget', () => {
+    const component = new QueuePaneComponent({
+      isCompacting: false,
+      isStreaming: true,
+      canSteerImmediately: true,
+      messages: [{ text: 'one' }, { text: 'two' }],
+      terminalRows: () => 24,
+    });
+
+    const output = stripAnsi(component.render(120).join('\n'));
+
+    expect(output).toContain('one');
+    expect(output).toContain('two');
+    expect(output).not.toContain('hidden');
+  });
+
   it('renders compaction hint when waiting for compaction', () => {
     const component = new QueuePaneComponent({
       isCompacting: true,

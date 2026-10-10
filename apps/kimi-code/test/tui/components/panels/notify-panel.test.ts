@@ -1,9 +1,12 @@
+import type { TuiMouseEvent } from '@moonshot-ai/pi-tui';
 import { describe, expect, it } from 'vitest';
 
 import {
+  MAX_VISIBLE_ROWS,
   NotifyPanelComponent,
   type NotifyEntry,
 } from '#/tui/components/chrome/notify-panel';
+import { hasHiddenContent, isExpandable } from '#/tui/utils/component-capabilities';
 
 function strip(text: string): string {
   return text.replaceAll(/\u001B\[[0-9;]*m/g, '');
@@ -20,6 +23,35 @@ function titleOf(panel: NotifyPanelComponent, width = 80): string {
 
 function entry(id: string, text: string, agentId = 'main', agentName?: string): NotifyEntry {
   return { id, agentId, agentName, time: 0, text };
+}
+
+/**
+ * Column of `text` on the top border (line 1 of the render), which is where the
+ * tab strip lives. Mouse hit testing is column-based, so tests must derive the
+ * column from the same rendered string the user sees rather than guessing it.
+ */
+function tabColumn(panel: NotifyPanelComponent, text: string, width = 80): number {
+  const border = render(panel, width)[1] ?? '';
+  const index = border.indexOf(text);
+  if (index < 0) throw new Error(`tab ${text} not on the border: ${border}`);
+  return index + 1;
+}
+
+/** A mouse event aimed at the top border's `column`. */
+function borderClick(column: number, type: 'press' | 'click' = 'click'): TuiMouseEvent {
+  return {
+    type,
+    button: 'left',
+    x: column,
+    y: 1,
+    screenX: column,
+    screenY: 1,
+    width: 80,
+    height: 10,
+    shift: false,
+    alt: false,
+    ctrl: false,
+  };
 }
 
 function listRows(count: number, prefix = 'row'): string {
@@ -131,14 +163,60 @@ describe('NotifyPanelComponent', () => {
     expect(titleOf(panel)).toContain('agent-9');
   });
 
-  it('renders every row of a long entry — adaptive height, no truncation', () => {
+  it('caps a long entry at the row ceiling and reports what is hidden', () => {
     const panel = new NotifyPanelComponent();
     panel.upsert(entry('tc-1', listRows(30)));
-    const text = render(panel).join('\n');
-    expect(text).toContain('row 1');
-    expect(text).toContain('row 30');
-    expect(text).not.toContain('later lines');
-    expect(text).not.toContain('more lines');
+    // The ceiling is a TOTAL-row budget, so the box never exceeds it: the
+    // five lines of chrome (spacer/borders/padding) come out of the budget
+    // rather than being added on top of it.
+    const lines = render(panel);
+    expect(lines.length).toBe(MAX_VISIBLE_ROWS);
+    // A following view shows the newest rows, and the title reports the rest.
+    const text = lines.join('\n');
+    expect(text).toContain('• row 30 ');
+    expect(text).not.toContain('• row 1 ');
+    expect(titleOf(panel)).toMatch(/\+\d+ lines/);
+  });
+
+  it('scrolls the capped body with scrollBy, clamped to the entry bounds', () => {
+    const panel = new NotifyPanelComponent();
+    panel.upsert(entry('tc-1', listRows(30)));
+    render(panel);
+
+    // A following view sits on the tail, so scrolling up is the move that works.
+    expect(panel.scrollBy(-1)).toBe(true);
+    expect(render(panel).join('\n')).toContain('• row 29 ');
+
+    // Scrolling down returns to the tail; clamped there, so it reports no move.
+    expect(panel.scrollBy(999)).toBe(true);
+    expect(render(panel).join('\n')).toContain('• row 30 ');
+    expect(panel.scrollBy(1)).toBe(false);
+  });
+
+  it('does not reset a browsing offset when the panel loses focus', () => {
+    // Focus and "where the reader is" are separate concerns: pressing esc must
+    // not throw away the position the wheel established.
+    const panel = new NotifyPanelComponent();
+    panel.upsert(entry('tc-1', listRows(30)));
+    panel.focus();
+    render(panel);
+    for (let i = 0; i < 5; i++) panel.scrollBy(-1);
+    const browsing = render(panel).join('\n');
+    expect(browsing).toContain('• row 25 ');
+    panel.blur();
+    render(panel);
+    const after = render(panel).join('\n');
+    expect(after).toContain('• row 25 ');
+    expect(after).not.toContain('• row 30 ');
+  });
+
+  it('honours a terminal-derived budget below the fixed ceiling', () => {
+    // 10 rows of terminal => a 5-row TOTAL budget, under MAX_VISIBLE_ROWS, so
+    // the body gets 5 - 5 = 0 and the box degrades to its one-line stub.
+    const panel = new NotifyPanelComponent(() => 10);
+    panel.upsert(entry('tc-1', listRows(30)));
+    const lines = render(panel);
+    expect(lines.length).toBeLessThanOrEqual(5);
   });
 
   it('renders focus state: highlighted hints, blur restores', () => {
@@ -147,7 +225,7 @@ describe('NotifyPanelComponent', () => {
 
     expect(titleOf(panel)).toContain('ctrl+n page');
     panel.focus();
-    expect(titleOf(panel)).toContain('← → agent · ↑ ↓ update · esc close');
+    expect(titleOf(panel)).toContain('← → agent · ↑ ↓ scroll · [ ] update · esc close');
     panel.blur();
     expect(panel.blur()).toBe(false);
     expect(titleOf(panel)).toContain('ctrl+n page');
@@ -281,6 +359,291 @@ describe('NotifyPanelComponent', () => {
 
     panel.upsert(entry('tc-2', 'fresh turn'));
     expect(titleOf(panel)).not.toContain('turn ended');
+  });
+
+  it('folds finished channels into one +N done tab', () => {
+    // A fan-out of short-lived subagents used to push the strip past the width
+    // budget, at which point the title dropped it entirely and the user could
+    // no longer see or navigate the other agents.
+    const panel = new NotifyPanelComponent();
+    for (let i = 0; i < 4; i++) {
+      panel.upsert(entry(`a${String(i)}`, `sub ${String(i)}`, `agent-${String(i)}`, 'explore'));
+    }
+    panel.upsert(entry('main-1', 'main update'));
+
+    expect(titleOf(panel)).toContain('explore(4)');
+
+    expect(panel.markFinished('agent-1')).toBe(true);
+    expect(panel.markFinished('agent-2')).toBe(true);
+    const folded = titleOf(panel);
+    expect(folded).toContain('+2 done');
+    expect(folded).not.toContain('explore(2)');
+    expect(folded).not.toContain('explore(3)');
+  });
+
+  it('keeps the active channel visible even when it is finished', () => {
+    // The current position must never be hidden behind the aggregate tab.
+    const panel = new NotifyPanelComponent();
+    panel.upsert(entry('a1', 'one', 'agent-1', 'explore'));
+    panel.upsert(entry('a2', 'two', 'agent-2', 'explore'));
+    panel.markFinished('agent-1');
+    panel.markFinished('agent-2');
+    panel.prevChannel();
+    // Active is now agent-1, so it needs its own tab — not part of +N done.
+    expect(titleOf(panel)).toContain('explore');
+    expect(titleOf(panel)).toContain('+1 done');
+  });
+
+  it('never folds the main agent channel', () => {
+    const panel = new NotifyPanelComponent();
+    panel.upsert(entry('m1', 'main update'));
+    expect(panel.markFinished('main')).toBe(false);
+    expect(titleOf(panel)).toContain('main');
+  });
+
+  it('treats markFinished as idempotent and ignores unknown agents', () => {
+    const panel = new NotifyPanelComponent();
+    panel.upsert(entry('a1', 'one', 'agent-1', 'explore'));
+    expect(panel.markFinished('agent-1')).toBe(true);
+    expect(panel.markFinished('agent-1')).toBe(false);
+    expect(panel.markFinished('never-posted')).toBe(false);
+  });
+
+  it('still navigates to a folded channel', () => {
+    // Folding is a label decision, not a model one: the entries stay reachable.
+    const panel = new NotifyPanelComponent();
+    panel.upsert(entry('a1', 'from agent one', 'agent-1', 'explore'));
+    panel.upsert(entry('a2', 'from agent two', 'agent-2', 'explore'));
+    panel.markFinished('agent-1');
+    expect(strip(panel.render(80).join('\n'))).toContain('from agent two');
+    expect(panel.prevChannel()).toBe(true);
+    expect(strip(panel.render(80).join('\n'))).toContain('from agent one');
+  });
+
+  it('keeps a browsing reader in place when new content arrives', () => {
+    // Following ("new content wins") is a separate state from keyboard focus.
+    // Before, an unfocused panel was force-following, so a wheel-scrolled reader
+    // lost their place on every update — the reason the wheel had to grab focus.
+    const panel = new NotifyPanelComponent();
+    panel.upsert(entry('tc-1', listRows(30)));
+    panel.upsert(entry('tc-2', listRows(30, 'row')));
+    panel.render(80);
+
+    // Browse up, unfocused. Five rows off the tail: the window is fixed by the
+    // assertions below, not by a guess at the exact offset.
+    for (let i = 0; i < 5; i++) expect(panel.scrollBy(-1)).toBe(true);
+    const browsed = render(panel).join('\n');
+    expect(browsed).toContain('• row 25 ');
+    expect(browsed).not.toContain('• row 30 ');
+
+    // New content must not yank the window while the reader is above the tail.
+    panel.upsert(entry('tc-3', 'brand new update'));
+    expect(render(panel).join('\n')).not.toContain('brand new update');
+    expect(panel.isFocused()).toBe(false);
+  });
+
+  it('resumes following once the reader returns to the bottom', () => {
+    const panel = new NotifyPanelComponent();
+    panel.upsert(entry('tc-1', listRows(30)));
+    panel.render(80);
+    for (let i = 0; i < 5; i++) panel.scrollBy(-1);
+    // Scroll past the end; the clamp lands on the tail and re-arms following.
+    for (let i = 0; i < 40; i++) panel.scrollBy(1);
+    panel.upsert(entry('tc-2', 'newest update'));
+    expect(render(panel).join('\n')).toContain('newest update');
+  });
+
+  it('scrolls the current update on the mouse wheel', () => {
+    // Without consuming the wheel the alt-screen routes it to the primary scroll
+    // view, so scrolling over the box moved the transcript instead.
+    const panel = new NotifyPanelComponent();
+    panel.upsert(entry('tc-1', listRows(30)));
+
+    const result = panel.handleMouse({
+      type: 'wheel',
+      button: 'none',
+      x: 5,
+      y: 3,
+      screenX: 5,
+      screenY: 3,
+      width: 80,
+      height: 12,
+      shift: false,
+      alt: false,
+      ctrl: false,
+      wheelDelta: 3,
+    });
+
+    expect(result?.handled).toBe(true);
+    // Wheel-down moves the window; the first row is now out of view.
+    expect(render(panel).join('\n')).not.toContain('• row 1 ');
+  });
+
+  it('ignores a wheel event with no delta', () => {
+    const panel = new NotifyPanelComponent();
+    panel.upsert(entry('tc-1', listRows(30)));
+    expect(
+      panel.handleMouse({
+        type: 'wheel',
+        button: 'none',
+        x: 0,
+        y: 0,
+        screenX: 0,
+        screenY: 0,
+        width: 80,
+        height: 12,
+        shift: false,
+        alt: false,
+        ctrl: false,
+      }),
+    ).toBeUndefined();
+  });
+
+  it('switches channel when its tab is clicked', () => {
+    const panel = new NotifyPanelComponent();
+    panel.upsert(entry('a1', 'first agent update', 'agent-1', 'explore'));
+    panel.upsert(entry('a2', 'second agent update', 'agent-2', 'coder'));
+
+    // The view follows the newest channel; click the older tab to go back.
+    expect(render(panel).join('\n')).toContain('second agent update');
+    const column = tabColumn(panel, 'explore');
+
+    expect(panel.handleMouse(borderClick(column))?.handled).toBe(true);
+    expect(render(panel).join('\n')).toContain('first agent update');
+  });
+
+  it('ignores a bare pointer press so one click does not act twice', () => {
+    // The alt-screen emits `click` on release after a press that did not move.
+    // Acting on `press` as well toggles twice, which for `+N done` cancels out
+    // — a single click would do nothing. So `press` must be inert.
+    const panel = new NotifyPanelComponent();
+    panel.upsert(entry('a1', 'one', 'agent-1', 'explore'));
+    panel.upsert(entry('a2', 'two', 'agent-2', 'coder'));
+    const column = tabColumn(panel, 'explore');
+
+    expect(panel.handleMouse(borderClick(column, 'press'))).toBeUndefined();
+    // Still on the newest channel, i.e. nothing moved.
+    expect(render(panel).join('\n')).toContain('two');
+
+    // The `click` that follows does the work, exactly once.
+    expect(panel.handleMouse(borderClick(column, 'click'))?.handled).toBe(true);
+    expect(render(panel).join('\n')).toContain('one');
+  });
+
+  it('toggles +N done exactly once per click', () => {
+    const panel = new NotifyPanelComponent();
+    for (let i = 1; i <= 4; i++) {
+      panel.upsert(entry(`a${String(i)}`, `u${String(i)}`, `agent-${String(i)}`, 'explore'));
+    }
+    panel.markFinished('agent-1');
+    panel.markFinished('agent-2');
+    const column = tabColumn(panel, '+2 done');
+
+    // One click expands; the tab flips to its collapse form rather than vanishing.
+    expect(panel.handleMouse(borderClick(column, 'click'))?.handled).toBe(true);
+    expect(panel.isFinishedExpanded()).toBe(true);
+    expect(render(panel).join('\n')).toContain('−2 done');
+  });
+
+  it('expands the folded channels when the aggregate tab is clicked', () => {
+    const panel = new NotifyPanelComponent();
+    for (let i = 1; i <= 4; i++) {
+      panel.upsert(entry(`a${String(i)}`, `u${String(i)}`, `agent-${String(i)}`, 'explore'));
+    }
+    panel.markFinished('agent-1');
+    panel.markFinished('agent-2');
+    expect(render(panel).join('\n')).toContain('+2 done');
+
+    const column = tabColumn(panel, '+2 done');
+    expect(panel.handleMouse(borderClick(column))?.handled).toBe(true);
+    expect(panel.isFinishedExpanded()).toBe(true);
+    // The folded channels are listed again, and the aggregate tab is gone.
+    const after = render(panel).join('\n');
+    expect(after).not.toContain('+2 done');
+    expect(after).toContain('explore');
+  });
+
+  it('ignores clicks that miss a tab', () => {
+    const panel = new NotifyPanelComponent();
+    panel.upsert(entry('a1', 'one'));
+    // A body row, not the border.
+    expect(panel.handleMouse({ ...borderClick(3), y: 3 })).toBeUndefined();
+    // The border, but past the last tab (only the fill line is there).
+    expect(panel.handleMouse(borderClick(79))).toBeUndefined();
+    // A right-click never acts on tabs.
+    expect(panel.handleMouse({ ...borderClick(2), button: 'right' })).toBeUndefined();
+  });
+
+  it('exposes the Expandable capability the fold fallback needs', () => {
+    // The panels row turns an unhandled click into a fold toggle, and it decides
+    // whether that is possible from these three methods (the same capability the
+    // transcript's fold blocks implement).
+    const panel = new NotifyPanelComponent();
+    expect(isExpandable(panel)).toBe(true);
+    // Nothing to reveal while empty: a click must not claim to have folded it.
+    expect(hasHiddenContent(panel)).toBe(false);
+
+    panel.upsert(entry('tc-1', 'an update'));
+    expect(panel.isExpanded()).toBe(true);
+    expect(hasHiddenContent(panel)).toBe(false);
+
+    panel.setExpanded(false);
+    expect(panel.isExpanded()).toBe(false);
+    expect(hasHiddenContent(panel)).toBe(true);
+
+    panel.setExpanded(true);
+    expect(render(panel).join('\n')).toContain('an update');
+  });
+
+  it('folds and unfolds through setExpanded', () => {
+    const panel = new NotifyPanelComponent();
+    panel.upsert(entry('tc-1', listRows(30)));
+    expect(render(panel).length).toBeGreaterThan(2);
+
+    panel.setExpanded(false);
+    // Folded: a one-line stub plus the spacer above it.
+    expect(render(panel).length).toBe(2);
+    expect(render(panel).join('\n')).toContain('ctrl+n');
+
+    panel.setExpanded(true);
+    expect(render(panel).length).toBeGreaterThan(2);
+  });
+
+  it('leaves body clicks unhandled so the container can fold', () => {
+    // The panel claims only its tab strip; everything else returns undefined so
+    // `GutterContainer`'s fallback owns the fold toggle. Two owners would mean
+    // two behaviours for the same gesture.
+    const panel = new NotifyPanelComponent();
+    panel.upsert(entry('tc-1', listRows(30)));
+    expect(panel.handleMouse({ ...borderClick(10), y: 3 })).toBeUndefined();
+    expect(panel.handleMouse({ ...borderClick(10), y: 0 })).toBeUndefined();
+  });
+
+  it('offers a way back once the folded channels are expanded', () => {
+    // Expanding used to remove the aggregate tab, leaving no visible way to fold
+    // the group again — the toggle is a one-way door.
+    const panel = new NotifyPanelComponent();
+    for (let i = 1; i <= 4; i++) {
+      panel.upsert(entry(`a${String(i)}`, `u${String(i)}`, `agent-${String(i)}`, 'explore'));
+    }
+    panel.markFinished('agent-1');
+    panel.markFinished('agent-2');
+
+    expect(titleOf(panel, 120)).toContain('+2 done');
+    const foldedColumn = tabColumn(panel, '+2 done', 120);
+
+    expect(panel.handleMouse(borderClick(foldedColumn))?.handled).toBe(true);
+    const expanded = titleOf(panel, 120);
+    expect(expanded).toContain('−2 done');
+    // The folded channels now have their own tabs (the first keeps the bare
+    // label; later ones are numbered).
+    expect(expanded).toContain('explore · explore(2)');
+
+    // Clicking the aggregate again folds them back.
+    const expandedColumn = tabColumn(panel, '−2 done', 120);
+    expect(panel.handleMouse(borderClick(expandedColumn))?.handled).toBe(true);
+    expect(panel.isFinishedExpanded()).toBe(false);
+    expect(titleOf(panel, 120)).toContain('+2 done');
   });
 
   it('never renders wider than the requested width', () => {

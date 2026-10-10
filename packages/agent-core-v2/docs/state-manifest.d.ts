@@ -906,8 +906,12 @@ export interface AgentStateSnapshot {
     } | {
       kind: 'todo_list';
       items: {
+        id?: string;
+        parentId?: string | null;
+        kind?: 'task' | 'milestone';
         title: string;
         status: string;
+        progress?: number;
       }[];
     } | {
       kind: 'task';

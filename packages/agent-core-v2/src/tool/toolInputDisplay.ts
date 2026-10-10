@@ -45,7 +45,14 @@ export type ToolInputDisplay =
     }
   | {
       kind: 'todo_list';
-      items: { title: string; status: string }[];
+      items: {
+        id?: string | undefined;
+        parentId?: string | null | undefined;
+        kind?: 'milestone' | 'task' | undefined;
+        title: string;
+        status: string;
+        progress?: number | undefined;
+      }[];
     }
   | {
       kind: 'task';

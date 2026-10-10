@@ -60,7 +60,7 @@ modify/delete conflicts. One-time setup per clone:
 
 Useful scripts:
 
-- `bun run dev:cli` — run the CLI in dev mode
+- `bun run dev:local` — run the CLI in dev mode from a fresh bundle (incremental, ~2s). Add `:watch` (`bun run dev:local:watch`) to rebuild and re-run on every source change. **Use this rather than `bun run dev:cli`:** that path executes `src/main.ts` directly, and Bun does not resolve the `#/*` subpath imports the packages rely on, so it aborts with `Cannot find module '#/kimi-harness'`.
 - `bun --bun run test` — run tests (vitest). **This is the canonical command and what CI runs** (`.github/workflows/ci.yml`). The `--bun` flag runs vitest on the Bun runtime rather than Node, and the two produce different results: `bunx vitest` has been observed to pass while `bun --bun run test` fails on the same code. Always use `bun --bun run test` when checking whether a suite is green.
 - `bun run typecheck` — TypeScript check (note: builds packages first). Covers `packages/*` plus the `kimi-code`, `kimi-inspect`, `vscode`, `vis/server`, `vis/web` and `kimi-web` apps. It does **not** cover `docs/` (VitePress content) or `packages/kimi-agent` and `packages/kimi-native-tools` (Rust/native, no `tsconfig`).
 - `bun run build:docs` — build the user documentation. VitePress fails on dead internal links, so run this after editing anything under `docs/`.

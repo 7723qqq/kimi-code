@@ -18,6 +18,8 @@ The following keys are always available in the input box:
 | `Ctrl-P` | Rewrite the drafted prompt with AI |
 | `Ctrl-N` | Focus or release the experimental `Updates` panel |
 
+While the `Updates` panel is focused: `←` / `→` switch agent channels, `↑` / `↓` scroll the current update, `[` / `]` step between that channel's updates (`PgUp` / `PgDn` also step, outside fullscreen where those keys page the transcript), and `Esc` releases focus. The panel shows at most 12 rows or half the terminal height, whichever is smaller, and its title reports how many rows are out of view. Agents that have finished collapse into a single `+N done` tab; the agent you are viewing always keeps its own tab, and folded entries stay reachable with `←` / `→`. The mouse works too, without taking the keyboard: the wheel over the box scrolls the current update (it no longer falls through to the transcript, and does not grab focus — `Ctrl-N` is still what takes focus). Clicking a channel tab switches to that agent; clicking `+N done` expands the folded agents into their own tabs, and the tab then reads `−N done` so the same spot folds them back. Clicking anywhere else on the box folds or unfolds it, exactly like clicking a folded tool card in the transcript. Scrolling up stops the view from following new updates until you scroll back to the bottom.
+
 Pressing `Ctrl-C` **during streaming** cancels immediately — no second confirmation needed.
 
 **Exiting the program** (pressing `Ctrl-C` with an empty input box, or pressing `Ctrl-D`) uses a double-press confirmation mechanism: after the first press, a prompt appears in the status bar; a second press of the same key actually exits. Pressing any other key in between clears the confirmation state.

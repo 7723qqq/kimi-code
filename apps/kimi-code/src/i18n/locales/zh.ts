@@ -510,7 +510,7 @@ export default {
       todoPanel: {
         header: '待办',
         overallProgress: '{{done}}/{{total}} · {{percent}}%',
-        collapseHint: '共 {{count}} 项 · ctrl+t 收起',
+        collapseHint: '共 {{count}} 项 · ctrl+t 收起 · shift+↑↓ 滚动',
         expandHint: '… +{{count}} 项更多{{distribution}} · ctrl+t 展开',
         hiddenChildren: '│ … 本里程碑还有 {{count}} 项',
         statusDone: '已完成',
@@ -1364,6 +1364,7 @@ export default {
         hintCompacting: '  ↑ 编辑 · 压缩后发送',
         hintSteer: '  ↑ 编辑 · ctrl-s 立即引导',
         hintAfterTask: '  ↑ 编辑 · 当前任务完成后发送',
+        earlierHidden: '  … 已隐藏较早的 {{count}} 条排队消息',
       },
       btwPanel: {
         readyForSideQuestion: '准备进行旁路提问…',
@@ -2561,7 +2562,9 @@ export default {
       towerDisableError: '关闭 tower 模式失败：{{error}}',
       // tui/components/chrome/notify-panel.ts
       notifyPanelTurnEnded: '轮次已结束',
-      notifyPanelHintFocused: '← → 切换 agent · ↑ ↓ 切换更新 · esc 关闭',
+      notifyPanelFinishedTab: '+{{count}} 已完成',
+      notifyPanelFinishedExpandedTab: '−{{count}} 已完成',
+      notifyPanelHintFocused: '← → 切换 agent · ↑ ↓ 滚动 · [ ] 切换更新 · esc 关闭',
       notifyPanelHintUnfocused: 'ctrl+n 翻页',
       // tui/components/markdown/mermaid-art.ts
       mermaidCouldNotDraw: '无法绘制此 mermaid 图表',

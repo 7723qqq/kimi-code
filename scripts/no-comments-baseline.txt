@@ -1,0 +1,40 @@
+# Comments this repository has already accepted in the comment-free zones.
+#
+# One entry per file: the repo-relative path, two spaces, then the number of
+# violations tolerated there. check-no-comments.mjs reports anything beyond the
+# count, so a new comment is a decision someone made rather than an accident.
+# Lower a count when you remove one; an entry that stops matching anything is
+# reported so the ledger cannot rot.
+#
+# Regenerate the counts with:
+#   bun scripts/check-no-comments.mjs --print-counts
+# (`--print-counts` ignores this ledger and prints one `path  count` line per
+# file that has violations, which is exactly this file's body.)
+#
+# Why these are here: the 2026 DeepSeek adaptation work (89f0e8df79,
+# ba08b334a5) landed explanatory comments in agent-core-v2 that state design
+# constraints — why two token constants must stay independent, why DeepSeek
+# needs the whole reasoning history, how the `##` fence cut stays balanced.
+# Deleting them loses the rationale; moving every one into docs/ is tracked
+# separately. See DEVELOP.md, "General Coding Rules".
+
+packages/agent-core-v2/src/agent/profile/profileService.ts  11
+packages/agent-core-v2/src/app/agentProfileCatalog/agentProfileCatalog.ts  1
+packages/agent-core-v2/src/app/agentProfileCatalog/modelAdaptations.ts  15
+packages/agent-core-v2/src/app/agentProfileCatalog/profile-shared.ts  2
+packages/agent-core-v2/src/features/deepseekAdaptation/deepseekAdaptationService.ts  2
+packages/agent-core-v2/src/human/llm/modelFamily.ts  7
+packages/agent-core-v2/src/human/llm/requester/bases/openai/format.ts  1
+packages/agent-core-v2/src/human/llm/requester/bases/openai/lower.ts  1
+packages/agent-core-v2/src/human/llm/requester/bases/openai/requester.ts  7
+packages/agent-core-v2/src/human/llm/requester/bases/openai/usage.ts  3
+packages/agent-core-v2/src/human/llm/tokens.ts  1
+packages/agent-core-v2/src/human/log/log.ts  1
+packages/agent-core-v2/src/human/test/llm/deepseek-reasoning-replay.test.ts  9
+packages/agent-core-v2/src/human/test/llm/thinking.test.ts  9
+packages/agent-core-v2/src/human/test/llm/tokens.test.ts  8
+packages/agent-core-v2/test/agent/profile/adaptation-wire-name.test.ts  4
+packages/agent-core-v2/test/app/agentProfileCatalog/adaptationRender.test.ts  2
+packages/agent-core-v2/test/app/agentProfileCatalog/modelAdaptations.test.ts  29
+packages/agent-core-v2/test/app/agentProfileCatalog/profile-shared.test.ts  18
+packages/agent-core-v2/test/features/deepseekAdaptation/deepseekAdaptation.test.ts  23

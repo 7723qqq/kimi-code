@@ -3,7 +3,10 @@ import { describe, expect, it, vi } from 'vitest';
 import type { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import type { PermissionMode } from '#/agent/permissionPolicy/types';
 import type { ITelemetryService } from '#/app/telemetry/telemetry';
+import { makeAgentScopeContext, type IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import type { IAgentPlanService, PlanData } from '#/features/plan/plan';
+import type { TodoItem } from '#/features/todo/todoItem';
+import type { IAgentTodoService } from '#/features/todo/todoService';
 import {
   ExitPlanModeInputSchema,
   type ExitPlanModeInput,
@@ -18,6 +21,20 @@ const options = [
   { label: 'Approach A', description: 'Small change.' },
   { label: 'Approach B', description: 'Larger change.' },
 ] satisfies NonNullable<ExitPlanModeInput['options']>;
+
+function todoService(): IAgentTodoService {
+  return {
+    _serviceBrand: undefined,
+    onDidChange: () => ({ dispose: () => {} }),
+    get: () => [],
+    replace: vi.fn(async () => {}),
+    clear: vi.fn(async () => {}),
+  };
+}
+
+function scopeContext(): IAgentScopeContext {
+  return makeAgentScopeContext({ agentId: 'test-agent', agentScope: 'test-agent' });
+}
 
 function planService(): IAgentPlanService {
   return {
@@ -158,7 +175,7 @@ describe('ExitPlanMode option output', () => {
     const telemetry = recordingTelemetry();
 
     const result = await executeTool(
-      new ExitPlanModeTool({ ...planService(), exit }, permissionMode(), telemetry),
+      new ExitPlanModeTool({ ...planService(), exit }, permissionMode(), telemetry, todoService(), scopeContext()),
       {
         turnId: 7,
         toolCallId: 'call_exit_plan',
@@ -176,7 +193,7 @@ describe('ExitPlanMode option output', () => {
     const telemetry = recordingTelemetry();
 
     const result = await executeTool(
-      new ExitPlanModeTool(planService(), permissionMode('auto'), telemetry),
+      new ExitPlanModeTool(planService(), permissionMode('auto'), telemetry, todoService(), scopeContext()),
       {
         turnId: 7,
         toolCallId: 'call_exit_plan_auto',
@@ -196,7 +213,7 @@ describe('ExitPlanMode option output', () => {
     const telemetry = recordingTelemetry();
 
     const result = await executeTool(
-      new ExitPlanModeTool(planService(), permissionMode('manual'), telemetry),
+      new ExitPlanModeTool(planService(), permissionMode('manual'), telemetry, todoService(), scopeContext()),
       {
         turnId: 7,
         toolCallId: 'call_exit_plan_rule',
@@ -217,7 +234,7 @@ describe('ExitPlanMode option output', () => {
     const telemetry = recordingTelemetry();
 
     const result = await executeTool(
-      new ExitPlanModeTool(planService(), permissionMode(), telemetry),
+      new ExitPlanModeTool(planService(), permissionMode(), telemetry, todoService(), scopeContext()),
       {
         turnId: 7,
         toolCallId: 'call_exit_plan',
@@ -235,7 +252,7 @@ describe('ExitPlanMode option output', () => {
     const service: IAgentPlanService = { ...planService(), recordRevision };
 
     const result = await executeTool(
-      new ExitPlanModeTool(service, permissionMode(), recordingTelemetry()),
+      new ExitPlanModeTool(service, permissionMode(), recordingTelemetry(), todoService(), scopeContext()),
       {
         turnId: 7,
         toolCallId: 'call_exit_record',
@@ -255,7 +272,7 @@ describe('ExitPlanMode option output', () => {
     const service: IAgentPlanService = { ...planService(), recordRevision };
 
     const result = await executeTool(
-      new ExitPlanModeTool(service, permissionMode(), recordingTelemetry()),
+      new ExitPlanModeTool(service, permissionMode(), recordingTelemetry(), todoService(), scopeContext()),
       {
         turnId: 7,
         toolCallId: 'call_exit_record_failure',
@@ -278,7 +295,7 @@ describe('ExitPlanMode option output', () => {
     };
 
     const result = await executeTool(
-      new ExitPlanModeTool(service, permissionMode(), recordingTelemetry()),
+      new ExitPlanModeTool(service, permissionMode(), recordingTelemetry(), todoService(), scopeContext()),
       {
         turnId: 7,
         toolCallId: 'call_exit_empty',
@@ -290,5 +307,79 @@ describe('ExitPlanMode option output', () => {
     expect(recordRevision).not.toHaveBeenCalled();
     expect(result.isError).toBe(true);
     expect(result.output).toContain('No plan file found');
+  });
+
+  it('seeds the todo list from the approved plan on exit', async () => {
+    const replace = vi.fn<(todos: readonly TodoItem[]) => Promise<void>>(async () => {});
+    const structuredPlan = [
+      '## Implement feature',
+      '- Read current module',
+      '- Write the patch',
+      '- Run tests',
+    ].join('\n');
+    const service: IAgentPlanService = {
+      ...planService(),
+      status: () =>
+        Promise.resolve({
+          id: 'test-plan',
+          content: structuredPlan,
+          path: '/tmp/kimi-plan.md',
+        }),
+    };
+    const todo: IAgentTodoService = { ...todoService(), replace };
+
+    const result = await executeTool(
+      new ExitPlanModeTool(service, permissionMode(), recordingTelemetry(), todo, scopeContext()),
+      {
+        turnId: 7,
+        toolCallId: 'call_exit_seed',
+        args: {},
+        signal,
+      },
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(result.output).toContain('seeded into the todo list as 4 items');
+    expect(replace).toHaveBeenCalledTimes(1);
+    expect(replace.mock.calls[0]![0].map((item) => item.title)).toEqual([
+      'Implement feature',
+      'Read current module',
+      'Write the patch',
+      'Run tests',
+    ]);
+  });
+
+  it('does not overwrite an existing todo list when exiting plan mode', async () => {
+    const replace = vi.fn(async () => {});
+    const service: IAgentPlanService = {
+      ...planService(),
+      status: () =>
+        Promise.resolve({
+          id: 'test-plan',
+          content: '## Implement feature\n- Read current module',
+          path: '/tmp/kimi-plan.md',
+        }),
+    };
+    const todo: IAgentTodoService = {
+      ...todoService(),
+      replace,
+      get: () => [
+        { id: 'T1', parentId: null, kind: 'task', title: 'prior work', status: 'pending' },
+      ],
+    };
+
+    const result = await executeTool(
+      new ExitPlanModeTool(service, permissionMode(), recordingTelemetry(), todo, scopeContext()),
+      {
+        turnId: 7,
+        toolCallId: 'call_exit_seed_skip',
+        args: {},
+        signal,
+      },
+    );
+
+    expect(result.isError).toBeFalsy();
+    expect(result.output).not.toContain('seeded into the todo list');
+    expect(replace).not.toHaveBeenCalled();
   });
 });

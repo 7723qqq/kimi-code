@@ -11,6 +11,8 @@ import type { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { IAgentPlanService, PlanData } from '#/features/plan/plan';
 import { EnterPlanModeTool } from '#/features/plan/tools/enter-plan-mode/enterPlanModeTool';
 import { type ExitPlanModeInput } from '#/features/plan/tools/exit-plan-mode/exit-plan-mode';
+import { makeAgentScopeContext, type IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import type { IAgentTodoService } from '#/features/todo/todoService';
 import { ExitPlanModeTool } from '#/features/plan/tools/exit-plan-mode/exitPlanModeTool';
 import type { ToolResult } from '#/tool/toolContract';
 
@@ -304,10 +306,24 @@ describe('AgentPlanService EnterPlanMode telemetry', () => {
   }
 });
 
+function todoService(): IAgentTodoService {
+  return {
+    _serviceBrand: undefined,
+    onDidChange: () => ({ dispose: () => {} }),
+    get: () => [],
+    replace: vi.fn(async () => {}),
+    clear: vi.fn(async () => {}),
+  };
+}
+
+function scopeContext(): IAgentScopeContext {
+  return makeAgentScopeContext({ agentId: 'test-agent', agentScope: 'test-agent' });
+}
+
 describe('ExitPlanModeTool telemetry', () => {
   it('has name, description, parameters, and a stable execution description', async () => {
     const { telemetry } = recordingTelemetry();
-    const tool = new ExitPlanModeTool(planService(), permissionMode(), telemetry);
+    const tool = new ExitPlanModeTool(planService(), permissionMode(), telemetry, todoService(), scopeContext());
 
     expect(tool.name).toBe('ExitPlanMode');
     expect(tool.description).toContain('ExitPlanMode');
@@ -329,7 +345,7 @@ describe('ExitPlanModeTool telemetry', () => {
     const { telemetry } = recordingTelemetry();
 
     const result = await executeTool(
-      new ExitPlanModeTool(planService({ status: null }), permissionMode(), telemetry),
+      new ExitPlanModeTool(planService({ status: null }), permissionMode(), telemetry, todoService(), scopeContext()),
       {
         turnId: 7,
         toolCallId: 'call_exit_plan',
@@ -354,7 +370,7 @@ describe('ExitPlanModeTool telemetry', () => {
     } as unknown as NonNullable<PlanData>;
 
     const result = await executeTool(
-      new ExitPlanModeTool(planService({ status }), permissionMode(), telemetry),
+      new ExitPlanModeTool(planService({ status }), permissionMode(), telemetry, todoService(), scopeContext()),
       {
         turnId: 7,
         toolCallId: 'call_exit_plan',
@@ -372,7 +388,7 @@ describe('ExitPlanModeTool telemetry', () => {
 
   it('exposes options[].description as optional with a default of empty string', () => {
     const { telemetry } = recordingTelemetry();
-    const parameters = new ExitPlanModeTool(planService(), permissionMode(), telemetry)
+    const parameters = new ExitPlanModeTool(planService(), permissionMode(), telemetry, todoService(), scopeContext())
       .parameters as {
       properties: {
         options: {
@@ -395,7 +411,7 @@ describe('ExitPlanModeTool telemetry', () => {
     const { telemetry, track2 } = recordingTelemetry();
 
     const result = await executeTool(
-      new ExitPlanModeTool(planService({ exit }), permissionMode(), telemetry),
+      new ExitPlanModeTool(planService({ exit }), permissionMode(), telemetry, todoService(), scopeContext()),
       {
         turnId: 7,
         toolCallId: 'call_exit_plan',
@@ -418,7 +434,7 @@ describe('ExitPlanModeTool telemetry', () => {
     const { telemetry, track2 } = recordingTelemetry();
 
     const result = await executeTool(
-      new ExitPlanModeTool(planService(), permissionMode(), telemetry),
+      new ExitPlanModeTool(planService(), permissionMode(), telemetry, todoService(), scopeContext()),
       {
         turnId: 7,
         toolCallId: 'call_exit_plan_options',
@@ -443,7 +459,7 @@ describe('ExitPlanModeTool telemetry', () => {
     const { telemetry, track2 } = recordingTelemetry();
 
     const result = await executeTool(
-      new ExitPlanModeTool(planService({ exit }), permissionMode(), telemetry),
+      new ExitPlanModeTool(planService({ exit }), permissionMode(), telemetry, todoService(), scopeContext()),
       {
         turnId: 7,
         toolCallId: 'call_exit_plan_fail',
@@ -467,7 +483,7 @@ describe('ExitPlanModeTool telemetry', () => {
     const { telemetry, track2 } = recordingTelemetry();
 
     const result = await executeTool(
-      new ExitPlanModeTool(planService(), permissionMode(), telemetry),
+      new ExitPlanModeTool(planService(), permissionMode(), telemetry, todoService(), scopeContext()),
       {
         turnId: 7,
         toolCallId: 'call_exit_plan_yolo',
@@ -485,7 +501,7 @@ describe('ExitPlanModeTool telemetry', () => {
     const { telemetry } = recordingTelemetry();
 
     const result = await executeTool(
-      new ExitPlanModeTool(planService({ status: null }), permissionMode(), telemetry),
+      new ExitPlanModeTool(planService({ status: null }), permissionMode(), telemetry, todoService(), scopeContext()),
       {
         turnId: 7,
         toolCallId: 'call_exit_plan_null',

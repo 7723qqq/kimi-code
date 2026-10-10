@@ -527,7 +527,7 @@ export default {
       todoPanel: {
         header: 'Todo',
         overallProgress: '{{done}}/{{total}} · {{percent}}%',
-        collapseHint: 'all {{count}} items · ctrl+t to collapse',
+        collapseHint: 'all {{count}} items · ctrl+t to collapse · shift+↑↓ to scroll',
         expandHint: '… +{{count}} more{{distribution}} · ctrl+t to expand',
         hiddenChildren: '│ … +{{count}} more in this milestone',
         statusDone: 'done',
@@ -1399,6 +1399,7 @@ export default {
         hintCompacting: '  ↑ to edit · will send after compaction',
         hintSteer: '  ↑ to edit · ctrl-s to steer immediately',
         hintAfterTask: '  ↑ to edit · will send after current task',
+        earlierHidden: '  … {{count}} earlier queued message(s) hidden',
       },
       btwPanel: {
         readyForSideQuestion: 'Ready for a side question…',
@@ -2642,7 +2643,9 @@ export default {
       towerDisableError: 'Failed to disable tower mode: {{error}}',
       // tui/components/chrome/notify-panel.ts
       notifyPanelTurnEnded: 'turn ended',
-      notifyPanelHintFocused: '← → agent · ↑ ↓ update · esc close',
+      notifyPanelFinishedTab: '+{{count}} done',
+      notifyPanelFinishedExpandedTab: '−{{count}} done',
+      notifyPanelHintFocused: '← → agent · ↑ ↓ scroll · [ ] update · esc close',
       notifyPanelHintUnfocused: 'ctrl+n page',
       // tui/components/markdown/mermaid-art.ts
       mermaidCouldNotDraw: 'could not draw this mermaid diagram',

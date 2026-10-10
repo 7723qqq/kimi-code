@@ -158,10 +158,26 @@ export class CustomEditor extends Editor {
   public onCtrlB?: () => boolean;
   /** Return `true` to consume Ctrl+T (the todo list had overflow to toggle); return `false`/`undefined` to fall through to the editor default. */
   public onToggleTodoExpand?: () => boolean;
+  /**
+   * Scroll the expanded todo list. `↑`/`↓` stay with the editor (cursor and
+   * history), so the expanded list takes the shifted arrows, which nothing else
+   * claims. Return `true` to consume.
+   */
+  public onScrollTodo?: (direction: 'up' | 'down') => boolean;
   /** Return true to consume Ctrl+N (the Updates panel grabbed or released focus); otherwise use the editor bindings. */
   public onPageNotify?: () => boolean;
-  /** Route `←`/`→`/`↑`/`↓`/`Esc` to the focused Updates panel; return `true` to consume. */
-  public onNotifyPanelKey?: (key: 'left' | 'right' | 'up' | 'down' | 'escape') => boolean;
+  /**
+   * Route `←`/`→`/`↑`/`↓`/`[`/`]`/`PgUp`/`PgDn`/`Esc` to the focused Updates
+   * panel; return `true` to consume.
+   *
+   * `[`/`]` are the primary update-stepping keys: in fullscreen, `PgUp`/`PgDn`
+   * are already bound to the transcript's own paging (`tui.altScreen.pageUp`),
+   * so a pane-local binding cannot claim them. Both are accepted here and the
+   * panel decides which arrives.
+   */
+  public onNotifyPanelKey?: (
+    key: 'left' | 'right' | 'up' | 'down' | 'pageUp' | 'pageDown' | 'escape',
+  ) => boolean;
   public onUndo?: () => void;
   public onTextPaste?: () => void;
   /**
@@ -549,6 +565,13 @@ export class CustomEditor extends Editor {
       if (this.onToggleTodoExpand?.() === true) return;
     }
 
+    if (matchesKey(normalized, 'shift+up') || matchesKey(normalized, 'shift+down')) {
+      // Only consume when the expanded list actually has rows to scroll, so the
+      // keys keep falling through in the common case.
+      const direction = matchesKey(normalized, 'shift+up') ? 'up' : 'down';
+      if (this.onScrollTodo?.(direction) === true) return;
+    }
+
     if (matchesKey(normalized, Key.ctrl('n'))) {
       // Only consume the key when the Updates panel grabbed or released
       // focus; otherwise fall through to the editor default.
@@ -566,6 +589,10 @@ export class CustomEditor extends Editor {
         matchesKey(normalized, Key.right) ||
         matchesKey(normalized, Key.up) ||
         matchesKey(normalized, Key.down) ||
+        matchesKey(normalized, Key.pageUp) ||
+        matchesKey(normalized, Key.pageDown) ||
+        matchesKey(normalized, '[') ||
+        matchesKey(normalized, ']') ||
         matchesKey(normalized, Key.escape))
     ) {
       const panelKey = matchesKey(normalized, Key.left)
@@ -576,7 +603,11 @@ export class CustomEditor extends Editor {
             ? ('up' as const)
             : matchesKey(normalized, Key.down)
               ? ('down' as const)
-              : ('escape' as const);
+              : matchesKey(normalized, Key.pageUp) || matchesKey(normalized, '[')
+                ? ('pageUp' as const)
+                : matchesKey(normalized, Key.pageDown) || matchesKey(normalized, ']')
+                  ? ('pageDown' as const)
+                  : ('escape' as const);
       if (this.onNotifyPanelKey?.(panelKey) === true) return;
     }
 

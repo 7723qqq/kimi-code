@@ -163,7 +163,7 @@ packages/
   kimi-agent/          — Rust agent engine (experimental)
   kimi-native-tools/   — Rust native Node addon (napi-rs)
   klient/              — Client SDK (contract-driven facade over agent-core-v2)
-  kosong/              — LLM / provider abstraction layer
+  kosong/              — Frozen legacy LLM / provider kernel (published SDK + oauth only)
   migration-legacy/    — Data migration from kimi-cli (~/.kimi/) to kimi-code (~/.kimi-code/)
   minidb/              — Embedded JSON document store (snapshot + WAL, full-text index)
   node-sdk/            — Public TypeScript SDK (@moonshot-ai/kimi-code-sdk)
@@ -179,7 +179,7 @@ packages/
 
 **`agent-core-v2`** (v0.4.3) — Next-gen agent engine with DI × Scope architecture. Service interfaces, DI containers, scope-bound session management. Consumed by `kap-server` and `klient`. Includes dependency graph analysis, domain layer linting, and contract type generation scripts.
 
-**`kosong`** (v0.5.6) — The LLM / provider abstraction layer — the single shared home for the provider wire contract. Owns the contract types (`Message` / `ChatProvider` / `Tool` / `TokenUsage` / `ModelCapability`), the coded-error infrastructure (`Error2` + provider error taxonomy), and the pure-function layer (`generate()`, token estimation, error classification, provider wire helpers). `agent-core-v2`'s `src/kosong/` keeps the DI/trait composition machinery and imports the shared layers from here (its `contract/` directory is a thin re-export). Supports Anthropic, Google Gemini, and OpenAI-compatible providers. Uses `zod-to-json-schema` for tool schema conversion.
+**`kosong`** (v0.5.6) — The frozen legacy LLM / provider kernel. Owns the contract types (`Message` / `ChatProvider` / `Tool` / `TokenUsage` / `ModelCapability`), the coded-error infrastructure (`Error2` + provider error taxonomy), and the pure-function layer (`generate()`, token estimation, error classification, provider wire helpers). It is retained for the published SDK and `oauth`; `agent-core-v2` **does not import it** — provider and request code lives in `packages/agent-core-v2/src/human/llm/`, and the v2 compatibility boundary is `packages/agent-core-v2/src/llm-adapter/`. The import path is rejected outright by `packages/agent-core-v2/scripts/check-import-boundaries.mjs`; see `docs/en/llm.md` for the layering rules. Because both packages carry a copy of the wire rules, `packages/kosong/test/cache-field-parity.test.ts` is the only thing keeping the two copies honest. Supports Anthropic, Google Gemini, and OpenAI-compatible providers. Uses `zod-to-json-schema` for tool schema conversion.
 
 **`klient`** (v0.1.2) — Client SDK. A contract-driven facade over agent-core-v2 with aggregated `global.*` / `session(id).*` / `agent(id).*` methods, zod validation on every call, and transport abstraction (ipc or memory). Also hosts e2e suites.
 
@@ -205,16 +205,20 @@ plugins/
 
 ```
 scripts/
-  generate-locale-json.cjs      — Generate locale JSON from translation source
   check-locale-keys.mjs         — Check locale key coverage
   check-locale-placeholders.cjs — Validate i18n placeholder consistency
   check-nix-workspace.mjs       — Validate flake.nix vs workspace membership
   check-no-comments.mjs         — Enforce no-comment policy (agent-core-v2, kap-server, transcript)
   check-service-naming.mjs      — Check service naming conventions
   check-t-call-coverage.mjs     — Check t() call coverage
-  scan-hardcoded[-v2].mjs       — Scan for hardcoded strings (i18n compliance)
+  measure-image-tokens.cjs      — Recalibrate the image-token formula against a live endpoint
+  scan-hardcoded-v2.mjs         — Scan for hardcoded strings (i18n compliance)
   prompt-optimizer/             — Prompt benchmark and optimization tools
 ```
+
+Each of these has a root script. `check:no-comments` and `check:locale-placeholders` also run
+in CI; `check:nix-workspace` runs in the Nix workflow; the rest are by-hand:
+`scan:hardcoded`, `check:service-naming`, `measure:image-tokens`.
 
 ### Structural review (`tools/review`)
 
@@ -302,7 +306,13 @@ the `cwd` its script expects — `bun run` resolves relative to the package — 
 bun install                   # Install all dependencies
 bun run build                 # Build all workspace packages
 bun run build:packages        # Build only packages/*
-bun run dev:cli               # Run CLI in dev mode
+bun run dev:local             # Run the CLI from a fresh bundle (works; incremental, ~2s)
+bun run dev:local:watch       # Same, rebuilding and re-running on every source change
+bun run dev:cli               # BROKEN under Bun 1.4.2: it executes src/main.ts, and Bun does
+                              # not resolve `package.json` `imports` wildcards (`"#/*"`), so
+                              # the first `#/` import aborts with "Cannot find module '#/kimi-harness'".
+                              # Node resolves those, and `bunx tsx` proves it, but main.ts hard-exits
+                              # on a non-Bun runtime — so neither runtime can run the source path.
 cd apps/kimi-web && bun run dev # Run web UI in dev mode (standalone Bun install via apps/kimi-web/bun.lock)
 bun run dev:server            # Run server in dev mode
 bun run test                  # Run all tests (vitest)
@@ -313,6 +323,9 @@ bun run lint                  # oxlint --type-aware
 bun run lint:fix              # Auto-fix
 bun run sherif                # Monorepo correctness check
 bun run clean                 # Clean all dist directories
+bun run gen:manifests         # Regenerate the agent-core-v2 config/wire/state manifests
+bun run check:deep-imports    # Engine import-boundary checks
+bun run check:boundaries      # Engine import boundaries + deep-import lint
 bun run changeset             # Generate a changeset
 bun run version               # Apply changesets (bump versions)
 bun run publish               # Full publish pipeline
@@ -365,7 +378,7 @@ GitHub Actions (`ci.yml`) runs on every PR and push to `main`. Every job install
 3. **test-pi-tui** — `pi-tui` suite (dispatches to `bun test` under Bun, `node --test` under Node)
 4. **test-minidb** — `minidb` suite, which the root vitest projects exclude
 5. **test-kimi-web** — `apps/kimi-web` typecheck, tests, and style check (the app sits outside the root workspace)
-6. **lint** — `bun run lint` (oxlint --type-aware), `bun run sherif`, engine boundaries (`check:deep-imports`, then `check:boundaries`), locale key parity (`check-locale-keys.mjs`), locale placeholder validity (`check-locale-placeholders.cjs`), `t()` call-site coverage (`check-t-call-coverage.mjs`), and locale JSON freshness (regenerate via `generate-locale-json.cjs` and fail on any tracked diff)
+6. **lint** — `bun run lint` (oxlint --type-aware), `bun run sherif`, engine boundaries (`check:deep-imports`, then `check:boundaries`), locale key parity (`check-locale-keys.mjs`), locale placeholder validity (`check-locale-placeholders.cjs`), and `t()` call-site coverage (`check-t-call-coverage.mjs`)
 7. **typecheck** — TypeScript check across all packages (`tsgo` from `@typescript/native-preview`, run via `bunx --bun`)
 8. **review** — `zig build` in `tools/review` (Zig installed via `mlugg/setup-zig`), then the structural checks described under "Structural review" above.
 
@@ -430,6 +443,7 @@ The macOS and Windows signing steps degrade safely when their secrets are unset:
 ### General Coding Rules
 
 - `packages/agent-core-v2`, `packages/kap-server`, and `packages/transcript` are comment-free zones: no comments of any kind — no line/block comments, no JSDoc (not even on exported symbols); the only exception is load-bearing lint-suppression directives (`oxlint-disable` / `eslint-disable`), while other tooling directives (`@ts-expect-error`, …) stay banned. `scripts/check-no-comments.mjs` reports violations over `.ts`/`.tsx`/`.mts`/`.mjs` under `src/`/`test/`/`scripts/`, and the lint job in `ci.yml` runs it on every PR.
+  - `scripts/no-comments-baseline.txt` is the accepted-debt ledger for this rule: one `path  count` entry per file whose existing comments were reviewed and kept (the 2026 DeepSeek adaptation work explains design constraints — why two token constants must stay independent, why DeepSeek needs the whole reasoning history, how the `##` fence cut stays balanced). The check fails on any violation **beyond** a file's count, so a new comment is a decision rather than an accident, and it reports entries that dropped below their count so the ledger cannot rot. Move rationale into `docs/` and lower the number rather than adding a new entry. Regenerate the body with `bun run check:no-comments:counts`.
 - For optional object properties, pass `undefined` directly instead of using conditional spread.
   - YES: `{ user }`
   - NO: `{ ...(user ? { user } : undefined) }`
@@ -447,7 +461,7 @@ The macOS and Windows signing steps degrade safely when their secrets are unset:
 
 - All user-facing strings must use `t()` calls from the i18n framework.
 - Supported locales: `en` (English), `zh` (Chinese).
-- Locale JSON must be regenerated after translation changes: `bun scripts/generate-locale-json.cjs`.
+- The per-tree `locales/*.ts` files are the single source of truth for translations. Locale data reaches the engine as an in-memory JSON string (`JSON.stringify(en)` in `apps/kimi-code/src/i18n/index.ts`), so there is no generated locale JSON to regenerate or commit.
 - Run `bun scripts/scan-hardcoded-v2.mjs` to find hardcoded strings that should be localized.
 - Run `bun scripts/check-locale-placeholders.cjs` to validate placeholder consistency.
 
@@ -482,9 +496,15 @@ Coverage includes `packages/*/src/**/*.ts` and `apps/*/src/**/*.ts`, excludes te
 bun run test                  # All vitest suites
 bun run test:watch            # Watch mode
 bun run test:coverage         # With coverage report
+bun run test:minidb           # minidb only — see below
 (cd packages/<package> && bun run test)  # Single package
 (cd packages/<package> && bun run vitest run -- --reporter=verbose)  # Verbose mode
 ```
+
+`minidb` is deliberately **not** part of the default `bun run test` project list
+(`vitest.config.ts`, `'!packages/minidb'`): its 45 files legitimately take ~40 s under
+shard parallelism, so it is excluded for speed and runs in its own CI job. Run it locally with
+`bun run test:minidb`; do not add it back to the default list to "fix" the omission.
 
 ### Test file conventions
 

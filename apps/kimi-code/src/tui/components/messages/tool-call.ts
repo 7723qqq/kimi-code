@@ -35,7 +35,16 @@ import { createMarkdownOptions } from '#/tui/utils/markdown-options';
 import { decodeMcpToolName } from '#/tui/utils/mcp-tool-name';
 import { notifyResultState } from '#/tui/utils/notify-result';
 import { isRenderCacheEnabled } from '#/tui/utils/render-cache';
-import { formatTokenCount } from '#/utils/usage/usage-format';
+import {
+  formatByteSize,
+  formatElapsed,
+  formatSubagentContextTokens,
+  formatSubagentTokens,
+  formatTokens,
+  str,
+  tailNonEmptyLines,
+  usageTotal,
+} from '#/tui/utils/tool-call-format';
 
 import { agentSwarmResultSummaryFromOutput } from './agent-swarm-progress';
 import { PlanBoxComponent } from './plan-box';
@@ -156,43 +165,6 @@ function backgroundFailureMessage(
     case undefined:
       return undefined;
   }
-}
-
-function str(v: unknown): string {
-  return typeof v === 'string' ? v : '';
-}
-
-function formatSubagentContextTokens(contextTokens: number | undefined): string | undefined {
-  if (contextTokens === undefined || contextTokens <= 0) return undefined;
-  return `${formatTokenCount(contextTokens)} tok`;
-}
-
-function usageInputTotal(usage: TokenUsage): number {
-  return (usage.inputOther ?? 0) + (usage.inputCacheRead ?? 0) + (usage.inputCacheCreation ?? 0);
-}
-
-function usageTotal(usage: TokenUsage | undefined): number {
-  if (usage === undefined) return 0;
-  return usageInputTotal(usage) + usage.output;
-}
-
-function formatSubagentTokens(usage: TokenUsage | undefined): string | undefined {
-  const total = usageTotal(usage);
-  if (total <= 0) return undefined;
-  return `${formatTokenCount(total)} tok`;
-}
-
-function formatByteSize(bytes: number): string {
-  if (bytes < 1024) return `${String(bytes)} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-}
-
-function formatElapsed(seconds: number): string {
-  if (seconds < 60) return `${String(seconds)}s`;
-  const minutes = Math.floor(seconds / 60);
-  const remainder = seconds % 60;
-  return `${String(minutes)}m ${String(remainder)}s`;
 }
 
 function extractApprovedPlan(output: string): string {
@@ -514,15 +486,6 @@ function formatSubagentLabel(agentName: string | undefined): string {
     .join(' ');
   if (/\bagent$/i.test(label)) return label;
   return `${label} Agent`;
-}
-
-function tailNonEmptyLines(text: string, maxLines: number): string[] {
-  if (text.length === 0) return [];
-  return text
-    .split('\n')
-    .map((line) => line.trimEnd())
-    .filter((line) => line.trim().length > 0)
-    .slice(-maxLines);
 }
 
 class PrefixedWrappedLine implements Component {
@@ -2716,10 +2679,6 @@ function computeLatestActivity(
     if (tail !== undefined) return tail.trim();
   }
   return undefined;
-}
-
-function formatTokens(n: number): string {
-  return `${formatTokenCount(n)} tok`;
 }
 
 function formatActivityLine(

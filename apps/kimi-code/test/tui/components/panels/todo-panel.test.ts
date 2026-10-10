@@ -160,6 +160,96 @@ describe('TodoPanelComponent', () => {
     expect(out).toMatch(/ctrl\+t to collapse/);
   });
 
+  it('bounds the expanded list and scrolls it instead of taking the screen', () => {
+    // Expanded means "show me the plan", not "own the terminal": with 60 todos
+    // this used to render 63 lines on a 24-row screen.
+    const panel = new TodoPanelComponent({ terminalRows: () => 24 });
+    panel.setTodos(
+      Array.from({ length: 60 }, (_, i) => ({
+        title: `task ${String(i + 1)}`,
+        status: 'pending' as const,
+      })),
+    );
+    panel.setExpanded(true);
+
+    const height = panel.render(80).length;
+    expect(height).toBeLessThanOrEqual(12);
+
+    // `•`/`○` anchor the match so "task 1" cannot match "task 10".
+    const first = strip(panel.render(80).join('\n'));
+    expect(first).toMatch(/○ task 1\b/);
+
+    // Scrolling reveals later entries while the collapse hint stays put.
+    expect(panel.scrollBy(5)).toBe(true);
+    const scrolled = strip(panel.render(80).join('\n'));
+    expect(scrolled).not.toMatch(/○ task 1\b/);
+    expect(scrolled).toMatch(/○ task 6\b/);
+    expect(scrolled).toMatch(/ctrl\+t to collapse/);
+  });
+
+  it('keeps at least one task visible on a very short terminal', () => {
+    // The dock hands this row only a couple of lines at 6 rows; the panel must
+    // spend them on a task rather than on its own hint.
+    for (const rows of [24, 12, 8, 6, 4]) {
+      const panel = new TodoPanelComponent({ terminalRows: () => rows });
+      panel.setTodos(
+        Array.from({ length: 60 }, (_, i) => ({
+          title: `task ${String(i + 1)}`,
+          status: 'pending' as const,
+        })),
+      );
+      panel.setExpanded(true);
+      const out = strip(panel.render(80).join('\n'));
+      expect(out).toMatch(/○ task \d+/);
+    }
+  });
+
+  it('clamps expanded scrolling to the list bounds', () => {
+    const panel = new TodoPanelComponent({ terminalRows: () => 24 });
+    panel.setTodos(
+      Array.from({ length: 60 }, (_, i) => ({
+        title: `task ${String(i + 1)}`,
+        status: 'pending' as const,
+      })),
+    );
+    panel.setExpanded(true);
+
+    expect(panel.scrollBy(-1)).toBe(false);
+    const hidden = panel.hiddenExpandedRows();
+    expect(hidden).toBeGreaterThan(0);
+    expect(panel.scrollBy(999)).toBe(true);
+    expect(strip(panel.render(80).join('\n'))).toMatch(/○ task 60\b/);
+    // The clamp is the real last offset, so a further step must report no move.
+    expect(panel.scrollBy(1)).toBe(false);
+  });
+
+  it('does not scroll while collapsed', () => {
+    const panel = new TodoPanelComponent({ terminalRows: () => 24 });
+    panel.setTodos(
+      Array.from({ length: 60 }, (_, i) => ({
+        title: `task ${String(i + 1)}`,
+        status: 'pending' as const,
+      })),
+    );
+    expect(panel.scrollBy(1)).toBe(false);
+    expect(panel.hiddenExpandedRows()).toBe(0);
+  });
+
+  it('resets the expanded scroll offset when the panel collapses or reopens', () => {
+    const panel = new TodoPanelComponent({ terminalRows: () => 24 });
+    panel.setTodos(
+      Array.from({ length: 60 }, (_, i) => ({
+        title: `task ${String(i + 1)}`,
+        status: 'pending' as const,
+      })),
+    );
+    panel.setExpanded(true);
+    panel.scrollBy(5);
+    panel.setExpanded(false);
+    panel.setExpanded(true);
+    expect(strip(panel.render(80).join('\n'))).toContain('task 1');
+  });
+
   it('toggleExpanded() flips between collapsed and expanded', () => {
     const panel = new TodoPanelComponent();
     panel.setTodos(many(7));
@@ -202,11 +292,7 @@ describe('selectVisibleTodos', () => {
   const T = (title: string, status: TodoItem['status']): TodoItem => ({ title, status });
 
   it('returns all items unchanged when count <= 5', () => {
-    const todos: TodoItem[] = [
-      T('a', 'done'),
-      T('b', 'in_progress'),
-      T('c', 'pending'),
-    ];
+    const todos: TodoItem[] = [T('a', 'done'), T('b', 'in_progress'), T('c', 'pending')];
     const { rows, hidden } = selectVisibleTodos(todos);
     expect(rows).toEqual(todos);
     expect(hidden).toBe(0);
@@ -339,9 +425,7 @@ describe('selectVisibleTodos', () => {
   });
 
   it('more than 5 in_progress: caps at 5 keeping the earliest', () => {
-    const todos: TodoItem[] = Array.from({ length: 7 }, (_, i) =>
-      T(`ip${i}`, 'in_progress'),
-    );
+    const todos: TodoItem[] = Array.from({ length: 7 }, (_, i) => T(`ip${i}`, 'in_progress'));
     const { rows, hidden } = selectVisibleTodos(todos);
     expect(rows.map((r) => r.title)).toEqual(['ip0', 'ip1', 'ip2', 'ip3', 'ip4']);
     expect(hidden).toBe(2);

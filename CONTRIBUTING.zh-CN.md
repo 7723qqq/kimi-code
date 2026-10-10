@@ -58,7 +58,7 @@ bun install
 
 常用脚本：
 
-- `bun run dev:cli` — 开发模式运行 CLI
+- `bun run dev:local` — 从全新 bundle 以开发模式运行 CLI（增量，约 2 秒）。加 `:watch`（`bun run dev:local:watch`）可在源码变化时自动重建并重跑。**请用它而不是 `bun run dev:cli`**：后者直接执行 `src/main.ts`，而 Bun 不解析各包依赖的 `#/*` 子路径导入，会在启动时报 `Cannot find module '#/kimi-harness'`。
 - `bun run test` — 运行测试（vitest）
 - `bun --bun run test` — 运行测试（vitest）。**这是规范命令，也是 CI 使用的命令**（`.github/workflows/ci.yml`）。`--bun` 让 vitest 跑在 Bun 运行时而非 Node 上，两者结果会不同：实测出现过 `bunx vitest` 通过、而 `bun --bun run test` 在同一份代码上失败的情况。判断测试是否变绿时请一律使用 `bun --bun run test`。
 - `bun run typecheck` — TypeScript 检查（注意：会先构建各包）。覆盖 `packages/*` 与 `kimi-code`、`kimi-inspect`、`vscode`、`vis/server`、`vis/web`、`kimi-web` 六个 app；**不覆盖** `docs/`（VitePress 内容）以及 `packages/kimi-agent`、`packages/kimi-native-tools`（Rust/原生，无 tsconfig）。

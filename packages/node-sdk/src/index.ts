@@ -112,6 +112,11 @@ export {
 } from '@moonshot-ai/agent-core-v2/agent/media/mediaRef';
 export type { DaemonFileRef, MediaKind } from '@moonshot-ai/agent-core-v2/agent/media/mediaRef';
 
+export {
+  NOTIFY_USER_DELIVERED_OUTPUT,
+  NOTIFY_USER_SUPPRESSED_OUTPUT,
+} from '@moonshot-ai/agent-core-v2';
+
 export type {
   KimiAuthCompleteFeedbackUploadInput,
   KimiAuthCompleteFeedbackUploadPart,

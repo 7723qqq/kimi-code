@@ -24,7 +24,6 @@ buildHookSpawnOptions  packages/agent-core-v2/src/features/externalHooks/interna
 collapsePrompt  apps/kimi-web/src/lib/cronHumanize.ts
 connectPlugins  packages/agent-core-v2/src/human/plugin.ts
 containsUsableMessage  packages/migration-legacy/src/sessions/translator.ts
-createCompactionController  packages/agent-core-v2/src/human/compaction/controller.ts
 createKimiOAuthCredentialProvider  packages/agent-core-v2/src/human/credentials/kimi-oauth.ts
 createMediaDegradeRecovery  packages/agent-core-v2/src/human/llm/media/degrade.ts
 createMediaRefResolver  packages/agent-core-v2/src/human/llm/media/resolver.ts
@@ -98,7 +97,6 @@ snipLargeToolResults  packages/agent-core-v2/src/agent/fullCompaction/compaction
 stagedExeFileName  apps/kimi-code/src/cli/update/native-stage.ts
 stripSubagentBackendParameter  packages/agent-core-v2/src/session/subagent/backend/configSection.ts
 stubPair  packages/agent-core-v2/src/_base/di/test.ts
-tryConvertPlanToTodos  packages/agent-core-v2/src/features/plan/planToTodoConverter.ts
 tryNativeEscapeXml  packages/agent-core-v2/src/_base/native-tools.ts
 tryNativeListDirectory  packages/agent-core-v2/src/_base/native-tools.ts
 tryNativeRead  packages/agent-core-v2/src/_base/native-tools.ts

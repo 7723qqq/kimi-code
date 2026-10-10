@@ -1,7 +1,9 @@
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import { agentContextOfScope, IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentPlanService } from '#/features/plan/plan';
 import type { PlanData } from '#/features/plan/plan';
+import { IAgentTodoService } from '#/features/todo/todoService';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import type { ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
@@ -12,6 +14,7 @@ import {
   type ExitPlanModeInput,
   type ExitPlanModePlanSource,
 } from './exit-plan-mode';
+import { tryConvertPlanToTodos, type PlanToTodoOutcome } from '../../planToTodoConverter';
 import DESCRIPTION from './exit-plan-mode.md?raw';
 
 type ResolvePlanResult =
@@ -28,6 +31,8 @@ export class ExitPlanModeTool implements IExitPlanModeTool {
     @IAgentPlanService private readonly planMode: IAgentPlanService,
     @IAgentPermissionModeService private readonly permissionMode: IAgentPermissionModeService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
+    @IAgentTodoService private readonly todo: IAgentTodoService,
+    @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
   ) {}
 
   async resolveExecution(args: ExitPlanModeInput): Promise<ToolExecution> {
@@ -83,13 +88,15 @@ export class ExitPlanModeTool implements IExitPlanModeTool {
     const failed = this.exitPlanMode();
     if (failed !== undefined) return failed;
 
+    const seeded = await this.seedTodosFromPlan(status);
+
     if (this.permissionMode.mode === 'auto') {
       this.telemetry.track2('plan_resolved', {
         outcome: 'auto_approved',
       });
       return {
         isError: false,
-        output: `Exited plan mode. ${formatAutoApprovedPlanForOutput(resolvedPlan.plan, resolvedPlan.path)}`,
+        output: `Exited plan mode. ${formatAutoApprovedPlanForOutput(resolvedPlan.plan, resolvedPlan.path)}${seeded}`,
       };
     }
 
@@ -98,8 +105,20 @@ export class ExitPlanModeTool implements IExitPlanModeTool {
     });
     return {
       isError: false,
-      output: `Exited plan mode. ${formatPlanForOutput(resolvedPlan.plan, resolvedPlan.path)}`,
+      output: `Exited plan mode. ${formatPlanForOutput(resolvedPlan.plan, resolvedPlan.path)}${seeded}`,
     };
+  }
+
+  private async seedTodosFromPlan(plan: PlanData): Promise<string> {
+    if (plan === null) return '';
+    let outcome: PlanToTodoOutcome;
+    try {
+      outcome = await tryConvertPlanToTodos(plan, this.todo, agentContextOfScope(this.scopeContext));
+    } catch {
+      return '';
+    }
+    if (outcome.kind !== 'converted') return '';
+    return `\n\nThe plan was seeded into the todo list as ${outcome.count} items. Track progress with TodoList; do not re-create the list from the plan text.`;
   }
 
   private exitPlanMode(): ExecutableToolResult | undefined {

@@ -8,7 +8,10 @@ scoped DI registry).
 
 1. Start a kap-server with the debug surface mounted (repo dev scripts do this
    for you): `bun run dev:v2` from the repo root passes `--debug-endpoints` on a
-   loopback bind; the surface inherits the global bearer auth.
+   loopback bind; the surface inherits the global bearer auth. It is an alias of
+   `bun run dev:server`, kept for the two-instance workflow — the second
+   instance binds port 58628 because kap-server retries on the next port when
+   58627 is taken.
 2. `cd apps/kimi-inspect && bun run dev` — the Vite dev server proxies
    `/api` to the server (`KIMI_SERVER_URL`, default `http://127.0.0.1:58627`)
    and auto-discovers running instances

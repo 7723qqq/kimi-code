@@ -8,11 +8,18 @@ import {
   ScrollView,
   type Terminal,
 } from '@moonshot-ai/pi-tui';
-import { CustomEditor } from '#/tui/components/editor/custom-editor';
 import { describe, expect, it, vi } from 'vitest';
 
 import { NotifyPanelComponent } from '#/tui/components/chrome/notify-panel';
+import { CustomEditor } from '#/tui/components/editor/custom-editor';
 import { NotifyController } from '#/tui/controllers/notify';
+
+import { renderLayoutFrame } from '../../../../../packages/pi-tui/src/layout';
+
+/** Drop SGR sequences so assertions can match the visible text. */
+function strip(text: string): string {
+  return text.replaceAll(/\u001B\[[0-9;]*m/g, '');
+}
 
 function makeHarness(enabled = true, fullscreen = false) {
   let input: ((data: string) => void) | undefined;
@@ -38,17 +45,18 @@ function makeHarness(enabled = true, fullscreen = false) {
   const ui = fullscreen ? new TuiAltScreen(terminal) : new TuiMainScreen(terminal);
   const editor = new CustomEditor(ui);
   editor.setText('unsent draft');
-  const transcript = new Text('earlier output\n'.repeat(80), 0, 0);
+  const transcriptContent = new Text('earlier output\n'.repeat(80), 0, 0);
+  const transcript = new ScrollView(transcriptContent, { primary: true });
   const notifyPanel = new NotifyPanelComponent();
   const notifyPanelContainer = new Container();
   const requestRender = vi.spyOn(ui, 'requestRender').mockImplementation(() => {});
   const root = new VStack();
-  root.addChild(new ScrollView(transcript, { primary: true }));
+  root.addChild(transcript, { basis: 0, grow: 1, shrink: 1, minSize: 1 });
   root.addChild(notifyPanelContainer);
   root.addChild(editor);
   if (ui instanceof TuiAltScreen) ui.setLayoutRoot(root);
   else {
-    ui.addChild(transcript);
+    ui.addChild(transcriptContent);
     ui.addChild(notifyPanelContainer);
     ui.addChild(editor);
   }
@@ -88,6 +96,7 @@ function makeHarness(enabled = true, fullscreen = false) {
     ui,
     editor,
     root,
+    transcript,
     input: (data: string) => input?.(data),
     emit,
     send,
@@ -166,6 +175,58 @@ describe('NotifyController', () => {
     h.emit('tool.result', { toolCallId: 'blocked', ...result });
     expect(h.texts()).toEqual([]);
     expect(h.notifyPanelContainer.children).toEqual([]);
+  });
+
+  it('scrolls the update with the mouse wheel without stealing keyboard focus', () => {
+    // End-to-end through the real alt-screen. Two things must hold at once:
+    // the wheel must not fall through to the primary scroll view, and it must
+    // not grab keyboard focus — browsing is not `Ctrl+N`, and taking focus
+    // would swallow the user's next keystroke into the panel.
+    const h = makeHarness(true, true);
+    h.send('u1', Array.from({ length: 30 }, (_, i) => `- line ${String(i + 1)}`).join('\n'));
+    h.ui.start();
+    h.ui.renderNow();
+    const transcriptBefore = h.transcript.scrollTop;
+    // Button 65 is wheel-down in SGR encoding. The panel's screen row is not a
+    // constant (the transcript flexes), so ask the layout where the box landed
+    // rather than guessing a row — a wrong row sends the wheel to the transcript
+    // and this test would fail for the wrong reason.
+    expect(h.ui).toBeInstanceOf(TuiAltScreen);
+    const rootComponent = (h.ui as TuiAltScreen).getLayoutRoot();
+    expect(rootComponent).toBeDefined();
+    const frame = renderLayoutFrame(rootComponent!, 100, 24, () => {});
+    const box = frame.root.children.find((child) => child.component === h.notifyPanelContainer);
+    expect(box).toBeDefined();
+    const panelRow = box!.rect.y + 2; // +1 past the blank spacer, +1 for 1-based SGR
+    h.input(`\u001B[<65;40;${String(panelRow)}M`);
+    h.ui.renderNow();
+
+    expect(h.transcript.scrollTop).toBe(transcriptBefore);
+    expect(h.notifyPanel.isFocused()).toBe(false);
+  });
+
+  it('folds finished subagents so a fan-out cannot collapse the tab strip', () => {
+    // End-to-end through the controller: five short-lived subagents are spawned,
+    // all post an update, then all finish. Before folding, the strip exceeded the
+    // width budget and `title()` dropped it, leaving `explore(5)` alone.
+    const h = makeHarness(true);
+    for (let i = 1; i <= 5; i++) {
+      h.emit('subagent.spawned', { subagentId: `agent-${String(i)}`, subagentName: 'explore' });
+      h.send(`u${String(i)}`, `update ${String(i)}`, `agent-${String(i)}`);
+    }
+    expect(h.notifyPanel.render(150)[1]).toContain('explore(5)');
+
+    for (let i = 1; i <= 5; i++) h.emit('subagent.completed', { subagentId: `agent-${String(i)}` });
+
+    const title = strip(h.notifyPanel.render(150)[1]!);
+    // All five are finished, but the view is still on the last one, so that
+    // channel keeps its own tab and the other four fold — the current position
+    // is never hidden behind the aggregate.
+    expect(title).toContain('explore(5)');
+    expect(title).toContain('+4 done');
+    // The strip survived: individual tabs for the folded ones are gone.
+    expect(title).not.toContain('explore(2)');
+    expect(title).not.toContain('explore(3)');
   });
 
   it.each([false, true])(
@@ -523,11 +584,14 @@ describe('NotifyController', () => {
         expect(h.rendered()).toContain('Updates 3/3');
         h.input('\u000E');
         expect(h.rendered()).toContain('esc close');
-        h.input('\u001B[A');
+        // `[`/`]` step between updates; arrows scroll the current one. Brackets
+        // rather than PgUp/PgDn because fullscreen binds those to the transcript.
+        expect(h.rendered()).toContain('Updates 3/3');
+        h.input('[');
         expect(h.rendered()).toContain('Updates 2/3');
-        h.input('\u001B[A');
+        h.input('[');
         expect(h.rendered()).toContain('Updates 1/3');
-        h.input('\u001B[B');
+        h.input(']');
         expect(h.rendered()).toContain('Updates 2/3');
         h.rendered();
         h.emit('turn.ended', { reason: 'completed' });
@@ -703,7 +767,11 @@ describe('NotifyController', () => {
     });
     h.emit('subagent.spawned', { subagentId: 'agent-9', subagentName: 'coder' });
 
-    h.emit('tool.result', { toolCallId: 'a1', isError: true, output: 'subagent tool failed' }, 'agent-9');
+    h.emit(
+      'tool.result',
+      { toolCallId: 'a1', isError: true, output: 'subagent tool failed' },
+      'agent-9',
+    );
     expect(h.texts()).toEqual(['▸ Delegated to explore: **keep me**']);
   });
 

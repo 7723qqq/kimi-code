@@ -27,11 +27,22 @@ Part of the [Kimi Code](https://github.com/MoonshotAI/kimi-code) monorepo.
 
 ## Relationship to other packages
 
-Nothing in `agent-core-v2` imports this package — the engine carries its own
-provider wire layer (`src/llm-adapter/`), its own contract (`src/contract.ts`)
-and its own error base. The consumers of this package are `@moonshot-ai/oauth`
-and `@moonshot-ai/kimi-code-sdk`, which use the contract types, the error
+This package is a **frozen legacy kernel**. Nothing in `agent-core-v2` may
+import it: the import path is rejected outright by
+`packages/agent-core-v2/scripts/check-import-boundaries.mjs`. The engine's
+provider and request code lives in
+`packages/agent-core-v2/src/human/llm/`, and the v2 compatibility boundary is
+`packages/agent-core-v2/src/llm-adapter/`.
+
+The consumers of this package are `@moonshot-ai/oauth` and
+`@moonshot-ai/kimi-code-sdk`, which use the contract types, the error
 taxonomy and the standalone `createProvider` surface directly.
+
+Because both kernels carry a copy of the same wire rules, neither package may
+import the other and the two copies are kept in sync only by test:
+`test/cache-field-parity.test.ts` feeds identical payloads to both
+implementations and fails if they disagree. When the rule changes on one side,
+change both and extend that test's case table.
 
 ## License
 

@@ -29,12 +29,7 @@ import { materializePromptDaemonRefs } from '#/agent/media/promptMediaIntake';
 import { ISessionMediaStore } from '#/agent/media/sessionMediaStore';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import {
-  PromptAborted,
-  PromptCompleted,
-  PromptQueued,
-  PromptStarted,
   PromptSteered,
-  PromptSubmitted,
 } from '#/agent/prompt/promptEvents';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
@@ -46,7 +41,6 @@ import { IConfigService } from '#/app/config/config';
 import { IFileService } from '#/app/file/fileService';
 import { IPluginService } from '#/app/plugin/plugin';
 import { LifecycleScope } from '#/app/scopes';
-import type { AgentTelemetryContext } from '#/app/telemetry/context';
 import type {
   TurnEndedEvent as TurnEndedTelemetryEvent,
   TurnInterruptedEvent,
@@ -57,7 +51,6 @@ import { BugIndicatingError, ErrorCodes, Error2, isError2, toKimiErrorPayload } 
 import { OrderedHookSlot } from '#/hooks';
 import { mergeInPlace } from '#/llm-adapter/contract/message';
 import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
-import type { ModelRequestTiming } from '#/llm-adapter/model/model-requester';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { defineState } from '#/state/state';
 import type { ExecutableToolResult } from '#/tool/toolContract';
@@ -69,12 +62,31 @@ import { emptyUsage, type TokenUsage } from '#human/llm/usage';
 
 import { LOOP_CONTROL_SECTION, type LoopControl } from './configSection';
 import {
+  cancelReasonFor,
+  EMPTY_HANDLE_MESSAGE,
+  interruptReasonFor,
+  machineUserMessage,
+  normalizeFinishReason,
+  projectionFromEntry,
+  type ActivePrompt,
+  type ActiveTurn,
+  type MachineGateDecision,
+  type MachineStepState,
+  type MutableTurn,
+  type Nudge,
+  type PromptProjection,
+  type PromptWaiter,
+  type SteeredPrompt,
+} from './loopInternals';
+
+import { PromptEventPublisher } from './promptEvents';
+
+import {
   createMaxStepsExceededError,
   IAgentLoopService,
   isMaxStepsExceededError,
   type AfterStepContext,
   type LoopCancelTarget,
-  type LoopError,
   type LoopErrorContext,
   type LoopErrorHandler,
   type LoopErrorHandlerRegistrationOptions,
@@ -122,7 +134,6 @@ import {
   TurnStepInterrupted,
   TurnStepRetrying,
   TurnStepStarted,
-  type TurnInterruptReason,
 } from './turnEvents';
 import { TurnCancel, TurnEnded, turnKey, TurnPrompt, TurnSteer } from './turnOps';
 
@@ -162,6 +173,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
   private activeRequestTrace: LLMRequestTrace | undefined;
   private engine: MachineEngine | undefined;
 
+  private readonly promptEvents: PromptEventPublisher;
   constructor(
     @IAgentContextMemoryService private readonly context: IAgentContextMemoryService,
     @IAgentLLMRequesterService private readonly llmRequester: IAgentLLMRequesterService,
@@ -178,6 +190,10 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     @IPluginService private readonly plugins: IPluginService,
   ) {
     super();
+    this.promptEvents = new PromptEventPublisher(this.dispatcher, {
+      agentId: this.scopeContext.agentId,
+      queueLength: () => (this.engine?.snapshot().queue.length ?? 0) + 1,
+    });
     this.states.contributeState(turnKey);
     this.states.contributeState(loopLastRequestTraceIdKey);
     this.states.contributeState(loopDisposingKey);
@@ -674,14 +690,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     promptId: string,
     reason: 'completed' | 'failed' | 'blocked',
   ): void {
-    void this.dispatcher.dispatch(
-      new PromptCompleted({
-        agentId: this.scopeContext.agentId,
-        promptId,
-        finishedAt: new Date().toISOString(),
-        reason,
-      }),
-    );
+    this.promptEvents.completed(promptId, reason);
   }
 
   private publishPromptQueued(input: {
@@ -689,16 +698,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     readonly origin: PromptOrigin;
     readonly message: ContextMessage;
   }): void {
-    if (input.origin.kind !== 'user') return;
-    void this.dispatcher.dispatch(
-      new PromptQueued({
-        agentId: this.scopeContext.agentId,
-        promptId: input.promptId,
-        content: stripBundledSkillBlocks(input.message),
-        clientMetadata: input.origin.clientMetadata,
-        queueLength: (this.engine?.snapshot().queue.length ?? 0) + 1,
-      }),
-    );
+    this.promptEvents.queued(input);
   }
 
   private publishPromptSubmitted(
@@ -711,38 +711,15 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     },
     status: 'running' | 'queued',
   ): void {
-    if (input.origin.kind !== 'user') return;
-    void this.dispatcher.dispatch(
-      new PromptSubmitted({
-        agentId: this.scopeContext.agentId,
-        promptId: input.promptId,
-        userMessageId: input.userMessageId,
-        status,
-        content: stripBundledSkillBlocks(input.message),
-        clientMetadata: input.origin.clientMetadata,
-        createdAt: input.createdAt,
-      }),
-    );
+    this.promptEvents.submitted(input, status);
   }
 
   private publishPromptStarted(promptId: string, origin: PromptOrigin): void {
-    if (origin.kind !== 'user') return;
-    void this.dispatcher.dispatch(
-      new PromptStarted({
-        agentId: this.scopeContext.agentId,
-        promptId,
-      }),
-    );
+    this.promptEvents.started(promptId, origin);
   }
 
   private publishPromptAborted(promptId: string): void {
-    void this.dispatcher.dispatch(
-      new PromptAborted({
-        agentId: this.scopeContext.agentId,
-        promptId,
-        abortedAt: new Date().toISOString(),
-      }),
-    );
+    this.promptEvents.aborted(promptId);
   }
 
   cancel(target?: LoopCancelTarget, reason?: unknown): boolean {
@@ -2208,161 +2185,6 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
       }),
     );
   }
-}
-
-type MachineGateDecision =
-  | { readonly type: 'proceed'; readonly signal: AbortSignal; readonly step: number }
-  | { readonly type: 'fail' };
-
-function normalizeFinishReason(reason: FinishReason): string {
-  if (reason === 'tool_calls') return 'tool_use';
-  if (reason === 'completed') return 'end_turn';
-  if (reason === 'truncated') return 'max_tokens';
-  return reason;
-}
-
-function machineUserMessage(message: ContextMessage | undefined): UserMessage {
-  if (message === undefined) return EMPTY_MACHINE_PROMPT;
-  return { role: 'user', content: [...message.content] };
-}
-
-type MutableTurn = {
-  -readonly [K in keyof Turn]: Turn[K];
-};
-
-interface PromptWaiter {
-  readonly id: string;
-  readonly dispatchPromptId?: string;
-  readonly launched: ReturnType<typeof createControlledPromise<Turn | undefined>>;
-  readonly completion: ReturnType<typeof createControlledPromise<PromptCompletion>>;
-  readonly onMaterialize?: () => void;
-  failedEntry?: UserEntry;
-}
-
-interface PromptProjection {
-  readonly tracked: boolean;
-  readonly origin: PromptOrigin;
-  readonly message: ContextMessage;
-  readonly userMessageId: string;
-  readonly createdAt: string;
-}
-
-interface ActivePrompt extends PromptProjection {
-  readonly id: string;
-  readonly promptId?: string;
-}
-
-interface SteeredPrompt extends PromptProjection {
-  readonly parentId: string;
-}
-
-const EMPTY_HANDLE_MESSAGE: ContextMessage = {
-  role: 'user',
-  content: [],
-  toolCalls: [],
-};
-
-function projectionFromEntry(entry: UserEntry): PromptProjection {
-  const origin = (entry.meta?.origin as PromptOrigin | undefined) ?? { kind: 'user' };
-  return {
-    tracked: entry.meta?.tracked === true,
-    origin,
-    message: {
-      role: 'user',
-      content: [...entry.message.content],
-      id: entry.meta?.promptId,
-      toolCalls: [],
-      origin: entry.meta?.origin as PromptOrigin | undefined,
-    },
-    userMessageId: entry.meta?.userMessageId ?? '',
-    createdAt: entry.meta?.createdAt ?? '',
-  };
-}
-
-interface Nudge {
-  readonly contextMessage?: ContextMessage;
-  readonly promptIds?: readonly string[];
-  readonly bypassMaxSteps: boolean;
-  readonly turnScoped: boolean;
-  readonly onConsume?: () => void;
-  readonly onDrop?: () => void;
-  dropped?: boolean;
-  consumed?: boolean;
-  sentToMachine?: boolean;
-}
-
-type MachineStepEntry = Extract<MachineEngineEvent, { readonly type: 'stepCompleted' }>['entry'];
-
-interface MachineStepState {
-  readonly number: number;
-  readonly uuid: string;
-  readonly signal: AbortSignal;
-  contentAppended: boolean;
-  entry: MachineStepEntry | undefined;
-  usage: TokenUsage | undefined;
-  timing: ModelRequestTiming | undefined;
-  providerFinishReason: FinishReason | undefined;
-  rawFinishReason: string | undefined;
-  messageId: string | undefined;
-  pendingToolIds: Set<string>;
-  toolCallUuids: Map<string, string>;
-  resolvedToolIds: Set<string>;
-  toolStopTurn: boolean;
-}
-
-interface MachineFailedStep {
-  readonly number: number;
-  readonly uuid: string;
-  readonly error: unknown;
-}
-
-interface ActiveTurn {
-  readonly id: number;
-  readonly prompt: ActivePrompt;
-  readonly controller: AbortController;
-  steerController: AbortController;
-  readonly turn: MutableTurn;
-  readonly ready: ReturnType<typeof createControlledPromise<void>>;
-  readonly result: ReturnType<typeof createControlledPromise<TurnResult>>;
-  readonly startedAt: number;
-  steps: number;
-  gatedSteps: number;
-  nudgeCursor: number;
-  current: MachineStepState | undefined;
-  interruptStep: number | undefined;
-  failedStep: MachineFailedStep | undefined;
-  stopRequested: boolean;
-  toolStopRequested: boolean;
-  forcedStopReason: string | undefined;
-  lastStopReason: FinishReason | undefined;
-  filtered: boolean;
-  maxStepsError: LoopError | undefined;
-  abortReason: unknown;
-  retryRequested: boolean;
-  afterChain: Promise<void>;
-  partials: ContentPart[];
-  forceContentPartBoundary: boolean;
-  readyResolved: boolean;
-  mode: AgentTelemetryContext['mode'] | undefined;
-  providerType: string | undefined;
-  protocol: string | undefined;
-}
-
-function cancelReasonFor(cancellation: unknown): 'user_cancelled' | 'aborted' {
-  return isUserCancellation(cancellation) ? 'user_cancelled' : 'aborted';
-}
-
-function interruptReasonFor(
-  result: Extract<TurnResult, { readonly type: 'cancelled' | 'failed' }>,
-): TurnInterruptReason {
-  if (result.type === 'cancelled') {
-    return isUserCancellation(result.reason) ? 'user_cancelled' : 'aborted';
-  }
-  if (isMaxStepsExceededError(result.error)) return 'max_steps';
-  if (isError2(result.error) && result.error.code === ErrorCodes.PROVIDER_FILTERED) {
-    return 'filtered';
-  }
-  return 'error';
 }
 
 registerScopedService(

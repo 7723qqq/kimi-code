@@ -4,12 +4,6 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-import {
-  deleteAllKittyImages,
-  resetCapabilitiesCache,
-  setCapabilities,
-  type TuiMouseEvent,
-} from '@moonshot-ai/pi-tui';
 import type {
   ApprovalRequest,
   ApprovalResponse,
@@ -17,6 +11,12 @@ import type {
   GoalSnapshot,
   Session,
 } from '@moonshot-ai/kimi-code-sdk';
+import {
+  deleteAllKittyImages,
+  resetCapabilitiesCache,
+  setCapabilities,
+  type TuiMouseEvent,
+} from '@moonshot-ai/pi-tui';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { kimiCodePluginMarketplaceUrl } from '#/constant/app';
@@ -30,9 +30,8 @@ import {
 import { WelcomeComponent } from '#/tui/components/chrome/welcome';
 import { ApprovalPanelComponent } from '#/tui/components/dialogs/approval-panel';
 import { EffortSelectorComponent } from '#/tui/components/dialogs/effort-selector';
-import { PermissionSelectorComponent } from '#/tui/components/dialogs/permission-selector';
 import { ModelSelectorComponent } from '#/tui/components/dialogs/model-selector';
-import type { SurveyController } from '#/tui/controllers/survey-controller';
+import { PermissionSelectorComponent } from '#/tui/components/dialogs/permission-selector';
 import {
   PluginInstallTrustConfirmComponent,
   PluginMcpSelectorComponent,
@@ -53,6 +52,7 @@ import { BtwPanelComponent } from '#/tui/components/panes/btw-panel';
 import { MOON_SPINNER_FRAMES } from '#/tui/constant/rendering';
 import type { SessionReplayRenderer } from '#/tui/controllers/session-replay';
 import type { StreamingUIController } from '#/tui/controllers/streaming-ui';
+import type { SurveyController } from '#/tui/controllers/survey-controller';
 import { KimiTUI, type KimiTUIStartupInput, type TUIState } from '#/tui/kimi-tui';
 import type { QueuedMessage, TranscriptEntry } from '#/tui/types';
 import type { ImageAttachmentStore } from '#/tui/utils/image-attachment-store';
@@ -364,7 +364,10 @@ async function makeDriver(
   harness: ReturnType<typeof makeHarness>;
 }> {
   const harness = makeHarness(session, harnessOverrides);
-  const driver = new KimiTUI(harness as never, startupInput ?? makeStartupInput()) as unknown as MessageDriver;
+  const driver = new KimiTUI(
+    harness as never,
+    startupInput ?? makeStartupInput(),
+  ) as unknown as MessageDriver;
   vi.spyOn(driver.state.ui, 'requestRender').mockImplementation(() => {});
   vi.spyOn(driver.state.terminal, 'setProgress').mockImplementation(() => {});
   driver.persistInputHistory = vi.fn(async () => {});
@@ -1073,18 +1076,39 @@ describe('KimiTUI message flow', () => {
     expect(turns[2]!.entries[1]!.content).toBe('please /commit');
   });
 
-  it('pages Updates with Ctrl+N and arrow keys while keeping the editor focused', async () => {
+  it('pages Updates with Ctrl+N and the bracket keys while keeping the editor focused', async () => {
     const { driver } = await makeDriver(makeSession());
     const notifications = driver.sessionEventHandler.notifications;
     notifications.setEnabled(true);
-    notifications.handleEvent({ type: 'turn.started', agentId: 'main', sessionId: 's1', turnId: 1, origin: { kind: 'user' } });
+    notifications.handleEvent({
+      type: 'turn.started',
+      agentId: 'main',
+      sessionId: 's1',
+      turnId: 1,
+      origin: { kind: 'user' },
+    });
     for (const [toolCallId, message] of [
       ['n1', 'first update'],
       ['n2', 'second update'],
       ['n3', 'third update'],
     ] as const) {
-      notifications.handleEvent({ type: 'tool.call.started', agentId: 'main', sessionId: 's1', turnId: 1, toolCallId, name: 'NotifyUser', args: { message } });
-      notifications.handleEvent({ type: 'tool.result', agentId: 'main', sessionId: 's1', turnId: 1, toolCallId, output: 'Update shown to the user.' });
+      notifications.handleEvent({
+        type: 'tool.call.started',
+        agentId: 'main',
+        sessionId: 's1',
+        turnId: 1,
+        toolCallId,
+        name: 'NotifyUser',
+        args: { message },
+      });
+      notifications.handleEvent({
+        type: 'tool.result',
+        agentId: 'main',
+        sessionId: 's1',
+        turnId: 1,
+        toolCallId,
+        output: 'Update shown to the user.',
+      });
     }
     driver.state.editor.setText('unsent follow-up');
     const cursor = driver.state.editor.getCursor();
@@ -1092,9 +1116,10 @@ describe('KimiTUI message flow', () => {
     expect(driver.state.notifyPanel.render(100)[1]).toContain('Updates 3/3');
     driver.state.editor.handleInput('\u000E');
     expect(driver.state.notifyPanel.render(100)[1]).toContain('esc close');
-    driver.state.editor.handleInput('\u001B[A');
+    // `[`/`]` step between updates; the arrows scroll the current one instead.
+    driver.state.editor.handleInput('[');
     expect(driver.state.notifyPanel.render(100)[1]).toContain('Updates 2/3');
-    driver.state.editor.handleInput('\u001B[B');
+    driver.state.editor.handleInput(']');
     expect(driver.state.notifyPanel.render(100)[1]).toContain('Updates 3/3');
     driver.state.editor.handleInput('\u001B');
     expect(driver.state.notifyPanel.render(100)[1]).toContain('ctrl+n page');
@@ -3855,7 +3880,11 @@ command = "vim"
       return {
         type,
         ...base,
-        update: { kind: 'status', text: 'Waiting 0s / 1m · 1 background task still running', replace: true },
+        update: {
+          kind: 'status',
+          text: 'Waiting 0s / 1m · 1 background task still running',
+          replace: true,
+        },
         ...extra,
       } as Event;
     }
@@ -3867,7 +3896,11 @@ command = "vim"
     driver.sessionEventHandler.handleEvent(waitForEvent('tool.progress', extra), () => {});
   }
 
-  function pendingSteer(): { session: ReturnType<typeof makeSession>; resolve: () => void; reject: (error: Error) => void } {
+  function pendingSteer(): {
+    session: ReturnType<typeof makeSession>;
+    resolve: () => void;
+    reject: (error: Error) => void;
+  } {
     let resolve!: () => void;
     let reject!: (error: Error) => void;
     const session = makeSession({
@@ -3945,9 +3978,15 @@ command = "vim"
     driver.state.appState.streamingPhase = 'waiting';
     driver.handleUserInput('queued note');
 
-    driver.sessionEventHandler.handleEvent(waitForEvent('tool.call.started', { args: { timeout: 600 } }), () => {});
+    driver.sessionEventHandler.handleEvent(
+      waitForEvent('tool.call.started', { args: { timeout: 600 } }),
+      () => {},
+    );
     driver.handleUserInput('typed while the call was rejected');
-    driver.sessionEventHandler.handleEvent(waitForEvent('tool.result', { output: 'invalid arguments', isError: true }), () => {});
+    driver.sessionEventHandler.handleEvent(
+      waitForEvent('tool.result', { output: 'invalid arguments', isError: true }),
+      () => {},
+    );
 
     expect(session.steer).not.toHaveBeenCalled();
     expect(driver.state.queuedMessages).toEqual([
@@ -4114,7 +4153,10 @@ command = "vim"
     await vi.waitFor(() => {
       expect(session.prompt).toHaveBeenCalledTimes(1);
     });
-    const parts = vi.mocked(session.prompt).mock.calls[0]?.[0] as Array<{ type: string; videoUrl?: { url: string } }>;
+    const parts = vi.mocked(session.prompt).mock.calls[0]?.[0] as Array<{
+      type: string;
+      videoUrl?: { url: string };
+    }>;
     expect(parts).toContainEqual({ type: 'video_url', videoUrl: { url: 'kimi-file://file-v1' } });
     await (driver as unknown as { staging: { drain(): Promise<void> } }).staging.drain();
     expect(harness.deleteFile).not.toHaveBeenCalledWith('file-v1');
@@ -4131,20 +4173,26 @@ command = "vim"
     };
 
     // 99 tokens (100 output tokens span 99 gaps) over an 800 ms window.
-    tui.noteStepCacheStats({ output: 100 }, {
-      llmFirstTokenOffsetMs: 4_000,
-      llmLastTokenOffsetMs: 4_800,
-    });
+    tui.noteStepCacheStats(
+      { output: 100 },
+      {
+        llmFirstTokenOffsetMs: 4_000,
+        llmLastTokenOffsetMs: 4_800,
+      },
+    );
     // The first step is both figures: nothing else has been averaged yet.
     expect(driver.state.appState.tokenSpeed).toBeCloseTo(123.75, 6);
     expect(driver.state.appState.tokenSpeedAverage).toBeCloseTo(123.75, 6);
 
     // A slower second step drops the average toward it while the step figure
     // reports that step alone — the two answer different questions.
-    tui.noteStepCacheStats({ output: 100 }, {
-      llmFirstTokenOffsetMs: 0,
-      llmLastTokenOffsetMs: 8_000,
-    });
+    tui.noteStepCacheStats(
+      { output: 100 },
+      {
+        llmFirstTokenOffsetMs: 0,
+        llmLastTokenOffsetMs: 8_000,
+      },
+    );
     expect(driver.state.appState.tokenSpeed).toBeCloseTo(12.375, 6);
     expect(driver.state.appState.tokenSpeedAverage).toBeGreaterThan(12.375);
     expect(driver.state.appState.tokenSpeedAverage).toBeLessThan(123.75);
@@ -4172,7 +4220,10 @@ command = "vim"
       ): void;
     };
 
-    tui.noteStepCacheStats({ output: 100 }, { llmFirstTokenOffsetMs: 0, llmLastTokenOffsetMs: 800 });
+    tui.noteStepCacheStats(
+      { output: 100 },
+      { llmFirstTokenOffsetMs: 0, llmLastTokenOffsetMs: 800 },
+    );
     expect(driver.state.appState.tokenSpeed).toBeCloseTo(123.75, 6);
 
     (driver as unknown as { resetSessionRuntime(): void }).resetSessionRuntime();
@@ -4182,7 +4233,10 @@ command = "vim"
     // The step after the reset reports its own rate, not one blended with the
     // previous session's history. The window is above MIN_STEP_WINDOW_MS so the
     // assertion is about the reset rather than about the gate.
-    tui.noteStepCacheStats({ output: 100 }, { llmFirstTokenOffsetMs: 0, llmLastTokenOffsetMs: 800 });
+    tui.noteStepCacheStats(
+      { output: 100 },
+      { llmFirstTokenOffsetMs: 0, llmLastTokenOffsetMs: 800 },
+    );
     expect(driver.state.appState.tokenSpeed).toBeCloseTo(123.75, 6);
     expect(driver.state.appState.tokenSpeedAverage).toBeCloseTo(123.75, 6);
   });
@@ -4197,7 +4251,10 @@ command = "vim"
       noteContextCut(): void;
     };
 
-    tui.noteStepCacheStats({ output: 100 }, { llmFirstTokenOffsetMs: 0, llmLastTokenOffsetMs: 800 });
+    tui.noteStepCacheStats(
+      { output: 100 },
+      { llmFirstTokenOffsetMs: 0, llmLastTokenOffsetMs: 800 },
+    );
     expect(driver.state.appState.tokenSpeed).toBeCloseTo(123.75, 6);
 
     tui.noteContextCut();
@@ -4214,7 +4271,10 @@ command = "vim"
       ): void;
     };
 
-    tui.noteStepCacheStats({ output: 100 }, { llmFirstTokenOffsetMs: 0, llmLastTokenOffsetMs: 800 });
+    tui.noteStepCacheStats(
+      { output: 100 },
+      { llmFirstTokenOffsetMs: 0, llmLastTokenOffsetMs: 800 },
+    );
     const settledStep = driver.state.appState.tokenSpeed;
     const settledAverage = driver.state.appState.tokenSpeedAverage;
     expect(settledStep).toBeCloseTo(123.75, 6);
@@ -4233,7 +4293,10 @@ command = "vim"
       ): void;
     };
 
-    tui.noteStepCacheStats({ output: 100 }, { llmFirstTokenOffsetMs: 0, llmLastTokenOffsetMs: 800 });
+    tui.noteStepCacheStats(
+      { output: 100 },
+      { llmFirstTokenOffsetMs: 0, llmLastTokenOffsetMs: 800 },
+    );
     const settled = driver.state.appState.tokenSpeed;
 
     // One token spans no interval, so the step has no rate of its own. Blanking
@@ -5002,9 +5065,10 @@ command = "vim"
   });
 
   it('collapses long ! output to its first 10 rows and expands it with ctrl+o', async () => {
-    const stdout = Array.from({ length: 30 }, (_, i) => `row-${String(i + 1).padStart(2, '0')}`).join(
-      '\n',
-    );
+    const stdout = Array.from(
+      { length: 30 },
+      (_, i) => `row-${String(i + 1).padStart(2, '0')}`,
+    ).join('\n');
     const runShellCommand = vi.fn(async () => ({ stdout, stderr: '', isError: false }));
     const session = makeSession({ runShellCommand });
     const { driver } = await makeDriver(session);
@@ -5033,9 +5097,10 @@ command = "vim"
   });
 
   it('a new ! card inherits an already-on ctrl+o expand state', async () => {
-    const stdout = Array.from({ length: 30 }, (_, i) => `row-${String(i + 1).padStart(2, '0')}`).join(
-      '\n',
-    );
+    const stdout = Array.from(
+      { length: 30 },
+      (_, i) => `row-${String(i + 1).padStart(2, '0')}`,
+    ).join('\n');
     let resolveCmd!: (value: { stdout: string; stderr: string; isError: boolean }) => void;
     const runShellCommand = vi.fn(
       () =>
@@ -8787,10 +8852,14 @@ command = "vim"
       const source = makeSession({ id: 'ses-source' });
       const forked = makeSession({ id: 'ses-fork' });
       const forkSession = vi.fn(async () => forked);
-      const { driver } = await makeDriver(source, { forkSession }, {
-        ...makeStartupInput(),
-        workDir: 'D:\\proj',
-      });
+      const { driver } = await makeDriver(
+        source,
+        { forkSession },
+        {
+          ...makeStartupInput(),
+          workDir: 'D:\\proj',
+        },
+      );
       await driver.setSession(source);
       await driver.syncRuntimeState(source);
 
@@ -9064,1059 +9133,5 @@ command = "vim"
     expect(transcript).toContain('UserPromptSubmit hook');
     expect(transcript).toContain('(empty)');
     expect(transcript).not.toContain('<hook_result');
-  });
-});
-
-describe('/model status displayName override', () => {
-  it('shows the overridden display name in the switch status', async () => {
-    const session = makeSession();
-    const setConfig = vi.fn(async () => ({ providers: {} }));
-    const { driver } = await makeDriver(session, {
-      getConfig: vi.fn(async () => ({
-        models: {
-          k2: {
-            provider: 'managed:kimi-code',
-            model: 'kimi-k2',
-            maxContextSize: 100,
-            displayName: 'Kimi K2',
-            capabilities: ['thinking'],
-          },
-          turbo: {
-            provider: 'managed:kimi-code',
-            model: 'kimi-turbo',
-            maxContextSize: 100,
-            displayName: 'Remote Turbo',
-            capabilities: ['thinking'],
-            overrides: { displayName: 'Custom Turbo' },
-          },
-        },
-        defaultModel: 'k2',
-        thinking: { enabled: false },
-      })),
-      setConfig,
-    });
-
-    driver.handleUserInput('/model turbo');
-
-    await vi.waitFor(() => {
-      expect(driver.state.editorContainer.children[0]).toBeInstanceOf(TabbedModelSelectorComponent);
-    });
-    (driver.state.editorContainer.children[0] as TabbedModelSelectorComponent).handleInput('\r');
-
-    await vi.waitFor(() => {
-      expect(setConfig).toHaveBeenCalledWith({
-        defaultModel: 'turbo',
-        thinking: { enabled: true },
-      });
-    });
-
-    expect(renderTranscript(driver)).toContain('Switched to Custom Turbo with thinking on.');
-    expect(renderTranscript(driver)).not.toContain('Remote Turbo');
-  });
-});
-
-describe('/effort support_efforts override', () => {
-  it('warns and applies efforts hidden by an Anthropic support_efforts override', async () => {
-    const session = makeSession();
-    const { driver } = await makeDriver(session, {
-      getConfig: vi.fn(async () => ({
-        providers: {
-          compatible: { type: 'kimi', apiKey: 'test-key' },
-        },
-        models: {
-          k2: {
-            provider: 'compatible',
-            model: 'compatible-model',
-            protocol: 'anthropic',
-            maxContextSize: 100,
-            displayName: 'Compatible Model',
-            capabilities: ['thinking'],
-            supportEfforts: ['low', 'high', 'max'],
-            overrides: { supportEfforts: ['low', 'high'] },
-          },
-        },
-        defaultModel: 'k2',
-        thinking: { enabled: true, effort: 'low' },
-      })),
-    });
-
-    driver.handleUserInput('/effort max');
-
-    await vi.waitFor(() => {
-      expect(session.setThinking).toHaveBeenCalledWith('max');
-    });
-    await vi.waitFor(() => {
-      expect(renderTranscript(driver)).toContain('Thinking set to max.');
-    });
-    const transcript = renderTranscript(driver).replaceAll(/\s+/g, ' ');
-    expect(transcript).toContain(
-      'Thinking effort "max" is not listed for k2 (known: low, high). Sending "max" unchanged; the configured provider will validate it.',
-    );
-    expect(transcript).toContain('Thinking set to max.');
-  });
-
-  it('offers the latest Opus efforts for an unknown Claude-marked Anthropic-compatible model', async () => {
-    const { driver } = await makeDriver(makeSession(), {
-      getConfig: vi.fn(async () => ({
-        providers: {
-          compatible: { type: 'anthropic', apiKey: 'test-key' },
-        },
-        models: {
-          k2: {
-            provider: 'compatible',
-            model: 'compatible-claude-model',
-            maxContextSize: 100,
-          },
-        },
-        defaultModel: 'k2',
-      })),
-    });
-
-    driver.handleUserInput('/effort');
-
-    await vi.waitFor(() => {
-      expect(driver.state.editorContainer.children[0]).toBeInstanceOf(EffortSelectorComponent);
-    });
-    const picker = driver.state.editorContainer.children[0] as EffortSelectorComponent;
-    expect(picker.render(80).join('\n')).toContain('Max');
-  });
-
-  it('offers no fallback efforts for a clearly non-Claude Anthropic-compatible model', async () => {
-    const { driver } = await makeDriver(makeSession(), {
-      getConfig: vi.fn(async () => ({
-        providers: {
-          compatible: { type: 'anthropic', apiKey: 'test-key' },
-        },
-        models: {
-          k2: {
-            provider: 'compatible',
-            model: 'compatible-model',
-            maxContextSize: 100,
-          },
-        },
-        defaultModel: 'k2',
-      })),
-    });
-
-    driver.handleUserInput('/effort');
-
-    await vi.waitFor(() => {
-      expect(driver.state.editorContainer.children[0]).toBeInstanceOf(EffortSelectorComponent);
-    });
-    const picker = driver.state.editorContainer.children[0] as EffortSelectorComponent;
-    expect(picker.render(80).join('\n')).not.toContain('Max');
-  });
-
-  it('offers no fallback efforts for an unknown model on a Kimi provider using the Anthropic protocol', async () => {
-    const { driver } = await makeDriver(makeSession(), {
-      getConfig: vi.fn(async () => ({
-        providers: {
-          compatible: { type: 'kimi', apiKey: 'test-key' },
-        },
-        models: {
-          k2: {
-            provider: 'compatible',
-            model: 'compatible-model',
-            protocol: 'anthropic',
-            maxContextSize: 100,
-          },
-        },
-        defaultModel: 'k2',
-      })),
-    });
-
-    driver.handleUserInput('/effort');
-
-    await vi.waitFor(() => {
-      expect(driver.state.editorContainer.children[0]).toBeInstanceOf(EffortSelectorComponent);
-    });
-    const picker = driver.state.editorContainer.children[0] as EffortSelectorComponent;
-    expect(picker.render(80).join('\n')).not.toContain('Max');
-  });
-
-  it('offers the latest Opus efforts for a flat providerless Claude-marked Anthropic model', async () => {
-    const { driver } = await makeDriver(makeSession(), {
-      getConfig: vi.fn(async () => ({
-        providers: {},
-        models: {
-          k2: {
-            model: 'compatible-claude-model',
-            baseUrl: 'https://anthropic.example.test',
-            protocol: 'anthropic',
-            maxContextSize: 100,
-          },
-        },
-        defaultModel: 'k2',
-      })),
-    });
-
-    driver.handleUserInput('/effort');
-
-    await vi.waitFor(() => {
-      expect(driver.state.editorContainer.children[0]).toBeInstanceOf(EffortSelectorComponent);
-    });
-    const picker = driver.state.editorContainer.children[0] as EffortSelectorComponent;
-    expect(picker.render(80).join('\n')).toContain('Max');
-  });
-
-  it('keeps rejecting efforts hidden by a Kimi support_efforts override', async () => {
-    const session = makeSession();
-    const { driver } = await makeDriver(session, {
-      getConfig: vi.fn(async () => ({
-        providers: {
-          kimi: { type: 'kimi', apiKey: 'test-key' },
-        },
-        models: {
-          k2: {
-            provider: 'kimi',
-            model: 'kimi-model',
-            maxContextSize: 100,
-            capabilities: ['thinking'],
-            supportEfforts: ['low', 'high'],
-          },
-        },
-        defaultModel: 'k2',
-        thinking: { enabled: true, effort: 'low' },
-      })),
-    });
-
-    driver.handleUserInput('/effort max');
-
-    await vi.waitFor(() => {
-      expect(renderTranscript(driver)).toContain(
-        'Unsupported thinking effort "max" for k2. Available: off, low, high',
-      );
-    });
-    expect(session.setThinking).not.toHaveBeenCalled();
-  });
-});
-
-describe('transcript step and assistant folding', () => {
-  function driveSteps(driver: MessageDriver, cycles: number): void {
-    for (let i = 0; i < cycles; i++) {
-      driver.sessionEventHandler.handleEvent(
-        {
-          type: 'assistant.delta',
-          agentId: 'main',
-          sessionId: 'ses-1',
-          turnId: 1,
-          delta: `msg-${i} `,
-        } as Event,
-        vi.fn(),
-      );
-      driver.sessionEventHandler.handleEvent(
-        {
-          type: 'tool.call.started',
-          agentId: 'main',
-          sessionId: 'ses-1',
-          turnId: 1,
-          toolCallId: `call_${i}`,
-          name: 'Bash',
-          args: { command: 'ls' },
-        } as Event,
-        vi.fn(),
-      );
-      driver.sessionEventHandler.handleEvent(
-        {
-          type: 'tool.result',
-          agentId: 'main',
-          sessionId: 'ses-1',
-          turnId: 1,
-          toolCallId: `call_${i}`,
-          output: 'ok',
-          isError: undefined,
-        } as Event,
-        vi.fn(),
-      );
-    }
-  }
-
-  it('folds the oldest assistant messages and steps beyond their per-turn caps', async () => {
-    const { driver, session } = await makeDriver();
-    driver.handleUserInput('fold me');
-    await vi.waitFor(() => {
-      expect(session.prompt).toHaveBeenCalled();
-    });
-
-    const cycles = Math.max(TRANSCRIPT_KEEP_RECENT_ASSISTANT, TRANSCRIPT_KEEP_RECENT_STEPS) + 7;
-    driveSteps(driver, cycles);
-
-    const children = driver.state.transcriptContainer.children;
-    const assistantCount = children.filter(
-      (child) => child instanceof AssistantMessageComponent,
-    ).length;
-    const toolCount = children.filter((child) => child instanceof ToolCallComponent).length;
-    expect(assistantCount).toBe(TRANSCRIPT_KEEP_RECENT_ASSISTANT);
-    expect(toolCount).toBe(TRANSCRIPT_KEEP_RECENT_STEPS);
-
-    const summaries = children.filter((child) => child instanceof StepSummaryComponent);
-    expect(summaries).toHaveLength(1);
-    const summaryText = stripSgr(summaries[0]!.render(120).join('\n'));
-    expect(summaryText).toContain(`call ${cycles - TRANSCRIPT_KEEP_RECENT_STEPS} tools`);
-    expect(summaryText).toContain(`${cycles - TRANSCRIPT_KEEP_RECENT_ASSISTANT} messages`);
-
-    const assistantEntries = driver.state.transcriptEntries.filter(
-      (entry) => entry.kind === 'assistant',
-    );
-    expect(assistantEntries).toHaveLength(cycles);
-  });
-
-  it('does not fold a turn within the caps', async () => {
-    const { driver } = await makeDriver();
-    driver.handleUserInput('small turn');
-    driveSteps(driver, 3);
-
-    const children = driver.state.transcriptContainer.children;
-    expect(children.filter((child) => child instanceof AssistantMessageComponent)).toHaveLength(3);
-    expect(children.filter((child) => child instanceof ToolCallComponent)).toHaveLength(3);
-    expect(children.filter((child) => child instanceof StepSummaryComponent)).toHaveLength(0);
-  });
-
-  it('folds a completed turn down to its conclusion tail on turn end', async () => {
-    const { driver, session } = await makeDriver();
-    driver.handleUserInput('round one');
-    await vi.waitFor(() => {
-      expect(session.prompt).toHaveBeenCalled();
-    });
-    const cycles = 10;
-    driveSteps(driver, cycles);
-
-    let children = driver.state.transcriptContainer.children;
-    expect(children.filter((child) => child instanceof AssistantMessageComponent)).toHaveLength(
-      cycles,
-    );
-
-    driver.sessionEventHandler.handleEvent(
-      {
-        type: 'turn.ended',
-        agentId: 'main',
-        sessionId: 'ses-1',
-        turnId: 1,
-        reason: 'completed',
-      } as Event,
-      vi.fn(),
-    );
-
-    children = driver.state.transcriptContainer.children;
-    const assistants = children.filter((child) => child instanceof AssistantMessageComponent);
-    expect(assistants).toHaveLength(TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED);
-
-    const summaries = children.filter((child) => child instanceof StepSummaryComponent);
-    expect(summaries).toHaveLength(1);
-    const summaryText = stripSgr(summaries[0]!.render(120).join('\n'));
-    expect(summaryText).toContain(
-      `${cycles - TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED} messages`,
-    );
-
-    expect(children.filter((child) => child instanceof ToolCallComponent)).toHaveLength(cycles);
-
-    const lastAssistant = assistants.at(-1)!;
-    expect(stripSgr(lastAssistant.render(120).join('\n'))).toContain(`msg-${cycles - 1}`);
-  });
-});
-
-describe('footer ctrl+o hint', () => {
-  function emitBashResult(driver: MessageDriver, toolCallId: string, output: string): void {
-    driver.sessionEventHandler.handleEvent(
-      {
-        type: 'tool.call.started',
-        agentId: 'main',
-        sessionId: 'ses-1',
-        turnId: 1,
-        toolCallId,
-        name: 'Bash',
-        args: { command: 'pnpm test' },
-      } as Event,
-      vi.fn(),
-    );
-    driver.sessionEventHandler.handleEvent(
-      {
-        type: 'tool.result',
-        agentId: 'main',
-        sessionId: 'ses-1',
-        turnId: 1,
-        toolCallId,
-        output,
-        isError: undefined,
-      } as Event,
-      vi.fn(),
-    );
-  }
-
-  function renderFooterLine1(driver: MessageDriver): string {
-    return stripSgr(driver.state.footer.render(160)[0] ?? '');
-  }
-
-  it('offers expand while a card hides output and collapse once it is shown', async () => {
-    const { driver } = await makeDriver();
-    expect(renderFooterLine1(driver)).not.toContain('ctrl+o');
-
-    emitBashResult(driver, 'call_bash', ['line1', 'line2', 'line3', 'line4', 'Tests 5 passed'].join('\n'));
-    expect(renderFooterLine1(driver)).toContain('ctrl+o expand');
-
-    driver.toggleToolOutputExpansion();
-    expect(renderFooterLine1(driver)).toContain('ctrl+o collapse');
-
-    driver.toggleToolOutputExpansion();
-    expect(renderFooterLine1(driver)).toContain('ctrl+o expand');
-  });
-
-  it('stays silent when every card shows its whole output', async () => {
-    const { driver } = await makeDriver();
-    emitBashResult(driver, 'call_bash', ['line1', 'line2', 'line3'].join('\n'));
-    expect(renderFooterLine1(driver)).not.toContain('ctrl+o');
-  });
-
-  it('keeps the collapse hint for an expanded card that slid out of the expansion window', async () => {
-    const { driver } = await makeDriver();
-    emitBashResult(driver, 'call_bash', ['line1', 'line2', 'line3', 'line4', 'Tests 5 passed'].join('\n'));
-    driver.toggleToolOutputExpansion();
-    expect(renderFooterLine1(driver)).toContain('ctrl+o collapse');
-
-    // Four later user turns move the expanded card before the three-turn
-    // cutoff; nothing collapses it, and ctrl+o would still visibly collapse it.
-    for (let i = 0; i < 4; i++) {
-      driver.appendTranscriptEntry({
-        id: `later-${String(i)}`,
-        kind: 'user',
-        renderMode: 'plain',
-        content: `next ${String(i)}`,
-      });
-    }
-    expect(renderFooterLine1(driver)).toContain('ctrl+o collapse');
-
-    driver.toggleToolOutputExpansion();
-    expect(renderFooterLine1(driver)).not.toContain('ctrl+o');
-  });
-});
-
-describe('KimiTUI session rating survey', () => {
-  it('runs the end-to-end rating flow after five user turns', async () => {
-    vi.useFakeTimers();
-    const homeDir = await makeTempHome();
-    process.env['KIMI_CODE_HOME'] = homeDir;
-    vi.spyOn(Math, 'random').mockReturnValue(0);
-    try {
-      const { driver, harness } = await makeDriver();
-      vi.useRealTimers();
-      await vi.waitFor(() => {
-        expect((driver.surveyController as unknown as { cooldownReady: boolean }).cooldownReady).toBe(true);
-      });
-      vi.useFakeTimers();
-      harness.track.mockClear();
-
-      for (let turn = 1; turn <= 4; turn++) emitTurn(driver, turn);
-      vi.advanceTimersByTime(600_000);
-      vi.advanceTimersByTime(2_000);
-      expect(driver.state.surveyContainer.children).toHaveLength(0);
-
-      emitTurn(driver, 5, () => {
-        driver.sessionEventHandler.handleEvent(
-          {
-            type: 'tool.call.started',
-            agentId: 'main',
-            sessionId: 'ses-1',
-            turnId: 5,
-            toolCallId: 'call_1',
-            name: 'Read',
-            args: { path: 'a.ts' },
-          } as Event,
-          () => {},
-        );
-        driver.sessionEventHandler.handleEvent(
-          {
-            type: 'agent.status.updated',
-            agentId: 'main',
-            sessionId: 'ses-1',
-            contextTokens: 4321,
-            usage: {
-              total: { inputOther: 100, output: 20, inputCacheRead: 30, inputCacheCreation: 10 },
-            },
-          } as Event,
-          () => {},
-        );
-      });
-      vi.advanceTimersByTime(2_000);
-      const docked = stripSgr(driver.state.surveyContainer.render(120).join('\n'));
-      expect(docked).toContain('How is Kimi doing this session? (optional)');
-      expect(docked).toContain('1: Bad  2: Fine  3: Good  0: Dismiss');
-      expect(harness.trackWithContext).toHaveBeenCalledTimes(1);
-      expect(harness.trackWithContext).toHaveBeenCalledWith(
-        'feedback_survey',
-        {
-          event_type: 'appeared',
-          appearance_id: expect.any(String),
-          appearance_index: 1,
-          response: undefined,
-          current_model: 'k2',
-          user_turn_count: 5,
-          cumulative_tokens: 160,
-          virtual_context_tokens: 4321,
-          tool_call_count: 1,
-          compaction_count: 0,
-          permission_mode: 'manual',
-          thinking_effort: 'off',
-          subagent_count: 0,
-          swarm_run_count: 0,
-          config_probability: 0.005,
-          config_on_for_models: '*',
-          config_min_time_before_feedback_ms: 600_000,
-          config_min_user_turns_before_feedback: 5,
-          config_min_time_between_feedback_ms: 3_600_000,
-          config_min_user_turns_between_feedback: 10,
-          config_min_time_between_global_feedback_ms: 100_000_000,
-          config_long_context_survey_threshold: 200_000,
-          config_long_context_probability: 0.2,
-          config_long_context_trigger_mode: 'virtual_context',
-        },
-        { sessionId: 'ses-1' },
-      );
-      const appearanceId = (
-        harness.trackWithContext.mock.calls[0]![1] as { appearance_id: string }
-      ).appearance_id;
-
-      driver.state.editor.handleInput('1');
-      vi.advanceTimersByTime(400);
-      expect(harness.trackWithContext).toHaveBeenCalledTimes(1);
-
-      vi.advanceTimersByTime(600);
-      driver.state.editor.setText('');
-      driver.state.editor.handleInput('1');
-      vi.advanceTimersByTime(400);
-      expect(driver.state.editor.getText()).toBe('');
-      expect(stripSgr(driver.state.surveyContainer.render(120).join('\n'))).toContain(
-        'Feedback: Bad · [escape: undo]',
-      );
-      expect(harness.trackWithContext).toHaveBeenCalledTimes(1);
-
-      driver.state.editor.handleInput('\u001B');
-      vi.advanceTimersByTime(3_000);
-      expect(harness.trackWithContext).toHaveBeenCalledTimes(1);
-      expect(stripSgr(driver.state.surveyContainer.render(120).join('\n'))).toContain(
-        'How is Kimi doing this session? (optional)',
-      );
-
-      driver.state.editor.setText('');
-      driver.state.editor.handleInput('3');
-      vi.advanceTimersByTime(400);
-      vi.advanceTimersByTime(3_000);
-      const responded = harness.trackWithContext.mock.calls
-        .filter(
-          (call) =>
-            call[0] === 'feedback_survey' &&
-            (call[1] as { event_type?: string }).event_type === 'responded',
-        )
-        .map((call) => call[1] as { response?: string; appearance_id: string });
-      expect(responded.map((call) => call.response)).toEqual(['good']);
-      expect(responded.map((call) => call.appearance_id)).toEqual([appearanceId]);
-
-      expect(stripSgr(driver.state.surveyContainer.render(120).join('\n'))).toContain(
-        'Thanks for your feedback!',
-      );
-      vi.advanceTimersByTime(5_000);
-      expect(driver.state.surveyContainer.children).toHaveLength(0);
-
-      vi.useRealTimers();
-      const stateFile = join(homeDir, 'feedback-survey-state.json');
-      await vi.waitFor(() => {
-        expect(existsSync(stateFile)).toBe(true);
-      });
-      const persisted = JSON.parse(await readFile(stateFile, 'utf-8')) as {
-        version: number;
-        last_shown_time: number;
-      };
-      expect(persisted.version).toBe(1);
-      expect(typeof persisted.last_shown_time).toBe('number');
-    } finally {
-      vi.useRealTimers();
-      vi.restoreAllMocks();
-    }
-  });
-
-  it('shows the long-context survey once the context window crosses the threshold', async () => {
-    vi.useFakeTimers();
-    const homeDir = await makeTempHome();
-    process.env['KIMI_CODE_HOME'] = homeDir;
-    vi.spyOn(Math, 'random').mockReturnValue(0);
-    try {
-      const { driver, harness } = await makeDriver();
-      vi.useRealTimers();
-      await vi.waitFor(() => {
-        expect((driver.surveyController as unknown as { cooldownReady: boolean }).cooldownReady).toBe(true);
-      });
-      vi.useFakeTimers();
-      harness.track.mockClear();
-
-      emitTurn(driver, 1, () => {
-        driver.sessionEventHandler.handleEvent(
-          {
-            type: 'agent.status.updated',
-            agentId: 'main',
-            sessionId: 'ses-1',
-            contextTokens: 205_000,
-            usage: {
-              total: {
-                inputOther: 1_000,
-                output: 500,
-                inputCacheRead: 0,
-                inputCacheCreation: 0,
-              },
-            },
-          } as Event,
-          () => {},
-        );
-      });
-      vi.advanceTimersByTime(2_000);
-
-      expect(stripSgr(driver.state.surveyContainer.render(120).join('\n'))).toContain(
-        'How is Kimi doing this session? (optional)',
-      );
-      expect(harness.trackWithContext).toHaveBeenCalledTimes(1);
-      expect(harness.trackWithContext).toHaveBeenCalledWith(
-        'long_context_survey',
-        expect.objectContaining({
-          event_type: 'appeared',
-          appearance_index: 1,
-          user_turn_count: 1,
-          cumulative_tokens: 1500,
-          virtual_context_tokens: 205_000,
-          config_long_context_survey_threshold: 200_000,
-          config_long_context_probability: 0.2,
-          config_long_context_trigger_mode: 'virtual_context',
-        }),
-        { sessionId: 'ses-1' },
-      );
-
-      vi.useRealTimers();
-      await new Promise<void>((resolve) => {
-        setImmediate(resolve);
-      });
-      expect(existsSync(join(homeDir, 'feedback-survey-state.json'))).toBe(false);
-    } finally {
-      vi.useRealTimers();
-      vi.restoreAllMocks();
-    }
-  });
-
-  it('ignores non-user turns for the survey warmup', async () => {
-    vi.useFakeTimers();
-    process.env['KIMI_CODE_HOME'] = await makeTempHome();
-    vi.spyOn(Math, 'random').mockReturnValue(0);
-    try {
-      const { driver } = await makeDriver();
-      vi.useRealTimers();
-      await vi.waitFor(() => {
-        expect((driver.surveyController as unknown as { cooldownReady: boolean }).cooldownReady).toBe(true);
-      });
-      vi.useFakeTimers();
-      const emit = (event: Event) => {
-        driver.sessionEventHandler.handleEvent(event, () => {});
-      };
-      const cronOrigin = {
-        kind: 'cron_job',
-        jobId: 'job-42',
-        cron: '*/5 * * * *',
-        recurring: true,
-        coalescedCount: 1,
-        stale: false,
-      };
-
-      vi.advanceTimersByTime(600_000);
-      for (let turn = 1; turn <= 5; turn++) {
-        emit({ type: 'turn.started', agentId: 'main', turnId: turn, origin: cronOrigin } as Event);
-        emit({ type: 'turn.ended', agentId: 'main', turnId: turn, reason: 'completed' } as Event);
-      }
-      vi.advanceTimersByTime(2_000);
-      expect(driver.state.surveyContainer.children).toHaveLength(0);
-
-      for (let turn = 6; turn <= 10; turn++) emitTurn(driver, turn);
-      vi.advanceTimersByTime(2_000);
-      expect(driver.state.surveyContainer.children).not.toHaveLength(0);
-
-      vi.useRealTimers();
-      await vi.waitFor(() => {
-        expect(existsSync(join(process.env['KIMI_CODE_HOME']!, 'feedback-survey-state.json'))).toBe(
-          true,
-        );
-      });
-    } finally {
-      vi.useRealTimers();
-      vi.restoreAllMocks();
-    }
-  });
-
-  it('counts user-slash skill and plugin command turns toward the survey warmup', async () => {
-    vi.useFakeTimers();
-    process.env['KIMI_CODE_HOME'] = await makeTempHome();
-    vi.spyOn(Math, 'random').mockReturnValue(0);
-    try {
-      const { driver } = await makeDriver();
-      vi.useRealTimers();
-      await vi.waitFor(() => {
-        expect((driver.surveyController as unknown as { cooldownReady: boolean }).cooldownReady).toBe(true);
-      });
-      vi.useFakeTimers();
-      const emit = (event: Event) => {
-        driver.sessionEventHandler.handleEvent(event, () => {});
-      };
-
-      vi.advanceTimersByTime(600_000);
-      for (let turn = 1; turn <= 5; turn++) {
-        emit({
-          type: 'turn.started',
-          agentId: 'main',
-          turnId: turn,
-          origin: {
-            kind: 'skill_activation',
-            activationId: `a${turn}`,
-            skillName: 'review',
-            trigger: 'model-tool',
-          },
-        } as Event);
-        emit({ type: 'turn.ended', agentId: 'main', turnId: turn, reason: 'completed' } as Event);
-      }
-      vi.advanceTimersByTime(2_000);
-      expect(driver.state.surveyContainer.children).toHaveLength(0);
-
-      for (let turn = 6; turn <= 8; turn++) {
-        emit({
-          type: 'turn.started',
-          agentId: 'main',
-          turnId: turn,
-          origin: {
-            kind: 'skill_activation',
-            activationId: `a${turn}`,
-            skillName: 'review',
-            trigger: 'user-slash',
-          },
-        } as Event);
-        emit({ type: 'turn.ended', agentId: 'main', turnId: turn, reason: 'completed' } as Event);
-      }
-      for (let turn = 9; turn <= 10; turn++) {
-        emit({
-          type: 'turn.started',
-          agentId: 'main',
-          turnId: turn,
-          origin: {
-            kind: 'plugin_command',
-            activationId: `p${turn}`,
-            pluginId: 'fmt',
-            commandName: 'fmt',
-            trigger: 'user-slash',
-          },
-        } as Event);
-        emit({ type: 'turn.ended', agentId: 'main', turnId: turn, reason: 'completed' } as Event);
-      }
-      vi.advanceTimersByTime(2_000);
-      expect(driver.state.surveyContainer.children).not.toHaveLength(0);
-
-      vi.useRealTimers();
-      await vi.waitFor(() => {
-        expect(existsSync(join(process.env['KIMI_CODE_HOME']!, 'feedback-survey-state.json'))).toBe(
-          true,
-        );
-      });
-    } finally {
-      vi.useRealTimers();
-      vi.restoreAllMocks();
-    }
-  });
-});
-
-describe('transcript fold block clicks', () => {
-  const transcriptWidth = 120;
-
-  function hiddenOutput(name: string): string {
-    return [`${name}-body`, `${name}-mid`, `${name}-more`, `${name}-tail`].join('\n');
-  }
-
-  function emitBash(
-    driver: MessageDriver,
-    toolCallId: string,
-    command: string,
-    output: string,
-  ): void {
-    driver.sessionEventHandler.handleEvent(
-      {
-        type: 'tool.call.started',
-        agentId: 'main',
-        sessionId: 'ses-1',
-        turnId: 1,
-        toolCallId,
-        name: 'Bash',
-        args: { command },
-      } as Event,
-      vi.fn(),
-    );
-    driver.sessionEventHandler.handleEvent(
-      {
-        type: 'tool.result',
-        agentId: 'main',
-        sessionId: 'ses-1',
-        turnId: 1,
-        toolCallId,
-        output,
-        isError: undefined,
-      } as Event,
-      vi.fn(),
-    );
-  }
-
-  function renderFooterLine1(driver: MessageDriver): string {
-    return stripSgr(driver.state.footer.render(160)[0] ?? '');
-  }
-
-  function clickTranscriptLine(driver: MessageDriver, needle: string): void {
-    const lines = driver.state.transcriptContainer.render(transcriptWidth);
-    const y = lines.findIndex((line) => stripSgr(line).includes(needle));
-    expect(y).toBeGreaterThanOrEqual(0);
-    const event: TuiMouseEvent = {
-      type: 'click',
-      button: 'left',
-      x: 2,
-      y,
-      screenX: 2,
-      screenY: y,
-      width: transcriptWidth,
-      height: lines.length,
-      shift: false,
-      alt: false,
-      ctrl: false,
-      clickCount: 1,
-    };
-    driver.state.transcriptContainer.handleMouse(event);
-  }
-
-  it('opens only the clicked tool card while the footer still offers expand', async () => {
-    const { driver } = await makeDriver();
-    emitBash(driver, 'call_alpha', 'echo alpha', hiddenOutput('alpha'));
-    emitBash(driver, 'call_beta', 'echo beta', hiddenOutput('beta'));
-
-    const collapsed = stripSgr(renderTranscript(driver));
-    expect(collapsed).toContain('alpha-tail');
-    expect(collapsed).not.toContain('alpha-body');
-    expect(collapsed).not.toContain('beta-body');
-    expect(renderFooterLine1(driver)).toContain('ctrl+o expand');
-
-    clickTranscriptLine(driver, 'alpha-tail');
-
-    const opened = stripSgr(renderTranscript(driver));
-    expect(opened).toContain('alpha-body');
-    expect(opened).not.toContain('beta-body');
-    expect(driver.state.toolOutputExpanded).toBe(false);
-    expect(renderFooterLine1(driver)).toContain('ctrl+o expand');
-
-    clickTranscriptLine(driver, 'alpha-body');
-
-    const closed = stripSgr(renderTranscript(driver));
-    expect(closed).not.toContain('alpha-body');
-    expect(closed).not.toContain('beta-body');
-    expect(driver.state.toolOutputExpanded).toBe(false);
-    expect(renderFooterLine1(driver)).toContain('ctrl+o expand');
-  });
-
-  it('lets ctrl+o overwrite a clicked card and keeps a neighbor open', async () => {
-    const { driver } = await makeDriver();
-    emitBash(driver, 'call_alpha', 'echo alpha', hiddenOutput('alpha'));
-    emitBash(driver, 'call_beta', 'echo beta', hiddenOutput('beta'));
-
-    clickTranscriptLine(driver, 'alpha-tail');
-    driver.toggleToolOutputExpansion();
-
-    const expanded = stripSgr(renderTranscript(driver));
-    expect(expanded).toContain('alpha-body');
-    expect(expanded).toContain('beta-body');
-    expect(driver.state.toolOutputExpanded).toBe(true);
-    expect(renderFooterLine1(driver)).toContain('ctrl+o collapse');
-
-    clickTranscriptLine(driver, 'alpha-body');
-
-    const oneClosed = stripSgr(renderTranscript(driver));
-    expect(oneClosed).not.toContain('alpha-body');
-    expect(oneClosed).toContain('beta-body');
-    expect(driver.state.toolOutputExpanded).toBe(true);
-    expect(renderFooterLine1(driver)).toContain('ctrl+o collapse');
-
-    driver.toggleToolOutputExpansion();
-
-    const collapsed = stripSgr(renderTranscript(driver));
-    expect(collapsed).not.toContain('alpha-body');
-    expect(collapsed).not.toContain('beta-body');
-    expect(driver.state.toolOutputExpanded).toBe(false);
-    expect(renderFooterLine1(driver)).toContain('ctrl+o expand');
-  });
-
-  it('closes an aged-out open card and does not open it again', async () => {
-    const { driver } = await makeDriver();
-    emitBash(driver, 'call_old', 'echo old', hiddenOutput('old'));
-    driver.toggleToolOutputExpansion();
-    expect(stripSgr(renderTranscript(driver))).toContain('old-body');
-
-    for (let i = 0; i < 4; i++) {
-      driver.appendTranscriptEntry({
-        id: `later-${String(i)}`,
-        kind: 'user',
-        renderMode: 'plain',
-        content: `later turn ${String(i)}`,
-      });
-    }
-    emitBash(driver, 'call_recent', 'echo recent', hiddenOutput('recent'));
-
-    expect(stripSgr(renderTranscript(driver))).toContain('old-body');
-    expect(stripSgr(renderTranscript(driver))).toContain('recent-body');
-
-    clickTranscriptLine(driver, 'old-body');
-
-    const oldClosed = stripSgr(renderTranscript(driver));
-    expect(oldClosed).not.toContain('old-body');
-    expect(oldClosed).toContain('recent-body');
-    expect(driver.state.toolOutputExpanded).toBe(true);
-
-    clickTranscriptLine(driver, 'old-tail');
-    expect(stripSgr(renderTranscript(driver))).not.toContain('old-body');
-    expect(stripSgr(renderTranscript(driver))).toContain('recent-body');
-
-    driver.toggleToolOutputExpansion();
-    expect(stripSgr(renderTranscript(driver))).not.toContain('old-body');
-    expect(stripSgr(renderTranscript(driver))).not.toContain('recent-body');
-    expect(driver.state.toolOutputExpanded).toBe(false);
-
-    driver.toggleToolOutputExpansion();
-    const reopened = stripSgr(renderTranscript(driver));
-    expect(reopened).not.toContain('old-body');
-    expect(reopened).toContain('recent-body');
-    expect(renderFooterLine1(driver)).toContain('ctrl+o collapse');
-  });
-
-  it('does not change a fold block when the click lands on message text', async () => {
-    const { driver } = await makeDriver();
-    emitBash(driver, 'call_alpha', 'echo alpha', hiddenOutput('alpha'));
-    driver.appendTranscriptEntry({
-      id: 'user-plain',
-      kind: 'user',
-      renderMode: 'plain',
-      content: 'plain user sentence',
-    });
-
-    clickTranscriptLine(driver, 'plain user sentence');
-
-    const transcript = stripSgr(renderTranscript(driver));
-    expect(transcript).toContain('plain user sentence');
-    expect(transcript).not.toContain('alpha-body');
-    expect(transcript).toContain('alpha-tail');
-    expect(driver.state.toolOutputExpanded).toBe(false);
-    expect(renderFooterLine1(driver)).toContain('ctrl+o expand');
-  });
-
-  it('toggles a long finalized thinking block without advertising it in the footer', async () => {
-    const { driver } = await makeDriver();
-    const longThinking = ['think-one', 'think-two', 'think-three', 'think-four'].join('\n');
-    driver.streamingUI.onThinkingUpdate(longThinking);
-    const streaming = stripSgr(renderTranscript(driver));
-    expect(streaming).toContain('think-four');
-    expect(streaming).not.toContain('think-one');
-
-    clickTranscriptLine(driver, 'think-four');
-    expect(stripSgr(renderTranscript(driver))).not.toContain('think-one');
-
-    driver.streamingUI.onThinkingEnd();
-
-    const collapsed = stripSgr(renderTranscript(driver));
-    expect(collapsed).toContain('think-one');
-    expect(collapsed).not.toContain('think-four');
-    expect(renderFooterLine1(driver)).not.toContain('ctrl+o');
-
-    clickTranscriptLine(driver, 'think-one');
-
-    const opened = stripSgr(renderTranscript(driver));
-    expect(opened).toContain('think-four');
-    expect(renderFooterLine1(driver)).not.toContain('ctrl+o');
-
-    clickTranscriptLine(driver, 'think-four');
-    expect(stripSgr(renderTranscript(driver))).not.toContain('think-four');
-
-    driver.toggleToolOutputExpansion();
-    expect(stripSgr(renderTranscript(driver))).toContain('think-four');
-    expect(renderFooterLine1(driver)).not.toContain('ctrl+o');
-    expect(driver.state.toolOutputExpanded).toBe(true);
-
-    driver.toggleToolOutputExpansion();
-    expect(stripSgr(renderTranscript(driver))).not.toContain('think-four');
-    expect(driver.state.toolOutputExpanded).toBe(false);
-    expect(renderFooterLine1(driver)).not.toContain('ctrl+o');
-  });
-
-  it('keeps the expand hint when clicked cards are all open', async () => {
-    const { driver } = await makeDriver();
-    emitBash(driver, 'call_alpha', 'echo alpha', hiddenOutput('alpha'));
-    emitBash(driver, 'call_beta', 'echo beta', hiddenOutput('beta'));
-
-    clickTranscriptLine(driver, 'alpha-tail');
-    clickTranscriptLine(driver, 'beta-tail');
-
-    const opened = stripSgr(renderTranscript(driver));
-    expect(opened).toContain('alpha-body');
-    expect(opened).toContain('beta-body');
-    expect(driver.state.toolOutputExpanded).toBe(false);
-    expect(renderFooterLine1(driver)).toContain('ctrl+o expand');
-  });
-
-  it('drops the collapse hint after every open card is clicked shut', async () => {
-    const { driver } = await makeDriver();
-    emitBash(driver, 'call_alpha', 'echo alpha', hiddenOutput('alpha'));
-    emitBash(driver, 'call_beta', 'echo beta', hiddenOutput('beta'));
-    driver.toggleToolOutputExpansion();
-    expect(renderFooterLine1(driver)).toContain('ctrl+o collapse');
-
-    clickTranscriptLine(driver, 'alpha-body');
-    clickTranscriptLine(driver, 'beta-body');
-
-    const closed = stripSgr(renderTranscript(driver));
-    expect(closed).not.toContain('alpha-body');
-    expect(closed).not.toContain('beta-body');
-    expect(driver.state.toolOutputExpanded).toBe(true);
-    expect(renderFooterLine1(driver)).not.toContain('ctrl+o');
-  });
-
-  it('closes a wrapped ! card that was opened from its preview', async () => {
-    const marker = 'shell-tail-marker';
-    const stdout = `${'x'.repeat(4000)}${marker}`;
-    const runShellCommand = vi.fn(async () => ({ stdout, stderr: '', isError: false }));
-    const session = makeSession({ runShellCommand });
-    const { driver } = await makeDriver(session);
-    driver.state.appState.inputMode = 'bash';
-    driver.state.editor.inputMode = 'bash';
-
-    driver.handleUserInput('echo-shell');
-    await vi.waitFor(() => {
-      const transcript = stripSgr(renderTranscript(driver));
-      expect(transcript).toContain('ctrl+o to expand');
-      expect(transcript).not.toContain(marker);
-    });
-
-    clickTranscriptLine(driver, 'more lines');
-    expect(stripSgr(renderTranscript(driver))).toContain(marker);
-
-    clickTranscriptLine(driver, marker);
-    const closed = stripSgr(renderTranscript(driver));
-    expect(closed).not.toContain(marker);
-    expect(closed).toContain('ctrl+o to expand');
-    expect(driver.state.toolOutputExpanded).toBe(false);
-  });
-
-  it('closes a wide tool card that mounted while the transcript was expanded', async () => {
-    const { driver } = await makeDriver();
-    driver.toggleToolOutputExpansion();
-    const output = `wide-head ${'w'.repeat(500)} wide-tail`;
-    emitBash(driver, 'call_wide', 'echo wide', output);
-
-    expect(stripSgr(renderTranscript(driver))).toContain('wide-tail');
-
-    clickTranscriptLine(driver, 'echo wide');
-
-    const closed = stripSgr(renderTranscript(driver));
-    expect(closed).not.toContain('wide-tail');
-    expect(closed).toContain('wide-head');
-    expect(driver.state.toolOutputExpanded).toBe(true);
   });
 });

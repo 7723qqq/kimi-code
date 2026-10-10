@@ -46,3 +46,4 @@ packages/klient/package.json:smoke:select-tools
 packages/klient/package.json:stress:kosong-config
 packages/minidb/package.json:bench:cluster
 packages/minidb/package.json:bench:open
+packages/agent-core-v2/package.json:gen:contract-types

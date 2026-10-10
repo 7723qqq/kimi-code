@@ -71,9 +71,13 @@ export interface EditorKeyboardHost {
   updateQueueDisplay(): void;
   toggleToolOutputExpansion(): void;
   toggleTodoPanelExpansion(): void;
+  /** Scroll the expanded todo list by one row; false when there is nothing to scroll. */
+  scrollTodoPanel(direction: 'up' | 'down'): boolean;
   /** Returns true when the Updates panel grabbed or released focus. */
   toggleNotifyPanelFocus(): boolean;
-  handleNotifyPanelKey(key: 'left' | 'right' | 'up' | 'down' | 'escape'): boolean;
+  handleNotifyPanelKey(
+    key: 'left' | 'right' | 'up' | 'down' | 'pageUp' | 'pageDown' | 'escape',
+  ): boolean;
   detachCurrentForegroundTask(): void;
   cancelRunningShellCommand(): void;
   hideSessionPicker(): void;
@@ -341,6 +345,8 @@ export class EditorKeyboardController {
       host.toggleTodoPanelExpansion();
       return true;
     };
+
+    editor.onScrollTodo = (direction) => host.scrollTodoPanel(direction);
 
     editor.onPageNotify = (): boolean => {
       if (!host.toggleNotifyPanelFocus()) return false;

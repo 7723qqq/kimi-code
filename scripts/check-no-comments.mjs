@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+
 import ts from 'typescript';
 
 const ROOT = path.resolve(import.meta.dirname, '..');
@@ -107,24 +108,107 @@ for (const pkg of PACKAGES) {
   }
 }
 
-let total = 0;
+// `--print-counts` reports every file's raw violation count in ledger format,
+// ignoring the baseline. It is how the ledger below is regenerated.
+const PRINT_COUNTS = process.argv.includes('--print-counts');
+
+const BASELINE_PATH = path.join(ROOT, 'scripts', 'no-comments-baseline.txt');
+
+function loadBaseline() {
+  if (!fs.existsSync(BASELINE_PATH)) return new Map();
+  const entries = new Map();
+  for (const raw of fs.readFileSync(BASELINE_PATH, 'utf8').split('\n')) {
+    const line = raw.trimEnd();
+    if (line.length === 0 || line.startsWith('#')) continue;
+    const match = /^(\S+)\s+(\d+)$/.exec(line);
+    if (match === null) continue;
+    entries.set(match[1], Number(match[2]));
+  }
+  return entries;
+}
+
+function describe(rel, v) {
+  if (v.isDirective) {
+    return `${rel}:${v.line}: tooling directives are not allowed — fix the underlying lint/type problem instead: ${v.snippet}`;
+  }
+  if (v.jsdoc) {
+    return `${rel}:${v.line}: JSDoc is not allowed in this package: ${v.snippet}`;
+  }
+  return `${rel}:${v.line}: comments are not allowed in this package: ${v.snippet}`;
+}
+
+const baseline = loadBaseline();
+const matchedBaseline = new Set();
+let rejected = 0;
+let accepted = 0;
+
+if (PRINT_COUNTS) {
+  const counted = [];
+  for (const f of files) {
+    const count = checkFile(f).length;
+    if (count > 0) counted.push([path.relative(ROOT, f), count]);
+  }
+  counted.sort((a, b) => (a[0] < b[0] ? -1 : 1));
+  for (const [rel, count] of counted) console.log(`${rel}  ${count}`);
+  process.exit(0);
+}
+
 for (const f of files) {
   const violations = checkFile(f);
-  for (const v of violations) {
-    total++;
-    const rel = path.relative(ROOT, f);
-    if (v.isDirective) {
-      console.error(`${rel}:${v.line}: tooling directives are not allowed — fix the underlying lint/type problem instead: ${v.snippet}`);
-    } else if (v.jsdoc) {
-      console.error(`${rel}:${v.line}: JSDoc is not allowed in this package: ${v.snippet}`);
-    } else {
-      console.error(`${rel}:${v.line}: comments are not allowed in this package: ${v.snippet}`);
-    }
+  if (violations.length === 0) continue;
+
+  const rel = path.relative(ROOT, f);
+  const tolerated = baseline.get(rel) ?? 0;
+  if (tolerated > 0) matchedBaseline.add(rel);
+
+  if (violations.length <= tolerated) {
+    accepted += violations.length;
+    continue;
+  }
+
+  accepted += tolerated;
+  for (const v of violations.slice(tolerated)) {
+    rejected++;
+    console.error(describe(rel, v));
   }
 }
 
-if (total > 0) {
-  console.error(`check-no-comments: ${total} violation(s) in ${PACKAGES.join(', ')}`);
+// A ledger that cannot rot: an entry whose file now carries fewer (or no)
+// violations is reported so the number can be lowered or the entry removed.
+const stale = [];
+for (const [rel, tolerated] of baseline) {
+  if (!matchedBaseline.has(rel)) stale.push(`${rel}  ${tolerated}`);
+}
+
+if (rejected > 0) {
+  console.error(`check-no-comments: ${rejected} violation(s) in ${PACKAGES.join(', ')}`);
+  if (accepted > 0) {
+    console.error(
+      `check-no-comments: ${accepted} more accepted by scripts/no-comments-baseline.txt`,
+    );
+  }
+  if (stale.length > 0) {
+    console.error('check-no-comments: baseline entries no longer matching anything, remove them:');
+    for (const s of stale) console.error(`  ${s}`);
+  }
   process.exit(1);
 }
-console.log(`check-no-comments: OK (${files.length} files)`);
+
+for (const [rel, tolerated] of baseline) {
+  if (!matchedBaseline.has(rel)) continue;
+  const current = checkFile(path.join(ROOT, rel)).length;
+  if (current < tolerated) {
+    console.error(
+      `info: ${rel} now has ${current} violation(s), baseline allows ${tolerated} — lower it`,
+    );
+  }
+}
+
+if (stale.length > 0) {
+  console.error('check-no-comments: baseline entries no longer matching anything, remove them:');
+  for (const s of stale) console.error(`  ${s}`);
+}
+
+console.log(
+  `check-no-comments: OK (${files.length} files, ${accepted} accepted by scripts/no-comments-baseline.txt)`,
+);

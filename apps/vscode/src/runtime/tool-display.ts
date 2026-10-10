@@ -145,8 +145,12 @@ export function inferToolDisplay(
   if (toolName === "settodolist" || toolName === "todolist" || toolName === "todos") {
     const rawTodos = Array.isArray(args["todos"]) ? args["todos"] : [];
     const items = rawTodos.map((item: any) => ({
+      id: typeof item?.id === "string" ? item.id : undefined,
+      parentId: typeof item?.parentId === "string" ? item.parentId : null,
+      kind: item?.kind === "milestone" ? ("milestone" as const) : ("task" as const),
       title: typeof item?.title === "string" ? item.title : "",
       status: typeof item?.status === "string" ? item.status : "pending",
+      progress: typeof item?.progress === "number" ? item.progress : undefined,
     }));
     return { kind: "todo_list", items };
   }

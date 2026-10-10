@@ -14,8 +14,8 @@
  * kebab-case (no `-` in the name). Anything outside those roots is ignored
  * (test fixtures, etc.).
  *
- * Nothing invokes this script: it has no entry in package.json, in
- * .github/workflows/, or in the git hooks, so it only runs by hand.
+ * Invoked as `bun run check:service-naming` (root package.json) and from the
+ * lint job in `.github/workflows/ci.yml`.
  *
  * Exit code 0 if clean, 1 with an actionable report otherwise.
  */

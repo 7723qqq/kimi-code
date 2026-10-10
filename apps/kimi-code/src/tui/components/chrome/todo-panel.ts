@@ -46,6 +46,15 @@ export interface TodoNode {
 
 const MAX_VISIBLE = 5;
 const MAX_ACTIVE_CHILD_ROWS = 4;
+/**
+ * Rows the expanded list may occupy before it scrolls. Expanded means "let me
+ * see the whole plan", not "take the screen": with 60 todos the panel used to
+ * render 63 lines on a 24-row terminal and pushed the editor away, the same
+ * failure the Updates box had.
+ */
+const EXPANDED_MAX_ROWS = 16;
+/** Rows spent before any todo: the separator, the header, and the hint line. */
+const PANEL_OVERHEAD_ROWS = 3;
 const BRAILLE_BAR_WIDTH = 5;
 const STATUS_BAR_WIDTH = 10;
 
@@ -218,12 +227,102 @@ export function selectVisibleTodos(todos: readonly TodoItem[]): VisibleTodos {
   };
 }
 
+export interface TodoPanelOptions {
+  /** Terminal rows, so the expanded list can be held to a share of the screen. */
+  readonly terminalRows?: () => number;
+}
+
 export class TodoPanelComponent implements Component {
   private todos: readonly TodoItem[] = [];
   private expanded = false;
+  private readonly terminalRows: () => number;
+  /** First visible row of the expanded list; `0` means the top. */
+  private scrollTop = 0;
+
+  constructor(options: TodoPanelOptions = {}) {
+    this.terminalRows = options.terminalRows ?? (() => 0);
+  }
+
+  /**
+   * Body rows the expanded list may draw.
+   *
+   * Derived from the terminal height, not from what the layout actually
+   * allocated: a panel cannot see its own allocation. On a very short terminal
+   * the allocator may therefore hand this row fewer lines than the budget asks
+   * for, and the frame clips the difference. The guarantee that holds either way
+   * is that the panel never *asks* for more than its share of the screen, and
+   * that a task stays visible at every height.
+   *
+   * A collapsed panel keeps its historical fixed cap ({@link MAX_VISIBLE}) so its
+   * shape does not change with the terminal. Expanded is where the list grows,
+   * so that is the path the budget constrains.
+   */
+  private expandedBodyBudget(): number {
+    const rows = this.terminalRows();
+    const totalRows =
+      !Number.isFinite(rows) || rows <= 0
+        ? EXPANDED_MAX_ROWS
+        : Math.max(4, Math.min(EXPANDED_MAX_ROWS, Math.floor(rows / 2)));
+    // The separator and header are mandatory; the hint is not. When the budget
+    // is too tight for both the hint and one task, the task wins — a plan the
+    // user cannot see is worse than a missing "ctrl+t to collapse".
+    const withHint = totalRows - PANEL_OVERHEAD_ROWS;
+    return withHint >= 1 ? withHint : Math.max(0, totalRows - (PANEL_OVERHEAD_ROWS - 1));
+  }
+
+  /** True when the budget leaves no room for the hint below the tasks. */
+  private hintBudgetedOut(): boolean {
+    return this.expandedBodyBudget() === 0;
+  }
+
+  /**
+   * Largest valid scroll offset for the expanded list; `0` while collapsed.
+   *
+   * This is `body rows - visible rows`, which is *not* the same as
+   * {@link hiddenExpandedRows}: the hint line below the body is never scrolled
+   * away, so the last `hiddenExpandedRows()` rows are partly unreachable. Using
+   * the hidden-row count as the clamp let `scrollBy` report movement at the end
+   * of the list while the view no longer changed.
+   */
+  private expandedMaxScroll(): number {
+    if (!this.expanded) return 0;
+    return Math.max(0, this.todos.length - this.expandedBodyBudget());
+  }
+
+  /** Expanded list rows currently out of view; `0` while collapsed. */
+  hiddenExpandedRows(): number {
+    return this.expandedMaxScroll();
+  }
+
+  /** Scroll the expanded list by `delta` rows; false when it cannot move. */
+  scrollBy(delta: number): boolean {
+    if (!this.expanded) return false;
+    const max = this.expandedMaxScroll();
+    const next = Math.max(0, Math.min(max, this.scrollTop + delta));
+    if (next === this.scrollTop) return false;
+    this.scrollTop = next;
+    return true;
+  }
+
+  /**
+   * The visible window of the expanded body. Scrolled rows replace the top so
+   * the hint below still says how many entries exist and how to collapse.
+   */
+  private sliceExpandedBody(body: readonly string[]): string[] {
+    const budget = this.expandedBodyBudget();
+    if (body.length <= budget) {
+      this.scrollTop = 0;
+      return [...body];
+    }
+    const max = body.length - budget;
+    if (this.scrollTop > max) this.scrollTop = max;
+    return body.slice(this.scrollTop, this.scrollTop + budget);
+  }
 
   setTodos(todos: readonly TodoItem[]): void {
     this.todos = todos.map((todo) => ({ ...todo }));
+    // A shrinking list can leave the offset past the end.
+    this.scrollTop = Math.min(this.scrollTop, this.hiddenExpandedRows());
   }
 
   getTodos(): readonly TodoItem[] {
@@ -246,10 +345,12 @@ export class TodoPanelComponent implements Component {
 
   setExpanded(expanded: boolean): void {
     this.expanded = expanded;
+    this.scrollTop = 0;
   }
 
   toggleExpanded(): void {
     this.expanded = !this.expanded;
+    this.scrollTop = 0;
   }
 
   invalidate(): void {}
@@ -281,13 +382,15 @@ export class TodoPanelComponent implements Component {
     const activeChildren = activeRoot?.children.slice(0, MAX_ACTIVE_CHILD_ROWS) ?? [];
 
     if (this.expanded) {
+      const body: string[] = [];
       for (const node of roots) {
-        lines.push(...renderMilestoneRow(node, report, c));
+        body.push(...renderMilestoneRow(node, report, c));
         for (const child of node.children) {
-          lines.push(renderLeafRow(child.item, report, c));
+          body.push(renderLeafRow(child.item, report, c));
         }
       }
-      lines.push(renderCollapseHint(this.todos.length, c));
+      lines.push(...this.sliceExpandedBody(body));
+      if (!this.hintBudgetedOut()) lines.push(renderCollapseHint(this.todos.length, c));
       return;
     }
 
@@ -312,10 +415,9 @@ export class TodoPanelComponent implements Component {
 
   private renderFlat(c: ColorPalette, lines: string[]): void {
     if (this.expanded) {
-      for (const todo of this.todos) {
-        lines.push(renderFlatRow(todo, c));
-      }
-      if (this.todos.length > MAX_VISIBLE) {
+      const body = this.todos.map((todo) => renderFlatRow(todo, c));
+      lines.push(...this.sliceExpandedBody(body));
+      if (this.todos.length > MAX_VISIBLE && !this.hintBudgetedOut()) {
         lines.push(renderCollapseHint(this.todos.length, c));
       }
       return;

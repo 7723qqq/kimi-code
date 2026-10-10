@@ -5,7 +5,9 @@ import { TODO_LIST_TOOL_NAME, type TodoItem } from '#/features/todo/todoItem';
 import {
   ITodoListTool,
   TodoListInputSchema,
+  type TodoListInput,
 } from '#/features/todo/tools/todo-list/todo-list';
+import { compileToolArgsValidator, validateToolArgs } from '#/tool/args-validator';
 import { executeTool } from '../../../tools/fixtures/execute-tool';
 
 import { createTestAgent, type TestAgentContext } from '../../../harness';
@@ -53,6 +55,87 @@ describe('TodoListTool', () => {
         todos: { type: 'array' },
       },
     });
+  });
+
+  it('accepts the item fields the tool description tells the model to send', async () => {
+    const tool = ctx.get(ITodoListTool);
+    const args: TodoListInput = {
+      todos: [
+        { id: 'M1', parentId: null, kind: 'milestone', title: 'Phase 1', status: 'in_progress' },
+        {
+          id: 'M1.1',
+          parentId: 'M1',
+          kind: 'task',
+          title: 'read file',
+          status: 'in_progress',
+          progress: 50,
+          description: 'a longer note',
+        },
+      ],
+    };
+
+    const validator = compileToolArgsValidator(tool.parameters);
+    expect(validateToolArgs(validator, args as never)).toBeNull();
+
+    const result = await executeTool(tool, {
+      turnId: 1,
+      toolCallId: 'call_1',
+      args,
+      signal,
+    });
+
+    expect(result).toMatchObject({ isError: false });
+    expect(todos()).toEqual([
+      { id: 'M1', parentId: null, kind: 'milestone', title: 'Phase 1', status: 'in_progress' },
+      {
+        id: 'M1.1',
+        parentId: 'M1',
+        kind: 'task',
+        title: 'read file',
+        status: 'in_progress',
+        progress: 50,
+        description: 'a longer note',
+      },
+    ]);
+  });
+
+  it('renders the milestone hierarchy and progress a documented write produces', async () => {
+    const tool = ctx.get(ITodoListTool);
+
+    const result = await executeTool(tool, {
+      turnId: 1,
+      toolCallId: 'call_1',
+      args: {
+        todos: [
+          { id: 'M1', parentId: null, kind: 'milestone', title: 'Phase 1', status: 'in_progress' },
+          {
+            id: 'M1.1',
+            parentId: 'M1',
+            kind: 'task',
+            title: 'read file',
+            status: 'in_progress',
+            progress: 50,
+          },
+        ],
+      },
+      signal,
+    });
+
+    expect(result).toMatchObject({ isError: false });
+    expect(result.output).toContain('M1: Phase 1 (0/1 · 50%)');
+    expect(result.output).toContain('M1.1: read file (50%)');
+  });
+
+  it('rejects item fields outside the documented contract', () => {
+    const tool = ctx.get(ITodoListTool);
+    const validator = compileToolArgsValidator(tool.parameters);
+
+    expect(
+      validateToolArgs(validator, { todos: [{ title: 'x', status: 'pending', bogus: 1 }] } as never),
+    ).toContain('bogus');
+    expect(
+      validateToolArgs(validator, { todos: [{ title: 'x', status: 'pending', progress: 150 }] } as never),
+    ).not.toBeNull();
   });
 
   it('query mode renders the current list without mutating it', async () => {

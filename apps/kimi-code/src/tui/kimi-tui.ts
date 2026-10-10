@@ -429,6 +429,10 @@ export class KimiTUI {
     this.state = createTUIState(tuiOptions);
     this.state.footer.setExpandHintProvider(() => this.toolOutputExpandHint());
     this.state.transcriptContainer.setUnhandledClick((index) => this.toggleClickedFoldBlock(index));
+    // The panels row is its own gutter: a click the panel does not claim (anywhere
+    // but the tab strip) folds or unfolds the box, through the same capability
+    // checks the transcript uses instead of a panel-specific gesture.
+    this.state.notifyPanelContainer.setUnhandledClick(() => this.togglePanelsRowFold());
     this.uninstallRainbowDance = installRainbowDance(() => {
       this.state.ui.requestRender();
     });
@@ -2329,6 +2333,7 @@ export class KimiTUI {
         isCompacting: this.state.appState.isCompacting,
         isStreaming: this.state.appState.streamingPhase !== 'idle',
         canSteerImmediately: !this.deferUserMessages && !this.isSteeringQueuedMessages(),
+        terminalRows: () => this.state.terminal.rows,
       }),
     );
   }
@@ -2387,6 +2392,29 @@ export class KimiTUI {
     return { handled: true };
   }
 
+  /**
+   * Fold/unfold a single-child panel row through the `Expandable` capability.
+   *
+   * Kept next to `toggleClickedFoldBlock` so the two click-to-fold paths read as
+   * one rule with two hosts. There is no expand window here: the panels row is
+   * always current, so a fold is allowed in both directions.
+   */
+  private togglePanelsRowFold(): TuiMouseEventResult | undefined {
+    const hit = this.state.notifyPanelContainer.children[0];
+    // `isExpandable` is the predicate that narrows; `isExpandedComponent` only
+    // answers yes/no, so it is used for the query and this one for the type.
+    if (hit === undefined || !isExpandable(hit)) return undefined;
+    if (isExpandedComponent(hit)) {
+      hit.setExpanded(false);
+    } else if (hasHiddenContent(hit)) {
+      hit.setExpanded(true);
+    } else {
+      return undefined;
+    }
+    this.state.ui.requestRender();
+    return { handled: true };
+  }
+
   toggleToolOutputExpansion(): void {
     this.state.toolOutputExpanded = !this.state.toolOutputExpanded;
     const children = this.state.transcriptContainer.children;
@@ -2408,11 +2436,19 @@ export class KimiTUI {
     this.state.ui.requestRender();
   }
 
+  scrollTodoPanel(direction: 'up' | 'down'): boolean {
+    if (!this.state.todoPanel.scrollBy(direction === 'up' ? -1 : 1)) return false;
+    this.state.ui.requestRender();
+    return true;
+  }
+
   toggleNotifyPanelFocus(): boolean {
     return this.sessionEventHandler.notifications.toggleFocus();
   }
 
-  handleNotifyPanelKey(key: 'left' | 'right' | 'up' | 'down' | 'escape'): boolean {
+  handleNotifyPanelKey(
+    key: 'left' | 'right' | 'up' | 'down' | 'pageUp' | 'pageDown' | 'escape',
+  ): boolean {
     return this.sessionEventHandler.notifications.handlePanelKey(key);
   }
 

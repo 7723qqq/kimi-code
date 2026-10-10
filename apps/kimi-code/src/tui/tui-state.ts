@@ -48,7 +48,7 @@ export interface TUIState {
   activityContainer: Container;
   todoPanelContainer: Container;
   todoPanel: TodoPanelComponent;
-  notifyPanelContainer: Container;
+  notifyPanelContainer: GutterContainer;
   notifyPanel: NotifyPanelComponent;
   /** The shared row holding the todo list (left) and the updates (right). */
   panelsRow: HStack;
@@ -148,9 +148,9 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
   const transcriptContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const activityContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const todoPanelContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
-  const todoPanel = new TodoPanelComponent();
+  const todoPanel = new TodoPanelComponent({ terminalRows: () => terminal.rows });
   const notifyPanelContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
-  const notifyPanel = new NotifyPanelComponent();
+  const notifyPanel = new NotifyPanelComponent(() => terminal.rows);
   // The todo list and the mid-turn updates share one row: the todo list on the
   // left, the updates on the right taking roughly twice the width. They used to
   // stack, which cost the transcript two panel heights whenever both were
@@ -200,11 +200,23 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
     // border) and the footer below 1 — otherwise the box outline gets clipped.
     const transcriptView = new TranscriptView(transcriptContainer);
     dockContainer = new VStack();
-    dockContainer.addChild(activityContainer, { shrink: 1, minSize: 0 });
-    dockContainer.addChild(panelsRow, { shrink: 1, minSize: 0 });
-    dockContainer.addChild(queueContainer, { shrink: 1, minSize: 0 });
-    dockContainer.addChild(btwPanelContainer, { shrink: 1, minSize: 0 });
-    dockContainer.addChild(surveyContainer, { shrink: 0, minSize: 0 });
+    // Dock sizing contract, in two layers.
+    //
+    // Layer 1 (here): a static ceiling per row, so no single panel can grow
+    // without bound. Panels cap themselves too (layer 2, because "half the
+    // terminal" is not expressible as a constant), but declaring it here means a
+    // panel that forgets its own guard still cannot take the screen.
+    //
+    // Layer 2 (in each panel): `terminalRows()`-derived budgets.
+    //
+    // The numbers are each panel's own ceiling plus the chrome the panel adds
+    // (borders, padding, header). Keep them in step with the panel constants:
+    // todo `MAX_VISIBLE`, notify `MAX_VISIBLE_ROWS`, queue `MAX_VISIBLE_ROWS`.
+    dockContainer.addChild(activityContainer, { shrink: 1, minSize: 0, maxSize: 6 });
+    dockContainer.addChild(panelsRow, { shrink: 1, minSize: 0, maxSize: 18 });
+    dockContainer.addChild(queueContainer, { shrink: 1, minSize: 0, maxSize: 8 });
+    dockContainer.addChild(btwPanelContainer, { shrink: 1, minSize: 0, maxSize: 18 });
+    dockContainer.addChild(surveyContainer, { shrink: 1, minSize: 0, maxSize: 5 });
     dockContainer.addChild(editorContainer, { shrink: 1, minSize: 3 });
     const root = new VStack();
     root.addChild(transcriptView, { basis: 0, grow: 1, shrink: 1, minSize: 1 });

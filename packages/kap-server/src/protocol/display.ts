@@ -1,5 +1,14 @@
 import { z } from 'zod';
 
+export const TodoListDisplayItemSchema = z.object({
+  id: z.string().optional(),
+  parentId: z.string().nullable().optional(),
+  kind: z.enum(['milestone', 'task']).optional(),
+  title: z.string(),
+  status: z.string(),
+  progress: z.number().optional(),
+});
+
 export const ToolInputDisplaySchema = z.discriminatedUnion('kind', [
   z.object({
     kind: z.literal('command'),
@@ -47,7 +56,7 @@ export const ToolInputDisplaySchema = z.discriminatedUnion('kind', [
   }),
   z.object({
     kind: z.literal('todo_list'),
-    items: z.array(z.object({ title: z.string(), status: z.string() })),
+    items: z.array(TodoListDisplayItemSchema),
   }),
   z.object({
     kind: z.literal('task'),
@@ -135,7 +144,7 @@ export const ToolResultDisplaySchema = z.discriminatedUnion('kind', [
   }),
   z.object({
     kind: z.literal('todo_list'),
-    items: z.array(z.object({ title: z.string(), status: z.string() })),
+    items: z.array(TodoListDisplayItemSchema),
   }),
   z.object({ kind: z.literal('structured'), data: z.unknown() }),
   z.object({

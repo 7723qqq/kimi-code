@@ -177,15 +177,19 @@ jobs:
       - run: bun --bun run check:deep-imports
       - run: bun --bun run check:boundaries
       # Comment-free zones: agent-core-v2, kap-server and transcript carry no
-      # comments at all (DEVELOP.md, "General Coding Rules").
-      - run: bun scripts/check-no-comments.mjs
+      # new comments (DEVELOP.md, "General Coding Rules"). Reviewed existing
+      # ones are counted in scripts/no-comments-baseline.txt.
+      - run: bun --bun run check:no-comments
       # Locale consistency: en/zh key parity, placeholder validity, call-site
-      # coverage, and JSON freshness (regenerate, then fail if tracked JSON
-      # drifted from the TS sources).
+      # coverage. The `.ts` sources under `*/locales/` are the single source of
+      # truth — the engine receives locale data as an in-memory JSON string.
       - run: bun scripts/check-locale-keys.mjs
-      - run: bun scripts/check-locale-placeholders.cjs
+      - run: bun --bun run check:locale-placeholders
       - run: bun scripts/check-t-call-coverage.mjs
-      - run: bun scripts/generate-locale-json.cjs && git diff --exit-code -- '**/locales/*.json'
+      # Service naming: domain directories and service files under
+      # packages/kap-server/src/services stay camelCase (the second root this
+      # script once covered, packages/services/src, no longer exists).
+      - run: bun scripts/check-service-naming.mjs
 
   # Structural review (tools/review): a Zig program that reads the repository
   # itself rather than running the test suite. It cross-checks documentation

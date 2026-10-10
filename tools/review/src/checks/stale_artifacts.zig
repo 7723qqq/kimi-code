@@ -25,11 +25,6 @@ const Generator = struct {
 /// stale manifest.
 const GENERATORS = [_]Generator{
     .{
-        .label = "locale JSON",
-        .argv = &.{ "bun", "scripts/generate-locale-json.cjs" },
-        .marker = "/locales/",
-    },
-    .{
         .label = "config manifest",
         .argv = &.{ "bun", "scripts/gen-config-manifest.mts" },
         .cwd = "packages/agent-core-v2",
@@ -190,13 +185,13 @@ const testing = std.testing;
 
 test "containsPath finds a path already dirty before the generator ran" {
     const status =
-        \\ M apps/kimi-code/src/i18n/locales/en.json
+        \\ M packages/agent-core-v2/docs/state-manifest.d.ts
         \\?? tools/review/zig-out/
         \\ M packages/kosong/src/errors.ts
     ;
-    try testing.expect(containsPath(status, "apps/kimi-code/src/i18n/locales/en.json"));
+    try testing.expect(containsPath(status, "packages/agent-core-v2/docs/state-manifest.d.ts"));
     try testing.expect(containsPath(status, "packages/kosong/src/errors.ts"));
-    try testing.expect(!containsPath(status, "apps/kimi-code/src/i18n/locales/zh.json"));
+    try testing.expect(!containsPath(status, "packages/agent-core-v2/docs/wire-manifest.d.ts"));
 }
 
 test "containsPath ignores blank and short lines" {
@@ -205,8 +200,8 @@ test "containsPath ignores blank and short lines" {
 
 test "pathOf keeps the path intact when the status starts with a space" {
     try testing.expectEqualStrings(
-        "apps/kimi-code/src/i18n/locales/en.json",
-        pathOf(" M apps/kimi-code/src/i18n/locales/en.json").?,
+        "packages/agent-core-v2/docs/state-manifest.d.ts",
+        pathOf(" M packages/agent-core-v2/docs/state-manifest.d.ts").?,
     );
     try testing.expectEqualStrings("tools/review/zig-out/", pathOf("?? tools/review/zig-out/").?);
     try testing.expectEqualStrings("a.ts", pathOf(" M a.ts\r").?);
