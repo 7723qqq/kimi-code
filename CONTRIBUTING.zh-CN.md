@@ -89,57 +89,17 @@ cd apps/kimi-code && bun run build
 | Web UI 资源 | `apps/kimi-code/dist-web/` |
 | 原生预编译产物 | `apps/kimi-code/native/` |
 
+这些是打包器与原生构建的输入，不是可直接部署的目录树；用途见[部署到本地 `.kimi-code` 进行测试](#部署到本地-kimi-code-进行测试)。
+
 ### 部署到本地 `.kimi-code` 进行测试
 
-想用本地构建代替已发布的二进制：
+本地构建有两条路径，二者不可互换。
 
-1. **同步 dist 文件**到 Kimi Code home 目录：
+**迭代代码时**用 `bun run dev:local`（见[开发环境](#开发环境)）。它一步完成打包与运行（约 2 秒，加 `:watch` 增量重建），无需安装。
 
-```powershell
-# 删除旧的 dist
-Remove-Item -Recurse -Force "$env:USERPROFILE\.kimi-code\dist" -ErrorAction SilentlyContinue
-# 新建目录并复制内容
-New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.kimi-code\dist"
-Copy-Item -Recurse -Force apps/kimi-code/dist/* "$env:USERPROFILE\.kimi-code\dist\"
+**要替换已安装的 `kimi` 命令**时，构建自包含二进制并覆盖已安装的那份——见下文的[原生构建（自包含二进制）](#原生构建自包含二进制)。发布包就是这个单文件二进制，因此这是让本地构建以 `kimi` 身份运行的唯一方式。
 
-# 同步 web 资源
-Remove-Item -Recurse -Force "$env:USERPROFILE\.kimi-code\dist-web" -ErrorAction SilentlyContinue
-Copy-Item -Recurse -Force apps/kimi-code/dist-web "$env:USERPROFILE\.kimi-code\dist-web"
-```
-
-2. **复制原生 `.node` 文件**到 `dist/chunks/`（ESM bundle 会从 chunk 文件所在目录解析相对 require）：
-
-```powershell
-Copy-Item -Force packages/kimi-native-tools/kimi-native-tools.win32-x64-msvc.node `
-    "$env:USERPROFILE\.kimi-code\dist\chunks\"
-```
-
-3. **带语言设置运行**（设 `KIMI_LANG=zh` 使用中文界面）：
-
-```powershell
-$env:KIMI_LANG="zh"
-bun $env:USERPROFILE\.kimi-code\dist\main.mjs
-```
-
-要让 `kimi` 命令使用本地构建，先把 CDN 二进制改名，再创建一个启动器：
-
-```powershell
-Rename-Item "$env:USERPROFILE\.kimi-code\bin\kimi.exe" "kimi.cdn.exe"
-```
-
-创建 `$env:USERPROFILE\.kimi-code\bin\kimi.cmd`：
-
-```bat
-@echo off
-setlocal
-if "%KIMI_LANG%"=="" (
-    for /f "tokens=2 delims== " %%a in (
-        'type "%USERPROFILE%\.kimi-code\tui.toml" 2^>nul ^| findstr /r "^locale"'
-    ) do set KIMI_LANG=%%~a
-)
-set KIMI_CODE_HOME=%USERPROFILE%\.kimi-code
-bun "%KIMI_CODE_HOME%\dist\main.mjs" %*
-```
+> **不要把 `apps/kimi-code/dist/` 复制到 `~/.kimi-code/`。** 该布局无法运行：bundle 在加载时要解析原生 addon 与其运行时依赖，而 `dist/` 副本两者都不带。把 `.node` 文件复制进 `dist/chunks/` 也修不好——加载器需要 `@moonshot-ai/kimi-native-tools` 是一个可解析的包，之后下一个依赖（`qrcode`、`ws`、`@moonshot-ai/kimi-agent`）又会接着缺失。`dist/` 是给打包器用的构建产物，不是可部署的目录树。
 
 ### 原生构建（自包含二进制）
 

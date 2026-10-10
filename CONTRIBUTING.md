@@ -90,57 +90,17 @@ This produces:
 | Web UI assets | `apps/kimi-code/dist-web/` |
 | Native prebuilds | `apps/kimi-code/native/` |
 
+These are inputs to the bundler and the native build, not a deployable tree; see [Deploy to local `.kimi-code` for testing](#deploy-to-local-kimi-code-for-testing) for what to do with them.
+
 ### Deploy to local `.kimi-code` for testing
 
-To run your local build instead of the released binary:
+There are two ways to run a local build, and they are not interchangeable.
 
-1. **Sync dist files** to the Kimi Code home directory:
+**For iterating on code**, use `bun run dev:local` (see [Development Setup](#development-setup)). It bundles and runs in one step (~2s, incremental with `:watch`) and needs no install.
 
-```powershell
-# Remove old dist
-Remove-Item -Recurse -Force "$env:USERPROFILE\.kimi-code\dist" -ErrorAction SilentlyContinue
-# Create fresh directory and copy contents
-New-Item -ItemType Directory -Force -Path "$env:USERPROFILE\.kimi-code\dist"
-Copy-Item -Recurse -Force apps/kimi-code/dist/* "$env:USERPROFILE\.kimi-code\dist\"
+**To replace the installed `kimi` command**, build the self-contained binary and copy it over the installed one — see [Native build](#native-build-self-contained-binary) below. The published package is that single-file binary, so this is the only way to get a local build running as `kimi`.
 
-# Sync web assets
-Remove-Item -Recurse -Force "$env:USERPROFILE\.kimi-code\dist-web" -ErrorAction SilentlyContinue
-Copy-Item -Recurse -Force apps/kimi-code/dist-web "$env:USERPROFILE\.kimi-code\dist-web"
-```
-
-2. **Copy native `.node` files** into `dist/chunks/` (the ESM bundle resolves relative requires from chunk files):
-
-```powershell
-Copy-Item -Force packages/kimi-native-tools/kimi-native-tools.win32-x64-msvc.node `
-    "$env:USERPROFILE\.kimi-code\dist\chunks\"
-```
-
-3. **Run with locale** (set `KIMI_LANG=zh` for Chinese interface):
-
-```powershell
-$env:KIMI_LANG="zh"
-bun $env:USERPROFILE\.kimi-code\dist\main.mjs
-```
-
-To make `kimi` command use the local build, rename the CDN binary and create a launcher:
-
-```powershell
-Rename-Item "$env:USERPROFILE\.kimi-code\bin\kimi.exe" "kimi.cdn.exe"
-```
-
-Create `$env:USERPROFILE\.kimi-code\bin\kimi.cmd`:
-
-```bat
-@echo off
-setlocal
-if "%KIMI_LANG%"=="" (
-    for /f "tokens=2 delims== " %%a in (
-        'type "%USERPROFILE%\.kimi-code\tui.toml" 2^>nul ^| findstr /r "^locale"'
-    ) do set KIMI_LANG=%%~a
-)
-set KIMI_CODE_HOME=%USERPROFILE%\.kimi-code
-bun "%KIMI_CODE_HOME%\dist\main.mjs" %*
-```
+> **Do not copy `apps/kimi-code/dist/` into `~/.kimi-code/`.** That layout cannot run: the bundle resolves the native addon and its runtime dependencies at load time, and a `dist/` copy carries neither. Copying the `.node` file into `dist/chunks/` does not fix it either — the loader needs `@moonshot-ai/kimi-native-tools` as a resolvable package, and then the next dependency (`qrcode`, `ws`, `@moonshot-ai/kimi-agent`) is missing in turn. `dist/` is build output for the bundler, not a deployable tree.
 
 ### Native build (self-contained binary)
 
