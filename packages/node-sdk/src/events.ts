@@ -14,6 +14,7 @@ export { MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE } from '@moonshot-ai/agent-core
 export type { AgentStatusUpdatedEvent } from '@moonshot-ai/agent-core-v2/agent/usage/usageEvents';
 export type { SessionMetaUpdatedEvent } from '@moonshot-ai/agent-core-v2/session/sessionMetadata/sessionMetaEvents';
 export type { GoalUpdatedEvent } from '@moonshot-ai/agent-core-v2';
+export type { TodoUpdatedEvent } from '@moonshot-ai/agent-core-v2';
 export type { SkillActivatedEvent } from '@moonshot-ai/agent-core-v2/features/skill/skillOps';
 export type { PluginCommandActivatedEvent } from '@moonshot-ai/agent-core-v2';
 export type { ErrorEvent, WarningEvent } from '@moonshot-ai/agent-core-v2';

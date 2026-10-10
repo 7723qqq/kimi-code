@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { IEventBus } from '#/app/event/eventBus';
 import { KeyedResourceLeasePool } from '#/_base/lifecycle/keyedResource';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IFeatureManager } from '#/app/feature/featureManager';
@@ -8,6 +9,7 @@ import { TodoFeature } from '#/features/todo/todoFeature';
 import { IAgentTodoService } from '#/features/todo/todoService';
 import type { TodoItem } from '#/features/todo/todoItem';
 import { TODO_LIST_REMINDER_VARIANT } from '#/features/todo/todoListReminder';
+import { TodoUpdated } from '#/features/todo/todoOps';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import type { WireRecord } from '#/wire/record';
 
@@ -105,6 +107,60 @@ describe('AgentTodoService', () => {
     }]);
   });
 
+  it('publishes a todo.updated event with the full item shape after the wire record', async () => {
+    const todo = ctx.get(IAgentTodoService);
+    const seen: TodoUpdated[] = [];
+    const subscription = ctx.get(IEventBus).subscribe(TodoUpdated, (event) => {
+      seen.push(event as unknown as TodoUpdated);
+    });
+
+    const items: TodoItem[] = [
+      { id: 'M1', parentId: null, kind: 'milestone', title: 'phase', status: 'pending' },
+      {
+        id: 'M1.1',
+        parentId: 'M1',
+        kind: 'task',
+        title: 'leaf',
+        status: 'in_progress',
+        progress: 55,
+        description: 'still going',
+      },
+    ];
+    await todo.replace(items);
+    subscription.dispose();
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]).toMatchObject({ agentId: 'main', rev: 1 });
+    expect(seen[0]?.todos).toEqual(items);
+  });
+
+  it('publishes an empty list when cleared', async () => {
+    const todo = ctx.get(IAgentTodoService);
+    await todo.replace([todoItem('T1', 'x', 'pending')]);
+    const seen: TodoUpdated[] = [];
+    const subscription = ctx.get(IEventBus).subscribe(TodoUpdated, (event) => {
+      seen.push(event as unknown as TodoUpdated);
+    });
+
+    await todo.clear();
+    subscription.dispose();
+
+    expect(seen).toHaveLength(1);
+    expect(seen[0]?.todos).toEqual([]);
+    expect(seen[0]?.rev).toBe(2);
+  });
+
+  it('never persists todo.updated to the wire', async () => {
+    const todo = ctx.get(IAgentTodoService);
+    await todo.replace([todoItem('T1', 'a', 'pending')]);
+    await todo.replace([todoItem('T1', 'a', 'done')]);
+    await todo.clear();
+
+    const records = await ctx.persistedWireRecords();
+    expect(records.filter((record) => record.type === 'todo.updated')).toEqual([]);
+    expect(records.filter((record) => record.type === 'tools.update_store')).toHaveLength(3);
+  });
+
   it('isolates todos between agents', async () => {
     const lifecycle = ctx.get(IAgentLifecycleService);
     const sub = await lifecycle.create({ agentId: 'agent-1' });
@@ -116,6 +172,29 @@ describe('AgentTodoService', () => {
 
     expect(mainTodo.get()).toEqual([todoItem('T1', 'main todo', 'pending')]);
     expect(subTodo.get()).toEqual([todoItem('T1', 'sub todo', 'done')]);
+    await lifecycle.remove(sub);
+  });
+
+  it('stamps todo.updated with the writing agent id', async () => {
+    const lifecycle = ctx.get(IAgentLifecycleService);
+    const sub = await lifecycle.create({ agentId: 'agent-1' });
+    const mainSeen: TodoUpdated[] = [];
+    const mainSubscription = ctx.get(IEventBus).subscribe(TodoUpdated, (event) => {
+      mainSeen.push(event as unknown as TodoUpdated);
+    });
+    const subScope = lifecycle.handleOf(sub.agentId)!;
+    const subSeen: TodoUpdated[] = [];
+    const subSubscription = subScope.accessor.get(IEventBus).subscribe(TodoUpdated, (event) => {
+      subSeen.push(event as unknown as TodoUpdated);
+    });
+
+    await ctx.get(IAgentTodoService).replace([todoItem('T1', 'main', 'pending')]);
+    await subScope.accessor.get(IAgentTodoService).replace([todoItem('T1', 'sub', 'pending')]);
+    mainSubscription.dispose();
+    subSubscription.dispose();
+
+    expect(mainSeen.map((event) => event.agentId)).toEqual(['main']);
+    expect(subSeen.map((event) => event.agentId)).toEqual(['agent-1']);
     await lifecycle.remove(sub);
   });
 
@@ -132,6 +211,28 @@ describe('AgentTodoService', () => {
       expect(restarted.get(IAgentTodoService).get()).toEqual([
         todoItem('T1', 'kept', 'in_progress'),
       ]);
+    } finally {
+      await restarted.dispose();
+    }
+  });
+
+  it('publishes the restored list on wire replay, not only on a live write', async () => {
+    const persistence = new InMemoryWireRecordPersistence();
+    const first = createTestAgent({ persistence, autoConfigure: false });
+    await first.restorePersisted();
+    await first.get(IAgentTodoService).replace([todoItem('T1', 'kept', 'in_progress')]);
+    await first.dispose();
+
+    const restarted = createTestAgent({ persistence, autoConfigure: false });
+    const seen: TodoUpdated[] = [];
+    try {
+      const subscription = restarted.get(IEventBus).subscribe(TodoUpdated, (event) => {
+        seen.push(event as unknown as TodoUpdated);
+      });
+      await restarted.restorePersisted();
+      subscription.dispose();
+
+      expect(seen.at(-1)?.todos).toEqual([todoItem('T1', 'kept', 'in_progress')]);
     } finally {
       await restarted.dispose();
     }

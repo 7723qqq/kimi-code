@@ -1,5 +1,6 @@
 import { assign, fromCallback, setup, type Snapshot } from 'xstate';
 
+import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import { createDecorator, IInstantiationService } from '#/_base/di/instantiation';
 import type { Event } from '#/_base/event';
 import {
@@ -17,7 +18,7 @@ import { IEventDispatcher } from '#/state/eventDispatcher';
 
 import { TODO_LIST_TOOL_NAME, readTodoItems, type TodoItem } from './todoItem';
 import { TODO_LIST_REMINDER_VARIANT, todoListStaleReminder } from './todoListReminder';
-import { ToolsUpdateStore, type TodoState } from './todoOps';
+import { TodoUpdated, ToolsUpdateStore, type TodoState } from './todoOps';
 
 import '#/agent/contextMemory/conversationTime';
 
@@ -119,6 +120,8 @@ export class AgentTodoService extends AgentActorService<TodoState> implements IA
   readonly onDidChange: IAgentTodoService['onDidChange'];
 
   private readonly actor: AgentActorContext<TodoState>;
+  private rev = 0;
+  private hasPublished = false;
 
   constructor(
     @IEventDispatcher dispatcher: IEventDispatcher,
@@ -138,10 +141,23 @@ export class AgentTodoService extends AgentActorService<TodoState> implements IA
         read: (snapshot) => (snapshot as TodoActorSnapshot).context.todos,
         commit: (actor, todos) => {
           actor.send({ type: 'todo.commit', todos });
+          this.publish(todos);
         },
       },
     });
     this.onDidChange = this.actor.onDidChange;
+  }
+
+  private publish(todos: TodoState): void {
+    if (!this.hasPublished && todos.length === 0) return;
+    this.hasPublished = true;
+    const payload = [...todos];
+    this.rev += 1;
+    void this.actor
+      .dispatch(
+        new TodoUpdated({ agentId: this.actor.agent.agentId, todos: payload, rev: this.rev }),
+      )
+      .catch(onUnexpectedError);
   }
 
   get(): readonly TodoItem[] {
@@ -151,23 +167,17 @@ export class AgentTodoService extends AgentActorService<TodoState> implements IA
 
   replace(todos: readonly TodoItem[]): Promise<void> {
     this.actor.send({ type: 'todo.used' });
-    return this.actor.dispatch(
-      new ToolsUpdateStore({
-        agentId: this.actor.agent.agentId,
-        key: 'todo',
-        value: todos,
-      }),
-    );
+    return this.commit(todos);
   }
 
   clear(): Promise<void> {
     this.actor.send({ type: 'todo.used' });
+    return this.commit([]);
+  }
+
+  private commit(todos: readonly TodoItem[]): Promise<void> {
     return this.actor.dispatch(
-      new ToolsUpdateStore({
-        agentId: this.actor.agent.agentId,
-        key: 'todo',
-        value: [],
-      }),
+      new ToolsUpdateStore({ agentId: this.actor.agent.agentId, key: 'todo', value: todos }),
     );
   }
 }

@@ -1,3 +1,5 @@
+import { z } from 'zod';
+
 export const TODO_LIST_TOOL_NAME = 'TodoList' as const;
 
 export type TodoStatus = 'pending' | 'in_progress' | 'done';
@@ -12,6 +14,16 @@ export interface TodoItem {
   readonly progress?: number;
   readonly description?: string;
 }
+
+export const todoItemSchema = z.object({
+  id: z.string(),
+  parentId: z.string().nullable(),
+  kind: z.enum(['milestone', 'task']),
+  title: z.string(),
+  status: z.enum(['pending', 'in_progress', 'done']),
+  progress: z.number().optional(),
+  description: z.string().optional(),
+});
 
 export interface TodoProgressReport {
   readonly overall: number;

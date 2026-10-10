@@ -745,6 +745,7 @@ export * from '#/features/sessionInit/profile/init';
 import '#/features/sessionInit/sessionInitFeature';
 export * from '#/features/todo/todoItem';
 export * from '#/features/todo/todoListReminder';
+export * from '#/features/todo/todoOps';
 export * from '#/features/todo/todoService';
 export * from '#/features/todo/tools/todo-list/todo-list';
 import '#/features/todo/todoFeature';
