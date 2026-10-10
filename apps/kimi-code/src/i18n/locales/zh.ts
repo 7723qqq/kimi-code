@@ -458,6 +458,13 @@ export default {
   },
   tui: {
     chrome: {
+      statusSurface: {
+        approval: {
+          prompt: '批准 {{tool}}？',
+          expandHint: 'ctrl+o 详情',
+          collapseHint: 'ctrl+o 收起',
+        },
+      },
       footer: {
         context: '上下文：{{pct}}%',
         contextWithTokens: '上下文：{{pct}}%（{{tokens}}/{{maxTokens}}）',
@@ -2566,6 +2573,11 @@ export default {
       notifyPanelFinishedExpandedTab: '−{{count}} 已完成',
       notifyPanelHintFocused: '← → 切换 agent · ↑ ↓ 滚动 · [ ] 切换更新 · esc 关闭',
       notifyPanelHintUnfocused: 'ctrl+n 翻页',
+      notifyPanelPage: '更新 {{page}}',
+      notifyPanelUpdateCount_one: '{{count}} 条更新',
+      notifyPanelUpdateCount_other: '{{count}} 条更新',
+      notifyPanelDelegatedTo: '▸ 已委派给 {{kind}}：**{{description}}**',
+      notifyPanelDelegatedSwarm: '▸ 已委派给 {{count}} 个子代理的集群',
       // tui/components/markdown/mermaid-art.ts
       mermaidCouldNotDraw: '无法绘制此 mermaid 图表',
       mermaidUnsupportedDiagram: '终端不支持绘制 {{identifier}} 图表',

@@ -53,7 +53,9 @@ Type `@` to trigger file-path completion; the selected path is inserted in relat
 
 ## Approval flow
 
-When the agent calls a tool that has side effects — modifying files, running commands — the TUI displays an approval panel for your confirmation.
+When the agent calls a tool that has side effects — modifying files, running commands — the TUI asks for confirmation in the strip above the input box. The input box stays usable for typing, but a submission is held until the request is resolved, so nothing you had drafted is lost.
+
+The prompt starts folded to one line that still shows the numbered options, so you can answer without expanding it. `Ctrl-T` expands the details (the diff or command being approved).
 
 - **Approve**: select with the arrow keys and press `Enter`, or press `1` / `2` / `3` to choose directly
 - **Reject**: `Esc`, `Ctrl-C`, or `Ctrl-D`

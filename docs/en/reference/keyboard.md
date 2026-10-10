@@ -14,7 +14,7 @@ The following keys are always available in the input box:
 | `Esc` | Close a popup / cancel completion / interrupt streaming output or context compaction |
 | `Ctrl-C` | Interrupt the current streaming output, or clear the input box |
 | `Ctrl-D` | Exit Kimi Code CLI when the input box is empty |
-| `Ctrl-T` | Expand or collapse the todo list when it is truncated |
+| `Ctrl-T` | Expand or collapse the todo list, or a pending approval prompt, when folding it would show or hide something |
 | `Ctrl-P` | Rewrite the drafted prompt with AI |
 | `Ctrl-N` | Focus or release the experimental `Updates` panel |
 
@@ -77,7 +77,7 @@ When collapsed tool call results or shell command outputs exist in the history, 
 
 ## Approval Panel
 
-When the Agent initiates a tool call that requires confirmation, the TUI displays an approval panel. For the full approval workflow, see [Interaction & Input](../guides/interaction.md#approval-flow). The available keys inside the panel are:
+When the Agent initiates a tool call that requires confirmation, the TUI shows an approval prompt in the strip above the input box. The input box stays mounted, so anything already typed is kept, but submissions are held until the request is resolved. The prompt starts folded to a single line that still shows the numbered options, so `1` / `2` / `3` and `Enter` work without expanding it; `Ctrl-T` expands the details. For the full approval workflow, see [Interaction & Input](../guides/interaction.md#approval-flow). The available keys are:
 
 | Shortcut | Function |
 | --- | --- |
@@ -85,7 +85,7 @@ When the Agent initiates a tool call that requires confirmation, the TUI display
 | `Enter` | Confirm the currently selected option |
 | `1` ~ `9` | Directly select the option at the corresponding index |
 | `Esc` / `Ctrl-C` / `Ctrl-D` | Reject the current request |
-| `Ctrl-E` | Expand or collapse the full content when the panel contains a diff or file preview |
+| `Ctrl-E` | Open the full content in a full-screen viewer when the prompt contains a diff or file preview |
 | `Ctrl-O` | Toggle the collapsed state of other tool output |
 
 Options that require feedback (such as "Reject" or "Revise") switch to a feedback input state after confirmation: type the feedback text and press `Enter` to submit; press `Esc` to exit feedback input and return to the candidate list.

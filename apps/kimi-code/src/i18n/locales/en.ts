@@ -475,6 +475,13 @@ export default {
   },
   tui: {
     chrome: {
+      statusSurface: {
+        approval: {
+          prompt: 'Approve {{tool}}?',
+          expandHint: 'ctrl+o details',
+          collapseHint: 'ctrl+o collapse',
+        },
+      },
       footer: {
         context: 'context: {{pct}}%',
         contextWithTokens: 'context: {{pct}}% ({{tokens}}/{{maxTokens}})',
@@ -2647,6 +2654,11 @@ export default {
       notifyPanelFinishedExpandedTab: '−{{count}} done',
       notifyPanelHintFocused: '← → agent · ↑ ↓ scroll · [ ] update · esc close',
       notifyPanelHintUnfocused: 'ctrl+n page',
+      notifyPanelPage: 'Updates {{page}}',
+      notifyPanelUpdateCount_one: '{{count}} update',
+      notifyPanelUpdateCount_other: '{{count}} updates',
+      notifyPanelDelegatedTo: '▸ Delegated to {{kind}}: **{{description}}**',
+      notifyPanelDelegatedSwarm: '▸ Delegated to a swarm of {{count}} subagents',
       // tui/components/markdown/mermaid-art.ts
       mermaidCouldNotDraw: 'could not draw this mermaid diagram',
       mermaidUnsupportedDiagram: '{{identifier}} diagrams are not drawn in the terminal',
