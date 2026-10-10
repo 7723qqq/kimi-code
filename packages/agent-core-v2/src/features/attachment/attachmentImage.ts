@@ -2,7 +2,7 @@ import { Jimp } from 'jimp';
 
 import { sniffImageDimensions, sniffMediaFromMagic } from '#/agent/media/file-type';
 
-import { AttachmentError } from './errors';
+import { AttachmentErrors, AttachmentError } from './errors';
 import type { ImageMediaType } from './types';
 
 export interface DetectedImage {
@@ -21,7 +21,7 @@ const MEDIA_TYPES: Readonly<Record<string, ImageMediaType>> = {
 export function probeImage(data: Uint8Array): DetectedImage {
   const detected = sniff(data);
   if (detected === null) {
-    throw new AttachmentError('attachment.invalid_image', 'Unsupported or malformed image data.');
+    throw new AttachmentError(AttachmentErrors.codes.ATTACHMENT_INVALID_IMAGE, 'Unsupported or malformed image data.');
   }
   return detected;
 }
@@ -29,18 +29,22 @@ export function probeImage(data: Uint8Array): DetectedImage {
 export async function detectImage(data: Uint8Array, maxPixels?: number): Promise<DetectedImage> {
   const detected = sniff(data);
   if (detected === null) {
-    throw new AttachmentError('attachment.invalid_image', 'Unsupported or malformed image data.');
+    throw new AttachmentError(AttachmentErrors.codes.ATTACHMENT_INVALID_IMAGE, 'Unsupported or malformed image data.');
   }
   if (maxPixels !== undefined && detected.width * detected.height > maxPixels) {
     throw new AttachmentError(
-      'attachment.image_too_many_pixels',
+      AttachmentErrors.codes.ATTACHMENT_IMAGE_TOO_MANY_PIXELS,
       'Image exceeds the configured decoded-pixel limit.',
     );
   }
   try {
     await Jimp.fromBuffer(Buffer.from(data));
-  } catch {
-    throw new AttachmentError('attachment.invalid_image', 'Unsupported or malformed image data.');
+  } catch (error) {
+    throw new AttachmentError(
+      AttachmentErrors.codes.ATTACHMENT_INVALID_IMAGE,
+      'Unsupported or malformed image data.',
+      { cause: error },
+    );
   }
   return detected;
 }

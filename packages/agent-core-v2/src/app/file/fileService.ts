@@ -53,6 +53,7 @@ export function isFileId(value: string): boolean {
 export const FileErrors = {
   codes: {
     FILE_NOT_FOUND: 'file.not_found',
+    FILE_TOO_LARGE: 'file.too_large',
   },
   info: {
     'file.not_found': {
@@ -60,6 +61,12 @@ export const FileErrors = {
       retryable: false,
       public: true,
       action: 'Check the file_id or upload the file again.',
+    },
+    'file.too_large': {
+      title: 'File too large',
+      retryable: false,
+      public: true,
+      action: 'Upload a smaller file or split it into parts.',
     },
   },
 } as const satisfies ErrorDomain;

@@ -607,10 +607,10 @@ export function convertAnthropicError(
   }
   // Check timeout before connection (APIConnectionTimeoutError extends APIConnectionError)
   if (error instanceof AnthropicTimeoutError) {
-    return new APITimeoutError(error.message);
+    return new APITimeoutError(error.message, { cause: error });
   }
   if (error instanceof AnthropicConnectionError) {
-    return new APIConnectionError(error.message);
+    return new APIConnectionError(error.message, { cause: error });
   }
   // APIError with a status code => status error
   if (error instanceof AnthropicAPIError && typeof error.status === 'number') {
@@ -631,7 +631,7 @@ export function convertAnthropicError(
   // transport-layer heuristic so genuine connection failures become retryable
   // instead of fatal generic errors.
   if (error instanceof Error) {
-    return classifyBaseApiError(error.message);
+    return classifyBaseApiError(error.message, error);
   }
   return new ChatProviderError(`Error: ${String(error)}`);
 }

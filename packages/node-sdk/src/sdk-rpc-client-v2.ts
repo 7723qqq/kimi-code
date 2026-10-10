@@ -244,6 +244,7 @@ import type { AgentContextData } from '#/context';
 import { ErrorCodes, isKimiErrorCode, KimiError, type KimiErrorCode } from '#/errors';
 import type { ExperimentalFeatureState } from '#/flag';
 import { KimiHarness } from '#/kimi-harness';
+import { log } from '#/logging/logger';
 import type { BeginGlobalMcpServerAuthResult } from '#/mcp';
 import {
   SDKRpcClientBase,
@@ -2892,11 +2893,19 @@ function normalizeRequiredWorkDir(operation: string, workDir: string): string {
  * An engine code this build's registry does not declare (a newer engine than
  * the pinned SDK) restates as `internal` — stamping the unknown code would
  * mint a `KimiError` that `toKimiErrorPayload` cannot serialize (its
- * `KIMI_ERROR_INFO` lookup throws on undeclared codes).
+ * `KIMI_ERROR_INFO` lookup throws on undeclared codes). The downgrade is
+ * logged so a registry drift is observable rather than silent.
  */
 function restateEngineError(error: unknown): unknown {
   if (!isError2(error)) return error;
-  const code: KimiErrorCode = isKimiErrorCode(error.code) ? error.code : ErrorCodes.INTERNAL;
+  const declared = isKimiErrorCode(error.code);
+  if (!declared) {
+    log.warn('engine error code is not declared by this SDK build; restating as internal', {
+      code: error.code,
+      message: error.message,
+    });
+  }
+  const code: KimiErrorCode = declared ? error.code : ErrorCodes.INTERNAL;
   return new KimiError(code, error.message, {
     details: error.details as Record<string, unknown> | undefined,
     cause: error.cause,

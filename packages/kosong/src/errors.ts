@@ -1,11 +1,15 @@
 import type { FinishReason } from './provider';
 
+export interface ChatProviderErrorOptions {
+  readonly cause?: unknown;
+}
+
 /**
  * Base error for all chat provider errors.
  */
 export class ChatProviderError extends Error {
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, options?: ChatProviderErrorOptions) {
+    super(message, options?.cause === undefined ? undefined : { cause: options.cause });
     this.name = 'ChatProviderError';
   }
 }
@@ -14,8 +18,8 @@ export class ChatProviderError extends Error {
  * Network-level connection failure.
  */
 export class APIConnectionError extends ChatProviderError {
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, options?: ChatProviderErrorOptions) {
+    super(message, options);
     this.name = 'APIConnectionError';
   }
 }
@@ -24,8 +28,8 @@ export class APIConnectionError extends ChatProviderError {
  * Request timed out.
  */
 export class APITimeoutError extends ChatProviderError {
-  constructor(message: string) {
-    super(message);
+  constructor(message: string, options?: ChatProviderErrorOptions) {
+    super(message, options);
     this.name = 'APITimeoutError';
   }
 }
@@ -336,14 +340,14 @@ const TIMEOUT_RE = /timed?\s*out|timeout|deadline/i;
  * `ChatProviderError`. Timeout is checked first so "connection timed out"
  * classifies as a timeout rather than a bare connection error.
  */
-export function classifyBaseApiError(message: string): ChatProviderError {
+export function classifyBaseApiError(message: string, cause?: unknown): ChatProviderError {
   if (TIMEOUT_RE.test(message)) {
-    return new APITimeoutError(message);
+    return new APITimeoutError(message, { cause });
   }
   if (NETWORK_RE.test(message)) {
-    return new APIConnectionError(message);
+    return new APIConnectionError(message, { cause });
   }
-  return new ChatProviderError(`Error: ${message}`);
+  return new ChatProviderError(`Error: ${message}`, { cause });
 }
 
 const CONTEXT_OVERFLOW_MESSAGE_PATTERNS = [

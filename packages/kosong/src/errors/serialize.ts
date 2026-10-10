@@ -7,8 +7,14 @@
  * provider API errors) happens at the owning domain's boundary before errors
  * reach this layer, so `errors` never imports a business domain.
  *
- * Shared infrastructure: moved from agent-core-v2's `_base/errors`; the
- * engine re-exports it unchanged.
+ * Shared infrastructure: this package carries its own copy of the module that
+ * also lives in agent-core-v2's `_base/errors`. The engine does NOT re-export
+ * this file — the two are independent copies that cannot be merged (`kosong`
+ * is a frozen legacy kernel and the engine's import-boundary check forbids it
+ * from depending on this package). Note that this copy cannot be unit-compared
+ * against the engine's from `errors-parity.test.ts`: importing the engine's
+ * sibling module here would resolve its `#/errors` specifier through this
+ * package's tsconfig `paths` and shadow it with this very file.
  */
 
 import { CoreErrors, errorInfo, isErrorCode } from './codes';

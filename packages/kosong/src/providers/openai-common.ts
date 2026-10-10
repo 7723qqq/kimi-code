@@ -143,10 +143,10 @@ export function convertOpenAIError(
   }
   // v6: APIConnectionTimeoutError extends APIConnectionError, check timeout first
   if (error instanceof OpenAITimeoutError) {
-    return new APITimeoutError(error.message);
+    return new APITimeoutError(error.message, { cause: error });
   }
   if (error instanceof OpenAIConnectionError) {
-    return new APIConnectionError(error.message);
+    return new APIConnectionError(error.message, { cause: error });
   }
   // APIError with a status code => status error
   if (error instanceof OpenAIAPIError && typeof error.status === 'number') {
@@ -168,10 +168,10 @@ export function convertOpenAIError(
     error.constructor === OpenAIAPIError &&
     error.error === undefined
   ) {
-    return classifyBaseApiError(error.message);
+    return classifyBaseApiError(error.message, error);
   }
   if (error instanceof OpenAIError) {
-    return new ChatProviderError(`Error: ${error.message}`);
+    return new ChatProviderError(`Error: ${error.message}`, { cause: error });
   }
   // Raw, non-SDK errors (e.g. undici's `TypeError: terminated` raised when a
   // streaming response body is dropped mid-flight) never get wrapped by the
@@ -179,7 +179,7 @@ export function convertOpenAIError(
   // transport-layer heuristic so genuine connection failures become
   // retryable instead of fatal generic errors.
   if (error instanceof Error) {
-    return classifyBaseApiError(error.message);
+    return classifyBaseApiError(error.message, error);
   }
   return new ChatProviderError(`Error: ${String(error)}`);
 }

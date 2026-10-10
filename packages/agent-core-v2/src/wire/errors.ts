@@ -6,6 +6,7 @@ export const WireErrors = {
     WIRE_DUPLICATE_OP: 'wire.duplicate_op',
     WIRE_UNKNOWN_RECORD: 'wire.unknown_record',
     WIRE_MIGRATION_MISSING: 'wire.migration_missing',
+    WIRE_CYCLE: 'wire.cycle',
     RECORDS_WRITE_FAILED: 'records.write_failed',
   },
   info: {
@@ -20,6 +21,12 @@ export const WireErrors = {
       retryable: false,
       public: true,
       action: 'The record was written by a newer version; upgrade or drop it.',
+    },
+    'wire.cycle': {
+      title: 'Wire record cycle',
+      retryable: false,
+      public: true,
+      action: 'The wire record chain references itself; the session may be corrupt.',
     },
     'wire.migration_missing': {
       title: 'Wire migration missing',

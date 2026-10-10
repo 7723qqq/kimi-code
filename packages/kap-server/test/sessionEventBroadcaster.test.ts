@@ -31,6 +31,7 @@ import {
   IWorkspaceInstanceManager,
   IWorkspaceSessions,
   MAIN_AGENT_ID,
+  ErrorCodes,
   interactions,
   makeAgentScopeContext,
 } from '@moonshot-ai/agent-core-v2';
@@ -44,6 +45,7 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { sessionEventMessageSchema } from '../src/protocol/ws-control';
+import { kimiErrorCodeSchema } from '../src/protocol/events-zod';
 import { TranscriptService } from '../src/services/transcript/transcriptService';
 import type { AgentEvent } from '../src/transport/ws/v1/events';
 import {
@@ -3297,5 +3299,15 @@ describe('sessionEventMessageSchema', () => {
         }),
       ).success,
     ).toBe(false);
+  });
+});
+
+describe('kimiErrorCodeSchema', () => {
+  it('declares exactly the engine registry codes and never drops one from the stream', () => {
+    const declared = new Set<string>(kimiErrorCodeSchema.options);
+    const engine = new Set<string>(Object.values(ErrorCodes));
+
+    expect([...declared].filter((code) => !engine.has(code))).toEqual([]);
+    expect([...engine].filter((code) => !declared.has(code))).toEqual([]);
   });
 });

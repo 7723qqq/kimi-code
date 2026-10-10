@@ -2,8 +2,11 @@
  * Unexpected-error reporting hook (`onUnexpectedError`) — surfaces exceptions
  * thrown by listener callbacks.
  *
- * Shared infrastructure: moved from agent-core-v2's `_base/errors`; the
- * engine re-exports it unchanged.
+ * Shared infrastructure: this package carries its own copy of the module that
+ * also lives in agent-core-v2's `_base/errors`. The engine does NOT re-export
+ * this file — the two are independent copies that cannot be merged (`kosong`
+ * is a frozen legacy kernel and the engine's import-boundary check forbids it
+ * from depending on this package).
  */
 
 export type UnexpectedErrorHandler = (err: unknown) => void;

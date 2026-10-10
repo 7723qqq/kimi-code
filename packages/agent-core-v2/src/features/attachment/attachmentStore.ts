@@ -3,7 +3,7 @@ import { constants } from 'node:fs';
 import { open, mkdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { AttachmentError } from './errors';
+import { AttachmentErrors, AttachmentError } from './errors';
 import { AttachmentId, type ImageAttachmentRef } from './types';
 
 const ID_PATTERN = /^sha256:([a-f0-9]{64})$/;
@@ -31,7 +31,10 @@ export function requireSha256(ref: ImageAttachmentRef | string): string {
   const id = typeof ref === 'string' ? ref : String(ref.attachmentId);
   const match = ID_PATTERN.exec(id);
   if (match?.[1] === undefined) {
-    throw new AttachmentError('Attachment reference is invalid.', 'INVALID_ATTACHMENT_REF');
+    throw new AttachmentError(
+      AttachmentErrors.codes.ATTACHMENT_INVALID_REF,
+      'Attachment reference is invalid.',
+    );
   }
   return match[1];
 }

@@ -6,8 +6,15 @@
  * codes, the registry (`registerErrorDomain` / `errorInfo` / `isErrorCode`),
  * and the domain-independent core codes (`internal`, `not_implemented`).
  *
- * Shared infrastructure: moved from agent-core-v2's `_base/errors`; the
- * engine re-exports it unchanged and keeps registering its domain codes here.
+ * Shared infrastructure: this package carries its own copy of the module that
+ * also lives in agent-core-v2's `_base/errors`. The engine does NOT re-export
+ * this file — the two are independent copies that have drifted (this one keeps
+ * `Error2.code` as a plain `string` and uses `t()` for its core messages; the
+ * engine's copy narrows the code to its derived `ErrorCode` union and carries
+ * no i18n call). They cannot be merged: `kosong` is a frozen legacy kernel and
+ * the engine's import-boundary check forbids it from depending on this package.
+ * `packages/kosong/test/errors-parity.test.ts` asserts that the semantics the
+ * two copies must share stay shared.
  */
 
 import { t } from '@moonshot-ai/kimi-i18n';

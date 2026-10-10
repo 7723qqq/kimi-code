@@ -741,11 +741,11 @@ export function convertGoogleGenAIError(error: unknown): ChatProviderError {
     const msg = error.message;
     // Timeout takes priority over network (a timeout is also a connection issue)
     if (TIMEOUT_RE.test(msg)) {
-      return new APITimeoutError(msg);
+      return new APITimeoutError(msg, { cause: error });
     }
     // Network / fetch errors (e.g. TypeError: fetch failed)
     if (NETWORK_RE.test(msg) || (error instanceof TypeError && msg.includes('fetch'))) {
-      return new APIConnectionError(msg);
+      return new APIConnectionError(msg, { cause: error });
     }
     // Try to extract status code from unknown error shapes
     const statusCode = (error as { code?: number }).code;

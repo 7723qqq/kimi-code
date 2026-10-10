@@ -1,8 +1,11 @@
 /**
  * Render thrown values as human-readable lines for logs and CLI output.
  *
- * Shared infrastructure: moved from agent-core-v2's `_base/errors`; the
- * engine re-exports it unchanged.
+ * Shared infrastructure: this package carries its own copy of the module that
+ * also lives in agent-core-v2's `_base/errors`. The engine does NOT re-export
+ * this file — the two are independent copies that cannot be merged (`kosong`
+ * is a frozen legacy kernel and the engine's import-boundary check forbids it
+ * from depending on this package).
  */
 
 import { isCodedError } from './serialize';

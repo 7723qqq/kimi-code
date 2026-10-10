@@ -110,8 +110,8 @@ function makeHandler(
       return reply.send(okEnvelope(result, requestId));
     } catch (error) {
       promptReservation?.dispose();
-      const envelope = mapError(error, requestId);
       const log = requestLog(req);
+      const envelope = mapError(error, requestId, log);
       if (envelope.code === ErrorCode.INTERNAL_ERROR) {
         log?.error({ err: error, service, method }, 'rpc dispatch failed');
       } else {

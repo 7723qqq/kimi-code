@@ -4,7 +4,7 @@ import { IConfigService } from '#/app/config/config';
 import { detectImage, probeImage } from './attachmentImage';
 import { privateRoot } from './attachmentRoot';
 import { displayName, readObject, saveObject } from './attachmentStore';
-import { AttachmentError } from './errors';
+import { AttachmentErrors, AttachmentError } from './errors';
 import {
   type IAttachmentService,
   type ImageAttachmentLimits,
@@ -42,24 +42,24 @@ export class AttachmentService extends Service implements IAttachmentService {
   async saveImage(input: SaveImageAttachment): Promise<ImageAttachmentRef> {
     const limits = this.limits();
     if (input.data.byteLength === 0) {
-      throw new AttachmentError('attachment.invalid_image', 'Image is empty.');
+      throw new AttachmentError(AttachmentErrors.codes.ATTACHMENT_INVALID_IMAGE, 'Image is empty.');
     }
     if (input.data.byteLength > limits.maxImageBytes) {
       throw new AttachmentError(
-        'attachment.image_too_large',
+        AttachmentErrors.codes.ATTACHMENT_IMAGE_TOO_LARGE,
         'Image exceeds the configured byte limit.',
       );
     }
     if (!limits.mediaTypes.includes(input.mediaType)) {
       throw new AttachmentError(
-        'attachment.image_type_mismatch',
+        AttachmentErrors.codes.ATTACHMENT_IMAGE_TYPE_MISMATCH,
         'Declared image type is not accepted.',
       );
     }
     const detected = await detectImage(input.data, limits.maxImagePixels);
     if (detected.mediaType !== input.mediaType) {
       throw new AttachmentError(
-        'attachment.image_type_mismatch',
+        AttachmentErrors.codes.ATTACHMENT_IMAGE_TYPE_MISMATCH,
         'Declared image type does not match its bytes.',
       );
     }

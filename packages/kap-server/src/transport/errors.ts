@@ -49,10 +49,24 @@ const KIMI_TO_PROTOCOL: Record<string, ErrorCode> = {
   [ErrorCodes.STORAGE_LOCKED]: ErrorCode.PERSISTENCE_FAILURE,
 };
 
-export function mapError(err: unknown, requestId: string): ReturnType<typeof errEnvelope> {
+export interface UnmappedCodeReporter {
+  warn(obj: object, msg: string): void;
+}
+
+export function mapError(
+  err: unknown,
+  requestId: string,
+  reporter?: UnmappedCodeReporter,
+): ReturnType<typeof errEnvelope> {
   if (err instanceof Error2) {
-    const code = KIMI_TO_PROTOCOL[err.code] ?? ErrorCode.INTERNAL_ERROR;
-    return errEnvelope(code, err.message, requestId, err.stack);
+    const mapped = KIMI_TO_PROTOCOL[err.code];
+    if (mapped === undefined) {
+      reporter?.warn(
+        { code: err.code, request_id: requestId },
+        'engine error code has no wire equivalent; reporting INTERNAL_ERROR',
+      );
+    }
+    return errEnvelope(mapped ?? ErrorCode.INTERNAL_ERROR, err.message, requestId, err.stack);
   }
   if (err instanceof TimeoutError) {
     return errEnvelope(ErrorCode.INTERNAL_ERROR, err.message, requestId, err.stack);
