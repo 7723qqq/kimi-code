@@ -62,6 +62,7 @@ function createHarness(draft = 'fix the parser'): Harness {
     state: {
       editor,
       activeDialog: null,
+      terminal: { rows: 40, columns: 80 },
     },
     session,
     ensureSession: vi.fn(async () => session),
@@ -218,12 +219,14 @@ describe('PromptOptimizerController', () => {
     await pending;
   });
 
-  it('does nothing for an empty draft', async () => {
+  it('tells the user a draft is needed instead of returning silently', async () => {
     const h = createHarness('   ');
     await h.controller.optimize();
 
     expect(h.optimizePrompt).not.toHaveBeenCalled();
     expect(h.mount).not.toHaveBeenCalled();
+    expect(h.showError).toHaveBeenCalledTimes(1);
+    expect(h.track).toHaveBeenCalledWith('prompt_optimize_empty_draft');
   });
 
   it('surfaces a failure instead of failing silently', async () => {

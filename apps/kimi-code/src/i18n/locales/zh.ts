@@ -1384,9 +1384,12 @@ export default {
       promptOptimize: {
         title: '重写这段提示词',
         hint: '{{accept}} 接受 · {{discard}} 放弃',
+        scrollHint: '↑↓ / PgUp·PgDn 滚动 · {{expand}} 展开',
+        showing: '显示 {{from}}-{{to}} / 共 {{total}} 行',
         accept: '接受重写',
         discard: '保留原文',
         failed: '提示词重写失败：{{error}}',
+        emptyDraft: '请先输入提示词，再执行重写。',
         noSession: '请先开始一个会话再重写提示词。',
       },
       updatePreferenceSelector: {

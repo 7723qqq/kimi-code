@@ -1419,9 +1419,12 @@ export default {
       promptOptimize: {
         title: 'Rewrite this prompt',
         hint: '{{accept}} accept · {{discard}} discard',
+        scrollHint: '↑↓ / PgUp·PgDn scroll · {{expand}} expand',
+        showing: 'showing {{from}}-{{to}} of {{total}}',
         accept: 'Accept rewrite',
         discard: 'Keep original',
         failed: 'Could not rewrite the prompt: {{error}}',
+        emptyDraft: 'Type a prompt first, then rewrite it.',
         noSession: 'Start a session before rewriting a prompt.',
       },
       updatePreferenceSelector: {

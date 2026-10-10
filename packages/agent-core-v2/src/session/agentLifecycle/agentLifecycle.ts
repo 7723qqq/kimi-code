@@ -24,6 +24,11 @@ export interface ForkAgentOptions {
   readonly agentId?: string;
   readonly binding?: Partial<BindAgentInput>;
   readonly labels?: Readonly<Record<string, string>>;
+  readonly inheritedHistory?: InheritedHistoryOptions;
+}
+
+export interface InheritedHistoryOptions {
+  readonly maxUserTurns?: number;
 }
 
 export interface AgentListFilter {

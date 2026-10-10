@@ -1367,6 +1367,68 @@ describe('AgentLifecycleService', () => {
     ).toEqual([]);
   });
 
+  it('fork keeps only the requested number of user turns when a window is given', async () => {
+    const svc = ix.get(IAgentLifecycleService);
+    const source = await svc.create({ agentId: 'main' });
+    const sourceHandle = svc.handleOf('main')!;
+    const history: ContextMessage[] = [
+      { role: 'user', content: [{ type: 'text', text: 'first' }], toolCalls: [] },
+      { role: 'assistant', content: [{ type: 'text', text: 'reply one' }], toolCalls: [] },
+      { role: 'user', content: [{ type: 'text', text: 'second' }], toolCalls: [] },
+      { role: 'assistant', content: [{ type: 'text', text: 'reply two' }], toolCalls: [] },
+      { role: 'user', content: [{ type: 'text', text: 'third' }], toolCalls: [] },
+    ];
+    sourceHandle.accessor.get(IAgentContextMemoryService).append(...history);
+
+    const child = await svc.fork(agentContextOf(sourceHandle), {
+      agentId: 'forked',
+      inheritedHistory: { maxUserTurns: 2 },
+    });
+
+    const seeded = svc.handleOf(child.agentId)!.accessor.get(IAgentContextMemoryService).get();
+    const texts = seeded.flatMap((message) =>
+      message.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])),
+    );
+    expect(texts).toContain('second');
+    expect(texts).toContain('third');
+    expect(texts).not.toContain('first');
+  });
+
+  it('fork keeps the whole history when no window is requested', async () => {
+    const svc = ix.get(IAgentLifecycleService);
+    const source = await svc.create({ agentId: 'main' });
+    const sourceHandle = svc.handleOf('main')!;
+    const history: ContextMessage[] = [
+      { role: 'user', content: [{ type: 'text', text: 'first' }], toolCalls: [] },
+      { role: 'user', content: [{ type: 'text', text: 'second' }], toolCalls: [] },
+      { role: 'user', content: [{ type: 'text', text: 'third' }], toolCalls: [] },
+    ];
+    sourceHandle.accessor.get(IAgentContextMemoryService).append(...history);
+
+    const child = await svc.fork(agentContextOf(sourceHandle), { agentId: 'forked' });
+
+    const seeded = svc.handleOf(child.agentId)!.accessor.get(IAgentContextMemoryService).get();
+    expect(seeded).toHaveLength(3);
+  });
+
+  it('fork keeps no history when the window is zero', async () => {
+    const svc = ix.get(IAgentLifecycleService);
+    const source = await svc.create({ agentId: 'main' });
+    const sourceHandle = svc.handleOf('main')!;
+    sourceHandle.accessor
+      .get(IAgentContextMemoryService)
+      .append({ role: 'user', content: [{ type: 'text', text: 'first' }], toolCalls: [] });
+
+    const child = await svc.fork(agentContextOf(sourceHandle), {
+      agentId: 'forked',
+      inheritedHistory: { maxUserTurns: 0 },
+    });
+
+    expect(
+      svc.handleOf(child.agentId)!.accessor.get(IAgentContextMemoryService).get(),
+    ).toEqual([]);
+  });
+
   it('fork passes labels through to the registered agent metadata', async () => {
     const svc = ix.get(IAgentLifecycleService);
     const source = await svc.create({ agentId: 'main' });

@@ -8,16 +8,14 @@ import { IFlagService } from '#/app/flag/flag';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { IAgentReminderService } from '#/features/reminder/reminderService';
 import {
   ISessionPromptOptimizerService,
   PROMPT_OPTIMIZER_FLAG_ID,
   PROMPT_OPTIMIZER_MAX_CONTEXT_TURNS,
   PROMPT_OPTIMIZER_MAX_INPUT_LENGTH,
   PROMPT_OPTIMIZER_MAX_OUTPUT_LENGTH,
-  PROMPT_OPTIMIZER_SYSTEM_REMINDER,
+  PROMPT_OPTIMIZER_PROFILE_NAME,
   PROMPT_OPTIMIZER_TOOL_DISABLED_MESSAGE,
-  PROMPT_OPTIMIZER_TRUNCATION_MARKER,
 } from '#/features/promptOptimizer/promptOptimizer';
 import { SessionPromptOptimizerService } from '#/features/promptOptimizer/promptOptimizerService';
 import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
@@ -27,12 +25,11 @@ import type { ToolCall } from '#human/llm/message';
 import { stubAgentContext } from '../../agent/agentContext/stubs';
 import { stubToolExecutorEvents, type ToolExecutorEventStubs } from '../../agent/toolExecutor/stubs';
 
-const CONTEXT = { cwd: 'C:/work/demo', recentTurns: ['user: fix the parser'] };
+const CONTEXT = { cwd: 'C:/work/demo' };
 
 describe('SessionPromptOptimizerService', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
-  let appendReminder: ReturnType<typeof vi.fn>;
   let formatDenyMessage: ReturnType<typeof vi.fn>;
   let executorEvents: ToolExecutorEventStubs;
   let run: ReturnType<typeof vi.fn<(agent: unknown, request: unknown) => Promise<unknown>>>;  let remove: ReturnType<typeof vi.fn>;
@@ -49,7 +46,6 @@ describe('SessionPromptOptimizerService', () => {
   beforeEach(() => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
-    appendReminder = vi.fn(() => 'reminder-id');
     formatDenyMessage = vi.fn((message: string) => `${message} [worker guidance]`);
     executorEvents = stubToolExecutorEvents();
     remove = vi.fn(async () => {});
@@ -62,7 +58,6 @@ describe('SessionPromptOptimizerService', () => {
         get: (id: unknown) => {
           if (id === IAgentToolApprovalService) return { formatDenyMessage };
           if (id === IAgentToolExecutorService) return executorEvents.executor;
-          if (id === IAgentReminderService) return { notify: appendReminder };
           return undefined;
         },
       },
@@ -117,27 +112,71 @@ describe('SessionPromptOptimizerService', () => {
     const result = await svc.optimize('fix the thing', CONTEXT);
 
     expect(result).toBe('Rewritten prompt.');
-    expect(appendReminder).toHaveBeenCalledWith(PROMPT_OPTIMIZER_SYSTEM_REMINDER, {
-      variant: 'prompt_optimizer',
-    });
     expect(remove).toHaveBeenCalled();
   });
 
-  it('passes the draft, cwd and recent turns to the child agent', async () => {
+  it('forks the child onto the optimizer profile so it does not inherit the coding persona', async () => {
+    const svc = ix.get(ISessionPromptOptimizerService);
+    await svc.optimize('fix the thing', CONTEXT);
+
+    const fork = ix.get(IAgentLifecycleService).fork as unknown as ReturnType<typeof vi.fn>;
+    const options = fork.mock.calls[0]?.[1] as { binding?: { profile?: string } };
+    expect(options.binding?.profile).toBe(PROMPT_OPTIMIZER_PROFILE_NAME);
+  });
+
+  it('bounds the inherited history by the engine limit when the caller sends no turns', async () => {
+    const svc = ix.get(ISessionPromptOptimizerService);
+    await svc.optimize('fix the thing', CONTEXT);
+
+    const fork = ix.get(IAgentLifecycleService).fork as unknown as ReturnType<typeof vi.fn>;
+    const options = fork.mock.calls[0]?.[1] as { inheritedHistory?: { maxUserTurns?: number } };
+    expect(options.inheritedHistory?.maxUserTurns).toBe(PROMPT_OPTIMIZER_MAX_CONTEXT_TURNS);
+  });
+
+  it('never inherits more turns than the engine limit, however many the caller sends', async () => {
+    const svc = ix.get(ISessionPromptOptimizerService);
+    const turns = Array.from(
+      { length: PROMPT_OPTIMIZER_MAX_CONTEXT_TURNS + 4 },
+      (_, i) => `turn-${i}`,
+    );
+    await svc.optimize('fix the thing', { ...CONTEXT, recentTurns: turns });
+
+    const fork = ix.get(IAgentLifecycleService).fork as unknown as ReturnType<typeof vi.fn>;
+    const options = fork.mock.calls[0]?.[1] as { inheritedHistory?: { maxUserTurns?: number } };
+    expect(options.inheritedHistory?.maxUserTurns).toBe(PROMPT_OPTIMIZER_MAX_CONTEXT_TURNS);
+  });
+
+  it('honors a smaller caller-requested window', async () => {
+    const svc = ix.get(ISessionPromptOptimizerService);
+    await svc.optimize('fix the thing', { ...CONTEXT, recentTurns: ['a', 'b'] });
+
+    const fork = ix.get(IAgentLifecycleService).fork as unknown as ReturnType<typeof vi.fn>;
+    const options = fork.mock.calls[0]?.[1] as { inheritedHistory?: { maxUserTurns?: number } };
+    expect(options.inheritedHistory?.maxUserTurns).toBe(2);
+  });
+
+  it('passes the draft and cwd to the child agent', async () => {
     const svc = ix.get(ISessionPromptOptimizerService);
     await svc.optimize('fix the thing', CONTEXT);
 
     const prompt = run.mock.calls[0]?.[1] as { prompt: string };
     expect(prompt.prompt).toContain('fix the thing');
     expect(prompt.prompt).toContain(CONTEXT.cwd);
-    expect(prompt.prompt).toContain('fix the parser');
   });
 
-  it('vetoes every tool call on the child', async () => {
+  it('does not repeat the conversation context the fork already copied', async () => {
+    const svc = ix.get(ISessionPromptOptimizerService);
+    await svc.optimize('fix the thing', { ...CONTEXT, sessionKey: 'session-1' });
+
+    const prompt = run.mock.calls[0]?.[1] as { prompt: string };
+    expect(prompt.prompt).not.toContain('Recent conversation:');
+  });
+
+  it('vetoes a tool call outside the read-only allowlist', async () => {
     const svc = ix.get(ISessionPromptOptimizerService);
     await svc.optimize('fix the thing', CONTEXT);
 
-    for (const name of ['Read', 'Grep', 'Bash', 'Write']) {
+    for (const name of ['Bash', 'Write', 'Edit', 'Agent']) {
       const toolCall: ToolCall = { type: 'function', id: `call_${name}`, name, arguments: '{}' };
       const decision = await executorEvents.fireBeforeExecute({
         turnId: 0,
@@ -154,6 +193,25 @@ describe('SessionPromptOptimizerService', () => {
           isError: true,
         },
       });
+    }
+  });
+
+  it('lets the read-only tools through so the child can resolve ambiguity', async () => {
+    const svc = ix.get(ISessionPromptOptimizerService);
+    await svc.optimize('fix the thing', CONTEXT);
+
+    for (const name of ['Read', 'Glob', 'Grep']) {
+      const toolCall: ToolCall = { type: 'function', id: `call_${name}`, name, arguments: '{}' };
+      const decision = await executorEvents.fireBeforeExecute({
+        turnId: 0,
+        signal: new AbortController().signal,
+        toolCall,
+        toolCalls: [toolCall],
+        args: {},
+        execution: { approvalRule: name, execute: async () => ({ output: '' }) },
+      });
+
+      expect(decision).toBeUndefined();
     }
   });
 
@@ -197,20 +255,22 @@ describe('SessionPromptOptimizerService', () => {
     expect(body.startsWith(result)).toBe(true);
   });
 
-  it('marks a draft that exceeds the input limit as truncated', async () => {
+  it('clamps a draft that exceeds the input limit', async () => {
     const svc = ix.get(ISessionPromptOptimizerService);
-    await svc.optimize('y'.repeat(PROMPT_OPTIMIZER_MAX_INPUT_LENGTH + 100), CONTEXT);
+    const draft = 'y'.repeat(PROMPT_OPTIMIZER_MAX_INPUT_LENGTH + 100);
+    await svc.optimize(draft, CONTEXT);
 
     const prompt = run.mock.calls[0]?.[1] as { prompt: string };
-    expect(prompt.prompt).toContain(PROMPT_OPTIMIZER_TRUNCATION_MARKER);
+    expect(prompt.prompt).not.toContain(draft);
+    expect(prompt.prompt).toContain('y'.repeat(16));
   });
 
-  it('does not mark a draft that fits as truncated', async () => {
+  it('keeps a draft that fits whole', async () => {
     const svc = ix.get(ISessionPromptOptimizerService);
     await svc.optimize('fix the thing', CONTEXT);
 
     const prompt = run.mock.calls[0]?.[1] as { prompt: string };
-    expect(prompt.prompt).not.toContain(PROMPT_OPTIMIZER_TRUNCATION_MARKER);
+    expect(prompt.prompt).toContain('fix the thing');
   });
 
   it('logs when the throwaway agent cannot be removed', async () => {
@@ -221,20 +281,6 @@ describe('SessionPromptOptimizerService', () => {
 
     await expect(svc.optimize('fix the thing', CONTEXT)).resolves.toBe('Rewritten prompt.');
     expect(warn).toHaveBeenCalled();
-  });
-
-  it('caps the recent turns the engine forwards to the child', async () => {
-    const svc = ix.get(ISessionPromptOptimizerService);
-    const turns = Array.from({ length: PROMPT_OPTIMIZER_MAX_CONTEXT_TURNS + 4 }, (_, i) => `turn-${i}`);
-    await svc.optimize('fix the thing', { ...CONTEXT, recentTurns: turns });
-
-    const prompt = run.mock.calls[0]?.[1] as { prompt: string };
-    for (const dropped of turns.slice(0, 4)) {
-      expect(prompt.prompt).not.toContain(dropped);
-    }
-    for (const kept of turns.slice(4)) {
-      expect(prompt.prompt).toContain(kept);
-    }
   });
 
   it('rejects a second rewrite while one is already running for the session', async () => {

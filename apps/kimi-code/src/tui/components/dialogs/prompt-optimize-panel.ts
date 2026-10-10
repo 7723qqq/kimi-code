@@ -8,13 +8,15 @@
  */
 
 import {
-  Container,
   matchesKey,
   Key,
   truncateToWidth,
   visibleWidth,
   wrapTextWithAnsi,
+  type Component,
   type Focusable,
+  type TuiMouseEvent,
+  type TuiMouseEventResult,
 } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
@@ -28,6 +30,12 @@ export interface PromptOptimizePanelOptions {
   readonly original: string;
   readonly optimized: string;
   readonly onSelect: (choice: PromptOptimizeChoice) => void;
+  /**
+   * Rows the scrollable diff region may occupy. The panel is mounted in place of
+   * the editor and is never handed the terminal height, so the host passes the
+   * budget it can afford; the fallback keeps the panel usable when it does not.
+   */
+  readonly maxVisible?: number;
 }
 
 const MAX_DIFF_LINES = 24;
@@ -38,6 +46,14 @@ const MAX_EXPANDED_DIFF_LINES = 200;
  * the cap keeps them reachable and is reported rather than silently applied.
  */
 const MAX_WRAPPED_LINES = 400;
+
+/** Default rows for the diff region when the host grants no explicit budget. */
+const DEFAULT_MAX_VISIBLE = 20;
+
+/** Rows a page key moves, derived from the same budget the region renders with. */
+function pageStep(rows: number): number {
+  return Math.max(1, rows - 1);
+}
 
 /**
  * Visible columns the diff gutter occupies: a 4-wide line number, a space, and
@@ -95,16 +111,28 @@ function stripAnsiCodes(text: string): string {
   return text.replaceAll(/\u001B\[[0-9;]*m/g, '');
 }
 
-export class PromptOptimizePanelComponent extends Container implements Focusable {
+export class PromptOptimizePanelComponent implements Component, Focusable {
   focused = false;
 
   private readonly opts: PromptOptimizePanelOptions;
   private selected: PromptOptimizeChoice = 'accept';
   private expanded = false;
+  /** Index of the topmost visible diff row. */
+  private scrollTop = 0;
+  /** Row count of the last render, used by the page keys. */
+  private lastDiffRowCount = 0;
 
   constructor(opts: PromptOptimizePanelOptions) {
-    super();
     this.opts = opts;
+  }
+
+  private get visibleRows(): number {
+    return Math.max(1, this.opts.maxVisible ?? DEFAULT_MAX_VISIBLE);
+  }
+
+  private scrollTo(target: number): void {
+    const max = Math.max(0, this.lastDiffRowCount - this.visibleRows);
+    this.scrollTop = Math.max(0, Math.min(target, max));
   }
 
   handleInput(data: string): void {
@@ -114,13 +142,40 @@ export class PromptOptimizePanelComponent extends Container implements Focusable
     }
     if (matchesKey(data, Key.ctrl('o'))) {
       this.expanded = !this.expanded;
+      // The content length changes under the window, so the clamp has to run
+      // against the new length rather than leaving the window past the end.
+      this.scrollTop = 0;
       return;
     }
-    if (matchesKey(data, Key.left) || matchesKey(data, Key.up)) {
+    if (matchesKey(data, Key.up)) {
+      this.scrollTo(this.scrollTop - 1);
+      return;
+    }
+    if (matchesKey(data, Key.down)) {
+      this.scrollTo(this.scrollTop + 1);
+      return;
+    }
+    if (matchesKey(data, Key.pageUp)) {
+      this.scrollTo(this.scrollTop - pageStep(this.visibleRows));
+      return;
+    }
+    if (matchesKey(data, Key.pageDown)) {
+      this.scrollTo(this.scrollTop + pageStep(this.visibleRows));
+      return;
+    }
+    if (matchesKey(data, Key.home)) {
+      this.scrollTo(0);
+      return;
+    }
+    if (matchesKey(data, Key.end)) {
+      this.scrollTo(Number.MAX_SAFE_INTEGER);
+      return;
+    }
+    if (matchesKey(data, Key.left)) {
       this.selected = 'accept';
       return;
     }
-    if (matchesKey(data, Key.right) || matchesKey(data, Key.down)) {
+    if (matchesKey(data, Key.right)) {
       this.selected = 'discard';
       return;
     }
@@ -133,7 +188,21 @@ export class PromptOptimizePanelComponent extends Container implements Focusable
     }
   }
 
-  override render(width: number): string[] {
+  handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+    if (event.type !== 'wheel') return undefined;
+    // Direction comes only from `wheelDelta` (the button field has no wheel
+    // value); a positive delta scrolls toward later rows.
+    const delta = event.wheelDelta ?? 0;
+    if (delta === 0) return undefined;
+    this.scrollTo(this.scrollTop + delta);
+    // Always consume: letting the transcript take over mid-read would scroll the
+    // conversation out from under the panel the pointer is resting on.
+    return { handled: true };
+  }
+
+  invalidate(): void {}
+
+  render(width: number): string[] {
     const theme = currentTheme;
     const lines: string[] = [
       theme.fg('primary', '─'.repeat(Math.max(1, width))),
@@ -144,6 +213,13 @@ export class PromptOptimizePanelComponent extends Container implements Focusable
         theme.fg(
           'textMuted',
           t('tui.dialogs.promptOptimize.hint', { accept: 'Enter', discard: 'Esc' }),
+        ),
+        width,
+      ),
+      truncateToWidth(
+        theme.fg(
+          'textMuted',
+          t('tui.dialogs.promptOptimize.scrollHint', { expand: 'Ctrl+O' }),
         ),
         width,
       ),
@@ -165,7 +241,33 @@ export class PromptOptimizePanelComponent extends Container implements Focusable
       }
       diffRows.push(...wrapped);
     }
-    lines.push(...diffRows);
+    this.lastDiffRowCount = diffRows.length;
+
+    const visible = this.visibleRows;
+    if (diffRows.length > visible) {
+      this.scrollTo(this.scrollTop);
+      const slice = diffRows.slice(this.scrollTop, this.scrollTop + visible);
+      lines.push(...slice);
+      const from = this.scrollTop + 1;
+      const to = this.scrollTop + slice.length;
+      lines.push(
+        truncateToWidth(
+          theme.fg(
+            'textMuted',
+            `   … ${t('tui.dialogs.promptOptimize.showing', {
+              from,
+              to,
+              total: diffRows.length,
+            })}`,
+          ),
+          width,
+        ),
+      );
+    } else {
+      this.scrollTop = 0;
+      lines.push(...diffRows);
+    }
+
     if (wrapTruncated) {
       lines.push(
         theme.fg(

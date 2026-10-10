@@ -7,20 +7,18 @@ import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IFlagService } from '#/app/flag/flag';
 import { LifecycleScope } from '#/app/scopes';
 import { ErrorCodes, Error2 } from '#/errors';
-import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
 
 import {
   ISessionPromptOptimizerService,
   PROMPT_OPTIMIZER_FLAG_ID,
-  PROMPT_OPTIMIZER_MAX_CONTEXT_LENGTH,
   PROMPT_OPTIMIZER_MAX_CONTEXT_TURNS,
   PROMPT_OPTIMIZER_MAX_INPUT_LENGTH,
   PROMPT_OPTIMIZER_MAX_OUTPUT_LENGTH,
-  PROMPT_OPTIMIZER_SYSTEM_REMINDER,
+  PROMPT_OPTIMIZER_PROFILE_NAME,
+  PROMPT_OPTIMIZER_TOOLS,
   PROMPT_OPTIMIZER_TOOL_DISABLED_MESSAGE,
-  PROMPT_OPTIMIZER_TRUNCATION_MARKER,
   type PromptOptimizerContext,
 } from './promptOptimizer';
 
@@ -72,21 +70,24 @@ export class SessionPromptOptimizerService implements ISessionPromptOptimizerSer
       }
       childContext = await this.agentLifecycle.fork(
         main.accessor.get(IAgentScopeContext).agentContext,
-        { labels: OPTIMIZER_LABELS },
+        {
+          labels: OPTIMIZER_LABELS,
+          binding: { profile: PROMPT_OPTIMIZER_PROFILE_NAME },
+          inheritedHistory: { maxUserTurns: inheritedTurnLimit(context) },
+        },
       );
       const child = this.agentLifecycle.handleOf(childContext.agentId);
       if (child === undefined) {
         throw new Error2(ErrorCodes.AGENT_NOT_FOUND, 'Optimizer agent could not be created');
       }
-      child.accessor
-        .get(IAgentReminderService)
-        .notify(PROMPT_OPTIMIZER_SYSTEM_REMINDER, { variant: 'prompt_optimizer' });
       const reason =
         child.accessor
           .get(IAgentToolApprovalService)
           ?.formatDenyMessage(PROMPT_OPTIMIZER_TOOL_DISABLED_MESSAGE) ??
         PROMPT_OPTIMIZER_TOOL_DISABLED_MESSAGE;
+      const allowedTools: ReadonlySet<string> = new Set(PROMPT_OPTIMIZER_TOOLS);
       child.accessor.get(IAgentToolExecutorService)?.onBeforeExecuteTool((event) => {
+        if (allowedTools.has(event.toolCall.name)) return;
         event.veto(denyToolExecution(reason));
       });
 
@@ -123,27 +124,20 @@ function clampOutput(text: string): string {
   return boundary > 0 ? head.slice(0, boundary + 1) : head;
 }
 
+function inheritedTurnLimit(context: PromptOptimizerContext): number {
+  const requested = context.recentTurns?.length;
+  if (requested === undefined) return PROMPT_OPTIMIZER_MAX_CONTEXT_TURNS;
+  return Math.max(0, Math.min(requested, PROMPT_OPTIMIZER_MAX_CONTEXT_TURNS));
+}
+
 function buildOptimizerInput(draft: string, context: PromptOptimizerContext): string {
   const sections = [`Working directory: ${context.cwd}`];
-  const recent = formatRecentTurns(context.recentTurns);
-  if (recent.length > 0) {
-    sections.push(`Recent conversation:\n${clamp(recent, PROMPT_OPTIMIZER_MAX_CONTEXT_LENGTH)}`);
-  }
   sections.push(`Prompt to rewrite:\n${clamp(draft, PROMPT_OPTIMIZER_MAX_INPUT_LENGTH)}`);
   return sections.join('\n\n');
 }
 
-function formatRecentTurns(turns: readonly string[] | undefined): string {
-  if (turns === undefined || turns.length === 0) return '';
-  return turns
-    .slice(-PROMPT_OPTIMIZER_MAX_CONTEXT_TURNS)
-    .map((turn) => turn.trim())
-    .filter((turn) => turn.length > 0)
-    .join('\n');
-}
-
 function clamp(text: string, max: number): string {
-  return text.length <= max ? text : `${text.slice(0, max)}${PROMPT_OPTIMIZER_TRUNCATION_MARKER}`;
+  return text.length <= max ? text : text.slice(0, max);
 }
 
 function linkSignals(external: AbortSignal | undefined, controller: AbortController): () => void {

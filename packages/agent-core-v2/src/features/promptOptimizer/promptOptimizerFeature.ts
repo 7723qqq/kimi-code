@@ -4,6 +4,7 @@ import { Feature } from '#/features/feature';
 import { registerFeature } from '#/features/featureRegistry';
 
 import './flag';
+import './optimizerProfile';
 import { ISessionPromptOptimizerService, PROMPT_OPTIMIZER_FLAG_ID } from './promptOptimizer';
 import { SessionPromptOptimizerService } from './promptOptimizerService';
 

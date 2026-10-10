@@ -9,6 +9,8 @@ vi.mock('#/i18n', () => ({
     const translations: Record<string, string> = {
       'tui.dialogs.promptOptimize.title': 'Rewrite this prompt',
       'tui.dialogs.promptOptimize.hint': '{{accept}} accept · {{discard}} discard',
+      'tui.dialogs.promptOptimize.scrollHint': 'scroll {{expand}}',
+      'tui.dialogs.promptOptimize.showing': 'showing {{from}}-{{to}} of {{total}}',
       'tui.dialogs.promptOptimize.accept': 'Accept rewrite',
       'tui.dialogs.promptOptimize.discard': 'Keep original',
     };
@@ -26,6 +28,12 @@ const ESC = '\u001B';
 const ENTER = '\r';
 const LEFT = '\u001B[D';
 const RIGHT = '\u001B[C';
+const UP = '\u001B[A';
+const DOWN = '\u001B[B';
+const PAGE_UP = '\u001B[5~';
+const PAGE_DOWN = '\u001B[6~';
+const HOME = '\u001B[H';
+const END = '\u001B[F';
 const CTRL_O = '\u000F';
 
 function makePanel() {
@@ -66,6 +74,120 @@ describe('PromptOptimizePanelComponent', () => {
     expect(onSelect).toHaveBeenCalledWith('accept');
   });
 
+  it('scrolls with the vertical arrows instead of moving the selection', () => {
+    const onSelect = vi.fn();
+    const original = Array.from({ length: 80 }, (_, i) => `old-${i}`).join('\n');
+    const optimized = Array.from({ length: 80 }, (_, i) => `new-${i}`).join('\n');
+    const panel = new PromptOptimizePanelComponent({
+      original,
+      optimized,
+      onSelect,
+      maxVisible: 10,
+    });
+
+    const top = panel.render(80).join('\n');
+    expect(top).toContain('old-');
+
+    panel.handleInput(DOWN);
+    panel.handleInput(DOWN);
+    const scrolled = panel.render(80).join('\n');
+    expect(scrolled).not.toBe(top);
+    // Scrolling is not selection: Enter still accepts.
+    panel.handleInput(ENTER);
+    expect(onSelect).toHaveBeenCalledWith('accept');
+  });
+
+  it('pages with PageUp and PageDown and reports the visible window', () => {
+    const onSelect = vi.fn();
+    const original = Array.from({ length: 80 }, (_, i) => `old-${i}`).join('\n');
+    const optimized = Array.from({ length: 80 }, (_, i) => `new-${i}`).join('\n');
+    const panel = new PromptOptimizePanelComponent({
+      original,
+      optimized,
+      onSelect,
+      maxVisible: 10,
+    });
+
+    const first = panel.render(80).join('\n');
+    expect(first).toContain('showing 1-10 of');
+
+    panel.handleInput(PAGE_DOWN);
+    const paged = panel.render(80).join('\n');
+    expect(paged).not.toBe(first);
+    expect(paged).not.toContain('showing 1-10 of');
+  });
+
+  it('jumps to the ends with Home and End', () => {
+    const onSelect = vi.fn();
+    const original = Array.from({ length: 80 }, (_, i) => `old-${i}`).join('\n');
+    const optimized = Array.from({ length: 80 }, (_, i) => `new-${i}`).join('\n');
+    const panel = new PromptOptimizePanelComponent({
+      original,
+      optimized,
+      onSelect,
+      maxVisible: 10,
+    });
+
+    panel.render(80);
+    panel.handleInput(END);
+    const atEnd = panel.render(80).join('\n');
+    panel.handleInput(HOME);
+    const atStart = panel.render(80).join('\n');
+    expect(atEnd).not.toBe(atStart);
+    expect(atStart).toContain('showing 1-10 of');
+  });
+
+  it('scrolls on a mouse wheel and consumes the event', () => {
+    const onSelect = vi.fn();
+    const original = Array.from({ length: 80 }, (_, i) => `old-${i}`).join('\n');
+    const optimized = Array.from({ length: 80 }, (_, i) => `new-${i}`).join('\n');
+    const panel = new PromptOptimizePanelComponent({
+      original,
+      optimized,
+      onSelect,
+      maxVisible: 10,
+    });
+
+    const before = panel.render(80).join('\n');
+    const result = panel.handleMouse({
+      type: 'wheel',
+      button: 'none',
+      x: 0,
+      y: 0,
+      screenX: 0,
+      screenY: 0,
+      width: 80,
+      height: 24,
+      shift: false,
+      alt: false,
+      ctrl: false,
+      wheelDelta: 3,
+    });
+
+    expect(result).toEqual({ handled: true });
+    expect(panel.render(80).join('\n')).not.toBe(before);
+  });
+
+  it('ignores an empty wheel delta', () => {
+    const { panel } = makePanel();
+    const result = panel.handleMouse({
+      type: 'wheel',
+      button: 'none',
+      x: 0,
+      y: 0,
+      screenX: 0,
+      screenY: 0,
+      width: 80,
+      height: 24,
+      shift: false,
+      alt: false,
+      ctrl: false,
+      wheelDelta: 0,
+    });
+
+    expect(result).toBeUndefined();
+  });
+
   it('renders both the original and the rewrite', () => {
     const { panel } = makePanel();
     const rendered = panel.render(80).join('\n');
@@ -87,11 +209,16 @@ describe('PromptOptimizePanelComponent', () => {
     const panel = new PromptOptimizePanelComponent({ original, optimized, onSelect });
 
     const collapsed = panel.render(80).length;
+    // The marker sits past the collapsed window, so it is reached by scrolling
+    // rather than by rendering: the panel keeps only the visible rows.
+    panel.handleInput(PAGE_DOWN);
+    panel.handleInput(PAGE_DOWN);
+    panel.handleInput(PAGE_DOWN);
     expect(panel.render(80).join('\n')).toContain('moreChangesHidden');
 
     panel.handleInput(CTRL_O);
     const expanded = panel.render(80).length;
-    expect(expanded).toBeGreaterThan(collapsed);
+    expect(expanded).toBeGreaterThanOrEqual(collapsed);
 
     panel.handleInput(CTRL_O);
     expect(panel.render(80).length).toBe(collapsed);

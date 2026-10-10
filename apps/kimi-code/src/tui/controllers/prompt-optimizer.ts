@@ -11,6 +11,21 @@ import { formatErrorMessage } from '../utils/event-payload';
 
 const MAX_RECENT_TURN_CHARS = 400;
 
+/**
+ * Rows the panel's diff region may occupy.
+ *
+ * The panel is mounted in place of the editor rather than as a full-screen
+ * overlay, so it gets no height of its own: the budget is what the terminal can
+ * spare once the panel's own chrome (frame, title, two hints, the scroll
+ * indicator, the two choices and the blank separators) is accounted for. The
+ * floor keeps a usable window on a very short terminal.
+ */
+function diffBudget(terminalRows: number | undefined): number {
+  const PANEL_CHROME_ROWS = 9;
+  if (terminalRows === undefined || !Number.isFinite(terminalRows)) return 20;
+  return Math.max(5, Math.min(40, terminalRows - PANEL_CHROME_ROWS));
+}
+
 export interface PromptOptimizerHost {
   state: TUIState;
   session: Session | undefined;
@@ -36,7 +51,11 @@ export class PromptOptimizerController {
     const { host } = this;
     if (this.inFlight) return;
     const draft = host.state.editor.getText().trim();
-    if (draft.length === 0) return;
+    if (draft.length === 0) {
+      host.track('prompt_optimize_empty_draft');
+      host.showError(t('tui.dialogs.promptOptimize.emptyDraft'));
+      return;
+    }
 
     const session = host.session ?? (await host.ensureSession());
     if (session === undefined) {
@@ -92,6 +111,7 @@ export class PromptOptimizerController {
           original,
           optimized,
           onSelect: finish,
+          maxVisible: diffBudget(host.state.terminal.rows),
         }),
       );
     });

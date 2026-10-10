@@ -18,6 +18,7 @@ import { IAgentBlobService } from '#/agent/blob/agentBlobService';
 import { AgentBlobServiceImpl } from '#/agent/blob/agentBlobServiceImpl';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { closeTrailingOpenToolExchange } from '#/agent/contextMemory/openToolExchange';
+import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
 import {
   attachInteractionAgent,
@@ -78,6 +79,7 @@ import {
   type AgentScopeCreatedEvent,
   type CreateAgentOptions,
   type ForkAgentOptions,
+  type InheritedHistoryOptions,
   IAgentLifecycleService,
 } from './agentLifecycle';
 import { ManagedAgent } from './managedAgent';
@@ -442,9 +444,10 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
 
     const sourceMessages = source.accessor.get(IAgentContextMemoryService)?.get();
     if (sourceMessages !== undefined && sourceMessages.length > 0) {
+      const windowed = inheritHistoryWindow(sourceMessages, opts?.inheritedHistory);
       child.accessor
         .get(IAgentContextMemoryService)
-        ?.append(...closeTrailingOpenToolExchange(sourceMessages));
+        ?.append(...closeTrailingOpenToolExchange(windowed));
     }
     return childContext;
   }
@@ -680,3 +683,20 @@ registerScopedService(
   ScopeActivation.OnScopeCreated,
   'agentLifecycle',
 );
+
+function inheritHistoryWindow(
+  history: readonly ContextMessage[],
+  options: InheritedHistoryOptions | undefined,
+): readonly ContextMessage[] {
+  const maxUserTurns = options?.maxUserTurns;
+  if (maxUserTurns === undefined || maxUserTurns < 0) return history;
+  if (maxUserTurns === 0) return [];
+  let seen = 0;
+  for (let index = history.length - 1; index >= 0; index -= 1) {
+    const message = history[index];
+    if (message?.role !== 'user') continue;
+    seen += 1;
+    if (seen > maxUserTurns) return history.slice(index + 1);
+  }
+  return history;
+}
