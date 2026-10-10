@@ -576,37 +576,15 @@ export class CustomEditor extends Editor {
       if (this.onStatusSurfaceKey?.('focus') === true) return;
     }
 
-    // A focused region owns ←/→ (channel switching), ↑/↓ (paging), PgUp/PgDn
-    // and Esc (release focus); when nothing is focused the handler returns
-    // false and every key falls through to the normal editor behavior below.
-    // Active autocomplete outranks the strip: its menu needs the same keys for
-    // selection and dismissal.
-    if (
-      !this.hasAutocompleteActivity() &&
-      (matchesKey(normalized, Key.left) ||
-        matchesKey(normalized, Key.right) ||
-        matchesKey(normalized, Key.up) ||
-        matchesKey(normalized, Key.down) ||
-        matchesKey(normalized, Key.pageUp) ||
-        matchesKey(normalized, Key.pageDown) ||
-        matchesKey(normalized, '[') ||
-        matchesKey(normalized, ']') ||
-        matchesKey(normalized, Key.escape))
-    ) {
-      const panelKey = matchesKey(normalized, Key.left)
-        ? ('left' as const)
-        : matchesKey(normalized, Key.right)
-          ? ('right' as const)
-          : matchesKey(normalized, Key.up)
-            ? ('up' as const)
-            : matchesKey(normalized, Key.down)
-              ? ('down' as const)
-              : matchesKey(normalized, Key.pageUp) || matchesKey(normalized, '[')
-                ? ('pageUp' as const)
-                : matchesKey(normalized, Key.pageDown) || matchesKey(normalized, ']')
-                  ? ('pageDown' as const)
-                  : ('escape' as const);
-      if (this.onStatusSurfaceKey?.(panelKey) === true) return;
+    // A focused region owns ←/→ (channel switching), ↑/↓ (paging), PgUp/PgDn,
+    // Esc (release focus), Enter (commit the highlighted choice) and the digit
+    // keys (quick-pick by the printed number); when nothing is focused the
+    // handler returns false and every key falls through to the normal editor
+    // behavior below. Active autocomplete outranks the strip: its menu needs the
+    // same keys for selection and dismissal.
+    if (!this.hasAutocompleteActivity()) {
+      const panelKey = statusSurfaceKeyOf(normalized);
+      if (panelKey !== undefined && this.onStatusSurfaceKey?.(panelKey) === true) return;
     }
 
     if (matchesKey(normalized, 'shift+tab')) {
@@ -998,4 +976,32 @@ export function wrapWithSideBorders(
     if (line.length === 1) return head;
     return head + line.slice(1, -1) + tail;
   });
+}
+
+/**
+ * Map a raw key to the status surface's vocabulary, or `undefined` when the
+ * strip has no interest in it.
+ *
+ * Enter and the digit keys are included because a focused region may commit a
+ * choice with them: the approval prints a number per option and accepts Enter
+ * for the highlighted one. The region itself decides whether the key means
+ * anything (an unfocused strip returns false), so this stays a pure mapping.
+ *
+ * `[`/`]` alias PgUp/PgDn; digits are decoded through `printableChar` so they
+ * still match under a Kitty-protocol terminal.
+ */
+export function statusSurfaceKeyOf(data: string): StatusSurfaceKey | undefined {
+  if (matchesKey(data, Key.left)) return 'left';
+  if (matchesKey(data, Key.right)) return 'right';
+  if (matchesKey(data, Key.up)) return 'up';
+  if (matchesKey(data, Key.down)) return 'down';
+  if (matchesKey(data, Key.pageUp) || matchesKey(data, '[')) return 'pageUp';
+  if (matchesKey(data, Key.pageDown) || matchesKey(data, ']')) return 'pageDown';
+  if (matchesKey(data, Key.enter)) return 'enter';
+  if (matchesKey(data, Key.escape)) return 'escape';
+  const digit = printableChar(data);
+  if (digit.length === 1 && digit >= '1' && digit <= '9') {
+    return `digit${digit}` as StatusSurfaceKey;
+  }
+  return undefined;
 }

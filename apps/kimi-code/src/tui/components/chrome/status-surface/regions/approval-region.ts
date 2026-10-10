@@ -138,6 +138,16 @@ export class ApprovalRegion implements StatusRegion {
         this.respond(choice);
         return true;
       }
+      case 'digit1':
+      case 'digit2':
+      case 'digit3':
+      case 'digit4':
+      case 'digit5':
+      case 'digit6':
+      case 'digit7':
+      case 'digit8':
+      case 'digit9':
+        return this.handleNumber(Number(key.slice('digit'.length)));
       case 'escape': {
         this.panel?.reject();
         return true;

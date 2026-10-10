@@ -184,6 +184,30 @@ describe('ApprovalRegion', () => {
     expect(onRespond).not.toHaveBeenCalled();
   });
 
+  it('answers with a digit key routed the same way as handleNumber', () => {
+    const first = makeRegionWithPanel();
+    expect(first.region.handleKey('digit1')).toBe(true);
+    expect(first.onRespond).toHaveBeenCalledWith({
+      response: 'approved',
+      feedback: undefined,
+      selected_label: undefined,
+    });
+
+    const second = makeRegionWithPanel();
+    expect(second.region.handleKey('digit2')).toBe(true);
+    expect(second.onRespond).toHaveBeenCalledWith({
+      response: 'approved_for_session',
+      feedback: undefined,
+      selected_label: undefined,
+    });
+  });
+
+  it('ignores a digit past the last option', () => {
+    const { region, onRespond } = makeRegionWithPanel();
+    expect(region.handleKey('digit9')).toBe(false);
+    expect(onRespond).not.toHaveBeenCalled();
+  });
+
   it('rejects on escape', () => {
     const { region, onRespond } = makeRegionWithPanel();
     expect(region.handleKey('escape')).toBe(true);

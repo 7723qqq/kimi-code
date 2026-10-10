@@ -721,6 +721,7 @@ describe('CustomEditor shortcut telemetry hooks', () => {
     ['\u001B[A', 'up'],
     ['\u001B[B', 'down'],
     ['\u001B', 'escape'],
+    ['\r', 'enter'],
   ] as const)('routes %j to the focused region as %s', (key, panelKey) => {
     const editor = makeEditor();
     const onStatusSurfaceKey = vi.fn().mockReturnValue(true);
@@ -747,6 +748,51 @@ describe('CustomEditor shortcut telemetry hooks', () => {
       if (key === '\u001B') expect(cancelAutocomplete).toHaveBeenCalledOnce();
     },
   );
+
+  it.each([
+    ['1', 'digit1'],
+    ['5', 'digit5'],
+    ['9', 'digit9'],
+  ] as const)('routes the %s key to the focused region as %s', (key, panelKey) => {
+    const editor = makeEditor();
+    const onStatusSurfaceKey = vi.fn().mockReturnValue(true);
+    editor.onStatusSurfaceKey = onStatusSurfaceKey;
+    editor.setText('draft');
+    editor.handleInput(key);
+    expect(onStatusSurfaceKey).toHaveBeenCalledWith(panelKey);
+    expect(editor.getText()).toBe('draft');
+  });
+
+  it('routes a Kitty-encoded digit the same way as a bare one', () => {
+    const editor = makeEditor();
+    const onStatusSurfaceKey = vi.fn().mockReturnValue(true);
+    editor.onStatusSurfaceKey = onStatusSurfaceKey;
+    editor.setText('draft');
+    // Kitty's disambiguate flag sends `1` as CSI-u.
+    editor.handleInput('\u001B[49u');
+    expect(onStatusSurfaceKey).toHaveBeenCalledWith('digit1');
+    expect(editor.getText()).toBe('draft');
+  });
+
+  it('leaves a digit to the editor when no region consumes it', () => {
+    const editor = makeEditor();
+    const baseline = makeEditor();
+    editor.onStatusSurfaceKey = () => false;
+    for (const instance of [editor, baseline]) instance.setText('draft');
+    editor.handleInput('7');
+    baseline.handleInput('7');
+    expect(editor.getText()).toBe(baseline.getText());
+  });
+
+  it('leaves Enter to the editor when no region consumes it', () => {
+    const editor = makeEditor();
+    const baseline = makeEditor();
+    editor.onStatusSurfaceKey = () => false;
+    for (const instance of [editor, baseline]) instance.setText('draft');
+    editor.handleInput('\r');
+    baseline.handleInput('\r');
+    expect(editor.getText()).toBe(baseline.getText());
+  });
 
   it('keeps the original editor bindings when Updates paging is unavailable', () => {
     const editor = makeEditor();

@@ -39,7 +39,16 @@ export type RegionKey =
   | 'pageDown'
   | 'enter'
   | 'escape'
-  | 'toggle';
+  | 'toggle'
+  | 'digit1'
+  | 'digit2'
+  | 'digit3'
+  | 'digit4'
+  | 'digit5'
+  | 'digit6'
+  | 'digit7'
+  | 'digit8'
+  | 'digit9';
 
 /**
  * Keys the editor hands to the status surface. A superset of {@link RegionKey}:
