@@ -56,6 +56,11 @@ const EXPANDED_MAX_ROWS = 16;
 /** Rows spent before any todo: the separator, the header, and the hint line. */
 const PANEL_OVERHEAD_ROWS = 3;
 const BRAILLE_BAR_WIDTH = 5;
+/**
+ * Width used when asking the panel what it would paint. Rows are truncated
+ * rather than wrapped, so the row count does not depend on it.
+ */
+const MEASURE_WIDTH = 80;
 const STATUS_BAR_WIDTH = 10;
 
 export function buildTodoTree(todos: readonly TodoItem[]): readonly TodoNode[] {
@@ -121,6 +126,27 @@ export function computePanelProgress(todos: readonly TodoItem[]): TodoProgressRe
     item.kind === 'milestone' ? (byId.get(keyOf(item)) ?? 0) >= 100 : item.status === 'done',
   ).length;
   return { overall: mean(milestoneValues), done, total: todos.length, byId };
+}
+
+/**
+ * Rows the expanded body may occupy, given the total rows the panel was granted.
+ *
+ * The separator and header are mandatory; the hint is not. When the budget is too
+ * tight for both the hint and one task, the task wins — a plan the user cannot see
+ * is worse than a missing "ctrl+t to collapse".
+ */
+function bodyRowsFor(totalRows: number): number {
+  const withHint = totalRows - PANEL_OVERHEAD_ROWS;
+  return withHint >= 1 ? withHint : Math.max(0, totalRows - (PANEL_OVERHEAD_ROWS - 1));
+}
+
+/**
+ * The share of the terminal a standalone panel may claim: half the screen, never
+ * more than `cap`, and never zero. Used when no host granted an explicit budget.
+ */
+function terminalShare(rows: number, cap: number): number {
+  if (!Number.isFinite(rows) || rows <= 0) return cap;
+  return Math.max(4, Math.min(cap, Math.floor(rows / 2)));
 }
 
 function leafProgress(item: TodoItem): number {
@@ -238,9 +264,21 @@ export class TodoPanelComponent implements Component {
   private readonly terminalRows: () => number;
   /** First visible row of the expanded list; `0` means the top. */
   private scrollTop = 0;
+  /**
+   * Total rows the status surface granted this panel, or `undefined` while the
+   * panel is mounted standalone. The surface sets it before each paint, so the
+   * strip has one height authority instead of every panel reading the terminal
+   * and hoping the others agree.
+   */
+  private budget: number | undefined;
 
   constructor(options: TodoPanelOptions = {}) {
     this.terminalRows = options.terminalRows ?? (() => 0);
+  }
+
+  /** Set the row budget granted by the host; `undefined` restores standalone sizing. */
+  setBudget(rows: number | undefined): void {
+    this.budget = rows;
   }
 
   /**
@@ -258,16 +296,8 @@ export class TodoPanelComponent implements Component {
    * so that is the path the budget constrains.
    */
   private expandedBodyBudget(): number {
-    const rows = this.terminalRows();
-    const totalRows =
-      !Number.isFinite(rows) || rows <= 0
-        ? EXPANDED_MAX_ROWS
-        : Math.max(4, Math.min(EXPANDED_MAX_ROWS, Math.floor(rows / 2)));
-    // The separator and header are mandatory; the hint is not. When the budget
-    // is too tight for both the hint and one task, the task wins — a plan the
-    // user cannot see is worse than a missing "ctrl+t to collapse".
-    const withHint = totalRows - PANEL_OVERHEAD_ROWS;
-    return withHint >= 1 ? withHint : Math.max(0, totalRows - (PANEL_OVERHEAD_ROWS - 1));
+    if (this.budget !== undefined) return bodyRowsFor(this.budget);
+    return bodyRowsFor(terminalShare(this.terminalRows(), EXPANDED_MAX_ROWS));
   }
 
   /** True when the budget leaves no room for the hint below the tasks. */
@@ -338,9 +368,66 @@ export class TodoPanelComponent implements Component {
     return this.todos.length === 0;
   }
 
-  /** True when the list exceeds the collapsed cap, i.e. there is something to expand. */
-  hasOverflow(): boolean {
-    return this.todos.length > MAX_VISIBLE;
+  isExpanded(): boolean {
+    return this.expanded;
+  }
+
+  /**
+   * Rows the panel would occupy at `width` for its current fold state.
+   *
+   * Answered without touching state: the region calls this during the surface's
+   * budget pass, which happens before the paint, and a measure that toggled the
+   * panel's budget to probe a size would leave it altered if anything threw
+   * between the set and the restore.
+   */
+  measureRows(width: number): number {
+    if (this.todos.length === 0) return 0;
+    const bodyRows = this.expanded ? bodyRowsFor(Number.MAX_SAFE_INTEGER) : undefined;
+    const collapsed = this.renderAt(width, false);
+    if (!this.expanded) return collapsed.length;
+    const expandedLines = this.renderAt(width, true, bodyRows);
+    return Math.max(collapsed.length, expandedLines.length);
+  }
+
+  /**
+   * Render for an explicit fold state and body budget, leaving the panel's own
+   * state untouched. {@link render} is this method applied to the current state.
+   */
+  private renderAt(width: number, expanded: boolean, bodyRows?: number): string[] {
+    const previousBudget = this.budget;
+    const previousExpanded = this.expanded;
+    this.budget = bodyRows === undefined ? previousBudget : bodyRows;
+    this.expanded = expanded;
+    try {
+      return this.render(width);
+    } finally {
+      this.budget = previousBudget;
+      this.expanded = previousExpanded;
+    }
+  }
+
+  /**
+   * Whether folding currently hides rows.
+   *
+   * The host used to gate `ctrl+t` on a different question — "more than
+   * {@link MAX_VISIBLE} entries" — and in tree mode the collapsed view draws one
+   * row per milestone plus only the active milestone's first few children, so a
+   * five-item tree advertised "+4 more · ctrl+t to expand" while the key was
+   * handed back to the editor. Counting what each fold state actually paints
+   * keeps the predicate and the paint in agreement.
+   */
+  hasHiddenContent(): boolean {
+    // Compare what each fold state actually paints. Deriving the counts from the
+    // render (rather than re-stating which items are visible) is what keeps the
+    // predicate and the paint from disagreeing: an earlier version counted rows
+    // from a second copy of the visibility rules, and the two drifted — a
+    // five-item tree advertised "ctrl+t to expand" while the key was refused.
+    return this.itemRows(false) < this.itemRows(true);
+  }
+
+  /** Item rows the given fold state paints, excluding header and fold hints. */
+  private itemRows(expanded: boolean): number {
+    return this.paint(MEASURE_WIDTH, expanded).itemRows;
   }
 
   setExpanded(expanded: boolean): void {
@@ -356,22 +443,43 @@ export class TodoPanelComponent implements Component {
   invalidate(): void {}
 
   render(width: number): string[] {
-    if (this.todos.length === 0) return [];
+    return this.paint(width, this.expanded).lines.map((line) => truncateToWidth(line, width));
+  }
+
+  /**
+   * Draw the panel for an explicit fold state and report how many item rows it
+   * contained.
+   *
+   * `render` is this method at the panel's current state, so every question
+   * about "what would folding do" is answered by running the same code the user
+   * sees instead of by a second description of it.
+   */
+  private paint(width: number, expanded: boolean): { lines: string[]; itemRows: number } {
+    if (this.todos.length === 0) return { lines: [], itemRows: 0 };
     const c = currentTheme.palette;
     const report = computePanelProgress(this.todos);
     const lines: string[] = [chalk.hex(c.border)('─'.repeat(width)), renderHeader(report, c)];
+    const body: string[] = [];
+    const hints: string[] = [];
 
     const hasMilestones = this.todos.some((todo) => todo.kind === 'milestone');
     if (hasMilestones) {
-      this.renderTree(report, c, lines);
+      this.renderTree(report, c, body, hints, expanded);
     } else {
-      this.renderFlat(c, lines);
+      this.renderFlat(c, body, hints, expanded);
     }
+    lines.push(...body, ...hints);
 
-    return lines.map((line) => truncateToWidth(line, width));
+    return { lines, itemRows: body.length };
   }
 
-  private renderTree(report: TodoProgressReport, c: ColorPalette, lines: string[]): void {
+  private renderTree(
+    report: TodoProgressReport,
+    c: ColorPalette,
+    body: string[],
+    hints: string[],
+    expanded: boolean,
+  ): void {
     const roots = buildTodoTree(this.todos);
     const activeRoot = roots.find(
       (node) =>
@@ -381,53 +489,58 @@ export class TodoPanelComponent implements Component {
     );
     const activeChildren = activeRoot?.children.slice(0, MAX_ACTIVE_CHILD_ROWS) ?? [];
 
-    if (this.expanded) {
-      const body: string[] = [];
+    if (expanded) {
+      const rows: string[] = [];
       for (const node of roots) {
-        body.push(...renderMilestoneRow(node, report, c));
+        rows.push(...renderMilestoneRow(node, report, c));
         for (const child of node.children) {
-          body.push(renderLeafRow(child.item, report, c));
+          rows.push(renderLeafRow(child.item, report, c));
         }
       }
-      lines.push(...this.sliceExpandedBody(body));
-      if (!this.hintBudgetedOut()) lines.push(renderCollapseHint(this.todos.length, c));
+      body.push(...this.sliceExpandedBody(rows));
+      if (!this.hintBudgetedOut()) hints.push(renderCollapseHint(this.todos.length, c));
       return;
     }
 
     for (const node of roots) {
-      lines.push(...renderMilestoneRow(node, report, c));
+      body.push(...renderMilestoneRow(node, report, c));
       if (node === activeRoot) {
         for (const child of activeChildren) {
-          lines.push(renderLeafRow(child.item, report, c));
+          body.push(renderLeafRow(child.item, report, c));
         }
         const hiddenChildren = node.children.length - activeChildren.length;
         if (hiddenChildren > 0) {
-          lines.push(renderHiddenChildrenHint(hiddenChildren, c));
+          hints.push(renderHiddenChildrenHint(hiddenChildren, c));
         }
       }
     }
     const hidden = this.todos.length - (roots.length + activeChildren.length);
     if (hidden > 0) {
       const counts = countHidden(roots, activeRoot, activeChildren.length);
-      lines.push(renderExpandHint(hidden, counts, c));
+      hints.push(renderExpandHint(hidden, counts, c));
     }
   }
 
-  private renderFlat(c: ColorPalette, lines: string[]): void {
-    if (this.expanded) {
-      const body = this.todos.map((todo) => renderFlatRow(todo, c));
-      lines.push(...this.sliceExpandedBody(body));
+  private renderFlat(
+    c: ColorPalette,
+    body: string[],
+    hints: string[],
+    expanded: boolean,
+  ): void {
+    if (expanded) {
+      const rows = this.todos.map((todo) => renderFlatRow(todo, c));
+      body.push(...this.sliceExpandedBody(rows));
       if (this.todos.length > MAX_VISIBLE && !this.hintBudgetedOut()) {
-        lines.push(renderCollapseHint(this.todos.length, c));
+        hints.push(renderCollapseHint(this.todos.length, c));
       }
       return;
     }
     const { rows, hidden, hiddenCounts } = selectVisibleTodos(this.todos);
     for (const todo of rows) {
-      lines.push(renderFlatRow(todo, c));
+      body.push(renderFlatRow(todo, c));
     }
     if (hidden > 0) {
-      lines.push(renderExpandHint(hidden, hiddenCounts, c));
+      hints.push(renderExpandHint(hidden, hiddenCounts, c));
     }
   }
 }

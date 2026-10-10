@@ -743,11 +743,11 @@ export class StreamingUIController {
 
   setTodoList(todos: readonly NormalizedTodoItem[]): void {
     const { state } = this.host;
-    state.todoPanel.setTodos(todos);
-    state.todoPanelContainer.clear();
-    if (!state.todoPanel.isEmpty()) {
-      state.todoPanelContainer.addChild(state.todoPanel);
-    }
+    // The todo panel is a region of the status surface now; the region owns
+    // mounting and repaint. The mount/unmount dance that used to live here
+    // existed because the panel was a sibling in the dock and had to be added
+    // and removed by hand.
+    state.todoRegion.setTodos(todos);
     state.ui.requestRender();
   }
 

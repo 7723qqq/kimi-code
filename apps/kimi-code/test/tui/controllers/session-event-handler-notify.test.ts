@@ -1,5 +1,6 @@
 import { Container } from '@moonshot-ai/pi-tui';
 import { NotifyPanelComponent } from '#/tui/components/chrome/notify-panel';
+import { UpdatesRegion } from '#/tui/components/chrome/status-surface/regions/updates-region';
 import type { Event } from '@moonshot-ai/kimi-code-sdk';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -7,9 +8,14 @@ import { SessionEventHandler } from '#/tui/controllers/session-event-handler';
 import { getBuiltInPalette } from '#/tui/theme';
 
 function makeHost() {
+  const notifyPanel = new NotifyPanelComponent();
   const host = {
     state: {
-      notifyPanel: new NotifyPanelComponent(),
+      notifyPanel,
+      // The Updates panel is a region of the status surface; the controller
+      // clears it through the region, which is also what decides whether the
+      // strip occupies rows.
+      updatesRegion: new UpdatesRegion(notifyPanel),
       notifyPanelContainer: new Container(),
       appState: {
         sessionId: 's1',

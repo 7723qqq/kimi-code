@@ -14,6 +14,7 @@ import {
 } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
+import type { StatusSurfaceKey } from '#/tui/components/chrome/status-surface/region';
 import { currentTheme } from '#/tui/theme';
 import { createEditorTheme } from '#/tui/theme/pi-tui-theme';
 import { findInlineSkillTokens } from '#/tui/utils/inline-skill-tokens';
@@ -156,28 +157,23 @@ export class CustomEditor extends Editor {
   public onOptimizePrompt?: () => void;
   /** Return `true` to consume Ctrl+B; return `false`/`undefined` to fall through to the editor default (cursor-left). */
   public onCtrlB?: () => boolean;
-  /** Return `true` to consume Ctrl+T (the todo list had overflow to toggle); return `false`/`undefined` to fall through to the editor default. */
-  public onToggleTodoExpand?: () => boolean;
   /**
-   * Scroll the expanded todo list. `↑`/`↓` stay with the editor (cursor and
-   * history), so the expanded list takes the shifted arrows, which nothing else
-   * claims. Return `true` to consume.
-   */
-  public onScrollTodo?: (direction: 'up' | 'down') => boolean;
-  /** Return true to consume Ctrl+N (the Updates panel grabbed or released focus); otherwise use the editor bindings. */
-  public onPageNotify?: () => boolean;
-  /**
-   * Route `←`/`→`/`↑`/`↓`/`[`/`]`/`PgUp`/`PgDn`/`Esc` to the focused Updates
-   * panel; return `true` to consume.
+   * Route a status-strip key to whichever region owns it; return `true` to
+   * consume.
    *
-   * `[`/`]` are the primary update-stepping keys: in fullscreen, `PgUp`/`PgDn`
-   * are already bound to the transcript's own paging (`tui.altScreen.pageUp`),
-   * so a pane-local binding cannot claim them. Both are accepted here and the
-   * panel decides which arrives.
+   * One callback covers what used to be four (`onToggleTodoExpand`,
+   * `onScrollTodo`, `onPageNotify`, `onNotifyPanelKey`): the strip decides
+   * internally whether the key folds the todo list, pages the updates or
+   * scrolls the focused region, so the editor does not need to know which
+   * panels exist. A `false` return means nothing claimed the key and the
+   * editor's own binding should run — that fall-through is what keeps an idle
+   * `Ctrl+T` from being swallowed on a strip with nothing to fold.
+   *
+   * `[`/`]` are accepted as aliases of `PgUp`/`PgDn`: in fullscreen those are
+   * already bound to the transcript's paging (`tui.altScreen.pageUp`), so a
+   * strip-local binding cannot claim them there.
    */
-  public onNotifyPanelKey?: (
-    key: 'left' | 'right' | 'up' | 'down' | 'pageUp' | 'pageDown' | 'escape',
-  ) => boolean;
+  public onStatusSurfaceKey?: (key: StatusSurfaceKey) => boolean;
   public onUndo?: () => void;
   public onTextPaste?: () => void;
   /**
@@ -560,29 +556,31 @@ export class CustomEditor extends Editor {
     }
 
     if (matchesKey(normalized, Key.ctrl('t'))) {
-      // Only consume the key when the todo list actually has overflow to
-      // expand/collapse; otherwise fall through to the editor default.
-      if (this.onToggleTodoExpand?.() === true) return;
+      // Only consume the key when the status strip actually folds or unfolds
+      // something; otherwise fall through to the editor default. The strip
+      // decides — it is the one that knows whether the todo region currently
+      // conceals rows.
+      if (this.onStatusSurfaceKey?.('toggle') === true) return;
     }
 
     if (matchesKey(normalized, 'shift+up') || matchesKey(normalized, 'shift+down')) {
-      // Only consume when the expanded list actually has rows to scroll, so the
-      // keys keep falling through in the common case.
+      // Only consume when the strip actually scrolled, so the keys keep falling
+      // through in the common case.
       const direction = matchesKey(normalized, 'shift+up') ? 'up' : 'down';
-      if (this.onScrollTodo?.(direction) === true) return;
+      if (this.onStatusSurfaceKey?.(direction) === true) return;
     }
 
     if (matchesKey(normalized, Key.ctrl('n'))) {
-      // Only consume the key when the Updates panel grabbed or released
-      // focus; otherwise fall through to the editor default.
-      if (this.onPageNotify?.() === true) return;
+      // Only consume the key when the strip grabbed or released panel focus;
+      // otherwise fall through to the editor default.
+      if (this.onStatusSurfaceKey?.('focus') === true) return;
     }
 
-    // A focused Updates panel owns ←/→ (channel switching), ↑/↓ (paging the
-    // channel's updates) and Esc (release focus); when it is not focused the
-    // handler returns false and every key falls through to the normal editor
-    // behavior below. Active autocomplete outranks the panel: its menu needs
-    // the same keys for selection and dismissal.
+    // A focused region owns ←/→ (channel switching), ↑/↓ (paging), PgUp/PgDn
+    // and Esc (release focus); when nothing is focused the handler returns
+    // false and every key falls through to the normal editor behavior below.
+    // Active autocomplete outranks the strip: its menu needs the same keys for
+    // selection and dismissal.
     if (
       !this.hasAutocompleteActivity() &&
       (matchesKey(normalized, Key.left) ||
@@ -608,7 +606,7 @@ export class CustomEditor extends Editor {
                 : matchesKey(normalized, Key.pageDown) || matchesKey(normalized, ']')
                   ? ('pageDown' as const)
                   : ('escape' as const);
-      if (this.onNotifyPanelKey?.(panelKey) === true) return;
+      if (this.onStatusSurfaceKey?.(panelKey) === true) return;
     }
 
     if (matchesKey(normalized, 'shift+tab')) {

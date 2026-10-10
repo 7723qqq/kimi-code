@@ -257,8 +257,7 @@ export class TranscriptRendererController {
     this.host.state.transcriptContainer.clear();
     this.host.btwPanelController.clear();
     this.clearTerminalInlineImages();
-    this.host.state.todoPanel.clear();
-    this.host.state.todoPanelContainer.clear();
+    this.host.state.todoRegion.clear();
     const stagingFileIds = this.imageStore.clear();
     this.staging.deleteStaged(stagingFileIds);
     this.renderWelcome();

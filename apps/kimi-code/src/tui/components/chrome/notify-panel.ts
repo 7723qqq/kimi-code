@@ -111,6 +111,15 @@ interface TabHitRange {
   readonly key: string | undefined;
 }
 
+/**
+ * The share of the terminal a standalone box may claim: half the screen, never
+ * more than `cap`, and never zero. Used when no host granted an explicit budget.
+ */
+function terminalShare(rows: number | undefined, cap: number): number {
+  if (rows === undefined || !Number.isFinite(rows) || rows <= 0) return cap;
+  return Math.max(1, Math.min(cap, Math.floor(rows / 2)));
+}
+
 function padToVisibleWidth(text: string, target: number): string {
   const truncated = truncateToWidth(text, target);
   const gap = target - visibleWidth(truncated);
@@ -136,6 +145,19 @@ export class NotifyPanelComponent implements Component {
   constructor(private readonly terminalRows: TerminalRowsProvider = () => undefined) {}
 
   /**
+   * Total rows the status surface granted this box, or `undefined` while the
+   * box is mounted standalone. The surface sets it before each paint, so the
+   * strip has one height authority instead of every panel reading the terminal
+   * and hoping the others agree.
+   */
+  private budget: number | undefined;
+
+  /** Set the row budget granted by the host; `undefined` restores standalone sizing. */
+  setBudget(rows: number | undefined): void {
+    this.budget = rows;
+  }
+
+  /**
    * Body rows a render may occupy.
    *
    * The cap is a **total**-row budget, because that is what the terminal cares
@@ -149,12 +171,38 @@ export class NotifyPanelComponent implements Component {
    * disappear just because the host did not supply a row count.
    */
   private bodyBudget(): number {
-    const rows = this.terminalRows();
-    const totalRows =
-      rows === undefined || !Number.isFinite(rows) || rows <= 0
-        ? MAX_VISIBLE_ROWS
-        : Math.min(MAX_VISIBLE_ROWS, Math.floor(rows / 2));
-    return totalRows - PANEL_OVERHEAD_ROWS;
+    if (this.budget !== undefined) return this.budget - PANEL_OVERHEAD_ROWS;
+    return terminalShare(this.terminalRows(), MAX_VISIBLE_ROWS) - PANEL_OVERHEAD_ROWS;
+  }
+
+  /**
+   * Rows the box would like at this width, for the surface's budget pass.
+   *
+   * Measured by rendering at the panel's own cap rather than guessed from the
+   * entry text: markdown wrapping, the tab strip's degradation ladder and the
+   * one-line stub all change the answer, and a guess that disagreed with the
+   * paint is exactly what made the old fixed ceilings wrong.
+   */
+  measureHeight(width: number): number {
+    if (this.channels.length === 0) return 0;
+    return this.paint(width).length;
+  }
+
+  /**
+   * Render at the panel's own cap, leaving the granted budget untouched.
+   *
+   * `render` is this method with the budget left as the host set it; measuring
+   * through a temporary clear-and-restore would leave the panel resized if
+   * anything threw in between.
+   */
+  private paint(width: number): string[] {
+    const granted = this.budget;
+    this.budget = undefined;
+    try {
+      return this.render(width);
+    } finally {
+      this.budget = granted;
+    }
   }
 
   /** True when there is not enough height for a box, so a stub is all we draw. */
@@ -574,8 +622,12 @@ export class NotifyPanelComponent implements Component {
     const marker = chalk.hex(c.primary)('▸');
     const tabs = this.tabStrip().tabs.join(dim(' · '));
     const total = this.channels.reduce((sum, ch) => sum + ch.entries.length, 0);
-    const noun = total === 1 ? 'update' : 'updates';
-    const head = ` ${marker} ${tabs} ${dim(`· ${String(total)} ${noun}`)}`;
+    const head = ` ${marker} ${tabs} ${dim(
+      `· ${t(
+        total === 1 ? 'tui.messages.notifyPanelUpdateCount_one' : 'tui.messages.notifyPanelUpdateCount_other',
+        { count: total },
+      )}`,
+    )}`;
     const tail = ` ${dim('· ctrl+n')}`;
     const preview = this.stubPreviewText();
     if (preview !== undefined) {
@@ -584,7 +636,11 @@ export class NotifyPanelComponent implements Component {
         return `${head} ${dim('·')} ${dim(truncateToWidth(preview, budget))}${tail}`;
     }
     if (visibleWidth(head) + visibleWidth(tail) <= width) return `${head}${tail}`;
-    return ` ${marker} ${dim(`${String(total)} ${noun} · ctrl+n`)}`;
+    const shortCount = t(
+      total === 1 ? 'tui.messages.notifyPanelUpdateCount_one' : 'tui.messages.notifyPanelUpdateCount_other',
+      { count: total },
+    );
+    return ` ${marker} ${dim(`${shortCount} · ctrl+n`)}`;
   }
 
   /** First non-empty line of the current entry, stripped of list/bold markers. */
@@ -622,7 +678,8 @@ export class NotifyPanelComponent implements Component {
     // Degrade in order of what a reader needs least. The channel tabs go last
     // but one: they carry the unread dots, so dropping them before the hints
     // would hide the only signal that another agent has posted.
-    const byTabStrip = [` · Updates ${page}`, ` · Updates ${page}${state}`];
+    const pageLabel = t('tui.messages.notifyPanelPage', { page });
+    const byTabStrip = [` · ${pageLabel}`, ` · ${pageLabel}${state}`];
     const candidates = [
       ` ${tabs}${byTabStrip[1]}${more}${hint} `,
       ` ${tabs}${byTabStrip[1]}${hint} `,

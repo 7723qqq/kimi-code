@@ -33,6 +33,7 @@ import type {
 import { extractMediaAttachments, imageExtensionForMime } from '../utils/image-placeholder';
 import type { ExtractionResult } from '../utils/image-placeholder';
 import { extractInlineSkillActivations } from '../utils/inline-skill-tokens';
+import type { StatusSurfaceKey } from '../components/chrome/status-surface/region';
 import type { BtwPanelController } from './btw-panel';
 import type { PromptOptimizerController } from './prompt-optimizer';
 import type { SurveyController } from './survey-controller';
@@ -70,14 +71,12 @@ export interface EditorKeyboardHost {
   updateGoalLengthWarning(text: string | undefined): void;
   updateQueueDisplay(): void;
   toggleToolOutputExpansion(): void;
-  toggleTodoPanelExpansion(): void;
-  /** Scroll the expanded todo list by one row; false when there is nothing to scroll. */
-  scrollTodoPanel(direction: 'up' | 'down'): boolean;
-  /** Returns true when the Updates panel grabbed or released focus. */
-  toggleNotifyPanelFocus(): boolean;
-  handleNotifyPanelKey(
-    key: 'left' | 'right' | 'up' | 'down' | 'pageUp' | 'pageDown' | 'escape',
-  ): boolean;
+  /** Fold/unfold the todo region; false when folding would change nothing. */
+  toggleTodoPanelExpansion(): boolean;
+  /** Move keyboard focus into the status strip's updates region, or release it. */
+  toggleStatusSurfaceFocus(): boolean;
+  /** Route one routed key to the status strip; false when nothing claimed it. */
+  handleStatusSurfaceKey(key: StatusSurfaceKey): boolean;
   detachCurrentForegroundTask(): void;
   cancelRunningShellCommand(): void;
   hideSessionPicker(): void;
@@ -336,26 +335,25 @@ export class EditorKeyboardController {
       host.toggleToolOutputExpansion();
     };
 
-    editor.onToggleTodoExpand = (): boolean => {
-      if (!host.state.todoPanel.hasOverflow()) return false;
-      // Disarm a pending double-press exit confirmation so expanding the
-      // todo list in between two Ctrl-C presses does not accidentally exit.
-      this.clearPendingExit();
-      host.track('shortcut_todo_expand');
-      host.toggleTodoPanelExpansion();
-      return true;
+    editor.onStatusSurfaceKey = (key): boolean => {
+      // `focus` and `toggle` are the two strip-level moves worth counting;
+      // scrolling and paging are too frequent to be useful signal.
+      if (key === 'focus') {
+        if (!host.toggleStatusSurfaceFocus()) return false;
+        // Disarm a pending double-press exit confirmation so grabbing the
+        // panel in between two Ctrl-C presses does not accidentally exit.
+        this.clearPendingExit();
+        host.track('shortcut_notify_page');
+        return true;
+      }
+      if (key === 'toggle') {
+        if (!host.toggleTodoPanelExpansion()) return false;
+        this.clearPendingExit();
+        host.track('shortcut_todo_expand');
+        return true;
+      }
+      return host.handleStatusSurfaceKey(key);
     };
-
-    editor.onScrollTodo = (direction) => host.scrollTodoPanel(direction);
-
-    editor.onPageNotify = (): boolean => {
-      if (!host.toggleNotifyPanelFocus()) return false;
-      this.clearPendingExit();
-      host.track('shortcut_notify_page');
-      return true;
-    };
-
-    editor.onNotifyPanelKey = (key) => host.handleNotifyPanelKey(key);
 
     editor.onCtrlS = (): void => {
       void this.steerWithEditorDraft();

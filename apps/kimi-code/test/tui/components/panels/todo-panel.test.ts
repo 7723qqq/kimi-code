@@ -96,12 +96,29 @@ describe('TodoPanelComponent', () => {
   const many = (n: number): TodoItem[] =>
     Array.from({ length: n }, (_, i) => ({ title: `t${i}`, status: 'pending' as const }));
 
-  it('hasOverflow() is false when count <= 5 and true when count > 5', () => {
+  it('reports hidden content exactly when folding would change the paint', () => {
     const panel = new TodoPanelComponent();
     panel.setTodos(many(5));
-    expect(panel.hasOverflow()).toBe(false);
+    // A five-row flat list draws every row either way, so folding is inert and
+    // `ctrl+t` must stay unclaimed.
+    expect(panel.hasHiddenContent()).toBe(false);
+
     panel.setTodos(many(6));
-    expect(panel.hasOverflow()).toBe(true);
+    expect(panel.hasHiddenContent()).toBe(true);
+  });
+
+  it('reports hidden content for a short milestone tree', () => {
+    const panel = new TodoPanelComponent();
+    panel.setTodos([
+      { id: 'M1', parentId: null, kind: 'milestone', title: 'Phase', status: 'pending' },
+      { id: 'M1.1', parentId: 'M1', kind: 'task', title: 'one', status: 'pending' },
+      { id: 'M1.2', parentId: 'M1', kind: 'task', title: 'two', status: 'pending' },
+      { id: 'M1.3', parentId: 'M1', kind: 'task', title: 'three', status: 'pending' },
+      { id: 'M1.4', parentId: 'M1', kind: 'task', title: 'four', status: 'pending' },
+    ]);
+    // Five items, but the collapsed tree shows only the milestone, so expanding
+    // reveals rows: this is the case the old entry-count predicate got wrong.
+    expect(panel.hasHiddenContent()).toBe(true);
   });
 
   it('collapsed footer advertises "ctrl+t to expand"', () => {

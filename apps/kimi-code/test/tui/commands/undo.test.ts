@@ -113,19 +113,25 @@ describe('/undo todo panel refresh', () => {
     return { host, setTodoList };
   }
 
-  it('re-pulls the engine todo state after a successful undo', async () => {
+  it('does not poll the engine for todos after a successful undo', async () => {
     const entries: TranscriptEntry[] = [
       entry({ kind: 'user', content: 'question' }),
       entry({ kind: 'assistant', content: 'answer' }),
     ];
+    const getTodos = vi.fn(async () => [{ title: 'kept', status: 'pending' }]);
     const { host, setTodoList } = hostWithTodos(entries, {
       undoHistory: vi.fn(async () => {}),
-      getTodos: vi.fn(async () => [{ title: 'kept', status: 'pending' }]),
+      getTodos,
     });
 
     await handleUndoCommand(host, '1');
 
-    expect(setTodoList).toHaveBeenCalledWith([{ title: 'kept', status: 'pending' }]);
+    // The engine publishes `todo.updated` from its durable commit callback, so
+    // undo — which restores state without going through the write methods —
+    // still reaches the panel. A pull here would be a second, redundant path
+    // that only the TUI would have.
+    expect(getTodos).not.toHaveBeenCalled();
+    expect(setTodoList).not.toHaveBeenCalled();
   });
 
   it('keeps the panel as-is when the engine has no todo read surface', async () => {
@@ -157,6 +163,8 @@ describe('/undo todo panel refresh', () => {
 
     await handleUndoCommand(host, '1');
 
-    expect(setTodoList).toHaveBeenCalledWith([]);
+    // All-done suppression lives on the event path now; the undo command
+    // itself only cuts the conversation.
+    expect(setTodoList).not.toHaveBeenCalled();
   });
 });

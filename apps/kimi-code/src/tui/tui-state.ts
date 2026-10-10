@@ -1,6 +1,5 @@
 import type { Container } from '@moonshot-ai/pi-tui';
 import {
-  HStack,
   ProcessTerminal,
   TuiAltScreen,
   TuiMainScreen,
@@ -17,6 +16,11 @@ import { FooterComponent } from './components/chrome/footer';
 import { GutterContainer } from './components/chrome/gutter-container';
 import type { MoonLoader, SpinnerStyle } from './components/chrome/moon-loader';
 import { NotifyPanelComponent } from './components/chrome/notify-panel';
+import { STATUS_SURFACE_MAX_ROWS } from './components/chrome/status-surface/budget';
+import { StatusSurfaceComponent } from './components/chrome/status-surface/index';
+import { ApprovalRegion } from './components/chrome/status-surface/regions/approval-region';
+import { TodoRegion } from './components/chrome/status-surface/regions/todo-region';
+import { UpdatesRegion } from './components/chrome/status-surface/regions/updates-region';
 import { TodoPanelComponent } from './components/chrome/todo-panel';
 import type { SessionRow } from './components/dialogs/session-picker';
 import { CustomEditor } from './components/editor/custom-editor';
@@ -46,12 +50,22 @@ export interface TUIState {
   terminal: ProcessTerminal;
   transcriptContainer: GutterContainer;
   activityContainer: Container;
+  /**
+   * The single strip above the editor. It supersedes the old side-by-side
+   * `panelsRow` plus the separate approval panel that used to replace the
+   * editor: todo, updates and approval are regions of this one component, and
+   * it owns the shared height budget, focus and mouse routing.
+   */
+  statusSurface: StatusSurfaceComponent;
+  statusSurfaceContainer: GutterContainer;
   todoPanelContainer: Container;
   todoPanel: TodoPanelComponent;
+  todoRegion: TodoRegion;
   notifyPanelContainer: GutterContainer;
   notifyPanel: NotifyPanelComponent;
-  /** The shared row holding the todo list (left) and the updates (right). */
-  panelsRow: HStack;
+  updatesRegion: UpdatesRegion;
+  /** Inline approval prompt; empty except while a request is pending. */
+  approvalRegion: ApprovalRegion;
   queueContainer: Container;
   btwPanelContainer: Container;
   surveyContainer: Container;
@@ -151,33 +165,26 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
   const todoPanel = new TodoPanelComponent({ terminalRows: () => terminal.rows });
   const notifyPanelContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const notifyPanel = new NotifyPanelComponent(() => terminal.rows);
-  // The todo list and the mid-turn updates share one row: the todo list on the
-  // left, the updates on the right taking roughly twice the width. They used to
-  // stack, which cost the transcript two panel heights whenever both were
-  // visible.
-  //
-  // The split comes from the `grow` weights, not `basis`: `basis` is an
-  // absolute size (a small number here would pin the panel to that many
-  // columns), and `grow` weights divide the row. The allocator hands each child
-  // a share of what is still unclaimed, so 1:2 lands near 43%/57% rather than
-  // exactly a third and two thirds — close enough to read as the intended
-  // proportion. Each container drops out of the row while its panel is empty,
-  // so a lone panel takes the full width instead of leaving a dead gap.
-  const panelsRow = new HStack();
-  panelsRow.addChild(todoPanelContainer, {
-    basis: 0,
-    grow: 1,
-    shrink: 1,
-    minSize: 0,
-    visible: () => !todoPanel.isEmpty(),
+  // One status strip above the editor, holding the todo list, the mid-turn
+  // updates and (when it arrives) an approval. The three used to be separate
+  // mounts with separate data paths and separate height rules; the surface
+  // owns the budget, the focus and the mouse routing for all of them. Regions
+  // stack instead of sharing a row because a blocking approval needs the full
+  // width for its diff, and columns would force every neighbour to re-flow.
+  const statusSurface = new StatusSurfaceComponent({
+    terminalRows: () => terminal.rows,
+    onRequestRender: () => ui.requestRender(),
   });
-  panelsRow.addChild(notifyPanelContainer, {
-    basis: 0,
-    grow: 2,
-    shrink: 1,
-    minSize: 0,
-    visible: () => !notifyPanel.isEmpty(),
-  });
+  const todoRegion = new TodoRegion(todoPanel);
+  const updatesRegion = new UpdatesRegion(notifyPanel);
+  // The approval region renders the panel the dialog host builds for each
+  // request, so it holds no panel of its own until one arrives.
+  const approvalRegion = new ApprovalRegion();
+  statusSurface.setRegion(todoRegion);
+  statusSurface.setRegion(updatesRegion);
+  statusSurface.setRegion(approvalRegion);
+  const statusSurfaceContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
+  statusSurfaceContainer.addChild(statusSurface);
   const queueContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const btwPanelContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const surveyContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
@@ -207,13 +214,18 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
     // terminal" is not expressible as a constant), but declaring it here means a
     // panel that forgets its own guard still cannot take the screen.
     //
-    // Layer 2 (in each panel): `terminalRows()`-derived budgets.
+    // Layer 2: the status strip's own shared budget (`STATUS_SURFACE_MAX_ROWS`),
+    // and `terminalRows()`-derived budgets for the panels outside it.
     //
     // The numbers are each panel's own ceiling plus the chrome the panel adds
     // (borders, padding, header). Keep them in step with the panel constants:
-    // todo `MAX_VISIBLE`, notify `MAX_VISIBLE_ROWS`, queue `MAX_VISIBLE_ROWS`.
+    // status surface `STATUS_SURFACE_MAX_ROWS`, queue `MAX_VISIBLE_ROWS`.
     dockContainer.addChild(activityContainer, { shrink: 1, minSize: 0, maxSize: 6 });
-    dockContainer.addChild(panelsRow, { shrink: 1, minSize: 0, maxSize: 18 });
+    dockContainer.addChild(statusSurfaceContainer, {
+      shrink: 1,
+      minSize: 0,
+      maxSize: STATUS_SURFACE_MAX_ROWS,
+    });
     dockContainer.addChild(queueContainer, { shrink: 1, minSize: 0, maxSize: 8 });
     dockContainer.addChild(btwPanelContainer, { shrink: 1, minSize: 0, maxSize: 18 });
     dockContainer.addChild(surveyContainer, { shrink: 1, minSize: 0, maxSize: 5 });
@@ -232,11 +244,15 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
     terminal,
     transcriptContainer,
     activityContainer,
+    statusSurface,
+    statusSurfaceContainer,
     todoPanelContainer,
     todoPanel,
+    todoRegion,
     notifyPanelContainer,
     notifyPanel,
-    panelsRow,
+    updatesRegion,
+    approvalRegion,
     queueContainer,
     btwPanelContainer,
     surveyContainer,

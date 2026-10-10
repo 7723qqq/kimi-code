@@ -158,20 +158,25 @@ export class SessionReplayRenderer {
     this.hydrateBackgroundState(agent);
   }
 
+  /**
+   * Seed the todo region from the replay fold.
+   *
+   * `toolStore['todo']` is the same value the engine rebuilds its own list
+   * from, so this needs no field-level translation beyond the shared
+   * normalizer — and it goes through the region rather than the panel so the
+   * replay path and the live path cannot drift apart.
+   *
+   * A completed list is deliberately not shown: it was the last thing the
+   * previous session did, and the strip is for work in progress.
+   */
   private hydrateTodoPanel(agent: ResumedAgentState): void {
     const rawTodos = agent.toolStore?.['todo'];
-    if (!Array.isArray(rawTodos)) {
-      this.host.streamingUI.setTodoList([]);
-      return;
-    }
-
-    const todos = normalizeTodoItems(rawTodos);
+    const todos = Array.isArray(rawTodos) ? normalizeTodoItems(rawTodos) : [];
     if (todos.length > 0 && todos.every((todo) => todo.status === 'done')) {
-      this.host.streamingUI.setTodoList([]);
+      this.host.state.todoRegion.clear();
       return;
     }
-
-    this.host.streamingUI.setTodoList(todos);
+    this.host.state.todoRegion.setTodos(todos);
   }
 
   /**

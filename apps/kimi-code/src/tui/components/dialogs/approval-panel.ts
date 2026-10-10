@@ -260,6 +260,42 @@ export class ApprovalPanelComponent extends Container implements Focusable {
     });
   }
 
+  /**
+   * Answer with a specific choice, entered from outside the panel.
+   *
+   * The status surface draws a folded one-line form of this approval and needs
+   * to answer without expanding it. Routing through the panel (rather than
+   * calling the response callback directly) keeps a single response path: a
+   * choice that requires feedback still gets its inline input, instead of being
+   * submitted blind.
+   */
+  selectChoice(choice: ApprovalPanelChoice): void {
+    const index = this.request.data.choices.indexOf(choice);
+    if (index < 0) return;
+    this.selectAndSubmit(index);
+  }
+
+  /** Reject without feedback; the folded form's Esc path. */
+  reject(): void {
+    this.onResponse({ response: 'rejected' });
+  }
+
+  /**
+   * The tool-specific prompt ("Run this command?", "Ready to build with this
+   * plan?"). The folded one-line form shows this rather than a generic
+   * "Approve <tool>?" so the user sees the same question in both shapes —
+   * a second phrasing would be a second thing to keep in sync, and would drop
+   * the wording each tool went to the trouble of providing.
+   */
+  headerText(): string {
+    return headerFor(this.request.data.tool_name);
+  }
+
+  /** Number of choices, for callers laying out the numbered summary. */
+  choiceCount(): number {
+    return this.request.data.choices.length;
+  }
+
   private selectAndSubmit(index: number): void {
     const option = this.choiceAt(index);
     if (!option) return;
@@ -435,10 +471,6 @@ export class ApprovalPanelComponent extends Container implements Focusable {
 
   private choiceAt(index: number): ApprovalPanelChoice | undefined {
     return this.request.data.choices[index];
-  }
-
-  private choiceCount(): number {
-    return this.request.data.choices.length;
   }
 
   private ensureValidSelection(): void {

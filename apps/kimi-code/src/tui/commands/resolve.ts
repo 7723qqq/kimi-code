@@ -143,10 +143,22 @@ export function slashBusyMessage(commandName: string, reason: SlashCommandBusyRe
 }
 
 /**
- * Whether a delayed input restore is still safe: the editor must be empty
- * (no newer draft) and still mounted (no editor-replacement panel opened
- * meanwhile). Restores that run synchronously with submit do not need this.
+ * Whether a delayed input restore is still safe: the editor must be empty (no
+ * newer draft) and something must not have taken the interaction over in the
+ * meantime.
+ *
+ * Two takeover forms are checked, because they are different mechanisms:
+ * `editorReplacementMounted` covers the dialogs that really do swap the editor
+ * out (help, pickers, question dialog), while `hasBlockingRegion()` covers the
+ * inline approval, which leaves the editor mounted and only refuses
+ * submissions. Checkingonly the first would let a delayed restore overwrite the
+ * user's draft while an approval is pending. Restores that run synchronously
+ * with submit do not need this.
  */
 export function canRestoreSubmittedInput(host: { state: TUIState }): boolean {
-  return host.state.editor.getText().length === 0 && !host.state.editorReplacementMounted;
+  return (
+    host.state.editor.getText().length === 0 &&
+    !host.state.editorReplacementMounted &&
+    !host.state.statusSurface.hasBlockingRegion()
+  );
 }

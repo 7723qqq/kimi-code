@@ -690,26 +690,26 @@ describe('CustomEditor shortcut telemetry hooks', () => {
     expect(editor.render(60).join('\n')).toBe(idle);
   });
 
-  it('invokes onToggleTodoExpand on Ctrl+T', () => {
+  it('routes Ctrl+T to the status strip as a fold toggle', () => {
     const editor = makeEditor();
-    const onToggleTodoExpand = vi.fn().mockReturnValue(true);
-    editor.onToggleTodoExpand = onToggleTodoExpand;
+    const onStatusSurfaceKey = vi.fn().mockReturnValue(true);
+    editor.onStatusSurfaceKey = onStatusSurfaceKey;
 
     editor.handleInput('\u0014');
 
-    expect(onToggleTodoExpand).toHaveBeenCalledOnce();
+    expect(onStatusSurfaceKey).toHaveBeenCalledWith('toggle');
   });
 
   it.each(['\u000E', '\u001B[110;5u'] as const)(
     'toggles Updates focus on %j without changing the draft',
     (key) => {
       const editor = makeEditor();
-      const onPageNotify = vi.fn().mockReturnValue(true);
-      editor.onPageNotify = onPageNotify;
+      const onStatusSurfaceKey = vi.fn().mockReturnValue(true);
+      editor.onStatusSurfaceKey = onStatusSurfaceKey;
       editor.setText('draft\nsecond line');
       const cursor = editor.getCursor();
       editor.handleInput(key);
-      expect(onPageNotify).toHaveBeenCalledWith();
+      expect(onStatusSurfaceKey).toHaveBeenCalledWith('focus');
       expect(editor.getText()).toBe('draft\nsecond line');
       expect(editor.getCursor()).toEqual(cursor);
     },
@@ -721,13 +721,13 @@ describe('CustomEditor shortcut telemetry hooks', () => {
     ['\u001B[A', 'up'],
     ['\u001B[B', 'down'],
     ['\u001B', 'escape'],
-  ] as const)('routes %j to the focused Updates panel as %s', (key, panelKey) => {
+  ] as const)('routes %j to the focused region as %s', (key, panelKey) => {
     const editor = makeEditor();
-    const onNotifyPanelKey = vi.fn().mockReturnValue(true);
-    editor.onNotifyPanelKey = onNotifyPanelKey;
+    const onStatusSurfaceKey = vi.fn().mockReturnValue(true);
+    editor.onStatusSurfaceKey = onStatusSurfaceKey;
     editor.setText('draft');
     editor.handleInput(key);
-    expect(onNotifyPanelKey).toHaveBeenCalledWith(panelKey);
+    expect(onStatusSurfaceKey).toHaveBeenCalledWith(panelKey);
     expect(editor.getText()).toBe('draft');
   });
 
@@ -735,15 +735,15 @@ describe('CustomEditor shortcut telemetry hooks', () => {
     'leaves %j to autocomplete even when the Updates panel is focused',
     (key) => {
       const editor = makeEditor();
-      const onNotifyPanelKey = vi.fn();
-      editor.onNotifyPanelKey = onNotifyPanelKey;
+      const onStatusSurfaceKey = vi.fn();
+      editor.onStatusSurfaceKey = onStatusSurfaceKey;
       const internals = editor as unknown as { cancelAutocompleteActivity: () => void };
       const cancelAutocomplete = vi.spyOn(internals, 'cancelAutocompleteActivity');
       cancelAutocomplete.mockImplementation(() => {});
       vi.spyOn(editor, 'hasAutocompleteActivity').mockReturnValue(true);
       editor.setText('/rev');
       editor.handleInput(key);
-      expect(onNotifyPanelKey).not.toHaveBeenCalled();
+      expect(onStatusSurfaceKey).not.toHaveBeenCalled();
       if (key === '\u001B') expect(cancelAutocomplete).toHaveBeenCalledOnce();
     },
   );
@@ -751,7 +751,7 @@ describe('CustomEditor shortcut telemetry hooks', () => {
   it('keeps the original editor bindings when Updates paging is unavailable', () => {
     const editor = makeEditor();
     const baseline = makeEditor();
-    editor.onPageNotify = () => false;
+    editor.onStatusSurfaceKey = () => false;
     for (const instance of [editor, baseline]) instance.setText('first\nsecond');
     for (const key of ['\u0010', '\u000E']) {
       editor.handleInput(key);

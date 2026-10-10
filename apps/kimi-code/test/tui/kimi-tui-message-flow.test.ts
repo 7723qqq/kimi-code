@@ -3209,9 +3209,16 @@ command = "vim"
     });
 
     await vi.waitFor(() => {
-      expect(driver.state.editorContainer.children[0]).toBeInstanceOf(ApprovalPanelComponent);
+      expect(driver.state.approvalRegion.panelComponent()).toBeInstanceOf(ApprovalPanelComponent);
     });
-    (driver.state.editorContainer.children[0] as ApprovalPanelComponent).handleInput('1');
+    // The approval is a region of the status strip, so it never takes the
+    // editor's slot. (`editorReplacementMounted` is the other mechanism —
+    // dialogs that really do swap the input area out — and an approval must
+    // leave it false.)
+    expect(driver.state.approvalRegion.isEmpty()).toBe(false);
+    expect(driver.state.statusSurface.hasBlockingRegion()).toBe(true);
+    expect(driver.state.editorReplacementMounted).toBe(false);
+    driver.state.approvalRegion.panelComponent()!.handleInput('1');
     await expect(response).resolves.toMatchObject({ decision: 'approved' });
 
     await vi.waitFor(() => {
@@ -6851,7 +6858,9 @@ command = "vim"
     });
 
     await vi.waitFor(() => {
-      const approval = stripSgr(driver.state.editorContainer.render(120).join('\n'));
+      // The approval is a region of the status strip now, so the rendered
+      // prompt lives there rather than in the editor's slot.
+      const approval = stripSgr(driver.state.statusSurface.render(120).join('\n'));
       expect(approval).toContain('Ready to build with this plan?');
       expect(approval).not.toContain('non-duplicated plan work');
       expect(approval).not.toContain('/tmp/no-duplicate-plan.md');
@@ -7527,9 +7536,9 @@ command = "vim"
     });
 
     await vi.waitFor(() => {
-      expect(driver.state.editorContainer.children[0]).toBeInstanceOf(ApprovalPanelComponent);
+      expect(driver.state.approvalRegion.panelComponent()).toBeInstanceOf(ApprovalPanelComponent);
     });
-    (driver.state.editorContainer.children[0] as ApprovalPanelComponent).handleInput('2');
+    driver.state.approvalRegion.panelComponent()!.handleInput('2');
     await expect(response).resolves.toMatchObject({ decision: 'rejected' });
 
     driver.sessionEventHandler.handleEvent(

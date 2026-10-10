@@ -76,7 +76,8 @@ describe('createTUIState', () => {
     expect(state.todoPanel).toBeDefined();
     expect(state.notifyPanelContainer).toBeDefined();
     expect(state.notifyPanel).toBeDefined();
-    expect(state.panelsRow).toBeDefined();
+    expect(state.statusSurface).toBeDefined();
+    expect(state.statusSurfaceContainer).toBeDefined();
     expect(state.theme.palette).toBeDefined();
 
     // App state is cloned from initialAppState, not reused by reference.
@@ -141,18 +142,16 @@ describe('createTUIState', () => {
     expect(dock).toBeDefined();
     expect(dock?.children).toEqual([
       state.activityContainer,
-      state.panelsRow,
+      state.statusSurfaceContainer,
       state.queueContainer,
       state.btwPanelContainer,
       state.surveyContainer,
       state.editorContainer,
     ]);
 
-    // Left third to the todo list, right two thirds to the updates.
-    expect(state.panelsRow.children).toEqual([
-      state.todoPanelContainer,
-      state.notifyPanelContainer,
-    ]);
+    // The strip holds every region behind one component, so the panel
+    // containers are never mounted as siblings of the dock's other rows.
+    expect(state.statusSurfaceContainer.children).toEqual([state.statusSurface]);
 
     // The layout root is mounted and the root children list stays empty.
     expect((state.ui as TuiAltScreen).getLayoutRoot()).toBeDefined();

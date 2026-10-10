@@ -106,6 +106,7 @@ import {
 } from './controllers/editor-keyboard';
 import { MessageDispatchController } from './controllers/message-dispatch';
 import { PromptOptimizerController } from './controllers/prompt-optimizer';
+import type { StatusSurfaceKey } from './components/chrome/status-surface/region';
 import { SessionEventHandler } from './controllers/session-event-handler';
 import { SessionReplayRenderer } from './controllers/session-replay';
 import { StagingLeaseTracker } from './controllers/staging-leases';
@@ -1152,7 +1153,7 @@ export class KimiTUI {
     ui.clear();
     ui.addChild(this.state.transcriptContainer);
     ui.addChild(this.state.activityContainer);
-    ui.addChild(this.state.panelsRow);
+    ui.addChild(this.state.statusSurfaceContainer);
     ui.addChild(this.state.queueContainer);
     ui.addChild(this.state.btwPanelContainer);
     ui.addChild(this.state.surveyContainer);
@@ -1192,7 +1193,7 @@ export class KimiTUI {
     const main = new TuiMainScreen(ui.terminal);
     main.addChild(this.state.transcriptContainer);
     main.addChild(this.state.activityContainer);
-    main.addChild(this.state.panelsRow);
+    main.addChild(this.state.statusSurfaceContainer);
     main.addChild(this.state.queueContainer);
     main.addChild(this.state.btwPanelContainer);
     main.addChild(this.state.surveyContainer);
@@ -2431,25 +2432,32 @@ export class KimiTUI {
     this.state.ui.requestRender();
   }
 
-  toggleTodoPanelExpansion(): void {
-    this.state.todoPanel.toggleExpanded();
-    this.state.ui.requestRender();
-  }
-
-  scrollTodoPanel(direction: 'up' | 'down'): boolean {
-    if (!this.state.todoPanel.scrollBy(direction === 'up' ? -1 : 1)) return false;
+  /**
+   * Fold or unfold whatever the strip is showing. Returns false when folding
+   * would change nothing, which the editor uses to fall through to its own
+   * Ctrl+T binding instead of swallowing the key.
+   *
+   * Routed through the surface rather than naming the todo region, because the
+   * surface already resolves this as "the focused region, else the todo list".
+   * Calling `toggleFold('todo')` directly left a pending approval's folded
+   * prompt with no key that could open it: the region advertises a `toggle`
+   * handler and the surface routes `toggle` to it, but this entry point never
+   * asked.
+   */
+  toggleTodoPanelExpansion(): boolean {
+    if (!this.state.statusSurface.handleKey('toggle')) return false;
     this.state.ui.requestRender();
     return true;
   }
 
-  toggleNotifyPanelFocus(): boolean {
+  /** Move the keyboard into the status strip's updates region, or release it. */
+  toggleStatusSurfaceFocus(): boolean {
     return this.sessionEventHandler.notifications.toggleFocus();
   }
 
-  handleNotifyPanelKey(
-    key: 'left' | 'right' | 'up' | 'down' | 'pageUp' | 'pageDown' | 'escape',
-  ): boolean {
-    return this.sessionEventHandler.notifications.handlePanelKey(key);
+  handleStatusSurfaceKey(key: StatusSurfaceKey): boolean {
+    if (key === 'focus') return this.toggleStatusSurfaceFocus();
+    return this.state.statusSurface.handleKey(key);
   }
 
   private async detachRunningShellCommand(): Promise<void> {

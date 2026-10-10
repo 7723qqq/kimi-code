@@ -21,11 +21,16 @@ function makeHarness() {
     }),
     setTodoList: vi.fn(),
   };
+  const todoRegion = {
+    setTodos: vi.fn(),
+    clear: vi.fn(),
+  };
   const host = {
     state: {
       appState: { availableModels: {}, workDir: '/tmp/work', stepRetry: null },
       ui: { requestRender: vi.fn() },
       transcriptContainer: { addChild: vi.fn() },
+      todoRegion,
     },
     session: undefined,
     streamingUI,
@@ -49,7 +54,7 @@ function makeHarness() {
     recordSessionActivity: vi.fn(),
   };
   const handler = new SessionEventHandler(host as never);
-  return { handler, streamingUI };
+  return { handler, streamingUI, todoRegion };
 }
 
 function todoCallStarted(toolCallId: string, todos: unknown): Event {
@@ -76,26 +81,68 @@ function todoResult(toolCallId: string, isError = false): Event {
   } as unknown as Event;
 }
 
+function todoUpdated(todos: unknown, agentId = 'main'): Event {
+  return {
+    sessionId: 's1',
+    agentId,
+    type: 'todo.updated',
+    turnId: 1,
+    todos,
+    rev: 1,
+  } as unknown as Event;
+}
+
+const item = {
+  id: 'T1',
+  parentId: null,
+  kind: 'task' as const,
+  title: 'real work',
+  status: 'in_progress' as const,
+};
+
 describe('SessionEventHandler — todo panel feed', () => {
-  it('feeds the panel from TodoList call args when the tool result arrives', () => {
-    const { handler, streamingUI } = makeHarness();
-    const todos = [{ title: '测试 Todo 项', status: 'in_progress' }];
+  it('ignores the TodoList tool arguments entirely', () => {
+    const { handler, todoRegion } = makeHarness();
 
-    handler.handleEvent(todoCallStarted('tc-1', todos), vi.fn());
-    expect(streamingUI.setTodoList).not.toHaveBeenCalled();
-
+    handler.handleEvent(todoCallStarted('tc-1', [item]), vi.fn());
     handler.handleEvent(todoResult('tc-1'), vi.fn());
-    expect(streamingUI.setTodoList).toHaveBeenCalledWith([
-      { parentId: null, kind: 'task', title: '测试 Todo 项', status: 'in_progress' },
-    ]);
+
+    // Reading the tool arguments is what used to clear the panel on a
+    // read-only call (no `todos` key) and to hide a list the engine had
+    // written without a tool call. The engine event is the only source now.
+    expect(todoRegion.setTodos).not.toHaveBeenCalled();
   });
 
-  it('ignores failed TodoList results', () => {
-    const { handler, streamingUI } = makeHarness();
+  it('feeds the region from the engine event, keeping every field', () => {
+    const { handler, todoRegion } = makeHarness();
+    const full = {
+      id: 'M1',
+      parentId: null,
+      kind: 'milestone' as const,
+      title: 'phase',
+      status: 'pending' as const,
+      progress: 40,
+      description: 'note',
+    };
 
-    handler.handleEvent(todoCallStarted('tc-1', [{ title: 'x', status: 'pending' }]), vi.fn());
-    handler.handleEvent(todoResult('tc-1', true), vi.fn());
+    handler.handleEvent(todoUpdated([full]), vi.fn());
 
-    expect(streamingUI.setTodoList).not.toHaveBeenCalled();
+    expect(todoRegion.setTodos).toHaveBeenCalledWith([full]);
+  });
+
+  it('applies an empty list, which is how a clear arrives', () => {
+    const { handler, todoRegion } = makeHarness();
+
+    handler.handleEvent(todoUpdated([]), vi.fn());
+
+    expect(todoRegion.setTodos).toHaveBeenCalledWith([]);
+  });
+
+  it('ignores another agent\'s list', () => {
+    const { handler, todoRegion } = makeHarness();
+
+    handler.handleEvent(todoUpdated([item], 'agent-1'), vi.fn());
+
+    expect(todoRegion.setTodos).not.toHaveBeenCalled();
   });
 });

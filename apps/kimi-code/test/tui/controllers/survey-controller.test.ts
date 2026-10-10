@@ -105,6 +105,7 @@ function createHarness(deps: Partial<SurveyControllerDeps> = {}): Harness {
     surveyContainer: container,
     transcriptEntries: [] as TranscriptEntry[],
     editorReplacementMounted: false,
+    statusSurface: { hasBlockingRegion: () => false },
     activeDialog: null,
     livePane: { mode: 'idle', pendingApproval: null, pendingQuestion: null },
     externalEditorRunning: false,

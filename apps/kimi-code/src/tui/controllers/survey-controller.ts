@@ -520,8 +520,8 @@ export class SurveyController {
     const { state } = this.host;
     return (
       state.editorReplacementMounted ||
+      state.statusSurface.hasBlockingRegion() ||
       state.activeDialog !== null ||
-      state.livePane.pendingApproval !== null ||
       state.livePane.pendingQuestion !== null ||
       state.tasksBrowser !== undefined ||
       this.host.btwPanelController.isActive()

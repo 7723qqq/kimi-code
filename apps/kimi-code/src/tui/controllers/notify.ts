@@ -1,5 +1,7 @@
 import type { Event, ResumedSessionState } from '@moonshot-ai/kimi-code-sdk';
 
+import { t } from '#/i18n';
+
 import type { NotifyEntry } from '#/tui/components/chrome/notify-panel';
 import { MAIN_AGENT_ID } from '#/tui/constant/kimi-tui';
 import type { TUIState } from '#/tui/tui-state';
@@ -25,7 +27,10 @@ function delegationText(name: string, args: Record<string, unknown>): string | u
     const description = args['description'];
     if (typeof description !== 'string' || description.trim().length === 0) return undefined;
     const kind = typeof args['subagent_type'] === 'string' ? args['subagent_type'] : 'subagent';
-    return `▸ Delegated to ${kind}: **${description.trim()}**`;
+    return t('tui.messages.notifyPanelDelegatedTo', {
+      kind,
+      description: description.trim(),
+    });
   }
   const items = args['items'];
   const newCount = Array.isArray(items) ? items.length : 0;
@@ -36,7 +41,7 @@ function delegationText(name: string, args: Record<string, unknown>): string | u
       : 0;
   const total = newCount + resumedCount;
   if (total === 0) return undefined;
-  return `▸ Delegated to a swarm of ${String(total)} subagents`;
+  return t('tui.messages.notifyPanelDelegatedSwarm', { count: total });
 }
 
 export class NotifyController {
@@ -51,7 +56,10 @@ export class NotifyController {
   private readonly agentNames = new Map<string, string>();
 
   constructor(
-    private readonly state: Pick<TUIState, 'notifyPanel' | 'notifyPanelContainer' | 'ui'>,
+    private readonly state: Pick<
+      TUIState,
+      'notifyPanel' | 'updatesRegion' | 'statusSurface' | 'ui'
+    >,
   ) {}
 
   setEnabled(enabled: boolean): void {
@@ -74,18 +82,23 @@ export class NotifyController {
     for (const [key, update] of this.pending) this.settled.set(key, update.agentId);
     this.pending.clear();
     if (!this.enabled && !this.mounted) return;
-    const { notifyPanel, notifyPanelContainer } = this.state;
-    if (notifyPanel.isEmpty() && notifyPanelContainer.children.length === 0) return;
-    notifyPanel.clear();
-    notifyPanelContainer.clear();
+    if (this.state.notifyPanel.isEmpty()) return;
+    this.state.updatesRegion.clear();
     this.mounted = false;
     this.state.ui.requestRender();
   }
 
+  /**
+   * Grab or release the updates region's keyboard focus.
+   *
+   * The status surface owns focus for the whole strip, so this delegates
+   * rather than toggling the panel directly: two independently-tracked focus
+   * flags is exactly how a highlighted border once ended up over keys that
+   * went nowhere.
+   */
   toggleFocus(): boolean {
     if (!this.enabled) return false;
-    const panel = this.state.notifyPanel;
-    const changed = panel.isFocused() ? panel.blur() : panel.focus();
+    const changed = this.state.statusSurface.toggleFocus();
     if (!changed) return false;
     this.state.ui.requestRender();
     return true;
@@ -94,18 +107,8 @@ export class NotifyController {
   handlePanelKey(
     key: 'left' | 'right' | 'up' | 'down' | 'pageUp' | 'pageDown' | 'escape',
   ): boolean {
-    if (!this.enabled || !this.state.notifyPanel.isFocused()) return false;
-    const panel = this.state.notifyPanel;
-    let changed: boolean;
-    if (key === 'escape') changed = panel.blur();
-    else if (key === 'left') changed = panel.prevChannel();
-    else if (key === 'right') changed = panel.nextChannel();
-    else if (key === 'up') changed = panel.scrollBy(-1);
-    else if (key === 'down') changed = panel.scrollBy(1);
-    else if (key === 'pageUp') changed = panel.prevPage();
-    else changed = panel.nextPage();
-    if (changed) this.state.ui.requestRender();
-    return true;
+    if (!this.enabled || !this.state.updatesRegion.isFocused()) return false;
+    return this.state.statusSurface.handleKey(key);
   }
 
   handleEvent(event: Event): void {
@@ -291,15 +294,12 @@ export class NotifyController {
   }
 
   private render(): void {
-    const { notifyPanel, notifyPanelContainer, ui } = this.state;
-    if (notifyPanel.isEmpty()) {
-      if (notifyPanelContainer.children.length === 0) return;
-      notifyPanelContainer.clear();
-      this.mounted = false;
-    } else {
-      if (notifyPanelContainer.children.length === 0) notifyPanelContainer.addChild(notifyPanel);
-      this.mounted = true;
-    }
+    const { notifyPanel, ui } = this.state;
+    // The panel is a region of the status surface; showing and hiding it is
+    // the surface's job now (a region stops occupying rows while it is empty),
+    // so this only has to keep the controller's own mounted bookkeeping and
+    // ask for a repaint.
+    this.mounted = !notifyPanel.isEmpty();
     ui.requestRender();
   }
 }

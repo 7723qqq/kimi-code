@@ -109,6 +109,8 @@ function makeHost(
       },
       editor: { getText: vi.fn(() => '') },
       editorReplacementMounted: false,
+      // Present on every real TUIState; the gate reads it directly.
+      statusSurface: { hasBlockingRegion: () => false },
       transcriptContainer,
       ui: { requestRender: vi.fn() },
       theme: { palette: getBuiltInPalette('dark') },
