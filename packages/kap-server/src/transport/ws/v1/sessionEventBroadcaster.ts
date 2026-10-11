@@ -1,3 +1,4 @@
+import { isInstantiationServiceDisposedError } from '@moonshot-ai/agent-core-v2';
 import { rm } from 'node:fs/promises';
 
 import type {
@@ -614,7 +615,7 @@ export class SessionEventBroadcaster {
       this.sessions.delete(sessionId);
       await disposeSessionState(state);
       this.dropActivityTrackers(sessionId);
-      if (error instanceof Error && error.message === 'InstantiationService has been disposed')
+      if (isInstantiationServiceDisposedError(error))
         return undefined;
       throw error;
     }
@@ -842,7 +843,7 @@ export class SessionEventBroadcaster {
     try {
       state = await this.ensureState(sessionId);
     } catch (error) {
-      if (error instanceof Error && error.message === 'InstantiationService has been disposed') {
+      if (isInstantiationServiceDisposedError(error)) {
         return;
       }
       throw error;

@@ -1,5 +1,8 @@
+import type { GoalChange } from '@moonshot-ai/kimi-code-sdk';
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 
+import { buildGoalMarker } from '#/tui/components/messages/goal-markers';
+import { STATUS_DOT } from '#/tui/constant/symbols';
 import { SessionEventHandler } from '#/tui/controllers/session-event-handler';
 import { readGoalQueue, removeGoalQueueItem, restoreGoalQueueItem } from '#/tui/goal-queue-store';
 import { getBuiltInPalette } from '#/tui/theme';
@@ -85,6 +88,7 @@ function makeHost(options: { createGoalRejects?: boolean } = {}) {
       beginCompaction: vi.fn(),
       endCompaction: vi.fn(),
       cancelCompaction: vi.fn(),
+      getTurnContext: vi.fn(() => ({ turnId: 'turn-1', step: 0 })),
     },
     requireSession: vi.fn(() => session),
     setAppState: vi.fn(),
@@ -181,7 +185,13 @@ function modelBlockedEvent() {
 }
 
 function addedTranscriptText(host: ReturnType<typeof makeHost>['host']): string {
-  const component = host.state.transcriptContainer.addChild.mock.calls.at(-1)?.[0];
+  const entry = host.appendTranscriptEntry.mock.calls.at(-1)?.[0] as
+    | { goalData?: { kind?: string; change?: GoalChange } }
+    | undefined;
+  const change = entry?.goalData?.change;
+  if (change === undefined) return '';
+  const component = buildGoalMarker(change, false, change.actor);
+  if (component === null) return '';
   return component
     .render(80)
     .join('\n')
@@ -480,7 +490,7 @@ describe('SessionEventHandler goal queue promotion', () => {
 
     handler.handleEvent(modelBlockedEvent(), vi.fn());
 
-    expect(host.state.transcriptContainer.addChild).not.toHaveBeenCalled();
+    expect(host.appendTranscriptEntry).not.toHaveBeenCalled();
   });
 
   it('renders a blocked fallback when the model does not explain the blocked goal', () => {
@@ -490,7 +500,7 @@ describe('SessionEventHandler goal queue promotion', () => {
     handler.handleEvent(modelBlockedEvent(), vi.fn());
     handler.handleEvent(turnEndedEvent(), vi.fn());
 
-    expect(addedTranscriptText(host)).toBe('  ◦ Goal blocked');
+    expect(addedTranscriptText(host)).toBe(`  ${STATUS_DOT} Goal blocked`);
   });
 
   it('does not render a blocked fallback after the model explains the blocked goal', () => {
@@ -510,7 +520,7 @@ describe('SessionEventHandler goal queue promotion', () => {
     );
     handler.handleEvent(turnEndedEvent(), vi.fn());
 
-    expect(host.state.transcriptContainer.addChild).not.toHaveBeenCalled();
+    expect(host.appendTranscriptEntry).not.toHaveBeenCalled();
   });
 
   it('does not render a blocked fallback after earlier assistant text in the same turn', () => {
@@ -530,7 +540,7 @@ describe('SessionEventHandler goal queue promotion', () => {
     handler.handleEvent(modelBlockedEvent(), vi.fn());
     handler.handleEvent(turnEndedEvent(), vi.fn());
 
-    expect(host.state.transcriptContainer.addChild).not.toHaveBeenCalled();
+    expect(host.appendTranscriptEntry).not.toHaveBeenCalled();
   });
 
   it('does not promote on paused or cancelled updates', async () => {

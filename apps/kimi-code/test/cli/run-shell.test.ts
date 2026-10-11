@@ -43,6 +43,7 @@ const mocks = vi.hoisted(() => {
     harnessClose: vi.fn(),
     detectPendingMigration: vi.fn<() => Promise<unknown>>(async () => null),
     harnessTrack: vi.fn(),
+    harnessSetEngineLocale: vi.fn(),
     kimiTuiConstructor: vi.fn(),
     tuiStart: vi.fn(),
     tuiGetStartupMcpMs: vi.fn(async () => 0),
@@ -84,6 +85,7 @@ vi.mock('@moonshot-ai/kimi-code-sdk', async (importOriginal) => {
       getConfigDiagnostics: mocks.harnessGetConfigDiagnostics,
       close: mocks.harnessClose,
       track: mocks.harnessTrack,
+      setEngineLocale: mocks.harnessSetEngineLocale,
     };
   };
   return {

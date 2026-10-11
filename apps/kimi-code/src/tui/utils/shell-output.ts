@@ -21,6 +21,14 @@ const ESC_SINGLE_PATTERN = /\u001B(?:[ -/][0-~]|[0-~])/g;
 // C0 control characters except \n (0x0A) and \t (0x09): NUL, BEL, \b, \r, …
 // plus a lone ESC (0x1B) that wasn't part of a sequence recognised above.
 const C0_CONTROL_PATTERN = /[\u0000-\u0008\u000B-\u001B\u001C-\u001F]/g;
+// Same set without ESC: the SGR-preserving pass keeps colour sequences, so
+// their leading ESC must survive this strip.
+const C0_CONTROL_WITHOUT_ESC_PATTERN = /[\u0000-\u0008\u000B-\u001A\u001C-\u001F]/g;
+// SGR only: CSI ending in `m` sets colours/styles. Kept in an expanded body so
+// captured tool colours survive while cursor moves and private modes do not.
+const SGR_CSI_PATTERN = /\u001B\[[0-9:;<=>?]*[ -/]*m/;
+// A lone ESC that does not begin a kept SGR sequence.
+const STRAY_ESC_PATTERN = /\u001B(?!\[[0-9:;<=>?]*[ -/]*m)/g;
 
 /**
  * Strip every terminal control sequence from captured command output so it is
@@ -38,6 +46,32 @@ export function sanitizeShellOutput(text: string): string {
       .replace(CSI_PATTERN, '')
       .replace(ESC_SINGLE_PATTERN, '')
       .replace(C0_CONTROL_PATTERN, '');
+  } catch {
+    return text.replace(C0_CONTROL_PATTERN, '');
+  }
+}
+
+/**
+ * Alternative to {@link sanitizeShellOutput} for *expanded* tool bodies: keeps
+ * colour/style sequences (`CSI … m`) so captured tool colours still read, while
+ * stripping everything else a terminal would execute — OSC (window titles,
+ * hyperlinks), non-SGR CSI (cursor moves, clears, alt-screen/hide-cursor
+ * private modes), other ESC sequences, and C0 controls such as `\r`.
+ *
+ * Expanded bodies previously bypassed sanitization entirely, so a captured
+ * `\r`, `ESC[2J` or `ESC[?1049h` reached the terminal on ctrl+o.
+ *
+ * Never throws: a bad or pathological input falls back to stripping C0.
+ */
+export function sanitizeShellOutputPreservingSgr(text: string): string {
+  if (typeof text !== 'string') return '';
+  if (text.length === 0) return text;
+  try {
+    return text
+      .replace(OSC_PATTERN, '')
+      .replace(CSI_PATTERN, (sequence) => (SGR_CSI_PATTERN.test(sequence) ? sequence : ''))
+      .replace(STRAY_ESC_PATTERN, '')
+      .replace(C0_CONTROL_WITHOUT_ESC_PATTERN, '');
   } catch {
     return text.replace(C0_CONTROL_PATTERN, '');
   }

@@ -244,6 +244,8 @@ export default {
     promptOptimizerNoOutputAction: 'Retry the optimization.',
     promptOptimizerBusy: 'A prompt rewrite is already in progress',
     promptOptimizerBusyAction: 'Wait for the current rewrite to finish before starting another.',
+    promptOptimizerOutputTooLong: 'Prompt rewrite exceeded the length limit',
+    promptOptimizerOutputTooLongAction: 'Retry, or shorten the draft so the rewrite fits the limit.',
     // spec.*
     specModeInvalid: 'Invalid spec mode',
     specModeInvalidAction: 'Exit spec mode before entering it again.',
@@ -315,6 +317,72 @@ export default {
     webFetchFailedAction: 'Check the URL and network connection, then retry.',
     // validation.*
     validationFailed: 'Validation failed',
+    // agent.no_final_message
+    agentNoFinalMessage: 'Agent produced no final message',
+    // agent.subagent_depth_exceeded
+    agentSubagentDepthExceeded: 'Subagent nesting depth exceeded',
+    // attachment.image_too_large
+    attachmentImageTooLarge: 'Image too large',
+    // attachment.image_too_many_pixels
+    attachmentImageTooManyPixels: 'Image has too many pixels',
+    // attachment.image_type_mismatch
+    attachmentImageTypeMismatch: 'Image type mismatch',
+    // attachment.invalid_image
+    attachmentInvalidImage: 'Invalid image attachment',
+    // attachment.invalid_ref
+    attachmentInvalidRef: 'Invalid attachment reference',
+    // capability.install_in_progress
+    capabilityInstallInProgress: 'Capability install already in progress',
+    // capability.not_found
+    capabilityNotFound: 'Capability not found',
+    // capability.unsupported
+    capabilityUnsupported: 'Capability not supported',
+    // debug.scope_not_found
+    debugScopeNotFound: 'Debug scope not found',
+    // debug.token_not_found
+    debugTokenNotFound: 'Debug token not found',
+    // event.duplicate_event
+    eventDuplicateEvent: 'Duplicate event type',
+    // event.schema_missing
+    eventSchemaMissing: 'Durable event without a payload schema',
+    // lsp.conflict
+    lspConflict: 'Language server conflict',
+    // lsp.malformed_response
+    lspMalformedResponse: 'Language server returned a malformed response',
+    // lsp.server_failed
+    lspServerFailed: 'Language server failed',
+    // lsp.unavailable
+    lspUnavailable: 'Language server unavailable',
+    // lsp.unsupported_operation
+    lspUnsupportedOperation: 'Operation not supported by this language server',
+    // lsp.workspace_required
+    lspWorkspaceRequired: 'A workspace is required for language server operations',
+    // modelsDev.catalog_entry_not_found
+    modelsDevCatalogEntryNotFound: 'Directory entry not found',
+    // modelsDev.catalog_unavailable
+    modelsDevCatalogUnavailable: 'models.dev directory unavailable',
+    // modelsDev.import_invalid
+    modelsDevImportInvalid: 'Directory entry is not importable',
+    // modelsDev.registry_import_invalid
+    modelsDevRegistryImportInvalid: 'Custom registry is not importable',
+    // provider.api_error
+    providerApiError: 'Provider API error',
+    // provider.oauth_managed
+    providerOauthManaged: 'Provider is managed by OAuth login',
+    // session.tower_mode_invalid
+    sessionTowerModeInvalid: 'Invalid tower mode',
+    // session_query.index_unavailable
+    sessionQueryIndexUnavailable: 'Session search index unavailable',
+    // session_query.invalid_filter
+    sessionQueryInvalidFilter: 'Invalid session query filter',
+    // session_query.session_not_found
+    sessionQuerySessionNotFound: 'Session not found in the search index',
+    // state.cycle
+    stateCycle: 'Event dispatch cycle',
+    // state.duplicate_fold
+    stateDuplicateFold: 'Duplicate state fold',
+    // state.durability_mismatch
+    stateDurabilityMismatch: 'Transient state cannot fold a durable event',
   },
   common: {
     ok: 'OK',
@@ -478,8 +546,8 @@ export default {
       statusSurface: {
         approval: {
           prompt: 'Approve {{tool}}?',
-          expandHint: 'ctrl+o details',
-          collapseHint: 'ctrl+o collapse',
+          expandHint: 'ctrl+t details',
+          collapseHint: 'ctrl+t collapse',
         },
       },
       footer: {
@@ -2184,6 +2252,14 @@ export default {
         line_other: '{{count}} lines',
         reading: 'reading…',
       },
+      stepSummary: {
+        thinking_one: 'thinking once',
+        thinking_other: 'thinking {{count}} times',
+        tool_one: 'call {{count}} tool',
+        tool_other: 'call {{count}} tools',
+        message_one: '{{count}} message',
+        message_other: '{{count}} messages',
+      },
       toolCall: {
         detachHint: 'Press Ctrl+B to run in background',
         backgroundLost: 'Background agent lost (session restarted before completion)',
@@ -2282,6 +2358,7 @@ export default {
           needsAuth: 'needs auth',
           failed: 'failed',
           disabled: 'disabled',
+          removed: 'removed',
         },
         disabledToolCount: '—',
         toolsAvailable: '{{count}} tools available',

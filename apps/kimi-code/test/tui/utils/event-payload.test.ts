@@ -79,10 +79,22 @@ describe('error payload formatting', () => {
     expect(formatted).toContain('No goal found');
   });
 
-  it('falls back to the raw payload for a KimiError with no locale entry', () => {
+  it('falls back to the raw payload for a code with no locale entry', () => {
+    // Every code the SDK declares now has an entry, so the fallback path is
+    // reached the way it is in production: an error carrying a code this build
+    // does not know (a newer engine than the pinned SDK).
+    const error = new KimiError('engine.newer_than_sdk' as never, 'boom');
+
+    expect(formatErrorMessage(error)).toBe('[engine.newer_than_sdk] boom');
+  });
+
+  it('localizes a provider API error now that the code has an entry', () => {
     const error = new KimiError(ErrorCodes.PROVIDER_API_ERROR, 'boom');
 
-    expect(formatErrorMessage(error)).toBe('[provider.api_error] boom');
+    const formatted = formatErrorMessage(error);
+    expect(formatted).toContain('[provider.api_error]');
+    expect(formatted).toContain('Provider API error');
+    expect(formatted).toContain('boom');
   });
 });
 

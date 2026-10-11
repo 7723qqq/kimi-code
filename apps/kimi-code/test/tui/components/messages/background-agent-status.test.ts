@@ -58,4 +58,22 @@ describe('BackgroundAgentStatusComponent', () => {
       }
     }
   });
+
+  it('reuses the memoized render and refreshes the held text on invalidate', () => {
+    const component = new BackgroundAgentStatusComponent({
+      phase: 'started',
+      headline: 'explore agent started in background',
+      detail: 'Explore project structure',
+    });
+
+    const first = component.render(80);
+    // A second frame at the same width is served from the cache, so the held
+    // Text instance is not re-wrapped (and no new one is constructed).
+    expect(component.render(80)).toBe(first);
+
+    component.invalidate();
+    const repainted = component.render(80);
+    expect(repainted).not.toBe(first);
+    expect(repainted.map(strip)).toEqual(first.map(strip));
+  });
 });

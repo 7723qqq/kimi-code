@@ -1,4 +1,5 @@
 import type { Session } from '@moonshot-ai/kimi-code-sdk';
+import type { Component } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
 
@@ -19,7 +20,6 @@ import type {
   ToolResultBlockData,
   TranscriptEntry,
 } from '../types';
-import { hasDispose } from '../utils/component-capabilities';
 import {
   appendStreamingArgsPreview,
   type NormalizedTodoItem,
@@ -39,7 +39,14 @@ export interface StreamingUIHost {
   requireSession(): Session;
   deferUserMessages: boolean;
   shiftQueuedMessage(): QueuedMessage | undefined;
-  pushTranscriptEntry(entry: TranscriptEntry): void;
+  /**
+   * Single mounting entry points (implemented by `TranscriptRendererController`
+   * through `KimiTUI`): an entry plus its component, a component for an
+   * already-accounted entry, and an in-place child replacement.
+   */
+  appendTranscriptEntry(entry: TranscriptEntry, component?: Component): void;
+  mountTranscriptComponent(entry: TranscriptEntry, component: Component): void;
+  replaceTranscriptChild(previous: Component, next: Component, entry?: TranscriptEntry): boolean;
   mergeCurrentTurnSteps(): void;
   mergeCompletedTurnAssistants(): void;
 }
@@ -62,8 +69,12 @@ export class StreamingUIController {
   private _streamingBlock: { component: AssistantMessageComponent; entry: TranscriptEntry } | null =
     null;
   private _activeThinkingComponent: ThinkingComponent | undefined = undefined;
+  private _activeThinkingEntry: TranscriptEntry | undefined = undefined;
   private _activeCompactionBlock: CompactionComponent | undefined = undefined;
+  private _activeCompactionEntry: TranscriptEntry | undefined = undefined;
   private _activeToolCalls = new Map<string, ToolCallBlockData>();
+  /** Entry backing each in-flight tool card, so the history entry can carry the result. */
+  private readonly _toolCallEntries = new Map<string, TranscriptEntry>();
   private _runningWaitForCalls = new Set<string>();
   private _streamingToolCallArguments = new Map<
     string,
@@ -332,6 +343,7 @@ export class StreamingUIController {
     const existingComponent = this._pendingToolComponents.get(toolCall.id);
     if (existingComponent !== undefined) {
       existingComponent.updateToolCall(toolCall);
+      this.updateToolCallEntry(toolCall);
     } else if (existing === undefined) {
       this.finalizeLiveTextBuffers('tool');
       if (toolCall.name !== 'Agent' && toolCall.name !== 'AgentSwarm') {
@@ -418,6 +430,9 @@ export class StreamingUIController {
     this._currentStep = 0;
     this._streamingToolCallArguments.clear();
     this.pendingToolCallFlushIds.clear();
+    this._toolCallEntries.clear();
+    this._activeThinkingEntry = undefined;
+    this._activeCompactionEntry = undefined;
     this.host.state.ui.requestRender();
   }
 
@@ -430,11 +445,18 @@ export class StreamingUIController {
       this._activeThinkingComponent.dispose();
       this._activeThinkingComponent = undefined;
     }
+    this._activeThinkingEntry = undefined;
   }
 
-  disposeAndClearPendingToolComponents(): void {
+  /**
+   * Stops the timers of in-flight tool cards without disposing them: they are
+   * mounted in the transcript and must survive a step/turn boundary so a late
+   * result can still land. Disposing them here left disposed components in the
+   * tree that could never be updated again.
+   */
+  private freezePendingToolComponents(): void {
     for (const component of this._pendingToolComponents.values()) {
-      if (hasDispose(component)) component.dispose();
+      component.stopTimers();
     }
     this._pendingToolComponents.clear();
   }
@@ -558,7 +580,7 @@ export class StreamingUIController {
     this.pendingToolCallFlushIds.clear();
     this.clearFlushTimerIfIdle();
     this._streamingToolCallArguments.clear();
-    this.disposeAndClearPendingToolComponents();
+    this.freezePendingToolComponents();
     this._pendingAgentGroup = null;
     this._pendingReadGroup = null;
     this.resetToolCallState();
@@ -567,6 +589,7 @@ export class StreamingUIController {
   resetToolCallState(): void {
     this._activeToolCalls.clear();
     this._runningWaitForCalls.clear();
+    this._toolCallEntries.clear();
   }
 
   finalizeLiveTextBuffers(nextMode: LivePaneState['mode'] = 'idle'): void {
@@ -616,7 +639,6 @@ export class StreamingUIController {
   // ---------------------------------------------------------------------------
 
   onStreamingTextStart(): void {
-    const { state } = this.host;
     this._pendingAgentGroup = null;
     this._pendingReadGroup = null;
     const entry = {
@@ -629,9 +651,7 @@ export class StreamingUIController {
     };
     const component = new AssistantMessageComponent();
     this._streamingBlock = { component, entry };
-    this.host.pushTranscriptEntry(entry);
-    state.transcriptContainer.addChild(component);
-    state.ui.requestRender();
+    this.host.appendTranscriptEntry(entry, component);
   }
 
   onStreamingTextUpdate(fullText: string): void {
@@ -661,12 +681,22 @@ export class StreamingUIController {
     if (this._activeThinkingComponent === undefined) {
       this._pendingAgentGroup = null;
       this._pendingReadGroup = null;
-      this._activeThinkingComponent = new ThinkingComponent(fullText, true, 'live', state.ui);
-      if (state.toolOutputExpanded) this._activeThinkingComponent.setExpanded(true);
-      state.transcriptContainer.addChild(this._activeThinkingComponent);
-    } else {
-      this._activeThinkingComponent.setText(fullText);
+      const component = new ThinkingComponent(fullText, true, 'live', state.ui);
+      if (state.toolOutputExpanded) component.setExpanded(true);
+      this._activeThinkingComponent = component;
+      const entry: TranscriptEntry = {
+        id: nextTranscriptId(),
+        kind: 'thinking',
+        turnId: this._currentTurnId,
+        renderMode: 'plain',
+        content: fullText,
+      };
+      this._activeThinkingEntry = entry;
+      this.host.appendTranscriptEntry(entry, component);
+      return;
     }
+    this._activeThinkingComponent.setText(fullText);
+    if (this._activeThinkingEntry !== undefined) this._activeThinkingEntry.content = fullText;
     state.ui.requestRender();
   }
 
@@ -674,6 +704,7 @@ export class StreamingUIController {
     if (this._activeThinkingComponent === undefined) return;
     this._activeThinkingComponent.finalize();
     this._activeThinkingComponent = undefined;
+    this._activeThinkingEntry = undefined;
     this.host.state.ui.requestRender();
     this.host.mergeCurrentTurnSteps();
   }
@@ -686,14 +717,16 @@ export class StreamingUIController {
     if (state.toolOutputExpanded) tc.setExpanded(true);
     this._pendingToolComponents.set(toolCall.id, tc);
 
+    const entry = this.createToolCallEntry(toolCall);
+    this._toolCallEntries.set(toolCall.id, entry);
+
     if (toolCall.name !== 'Agent') this._pendingAgentGroup = null;
     if (toolCall.name !== 'Read') this._pendingReadGroup = null;
 
-    let handled = this.tryAttachAgentToolCall(toolCall, tc);
-    if (!handled) handled = this.tryAttachReadToolCall(toolCall, tc);
+    let handled = this.tryAttachAgentToolCall(toolCall, tc, entry);
+    if (!handled) handled = this.tryAttachReadToolCall(toolCall, tc, entry);
     if (!handled) {
-      state.transcriptContainer.addChild(tc);
-      state.ui.requestRender();
+      this.host.appendTranscriptEntry(entry, tc);
     }
 
     if (toolCall.name === 'ExitPlanMode' && typeof toolCall.args['plan'] !== 'string') {
@@ -715,6 +748,30 @@ export class StreamingUIController {
     }
   }
 
+  /**
+   * One TranscriptEntry per live tool call, so the history ledger stays in
+   * sync with the mounted cards (the result is written back on completion).
+   */
+  private createToolCallEntry(toolCall: ToolCallBlockData): TranscriptEntry {
+    return {
+      id: nextTranscriptId(),
+      kind: 'tool_call',
+      turnId: toolCall.turnId ?? this._currentTurnId,
+      renderMode: 'plain',
+      content: toolCall.name,
+      toolCallData: toolCall,
+    };
+  }
+
+  /** Keeps the history entry pointing at the freshest call data. */
+  private updateToolCallEntry(toolCall: ToolCallBlockData): void {
+    const entry = this._toolCallEntries.get(toolCall.id);
+    if (entry === undefined) return;
+    entry.toolCallData = toolCall;
+    entry.turnId = toolCall.turnId ?? entry.turnId;
+    entry.content = toolCall.name;
+  }
+
   onToolCallEnd(toolCallId: string, result: ToolResultBlockData): void {
     const { state } = this.host;
     const matchedCall = this._activeToolCalls.get(toolCallId);
@@ -722,6 +779,14 @@ export class StreamingUIController {
     if (tc) {
       tc.setResult(result);
       this._pendingToolComponents.delete(toolCallId);
+      const entry = this._toolCallEntries.get(toolCallId);
+      if (entry !== undefined) {
+        if (matchedCall !== undefined) {
+          matchedCall.result = result;
+          entry.toolCallData = matchedCall;
+        }
+      }
+      this._toolCallEntries.delete(toolCallId);
       state.ui.requestRender();
       this.host.mergeCurrentTurnSteps();
       return;
@@ -735,8 +800,8 @@ export class StreamingUIController {
         state.appState.workDir,
       );
       if (state.toolOutputExpanded) completed.setExpanded(true);
-      state.transcriptContainer.addChild(completed);
-      state.ui.requestRender();
+      matchedCall.result = result;
+      this.host.appendTranscriptEntry(this.createToolCallEntry(matchedCall), completed);
     }
     this.host.mergeCurrentTurnSteps();
   }
@@ -756,21 +821,39 @@ export class StreamingUIController {
     if (this._activeCompactionBlock !== undefined) {
       this._activeCompactionBlock.markDone();
       this._activeCompactionBlock = undefined;
+      this._activeCompactionEntry = undefined;
     }
     const block = new CompactionComponent(state.ui, instruction, currentWorkingTip()?.text);
+    const entry: TranscriptEntry = {
+      id: nextTranscriptId(),
+      kind: 'status',
+      turnId: this._currentTurnId,
+      renderMode: 'plain',
+      content: instruction ?? '',
+      compactionData: { instruction },
+    };
     this._activeCompactionBlock = block;
-    state.transcriptContainer.addChild(block);
+    this._activeCompactionEntry = entry;
     if (state.toolOutputExpanded) {
       block.setExpanded(true);
     }
-    state.ui.requestRender();
+    this.host.appendTranscriptEntry(entry, block);
   }
 
   endCompaction(tokensBefore?: number, tokensAfter?: number, summary?: string): void {
     const block = this._activeCompactionBlock;
     if (block === undefined) return;
     block.markDone(tokensBefore, tokensAfter, summary);
+    if (this._activeCompactionEntry !== undefined) {
+      this._activeCompactionEntry.compactionData = {
+        instruction: this._activeCompactionEntry.compactionData?.instruction,
+        tokensBefore,
+        tokensAfter,
+        summary,
+      };
+    }
     this._activeCompactionBlock = undefined;
+    this._activeCompactionEntry = undefined;
     this.host.state.ui.requestRender();
   }
 
@@ -778,7 +861,14 @@ export class StreamingUIController {
     const block = this._activeCompactionBlock;
     if (block === undefined) return;
     block.markCanceled();
+    if (this._activeCompactionEntry !== undefined) {
+      this._activeCompactionEntry.compactionData = {
+        instruction: this._activeCompactionEntry.compactionData?.instruction,
+        result: 'cancelled',
+      };
+    }
     this._activeCompactionBlock = undefined;
+    this._activeCompactionEntry = undefined;
     this.host.state.ui.requestRender();
   }
 
@@ -807,13 +897,17 @@ export class StreamingUIController {
     const existingComponent = this._pendingToolComponents.get(id);
     if (existingComponent !== undefined) {
       existingComponent.updateToolCall(toolCall);
+      this.updateToolCallEntry(toolCall);
     } else if (toolCall.name !== 'Agent' && toolCall.name !== 'AgentSwarm') {
       this.onToolCallStart(toolCall);
     }
   }
 
-  private tryAttachAgentToolCall(toolCall: ToolCallBlockData, tc: ToolCallComponent): boolean {
-    const { state } = this.host;
+  private tryAttachAgentToolCall(
+    toolCall: ToolCallBlockData,
+    tc: ToolCallComponent,
+    entry: TranscriptEntry,
+  ): boolean {
     if (toolCall.name !== 'Agent') {
       this._pendingAgentGroup = null;
       return false;
@@ -830,8 +924,7 @@ export class StreamingUIController {
     const cur = this._pendingAgentGroup;
     if (cur === null) {
       this._pendingAgentGroup = { step, turnId, solo: tc };
-      state.transcriptContainer.addChild(tc);
-      state.ui.requestRender();
+      this.host.mountTranscriptComponent(entry, tc);
       return true;
     }
 
@@ -843,35 +936,32 @@ export class StreamingUIController {
     const solo = cur.solo;
     if (solo === undefined) {
       this._pendingAgentGroup = { step, turnId, solo: tc };
-      state.transcriptContainer.addChild(tc);
-      state.ui.requestRender();
+      this.host.mountTranscriptComponent(entry, tc);
       return true;
     }
     const group = this.upgradeSoloAgentToGroup(solo);
     group.attach(toolCall.id, tc);
     this._pendingAgentGroup = { step, turnId, group };
-    state.ui.requestRender();
+    this.host.state.ui.requestRender();
     return true;
   }
 
   private upgradeSoloAgentToGroup(solo: ToolCallComponent): AgentGroupComponent {
     const { state } = this.host;
     const group = new AgentGroupComponent(state.ui);
-    const children = state.transcriptContainer.children;
-    const idx = children.indexOf(solo);
-    if (idx >= 0) {
-      // In-place replacement is picked up by the container's ref-checked
-      // render cache; a tree-wide invalidate is unnecessary (and costly).
-      children[idx] = group;
-    } else {
+    const previousEntry = this._toolCallEntries.get(solo.toolCallView.id);
+    if (!this.host.replaceTranscriptChild(solo, group, previousEntry)) {
       state.transcriptContainer.addChild(group);
     }
     group.attach(solo.toolCallView.id, solo);
     return group;
   }
 
-  private tryAttachReadToolCall(toolCall: ToolCallBlockData, tc: ToolCallComponent): boolean {
-    const { state } = this.host;
+  private tryAttachReadToolCall(
+    toolCall: ToolCallBlockData,
+    tc: ToolCallComponent,
+    entry: TranscriptEntry,
+  ): boolean {
     if (toolCall.name !== 'Read') {
       this._pendingReadGroup = null;
       return false;
@@ -888,8 +978,7 @@ export class StreamingUIController {
     const cur = this._pendingReadGroup;
     if (cur === null) {
       this._pendingReadGroup = { step, turnId, solo: tc };
-      state.transcriptContainer.addChild(tc);
-      state.ui.requestRender();
+      this.host.mountTranscriptComponent(entry, tc);
       return true;
     }
 
@@ -901,14 +990,13 @@ export class StreamingUIController {
     const solo = cur.solo;
     if (solo === undefined) {
       this._pendingReadGroup = { step, turnId, solo: tc };
-      state.transcriptContainer.addChild(tc);
-      state.ui.requestRender();
+      this.host.mountTranscriptComponent(entry, tc);
       return true;
     }
     const group = this.upgradeSoloReadToGroup(solo);
     group.attach(toolCall.id, tc);
     this._pendingReadGroup = { step, turnId, group };
-    state.ui.requestRender();
+    this.host.state.ui.requestRender();
     return true;
   }
 
@@ -916,13 +1004,8 @@ export class StreamingUIController {
     const { state } = this.host;
     const group = new ReadGroupComponent(state.ui);
     if (state.toolOutputExpanded) group.setExpanded(true);
-    const children = state.transcriptContainer.children;
-    const idx = children.indexOf(solo);
-    if (idx >= 0) {
-      // In-place replacement is picked up by the container's ref-checked
-      // render cache; a tree-wide invalidate is unnecessary (and costly).
-      children[idx] = group;
-    } else {
+    const previousEntry = this._toolCallEntries.get(solo.toolCallView.id);
+    if (!this.host.replaceTranscriptChild(solo, group, previousEntry)) {
       state.transcriptContainer.addChild(group);
     }
     group.attach(solo.toolCallView.id, solo);

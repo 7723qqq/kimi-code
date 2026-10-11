@@ -190,6 +190,10 @@ jobs:
       # waiting, so its text must go through t(). The two checks above cannot
       # see a literal that never called t() at all — this one walks that code.
       - run: bun --bun run check:status-surface-i18n
+      # Every UI tree: the same blind spot as above, one level up. Prose
+      # literals outside t() are counted in scripts/no-hardcoded-prose-baseline.txt
+      # (shrink-only); a new hardcoded string fails the run.
+      - run: bun --bun run check:no-hardcoded-prose
       # Service naming: domain directories and service files under
       # packages/kap-server/src/services stay camelCase (the second root this
       # script once covered, packages/services/src, no longer exists).

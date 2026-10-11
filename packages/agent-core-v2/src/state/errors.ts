@@ -9,22 +9,16 @@ export const StateErrors = {
   },
   info: {
     'state.duplicate_fold': {
-      title: 'Duplicate state fold',
       retryable: false,
       public: true,
-      action: 'A state registered two folds for the same event; merge them.',
     },
     'state.durability_mismatch': {
-      title: 'Transient state folds durable event',
       retryable: false,
       public: true,
-      action: 'A non-durable state cannot fold a durable event; mark the state durable.',
     },
     'state.cycle': {
-      title: 'Event dispatch cycle',
       retryable: false,
       public: true,
-      action: 'A subscriber re-dispatches endlessly; break the event cycle.',
     },
   },
 } as const satisfies ErrorDomain;

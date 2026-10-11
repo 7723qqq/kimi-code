@@ -44,20 +44,23 @@ interface TextUnit {
   readonly width: number;
 }
 
+// Hoisted: a header layout segments its text one to three times, and building
+// a Segmenter per call costs more than the segmentation itself.
+const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+
 /** Grapheme clusters and whole escape sequences, in order; escape sequences measure zero width. */
 function* textUnits(text: string): Generator<TextUnit> {
-  const segmenter = new Intl.Segmenter();
   let offset = 0;
   for (const match of text.matchAll(ANSI_ESCAPE_PATTERN)) {
     if (match.index > offset) {
-      for (const segment of segmenter.segment(text.slice(offset, match.index))) {
+      for (const segment of graphemeSegmenter.segment(text.slice(offset, match.index))) {
         yield { text: segment.segment, width: visibleWidth(segment.segment) };
       }
     }
     yield { text: match[0], width: 0 };
     offset = match.index + match[0].length;
   }
-  for (const segment of segmenter.segment(text.slice(offset))) {
+  for (const segment of graphemeSegmenter.segment(text.slice(offset))) {
     yield { text: segment.segment, width: visibleWidth(segment.segment) };
   }
 }
@@ -79,6 +82,20 @@ function keepHead(text: string, width: number): string {
     used += unit.width;
   }
   return truncated ? `${out}${TRUNCATION_ELLIPSIS}` : out;
+}
+
+/**
+ * Collapse `text` to a single plain-text line (whitespace runs become one
+ * space) and cut it to `max` cells with a trailing ellipsis — the same
+ * semantics as `truncateToWidth(text, max, '…')`, but grapheme-safe instead of
+ * code-unit-based (a CJK character or an emoji is never cut in half and a lone
+ * surrogate can never survive), and without the reset sequences pi-tui's
+ * cutter injects around its ellipsis, so a caller's styling stays intact.
+ */
+export function truncateOneLine(text: string, max: number): string {
+  if (max <= 0) return '';
+  const singleLine = text.replaceAll(/\s+/g, ' ').trim();
+  return visibleWidth(singleLine) <= max ? singleLine : keepHead(singleLine, max);
 }
 
 /** Keep the end of `text` behind a leading ellipsis, within `width` cells. */

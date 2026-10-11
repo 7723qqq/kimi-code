@@ -1,5 +1,6 @@
+import type { TUI } from '@moonshot-ai/pi-tui';
 import { visibleWidth } from '@moonshot-ai/pi-tui';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { ReadGroupComponent } from '#/tui/components/messages/read-group';
 import { ToolCallComponent } from '#/tui/components/messages/tool-call';
@@ -87,5 +88,24 @@ describe('ReadGroupComponent header on a narrow terminal', () => {
     expect(visibleWidth(narrow[0]!)).toBeLessThanOrEqual(26);
     expect(narrow[0]!.endsWith('1 failed')).toBe(true);
     expect(narrow[0]).not.toContain('lines');
+  });
+});
+
+describe('ReadGroupComponent flush', () => {
+  it('reads each card once and requests a single render per rebuild', () => {
+    const ui = { requestRender: vi.fn() } as unknown as TUI;
+    const group = new ReadGroupComponent(ui);
+    const call = readCall('r1', 'src/alpha-component.ts', 3);
+    group.attach('r1', call);
+
+    const snapshots = vi.spyOn(call, 'getReadSnapshot');
+    vi.mocked(ui.requestRender).mockClear();
+
+    group.setExpanded(true);
+
+    // One snapshot pass feeds the rebuilt header/body; the invalidate() the
+    // rebuild triggers must not re-enter flushRender().
+    expect(snapshots).toHaveBeenCalledTimes(1);
+    expect(ui.requestRender).toHaveBeenCalledTimes(1);
   });
 });

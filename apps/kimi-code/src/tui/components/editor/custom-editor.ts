@@ -8,12 +8,12 @@ import {
   matchesKey,
   Key,
   SelectList,
-  visibleWidth,
   type SelectItem,
   type TUI,
 } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
+import { wrapWithSideBorders } from '#/tui/components/chrome/panel-frame';
 import type { StatusSurfaceKey } from '#/tui/components/chrome/status-surface/region';
 import { currentTheme } from '#/tui/theme';
 import { createEditorTheme } from '#/tui/theme/pi-tui-theme';
@@ -631,10 +631,11 @@ export class CustomEditor extends Editor {
       return;
     }
 
-    // Swallow Tab while the autocomplete dropdown is closed so it does not
-    // trigger pi-tui's built-in file completion. When the dropdown is open,
-    // fall through so pi-tui can still accept the selected item with Tab.
+    // The strip owns Tab while it holds the keyboard: `Tab` walks between its
+    // two columns, and only the surface knows that geometry. Without a focused
+    // region the handler returns false and Tab is swallowed as before.
     if (matchesKey(normalized, Key.tab) && !this.isShowingAutocomplete()) {
+      if (this.onStatusSurfaceKey?.('cycleColumn') === true) return;
       return;
     }
 
@@ -922,60 +923,6 @@ export function injectPromptSymbol(
   }
   const rendered = paint ? paint(symbol) : symbol;
   return '  ' + rendered + ' ' + line.slice(4);
-}
-
-/**
- * Post-process pi-tui's editor output to draw a full box around it.
- *
- * pi-tui only renders horizontal top/bottom borders; we wrap them with
- * `╭╮╰╯` corners and add vertical `│` bars on each row's outer columns.
- * Horizontal-border rows (those whose first visible char is `─`, including
- * scroll indicators like `── ↑ N more ──`) are stripped of their existing
- * SGR and repainted as a single box-drawn span. Content rows keep their
- * inner SGR intact; only column 0 and the last column are overlaid, and
- * only if they're literal spaces — that protects the cursor-overflow
- * case where the rightmost column is an SGR-tagged inverse cursor.
- *
- * When `options.label` is set, it is overlaid on the left of the top border
- * (e.g. the `! shell mode` badge), replacing the leading dashes. It is only
- * applied to a plain dash run, never to a `↑/↓ N more` scroll indicator.
- */
-export function wrapWithSideBorders(
-  lines: string[],
-  paint: (s: string) => string,
-  options: { readonly connectedAbove?: boolean; readonly label?: string } = {},
-): string[] {
-  let seenTop = false;
-  return lines.map((line) => {
-    const plain = stripSgr(line);
-    if (plain.length > 0 && plain[0] === '─') {
-      const isTop = !seenTop;
-      const leftCorner = seenTop ? '╰' : options.connectedAbove === true ? '├' : '╭';
-      const rightCorner = seenTop ? '╯' : options.connectedAbove === true ? '┤' : '╮';
-      seenTop = true;
-      if (plain.length === 1) return paint(leftCorner);
-      const middle = plain.slice(1, -1);
-      if (isTop && options.label !== undefined && /^─+$/.test(middle)) {
-        const labelWidth = visibleWidth(options.label);
-        if (labelWidth <= middle.length) {
-          return (
-            paint(leftCorner) +
-            options.label +
-            paint('─'.repeat(middle.length - labelWidth)) +
-            paint(rightCorner)
-          );
-        }
-      }
-      return paint(leftCorner + middle + rightCorner);
-    }
-    if (line.length === 0) return line;
-    const firstCh = line[0];
-    const lastCh = line.at(-1);
-    const head = firstCh === ' ' ? paint('│') : (firstCh ?? '');
-    const tail = line.length > 1 && lastCh === ' ' ? paint('│') : (lastCh ?? '');
-    if (line.length === 1) return head;
-    return head + line.slice(1, -1) + tail;
-  });
 }
 
 /**

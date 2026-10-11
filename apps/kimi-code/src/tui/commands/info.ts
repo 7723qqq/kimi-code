@@ -31,6 +31,7 @@ import {
 } from '../constant/feedback';
 import { DEFAULT_OAUTH_PROVIDER_NAME, isManagedUsageProvider } from '../constant/kimi-tui';
 import { formatErrorMessage } from '../utils/event-payload';
+import { nextTranscriptId } from '../utils/transcript-id';
 import type { SlashCommandHost } from './dispatch';
 import { isExperimentalFlagEnabled } from './experimental-flags';
 import { promptFeedbackAttachment, promptFeedbackInput } from './prompts';
@@ -165,8 +166,16 @@ export async function showUsage(host: SlashCommandHost): Promise<void> {
     managedUsageError: managedUsage?.error,
   };
   const panel = new UsagePanelComponent(() => buildUsageReportLines(reportArgs), 'primary');
-  host.state.transcriptContainer.addChild(panel);
-  host.state.ui.requestRender();
+  host.appendTranscriptEntry(
+    {
+      id: nextTranscriptId(),
+      kind: 'status',
+      turnId: undefined,
+      renderMode: 'plain',
+      content: '',
+    },
+    panel,
+  );
 }
 
 export async function showStatusReport(host: SlashCommandHost): Promise<void> {
@@ -202,8 +211,16 @@ export async function showStatusReport(host: SlashCommandHost): Promise<void> {
     'primary',
     ' Status ',
   );
-  host.state.transcriptContainer.addChild(panel);
-  host.state.ui.requestRender();
+  host.appendTranscriptEntry(
+    {
+      id: nextTranscriptId(),
+      kind: 'status',
+      turnId: undefined,
+      renderMode: 'plain',
+      content: '',
+    },
+    panel,
+  );
 }
 
 export async function showMcpServers(host: SlashCommandHost): Promise<void> {
@@ -227,8 +244,16 @@ export async function showMcpServers(host: SlashCommandHost): Promise<void> {
     'primary',
     title,
   );
-  host.state.transcriptContainer.addChild(panel);
-  host.state.ui.requestRender();
+  host.appendTranscriptEntry(
+    {
+      id: nextTranscriptId(),
+      kind: 'status',
+      turnId: undefined,
+      renderMode: 'plain',
+      content: '',
+    },
+    panel,
+  );
 }
 
 async function loadSessionUsageReport(host: SlashCommandHost): Promise<SessionUsageResult> {

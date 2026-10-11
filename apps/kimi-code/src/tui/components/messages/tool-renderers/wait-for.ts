@@ -15,6 +15,7 @@ import { currentTheme } from '#/tui/theme';
 import type { ToolCallBlockData, ToolResultBlockData } from '#/tui/types';
 
 import { formatGoalElapsed } from '../goal-format';
+import { truncateOneLine } from '../truncated-header-line';
 import { renderTruncated } from './truncated';
 import type { ResultRenderer } from './types';
 
@@ -184,10 +185,4 @@ function sampleDescriptions(stillRunning: string, runningCount: number): readonl
     truncateOneLine(match[1] ?? '', 40),
   );
   return descriptions.slice(0, Math.min(RUNNING_SAMPLES, runningCount));
-}
-
-function truncateOneLine(text: string, max: number): string {
-  const firstLine = text.replaceAll(/\s+/g, ' ').trim();
-  if (firstLine.length <= max) return firstLine;
-  return `${firstLine.slice(0, Math.max(0, max - 1))}…`;
 }

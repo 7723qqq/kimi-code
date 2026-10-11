@@ -143,16 +143,15 @@ export interface SessionEventHost {
   mountEditorReplacement(panel: Component & Focusable): void;
   restoreEditor(): void;
   restoreInputText(text: string): void;
-  appendTranscriptEntry(entry: TranscriptEntry): void;
+  appendTranscriptEntry(entry: TranscriptEntry, component?: Component): void;
+  replaceTranscriptChild(previous: Component, next: Component, entry?: TranscriptEntry): boolean;
+  removeTranscriptEntries(entries: readonly TranscriptEntry[]): void;
   handleShellOutput(event: { commandId: string; update: { kind: string; text?: string } }): void;
   handleShellStarted(event: { commandId: string; taskId: string }): void;
   sendNormalUserInput(text: string): void;
   updateTerminalTitle(): void;
   sendQueuedMessage(session: Session, item: QueuedMessage): void;
   shiftQueuedMessage(): QueuedMessage | undefined;
-  hasPendingBundledSkill?(name: string): boolean;
-  /** Transcript entry id of the most recently dispatched user prompt (see KimiTUI). */
-  readonly lastDispatchedUserEntryId?: string;
   steerQueuedMessagesIntoRunningTurn(): void;
   handleTurnStarted?(event: TurnStartedEvent): void;
   handleTurnEnded?(event: TurnEndedEvent): void;
@@ -210,7 +209,8 @@ export class SessionEventHandler {
   renderedSkillActivationIds: Set<string> = new Set();
   renderedPluginCommandActivationIds: Set<string> = new Set();
   renderedMcpServerStatusKeys: Map<string, string> = new Map();
-  mcpServerStatusSpinners: Map<string, MoonLoader> = new Map();
+  mcpServerStatusSpinners: Map<string, { spinner: MoonLoader; entry: TranscriptEntry }> =
+    new Map();
   mcpServers: Map<string, McpServerStatusSnapshot> = new Map();
   private goalCompletionAwaitingClear = false;
   private goalCompletionTurnEnded = false;
@@ -435,7 +435,7 @@ export class SessionEventHandler {
   }
 
   stopAllMcpServerStatusSpinners(): void {
-    for (const spinner of this.mcpServerStatusSpinners.values()) {
+    for (const { spinner } of this.mcpServerStatusSpinners.values()) {
       spinner.stop();
     }
     this.mcpServerStatusSpinners.clear();
@@ -929,8 +929,16 @@ export class SessionEventHandler {
   }
 
   private renderSwarmModeMarker(state: SwarmModeMarkerState): void {
-    this.host.state.transcriptContainer.addChild(new SwarmModeMarkerComponent(state));
-    this.host.state.ui.requestRender();
+    this.host.appendTranscriptEntry(
+      {
+        id: nextTranscriptId(),
+        kind: 'status',
+        turnId: undefined,
+        renderMode: 'plain',
+        content: state,
+      },
+      new SwarmModeMarkerComponent(state),
+    );
   }
 
   private handleGoalUpdated(event: GoalUpdatedEvent): void {
@@ -978,11 +986,15 @@ export class SessionEventHandler {
     } else if (change.kind === 'lifecycle') {
       this.pendingModelBlockedFallback = undefined;
     }
-    const marker = buildGoalMarker(change, state.toolOutputExpanded, change.actor);
-    if (marker !== null) {
-      state.transcriptContainer.addChild(marker);
-      state.ui.requestRender();
-    }
+    if (buildGoalMarker(change, state.toolOutputExpanded, change.actor) === null) return;
+    this.host.appendTranscriptEntry({
+      id: nextTranscriptId(),
+      kind: 'goal',
+      turnId: this.host.streamingUI.getTurnContext().turnId,
+      renderMode: 'plain',
+      content: '',
+      goalData: { kind: 'lifecycle', change },
+    });
   }
 
   private renderPendingModelBlockedFallback(): void {
@@ -990,11 +1002,16 @@ export class SessionEventHandler {
     if (change === undefined) return;
     this.pendingModelBlockedFallback = undefined;
     const { state } = this.host;
-    const marker = buildGoalMarker(change, state.toolOutputExpanded, 'model');
-    if (marker !== null) {
-      state.transcriptContainer.addChild(marker);
-      state.ui.requestRender();
-    }
+    const modelChange: GoalChange = { ...change, actor: 'model' };
+    if (buildGoalMarker(modelChange, state.toolOutputExpanded, 'model') === null) return;
+    this.host.appendTranscriptEntry({
+      id: nextTranscriptId(),
+      kind: 'goal',
+      turnId: this.host.streamingUI.getTurnContext().turnId,
+      renderMode: 'plain',
+      content: '',
+      goalData: { kind: 'lifecycle', change: modelChange },
+    });
   }
 
   private scheduleQueuedGoalPromotion(): void {
@@ -1248,33 +1265,36 @@ export class SessionEventHandler {
     const label = t('tui.statusMessages.mcpServerConnecting', { name });
     const existing = this.mcpServerStatusSpinners.get(name);
     if (existing !== undefined) {
-      existing.setLabel(label);
+      existing.spinner.setLabel(label);
+      existing.entry.content = label;
       return;
     }
     const tint = (s: string): string => currentTheme.fg('textMuted', s);
     const spinner = new MoonLoader(state.ui, 'braille', tint, label);
-    state.transcriptContainer.addChild(spinner);
-    this.mcpServerStatusSpinners.set(name, spinner);
-    state.ui.requestRender();
+    const entry: TranscriptEntry = {
+      id: nextTranscriptId(),
+      kind: 'status',
+      turnId: undefined,
+      renderMode: 'plain',
+      content: label,
+    };
+    this.mcpServerStatusSpinners.set(name, { spinner, entry });
+    this.host.appendTranscriptEntry(entry, spinner);
   }
 
   private finalizeMcpServerStatusRow(name: string, message: string, color: ColorToken): void {
     const { state } = this.host;
-    const spinner = this.mcpServerStatusSpinners.get(name);
-    if (spinner === undefined) {
+    const tracked = this.mcpServerStatusSpinners.get(name);
+    if (tracked === undefined) {
       this.host.showStatus(message, color);
       return;
     }
-    spinner.stop();
+    tracked.spinner.stop();
+    tracked.entry.content = message;
+    tracked.entry.color = color;
     const status = new StatusMessageComponent(message, color);
-    const children = state.transcriptContainer.children;
-    const idx = children.indexOf(spinner);
-    if (idx >= 0) {
-      // In-place replacement is picked up by the container's ref-checked
-      // render cache; a tree-wide invalidate is unnecessary (and costly).
-      children[idx] = status;
-    } else {
-      state.transcriptContainer.addChild(status);
+    if (!this.host.replaceTranscriptChild(tracked.spinner, status, tracked.entry)) {
+      this.host.appendTranscriptEntry(tracked.entry, status);
     }
     this.mcpServerStatusSpinners.delete(name);
     state.ui.requestRender();
@@ -1283,13 +1303,6 @@ export class SessionEventHandler {
   private handleSkillActivated(event: SkillActivatedEvent): void {
     if (this.renderedSkillActivationIds.has(event.activationId)) return;
     this.renderedSkillActivationIds.add(event.activationId);
-    const isBundled = this.host.hasPendingBundledSkill?.(event.skillName) ?? false;
-    const entries = this.host.state.transcriptEntries;
-    // Group with the prompt only while the transcript still ends with the user
-    // message this activation was bundled into; otherwise append plainly.
-    const lastEntry = entries.at(-1);
-    const beforeUserPrompt =
-      isBundled && lastEntry !== undefined && lastEntry.id === this.host.lastDispatchedUserEntryId;
     const entry: TranscriptEntry = {
       id: nextTranscriptId(),
       kind: 'skill_activation',
@@ -1302,13 +1315,7 @@ export class SessionEventHandler {
       // v2 declares `trigger` as a plain string; the engine only ever emits
       // the three `SkillActivationTrigger` values (see SkillActivationOrigin).
       skillTrigger: event.trigger as SkillActivationTrigger,
-      bundledWithPrompt: beforeUserPrompt,
     };
-    if (beforeUserPrompt) {
-      entries.splice(entries.length - 1, 0, entry);
-      this.host.state.ui.requestRender();
-      return;
-    }
     this.host.appendTranscriptEntry(entry);
   }
 

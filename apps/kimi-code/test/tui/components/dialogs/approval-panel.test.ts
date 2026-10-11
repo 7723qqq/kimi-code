@@ -141,8 +141,12 @@ describe('ApprovalPanelComponent', () => {
     const rendered = dialog.render(60);
     const out = strip(rendered.join('\n'));
     expect(rendered.length).toBeGreaterThan(8);
-    expect(out).toContain(head);
-    expect(out).toContain(tail);
+    // The command is wrapped, not truncated: flattening the frame's row
+    // prefixes (newline + gutter) reconstructs the long single token, so both
+    // ends are present in full.
+    const flattened = out.replaceAll(/[\s│]/g, '');
+    expect(flattened).toContain(head);
+    expect(flattened).toContain(tail);
     expect(out).not.toContain('...');
     expect(out).not.toContain('…');
   });
@@ -241,9 +245,12 @@ describe('ApprovalPanelComponent', () => {
     };
     const dialog = new ApprovalPanelComponent(pending, () => {});
 
+    // The tool-specific question heads the status surface's summary row (the
+    // panel exposes it through `headerText()`); the panel's own render no
+    // longer carries a frame title.
+    expect(dialog.headerText()).toContain('Ready to build with this plan?');
+    expect(dialog.headerText()).not.toContain('Approve ExitPlanMode?');
     const out = strip(dialog.render(80).join('\n'));
-    expect(out).toContain('Ready to build with this plan?');
-    expect(out).not.toContain('Approve ExitPlanMode?');
     expect(out).toContain('Approve');
     expect(out).toContain('Reject');
     expect(out).toContain('Revise');

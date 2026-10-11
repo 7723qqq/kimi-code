@@ -23,13 +23,6 @@ import { waitForChip } from './wait-for';
 
 export type ChipProvider = (toolCall: ToolCallBlockData, result: ToolResultBlockData) => string;
 
-export function countNonEmptyLines(text: string): number {
-  if (text.length === 0) return 0;
-  let n = 0;
-  for (const line of text.split('\n')) if (line.length > 0) n++;
-  return n;
-}
-
 // `partial` marks a lower bound (`12+ files`) when the tool reported an incomplete result set.
 function pluralize(n: number, singular: string, plural?: string, partial = false): string {
   return t('tui.statusMessages.chipMatches', {

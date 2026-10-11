@@ -7,7 +7,7 @@
 
 import type { ToolCallBlockData } from '#/tui/types';
 
-import { strArg, stripSpillPointer } from './types';
+import { memoizeBounded, strArg, stripSpillPointer } from './types';
 
 export type GrepMode = 'files_with_matches' | 'content' | 'count_matches';
 
@@ -77,6 +77,13 @@ const COUNT_LINE = /^(.+):(\d+)$/;
 // A Windows drive letter carries its own colon; the separator search skips it.
 const DRIVE_PREFIX = /^[A-Za-z]:[\\/]/;
 
+// Parsing a result walks the whole output with half a dozen regexes, and the
+// chip, the glance and the notice probe all ask for the same result during one
+// rebuild. Both parses are pure functions of the text (the Grep one also of
+// the flags), so the latest results are memoized and the oldest evicted first.
+const grepStatsMemo = new Map<string, GrepStats>();
+const globStatsMemo = new Map<string, GlobStats>();
+
 function resultLines(output: string): string[] {
   if (output.length === 0) return [];
   return stripSpillPointer(output)
@@ -89,8 +96,40 @@ export function grepMode(toolCall: ToolCallBlockData): GrepMode {
   return mode === 'content' || mode === 'count_matches' ? mode : 'files_with_matches';
 }
 
+/**
+ * The content-mode flags that decide how a row is classified. `-C` overrides
+ * `-A`/`-B`, and a zero-valued flag asks for no context rows at all. The values
+ * also key the memo, so two calls that share a text but not their arguments can
+ * never share a parse.
+ */
+function contentFlags(toolCall: ToolCallBlockData): { numbered: boolean; hasContext: boolean } {
+  const positive = (flag: string): boolean => {
+    const value = toolCall.args[flag];
+    return typeof value === 'number' && value > 0;
+  };
+  const hasContext =
+    typeof toolCall.args['-C'] === 'number' ? positive('-C') : positive('-A') || positive('-B');
+  return { numbered: toolCall.args['-n'] !== false, hasContext };
+}
+
 export function parseGrepOutput(toolCall: ToolCallBlockData, output: string): GrepStats {
   const mode = grepMode(toolCall);
+  const flags = mode === 'content' ? contentFlags(toolCall) : undefined;
+  const key =
+    flags === undefined
+      ? `${mode}\u0000${output}`
+      : `${mode}\u0000${flags.numbered ? 'n' : ''}${flags.hasContext ? 'c' : ''}\u0000${output}`;
+  return memoizeBounded(grepStatsMemo, key, () =>
+    parseGrepOutputUncached(toolCall, output, mode, flags),
+  );
+}
+
+function parseGrepOutputUncached(
+  toolCall: ToolCallBlockData,
+  output: string,
+  mode: GrepMode,
+  flags: { numbered: boolean; hasContext: boolean } | undefined,
+): GrepStats {
   const lines = resultLines(output);
   const partial = INCOMPLETE.test(output);
 
@@ -137,15 +176,7 @@ export function parseGrepOutput(toolCall: ToolCallBlockData, output: string): Gr
   // matches; without them every match row is `path:text`, and context rows
   // (`-A`/`-B`/`-C`) look exactly the same — the backend separates fields
   // with ':' unconditionally — so an exact match count is unknowable then.
-  const numbered = toolCall.args['-n'] !== false;
-  // The schema allows zero, which asks for no context rows at all, and a
-  // defined `-C` makes the backend drop `-A`/`-B` entirely.
-  const positive = (flag: string): boolean => {
-    const value = toolCall.args[flag];
-    return typeof value === 'number' && value > 0;
-  };
-  const hasContext =
-    typeof toolCall.args['-C'] === 'number' ? positive('-C') : positive('-A') || positive('-B');
+  const { numbered, hasContext } = flags ?? contentFlags(toolCall);
   const countable = numbered || !hasContext;
   const entries: GrepEntry[] = [];
   const paths = new Set<string>();
@@ -184,6 +215,10 @@ export function parseGrepOutput(toolCall: ToolCallBlockData, output: string): Gr
 }
 
 export function parseGlobOutput(output: string): GlobStats {
+  return memoizeBounded(globStatsMemo, output, () => parseGlobOutputUncached(output));
+}
+
+function parseGlobOutputUncached(output: string): GlobStats {
   const page = GLOB_PAGE.exec(output);
   const entries = resultLines(output).filter(
     (line) => !GLOB_PAGE.test(line) && !GLOB_CONTINUATION.test(line) && !GLOB_EMPTY.test(line),

@@ -1,7 +1,15 @@
 import type { McpServerInfo } from '@moonshot-ai/kimi-code-sdk';
+import { visibleWidth } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
+
+import { foldToSingleLine } from './usage-panel';
+
+/** Pad `text` to `width` visible columns (CJK-safe, unlike `padEnd`). */
+function padEndVisible(text: string, width: number): string {
+  return text + ' '.repeat(Math.max(0, width - visibleWidth(text)));
+}
 
 export interface McpStatusReportOptions {
   readonly servers: readonly McpServerInfo[];
@@ -29,7 +37,7 @@ function statusLabel(status: McpServerInfo['status']): string {
     case 'disabled':
       return t('tui.messages.mcpStatusPanel.status.disabled');
     case 'removed':
-      return 'removed';
+      return t('tui.messages.mcpStatusPanel.status.removed');
   }
 }
 
@@ -73,19 +81,6 @@ function formatToolsAvailable(count: number): string {
   return t('tui.messages.mcpStatusPanel.toolsAvailable', { count });
 }
 
-/**
- * Collapse a (possibly multi-line) MCP error into a single line. The status
- * panel renders each returned string as exactly one boxed row (see
- * `UsagePanelComponent.render`), so an embedded newline — e.g. the
- * `\nstderr: ...` a failed stdio server appends — would drop the trailing
- * text to column 0 and punch through the rounded border. Folding every run
- * of whitespace to a single space keeps the error on one row, which the
- * panel then truncates to the available width.
- */
-function formatErrorLine(error: string): string {
-  return error.trim().replaceAll(/\s+/g, ' ');
-}
-
 function sortedServers(servers: readonly McpServerInfo[]): McpServerInfo[] {
   return servers.toSorted(
     (a, b) => STATUS_PRIORITY[a.status] - STATUS_PRIORITY[b.status] || a.name.localeCompare(b.name),
@@ -124,31 +119,33 @@ export function buildMcpStatusReportLines(options: McpStatusReportOptions): stri
   }
 
   const nameWidth = Math.max(
-    t('tui.messages.mcpStatusPanel.nameLabel').length,
-    ...servers.map((server) => server.name.length),
+    visibleWidth(t('tui.messages.mcpStatusPanel.nameLabel')),
+    ...servers.map((server) => visibleWidth(server.name)),
   );
   const statusWidth = Math.max(
-    t('tui.messages.mcpStatusPanel.statusLabel').length,
-    ...servers.map((server) => statusLabel(server.status).length),
+    visibleWidth(t('tui.messages.mcpStatusPanel.statusLabel')),
+    ...servers.map((server) => visibleWidth(statusLabel(server.status))),
   );
   const transportWidth = Math.max(
-    t('tui.messages.mcpStatusPanel.transportLabel').length,
-    ...servers.map((server) => server.transport.length),
+    visibleWidth(t('tui.messages.mcpStatusPanel.transportLabel')),
+    ...servers.map((server) => visibleWidth(server.transport)),
   );
 
   lines.push(
-    `  ${muted(t('tui.messages.mcpStatusPanel.nameLabel').padEnd(nameWidth))}  ${muted(
-      t('tui.messages.mcpStatusPanel.statusLabel').padEnd(statusWidth),
-    )}  ${muted(t('tui.messages.mcpStatusPanel.transportLabel').padEnd(transportWidth))}  ${muted(
-      t('tui.messages.mcpStatusPanel.toolsLabel'),
-    )}`,
+    `  ${muted(padEndVisible(t('tui.messages.mcpStatusPanel.nameLabel'), nameWidth))}  ${muted(
+      padEndVisible(t('tui.messages.mcpStatusPanel.statusLabel'), statusWidth),
+    )}  ${muted(
+      padEndVisible(t('tui.messages.mcpStatusPanel.transportLabel'), transportWidth),
+    )}  ${muted(t('tui.messages.mcpStatusPanel.toolsLabel'))}`,
   );
 
   for (const server of servers) {
-    const status = statusPainter(server.status)(statusLabel(server.status).padEnd(statusWidth));
+    const status = statusPainter(server.status)(
+      padEndVisible(statusLabel(server.status), statusWidth),
+    );
     lines.push(
-      `  ${value(server.name.padEnd(nameWidth))}  ${status}  ${muted(
-        server.transport.padEnd(transportWidth),
+      `  ${value(padEndVisible(server.name, nameWidth))}  ${status}  ${muted(
+        padEndVisible(server.transport, transportWidth),
       )}  ${value(formatToolCount(server))}`,
     );
 
@@ -158,7 +155,7 @@ export function buildMcpStatusReportLines(options: McpStatusReportOptions): stri
       server.error.trim().length > 0
     ) {
       lines.push(
-        `    ${muted(t('tui.messages.mcpStatusPanel.errorLabel'))} ${error(formatErrorLine(server.error))}`,
+        `    ${muted(t('tui.messages.mcpStatusPanel.errorLabel'))} ${error(foldToSingleLine(server.error))}`,
       );
     }
     if (server.status === 'needs-auth') {

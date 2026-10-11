@@ -1,17 +1,19 @@
 /**
- * UsagePanelComponent — wraps pre-coloured `/usage` lines in a blue box
- * border with a left indent, mirroring the PlanBoxComponent layout so
- * the pattern stays consistent across command-triggered panels.
+ * UsagePanelComponent — wraps pre-coloured `/usage` lines in the shared
+ * panel frame with a left indent, so every command-triggered panel (usage,
+ * status, MCP, plugins, goal) renders the same box language.
  */
 
 import { formatDuration } from '@moonshot-ai/kimi-code-oauth';
 import type { SessionUsage, TokenUsage } from '@moonshot-ai/kimi-code-sdk';
 import type { Component } from '@moonshot-ai/pi-tui';
-import { truncateToWidth, visibleWidth } from '@moonshot-ai/pi-tui';
+import { visibleWidth } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
+import { renderPanelFrame } from '#/tui/components/chrome/panel-frame';
 import { currentTheme } from '#/tui/theme';
 import type { ColorToken } from '#/tui/theme';
+import { isRenderCacheEnabled } from '#/tui/utils/render-cache';
 import {
   formatTokenCount,
   ratioSeverity,
@@ -21,11 +23,23 @@ import {
   type QuotaUsageRow,
 } from '#/utils/usage/usage-format';
 
-const LEFT_MARGIN = 2;
-const SIDE_PADDING = 1;
-const BOX_OVERHEAD = LEFT_MARGIN + 2 + 2 * SIDE_PADDING;
-
 type Colorize = (text: string) => string;
+
+/**
+ * Collapse a (possibly multi-line) message into a single line. The panels in
+ * this family render each returned string as exactly one boxed row, so an
+ * embedded newline would drop the trailing text to column 0 and punch through
+ * the rounded border. Folding every run of whitespace to a single space keeps
+ * the text on one row, which the panel then truncates to the available width.
+ */
+export function foldToSingleLine(text: string): string {
+  return text.trim().replaceAll(/\s+/g, ' ');
+}
+
+/** Pad `text` to `width` visible columns (CJK-safe, unlike `padEnd`). */
+function padEndVisible(text: string, width: number): string {
+  return text + ' '.repeat(Math.max(0, width - visibleWidth(text)));
+}
 
 function usageRowResetHint(row: QuotaUsageRow): string | undefined {
   const resetAt = row.resetAt;
@@ -85,7 +99,7 @@ function buildSessionUsageSection(
   muted: Colorize,
   errorStyle: Colorize,
 ): string[] {
-  if (error !== undefined) return [errorStyle(`  ${error}`)];
+  if (error !== undefined) return [errorStyle(`  ${foldToSingleLine(error)}`)];
   const byModel = (usage as { readonly byModel?: Record<string, TokenUsage> } | undefined)?.byModel;
   const entries = Object.entries(byModel ?? {});
   if (entries.length === 0) return [muted(`  ${t('tui.messages.usagePanel.noTokenUsage')}`)];
@@ -123,7 +137,10 @@ function buildManagedUsageSection(
   errorStyle: Colorize,
 ): string[] {
   if (error !== undefined)
-    return [accent(t('tui.messages.usagePanel.planUsage')), errorStyle(`  ${error}`)];
+    return [
+      accent(t('tui.messages.usagePanel.planUsage')),
+      errorStyle(`  ${foldToSingleLine(error)}`),
+    ];
   if (usage === undefined) return [];
   const { rows } = usage;
   if (rows.length === 0) {
@@ -134,21 +151,24 @@ function buildManagedUsageSection(
   }
 
   const labels = rows.map((r) => r.name);
-  const labelWidth = Math.max(10, ...labels.map((l) => l.length));
+  const labelWidth = Math.max(10, ...labels.map((l) => visibleWidth(l)));
   const rowRatio = (r: QuotaUsageRow): number => safeUsageRatio(r.usedRatio);
-  const pctWidth = Math.max(...rows.map((r) => `${Math.round(rowRatio(r) * 100)}% used`.length));
+  const pctOf = (r: QuotaUsageRow): string => `${Math.round(rowRatio(r) * 100)}% used`;
+  const pctWidth = Math.max(...rows.map((r) => visibleWidth(pctOf(r))));
 
   const out: string[] = [accent(t('tui.messages.usagePanel.planUsage'))];
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i]!;
     const ratioUsed = rowRatio(row);
     const bar = renderProgressBar(ratioUsed, 20);
-    const pct = `${Math.round(ratioUsed * 100)}% used`;
+    const pct = pctOf(row);
     const barColoured = currentTheme.fg(severityColor(ratioSeverity(ratioUsed)), bar);
-    const label = labels[i]!.padEnd(labelWidth, ' ');
+    const label = padEndVisible(labels[i]!, labelWidth);
     const resetHint = usageRowResetHint(row);
     const resetStr = resetHint !== undefined ? `  ${muted(resetHint)}` : '';
-    out.push(`  ${muted(label)}  ${barColoured}  ${value(pct.padEnd(pctWidth, ' '))}${resetStr}`);
+    out.push(
+      `  ${muted(label)}  ${barColoured}  ${value(padEndVisible(pct, pctWidth))}${resetStr}`,
+    );
     const breakdown = row.breakdown;
     if (breakdown !== undefined) {
       const kimi = Math.round(safeUsageRatio(breakdown.kimiRatio) * 100);
@@ -161,7 +181,7 @@ function buildManagedUsageSection(
   return out;
 }
 
-function severityColor(sev: 'ok' | 'warn' | 'danger'): 'success' | 'warning' | 'error' {
+export function severityColor(sev: 'ok' | 'warn' | 'danger'): 'success' | 'warning' | 'error' {
   return sev === 'danger' ? 'error' : sev === 'warn' ? 'warning' : 'success';
 }
 
@@ -229,7 +249,7 @@ export function buildExtraUsageSection(
 
   // `Used this month` is the longest label; size the column to the widest label
   // so the currency symbol starts in the same column on every row.
-  const labelWidth = Math.max(...rows.map((r) => r.label.length));
+  const labelWidth = Math.max(...rows.map((r) => visibleWidth(r.label)));
   // Right-align the numeric part of currency rows against each other so the
   // decimal points line up (e.g. `¥ 50.00` / `¥200.00`). Text-only rows such as
   // `Unlimited` carry no currency symbol, so they must not widen the numeric
@@ -240,7 +260,7 @@ export function buildExtraUsageSection(
   );
   const row = (label: string, symbol: string, number: string): string => {
     const cell = symbol.length > 0 ? symbol + number.padStart(numberWidth, ' ') : number;
-    return `  ${muted(label.padEnd(labelWidth, ' '))}  ${value(cell)}`;
+    return `  ${muted(padEndVisible(label, labelWidth))}  ${value(cell)}`;
   };
 
   const lines: string[] = [accent(t('tui.messages.usagePanel.extraUsage'))];
@@ -326,6 +346,8 @@ export function buildUsageReportLines(options: UsageReportOptions): string[] {
 export class UsagePanelComponent implements Component {
   /** Cached coloured lines; rebuilt from `buildLines` on every invalidate. */
   private lines: readonly string[];
+  /** Rendered box, memoized per width; only `invalidate` repaints the body. */
+  private renderCache: { width: number; lines: string[] } | undefined;
 
   constructor(
     private readonly buildLines: () => readonly string[],
@@ -339,43 +361,32 @@ export class UsagePanelComponent implements Component {
     // Report bodies embed palette colours, so a theme switch must re-run the
     // builder to repaint the cached lines (the data itself is captured).
     this.lines = this.buildLines();
+    this.renderCache = undefined;
   }
 
   render(width: number): string[] {
     const safeWidth = Math.max(0, width);
     if (safeWidth <= 0) return [''];
 
+    if (
+      isRenderCacheEnabled() &&
+      this.renderCache !== undefined &&
+      this.renderCache.width === safeWidth
+    ) {
+      return this.renderCache.lines;
+    }
+
     const paint = (s: string): string => currentTheme.fg(this.borderToken, s);
-    const availableInterior = safeWidth - BOX_OVERHEAD;
-    if (availableInterior < 1) {
-      return [
-        truncateToWidth(this.title.trim(), safeWidth, '…'),
-        ...this.lines.map((line) => truncateToWidth(line, safeWidth, '…')),
-      ];
-    }
-
-    const indent = ' '.repeat(LEFT_MARGIN);
-    const longestLine = this.lines.reduce((max, line) => Math.max(max, visibleWidth(line)), 0);
-    const contentWidth = Math.max(
-      1,
-      Math.min(availableInterior, Math.max(longestLine, visibleWidth(this.title))),
-    );
-    const horzLen = contentWidth + 2 * SIDE_PADDING;
-    const title = truncateToWidth(this.title, horzLen, '…');
-
-    const trailingDashLen = Math.max(0, horzLen - visibleWidth(title));
-    const top =
-      indent + paint('╭') + paint(title) + paint('─'.repeat(trailingDashLen)) + paint('╮');
-    const bottom = indent + paint('╰' + '─'.repeat(horzLen) + '╯');
-
-    const out: string[] = [top];
-    for (const line of this.lines) {
-      const clipped =
-        visibleWidth(line) > contentWidth ? truncateToWidth(line, contentWidth) : line;
-      const pad = Math.max(0, contentWidth - visibleWidth(clipped));
-      out.push(indent + paint('│') + ' ' + clipped + ' '.repeat(pad) + ' ' + paint('│'));
-    }
-    out.push(bottom);
-    return out.map((line) => truncateToWidth(line, safeWidth, '…'));
+    const rendered = renderPanelFrame({
+      title: this.title,
+      body: this.lines,
+      width: safeWidth,
+      // One paint for border and title: the SGR structure of the emitted box
+      // must stay exactly as it was before the frame was shared.
+      paint,
+      titlePaint: paint,
+    });
+    if (isRenderCacheEnabled()) this.renderCache = { width: safeWidth, lines: rendered };
+    return rendered;
   }
 }

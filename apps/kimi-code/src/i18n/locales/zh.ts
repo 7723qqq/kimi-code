@@ -236,6 +236,8 @@ export default {
     promptOptimizerNoOutputAction: '请重试优化。',
     promptOptimizerBusy: '已有提示词重写正在进行',
     promptOptimizerBusyAction: '请等待当前重写完成后再开始新的重写。',
+    promptOptimizerOutputTooLong: '提示词改写超出长度上限',
+    promptOptimizerOutputTooLongAction: '重试，或缩短草稿使改写结果落在长度限制内。',
     // spec.*
     specModeInvalid: '规格模式无效',
     specModeInvalidAction: '请先退出规格模式再重新进入。',
@@ -305,6 +307,72 @@ export default {
     webFetchFailedAction: '请检查 URL 和网络连接后重试。',
     // validation.*
     validationFailed: '校验失败',
+    // agent.no_final_message
+    agentNoFinalMessage: '智能体没有产生最终回复',
+    // agent.subagent_depth_exceeded
+    agentSubagentDepthExceeded: '子代理嵌套层级超出上限',
+    // attachment.image_too_large
+    attachmentImageTooLarge: '图片过大',
+    // attachment.image_too_many_pixels
+    attachmentImageTooManyPixels: '图片像素数过多',
+    // attachment.image_type_mismatch
+    attachmentImageTypeMismatch: '图片类型不匹配',
+    // attachment.invalid_image
+    attachmentInvalidImage: '图片附件无效',
+    // attachment.invalid_ref
+    attachmentInvalidRef: '附件引用无效',
+    // capability.install_in_progress
+    capabilityInstallInProgress: '该能力正在安装中',
+    // capability.not_found
+    capabilityNotFound: '未找到该能力',
+    // capability.unsupported
+    capabilityUnsupported: '不支持该能力',
+    // debug.scope_not_found
+    debugScopeNotFound: '未找到调试作用域',
+    // debug.token_not_found
+    debugTokenNotFound: '未找到调试令牌',
+    // event.duplicate_event
+    eventDuplicateEvent: '事件类型重复',
+    // event.schema_missing
+    eventSchemaMissing: '持久事件缺少载荷 schema',
+    // lsp.conflict
+    lspConflict: '语言服务器冲突',
+    // lsp.malformed_response
+    lspMalformedResponse: '语言服务器返回了格式错误的响应',
+    // lsp.server_failed
+    lspServerFailed: '语言服务器失败',
+    // lsp.unavailable
+    lspUnavailable: '语言服务器不可用',
+    // lsp.unsupported_operation
+    lspUnsupportedOperation: '该语言服务器不支持此操作',
+    // lsp.workspace_required
+    lspWorkspaceRequired: '语言服务器操作需要工作区',
+    // modelsDev.catalog_entry_not_found
+    modelsDevCatalogEntryNotFound: '未找到目录条目',
+    // modelsDev.catalog_unavailable
+    modelsDevCatalogUnavailable: 'models.dev 目录不可用',
+    // modelsDev.import_invalid
+    modelsDevImportInvalid: '目录条目无法导入',
+    // modelsDev.registry_import_invalid
+    modelsDevRegistryImportInvalid: '自定义注册表无法导入',
+    // provider.api_error
+    providerApiError: '服务商 API 错误',
+    // provider.oauth_managed
+    providerOauthManaged: '该服务商由 OAuth 登录管理',
+    // session.tower_mode_invalid
+    sessionTowerModeInvalid: 'Tower 模式无效',
+    // session_query.index_unavailable
+    sessionQueryIndexUnavailable: '会话搜索索引不可用',
+    // session_query.invalid_filter
+    sessionQueryInvalidFilter: '会话查询过滤器无效',
+    // session_query.session_not_found
+    sessionQuerySessionNotFound: '搜索索引中未找到该会话',
+    // state.cycle
+    stateCycle: '事件分发成环',
+    // state.duplicate_fold
+    stateDuplicateFold: '状态折叠重复',
+    // state.durability_mismatch
+    stateDurabilityMismatch: '非持久状态无法折叠持久事件',
   },
   common: {
     ok: '确定',
@@ -461,8 +529,8 @@ export default {
       statusSurface: {
         approval: {
           prompt: '批准 {{tool}}？',
-          expandHint: 'ctrl+o 详情',
-          collapseHint: 'ctrl+o 收起',
+          expandHint: 'ctrl+t 详情',
+          collapseHint: 'ctrl+t 收起',
         },
       },
       footer: {
@@ -2113,6 +2181,14 @@ export default {
         line_other: '{{count}} 行',
         reading: '读取中…',
       },
+      stepSummary: {
+        thinking_one: '思考 {{count}} 次',
+        thinking_other: '思考 {{count}} 次',
+        tool_one: '调用 {{count}} 个工具',
+        tool_other: '调用 {{count}} 个工具',
+        message_one: '{{count}} 条消息',
+        message_other: '{{count}} 条消息',
+      },
       toolCall: {
         detachHint: '按 Ctrl+B 在后台运行',
         backgroundLost: '后台智能体已丢失（会话在完成前已重启）',
@@ -2211,6 +2287,7 @@ export default {
           needsAuth: '需要认证',
           failed: '失败',
           disabled: '已禁用',
+          removed: '已移除',
         },
         disabledToolCount: '—',
         toolsAvailable: '{{count}} 个工具可用',

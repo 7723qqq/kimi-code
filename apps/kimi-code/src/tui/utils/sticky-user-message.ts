@@ -145,5 +145,14 @@ export class StickyUserMessageIndex {
         bullet: entry.bullet,
       });
     }
+    // Drop the measurement cache once its component scrolls out of the tracked
+    // window (trimmed or folded away): the cached summary would keep the whole
+    // message alive through an otherwise weak index.
+    if (
+      this.measured !== undefined &&
+      !this.anchors.some((anchor) => anchor.component === this.measured?.component)
+    ) {
+      this.measured = undefined;
+    }
   }
 }

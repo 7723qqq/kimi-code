@@ -8,11 +8,8 @@ export const LoopErrors = {
   retryable: ['turn.agent_busy'],
   info: {
     'loop.max_steps_exceeded': {
-      title: 'Loop max steps exceeded',
       retryable: false,
       public: true,
-      action:
-        'Raise loop_control.max_steps_per_turn in config.toml, or run "/update-config" then "/reload".',
     },
   },
 } as const satisfies ErrorDomain;

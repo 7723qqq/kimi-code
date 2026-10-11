@@ -5,6 +5,10 @@ import {
   computeWriteStats,
   pickChip,
 } from '#/tui/components/messages/tool-renderers/chip';
+import {
+  parseGrepOutput,
+  searchNoticeOnly,
+} from '#/tui/components/messages/tool-renderers/grep-output';
 import type { ToolCallBlockData, ToolResultBlockData } from '#/tui/types';
 
 function strip(text: string): string {
@@ -476,6 +480,61 @@ describe('chips and the per-line spill pointer', () => {
     const call = { id: 'tc', name: 'Bash', args: { command: 'cat x' } };
     expect(chip(call, { tool_call_id: 'tc', output: `a\nb\nc\nd\n${pointer}`, is_error: false })).toBe('3 more lines');
     expect(chipFor('Grep', { pattern: 'foo' }, result(`a.ts\nb.ts\n${pointer}`))).toBe('2 files');
+  });
+
+  it('counts a line that merely quotes the marker as output', () => {
+    const chip = pickChip('Bash')!;
+    const call = { id: 'tc', name: 'Bash', args: { command: 'cat x' } };
+    // No `output_path:` line under the marker: this is the command's own text,
+    // so the line and everything behind it stay in the count.
+    const quoted = 'a\nb\nc\nd\n[Per-line truncation occurred; but this is not a pointer';
+    expect(chip(call, { tool_call_id: 'tc', output: quoted, is_error: false })).toBe('4 more lines');
+  });
+
+  it('keeps a quoted-pointer line in a Grep file count', () => {
+    expect(
+      chipFor(
+        'Grep',
+        { pattern: 'foo' },
+        result('a.ts\nb.ts\n[Per-line truncation occurred; not a pointer]'),
+      ),
+    ).toBe('3 files');
+  });
+});
+
+describe('Grep parse memo', () => {
+  const call = { id: 'tc', name: 'Grep', args: { pattern: 'foo' } };
+
+  it('parses one result once and hands the same stats to every reader', () => {
+    const output = 'memo/a.ts\nmemo/b.ts';
+    const first = parseGrepOutput(call, output);
+    expect(parseGrepOutput(call, output)).toBe(first);
+    // The chip's notice probe and the chip itself read that same parse.
+    expect(searchNoticeOnly(call, output)).toBe(false);
+    expect(parseGrepOutput(call, output)).toBe(first);
+  });
+
+  it('never reuses a parse across modes or context flags that share a text', () => {
+    const shared = 'src/memo.ts:1:foo';
+    expect(parseGrepOutput(call, shared).mode).toBe('files_with_matches');
+
+    const content = parseGrepOutput({ ...call, args: { ...call.args, output_mode: 'content' } }, shared);
+    expect(content.mode).toBe('content');
+    expect(content.matches).toBe(1);
+
+    const withContext = parseGrepOutput(
+      { ...call, args: { ...call.args, output_mode: 'content', '-C': 2 } },
+      shared,
+    );
+    expect(withContext.mode).toBe('content');
+    // The different flag set is its own key, so it parses on its own.
+    expect(withContext).not.toBe(content);
+  });
+
+  it('stays bounded so a long session cannot hold every result forever', () => {
+    const first = parseGrepOutput(call, 'memo-bound-0');
+    for (let i = 1; i <= 9; i++) parseGrepOutput(call, `memo-bound-${String(i)}`);
+    expect(parseGrepOutput(call, 'memo-bound-0')).not.toBe(first);
   });
 });
 

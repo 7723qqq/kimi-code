@@ -464,6 +464,7 @@ export const kimiErrorCodeSchema = z.enum([
   'prompt_optimizer.disabled',
   'prompt_optimizer.empty_draft',
   'prompt_optimizer.no_output',
+  'prompt_optimizer.output_too_long',
   'provider.oauth_managed',
   'session.tower_mode_invalid',
   'session_query.index_unavailable',

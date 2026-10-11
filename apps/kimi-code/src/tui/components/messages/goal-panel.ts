@@ -27,6 +27,7 @@ import { MESSAGE_INDENT } from '#/tui/constant/rendering';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import type { ColorToken } from '#/tui/theme';
+import { isRenderCacheEnabled } from '#/tui/utils/render-cache';
 import { formatTokenCount } from '#/utils/usage/usage-format';
 
 import { formatGoalElapsed } from './goal-format';
@@ -36,6 +37,11 @@ const WRAP_WIDTH = 72;
 const MAX_OBJECTIVE_LINES = 6;
 const MAX_CRITERION_LINES = 3;
 const LABEL_WIDTH = 11;
+
+/** Pad `text` to `width` visible columns (CJK-safe, unlike `padEnd`). */
+function padEndVisible(text: string, width: number): string {
+  return text + ' '.repeat(Math.max(0, width - visibleWidth(text)));
+}
 
 function renderLifecycleLine(label: string, width: number): string[] {
   if (width <= 0) return [''];
@@ -107,18 +113,42 @@ export class GoalCompletionMessageComponent implements Component {
 }
 
 export class GoalStatusMessageComponent implements Component {
+  /** Box built once per width; recreated only when the width changes. */
+  private panel: UsagePanelComponent | undefined;
+  private panelWidth = -1;
+  private renderCache: { width: number; lines: string[] } | undefined;
+
   constructor(private readonly goal: GoalSnapshot) {}
 
-  invalidate(): void {}
+  invalidate(): void {
+    // Drop the memoized box and the panel behind it: the next render rebuilds
+    // both, so a palette (or locale) switch repaints the body *and* the title.
+    this.renderCache = undefined;
+    this.panel = undefined;
+  }
 
   render(width: number): string[] {
-    const panelContentWidth = Math.max(1, width - 6);
-    const panel = new UsagePanelComponent(
-      () => buildGoalReportLines(this.goal, panelContentWidth),
-      'primary',
-      goalPanelTitle(this.goal),
-    );
-    return ['', ...panel.render(width)];
+    const safeWidth = Math.max(0, width);
+    if (
+      isRenderCacheEnabled() &&
+      this.renderCache !== undefined &&
+      this.renderCache.width === safeWidth
+    ) {
+      return this.renderCache.lines;
+    }
+
+    if (this.panel === undefined || this.panelWidth !== safeWidth) {
+      const panelContentWidth = Math.max(1, safeWidth - 6);
+      this.panel = new UsagePanelComponent(
+        () => buildGoalReportLines(this.goal, panelContentWidth),
+        'primary',
+        goalPanelTitle(this.goal),
+      );
+      this.panelWidth = safeWidth;
+    }
+    const rendered = ['', ...this.panel.render(safeWidth)];
+    if (isRenderCacheEnabled()) this.renderCache = { width: safeWidth, lines: rendered };
+    return rendered;
   }
 }
 
@@ -158,7 +188,8 @@ export function buildGoalReportLines(goal: GoalSnapshot, wrapWidth: number = WRA
   }
   lines.push('');
 
-  const row = (label: string, val: string): string => `${muted(label.padEnd(LABEL_WIDTH))}${val}`;
+  const row = (label: string, val: string): string =>
+    `${muted(padEndVisible(label, LABEL_WIDTH))}${val}`;
 
   if (showReason) {
     lines.push(

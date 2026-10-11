@@ -39,7 +39,7 @@ describe('ProtocolErrors domain', () => {
       expect(isErrorCode(code)).toBe(true);
     }
     expect(errorInfo('provider.rate_limit').retryable).toBe(true);
-    expect(errorInfo('provider.filtered').title).toBe('Provider filtered response');
+    expect(errorInfo('provider.filtered').retryable).toBe(false);
   });
 });
 

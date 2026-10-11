@@ -1,8 +1,6 @@
 export interface ErrorInfo {
-  readonly title: string;
   readonly retryable: boolean;
   readonly public: boolean;
-  readonly action?: string;
 }
 
 export interface ErrorDomain {
@@ -39,7 +37,6 @@ export function errorInfo(code: string): ErrorInfo {
   const override = infoOverrides[code];
   if (override !== undefined) return override;
   return {
-    title: code,
     retryable: retryableCodes.has(code),
     public: true,
   };
@@ -53,16 +50,12 @@ export const CoreErrors = {
   },
   info: {
     internal: {
-      title: 'Internal error',
       retryable: false,
       public: true,
-      action: 'Inspect logs or report the issue with diagnostics.',
     },
     not_implemented: {
-      title: 'Not implemented',
       retryable: false,
       public: true,
-      action: 'This feature is not implemented yet.',
     },
   },
 } as const satisfies ErrorDomain;

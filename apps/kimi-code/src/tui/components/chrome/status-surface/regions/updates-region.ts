@@ -18,6 +18,7 @@ import type {
   RegionId,
   RegionKey,
   RegionMouseEvent,
+  RegionPlacement,
   RegionRenderContext,
   StatusRegion,
 } from '../region';
@@ -28,8 +29,22 @@ export class UpdatesRegion implements StatusRegion {
   /** Installed by the surface when the region is registered. */
   onChange: (() => void) | undefined;
 
+  readonly priority = 20;
+  readonly blocking = false;
+  /**
+   * `Ctrl+N` moves the keyboard into the strip, and the strip can only have
+   * one answer for it: updates are what the user pages through with arrows
+   * once the keyboard is there.
+   */
+  readonly defaultFocusTarget = true;
+
   constructor(panel: NotifyPanelComponent) {
     this.panel = panel;
+  }
+
+  /** Owns the right column. */
+  placement(): RegionPlacement {
+    return 'right';
   }
 
   /** The wrapped panel, for the controller that owns the update projection. */
@@ -52,6 +67,10 @@ export class UpdatesRegion implements StatusRegion {
   }
 
   render(ctx: RegionRenderContext): string[] {
+    // The panel draws the box, so it has to draw it inside the rows the
+    // surface granted: rendered at its standalone cap instead, a smaller
+    // budget clips the bottom border off and leaves the box open.
+    this.panel.setBudget(ctx.budget);
     return this.panel.render(ctx.width);
   }
 
@@ -96,9 +115,17 @@ export class UpdatesRegion implements StatusRegion {
     return this.panel.handleMouse(event.raw);
   }
 
-  /** The user pages through updates, so a click here takes the keyboard. */
+  /**
+   * A click folds or unfolds the row; it does not take the keyboard.
+   *
+   * The user's rule for the Updates box: the pointer is for reading, the
+   * keyboard is for `Ctrl+N`. Grabbing focus on click made the box swallow
+   * every later keystroke, and made a click mean two things at once (read here
+   * *and* own the keys). With `false` the surface's click falls through to the
+   * fold, which is the same gesture a tool card uses.
+   */
   wantsFocus(): boolean {
-    return true;
+    return false;
   }
 
   /**

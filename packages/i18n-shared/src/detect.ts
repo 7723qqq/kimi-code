@@ -12,19 +12,29 @@ import type { Locale } from './types.js';
 
 /**
  * Check whether a language string represents Chinese.
- * Accepts `zh`, `zh-CN`, `zh_TW`, `zhongwen`, etc.
+ * Accepts `zh`, `zh-CN`, `zh_TW`, `zh-Hant`, … — the language subtag must be
+ * exactly `zh`, so unrelated tags such as `zho` are not swept in by a prefix
+ * match, and a modifier like `zhx` does not either.
  */
 function isZh(lang: string | undefined | null): boolean {
   if (!lang) return false;
-  return lang.toLowerCase().startsWith('zh');
+  return languageSubtag(lang) === 'zh';
 }
 
 /**
  * Check whether a language string represents English.
+ * Accepts `en`, `en-US`, `en_GB`, … but not `enm` or other `en`-prefixed tags.
  */
 function isEn(lang: string | undefined | null): boolean {
   if (!lang) return false;
-  return lang.toLowerCase().startsWith('en');
+  return languageSubtag(lang) === 'en';
+}
+
+/** The primary language subtag of a BCP-47-ish tag, lowercased. */
+function languageSubtag(lang: string): string {
+  const normalized = lang.trim().toLowerCase();
+  const match = /^[a-z]+/.exec(normalized);
+  return match?.[0] ?? '';
 }
 
 // ── Node.js detection ────────────────────────────────────────────────────────

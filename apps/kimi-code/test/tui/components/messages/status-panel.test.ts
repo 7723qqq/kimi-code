@@ -1,9 +1,36 @@
+import { visibleWidth } from '@moonshot-ai/pi-tui';
 import { describe, expect, it } from 'vitest';
 
-import { buildStatusReportLines } from '#/tui/components/messages/status-panel';
+import { setLocale } from '#/i18n';
+import {
+  buildStatusReportLines,
+  type StatusReportOptions,
+} from '#/tui/components/messages/status-panel';
 
 function strip(text: string): string {
   return text.replaceAll(/\u001B\[[0-9;]*m/g, '');
+}
+
+function statusOptions(overrides: Partial<StatusReportOptions> = {}): StatusReportOptions {
+  return {
+    version: '1.2.3',
+    model: 'k2',
+    workDir: '/tmp/project',
+    sessionId: 'ses-1',
+    sessionTitle: null,
+    thinkingEffort: 'off',
+    permissionMode: 'manual',
+    planMode: false,
+    towerMode: false,
+    specMode: false,
+    swarmMode: false,
+    towerAvailable: false,
+    contextUsage: 0,
+    contextTokens: 0,
+    maxContextTokens: 0,
+    availableModels: {},
+    ...overrides,
+  };
 }
 
 describe('status panel report lines', () => {
@@ -257,5 +284,53 @@ describe('status panel report lines', () => {
     const output = lines.join('\n');
     expect(output).toContain('Spec mode    off');
     expect(output).toContain('Swarm mode   on');
+  });
+
+  it('keeps zh field labels aligned with their values', () => {
+    setLocale('zh');
+    try {
+      const lines = buildStatusReportLines(
+        statusOptions({
+          planMode: true,
+          availableModels: {
+            k2: {
+              provider: 'managed:kimi-code',
+              model: 'kimi-k2',
+              maxContextSize: 10000,
+              displayName: 'Kimi K2',
+            },
+          },
+        }),
+      ).map(strip);
+
+      const rowOf = (label: string): string => {
+        const row = lines.find((line) => line.trimStart().startsWith(label));
+        if (row === undefined) throw new Error(`row not found: ${label}`);
+        return row;
+      };
+      const columnOf = (row: string, value: string): number => {
+        const index = row.indexOf(value);
+        expect(index).toBeGreaterThanOrEqual(0);
+        return visibleWidth(row.slice(0, index));
+      };
+
+      // `模型` is only 4 columns wide while `计划模式` is 8 — the values must all
+      // still start at the same visible column.
+      expect(columnOf(rowOf('模型'), 'Kimi K2')).toBe(14);
+      expect(columnOf(rowOf('计划模式'), '开')).toBe(14);
+      expect(columnOf(rowOf('会话'), 'ses-1')).toBe(14);
+    } finally {
+      setLocale('en');
+    }
+  });
+
+  it('folds a multi-line status error onto one field row', () => {
+    const lines = buildStatusReportLines(
+      statusOptions({ statusError: 'No active session\n  retry later' }),
+    ).map(strip);
+
+    const warning = lines.find((line) => line.includes('Warning'))!;
+    expect(warning).toContain('No active session retry later');
+    for (const line of lines) expect(line).not.toContain('\n');
   });
 });

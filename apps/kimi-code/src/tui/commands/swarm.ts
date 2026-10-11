@@ -13,6 +13,7 @@ import {
 import { getLlmNotSetMessage, getNoActiveSessionMessage } from '../constant/kimi-tui';
 import { formatErrorMessage } from '../utils/event-payload';
 import { permissionModeDescription, permissionModeDisplayName } from '../utils/permission-mode';
+import { nextTranscriptId } from '../utils/transcript-id';
 import type { SlashCommandHost } from './dispatch';
 
 export async function handleSwarmCommand(host: SlashCommandHost, args: string): Promise<void> {
@@ -203,6 +204,14 @@ function swarmModeSubcommand(input: string): boolean | undefined {
 }
 
 function renderSwarmModeMarker(host: SlashCommandHost, state: SwarmModeMarkerState): void {
-  host.state.transcriptContainer.addChild(new SwarmModeMarkerComponent(state));
-  host.state.ui.requestRender();
+  host.appendTranscriptEntry(
+    {
+      id: nextTranscriptId(),
+      kind: 'status',
+      turnId: undefined,
+      renderMode: 'plain',
+      content: state,
+    },
+    new SwarmModeMarkerComponent(state),
+  );
 }

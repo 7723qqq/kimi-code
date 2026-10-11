@@ -53,6 +53,7 @@ function makeHost(
     showError: vi.fn(),
     showNotice: vi.fn(),
     showStatus: vi.fn(),
+    appendTranscriptEntry: vi.fn(),
     mountEditorReplacement: vi.fn(),
     restoreEditor: vi.fn(),
     restoreInputText: vi.fn(),
@@ -72,11 +73,13 @@ function mountedPicker(host: SlashCommandHost): TestPicker {
 }
 
 function markerAddChild(host: SlashCommandHost): ReturnType<typeof vi.fn> {
-  return host.state.transcriptContainer.addChild as ReturnType<typeof vi.fn>;
+  return host.appendTranscriptEntry as ReturnType<typeof vi.fn>;
 }
 
 function expectSwarmMarker(host: SlashCommandHost, text: string): void {
-  const components = markerAddChild(host).mock.calls.map(([component]) => component as TestComponent);
+  const components = markerAddChild(host).mock.calls.map(
+    ([, component]) => component as TestComponent,
+  );
   const rendered = stripAnsi(components.at(-1)?.render(80).join('\n') ?? '');
   expect(rendered).toContain(text);
 }

@@ -19,6 +19,7 @@ import type {
   RegionId,
   RegionKey,
   RegionMouseEvent,
+  RegionPlacement,
   RegionRenderContext,
   StatusRegion,
 } from '../region';
@@ -29,8 +30,22 @@ export class TodoRegion implements StatusRegion {
   /** Installed by the surface when the region is registered. */
   onChange: (() => void) | undefined;
 
+  readonly priority = 10;
+  /** The todo list is read-only: it never holds up a submission. */
+  readonly blocking = false;
+  /**
+   * With nothing focused, `Ctrl+T` and the arrow-key scroll fallback act on
+   * the todo list. It is the region the user glances at while typing.
+   */
+  readonly defaultKeyTarget = true;
+
   constructor(panel: TodoPanelComponent) {
     this.panel = panel;
+  }
+
+  /** Shares the left column; the folded and expanded forms both fit. */
+  placement(): RegionPlacement {
+    return 'left';
   }
 
   /** The wrapped panel, for host paths that still address it by component. */

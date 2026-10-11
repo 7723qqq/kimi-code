@@ -19,6 +19,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { GutterContainer } from '#/tui/components/chrome/gutter-container';
 import { MoonLoader } from '#/tui/components/chrome/moon-loader';
+import { ApprovalPanelComponent } from '#/tui/components/dialogs/approval-panel';
 import { AssistantMessageComponent } from '#/tui/components/messages/assistant-message';
 import { StatusMessageComponent } from '#/tui/components/messages/status-message';
 import { UserMessageComponent } from '#/tui/components/messages/user-message';
@@ -836,5 +837,59 @@ describe('fullscreen layout', () => {
     expect(vt.getViewport()[1]).toContain('body 30');
 
     state.ui.stop();
+  });
+
+  it('shows a pending approval in the todo slot and answers it on click', async () => {
+    const { state, vt } = await mountFullscreen();
+    state.todoRegion.setTodos([
+      { title: 'todo one', status: 'pending' },
+      { title: 'todo two', status: 'in_progress' },
+    ]);
+    const onRespond = vi.fn();
+    const data = {
+      id: 'req-1',
+      tool_call_id: 'tc-1',
+      tool_name: 'Bash',
+      action: 'run command',
+      description: '',
+      display: [{ type: 'shell' as const, language: 'bash', command: 'rm -rf node_modules' }],
+      choices: [
+        { label: 'Allow', response: 'approved' as const },
+        { label: 'Allow for session', response: 'approved_for_session' as const },
+        { label: 'Reject', response: 'rejected' as const },
+      ],
+    };
+    const panel = new ApprovalPanelComponent({ data }, onRespond);
+    state.approvalRegion.show(data, panel);
+    state.statusSurface.focusRegion('approval');
+    const alt = state.ui as TuiAltScreen;
+    alt.renderNow();
+    await vt.flush();
+
+    const viewport = vt.getViewport().map((line) => stripAnsi(line));
+    // The blocking prompt takes over the todo list's slot while it waits.
+    expect(viewport.some((line) => line.includes('todo one'))).toBe(false);
+    expect(viewport.some((line) => line.includes('Run this command?'))).toBe(true);
+    // Each option keeps a summary row of its own, so the click lands on the
+    // row that prints the label rather than on a shared run-on line.
+    const rowIndex = viewport.findIndex((line) => line.includes('Allow'));
+    expect(rowIndex).toBeGreaterThanOrEqual(0);
+    const allowColumn = viewport[rowIndex]!.indexOf('Allow');
+    expect(allowColumn).toBeGreaterThan(0);
+
+    vt.sendInput(`\u001B[<0;${allowColumn + 1};${rowIndex + 1}M`);
+    vt.sendInput(`\u001B[<0;${allowColumn + 1};${rowIndex + 1}m`);
+    await vt.waitForRender();
+    expect(onRespond).toHaveBeenCalled();
+
+    // Resolving the request gives the todo list its slot back.
+    state.approvalRegion.clear();
+    state.statusSurface.focusRegion(null);
+    alt.renderNow();
+    await vt.flush();
+    expect(vt.getViewport().map((line) => stripAnsi(line)).some((l) => l.includes('todo one'))).toBe(
+      true,
+    );
+    alt.stop();
   });
 });

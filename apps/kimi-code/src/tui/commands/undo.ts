@@ -20,6 +20,7 @@ import { ToolCallComponent } from '../components/messages/tool-call';
 import { UserMessageComponent } from '../components/messages/user-message';
 import { getNoActiveSessionMessage } from '../constant/kimi-tui';
 import type { TranscriptEntry } from '../types';
+import { hasDispose } from '../utils/component-capabilities';
 import { formatErrorMessage } from '../utils/event-payload';
 import { getTranscriptComponentEntry } from '../utils/transcript-component-metadata';
 import { nextTranscriptId } from '../utils/transcript-id';
@@ -466,6 +467,7 @@ function removeUndoContextComponents(
   startIndex: number,
   additionalIndices: ReadonlySet<number>,
 ): void {
+  const removed: Component[] = [];
   for (let i = children.length - 1; i >= 0; i--) {
     const child = children[i];
     if (
@@ -473,8 +475,14 @@ function removeUndoContextComponents(
       (i >= startIndex || additionalIndices.has(i)) &&
       isUndoContextComponent(child)
     ) {
+      removed.push(child);
       children.splice(i, 1);
     }
+  }
+  // Undo drops history the user asked to forget; disposable cards (shell runs,
+  // tool cards with timers/listeners) must not keep ticking in the background.
+  for (const child of removed) {
+    if (hasDispose(child)) child.dispose();
   }
 }
 

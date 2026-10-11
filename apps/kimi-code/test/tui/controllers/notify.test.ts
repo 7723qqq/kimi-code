@@ -84,6 +84,7 @@ function makeHarness(enabled = true, fullscreen = false) {
   controller.setEnabled(enabled);
   editor.onStatusSurfaceKey = (key) => {
     if (key === 'focus') return controller.toggleFocus();
+    if (key === 'cycleColumn') return false;
     switch (key) {
       case 'toggle':
       case 'enter':
@@ -247,11 +248,11 @@ describe('NotifyController', () => {
       h.emit('subagent.spawned', { subagentId: `agent-${String(i)}`, subagentName: 'explore' });
       h.send(`u${String(i)}`, `update ${String(i)}`, `agent-${String(i)}`);
     }
-    expect(h.notifyPanel.render(150)[1]).toContain('explore(5)');
+    expect(h.notifyPanel.render(150)[0]).toContain('explore(5)');
 
     for (let i = 1; i <= 5; i++) h.emit('subagent.completed', { subagentId: `agent-${String(i)}` });
 
-    const title = strip(h.notifyPanel.render(150)[1]!);
+    const title = strip(h.notifyPanel.render(150)[0]!);
     // All five are finished, but the view is still on the last one, so that
     // channel keeps its own tab and the other four fold — the current position
     // is never hidden behind the aggregate.

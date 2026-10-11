@@ -46,7 +46,7 @@ export function surfaceTotalRows(rows: number): number {
 }
 
 /**
- * Divide `rows` across `regions`.
+ * Divide `rows` across `regions`, after the surface's own rows.
  *
  * Highest priority is served first with `min(want, remaining)`, so a blocking
  * approval always gets the rows it asked for and the informational regions
@@ -55,18 +55,23 @@ export function surfaceTotalRows(rows: number): number {
  * disappears silently; once the budget is exhausted the rest get `0` and the
  * surface skips them.
  *
- * The sum of `perRegion` is always `<= total`: the surface can never ask the
- * terminal for more rows than it declared. Regions self-delimit (see the
- * surface's `render`), so there is no separate chrome allowance to reserve.
+ * `chromeRows` is what the surface spends before any region draws — its frame
+ * and the rules between stacked regions. It comes out of the same pool rather
+ * than being added on top, so a grant can never push the surface past the
+ * ceiling it declared to the terminal.
+ *
+ * The sum of `perRegion` is always `<= total - chromeRows`: the surface can
+ * never ask the terminal for more rows than it declared.
  */
 export function computeBudget(
   rows: number,
   regions: readonly StatusRegion[],
   width: number,
+  chromeRows = 0,
 ): SurfaceBudget {
   const total = surfaceTotalRows(rows);
   const ordered = sortRegions(regions.filter((region) => !region.isEmpty()));
-  let remaining = total;
+  let remaining = Math.max(0, total - Math.max(0, chromeRows));
 
   const perRegion = new Map<RegionId, number>();
   for (const region of ordered) {

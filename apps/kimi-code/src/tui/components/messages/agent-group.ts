@@ -48,6 +48,7 @@ export class AgentGroupComponent extends Container {
   private throttleTimer: ReturnType<typeof setTimeout> | null = null;
   private lastFlushPhases = new Map<string, ToolCallSubagentSnapshot['phase']>();
   private _invalidating = false;
+  private disposed = false;
 
   constructor(private readonly ui: TUI | undefined) {
     super();
@@ -144,7 +145,10 @@ export class AgentGroupComponent extends Container {
       if (snap !== undefined) this.lastFlushPhases.set(entry.toolCallId, snap.phase);
     });
 
-    this.invalidate();
+    // Invalidate the container's caches directly: calling the `invalidate()`
+    // override here would re-enter `flushRender()` and rebuild the whole body
+    // (plus request a second render) on every throttle tick.
+    super.invalidate();
     this.ui?.requestRender();
   }
 
@@ -247,13 +251,25 @@ export class AgentGroupComponent extends Container {
     this._invalidating = false;
   }
 
+  /**
+   * Releases throttle timers so destroyed components cannot refresh later.
+   * Disposing also cascades into the borrowed cards: a running Agent card
+   * drives its own elapsed-spinner interval (80ms) and would otherwise keep
+   * calling `requestRender()` after `/clear`, a session switch, or a
+   * transcript fold. `stopTimers()` and `dispose()` are both idempotent, so a
+   * second `dispose()` is harmless.
+   */
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     if (this.throttleTimer !== null) {
       clearTimeout(this.throttleTimer);
       this.throttleTimer = null;
     }
     for (const e of this.entries) {
       e.tc.setSnapshotListener(undefined);
+      e.tc.stopTimers();
+      e.tc.dispose();
     }
   }
 }
@@ -297,7 +313,9 @@ function countPhases(snapshots: readonly ToolCallSubagentSnapshot[]): PhaseCount
     running,
     waiting,
     starting,
-    terminal: done + failed + backgrounded,
+    // `backgrounded` members are still running remotely, so they count as
+    // active: only done/failed members make the "finished" header truthful.
+    terminal: done + failed,
   };
 }
 

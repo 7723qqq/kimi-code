@@ -1,3 +1,8 @@
+import {
+  MAX_ESTIMATOR_SEEN_TOOL_CALLS,
+  MAX_ESTIMATOR_TOOL_CALL_SAMPLES,
+} from '#/tui/constant/rendering';
+
 const DEFAULT_RATE_WINDOW_MS = 45_000;
 const DEFAULT_CATCHUP_TIME_MS = 1_500;
 const DEFAULT_WORKLOAD_SPREAD_FACTOR = 1.5;
@@ -52,6 +57,8 @@ interface MemberProgressState {
   terminalKind?: 'completed' | 'failed' | 'cancelled';
   rawTicks: number;
   readonly seenToolCallIds: Set<string>;
+  /** Insertion order of `seenToolCallIds`, so the oldest id can be evicted. */
+  seenToolCallOrder: string[];
   toolCallActiveTimesMs: number[];
   displayTicks: number;
   lastEstimateAtMs?: number;
@@ -103,16 +110,6 @@ export class AgentSwarmProgressEstimator {
     this.getOrCreateMember(memberKey);
   }
 
-  removeMissingMembers(memberKeys: readonly string[]): void {
-    const live = new Set(memberKeys);
-    for (const memberKey of this.members.keys()) {
-      if (!live.has(memberKey)) {
-        this.members.delete(memberKey);
-        this.samplesVersion += 1;
-      }
-    }
-  }
-
   markStarted(memberKey: string, nowMs: number): void {
     const state = this.getOrCreateMember(memberKey);
     this.startWork(state, nowMs);
@@ -143,8 +140,22 @@ export class AgentSwarmProgressEstimator {
     if (state.seenToolCallIds.has(input.toolCallId)) {
       return { accepted: false, rawTicks: state.rawTicks };
     }
+    // Both histories are unbounded in principle (a long-running member can see
+    // thousands of tool calls), so each keeps only a recent window: the rate
+    // kernel only reads the recent past, and the seen-id set only dedupes
+    // repeated or replayed records. Evicting an old id can let a very late
+    // duplicate through, which is preferable to retaining every id forever.
     state.seenToolCallIds.add(input.toolCallId);
-    state.toolCallActiveTimesMs.push(this.activeElapsedMs(state, input.nowMs));
+    state.seenToolCallOrder.push(input.toolCallId);
+    if (state.seenToolCallOrder.length > MAX_ESTIMATOR_SEEN_TOOL_CALLS) {
+      const evictedId = state.seenToolCallOrder.shift();
+      if (evictedId !== undefined) state.seenToolCallIds.delete(evictedId);
+    }
+    const activeTimesMs = state.toolCallActiveTimesMs;
+    activeTimesMs.push(this.activeElapsedMs(state, input.nowMs));
+    if (activeTimesMs.length > MAX_ESTIMATOR_TOOL_CALL_SAMPLES) {
+      activeTimesMs.splice(0, activeTimesMs.length - MAX_ESTIMATOR_TOOL_CALL_SAMPLES);
+    }
     state.rawTicks += 1;
     state.displayTicks = Math.max(state.displayTicks + 1, state.rawTicks);
     delete state.terminalAtMs;
@@ -236,16 +247,6 @@ export class AgentSwarmProgressEstimator {
     };
   }
 
-  estimateAll(
-    inputs: readonly AgentSwarmProgressEstimateInput[],
-  ): Map<string, AgentSwarmProgressEstimate> {
-    const estimates = new Map<string, AgentSwarmProgressEstimate>();
-    for (const input of inputs) {
-      estimates.set(input.memberKey, this.estimate(input));
-    }
-    return estimates;
-  }
-
   hasPendingCatchup(): boolean {
     return Array.from(this.members.values()).some(
       (state) =>
@@ -294,6 +295,7 @@ export class AgentSwarmProgressEstimator {
       pausedDurationMs: 0,
       rawTicks: 0,
       seenToolCallIds: new Set(),
+      seenToolCallOrder: [],
       toolCallActiveTimesMs: [],
       displayTicks: 0,
     };

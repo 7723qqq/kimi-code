@@ -3,6 +3,7 @@ import type {
   ApprovalResponse,
   ToolInputDisplay,
 } from '@moonshot-ai/kimi-code-sdk';
+import { ReviewDecision } from '@moonshot-ai/agent-core-v2';
 
 import { t } from '#/i18n';
 import type { ApprovalPanelResponse } from '#/tui/components/dialogs/approval-panel';
@@ -27,12 +28,12 @@ function getPlanRejectChoices(): ApprovalPanelChoice[] {
     {
       label: t('tui.approvalLabels.reject'),
       response: 'rejected',
-      selected_label: t('tui.approvalLabels.reject'),
+      selected_label: ReviewDecision.REJECT,
     },
     {
       label: t('tui.approvalLabels.revise'),
       response: 'rejected',
-      selected_label: t('tui.approvalLabels.revise'),
+      selected_label: ReviewDecision.REVISE,
       requires_feedback: true,
     },
   ];
@@ -432,7 +433,7 @@ function adaptSpecReviewChoices(display: ToolInputDisplay): ApprovalPanelChoice[
           {
             label: t('tui.approvalLabels.approve'),
             response: 'approved' as const,
-            selected_label: t('tui.approvalLabels.approve'),
+            selected_label: ReviewDecision.APPROVE,
           },
         ];
   return [...optionChoices, ...getPlanRejectChoices()].map((choice) => cloneChoice(choice));
@@ -473,7 +474,7 @@ function adaptPlanReviewChoices(display: ToolInputDisplay): ApprovalPanelChoice[
           {
             label: t('tui.approvalLabels.approve'),
             response: 'approved' as const,
-            selected_label: t('tui.approvalLabels.approve'),
+            selected_label: ReviewDecision.APPROVE,
           },
         ];
   return [...optionChoices, ...getPlanRejectChoices()].map((choice) => cloneChoice(choice));

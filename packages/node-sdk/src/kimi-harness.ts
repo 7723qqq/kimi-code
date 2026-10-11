@@ -118,6 +118,20 @@ export class KimiHarness {
     return this.rpc.interactiveAgentId;
   }
 
+  /**
+   * Forward the UI language to the engine when the host owns the runtime
+   * choice (`/settings` → locale). In-process clients apply it immediately;
+   * a client that cannot reach the engine ignores it, so the UI language and
+   * the engine language stay independent there rather than throwing.
+   */
+  setEngineLocale(locale: 'en' | 'zh'): void {
+    this.rpc.setEngineLocale?.(locale);
+  }
+
+  engineLocale(): 'en' | 'zh' | undefined {
+    return this.rpc.engineLocale?.();
+  }
+
   withInteractiveAgent<T>(agentId: string, fn: () => T): T {
     return this.rpc.withInteractiveAgent(agentId, fn);
   }

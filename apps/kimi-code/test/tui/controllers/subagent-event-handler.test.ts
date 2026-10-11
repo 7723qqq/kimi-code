@@ -42,8 +42,8 @@ function makeSwarmHandler() {
   return { handler, host, requestRender, transcriptContainer, dockChild };
 }
 
-function swarmComponentOf(transcriptContainer: { addChild: ReturnType<typeof vi.fn> }) {
-  return transcriptContainer.addChild.mock.calls[0]?.[0] as AgentSwarmProgressComponent;
+function swarmComponentOf(host: { appendTranscriptEntry: ReturnType<typeof vi.fn> }) {
+  return host.appendTranscriptEntry.mock.calls[0]?.[1] as AgentSwarmProgressComponent;
 }
 
 function lifecycleEvent(
@@ -135,9 +135,9 @@ describe('SubAgentEventHandler — swarm render batching', () => {
 
 describe('SubAgentEventHandler — subagent.cancelled', () => {
   it('marks a running swarm member cancelled instead of leaving it running', () => {
-    const { handler, transcriptContainer } = makeSwarmHandler();
+    const { handler, host } = makeSwarmHandler();
     startSwarmWithChild(handler);
-    const component = swarmComponentOf(transcriptContainer);
+    const component = swarmComponentOf(host);
 
     handler.handleLifecycleEvent(lifecycleEvent('subagent.cancelled', 'child-1', 'tc-1'));
 
@@ -146,7 +146,7 @@ describe('SubAgentEventHandler — subagent.cancelled', () => {
   });
 
   it('keeps the batch-level cancelled label when a member cancel event follows', () => {
-    const { handler, transcriptContainer } = makeSwarmHandler();
+    const { handler, host } = makeSwarmHandler();
     startSwarmWithChild(handler);
     handler.routeChildAgentEvent(childEvent('assistant.delta', 'child-1'));
 
@@ -157,7 +157,7 @@ describe('SubAgentEventHandler — subagent.cancelled', () => {
     );
     handler.handleLifecycleEvent(lifecycleEvent('subagent.cancelled', 'child-1', 'tc-1'));
 
-    const component = swarmComponentOf(transcriptContainer);
+    const component = swarmComponentOf(host);
     const output = component.render(120).join('\n');
     expect(output).toContain('⊘');
     expect(output).toContain('hello');
@@ -166,9 +166,9 @@ describe('SubAgentEventHandler — subagent.cancelled', () => {
 
 describe('SubAgentEventHandler — swarm grid height measurement', () => {
   it('measures the rows after the transcript once per render pass', async () => {
-    const { handler, transcriptContainer, dockChild } = makeSwarmHandler();
+    const { handler, host, dockChild } = makeSwarmHandler();
     startSwarmWithChild(handler);
-    const component = swarmComponentOf(transcriptContainer);
+    const component = swarmComponentOf(host);
 
     component.render(120);
     component.render(120);

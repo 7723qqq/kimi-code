@@ -10,34 +10,24 @@ export const AuthErrors = {
   },
   info: {
     'auth.login_required': {
-      title: 'Login required',
       retryable: false,
       public: true,
-      action: 'Run /login to authenticate with the OAuth provider.',
     },
     'auth.provisioning_required': {
-      title: 'Provider provisioning required',
       retryable: false,
       public: true,
-      action: 'Configure a provider via /login or the providers endpoint.',
     },
     'auth.token_missing': {
-      title: 'Provider credential missing',
       retryable: false,
       public: true,
-      action: 'Configure an API key or complete OAuth login for the provider.',
     },
     'auth.token_unauthorized': {
-      title: 'Provider credential unauthorized',
       retryable: false,
       public: true,
-      action: 'Re-authenticate with the OAuth provider.',
     },
     'auth.model_not_resolved': {
-      title: 'Model not resolved',
       retryable: false,
       public: true,
-      action: 'Set a default model or configure the requested model alias.',
     },
   },
 } as const satisfies ErrorDomain;

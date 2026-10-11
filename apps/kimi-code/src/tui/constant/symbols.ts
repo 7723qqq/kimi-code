@@ -3,6 +3,11 @@ import { t } from '#/i18n';
 // Use U+25CF instead of U+23FA to avoid emoji/fallback rendering in terminals.
 export const STATUS_BULLET = '● ';
 
+// Hollow status dot for dim / pending states (queued work, pending todos,
+// paused or blocked goal markers). Exactly one cell wide; callers add their
+// own trailing space where they render `dot + space + label`.
+export const STATUS_DOT = '○';
+
 // Shared transcript markers. Keep widths stable because message wrapping
 // assumes the marker occupies the leading cells.
 export const USER_MESSAGE_BULLET = '❯ ';

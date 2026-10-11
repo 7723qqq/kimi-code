@@ -128,7 +128,8 @@ export interface SlashCommandHost {
   showError(msg: string): void;
   showStatus(msg: string, color?: ColorToken): void;
   showNotice(title: string, detail?: string): void;
-  appendTranscriptEntry(entry: TranscriptEntry): void;
+  appendTranscriptEntry(entry: TranscriptEntry, component?: Component): void;
+  mountTranscriptComponent(entry: TranscriptEntry, component: Component): void;
   track(event: string, props?: Record<string, unknown>): void;
   mountEditorReplacement(panel: Component & Focusable): void;
   restoreEditor(): void;

@@ -187,6 +187,15 @@ export abstract class SDKRpcClientBase {
     return this.interactiveAgentScope.run(agentId, fn);
   }
 
+  /**
+   * Engine-language channel, optional because only an in-process client can
+   * honour it. `SDKRpcClientV2` overrides both; a transport-backed client
+   * leaves them undefined and `KimiHarness` degrades to a no-op.
+   */
+  setEngineLocale?(locale: 'en' | 'zh'): void;
+
+  engineLocale?(): 'en' | 'zh';
+
   abstract createSession(input: CreateSessionOptions): Promise<SessionSummary>;
 
   async createSessionWithKaos(

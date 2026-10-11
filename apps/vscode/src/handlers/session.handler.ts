@@ -1,3 +1,4 @@
+import { NotificationAction } from "../utils/notification-actions";
 import * as path from "node:path";
 import * as vscode from "vscode";
 import type { SessionSummary } from "@moonshot-ai/kimi-code-sdk";
@@ -161,11 +162,11 @@ export const sessionHandlers: Record<string, Handler<any, any>> = {
       void Promise.resolve(
         vscode.window.showWarningMessage(
           "Kimi: This conversation opened, but its file change history is unavailable.",
-          "Show Logs",
+          NotificationAction.SHOW_LOGS,
         ),
       )
         .then((action) => {
-          if (action === "Show Logs") ctx.showLogs();
+          if (action === NotificationAction.SHOW_LOGS) ctx.showLogs();
         })
         .catch((noticeError: unknown) => {
           ctx.logError("Unable to show the file change warning", noticeError);

@@ -23,7 +23,7 @@ import { formatBytes } from '#/tui/utils/format-bytes';
 
 import type { ChipProvider } from './chip';
 import { renderTruncated } from './truncated';
-import type { ResultRenderer } from './types';
+import { memoizeBounded, type ResultRenderer } from './types';
 
 export interface ReadMediaSummary {
   kind: 'image' | 'video';
@@ -49,7 +49,16 @@ function bytesFromBase64(b64: string): number {
   return Math.floor((len * 3) / 4) - padding;
 }
 
+// The chip, the glance and the card header each parse the same envelope during
+// one rebuild, and the JSON carries the whole base64 payload; the latest
+// parses are kept (and older ones evicted) so the envelope is read once.
+const mediaSummaryMemo = new Map<string, ReadMediaSummary | null>();
+
 export function parseReadMediaOutput(output: string): ReadMediaSummary | null {
+  return memoizeBounded(mediaSummaryMemo, output, () => parseReadMediaOutputUncached(output));
+}
+
+function parseReadMediaOutputUncached(output: string): ReadMediaSummary | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(output);

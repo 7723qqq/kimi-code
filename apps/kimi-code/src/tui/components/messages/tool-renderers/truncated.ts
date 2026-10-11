@@ -3,6 +3,7 @@ import { Text, truncateToWidth, type Component } from '@moonshot-ai/pi-tui';
 import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
 import type { ColorPalette } from '#/tui/theme/colors';
+import { sanitizeShellOutputPreservingSgr } from '#/tui/utils/shell-output';
 
 import { outcomeRows } from './outcome';
 import type { ResultRenderer } from './types';
@@ -60,7 +61,12 @@ export class TruncatedOutputComponent implements Component {
     this.indent = options.indent ?? DEFAULT_INDENT;
     this.expandHint = options.expandHint ?? true;
     this.tail = options.tail ?? false;
-    const cleaned = trimTrailingEmptyLines(output.split('\n')).join('\n');
+    // Expanded bodies light up on ctrl+o and errors preview in full even when
+    // collapsed, so this path must sanitize too: keep SGR colours, strip every
+    // other terminal control sequence (cursor moves, clears, `\r`, …).
+    const cleaned = trimTrailingEmptyLines(
+      sanitizeShellOutputPreservingSgr(output).split('\n'),
+    ).join('\n');
     const successColor = options.color ?? 'textDim';
     this.textComponent = new Text(
       options.isError ? currentTheme.fg('error', cleaned) : currentTheme.fg(successColor, cleaned),

@@ -25,9 +25,12 @@ describe('DeviceCodeBoxComponent', () => {
     const lines = component.render(80).map(strip);
     const joined = lines.join('\n');
 
-    expect(lines[1]?.startsWith('╭')).toBe(true);
+    // Transcript panels align their box's left edge with message body text
+    // (two-cell indent), and the title sits on the top border after `╭ `.
+    expect(lines[1]?.startsWith('  ╭')).toBe(true);
     expect(lines[1]?.endsWith('╮')).toBe(true);
-    expect(lines.at(-2)?.startsWith('╰')).toBe(true);
+    expect(lines[1]).toContain(` ${title} `);
+    expect(lines.at(-2)?.startsWith('  ╰')).toBe(true);
     expect(lines.at(-2)?.endsWith('╯')).toBe(true);
 
     expect(joined).toContain(title);

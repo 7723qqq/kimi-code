@@ -67,6 +67,22 @@ export const SUBAGENT_TOOL_OUTPUT_MAX_CHARS = 8000;
 // beyond the cap.
 export const SUBAGENT_ARG_STRING_MAX_CHARS = 16 * 1024;
 
+// Tail retained from a live subagent's streamed text on the Agent card. The
+// child's output can be far longer than the card ever shows, so only the tail
+// is kept (older text is dropped whole, marked by a truncation line).
+export const MAX_SUBAGENT_STREAM_TEXT_CHARS = 64 * 1024;
+
+// Sub-tool activity records kept per Agent card. A subagent making hundreds of
+// tool calls would otherwise retain every sub-call and its output; only the
+// most recent records are read, so older ones are evicted.
+export const MAX_SUB_TOOL_ACTIVITIES = 32;
+
+// Retention caps for the swarm progress estimator's per-member history:
+// accepted tool-call samples feed the local-rate kernel, and the seen-id set
+// only dedupes repeated/replayed records.
+export const MAX_ESTIMATOR_TOOL_CALL_SAMPLES = 256;
+export const MAX_ESTIMATOR_SEEN_TOOL_CALLS = 2048;
+
 // Retention caps for an agent-swarm member's terminal-state label: terminal
 // cells render a single-line label, so only a bounded prefix of the final
 // output is worth keeping. Display width alone does not bound memory — ANSI
@@ -81,3 +97,10 @@ export const BRAILLE_SPINNER_INTERVAL_MS = 80;
 
 export const MOON_SPINNER_FRAMES = ['🌑', '🌒', '🌓', '🌔', '🌕', '🌖', '🌗', '🌘'];
 export const MOON_SPINNER_INTERVAL_MS = 120;
+
+/**
+ * How long a newly arrived mid-turn update rests on one body row before the
+ * updates box advances it. Owned here with the other animation intervals: the
+ * pace is copy the user reads at, not a component's private choice.
+ */
+export const NOTIFY_AUTOSCROLL_INTERVAL_MS = 320;

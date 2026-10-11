@@ -9,6 +9,38 @@
 
 export type Locale = 'en' | 'zh';
 
+/**
+ * Display names for each supported locale, written in that locale's own
+ * language ("English", "中文") — the convention every language switcher uses,
+ * and the reason these are data rather than a second translation tree: a
+ * switcher must be readable by someone who does not yet read the UI language.
+ *
+ * `short` is the compact form for a toolbar button; `switchTo` is the label for
+ * the action itself ("Switch to 中文"), which the caller pairs with its own
+ * `switchLanguage` copy.
+ */
+export interface LocaleMeta {
+  readonly code: Locale;
+  readonly label: string;
+  readonly short: string;
+}
+
+export const LOCALES: readonly LocaleMeta[] = [
+  { code: 'en', label: 'English', short: 'EN' },
+  { code: 'zh', label: '中文', short: '中' },
+];
+
+export const DEFAULT_LOCALE: Locale = 'en';
+
+export function localeMeta(locale: Locale): LocaleMeta {
+  return LOCALES.find((entry) => entry.code === locale) ?? LOCALES[0]!;
+}
+
+/** The other supported locale — the one a "switch language" control targets. */
+export function otherLocale(locale: Locale): Locale {
+  return locale === 'en' ? 'zh' : 'en';
+}
+
 // ── Message tree ─────────────────────────────────────────────────────────────
 
 export type MessageValue = string | { [key: string]: MessageValue };

@@ -78,10 +78,6 @@ import {
   type SlashAutocompleteCommand,
 } from './components/editor/file-mention-provider';
 import { ShellRunComponent } from './components/messages/shell-run';
-import {
-  NoticeMessageComponent,
-  StatusMessageComponent,
-} from './components/messages/status-message';
 import { QueuePaneComponent } from './components/panes/queue-pane';
 import type { TuiConfig } from './config';
 import {
@@ -165,7 +161,6 @@ import { installTerminalThemeTracking } from './utils/terminal-theme';
 import { thinkingEffortFromConfig } from './utils/thinking-config';
 import { detectTmuxKeyboardWarning } from './utils/tmux-keyboard';
 import { TokenSpeedSampler } from './utils/token-speed';
-import { markTranscriptComponent } from './utils/transcript-component-metadata';
 import { nextTranscriptId } from './utils/transcript-id';
 import { expandCutoffIndex, TRANSCRIPT_EXPAND_TURNS } from './utils/transcript-window';
 
@@ -1322,9 +1317,7 @@ export class KimiTUI {
     // the global toggle only reaches components that exist when it fires.
     if (this.state.toolOutputExpanded) outputComponent.setExpanded(true);
     this.shellOutputStreams.set(commandId, { entry: outputEntry, component: outputComponent });
-    this.state.transcriptEntries.push(outputEntry);
-    markTranscriptComponent(outputComponent, outputEntry);
-    this.state.transcriptContainer.addChild(outputComponent);
+    this.appendTranscriptEntry(outputEntry, outputComponent);
     // Treat command execution as a streaming phase so input queues, the activity
     // pane shows the moon spinner, and ctrl+b is enabled while it runs.
     this.setAppState({ streamingPhase: 'shell' });
@@ -1543,10 +1536,6 @@ export class KimiTUI {
 
   shiftQueuedMessage(): QueuedMessage | undefined {
     return this.messageDispatch.shiftQueuedMessage();
-  }
-
-  pushTranscriptEntry(entry: TranscriptEntry): void {
-    this.state.transcriptEntries.push(entry);
   }
 
   setExternalEditorRunning(running: boolean): void {
@@ -2247,8 +2236,24 @@ export class KimiTUI {
   // Transcript Rendering
   // =========================================================================
 
-  appendTranscriptEntry(entry: TranscriptEntry): void {
-    this.transcriptRenderer.appendTranscriptEntry(entry);
+  appendTranscriptEntry(entry: TranscriptEntry, component?: Component): void {
+    this.transcriptRenderer.appendTranscriptEntry(entry, component);
+  }
+
+  mountTranscriptComponent(entry: TranscriptEntry, component: Component): void {
+    this.transcriptRenderer.mountTranscriptComponent(entry, component);
+  }
+
+  replaceTranscriptChild(
+    previous: Component,
+    next: Component,
+    entry?: TranscriptEntry,
+  ): boolean {
+    return this.transcriptRenderer.replaceTranscriptChild(previous, next, entry);
+  }
+
+  removeTranscriptEntries(entries: readonly TranscriptEntry[]): void {
+    this.transcriptRenderer.removeTranscriptEntries(entries);
   }
 
   mergeCurrentTurnSteps(): boolean {
@@ -2264,13 +2269,25 @@ export class KimiTUI {
   }
 
   showStatus(message: string, color?: ColorToken): void {
-    this.state.transcriptContainer.addChild(new StatusMessageComponent(message, color));
-    this.state.ui.requestRender();
+    this.appendTranscriptEntry({
+      id: nextTranscriptId(),
+      kind: 'status',
+      turnId: undefined,
+      renderMode: 'plain',
+      content: message,
+      color,
+    });
   }
 
   showNotice(title: string, detail?: string): void {
-    this.state.transcriptContainer.addChild(new NoticeMessageComponent(title, detail));
-    this.state.ui.requestRender();
+    this.appendTranscriptEntry({
+      id: nextTranscriptId(),
+      kind: 'status',
+      turnId: undefined,
+      renderMode: 'notice',
+      content: title,
+      detail,
+    });
   }
 
   showError(message: string): void {
@@ -2284,18 +2301,28 @@ export class KimiTUI {
   showProgressSpinner(label: string): LoginProgressSpinnerHandle {
     const tint = (s: string): string => currentTheme.fg('primary', s);
     const spinner = new MoonLoader(this.state.ui, 'braille', tint, label);
-    this.state.transcriptContainer.addChild(new Spacer(1));
-    this.state.transcriptContainer.addChild(spinner);
-    this.state.ui.requestRender();
+    const entry: TranscriptEntry = {
+      id: nextTranscriptId(),
+      kind: 'status',
+      turnId: undefined,
+      renderMode: 'plain',
+      content: label,
+    };
+    // The spacer is chrome for the spinner; both carry the same entry so the
+    // transcript bookkeeping attributes them to one row group.
+    this.mountTranscriptComponent(entry, new Spacer(1));
+    this.appendTranscriptEntry(entry, spinner);
     return {
       stop: ({ ok, label: finalLabel }) => {
         spinner.stop();
         const tone = ok ? 'success' : 'error';
         const symbol = ok ? '✓' : '✗';
-        spinner.setText(currentTheme.fg(tone, `${symbol} ${finalLabel}`));
+        entry.content = `${symbol} ${finalLabel}`;
+        spinner.setText(currentTheme.fg(tone, entry.content));
         this.state.ui.requestRender();
       },
       setLabel: (nextLabel) => {
+        entry.content = nextLabel;
         spinner.setLabel(nextLabel);
       },
     };
@@ -2303,7 +2330,14 @@ export class KimiTUI {
 
   showLoginAuthorizationPrompt(auth: DeviceAuthorization): LoginProgressSpinnerHandle {
     openUrl(auth.verificationUriComplete);
-    this.state.transcriptContainer.addChild(
+    this.appendTranscriptEntry(
+      {
+        id: nextTranscriptId(),
+        kind: 'status',
+        turnId: undefined,
+        renderMode: 'plain',
+        content: auth.verificationUriComplete,
+      },
       new DeviceCodeBoxComponent({
         title: t('tui.chrome.deviceCodeBox.title'),
         url: auth.verificationUriComplete,
@@ -2311,7 +2345,6 @@ export class KimiTUI {
         hint: t('tui.chrome.deviceCodeBox.hint'),
       }),
     );
-    this.state.ui.requestRender();
     return this.showLoginProgressSpinner(t('tui.statusMessages.waitingForAuthorization'));
   }
 
@@ -2450,14 +2483,17 @@ export class KimiTUI {
     return true;
   }
 
-  /** Move the keyboard into the status strip's updates region, or release it. */
+  /**
+   * Move the keyboard into the status strip's declared focus region, or release
+   * it. Which region that is belongs to the region, not to this host.
+   */
   toggleStatusSurfaceFocus(): boolean {
     return this.sessionEventHandler.notifications.toggleFocus();
   }
 
   handleStatusSurfaceKey(key: StatusSurfaceKey): boolean {
     if (key === 'focus') return this.toggleStatusSurfaceFocus();
-    return this.state.statusSurface.handleKey(key);
+    return this.state.statusSurface.handleStatusSurfaceKey(key);
   }
 
   private async detachRunningShellCommand(): Promise<void> {

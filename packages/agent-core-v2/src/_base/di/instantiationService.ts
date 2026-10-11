@@ -121,6 +121,23 @@ export class Trace {
   }
 }
 
+export class InstantiationServiceDisposedError extends Error {
+  readonly code = 'instantiation_service_disposed';
+
+  constructor() {
+    super('InstantiationService has been disposed');
+    this.name = 'InstantiationServiceDisposedError';
+  }
+}
+
+export function isInstantiationServiceDisposedError(error: unknown): boolean {
+  return (
+    error instanceof InstantiationServiceDisposedError ||
+    (error instanceof Error &&
+      (error as { code?: string }).code === 'instantiation_service_disposed')
+  );
+}
+
 export class InstantiationService implements IInstantiationService {
   declare readonly _serviceBrand: undefined;
 
@@ -1005,7 +1022,7 @@ export class InstantiationService implements IInstantiationService {
 
   private _assertNotDisposed(): void {
     if (this._disposed) {
-      throw new Error('InstantiationService has been disposed');
+      throw new InstantiationServiceDisposedError();
     }
   }
 }

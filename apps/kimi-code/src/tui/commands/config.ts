@@ -814,6 +814,7 @@ async function applyLocaleChoice(host: SlashCommandHost, locale: Locale): Promis
   }
 
   setLocale(locale);
+  host.harness.setEngineLocale(locale);
   host.setAppState({ locale });
   host.showStatus(t('tui.messages.configLanguageSet', { locale }));
 }

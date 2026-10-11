@@ -103,12 +103,13 @@ function styleLabel(label: string, selected: boolean): string {
 }
 
 function styleModeNames(text: string, baseToken: 'text' | 'textMuted'): string {
+  const modeNames = [t('tui.permissionMode.manual'), t('tui.permissionMode.yolo'), t('tui.permissionMode.auto')];
+  const escaped = modeNames.map((name) => name.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const pattern = new RegExp(`(${escaped.join('|')})`, 'g');
   return text
-    .split(/(\b(?:Always Ask|Ask When Needed|Never Ask)\b)/g)
-    .map((part) => {
-      if (part === 'Always Ask' || part === 'Ask When Needed' || part === 'Never Ask')
-        return currentTheme.boldFg('textStrong', part);
-      return currentTheme.fg(baseToken, part);
-    })
+    .split(pattern)
+    .map((part) =>
+      modeNames.includes(part) ? currentTheme.boldFg('textStrong', part) : currentTheme.fg(baseToken, part),
+    )
     .join('');
 }

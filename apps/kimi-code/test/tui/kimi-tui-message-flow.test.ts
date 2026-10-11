@@ -1113,16 +1113,16 @@ describe('KimiTUI message flow', () => {
     driver.state.editor.setText('unsent follow-up');
     const cursor = driver.state.editor.getCursor();
     const setFocus = vi.spyOn(driver.state.ui, 'setFocus');
-    expect(driver.state.notifyPanel.render(100)[1]).toContain('Updates 3/3');
+    expect(driver.state.notifyPanel.render(100)[0]).toContain('Updates 3/3');
     driver.state.editor.handleInput('\u000E');
-    expect(driver.state.notifyPanel.render(100)[1]).toContain('esc close');
+    expect(driver.state.notifyPanel.render(100)[0]).toContain('esc close');
     // `[`/`]` step between updates; the arrows scroll the current one instead.
     driver.state.editor.handleInput('[');
-    expect(driver.state.notifyPanel.render(100)[1]).toContain('Updates 2/3');
+    expect(driver.state.notifyPanel.render(100)[0]).toContain('Updates 2/3');
     driver.state.editor.handleInput(']');
-    expect(driver.state.notifyPanel.render(100)[1]).toContain('Updates 3/3');
+    expect(driver.state.notifyPanel.render(100)[0]).toContain('Updates 3/3');
     driver.state.editor.handleInput('\u001B');
-    expect(driver.state.notifyPanel.render(100)[1]).toContain('ctrl+n page');
+    expect(driver.state.notifyPanel.render(100)[0]).toContain('ctrl+n page');
     expect(setFocus).not.toHaveBeenCalled();
     expect(driver.state.editor.getText()).toBe('unsent follow-up');
     expect(driver.state.editor.getCursor()).toEqual(cursor);
@@ -3010,7 +3010,11 @@ command = "vim"
       );
     });
 
-    expect(driver.state.transcriptEntries).toEqual([
+    // The undo failure surfaces as an error status entry; the user turn itself
+    // must survive the failed undo.
+    expect(
+      driver.state.transcriptEntries.filter((entry) => entry.kind !== 'status'),
+    ).toEqual([
       expect.objectContaining({
         kind: 'user',
         content: 'hello',
@@ -3338,7 +3342,9 @@ command = "vim"
     });
 
     expect(session.undoHistory).not.toHaveBeenCalled();
-    expect(driver.state.transcriptEntries).toEqual([
+    expect(
+      driver.state.transcriptEntries.filter((entry) => entry.kind !== 'status'),
+    ).toEqual([
       expect.objectContaining({
         kind: 'user',
         content: 'hello',

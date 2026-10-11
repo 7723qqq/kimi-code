@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 
-import { wrapWithSideBorders } from '#/tui/components/editor/custom-editor';
+import { wrapWithSideBorders } from '#/tui/components/chrome/panel-frame';
 
 const id = (s: string): string => s;
 

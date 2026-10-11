@@ -171,3 +171,22 @@ describe('readMediaSummary renderer', () => {
     expect(out).toContain('some plain string output');
   });
 });
+
+describe('parseReadMediaOutput memo', () => {
+  it('returns the same parse to the chip, the header and the glance', () => {
+    const output = imageOutput('/tmp/memo.png');
+    const first = parseReadMediaOutput(output);
+    expect(first).not.toBeNull();
+    expect(parseReadMediaOutput(output)).toBe(first);
+    expect(strip(readMediaChip(call('ReadMediaFile'), result(output)))).toContain('image/png');
+    expect(parseReadMediaOutput(output)).toBe(first);
+  });
+
+  it('stays bounded so a long session cannot hold every payload', () => {
+    const first = parseReadMediaOutput(imageOutput('/tmp/memo-bound-0.png'));
+    for (let i = 1; i <= 9; i++) {
+      parseReadMediaOutput(imageOutput(`/tmp/memo-bound-${String(i)}.png`));
+    }
+    expect(parseReadMediaOutput(imageOutput('/tmp/memo-bound-0.png'))).not.toBe(first);
+  });
+});

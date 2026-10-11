@@ -9,6 +9,7 @@ import type {
   TextPromptPart,
   ToolCall,
 } from '@moonshot-ai/kimi-code-sdk';
+import type { Component } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
 
@@ -57,7 +58,6 @@ import {
 } from '../utils/message-replay';
 import { permissionModeDisplayName } from '../utils/permission-mode';
 import { formatBashOutputForDisplay } from '../utils/shell-output';
-import { markTranscriptComponent } from '../utils/transcript-component-metadata';
 import { nextTranscriptId } from '../utils/transcript-id';
 import type { SessionEventHandler } from './session-event-handler';
 import type { StreamingUIController } from './streaming-ui';
@@ -92,7 +92,9 @@ export interface SessionReplayHost {
   readonly sessionEventHandler: SessionEventHandler;
   setAppState(patch: Partial<AppState>): void;
   showError(msg: string): void;
-  appendTranscriptEntry(entry: TranscriptEntry): void;
+  appendTranscriptEntry(entry: TranscriptEntry, component?: Component): void;
+  mountTranscriptComponent(entry: TranscriptEntry, component: Component): void;
+  removeTranscriptEntries(entries: readonly TranscriptEntry[]): void;
   mergeAllTurnSteps(): void;
   /** A replayed session starts the footer's speed readout over: the pre-replay
    *  process may have measured a different session. */
@@ -425,16 +427,15 @@ export class SessionReplayRenderer {
         // Inherit the current ctrl+o state, same as the live card — the global
         // toggle only reaches components that exist when it fires.
         if (this.host.state.toolOutputExpanded) output.setExpanded(true);
-        markTranscriptComponent(
-          output,
+        this.host.appendTranscriptEntry(
           replayEntry(
             context,
             'status',
             formatBashOutputForDisplay(stdout, stderr, message.origin.isError),
             'plain',
           ),
+          output,
         );
-        this.host.state.transcriptContainer.addChild(output);
       }
       return;
     }
@@ -457,8 +458,7 @@ export class SessionReplayRenderer {
         // turn and step/assistant folding can find the turn edges.
         this.advanceTurn(context);
         const boundary = new ReplayTurnBoundaryComponent();
-        markTranscriptComponent(boundary, replayEntry(context, 'user', '', 'plain'));
-        this.host.state.transcriptContainer.addChild(boundary);
+        this.host.mountTranscriptComponent(replayEntry(context, 'user', '', 'plain'), boundary);
       }
       return;
     }
@@ -873,10 +873,11 @@ export class SessionReplayRenderer {
     const { state, streamingUI } = this.host;
     streamingUI.removeActiveToolCall(toolCallId);
     streamingUI.removeToolComponent(toolCallId);
-    const index = state.transcriptEntries.findIndex(
-      (entry) => entry.toolCallData?.id === toolCallId,
-    );
-    if (index >= 0) state.transcriptEntries.splice(index, 1);
+    const entry = state.transcriptEntries.find((e) => e.toolCallData?.id === toolCallId);
+    if (entry !== undefined) {
+      this.host.removeTranscriptEntries([entry]);
+      return;
+    }
     const children = state.transcriptContainer.children;
     const childIndex = children.findIndex(
       (child) => child instanceof ToolCallComponent && child.toolCallView.id === toolCallId,

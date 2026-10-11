@@ -2,6 +2,8 @@ import { visibleWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
+import { setLocale } from '#/i18n';
+import { formatGoalElapsed } from '#/tui/components/messages/goal-format';
 import {
   buildGoalReportLines,
   GoalCompletionMessageComponent,
@@ -173,6 +175,47 @@ describe('GoalStatusMessageComponent', () => {
       for (const line of rendered.render(width)) {
         expect(visibleWidth(line)).toBeLessThanOrEqual(width);
       }
+    }
+  });
+
+  it('memoizes the rendered box per width and rebuilds only after invalidate', () => {
+    const component = new GoalStatusMessageComponent(goal());
+
+    const first = component.render(80);
+    expect(component.render(80)).toBe(first);
+
+    const narrow = component.render(60);
+    expect(narrow).not.toBe(first);
+    expect(component.render(60)).toBe(narrow);
+
+    // A palette switch invalidates the cached box and repaints the body.
+    component.invalidate();
+    const rebuilt = component.render(60);
+    expect(rebuilt).not.toBe(narrow);
+    expect(strip(rebuilt)).toBe(strip(narrow));
+  });
+
+  it('keeps zh row labels aligned with their values', () => {
+    setLocale('zh');
+    try {
+      const rendered = strip(buildGoalReportLines(goal(), 60)).split('\n');
+      const elapsed = formatGoalElapsed(252_000);
+      const valueColumn = (line: string, value: string): number => {
+        const index = line.indexOf(value);
+        expect(index).toBeGreaterThanOrEqual(0);
+        return visibleWidth(line.slice(0, index));
+      };
+      const running = rendered.find((line) => line.includes(elapsed))!;
+      const turns = rendered.find((line) => line.includes('轮数'))!;
+      const tokens = rendered.find((line) => line.includes('Tokens'))!;
+
+      // `运行时间` is 8 columns wide but `轮数` is only 4 — the values must all
+      // still start at the same visible column (LABEL_WIDTH).
+      expect(valueColumn(running, elapsed)).toBe(11);
+      expect(valueColumn(turns, '7')).toBe(11);
+      expect(valueColumn(tokens, '125k')).toBe(11);
+    } finally {
+      setLocale('en');
     }
   });
 });

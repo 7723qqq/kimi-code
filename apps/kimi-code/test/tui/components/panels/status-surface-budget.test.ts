@@ -7,16 +7,34 @@ import {
   surfaceTotalRows,
 } from '#/tui/components/chrome/status-surface/budget';
 import {
-  REGION_PRIORITY,
   sortRegions,
   type RegionId,
+  type RegionPlacement,
   type RegionRenderContext,
   type StatusRegion,
 } from '#/tui/components/chrome/status-surface/region';
 
-function fakeRegion(id: RegionId, want: number, empty = false): StatusRegion {
+/**
+ * Priority is region-declared now, so ordering is asserted through the regions
+ * themselves rather than through a table the container exported. The table was
+ * a place every new region had to be registered.
+ */
+const PRIORITY: Readonly<Record<string, number>> = {
+  approval: 0,
+  todo: 10,
+  updates: 20,
+};
+
+function fakeRegion(
+  id: RegionId,
+  want: number,
+  empty = false,
+  placement: RegionPlacement = 'left',
+): StatusRegion {
   return {
     id,
+    placement: () => placement,
+    priority: PRIORITY[id] ?? 10,
     isEmpty: () => empty,
     measure: () => want,
     render: (_ctx: RegionRenderContext) => [],
@@ -68,9 +86,13 @@ describe('sortRegions', () => {
     expect(ordered.map((region) => region.id)).toEqual(['approval', 'todo', 'updates']);
   });
 
-  it('mirrors the exported priority table', () => {
-    expect(REGION_PRIORITY.approval).toBeLessThan(REGION_PRIORITY.todo);
-    expect(REGION_PRIORITY.todo).toBeLessThan(REGION_PRIORITY.updates);
+  it('orders by the priority each region declares', () => {
+    const ordered = sortRegions([
+      { ...fakeRegion('updates', 1), priority: 20 },
+      { ...fakeRegion('todo', 1), priority: 10 },
+      { ...fakeRegion('approval', 1), priority: 0 },
+    ]);
+    expect(ordered.map((region) => region.id)).toEqual(['approval', 'todo', 'updates']);
   });
 });
 

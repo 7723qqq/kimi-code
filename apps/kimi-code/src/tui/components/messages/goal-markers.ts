@@ -2,16 +2,17 @@
  * Low-profile transcript markers for the autonomous goal loop.
  *
  * Lifecycle changes (paused / resumed / cancelled) and `no_progress` verdicts
- * render as a single dim line — `◦ Goal paused` — that expands (ctrl+o, shared
+ * render as a single dim line — `○ Goal paused` — that expands (ctrl+o, shared
  * with tool output) to show the reason when there is one. Terminal outcomes use
  * the richer completion card (the `/goal` box), not this marker.
  */
 
+import { GoalPauseReason, isGoalPauseReason } from '@moonshot-ai/agent-core-v2';
 import type { GoalChange } from '@moonshot-ai/kimi-code-sdk';
 import { truncateToWidth, type Component } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
-import { STATUS_BULLET } from '#/tui/constant/symbols';
+import { STATUS_BULLET, STATUS_DOT } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import type { ColorToken } from '#/tui/theme';
 import { wrapText as wrap } from '#/tui/utils/wrap-text';
@@ -43,7 +44,7 @@ export class GoalMarkerComponent implements Component {
     private readonly accentToken: ColorToken,
     options: GoalMarkerOptions = {},
   ) {
-    this.marker = options.marker ?? '◦';
+    this.marker = options.marker ?? STATUS_DOT;
     this.textToken = options.textToken ?? 'textDim';
     this.expandable = options.expandable ?? true;
     this.indent = options.indent ?? HEAD_INDENT;
@@ -165,10 +166,10 @@ function prominentMarker(headline: string, accentToken: ColorToken) {
 }
 
 function pausedHeadline(reason: string | undefined, actor: GoalMarkerActor | undefined): string {
-  if (reason === 'Paused after interruption')
+  if (reason === GoalPauseReason.INTERRUPTION)
     return t('tui.messages.goalMarkers.pausedInterruption');
   if (actor === 'user') return t('tui.messages.goalMarkers.pausedByUser');
-  if (reason?.startsWith('Paused ') === true) {
+  if (reason !== undefined && isGoalPauseReason(reason)) {
     return t('tui.messages.goalMarkers.pausedWithLowerReason', { reason: lowercaseFirst(reason) });
   }
   if (reason !== undefined && reason.length > 0) {

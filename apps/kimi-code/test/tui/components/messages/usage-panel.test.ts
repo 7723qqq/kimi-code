@@ -1,11 +1,13 @@
 import { visibleWidth } from '@moonshot-ai/pi-tui';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { setLocale } from '#/i18n';
 import { buildUsageReportLines, UsagePanelComponent } from '#/tui/components/messages/usage-panel';
 import { currentTheme, darkColors, lightColors } from '#/tui/theme';
 
 afterEach(() => {
   currentTheme.setPalette(darkColors, 'dark');
+  setLocale('en');
 });
 
 function strip(text: string): string {
@@ -255,6 +257,12 @@ describe('UsagePanelComponent', () => {
         },
         ui: { requestRender: () => {} },
       },
+      appendTranscriptEntry: (
+        _entry: unknown,
+        component?: { render(width: number): string[] },
+      ) => {
+        if (component !== undefined) added.push(...component.render(80).map(strip));
+      },
     };
 
     await showUsage(host as never);
@@ -317,5 +325,102 @@ describe('UsagePanelComponent', () => {
     currentTheme.setPalette(lightColors, 'light');
     component.invalidate();
     expect(bodyOf()).toContain(lightColors.text);
+  });
+
+  it('memoizes the rendered box per width and rebuilds only after invalidate', () => {
+    let builds = 0;
+    const component = new UsagePanelComponent(() => {
+      builds += 1;
+      return ['Session usage'];
+    }, 'primary');
+
+    const first = component.render(80);
+    expect(component.render(80)).toBe(first);
+    expect(builds).toBe(1);
+
+    // A width change re-lays out the box without re-running the body builder.
+    const narrow = component.render(40);
+    expect(narrow).not.toBe(first);
+    expect(component.render(40)).toBe(narrow);
+    expect(builds).toBe(1);
+
+    // A palette switch drops the cached box and rebuilds the coloured body.
+    component.invalidate();
+    expect(builds).toBe(2);
+    const rebuilt = component.render(40);
+    expect(rebuilt).not.toBe(narrow);
+    expect(rebuilt).toEqual(narrow);
+  });
+
+  it('aligns the extra usage value column for zh labels', () => {
+    setLocale('zh');
+    const lines = buildUsageReportLines({
+      sessionUsage: { byModel: {} },
+      contextUsage: 0,
+      contextTokens: 0,
+      maxContextTokens: 0,
+      managedUsage: {
+        rows: [],
+        extraUsage: {
+          balanceCents: 15901,
+          totalCents: 300000,
+          monthlyChargeLimitEnabled: true,
+          monthlyChargeLimitCents: 300000,
+          monthlyUsedCents: 24099,
+          currency: 'CNY',
+        },
+      },
+    }).map(strip);
+
+    const extraRows = lines.filter((line) => line.includes('¥'));
+    expect(extraRows).toHaveLength(3);
+    // `本月已用` / `月度上限` are 8 visible columns wide but `余额` is only 4, so
+    // the currency symbol must be padded by visible width to stay in one column.
+    const symbolColumns = extraRows.map((line) => visibleWidth(line.slice(0, line.indexOf('¥'))));
+    expect(symbolColumns).toEqual([12, 12, 12]);
+    expect(new Set(extraRows.map((line) => visibleWidth(line))).size).toBe(1);
+  });
+
+  it('aligns the plan usage value column for CJK row names', () => {
+    const lines = buildUsageReportLines({
+      sessionUsage: { byModel: {} },
+      contextUsage: 0,
+      contextTokens: 0,
+      maxContextTokens: 0,
+      managedUsage: {
+        rows: [
+          { name: '飞书日历', usedRatio: 0.2 },
+          { name: 'pro', usedRatio: 0.4 },
+        ],
+      },
+    }).map(strip);
+
+    const columns = lines
+      .filter((line) => line.includes('% used'))
+      .map((line) => visibleWidth(line.slice(0, /(\d+)% used/.exec(line)!.index)));
+    expect(columns).toHaveLength(2);
+    expect(new Set(columns).size).toBe(1);
+  });
+
+  it('folds multi-line session and managed usage errors onto one boxed row', () => {
+    const lines = buildUsageReportLines({
+      sessionUsage: undefined,
+      sessionUsageError: 'MCP error -32000: Connection closed\nstderr: bridge failed',
+      contextUsage: 0,
+      contextTokens: 0,
+      maxContextTokens: 0,
+      managedUsage: { rows: [] },
+      managedUsageError: 'quota lookup failed\n  retry later  ',
+    }).map(strip);
+
+    expect(lines).toContain('  MCP error -32000: Connection closed stderr: bridge failed');
+    expect(lines).toContain('  quota lookup failed retry later');
+
+    const rendered = new UsagePanelComponent(() => lines, 'primary').render(120).map(strip);
+    for (const line of rendered) {
+      expect(line).not.toContain('\n');
+      // Every row still starts with the box border, so no value punched through it.
+      expect(['╭', '│', '╰']).toContain(line.slice(2, 3));
+    }
   });
 });

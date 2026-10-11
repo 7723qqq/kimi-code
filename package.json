@@ -52,6 +52,8 @@
     "check:locale-placeholders": "bun scripts/check-locale-placeholders.cjs",
     "check:t-coverage": "bun scripts/check-t-call-coverage.mjs",
     "check:status-surface-i18n": "bun scripts/check-status-surface-i18n.mjs",
+    "check:no-hardcoded-prose": "bun scripts/check-no-hardcoded-prose.mjs",
+    "check:no-hardcoded-prose:counts": "bun scripts/check-no-hardcoded-prose.mjs --print-counts",
     "check:no-comments": "bun scripts/check-no-comments.mjs",
     "check:no-comments:counts": "bun scripts/check-no-comments.mjs --print-counts",
     "check:nix-workspace": "bun scripts/check-nix-workspace.mjs",

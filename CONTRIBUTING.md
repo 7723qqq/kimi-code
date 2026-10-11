@@ -235,6 +235,28 @@ Every PR opens with the [PR template](.github/pull_request_template.md). PR titl
 - Auto-formatting via `bun run lint:fix`.
 - Follow existing local patterns when the lint rules do not cover a style choice.
 
+### Text and language
+
+`DEVELOP.md` → "i18n Conventions" is the normative version; this is the short form.
+
+Before writing a string, classify it: **UI copy** (a person reads it → `t()` in both locales),
+**model asset** (the LLM reads it → English, stays English), **protocol data** (code branches on
+it → a stable id, never a rendered label), or **diagnostic** (logs and internal throws → plain
+English is fine).
+
+Four things that will fail CI rather than review:
+
+- a prose literal outside `t()` in a UI tree (`check:no-hardcoded-prose`; the ledger is
+  shrink-only, so do not add an entry);
+- an engine error code without `errorCodes.*` in both locales (`check-t-call-coverage`; scaffold
+  with `bun scripts/gen-error-locale-skeleton.mjs`, then rewrite the wording);
+- comparing message text, e.g. `reason === 'Paused after interruption'`
+  (`tools/review --check=text-as-protocol` — export the constant instead);
+- editing one locale and not the other (`check-locale-keys`).
+
+A rendered label never travels on the wire: when a choice comes back from the UI it is the id
+(`reject`, `revise`, `auto`), and the label is looked up where it is displayed.
+
 ## Reporting Security Issues
 
 Found a security issue? Please see [SECURITY.md](SECURITY.md) instead of opening a public issue.

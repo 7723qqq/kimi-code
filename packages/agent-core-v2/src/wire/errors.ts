@@ -11,31 +11,22 @@ export const WireErrors = {
   },
   info: {
     'wire.duplicate_op': {
-      title: 'Duplicate wire op type',
       retryable: false,
       public: true,
-      action: 'Two ops registered the same type; rename one of them. This is a build-time error.',
     },
     'wire.unknown_record': {
-      title: 'Unknown wire record',
       retryable: false,
       public: true,
-      action: 'The record was written by a newer version; upgrade or drop it.',
     },
     'wire.cycle': {
-      title: 'Wire record cycle',
       retryable: false,
       public: true,
-      action: 'The wire record chain references itself; the session may be corrupt.',
     },
     'wire.migration_missing': {
-      title: 'Wire migration missing',
       retryable: false,
       public: true,
-      action: 'The wire file predates the supported migration chain; start a new session.',
     },
     'records.write_failed': {
-      title: 'Wire journal write failed',
       retryable: false,
       public: true,
     },

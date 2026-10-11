@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 
 import { assign, fromCallback, sendTo, setup, type Snapshot } from 'xstate';
 
+import { GoalPauseReason } from '#/agent/interaction/engineMessages';
 import { createDecorator, IInstantiationService } from '#/_base/di/instantiation';
 import { MutableDisposable, type IDisposable } from '#/_base/di/lifecycle';
 import { abortError } from '#/_base/utils/abort';
@@ -98,14 +99,14 @@ const GOAL_CONTINUATION_ORIGIN: PromptOrigin = {
   kind: 'system_trigger',
   name: 'goal_continuation',
 };
-const GOAL_RATE_LIMIT_PAUSE_REASON = 'Paused after provider rate limit';
-const GOAL_PROVIDER_CONNECTION_PAUSE_PREFIX = 'Paused after provider connection error';
-const GOAL_PROVIDER_AUTH_PAUSE_PREFIX = 'Paused after provider authentication error';
-const GOAL_PROVIDER_API_PAUSE_PREFIX = 'Paused after provider API error';
-const GOAL_MODEL_CONFIG_PAUSE_PREFIX = 'Paused after model configuration error';
-const GOAL_RUNTIME_PAUSE_PREFIX = 'Paused after runtime error';
-const GOAL_CONTINUATION_FAILURE_PAUSE_PREFIX = 'Paused after goal continuation failure';
-const GOAL_PROVIDER_FILTERED_PAUSE_REASON = 'Paused after provider safety policy block';
+const GOAL_RATE_LIMIT_PAUSE_REASON = GoalPauseReason.RATE_LIMIT;
+const GOAL_PROVIDER_CONNECTION_PAUSE_PREFIX = GoalPauseReason.PROVIDER_CONNECTION;
+const GOAL_PROVIDER_AUTH_PAUSE_PREFIX = GoalPauseReason.PROVIDER_AUTH;
+const GOAL_PROVIDER_API_PAUSE_PREFIX = GoalPauseReason.PROVIDER_API;
+const GOAL_MODEL_CONFIG_PAUSE_PREFIX = GoalPauseReason.MODEL_CONFIG;
+const GOAL_RUNTIME_PAUSE_PREFIX = GoalPauseReason.RUNTIME;
+const GOAL_CONTINUATION_FAILURE_PAUSE_PREFIX = GoalPauseReason.CONTINUATION_FAILURE;
+const GOAL_PROVIDER_FILTERED_PAUSE_REASON = GoalPauseReason.PROVIDER_FILTERED;
 const GOAL_BUDGET_BLOCK_PREFIX = 'Blocked after goal budget reached';
 const LLM_NOT_SET_MESSAGE = 'LLM not set, send "/login" to login';
 
@@ -744,7 +745,7 @@ async function settleAbnormalTurn(
     return true;
   }
   if (result.reason === 'cancelled') {
-    await pauseOnInterrupt(context, { reason: 'Paused after interruption' });
+    await pauseOnInterrupt(context, { reason: GoalPauseReason.INTERRUPTION });
     return true;
   }
   if (result.reason === 'failed') {

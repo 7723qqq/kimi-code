@@ -27,6 +27,7 @@ test {
     _ = @import("checks/gate_wiring.zig");
     _ = @import("checks/orphan_exports.zig");
     _ = @import("checks/silent_catch.zig");
+    _ = @import("checks/text_as_protocol.zig");
     _ = @import("checks/stale_artifacts.zig");
     _ = @import("checks/upstream_drift.zig");
     _ = @import("checks/workflow_triggers.zig");

@@ -9,6 +9,7 @@ import type { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 
 import type { IAgentSpecService } from './spec';
+import { reviewDecisionFromLabel, SpecReviewDecision } from '#/agent/interaction/reviewDecisions';
 
 type SpecReviewDisplay = Extract<ToolInputDisplay, { kind: 'spec_review' }>;
 type SpecReviewOption = NonNullable<SpecReviewDisplay['options']>[number];
@@ -78,7 +79,8 @@ export class ExitSpecModeReview {
       };
     }
 
-    if (result.selectedLabel === 'Reject and Exit') {
+    const decision = reviewDecisionFromLabel(result.selectedLabel);
+    if (decision === SpecReviewDecision.REJECT_AND_EXIT) {
       this.spec.exit();
       return {
         kind: 'result',
@@ -91,7 +93,7 @@ export class ExitSpecModeReview {
     }
 
     const feedback = result.feedback ?? '';
-    if (result.selectedLabel === 'Revise' || feedback.length > 0) {
+    if (decision === SpecReviewDecision.REVISE || feedback.length > 0) {
       return {
         kind: 'result',
         result: {
@@ -119,14 +121,15 @@ export class ExitSpecModeReview {
       this.telemetry.track2('spec_resolved', { outcome: 'dismissed' } as SpecResolvedEvent);
       return;
     }
-    if (result.selectedLabel === 'Reject and Exit') {
+    const decision = reviewDecisionFromLabel(result.selectedLabel);
+    if (decision === SpecReviewDecision.REJECT_AND_EXIT) {
       this.telemetry.track2('spec_resolved', {
         outcome: 'rejected_and_exited',
       } as SpecResolvedEvent);
       return;
     }
     const feedback = result.feedback ?? '';
-    if (result.selectedLabel === 'Revise' || feedback.length > 0) {
+    if (decision === SpecReviewDecision.REVISE || feedback.length > 0) {
       this.telemetry.track2('spec_resolved', {
         outcome: 'revise',
         has_feedback: feedback.length > 0,

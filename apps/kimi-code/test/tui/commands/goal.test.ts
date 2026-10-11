@@ -124,6 +124,10 @@ function makeHost(
     showError: vi.fn(),
     showStatus: vi.fn(),
     showNotice: vi.fn(),
+    // Mirrors the real host contract: appending an entry ends in a repaint.
+    appendTranscriptEntry: vi.fn(() => {
+      host.state.ui.requestRender();
+    }),
     mountEditorReplacement: vi.fn(),
     restoreEditor: vi.fn(),
     restoreInputText: vi.fn(),
@@ -486,8 +490,8 @@ describe('handleGoalCommand', () => {
     expect(host.showStatus).not.toHaveBeenCalledWith(
       'Upcoming goal added. It will start after the current goal is complete.',
     );
-    const addChild = host.state.transcriptContainer.addChild as ReturnType<typeof vi.fn>;
-    const message = addChild.mock.calls[0]?.[0] as { render(width: number): string[] };
+    const append = host.appendTranscriptEntry as ReturnType<typeof vi.fn>;
+    const message = append.mock.calls[0]?.[1] as { render(width: number): string[] };
     expect(stripAnsi(message.render(80).join('\n'))).toBe(
       '\n● Upcoming goal added. It will start after the current goal is complete.',
     );

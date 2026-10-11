@@ -1,3 +1,4 @@
+import { NotificationAction } from "./utils/notification-actions";
 import * as vscode from "vscode";
 
 import { Events } from "../shared/bridge";
@@ -187,10 +188,10 @@ async function offerLegacyMigration(
     ) {
       const action = await vscode.window.showWarningMessage(
         warningNotice ?? "Some legacy Kimi data could not be inspected.",
-        "Show Logs",
+        NotificationAction.SHOW_LOGS,
       );
       await globalState.update(LEGACY_WARNING_NOTICE_KEY, true);
-      if (action === "Show Logs") outputChannel?.show();
+      if (action === NotificationAction.SHOW_LOGS) outputChannel?.show();
     }
     return;
   }
@@ -203,7 +204,7 @@ async function offerLegacyMigration(
   );
   if (reauthNotice !== null) await globalState.update(LEGACY_REAUTH_NOTICE_KEY, true);
   if (warningNotice !== null) await globalState.update(LEGACY_WARNING_NOTICE_KEY, true);
-  if (action === "Migrate Now") await migrate();
+  if (action === NotificationAction.MIGRATE_NOW) await migrate();
 }
 
 function legacyReauthNotice(
@@ -253,11 +254,11 @@ async function performMigration(
     result.manualActions.length > 0;
 
   if (result.status === "failed") {
-    const action = await vscode.window.showErrorMessage(message, "Show Logs");
-    if (action === "Show Logs") outputChannel?.show();
+    const action = await vscode.window.showErrorMessage(message, NotificationAction.SHOW_LOGS);
+    if (action === NotificationAction.SHOW_LOGS) outputChannel?.show();
   } else if (needsLogs) {
-    const action = await vscode.window.showWarningMessage(message, "Show Logs");
-    if (action === "Show Logs") outputChannel?.show();
+    const action = await vscode.window.showWarningMessage(message, NotificationAction.SHOW_LOGS);
+    if (action === NotificationAction.SHOW_LOGS) outputChannel?.show();
   } else {
     await vscode.window.showInformationMessage(message);
   }

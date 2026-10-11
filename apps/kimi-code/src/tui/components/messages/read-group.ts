@@ -48,6 +48,7 @@ export class ReadGroupComponent extends Container {
   private throttleTimer: ReturnType<typeof setTimeout> | null = null;
   private lastFlushPhases = new Map<string, ToolCallReadSnapshot['phase']>();
   private _invalidating = false;
+  private disposed = false;
   private expanded = false;
 
   constructor(private readonly ui: TUI | undefined) {
@@ -95,11 +96,13 @@ export class ReadGroupComponent extends Container {
 
   /**
    * The pending -> done/failed transition is the important visible change, so
-   * it refreshes immediately. Other changes are throttled.
+   * it refreshes immediately. Other changes are throttled. The transition
+   * check and the rebuild it triggers share one snapshot pass.
    */
   private scheduleRender(): void {
-    if (this.detectPhaseTransition()) {
-      this.flushRender();
+    const snapshots = this.entries.map((e) => e.tc.getReadSnapshot());
+    if (this.detectPhaseTransition(snapshots)) {
+      this.flushRender(snapshots);
       return;
     }
     if (this.throttleTimer !== null) return;
@@ -109,21 +112,34 @@ export class ReadGroupComponent extends Container {
     }, THROTTLE_MS);
   }
 
-  private detectPhaseTransition(): boolean {
-    for (const e of this.entries) {
-      const phase = e.tc.getReadSnapshot().phase;
-      if (this.lastFlushPhases.get(e.toolCallId) !== phase) return true;
+  private detectPhaseTransition(snapshots: readonly ToolCallReadSnapshot[]): boolean {
+    for (let index = 0; index < snapshots.length; index += 1) {
+      const entry = this.entries[index];
+      const phase = snapshots[index]?.phase;
+      if (
+        entry !== undefined &&
+        phase !== undefined &&
+        this.lastFlushPhases.get(entry.toolCallId) !== phase
+      ) {
+        return true;
+      }
     }
     return false;
   }
 
-  private flushRender(): void {
+  /**
+   * Rebuilds the header and body from one snapshot pass; callers that already
+   * read the snapshots (the transition check in `scheduleRender`) pass them in
+   * so a card is never re-read for the same flush.
+   */
+  private flushRender(
+    snapshots: readonly ToolCallReadSnapshot[] = this.entries.map((e) => e.tc.getReadSnapshot()),
+  ): void {
     if (this.throttleTimer !== null) {
       clearTimeout(this.throttleTimer);
       this.throttleTimer = null;
     }
 
-    const snapshots = this.entries.map((e) => e.tc.getReadSnapshot());
     let pending = 0;
     let failed = 0;
     let totalLines = 0;
@@ -151,7 +167,10 @@ export class ReadGroupComponent extends Container {
       if (snap !== undefined) this.lastFlushPhases.set(entry.toolCallId, snap.phase);
     });
 
-    this.invalidate();
+    // Invalidate the container's caches directly: calling the `invalidate()`
+    // override here would re-enter `flushRender()` and rebuild the whole body
+    // (plus request a second render) on every throttle tick.
+    super.invalidate();
     this.ui?.requestRender();
   }
 
@@ -241,14 +260,25 @@ export class ReadGroupComponent extends Container {
     this._invalidating = false;
   }
 
-  /** Releases throttle timers so destroyed components cannot refresh later. */
+  /**
+   * Releases throttle timers so destroyed components cannot refresh later.
+   * Disposing also cascades into the borrowed cards: a still-streaming Read
+   * card drives its own progress interval and would otherwise keep calling
+   * `requestRender()` after `/clear`, a session switch, or a transcript fold.
+   * `stopTimers()` and `dispose()` are both idempotent, so a second
+   * `dispose()` is harmless.
+   */
   dispose(): void {
+    if (this.disposed) return;
+    this.disposed = true;
     if (this.throttleTimer !== null) {
       clearTimeout(this.throttleTimer);
       this.throttleTimer = null;
     }
     for (const e of this.entries) {
       e.tc.setSnapshotListener(undefined);
+      e.tc.stopTimers();
+      e.tc.dispose();
     }
   }
 }

@@ -375,19 +375,15 @@ export class ApprovalPanelComponent extends Container implements Focusable {
     this.feedbackInput.focused = this.focused && this.feedbackMode;
     const { data } = this.request;
     const blockStyles = makeBlockStyles();
-    const borderColor = (text: string) => currentTheme.fg('borderFocus', text);
-    const borderColorBold = (text: string) => currentTheme.boldFg('borderFocus', text);
     const selectColorBold = (text: string) => currentTheme.boldFg('accent', text);
     const dim = (text: string) => currentTheme.fg('textDim', text);
     const strong = (text: string) => currentTheme.fg('textStrong', text);
-    const horizontalBar = borderColor('─'.repeat(width));
     const indent = (s: string): string => `  ${s}`;
 
-    const title = headerFor(data.tool_name);
-    const lines: string[] = [
-      horizontalBar,
-      indent(`${borderColorBold('▶')} ${borderColorBold(title)}`),
-    ];
+    // Body rows live inside the shared frame: its borders and inner padding
+    // cost four columns, so the wrap widths below are the panel's own 2-space
+    // indent plus that overhead narrower than the render width.
+    const body: string[] = [];
 
     const dedupedBlocks = data.display.filter(
       (block) => !isDuplicateBriefBlock(block, data.description),
@@ -398,21 +394,21 @@ export class ApprovalPanelComponent extends Container implements Focusable {
     );
 
     if (visibleBlocks.length > 0) {
-      lines.push('');
+      body.push('');
       for (const block of visibleBlocks) {
-        const blockLines = renderDisplayBlock(block, blockStyles, Math.max(1, width - 2));
+        const blockLines = renderDisplayBlock(block, blockStyles, Math.max(1, width - 6));
         for (const line of blockLines) {
-          lines.push(indent(line));
+          body.push(indent(line));
         }
       }
     } else if (data.description) {
-      lines.push('');
+      body.push('');
       for (const descLine of data.description.split('\n')) {
-        lines.push(indent(dim(descLine)));
+        body.push(indent(dim(descLine)));
       }
     }
 
-    lines.push('');
+    body.push('');
     for (let idx = 0; idx < data.choices.length; idx++) {
       const option = data.choices[idx];
       if (option === undefined) continue;
@@ -421,11 +417,11 @@ export class ApprovalPanelComponent extends Container implements Focusable {
 
       const labelWithNum = `${String(num)}. ${option.label}`;
       if (this.feedbackMode && option.requires_feedback === true && isSelected) {
-        lines.push(indent(this.renderInlineFeedbackLine(width - 2, labelWithNum)));
+        body.push(indent(this.renderInlineFeedbackLine(width - 6, labelWithNum)));
       } else if (isSelected) {
-        lines.push(indent(`${selectColorBold('▶')} ${selectColorBold(labelWithNum)}`));
+        body.push(indent(`${selectColorBold('▶')} ${selectColorBold(labelWithNum)}`));
       } else {
-        lines.push(indent(strong(`  ${labelWithNum}`)));
+        body.push(indent(strong(`  ${labelWithNum}`)));
       }
 
       // Optional helper text under the label, aligned past the pointer/number.
@@ -435,18 +431,18 @@ export class ApprovalPanelComponent extends Container implements Focusable {
         option.description.length > 0 &&
         !(this.feedbackMode && option.requires_feedback === true && isSelected)
       ) {
-        for (const descLine of wrapTextWithAnsi(option.description, Math.max(20, width - 7))) {
-          lines.push(indent(`     ${dim(descLine)}`));
+        for (const descLine of wrapTextWithAnsi(option.description, Math.max(20, width - 11))) {
+          body.push(indent(`     ${dim(descLine)}`));
         }
       }
     }
 
-    lines.push('');
+    body.push('');
     if (this.feedbackMode) {
-      lines.push(indent(dim(t('tui.dialogs.approvalPanel.feedbackHint'))));
+      body.push(indent(dim(t('tui.dialogs.approvalPanel.feedbackHint'))));
     } else {
       const expandHint = hasPreviewable ? t('tui.dialogs.approvalPanel.expandHint') : '';
-      lines.push(
+      body.push(
         indent(
           dim(
             t('tui.dialogs.approvalPanel.navHint', {
@@ -457,9 +453,11 @@ export class ApprovalPanelComponent extends Container implements Focusable {
         ),
       );
     }
-    lines.push(horizontalBar);
 
-    return lines.map((line) => truncateToWidth(line, width));
+    // The strip's frame belongs to the status surface, so the panel draws the
+    // body only. The tool-specific question heads the region's summary row,
+    // which stays visible in both fold states.
+    return body.map((line) => truncateToWidth(line, width));
   }
 
   private findPreviewableBlock(): DiffDisplayBlock | FileContentDisplayBlock | undefined {

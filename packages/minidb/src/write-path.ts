@@ -117,11 +117,9 @@ export class WritePath<V> {
     try {
       await commit();
     } catch (error) {
-      const sealed = (error as { code?: string }).code === 'WAL_SEALED';
-      const closedMidRotation =
-        this.deps.rotateLock() !== null &&
-        error instanceof Error &&
-        error.message === 'WAL is closed';
+      const code = (error as { code?: string }).code;
+      const sealed = code === 'WAL_SEALED';
+      const closedMidRotation = this.deps.rotateLock() !== null && code === 'WAL_CLOSED';
       if (!sealed && !closedMidRotation) throw error;
       await this.awaitRotation();
       await commit();

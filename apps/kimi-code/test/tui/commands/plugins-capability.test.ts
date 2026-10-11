@@ -52,6 +52,12 @@ function fakeHost(overrides: {
       notices.push({ title, detail });
       transcriptEntries.push(new NoticeMessageComponent(title, detail));
     },
+    appendTranscriptEntry: (_entry: unknown, component?: Component) => {
+      if (component !== undefined) transcriptEntries.push(component);
+    },
+    mountTranscriptComponent: (_entry: unknown, component: Component) => {
+      transcriptEntries.push(component);
+    },
     restoreEditor: () => undefined,
     state: {
       ui: { requestRender: () => renders.push(1) },

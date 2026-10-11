@@ -2,14 +2,30 @@ import { visibleWidth, type TUI } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
 
+import { setLocale } from '#/i18n';
 import { setExperimentalFeatures } from '#/tui/commands/experimental-flags';
-import { ToolCallComponent } from '#/tui/components/messages/tool-call';
+import { extractKeyArgument, ToolCallComponent } from '#/tui/components/messages/tool-call';
+import {
+  MAX_SUBAGENT_STREAM_TEXT_CHARS,
+  MAX_SUB_TOOL_ACTIVITIES,
+  SUBAGENT_TOOL_OUTPUT_MAX_CHARS,
+} from '#/tui/constant/rendering';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { darkColors } from '#/tui/theme/colors';
 
 import { captureProcessWrite } from '../../../helpers/process';
 
 vi.mock('#/i18n', () => {
+  let locale = 'en';
+  // Overrides a test flips the mock to zh for: switching the locale is how a
+  // test proves a string comes from `t()` rather than from a literal.
+  const zhTranslations: Record<string, string> = {
+    'tui.messages.toolCall.subAgentSuffix': '智能体',
+    'tui.messages.toolCall.singleSubagent.running': '运行中',
+    'tui.messages.toolCall.singleSubagent.completed': '已完成',
+    'tui.messages.toolCall.used': '已使用',
+    'tui.messages.toolCall.using': '正在使用',
+  };
   const translations: Record<string, string> = {
     // ── tool-call.ts ──
     'tui.messages.toolCall.detachHint': 'Press Ctrl+B to run in background',
@@ -84,6 +100,8 @@ vi.mock('#/i18n', () => {
     'tui.messages.toolCall.verbTruncated': 'Truncated',
     'tui.messages.toolCall.verbUsing': 'Using',
     'tui.messages.toolCall.hiddenSubCall': '{{n}} more tool call(s) …',
+    'tui.messages.toolCall.moreToolCalls_one': '{{count}} more tool call',
+    'tui.messages.toolCall.moreToolCalls_other': '{{count}} more tool calls',
     'tui.messages.toolCall.updateCutOff': 'Update cut off',
     'tui.messages.toolCall.updateArgumentsTruncated': '(arguments truncated by max_tokens)',
     'tui.messages.toolCall.updateCouldNotSend': 'Could not send you an update',
@@ -135,7 +153,7 @@ vi.mock('#/i18n', () => {
 
   return {
     t: (key: string, params?: Record<string, string | number>) => {
-      let value = translations[key] ?? key;
+      let value = (locale === 'zh' ? zhTranslations[key] : undefined) ?? translations[key] ?? key;
       if (params) {
         for (const [k, v] of Object.entries(params)) {
           value = value.replaceAll(`{{${k}}}`, String(v));
@@ -143,8 +161,10 @@ vi.mock('#/i18n', () => {
       }
       return value;
     },
-    setLocale: vi.fn(),
-    getLocale: () => 'en',
+    setLocale: (next: string) => {
+      locale = next;
+    },
+    getLocale: () => locale,
   };
 });
 
@@ -164,10 +184,19 @@ function stubTui(rows: number): TUI {
   } as unknown as TUI;
 }
 
+/**
+ * A surrogate half with no partner — what a code-unit cut of an astral
+ * character (an emoji) leaves behind.
+ */
+function hasUnpairedSurrogate(text: string): boolean {
+  return /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(text);
+}
+
 describe('ToolCallComponent', () => {
   afterEach(() => {
     vi.useRealTimers();
     setExperimentalFeatures([]);
+    setLocale('en');
   });
 
   it('uses the shared non-emoji tool status bullet', () => {
@@ -2550,6 +2579,177 @@ describe('ToolCallComponent', () => {
 
       component.dispose();
     });
+  });
+
+  describe('subagent stream and sub-tool activity retention', () => {
+    // The capped buffers are never rendered whole — a solo subagent card shows
+    // a fixed two-row tail — so the storage bound and its truncation marker
+    // are read through this seam.
+    interface RetentionInternals {
+      subagentText: string;
+      subagentThinkingText: string;
+      subToolActivities: Map<string, { output?: string }>;
+    }
+    function internals(component: ToolCallComponent): RetentionInternals {
+      return component as unknown as RetentionInternals;
+    }
+    function agentCard(id: string): ToolCallComponent {
+      const component = new ToolCallComponent(
+        { id, name: 'Agent', args: { description: 'retention' } },
+        undefined,
+      );
+      component.onSubagentSpawned({
+        agentId: `${id}_sub`,
+        agentName: 'explore',
+        runInBackground: false,
+      });
+      return component;
+    }
+
+    it('keeps only the tail of the child stream, marking the dropped head', () => {
+      const component = agentCard('call_agent_stream_cap');
+      component.appendSubagentText(
+        `HEAD-MARKER\n${'x'.repeat(MAX_SUBAGENT_STREAM_TEXT_CHARS + 1000)}\nTAIL-MARKER`,
+      );
+
+      const marker = '[…truncated]\n';
+      const buffer = internals(component).subagentText;
+      expect(buffer.startsWith(marker)).toBe(true);
+      expect(buffer.endsWith('TAIL-MARKER')).toBe(true);
+      // The retained tail is exactly the cap, not the whole stream.
+      expect(buffer.slice(marker.length).length).toBe(MAX_SUBAGENT_STREAM_TEXT_CHARS);
+
+      // The two-row window shows the tail; the dropped head is gone for good.
+      const out = strip(component.render(120).join('\n'));
+      expect(out).toContain('TAIL-MARKER');
+      expect(out).not.toContain('HEAD-MARKER');
+      component.dispose();
+    });
+
+    it('caps the thinking buffer too, and keeps appending bounded', () => {
+      const component = agentCard('call_agent_thinking_cap');
+      component.appendSubagentText('T'.repeat(MAX_SUBAGENT_STREAM_TEXT_CHARS + 500), 'thinking');
+      // A second append past the cap must re-cut the marker+tail, not grow it.
+      component.appendSubagentText('END', 'thinking');
+
+      const marker = '[…truncated]\n';
+      const buffer = internals(component).subagentThinkingText;
+      expect(buffer.startsWith(marker)).toBe(true);
+      expect(buffer.endsWith('END')).toBe(true);
+      expect(buffer.slice(marker.length).length).toBe(MAX_SUBAGENT_STREAM_TEXT_CHARS);
+      component.dispose();
+    });
+
+    it('evicts the oldest sub-tool activities beyond the retention cap', () => {
+      const component = agentCard('call_agent_activity_evict');
+      const total = MAX_SUB_TOOL_ACTIVITIES + 8;
+      for (let i = 1; i <= total; i++) {
+        component.appendSubToolCall({
+          id: `sub_evict:read-${String(i)}`,
+          name: 'Read',
+          args: { path: `file${String(i)}.ts` },
+        });
+      }
+
+      const activities = internals(component).subToolActivities;
+      expect(activities.size).toBe(MAX_SUB_TOOL_ACTIVITIES);
+      expect(activities.has('sub_evict:read-1')).toBe(false);
+      expect(activities.has(`sub_evict:read-${String(total)}`)).toBe(true);
+
+      // The summary line counts the retained store and follows the newest tool.
+      const out = strip(component.render(120).join('\n'));
+      expect(out).toContain(`${String(MAX_SUB_TOOL_ACTIVITIES)} tools`);
+      expect(out).toContain(`Using Read (file${String(total)}.ts)`);
+      component.dispose();
+    });
+
+    it('clamps a stored sub-tool output to a bounded tail', () => {
+      const component = agentCard('call_agent_output_clamp');
+      component.appendSubToolCall({ id: 'sub_clamp:do', name: 'mcp__srv__do', args: {} });
+      component.appendSubToolLiveOutput(
+        'sub_clamp:do',
+        `HEAD-MARKER\n${'y'.repeat(SUBAGENT_TOOL_OUTPUT_MAX_CHARS + 1000)}\nTAIL-MARKER`,
+      );
+
+      const marker = '[…truncated]\n';
+      const output = internals(component).subToolActivities.get('sub_clamp:do')?.output ?? '';
+      expect(output.startsWith(marker)).toBe(true);
+      expect(output.endsWith('TAIL-MARKER')).toBe(true);
+      expect(output.slice(marker.length).length).toBe(SUBAGENT_TOOL_OUTPUT_MAX_CHARS);
+
+      const out = strip(component.render(120).join('\n'));
+      expect(out).toContain('TAIL-MARKER');
+      expect(out).not.toContain('HEAD-MARKER');
+      component.dispose();
+    });
+  });
+
+  describe('key arguments are cut grapheme-safely', () => {
+    it('cuts a long emoji argument without emitting a lone surrogate', () => {
+      // The detector itself works: a code-unit cut leaves an unpaired half.
+      expect(hasUnpairedSurrogate('😀'.slice(0, 1))).toBe(true);
+      const cut = extractKeyArgument('Grep', { pattern: '😀'.repeat(80) });
+      expect(cut?.endsWith('…')).toBe(true);
+      expect(visibleWidth(cut ?? '')).toBeLessThanOrEqual(60);
+      expect(hasUnpairedSurrogate(cut ?? '')).toBe(false);
+    });
+
+    it('keeps a long CJK path tail whole, ending on the file name', () => {
+      const cut = extractKeyArgument('Read', { path: `/tmp/${'漢'.repeat(60)}/file.ts` });
+      expect(cut?.startsWith('…')).toBe(true);
+      expect(cut?.endsWith('file.ts')).toBe(true);
+      expect(visibleWidth(cut ?? '')).toBeLessThanOrEqual(60);
+      expect(hasUnpairedSurrogate(cut ?? '')).toBe(false);
+    });
+
+    it('renders a long emoji description and sub-tool argument without lone surrogates', () => {
+      const component = new ToolCallComponent(
+        { id: 'call_agent_surrogate', name: 'Agent', args: { description: '😀'.repeat(100) } },
+        undefined,
+      );
+      component.onSubagentSpawned({
+        agentId: 'sub_surrogate',
+        agentName: 'explore',
+        runInBackground: false,
+      });
+      component.appendSubToolCall({
+        id: 'sub_surrogate:do',
+        name: 'mcp__srv__do',
+        args: { payload: '😀'.repeat(80) },
+      });
+
+      const out = strip(component.render(120).join('\n'));
+      expect(out).toContain('😀');
+      expect(hasUnpairedSurrogate(out)).toBe(false);
+      component.dispose();
+    });
+  });
+
+  it('renders the subagent status through the i18n layer', () => {
+    setLocale('zh');
+    try {
+      const component = new ToolCallComponent(
+        { id: 'call_agent_i18n', name: 'Agent', args: { description: 'localize' } },
+        undefined,
+      );
+      component.onSubagentSpawned({
+        agentId: 'sub_i18n',
+        agentName: 'explore',
+        runInBackground: false,
+      });
+      component.onSubagentStarted({
+        agentId: 'sub_i18n',
+        agentName: 'explore',
+        runInBackground: false,
+      });
+
+      const out = strip(component.render(120).join('\n'));
+      expect(out).toContain('运行中');
+      expect(out).toContain('Explore 智能体');
+      component.dispose();
+    } finally {
+      setLocale('en');
+    }
   });
 });
 

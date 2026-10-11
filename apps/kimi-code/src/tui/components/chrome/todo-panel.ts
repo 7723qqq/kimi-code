@@ -14,6 +14,7 @@ import { truncateToWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 
 import { t } from '#/i18n';
+import { STATUS_DOT } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import type { ColorPalette } from '#/tui/theme/colors';
 import { renderBrailleBar, renderStatusBar } from '#/tui/utils/progress-bar';
@@ -53,8 +54,13 @@ const MAX_ACTIVE_CHILD_ROWS = 4;
  * failure the Updates box had.
  */
 const EXPANDED_MAX_ROWS = 16;
-/** Rows spent before any todo: the separator, the header, and the hint line. */
-const PANEL_OVERHEAD_ROWS = 3;
+/**
+ * Rows the panel spends before any task: the header row (label and progress
+ * bar) and the hint line. The header is mandatory; the hint is the row that is
+ * dropped first when the budget is tight. The strip's frame belongs to the
+ * status surface and is not counted here.
+ */
+const PANEL_OVERHEAD_ROWS = 2;
 const BRAILLE_BAR_WIDTH = 5;
 /**
  * Width used when asking the panel what it would paint. Rows are truncated
@@ -131,9 +137,9 @@ export function computePanelProgress(todos: readonly TodoItem[]): TodoProgressRe
 /**
  * Rows the expanded body may occupy, given the total rows the panel was granted.
  *
- * The separator and header are mandatory; the hint is not. When the budget is too
- * tight for both the hint and one task, the task wins — a plan the user cannot see
- * is worse than a missing "ctrl+t to collapse".
+ * The header row is mandatory; the hint is not. When the budget is too tight
+ * for both the hint and one task, the task wins — a plan the user cannot see is
+ * worse than a missing "ctrl+t to collapse".
  */
 function bodyRowsFor(totalRows: number): number {
   const withHint = totalRows - PANEL_OVERHEAD_ROWS;
@@ -458,7 +464,6 @@ export class TodoPanelComponent implements Component {
     if (this.todos.length === 0) return { lines: [], itemRows: 0 };
     const c = currentTheme.palette;
     const report = computePanelProgress(this.todos);
-    const lines: string[] = [chalk.hex(c.border)('─'.repeat(width)), renderHeader(report, c)];
     const body: string[] = [];
     const hints: string[] = [];
 
@@ -468,7 +473,12 @@ export class TodoPanelComponent implements Component {
     } else {
       this.renderFlat(c, body, hints, expanded);
     }
-    lines.push(...body, ...hints);
+
+    // The strip's frame belongs to the status surface, so the panel draws
+    // content only: the "Todo" label folds into the progress row that used to
+    // sit under it, and no border is duplicated.
+    const header = `  ${chalk.hex(c.primary).bold(t('tui.chrome.todoPanel.header'))}`;
+    const lines = [`${header}${renderProgressRow(report, c)}`, ...body, ...hints];
 
     return { lines, itemRows: body.length };
   }
@@ -545,7 +555,7 @@ export class TodoPanelComponent implements Component {
   }
 }
 
-function renderHeader(report: TodoProgressReport, c: ColorPalette): string {
+function renderProgressRow(report: TodoProgressReport, c: ColorPalette): string {
   const label = t('tui.chrome.todoPanel.overallProgress', {
     done: report.done,
     total: report.total,
@@ -553,10 +563,7 @@ function renderHeader(report: TodoProgressReport, c: ColorPalette): string {
   });
   const braille = renderBrailleBar(report.overall, BRAILLE_BAR_WIDTH, c.primary, c.border);
   const status = renderStatusBar(report.overall, STATUS_BAR_WIDTH, c.primary, c.border);
-  return (
-    chalk.hex(c.primary).bold(`  ${t('tui.chrome.todoPanel.header')}`) +
-    `  ${label}  ${braille}  ${status}`
-  );
+  return `  ${label}  ${braille}  ${status}`;
 }
 
 function renderMilestoneRow(node: TodoNode, report: TodoProgressReport, c: ColorPalette): string[] {
@@ -644,7 +651,7 @@ function statusMarker(status: TodoStatus, colors: ColorPalette): string {
     case 'done':
       return chalk.hex(colors.success)('✓');
     case 'pending':
-      return chalk.hex(colors.textDim)('○');
+      return chalk.hex(colors.textDim)(STATUS_DOT);
   }
 }
 

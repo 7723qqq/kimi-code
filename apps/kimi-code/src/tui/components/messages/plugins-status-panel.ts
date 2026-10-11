@@ -11,6 +11,7 @@ import {
   formatPluginSourceLabel,
   pluginTrustLabel,
 } from '../../utils/plugin-source-label';
+import { foldToSingleLine } from './usage-panel';
 
 export interface PluginsListPanelInput {
   readonly plugins: readonly PluginSummary[];
@@ -176,7 +177,9 @@ export function buildPluginsInfoLines(input: PluginsInfoPanelInput): readonly st
         const args =
           server.args !== undefined && server.args.length > 0 ? ` ${server.args.join(' ')}` : '';
         lines.push(
-          `    ${muted(t('tui.messages.pluginsStatusPanel.command'))} ${value(`${server.command ?? ''}${args}`.trim())}`,
+          `    ${muted(t('tui.messages.pluginsStatusPanel.command'))} ${value(
+            foldToSingleLine(`${server.command ?? ''}${args}`),
+          )}`,
         );
         if (server.cwd !== undefined) {
           lines.push(`    ${muted(t('tui.messages.pluginsStatusPanel.cwd'))} ${value(server.cwd)}`);
@@ -230,7 +233,7 @@ export function buildPluginsInfoLines(input: PluginsInfoPanelInput): readonly st
     lines.push(value(t('tui.messages.pluginsStatusPanel.diagnostics')));
     for (const d of info.diagnostics) {
       const paint = d.severity === 'error' ? error : d.severity === 'warn' ? warning : muted;
-      lines.push(`  ${paint(`[${d.severity}]`)} ${value(d.message)}`);
+      lines.push(`  ${paint(`[${d.severity}]`)} ${value(foldToSingleLine(d.message))}`);
     }
   }
   return lines;

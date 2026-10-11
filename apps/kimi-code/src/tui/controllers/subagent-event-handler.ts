@@ -1,3 +1,4 @@
+import { isSubagentCancellationMessage } from '@moonshot-ai/agent-core-v2';
 import type { BackgroundTaskInfo, Event } from '@moonshot-ai/kimi-code-sdk';
 import type { Component } from '@moonshot-ai/pi-tui';
 
@@ -56,6 +57,8 @@ function renderedRowsAfterChild(
 export class SubAgentEventHandler {
   readonly subagentInfo: Map<string, SubagentInfo> = new Map();
   private readonly agentSwarmProgress: Map<string, AgentSwarmProgressComponent> = new Map();
+  /** History entry backing each swarm panel, so removal stays entry-driven. */
+  private readonly agentSwarmProgressEntries = new Map<string, TranscriptEntry>();
   backgroundAgentMetadata: Map<string, BackgroundAgentMetadata> = new Map();
   /** Bounded per-agent activity fold feeding the background-agent detail view. */
   readonly activityStore = new SubagentActivityStore();
@@ -186,6 +189,7 @@ export class SubAgentEventHandler {
       progress.dispose();
     }
     this.agentSwarmProgress.clear();
+    this.agentSwarmProgressEntries.clear();
     this.host.updateActivityPane();
   }
 
@@ -684,8 +688,16 @@ export class SubAgentEventHandler {
     });
     progress.updateArgs(args, options);
     this.agentSwarmProgress.set(toolCallId, progress);
+    const entry: TranscriptEntry = {
+      id: nextTranscriptId(),
+      kind: 'tool_call',
+      turnId: this.host.streamingUI.getTurnContext().turnId,
+      renderMode: 'plain',
+      content: 'AgentSwarm',
+    };
+    this.agentSwarmProgressEntries.set(toolCallId, entry);
     this.host.streamingUI.finalizeLiveTextBuffers('tool');
-    this.host.state.transcriptContainer.addChild(progress);
+    this.host.appendTranscriptEntry(entry, progress);
     this.host.updateActivityPane();
     this.requestRender();
     return progress;
@@ -697,12 +709,18 @@ export class SubAgentEventHandler {
   ): void {
     this.agentSwarmProgress.delete(toolCallId);
     progress.dispose();
-    const children = this.host.state.transcriptContainer.children;
-    const index = children.indexOf(progress);
-    if (index >= 0) {
-      // Structural removal only: GutterContainer's ref-checked render cache
-      // detects the child-list change; no tree-wide invalidate needed.
-      children.splice(index, 1);
+    const entry = this.agentSwarmProgressEntries.get(toolCallId);
+    this.agentSwarmProgressEntries.delete(toolCallId);
+    if (entry !== undefined) {
+      this.host.removeTranscriptEntries([entry]);
+    } else {
+      const children = this.host.state.transcriptContainer.children;
+      const index = children.indexOf(progress);
+      if (index >= 0) {
+        // Structural removal only: GutterContainer's ref-checked render cache
+        // detects the child-list change; no tree-wide invalidate needed.
+        children.splice(index, 1);
+      }
     }
     this.host.updateActivityPane();
   }
@@ -814,12 +832,8 @@ function isSubagentLifecycleEvent(event: Event): event is SubagentLifecycleEvent
 }
 
 function isUserCancelledSubagentError(error: string): boolean {
-  // Structured AgentSwarm results use outcome="aborted" and are parsed separately.
-  switch (error.trim()) {
-    case 'Aborted by the user':
-    case 'The user manually interrupted this subagent batch.':
-      return true;
-    default:
-      return false;
-  }
+  // Structured AgentSwarm results use outcome="aborted" and are parsed
+  // separately; this is the prose fallback for engine-generated messages.
+  // The list lives with the engine so the two sides cannot drift.
+  return isSubagentCancellationMessage(error);
 }

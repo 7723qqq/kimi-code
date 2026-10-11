@@ -290,3 +290,76 @@
 | 三个包 typecheck / `bun run lint` | 通过 / 0 errors |
 | `check-no-comments` / `check:boundaries` / `check:deep-imports` | OK |
 | `check-locale-keys` / `check-locale-placeholders` / `check-t-call-coverage` / `check-status-surface-i18n` | OK |
+
+---
+
+## 第四轮：外框回归容器（用户实测反馈）
+
+**触发**：用户实测报两个缺陷——（1）折叠态审批提示是框外的裸行，整条状态栏没有统一外框；（2）updates 未显示全时底边框被裁掉。用户选定：**整条状态栏一个外框 + 区域间分隔线**（`design.md` §3.6 的形态），即推翻第二轮「偏差 5：容器不画线、区域自定界」。
+
+**改动**（全部在 `apps/kimi-code/src/tui`）：
+
+| 文件 | 改动 |
+| --- | --- |
+| `components/chrome/status-surface/index.ts` | 容器绘制唯一外框（`╭─╮`/`╰─╯`）、堆叠单元间 `├─┤`、同单元双列间 `│`；内容两侧各 1 格 padding（`SURFACE_INSET = 4`）；`RegionBox` 改为内容框（col 从 2 起、from 从 1 起）；聚焦单元的框线用 `borderFocus`；layout/paint 按 unit 重写 |
+| `.../status-surface/budget.ts` | `computeBudget(..., chromeRows)` 先扣除框线与分隔线再分配；放不下「外框 + 一行内容」时整条让位 |
+| `components/chrome/todo-panel.ts` | 去掉 `renderPanelFrame`；标题并入进度行（`  Todo  0/2 · 20%  ▍…`）；固定开销 4→2 |
+| `components/chrome/notify-panel.ts` | 去掉 `wrapWithSideBorders` 与上下边框；标签条成为首行内容；折叠 stub 1 行；鼠标标签行 `y: 1 → 0`；固定开销 5→1 |
+| `.../regions/updates-region.ts` | 渲染前 `setBudget(ctx.budget)`（缺陷 2 的直接修复：面板超预算渲染会被容器 slice 掉底边） |
+| `.../regions/approval-region.ts` | `measure()` 修正为摘要行 + body 行 |
+| `components/dialogs/approval-panel.ts` | `render()` 只返回 body（无框无标题）；问题标题由 region 摘要行承载 |
+| `i18n/locales/{en,zh}.ts` | 折叠审批提示文案修正：`ctrl+o 详情/收起` → `ctrl+t 详情/收起`（展开实际由 Ctrl+T 路由，Ctrl+O 是全局工具输出折叠） |
+| `docs/{en,zh}/reference/keyboard.md`、`docs/{en,zh}/guides/interaction.md`、`.agents/skills/write-tui/SKILL.md` | 同步「整条提示栏一个外框、区域只画内容」的描述 |
+
+**验证**：
+
+- 渲染预览（临时脚本，已删除）：100 列下审批 + updates 同框且底边闭合；双列共享 band 有 `│` 分隔；40 列堆叠时有 `├─┤` 分隔；4 行终端的整条让位（放不下框 + 一行内容）。
+- `apps/kimi-code` typecheck 通过；`oxlint --type-aware`（改动文件）0 error；`check-locale-keys` / `check-locale-placeholders` / `check-status-surface-i18n` 通过。
+- vitest：受影响的两批共 **19 个文件 / 600 用例全部通过**（panels 全目录、fullscreen-layout、kimi-tui-message-flow、notify 与 session-event-handler-notify 控制器、gutter-container、dock-height-budget）；另有 2 个全量跑出的漏网文件（`panel-frame` / `approval-panel`）由收尾补修。**apps/kimi-code 全量 vitest：277 文件 / 4425 用例通过、0 失败**（4 跳过，其中 3 个为默认跳过的 e2e）。测试改动只更新行号、坐标与期望字符串，无删除、无 skip、无弱化断言。
+
+---
+
+## 第五轮：结构性左右两半（用户指定布局）
+
+**触发**：用户明确布局意图 ——「一个大容器，分左右半边；右边恒定放 updates，左边放其他的」。即列分配不再取决于"谁在场"，而是固定结构：右半是 updates 的槽位，左半放 todo / 审批。
+
+**改动**（`apps/kimi-code/src/tui`）：
+
+| 文件 | 改动 |
+| --- | --- |
+| `.../regions/approval-region.ts` | `placement()` `'full'` → `'left'`；折叠摘要改为**按宽度打包换行**（`planSummary`：问题、每个编号选项、快捷键提示是原子部件，只在部件间断行，绝不切断选项标签）；`measure()` = 摘要实际行数（+ 展开态 body 行数）；鼠标命中改为逐行记录（`{row,start,end,choice}`）；展开态 body 偏移 = 摘要行数 |
+| `.../status-surface/index.ts` | `layout` 改为结构性两半：所有非全宽区域组成**一个双列单元**（按 `placement` 分列、列内按优先级堆叠，单元高度 = 较高的那一半）；列间始终绘制 `│`（`unit.divider`，即使某半为空也画，体现 updates 固定槽位）；`'full'` 区域保留独立 band 的能力；窄屏时两半塌缩，每区域独立成 unit |
+| `docs/{en,zh}/reference/keyboard.md`、`docs/{en,zh}/guides/interaction.md` | 描述更新：左右两半（右半 updates、左半其余）；审批折叠态是"紧凑摘要、列内自动换行"而非固定一行 |
+
+**验证**：
+
+- 渲染预览：审批 + updates（100 列）→ 左半三行摘要（问题+首选项 / 其余选项 / 快捷键提示）+ 右半 updates，列间 `│`，外框闭合；纯 todo + updates 同构；审批展开态 body 在左半、右半留白；40 列堆叠用 `├─┤`；24 行时同样闭合。
+- 受影响测试：**19 文件 / 601 用例通过**（含本轮重写的 5 个审批断言：折叠摘要 3 行、左半列宽 `ceil((80-4)/2) = 38`、选项跨行点击等）。
+- **apps/kimi-code 全量 vitest：277 文件 / 4425 用例通过、0 失败**（4 跳过，其中 3 个为默认跳过的 e2e）。
+- `apps/kimi-code` typecheck 通过；`oxlint --type-aware`（改动文件）0 error；locale 三项检查通过。
+
+---
+
+## 第六轮：用户实测反馈的三个缺陷 + updates 两条交互修正
+
+**触发**：用户实测报出两点，随后又对 updates 面板提出两点优化。
+
+**改动**（`apps/kimi-code/src/tui`）：
+
+| 文件 | 改动 |
+| --- | --- |
+| `.../regions/approval-region.ts` | 折叠摘要由「贪心打包换行」改为**每选项独占一行**（问句 / 每个编号选项 / 快捷键提示）；`planSummary` 删除，改为 `summaryRowCost(choiceCount) = 2 + count`，`measure()` 与点击行号映射共用同一公式；`summaryRowCount` 记为「实际画出的行数」而非摘要总行数，预算裁剪时不会承认看不见的行；编号统一为 `1. Allow`（数字 + 空格 + 标签），命中区间在同一次渲染中记录 |
+| `.../status-surface/index.ts` | 底边框不再写死 `palette.border`，改为沿用**最后一个 unit 的画笔**（`paintBottom`），与顶边框、分隔线、左右竖线一起随焦点切换 |
+| `.../chrome/notify-panel.ts` | 新增 `autoAdvance` 通道状态与 `advanceAutoScroll()` / `syncAutoScrollTimer()` / `stopAutoScroll()`：新条目从顶部开始（`scroll=0`）并自动逐行下滚，到底自停并恢复跟随；`upsert` 区分「跟随」的两种形态（`followTail` 贴尾 / `autoAdvance` 正在读完），原地更新保留阅读位置；`scrollBy` 跟随态从尾部起算（修掉「首滚返回 false 被吞」），并在滚动时取消自动下滚；`focus()` / `prevPage` / `nextPage` / `prevChannel` / `nextChannel` / `remove` / `clear` 同步取消或重排定时器；构造参数新增 `requestRender`（宿主注入 `ui.requestRender`），定时器仅在有内容推进时存活 |
+| `.../regions/updates-region.ts` | `wantsFocus()` `true` → `false`：点击不再抢键盘焦点，改为走表面的「折叠/展开整行」兜底 |
+| `.../tui/constant/rendering.ts` | 新增 `NOTIFY_AUTOSCROLL_INTERVAL_MS = 320`（与其他动画间隔同处声明） |
+| `.../tui/tui-state.ts` | 构造 `NotifyPanelComponent` 时注入 `requestRender` |
+| `docs/{en,zh}/reference/keyboard.md`、`docs/{en,zh}/guides/interaction.md` | 同步：审批折叠态「每选项一行」；updates 新更新从顶部开始自动下读、到底即停；滚轮无需先点击；点击不抢键盘 |
+
+**验证**：
+
+- 渲染预览（临时脚本，已删除）：80 列下审批摘要为 5 行（问句 / `1. Allow` / `2. Allow for session` / `3. Reject` / `· ctrl+t details`）；强制 24-bit 颜色下底边框 SGR 与顶边框一致，聚焦后一起从 `border` 切到 `borderFocus`；updates 首屏在 `row 1`，逐行推进后停在尾部窗口，199 步内无越界。
+- 新增回归用例：底边框焦点色（`chalk.level = 3` 比对顶/底 SGR）、首滚即生效、点击不取焦点、自动下滚 / 到底自停 / 用户接管。
+- 更新的既有断言：审批摘要行数与行号、`2. Allow for session` 的点击列、updates 旧「贴尾」语义（改为「从顶部 + 自动下读」）、全屏审批点击按标签所在行定位。均为期望值更新，无删除、无 skip、无弱化。
+- `apps/kimi-code` typecheck 通过；`oxlint --type-aware`（改动文件）0 error，warning 与基线一致（10 vs 9，多出的 1 条已修）；locale 三项检查通过。
+- **apps/kimi-code 全量 vitest：277 文件 / 4431 用例通过、0 失败**（4 跳过，其中 3 个为默认跳过的 e2e）。

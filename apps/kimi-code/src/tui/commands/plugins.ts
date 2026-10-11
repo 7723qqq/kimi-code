@@ -41,6 +41,7 @@ import { UsagePanelComponent } from '../components/messages/usage-panel';
 import { createMarkdownTheme } from '../theme/pi-tui-theme';
 import { formatErrorMessage } from '../utils/event-payload';
 import { createMarkdownOptions } from '../utils/markdown-options';
+import { nextTranscriptId } from '../utils/transcript-id';
 import {
   formatPluginSourceLabel,
   isOfficialPluginInstall,
@@ -612,14 +613,23 @@ async function installCapabilityFromPanel(
   }
   if (entry.id === 'kimi-webbridge') {
     host.showNotice(t('tui.commands.plugins.installed', { label }));
-    host.state.transcriptContainer.addChild(new Spacer(1));
-    host.state.transcriptContainer.addChild(
+    // Spacer and body share one history entry so the pair stays accountable as
+    // a single transcript row group.
+    const postInstallEntry = {
+      id: nextTranscriptId(),
+      kind: 'status' as const,
+      turnId: undefined,
+      renderMode: 'plain' as const,
+      content: '',
+    };
+    host.mountTranscriptComponent(postInstallEntry, new Spacer(1));
+    host.appendTranscriptEntry(
+      postInstallEntry,
       new Markdown(webbridgePostInstallMarkdown(), 2, 0, createMarkdownTheme(), undefined, {
         ...createMarkdownOptions(),
         copySource: true,
       }),
     );
-    host.state.ui.requestRender();
     return;
   }
   host.showStatus(t('tui.commands.plugins.installed', { label }));
@@ -812,8 +822,16 @@ async function renderPluginsList(
     'primary',
     title,
   );
-  host.state.transcriptContainer.addChild(panel);
-  host.state.ui.requestRender();
+  host.appendTranscriptEntry(
+    {
+      id: nextTranscriptId(),
+      kind: 'status',
+      turnId: undefined,
+      renderMode: 'plain',
+      content: '',
+    },
+    panel,
+  );
 }
 
 async function renderPluginInfo(host: SlashCommandHost, id: string): Promise<void> {
@@ -823,8 +841,16 @@ async function renderPluginInfo(host: SlashCommandHost, id: string): Promise<voi
     'primary',
     ` ${info.id} `,
   );
-  host.state.transcriptContainer.addChild(panel);
-  host.state.ui.requestRender();
+  host.appendTranscriptEntry(
+    {
+      id: nextTranscriptId(),
+      kind: 'status',
+      turnId: undefined,
+      renderMode: 'plain',
+      content: '',
+    },
+    panel,
+  );
 }
 
 async function installPluginFromSource(host: SlashCommandHost, source: string): Promise<void> {

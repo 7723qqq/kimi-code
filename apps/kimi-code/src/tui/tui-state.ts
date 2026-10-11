@@ -164,7 +164,10 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
   const todoPanelContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const todoPanel = new TodoPanelComponent({ terminalRows: () => terminal.rows });
   const notifyPanelContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
-  const notifyPanel = new NotifyPanelComponent(() => terminal.rows);
+  const notifyPanel = new NotifyPanelComponent(
+    () => terminal.rows,
+    () => ui.requestRender(),
+  );
   // One status strip above the editor, holding the todo list, the mid-turn
   // updates and (when it arrives) an approval. The three used to be separate
   // mounts with separate data paths and separate height rules; the surface

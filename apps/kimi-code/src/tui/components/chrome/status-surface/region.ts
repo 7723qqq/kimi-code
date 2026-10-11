@@ -6,6 +6,14 @@
  * from a panel — measurement, folding, focus, key handling, mouse handling —
  * is expressed here once rather than re-invented per panel.
  *
+ * A region also declares *how it wants to be placed* and *what it is*, so the
+ * container never has to ask a region's name. The container previously held
+ * four of these facts about three known regions (`hasBlockingRegion` looked for
+ * `'approval'`, `Ctrl+T` folded `'todo'`, `Ctrl+N` focused `'updates'`, and the
+ * scroll fallback read `'todo'`). Adding a fourth region meant editing the
+ * container in five places. All of that is region-declared state now, so
+ * adding a module is registering an implementation.
+ *
  * Memory note: a region does not know the terminal height. The surface reads
  * `terminal.rows` once and hands each region a granted `budget` (see
  * `budget.ts`). A region that measured itself would need to know what the
@@ -16,18 +24,29 @@ import type { TuiMouseEvent, TuiMouseEventResult } from '@moonshot-ai/pi-tui';
 
 import type { ColorPalette } from '#/tui/theme/colors';
 
-export type RegionId = 'approval' | 'todo' | 'updates';
+/**
+ * A region's identity. Open on purpose: the container must be able to hold a
+ * region it has never heard of.
+ */
+export type RegionId = string;
 
 /**
- * Region ordering. Lower sorts first and is served first by the budget, so a
- * blocking region (an approval waiting on the user) outranks the informational
- * ones and never gets squeezed to nothing by a long todo list.
+ * Where a region wants to be drawn.
+ *
+ * - `'left'` / `'right'` — share a band with the opposite column.
+ * - `'full'` — take a band of its own, spanning both columns.
+ *
+ * This is how "a diff needs the full width" is expressed. The constraint is
+ * real (`approval-panel` renders its diff at `contentWidth = width - 2`, and a
+ * half-width diff wraps into noise), and it belongs to the region that has the
+ * diff — not to the container, which would otherwise have to know that one
+ * particular region is the wide one.
+ *
+ * A method rather than a field because the answer can depend on state: an
+ * approval's folded summary is one line and fits a column, while its expanded
+ * body is the diff that needs the whole width.
  */
-export const REGION_PRIORITY: Readonly<Record<RegionId, number>> = {
-  approval: 0,
-  todo: 10,
-  updates: 20,
-};
+export type RegionPlacement = 'left' | 'right' | 'full';
 
 /** Keys the surface routes to whichever region currently owns focus. */
 export type RegionKey =
@@ -53,9 +72,10 @@ export type RegionKey =
 /**
  * Keys the editor hands to the status surface. A superset of {@link RegionKey}:
  * `focus` is the strip-level request to grab or release panel focus (`Ctrl+N`),
- * which has no per-region meaning and is handled by the surface itself.
+ * and `cycleColumn` moves the keyboard to the other column (`Tab`); neither has
+ * a per-region meaning, and both are handled by the surface itself.
  */
-export type StatusSurfaceKey = RegionKey | 'focus';
+export type StatusSurfaceKey = RegionKey | 'focus' | 'cycleColumn';
 
 export interface RegionRenderContext {
   /** Full width available to the region, chrome already subtracted. */
@@ -92,6 +112,57 @@ export interface RegionMouseEvent {
 export interface StatusRegion {
   readonly id: RegionId;
 
+  /** Where this region wants to be drawn. See {@link RegionPlacement}. */
+  placement(): RegionPlacement;
+
+  /**
+   * Ordering weight. Lower sorts first and is served first by the budget, so a
+   * blocking region outranks the informational ones and never gets squeezed to
+   * nothing by a long todo list.
+   *
+   * Declared by the region rather than read from a table the container owns: a
+   * table is a place the container has to be edited for every new region.
+   */
+  readonly priority: number;
+
+  /**
+   * Regions this one temporarily replaces while it is present. The container
+   * applies the list generically (a suppressed region is skipped for layout,
+   * budget and hit testing until the suppressor disappears), so a blocking
+   * prompt can take over a sibling's slot without the container knowing either
+   * region by name.
+   */
+  readonly suppresses?: readonly RegionId[];
+
+  /**
+   * True while this region is waiting on a decision the user has to make, so
+   * the editor must not accept a submission.
+   *
+   * Defined by behaviour ("there is an unanswered question on screen"), not by
+   * the region's name — a future region that asks the user something declares
+   * the same thing and gets the same treatment.
+   */
+  readonly blocking?: boolean;
+
+  /**
+   * The region `Ctrl+N` grabs when it moves the keyboard into the strip.
+   *
+   * One region declares it; `Ctrl+N` is a strip-level gesture and can only
+   * mean one target. The container asks "who declared it" instead of naming a
+   * region.
+   */
+  readonly defaultFocusTarget?: boolean;
+
+  /**
+   * The region strip-level keys and the click-to-fold fallback act on when
+   * nothing is focused: `Ctrl+T` folding and the arrow-key scroll fallback.
+   *
+   * Both previously hardcoded the same region's id, and both need the same
+   * answer to the same question — "with no focus, what does the user mean?"
+   * — so they read one declaration.
+   */
+  readonly defaultKeyTarget?: boolean;
+
   /** True when the region has nothing to show and must not occupy rows. */
   isEmpty(): boolean;
 
@@ -115,9 +186,13 @@ export interface StatusRegion {
   setExpanded(expanded: boolean): void;
 
   /**
-   * Whether folding currently hides something. This is the *only* fold
-   * predicate the surface consults: an earlier implementation asked each
-   * panel for an overflow count that did not match what folding revealed.
+   * Whether unfolding right now would reveal rows that are not on screen.
+   *
+   * This is the *only* fold predicate the surface consults, and the answer
+   * must stay true after unfolding when the region is still clipping its body
+   * — otherwise the region can be opened but not closed. An earlier
+   * implementation asked each panel for an overflow count that did not match
+   * what folding revealed.
    */
   hasHiddenContent(): boolean;
 
@@ -164,11 +239,19 @@ export interface StatusRegion {
   onChange?(): void;
 }
 
-export function regionPriority(id: RegionId): number {
-  return REGION_PRIORITY[id];
-}
-
 /** Sort a region list into the order the surface renders and budgets. */
 export function sortRegions(regions: readonly StatusRegion[]): StatusRegion[] {
-  return [...regions].sort((a, b) => regionPriority(a.id) - regionPriority(b.id));
+  return [...regions].sort((a, b) => a.priority - b.priority);
+}
+
+/** The region that declared {@link StatusRegion.defaultFocusTarget}, if any. */
+export function defaultFocusRegion(
+  regions: readonly StatusRegion[],
+): StatusRegion | undefined {
+  return regions.find((region) => region.defaultFocusTarget === true);
+}
+
+/** The region that declared {@link StatusRegion.defaultKeyTarget}, if any. */
+export function defaultKeyRegion(regions: readonly StatusRegion[]): StatusRegion | undefined {
+  return regions.find((region) => region.defaultKeyTarget === true);
 }

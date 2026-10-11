@@ -57,16 +57,12 @@ export const FileErrors = {
   },
   info: {
     'file.not_found': {
-      title: 'File not found',
       retryable: false,
       public: true,
-      action: 'Check the file_id or upload the file again.',
     },
     'file.too_large': {
-      title: 'File too large',
       retryable: false,
       public: true,
-      action: 'Upload a smaller file or split it into parts.',
     },
   },
 } as const satisfies ErrorDomain;

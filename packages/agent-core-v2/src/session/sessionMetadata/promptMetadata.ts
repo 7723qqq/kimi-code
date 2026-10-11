@@ -4,8 +4,12 @@ import type { IEventService } from '#/app/event/event';
 import type { ISessionMetadata, SessionTitleKind } from './sessionMetadata';
 import { SessionMetaUpdated } from './sessionMetaEvents';
 
+export const DEFAULT_SESSION_TITLE = 'New Session';
+
 export function isUntitled(title: string | undefined): boolean {
-  return title === undefined || title.trim().length === 0 || title === 'New Session';
+  return (
+    title === undefined || title.trim().length === 0 || title === DEFAULT_SESSION_TITLE
+  );
 }
 
 export interface PromptMetadataUpdateTarget {

@@ -250,4 +250,80 @@ describe('AgentGroupComponent', () => {
     a.dispose();
     b.dispose();
   });
+
+  it('stops the timers of cards borrowed by a disposed group', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const ui = stubTui();
+    const group = new AgentGroupComponent(ui);
+    const running = createAgent('call_agent_1', 'inspect project', 'explore', ui);
+    startAgent(running, 'call_agent_1', 'explore');
+    group.attach('call_agent_1', running);
+
+    // The borrowed card drives its own 80ms elapsed-spinner timer.
+    vi.advanceTimersByTime(240);
+    expect(vi.mocked(ui.requestRender).mock.calls.length).toBeGreaterThanOrEqual(3);
+
+    group.dispose();
+    group.dispose();
+    vi.mocked(ui.requestRender).mockClear();
+
+    vi.advanceTimersByTime(2_000);
+    expect(ui.requestRender).not.toHaveBeenCalled();
+
+    running.dispose();
+  });
+
+  it('rebuilds the group body once per flush', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const ui = stubTui();
+    const group = new AgentGroupComponent(ui);
+    const done = createAgent('call_agent_1', 'inspect project', 'explore', ui);
+    startAgent(done, 'call_agent_1', 'explore');
+    group.attach('call_agent_1', done);
+    vi.setSystemTime(5_000);
+    done.onSubagentCompleted({ resultSummary: 'done' });
+
+    const snapshots = vi.spyOn(done, 'getSubagentSnapshot');
+
+    // A non-phase change is throttled into one flush: one snapshot pass for the
+    // transition check, one for the rebuild it triggers.
+    done.updateSubagentMetrics({ modelDisplay: 'Kimi K2.5' });
+    vi.mocked(ui.requestRender).mockClear();
+    vi.runOnlyPendingTimers();
+
+    expect(snapshots).toHaveBeenCalledTimes(2);
+    expect(ui.requestRender).toHaveBeenCalledTimes(1);
+
+    group.dispose();
+    done.dispose();
+  });
+
+  it('does not report an all-backgrounded group as finished', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(0);
+    const ui = stubTui();
+    const group = new AgentGroupComponent(ui);
+    const a = createAgent('call_agent_1', 'inspect project', 'explore', ui);
+    const b = createAgent('call_agent_2', 'write tests', 'coder', ui);
+    startAgent(a, 'call_agent_1', 'explore');
+    startAgent(b, 'call_agent_2', 'coder');
+    group.attach('call_agent_1', a);
+    group.attach('call_agent_2', b);
+
+    a.markBackgrounded();
+    b.markBackgrounded();
+
+    // Backgrounded members are still running remotely, so the header must not
+    // claim the group finished.
+    const out = renderText(group);
+    expect(out).toContain('Running 2 agents (2 backgrounded)');
+    expect(out).toContain('\u25D0 backgrounded');
+    expect(out).not.toContain('agents finished');
+
+    group.dispose();
+    a.dispose();
+    b.dispose();
+  });
 });

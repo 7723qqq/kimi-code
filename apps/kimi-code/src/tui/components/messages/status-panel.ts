@@ -12,6 +12,7 @@ import {
   type SessionStatus,
   type ThinkingEffort,
 } from '@moonshot-ai/kimi-code-sdk';
+import { visibleWidth } from '@moonshot-ai/pi-tui';
 
 import { PRODUCT_NAME } from '#/constant/app';
 import { t } from '#/i18n';
@@ -28,8 +29,15 @@ import {
 import {
   buildExtraUsageSection,
   buildManagedUsageReportLines,
+  foldToSingleLine,
+  severityColor,
   type ManagedUsageReport,
 } from './usage-panel';
+
+/** Pad `text` to `width` visible columns (CJK-safe, unlike `padEnd`). */
+function padEndVisible(text: string, width: number): string {
+  return text + ' '.repeat(Math.max(0, width - visibleWidth(text)));
+}
 
 interface FieldRow {
   readonly label: string;
@@ -84,10 +92,10 @@ function addFieldRows(
   value: Colorize,
   errorStyle: Colorize,
 ): void {
-  const labelWidth = Math.max(10, ...rows.map((row) => row.label.length));
+  const labelWidth = Math.max(10, ...rows.map((row) => visibleWidth(row.label)));
   for (const row of rows) {
     const colorize = row.severity === 'error' ? errorStyle : value;
-    lines.push(`  ${muted(row.label.padEnd(labelWidth, ' '))}  ${colorize(row.value)}`);
+    lines.push(`  ${muted(padEndVisible(row.label, labelWidth))}  ${colorize(row.value)}`);
   }
 }
 
@@ -108,8 +116,6 @@ export function buildStatusReportLines(options: StatusReportOptions): string[] {
   const value = (text: string) => currentTheme.fg('text', text);
   const muted = (text: string) => currentTheme.fg('textDim', text);
   const errorStyle = (text: string) => currentTheme.fg('error', text);
-  const severityToken = (sev: 'ok' | 'warn' | 'danger'): 'error' | 'warning' | 'success' =>
-    sev === 'danger' ? 'error' : sev === 'warn' ? 'warning' : 'success';
 
   const permission = options.status?.permission ?? options.permissionMode;
   const planMode = options.status?.planMode ?? options.planMode;
@@ -147,7 +153,7 @@ export function buildStatusReportLines(options: StatusReportOptions): string[] {
   if (options.statusError !== undefined) {
     rows.push({
       label: t('tui.messages.statusPanel.warningLabel'),
-      value: options.statusError,
+      value: foldToSingleLine(options.statusError),
       severity: 'error',
     });
   }
@@ -161,7 +167,7 @@ export function buildStatusReportLines(options: StatusReportOptions): string[] {
   if (maxTokens > 0) {
     const safeRatio = safeUsageRatio(ratio);
     const bar = renderProgressBar(safeRatio, 20);
-    const barColoured = currentTheme.fg(severityToken(ratioSeverity(safeRatio)), bar);
+    const barColoured = currentTheme.fg(severityColor(ratioSeverity(safeRatio)), bar);
     lines.push(
       `  ${barColoured}  ${value(`${String(usagePercent(tokens, maxTokens))}%`.padStart(6, ' '))}  ` +
         muted(`(${formatTokenCount(tokens)} / ${formatTokenCount(maxTokens)})`),

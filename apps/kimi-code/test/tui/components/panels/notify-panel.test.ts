@@ -16,9 +16,13 @@ function render(panel: NotifyPanelComponent, width = 80): string[] {
   return panel.render(width).map(strip);
 }
 
-/** Line 0 is a blank spacer separating the box from the scrolling transcript. */
+/**
+ * The header row is the panel's own line 0: the tab strip that used to be the
+ * box's top border. The surface owns the frame, so there is no blank spacer
+ * above it any more.
+ */
 function titleOf(panel: NotifyPanelComponent, width = 80): string {
-  return render(panel, width)[1]!;
+  return render(panel, width)[0]!;
 }
 
 function entry(id: string, text: string, agentId = 'main', agentName?: string): NotifyEntry {
@@ -26,26 +30,27 @@ function entry(id: string, text: string, agentId = 'main', agentName?: string): 
 }
 
 /**
- * Column of `text` on the top border (line 1 of the render), which is where the
+ * Column of `text` on the header row (line 0 of the render), which is where the
  * tab strip lives. Mouse hit testing is column-based, so tests must derive the
- * column from the same rendered string the user sees rather than guessing it.
+ * column from the same rendered string the user sees rather than guessing it;
+ * the row is region-local, so the raw `indexOf` is the column the panel expects.
  */
 function tabColumn(panel: NotifyPanelComponent, text: string, width = 80): number {
-  const border = render(panel, width)[1] ?? '';
-  const index = border.indexOf(text);
-  if (index < 0) throw new Error(`tab ${text} not on the border: ${border}`);
-  return index + 1;
+  const header = render(panel, width)[0] ?? '';
+  const index = header.indexOf(text);
+  if (index < 0) throw new Error(`tab ${text} not on the header: ${header}`);
+  return index;
 }
 
-/** A mouse event aimed at the top border's `column`. */
+/** A mouse event aimed at the header row's `column` (region-local y is 0). */
 function borderClick(column: number, type: 'press' | 'click' = 'click'): TuiMouseEvent {
   return {
     type,
     button: 'left',
     x: column,
-    y: 1,
+    y: 0,
     screenX: column,
-    screenY: 1,
+    screenY: 0,
     width: 80,
     height: 10,
     shift: false,
@@ -66,22 +71,20 @@ describe('NotifyPanelComponent', () => {
     expect(panel.focus()).toBe(false);
   });
 
-  it('renders the update in a padded, bordered box with the channel tab', () => {
+  it('draws content only: the tab strip heads the body and the frame belongs to the surface', () => {
     const panel = new NotifyPanelComponent();
     panel.upsert(entry('tc-1', 'Login module is clean; the bug is in **session expiry**.'));
     const lines = render(panel);
 
-    expect(lines[0]).toBe('');
-    expect(lines[1]).toMatch(/^╭/);
-    expect(lines[1]).toContain('main');
-    expect(lines[1]).toContain('Updates 1/1');
-    expect(lines[1]).toContain('ctrl+n page');
-    expect(lines[1]).toMatch(/─╮$/);
-    expect(lines[2]).toMatch(/^│\s*│$/);
-    expect(lines[3]).toMatch(/^│  /);
-    expect(lines[3]).toContain('Login module is clean; the bug is in session expiry.');
-    expect(lines.at(-2)).toMatch(/^│\s*│$/);
-    expect(lines.at(-1)).toMatch(/^╰─+╯$/);
+    // Line 0 is the header — the tab strip that used to be the box's top border.
+    expect(lines[0]).toContain('main');
+    expect(lines[0]).toContain('Updates 1/1');
+    expect(lines[0]).toContain('ctrl+n page');
+    // The body follows, indented by the panel's own padding.
+    expect(lines[1]).toMatch(/^ {3}/);
+    expect(lines[1]).toContain('Login module is clean; the bug is in session expiry.');
+    // The panel itself draws no box: the status surface is the only frame.
+    expect(lines.join('\n')).not.toMatch(/[╭╮╰╯│]/);
   });
 
   it('updates an entry in place and flattens entries in display order', () => {
@@ -100,9 +103,9 @@ describe('NotifyPanelComponent', () => {
 
     panel.upsert(entry('a0:c1', 'explore finding', 'a0', 'explore'));
     const lines = render(panel);
-    expect(lines[1]).toContain('main');
-    expect(lines[1]).toContain('explore');
-    expect(lines[1]).toContain('Updates 1/1');
+    expect(lines[0]).toContain('main');
+    expect(lines[0]).toContain('explore');
+    expect(lines[0]).toContain('Updates 1/1');
     expect(lines.join('\n')).toContain('explore finding');
     expect(lines.join('\n')).not.toContain('main phase');
   });
@@ -166,16 +169,57 @@ describe('NotifyPanelComponent', () => {
   it('caps a long entry at the row ceiling and reports what is hidden', () => {
     const panel = new NotifyPanelComponent();
     panel.upsert(entry('tc-1', listRows(30)));
-    // The ceiling is a TOTAL-row budget, so the box never exceeds it: the
-    // five lines of chrome (spacer/borders/padding) come out of the budget
-    // rather than being added on top of it.
+    // The ceiling is a TOTAL-row budget, so the panel never exceeds it: its
+    // own header row comes out of the budget rather than being added on top
+    // of it, and the surface's frame is paid for separately.
     const lines = render(panel);
     expect(lines.length).toBe(MAX_VISIBLE_ROWS);
-    // A following view shows the newest rows, and the title reports the rest.
+    // A fresh entry is read from its top, and the title reports the rows that
+    // are still below the window.
     const text = lines.join('\n');
-    expect(text).toContain('• row 30 ');
-    expect(text).not.toContain('• row 1 ');
+    expect(text).toContain('• row 1 ');
+    expect(text).not.toContain('• row 30 ');
     expect(titleOf(panel)).toMatch(/\+\d+ lines/);
+  });
+
+  it('walks a fresh entry down to its end and stops there', () => {
+    // The read-through the user asked for: a new update opens at its top and
+    // advances on its own, so a long update is read in the order it was written
+    // instead of opening on its last lines.
+    const panel = new NotifyPanelComponent();
+    panel.upsert(entry('tc-1', listRows(30)));
+    expect(render(panel).join('\n')).toContain('• row 1 ');
+
+    // One row per step, and the end is where the timer stops: `false` is what
+    // tells the caller to clear it, so a fully shown entry does not repaint.
+    expect(panel.advanceAutoScroll()).toBe(true);
+    const second = render(panel).join('\n');
+    expect(second).toContain('• row 2 ');
+    expect(second).not.toContain('• row 1 ');
+
+    let steps = 1;
+    while (panel.advanceAutoScroll()) steps += 1;
+    const last = render(panel).join('\n');
+    expect(last).toContain('• row 30 ');
+    expect(last).not.toContain('• row 1 ');
+    // 30 rows, 11 of them visible: 19 advances past the first row lands on the
+    // last window, and the following call is the one that reports the end.
+    expect(steps).toBe(19);
+  });
+
+  it('stops the read-through when the reader takes over', () => {
+    const panel = new NotifyPanelComponent();
+    panel.upsert(entry('tc-1', listRows(30)));
+    render(panel);
+    expect(panel.advanceAutoScroll()).toBe(true);
+
+    // A wheel or arrow key cancels the walk: the reader's position outranks the
+    // timer, and the next tick must not yank the window back.
+    expect(panel.scrollBy(3)).toBe(true);
+    const browsed = render(panel).join('\n');
+    expect(browsed).toContain('• row 5 ');
+    expect(panel.advanceAutoScroll()).toBe(false);
+    expect(render(panel).join('\n')).toContain('• row 5 ');
   });
 
   it('scrolls the capped body with scrollBy, clamped to the entry bounds', () => {
@@ -183,11 +227,17 @@ describe('NotifyPanelComponent', () => {
     panel.upsert(entry('tc-1', listRows(30)));
     render(panel);
 
-    // A following view sits on the tail, so scrolling up is the move that works.
-    expect(panel.scrollBy(-1)).toBe(true);
-    expect(render(panel).join('\n')).toContain('• row 29 ');
+    // The fresh entry sits at its top, so scrolling up is already at the edge
+    // and reports no move; scrolling down is what has room.
+    expect(panel.scrollBy(-1)).toBe(false);
+    expect(render(panel).join('\n')).toContain('• row 1 ');
 
-    // Scrolling down returns to the tail; clamped there, so it reports no move.
+    expect(panel.scrollBy(1)).toBe(true);
+    const scrolled = render(panel).join('\n');
+    expect(scrolled).toContain('• row 2 ');
+    expect(scrolled).not.toContain('• row 1 ');
+
+    // Scrolling far down lands on the tail; clamped there, so it reports no move.
     expect(panel.scrollBy(999)).toBe(true);
     expect(render(panel).join('\n')).toContain('• row 30 ');
     expect(panel.scrollBy(1)).toBe(false);
@@ -200,19 +250,21 @@ describe('NotifyPanelComponent', () => {
     panel.upsert(entry('tc-1', listRows(30)));
     panel.focus();
     render(panel);
-    for (let i = 0; i < 5; i++) panel.scrollBy(-1);
+    // `Ctrl+N` (what `focus()` mirrors) cancels the read-through, so the reader
+    // starts from the top of the entry and walks down by hand.
+    for (let i = 0; i < 5; i++) panel.scrollBy(1);
     const browsing = render(panel).join('\n');
-    expect(browsing).toContain('• row 25 ');
+    expect(browsing).toContain('• row 6 ');
     panel.blur();
     render(panel);
     const after = render(panel).join('\n');
-    expect(after).toContain('• row 25 ');
-    expect(after).not.toContain('• row 30 ');
+    expect(after).toContain('• row 6 ');
+    expect(after).not.toContain('• row 1 ');
   });
 
   it('honours a terminal-derived budget below the fixed ceiling', () => {
     // 10 rows of terminal => a 5-row TOTAL budget, under MAX_VISIBLE_ROWS, so
-    // the body gets 5 - 5 = 0 and the box degrades to its one-line stub.
+    // the body gets 5 - 1 = 4 rows and the panel stays inside that cap.
     const panel = new NotifyPanelComponent(() => 10);
     panel.upsert(entry('tc-1', listRows(30)));
     const lines = render(panel);
@@ -236,16 +288,17 @@ describe('NotifyPanelComponent', () => {
     panel.upsert(entry('tc-1', 'phase one intro\n\n- detail one\n- detail two'));
     panel.setEnded(true);
 
+    // The stub is the whole panel now: one row, with the surface's frame
+    // around it, and no leading blank line.
     const collapsed = render(panel);
-    expect(collapsed).toHaveLength(2);
-    expect(collapsed[0]).toBe('');
-    expect(collapsed[1]).toContain('▸');
-    expect(collapsed[1]).toContain('main');
-    expect(collapsed[1]).toContain('1 update');
-    expect(collapsed[1]).toContain('phase one intro');
-    expect(collapsed[1]).toContain('ctrl+n');
-    expect(collapsed[1]).not.toContain('detail one');
-    expect(collapsed[1]).not.toMatch(/[╭╮╰╯│]/);
+    expect(collapsed).toHaveLength(1);
+    expect(collapsed[0]).toContain('▸');
+    expect(collapsed[0]).toContain('main');
+    expect(collapsed[0]).toContain('1 update');
+    expect(collapsed[0]).toContain('phase one intro');
+    expect(collapsed[0]).toContain('ctrl+n');
+    expect(collapsed[0]).not.toContain('detail one');
+    expect(collapsed[0]).not.toMatch(/[╭╮╰╯│]/);
 
     panel.focus();
     const expanded = render(panel);
@@ -253,7 +306,7 @@ describe('NotifyPanelComponent', () => {
     expect(expanded.length).toBeGreaterThan(2);
 
     panel.blur();
-    expect(render(panel)).toHaveLength(2);
+    expect(render(panel)).toHaveLength(1);
   });
 
   it('stays expanded when the turn ends while the user is reading, folds on blur', () => {
@@ -265,19 +318,19 @@ describe('NotifyPanelComponent', () => {
     expect(render(panel).join('\n')).toContain('phase one');
 
     panel.blur();
-    expect(render(panel)).toHaveLength(2);
+    expect(render(panel)).toHaveLength(1);
   });
 
   it('unfolds and undims when a fresh update arrives after the turn ended', () => {
     const panel = new NotifyPanelComponent();
     panel.upsert(entry('tc-1', 'done with phase one'));
     panel.setEnded(true);
-    expect(render(panel)).toHaveLength(2);
+    expect(render(panel)).toHaveLength(1);
 
     panel.upsert(entry('tc-2', 'fresh turn update'));
     const lines = render(panel);
     expect(lines.join('\n')).toContain('fresh turn update');
-    expect(lines[1]).not.toContain('turn ended');
+    expect(lines[0]).not.toContain('turn ended');
   });
 
   it('removes an entry and drops empty channels', () => {
@@ -350,7 +403,7 @@ describe('NotifyPanelComponent', () => {
     const panel = new NotifyPanelComponent();
     panel.upsert(entry('tc-1', 'done with phase one'));
     panel.setEnded(true);
-    expect(render(panel)).toHaveLength(2);
+    expect(render(panel)).toHaveLength(1);
     expect(titleOf(panel)).toContain('ctrl+n');
 
     panel.clear();
@@ -425,18 +478,18 @@ describe('NotifyPanelComponent', () => {
     // Before, an unfocused panel was force-following, so a wheel-scrolled reader
     // lost their place on every update — the reason the wheel had to grab focus.
     const panel = new NotifyPanelComponent();
-    panel.upsert(entry('tc-1', listRows(30)));
-    panel.upsert(entry('tc-2', listRows(30, 'row')));
+    panel.upsert(entry('tc-1', listRows(30, 'first')));
+    panel.upsert(entry('tc-2', listRows(30, 'second')));
     panel.render(80);
 
-    // Browse up, unfocused. Five rows off the tail: the window is fixed by the
-    // assertions below, not by a guess at the exact offset.
-    for (let i = 0; i < 5; i++) expect(panel.scrollBy(-1)).toBe(true);
+    // Browse down by hand, unfocused. Five rows past the top: the window is
+    // fixed by the assertions below, not by a guess at the exact offset.
+    for (let i = 0; i < 5; i++) expect(panel.scrollBy(1)).toBe(true);
     const browsed = render(panel).join('\n');
-    expect(browsed).toContain('• row 25 ');
-    expect(browsed).not.toContain('• row 30 ');
+    expect(browsed).toContain('• second 6 ');
+    expect(browsed).not.toContain('• second 1 ');
 
-    // New content must not yank the window while the reader is above the tail.
+    // New content must not yank the window while the reader is below the top.
     panel.upsert(entry('tc-3', 'brand new update'));
     expect(render(panel).join('\n')).not.toContain('brand new update');
     expect(panel.isFocused()).toBe(false);
@@ -446,7 +499,7 @@ describe('NotifyPanelComponent', () => {
     const panel = new NotifyPanelComponent();
     panel.upsert(entry('tc-1', listRows(30)));
     panel.render(80);
-    for (let i = 0; i < 5; i++) panel.scrollBy(-1);
+    for (let i = 0; i < 5; i++) panel.scrollBy(1);
     // Scroll past the end; the clamp lands on the tail and re-arms following.
     for (let i = 0; i < 40; i++) panel.scrollBy(1);
     panel.upsert(entry('tc-2', 'newest update'));
@@ -497,6 +550,36 @@ describe('NotifyPanelComponent', () => {
         ctrl: false,
       }),
     ).toBeUndefined();
+  });
+
+  it('scrolls on the first wheel, with no click to prime it', () => {
+    // The reported defect: the box looked like it needed a click before the
+    // wheel did anything. It did not — the first wheel was computed from the
+    // stale `scroll` field, produced the tail offset the render had already
+    // pinned, and reported "no move", so the event was swallowed.
+    const panel = new NotifyPanelComponent();
+    panel.upsert(entry('tc-1', listRows(30)));
+    expect(render(panel).join('\n')).toContain('• row 1 ');
+
+    const result = panel.handleMouse({
+      type: 'wheel',
+      button: 'none',
+      x: 5,
+      y: 3,
+      screenX: 5,
+      screenY: 3,
+      width: 80,
+      height: 12,
+      shift: false,
+      alt: false,
+      ctrl: false,
+      wheelDelta: 2,
+    });
+
+    expect(result?.handled).toBe(true);
+    const after = render(panel).join('\n');
+    expect(after).toContain('• row 3 ');
+    expect(after).not.toContain('• row 1 ');
   });
 
   it('switches channel when its tab is clicked', () => {
@@ -601,8 +684,8 @@ describe('NotifyPanelComponent', () => {
     expect(render(panel).length).toBeGreaterThan(2);
 
     panel.setExpanded(false);
-    // Folded: a one-line stub plus the spacer above it.
-    expect(render(panel).length).toBe(2);
+    // Folded: a single one-line stub, with no blank spacer above it any more.
+    expect(render(panel).length).toBe(1);
     expect(render(panel).join('\n')).toContain('ctrl+n');
 
     panel.setExpanded(true);

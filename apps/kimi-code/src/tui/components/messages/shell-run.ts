@@ -37,6 +37,15 @@ const KEEP_COMBINED_CHARS = 64 * 1024;
 export class ShellRunComponent extends Container {
   private readonly textComponent: Text;
   private finalOutput = '';
+  // The raw streams behind finalOutput. formatBashOutputForDisplay bakes the
+  // active palette into the text it returns, so a theme switch has to format
+  // them again rather than reuse the stale colours.
+  private finalStdout = '';
+  private finalStderr = '';
+  private finalIsError: boolean | undefined;
+  // Physical line count of finalOutput, cached when it is set: hasHiddenContent()
+  // runs on every frame and must not re-split a multi-MB string per call.
+  private finalLines = 0;
   private combined = '';
   private combinedTruncated = false;
   private running = true;
@@ -69,7 +78,11 @@ export class ShellRunComponent extends Container {
     if (this.disposed || !this.running) return;
     this.running = false;
     this.clearTimer();
+    this.finalStdout = stdout;
+    this.finalStderr = stderr;
+    this.finalIsError = isError;
     this.finalOutput = formatBashOutputForDisplay(stdout, stderr, isError);
+    this.refreshFinalLines();
     this.rebuildResult();
     this.flush();
   }
@@ -88,9 +101,10 @@ export class ShellRunComponent extends Container {
     if (this.running) return this.runningHidesRows;
     // More physical lines than the collapsed cap is hidden for certain, even
     // for a card that finished while already expanded; a wrapped overflow
-    // shows up once a collapsed render has recorded it.
+    // shows up once a collapsed render has recorded it. The count is cached
+    // with finalOutput, so the per-frame footer probe never re-splits it.
     return (
-      this.finalOutput.split('\n').length > SHELL_OUTPUT_PREVIEW_LINES ||
+      this.finalLines > SHELL_OUTPUT_PREVIEW_LINES ||
       this.children.some(
         (child) => child instanceof TruncatedOutputComponent && child.wasTruncated(),
       )
@@ -123,10 +137,46 @@ export class ShellRunComponent extends Container {
     this.flush();
   }
 
+  /**
+   * A theme switch swaps the palette, but both views bake their colours in
+   * when they are built — renderText() builds the running label and
+   * TruncatedOutputComponent styles its text in the constructor — while the
+   * inherited invalidate() only clears render caches. Rebuild whatever is on
+   * screen so the new palette takes effect in the same frame.
+   */
+  override invalidate(): void {
+    if (!this.disposed) {
+      if (this.running || this.backgrounded) {
+        // Re-render the live label from the current palette. Nothing here
+        // reads the caches about to be cleared, so this cannot recurse.
+        this.textComponent.setText(this.renderText());
+      } else {
+        // Re-format before rebuilding: the stored text carries the previous
+        // palette's colours, and the result component only re-styles what it
+        // is handed.
+        this.finalOutput = formatBashOutputForDisplay(
+          this.finalStdout,
+          this.finalStderr,
+          this.finalIsError,
+        );
+        this.rebuildResult();
+      }
+    }
+    super.invalidate();
+  }
+
+  /** Physical line count of finalOutput, cached when the output is set. */
+  private refreshFinalLines(): void {
+    this.finalLines = this.finalOutput.length === 0 ? 0 : this.finalOutput.split('\n').length;
+  }
+
   // Rebuild-on-toggle, mirroring ToolCallComponent: the result component is
   // immutable, so a new expansion state means a new component instance.
   private rebuildResult(): void {
     try {
+      // The formatted output may have just landed, or this may be the rebuild
+      // after a theme switch; keep the cached count in step with it.
+      this.refreshFinalLines();
       // Build before clearing: if the constructor throws, the old view stays.
       const next = new TruncatedOutputComponent(this.finalOutput, {
         expanded: this.expanded,

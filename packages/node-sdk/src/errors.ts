@@ -1245,11 +1245,6 @@ export function isKimiErrorCode(code: unknown): code is KimiErrorCode {
   return typeof code === 'string' && Object.hasOwn(KIMI_ERROR_INFO, code);
 }
 
-export function resolveErrorTitle(code: KimiErrorCode): string {
-  const info = KIMI_ERROR_INFO[code];
-  return info ? info.title : code;
-}
-
 export interface KimiErrorOptions {
   /** JSON-serializable structured details. */
   readonly details?: Record<string, unknown>;

@@ -1,27 +1,34 @@
 /**
- * NotifyPanel — mid-turn updates, shown as a bordered box right above the
- * input area (below the Todo panel), visually matching the editor.
+ * NotifyPanel — mid-turn updates, drawn as content rows inside the status
+ * surface's frame, below the Todo panel.
  *
  * Updates are grouped into CHANNELS, one per agent: the main agent plus one
- * channel per subagent that posts a `NotifyUser` update. The top border is a
- * tab strip of channel labels; `Ctrl+N` focuses the box, then `←`/`→` switch
- * channels, `↑`/`↓` scroll the current update, and `[`/`]` step between updates
- * in the channel. While the user is not focused, the view follows the latest
- * activity across channels; while focused it stays put and other channels
- * collect an unread dot.
+ * channel per subagent that posts a `NotifyUser` update. The panel's first row
+ * is a tab strip of channel labels (the surface draws the frame around it);
+ * `Ctrl+N` focuses the panel, then `←`/`→` switch channels, `↑`/`↓` scroll the
+ * current update, and `[`/`]` step between updates in the channel. While the
+ * user is not focused, the view follows the latest activity across channels;
+ * while focused it stays put and other channels collect an unread dot.
  *
- * The mouse works too: the wheel over the box scrolls the current update (and
- * does not fall through to the transcript), clicking a channel tab switches to
- * it, and clicking the `+N done` tab expands the folded channels into their own
- * tabs. Hit testing needs column ranges, which the render pass records — see
- * `tabHitRanges`.
+ * The mouse works too: the wheel over the panel scrolls the current update (and
+ * does not fall through to the transcript) without needing a click first, and
+ * clicking a channel tab switches to it. A click anywhere else folds or unfolds
+ * the box (the surface's fallback); it deliberately does **not** take the
+ * keyboard, which stays on `Ctrl+N`.
  *
- * The box is capped at {@link MAX_VISIBLE_ROWS} rows and at half the terminal
+ * The panel is capped at {@link MAX_VISIBLE_ROWS} rows and at half the terminal
  * height, whichever is smaller — an update body can be arbitrarily long, and
- * without a cap the box grew until the editor and footer were pushed off
- * screen. Content beyond the cap scrolls; the title carries how much is out of
- * view. When the turn ends the box folds to a one-line stub until the user
- * focuses it; the host clears the box when the next turn starts.
+ * without a cap the panel grew until the editor and footer were pushed off
+ * screen. Inside the status surface the host's granted budget wins over both
+ * caps. Content beyond the cap scrolls; the header row carries how much is out
+ * of view. When the turn ends the panel folds to a one-line stub until the user
+ * focuses it; the host clears it when the next turn starts.
+ *
+ * A newly arrived update is read from its **top**: the panel then walks that
+ * entry downward on its own timer, stopping at the end, until the next update
+ * restarts the walk (see {@link NotifyPanelComponent.upsert}). Following the
+ * tail outright showed the end of a long update before its beginning. Scrolling
+ * by hand — wheel, arrows or paging — cancels the walk immediately.
  */
 
 import type { Component, TuiMouseEvent, TuiMouseEventResult } from '@moonshot-ai/pi-tui';
@@ -29,13 +36,12 @@ import { truncateToWidth, visibleWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 
 import { t } from '#/i18n';
+import { NOTIFY_AUTOSCROLL_INTERVAL_MS } from '#/tui/constant/rendering';
 import { Markdown } from '#/tui/components/markdown/markdown';
 import { MAIN_AGENT_ID } from '#/tui/constant/kimi-tui';
 import { currentTheme } from '#/tui/theme';
 import { createMarkdownTheme } from '#/tui/theme/pi-tui-theme';
 import { createMarkdownOptions } from '#/tui/utils/markdown-options';
-
-import { wrapWithSideBorders } from '../editor/custom-editor';
 
 export interface NotifyEntry {
   readonly id: string;
@@ -66,6 +72,15 @@ interface NotifyChannel {
    * grabbing focus the way `Ctrl+N` does.
    */
   followTail: boolean;
+  /**
+   * Rows the view advances by itself to read the entry through, `0` when the
+   * view is not auto-advancing. A fresh update starts at its top and walks down
+   * on a timer: the whole entry is usually longer than the box, and showing its
+   * end while the opening lines were never on screen is reading a message
+   * backwards. Wheel, paging or a new entry clears this — the user's own
+   * position always wins over the animation.
+   */
+  autoAdvance: boolean;
   /** Ids of entries that arrived while the user was reading another channel. */
   readonly unreadIds: Set<string>;
   /**
@@ -78,19 +93,21 @@ interface NotifyChannel {
 }
 
 /**
- * Hard ceiling on the rendered box, borders included. Matches the fixed-cap
- * convention the todo panel uses (`MAX_VISIBLE`), so both panels in the shared
- * row behave the same way. The terminal half-height cap below is the smaller
- * of the two on a short terminal.
+ * Hard ceiling on the panel's own rows while it is mounted standalone: the
+ * header row included. Matches the fixed-cap convention the todo panel uses
+ * (`MAX_VISIBLE`), so both panels in the shared row behave the same way. The
+ * terminal half-height cap below is the smaller of the two on a short
+ * terminal, and a budget granted by the status surface wins over both.
  */
 export const MAX_VISIBLE_ROWS = 12;
 /**
- * Rows the box always spends regardless of content: the leading spacer, the top
- * border plus its inner padding, and the bottom padding plus border. A budget
- * that covers only the body therefore overflows the terminal by this much — the
- * cap has to be expressed in total rows and the overhead subtracted from it.
+ * Rows the panel always spends regardless of content: the header row that
+ * carries the tab strip, the page indicator and the key hints. A budget that
+ * covers only the body therefore overflows by this much — the cap has to be
+ * expressed in total rows and the overhead subtracted from it. The strip's
+ * frame belongs to the status surface and is not counted here.
  */
-const PANEL_OVERHEAD_ROWS = 5;
+const PANEL_OVERHEAD_ROWS = 1;
 /** Body rows below which the box stops drawing a body and degrades to a stub. */
 const MIN_BODY_ROWS = 1;
 
@@ -98,11 +115,12 @@ const MIN_BODY_ROWS = 1;
 export type TerminalRowsProvider = () => number | undefined;
 
 /**
- * A clickable span on the box's top border.
+ * A clickable span on the header row's tab strip.
  *
- * The tab strip lives inside the border line, so a click arrives as a column in
- * that line. The render pass knows each tab's columns; this records them for the
- * next `handleMouse`, which has no other way to map a column back to a channel.
+ * The tab strip is the panel's first content row, so a click arrives as a
+ * column in that row. The render pass knows each tab's columns; this records
+ * them for the next `handleMouse`, which has no other way to map a column back
+ * to a channel.
  */
 interface TabHitRange {
   readonly from: number;
@@ -141,8 +159,18 @@ export class NotifyPanelComponent implements Component {
   private tabHitRanges: TabHitRange[] = [];
   /** `+N done` expanded into individual tabs (mouse toggle). */
   private finishedExpanded = false;
+  /** Drives the auto-advance while a fresh update is being read through. */
+  private autoScrollTimer: ReturnType<typeof setInterval> | undefined;
 
-  constructor(private readonly terminalRows: TerminalRowsProvider = () => undefined) {}
+  /**
+   * `requestRender` for the auto-advance timer; the host passes `ui.requestRender`.
+   * Without it the panel simply never self-advances, which is what a standalone
+   * mount in a test wants.
+   */
+  constructor(
+    private readonly terminalRows: TerminalRowsProvider = () => undefined,
+    private readonly requestRender?: () => void,
+  ) {}
 
   /**
    * Total rows the status surface granted this box, or `undefined` while the
@@ -165,10 +193,10 @@ export class NotifyPanelComponent implements Component {
    * smaller, minus {@link PANEL_OVERHEAD_ROWS}. Expressing it as "body rows"
    * without the subtraction is what let a 6-row terminal get an 8-row panel.
    *
-   * Below {@link MIN_BODY_ROWS} there is no room for a body, so the box degrades
-   * to the one-line stub instead of drawing a box taller than its budget. An
-   * unknown terminal height still gets the fixed ceiling — the cap must not
-   * disappear just because the host did not supply a row count.
+   * Below {@link MIN_BODY_ROWS} there is no room for a body, so the panel
+   * degrades to the one-line stub instead of rendering more rows than its
+   * budget. An unknown terminal height still gets the fixed ceiling — the cap
+   * must not disappear just because the host did not supply a row count.
    */
   private bodyBudget(): number {
     if (this.budget !== undefined) return this.budget - PANEL_OVERHEAD_ROWS;
@@ -212,9 +240,19 @@ export class NotifyPanelComponent implements Component {
 
   /**
    * Add or update an entry in a channel. A repeated `id` updates the entry in
-   * place; a new id appends. While unfocused the view jumps to the entry's
-   * channel and its tail — the latest activity always wins; while focused the
-   * user's page stays put and background channels collect unread instead.
+   * place; a new id appends.
+   *
+   * A fresh entry is read from its **top** and then walked down by the
+   * auto-advance timer ({@link NOTIFY_AUTOSCROLL_INTERVAL_MS}), so a long update
+   * is read in the order it was written instead of opening on its last lines.
+   * An entry that changes in place is left alone: it is either already on
+   * screen (the reader is where they are) or it is not the displayed one.
+   *
+   * While unfocused the view jumps to the entry's channel; while focused the
+   * user's page stays put and background channels collect unread instead. A
+   * reader who scrolled away from the tail keeps their place either way — the
+   * whole point of not stealing focus is that the pointer and the keyboard do
+   * not fight over the window.
    */
   upsert(entry: NotifyEntry): void {
     const ch = this.channelFor(entry);
@@ -224,12 +262,24 @@ export class NotifyPanelComponent implements Component {
     else ch.entries.push(entry);
     if (!this.focused) {
       this.activeKey = ch.key;
-      // Following means "new content wins"; a reader who scrolled up with the
-      // wheel is not following, and yanking their window on every update would
-      // lose their place — the whole point of not stealing focus.
-      if (ch.followTail) {
+      // "Following" spans two states now: pinned to the tail (`followTail`), or
+      // walking down an entry the reader has not taken over yet (`autoAdvance`).
+      // Both mean the newest activity wins; a reader who scrolled by hand is in
+      // neither, and yanking their window on every update would lose their
+      // place — the whole point of not stealing focus.
+      if (ch.followTail || ch.autoAdvance) {
         ch.page = ch.entries.length - 1;
-        ch.scroll = 0;
+        if (isNew) {
+          // A new entry opens at its top and is walked down; showing its last
+          // lines before its first ones is reading the update backwards.
+          ch.scroll = 0;
+          ch.followTail = false;
+          ch.autoAdvance = true;
+        } else {
+          // An edit to the entry already being read keeps the reader's row and
+          // does not restart the walk, which would rewind them mid-read.
+          ch.autoAdvance = false;
+        }
       }
       ch.unreadIds.clear();
     } else if (isNew && ch.key !== this.activeKey) {
@@ -237,6 +287,7 @@ export class NotifyPanelComponent implements Component {
     }
     this.ended = false;
     this.collapsed = false;
+    this.syncAutoScrollTimer();
   }
 
   /**
@@ -321,14 +372,13 @@ export class NotifyPanelComponent implements Component {
     // that cancels out, making a single click do nothing at all.
     if (event.type !== 'click' || event.button !== 'left') return undefined;
 
-    // Row 1 is the top border: row 0 is the blank spacer the panel renders above
-    // the box, and the layout counts it (see `measureHeight`). The tab strip is
-    // embedded in that border, starting one column in for the corner.
+    // Row 0 is the header row that carries the tab strip — the surface draws
+    // the frame above it, and the panel's own rows start at the strip.
     //
     // Anything else is left unhandled on purpose: `GutterContainer` turns an
     // unhandled click into the fold toggle, so clicking the body folds and
-    // unfolds the box exactly like clicking a tool card does.
-    if (event.y !== 1) return undefined;
+    // unfolds the panel exactly like clicking a tool card does.
+    if (event.y !== 0) return undefined;
     const key = this.tabKeyAt(event.x);
     if (key === undefined) return undefined;
 
@@ -357,6 +407,7 @@ export class NotifyPanelComponent implements Component {
     ch.page = ch.entries.length - 1;
     ch.scroll = 0;
     ch.unreadIds.clear();
+    this.syncAutoScrollTimer();
     return true;
   }
 
@@ -371,9 +422,11 @@ export class NotifyPanelComponent implements Component {
     } else {
       ch.page = Math.min(ch.page, ch.entries.length - 1);
       ch.scroll = 0;
+      ch.autoAdvance = false;
       ch.unreadIds.delete(id);
     }
     if (this.channels.length === 0) this.focused = false;
+    this.syncAutoScrollTimer();
     return true;
   }
 
@@ -383,6 +436,7 @@ export class NotifyPanelComponent implements Component {
     this.focused = false;
     this.ended = false;
     this.collapsed = false;
+    this.stopAutoScroll();
   }
 
   isEmpty(): boolean {
@@ -419,6 +473,10 @@ export class NotifyPanelComponent implements Component {
     this.focused = true;
     this.collapsed = false;
     this.activeChannel().unreadIds.clear();
+    // The keyboard is the reader taking over: stop the walk-through so their
+    // first arrow key starts from what is on screen instead of fighting a timer.
+    this.activeChannel().autoAdvance = false;
+    this.syncAutoScrollTimer();
     return true;
   }
 
@@ -444,7 +502,9 @@ export class NotifyPanelComponent implements Component {
     ch.page = ch.entries.length - 1;
     ch.scroll = 0;
     ch.followTail = true;
+    ch.autoAdvance = false;
     ch.unreadIds.clear();
+    this.syncAutoScrollTimer();
     return true;
   }
 
@@ -457,7 +517,9 @@ export class NotifyPanelComponent implements Component {
     ch.page = ch.entries.length - 1;
     ch.scroll = 0;
     ch.followTail = true;
+    ch.autoAdvance = false;
     ch.unreadIds.clear();
+    this.syncAutoScrollTimer();
     return true;
   }
 
@@ -469,6 +531,8 @@ export class NotifyPanelComponent implements Component {
     ch.page -= 1;
     ch.scroll = 0;
     ch.followTail = true;
+    ch.autoAdvance = false;
+    this.syncAutoScrollTimer();
     return true;
   }
 
@@ -480,6 +544,8 @@ export class NotifyPanelComponent implements Component {
     ch.page += 1;
     ch.scroll = 0;
     ch.followTail = true;
+    ch.autoAdvance = false;
+    this.syncAutoScrollTimer();
     return true;
   }
 
@@ -490,6 +556,14 @@ export class NotifyPanelComponent implements Component {
    * `render()` records it, but a caller can legitimately scroll before the first
    * paint (tests, or a key arriving in the same tick as the entry), so the entry
    * is measured directly when no paint has happened yet.
+   *
+   * A following view starts from the tail, not from its stale `scroll` field:
+   * the render pinned the offset there, so a wheel-up has to walk back from the
+   * bottom. Reading `scroll` instead made the first wheel-up a no-op — it
+   * computed the same tail offset the render had already pinned, reported "no
+   * move", and swallowed the event. That is why the box looked like it needed a
+   * click first: only after focus (which clears following) did the wheel do
+   * anything.
    */
   scrollBy(delta: number): boolean {
     if (this.channels.length === 0) return false;
@@ -497,14 +571,82 @@ export class NotifyPanelComponent implements Component {
     const height = this.lastBodyHeight > 0 ? this.lastBodyHeight : this.measureBodyHeight(ch);
     this.lastBodyHeight = height;
     const max = Math.max(0, height - Math.max(MIN_BODY_ROWS, this.bodyBudget()));
-    // Scrolling from the tail starts at the bottom, since `render` pinned the
-    // offset there and a bare `scroll` field would be stale.
     const current = ch.followTail ? max : ch.scroll;
     const next = Math.max(0, Math.min(max, current + delta));
-    ch.followTail = next === max;
-    if (next === ch.scroll && ch.followTail) return false;
+    // The reader has taken over: their wheel position outranks the walk-through
+    // timer, and cancelling here (not in the caller) covers the keyboard too.
+    ch.autoAdvance = false;
+    this.syncAutoScrollTimer();
+    if (next === current) {
+      // Already at the requested edge: nothing moves, and following stays as it
+      // is — scrolling further down at the tail must not report a move.
+      ch.followTail = current === max;
+      ch.scroll = current;
+      return false;
+    }
+    // Landing on the tail re-arms following; anywhere above it disarms.
     ch.scroll = next;
+    ch.followTail = next === max;
     return true;
+  }
+
+  /**
+   * Walk the displayed update one row further down, stopping at its end.
+   *
+   * This is what the periodic timer calls: the entry opens at its top and is
+   * read downward at a readable pace. `false` means there was nothing left to
+   * advance — the caller stops the timer, so a fully shown update does not keep
+   * repainting the strip.
+   */
+  advanceAutoScroll(): boolean {
+    if (this.channels.length === 0) return false;
+    const ch = this.activeChannel();
+    if (!ch.autoAdvance) return false;
+    const height = this.lastBodyHeight > 0 ? this.lastBodyHeight : this.measureBodyHeight(ch);
+    this.lastBodyHeight = height;
+    const max = Math.max(0, height - Math.max(MIN_BODY_ROWS, this.bodyBudget()));
+    const next = Math.min(max, ch.scroll + 1);
+    if (next === ch.scroll) {
+      // The whole entry is on screen (or the view was already at its end): the
+      // walk is over and following takes back over, so later edits show up.
+      ch.autoAdvance = false;
+      ch.followTail = true;
+      return false;
+    }
+    ch.scroll = next;
+    ch.followTail = next === max;
+    if (ch.followTail) ch.autoAdvance = false;
+    return true;
+  }
+
+  /**
+   * Start or stop the auto-advance timer to match the channels' state.
+   *
+   * One timer for the whole panel rather than one per channel: only the channel
+   * on display can be advancing, and a per-channel timer would keep ticking for
+   * a view nobody is looking at.
+   */
+  private syncAutoScrollTimer(): void {
+    const advancing = this.channels.some((ch) => ch.autoAdvance && ch.key === this.activeKey);
+    if (!advancing) {
+      this.stopAutoScroll();
+      return;
+    }
+    if (this.requestRender === undefined || this.autoScrollTimer !== undefined) return;
+    const requestRender = this.requestRender;
+    this.autoScrollTimer = setInterval(() => {
+      if (this.advanceAutoScroll()) requestRender();
+      else this.stopAutoScroll();
+    }, NOTIFY_AUTOSCROLL_INTERVAL_MS);
+    if (typeof this.autoScrollTimer === 'object' && 'unref' in this.autoScrollTimer) {
+      this.autoScrollTimer.unref();
+    }
+  }
+
+  private stopAutoScroll(): void {
+    if (this.autoScrollTimer === undefined) return;
+    clearInterval(this.autoScrollTimer);
+    this.autoScrollTimer = undefined;
   }
 
   /** Body rows the displayed entry needs at the current width, unwrapped. */
@@ -530,11 +672,11 @@ export class NotifyPanelComponent implements Component {
 
   render(width: number): string[] {
     if (this.channels.length === 0) return [];
-    const c = currentTheme.palette;
-    const paint = chalk.hex(this.focused ? c.primary : c.border);
-
+    // The strip's frame belongs to the status surface, so the panel draws
+    // content only: the tab strip that used to be the box's top border opens
+    // the body as its own row.
     if (this.mustCollapse()) {
-      return ['', this.stubLine(width)].map((line) => truncateToWidth(line, width));
+      return [this.stubLine(width)].map((line) => truncateToWidth(line, width));
     }
 
     const innerWidth = Math.max(1, width - 6);
@@ -561,18 +703,21 @@ export class NotifyPanelComponent implements Component {
     // tail" is its own piece of state (`followTail`), not a focus consequence.
     if (ch.followTail) ch.scroll = maxScroll;
     else if (ch.scroll > maxScroll) ch.scroll = maxScroll;
+    // An auto-advancing view that has reached the end has nothing left to walk:
+    // stop the timer here, since the render is where the real height is known.
+    if (ch.autoAdvance && ch.scroll >= maxScroll) {
+      ch.autoAdvance = false;
+      ch.followTail = true;
+      this.syncAutoScrollTimer();
+    }
     const windowRows = bodyRows.slice(ch.scroll, ch.scroll + budget);
 
     const padRow = (row: string): string => `   ${padToVisibleWidth(row, width - 6)}   `;
-    const emptyRow = ' '.repeat(width);
-    const lines: string[] = ['─'.repeat(width), emptyRow];
+    const lines: string[] = [this.headerRow(width)];
     for (const row of windowRows) {
       lines.push(padRow(row));
     }
-    lines.push(emptyRow, '─'.repeat(width));
-
-    const boxed = wrapWithSideBorders(lines, paint, { label: this.title(width) });
-    return ['', ...boxed].map((line) => truncateToWidth(line, width));
+    return lines.map((line) => truncateToWidth(line, width));
   }
 
   private channelFor(entry: NotifyEntry): NotifyChannel {
@@ -586,6 +731,7 @@ export class NotifyPanelComponent implements Component {
       page: 0,
       scroll: 0,
       followTail: true,
+      autoAdvance: false,
       unreadIds: new Set(),
       finished: false,
     };
@@ -659,9 +805,18 @@ export class NotifyPanelComponent implements Component {
   }
 
   /**
-   * The styled top-border label: a tab strip of channel labels (active tab
-   * highlighted, background channels with unread dotted), then the page
-   * indicator and key hints, slimmed down progressively as width shrinks.
+   * The header row: the tab strip that used to be the box's top border. The
+   * surface owns the frame, so the strip and its page and key hints are
+   * content now — the same string `title()` builds, drawn as the first row.
+   */
+  private headerRow(width: number): string {
+    return this.title(width) ?? '';
+  }
+
+  /**
+   * The styled header: a tab strip of channel labels (active tab highlighted,
+   * background channels with unread dotted), then the page indicator and key
+   * hints, slimmed down progressively as width shrinks.
    */
   private title(width: number): string | undefined {
     const c = currentTheme.palette;

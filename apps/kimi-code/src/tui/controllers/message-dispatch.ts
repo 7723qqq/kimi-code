@@ -15,7 +15,6 @@ import type {
   SteerInputItem,
   TranscriptEntry,
 } from '../types';
-import { hasDispose } from '../utils/component-capabilities';
 import { formatErrorMessage } from '../utils/event-payload';
 import type { ImageAttachmentStore } from '../utils/image-attachment-store';
 import {
@@ -28,7 +27,6 @@ import {
 } from '../utils/image-placeholder';
 import type { ExtractionResult } from '../utils/image-placeholder';
 import { combineSteerInput } from '../utils/steer-input';
-import { getTranscriptComponentEntry } from '../utils/transcript-component-metadata';
 import { nextTranscriptId } from '../utils/transcript-id';
 import type { BtwPanelController } from './btw-panel';
 import type { CacheHintController } from './cache-hint-controller';
@@ -66,6 +64,7 @@ export interface MessageDispatchHost {
 
   ensureSession(): Promise<Session | undefined>;
   appendTranscriptEntry(entry: TranscriptEntry): void;
+  removeTranscriptEntries(entries: readonly TranscriptEntry[]): void;
   showError(message: string): void;
   updateQueueDisplay(): void;
   patchLivePane(patch: Partial<LivePaneState>): void;
@@ -903,21 +902,7 @@ export class MessageDispatchController {
   }
 
   private removeTranscriptEntries(entries: readonly TranscriptEntry[]): void {
-    const doomed = new Set(entries);
-    const componentsToRemove = this.host.state.transcriptContainer.children.filter((child) => {
-      const entry = getTranscriptComponentEntry(child);
-      return entry !== undefined && doomed.has(entry);
-    });
-    for (const child of componentsToRemove) {
-      // pi-tui Container.removeChild (not a DOM node); `child.remove()` does not exist.
-      // oxlint-disable-next-line unicorn/prefer-dom-node-remove
-      this.host.state.transcriptContainer.removeChild(child);
-      if (hasDispose(child)) child.dispose();
-    }
-    this.host.state.transcriptEntries = this.host.state.transcriptEntries.filter(
-      (e) => !doomed.has(e),
-    );
-    this.host.state.ui.requestRender();
+    this.host.removeTranscriptEntries(entries);
   }
 }
 

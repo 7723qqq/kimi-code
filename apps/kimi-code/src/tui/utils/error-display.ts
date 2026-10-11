@@ -59,6 +59,14 @@ function stringDetail(
 export function formatLocalizedError(error: ErrorPayloadLike | undefined): string {
   if (error === undefined) return '';
   const { code, message } = error;
+  // A provider-filtered response carries its precise explanation in `details`
+  // (which finish reason, and the raw one when it differs). That sentence says
+  // more than the code's generic title, so it leads when present — the title
+  // would otherwise mask it as soon as the code gains a locale entry.
+  const detail = formatProviderFilteredMessage(error.details);
+  if (detail !== undefined) {
+    return code === undefined ? detail : `[${code}] ${detail}`;
+  }
   if (code !== undefined) {
     const title = localizedErrorTitle(code);
     if (title !== undefined) {

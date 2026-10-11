@@ -125,8 +125,10 @@ export async function runShell(
   // by the TUI itself at `finishStartup` via `showConfigWarningsIfAny` —
   // folded into the dim startup notice they were too easy to miss.
   const configMs = Date.now() - configStartedAt;
-  // Propagate locale from tui.toml to the CLI i18n engine.
+  // Propagate locale from tui.toml to the CLI i18n engine, and to the engine's
+  // own translation instance so tool output and error copy follow the UI.
   setLocale(tuiConfig.locale);
+  harness.setEngineLocale(tuiConfig.locale);
 
   // Resolve --agent/--agent-file once for the startup session; validateOptions
   // has already rejected them alongside --session/--continue.

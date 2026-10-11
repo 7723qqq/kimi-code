@@ -2,6 +2,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
 import { Link } from 'react-router-dom';
 
+import { localeMeta, otherLocale } from '@moonshot-ai/i18n-shared';
 import { useTheme, type ThemeChoice, type ResolvedTheme } from '../../hooks/useTheme';
 import { t, useLocale } from '../../i18n';
 import { SessionRail } from '../sessions/SessionRail';
@@ -31,12 +32,12 @@ export function AppShell({ children }: AppShellProps) {
         <div className="flex items-center gap-2 text-[11px] text-fg-2">
           <button
             onClick={() => {
-              set(locale === 'en' ? 'zh' : 'en');
+              set(otherLocale(locale));
             }}
             className="flex items-center gap-1.5 border border-border px-2 py-0.5 font-mono text-[11px] text-fg-1 transition-colors hover:border-border-strong hover:text-fg-0"
-            title={t('shell.switchLanguage', { lang: locale === 'en' ? '中文' : 'English' })}
+            title={t('shell.switchLanguage', { lang: localeMeta(otherLocale(locale)).label })}
           >
-            {locale === 'en' ? '中' : 'EN'}
+            {localeMeta(otherLocale(locale)).short}
           </button>
           <ThemeToggle choice={choice} resolved={resolved} onCycle={cycle} />
           <button

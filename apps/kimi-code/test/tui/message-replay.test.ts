@@ -320,7 +320,14 @@ describe('KimiTUI resume message replay', () => {
       ),
     ]);
 
-    expect(driver.state.transcriptEntries).toEqual([]);
+    // The resume notice is a status entry (status lines are accounted for like
+    // any other transcript child); the model-facing goal record must still
+    // contribute nothing.
+    expect(
+      driver.state.transcriptEntries.filter(
+        (entry) => !entry.content.startsWith('Resumed session ('),
+      ),
+    ).toEqual([]);
     const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
     expect(transcript).not.toContain('Goal complete');
   });
@@ -401,7 +408,14 @@ describe('KimiTUI resume message replay', () => {
       ),
     ]);
 
-    expect(driver.state.transcriptEntries).toEqual([]);
+    // The resume notice is a status entry (status lines are accounted for like
+    // any other transcript child); the model-facing goal record must still
+    // contribute nothing.
+    expect(
+      driver.state.transcriptEntries.filter(
+        (entry) => !entry.content.startsWith('Resumed session ('),
+      ),
+    ).toEqual([]);
     const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
     expect(transcript).not.toContain('marked complete and cleared');
   });
@@ -425,7 +439,14 @@ describe('KimiTUI resume message replay', () => {
       ),
     ]);
 
-    expect(driver.state.transcriptEntries).toEqual([]);
+    // The resume notice is a status entry (status lines are accounted for like
+    // any other transcript child); the model-facing goal record must still
+    // contribute nothing.
+    expect(
+      driver.state.transcriptEntries.filter(
+        (entry) => !entry.content.startsWith('Resumed session ('),
+      ),
+    ).toEqual([]);
     const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
     expect(transcript).not.toContain('This fork does not have a current goal');
   });

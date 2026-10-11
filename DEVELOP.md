@@ -205,20 +205,24 @@ plugins/
 
 ```
 scripts/
-  check-locale-keys.mjs         — Check locale key coverage
-  check-locale-placeholders.cjs — Validate i18n placeholder consistency
-  check-nix-workspace.mjs       — Validate flake.nix vs workspace membership
-  check-no-comments.mjs         — Enforce no-comment policy (agent-core-v2, kap-server, transcript)
-  check-service-naming.mjs      — Check service naming conventions
-  check-t-call-coverage.mjs     — Check t() call coverage
-  measure-image-tokens.cjs      — Recalibrate the image-token formula against a live endpoint
-  scan-hardcoded-v2.mjs         — Scan for hardcoded strings (i18n compliance)
-  prompt-optimizer/             — Prompt benchmark and optimization tools
+  check-locale-keys.mjs          — Check locale key coverage
+  check-locale-placeholders.cjs  — Validate i18n placeholder consistency
+  check-no-hardcoded-prose.mjs   — Fail on prose literals outside t() (shrink-only ledger)
+  check-nix-workspace.mjs        — Validate flake.nix vs workspace membership
+  check-no-comments.mjs          — Enforce no-comment policy (agent-core-v2, kap-server, transcript)
+  check-service-naming.mjs       — Check service naming conventions
+  check-t-call-coverage.mjs      — Check t() call coverage and engine error-code localization
+  gen-error-locale-skeleton.mjs  — Scaffold missing errorCodes.* locale entries
+  measure-image-tokens.cjs       — Recalibrate the image-token formula against a live endpoint
+  scan-hardcoded-v2.mjs          — Scan for hardcoded strings (i18n compliance)
+  prompt-optimizer/              — Prompt benchmark and optimization tools
 ```
 
-Each of these has a root script. `check:no-comments` and `check:locale-placeholders` also run
-in CI; `check:nix-workspace` runs in the Nix workflow; the rest are by-hand:
-`scan:hardcoded`, `check:service-naming`, `measure:image-tokens`.
+Each of these has a root script. `check:no-comments`, `check:locale-placeholders`,
+`check:no-hardcoded-prose`, `check-t-call-coverage`, `check-locale-keys` and
+`check:status-surface-i18n` also run in CI's `lint` job; `check:nix-workspace` runs in the
+Nix workflow; the rest are by-hand: `scan:hardcoded`, `check:service-naming`,
+`measure:image-tokens`.
 
 ### Structural review (`tools/review`)
 
@@ -237,6 +241,12 @@ tools/review/
   scripts-wiring-baseline.txt   — accepted findings, one per line
   silent-catch-baseline.txt     — accepted findings, one per line
 ```
+
+`text-as-protocol` is the check that keeps the i18n rules enforceable: it fails on
+`value === 'Sentence-shaped text'` comparisons, which are how message copy silently
+becomes an interface between layers (and the first thing to break under translation).
+It ships with zero accepted findings — a new comparison is a design decision, not debt,
+so it has no baseline file.
 
 ```bash
 cd tools/review && zig build          # needs Zig 0.17 (the devShell provides it)
@@ -459,11 +469,52 @@ The macOS and Windows signing steps degrade safely when their secrets are unset:
 
 ### i18n Conventions
 
-- All user-facing strings must use `t()` calls from the i18n framework.
+Classification comes first — most "hardcoded string" reports are the wrong category:
+
+| Class | What it is | Where it lives | Translated? |
+| --- | --- | --- | --- |
+| C1 UI copy | Text a person reads: panel titles, status lines, buttons, `errorCodes.*` | each app's `locales/*.ts` | yes, via `t()` |
+| C2 Model assets | Prompts and tool descriptions sent to the LLM | engine constants (`tools/*/description`, prompt files) | no — deliberately English |
+| C3 Protocol / decision data | Branch keys, event fields, markers (`outcome`, `ReviewDecision`) | stable identifiers / typed enums | never |
+| C4 Developer diagnostics | Logs, internal throws, assertions | English constants | no (raw text is fine) |
+
+The rules that follow from it:
+
+- All user-facing strings (C1) must use `t()` calls from the i18n framework.
 - Supported locales: `en` (English), `zh` (Chinese).
 - The per-tree `locales/*.ts` files are the single source of truth for translations. Locale data reaches the engine as an in-memory JSON string (`JSON.stringify(en)` in `apps/kimi-code/src/i18n/index.ts`), so there is no generated locale JSON to regenerate or commit.
-- Run `bun scripts/scan-hardcoded-v2.mjs` to find hardcoded strings that should be localized.
-- Run `bun scripts/check-locale-placeholders.cjs` to validate placeholder consistency.
+- **Never localize a value that code compares.** If a branch keys off a string, that string is C3: export a constant from the producing package (`ReviewDecision`, `GoalPauseReason`, `InstantiationServiceDisposedError`) and compare that. `tools/review`'s `text-as-protocol` check fails the build on a comparison against sentence-shaped text.
+- **Never put a localized label on the wire.** A UI choice that round-trips back to the engine carries a stable id (`reject`, `revise`, `auto`), not the rendered label; the label stays in the locale tree.
+- Error codes are a contract: every code in the engine registry (`packages/agent-core-v2/src/errors.ts`) needs `errorCodes.<camelCaseCode>` in **both** locale trees. The engine's own `ErrorInfo` carries only `retryable`/`public` — titles and actions were removed so there is one place to change a sentence.
+- Language follows the user at runtime: the TUI pushes its locale into the engine with `harness.setEngineLocale(...)`, so engine-side strings do not stay in the launch language after a `/settings` switch.
+
+Gates (all wired into CI's `lint` job):
+
+- `bun scripts/check-no-hardcoded-prose.mjs` — prose literals outside `t()` in every UI tree. Shrink-only ledger at `scripts/no-hardcoded-prose-baseline.txt`; a new hardcoded string fails the run, and localizing strings lowers the number (regenerate with `--print-counts`).
+- `bun scripts/check-t-call-coverage.mjs` — every `t()` key exists, and every engine error code has en+zh entries. Scaffold missing codes with `bun scripts/gen-error-locale-skeleton.mjs`.
+- `bun scripts/check-locale-keys.mjs`, `bun scripts/check-locale-placeholders.cjs` — en/zh parity and `{{param}}` consistency.
+- `bun scripts/scan-hardcoded-v2.mjs` — by hand: finds a source literal that already exists in a locale file (the narrower, value-level complement to the prose scan).
+- `./tools/review/zig-out/bin/review --check=text-as-protocol` — cross-layer comparisons against message text.
+
+When you add user-visible text: add the key to **both** locales in the same change, prefer a `{{param}}` over string concatenation, and do not add a baseline entry — a new entry is a review decision, and the answer is normally "use `t()`".
+
+#### Locale ownership and the metric snapshot
+
+Each locale tree has one owner — the person who answers "is this sentence right?" for that
+surface. Ownership follows the tree, not the feature, because a locale file is a single unit of
+review:
+
+| Tree | Surface | Owner |
+| --- | --- | --- |
+| `apps/kimi-code/src/i18n/locales` | CLI/TUI copy, `errorCodes.*` (the error-code display contract) | TUI maintainers |
+| `packages/i18n/src/locales` | engine-side strings reached through `@moonshot-ai/kimi-i18n` | engine maintainers |
+| `apps/kimi-web/src/i18n/locales` | web UI (installs separately; see its own `DEVELOP.md`) | web maintainers |
+| `apps/kimi-inspect/src/i18n/locales`, `apps/vis/web/src/i18n/locales`, `apps/vscode/webview-ui/src/i18n/locales` | developer-facing tools | tool maintainers |
+
+The count to watch is the prose ledger, not the number of locale keys: a shrinking ledger means
+copy moved onto `t()`, while a growing one means new hardcoded text was accepted. Record both the
+ledger total and the error-code coverage in the audit report for the release, next to the other
+metrics, with the commands from this section as the evidence.
 
 ---
 

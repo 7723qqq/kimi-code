@@ -35,6 +35,18 @@ See https://github.com/MoonshotAI/kimi-code/blob/main/CONTRIBUTING.md for more.
      Write "None" with evidence if nothing observable changes.
      Then list affected modules and the test coverage for each row. -->
 
+## User-Facing Text (i18n)
+
+<!-- Answer all three for any change that adds or edits text a user reads:
+     1. Which class is it (DEVELOP.md → i18n Conventions)? C1 UI copy (needs t()),
+        C2 model asset (English by design), C3 protocol/decision data (stable id, never
+        a rendered label), C4 developer diagnostic (log/throw text).
+     2. For C1: are the keys added to BOTH en and zh in this PR, and is any
+        errorCodes.* entry backed by a code in the engine registry?
+     3. Does anything compare message text (`=== 'Some sentence'`)? If yes, stop:
+        export a constant from the producing package and compare that instead
+        (tools/review → text-as-protocol). -->
+
 ## Checklist
 
 - [ ] I have read the [CONTRIBUTING](https://github.com/MoonshotAI/kimi-code/blob/main/CONTRIBUTING.md) document.

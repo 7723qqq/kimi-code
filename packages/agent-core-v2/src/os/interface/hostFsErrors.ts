@@ -15,43 +15,34 @@ export const OsFsErrors = {
   retryable: ['os.fs.unavailable', 'os.fs.unknown'],
   info: {
     'os.fs.not_found': {
-      title: 'Path not found',
       retryable: false,
       public: true,
     },
     'os.fs.is_directory': {
-      title: 'Path is a directory',
       retryable: false,
       public: true,
     },
     'os.fs.not_directory': {
-      title: 'Path is not a directory',
       retryable: false,
       public: true,
     },
     'os.fs.already_exists': {
-      title: 'Path already exists',
       retryable: false,
       public: true,
     },
     'os.fs.permission_denied': {
-      title: 'Permission denied',
       retryable: false,
       public: true,
-      action: 'Check the file permissions of the target path.',
     },
     'os.fs.not_empty': {
-      title: 'Directory not empty',
       retryable: false,
       public: true,
     },
     'os.fs.unavailable': {
-      title: 'Filesystem unavailable',
       retryable: true,
       public: true,
     },
     'os.fs.unknown': {
-      title: 'Filesystem error',
       retryable: true,
       public: true,
     },

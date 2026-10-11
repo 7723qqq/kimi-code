@@ -13,6 +13,10 @@ import {
   calculateAgentSwarmGridLayout,
 } from '#/tui/components/messages/agent-swarm-progress';
 import { AgentSwarmProgressEstimator } from '#/tui/components/messages/agent-swarm-progress-estimator';
+import {
+  MAX_ESTIMATOR_SEEN_TOOL_CALLS,
+  MAX_ESTIMATOR_TOOL_CALL_SAMPLES,
+} from '#/tui/constant/rendering';
 import { currentTheme, darkColors, lightColors } from '#/tui/theme';
 import { setRenderCacheEnabled } from '#/tui/utils/render-cache';
 
@@ -54,6 +58,28 @@ function startSubagents(component: AgentSwarmProgressComponent, count: number): 
   for (let index = 1; index <= count; index += 1) {
     component.markStarted(`agent-${String(index)}`);
   }
+}
+
+interface EstimatorMemberHistory {
+  readonly seenToolCallIds: Set<string>;
+  readonly seenToolCallOrder: string[];
+  readonly toolCallActiveTimesMs: number[];
+}
+
+/**
+ * The retention caps are internal state, so the bounds test reads the member
+ * record directly rather than trying to infer it from an estimate.
+ */
+function estimatorMemberHistory(
+  estimator: AgentSwarmProgressEstimator,
+  memberKey: string,
+): EstimatorMemberHistory {
+  const members = (
+    estimator as unknown as { readonly members: Map<string, EstimatorMemberHistory> }
+  ).members;
+  const history = members.get(memberKey);
+  if (history === undefined) throw new Error(`unknown estimator member: ${memberKey}`);
+  return history;
 }
 
 afterEach(() => {
@@ -1282,6 +1308,36 @@ describe('AgentSwarmProgressComponent frame timer', () => {
     vi.advanceTimersByTime(80 * 5);
     expect(requestRender.mock.calls.length).toBe(callsAfterSettled);
   });
+
+  it('does not re-arm the frame timer after dispose', () => {
+    vi.useFakeTimers();
+    const requestRender = vi.fn();
+    const component = createComponent({ requestRender });
+    registerSubagents(component, 1);
+    startSubagents(component, 1);
+
+    vi.advanceTimersByTime(80);
+    expect(requestRender).toHaveBeenCalled();
+
+    component.dispose();
+    vi.advanceTimersByTime(80 * 4);
+    requestRender.mockClear();
+
+    // Every mutator re-arms the animation through startAnimationIfNeeded(), so
+    // a late event after dispose must not resurrect the interval.
+    component.markStarted('agent-1');
+    component.recordToolCall({ agentId: 'agent-1', toolCallId: 'late-call' });
+    component.applyResult(
+      [
+        '<agent_swarm_result>',
+        '<subagent index="1" agent_id="agent-1" outcome="completed">done</subagent>',
+        '</agent_swarm_result>',
+      ].join('\n'),
+    );
+    vi.advanceTimersByTime(80 * 10);
+
+    expect(requestRender).not.toHaveBeenCalled();
+  });
 });
 
 describe('AgentSwarmProgressEstimator', () => {
@@ -1467,5 +1523,81 @@ describe('AgentSwarmProgressEstimator', () => {
       nowMs: 20_000,
     });
     expect(repeat.estimatedTotalToolCalls).toBe(after.estimatedTotalToolCalls);
+  });
+
+  it('keeps the tool-call sample and seen-id history bounded', () => {
+    const estimator = new AgentSwarmProgressEstimator();
+    estimator.markStarted('001', 0);
+    const recorded = MAX_ESTIMATOR_SEEN_TOOL_CALLS + 512;
+    for (let index = 0; index < recorded; index += 1) {
+      estimator.recordToolCall({
+        memberKey: '001',
+        toolCallId: `call-${String(index)}`,
+        nowMs: 1_000 + index,
+      });
+    }
+
+    const history = estimatorMemberHistory(estimator, '001');
+    expect(history.toolCallActiveTimesMs).toHaveLength(MAX_ESTIMATOR_TOOL_CALL_SAMPLES);
+    expect(history.seenToolCallOrder).toHaveLength(MAX_ESTIMATOR_SEEN_TOOL_CALLS);
+    expect(history.seenToolCallIds.size).toBe(MAX_ESTIMATOR_SEEN_TOOL_CALLS);
+    // FIFO eviction drops the oldest ids while the newest ones stay deduped.
+    expect(history.seenToolCallIds.has('call-0')).toBe(false);
+    expect(history.seenToolCallIds.has(`call-${String(recorded - 1)}`)).toBe(true);
+    expect(
+      estimator.recordToolCall({
+        memberKey: '001',
+        toolCallId: `call-${String(recorded - 1)}`,
+        nowMs: 2_000 + recorded,
+      }).accepted,
+    ).toBe(false);
+  });
+
+  it('keeps the rate estimate finite and non-decreasing with a capped sample window', () => {
+    const estimator = new AgentSwarmProgressEstimator({
+      catchupTimeMs: 1_000,
+      maxCatchupTicksPerSecond: 100,
+    });
+
+    estimator.markStarted('001', 0);
+    for (let index = 0; index < 10; index += 1) {
+      estimator.recordToolCall({
+        memberKey: '001',
+        toolCallId: `seed-${String(index)}`,
+        nowMs: 1_000 + index * 1_000,
+      });
+    }
+    estimator.markCompleted('001', 40_000);
+
+    estimator.markStarted('002', 0);
+    const recorded = MAX_ESTIMATOR_TOOL_CALL_SAMPLES * 4;
+    for (let index = 0; index < recorded; index += 1) {
+      estimator.recordToolCall({
+        memberKey: '002',
+        toolCallId: `running-${String(index)}`,
+        nowMs: 1_000 + index * 10,
+      });
+    }
+    const lastNowMs = 2_000 + recorded * 10;
+
+    const first = estimator.estimate({
+      memberKey: '002',
+      phase: 'running',
+      capacityTicks: 10_000,
+      nowMs: lastNowMs,
+    });
+    const later = estimator.estimate({
+      memberKey: '002',
+      phase: 'running',
+      capacityTicks: 10_000,
+      nowMs: lastNowMs + 1_000,
+    });
+
+    expect(Number.isFinite(first.estimatedTotalToolCalls)).toBe(true);
+    // The estimate can never imply more progress than the recorded ticks.
+    expect(first.estimatedTotalToolCalls ?? 0).toBeGreaterThanOrEqual(recorded + 1);
+    expect(first.boosted).toBe(false);
+    expect(later.boosted).toBe(true);
+    expect(later.displayTicks).toBeGreaterThanOrEqual(first.displayTicks);
   });
 });

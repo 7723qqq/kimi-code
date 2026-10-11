@@ -9,6 +9,7 @@ import type { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 
 import type { IAgentPlanService } from './plan';
+import { PlanReviewDecision, reviewDecisionFromLabel } from '#/agent/interaction/reviewDecisions';
 
 type PlanReviewDisplay = Extract<ToolInputDisplay, { kind: 'plan_review' }>;
 type PlanReviewOption = NonNullable<PlanReviewDisplay['options']>[number];
@@ -51,12 +52,13 @@ export class ExitPlanModeReview {
     }
 
     const selected = selectedExitPlanModeOption(display.options, result.selectedLabel);
+    const decision = reviewDecisionFromLabel(result.selectedLabel);
     this.plan.exit();
 
     if (result.selectedLabel !== undefined && result.selectedLabel.length > 0) {
       this.trackPlanTelemetry('plan_resolved', {
         outcome: 'approved',
-        chosen_option: result.selectedLabel,
+        chosen_option: decision ?? result.selectedLabel,
       });
     } else {
       this.trackPlanTelemetry('plan_resolved', { outcome: 'approved' });
@@ -90,7 +92,8 @@ export class ExitPlanModeReview {
       };
     }
 
-    if (result.selectedLabel === 'Reject and Exit') {
+    const decision = reviewDecisionFromLabel(result.selectedLabel);
+    if (decision === PlanReviewDecision.REJECT_AND_EXIT) {
       this.plan.exit();
       return {
         kind: 'result',
@@ -103,7 +106,7 @@ export class ExitPlanModeReview {
     }
 
     const feedback = result.feedback ?? '';
-    if (result.selectedLabel === 'Revise' || feedback.length > 0) {
+    if (decision === PlanReviewDecision.REVISE || feedback.length > 0) {
       return {
         kind: 'result',
         result: {
@@ -132,13 +135,14 @@ export class ExitPlanModeReview {
       return;
     }
 
-    if (result.selectedLabel === 'Reject and Exit') {
+    const decision = reviewDecisionFromLabel(result.selectedLabel);
+    if (decision === PlanReviewDecision.REJECT_AND_EXIT) {
       this.trackPlanTelemetry('plan_resolved', { outcome: 'rejected_and_exited' });
       return;
     }
 
     const feedback = result.feedback ?? '';
-    if (result.selectedLabel === 'Revise' || feedback.length > 0) {
+    if (decision === PlanReviewDecision.REVISE || feedback.length > 0) {
       this.trackPlanTelemetry('plan_resolved', {
         outcome: 'revise',
         has_feedback: feedback.length > 0,

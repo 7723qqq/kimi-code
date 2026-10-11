@@ -7,16 +7,12 @@ export const ModelCatalogErrors = {
   },
   info: {
     'provider.not_found': {
-      title: 'Provider not found',
       retryable: false,
       public: true,
-      action: 'Check the provider id or configure the provider first.',
     },
     'model.not_found': {
-      title: 'Model not found',
       retryable: false,
       public: true,
-      action: 'Check the model alias or configure the model first.',
     },
   },
 } as const satisfies ErrorDomain;

@@ -1,3 +1,4 @@
+import { NotificationAction } from "../utils/notification-actions";
 import type { Stats } from "node:fs";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
@@ -210,8 +211,8 @@ async function exportContext(
     `Exported ${String(context.history.length)} messages to ${outputPath}\n\n` +
     "Note: The exported file may contain sensitive information. Please be cautious when sharing it externally.",
   );
-  void vscode.window.showInformationMessage("Kimi: Session exported.", "Open File").then((action) => {
-    if (action !== "Open File") return;
+  void vscode.window.showInformationMessage("Kimi: Session exported.", NotificationAction.OPEN_FILE).then((action) => {
+    if (action !== NotificationAction.OPEN_FILE) return;
     void vscode.window.showTextDocument(vscode.Uri.file(outputPath));
   });
 }

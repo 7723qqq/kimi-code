@@ -18,15 +18,18 @@ import {
   BRAILLE_SPINNER_FRAMES,
   BRAILLE_SPINNER_INTERVAL_MS,
   COMMAND_PREVIEW_LINES,
+  MAX_SUBAGENT_STREAM_TEXT_CHARS,
+  MAX_SUB_TOOL_ACTIVITIES,
   OUTCOME_MAX_LINES,
   RESULT_PREVIEW_LINES,
+  SUBAGENT_TOOL_OUTPUT_MAX_CHARS,
   THINKING_PREVIEW_LINES,
 } from '#/tui/constant/rendering';
 import {
   STREAMING_ARGS_FIELD_RE,
   STREAMING_ARGS_PREVIEW_MAX_CHARS,
 } from '#/tui/constant/streaming';
-import { FAILURE_MARK, STATUS_BULLET, SUCCESS_MARK } from '#/tui/constant/symbols';
+import { FAILURE_MARK, STATUS_BULLET, STATUS_DOT, SUCCESS_MARK } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import { createMarkdownTheme } from '#/tui/theme/pi-tui-theme';
 import type { ToolCallBlockData, ToolResultBlockData } from '#/tui/types';
@@ -49,7 +52,7 @@ import {
 import { agentSwarmResultSummaryFromOutput } from './agent-swarm-progress';
 import { PlanBoxComponent } from './plan-box';
 import { ShellExecutionComponent } from './shell-execution';
-import { countNonEmptyLines, pickChip } from './tool-renderers/chip';
+import { pickChip } from './tool-renderers/chip';
 import { computeWriteStats } from './tool-renderers/chip';
 import { buildGoalToolHeader, parseGoalToolOutput } from './tool-renderers/goal';
 import { searchNoticeOnly } from './tool-renderers/grep-output';
@@ -59,7 +62,11 @@ import { isGenericToolResult, pickResultRenderer } from './tool-renderers/regist
 import { TruncatedOutputComponent } from './tool-renderers/truncated';
 import { isSpilledToolOutput } from './tool-renderers/types';
 import { buildWaitForHeader, parseWaitForOutput } from './tool-renderers/wait-for';
-import { TruncatedHeaderLine, type HeaderContent } from './truncated-header-line';
+import {
+  renderHeaderContent,
+  TruncatedHeaderLine,
+  type HeaderContent,
+} from './truncated-header-line';
 
 const MAX_ARG_LENGTH = 60;
 const MAX_SUB_TOOL_CALLS_SHOWN = 4;
@@ -69,9 +76,12 @@ const MAX_SUBAGENT_DESCRIPTION_LENGTH = 60;
 const APPROVED_PLAN_MARKER = '## Approved Plan:';
 const AUTO_APPROVED_PLAN_MARKER = '## Plan (auto-approved, not user-reviewed):';
 const STREAMING_PROGRESS_INTERVAL_MS = 1000;
-const PROGRESS_URL_RE = /https?:\/\/\S+/g;
 const ABORTED_MARK = '⊘';
 const MAX_LIVE_OUTPUT_CHARS = 50_000;
+// Prefix marking a bounded stream buffer that dropped its head (live tool
+// output, child-agent stream text, sub-tool output); everything after it is
+// the tail that survived.
+const TAIL_TRUNCATION_MARKER = '[…truncated]\n';
 // One shared reference: the header line compares segment styles by identity
 // to keep its render cache across rebuilds, and the palette is read at call
 // time so theme switches still apply.
@@ -81,6 +91,13 @@ const dimHeaderStyle = (text: string): string => currentTheme.dim(text);
 const DETACH_HINT_DELAY_MS = 10_000;
 function getDetachHintText(): string {
   return t('tui.messages.toolCall.detachHint');
+}
+
+/** Keep only the tail of a bounded buffer, marking the dropped head with a truncation line. */
+function tailCapped(text: string, maxChars: number): string {
+  return text.length > maxChars
+    ? `${TAIL_TRUNCATION_MARKER}${text.slice(text.length - maxChars)}`
+    : text;
 }
 
 type SubagentTextKind = 'thinking' | 'text';
@@ -363,14 +380,19 @@ function parseArgsPreview(value: string): Record<string, unknown> {
 
 const PATH_KEYS = new Set(['path', 'file_path']);
 
+/**
+ * Cut `value` to `max` display cells through the header layout's cutter, so
+ * the cut lands on grapheme boundaries — a CJK character or an emoji is never
+ * halved and no lone surrogate can come out — and stays lazy for a huge value
+ * (only the head, or a width-sized window of the tail, is ever walked).
+ */
+function cutToCells(value: string, max: number, keep: 'head' | 'tail'): string {
+  return renderHeaderContent({ head: '', flex: { text: value, keep }, tail: '' }, max);
+}
+
+/** The header's key argument: paths keep their file name, everything else keeps its start. */
 function truncateArgValue(key: string, value: string): string {
-  if (value.length <= MAX_ARG_LENGTH) return value;
-  if (PATH_KEYS.has(key)) {
-    // Preserve the tail (filename) — drop the prefix so the user can
-    // still tell which file is being touched.
-    return '…' + value.slice(value.length - (MAX_ARG_LENGTH - 1));
-  }
-  return value.slice(0, MAX_ARG_LENGTH - 1) + '…';
+  return cutToCells(value, MAX_ARG_LENGTH, PATH_KEYS.has(key) ? 'tail' : 'head');
 }
 
 function makeWorkspaceRelativePath(filePath: string, workspaceDir: string | undefined): string {
@@ -412,8 +434,8 @@ export interface KeyArgument {
 
 /**
  * Capped variant for contexts without a width-aware header (subagent
- * summaries, the activity viewer): the first {@link MAX_ARG_LENGTH}
- * characters, keeping a path's file name.
+ * summaries, the activity viewer): the first {@link MAX_ARG_LENGTH} display
+ * cells, keeping a path's file name.
  */
 export function extractKeyArgument(
   toolName: string,
@@ -478,14 +500,14 @@ export function extractKeyArgumentDetail(
 
 function formatSubagentLabel(agentName: string | undefined): string {
   const raw = agentName?.trim();
-  if (raw === undefined || raw.length === 0) return 'SubAgent';
+  if (raw === undefined || raw.length === 0) return t('tui.messages.toolCall.subAgentDefault');
   const label = raw
     .split(/[-_\s]+/)
     .filter((part) => part.length > 0)
     .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
     .join(' ');
   if (/\bagent$/i.test(label)) return label;
-  return `${label} Agent`;
+  return `${label} ${t('tui.messages.toolCall.subAgentSuffix')}`;
 }
 
 class PrefixedWrappedLine implements Component {
@@ -553,6 +575,12 @@ export class ToolCallComponent extends Container {
   private hiddenContent: boolean | undefined = undefined;
   /** Width-dependent half of hasHiddenContent(); recomputed on every collapsed render. */
   private truncatedAtLastRender = false;
+  /**
+   * Memo for collapsedOutcomeClips() while the card stays expanded: the row
+   * derivation is width-dependent and would otherwise run on every frame.
+   * Invalidated wherever the body is rebuilt.
+   */
+  private collapsedOutcomeClipsMemo: { width: number; clips: boolean } | undefined = undefined;
   private result: ToolResultBlockData | undefined;
   private ui: TUI | undefined;
   private planPath: string | undefined;
@@ -771,7 +799,21 @@ export class ToolCallComponent extends Container {
     return this.hiddenContent || this.truncatedAtLastRender;
   }
 
+  /**
+   * Whether the collapsed outcome row would be cut at `width`. While the card
+   * stays expanded the answer cannot change between frames, so it is computed
+   * once per width and invalidated on the same events that rebuild the body
+   * (result, live output, tool-call update, expansion).
+   */
   private collapsedOutcomeClips(width: number): boolean {
+    const memo = this.collapsedOutcomeClipsMemo;
+    if (memo !== undefined && memo.width === width) return memo.clips;
+    const clips = this.computeCollapsedOutcomeClips(width);
+    this.collapsedOutcomeClipsMemo = { width, clips };
+    return clips;
+  }
+
+  private computeCollapsedOutcomeClips(width: number): boolean {
     const result = this.result;
     if (result === undefined || result.output.length === 0 || result.is_error === true) {
       return false;
@@ -991,19 +1033,24 @@ export class ToolCallComponent extends Container {
 
   appendLiveOutput(text: string): void {
     if (this.result !== undefined || text.length === 0) return;
-    this.liveOutput += text;
+    this.liveOutput = tailCapped(this.liveOutput + text, MAX_LIVE_OUTPUT_CHARS);
     this.hiddenContent = undefined;
-    if (this.liveOutput.length > MAX_LIVE_OUTPUT_CHARS) {
-      this.liveOutput = `[…truncated]\n${this.liveOutput.slice(
-        this.liveOutput.length - MAX_LIVE_OUTPUT_CHARS,
-      )}`;
-    }
     this.rebuildContent();
     this.notifySnapshotChange();
     this.ui?.requestRender();
   }
 
   dispose(): void {
+    this.stopTimers();
+  }
+
+  /**
+   * Stops the card's own timers without tearing the component down. Used when
+   * the owning step/turn ends but the card stays mounted in the transcript —
+   * the spinner must not keep repainting a card no further update can reach,
+   * yet the component must remain intact for a late result.
+   */
+  stopTimers(): void {
     this.stopStreamingProgressTimer();
     this.stopSubagentElapsedTimer();
     this.stopDetachHintTimer();
@@ -1035,7 +1082,7 @@ export class ToolCallComponent extends Container {
     if (subagent === undefined) return;
     this.subagentAgentId = subagent.id;
     this.subagentAgentName = subagent.name;
-    this.subagentText = subagent.text ?? '';
+    this.subagentText = tailCapped(subagent.text ?? '', MAX_SUBAGENT_STREAM_TEXT_CHARS);
     for (const call of subagent.toolCalls ?? []) {
       if (call.result === undefined) {
         this.ongoingSubCalls.set(call.id, { name: call.name, args: call.args });
@@ -1094,10 +1141,15 @@ export class ToolCallComponent extends Container {
         : this.subagentUsage === undefined
           ? 0
           : usageTotal(this.subagentUsage);
+    // `computeLatestActivity` reads the accumulated text only when no sub-tool
+    // call can answer for it; joining thinking+text is O(child output), so keep
+    // the join lazy and skip it whenever a sub-call exists.
     const latestActivity = computeLatestActivity(
       this.ongoingSubCalls,
       this.finishedSubCalls,
-      this.getCombinedSubagentText(),
+      this.ongoingSubCalls.size > 0 || this.finishedSubCalls.length > 0
+        ? ''
+        : this.getCombinedSubagentText(),
       this.workspaceDir,
     );
     // Terminal-state priority: SDK `tool.result` is authoritative for Agent
@@ -1137,8 +1189,8 @@ export class ToolCallComponent extends Container {
   /**
    * Used by `ReadGroupComponent` to sum line counts across same-step Read
    * cards. `lines` matches the single-card chip
-   * (`pluralize(countNonEmptyLines(...), 'line')`) so group and card counts do
-   * not drift.
+   * (`pluralize(nonEmptyLines(...).length, 'line')`) so group and card counts
+   * do not drift: same sanitize + blank-line trim on both sides.
    */
   getReadSnapshot(): ToolCallReadSnapshot {
     const args = this.toolCall.args;
@@ -1157,7 +1209,7 @@ export class ToolCallComponent extends Container {
       toolCallId: this.toolCall.id,
       filePath,
       phase: 'done',
-      lines: countNonEmptyLines(this.result.output),
+      lines: nonEmptyLines(this.result.output).length,
     };
   }
 
@@ -1183,7 +1235,8 @@ export class ToolCallComponent extends Container {
       existing.name = name;
       existing.args = args;
       existing.phase = phase;
-      if (output !== undefined) existing.output = output;
+      if (output !== undefined)
+        existing.output = tailCapped(output, SUBAGENT_TOOL_OUTPUT_MAX_CHARS);
       return;
     }
     this.subToolActivities.set(id, {
@@ -1191,9 +1244,17 @@ export class ToolCallComponent extends Container {
       name,
       args,
       phase,
-      output,
+      output: output === undefined ? undefined : tailCapped(output, SUBAGENT_TOOL_OUTPUT_MAX_CHARS),
       orderSeq: ++this.subToolOrderSeq,
     });
+    // Insertion order is recency order, so the oldest records go first. Only
+    // the most recent activity is ever read (the summary line), and a busy
+    // child can make hundreds of tool calls — keep a bounded store.
+    while (this.subToolActivities.size > MAX_SUB_TOOL_ACTIVITIES) {
+      const oldest = this.subToolActivities.keys().next().value;
+      if (oldest === undefined) break;
+      this.subToolActivities.delete(oldest);
+    }
   }
 
   private getCombinedSubagentText(): string {
@@ -1375,7 +1436,7 @@ export class ToolCallComponent extends Container {
     this.subagentResultSummary =
       payload.resultSummary.length > 0 ? payload.resultSummary : undefined;
     if (this.subagentText.trim().length === 0 && this.subagentResultSummary !== undefined) {
-      this.subagentText = this.subagentResultSummary;
+      this.subagentText = tailCapped(payload.resultSummary, MAX_SUBAGENT_STREAM_TEXT_CHARS);
     }
     this.syncSubagentElapsedTimer();
     this.headerText.setText(this.buildHeader());
@@ -1523,10 +1584,16 @@ export class ToolCallComponent extends Container {
 
   appendSubagentText(text: string, kind: SubagentTextKind = 'text'): void {
     this.lastSubagentStreamKind = kind;
+    // Both buffers keep only a bounded tail: a child streaming for a long time
+    // would otherwise grow the card without limit, and every rebuild would
+    // pay for the whole history.
     if (kind === 'thinking') {
-      this.subagentThinkingText += text;
+      this.subagentThinkingText = tailCapped(
+        this.subagentThinkingText + text,
+        MAX_SUBAGENT_STREAM_TEXT_CHARS,
+      );
     } else {
-      this.subagentText += text;
+      this.subagentText = tailCapped(this.subagentText + text, MAX_SUBAGENT_STREAM_TEXT_CHARS);
     }
     // Child-agent activity means it is running unless already terminal/backgrounded.
     if (
@@ -1574,12 +1641,13 @@ export class ToolCallComponent extends Container {
       delta.argumentsPart,
     );
     const parsed = parseArgsPreview(nextArgsText);
+    const toolName = delta.name ?? existing?.name ?? t('tui.messages.toolCall.toolDefault');
     this.ongoingSubCalls.set(delta.id, {
-      name: delta.name ?? existing?.name ?? 'Tool',
+      name: toolName,
       args: parsed,
       streamingArguments: nextArgsText,
     });
-    this.upsertSubToolActivity(delta.id, delta.name ?? existing?.name ?? 'Tool', parsed, 'ongoing');
+    this.upsertSubToolActivity(delta.id, toolName, parsed, 'ongoing');
     if (
       this.subagentPhase === undefined ||
       this.subagentPhase === 'queued' ||
@@ -1602,13 +1670,10 @@ export class ToolCallComponent extends Container {
     const activity = this.subToolActivities.get(id);
     const ongoing = this.ongoingSubCalls.get(id);
     if (activity === undefined && ongoing === undefined) return;
-    const name = activity?.name ?? ongoing?.name ?? 'Tool';
+    const name = activity?.name ?? ongoing?.name ?? t('tui.messages.toolCall.toolDefault');
     const args = activity?.args ?? ongoing?.args ?? {};
     const existingOutput = options?.replace === true ? '' : (activity?.output ?? '');
-    let output = existingOutput + text;
-    if (output.length > MAX_LIVE_OUTPUT_CHARS) {
-      output = `[…truncated]\n${output.slice(output.length - MAX_LIVE_OUTPUT_CHARS)}`;
-    }
+    const output = tailCapped(existingOutput + text, MAX_LIVE_OUTPUT_CHARS);
     this.upsertSubToolActivity(id, name, args, activity?.phase ?? 'ongoing', output);
     this.rebuildContent();
     this.notifySnapshotChange();
@@ -1626,7 +1691,9 @@ export class ToolCallComponent extends Container {
     this.finishedSubCalls.push({
       name: ongoing.name,
       args: ongoing.args,
-      output: result.output,
+      // Only the name and key argument of a finished sub-call are ever read;
+      // keep just a bounded tail of the body so a huge result cannot linger.
+      output: tailCapped(result.output, SUBAGENT_TOOL_OUTPUT_MAX_CHARS),
       isError: result.is_error ?? false,
     });
     this.upsertSubToolActivity(
@@ -1810,6 +1877,7 @@ export class ToolCallComponent extends Container {
 
   private rebuildContent(): void {
     this.hiddenContent = undefined;
+    this.collapsedOutcomeClipsMemo = undefined;
     while (this.children.length > this.callPreviewEndIndex) {
       this.children.pop();
     }
@@ -1822,6 +1890,7 @@ export class ToolCallComponent extends Container {
 
   private rebuildBody(): void {
     this.hiddenContent = undefined;
+    this.collapsedOutcomeClipsMemo = undefined;
     while (this.children.length > 2) {
       this.children.pop();
     }
@@ -1852,15 +1921,7 @@ export class ToolCallComponent extends Container {
         this.addChild(new Text('', 2, 0));
         continue;
       }
-      PROGRESS_URL_RE.lastIndex = 0;
-      const styled = PROGRESS_URL_RE.test(raw)
-        ? raw.replace(PROGRESS_URL_RE, (url) => {
-            const visible = currentTheme.underlineFg('warning', url);
-            return `\u001B]8;;${url}\u001B\\${visible}\u001B]8;;\u001B\\`;
-          })
-        : currentTheme.dim(raw);
-      PROGRESS_URL_RE.lastIndex = 0;
-      this.addChild(new Text(styled, 2, 0));
+      this.addChild(new Text(linkifyProgressUrls(raw), 2, 0));
     }
   }
 
@@ -1912,21 +1973,21 @@ export class ToolCallComponent extends Container {
     const phaseChip = this.formatPhaseChip();
     const headerLabel =
       this.subagentAgentName !== undefined
-        ? `subagent ${this.subagentAgentName} (${this.formatAgentId()})`
-        : `subagent (${this.formatAgentId()})`;
+        ? t('tui.messages.toolCall.subagentWithName', {
+            name: this.subagentAgentName,
+            id: this.formatAgentId(),
+          })
+        : t('tui.messages.toolCall.subagentNoName', { id: this.formatAgentId() });
     this.addChild(new Text(`  ${currentTheme.dim(`↳ ${headerLabel}`)}${phaseChip}`, 0, 0));
 
     if (this.hiddenSubCallCount > 0) {
-      const suffix = this.hiddenSubCallCount > 1 ? 's' : '';
-      this.addChild(
-        new Text(
-          currentTheme.italic(
-            currentTheme.dim(`    ${String(this.hiddenSubCallCount)} more tool call${suffix} …`),
-          ),
-          0,
-          0,
-        ),
+      const moreLabel = t(
+        this.hiddenSubCallCount > 1
+          ? 'tui.messages.toolCall.moreToolCalls_other'
+          : 'tui.messages.toolCall.moreToolCalls_one',
+        { count: this.hiddenSubCallCount },
       );
+      this.addChild(new Text(currentTheme.italic(currentTheme.dim(`    ${moreLabel} …`)), 0, 0));
     }
 
     for (const sub of this.finishedSubCalls) {
@@ -1934,7 +1995,9 @@ export class ToolCallComponent extends Container {
       const keyArg = extractKeyArgument(sub.name, sub.args, this.workspaceDir);
       const nameCol = currentTheme.fg('primary', sub.name);
       const argCol = keyArg ? currentTheme.dim(` (${keyArg})`) : '';
-      this.addChild(new Text(`    ${mark} Used ${nameCol}${argCol}`, 0, 0));
+      this.addChild(
+        new Text(`    ${mark} ${t('tui.messages.toolCall.used')} ${nameCol}${argCol}`, 0, 0),
+      );
     }
 
     for (const [id, call] of this.ongoingSubCalls) {
@@ -1942,7 +2005,13 @@ export class ToolCallComponent extends Container {
       const nameCol = currentTheme.fg('primary', call.name);
       const argCol = keyArg ? currentTheme.dim(` (${keyArg})`) : '';
       void id;
-      this.addChild(new Text(`    ${currentTheme.dim('…')} Using ${nameCol}${argCol}`, 0, 0));
+      this.addChild(
+        new Text(
+          `    ${currentTheme.dim('…')} ${t('tui.messages.toolCall.using')} ${nameCol}${argCol}`,
+          0,
+          0,
+        ),
+      );
     }
 
     if (this.subagentText.length > 0) {
@@ -1983,16 +2052,16 @@ export class ToolCallComponent extends Container {
     const parts: string[] = [];
     switch (this.subagentPhase) {
       case 'queued':
-        parts.push('○ queued');
+        parts.push(`${STATUS_DOT} ${t('tui.messages.toolCall.phaseQueued')}`);
         break;
       case 'spawning':
-        parts.push('↻ starting…');
+        parts.push(`↻ ${t('tui.messages.toolCall.phaseStarting')}`);
         break;
       case 'running':
-        parts.push('↻ running');
+        parts.push(`↻ ${t('tui.messages.toolCall.phaseRunning')}`);
         break;
       case 'done': {
-        parts.push(currentTheme.fg('success', '✓ done'));
+        parts.push(currentTheme.fg('success', `✓ ${t('tui.messages.toolCall.phaseDone')}`));
         const toolCount = this.finishedSubCalls.length + this.hiddenSubCallCount;
         if (toolCount > 0) {
           parts.push(
@@ -2068,13 +2137,17 @@ export class ToolCallComponent extends Container {
     const rawDescription = str(this.toolCall.args['description']);
     const description =
       rawDescription.length > MAX_SUBAGENT_DESCRIPTION_LENGTH
-        ? `${rawDescription.slice(0, MAX_SUBAGENT_DESCRIPTION_LENGTH - 1)}…`
+        ? cutToCells(rawDescription, MAX_SUBAGENT_DESCRIPTION_LENGTH, 'head')
         : rawDescription;
     const descriptionPlain = description.length > 0 ? ` (${description})` : '';
     const descriptionText = descriptionPlain.length > 0 ? currentTheme.dim(descriptionPlain) : '';
     const statsText = this.formatSingleSubagentStatsText();
     if (isDone) {
-      return `${marker}${currentTheme.boldFg('success', labelText)} ${currentTheme.fg('success', `Completed${descriptionPlain}${statsText}`)}`;
+      const completed = t('tui.messages.toolCall.singleSubagentCompleted', {
+        description: descriptionPlain,
+        stats: statsText,
+      });
+      return `${marker}${currentTheme.boldFg('success', labelText)} ${currentTheme.fg('success', completed)}`;
     }
     const stats = currentTheme.dim(statsText);
     return `${marker}${label} ${status}${descriptionText}${stats}`;
@@ -2083,18 +2156,18 @@ export class ToolCallComponent extends Container {
   private formatSingleSubagentStatus(phase: SubagentPhase | undefined): string {
     switch (phase) {
       case 'done':
-        return currentTheme.fg('success', 'Completed');
+        return currentTheme.fg('success', t('tui.messages.toolCall.singleSubagent.completed'));
       case 'failed':
-        return currentTheme.fg('error', 'Failed');
+        return currentTheme.fg('error', t('tui.messages.toolCall.singleSubagent.failed'));
       case 'running':
-        return currentTheme.fg('primary', 'Running');
+        return currentTheme.fg('primary', t('tui.messages.toolCall.singleSubagent.running'));
       case 'backgrounded':
-        return 'Backgrounded';
+        return t('tui.messages.toolCall.singleSubagent.backgrounded');
       case 'queued':
-        return currentTheme.fg('primary', 'Queued');
+        return currentTheme.fg('primary', t('tui.messages.toolCall.singleSubagent.queued'));
       case 'spawning':
       case undefined:
-        return currentTheme.fg('primary', 'Starting');
+        return currentTheme.fg('primary', t('tui.messages.toolCall.singleSubagent.starting'));
     }
   }
 
@@ -2213,7 +2286,10 @@ export class ToolCallComponent extends Container {
     if (current === undefined) {
       return currentTheme.dim(`  · ${countLabel}`);
     }
-    const verb = current.phase === 'ongoing' ? 'Using' : 'Used';
+    const verb =
+      current.phase === 'ongoing'
+        ? t('tui.messages.toolCall.using')
+        : t('tui.messages.toolCall.used');
     const keyArg = extractKeyArgument(current.name, current.args, this.workspaceDir);
     const nameCol = currentTheme.fg('primary', current.name);
     const argCol = keyArg ? currentTheme.dim(` (${keyArg})`) : '';
@@ -2322,7 +2398,10 @@ export class ToolCallComponent extends Container {
         this.addChild(
           new Text(
             currentTheme.dim(
-              `… (${String(remaining)} more lines, ${String(allLines.length)} total, ctrl+o to expand)`,
+              t('tui.messages.toolCall.moreLinesHint', {
+                remaining,
+                total: allLines.length,
+              }),
             ),
             2,
             0,
@@ -2401,10 +2480,13 @@ export class ToolCallComponent extends Container {
       const startedAtMs = this.toolCall.streamingStartedAtMs;
       const elapsedSeconds =
         startedAtMs === undefined ? 0 : Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000));
-      const target = filePath.length > 0 ? ` for ${filePath}` : '';
-      const progress = `Preparing changes${target}… ${formatByteSize(bytes)} · ${formatElapsed(
-        elapsedSeconds,
-      )} elapsed`;
+      const target =
+        filePath.length > 0 ? t('tui.messages.toolCall.preparingChangesTarget', { filePath }) : '';
+      const progress = t('tui.messages.toolCall.preparingChanges', {
+        target,
+        size: formatByteSize(bytes),
+        elapsed: formatElapsed(elapsedSeconds),
+      });
       this.addChild(new Text(currentTheme.dim(progress), 2, 0));
       return;
     }
@@ -2463,7 +2545,7 @@ export class ToolCallComponent extends Container {
     if (!isExitPlanModeOutcomeOutput(result.output)) return undefined;
     const outcome = interpretExitPlanModeOutcome(result.output);
     if (outcome.kind !== 'rejected') return undefined;
-    return { label: 'Rejected', colorHex: currentTheme.color('error') };
+    return { label: t('tui.messages.toolCall.rejected'), colorHex: currentTheme.color('error') };
   }
 
   private buildContent(): void {
@@ -2662,13 +2744,23 @@ function computeLatestActivity(
   if (ongoing.size > 0) {
     const lastOngoing = [...ongoing.values()].at(-1);
     if (lastOngoing !== undefined) {
-      return formatActivityLine('Using', lastOngoing.name, lastOngoing.args, workspaceDir);
+      return formatActivityLine(
+        t('tui.messages.toolCall.using'),
+        lastOngoing.name,
+        lastOngoing.args,
+        workspaceDir,
+      );
     }
   }
   if (finished.length > 0) {
     const last = finished.at(-1);
     if (last !== undefined) {
-      return formatActivityLine('Used', last.name, last.args, workspaceDir);
+      return formatActivityLine(
+        t('tui.messages.toolCall.used'),
+        last.name,
+        last.args,
+        workspaceDir,
+      );
     }
   }
   if (text.length > 0) {
@@ -2689,4 +2781,18 @@ function formatActivityLine(
 ): string {
   const keyArg = extractKeyArgument(toolName, args, workspaceDir);
   return keyArg ? `${verb} ${toolName} (${keyArg})` : `${verb} ${toolName}`;
+}
+
+/**
+ * Render one status line: URLs become OSC 8 hyperlinks so terminals that
+ * support the sequence make them Cmd-clickable and expose "Copy Link", while
+ * the surrounding prose keeps the dim tone. The matcher is built per call — a
+ * module-level /g regex would carry `lastIndex` from line to line.
+ */
+function linkifyProgressUrls(text: string): string {
+  if (!text.includes('http')) return currentTheme.dim(text);
+  return text.replaceAll(/https?:\/\/\S+/g, (url) => {
+    const visible = currentTheme.underlineFg('warning', url);
+    return `\u001B]8;;${url}\u001B\\${visible}\u001B]8;;\u001B\\`;
+  });
 }

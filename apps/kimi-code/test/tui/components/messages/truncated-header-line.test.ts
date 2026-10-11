@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest';
 import {
   renderHeaderContent,
   TruncatedHeaderLine,
+  truncateOneLine,
   type HeaderSegments,
 } from '#/tui/components/messages/truncated-header-line';
 
@@ -155,5 +156,39 @@ describe('graphemes that pack many code units into a cell', () => {
     const line = renderHeaderContent({ head: '', flex: { text, keep: 'tail' }, tail: '' }, 9);
     expect(line).toBe(`…${family.repeat(4)}`);
     expect(visibleWidth(line)).toBe(9);
+  });
+});
+
+describe('truncateOneLine', () => {
+  const LONE_SURROGATE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?:[^\uD800-\uDBFF]|^)[\uDC00-\uDFFF]/;
+
+  it('collapses whitespace onto one line and leaves a fitting value untouched', () => {
+    expect(truncateOneLine('  a\n b\t c  ', 40)).toBe('a b c');
+    expect(truncateOneLine('abcdef', 6)).toBe('abcdef');
+  });
+
+  it('cuts CJK by cells instead of slicing UTF-16 units', () => {
+    const cjk = '运行全部测试并生成覆盖率报告然后上传到服务器';
+    const cut = truncateOneLine(cjk, 11);
+    // Five two-cell characters plus the one-cell ellipsis fill the budget.
+    expect(cut).toBe('运行全部测…');
+    expect(visibleWidth(cut)).toBe(11);
+    expect(cjk.startsWith(cut.slice(0, -1))).toBe(true);
+  });
+
+  it('keeps emoji clusters whole and never leaves a lone surrogate', () => {
+    const thumbs = truncateOneLine('😀'.repeat(10), 5);
+    expect(thumbs).toBe('😀😀…');
+    expect(visibleWidth(thumbs)).toBe(5);
+    expect(LONE_SURROGATE.test(thumbs)).toBe(false);
+
+    const family = '\u{1F468}\u200D\u{1F469}\u200D\u{1F467}\u200D\u{1F466}';
+    const families = truncateOneLine(family.repeat(6), 5);
+    expect(families).toBe(`${family.repeat(2)}…`);
+    expect(LONE_SURROGATE.test(families)).toBe(false);
+  });
+
+  it('returns nothing when there is no room at all', () => {
+    expect(truncateOneLine('abc', 0)).toBe('');
   });
 });

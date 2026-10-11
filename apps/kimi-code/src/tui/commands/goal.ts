@@ -13,7 +13,6 @@ import {
   type GoalStartPermissionChoice,
 } from '../components/dialogs/goal-start-permission-prompt';
 import {
-  GoalSetMessageComponent,
   GoalStatusMessageComponent,
   UpcomingGoalAddedMessageComponent,
 } from '../components/messages/goal-panel';
@@ -28,6 +27,7 @@ import {
 } from '../goal-queue-store';
 import { formatErrorMessage } from '../utils/event-payload';
 import { permissionModeDescription, permissionModeDisplayName } from '../utils/permission-mode';
+import { nextTranscriptId } from '../utils/transcript-id';
 import type { SlashCommandHost } from './dispatch';
 import { canRestoreSubmittedInput } from './resolve';
 
@@ -42,6 +42,7 @@ type GoalCommandHost = Pick<
   | 'showError'
   | 'showNotice'
   | 'showStatus'
+  | 'appendTranscriptEntry'
   | 'track'
   | 'mountEditorReplacement'
   | 'restoreEditor'
@@ -225,8 +226,16 @@ async function queueNextGoal(
   }
   host.track('goal_queue_append');
   if (!hasCurrentGoal) host.requestQueuedGoalPromotion?.();
-  host.state.transcriptContainer.addChild(new UpcomingGoalAddedMessageComponent());
-  host.state.ui.requestRender();
+  host.appendTranscriptEntry(
+    {
+      id: nextTranscriptId(),
+      kind: 'status',
+      turnId: undefined,
+      renderMode: 'plain',
+      content: '',
+    },
+    new UpcomingGoalAddedMessageComponent(),
+  );
 }
 
 async function showGoalQueueManager(
@@ -462,8 +471,14 @@ async function startGoal(
   if (options.beforeSend !== undefined && !(await options.beforeSend())) {
     return false;
   }
-  host.state.transcriptContainer.addChild(new GoalSetMessageComponent());
-  host.state.ui.requestRender();
+  host.appendTranscriptEntry({
+    id: nextTranscriptId(),
+    kind: 'goal',
+    turnId: undefined,
+    renderMode: 'plain',
+    content: '',
+    goalData: { kind: 'created' },
+  });
   if (options.sendInput !== undefined) {
     options.sendInput(parsed.objective);
   } else {
@@ -542,8 +557,16 @@ async function showGoalStatus(host: SlashCommandHost): Promise<void> {
     host.showStatus(t('tui.statusMessages.noGoalSet'));
     return;
   }
-  host.state.transcriptContainer.addChild(new GoalStatusMessageComponent(goal));
-  host.state.ui.requestRender();
+  host.appendTranscriptEntry(
+    {
+      id: nextTranscriptId(),
+      kind: 'status',
+      turnId: undefined,
+      renderMode: 'plain',
+      content: '',
+    },
+    new GoalStatusMessageComponent(goal),
+  );
 }
 
 function isStreaming(host: SlashCommandHost): boolean {

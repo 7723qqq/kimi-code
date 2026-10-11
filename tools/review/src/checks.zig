@@ -9,6 +9,7 @@ const silent_catch = @import("checks/silent_catch.zig");
 const dangling_refs = @import("checks/dangling_refs.zig");
 const workflow_triggers = @import("checks/workflow_triggers.zig");
 const scripts_wiring = @import("checks/scripts_wiring.zig");
+const text_as_protocol = @import("checks/text_as_protocol.zig");
 
 /// Every check the tool knows about, in report order.
 pub const all = [_]check.Check{
@@ -65,5 +66,11 @@ pub const all = [_]check.Check{
         .description = "Package scripts nothing invokes",
         .severity = .warn,
         .run = scripts_wiring.run,
+    },
+    .{
+        .name = "text-as-protocol",
+        .description = "Message text compared as a value across layers",
+        .severity = .err,
+        .run = text_as_protocol.run,
     },
 };

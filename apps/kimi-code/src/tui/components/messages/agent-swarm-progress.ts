@@ -228,6 +228,7 @@ export class AgentSwarmProgressComponent implements Component {
   private timer: ReturnType<typeof setInterval> | undefined;
   private renderVersion = 0;
   private renderCache: AgentSwarmRenderCache | undefined;
+  private disposed = false;
 
   constructor(options: AgentSwarmProgressOptions) {
     this.description = options.description;
@@ -241,10 +242,15 @@ export class AgentSwarmProgressComponent implements Component {
     return currentTheme.palette;
   }
 
+  /**
+   * Permanently stops the frame timer. Disposal is sticky: every mutator calls
+   * `startAnimationIfNeeded()`, so without the flag a late swarm event would
+   * re-arm the interval on a panel torn down by `/clear`, a session switch, or
+   * a transcript fold.
+   */
   dispose(): void {
-    if (this.timer === undefined) return;
-    clearInterval(this.timer);
-    this.timer = undefined;
+    this.disposed = true;
+    this.clearFrameTimer();
   }
 
   invalidate(): void {
@@ -855,16 +861,25 @@ export class AgentSwarmProgressComponent implements Component {
   }
 
   private startAnimationIfNeeded(): void {
-    if (this.requestRender === undefined || this.timer !== undefined) return;
+    if (this.disposed || this.requestRender === undefined || this.timer !== undefined) return;
     if (!this.hasAnimatedMembers()) return;
     const requestRender = this.requestRender;
     this.timer = setInterval(() => {
       requestRender();
-      if (!this.hasAnimatedMembers()) this.dispose();
+      // The animation ending on its own must not mark the panel disposed: a
+      // later mutation (a member completing inside the fill window, a
+      // suspended member restarting) has to be able to re-arm the timer.
+      if (!this.hasAnimatedMembers()) this.clearFrameTimer();
     }, FRAME_INTERVAL_MS);
     if (typeof this.timer === 'object' && 'unref' in this.timer) {
       this.timer.unref();
     }
+  }
+
+  private clearFrameTimer(): void {
+    if (this.timer === undefined) return;
+    clearInterval(this.timer);
+    this.timer = undefined;
   }
 
   private hasAnimatedMembers(): boolean {
@@ -1015,10 +1030,17 @@ function capCodeUnits(text: string, maxCodeUnits: number): string {
     sgrActive = sgrActiveAfterSequence(sequence, sgrActive);
     index = text.indexOf('\u001B', sequenceEnd);
   }
-  // A cut landing on a lead surrogate reads as the astral code point; back
-  // off so the retained label never ends in an unpaired surrogate.
-  const codePoint = text.codePointAt(end - 1);
-  if (codePoint !== undefined && codePoint > 0xffff) end -= 1;
+  // A cut landing inside a surrogate pair (high surrogate at `end - 1`, low at
+  // `end`) would emit a lone surrogate; back off one unit so the retained label
+  // ends on a whole character. `codePointAt(end - 1) > 0xffff` cannot tell the
+  // two cases apart — a trailing *low* surrogate (i.e. the cut already sits
+  // after a complete astral character) reports the same > 0xffff and used to
+  // slice the pair in half.
+  const lastUnit = text.charCodeAt(end - 1);
+  const nextUnit = text.charCodeAt(end);
+  if (lastUnit >= 0xd800 && lastUnit <= 0xdbff && nextUnit >= 0xdc00 && nextUnit <= 0xdfff) {
+    end -= 1;
+  }
   return `${text.slice(0, end)}${osc8CloseSuffix}${sgrActive ? '\u001B[0m' : ''}`;
 }
 

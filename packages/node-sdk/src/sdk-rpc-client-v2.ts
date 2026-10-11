@@ -229,6 +229,11 @@ import { IAppendLogStore } from '@moonshot-ai/agent-core-v2/persistence/interfac
 import { fsSuggestRequestSchema } from '@moonshot-ai/agent-core-v2/workspace/workspaceFs/fs';
 import { assertKimiHostIdentity, createKimiDefaultHeaders } from '@moonshot-ai/kimi-code-oauth';
 import {
+  getLocale as getEngineLocale,
+  setLocale as setEngineLocale,
+  type Locale,
+} from '@moonshot-ai/kimi-i18n';
+import {
   RPCError,
   type AgentHandle,
   type Klient,
@@ -594,6 +599,26 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
    */
   enabledExperimentalFlags(): string {
     return this.engineAccessor.get(IFlagService).exposedIds().toSorted().join(',');
+  }
+
+  /**
+   * Push the UI language into the in-process engine's translation instance.
+   *
+   * The engine reads its copy of the locale data through
+   * `@moonshot-ai/kimi-i18n`, which detects a locale once at module load from
+   * `KIMI_LANG`/`LANG`. A host that lets the user switch language at runtime
+   * (`/settings` in the TUI) must forward the choice, or engine-side strings
+   * (tool output, error copy) stay in the launch-time language while the UI
+   * switches. Same-process only, like `engineAccessor`: the engine and the UI
+   * share this module instance.
+   */
+  override setEngineLocale(locale: Locale): void {
+    setEngineLocale(locale);
+  }
+
+  /** The locale the in-process engine is currently translating with. */
+  override engineLocale(): Locale {
+    return getEngineLocale();
   }
 
   /**

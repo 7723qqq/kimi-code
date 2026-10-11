@@ -32,34 +32,24 @@ export const ProtocolErrors = {
   ],
   info: {
     'provider.rate_limit': {
-      title: 'Provider rate limit',
       retryable: true,
       public: true,
-      action: 'Retry after the provider rate limit resets.',
     },
     'provider.filtered': {
-      title: 'Provider filtered response',
       retryable: false,
       public: true,
-      action: 'Revise the prompt or model configuration to avoid provider safety filtering.',
     },
     'provider.auth_error': {
-      title: 'Provider authentication failed',
       retryable: false,
       public: true,
-      action: 'Check provider credentials and authentication configuration.',
     },
     'provider.overloaded': {
-      title: 'Provider overloaded',
       retryable: true,
       public: true,
-      action: 'Retry after the provider recovers from overload.',
     },
     'context.overflow': {
-      title: 'Context overflow',
       retryable: true,
       public: true,
-      action: 'Compact the conversation or retry with fewer tokens.',
     },
   },
 } as const satisfies ErrorDomain;

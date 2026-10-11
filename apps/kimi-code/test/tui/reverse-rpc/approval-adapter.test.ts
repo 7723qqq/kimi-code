@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { setLocale } from '#/i18n';
 import { adaptApprovalRequest, adaptPanelResponse } from '#/tui/reverse-rpc/approval/adapter';
 
 describe('approval adapter', () => {
@@ -185,12 +186,12 @@ describe('approval adapter', () => {
 
     expect(adapted.display).toEqual([]);
     expect(adapted.choices).toEqual([
-      { label: 'Approve', response: 'approved', selected_label: 'Approve' },
-      { label: 'Reject', response: 'rejected', selected_label: 'Reject' },
+      { label: 'Approve', response: 'approved', selected_label: 'approve' },
+      { label: 'Reject', response: 'rejected', selected_label: 'reject' },
       {
         label: 'Revise',
         response: 'rejected',
-        selected_label: 'Revise',
+        selected_label: 'revise',
         requires_feedback: true,
       },
     ]);
@@ -215,11 +216,11 @@ describe('approval adapter', () => {
     expect(adapted.choices).toEqual([
       { label: 'Approach A', response: 'approved', selected_label: 'Approach A' },
       { label: 'Approach B', response: 'approved', selected_label: 'Approach B' },
-      { label: 'Reject', response: 'rejected', selected_label: 'Reject' },
+      { label: 'Reject', response: 'rejected', selected_label: 'reject' },
       {
         label: 'Revise',
         response: 'rejected',
-        selected_label: 'Revise',
+        selected_label: 'revise',
         requires_feedback: true,
       },
     ]);
@@ -248,12 +249,12 @@ describe('approval adapter', () => {
       { type: 'file_content', path: 'tasks.md', content: '# Tasks\n\n- Add route', language: 'markdown' },
     ]);
     expect(adapted.choices).toEqual([
-      { label: 'Approve', response: 'approved', selected_label: 'Approve' },
-      { label: 'Reject', response: 'rejected', selected_label: 'Reject' },
+      { label: 'Approve', response: 'approved', selected_label: 'approve' },
+      { label: 'Reject', response: 'rejected', selected_label: 'reject' },
       {
         label: 'Revise',
         response: 'rejected',
-        selected_label: 'Revise',
+        selected_label: 'revise',
         requires_feedback: true,
       },
     ]);
@@ -278,11 +279,11 @@ describe('approval adapter', () => {
     expect(adapted.choices).toEqual([
       { label: 'Approach A', response: 'approved', selected_label: 'Approach A' },
       { label: 'Approach B', response: 'approved', selected_label: 'Approach B' },
-      { label: 'Reject', response: 'rejected', selected_label: 'Reject' },
+      { label: 'Reject', response: 'rejected', selected_label: 'reject' },
       {
         label: 'Revise',
         response: 'rejected',
-        selected_label: 'Revise',
+        selected_label: 'revise',
         requires_feedback: true,
       },
     ]);
@@ -392,5 +393,26 @@ describe('approval adapter', () => {
       feedback: 'looks good',
       selectedLabel: 'Approve for this session',
     });
+  });
+
+  it('keeps reject-side selected_label language-independent under zh', () => {
+    setLocale('zh');
+    try {
+      const adapted = adaptApprovalRequest({
+        toolCallId: 'tc-zh-plan',
+        toolName: 'ExitPlanMode',
+        action: 'Review plan',
+        display: {
+          kind: 'plan_review',
+          plan: '# Plan\n\n- Inspect\n- Change\n- Verify',
+        },
+      });
+
+      const rejectChoices = adapted.choices.filter((choice) => choice.response === 'rejected');
+      expect(rejectChoices.map((choice) => choice.selected_label)).toEqual(['reject', 'revise']);
+      expect(rejectChoices.map((choice) => choice.label)).toEqual(['拒绝', '修改']);
+    } finally {
+      setLocale('en');
+    }
   });
 });

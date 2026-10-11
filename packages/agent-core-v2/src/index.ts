@@ -529,6 +529,8 @@ export * from '#/agent/interaction/interactionOps';
 export * from '#/session/sessionContext/sessionContext';
 
 export * from '#/agent/interaction/question';
+export * from '#/agent/interaction/reviewDecisions';
+export * from '#/agent/interaction/engineMessages';
 export {
   type ApprovalDecision,
   type ApprovalRequest as SessionApprovalRequest,

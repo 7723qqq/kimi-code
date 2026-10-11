@@ -53,6 +53,24 @@ describe('CronMessageComponent', () => {
       }
     }
   });
+
+  it('reuses the memoized render instead of re-wrapping the title and detail', () => {
+    const component = new CronMessageComponent('Please investigate the reminder payload.', {
+      cron: '*/15 * * * *',
+      jobId: 'job-1',
+      recurring: true,
+    });
+
+    const first = component.render(60);
+    // A second frame at the same width is served from the cache, so the held
+    // Text instances are not re-wrapped (and no new ones are constructed).
+    expect(component.render(60)).toBe(first);
+
+    component.invalidate();
+    const repainted = component.render(60);
+    expect(repainted).not.toBe(first);
+    expect(repainted.map(strip)).toEqual(first.map(strip));
+  });
 });
 
 describe('StatusMessageComponent', () => {

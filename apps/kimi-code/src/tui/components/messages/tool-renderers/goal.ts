@@ -7,6 +7,7 @@ import type { ToolCallBlockData, ToolResultBlockData } from '#/tui/types';
 import { formatTokenCount } from '#/utils/usage/usage-format';
 
 import { formatGoalElapsed, pluralizeGoalCount } from '../goal-format';
+import { truncateOneLine } from '../truncated-header-line';
 import { renderTruncated } from './truncated';
 import type { ResultRenderer } from './types';
 
@@ -198,12 +199,6 @@ function formatGoalStats(goal: GoalSnapshotView): string {
     `${formatTokenCount(goal.tokensUsed)} tokens`,
     formatGoalElapsed(goal.wallClockMs),
   ].join(' · ');
-}
-
-function truncateOneLine(text: string, max: number): string {
-  const firstLine = text.replaceAll(/\s+/g, ' ').trim();
-  if (firstLine.length <= max) return firstLine;
-  return `${firstLine.slice(0, Math.max(0, max - 1))}…`;
 }
 
 function stringArg(args: Record<string, unknown>, key: string): string | undefined {

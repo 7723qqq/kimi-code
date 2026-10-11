@@ -1,3 +1,4 @@
+import { isInstantiationServiceDisposedError } from '@moonshot-ai/agent-core-v2';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
@@ -135,7 +136,7 @@ export class TranscriptService {
         (agentId) => this.rebuildAfterUndo(sessionId, agentId),
       );
     } catch (error) {
-      if (error instanceof Error && error.message === 'InstantiationService has been disposed') {
+      if (isInstantiationServiceDisposedError(error)) {
         return undefined;
       }
       throw error;

@@ -5,6 +5,7 @@ import { t } from '#/i18n';
 
 import { WelcomeComponent } from '../components/chrome/welcome';
 import { CompactionComponent } from '../components/dialogs/compaction';
+import { AgentGroupComponent } from '../components/messages/agent-group';
 import { AssistantMessageComponent } from '../components/messages/assistant-message';
 import { BackgroundAgentStatusComponent } from '../components/messages/background-agent-status';
 import { CronMessageComponent } from '../components/messages/cron-message';
@@ -14,6 +15,7 @@ import {
   GoalSetMessageComponent,
 } from '../components/messages/goal-panel';
 import { PluginCommandComponent } from '../components/messages/plugin-command';
+import { ReadGroupComponent } from '../components/messages/read-group';
 import { SkillActivationComponent } from '../components/messages/skill-activation';
 import {
   NoticeMessageComponent,
@@ -60,6 +62,31 @@ export interface TranscriptRenderHost {
   readonly streamingUI: StreamingUIController;
   readonly sessionEventHandler: SessionEventHandler;
   readonly btwPanelController: BtwPanelController;
+}
+
+/**
+ * Steps the in-turn fold may merge into a step summary. Everything else in a
+ * turn — panels, compaction blocks, status/notice cards, goal cards, steer
+ * messages, the swarm panel — must stay mounted: the fold destroys what it
+ * merges, and dropping an unclassified child silently lost it from the
+ * transcript while its entry stayed in `transcriptEntries`.
+ */
+function isFoldableStepComponent(child: Component): boolean {
+  return (
+    child instanceof ThinkingComponent ||
+    child instanceof ToolCallComponent ||
+    child instanceof AgentGroupComponent ||
+    child instanceof ReadGroupComponent
+  );
+}
+
+/** Tool calls a foldable step represents (a group counts its borrowed cards). */
+function foldableToolCallCount(child: Component): number {
+  if (child instanceof ToolCallComponent) return 1;
+  if (child instanceof AgentGroupComponent || child instanceof ReadGroupComponent) {
+    return child.size();
+  }
+  return 0;
 }
 
 /**
@@ -169,18 +196,68 @@ export class TranscriptRendererController {
     }
   }
 
-  appendTranscriptEntry(entry: TranscriptEntry): void {
+  appendTranscriptEntry(entry: TranscriptEntry, component?: Component): void {
     this.host.state.transcriptEntries.push(entry);
-    const component = this.createTranscriptComponent(entry);
-    if (component) {
-      markTranscriptComponent(component, entry);
-      this.host.state.transcriptContainer.addChild(component);
+    const resolved = component ?? this.createTranscriptComponent(entry);
+    if (resolved) {
+      this.mountTranscriptComponent(entry, resolved);
+      return;
     }
     const trimmed = this.trimTranscriptWindow();
     const merged = this.mergeCurrentTurnSteps();
-    if (component || trimmed || merged) {
-      this.host.state.ui.requestRender();
+    if (trimmed || merged) this.host.state.ui.requestRender();
+  }
+
+  /**
+   * Mounts a component for an entry that is already accounted for (or that has
+   * no history entry at all, e.g. the invisible replay turn boundary). Marking
+   * keeps the window/fold/sticky bookkeeping able to attribute the child; the
+   * entry list is not touched.
+   */
+  mountTranscriptComponent(entry: TranscriptEntry, component: Component): void {
+    markTranscriptComponent(component, entry);
+    this.host.state.transcriptContainer.addChild(component);
+    this.trimTranscriptWindow();
+    this.mergeCurrentTurnSteps();
+    this.host.state.ui.requestRender();
+  }
+
+  /**
+   * Replaces a mounted child in place (agent card → group, MCP spinner →
+   * final status row) so ordering survives. The container's ref-checked render
+   * cache picks up the identity change; no tree-wide invalidate is needed.
+   */
+  replaceTranscriptChild(
+    previous: Component,
+    next: Component,
+    entry?: TranscriptEntry,
+  ): boolean {
+    const children = this.host.state.transcriptContainer.children;
+    const index = children.indexOf(previous);
+    if (index < 0) return false;
+    if (entry !== undefined) markTranscriptComponent(next, entry);
+    children[index] = next;
+    this.host.state.ui.requestRender();
+    return true;
+  }
+
+  /** Removes the components backing the given entries and disposes them. */
+  removeTranscriptEntries(entries: readonly TranscriptEntry[]): void {
+    const doomed = new Set(entries);
+    const componentsToRemove = this.host.state.transcriptContainer.children.filter((child) => {
+      const entry = getTranscriptComponentEntry(child);
+      return entry !== undefined && doomed.has(entry);
+    });
+    for (const child of componentsToRemove) {
+      // pi-tui Container.removeChild (not a DOM node); `child.remove()` does not exist.
+      // oxlint-disable-next-line unicorn/prefer-dom-node-remove
+      this.host.state.transcriptContainer.removeChild(child);
+      if (hasDispose(child)) child.dispose();
     }
+    this.host.state.transcriptEntries = this.host.state.transcriptEntries.filter(
+      (e) => !doomed.has(e),
+    );
+    this.host.state.ui.requestRender();
   }
 
   appendApprovalTranscriptEntry(request: ApprovalRequest, response: ApprovalResponse): void {
@@ -196,14 +273,16 @@ export class TranscriptRendererController {
     switch (response.decision) {
       case 'approved':
         parts.push(
-          response.scope === 'session' ? t('tui.statusMessages.approvedForSession') : 'Approved',
+          response.scope === 'session'
+            ? t('tui.statusMessages.approvedForSession')
+            : t('tui.statusMessages.approved'),
         );
         break;
       case 'rejected':
-        parts.push('Rejected');
+        parts.push(t('tui.statusMessages.rejected'));
         break;
       case 'cancelled':
-        parts.push('Cancelled');
+        parts.push(t('tui.statusMessages.cancelled'));
         break;
     }
     parts.push(`: ${request.action}`);
@@ -318,46 +397,23 @@ export class TranscriptRendererController {
       }
     }
 
-    let boundariesToRemove = 0;
-    for (const entry of toRemove) {
-      if (
-        (entry.kind === 'user' ||
-          entry.kind === 'skill_activation' ||
-          entry.kind === 'plugin_command') &&
-        entry.turnId === undefined
-      ) {
-        boundariesToRemove++;
-      }
-    }
-    if (boundariesToRemove === 0) {
-      this.host.state.transcriptEntries = this.host.state.transcriptEntries.filter(
-        (e) => !toRemove.has(e),
-      );
-      return true;
-    }
-
     // Trim whole turns by *position* in the child list rather than by entry
-    // lookup — otherwise only the (registered) user message would be removed and
-    // the rest of the turn would be left behind.
-    let boundariesSeen = 0;
-    let cutoff = 0;
-    for (let i = 0; i < children.length; i++) {
-      if (this.isTurnBoundaryComponent(children[i]!)) {
-        if (boundariesSeen === boundariesToRemove) {
-          cutoff = i;
-          break;
-        }
-        boundariesSeen++;
-      }
-    }
-
-    const componentsToRemove: Component[] = [];
-    for (let i = 0; i < cutoff; i++) {
-      const child = children[i]!;
+    // lookup — otherwise only the (registered) user message would be removed
+    // and the rest of the turn would be left behind. A child is dropped when
+    // the latest entry seen before it is itself being dropped: turn-internal
+    // components carry no entry (streaming assistant/thinking/tool calls), and
+    // relying on boundary *counts* instead desynchronized the two ledgers
+    // whenever a boundary entry had no mounted component.
+    const removed: Component[] = [];
+    let governing: TranscriptEntry | undefined;
+    for (const child of children) {
+      const entry = getTranscriptComponentEntry(child);
+      if (entry !== undefined) governing = entry;
+      if (governing === undefined || !toRemove.has(governing)) continue;
       if (child instanceof WelcomeComponent) continue;
-      componentsToRemove.push(child);
+      removed.push(child);
     }
-    for (const child of componentsToRemove) {
+    for (const child of removed) {
       // pi-tui Container.removeChild (not a DOM node); `child.remove()` does not exist.
       // oxlint-disable-next-line unicorn/prefer-dom-node-remove
       this.host.state.transcriptContainer.removeChild(child);
@@ -405,7 +461,9 @@ export class TranscriptRendererController {
     }
     if (turnStart < 0) return false;
 
-    // Locate an existing summary, the assistant messages, and the mergeable steps.
+    // Locate an existing summary, the assistant messages, and the mergeable
+    // steps. Only foldable step components enter `stepIndices`; any other
+    // child (panel, compaction block, status card, steer message) is kept.
     let summaryIndex = -1;
     const stepIndices: number[] = [];
     const assistantIndices: number[] = [];
@@ -419,7 +477,7 @@ export class TranscriptRendererController {
         assistantIndices.push(i);
         continue;
       }
-      stepIndices.push(i);
+      if (isFoldableStepComponent(child)) stepIndices.push(i);
     }
 
     // Fold the oldest steps / assistant messages beyond their respective caps;
@@ -439,7 +497,7 @@ export class TranscriptRendererController {
     for (const idx of toMergeIndices) {
       const child = children[idx]!;
       if (child instanceof ThinkingComponent) thinkingCount++;
-      else if (child instanceof ToolCallComponent) toolCount++;
+      else toolCount += foldableToolCallCount(child);
     }
     if (thinkingCount === 0 && toolCount === 0 && assistantMergeCount === 0) return false;
 
@@ -500,7 +558,7 @@ export class TranscriptRendererController {
         const child = children[i]!;
         if (child instanceof StepSummaryComponent) summaryIndex = i;
         else if (child instanceof AssistantMessageComponent) assistantIndices.push(i);
-        else stepIndices.push(i);
+        else if (isFoldableStepComponent(child)) stepIndices.push(i);
       }
 
       const stepMergeCount =
@@ -523,7 +581,7 @@ export class TranscriptRendererController {
         for (const idx of toMergeIndices) {
           const child = children[idx]!;
           if (child instanceof ThinkingComponent) thinkingCount++;
-          else if (child instanceof ToolCallComponent) toolCount++;
+          else toolCount += foldableToolCallCount(child);
         }
         let summary: StepSummaryComponent;
         if (summaryIndex >= 0) {
