@@ -2277,11 +2277,15 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   override async optimizePrompt(input: OptimizePromptRpcInput): Promise<string> {
     const session = this.requireLiveSession(input.sessionId);
     await this.materializeMainAgent(session);
-    return session.accessor.get(ISessionPromptOptimizerService).optimize(input.text, {
-      cwd: session.accessor.get(ISessionContext).cwd,
-      recentTurns: input.recentTurns,
-      sessionKey: input.sessionId,
-    });
+    return session.accessor.get(ISessionPromptOptimizerService).optimize(
+      input.text,
+      {
+        cwd: session.accessor.get(ISessionContext).cwd,
+        recentTurns: input.recentTurns,
+        sessionKey: input.sessionId,
+      },
+      input.signal,
+    );
   }
 
   /**

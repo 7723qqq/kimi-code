@@ -262,6 +262,13 @@ export function globPatternToRegex(pattern: string, caseSensitive: boolean): Reg
 }
 
 /**
+ * How long a paused source waits before the liveness timer resumes it. Short
+ * enough that a `wait()`-then-read caller makes progress immediately; long
+ * enough that an attached consumer's own `_read()` wins the race.
+ */
+const RESUME_LIVENESS_MS = 10;
+
+/**
  * A Readable wrapper that preserves source backpressure while still allowing
  * consumers to read buffered output after the source has ended.
  * @internal
@@ -269,6 +276,8 @@ export function globPatternToRegex(pattern: string, caseSensitive: boolean): Reg
 export class BufferedReadable extends Readable {
   private readonly _source: Readable;
   private _ended: boolean = false;
+  /** Liveness fallback: set while the source is paused with nobody reading. */
+  private _resumeTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(source: Readable) {
     // Keep a modest prefetch window so wait()-then-read still works for
@@ -282,8 +291,39 @@ export class BufferedReadable extends Readable {
   }
 
   override _read(): void {
+    // A real consumer arrived: stop the liveness timer, it would fight the
+    // consumer's own pacing.
+    this._clearResume();
     if (!this._ended && !this.destroyed) {
       this._source.resume();
+    }
+  }
+
+  /**
+   * Resume the source on a timer when nothing is reading.
+   *
+   * Backpressure is right while a consumer is attached, but a caller that
+   * awaits `wait()` before touching the stream leaves the source paused
+   * forever: the child then blocks in `write()` on a full pipe, never exits,
+   * and `wait()` never settles. The timer keeps the source moving, so the
+   * child finishes and the output waits in this Readable's buffer — which is
+   * what "read buffered output after the source has ended" promises anyway.
+   */
+  private _armResume(): void {
+    if (this._resumeTimer !== undefined) return;
+    this._resumeTimer = setTimeout(() => {
+      this._resumeTimer = undefined;
+      if (!this._ended && !this.destroyed) {
+        this._source.resume();
+      }
+    }, RESUME_LIVENESS_MS);
+    this._resumeTimer.unref?.();
+  }
+
+  private _clearResume(): void {
+    if (this._resumeTimer !== undefined) {
+      clearTimeout(this._resumeTimer);
+      this._resumeTimer = undefined;
     }
   }
 
@@ -299,15 +339,18 @@ export class BufferedReadable extends Readable {
   private readonly _onData = (chunk: string | Uint8Array): void => {
     if (!this.push(chunk)) {
       this._source.pause();
+      this._armResume();
     }
   };
 
   private readonly _onEnd = (): void => {
+    this._clearResume();
     this._ended = true;
     this.push(null);
   };
 
   private readonly _onClose = (): void => {
+    this._clearResume();
     if (!this._ended) {
       this._ended = true;
       this.push(null);

@@ -166,6 +166,27 @@ describe('e2e: exec edge cases', () => {
       expect(exitCode).toBe(0);
       expect(stdoutLen).toBe(targetKB * 1024);
     });
+
+    // Regression (H16): BufferedReadable paused its source on a full buffer and
+    // resumed only from `_read()`. A caller that awaited `wait()` before
+    // touching the stream never triggered `_read`, so the child blocked in
+    // `write()` on a full pipe, never exited, and `wait()` never settled. The
+    // source must keep moving even when nobody is reading yet.
+    it('awaiting wait() before reading stdout does not deadlock', async () => {
+      const targetKB = 2048; // measured: deadlocked at this size before the fix
+      const proc = await kaos.exec(
+        'node',
+        '-e',
+        `process.stdout.write(Buffer.alloc(${targetKB} * 1024, 0x61), () => process.exit(0));`,
+      );
+
+      // Deliberately do NOT drain the stream first — that is the deadlock shape.
+      const exitCode = await proc.wait();
+      const stdoutLen = await streamByteLength(proc.stdout);
+
+      expect(exitCode).toBe(0);
+      expect(stdoutLen).toBe(targetKB * 1024);
+    });
   });
 
   describe('cwd isolation for concurrent instances', () => {
