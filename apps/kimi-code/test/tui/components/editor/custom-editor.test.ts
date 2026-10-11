@@ -732,23 +732,6 @@ describe('CustomEditor shortcut telemetry hooks', () => {
     expect(editor.getText()).toBe('draft');
   });
 
-  it.each(['\u001B[D', '\u001B[A', '\u001B'] as const)(
-    'leaves %j to autocomplete even when the Updates panel is focused',
-    (key) => {
-      const editor = makeEditor();
-      const onStatusSurfaceKey = vi.fn();
-      editor.onStatusSurfaceKey = onStatusSurfaceKey;
-      const internals = editor as unknown as { cancelAutocompleteActivity: () => void };
-      const cancelAutocomplete = vi.spyOn(internals, 'cancelAutocompleteActivity');
-      cancelAutocomplete.mockImplementation(() => {});
-      vi.spyOn(editor, 'hasAutocompleteActivity').mockReturnValue(true);
-      editor.setText('/rev');
-      editor.handleInput(key);
-      expect(onStatusSurfaceKey).not.toHaveBeenCalled();
-      if (key === '\u001B') expect(cancelAutocomplete).toHaveBeenCalledOnce();
-    },
-  );
-
   it.each([
     ['1', 'digit1'],
     ['5', 'digit5'],
@@ -794,6 +777,37 @@ describe('CustomEditor shortcut telemetry hooks', () => {
     expect(editor.getText()).toBe(baseline.getText());
   });
 
+  it.each(['\u001B[D', '\u001B[A', '\u001B'] as const)(
+    'leaves %j to autocomplete even when the Updates panel is focused',
+    (key) => {
+      const editor = makeEditor();
+      const onStatusSurfaceKey = vi.fn();
+      editor.onStatusSurfaceKey = onStatusSurfaceKey;
+      const internals = editor as unknown as { cancelAutocompleteActivity: () => void };
+      const cancelAutocomplete = vi.spyOn(internals, 'cancelAutocompleteActivity');
+      cancelAutocomplete.mockImplementation(() => {});
+      vi.spyOn(editor, 'hasAutocompleteActivity').mockReturnValue(true);
+      editor.setText('/rev');
+      editor.handleInput(key);
+      expect(onStatusSurfaceKey).not.toHaveBeenCalled();
+      if (key === '\u001B') expect(cancelAutocomplete).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each([
+    ['1', 'digit1'],
+    ['5', 'digit5'],
+    ['9', 'digit9'],
+  ] as const)('routes the %s key to the focused region as %s', (key, panelKey) => {
+    const editor = makeEditor();
+    const onStatusSurfaceKey = vi.fn().mockReturnValue(true);
+    editor.onStatusSurfaceKey = onStatusSurfaceKey;
+    editor.setText('draft');
+    editor.handleInput(key);
+    expect(onStatusSurfaceKey).toHaveBeenCalledWith(panelKey);
+    expect(editor.getText()).toBe('draft');
+  });
+
   it('keeps the original editor bindings when Updates paging is unavailable', () => {
     const editor = makeEditor();
     const baseline = makeEditor();
@@ -806,7 +820,6 @@ describe('CustomEditor shortcut telemetry hooks', () => {
       expect(editor.getText()).toBe(baseline.getText());
     }
   });
-
 });
 
 describe('CustomEditor bash mode border label', () => {

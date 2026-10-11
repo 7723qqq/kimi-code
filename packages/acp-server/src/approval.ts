@@ -18,6 +18,7 @@ import type {
   SessionApprovalRequest as ApprovalRequest,
   SessionApprovalResponse as ApprovalResponse,
 } from '@moonshot-ai/agent-core-v2';
+import { REVIEW_DECISION_LABELS, ReviewDecision } from '@moonshot-ai/agent-core-v2';
 
 import { displayBlockToAcpContent } from './convert';
 import { acpToolCallId } from './events-map';
@@ -105,10 +106,14 @@ function reviewOptions(
       : [{ optionId: ids.approve, name: 'Approve', kind: 'allow_once' as const }];
   return [
     ...approveOptions,
-    { optionId: ids.revise, name: 'Revise', kind: 'reject_once' as const },
+    {
+      optionId: ids.revise,
+      name: REVIEW_DECISION_LABELS[ReviewDecision.REVISE],
+      kind: 'reject_once' as const,
+    },
     {
       optionId: ids.rejectAndExit,
-      name: 'Reject and Exit',
+      name: REVIEW_DECISION_LABELS[ReviewDecision.REJECT_AND_EXIT],
       kind: 'reject_once' as const,
     },
   ];
@@ -245,10 +250,13 @@ function mapReviewOptionId(
     return { decision: 'approved' };
   }
   if (optionId === ids.revise) {
-    return { decision: 'rejected', selectedLabel: 'Revise' };
+    return { decision: 'rejected', selectedLabel: REVIEW_DECISION_LABELS[ReviewDecision.REVISE] };
   }
   if (optionId === ids.rejectAndExit) {
-    return { decision: 'rejected', selectedLabel: 'Reject and Exit' };
+    return {
+      decision: 'rejected',
+      selectedLabel: REVIEW_DECISION_LABELS[ReviewDecision.REJECT_AND_EXIT],
+    };
   }
   const match = ids.opt.exec(optionId);
   if (match) {

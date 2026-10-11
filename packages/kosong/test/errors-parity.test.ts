@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
 
+import {
+  CoreErrors as kosongCore,
+  errorInfo as kosongErrorInfo,
+  isErrorCode as kosongIsErrorCode,
+  registerErrorDomain as kosongRegister,
+} from '#/errors/codes';
+
 // The v2 engine's error-code registry. Imported by relative path on purpose:
 // `kosong` and the engine each carry their own copy of this module and no
 // shared package can hold one (`kosong` is the frozen legacy kernel, and the
@@ -21,13 +28,6 @@ import {
   registerErrorDomain as engineRegister,
 } from '../../agent-core-v2/src/_base/errors/codes';
 
-import {
-  CoreErrors as kosongCore,
-  errorInfo as kosongErrorInfo,
-  isErrorCode as kosongIsErrorCode,
-  registerErrorDomain as kosongRegister,
-} from '#/errors/codes';
-
 describe('error-code registry agrees across engines', () => {
   it('registers the same core codes', () => {
     expect(kosongCore.codes).toEqual(engineCore.codes);
@@ -44,10 +44,12 @@ describe('error-code registry agrees across engines', () => {
     expect(engineIsErrorCode('internal')).toBe(true);
   });
 
-  it('falls back to the raw code as title for an unknown code, on both sides', () => {
+  it('agrees on retryable/public for an unknown code, and only kosong carries display copy', () => {
     const unknown = 'no.such_code_here';
+    // The engine moved human-readable copy to the locale tree; kosong is the
+    // frozen kernel and keeps its own. Only the machine fields stay in parity.
     expect(kosongErrorInfo(unknown).title).toBe(unknown);
-    expect(engineErrorInfo(unknown).title).toBe(unknown);
+    expect('title' in engineErrorInfo(unknown)).toBe(false);
     expect(kosongErrorInfo(unknown).public).toBe(engineErrorInfo(unknown).public);
     expect(kosongErrorInfo(unknown).retryable).toBe(engineErrorInfo(unknown).retryable);
   });

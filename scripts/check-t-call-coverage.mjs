@@ -32,7 +32,6 @@ const SOURCES = [
   },
 ];
 
-
 // ── Simple recursive file walker ─────────────────────────────────────────────
 
 function* walkFiles(dir) {
@@ -128,6 +127,7 @@ async function main() {
     totalFiles += files;
     totalKeys += allCalls.size;
 
+    /** @type {{ code: string; key: string; absentIn: string[] }[]} */
     const missing = [];
     for (const [key, callFiles] of allCalls) {
       if (!localeKeySet.has(key)) {
@@ -156,14 +156,86 @@ async function main() {
   }
 
   console.log(`\nChecked ${totalFiles} files, ${totalKeys} unique t() keys.`);
-  if (hasErrors) {
+
+  const codeCoverageOk = await checkErrorCodeCoverage();
+  if (hasErrors || !codeCoverageOk) {
     console.error(
-      '\n❌ Some t() calls have no matching locale key — add them to the locale file named above.\n',
+      '\n❌ Some t() calls have no matching locale key, or an engine error code has no locale entry — see above.\n',
     );
     process.exit(1);
   } else {
-    console.log('\n✅ All t() calls have matching locale keys.\n');
+    console.log(
+      '\n✅ All t() calls have matching locale keys, and every engine error code is localized.\n',
+    );
   }
+}
+
+/**
+ * The engine registry (`packages/agent-core-v2/src/errors.ts`) is the single
+ * source of truth for error codes; `errorCodes.<camelCaseCode>` in the
+ * kimi-code locale tree is the single source of truth for how they read.
+ * `formatLocalizedError` maps one onto the other at display time, so a code
+ * without a key falls back to the raw English sentence the engine threw.
+ */
+async function checkErrorCodeCoverage() {
+  const { ErrorCodes } = await import(
+    pathToFileURL(resolve(ROOT, 'packages/agent-core-v2/src/errors.ts')).href
+  );
+  const camelCaseCode = (code) =>
+    code
+      .split(/[._]/)
+      .map((part, index) => (index === 0 ? part : part.charAt(0).toUpperCase() + part.slice(1)))
+      .join('');
+
+  const codes = [...new Set(Object.values(ErrorCodes))].sort((a, b) => a.localeCompare(b));
+  const trees = {
+    en: await loadLocaleKeys('apps/kimi-code/src/i18n/locales/en.ts'),
+    zh: await loadLocaleKeys('apps/kimi-code/src/i18n/locales/zh.ts'),
+  };
+
+  const missing = [];
+  for (const code of codes) {
+    const key = `errorCodes.${camelCaseCode(code)}`;
+    const absentIn = Object.entries(trees)
+      .filter(([, keys]) => !keys.has(key))
+      .map(([lang]) => lang);
+    if (absentIn.length > 0) missing.push({ code, key, absentIn });
+  }
+
+  const enKeys = trees.en;
+  const orphans = [...enKeys]
+    .filter((key) => key.startsWith('errorCodes.'))
+    .map((key) => key.slice('errorCodes.'.length))
+    .filter((camel) => !camel.endsWith('Action'))
+    .filter((camel) => !codes.some((code) => camelCaseCode(code) === camel))
+    .sort((a, b) => a.localeCompare(b));
+
+  console.log(
+    `\n${missing.length === 0 ? '✓' : '✗'} error codes: ${codes.length} engine codes, ${enKeys.size} locale keys`,
+  );
+
+  if (missing.length > 0) {
+    console.error(`  ${missing.length} engine code(s) have no errorCodes.* locale entry:\n`);
+    for (const entry of missing.slice(0, 40)) {
+      console.error(
+        `  - ${String(entry.code)} → ${String(entry.key)} (missing in: ${String(entry.absentIn)})`,
+      );
+    }
+    if (missing.length > 40) console.error(`  ... and ${missing.length - 40} more`);
+    console.error(
+      '  Add both languages, or run `bun scripts/gen-error-locale-skeleton.mjs` to scaffold them.',
+    );
+  }
+
+  if (orphans.length > 0) {
+    console.log(
+      `\n  note: ${orphans.length} errorCodes.* key(s) have no engine code (retired or SDK-only):`,
+    );
+    for (const key of orphans.slice(0, 20)) console.log(`      ${key}`);
+    if (orphans.length > 20) console.log(`      ... and ${orphans.length - 20} more`);
+  }
+
+  return missing.length === 0;
 }
 
 main().catch((error) => {
