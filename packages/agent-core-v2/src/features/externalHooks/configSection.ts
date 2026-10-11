@@ -13,6 +13,8 @@ export const HookDefSchema = z
     matcher: z.string().optional(),
     command: z.string().min(1),
     timeout: z.number().int().min(1).max(600).optional(),
+    cwd: z.string().min(1).optional(),
+    env: z.record(z.string(), z.string()).optional(),
   })
   .strict();
 

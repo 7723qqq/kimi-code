@@ -136,10 +136,10 @@ describe('migrateSessionsStep (multi-workdir fixture)', () => {
   });
 
   it('routes a corrupt context.jsonl into sessionsFailed (so it reaches migration-errors.log)', async () => {
-    // A session whose `context.jsonl` is unparseable is a real data problem.
-    // It must not be silently absorbed into `sessionsSkippedMalformed` (which
-    // the result screen does not render and `migration-errors.log` does not
-    // include); it must surface as a real failure with diagnostic info.
+    // A session whose `context.jsonl` is unparseable is a real data problem:
+    // it must surface as a real failure with diagnostic info (reachable from
+    // the result screen and `migration-errors.log`), never as a counter the
+    // UI does not render.
     const src = await mkdtemp(join(tmpdir(), 'corrupt-sess-src-'));
     try {
       const workdir = '/Users/me/corrupt-proj';
@@ -157,7 +157,6 @@ describe('migrateSessionsStep (multi-workdir fixture)', () => {
       expect(report.sessionsFailed).toHaveLength(1);
       expect(report.sessionsFailed[0]!.sourcePath).toContain('corrupt-uuid');
       expect(report.sessionsFailed[0]!.reason).toMatch(/corrupt|parseable/i);
-      expect(report.sessionsSkippedMalformed).toBe(0);
       expect(report.sessionsMigrated).toBe(0);
     } finally {
       await rm(src, { recursive: true, force: true });
@@ -220,7 +219,6 @@ describe('migrateSessionsStep (multi-workdir fixture)', () => {
           reason: expect.stringMatching(/context.*missing.*unreadable/i),
         },
       ]);
-      expect(report.sessionsSkippedMalformed).toBe(0);
     } finally {
       await rm(src, { recursive: true, force: true });
     }

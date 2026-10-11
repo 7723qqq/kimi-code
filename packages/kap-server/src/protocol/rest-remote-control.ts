@@ -12,5 +12,5 @@ export type RemoteControlStatusResponse = z.infer<typeof remoteControlStatusSche
 
 export const setRemoteControlRequestSchema = z.object({
   enabled: z.boolean(),
-});
+}).strict();
 export type SetRemoteControlRequest = z.infer<typeof setRemoteControlRequestSchema>;

@@ -1273,6 +1273,7 @@ export class MiniDb<V = unknown> {
     return this.readPath.has(key);
   }
   get size(): number {
+    this.ensureOpen();
     return this.store.size;
   }
   async mset(entries: readonly (readonly [string, V])[]): Promise<void> {

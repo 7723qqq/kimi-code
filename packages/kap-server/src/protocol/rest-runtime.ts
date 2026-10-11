@@ -7,7 +7,7 @@ export const runtimeBindingResponseSchema = z.object({
 
 export const switchRuntimeRequestSchema = z.object({
   runtime_id: z.string().min(1),
-});
+}).strict();
 
 export const sessionRuntimeParamsSchema = z.object({
   session_id: z.string().min(1),

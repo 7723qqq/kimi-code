@@ -28,7 +28,7 @@ export function contextRoute(home: string = KIMI_CODE_HOME): Hono {
         join(detail.sessionDir, 'agents', agentId, 'wire.jsonl'),
       );
       const baseUrl = new URL(c.req.url).origin;
-      rehydrateWireEntries(wire.records, id, agentId, baseUrl);
+      rehydrateWireEntries(wire.records, id, agentId, baseUrl, wire.warnings);
       // `?history=full` reconstructs the FULL pre-compaction/undo/clear history
       // for debugging; the default mirrors the model's-eye post-compaction view.
       const mode = c.req.query('history') === 'full' ? 'full' : 'model';
@@ -44,6 +44,7 @@ export function contextRoute(home: string = KIMI_CODE_HOME): Hono {
         planMode: proj.planMode,
         goal: proj.goal,
         swarm: proj.swarm,
+        warnings: wire.warnings,
       });
     } catch (error) {
       const msg = (error as Error).message;

@@ -14,6 +14,7 @@
 
 import { open, readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { StringDecoder } from 'node:string_decoder';
 
 import type {
   BackgroundTaskInfo,
@@ -142,8 +143,15 @@ export interface TaskOutputWindow {
   nextOffset: number;
   /** Total byte size of the log on disk. */
   size: number;
-  /** UTF-8 decoded window content. */
+  /** UTF-8 decoded window content. A trailing multi-byte sequence that the
+   *  window boundary cut in half is dropped here and carried into the next
+   *  window (see `carryBytes`), never rendered as U+FFFD. */
   content: string;
+  /** Bytes at the end of this window that do not form a complete UTF-8
+   *  sequence. They are NOT part of `content`; the next window starting at
+   *  `nextOffset` re-reads them (windows are byte-ranged, so no data is
+   *  lost). 0..3. */
+  carryBytes: number;
   /** True when this window reaches EOF. */
   eof: boolean;
 }
@@ -166,21 +174,49 @@ export async function readTaskOutput(
   const limit = Math.max(0, Math.trunc(maxBytes));
   const handle = await openTaskOutput(agentDir, taskId, fallbackDir);
   if (handle === undefined) {
-    return { offset: start, nextOffset: start, size: 0, content: '', eof: true };
+    return { offset: start, nextOffset: start, size: 0, content: '', carryBytes: 0, eof: true };
   }
   try {
     const size = (await handle.stat()).size;
     if (limit === 0 || start >= size) {
-      return { offset: start, nextOffset: start, size, content: '', eof: start >= size };
+      return {
+        offset: start,
+        nextOffset: start,
+        size,
+        content: '',
+        carryBytes: 0,
+        eof: start >= size,
+      };
     }
     const length = Math.min(limit, size - start);
     const buffer = Buffer.allocUnsafe(length);
     const { bytesRead } = await handle.read(buffer, 0, length, start);
-    const content = buffer.toString('utf-8', 0, bytesRead);
-    const nextOffset = start + bytesRead;
-    return { offset: start, nextOffset, size, content, eof: nextOffset >= size };
+    const atEof = start + bytesRead >= size;
+    const decoder = new StringDecoder('utf8');
+    let content = decoder.write(buffer.subarray(0, bytesRead));
+    // Bytes the decoder is still holding: a trailing sequence the window cut
+    // in half. Re-encoding the emitted text measures them exactly (the decoder
+    // only emits complete characters from write()).
+    let carryBytes = Math.max(0, bytesRead - Buffer.byteLength(content, 'utf8'));
+    if (atEof || carryBytes >= bytesRead) {
+      // EOF: flush the incomplete tail as a replacement char rather than
+      // carrying bytes no later window will read. carryBytes >= bytesRead
+      // would otherwise leave nextOffset unmoved (a window smaller than one
+      // character) and page forever.
+      content += decoder.end();
+      carryBytes = 0;
+    }
+    const nextOffset = start + bytesRead - carryBytes;
+    return {
+      offset: start,
+      nextOffset,
+      size,
+      content,
+      carryBytes,
+      eof: atEof,
+    };
   } catch {
-    return { offset: start, nextOffset: start, size: 0, content: '', eof: true };
+    return { offset: start, nextOffset: start, size: 0, content: '', carryBytes: 0, eof: true };
   } finally {
     await handle.close();
   }

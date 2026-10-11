@@ -7,9 +7,9 @@ export const guiStoreGetItemQuerySchema = z.object({ key: keySchema });
 export const guiStoreSetItemBodySchema = z.object({
   key: keySchema,
   value: z.string(),
-});
+}).strict();
 
-export const guiStoreRemoveItemBodySchema = z.object({ key: keySchema });
+export const guiStoreRemoveItemBodySchema = z.object({ key: keySchema }).strict();
 
 export const guiStoreGetItemResponseSchema = z.object({
   value: z.string().nullable(),

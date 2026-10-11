@@ -148,7 +148,6 @@ export interface SessionsSummary {
   readonly sessionsAlreadyMigrated: number;
   readonly sessionsSkippedPlaceholder: number;
   readonly sessionsSkippedEmpty: number;
-  readonly sessionsSkippedMalformed: number;
   readonly sessionsFailed: readonly SessionMigrationFailure[];
   readonly sessionsConflicts: ReadonlyArray<{
     readonly sourcePath: string;

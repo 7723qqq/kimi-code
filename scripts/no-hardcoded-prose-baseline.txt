@@ -1,162 +1,194 @@
 # Shrink-only ledger for scripts/check-no-hardcoded-prose.mjs.
-# One "path  count" line per file with accepted hardcoded-prose literals.
+# One "path  count  digest" line per file: the number of accepted
+# hardcoded-prose literals, and a digest over their text so replacing one
+# accepted literal with a different one is detected rather than counted.
 # Regenerate with: bun scripts/check-no-hardcoded-prose.mjs --print-counts
 # Lower a number when you localize strings; never raise one for new code.
 
-apps/kimi-code/src/cli/commands.ts  1
-apps/kimi-code/src/cli/sub/acp.ts  1
-apps/kimi-code/src/cli/sub/update-download.ts  1
-apps/kimi-code/src/cli/sub/upgrade.ts  7
-apps/kimi-code/src/cli/sub/web/run.ts  6
-apps/kimi-code/src/cli/telemetry.ts  2
-apps/kimi-code/src/cli/update/cdn.ts  2
-apps/kimi-code/src/cli/update/native-manifest.ts  1
-apps/kimi-code/src/cli/update/native-stage.ts  3
-apps/kimi-code/src/cli/update/native-swap.ts  11
-apps/kimi-code/src/cli/update/preflight.ts  8
-apps/kimi-code/src/cli/update/source.ts  1
-apps/kimi-code/src/cli/v2/run-v2-print.ts  2
-apps/kimi-code/src/cli/v2/validate-config.ts  1
-apps/kimi-code/src/tui/commands/auth.ts  1
-apps/kimi-code/src/tui/commands/plugins.ts  9
-apps/kimi-code/src/tui/commands/team.ts  1
-apps/kimi-code/src/tui/components/dialogs/platform-selector.ts  2
-apps/kimi-code/src/tui/components/dialogs/plugins-selector.ts  5
-apps/kimi-code/src/tui/components/messages/tool-call.ts  6
-apps/kimi-code/src/tui/components/messages/tool-renderers/types.ts  1
-apps/kimi-code/src/tui/config.ts  1
-apps/kimi-code/src/tui/controllers/session-event-handler.ts  2
-apps/kimi-code/src/tui/controllers/session-replay.ts  2
-apps/kimi-code/src/tui/kimi-tui.ts  12
-apps/kimi-code/src/tui/reverse-rpc/approval/handler.ts  1
-apps/kimi-code/src/tui/reverse-rpc/question/handler.ts  1
-apps/kimi-code/src/tui/utils/export-markdown.ts  1
-apps/kimi-code/src/tui/utils/message-replay.ts  2
-apps/kimi-inspect/src/audit/trail.ts  5
-apps/kimi-inspect/src/channel/channels.ts  1
-apps/kimi-inspect/src/channel/proxyChannel.ts  1
-apps/kimi-inspect/src/components/AppServicesView.tsx  1
-apps/kimi-inspect/src/components/BashParserView.tsx  9
-apps/kimi-inspect/src/components/ChatView.tsx  3
-apps/kimi-inspect/src/components/DiInspectionView.tsx  1
-apps/kimi-inspect/src/components/FsSuggestView.tsx  2
-apps/kimi-inspect/src/components/Inspector.tsx  1
-apps/kimi-inspect/src/components/ModelCatalogView.tsx  1
-apps/kimi-inspect/src/components/NavRail.tsx  5
-apps/kimi-inspect/src/components/RightPanel.tsx  2
-apps/kimi-inspect/src/components/SearchView.tsx  9
-apps/kimi-inspect/src/components/ServicePanels.tsx  3
-apps/kimi-inspect/src/components/SessionPane.tsx  1
-apps/kimi-inspect/src/components/Sidebar.tsx  4
-apps/kimi-inspect/src/components/StateCard.tsx  1
-apps/kimi-inspect/src/components/WorkspaceDirBrowser.tsx  1
-apps/kimi-inspect/src/components/WorkspaceServicesView.tsx  1
-apps/kimi-inspect/src/components/audit/AuditPanel.tsx  1
-apps/kimi-inspect/src/components/di/DiGraphPanel.tsx  4
-apps/kimi-inspect/src/fs/api.ts  1
-apps/kimi-inspect/src/panels.ts  6
-apps/kimi-inspect/src/search/api.ts  1
-apps/kimi-inspect/src/sessions/api.ts  3
-apps/kimi-inspect/src/transcript/api.ts  3
-apps/kimi-inspect/src/ui.tsx  2
-apps/kimi-web/src/api/daemon/eventReducer.ts  1
-apps/kimi-web/src/api/daemon/http.ts  1
-apps/kimi-web/src/components/SessionRow.vue  1
-apps/kimi-web/src/components/SessionToolsDialog.vue  1
-apps/kimi-web/src/components/Sidebar.vue  1
-apps/kimi-web/src/components/WarningToasts.vue  1
-apps/kimi-web/src/components/chat/ActivityNotice.vue  1
-apps/kimi-web/src/components/chat/AgentDetailPanel.vue  1
-apps/kimi-web/src/components/chat/ChatHeader.vue  1
-apps/kimi-web/src/components/chat/ChatPane.vue  1
-apps/kimi-web/src/components/chat/Composer.vue  2
-apps/kimi-web/src/components/chat/ConversationPane.vue  1
-apps/kimi-web/src/components/chat/ConversationToc.vue  1
-apps/kimi-web/src/components/chat/Markdown.vue  2
-apps/kimi-web/src/components/chat/MessageTime.vue  1
-apps/kimi-web/src/components/chat/OpenInMenu.vue  2
-apps/kimi-web/src/components/chat/QuestionCard.vue  1
-apps/kimi-web/src/components/chat/SideChatPanel.vue  1
-apps/kimi-web/src/components/chat/SlashMenu.vue  1
-apps/kimi-web/src/components/chat/SubagentCatalogNode.vue  1
-apps/kimi-web/src/components/chat/SubagentCatalogPanel.vue  1
-apps/kimi-web/src/components/chat/TasksPane.vue  1
-apps/kimi-web/src/components/chat/TodoCard.vue  1
-apps/kimi-web/src/components/chat/ToolGroup.vue  1
-apps/kimi-web/src/components/chat/TurnFold.vue  1
-apps/kimi-web/src/components/chat/tool-calls/AgentTool.vue  1
-apps/kimi-web/src/components/chat/tool-calls/EditTool.vue  1
-apps/kimi-web/src/components/chat/tool-calls/GenericTool.vue  1
-apps/kimi-web/src/components/chat/tool-calls/SwarmTool.vue  2
-apps/kimi-web/src/components/dialogs/AddWorkspaceDialog.vue  4
-apps/kimi-web/src/components/dialogs/LoginDialog.vue  2
-apps/kimi-web/src/components/dialogs/SearchSessionsDialog.vue  1
-apps/kimi-web/src/components/mobile/MobileSettingsSheet.vue  1
-apps/kimi-web/src/components/mobile/MobileSwitcherSheet.vue  2
-apps/kimi-web/src/components/settings/ModelPicker.vue  2
-apps/kimi-web/src/components/settings/ProviderManager.vue  1
-apps/kimi-web/src/components/settings/SettingsDialog.vue  5
-apps/kimi-web/src/components/trajectory/TrajectoryLedger.vue  1
-apps/kimi-web/src/components/trajectory/TrajectoryTimeline.vue  1
-apps/kimi-web/src/components/ui/MoonSpinner.vue  1
-apps/kimi-web/src/components/ui/SegmentedControl.vue  1
-apps/kimi-web/src/components/ui/Spinner.vue  1
-apps/kimi-web/src/components/ui/Tabs.vue  1
-apps/kimi-web/src/composables/client/useModelProviderState.ts  1
-apps/kimi-web/src/composables/client/useSoundNotification.ts  7
-apps/kimi-web/src/composables/messagesToTurns.ts  1
-apps/kimi-web/src/composables/useKimiWebClient.ts  1
-apps/kimi-web/src/debug/DebugPanel.vue  1
-apps/kimi-web/src/debug/KapDebugView.vue  3
-apps/kimi-web/src/lib/icons.ts  3
-apps/kimi-web/src/lib/parseDiff.ts  11
-apps/kimi-web/src/lib/trajectory/search.ts  1
-apps/kimi-web/src/views/DesignSystemView.vue  27
-apps/vis/web/src/components/wire/renderers.tsx  7
-apps/vis/web/src/lib/issues.ts  3
-apps/vis/web/src/main.tsx  1
-apps/vis/web/src/util/time.ts  1
-apps/vscode/src/KimiWebviewProvider.ts  1
-apps/vscode/src/bridge-handler.ts  13
-apps/vscode/src/extension.ts  14
-apps/vscode/src/handlers/auth.handler.ts  4
-apps/vscode/src/handlers/chat.handler.ts  3
-apps/vscode/src/handlers/config.handler.ts  9
-apps/vscode/src/handlers/file.handler.ts  4
-apps/vscode/src/handlers/mcp.handler.ts  1
-apps/vscode/src/handlers/session.handler.ts  13
-apps/vscode/src/handlers/slash-command.ts  23
-apps/vscode/src/managers/baseline.manager.ts  5
-apps/vscode/src/migration/legacy-migration.manager.ts  13
-apps/vscode/src/runtime/kimi-runtime.ts  5
-apps/vscode/src/runtime/replay-adapter.ts  1
-apps/vscode/src/runtime/session-runtime.ts  14
-apps/vscode/src/runtime/tool-display.ts  2
-apps/vscode/src/utils/hook-parts.ts  1
-apps/vscode/src/utils/session-context.ts  1
-apps/vscode/webview-ui/src/App.tsx  1
-apps/vscode/webview-ui/src/components/ActionMenu.tsx  3
-apps/vscode/webview-ui/src/components/ApprovalDialog.tsx  1
-apps/vscode/webview-ui/src/components/ChatMessage.tsx  2
-apps/vscode/webview-ui/src/components/CompactionCard.tsx  2
-apps/vscode/webview-ui/src/components/CopyButton.tsx  1
-apps/vscode/webview-ui/src/components/FilePickerMenu.tsx  1
-apps/vscode/webview-ui/src/components/Header.tsx  2
-apps/vscode/webview-ui/src/components/LoginScreen.tsx  3
-apps/vscode/webview-ui/src/components/MCPServersModal.tsx  6
-apps/vscode/webview-ui/src/components/PlanModeButton.tsx  2
-apps/vscode/webview-ui/src/components/QuestionDialog.tsx  1
-apps/vscode/webview-ui/src/components/SessionList.tsx  3
-apps/vscode/webview-ui/src/components/StreamingConfirmDialog.tsx  1
-apps/vscode/webview-ui/src/components/ThinkingButton.tsx  3
-apps/vscode/webview-ui/src/components/ToolRenderers.tsx  4
-apps/vscode/webview-ui/src/components/inputarea/InputArea.tsx  7
-apps/vscode/webview-ui/src/components/inputarea/hooks/useMediaUpload.ts  2
-apps/vscode/webview-ui/src/components/ui/combobox.tsx  1
-apps/vscode/webview-ui/src/components/ui/command.tsx  2
-apps/vscode/webview-ui/src/components/ui/field.tsx  1
-apps/vscode/webview-ui/src/hooks/useAppInit.ts  1
-apps/vscode/webview-ui/src/hooks/useWelcomeHint.tsx  16
-apps/vscode/webview-ui/src/services/recommended-mcp.ts  2
-apps/vscode/webview-ui/src/stores/chat.store.ts  2
-apps/vscode/webview-ui/src/stores/settings.store.ts  1
+apps/kimi-code/src/cli/commands.ts  1  702ae94cbb5d
+apps/kimi-code/src/cli/prompt-render.ts  1  b5177857ae2b
+apps/kimi-code/src/cli/run-shell.ts  1  1c24a2530e22
+apps/kimi-code/src/cli/sub/acp.ts  1  a56a2e3486ac
+apps/kimi-code/src/cli/sub/update-download.ts  1  69541bad3a62
+apps/kimi-code/src/cli/sub/upgrade.ts  8  c90856526473
+apps/kimi-code/src/cli/sub/web/run.ts  5  c7b91c902569
+apps/kimi-code/src/cli/telemetry.ts  2  4f64b2567e6b
+apps/kimi-code/src/cli/update/cdn.ts  5  1655c07aee35
+apps/kimi-code/src/cli/update/native-manifest.ts  5  98c7c022b60d
+apps/kimi-code/src/cli/update/native-stage.ts  8  87020bd17272
+apps/kimi-code/src/cli/update/native-swap.ts  12  03a74c963545
+apps/kimi-code/src/cli/update/preflight.ts  10  4ddf3b75a097
+apps/kimi-code/src/cli/update/source.ts  1  ec6fb1b85679
+apps/kimi-code/src/cli/v2/run-v2-print.ts  2  94f9740717b2
+apps/kimi-code/src/cli/v2/validate-config.ts  2  d1e50b5f0421
+apps/kimi-code/src/cli/version.ts  1  34a22c6892eb
+apps/kimi-code/src/tui/commands/auth.ts  1  bb8655822004
+apps/kimi-code/src/tui/commands/plugins.ts  9  81007bf0a334
+apps/kimi-code/src/tui/commands/team.ts  4  ccf6000aba4f
+apps/kimi-code/src/tui/components/dialogs/api-key-input-dialog.ts  1  6001981f8a69
+apps/kimi-code/src/tui/components/dialogs/platform-selector.ts  2  b8f0fee1cfd9
+apps/kimi-code/src/tui/components/dialogs/plugins-selector.ts  7  39ca43d65326
+apps/kimi-code/src/tui/components/messages/tool-call.ts  6  f6434feaf85b
+apps/kimi-code/src/tui/components/messages/tool-renderers/chip.ts  1  aba3835c3afb
+apps/kimi-code/src/tui/components/messages/tool-renderers/types.ts  1  0b5f14947eb7
+apps/kimi-code/src/tui/components/messages/tool-renderers/wait-for.ts  4  55f39bd2ed45
+apps/kimi-code/src/tui/controllers/btw-panel.ts  1  2a097993df1d
+apps/kimi-code/src/tui/controllers/cache-hint-controller.ts  2  109575cc94a1
+apps/kimi-code/src/tui/controllers/session-event-handler.ts  2  63af443acbc9
+apps/kimi-code/src/tui/controllers/session-replay.ts  2  dc2520277b86
+apps/kimi-code/src/tui/controllers/staging-leases.ts  1  cf04345e8938
+apps/kimi-code/src/tui/controllers/subagent-activity-store.ts  2  6663d7d6b33f
+apps/kimi-code/src/tui/goal-queue-store.ts  2  4164f16fd4bc
+apps/kimi-code/src/tui/kimi-tui.ts  12  7c70e40f2d3f
+apps/kimi-code/src/tui/reverse-rpc/approval/handler.ts  1  15b75d1ffcb6
+apps/kimi-code/src/tui/reverse-rpc/question/handler.ts  1  3cf4a1cc2e10
+apps/kimi-code/src/tui/utils/cache-hint.ts  2  95ba4a0abdb6
+apps/kimi-code/src/tui/utils/export-markdown.ts  3  67162b5a6928
+apps/kimi-code/src/tui/utils/image-placeholder.ts  1  28909da11603
+apps/kimi-code/src/tui/utils/input-latency.ts  2  d04f2ea61d60
+apps/kimi-code/src/tui/utils/message-replay.ts  2  9a3d5c0ea16a
+apps/kimi-code/src/tui/utils/tool-call-format.ts  1  bbd63c7ab007
+apps/kimi-inspect/src/App.tsx  1  a6694da6baa5
+apps/kimi-inspect/src/activity/ws.ts  1  0a69a40f396c
+apps/kimi-inspect/src/audit/trail.ts  7  cc19b46a3489
+apps/kimi-inspect/src/audit/truncate.ts  1  2380027745fa
+apps/kimi-inspect/src/channel/channels.ts  3  26a188a8ae56
+apps/kimi-inspect/src/channel/proxyChannel.ts  1  bc6344d6129e
+apps/kimi-inspect/src/components/AppServicesView.tsx  1  72c8429207bd
+apps/kimi-inspect/src/components/BashParserView.tsx  10  0ccf44fa1d03
+apps/kimi-inspect/src/components/ChatSearchBar.tsx  2  6fefc70c80cb
+apps/kimi-inspect/src/components/ChatView.tsx  3  0221c27c06bb
+apps/kimi-inspect/src/components/DiInspectionView.tsx  2  09880e416160
+apps/kimi-inspect/src/components/FsSuggestView.tsx  2  617a5660a6ae
+apps/kimi-inspect/src/components/Inspector.tsx  1  32056a2685f9
+apps/kimi-inspect/src/components/ModelCatalogView.tsx  4  51bb0c0425a8
+apps/kimi-inspect/src/components/NavRail.tsx  5  aff474798ba6
+apps/kimi-inspect/src/components/RightPanel.tsx  2  b85c4b61b611
+apps/kimi-inspect/src/components/SearchView.tsx  11  267e5eaad2cf
+apps/kimi-inspect/src/components/ServerSwitcher.tsx  1  396f1bb4d0ae
+apps/kimi-inspect/src/components/ServicePanels.tsx  4  98b506eb03b9
+apps/kimi-inspect/src/components/SessionPane.tsx  1  8b90128f9e3d
+apps/kimi-inspect/src/components/Sidebar.tsx  6  03dff185d2cf
+apps/kimi-inspect/src/components/StateCard.tsx  2  00774c9576fd
+apps/kimi-inspect/src/components/WorkspaceDirBrowser.tsx  1  d8acae99d144
+apps/kimi-inspect/src/components/WorkspaceServicesView.tsx  1  ec8af961335d
+apps/kimi-inspect/src/components/audit/AuditPanel.tsx  1  e029d52fa565
+apps/kimi-inspect/src/components/di/DiGraphPanel.tsx  6  489356911377
+apps/kimi-inspect/src/fs/api.ts  1  754dc4ffb9a9
+apps/kimi-inspect/src/interactions/api.ts  1  f0b00922a21f
+apps/kimi-inspect/src/panels.ts  7  a9098dc59c94
+apps/kimi-inspect/src/search/api.ts  2  7c11a9f51953
+apps/kimi-inspect/src/sessions/api.ts  3  042a5e848090
+apps/kimi-inspect/src/transcript/api.ts  7  7a40132fb067
+apps/kimi-inspect/src/transcript/ws.ts  1  0a69a40f396c
+apps/kimi-inspect/src/ui.tsx  6  bb8fe7451058
+apps/kimi-web/src/api/daemon/eventReducer.ts  1  e5c2d1dd28c9
+apps/kimi-web/src/api/daemon/http.ts  9  16ca973cd59f
+apps/kimi-web/src/api/daemon/ws.ts  1  ea767299cea8
+apps/kimi-web/src/components/SessionRow.vue  1  850480fd6ca5
+apps/kimi-web/src/components/SessionToolsDialog.vue  1  c5945768b881
+apps/kimi-web/src/components/Sidebar.vue  1  58299fdd9fd3
+apps/kimi-web/src/components/WarningToasts.vue  1  fa26998579e7
+apps/kimi-web/src/components/chat/ActivityNotice.vue  1  3abf03f7baf2
+apps/kimi-web/src/components/chat/AgentDetailPanel.vue  1  19d1721f12da
+apps/kimi-web/src/components/chat/ChatHeader.vue  1  f4c97b79f17c
+apps/kimi-web/src/components/chat/ChatPane.vue  2  e6d0251ffcd7
+apps/kimi-web/src/components/chat/Composer.vue  2  367c06b0cc5c
+apps/kimi-web/src/components/chat/ConversationPane.vue  1  ef5df7e60515
+apps/kimi-web/src/components/chat/ConversationToc.vue  1  6a2a3a8503d5
+apps/kimi-web/src/components/chat/DiffView.vue  1  61d889554a7e
+apps/kimi-web/src/components/chat/GoalStrip.vue  2  bfc1e4f85620
+apps/kimi-web/src/components/chat/Markdown.vue  2  21e2c658dd0f
+apps/kimi-web/src/components/chat/MessageTime.vue  1  9b648f5f3b98
+apps/kimi-web/src/components/chat/OpenInMenu.vue  2  742ac047496b
+apps/kimi-web/src/components/chat/QuestionCard.vue  1  0acba7de6cd4
+apps/kimi-web/src/components/chat/SideChatPanel.vue  1  23f74acf0efa
+apps/kimi-web/src/components/chat/SlashMenu.vue  1  a64e5be5f4fc
+apps/kimi-web/src/components/chat/SubagentCatalogNode.vue  2  c9ffa389f4f2
+apps/kimi-web/src/components/chat/SubagentCatalogPanel.vue  1  1591e3d2b4cb
+apps/kimi-web/src/components/chat/TasksPane.vue  1  ae038fbe162e
+apps/kimi-web/src/components/chat/TodoCard.vue  1  687733245ae6
+apps/kimi-web/src/components/chat/ToolGroup.vue  1  13e4424d78a8
+apps/kimi-web/src/components/chat/tool-calls/AgentTool.vue  1  44715f21ad10
+apps/kimi-web/src/components/chat/tool-calls/EditTool.vue  1  f05fefe200f2
+apps/kimi-web/src/components/chat/tool-calls/GenericTool.vue  1  f05fefe200f2
+apps/kimi-web/src/components/chat/tool-calls/SwarmTool.vue  3  06ade0505b76
+apps/kimi-web/src/components/dialogs/AddWorkspaceDialog.vue  4  00befb886d43
+apps/kimi-web/src/components/dialogs/LoginDialog.vue  2  15392efc882b
+apps/kimi-web/src/components/dialogs/SearchSessionsDialog.vue  1  b9fb35e0bb57
+apps/kimi-web/src/components/mobile/MobileTopBar.vue  1  1594337cab3b
+apps/kimi-web/src/components/settings/ModelPicker.vue  2  bf47df02b04d
+apps/kimi-web/src/components/settings/ProviderManager.vue  1  73e70d58dc65
+apps/kimi-web/src/components/settings/SettingsDialog.vue  2  eb20bfcd3e94
+apps/kimi-web/src/components/trajectory/TrajectoryLedger.vue  1  68c3dec17e25
+apps/kimi-web/src/components/trajectory/TrajectoryTimeline.vue  1  6e003758b47f
+apps/kimi-web/src/components/ui/MoonSpinner.vue  1  909db2135154
+apps/kimi-web/src/components/ui/SegmentedControl.vue  1  9cf64bad3a27
+apps/kimi-web/src/components/ui/Spinner.vue  1  a8b9f2d8cdc4
+apps/kimi-web/src/components/ui/Tabs.vue  1  9cf64bad3a27
+apps/kimi-web/src/composables/client/useModelProviderState.ts  1  7eb01312c879
+apps/kimi-web/src/composables/client/useSoundNotification.ts  7  90207bf71f1c
+apps/kimi-web/src/composables/messagesToTurns.ts  1  5b3655736113
+apps/kimi-web/src/composables/useKimiWebClient.ts  1  63d1f7695d25
+apps/kimi-web/src/composables/usePageTitle.ts  2  b659fe1c91be
+apps/kimi-web/src/debug/DebugPanel.vue  1  8a7475dad9df
+apps/kimi-web/src/debug/KapDebugView.vue  3  e82b2269f43c
+apps/kimi-web/src/debug/trace.ts  1  8d4c4c7a44c4
+apps/kimi-web/src/lib/icons.ts  3  2d260f28791f
+apps/kimi-web/src/lib/parseDiff.ts  11  3a527c9e8249
+apps/kimi-web/src/lib/trajectory/search.ts  1  2ae845c92aba
+apps/kimi-web/src/views/DesignSystemView.vue  19  e39692427add
+apps/vis/web/src/components/context/ContextTab.tsx  1  d39a3668f69d
+apps/vis/web/src/components/wire/renderers.tsx  8  4e81371cad6e
+apps/vis/web/src/lib/issues.ts  12  b0c5aaaba61c
+apps/vis/web/src/main.tsx  1  0d9e8e0c2f04
+apps/vis/web/src/util/time.ts  7  3ddb33cff551
+apps/vscode/src/KimiWebviewProvider.ts  1  0c486180bb8a
+apps/vscode/src/bridge-handler.ts  16  d95fed21c4f2
+apps/vscode/src/extension.ts  21  43ce085075c9
+apps/vscode/src/handlers/auth.handler.ts  4  f34c0e63dc14
+apps/vscode/src/handlers/chat.handler.ts  4  b221a4b52de5
+apps/vscode/src/handlers/config.handler.ts  9  c5c48792d73b
+apps/vscode/src/handlers/file.handler.ts  4  6b0d8b75b2c2
+apps/vscode/src/handlers/mcp.handler.ts  1  948984637828
+apps/vscode/src/handlers/session.handler.ts  13  e7bd6cd7b9bf
+apps/vscode/src/handlers/slash-command.ts  30  234fcf366af7
+apps/vscode/src/managers/baseline.manager.ts  5  a98d2337a4d2
+apps/vscode/src/migration/legacy-migration.manager.ts  22  3fcdfee6cde3
+apps/vscode/src/runtime/kimi-runtime.ts  5  5d7ba47704c2
+apps/vscode/src/runtime/replay-adapter.ts  2  ebaaea800481
+apps/vscode/src/runtime/session-runtime.ts  17  b70caa6425c5
+apps/vscode/src/runtime/tool-display.ts  4  e6308d42ffcf
+apps/vscode/src/telemetry.ts  1  7f9a72aea5a2
+apps/vscode/src/utils/hook-parts.ts  1  94e591c088a0
+apps/vscode/src/utils/session-context.ts  3  390b17d398ee
+apps/vscode/webview-ui/src/App.tsx  1  f1494235431d
+apps/vscode/webview-ui/src/components/ActionMenu.tsx  3  26981645ae83
+apps/vscode/webview-ui/src/components/ApprovalDialog.tsx  1  cac0a575f01f
+apps/vscode/webview-ui/src/components/ChatMessage.tsx  3  71eee0b5bdc3
+apps/vscode/webview-ui/src/components/CompactionCard.tsx  2  436ba3e91254
+apps/vscode/webview-ui/src/components/CopyButton.tsx  1  ed9a05eae947
+apps/vscode/webview-ui/src/components/FileChangesPanel.tsx  2  25ead748c05e
+apps/vscode/webview-ui/src/components/FilePickerMenu.tsx  2  a6cfda22c1f6
+apps/vscode/webview-ui/src/components/Header.tsx  2  0d9a8dc0c263
+apps/vscode/webview-ui/src/components/LoginScreen.tsx  2  0ac26298c59b
+apps/vscode/webview-ui/src/components/MCPServersModal.tsx  6  58b0afd1473d
+apps/vscode/webview-ui/src/components/Markdown.tsx  1  ec0f84cc9ffe
+apps/vscode/webview-ui/src/components/PlanModeButton.tsx  2  e6eb0651aad0
+apps/vscode/webview-ui/src/components/QuestionDialog.tsx  1  5e5f6ac556ad
+apps/vscode/webview-ui/src/components/SessionList.tsx  11  0c955ad06c1b
+apps/vscode/webview-ui/src/components/StreamingConfirmDialog.tsx  1  9d08ebc8456f
+apps/vscode/webview-ui/src/components/ThinkingButton.tsx  3  544d6f9b00f7
+apps/vscode/webview-ui/src/components/ToolRenderers.tsx  4  71e0372e4be2
+apps/vscode/webview-ui/src/components/inputarea/InputArea.tsx  7  adbf5fbeebba
+apps/vscode/webview-ui/src/components/inputarea/hooks/useMediaUpload.ts  3  df191f9c6c7f
+apps/vscode/webview-ui/src/components/ui/combobox.tsx  1  7eab46ca08d0
+apps/vscode/webview-ui/src/components/ui/command.tsx  2  f7a2a1d455ba
+apps/vscode/webview-ui/src/components/ui/field.tsx  1  890d16fd5798
+apps/vscode/webview-ui/src/hooks/useAppInit.ts  1  aa02b1bc041c
+apps/vscode/webview-ui/src/hooks/useWelcomeHint.tsx  16  42a84501405f
+apps/vscode/webview-ui/src/lib/media-utils.ts  3  100f9c480185
+apps/vscode/webview-ui/src/services/bridge.ts  1  0c57408fdece
+apps/vscode/webview-ui/src/services/recommended-mcp.ts  2  35f57007f165
+apps/vscode/webview-ui/src/stores/chat.store.ts  2  584a273df520
+apps/vscode/webview-ui/src/stores/settings.store.ts  2  8a936034a7d9

@@ -15,6 +15,7 @@ import type {
   TranscriptOperation,
 } from '@moonshot-ai/transcript';
 
+import { t } from '../i18n';
 import type { TranscriptPage } from '../transcript/api';
 
 export const AUDIT_TRAIL_MAX_ENTRIES = 5000;
@@ -55,7 +56,7 @@ export interface ResetAuditEntry extends AuditEntryBase {
 
 export interface EventAuditEntry extends AuditEntryBase {
   readonly kind: 'event';
-  readonly event: 'ack-refresh' | 'resync' | 'gap' | 'prompt' | 'cancel';
+  readonly event: 'ack-refresh' | 'resync' | 'gap' | 'prompt' | 'cancel' | 'subscribe-rejected';
   readonly detail?: string | undefined;
 }
 
@@ -152,7 +153,9 @@ export class AuditTrail {
             ? 'append gap → REST refresh'
             : event === 'prompt'
               ? 'prompt sent'
-              : 'cancel sent';
+              : event === 'subscribe-rejected'
+                ? t('chat.auditSubscribeRejected')
+                : 'cancel sent';
     this.push({
       kind: 'event',
       event,

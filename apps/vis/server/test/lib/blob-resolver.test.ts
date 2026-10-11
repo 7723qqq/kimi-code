@@ -136,5 +136,54 @@ describe('blob-resolver', () => {
       rehydrateWireEntries(entries, 's', 'a');
       expect(entries[0]!.data).toEqual(data);
     });
+
+    it('reports a malformed media part as a warning instead of throwing', () => {
+      const cases: Record<string, unknown>[] = [
+        { type: 'turn.prompt', input: [{ type: 'image_url' }] },
+        { type: 'turn.prompt', input: [{ type: 'image_url', imageUrl: {} }] },
+        { type: 'turn.prompt', input: [{ type: 'image_url', imageUrl: { url: 42 } }] },
+        { type: 'turn.prompt', input: [{ type: 'audio_url' }] },
+        { type: 'turn.prompt', input: [{ type: 'video_url', videoUrl: null }] },
+        { type: 'turn.prompt', input: 'not-an-array' },
+        { type: 'context.append_message' },
+        { type: 'context.append_message', message: null },
+        { type: 'context.append_message', message: { content: [null] } },
+        { type: 'context.append_loop_event' },
+        { type: 'context.append_loop_event', event: null },
+        { type: 'context.append_loop_event', event: { type: 'tool.result' } },
+        { type: 'context.append_loop_event', event: { type: 'tool.result', result: null } },
+        { type: 'context.append_loop_event', event: { type: 'content.part' } },
+      ];
+      for (const data of cases) {
+        const warnings: string[] = [];
+        const entries = [{ lineNo: 1, data: data as any, raw: {} }];
+        expect(() => rehydrateWireEntries(entries, 's', 'a', '', warnings)).not.toThrow();
+        expect(warnings.length).toBeGreaterThan(0);
+      }
+    });
+
+    it('treats an absent content field as empty, not as malformed', () => {
+      const warnings: string[] = [];
+      const data: Record<string, unknown> = { type: 'turn.prompt' };
+      rehydrateWireEntries([{ lineNo: 1, data: data as any, raw: {} }], 's', 'a', '', warnings);
+      expect(warnings).toEqual([]);
+    });
+
+    it('keeps resolving well-formed parts in a record that also has a malformed one', () => {
+      const data: Record<string, unknown> = {
+        type: 'turn.prompt',
+        input: [
+          { type: 'image_url' },
+          { type: 'image_url', imageUrl: { url: 'blobref:image/png;okHash' } },
+        ],
+      };
+      const warnings: string[] = [];
+      const entries = [{ lineNo: 1, data: data as any, raw: {} }];
+      rehydrateWireEntries(entries, 'sess-9', 'main', '', warnings);
+      expect((entries[0]!.data as any).input[1].imageUrl.url).toBe(
+        '/api/sessions/sess-9/blobs/okHash?agent=main&mime=image%2Fpng',
+      );
+      expect(warnings).toHaveLength(1);
+    });
   });
 });

@@ -186,6 +186,8 @@ extra_skill_dirs = []
   # matcher: string
   # command: string
   # timeout: integer
+  # cwd: string
+  # env: record<string, string>
 
 # ##########################################################################
 # identity

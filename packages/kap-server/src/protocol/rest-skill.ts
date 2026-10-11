@@ -25,7 +25,7 @@ export const activateSkillRequestSchema = z.object({
   args: z.string().optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
   attachments: z.array(activateSkillAttachmentSchema).optional(),
-});
+}).strict();
 export type ActivateSkillRequest = z.infer<typeof activateSkillRequestSchema>;
 
 export const activateSkillResultSchema = z.object({

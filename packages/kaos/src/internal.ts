@@ -1,5 +1,7 @@
 import { Readable } from 'node:stream';
 
+import { KaosValueError } from './errors';
+
 function isUtf8Continuation(byte: number): boolean {
   return byte >= 0x80 && byte <= 0xbf;
 }
@@ -183,6 +185,28 @@ export function decodeTextWithErrors(
  * Mirrors Python pathlib behavior: includes dotfiles, case-sensitive by default.
  * @internal
  */
+/**
+ * `decodeTextWithErrors` with the file path attached: a strict-mode decode
+ * failure surfaces as `KaosValueError` naming the file and encoding instead
+ * of a bare `TypeError: The encoded data was not valid for encoding utf-8`.
+ */
+export function decodeFileTextWithErrors(
+  data: Buffer,
+  encoding: BufferEncoding,
+  errors: 'strict' | 'replace' | 'ignore',
+  path: string,
+  ignoreBOM: boolean = false,
+): string {
+  try {
+    return decodeTextWithErrors(data, encoding, errors, ignoreBOM);
+  } catch (error) {
+    if (errors !== 'strict') throw error;
+    throw new KaosValueError(
+      `${path} is not valid ${encoding}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
 export function globPatternToRegex(pattern: string, caseSensitive: boolean): RegExp {
   let regex = '^';
   for (let i = 0; i < pattern.length; i++) {

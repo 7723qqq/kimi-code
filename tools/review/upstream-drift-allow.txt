@@ -38,3 +38,30 @@ packages/migration-legacy/test/resume.integration.test.ts
 
 # node-pty dropped in favour of Bun's built-in terminal support
 scripts/fix-node-pty-perms.mjs
+
+# Superseded by simple-git-hooks (the pre-commit hook is installed by the
+# `postinstall` script; DEVELOP.md documents simple-git-hooks + lint-staged).
+# The Node-era husky directory has no callers in this fork.
+.husky/install.mjs
+.husky/pre-commit
+
+# Media reads folded into the Read tool — see .changeset/read-folds-in-media.md.
+# `human/` kept a second copy of the same assets/tool; deleting the orphan
+# collapsed each to a single copy (rationale: packages/agent-core-v2/src/human/AGENTS.md).
+packages/agent-core-v2/src/agent/tools/read-media-file/read-media.md
+packages/agent-core-v2/src/human/media/read-media.md
+packages/agent-core-v2/src/human/media/tool.ts
+packages/agent-core-v2/src/human/test/media/tool.test.ts
+
+# human/compaction/ was orphaned by the loop refactor and had zero importers;
+# compaction lives in agent/fullCompaction/ + agent/microCompaction/. Two files
+# were byte-identical copies of the v2 prompt assets. See
+# packages/agent-core-v2/src/human/AGENTS.md, "Removed: human/compaction/".
+packages/agent-core-v2/src/human/compaction/compaction-instruction.md
+packages/agent-core-v2/src/human/compaction/compaction-summary-prefix.md
+packages/agent-core-v2/src/human/compaction/controller.ts
+packages/agent-core-v2/src/human/compaction/errors.ts
+packages/agent-core-v2/src/human/compaction/machine.ts
+packages/agent-core-v2/src/human/compaction/shape.ts
+packages/agent-core-v2/src/human/compaction/summarize.ts
+packages/agent-core-v2/src/human/test/compaction/controller.test.ts

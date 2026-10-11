@@ -95,7 +95,7 @@ export const createProviderRequestSchema = z
         path: ['default_model'],
       });
     }
-  });
+  }).strict();
 export type CreateProviderRequest = z.infer<typeof createProviderRequestSchema>;
 
 export const createProviderResponseSchema = providerCatalogItemSchema;
@@ -123,7 +123,7 @@ export const replaceProviderRequestSchema = z
         path: ['default_model'],
       });
     }
-  });
+  }).strict();
 export type ReplaceProviderRequest = z.infer<typeof replaceProviderRequestSchema>;
 
 export const replaceProviderResponseSchema = z.object({
@@ -168,7 +168,7 @@ export const providerCollectionActionBodySchema = z.object({
   base_url: z.string().optional(),
   id: providerIdSchema.optional(),
   url: z.string().min(1).optional(),
-});
+}).strict();
 export type ProviderCollectionActionBody = z.infer<typeof providerCollectionActionBodySchema>;
 
 export const importCatalogProviderResponseSchema = z.object({

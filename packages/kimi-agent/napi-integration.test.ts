@@ -19,6 +19,15 @@ const nativeEntry = readdirSync(import.meta.dirname).find(
   (f) => f.endsWith('.node') && f.startsWith('kimi_agent'),
 );
 
+/** The turn result the addon resolves with (see rust-loop.ts `RunTurnOverrideResult`). */
+interface NativeTurnResult {
+  stopReason: string;
+  steps: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+}
+
 /** Direct native module access (bypasses rust-loop.ts adapter). */
 function loadNativeModule(): {
   runTurnRust: (...args: unknown[]) => Promise<unknown>;
@@ -110,7 +119,7 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — basic turn', () => {
   it('completes a turn with no tool calls', async () => {
     const mod = loadNativeModule();
 
-    const result = await mod.runTurnRust(
+    const raw = await mod.runTurnRust(
       validParams,
       makeCallback(mod, (_req) =>
         JSON.stringify({
@@ -121,6 +130,7 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — basic turn', () => {
       ),
       makeCallback(mod, (_req) => JSON.stringify({ content: 'ok', is_error: false })),
     );
+    const result = raw as NativeTurnResult;
 
     expect(result).toBeDefined();
     expect(typeof result.stopReason).toBe('string');
@@ -133,7 +143,7 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — basic turn', () => {
   it('stop reason is a valid Rust enum variant', async () => {
     const mod = loadNativeModule();
 
-    const result = await mod.runTurnRust(
+    const raw = await mod.runTurnRust(
       validParams,
       makeCallback(mod, (_req) =>
         JSON.stringify({
@@ -144,6 +154,7 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — basic turn', () => {
       ),
       makeCallback(mod, (_req) => JSON.stringify({ content: '', is_error: false })),
     );
+    const result = raw as NativeTurnResult;
 
     const validReasons = ['EndTurn', 'MaxTokens', 'Filtered', 'Paused', 'Aborted', 'BudgetLimited'];
     const isValid =
@@ -171,16 +182,16 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — JSON serialization round-tri
     );
 
     expect(receivedRequest).toBeDefined();
-    expect(typeof (receivedRequest as Record<string, unknown>).system_prompt).toBe('string');
-    expect(typeof (receivedRequest as Record<string, unknown>).model_name).toBe('string');
-    expect(Array.isArray((receivedRequest as Record<string, unknown>).messages)).toBe(true);
-    expect(Array.isArray((receivedRequest as Record<string, unknown>).tools)).toBe(true);
+    expect(typeof (receivedRequest as Record<string, unknown>)['system_prompt']).toBe('string');
+    expect(typeof (receivedRequest as Record<string, unknown>)['model_name']).toBe('string');
+    expect(Array.isArray((receivedRequest as Record<string, unknown>)['messages'])).toBe(true);
+    expect(Array.isArray((receivedRequest as Record<string, unknown>)['tools'])).toBe(true);
   });
 
   it('llm_chat callback response is parsed correctly by Rust', async () => {
     const mod = loadNativeModule();
 
-    const result = await mod.runTurnRust(
+    const raw = await mod.runTurnRust(
       validParams,
       makeCallback(mod, (_req) =>
         JSON.stringify({
@@ -191,6 +202,7 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — JSON serialization round-tri
       ),
       makeCallback(mod, (_req) => JSON.stringify({ content: '', is_error: false })),
     );
+    const result = raw as NativeTurnResult;
 
     expect(result).toBeDefined();
     expect(result.stopReason).toBe('EndTurn');
@@ -215,7 +227,7 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — tool execution', () => {
     let toolExecuted = false;
     let receivedToolRequest: unknown = null;
 
-    const result = await mod.runTurnRust(
+    const raw = await mod.runTurnRust(
       {
         ...validParams,
         maxSteps: 3,
@@ -248,10 +260,11 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — tool execution', () => {
         return JSON.stringify({ content: `echo: ${JSON.parse(req).arguments}`, is_error: false });
       }),
     );
+    const result = raw as NativeTurnResult;
 
     expect(toolExecuted).toBe(true);
     expect(receivedToolRequest).toBeDefined();
-    expect((receivedToolRequest as Record<string, unknown>).tool_name).toBe('echo');
+    expect((receivedToolRequest as Record<string, unknown>)['tool_name']).toBe('echo');
     expect(result).toBeDefined();
     expect(result.stopReason).toBe('EndTurn');
   });
@@ -259,7 +272,7 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — tool execution', () => {
   it('tool execution error is propagated', async () => {
     const mod = loadNativeModule();
 
-    const result = await mod.runTurnRust(
+    const raw = await mod.runTurnRust(
       {
         ...validParams,
         maxSteps: 3,
@@ -276,6 +289,7 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — tool execution', () => {
         JSON.stringify({ content: 'something went wrong', is_error: true }),
       ),
     );
+    const result = raw as NativeTurnResult;
 
     expect(result).toBeDefined();
   });
@@ -338,7 +352,7 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — max steps enforcement', () =
     const mod = loadNativeModule();
     let llmCallCount = 0;
 
-    const result = await mod.runTurnRust(
+    const raw = await mod.runTurnRust(
       {
         ...validParams,
         maxSteps: 2,
@@ -354,6 +368,7 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — max steps enforcement', () =
       }),
       makeCallback(mod, (_req) => JSON.stringify({ content: 'ok', is_error: false })),
     );
+    const result = raw as NativeTurnResult;
 
     // When maxSteps is exhausted, the loop exits with EndTurn (not MaxTokens).
     // MaxTokens is reserved for when the LLM itself returns a max_tokens finish reason.
@@ -366,7 +381,7 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — goal context', () => {
   it('accepts goal context params', async () => {
     const mod = loadNativeModule();
 
-    const result = await mod.runTurnRust(
+    const raw = await mod.runTurnRust(
       {
         ...validParams,
         goal: {
@@ -388,6 +403,7 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — goal context', () => {
       ),
       makeCallback(mod, (_req) => JSON.stringify({ content: '', is_error: false })),
     );
+    const result = raw as NativeTurnResult;
 
     expect(result).toBeDefined();
     expect(result.stopReason).toBe('EndTurn');
@@ -398,7 +414,7 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — delayed callback', () => {
   it('handles delayed async callbacks', async () => {
     const mod = loadNativeModule();
 
-    const result = await mod.runTurnRust(
+    const raw = await mod.runTurnRust(
       validParams,
       (callbackId: number) => {
         // Simulate network latency with setTimeout
@@ -418,6 +434,7 @@ describe.skipIf(!nativeEntry)('napi runTurnRust — delayed callback', () => {
         mod.resolveCallback(callbackId, null, JSON.stringify({ content: '', is_error: false }));
       },
     );
+    const result = raw as NativeTurnResult;
 
     expect(result).toBeDefined();
     expect(result.stopReason).toBe('EndTurn');

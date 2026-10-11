@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -120,11 +121,23 @@ function loadBaseline() {
   for (const raw of fs.readFileSync(BASELINE_PATH, 'utf8').split('\n')) {
     const line = raw.trimEnd();
     if (line.length === 0 || line.startsWith('#')) continue;
-    const match = /^(\S+)\s+(\d+)$/.exec(line);
+    const match = /^(\S+)\s+(\d+)(?:\s+(\S+))?$/.exec(line);
     if (match === null) continue;
-    entries.set(match[1], Number(match[2]));
+    entries.set(match[1], { count: Number(match[2]), digest: match[3] });
   }
   return entries;
+}
+
+/**
+ * A digest over the accepted comments themselves, so the ledger pins *which*
+ * comments were reviewed and not merely how many. The count alone had a hole:
+ * a file could drop one accepted comment and add a different one, keep its
+ * count, and pass — the same hole `check-no-hardcoded-prose.mjs` closed with a
+ * digest. Order-insensitive per file, so moving a comment is not news.
+ */
+function digestOf(violations) {
+  const texts = violations.map((v) => v.snippet.trim()).sort();
+  return createHash('sha256').update(texts.join('\n')).digest('hex').slice(0, 12);
 }
 
 function describe(rel, v) {
@@ -138,6 +151,7 @@ function describe(rel, v) {
 }
 
 const baseline = loadBaseline();
+const swapped = [];
 const matchedBaseline = new Set();
 let rejected = 0;
 let accepted = 0;
@@ -145,11 +159,13 @@ let accepted = 0;
 if (PRINT_COUNTS) {
   const counted = [];
   for (const f of files) {
-    const count = checkFile(f).length;
-    if (count > 0) counted.push([path.relative(ROOT, f), count]);
+    const violations = checkFile(f);
+    if (violations.length > 0) {
+      counted.push([path.relative(ROOT, f), violations.length, digestOf(violations)]);
+    }
   }
   counted.sort((a, b) => (a[0] < b[0] ? -1 : 1));
-  for (const [rel, count] of counted) console.log(`${rel}  ${count}`);
+  for (const [rel, count, digest] of counted) console.log(`${rel}  ${count}  ${digest}`);
   process.exit(0);
 }
 
@@ -158,11 +174,16 @@ for (const f of files) {
   if (violations.length === 0) continue;
 
   const rel = path.relative(ROOT, f);
-  const tolerated = baseline.get(rel) ?? 0;
+  const allowed = baseline.get(rel);
+  const tolerated = allowed?.count ?? 0;
   if (tolerated > 0) matchedBaseline.add(rel);
 
   if (violations.length <= tolerated) {
     accepted += violations.length;
+    if (violations.length === tolerated && allowed?.digest !== undefined) {
+      const digest = digestOf(violations);
+      if (digest !== allowed.digest) swapped.push(`${rel}  ${digest}`);
+    }
     continue;
   }
 
@@ -173,11 +194,22 @@ for (const f of files) {
   }
 }
 
+if (swapped.length > 0) {
+  console.error(
+    `check-no-comments: ${swapped.length} file(s) replaced an accepted comment with a different one.`,
+  );
+  for (const entry of swapped) console.error(`  ${entry}`);
+  console.error(
+    'A reviewed comment may not be swapped for another. Run `--print-counts` if the replacement really is the reviewed state.',
+  );
+  process.exit(1);
+}
+
 // A ledger that cannot rot: an entry whose file now carries fewer (or no)
 // violations is reported so the number can be lowered or the entry removed.
 const stale = [];
-for (const [rel, tolerated] of baseline) {
-  if (!matchedBaseline.has(rel)) stale.push(`${rel}  ${tolerated}`);
+for (const [rel, allowed] of baseline) {
+  if (!matchedBaseline.has(rel)) stale.push(`${rel}  ${allowed.count}`);
 }
 
 if (rejected > 0) {
@@ -194,8 +226,9 @@ if (rejected > 0) {
   process.exit(1);
 }
 
-for (const [rel, tolerated] of baseline) {
+for (const [rel, allowed] of baseline) {
   if (!matchedBaseline.has(rel)) continue;
+  const tolerated = allowed.count;
   const current = checkFile(path.join(ROOT, rel)).length;
   if (current < tolerated) {
     console.error(

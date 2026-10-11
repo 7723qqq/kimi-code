@@ -26,8 +26,11 @@ export function goalPauseReasonWithDetail(reason: string, detail: string): strin
 }
 
 export function isGoalPauseReason(reason: string | undefined): boolean {
-  return reason !== undefined && reason.startsWith('Paused ');
+  if (reason === undefined) return false;
+  return PAUSE_REASON_PREFIXES.some((prefix) => reason.startsWith(prefix));
 }
+
+const PAUSE_REASON_PREFIXES: ReadonlyArray<string> = Object.values(GoalPauseReason);
 
 export const SUBAGENT_CANCELLATION_MESSAGES: ReadonlyArray<string> = [
   'Aborted by the user',

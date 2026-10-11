@@ -34,7 +34,7 @@ pub const all = [_]check.Check{
     .{
         .name = "upstream-drift",
         .description = "Files upstream carries that this branch dropped",
-        .severity = .warn,
+        .severity = .err,
         .run = upstream_drift.run,
     },
     .{

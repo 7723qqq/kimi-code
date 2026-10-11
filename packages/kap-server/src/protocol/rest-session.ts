@@ -30,7 +30,7 @@ export type {
   UpdateSessionProfileRequest,
 } from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionProtocol';
 
-export const createSessionRequestSchema = sessionCreateSchema;
+export const createSessionRequestSchema = sessionCreateSchema.strict();
 export type CreateSessionRequest = z.infer<typeof createSessionRequestSchema>;
 
 export const createSessionResponseSchema = sessionSchema;
@@ -93,7 +93,7 @@ export type UpdateSessionRequest = z.infer<typeof updateSessionRequestSchema>;
 export const updateSessionResponseSchema = sessionSchema;
 export type UpdateSessionResponse = z.infer<typeof updateSessionResponseSchema>;
 
-export const forkSessionRequestSchema = sessionForkSchema;
+export const forkSessionRequestSchema = sessionForkSchema.strict();
 export type ForkSessionRequest = z.infer<typeof forkSessionRequestSchema>;
 
 export const forkSessionResponseSchema = sessionSchema;
@@ -107,7 +107,7 @@ export type StartBtwSessionResponse = z.infer<typeof startBtwSessionResponseSche
 export const optimizePromptSessionRequestSchema = z.object({
   text: z.string(),
   recent_turns: z.array(z.string()).optional(),
-});
+}).strict();
 export type OptimizePromptSessionRequest = z.infer<typeof optimizePromptSessionRequestSchema>;
 
 export const optimizePromptSessionResponseSchema = z.object({
@@ -126,7 +126,7 @@ export type ListSessionChildrenQuery = z.infer<typeof listSessionChildrenQuerySc
 export const listSessionChildrenResponseSchema = pageResponseSchema(sessionSchema);
 export type ListSessionChildrenResponse = z.infer<typeof listSessionChildrenResponseSchema>;
 
-export const createSessionChildRequestSchema = sessionChildCreateSchema;
+export const createSessionChildRequestSchema = sessionChildCreateSchema.strict();
 export type CreateSessionChildRequest = z.infer<typeof createSessionChildRequestSchema>;
 
 export const createSessionChildResponseSchema = sessionSchema;
@@ -139,7 +139,7 @@ export const compactSessionRequestSchema = z.preprocess(
   (value) => (value === undefined ? {} : value),
   z.object({
     instruction: z.string().optional(),
-  }),
+  }).strict(),
 );
 export type CompactSessionRequest = z.infer<typeof compactSessionRequestSchema>;
 
@@ -151,7 +151,7 @@ export const undoSessionRequestSchema = z.preprocess(
   z.object({
     count: z.number().int().positive().default(1),
     page_size: z.number().int().min(1).max(100).optional(),
-  }),
+  }).strict(),
 );
 export type UndoSessionRequest = z.infer<typeof undoSessionRequestSchema>;
 

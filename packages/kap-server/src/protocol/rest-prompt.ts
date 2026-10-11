@@ -34,7 +34,7 @@ export const promptSubmissionSchema = z.object({
   disabled_tools: z.array(z.string()).optional(),
   prompt_id: z.string().min(1).optional(),
   skills: z.array(promptSkillActivationSchema).min(1).optional(),
-});
+}).strict();
 export type PromptSubmission = z.infer<typeof promptSubmissionSchema>;
 
 export const promptStatusSchema = z.enum(['running', 'queued', 'blocked']);
@@ -61,7 +61,7 @@ export type PromptSubmitResult = z.infer<typeof promptSubmitResultSchema>;
 
 export const promptSteerRequestSchema = z.object({
   prompt_ids: z.array(z.string().min(1)).min(1),
-});
+}).strict();
 export type PromptSteerRequest = z.infer<typeof promptSteerRequestSchema>;
 
 export const promptSteerResultSchema = z.object({

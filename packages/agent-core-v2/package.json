@@ -89,7 +89,7 @@
     "xstate": "^5.32.5",
     "yauzl": "^3.3.0",
     "yazl": "catalog:",
-    "zod": "^4.3.6"
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",

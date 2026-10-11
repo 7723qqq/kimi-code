@@ -65,7 +65,7 @@
         "smol-toml": "catalog:",
         "tsx": "catalog:",
         "yazl": "catalog:",
-        "zod": "^4.3.6",
+        "zod": "catalog:",
       },
       "optionalDependencies": {
         "@mariozechner/clipboard": "^0.3.9",
@@ -106,7 +106,6 @@
       "version": "0.1.1",
       "dependencies": {
         "@hono/node-server": "^1.13.7",
-        "@moonshot-ai/kosong": "workspace:^",
         "hono": "^4.7.7",
         "yauzl": "^3.3.0",
       },
@@ -235,6 +234,7 @@
         "@jsquash/webp": "^1.5.0",
         "@modelcontextprotocol/sdk": "^1.29.0",
         "@moonshot-ai/kimi-code-oauth": "workspace:^",
+        "@moonshot-ai/kimi-i18n": "workspace:^",
         "@moonshot-ai/minidb": "workspace:^",
         "@moonshot-ai/tree-sitter-bash": "workspace:^",
         "@mozilla/readability": "^0.6.0",
@@ -260,7 +260,7 @@
         "xstate": "^5.32.5",
         "yauzl": "^3.3.0",
         "yazl": "catalog:",
-        "zod": "^4.3.6",
+        "zod": "catalog:",
       },
       "devDependencies": {
         "@types/js-yaml": "^4.0.9",
@@ -368,7 +368,7 @@
         "@moonshot-ai/kimi-native-tools": "workspace:^",
         "openai": "^6.34.0",
         "undici": "^8.5.0",
-        "zod": "^4.3.6",
+        "zod": "catalog:",
         "zod-to-json-schema": "^3.25.2",
       },
       "devDependencies": {
@@ -382,7 +382,7 @@
       "dependencies": {
         "@moonshot-ai/agent-core-v2": "workspace:^",
         "smol-toml": "catalog:",
-        "zod": "^4.3.6",
+        "zod": "catalog:",
       },
     },
     "packages/minidb": {
@@ -396,7 +396,7 @@
         "@antfu/utils": "^9.3.0",
         "smol-toml": "catalog:",
         "yazl": "catalog:",
-        "zod": "^4.3.6",
+        "zod": "catalog:",
       },
       "devDependencies": {
         "@moonshot-ai/agent-core-v2": "workspace:^",

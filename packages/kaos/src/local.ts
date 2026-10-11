@@ -16,8 +16,13 @@ import type { Readable, Writable } from 'node:stream';
 import { isAbsolute, join, normalize } from 'pathe';
 
 import { detectEnvironmentFromNode, type Environment } from './environment';
-import { KaosFileExistsError } from './errors';
-import { BufferedReadable, decodeTextWithErrors, globPatternToRegex } from './internal';
+import { KaosFileExistsError, KaosValueError } from './errors';
+import {
+  BufferedReadable,
+  decodeFileTextWithErrors,
+  decodeTextWithErrors,
+  globPatternToRegex,
+} from './internal';
 import type { Kaos } from './kaos';
 import { applyLoginShellPathFromNode } from './login-shell-path';
 import type { KaosProcess } from './process';
@@ -473,7 +478,7 @@ export class LocalKaos implements Kaos {
     const encoding = options?.encoding ?? 'utf-8';
     const errors = options?.errors ?? 'strict';
     const data = await readFile(resolved);
-    return decodeTextWithErrors(data, encoding, errors);
+    return decodeFileTextWithErrors(data, encoding, errors, path);
   }
 
   async *readLines(
@@ -485,12 +490,12 @@ export class LocalKaos implements Kaos {
     const errors = options?.errors ?? 'strict';
 
     if (!isUtf8Encoding(encoding)) {
-      const content = decodeTextWithErrors(await readFile(resolved), encoding, errors);
+      const content = decodeFileTextWithErrors(await readFile(resolved), encoding, errors, path);
       yield* splitLinesKeepingTerminator(content);
       return;
     }
 
-    yield* this._readUtf8Lines(resolved, errors);
+    yield* this._readUtf8Lines(resolved, path, errors);
   }
 
   async scanTextFile(path: string): Promise<TextFileScan> {
@@ -523,7 +528,13 @@ export class LocalKaos implements Kaos {
       }
 
       if (prevWasCr) flags.hasLoneCr = true;
-      validator.end();
+      try {
+        validator.end();
+      } catch (error) {
+        throw new KaosValueError(
+          `${path} is not valid utf-8: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
       if (totalBytes > 0 && !endsWithNewline) totalLines += 1;
       return { totalLines, endsWithNewline, hasNul, lineEndingFlags: flags };
     } finally {
@@ -537,7 +548,7 @@ export class LocalKaos implements Kaos {
   ): AsyncGenerator<string> {
     const resolved = this._resolvePath(path);
     const errors = options.errors ?? 'strict';
-    yield* this._readUtf8Lines(resolved, errors, {
+    yield* this._readUtf8Lines(resolved, path, errors, {
       startLine: options.startLine,
       maxLines: options.maxLines,
     });
@@ -584,7 +595,7 @@ export class LocalKaos implements Kaos {
 
       if (foundLf < needLf) startOffset = 0;
       const data = await readRange(fh, startOffset, s.size - startOffset);
-      const text = decodeTextWithErrors(data, 'utf-8', errors, startOffset !== 0);
+      const text = decodeFileTextWithErrors(data, 'utf-8', errors, path, startOffset !== 0);
       yield* splitLinesKeepingTerminator(text);
     } finally {
       await fh.close();
@@ -593,6 +604,7 @@ export class LocalKaos implements Kaos {
 
   private async *_readUtf8Lines(
     resolved: string,
+    displayPath: string,
     errors: TextDecodeErrors,
     range?: { startLine?: number; maxLines?: number },
   ): AsyncGenerator<string> {
@@ -620,7 +632,7 @@ export class LocalKaos implements Kaos {
           const lineOffset = pending.length === 0 ? fileOffset + lineStart : pendingOffset;
           const line = pending.length === 0 ? piece : Buffer.concat([...pending, piece]);
           if (lineNo >= startLine) {
-            yield decodeTextWithErrors(line, 'utf-8', errors, lineOffset !== 0);
+            yield decodeFileTextWithErrors(line, 'utf-8', errors, displayPath, lineOffset !== 0);
             yielded += 1;
             if (yielded >= maxLines) return;
           }
@@ -640,7 +652,7 @@ export class LocalKaos implements Kaos {
       if (pending.length > 0) {
         const line = Buffer.concat(pending);
         if (lineNo >= startLine) {
-          yield decodeTextWithErrors(line, 'utf-8', errors, pendingOffset !== 0);
+          yield decodeFileTextWithErrors(line, 'utf-8', errors, displayPath, pendingOffset !== 0);
         }
       }
     } finally {
@@ -651,7 +663,7 @@ export class LocalKaos implements Kaos {
   async writeBytes(path: string, data: Buffer): Promise<number> {
     const resolved = this._resolvePath(path);
     await writeFile(resolved, data);
-    return data.length;
+    return data.byteLength;
   }
 
   async writeText(
@@ -667,7 +679,7 @@ export class LocalKaos implements Kaos {
     } else {
       await writeFile(resolved, data, encoding);
     }
-    return data.length;
+    return Buffer.byteLength(data, encoding);
   }
 
   async mkdir(path: string, options?: { parents?: boolean; existOk?: boolean }): Promise<void> {

@@ -191,7 +191,7 @@ function logReport(
     log(
       `sessions: scanned=${s.bucketsScanned} attempted=${s.sessionsAttempted} migrated=${s.sessionsMigrated}` +
         ` already-migrated=${s.sessionsAlreadyMigrated} skipped-empty=${s.sessionsSkippedEmpty}` +
-        ` skipped-malformed=${s.sessionsSkippedMalformed} skipped-placeholder=${s.sessionsSkippedPlaceholder}` +
+        ` skipped-placeholder=${s.sessionsSkippedPlaceholder}` +
         ` failed=${s.sessionsFailed.length} conflicts=${s.sessionsConflicts.length}` +
         (s.bucketsSkippedNonlocalKaos > 0
           ? ` buckets-skipped-nonlocal-kaos=${s.bucketsSkippedNonlocalKaos}`

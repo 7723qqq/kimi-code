@@ -291,6 +291,8 @@ Plugin 是一个带 manifest 的目录或 zip 文件。Manifest 可以放在以�
 
 `tools`、`apps`、`inject`、`configFile` 等不支持的运行时字段会显示为 diagnostics 并被忽略。
 
+上表之外的任何其他键同样会以 diagnostic 报出并被忽略；若存在相近的已识别字段，会一并给出提示——`skill` 会提示 `skills`，`mcp_servers` 会提示 `mcpServers`。因此拼错的字段会出现在 `/plugins info` 里，而不是静默加载出一个没有 skills 或 MCP server 的 plugin。
+
 ### 系统提示词指令
 
 Plugin 通过 `systemPrompt` 和 `systemPromptPath` 两个字段向 Agent 的系统提示词注入指令。本节按三块说明：写法与读取时机、大小限制、两个引擎的差异。

@@ -40,6 +40,11 @@ export default {
     noHitsForQuery: 'No hits for “{{query}}”.',
     searchExamples: 'examples…',
     auditEmpty: 'Nothing recorded yet — the initial transcript load is still running.',
+    auditSubscribeRejected: 'subscribe rejected by server',
+    auditSubscribeRejectedDetail: 'subscribe rejected by server: {{reason}}',
+    subscribeRejectedByCode: 'server rejected the transcript subscription: {{message}}',
+    subscribeRejectedNotLive: 'session is not live on the server (not_found: {{sessions}})',
+    seedNoItems: 'no items',
   },
   inspector: {
     tabs: {
@@ -96,6 +101,7 @@ export default {
     all: '(all)',
     archived: 'archived',
     createSessionFailed: 'create session failed: {{message}}',
+    activityBaselineUnavailable: 'activity baseline unavailable: {{reason}}',
   },
   panels: {
     reconnectServer: 'Reconnect server',

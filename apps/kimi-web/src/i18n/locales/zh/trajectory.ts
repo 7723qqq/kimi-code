@@ -45,4 +45,5 @@ export default {
   user: '用户',
   system: '系统',
   compacted: '已压缩',
+  compactedWithReason: '上下文已压缩（{reason}）',
 } as const;

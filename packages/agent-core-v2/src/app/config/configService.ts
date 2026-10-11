@@ -849,7 +849,13 @@ export class ConfigService extends Disposable implements IConfigService {
         const validatedValue = this.registry.validate(domain, this.raw[domain]);
         this.validated[domain] = validatedValue;
         this.effective[domain] = validatedValue;
-      } catch {
+      } catch (error) {
+        this.pushDiagnostic({
+          domain,
+          severity: 'error',
+          message: `Ignoring invalid config section '${domain}': ${describeUnknownError(error)}`,
+        });
+        this.emitDiagnosticsIfChanged();
         return;
       }
     } else if (section.defaultValue !== undefined && this.effective[domain] === undefined) {

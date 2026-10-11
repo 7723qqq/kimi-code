@@ -10,6 +10,7 @@ import { Event } from '#/_base/event';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { IFeatureManager } from '#/app/feature/featureManager';
+import { HookDefSchema } from '#/features/externalHooks/configSection';
 import { FeatureManagerService } from '#/app/feature/featureManagerService';
 import { IPluginService } from '#/app/plugin/plugin';
 import { LifecycleScope } from '#/app/scopes';
@@ -87,5 +88,28 @@ describe('ExternalHooksFeature — assembly (src/features/externalHooks)', () =>
     expect(agentUnits.items).toHaveLength(0);
 
     host.dispose();
+  });
+});
+
+describe('hook rule schema (config.toml [[hooks]])', () => {
+  it('accepts the per-rule cwd and env the runner honours', () => {
+    const parsed = HookDefSchema.safeParse({
+      event: 'PreToolUse',
+      command: 'echo hi',
+      timeout: 5,
+      cwd: '/tmp',
+      env: { FOO: 'bar' },
+    });
+
+    expect(parsed.success).toBe(true);
+    expect(parsed.success && parsed.data.cwd).toBe('/tmp');
+    expect(parsed.success && parsed.data.env).toEqual({ FOO: 'bar' });
+  });
+
+  it('still rejects a misspelled field', () => {
+    const parsed = HookDefSchema.safeParse({ event: 'PreToolUse', command: 'echo', matcherx: 'x' });
+
+    expect(parsed.success).toBe(false);
+    expect(parsed.success || parsed.error.issues[0]?.code).toBe('unrecognized_keys');
   });
 });

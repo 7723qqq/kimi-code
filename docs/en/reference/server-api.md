@@ -305,6 +305,22 @@ On success, `data` is the config object; its fields mirror the top-level domains
 | `experimental` | object | Experimental flag id → enabled |
 | `telemetry` | boolean | Whether anonymous telemetry is enabled |
 | `auto_session_title` | boolean | Whether clients may automatically generate session titles |
+| `mcp` | object | MCP server configuration |
+| `image` | object | Image handling parameters |
+| `model_catalog` | object | Model catalog source configuration |
+| `builtin_product_skills` | object | Built-in product skill toggles |
+| `extra_agent_dirs` | array | Extra agent profile search directories |
+| `read` | object | Default `Read` tool parameters |
+| `model_overrides` | object | Per-model overrides |
+| `identity` | object | Agent identity configuration |
+| `github` | object | GitHub integration configuration |
+| `swarm` | object | Swarm mode configuration |
+| `cron` | object | Scheduled task configuration |
+| `token_counting` | object | Token-counting strategy |
+| `llm_requester` | object | LLM requester configuration |
+| `task` | object | Task runtime configuration |
+| `database` | object | Persistence backend configuration |
+| `watch` | object | File-watch / hot-reload configuration |
 | `raw` | object | Raw parsed `config.toml` content, unmodeled fields included |
 
 #### `POST /api/v1/config`
@@ -337,7 +353,25 @@ The body is a partial config object — any subset of the response domains above
 | `secondary_model` | body | object | Secondary model pool for subagents |
 | `experimental` | body | object | Experimental flag id → enabled |
 | `telemetry` | body | boolean | Whether anonymous telemetry is enabled |
+| `mcp` | body | object | MCP server configuration |
+| `image` | body | object | Image handling parameters |
+| `model_catalog` | body | object | Model catalog source configuration |
+| `builtin_product_skills` | body | object | Built-in product skill toggles |
+| `extra_agent_dirs` | body | array | Extra agent profile search directories |
+| `read` | body | object | Default `Read` tool parameters |
+| `model_overrides` | body | object | Per-model overrides |
+| `identity` | body | object | Agent identity configuration |
+| `github` | body | object | GitHub integration configuration |
+| `swarm` | body | object | Swarm mode configuration |
+| `cron` | body | object | Scheduled task configuration |
+| `token_counting` | body | object | Token-counting strategy |
+| `llm_requester` | body | object | LLM requester configuration |
+| `task` | body | object | Task runtime configuration |
+| `database` | body | object | Persistence backend configuration |
+| `watch` | body | object | File-watch / hot-reload configuration |
 | `auto_session_title` | body | boolean | Whether clients may automatically generate session titles |
+
+Every key above is enumerated: an unknown top-level key is rejected with `40001` rather than silently dropped, so a misspelled domain is reported instead of reporting success. Every domain `GET /api/v1/config` returns can be written back through this endpoint except `raw`.
 
 On success, `data` is the full updated config in the same shape as `GET /api/v1/config`.
 

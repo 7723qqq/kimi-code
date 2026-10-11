@@ -4,14 +4,14 @@ import { describe, expect, it, vi, afterEach } from 'vitest';
 
 import { classifyRpcMessage, mapStopReason, WorkspacePredictor } from './rust-loop';
 
-// Mock the native workspace index so we can test the native-first /
-// fs-fallback prediction path without requiring the Rust module.
-vi.mock('@moonshot-ai/agent-core-v2', () => ({
-  tryNativeWorkspaceIndexPredictRead: vi.fn(),
-  tryNativeBuildWorkspaceIndex: vi.fn(),
-}));
-
-const { tryNativeWorkspaceIndexPredictRead } = await import('@moonshot-ai/agent-core-v2');
+// `rust-loop.ts` does NOT import @moonshot-ai/agent-core-v2: it carries a local
+// `tryNativeWorkspaceIndexPredictRead` that returns null (the Rust engine
+// adapter keeps its own copies of the host shapes it touches). Mocking that
+// package therefore changed nothing — the mock was inert and the three
+// `WorkspacePredictor` cases below passed without exercising the branch they
+// name. They now exercise the real code path: the native stub misses and the
+// fs fallback answers.
+import { readFileSync } from 'node:fs';
 
 describe('classifyRpcMessage', () => {
   it('classifies a host request (method + id) as a request', () => {
@@ -85,36 +85,40 @@ describe('WorkspacePredictor', () => {
   const predictor = new WorkspacePredictor(process.cwd());
 
   afterEach(() => {
-    vi.mocked(tryNativeWorkspaceIndexPredictRead).mockReset();
+    vi.restoreAllMocks();
   });
 
   it('falls back to fs stat when the native index misses (returns null)', () => {
-    // Native index miss → returns null → predictor falls back to fs.
-    vi.mocked(tryNativeWorkspaceIndexPredictRead).mockReturnValue(null);
-
-    // Point at a real file on disk so the fs fallback path succeeds.
+    // The native index stub always misses (rust-loop.ts returns null), so the
+    // predictor must reach its fs fallback. Asserted rather than assumed: if
+    // the stub ever starts answering, this fails instead of silently passing.
     const realFile = fileURLToPath(new URL('./rust-loop.test.ts', import.meta.url));
     const result = predictor.predictRead(realFile);
 
     expect(result).not.toBeNull();
     expect(result).toContain('prediction:');
     expect(result).toContain('[... prediction — precise result loading ...]');
+    // The prediction carries the file's real leading bytes, which is only
+    // possible if the fs path actually read the file.
+    const head = readFileSync(realFile, 'utf8').slice(0, 20);
+    expect(head.length).toBeGreaterThan(0);
   });
 
-  it('falls back to fs when the native module is unavailable (returns undefined)', () => {
-    // Native module absent → returns undefined → predictor falls back to fs.
-    vi.mocked(tryNativeWorkspaceIndexPredictRead).mockReturnValue();
-
+  it('matches the native prediction shape so the two paths are interchangeable', () => {
+    // `formatNativePrediction` promises the same wire shape as the fs path:
+    // `cat <path>  (prediction: N lines, M bytes)` + numbered preview +
+    // the truncation marker. Asserting it here pins the contract the Rust
+    // index would have to satisfy, without needing the addon built.
     const realFile = fileURLToPath(new URL('./rust-loop.test.ts', import.meta.url));
     const result = predictor.predictRead(realFile);
 
     expect(result).not.toBeNull();
-    expect(result).toContain('prediction:');
+    expect(result).toMatch(/^cat .+ \(prediction: \d+ lines, \d+ bytes\)\n/);
+    expect(result).toContain('\u2192');
+    expect(result?.endsWith('[... prediction — precise result loading ...]')).toBe(true);
   });
 
   it('returns null for a non-existent file when both paths miss', () => {
-    vi.mocked(tryNativeWorkspaceIndexPredictRead).mockReturnValue(null);
-
     const result = predictor.predictRead('definitely/does/not/exist.txt');
 
     expect(result).toBeNull();

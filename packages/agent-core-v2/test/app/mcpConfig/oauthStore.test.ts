@@ -4,7 +4,7 @@ import { createMcpOAuthStore } from '#/app/mcpConfig/oauthStore';
 import type { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 
 describe('createMcpOAuthStore', () => {
-  it('encrypts JSON data at rest and round-trips through the credentials/mcp scope', async () => {
+  it('encrypts JSON data at rest with a random IV and a ciphertext that is not the plaintext', async () => {
     const calls: Array<{ op: string; scope: string; key: string; value?: unknown }> = [];
     const docs: Pick<IAtomicDocumentStore, 'get' | 'set' | 'delete'> = {
       async get<T>(scope: string, key: string): Promise<T | undefined> {
@@ -25,10 +25,12 @@ describe('createMcpOAuthStore', () => {
     const setCall = calls[0]!;
     expect(setCall).toMatchObject({ op: 'set', scope: 'credentials/mcp', key: 'foo.json' });
     const blob = setCall.value as { iv: string; tag: string; data: string };
-    expect(typeof blob.iv).toBe('string');
-    expect(typeof blob.tag).toBe('string');
-    expect(typeof blob.data).toBe('string');
-    expect(blob.data).not.toContain('abc');
+    expect(blob.iv).toMatch(/^[0-9a-f]{24}$/);
+    expect(blob.tag).toMatch(/^[0-9a-f]{32}$/);
+    const plaintext = Buffer.from(JSON.stringify({ token: 'abc' }), 'utf8');
+    const ciphertext = Buffer.from(blob.data, 'hex');
+    expect(ciphertext).toHaveLength(plaintext.length);
+    expect(ciphertext.equals(plaintext)).toBe(false);
 
     docs.get = async (scope, key) => {
       calls.push({ op: 'get', scope, key });

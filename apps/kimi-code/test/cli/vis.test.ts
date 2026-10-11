@@ -9,7 +9,7 @@
 
 import { describe, it, expect, vi } from 'vitest';
 
-import { handleVis, type VisDeps } from '#/cli/sub/vis';
+import { handleVis, parsePortOption, type VisDeps } from '#/cli/sub/vis';
 
 function makeDeps(over: Partial<VisDeps> = {}): {
   deps: VisDeps;
@@ -87,6 +87,18 @@ describe('handleVis', () => {
     });
     await handleVis(deps, { open: false });
     expect(close).toHaveBeenCalledOnce();
+  });
+
+  it('rejects an unparsable or out-of-range --port instead of silently auto-picking', () => {
+    for (const bad of ['abc', '8080abc', '-5', '99999', '65536', '']) {
+      expect(() => parsePortOption(bad), `--port ${bad} must be rejected`).toThrow();
+    }
+  });
+
+  it('accepts a valid --port, including 0 for auto-pick', () => {
+    expect(parsePortOption('8080')).toBe(8080);
+    expect(parsePortOption('0')).toBe(0);
+    expect(parsePortOption('65535')).toBe(65535);
   });
 
   it('reports a clean error and exits when the server fails to start', async () => {

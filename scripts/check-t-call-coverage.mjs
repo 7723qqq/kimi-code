@@ -30,6 +30,34 @@ const SOURCES = [
     localeFile: 'apps/kimi-code/src/i18n/locales/en.ts',
     sourceDirs: ['apps/kimi-code/src'],
   },
+  // The developer-facing tools each own a locale tree that this check did not
+  // walk, so a `t('key')` there could name a key neither tree defines and
+  // nothing reported it. They are scanned against their own `en` tree.
+  {
+    name: 'kimi-inspect',
+    localeFile: 'apps/kimi-inspect/src/i18n/locales/en.ts',
+    sourceDirs: ['apps/kimi-inspect/src'],
+  },
+  {
+    name: 'vis-web',
+    localeFile: 'apps/vis/web/src/i18n/locales/en.ts',
+    sourceDirs: ['apps/vis/web/src'],
+  },
+  {
+    name: 'vscode-webview',
+    localeFile: 'apps/vscode/webview-ui/src/i18n/locales/en.ts',
+    sourceDirs: ['apps/vscode/webview-ui/src'],
+  },
+  // kimi-web stores its messages as one module per domain under
+  // `i18n/locales/<locale>/`, re-exported by `locales/index.ts`, and aliases
+  // `i18n.global.t` to a bare `t` — so its calls look exactly like the other
+  // trees and the same scan applies. Its calls were outside this gate, which
+  // meant a `t('key')` here could name a key neither tree defines.
+  {
+    name: 'kimi-web',
+    localeFile: 'apps/kimi-web/src/i18n/locales/index.ts',
+    sourceDirs: ['apps/kimi-web/src'],
+  },
 ];
 
 // ── Simple recursive file walker ─────────────────────────────────────────────
@@ -44,7 +72,15 @@ function* walkFiles(dir) {
       yield* walkFiles(fullPath);
     } else if (entry.isFile()) {
       const ext = extname(entry.name);
-      if (ext === '.ts' && !entry.name.endsWith('.test.ts') && !entry.name.endsWith('.d.ts')) {
+      // `.vue` matters for the Vue trees (vis-web, kimi-web, the VS Code
+      // webview): their templates call `t('key')` too, and a `.ts`-only walk
+      // reported "0 unique keys" for a tree with hundreds of calls.
+      if (
+        (ext === '.ts' || ext === '.vue' || ext === '.tsx') &&
+        !entry.name.endsWith('.test.ts') &&
+        !entry.name.endsWith('.test.tsx') &&
+        !entry.name.endsWith('.d.ts')
+      ) {
         yield fullPath;
       }
     }
@@ -76,13 +112,80 @@ async function loadLocaleKeys(localeFile) {
   try {
     const mod = await import(pathToFileURL(fullPath).href);
     const data = mod.default || mod;
-    const keys = collectLeafKeys(data);
+    // Some trees (kimi-web) export one module per domain under a `messages`
+    // map keyed by locale rather than a flat `{key: value}` object. Unwrap the
+    // English side so the same leaf-key walk applies.
+    const nested =
+      data.messages && typeof data.messages === 'object' ? data.messages : data;
+    const unwrapped =
+      nested.en !== undefined && typeof nested.en === 'object' && nested.zh !== undefined
+        ? nested.en
+        : data;
+    const keys = collectLeafKeys(unwrapped);
     localeKeyCache.set(localeFile, keys);
     return keys;
   } catch (error) {
     console.error(`Cannot load locale file ${localeFile}: ${error.message}`);
     process.exit(1);
   }
+}
+
+/** The translated VALUE for a dotted key, or undefined when absent. */
+async function localeValue(localeFile, dottedKey) {
+  const fullPath = resolve(ROOT, localeFile);
+  try {
+    const mod = await import(pathToFileURL(fullPath).href);
+    const data = mod.default || mod;
+    let current = data;
+    for (const part of dottedKey.split('.')) {
+      if (current === null || typeof current !== 'object') return undefined;
+      current = current[part];
+    }
+    return typeof current === 'string' ? current : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * A translated value that is byte-identical to English is not translated. This
+ * catches the case the key-coverage check above cannot see: a key exists in
+ * both trees, so parity passes, while the zh side still ships the English
+ * sentence (or an English sentence interpolated into a Chinese frame).
+ *
+ * Only `errorCodes.*` is checked, and only when the value has no CJK and reads
+ * as prose — identifiers, placeholders and deliberately-English proper nouns
+ * (`Kimi`, `MCP`, `JSON`) are excluded so this stays actionable.
+ */
+async function checkErrorCodeTranslation() {
+  const enFile = 'apps/kimi-code/src/i18n/locales/en.ts';
+  const zhFile = 'apps/kimi-code/src/i18n/locales/zh.ts';
+  const keys = await loadLocaleKeys(enFile);
+  const errorCodeKeys = [...keys].filter((key) => key.startsWith('errorCodes.'));
+
+  const untranslated = [];
+  for (const key of errorCodeKeys.sort((a, b) => a.localeCompare(b))) {
+    const en = await localeValue(enFile, key);
+    const zh = await localeValue(zhFile, key);
+    if (en === undefined || zh === undefined) continue;
+    if (zh !== en) continue;
+    if (!/[A-Za-z]/.test(zh)) continue;
+    if (/[\u4e00-\u9fff]/.test(zh)) continue;
+    // A value that is only placeholders/punctuation carries no sentence.
+    if (!/[A-Za-z]{3,}\s+[A-Za-z]{3,}/.test(zh)) continue;
+    untranslated.push(key);
+  }
+
+  console.log(
+    `\n${untranslated.length === 0 ? '✓' : '✗'} error-code copy: ${errorCodeKeys.length} keys, ${untranslated.length} still identical to English`,
+  );
+  if (untranslated.length > 0) {
+    console.error(`  ${untranslated.length} errorCodes.* value(s) are the English sentence in zh:\n`);
+    for (const key of untranslated.slice(0, 40)) console.error(`  - ${key}`);
+    if (untranslated.length > 40) console.error(`  ... and ${untranslated.length - 40} more`);
+    console.error('  Translate the zh value; do not leave the English sentence in place.');
+  }
+  return untranslated.length === 0;
 }
 
 // ── Scan source for t() calls ────────────────────────────────────────────────
@@ -158,14 +261,15 @@ async function main() {
   console.log(`\nChecked ${totalFiles} files, ${totalKeys} unique t() keys.`);
 
   const codeCoverageOk = await checkErrorCodeCoverage();
-  if (hasErrors || !codeCoverageOk) {
+  const codeTranslationOk = await checkErrorCodeTranslation();
+  if (hasErrors || !codeCoverageOk || !codeTranslationOk) {
     console.error(
-      '\n❌ Some t() calls have no matching locale key, or an engine error code has no locale entry — see above.\n',
+      '\n❌ Some t() calls have no matching locale key, an engine error code has no locale entry, or a zh errorCodes value still carries the English sentence — see above.\n',
     );
     process.exit(1);
   } else {
     console.log(
-      '\n✅ All t() calls have matching locale keys, and every engine error code is localized.\n',
+      '\n✅ All t() calls have matching locale keys, every engine error code is localized, and no zh errorCodes value is a copy of English.\n',
     );
   }
 }

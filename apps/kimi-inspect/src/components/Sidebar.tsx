@@ -28,6 +28,7 @@ import type { SessionWorkFacts } from '../activity/store';
 import { useSessionActivities } from '../activity/useSessionActivity';
 import type { InspectClient } from '../channel';
 import { useConnection } from '../connection';
+import { t } from '../i18n';
 import {
   fetchV2SessionGroups,
   fetchV2SessionsPage,
@@ -286,6 +287,13 @@ export function Sidebar({
       {/* Tree body */}
       <div className="flex-1 overflow-y-auto">
         {groups.isError ? <ErrorLine error={groups.error} /> : null}
+        {activities.seedError !== null ? (
+          <ErrorLine
+            error={new Error(
+              t('sidebar.activityBaselineUnavailable', { reason: activities.seedError }),
+            )}
+          />
+        ) : null}
         {groupList.map((group) => (
           <WorkspaceNode
             key={group.workspace.id}

@@ -35,7 +35,7 @@ export type ListPluginsResponse = z.infer<typeof listPluginsResponseSchema>;
 
 export const installPluginRequestSchema = z.object({
   source: z.string().min(1),
-});
+}).strict();
 export type InstallPluginRequest = z.infer<typeof installPluginRequestSchema>;
 
 export const pluginMarketplaceEntrySchema = z.object({

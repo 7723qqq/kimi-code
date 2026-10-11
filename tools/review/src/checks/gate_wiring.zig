@@ -173,7 +173,14 @@ fn checkSpan(
     wiring: []const u8,
     pkg: []const u8,
 ) !void {
-    if (!std.mem.startsWith(u8, span, "scripts/")) return;
+    // Gate scripts live in two places now: `scripts/` for the i18n and prose
+    // checks, `tools/review/` for the catalog and request-body checks. The
+    // original filter only accepted the first, so a documented claim about a
+    // `tools/review/*.mjs` gate was never examined — the check reported green
+    // over an empty claim corpus.
+    const in_scripts = std.mem.startsWith(u8, span, "scripts/");
+    const in_tools_review = std.mem.startsWith(u8, span, "tools/review/");
+    if (!in_scripts and !in_tools_review) return;
     if (!std.mem.endsWith(u8, span, ".mjs") and !std.mem.endsWith(u8, span, ".cjs")) return;
 
     const name = std.fs.path.basename(span);
@@ -360,6 +367,54 @@ test "checkSpan stays quiet when the named runner does invoke the script" {
         1,
         "scripts/check-no-comments.mjs",
         "Enforced by `scripts/check-no-comments.mjs`, which runs as part of `bun run lint`.",
+        "irrelevant",
+        pkg,
+    );
+    try testing.expectEqual(@as(usize, 0), rep.findings.items.len);
+}
+
+test "checkSpan examines tools/review gates, not only scripts/" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var rep = @import("../report.zig").Report.init(arena.allocator());
+    defer rep.deinit();
+    var ctx = testCtx(arena.allocator(), &rep);
+
+    // The gate scripts the repository actually ships now include two under
+    // `tools/review/`. The original prefix filter only accepted `scripts/`, so
+    // a documented claim about one of these was dropped before it was compared
+    // and the check reported green over an empty corpus.
+    const pkg = "{\"scripts\":{\"lint\":\"oxlint --type-aware\"}}";
+    try checkSpan(
+        &ctx,
+        "DEVELOP.md",
+        1,
+        "tools/review/check-catalog-versions.mjs",
+        "`tools/review/check-catalog-versions.mjs` is Enforced by `bun run lint`.",
+        "irrelevant",
+        pkg,
+    );
+    try testing.expectEqual(@as(usize, 1), rep.findings.items.len);
+    try testing.expect(
+        std.mem.indexOf(u8, rep.findings.items[0].message, "check-catalog-versions.mjs") != null,
+    );
+}
+
+test "checkSpan still ignores a claim about a path that is not a gate script" {
+    var arena = std.heap.ArenaAllocator.init(testing.allocator);
+    defer arena.deinit();
+    var rep = @import("../report.zig").Report.init(arena.allocator());
+    defer rep.deinit();
+    var ctx = testCtx(arena.allocator(), &rep);
+
+    // Widening the prefix must not turn every mentioned path into a claim.
+    const pkg = "{\"scripts\":{\"lint\":\"oxlint\"}}";
+    try checkSpan(
+        &ctx,
+        "DEVELOP.md",
+        1,
+        "tools/review/src/checks.zig",
+        "`tools/review/src/checks.zig` is Enforced by `bun run lint`.",
         "irrelevant",
         pkg,
     );

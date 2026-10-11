@@ -731,6 +731,30 @@ describe('IExternalHooksRunnerService integration', () => {
     expect(results[0]?.stdout?.trim()).toBe('notified');
   });
 
+  it('fires the Interrupt hook when a turn ends cancelled, and not otherwise', async () => {
+    const engine = makeHookRunner([
+      {
+        event: 'Interrupt',
+        command: nodeCommand('process.stdout.write("interrupted");'),
+        timeout: 5,
+      },
+      {
+        event: 'Stop',
+        command: nodeCommand('process.stdout.write("stopped");'),
+        timeout: 5,
+      },
+    ]);
+
+    const cancelled = await engine.trigger('Interrupt', {
+      matcherValue: '',
+      inputData: { turnId: 0, reason: 'cancelled' },
+    });
+    expect(cancelled.map((result) => result.stdout?.trim())).toEqual(['interrupted']);
+
+    const completed = await engine.trigger('Stop', { matcherValue: '', inputData: {} });
+    expect(completed.map((result) => result.stdout?.trim())).toEqual(['stopped']);
+  });
+
   it('runs multiple hooks for the same event in parallel and collects every result', async () => {
     const engine = makeHookRunner([
       {

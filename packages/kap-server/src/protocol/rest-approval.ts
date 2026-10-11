@@ -13,7 +13,7 @@ export const listPendingApprovalsResponseSchema = z.object({
 });
 export type ListPendingApprovalsResponse = z.infer<typeof listPendingApprovalsResponseSchema>;
 
-export const approvalResolveRequestSchema = approvalResponseSchema;
+export const approvalResolveRequestSchema = approvalResponseSchema.strict();
 export type ApprovalResolveRequest = z.infer<typeof approvalResolveRequestSchema>;
 
 export const approvalResolveResultSchema = z.object({

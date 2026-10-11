@@ -30,7 +30,7 @@ export function wireRoute(home: string = KIMI_CODE_HOME): Hono {
         join(detail.sessionDir, 'agents', agentId, 'wire.jsonl'),
       );
       const baseUrl = new URL(c.req.url).origin;
-      rehydrateWireEntries(result.records, id, agentId, baseUrl);
+      rehydrateWireEntries(result.records, id, agentId, baseUrl, result.warnings);
       return c.json({
         sessionId: id,
         agentId,

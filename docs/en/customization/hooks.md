@@ -47,12 +47,14 @@ All hook rules are written in the `[[hooks]]` array in `~/.kimi-code/config.toml
 | `matcher` | `string` | No | A regular expression to filter event targets; if omitted, matches all |
 | `command` | `string` | Yes | The shell command to run when triggered |
 | `timeout` | `integer` | No | Timeout in seconds, range 1–600; defaults to 30 seconds |
+| `cwd` | `string` | No | Working directory for this rule's command; defaults to the current session's project directory |
+| `env` | `table<string,string>` | No | Extra environment variables for this rule, merged over the inherited environment |
 
-`[[hooks]]` only allows these four fields; extra fields will cause the config file to fail to load.
+`[[hooks]]` only allows these six fields; a misspelled field will cause the config file to fail to load, so the whole `hooks` array is dropped rather than silently ignored.
 
-**When multiple rules match the same event**, all matching hooks run in parallel; multiple rules with identical `command` values run only once.
+**When multiple rules match the same event**, all matching hooks run in parallel; rules with identical `command` values and the same `cwd` run only once.
 
-The working directory for hook commands is the current session's project directory.
+The working directory for hook commands is the current session's project directory unless the rule sets `cwd`.
 
 <details>
 <summary>Process group and timeout handling</summary>

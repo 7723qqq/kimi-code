@@ -343,6 +343,60 @@ describe('task-store', () => {
     });
   });
 
+  it('keeps multi-byte characters intact when a window boundary splits them', async () => {
+    const { sessionDir, cleanup: c } = await buildSessionFixture('sample-main');
+    cleanup = c;
+    const dir = join(sessionDir, 'tasks', 'bash-12345678');
+    await mkdir(dir, { recursive: true });
+    const original = '中文测试内容';
+    await writeFile(join(dir, 'output.log'), original);
+
+    let offset = 0;
+    let rebuilt = '';
+    let guard = 0;
+    for (;;) {
+      const w = await readTaskOutput(sessionDir, 'bash-12345678', offset, 4);
+      rebuilt += w.content;
+      if (w.eof) break;
+      offset = w.nextOffset;
+      if (++guard > 50) throw new Error('paging did not advance');
+    }
+    expect(rebuilt).toBe(original);
+    expect(rebuilt).not.toContain('\uFFFD');
+  });
+
+  it('always advances when a window is smaller than one character (no paging stall)', async () => {
+    const { sessionDir, cleanup: c } = await buildSessionFixture('sample-main');
+    cleanup = c;
+    const dir = join(sessionDir, 'tasks', 'bash-12345678');
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, 'output.log'), '中文');
+
+    let offset = 0;
+    let guard = 0;
+    for (;;) {
+      const w = await readTaskOutput(sessionDir, 'bash-12345678', offset, 1);
+      expect(w.nextOffset).toBeGreaterThan(offset);
+      offset = w.nextOffset;
+      if (w.eof) break;
+      if (++guard > 20) throw new Error('paging did not advance');
+    }
+    expect(offset).toBe(6);
+  });
+
+  it('flushes a truncated sequence at EOF instead of carrying it forever', async () => {
+    const { sessionDir, cleanup: c } = await buildSessionFixture('sample-main');
+    cleanup = c;
+    const dir = join(sessionDir, 'tasks', 'bash-12345678');
+    await mkdir(dir, { recursive: true });
+    await writeFile(join(dir, 'output.log'), Buffer.from([0xe4, 0xb8]));
+
+    const w = await readTaskOutput(sessionDir, 'bash-12345678', 0, 100);
+    expect(w.eof).toBe(true);
+    expect(w.carryBytes).toBe(0);
+    expect(w.content).toContain('\uFFFD');
+  });
+
   it('isSafeTaskId guards traversal', () => {
     expect(isSafeTaskId('bash-1a2b3c4d')).toBe(true);
     expect(isSafeTaskId('agent-deadbeef')).toBe(true);

@@ -71,20 +71,31 @@ function scanEventDeclarations(): {
   return { owners, importFiles, durableTypes, classTypes };
 }
 
-function scanMigrationChain(): string {
-  const dir = join(SRC, 'wire', 'migration');
-  const pairs: { source: string; target: string }[] = [];
-  for (const entry of readdirSync(dir)) {
-    if (!/^v[\d.]+\.ts$/.test(entry)) continue;
-    const source = readFileSync(join(dir, entry), 'utf-8');
-    const sourceVersion = /sourceVersion:\s*'([^']+)'/.exec(source)?.[1];
-    const targetVersion = /targetVersion:\s*'([^']+)'/.exec(source)?.[1];
-    if (sourceVersion !== undefined && targetVersion !== undefined) {
-      pairs.push({ source: sourceVersion, target: targetVersion });
-    }
+async function scanMigrationChain(protocolVersion: string): Promise<string> {
+  const { MIGRATIONS } = (await import('#/wire/migration/migration')) as {
+    MIGRATIONS: readonly { readonly sourceVersion: string; readonly targetVersion: string }[];
+  };
+  if (MIGRATIONS.length === 0) {
+    throw new Error('gen-wire-manifest: MIGRATIONS is empty; expected at least one migration');
   }
-  pairs.sort((a, b) => a.source.localeCompare(b.source, undefined, { numeric: true }));
-  const chain = pairs.flatMap((p, i) => (i === 0 ? [p.source, p.target] : [p.target]));
+  const chain: string[] = [MIGRATIONS[0]!.sourceVersion];
+  for (const [i, migration] of MIGRATIONS.entries()) {
+    const previous = chain[chain.length - 1];
+    if (previous !== migration.sourceVersion) {
+      throw new Error(
+        `gen-wire-manifest: migration chain is broken at index ${String(i)}: ` +
+          `expected sourceVersion "${String(previous)}", got "${migration.sourceVersion}"`,
+      );
+    }
+    chain.push(migration.targetVersion);
+  }
+  const tail = chain[chain.length - 1];
+  if (tail !== protocolVersion) {
+    throw new Error(
+      `gen-wire-manifest: WIRE_PROTOCOL_VERSION is "${protocolVersion}" but the migration ` +
+        `chain ends at "${String(tail)}"; register the migration or bump the constant`,
+    );
+  }
   return chain.join(' -> ');
 }
 
@@ -899,7 +910,7 @@ export async function buildWireManifest(): Promise<string> {
   };
 
   const entries = [...EVENT2_REGISTRY.values()].toSorted((a, b) => a.type.localeCompare(b.type));
-  const migrationChain = scanMigrationChain();
+  const migrationChain = await scanMigrationChain(WIRE_PROTOCOL_VERSION);
 
   const folding = new Map<string, { states: string[]; blobs: string[] }>();
   const protocolTypes = scanUndoableProtocolTypes(classTypes);

@@ -8,7 +8,7 @@
  * lives in `@moonshot-ai/vis-server`.
  */
 
-import type { Command } from 'commander';
+import { InvalidArgumentError, type Command } from 'commander';
 
 import { createCliTelemetryBootstrap } from '#/cli/telemetry';
 import { t } from '#/i18n';
@@ -101,23 +101,30 @@ export async function handleVis(deps: VisDeps, opts: VisOptions): Promise<void> 
   await server.close();
 }
 
+export function parsePortOption(value: string): number {
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isInteger(parsed) || parsed < 0 || parsed > 65535 || String(parsed) !== value.trim()) {
+    throw new InvalidArgumentError(t('cli.optionDescriptions.visPortInvalid', { value }));
+  }
+  return parsed;
+}
+
 export function registerVisCommand(parent: Command, overrides?: Partial<VisDeps>): void {
   parent
     .command('vis')
     .description(t('cli.commandDescriptions.vis'))
-    .option('--port <number>', t('cli.optionDescriptions.visPort'))
+    .option('--port <number>', t('cli.optionDescriptions.visPort'), parsePortOption)
     .option('--host <host>', t('cli.optionDescriptions.visHost'))
     .option('--no-open', t('cli.optionDescriptions.visNoOpen'))
     .argument('[sessionId]', t('cli.optionDescriptions.visSessionId'))
     .action(
       async (
         sessionId: string | undefined,
-        options: { port?: string; host?: string; open?: boolean },
+        options: { port?: number; host?: string; open?: boolean },
       ) => {
-        const port = options.port === undefined ? undefined : Number.parseInt(options.port, 10);
         await handleVis(createDefaultVisDeps(overrides), {
           open: options.open !== false,
-          ...(port === undefined || Number.isNaN(port) ? {} : { port }),
+          ...(options.port === undefined || Number.isNaN(options.port) ? {} : { port: options.port }),
           ...(options.host === undefined ? {} : { host: options.host }),
           ...(sessionId === undefined ? {} : { sessionId }),
         });

@@ -562,8 +562,7 @@ function aggregateTotals(sources: readonly LegacyMigrationSourceResult[]): Legac
       summary.userHistory.skippedExisting +
       summary.skills.skippedExisting +
       summary.sessions.sessionsSkippedPlaceholder +
-      summary.sessions.sessionsSkippedEmpty +
-      summary.sessions.sessionsSkippedMalformed;
+      summary.sessions.sessionsSkippedEmpty;
     conflicts +=
       summary.config.configConflicts.length +
       summary.mcp.keptNewForConflicts.length +

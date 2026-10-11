@@ -25,7 +25,7 @@ export interface WireMigration {
   migrateRecord(record: WireMigrationRecord): WireMigrationRecord;
 }
 
-const MIGRATIONS: readonly WireMigration[] = [
+export const MIGRATIONS: readonly WireMigration[] = [
   migrateV1_0ToV1_1,
   migrateV1_1ToV1_2,
   migrateV1_2ToV1_3,

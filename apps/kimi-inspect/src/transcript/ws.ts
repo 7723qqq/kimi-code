@@ -36,6 +36,7 @@ import {
 } from '@moonshot-ai/transcript';
 
 import type { WsLike, WsLikeCtor } from '../channel/wsLike';
+import { t } from '../i18n';
 import { toModelOperation, toModelSnapshot } from './normalize';
 
 /** Envelope/payload metadata carried alongside a transcript frame (for auditing + seq tracking). */
@@ -64,6 +65,33 @@ export interface TranscriptWsHandlers {
   onResyncRequired: () => void;
   /** Socket re-established after a drop — volatile ops were missed meanwhile. */
   onReconnected: () => void;
+  /**
+   * The server rejected (or could not attach) our `subscribe_v2`: either the
+   * ack carried a non-zero `code` (payload failed validation) or the session
+   * was not live (`not_found`). Without this handler the socket looks healthy
+   * while no transcript frame will ever arrive. The consumer should surface
+   * the reason instead of showing an empty timeline.
+   */
+  onSubscribeRejected?: (reason: string) => void;
+}
+
+/**
+ * Read the subscribe_v2 ack's failure signals: a non-zero envelope `code`
+ * (the server rejected the payload) or `not_found` listing our session
+ * (nothing live to attach to). Returns undefined when the ack is a success.
+ */
+function describeSubscribeRejection(frame: ServerFrame): string | undefined {
+  if (frame.code !== undefined && frame.code !== 0) {
+    const msg = frame.msg !== undefined && frame.msg.length > 0 ? frame.msg : 'unspecified';
+    return t('chat.subscribeRejectedByCode', { message: msg });
+  }
+  const payload = frame.payload;
+  if (payload === null || typeof payload !== 'object') return undefined;
+  const notFound = (payload as { not_found?: unknown }).not_found;
+  if (Array.isArray(notFound) && notFound.length > 0) {
+    return t('chat.subscribeRejectedNotLive', { sessions: notFound.map(String).join(', ') });
+  }
+  return undefined;
 }
 
 export interface TranscriptWsOptions {
@@ -89,6 +117,7 @@ interface ServerFrame {
   readonly type: string;
   readonly id?: string;
   readonly code?: number;
+  readonly msg?: string;
   readonly timestamp?: string;
   readonly payload?: unknown;
 }
@@ -210,10 +239,16 @@ export class TranscriptWs {
         // The subscribe_v2 ack: the server has attached the transcript stream
         // by now — reconcile once per socket (ops emitted between the REST
         // page load and this point are missed; the consumer refreshes).
-        if (!this.subscribeV2Acked && frame.id !== undefined && frame.id === this.subscribeV2Id) {
-          this.subscribeV2Acked = true;
-          this.handlers.onReconnected();
+        if (this.subscribeV2Acked || frame.id === undefined || frame.id !== this.subscribeV2Id) {
+          return;
         }
+        this.subscribeV2Acked = true;
+        const rejection = describeSubscribeRejection(frame);
+        if (rejection !== undefined) {
+          this.handlers.onSubscribeRejected?.(rejection);
+          return;
+        }
+        this.handlers.onReconnected();
         return;
       }
       case 'transcript.ops': {

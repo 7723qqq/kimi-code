@@ -194,6 +194,15 @@ jobs:
       # literals outside t() are counted in scripts/no-hardcoded-prose-baseline.txt
       # (shrink-only); a new hardcoded string fails the run.
       - run: bun --bun run check:no-hardcoded-prose
+      # Request-boundary strictness: a route body schema without `.strict()`
+      # drops an unrecognized key and still answers `code: 0`, so a client's
+      # typo is indistinguishable from a successful write.
+      - run: bun tools/review/check-strict-request-bodies.mjs
+      # Workspace catalog: a dependency the catalog already declares must be
+      # written as `catalog:` in the package, not as a repeated range — the
+      # next bump otherwise has to be made in two places, and the one that is
+      # missed is the one that ships.
+      - run: bun tools/review/check-catalog-versions.mjs
       # Service naming: domain directories and service files under
       # packages/kap-server/src/services stay camelCase (the second root this
       # script once covered, packages/services/src, no longer exists).
@@ -208,7 +217,22 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      # `fetch-depth: 0` matters twice over: the drift check needs the full
+      # history of BOTH sides to compute a merge base, and it needs the
+      # `upstream` remote at all. Without them the ref is absent, the check
+      # degrades to an `info` line, and a file dropped during a merge cannot
+      # fail the build on any pull request. A shallow fetch would leave no
+      # common ancestor, which the check reports as "skipped" rather than
+      # "clean" — so keep the depth on.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch upstream for the drift check
+        run: |
+          git remote add upstream https://github.com/MoonshotAI/kimi-code.git
+          git fetch --no-tags upstream main
+        continue-on-error: true
 
       - uses: oven-sh/setup-bun@v2
         with:
@@ -220,6 +244,13 @@ jobs:
 
       - name: Build the review tool
         run: cd tools/review && zig build
+
+      # `zig build` compiles; only `zig build test` runs the tool's own 91 unit
+      # tests. DEVELOP.md tells contributors to add a new check's module to the
+      # `test` block "or its tests will not run" — that promise needs a job that
+      # actually invokes it.
+      - name: Test the review tool
+        run: cd tools/review && zig build test
 
       - name: Run the review checks
         run: ./tools/review/zig-out/bin/review
@@ -253,3 +284,31 @@ jobs:
         run: cd apps/vis/server && bun --bun run typecheck
       - name: Typecheck vis-web
         run: cd apps/vis/web && bun --bun run typecheck
+
+  # The Rust crates carry 683 `#[test]`s between them. Every other job is
+  # Bun-only and installs no Rust toolchain, and `_native-build.yml` (the only
+  # workflow that mentions cargo) runs on tags and manual dispatch, never on a
+  # pull request — so until this job existed a broken unit test could only be
+  # discovered while cutting a release.
+  test-rust:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            packages/kimi-native-tools/target
+            packages/kimi-agent/target
+          key: cargo-${{ runner.os }}-${{ hashFiles('packages/kimi-native-tools/Cargo.lock', 'packages/kimi-agent/Cargo.lock') }}
+
+      - name: Test kimi-native-tools
+        run: cargo test --offline --manifest-path packages/kimi-native-tools/Cargo.toml
+
+      - name: Test kimi-agent
+        run: cargo test --offline --manifest-path packages/kimi-agent/Cargo.toml

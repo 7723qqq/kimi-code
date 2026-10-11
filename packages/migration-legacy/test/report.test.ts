@@ -63,7 +63,6 @@ describe('writeReport', () => {
           sessionsAlreadyMigrated: 0,
           sessionsSkippedPlaceholder: 0,
           sessionsSkippedEmpty: 0,
-          sessionsSkippedMalformed: 0,
           sessionsFailed: [],
           sessionsConflicts: [],
           sessionsDebrisArchived: [

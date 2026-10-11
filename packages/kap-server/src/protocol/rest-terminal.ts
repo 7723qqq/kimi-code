@@ -6,7 +6,7 @@ import { z } from 'zod';
 
 export const createTerminalRequestSchema = engineCreateTerminalRequestSchema.extend({
   runtime_id: z.string().min(1).optional(),
-});
+}).strict();
 export type CreateTerminalRequest = z.infer<typeof createTerminalRequestSchema>;
 
 export const getTerminalResponseSchema = terminalSchema;

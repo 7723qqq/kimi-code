@@ -6,13 +6,18 @@ import type {
 /**
  * Cache-control breakpoint injection for the Anthropic Messages wire format.
  *
- * SHARED SINGLE SOURCE OF TRUTH: this module is imported by both the kosong
- * provider layer (`packages/kosong/src/providers/anthropic.ts`) and
- * agent-core-v2's vendored provider layer
- * (`packages/agent-core-v2/src/kosong/provider/bases/anthropic/anthropic.ts`).
- * Do NOT re-declare `CACHE_CONTROL` / `CACHEABLE_TYPES` /
- * `injectCacheControlOnLastBlock` in either caller — import them from here so
- * the breakpoint strategy can never drift between the two copies.
+ * Single source of truth for the kosong provider layer
+ * (`packages/kosong/src/providers/anthropic.ts`), which imports the three
+ * exports below.
+ *
+ * The v2 engine does NOT import this module: its requester lives under
+ * `packages/agent-core-v2/src/human/llm/requester/bases/anthropic/format.ts`
+ * and re-declares `CACHE_CONTROL` / `CACHEABLE_TYPES` /
+ * `injectCacheControlOnLastBlock` there. The two copies are kept honest by
+ * `test/anthropic-cache-breakpoints-parity.test.ts`, which asserts the
+ * deliberate difference (this module injects a tail AND a stable-history
+ * breakpoint; the v2 copy injects the tail only) so neither side drifts
+ * silently. Change one, change the other, and update that test.
  */
 
 export const CACHE_CONTROL = { type: 'ephemeral' as const };

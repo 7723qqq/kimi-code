@@ -77,6 +77,7 @@ function migrateGoalCreate(record: V1_3GoalCreateRecord): WireMigrationRecord {
 function migrateGoalUpdate(record: V1_3GoalUpdateRecord): WireMigrationRecord {
   return {
     type: 'goal.update',
+    goalId: record.goalId,
     status: record.status,
     reason: record.reason,
     turnsUsed: record.turnsUsed,
@@ -90,6 +91,7 @@ function migrateGoalUpdate(record: V1_3GoalUpdateRecord): WireMigrationRecord {
 function migrateGoalAccountUsage(record: V1_3GoalAccountUsageRecord): WireMigrationRecord {
   return {
     type: 'goal.update',
+    goalId: record.goalId,
     tokensUsed: record.tokensUsed,
     wallClockMs: record.wallClockMs,
     time: record.time,
@@ -99,6 +101,7 @@ function migrateGoalAccountUsage(record: V1_3GoalAccountUsageRecord): WireMigrat
 function migrateGoalContinuation(record: V1_3GoalContinuationRecord): WireMigrationRecord {
   return {
     type: 'goal.update',
+    goalId: record.goalId,
     turnsUsed: record.turnsUsed,
     time: record.time,
   };
@@ -107,6 +110,7 @@ function migrateGoalContinuation(record: V1_3GoalContinuationRecord): WireMigrat
 function migrateGoalClear(record: V1_3GoalClearRecord): WireMigrationRecord {
   return {
     type: 'goal.clear',
+    goalId: record.goalId,
     time: record.time,
   };
 }

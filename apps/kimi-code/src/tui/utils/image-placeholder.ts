@@ -67,6 +67,7 @@ import {
   sessionMediaOriginalsDir,
 } from '@moonshot-ai/kimi-code-sdk';
 
+import { t } from '#/i18n';
 import { parseImageMeta } from '#/utils/image/image-mime';
 import { getCacheDir } from '#/utils/paths';
 
@@ -631,12 +632,12 @@ function videoPartForAttachment(att: VideoAttachment): PromptPart {
     };
   }
   if (att.pending !== undefined) {
-    throw new Error(`Video "${att.label}" is still uploading; try again in a moment.`);
+    throw new Error(t('tui.statusMessages.videoStillUploading', { label: att.label }));
   }
   throw new Error(
     expired
-      ? `Video "${att.label}" expired before it was sent; paste it again.`
-      : `Video "${att.label}" could not be uploaded; paste it again.`,
+      ? t('tui.statusMessages.videoExpired', { label: att.label })
+      : t('tui.statusMessages.videoUploadFailed', { label: att.label }),
   );
 }
 

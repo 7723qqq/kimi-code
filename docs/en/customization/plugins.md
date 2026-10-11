@@ -290,6 +290,8 @@ Supported fields:
 
 Unsupported runtime fields such as `tools`, `apps`, `inject`, and `configFile` appear as diagnostics and are ignored.
 
+Any other key that is not in the table above is also reported as a diagnostic and ignored, with the nearest recognized field named when there is one — `skill` suggests `skills`, `mcp_servers` suggests `mcpServers`. A misspelled field therefore shows up in `/plugins info` instead of silently loading a plugin with no skills or MCP servers.
+
 ### System-prompt instructions
 
 Plugins inject instructions into the agent's system prompt through the `systemPrompt` and `systemPromptPath` fields. This section covers three parts: writing format and read timing, size limits, and the differences between the two engines.

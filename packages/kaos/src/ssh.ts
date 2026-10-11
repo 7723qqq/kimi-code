@@ -844,7 +844,7 @@ export class SSHKaos implements Kaos {
 
   async writeBytes(path: string, data: Buffer): Promise<number> {
     await sftpWriteFile(this._sftp, this._resolvePath(path), data);
-    return data.length;
+    return data.byteLength;
   }
 
   async writeText(
@@ -861,7 +861,7 @@ export class SSHKaos implements Kaos {
     } else {
       await sftpWriteFile(this._sftp, resolved, buf);
     }
-    return data.length;
+    return buf.byteLength;
   }
 
   async mkdir(path: string, options?: { parents?: boolean; existOk?: boolean }): Promise<void> {

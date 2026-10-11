@@ -47,7 +47,7 @@ export const sessionAgentConfigSchema = z.object({
 });
 export type SessionAgentConfig = z.infer<typeof sessionAgentConfigSchema>;
 
-export const sessionAgentConfigPartialSchema = sessionAgentConfigSchema.partial();
+export const sessionAgentConfigPartialSchema = sessionAgentConfigSchema.partial().strict();
 export type SessionAgentConfigPartial = z.infer<typeof sessionAgentConfigPartialSchema>;
 
 export const permissionRuleMatcherSchema = z.object({
@@ -66,12 +66,14 @@ export const permissionRuleSchema = z.object({
 });
 export type PermissionRule = z.infer<typeof permissionRuleSchema>;
 
-export const updateSessionProfileRequestSchema = z.object({
-  title: z.string().min(1).optional(),
-  metadata: sessionMetadataSchema.partial().optional(),
-  agent_config: sessionAgentConfigPartialSchema.optional(),
-  permission_rules: z.array(permissionRuleSchema).optional(),
-});
+export const updateSessionProfileRequestSchema = z
+  .object({
+    title: z.string().min(1).optional(),
+    metadata: sessionMetadataSchema.partial().optional(),
+    agent_config: sessionAgentConfigPartialSchema.optional(),
+    permission_rules: z.array(permissionRuleSchema).optional(),
+  })
+  .strict();
 export type UpdateSessionProfileRequest = z.infer<typeof updateSessionProfileRequestSchema>;
 
 export const sessionStatusResponseSchema = z.object({

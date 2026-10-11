@@ -332,4 +332,61 @@ describe('plugin manifest parser', () => {
     expect(result.manifest?.systemPrompt).toBe('x'.repeat(PLUGIN_SYSTEM_PROMPT_MAX_BYTES));
     expect(result.diagnostics).toEqual([]);
   });
+
+  it('warns about an unrecognized field and names the intended key', async () => {
+    await mkdir(join(dir, 'skills'), { recursive: true });
+    await writeFile(join(dir, 'skills', 'a.md'), '# a', 'utf8');
+    await writeFile(
+      join(dir, 'kimi.plugin.json'),
+      JSON.stringify({ name: 'demo', skill: './skills', mcp_servers: {} }),
+      'utf8',
+    );
+
+    const result = await parseManifest(dir);
+    const messages = result.diagnostics.map((d) => d.message);
+
+    expect(messages).toContain(
+      '"skill" is not a recognized plugin field and was ignored; did you mean "skills"?',
+    );
+    expect(messages).toContain(
+      '"mcp_servers" is not a recognized plugin field and was ignored; did you mean "mcpServers"?',
+    );
+    expect(result.manifest?.skills).toEqual([]);
+  });
+
+  it('warns about an unrecognized field with no near match', async () => {
+    await writeFile(
+      join(dir, 'kimi.plugin.json'),
+      JSON.stringify({ name: 'demo', whatever: 1 }),
+      'utf8',
+    );
+
+    const result = await parseManifest(dir);
+
+    expect(result.diagnostics.map((d) => d.message)).toEqual([
+      '"whatever" is not a recognized plugin field and was ignored',
+    ]);
+  });
+
+  it('stays silent for a manifest that only uses recognized fields', async () => {
+    await mkdir(join(dir, 'skills'), { recursive: true });
+    await writeFile(join(dir, 'skills', 'a.md'), '# a', 'utf8');
+    await writeFile(
+      join(dir, 'kimi.plugin.json'),
+      JSON.stringify({
+        name: 'demo',
+        version: '1.0.0',
+        description: 'demo plugin',
+        skills: ['./skills'],
+        sessionStart: { skill: 'onboarding' },
+        interface: { displayName: 'Demo' },
+      }),
+      'utf8',
+    );
+
+    const result = await parseManifest(dir);
+
+    expect(result.diagnostics).toEqual([]);
+    expect(result.manifest?.sessionStart).toEqual({ skill: 'onboarding' });
+  });
 });

@@ -45,4 +45,5 @@ export default {
   user: 'User',
   system: 'System',
   compacted: 'Compacted',
+  compactedWithReason: 'Context compacted ({reason})',
 } as const;

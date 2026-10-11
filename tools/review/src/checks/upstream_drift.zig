@@ -16,23 +16,52 @@ const ALLOWLIST_PATH = "tools/review/upstream-drift-allow.txt";
 const UPSTREAM_REF = "upstream/main";
 
 pub fn run(ctx: *check.Context) !void {
+    // Diff against the MERGE BASE, not the upstream tip. `git diff
+    // --diff-filter=D upstream/main HEAD` cannot tell "this branch deleted a
+    // file" apart from "upstream added the file after the two diverged", so
+    // every new upstream file would read as a deletion on this branch — and
+    // once this check is an error, that reddens CI for a change nobody here
+    // made. The merge base is the last commit both sides share, so a `D` in
+    // that diff is a deletion this branch performed.
+    const base = proc.run(ctx.alloc, ctx.io, ctx.root_dir, &.{
+        "git", "merge-base", UPSTREAM_REF, "HEAD",
+    }) catch |e| {
+        try reportSkipped(ctx, "git could not be run", @errorName(e));
+        return;
+    };
+    defer base.deinit(ctx.alloc);
+
+    if (!base.ok()) {
+        try reportSkipped(
+            ctx,
+            "the upstream ref is unavailable, so no dropped file could be detected",
+            "run `git fetch upstream main` (the check needs a common ancestor with HEAD)",
+        );
+        return;
+    }
+
+    const merge_base = std.mem.trim(u8, base.stdout, " \t\r\n");
+    if (merge_base.len == 0) {
+        try reportSkipped(ctx, "no merge base with upstream", "unrelated histories");
+        return;
+    }
+
     const diff = proc.run(ctx.alloc, ctx.io, ctx.root_dir, &.{
-        "git", "diff", "--diff-filter=D", "--name-only", UPSTREAM_REF, "HEAD",
+        "git", "diff", "--diff-filter=D", "--name-only", merge_base, "HEAD",
     }) catch |e| {
         try reportSkipped(ctx, "git could not be run", @errorName(e));
         return;
     };
     defer diff.deinit(ctx.alloc);
 
-    // No upstream remote (a plain clone, or CI whose checkout carries only the
-    // fork): there is nothing to compare against. Reported, because an unrun
-    // check that exits silently is indistinguishable from a passing one — and
-    // this is exactly how a dropped file reaches `main` unnoticed.
+    // The history is known to be shared by this point (merge-base succeeded),
+    // so a non-zero diff means git itself failed. Reported rather than passed:
+    // an unrun check that exits silently looks exactly like a passing one.
     if (!diff.ok()) {
         const detail = std.mem.trim(u8, diff.stderr, " \t\r\n");
         try reportSkipped(
             ctx,
-            "the upstream ref is unavailable, so no dropped file could be detected",
+            "git diff against the merge base failed, so no dropped file could be detected",
             if (detail.len > 0) detail else "git diff exited non-zero with no message",
         );
         return;
@@ -49,7 +78,7 @@ pub fn run(ctx: *check.Context) !void {
 
         try ctx.report.add(.{
             .check = "upstream-drift",
-            .severity = .warn,
+            .severity = .err,
             .file = try ctx.alloc.dupe(u8, path),
             .message = "upstream carries this file but this branch does not",
             .evidence = try std.fmt.allocPrint(
@@ -106,4 +135,198 @@ test "isAllowed matches whole paths and skips comments and blanks" {
     try testing.expect(!isAllowed(allow, "packages/kosong/src/index.ts"));
     try testing.expect(!isAllowed(allow, "# retired with the pnpm toolchain"));
     try testing.expect(!isAllowed(allow, "npmrc"));
+}
+
+/// The comparison basis, exercised against a real git repository built in a
+/// temp dir. This is the exact shape of the bug this file shipped with once:
+/// `git diff <upstream-tip> HEAD` cannot tell "we deleted it" from "upstream
+/// added it after the fork", so the base has to be the merge base.
+///
+/// Returns the relative paths `git diff --diff-filter=D <base> HEAD` reports,
+/// where `base` follows the same rule `run` uses.
+fn deletionsAgainstMergeBase(
+    alloc: std.mem.Allocator,
+    io: Io,
+    cwd: Io.Dir,
+    upstream_ref: []const u8,
+) ![]const []const u8 {
+    const base = try proc.run(alloc, io, cwd, &.{ "git", "merge-base", upstream_ref, "HEAD" });
+    defer alloc.free(base.stdout);
+    defer alloc.free(base.stderr);
+    if (base.exit_code != 0) return error.NoMergeBase;
+
+    const merge_base = std.mem.trim(u8, base.stdout, " \t\r\n");
+    const diff = try proc.run(
+        alloc,
+        io,
+        cwd,
+        &.{ "git", "diff", "--diff-filter=D", "--name-only", merge_base, "HEAD" },
+    );
+    defer alloc.free(diff.stderr);
+    if (diff.exit_code != 0) {
+        alloc.free(diff.stdout);
+        return error.DiffFailed;
+    }
+
+    var out: std.ArrayList([]const u8) = .empty;
+    errdefer {
+        for (out.items) |item| alloc.free(item);
+        out.deinit(alloc);
+        alloc.free(diff.stdout);
+    }
+    var lines = std.mem.splitScalar(u8, diff.stdout, '\n');
+    while (lines.next()) |raw| {
+        const path = std.mem.trim(u8, raw, " \r");
+        if (path.len == 0) continue;
+        try out.append(alloc, try alloc.dupe(u8, path));
+    }
+    alloc.free(diff.stdout);
+    return out.toOwnedSlice(alloc);
+}
+
+fn freeDeletions(alloc: std.mem.Allocator, paths: []const []const u8) void {
+    for (paths) |path| alloc.free(path);
+    alloc.free(paths);
+}
+
+/// `git init` + a commit, with the identity baked into the repo so the test
+/// does not depend on the machine's git config.
+fn gitSetup(alloc: std.mem.Allocator, io: Io, dir: Io.Dir) !void {
+    const steps = [_][]const []const u8{
+        &.{ "git", "init", "-q", "-b", "main" },
+        &.{ "git", "config", "user.email", "t@example.invalid" },
+        &.{ "git", "config", "user.name", "t" },
+    };
+    for (steps) |argv| {
+        const out = try proc.run(alloc, io, dir, argv);
+        defer alloc.free(out.stdout);
+        defer alloc.free(out.stderr);
+        if (out.exit_code != 0) return error.GitFailed;
+    }
+}
+
+fn gitCommitAll(alloc: std.mem.Allocator, io: Io, dir: Io.Dir, message: []const u8) !void {
+    const add = try proc.run(alloc, io, dir, &.{ "git", "add", "-A" });
+    defer alloc.free(add.stdout);
+    defer alloc.free(add.stderr);
+    if (add.exit_code != 0) return error.GitFailed;
+
+    const commit = try proc.run(alloc, io, dir, &.{ "git", "commit", "-qm", message });
+    defer alloc.free(commit.stdout);
+    defer alloc.free(commit.stderr);
+    if (commit.exit_code != 0) return error.GitFailed;
+}
+
+fn writeFileAt(io: Io, dir: Io.Dir, path: []const u8, contents: []const u8) !void {
+    try Io.Dir.writeFile(dir, io, .{ .sub_path = path, .data = contents });
+}
+
+test "a file upstream ADDED after the fork is not reported as our deletion" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    try gitSetup(alloc, io, tmp.dir);
+
+    // Commit 1: the shared fork point.
+    try writeFileAt(io, tmp.dir, "shared.txt", "shared\n");
+    try gitCommitAll(alloc, io, tmp.dir, "fork point");
+
+    // Commit 2: this branch does work and deletes nothing.
+    try writeFileAt(io, tmp.dir, "ours.txt", "our work\n");
+    try gitCommitAll(alloc, io, tmp.dir, "our change");
+    const fork_tip = try proc.run(alloc, io, tmp.dir, &.{ "git", "rev-parse", "HEAD" });
+    defer alloc.free(fork_tip.stdout);
+    defer alloc.free(fork_tip.stderr);
+
+    // Commit 3: upstream moves on independently and adds a brand-new file.
+    const checkout_main = try proc.run(alloc, io, tmp.dir, &.{ "git", "checkout", "-q", "-b", "upstream-line", "main" });
+    defer alloc.free(checkout_main.stdout);
+    defer alloc.free(checkout_main.stderr);
+    try writeFileAt(io, tmp.dir, "upstream-new.txt", "brand new upstream file\n");
+    try gitCommitAll(alloc, io, tmp.dir, "upstream moves on");
+
+    // Point `upstream/main` at the advanced commit, then come back to ours.
+    const set_ref = try proc.run(alloc, io, tmp.dir, &.{ "git", "update-ref", "refs/remotes/upstream/main", "HEAD" });
+    defer alloc.free(set_ref.stdout);
+    defer alloc.free(set_ref.stderr);
+    const back = try proc.run(alloc, io, tmp.dir, &.{ "git", "checkout", "-q", "main" });
+    defer alloc.free(back.stdout);
+    defer alloc.free(back.stderr);
+
+    // The old, wrong basis: the upstream TIP. It reports upstream's own new
+    // file, which this branch never touched.
+    const tip_diff = try proc.run(
+        alloc,
+        io,
+        tmp.dir,
+        &.{ "git", "diff", "--diff-filter=D", "--name-only", "refs/remotes/upstream/main", "HEAD" },
+    );
+    defer alloc.free(tip_diff.stdout);
+    defer alloc.free(tip_diff.stderr);
+    try testing.expectEqualStrings("upstream-new.txt\n", tip_diff.stdout);
+
+    // The fix: the merge base. Nothing was deleted on this branch.
+    const deletions = try deletionsAgainstMergeBase(alloc, io, tmp.dir, "refs/remotes/upstream/main");
+    defer freeDeletions(alloc, deletions);
+    try testing.expectEqual(@as(usize, 0), deletions.len);
+}
+
+test "a file this branch deleted IS reported, so the fix does not go blind" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    try gitSetup(alloc, io, tmp.dir);
+
+    try writeFileAt(io, tmp.dir, "keep.txt", "keep\n");
+    try writeFileAt(io, tmp.dir, "doomed.txt", "delete me\n");
+    try gitCommitAll(alloc, io, tmp.dir, "fork point");
+    const fork_point = try proc.run(alloc, io, tmp.dir, &.{ "git", "rev-parse", "HEAD" });
+    defer alloc.free(fork_point.stdout);
+    defer alloc.free(fork_point.stderr);
+
+    // Upstream moves ahead so the merge base is strictly behind the tip —
+    // which is the state that used to hide a real deletion.
+    const branch = try proc.run(alloc, io, tmp.dir, &.{ "git", "checkout", "-q", "-b", "upstream-line" });
+    defer alloc.free(branch.stdout);
+    defer alloc.free(branch.stderr);
+    try writeFileAt(io, tmp.dir, "upstream-only.txt", "upstream\n");
+    try gitCommitAll(alloc, io, tmp.dir, "upstream work");
+    const set_ref = try proc.run(alloc, io, tmp.dir, &.{ "git", "update-ref", "refs/remotes/upstream/main", "HEAD" });
+    defer alloc.free(set_ref.stdout);
+    defer alloc.free(set_ref.stderr);
+    const back = try proc.run(alloc, io, tmp.dir, &.{ "git", "checkout", "-q", "main" });
+    defer alloc.free(back.stdout);
+    defer alloc.free(back.stderr);
+
+    // Now this branch deletes a file it shared with upstream.
+    const rm = try proc.run(alloc, io, tmp.dir, &.{ "git", "rm", "-q", "doomed.txt" });
+    defer alloc.free(rm.stdout);
+    defer alloc.free(rm.stderr);
+    try gitCommitAll(alloc, io, tmp.dir, "drop doomed.txt");
+
+    const deletions = try deletionsAgainstMergeBase(alloc, io, tmp.dir, "refs/remotes/upstream/main");
+    defer freeDeletions(alloc, deletions);
+    try testing.expectEqual(@as(usize, 1), deletions.len);
+    try testing.expectEqualStrings("doomed.txt", deletions[0]);
+}
+
+test "no merge base is an error rather than a silent pass" {
+    var tmp = testing.tmpDir(.{});
+    defer tmp.cleanup();
+    const alloc = testing.allocator;
+    const io = testing.io;
+
+    try gitSetup(alloc, io, tmp.dir);
+    try writeFileAt(io, tmp.dir, "only.txt", "only\n");
+    try gitCommitAll(alloc, io, tmp.dir, "one commit");
+
+    // A ref that does not exist, as in a shallow CI checkout with no upstream.
+    try testing.expectError(
+        error.NoMergeBase,
+        deletionsAgainstMergeBase(alloc, io, tmp.dir, "refs/remotes/upstream/main"),
+    );
 }

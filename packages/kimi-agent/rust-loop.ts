@@ -43,15 +43,138 @@ function tryNativeWorkspaceIndexPredictRead(_path: string): NativeReadPrediction
 interface RunTurnOverrideInput {
   readonly turnId: string;
   readonly signal: AbortSignal;
-  readonly llm: { readonly modelName: string };
+  readonly llm: {
+    readonly modelName: string;
+    readonly systemPrompt?: string;
+    readonly chat: (request: {
+      messages: HostMessage[];
+      tools: HostToolDefinition[];
+      signal: AbortSignal;
+      onTextPart?: (part: HostContentPart) => Promise<void> | void;
+      onThinkPart?: (part: HostContentPart) => Promise<void> | void;
+    }) => Promise<HostChatResponse>;
+  };
   readonly maxSteps?: number;
-  readonly buildMessages: unknown;
-  readonly buildTools: unknown;
-  readonly describeMissingTool: unknown;
-  readonly dispatchEvent: unknown;
-  readonly hooks: unknown;
-  readonly replaceToolResult?: unknown;
-  readonly tools: unknown;
+  readonly buildMessages: () => Promise<HostMessage[]> | HostMessage[];
+  readonly buildTools?: () => HostToolDefinition[];
+  readonly describeMissingTool?: (name: string) => string | undefined;
+  readonly dispatchEvent: (event: HostDispatchEvent) => Promise<void> | void;
+  readonly hooks?: {
+    readonly authorizeToolExecution?: (
+      context: HostHookContext,
+    ) => Promise<HostAuthorization | undefined>;
+    readonly finalizeToolResult?: (
+      context: HostHookContext & { args: unknown; result: unknown },
+    ) => Promise<HostToolResult | undefined>;
+    readonly prepareToolExecution?: (
+      context: HostHookContext & { args: unknown },
+    ) => Promise<HostPreparedExecution | undefined>;
+  };
+  readonly replaceToolResult?: (toolCallId: string, result: unknown) => void;
+  readonly tools: HostToolDefinition[];
+}
+
+interface HostContentPart {
+  type: string;
+  text?: string;
+  imageUrl?: { url: string };
+}
+
+interface HostMessage {
+  role: string;
+  content: HostContentPart[];
+  toolCalls?: { id: string; name: string; arguments: string | null }[];
+  toolCallId?: string;
+}
+
+interface HostToolDefinition {
+  name: string;
+  description: string;
+  parameters?: unknown;
+  /// Resolves one tool call into a result the host can report back to Rust.
+  resolveExecution: (args: unknown) => Promise<HostResolvedExecution>;
+}
+
+/// Either a settled result or an executable the host drives with `execute`.
+/// `isError` present means settled; `execute` present means run it.
+type HostResolvedExecution = HostToolResult & {
+  execute?: (request: {
+    turnId: string;
+    toolCallId: string;
+    metadata?: unknown;
+    signal: AbortSignal;
+  }) => Promise<HostToolResult>;
+};
+
+interface HostToolResult {
+  output: unknown;
+  isError?: boolean | undefined;
+  note?: string | undefined;
+}
+
+/// A hook may hand back a synthetic result in whatever shape it likes; only the
+/// documented `output` member is load-bearing, so anything else is wrapped.
+function asToolResult(value: unknown): HostToolResult {
+  if (typeof value === 'object' && value !== null && 'output' in value) {
+    return value as HostToolResult;
+  }
+  return { output: value };
+}
+
+interface HostToolCall {
+  id: string;
+  name: string;
+  arguments: string | null;
+}
+
+interface HostHookContext {
+  toolCall?: HostToolCall;
+  toolCalls?: HostToolCall[];
+  tool?: HostToolDefinition;
+  turnId?: string;
+  stepNumber?: number;
+  signal?: AbortSignal;
+  llm?: RunTurnOverrideInput['llm'];
+  [key: string]: unknown;
+}
+
+interface HostAuthorization {
+  block?: boolean;
+  reason?: string;
+  syntheticResult?: unknown;
+  executionMetadata?: unknown;
+}
+
+interface HostPreparedExecution {
+  updatedArgs?: unknown;
+  block?: boolean;
+  reason?: string;
+  syntheticResult?: unknown;
+  executionMetadata?: unknown;
+}
+
+interface HostDispatchEvent {
+  type: string;
+  turnId?: string;
+  uuid?: string;
+  parentUuid?: string;
+  step?: number;
+  toolCallId?: string;
+  result?: unknown;
+  usage?: HostTokenUsage;
+  part?: HostContentPart;
+  [key: string]: unknown;
+}
+
+interface HostChatResponse {
+  toolCalls?: { id: string; name: string; arguments: string | null }[];
+  providerFinishReason?: string;
+  usage?: {
+    inputOther?: number;
+    output?: number;
+    inputCacheRead?: number;
+    inputCacheCreation?: number;
+  };
 }
 
 interface RunTurnOverrideResult {
@@ -978,7 +1101,14 @@ export function createRunTurnOverride(
           });
         },
       });
-      if (openStep !== undefined) openStep.usage = response.usage;
+      if (openStep !== undefined && response.usage !== undefined) {
+        openStep.usage = {
+          inputOther: response.usage.inputOther ?? 0,
+          output: response.usage.output ?? 0,
+          inputCacheRead: response.usage.inputCacheRead ?? 0,
+          inputCacheCreation: response.usage.inputCacheCreation ?? 0,
+        };
+      }
 
       return {
         tool_calls:
@@ -1028,7 +1158,7 @@ export function createRunTurnOverride(
         });
       };
       const settle = async (
-        toolResult: { output: unknown; isError?: boolean | undefined; note?: string | undefined },
+        toolResult: HostToolResult,
         callArgs: unknown,
       ): Promise<ToolExecuteResponse> => {
         if (isPreciseReplacement) {
@@ -1103,7 +1233,7 @@ export function createRunTurnOverride(
         );
       }
       if (prep?.syntheticResult !== undefined) {
-        return settle(prep.syntheticResult, effectiveArgs);
+        return settle(asToolResult(prep.syntheticResult), effectiveArgs);
       }
       let executionMetadata = prep?.executionMetadata;
 
@@ -1120,7 +1250,8 @@ export function createRunTurnOverride(
       if ('isError' in execution && execution.isError === true) {
         return settle(execution, effectiveArgs);
       }
-      if (!('execute' in execution)) {
+      const execute = execution.execute;
+      if (typeof execute !== 'function') {
         return settle(
           { output: 'Tool execution resolved without executable', isError: true },
           effectiveArgs,
@@ -1139,15 +1270,15 @@ export function createRunTurnOverride(
         );
       }
       if (auth?.syntheticResult !== undefined) {
-        return settle(auth.syntheticResult, effectiveArgs);
+        return settle(asToolResult(auth.syntheticResult), effectiveArgs);
       }
       executionMetadata = auth?.executionMetadata ?? executionMetadata;
 
       await emitCall(effectiveArgs);
 
-      let rawResult: { output: unknown; isError?: boolean | undefined; note?: string | undefined };
+      let rawResult: HostToolResult;
       try {
-        rawResult = await execution.execute({
+        rawResult = await execute({
           turnId: req.turn_id,
           toolCallId,
           metadata: executionMetadata,
@@ -1187,7 +1318,7 @@ export function createRunTurnOverride(
         const napiResult = await engine.runTurn(
           {
             turnId: input.turnId,
-            systemPrompt: input.llm.systemPrompt,
+            systemPrompt: input.llm.systemPrompt ?? '',
             modelName: input.llm.modelName,
             messages: wireMessages.map((m) => ({
               role: m.role,

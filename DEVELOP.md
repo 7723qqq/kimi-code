@@ -211,6 +211,7 @@ scripts/
   check-nix-workspace.mjs        — Validate flake.nix vs workspace membership
   check-no-comments.mjs          — Enforce no-comment policy (agent-core-v2, kap-server, transcript)
   check-service-naming.mjs       — Check service naming conventions
+  no-hardcoded-prose-baseline.txt — accepted-literals ledger (path, count, digest)
   check-t-call-coverage.mjs      — Check t() call coverage and engine error-code localization
   gen-error-locale-skeleton.mjs  — Scaffold missing errorCodes.* locale entries
   measure-image-tokens.cjs       — Recalibrate the image-token formula against a live endpoint
@@ -218,11 +219,13 @@ scripts/
   prompt-optimizer/              — Prompt benchmark and optimization tools
 ```
 
-Each of these has a root script. `check:no-comments`, `check:locale-placeholders`,
-`check:no-hardcoded-prose`, `check-t-call-coverage`, `check-locale-keys` and
-`check:status-surface-i18n` also run in CI's `lint` job; `check:nix-workspace` runs in the
-Nix workflow; the rest are by-hand: `scan:hardcoded`, `check:service-naming`,
-`measure:image-tokens`.
+Each of these has a root script, and the root script names are the `check:*` form
+(`check:t-coverage`, `check:locale-keys`, …). `check:no-comments`,
+`check:locale-placeholders`, `check:no-hardcoded-prose`, `check:t-coverage`,
+`check:locale-keys`, `check:status-surface-i18n`, `check:service-naming` and
+`tools/review/check-catalog-versions.mjs` run in CI's `lint` job; `check:nix-workspace`
+runs in the Nix workflow. By hand: `scan:hardcoded` (finds a source literal that already
+exists in a locale file) and `measure:image-tokens` (needs a live endpoint).
 
 ### Structural review (`tools/review`)
 
@@ -230,7 +233,7 @@ Nix workflow; the rest are by-hand: `scan:hardcoded`, `check:service-naming`,
 running the test suite. It answers questions a test cannot: whether a documented
 gate is actually wired up, whether a workspace member's tests ever run, whether a
 generated file drifted from its source. It runs in CI as the `review` job and takes
-about 1.5 s over the whole monorepo.
+about 7 s over the whole monorepo.
 
 ```
 tools/review/
@@ -240,13 +243,31 @@ tools/review/
   orphan-exports-baseline.txt   — accepted findings, one per line
   scripts-wiring-baseline.txt   — accepted findings, one per line
   silent-catch-baseline.txt     — accepted findings, one per line
+  text-as-protocol-baseline.txt — accepted text matches, one `path  count` per file
+  upstream-drift-allow.txt      — deliberate deletions relative to upstream/main
 ```
+
+`tools/review/check-strict-request-bodies.mjs` is the gate for "an unknown input must
+produce a signal" at the HTTP boundary: a route `body` schema that is not `.strict()`
+silently strips an unrecognized key, so a client's typo comes back as `code: 0`. It walks
+`packages/kap-server/src/routes` for `body: <Schema>` references and checks the declared
+schema (brace-counted, so a nested `.superRefine` block does not end the match early). It
+runs in CI's `lint` job.
+
+`tools/review/check-catalog-versions.mjs` is the one gate that lives beside the Zig
+sources rather than in `scripts/`: it reports a package that repeats a range the workspace
+catalog already pins instead of writing `catalog:`. It runs in CI's `lint` job.
 
 `text-as-protocol` is the check that keeps the i18n rules enforceable: it fails on
 `value === 'Sentence-shaped text'` comparisons, which are how message copy silently
 becomes an interface between layers (and the first thing to break under translation).
-It ships with zero accepted findings — a new comparison is a design decision, not debt,
-so it has no baseline file.
+That form ships with zero accepted findings — a new comparison is a design decision,
+not debt, so it has no baseline entries. The second form it reports,
+`value.startsWith('Sentence here')` and its `includes`/`endsWith`/`indexOf` siblings,
+is a warning against `text-as-protocol-baseline.txt`: a few of those legitimately match
+text this repository does not author (git's `HEAD (no branch)`, ripgrep's `os error 11`,
+an HTTP `Bearer ` prefix), and suppressing them by name keeps the ones that do cross a
+layer boundary visible.
 
 ```bash
 cd tools/review && zig build          # needs Zig 0.17 (the devShell provides it)
@@ -261,7 +282,7 @@ cd tools/review && zig build          # needs Zig 0.17 (the devShell provides it
 | `gate-wiring` | A doc claims a script runs under a runner that does not invoke it; a hook directory nothing executes |
 | `ci-coverage` | A workspace member whose tests or typecheck no CI job runs |
 | `stale-artifacts` | A committed generated file the generator rewrites |
-| `upstream-drift` | A file upstream carries that this branch dropped |
+| `upstream-drift` | A file upstream carries that this branch dropped; listed deletions go in `upstream-drift-allow.txt` |
 | `orphan-exports` | An exported function only its own test calls |
 | `silent-catch` | A file with more bare `catch {}` blocks than its baseline allows |
 | `workflow-triggers` | A CI job the docs list that no pull request ever runs |
@@ -390,7 +411,10 @@ GitHub Actions (`ci.yml`) runs on every PR and push to `main`. Every job install
 5. **test-kimi-web** — `apps/kimi-web` typecheck, tests, and style check (the app sits outside the root workspace)
 6. **lint** — `bun run lint` (oxlint --type-aware), `bun run sherif`, engine boundaries (`check:deep-imports`, then `check:boundaries`), locale key parity (`check-locale-keys.mjs`), locale placeholder validity (`check-locale-placeholders.cjs`), and `t()` call-site coverage (`check-t-call-coverage.mjs`)
 7. **typecheck** — TypeScript check across all packages (`tsgo` from `@typescript/native-preview`, run via `bunx --bun`)
-8. **review** — `zig build` in `tools/review` (Zig installed via `mlugg/setup-zig`), then the structural checks described under "Structural review" above.
+8. **review** — `zig build` and `zig build test` in `tools/review` (Zig installed via
+   `mlugg/setup-zig`), then the structural checks described under "Structural review" above
+9. **test-rust** — `cargo test --offline` for both Rust crates (`kimi-native-tools`,
+   `kimi-agent`); every other job is Bun-only and installs no Rust toolchain
 
 `ci.yml` also carries a `test-windows` job (the full suite on Windows). It is parked with `if: false` while Windows tests are stabilized, so it is not part of the pre-merge pipeline.
 
@@ -491,7 +515,7 @@ The rules that follow from it:
 Gates (all wired into CI's `lint` job):
 
 - `bun scripts/check-no-hardcoded-prose.mjs` — prose literals outside `t()` in every UI tree. Shrink-only ledger at `scripts/no-hardcoded-prose-baseline.txt`; a new hardcoded string fails the run, and localizing strings lowers the number (regenerate with `--print-counts`).
-- `bun scripts/check-t-call-coverage.mjs` — every `t()` key exists, and every engine error code has en+zh entries. Scaffold missing codes with `bun scripts/gen-error-locale-skeleton.mjs`.
+- `bun scripts/check-t-call-coverage.mjs` — every `t()` key exists (across kimi-code, agent-core-v2 + kap-server + klient, kimi-inspect, vis-web, and the VS Code webview, `.vue`/`.tsx` templates included), every engine error code has en+zh entries, and no `errorCodes.*` value in `zh` is a copy of its English sentence. Scaffold missing codes with `bun scripts/gen-error-locale-skeleton.mjs`.
 - `bun scripts/check-locale-keys.mjs`, `bun scripts/check-locale-placeholders.cjs` — en/zh parity and `{{param}}` consistency.
 - `bun scripts/scan-hardcoded-v2.mjs` — by hand: finds a source literal that already exists in a locale file (the narrower, value-level complement to the prose scan).
 - `./tools/review/zig-out/bin/review --check=text-as-protocol` — cross-layer comparisons against message text.

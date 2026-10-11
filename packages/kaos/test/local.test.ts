@@ -180,6 +180,40 @@ describe('LocalKaos', () => {
       }
       expect(lines.join('')).toBe('line1\nline2');
     });
+
+    it('reports byte counts, not character counts, for non-ASCII content', async () => {
+      const filePath = join(tempDir, 'multibyte.txt');
+      const text = '中文内容';
+
+      expect(await kaos.writeText(filePath, text)).toBe(Buffer.byteLength(text, 'utf-8'));
+      expect(await kaos.writeText(filePath, '\n😀', { mode: 'a' })).toBe(
+        Buffer.byteLength('\n😀', 'utf-8'),
+      );
+      expect(await kaos.writeBytes(filePath, Buffer.from('é'))).toBe(2);
+      expect((await kaos.stat(filePath)).stSize).toBe(2);
+    });
+
+    it('reports decode failures as KaosValueError naming the path', async () => {
+      const filePath = join(tempDir, 'invalid-utf8.txt');
+      await kaos.writeBytes(filePath, Buffer.from([0xff, 0xfe, 0x41]));
+
+      await expect(kaos.readText(filePath)).rejects.toMatchObject({
+        name: 'KaosValueError',
+        message: expect.stringContaining('invalid-utf8.txt'),
+      });
+
+      const lines: string[] = [];
+      let thrown: unknown;
+      try {
+        for await (const line of kaos.readLines(filePath)) lines.push(line);
+      } catch (error) {
+        thrown = error;
+      }
+      expect(thrown).toMatchObject({
+        name: 'KaosValueError',
+        message: expect.stringContaining('invalid-utf8.txt'),
+      });
+    });
   });
 
   describe('readLines streaming', () => {

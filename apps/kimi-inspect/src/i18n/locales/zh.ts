@@ -38,6 +38,11 @@ export default {
     noHitsForQuery: '“{{query}}” 无匹配结果。',
     searchExamples: '示例…',
     auditEmpty: '暂无记录 — 初始会话记录加载中。',
+    auditSubscribeRejected: '服务端拒绝了订阅',
+    auditSubscribeRejectedDetail: '服务端拒绝了订阅：{{reason}}',
+    subscribeRejectedByCode: '服务端拒绝了会话记录订阅：{{message}}',
+    subscribeRejectedNotLive: '会话在服务端不活跃（not_found：{{sessions}}）',
+    seedNoItems: '无条目',
   },
   inspector: {
     tabs: {
@@ -94,6 +99,7 @@ export default {
     all: '(全部)',
     archived: '已归档',
     createSessionFailed: '创建会话失败：{{message}}',
+    activityBaselineUnavailable: '活动基线不可用：{{reason}}',
   },
   panels: {
     reconnectServer: '重新连接服务器',

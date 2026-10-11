@@ -1,0 +1,48 @@
+# Accepted `.startsWith` / `.includes` matches on prose-shaped text.
+#
+# These match text this repository does NOT author — `git`'s own branch
+# messages, a `git diff` marker, ripgrep's stderr, an HTTP auth scheme, line
+# labels inside a generated Markdown report. They are recorded here so the ones
+# that DO cross a layer boundary (`output.startsWith('Exited plan mode.')` in
+# apps/kimi-code) stay visible instead of hiding among them.
+#
+# One "path  count" line per file, same shape as the other ledgers. Suppressed
+# by file so a new match in a listed file is still reported; the entry that
+# stops matching is reported too, so the ledger cannot rot.
+
+# Line labels of the generated turn report, produced and read in the same file.
+packages/transcript/src/history/groupTurns.ts  2
+
+# HTTP auth scheme, not copy.
+packages/kap-server/src/start.ts  1
+packages/kosong/src/providers/google-genai.ts  2
+
+# minidb's own closed/open errors, matched by the search index that drives it.
+# These strings come from a different package's error text; the cleaner fix is
+# an exported error code, tracked separately.
+packages/kap-server/src/search/indexCore.ts  2
+
+# ripgrep / OS stderr text (`os error 11`, EAGAIN), not our copy.
+packages/agent-core-v2/src/workspace/workspaceFs/internal/runRg.ts  1
+packages/agent-core-v2/src/os/backends/host/tools/runRg.ts  1
+
+# A prompt sentence from the model's own system prompt, sniffed to decide
+# whether a notify tool is already available. Cross-layer by nature; the fix is
+# a capability check rather than a substring test.
+packages/agent-core-v2/src/features/notify/sessionNotify.ts  1
+
+# git's own branch/summary output.
+packages/agent-core-v2/src/app/git/gitParsers.ts  2
+
+# `git diff` markers.
+apps/kimi-web/src/lib/parseDiff.ts  1
+
+# The TUI reading back a sentence the engine wrote (plan-mode exit). Cross-layer
+# and the reason this check exists; kept visible rather than hidden, and listed
+# because it cannot be fixed without an engine-side marker.
+apps/kimi-code/src/tui/components/messages/tool-call.ts  1
+
+# kimi-web writes `Calling ${label}` in its own projector
+# (api/daemon/agentEventProjector.ts) and re-parses the same prefix here to
+# group the lines back into calls — a round trip through a rendered sentence.
+apps/kimi-web/src/components/chat/AgentDetailPanel.vue  1

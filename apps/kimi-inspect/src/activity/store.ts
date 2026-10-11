@@ -70,12 +70,29 @@ export class SessionActivityStore {
   }
 }
 
+/**
+ * Why the activity baseline could not be established. `envelope` carries the
+ * server's own code/message; `no-items` means the response parsed but had no
+ * session array; `transport` carries the fetch/parse error message.
+ */
+export type SeedFailure =
+  | { readonly kind: 'envelope'; readonly code: number; readonly message?: string }
+  | { readonly kind: 'no-items' }
+  | { readonly kind: 'transport'; readonly message: string };
+
 export interface SessionActivityHubOptions {
   /** Server base URL (`http(s)://host:port`). */
   readonly url: string;
   readonly token?: string | undefined;
   /** List-level signal (session created / retitled) — invalidate the list. */
   readonly onListChanged: () => void;
+  /**
+   * The REST baseline could not be established. Live frames still flow and
+   * the next reconnect re-seeds, but the badges stay stale until then — so
+   * the failure is surfaced instead of being swallowed. The payload is
+   * structured (not prose) so the UI owns the wording. Not called on success.
+   */
+  readonly onSeedError?: (failure: SeedFailure) => void;
   readonly WebSocketImpl?: WsLikeCtor;
   readonly fetchImpl?: typeof fetch;
 }
@@ -86,10 +103,12 @@ export class SessionActivityHub {
   private readonly baseUrl: string;
   private readonly token?: string;
   private readonly fetchImpl: typeof fetch;
+  private readonly onSeedError: ((failure: SeedFailure) => void) | undefined;
 
   constructor(opts: SessionActivityHubOptions) {
     this.baseUrl = opts.url.replace(/\/$/, '');
     this.token = opts.token;
+    this.onSeedError = opts.onSeedError;
     // Bind the default: `this.fetchImpl(...)` is a member call, and the
     // browser's `fetch` throws Illegal invocation when its receiver is not
     // the global object (Node's undici fetch does not care).
@@ -129,9 +148,17 @@ export class SessionActivityHub {
       const res = await this.fetchImpl(`${this.baseUrl}/api/v1/sessions`, { headers });
       const envelope = (await res.json()) as {
         code: number;
+        msg?: string;
         data?: { items?: Record<string, unknown>[] };
       };
-      if (envelope.code !== 0 || envelope.data?.items === undefined) return;
+      if (envelope.code !== 0) {
+        this.onSeedError?.({ kind: 'envelope', code: envelope.code, message: envelope.msg });
+        return;
+      }
+      if (envelope.data?.items === undefined) {
+        this.onSeedError?.({ kind: 'no-items' });
+        return;
+      }
       const entries: [string, SessionWorkFacts][] = [];
       for (const item of envelope.data.items) {
         const id = item['id'];
@@ -152,9 +179,11 @@ export class SessionActivityHub {
         ]);
       }
       this.store.seed(entries);
-    } catch {
-      // Seed is best-effort: live frames keep flowing, and the next reconnect
-      // re-seeds. A dead server surfaces through the connection layer anyway.
+    } catch (error) {
+      this.onSeedError?.({
+        kind: 'transport',
+        message: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 }

@@ -109,7 +109,7 @@
     "smol-toml": "catalog:",
     "tsx": "catalog:",
     "yazl": "catalog:",
-    "zod": "^4.3.6"
+    "zod": "catalog:"
   },
   "optionalDependencies": {
     "@mariozechner/clipboard": "^0.3.9",

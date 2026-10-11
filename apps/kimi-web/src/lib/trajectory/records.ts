@@ -461,7 +461,7 @@ export function deriveTrajectoryLayout(
                     kind: 'compacted',
                     turn: null,
                     group: ref.key,
-                    text: `Context compacted (${reason})`,
+                    text: t('trajectory.compactedWithReason', { reason }),
                     sourceSeq: frame.seq,
                     timeSeconds: 0,
                     startedAt: time,
@@ -476,7 +476,7 @@ export function deriveTrajectoryLayout(
             id: `compacted\u0000seq\u0000${frame.seq}`,
             kind: 'compacted',
             sourceSeq: frame.seq,
-            text: `Context compacted (${reason})`,
+            text: t('trajectory.compactedWithReason', { reason }),
             timeSeconds: 0,
             startedAt: time,
           });

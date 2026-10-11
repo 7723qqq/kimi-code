@@ -18,23 +18,23 @@
 # Deleting them loses the rationale; moving every one into docs/ is tracked
 # separately. See DEVELOP.md, "General Coding Rules".
 
-packages/agent-core-v2/src/agent/profile/profileService.ts  11
-packages/agent-core-v2/src/app/agentProfileCatalog/agentProfileCatalog.ts  1
-packages/agent-core-v2/src/app/agentProfileCatalog/modelAdaptations.ts  15
-packages/agent-core-v2/src/app/agentProfileCatalog/profile-shared.ts  2
-packages/agent-core-v2/src/features/deepseekAdaptation/deepseekAdaptationService.ts  2
-packages/agent-core-v2/src/human/llm/modelFamily.ts  7
-packages/agent-core-v2/src/human/llm/requester/bases/openai/format.ts  1
-packages/agent-core-v2/src/human/llm/requester/bases/openai/lower.ts  1
-packages/agent-core-v2/src/human/llm/requester/bases/openai/requester.ts  7
-packages/agent-core-v2/src/human/llm/requester/bases/openai/usage.ts  3
-packages/agent-core-v2/src/human/llm/tokens.ts  1
-packages/agent-core-v2/src/human/log/log.ts  1
-packages/agent-core-v2/src/human/test/llm/deepseek-reasoning-replay.test.ts  9
-packages/agent-core-v2/src/human/test/llm/thinking.test.ts  9
-packages/agent-core-v2/src/human/test/llm/tokens.test.ts  8
-packages/agent-core-v2/test/agent/profile/adaptation-wire-name.test.ts  4
-packages/agent-core-v2/test/app/agentProfileCatalog/adaptationRender.test.ts  2
-packages/agent-core-v2/test/app/agentProfileCatalog/modelAdaptations.test.ts  29
-packages/agent-core-v2/test/app/agentProfileCatalog/profile-shared.test.ts  18
-packages/agent-core-v2/test/features/deepseekAdaptation/deepseekAdaptation.test.ts  23
+packages/agent-core-v2/src/agent/profile/profileService.ts  11  dfe3315c5fc6
+packages/agent-core-v2/src/app/agentProfileCatalog/agentProfileCatalog.ts  1  36010c162e73
+packages/agent-core-v2/src/app/agentProfileCatalog/modelAdaptations.ts  15  1091dc61e391
+packages/agent-core-v2/src/app/agentProfileCatalog/profile-shared.ts  2  6c044975e09f
+packages/agent-core-v2/src/features/deepseekAdaptation/deepseekAdaptationService.ts  2  8c60919acd94
+packages/agent-core-v2/src/human/llm/modelFamily.ts  7  7bab1999e976
+packages/agent-core-v2/src/human/llm/requester/bases/openai/format.ts  1  33a07c97911c
+packages/agent-core-v2/src/human/llm/requester/bases/openai/lower.ts  1  573ec7c1224e
+packages/agent-core-v2/src/human/llm/requester/bases/openai/requester.ts  7  4b3a81b81359
+packages/agent-core-v2/src/human/llm/requester/bases/openai/usage.ts  3  0a5318d92f81
+packages/agent-core-v2/src/human/llm/tokens.ts  1  bcc32fb925a4
+packages/agent-core-v2/src/human/log/log.ts  1  e5da33c1523d
+packages/agent-core-v2/src/human/test/llm/deepseek-reasoning-replay.test.ts  9  b8bf0cf3539e
+packages/agent-core-v2/src/human/test/llm/thinking.test.ts  9  3fa685b63f0b
+packages/agent-core-v2/src/human/test/llm/tokens.test.ts  8  f5edc36b636d
+packages/agent-core-v2/test/agent/profile/adaptation-wire-name.test.ts  4  06c710e7d0d6
+packages/agent-core-v2/test/app/agentProfileCatalog/adaptationRender.test.ts  2  7355b70b88ee
+packages/agent-core-v2/test/app/agentProfileCatalog/modelAdaptations.test.ts  29  0ec8c4f88fb1
+packages/agent-core-v2/test/app/agentProfileCatalog/profile-shared.test.ts  18  d2c0bd6a3086
+packages/agent-core-v2/test/features/deepseekAdaptation/deepseekAdaptation.test.ts  23  64064cf9a395

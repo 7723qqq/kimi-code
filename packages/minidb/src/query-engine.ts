@@ -213,8 +213,8 @@ export class QueryEngine<V> {
         skipped++;
         continue;
       }
-      out.push({ key: kstr, value, dt: r?.dt ?? undefined });
       if (out.length >= limit) break;
+      out.push({ key: kstr, value, dt: r?.dt ?? undefined });
     }
 
     return out.map((d) => ({
@@ -296,8 +296,8 @@ export class QueryEngine<V> {
       if (q.filter && !match(value, q.filter)) continue;
       if (early) {
         if (seen++ < skip) continue;
-        docs.push({ key: k, value, dt: r?.dt ?? undefined });
         if (docs.length >= limit) break;
+        docs.push({ key: k, value, dt: r?.dt ?? undefined });
       } else {
         docs.push({ key: k, value, dt: r?.dt ?? undefined });
       }
@@ -408,8 +408,8 @@ export class QueryEngine<V> {
       if (q.filter && !match(value, q.filter)) continue;
       if (early) {
         if (seen++ < skip) continue;
-        docs.push({ key: k, value, dt: r?.dt ?? undefined });
         if (docs.length >= limit) break;
+        docs.push({ key: k, value, dt: r?.dt ?? undefined });
       } else {
         docs.push({ key: k, value, dt: r?.dt ?? undefined });
       }
@@ -506,8 +506,8 @@ export class QueryEngine<V> {
         skipped++;
         continue;
       }
-      out.push({ key: kstr, value, dt: r?.dt ?? undefined });
       if (out.length >= limit) break;
+      out.push({ key: kstr, value, dt: r?.dt ?? undefined });
     }
 
     return out.map((d) => ({

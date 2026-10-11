@@ -57,7 +57,24 @@ export const patchConfigRequestSchema = z.object({
   background: z.unknown().optional(),
   subagent: z.unknown().optional(),
   secondary_model: z.unknown().optional(),
+  mcp: z.unknown().optional(),
+  image: z.unknown().optional(),
+  model_catalog: z.unknown().optional(),
+  builtin_product_skills: z.unknown().optional(),
+  extra_agent_dirs: z.array(z.string()).optional(),
+  read: z.unknown().optional(),
+  model_overrides: z.unknown().optional(),
+  identity: z.unknown().optional(),
+  github: z.unknown().optional(),
+  swarm: z.unknown().optional(),
+  cron: z.unknown().optional(),
+  token_counting: z.unknown().optional(),
+  llm_requester: z.unknown().optional(),
+  task: z.unknown().optional(),
+  database: z.unknown().optional(),
+  watch: z.unknown().optional(),
   experimental: z.record(z.string(), z.boolean()).optional(),
   telemetry: z.boolean().optional(),
-});
+})
+  .strict();
 export type PatchConfigRequest = z.infer<typeof patchConfigRequestSchema>;

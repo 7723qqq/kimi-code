@@ -122,6 +122,73 @@ describe('SessionActivityHub', () => {
     hub.close();
   });
 
+  it('reports a seed failure instead of swallowing it', async () => {
+    const cases: Array<[string, typeof fetch, string]> = [
+      [
+        'non-zero envelope code',
+        vi.fn(async () => ({
+          json: async () => ({ code: 50001, msg: 'boom', data: {} }),
+        })) as unknown as typeof fetch,
+        'envelope',
+      ],
+      [
+        'missing items array',
+        vi.fn(async () => ({
+          json: async () => ({ code: 0, data: {} }),
+        })) as unknown as typeof fetch,
+        'no-items',
+      ],
+      [
+        'transport rejection',
+        vi.fn(async () => {
+          throw new Error('ECONNREFUSED');
+        }) as unknown as typeof fetch,
+        'transport',
+      ],
+      [
+        'non-json body',
+        vi.fn(async () => ({
+          json: async () => {
+            throw new SyntaxError('Unexpected token < in JSON');
+          },
+        })) as unknown as typeof fetch,
+        'transport',
+      ],
+    ];
+
+    for (const [label, fetchImpl, expectedKind] of cases) {
+      const { ctor, instances } = makeFakeWsCtor();
+      const onSeedError = vi.fn();
+      const hub = new SessionActivityHub({
+        url: 'http://127.0.0.1:58627',
+        onListChanged: () => {},
+        onSeedError,
+        WebSocketImpl: ctor,
+        fetchImpl,
+      });
+      instances[0]!.emit('open');
+      await vi.waitFor(() => expect(onSeedError).toHaveBeenCalledTimes(1));
+      expect(onSeedError.mock.calls[0]?.[0], label).toMatchObject({ kind: expectedKind });
+      hub.close();
+    }
+  });
+
+  it('does not report a seed error on a healthy baseline', async () => {
+    const { ctor, instances } = makeFakeWsCtor();
+    const onSeedError = vi.fn();
+    const hub = new SessionActivityHub({
+      url: 'http://127.0.0.1:58627',
+      onListChanged: () => {},
+      onSeedError,
+      WebSocketImpl: ctor,
+      fetchImpl: seedFetch([{ id: 's1', busy: false, main_turn_active: false }]),
+    });
+    instances[0]!.emit('open');
+    await vi.waitFor(() => expect(hub.store.get('s1')).toBeDefined());
+    expect(onSeedError).not.toHaveBeenCalled();
+    hub.close();
+  });
+
   it('applies live work_changed frames by session id', () => {
     const { ctor, instances } = makeFakeWsCtor();
     const hub = new SessionActivityHub({

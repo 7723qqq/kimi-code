@@ -28,6 +28,7 @@
  * Exit code: 0 when within the ledger, 1 otherwise.
  */
 
+import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs';
 import { join, relative, resolve } from 'node:path';
 
@@ -132,10 +133,16 @@ function looksLikeProse(text) {
 const NON_COPY_LINE_RE =
   /(?:className\s*=|class\s*=|\bstyle\s*=|data-testid|aria-|role=|className:|:class=|class:list|css\s*\()/;
 
+/**
+ * Blanks out everything that is not a string literal, preserving both the byte
+ * length and every newline so an index into the result is still an index into
+ * the original source — which is what makes the reported line numbers correct.
+ * Every rule therefore replaces with spaces-in-place rather than deleting.
+ */
 function stripNonStrings(source) {
   return source
     .replace(/\/\*[\s\S]*?\*\//g, (match) => match.replace(/[^\n]/g, ' '))
-    .replace(/\/\/[^\n]*/g, '')
+    .replace(/\/\/[^\n]*/g, (match) => match.replace(/[^\n]/g, ' '))
     .replace(/\bfrom\s*(['"])(?:\\.|(?!\1)[^\\\n])*\1/g, (match) => match.replace(/[^\n]/g, ' '))
     .replace(/\bimport\s*\(\s*(['"])(?:\\.|(?!\1)[^\\\n])*\1\s*\)/g, (match) =>
       match.replace(/[^\n]/g, ' '),
@@ -143,6 +150,28 @@ function stripNonStrings(source) {
     .replace(/\brequire\s*\(\s*(['"])(?:\\.|(?!\1)[^\\\n])*\1\s*\)/g, (match) =>
       match.replace(/[^\n]/g, ' '),
     );
+}
+
+/**
+ * Every string literal in `source`, in order, as `{ index, text }`.
+ *
+ * Single and double quoted strings are single-line, as before. Template
+ * literals are also scanned — they were the gate's largest blind spot, since a
+ * `` `Attached ${kind} file` `` sentence is exactly as user-visible as a quoted
+ * one. A template's `${...}` interpolations are dropped from `text` (they are
+ * code, not copy) but still count toward the match, so the literal's length and
+ * position stay correct.
+ */
+function matchStringLiterals(source) {
+  const out = [];
+  const pattern = /(['"])((?:\\.|(?!\1)[^\\\n])*)\1|`((?:\\.|[^\\`]|\$\{[^{}]*\})*)`/g;
+  let match;
+  while ((match = pattern.exec(source)) !== null) {
+    const quoted = match[1] !== undefined;
+    const text = quoted ? match[2] : match[3].replace(/\$\{[^{}]*\}/g, ' ');
+    out.push({ index: match.index, text });
+  }
+  return out;
 }
 
 function tCallRanges(source) {
@@ -182,13 +211,10 @@ function findLiterals(source) {
   const lineText = source.split('\n');
 
   const findings = [];
-  const pattern = /(['"])((?:\\.|(?!\1)[^\\\n])*)\1/g;
-  let match;
-  while ((match = pattern.exec(scrubbed)) !== null) {
-    if (inRanges(match.index, skip)) continue;
-    const text = match[2];
+  for (const { index, text } of matchStringLiterals(scrubbed)) {
+    if (inRanges(index, skip)) continue;
     if (!looksLikeProse(text)) continue;
-    const line = lineOf(match.index);
+    const line = lineOf(index);
     if (NON_COPY_LINE_RE.test(lineText[line - 1] ?? '')) continue;
     findings.push({ line, text: text.trim() });
   }
@@ -232,7 +258,7 @@ function collectCounts() {
       const source = readFileSync(file, 'utf8');
       const found = findLiterals(source);
       if (found.length === 0) continue;
-      counts.set(rel, found.length);
+      counts.set(rel, { count: found.length, digest: digestOf(found) });
       details.set(rel, found);
     }
   }
@@ -247,20 +273,34 @@ function readBaseline() {
     if (line.length === 0 || line.startsWith('#')) continue;
     const parts = line.split(/\s+/);
     if (parts.length < 2) continue;
-    baseline.set(parts[0], Number(parts[1]));
+    baseline.set(parts[0], { count: Number(parts[1]), digest: parts[2] });
   }
   return baseline;
+}
+
+/**
+ * A digest over the accepted literals themselves, so the ledger pins *which*
+ * strings were reviewed and not merely how many. The count alone had a hole: a
+ * file could swap one accepted literal for a different hardcoded one, keep its
+ * count, and pass. Order-insensitive per file, so moving a literal inside the
+ * file is not news.
+ */
+function digestOf(findings) {
+  const texts = findings.map((finding) => finding.text).sort();
+  return createHash('sha256').update(texts.join('\n')).digest('hex').slice(0, 12);
 }
 
 function renderBaseline(counts) {
   const entries = [...counts.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1));
   return [
     '# Shrink-only ledger for scripts/check-no-hardcoded-prose.mjs.',
-    '# One "path  count" line per file with accepted hardcoded-prose literals.',
+    '# One "path  count  digest" line per file: the number of accepted',
+    '# hardcoded-prose literals, and a digest over their text so replacing one',
+    '# accepted literal with a different one is detected rather than counted.',
     '# Regenerate with: bun scripts/check-no-hardcoded-prose.mjs --print-counts',
     '# Lower a number when you localize strings; never raise one for new code.',
     '',
-    ...entries.map(([path, count]) => `${path}  ${count}`),
+    ...entries.map(([path, { count, digest }]) => `${path}  ${count}  ${digest}`),
     '',
   ].join('\n');
 }
@@ -280,7 +320,7 @@ if (args.includes('--list')) {
 if (args.includes('--print-counts')) {
   writeFileSync(BASELINE_PATH, renderBaseline(counts));
   let total = 0;
-  for (const count of counts.values()) total += count;
+  for (const entry of counts.values()) total += entry.count;
   console.log(`wrote ${BASELINE_PATH} — ${counts.size} files, ${total} accepted literals`);
   process.exit(0);
 }
@@ -288,17 +328,21 @@ if (args.includes('--print-counts')) {
 const baseline = readBaseline();
 const errors = [];
 const stale = [];
+const swapped = [];
 let total = 0;
 
-for (const [path, count] of [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+for (const [path, entry] of [...counts.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
+  const { count, digest } = entry;
   total += count;
   const allowed = baseline.get(path);
   if (allowed === undefined) {
     errors.push({ path, count, allowed: 0, isNew: true });
-  } else if (count > allowed) {
-    errors.push({ path, count, allowed, isNew: false });
-  } else if (count < allowed) {
-    stale.push({ path, count, allowed });
+  } else if (count > allowed.count) {
+    errors.push({ path, count, allowed: allowed.count, isNew: false });
+  } else if (allowed.digest !== undefined && allowed.digest !== digest) {
+    swapped.push({ path, count, allowed: allowed.count });
+  } else if (count < allowed.count) {
+    stale.push({ path, count, allowed: allowed.count });
   }
 }
 
@@ -316,6 +360,22 @@ if (errors.length > 0) {
     }
   }
   console.error('Wrap user-visible text in t(...) and add the key to both locales.');
+  process.exit(1);
+}
+
+if (swapped.length > 0) {
+  console.error(
+    `check-no-hardcoded-prose: ${swapped.length} file(s) replaced an accepted literal with a different one.`,
+  );
+  for (const entry of swapped) {
+    console.error(`  ${entry.path}: ${entry.count} literal(s), same count as the ledger but different text`);
+    for (const finding of details.get(entry.path) ?? []) {
+      console.error(`      :${finding.line}  ${JSON.stringify(finding.text)}`);
+    }
+  }
+  console.error(
+    'A reviewed literal may not be swapped for a new hardcoded one. Wrap the new text in t(...), or run `--print-counts` if the replacement really is the reviewed state.',
+  );
   process.exit(1);
 }
 

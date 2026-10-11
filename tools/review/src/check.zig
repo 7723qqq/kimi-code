@@ -17,7 +17,11 @@ pub const Check = struct {
     /// Stable identifier used by `--check=` and by the baseline file.
     name: []const u8,
     description: []const u8,
-    /// Severity every finding from this check is reported at.
+    /// The severity a check's findings normally carry, for `--list` and the
+    /// help text. It is documentation of intent, not the exit-code driver:
+    /// each check sets `.severity` on every finding it adds, and the process
+    /// exits 1 on any `.err` finding. Keep the two in step — a check whose
+    /// body reports `.err` while this says `.warn` makes `--list` lie.
     severity: report.Severity,
     run: *const fn (ctx: *Context) anyerror!void,
 };

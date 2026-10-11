@@ -47,12 +47,14 @@ command = "terminal-notifier -title Kimi -message 'Task done'"
 | `matcher` | `string` | 否 | 用正则表达式（一种字符串匹配语法）过滤事件目标；不填则匹配全部 |
 | `command` | `string` | 是 | 触发时要运行的 Shell 命令 |
 | `timeout` | `integer` | 否 | 超时秒数，范围 1–600；默认 30 秒 |
+| `cwd` | `string` | 否 | 该条规则命令的工作目录；默认使用当前会话的项目目录 |
+| `env` | `table<string,string>` | 否 | 该条规则的额外环境变量，合并覆盖继承来的环境 |
 
-`[[hooks]]` 只允许这四个字段，多写会导致配置文件加载失败。
+`[[hooks]]` 只允许这六个字段；字段拼错会导致配置文件加载失败，整个 `hooks` 数组会被丢弃，而不是被静默忽略。
 
-**同一事件匹配多条规则时**，所有命中的 hook 并行运行；`command` 完全相同的多条规则只运行一次。
+**同一事件匹配多条规则时**，所有命中的 hook 并行运行；`command` 与 `cwd` 都相同的多条规则只运行一次。
 
-Hook 命令的工作目录是当前会话的项目目录。
+Hook 命令的工作目录默认为当前会话的项目目录，除非该规则设置了 `cwd`。
 
 <details>
 <summary>进程组与超时处理</summary>

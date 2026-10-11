@@ -38,7 +38,6 @@ apps/kimi-code/src/utils/process/fd-detect.ts  1
 apps/kimi-code/src/utils/recommended-effort.ts  1
 apps/kimi-code/src/utils/startup-trace.ts  2
 apps/kimi-code/src/utils/terminal-restore.ts  2
-apps/kimi-inspect/src/activity/store.ts  1
 apps/kimi-inspect/src/activity/ws.ts  1
 apps/kimi-inspect/src/components/Sidebar.tsx  1
 apps/kimi-inspect/src/connection.tsx  1

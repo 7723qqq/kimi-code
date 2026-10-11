@@ -305,6 +305,22 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 | `experimental` | object | 实验开关 id → 是否启用 |
 | `telemetry` | boolean | 是否启用匿名遥测 |
 | `auto_session_title` | boolean | 是否允许客户端自动生成会话标题 |
+| `mcp` | object | MCP 服务器配置 |
+| `image` | object | 图像处理参数 |
+| `model_catalog` | object | 模型目录来源配置 |
+| `builtin_product_skills` | object | 内置产品技能开关 |
+| `extra_agent_dirs` | array | 额外的 agent 配置搜索目录 |
+| `read` | object | `Read` 工具的默认参数 |
+| `model_overrides` | object | 按模型覆盖的配置 |
+| `identity` | object | Agent 身份配置 |
+| `github` | object | GitHub 集成配置 |
+| `swarm` | object | Swarm 模式配置 |
+| `cron` | object | 定时任务配置 |
+| `token_counting` | object | Token 计算策略 |
+| `llm_requester` | object | LLM 请求器配置 |
+| `task` | object | 任务运行时配置 |
+| `database` | object | 持久化后端配置 |
+| `watch` | object | 文件监听 / 热加载配置 |
 | `raw` | object | 原始解析的 `config.toml` 内容，包含未建模字段 |
 
 #### `POST /api/v1/config`
@@ -337,7 +353,25 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 | `secondary_model` | body | object | subagent 的次级模型池 |
 | `experimental` | body | object | 实验开关 id → 是否启用 |
 | `telemetry` | body | boolean | 是否启用匿名遥测 |
+| `mcp` | body | object | MCP 服务器配置 |
+| `image` | body | object | 图像处理参数 |
+| `model_catalog` | body | object | 模型目录来源配置 |
+| `builtin_product_skills` | body | object | 内置产品技能开关 |
+| `extra_agent_dirs` | body | array | 额外的 agent 配置搜索目录 |
+| `read` | body | object | `Read` 工具的默认参数 |
+| `model_overrides` | body | object | 按模型覆盖的配置 |
+| `identity` | body | object | Agent 身份配置 |
+| `github` | body | object | GitHub 集成配置 |
+| `swarm` | body | object | Swarm 模式配置 |
+| `cron` | body | object | 定时任务配置 |
+| `token_counting` | body | object | Token 计算策略 |
+| `llm_requester` | body | object | LLM 请求器配置 |
+| `task` | body | object | 任务运行时配置 |
+| `database` | body | object | 持久化后端配置 |
+| `watch` | body | object | 文件监听 / 热加载配置 |
 | `auto_session_title` | body | boolean | 是否允许客户端自动生成会话标题 |
+
+上表的每个键都会被逐一枚举：未知的顶层键会以 `40001` 拒绝，而不是被静默丢弃，因此拼错的域名会被报出来，而不是返回成功。`GET /api/v1/config` 返回的每个域名（`raw` 除外）都能通过本端点写回。
 
 成功时 `data` 为完整的更新后配置，形态与 `GET /api/v1/config` 相同。
 

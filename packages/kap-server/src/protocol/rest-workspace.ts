@@ -12,7 +12,7 @@ export const listWorkspacesResponseSchema = z.object({
 });
 export type ListWorkspacesResponse = z.infer<typeof listWorkspacesResponseSchema>;
 
-export const createWorkspaceRequestSchema = workspaceCreateSchema;
+export const createWorkspaceRequestSchema = workspaceCreateSchema.strict();
 export type CreateWorkspaceRequest = z.infer<typeof createWorkspaceRequestSchema>;
 
 export const createWorkspaceResponseSchema = workspaceSchema;
@@ -23,7 +23,7 @@ export const workspaceIdParamSchema = z.object({
 });
 export type WorkspaceIdParam = z.infer<typeof workspaceIdParamSchema>;
 
-export const updateWorkspaceRequestSchema = workspaceUpdateSchema;
+export const updateWorkspaceRequestSchema = workspaceUpdateSchema.strict();
 export type UpdateWorkspaceRequest = z.infer<typeof updateWorkspaceRequestSchema>;
 
 export const updateWorkspaceResponseSchema = workspaceSchema;
@@ -42,7 +42,7 @@ export type WorkspaceTrustResponse = z.infer<typeof workspaceTrustResponseSchema
 export const addDirRequestSchema = z.object({
   path: z.string().min(1),
   persist: z.boolean().optional(),
-});
+}).strict();
 export type AddDirRequest = z.infer<typeof addDirRequestSchema>;
 
 export const addDirResponseSchema = z.object({

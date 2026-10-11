@@ -16,7 +16,7 @@ export const searchMessagesBodySchema = z.object({
   sort: z.enum(['score', 'time_desc', 'time_asc']).optional(),
   page_size: z.number().int().min(1).max(50).optional(),
   page_token: z.string().min(1).optional(),
-});
+}).strict();
 export type SearchMessagesBody = z.infer<typeof searchMessagesBodySchema>;
 
 export const searchMessageHitSchema = z.object({

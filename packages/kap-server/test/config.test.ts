@@ -14,7 +14,11 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest
 import { WebSocket } from 'ws';
 
 import { ErrorCode } from '../src/protocol/error-codes';
-import { configResponseSchema, type ConfigResponse } from '../src/protocol/rest-config';
+import {
+  configResponseSchema,
+  patchConfigRequestSchema,
+  type ConfigResponse,
+} from '../src/protocol/rest-config';
 import { startConfigChangedPublisher } from '../src/services/config/configChangedPublisher';
 import { type RunningServer, startServer } from '../src/start';
 import { authedFetch, bearerToken } from './helpers/auth';
@@ -107,6 +111,51 @@ describe('server-v2 /api/v1/config', () => {
     const after = await getConfig();
     expect(after.default_permission_mode).toBe('auto');
     expect(after.yolo).toBe(false);
+  });
+
+  it('rejects an unknown key instead of dropping it and reporting success', async () => {
+    await boot();
+    for (const typo of ['plna_mode', 'default_plna_mode', 'unknown_top_level']) {
+      const res = await authedFetch(server as RunningServer, base, '/api/v1/config', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ [typo]: true }),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Envelope<unknown>;
+      expect(body.code).toBe(ErrorCode.VALIDATION_FAILED);
+      expect(JSON.stringify(body)).toContain(typo);
+    }
+  });
+
+  it('accepts the pass-through domains the SDK exposes, and keeps them out of the way', async () => {
+    await boot();
+    const cfg = await patchConfig({ plan_mode: true, auto_session_title: false, telemetry: true });
+    expect(cfg.plan_mode).toBe(true);
+    expect(cfg.auto_session_title).toBe(false);
+    expect(cfg.telemetry).toBe(true);
+  });
+
+  it('accepts every config domain the engine resolves, so no resolvable key is unreachable by POST', async () => {
+    await boot('default_permission_mode = "auto"\n');
+    const config = (server as RunningServer).core.accessor.get(IConfigService);
+    const domains = Object.keys(config.getAll());
+    const writable = new Set(Object.keys(patchConfigRequestSchema.shape));
+    const unreachable = domains.filter(
+      (domain) => !writable.has(domain.replaceAll(/[A-Z]/g, (ch) => `_${ch.toLowerCase()}`)),
+    );
+    expect(
+      unreachable,
+      'a domain the engine resolves but POST /config has no schema key for is silently dropped instead of written',
+    ).toEqual([]);
+  });
+
+  it('reports the same domains on GET as it accepts on POST', async () => {
+    await boot('default_permission_mode = "auto"\n');
+    const reported = Object.keys(await getConfig());
+    const writable = new Set(Object.keys(patchConfigRequestSchema.shape));
+    const missing = reported.filter((key) => key !== 'raw' && !writable.has(key));
+    expect(missing, 'GET /config advertises domains POST /config cannot write').toEqual([]);
   });
 
   it('POST { auto_session_title: false } persists and GET echoes it', async () => {

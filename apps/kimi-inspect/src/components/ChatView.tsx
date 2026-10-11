@@ -325,6 +325,10 @@ function useTranscriptChannel(
           trail.recordEvent('ack-refresh', undefined, store.getState());
           catchUp();
         },
+        onSubscribeRejected: (reason) => {
+          trail.recordEvent('subscribe-rejected', reason, store.getState());
+          if (!disposed) setLoadError(new Error(reason));
+        },
       },
     });
     store.onGap = () => {

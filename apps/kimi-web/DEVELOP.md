@@ -38,7 +38,8 @@ The browser web UI for Kimi Code — a peer to the TUI in `apps/kimi-code`. It t
 - Locale files: `src/i18n/locales/{en,zh}/<namespace>.ts`, each `export default { ... } as const`. New namespaces are registered in `src/i18n/locales/index.ts`.
 - Reference with `const { t } = useI18n()` and `t('namespace.key')` (same form in templates).
 - **Adding a key:** add it to **both** `en/<ns>.ts` and `zh/<ns>.ts`. **Adding a namespace:** create the file in both locales **and** register it in `locales/index.ts`.
-- `scripts/check-locale-keys.mjs` **does** cover this app (en/zh key parity; CI runs it at `.github/workflows/ci.yml`). Alongside it, `scripts/check-locale-placeholders.cjs`, `scripts/check-t-call-coverage.mjs`, and `scripts/generate-locale-json.cjs` cover placeholder validity, call-site coverage, and JSON freshness. Keeping the two locales in sync is otherwise a manual responsibility — do not leave a key present in only one locale.
+- `scripts/check-locale-keys.mjs` **does** cover this app (en/zh key parity; CI runs it at `.github/workflows/ci.yml`) — `bun scripts/check-locale-keys.mjs` prints `✓ kimi-web: 796 keys match`. Keeping the two locales in sync is otherwise a manual responsibility — do not leave a key present in only one locale.
+  - Two root scripts named here previously do **not** cover this app, and a third does not exist: `scripts/check-locale-placeholders.cjs` skips `apps/kimi-web` (its `LOCALE_PAIRS` list omits it), `scripts/check-t-call-coverage.mjs` only scans `agent-core-v2`/`kap-server`/`klient` and `apps/kimi-code`, and `scripts/generate-locale-json.cjs` was removed when locale data moved in-memory. Placeholder and `t()`-key mistakes in this app are therefore caught by review, not by CI.
 
 ## Commands
 

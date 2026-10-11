@@ -165,12 +165,41 @@ function prominentMarker(headline: string, accentToken: ColorToken) {
   };
 }
 
+/**
+ * The engine's pause reasons are C3 (a value code branches on), not copy: they
+ * arrive as English sentences and are matched against `GoalPauseReason`. Map
+ * each stable constant to its own locale entry so a Chinese UI shows Chinese
+ * instead of interpolating the English sentence the engine produced.
+ */
+const PAUSE_REASON_KEYS: Readonly<Record<string, string>> = {
+  [GoalPauseReason.RATE_LIMIT]: 'pausedReasonRateLimit',
+  [GoalPauseReason.PROVIDER_CONNECTION]: 'pausedReasonProviderConnection',
+  [GoalPauseReason.PROVIDER_AUTH]: 'pausedReasonProviderAuth',
+  [GoalPauseReason.PROVIDER_API]: 'pausedReasonProviderApi',
+  [GoalPauseReason.MODEL_CONFIG]: 'pausedReasonModelConfig',
+  [GoalPauseReason.RUNTIME]: 'pausedReasonRuntime',
+  [GoalPauseReason.CONTINUATION_FAILURE]: 'pausedReasonContinuationFailure',
+  [GoalPauseReason.PROVIDER_FILTERED]: 'pausedReasonProviderFiltered',
+};
+
+function pauseReasonLabel(reason: string): string {
+  for (const [constant, key] of Object.entries(PAUSE_REASON_KEYS)) {
+    if (!reason.startsWith(constant)) continue;
+    // The engine appends detail after a colon (`<reason>: <detail>`). The
+    // reason itself is translated; the detail is provider text and rides along
+    // verbatim, so a diagnostic keeps the specifics it was carrying.
+    const detail = reason.slice(constant.length);
+    return `${t(`tui.messages.goalMarkers.${key}`)}${detail}`;
+  }
+  return lowercaseFirst(reason);
+}
+
 function pausedHeadline(reason: string | undefined, actor: GoalMarkerActor | undefined): string {
   if (reason === GoalPauseReason.INTERRUPTION)
     return t('tui.messages.goalMarkers.pausedInterruption');
   if (actor === 'user') return t('tui.messages.goalMarkers.pausedByUser');
   if (reason !== undefined && isGoalPauseReason(reason)) {
-    return t('tui.messages.goalMarkers.pausedWithLowerReason', { reason: lowercaseFirst(reason) });
+    return t('tui.messages.goalMarkers.pausedWithLowerReason', { reason: pauseReasonLabel(reason) });
   }
   if (reason !== undefined && reason.length > 0) {
     return t('tui.messages.goalMarkers.pausedWithReason', { reason });

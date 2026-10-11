@@ -186,6 +186,7 @@ function makeWs(handlers: Partial<ConstructorParameters<typeof TranscriptWs>[0][
     resets: [] as { agentId: string; hasMoreOlder: boolean; at?: string; seq?: number }[],
     resyncs: 0,
     reconnects: 0,
+    rejections: [] as string[],
   };
   const ws = new TranscriptWs({
     url: 'http://h:1',
@@ -209,6 +210,10 @@ function makeWs(handlers: Partial<ConstructorParameters<typeof TranscriptWs>[0][
       onReconnected: () => {
         seen.reconnects += 1;
         handlers.onReconnected?.();
+      },
+      onSubscribeRejected: (reason) => {
+        seen.rejections.push(reason);
+        handlers.onSubscribeRejected?.(reason);
       },
     },
   });
@@ -627,6 +632,65 @@ describe('TranscriptWs', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('reports a rejected subscribe_v2 ack instead of treating it as a reconnect', () => {
+    FakeWs.reset();
+    const { seen } = makeWs();
+    const sock = FakeWs.instances[0]!;
+    sock.open();
+    const subscribeV2Id = (sock.sentFrames()[1] as { id: string }).id;
+
+    sock.serverFrame({
+      type: 'ack',
+      id: subscribeV2Id,
+      code: 1,
+      msg: 'invalid subscribe_v2 payload',
+      payload: {},
+    });
+
+    expect(seen.reconnects).toBe(0);
+    expect(seen.rejections).toEqual([
+      'server rejected the transcript subscription: invalid subscribe_v2 payload',
+    ]);
+  });
+
+  it('reports a not_found ack (session not live) with the session id', () => {
+    FakeWs.reset();
+    const { seen } = makeWs();
+    const sock = FakeWs.instances[0]!;
+    sock.open();
+    const subscribeV2Id = (sock.sentFrames()[1] as { id: string }).id;
+
+    sock.serverFrame({
+      type: 'ack',
+      id: subscribeV2Id,
+      code: 0,
+      msg: 'success',
+      payload: { accepted: [], not_found: ['s1'], resync_required: [], cursors: {} },
+    });
+
+    expect(seen.reconnects).toBe(0);
+    expect(seen.rejections).toEqual(['session is not live on the server (not_found: s1)']);
+  });
+
+  it('still reports a successful ack as a reconnect', () => {
+    FakeWs.reset();
+    const { seen } = makeWs();
+    const sock = FakeWs.instances[0]!;
+    sock.open();
+    const subscribeV2Id = (sock.sentFrames()[1] as { id: string }).id;
+
+    sock.serverFrame({
+      type: 'ack',
+      id: subscribeV2Id,
+      code: 0,
+      msg: 'success',
+      payload: { accepted: ['s1'], not_found: [], resync_required: [], cursors: {} },
+    });
+
+    expect(seen.rejections).toEqual([]);
+    expect(seen.reconnects).toBe(1);
   });
 
   it('stays closed after close()', () => {

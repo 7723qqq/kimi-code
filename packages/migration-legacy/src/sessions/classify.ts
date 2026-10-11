@@ -34,9 +34,9 @@ export async function classifyLegacySession(ref: LegacySessionRef): Promise<Sess
   //             (truncated write, disk error). Route through `'real'` so the
   //             migration step can run, fail with a diagnostic reason, and
   //             surface it via `sessionsFailed` + `migration-errors.log` —
-  //             classify-level `'malformed'` would silently absorb it into
-  //             `sessionsSkippedMalformed`, which the result screen does not
-  //             render and the error log does not include.
+  //             classify-level `'malformed'` is reserved for unreadable
+  //             sources (no context file at all), which the step also routes
+  //             into `sessionsFailed` with a diagnostic reason.
   let contextText: string;
   try {
     contextText = await readFile(ref.contextPath, 'utf-8');
