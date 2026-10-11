@@ -141,3 +141,21 @@
 - 冲突文案改用专用键 `error.idTaken` / `error.aliasConflict`（en/zh 成对），CLI 与 TUI 共用。
 - 新增供应商前判重：TUI/CLI 在 `providers[id]` 已存在时拒绝写盘（此前 deepMerge 会静默覆盖同 id 的 type/baseUrl/apiKey）。
 - 删除死键 `tui.statusMessages.providerFormNoModels`；`stream`/`temperature`/`maxTokens`/`searchDisable` 的注释改为「纯函数层保住、落盘由引擎 section schema 决定」。
+
+## 提交与推送（2026-10-12）
+
+- 归档 tag：`archive/kimi-web-0.1.2` → `e0bceecd22`（删除前最后一版，**仅本地**，未推送；需要远端归档可 `git push origin archive/kimi-web-0.1.2`）。
+- 提交 1：`59ea339f09` `feat(provider): hand-fill provider add and edit in the TUI and CLI`（21 文件，+4415/−32；含 docs、changeset、本 spec）。
+- 提交 2：`eb83a0c707` `chore: remove the unused kimi-web app`（356 文件，+31/−84894；334 项删除 + 22 处引用清理）。
+- 已推送：`e0bceecd22..eb83a0c707 norust -> norust`；`git status -sb` = `## norust...origin/norust`（工作树干净）。
+- 待人工：① GitHub 分支保护里移除 `test-kimi-web`（若仍在必需检查列表）；② 真实 TUI 手工验收（`/provider` → 添加 → 手动 → 编辑 → 删除）尚未在真实终端执行；③ 归档 tag 是否推送远端。
+
+## 构建部署记录（2026-10-12）
+
+- **构建**：`cd apps/kimi-code && bun run build:native:bun:release`（exit 0，约 7s；`bun build --compile --target=bun-linux-x64`，产物 174.3 MB，staged 539 assets，checksum ok）。
+- **产物**：`apps/kimi-code/dist-native/bin/linux-x64/kimi`，sha256 `c684fb55369b02baf3628892c48a95946cd9b3c848c1dc7707a10fbfb72a0cb6`。
+- **部署**（`CONTRIBUTING.md` 的本地 `.kimi-code` 路径，非 `dist/` 拷贝）：
+  - 备份：`~/.kimi-code/bin/kimi.bak-20261012-070620`（旧版 sha256 `0e0e714e3c76d8e51b8e90ee52343f62e0c9c03169494bc8b3f4029c6ee9cc2d`）
+  - 替换：`cp` 到 `kimi-new` 再 `mv`（规避 Text file busy）
+- **部署后校验**：`which kimi` → `/home/administrator/.kimi-code/bin/kimi`；`kimi --version` → 2.1.1；部署后哈希与构建产物一致；`kimi provider --help` 列出 `create` / `update`（本次新增）。
+- 说明：`dist-native/` 在 `.gitignore` 内，构建不污染工作树；二进制仍报 2.1.1（fork 策略：版本号与上游保持一致）。
