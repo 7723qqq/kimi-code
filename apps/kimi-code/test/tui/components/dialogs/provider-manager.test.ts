@@ -2,6 +2,7 @@ import type { ProviderConfig } from '@moonshot-ai/kimi-code-sdk';
 import chalk from 'chalk';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
+import { t } from '#/i18n';
 import {
   ProviderManagerComponent,
   type ProviderManagerOptions,
@@ -25,6 +26,7 @@ function makeComponent(overrides: Partial<ProviderManagerOptions> = {}): Provide
   return new ProviderManagerComponent({
     providers: {} as Record<string, ProviderConfig>,
     onAdd: vi.fn(),
+    onEdit: vi.fn(),
     onDeleteSource: vi.fn(),
     onClose: vi.fn(),
     ...overrides,
@@ -133,5 +135,54 @@ describe('ProviderManagerComponent', () => {
     });
     component.handleInput(ESC);
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('edits the highlighted provider via the E key', () => {
+    const onEdit = vi.fn();
+    const component = makeComponent({
+      providers: {
+        acme: { baseUrl: 'https://acme.test' },
+      } as unknown as Record<string, ProviderConfig>,
+      activeProviderId: 'acme',
+      onEdit,
+    });
+
+    component.handleInput('E');
+
+    expect(onEdit).toHaveBeenCalledWith('acme');
+  });
+
+  it('edits the first provider of a grouped registry source row', () => {
+    const onEdit = vi.fn();
+    const component = makeComponent({
+      providers: {
+        alpha: {
+          baseUrl: 'https://reg.test',
+          source: { kind: 'apiJson', url: 'https://reg.test/api.json', apiKey: '' },
+        },
+        beta: {
+          baseUrl: 'https://reg.test',
+          source: { kind: 'apiJson', url: 'https://reg.test/api.json', apiKey: '' },
+        },
+      } as unknown as Record<string, ProviderConfig>,
+      onEdit,
+    });
+
+    component.handleInput('E');
+
+    expect(onEdit).toHaveBeenCalledWith('alpha');
+  });
+
+  it('ignores E on the [ Add New Platform ] row and lists the key in the hint', () => {
+    const onEdit = vi.fn();
+    const component = makeComponent({ onEdit });
+
+    component.handleInput('E');
+    expect(onEdit).not.toHaveBeenCalled();
+
+    const hint = t('tui.dialogs.providerManager.headerHint');
+    expect(hint).toContain('E edit');
+    const lines = component.render(120).map((line) => line.replaceAll(SGR, ''));
+    expect(lines[2]).toContain(hint);
   });
 });

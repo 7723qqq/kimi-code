@@ -378,7 +378,7 @@ Manage providers in the shell — the non-interactive equivalent of `/provider` 
 kimi provider <action> [options]
 ```
 
-Five actions are available:
+Seven actions are available:
 
 #### `kimi provider add <url>`
 
@@ -417,6 +417,56 @@ Print each configured provider on a separate line, including type, model count, 
 kimi provider list
 kimi provider list --json | jq '.providers | keys'
 ```
+
+#### `kimi provider create`
+
+Add one provider and one model by hand — the shell form of `/provider` → add → manual entry. Every field comes from the options, so a missing required one ends the command with an error instead of guessing a value, and the configuration file is not written. The same fields in the TUI are described under [Providers and models](../configuration/providers.md).
+
+| Parameter / Option | Description |
+| --- | --- |
+| `--id <id>` | Provider ID: must start with a letter or number, and may only contain letters, numbers, spaces, hyphens and underscores. Required |
+| `--type <wire>` | API protocol, one of `kimi`, `openai`, `openai_responses`, `anthropic`, `google-genai`, `vertexai`. Required |
+| `--api-key <key>` | Provider API key, written to `api_key`. Required |
+| `--base-url <url>` | Provider endpoint, written to `base_url`. Required |
+| `--model <model>` | Model ID; the alias is written as `<id>/<model>`. Required |
+| `--max-context-size <tokens>` | Context window of that model, a positive integer. Required |
+| `--display-name <name>` | Human-readable name for the model; optional |
+| `--default` | Optional — also set `default_model` to `<id>/<model>` |
+| `--json` | Optional — print the resulting `providers` and `models` tables as JSON, with API keys stripped |
+
+```sh
+kimi provider create \
+  --id demo \
+  --type openai \
+  --api-key YOUR_API_KEY \
+  --base-url https://api.example.com/v1 \
+  --model gpt-4.1 \
+  --max-context-size 128000
+```
+
+#### `kimi provider update <providerId>`
+
+Change an existing provider. A field you do not pass keeps its stored value, and `--model` adds or overwrites a single model row, where an existing row keeps the context size and display name you leave out. Renaming removes the old provider first and then writes the new record, so the old model aliases and any dangling default pointers go away with it, while `default_model` / `default_provider` that pointed at this provider move to the new id.
+
+| Parameter / Option | Description |
+| --- | --- |
+| `<providerId>` | Provider id to change |
+| `--new-id <id>` | Rename the provider to this id |
+| `--type <wire>` | New API protocol; omitted, the stored one is kept — including types outside the six values, such as the engine-only `astron` |
+| `--api-key <key>` | New API key; omitted, the stored credential is kept. There is no flag to clear it |
+| `--base-url <url>` | New endpoint; omitted, the stored value is kept |
+| `--model <model>` | Add or overwrite one model row; a new model ID needs `--max-context-size` |
+| `--max-context-size <tokens>` | Context window, used together with `--model` |
+| `--display-name <name>` | Display name, used together with `--model` |
+| `--default` | Set `default_model` to this run's model (the first row when `--model` is omitted) |
+| `--json` | Output the resulting configuration as JSON, with API keys stripped |
+
+```sh
+kimi provider update demo --new-id demo2 --base-url https://api2.example.com/v1
+kimi provider update demo2 --model gpt-4.1-mini --max-context-size 128000 --default
+```
+
+Both commands end with status 1, print the reason and leave the configuration untouched when a field is rejected, when the new id is already taken, or when a new alias would take over another provider's model.
 
 #### `kimi provider catalog list [providerId]`
 

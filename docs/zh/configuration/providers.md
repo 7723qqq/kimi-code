@@ -21,17 +21,18 @@ Kimi Code CLI 支持同时接入多家模型供应商服务，模型在供应商
 
 ## `/provider` — 交互式供应商管理
 
-不想手动编辑 TOML？在 TUI 里输入 `/provider` 打开**供应商管理器**，可以以交互方式添加或删除供应商。
+不想手动编辑 TOML？在 TUI 里输入 `/provider` 打开**供应商管理器**，可以以交互方式添加、编辑或删除供应商。
 
 ![/provider 供应商管理器](../../media/provider-manager.jpg)
 
 管理器按来源把供应商显示为一行行条目。操作方式：
 
 - ↑/↓ 移动光标，←/→ 翻页
+- `E` 键编辑当前供应商，改名也在表单里完成
 - `d` 键删除当前供应商（有 `[y/N]` 确认）
 - 在 `[ Add New Platform ]` 行按 Enter 添加新供应商
 
-添加时有两条路径：
+添加时有两条导入路径（第三条是手动填写，见下一节）：
 
 - **Known third-party provider**：从 [models.dev](https://models.dev/) 拉取模型目录，选供应商 → 输入 API 密钥 → 选默认模型。目录未声明协议类型的供应商（如 xai、openrouter 这类厂商专用 SDK）会按 OpenAI 兼容协议导入并显示 "guessed" 提示；目录没有可用端点时会先弹出 base URL 输入框；Amazon Bedrock / Cohere 等专有协议和无法识别的显式协议会被拒绝导入。已下线（deprecated）和 alpha 状态的模型不会出现在导入列表中。如果公共目录不可达，CLI 会回退到内置目录快照，离线或网络受限环境下也能完成导入
 - **Custom registry (api.json)**：粘贴自定义 registry 地址，私有 registry 再附上 Bearer token，CLI 自动创建 `providers` / `models` 条目。当 registry 条目声明了 `env` 字段（存放 API 密钥的环境变量名）时，CLI 会把它作为提示打印出来——想用就在 `config.toml` 里自己设置 `api_key_env`。绑定永远不会自动发生：registry 既决定变量名、又决定凭证发往的端点，不能由它来选择读取你的哪份密钥。对私有 registry，Bearer token 本身仍会存为 `source.apiKey`，供刷新时重新拉取。后续启动时，同一个 registry 地址下的供应商会一起刷新，因此上游新增、删除供应商以及模型元数据变化都会同步。
@@ -41,6 +42,97 @@ Kimi Code CLI 支持同时接入多家模型供应商服务，模型在供应商
 :::
 
 非交互环境下也可以用 shell 命令完成同样操作：[`kimi provider`](../reference/kimi-command.md#kimi-provider)。
+
+## 用 `/provider` 手动添加 / 编辑供应商
+
+上面两条导入路径都依赖目录或 registry。第三条路是在表单里直接填字段：内网网关、自建推理服务这类不在 [models.dev](https://models.dev/) 目录里的端点，用这条路径最省事，也不依赖网络。
+
+在 `/provider` 管理器里把光标移到 `[ 添加新平台 ]` 行按 Enter，选「手动填写供应商信息」。表单字段与官方 Web 端一致：
+
+| 字段 | 说明 |
+| --- | --- |
+| 供应商 ID | 写入 `[providers.<id>]` 的键名。必须以字母或数字开头，只能包含字母、数字、空格、连字符和下划线 |
+| API 协议 | 六种类型之一：`kimi`、`openai`、`openai_responses`、`anthropic`、`google-genai`、`vertexai`，取值见[支持的供应商类型](#支持的供应商类型) |
+| API 密钥 | 添加时必填，写入 `api_key`。编辑已有供应商时该字段预填已存密钥，清空它表示删除已存凭据（落盘为 `api_key = ""`） |
+| 基础 URL | 写入 `base_url`，不能为空；协议切到 `anthropic` 时会自动去掉结尾的 `/v1` |
+| 模型 | 至少一行。每行三个字段：模型 ID（即 `[models."<id>/<model>"]` 的别名）、上下文长度（正整数，写入 `max_context_size`）、显示名称（可选，写入 `display_name`） |
+
+表单的键位与交互：
+
+- `Tab` / `Shift-Tab` / `↑` / `↓` 在 供应商 ID → API 协议 → API 密钥 → 基础 URL → 模型 → 保存 之间移动焦点，`Enter` 进入下一项（在模型区表示编辑选中的行，在「保存」上表示提交）
+- 在「API 协议」上按 `←` / `→` 或空格，在六种类型之间循环
+- 在模型区按 `A` 追加一行、`D` 删除选中的行（只剩一行时不可删）、`E` 或 `Enter` 进入行编辑（模型 ID → 上下文长度 → 显示名称，最后一个字段按 `Enter` 写回，按 `Esc` 放弃本行修改）
+- API 密钥默认掩码显示，`Ctrl-R` 切换明文
+- `Esc` 取消表单，不写盘
+
+校验与 CLI 共用同一套规则：供应商 ID 非法、添加时缺少密钥、基础 URL 为空、没有任何模型行、上下文长度不是正整数、两行模型 ID 重复，都会在表单内显示提示、保留已填内容，并且不写入配置文件。
+
+保存后一次写入 `[providers.<id>]` 与该供应商的每个模型别名，随后刷新运行环境，并弹出与目录导入同一个默认模型选择器（按 `Esc` 跳过则供应商已保存、默认模型不变）。新建的模型别名带 `capabilities = [ "tool_use", "thinking" ]` 和 `adaptive_thinking = true`；显示名称留空时不写 `display_name`。
+
+**编辑与改名**：在管理器列表里把光标移到目标供应商行、按 `E`，表单以上一次保存的配置预填（含 API 密钥）。保存时**先删除旧记录、再写入新记录**——这正是改名与删行不留残渣的原因：旧模型别名、悬空的 `default_model` / `default_provider` 在删除时被级联清理，而指向该供应商的默认指针在写入时迁移到新 id。表单之外的字段（`env`、`custom_headers`、`source`，以及模型行上的 `max_output_size`、`capabilities`、`support_efforts` 等）保持原值；改名不会重写 [`[secondary_model]`](./config-files.md#secondary_model) 里的引用。
+
+新的供应商 ID 已被别的供应商占用，或新别名会覆盖别的供应商的模型时，写入会被拒绝并给出提示，配置文件保持不变。表单只认六种协议：存储类型不在这六种之内的供应商（例如引擎内部的 `astron`）会提示协议不受支持，无法在这里编辑。
+
+`oauth` 非空的供应商（Kimi Code 托管账号）表单整体只读，页脚提示「该供应商由 Kimi Code 托管，无法在此编辑」，请改用 `/login` 与 `/logout` 管理。
+
+## 用 `kimi provider create/update` 添加与修改供应商
+
+同一条路径的 shell 版本：`kimi provider create` 手填新增，`kimi provider update` 修改已有供应商。两者与上面的表单共用同一套字段规则、校验和写盘逻辑，因此报错与退出码一致：任何一项校验失败（或 id、别名冲突）都以退出码 1 结束，配置文件不变。
+
+`create` 的全部选项：
+
+| 选项 | 说明 |
+| --- | --- |
+| `--id <id>` | 供应商 ID，规则与表单相同 |
+| `--type <wire>` | API 协议，六种取值之一：`kimi`、`openai`、`openai_responses`、`anthropic`、`google-genai`、`vertexai` |
+| `--api-key <key>` | 凭据，写入 `api_key` |
+| `--base-url <url>` | 端点地址，写入 `base_url` |
+| `--model <model>` | 模型 ID，别名写成 `<id>/<model>` |
+| `--max-context-size <tokens>` | 该模型的上下文窗口，正整数，写入 `max_context_size` |
+| `--display-name <name>` | 可选，模型的显示名称 |
+| `--default` | 可选，同时把 `default_model` 设为 `<id>/<model>` |
+| `--json` | 可选，以 JSON 输出写入后的 `providers` 与 `models`，其中已去掉 API 密钥明文 |
+
+这里没有「留空就用默认值」的选项：`--api-key`、`--base-url`、`--model`、`--max-context-size` 都必须显式给出，缺任何一项都会报错退出——不会替你猜一个端点或上下文预算。
+
+```sh
+kimi provider create \
+  --id demo \
+  --type openai \
+  --api-key YOUR_API_KEY \
+  --base-url https://api.example.com/v1 \
+  --model gpt-4.1 \
+  --max-context-size 128000
+```
+
+成功时打印 `已添加供应商"demo"。`，并列出该供应商的模型别名。`create` 默认不设置默认模型，需要时加 `--default`，或之后在 TUI 里用 `/model` 选择。
+
+`update <providerId>` 的选项：
+
+| 选项 | 说明 |
+| --- | --- |
+| `<providerId>` | 位置参数，要修改的供应商 id |
+| `--new-id <id>` | 改名 |
+| `--type <wire>` | 换协议；不给时沿用当前值 |
+| `--api-key <key>` | 换密钥；不给时沿用已存密钥（没有清空密钥的选项） |
+| `--base-url <url>` | 换端点；不给时沿用当前值 |
+| `--model <model>` | 新增或覆盖一行模型：同名行沿用未给的上下文长度与显示名称，新模型 ID 则需要 `--max-context-size` |
+| `--max-context-size <tokens>` | 配合 `--model` 使用 |
+| `--display-name <name>` | 配合 `--model` 使用；不给时沿用该行原值 |
+| `--default` | 把 `default_model` 指向本次的模型（未给 `--model` 时是第一条） |
+| `--json` | 以 JSON 输出写入后的配置，其中已去掉 API 密钥明文 |
+
+**没给的字段保持原值**，只有 `--model` 会改动模型集合。改名与删行走同一条写盘路径：先删除旧 id（级联清掉旧模型别名与悬空的默认指针），再写入新记录；`default_model` / `default_provider` 指向该供应商时迁移到新 id，表单之外的字段（`env`、`custom_headers`、`source`、`max_output_size` 等）原样保留。
+
+```sh
+# 改名并换端点，其余字段保持原值
+kimi provider update demo --new-id demo2 --base-url https://api2.example.com/v1
+
+# 追加（或更新）一行模型，并设为默认模型
+kimi provider update demo2 --model gpt-4.1-mini --max-context-size 128000 --default
+```
+
+> `--type` 只接受上面六种取值；不给 `--type` 时，已存储的类型原样保留，包括引擎独有的 `astron`。
 
 ## `kimi`
 

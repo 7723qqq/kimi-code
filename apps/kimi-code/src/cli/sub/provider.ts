@@ -10,6 +10,11 @@
  * (apps/kimi-code/src/tui/utils/refresh-providers.ts) groups by URL, retries
  * available API-key candidates, and re-fetches the model list, so periodic
  * refresh is automatic.
+ *
+ * `create` / `update` are the non-interactive twin of the TUI's manual
+ * provider form: both build the same form value and hand it to the shared
+ * `utils/provider-form.ts` module, so the CLI and the TUI validate and write
+ * a hand-typed provider identically.
  */
 
 import {
@@ -29,8 +34,18 @@ import {
 import type { Command } from 'commander';
 
 import { createKimiCodeHostIdentity, createKimiCodeUserAgent } from '#/cli/version';
-import { t } from '#/i18n';
+import { t, type TranslationKey } from '#/i18n';
 import { fetchCatalogOrBuiltIn } from '#/utils/catalog-fetch';
+import {
+  buildAddPatch,
+  planEditWrite,
+  PROVIDER_WIRE_TYPES,
+  validateProviderForm,
+  type ProviderFormError,
+  type ProviderFormModelRow,
+  type ProviderFormValue,
+  type ProviderWireType,
+} from '#/utils/provider-form';
 
 interface WritableLike {
   write(chunk: string): boolean;
@@ -63,6 +78,28 @@ interface CatalogAddOptions {
   readonly defaultModel?: string;
   readonly url?: string;
   readonly baseUrl?: string;
+}
+
+interface CreateOptions {
+  readonly id?: string;
+  readonly type?: string;
+  readonly apiKey?: string;
+  readonly baseUrl?: string;
+  readonly model?: string;
+  readonly maxContextSize?: string;
+  readonly displayName?: string;
+  readonly default?: boolean;
+  readonly json?: boolean;
+}
+
+interface UpdateOptions extends CreateOptions {
+  readonly newId?: string;
+}
+
+/** A validated form value plus the model row a caller's `--default` refers to. */
+interface ProviderFormInput {
+  readonly value: ProviderFormValue;
+  readonly model: string;
 }
 
 export async function handleProviderAdd(
@@ -134,6 +171,243 @@ export async function handleProviderRemove(deps: ProviderDeps, providerId: strin
   }
   await harness.removeProvider(providerId);
   deps.stdout.write(t('tui.statusMessages.providerRemoved', { id: providerId }) + '\n');
+}
+
+/**
+ * Adds a provider and one model row typed on the command line. Everything the
+ * flags carry goes through the shared form module, so a rejection here reads
+ * exactly like the TUI form's inline error and the config stays untouched.
+ */
+export async function handleProviderCreate(deps: ProviderDeps, opts: CreateOptions): Promise<void> {
+  const input = createFormInput(deps, opts);
+
+  const harness = deps.getHarness();
+  await harness.ensureConfigFile();
+  const providerId = input.value.id.trim();
+  // `setConfig` merges, so writing an id that already exists would silently
+  // rewrite that provider instead of adding a new one.
+  const current = await harness.getConfig();
+  if (current.providers[providerId] !== undefined) {
+    deps.stderr.write(refusalMessage('idTaken', [providerId]) + '\n');
+    deps.exit(1);
+  }
+  const patch = buildAddPatch(input.value);
+  if (opts.default === true) {
+    patch.defaultModel = `${providerId}/${input.model}`;
+  }
+  await harness.setConfig(patch);
+
+  reportProviderWrite(
+    deps,
+    await harness.getConfig(),
+    providerId,
+    'tui.statusMessages.providerFormAdded',
+    opts.json === true,
+  );
+}
+
+/**
+ * Updates a provider in place: fields the flags omit keep their stored value
+ * and `--model` upserts one row into the existing set. The write mirrors the
+ * TUI edit path — remove first (it cascades the old aliases and any dangling
+ * default pointers), then apply the planned patch.
+ */
+export async function handleProviderUpdate(
+  deps: ProviderDeps,
+  providerId: string,
+  opts: UpdateOptions,
+): Promise<void> {
+  const harness = deps.getHarness();
+  await harness.ensureConfigFile();
+  const current = await harness.getConfig();
+  const previous = current.providers[providerId];
+  if (previous === undefined) {
+    deps.stderr.write(t('tui.statusMessages.providerNotFound', { id: providerId }) + '\n');
+    deps.exit(1);
+  }
+
+  const input = updateFormInput(deps, opts, providerId, current, previous);
+  const plan = planEditWrite(current, input.value, providerId, {
+    // An explicitly empty `--api-key ''` clears the stored credential; an
+    // omitted flag keeps it.
+    clearApiKey: opts.apiKey !== undefined && opts.apiKey.trim() === '',
+  });
+  if (plan.providerIdTaken || plan.collisions.length > 0) {
+    const keys = plan.providerIdTaken
+      ? [input.value.id.trim(), ...plan.collisions]
+      : plan.collisions;
+    deps.stderr.write(
+      refusalMessage(plan.providerIdTaken ? 'idTaken' : 'aliasConflict', keys) + '\n',
+    );
+    deps.exit(1);
+  }
+
+  const patch = plan.patch;
+  if (opts.default === true) {
+    patch.defaultModel = `${input.value.id.trim()}/${input.model}`;
+  }
+  await harness.removeProvider(plan.removeProviderId);
+  await harness.setConfig(patch);
+
+  reportProviderWrite(
+    deps,
+    await harness.getConfig(),
+    input.value.id.trim(),
+    'tui.statusMessages.providerFormUpdated',
+    opts.json === true,
+  );
+}
+
+/**
+ * The submission result of both manual commands: the provider id with its
+ * model aliases, sanitized the way `provider list --json` strips secrets.
+ */
+function reportProviderWrite(
+  deps: ProviderDeps,
+  config: KimiConfig,
+  providerId: string,
+  messageKey: TranslationKey,
+  json: boolean,
+): void {
+  if (json) {
+    deps.stdout.write(
+      `${JSON.stringify(
+        {
+          providers: sanitizeProvidersForOutput(config.providers),
+          models: config.models ?? {},
+        },
+        null,
+        2,
+      )}\n`,
+    );
+    return;
+  }
+  deps.stdout.write(t(messageKey, { id: providerId }) + '\n');
+  for (const [alias, model] of Object.entries(config.models ?? {})) {
+    if (model.provider === providerId) deps.stdout.write(`  - ${alias}\n`);
+  }
+}
+
+/** One locale key per `validateProviderForm` code, shared with the TUI form. */
+const PROVIDER_FORM_ERROR_KEYS: Record<ProviderFormError, TranslationKey> = {
+  idRequired: 'tui.dialogs.providerForm.error.idRequired',
+  idInvalid: 'tui.dialogs.providerForm.error.idInvalid',
+  apiKeyRequired: 'tui.dialogs.providerForm.error.apiKeyRequired',
+  baseUrlRequired: 'tui.dialogs.providerForm.error.baseUrlRequired',
+  modelRequired: 'tui.dialogs.providerForm.error.modelRequired',
+  contextSizeRequired: 'tui.dialogs.providerForm.error.contextSizeRequired',
+  contextSizeInvalid: 'tui.dialogs.providerForm.error.contextSizeInvalid',
+  modelDuplicate: 'tui.dialogs.providerForm.error.modelDuplicate',
+};
+
+function rejectProviderForm(deps: ProviderDeps, error: ProviderFormError): never {
+  deps.stderr.write(t(PROVIDER_FORM_ERROR_KEYS[error]) + '\n');
+  deps.exit(1);
+}
+
+/** Write-guard refusals: form-level, but not `ProviderFormError` codes. */
+const PROVIDER_WRITE_REFUSAL_KEYS = {
+  idTaken: 'tui.dialogs.providerForm.error.idTaken',
+  aliasConflict: 'tui.dialogs.providerForm.error.aliasConflict',
+} as const;
+
+/** The localized reason followed by the keys it collided with, e.g. `… (demo2)`. */
+function refusalMessage(
+  code: keyof typeof PROVIDER_WRITE_REFUSAL_KEYS,
+  keys: readonly string[],
+): string {
+  return `${t(PROVIDER_WRITE_REFUSAL_KEYS[code])} (${keys.join(', ')})`;
+}
+
+/**
+ * `--type` must name one of the six wire types the form offers. No key exists
+ * for the rejection itself, so the option description — which enumerates the
+ * accepted values — is what the user reads.
+ */
+function resolveWireType(deps: ProviderDeps, raw: string | undefined): ProviderWireType {
+  const wireType = PROVIDER_WIRE_TYPES.find((candidate) => candidate === raw);
+  if (wireType === undefined) {
+    deps.stderr.write(t('cli.optionDescriptions.providerCreateType') + '\n');
+    deps.exit(1);
+  }
+  return wireType;
+}
+
+function createFormInput(deps: ProviderDeps, opts: CreateOptions): ProviderFormInput {
+  const row: ProviderFormModelRow = {
+    model: opts.model ?? '',
+    maxContextSize: opts.maxContextSize ?? '',
+    displayName: opts.displayName ?? '',
+  };
+  const value: ProviderFormValue = {
+    id: opts.id ?? '',
+    type: resolveWireType(deps, opts.type),
+    apiKey: opts.apiKey ?? '',
+    baseUrl: opts.baseUrl ?? '',
+    models: [row],
+  };
+  // A new provider authenticates with its own key, so `--api-key` is required.
+  const error = validateProviderForm(value, { requireApiKey: true });
+  if (error !== null) rejectProviderForm(deps, error);
+  return { value, model: row.model.trim() };
+}
+
+function updateFormInput(
+  deps: ProviderDeps,
+  opts: UpdateOptions,
+  providerId: string,
+  current: KimiConfig,
+  previous: NonNullable<KimiConfig['providers'][string]>,
+): ProviderFormInput {
+  const renamedId = (opts.newId ?? '').trim();
+  const rows = providerModelRows(current, providerId);
+
+  const requestedModel = (opts.model ?? '').trim();
+  let models = rows;
+  if (opts.model !== undefined) {
+    // Upsert: an existing row keeps the budget and name the flags omit, a new
+    // model id needs `--max-context-size` like `create` does.
+    const existing = rows.find((row) => row.model.trim() === requestedModel);
+    models = [
+      ...rows.filter((row) => row.model.trim() !== requestedModel),
+      {
+        model: opts.model,
+        maxContextSize: opts.maxContextSize ?? existing?.maxContextSize ?? '',
+        displayName: opts.displayName ?? existing?.displayName ?? '',
+      },
+    ];
+  }
+
+  const value: ProviderFormValue = {
+    id: renamedId === '' ? providerId : renamedId,
+    // `astron` is an engine-only type outside the six form values; it survives
+    // an untouched `--type` unchanged because the patch is built from the
+    // stored provider object.
+    type:
+      opts.type === undefined
+        ? (previous.type as ProviderWireType)
+        : resolveWireType(deps, opts.type),
+    apiKey: opts.apiKey ?? '',
+    baseUrl: opts.baseUrl ?? previous.baseUrl ?? '',
+    models,
+  };
+  // Edit mode: a blank key means "keep the stored credential".
+  const error = validateProviderForm(value, { requireApiKey: false });
+  if (error !== null) rejectProviderForm(deps, error);
+  return { value, model: requestedModel === '' ? (models[0]?.model.trim() ?? '') : requestedModel };
+}
+
+function providerModelRows(current: KimiConfig, providerId: string): ProviderFormModelRow[] {
+  const rows: ProviderFormModelRow[] = [];
+  for (const alias of Object.values(current.models ?? {})) {
+    if (alias.provider !== providerId) continue;
+    rows.push({
+      model: alias.model,
+      maxContextSize: String(alias.maxContextSize),
+      displayName: alias.displayName ?? '',
+    });
+  }
+  return rows;
 }
 
 export async function handleProviderList(deps: ProviderDeps, opts: ListOptions): Promise<void> {
@@ -505,6 +779,40 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
   const catalog = provider
     .command('catalog')
     .description(t('cli.commandDescriptions.providerCatalog'));
+
+  provider
+    .command('create')
+    .description(t('cli.commandDescriptions.providerCreate'))
+    .option('--id <id>', t('tui.dialogs.providerForm.idLabel'))
+    .option('--type <wire>', t('cli.optionDescriptions.providerCreateType'))
+    .option('--api-key <key>', t('cli.optionDescriptions.providerCreateApiKey'))
+    .option('--base-url <url>', t('cli.optionDescriptions.providerCreateBaseUrl'))
+    .option('--model <model>', t('cli.optionDescriptions.providerCreateModel'))
+    .option('--max-context-size <tokens>', t('cli.optionDescriptions.providerCreateMaxContextSize'))
+    .option('--display-name <name>', t('cli.optionDescriptions.providerCreateDisplayName'))
+    .option('--default', t('cli.optionDescriptions.providerCreateDefault'), false)
+    .option('--json', t('cli.optionDescriptions.providerListJson'), false)
+    .action(async (options: CreateOptions) => {
+      const resolved = resolveDeps(deps);
+      await runAction(resolved, () => handleProviderCreate(resolved, options));
+    });
+
+  provider
+    .command('update <providerId>')
+    .description(t('cli.commandDescriptions.providerUpdate'))
+    .option('--new-id <id>', t('cli.optionDescriptions.providerCreateNewId'))
+    .option('--type <wire>', t('cli.optionDescriptions.providerCreateType'))
+    .option('--api-key <key>', t('cli.optionDescriptions.providerCreateApiKey'))
+    .option('--base-url <url>', t('cli.optionDescriptions.providerCreateBaseUrl'))
+    .option('--model <model>', t('cli.optionDescriptions.providerCreateModel'))
+    .option('--max-context-size <tokens>', t('cli.optionDescriptions.providerCreateMaxContextSize'))
+    .option('--display-name <name>', t('cli.optionDescriptions.providerCreateDisplayName'))
+    .option('--default', t('cli.optionDescriptions.providerCreateDefault'), false)
+    .option('--json', t('cli.optionDescriptions.providerListJson'), false)
+    .action(async (providerId: string, options: UpdateOptions) => {
+      const resolved = resolveDeps(deps);
+      await runAction(resolved, () => handleProviderUpdate(resolved, providerId, options));
+    });
 
   catalog
     .command('list [providerId]')

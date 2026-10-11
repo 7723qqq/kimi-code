@@ -8,12 +8,21 @@ import {
   resolveCatalogImport,
   SECONDARY_DERIVED_MODEL_ALIAS,
   type Catalog,
+  type KimiConfig,
   type ThinkingEffort,
 } from '@moonshot-ai/kimi-code-sdk';
 
 import { createKimiCodeUserAgent } from '#/cli/version';
 import { t } from '#/i18n';
 import { fetchCatalogOrBuiltIn } from '#/utils/catalog-fetch';
+import {
+  buildAddPatch,
+  planEditWrite,
+  PROVIDER_WIRE_TYPES,
+  type PlanEditWriteResult,
+  type ProviderFormModelRow,
+  type ProviderFormValue,
+} from '#/utils/provider-form';
 import { refreshKimiRegion } from '#/utils/region';
 
 import { ChoicePickerComponent } from '../components/dialogs/choice-picker';
@@ -22,6 +31,10 @@ import {
   type CustomRegistryImportResult,
   type CustomRegistryImportValue,
 } from '../components/dialogs/custom-registry-import';
+import {
+  ProviderFormDialogComponent,
+  type ProviderFormDialogOptions,
+} from '../components/dialogs/provider-form-dialog';
 import {
   ProviderManagerComponent,
   type ProviderManagerOptions,
@@ -52,6 +65,13 @@ function buildProviderManagerOptions(host: SlashCommandHost): ProviderManagerOpt
     onAdd: () => {
       void handleProviderAdd(host).catch((error: unknown) => {
         host.showError(t('tui.commands.provider.addFailed', { error: formatErrorMessage(error) }));
+      });
+    },
+    onEdit: (providerId) => {
+      void handleProviderEdit(host, providerId).catch((error: unknown) => {
+        host.showError(
+          t('tui.statusMessages.providerFormFailed', { error: formatErrorMessage(error) }),
+        );
       });
     },
     onDeleteSource: (providerIds) => {
@@ -116,7 +136,10 @@ async function handleProviderAdd(host: SlashCommandHost): Promise<void> {
     await handleCatalogProviderAdd(host);
     return;
   }
-  const handled = await handleCustomRegistryAddViaDialog(host);
+  const handled =
+    source === 'manual'
+      ? await handleManualProviderAdd(host)
+      : await handleCustomRegistryAddViaDialog(host);
   if (!handled) {
     reopenProviderManager(host);
   }
@@ -128,17 +151,20 @@ function reopenProviderManager(host: SlashCommandHost): void {
   host.mountEditorReplacement(component);
 }
 
-function promptProviderAddSource(host: SlashCommandHost): Promise<'known' | 'custom' | undefined> {
+function promptProviderAddSource(
+  host: SlashCommandHost,
+): Promise<'known' | 'custom' | 'manual' | undefined> {
   return new Promise((resolve) => {
     const picker = new ChoicePickerComponent({
       title: t('tui.commands.provider.addTitle'),
       options: [
         { value: 'known', label: t('tui.statusMessages.knownThirdPartyProvider') },
         { value: 'custom', label: t('tui.statusMessages.customRegistryOption') },
+        { value: 'manual', label: t('tui.statusMessages.manualProviderOption') },
       ],
       onSelect: (value) => {
         host.restoreEditor();
-        resolve(value === 'known' || value === 'custom' ? value : undefined);
+        resolve(value === 'known' || value === 'custom' || value === 'manual' ? value : undefined);
       },
       onCancel: () => {
         host.restoreEditor();
@@ -398,23 +424,34 @@ async function handleCustomRegistryAddViaDialog(host: SlashCommandHost): Promise
     );
   }
 
-  // Offer the model selector so the user can pick a default, just like the
-  // catalog (known-provider) flow. Copy without the v1-synthesized
-  // `__secondary__` derived entry — never selectable in a picker.
+  await mountProviderModelSelector(host, addedProviderIds);
+  return true;
+}
+
+/**
+ * End every add flow with the model selector so the user can pick the new
+ * provider's default model. Copy without the v1-synthesized `__secondary__`
+ * derived entry — never selectable in a picker. The initial tab is the first
+ * new provider's own tab, falling back to the first id when the refreshed
+ * config carried no alias for it yet.
+ */
+async function mountProviderModelSelector(
+  host: SlashCommandHost,
+  providerIds: readonly string[],
+): Promise<void> {
   const stateModels = { ...(await host.harness.getConfig().then((c) => c.models ?? {})) };
   delete stateModels[SECONDARY_DERIVED_MODEL_ALIAS];
-  const firstNewAlias = Object.keys(stateModels).find((a) =>
-    addedProviderIds.some((pid) => a.startsWith(`${pid}/`)),
+  const firstNewAlias = Object.keys(stateModels).find((alias) =>
+    providerIds.some((providerId) => alias.startsWith(`${providerId}/`)),
   );
-  const firstNewProvider = firstNewAlias
-    ? stateModels[firstNewAlias]?.provider
-    : addedProviderIds[0];
+  const firstNewProvider =
+    firstNewAlias === undefined ? undefined : stateModels[firstNewAlias]?.provider;
   const selector = new TabbedModelSelectorComponent({
     models: stateModels,
     currentValue: host.state.appState.model,
     selectedValue: firstNewAlias,
     currentThinkingEffort: host.state.appState.thinkingEffort,
-    initialTabId: firstNewProvider,
+    initialTabId: firstNewProvider ?? providerIds[0],
     onSelect: ({ alias, thinking }) => {
       host.restoreEditor();
       void setDefaultModel(host, alias, thinking).catch((error: unknown) => {
@@ -428,7 +465,162 @@ async function handleCustomRegistryAddViaDialog(host: SlashCommandHost): Promise
     },
   });
   host.mountEditorReplacement(selector);
+}
+
+/**
+ * Manual entry (`/provider` → add → manual): persist the hand-filled provider
+ * plus its aliases in one `setConfig`, refresh the runtime, then offer the same
+ * default-model selector the catalog / registry paths end with. Returns false
+ * when the user cancelled, the id is taken, or the write failed, so the caller
+ * restores the list.
+ */
+async function handleManualProviderAdd(host: SlashCommandHost): Promise<boolean> {
+  const value = await promptProviderForm(host, { mode: 'add' });
+  if (value === undefined) return false;
+
+  // `setConfig` merges, so writing an id that already exists would silently
+  // rewrite that provider's fields instead of adding a new one.
+  const id = value.id.trim();
+  const current = await host.harness.getConfig();
+  if (current.providers[id] !== undefined) {
+    host.showError(
+      t('tui.statusMessages.providerFormFailed', { error: refusalMessage('idTaken', [id]) }),
+    );
+    return false;
+  }
+
+  try {
+    await host.harness.setConfig(buildAddPatch(value));
+    await host.authFlow.refreshConfigAfterLogin();
+  } catch (error) {
+    host.showError(
+      t('tui.statusMessages.providerFormFailed', { error: formatErrorMessage(error) }),
+    );
+    return false;
+  }
+
+  host.track('connect', { provider: id, method: 'manual' });
+  host.showStatus(t('tui.statusMessages.providerFormAdded', { id }), 'success');
+  await mountProviderModelSelector(host, [id]);
   return true;
+}
+
+/**
+ * Edit an existing provider from the `/provider` list (`E`). The form is
+ * prefilled from the live config (API key included, so blanking it out is an
+ * explicit clear) and the write is `removeProvider(previousId)` followed by the
+ * patch — the v1-compatible pairing the catalog / registry paths use, because
+ * only the removal drops the aliases a rename leaves behind. A write that would
+ * take over another provider's id or aliases is refused instead of applied.
+ */
+async function handleProviderEdit(host: SlashCommandHost, providerId: string): Promise<void> {
+  const config = await host.harness.getConfig();
+  const provider = config.providers[providerId];
+  if (provider === undefined) {
+    // The list snapshot is stale (the provider is already gone): re-render.
+    reopenProviderManager(host);
+    return;
+  }
+  const type = PROVIDER_WIRE_TYPES.find((wire) => wire === provider.type);
+  if (type === undefined) {
+    // The form only knows the six wire types and would rewrite the record's
+    // type to its first entry; refuse rather than silently change it.
+    host.showError(
+      t('tui.commands.provider.unsupportedProtocol', { id: providerId, type: provider.type }),
+    );
+    reopenProviderManager(host);
+    return;
+  }
+
+  const value = await promptProviderForm(host, {
+    mode: 'edit',
+    provider: {
+      id: providerId,
+      type,
+      apiKey: provider.apiKey,
+      baseUrl: provider.baseUrl,
+      models: providerFormRows(config, providerId),
+      oauth: provider.oauth,
+    },
+  });
+  if (value === undefined) {
+    reopenProviderManager(host);
+    return;
+  }
+
+  const plan = planEditWrite(config, value, providerId, {
+    // A stored credential the user blanked out means "clear it"; a provider
+    // that never had one keeps the key out of the written record.
+    clearApiKey: provider.apiKey !== undefined && value.apiKey.trim() === '',
+  });
+  if (plan.providerIdTaken || plan.collisions.length > 0) {
+    host.showError(
+      t('tui.statusMessages.providerFormFailed', {
+        error: refusalMessage(
+          plan.providerIdTaken ? 'idTaken' : 'aliasConflict',
+          conflictingKeys(plan, value.id.trim()),
+        ),
+      }),
+    );
+    reopenProviderManager(host);
+    return;
+  }
+
+  await host.harness.removeProvider(plan.removeProviderId);
+  await host.harness.setConfig(plan.patch);
+  await host.authFlow.refreshConfigAfterLogin();
+  host.showStatus(t('tui.statusMessages.providerFormUpdated', { id: value.id.trim() }), 'success');
+  reopenProviderManager(host);
+}
+
+/**
+ * The keys the refused write would have taken over, for the error text: the new
+ * provider id when another provider already uses it, plus every alias key that
+ * still belongs to someone else. Formatted like `demo2, demo2/gpt-4.1`.
+ */
+function conflictingKeys(plan: PlanEditWriteResult, newId: string): string[] {
+  return plan.providerIdTaken ? [newId, ...plan.collisions] : plan.collisions;
+}
+
+/** Write-guard refusals: form-level, but not `ProviderFormError` codes. */
+const PROVIDER_WRITE_REFUSAL_KEYS = {
+  idTaken: 'tui.dialogs.providerForm.error.idTaken',
+  aliasConflict: 'tui.dialogs.providerForm.error.aliasConflict',
+} as const;
+
+/** The localized reason followed by the keys it collided with, e.g. `… (demo2)`. */
+function refusalMessage(
+  code: keyof typeof PROVIDER_WRITE_REFUSAL_KEYS,
+  keys: readonly string[],
+): string {
+  return `${t(PROVIDER_WRITE_REFUSAL_KEYS[code])} (${keys.join(', ')})`;
+}
+
+/** Edit-mode prefill: one row per alias whose `provider` points at the id. */
+function providerFormRows(config: KimiConfig, providerId: string): ProviderFormModelRow[] {
+  const rows: ProviderFormModelRow[] = [];
+  for (const alias of Object.values(config.models ?? {})) {
+    if (alias.provider !== providerId) continue;
+    rows.push({
+      model: alias.model,
+      maxContextSize: String(alias.maxContextSize),
+      displayName: alias.displayName ?? '',
+    });
+  }
+  return rows;
+}
+
+function promptProviderForm(
+  host: SlashCommandHost,
+  options: ProviderFormDialogOptions,
+): Promise<ProviderFormValue | undefined> {
+  return new Promise((resolve) => {
+    const dialog = new ProviderFormDialogComponent((result) => {
+      host.restoreEditor();
+      resolve(result.kind === 'ok' ? result.value : undefined);
+    }, options);
+    host.mountEditorReplacement(dialog);
+  });
 }
 
 function promptCustomRegistryImport(

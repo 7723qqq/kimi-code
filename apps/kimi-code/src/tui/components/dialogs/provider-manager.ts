@@ -14,6 +14,10 @@
  *   - ↑ / ↓             move highlight
  *   - ← / → · PgUp/PgDn page
  *   - Enter             on `[ Add New Platform ]` → `onAdd()`
+ *   - E                 edit on a source row → `onEdit(providerId)` with the
+ *                         row's first provider id (a registry group edits its
+ *                         first provider)
+ *                         on `[ Add New Platform ]` → ignored
  *   - D                 delete with inline `[y/N]` confirmation
  *                         on a source row → `onDeleteSource(providerIds)`
  *                         on `[ Add New Platform ]` → ignored
@@ -62,6 +66,9 @@ export interface ProviderManagerOptions {
   /** Provider id of the currently active model. */
   readonly activeProviderId?: string;
   readonly onAdd: () => void;
+  /** Edit one provider (`E` on its row). Grouped source rows pass their first
+   *  provider id — the form edits a single provider record. */
+  readonly onEdit: (providerId: string) => void;
   /** Delete all providers under a source (Open Platform / custom-registry
    *  fetch / standalone). Passed the full provider-id list so the host
    *  doesn't have to re-derive the source grouping. */
@@ -317,11 +324,23 @@ export class ProviderManagerComponent extends Container implements Focusable {
       return;
     }
 
-    // Delete the highlighted provider with the D key.
+    // Delete / edit the highlighted provider with the D / E keys.
     const ch = printableChar(data);
     if (ch === 'd' || ch === 'D') {
       this.armDeleteConfirm();
+      return;
     }
+    if (ch === 'e' || ch === 'E') {
+      this.armEdit();
+    }
+  }
+
+  private armEdit(): void {
+    const selected = this.rows[this.selectedIndex];
+    if (selected === undefined || selected.kind === 'add') return;
+    const providerId = selected.providerIds[0];
+    if (providerId === undefined) return;
+    this.opts.onEdit(providerId);
   }
 
   private armDeleteConfirm(): void {

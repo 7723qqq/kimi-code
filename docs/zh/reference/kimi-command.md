@@ -378,7 +378,7 @@ kimi vis --host 0.0.0.0 --port 8123 --no-open
 kimi provider <action> [options]
 ```
 
-包含五个动作：
+包含七个动作：
 
 #### `kimi provider add <url>`
 
@@ -417,6 +417,56 @@ kimi provider remove kohub
 kimi provider list
 kimi provider list --json | jq '.providers | keys'
 ```
+
+#### `kimi provider create`
+
+手工新增一个供应商及其一个模型——相当于 TUI 里「`/provider` → 添加 → 手动填写」。所有字段都来自选项，缺任何一个必填项都会以错误结束，不会替你猜值，也不写配置文件。TUI 里对应的字段说明见[平台与模型](../configuration/providers.md)。
+
+| 参数 / 选项 | 说明 |
+| --- | --- |
+| `--id <id>` | 供应商 ID：必须以字母或数字开头，只能包含字母、数字、空格、连字符和下划线。必填 |
+| `--type <wire>` | API 协议，六种取值之一：`kimi`、`openai`、`openai_responses`、`anthropic`、`google-genai`、`vertexai`。必填 |
+| `--api-key <key>` | 供应商 API key，写入 `api_key`。必填 |
+| `--base-url <url>` | 供应商端点，写入 `base_url`。必填 |
+| `--model <model>` | 模型 ID，别名写成 `<id>/<model>`。必填 |
+| `--max-context-size <tokens>` | 该模型的上下文窗口，正整数。必填 |
+| `--display-name <name>` | 模型的显示名称，可选 |
+| `--default` | 可选，同时把 `default_model` 设为 `<id>/<model>` |
+| `--json` | 可选，以 JSON 输出写入后的 `providers` 与 `models`，已去掉 API 密钥明文 |
+
+```sh
+kimi provider create \
+  --id demo \
+  --type openai \
+  --api-key YOUR_API_KEY \
+  --base-url https://api.example.com/v1 \
+  --model gpt-4.1 \
+  --max-context-size 128000
+```
+
+#### `kimi provider update <providerId>`
+
+修改已有供应商。未给的字段保持原值；`--model` 新增或覆盖一行模型，同名行沿用未给的上下文长度与显示名称。改名会先删除旧供应商、再写入新记录，因此旧的模型别名与悬空的默认指针随之消失，而指向该供应商的 `default_model` / `default_provider` 迁移到新 id。
+
+| 参数 / 选项 | 说明 |
+| --- | --- |
+| `<providerId>` | 要修改的供应商 id |
+| `--new-id <id>` | 改名为该 id |
+| `--type <wire>` | 新的 API 协议；不给时沿用已存储的类型，包括六种取值之外的引擎类型（如 `astron`） |
+| `--api-key <key>` | 新 API key；不给时沿用已存密钥，没有清空密钥的选项 |
+| `--base-url <url>` | 新端点；不给时沿用已存储的值 |
+| `--model <model>` | 新增或覆盖一行模型；新模型 ID 需要 `--max-context-size` |
+| `--max-context-size <tokens>` | 上下文窗口，配合 `--model` 使用 |
+| `--display-name <name>` | 显示名称，配合 `--model` 使用 |
+| `--default` | 把 `default_model` 设为本次的模型（未给 `--model` 时是第一条） |
+| `--json` | 以 JSON 输出写入后的配置，已去掉 API 密钥明文 |
+
+```sh
+kimi provider update demo --new-id demo2 --base-url https://api2.example.com/v1
+kimi provider update demo2 --model gpt-4.1-mini --max-context-size 128000 --default
+```
+
+两个命令在校验失败、新 id 已被占用、或新别名会覆盖别的供应商的模型时，都以退出码 1 结束并打印原因，配置文件保持不变。
 
 #### `kimi provider catalog list [providerId]`
 

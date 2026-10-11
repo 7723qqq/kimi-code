@@ -4,7 +4,7 @@
  * config storage; upstream HTTP responses are stubbed.
  */
 
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -20,11 +20,15 @@ import {
   handleCatalogAdd,
   handleCatalogList,
   handleProviderAdd,
+  handleProviderCreate,
   handleProviderList,
   handleProviderRemove,
+  handleProviderUpdate,
   registerProviderCommand,
   type ProviderDeps,
 } from '#/cli/sub/provider';
+import { t } from '#/i18n';
+import { buildAddPatch, planEditWrite, type ProviderFormValue } from '#/utils/provider-form';
 
 // Spy on the SDK harness factory so the default-deps construction can be
 // asserted without booting a real engine. The real implementations stay in
@@ -293,7 +297,7 @@ describe('kimi provider add', () => {
       }),
     );
 
-    const finalConfig = (await current());
+    const finalConfig = await current();
     expect(Object.keys(finalConfig.providers).toSorted()).toEqual(['kohub', 'kohub-responses']);
     const kohub = finalConfig.providers['kohub']!;
     expect(kohub.type).toBe('anthropic');
@@ -395,7 +399,7 @@ describe('kimi provider add', () => {
     await tryRun(() => handleProviderAdd(deps, REGISTRY_URL, {}));
 
     expect(exitCodes).toEqual([1]);
-    expect((await current())).toMatchObject(initial);
+    expect(await current()).toMatchObject(initial);
   });
 
   it('exits 1 when the registry fetch fails with an HTTP error', async () => {
@@ -583,7 +587,10 @@ describe('registerProviderCommand', () => {
         headers: expect.objectContaining({ Authorization: 'Bearer sk-cli' }),
       }),
     );
-    expect(Object.keys((await current()).providers).toSorted()).toEqual(['kohub', 'kohub-responses']);
+    expect(Object.keys((await current()).providers).toSorted()).toEqual([
+      'kohub',
+      'kohub-responses',
+    ]);
     expect(stdout.join('')).toContain('Imported 2 providers');
   });
 
@@ -1153,5 +1160,529 @@ describe('kimi provider engine routing', () => {
     await program.parseAsync(['node', 'kimi', 'provider', 'list'], { from: 'node' });
 
     expect(harnessRouting.kimiHarnessConstructor).toHaveBeenCalledTimes(1);
+  });
+});
+
+const CREATE_FLAGS = {
+  id: 'demo',
+  type: 'openai',
+  apiKey: 'sk-x',
+  baseUrl: 'https://api.example.com/v1',
+  model: 'gpt-4.1',
+  maxContextSize: '128000',
+};
+
+/** The form value `CREATE_FLAGS` must produce, in the shared module's shape. */
+function demoFormValue(overrides: Partial<ProviderFormValue> = {}): ProviderFormValue {
+  return {
+    id: 'demo',
+    type: 'openai',
+    apiKey: 'sk-x',
+    baseUrl: 'https://api.example.com/v1',
+    models: [{ model: 'gpt-4.1', maxContextSize: '128000', displayName: '' }],
+    ...overrides,
+  };
+}
+
+/** A config whose demo provider carries fields the flags never touch. */
+function makeRenameInitial(): KimiConfig {
+  return {
+    providers: {
+      demo: {
+        type: 'openai',
+        apiKey: 'sk-x',
+        baseUrl: 'https://api.example.com/v1',
+        customHeaders: { 'x-tenant': 'acme' },
+      },
+      other: { type: 'anthropic', baseUrl: 'https://other.example.com' },
+    },
+    models: {
+      'demo/gpt-4.1': {
+        provider: 'demo',
+        model: 'gpt-4.1',
+        maxContextSize: 128_000,
+        displayName: 'GPT 4.1',
+        capabilities: ['tool_use'],
+        maxOutputSize: 8192,
+      },
+      'other/claude': { provider: 'other', model: 'claude', maxContextSize: 200_000 },
+    },
+    defaultModel: 'demo/gpt-4.1',
+    defaultProvider: 'demo',
+  } as unknown as KimiConfig;
+}
+
+describe('kimi provider create', () => {
+  it('writes [providers.demo] and [models."demo/gpt-4.1"] under a temporary home', async () => {
+    const { harness, current } = await makeRegistryHarness({ providers: {} } as KimiConfig);
+    const { deps, stdout, stderr, exitCodes } = makeDeps(harness);
+
+    await tryRun(() => handleProviderCreate(deps, { ...CREATE_FLAGS }));
+
+    expect(exitCodes).toEqual([]);
+    expect(stderr.join('')).toBe('');
+    const config = await current();
+    expect(config.providers['demo']).toMatchObject({
+      type: 'openai',
+      baseUrl: 'https://api.example.com/v1',
+      apiKey: 'sk-x',
+    });
+    expect(config.models?.['demo/gpt-4.1']).toMatchObject({
+      provider: 'demo',
+      model: 'gpt-4.1',
+      maxContextSize: 128_000,
+      capabilities: ['tool_use', 'thinking'],
+      adaptiveThinking: true,
+    });
+    expect(config.defaultModel).toBeUndefined();
+
+    const toml = await readFile(join(harness.homeDir, 'config.toml'), 'utf8');
+    expect(toml).toContain('[providers.demo]');
+    expect(toml).toContain('[models."demo/gpt-4.1"]');
+
+    const output = stdout.join('');
+    expect(output).toContain('Provider "demo" added.');
+    expect(output).toContain('  - demo/gpt-4.1');
+    expect(output).not.toContain('sk-x');
+  });
+
+  it('writes exactly the patch buildAddPatch produces for the same form value', async () => {
+    const { harness, current, setConfigCalls } = makeHarness({ providers: {} } as KimiConfig);
+    const { deps, exitCodes } = makeDeps(harness);
+
+    await tryRun(() => handleProviderCreate(deps, { ...CREATE_FLAGS, default: true }));
+
+    expect(exitCodes).toEqual([]);
+    expect(setConfigCalls).toEqual([
+      { ...buildAddPatch(demoFormValue()), defaultModel: 'demo/gpt-4.1' },
+    ]);
+    expect(current().defaultModel).toBe('demo/gpt-4.1');
+  });
+
+  it('leaves default_model alone unless --default is passed', async () => {
+    const { harness, current } = makeHarness({ providers: {} } as KimiConfig);
+    const { deps, exitCodes } = makeDeps(harness);
+
+    await tryRun(() => handleProviderCreate(deps, { ...CREATE_FLAGS }));
+
+    expect(exitCodes).toEqual([]);
+    expect(current().defaultModel).toBeUndefined();
+  });
+
+  it('emits a parseable, sanitized config over --json', async () => {
+    const { harness } = makeHarness({ providers: {} } as KimiConfig);
+    const { deps, stdout, exitCodes } = makeDeps(harness);
+
+    await tryRun(() => handleProviderCreate(deps, { ...CREATE_FLAGS, json: true }));
+
+    expect(exitCodes).toEqual([]);
+    expect(stdout.join('')).not.toContain('sk-x');
+    const parsed = JSON.parse(stdout.join('')) as {
+      providers: Record<string, Record<string, unknown>>;
+      models: Record<string, unknown>;
+    };
+    expect(parsed.providers['demo']?.['apiKey']).toBeUndefined();
+    expect(parsed.providers['demo']?.['type']).toBe('openai');
+    expect(Object.keys(parsed.models)).toEqual(['demo/gpt-4.1']);
+  });
+
+  it('exits 1 without writing when --type is not one of the six wire types', async () => {
+    const { harness, current, setConfigCalls } = makeHarness({ providers: {} } as KimiConfig);
+    const { deps, stderr, exitCodes } = makeDeps(harness);
+
+    await tryRun(() => handleProviderCreate(deps, { ...CREATE_FLAGS, type: 'nope' }));
+
+    expect(exitCodes).toEqual([1]);
+    expect(stderr.join('')).toContain('openai_responses');
+    expect(setConfigCalls).toEqual([]);
+    expect(current().providers).toEqual({});
+    expect(current().models).toBeUndefined();
+  });
+
+  it('exits 1 without writing when --model is missing', async () => {
+    const { harness, current, setConfigCalls } = makeHarness({ providers: {} } as KimiConfig);
+    const { deps, stderr, exitCodes } = makeDeps(harness);
+
+    const { model: _omitted, ...withoutModel } = CREATE_FLAGS;
+    await tryRun(() => handleProviderCreate(deps, withoutModel));
+
+    expect(exitCodes).toEqual([1]);
+    expect(stderr.join('')).toContain('At least one model is required.');
+    expect(setConfigCalls).toEqual([]);
+    expect(current().providers).toEqual({});
+  });
+
+  it('exits 1 without writing when --max-context-size is missing', async () => {
+    const { harness, current, setConfigCalls } = makeHarness({ providers: {} } as KimiConfig);
+    const { deps, stderr, exitCodes } = makeDeps(harness);
+
+    const { maxContextSize: _omitted, ...withoutContext } = CREATE_FLAGS;
+    await tryRun(() => handleProviderCreate(deps, withoutContext));
+
+    expect(exitCodes).toEqual([1]);
+    expect(stderr.join('')).toContain('Context size is required.');
+    expect(setConfigCalls).toEqual([]);
+    expect(current().providers).toEqual({});
+  });
+
+  it('exits 1 without writing on a context size the shared rules reject', async () => {
+    const { harness, setConfigCalls } = makeHarness({ providers: {} } as KimiConfig);
+    const { deps, stderr, exitCodes } = makeDeps(harness);
+
+    await tryRun(() => handleProviderCreate(deps, { ...CREATE_FLAGS, maxContextSize: '0' }));
+
+    expect(exitCodes).toEqual([1]);
+    expect(stderr.join('')).toContain('Context size must be a positive integer.');
+    expect(setConfigCalls).toEqual([]);
+  });
+
+  it('refuses an id that already exists instead of merging over it', async () => {
+    const { harness, current, setConfigCalls } = makeHarness(makeRenameInitial());
+    const { deps, stderr, exitCodes } = makeDeps(harness);
+
+    await tryRun(() => handleProviderCreate(deps, { ...CREATE_FLAGS }));
+
+    expect(exitCodes).toEqual([1]);
+    const err = stderr.join('');
+    expect(err).toContain(t('tui.dialogs.providerForm.error.idTaken'));
+    expect(err).toContain('demo');
+    expect(setConfigCalls).toEqual([]);
+    // The stored provider keeps every field the flags would have overwritten.
+    expect(current().providers['demo']?.['apiKey']).toBe('sk-x');
+    expect(current().providers['demo']?.['baseUrl']).toBe('https://api.example.com/v1');
+    expect(current().providers['demo']?.['customHeaders']).toEqual({ 'x-tenant': 'acme' });
+    expect(current().models?.['demo/gpt-4.1']?.['maxOutputSize']).toBe(8192);
+  });
+});
+
+describe('kimi provider update', () => {
+  it('renames under a temporary home: old key gone, alias prefix migrated, fields kept', async () => {
+    const { harness, current } = await makeRegistryHarness(makeRenameInitial());
+    const { deps, stdout, stderr, exitCodes } = makeDeps(harness);
+
+    await tryRun(() =>
+      handleProviderUpdate(deps, 'demo', {
+        newId: 'demo2',
+        baseUrl: 'https://api2.example.com/v1',
+      }),
+    );
+
+    expect(exitCodes).toEqual([]);
+    expect(stderr.join('')).toBe('');
+    const config = await current();
+    expect(config.providers['demo']).toBeUndefined();
+    expect(config.providers['demo2']).toMatchObject({
+      type: 'openai',
+      baseUrl: 'https://api2.example.com/v1',
+      apiKey: 'sk-x',
+      customHeaders: { 'x-tenant': 'acme' },
+    });
+    expect(config.models?.['demo/gpt-4.1']).toBeUndefined();
+    expect(config.models?.['demo2/gpt-4.1']).toMatchObject({
+      provider: 'demo2',
+      model: 'gpt-4.1',
+      maxContextSize: 128_000,
+      displayName: 'GPT 4.1',
+      capabilities: ['tool_use'],
+      maxOutputSize: 8192,
+    });
+    expect(config.models?.['other/claude']).toBeDefined();
+    expect(config.providers['other']).toMatchObject({ type: 'anthropic' });
+    expect(config.defaultModel).toBe('demo2/gpt-4.1');
+
+    const toml = await readFile(join(harness.homeDir, 'config.toml'), 'utf8');
+    expect(toml).not.toContain('"demo/gpt-4.1"');
+    expect(toml).toContain('"demo2/gpt-4.1"');
+    expect(stdout.join('')).toContain('Provider "demo2" updated.');
+  });
+
+  it('writes exactly the planEditWrite patch, after removing the old provider', async () => {
+    const initial = makeRenameInitial();
+    const { harness, current, setConfigCalls, removeCalls } = makeHarness(initial);
+    const { deps, exitCodes } = makeDeps(harness);
+
+    await tryRun(() =>
+      handleProviderUpdate(deps, 'demo', {
+        newId: 'demo2',
+        baseUrl: 'https://api2.example.com/v1',
+      }),
+    );
+
+    const expectedValue: ProviderFormValue = {
+      id: 'demo2',
+      type: 'openai',
+      apiKey: '',
+      baseUrl: 'https://api2.example.com/v1',
+      models: [{ model: 'gpt-4.1', maxContextSize: '128000', displayName: 'GPT 4.1' }],
+    };
+    const plan = planEditWrite(initial, expectedValue, 'demo');
+    expect(plan.providerIdTaken).toBe(false);
+    expect(plan.collisions).toEqual([]);
+    expect(exitCodes).toEqual([]);
+    expect(removeCalls).toEqual(['demo']);
+    expect(setConfigCalls).toEqual([plan.patch]);
+    expect(current().providers['demo2']?.['apiKey']).toBe('sk-x');
+    expect(current().models?.['demo2/gpt-4.1']).toBeDefined();
+    expect(current().defaultProvider).toBe('demo2');
+  });
+
+  it('keeps the stored api key when --api-key is omitted and replaces it when given', async () => {
+    const { harness, current } = makeHarness(makeRenameInitial());
+    const { deps, exitCodes } = makeDeps(harness);
+
+    await tryRun(() =>
+      handleProviderUpdate(deps, 'demo', { baseUrl: 'https://api3.example.com/v1' }),
+    );
+    expect(exitCodes).toEqual([]);
+    expect(current().providers['demo']?.['apiKey']).toBe('sk-x');
+    expect(current().providers['demo']?.['baseUrl']).toBe('https://api3.example.com/v1');
+    // The fake harness replaces whole sections on `setConfig`; that an update
+    // leaves another provider's aliases alone is asserted against the real
+    // harness in the temporary-home rename case above.
+    expect(current().models?.['demo/gpt-4.1']).toBeDefined();
+
+    await tryRun(() => handleProviderUpdate(deps, 'demo', { apiKey: 'sk-y' }));
+    expect(current().providers['demo']?.['apiKey']).toBe('sk-y');
+  });
+
+  it("clears the stored api key when --api-key '' is passed", async () => {
+    const { harness, current, setConfigCalls } = makeHarness(makeRenameInitial());
+    const { deps, exitCodes } = makeDeps(harness);
+
+    await tryRun(() => handleProviderUpdate(deps, 'demo', { apiKey: '' }));
+
+    expect(exitCodes).toEqual([]);
+    expect(current().providers['demo']?.['apiKey']).toBe('');
+    // Every field the flags do not name keeps its stored value.
+    expect(current().providers['demo']?.['baseUrl']).toBe('https://api.example.com/v1');
+    expect(current().providers['demo']?.['customHeaders']).toEqual({ 'x-tenant': 'acme' });
+    expect(current().models?.['demo/gpt-4.1']?.['maxOutputSize']).toBe(8192);
+    const patch = setConfigCalls.at(-1);
+    expect(patch?.providers?.['demo']?.['apiKey']).toBe('');
+  });
+
+  it('upserts the --model row and keeps the rows it does not name', async () => {
+    const { harness, current } = makeHarness(makeRenameInitial());
+    const { deps, exitCodes } = makeDeps(harness);
+
+    await tryRun(() =>
+      handleProviderUpdate(deps, 'demo', {
+        model: 'gpt-4.2',
+        maxContextSize: '64000',
+        displayName: 'GPT 4.2',
+      }),
+    );
+
+    expect(exitCodes).toEqual([]);
+    expect(current().models?.['demo/gpt-4.2']).toMatchObject({
+      provider: 'demo',
+      model: 'gpt-4.2',
+      maxContextSize: 64_000,
+      displayName: 'GPT 4.2',
+      capabilities: ['tool_use', 'thinking'],
+      adaptiveThinking: true,
+    });
+    expect(current().models?.['demo/gpt-4.1']).toMatchObject({ displayName: 'GPT 4.1' });
+  });
+
+  it('inherits the stored context size and name when --model names an existing row', async () => {
+    const { harness, current } = makeHarness(makeRenameInitial());
+    const { deps, exitCodes } = makeDeps(harness);
+
+    await tryRun(() => handleProviderUpdate(deps, 'demo', { model: 'gpt-4.1' }));
+
+    expect(exitCodes).toEqual([]);
+    expect(current().models?.['demo/gpt-4.1']).toMatchObject({
+      maxContextSize: 128_000,
+      displayName: 'GPT 4.1',
+    });
+  });
+
+  it('points default_model at the renamed alias when --default is passed', async () => {
+    const { harness, current } = makeHarness(makeRenameInitial());
+    const { deps, exitCodes } = makeDeps(harness);
+
+    await tryRun(() =>
+      handleProviderUpdate(deps, 'demo', { newId: 'demo2', default: true, model: 'gpt-4.1' }),
+    );
+
+    expect(exitCodes).toEqual([]);
+    expect(current().defaultModel).toBe('demo2/gpt-4.1');
+  });
+
+  it('emits a parseable, sanitized config over --json', async () => {
+    const { harness } = makeHarness(makeRenameInitial());
+    const { deps, stdout, exitCodes } = makeDeps(harness);
+
+    await tryRun(() => handleProviderUpdate(deps, 'demo', { newId: 'demo2', json: true }));
+
+    expect(exitCodes).toEqual([]);
+    expect(stdout.join('')).not.toContain('sk-x');
+    const parsed = JSON.parse(stdout.join('')) as {
+      providers: Record<string, Record<string, unknown>>;
+      models: Record<string, unknown>;
+    };
+    expect(parsed.providers['demo']).toBeUndefined();
+    expect(parsed.providers['demo2']?.['apiKey']).toBeUndefined();
+    expect(Object.keys(parsed.models)).toContain('demo2/gpt-4.1');
+  });
+
+  it('exits 1 without writing when the provider does not exist', async () => {
+    const { harness, setConfigCalls, removeCalls } = makeHarness(makeRenameInitial());
+    const { deps, stderr, exitCodes } = makeDeps(harness);
+
+    await tryRun(() => handleProviderUpdate(deps, 'nope', { baseUrl: 'https://x.example.com' }));
+
+    expect(exitCodes).toEqual([1]);
+    expect(stderr.join('')).toContain('Provider "nope" not found.');
+    expect(setConfigCalls).toEqual([]);
+    expect(removeCalls).toEqual([]);
+  });
+
+  it('refuses a rename onto a provider id another provider uses', async () => {
+    const { harness, current, setConfigCalls, removeCalls } = makeHarness(makeRenameInitial());
+    const { deps, stderr, exitCodes } = makeDeps(harness);
+
+    await tryRun(() => handleProviderUpdate(deps, 'demo', { newId: 'other' }));
+
+    expect(exitCodes).toEqual([1]);
+    expect(stderr.join('')).toContain(t('tui.dialogs.providerForm.error.idTaken'));
+    expect(stderr.join('')).toContain('other');
+    expect(setConfigCalls).toEqual([]);
+    expect(removeCalls).toEqual([]);
+    expect(current().providers['demo']).toBeDefined();
+    expect(current().providers['other']).toBeDefined();
+  });
+
+  it('refuses a rename onto an alias another provider owns', async () => {
+    const initial = makeRenameInitial();
+    initial.models = {
+      ...initial.models,
+      'demo2/gpt-4.1': { provider: 'other', model: 'gpt-4.1', maxContextSize: 4096 },
+    };
+    const { harness, current, setConfigCalls, removeCalls } = makeHarness(initial);
+    const { deps, stderr, exitCodes } = makeDeps(harness);
+
+    await tryRun(() => handleProviderUpdate(deps, 'demo', { newId: 'demo2' }));
+
+    expect(exitCodes).toEqual([1]);
+    expect(stderr.join('')).toContain(t('tui.dialogs.providerForm.error.aliasConflict'));
+    expect(stderr.join('')).toContain('demo2/gpt-4.1');
+    expect(setConfigCalls).toEqual([]);
+    expect(removeCalls).toEqual([]);
+    expect(current().providers['demo']).toBeDefined();
+    expect(current().models?.['demo2/gpt-4.1']?.['provider']).toBe('other');
+  });
+
+  it('exits 1 without writing when a new model row has no usable context size', async () => {
+    const { harness, setConfigCalls, removeCalls } = makeHarness(makeRenameInitial());
+    const { deps, stderr, exitCodes } = makeDeps(harness);
+
+    await tryRun(() => handleProviderUpdate(deps, 'demo', { model: 'gpt-4.2' }));
+
+    expect(exitCodes).toEqual([1]);
+    expect(stderr.join('')).toContain('Context size is required.');
+    expect(setConfigCalls).toEqual([]);
+    expect(removeCalls).toEqual([]);
+  });
+});
+
+describe('kimi provider create/update routing', () => {
+  it('registers both subcommands and routes their flags through commander', async () => {
+    const { harness, current } = await makeRegistryHarness({ providers: {} } as KimiConfig);
+    const { deps, stdout, stderr, exitCodes } = makeDeps(harness);
+
+    const program = new Command('kimi');
+    registerProviderCommand(program, deps);
+    const providerCmd = program.commands.find((command) => command.name() === 'provider');
+    expect(providerCmd?.commands.map((command) => command.name()).toSorted()).toEqual([
+      'add',
+      'catalog',
+      'create',
+      'list',
+      'remove',
+      'update',
+    ]);
+
+    await tryRun(() =>
+      program.parseAsync(
+        [
+          'node',
+          'kimi',
+          'provider',
+          'create',
+          '--id',
+          'demo',
+          '--type',
+          'openai',
+          '--api-key',
+          'sk-x',
+          '--base-url',
+          'https://api.example.com/v1',
+          '--model',
+          'gpt-4.1',
+          '--max-context-size',
+          '128000',
+        ],
+        { from: 'node' },
+      ),
+    );
+
+    expect(exitCodes).toEqual([]);
+    expect((await current()).providers['demo']).toBeDefined();
+    expect(stdout.join('')).toContain('Provider "demo" added.');
+
+    await tryRun(() =>
+      program.parseAsync(['node', 'kimi', 'provider', 'update', 'demo', '--new-id', 'demo2'], {
+        from: 'node',
+      }),
+    );
+
+    expect(exitCodes).toEqual([]);
+    expect(stderr.join('')).toBe('');
+    const config = await current();
+    expect(config.providers['demo']).toBeUndefined();
+    expect(config.providers['demo2']).toBeDefined();
+    expect(Object.keys(config.models ?? {})).toEqual(['demo2/gpt-4.1']);
+    expect(stdout.join('')).toContain('Provider "demo2" updated.');
+  });
+
+  it('exits 1 through commander on an unknown --type and writes nothing', async () => {
+    const { harness, current } = await makeRegistryHarness({ providers: {} } as KimiConfig);
+    const { deps, stderr, exitCodes } = makeDeps(harness);
+
+    const program = new Command('kimi');
+    registerProviderCommand(program, deps);
+
+    await tryRun(() =>
+      program.parseAsync(
+        [
+          'node',
+          'kimi',
+          'provider',
+          'create',
+          '--id',
+          'demo',
+          '--type',
+          'nope',
+          '--api-key',
+          'sk-x',
+          '--base-url',
+          'https://api.example.com/v1',
+          '--model',
+          'gpt-4.1',
+          '--max-context-size',
+          '128000',
+        ],
+        { from: 'node' },
+      ),
+    );
+
+    // The injected `exit` throws so the test can continue; `runAction`'s
+    // boundary then reports the same failure once more. Production
+    // `process.exit` never returns, so the user sees one message and one code.
+    expect(exitCodes).toEqual([1, 1]);
+    expect(stderr.join('')).toContain('openai_responses');
+    expect((await current()).providers).toEqual({});
   });
 });
