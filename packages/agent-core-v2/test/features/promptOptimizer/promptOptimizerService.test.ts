@@ -4,18 +4,21 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { ILogService } from '#/_base/log/log';
-import { IFlagService } from '#/app/flag/flag';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { IFlagService } from '#/app/flag/flag';
 import {
   ISessionPromptOptimizerService,
   PROMPT_OPTIMIZER_FLAG_ID,
+  PROMPT_OPTIMIZER_MAX_CONTEXT_LENGTH,
   PROMPT_OPTIMIZER_MAX_CONTEXT_TURNS,
   PROMPT_OPTIMIZER_MAX_INPUT_LENGTH,
   PROMPT_OPTIMIZER_MAX_OUTPUT_LENGTH,
   PROMPT_OPTIMIZER_PROFILE_NAME,
+  PROMPT_OPTIMIZER_SYSTEM_PROMPT,
   PROMPT_OPTIMIZER_TOOL_DISABLED_MESSAGE,
+  PROMPT_OPTIMIZER_TRUNCATION_MARKER,
 } from '#/features/promptOptimizer/promptOptimizer';
 import { SessionPromptOptimizerService } from '#/features/promptOptimizer/promptOptimizerService';
 import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
@@ -23,7 +26,10 @@ import { ISessionSubagentService } from '#/session/subagent/subagent';
 import type { ToolCall } from '#human/llm/message';
 
 import { stubAgentContext } from '../../agent/agentContext/stubs';
-import { stubToolExecutorEvents, type ToolExecutorEventStubs } from '../../agent/toolExecutor/stubs';
+import {
+  stubToolExecutorEvents,
+  type ToolExecutorEventStubs,
+} from '../../agent/toolExecutor/stubs';
 
 const CONTEXT = { cwd: 'C:/work/demo' };
 
@@ -32,7 +38,8 @@ describe('SessionPromptOptimizerService', () => {
   let ix: TestInstantiationService;
   let formatDenyMessage: ReturnType<typeof vi.fn>;
   let executorEvents: ToolExecutorEventStubs;
-  let run: ReturnType<typeof vi.fn<(agent: unknown, request: unknown) => Promise<unknown>>>;  let remove: ReturnType<typeof vi.fn>;
+  let run: ReturnType<typeof vi.fn<(agent: unknown, request: unknown) => Promise<unknown>>>;
+  let remove: ReturnType<typeof vi.fn>;
   let enabled: boolean;
 
   function stubRunSummary(summary: string): void {
@@ -107,6 +114,48 @@ describe('SessionPromptOptimizerService', () => {
   });
   afterEach(() => disposables.dispose());
 
+  it('defines the draft as a pointer and asks for the full request', () => {
+    expect(PROMPT_OPTIMIZER_SYSTEM_PROMPT).toMatch(/The draft is a pointer, not the whole request/);
+    expect(PROMPT_OPTIMIZER_SYSTEM_PROMPT).toMatch(/Write that request out in full/);
+  });
+
+  it('requires the real referent behind a vague reference', () => {
+    expect(PROMPT_OPTIMIZER_SYSTEM_PROMPT).toMatch(
+      /Put the real name behind every vague reference/,
+    );
+  });
+
+  it('requires stating what the user is working from but has not written down', () => {
+    expect(PROMPT_OPTIMIZER_SYSTEM_PROMPT).toMatch(
+      /State what the user is clearly working from but has not written down/,
+    );
+  });
+
+  it('allows the rewrite to grow, and says why it may', () => {
+    expect(PROMPT_OPTIMIZER_SYSTEM_PROMPT).toMatch(/Getting longer is expected/);
+  });
+
+  it('grounds every added detail and forbids inventing one', () => {
+    expect(PROMPT_OPTIMIZER_SYSTEM_PROMPT).toMatch(
+      /Every sentence must carry something the user meant/,
+    );
+    expect(PROMPT_OPTIMIZER_SYSTEM_PROMPT).toMatch(
+      /do not invent requirements or background that nothing shows they have in mind/,
+    );
+  });
+
+  it('still rejects a rewrite that only swaps in grander wording', () => {
+    expect(PROMPT_OPTIMIZER_SYSTEM_PROMPT).toMatch(
+      /restating a draft in grander or more formal wording adds nothing/,
+    );
+    expect(PROMPT_OPTIMIZER_SYSTEM_PROMPT).not.toMatch(/the user did not imply/);
+  });
+
+  it('keeps the language and no-answer constraints', () => {
+    expect(PROMPT_OPTIMIZER_SYSTEM_PROMPT).toMatch(/Write in the draft's language/);
+    expect(PROMPT_OPTIMIZER_SYSTEM_PROMPT).toMatch(/Do not answer the draft/);
+  });
+
   it('returns the rewritten prompt and disposes the throwaway agent', async () => {
     const svc = ix.get(ISessionPromptOptimizerService);
     const result = await svc.optimize('fix the thing', CONTEXT);
@@ -153,6 +202,15 @@ describe('SessionPromptOptimizerService', () => {
     const fork = ix.get(IAgentLifecycleService).fork as unknown as ReturnType<typeof vi.fn>;
     const options = fork.mock.calls[0]?.[1] as { inheritedHistory?: { maxUserTurns?: number } };
     expect(options.inheritedHistory?.maxUserTurns).toBe(2);
+  });
+
+  it('bounds the inherited context by the engine character budget', async () => {
+    const svc = ix.get(ISessionPromptOptimizerService);
+    await svc.optimize('fix the thing', CONTEXT);
+
+    const fork = ix.get(IAgentLifecycleService).fork as unknown as ReturnType<typeof vi.fn>;
+    const options = fork.mock.calls[0]?.[1] as { inheritedHistory?: { maxChars?: number } };
+    expect(options.inheritedHistory?.maxChars).toBe(PROMPT_OPTIMIZER_MAX_CONTEXT_LENGTH);
   });
 
   it('passes the draft and cwd to the child agent', async () => {
@@ -235,27 +293,13 @@ describe('SessionPromptOptimizerService', () => {
     expect(remove).toHaveBeenCalled();
   });
 
-  it('truncates an over-long rewrite', async () => {
+  it('rejects an over-long rewrite instead of returning it truncated', async () => {
     stubRunSummary('x'.repeat(PROMPT_OPTIMIZER_MAX_OUTPUT_LENGTH + 500));
     const svc = ix.get(ISessionPromptOptimizerService);
-    const result = await svc.optimize('fix the thing', CONTEXT);
-    expect(result.length).toBeLessThanOrEqual(PROMPT_OPTIMIZER_MAX_OUTPUT_LENGTH);
+    await expect(svc.optimize('fix the thing', CONTEXT)).rejects.toThrow(/over the .* limit/i);
   });
 
-  it('backs the over-long rewrite up to a sentence boundary rather than cutting mid-word', async () => {
-    const sentence = 'Do the thing. ';
-    const body = sentence
-      .repeat(Math.ceil(PROMPT_OPTIMIZER_MAX_OUTPUT_LENGTH / sentence.length) + 20)
-      .trimEnd();
-    stubRunSummary(body);
-    const svc = ix.get(ISessionPromptOptimizerService);
-    const result = await svc.optimize('fix the thing', CONTEXT);
-    expect(result.length).toBeLessThanOrEqual(PROMPT_OPTIMIZER_MAX_OUTPUT_LENGTH);
-    expect(result.endsWith('.')).toBe(true);
-    expect(body.startsWith(result)).toBe(true);
-  });
-
-  it('clamps a draft that exceeds the input limit', async () => {
+  it('marks a draft that exceeds the input limit as truncated', async () => {
     const svc = ix.get(ISessionPromptOptimizerService);
     const draft = 'y'.repeat(PROMPT_OPTIMIZER_MAX_INPUT_LENGTH + 100);
     await svc.optimize(draft, CONTEXT);
@@ -263,6 +307,15 @@ describe('SessionPromptOptimizerService', () => {
     const prompt = run.mock.calls[0]?.[1] as { prompt: string };
     expect(prompt.prompt).not.toContain(draft);
     expect(prompt.prompt).toContain('y'.repeat(16));
+    expect(prompt.prompt).toContain(PROMPT_OPTIMIZER_TRUNCATION_MARKER);
+  });
+
+  it('does not mark a draft that fits as truncated', async () => {
+    const svc = ix.get(ISessionPromptOptimizerService);
+    await svc.optimize('fix the thing', CONTEXT);
+
+    const prompt = run.mock.calls[0]?.[1] as { prompt: string };
+    expect(prompt.prompt).not.toContain(PROMPT_OPTIMIZER_TRUNCATION_MARKER);
   });
 
   it('keeps a draft that fits whole', async () => {

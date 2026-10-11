@@ -159,6 +159,7 @@ export const ErrorCodes = {
   PROMPT_OPTIMIZER_DISABLED: 'prompt_optimizer.disabled',
   PROMPT_OPTIMIZER_EMPTY_DRAFT: 'prompt_optimizer.empty_draft',
   PROMPT_OPTIMIZER_NO_OUTPUT: 'prompt_optimizer.no_output',
+  PROMPT_OPTIMIZER_OUTPUT_TOO_LONG: 'prompt_optimizer.output_too_long',
   PROVIDER_NOT_FOUND: 'provider.not_found',
   PROVIDER_OAUTH_MANAGED: 'provider.oauth_managed',
   PROVIDER_OVERLOADED: 'provider.overloaded',
@@ -985,9 +986,15 @@ export const KIMI_ERROR_INFO = {
   },
   'prompt_optimizer.no_output': {
     title: 'Prompt optimizer returned no output',
-    retryable: false,
+    retryable: true,
     public: true,
     action: 'Retry the optimization.',
+  },
+  'prompt_optimizer.output_too_long': {
+    title: 'Prompt rewrite exceeded the length limit',
+    retryable: false,
+    public: true,
+    action: 'Retry, or shorten the draft so the rewrite fits the limit.',
   },
   'provider.not_found': {
     title: 'Provider not found',

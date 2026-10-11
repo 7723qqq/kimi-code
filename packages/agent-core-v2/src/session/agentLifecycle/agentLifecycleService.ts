@@ -689,14 +689,54 @@ function inheritHistoryWindow(
   options: InheritedHistoryOptions | undefined,
 ): readonly ContextMessage[] {
   const maxUserTurns = options?.maxUserTurns;
-  if (maxUserTurns === undefined || maxUserTurns < 0) return history;
+  const maxChars = options?.maxChars;
+  if (maxUserTurns === undefined && maxChars === undefined) return history;
+  if (maxUserTurns !== undefined && maxUserTurns < 0) return history;
   if (maxUserTurns === 0) return [];
-  let seen = 0;
-  for (let index = history.length - 1; index >= 0; index -= 1) {
-    const message = history[index];
-    if (message?.role !== 'user') continue;
-    seen += 1;
-    if (seen > maxUserTurns) return history.slice(index + 1);
+
+  let start = 0;
+  if (maxUserTurns !== undefined) {
+    let seen = 0;
+    for (let index = history.length - 1; index >= 0; index -= 1) {
+      const message = history[index];
+      if (message === undefined || message.role !== 'user' || !isRealUserTurn(message)) continue;
+      seen += 1;
+      if (seen === maxUserTurns) {
+        start = index;
+        break;
+      }
+    }
   }
-  return history;
+
+  if (maxChars !== undefined) {
+    let chars = 0;
+    for (let index = history.length - 1; index >= 0; index -= 1) {
+      const message = history[index];
+      if (message === undefined) continue;
+      chars += messageLength(message);
+      if (chars > maxChars) {
+        start = Math.max(start, index + 1);
+        break;
+      }
+    }
+  }
+
+  return start === 0 ? history : history.slice(start);
+}
+
+function isRealUserTurn(message: ContextMessage): boolean {
+  const origin = message.origin;
+  if (origin === undefined) return true;
+  return origin.kind === 'user';
+}
+
+function messageLength(message: ContextMessage): number {
+  let total = 0;
+  for (const part of message.content) {
+    total += part.type === 'text' ? part.text.length : JSON.stringify(part).length;
+  }
+  for (const call of message.toolCalls ?? []) {
+    total += call.name.length + (call.arguments?.length ?? 0);
+  }
+  return total;
 }

@@ -29,6 +29,7 @@ export interface ForkAgentOptions {
 
 export interface InheritedHistoryOptions {
   readonly maxUserTurns?: number;
+  readonly maxChars?: number;
 }
 
 export interface AgentListFilter {

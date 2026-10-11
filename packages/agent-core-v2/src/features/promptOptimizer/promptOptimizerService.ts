@@ -13,11 +13,13 @@ import { ISessionSubagentService } from '#/session/subagent/subagent';
 import {
   ISessionPromptOptimizerService,
   PROMPT_OPTIMIZER_FLAG_ID,
+  PROMPT_OPTIMIZER_MAX_CONTEXT_LENGTH,
   PROMPT_OPTIMIZER_MAX_CONTEXT_TURNS,
   PROMPT_OPTIMIZER_MAX_INPUT_LENGTH,
   PROMPT_OPTIMIZER_MAX_OUTPUT_LENGTH,
   PROMPT_OPTIMIZER_PROFILE_NAME,
   PROMPT_OPTIMIZER_TOOLS,
+  PROMPT_OPTIMIZER_TRUNCATION_MARKER,
   PROMPT_OPTIMIZER_TOOL_DISABLED_MESSAGE,
   type PromptOptimizerContext,
 } from './promptOptimizer';
@@ -73,7 +75,10 @@ export class SessionPromptOptimizerService implements ISessionPromptOptimizerSer
         {
           labels: OPTIMIZER_LABELS,
           binding: { profile: PROMPT_OPTIMIZER_PROFILE_NAME },
-          inheritedHistory: { maxUserTurns: inheritedTurnLimit(context) },
+          inheritedHistory: {
+            maxUserTurns: inheritedTurnLimit(context),
+            maxChars: PROMPT_OPTIMIZER_MAX_CONTEXT_LENGTH,
+          },
         },
       );
       const child = this.agentLifecycle.handleOf(childContext.agentId);
@@ -101,7 +106,13 @@ export class SessionPromptOptimizerService implements ISessionPromptOptimizerSer
       if (rewritten.length === 0) {
         throw new Error2(ErrorCodes.PROMPT_OPTIMIZER_NO_OUTPUT, 'The optimizer returned no text.');
       }
-      return clampOutput(rewritten);
+      if (rewritten.length > PROMPT_OPTIMIZER_MAX_OUTPUT_LENGTH) {
+        throw new Error2(
+          ErrorCodes.PROMPT_OPTIMIZER_OUTPUT_TOO_LONG,
+          `The rewrite is ${rewritten.length} characters, over the ${PROMPT_OPTIMIZER_MAX_OUTPUT_LENGTH} limit. Retry, or shorten the draft.`,
+        );
+      }
+      return rewritten;
     } finally {
       unlink();
       this.inFlight.delete(key);
@@ -117,13 +128,6 @@ export class SessionPromptOptimizerService implements ISessionPromptOptimizerSer
   }
 }
 
-function clampOutput(text: string): string {
-  if (text.length <= PROMPT_OPTIMIZER_MAX_OUTPUT_LENGTH) return text;
-  const head = text.slice(0, PROMPT_OPTIMIZER_MAX_OUTPUT_LENGTH);
-  const boundary = Math.max(head.lastIndexOf('\n'), head.lastIndexOf('. '), head.lastIndexOf('。'));
-  return boundary > 0 ? head.slice(0, boundary + 1) : head;
-}
-
 function inheritedTurnLimit(context: PromptOptimizerContext): number {
   const requested = context.recentTurns?.length;
   if (requested === undefined) return PROMPT_OPTIMIZER_MAX_CONTEXT_TURNS;
@@ -137,7 +141,7 @@ function buildOptimizerInput(draft: string, context: PromptOptimizerContext): st
 }
 
 function clamp(text: string, max: number): string {
-  return text.length <= max ? text : text.slice(0, max);
+  return text.length <= max ? text : `${text.slice(0, max)}${PROMPT_OPTIMIZER_TRUNCATION_MARKER}`;
 }
 
 function linkSignals(external: AbortSignal | undefined, controller: AbortController): () => void {

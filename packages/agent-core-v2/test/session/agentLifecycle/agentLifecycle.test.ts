@@ -1394,6 +1394,95 @@ describe('AgentLifecycleService', () => {
     expect(texts).not.toContain('first');
   });
 
+  it('fork does not let injected reminders consume the user-turn quota', async () => {
+    const svc = ix.get(IAgentLifecycleService);
+    const source = await svc.create({ agentId: 'main' });
+    const sourceHandle = svc.handleOf('main')!;
+    const history: ContextMessage[] = [
+      { role: 'user', content: [{ type: 'text', text: 'first' }], toolCalls: [] },
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'reminder one' }],
+        toolCalls: [],
+        origin: { kind: 'injection', variant: 'notify' },
+      },
+      { role: 'user', content: [{ type: 'text', text: 'second' }], toolCalls: [] },
+      {
+        role: 'user',
+        content: [{ type: 'text', text: 'reminder two' }],
+        toolCalls: [],
+        origin: { kind: 'injection', variant: 'notify' },
+      },
+      { role: 'user', content: [{ type: 'text', text: 'third' }], toolCalls: [] },
+    ];
+    sourceHandle.accessor.get(IAgentContextMemoryService).append(...history);
+
+    const child = await svc.fork(agentContextOf(sourceHandle), {
+      agentId: 'forked',
+      inheritedHistory: { maxUserTurns: 2 },
+    });
+
+    const seeded = svc.handleOf(child.agentId)!.accessor.get(IAgentContextMemoryService).get();
+    const texts = seeded.flatMap((message) =>
+      message.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])),
+    );
+    expect(texts).toContain('second');
+    expect(texts).toContain('third');
+    expect(texts).not.toContain('first');
+    expect(texts).not.toContain('reminder one');
+  });
+  it('fork counts a message with no origin as a real user turn', async () => {
+    const svc = ix.get(IAgentLifecycleService);
+    const source = await svc.create({ agentId: 'main' });
+    const sourceHandle = svc.handleOf('main')!;
+    const history: ContextMessage[] = [
+      { role: 'user', content: [{ type: 'text', text: 'legacy' }], toolCalls: [] },
+      { role: 'user', content: [{ type: 'text', text: 'current' }], toolCalls: [] },
+    ];
+    sourceHandle.accessor.get(IAgentContextMemoryService).append(...history);
+
+    const child = await svc.fork(agentContextOf(sourceHandle), {
+      agentId: 'forked',
+      inheritedHistory: { maxUserTurns: 1 },
+    });
+
+    const seeded = svc.handleOf(child.agentId)!.accessor.get(IAgentContextMemoryService).get();
+    const texts = seeded.flatMap((message) =>
+      message.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])),
+    );
+    expect(texts).toContain('current');
+    expect(texts).not.toContain('legacy');
+  });
+  it('fork bounds the inherited history by character budget', async () => {
+    const svc = ix.get(IAgentLifecycleService);
+    const source = await svc.create({ agentId: 'main' });
+    const sourceHandle = svc.handleOf('main')!;
+    const history: ContextMessage[] = [
+      { role: 'user', content: [{ type: 'text', text: 'x'.repeat(10_000) }], toolCalls: [] },
+      { role: 'user', content: [{ type: 'text', text: 'recent' }], toolCalls: [] },
+    ];
+    sourceHandle.accessor.get(IAgentContextMemoryService).append(...history);
+
+    const child = await svc.fork(agentContextOf(sourceHandle), {
+      agentId: 'forked',
+      inheritedHistory: { maxUserTurns: 6, maxChars: 4000 },
+    });
+
+    const seeded = svc.handleOf(child.agentId)!.accessor.get(IAgentContextMemoryService).get();
+    const total = seeded.reduce(
+      (sum, message) =>
+        sum +
+        message.content.reduce((n, part) => n + (part.type === 'text' ? part.text.length : 0), 0),
+      0,
+    );
+    expect(total).toBeLessThanOrEqual(4000);
+    const texts = seeded.flatMap((message) =>
+      message.content.flatMap((part) => (part.type === 'text' ? [part.text] : [])),
+    );
+    expect(texts).toContain('recent');
+    expect(texts).not.toContain('x'.repeat(10_000));
+  });
+
   it('fork keeps the whole history when no window is requested', async () => {
     const svc = ix.get(IAgentLifecycleService);
     const source = await svc.create({ agentId: 'main' });
