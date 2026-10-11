@@ -3,9 +3,11 @@ import { z } from 'zod';
 
 import { approvalRequestSchema, approvalResponseSchema } from './approval';
 
-export const listPendingApprovalsQuerySchema = z.object({
-  status: z.literal('pending'),
-});
+export const listPendingApprovalsQuerySchema = z
+  .object({
+    status: z.literal('pending'),
+  })
+  .strict();
 export type ListPendingApprovalsQuery = z.infer<typeof listPendingApprovalsQuerySchema>;
 
 export const listPendingApprovalsResponseSchema = z.object({

@@ -43,7 +43,7 @@ const messagesListQueryCoercion = z
         params: { code: ErrorCode.VALIDATION_FAILED },
       });
     }
-  });
+  }).strict();
 
 const sessionIdParamSchema = z.object({
   session_id: z.string().min(1),

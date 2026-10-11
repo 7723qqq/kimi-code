@@ -93,10 +93,17 @@ describe('memory dispatcher specifics', () => {
         ],
       )) as { id: string };
 
-      await dispatcher.call({ sessionId: second.id }, 'sessionInteractionService', 'respond', [
-        parked.id,
-        { decision: 'approved' },
-      ]);
+      // A respond for an id owned by another session must be rejected, not
+      // silently accepted: the caller has to be able to tell "approved" from
+      // "nothing happened". It used to resolve successfully and leave the
+      // interaction pending.
+      await expect(
+        dispatcher.call({ sessionId: second.id }, 'sessionInteractionService', 'respond', [
+          parked.id,
+          { decision: 'approved' },
+        ]),
+      ).rejects.toThrow(/not found/i);
+
       const pendingAfterCross = (await dispatcher.call(
         { sessionId: first.id },
         'sessionInteractionService',
@@ -116,6 +123,68 @@ describe('memory dispatcher specifics', () => {
         ['approval'],
       )) as readonly { id: string }[];
       expect(pendingAfterOwn).toEqual([]);
+    } finally {
+      await klient.close();
+      app.dispose();
+      await rm(homeDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 });
+    }
+  });
+
+  it('rejects responding to an id that never existed', async () => {
+    const { homeDir, app } = await makeEngine();
+    const dispatcher = createMemoryDispatcher(app);
+    const klient = createKlient({ scope: app });
+    const session = await klient.global.sessions.create({ workDir: process.cwd() });
+    try {
+      await expect(
+        dispatcher.call({ sessionId: session.id }, 'sessionInteractionService', 'respond', [
+          'no-such-interaction',
+          { decision: 'approved' },
+        ]),
+      ).rejects.toMatchObject({ name: 'RPCError', code: 40404 });
+    } finally {
+      await klient.close();
+      app.dispose();
+      await rm(homeDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 });
+    }
+  });
+
+  it('rejects a second respond to an already-resolved interaction with 40902', async () => {
+    const { homeDir, app } = await makeEngine();
+    const dispatcher = createMemoryDispatcher(app);
+    const klient = createKlient({ scope: app });
+    const session = await klient.global.sessions.create({ workDir: process.cwd() });
+    try {
+      const parked = (await dispatcher.call(
+        { sessionId: session.id },
+        'sessionInteractionService',
+        'enqueue',
+        [
+          {
+            kind: 'approval',
+            payload: {
+              toolName: 'Bash',
+              action: 'run',
+              display: { kind: 'command', command: 'ls' },
+            },
+          },
+        ],
+      )) as { id: string };
+
+      await dispatcher.call({ sessionId: session.id }, 'sessionInteractionService', 'respond', [
+        parked.id,
+        { decision: 'approved' },
+      ]);
+
+      // The second respond must surface a conflict, not silently succeed: it
+      // used to resolve and leave the caller unable to tell "approved" from
+      // "nothing happened".
+      await expect(
+        dispatcher.call({ sessionId: session.id }, 'sessionInteractionService', 'respond', [
+          parked.id,
+          { decision: 'approved' },
+        ]),
+      ).rejects.toMatchObject({ name: 'RPCError', code: 40902 });
     } finally {
       await klient.close();
       app.dispose();

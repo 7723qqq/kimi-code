@@ -76,6 +76,7 @@ export type ScopedStreamCaller = (
   service: string,
   method: string,
   args: unknown[],
+  options?: CallOptions,
 ) => AsyncIterable<unknown>;
 
 // ---------------------------------------------------------------------------

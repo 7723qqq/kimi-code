@@ -84,7 +84,7 @@ function isIdsProjection(fields: readonly string[]): boolean {
 }
 
 const v2SessionsListQuerySchema = z
-  .object({
+  .strictObject({
     'workspace.id': repeatedParam(z.string().min(1)),
     'activity.status': repeatedParam(v2ActivityStatusSchema),
     'meta.updated_after': z.coerce.number().int().nonnegative().optional(),
@@ -255,7 +255,7 @@ const detailsSchema = z.array(z.object({ path: z.string(), message: z.string() }
 const BATCH_IDS_MAX = 5000;
 
 const v2SessionsBatchBodySchema = z
-  .object({ ids: z.array(z.string().min(1)).min(1) })
+  .strictObject({ ids: z.array(z.string().min(1)).min(1) })
   .superRefine((value, ctx) => {
     if (new Set(value.ids).size > BATCH_IDS_MAX) {
       ctx.addIssue({

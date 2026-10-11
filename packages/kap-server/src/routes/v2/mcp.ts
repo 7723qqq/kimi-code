@@ -56,46 +56,46 @@ const serverNameSchema = z.string().min(1);
 
 const serverNameParamSchema = z.object({ name: serverNameSchema });
 
-const serverScopedQuerySchema = z.object({ cwd: z.string().min(1).optional() });
+const serverScopedQuerySchema = z.strictObject({ cwd: z.string().min(1).optional() });
 
-const authStatusesQuerySchema = z.object({
+const authStatusesQuerySchema = z.strictObject({
   cwd: z.string().min(1).optional(),
   verify: z.enum(['true', 'false']).optional(),
 });
 
 const globalMcpServerConfigSchema = z.discriminatedUnion('transport', [
-  McpServerStdioConfigSchema.extend({ name: serverNameSchema }),
-  McpServerHttpConfigSchema.extend({ name: serverNameSchema }),
-  McpServerSseConfigSchema.extend({ name: serverNameSchema }),
+  McpServerStdioConfigSchema.extend({ name: serverNameSchema }).strict(),
+  McpServerHttpConfigSchema.extend({ name: serverNameSchema }).strict(),
+  McpServerSseConfigSchema.extend({ name: serverNameSchema }).strict(),
 ]);
 
 const mcpServerConfigBodySchema = z.discriminatedUnion('transport', [
-  McpServerStdioConfigSchema,
-  McpServerHttpConfigSchema,
-  McpServerSseConfigSchema,
+  McpServerStdioConfigSchema.strict(),
+  McpServerHttpConfigSchema.strict(),
+  McpServerSseConfigSchema.strict(),
 ]);
 
-const testServerBodySchema = z.object({
+const testServerBodySchema = z.strictObject({
   name: serverNameSchema.optional(),
   server: globalMcpServerConfigSchema.optional(),
   cwd: z.string().min(1).optional(),
 });
 
 const mcpServerLocatorSchema = z.discriminatedUnion('source', [
-  z.object({ source: z.literal('global'), name: serverNameSchema }),
-  z.object({
+  z.strictObject({ source: z.literal('global'), name: serverNameSchema }),
+  z.strictObject({
     source: z.literal('plugin'),
     pluginId: z.string().min(1),
     serverName: z.string().min(1),
   }),
 ]);
 
-const inspectServersBodySchema = z.object({
+const inspectServersBodySchema = z.strictObject({
   targets: z.array(mcpServerLocatorSchema).optional(),
   cwd: z.string().min(1).optional(),
 });
 
-const authCompleteBodySchema = z.object({
+const authCompleteBodySchema = z.strictObject({
   flowId: z.string().min(1),
   timeoutMs: z
     .number()
@@ -105,7 +105,7 @@ const authCompleteBodySchema = z.object({
     .optional(),
 });
 
-const authCancelBodySchema = z.object({ flowId: z.string().min(1) });
+const authCancelBodySchema = z.strictObject({ flowId: z.string().min(1) });
 
 const mcpServerSourceSchema = z.enum(['global', 'plugin', 'caller']);
 

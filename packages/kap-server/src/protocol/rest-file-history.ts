@@ -1,15 +1,19 @@
 import { z } from 'zod';
 
-export const fileHistoryChangesQuerySchema = z.object({
-  turn_id: z.coerce.number().int().nonnegative(),
-});
+export const fileHistoryChangesQuerySchema = z
+  .object({
+    turn_id: z.coerce.number().int().nonnegative(),
+  })
+  .strict();
 export type FileHistoryChangesQuery = z.infer<typeof fileHistoryChangesQuerySchema>;
 
-export const fileHistoryContentQuerySchema = z.object({
-  turn_id: z.coerce.number().int().nonnegative(),
-  path: z.string().min(1),
-  phase: z.enum(['start', 'end']).optional(),
-});
+export const fileHistoryContentQuerySchema = z
+  .object({
+    turn_id: z.coerce.number().int().nonnegative(),
+    path: z.string().min(1),
+    phase: z.enum(['start', 'end']).optional(),
+  })
+  .strict();
 export type FileHistoryContentQuery = z.infer<typeof fileHistoryContentQuerySchema>;
 
 export const fileHistoryChangeSchema = z.object({

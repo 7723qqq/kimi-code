@@ -42,6 +42,7 @@ const transcriptQueryCoercion = z
     after_turn: z.string().min(1).optional(),
     page_size: z.coerce.number().int().min(1).max(100).optional(),
   })
+  .strict()
   .superRefine((value, ctx) => {
     if (value.before_turn !== undefined && value.after_turn !== undefined) {
       ctx.addIssue({
@@ -68,6 +69,7 @@ const transcriptOpsQueryCoercion = z
     agent_id: z.string().min(1),
     since_seq: z.coerce.number().int().min(0),
   })
+  .strict()
   .superRefine((value, ctx) => {
     if (!isPlainAgentId(value.agent_id)) {
       ctx.addIssue({
@@ -85,6 +87,7 @@ const userMessagesQueryCoercion = z
   .object({
     agent_id: z.string().min(1).optional(),
   })
+  .strict()
   .superRefine((value, ctx) => {
     if (value.agent_id !== undefined && !isPlainAgentId(value.agent_id)) {
       ctx.addIssue({
@@ -101,6 +104,7 @@ const planQueryCoercion = z
     agent_id: z.string().min(1),
     tool_call_id: z.string().min(1).optional(),
   })
+  .strict()
   .superRefine((value, ctx) => {
     if (!isPlainAgentId(value.agent_id)) {
       ctx.addIssue({

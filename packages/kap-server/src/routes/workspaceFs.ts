@@ -166,9 +166,11 @@ export function registerWorkspaceFsRoutes(app: WorkspaceFsRouteHost, core: Scope
   );
 }
 
-const fsContentQuerySchema = z.object({
-  path: z.string().min(1),
-});
+const fsContentQuerySchema = z
+  .object({
+    path: z.string().min(1),
+  })
+  .strict();
 
 interface FsContentRequest {
   id: string;
@@ -260,9 +262,11 @@ async function handleFsContent(
   return reply.send(stream) as unknown as void;
 }
 
-const fsMkdirBodySchema = z.object({
-  path: z.string().min(1),
-});
+const fsMkdirBodySchema = z
+  .object({
+    path: z.string().min(1),
+  })
+  .strict();
 
 const fsMkdirResponseSchema = z.object({
   path: z.string(),

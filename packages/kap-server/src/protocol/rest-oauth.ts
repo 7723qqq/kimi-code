@@ -6,9 +6,11 @@ export const oauthLoginStartRequestSchema = z.object({
 }).strict();
 export type OAuthLoginStartRequest = z.infer<typeof oauthLoginStartRequestSchema>;
 
-export const oauthLoginQuerySchema = z.object({
-  provider: z.string().min(1).optional(),
-});
+export const oauthLoginQuerySchema = z
+  .object({
+    provider: z.string().min(1).optional(),
+  })
+  .strict();
 export type OAuthLoginQuery = z.infer<typeof oauthLoginQuerySchema>;
 
 export const oauthLogoutRequestSchema = z.object({

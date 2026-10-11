@@ -69,7 +69,7 @@ export function createKlientFromChannel(
     return validate ? parseOutput(name, procedure, data) : data;
   };
 
-  const callStream: ScopedStreamCaller = (scope, service, method, args) => {
+  const callStream: ScopedStreamCaller = (scope, service, method, args, options) => {
     const procedure = globalContract[service]?.[method];
     if (procedure === undefined) {
       throw new Error(`no contract registered for ${service}.${method}`);
@@ -79,7 +79,9 @@ export function createKlientFromChannel(
     }
     const name = `${service}.${method}`;
     const wireArgs = validate ? parseInput(name, procedure, args) : args;
-    const source = channel.stream(scope, service, method, wireArgs);
+    // `options.timeoutMs` bounds the iteration when the transport honors it;
+    // undefined keeps waiting, as before.
+    const source = channel.stream(scope, service, method, wireArgs, options);
     if (!validate) return source;
 
     // Wrap the iterable to validate each chunk.

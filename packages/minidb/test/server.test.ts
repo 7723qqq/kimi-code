@@ -88,3 +88,37 @@ test('RESP server: unknown command returns an error', async () => {
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
+
+// `SET k v EX abc` used to answer +OK and store the key forever: `ttl ? {ttl} : {}`
+// turned NaN into "no expiry". A bad EX/PX must now be an error, not a silent no-op.
+test('RESP server: SET rejects a non-finite or negative EX/PX', async () => {
+  const dir = await tmpDir();
+  const srv = await startServer({ dir, port: 0, fsyncPolicy: 'no' });
+  try {
+    const sock = await connect(srv.port);
+    assert.ok((await send(sock, encode('SET', 'k', 'v', 'EX', 'abc'))).startsWith('-ERR'));
+    assert.ok((await send(sock, encode('SET', 'k', 'v', 'PX', '-1'))).startsWith('-ERR'));
+    assert.ok((await send(sock, encode('SET', 'k', 'v', 'EX', 'NaN'))).startsWith('-ERR'));
+    sock.end();
+  } finally {
+    await srv.close();
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+// The counterpart: a valid TTL is still accepted and actually expires the key.
+test('RESP server: SET honors a valid EX', async () => {
+  const dir = await tmpDir();
+  const srv = await startServer({ dir, port: 0, fsyncPolicy: 'no' });
+  try {
+    const sock = await connect(srv.port);
+    assert.equal(await send(sock, encode('SET', 'k', 'v', 'EX', '1')), '+OK\r\n');
+    assert.equal(await send(sock, encode('GET', 'k')), '$1\r\nv\r\n');
+    await new Promise((r) => setTimeout(r, 1100));
+    assert.equal(await send(sock, encode('GET', 'k')), '$-1\r\n');
+    sock.end();
+  } finally {
+    await srv.close();
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});

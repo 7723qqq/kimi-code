@@ -5,9 +5,11 @@ import { CoreErrors } from '#/_base/errors/codes';
 import { Error2 } from '#/_base/errors/errors';
 import { FsErrors } from '#/workspace/workspaceFs/internal/errors';
 
-export const fsBrowseQuerySchema = z.object({
-  path: z.string().min(1).optional(),
-});
+export const fsBrowseQuerySchema = z
+  .object({
+    path: z.string().min(1).optional(),
+  })
+  .strict();
 export type FsBrowseQuery = z.infer<typeof fsBrowseQuerySchema>;
 
 export const fsBrowseEntrySchema = z.object({

@@ -3,9 +3,11 @@ import { z } from 'zod';
 
 import { questionRequestSchema, questionResponseSchema } from './question';
 
-export const listPendingQuestionsQuerySchema = z.object({
-  status: z.literal('pending'),
-});
+export const listPendingQuestionsQuerySchema = z
+  .object({
+    status: z.literal('pending'),
+  })
+  .strict();
 export type ListPendingQuestionsQuery = z.infer<typeof listPendingQuestionsQuerySchema>;
 
 export const listPendingQuestionsResponseSchema = z.object({

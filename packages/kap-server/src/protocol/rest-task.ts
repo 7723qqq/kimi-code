@@ -2,9 +2,11 @@ import { z } from 'zod';
 
 import { taskSchema, taskStatusSchema } from './task';
 
-export const listTasksQuerySchema = z.object({
-  status: taskStatusSchema.optional(),
-});
+export const listTasksQuerySchema = z
+  .object({
+    status: taskStatusSchema.optional(),
+  })
+  .strict();
 export type ListTasksQuery = z.infer<typeof listTasksQuerySchema>;
 
 export const listTasksResponseSchema = z.object({
@@ -12,10 +14,12 @@ export const listTasksResponseSchema = z.object({
 });
 export type ListTasksResponse = z.infer<typeof listTasksResponseSchema>;
 
-export const getTaskQuerySchema = z.object({
-  with_output: z.coerce.boolean().optional(),
-  output_bytes: z.coerce.number().int().nonnegative().optional(),
-});
+export const getTaskQuerySchema = z
+  .object({
+    with_output: z.coerce.boolean().optional(),
+    output_bytes: z.coerce.number().int().nonnegative().optional(),
+  })
+  .strict();
 export type GetTaskQuery = z.infer<typeof getTaskQuerySchema>;
 
 export const getTaskResponseSchema = taskSchema;

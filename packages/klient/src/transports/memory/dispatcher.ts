@@ -46,7 +46,7 @@ import { MAIN_AGENT_ID } from '@moonshot-ai/agent-core-v2/session/agentLifecycle
 import { ensureMainAgent } from '@moonshot-ai/agent-core-v2/session/agentLifecycle/mainAgent';
 import { IWorkspaceInstanceManager } from '@moonshot-ai/agent-core-v2/workspace/workspaceInstance/workspaceInstanceManager';
 
-import type { EventSourceRef, IDisposable, ScopeRef } from '../../core/channel.js';
+import type { CallOptions, EventSourceRef, IDisposable, ScopeRef } from '../../core/channel.js';
 import { RPCError } from '../../core/errors.js';
 import { IEventService, serviceTokens } from './serviceRegistry.js';
 
@@ -92,6 +92,27 @@ function respondScoped(sessionId: string, id: string, response: unknown): boolea
   return interactions.respond(id, response);
 }
 
+/**
+ * `respondScoped` with a signal: an unknown / already-resolved / foreign id
+ * used to resolve successfully and leave the interaction pending, so a caller
+ * could not tell "approved" from "nothing happened". The boolean now decides
+ * which error to surface, mirroring kap-server's `APPROVAL_NOT_FOUND` /
+ * `APPROVAL_ALREADY_RESOLVED` split on the wire.
+ */
+function respondScopedOrThrow(sessionId: string, id: string, response: unknown): void {
+  if (respondScoped(sessionId, id, response)) return;
+  const alreadyResolved =
+    interactions.findOne({
+      id,
+      resolved: true,
+      tags: { [INTERACTION_TAG_SESSION_ID]: sessionId },
+    }) !== undefined;
+  if (alreadyResolved) {
+    throw new RPCError(CONFLICT, `interaction ${id} is already resolved`);
+  }
+  throw new RPCError(NOT_FOUND, `interaction ${id} was not found for this session`);
+}
+
 function withSessionTags<TPayload>(
   sessionId: string,
   req: InteractionRequest<TPayload>,
@@ -113,7 +134,7 @@ function interactionServiceView(sessionId: string): Record<string, unknown> {
     enqueue: (req: InteractionRequest<unknown>) =>
       interactions.enqueue(withSessionTags(sessionId, req)),
     respond: (id: string, response: unknown) => {
-      respondScoped(sessionId, id, response);
+      respondScopedOrThrow(sessionId, id, response);
     },
     listPending: (kind?: InteractionKind) =>
       interactions.findAll({
@@ -146,7 +167,7 @@ function approvalServiceView(sessionId: string): Record<string, unknown> {
         .filter((i) => i.kind === 'approval')
         .map((i) => ({ ...(i.payload as Record<string, unknown>), id: i.id })),
     decide: (id: string, response: unknown) => {
-      respondScoped(sessionId, id, response);
+      respondScopedOrThrow(sessionId, id, response);
     },
   };
 }
@@ -158,10 +179,10 @@ function questionServiceView(sessionId: string): Record<string, unknown> {
         .filter((i) => i.kind === 'question')
         .map((i) => ({ ...(i.payload as Record<string, unknown>), id: i.id })),
     answer: (id: string, result: unknown) => {
-      respondScoped(sessionId, id, result);
+      respondScopedOrThrow(sessionId, id, result);
     },
     dismiss: (id: string) => {
-      respondScoped(sessionId, id, null);
+      respondScopedOrThrow(sessionId, id, null);
     },
   };
 }
@@ -200,7 +221,13 @@ function agentLoopServiceView(agent: IAgentScopeHandle): Record<string, unknown>
 
 export interface MemoryDispatcher {
   call(scope: ScopeRef, service: string, method: string, args: unknown[]): Promise<unknown>;
-  stream(scope: ScopeRef, service: string, method: string, args: unknown[]): AsyncIterable<unknown>;
+  stream(
+    scope: ScopeRef,
+    service: string,
+    method: string,
+    args: unknown[],
+    options?: CallOptions,
+  ): AsyncIterable<unknown>;
   listen(
     scope: ScopeRef,
     source: EventSourceRef,
@@ -210,6 +237,7 @@ export interface MemoryDispatcher {
 }
 
 const REQUEST_INVALID = 40001;
+const CONFLICT = 40902;
 const NOT_FOUND = 40404;
 /** kap-server wire codes mirrored so memory/ipc surface the same numeric codes as `/api/v2/mcp`. */
 const MCP_SERVER_NOT_FOUND = 40408;
@@ -505,7 +533,7 @@ export function createMemoryDispatcher(root: ScopeLike): MemoryDispatcher {
       }
     },
 
-    stream(scope, service, method, args): AsyncIterable<unknown> {
+    stream(scope, service, method, args, options?): AsyncIterable<unknown> {
       // Special case: modelResolver.generate routes to IModelCatalog.generate
       // (which owns credential recovery); the dispatcher only supplies the
       // abort signal so client cancellation still reaches the request.

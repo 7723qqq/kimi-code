@@ -1,4 +1,5 @@
 import { readFile, rm, writeFile } from 'node:fs/promises';
+import net from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -6,6 +7,7 @@ import { IMcpManagementService } from '@moonshot-ai/agent-core-v2';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createKlient, serveKlientIpc, type KlientIpcHost } from '../src/transports/ipc/index.js';
+import { IpcChannel } from '../src/transports/ipc/channel.js';
 import { defineKlientConformance } from './helpers/conformance.js';
 import { makeEngine, type TestEngine } from './helpers/engine.js';
 
@@ -161,5 +163,55 @@ describe.skipIf(process.platform === 'win32')('ipc transport specifics', () => {
       await klient.close();
     }
     await teardown();
+  });
+
+  // D1: a stream whose terminal frame never arrives used to wait forever. The
+  // deadline is opt-in so the default behaviour is unchanged.
+  it('stream timeoutMs bounds a stalled stream; without it the iteration waits', async () => {
+    const socketPath = await setup();
+
+    // A peer that completes the handshake and then ignores stream frames.
+    const server = net.createServer((sock) => {
+      sock.on('data', (d) => {
+        for (const line of d.toString().split('\n')) {
+          if (!line.trim()) continue;
+          try {
+            const frame = JSON.parse(line);
+            if (frame.type === 'hello') {
+              sock.write(`${JSON.stringify({ type: 'hello_ack' })}\n`);
+            }
+          } catch {
+            // Ignore partial lines.
+          }
+        }
+      });
+    });
+    const altPath = `${socketPath}-stalled`;
+    await new Promise<void>((resolve) => server.listen(altPath, resolve));
+
+    async function drain(options?: { timeoutMs: number }): Promise<string> {
+      const channel = new IpcChannel({ socketPath: altPath, callTimeoutMs: 2000 });
+      try {
+        const iter = channel.stream({}, 'svc', 'method', [], options)?.[Symbol.asyncIterator]();
+        const first = await Promise.race([
+          iter?.next(),
+          new Promise<'WAITING'>((resolve) => setTimeout(() => resolve('WAITING'), 1500)),
+        ]);
+        return first === 'WAITING' ? 'waiting' : `resolved ${JSON.stringify(first).slice(0, 40)}`;
+      } catch (error) {
+        return `rejected ${(error as Error).message.slice(0, 40)}`;
+      } finally {
+        await channel.close();
+      }
+    }
+
+    try {
+      expect(await drain()).toBe('waiting');
+      expect(await drain({ timeoutMs: 200 })).toMatch(/rejected stream timed out after 200ms/);
+    } finally {
+      server.close();
+      await rm(altPath, { force: true });
+      await teardown();
+    }
   });
 });

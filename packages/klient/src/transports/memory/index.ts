@@ -6,7 +6,7 @@
  * transports, so behavior is indistinguishable.
  */
 
-import type { EventSourceRef, IDisposable, KlientChannel, ScopeRef } from '../../core/channel.js';
+import type { CallOptions, EventSourceRef, IDisposable, KlientChannel, ScopeRef } from '../../core/channel.js';
 import { createKlientFromChannel, type Klient, type KlientOptions } from '../../core/klient.js';
 import { createMemoryDispatcher, type ScopeLike } from './dispatcher.js';
 
@@ -37,8 +37,9 @@ class MemoryChannel implements KlientChannel {
     service: string,
     method: string,
     args: unknown[],
+    options?: CallOptions,
   ): AsyncIterable<unknown> {
-    return this.dispatcher.stream(scope, service, method, args);
+    return this.dispatcher.stream(scope, service, method, args, options);
   }
 
   listen(

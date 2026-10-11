@@ -143,6 +143,7 @@ export class IpcChannel implements KlientChannel {
     service: string,
     method: string,
     args: unknown[],
+    options?: CallOptions,
   ): AsyncIterable<unknown> {
     return {
       [Symbol.asyncIterator]: () => {
@@ -157,6 +158,18 @@ export class IpcChannel implements KlientChannel {
         let done = false;
         let streamId: string | undefined;
 
+        // Bound the whole iteration when the caller asked for a deadline. A
+        // stream whose terminal frame is lost (a dropped stream_end, a dead
+        // peer) otherwise waits forever; the default keeps waiting, exactly
+        // as before.
+        let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+        const clearDeadline = (): void => {
+          if (deadlineTimer !== undefined) {
+            clearTimeout(deadlineTimer);
+            deadlineTimer = undefined;
+          }
+        };
+
         const pending: PendingStream = {
           push(chunk: unknown) {
             if (done) return;
@@ -169,6 +182,7 @@ export class IpcChannel implements KlientChannel {
             }
           },
           end: () => {
+            clearDeadline();
             if (done) return;
             done = true;
             if (streamId !== undefined) this.streams.delete(streamId);
@@ -186,6 +200,7 @@ export class IpcChannel implements KlientChannel {
             waiters.length = 0;
           },
           error: (err: Error) => {
+            clearDeadline();
             if (done) return;
             done = true;
             if (streamId !== undefined) this.streams.delete(streamId);
@@ -202,6 +217,13 @@ export class IpcChannel implements KlientChannel {
             waiters.length = 0;
           },
         };
+
+        if (options?.timeoutMs !== undefined) {
+          deadlineTimer = setTimeout(() => {
+            pending.error(new RPCError(50001, `stream timed out after ${options.timeoutMs}ms`));
+          }, options.timeoutMs);
+          deadlineTimer.unref?.();
+        }
 
         // Start the stream after the handshake is done.
         let started = false;

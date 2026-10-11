@@ -7,6 +7,7 @@ import net from 'node:net';
 import type { Socket } from 'node:net';
 
 import { MiniDb } from './index.js';
+import { parseTtlMs } from './options.js';
 
 const CRLF = '\r\n';
 const NIL = `$-1${CRLF}`;
@@ -154,6 +155,11 @@ async function handle(db: MiniDb<string>, args: Buffer[]): Promise<string | Buff
         if (opt === 'EX') ttl = Number(S(++i)) * 1000;
         else if (opt === 'PX') ttl = Number(S(++i));
       }
+      // `ttl ? … : {}` used to turn NaN/0 into "no expiry": `SET k v EX abc`
+      // answered +OK and stored the key forever. Validate the same way the
+      // programmatic API does so a bad EX/PX is an error, not a silent
+      // no-op. `ttl` stays undefined when no option was given.
+      if (ttl !== undefined) parseTtlMs(ttl);
       await db.set(key, val, ttl ? { ttl } : {});
       return reply.ok();
     }

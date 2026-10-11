@@ -41,6 +41,7 @@ import type { SetOptions, BatchInputOp, PreparedOp, ValueCodecName } from './typ
 import { toBuf, toKStr, normDt, MAX_KEY_LEN } from './value-codec.js';
 import type { WalGroupTracker } from './wal-group.js';
 import type { WAL } from './wal.js';
+import { parseTtlMs } from './options.js';
 
 /** The stats counters the write path touches (a structural view of MiniDb's
  *  stats object). */
@@ -506,13 +507,14 @@ export class WritePath<V> {
     this.checkKey(key);
     const pk = toKStr(key);
     const dtNorm = normDt(dt);
-    // A TTL is encoded as an int64 in the frame, so it must be a finite integer
-    // of milliseconds. A fractional TTL is floored; a non-finite one
+    // A TTL is encoded as an int64 in the frame, so it must be a finite
+    // integer of milliseconds. A fractional TTL is floored; a non-finite one
     // (NaN / ±Infinity) is rejected up front instead of exploding inside the
-    // frame encoder with an opaque "cannot convert to BigInt" error. ttl 0 (or
-    // omitted) keeps the existing "no expiry" semantics.
-    if (ttl !== undefined && !Number.isFinite(ttl))
-      throw new RangeError('ttl must be a finite number of milliseconds');
+    // frame encoder with an opaque "cannot convert to BigInt" error. A
+    // negative TTL used to mean "already expired" and silently dropped the
+    // value on the next read, so it is rejected too. ttl 0 (or omitted) keeps
+    // the existing "no expiry" semantics.
+    parseTtlMs(ttl);
     const expireAt = ttl ? Date.now() + Math.floor(ttl) : 0;
     const vbuf = this.deps.encode(value);
     // Canonical value (stage 11): the json codec re-parses the encoded bytes
@@ -758,10 +760,10 @@ export class WritePath<V> {
       const k = toKStr(key);
       const cur = this.deps.store().getRecord(k);
       if (cur === undefined) return false;
-      // Same validation as set(): the TTL is stored as an int64, so it must be a
-      // finite integer of milliseconds (fractional values are floored).
-      if (!Number.isFinite(ttlMs))
-        throw new RangeError('ttl must be a finite number of milliseconds');
+      // Same validation as set(): the TTL is stored as an int64, so it must be
+      // a finite, non-negative integer of milliseconds (fractional values are
+      // floored, negatives are rejected).
+      parseTtlMs(ttlMs);
       const expireAt = Date.now() + Math.floor(ttlMs);
       const curValue = this.deps.store().get(k);
       if (curValue === undefined) return false;

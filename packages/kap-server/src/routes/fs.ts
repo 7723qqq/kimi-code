@@ -91,24 +91,26 @@ const sessionIdAndTailParamSchema = z.object({
   tail: z.string().min(1),
 });
 
-const fsDownloadQuerySchema = z.object({
-  runtime_id: z.string().min(1).optional(),
-});
+const fsDownloadQuerySchema = z
+  .object({
+    runtime_id: z.string().min(1).optional(),
+  })
+  .strict();
 
 const workspaceFsSearchBodySchema = fsSearchRequestSchema.extend({
   workspace: z.string().min(1),
   runtime_id: z.string().min(1).optional(),
-});
+}).strict();
 
 const workspaceFsSuggestBodySchema = fsSuggestRequestSchema.extend({
   workspace: z.string().min(1),
   runtime_id: z.string().min(1).optional(),
-});
+}).strict();
 
 const rootFsSuggestBodySchema = fsSuggestRequestSchema.extend({
   roots: z.array(z.string().min(1)).min(1).max(32),
   runtime_id: z.string().min(1).optional(),
-});
+}).strict();
 
 const detailsSchema = z.array(z.object({ path: z.string(), message: z.string() }));
 

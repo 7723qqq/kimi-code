@@ -40,6 +40,7 @@ import { ValueReader } from './value-reader.js';
 import { WAL } from './wal.js';
 import type { FsyncPolicy, WalStats } from './wal.js';
 import { wipeStoreDir } from './wipe.js';
+import { parseMiniDbOptions } from './options.js';
 
 /** The private methods the lifecycle flow calls, bound by the owner. */
 export interface LifecycleHooks {
@@ -135,26 +136,21 @@ export async function openMiniDb<V>(
   db.walPath = path.join(db.dir, WAL_FILE);
   db.indexPath = path.join(db.dir, SECONDARY_INDEXES_FILE);
   db.compoundIndexPath = path.join(db.dir, COMPOUND_INDEXES_FILE);
-  db.fsyncPolicy = opts.fsyncPolicy ?? 'everysec';
-  db.syncIntervalMs = opts.syncIntervalMs ?? 1000;
-  db.codecName = opts.valueCodec ?? 'buffer';
+  const parsed = parseMiniDbOptions(opts);
+  db.fsyncPolicy = parsed.fsyncPolicy;
+  db.syncIntervalMs = parsed.syncIntervalMs;
+  db.codecName = parsed.codecName;
   db.codec = CODECS[db.codecName] as ValueCodec<V>;
-  const valueMode: ValueModeSetting = opts.valueMode ?? 'memory';
-  if (valueMode !== 'memory' && valueMode !== 'disk' && valueMode !== 'auto') {
-    throw new RangeError(`unknown valueMode: ${String(valueMode)}`);
-  }
-  db.compactThresholdBytes = opts.compactThresholdBytes ?? db.compactThresholdBytes;
-  db.autoCompact = opts.autoCompact ?? true;
-  db.maxMemoryBytes = opts.maxMemoryBytes ?? null;
-  db.maxMemoryPolicy = opts.maxMemoryPolicy ?? 'reject';
-  db.indexGenerationsEnabled = opts.indexGenerations ?? true;
-  db.textBuildWorkerEnabled = opts.textBuildWorker ?? true;
-  db.deferTextBuildsEnabled = opts.deferOpenTextBuilds ?? true;
-  db.textBuildMemoryBytes = opts.textBuildMemoryBytes ?? db.textBuildMemoryBytes;
-  db.maintenanceIoConcurrency = Math.max(
-    1,
-    opts.maintenanceIoConcurrency ?? db.maintenanceIoConcurrency,
-  );
+  const valueMode: ValueModeSetting = parsed.valueMode;
+  db.compactThresholdBytes = parsed.compactThresholdBytes;
+  db.autoCompact = parsed.autoCompact;
+  db.maxMemoryBytes = parsed.maxMemoryBytes;
+  db.maxMemoryPolicy = parsed.maxMemoryPolicy;
+  db.indexGenerationsEnabled = parsed.indexGenerationsEnabled;
+  db.textBuildWorkerEnabled = parsed.textBuildWorkerEnabled;
+  db.deferTextBuildsEnabled = parsed.deferTextBuildsEnabled;
+  db.textBuildMemoryBytes = parsed.textBuildMemoryBytes;
+  db.maintenanceIoConcurrency = parsed.maintenanceIoConcurrency;
   if (db.textBuildMemoryBytes <= 0 || !Number.isFinite(db.textBuildMemoryBytes)) {
     throw new RangeError('textBuildMemoryBytes must be a positive finite number');
   }
@@ -260,7 +256,7 @@ export async function openMiniDb<V>(
   }
 
   db.store = new Store({
-    activeExpireIntervalMs: opts.activeExpireIntervalMs ?? 100,
+    activeExpireIntervalMs: parsed.activeExpireIntervalMs,
     onExpire: (k, rec) => hooks.onStoreExpire(k, rec),
     readValue: (loc) => {
       if (!db.valueReader) throw new Error('ValueReader is not open');
@@ -294,7 +290,7 @@ export async function openMiniDb<V>(
     // inside tryLoadGeneration — never a deletion of authoritative data.
     let generationLoaded = false;
     if (db.indexGenerationsEnabled)
-      generationLoaded = await hooks.tryLoadGeneration(opts.recovery ?? 'resync');
+      generationLoaded = await hooks.tryLoadGeneration(parsed.recovery);
 
     if (!generationLoaded) {
       // The loader already recorded a 'generation-load' attempt when it tried
@@ -306,7 +302,7 @@ export async function openMiniDb<V>(
       db.recoveryInfo = await recover({
         dir: db.dir,
         store: db.store,
-        mode: opts.recovery ?? 'resync',
+        mode: parsed.recovery,
         truncate: !db.readOnly,
         valueMode: db.valueMode,
         timings: scanApply,

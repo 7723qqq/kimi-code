@@ -55,8 +55,19 @@ export interface KlientChannel {
    * Invoke `service.method(...args)` in the given scope and return a streaming
    * result. The callee must return an `AsyncIterable`; each yielded chunk is
    * surfaced as-is (after the transport's serialization round-trip).
+   *
+   * `options.timeoutMs` bounds the whole iteration when a transport honors it
+   * (ipc); it defaults to undefined, which keeps the current behaviour of
+   * waiting indefinitely. Pass it for streams whose producer can stall — a
+   * lost terminal frame otherwise waits forever.
    */
-  stream(scope: ScopeRef, service: string, method: string, args: unknown[]): AsyncIterable<unknown>;
+  stream(
+    scope: ScopeRef,
+    service: string,
+    method: string,
+    args: unknown[],
+    options?: CallOptions,
+  ): AsyncIterable<unknown>;
   /**
    * Subscribe to an event source; `handler` receives raw wire payloads.
    * `onError` reports asynchronous subscription failures (bad source, dropped

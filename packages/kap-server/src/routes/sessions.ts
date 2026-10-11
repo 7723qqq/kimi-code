@@ -130,7 +130,7 @@ const sessionsListQueryCoercion = z
         params: { code: ErrorCode.VALIDATION_FAILED },
       });
     }
-  });
+  }).strict();
 
 const sessionIdParamSchema = z.object({
   session_id: z.string().min(1),
@@ -152,7 +152,7 @@ const sessionChildrenListQueryCoercion = z
         params: { code: ErrorCode.VALIDATION_FAILED },
       });
     }
-  });
+  }).strict();
 
 const sessionActionTailParamSchema = z.object({
   tail: z.string().min(1),
@@ -168,7 +168,7 @@ const sessionActionRequestSchema = z.preprocess(
     page_size: z.number().int().min(1).max(100).optional(),
     text: z.string().optional(),
     recent_turns: z.array(z.string()).optional(),
-  }),
+  }).strict(),
 );
 
 const detailsSchema = z.array(z.object({ path: z.string(), message: z.string() }));
@@ -559,7 +559,7 @@ export function registerSessionsRoutes(
       params: sessionIdParamSchema,
       body: z.preprocess(
         (value) => (value === undefined ? {} : value),
-        z.object({
+        z.strictObject({
           force: z.boolean().optional(),
           source: z.enum(['user_prompts', 'first_turn', 'digest']).optional(),
         }),
