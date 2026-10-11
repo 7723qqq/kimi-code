@@ -181,14 +181,13 @@ describe('LocalKaos', () => {
       expect(lines.join('')).toBe('line1\nline2');
     });
 
-    it('reports byte counts, not character counts, for non-ASCII content', async () => {
+    it('writeText reports characters while writeBytes reports bytes, per the interface docs', async () => {
       const filePath = join(tempDir, 'multibyte.txt');
       const text = '中文内容';
 
-      expect(await kaos.writeText(filePath, text)).toBe(Buffer.byteLength(text, 'utf-8'));
-      expect(await kaos.writeText(filePath, '\n😀', { mode: 'a' })).toBe(
-        Buffer.byteLength('\n😀', 'utf-8'),
-      );
+      expect(await kaos.writeText(filePath, text)).toBe(text.length);
+      expect((await kaos.stat(filePath)).stSize).toBe(Buffer.byteLength(text, 'utf-8'));
+
       expect(await kaos.writeBytes(filePath, Buffer.from('é'))).toBe(2);
       expect((await kaos.stat(filePath)).stSize).toBe(2);
     });

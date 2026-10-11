@@ -45,12 +45,27 @@ const CACHEABLE_TYPES = new Set([
 
 function injectCacheControlOnLastBlock(messages: AnthropicWireMessage[]): void {
   const lastMessage = messages.at(-1);
-  if (lastMessage === undefined) return;
-  const content = messageContent(lastMessage);
-  const lastBlock = content.at(-1);
-  if (lastBlock === undefined) return;
-  if (CACHEABLE_TYPES.has(lastBlock.type)) {
-    lastBlock.cache_control = CACHE_CONTROL;
+  if (lastMessage !== undefined) {
+    const content = messageContent(lastMessage);
+    const lastBlock = content.at(-1);
+    if (lastBlock !== undefined && CACHEABLE_TYPES.has(lastBlock.type)) {
+      lastBlock.cache_control = CACHE_CONTROL;
+    }
+  }
+
+  if (messages.length >= 4) {
+    const stableMessage = messages[messages.length - 3];
+    if (stableMessage !== undefined) {
+      const content = messageContent(stableMessage);
+      const stableBlock = content.at(-1);
+      if (
+        stableBlock !== undefined &&
+        CACHEABLE_TYPES.has(stableBlock.type) &&
+        stableBlock.cache_control === undefined
+      ) {
+        stableBlock.cache_control = CACHE_CONTROL;
+      }
+    }
   }
 }
 

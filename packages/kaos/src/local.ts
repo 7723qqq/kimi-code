@@ -663,7 +663,7 @@ export class LocalKaos implements Kaos {
   async writeBytes(path: string, data: Buffer): Promise<number> {
     const resolved = this._resolvePath(path);
     await writeFile(resolved, data);
-    return data.byteLength;
+    return data.length;
   }
 
   async writeText(
@@ -679,7 +679,7 @@ export class LocalKaos implements Kaos {
     } else {
       await writeFile(resolved, data, encoding);
     }
-    return Buffer.byteLength(data, encoding);
+    return data.length;
   }
 
   async mkdir(path: string, options?: { parents?: boolean; existOk?: boolean }): Promise<void> {

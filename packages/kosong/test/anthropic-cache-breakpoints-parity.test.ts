@@ -31,38 +31,53 @@ function markedIndexes(list: Message[]): number[] {
 }
 
 // The two Anthropic providers keep separate copies of the breakpoint rule
-// (kosong is a frozen kernel and agent-core-v2 may not import it). This file
-// pins the DELIBERATE difference so neither side drifts silently: kosong marks
-// the tail plus one stable-history message (four cache_control slots: system,
-// tools, history, tail), while the v2 requester marks the tail only.
+// (kosong is a frozen kernel and agent-core-v2 may not import it). Both must
+// mark the tail AND a stable-history breakpoint — the second one is what keeps
+// a long conversation's prefix cached as new turns are appended, and the v2
+// requester lost it once when its provider moved (see
+// .changeset/v2-anthropic-cache-breakpoint.md). This file asserts they AGREE,
+// so the next move that drops one is a test failure rather than a quiet cache
+// regression.
 describe('anthropic cache breakpoints: kosong vs agent-core-v2', () => {
-  it('kosong marks the tail plus a stable history breakpoint on a long conversation', () => {
-    const list = messages(6);
-    injectKosong(list as never);
-    expect(markedIndexes(list)).toEqual([3, 5]);
+  function markV2(list: Message[]): number[] {
+    assembleAnthropicRequest(
+      { model: { model: 'claude-test' } } as never,
+      {
+        messages: list,
+        tools: [],
+        systemPrompt: undefined,
+        kwargs: {},
+        betas: [],
+        useBetaApi: false,
+      } as never,
+    );
+    return markedIndexes(list);
+  }
+
+  it('both sides mark the tail plus a stable history breakpoint on a long conversation', () => {
+    const kosongList = messages(6);
+    injectKosong(kosongList as never);
+    expect(markedIndexes(kosongList)).toEqual([3, 5]);
+
+    const v2List = messages(6);
+    expect(markV2(v2List)).toEqual([3, 5]);
   });
 
-  it('kosong marks only the tail on a short conversation', () => {
-    const list = messages(3);
-    injectKosong(list as never);
-    expect(markedIndexes(list)).toEqual([2]);
+  it('both sides mark only the tail on a short conversation', () => {
+    const kosongList = messages(3);
+    injectKosong(kosongList as never);
+    expect(markedIndexes(kosongList)).toEqual([2]);
+
+    const v2List = messages(3);
+    expect(markV2(v2List)).toEqual([2]);
   });
 
-  it('v2 marks the tail only, at every length', () => {
-    for (const count of [1, 3, 6]) {
-      const list = messages(count);
-      assembleAnthropicRequest(
-        { model: { model: 'claude-test' } } as never,
-        {
-          messages: list,
-          tools: [],
-          systemPrompt: undefined,
-          kwargs: {},
-          betas: [],
-          useBetaApi: false,
-        } as never,
-      );
-      expect(markedIndexes(list), `length ${count}`).toEqual([count - 1]);
+  it('both sides agree at every length', () => {
+    for (const count of [1, 2, 3, 4, 5, 6, 10]) {
+      const kosongList = messages(count);
+      injectKosong(kosongList as never);
+      const v2List = messages(count);
+      expect(markV2(v2List), `length ${count}`).toEqual(markedIndexes(kosongList));
     }
   });
 
