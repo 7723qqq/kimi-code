@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { extractUsage } from '#/providers/openai-common';
+import { extractAnthropicUsage } from '#/providers/anthropic-usage';
 
 // The v2 engine's OpenAI-compatible usage reader. Imported by relative path on
 // purpose: the two engines have separate copies of this rule and no shared
@@ -10,6 +11,8 @@ import { extractUsage } from '#/providers/openai-common';
 // direction too), which is exactly why the agreement is asserted from outside
 // both rather than enforced by a single implementation.
 import { parseOpenAIUsage } from '../../agent-core-v2/src/human/llm/requester/bases/openai/usage';
+import type { StreamParseSink } from '../../agent-core-v2/src/human/llm/protocol/format';
+import { anthropicFormat } from '../../agent-core-v2/src/human/llm/requester/bases/anthropic/format';
 
 interface Case {
   readonly name: string;
@@ -141,5 +144,115 @@ describe('deepseek cache-field classification agrees across engines', () => {
       const prompt = testCase.usage['prompt_tokens'] as number;
       expect(engine!.inputCacheRead + engine!.inputOther).toBeLessThanOrEqual(prompt);
     }
+  });
+});
+
+interface AnthropicCase {
+  readonly name: string;
+  readonly type: 'message_start' | 'message_delta';
+  readonly usage: Record<string, number>;
+  readonly inputOther: number;
+  readonly output: number;
+  readonly cacheRead: number;
+  readonly cacheCreation: number;
+}
+
+/**
+ * Anthropic's cache fields are SIBLINGS of `input_tokens`, not parts of it — a
+ * real capture reads `input_tokens: 11` next to `cache_read_input_tokens: 1434`.
+ * Both readers must therefore copy every field verbatim; the sum is allowed to
+ * exceed `input_tokens`, and asserting that here is what stops anyone from
+ * reintroducing the subtraction that drove cache-hit turns to 0.
+ */
+const ANTHROPIC_CASES: readonly AnthropicCase[] = [
+  {
+    name: 'real capture: cache read dwarfs input_tokens',
+    type: 'message_start',
+    usage: {
+      input_tokens: 11,
+      output_tokens: 1,
+      cache_read_input_tokens: 1434,
+      cache_creation_input_tokens: 0,
+    },
+    inputOther: 11,
+    output: 1,
+    cacheRead: 1434,
+    cacheCreation: 0,
+  },
+  {
+    name: 'message_start with all three split fields',
+    type: 'message_start',
+    usage: { input_tokens: 10, cache_read_input_tokens: 3, cache_creation_input_tokens: 2 },
+    inputOther: 10,
+    output: 0,
+    cacheRead: 3,
+    cacheCreation: 2,
+  },
+  {
+    name: 'message_delta with every counter present',
+    type: 'message_delta',
+    usage: {
+      output_tokens: 42,
+      cache_read_input_tokens: 55,
+      cache_creation_input_tokens: 25,
+      input_tokens: 105,
+    },
+    inputOther: 105,
+    output: 42,
+    cacheRead: 55,
+    cacheCreation: 25,
+  },
+];
+
+function engineAnthropicUsage(testCase: AnthropicCase): Record<string, number> {
+  const patch: Record<string, number> = {};
+  const sink: StreamParseSink = {
+    onDelta: () => {},
+    onFinish: () => {},
+    onUsage: (usage) => {
+      for (const [key, value] of Object.entries(usage)) {
+        if (typeof value === 'number') patch[key] = value;
+      }
+    },
+  };
+  const chunk =
+    testCase.type === 'message_start'
+      ? { type: 'message_start', message: { id: 'msg_parity', usage: testCase.usage } }
+      : { type: 'message_delta', delta: {}, usage: testCase.usage };
+  anthropicFormat.createStreamParser()(chunk as never, sink);
+  return patch;
+}
+
+describe('anthropic cache-field classification agrees across engines', () => {
+  for (const testCase of ANTHROPIC_CASES) {
+    it(testCase.name, () => {
+      const kosong = extractAnthropicUsage(testCase.usage as never);
+      const engine = engineAnthropicUsage(testCase);
+
+      expect(kosong).toEqual({
+        inputOther: testCase.inputOther,
+        output: testCase.output,
+        inputCacheRead: testCase.cacheRead,
+        inputCacheCreation: testCase.cacheCreation,
+      });
+      expect(engine['inputOther']).toBe(testCase.inputOther);
+      expect(engine['inputCacheRead']).toBe(testCase.cacheRead);
+      expect(engine['inputCacheCreation']).toBe(testCase.cacheCreation);
+      // The engine suppresses `output` on `message_start` (the v2 parser deletes
+      // the field for that event); the delta event carries the output count.
+      if (testCase.type === 'message_delta') {
+        expect(engine['output']).toBe(testCase.output);
+      }
+      expect(engine['inputOther']).toBe(kosong.inputOther);
+      expect(engine['inputCacheRead']).toBe(kosong.inputCacheRead);
+    });
+  }
+
+  it('allows inputOther + cache fields to exceed input_tokens', () => {
+    // The whole point of the fix: these are siblings. Any reader that keeps
+    // the sum inside `input_tokens` is subtracting again.
+    const captured = ANTHROPIC_CASES[0]!;
+    const kosong = extractAnthropicUsage(captured.usage as never);
+    expect(kosong.inputOther + kosong.inputCacheRead).toBeGreaterThan(captured.usage['input_tokens']!);
   });
 });

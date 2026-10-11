@@ -1,3 +1,4 @@
+import { once } from 'node:events';
 import { PassThrough } from 'node:stream';
 import { setImmediate as defer, setTimeout as delay } from 'node:timers/promises';
 
@@ -103,6 +104,65 @@ describe('BufferedReadable', () => {
     buffered.destroy();
 
     expect(source.destroyed).toBe(true);
+  });
+
+  it('keeps an awaiting consumer in charge of the pacing instead of draining on the liveness timer', async () => {
+    // Regression guard for e0bceecd22: the liveness timer used to resume the
+    // source unconditionally, which cancelled the consumer's backpressure and
+    // buffered the entire output (audit probe: 65 KiB -> 9.6 MiB in 1.5 s).
+    const source = new PassThrough();
+    const buffered = new BufferedReadable(source);
+    const chunk = Buffer.alloc(256 * 1024, 0x63);
+    const total = 24;
+    let peakBuffered = 0;
+    let resolved = false;
+
+    const produce = (async () => {
+      for (let index = 0; index < total; index++) {
+        if (!source.write(chunk)) {
+          await once(source, 'drain');
+        }
+      }
+      source.end();
+    })();
+
+    const consume = (async () => {
+      // `for await` sets the stream flowing, so the consumer is "arrived";
+      // the awaits between chunks are what used to lose the pacing race.
+      for await (const _chunk of buffered) {
+        peakBuffered = Math.max(peakBuffered, buffered.readableLength);
+        await delay(200);
+      }
+      resolved = true;
+    })();
+
+    await delay(1500);
+    const sampled = buffered.readableLength;
+    const atCeiling = sampled >= 8 * 1024 * 1024;
+
+    expect(resolved).toBe(false);
+    expect(atCeiling).toBe(false);
+    expect(peakBuffered).toBeLessThanOrEqual(2 * 1024 * 1024 + chunk.length);
+
+    await withTimeout(Promise.all([produce, consume]), 30_000);
+  });
+
+  it('stops prefetching at the buffer ceiling when nobody reads at all', async () => {
+    const source = new PassThrough();
+    const buffered = new BufferedReadable(source);
+    const chunk = Buffer.alloc(256 * 1024, 0x64);
+    const total = 60; // 15 MiB, comfortably above the 8 MiB ceiling
+
+    for (let index = 0; index < total; index++) {
+      source.write(chunk);
+    }
+
+    await delay(1500);
+
+    expect(buffered.readableLength).toBeLessThanOrEqual(8 * 1024 * 1024 + chunk.length);
+
+    buffered.destroy();
+    source.destroy();
   });
 });
 

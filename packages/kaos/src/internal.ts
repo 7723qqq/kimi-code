@@ -269,6 +269,13 @@ export function globPatternToRegex(pattern: string, caseSensitive: boolean): Reg
 const RESUME_LIVENESS_MS = 10;
 
 /**
+ * Hard ceiling for the liveness prefetch: once this much sits in the buffer
+ * with nobody reading, the timer stops re-arming instead of buffering the
+ * whole output.
+ */
+const MAX_BUFFERED_BYTES = 8 * 1024 * 1024;
+
+/**
  * A Readable wrapper that preserves source backpressure while still allowing
  * consumers to read buffered output after the source has ended.
  * @internal
@@ -276,6 +283,12 @@ const RESUME_LIVENESS_MS = 10;
 export class BufferedReadable extends Readable {
   private readonly _source: Readable;
   private _ended: boolean = false;
+  /**
+   * True once a real consumer reached `_read()`. Node only calls it when a
+   * reader exists (`read()`, `for await`, `pipe`), so it is the signal that
+   * the consumer — not the liveness timer — owns the pacing.
+   */
+  private _consumerArrived: boolean = false;
   /** Liveness fallback: set while the source is paused with nobody reading. */
   private _resumeTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -293,10 +306,23 @@ export class BufferedReadable extends Readable {
   override _read(): void {
     // A real consumer arrived: stop the liveness timer, it would fight the
     // consumer's own pacing.
+    this._consumerArrived = true;
     this._clearResume();
     if (!this._ended && !this.destroyed) {
       this._source.resume();
     }
+  }
+
+  /**
+   * True while a consumer is attached but `_read()` has not run yet (the
+   * listener/data-mode window). Neither pacing source should act blindly
+   * there, so it counts as "consumer present".
+   */
+  private _hasReadableConsumer(): boolean {
+    return (
+      this.listenerCount('readable') + this.listenerCount('data') > 0 ||
+      this.readableFlowing !== null
+    );
   }
 
   /**
@@ -308,11 +334,14 @@ export class BufferedReadable extends Readable {
    * and `wait()` never settles. The timer keeps the source moving, so the
    * child finishes and the output waits in this Readable's buffer — which is
    * what "read buffered output after the source has ended" promises anyway.
+   * It stops re-arming once the buffer hits {@link MAX_BUFFERED_BYTES}, so the
+   * unbounded case degrades to backpressure rather than to OOM.
    */
   private _armResume(): void {
     if (this._resumeTimer !== undefined) return;
     this._resumeTimer = setTimeout(() => {
       this._resumeTimer = undefined;
+      if (this.readableLength >= MAX_BUFFERED_BYTES) return;
       if (!this._ended && !this.destroyed) {
         this._source.resume();
       }
@@ -339,7 +368,14 @@ export class BufferedReadable extends Readable {
   private readonly _onData = (chunk: string | Uint8Array): void => {
     if (!this.push(chunk)) {
       this._source.pause();
-      this._armResume();
+      // Only the "nobody is reading yet" case needs the liveness fallback:
+      // with a consumer attached, its own `_read()` drives the source (this is
+      // what `_read()`'s resume is for). Arming unconditionally would resume
+      // every 10 ms from under an awaiting consumer and buffer the whole
+      // output.
+      if (!this._consumerArrived && !this._hasReadableConsumer()) {
+        this._armResume();
+      }
     }
   };
 

@@ -2916,7 +2916,7 @@ describe('AnthropicChatProvider', () => {
         },
       ]);
       expect(stream.usage).toEqual({
-        inputOther: 10,
+        inputOther: 15,
         output: 10,
         inputCacheRead: 5,
         inputCacheCreation: 0,
@@ -2959,7 +2959,7 @@ describe('AnthropicChatProvider', () => {
       ]);
       expect(result.id).toBe('msg_stream_001');
       expect(result.usage).toEqual({
-        inputOther: 5,
+        inputOther: 10,
         output: 5,
         inputCacheRead: 3,
         inputCacheCreation: 2,
@@ -3335,7 +3335,7 @@ describe('AnthropicChatProvider', () => {
       await collectParts(result);
 
       expect(result.usage).toEqual({
-        inputOther: 25,
+        inputOther: 105,
         output: 42,
         inputCacheRead: 55,
         inputCacheCreation: 25,

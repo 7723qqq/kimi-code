@@ -1,10 +1,12 @@
 import { Readable } from 'node:stream';
 
 const RESUME_LIVENESS_MS = 10;
+const MAX_BUFFERED_BYTES = 8 * 1024 * 1024;
 
 export class BufferedReadable extends Readable {
   private readonly _source: Readable;
   private _ended: boolean = false;
+  private _consumerArrived: boolean = false;
   private _resumeTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(source: Readable) {
@@ -17,16 +19,25 @@ export class BufferedReadable extends Readable {
   }
 
   override _read(): void {
+    this._consumerArrived = true;
     this._clearResume();
     if (!this._ended && !this.destroyed) {
       this._source.resume();
     }
   }
 
+  private _hasReadableConsumer(): boolean {
+    return (
+      this.listenerCount('readable') + this.listenerCount('data') > 0 ||
+      this.readableFlowing !== null
+    );
+  }
+
   private _armResume(): void {
     if (this._resumeTimer !== undefined) return;
     this._resumeTimer = setTimeout(() => {
       this._resumeTimer = undefined;
+      if (this.readableLength >= MAX_BUFFERED_BYTES) return;
       if (!this._ended && !this.destroyed) {
         this._source.resume();
       }
@@ -54,7 +65,9 @@ export class BufferedReadable extends Readable {
   private readonly _onData = (chunk: string | Uint8Array): void => {
     if (!this.push(chunk)) {
       this._source.pause();
-      this._armResume();
+      if (!this._consumerArrived && !this._hasReadableConsumer()) {
+        this._armResume();
+      }
     }
   };
 
