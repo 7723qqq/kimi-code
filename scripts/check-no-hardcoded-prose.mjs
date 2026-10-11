@@ -38,7 +38,6 @@ const BASELINE_PATH = join(ROOT, 'scripts/no-hardcoded-prose-baseline.txt');
 const ROOTS = [
   'apps/kimi-code/src/tui',
   'apps/kimi-code/src/cli',
-  'apps/kimi-web/src',
   'apps/kimi-inspect/src',
   'apps/vscode/src',
   'apps/vscode/webview-ui/src',

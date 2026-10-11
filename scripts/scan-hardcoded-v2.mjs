@@ -62,17 +62,6 @@ const MODULES = [
     tImportName: 't',
   },
   {
-    name: 'kimi-web',
-    srcDir: 'apps/kimi-web/src',
-    localeDir: 'apps/kimi-web/src/i18n/locales',
-    localeKind: 'dir',
-    tPattern: /\$t\(['"]/,
-    importPattern: /useI18n/,
-    skipDirs: ['i18n'],
-    fileTypes: ['.ts', '.tsx', '.vue'],
-    tImportName: '$t',
-  },
-  {
     name: 'kimi-inspect',
     srcDir: 'apps/kimi-inspect/src',
     localeDir: 'apps/kimi-inspect/src/i18n/locales',
@@ -155,37 +144,12 @@ function collectLeaves(obj, prefix = '') {
 }
 
 /**
- * Merge every per-section TS locale file under `locales/<lang>/*.ts` into a
- * single object (used by modules whose locales are split into section files,
- * e.g. kimi-web).
- */
-async function loadLocaleDir(modInfo, lang) {
-  const dir = resolve(ROOT, join(modInfo.localeDir, lang));
-  const merged = {};
-  // Sections share common keys (title, close, output, ...), so merge order
-  // decides which value survives; readdir order differs between node and bun,
-  // so sort the entries to keep the merged map runtime-independent.
-  const entries = readdirSync(dir, { withFileTypes: true }).sort((a, b) => (a.name < b.name ? -1 : 1));
-  for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith('.ts')) continue;
-    const mod = await loadTSModule(join(dir, entry.name));
-    const data = mod?.default ?? mod;
-    if (data !== null && typeof data === 'object') Object.assign(merged, data);
-  }
-  return merged;
-}
-
-/**
  * Extract locale values from a TS module or JSON file.
  */
 async function extractLocaleValues(modInfo) {
   let enData, zhData;
 
-  if (modInfo.localeKind === 'dir') {
-    // Directory of per-section TS files — merge the sections.
-    enData = await loadLocaleDir(modInfo, 'en');
-    zhData = await loadLocaleDir(modInfo, 'zh');
-  } else if (modInfo.localeIsJson) {
+  if (modInfo.localeIsJson) {
     // JSON files — load directly
     const enPath = resolve(ROOT, modInfo.localeEn);
     const zhPath = resolve(ROOT, modInfo.localeZh);
@@ -273,7 +237,7 @@ function scanFile(filePath, content, moduleInfo, valueToKeys, valueRegexes) {
         if (regexes.tCall.test(trimmed)) continue; // already using t()
 
         // Check if this line IS the locale definition itself
-        if (relPath.includes(moduleInfo.name === 'kimi-web' ? '/locales/' : '/i18n')) continue;
+        if (relPath.includes('/i18n')) continue;
 
         // Skip if it's in an import/require
         if (/^(import|require|from|export)/.test(trimmed)) continue;

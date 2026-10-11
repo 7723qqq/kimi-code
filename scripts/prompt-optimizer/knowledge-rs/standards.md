@@ -52,14 +52,6 @@ CLI/TUI 应用通过 `@moonshot-ai/kimi-code-sdk` 消费核心能力，不可直
 
 ---
 
-# architecture: apps/kimi-web 不能依赖 agent-core
-tags: dependency, kimi-web, agent-core
-scope: apps/kimi-web/
-
-Web UI 不依赖 `@moonshot-ai/agent-core-v2`，wire types 在本地重新实现。
-
----
-
 # architecture: Agent 的上下文与生命周期分离
 tags: agent-core, session, lifecycle
 scope: packages/agent-core-v2/src/agent/agentContext/
@@ -128,7 +120,7 @@ scope:
 tags: nix, ci, workspace
 scope: 
 
-`scripts/check-nix-workspace.mjs` 只验证 `@moonshot-ai/kimi-code` 的依赖闭包。闭包外的叶子包（如 `apps/kimi-web`，根本不在 workspace 里）即使缺失也不会报错。不能依赖绿色 CI 判断 flake.nix 是否完整。
+`scripts/check-nix-workspace.mjs` 只验证 `@moonshot-ai/kimi-code` 的依赖闭包。闭包外的叶子包（如 `apps/kimi-inspect`、`apps/vscode`）即使缺失也不会报错。不能依赖绿色 CI 判断 flake.nix 是否完整。
 
 ---
 

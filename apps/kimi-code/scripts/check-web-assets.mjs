@@ -1,10 +1,9 @@
 // Verify the prebuilt web bundle is present before packaging.
 //
-// This repo also carries its own Vue 3 web UI source in apps/kimi-web (a fork
-// addition), and the built bundle is committed under apps/kimi-code/dist-web.
-// This script replaces the old copy-from-source step — it checks that the
-// committed bundle is in place and every asset referenced by index.html exists,
-// so a packaging run never silently ships a broken or missing web UI.
+// The built bundle is committed under apps/kimi-code/dist-web. This script
+// replaces the old copy-from-source step — it checks that the committed bundle
+// is in place and every asset referenced by index.html exists, so a packaging
+// run never silently ships a broken or missing web UI.
 
 import { readFile, readdir, stat } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';

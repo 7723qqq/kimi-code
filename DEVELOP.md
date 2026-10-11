@@ -48,7 +48,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 |------|---------|
 | **Bun** >= 1.4 | Package manager and script runner (hoisted workspace via root package.json; `bun.lock` is the lockfile). Also compiles the release binary (`build-bun.mjs`) |
 | **tsdown** 0.22.0 | ESM bundler for TypeScript packages |
-| **vite** 6.x | Web app bundler (kimi-web, vis-web, vscode webview) |
+| **vite** 6.x | Web app bundler (vis-web, vscode webview) |
 | **Cargo** | Rust build for `kimi-native-tools` and `kimi-agent` (napi-rs) |
 | **Nix flake** | Reproducible builds for Linux/macOS |
 
@@ -75,7 +75,6 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 ```
 apps/
   kimi-code/        — Main CLI / TUI application (entry point, incl. dist-web web bundle)
-  kimi-web/         — Vue 3 Web UI (fork addition; excluded from the root Bun workspace; standalone Bun install via its own bun.lock)
   vscode/           — VS Code extension (React 19 webview)
   kimi-inspect/     — Web inspector for kap-server /api/v1/debug RPC surface
   vis/              — Session replay & debugging visualizer
@@ -126,9 +125,9 @@ src/
 | Native prebuilds | `apps/kimi-code/native/` |
 | Native binary (Bun single-file) | `apps/kimi-code/dist-native/bin/` |
 
-#### Web UI (`apps/kimi-code/dist-web` + `apps/kimi-web`)
+#### Web UI (`apps/kimi-code/dist-web`)
 
-The shipped `apps/kimi-code/dist-web` bundle is a committed, prebuilt bundle synced from the code-app repo; the fork also carries its own Vue 3 web UI source in `apps/kimi-web` (excluded from the workspace, see below). To hack on the web UI against this repo's server, run `bun run dev:server` here and point the web UI dev server at it via `KIMI_SERVER_URL`.
+The shipped `apps/kimi-code/dist-web` bundle is a committed, prebuilt bundle synced from the code-app repo. To hack on the web UI against this repo's server, run `bun run dev:server` here and point the web UI dev server at it via `KIMI_SERVER_URL`.
 
 **Sync convention: replace, never overlay.** A Vite build emits content-hashed filenames, so copying a new bundle over the old one leaves every previous generation behind — the directory once accumulated 616 files / 44 MB across a dozen stale entry chunks, and nothing in the repo detected it because `scripts/check-web-assets.mjs` only verifies that the assets `index.html` names still exist. Delete `apps/kimi-code/dist-web/` first, then copy the fresh bundle in, then commit; the diff should show the old generation removed, not merely a new one added. To audit an existing directory, walk reachability from `index.html` (and `boot.js`) and delete what the walk cannot reach — a reference *count* is not enough, since a whole dead generation cross-references itself.
 
@@ -344,7 +343,6 @@ bun run dev:cli               # BROKEN under Bun 1.4.2: it executes src/main.ts,
                               # the first `#/` import aborts with "Cannot find module '#/kimi-harness'".
                               # Node resolves those, and `bunx tsx` proves it, but main.ts hard-exits
                               # on a non-Bun runtime — so neither runtime can run the source path.
-cd apps/kimi-web && bun run dev # Run web UI in dev mode (standalone Bun install via apps/kimi-web/bun.lock)
 bun run dev:server            # Run server in dev mode
 bun run test                  # Run all tests (vitest)
 bun run test:watch            # Watch mode
@@ -393,10 +391,6 @@ bun run build:native:bun:release  # Full release build (from apps/kimi-code)
 cd apps/vscode && bun run build
 cd apps/vscode && bun run test
 cd apps/vscode && bun run package:platform     # Produce .vsix
-
-# Web UI (standalone Bun install via apps/kimi-web/bun.lock)
-cd apps/kimi-web && bun run build
-cd apps/kimi-web && bun run dev
 ```
 
 To run a local build inside `~/.kimi-code/` instead of the released binary (PowerShell on Windows, bash on Linux), see [`CONTRIBUTING.md` → "Deploy to local `.kimi-code` for testing"](CONTRIBUTING.md#deploy-to-local-kimi-code-for-testing).
@@ -408,12 +402,11 @@ GitHub Actions (`ci.yml`) runs on every PR and push to `main`. Every job install
 2. **test** — `bun --bun run test` (vitest under the Bun runtime) split across 5 parallel shards on Ubuntu
 3. **test-pi-tui** — `pi-tui` suite (dispatches to `bun test` under Bun, `node --test` under Node)
 4. **test-minidb** — `minidb` suite, which the root vitest projects exclude
-5. **test-kimi-web** — `apps/kimi-web` typecheck, tests, and style check (the app sits outside the root workspace)
-6. **lint** — `bun run lint` (oxlint --type-aware), `bun run sherif`, engine boundaries (`check:deep-imports`, then `check:boundaries`), locale key parity (`check-locale-keys.mjs`), locale placeholder validity (`check-locale-placeholders.cjs`), and `t()` call-site coverage (`check-t-call-coverage.mjs`)
-7. **typecheck** — TypeScript check across all packages (`tsgo` from `@typescript/native-preview`, run via `bunx --bun`)
-8. **review** — `zig build` and `zig build test` in `tools/review` (Zig installed via
+5. **lint** — `bun run lint` (oxlint --type-aware), `bun run sherif`, engine boundaries (`check:deep-imports`, then `check:boundaries`), locale key parity (`check-locale-keys.mjs`), locale placeholder validity (`check-locale-placeholders.cjs`), and `t()` call-site coverage (`check-t-call-coverage.mjs`)
+6. **typecheck** — TypeScript check across all packages (`tsgo` from `@typescript/native-preview`, run via `bunx --bun`)
+7. **review** — `zig build` and `zig build test` in `tools/review` (Zig installed via
    `mlugg/setup-zig`), then the structural checks described under "Structural review" above
-9. **test-rust** — `cargo test --offline` for both Rust crates (`kimi-native-tools`,
+8. **test-rust** — `cargo test --offline` for both Rust crates (`kimi-native-tools`,
    `kimi-agent`); every other job is Bun-only and installs no Rust toolchain
 
 `ci.yml` also carries a `test-windows` job (the full suite on Windows). It is parked with `if: false` while Windows tests are stabilized, so it is not part of the pre-merge pipeline.
@@ -532,7 +525,6 @@ review:
 | --- | --- | --- |
 | `apps/kimi-code/src/i18n/locales` | CLI/TUI copy, `errorCodes.*` (the error-code display contract) | TUI maintainers |
 | `packages/i18n/src/locales` | engine-side strings reached through `@moonshot-ai/kimi-i18n` | engine maintainers |
-| `apps/kimi-web/src/i18n/locales` | web UI (installs separately; see its own `DEVELOP.md`) | web maintainers |
 | `apps/kimi-inspect/src/i18n/locales`, `apps/vis/web/src/i18n/locales`, `apps/vscode/webview-ui/src/i18n/locales` | developer-facing tools | tool maintainers |
 
 The count to watch is the prose ledger, not the number of locale keys: a shrinking ledger means
@@ -617,7 +609,7 @@ Two dependencies are deliberately removed: `ssh2@1.17.0>cpu-features` and `ssh2@
 
 ## Monorepo Workspace Maintenance
 
-- **The `workspaces` field in the root `package.json`** is the source of truth for workspace membership. Globs: `packages/*`, `apps/*` (minus `!apps/kimi-web`), `apps/vis/server`, `apps/vis/web`, and `docs`.
+- **The `workspaces` field in the root `package.json`** is the source of truth for workspace membership. Globs: `packages/*`, `apps/*`, `apps/vis/server`, `apps/vis/web`, and `docs`.
 - **`flake.nix`** also contains a hardcoded `workspacePaths` list that must be manually kept in sync.
 - **Whenever you add or remove a workspace package, you MUST update both the root `package.json` and `flake.nix`** — for every package, including leaf / test / e2e packages that nothing depends on.
   - Missing a path in `flake.nix`'s `workspacePaths` silently drops files from the Nix build's `src` fileset.

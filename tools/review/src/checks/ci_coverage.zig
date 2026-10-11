@@ -260,5 +260,4 @@ test "typecheckCovers honours both the filter glob and the literal cd path" {
     try testing.expect(typecheckCovers(script, "apps/kimi-code"));
     try testing.expect(typecheckCovers(script, "apps/vscode"));
     try testing.expect(!typecheckCovers(script, "apps/kimi-inspect"));
-    try testing.expect(!typecheckCovers(script, "apps/kimi-web"));
 }

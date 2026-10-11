@@ -112,7 +112,6 @@ const testing = std.testing;
 test "isSource keeps package and app sources and drops declarations" {
     try testing.expect(isSource("packages/kosong/src/index.ts"));
     try testing.expect(isSource("apps/kimi-code/src/main.ts"));
-    try testing.expect(isSource("apps/kimi-web/src/App.vue"));
     try testing.expect(!isSource("packages/kosong/src/types.d.ts"));
     try testing.expect(!isSource("scripts/thing.ts"));
 }

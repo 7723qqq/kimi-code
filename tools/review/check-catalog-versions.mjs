@@ -16,10 +16,6 @@ import { join, relative, resolve } from 'node:path';
 
 const REPO_ROOT = resolve(import.meta.dirname, '..', '..');
 
-/// `apps/kimi-web` installs from its own lockfile outside the root workspace,
-/// so `catalog:` does not resolve there and its ranges are its own business.
-const OUTSIDE_WORKSPACE = ['apps/kimi-web/'];
-
 const SECTIONS = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'];
 
 function workspaceManifests() {
@@ -46,7 +42,6 @@ export function findViolations() {
 
   for (const manifest of workspaceManifests()) {
     const rel = relative(REPO_ROOT, manifest);
-    if (OUTSIDE_WORKSPACE.some((p) => rel.startsWith(p))) continue;
 
     const pkg = JSON.parse(readFileSync(manifest, 'utf8'));
     for (const section of SECTIONS) {

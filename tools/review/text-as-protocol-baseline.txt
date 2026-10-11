@@ -34,15 +34,7 @@ packages/agent-core-v2/src/features/notify/sessionNotify.ts  1
 # git's own branch/summary output.
 packages/agent-core-v2/src/app/git/gitParsers.ts  2
 
-# `git diff` markers.
-apps/kimi-web/src/lib/parseDiff.ts  1
-
 # The TUI reading back a sentence the engine wrote (plan-mode exit). Cross-layer
 # and the reason this check exists; kept visible rather than hidden, and listed
 # because it cannot be fixed without an engine-side marker.
 apps/kimi-code/src/tui/components/messages/tool-call.ts  1
-
-# kimi-web writes `Calling ${label}` in its own projector
-# (api/daemon/agentEventProjector.ts) and re-parses the same prefix here to
-# group the lines back into calls — a round trip through a rendered sentence.
-apps/kimi-web/src/components/chat/AgentDetailPanel.vue  1

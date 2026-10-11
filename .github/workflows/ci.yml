@@ -102,28 +102,6 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: cd packages/minidb && bun --bun run test
 
-  # apps/kimi-web is excluded from the root Bun workspace (standalone install
-  # via its own bun.lock), so the root suite never sees it.
-  test-kimi-web:
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: 1.4.2
-
-      - uses: actions/cache@v4
-        with:
-          path: ~/.bun/install/cache
-          key: bun-${{ runner.os }}-kimi-web-${{ hashFiles('apps/kimi-web/bun.lock') }}
-
-      - run: cd apps/kimi-web && bun install --frozen-lockfile
-      - run: cd apps/kimi-web && bun --bun run typecheck
-      - run: cd apps/kimi-web && bun --bun run test
-      - run: cd apps/kimi-web && bun --bun run check:style
-
   test-windows:
     runs-on: windows-latest
     # Temporarily disabled while Windows tests are being stabilized.

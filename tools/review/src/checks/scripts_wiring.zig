@@ -19,8 +19,8 @@ const LIFECYCLE_SCRIPTS = [_][]const u8{
     "posttest",    "pretypecheck", "posttypecheck",
 };
 
-/// `apps/kimi-web` is outside the root workspace and installs on its own, so a
-/// root script that means "run this here" is written as `cd apps/kimi-web`.
+/// A root script that means "run this in a package" is written as
+/// `cd <package dir> && bun run <script>` (e.g. `cd apps/kimi-code && bun run dev`).
 const SKIP_DIRS = [_][]const u8{
     "node_modules", "dist",     "dist-web", "dist-native", "coverage",
     ".git",         ".zig-cache", "zig-out",  "target",      "参考目录",
@@ -110,7 +110,6 @@ fn collectPackages(ctx: *check.Context, alloc: std.mem.Allocator) ![]const Packa
 
     const candidates = [_][]const u8{
         "package.json",
-        "apps/kimi-web/package.json",
         "apps/vis/server/package.json",
         "apps/vis/web/package.json",
         "docs/package.json",
@@ -122,7 +121,8 @@ fn collectPackages(ctx: *check.Context, alloc: std.mem.Allocator) ![]const Packa
 
     // `packages/*` and `apps/*` are enumerated from the filesystem rather than
     // from the `workspaces` globs, so a member the globs forget is still
-    // reviewed. `apps/vis` and `apps/kimi-web` are already covered above.
+    // reviewed. The nested members (`apps/vis/server`, `apps/vis/web`, `docs`)
+    // are covered by the explicit candidates above.
     for ([_][]const u8{ "packages", "apps" }) |parent| {
         if (Io.Dir.openDir(ctx.root_dir, ctx.io, parent, .{ .iterate = true })) |dir| {
             defer Io.Dir.close(dir, ctx.io);

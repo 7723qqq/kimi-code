@@ -48,16 +48,6 @@ const SOURCES = [
     localeFile: 'apps/vscode/webview-ui/src/i18n/locales/en.ts',
     sourceDirs: ['apps/vscode/webview-ui/src'],
   },
-  // kimi-web stores its messages as one module per domain under
-  // `i18n/locales/<locale>/`, re-exported by `locales/index.ts`, and aliases
-  // `i18n.global.t` to a bare `t` — so its calls look exactly like the other
-  // trees and the same scan applies. Its calls were outside this gate, which
-  // meant a `t('key')` here could name a key neither tree defines.
-  {
-    name: 'kimi-web',
-    localeFile: 'apps/kimi-web/src/i18n/locales/index.ts',
-    sourceDirs: ['apps/kimi-web/src'],
-  },
 ];
 
 // ── Simple recursive file walker ─────────────────────────────────────────────
@@ -72,7 +62,7 @@ function* walkFiles(dir) {
       yield* walkFiles(fullPath);
     } else if (entry.isFile()) {
       const ext = extname(entry.name);
-      // `.vue` matters for the Vue trees (vis-web, kimi-web, the VS Code
+      // `.vue` matters for the Vue trees (vis-web, the VS Code
       // webview): their templates call `t('key')` too, and a `.ts`-only walk
       // reported "0 unique keys" for a tree with hundreds of calls.
       if (
@@ -112,9 +102,9 @@ async function loadLocaleKeys(localeFile) {
   try {
     const mod = await import(pathToFileURL(fullPath).href);
     const data = mod.default || mod;
-    // Some trees (kimi-web) export one module per domain under a `messages`
-    // map keyed by locale rather than a flat `{key: value}` object. Unwrap the
-    // English side so the same leaf-key walk applies.
+    // A tree may export one module per domain under a `messages` map keyed by
+    // locale rather than a flat `{key: value}` object. Unwrap the English side
+    // so the same leaf-key walk applies.
     const nested =
       data.messages && typeof data.messages === 'object' ? data.messages : data;
     const unwrapped =

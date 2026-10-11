@@ -21,7 +21,6 @@ _setTowerFeatureAssembledForTests  packages/agent-core-v2/src/features/tower/tow
 applyContextCompactionRecord  packages/agent-core-v2/src/agent/contextMemory/contextOps.ts
 backendIncompatibility  packages/agent-core-v2/src/session/subagent/backend/backendCompat.ts
 buildHookSpawnOptions  packages/agent-core-v2/src/features/externalHooks/internal/runHook.ts
-collapsePrompt  apps/kimi-web/src/lib/cronHumanize.ts
 connectPlugins  packages/agent-core-v2/src/human/plugin.ts
 containsUsableMessage  packages/migration-legacy/src/sessions/translator.ts
 createKimiOAuthCredentialProvider  packages/agent-core-v2/src/human/credentials/kimi-oauth.ts
@@ -54,10 +53,8 @@ formatGitBadge  apps/kimi-code/src/utils/git/git-status.ts
 fromLlmMessage  packages/agent-core-v2/src/llm-adapter/contract/message.ts
 getRainbowDanceView  apps/kimi-code/src/tui/easter-eggs/dance.ts
 getRootLogger  packages/node-sdk/src/logging/logger.ts
-groupTrajectoryVirtualRows  apps/kimi-web/src/lib/trajectory/virtualRows.ts
 hasProviderDefinition  packages/agent-core-v2/src/llm-adapter/provider/provider-definition.ts
 hasTerminalThemeReport  apps/kimi-code/src/tui/utils/terminal-theme.ts
-initServerAuth  apps/kimi-web/src/api/daemon/serverAuth.ts
 isAppendOnly  packages/transcript/src/granularity/filterOps.ts
 isConfigStubOrMissing  packages/migration-legacy/src/stub-detect.ts
 isSafeCronId  apps/vis/server/src/lib/cron-store.ts
@@ -67,7 +64,6 @@ makeSessionContext  packages/agent-core-v2/src/session/sessionContext/sessionCon
 matchMediaPathTagText  packages/transcript/src/contract/mediaRef.ts
 ngramTerm  packages/minidb/src/trigram.ts
 normalizeAppleTerminalInput  packages/pi-tui/src/terminal.ts
-onAuthRequired  apps/kimi-web/src/api/daemon/serverAuth.ts
 openSessionStore  packages/agent-core-v2/src/human/persist/open.ts
 overrideAgentToolService  packages/agent-core-v2/src/agent/toolRegistry/toolContribution.ts
 peekRecommendedEffortConfig  apps/kimi-code/src/utils/recommended-effort-config.ts
