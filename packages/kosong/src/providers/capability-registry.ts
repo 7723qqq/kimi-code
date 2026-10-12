@@ -53,6 +53,7 @@ export const OPENAI_REASONING_CAPABILITY: ModelCapability = Object.freeze({
   audio_in: false,
   thinking: true,
   tool_use: true,
+  pdf_in: false,
   max_context_tokens: 0,
 });
 
@@ -62,6 +63,7 @@ export const OPENAI_VISION_TOOL_CAPABILITY: ModelCapability = Object.freeze({
   audio_in: false,
   thinking: false,
   tool_use: true,
+  pdf_in: true,
   max_context_tokens: 0,
 });
 
@@ -71,6 +73,7 @@ export const OPENAI_TEXT_TOOL_CAPABILITY: ModelCapability = Object.freeze({
   audio_in: false,
   thinking: false,
   tool_use: true,
+  pdf_in: false,
   max_context_tokens: 0,
 });
 
@@ -80,6 +83,7 @@ const ANTHROPIC_VISION_TOOL_CAPABILITY: ModelCapability = Object.freeze({
   audio_in: false,
   thinking: false,
   tool_use: true,
+  pdf_in: true,
   max_context_tokens: 0,
 });
 
@@ -89,6 +93,7 @@ const ANTHROPIC_THINKING_VISION_TOOL_CAPABILITY: ModelCapability = Object.freeze
   audio_in: false,
   thinking: true,
   tool_use: true,
+  pdf_in: true,
   max_context_tokens: 0,
 });
 
@@ -98,6 +103,7 @@ const GEMINI_MULTIMODAL_TOOL_CAPABILITY: ModelCapability = Object.freeze({
   audio_in: true,
   thinking: false,
   tool_use: true,
+  pdf_in: true,
   max_context_tokens: 0,
 });
 
@@ -107,6 +113,7 @@ const GEMINI_THINKING_MULTIMODAL_TOOL_CAPABILITY: ModelCapability = Object.freez
   audio_in: true,
   thinking: true,
   tool_use: true,
+  pdf_in: true,
   max_context_tokens: 0,
 });
 

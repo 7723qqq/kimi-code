@@ -372,6 +372,11 @@ interface AnthropicVideoBlock {
   source: { type: 'base64'; media_type: string; data: string } | { type: 'url'; url: string };
 }
 
+interface AnthropicDocumentBlock {
+  type: 'document';
+  source: { type: 'base64'; media_type: string; data: string } | { type: 'url'; url: string };
+}
+
 // The Messages API has no representation for audio input. Instead of
 // silently dropping such parts (the model would not even know an attachment
 // existed), emit a placeholder text block so it can acknowledge the gap.
@@ -392,6 +397,25 @@ const SUPPORTED_B64_VIDEO_TYPES = new Set([
   'video/x-flv',
   'video/3gpp',
 ]);
+
+function documentUrlPartToAnthropic(url: string, mimeType: string): AnthropicDocumentBlock {
+  if (url.startsWith('data:')) {
+    const withoutScheme = url.slice(5);
+    const parts = withoutScheme.split(';base64,', 2);
+    if (parts.length !== 2 || parts[0] === undefined || parts[1] === undefined) {
+      throw new ChatProviderError(`Invalid data URL for document: ${url}`);
+    }
+    return {
+      type: 'document',
+      source: { type: 'base64', media_type: parts[0] ?? mimeType, data: parts[1] },
+    };
+  }
+
+  return {
+    type: 'document',
+    source: { type: 'url', url },
+  };
+}
 
 function imageUrlPartToAnthropic(url: string): AnthropicImageBlock {
   if (url.startsWith('data:')) {
@@ -468,7 +492,9 @@ function convertTool(tool: Tool): AnthropicToolParam {
   };
 }
 function toolResultToBlock(toolCallId: string, content: ContentPart[]): ToolResultBlockParam {
-  const blocks: Array<TextBlockParam | AnthropicImageBlock | AnthropicVideoBlock> = [];
+  const blocks: Array<
+    TextBlockParam | AnthropicImageBlock | AnthropicVideoBlock | AnthropicDocumentBlock
+  > = [];
   for (const part of content) {
     if (part.type === 'text') {
       if (part.text) {
@@ -478,6 +504,10 @@ function toolResultToBlock(toolCallId: string, content: ContentPart[]): ToolResu
       blocks.push(imageUrlPartToAnthropic(part.imageUrl.url));
     } else if (part.type === 'video_url') {
       blocks.push(videoUrlPartToAnthropic(part.videoUrl.url));
+    } else if (part.type === 'document_url') {
+      blocks.push(
+        documentUrlPartToAnthropic(part.documentUrl.url, part.documentUrl.mimeType),
+      );
     } else if (part.type === 'audio_url') {
       const placeholder = OMITTED_MEDIA_PLACEHOLDER[part.type];
       const last = blocks.at(-1);
@@ -548,6 +578,13 @@ function convertMessage(message: Message, model: string): MessageParam {
       }
     } else if (part.type === 'video_url') {
       blocks.push(videoUrlPartToAnthropic(part.videoUrl.url) as unknown as ContentBlockParam);
+    } else if (part.type === 'document_url') {
+      blocks.push(
+        documentUrlPartToAnthropic(
+          part.documentUrl.url,
+          part.documentUrl.mimeType,
+        ) as unknown as ContentBlockParam,
+      );
     } else if (part.type === 'audio_url') {
       const placeholder = OMITTED_MEDIA_PLACEHOLDER[part.type];
       const last = blocks.at(-1);

@@ -31,7 +31,10 @@ export const MCP_MAX_BINARY_PART_BYTES = 10 * 1024 * 1024;
 const MCP_MAX_BINARY_PART_CHARS = Math.ceil((MCP_MAX_BINARY_PART_BYTES * 4) / 3);
 const MCP_MAX_INLINE_NOTICES_CHARS = 4096;
 
-function binaryPartTooLargeNotice(kind: 'image' | 'audio' | 'video', urlLength: number): string {
+function binaryPartTooLargeNotice(
+  kind: 'image' | 'audio' | 'video' | 'document',
+  urlLength: number,
+): string {
   const approxMb = ((urlLength * 3) / 4 / (1024 * 1024)).toFixed(1);
   const capMb = String(MCP_MAX_BINARY_PART_BYTES / (1024 * 1024));
   return `[${kind}_url dropped: ~${approxMb} MB exceeds ${capMb} MB per-part limit. Try a smaller resource.]`;
@@ -433,11 +436,19 @@ async function applyBinaryPartCap(
         ? part.imageUrl.url
         : part.type === 'audio_url'
           ? part.audioUrl.url
-          : part.videoUrl.url;
+          : part.type === 'document_url'
+            ? part.documentUrl.url
+            : part.videoUrl.url;
     if (url.length > MCP_MAX_BINARY_PART_CHARS) {
       await preserve(url);
       const kind =
-        part.type === 'image_url' ? 'image' : part.type === 'audio_url' ? 'audio' : 'video';
+        part.type === 'image_url'
+          ? 'image'
+          : part.type === 'audio_url'
+            ? 'audio'
+            : part.type === 'document_url'
+              ? 'document'
+              : 'video';
       const notice = binaryPartTooLargeNotice(kind, url.length);
       out.push({ type: 'text', text: notice });
       notices.push(notice);

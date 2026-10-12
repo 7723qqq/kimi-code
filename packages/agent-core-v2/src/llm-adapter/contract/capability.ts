@@ -6,6 +6,7 @@ export interface ModelCapability {
   readonly audio_in: boolean;
   readonly thinking: boolean;
   readonly tool_use: boolean;
+  readonly pdf_in?: boolean;
   readonly max_context_tokens: number;
   readonly max_input_tokens?: number;
   readonly dynamically_loaded_tools?: boolean;
@@ -21,6 +22,7 @@ export const UNKNOWN_CAPABILITY: ModelCapability = Object.freeze(
       audio_in: false,
       thinking: false,
       tool_use: false,
+      pdf_in: false,
       max_context_tokens: 0,
       dynamically_loaded_tools: false,
     },
@@ -40,6 +42,7 @@ export function isUnknownCapability(capability: ModelCapability): boolean {
     !capability.audio_in &&
     !capability.thinking &&
     !capability.tool_use &&
+    capability.pdf_in !== true &&
     capability.dynamically_loaded_tools !== true &&
     capability.max_context_tokens === 0
   );
@@ -56,6 +59,7 @@ export function toLlmCapability(capability: ModelCapability): LlmModelCapability
     audio_in: capability.audio_in,
     thinking: capability.thinking,
     tool_use: capability.tool_use,
+    pdf_in: capability.pdf_in,
     dynamically_loaded_tools: capability.dynamically_loaded_tools,
   };
 }

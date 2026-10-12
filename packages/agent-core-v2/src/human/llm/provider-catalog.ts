@@ -595,6 +595,7 @@ function mergeCapability(
     audio_in: discovered.audio_in || override.audio_in,
     thinking: discovered.thinking || override.thinking,
     tool_use: discovered.tool_use || override.tool_use,
+    pdf_in: discovered.pdf_in === true || override.pdf_in === true,
     dynamically_loaded_tools:
       discovered.dynamically_loaded_tools === true || override.dynamically_loaded_tools === true,
   };

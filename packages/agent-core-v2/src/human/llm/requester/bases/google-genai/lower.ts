@@ -80,6 +80,9 @@ export function lowerMessage(message: Message, lower: GoogleGenAILowerContext): 
         case 'video_url':
           mediaParts.push(convertMediaUrl(part.videoUrl.url, 'video/mp4'));
           break;
+        case 'document_url':
+          mediaParts.push(convertMediaUrl(part.documentUrl.url, part.documentUrl.mimeType));
+          break;
         case 'think':
           break;
       }
@@ -138,6 +141,9 @@ export function lowerMessage(message: Message, lower: GoogleGenAILowerContext): 
         break;
       case 'video_url':
         parts.push(convertMediaUrl(part.videoUrl.url, 'video/mp4'));
+        break;
+      case 'document_url':
+        parts.push(convertMediaUrl(part.documentUrl.url, part.documentUrl.mimeType));
         break;
     }
   }

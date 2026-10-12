@@ -522,6 +522,7 @@ function resolveModelCapabilities(
     audio_in: declared.has('audio_in') || detected.audio_in,
     thinking: declared.has('thinking') || declared.has('always_thinking') || detected.thinking,
     tool_use: declared.has('tool_use') || detected.tool_use,
+    pdf_in: declared.has('pdf_in') || detected.pdf_in === true,
     max_context_tokens: maxContextSize,
     max_input_tokens: maxInputSize,
     dynamically_loaded_tools:
@@ -532,7 +533,8 @@ function resolveModelCapabilities(
     isUnknownCapability(detected) &&
     !declared.has('image_in') &&
     !declared.has('video_in') &&
-    !declared.has('audio_in')
+    !declared.has('audio_in') &&
+    !declared.has('pdf_in')
   ) {
     return markUnknownCapability(capabilities);
   }

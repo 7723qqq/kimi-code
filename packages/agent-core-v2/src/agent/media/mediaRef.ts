@@ -37,6 +37,10 @@ export const VIDEO_MIME_BY_SUFFIX: Readonly<Record<string, string>> = Object.fre
   '.3g2': 'video/3gpp2',
 });
 
+export const DOCUMENT_MIME_BY_SUFFIX: Readonly<Record<string, string>> = Object.freeze({
+  '.pdf': 'application/pdf',
+});
+
 export const AUDIO_MIME_BY_SUFFIX: Readonly<Record<string, string>> = Object.freeze({
   '.mp3': 'audio/mpeg',
   '.wav': 'audio/wav',
@@ -53,6 +57,7 @@ export const AUDIO_MIME_BY_SUFFIX: Readonly<Record<string, string>> = Object.fre
 const IMAGE_EXT_BY_MIME = invertMimeBySuffix(IMAGE_MIME_BY_SUFFIX);
 const VIDEO_EXT_BY_MIME = invertMimeBySuffix(VIDEO_MIME_BY_SUFFIX);
 const AUDIO_EXT_BY_MIME = invertMimeBySuffix(AUDIO_MIME_BY_SUFFIX);
+const DOCUMENT_EXT_BY_MIME = invertMimeBySuffix(DOCUMENT_MIME_BY_SUFFIX);
 
 function invertMimeBySuffix(
   table: Readonly<Record<string, string>>,
@@ -67,7 +72,12 @@ function invertMimeBySuffix(
 export function mediaExtensionForMime(mimeType: string): string | undefined {
   const semi = mimeType.indexOf(';');
   const base = (semi === -1 ? mimeType : mimeType.slice(0, semi)).trim().toLowerCase();
-  return VIDEO_EXT_BY_MIME[base] ?? IMAGE_EXT_BY_MIME[base] ?? AUDIO_EXT_BY_MIME[base];
+  return (
+    VIDEO_EXT_BY_MIME[base] ??
+    IMAGE_EXT_BY_MIME[base] ??
+    AUDIO_EXT_BY_MIME[base] ??
+    DOCUMENT_EXT_BY_MIME[base]
+  );
 }
 
 function mediaSuffix(path: string): string {
@@ -78,27 +88,30 @@ function mediaSuffix(path: string): string {
   return path.slice(idx).toLowerCase();
 }
 
-export function mediaKindForPath(path: string): 'image' | 'video' | 'audio' | undefined {
+export function mediaKindForPath(path: string): MediaKind | undefined {
   const suffix = mediaSuffix(path);
   if (suffix in IMAGE_MIME_BY_SUFFIX) return 'image';
   if (suffix in VIDEO_MIME_BY_SUFFIX) return 'video';
   if (suffix in AUDIO_MIME_BY_SUFFIX) return 'audio';
+  if (suffix in DOCUMENT_MIME_BY_SUFFIX) return 'document';
   return undefined;
 }
 
-export function mediaKindForMime(mimeType: string): 'image' | 'video' | 'audio' | undefined {
+export function mediaKindForMime(mimeType: string): MediaKind | undefined {
   const semi = mimeType.indexOf(';');
   const base = (semi === -1 ? mimeType : mimeType.slice(0, semi)).trim().toLowerCase();
   if (base.startsWith('image/')) return 'image';
   if (base.startsWith('video/')) return 'video';
   if (base.startsWith('audio/')) return 'audio';
+  if (base === 'application/pdf') return 'document';
   return undefined;
 }
 
-export function mediaKindOfPart(part: ContentPart): 'image' | 'video' | 'audio' | undefined {
+export function mediaKindOfPart(part: ContentPart): MediaKind | undefined {
   if (part.type === 'image_url') return 'image';
   if (part.type === 'video_url') return 'video';
   if (part.type === 'audio_url') return 'audio';
+  if (part.type === 'document_url') return 'document';
   return undefined;
 }
 

@@ -600,6 +600,69 @@ describe('GoogleGenAIChatProvider', () => {
       expect(mimeTypes).toEqual(['audio/mpeg', 'video/mp4']);
     });
 
+    it('forwards document_url parts in regular messages as inlineData', () => {
+      const messages: Message[] = [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'Please summarize this document.' },
+            {
+              type: 'document_url',
+              documentUrl: {
+                url: 'data:application/pdf;base64,JVBERi0=',
+                mimeType: 'application/pdf',
+                name: 'report.pdf',
+              },
+            },
+          ],
+          toolCalls: [],
+        },
+      ];
+
+      const contents = messagesToGoogleGenAIContents(messages);
+
+      expect(contents).toHaveLength(1);
+      expect(contents[0]).toEqual({
+        role: 'user',
+        parts: [
+          { text: 'Please summarize this document.' },
+          { inlineData: { mimeType: 'application/pdf', data: 'JVBERi0=' } },
+        ],
+      });
+    });
+
+    it('forwards document_url returned by a tool as a media part', () => {
+      const messages: Message[] = [
+        { role: 'user', content: [{ type: 'text', text: 'Read it' }], toolCalls: [] },
+        {
+          role: 'assistant',
+          content: [],
+          toolCalls: [{ type: 'function', id: 'call_pdf', name: 'read_pdf', arguments: '{}' }],
+        },
+        {
+          role: 'tool',
+          content: [
+            {
+              type: 'document_url',
+              documentUrl: {
+                url: 'data:application/pdf;base64,JVBERi0=',
+                mimeType: 'application/pdf',
+                name: 'report.pdf',
+              },
+            },
+          ],
+          toolCallId: 'call_pdf',
+          toolCalls: [],
+        },
+      ];
+
+      const contents = messagesToGoogleGenAIContents(messages);
+      const toolTurn = contents.at(-1)!;
+      expect(toolTurn.parts).toContainEqual({
+        inlineData: { mimeType: 'application/pdf', data: 'JVBERi0=' },
+      });
+    });
+
     it('forwards video_url parts in regular messages as fileData', () => {
       const messages: Message[] = [
         {

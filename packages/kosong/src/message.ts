@@ -29,14 +29,26 @@ export interface VideoURLPart {
   videoUrl: { url: string; id?: string | undefined; name?: string };
 }
 
+export interface DocumentURLPart {
+  type: 'document_url';
+  documentUrl: { url: string; mimeType: string; id?: string | undefined; name?: string };
+}
+
 /**
  * A single piece of content within a {@link Message}.
  *
- * The union covers text, model reasoning ("think"), images, audio, and video.
+ * The union covers text, model reasoning ("think"), images, audio, video, and
+ * documents (PDF).
  * Providers convert these to their native content-block format during
  * {@link ChatProvider.generate}.
  */
-export type ContentPart = TextPart | ThinkPart | ImageURLPart | AudioURLPart | VideoURLPart;
+export type ContentPart =
+  | TextPart
+  | ThinkPart
+  | ImageURLPart
+  | AudioURLPart
+  | VideoURLPart
+  | DocumentURLPart;
 
 export interface ToolCall {
   type: 'function';

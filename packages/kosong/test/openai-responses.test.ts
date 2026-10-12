@@ -1421,6 +1421,70 @@ describe('OpenAIResponsesChatProvider', () => {
       expect(body['max_output_tokens']).toBe(512);
     });
 
+    it('document_url in user content becomes an input_file item', async () => {
+      const provider = createProvider();
+      const history: Message[] = [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'Summarize:' },
+            {
+              type: 'document_url',
+              documentUrl: {
+                url: 'data:application/pdf;base64,JVBERi0=',
+                mimeType: 'application/pdf',
+                name: 'report.pdf',
+              },
+            },
+          ],
+          toolCalls: [],
+        },
+      ];
+      const body = await captureRequestBody(provider, '', [], history);
+
+      const input = body['input'] as Array<{ content: unknown[] }>;
+      expect(input[0]!.content).toEqual([
+        { type: 'input_text', text: 'Summarize:' },
+        {
+          type: 'input_file',
+          file_data: 'data:application/pdf;base64,JVBERi0=',
+          filename: 'report.pdf',
+        },
+      ]);
+    });
+
+    it('document_url in tool result output becomes an input_file item', async () => {
+      const provider = createProvider();
+      const history: Message[] = [
+        { role: 'user', content: [{ type: 'text', text: 'Read it' }], toolCalls: [] },
+        {
+          role: 'assistant',
+          content: [],
+          toolCalls: [{ type: 'function', id: 'call_pdf', name: 'read_pdf', arguments: '{}' }],
+        },
+        {
+          role: 'tool',
+          content: [
+            {
+              type: 'document_url',
+              documentUrl: {
+                url: 'data:application/pdf;base64,JVBERi0=',
+                mimeType: 'application/pdf',
+                name: 'report.pdf',
+              },
+            },
+          ],
+          toolCallId: 'call_pdf',
+          toolCalls: [],
+        },
+      ];
+      const body = await captureRequestBody(provider, '', [], history);
+
+      const serialized = JSON.stringify(body['input']);
+      expect(serialized).toContain('"type":"input_file"');
+      expect(serialized).toContain('"filename":"report.pdf"');
+    });
+
     it('video_url in user content degrades to placeholder text (no video input type)', async () => {
       const provider = createProvider();
       const history: Message[] = [

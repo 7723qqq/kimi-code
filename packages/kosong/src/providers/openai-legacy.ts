@@ -312,7 +312,10 @@ function convertToolMessageContentForChat(
   if (message.content.some((part) => part.type === 'video_url')) {
     lines.push(OMITTED_VIDEO_PLACEHOLDER);
   }
-  if (lines.length === 0 && message.content.some((part) => part.type === 'image_url')) {
+  if (
+    lines.length === 0 &&
+    message.content.some((part) => part.type === 'image_url' || part.type === 'document_url')
+  ) {
     return TOOL_RESULT_MEDIA_PLACEHOLDER;
   }
   return lines.join('\n');
@@ -321,7 +324,7 @@ function convertToolMessageContentForChat(
 function toolResultImageParts(message: Message): OpenAIContentPart[] {
   const images: OpenAIContentPart[] = [];
   for (const part of message.content) {
-    if (part.type !== 'image_url') continue;
+    if (part.type !== 'image_url' && part.type !== 'document_url') continue;
     const converted = convertContentPart(part);
     if (converted !== null) {
       images.push(converted);

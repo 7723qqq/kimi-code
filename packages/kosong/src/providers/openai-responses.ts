@@ -470,6 +470,9 @@ function contentPartsToInputItems(parts: ContentPart[]): unknown[] {
       case 'video_url':
         items.push({ type: 'input_text', text: OMITTED_VIDEO_PLACEHOLDER });
         break;
+      case 'document_url':
+        items.push(documentUrlPartToInputFile(part.documentUrl.url, part.documentUrl.name));
+        break;
       case 'think':
         // Handled separately as reasoning items.
         break;
@@ -513,12 +516,22 @@ function messageContentToFunctionOutputItems(content: ContentPart[]): unknown[] 
       case 'video_url':
         items.push({ type: 'input_text', text: OMITTED_VIDEO_PLACEHOLDER });
         break;
+      case 'document_url':
+        items.push(documentUrlPartToInputFile(part.documentUrl.url, part.documentUrl.name));
+        break;
       case 'think':
         // Handled separately as reasoning items.
         break;
     }
   }
   return items;
+}
+
+function documentUrlPartToInputFile(url: string, name: string | undefined): unknown {
+  if (url.startsWith('data:')) {
+    return { type: 'input_file', file_data: url, filename: name ?? 'document.pdf' };
+  }
+  return { type: 'input_file', file_url: url };
 }
 
 function mapAudioUrlToInputItem(url: string): unknown {

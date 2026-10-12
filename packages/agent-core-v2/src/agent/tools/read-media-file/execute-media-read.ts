@@ -59,7 +59,7 @@ interface ImageDelivery {
 }
 
 function buildMediaNote(input: {
-  readonly kind: 'image' | 'video';
+  readonly kind: 'image' | 'video' | 'document';
   readonly mimeType: string;
   readonly byteSize: number;
   readonly dimensions: { readonly width: number; readonly height: number } | null;
@@ -234,6 +234,15 @@ export async function executeMediaRead(
           'Tell the user to use a model with video input capability.',
       };
     }
+    if (fileType.kind === 'document' && !ctx.capabilities.pdf_in && !capabilitiesUnknown) {
+      return {
+        isError: true,
+        output:
+          'The current model does not support PDF input. ' +
+          'Tell the user to use a model with PDF input capability, ' +
+          'or convert the file to text first.',
+      };
+    }
 
     const stat = await fs.stat(safePath);
     if (stat.size === 0) {
@@ -248,7 +257,10 @@ export async function executeMediaRead(
       };
     }
 
-    if (fileType.kind === 'video' && (args.region !== undefined || args.full_resolution === true)) {
+    if (
+      (fileType.kind === 'video' || fileType.kind === 'document') &&
+      (args.region !== undefined || args.full_resolution === true)
+    ) {
       return {
         isError: true,
         output: 'region and full_resolution apply only to image files.',
@@ -416,11 +428,20 @@ export async function executeMediaRead(
           dimensions = { width: compressed.originalWidth, height: compressed.originalHeight };
         }
       }
+    } else if (fileType.kind === 'document') {
+      mediaPart = {
+        type: 'document_url',
+        documentUrl: {
+          url: `data:${fileType.mimeType};base64,${data.toString('base64')}`,
+          mimeType: fileType.mimeType,
+          name: safePath,
+        },
+      };
     } else {
       mediaPart = await videoContentPart(ctx, data, fileType.mimeType, safePath);
     }
 
-    const tag = fileType.kind === 'image' ? 'image' : 'video';
+    const tag = fileType.kind === 'image' ? 'image' : fileType.kind;
     const openText = `<${tag} path="${safePath}">`;
     const closeText = `</${tag}>`;
 

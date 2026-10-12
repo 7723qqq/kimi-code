@@ -7,6 +7,8 @@ type AnthropicWireImageBlock = Extract<AnthropicWireContentBlock, { type: 'image
 
 type AnthropicWireVideoBlock = Extract<AnthropicWireContentBlock, { type: 'video' }>;
 
+type AnthropicWireDocumentBlock = Extract<AnthropicWireContentBlock, { type: 'document' }>;
+
 const SUPPORTED_B64_VIDEO_TYPES = new Set([
   'video/mp4',
   'video/mpeg',
@@ -72,6 +74,29 @@ function videoUrlPartToAnthropic(url: string): AnthropicWireVideoBlock {
   };
 }
 
+function documentUrlPartToAnthropic(
+  url: string,
+  mimeType: string,
+): AnthropicWireDocumentBlock {
+  if (url.startsWith('data:')) {
+    const withoutScheme = url.slice(5);
+    const parts = withoutScheme.split(';base64,', 2);
+    if (parts.length !== 2 || parts[0] === undefined || parts[1] === undefined) {
+      throw new SyntaxRequestFormatError(`Invalid data URL for document: ${url}`);
+    }
+    const declared = parts[0].trim();
+    return {
+      type: 'document',
+      source: { type: 'base64', media_type: declared.length > 0 ? declared : mimeType, data: parts[1] },
+    };
+  }
+
+  return {
+    type: 'document',
+    source: { type: 'url', url },
+  };
+}
+
 function parseToolArguments(args: string | null): unknown {
   if (args === null || args.trim() === '') {
     return {};
@@ -113,6 +138,10 @@ export function lowerMessage(
         blocks.push(imageUrlPartToAnthropic(part.imageUrl.url, acceptedMimes));
       } else if (part.type === 'video_url') {
         blocks.push(videoUrlPartToAnthropic(part.videoUrl.url));
+      } else if (part.type === 'document_url') {
+        blocks.push(
+          documentUrlPartToAnthropic(part.documentUrl.url, part.documentUrl.mimeType),
+        );
       }
     }
     content.push({
@@ -134,6 +163,10 @@ export function lowerMessage(
         content.push(imageUrlPartToAnthropic(part.imageUrl.url, acceptedMimes));
       } else if (part.type === 'video_url') {
         content.push(videoUrlPartToAnthropic(part.videoUrl.url));
+      } else if (part.type === 'document_url') {
+        content.push(
+          documentUrlPartToAnthropic(part.documentUrl.url, part.documentUrl.mimeType),
+        );
       }
     }
     if (message.role === 'assistant') {

@@ -1510,6 +1510,12 @@ describe('server-v2 /api/v1 prompts', () => {
     return uploaded.data;
   }
 
+  function pdfAttachedPathFrom(notice: string): string {
+    const match = /bytes\): (.+) — call the Read tool on this path to send the PDF/.exec(notice);
+    expect(match).not.toBeNull();
+    return match![1]!;
+  }
+
   function attachedPathFrom(notice: string): string {
     const match = /bytes\): (.+) — open it with the Read tool$/.exec(notice);
     expect(match).not.toBeNull();
@@ -1544,7 +1550,8 @@ describe('server-v2 /api/v1 prompts', () => {
     expect(notice?.text).toContain('Attached file "report.pdf"');
     expect(notice?.text).toContain('application/pdf');
     expect(notice?.text).toContain(`${pdfBytes.length} bytes`);
-    const attachedPath = attachedPathFrom(notice?.text ?? '');
+    expect(notice?.text).toContain('call the Read tool on this path to send the PDF');
+    const attachedPath = pdfAttachedPathFrom(notice?.text ?? '');
     expect(attachedPath).toContain('/attachments/');
     expect(attachedPath.endsWith(`${uploaded.id}-report.pdf`)).toBe(true);
     expect((await realpath(attachedPath)).startsWith(await realpath(home as string))).toBe(true);

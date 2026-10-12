@@ -13,6 +13,11 @@ export type AnthropicWireContentBlock =
       cache_control?: { type: 'ephemeral' };
     }
   | {
+      type: 'document';
+      source: { type: 'base64'; media_type: string; data: string } | { type: 'url'; url: string };
+      cache_control?: { type: 'ephemeral' };
+    }
+  | {
       type: 'thinking';
       thinking: string;
       signature?: string;

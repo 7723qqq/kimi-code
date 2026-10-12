@@ -14,6 +14,8 @@ export interface ModelCapability {
   readonly audio_in: boolean;
   readonly thinking: boolean;
   readonly tool_use: boolean;
+  /** Model accepts PDF documents as input (Anthropic `document`, OpenAI `input_file`). */
+  readonly pdf_in?: boolean;
   /** Total context window (input + output), used for completion budgeting. */
   readonly max_context_tokens: number;
   /**
@@ -48,6 +50,7 @@ export const UNKNOWN_CAPABILITY: ModelCapability = Object.freeze(
       audio_in: false,
       thinking: false,
       tool_use: false,
+      pdf_in: false,
       max_context_tokens: 0,
       dynamically_loaded_tools: false,
     },
@@ -67,6 +70,7 @@ export function isUnknownCapability(capability: ModelCapability): boolean {
     !capability.audio_in &&
     !capability.thinking &&
     !capability.tool_use &&
+    capability.pdf_in !== true &&
     capability.dynamically_loaded_tools !== true &&
     capability.max_context_tokens === 0
   );

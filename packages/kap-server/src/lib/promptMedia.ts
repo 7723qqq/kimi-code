@@ -603,7 +603,15 @@ function buildAttachedFileNotice(
   size: number,
   path: string,
 ): string {
-  return `Attached file "${name}" (${mediaType}, ${size} bytes): ${path} — open it with the Read tool`;
+  const base = `Attached file "${name}" (${mediaType}, ${size} bytes): ${path}`;
+  if (isPdfMediaType(mediaType)) {
+    return `${base} — call the Read tool on this path to send the PDF to the model`;
+  }
+  return `${base} — open it with the Read tool`;
+}
+
+function isPdfMediaType(mediaType: string): boolean {
+  return mediaType.split(';')[0]?.trim().toLowerCase() === 'application/pdf';
 }
 
 async function readFileOrStream(file: GetResult): Promise<Buffer> {

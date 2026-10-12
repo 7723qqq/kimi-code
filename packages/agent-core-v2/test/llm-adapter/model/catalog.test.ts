@@ -310,6 +310,12 @@ describe('Model assembly (pure data)', () => {
           maxContextSize: 1000000,
           capabilities: ['thinking', 'image_in'],
         },
+        relayPdf: {
+          provider: 'openai',
+          model: 'glm-5.3-flash',
+          maxContextSize: 1000000,
+          capabilities: ['pdf_in'],
+        },
       },
     });
     try {
@@ -321,6 +327,10 @@ describe('Model assembly (pure data)', () => {
       const declaredVision = catalog.get('relayVision').capabilities;
       expect(declaredVision.image_in).toBe(true);
       expect(isUnknownCapability(declaredVision)).toBe(false);
+
+      const declaredPdf = catalog.get('relayPdf').capabilities;
+      expect(declaredPdf.pdf_in).toBe(true);
+      expect(isUnknownCapability(declaredPdf)).toBe(false);
     } finally {
       host.dispose();
     }

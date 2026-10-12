@@ -1060,6 +1060,75 @@ describe('AnthropicChatProvider', () => {
       ]);
     });
 
+    it('document url content (base64 data URL)', async () => {
+      const provider = createProvider();
+      const history: Message[] = [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'Summarize this document.' },
+            {
+              type: 'document_url',
+              documentUrl: {
+                url: 'data:application/pdf;base64,JVBERi0xLjQK',
+                mimeType: 'application/pdf',
+                name: 'report.pdf',
+              },
+            },
+          ] satisfies ContentPart[],
+          toolCalls: [],
+        },
+      ];
+      const body = await captureRequestBody(provider, '', [], history);
+
+      expect(body['messages']).toEqual([
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: 'Summarize this document.' },
+            {
+              type: 'document',
+              source: { type: 'base64', media_type: 'application/pdf', data: 'JVBERi0xLjQK' },
+              cache_control: { type: 'ephemeral' },
+            },
+          ],
+        },
+      ]);
+    });
+
+    it('document url content (remote url source)', async () => {
+      const provider = createProvider();
+      const history: Message[] = [
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'document_url',
+              documentUrl: {
+                url: 'https://example.com/report.pdf',
+                mimeType: 'application/pdf',
+              },
+            },
+          ] satisfies ContentPart[],
+          toolCalls: [],
+        },
+      ];
+      const body = await captureRequestBody(provider, '', [], history);
+
+      expect(body['messages']).toEqual([
+        {
+          role: 'user',
+          content: [
+            {
+              type: 'document',
+              source: { type: 'url', url: 'https://example.com/report.pdf' },
+              cache_control: { type: 'ephemeral' },
+            },
+          ],
+        },
+      ]);
+    });
+
     it('video url content (base64 data URL)', async () => {
       const provider = createProvider();
       const history: Message[] = [

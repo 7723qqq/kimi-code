@@ -370,6 +370,8 @@ function deepCopyPart(part: StreamedMessagePart): StreamedMessagePart {
       return { ...part, audioUrl: { ...part.audioUrl } };
     case 'video_url':
       return { ...part, videoUrl: { ...part.videoUrl } };
+    case 'document_url':
+      return { ...part, documentUrl: { ...part.documentUrl } };
     case 'function':
       return {
         ...part,

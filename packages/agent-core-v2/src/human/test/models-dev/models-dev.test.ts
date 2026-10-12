@@ -139,6 +139,11 @@ describe('modelsDevProviderModels', () => {
             modalities: { input: ['text', 'image', 'video', 'audio'], output: ['text'] },
             interleaved: { field: 'reasoning_details' },
           },
+          'pdf-model': {
+            id: 'pdf-model',
+            limit: { context: 200000 },
+            modalities: { input: ['text', 'image', 'pdf'], output: ['text'] },
+          },
           'grok-4': {
             id: 'grok-4',
             limit: { context: 256000 },
@@ -181,6 +186,7 @@ describe('modelsDevProviderModels', () => {
       audio_in: true,
       thinking: true,
       tool_use: true,
+      pdf_in: false,
       dynamically_loaded_tools: false,
     });
     expect(gpt5?.maxContextSize).toBe(400000);
@@ -190,6 +196,8 @@ describe('modelsDevProviderModels', () => {
     expect(gpt5?.offEffort).toBeUndefined();
     expect(gpt5?.alwaysThinking).toBe(true);
     expect(gpt5?.reasoningKey).toBe('reasoning_details');
+    expect(models.get('pdf-model')?.capability.pdf_in).toBe(true);
+    expect(models.get('pdf-model')?.capability.image_in).toBe(true);
     const grok = models.get('grok-4');
     expect(grok?.supportEfforts).toEqual(['low', 'high']);
     expect(grok?.offEffort).toBe('none');

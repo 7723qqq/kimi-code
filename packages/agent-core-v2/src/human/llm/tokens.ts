@@ -134,6 +134,7 @@ export function estimateTokensForContentPart(
         : imageTokensFor(pricing, part.imageUrl.dimensions);
     case 'audio_url':
     case 'video_url':
+    case 'document_url':
       return MEDIA_TOKEN_ESTIMATE;
     default: {
       const exhaustive: never = part;

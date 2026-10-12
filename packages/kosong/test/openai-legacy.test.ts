@@ -543,6 +543,47 @@ describe('OpenAILegacyChatProvider', () => {
       expect(messages).toHaveLength(3);
     });
 
+    it('reattaches a document returned by a tool as user content it can carry', async () => {
+      const provider = createProvider();
+      const history: Message[] = [
+        { role: 'user', content: [{ type: 'text', text: 'Read the report' }], toolCalls: [] },
+        {
+          role: 'assistant',
+          content: [],
+          toolCalls: [{ type: 'function', id: 'call_pdf', name: 'read_pdf', arguments: '{}' }],
+        },
+        {
+          role: 'tool',
+          content: [
+            {
+              type: 'document_url',
+              documentUrl: {
+                url: 'data:application/pdf;base64,JVBERi0=',
+                mimeType: 'application/pdf',
+                name: 'report.pdf',
+              },
+            },
+          ] satisfies ContentPart[],
+          toolCallId: 'call_pdf',
+          toolCalls: [],
+        },
+      ];
+      const body = await captureRequestBody(provider, '', [], history);
+
+      const messages = body['messages'] as Record<string, unknown>[];
+      expect(messages[2]).toEqual({
+        role: 'tool',
+        content: expect.stringContaining('media'),
+        tool_call_id: 'call_pdf',
+      });
+      const followUp = messages[3] as { role: string; content: Record<string, unknown>[] };
+      expect(followUp.role).toBe('user');
+      expect(followUp.content[1]).toEqual({
+        type: 'file',
+        file: { file_data: 'data:application/pdf;base64,JVBERi0=', filename: 'report.pdf' },
+      });
+    });
+
     it('groups consecutive tool result images after all matching tool messages', async () => {
       const provider = createProvider();
       const history: Message[] = [

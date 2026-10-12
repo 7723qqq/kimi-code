@@ -30,6 +30,7 @@ export interface OpenAIContentPart {
   image_url?: { url: string; id?: string | null } | undefined;
   audio_url?: { url: string; id?: string | null } | undefined;
   video_url?: { url: string; id?: string | null } | undefined;
+  file?: { file_data: string; filename?: string } | undefined;
 }
 
 /**
@@ -66,6 +67,14 @@ export function convertContentPart(part: ContentPart): OpenAIContentPart | null 
           part.videoUrl.id === undefined
             ? { url: part.videoUrl.url }
             : { url: part.videoUrl.url, id: part.videoUrl.id },
+      };
+    case 'document_url':
+      return {
+        type: 'file',
+        file: {
+          file_data: part.documentUrl.url,
+          ...(part.documentUrl.name === undefined ? {} : { filename: part.documentUrl.name }),
+        },
       };
     default:
       throw new BugIndicatingError(`Unknown content part type: ${(part as ContentPart).type}`);

@@ -146,6 +146,12 @@ function rehydrateParts(
         if (url !== undefined) part.videoUrl.url = resolveBlobRefUrl(url, sessionId, agentId, baseUrl);
         break;
       }
+      case 'document_url': {
+        const url = readNestedUrl(part.documentUrl, warnings, 'document_url');
+        if (url !== undefined)
+          part.documentUrl.url = resolveBlobRefUrl(url, sessionId, agentId, baseUrl);
+        break;
+      }
       default:
         break;
     }

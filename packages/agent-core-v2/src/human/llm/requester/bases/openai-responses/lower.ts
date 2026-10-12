@@ -30,6 +30,9 @@ function contentPartsToInputItems(parts: readonly ContentPart[]): ResponsesInput
       case 'video_url':
         items.push({ type: 'input_text', text: OMITTED_VIDEO_PLACEHOLDER });
         break;
+      case 'document_url':
+        items.push(documentUrlPartToInputFile(part.documentUrl.url, part.documentUrl.name));
+        break;
       case 'think':
         break;
     }
@@ -69,11 +72,28 @@ function messageContentToFunctionOutputItems(
       case 'video_url':
         items.push({ type: 'input_text', text: OMITTED_VIDEO_PLACEHOLDER });
         break;
+      case 'document_url':
+        items.push(documentUrlPartToInputFile(part.documentUrl.url, part.documentUrl.name));
+        break;
       case 'think':
         break;
     }
   }
   return items;
+}
+
+function documentUrlPartToInputFile(
+  url: string,
+  name: string | undefined,
+): ResponsesInputContentItem {
+  if (url.startsWith('data:')) {
+    return {
+      type: 'input_file',
+      file_data: url,
+      filename: name ?? 'document.pdf',
+    };
+  }
+  return { type: 'input_file', file_url: url };
 }
 
 function mapAudioUrlToInputItem(url: string): ResponsesInputContentItem | null {

@@ -210,6 +210,7 @@ function toV2Capability(
     audio_in: capability.audio_in,
     thinking: capability.thinking,
     tool_use: capability.tool_use,
+    pdf_in: capability.pdf_in,
     max_context_tokens: 0,
     dynamically_loaded_tools: capability.dynamically_loaded_tools,
   };

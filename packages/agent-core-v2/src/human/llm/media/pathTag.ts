@@ -1,6 +1,7 @@
-export type MediaPathTagKind = 'image' | 'video' | 'audio' | 'file';
+export type MediaPathTagKind = 'image' | 'video' | 'audio' | 'document' | 'file';
 
-const MEDIA_PATH_TAG_RE = /<(image|video|audio|file)\b[^>]*?\bpath="([^"]*)"[^>]*>(?:<\/\1>)?/g;
+const MEDIA_PATH_TAG_RE =
+  /<(image|video|audio|document|file)\b[^>]*?\bpath="([^"]*)"[^>]*>(?:<\/\1>)?/g;
 
 export interface MediaPathTag {
   readonly kind: MediaPathTagKind;

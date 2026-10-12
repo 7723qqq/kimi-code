@@ -1,9 +1,10 @@
 export type OpenAIContentPart = {
-  type: 'text' | 'image_url' | 'audio_url' | 'video_url';
+  type: 'text' | 'image_url' | 'audio_url' | 'video_url' | 'file';
   text?: string | undefined;
   image_url?: { url: string; id?: string | null; detail?: string } | undefined;
   audio_url?: { url: string; id?: string | null } | undefined;
   video_url?: { url: string; id?: string | null } | undefined;
+  file?: { file_data: string; filename?: string } | undefined;
 };
 
 export type OpenAIWireToolCall = {

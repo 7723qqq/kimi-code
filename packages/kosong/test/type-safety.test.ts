@@ -27,6 +27,8 @@ function processPartSafely(part: StreamedMessagePart): string {
       return part.audioUrl.url; // AudioURLPart.audioUrl.url -> string
     case 'video_url':
       return part.videoUrl.url; // VideoURLPart.videoUrl.url -> string
+    case 'document_url':
+      return part.documentUrl.url; // DocumentURLPart.documentUrl.url -> string
     case 'function':
       return part.name; // ToolCall.name -> string
     case 'tool_call_part':

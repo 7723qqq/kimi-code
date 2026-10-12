@@ -315,7 +315,11 @@ export class ReadTool implements IReadTool {
 
       const header = await source.readBytes(MEDIA_SNIFF_BYTES);
       const fileType = detectFileType(source.name, header);
-      if (fileType.kind === 'image' || fileType.kind === 'video') {
+      if (
+        fileType.kind === 'image' ||
+        fileType.kind === 'video' ||
+        fileType.kind === 'document'
+      ) {
         if (args.line_offset !== undefined || args.n_lines !== undefined) {
           return {
             isError: true,

@@ -126,6 +126,7 @@ function capabilityFromDeclared(capabilities: readonly string[] | undefined): Mo
     audio_in: declared.has('audio_in'),
     thinking: declared.has('thinking') || declared.has('always_thinking'),
     tool_use: declared.has('tool_use'),
+    pdf_in: declared.has('pdf_in'),
     dynamically_loaded_tools: declared.has('dynamically_loaded_tools'),
   };
 }

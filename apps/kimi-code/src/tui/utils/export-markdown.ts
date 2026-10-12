@@ -56,6 +56,8 @@ export function formatContentPartMd(part: ContentPart): string {
       return '[audio]';
     case 'video_url':
       return '[video]';
+    case 'document_url':
+      return '[document]';
     default:
       return `[${(part as ContentPart).type}]`;
   }

@@ -1,11 +1,16 @@
-import { AUDIO_MIME_BY_SUFFIX, IMAGE_MIME_BY_SUFFIX, VIDEO_MIME_BY_SUFFIX } from './mediaRef';
+import {
+  AUDIO_MIME_BY_SUFFIX,
+  DOCUMENT_MIME_BY_SUFFIX,
+  IMAGE_MIME_BY_SUFFIX,
+  VIDEO_MIME_BY_SUFFIX,
+} from './mediaRef';
 
-export { AUDIO_MIME_BY_SUFFIX, IMAGE_MIME_BY_SUFFIX, VIDEO_MIME_BY_SUFFIX };
+export { AUDIO_MIME_BY_SUFFIX, DOCUMENT_MIME_BY_SUFFIX, IMAGE_MIME_BY_SUFFIX, VIDEO_MIME_BY_SUFFIX };
 
 export const MEDIA_SNIFF_BYTES = 512;
 
 export interface FileType {
-  readonly kind: 'text' | 'image' | 'video' | 'unknown';
+  readonly kind: 'text' | 'image' | 'video' | 'document' | 'unknown';
   readonly mimeType: string;
 }
 
@@ -20,7 +25,6 @@ export const NON_TEXT_SUFFIXES: ReadonlySet<string> = new Set<string>([
   '.psd',
   '.ai',
   '.eps',
-  '.pdf',
   '.doc',
   '.docx',
   '.dot',
@@ -174,6 +178,9 @@ export function sniffMediaFromMagic(data: Buffer | Uint8Array): FileType | null 
     const chunk = header.subarray(8, 12).toString('latin1');
     if (chunk === 'WEBP') return { kind: 'image', mimeType: 'image/webp' };
     if (chunk === 'AVI ') return { kind: 'video', mimeType: 'video/x-msvideo' };
+  }
+  if (startsWith(header, Buffer.from('%PDF-'))) {
+    return { kind: 'document', mimeType: 'application/pdf' };
   }
   if (startsWith(header, Buffer.from('FLV'))) {
     return { kind: 'video', mimeType: 'video/x-flv' };
@@ -332,6 +339,8 @@ export function detectFileType(
     mediaHint = { kind: 'image', mimeType: IMAGE_MIME_BY_SUFFIX[suffix]! };
   } else if (suffix in VIDEO_MIME_BY_SUFFIX) {
     mediaHint = { kind: 'video', mimeType: VIDEO_MIME_BY_SUFFIX[suffix]! };
+  } else if (suffix in DOCUMENT_MIME_BY_SUFFIX) {
+    mediaHint = { kind: 'document', mimeType: DOCUMENT_MIME_BY_SUFFIX[suffix]! };
   }
 
   if (header !== undefined) {
@@ -351,6 +360,9 @@ export function detectFileType(
       return { kind: 'unknown', mimeType: '' };
     }
     if (type === 'media' && mediaHint?.kind === 'video') {
+      return mediaHint;
+    }
+    if (mediaHint?.kind === 'document' && startsWith(buf, Buffer.from('%PDF-'))) {
       return mediaHint;
     }
     if (buf.includes(0x00)) {

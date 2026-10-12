@@ -210,6 +210,7 @@ export function modelsDevModelToCapability(model: ModelsDevModelEntry): ModelsDe
       image_in: inputs.includes('image'),
       video_in: inputs.includes('video'),
       audio_in: inputs.includes('audio'),
+      pdf_in: inputs.includes('pdf'),
       thinking: Boolean(model.reasoning) || thinking.efforts !== undefined || thinking.hasToggle,
       tool_use: model.tool_call ?? true,
       max_context_tokens: context,

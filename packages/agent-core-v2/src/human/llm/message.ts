@@ -55,7 +55,18 @@ export interface VideoURLPart {
   videoUrl: { url: string; id?: string; name?: string };
 }
 
-export type ContentPart = TextPart | ThinkPart | ImageURLPart | AudioURLPart | VideoURLPart;
+export interface DocumentURLPart {
+  type: 'document_url';
+  documentUrl: { url: string; mimeType: string; id?: string; name?: string };
+}
+
+export type ContentPart =
+  | TextPart
+  | ThinkPart
+  | ImageURLPart
+  | AudioURLPart
+  | VideoURLPart
+  | DocumentURLPart;
 
 export interface ToolCall {
   type: 'function';
@@ -203,6 +214,7 @@ export function isVacuousContentPart(part: ContentPart): boolean {
     case 'image_url':
     case 'audio_url':
     case 'video_url':
+    case 'document_url':
       return false;
     default: {
       const exhaustive: never = part;

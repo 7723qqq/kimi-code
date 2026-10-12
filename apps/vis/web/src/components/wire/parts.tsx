@@ -148,6 +148,13 @@ export function ContentPartView({ part }: { part: ContentPart }) {
           <Mono className="break-all">{part.videoUrl.url}</Mono>
         </div>
       );
+    case 'document_url':
+      return (
+        <div className="border border-border bg-surface-0 p-2">
+          <div className="mb-1 text-fg-3">document_url</div>
+          <Mono className="break-all">{part.documentUrl.url}</Mono>
+        </div>
+      );
     default:
       return <JsonViewer value={part} defaultOpenDepth={1} />;
   }

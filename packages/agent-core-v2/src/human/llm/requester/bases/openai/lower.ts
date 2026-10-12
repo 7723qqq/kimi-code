@@ -39,6 +39,14 @@ function convertContentPart(part: ContentPart): OpenAIContentPart | null {
             ? { url: part.videoUrl.url }
             : { url: part.videoUrl.url, id: part.videoUrl.id },
       };
+    case 'document_url':
+      return {
+        type: 'file',
+        file: {
+          file_data: part.documentUrl.url,
+          ...(part.documentUrl.name === undefined ? {} : { filename: part.documentUrl.name }),
+        },
+      };
   }
 }
 

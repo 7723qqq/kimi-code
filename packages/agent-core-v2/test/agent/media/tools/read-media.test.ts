@@ -63,6 +63,10 @@ function pngBuffer(width = PNG_WIDTH, height = PNG_HEIGHT): Buffer {
   return buf;
 }
 
+function pdfBuffer(body = 'Hello PDF'): Buffer {
+  return Buffer.from(`%PDF-1.7\n${body}\n%%EOF`);
+}
+
 function mp4Buffer(): Buffer {
   return Buffer.concat([
     Buffer.from([0x00, 0x00, 0x00, 0x18]),
@@ -712,6 +716,69 @@ describe('Read tool media reads', () => {
     );
     expect(result.isError).not.toBe(true);
     expect(result.output).not.toContain('does not support image input');
+  });
+
+  it('sends a PDF to a model that declares pdf input', async () => {
+    const result = await execute(
+      makeTool({ '/workspace/report.pdf': { data: pdfBuffer() } }, capabilities({ pdf_in: true })),
+      { path: '/workspace/report.pdf' },
+    );
+
+    expect(result.isError).not.toBe(true);
+    const parts = outputParts(result);
+    expect(parts).toHaveLength(3);
+    expect(parts[0]).toEqual({ type: 'text', text: '<document path="/workspace/report.pdf">' });
+    expect(parts[1]).toMatchObject({
+      type: 'document_url',
+      documentUrl: {
+        mimeType: 'application/pdf',
+        name: '/workspace/report.pdf',
+      },
+    });
+    expect((parts[1] as { documentUrl: { url: string } }).documentUrl.url).toMatch(
+      /^data:application\/pdf;base64,/,
+    );
+    expect(parts[2]).toEqual({ type: 'text', text: '</document>' });
+    expect(noteText(result)).toContain('document');
+  });
+
+  it('errors when reading a PDF without pdf input capability', async () => {
+    const result = await execute(
+      makeTool({ '/workspace/report.pdf': { data: pdfBuffer() } }, capabilities()),
+      { path: '/workspace/report.pdf' },
+    );
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('does not support PDF input');
+  });
+
+  it('attempts the PDF read when capability is unknown instead of hard-blocking', async () => {
+    const result = await execute(
+      makeTool({ '/workspace/report.pdf': { data: pdfBuffer() } }, UNKNOWN_CAPABILITY),
+      { path: '/workspace/report.pdf' },
+    );
+    expect(result.isError).not.toBe(true);
+    expect(result.output).not.toContain('does not support PDF input');
+  });
+
+  it('rejects region and full_resolution for a PDF', async () => {
+    const result = await execute(
+      makeTool({ '/workspace/report.pdf': { data: pdfBuffer() } }, capabilities({ pdf_in: true })),
+      { path: '/workspace/report.pdf', region: { x: 0, y: 0, width: 10, height: 10 } },
+    );
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('apply only to image files');
+  });
+
+  it('routes a .pdf whose bytes are neither PDF nor text away from the document path', async () => {
+    const result = await execute(
+      makeTool(
+        { '/workspace/report.pdf': { data: Buffer.from('not a pdf at all\x00') } },
+        capabilities({ pdf_in: true }),
+      ),
+      { path: '/workspace/report.pdf' },
+    );
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('is not readable as UTF-8 text');
   });
 
   it('wraps a video as a data URL when no uploader is provided', async () => {

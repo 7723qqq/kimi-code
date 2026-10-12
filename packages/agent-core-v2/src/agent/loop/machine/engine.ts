@@ -270,6 +270,7 @@ function createDeltaSplitter(): (part: StreamedMessagePart) => MachineEngineDelt
       case 'image_url':
       case 'audio_url':
       case 'video_url':
+      case 'document_url':
         return undefined;
       case 'function': {
         callsByIndex.set(part._streamIndex, { id: part.id, name: part.name });

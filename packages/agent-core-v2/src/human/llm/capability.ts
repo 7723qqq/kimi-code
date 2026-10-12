@@ -4,6 +4,7 @@ export interface ModelCapability {
   readonly audio_in: boolean;
   readonly thinking: boolean;
   readonly tool_use: boolean;
+  readonly pdf_in?: boolean;
   readonly dynamically_loaded_tools?: boolean;
 }
 
@@ -17,6 +18,7 @@ export const UNKNOWN_CAPABILITY: ModelCapability = Object.freeze(
       audio_in: false,
       thinking: false,
       tool_use: false,
+      pdf_in: false,
       dynamically_loaded_tools: false,
     },
     UNKNOWN_CAPABILITY_MARKER,
@@ -35,6 +37,7 @@ export function isUnknownCapability(capability: ModelCapability): boolean {
     !capability.audio_in &&
     !capability.thinking &&
     !capability.tool_use &&
+    capability.pdf_in !== true &&
     capability.dynamically_loaded_tools !== true
   );
 }

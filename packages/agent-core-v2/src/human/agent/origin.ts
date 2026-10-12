@@ -153,6 +153,8 @@ function promptPartText(part: ContentPart): string | undefined {
       return '[audio]';
     case 'video_url':
       return '[video]';
+    case 'document_url':
+      return '[document]';
     case 'think':
       return undefined;
   }

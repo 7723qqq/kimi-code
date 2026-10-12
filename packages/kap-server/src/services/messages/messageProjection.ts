@@ -42,6 +42,17 @@ function mapContentPart(part: ContextMessage['content'][number]): MessageContent
     }
     case 'audio_url':
       return { type: 'text', text: `[audio:${part.audioUrl.url}]` };
+    case 'document_url': {
+      const ref = parseDaemonFileUrl(part.documentUrl.url);
+      return ref !== undefined
+        ? {
+            type: 'file',
+            file_id: ref.fileId,
+            name: part.documentUrl.name,
+            media_type: part.documentUrl.mimeType,
+          }
+        : { type: 'text', text: `[document:${part.documentUrl.mimeType}]` };
+    }
     case 'video_url': {
       const ref = parseDaemonFileUrl(part.videoUrl.url);
       return ref !== undefined

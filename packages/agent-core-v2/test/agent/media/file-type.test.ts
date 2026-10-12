@@ -245,7 +245,7 @@ describe('detectFileType', () => {
   it('exposes the suffix maps as readonly records', () => {
     expect(IMAGE_MIME_BY_SUFFIX['.png']).toBe('image/png');
     expect(VIDEO_MIME_BY_SUFFIX['.mkv']).toBe('video/x-matroska');
-    expect(NON_TEXT_SUFFIXES.has('.pdf')).toBe(true);
+    expect(NON_TEXT_SUFFIXES.has('.pdf')).toBe(false);
     expect(NON_TEXT_SUFFIXES.has('.zip')).toBe(true);
     expect(NON_TEXT_SUFFIXES.has('.dll')).toBe(true);
   });
@@ -258,7 +258,28 @@ describe('detectFileType', () => {
     expect(detectFileType('.env').kind).toBe('text');
     expect(detectFileType('icon.svg').kind).toBe('text');
     expect(detectFileType('archive.tar.gz').kind).toBe('unknown');
-    expect(detectFileType('my file.pdf').kind).toBe('unknown');
+    expect(detectFileType('my file.pdf').kind).toBe('document');
+    expect(detectFileType('my file.pdf').mimeType).toBe('application/pdf');
+    expect(detectFileType('report.PDF').kind).toBe('document');
+  });
+
+  it('sniffs a PDF by its magic bytes even with no usable suffix', () => {
+    const pdf = Buffer.from('%PDF-1.7\n%\xE2\xE3\xCF\xD3\n');
+    expect(detectFileType('attachment', pdf, 'media')).toEqual({
+      kind: 'document',
+      mimeType: 'application/pdf',
+    });
+    expect(detectFileType('attachment', pdf).kind).toBe('document');
+  });
+
+  it('keeps the suffix hint when the bytes neither confirm nor deny it, like every other media kind', () => {
+    const notPdf = Buffer.from('plain ascii, not a pdf at all');
+    expect(detectFileType('fake.pdf', notPdf, 'media')).toEqual({
+      kind: 'document',
+      mimeType: 'application/pdf',
+    });
+    const binary = Buffer.from('nope\x00nope');
+    expect(detectFileType('fake.pdf', binary, 'media').kind).toBe('unknown');
   });
 
   it('keeps TypeScript suffixes as text rather than MPEG-TS video', () => {

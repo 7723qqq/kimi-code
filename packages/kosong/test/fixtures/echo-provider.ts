@@ -1,6 +1,7 @@
 import { ChatProviderError } from '#/errors';
 import type {
   AudioURLPart,
+  DocumentURLPart,
   ImageURLPart,
   Message,
   StreamedMessagePart,
@@ -134,6 +135,15 @@ function parsePart(
       const videoUrl: VideoURLPart['videoUrl'] =
         id !== null && id !== undefined ? { url, id } : { url };
       return { type: 'video_url', videoUrl } satisfies VideoURLPart;
+    }
+    case 'document_url': {
+      const { url, id } = parseUrlPayload(payload, kind);
+      const documentUrl: DocumentURLPart['documentUrl'] = {
+        url,
+        mimeType: 'application/pdf',
+        ...(id !== null && id !== undefined ? { id } : {}),
+      };
+      return { type: 'document_url', documentUrl } satisfies DocumentURLPart;
     }
     case 'tool_call':
       return parseToolCall(payload, lineno, rawLine);

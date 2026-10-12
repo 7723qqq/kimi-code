@@ -765,6 +765,14 @@ export interface AgentStateSnapshot {
         id?: string;
         name?: string;
       };
+    } | /* DocumentURLPart — packages/agent-core-v2/src/human/llm/message.ts */ {
+      type: 'document_url';
+      documentUrl: {
+        url: string;
+        mimeType: string;
+        id?: string;
+        name?: string;
+      };
     })[];
     readonly toolCalls: /* ToolCall — packages/agent-core-v2/src/human/llm/message.ts */ {
       type: 'function';
@@ -1009,6 +1017,7 @@ export interface AgentStateSnapshot {
         readonly audio_in: boolean;
         readonly thinking: boolean;
         readonly tool_use: boolean;
+        readonly pdf_in?: boolean;
         readonly max_context_tokens: number;
         readonly max_input_tokens?: number;
         readonly dynamically_loaded_tools?: boolean;
@@ -1098,6 +1107,14 @@ export interface AgentStateSnapshot {
     type: 'video_url';
     videoUrl: {
       url: string;
+      id?: string;
+      name?: string;
+    };
+  } | /* DocumentURLPart — packages/agent-core-v2/src/human/llm/message.ts */ {
+    type: 'document_url';
+    documentUrl: {
+      url: string;
+      mimeType: string;
       id?: string;
       name?: string;
     };

@@ -561,6 +561,7 @@ export class AntigravityChatProvider {
 export function getAntigravityModelCapability(): ModelCapability {
   return {
     image_in: false,
+    pdf_in: false,
     video_in: false,
     audio_in: false,
     thinking: true,
