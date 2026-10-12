@@ -60,6 +60,20 @@ const PRIVILEGE_VALUE_OPTIONS: ReadonlySet<string> = new Set([
 
 const NESTED_SHELLS: ReadonlySet<string> = new Set(['sh', 'bash', 'dash', 'zsh', 'ksh', 'ash']);
 
+/**
+ * Options of a nested shell that take their value as the NEXT argument. The
+ * scanner must step over the value, or a value like `pipefail` is mistaken for
+ * a positional operand and the scan stops before ever seeing `-c`.
+ */
+const NESTED_SHELL_VALUE_OPTIONS: ReadonlySet<string> = new Set([
+  '-o',
+  '+o',
+  '-O',
+  '+O',
+  '--init-file',
+  '--rcfile',
+]);
+
 const LAUNCH_WRAPPERS: ReadonlySet<string> = new Set([
   'env',
   'command',
@@ -224,11 +238,18 @@ function analyzeInvocation(
     for (let i = 0; i < args.length; i += 1) {
       const arg = args[i]!;
       if (arg === '--') break;
-      if (/^-[a-zA-Z]+$/.test(arg)) {
-        if (arg.includes('c')) payloadIndex = i + 1;
-      } else {
-        break;
+      if (arg.startsWith('-')) {
+        if (NESTED_SHELL_VALUE_OPTIONS.has(arg)) {
+          i += 1;
+          continue;
+        }
+        // Only a short-option cluster can carry `-c`; a long option such as
+        // `--noprofile` contains a `c` but is not `-c`, and treating it as one
+        // would invent an unanalyzable payload that does not exist.
+        if (/^-[a-zA-Z]*c[a-zA-Z]*$/.test(arg)) payloadIndex = i + 1;
+        continue;
       }
+      break;
     }
     if (payloadIndex < 0) return dropped ? { kind: 'unanalyzable' } : undefined;
     const payload = args[payloadIndex];

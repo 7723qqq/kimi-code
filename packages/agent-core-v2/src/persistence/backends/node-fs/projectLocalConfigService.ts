@@ -53,8 +53,12 @@ export class FileProjectLocalConfigService implements IProjectLocalConfigService
     };
   }
 
-  resolveAdditionalDirs(baseDir: string, additionalDirs: readonly string[]): Promise<string[]> {
-    return this.resolveAdditionalDirsInternal(baseDir, additionalDirs);
+  resolveAdditionalDirs(
+    baseDir: string,
+    additionalDirs: readonly string[],
+    source: 'session' | 'config' = 'config',
+  ): Promise<string[]> {
+    return this.resolveAdditionalDirsInternal(baseDir, additionalDirs, source);
   }
 
   async appendAdditionalDir(
@@ -139,11 +143,13 @@ export class FileProjectLocalConfigService implements IProjectLocalConfigService
   private async resolveAdditionalDirsInternal(
     baseDir: string,
     additionalDirs: readonly string[],
+    source: 'session' | 'config',
   ): Promise<string[]> {
     const resolvedDirs: string[] = [];
 
     for (const additionalDir of normalizeAdditionalDirs(additionalDirs)) {
       const resolvedDir = await this.resolveAdditionalDir(baseDir, additionalDir);
+      if (source === 'session') assertSessionDirWithinSandbox(resolvedDir, baseDir, this.bootstrap);
       if (this.hasSameAdditionalDir(resolvedDirs, resolvedDir)) continue;
       resolvedDirs.push(resolvedDir);
     }
@@ -300,3 +306,66 @@ registerScopedService(
   ScopeActivation.OnScopeCreated,
   'projectLocalConfig',
 );
+
+/** Platform system directories a session must not be handed as a workspace root. */
+const POSIX_SYSTEM_DIRS: readonly string[] = [
+  '/etc',
+  '/usr',
+  '/bin',
+  '/sbin',
+  '/lib',
+  '/lib64',
+  '/boot',
+  '/dev',
+  '/proc',
+  '/sys',
+  '/var',
+];
+
+/**
+ * A session's `additionalDirs` widens the sandbox for every session in the
+ * workspace (the list is workspace state, and the fs checks read it globally),
+ * so the sources that may NOT be widened by a mere create/resume call are
+ * refused here: the filesystem root, the home directory itself, platform
+ * system directories, and any ancestor of the workspace root — each of those
+ * would hand the agent the machine rather than a project.
+ *
+ * The disk `local.toml` channel keeps its old behaviour (warn-only): an
+ * existing config must not make the workspace fail to start.
+ */
+function assertSessionDirWithinSandbox(
+  resolvedDir: string,
+  baseDir: string,
+  bootstrap: IBootstrapService,
+): void {
+  const target = normalize(resolvedDir);
+  const home = normalize(bootstrap.osHomeDir);
+  const workspaceRoot = normalize(baseDir);
+
+  const isFilesystemRoot = dirname(target) === target;
+  const isHome = target === home;
+  const isSystemDir =
+    process.platform === 'win32'
+      ? isWindowsSystemDir(target) ||
+        target === normalize(join(process.env['SystemRoot'] ?? 'C:\\Windows'))
+      : POSIX_SYSTEM_DIRS.some((dir) => target === normalize(dir));
+  const isWorkspaceAncestor = target !== workspaceRoot && workspaceRoot.startsWith(`${target}/`);
+
+  if (isFilesystemRoot || isHome || isSystemDir || isWorkspaceAncestor) {
+    throw new Error2(
+      ErrorCodes.CONFIG_INVALID,
+      `session additional_dir "${resolvedDir}" is not allowed: it is the filesystem root, the home directory, a system directory, or an ancestor of the workspace`,
+    );
+  }
+}
+
+function isWindowsSystemDir(target: string): boolean {
+  const programFiles = process.env['ProgramFiles'];
+  const programData = process.env['ProgramData'];
+  for (const candidate of [programFiles, programData]) {
+    if (candidate === undefined || candidate.length === 0) continue;
+    const normalized = normalize(candidate);
+    if (target === normalized || target.startsWith(`${normalized}/`)) return true;
+  }
+  return false;
+}

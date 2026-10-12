@@ -136,6 +136,19 @@ function isBlank(ch: string | undefined): boolean {
   return ch === ' ' || ch === '\t' || ch === '\r';
 }
 
+/**
+ * True when `at` sits at a line end within `[0, end)`: the range ends there, a
+ * bare LF follows, or a CRLF does. A Windows-edited heredoc delimiter is
+ * followed by CRLF, and accepting only LF made every line look like body
+ * content (the body then swallowed the rest of the source).
+ */
+function atLineEnd(source: string, at: number, end: number): boolean {
+  if (at >= end) return true;
+  if (source[at] === '\n') return true;
+  if (source[at] === '\r') return at + 1 >= end || source[at + 1] === '\n';
+  return false;
+}
+
 function isDigitAt(source: string, i: number): boolean {
   const ch = source[i]!;
   return ch >= '0' && ch <= '9';
@@ -604,6 +617,13 @@ function skipHeredocBodies(
           closed = true;
           break;
         }
+        if (source[after] === '\r' && (after + 1 >= end || source[after + 1] === '\n')) {
+          // Windows line ending: step past it so the outer scanner still sees
+          // the closing `)` of a nested `$(cat <<EOF` on its own.
+          j = after + 2;
+          closed = true;
+          break;
+        }
         if (source[after] === '\n') {
           j = after + 1;
           closed = true;
@@ -837,9 +857,10 @@ export class Lexer {
       }
       if (ch === '\\') {
         // A line continuation ends the run (it acts as whitespace); a lone
-        // trailing backslash at end of range is consumed as word text.
+        // trailing backslash at end of range is consumed as word text — one
+        // character, never two, or the word token would reach past `end`.
         if (this.source[i + 1] === '\n') break;
-        i += 2;
+        i += i + 1 < this.end ? 2 : 1;
         continue;
       }
       if (ch === '"') {
@@ -886,7 +907,7 @@ export class Lexer {
       }
       if (spec.delimiter.length > 0 && this.source.startsWith(spec.delimiter, marker)) {
         const after = marker + spec.delimiter.length;
-        if (after >= this.end || this.source[after] === '\n') {
+        if (atLineEnd(this.source, after, this.end)) {
           this.pos = after;
           return { bodyStart, bodyEnd: marker, endStart: marker, endEnd: after, found: true };
         }

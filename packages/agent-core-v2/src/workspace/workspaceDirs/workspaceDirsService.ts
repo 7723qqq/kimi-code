@@ -1,4 +1,4 @@
-import { Disposable } from '#/_base/di/lifecycle';
+import { Disposable, type IDisposable } from '#/_base/di/lifecycle';
 import { Emitter, type Event } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
 import { subtreeWatchFilter } from '#/_base/utils/paths';
@@ -66,6 +66,12 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
     this.states.set(workspaceDirsEphemeralDirsKey, value);
   }
 
+  /**
+   * Reference counts behind `ephemeralDirs`: several live sessions may name the
+   * same directory, and releasing one must not revoke it for the others.
+   */
+  private readonly ephemeralRefs = new Map<string, number>();
+
   get additionalDirs(): readonly string[] {
     return [...new Set([...this.fileDirs, ...this.ephemeralDirs])];
   }
@@ -74,14 +80,39 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
     return this.enqueue(() => this.applyAddDir(input));
   }
 
-  mergeAdditionalDirs(baseDir: string, dirs: readonly string[]): Promise<void> {
-    if (dirs.length === 0) return Promise.resolve();
+  mergeAdditionalDirs(baseDir: string, dirs: readonly string[]): Promise<IDisposable> {
+    if (dirs.length === 0) return Promise.resolve({ dispose: () => {} });
     return this.enqueue(async () => {
-      const resolved = await this.localConfig.resolveAdditionalDirs(baseDir, dirs);
+      const resolved = await this.localConfig.resolveAdditionalDirs(baseDir, dirs, 'session');
       if (this.unionEphemeral(resolved)) {
         this.onDidChangeEmitter.fire();
       }
+      let released = false;
+      return {
+        dispose: () => {
+          if (released) return;
+          released = true;
+          if (this.releaseEphemeral(resolved)) {
+            this.onDidChangeEmitter.fire();
+          }
+        },
+      };
     });
+  }
+
+  private releaseEphemeral(dirs: readonly string[]): boolean {
+    const before = this.additionalDirs;
+    for (const dir of dirs) {
+      const count = this.ephemeralRefs.get(dir);
+      if (count === undefined) continue;
+      if (count <= 1) {
+        this.ephemeralRefs.delete(dir);
+      } else {
+        this.ephemeralRefs.set(dir, count - 1);
+      }
+    }
+    this.ephemeralDirs = [...this.ephemeralRefs.keys()];
+    return !sameStringList(before, this.additionalDirs);
   }
 
   sessionInfo(): ISessionWorkspaceInfo {
@@ -148,7 +179,10 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
 
   private unionEphemeral(dirs: readonly string[]): boolean {
     const before = this.additionalDirs;
-    this.ephemeralDirs = [...new Set([...this.ephemeralDirs, ...dirs])];
+    for (const dir of dirs) {
+      this.ephemeralRefs.set(dir, (this.ephemeralRefs.get(dir) ?? 0) + 1);
+    }
+    this.ephemeralDirs = [...this.ephemeralRefs.keys()];
     return !sameStringList(before, this.additionalDirs);
   }
 

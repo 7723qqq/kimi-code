@@ -211,6 +211,23 @@ pub fn knowledge_add(
     })
 }
 
+/// Canonical form for scope comparison: `/`-separated, no trailing separator.
+/// A scope is a DIRECTORY prefix, so the comparison must respect boundaries —
+/// `G:/repo` covers `G:/repo/src` but never `G:/repo-old`.
+fn normalize_scope_path(raw: &str) -> String {
+    let unified = raw.replace('\\', "/");
+    let without_leading = if unified.len() > 1 && unified.ends_with('/') {
+        unified.trim_end_matches('/').to_string()
+    } else {
+        unified
+    };
+    if without_leading.is_empty() {
+        "/".to_string()
+    } else {
+        without_leading
+    }
+}
+
 #[napi]
 pub fn knowledge_search(
     query: String,
@@ -224,11 +241,16 @@ pub fn knowledge_search(
 
         // 1. Scope match
         if let Some(ref path) = scope_path {
+            let candidate = normalize_scope_path(path);
             let mut stmt = conn.prepare(
-                "SELECT id,category,title,content,tags,scope,confidence,source,created_at,updated_at FROM entries WHERE confidence >= ?1 AND (scope IS NULL OR substr(?2, 1, length(scope)) = scope) ORDER BY confidence DESC LIMIT 20"
+                // Scope is a DIRECTORY prefix: normalize both sides (`\` -> `/`,
+                // trailing separator dropped, including for rows written before
+                // this rule existed) and require a separator boundary, so
+                // `G:/repo` covers `G:/repo/src` but never `G:/repo-old`.
+                "SELECT id,category,title,content,tags,scope,confidence,source,created_at,updated_at FROM entries WHERE confidence >= ?1 AND (scope IS NULL OR ?2 = rtrim(replace(scope, char(92), '/'), '/') OR instr(?2, rtrim(replace(scope, char(92), '/'), '/') || '/') = 1) ORDER BY confidence DESC LIMIT 20"
             ).map_err(|e| format!("{e}"))?;
             let rows = stmt
-                .query_map(params![min_confidence, path], row_to_entry)
+                .query_map(params![min_confidence, candidate], row_to_entry)
                 .map_err(|e| format!("{e}"))?;
             for row in rows.flatten() {
                 let score = if row.scope.is_some() { 3.0 } else { 1.0 };
@@ -605,6 +627,26 @@ mod tests {
         );
         assert_eq!(results.len(), 1);
         assert_eq!(results[0]["entry"]["title"], "Global rule");
+
+        // A SIBLING directory that merely shares the prefix must not match:
+        // scope is a directory prefix, not a string prefix.
+        let results: Vec<serde_json::Value> = parse_vec(
+            &knowledge_search("".to_string(), Some("G:/repo-old/x".to_string()), None, 10, 0.0)
+                .unwrap(),
+        );
+        assert_eq!(results.len(), 1, "G:/repo-old must not inherit G:/repo");
+        assert_eq!(results[0]["entry"]["title"], "Global rule");
+
+        // The scope directory itself still matches, with either separator and
+        // an optional trailing slash.
+        for candidate in ["G:/repo", "G:/repo/", "G:\\repo", "G:/repo/src/main.rs"] {
+            let results: Vec<serde_json::Value> = parse_vec(
+                &knowledge_search("".to_string(), Some(candidate.to_string()), None, 10, 0.0)
+                    .unwrap(),
+            );
+            assert_eq!(results.len(), 2, "expected scope match for {candidate}");
+            assert_eq!(results[0]["entry"]["title"], "Scoped rule");
+        }
     }
 
     #[test]

@@ -7,6 +7,7 @@ import { permissionModeDescription } from '#/tui/utils/permission-mode';
 
 const ENTER = '\r';
 const ESCAPE = '\u001B';
+const UP = '\u001B[A';
 const DOWN = '\u001B[B';
 
 function stripAnsi(text: string): string {
@@ -134,7 +135,10 @@ describe('handleSwarmCommand', () => {
     expect(host.sendNormalUserInput).not.toHaveBeenCalled();
     const text = stripAnsi(mountedPicker(host).render(80).join('\n'));
     expect(text).toContain('Always Ask mode can block swarm work');
-    mountedPicker(host).handleInput(ENTER);
+    const picker = mountedPicker(host);
+    picker.handleInput(UP);
+    picker.handleInput(UP);
+    picker.handleInput(ENTER);
 
     await vi.waitFor(() => {
       expect(session.setSwarmMode).toHaveBeenCalledWith(true, 'manual');
@@ -229,7 +233,7 @@ describe('handleSwarmCommand', () => {
     expect(text).not.toContain('Do not start');
   });
 
-  it('defaults to Auto when confirming a Manual-mode swarm start', async () => {
+  it('keeps Always Ask when confirming a Manual-mode swarm start', async () => {
     const { host, session } = makeHost({ permissionMode: 'manual' });
 
     await handleSwarmCommand(host, 'Ship feature X');
@@ -238,14 +242,34 @@ describe('handleSwarmCommand', () => {
     await vi.waitFor(() => {
       expect(host.sendNormalUserInput).toHaveBeenCalledWith('Ship feature X');
     });
-    expect(session.setPermission).toHaveBeenCalledWith('auto');
+    expect(session.setPermission).not.toHaveBeenCalled();
     expect(session.setSwarmMode).toHaveBeenCalledWith(true, 'task');
     expect(session.setSwarmMode).toHaveBeenCalledTimes(1);
-    expect(host.setAppState).toHaveBeenCalledWith({ permissionMode: 'auto' });
+    expect(host.setAppState).not.toHaveBeenCalledWith({ permissionMode: 'auto' });
     expect(host.setAppState).toHaveBeenCalledWith({ swarmMode: true });
-    expect(host.showNotice).toHaveBeenCalledWith('Permission mode: Never Ask');
-    expect(host.showStatus).toHaveBeenCalledWith(permissionModeDescription('auto'), 'warning');
+    expect(host.showNotice).not.toHaveBeenCalledWith('Permission mode: Never Ask');
+    expect(host.showStatus).not.toHaveBeenCalledWith(
+      permissionModeDescription('auto'),
+      'warning',
+    );
     expect(host.state.swarmModeEntry).toBe('task');
+    expectSwarmMarker(host, 'Swarm activated');
+  });
+
+  it('still switches to Auto when the cursor is moved there first', async () => {
+    const { host, session } = makeHost({ permissionMode: 'manual' });
+
+    await handleSwarmCommand(host, 'Ship feature X');
+    const picker = mountedPicker(host);
+    picker.handleInput(UP);
+    picker.handleInput(UP);
+    picker.handleInput(ENTER);
+
+    await vi.waitFor(() => {
+      expect(host.sendNormalUserInput).toHaveBeenCalledWith('Ship feature X');
+    });
+    expect(session.setPermission).toHaveBeenCalledWith('auto');
+    expect(host.showNotice).toHaveBeenCalledWith('Permission mode: Never Ask');
     expectSwarmMarker(host, 'Swarm activated');
   });
 
@@ -254,8 +278,6 @@ describe('handleSwarmCommand', () => {
 
     await handleSwarmCommand(host, 'Ship feature X');
     const picker = mountedPicker(host);
-    picker.handleInput(DOWN);
-    picker.handleInput(DOWN);
     picker.handleInput(ENTER);
 
     await vi.waitFor(() => {
@@ -275,7 +297,7 @@ describe('handleSwarmCommand', () => {
 
     await handleSwarmCommand(host, 'Ship feature X');
     const picker = mountedPicker(host);
-    picker.handleInput(DOWN);
+    picker.handleInput(UP);
     picker.handleInput(ENTER);
 
     await vi.waitFor(() => {
@@ -311,7 +333,10 @@ describe('handleSwarmCommand', () => {
     session.setPermission.mockRejectedValueOnce(new Error('denied'));
 
     await handleSwarmCommand(host, 'Ship feature X');
-    mountedPicker(host).handleInput(ENTER);
+    const picker = mountedPicker(host);
+    picker.handleInput(UP);
+    picker.handleInput(UP);
+    picker.handleInput(ENTER);
 
     await vi.waitFor(() => {
       expect(host.showError).toHaveBeenCalledWith(
@@ -328,7 +353,10 @@ describe('handleSwarmCommand', () => {
     session.setSwarmMode.mockRejectedValueOnce(new Error('denied'));
 
     await handleSwarmCommand(host, 'Ship feature X');
-    mountedPicker(host).handleInput(ENTER);
+    const picker = mountedPicker(host);
+    picker.handleInput(UP);
+    picker.handleInput(UP);
+    picker.handleInput(ENTER);
 
     await vi.waitFor(() => {
       expect(host.showError).toHaveBeenCalledWith(

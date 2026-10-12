@@ -4,6 +4,7 @@ import { Aborted, ParseBudget } from '#/budget';
 import type { SyntaxNode } from '#/node';
 import { descendantsOfType } from '#/node';
 import { parse } from '#/parse';
+import { assertTreeIntegrity } from './helpers/differential';
 
 /** Compact S-expression of the tree: named leaves are (type "text"),
  *  anonymous leaves are just their quoted type, inner nodes nest. */
@@ -324,6 +325,31 @@ describe('heredocs', () => {
       `(program (redirected_statement (command (command_name (word "cat"))) (heredoc_redirect "<<" (heredoc_start "A") (ERROR "<<" (word "B")) (heredoc_body (heredoc_content "ba\\n")) (heredoc_end "A"))) (command (command_name (word "bb"))) (command (command_name (word "B"))))`,
       true,
     );
+  });
+
+  it('closes a CRLF heredoc at the delimiter line', () => {
+    expectTree(
+      'cat <<EOF\r\nbody\r\nEOF\r\n',
+      `(program (redirected_statement (command (command_name (word "cat"))) (heredoc_redirect "<<" (heredoc_start "EOF") (heredoc_body (heredoc_content "body\\r\\n")) (heredoc_end "EOF"))))`,
+    );
+  });
+
+  it('closes a CRLF heredoc inside a command substitution', () => {
+    const source = 'echo $(cat <<EOF\r\nbody\r\nEOF\r\n)';
+    const root = expectTree(
+      source,
+      `(program (command (command_name (word "echo")) (command_substitution "$(" (redirected_statement (command (command_name (word "cat"))) (heredoc_redirect "<<" (heredoc_start "EOF") (heredoc_body (heredoc_content "body\\r\\n")) (heredoc_end "EOF"))) ")")))`,
+    );
+    assertTreeIntegrity(root, source);
+  });
+
+  it('keeps the command visible when the line ends in a lone backslash', () => {
+    const source = 'ls -la \\';
+    const root = expectTree(
+      source,
+      `(program (command (command_name (word "ls")) (word "-la") (word "\\\\")))`,
+    );
+    assertTreeIntegrity(root, source);
   });
 
   it('recovers from an unterminated heredoc', () => {

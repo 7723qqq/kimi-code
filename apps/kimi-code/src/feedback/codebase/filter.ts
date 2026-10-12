@@ -75,20 +75,30 @@ export function isIgnoredDirName(name: string): boolean {
   return IGNORED_DIR_NAMES.has(name);
 }
 
+/**
+ * Case-folded compare: on a case-insensitive filesystem (macOS, Windows) `.ENV`
+ * and `.env` are the SAME file, so a case-sensitive check turns the only
+ * sensitive-data gate on the upload path into a no-op for `.ENV`, `Server.Key`,
+ * `ID_RSA`, `.SSH/config`, ... Folding is unconditional (not platform-gated):
+ * a path that differs only in case must never be treated as the harmless one.
+ * `IGNORED_DIR_NAMES` keeps its exact-case match — that decides what is worth
+ * scanning, a different question.
+ */
 export function isSensitivePath(relativePath: string): boolean {
   const segments = relativePath.split('/');
   for (let i = 0; i < segments.length - 1; i += 1) {
     const segment = segments[i];
-    if (segment !== undefined && SENSITIVE_DIR_NAMES.has(segment)) return true;
+    if (segment !== undefined && SENSITIVE_DIR_NAMES.has(segment.toLowerCase())) return true;
   }
 
   const base = segments.at(-1);
   if (base === undefined || base.length === 0) return false;
-  if (SENSITIVE_FILE_NAMES.has(base)) return true;
-  if (SENSITIVE_FILE_SUFFIXES.some((suffix) => base.endsWith(suffix))) return true;
+  const lowerBase = base.toLowerCase();
+  if (SENSITIVE_FILE_NAMES.has(lowerBase)) return true;
+  if (SENSITIVE_FILE_SUFFIXES.some((suffix) => lowerBase.endsWith(suffix))) return true;
 
-  if (base.startsWith('.env.')) {
-    const suffix = base.slice('.env'.length);
+  if (lowerBase.startsWith('.env.')) {
+    const suffix = lowerBase.slice('.env'.length);
     return !ENV_FILE_ALLOWED_SUFFIXES.has(suffix);
   }
 

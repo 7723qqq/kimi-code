@@ -2,6 +2,7 @@ import { Marked, type Token, Tokenizer, type TokenizerExtension, type Tokens } f
 
 import { renderLatex } from '../latex.ts';
 import { getCapabilities, hyperlink, isImageLine } from '../terminal-image.ts';
+import { hasUnsafeTerminalChars } from '../terminal-sanitize.ts';
 import type { Component } from '../tui.ts';
 import { applyBackgroundToLine, visibleWidth, wrapTextWithAnsi } from '../utils.ts';
 
@@ -815,7 +816,11 @@ export class Markdown implements Component {
         case 'link': {
           const linkText = this.renderInlineTokens(token.tokens || [], resolvedStyleContext);
           const styledLink = this.theme.link(this.theme.underline(linkText));
-          if (getCapabilities().hyperlinks) {
+          // A href carrying control bytes is not a clickable target: the URL
+          // would be written inside the OSC 8 payload, where a BEL/ESC could
+          // close the sequence and emit its own. Render it as plain text
+          // instead of a link.
+          if (getCapabilities().hyperlinks && !hasUnsafeTerminalChars(token.href)) {
             // OSC 8: render as a clickable hyperlink. The URL is not printed inline,
             // so we always show only the link text regardless of whether it matches href.
             result += hyperlink(styledLink, token.href) + stylePrefix;

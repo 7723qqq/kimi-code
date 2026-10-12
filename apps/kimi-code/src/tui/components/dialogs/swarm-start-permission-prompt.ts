@@ -46,6 +46,7 @@ export class SwarmStartPermissionPromptComponent extends StartPermissionPromptCo
       title: t('tui.dialogs.swarmStartPermissionPrompt.title'),
       noticeLines: swarmNoticeLines(),
       options: swarmOptions(),
+      initialValue: 'manual',
       onSelect: opts.onSelect,
       onCancel: opts.onCancel,
     });

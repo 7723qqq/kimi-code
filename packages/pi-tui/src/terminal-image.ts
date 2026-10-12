@@ -2,6 +2,7 @@ import { execSync } from 'node:child_process';
 import { homedir } from 'node:os';
 import { isAbsolute } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { sanitizeTerminalPayload } from './terminal-sanitize.ts';
 
 export type ImageProtocol = 'kitty' | 'iterm2' | 'sixel' | null;
 
@@ -885,7 +886,11 @@ export function renderImage(
  * @param url - The URL to link to
  */
 export function hyperlink(text: string, url: string): string {
-  return `\x1b]8;;${url}\x1b\\${text}\x1b]8;;\x1b\\`;
+  // The URL lands inside the OSC 8 payload: a control byte there (BEL, ESC,
+  // CR) would close the sequence early and let the text emit a sequence of
+  // its own. Sanitizing keeps the link clickable with a mangled URL rather
+  // than turning model output into terminal input.
+  return `\x1b]8;;${sanitizeTerminalPayload(url)}\x1b\\${text}\x1b]8;;\x1b\\`;
 }
 
 /** Shorten home-prefixed absolute paths to ~/... for compact display. */

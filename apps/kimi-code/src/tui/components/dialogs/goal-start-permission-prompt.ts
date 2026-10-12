@@ -87,6 +87,7 @@ export class GoalStartPermissionPromptComponent extends StartPermissionPromptCom
           : t('tui.dialogs.goalStartPermissionPrompt.titleManual'),
       noticeLines: opts.mode === 'yolo' ? yoloNoticeLines() : manualNoticeLines(),
       options: opts.mode === 'yolo' ? goalYoloOptions() : goalManualOptions(),
+      initialValue: opts.mode,
       onSelect: opts.onSelect,
       onCancel: opts.onCancel,
     });

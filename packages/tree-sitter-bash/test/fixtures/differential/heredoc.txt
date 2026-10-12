@@ -640,3 +640,41 @@ echo $(printf x # <<EOF
 echo $( [[ x == @(<<EOF) ]]
 )
 ===
+===
+@known-diff[escaped] heredoc-content-chunks: CRLF heredoc closes at its delimiter line
+cat <<EOF\r\nbody\r\nEOF\r\n
+---
+hasError: false
+program [0,22] "cat <<EOF\r\nbody\r\nEOF\r\n"
+  redirected_statement [0,20] "cat <<EOF\r\nbody\r\nEOF"
+    command [0,3] "cat"
+      command_name [0,3] "cat"
+        word [0,3] "cat"
+    heredoc_redirect [4,20] "<<EOF\r\nbody\r\nEOF"
+      (<<) [4,6] "<<"
+      heredoc_start [6,9] "EOF"
+      heredoc_body [11,17] "body\r\n"
+        heredoc_content [11,17] "body\r\n"
+      heredoc_end [17,20] "EOF"
+===
+@known-diff[escaped] heredoc-content-chunks: CRLF heredoc inside a command substitution
+echo $(cat <<EOF\r\nbody\r\nEOF\r\n)
+---
+hasError: false
+program [0,30] "echo $(cat <<EOF\r\nbody\r\nEOF\r\n)"
+  command [0,30] "echo $(cat <<EOF\r\nbody\r\nEOF\r\n)"
+    command_name [0,4] "echo"
+      word [0,4] "echo"
+    command_substitution [5,30] "$(cat <<EOF\r\nbody\r\nEOF\r\n)"
+      ($() [5,7] "$("
+      redirected_statement [7,27] "cat <<EOF\r\nbody\r\nEOF"
+        command [7,10] "cat"
+          command_name [7,10] "cat"
+            word [7,10] "cat"
+        heredoc_redirect [11,27] "<<EOF\r\nbody\r\nEOF"
+          (<<) [11,13] "<<"
+          heredoc_start [13,16] "EOF"
+          heredoc_body [18,24] "body\r\n"
+            heredoc_content [18,24] "body\r\n"
+          heredoc_end [24,27] "EOF"
+      ()) [29,30] ")"

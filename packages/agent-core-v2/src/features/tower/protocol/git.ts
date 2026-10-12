@@ -151,9 +151,21 @@ export async function isRegisteredWorktree(repoRoot: string, path: string): Prom
   return inside.length > 0 && !inside.startsWith('..') && !isAbsolute(inside);
 }
 
-export async function isWorktreeDirty(path: string): Promise<boolean> {
+/**
+ * Three-state dirtiness. `'unknown'` is what a failed `git status` produces —
+ * distinct from `'clean'` on purpose: a caller that treats an unanswerable
+ * probe as "nothing to lose" would force-remove uncommitted work.
+ */
+export type WorktreeDirtyState = 'clean' | 'dirty' | 'unknown';
+
+export async function worktreeDirtyState(path: string): Promise<WorktreeDirtyState> {
   const status = await tryGit(path, ['status', '--porcelain']);
-  return status !== null && status.trim().length > 0;
+  if (status === null) return 'unknown';
+  return status.trim().length > 0 ? 'dirty' : 'clean';
+}
+
+export async function isWorktreeDirty(path: string): Promise<boolean> {
+  return (await worktreeDirtyState(path)) === 'dirty';
 }
 
 export async function mergeNoFf(cwd: string, branch: string): Promise<string> {

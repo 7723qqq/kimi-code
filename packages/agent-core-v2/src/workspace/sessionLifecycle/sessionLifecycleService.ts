@@ -118,6 +118,8 @@ const SESSION_CREATE_RELOAD_SKILL_SOURCES: readonly string[] = [
 export class SessionLifecycleService extends Disposable implements ISessionLifecycleService {
   declare readonly _serviceBrand: undefined;
   private readonly sessions = new Map<string, ISessionScopeHandle>();
+  /** Per-session release of the ephemeral additional dirs it merged in. */
+  private readonly additionalDirReleases = new Map<string, IDisposable>();
   private readonly _onWillCreateSession = this._register(new Emitter<SessionWillCreateEvent>());
   readonly onWillCreateSession: Event<SessionWillCreateEvent> = this._onWillCreateSession.event;
   private readonly _onDidCreateSession = this._register(
@@ -212,6 +214,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     } catch (error) {
       const sessionDir = handle.accessor.get(ISessionContext).sessionDir;
       this.sessions.delete(sessionId);
+      this.releaseAdditionalDirs(sessionId);
       await this.drainAgents(handle).catch(() => {});
       void handle.dispose();
       await this.hostFs.remove(sessionDir).catch(() => {});
@@ -221,6 +224,19 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     return handle;
   }
 
+  /**
+   * Release the ephemeral additional dirs a session merged in. Called from every
+   * path that drops a session from `sessions`, so a deleted or archived session
+   * stops widening the sandbox (and the directories it named stop being visible
+   * to the workspace) instead of leaking until the process exits.
+   */
+  private releaseAdditionalDirs(sessionId: string): void {
+    const release = this.additionalDirReleases.get(sessionId);
+    if (release === undefined) return;
+    this.additionalDirReleases.delete(sessionId);
+    release.dispose();
+  }
+
   private async materializeSession(opts: MaterializeSessionOptions): Promise<ISessionScopeHandle> {
     const workspaceId = this.workspaceId;
     const sessionScope = sessionScopeOf(this.handlerScope, opts.sessionId);
@@ -228,7 +244,10 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     const metaScope = sessionScope;
     await Promise.all([this.config.ready, this.models.ready, this.providers.ready]);
     await this.workspaceDirs.ready;
-    await this.workspaceDirs.mergeAdditionalDirs(opts.workDir, opts.additionalDirs ?? []);
+    const releaseAdditionalDirs = await this.workspaceDirs.mergeAdditionalDirs(
+      opts.workDir,
+      opts.additionalDirs ?? [],
+    );
     const ctx: ISessionContext = {
       _serviceBrand: undefined,
       sessionId: opts.sessionId,
@@ -296,6 +315,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
       throw error;
     }
     this.sessions.set(opts.sessionId, handle);
+    this.additionalDirReleases.set(opts.sessionId, releaseAdditionalDirs);
     return handle;
   }
 
@@ -380,6 +400,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
       await this.announceCreated({ sessionId, handle, source: 'resume' });
     } catch (error) {
       this.sessions.delete(sessionId);
+      this.releaseAdditionalDirs(sessionId);
       void handle.dispose();
       throw error;
     }
@@ -399,6 +420,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     if (handle === undefined) return;
     await this.announceWillClose({ sessionId, handle, reason: 'exit' });
     this.sessions.delete(sessionId);
+    this.releaseAdditionalDirs(sessionId);
     await this.drainAgents(handle);
     await this.appendLogStore.drainRetirements();
     await drainSessionMetadataWrites();
@@ -425,6 +447,7 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     );
     await this.announceWillClose({ sessionId, handle, reason: 'archive' });
     this.sessions.delete(sessionId);
+    this.releaseAdditionalDirs(sessionId);
     await drainSessionMetadataWrites();
     await this.indexMirror.drain();
     void handle.dispose();

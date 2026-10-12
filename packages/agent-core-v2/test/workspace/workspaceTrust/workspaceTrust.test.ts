@@ -56,6 +56,7 @@ describe('WorkspaceTrustService', () => {
     root: string,
     events?: WorkspaceTrustChange[],
     env: NodeJS.ProcessEnv = {},
+    docsOverride?: IAtomicDocumentStore,
   ): { service: IWorkspaceTrust; states: IWorkspaceStateService } {
     const ix = createServices(disposables, {
       strict: true,
@@ -65,7 +66,7 @@ describe('WorkspaceTrustService', () => {
         reg.defineInstance(IBootstrapService, stubBootstrap(homeDir, env));
         reg.defineInstance(
           IAtomicDocumentStore,
-          new JsonAtomicDocumentStore(new FileStorageService(homeDir)),
+          docsOverride ?? new JsonAtomicDocumentStore(new FileStorageService(homeDir)),
         );
         reg.defineInstance(ITelemetryService, noopTelemetryService);
         reg.define(IWorkspaceTrust, WorkspaceTrustService);
@@ -147,6 +148,54 @@ describe('WorkspaceTrustService', () => {
 
     expect(service.isTrusted()).toBe(false);
     expect(events).toEqual([{ trusted: true }, { trusted: false }]);
+  });
+
+  it('deletes the on-disk record even when the in-memory flag is already false', async () => {
+    const root = '/home/test/revoked-workspace';
+    const backing = new JsonAtomicDocumentStore(new FileStorageService(homeDir));
+    await writeWorkspaceTrust(backing, root, 1);
+
+    // The first read fails, so initialize() leaves the flag false while the
+    // record survives on disk — exactly the state that used to make untrust()
+    // a silent no-op.
+    let failNextRead = true;
+    const flaky: IAtomicDocumentStore = {
+      get: async (scope, key) => {
+        if (failNextRead && scope === 'workspace-trust') {
+          failNextRead = false;
+          throw new Error('store unavailable');
+        }
+        return backing.get(scope, key);
+      },
+      set: (scope, key, value) => backing.set(scope, key, value),
+      delete: (scope, key) => backing.delete(scope, key),
+    } as IAtomicDocumentStore;
+
+    const events: WorkspaceTrustChange[] = [];
+    const { service } = createService(root, events, {}, flaky);
+    await service.ready;
+    expect(service.isTrusted()).toBe(false);
+
+    await service.untrust();
+
+    expect(await readWorkspaceTrust(backing, root)).toBe(false);
+    // The flag never changed, so no event is emitted — the deletion is the fix.
+    expect(events).toEqual([]);
+  });
+
+  it('writes the record even when the in-memory flag is already true', async () => {
+    const root = '/home/test/re-trusted-workspace';
+    const backing = new JsonAtomicDocumentStore(new FileStorageService(homeDir));
+    const events: WorkspaceTrustChange[] = [];
+    const { service } = createService(root, events, {}, backing);
+    await service.ready;
+
+    await service.trust();
+    await service.untrust();
+    await service.trust();
+
+    expect(await readWorkspaceTrust(backing, root)).toBe(true);
+    expect(events).toEqual([{ trusted: true }, { trusted: false }, { trusted: true }]);
   });
 
   it('keeps the marker across a restart', async () => {

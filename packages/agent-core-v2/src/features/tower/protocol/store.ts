@@ -29,11 +29,11 @@ import {
   isAncestor,
   isInsideRepo,
   isRegisteredWorktree,
-  isWorktreeDirty,
   mergeNoFf,
   tryGit,
   worktreeAdd,
   worktreeAddNewBranch,
+  worktreeDirtyState,
   worktreeRemove,
 } from './git';
 import {
@@ -1595,10 +1595,16 @@ export class TowerStore {
         continue;
       }
       if (!force) {
-        if (await isWorktreeDirty(absPath)) {
-          await kept(mission, rel, 'uncommitted changes — rerun with force to remove', {
-            reason: 'uncommitted-changes',
-          });
+        const dirty = await worktreeDirtyState(absPath);
+        if (dirty !== 'clean') {
+          await kept(
+            mission,
+            rel,
+            dirty === 'dirty'
+              ? 'uncommitted changes — rerun with force to remove'
+              : 'git status unavailable — rerun with force to remove',
+            { reason: dirty === 'dirty' ? 'uncommitted-changes' : 'status-unavailable' },
+          );
           continue;
         }
       }

@@ -26,6 +26,51 @@ describe('blobs route', () => {
     expect(body).toBe('binary-content');
   });
 
+  it.each([
+    'image/svg+xml',
+    'IMAGE/SVG+XML',
+    'image/svg',
+    'text/html',
+    'application/xhtml+xml',
+    'application/xml',
+    'text/xml',
+    'application/vnd.foo+xml',
+  ])('never serves %s as a live document', async (mime) => {
+    const { home, sessionDir, cleanup: c } = await buildSessionFixture('sample-main');
+    cleanup = c;
+    const blobDir = join(sessionDir, 'agents', 'main', 'blobs');
+    await mkdir(blobDir, { recursive: true });
+    const hash = 'c'.repeat(64);
+    await writeFile(join(blobDir, hash), Buffer.from('<svg onload="alert(1)"></svg>'));
+
+    const app = blobsRoute(home);
+    const res = await app.request(
+      `/session_fixture/blobs/${hash}?agent=main&mime=${encodeURIComponent(mime)}`,
+    );
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get('content-type')).toBe('application/octet-stream');
+    expect(res.headers.get('content-disposition')).toContain('attachment');
+    expect(res.headers.get('content-security-policy')).toBe('sandbox');
+  });
+
+  it('keeps serving ordinary images inline without an attachment header', async () => {
+    const { home, sessionDir, cleanup: c } = await buildSessionFixture('sample-main');
+    cleanup = c;
+    const blobDir = join(sessionDir, 'agents', 'main', 'blobs');
+    await mkdir(blobDir, { recursive: true });
+    const hash = 'd'.repeat(64);
+    await writeFile(join(blobDir, hash), Buffer.from('png-bytes'));
+
+    const app = blobsRoute(home);
+    const res = await app.request(
+      `/session_fixture/blobs/${hash}?agent=main&mime=image/png`,
+    );
+
+    expect(res.headers.get('content-type')).toBe('image/png');
+    expect(res.headers.get('content-disposition')).toBeNull();
+  });
+
   it('defaults mime to application/octet-stream', async () => {
     const { home, sessionDir, cleanup: c } = await buildSessionFixture('sample-main');
     cleanup = c;

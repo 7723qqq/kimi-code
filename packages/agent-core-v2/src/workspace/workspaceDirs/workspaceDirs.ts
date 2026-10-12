@@ -1,5 +1,6 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { Event } from '#/_base/event';
+import type { IDisposable } from '#/_base/di/lifecycle';
 import type { ISessionWorkspaceInfo } from '#/session/workspaceInfo/workspaceInfo';
 
 export interface WorkspaceAddDirInput {
@@ -21,7 +22,12 @@ export interface IWorkspaceDirs {
   readonly additionalDirs: readonly string[];
   readonly onDidChange: Event<void>;
   addDir(input: WorkspaceAddDirInput): Promise<WorkspaceAdditionalDirsResult>;
-  mergeAdditionalDirs(baseDir: string, dirs: readonly string[]): Promise<void>;
+  /**
+   * Widen the workspace with a session's extra roots. Returns a disposable that
+   * releases THIS session's hold; the directories stay while any other live
+   * session still names them.
+   */
+  mergeAdditionalDirs(baseDir: string, dirs: readonly string[]): Promise<IDisposable>;
   sessionInfo(): ISessionWorkspaceInfo;
 }
 

@@ -290,7 +290,7 @@ describe('handleGoalCommand', () => {
     expect(text).toContain('Return to the input box with your goal command');
   });
 
-  it('defaults to Auto when confirming a Manual-mode goal start', async () => {
+  it('keeps Always Ask when confirming a Manual-mode goal start', async () => {
     const { host: manualHost, session: s } = makeHost({ permissionMode: 'manual' });
 
     await handleGoalCommand(manualHost, 'Ship feature X');
@@ -301,10 +301,32 @@ describe('handleGoalCommand', () => {
         expect.objectContaining({ objective: 'Ship feature X' }),
       );
     });
+    expect(s.setPermission).not.toHaveBeenCalled();
+    expect(manualHost.setAppState).not.toHaveBeenCalledWith({ permissionMode: 'auto' });
+    expect(manualHost.showNotice).not.toHaveBeenCalledWith('Permission mode: Never Ask');
+    expect(manualHost.showStatus).not.toHaveBeenCalledWith(
+      permissionModeDescription('auto'),
+      'warning',
+    );
+    expect(manualHost.sendNormalUserInput).toHaveBeenCalledWith('Ship feature X');
+  });
+
+  it('still switches to Auto when the cursor is moved there first', async () => {
+    const { host: manualHost, session: s } = makeHost({ permissionMode: 'manual' });
+
+    await handleGoalCommand(manualHost, 'Ship feature X');
+    const picker = mountedPicker(manualHost);
+    picker.handleInput(UP);
+    picker.handleInput(UP);
+    picker.handleInput(ENTER);
+
+    await vi.waitFor(() => {
+      expect(s.createGoal).toHaveBeenCalledWith(
+        expect.objectContaining({ objective: 'Ship feature X' }),
+      );
+    });
     expect(s.setPermission).toHaveBeenCalledWith('auto');
-    expect(manualHost.setAppState).toHaveBeenCalledWith({ permissionMode: 'auto' });
     expect(manualHost.showNotice).toHaveBeenCalledWith('Permission mode: Never Ask');
-    expect(manualHost.showStatus).toHaveBeenCalledWith(permissionModeDescription('auto'), 'warning');
     expect(manualHost.sendNormalUserInput).toHaveBeenCalledWith('Ship feature X');
   });
 
@@ -313,8 +335,6 @@ describe('handleGoalCommand', () => {
 
     await handleGoalCommand(manualHost, 'Ship feature X');
     const picker = mountedPicker(manualHost);
-    picker.handleInput(DOWN);
-    picker.handleInput(DOWN);
     picker.handleInput(ENTER);
 
     await vi.waitFor(() => {
@@ -333,7 +353,7 @@ describe('handleGoalCommand', () => {
 
     await handleGoalCommand(manualHost, 'Ship feature X');
     const picker = mountedPicker(manualHost);
-    picker.handleInput(DOWN);
+    picker.handleInput(UP);
     picker.handleInput(ENTER);
 
     await vi.waitFor(() => {
@@ -355,7 +375,7 @@ describe('handleGoalCommand', () => {
 
     await handleGoalCommand(manualHost, 'Ship feature X');
     const picker = mountedPicker(manualHost);
-    picker.handleInput(DOWN);
+    picker.handleInput(UP);
     picker.handleInput(ENTER);
 
     await vi.waitFor(() => {
@@ -409,11 +429,13 @@ describe('handleGoalCommand', () => {
     expect(text).not.toContain('Start in Always Ask');
   });
 
-  it('defaults to Auto when confirming a YOLO-mode goal start', async () => {
+  it('switches to Auto when the YOLO-mode prompt is moved up first', async () => {
     const { host: yoloHost, session: s } = makeHost({ permissionMode: 'yolo' });
 
     await handleGoalCommand(yoloHost, 'Ship feature X');
-    mountedPicker(yoloHost).handleInput(ENTER);
+    const picker = mountedPicker(yoloHost);
+    picker.handleInput(UP);
+    picker.handleInput(ENTER);
 
     await vi.waitFor(() => {
       expect(s.createGoal).toHaveBeenCalledWith(
@@ -430,7 +452,6 @@ describe('handleGoalCommand', () => {
 
     await handleGoalCommand(yoloHost, 'Ship feature X');
     const picker = mountedPicker(yoloHost);
-    picker.handleInput(DOWN);
     picker.handleInput(ENTER);
 
     await vi.waitFor(() => {

@@ -170,6 +170,12 @@ export const KNOWN_DIFFERENCES: readonly KnownDifference[] = [
     readmeAnchor: 'A double backslash in a replacement value (`${x// /\\\\|}`)',
     summary: 'The reference drops the first backslash (a quirk); this parser keeps both.',
   },
+  {
+    id: 'recovery-lone-trailing-backslash',
+    readmeAnchor: 'A lone trailing backslash at the end of a word (`ls -la \\`)',
+    summary:
+      'The reference wraps the trailing backslash in an ERROR node and flags hasError; this parser keeps it as word text inside the command (bash itself accepts it).',
+  },
 ];
 
 const KNOWN_DIFFERENCE_IDS: ReadonlySet<string> = new Set(KNOWN_DIFFERENCES.map((entry) => entry.id));

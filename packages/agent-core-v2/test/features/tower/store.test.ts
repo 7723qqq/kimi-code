@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -2650,6 +2650,34 @@ describe('teardown', () => {
     const forced = await store.teardown({ force: true });
     expect(forced.join('\n').replaceAll('\\', '/')).toContain(`removed .tower/worktrees/${mission.worktree}`);
     await expect(stat(wt)).rejects.toThrow();
+  });
+
+  it('keeps a worktree whose git status cannot be determined', async () => {
+    const mission = await setupMission({
+      title: 'feature z',
+      scope: 'src/z/**',
+      file: 'src/z/z.ts',
+      content: 'z\n',
+    });
+    const wt = worktreeOf(mission);
+    // A corrupt index makes `git status` fail while `git rev-parse --git-dir`
+    // (the registration probe) still answers, so the worktree is visited and
+    // only the dirtiness probe is unanswerable. A worktree's `.git` is a file
+    // holding `gitdir: <admin path>`, and the index lives in that admin dir.
+    const pointer = await readFile(join(wt, '.git'), 'utf8');
+    const gitDir = resolve(dirname(wt), pointer.replace(/^gitdir:\s*/, '').trim());
+    await writeFile(join(gitDir, 'index'), 'not-an-index\n');
+
+    const report = await store.teardown();
+    const flat = report.join('\n').replaceAll('\\', '/');
+    expect(flat).toContain(`kept .tower/worktrees/${mission.worktree}`);
+    expect(flat).toContain('git status unavailable');
+    expect((await stat(wt)).isDirectory()).toBe(true);
+
+    const forced = await store.teardown({ force: true });
+    expect(forced.join('\n').replaceAll('\\', '/')).toContain(
+      `removed .tower/worktrees/${mission.worktree}`,
+    );
   });
 
   it('removes clean worktrees without force', async () => {

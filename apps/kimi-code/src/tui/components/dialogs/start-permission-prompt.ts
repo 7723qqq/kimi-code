@@ -27,6 +27,13 @@ export interface StartPermissionPromptOptions<
   readonly title: string;
   readonly noticeLines: readonly string[];
   readonly options: readonly StartPermissionOption<TChoice>[];
+  /**
+   * Choice highlighted when the prompt opens. Defaults to the first option;
+   * callers that are about to widen permissions pass the CURRENT mode, so
+   * Enter means "keep what I have" (the same shape as
+   * `ChoicePickerComponent`'s `initialValue`).
+   */
+  readonly initialValue?: TChoice;
   readonly onSelect: (choice: TChoice) => void;
   readonly onCancel: () => void;
 }
@@ -37,9 +44,15 @@ export class StartPermissionPromptComponent<
   implements Component, Focusable
 {
   focused = false;
-  private selectedIndex = 0;
+  private selectedIndex: number;
 
-  constructor(private readonly opts: StartPermissionPromptOptions<TChoice>) {}
+  constructor(private readonly opts: StartPermissionPromptOptions<TChoice>) {
+    const initialIndex =
+      opts.initialValue === undefined
+        ? -1
+        : opts.options.findIndex((option) => option.value === opts.initialValue);
+    this.selectedIndex = initialIndex >= 0 ? initialIndex : 0;
+  }
 
   invalidate(): void {}
 

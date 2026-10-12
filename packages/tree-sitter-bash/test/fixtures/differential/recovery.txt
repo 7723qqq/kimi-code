@@ -110,3 +110,13 @@ program [0,18] "echo \"unterminated"
       (") [5,6] "\""
       string_content [6,18] "unterminated"
 ===
+@known-diff recovery-lone-trailing-backslash: ls -la \\
+ls -la \
+---
+hasError: false
+program [0,8] "ls -la \\"
+  command [0,8] "ls -la \\"
+    command_name [0,2] "ls"
+      word [0,2] "ls"
+    word [3,6] "-la"
+    word [7,8] "\\"

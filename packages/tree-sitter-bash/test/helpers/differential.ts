@@ -193,7 +193,7 @@ export interface FixtureSample {
   line: number;
 }
 
-const DIRECTIVE_RE = /^@(match|known-diff)(?:\s+(\S+))?:\s*(.*)$/;
+const DIRECTIVE_RE = /^@(match|known-diff)(?:\[escaped\])?(?:\s+(\S+))?:\s*(.*)$/;
 const SEPARATOR_RE = /^===\s*$/m;
 const DUMP_SPLIT_RE = /^---\s*$/m;
 
@@ -238,6 +238,20 @@ export function parseCorpusFile(content: string): CorpusCase[] {
  * shape — if our output drifts from it, or starts matching the reference,
  * the test fails).
  */
+/**
+ * Decode the escapes a fixture needs to express bytes the repository cannot
+ * carry literally: `.gitattributes` pins `* text=auto eol=lf`, so a CRLF
+ * sample has to be written as `\r\n`. Opt-in per sample via an `[escaped]`
+ * directive flag — without it, samples keep every byte literal, which the
+ * existing ANSI-C-quote cases (`$'...\r\n'`) rely on. Only the SOURCE segment
+ * is decoded; the stored dump stays verbatim.
+ */
+function decodeFixtureEscapes(text: string): string {
+  return text.replaceAll(/\\r|\\n|\\t/g, (escape) =>
+    escape === '\\r' ? '\r' : escape === '\\n' ? '\n' : '\t',
+  );
+}
+
 export function parseFixtureFile(filePath: string, content: string): FixtureSample[] {
   const samples: FixtureSample[] = [];
   const blocks = content.split(SEPARATOR_RE);
@@ -255,15 +269,22 @@ export function parseFixtureFile(filePath: string, content: string): FixtureSamp
       throw new Error(`${filePath}:${blockLine}: expected a @match: / @known-diff <id>: directive, got ${JSON.stringify(directiveLine)}`);
     }
     const [, kind, id, description = ''] = directive;
+    const escaped = directiveLine.includes('[escaped]');
     if (kind === 'match') {
-      samples.push({ kind, description, source: body, line: blockLine });
+      samples.push({
+        kind,
+        description,
+        source: escaped ? decodeFixtureEscapes(body) : body,
+        line: blockLine,
+      });
     } else {
       if (id === undefined) throw new Error(`${filePath}:${blockLine}: @known-diff requires a registry id`);
       const parts = body.split(DUMP_SPLIT_RE);
       if (parts.length !== 2) {
         throw new Error(`${filePath}:${blockLine}: @known-diff block must contain a --- line followed by the expected dump of our parser`);
       }
-      const source = parts[0]!.replace(/\n$/, '');
+      const rawSource = parts[0]!.replace(/\n$/, '');
+      const source = escaped ? decodeFixtureEscapes(rawSource) : rawSource;
       const expectedOurs = parts[1]!.replace(/^\n/, '').replace(/\n$/, '');
       samples.push({ kind: 'known-diff', id, description, source, expectedOurs, line: blockLine });
     }

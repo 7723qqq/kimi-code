@@ -127,6 +127,10 @@ and pinned by a stored expectation in `test/fixtures/` — see
   - `${x@}` (transformation operator with no letter) keeps an `expansion`
     with `hasError: true` here; the reference splits it into an `ERROR`
     node and a `}` command.
+  - A lone trailing backslash at the end of a word (`ls -la \`) is word
+    text here, keeping the whole command visible; the reference wraps the
+    backslash in an `ERROR` node and flags `hasError`. bash itself accepts
+    the trailing backslash, so the reference's tree is the odd one out.
 - A trailing connector (`ls &&`, `ls |`) yields a single-child
   `list` / `pipeline` with `hasError: true`; tree-sitter-bash inserts a
   zero-width `command` recovery node.

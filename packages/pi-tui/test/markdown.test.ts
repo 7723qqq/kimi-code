@@ -1678,6 +1678,18 @@ bar`,
 			assert.ok(!rawPlain.join("").includes("(https://example.com)"), "URL should not appear inline in parentheses");
 		});
 
+		it("should not emit OSC 8 when the href carries control bytes", () => {
+			setCapabilities({ images: null, trueColor: false, hyperlinks: true });
+			const href = "https://example.com/\u001b]2;pwned\u0007";
+			const markdown = new Markdown(`[click here](${href})`, 0, 0, defaultMarkdownTheme);
+
+			const lines = markdown.render(80);
+			const joined = lines.join("");
+
+			assert.ok(!joined.includes("\x1b]8;;"), "A href with control bytes must not become a hyperlink");
+			assert.ok(joined.includes("click here"), "The visible link text still renders");
+		});
+
 		it("should use OSC 8 for mailto links when terminal supports hyperlinks", () => {
 			setCapabilities({ images: null, trueColor: false, hyperlinks: true });
 			const markdown = new Markdown("[Email me](mailto:test@example.com)", 0, 0, defaultMarkdownTheme);

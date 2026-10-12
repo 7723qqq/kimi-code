@@ -5,6 +5,7 @@ import { setKittyProtocolActive } from './keys.ts';
 import { isNativeModifierPressed } from './native-modifiers.ts';
 import { getNativePlatformHelper } from './native-platform.ts';
 import { StdinBuffer } from './stdin-buffer.ts';
+import { sanitizeTerminalPayload } from './terminal-sanitize.ts';
 
 const TERMINAL_PROGRESS_KEEPALIVE_MS = 1000;
 const TERMINAL_PROGRESS_ACTIVE_SEQUENCE = '\x1b]9;4;3\x07';
@@ -524,8 +525,10 @@ export class ProcessTerminal implements Terminal {
   }
 
   setTitle(title: string): void {
-    // OSC 0;title BEL - set terminal window title
-    process.stdout.write(`\x1b]0;${title}\x07`);
+    // OSC 0;title BEL - set terminal window title. The title can carry
+    // caller-supplied text (a session name, a prompt excerpt), so a control
+    // byte must not be able to terminate the sequence and inject its own.
+    process.stdout.write(`\x1b]0;${sanitizeTerminalPayload(title)}\x07`);
   }
 
   setProgress(active: boolean): void {
