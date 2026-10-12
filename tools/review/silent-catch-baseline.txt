@@ -129,7 +129,6 @@ packages/kaos/src/local.ts  2
 packages/kap-server/src/instanceRegistry.ts  1
 packages/kap-server/src/routes/cron.ts  1
 packages/kap-server/src/routes/fs.ts  2
-packages/kap-server/src/routes/tasks.ts  1
 packages/kap-server/src/routes/workspaceFs.ts  1
 packages/kap-server/src/search/indexCore.ts  2
 packages/kap-server/src/search/worker/entry.ts  1

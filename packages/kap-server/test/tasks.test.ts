@@ -327,6 +327,27 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
     );
   });
 
+  it('reports a failed output read as 50003 instead of an empty success', async () => {
+    const id = await createSession();
+    const tasks = await mainAgentTasks(id);
+    const taskId = tasks.registerTask(fakeTask('process', 'hello'));
+    await flush();
+
+    const original = tasks.readOutput.bind(tasks);
+    tasks.readOutput = async () => {
+      throw new Error('blob store unreadable');
+    };
+    try {
+      const got = await getJson<TaskWire>(
+        `/api/v1/sessions/${id}/tasks/${taskId}?with_output=true`,
+      );
+      expect(got.body.code).toBe(50003);
+      expect(JSON.stringify(got.body)).toContain('output unavailable');
+    } finally {
+      tasks.readOutput = original;
+    }
+  });
+
   it('cancels a running task and reports 40904 on a second cancel', async () => {
     const id = await createSession();
     const tasks = await mainAgentTasks(id);

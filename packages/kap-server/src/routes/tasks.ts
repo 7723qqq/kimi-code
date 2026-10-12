@@ -101,6 +101,7 @@ export function registerTasksRoutes(app: TasksRouteHost, core: Scope): void {
         [ErrorCode.VALIDATION_FAILED]: { detailsSchema },
         [ErrorCode.SESSION_NOT_FOUND]: {},
         [ErrorCode.TASK_NOT_FOUND]: {},
+        [ErrorCode.PERSISTENCE_FAILURE]: {},
       },
       description: 'Get a task by ID',
       tags: ['tasks'],
@@ -128,7 +129,17 @@ export function registerTasksRoutes(app: TasksRouteHost, core: Scope): void {
           if (preview.length > 0) {
             output = { preview, bytes: Buffer.byteLength(preview, 'utf-8') };
           }
-        } catch {}
+        } catch (error) {
+  requestLog(req)?.error({ err: error, session_id, task_id }, 'task output read failed');
+  reply.send(
+    errEnvelope(
+      ErrorCode.PERSISTENCE_FAILURE,
+      `task ${task_id} output unavailable: ${error instanceof Error ? error.message : String(error)}`,
+      req.id,
+    ),
+  );
+  return;
+}
       }
 
       reply.send(okEnvelope(toWireTask(session_id, found, output), req.id));

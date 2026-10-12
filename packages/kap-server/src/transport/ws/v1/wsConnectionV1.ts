@@ -151,27 +151,32 @@ export class WsConnectionV1 implements BroadcastTarget {
       case 'pong':
         return;
       case 'client_hello':
-        this.enqueueControl(() => this.onClientHello(frame));
+        this.enqueueControl(frame.id, () => this.onClientHello(frame));
         return;
       case 'subscribe':
-        this.enqueueControl(() => this.onSubscribe(frame));
+        this.enqueueControl(frame.id, () => this.onSubscribe(frame));
         return;
       case 'subscribe_v2':
-        this.enqueueControl(() => this.onSubscribeV2(frame));
+        this.enqueueControl(frame.id, () => this.onSubscribeV2(frame));
         return;
       case 'unsubscribe_v2':
-        this.enqueueControl(() => this.onUnsubscribeV2(frame));
+        this.enqueueControl(frame.id, () => this.onUnsubscribeV2(frame));
         return;
       case 'unsubscribe':
-        this.enqueueControl(() => this.onUnsubscribe(frame));
+        this.enqueueControl(frame.id, () => this.onUnsubscribe(frame));
         return;
       default:
         return;
     }
   }
 
-  private enqueueControl(task: () => Promise<void>): void {
-    this.controlQueue = this.controlQueue.then(task).catch(() => {});
+  private enqueueControl(frameId: string | undefined, task: () => Promise<void>): void {
+    this.controlQueue = this.controlQueue.then(task).catch((error: unknown) => {
+      this.logger?.error?.({ err: error, frameId }, 'ws control frame failed');
+      if (frameId !== undefined && frameId.length > 0) {
+        this.sendImmediateFrame(buildAck(frameId, 1, 'internal error', {}));
+      }
+    });
   }
 
   private onHeartbeat(): void {

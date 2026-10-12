@@ -319,6 +319,31 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
     conn.close();
   });
 
+  it('acks (and logs) when a control-frame task rejects instead of leaving the client waiting', async () => {
+    const socket = new FakeSocket();
+    const errors: unknown[] = [];
+    const broadcaster = Object.assign(makeBroadcaster(), {
+      subscribe: async () => {
+        throw new Error('subscribe exploded');
+      },
+    }) as unknown as SessionEventBroadcaster;
+    const conn = makeConn(socket, {
+      broadcaster,
+      logger: { error: (...args: unknown[]) => errors.push(args), warn: () => {} } as never,
+    });
+
+    socket.emit('message', controlFrame('subscribe', { session_ids: ['s1'] }));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    const acks = (socket.frames() as Array<{ type: string; code?: number; id?: string }>).filter(
+      (frame) => frame.type === 'ack',
+    );
+    expect(acks.length).toBeGreaterThan(0);
+    expect(acks.at(-1)?.code).toBe(1);
+    expect(acks.at(-1)?.id).toBe('req-1');
+    expect(errors.length).toBeGreaterThan(0);
+  });
+
   it('acks an invalid subscribe_v2 payload with an error and does not attach', async () => {
     const socket = new FakeSocket();
     const { broadcaster, calls } = makeCapturingBroadcaster();
