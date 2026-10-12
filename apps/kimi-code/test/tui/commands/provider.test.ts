@@ -177,6 +177,8 @@ describe('setDefaultModel', () => {
 
 const ESC = String.fromCodePoint(27);
 const DOWN = `${ESC}[B`;
+const LEFT = `${ESC}[D`;
+const RIGHT = `${ESC}[C`;
 const TAB = '\t';
 const ENTER = '\r';
 const CTRL_E = '\u0005';
@@ -195,6 +197,8 @@ type RigHost = SlashCommandHost & {
     getConfig: ReturnType<typeof vi.fn>;
     setConfig: ReturnType<typeof vi.fn>;
     removeProvider: ReturnType<typeof vi.fn>;
+    supportsAtomicSectionReplace: ReturnType<typeof vi.fn>;
+    replaceConfigSections: ReturnType<typeof vi.fn>;
     importCustomRegistry: ReturnType<typeof vi.fn>;
   };
   authFlow: { refreshConfigAfterLogin: ReturnType<typeof vi.fn> };
@@ -223,9 +227,39 @@ function applyPatch(config: KimiConfig, patch: KimiConfigPatch): KimiConfig {
   } as KimiConfig;
 }
 
-function makeCommandRig(initial: KimiConfig): CommandRig {
+/**
+ * The `replaceConfigSections` contract used by the rig: a section is replaced
+ * wholesale and `undefined` clears it — the engine's own reading of the call
+ * (`configService.replaceSections`), which is the opposite of `setConfig`'s
+ * "skip an undefined domain". A rig that got this backwards would pass while
+ * the real v2 host silently kept a pointer the write meant to drop.
+ */
+function applySections(config: KimiConfig, sections: Record<string, unknown>): KimiConfig {
+  const next = structuredClone(config) as Record<string, unknown>;
+  for (const [domain, value] of Object.entries(sections)) {
+    if (value === undefined) {
+      delete next[domain];
+    } else {
+      next[domain] = structuredClone(value);
+    }
+  }
+  return next as KimiConfig;
+}
+
+interface RigOptions {
+  /**
+   * Model a host that can land several sections in ONE write (the v2 engine).
+   * Without it the rig is a v1-style host: `supportsAtomicSectionReplace()` is
+   * false and a replacing write goes through the `removeProvider` + `setConfig`
+   * pair instead.
+   */
+  readonly atomicSections?: boolean;
+}
+
+function makeCommandRig(initial: KimiConfig, options: RigOptions = {}): CommandRig {
   let store = structuredClone(initial);
   const mounted: Panel[] = [];
+  const atomicSections = options.atomicSections === true;
   const harness = {
     getConfig: vi.fn(() => Promise.resolve(structuredClone(store))),
     setConfig: vi.fn((patch: KimiConfigPatch) => {
@@ -235,6 +269,11 @@ function makeCommandRig(initial: KimiConfig): CommandRig {
     removeProvider: vi.fn((providerId: string) => {
       store = removeProviderFromConfig(store, providerId);
       return Promise.resolve(structuredClone(store));
+    }),
+    supportsAtomicSectionReplace: vi.fn(() => atomicSections),
+    replaceConfigSections: vi.fn((sections: Record<string, unknown>) => {
+      store = applySections(store, sections);
+      return Promise.resolve();
     }),
     importCustomRegistry: vi.fn(() => Promise.resolve({ providers: [], credentialEnv: {} })),
   };
@@ -336,6 +375,39 @@ const RICH_CONFIG: KimiConfig = {
   defaultModel: 'demo/gpt-4.1',
 };
 
+/**
+ * A provider and alias that declare every field the form now owns — including
+ * the credential as an environment variable (the inline key and the variable
+ * are mutually exclusive) and a declared-EMPTY effort ladder.
+ */
+const OPTIONAL_CONFIG: KimiConfig = {
+  providers: {
+    demo: {
+      type: 'openai',
+      apiKeyEnv: 'DEMO_API_KEY',
+      baseUrl: 'https://api.example.com/v1',
+      defaultModel: 'demo/gpt-4.1',
+      customHeaders: { 'X-Tenant': 'acme' },
+      env: { REGION: 'cn' },
+    },
+  },
+  models: {
+    'demo/gpt-4.1': {
+      provider: 'demo',
+      model: 'gpt-4.1',
+      maxContextSize: 128000,
+      displayName: 'GPT-4.1',
+      supportEfforts: [],
+      protocol: 'anthropic',
+      betaApi: true,
+      reasoningKey: 'reasoning_content',
+      baseUrl: 'https://alt.example.com/v1',
+      overrides: { maxContextSize: 100000 },
+    },
+  },
+  defaultModel: 'demo/gpt-4.1',
+};
+
 /** Two aliases on one provider, so a row deletion is visible in the patch. */
 const TWO_MODEL_CONFIG: KimiConfig = {
   providers: {
@@ -396,6 +468,9 @@ function replaceText(form: ProviderFormDialogComponent, current: string, next: s
   typeText(form, next);
 }
 
+/** Enter presses from Max input tokens through the row's write back. */
+const ROW_TO_COMMIT_FROM_MAX_INPUT = 12;
+
 /** Fills the add form and submits it from the save field. */
 function fillAddForm(
   form: ProviderFormDialogComponent,
@@ -405,15 +480,20 @@ function fillAddForm(
   form.handleInput(ENTER); // id -> type
   form.handleInput(ENTER); // type -> apiKey
   typeText(form, value.apiKey);
-  form.handleInput(ENTER); // apiKey -> baseUrl
+  form.handleInput(ENTER); // apiKey -> apiKeyEnv
+  form.handleInput(ENTER); // apiKeyEnv -> baseUrl (the key is inline, not a variable)
   typeText(form, value.baseUrl);
-  form.handleInput(ENTER); // baseUrl -> models
+  form.handleInput(ENTER); // baseUrl -> defaultModel
+  form.handleInput(ENTER); // defaultModel -> customHeaders
+  form.handleInput(ENTER); // customHeaders -> env
+  form.handleInput(ENTER); // env -> models
   form.handleInput(ENTER); // open the row editor
   typeText(form, value.model);
   form.handleInput(ENTER); // model -> context
   typeText(form, value.context);
   form.handleInput(ENTER); // context -> max input
-  for (let i = 0; i < 8; i++) form.handleInput(ENTER); // the optional tail, then commit
+  // The optional tail, then the row's write back.
+  for (let i = 0; i < ROW_TO_COMMIT_FROM_MAX_INPUT; i++) form.handleInput(ENTER);
   form.handleInput(TAB); // models -> save
   form.handleInput(ENTER); // submit
 }
@@ -584,16 +664,17 @@ describe('/provider edit (E)', () => {
     const rig = makeCommandRig(RICH_CONFIG);
     const form = await openEditForm(rig);
 
-    for (let i = 0; i < 4; i++) form.handleInput(TAB); // id → models
+    for (let i = 0; i < 8; i++) form.handleInput(TAB); // id → models
     form.handleInput(ENTER); // open the row editor
     const out = plain(form);
     expect(out).toContain('Capabilities: tool_use, image_in');
     expect(out).toContain('272000');
     expect(out).toContain('8192');
     expect(out).toContain('low, high');
-    expect(out).toContain('[✓] enabled');
+    const adaptiveLabel = t('tui.dialogs.providerForm.adaptiveThinkingLabel');
+    expect(out).toContain(`${adaptiveLabel}  ${t('tui.dialogs.providerForm.toggleEnabled')}`);
 
-    for (let i = 0; i < 10; i++) form.handleInput(ENTER); // walk the row to the commit
+    for (let i = 0; i < 14; i++) form.handleInput(ENTER); // walk the row to the commit
     form.handleInput(TAB); // models → save
     form.handleInput(ENTER);
 
@@ -614,11 +695,58 @@ describe('/provider edit (E)', () => {
     });
   });
 
+  it('prefills and writes back the provider and alias fields the form owns in full', async () => {
+    const rig = makeCommandRig(OPTIONAL_CONFIG);
+    const form = await openEditForm(rig);
+
+    const out = plain(form);
+    expect(out).toContain('DEMO_API_KEY'); // the credential is a variable name
+    expect(out).toContain('X-Tenant=acme');
+    expect(out).toContain('REGION=cn');
+    expect(out).toContain('gpt-4.1'); // the bare id behind the demo/gpt-4.1 pointer
+
+    for (let i = 0; i < 8; i++) form.handleInput(TAB); // id → models
+    form.handleInput(ENTER); // open the row editor
+    const row = plain(form, 200);
+    expect(row).toContain('> []'); // the declared-empty ladder keeps its literal
+    expect(row).toContain('‹ anthropic ›');
+    expect(row).toContain('reasoning_content');
+    expect(row).toContain('https://alt.example.com/v1');
+    expect(row).toContain(t('tui.dialogs.providerForm.overridesNotice'));
+
+    for (let i = 0; i < 14; i++) form.handleInput(ENTER); // walk the row to the commit
+    form.handleInput(TAB); // models → save
+    form.handleInput(ENTER);
+
+    await vi.waitFor(() => {
+      expect(rig.host.harness.setConfig).toHaveBeenCalledTimes(1);
+    });
+    // Every field the record declared reached the form and came back unchanged:
+    // `[]`, `false` and "absent" are declarations of their own, and none of them
+    // was folded into another state on the way through.
+    expect(rig.readConfig().providers['demo']).toMatchObject({
+      type: 'openai',
+      apiKeyEnv: 'DEMO_API_KEY',
+      baseUrl: 'https://api.example.com/v1',
+      defaultModel: 'demo/gpt-4.1',
+      customHeaders: { 'X-Tenant': 'acme' },
+      env: { REGION: 'cn' },
+    });
+    expect(rig.readConfig().models?.['demo/gpt-4.1']).toMatchObject({
+      supportEfforts: [],
+      protocol: 'anthropic',
+      betaApi: true,
+      reasoningKey: 'reasoning_content',
+      baseUrl: 'https://alt.example.com/v1',
+      overrides: { maxContextSize: 100000 },
+    });
+  });
+
   it('writes only the alias fields the form owns, without inventing the rest', async () => {
     const rig = makeCommandRig(EDIT_CONFIG);
     const form = await openEditForm(rig);
 
-    for (let i = 0; i < 5; i++) form.handleInput(TAB); // id → save
+    for (let i = 0; i < 9; i++) form.handleInput(TAB); // id → save
     form.handleInput(ENTER);
 
     await vi.waitFor(() => {
@@ -642,7 +770,7 @@ describe('/provider edit (E)', () => {
     const form = await openEditForm(rig);
 
     replaceText(form, 'demo', 'demo2');
-    for (let i = 0; i < 5; i++) form.handleInput(TAB); // id → save
+    for (let i = 0; i < 9; i++) form.handleInput(TAB); // id → save
     form.handleInput(ENTER);
 
     // Re-mounting the list is the flow's last step, so both writes have landed.
@@ -673,7 +801,7 @@ describe('/provider edit (E)', () => {
     const rig = makeCommandRig(TWO_MODEL_CONFIG);
     const form = await openEditForm(rig);
 
-    for (let i = 0; i < 4; i++) form.handleInput(TAB); // id → models
+    for (let i = 0; i < 8; i++) form.handleInput(TAB); // id → models
     form.handleInput(DOWN); // row 2
     form.handleInput('D'); // delete row 2
     form.handleInput(TAB); // models → save
@@ -701,7 +829,7 @@ describe('/provider edit (E)', () => {
     const form = await openEditForm(rig);
 
     replaceText(form, 'demo', 'taken');
-    for (let i = 0; i < 5; i++) form.handleInput(TAB); // id → save
+    for (let i = 0; i < 9; i++) form.handleInput(TAB); // id → save
     form.handleInput(ENTER);
 
     await vi.waitFor(() => {
@@ -739,22 +867,127 @@ describe('/provider edit (E)', () => {
     expect(rig.readConfig()).toEqual(MANAGED_CONFIG);
   });
 
-  it('refuses the form for a provider type it cannot represent', async () => {
+  it('edits a provider whose type the form cannot offer without rewriting it', async () => {
     const initial: KimiConfig = {
-      providers: { astron: { type: 'astron', baseUrl: 'https://astron.example.com/v2' } },
-      models: {},
+      providers: {
+        // Not an Open Platform id — `astron` is one, and that path is read-only
+        // (see the next test). This is a hand-written record carrying the one
+        // wire type the form has no field for.
+        'corp-astron': {
+          type: 'astron',
+          apiKey: 'sk-astron',
+          baseUrl: 'https://astron.example.com/v2',
+        },
+      },
+      models: {
+        'corp-astron/glm-5': { provider: 'corp-astron', model: 'glm-5', maxContextSize: 128000 },
+      },
     };
     const rig = makeCommandRig(initial);
-    await handleProviderCommand(rig.host);
-    currentPanel<ProviderManagerComponent>(rig).handleInput('E');
+    const form = await openEditForm(rig);
 
-    await vi.waitFor(() => {
-      expect(rig.host.showError).toHaveBeenCalledWith(
-        t('tui.commands.provider.unsupportedProtocol', { id: 'astron', type: 'astron' }),
-      );
-    });
-    expect(rig.mounted.at(-1)).toBeInstanceOf(ProviderManagerComponent);
+    // Neither refused nor read-only: the form carries the stored type as an
+    // extra candidate rather than collapsing the record onto one of its six.
+    expect(form.disabled).toBe(false);
+    expect(plain(form)).toContain('‹ astron ›');
+
+    form.handleInput(TAB); // id -> type
+    form.handleInput(RIGHT); // the extra entry sits last: astron -> kimi
+    form.handleInput(LEFT); // and back
+    for (let i = 0; i < 8; i++) form.handleInput(TAB); // type -> save
+    form.handleInput(ENTER);
+
+    await waitForPanel(rig, ProviderManagerComponent);
+    expect(rig.readConfig().providers['corp-astron']?.type).toBe('astron');
+    expect(setConfigPatch(rig.host)?.providers?.['corp-astron']).toEqual(
+      initial.providers['corp-astron'],
+    );
+    expect(rig.host.showError).not.toHaveBeenCalled();
+  });
+
+  it('opens an Open Platform provider read-only rather than refusing it', async () => {
+    const initial: KimiConfig = {
+      providers: {
+        'moonshot-cn': {
+          type: 'kimi',
+          apiKey: 'sk-platform',
+          baseUrl: 'https://api.moonshot.cn/v1',
+        },
+      },
+      models: {
+        'moonshot-cn/kimi-k3': {
+          provider: 'moonshot-cn',
+          model: 'kimi-k3',
+          maxContextSize: 262144,
+        },
+      },
+    };
+    const rig = makeCommandRig(initial);
+    const form = await openEditForm(rig);
+
+    // Its account belongs to `/login`, and nothing in the record says so — an
+    // Open Platform provider is written with `oauth` dropped, which is why the
+    // id is the only signal. Renaming it would orphan the credential and let
+    // the next refresh re-add `moonshot-cn` beside the renamed copy.
+    expect(form.disabled).toBe(true);
+    expect(plain(form)).toContain(t('tui.dialogs.providerForm.managedReadonly'));
+
+    for (const key of [TAB, ENTER, 'D', CTRL_R]) form.handleInput(key);
+    form.handleInput(ESC);
+    await waitForPanel(rig, ProviderManagerComponent);
     expect(rig.host.harness.setConfig).not.toHaveBeenCalled();
+    expect(rig.host.harness.removeProvider).not.toHaveBeenCalled();
     expect(rig.readConfig()).toEqual(initial);
+  });
+
+  it('lands a replacing edit as one section replace when the host can', async () => {
+    const rig = makeCommandRig(EDIT_CONFIG, { atomicSections: true });
+    const form = await openEditForm(rig);
+
+    replaceText(form, 'demo', 'demo2');
+    for (let i = 0; i < 9; i++) form.handleInput(TAB); // id → save
+    form.handleInput(ENTER);
+
+    await waitForPanel(rig, ProviderManagerComponent);
+    // One write, and neither half of the two-call pairing is used — which is the
+    // whole point: nothing can exit between a removal and its replacement.
+    expect(rig.host.harness.replaceConfigSections).toHaveBeenCalledTimes(1);
+    expect(rig.host.harness.removeProvider).not.toHaveBeenCalled();
+    expect(rig.host.harness.setConfig).not.toHaveBeenCalled();
+
+    const written = rig.readConfig();
+    expect(Object.keys(written.providers)).toEqual(['demo2']);
+    expect(Object.keys(written.models ?? {})).toEqual(['demo2/gpt-4.1']);
+    expect(written.defaultModel).toBe('demo2/gpt-4.1');
+    // The sections carry whole records, not a delta: the merge path cannot
+    // delete a key, and this path must not need it to.
+    const sections = rig.host.harness.replaceConfigSections.mock.calls[0]?.[0] as Record<
+      string,
+      unknown
+    >;
+    expect(Object.keys(sections)).toEqual([
+      'providers',
+      'models',
+      'defaultModel',
+      'defaultProvider',
+    ]);
+    expect(sections['defaultProvider']).toBeUndefined();
+  });
+
+  it('leaves the same config whichever write shape the host takes', async () => {
+    const runEdit = async (atomicSections: boolean): Promise<KimiConfig> => {
+      const rig = makeCommandRig(EDIT_CONFIG, { atomicSections });
+      const form = await openEditForm(rig);
+      replaceText(form, 'demo', 'demo2');
+      for (let i = 0; i < 9; i++) form.handleInput(TAB); // id → save
+      form.handleInput(ENTER);
+      await waitForPanel(rig, ProviderManagerComponent);
+      return rig.readConfig();
+    };
+
+    // The split exists to change how many writes land, never what the file ends
+    // up saying. Both shapes are run on the same starting config so any drift
+    // between them fails here rather than on a user's machine.
+    expect(await runEdit(true)).toEqual(await runEdit(false));
   });
 });

@@ -2,6 +2,7 @@ import type { ProviderConfig } from '@moonshot-ai/kimi-code-sdk';
 import chalk from 'chalk';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 
+import { DEFAULT_OAUTH_PROVIDER_NAME } from '#/constant/app';
 import { t } from '#/i18n';
 import {
   ProviderManagerComponent,
@@ -184,5 +185,31 @@ describe('ProviderManagerComponent', () => {
     expect(hint).toContain('E edit');
     const lines = component.render(120).map((line) => line.replaceAll(SGR, ''));
     expect(lines[2]).toContain(hint);
+  });
+
+  it('never lists the managed OAuth account, so no key can reach it', () => {
+    // `/logout` owns that provider, and the delete path has no branch for it:
+    // were it a row, `D` would offer a second way to remove an account the user
+    // never configured here.
+    const onEdit = vi.fn();
+    const onDeleteSource = vi.fn();
+    const component = makeComponent({
+      providers: {
+        acme: { baseUrl: 'https://acme.test' },
+        [DEFAULT_OAUTH_PROVIDER_NAME]: { oauth: { storage: 'file', key: 'managed' } },
+      } as unknown as Record<string, ProviderConfig>,
+      onEdit,
+      onDeleteSource,
+    });
+
+    const out = rendered(component);
+    expect(out).toContain('acme');
+    expect(out).not.toContain(DEFAULT_OAUTH_PROVIDER_NAME);
+
+    component.handleInput('E');
+    expect(onEdit).toHaveBeenCalledWith('acme');
+    component.handleInput('D');
+    component.handleInput('y');
+    expect(onDeleteSource).toHaveBeenCalledWith(['acme']);
   });
 });

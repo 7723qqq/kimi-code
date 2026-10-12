@@ -13,7 +13,7 @@
 
 import type { TuiMouseEventResult } from '@moonshot-ai/pi-tui';
 
-import { NotifyPanelComponent } from '../../notify-panel';
+import { MIN_BODY_ROWS, NotifyPanelComponent, PANEL_OVERHEAD_ROWS } from '../../notify-panel';
 import type {
   RegionId,
   RegionKey,
@@ -31,6 +31,13 @@ export class UpdatesRegion implements StatusRegion {
 
   readonly priority = 20;
   readonly blocking = false;
+  /**
+   * The box needs its header row plus one body row; below that the panel folds
+   * itself into a stub, which reads as an empty box. Stated as the panel's own
+   * two constants rather than as a bare `2`, so the floor cannot drift from the
+   * panel it describes.
+   */
+  readonly minRows = PANEL_OVERHEAD_ROWS + MIN_BODY_ROWS;
   /**
    * `Ctrl+N` moves the keyboard into the strip, and the strip can only have
    * one answer for it: updates are what the user pages through with arrows

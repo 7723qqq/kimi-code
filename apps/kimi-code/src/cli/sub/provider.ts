@@ -18,6 +18,10 @@
  * the row follows the shared three-state rule: a flag that was not given
  * leaves the field `undefined` (an edit keeps the stored value), a blank flag
  * clears the stored key.
+ *
+ * A toggle is the one field where `false` is a declaration rather than a
+ * deletion (`adaptive_thinking = false` is the budget-effort ladder), so the
+ * negated flag writes it and a `--clear-*` flag is what drops the key.
  */
 
 import {
@@ -28,6 +32,7 @@ import {
   type ImportCustomRegistryResult,
   createKimiHarness,
   DEFAULT_CATALOG_URL,
+  removeProviderFromConfig,
   resolveCatalogImport,
   type Catalog,
   type CatalogProviderEntry,
@@ -48,9 +53,11 @@ import {
   validateProviderForm,
   type ProviderFormError,
   type ProviderFormModelRow,
+  type ProviderFormToggle,
   type ProviderFormValue,
   type ProviderWireType,
 } from '#/utils/provider-form';
+import { persistProviderWrite, providerSectionsOf } from '#/utils/provider-write';
 
 interface WritableLike {
   write(chunk: string): boolean;
@@ -105,8 +112,73 @@ interface CreateOptions {
   readonly supportEfforts?: string;
   readonly defaultEffort?: string;
   readonly offEffort?: string;
-  /** `--adaptive-thinking` sets it, `--no-adaptive-thinking` clears it, neither keeps it. */
+  /**
+   * `--adaptive-thinking` writes `true` and `--no-adaptive-thinking` writes
+   * `false`; neither keeps the stored value. `false` is a declaration of its
+   * own — the engine reads `adaptive_thinking = false` as the budget-effort
+   * ladder while an omitted key falls back to the model-name inference — so
+   * dropping the key is {@link CreateOptions.clearAdaptiveThinking}'s job, not
+   * the negated flag's.
+   */
   readonly adaptiveThinking?: boolean;
+  /** `--clear-adaptive-thinking` deletes the stored key; it wins over the other two. */
+  readonly clearAdaptiveThinking?: boolean;
+  /**
+   * `--protocol` narrows the alias to a per-model wire override: `none` drops
+   * the stored one back to the provider's type, the other two values write it
+   * (`resolveProtocol` refuses anything else). Absent keeps what was stored.
+   */
+  readonly protocol?: string;
+  /**
+   * `--beta-api` writes `true` and `--no-beta-api` writes `false`; absent keeps
+   * the stored value and `--clear-beta-api` deletes the key. Only the Anthropic
+   * transport reads the flag, so the shared rules refuse `true` under any other
+   * protocol.
+   */
+  readonly betaApi?: boolean;
+  /** `--clear-beta-api` deletes the stored key; it wins over the other two. */
+  readonly clearBetaApi?: boolean;
+  /** `--reasoning-key` names the wire field carrying reasoning content; blank clears it. */
+  readonly reasoningKey?: string;
+  /** `--model-base-url` overrides this model's endpoint; blank clears it. */
+  readonly modelBaseUrl?: string;
+  /**
+   * `--clear-overrides` drops the alias's stored `overrides`, which the engine
+   * applies over every field above.
+   */
+  readonly clearOverrides?: boolean;
+  /**
+   * `--api-key-env` stores the NAME of the environment variable holding the
+   * credential instead of an inline key. Absent keeps the stored name; an
+   * explicit empty value drops it.
+   *
+   * The engine keeps the two credential sources apart, and the shared rules
+   * refuse a value that sets both, so switching between them names both ends in
+   * the same command: to env auth is `--api-key '' --api-key-env FOO` (the
+   * blank is what drops the stored inline key), and back to an inline key is
+   * `--api-key sk-… --api-key-env ''`.
+   */
+  readonly apiKeyEnv?: string;
+  /**
+   * `--provider-default-model` points this provider's OWN default at one of its
+   * model rows, written as the `${id}/${model}` alias and refused when it names
+   * no row. Absent keeps the stored pointer; `--provider-default-model ''`
+   * drops it. The top-level `default_model` is `--default`'s field.
+   */
+  readonly providerDefaultModel?: string;
+  /**
+   * `--custom-header k=v`, repeatable. The entries are joined into the
+   * `k=v, k2=v2` text the shared parser reads, so a value cannot contain a
+   * comma; an omitted flag keeps the stored map and `--clear-custom-headers`
+   * empties it (a `--custom-header` given alongside wins).
+   */
+  readonly customHeader?: readonly string[];
+  /** `--env k=v`, repeatable: provider-scoped environment, shaped like `--custom-header`. */
+  readonly env?: readonly string[];
+  /** `--clear-custom-headers` empties the stored map rather than keeping it. */
+  readonly clearCustomHeaders?: boolean;
+  /** `--clear-env` empties the stored env rather than keeping it. */
+  readonly clearEnv?: boolean;
   readonly default?: boolean;
   readonly json?: boolean;
 }
@@ -228,8 +300,10 @@ export async function handleProviderCreate(deps: ProviderDeps, opts: CreateOptio
 /**
  * Updates a provider in place: fields the flags omit keep their stored value
  * and `--model` upserts one row into the existing set. The write mirrors the
- * TUI edit path — remove first (it cascades the old aliases and any dangling
- * default pointers), then apply the planned patch.
+ * TUI edit path — planned as remove-first (only the removal cascades the old
+ * aliases and any dangling default pointers away), then landed by
+ * `persistProviderWrite`, which folds the removal into a single atomic section
+ * replace where the host supports one.
  */
 export async function handleProviderUpdate(
   deps: ProviderDeps,
@@ -261,12 +335,21 @@ export async function handleProviderUpdate(
     deps.exit(1);
   }
 
-  const patch = plan.patch;
+  // `--default` names a row this write rebuilds, so the override has to reach
+  // both shapes of the plan: the patch carries it on the merge path and the
+  // sections on the one-write path.
+  let patch = plan.patch;
+  let sections = plan.sections;
   if (opts.default === true) {
-    patch.defaultModel = `${input.value.id.trim()}/${input.model}`;
+    const defaultModel = `${input.value.id.trim()}/${input.model}`;
+    patch = { ...patch, defaultModel };
+    sections = { ...sections, defaultModel };
   }
-  await harness.removeProvider(plan.removeProviderId);
-  await harness.setConfig(patch);
+  await persistProviderWrite(harness, {
+    patch,
+    sections,
+    removeProviderId: plan.removeProviderId,
+  });
 
   reportProviderWrite(
     deps,
@@ -312,6 +395,7 @@ const PROVIDER_FORM_ERROR_KEYS: Record<ProviderFormError, TranslationKey> = {
   idRequired: 'tui.dialogs.providerForm.error.idRequired',
   idInvalid: 'tui.dialogs.providerForm.error.idInvalid',
   apiKeyRequired: 'tui.dialogs.providerForm.error.apiKeyRequired',
+  apiKeyConflict: 'tui.dialogs.providerForm.error.apiKeyConflict',
   baseUrlRequired: 'tui.dialogs.providerForm.error.baseUrlRequired',
   modelRequired: 'tui.dialogs.providerForm.error.modelRequired',
   contextSizeRequired: 'tui.dialogs.providerForm.error.contextSizeRequired',
@@ -319,6 +403,11 @@ const PROVIDER_FORM_ERROR_KEYS: Record<ProviderFormError, TranslationKey> = {
   modelDuplicate: 'tui.dialogs.providerForm.error.modelDuplicate',
   capabilityUnknown: 'tui.dialogs.providerForm.error.capabilityUnknown',
   defaultEffortNotSupported: 'tui.dialogs.providerForm.error.defaultEffortNotSupported',
+  defaultModelUnknown: 'tui.dialogs.providerForm.error.defaultModelUnknown',
+  betaApiWithoutAnthropic: 'tui.dialogs.providerForm.error.betaApiWithoutAnthropic',
+  modelBaseUrlInvalid: 'tui.dialogs.providerForm.error.modelBaseUrlInvalid',
+  headerInvalid: 'tui.dialogs.providerForm.error.headerInvalid',
+  envInvalid: 'tui.dialogs.providerForm.error.envInvalid',
 };
 
 function rejectProviderForm(deps: ProviderDeps, error: ProviderFormError): never {
@@ -354,6 +443,20 @@ function resolveWireType(deps: ProviderDeps, raw: string | undefined): ProviderW
   return wireType;
 }
 
+/**
+ * `--protocol` is the per-model half of `--type`: the two values the alias
+ * schema accepts, plus the literal `none` for "no override" — the alias is
+ * rebuilt from the provider's type, which is also what an untouched flag leaves
+ * in place. Anything else is refused the way `--type` is, with the option
+ * description (which enumerates the three values) as the message.
+ */
+function resolveProtocol(deps: ProviderDeps, raw: string): '' | 'anthropic' | 'openai_responses' {
+  if (raw === 'none') return '';
+  if (raw === 'anthropic' || raw === 'openai_responses') return raw;
+  deps.stderr.write(t('cli.optionDescriptions.providerCreateProtocol') + '\n');
+  deps.exit(1);
+}
+
 const POSITIVE_INTEGER_PATTERN = /^\d+$/;
 
 /** The flags that describe one model row — the row `--model` names. */
@@ -367,6 +470,13 @@ const MODEL_ROW_OPTION_KEYS = [
   'defaultEffort',
   'offEffort',
   'adaptiveThinking',
+  'clearAdaptiveThinking',
+  'protocol',
+  'betaApi',
+  'clearBetaApi',
+  'reasoningKey',
+  'modelBaseUrl',
+  'clearOverrides',
 ] as const satisfies readonly (keyof CreateOptions)[];
 
 /**
@@ -387,6 +497,22 @@ function sizeField(
     deps.exit(1);
   }
   return value;
+}
+
+/**
+ * The three states of a toggle flag. `--clear-x` deletes the stored key and
+ * wins over the other two; otherwise the flag's own boolean is written verbatim
+ * (`false` included — see {@link CreateOptions.adaptiveThinking}) and an
+ * untouched flag falls back to the stored declaration, which the write layer
+ * would keep anyway.
+ */
+function toggleField(
+  clear: boolean | undefined,
+  value: boolean | undefined,
+  previous: ProviderFormToggle | undefined,
+): ProviderFormToggle | undefined {
+  if (clear === true) return 'clear';
+  return value ?? previous;
 }
 
 /**
@@ -421,10 +547,58 @@ function modelRowFromOptions(
   if (defaultEffort !== undefined) row.defaultEffort = defaultEffort;
   const offEffort = opts.offEffort ?? previous?.offEffort;
   if (offEffort !== undefined) row.offEffort = offEffort;
-  // `??` is what lets `--no-adaptive-thinking` (false = clear) through.
-  const adaptiveThinking = opts.adaptiveThinking ?? previous?.adaptiveThinking;
+  const adaptiveThinking = toggleField(
+    opts.clearAdaptiveThinking,
+    opts.adaptiveThinking,
+    previous?.adaptiveThinking,
+  );
   if (adaptiveThinking !== undefined) row.adaptiveThinking = adaptiveThinking;
+  const betaApi = toggleField(opts.clearBetaApi, opts.betaApi, previous?.betaApi);
+  if (betaApi !== undefined) row.betaApi = betaApi;
+  const protocol =
+    opts.protocol === undefined ? previous?.protocol : resolveProtocol(deps, opts.protocol);
+  if (protocol !== undefined) row.protocol = protocol;
+  // The two plain strings below are not inherited from the stored alias: the
+  // write layer keeps them through `previous`, so an edit that does not name
+  // them never re-validates a stored endpoint or field name.
+  if (opts.reasoningKey !== undefined) row.reasoningKey = opts.reasoningKey;
+  if (opts.modelBaseUrl !== undefined) row.baseUrl = opts.modelBaseUrl;
+  if (opts.clearOverrides === true) row.clearOverrides = true;
   return row;
+}
+
+/**
+ * `k=v` entries as the `k=v, k2=v2` text the shared parser reads. An untouched
+ * repeatable flag collects nothing at all, which keeps the stored record; the
+ * `--clear-*` spelling is the explicit way to empty it.
+ */
+function keyValueField(
+  entries: readonly string[] | undefined,
+  clear: boolean | undefined,
+): string | undefined {
+  if (entries !== undefined && entries.length > 0) return entries.join(', ');
+  return clear === true ? '' : undefined;
+}
+
+/**
+ * The provider-level fields the two manual commands share.
+ *
+ * `--api-key-env` and `--provider-default-model` follow the file's own-vs-keep
+ * rule: an omitted flag leaves the property `undefined`, which the write layer
+ * reads as "keep the stored value", while an explicit empty value asks for the
+ * field to be dropped. The two `k=v` records come from repeatable flags joined
+ * into the text the shared parser reads; `--clear-*` empties one, and a value
+ * flag given alongside it wins because it names what to write.
+ */
+function providerFieldsFromOptions(
+  opts: CreateOptions,
+): Pick<ProviderFormValue, 'apiKeyEnv' | 'defaultModel' | 'customHeaders' | 'env'> {
+  return {
+    apiKeyEnv: opts.apiKeyEnv,
+    defaultModel: opts.providerDefaultModel,
+    customHeaders: keyValueField(opts.customHeader, opts.clearCustomHeaders),
+    env: keyValueField(opts.env, opts.clearEnv),
+  };
 }
 
 function createFormInput(deps: ProviderDeps, opts: CreateOptions): ProviderFormInput {
@@ -434,10 +608,15 @@ function createFormInput(deps: ProviderDeps, opts: CreateOptions): ProviderFormI
     type: resolveWireType(deps, opts.type),
     apiKey: opts.apiKey ?? '',
     baseUrl: opts.baseUrl ?? '',
+    ...providerFieldsFromOptions(opts),
     models: [row],
   };
-  // A new provider authenticates with its own key, so `--api-key` is required.
-  const error = validateProviderForm(value, { requireApiKey: true });
+  // A new provider has to carry a credential, and either source satisfies it:
+  // an inline key, or the name of the env var holding one. The shared rules
+  // still refuse a value that sets both.
+  const error = validateProviderForm(value, {
+    requireApiKey: (value.apiKeyEnv ?? '').trim() === '',
+  });
   if (error !== null) rejectProviderForm(deps, error);
   return { value, model: row.model.trim() };
 }
@@ -482,18 +661,22 @@ function updateFormInput(
 
   const value: ProviderFormValue = {
     id: renamedId === '' ? providerId : renamedId,
-    // `astron` is an engine-only type outside the six form values; it survives
-    // an untouched `--type` unchanged because the patch is built from the
-    // stored provider object.
-    type:
-      opts.type === undefined
-        ? (previous.type as ProviderWireType)
-        : resolveWireType(deps, opts.type),
-    apiKey: opts.apiKey ?? '',
+    // An untouched `--type` keeps the stored one verbatim, `astron` included —
+    // the form value carries the engine's whole type, so a record outside the
+    // six the flag accepts needs no narrowing to be updated.
+    type: opts.type === undefined ? previous.type : resolveWireType(deps, opts.type),
+    // Edit mode: a blank `--api-key` means "keep the stored credential", so the
+    // value repeats the STORED key. `planEditWrite` spreads the previous record
+    // and assigns this field, so repeating the same value leaves the produced
+    // patch byte-identical — and it is what lets the shared rules SEE a stored
+    // inline key that a new `--api-key-env` alone would leave in place: the
+    // value then sets both credential sources, which `apiKeyConflict` refuses.
+    // An explicit `--api-key ''` still drops the stored key (`clearApiKey`).
+    apiKey: opts.apiKey ?? previous.apiKey ?? '',
     baseUrl: opts.baseUrl ?? previous.baseUrl ?? '',
+    ...providerFieldsFromOptions(opts),
     models,
   };
-  // Edit mode: a blank key means "keep the stored credential".
   const error = validateProviderForm(value, { requireApiKey: false });
   if (error !== null) rejectProviderForm(deps, error);
   return { value, model: requestedModel === '' ? (models[0]?.model.trim() ?? '') : requestedModel };
@@ -504,7 +687,10 @@ function updateFormInput(
  * alias declares carried into the row: `planEditWrite` rebuilds all of them, so
  * a row is meant to be a complete description of its alias. The states a row
  * cannot write back stay out of the row instead of flattening into a deletion,
- * the way the TUI's prefill does.
+ * the way the TUI's prefill does — a stored empty effort name is one, and
+ * `reasoningKey`/`baseUrl` are left to the write layer for the same reason (an
+ * empty string would read as a deletion); they survive through the alias the
+ * write rebuilds from.
  */
 function providerModelRows(current: KimiConfig, providerId: string): ProviderFormModelRow[] {
   const rows: ProviderFormModelRow[] = [];
@@ -526,15 +712,20 @@ function providerModelRows(current: KimiConfig, providerId: string): ProviderFor
     if (alias.supportEfforts !== undefined && alias.supportEfforts.length > 0) {
       row.supportEfforts = alias.supportEfforts.join(', ');
     }
-    // A stored empty name and a stored `adaptiveThinking: false` are states the
-    // row cannot write back either: '' in a row clears the key, and `false`
-    // clears it too even though the engine reads the stored `false` as "use the
-    // budget-effort ladder".
     if (alias.defaultEffort !== undefined && alias.defaultEffort !== '') {
       row.defaultEffort = alias.defaultEffort;
     }
     if (alias.offEffort !== undefined && alias.offEffort !== '') row.offEffort = alias.offEffort;
-    if (alias.adaptiveThinking === true) row.adaptiveThinking = true;
+    // Both toggles round-trip `false` now: a row writes the boolean verbatim
+    // (`applyToggle`), so presenting the stored `false` no longer flattens the
+    // budget-effort ladder into a deletion.
+    if (alias.adaptiveThinking !== undefined) row.adaptiveThinking = alias.adaptiveThinking;
+    if (alias.betaApi !== undefined) row.betaApi = alias.betaApi;
+    // The per-model wire override belongs in the row: `--beta-api`'s legality is
+    // judged against the protocol the row effectively reaches Anthropic with,
+    // and unlike the fields above a stored protocol is always one of the values
+    // the row can write back.
+    if (alias.protocol !== undefined) row.protocol = alias.protocol;
     rows.push(row);
   }
   return rows;
@@ -765,7 +956,7 @@ export async function handleCatalogAdd(
 
   let config = await harness.getConfig();
 
-  // Capture defaults BEFORE `removeProvider`, because that call clears
+  // Capture defaults BEFORE the removal, because that call clears
   // `defaultModel` when it points at one of this provider's aliases (see
   // `config-mapper.ts planProviderRemoval`). Without this, re-importing an
   // already-configured provider would lose the user's previously-set default
@@ -773,9 +964,12 @@ export async function handleCatalogAdd(
   const previousDefaultModel = config.defaultModel;
   const previousThinking = config.thinking;
 
-  if (config.providers[providerId] !== undefined) {
-    config = await harness.removeProvider(providerId);
-  }
+  // The removal is folded into the config in memory instead of being persisted
+  // as its own step: `persistProviderWrite` lands it as ONE atomic section
+  // replace where the host supports one, so a re-import can no longer delete
+  // the provider and every alias it had without writing the replacement.
+  const replacing = config.providers[providerId] !== undefined;
+  if (replacing) config = removeProviderFromConfig(config, providerId);
 
   // `applyCatalogProvider` always overwrites both `defaultModel` and
   // `[thinking]`. The values we pass here are temporary; we restore
@@ -806,14 +1000,20 @@ export async function handleCatalogAdd(
   // `undefined`. Persisting `enabled: false` when the user never set it would
   // make `resolveThinkingEffortForModel` (agent-core-v2/src/llm-adapter/model/thinking.ts) treat
   // it as an explicit "off" request and silently disable thinking, even for
-  // thinking-capable models.
+  // thinking-capable models. The merge path writes this value back; the
+  // one-write path never names the section, which leaves the same value in
+  // place without pinning a value that came from another config layer.
   config.thinking = previousThinking;
 
-  await harness.setConfig({
-    providers: config.providers,
-    models: config.models,
-    defaultModel: config.defaultModel,
-    thinking: config.thinking,
+  await persistProviderWrite(harness, {
+    patch: {
+      providers: config.providers,
+      models: config.models,
+      defaultModel: config.defaultModel,
+      thinking: config.thinking,
+    },
+    sections: providerSectionsOf(config),
+    removeProviderId: replacing ? providerId : undefined,
   });
 
   const displayName = entry.name ?? providerId;
@@ -917,13 +1117,36 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
     'tui.dialogs.providerForm.capabilitiesLabel',
   )}: ${CAPABILITY_NAMES.join(', ')}`;
 
+  // Collector for the repeatable `k=v` flags. It returns a NEW array instead of
+  // pushing into the one commander hands over: that value is the `[]` default
+  // the option was registered with, and commander re-seeds that same array as
+  // the starting value on every parse of this Command, so mutating it would
+  // carry one parse's entries into the next one.
+  const collectKeyValue = (value: string, previous: readonly string[]): string[] => {
+    return [...previous, value];
+  };
+
   provider
     .command('create')
     .description(t('cli.commandDescriptions.providerCreate'))
     .option('--id <id>', t('tui.dialogs.providerForm.idLabel'))
     .option('--type <wire>', t('cli.optionDescriptions.providerCreateType'))
     .option('--api-key <key>', t('cli.optionDescriptions.providerCreateApiKey'))
+    .option('--api-key-env <name>', t('cli.optionDescriptions.providerCreateApiKeyEnv'))
     .option('--base-url <url>', t('cli.optionDescriptions.providerCreateBaseUrl'))
+    .option(
+      '--provider-default-model <modelId>',
+      t('cli.optionDescriptions.providerCreateProviderDefaultModel'),
+    )
+    .option(
+      '--custom-header <k=v>',
+      t('cli.optionDescriptions.providerCreateCustomHeader'),
+      collectKeyValue,
+      [],
+    )
+    .option('--env <k=v>', t('cli.optionDescriptions.providerCreateEnv'), collectKeyValue, [])
+    .option('--clear-custom-headers', t('cli.optionDescriptions.providerClearCustomHeaders'))
+    .option('--clear-env', t('cli.optionDescriptions.providerClearEnv'))
     .option('--model <model>', t('cli.optionDescriptions.providerCreateModel'))
     .option('--max-context-size <tokens>', t('cli.optionDescriptions.providerCreateMaxContextSize'))
     .option('--display-name <name>', t('cli.optionDescriptions.providerCreateDisplayName'))
@@ -935,6 +1158,14 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
     .option('--off-effort <name>', t('tui.dialogs.providerForm.offEffortLabel'))
     .option('--adaptive-thinking', t('tui.dialogs.providerForm.adaptiveThinkingLabel'))
     .option('--no-adaptive-thinking', t('tui.dialogs.providerForm.adaptiveThinkingLabel'))
+    .option('--clear-adaptive-thinking', t('cli.optionDescriptions.providerClearAdaptiveThinking'))
+    .option('--protocol <wire>', t('cli.optionDescriptions.providerCreateProtocol'))
+    .option('--beta-api', t('cli.optionDescriptions.providerCreateBetaApi'))
+    .option('--no-beta-api', t('cli.optionDescriptions.providerClearBetaApi'))
+    .option('--clear-beta-api', t('cli.optionDescriptions.providerClearBetaApi'))
+    .option('--reasoning-key <key>', t('cli.optionDescriptions.providerCreateReasoningKey'))
+    .option('--model-base-url <url>', t('cli.optionDescriptions.providerCreateModelBaseUrl'))
+    .option('--clear-overrides', t('cli.optionDescriptions.providerClearOverrides'))
     .option('--default', t('cli.optionDescriptions.providerCreateDefault'), false)
     .option('--json', t('cli.optionDescriptions.providerListJson'), false)
     .action(async (options: CreateOptions) => {
@@ -948,7 +1179,21 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
     .option('--new-id <id>', t('cli.optionDescriptions.providerCreateNewId'))
     .option('--type <wire>', t('cli.optionDescriptions.providerCreateType'))
     .option('--api-key <key>', t('cli.optionDescriptions.providerCreateApiKey'))
+    .option('--api-key-env <name>', t('cli.optionDescriptions.providerCreateApiKeyEnv'))
     .option('--base-url <url>', t('cli.optionDescriptions.providerCreateBaseUrl'))
+    .option(
+      '--provider-default-model <modelId>',
+      t('cli.optionDescriptions.providerCreateProviderDefaultModel'),
+    )
+    .option(
+      '--custom-header <k=v>',
+      t('cli.optionDescriptions.providerCreateCustomHeader'),
+      collectKeyValue,
+      [],
+    )
+    .option('--env <k=v>', t('cli.optionDescriptions.providerCreateEnv'), collectKeyValue, [])
+    .option('--clear-custom-headers', t('cli.optionDescriptions.providerClearCustomHeaders'))
+    .option('--clear-env', t('cli.optionDescriptions.providerClearEnv'))
     .option('--model <model>', t('cli.optionDescriptions.providerCreateModel'))
     .option('--max-context-size <tokens>', t('cli.optionDescriptions.providerCreateMaxContextSize'))
     .option('--display-name <name>', t('cli.optionDescriptions.providerCreateDisplayName'))
@@ -960,6 +1205,14 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
     .option('--off-effort <name>', t('tui.dialogs.providerForm.offEffortLabel'))
     .option('--adaptive-thinking', t('tui.dialogs.providerForm.adaptiveThinkingLabel'))
     .option('--no-adaptive-thinking', t('tui.dialogs.providerForm.adaptiveThinkingLabel'))
+    .option('--clear-adaptive-thinking', t('cli.optionDescriptions.providerClearAdaptiveThinking'))
+    .option('--protocol <wire>', t('cli.optionDescriptions.providerCreateProtocol'))
+    .option('--beta-api', t('cli.optionDescriptions.providerCreateBetaApi'))
+    .option('--no-beta-api', t('cli.optionDescriptions.providerClearBetaApi'))
+    .option('--clear-beta-api', t('cli.optionDescriptions.providerClearBetaApi'))
+    .option('--reasoning-key <key>', t('cli.optionDescriptions.providerCreateReasoningKey'))
+    .option('--model-base-url <url>', t('cli.optionDescriptions.providerCreateModelBaseUrl'))
+    .option('--clear-overrides', t('cli.optionDescriptions.providerClearOverrides'))
     .option('--default', t('cli.optionDescriptions.providerCreateDefault'), false)
     .option('--json', t('cli.optionDescriptions.providerListJson'), false)
     .action(async (providerId: string, options: UpdateOptions) => {

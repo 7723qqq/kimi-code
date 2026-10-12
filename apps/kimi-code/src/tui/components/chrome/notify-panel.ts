@@ -106,10 +106,14 @@ export const MAX_VISIBLE_ROWS = 12;
  * covers only the body therefore overflows by this much — the cap has to be
  * expressed in total rows and the overhead subtracted from it. The strip's
  * frame belongs to the status surface and is not counted here.
+ *
+ * Exported so the region can state the height below which the box is a stub
+ * (`{@link PANEL_OVERHEAD_ROWS} + {@link MIN_BODY_ROWS}`) instead of keeping a
+ * second copy of the sum in step by hand.
  */
-const PANEL_OVERHEAD_ROWS = 1;
+export const PANEL_OVERHEAD_ROWS = 1;
 /** Body rows below which the box stops drawing a body and degrades to a stub. */
-const MIN_BODY_ROWS = 1;
+export const MIN_BODY_ROWS = 1;
 
 /** Rows the terminal currently has; the host wires the real reader in. */
 export type TerminalRowsProvider = () => number | undefined;

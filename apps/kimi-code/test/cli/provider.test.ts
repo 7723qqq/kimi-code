@@ -60,14 +60,20 @@ interface FakeHarness {
   getConfig: () => Promise<KimiConfig>;
   setConfig: (patch: Partial<KimiConfig>) => Promise<KimiConfig>;
   removeProvider: (providerId: string) => Promise<KimiConfig>;
+  supportsAtomicSectionReplace: () => boolean;
+  replaceConfigSections: (sections: Record<string, unknown>) => Promise<void>;
   close: () => Promise<void>;
 }
 
-function makeHarness(initial: KimiConfig): {
+function makeHarness(
+  initial: KimiConfig,
+  options: { readonly atomicSections?: boolean } = {},
+): {
   harness: FakeHarness;
   current: () => KimiConfig;
   setConfigCalls: Array<Partial<KimiConfig>>;
   removeCalls: string[];
+  sectionCalls: Array<Record<string, unknown>>;
 } {
   // `persisted` simulates the on-disk config; the real RPC's `removeProvider`
   // reads from / writes to disk on every call (see
@@ -77,22 +83,37 @@ function makeHarness(initial: KimiConfig): {
   // object disappears unless it is flushed via `setConfig` BEFORE the next
   // `removeProvider`.
   let persisted: KimiConfig = structuredClone(initial);
+  const atomicSections = options.atomicSections === true;
   const setConfigCalls: Array<Partial<KimiConfig>> = [];
   const removeCalls: string[] = [];
+  const sectionCalls: Array<Record<string, unknown>> = [];
   const harness: FakeHarness = {
     ensureConfigFile: async () => {},
     getConfig: async () => structuredClone(persisted),
     setConfig: async (patch) => {
       setConfigCalls.push(structuredClone(patch));
-      // Mirror the real `setKimiConfig`: deep-merge with undefined keys
-      // skipped (see `packages/agent-core-v2/src/app/config/configPure.ts deepMerge`). This is
-      // load-bearing for tests that assert `setConfig({defaultModel:
-      // undefined})` does NOT wipe a key from disk — only `removeProvider`
-      // can.
+      // Mirror the real `setKimiConfig`: every domain is merged and `undefined`
+      // values are skipped (see
+      // `packages/agent-core-v2/src/app/config/configPure.ts deepMerge`). Both
+      // halves are load-bearing: `setConfig({defaultModel: undefined})` must NOT
+      // wipe a key from disk — only `removeProvider` can — and a patch naming
+      // one provider must leave the other providers' records alone.
+      //
+      // `providers` and `models` merge by KEY, the way the engine's own
+      // registrations merge a section instead of replacing the document. A fake
+      // that replaced whole sections here would drop every other provider, which
+      // makes it useless for the one question the two write shapes have to
+      // answer together: do they leave the same config?
       const next: Record<string, unknown> = { ...persisted };
       for (const [key, value] of Object.entries(patch)) {
         if (value === undefined) continue;
         next[key] = value;
+      }
+      if (patch.providers !== undefined) {
+        next['providers'] = { ...persisted.providers, ...patch.providers };
+      }
+      if (patch.models !== undefined) {
+        next['models'] = { ...persisted.models, ...patch.models };
       }
       persisted = next as KimiConfig;
       return structuredClone(persisted);
@@ -109,9 +130,35 @@ function makeHarness(initial: KimiConfig): {
           if (persisted.defaultModel === alias) removedDefault = true;
         }
       }
-      persisted = { ...persisted, providers: nextProviders, models: nextModels };
-      if (removedDefault) persisted = { ...persisted, defaultModel: undefined };
+      // The real cascade lands both sections in one replace and clears a
+      // dangling pointer by deleting it, so the fake drops the key too rather
+      // than leaving an `undefined` behind for the next assertion to trip on.
+      const nextConfig: Record<string, unknown> = {
+        ...persisted,
+        providers: nextProviders,
+        models: nextModels,
+      };
+      if (removedDefault) delete nextConfig['defaultModel'];
+      persisted = nextConfig as KimiConfig;
       return structuredClone(persisted);
+    },
+    supportsAtomicSectionReplace: () => atomicSections,
+    // Mirror `configService.replaceSections`: a named section is replaced
+    // wholesale, and `undefined` CLEARS it — the opposite of `setConfig`'s
+    // "skip an undefined domain". A fake that merged here would keep passing
+    // while the real v2 host dropped a dangling pointer the write meant to
+    // clear.
+    replaceConfigSections: async (sections) => {
+      sectionCalls.push(structuredClone(sections));
+      const next = structuredClone(persisted) as Record<string, unknown>;
+      for (const [domain, value] of Object.entries(sections)) {
+        if (value === undefined) {
+          delete next[domain];
+        } else {
+          next[domain] = structuredClone(value);
+        }
+      }
+      persisted = next as KimiConfig;
     },
     close: async () => {},
   };
@@ -120,6 +167,7 @@ function makeHarness(initial: KimiConfig): {
     current: () => persisted,
     setConfigCalls,
     removeCalls,
+    sectionCalls,
   };
 }
 
@@ -167,6 +215,15 @@ async function tryRun<T>(fn: () => Promise<T>): Promise<T | undefined> {
     if (error instanceof ExitCalled) return undefined;
     throw error;
   }
+}
+
+/**
+ * Whether the record itself carries the key. The difference matters here: a
+ * deleted key and a key written as `undefined` read the same through `?.`, but
+ * only the first is what "clear" means.
+ */
+function hasKey(record: object | undefined, key: string): boolean {
+  return record !== undefined && Object.hasOwn(record, key);
 }
 
 const REGISTRY_URL = 'https://registry.example.test/v1/models/api.json';
@@ -1305,6 +1362,173 @@ describe('kimi provider create', () => {
     expect(current().models?.['demo/gpt-4.1']?.supportEfforts).toBeUndefined();
   });
 
+  it('writes the per-model overrides the flags name', async () => {
+    const { harness, current, setConfigCalls } = makeHarness({ providers: {} } as KimiConfig);
+    const { deps, exitCodes } = makeDeps(harness);
+
+    await tryRun(() =>
+      handleProviderCreate(deps, {
+        ...CREATE_FLAGS,
+        type: 'anthropic',
+        baseUrl: 'https://api.anthropic.com',
+        protocol: 'anthropic',
+        betaApi: true,
+        reasoningKey: 'reasoning_content',
+        modelBaseUrl: 'https://api.anthropic.com/beta',
+      }),
+    );
+
+    expect(exitCodes).toEqual([]);
+    // The patch is what the write layer hands the harness: pinning it fixes the
+    // alias the row produced along with the config it leaves behind.
+    expect(setConfigCalls[0]?.models?.['demo/gpt-4.1']).toMatchObject({
+      protocol: 'anthropic',
+      betaApi: true,
+      reasoningKey: 'reasoning_content',
+      baseUrl: 'https://api.anthropic.com/beta',
+    });
+    expect(current().models?.['demo/gpt-4.1']).toMatchObject({
+      protocol: 'anthropic',
+      betaApi: true,
+      reasoningKey: 'reasoning_content',
+      baseUrl: 'https://api.anthropic.com/beta',
+    });
+  });
+
+  it('takes --protocol none as "fall back to the provider\'s type"', async () => {
+    const { harness, current } = makeHarness({ providers: {} } as KimiConfig);
+    const { deps, exitCodes } = makeDeps(harness);
+
+    await tryRun(() => handleProviderCreate(deps, { ...CREATE_FLAGS, protocol: 'none' }));
+
+    expect(exitCodes).toEqual([]);
+    expect(hasKey(current().models?.['demo/gpt-4.1'], 'protocol')).toBe(false);
+  });
+
+  it('refuses a --protocol the alias schema cannot store', async () => {
+    const { harness, setConfigCalls } = makeHarness({ providers: {} } as KimiConfig);
+    const { deps, stderr, exitCodes } = makeDeps(harness);
+
+    await tryRun(() => handleProviderCreate(deps, { ...CREATE_FLAGS, protocol: 'gemini' }));
+
+    expect(exitCodes).toEqual([1]);
+    // The option's own description enumerates the accepted values, the way
+    // `--type`'s does.
+    expect(stderr.join('')).toContain(t('cli.optionDescriptions.providerCreateProtocol'));
+    expect(setConfigCalls).toEqual([]);
+  });
+
+  it('refuses --beta-api unless the row reaches the Anthropic transport', async () => {
+    const { harness, current, setConfigCalls } = makeHarness({ providers: {} } as KimiConfig);
+    const { deps, stderr, exitCodes } = makeDeps(harness);
+
+    await tryRun(() => handleProviderCreate(deps, { ...CREATE_FLAGS, betaApi: true }));
+    expect(exitCodes).toEqual([1]);
+    expect(stderr.join('')).toContain(t('tui.dialogs.providerForm.error.betaApiWithoutAnthropic'));
+    expect(setConfigCalls).toEqual([]);
+
+    // `--protocol` is enough: the transport is chosen per row, not only per
+    // provider type.
+    await tryRun(() =>
+      handleProviderCreate(deps, { ...CREATE_FLAGS, betaApi: true, protocol: 'anthropic' }),
+    );
+    expect(exitCodes).toEqual([1]);
+    expect(current().models?.['demo/gpt-4.1']?.betaApi).toBe(true);
+  });
+
+  it('declares an empty effort ladder for --support-efforts [] and clears the key on blank', async () => {
+    const { harness: ladderHarness, current: ladderCurrent } = makeHarness({
+      providers: {},
+    } as KimiConfig);
+    const { deps: ladderDeps, exitCodes: ladderExits } = makeDeps(ladderHarness);
+
+    await tryRun(() => handleProviderCreate(ladderDeps, { ...CREATE_FLAGS, supportEfforts: '[]' }));
+
+    expect(ladderExits).toEqual([]);
+    // `[]` is the declared-empty ladder the engine reads differently from a
+    // missing key, not an empty list to normalise away.
+    expect(hasKey(ladderCurrent().models?.['demo/gpt-4.1'], 'supportEfforts')).toBe(true);
+    expect(ladderCurrent().models?.['demo/gpt-4.1']?.supportEfforts).toEqual([]);
+
+    const { harness: clearHarness, current: clearCurrent } = makeHarness({
+      providers: {},
+    } as KimiConfig);
+    const { deps: clearDeps, exitCodes: clearExits } = makeDeps(clearHarness);
+
+    await tryRun(() => handleProviderCreate(clearDeps, { ...CREATE_FLAGS, supportEfforts: '' }));
+
+    expect(clearExits).toEqual([]);
+    expect(hasKey(clearCurrent().models?.['demo/gpt-4.1'], 'supportEfforts')).toBe(false);
+  });
+
+  it('writes the provider-level fields the flags name', async () => {
+    const { harness, current, setConfigCalls } = makeHarness({ providers: {} } as KimiConfig);
+    const { deps, exitCodes } = makeDeps(harness);
+
+    await tryRun(() =>
+      handleProviderCreate(deps, {
+        ...CREATE_FLAGS,
+        providerDefaultModel: 'gpt-4.1',
+        customHeader: ['x-tenant=acme', 'x-src=cli'],
+        env: ['FOO=bar', 'BAZ=qux'],
+      }),
+    );
+
+    expect(exitCodes).toEqual([]);
+    // Repeats are collected in the order typed, joined the way the shared
+    // parser reads them.
+    expect(setConfigCalls[0]?.providers?.['demo']).toMatchObject({
+      defaultModel: 'demo/gpt-4.1',
+      customHeaders: { 'x-tenant': 'acme', 'x-src': 'cli' },
+      env: { FOO: 'bar', BAZ: 'qux' },
+    });
+    expect(current().providers['demo']).toMatchObject({
+      defaultModel: 'demo/gpt-4.1',
+      customHeaders: { 'x-tenant': 'acme', 'x-src': 'cli' },
+      env: { FOO: 'bar', BAZ: 'qux' },
+    });
+  });
+
+  it('accepts an env-var credential in place of --api-key and refuses both together', async () => {
+    const { harness, current, setConfigCalls } = makeHarness({ providers: {} } as KimiConfig);
+    const { deps, stderr, exitCodes } = makeDeps(harness);
+
+    const { apiKey: _omitted, ...withoutApiKey } = CREATE_FLAGS;
+    await tryRun(() => handleProviderCreate(deps, { ...withoutApiKey, apiKeyEnv: 'DEMO_API_KEY' }));
+
+    expect(exitCodes).toEqual([]);
+    expect(current().providers['demo']?.apiKeyEnv).toBe('DEMO_API_KEY');
+    expect(hasKey(current().providers['demo'], 'apiKey')).toBe(false);
+
+    // The engine keeps the two credential sources apart, so a value setting
+    // both is refused rather than resolved to one of them.
+    await tryRun(() =>
+      handleProviderCreate(deps, { ...CREATE_FLAGS, id: 'demo2', apiKeyEnv: 'DEMO_API_KEY' }),
+    );
+
+    expect(exitCodes).toEqual([1]);
+    expect(stderr.join('')).toContain(t('tui.dialogs.providerForm.error.apiKeyConflict'));
+    expect(setConfigCalls).toHaveLength(1);
+  });
+
+  it('refuses a provider default that names no row and a malformed header or env pair', async () => {
+    const { harness, setConfigCalls } = makeHarness({ providers: {} } as KimiConfig);
+    const { deps, stderr, exitCodes } = makeDeps(harness);
+
+    await tryRun(() =>
+      handleProviderCreate(deps, { ...CREATE_FLAGS, providerDefaultModel: 'nope' }),
+    );
+    await tryRun(() => handleProviderCreate(deps, { ...CREATE_FLAGS, customHeader: ['x-tenant'] }));
+    await tryRun(() => handleProviderCreate(deps, { ...CREATE_FLAGS, env: ['FOO'] }));
+
+    expect(exitCodes).toEqual([1, 1, 1]);
+    const err = stderr.join('');
+    expect(err).toContain(t('tui.dialogs.providerForm.error.defaultModelUnknown'));
+    expect(err).toContain(t('tui.dialogs.providerForm.error.headerInvalid'));
+    expect(err).toContain(t('tui.dialogs.providerForm.error.envInvalid'));
+    expect(setConfigCalls).toEqual([]);
+  });
+
   it('refuses a capability or a default effort the shared rules reject', async () => {
     const { harness, setConfigCalls } = makeHarness({ providers: {} } as KimiConfig);
     const { deps, stderr, exitCodes } = makeDeps(harness);
@@ -1379,6 +1603,43 @@ describe('kimi provider create', () => {
     expect(parsed.providers['demo']?.['apiKey']).toBeUndefined();
     expect(parsed.providers['demo']?.['type']).toBe('openai');
     expect(Object.keys(parsed.models)).toEqual(['demo/gpt-4.1']);
+  });
+
+  it('keeps --json sanitized while showing the new provider and row fields', async () => {
+    const { harness } = makeHarness({ providers: {} } as KimiConfig);
+    const { deps, stdout, exitCodes } = makeDeps(harness);
+
+    const { apiKey: _omitted, ...withoutApiKey } = CREATE_FLAGS;
+    await tryRun(() =>
+      handleProviderCreate(deps, {
+        ...withoutApiKey,
+        type: 'anthropic',
+        apiKeyEnv: 'DEMO_API_KEY',
+        providerDefaultModel: 'gpt-4.1',
+        customHeader: ['x-tenant=acme'],
+        env: ['FOO=bar'],
+        protocol: 'anthropic',
+        betaApi: true,
+        json: true,
+      }),
+    );
+
+    expect(exitCodes).toEqual([]);
+    // No credential material leaves the process, inline or otherwise.
+    expect(stdout.join('')).not.toContain('sk-');
+    const parsed = JSON.parse(stdout.join('')) as {
+      providers: Record<string, Record<string, unknown>>;
+      models: Record<string, Record<string, unknown>>;
+    };
+    expect(parsed.providers['demo']?.['apiKey']).toBeUndefined();
+    expect(parsed.providers['demo']?.['apiKeyEnv']).toBe('DEMO_API_KEY');
+    expect(parsed.providers['demo']?.['defaultModel']).toBe('demo/gpt-4.1');
+    expect(parsed.providers['demo']?.['customHeaders']).toEqual({ 'x-tenant': 'acme' });
+    expect(parsed.providers['demo']?.['env']).toEqual({ FOO: 'bar' });
+    expect(parsed.models['demo/gpt-4.1']).toMatchObject({
+      protocol: 'anthropic',
+      betaApi: true,
+    });
   });
 
   it('exits 1 without writing when --type is not one of the six wire types', async () => {
@@ -1511,11 +1772,13 @@ describe('kimi provider update', () => {
     );
 
     // Every optional field of the stored alias is carried into the row the
-    // handler builds, so this pins the prefill along with the patch.
+    // handler builds, and the stored API key into the value — repeating it
+    // there is what lets a new `--api-key-env` meet the shared conflict rule.
+    // This pins the prefill along with the patch.
     const expectedValue: ProviderFormValue = {
       id: 'demo2',
       type: 'openai',
-      apiKey: '',
+      apiKey: 'sk-x',
       baseUrl: 'https://api2.example.com/v1',
       models: [
         {
@@ -1535,12 +1798,73 @@ describe('kimi provider update', () => {
     const plan = planEditWrite(initial, expectedValue, 'demo');
     expect(plan.providerIdTaken).toBe(false);
     expect(plan.collisions).toEqual([]);
+    // Assigning the value the spread already carried leaves the provider record
+    // exactly as a blank `--api-key` used to leave it.
+    expect(plan.patch.providers?.['demo2']?.apiKey).toBe('sk-x');
     expect(exitCodes).toEqual([]);
     expect(removeCalls).toEqual(['demo']);
     expect(setConfigCalls).toEqual([plan.patch]);
     expect(current().providers['demo2']?.['apiKey']).toBe('sk-x');
     expect(current().models?.['demo2/gpt-4.1']).toBeDefined();
     expect(current().defaultProvider).toBe('demo2');
+  });
+
+  it('lands the rename as one atomic section replace when the host can', async () => {
+    const { harness, current, setConfigCalls, removeCalls, sectionCalls } = makeHarness(
+      makeRenameInitial(),
+      { atomicSections: true },
+    );
+    const { deps, stdout, stderr, exitCodes } = makeDeps(harness);
+
+    await tryRun(() =>
+      handleProviderUpdate(deps, 'demo', {
+        newId: 'demo2',
+        baseUrl: 'https://api2.example.com/v1',
+      }),
+    );
+
+    expect(exitCodes).toEqual([]);
+    expect(stderr.join('')).toBe('');
+    // One write, and neither half of the two-call pairing — a process exit can
+    // no longer land between the removal and the record that replaces it.
+    expect(sectionCalls).toHaveLength(1);
+    expect(removeCalls).toEqual([]);
+    expect(setConfigCalls).toEqual([]);
+
+    const config = current();
+    expect(config.providers['demo']).toBeUndefined();
+    expect(config.providers['demo2']).toMatchObject({
+      type: 'openai',
+      baseUrl: 'https://api2.example.com/v1',
+      apiKey: 'sk-x',
+      customHeaders: { 'x-tenant': 'acme' },
+    });
+    expect(config.models?.['demo/gpt-4.1']).toBeUndefined();
+    expect(config.models?.['demo2/gpt-4.1']).toBeDefined();
+    // Another provider's aliases and the renamed default pointer survive the
+    // wholesale section replace.
+    expect(config.models?.['other/claude']).toBeDefined();
+    expect(config.defaultModel).toBe('demo2/gpt-4.1');
+    expect(stdout.join('')).toContain('"demo2"');
+  });
+
+  it('lands the same config whichever write shape the host takes', async () => {
+    const run = async (atomicSections: boolean) => {
+      const { harness, current } = makeHarness(makeRenameInitial(), { atomicSections });
+      const { deps } = makeDeps(harness);
+      await tryRun(() =>
+        handleProviderUpdate(deps, 'demo', {
+          newId: 'demo2',
+          baseUrl: 'https://api2.example.com/v1',
+        }),
+      );
+      return current();
+    };
+
+    // The split changes how many writes land, never what the file ends up
+    // saying. Both shapes start from the same config so any drift fails here
+    // rather than on a user's machine mid-write.
+    expect(await run(true)).toEqual(await run(false));
   });
 
   it('keeps the stored api key when --api-key is omitted and replaces it when given', async () => {
@@ -1553,10 +1877,13 @@ describe('kimi provider update', () => {
     expect(exitCodes).toEqual([]);
     expect(current().providers['demo']?.['apiKey']).toBe('sk-x');
     expect(current().providers['demo']?.['baseUrl']).toBe('https://api3.example.com/v1');
-    // The fake harness replaces whole sections on `setConfig`; that an update
-    // leaves another provider's aliases alone is asserted against the real
-    // harness in the temporary-home rename case above.
+    // The fake merges `providers`/`models` by key the way the engine does, so a
+    // patch naming this provider leaves the other provider's records where they
+    // were — the same guarantee the temporary-home rename case above asserts
+    // against the real harness.
     expect(current().models?.['demo/gpt-4.1']).toBeDefined();
+    expect(current().models?.['other/claude']).toBeDefined();
+    expect(current().providers['other']).toBeDefined();
 
     await tryRun(() => handleProviderUpdate(deps, 'demo', { apiKey: 'sk-y' }));
     expect(current().providers['demo']?.['apiKey']).toBe('sk-y');
@@ -1576,6 +1903,40 @@ describe('kimi provider update', () => {
     expect(current().models?.['demo/gpt-4.1']?.['maxOutputSize']).toBe(8192);
     const patch = setConfigCalls.at(-1);
     expect(patch?.providers?.['demo']?.['apiKey']).toBe('');
+  });
+
+  it('refuses --api-key-env against a stored inline key unless --api-key blanks it', async () => {
+    // The value repeats the STORED key, which is what makes the shared rules see
+    // both credential sources. Without it the write would spread the stored key
+    // back in beside the new env name and land the ambiguous record
+    // `apiKeyConflict` exists to refuse.
+    const { harness, current, setConfigCalls } = makeHarness(makeRenameInitial());
+    const { deps, stderr, exitCodes } = makeDeps(harness);
+
+    await tryRun(() => handleProviderUpdate(deps, 'demo', { apiKeyEnv: 'DEMO_KEY' }));
+
+    expect(exitCodes).toEqual([1]);
+    expect(stderr.join('')).toContain(t('tui.dialogs.providerForm.error.apiKeyConflict'));
+    expect(setConfigCalls).toEqual([]);
+    expect(hasKey(current().providers['demo'], 'apiKeyEnv')).toBe(false);
+    expect(current().providers['demo']?.['apiKey']).toBe('sk-x');
+  });
+
+  it('switches to env auth when the same command blanks the stored key', async () => {
+    // `--api-key ''` goes through the existing `clearApiKey` path, which writes
+    // an explicitly EMPTY `apiKey` rather than deleting the key — so the record
+    // ends up carrying `api_key = ""` beside `api_key_env`, not a missing key.
+    const { harness, current, setConfigCalls } = makeHarness(makeRenameInitial());
+    const { deps, stderr, exitCodes } = makeDeps(harness);
+
+    await tryRun(() => handleProviderUpdate(deps, 'demo', { apiKey: '', apiKeyEnv: 'DEMO_KEY' }));
+
+    expect(exitCodes).toEqual([]);
+    expect(stderr.join('')).toBe('');
+    expect(current().providers['demo']?.['apiKeyEnv']).toBe('DEMO_KEY');
+    expect(current().providers['demo']?.['apiKey']).toBe('');
+    expect(hasKey(current().providers['demo'] ?? {}, 'apiKey')).toBe(true);
+    expect(setConfigCalls).toHaveLength(1);
   });
 
   it('upserts the --model row and keeps the rows it does not name', async () => {
@@ -1679,7 +2040,9 @@ describe('kimi provider update', () => {
         supportEfforts: '',
         defaultEffort: '',
         offEffort: '',
-        adaptiveThinking: false,
+        // The deletion has its own flag: `--no-adaptive-thinking` writes the
+        // explicit `false` the engine reads as the budget-effort ladder.
+        clearAdaptiveThinking: true,
       }),
     );
 
@@ -1698,10 +2061,11 @@ describe('kimi provider update', () => {
   });
 
   it('keeps the stored states a row cannot write back', async () => {
-    // `capabilities = []`, `support_efforts = []`, an empty effort name and
-    // `adaptive_thinking = false` are each a state of their own, and a row
-    // cannot produce any of them: presenting them would flatten each one into a
-    // deletion on the next write.
+    // `capabilities = []`, `support_efforts = []` and an empty effort name are
+    // each a state of their own, and the row leaves them out: presenting them
+    // would flatten each one into a deletion on the next write. A stored
+    // `adaptive_thinking = false` is the exception — a row writes that boolean
+    // verbatim now — and it round-trips all the same.
     const initial: KimiConfig = {
       providers: {
         demo: { type: 'openai', apiKey: 'sk-x', baseUrl: 'https://api.example.com/v1' },
@@ -1738,14 +2102,258 @@ describe('kimi provider update', () => {
     expect(alias?.maxInputSize).toBe(272_000);
   });
 
+  /**
+   * A provider whose stored alias declares every per-model override the flags
+   * can name, plus the two provider-level text records and an env credential.
+   */
+  function makeOverrideInitial(): KimiConfig {
+    return {
+      providers: {
+        demo: {
+          type: 'anthropic',
+          apiKeyEnv: 'DEMO_API_KEY',
+          baseUrl: 'https://api.example.com',
+          customHeaders: { 'x-tenant': 'acme' },
+          env: { FOO: 'bar' },
+        },
+      },
+      models: {
+        'demo/claude-x': {
+          provider: 'demo',
+          model: 'claude-x',
+          maxContextSize: 200_000,
+          protocol: 'anthropic',
+          betaApi: true,
+          reasoningKey: 'reasoning_content',
+          baseUrl: 'https://api.example.com/beta',
+          adaptiveThinking: true,
+          overrides: { supportEfforts: ['low', 'high'] },
+        },
+        // A second row with overrides of its own, so `--clear-overrides` can be
+        // shown to be row-scoped.
+        'demo/claude-y': {
+          provider: 'demo',
+          model: 'claude-y',
+          maxContextSize: 100_000,
+          overrides: { maxInputSize: 4096 },
+        },
+      },
+    } as unknown as KimiConfig;
+  }
+
+  it('writes the per-model overrides the flags name and drops the one --protocol none names', async () => {
+    const { harness, current } = makeHarness(makeOverrideInitial());
+    const { deps, stderr, exitCodes } = makeDeps(harness);
+
+    await tryRun(() =>
+      handleProviderUpdate(deps, 'demo', {
+        model: 'claude-x',
+        protocol: 'openai_responses',
+        reasoningKey: 'reasoning',
+        modelBaseUrl: 'https://api.example.com/responses',
+      }),
+    );
+
+    expect(exitCodes).toEqual([]);
+    expect(current().models?.['demo/claude-x']).toMatchObject({
+      protocol: 'openai_responses',
+      reasoningKey: 'reasoning',
+      baseUrl: 'https://api.example.com/responses',
+      // A field no flag named keeps the stored declaration.
+      betaApi: true,
+    });
+
+    // `none` drops the stored override, so the alias is rebuilt from the
+    // provider's type.
+    await tryRun(() => handleProviderUpdate(deps, 'demo', { model: 'claude-x', protocol: 'none' }));
+    expect(hasKey(current().models?.['demo/claude-x'], 'protocol')).toBe(false);
+
+    // Blank clears the two plain strings.
+    await tryRun(() =>
+      handleProviderUpdate(deps, 'demo', {
+        model: 'claude-x',
+        reasoningKey: '',
+        modelBaseUrl: '',
+      }),
+    );
+    expect(exitCodes).toEqual([]);
+    expect(hasKey(current().models?.['demo/claude-x'], 'reasoningKey')).toBe(false);
+    expect(hasKey(current().models?.['demo/claude-x'], 'baseUrl')).toBe(false);
+
+    // A per-model endpoint has to be one, or the transport cannot open it.
+    await tryRun(() =>
+      handleProviderUpdate(deps, 'demo', { model: 'claude-x', modelBaseUrl: 'api.example.com' }),
+    );
+    expect(stderr.join('')).toContain(t('tui.dialogs.providerForm.error.modelBaseUrlInvalid'));
+  });
+
+  it('keeps, writes and deletes the beta_api toggle', async () => {
+    const { harness, current } = makeHarness(makeOverrideInitial());
+    const { deps, exitCodes } = makeDeps(harness);
+
+    // Absent keeps the stored `true`.
+    await tryRun(() =>
+      handleProviderUpdate(deps, 'demo', { model: 'claude-x', maxContextSize: '100000' }),
+    );
+    expect(current().models?.['demo/claude-x']?.betaApi).toBe(true);
+
+    // `--no-beta-api` writes the explicit `false` and keeps the key.
+    await tryRun(() => handleProviderUpdate(deps, 'demo', { model: 'claude-x', betaApi: false }));
+    expect(current().models?.['demo/claude-x']?.betaApi).toBe(false);
+    expect(hasKey(current().models?.['demo/claude-x'], 'betaApi')).toBe(true);
+
+    await tryRun(() =>
+      handleProviderUpdate(deps, 'demo', { model: 'claude-x', clearBetaApi: true }),
+    );
+    expect(exitCodes).toEqual([]);
+    expect(hasKey(current().models?.['demo/claude-x'], 'betaApi')).toBe(false);
+  });
+
+  it('writes --no-adaptive-thinking as false and --clear-adaptive-thinking as a deletion', async () => {
+    const { harness, current } = makeHarness(makeOverrideInitial());
+    const { deps, exitCodes } = makeDeps(harness);
+
+    await tryRun(() =>
+      handleProviderUpdate(deps, 'demo', { model: 'claude-x', maxContextSize: '100000' }),
+    );
+    expect(current().models?.['demo/claude-x']?.adaptiveThinking).toBe(true);
+
+    // The negated flag is a declaration of its own — `false` is the budget-effort
+    // ladder — and writing it is what makes that state reachable from the CLI.
+    await tryRun(() =>
+      handleProviderUpdate(deps, 'demo', { model: 'claude-x', adaptiveThinking: false }),
+    );
+    expect(current().models?.['demo/claude-x']?.adaptiveThinking).toBe(false);
+    expect(hasKey(current().models?.['demo/claude-x'], 'adaptiveThinking')).toBe(true);
+
+    await tryRun(() =>
+      handleProviderUpdate(deps, 'demo', { model: 'claude-x', clearAdaptiveThinking: true }),
+    );
+    expect(exitCodes).toEqual([]);
+    expect(hasKey(current().models?.['demo/claude-x'], 'adaptiveThinking')).toBe(false);
+  });
+
+  it('lets a --clear-* flag win over the flag writing the same toggle', async () => {
+    const { harness, current } = makeHarness(makeOverrideInitial());
+    const { deps, exitCodes } = makeDeps(harness);
+
+    await tryRun(() =>
+      handleProviderUpdate(deps, 'demo', {
+        model: 'claude-x',
+        adaptiveThinking: true,
+        clearAdaptiveThinking: true,
+        betaApi: true,
+        clearBetaApi: true,
+      }),
+    );
+
+    expect(exitCodes).toEqual([]);
+    expect(hasKey(current().models?.['demo/claude-x'], 'adaptiveThinking')).toBe(false);
+    expect(hasKey(current().models?.['demo/claude-x'], 'betaApi')).toBe(false);
+  });
+
+  it('deletes the stored overrides of the row --model names, and only that row', async () => {
+    const { harness, current, setConfigCalls } = makeHarness(makeOverrideInitial());
+    const { deps, stderr, exitCodes } = makeDeps(harness);
+
+    expect(hasKey(current().models?.['demo/claude-x'], 'overrides')).toBe(true);
+    expect(hasKey(current().models?.['demo/claude-y'], 'overrides')).toBe(true);
+
+    await tryRun(() =>
+      handleProviderUpdate(deps, 'demo', { model: 'claude-x', clearOverrides: true }),
+    );
+
+    expect(exitCodes).toEqual([]);
+    expect(stderr.join('')).toBe('');
+    // The shared write layer drops the key (`buildModelAlias`), so the engine
+    // stops applying the stored `overrides` over the fields the row just wrote.
+    expect(hasKey(current().models?.['demo/claude-x'], 'overrides')).toBe(false);
+    expect(current().models?.['demo/claude-x']?.maxContextSize).toBe(200_000);
+    // The row `--model` did not name keeps its overrides.
+    expect(hasKey(current().models?.['demo/claude-y'], 'overrides')).toBe(true);
+    expect(current().models?.['demo/claude-y']?.overrides).toEqual({ maxInputSize: 4096 });
+
+    // It is a model-row flag: without `--model` it names no row.
+    await tryRun(() => handleProviderUpdate(deps, 'demo', { clearOverrides: true }));
+    expect(exitCodes).toEqual([1]);
+    expect(stderr.join('')).toContain(t('cli.optionDescriptions.providerCreateModel'));
+    expect(setConfigCalls).toHaveLength(1);
+  });
+
+  it('keeps, replaces and clears the provider-level records the flags name', async () => {
+    const { harness, current } = makeHarness(makeOverrideInitial());
+    const { deps, exitCodes } = makeDeps(harness);
+
+    // Omitted flags keep everything, including the env credential.
+    await tryRun(() => handleProviderUpdate(deps, 'demo', { baseUrl: 'https://api2.example.com' }));
+    expect(exitCodes).toEqual([]);
+    expect(current().providers['demo']).toMatchObject({
+      apiKeyEnv: 'DEMO_API_KEY',
+      customHeaders: { 'x-tenant': 'acme' },
+      env: { FOO: 'bar' },
+    });
+
+    // The repeatable flags replace the whole record, in the order typed.
+    await tryRun(() =>
+      handleProviderUpdate(deps, 'demo', {
+        apiKeyEnv: 'OTHER_KEY',
+        customHeader: ['x-src=cli', 'x-mode=test'],
+        env: ['BAZ=qux'],
+      }),
+    );
+    expect(current().providers['demo']).toMatchObject({
+      apiKeyEnv: 'OTHER_KEY',
+      customHeaders: { 'x-src': 'cli', 'x-mode': 'test' },
+      env: { BAZ: 'qux' },
+    });
+
+    // `--clear-*` empties a record, and an explicit blank drops the env name.
+    await tryRun(() =>
+      handleProviderUpdate(deps, 'demo', {
+        apiKeyEnv: '',
+        clearCustomHeaders: true,
+        clearEnv: true,
+      }),
+    );
+    expect(exitCodes).toEqual([]);
+    expect(hasKey(current().providers['demo'], 'apiKeyEnv')).toBe(false);
+    expect(hasKey(current().providers['demo'], 'customHeaders')).toBe(false);
+    expect(hasKey(current().providers['demo'], 'env')).toBe(false);
+  });
+
+  it('writes, keeps and clears the provider-level default pointer', async () => {
+    const { harness, current } = makeHarness(makeOverrideInitial());
+    const { deps, stderr, exitCodes } = makeDeps(harness);
+
+    await tryRun(() => handleProviderUpdate(deps, 'demo', { providerDefaultModel: 'claude-x' }));
+    expect(exitCodes).toEqual([]);
+    expect(current().providers['demo']?.defaultModel).toBe('demo/claude-x');
+
+    // An unrelated provider-level edit keeps the pointer.
+    await tryRun(() => handleProviderUpdate(deps, 'demo', { baseUrl: 'https://api2.example.com' }));
+    expect(current().providers['demo']?.defaultModel).toBe('demo/claude-x');
+
+    // An explicit blank drops it.
+    await tryRun(() => handleProviderUpdate(deps, 'demo', { providerDefaultModel: '' }));
+    expect(hasKey(current().providers['demo'], 'defaultModel')).toBe(false);
+
+    // A pointer naming no row of this provider is refused, so no edit can leave
+    // one nothing resolves behind.
+    await tryRun(() => handleProviderUpdate(deps, 'demo', { providerDefaultModel: 'nope' }));
+    expect(exitCodes).toEqual([1]);
+    expect(stderr.join('')).toContain(t('tui.dialogs.providerForm.error.defaultModelUnknown'));
+  });
+
   it('refuses a model-row flag that names no model', async () => {
     const { harness, current, setConfigCalls, removeCalls } = makeHarness(makeRenameInitial());
     const { deps, stderr, exitCodes } = makeDeps(harness);
 
     await tryRun(() => handleProviderUpdate(deps, 'demo', { capabilities: 'tool_use' }));
     await tryRun(() => handleProviderUpdate(deps, 'demo', { displayName: 'Renamed' }));
+    await tryRun(() => handleProviderUpdate(deps, 'demo', { protocol: 'anthropic' }));
+    await tryRun(() => handleProviderUpdate(deps, 'demo', { clearOverrides: true }));
 
-    expect(exitCodes).toEqual([1, 1]);
+    expect(exitCodes).toEqual([1, 1, 1, 1]);
     expect(stderr.join('')).toContain(t('cli.optionDescriptions.providerCreateModel'));
     expect(setConfigCalls).toEqual([]);
     expect(removeCalls).toEqual([]);
@@ -1882,13 +2490,23 @@ describe('kimi provider create/update routing', () => {
           '--capabilities',
           'tool_use,image_in',
           '--adaptive-thinking',
+          '--provider-default-model',
+          'gpt-4.1',
+          '--custom-header',
+          'x-tenant=acme',
+          '--env',
+          'FOO=bar',
         ],
         { from: 'node' },
       ),
     );
 
     expect(exitCodes).toEqual([]);
-    expect((await current()).providers['demo']).toBeDefined();
+    expect((await current()).providers['demo']).toMatchObject({
+      defaultModel: 'demo/gpt-4.1',
+      customHeaders: { 'x-tenant': 'acme' },
+      env: { FOO: 'bar' },
+    });
     expect((await current()).models?.['demo/gpt-4.1']).toMatchObject({
       maxInputSize: 64_000,
       capabilities: ['tool_use', 'image_in'],
@@ -1896,6 +2514,9 @@ describe('kimi provider create/update routing', () => {
     });
     expect(stdout.join('')).toContain('Provider "demo" added.');
 
+    // This parse runs on the SAME Command: a repeatable option's default is the
+    // very same array instance every time, so routing a second `k=v` record
+    // through it pins that one parse's entries cannot accumulate into the next.
     await tryRun(() =>
       program.parseAsync(
         [
@@ -1910,8 +2531,12 @@ describe('kimi provider create/update routing', () => {
           'gpt-4.1',
           '--max-output-size',
           '8000',
-          // `--no-adaptive-thinking` is the clear form of the toggle.
+          // `--no-adaptive-thinking` writes the explicit `false`; dropping the
+          // key is what `--clear-adaptive-thinking` is for.
           '--no-adaptive-thinking',
+          '--custom-header',
+          'x-src=cli',
+          '--clear-env',
         ],
         { from: 'node' },
       ),
@@ -1927,9 +2552,51 @@ describe('kimi provider create/update routing', () => {
       maxInputSize: 64_000,
       maxOutputSize: 8000,
       capabilities: ['tool_use', 'image_in'],
+      adaptiveThinking: false,
     });
-    expect(config.models?.['demo2/gpt-4.1']?.adaptiveThinking).toBeUndefined();
+    // The header map holds this parse's entry only, and `--clear-env` dropped
+    // the record the create parse wrote. Neither flag touched the default
+    // pointer, which followed the rename instead.
+    expect(config.providers['demo2']?.customHeaders).toEqual({ 'x-src': 'cli' });
+    expect(hasKey(config.providers['demo2'], 'env')).toBe(false);
+    expect(config.providers['demo2']?.defaultModel).toBe('demo2/gpt-4.1');
     expect(stdout.join('')).toContain('Provider "demo2" updated.');
+
+    // The remaining attribute names, plus the per-model protocol that makes
+    // `--beta-api` legal on this openai-typed provider.
+    await tryRun(() =>
+      program.parseAsync(
+        [
+          'node',
+          'kimi',
+          'provider',
+          'update',
+          'demo2',
+          '--model',
+          'gpt-4.1',
+          '--protocol',
+          'anthropic',
+          '--beta-api',
+          '--reasoning-key',
+          'reasoning_content',
+          '--model-base-url',
+          'https://api.example.com/anthropic',
+          '--clear-adaptive-thinking',
+        ],
+        { from: 'node' },
+      ),
+    );
+
+    expect(exitCodes).toEqual([]);
+    expect(stderr.join('')).toBe('');
+    const overridden = (await current()).models?.['demo2/gpt-4.1'];
+    expect(overridden).toMatchObject({
+      protocol: 'anthropic',
+      betaApi: true,
+      reasoningKey: 'reasoning_content',
+      baseUrl: 'https://api.example.com/anthropic',
+    });
+    expect(hasKey(overridden, 'adaptiveThinking')).toBe(false);
   });
 
   it('exits 1 through commander on an unknown --type and writes nothing', async () => {

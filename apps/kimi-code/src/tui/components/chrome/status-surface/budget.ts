@@ -48,12 +48,21 @@ export function surfaceTotalRows(rows: number): number {
 /**
  * Divide `rows` across `regions`, after the surface's own rows.
  *
- * Highest priority is served first with `min(want, remaining)`, so a blocking
- * approval always gets the rows it asked for and the informational regions
- * share what is left. A region that would receive zero rows is still given
- * `STATUS_SURFACE_MIN_REGION_ROWS` while any room remains, so a region never
- * disappears silently; once the budget is exhausted the rest get `0` and the
- * surface skips them.
+ * A blocking region is served first with what it asked for: an approval is the
+ * one thing waiting on the user, and it must not queue behind the informational
+ * regions.
+ *
+ * Everything else divides the pool it shares. Priority orders *units*, and two
+ * regions that share a band share its height — the left half is the todo list's
+ * and the right half is the updates box's — so handing the pool out in priority
+ * order let a long (or deliberately over-reported) todo list take the rows the
+ * updates box needed and leave the rest of that column blank underneath. Each
+ * informational region now takes at most its share of what is left, and one
+ * that wants less than its share leaves the surplus to the rest.
+ *
+ * Every region is also given at least the rows it declared it cannot do
+ * without while any room remains, so a region never disappears silently; once
+ * the budget is exhausted the rest get `0` and the surface skips them.
  *
  * `chromeRows` is what the surface spends before any region draws — its frame
  * and the rules between stacked regions. It comes out of the same pool rather
@@ -73,19 +82,41 @@ export function computeBudget(
   const ordered = sortRegions(regions.filter((region) => !region.isEmpty()));
   let remaining = Math.max(0, total - Math.max(0, chromeRows));
 
+  // The regions still waiting for rows, with the floor each one declared. A
+  // region that wants nothing still occupies its floor (a panel draws a title
+  // even with no body), and it is counted while the pool is divided, so the
+  // presence of a tiny region cannot inflate a neighbour's share.
+  const pending = new Map<RegionId, number>(
+    ordered.map((region) => [region.id, floorRowsOf(region)]),
+  );
+
   const perRegion = new Map<RegionId, number>();
   for (const region of ordered) {
+    const floor = pending.get(region.id) ?? STATUS_SURFACE_MIN_REGION_ROWS;
+    pending.delete(region.id);
     if (remaining <= 0) {
       perRegion.set(region.id, 0);
       continue;
     }
     const want = Math.max(0, region.measure(width));
-    const granted = Math.max(STATUS_SURFACE_MIN_REGION_ROWS, Math.min(want, remaining));
+    const share =
+      region.blocking === true ? remaining : Math.floor(remaining / Math.max(1, pending.size + 1));
+    // `Math.min(floor, remaining)` rather than `floor`: a floor larger than what
+    // is left would otherwise hand out rows the pool does not have.
+    const granted =
+      want === 0
+        ? Math.min(floor, remaining)
+        : Math.min(want, Math.max(Math.min(floor, remaining), share));
     perRegion.set(region.id, granted);
     remaining -= granted;
   }
 
   return { total, perRegion };
+}
+
+/** The rows a region cannot draw anything readable below. */
+function floorRowsOf(region: StatusRegion): number {
+  return Math.max(STATUS_SURFACE_MIN_REGION_ROWS, region.minRows ?? 0);
 }
 
 /** True when the surface has nothing to draw and must occupy no rows. */

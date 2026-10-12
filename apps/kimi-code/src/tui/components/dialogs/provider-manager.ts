@@ -272,7 +272,7 @@ export class ProviderManagerComponent extends Container implements Focusable {
     this.invalidate();
   }
 
-  /** Rows after applying the active fuzzy filter; the add-row is always kept. */
+  /** The slice of {@link rows} the list renders; the synthetic add-row is one of them. */
   private page(): PageView {
     return pageView(this.rows.length, this.selectedIndex, PAGE_SIZE);
   }

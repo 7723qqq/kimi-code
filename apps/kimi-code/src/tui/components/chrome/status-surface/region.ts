@@ -145,6 +145,18 @@ export interface StatusRegion {
   readonly blocking?: boolean;
 
   /**
+   * Rows below which this region cannot draw anything readable.
+   *
+   * The budget gives every region that is still waiting at least this many rows
+   * before another one takes more than its share, so the sharing cannot reduce a
+   * region to a stub. Declaring more is how a region says its content is not a
+   * single line — an updates box needs its title row plus one body row.
+   *
+   * Defaults to the surface's minimum region rows.
+   */
+  readonly minRows?: number;
+
+  /**
    * The region `Ctrl+N` grabs when it moves the keyboard into the strip.
    *
    * One region declares it; `Ctrl+N` is a strip-level gesture and can only

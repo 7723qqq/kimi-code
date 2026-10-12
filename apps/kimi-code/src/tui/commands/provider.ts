@@ -1,3 +1,4 @@
+import { isOpenPlatformId } from '@moonshot-ai/kimi-code-oauth';
 import {
   applyCatalogProvider,
   catalogProviderModels,
@@ -5,6 +6,7 @@ import {
   RegistryImportError,
   type ImportCustomRegistryResult,
   DEFAULT_CATALOG_URL,
+  removeProviderFromConfig,
   resolveCatalogImport,
   SECONDARY_DERIVED_MODEL_ALIAS,
   type Catalog,
@@ -17,13 +19,13 @@ import { t } from '#/i18n';
 import { fetchCatalogOrBuiltIn } from '#/utils/catalog-fetch';
 import {
   buildAddPatch,
+  formatEffortList,
   planEditWrite,
-  PROVIDER_WIRE_TYPES,
   type PlanEditWriteResult,
   type ProviderFormModelRow,
   type ProviderFormValue,
 } from '#/utils/provider-form';
-import { refreshKimiRegion } from '#/utils/region';
+import { persistProviderWrite, providerSectionsOf } from '#/utils/provider-write';
 
 import { ChoicePickerComponent } from '../components/dialogs/choice-picker';
 import {
@@ -40,7 +42,6 @@ import {
   type ProviderManagerOptions,
 } from '../components/dialogs/provider-manager';
 import { TabbedModelSelectorComponent } from '../components/dialogs/tabbed-model-selector';
-import { DEFAULT_OAUTH_PROVIDER_NAME } from '../constant/kimi-tui';
 import { formatErrorMessage } from '../utils/event-payload';
 import { thinkingEffortToConfig } from '../utils/thinking-config';
 import { effectiveModelForHost } from './config';
@@ -102,17 +103,12 @@ async function handleProviderManagerDeleteSource(
   reopenProviderManager(host);
 }
 
+/**
+ * Drops one provider row. The managed OAuth provider never reaches this — the
+ * manager's `buildRows` skips it (`provider-manager.ts`), because its account is
+ * owned by `/login` and `/logout` instead, and no other caller deletes by id.
+ */
 async function handleProviderDelete(host: SlashCommandHost, providerId: string): Promise<void> {
-  if (providerId === DEFAULT_OAUTH_PROVIDER_NAME) {
-    await host.harness.auth.logout(DEFAULT_OAUTH_PROVIDER_NAME);
-    // Drop the process-wide region cache with the credential: derived
-    // endpoints (updates, marketplace, site links, telemetry) must fall back
-    // to the marker/default profile, not the logged-out region.
-    refreshKimiRegion();
-    await host.authFlow.refreshConfigAfterLogout();
-    return;
-  }
-
   const activeProvider = host.state.appState.availableModels[host.state.appState.model]?.provider;
   const config = await host.harness.removeProvider(providerId);
   if (activeProvider === providerId) {
@@ -263,12 +259,14 @@ async function handleCatalogProviderAdd(host: SlashCommandHost): Promise<void> {
   // Persist the provider and all its models immediately after the api key is
   // entered. The model selector that follows is just a convenience to pick the
   // default model; ESC leaves the provider in place without a default selection.
-  const existingConfig = await host.harness.getConfig();
-  if (existingConfig.providers[providerId] !== undefined) {
-    await host.harness.removeProvider(providerId);
-  }
-
-  const config = await host.harness.getConfig();
+  //
+  // Re-importing a provider replaces the record that is already there, which is
+  // the remove-then-rebuild pair `persistProviderWrite` lands as ONE section
+  // replace where the host can: an exit between a removal and its patch would
+  // otherwise leave the provider and every alias it had gone from config.toml.
+  let config = await host.harness.getConfig();
+  const replacing = config.providers[providerId] !== undefined;
+  if (replacing) config = removeProviderFromConfig(config, providerId);
   applyCatalogProvider(config, {
     providerId,
     wire,
@@ -279,9 +277,12 @@ async function handleCatalogProviderAdd(host: SlashCommandHost): Promise<void> {
     thinking: false, // will be resolved by the model selector
   });
 
-  await host.harness.setConfig({
-    providers: config.providers,
-    models: config.models,
+  await persistProviderWrite(host.harness, {
+    patch: { providers: config.providers, models: config.models },
+    sections: providerSectionsOf(config),
+    // Folded into `sections` already; a host without atomic sections still has
+    // to cascade the old record away before the merge.
+    removeProviderId: replacing ? providerId : undefined,
   });
 
   await host.authFlow.refreshConfigAfterLogin();
@@ -419,9 +420,9 @@ async function handleCustomRegistryAddViaDialog(host: SlashCommandHost): Promise
     'success',
   );
   for (const [id, envName] of Object.entries(result.credentialEnv)) {
-    host.showStatus(
-      `provider "${id}" declares credential env var "${envName}" — set api_key_env in config.toml to use it`,
-    );
+    // Same key the CLI prints for the same import result, so a provider that
+    // declares a credential env var reads identically in both front ends.
+    host.showStatus(t('tui.statusMessages.providerCredentialEnvHint', { id, env: envName }));
   }
 
   await mountProviderModelSelector(host, addedProviderIds);
@@ -508,10 +509,19 @@ async function handleManualProviderAdd(host: SlashCommandHost): Promise<boolean>
 /**
  * Edit an existing provider from the `/provider` list (`E`). The form is
  * prefilled from the live config (API key included, so blanking it out is an
- * explicit clear) and the write is `removeProvider(previousId)` followed by the
- * patch — the v1-compatible pairing the catalog / registry paths use, because
- * only the removal drops the aliases a rename leaves behind. A write that would
- * take over another provider's id or aliases is refused instead of applied.
+ * explicit clear) and the write is planned as `removeProvider(previousId)`
+ * followed by the patch — the pairing the catalog / registry paths use, because
+ * only the removal drops the aliases a rename leaves behind.
+ * `persistProviderWrite` lands that pair as one atomic section replace where
+ * the host can, so the provider can no longer vanish from config.toml with its
+ * replacement unwritten. A write that would take over another provider's id or
+ * aliases is refused instead of applied.
+ *
+ * Every stored type is editable: the form carries one it does not offer
+ * (`astron`) as an extra candidate, so the record keeps its transport instead
+ * of being rewritten to `kimi`. Managed records — an `oauth` one, or an Open
+ * Platform provider — open read-only instead of being refused, so the user can
+ * still see what is configured and why it cannot be changed here.
  */
 async function handleProviderEdit(host: SlashCommandHost, providerId: string): Promise<void> {
   const config = await host.harness.getConfig();
@@ -521,27 +531,28 @@ async function handleProviderEdit(host: SlashCommandHost, providerId: string): P
     reopenProviderManager(host);
     return;
   }
-  const type = PROVIDER_WIRE_TYPES.find((wire) => wire === provider.type);
-  if (type === undefined) {
-    // The form only knows the six wire types and would rewrite the record's
-    // type to its first entry; refuse rather than silently change it.
-    host.showError(
-      t('tui.commands.provider.unsupportedProtocol', { id: providerId, type: provider.type }),
-    );
-    reopenProviderManager(host);
-    return;
-  }
 
   const value = await promptProviderForm(host, {
     mode: 'edit',
     provider: {
       id: providerId,
-      type,
+      // The stored type verbatim, `astron` included: the form carries a type it
+      // cannot offer as an extra `type` candidate instead of collapsing the
+      // record onto one of its own six.
+      type: provider.type,
       apiKey: provider.apiKey,
+      apiKeyEnv: provider.apiKeyEnv,
       baseUrl: provider.baseUrl,
+      defaultModel: provider.defaultModel,
+      customHeaders: provider.customHeaders,
+      env: provider.env,
       models: providerFormRows(config, providerId),
-      oauth: provider.oauth,
     },
+    // Both kinds of managed record are read-only here. `oauth` alone would miss
+    // the Open Platform providers — they are written with `oauth` dropped — and
+    // renaming one orphans its credential while the next refresh re-adds the
+    // original id beside the renamed copy.
+    readOnly: provider.oauth !== undefined || isOpenPlatformId(providerId),
   });
   if (value === undefined) {
     reopenProviderManager(host);
@@ -566,8 +577,7 @@ async function handleProviderEdit(host: SlashCommandHost, providerId: string): P
     return;
   }
 
-  await host.harness.removeProvider(plan.removeProviderId);
-  await host.harness.setConfig(plan.patch);
+  await persistProviderWrite(host.harness, plan);
   await host.authFlow.refreshConfigAfterLogin();
   host.showStatus(t('tui.statusMessages.providerFormUpdated', { id: value.id.trim() }), 'success');
   reopenProviderManager(host);
@@ -608,25 +618,37 @@ function providerFormRows(config: KimiConfig, providerId: string): ProviderFormM
     };
     // Only what the alias actually declares is presented: `undefined` means
     // "the form does not own this field", so the write keeps the stored value
-    // instead of clearing it. An empty list stays absent for the same reason —
-    // `[]` and an omitted key mean different things to the engine, and the form
-    // cannot write the former back on purpose.
+    // instead of clearing it. An empty capability list stays absent because the
+    // engine has no way to tell `capabilities = []` from a missing key (both
+    // read through `?? []`); a declared-empty EFFORT ladder is different — the
+    // engine reads it as the `off-needs-offeffort` state — so it is presented as
+    // the literal `[]` the form round-trips.
     if (alias.capabilities !== undefined && alias.capabilities.length > 0) {
       row.capabilities = [...alias.capabilities];
     }
     if (alias.maxInputSize !== undefined) row.maxInputSize = String(alias.maxInputSize);
     if (alias.maxOutputSize !== undefined) row.maxOutputSize = String(alias.maxOutputSize);
-    if (alias.supportEfforts !== undefined && alias.supportEfforts.length > 0) {
-      row.supportEfforts = alias.supportEfforts.join(', ');
+    if (alias.supportEfforts !== undefined) {
+      row.supportEfforts = formatEffortList(alias.supportEfforts);
     }
     if (alias.defaultEffort !== undefined && alias.defaultEffort !== '') {
       row.defaultEffort = alias.defaultEffort;
     }
     if (alias.offEffort !== undefined && alias.offEffort !== '') row.offEffort = alias.offEffort;
-    // `adaptiveThinking === false` picks the budget-effort ladder in the
-    // engine, so a row merely showing the toggle off must not overwrite it:
-    // only an explicit `true` is presented, and `undefined` keeps the rest.
-    if (alias.adaptiveThinking === true) row.adaptiveThinking = true;
+    // Both declared states are carried: `adaptiveThinking === false` picks the
+    // budget-effort ladder in the engine, so folding it into the toggle's
+    // undeclared position is what used to make that state unreachable.
+    if (alias.adaptiveThinking !== undefined) row.adaptiveThinking = alias.adaptiveThinking;
+    if (alias.protocol !== undefined) row.protocol = alias.protocol;
+    if (alias.betaApi !== undefined) row.betaApi = alias.betaApi;
+    if (alias.reasoningKey !== undefined && alias.reasoningKey.trim() !== '') {
+      row.reasoningKey = alias.reasoningKey.trim();
+    }
+    if (alias.baseUrl !== undefined && alias.baseUrl.trim() !== '') {
+      row.baseUrl = alias.baseUrl.trim();
+    }
+    // Display-only: the form cannot edit the stored override layer, only drop it.
+    if (alias.overrides !== undefined) row.hasStoredOverrides = true;
     rows.push(row);
   }
   return rows;

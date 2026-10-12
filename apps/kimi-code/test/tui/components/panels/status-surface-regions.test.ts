@@ -277,3 +277,71 @@ describe('todo and update regions share one surface', () => {
     expect(notifyPanel.isExpanded()).toBe(false);
   });
 });
+
+describe('a long todo list must not starve the updates box', () => {
+  /**
+   * Reported: with a long todo list the Updates box showed only part of its
+   * content, the rest of its column blank — and collapsing the todo list made
+   * it display fully again. Both columns are informational and share one band,
+   * so the band's height comes from the taller column: whichever column the
+   * budget serves first can take the rows the other one needed, and the loser
+   * is painted into whatever is left, with blank rows below it.
+   *
+   * `computeBudget` serves by priority, and the todo list outranks the updates
+   * box, so a todo list that is long — or expanded, where the region reports
+   * the height of the whole list on purpose — is exactly the input that
+   * exposes it.
+   */
+  function longTodoPanel(todoPanel: TodoPanelComponent): void {
+    todoPanel.setTodos(
+      Array.from({ length: 12 }, (_, index) => ({
+        title: `Todo item ${String(index + 1)}`,
+        status: index === 0 ? ('in_progress' as const) : ('pending' as const),
+      })),
+    );
+  }
+
+  it('keeps the update readable on a short terminal', () => {
+    // 24 rows -> the surface may draw 12, two of them chrome, so ten are
+    // divided between the two regions.
+    const { surface, todoPanel, notifyPanel } = buildSurface(24);
+    longTodoPanel(todoPanel);
+    notifyPanel.upsert({ id: '1', agentId: 'main', time: 0, text: 'Split applied' });
+
+    const lines = surface.render(80);
+    expect(text(lines)).toContain('Split applied');
+    // The box needs its tab row plus one body row to draw anything at all;
+    // one row is the stub the panel folds itself into.
+    const box = surface.regionRects().find((entry) => entry.id === 'updates');
+    expect(box?.drawn ?? 0).toBeGreaterThanOrEqual(2);
+  });
+
+  it('gives the two columns in one band an equal share of the rows', () => {
+    const { surface, todoPanel, notifyPanel } = buildSurface(40);
+    longTodoPanel(todoPanel);
+    todoPanel.setExpanded(true);
+    // A long, clipped update: the notify panel caps its own box at twelve rows,
+    // so this asks for everything the box can ever be granted.
+    notifyPanel.upsert({
+      id: '1',
+      agentId: 'main',
+      time: 0,
+      text: Array.from({ length: 20 }, (_, index) => `row ${String(index + 1)}`).join('\n'),
+    });
+
+    surface.render(80);
+    const todoBox = surface.regionRects().find((entry) => entry.id === 'todo');
+    const updatesBox = surface.regionRects().find((entry) => entry.id === 'updates');
+
+    // The todo list asks for more than its half of the band — an expanded list
+    // reports the height of the whole list on purpose, which is the deliberate
+    // over-report that used to consume the entire budget.
+    expect(todoPanel.measureRows(38)).toBeGreaterThan(9);
+    // The two own half the width each, so they get half the rows each: serving
+    // the todo list first left the right column a few rows with its band's
+    // remainder blank underneath.
+    expect(updatesBox?.drawn ?? 0).toBeGreaterThanOrEqual(todoBox?.drawn ?? 0);
+    expect(updatesBox?.drawn ?? 0).toBeGreaterThanOrEqual(9);
+    expect(text(surface.render(80))).toContain('row 1');
+  });
+});

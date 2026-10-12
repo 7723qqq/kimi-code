@@ -1,13 +1,22 @@
-import type {
-  KimiConfig,
-  KimiConfigPatch,
-  ModelAlias,
-  ProviderConfig,
+import {
+  type KimiConfig,
+  type KimiConfigPatch,
+  type ModelAlias,
+  type ProviderConfig,
+  type ProviderType,
+  removeProviderFromConfig,
 } from '@moonshot-ai/kimi-code-sdk';
+
+import type { ProviderWriteSections } from '#/utils/provider-write';
 
 /**
  * The six wire types the manual provider form offers, in the official
  * presentation order (`dist-web` AddProviderPage).
+ *
+ * The engine's own `ProviderType` has a seventh member, `astron`, which the
+ * form has no field for. A record already stored as `astron` keeps that type
+ * when it is edited (the form carries the stored value through as an extra
+ * candidate) instead of being rewritten to the first entry above.
  */
 export const PROVIDER_WIRE_TYPES = [
   'kimi',
@@ -39,33 +48,99 @@ export function isCapabilityName(value: string): value is CapabilityName {
 
 export const THINKING_EFFORT_NAMES = ['off', 'low', 'medium', 'high', 'max', 'xhigh'] as const;
 
+/**
+ * A boolean field the form owns outright.
+ *
+ * `undefined` keeps whatever the record already declared, `'clear'` deletes the
+ * key, and a boolean is written verbatim. `false` cannot double as "delete" for
+ * the toggles the form owns: `adaptiveThinking: false` is a declaration of its
+ * own — `model-auth.ts` reads it as the budget-effort ladder, while an omitted
+ * key falls back to the model-name inference — and folding the two together is
+ * what made that state unreachable.
+ */
+export type ProviderFormToggle = boolean | 'clear';
+
 export interface ProviderFormModelRow {
   model: string;
   maxContextSize: string;
   displayName: string;
   /**
    * Model capabilities. Absent means "not set here": a new row writes nothing,
-   * and an edited row keeps whatever the alias already declared. An empty
-   * array is normalised to absent rather than written, because the engine
-   * distinguishes `capabilities = []` (declares nothing, stays known) from an
-   * omitted key (falls back to the model-name inference), and the form has no
-   * way to express the former on purpose.
+   * and an edited row keeps whatever the alias already declared. An empty list
+   * is normalised to absent rather than written, because nothing downstream
+   * separates `capabilities = []` from a missing key — `catalog-service.ts`
+   * reads both through `?? []`, and the detection it falls back to is computed
+   * from the wire and the model name, never from whether the key exists. (Only
+   * `overrides.capabilities` distinguishes declared from absent, and the form
+   * deliberately does not offer overrides.)
    */
   capabilities?: string[];
   maxInputSize?: string;
   maxOutputSize?: string;
-  /** Ordered by strength: the default effort is the middle entry. */
+  /**
+   * Ordered by strength: the default effort is the middle entry.
+   *
+   * Blank clears the key; the literal `[]` declares a ladder that is empty on
+   * purpose ({@link EMPTY_EFFORT_LADDER}), which the engine reads differently
+   * from a missing key: `thinking.ts` refuses to turn thinking off for a
+   * declared-empty ladder (`off-needs-offeffort`) and passes silently when the
+   * key is absent.
+   */
   supportEfforts?: string;
   defaultEffort?: string;
   offEffort?: string;
-  adaptiveThinking?: boolean;
+  adaptiveThinking?: ProviderFormToggle;
+  /**
+   * Per-model wire override. `''` means "not set" — the alias is rebuilt from
+   * the provider's type — while `undefined` keeps whatever was stored.
+   */
+  protocol?: '' | 'anthropic' | 'openai_responses';
+  betaApi?: ProviderFormToggle;
+  reasoningKey?: string;
+  /** Per-model endpoint, paired with {@link protocol}. */
+  baseUrl?: string;
+  /**
+   * Display-only: the stored alias carries `overrides`, which the engine applies
+   * OVER every field above (`model-auth.ts` spreads them last). The form cannot
+   * edit them — offering the ten nested fields would double the editor for a
+   * layer hand-added models do not need — so it shows this instead, and lets the
+   * user drop them. Never written.
+   */
+  hasStoredOverrides?: boolean;
+  /** `true` deletes the stored `overrides`; absent keeps them. */
+  clearOverrides?: boolean;
 }
 
 export interface ProviderFormValue {
   id: string;
-  type: ProviderWireType;
+  /**
+   * The engine's whole `ProviderType`, not just the six the form offers: an
+   * edited record keeps a type the form cannot set (`astron`), so narrowing
+   * this to {@link ProviderWireType} would only move the rewrite into a caller.
+   */
+  type: ProviderType;
   apiKey: string;
+  /**
+   * The NAME of an environment variable holding the credential, as the
+   * alternative to an inline {@link apiKey}. The engine keeps the two sources
+   * apart and never merges them, so a value that sets both is refused rather
+   * than silently resolved.
+   */
+  apiKeyEnv?: string;
   baseUrl: string;
+  /**
+   * This provider's own default-model pointer, as a bare model id. Written as
+   * the `${id}/${model}` alias and refused when it names no row of this
+   * provider, so the config never carries a pointer nothing resolves.
+   *
+   * The TOP-LEVEL `config.defaultModel` is a different field, owned by the add
+   * flow's model selector.
+   */
+  defaultModel?: string;
+  /** Request headers as `k=v, k2=v2` text; blank clears them. */
+  customHeaders?: string;
+  /** Provider-scoped environment as `k=v, k2=v2` text; blank clears it. */
+  env?: string;
   models: ProviderFormModelRow[];
 }
 
@@ -73,13 +148,19 @@ export type ProviderFormError =
   | 'idRequired'
   | 'idInvalid'
   | 'apiKeyRequired'
+  | 'apiKeyConflict'
   | 'baseUrlRequired'
   | 'modelRequired'
   | 'contextSizeRequired'
   | 'contextSizeInvalid'
   | 'modelDuplicate'
   | 'capabilityUnknown'
-  | 'defaultEffortNotSupported';
+  | 'defaultEffortNotSupported'
+  | 'defaultModelUnknown'
+  | 'betaApiWithoutAnthropic'
+  | 'modelBaseUrlInvalid'
+  | 'headerInvalid'
+  | 'envInvalid';
 
 export function parseList(raw: string | undefined): string[] {
   return (raw ?? '')
@@ -99,6 +180,46 @@ export function parseEffortList(raw: string | undefined): string[] {
   return efforts;
 }
 
+/** The first `k=v` entry with no name, or `undefined` when every entry parses. */
+export function badKeyValueEntry(raw: string | undefined): string | undefined {
+  for (const entry of parseList(raw)) {
+    if (entry.indexOf('=') <= 0) return entry;
+  }
+  return undefined;
+}
+
+/**
+ * The `k=v, k2=v2` pairs the form's two flat string records are collected from,
+ * in the order typed, later duplicates winning.
+ *
+ * Both front ends hand over this same text, so a value containing a comma
+ * cannot be expressed — the fields' hints say so, and `config.toml` stays the
+ * way to write one.
+ */
+export function parseKeyValueList(raw: string | undefined): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const entry of parseList(raw)) {
+    const separator = entry.indexOf('=');
+    if (separator <= 0) continue;
+    const key = entry.slice(0, separator).trim();
+    if (key === '') continue;
+    out[key] = entry.slice(separator + 1).trim();
+  }
+  return out;
+}
+
+/**
+ * The text a flat string record is presented as. Every entry carries its `=`,
+ * including an empty value, so the form round-trips a blank value instead of
+ * producing an entry its own parser would reject.
+ */
+export function formatKeyValueList(map: Record<string, string> | undefined): string {
+  if (map === undefined) return '';
+  return Object.entries(map)
+    .map(([key, value]) => `${key}=${value}`)
+    .join(', ');
+}
+
 export interface PlanEditWriteOptions {
   /**
    * The edit form left the API key field blank on purpose: write an explicit
@@ -111,7 +232,20 @@ export interface PlanEditWriteOptions {
 export interface PlanEditWriteResult {
   /** The provider to delete first (`removeProvider`), then apply {@link patch}. */
   removeProviderId: string;
+  /**
+   * The merge patch. It is the whole write on a host that cannot replace
+   * sections; hosts that can write {@link sections} instead, in one call.
+   */
   patch: KimiConfigPatch;
+  /**
+   * The same write expressed as complete sections, for a host that can land it
+   * in one atomic write (`replaceConfigSections` via `persistProviderWrite`).
+   * Built on the config the removal leaves behind, so it is exactly what the
+   * `removeProvider` + `patch` pairing would leave on disk — but reachable
+   * without a moment in between where the provider is gone and its replacement
+   * is not written yet.
+   */
+  sections: ProviderWriteSections;
   /**
    * Alias keys this patch would write over a record that already belongs to a
    * different provider. The caller must refuse the write while it is non-empty.
@@ -136,7 +270,13 @@ export function validateProviderForm(
   if (value.id.trim() === '') return 'idRequired';
   if (!PROVIDER_ID_PATTERN.test(value.id)) return 'idInvalid';
   if (opts.requireApiKey && value.apiKey.trim() === '') return 'apiKeyRequired';
+  // The engine keeps the two credential sources apart — `open-platform.ts`
+  // replaces rather than merges them precisely so a second source cannot be
+  // resurrected — so a record setting both is ambiguous, not redundant.
+  if (value.apiKey.trim() !== '' && (value.apiKeyEnv ?? '').trim() !== '') return 'apiKeyConflict';
   if (value.baseUrl.trim() === '') return 'baseUrlRequired';
+  if (badKeyValueEntry(value.customHeaders) !== undefined) return 'headerInvalid';
+  if (badKeyValueEntry(value.env) !== undefined) return 'envInvalid';
   if (value.models.length === 0) return 'modelRequired';
   for (const row of value.models) {
     if (row.model.trim() === '') return 'modelRequired';
@@ -151,10 +291,28 @@ export function validateProviderForm(
       if (!isCapabilityName(capability)) return 'capabilityUnknown';
     }
     if (row.defaultEffort !== undefined && row.defaultEffort.trim() !== '') {
-      const efforts = parseEffortList(row.supportEfforts);
-      if (efforts.length === 0) return 'defaultEffortNotSupported';
+      // A declared-empty ladder supports no default, so this refuses one exactly
+      // as a missing ladder does.
+      const ladder = rowEffortLadder(row.supportEfforts);
+      const efforts = ladder === undefined || ladder === 'clear' ? [] : ladder;
       if (!efforts.includes(row.defaultEffort.trim())) return 'defaultEffortNotSupported';
     }
+    // A per-model endpoint has to be one, or the transport is handed a value it
+    // cannot open a connection to.
+    const modelBaseUrl = (row.baseUrl ?? '').trim();
+    if (modelBaseUrl !== '' && !/^https?:\/\//.test(modelBaseUrl)) return 'modelBaseUrlInvalid';
+    // `betaApi` reaches the wire only through the Anthropic transport
+    // (`protocolAdapterRegistry.ts`); under any other protocol the engine
+    // accepts it and does nothing with it, so it is refused here instead.
+    if (row.betaApi === true && !reachesAnthropic(value.type, row.protocol)) {
+      return 'betaApiWithoutAnthropic';
+    }
+  }
+  // The provider-level pointer is written as `${id}/${model}`, so it has to name
+  // a row of this provider: a pointer nothing resolves outlives the edit.
+  const pointer = (value.defaultModel ?? '').trim();
+  if (pointer !== '' && !value.models.some((row) => row.model.trim() === pointer)) {
+    return 'defaultModelUnknown';
   }
   // Duplicates come after every row's own errors, so a malformed row reports
   // its own code first (kap's `refineProviderForm` shape: `duplicate model`).
@@ -167,8 +325,20 @@ export function validateProviderForm(
   return null;
 }
 
-/** Switching to `anthropic` strips a trailing `/v1` from the base URL; others keep it. */
-export function normalizeBaseUrlForType(baseUrl: string, type: ProviderWireType): string {
+/**
+ * Whether `betaApi` can take effect for a row: the Anthropic transport is
+ * selected by the provider's wire type, or by the row's own `protocol` override.
+ */
+function reachesAnthropic(type: ProviderType, protocol: string | undefined): boolean {
+  return type === 'anthropic' || protocol === 'anthropic';
+}
+
+/**
+ * Switching to `anthropic` strips a trailing `/v1` from the base URL; others
+ * keep it. Takes the engine's full type: the rule itself only looks at
+ * `anthropic`, and a stored `astron` must pass through unchanged.
+ */
+export function normalizeBaseUrlForType(baseUrl: string, type: ProviderType): string {
   return type === 'anthropic' ? baseUrl.replace(/\/v1\/?$/, '') : baseUrl;
 }
 
@@ -208,7 +378,7 @@ function applyOptionalNumber(
 
 function applyOptionalString(
   alias: ModelAlias,
-  key: 'defaultEffort' | 'offEffort',
+  key: 'defaultEffort' | 'offEffort' | 'reasoningKey' | 'baseUrl',
   value: string | undefined,
 ): void {
   if (value === undefined) return;
@@ -221,25 +391,82 @@ function applyOptionalString(
 }
 
 /**
+ * The literal a user types to declare an EMPTY effort ladder.
+ *
+ * A blank text field has to keep its existing meaning — "clear the key" — so the
+ * declared-empty state needs a spelling of its own, and `[]` is what it looks
+ * like. The engine reads the two states differently; see
+ * {@link ProviderFormModelRow.supportEfforts}.
+ */
+export const EMPTY_EFFORT_LADDER = '[]';
+
+/**
+ * The ladder a row declares: `string[]` to write it (possibly empty), `'clear'`
+ * for a blank field, `undefined` when the row does not present the field at all.
+ */
+export function rowEffortLadder(raw: string | undefined): string[] | 'clear' | undefined {
+  if (raw === undefined) return undefined;
+  const text = raw.trim();
+  if (text === '') return 'clear';
+  if (text === EMPTY_EFFORT_LADDER) return [];
+  return parseEffortList(raw);
+}
+
+/** The text a stored ladder is presented as; an empty one round-trips as the literal. */
+export function formatEffortList(efforts: readonly string[] | undefined): string {
+  if (efforts === undefined) return '';
+  if (efforts.length === 0) return EMPTY_EFFORT_LADDER;
+  return efforts.join(', ');
+}
+
+/**
  * `supportEfforts` is a comma-separated list whose ORDER carries meaning — the
  * default effort is the middle entry and the persistence ceiling is derived
  * from the index — so this trims and de-duplicates while preserving the order
  * the user typed, and never sorts.
  */
 function applyEffortList(alias: ModelAlias, value: string | undefined): void {
-  if (value === undefined) return;
-  const efforts = parseEffortList(value);
-  if (efforts.length === 0) {
+  const ladder = rowEffortLadder(value);
+  if (ladder === undefined) return;
+  if (ladder === 'clear') {
     delete alias.supportEfforts;
     return;
   }
-  alias.supportEfforts = efforts;
+  alias.supportEfforts = ladder;
+}
+
+/**
+ * `undefined` keeps what the alias declared, `'clear'` deletes the key, and a
+ * boolean is written verbatim — see {@link ProviderFormToggle} for why `false`
+ * needs a representation of its own rather than doubling as "delete".
+ */
+function applyToggle(
+  alias: ModelAlias,
+  key: 'adaptiveThinking' | 'betaApi',
+  value: ProviderFormToggle | undefined,
+): void {
+  if (value === undefined) return;
+  if (value === 'clear') {
+    delete alias[key];
+    return;
+  }
+  alias[key] = value;
+}
+
+/** `undefined` keeps the stored override; `''` drops it back to the provider's type. */
+function applyProtocol(alias: ModelAlias, value: ProviderFormModelRow['protocol']): void {
+  if (value === undefined) return;
+  if (value === '') {
+    delete alias.protocol;
+    return;
+  }
+  alias.protocol = value;
 }
 
 /**
  * Rows the form did not originate (a freshly added one) carry the official
  * defaults; a row matched to an existing alias keeps every field the form
- * does not own (`maxOutputSize`, `supportEfforts`, `overrides`, ...).
+ * does not own (`overrides`, `name`, ...).
  */
 function buildModelAlias(
   row: ProviderFormModelRow,
@@ -267,12 +494,18 @@ function buildModelAlias(
   applyEffortList(alias, row.supportEfforts);
   applyOptionalString(alias, 'defaultEffort', row.defaultEffort);
   applyOptionalString(alias, 'offEffort', row.offEffort);
+  applyToggle(alias, 'adaptiveThinking', row.adaptiveThinking);
+  applyToggle(alias, 'betaApi', row.betaApi);
+  applyProtocol(alias, row.protocol);
+  applyOptionalString(alias, 'reasoningKey', row.reasoningKey);
+  applyOptionalString(alias, 'baseUrl', row.baseUrl);
 
-  if (row.adaptiveThinking === true) {
-    alias.adaptiveThinking = true;
-  } else if (row.adaptiveThinking === false) {
-    delete alias.adaptiveThinking;
-  }
+  // The form cannot edit `overrides`, but it has to be able to drop them: the
+  // engine spreads them OVER every field above (`model-auth.ts`
+  // `effectiveModelConfig`), so a stale set silently defeats the edit the user
+  // just made — the form reads back changed while the runtime keeps the old
+  // values.
+  if (row.clearOverrides === true) delete alias.overrides;
 
   const displayName = row.displayName.trim();
   if (displayName === '') {
@@ -304,6 +537,14 @@ export function buildAddPatch(value: ProviderFormValue): KimiConfigPatch {
   if (baseUrl !== '') provider.baseUrl = baseUrl;
   const apiKey = value.apiKey.trim();
   if (apiKey !== '') provider.apiKey = apiKey;
+  const apiKeyEnv = (value.apiKeyEnv ?? '').trim();
+  if (apiKeyEnv !== '') provider.apiKeyEnv = apiKeyEnv;
+  const providerDefaultModel = (value.defaultModel ?? '').trim();
+  if (providerDefaultModel !== '') provider.defaultModel = `${id}/${providerDefaultModel}`;
+  const customHeaders = parseKeyValueList(value.customHeaders);
+  if (Object.keys(customHeaders).length > 0) provider.customHeaders = customHeaders;
+  const env = parseKeyValueList(value.env);
+  if (Object.keys(env).length > 0) provider.env = env;
 
   const models: Record<string, ModelAlias> = {};
   for (const row of value.models) {
@@ -318,12 +559,17 @@ export function buildAddPatch(value: ProviderFormValue): KimiConfigPatch {
  * patch.
  *
  * The patch rebuilds the provider from the previous entry so fields the form
- * does not edit survive the removal (`source`, `oauth`, `customHeaders`,
- * `env`, ...). That guarantee holds for this pure-function layer only: which
- * keys reach disk is the engine section schema's decision — the SDK-only
- * `stream`, `temperature`, `maxTokens` and `searchDisable` are dropped there.
- * An alias matched by model id is rebuilt from its old object for the same
- * reason.
+ * does not edit survive the removal (`source`, `oauth`, ...). That guarantee
+ * holds for this pure-function layer only: which keys reach disk is the engine
+ * section schema's decision — the SDK-only `stream`, `temperature`, `maxTokens`
+ * and `searchDisable` are dropped there. An alias matched by model id is
+ * rebuilt from its old object for the same reason.
+ *
+ * The plan carries both shapes of the same write: the patch for a host that
+ * merges, and {@link PlanEditWriteResult.sections} for a host that can replace
+ * the affected sections in one write. `persistProviderWrite` picks between
+ * them; the two leave identical configs, which is what
+ * `test/utils/provider-form.test.ts` pins down.
  */
 export function planEditWrite(
   current: KimiConfig,
@@ -345,7 +591,8 @@ export function planEditWrite(
 
   // Provider-level model pointer, when it used the old `${previousId}/...`
   // alias form. Dropped rather than rewritten when its row is gone, matching
-  // the no-dangling-pointer rule of the top-level defaultModel below.
+  // the no-dangling-pointer rule of the top-level defaultModel below. A caller
+  // that hands the field over below overrides this migration.
   const providerDefaultModel = previousProvider?.defaultModel;
   if (providerDefaultModel?.startsWith(`${previousId}/`) === true) {
     const nextDefaultModel = `${newId}${providerDefaultModel.slice(previousId.length)}`;
@@ -364,6 +611,45 @@ export function planEditWrite(
     if (opts.clearApiKey === true) provider.apiKey = '';
   } else {
     provider.apiKey = apiKey;
+  }
+
+  // The provider-level fields the form owns. `undefined` keeps whatever the
+  // record carried; a blank value DELETES the field — the form presenting a
+  // field is what makes blank read as "clear" rather than "leave alone".
+  // `apiKey` and `baseUrl` above keep the older reading (blank means "keep"
+  // unless the caller says otherwise) because their prompts and flags predate
+  // this convention.
+  if (value.apiKeyEnv !== undefined) {
+    const apiKeyEnv = value.apiKeyEnv.trim();
+    if (apiKeyEnv === '') {
+      delete provider.apiKeyEnv;
+    } else {
+      provider.apiKeyEnv = apiKeyEnv;
+    }
+  }
+  if (value.defaultModel !== undefined) {
+    const pointer = value.defaultModel.trim();
+    if (pointer === '') {
+      delete provider.defaultModel;
+    } else {
+      provider.defaultModel = `${newId}/${pointer}`;
+    }
+  }
+  if (value.customHeaders !== undefined) {
+    const customHeaders = parseKeyValueList(value.customHeaders);
+    if (Object.keys(customHeaders).length === 0) {
+      delete provider.customHeaders;
+    } else {
+      provider.customHeaders = customHeaders;
+    }
+  }
+  if (value.env !== undefined) {
+    const env = parseKeyValueList(value.env);
+    if (Object.keys(env).length === 0) {
+      delete provider.env;
+    } else {
+      provider.env = env;
+    }
   }
 
   const patch: KimiConfigPatch = { providers: { [newId]: provider }, models };
@@ -386,5 +672,24 @@ export function planEditWrite(
   });
   const providerIdTaken = newId !== previousId && current.providers[newId] !== undefined;
 
-  return { removeProviderId: previousId, patch, collisions, providerIdTaken };
+  // The one-write shape, built on the config the removal leaves behind: every
+  // surviving record plus the rebuilt ones this patch carries. Spreading over
+  // the post-removal maps reproduces the engine's deep merge because a rebuilt
+  // key never collides with a surviving one — the removal took the replaced
+  // provider's aliases with it, and a key another provider owns is refused as a
+  // collision before the write happens.
+  const afterRemoval = removeProviderFromConfig(current, previousId);
+  const sections: ProviderWriteSections = {
+    providers: { ...afterRemoval.providers, [newId]: provider },
+    // `afterRemoval.models` may be absent, and spreading that is a no-op.
+    models: { ...afterRemoval.models, ...models },
+    // The removal already cleared a pointer that dangled (that is why it is
+    // read back rather than copied from `current`); a patch naming a
+    // replacement value wins over that, and `undefined` here means "no
+    // default", which the atomic write expresses as a cleared section.
+    defaultModel: patch.defaultModel ?? afterRemoval.defaultModel,
+    defaultProvider: patch.defaultProvider ?? afterRemoval.defaultProvider,
+  };
+
+  return { removeProviderId: previousId, patch, sections, collisions, providerIdTaken };
 }

@@ -25,6 +25,15 @@ const PRIORITY: Readonly<Record<string, number>> = {
   updates: 20,
 };
 
+/**
+ * The region that holds the strip while it waits on the user. Marked here
+ * rather than left to `priority` alone: a blocking region is served what it
+ * asked for BEFORE the pool is shared out, which is the property these cases
+ * are about — an earlier version of this fake declared only the priority, so
+ * the cases that name it were testing ordering and passing by accident.
+ */
+const BLOCKING = new Set<RegionId>(['approval']);
+
 function fakeRegion(
   id: RegionId,
   want: number,
@@ -35,6 +44,7 @@ function fakeRegion(
     id,
     placement: () => placement,
     priority: PRIORITY[id] ?? 10,
+    blocking: BLOCKING.has(id),
     isEmpty: () => empty,
     measure: () => want,
     render: (_ctx: RegionRenderContext) => [],
@@ -126,16 +136,50 @@ describe('computeBudget', () => {
     }
   });
 
-  it('serves the blocking region first and leaves the rest to share what remains', () => {
+  it('serves the blocking region first, then shares what is left between the rest', () => {
     // 40 rows -> total 20 rows to divide.
     const budget = computeBudget(
       40,
       [fakeRegion('approval', 10), fakeRegion('todo', 20), fakeRegion('updates', 20)],
       80,
     );
+    // The approval is the one thing waiting on the user, so it is answered
+    // first with exactly what it asked for.
     expect(budget.perRegion.get('approval')).toBe(10);
+    // The ten rows left are the two informational regions' to divide equally.
+    // Both want more than half, so priority must not decide this: serving the
+    // todo list first handed it all ten and left the updates column blank.
+    expect(budget.perRegion.get('todo')).toBe(5);
+    expect(budget.perRegion.get('updates')).toBe(5);
+  });
+
+  it('shares the pool between two informational regions whatever their priority', () => {
+    // The reported shape: a long todo list wanting more than the pool, and an
+    // updates box wanting its whole cap, with no approval present. Twenty rows
+    // are split ten and ten, even though the todo list outranks the updates box
+    // and asked for more.
+    const budget = computeBudget(40, [fakeRegion('todo', 20), fakeRegion('updates', 12)], 80);
     expect(budget.perRegion.get('todo')).toBe(10);
-    expect(budget.perRegion.get('updates')).toBe(0);
+    expect(budget.perRegion.get('updates')).toBe(10);
+  });
+
+  it('hands what a region does not want to the ones after it', () => {
+    const budget = computeBudget(40, [fakeRegion('todo', 2), fakeRegion('updates', 20)], 80);
+    expect(budget.perRegion.get('todo')).toBe(2);
+    // The todo list's unused half is not wasted: it goes to the only region
+    // that can use it, rather than being left as blank rows in the band.
+    expect(budget.perRegion.get('updates')).toBe(18);
+  });
+
+  it('gives a region the floor it declared even when an even share is smaller', () => {
+    const updates = { ...fakeRegion('updates', 20), minRows: 2 };
+    // 8 rows -> a total of 4, which three regions would split 1/1/1: below what
+    // the updates box needs to draw a body row at all.
+    const budget = computeBudget(8, [fakeRegion('todo', 20), updates, fakeRegion('other', 20)], 80);
+    expect(budget.perRegion.get('updates')).toBe(2);
+    for (const granted of budget.perRegion.values()) {
+      expect(Number.isInteger(granted)).toBe(true);
+    }
   });
 
   it('clamps a greedy region to what is left instead of overflowing', () => {

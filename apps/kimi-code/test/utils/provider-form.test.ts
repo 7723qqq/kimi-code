@@ -4,10 +4,15 @@ import type { KimiConfig } from '@moonshot-ai/kimi-code-sdk';
 
 import {
   CAPABILITY_NAMES,
+  EMPTY_EFFORT_LADDER,
   PROVIDER_WIRE_TYPES,
+  badKeyValueEntry,
   buildAddPatch,
   defaultModelRow,
+  formatEffortList,
+  formatKeyValueList,
   normalizeBaseUrlForType,
+  parseKeyValueList,
   planEditWrite,
   validateProviderForm,
   type ProviderFormModelRow,
@@ -354,7 +359,9 @@ describe('buildAddPatch', () => {
             supportEfforts: '',
             defaultEffort: '',
             offEffort: '',
-            adaptiveThinking: false,
+            // A toggle's "clear" is its own position now that `false` is a
+            // declaration of its own; asking to drop the key says so explicitly.
+            adaptiveThinking: 'clear',
           }),
         ],
       }),
@@ -568,6 +575,43 @@ describe('planEditWrite', () => {
     expect(patch.defaultModel).toBe('old/claude');
   });
 
+  it('describes the same write as complete sections for the one-write path', () => {
+    const current = makeCurrent();
+    const { patch, sections } = planEditWrite(current, editValue(), 'old');
+
+    // `replaceConfigSections` replaces each named section wholesale, so the
+    // sections have to be the whole post-write state: the records the patch
+    // never mentions, plus the rebuilt ones it carries — and no trace of the
+    // id the removal cascaded away.
+    expect(Object.keys(sections.providers).toSorted()).toEqual(['new', 'other']);
+    expect(sections.providers['other']).toEqual(current.providers['other']);
+    expect(sections.providers['new']).toEqual(patch.providers?.['new']);
+    expect('old' in sections.providers).toBe(false);
+
+    expect(Object.keys(sections.models).toSorted()).toEqual(['new/claude', 'other/gpt']);
+    expect(sections.models['other/gpt']).toEqual(current.models?.['other/gpt']);
+    expect(sections.models['new/claude']).toEqual(patch.models?.['new/claude']);
+
+    expect(sections.defaultModel).toBe(patch.defaultModel);
+    expect(sections.defaultProvider).toBe(patch.defaultProvider);
+  });
+
+  it('names a default pointer with `undefined` to clear it, which a patch cannot', () => {
+    const value = editValue({
+      models: [modelRow({ model: 'claude-2', maxContextSize: '200000' })],
+    });
+    const { patch, sections } = planEditWrite(makeCurrent(), value, 'old');
+
+    // The patch has no way to say this — `setConfig` skips an undefined domain,
+    // so the two-call path leans on `removeProvider` having cleared the
+    // pointer. The one-write path has to carry the clear itself, and
+    // `replaceConfigSections` reads a named `undefined` section as exactly that.
+    expect('defaultModel' in patch).toBe(false);
+    expect('defaultModel' in sections).toBe(true);
+    expect(sections.defaultModel).toBeUndefined();
+    expect(sections.defaultProvider).toBe('new');
+  });
+
   describe('clear semantics', () => {
     it('keeps the stored credential when the field is blank and clearing was not requested', () => {
       const { patch } = planEditWrite(makeCurrent(), editValue({ apiKey: '' }), 'old');
@@ -675,5 +719,295 @@ describe('planEditWrite boundaries', () => {
     expect(result.patch.providers?.['new']?.type).toBe('anthropic');
     expect(result.collisions).toEqual([]);
     expect(result.providerIdTaken).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The fields the manual form grew: the wire overrides, the two states a
+// false/blank value could not previously express, and the provider-level
+// records. Every case here is a decision the form makes about what reaches the
+// record, so they are pinned at this layer rather than only through a front end.
+// ---------------------------------------------------------------------------
+
+describe('the fields the manual form grew', () => {
+  it('writes an empty ladder for the `[]` literal and clears the key for a blank one', () => {
+    const empty = buildAddPatch(
+      formValue({ models: [modelRow({ supportEfforts: EMPTY_EFFORT_LADDER })] }),
+    );
+    expect(empty.models?.['demo/gpt-4.1']?.supportEfforts).toEqual([]);
+
+    const cleared = buildAddPatch(formValue({ models: [modelRow({ supportEfforts: '' })] }));
+    expect('supportEfforts' in (cleared.models?.['demo/gpt-4.1'] ?? {})).toBe(false);
+
+    const laddered = buildAddPatch(
+      formValue({ models: [modelRow({ supportEfforts: 'low, high, max' })] }),
+    );
+    expect(laddered.models?.['demo/gpt-4.1']?.supportEfforts).toEqual(['low', 'high', 'max']);
+  });
+
+  it('round-trips a stored empty ladder through the text the form shows', () => {
+    const current: KimiConfig = {
+      providers: { demo: { type: 'openai', baseUrl: 'https://api.example.com/v1' } },
+      models: {
+        'demo/gpt-4.1': {
+          provider: 'demo',
+          model: 'gpt-4.1',
+          maxContextSize: 128000,
+          supportEfforts: [],
+        },
+      },
+    };
+
+    // The declared-empty state has to survive the form's text field, or editing
+    // an unrelated field would silently turn it into a cleared key.
+    const shown = formatEffortList(current.models?.['demo/gpt-4.1']?.supportEfforts);
+    expect(shown).toBe(EMPTY_EFFORT_LADDER);
+
+    const result = planEditWrite(
+      current,
+      formValue({ models: [modelRow({ supportEfforts: shown })] }),
+      'demo',
+    );
+    expect('supportEfforts' in (result.patch.models?.['demo/gpt-4.1'] ?? {})).toBe(true);
+    expect(result.patch.models?.['demo/gpt-4.1']?.supportEfforts).toEqual([]);
+  });
+
+  it('separates a toggle\u2019s three positions', () => {
+    const written = buildAddPatch(
+      formValue({ models: [modelRow({ adaptiveThinking: false, betaApi: false })] }),
+    );
+    // `false` is a declaration, not a request to forget: the engine reads
+    // `adaptiveThinking: false` as the budget-effort ladder.
+    expect(written.models?.['demo/gpt-4.1']?.adaptiveThinking).toBe(false);
+    expect(written.models?.['demo/gpt-4.1']?.betaApi).toBe(false);
+
+    const cleared = planEditWrite(
+      makeCurrent(),
+      editValue({ models: [modelRow({ adaptiveThinking: 'clear', betaApi: 'clear' })] }),
+      'old',
+    );
+    expect('adaptiveThinking' in (cleared.patch.models?.['new/claude'] ?? {})).toBe(false);
+    expect('betaApi' in (cleared.patch.models?.['new/claude'] ?? {})).toBe(false);
+
+    // The fixture stores `adaptiveThinking: false`, which a row that does not
+    // present the field must carry through untouched.
+    const kept = planEditWrite(makeCurrent(), editValue(), 'old');
+    expect(kept.patch.models?.['new/claude']?.adaptiveThinking).toBe(false);
+  });
+
+  it('writes the per-model wire overrides and drops the protocol on an empty value', () => {
+    const written = buildAddPatch(
+      formValue({
+        models: [
+          modelRow({
+            protocol: 'anthropic',
+            betaApi: true,
+            reasoningKey: 'reasoning_content',
+            baseUrl: 'https://gw.example.com/anthropic',
+          }),
+        ],
+      }),
+    );
+    expect(written.models?.['demo/gpt-4.1']).toMatchObject({
+      protocol: 'anthropic',
+      betaApi: true,
+      reasoningKey: 'reasoning_content',
+      baseUrl: 'https://gw.example.com/anthropic',
+    });
+
+    // `makeCurrent()`'s alias declares `protocol: 'anthropic'`; `''` is how the
+    // form says "go back to the provider's own protocol".
+    const dropped = planEditWrite(
+      makeCurrent(),
+      editValue({
+        models: [modelRow({ model: 'claude', maxContextSize: '200000', protocol: '' })],
+      }),
+      'old',
+    );
+    expect('protocol' in (dropped.patch.models?.['new/claude'] ?? {})).toBe(false);
+  });
+
+  it('keeps stored overrides unless the row asks to drop them', () => {
+    const current: KimiConfig = {
+      providers: { demo: { type: 'openai', baseUrl: 'https://api.example.com/v1' } },
+      models: {
+        'demo/gpt-4.1': {
+          provider: 'demo',
+          model: 'gpt-4.1',
+          maxContextSize: 128000,
+          overrides: { maxContextSize: 400000, capabilities: ['image_in'] },
+        },
+      },
+    };
+
+    // The form cannot edit them, so a write that does not ask for it must leave
+    // them exactly as they were rather than dropping a layer it cannot see.
+    const kept = planEditWrite(current, formValue(), 'demo');
+    expect(kept.patch.models?.['demo/gpt-4.1']?.overrides).toEqual({
+      maxContextSize: 400000,
+      capabilities: ['image_in'],
+    });
+
+    // And they have to be droppable: the engine spreads them over every field
+    // the form does own, so a stale set silently defeats an edit.
+    const dropped = planEditWrite(
+      current,
+      formValue({ models: [modelRow({ clearOverrides: true })] }),
+      'demo',
+    );
+    expect('overrides' in (dropped.patch.models?.['demo/gpt-4.1'] ?? {})).toBe(false);
+  });
+
+  it('reads and writes the provider-level records the form owns', () => {
+    const added = buildAddPatch(
+      formValue({
+        apiKey: '',
+        apiKeyEnv: 'DEMO_KEY',
+        defaultModel: 'gpt-4.1',
+        customHeaders: 'x-tenant=acme, x-tier=gold',
+        env: 'REGION=cn',
+      }),
+    );
+    expect(added.providers?.['demo']).toMatchObject({
+      apiKeyEnv: 'DEMO_KEY',
+      defaultModel: 'demo/gpt-4.1',
+      customHeaders: { 'x-tenant': 'acme', 'x-tier': 'gold' },
+      env: { REGION: 'cn' },
+    });
+    expect('apiKey' in (added.providers?.['demo'] ?? {})).toBe(false);
+
+    const current: KimiConfig = {
+      providers: {
+        demo: {
+          type: 'openai',
+          baseUrl: 'https://api.example.com/v1',
+          apiKeyEnv: 'OLD_KEY',
+          defaultModel: 'demo/gpt-4.1',
+          customHeaders: { 'x-tenant': 'old' },
+          env: { REGION: 'us' },
+        },
+      },
+      models: { 'demo/gpt-4.1': { provider: 'demo', model: 'gpt-4.1', maxContextSize: 128000 } },
+    };
+
+    // A blank value clears the field; an absent one would keep it, which is what
+    // the CLI's omitted flags rely on.
+    const cleared = planEditWrite(
+      current,
+      formValue({ apiKeyEnv: '', defaultModel: '', customHeaders: '', env: '' }),
+      'demo',
+    );
+    const provider = cleared.patch.providers?.['demo'] ?? {};
+    for (const key of ['apiKeyEnv', 'defaultModel', 'customHeaders', 'env']) {
+      expect(key in provider).toBe(false);
+    }
+
+    const untouched = planEditWrite(current, formValue(), 'demo');
+    expect(untouched.patch.providers?.['demo']).toMatchObject({
+      apiKeyEnv: 'OLD_KEY',
+      customHeaders: { 'x-tenant': 'old' },
+      env: { REGION: 'us' },
+    });
+  });
+
+  it('refuses the combinations the new fields make possible', () => {
+    expect(
+      validateProviderForm(formValue({ apiKeyEnv: 'DEMO_KEY' }), { requireApiKey: true }),
+    ).toBe('apiKeyConflict');
+
+    expect(validateProviderForm(formValue({ defaultModel: 'nope' }), { requireApiKey: true })).toBe(
+      'defaultModelUnknown',
+    );
+    expect(
+      validateProviderForm(formValue({ defaultModel: 'gpt-4.1' }), { requireApiKey: true }),
+    ).toBeNull();
+
+    // `betaApi` reaches the wire only through the Anthropic transport, so a row
+    // that cannot reach it is refused rather than silently inert.
+    expect(
+      validateProviderForm(formValue({ models: [modelRow({ betaApi: true })] }), {
+        requireApiKey: true,
+      }),
+    ).toBe('betaApiWithoutAnthropic');
+    expect(
+      validateProviderForm(
+        formValue({ type: 'anthropic', models: [modelRow({ betaApi: true })] }),
+        {
+          requireApiKey: true,
+        },
+      ),
+    ).toBeNull();
+    expect(
+      validateProviderForm(
+        formValue({ models: [modelRow({ betaApi: true, protocol: 'anthropic' })] }),
+        { requireApiKey: true },
+      ),
+    ).toBeNull();
+
+    expect(
+      validateProviderForm(formValue({ models: [modelRow({ baseUrl: 'gw.example.com' })] }), {
+        requireApiKey: true,
+      }),
+    ).toBe('modelBaseUrlInvalid');
+
+    expect(
+      validateProviderForm(formValue({ customHeaders: 'x-tenant' }), { requireApiKey: true }),
+    ).toBe('headerInvalid');
+    expect(validateProviderForm(formValue({ env: '=acme' }), { requireApiKey: true })).toBe(
+      'envInvalid',
+    );
+  });
+
+  it('parses and formats the flat records the two text fields carry', () => {
+    expect(parseKeyValueList('x-tenant=acme, x-tier=gold')).toEqual({
+      'x-tenant': 'acme',
+      'x-tier': 'gold',
+    });
+    // A blank value keeps its `=`, or the text the form shows would come back
+    // through its own parser as a malformed entry.
+    expect(parseKeyValueList(formatKeyValueList({ A: '', B: 'b' }))).toEqual({ A: '', B: 'b' });
+    expect(formatKeyValueList(undefined)).toBe('');
+
+    expect(badKeyValueEntry('x-tenant')).toBe('x-tenant');
+    expect(badKeyValueEntry('=acme')).toBe('=acme');
+    expect(badKeyValueEntry('x-tenant=')).toBeUndefined();
+    expect(badKeyValueEntry('')).toBeUndefined();
+  });
+
+  it('carries the new fields into the one-write sections', () => {
+    const value = editValue({
+      defaultModel: 'claude',
+      customHeaders: 'x-tenant=acme, x-tier=gold',
+      models: [
+        modelRow({
+          model: 'claude',
+          maxContextSize: '200000',
+          protocol: 'anthropic',
+          betaApi: true,
+          reasoningKey: 'reasoning_content',
+          baseUrl: 'https://gw.example.com/anthropic',
+          supportEfforts: EMPTY_EFFORT_LADDER,
+        }),
+      ],
+    });
+
+    const { patch, sections } = planEditWrite(makeCurrent(), value, 'old');
+
+    // A host that replaces sections wholesale writes these records instead of
+    // merging the patch, so every new field has to be present or the two write
+    // shapes would disagree about what the file ends up saying.
+    expect(sections.providers['new']).toEqual(patch.providers?.['new']);
+    expect(sections.models['new/claude']).toEqual(patch.models?.['new/claude']);
+    expect(sections.providers['new']).toMatchObject({
+      defaultModel: 'new/claude',
+      customHeaders: { 'x-tenant': 'acme', 'x-tier': 'gold' },
+    });
+    expect(sections.models['new/claude']).toMatchObject({
+      protocol: 'anthropic',
+      betaApi: true,
+      reasoningKey: 'reasoning_content',
+      baseUrl: 'https://gw.example.com/anthropic',
+      supportEfforts: [],
+    });
   });
 });
