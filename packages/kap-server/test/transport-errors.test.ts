@@ -14,7 +14,9 @@ describe('/api/v1/debug transport mapError', () => {
     [ErrorCodes.OS_FS_PERMISSION_DENIED, ErrorCode.FS_PERMISSION_DENIED],
     [ErrorCodes.STORAGE_IO_FAILED, ErrorCode.PERSISTENCE_FAILURE],
     [ErrorCodes.STORAGE_LOCKED, ErrorCode.PERSISTENCE_FAILURE],
+    [ErrorCodes.CONFIG_PERSIST_BLOCKED, ErrorCode.PERSISTENCE_FAILURE],
     [ErrorCodes.CONFIG_INVALID, ErrorCode.VALIDATION_FAILED],
+    [ErrorCodes.AGENT_NOT_FOUND, ErrorCode.AGENT_NOT_FOUND],
     [ErrorCodes.GOAL_UNSUPPORTED_AGENT, ErrorCode.GOAL_UNSUPPORTED_AGENT],
     [ErrorCodes.PROMPT_ID_CONFLICT, ErrorCode.PROMPT_ID_CONFLICT],
   ])('maps domain code %s to its wire equivalent', (code, wire) => {

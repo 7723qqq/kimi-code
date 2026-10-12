@@ -35,3 +35,66 @@ describe('computeIssues — runtime error categories', () => {
     expect(issues.some((i) => i.kind === 'orphan_tool_call' || i.kind === 'missing_tool_result')).toBe(false);
   });
 });
+
+// Audit a37/F2 — `permission.record_approval_result.result` is a compile-time
+// assertion only (`z.custom<…>()`), so a malformed imported / hand-edited
+// record reached `r.result.decision` and threw during render, unmounting the
+// React root (blank app). The drawer must stay alive and simply report nothing.
+describe('computeIssues — malformed approval records (a37/F2)', () => {
+  it('does not throw on a record without a result, or with result: null', () => {
+    line = 0;
+    const entries = [
+      { lineNo: 1, data: { type: 'permission.record_approval_result', toolName: 'Bash', toolCallId: 'c1' }, raw: {} },
+      { lineNo: 2, data: { type: 'permission.record_approval_result', toolName: 'Bash', toolCallId: 'c2', result: null }, raw: {} },
+    ] as unknown as WireEntry[];
+
+    let issues: ReturnType<typeof computeIssues> | undefined;
+    expect(() => {
+      issues = computeIssues(entries, []);
+    }).not.toThrow();
+    expect(issues).toEqual([]);
+  });
+
+  it('still reports a well-formed rejection', () => {
+    line = 0;
+    const entries = [
+      {
+        lineNo: 1,
+        data: {
+          type: 'permission.record_approval_result',
+          toolName: 'Bash',
+          toolCallId: 'call-12345678',
+          result: { decision: 'rejected', feedback: 'nope' },
+        },
+        raw: {},
+      },
+    ] as unknown as WireEntry[];
+
+    const issues = computeIssues(entries, []);
+    expect(issues).toHaveLength(1);
+    expect(issues[0]).toMatchObject({
+      severity: 'info',
+      kind: 'rejected_approval',
+      lineNo: 1,
+      detail: 'nope',
+    });
+  });
+
+  it('ignores an approval whose decision is a non-string value', () => {
+    line = 0;
+    const entries = [
+      {
+        lineNo: 1,
+        data: {
+          type: 'permission.record_approval_result',
+          toolName: 'Bash',
+          toolCallId: 'c1',
+          result: { decision: { unexpected: true } },
+        },
+        raw: {},
+      },
+    ] as unknown as WireEntry[];
+
+    expect(computeIssues(entries, [])).toEqual([]);
+  });
+});

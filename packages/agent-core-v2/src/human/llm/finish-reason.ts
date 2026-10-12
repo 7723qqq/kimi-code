@@ -4,6 +4,7 @@ export type FinishReason =
   | 'truncated'
   | 'filtered'
   | 'paused'
+  | 'error'
   | 'other';
 
 export interface FinishInfo {

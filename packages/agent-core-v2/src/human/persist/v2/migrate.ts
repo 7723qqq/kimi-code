@@ -1,4 +1,4 @@
-import { readdir, readFile, rename, rm, stat } from 'node:fs/promises';
+import { mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { basename, join } from 'node:path';
 
 import { messageAppended, stateUpdated, turnEnded } from '#/agent/events';
@@ -26,6 +26,7 @@ export class V2MigrationError extends Error {
 export interface V2MigrationResult {
   treeName: string;
   agents: string[];
+  blobError?: string;
 }
 
 async function pathIsDirectory(path: string): Promise<boolean> {
@@ -41,6 +42,26 @@ async function pathIsFile(path: string): Promise<boolean> {
     return (await stat(path)).isFile();
   } catch {
     return false;
+  }
+}
+
+async function mergeBlobsInto(source: string, target: string): Promise<string | undefined> {
+  try {
+    await mkdir(target, { recursive: true });
+    for (const name of await readdir(source)) {
+      const from = join(source, name);
+      if (!(await pathIsFile(from))) continue;
+      const to = join(target, name);
+      if (await pathIsFile(to)) continue;
+      try {
+        await rename(from, to);
+      } catch {
+        await writeFile(to, await readFile(from));
+      }
+    }
+    return undefined;
+  } catch (error) {
+    return error instanceof Error ? error.message : String(error);
   }
 }
 
@@ -149,6 +170,8 @@ export async function migrateV2Session(dir: string): Promise<V2MigrationResult> 
     `.migrate-${process.pid.toString(36)}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
   );
   const branches: Branch[] = [];
+  let committed = false;
+  let blobError: string | undefined;
   try {
     const store = await TreeStore.open(new NodeBackend(tmp));
     const tree = await store.tree(V2_SESSION_TREE_NAME);
@@ -215,13 +238,16 @@ export async function migrateV2Session(dir: string): Promise<V2MigrationResult> 
     for (const branchName of tree.branches()) {
       await tree.openBranch(branchName).settled();
     }
-    if (await pathIsDirectory(join(tmp, 'blobs'))) {
-      await rename(join(tmp, 'blobs'), join(dir, 'blobs'));
-    }
     await rename(join(tmp, 'trees'), join(dir, 'trees'));
+    committed = true;
+    if (await pathIsDirectory(join(tmp, 'blobs'))) {
+      blobError = await mergeBlobsInto(join(tmp, 'blobs'), join(dir, 'blobs'));
+    }
   } finally {
     await Promise.allSettled(branches.map((branch) => branch.settled()));
-    await rm(tmp, { recursive: true, force: true });
+    if (!committed || blobError === undefined) {
+      await rm(tmp, { recursive: true, force: true });
+    }
   }
-  return { treeName: V2_SESSION_TREE_NAME, agents: agentIds };
+  return { treeName: V2_SESSION_TREE_NAME, agents: agentIds, blobError };
 }

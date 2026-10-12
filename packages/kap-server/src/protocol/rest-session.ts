@@ -10,6 +10,7 @@ import { z } from 'zod';
 import { goalSnapshotSchema } from './goal';
 import { messageSchema } from './message';
 import { cursorQuerySchema, pageResponseSchema } from './pagination';
+import { booleanQueryParam } from './query-params';
 import {
   sessionChildCreateSchema,
   sessionCreateSchema,
@@ -35,12 +36,6 @@ export type CreateSessionRequest = z.infer<typeof createSessionRequestSchema>;
 
 export const createSessionResponseSchema = sessionSchema;
 export type CreateSessionResponse = z.infer<typeof createSessionResponseSchema>;
-
-const booleanQueryParam = z.preprocess((value) => {
-  if (value === 'true' || value === '1' || value === 1 || value === true) return true;
-  if (value === 'false' || value === '0' || value === 0 || value === false) return false;
-  return value;
-}, z.boolean().optional());
 
 export const listSessionsQuerySchema = cursorQuerySchema.and(
   z.object({

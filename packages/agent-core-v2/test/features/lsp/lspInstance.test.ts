@@ -3,6 +3,11 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vitest';
 
+import {
+  resetUnexpectedErrorHandler,
+  setUnexpectedErrorHandler,
+} from '#/_base/errors/unexpectedError';
+import { ErrorCodes } from '#/errors';
 import type { LspProviderQuery } from '#/features/lsp/lsp';
 import { LspTransportClosedError } from '#/features/lsp/lspConnection';
 import { LspInstance } from '#/features/lsp/lspInstance';
@@ -12,7 +17,10 @@ import type { IProcess, ISessionProcessRunner } from '#/session/process/processR
 
 const FAKE_SERVER = fileURLToPath(new URL('./fixtures/fake-lsp-server.mjs', import.meta.url));
 
-function spawnFakeServer(env: Record<string, string> = {}): IProcess {
+function spawnFakeServer(
+  env: Record<string, string> = {},
+  onKill?: (signal: string) => void,
+): IProcess {
   const child = spawn(process.execPath, [FAKE_SERVER], {
     env: { ...process.env, ...env },
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -25,6 +33,7 @@ function spawnFakeServer(env: Record<string, string> = {}): IProcess {
     exitCode: null,
     wait: () => new Promise((resolve) => child.on('exit', (code) => resolve(code ?? 0))),
     kill: (signal) => {
+      onKill?.(signal ?? 'SIGTERM');
       child.kill(signal);
       return Promise.resolve();
     },
@@ -123,9 +132,124 @@ describe('LspInstance', () => {
     await instance.dispose();
     expect(instance.isClosed).toBe(true);
   });
+
+  it('gives up on a server that never answers initialize', async () => {
+    const kills: string[] = [];
+    const silentRunner: ISessionProcessRunner = {
+      _serviceBrand: undefined,
+      exec: async (_args, options) =>
+        spawnFakeServer({ ...options?.env, FAKE_LSP_SILENT_INITIALIZE: '1' }, (signal) =>
+          kills.push(signal),
+        ),
+    };
+    const target = LspInstance.create(
+      { ...SERVER_CONFIG, initializeTimeoutMs: 100 },
+      silentRunner,
+      hostFs,
+      '/ws',
+    );
+    await expect(target).rejects.toThrow(/did not answer initialize/);
+    expect(kills).toContain('SIGTERM');
+  }, 10_000);
+
+  it('kills the server and reports no live instance when initialize is rejected', async () => {
+    const kills: string[] = [];
+    const rejectingRunner: ISessionProcessRunner = {
+      _serviceBrand: undefined,
+      exec: async (_args, options) =>
+        spawnFakeServer({ ...options?.env, FAKE_LSP_POSITION_ENCODING: 'utf-8' }, (signal) =>
+          kills.push(signal),
+        ),
+    };
+    await expect(LspInstance.create(SERVER_CONFIG, rejectingRunner, hostFs, '/ws')).rejects.toThrow(
+      /only utf-16 is supported/,
+    );
+    expect(kills).toContain('SIGTERM');
+  }, 10_000);
+
+  it('does not leak a pending initialize request when the signal aborts', async () => {
+    const kills: string[] = [];
+    const silentRunner: ISessionProcessRunner = {
+      _serviceBrand: undefined,
+      exec: async (_args, options) =>
+        spawnFakeServer({ ...options?.env, FAKE_LSP_SILENT_INITIALIZE: '1' }, (signal) =>
+          kills.push(signal),
+        ),
+    };
+    const controller = new AbortController();
+    const target = LspInstance.create(
+      { ...SERVER_CONFIG, initializeTimeoutMs: 60_000 },
+      silentRunner,
+      hostFs,
+      '/ws',
+      controller.signal,
+    );
+    controller.abort();
+    await expect(target).rejects.toMatchObject({ name: 'LspRequestAbortedError' });
+    expect(kills).toContain('SIGTERM');
+  }, 10_000);
 });
 
 describe('LspStdioProvider', () => {
+  it('rejects a provider query when the server never answers initialize, leaving no instance', async () => {
+    const kills: string[] = [];
+    let spawnCount = 0;
+    const provider = new LspStdioProvider(
+      'typescript',
+      { ...SERVER_CONFIG, initializeTimeoutMs: 100 },
+      {
+        _serviceBrand: undefined,
+        exec: async (_args, options) => {
+          spawnCount += 1;
+          return spawnFakeServer(
+            spawnCount === 1 ? { ...options?.env, FAKE_LSP_SILENT_INITIALIZE: '1' } : options?.env,
+            (signal) => kills.push(signal),
+          );
+        },
+      },
+      hostFs,
+    );
+    await expect(provider.query(QUERY)).rejects.toMatchObject({
+      code: ErrorCodes.LSP_SERVER_FAILED,
+    });
+    expect(kills).toContain('SIGTERM');
+    const recovered = await provider.query(QUERY);
+    expect(recovered.kind).toBe('locations');
+    expect(spawnCount).toBe(2);
+    await provider.dispose();
+  }, 10_000);
+
+  it('reports a malformed frame and still answers through a fresh instance', async () => {
+    const reported: unknown[] = [];
+    setUnexpectedErrorHandler((error) => reported.push(error));
+    try {
+      let spawnCount = 0;
+      const provider = new LspStdioProvider(
+        'typescript',
+        SERVER_CONFIG,
+        {
+          _serviceBrand: undefined,
+          exec: async (_args, options) => {
+            spawnCount += 1;
+            return spawnFakeServer(
+              spawnCount === 1 ? { ...options?.env, FAKE_LSP_MALFORMED_FRAME: '1' } : options?.env,
+            );
+          },
+        },
+        hostFs,
+      );
+      const result = await provider.query(QUERY);
+      expect(result.kind).toBe('locations');
+      expect(spawnCount).toBe(2);
+      expect(reported.map((error) => (error as { code?: string }).code)).toEqual([
+        ErrorCodes.LSP_MALFORMED_RESPONSE,
+      ]);
+      await provider.dispose();
+    } finally {
+      resetUnexpectedErrorHandler();
+    }
+  }, 10_000);
+
   it('pools one instance per workspace root', async () => {
     const provider = new LspStdioProvider('typescript', SERVER_CONFIG, runner, hostFs);
     const first = await provider.query(QUERY);

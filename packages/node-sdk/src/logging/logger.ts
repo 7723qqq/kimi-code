@@ -1,6 +1,5 @@
-import { join } from 'node:path';
-
 import { extractError, formatEntry, redactCtx } from './formatter';
+import { resolveLoggingConfig } from './resolve-config';
 import { RotatingFileSink } from './sinks';
 import {
   type LogContext,
@@ -74,6 +73,13 @@ function getRootInternal(): RootLoggerImpl {
 
 export function getRootLogger(): RootLogger {
   return getRootInternal();
+}
+
+export function configureDiagnosticLogging(input: {
+  readonly homeDir: string;
+  readonly env?: NodeJS.ProcessEnv | undefined;
+}): Promise<void> {
+  return getRootInternal().configure(resolveLoggingConfig(input));
 }
 
 export function flushDiagnosticLogs(): Promise<boolean> {
@@ -199,8 +205,4 @@ export async function __resetRootLoggerForTest(): Promise<void> {
     await existing.__shutdownForTest();
   }
   globalAny[ROOT_SYMBOL] = undefined;
-}
-
-export function resolveGlobalLogPath(homeDir: string): string {
-  return join(homeDir, 'logs', 'kimi-code.log');
 }

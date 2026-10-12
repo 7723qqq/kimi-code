@@ -855,25 +855,46 @@ export class AcpSession {
    * call whose command it runs, then attach a `{type: 'terminal'}` content
    * entry to that call's card. Match key: the runner reports the full shell
    * invocation (`cd <cwd> && <command>`), which ends with the model's
-   * `args.command`. Terminals with no matching call (e.g. a subagent's —
-   * this session only follows the main agent's events) stay unattached.
+   * `args.command`.
+   *
+   * The most specific (longest) suffix wins: `tool.call.started` and
+   * `terminal/create` do NOT arrive in a reliable relative order (a batch's
+   * calls are prepared sequentially, and the runner's terminal announcement
+   * races the approval gate), so which candidate was inserted first says
+   * nothing about which one this terminal belongs to. When two candidates are
+   * equally specific the match is genuinely ambiguous and none is bound — the
+   * call keeps its textual result instead of the wrong terminal.
+   *
+   * Terminals with no matching call (e.g. a subagent's — this session only
+   * follows the main agent's events) stay unattached.
    */
   private onTerminalCreated(event: AcpTerminalCreatedEvent): void {
     if (event.sessionId !== this.sessionId) return;
+    let bestKey: string | undefined;
+    let bestLength = -1;
+    let ambiguous = false;
     for (const [key, command] of this.bashCallsAwaitingTerminal) {
       if (command.length === 0 || !event.shellCommand.endsWith(command)) continue;
-      this.bashCallsAwaitingTerminal.delete(key);
-      this.terminalBackedCalls.set(key, event.terminalId);
-      this.emit({
-        sessionId: this.sessionId,
-        update: {
-          sessionUpdate: 'tool_call_update',
-          toolCallId: key,
-          content: [{ type: 'terminal', terminalId: event.terminalId }],
-        },
-      });
-      return;
+      if (command.length > bestLength) {
+        bestKey = key;
+        bestLength = command.length;
+        ambiguous = false;
+      } else if (command.length === bestLength) {
+        ambiguous = true;
+      }
     }
+    if (bestKey === undefined || ambiguous) return;
+    const key = bestKey;
+    this.bashCallsAwaitingTerminal.delete(key);
+    this.terminalBackedCalls.set(key, event.terminalId);
+    this.emit({
+      sessionId: this.sessionId,
+      update: {
+        sessionUpdate: 'tool_call_update',
+        toolCallId: key,
+        content: [{ type: 'terminal', terminalId: event.terminalId }],
+      },
+    });
   }
 
   /**

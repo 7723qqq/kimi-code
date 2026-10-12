@@ -116,7 +116,7 @@ describe('migratePlansStep', () => {
       targetHome: tgt,
       plansSourceDir: join(tgt, 'does-not-exist'),
     });
-    expect(r).toEqual({ copied: 0, skippedExisting: 0 });
+    expect(r).toEqual({ copied: 0, skippedExisting: 0, failures: [] });
     expect(await readFile(join(tgt, 'plans', '.keep'), 'utf-8').catch(() => null)).toBeNull();
   });
 });

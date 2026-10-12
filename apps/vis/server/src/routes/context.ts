@@ -44,7 +44,9 @@ export function contextRoute(home: string = KIMI_CODE_HOME): Hono {
         planMode: proj.planMode,
         goal: proj.goal,
         swarm: proj.swarm,
-        warnings: wire.warnings,
+        // Projector-level caveats (malformed records skipped while folding)
+        // ride the same channel as the wire-reader/blob-resolver ones.
+        warnings: [...wire.warnings, ...proj.warnings],
       });
     } catch (error) {
       const msg = (error as Error).message;

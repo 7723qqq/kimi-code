@@ -61,6 +61,53 @@ test('two writers contend on the same shard; loser times out with LockError', as
   }
 });
 
+test('createIndex takes the cross-process registry lock; a held lock makes it fail, release lets it through', async () => {
+  const dir = await tmpDir('minidb-cluster-');
+  try {
+    // The registry CAS loop alone only proves "my own write is still there":
+    // a competitor that loaded an older copy can still clobber it (load A →
+    // load B → save A → re-read A → save B). The registry is therefore
+    // guarded by its own cross-process LockFile, so a held registry lock must
+    // turn createIndex into a LockError instead of a silent overwrite.
+    const db = await ClusterDb.open({
+      dir,
+      shardCount: 4,
+      valueCodec: 'json',
+      lockAcquireTimeoutMs: 300,
+    });
+    const registryLock = new LockFile(path.join(dir, 'cluster.indexes.json.lock'));
+    assert.equal(await registryLock.acquire(), true);
+    await assert.rejects(
+      () => db.createIndex('byCity', { field: 'city' }),
+      (e: unknown) => e instanceof LockError && e.code === 'ELOCKED',
+    );
+    assert.deepEqual(await db.listIndexes(), [], 'the blocked attempt published nothing');
+
+    await registryLock.release();
+    await db.createIndex('byCity', { field: 'city' });
+    assert.deepEqual(
+      (await db.listIndexes()).map((d) => d.name),
+      ['byCity'],
+      'the same call succeeds once the lock is free',
+    );
+    const raw = JSON.parse(
+      await fs.readFile(path.join(dir, 'cluster.indexes.json'), 'utf8'),
+    ) as { indexes: { name: string }[] };
+    assert.deepEqual(
+      raw.indexes.map((i) => i.name),
+      ['byCity'],
+      'the registry on disk is complete',
+    );
+
+    // The lock is released after every mutation, so a later drop can publish.
+    assert.equal(await db.dropIndex('byCity'), true);
+    assert.deepEqual(await db.listIndexes(), []);
+    await db.close();
+  } finally {
+    await rmrf(dir);
+  }
+});
+
 test('wipe refuses while any shard writer is held and proceeds once released', async () => {
   const dir = await tmpDir('minidb-cluster-');
   try {
@@ -399,6 +446,69 @@ test('closeAll() waits for the lockHold timer’s in-flight writer close', async
       'the shard lock was released',
     );
     await pool2.closeAll();
+  } finally {
+    await rmrf(dir);
+  }
+});
+
+test('a writer retired during a READ borrow is released instead of holding the shard lock', async () => {
+  const dir = await tmpDir('minidb-cluster-');
+  try {
+    // Only withWriter used to run the retire-close path; the hold window
+    // expiring while a READER borrowed the cached writer (withReader) left the
+    // entry retired-but-open forever — the shard's MiniDb write lock (and its
+    // renewals) stayed held until this process happened to write that shard
+    // again, so another process could never take the shard over.
+    const pool = new ShardLockPool({
+      writerOpts: { valueCodec: 'json' },
+      readerOpts: { valueCodec: 'json' },
+      lockRenewMs: 0,
+      lockAcquireTimeoutMs: 1_000,
+      lockHoldMs: 80,
+      maxWriters: 4,
+      maxReaders: 4,
+      readOnly: false,
+      applyDefs: async () => {},
+    });
+    const shardDir = path.join(dir, shardDirName(2, 4));
+    await pool.withWriter(2, shardDir, (db) => db.set('k', { v: 1 }));
+
+    // Borrow the cached writer as a reader and stay inside the callback past
+    // the end of the hold window: the timer fires while the borrow is busy and
+    // can only mark the entry retired. Nothing writes this shard afterwards.
+    const readerEntered = deferred<void>();
+    const releaseReader = deferred<void>();
+    const borrowing = pool.withReader(2, shardDir, async () => {
+      readerEntered.resolve();
+      await releaseReader.promise;
+    });
+    await readerEntered.promise;
+    await sleep(150);
+
+    // The reader left: the entry must be closed now, without any further write.
+    releaseReader.resolve();
+    await borrowing;
+    assert.equal(pool.writersCached, 0, 'the retired entry is dropped from the cache');
+
+    const pool2 = new ShardLockPool({
+      writerOpts: { valueCodec: 'json' },
+      readerOpts: { valueCodec: 'json' },
+      lockRenewMs: 0,
+      lockAcquireTimeoutMs: 300,
+      lockHoldMs: 0,
+      maxWriters: 4,
+      maxReaders: 4,
+      readOnly: false,
+      applyDefs: async () => {},
+    });
+    assert.deepEqual(
+      await pool2.withWriter(2, shardDir, (db) => db.get('k')),
+      { v: 1 },
+      'the shard lock was released by the reader path',
+    );
+
+    await pool2.closeAll();
+    await pool.closeAll();
   } finally {
     await rmrf(dir);
   }

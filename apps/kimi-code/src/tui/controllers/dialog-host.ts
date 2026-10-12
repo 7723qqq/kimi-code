@@ -93,6 +93,11 @@ export class DialogHostController {
   };
   private sessionPickerScopeRequestToken = 0;
   private sessionPickerComponent: SessionPickerComponent | undefined;
+  /**
+   * Callback of the panel currently occupying the editor slot, invoked right
+   * before it is displaced (see {@link mountEditorReplacement}).
+   */
+  private displacedCallback: (() => void) | undefined;
 
   constructor(
     host: DialogHost,
@@ -104,8 +109,13 @@ export class DialogHostController {
     this.questionController = questionController;
   }
 
-  mountEditorReplacement(panel: Component & Focusable): void {
+  mountEditorReplacement(panel: Component & Focusable, onDisplaced?: () => void): void {
+    const displaced = this.displacedCallback;
+    this.displacedCallback = onDisplaced;
     this.host.state.editorReplacementMounted = true;
+    // A `clear()`ed panel gets no dispose hook, so its pending decision would
+    // be unreachable forever; tell the panel being evicted first.
+    displaced?.();
     this.host.state.editorContainer.clear();
     this.host.state.editorContainer.addChild(panel);
     this.host.state.ui.setFocus(panel);
@@ -113,6 +123,7 @@ export class DialogHostController {
   }
 
   restoreEditor(): void {
+    this.displacedCallback = undefined;
     this.host.state.editorReplacementMounted = false;
     this.host.state.editorContainer.clear();
     this.host.state.editorContainer.addChild(this.host.state.editor);

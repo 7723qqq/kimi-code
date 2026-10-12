@@ -14,7 +14,7 @@ import {
   IconChevronDown,
 } from '@tabler/icons-react';
 import { useState, useEffect, useMemo } from 'react';
-import { MCP_SECRET_MASK, type MCPServerConfig } from 'shared/legacy-sdk';
+import { MCP_SECRET_MASK, type MCPServerCatalog, type MCPServerConfig } from 'shared/legacy-sdk';
 
 import {
   AlertDialog,
@@ -40,7 +40,8 @@ import {
 import { useSettingsStore } from '@/stores';
 
 const MCP_SERVERS_KEY = ['mcpServers'] as const;
-const NO_SERVERS: MCPServerConfig[] = [];
+const EMPTY_CATALOG: MCPServerCatalog = { servers: [] };
+const NO_WARNINGS: string[] = [];
 
 type TransportType = 'stdio' | 'http';
 
@@ -399,8 +400,8 @@ function ServerItem({ server, onDelete }: { server: MCPServerConfig; onDelete: (
 
   const handleUpdate = async () => {
     try {
-      const servers = await bridge.updateMCPServer(server.name, formToConfig(form));
-      queryClient.setQueryData(MCP_SERVERS_KEY, servers);
+      const catalog = await bridge.updateMCPServer(server.name, formToConfig(form));
+      queryClient.setQueryData(MCP_SERVERS_KEY, catalog);
       setExpanded(false);
     } catch (error) {
       setTestOutput(`Update failed: ${error instanceof Error ? error.message : String(error)}`);
@@ -626,7 +627,9 @@ export function MCPServersModal() {
     queryFn: () => bridge.getMCPServers(),
     enabled: mcpModalOpen,
   });
-  const mcpServers = serversQuery.data ?? NO_SERVERS;
+  const catalog = serversQuery.data ?? EMPTY_CATALOG;
+  const mcpServers = catalog.servers;
+  const configWarnings = catalog.warnings ?? NO_WARNINGS;
   const loadError = serversQuery.isError
     ? serversQuery.error instanceof Error
       ? serversQuery.error.message
@@ -642,8 +645,8 @@ export function MCPServersModal() {
   const handleAdd = async () => {
     setActionError(null);
     try {
-      const servers = await bridge.addMCPServer(formToConfig(addForm));
-      queryClient.setQueryData(MCP_SERVERS_KEY, servers);
+      const catalog = await bridge.addMCPServer(formToConfig(addForm));
+      queryClient.setQueryData(MCP_SERVERS_KEY, catalog);
       setShowAdd(false);
     } catch (error) {
       setActionError(error instanceof Error ? error.message : String(error));
@@ -655,8 +658,8 @@ export function MCPServersModal() {
     setIsDeleting(true);
     setActionError(null);
     try {
-      const servers = await bridge.removeMCPServer(deleteTarget);
-      queryClient.setQueryData(MCP_SERVERS_KEY, servers);
+      const catalog = await bridge.removeMCPServer(deleteTarget);
+      queryClient.setQueryData(MCP_SERVERS_KEY, catalog);
     } catch (error) {
       setActionError(error instanceof Error ? error.message : String(error));
     }
@@ -669,8 +672,8 @@ export function MCPServersModal() {
     setActionError(null);
     try {
       const config = recommendedToConfig(server);
-      const servers = await bridge.addMCPServer(config);
-      queryClient.setQueryData(MCP_SERVERS_KEY, servers);
+      const catalog = await bridge.addMCPServer(config);
+      queryClient.setQueryData(MCP_SERVERS_KEY, catalog);
     } catch (error) {
       setActionError(error instanceof Error ? error.message : String(error));
     }
@@ -718,6 +721,14 @@ export function MCPServersModal() {
                 {actionError ?? loadError}
               </div>
             )}
+            {configWarnings.map((warning) => (
+              <div
+                key={warning}
+                className="rounded border border-amber-500/30 bg-amber-500/5 px-2.5 py-2 text-xs text-amber-600 break-all"
+              >
+                {warning}
+              </div>
+            ))}
             {showAdd && (
               <div className="rounded-md border border-blue-500/5 p-2.5">
                 <div className="flex items-center gap-2 mb-2">

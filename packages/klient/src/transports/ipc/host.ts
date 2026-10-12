@@ -91,18 +91,23 @@ export async function serveKlientIpc(options: ServeKlientIpcOptions): Promise<Kl
     const activeStreams = new Map<string, AbortController>();
     let helloDone = false;
 
-    const send = (frame: IpcFrame): void => {
-      if (!socket.destroyed) socket.write(encodeFrame(frame));
-    };
     /**
-     * Write a frame and report whether the socket's write buffer accepted it.
+     * Write one frame and report whether the socket's buffer accepted it.
      * `false` means the kernel/stream buffer is full — the caller should stop
-     * producing and wait for the `drain` event (see `awaitSocketDrain`).
+     * producing and wait for `drain` (`awaitSocketDrain`).
+     *
+     * Ungated by design: `ready` (the greeting) and the `hello` verdict must
+     * leave immediately, and `stream_end` / `stream_error` fire once per stream
+     * — waiting on a drain for those trades a tiny frame for a stalled
+     * handshake. Everything a slow client can provoke repeatedly goes through
+     * `sendThrottled`.
      */
-    const tryWrite = (frame: IpcFrame): boolean => {
+    const send = (frame: IpcFrame): boolean => {
       if (socket.destroyed) return true;
       return socket.write(encodeFrame(frame));
     };
+    /** Same as `send`, kept as the name the `stream_data` loop reads by. */
+    const tryWrite = (frame: IpcFrame): boolean => send(frame);
     /** Resolve when the socket drains (buffer flushed) or is destroyed/closed. */
     const awaitSocketDrain = (): Promise<void> =>
       new Promise((resolve) => {
@@ -118,11 +123,47 @@ export async function serveKlientIpc(options: ServeKlientIpcOptions): Promise<Kl
         socket.once('drain', settle);
         socket.once('close', settle);
       });
+    /**
+     * Write a frame and apply back-pressure: when the socket buffer is full the
+     * caller waits for `drain` instead of queueing more below it. A client that
+     * stops reading must not make the host buffer unbounded — the same
+     * treatment the `stream_data` loop already applies to stream chunks.
+     *
+     * Frames queue behind one another (FIFO) so the bound actually holds: the
+     * engine delivers an event burst synchronously, so a per-frame check that
+     * did not serialize would let every frame in the burst through before the
+     * first one observed a full buffer. Callers keep the producer's
+     * fire-and-forget shape (`void sendThrottled(...)`); ordering is unchanged,
+     * still one write at a time.
+     */
+    let outbound: Promise<void> = Promise.resolve();
+    let droppedFrames = 0;
+    const sendThrottled = (frame: IpcFrame): Promise<void> => {
+      outbound = outbound.then(async () => {
+        try {
+          if (!send(frame)) await awaitSocketDrain();
+        } catch (error) {
+          droppedFrames += 1;
+          if (droppedFrames === 1) {
+            process.stderr.write(
+              `[klient/ipc] dropping frames the socket refused: ${String(error)}\n`,
+            );
+          }
+        }
+      });
+      return outbound;
+    };
     const sendError = (id: string, error: unknown): void => {
       if (error instanceof RPCError) {
-        send({ type: 'error', id, code: error.code, msg: error.message, data: error.details });
+        void sendThrottled({
+          type: 'error',
+          id,
+          code: error.code,
+          msg: error.message,
+          data: error.details,
+        });
       } else {
-        send({
+        void sendThrottled({
           type: 'error',
           id,
           code: 50001,
@@ -173,7 +214,7 @@ export async function serveKlientIpc(options: ServeKlientIpcOptions): Promise<Kl
           dispatcher
             .call(scopeRefFromFrame(frame), String(frame.service), String(frame.method), args)
             .then((data) => {
-              send({ type: 'result', id, data });
+              void sendThrottled({ type: 'result', id, data });
             })
             .catch((error: unknown) => {
               sendError(id, error);
@@ -191,14 +232,14 @@ export async function serveKlientIpc(options: ServeKlientIpcOptions): Promise<Kl
               scopeRefFromFrame(frame),
               source,
               (data) => {
-                send({ type: 'event', id, data });
+                void sendThrottled({ type: 'event', id, data });
               },
               (error) => {
                 sendError(id, error);
               },
             );
             listens.set(id, sub);
-            send({ type: 'listen_result', id });
+            void sendThrottled({ type: 'listen_result', id });
           } catch (error) {
             sendError(id, error);
           }
@@ -266,7 +307,7 @@ export async function serveKlientIpc(options: ServeKlientIpcOptions): Promise<Kl
     };
 
     socket.on('data', (chunk) => {
-      for (const frame of decoder.push(chunk.toString('utf8'))) {
+      for (const frame of decoder.push(chunk)) {
         handleFrame(frame);
       }
     });
@@ -276,6 +317,11 @@ export async function serveKlientIpc(options: ServeKlientIpcOptions): Promise<Kl
       for (const ac of activeStreams.values()) ac.abort();
       activeStreams.clear();
       connections.delete(socket);
+      if (droppedFrames > 0) {
+        process.stderr.write(
+          `[klient/ipc] closed after dropping ${droppedFrames} frame(s) the socket refused\n`,
+        );
+      }
     };
     socket.on('close', teardown);
     socket.on('error', teardown);

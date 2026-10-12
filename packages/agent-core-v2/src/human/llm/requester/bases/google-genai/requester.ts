@@ -142,7 +142,10 @@ async function executeGoogleGenAIRequest(
     ): Promise<AsyncIterable<Record<string, unknown>>>;
   };
   const stream = await Promise.race([
-    models.generateContentStream(request.params),
+    models.generateContentStream({
+      ...request.params,
+      config: { ...request.params.config, abortSignal: signal },
+    }),
     abortPromise(signal),
   ]);
   const parse = format.createStreamParser();

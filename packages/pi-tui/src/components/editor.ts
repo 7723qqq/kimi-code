@@ -32,6 +32,15 @@ const PASTE_MARKER_REGEX = /\[paste #(\d+)( (\+\d+ lines|\d+ chars))?\]/g;
 /** Non-global version for single-segment testing. */
 const PASTE_MARKER_SINGLE = /^\[paste #(\d+)( (\+\d+ lines|\d+ chars))?\]$/;
 
+/** Collect every paste-marker id referenced in the given text. */
+function collectPasteMarkerIds(text: string): Set<number> {
+  const ids = new Set<number>();
+  for (const match of text.matchAll(PASTE_MARKER_REGEX)) {
+    ids.add(Number(match[1]));
+  }
+  return ids;
+}
+
 /** Check if a segment is a paste marker (i.e. was merged by segmentWithMarkers). */
 function isPasteMarker(segment: string): boolean {
   return segment.length >= 10 && PASTE_MARKER_SINGLE.test(segment);
@@ -247,11 +256,30 @@ interface EditorState {
   cursorCol: number;
 }
 
-/** Undo snapshot: editor text state plus the paste registry. */
+/**
+ * Undo snapshot: editor text state plus the paste registry.
+ *
+ * `pastes` is shared by reference (a shallow Map copy per snapshot) because
+ * marker ids are single numbers and payloads can be megabytes: deep-copying
+ * the registry once per undo step multiplies the prompt by the number of undo
+ * steps. This is only sound while registry entries are never mutated in place —
+ * every writer replaces an entry with a new string (`set`/`delete`), so an old
+ * snapshot's Map keeps pointing at the payload it was taken with.
+ */
 interface EditorSnapshot {
   state: EditorState;
   pastes: Map<number, string>;
   pasteCounter: number;
+}
+
+const DEFAULT_UNDO_DEPTH = 200;
+
+function cloneEditorSnapshot(snapshot: EditorSnapshot): EditorSnapshot {
+  return {
+    state: structuredClone(snapshot.state),
+    pastes: new Map(snapshot.pastes),
+    pasteCounter: snapshot.pasteCounter,
+  };
 }
 
 interface LayoutLine {
@@ -276,6 +304,18 @@ export interface EditorOptions {
    * so the default is false to avoid surprising other consumers.
    */
   inlineSlashTrigger?: boolean;
+  /**
+   * How many undo snapshots the editor keeps, oldest dropped first. The
+   * default bounds memory for long prompts; raise it when a host needs a
+   * longer undo history than 200 steps.
+   */
+  undoDepth?: number;
+  /**
+   * Called when an autocomplete provider rejects with a real error (aborts are
+   * the expected cancellation path and stay silent). Lets the host surface the
+   * failure instead of autocomplete going quiet for the rest of the session.
+   */
+  onAutocompleteError?: (error: unknown) => void;
 }
 
 const SLASH_COMMAND_SELECT_LIST_LAYOUT: SelectListLayoutOptions = {
@@ -358,6 +398,13 @@ export class Editor implements Component, Focusable {
   private autocompleteRequestTask: Promise<void> = Promise.resolve();
   private autocompleteStartToken: number = 0;
   private autocompleteRequestId: number = 0;
+  /**
+   * Called when an autocomplete provider rejects with a real error (aborts are
+   * the expected cancellation path and stay silent). Assignable after
+   * construction, like the other host callbacks on this class.
+   */
+  public onAutocompleteError?: (error: unknown) => void;
+  private reportedAutocompleteError?: unknown;
 
   // Paste tracking for large pastes
   private pastes: Map<number, string> = new Map();
@@ -397,7 +444,7 @@ export class Editor implements Component, Focusable {
   private snappedFromCursorCol: number | null = null;
 
   // Undo support
-  private undoStack = new UndoStack<EditorSnapshot>();
+  private undoStack: UndoStack<EditorSnapshot>;
 
   public onSubmit?: (text: string) => void;
   public onChange?: (text: string) => void;
@@ -431,6 +478,12 @@ export class Editor implements Component, Focusable {
       : 5;
     this.disablePasteBurst = options.disablePasteBurst ?? false;
     this.inlineSlashTrigger = options.inlineSlashTrigger ?? false;
+    const undoDepth = options.undoDepth ?? DEFAULT_UNDO_DEPTH;
+    this.undoStack = new UndoStack<EditorSnapshot>(
+      cloneEditorSnapshot,
+      Number.isFinite(undoDepth) ? Math.max(1, Math.floor(undoDepth)) : DEFAULT_UNDO_DEPTH,
+    );
+    this.onAutocompleteError = options.onAutocompleteError;
   }
 
   /** Set of currently valid paste IDs, for marker-aware segmentation. */
@@ -1554,6 +1607,50 @@ export class Editor implements Component, Focusable {
     if (this.onSubmit) this.onSubmit(result);
   }
 
+  /**
+   * Decide what a backspaced paste marker means for the registry, and which
+   * remaining markers have to be renumbered.
+   *
+   * The buffer is the source of truth for references: the deleted marker may
+   * have been a literal copy of another marker (its text was typed, not
+   * pasted), and releasing a payload the surviving marker still points at
+   * would silently drop that attachment. The id is therefore released only
+   * when `remainingText` no longer references it; otherwise the registry and
+   * every marker text stay exactly as they are.
+   *
+   * When the id is released, higher ids move down one slot — text and registry
+   * from one map, so they cannot disagree. `pasteCounter` is never decremented:
+   * `handlePaste` allocates `pasteCounter + 1`, and an id that is never handed
+   * out again cannot be handed to a marker that still points somewhere else.
+   */
+  private planPasteMarkerRemoval(
+    targetId: number,
+    remainingText: string,
+  ): Map<number, number> {
+    const remap = new Map<number, number>();
+    if (collectPasteMarkerIds(remainingText).has(targetId)) return remap;
+    this.pastes.delete(targetId);
+
+    const higherIds = [...this.pastes.keys()]
+      .filter((id) => id > targetId)
+      .sort((a, b) => a - b);
+    for (const id of higherIds) {
+      this.pastes.set(id - 1, this.pastes.get(id)!);
+      this.pastes.delete(id);
+      remap.set(id, id - 1);
+    }
+    return remap;
+  }
+
+  /** Apply a marker-id remap to one slice of buffer text. */
+  private renumberPasteMarkers(text: string, remap: Map<number, number>): string {
+    if (remap.size === 0) return text;
+    return text.replace(PASTE_MARKER_REGEX, (fullMatch, idGroup, suffixGroup) => {
+      const next = remap.get(Number(idGroup));
+      return next === undefined ? fullMatch : `[paste #${next}${suffixGroup}]`;
+    });
+  }
+
   private handleBackspace(): void {
     this.exitHistoryBrowsing();
     this.lastAction = null;
@@ -1561,50 +1658,40 @@ export class Editor implements Component, Focusable {
     if (this.state.cursorCol > 0) {
       this.pushUndoSnapshot();
 
-      // Delete grapheme before cursor (handles emojis, combining characters, etc.)
-      let line = this.state.lines[this.state.cursorLine] || '';
+      // Delete the segment before the cursor (emojis, combining characters and
+      // paste markers are single segments). A paste renumbering may shorten the
+      // line in front of the cursor, so the segment is measured on the text as
+      // it stands and removed in the same pass that renumbers the markers.
+      const line = this.state.lines[this.state.cursorLine] || '';
       const beforeCursor = line.slice(0, this.state.cursorCol);
-
-      // Find the last grapheme in the text before cursor
-      const graphemes = [...this.segment(beforeCursor, 'grapheme')];
-      const lastGrapheme = graphemes[graphemes.length - 1];
+      const lastGrapheme = [...this.segment(beforeCursor, 'grapheme')].at(-1);
       const graphemeLength = lastGrapheme ? lastGrapheme.segment.length : 1;
-      const isPastedSegmented = PASTE_MARKER_SINGLE.exec(lastGrapheme!.segment);
+      const deleteStart = this.state.cursorCol - graphemeLength;
+      const marker = lastGrapheme ? PASTE_MARKER_SINGLE.exec(lastGrapheme.segment) : null;
 
-      if (isPastedSegmented) {
-        // This contains the id part e.g 4 from [paste #4 +123 lines]
-        const targetId = Number(isPastedSegmented[1]);
-        this.pastes.delete(targetId);
-        this.pasteCounter--;
-
-        // Shift registry entries down in ascending id order, independent
-        // of marker order in the text ([paste #3] becomes [paste #2] when
-        // [paste #1] is removed).
-        const higherIds = [...this.pastes.keys()]
-          .filter((id) => id > targetId)
-          .sort((a, b) => a - b);
-        for (const id of higherIds) {
-          this.pastes.set(id - 1, this.pastes.get(id)!);
-          this.pastes.delete(id);
-        }
-
-        // Renumber markers with ids greater than the removed one.
-        this.state.lines = this.state.lines.map((line) =>
-          line.replace(PASTE_MARKER_REGEX, (fullMatch, idGroup, suffixGroup) => {
-            const x = Number(idGroup);
-            if (x <= targetId) return fullMatch;
-            return `[paste #${x - 1}${suffixGroup}]`;
-          }),
-        );
+      let remap = new Map<number, number>();
+      if (marker) {
+        const remainingText = this.state.lines
+          .map((text, index) =>
+            index === this.state.cursorLine
+              ? line.slice(0, deleteStart) + line.slice(this.state.cursorCol)
+              : text,
+          )
+          .join('\n');
+        remap = this.planPasteMarkerRemoval(Number(marker[1]), remainingText);
       }
 
-      line = this.state.lines[this.state.cursorLine] || '';
-
-      const before = line.slice(0, this.state.cursorCol - graphemeLength);
-      const after = line.slice(this.state.cursorCol);
-
-      this.state.lines[this.state.cursorLine] = before + after;
-      this.setCursorCol(this.state.cursorCol - graphemeLength);
+      const before = this.renumberPasteMarkers(line.slice(0, deleteStart), remap);
+      const after = this.renumberPasteMarkers(line.slice(this.state.cursorCol), remap);
+      if (remap.size > 0) {
+        const cursorLine = this.state.cursorLine;
+        this.state.lines = this.state.lines.map((text, index) =>
+          index === cursorLine ? before + after : this.renumberPasteMarkers(text, remap),
+        );
+      } else {
+        this.state.lines[this.state.cursorLine] = before + after;
+      }
+      this.setCursorCol(before.length);
     } else if (this.state.cursorLine > 0) {
       this.pushUndoSnapshot();
 
@@ -2316,6 +2403,11 @@ export class Editor implements Component, Focusable {
     }
   }
 
+  /** Number of undo snapshots currently retained. */
+  private getUndoDepth(): number {
+    return this.undoStack.length;
+  }
+
   private pushUndoSnapshot(): void {
     this.undoStack.push({
       state: this.state,
@@ -2562,7 +2654,7 @@ export class Editor implements Component, Focusable {
     options: { force: boolean; explicitTab: boolean },
   ): Promise<void> {
     const previousTask = this.autocompleteRequestTask;
-    this.autocompleteRequestTask = (async () => {
+    const task = (async () => {
       await previousTask;
       if (startToken !== this.autocompleteStartToken || !this.autocompleteProvider) {
         return;
@@ -2584,7 +2676,32 @@ export class Editor implements Component, Focusable {
         options,
       );
     })();
+    // Every later request awaits this slot, so a rejection left in it would be
+    // rethrown forever (killing autocomplete for the rest of the process, and
+    // reaching the host's unhandled-rejection handler). Normalise it here: the
+    // slot always settles, and a real error is reported once.
+    this.autocompleteRequestTask = task.then(
+      () => undefined,
+      (error: unknown) => {
+        this.handleAutocompleteError(error);
+      },
+    );
     await this.autocompleteRequestTask;
+  }
+
+  private handleAutocompleteError(error: unknown): void {
+    if (this.isAbortError(error)) return;
+    this.autocompleteAbort = undefined;
+    this.clearAutocompleteUi();
+    this.tui.requestRender();
+    if (error === this.reportedAutocompleteError) return;
+    this.reportedAutocompleteError = error;
+    this.onAutocompleteError?.(error);
+  }
+
+  private isAbortError(error: unknown): boolean {
+    if (error instanceof DOMException && error.name === 'AbortError') return true;
+    return (error as { name?: string } | null | undefined)?.name === 'AbortError';
   }
 
   private setAutocompleteTriggerCharacters(triggerCharacters: string[]): void {

@@ -347,7 +347,7 @@ function makeReport(
       },
       userHistory: { copied: 12, skippedExisting: 0, failures: [] },
       skills: { copied: 0, skippedExisting: 0, failures: [] },
-      plans: { copied: 0, skippedExisting: 0 },
+      plans: { copied: 0, skippedExisting: 0, failures: [] },
       sessions: {
         scope: 'all',
         bucketsScanned: 0,
@@ -359,6 +359,7 @@ function makeReport(
         sessionsSkippedPlaceholder: 0,
         sessionsSkippedEmpty: 0,
         sessionsFailed: [],
+        subagentFailures: [],
         sessionsConflicts: [],
         sessionsDebrisArchived: [],
         ...over,

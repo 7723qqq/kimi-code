@@ -17,6 +17,7 @@
 
 import { t } from '../i18n';
 import type { WireEntry } from '../types';
+import { readApprovalResult } from './recordGuards';
 
 export type IssueSeverity = 'error' | 'warning' | 'info';
 
@@ -151,17 +152,23 @@ export function computeIssues(entries: readonly WireEntry[], warnings: readonly 
         lastPlanEnter = null;
         break;
 
-      case 'permission.record_approval_result':
-        if (r.result.decision === 'rejected') {
+      case 'permission.record_approval_result': {
+        // `result` is a compile-time assertion upstream (`z.custom<…>()`), so a
+        // record read off a hand-edited / imported wire can arrive without it.
+        // Read-then-check keeps the drawer alive instead of throwing during
+        // render (which used to unmount the React root — a blank app).
+        const result = readApprovalResult(r);
+        if (result?.decision === 'rejected') {
           out.push({
             severity: 'info',
             kind: 'rejected_approval',
             lineNo,
             summary: `${r.toolName}#${r.toolCallId.slice(-8)} rejected`,
-            detail: r.result.feedback,
+            detail: result.feedback,
           });
         }
         break;
+      }
 
       default:
         break;

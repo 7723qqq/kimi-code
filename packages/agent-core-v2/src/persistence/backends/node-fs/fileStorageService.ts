@@ -1,4 +1,5 @@
 import { createReadStream } from 'node:fs';
+import type { Dirent } from 'node:fs';
 import { mkdir, open, readFile, readdir, stat, unlink } from 'node:fs/promises';
 
 import { dirname, join } from 'pathe';
@@ -7,6 +8,7 @@ import { atomicWrite, atomicWriteStream, syncDir } from '#/_base/utils/fs';
 import type {
   IFileSystemStorageService,
   StorageAppendOptions,
+  StorageListOptions,
   StorageReadRange,
   StorageWriteOptions,
 } from '#/persistence/interface/storage';
@@ -17,6 +19,26 @@ const TORN_READ_RETRY_DELAY_MS = 15;
 
 function isEnoent(error: unknown): boolean {
   return (error as NodeJS.ErrnoException).code === 'ENOENT';
+}
+
+async function collectFileKeys(dir: string, relativeDir: string): Promise<string[]> {
+  let entries: Dirent[];
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch (error) {
+    if (isEnoent(error)) return [];
+    throw error;
+  }
+  const keys: string[] = [];
+  for (const entry of entries) {
+    const relative = relativeDir === '' ? entry.name : `${relativeDir}/${entry.name}`;
+    if (entry.isDirectory()) {
+      keys.push(...(await collectFileKeys(join(dir, entry.name), relative)));
+      continue;
+    }
+    keys.push(relative);
+  }
+  return keys;
 }
 
 export class FileStorageService implements IFileSystemStorageService {
@@ -134,13 +156,28 @@ export class FileStorageService implements IFileSystemStorageService {
     }
   }
 
-  async list(scope: string, prefix?: string): Promise<readonly string[]> {
+  async list(
+    scope: string,
+    prefix?: string,
+    options: StorageListOptions = {},
+  ): Promise<readonly string[]> {
+    const scopePath = this.scopePath(scope);
+    if (options.recursive === true) {
+      let keys: readonly string[];
+      try {
+        keys = await collectFileKeys(scopePath, '');
+      } catch (error) {
+        if (isEnoent(error)) return [];
+        throw toStorageIoError(error, { path: scopePath, op: 'list' });
+      }
+      return prefix === undefined ? keys : keys.filter((key) => key.startsWith(prefix));
+    }
     let entries: readonly string[];
     try {
-      entries = await readdir(this.scopePath(scope));
+      entries = await readdir(scopePath);
     } catch (error) {
       if (isEnoent(error)) return [];
-      throw toStorageIoError(error, { path: this.scopePath(scope), op: 'list' });
+      throw toStorageIoError(error, { path: scopePath, op: 'list' });
     }
     return prefix === undefined ? entries : entries.filter((entry) => entry.startsWith(prefix));
   }

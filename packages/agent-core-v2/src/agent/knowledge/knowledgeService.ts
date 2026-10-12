@@ -194,7 +194,7 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
       return results.filter((r) => r.entry.confidence >= INJECTION_CONFIDENCE_FLOOR);
     } catch (error) {
       this.log.error('knowledge.search failed', { error: error, query });
-      return [];
+      throw error;
     }
   }
 

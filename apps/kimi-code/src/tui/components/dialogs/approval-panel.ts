@@ -369,6 +369,38 @@ export class ApprovalPanelComponent extends Container implements Focusable {
     }
   }
 
+  /** Whether the inline feedback input owns the keyboard right now. */
+  isTextEntryActive(): boolean {
+    return this.feedbackMode;
+  }
+
+  /**
+   * Handle a raw key handed up by the status surface.
+   *
+   * The surface routes normalized keys (`RegionKey`) to the region, which loses
+   * the printable text a rejection reason is made of and the Ctrl shortcuts the
+   * panel owns (`Ctrl+E` preview, `Ctrl+O` tool output) — neither has a
+   * `RegionKey`. While the inline input is up it owns the keyboard outright;
+   * otherwise only the Ctrl shortcuts are consumed and every other key falls
+   * through so the editor's own binding still runs.
+   */
+  handleSurfaceInput(data: string): boolean {
+    if (this.feedbackMode) {
+      this.handleInput(data);
+      return true;
+    }
+    if (
+      matchesKey(data, Key.ctrl('c')) ||
+      matchesKey(data, Key.ctrl('d')) ||
+      matchesKey(data, Key.ctrl('e')) ||
+      matchesKey(data, Key.ctrl('o'))
+    ) {
+      this.handleInput(data);
+      return true;
+    }
+    return false;
+  }
+
   override render(width: number): string[] {
     this.clear();
     this.ensureValidSelection();

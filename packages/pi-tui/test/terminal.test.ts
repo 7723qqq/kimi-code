@@ -69,6 +69,55 @@ describe("normalizeAppleTerminalInput", () => {
 	});
 });
 
+describe("ProcessTerminal setTitle", () => {
+	function captureSetTitle(title: string): string[] {
+		const writes: string[] = [];
+		const previousWrite = process.stdout.write;
+
+		process.stdout.write = ((chunk: string | Uint8Array) => {
+			writes.push(String(chunk));
+			return true;
+		}) as typeof process.stdout.write;
+
+		try {
+			new ProcessTerminal().setTitle(title);
+		} finally {
+			process.stdout.write = previousWrite;
+		}
+
+		return writes;
+	}
+
+	it("keeps printable titles verbatim", () => {
+		assert.deepEqual(captureSetTitle("标题 A"), ["\x1b]0;标题 A\x07"]);
+	});
+
+	it("sanitizes control bytes in setTitle", () => {
+		const output = captureSetTitle("x\x07\x1b]52;c;b64\x07").join("");
+
+		assert.ok(!output.includes("\x1b]52"), 'no injected OSC 52 sequence');
+		assert.equal(output.indexOf("\x1b]0;"), 0);
+		assert.equal(output.match(/\x1b\]/g)!.length, 1);
+		assert.ok(output.endsWith("\x07"));
+		assert.equal(output, "\x1b]0;x]52;c;b64\x07");
+	});
+
+	it("does not produce a CSI sequence for control-byte titles", () => {
+		const output = captureSetTitle("\x1b[2J").join("");
+
+		assert.ok(!output.includes("\x1b["), "no CSI sequence is produced");
+		assert.equal(output, "\x1b]0;[2J\x07");
+	});
+
+	it("writes nothing for an empty title", () => {
+		assert.deepEqual(captureSetTitle(""), []);
+	});
+
+	it("normalises layout characters in titles", () => {
+		assert.deepEqual(captureSetTitle("  a\nb\tc  "), ["\x1b]0;a b c\x07"]);
+	});
+});
+
 describe("ProcessTerminal Kitty keyboard protocol negotiation", () => {
 	type NegotiationHarness = {
 		terminal: ProcessTerminal;

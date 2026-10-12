@@ -126,3 +126,94 @@ describe('refreshProviderModels bucket reporting', () => {
     }
   });
 });
+
+describe('refreshProviderModels open-platform fetch deadline', () => {
+  it('gives up on a hung /models fetch and reports the provider as failed', async () => {
+    const { host, saved } = hostFor({
+      providers: {
+        'moonshot-cn': {
+          type: 'kimi',
+          baseUrl: 'https://api.moonshot.cn/v1',
+          apiKey: 'sk-test',
+        },
+      },
+      models: {},
+    } as unknown as ManagedKimiConfigShape);
+
+    function hungFetch(_url: string, init?: RequestInit): Promise<Response> {
+      return new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal;
+        if (signal === undefined || signal === null) {
+          return;
+        }
+        signal.addEventListener(
+          'abort',
+          () => {
+            reject(signal.reason);
+          },
+          { once: true },
+        );
+      });
+    }
+    vi.stubGlobal('fetch', vi.fn(hungFetch));
+    try {
+      const startedAt = Date.now();
+      const result = await refreshProviderModels(host, { timeoutMs: 50 });
+      const elapsedMs = Date.now() - startedAt;
+
+      expect(elapsedMs).toBeLessThan(5_000);
+      expect(result.changed).toEqual([]);
+      expect(result.unchanged).toEqual([]);
+      expect(result.failed.map((entry) => entry.provider)).toEqual(['moonshot-cn']);
+      expect(result.failed[0]?.reason).toMatch(/abort|timed out/i);
+      expect(saved).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('reports the provider as failed when the caller aborts the refresh', async () => {
+    const { host, saved } = hostFor({
+      providers: {
+        'moonshot-ai': {
+          type: 'kimi',
+          baseUrl: 'https://api.moonshot.ai/v1',
+          apiKey: 'sk-test',
+        },
+      },
+      models: {},
+    } as unknown as ManagedKimiConfigShape);
+
+    const controller = new AbortController();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            init?.signal?.addEventListener(
+              'abort',
+              () => {
+                reject(init.signal?.reason);
+              },
+              { once: true },
+            );
+          }),
+      ),
+    );
+    try {
+      setTimeout(() => {
+        controller.abort();
+      }, 20);
+      const result = await refreshProviderModels(host, {
+        signal: controller.signal,
+        timeoutMs: 60_000,
+      });
+
+      expect(result.failed.map((entry) => entry.provider)).toEqual(['moonshot-ai']);
+      expect(result.failed[0]?.reason).toContain('abort');
+      expect(saved).toEqual([]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});

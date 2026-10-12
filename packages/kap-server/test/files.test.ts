@@ -375,6 +375,51 @@ describe('POST /api/v1/files (server-v2)', () => {
     expect(tail.rawPayload).toEqual(data.subarray(30));
   });
 
+  it('advertises a non-ASCII name through filename* alongside an ASCII fallback', async () => {
+    const r = await boot();
+    const data = Buffer.from('%PDF-1.4 fake pdf bytes');
+    const meta = await uploadFile(r, data, '报告.pdf', 'application/pdf');
+
+    const res = await appOf(r).inject({
+      method: 'GET',
+      url: `/api/v1/files/${meta.id}`,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(String(res.headers['content-disposition'])).toBe(
+      `attachment; filename="_.pdf"; filename*=UTF-8''%E6%8A%A5%E5%91%8A.pdf`,
+    );
+    expect(res.rawPayload).toEqual(data);
+  });
+
+  it('keeps a double quote out of the quoted ASCII fallback', async () => {
+    const r = await boot();
+    const data = Buffer.from('quoted');
+    const mp = buildMultipart({
+      file: { fieldName: 'file', filename: 'orig.txt', contentType: 'text/plain', data },
+      fields: [{ name: 'name', value: 'a".txt' }],
+    });
+    const upRes = await appOf(r).inject({
+      method: 'POST',
+      url: '/api/v1/files',
+      payload: mp.body,
+      headers: { 'content-type': mp.contentType },
+    });
+    const meta = (upRes.json() as Envelope<{ id: string; name: string }>).data!;
+    expect(meta.name).toBe('a".txt');
+
+    const res = await appOf(r).inject({
+      method: 'GET',
+      url: `/api/v1/files/${meta.id}`,
+    });
+
+    const header = String(res.headers['content-disposition']);
+    expect(res.statusCode).toBe(200);
+    expect(header).toBe(`attachment; filename="a_.txt"; filename*=UTF-8''a%22.txt`);
+    expect(/^attachment; filename="[^"]*"; filename\*=UTF-8''a%22\.txt$/.test(header)).toBe(true);
+    expect(res.rawPayload).toEqual(data);
+  });
+
   it('missing file part → 40001 validation error', async () => {
     const r = await boot();
     const boundary = '------WebKitFormBoundaryNoFile';

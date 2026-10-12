@@ -147,16 +147,29 @@ export class ShardLockPool {
       try {
         return await fn(entry.handle.db);
       } finally {
-        entry.busy--;
-        entry.lastUsedAt = Date.now();
-        if (entry.retire && entry.busy === 0) {
-          // The hold window expired while ops were in flight: yield the lock so
-          // other processes can take the shard over.
-          if (this.writers.get(shardId) === entry) this.writers.delete(shardId);
-          await entry.handle.close().catch(() => {});
-        }
+        await this.releaseWriter(shardId, entry);
         await this.evictWriters();
       }
+    } finally {
+      this.writerOps.leave();
+    }
+  }
+
+  /** The single release path for a borrowed writer entry (withWriter and the
+   *  withReader borrow above): drop the in-flight count, then close the
+   *  handle when the hold window expired while it was busy. The close runs
+   *  under the writerOps gate — the same gate the hold-window timer uses — so
+   *  closeAll()'s drain still covers it. */
+  private async releaseWriter(shardId: number, entry: WriterEntry): Promise<void> {
+    entry.busy--;
+    entry.lastUsedAt = Date.now();
+    if (!entry.retire || entry.busy > 0) return;
+    if (!this.writerOps.enter()) return;
+    try {
+      // The hold window expired while ops were in flight: yield the lock so
+      // other processes can take the shard over.
+      if (this.writers.get(shardId) === entry) this.writers.delete(shardId);
+      await entry.handle.close().catch(() => {});
     } finally {
       this.writerOps.leave();
     }
@@ -179,8 +192,11 @@ export class ShardLockPool {
           try {
             return await fn(w.handle.db);
           } finally {
-            w.busy--;
-            w.lastUsedAt = Date.now();
+            // A writer that retired while this READ borrow was in flight has no
+            // other release path: without this call nothing closes it (and its
+            // shard lock stays held) until the shard is written again.
+            await this.releaseWriter(shardId, w);
+            await this.evictWriters();
           }
         }
       }

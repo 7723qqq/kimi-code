@@ -339,6 +339,36 @@ describe('LocalKaos', () => {
       await kaos.writeText(filePath, 'a\n\uFEFFb\n');
       await expect(collectRange(filePath, 2, 1)).resolves.toEqual(['\uFEFFb\n']);
     });
+
+    it('yields nothing for a zero or negative line budget', async () => {
+      // A caller computing "how many lines are left" can pass 0; the budget
+      // was checked after the first yield, so that caller got one line too
+      // many. `readTailLines` guards its count up front — this now matches.
+      const filePath = join(tempDir, 'range-zero.txt');
+      await kaos.writeText(filePath, 'x\ny\n');
+      await expect(collectRange(filePath, 1, 0)).resolves.toEqual([]);
+      await expect(collectRange(filePath, 1, -1)).resolves.toEqual([]);
+    });
+
+    it('still honors a positive budget and an unbounded read', async () => {
+      const filePath = join(tempDir, 'range-budget.txt');
+      await kaos.writeText(filePath, 'a\nb\nc\n');
+
+      const one: string[] = [];
+      for await (const line of kaos.readLineRange(filePath, { startLine: 1, maxLines: 1 })) {
+        one.push(line);
+      }
+      expect(one).toEqual(['a\n']);
+
+      const all: string[] = [];
+      for await (const line of kaos.readLineRange(filePath, {
+        startLine: 1,
+        maxLines: Number.POSITIVE_INFINITY,
+      })) {
+        all.push(line);
+      }
+      expect(all).toEqual(['a\n', 'b\n', 'c\n']);
+    });
   });
 
   describe('readTailLines', () => {

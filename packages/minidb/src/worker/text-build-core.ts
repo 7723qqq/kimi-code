@@ -241,7 +241,7 @@ async function flushSegment(
 }
 
 /** Sequential reader over one sorted segment file. */
-class SegmentReader {
+export class SegmentReader {
   private fd: number;
   private buf = Buffer.allocUnsafe(1 << 20);
   private bufStart = 0;
@@ -295,6 +295,11 @@ class SegmentReader {
         if (avail >= 2 + termLen + 8) {
           const payloadLen = this.buf.readUInt32LE(o + 2 + termLen + 4);
           const recLen = 2 + termLen + 8 + payloadLen + 4;
+          if (recLen > this.size - this.pos) {
+            throw new Error(
+              `text build: segment record overruns the file (${recLen} bytes at ${this.pos}, size ${this.size})`,
+            );
+          }
           if (avail >= recLen) {
             const recBuf = Buffer.from(this.buf.subarray(o, o + recLen));
             const rec = decodeRecord(recBuf);
@@ -302,6 +307,23 @@ class SegmentReader {
             this.pos += recLen;
             return;
           }
+          if (recLen > this.buf.length) {
+            const tmp = Buffer.allocUnsafe(recLen);
+            let got = 0;
+            while (got < recLen) {
+              const n = fsSync.readSync(this.fd, tmp, got, recLen - got, this.pos + got);
+              if (n === 0) throw new Error('text build: segment read made no progress');
+              got += n;
+            }
+            const rec = decodeRecord(tmp);
+            this.current = { term: rec.term, df: rec.df, payload: Buffer.from(rec.payload) };
+            this.pos += recLen;
+            return;
+          }
+        } else if (this.bufStart + this.bufLen >= this.size) {
+          throw new Error(
+            `text build: truncated segment record header (${this.size - this.pos} bytes at ${this.pos}, size ${this.size})`,
+          );
         }
       }
       if (this.bufStart + this.bufLen >= this.size && this.pos >= this.bufStart + this.bufLen) {

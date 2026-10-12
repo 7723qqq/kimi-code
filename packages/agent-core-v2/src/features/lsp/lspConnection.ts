@@ -1,3 +1,4 @@
+import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import type { IProcess } from '#/session/process/processRunner';
 
 import { encodeFrame, MessageDecoder } from './framing';
@@ -36,6 +37,10 @@ export interface LspServerRequestHandler {
   (method: string, params: unknown): Promise<unknown>;
 }
 
+export interface LspProtocolErrorHandler {
+  (detail: string): void;
+}
+
 interface PendingRequest {
   readonly resolve: (value: unknown) => void;
   readonly reject: (reason: unknown) => void;
@@ -52,6 +57,7 @@ export class LspConnection {
   constructor(
     private readonly process: IProcess,
     private readonly onServerRequest: LspServerRequestHandler = async () => null,
+    private readonly onProtocolError: LspProtocolErrorHandler = () => {},
   ) {
     this.process.stdout.on('data', (chunk: Buffer) => this.onData(chunk));
     this.process.stdout.on('end', () => this.onTransportClosed());
@@ -103,11 +109,36 @@ export class LspConnection {
     try {
       messages = this.decoder.feed(chunk);
     } catch {
-      this.onTransportClosed();
+      this.closeOnProtocolError('frame header is not decodable');
       return;
     }
     for (const message of messages) {
-      this.handleMessage(JSON.parse(message) as LspMessage);
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(message);
+      } catch {
+        this.closeOnProtocolError('frame is not valid JSON');
+        return;
+      }
+      if (typeof parsed !== 'object' || parsed === null) {
+        this.closeOnProtocolError('frame is not a JSON-RPC object');
+        return;
+      }
+      try {
+        this.handleMessage(parsed as LspMessage);
+      } catch {
+        this.closeOnProtocolError('frame could not be handled');
+        return;
+      }
+    }
+  }
+
+  private closeOnProtocolError(detail: string): void {
+    this.onTransportClosed();
+    try {
+      this.onProtocolError(detail);
+    } catch (error) {
+      onUnexpectedError(error);
     }
   }
 

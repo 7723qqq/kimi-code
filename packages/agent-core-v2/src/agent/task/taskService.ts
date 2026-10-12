@@ -138,6 +138,10 @@ interface ManagedTask {
 
 const MAX_OUTPUT_BYTES = 1024 * 1024;
 
+const MAX_SETTLED_TASK_ENTRIES = 200;
+
+const TERMINAL_RETAINED_OUTPUT_BYTES = 64 * 1024;
+
 const TERMINAL_OUTPUT_TAIL_BYTES = 4 * 1024;
 
 const MAX_TASK_OUTPUT_BYTES = 16 * 1024 * 1024;
@@ -207,6 +211,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
   declare readonly _serviceBrand: undefined;
 
   private readonly tasks = new Map<string, ManagedTask>();
+  private readonly settledOrder: string[] = [];
   private exitSuppressionArmed = false;
   private readonly buildingNotificationKeys = new Set<string>();
   private readonly pendingNotificationRequests = new Map<string, LoopNotifyHandle>();
@@ -1046,6 +1051,37 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     }
   }
 
+  private trimTerminalRetainedOutput(entry: ManagedTask): void {
+    if (entry.persistenceError !== undefined) return;
+    if (entry.retainedOutputBytes <= TERMINAL_RETAINED_OUTPUT_BYTES) return;
+    const retained = Buffer.from(entry.outputChunks.join(''), 'utf-8');
+    const offset = Math.max(0, retained.byteLength - TERMINAL_RETAINED_OUTPUT_BYTES);
+    const tail = retained.subarray(alignToCharacterStart(retained, offset)).toString('utf-8');
+    entry.outputChunks.length = 0;
+    entry.outputChunks.push(tail);
+    entry.retainedOutputBytes = Buffer.byteLength(tail, 'utf-8');
+  }
+
+  private recordSettledTask(entry: ManagedTask): void {
+    this.settledOrder.push(entry.taskId);
+    const maxSettledTasks =
+      resolveAgentTaskConfig(this.config)?.maxSettledTasks ?? MAX_SETTLED_TASK_ENTRIES;
+    while (this.settledOrder.length > maxSettledTasks) {
+      const oldest = this.settledOrder.shift();
+      if (oldest === undefined) break;
+      this.evictSettledTask(oldest);
+    }
+  }
+
+  private evictSettledTask(taskId: string): void {
+    const entry = this.tasks.get(taskId);
+    if (entry === undefined) return;
+    if (!TERMINAL_STATUSES.has(entry.status)) return;
+    const info = this.toInfo(entry);
+    this.tasks.delete(taskId);
+    this.ghosts.set(taskId, info);
+  }
+
   private async settleTask(entry: ManagedTask, settlement: AgentTaskSettlement): Promise<boolean> {
     if (TERMINAL_STATUSES.has(entry.status)) return false;
     entry.status = settlement.status;
@@ -1067,6 +1103,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     if (entry.outputPersistStarted) {
       await this.persistLive(entry);
       await entry.outputWriteQueue;
+      this.trimTerminalRetainedOutput(entry);
     } else {
       entry.pendingOutput = [];
       entry.pendingOutputBytes = 0;
@@ -1082,6 +1119,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
       this.warnOutputPersistenceFailed(entry, entry.persistenceError);
     }
     this.fireTerminalEffects(entry);
+    this.recordSettledTask(entry);
     foregroundRelease?.resolve('terminal');
     this.resolveWaiters(entry);
     return true;

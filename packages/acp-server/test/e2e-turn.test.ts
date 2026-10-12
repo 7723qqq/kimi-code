@@ -18,6 +18,7 @@ import { getLiveSessionById, IAgentLifecycleService, IEventBus } from '@moonshot
 import { ToolProgress } from '@moonshot-ai/agent-core-v2/agent/toolExecutor/toolExecutorEvents';
 import { afterEach, describe, expect, it } from 'vitest';
 
+import { IAcpConnection } from '../src/acp-fs';
 import { mapPromptLaunchError } from '../src/session';
 import { createTestClient, type TestClient } from './_helpers/acpClient';
 import { writeFakeModelConfig } from './_helpers/fakeModelConfig';
@@ -383,6 +384,60 @@ describe('acp-server real prompt turn (scripted LLM)', () => {
       (u) => u?.sessionUpdate === 'tool_call_update' && u?.status === 'completed',
     );
     expect(terminal?.locations?.[0]?.path).toBe(filePath);
+  }, 30_000);
+
+  it('dispatches a parked approval exactly once across a session/load handover', async () => {
+    const c = await boot();
+    // First model response parks the turn at a Bash approval; the follow-up
+    // text closes it once the approval lands.
+    scripted!.mockNextResponse({
+      type: 'function',
+      id: 'call_reload',
+      name: 'Bash',
+      arguments: '{"command":"echo reload_probe"}',
+    });
+    scripted!.mockNextText('done');
+
+    // Hold the approval open: this is what makes the handover meaningful — a
+    // pending interaction that the OLD ACP session already dispatched.
+    const permissionRequests: unknown[] = [];
+    let answerPermission: ((response: unknown) => void) | undefined;
+    c.onRequest('session/request_permission', (params) => {
+      permissionRequests.push(params);
+      return new Promise((resolve) => {
+        answerPermission = resolve;
+      });
+    });
+
+    const created = (await c.send('session/new', { cwd: homeDir, mcpServers: [] })) as {
+      sessionId: string;
+    };
+    await c.waitForSessionUpdate('available_commands_update', 10_000);
+    const promptPromise = c.send('session/prompt', {
+      sessionId: created.sessionId,
+      prompt: [{ type: 'text', text: 'run echo' }],
+    });
+    // The approval reached the client once.
+    const deadline = Date.now() + 10_000;
+    while (permissionRequests.length === 0 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    expect(permissionRequests).toHaveLength(1);
+
+    // Re-load the SAME session while the approval is still parked. The old
+    // AcpSession (and its bridge) must be gone before the replacement's
+    // initial pending-set sweep, otherwise the same interaction is dispatched
+    // a second time and the answer that lands is a coin flip.
+    await c.send('session/load', { sessionId: created.sessionId, cwd: homeDir, mcpServers: [] });
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(permissionRequests).toHaveLength(1);
+
+    // The reload cancels the in-flight turn, so its prompt settles as
+    // cancelled — and the interaction is no longer pending engine-side.
+    const result = (await promptPromise) as { stopReason: string };
+    expect(result.stopReason).toBe('cancelled');
+    const pending = await c.server.klient.session(created.sessionId).interactions.list();
+    expect(pending).toHaveLength(0);
   }, 30_000);
 
   it('settles as cancelled without launching a turn when cancel arrives during image compression', async () => {
@@ -1011,5 +1066,173 @@ describe('acp-server terminal reverse-RPC (clientCapabilities.terminal)', () => 
     const completed = toolCallUpdates(c).find((u) => u.status === 'completed');
     const text = completed?.content?.map((entry) => entry.content?.text ?? '').join('\n') ?? '';
     expect(text).toContain('hello_from_bash');
+  }, 30_000);
+
+  it('binds each terminal to the longest matching Bash command without swapping cards', async () => {
+    const c = await boot({ terminal: true });
+
+    // Park every `terminal/create` so no real announcement races the injected
+    // ones below: both commands are announced by the test itself, with the
+    // LESS specific one first. `npm test` also suffixes the sibling's full
+    // shell invocation, so "first suffix match wins" hands terminal #1 to
+    // whichever card was inserted first — the swapped-card bug.
+    let releaseCreate: (() => void) | undefined;
+    const createGate = new Promise<void>((resolve) => {
+      releaseCreate = resolve;
+    });
+    let created = 0;
+    c.onRequest('terminal/create', async () => {
+      created += 1;
+      await createGate;
+      return { terminalId: `term-runner-${String(created)}` };
+    });
+    c.onRequest('terminal/output', () => ({
+      output: 'terminal_output\n',
+      truncated: false,
+      exitStatus: { exitCode: 0, signal: null },
+    }));
+    c.onRequest('terminal/wait_for_exit', () => ({ exitCode: 0, signal: null }));
+    c.onRequest('terminal/kill', () => ({}));
+    c.onRequest('terminal/release', () => ({}));
+    c.onRequest('session/request_permission', () => ({
+      outcome: { outcome: 'selected', optionId: 'approve_once' },
+    }));
+
+    scripted!.mockNextResponse(
+      { type: 'function', id: 'call_a', name: 'Bash', arguments: '{"command":"npm test"}' },
+      {
+        type: 'function',
+        id: 'call_b',
+        name: 'Bash',
+        arguments: '{"command":"cd sub && npm test"}',
+      },
+    );
+    scripted!.mockNextText('done');
+
+    const createdSession = (await c.send('session/new', { cwd: homeDir, mcpServers: [] })) as {
+      sessionId: string;
+    };
+    await c.waitForSessionUpdate('available_commands_update', 10_000);
+    const promptPromise = c.send('session/prompt', {
+      sessionId: createdSession.sessionId,
+      prompt: [{ type: 'text', text: 'run both' }],
+    });
+
+    // Wait until both Bash calls are in flight (their upgrade updates carry
+    // rawInput), then inject the two announcements ourselves.
+    type U = { sessionUpdate?: string; toolCallId?: string; rawInput?: unknown };
+    const callsWithArgs = (): U[] =>
+      c
+        .sessionUpdates()
+        .map((m) => (m.params as { update?: U }).update)
+        .filter((u): u is U => u?.rawInput !== undefined);
+    const deadline = Date.now() + 10_000;
+    while (callsWithArgs().length < 2 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    const started = callsWithArgs();
+    expect(started).toHaveLength(2);
+    const keyOf = (command: string): string =>
+      started.find((u) => (u.rawInput as { command?: string }).command === command)!.toolCallId!;
+
+    const shellCommand = (command: string): string => `cd ${homeDir!} && ${command}`;
+    const connection = c.server.core.accessor.get(IAcpConnection);
+    // The MORE specific invocation is announced first on purpose: both of its
+    // candidates match by suffix, so a "first match wins" scan would bind it to
+    // the generic `npm test` card.
+    connection.notifyTerminalCreated({
+      sessionId: createdSession.sessionId,
+      shellCommand: shellCommand('cd sub && npm test'),
+      terminalId: 'term-sub-npm',
+    });
+    connection.notifyTerminalCreated({
+      sessionId: createdSession.sessionId,
+      shellCommand: shellCommand('npm test'),
+      terminalId: 'term-npm',
+    });
+
+    type ToolCallUpdate = {
+      sessionUpdate?: string;
+      toolCallId?: string;
+      content?: Array<{ type?: string; terminalId?: string }> | unknown;
+    };
+    const attached = new Map<string, string>();
+    const waitForAttachments = Date.now() + 5_000;
+    for (;;) {
+      attached.clear();
+      for (const m of c.sessionUpdates()) {
+        const u = (m.params as { update?: ToolCallUpdate }).update;
+        const content = Array.isArray(u?.content) ? u.content : [];
+        const terminalId = content.find((entry) => entry.type === 'terminal')?.terminalId;
+        if (u?.toolCallId !== undefined && terminalId !== undefined) {
+          attached.set(u.toolCallId, terminalId);
+        }
+      }
+      if (attached.size >= 2 || Date.now() > waitForAttachments) break;
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+
+    // Each card carries ITS OWN terminal — not the sibling's.
+    expect(attached.get(keyOf('npm test'))).toBe('term-npm');
+    expect(attached.get(keyOf('cd sub && npm test'))).toBe('term-sub-npm');
+
+    releaseCreate?.();
+    await promptPromise;
+  }, 30_000);
+
+  it('leaves an ambiguous suffix match unattached instead of guessing a terminal', async () => {
+    const c = await boot({ terminal: true });
+    fakeTerminalClient(c, 'terminal_output\n');
+    scripted!.mockNextResponse(
+      { type: 'function', id: 'call_x', name: 'Bash', arguments: '{"command":"npm test"}' },
+      { type: 'function', id: 'call_y', name: 'Bash', arguments: '{"command":"npm test"}' },
+    );
+    scripted!.mockNextText('done');
+    c.onRequest('session/request_permission', () => ({
+      outcome: { outcome: 'selected', optionId: 'approve_once' },
+    }));
+
+    const created = (await c.send('session/new', { cwd: homeDir, mcpServers: [] })) as {
+      sessionId: string;
+    };
+    await c.waitForSessionUpdate('available_commands_update', 10_000);
+    const promptPromise = c.send('session/prompt', {
+      sessionId: created.sessionId,
+      prompt: [{ type: 'text', text: 'run both' }],
+    });
+
+    type U = { sessionUpdate?: string; toolCallId?: string; rawInput?: unknown };
+    const deadline = Date.now() + 10_000;
+    const callsWithArgs = (): U[] =>
+      c
+        .sessionUpdates()
+        .map((m) => (m.params as { update?: U }).update)
+        .filter((u): u is U => u?.rawInput !== undefined);
+    while (callsWithArgs().length < 2 && Date.now() < deadline) {
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+
+    // Two equally specific candidates: the match is genuinely ambiguous.
+    c.server.core.accessor.get(IAcpConnection).notifyTerminalCreated({
+      sessionId: created.sessionId,
+      shellCommand: `cd ${homeDir!} && npm test`,
+      terminalId: 'term-ambiguous',
+    });
+    await promptPromise;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+
+    // No card was bound to the ambiguous terminal…
+    type ToolCallUpdate = { toolCallId?: string; content?: Array<{ type?: string }> | unknown };
+    const withTerminal = c
+      .sessionUpdates()
+      .map((m) => (m.params as { update?: ToolCallUpdate }).update)
+      .filter(
+        (u) => Array.isArray(u?.content) && u.content.some((entry) => entry.type === 'terminal'),
+      );
+    expect(withTerminal).toHaveLength(0);
+
+    // …and both calls still delivered their textual result to the model.
+    const history = JSON.stringify(scripted!.callHistory()[1]);
+    expect(history).toContain('terminal_output');
   }, 30_000);
 });

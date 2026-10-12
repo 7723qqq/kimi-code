@@ -1,4 +1,3 @@
-import type { RecoveryMode, ValueMode } from './recovery.js';
 import type {
   ValueCodecName,
   ValueModeSetting,
@@ -12,7 +11,6 @@ const FSYNC_POLICIES: ReadonlySet<FsyncPolicy> = new Set<FsyncPolicy>([
   'everysec',
   'no',
 ]);
-const VALUE_MODES: ReadonlySet<ValueMode> = new Set<ValueMode>(['memory', 'disk']);
 type MaxMemoryPolicy = 'reject' | 'evict-lru';
 type RecoveryModeValue = 'resync' | 'strict';
 const MAX_MEMORY_POLICIES: ReadonlySet<MaxMemoryPolicy> = new Set<MaxMemoryPolicy>([
@@ -23,6 +21,15 @@ const RECOVERY_MODES: ReadonlySet<RecoveryModeValue> = new Set<RecoveryModeValue
   'resync',
   'strict',
 ]);
+
+/**
+ * Aggregation memory budget for a full-text build when the caller omits
+ * `textBuildMemoryBytes`. The `MiniDb` class field references the same
+ * constant, so the documented default (`types.ts`) cannot drift from the
+ * effective one again: a build that exceeds the budget flushes sorted
+ * segments and the final build becomes an external merge.
+ */
+export const DEFAULT_TEXT_BUILD_MEMORY_BYTES = 128 * 1024 * 1024;
 
 export interface ParsedMiniDbOptions {
   readonly dir: string;
@@ -151,7 +158,11 @@ export function parseMiniDbOptions(opts: OpenOptions): ParsedMiniDbOptions {
     indexGenerationsEnabled: opts.indexGenerations ?? true,
     textBuildWorkerEnabled: opts.textBuildWorker ?? true,
     deferTextBuildsEnabled: opts.deferOpenTextBuilds ?? true,
-    textBuildMemoryBytes: positiveFinite('textBuildMemoryBytes', opts.textBuildMemoryBytes, 64 * 1024 * 1024),
+    textBuildMemoryBytes: positiveFinite(
+      'textBuildMemoryBytes',
+      opts.textBuildMemoryBytes,
+      DEFAULT_TEXT_BUILD_MEMORY_BYTES,
+    ),
     maintenanceIoConcurrency: positiveFinite(
       'maintenanceIoConcurrency',
       opts.maintenanceIoConcurrency,

@@ -81,6 +81,14 @@ import { negotiateVersion } from './version';
  */
 const SESSION_NOT_FOUND_CODE = 40404;
 
+/**
+ * Bounded wait for the previous ACP session's parked interactions to settle
+ * during a `session/load` / `session/resume` handover — see
+ * `AcpServer.awaitPendingInteractionsSettled`.
+ */
+const SESSION_HANDOVER_DRAIN_MS = 1_000;
+const SESSION_HANDOVER_POLL_MS = 10;
+
 function isSessionNotFound(error: unknown): boolean {
   return (
     (error instanceof RPCError && error.code === SESSION_NOT_FOUND_CODE) ||
@@ -544,10 +552,50 @@ export class AcpServer {
     if (!restored) {
       throw RequestError.invalidParams({ sessionId }, `Unknown sessionId: ${sessionId}`);
     }
+    // Hand the session over BEFORE wiring the replacement: the new
+    // `AcpSession` subscribes to `interactions.changed` and immediately sweeps
+    // the pending set, while each bridge's `inFlight` guard is per-instance.
+    // Wiring first would leave both bridges live for the same interaction and
+    // dispatch the same approval / question twice — the client's second answer
+    // then loses to whichever bridge settles first.
+    const previous = this.sessions.get(sessionId);
+    if (previous !== undefined) {
+      this.sessions.delete(sessionId);
+      previous.dispose();
+      // Disposing settles the old session's parked approvals / questions
+      // through the engine's cancel path, which is ASYNCHRONOUS
+      // (`AcpSession.cancel` fires `agent.cancel` without awaiting it). Drain
+      // it before wiring, otherwise the replacement bridge's initial sweep
+      // still sees the interaction and re-dispatches it.
+      await this.awaitPendingInteractionsSettled(sessionId);
+    }
     const acpSession = await this.wireSession(sessionId);
-    this.sessions.get(sessionId)?.dispose();
     this.sessions.set(sessionId, acpSession);
     return acpSession;
+  }
+
+  /**
+   * Wait (bounded) for the engine's pending interaction set to empty out after
+   * the previous ACP session for `sessionId` was disposed — see the handover
+   * comment in {@link resumeAcpSession}. Gives up after
+   * {@link SESSION_HANDOVER_DRAIN_MS} so a stubbornly pending interaction (or
+   * an engine that refuses to list) can only delay the reload, never block it.
+   */
+  private async awaitPendingInteractionsSettled(sessionId: string): Promise<void> {
+    const { interactions } = this.klient.session(sessionId);
+    const deadline = Date.now() + SESSION_HANDOVER_DRAIN_MS;
+    for (;;) {
+      let pending: readonly unknown[];
+      try {
+        pending = await interactions.list();
+      } catch {
+        // The engine would not list (e.g. the session is mid-teardown):
+        // nothing to wait for.
+        return;
+      }
+      if (pending.length === 0 || Date.now() > deadline) return;
+      await new Promise((resolve) => setTimeout(resolve, SESSION_HANDOVER_POLL_MS));
+    }
   }
 
   /**

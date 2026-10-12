@@ -31,6 +31,24 @@ function expectTree(source: string, expected: string, hasError = false): SyntaxN
   return rootNode;
 }
 
+/** Assert every offset in [from, to) is covered by some LEAF of the tree.
+ *  Inner nodes span their children, so "covered by any node" would also hold
+ *  for text no node ever claimed — leaves are what a failed recovery drops. */
+function expectLeavesCover(root: SyntaxNode, source: string, from: number, to: number): void {
+  const covered = Array.from<boolean>({ length: source.length }).fill(false);
+  const stack: SyntaxNode[] = [root];
+  while (stack.length > 0) {
+    const node = stack.pop()!;
+    if (node.children.length === 0) {
+      for (let i = node.startIndex; i < node.endIndex; i++) covered[i] = true;
+    }
+    for (const child of node.children) stack.push(child);
+  }
+  for (let i = from; i < to; i++) {
+    expect(covered[i], `offset ${i} (${JSON.stringify(source[i])}) has no covering leaf node`).toBe(true);
+  }
+}
+
 describe('ParseBudget', () => {
   it('counts nodes and stays under the cap', () => {
     const budget = new ParseBudget({ timeoutMs: 60_000, maxNodes: 3 });
@@ -198,6 +216,38 @@ describe('expansions and substitutions', () => {
       'echo $((1<<2))',
       `(program (command (command_name (word "echo")) (arithmetic_expansion "$((" (binary_expression (number "1") "<<" (number "2")) "))")))`,
     );
+  });
+
+  it('flags leftover bytes after a ${v@X} transformation letter', () => {
+    const source = 'echo ${x@UQ}';
+    const root = expectTree(
+      source,
+      `(program (command (command_name (word "echo")) (expansion "\${" (variable_name "x") "@" "U" (ERROR "Q") "}")))`,
+      true,
+    );
+    assertTreeIntegrity(root, source);
+    expectLeavesCover(root, source, 10, source.length);
+  });
+
+  it('flags leftover bytes after a ${v@X} letter even when a substitution follows', () => {
+    const source = 'echo ${x@Q$(echo hi)}';
+    const root = expectTree(
+      source,
+      `(program (command (command_name (word "echo")) (expansion "\${" (variable_name "x") "@" "Q" (ERROR "$(echo hi)") "}")))`,
+      true,
+    );
+    assertTreeIntegrity(root, source);
+    expectLeavesCover(root, source, 10, source.length);
+  });
+
+  it('keeps a well-formed ${v@X} expansion error-free', () => {
+    const source = 'echo ${x@Q}';
+    const root = expectTree(
+      source,
+      `(program (command (command_name (word "echo")) (expansion "\${" (variable_name "x") "@" "Q" "}")))`,
+    );
+    assertTreeIntegrity(root, source);
+    expectLeavesCover(root, source, 5, source.length);
   });
 });
 

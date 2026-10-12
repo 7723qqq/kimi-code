@@ -3,11 +3,12 @@ import net from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { IMcpManagementService } from '@moonshot-ai/agent-core-v2';
+import { IEventService, IMcpManagementService } from '@moonshot-ai/agent-core-v2';
 import { describe, expect, it, vi } from 'vitest';
 
 import { createKlient, serveKlientIpc, type KlientIpcHost } from '../src/transports/ipc/index.js';
 import { IpcChannel } from '../src/transports/ipc/channel.js';
+import { NdjsonDecoder } from '../src/transports/ipc/codec.js';
 import { defineKlientConformance } from './helpers/conformance.js';
 import { makeEngine, type TestEngine } from './helpers/engine.js';
 
@@ -212,6 +213,196 @@ describe.skipIf(process.platform === 'win32')('ipc transport specifics', () => {
       server.close();
       await rm(altPath, { force: true });
       await teardown();
+    }
+  });
+
+  // A26/F1: the decoder used to decode each socket chunk on its own, so a
+  // multi-byte character split by a read boundary became U+FFFD on both sides.
+  // These two cases pin the byte-wise contract: only whole lines are decoded.
+  it('decodes a UTF-8 character split across two pushes', () => {
+    const text = '中文标题 · emoji 🚀';
+    const bytes = Buffer.from(`${JSON.stringify({ type: 'result', data: text })}\n`, 'utf8');
+
+    // Cut at the first UTF-8 continuation byte, i.e. inside a character.
+    let cut = -1;
+    for (let i = 1; i < bytes.length; i += 1) {
+      if (((bytes[i] as number) & 0xc0) === 0x80) {
+        cut = i;
+        break;
+      }
+    }
+    expect(cut).toBeGreaterThan(0);
+
+    const decoder = new NdjsonDecoder();
+    expect(decoder.push(bytes.subarray(0, cut))).toEqual([]);
+    const frames = decoder.push(bytes.subarray(cut));
+    expect(frames).toEqual([{ type: 'result', data: text }]);
+    expect(frames[0]?.data).not.toContain('\uFFFD');
+  });
+
+  it('round-trips a >1 MB Chinese title over a real socket byte-for-byte', async () => {
+    const socketPath = await setup();
+    const klient = createKlient({ socketPath, token: host?.token });
+    try {
+      // 1 MiB of non-ASCII text: the reply spans many socket reads, so a
+      // per-chunk decode corrupts characters at every read boundary.
+      const title = '中文标题😀'.repeat(70_000);
+      expect(Buffer.byteLength(title, 'utf8')).toBeGreaterThan(1_000_000);
+
+      const created = await klient.global.sessions.create({ workDir: process.cwd(), title });
+      const fetched = await klient.global.sessions.get(created.id);
+      const roundTripped = fetched?.title ?? '';
+      expect(roundTripped.length).toBe(title.length);
+      expect(roundTripped).toBe(title);
+      expect(roundTripped.includes('\uFFFD')).toBe(false);
+    } finally {
+      await klient.close();
+      await teardown();
+    }
+  });
+
+  // A26/F5: only `stream_data` respected socket back-pressure; every other
+  // frame path called `send`, which ignored `socket.write`'s return value. A
+  // client that stops reading (TCP receive window closes) therefore let the
+  // host's outbound buffer grow with the event rate — unbounded memory in the
+  // long-lived host. These two cases pin the bound and the no-loss guarantee.
+  it('bounds the host write buffer while a client is not reading, then delivers every event in order', async () => {
+    const socketPath = await setup();
+    const events = app.accessor.get(IEventService);
+
+    // Observe the host-side connection object: capture the accepted socket
+    // (the server peer has `.server`) so `writableLength` can be asserted.
+    const net = await import('node:net');
+    const originalWrite = net.Socket.prototype.write;
+    let hostSocket: net.Socket | undefined;
+    Object.defineProperty(net.Socket.prototype, 'write', {
+      configurable: true,
+      writable: true,
+      value: function (this: net.Socket, ...args: Parameters<net.Socket['write']>) {
+        if (hostSocket === undefined && (this as { server?: unknown }).server !== undefined) {
+          hostSocket = this as unknown as net.Socket;
+        }
+        return (originalWrite as (...a: unknown[]) => boolean).apply(this, args);
+      },
+    });
+
+    const total = 600;
+    const seqs: number[] = [];
+    const client = net.createConnection(socketPath);
+    const received: string[] = [];
+    let buffered = '';
+    client.on('data', (chunk: Buffer) => {
+      buffered += chunk.toString('utf8');
+      for (;;) {
+        const newline = buffered.indexOf('\n');
+        if (newline === -1) break;
+        const line = buffered.slice(0, newline);
+        buffered = buffered.slice(newline + 1);
+        if (line.trim().length === 0) continue;
+        received.push(line);
+      }
+    });
+
+    const countEvents = (): number =>
+      received.filter((line) => (JSON.parse(line) as { type?: string }).type === 'event').length;
+
+    try {
+      await new Promise<void>((resolve) => client.once('connect', resolve));
+      client.write(`${JSON.stringify({ type: 'hello', token: host?.token })}\n`);
+      client.write(`${JSON.stringify({ type: 'listen', id: 'L', event: 'events' })}\n`);
+
+      // Wait for `listen_result` so the dispatcher subscription exists before
+      // the burst starts.
+      await vi.waitFor(
+        () => {
+          expect(received.some((line) => JSON.parse(line).type === 'listen_result')).toBe(true);
+        },
+        { timeout: 5000 },
+      );
+      expect(hostSocket).toBeDefined();
+
+      client.pause();
+      for (let i = 0; i < total; i += 1) {
+        events.publish({
+          type: 'test.push',
+          seq: i,
+          pad: 'x'.repeat(1000),
+        } as unknown as Parameters<typeof events.publish>[0]);
+      }
+
+      // Wait for the outbound queue to stop growing (either it hit the bound,
+      // or the burst has been fully buffered).
+      let settledAt = -1;
+      for (let i = 0; i < 40; i += 1) {
+        const before = hostSocket!.writableLength;
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        if (hostSocket!.writableLength === before && before > 0) {
+          settledAt = before;
+          break;
+        }
+      }
+      expect(settledAt).toBeGreaterThan(0);
+
+      const hwm = hostSocket!.writableHighWaterMark;
+      expect(hostSocket!.writableLength).toBeLessThanOrEqual(4 * hwm);
+
+      client.resume();
+      await vi.waitFor(() => expect(countEvents()).toBe(total), { timeout: 10_000 });
+
+      const parsed = received
+        .map((line) => JSON.parse(line) as { type: string; data?: { seq?: number } })
+        .filter((frame) => frame.type === 'event');
+      for (const frame of parsed) {
+        if (frame.data?.seq !== undefined) seqs.push(frame.data.seq);
+      }
+      expect(seqs).toHaveLength(total);
+      expect(seqs).toEqual(Array.from({ length: total }, (_, i) => i));
+    } finally {
+      Object.defineProperty(net.Socket.prototype, 'write', {
+        configurable: true,
+        writable: true,
+        value: originalWrite,
+      });
+      client.destroy();
+      await teardown();
+    }
+  });
+
+  // A26/F2: with a dead socket path the handshake rejects, so a listener or
+  // stream registered before it must fail loudly instead of waiting forever —
+  // the derived `ready.then(...)` promises had no rejection handler.
+  it('reports a failed handshake to listeners and streams', async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    process.on('unhandledRejection', onUnhandled);
+
+    const socketPath = join(tmpdir(), `klient-no-such-${Date.now()}.sock`);
+    const klient = createKlient({ socketPath });
+    try {
+      const sessionEvents = klient.session('s').events;
+      const errors: Error[] = [];
+      sessionEvents.onError((error) => {
+        errors.push(error);
+      });
+      const dispose = sessionEvents.on('metadata.changed', () => undefined);
+
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      dispose.dispose();
+      expect(errors).toHaveLength(1);
+      expect(errors[0]).toBeInstanceOf(Error);
+
+      // A stream has no default deadline: `next()` must reject, not hang.
+      const iter = klient.global.kosong
+        .generate('no-such-model', { systemPrompt: '', messages: [] })[Symbol.asyncIterator]();
+      await expect(iter.next()).rejects.toThrow();
+
+      // The rejected `ready` promises were handled, so nothing bubbled up.
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off('unhandledRejection', onUnhandled);
+      await klient.close();
     }
   });
 });

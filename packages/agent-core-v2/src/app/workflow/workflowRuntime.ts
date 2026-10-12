@@ -20,6 +20,14 @@ const GLOB_WALK_IGNORED_DIRS = new Set(['node_modules', '.git']);
 const MAX_GLOB_WALK_DEPTH = 8;
 const MAX_GLOB_RESULTS = 1000;
 
+export const WORKFLOW_DEADLINE_DEFAULT_MS = 30 * 60 * 1000;
+
+export const WORKFLOW_SYNC_PREFIX_LIMIT_MS = 30_000;
+
+export const WORKFLOW_DEADLINE_ERROR_MESSAGE = 'Workflow script deadline exceeded';
+
+export const WORKFLOW_CANCELLED_ERROR_MESSAGE = 'Workflow cancelled';
+
 class Semaphore {
   private available: number;
   private readonly waiters: (() => void)[] = [];
@@ -60,11 +68,13 @@ export interface WorkflowRunOptions {
   readonly deps: WorkflowRuntimeDeps;
   readonly entry: WorkflowRunEntry;
   readonly deadlineMs?: number;
+  readonly syncPrefixLimitMs?: number;
 }
 
 export async function executeWorkflow(opts: WorkflowRunOptions): Promise<unknown> {
   const { script, args, deps, entry } = opts;
-  const deadlineMs = opts.deadlineMs ?? 12 * 60 * 60 * 1000;
+  const deadlineMs = opts.deadlineMs ?? WORKFLOW_DEADLINE_DEFAULT_MS;
+  const syncPrefixLimitMs = opts.syncPrefixLimitMs ?? WORKFLOW_SYNC_PREFIX_LIMIT_MS;
 
   const sem = new Semaphore(MAX_CONCURRENT);
   const workspaceRoot = deps.workspaceRoot;
@@ -252,23 +262,40 @@ ${script}
 })()`;
 
   let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+  let onAbort: (() => void) | undefined;
   const deadlinePromise = new Promise<never>((_resolve, reject) => {
     deadlineTimer = setTimeout(() => {
-      entry.abortController.abort(new Error('Workflow script deadline exceeded'));
-      reject(new Error('Workflow script deadline exceeded'));
+      entry.abortController.abort(new Error(WORKFLOW_DEADLINE_ERROR_MESSAGE));
+      reject(new Error(WORKFLOW_DEADLINE_ERROR_MESSAGE));
     }, deadlineMs);
+  });
+  const abortPromise = new Promise<never>((_resolve, reject) => {
+    const signal = entry.abortController.signal;
+    const rejectWithReason = (): void => {
+      const reason = signal.reason;
+      reject(
+        reason instanceof Error ? reason : new Error(reason ? String(reason) : WORKFLOW_CANCELLED_ERROR_MESSAGE),
+      );
+    };
+    if (signal.aborted) {
+      rejectWithReason();
+      return;
+    }
+    onAbort = rejectWithReason;
+    signal.addEventListener('abort', rejectWithReason, { once: true });
   });
 
   try {
     const runPromise = vm.runInContext(wrappedScript, context, {
-      timeout: deadlineMs,
+      timeout: Math.min(deadlineMs, syncPrefixLimitMs),
       filename: 'workflow.js',
     });
 
-    const result = await Promise.race([runPromise, deadlinePromise]);
+    const result = await Promise.race([runPromise, deadlinePromise, abortPromise]);
     return result;
   } finally {
     if (deadlineTimer) clearTimeout(deadlineTimer);
+    if (onAbort) entry.abortController.signal.removeEventListener('abort', onAbort);
   }
 }
 

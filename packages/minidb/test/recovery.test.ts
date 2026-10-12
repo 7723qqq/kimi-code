@@ -291,6 +291,78 @@ test('catchUpFromWal: a torn tail pauses the catch-up and a later call completes
   }
 });
 
+test('catchUpFromWal: an in-place truncate + rewrite below the watermark is declined', async () => {
+  const dir = await tmpDir();
+  try {
+    const writer = await MiniDb.open({
+      dir,
+      valueCodec: 'json',
+      fsyncPolicy: 'no',
+      autoCompact: false,
+    });
+    // One frame well past the tail fingerprint window, so the region below the
+    // replica's watermark shares no bytes with the rewrite.
+    await writer.set('pre:0', { pad: 'A'.repeat(8192) });
+    const reader = await MiniDb.open({ dir, valueCodec: 'json', readOnly: true });
+    const ri = reader.recoveryInfo!;
+    const walPath = path.join(dir, 'db.wal');
+    assert.ok(ri.walScanEnd > 4096, 'the scanned WAL is longer than the fingerprint window');
+    assert.ok(ri.walScanTail, 'recovery anchors the replica on a WAL content fingerprint');
+
+    // The writer's WAL is poisoned (e.g. ENOSPC mid-batch): recoverWalInPlace
+    // truncates db.wal to the poison's failedAtOffset ON THE SAME INODE, and the
+    // reopened writer writes new frames back over [T, replica watermark). Here
+    // that prefix is replaced with different bytes of the same length and fresh
+    // frames are appended, so the file GROWS past the replica's watermark and
+    // the bytes AT the watermark start a perfectly valid frame: the old
+    // frame-boundary + size guards would happily continue and apply a history
+    // the replica never saw.
+    const frame = (key: string, value: unknown): Buffer =>
+      encodeFrame({
+        type: TYPE_SET,
+        key: Buffer.from(key, 'utf8'),
+        value: Buffer.from(JSON.stringify(value), 'utf8'),
+      });
+    const ghost = frame('ghost', { n: 1 });
+    const rewritten = frame('rewritten', { n: 2, pad: 'B'.repeat(8192) });
+    await writer.wal.flush();
+    await fs.writeFile(
+      walPath,
+      Buffer.concat([Buffer.alloc(ri.walScanEnd, 0x42), ghost, rewritten]),
+    );
+
+    const st = await fs.stat(walPath);
+    assert.equal(st.ino, ri.walIno, 'same inode: the rewrite is in place, not a rotation');
+    assert.ok(st.size > ri.walScanEnd, 'size alone says "append", which is the trap');
+    const fh = await fs.open(walPath, 'r');
+    try {
+      const head = Buffer.alloc(2);
+      await fh.read(head, 0, 2, ri.walScanEnd);
+      assert.deepEqual(head, MAGIC, 'the bytes at the watermark do start a valid frame');
+    } finally {
+      await fh.close();
+    }
+
+    // Only the content fingerprint can falsify the continuation: the catch-up
+    // must decline, leave the already-applied state untouched, and hand the
+    // reopen decision to the caller.
+    assert.equal(await reader.catchUpFromWal(ri.walScanEnd), null);
+    assert.equal(reader.get('ghost'), undefined, 'no frame rewritten below the watermark applies');
+    assert.equal(reader.get('rewritten'), undefined, 'the appended rewrite is not applied either');
+    assert.ok(reader.get('pre:0'), 'the already-applied state stays untouched');
+
+    // Reference: a full reopen replays exactly the rewritten history.
+    await reader.close();
+    const ref = await MiniDb.open({ dir, valueCodec: 'json', readOnly: true });
+    assert.deepEqual(ref.get('ghost'), { n: 1 });
+    assert.deepEqual(ref.get('rewritten'), { n: 2, pad: 'B'.repeat(8192) });
+    await ref.close();
+    await writer.close();
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 test('catchUpFromWal: a compaction rotation swaps the WAL inode and the catch-up declines', async () => {
   const dir = await tmpDir();
   try {

@@ -1435,7 +1435,10 @@ export function mapStopReason(reason: string): RunTurnOverrideResult['stopReason
     case 'BudgetLimited':
       return 'budget_limited' as never;
     default:
-      return 'unknown' as never;
+      // Rust encodes a failed turn as `Error: <detail>`; a prefix match keeps
+      // both ends reading the same string the same way instead of letting one
+      // side call it a failure and the other fall through to `unknown`.
+      return (reason.startsWith('Error:') ? 'error' : 'unknown') as never;
   }
 }
 

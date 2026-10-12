@@ -52,6 +52,14 @@ export class ExperimentsSelectorComponent extends Container implements Focusable
     }
     const decoded = printableChar(data);
     if (matchesKey(data, Key.space) || decoded === ' ') {
+      // Only an empty query leaves the space ambiguous. Once the user has typed
+      // something the list is being searched, and a space belongs to the query
+      // ("web search") — toggling a draft there flips an experiment the user
+      // never aimed at and Enter persists it.
+      if (this.list.view().query.length > 0) {
+        this.list.handleKey(data);
+        return;
+      }
       const selected = this.list.selected();
       if (selected !== undefined) this.toggleDraft(selected);
       return;

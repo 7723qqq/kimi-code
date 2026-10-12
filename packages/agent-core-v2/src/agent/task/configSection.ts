@@ -18,6 +18,7 @@ export type PrintBackgroundMode = z.infer<typeof PrintBackgroundModeSchema>;
 
 export const AgentTaskConfigSchema = z.object({
   maxRunningTasks: z.number().int().min(1).optional(),
+  maxSettledTasks: z.number().int().min(1).optional(),
   keepAliveOnExit: z.boolean().optional(),
   bashAutoBackgroundOnTimeout: z.boolean().optional(),
   bashTaskTimeoutS: z.number().int().min(0).optional(),

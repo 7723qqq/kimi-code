@@ -92,7 +92,7 @@ export async function runMigration(input: RunMigrationInput): Promise<MigrationR
 
   const plans = input.scope.sessions
     ? await migratePlansStep({ targetHome: input.target, plansSourceDir: input.plansSourceDir })
-    : { copied: 0, skippedExisting: 0 };
+    : { copied: 0, skippedExisting: 0, failures: [] };
   log('plans done');
 
   const completedAt = new Date().toISOString();
@@ -133,7 +133,11 @@ export async function runMigration(input: RunMigrationInput): Promise<MigrationR
   // user can share one log covering every retry attempt.
   await writeMigrationErrorsLog(input.target, {
     startedAt,
-    failures: sessions.sessionsFailed,
+    failures: [
+      ...sessions.sessionsFailed,
+      ...sessions.subagentFailures,
+      ...plans.failures,
+    ],
   });
 
   const markerSummary: Record<string, unknown> = {
@@ -194,6 +198,7 @@ function emptyConfigOnlySessions(): SessionsSummary {
     sessionsSkippedPlaceholder: 0,
     sessionsSkippedEmpty: 0,
     sessionsFailed: [],
+    subagentFailures: [],
     sessionsConflicts: [],
     sessionsDebrisArchived: [],
   };

@@ -230,7 +230,7 @@ export type {
   KimiOAuthToolkitOptions,
 } from './toolkit';
 
-export { refreshProviderModels } from './refreshProviderModels';
+export { OPEN_PLATFORM_FETCH_TIMEOUT_MS, refreshProviderModels } from './refreshProviderModels';
 export type {
   ProviderChange,
   RefreshProviderHost,

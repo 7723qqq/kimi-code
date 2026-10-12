@@ -3,6 +3,7 @@ import { KIMI_CODE_PROVIDER_NAME } from '@moonshot-ai/kimi-code-oauth';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
 import { AsyncEmitter, Emitter, type Event } from '#/_base/event';
+import { ILogService } from '#/_base/log/log';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { LifecycleScope } from '#/app/scopes';
 import type { PluginToggleEvent } from '#/app/telemetry/events';
@@ -76,6 +77,7 @@ export class PluginService extends Service implements IPluginService {
     @ISkillDiscovery discovery: ISkillDiscovery,
     @IProviderService private readonly providers: IProviderService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
+    @ILogService private readonly log: ILogService,
   ) {
     super();
     this.homeDir = bootstrap.homeDir;
@@ -85,6 +87,7 @@ export class PluginService extends Service implements IPluginService {
     this.manager = new PluginManager({
       kimiHomeDir: this.homeDir,
       discoverSkills: (roots) => discovery.discover(roots),
+      log: this.log,
     });
   }
 

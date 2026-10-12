@@ -16,6 +16,7 @@ interface FakeProcessHarness {
   readonly requests: LspMessage[];
   readonly decoder: MessageDecoder;
   write(message: LspMessage): void;
+  writeRaw(frame: string): void;
   close(): void;
 }
 
@@ -48,6 +49,9 @@ function makeFakeProcess(): FakeProcessHarness {
       stdout.write(
         Buffer.concat([Buffer.from(`Content-Length: ${body.byteLength}\r\n\r\n`, 'utf8'), body]),
       );
+    },
+    writeRaw: (frame) => {
+      stdout.write(Buffer.from(frame, 'utf8'));
     },
     close: () => stdout.end(),
   };
@@ -147,5 +151,54 @@ describe('LspConnection', () => {
     const request = lastRequest(harness);
     harness.write({ jsonrpc: '2.0', id: (request as { id: number }).id, result: null });
     await expect(promise).resolves.toBeNull();
+  });
+});
+
+describe('LspConnection malformed frames', () => {
+  it('closes the transport instead of throwing on a non-JSON body', async () => {
+    const harness = makeFakeProcess();
+    const protocolErrors: string[] = [];
+    const connection = new LspConnection(
+      harness.process,
+      async () => null,
+      (detail) => protocolErrors.push(detail),
+    );
+    const promise = connection.request('textDocument/hover');
+    const rejection = expect(promise).rejects.toBeInstanceOf(LspTransportClosedError);
+    harness.writeRaw('Content-Length: 4\r\n\r\nnope');
+    await rejection;
+    expect(protocolErrors).toEqual(['frame is not valid JSON']);
+    expect(lastRequest(harness)).toMatchObject({ method: 'textDocument/hover' });
+  });
+
+  it('closes the transport instead of throwing on a JSON null body', async () => {
+    const harness = makeFakeProcess();
+    const protocolErrors: string[] = [];
+    const connection = new LspConnection(
+      harness.process,
+      async () => null,
+      (detail) => protocolErrors.push(detail),
+    );
+    const promise = connection.request('textDocument/hover');
+    const rejection = expect(promise).rejects.toBeInstanceOf(LspTransportClosedError);
+    harness.writeRaw('Content-Length: 4\r\n\r\nnull');
+    await rejection;
+    expect(protocolErrors).toEqual(['frame is not a JSON-RPC object']);
+  });
+
+  it('closes the transport instead of throwing on a length that counts characters', async () => {
+    const harness = makeFakeProcess();
+    const protocolErrors: string[] = [];
+    const connection = new LspConnection(
+      harness.process,
+      async () => null,
+      (detail) => protocolErrors.push(detail),
+    );
+    const promise = connection.request('textDocument/hover');
+    const rejection = expect(promise).rejects.toBeInstanceOf(LspTransportClosedError);
+    const body = '{"jsonrpc":"2.0","method":"зл"}';
+    harness.writeRaw(`Content-Length: ${body.length}\r\n\r\n${body}`);
+    await rejection;
+    expect(protocolErrors).toEqual(['frame is not valid JSON']);
   });
 });

@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import { readTodoItems } from '@moonshot-ai/agent-core-v2/features/todo/todoItem';
 
+import type { SessionMigrationFailure } from '../types.js';
 import { closeDanglingToolCalls } from './close-tool-calls.js';
 import { extractToolCallDisplays } from './tool-call-display.js';
 import {
@@ -41,45 +42,67 @@ interface SubagentEventLink {
  * results) reference. A subagent whose wire already exists in the target is
  * reported but not rewritten, so re-runs stay idempotent.
  */
+export interface SubagentMigrationFailures {
+  readonly infos: readonly LegacySubagentInfo[];
+  readonly failures: readonly SessionMigrationFailure[];
+}
+
 export async function migrateLegacySubagents(
   sourceSessionDir: string,
   targetDir: string,
-): Promise<readonly LegacySubagentInfo[]> {
+): Promise<SubagentMigrationFailures> {
   const subagentsRoot = join(sourceSessionDir, 'subagents');
   let entries: string[];
   try {
     entries = await readdir(subagentsRoot);
   } catch {
-    return [];
+    return { infos: [], failures: [] };
   }
   const links = await extractSubagentEventLinks(sourceSessionDir);
-  const out: LegacySubagentInfo[] = [];
+  const infos: LegacySubagentInfo[] = [];
+  const failures: SessionMigrationFailure[] = [];
   for (const entry of entries) {
-    const info = await migrateOneSubagent(join(subagentsRoot, entry), links.get(entry), targetDir);
-    if (info !== undefined) out.push(info);
+    const dir = join(subagentsRoot, entry);
+    const outcome = await migrateOneSubagent(dir, links.get(entry), targetDir);
+    if (outcome === 'skip') continue;
+    if (outcome.ok) {
+      infos.push(outcome.info);
+      continue;
+    }
+    failures.push({ sourcePath: dir, reason: outcome.reason });
   }
-  return out;
+  return { infos, failures };
 }
+
+type SubagentMigrationOutcome =
+  | { readonly ok: true; readonly info: LegacySubagentInfo }
+  | { readonly ok: false; readonly reason: string }
+  | 'skip';
 
 async function migrateOneSubagent(
   dir: string,
   link: SubagentEventLink | undefined,
   targetDir: string,
-): Promise<LegacySubagentInfo | undefined> {
+): Promise<SubagentMigrationOutcome> {
   const meta = await readSubagentMeta(dir);
-  if (meta === undefined) return undefined;
+  if (meta === undefined) {
+    return { ok: false, reason: 'subagent meta.json is missing or unreadable' };
+  }
 
   const wirePath = join(targetDir, 'agents', meta.agentId, 'wire.jsonl');
   if (existsSync(wirePath)) {
     return {
-      agentId: meta.agentId,
-      subagentType: meta.subagentType,
-      description: meta.description ?? link?.firstPrompt ?? '',
-      status: mapSubagentStatus(meta.status),
-      startedAtMs: meta.createdAtMs ?? Date.now(),
-      endedAtMs: meta.updatedAtMs ?? meta.createdAtMs ?? Date.now(),
-      model: meta.model,
-      parentToolCallId: link?.parentToolCallId,
+      ok: true,
+      info: {
+        agentId: meta.agentId,
+        subagentType: meta.subagentType,
+        description: meta.description ?? link?.firstPrompt ?? '',
+        status: mapSubagentStatus(meta.status),
+        startedAtMs: meta.createdAtMs ?? Date.now(),
+        endedAtMs: meta.updatedAtMs ?? meta.createdAtMs ?? Date.now(),
+        model: meta.model,
+        parentToolCallId: link?.parentToolCallId,
+      },
     };
   }
 
@@ -94,7 +117,7 @@ async function migrateOneSubagent(
       displays = undefined;
     }
     messages = closeDanglingToolCalls(translateContextLines(contextLines, displays));
-    if (messages.length === 0) return undefined;
+    if (messages.length === 0) return 'skip';
     const createdAtMs = meta.createdAtMs ?? Date.now();
     await writeSubagentWire(targetDir, meta.agentId, {
       createdAtMs,
@@ -102,19 +125,22 @@ async function migrateOneSubagent(
       lastUsageTokenCount: extractLastUsageTokenCount(contextLines),
       todoItems: await readSubagentTodos(dir),
     });
-  } catch {
-    return undefined;
+  } catch (error) {
+    return { ok: false, reason: error instanceof Error ? error.message : String(error) };
   }
 
   return {
-    agentId: meta.agentId,
-    subagentType: meta.subagentType,
-    description: meta.description ?? link?.firstPrompt ?? '',
-    status: mapSubagentStatus(meta.status),
-    startedAtMs: meta.createdAtMs ?? Date.now(),
-    endedAtMs: meta.updatedAtMs ?? meta.createdAtMs ?? Date.now(),
-    model: meta.model,
-    parentToolCallId: link?.parentToolCallId,
+    ok: true,
+    info: {
+      agentId: meta.agentId,
+      subagentType: meta.subagentType,
+      description: meta.description ?? link?.firstPrompt ?? '',
+      status: mapSubagentStatus(meta.status),
+      startedAtMs: meta.createdAtMs ?? Date.now(),
+      endedAtMs: meta.updatedAtMs ?? meta.createdAtMs ?? Date.now(),
+      model: meta.model,
+      parentToolCallId: link?.parentToolCallId,
+    },
   };
 }
 

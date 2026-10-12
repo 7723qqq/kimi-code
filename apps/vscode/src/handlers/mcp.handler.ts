@@ -9,6 +9,7 @@ import type {
 import { Events, Methods } from "../../shared/bridge";
 import {
   MCP_SECRET_MASK,
+  type MCPServerCatalog,
   type MCPServerConfig,
   type MCPTestResult,
   type UpdateMCPServerRequest,
@@ -29,11 +30,11 @@ const SENSITIVE_MCP_KEY_WORDS = new Set([
 interface NameParams { name: string }
 
 export const mcpHandlers: Record<string, Handler<any, any>> = {
-  [Methods.GetMCPServers]: async (_, ctx): Promise<MCPServerConfig[]> => {
+  [Methods.GetMCPServers]: async (_, ctx): Promise<MCPServerCatalog> => {
     return listWorkspaceServers(ctx);
   },
 
-  [Methods.AddMCPServer]: async (params: MCPServerConfig, ctx): Promise<MCPServerConfig[]> => {
+  [Methods.AddMCPServer]: async (params: MCPServerConfig, ctx): Promise<MCPServerCatalog> => {
     const server = restoreMaskedSecrets(undefined, params);
     await ctx.harness.addMcpServer(toSdkServer(server));
     const servers = await listWorkspaceServers(ctx);
@@ -44,7 +45,7 @@ export const mcpHandlers: Record<string, Handler<any, any>> = {
   [Methods.UpdateMCPServer]: async (
     params: UpdateMCPServerRequest | MCPServerConfig,
     ctx,
-  ): Promise<MCPServerConfig[]> => {
+  ): Promise<MCPServerCatalog> => {
     const request = normalizeUpdateRequest(params);
     const current = (
       await ctx.harness.listMcpServers()
@@ -57,7 +58,7 @@ export const mcpHandlers: Record<string, Handler<any, any>> = {
     return servers;
   },
 
-  [Methods.RemoveMCPServer]: async ({ name }: NameParams, ctx): Promise<MCPServerConfig[]> => {
+  [Methods.RemoveMCPServer]: async ({ name }: NameParams, ctx): Promise<MCPServerCatalog> => {
     await ctx.harness.removeMcpServer(name);
     const servers = await listWorkspaceServers(ctx);
     ctx.broadcast(Events.MCPServersChanged, servers);
@@ -125,42 +126,65 @@ export const mcpHandlers: Record<string, Handler<any, any>> = {
  * (add/update/remove) return a list resolved without a cwd, so the webview
  * refresh after every mutation must re-list with the workspace cwd —
  * otherwise project-layer entries drop out of the modal until the next full
- * load.
+ * load. Unreadable or malformed project config files surface as `warnings`
+ * instead of silently dropping the servers they declare.
  */
-async function readProjectMcpServers(workDir: string): Promise<SdkMcpServerConfig[]> {
+async function readProjectMcpServers(
+  workDir: string,
+): Promise<{ servers: SdkMcpServerConfig[]; warnings: string[] }> {
   const candidates = [
     join(workDir, ".mcp.json"),
     join(workDir, ".kimi-code", "mcp.json"),
   ];
   const results: SdkMcpServerConfig[] = [];
+  const warnings: string[] = [];
   for (const file of candidates) {
+    let content: string;
     try {
-      const content = await readFile(file, "utf-8");
-      const parsed = JSON.parse(content) as { mcpServers?: Record<string, any> };
-      if (parsed.mcpServers && typeof parsed.mcpServers === "object") {
-        for (const [name, cfg] of Object.entries(parsed.mcpServers)) {
-          if (cfg && typeof cfg === "object") {
-            results.push({
-              name,
-              ...cfg,
-              mutable: false,
-              source: "project",
-              origin: file,
-            });
-          }
+      content = await readFile(file, "utf-8");
+    } catch (error) {
+      if (isFileMissing(error)) continue;
+      warnings.push(`${file}: ${describeError(error)}`);
+      continue;
+    }
+    let parsed: { mcpServers?: Record<string, any> };
+    try {
+      parsed = JSON.parse(content) as { mcpServers?: Record<string, any> };
+    } catch {
+      warnings.push(`${file}: not valid JSON`);
+      continue;
+    }
+    if (parsed.mcpServers && typeof parsed.mcpServers === "object") {
+      for (const [name, cfg] of Object.entries(parsed.mcpServers)) {
+        if (cfg && typeof cfg === "object") {
+          results.push({
+            name,
+            ...cfg,
+            mutable: false,
+            source: "project",
+            origin: file,
+          });
         }
       }
-    } catch {
-      // file not found or invalid json
     }
   }
-  return results;
+  return { servers: results, warnings };
 }
 
-async function listWorkspaceServers(ctx: Parameters<Handler>[1]): Promise<MCPServerConfig[]> {
-  const globalServers = await ctx.harness.listMcpServers();
+function isFileMissing(error: unknown): boolean {
+  return (error as NodeJS.ErrnoException | null)?.code === "ENOENT";
+}
+
+function describeError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+async function listWorkspaceServers(ctx: Parameters<Handler>[1]): Promise<MCPServerCatalog> {
+  // The cwd makes the engine resolve the project layer itself, so entries it
+  // can read are present even when a project file is malformed.
+  const globalServers = await ctx.harness.listMcpServers({ cwd: ctx.workDir ?? undefined });
   if (ctx.workDir) {
-    const projectServers = await readProjectMcpServers(ctx.workDir);
+    const { servers: projectServers, warnings } = await readProjectMcpServers(ctx.workDir);
     const map = new Map<string, SdkMcpServerConfig>();
     for (const server of projectServers) {
       map.set(server.name, server);
@@ -168,9 +192,12 @@ async function listWorkspaceServers(ctx: Parameters<Handler>[1]): Promise<MCPSer
     for (const server of globalServers) {
       map.set(server.name, server);
     }
-    return toWebviewServers(Array.from(map.values()), ctx.harness.homeDir);
+    return {
+      servers: toWebviewServers(Array.from(map.values()), ctx.harness.homeDir),
+      ...(warnings.length > 0 ? { warnings } : {}),
+    };
   }
-  return toWebviewServers(globalServers, ctx.harness.homeDir);
+  return { servers: toWebviewServers(globalServers, ctx.harness.homeDir) };
 }
 
 function toWebviewServers(servers: readonly SdkMcpServerConfig[], homeDir?: string): MCPServerConfig[] {

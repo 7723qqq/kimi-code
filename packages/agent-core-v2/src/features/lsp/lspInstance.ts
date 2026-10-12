@@ -18,6 +18,7 @@ import { normalizeHoverResponse, normalizeLocationsResponse, pathToUri } from '.
 const DEFAULT_SHUTDOWN_TIMEOUT_MS = 5000;
 const DEFAULT_KILL_GRACE_MS = 2000;
 const DEFAULT_CANCEL_GRACE_MS = 2000;
+const DEFAULT_INITIALIZE_TIMEOUT_MS = 10_000;
 
 export class LspInstance {
   private readonly process: IProcess;
@@ -41,15 +42,22 @@ export class LspInstance {
     processRunner: ISessionProcessRunner,
     hostFs: IHostFileSystem,
     workspaceRoot: string,
+    signal?: AbortSignal,
+    onProtocolError?: (detail: string) => void,
   ): Promise<LspInstance> {
     const process = await processRunner.exec([config.command, ...(config.args ?? [])], {
       cwd: workspaceRoot,
       env: config.env,
     });
-    const connection = new LspConnection(process, serverRequestHandler);
-    const instance = new LspInstance(process, connection, config, hostFs, workspaceRoot);
-    await instance.initialize();
-    return instance;
+    try {
+      const connection = new LspConnection(process, serverRequestHandler, onProtocolError);
+      const instance = new LspInstance(process, connection, config, hostFs, workspaceRoot);
+      await instance.initialize(signal);
+      return instance;
+    } catch (error) {
+      await killProcessLadder(process, config);
+      throw error;
+    }
   }
 
   get isClosed(): boolean {
@@ -69,6 +77,7 @@ export class LspInstance {
       await withTimeout(
         this.connection.request('shutdown'),
         this.config.shutdownTimeoutMs ?? DEFAULT_SHUTDOWN_TIMEOUT_MS,
+        `LSP server "${this.config.command}" did not answer shutdown`,
       );
       this.connection.notify('exit');
     } catch {}
@@ -76,21 +85,40 @@ export class LspInstance {
     await this.killLadder();
   }
 
-  private async initialize(): Promise<void> {
-    const result = await this.connection.request<LspInitializeResult>('initialize', {
-      processId: null,
-      rootUri: pathToUri(this.workspaceRoot),
-      workspaceFolders: [
-        { uri: pathToUri(this.workspaceRoot), name: basename(this.workspaceRoot) },
-      ],
-      capabilities: {
-        textDocument: { hover: { contentFormat: ['plaintext', 'markdown'] } },
-        workspace: { configuration: true },
-      },
-      ...(this.config.initializationOptions === undefined
-        ? {}
-        : { initializationOptions: this.config.initializationOptions }),
-    });
+  private async initialize(signal?: AbortSignal): Promise<void> {
+    let result: LspInitializeResult;
+    try {
+      result = await withTimeout(
+        this.connection.request<LspInitializeResult>(
+          'initialize',
+          {
+            processId: null,
+            rootUri: pathToUri(this.workspaceRoot),
+            workspaceFolders: [
+              { uri: pathToUri(this.workspaceRoot), name: basename(this.workspaceRoot) },
+            ],
+            capabilities: {
+              textDocument: { hover: { contentFormat: ['plaintext', 'markdown'] } },
+              workspace: { configuration: true },
+            },
+            ...(this.config.initializationOptions === undefined
+              ? {}
+              : { initializationOptions: this.config.initializationOptions }),
+          },
+          signal,
+        ),
+        this.config.initializeTimeoutMs ?? DEFAULT_INITIALIZE_TIMEOUT_MS,
+        `LSP server "${this.config.command}" did not answer initialize within ${this.config.initializeTimeoutMs ?? DEFAULT_INITIALIZE_TIMEOUT_MS}ms`,
+        () => {
+          this.connection.dispose();
+        },
+      );
+    } catch (error) {
+      this.connection.dispose();
+      throw error instanceof LspTimeoutError
+        ? new Error2(ErrorCodes.LSP_SERVER_FAILED, error.message, { cause: error })
+        : error;
+    }
     const positionEncoding = result.capabilities.positionEncoding;
     if (positionEncoding !== undefined && positionEncoding !== 'utf-16') {
       throw new Error2(
@@ -158,19 +186,30 @@ export class LspInstance {
     }
   }
 
-  private async killLadder(): Promise<void> {
+  private killLadder(): Promise<void> {
+    return killProcessLadder(this.process, this.config);
+  }
+}
+
+class LspTimeoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'LspTimeoutError';
+  }
+}
+
+async function killProcessLadder(process: IProcess, config: LspServerConfig): Promise<void> {
+  try {
+    await process.kill('SIGTERM');
+  } catch {}
+  const exited = await Promise.race([
+    process.wait().then(() => true),
+    sleep(config.killGraceMs ?? DEFAULT_KILL_GRACE_MS).then(() => false),
+  ]);
+  if (!exited) {
     try {
-      await this.process.kill('SIGTERM');
+      await process.kill('SIGKILL');
     } catch {}
-    const exited = await Promise.race([
-      this.process.wait().then(() => true),
-      sleep(this.config.killGraceMs ?? DEFAULT_KILL_GRACE_MS).then(() => false),
-    ]);
-    if (!exited) {
-      try {
-        await this.process.kill('SIGKILL');
-      } catch {}
-    }
   }
 }
 
@@ -211,13 +250,24 @@ function configurationResponse(params: unknown): unknown[] {
   return items.map(() => null);
 }
 
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  return Promise.race([
-    promise,
-    sleep(ms).then(() => {
-      throw new Error('LSP shutdown timed out');
-    }),
-  ]);
+async function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  message: string,
+  onTimeout?: () => void,
+): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    return await new Promise<T>((resolve, reject) => {
+      timer = setTimeout(() => {
+        onTimeout?.();
+        reject(new LspTimeoutError(message));
+      }, ms);
+      promise.then(resolve, reject);
+    });
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
 
 function sleep(ms: number): Promise<void> {

@@ -648,6 +648,12 @@ export interface NativeLlmStreamConfig {
   apiKey: string;
   model: string;
   requestBody: string;
+  /**
+   * How long the stream may go WITHOUT a single SSE event before it is treated
+   * as dead — an idle deadline, not the wall-clock budget of the whole answer.
+   * Every event resets it, so a slow long-running stream is not cut off; the
+   * overall request carries a separate 30-minute ceiling.
+   */
   timeoutMs?: number | null;
   extraHeaders?: Array<{ key: string; value: string }> | null;
 }
@@ -717,7 +723,14 @@ export function knowledgeAdd(
   confidence: number,
 ): string;
 
-/** @returns JSON string of `NativeKnowledgeSearchResult[]` */
+/**
+ * Search the knowledge base and return the matches as a JSON string.
+ *
+ * A query that FTS5 cannot parse throws instead of resolving to an empty
+ * result set: `[]` means "nothing matches", never "the search failed".
+ *
+ * @returns JSON string of `NativeKnowledgeSearchResult[]`
+ */
 export function knowledgeSearch(
   query: string,
   scopePath: string | null,

@@ -1,6 +1,6 @@
 import type { KimiConfig } from '@moonshot-ai/kimi-code-sdk';
 
-import { t } from '#/i18n';
+import { setLocale, t } from '#/i18n';
 import { currentTheme, lightColors } from '#/tui/theme';
 
 import { DEFAULT_MARKDOWN_CONFIG, loadTuiConfig, type TuiConfig } from '../config';
@@ -77,6 +77,15 @@ export async function applyReloadedTuiConfig(
     statusLine: config.statusLine,
     markdown: config.markdown,
   });
+  // Exact shape of `applyLocaleChoice` (commands/config.ts): the UI locale only
+  // takes effect when the i18n engine, the engine-side translator and appState
+  // all move together — keeping the field list here in sync with that one
+  // avoids a reload that reports success while the language stays put.
+  if (config.locale !== host.state.appState.locale) {
+    setLocale(config.locale);
+    host.harness.setEngineLocale(config.locale);
+    host.setAppState({ locale: config.locale });
+  }
   host.state.editor.setDisablePasteBurst(config.disablePasteBurst);
   if ((config.tuiMode ?? 'regular') !== host.state.ui.mode) {
     host.showNotice(getTuiModeRestartNotice());

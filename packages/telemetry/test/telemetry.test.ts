@@ -29,6 +29,7 @@ import {
   DISK_EVENT_MAX_AGE_MS,
   RETRY_BACKOFFS_MS,
   SERVER_EVENT_PREFIX,
+  TelemetryPersistedError,
   TransientTelemetryError,
   USER_ID_PREFIX,
   applyServerPrefix,
@@ -927,6 +928,66 @@ describe('AsyncTransport', () => {
     expect(file).toContain('"event":"aborted_backoff"');
   });
 
+  it('marks an already-aborted signal as persisted but not a failed save', async () => {
+    const homeDir = await tempHome();
+    const controller = new AbortController();
+    controller.abort();
+    const transport = new AsyncTransport({
+      homeDir,
+      deviceId: 'dev',
+      endpoint: 'https://mock.test/events',
+      fetchImpl: vi.fn(async () => new Response('', { status: 200 })) as unknown as typeof fetch,
+    });
+
+    await expect(transport.send([sampleEvent('pre_aborted')], controller.signal)).rejects.toThrow(
+      TelemetryPersistedError,
+    );
+    const telemetryDir = join(homeDir, 'telemetry');
+    expect(readFileSync(join(telemetryDir, readdirOne(telemetryDir)), 'utf-8')).toContain(
+      '"event":"pre_aborted"',
+    );
+
+    // A failing save must keep surfacing its own error, so "threw" never
+    // implies "persisted": point the transport at an impossible directory.
+    const brokenHome = join(homeDir, 'blocked');
+    writeFileSync(brokenHome, 'not a directory');
+    const broken = new AsyncTransport({
+      homeDir: brokenHome,
+      deviceId: 'dev',
+      endpoint: 'https://mock.test/events',
+      fetchImpl: vi.fn(async () => new Response('', { status: 200 })) as unknown as typeof fetch,
+    });
+    const failure = await broken.send([sampleEvent('unsaved')], controller.signal).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    expect(failure).toBeInstanceOf(Error);
+    expect(failure).not.toBeInstanceOf(TelemetryPersistedError);
+  });
+
+  it('propagates a persisted abort even when no external signal is aborted', async () => {
+    const homeDir = await tempHome();
+    const transport = new AsyncTransport({
+      homeDir,
+      deviceId: 'dev',
+      endpoint: 'https://mock.test/events',
+      fetchImpl: vi.fn(async () => {
+        throw new DOMException('The operation was aborted.', 'AbortError');
+      }) as unknown as typeof fetch,
+      retryBackoffsMs: [],
+    });
+
+    const failure = await transport.send([sampleEvent('internal_abort')]).then(
+      () => null,
+      (error: unknown) => error,
+    );
+    expect(failure).toBeInstanceOf(TelemetryPersistedError);
+    const telemetryDir = join(homeDir, 'telemetry');
+    expect(readFileSync(join(telemetryDir, readdirOne(telemetryDir)), 'utf-8')).toContain(
+      '"event":"internal_abort"',
+    );
+  });
+
   it('writes one JSONL line per event and keeps raw event names on disk fallback', async () => {
     const homeDir = await tempHome();
     const transport = new AsyncTransport({
@@ -1202,6 +1263,60 @@ describe('telemetry bootstrap', () => {
     const telemetryDir = join(homeDir, 'telemetry');
     const file = readFileSync(join(telemetryDir, readdirOne(telemetryDir)), 'utf-8');
     expect(file).toContain('"event":"sync_flush"');
+  });
+
+  it('spools a shutdown-aborted batch exactly once', async () => {
+    const homeDir = await tempHome();
+    // An in-flight POST that only settles when the shutdown timeout aborts it.
+    const fetchImpl = vi.fn(
+      (_url: string | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            reject(new DOMException('The operation was aborted.', 'AbortError'));
+          });
+        }),
+    );
+    vi.stubGlobal('fetch', fetchImpl);
+
+    initializeTelemetry({
+      homeDir,
+      deviceId: 'dev',
+      sessionId: 'ses',
+      appName: 'kimi-code-cli',
+      version: '1.2.3',
+      endpoint: 'https://mock.test/events',
+    });
+    track('aborted_flush');
+    await shutdownTelemetry({ timeoutMs: 50 });
+
+    const telemetryDir = join(homeDir, 'telemetry');
+    const files = readdirSync(telemetryDir);
+    expect(files).toHaveLength(1);
+    const spooled = files.map((name) => readFileSync(join(telemetryDir, name), 'utf-8')).join('\n');
+    expect(spooled.match(/"event":"aborted_flush"/g)).toHaveLength(1);
+  });
+
+  it('spools a batch once when shutdown aborts during retry backoff', async () => {
+    const homeDir = await tempHome();
+    const fetchImpl = vi.fn(async () => new Response('', { status: 429 }));
+    vi.stubGlobal('fetch', fetchImpl);
+
+    initializeTelemetry({
+      homeDir,
+      deviceId: 'dev',
+      sessionId: 'ses',
+      appName: 'kimi-code-cli',
+      version: '1.2.3',
+      endpoint: 'https://mock.test/events',
+    });
+    track('aborted_backoff_flush');
+    await shutdownTelemetry({ timeoutMs: 50 });
+
+    const telemetryDir = join(homeDir, 'telemetry');
+    const files = readdirSync(telemetryDir);
+    expect(files).toHaveLength(1);
+    const spooled = files.map((name) => readFileSync(join(telemetryDir, name), 'utf-8')).join('\n');
+    expect(spooled.match(/"event":"aborted_backoff_flush"/g)).toHaveLength(1);
   });
 
   it('writes system metrics with the singleton session context', async () => {

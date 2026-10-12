@@ -173,7 +173,6 @@ function tuiConfig(overrides: Partial<TuiConfig> = {}): TuiConfig {
     editorCommand: null,
     notifications: { enabled: true, condition: 'unfocused' },
     upgrade: { autoInstall: true },
-    astron: { stream: true, temperature: 1.0, maxTokens: 32768, searchDisable: true },
     ...overrides,
   };
 }

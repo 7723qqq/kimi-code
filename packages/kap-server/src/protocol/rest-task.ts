@@ -1,5 +1,6 @@
 import { z } from 'zod';
 
+import { booleanQueryParam } from './query-params';
 import { taskSchema, taskStatusSchema } from './task';
 
 export const listTasksQuerySchema = z
@@ -16,7 +17,7 @@ export type ListTasksResponse = z.infer<typeof listTasksResponseSchema>;
 
 export const getTaskQuerySchema = z
   .object({
-    with_output: z.coerce.boolean().optional(),
+    with_output: booleanQueryParam,
     output_bytes: z.coerce.number().int().nonnegative().optional(),
   })
   .strict();

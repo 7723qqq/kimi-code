@@ -4,6 +4,7 @@ import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiatio
 import { toDisposable } from '#/_base/di/lifecycle';
 import { Service } from '#/_base/di/service';
 import { IConfigService } from '#/app/config/config';
+import { Error2, ErrorCodes, onUnexpectedError } from '#/errors';
 import {
   ILspService,
   type LspProvider,
@@ -39,7 +40,7 @@ export class LspStdioProvider implements LspProvider {
     const key = normalizeWorkspaceKey(request.workspaceRoot);
     let instance = this.instances.get(key);
     if (instance === undefined || instance.isClosed) {
-      instance = await this.createInstance(key);
+      instance = await this.createInstance(key, signal);
       this.instances.set(key, instance);
     }
     let retried = false;
@@ -52,7 +53,7 @@ export class LspStdioProvider implements LspProvider {
           await instance.dispose();
         } catch {}
         this.instances.delete(key);
-        const fresh = await this.createInstance(key);
+        const fresh = await this.createInstance(key, signal);
         this.instances.set(key, fresh);
         return fresh.query(request, signal);
       }
@@ -68,8 +69,21 @@ export class LspStdioProvider implements LspProvider {
     await Promise.all(instances.map((instance) => instance.dispose()));
   }
 
-  private async createInstance(workspaceRoot: string): Promise<LspInstance> {
-    return LspInstance.create(this.config, this.processRunner, this.hostFs, workspaceRoot);
+  private async createInstance(workspaceRoot: string, signal?: AbortSignal): Promise<LspInstance> {
+    return LspInstance.create(
+      this.config,
+      this.processRunner,
+      this.hostFs,
+      workspaceRoot,
+      signal,
+      (detail) =>
+        onUnexpectedError(
+          new Error2(
+            ErrorCodes.LSP_MALFORMED_RESPONSE,
+            `LSP server "${this.id}" sent a malformed frame: ${detail}`,
+          ),
+        ),
+    );
   }
 }
 

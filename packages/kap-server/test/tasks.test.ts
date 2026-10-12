@@ -311,6 +311,35 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
     expect(plain.body.data.output_bytes).toBeUndefined();
   });
 
+  it('honors with_output=false / with_output=0 as an explicit opt-out', async () => {
+    const id = await createSession();
+    const tasks = await mainAgentTasks(id);
+    const taskId = tasks.registerTask(fakeTask('process', 'hello world'));
+    await flush();
+
+    for (const raw of ['false', '0']) {
+      const got = await getJson<TaskWire>(
+        `/api/v1/sessions/${id}/tasks/${taskId}?with_output=${raw}`,
+      );
+      expect(got.body.code).toBe(0);
+      expect(got.body.data.output_preview).toBeUndefined();
+      expect(got.body.data.output_bytes).toBeUndefined();
+    }
+  });
+
+  it('rejects a non-boolean with_output with 40001 instead of silently enabling it', async () => {
+    const id = await createSession();
+    const tasks = await mainAgentTasks(id);
+    const taskId = tasks.registerTask(fakeTask('process', 'hello world'));
+    await flush();
+
+    const got = await getJson<TaskWire>(
+      `/api/v1/sessions/${id}/tasks/${taskId}?with_output=banana`,
+    );
+    expect(got.body.code).toBe(40001);
+    expect(got.body.data).toBeNull();
+  });
+
   it('honors output_bytes as a BYTE budget, even for multi-byte text', async () => {
     const id = await createSession();
     const tasks = await mainAgentTasks(id);

@@ -2,7 +2,8 @@ import { cp, mkdir, mkdtemp, realpath, rename, rm, stat } from 'node:fs/promises
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { BugIndicatingError, Error2, ErrorCodes, PluginErrors } from '#/errors';
+import type { ILogger } from '#/_base/log/log';
+import { BugIndicatingError, Error2, ErrorCodes, PluginErrors, toErrorMessage } from '#/errors';
 import type { HookDef } from '#/features/externalHooks/internal/types';
 import { discoverFileSkills } from '#/features/skill/catalog/fileSkillDiscovery';
 import type { SkillDiscoveryResult } from '#/features/skill/catalog/skillDiscovery';
@@ -36,6 +37,7 @@ import {
 export interface PluginManagerOptions {
   readonly kimiHomeDir: string;
   readonly discoverSkills?: (roots: readonly SkillRoot[]) => Promise<SkillDiscoveryResult>;
+  readonly log?: ILogger;
 }
 
 interface ManagedPluginCopy {
@@ -43,14 +45,20 @@ interface ManagedPluginCopy {
   readonly previousRoot?: string;
 }
 
+interface GitHubRecord extends PluginRecord {
+  readonly github: PluginGithubMetadata;
+}
+
 export class PluginManager {
   private readonly kimiHomeDir: string;
   private readonly discoverSkills: (roots: readonly SkillRoot[]) => Promise<SkillDiscoveryResult>;
+  private readonly log: ILogger | undefined;
   private records = new Map<string, PluginRecord>();
 
   constructor(options: PluginManagerOptions) {
     this.kimiHomeDir = options.kimiHomeDir;
     this.discoverSkills = options.discoverSkills ?? discoverFileSkills;
+    this.log = options.log;
   }
 
   async load(): Promise<void> {
@@ -234,21 +242,18 @@ export class PluginManager {
   }
 
   async checkUpdates(): Promise<readonly PluginUpdateStatus[]> {
-    const records = [...this.records.values()].filter(
-      (record) => record.source === 'github' && record.github !== undefined,
-    );
+    const records = [...this.records.values()].filter(isGithubRecord);
     const results = await Promise.all(
       records.map(async (record) => {
         try {
           return await checkGithubUpdate(record);
-        } catch {
-          return undefined;
+        } catch (error) {
+          this.log?.warn('plugin update check failed', { id: record.id, error });
+          return failedUpdateStatus(record, error);
         }
       }),
     );
-    return results
-      .filter((result): result is PluginUpdateStatus => result !== undefined)
-      .toSorted((a, b) => a.id.localeCompare(b.id));
+    return results.toSorted((a, b) => a.id.localeCompare(b.id));
   }
 
   async reload(): Promise<ReloadSummary> {
@@ -442,6 +447,24 @@ async function installedGithubSha(
 ): Promise<string | undefined> {
   if (ref.kind === 'sha' && ref.value.length === 40) return ref.value.toLowerCase();
   return resolveGithubCommitSha(owner, repo, ref.value);
+}
+
+function isGithubRecord(record: PluginRecord): record is GitHubRecord {
+  return record.source === 'github' && record.github !== undefined;
+}
+
+function failedUpdateStatus(record: GitHubRecord, error: unknown): PluginUpdateStatus {
+  const current = record.github.ref;
+  return {
+    id: record.id,
+    source: 'github',
+    current,
+    latest: current,
+    displayVersion: current.value,
+    updateAvailable: false,
+    checkFailed: true,
+    errorMessage: toErrorMessage(error),
+  };
 }
 
 async function checkGithubUpdate(record: PluginRecord): Promise<PluginUpdateStatus> {

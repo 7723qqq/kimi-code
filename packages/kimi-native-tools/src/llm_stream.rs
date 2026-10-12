@@ -67,6 +67,30 @@ pub enum StreamEvent {
     Error(String),
 }
 
+// ── Timeouts ─────────────────────────────────────────────────────────────────
+
+/// Budget for establishing the TCP+TLS connection, kept separate from the
+/// request budget so a host that accepts nothing cannot hold a whole turn.
+const CONNECT_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Lower bound for the overall request budget. `timeout_ms` carries idle
+/// semantics (see `idle_event_timeout`), so it must not double as the
+/// wall-clock ceiling of a healthy long stream.
+const MIN_REQUEST_TIMEOUT: Duration = Duration::from_secs(30 * 60);
+
+/// How long the stream may go without a single SSE event before it is treated
+/// as dead. This is the `timeout_ms` the caller passed: the SDK paths give
+/// 120 s meaning "no data for 120 s", not "the whole response in 120 s", and a
+/// healthy slow stream must not be cut off mid-answer.
+fn idle_event_timeout(timeout_ms: u64) -> Duration {
+    Duration::from_millis(timeout_ms)
+}
+
+/// Overall request ceiling — only guards against a stream that never ends.
+fn request_timeout(timeout_ms: u64) -> Duration {
+    idle_event_timeout(timeout_ms).max(MIN_REQUEST_TIMEOUT)
+}
+
 // ── Public entry point ───────────────────────────────────────────────────────
 
 /// Execute the full LLM streaming pipeline.
@@ -87,7 +111,8 @@ pub async fn run_llm_stream_with(
     config: &LlmStreamConfig,
     mut emit: impl FnMut(StreamEvent),
 ) -> Result<(), String> {
-    let timeout = Duration::from_millis(config.timeout_ms);
+    let idle_timeout = idle_event_timeout(config.timeout_ms);
+    let timeout = request_timeout(config.timeout_ms);
 
     // Build headers
     let mut headers = HeaderMap::new();
@@ -135,6 +160,7 @@ pub async fn run_llm_stream_with(
 
     // Make the HTTP request
     let client = reqwest::Client::builder()
+        .connect_timeout(CONNECT_TIMEOUT)
         .timeout(timeout)
         .build()
         .map_err(|e| format!("Failed to build HTTP client: {e}"))?;
@@ -173,11 +199,25 @@ pub async fn run_llm_stream_with(
         ..Default::default()
     };
 
-    // Read SSE stream
+    // Read SSE stream. Each `next()` gets the idle budget on its own: a stream
+    // that keeps sending events may run for hours, while one that goes silent
+    // for `idle_timeout` is dead whatever the wall clock says.
     let bytes_stream = response.bytes_stream();
     let mut sse_stream = bytes_stream.eventsource();
 
-    while let Some(result) = sse_stream.next().await {
+    loop {
+        let result = match tokio::time::timeout(idle_timeout, sse_stream.next()).await {
+            Ok(Some(result)) => result,
+            // The stream ended cleanly.
+            Ok(None) => break,
+            Err(_) => {
+                emit(StreamEvent::Error(format!(
+                    "SSE stream idle for {}s: no event received",
+                    idle_timeout.as_secs_f64()
+                )));
+                break;
+            }
+        };
         match result {
             Ok(event) => {
                 let data = event.data;
@@ -1469,4 +1509,164 @@ mod tests {
         let parts3 = decode_openai_legacy_event(&event, &mut meta);
         assert!(parts3.is_empty());
     }
+
+    // ══════════════════════════════════════════════════════════════════════
+    // Timeout semantics (fake SSE server)
+    // ══════════════════════════════════════════════════════════════════════
+    //
+    // A stream that keeps sending events must survive far longer than the idle
+    // budget, while one that goes silent must fail. The fake server below is a
+    // plain std TcpListener on a background thread: no extra dev-dependency.
+
+    struct FakeSseServer {
+        addr: String,
+        handle: Option<std::thread::JoinHandle<()>>,
+    }
+
+    impl FakeSseServer {
+        /// `script` is called with a write handle per accepted connection; the
+        /// test server writes raw HTTP bytes so the SSE decode path is real.
+        fn start<F>(script: F) -> Self
+        where
+            F: FnOnce(&mut dyn std::io::Write) + Send + 'static,
+        {
+            let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+            let addr = format!("http://{}", listener.local_addr().unwrap());
+            let handle = std::thread::spawn(move || {
+                if let Ok((mut socket, _)) = listener.accept() {
+                    // Drain the request head before answering.
+                    let mut buf = [0u8; 4096];
+                    let _ = std::io::Read::read(&mut socket, &mut buf);
+                    let mut w = socket;
+                    let _ = std::io::Write::write_all(
+                        &mut w,
+                        b"HTTP/1.1 200 OK\r\nContent-Type: text/event-stream\r\n\
+                          Cache-Control: no-cache\r\nConnection: close\r\n\r\n",
+                    );
+                    let _ = std::io::Write::flush(&mut w);
+                    script(&mut w);
+                }
+            });
+            FakeSseServer {
+                addr,
+                handle: Some(handle),
+            }
+        }
+    }
+
+    impl Drop for FakeSseServer {
+        fn drop(&mut self) {
+            if let Some(h) = self.handle.take() {
+                let _ = h.join();
+            }
+        }
+    }
+
+    fn sse_data_event(w: &mut dyn std::io::Write, payload: &str) {
+        let _ = write!(w, "data: {payload}\n\n");
+        let _ = w.flush();
+    }
+
+    fn legacy_text_event(id: &str, text: &str) -> String {
+        json!({
+            "id": id,
+            "choices": [{ "delta": { "content": text }, "finish_reason": null }]
+        })
+        .to_string()
+    }
+
+    fn stream_config(url: String, timeout_ms: u64) -> LlmStreamConfig {
+        LlmStreamConfig {
+            provider: "openai-legacy".to_string(),
+            url,
+            api_key: "test-key".to_string(),
+            request_body: "{}".to_string(),
+            timeout_ms,
+            extra_headers: vec![],
+        }
+    }
+
+    fn run_buffered(config: &LlmStreamConfig) -> Result<Vec<StreamEvent>, String> {
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        rt.block_on(run_llm_stream(config))
+    }
+
+    fn error_message(events: &[StreamEvent]) -> Option<String> {
+        events.iter().find_map(|e| match e {
+            StreamEvent::Error(msg) => Some(msg.clone()),
+            _ => None,
+        })
+    }
+
+    fn text_of(events: &[StreamEvent]) -> String {
+        events
+            .iter()
+            .filter_map(|e| match e {
+                StreamEvent::Part(p) => p.text.clone(),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn test_stream_silent_after_first_event_times_out_on_idle() {
+        // One event, then silence. The idle budget (300 ms here) must fire even
+        // though the whole request is nowhere near its wall-clock ceiling.
+        let idle_ms = 300u64;
+        let server = FakeSseServer::start(move |w| {
+            sse_data_event(w, &legacy_text_event("chatcmpl_1", "partial"));
+            std::thread::sleep(Duration::from_millis(2_000));
+        });
+
+        let started = std::time::Instant::now();
+        let events = run_buffered(&stream_config(server.addr.clone(), idle_ms)).unwrap();
+        let elapsed = started.elapsed();
+
+        let msg = error_message(&events).expect("a silent stream must report an idle timeout");
+        assert!(
+            msg.contains("idle"),
+            "error should name the idle timeout, got: {msg}"
+        );
+        assert_eq!(text_of(&events), "partial");
+        assert!(
+            elapsed < Duration::from_millis(1_500),
+            "idle timeout should fire near {idle_ms}ms, took {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn test_slow_stream_longer_than_idle_budget_completes() {
+        // Events every idle/2 for 5x the idle budget: a healthy slow stream.
+        // With `timeout_ms` as a whole-request deadline this is cut off; with
+        // idle semantics every event resets the budget and it finishes.
+        let idle_ms = 300u64;
+        let gap_ms = idle_ms / 2;
+        let event_count = 10usize;
+        let server = FakeSseServer::start(move |w| {
+            for i in 0..event_count {
+                sse_data_event(w, &legacy_text_event("chatcmpl_1", &format!("{i}")));
+                if i + 1 < event_count {
+                    std::thread::sleep(Duration::from_millis(gap_ms));
+                }
+            }
+        });
+
+        let started = std::time::Instant::now();
+        let events = run_buffered(&stream_config(server.addr.clone(), idle_ms)).unwrap();
+        let elapsed = started.elapsed();
+
+        assert_eq!(
+            error_message(&events),
+            None,
+            "a slow but live stream must not be cut off"
+        );
+        let expected: String = (0..event_count).map(|i| i.to_string()).collect();
+        assert_eq!(text_of(&events), expected);
+        assert!(
+            elapsed > Duration::from_millis(idle_ms * 4),
+            "the stream should have taken longer than the idle budget, took {elapsed:?}"
+        );
+        assert!(events.iter().any(|e| matches!(e, StreamEvent::Done(_))));
+    }
+
 }

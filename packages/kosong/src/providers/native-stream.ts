@@ -65,6 +65,36 @@ export interface NativeLlmStreamConfig {
   signal?: AbortSignal;
 }
 
+/**
+ * An API failure surfaced by the Rust native pipeline.
+ *
+ * The native module reports HTTP failures as `API error (<status>): <body>`
+ * (`llm_stream.rs`, the non-2xx branch). Carrying the parsed status on a
+ * dedicated error class lets each provider run the SAME classification it
+ * applies to its SDK errors (`normalizeAPIStatusError` + the vendor hook)
+ * instead of leaking a bare `Error` past `isRetryableGenerateError`.
+ *
+ * Deliberately not a kosong `APIStatusError`: this module is provider-agnostic
+ * and must not decide which provider class an HTTP status maps to.
+ */
+export class NativeLlmApiError extends Error {
+  readonly status?: number;
+
+  constructor(message: string, status?: number) {
+    super(message);
+    this.name = 'NativeLlmApiError';
+    this.status = status;
+  }
+}
+
+/** Parse the HTTP status out of the Rust `API error (<status>): <body>` shape. */
+function parseNativeApiErrorStatus(message: string): number | undefined {
+  const match = /^API error \((\d{3})\)/.exec(message);
+  if (match === null) return undefined;
+  const parsed = Number.parseInt(match[1]!, 10);
+  return Number.isNaN(parsed) ? undefined : parsed;
+}
+
 // ── Native module access ─────────────────────────────────────────────────────
 
 let nativeModule: Record<string, unknown> | null | undefined;
@@ -456,7 +486,7 @@ class NativeIncrementalStreamedMessage implements StreamedMessage {
 
     const done = this._done();
     if (done?.error !== undefined) {
-      throw new Error(done.error);
+      throw new NativeLlmApiError(done.error, parseNativeApiErrorStatus(done.error));
     }
   }
 }
@@ -498,7 +528,7 @@ export async function tryNativeLlmStream(
         // API errors (rate limit, auth, etc.) are surfaced to the caller.
         // Connection/TLS errors from Rust are also surfaced — the caller's
         // try/catch around tryNativeLlmStream will catch them and fall back.
-        throw new Error(result.error);
+        throw new NativeLlmApiError(result.error, parseNativeApiErrorStatus(result.error));
       }
 
       recordNativeSuccess();

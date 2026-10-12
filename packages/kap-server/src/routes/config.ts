@@ -1,4 +1,4 @@
-import { IConfigService, type Scope } from '@moonshot-ai/agent-core-v2';
+import { ErrorCodes, IConfigService, isError2, type Scope } from '@moonshot-ai/agent-core-v2';
 
 import { errEnvelope, okEnvelope } from '../envelope';
 import { requestLog } from '../lib/requestLog';
@@ -54,11 +54,14 @@ export function registerConfigRoutes(app: ConfigRouteHost, core: Scope): void {
       success: { data: configResponseSchema },
       errors: {
         [ErrorCode.VALIDATION_FAILED]: {},
+        [ErrorCode.PERSISTENCE_FAILURE]: {},
       },
       description: 'Update the global Kimi configuration (merge semantics)',
       tags: ['config'],
     },
     async (req, reply) => {
+      const applied: string[] = [];
+      let failedDomain: string | undefined;
       try {
         const config = core.accessor.get(IConfigService);
         await config.ready;
@@ -68,7 +71,9 @@ export function registerConfigRoutes(app: ConfigRouteHost, core: Scope): void {
         }
         delete camelPatch['yolo'];
         for (const domain of Object.keys(camelPatch)) {
+          failedDomain = domain;
           await config.set(domain, camelPatch[domain]);
+          applied.push(domain);
         }
         const response = toConfigResponse(config.getAll());
         const changedFields = Object.keys(req.body as Record<string, unknown>);
@@ -76,6 +81,17 @@ export function registerConfigRoutes(app: ConfigRouteHost, core: Scope): void {
         reply.send(okEnvelope(response, req.id));
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        if (isError2(error) && error.code === ErrorCodes.CONFIG_PERSIST_BLOCKED) {
+          const progress = `applied: ${applied.length === 0 ? '(none)' : applied.join(', ')}; failed: ${failedDomain ?? '(unknown)'}`;
+          requestLog(req)?.error(
+            { err: error, applied, failed: failedDomain },
+            'config update could not be persisted',
+          );
+          reply.send(
+            errEnvelope(ErrorCode.PERSISTENCE_FAILURE, `${message} (${progress})`, req.id),
+          );
+          return;
+        }
         requestLog(req)?.error({ err: error }, 'config update failed');
         reply.send(errEnvelope(ErrorCode.VALIDATION_FAILED, message, req.id));
       }

@@ -100,7 +100,6 @@ export function currentTuiConfig(host: Pick<SlashCommandHost, 'state'>): TuiConf
     notifications: host.state.appState.notifications,
     upgrade: host.state.appState.upgrade,
     statusLine: host.state.appState.statusLine ?? DEFAULT_TUI_CONFIG.statusLine,
-    astron: DEFAULT_TUI_CONFIG.astron,
     markdown: host.state.appState.markdown ?? DEFAULT_MARKDOWN_CONFIG,
   };
 }
@@ -864,7 +863,7 @@ export async function showExperimentsPanel(host: SlashCommandHost): Promise<void
 }
 
 export async function showAstronSettingsPanel(host: SlashCommandHost): Promise<void> {
-  const config = await host.harness.getConfig();
+  const config = await host.harness.getConfig({ reload: true });
   const astron = config.providers?.['astron'];
   if (astron === undefined) {
     host.showStatus(t('tui.dialogs.astronSettings.notConfigured'));
@@ -896,7 +895,10 @@ export async function showAstronSettingsPanel(host: SlashCommandHost): Promise<v
   );
 }
 
-async function saveAstronSettings(host: SlashCommandHost, settings: AstronSettings): Promise<void> {
+export async function saveAstronSettings(
+  host: SlashCommandHost,
+  settings: AstronSettings,
+): Promise<void> {
   // Pre-save validation: bounds-check the values the TUI component already
   // guards against, so a stale/invalid value never reaches the config layer.
   if (settings.temperature < 0 || settings.temperature > 2) {
@@ -908,7 +910,7 @@ async function saveAstronSettings(host: SlashCommandHost, settings: AstronSettin
     return;
   }
   try {
-    const config = await host.harness.getConfig();
+    const config = await host.harness.getConfig({ reload: true });
     const astron = config.providers?.['astron'];
     if (astron === undefined) {
       host.showStatus(t('tui.dialogs.astronSettings.notConfigured'));

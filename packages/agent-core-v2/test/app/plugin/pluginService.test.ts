@@ -10,7 +10,13 @@ import {
   _clearScopedRegistryForTests,
   registerScopedService,
 } from '#/_base/di/scope';
-import { createScopedTestHost, stubPair, type ScopedTestHost } from '#/_base/di/test';
+import {
+  createScopedTestHost,
+  SILENT_TEST_LOGGER,
+  stubPair,
+  type ScopedTestHost,
+} from '#/_base/di/test';
+import { ILogService } from '#/_base/log/log';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IPluginService } from '#/app/plugin/plugin';
 import { PluginService } from '#/app/plugin/pluginService';
@@ -51,6 +57,7 @@ function makeHost(
   return createScopedTestHost([
     stubPair(IBootstrapService, stubBootstrap(homeDir, env)),
     stubPair(IProviderService, providers),
+    stubPair(ILogService, SILENT_TEST_LOGGER),
     stubPair(ISkillDiscovery, {
       _serviceBrand: undefined,
       discover: async () => ({

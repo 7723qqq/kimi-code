@@ -809,6 +809,38 @@ describe('NotifyController', () => {
     expect(h.texts()).toEqual(['▸ Delegated to explore: **keep me**']);
   });
 
+  it('folds the expanded updates box again when the click reaches it through the surface', () => {
+    // Through the real controller harness: an update long enough to be clipped
+    // by the strip makes the box foldable, and a click on it inside the surface
+    // has to fold it back. The box used to be a one-way door — an expanded box
+    // answered "nothing hidden", so the surface's click fell through to nothing.
+    const h = makeHarness(true, true);
+    h.send('u1', Array.from({ length: 30 }, (_, i) => `- line ${String(i + 1)}`).join('\n'));
+    expect(h.notifyPanel.isExpanded()).toBe(true);
+
+    h.statusSurface.render(100);
+    const box = h.statusSurface.regionRects().find((rect) => rect.id === 'updates')!;
+    expect(box.drawn).toBeGreaterThan(1);
+    const clicked = h.statusSurface.handleMouse({
+      type: 'click',
+      button: 'left',
+      x: box.col + 3,
+      y: box.from + 1,
+      screenX: box.col + 3,
+      screenY: box.from + 1,
+      width: 100,
+      height: 24,
+      shift: false,
+      alt: false,
+      ctrl: false,
+    });
+
+    expect(clicked?.handled).toBe(true);
+    expect(h.notifyPanel.isExpanded()).toBe(false);
+    // The pointer still does not take the keyboard: `Ctrl+N` owns it.
+    expect(h.notifyPanel.isFocused()).toBe(false);
+  });
+
   it('folds the panel to a one-line preview stub when the main turn ends', () => {
     const h = makeHarness();
     h.send('n1', 'phase report intro\n\n- detail A');

@@ -12,6 +12,8 @@
 //!   - `shutdown_round_trip`: agent/shutdown terminates the process cleanly
 //!   - `unknown_method_returns_error`: an unknown method yields a -32601 error
 //!   - `run_turn_with_host_callbacks`: run_turn drives host/llm_chat + host/execute_tool
+//!   - `run_turn_llm_error_is_rpc_error`: a failing LLM yields a JSON-RPC error,
+//!     not a successful result carrying an "Error: …" stop_reason
 //!
 //! These tests require the binary to be built (`cargo build --release` or
 //! `cargo build`). They are skipped (with a passing assertion) when the
@@ -425,4 +427,132 @@ fn notification_does_not_get_response() {
     assert_eq!(resp["result"]["status"], "ok");
 
     client.shutdown();
+}
+
+/// A failing LLM must surface as a JSON-RPC *error*, not as a successful
+/// result whose `stop_reason` happens to read "Error: …".
+///
+/// The host answers `host/llm_chat` with an error frame; the engine must
+/// propagate that failure out of `agent/run_turn` as `code: -32603` with the
+/// cause in the message. Before the fix the same request produced a normal
+/// `result` carrying `stop_reason: "Error: …"`, which let consumers treat a
+/// failed turn as a completed one.
+#[test]
+fn run_turn_llm_error_is_rpc_error() {
+    let binary = match find_binary() {
+        Some(b) => b,
+        None => {
+            eprintln!("Skipping test: kimi-agent binary not built.");
+            return;
+        }
+    };
+
+    let mut child = Command::new(&binary)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("failed to spawn kimi-agent");
+
+    let mut stdin = child.stdin.take().expect("stdin");
+    let mut stdout = BufReader::new(child.stdout.take().expect("stdout"));
+
+    let run_turn_id: u32 = 7;
+    let run_turn_req = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": run_turn_id,
+        "method": "agent/run_turn",
+        "params": {
+            "turn_id": "llm-error-turn",
+            "system_prompt": "You are a test assistant.",
+            "model_name": "test-model",
+            "messages": [{"role": "user", "content": "hello"}],
+            "tools": [],
+            "max_steps": 3
+        }
+    });
+
+    writeln!(stdin, "{}", run_turn_req).unwrap();
+    stdin.flush().unwrap();
+
+    let run_turn_id_for_thread = run_turn_id;
+    let handler = std::thread::spawn(move || -> Result<serde_json::Value, String> {
+        let mut buf = String::new();
+        let deadline = Instant::now() + Duration::from_secs(30);
+
+        loop {
+            if Instant::now() > deadline {
+                return Err("timed out waiting for agent/run_turn response".into());
+            }
+            buf.clear();
+            let n = stdout.read_line(&mut buf).map_err(|e| e.to_string())?;
+            if n == 0 {
+                return Err("stdout closed before run_turn response".into());
+            }
+            let trimmed = buf.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let msg: serde_json::Value = match serde_json::from_str(trimmed) {
+                Ok(v) => v,
+                Err(_) => continue,
+            };
+
+            if msg.get("method").is_none()
+                && msg.get("id") == Some(&serde_json::json!(run_turn_id_for_thread))
+            {
+                return Ok(msg);
+            }
+
+            let method = match msg.get("method").and_then(|m| m.as_str()) {
+                Some(m) => m,
+                None => continue,
+            };
+            let req_id = msg.get("id").cloned().unwrap_or(serde_json::Value::Null);
+
+            // The LLM call fails (non-retryable: no "timeout"/"connect" in
+            // the text, so the engine must not burn retries on it).
+            let response = if method == "host/llm_chat" {
+                serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "error": {"code": -32603, "message": "boom: model not found"}
+                })
+            } else {
+                serde_json::json!({
+                    "jsonrpc": "2.0",
+                    "id": req_id,
+                    "error": {"code": -32601, "message": format!("unknown method: {method}")}
+                })
+            };
+
+            writeln!(stdin, "{}", response).map_err(|e| e.to_string())?;
+            stdin.flush().map_err(|e| e.to_string())?;
+        }
+    });
+
+    let resp = handler.join().expect("handler thread panicked").expect("response");
+
+    assert_eq!(resp["jsonrpc"], "2.0");
+    let err = resp
+        .get("error")
+        .unwrap_or_else(|| panic!("expected a JSON-RPC error frame, got: {resp}"));
+    assert_eq!(err["code"], -32603, "expected internal error code: {resp}");
+    let message = err["message"].as_str().unwrap_or("");
+    assert!(
+        message.contains("Turn failed"),
+        "error message should name the failed turn: {message}"
+    );
+    assert!(
+        message.contains("boom: model not found"),
+        "error message should carry the underlying cause: {message}"
+    );
+    // The failure must not masquerade as a successful result.
+    assert!(
+        resp.get("result").is_none(),
+        "a failed turn must not return a result: {resp}"
+    );
+
+    let _ = child.kill();
+    let _ = child.wait();
 }

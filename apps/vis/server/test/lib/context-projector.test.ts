@@ -1237,4 +1237,112 @@ describe('context-projector', () => {
       inputOther: 0, output: 0, inputCacheRead: 0, inputCacheCreation: 0,
     });
   });
+
+  // ---- Malformed-record guards (audit a37/F3 + a37/F4) -----------------------
+  // `usageScope` is a compile-time-only assertion upstream (`z.custom<…>()`),
+  // and `context.replace_tool_result.result.output` is a plain type assertion
+  // too. A hand-edited or imported wire can violate both; each record must be
+  // skipped with a warning instead of throwing out of the whole projection
+  // (which surfaced as a permanent 500 on /context).
+
+  it('folds an unknown usageScope into session instead of throwing (a37/F3)', () => {
+    const entries = [
+      { lineNo: 1, data: { type: 'usage.record' as const, model: 'm',
+          usage: { inputOther: 1, output: 2, inputCacheRead: 3, inputCacheCreation: 4 },
+          usageScope: 'x' }, raw: {} },
+      { lineNo: 2, data: { type: 'usage.record' as const, model: 'm',
+          usage: { inputOther: 10, output: 20, inputCacheRead: 30, inputCacheCreation: 40 } }, raw: {} },
+      { lineNo: 3, data: { type: 'usage.record' as const, model: 'm',
+          usage: { inputOther: 100, output: 200, inputCacheRead: 300, inputCacheCreation: 400 },
+          usageScope: 'turn' }, raw: {} },
+    ];
+
+    const proj = projectContext(entries as any);
+
+    // The two 'session' records accumulate; the explicit 'turn' one stays out.
+    expect(proj.usage.byScope.session).toEqual({
+      inputOther: 11, output: 22, inputCacheRead: 33, inputCacheCreation: 44,
+    });
+    expect(proj.usage.byScope.turn).toEqual({
+      inputOther: 100, output: 200, inputCacheRead: 300, inputCacheCreation: 400,
+    });
+    expect(proj.warnings).toEqual([]);
+  });
+
+  it('counts a usage.record with missing / non-numeric usage as 0 and warns (a37/F3)', () => {
+    const entries = [
+      { lineNo: 1, data: { type: 'usage.record' as const, model: 'm', usageScope: 'session' }, raw: {} },
+      { lineNo: 2, data: { type: 'usage.record' as const, model: 'm',
+          usage: { inputOther: 'many', output: 5 }, usageScope: 'session' }, raw: {} },
+    ];
+
+    const proj = projectContext(entries as any);
+
+    // Line 1 contributes nothing but is reported; line 2 keeps its one known
+    // field so a real amount is never silently dropped.
+    expect(proj.usage.byScope.session).toEqual({
+      inputOther: 0, output: 5, inputCacheRead: 0, inputCacheCreation: 0,
+    });
+    expect(proj.warnings).toHaveLength(1);
+    expect(proj.warnings[0]).toMatch(/line 1: usage\.record had no numeric usage fields/);
+  });
+
+  it('replaces a tool result from a string / part-array output (a37/F4)', () => {
+    const base = (lineNo: number) => ({
+      lineNo,
+      data: { type: 'context.append_message' as const,
+        message: { role: 'tool' as const, toolCallId: 'call-1',
+          content: [{ type: 'text' as const, text: 'predicted' }] } },
+      raw: {},
+    });
+
+    const asString = projectContext([
+      base(1),
+      { lineNo: 2, data: { type: 'context.replace_tool_result' as const, toolCallId: 'call-1',
+          result: { output: 'precise' } }, raw: {} },
+    ] as any);
+    expect(asString.messages[0]!.message.content).toEqual([{ type: 'text', text: 'precise' }]);
+    expect(asString.warnings).toEqual([]);
+
+    const asParts = projectContext([
+      base(1),
+      { lineNo: 2, data: { type: 'context.replace_tool_result' as const, toolCallId: 'call-1',
+          result: { output: [{ type: 'text' as const, text: 'a' }, { type: 'text' as const, text: 'b' }] } }, raw: {} },
+    ] as any);
+    expect(asParts.messages[0]!.message.content).toEqual([
+      { type: 'text', text: 'a' }, { type: 'text', text: 'b' },
+    ]);
+    expect(asParts.warnings).toEqual([]);
+
+    // An empty part array is a legitimate replacement (not a malformed one).
+    const asEmpty = projectContext([
+      base(1),
+      { lineNo: 2, data: { type: 'context.replace_tool_result' as const, toolCallId: 'call-1',
+          result: { output: [] } }, raw: {} },
+    ] as any);
+    expect(asEmpty.messages[0]!.message.content).toEqual([]);
+    expect(asEmpty.warnings).toEqual([]);
+  });
+
+  it.each([
+    ['missing result', undefined],
+    ['null result', null],
+    ['numeric output', { output: 42 }],
+    ['object output', { output: { text: 'nope' } }],
+    ['missing output', {}],
+  ])('keeps the predicted content for a replace_tool_result with %s (a37/F4)', (_label, result) => {
+    const record: Record<string, unknown> = { type: 'context.replace_tool_result', toolCallId: 'call-1' };
+    if (result !== undefined) record['result'] = result;
+
+    const proj = projectContext([
+      { lineNo: 1, data: { type: 'context.append_message' as const,
+          message: { role: 'tool' as const, toolCallId: 'call-1',
+            content: [{ type: 'text' as const, text: 'predicted' }] } }, raw: {} },
+      { lineNo: 2, data: record, raw: {} },
+    ] as any);
+
+    expect(proj.messages[0]!.message.content).toEqual([{ type: 'text', text: 'predicted' }]);
+    expect(proj.warnings).toHaveLength(1);
+    expect(proj.warnings[0]).toMatch(/line 2: context\.replace_tool_result skipped/);
+  });
 });

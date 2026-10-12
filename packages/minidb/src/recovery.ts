@@ -45,6 +45,7 @@ import {
   MAGIC,
 } from './codec.js';
 import type { FrameRef } from './codec.js';
+import { crc32 } from './crc32.js';
 import { SNAPSHOT_FILE, WAL_FILE } from './generation.js';
 import type { Store, ValueLoc, ValueRef } from './store.js';
 import { yieldToLoop } from './text-index/tokenize.js';
@@ -79,6 +80,12 @@ export interface RecoveryInfo {
   /** dev/ino of the WAL inode recovery scanned (both 0 when there was none). */
   walDev: number;
   walIno: number;
+  /** Content fingerprint of the WAL window right below `walScanEnd` (see
+   *  WalTail). Recovery's dev/ino/size identity cannot detect an in-place
+   *  rewrite of the already-scanned prefix, so the continuation watermark a
+   *  replica anchors on carries this fingerprint; undefined = unknown (no
+   *  check, the pre-WalTail behavior). */
+  walScanTail?: WalTail;
   /** dev/ino of the snapshot inode recovery scanned (both 0 when there was
    *  none). */
   snapshotDev: number;
@@ -112,6 +119,53 @@ function readAtSync(fd: number, off: number, len: number): Buffer {
     got += r;
   }
   return buf;
+}
+
+/** Content fingerprint of the WAL bytes immediately below a continuation
+ *  watermark: where the window starts, how long it is, and its CRC-32.
+ *
+ *  Why identity alone is not enough: dev/ino detect a rotation and a size
+ *  check detects only a shrink, but `MiniDb.recoverWalInPlace` truncates
+ *  db.wal to the poison's `failedAtOffset` ON THE SAME INODE and the reopened
+ *  writer appends new frames over [T, oldWatermark) — the file is a different
+ *  history of the same length or longer. A replica that kept only the
+ *  watermark would preserve the rolled-back ghost frames and silently skip
+ *  the frames rewritten below its offset (search index and source of truth
+ *  drift apart until a full reopen). Comparing the bytes below the watermark
+ *  is the only check that falsifies an in-place rewrite; truncate + rotate to
+ *  a NEW WAL is not an option because under ENOSPC the acknowledged prefix
+ *  must survive. */
+export interface WalTail {
+  /** Start offset of the fingerprinted window. */
+  off: number;
+  /** Window length in bytes (0 never escapes: an empty window yields null). */
+  len: number;
+  crc32: number;
+}
+
+/** Width of the fingerprint window (one small pread per catch-up). */
+export const WAL_TAIL_FINGERPRINT_BYTES = 4096;
+
+/** Fingerprint the window ending at `end` through an ALREADY-VERIFIED fd
+ *  (the anchor's dev/ino were fstat-checked on it). Returns null when the
+ *  window cannot be read — nothing to fingerprint at offset 0, or the file is
+ *  shorter than the watermark claims (never a valid continuation). */
+export function readWalTailFd(fd: number, end: number): WalTail | null {
+  const len = Math.min(WAL_TAIL_FINGERPRINT_BYTES, end);
+  if (len <= 0) return null;
+  const off = end - len;
+  try {
+    return { off, len, crc32: crc32(readAtSync(fd, off, len)) };
+  } catch {
+    return null;
+  }
+}
+
+/** Do two fingerprints describe the same bytes? null (unknown) never matches
+ *  a real fingerprint. */
+export function sameWalTail(a: WalTail | null | undefined, b: WalTail | null | undefined): boolean {
+  if (!a || !b) return false;
+  return a.off === b.off && a.len === b.len && a.crc32 === b.crc32;
 }
 
 function parseMeta(meta: Buffer | null): Record<string, number> | null {
@@ -367,6 +421,10 @@ export async function recover({
     }
     if (pass.consistent && (!attachValueReader || attachValueReader(pass.anchors))) {
       pass.info.generationRetries = attempt;
+      // The continuation watermark a replica anchors on carries the scanned
+      // window's fingerprint (see WalTail): without it an in-place WAL rewrite
+      // below the watermark is indistinguishable from an append.
+      if (pass.walTail) pass.info.walScanTail = pass.walTail;
       return pass.info;
     }
     // Generation churn: discard EVERY record this pass applied before
@@ -381,7 +439,7 @@ export async function recover({
 
 type RecoverPassResult =
   | { consistent: false }
-  | { consistent: true; info: RecoveryInfo; anchors: GenerationAnchors };
+  | { consistent: true; info: RecoveryInfo; anchors: GenerationAnchors; walTail: WalTail | null };
 
 /** One recovery pass: scan + apply the snapshot then the WAL, recording the
  *  identity of each opened fd BEFORE scanning it (forensics round 1), then
@@ -442,6 +500,7 @@ async function recoverPass({
   let walCorrupt: [number, number][] = [];
   let truncatedWal = false;
   let walScanEnd = 0;
+  let walTail: WalTail | null = null;
   let walScanned: FileIdentity | null = null;
   // The size this pass itself leaves the WAL at: a torn-tail truncation is
   // our own write, so the post-scan re-stat is compared against this floor,
@@ -463,6 +522,13 @@ async function recoverPass({
       walFrames = r.frames.length;
       walCorrupt = r.corruptRanges;
       walScanEnd = r.eofOffset;
+      // Content fingerprint of the window below the scan endpoint, read through
+      // the very fd this pass scanned (see WalTail): the continuation watermark
+      // a replica anchors on needs it to tell an append from an in-place
+      // rewrite. Read BEFORE the torn-tail truncation below — that truncation
+      // only removes bytes at/after the endpoint, so the window is identical
+      // either way.
+      walTail = readWalTailFd(fd, walScanEnd);
       const last = r.corruptRanges[r.corruptRanges.length - 1];
       if (last && last[1] === st.size) {
         // A torn/corrupt tail is normally truncated so the next writer appends
@@ -509,6 +575,7 @@ async function recoverPass({
       snapshot: snapScanned ? { dev: snapScanned.dev, ino: snapScanned.ino } : null,
       wal: walScanned ? { dev: walScanned.dev, ino: walScanned.ino } : null,
     },
+    walTail,
   };
 }
 
@@ -521,9 +588,17 @@ async function recoverPass({
  *  applied before it stands and the next call re-validates from the stopped
  *  offset — its CRC passes once the writev lands). Returns null when `offset`
  *  cannot be a clean frame-boundary continuation (negative, beyond EOF,
- *  pointing at bytes that start no frame, or the file is not the `anchor`
+ *  pointing at bytes that start no frame, the file is not the `anchor`
  *  inode — rotation swapped it in the microseconds between the caller's stat
- *  and this open): the caller must fully reopen.
+ *  and this open — or the bytes below the watermark no longer match
+ *  `anchor.tail`: `MiniDb.recoverWalInPlace` truncated the WAL in place and
+ *  new frames were written back below this offset, so continuing here would
+ *  describe a history this replica never applied). The caller must fully
+ *  reopen.
+ *
+ *  A successful result additionally reports the fingerprint of the window
+ *  below the returned offset, so the caller can anchor its next call on the
+ *  content it just applied instead of on identity alone.
  *
  *  Cooperative (stage 5 follow-up of the open-path slicing): the frame scan
  *  runs through the windowed async scanner and the apply loop yields between
@@ -538,9 +613,9 @@ async function recoverPass({
 export async function catchUpWalAsync(
   walPath: string,
   offset: number,
-  anchor: { dev: number; ino: number },
+  anchor: { dev: number; ino: number; tail?: WalTail | null },
   apply: (f: FrameRef, fd: number, slice: () => boolean) => Promise<void>,
-): Promise<{ offset: number; appliedFrames: number } | null> {
+): Promise<{ offset: number; appliedFrames: number; tail: WalTail | null } | null> {
   let fd: number;
   try {
     fd = fsSync.openSync(walPath, 'r');
@@ -553,6 +628,13 @@ export async function catchUpWalAsync(
     if (st.dev !== anchor.dev || st.ino !== anchor.ino) return null;
     const size = st.size;
     if (offset < 0 || offset > size) return null;
+    const tail = readWalTailFd(fd, offset);
+    // A known anchor tail must still describe the bytes below the watermark:
+    // an in-place truncate + re-append on the SAME inode leaves dev/ino and
+    // (with a longer rewrite) the size check intact. Unknown/nothing-to-check
+    // (a fresh empty WAL, a hand-built anchor without a tail) skips the check
+    // and keeps the pre-fingerprint behavior.
+    if (anchor.tail && (!tail || !sameWalTail(anchor.tail, tail))) return null;
     const r = await scanFrameRefsFdAsync(fd, { onCorrupt: 'strict', startOffset: offset });
     if (r.frames.length === 0 && r.eofOffset < size) {
       // Bytes at `offset` start no valid frame. An append-only file grows
@@ -562,11 +644,15 @@ export async function catchUpWalAsync(
       const n = Math.min(MAGIC.length, size - offset);
       const head = readAtSync(fd, offset, n);
       if (!MAGIC.subarray(0, n).equals(head)) return null;
-      return { offset, appliedFrames: 0 };
+      return { offset, appliedFrames: 0, tail };
     }
     const slice = walApplySlicer();
     for (const f of r.frames) await apply(f, fd, slice);
-    return { offset: r.eofOffset, appliedFrames: r.frames.length };
+    return {
+      offset: r.eofOffset,
+      appliedFrames: r.frames.length,
+      tail: readWalTailFd(fd, r.eofOffset),
+    };
   } finally {
     fsSync.closeSync(fd);
   }

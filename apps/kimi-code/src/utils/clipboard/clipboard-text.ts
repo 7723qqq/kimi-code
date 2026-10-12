@@ -5,8 +5,21 @@ import { t } from '#/i18n';
 import { clipboard } from './clipboard-native';
 import { writeClipboardOSC52 } from './clipboard-osc52';
 
+/**
+ * Hard upper bound for a one-shot clipboard write helper. The probe path uses
+ * 1 s (`DEFAULT_LIST_TIMEOUT_MS`), which is too tight for a write carrying a
+ * full payload, but 5 s still bounds it: without a timeout the parent waits for
+ * the child's stdout to close, and `wl-copy`/`xclip` daemonize into a process
+ * that inherits that pipe — the CLI then hangs with no output at all.
+ */
+const CLIPBOARD_WRITE_TIMEOUT_MS = 5000;
+
 function runClipboardCommand(command: string, args: readonly string[], input: string): void {
-  const result = spawnSync(command, args, { encoding: 'utf8', input });
+  const result = spawnSync(command, args, {
+    encoding: 'utf8',
+    input,
+    timeout: CLIPBOARD_WRITE_TIMEOUT_MS,
+  });
   if (result.error) throw result.error;
   if (result.status === 0) return;
 

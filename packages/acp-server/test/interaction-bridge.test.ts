@@ -1,11 +1,13 @@
 import type { RequestPermissionResponse } from '@agentclientprotocol/sdk';
+import { RequestError } from '@agentclientprotocol/sdk';
 import type { Interaction } from '@moonshot-ai/agent-core-v2';
 import type { ToolInputDisplay } from '@moonshot-ai/agent-core-v2/contract';
 import type { SessionHandle } from '@moonshot-ai/klient';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { AcpClient } from '../src/acp-client';
 import { AcpInteractionBridge } from '../src/interaction-bridge';
+import { log } from '../src/log';
 
 const SESSION_ID = 'session_test';
 
@@ -363,6 +365,138 @@ describe('AcpInteractionBridge', () => {
       toolCall: { toolCallId: '5:tc_q', title: 'AskUserQuestion' },
     });
     expect(session.responses).toEqual([{ id: 'question-el-1', response: { 'Pick one': 'B' } }]);
+    bridge.dispose();
+  });
+
+  it('reports unsupported when the client has no question surface at all', async () => {
+    const session = makeFakeSession();
+    const conn = {
+      requestPermission: async () => {
+        throw RequestError.methodNotFound('session/request_permission');
+      },
+      createElicitation: async () => {
+        throw RequestError.methodNotFound('elicitation/create');
+      },
+    } as unknown as AcpClient;
+    session.setPending([questionInteraction]);
+    const bridge = new AcpInteractionBridge(conn, session.handle, SESSION_ID, true);
+    await flush();
+
+    expect(session.responses).toEqual([
+      { id: 'question-el-1', response: { cancelled: true, reason: 'unsupported' } },
+    ]);
+    bridge.dispose();
+  });
+
+  it('reports unsupported for a non-form client whose permission surface is missing', async () => {
+    const session = makeFakeSession();
+    const conn = {
+      requestPermission: async () => {
+        throw RequestError.methodNotFound('session/request_permission');
+      },
+    } as unknown as AcpClient;
+    session.setPending([questionInteraction]);
+    const bridge = new AcpInteractionBridge(conn, session.handle, SESSION_ID);
+    await flush();
+
+    expect(session.responses).toEqual([
+      { id: 'question-el-1', response: { cancelled: true, reason: 'unsupported' } },
+    ]);
+    bridge.dispose();
+  });
+
+  it('still reports dismissal when the permission RPC fails for a non-method error', async () => {
+    const session = makeFakeSession();
+    const conn = {
+      requestPermission: async () => {
+        throw new Error('transport dropped');
+      },
+    } as unknown as AcpClient;
+    session.setPending([questionInteraction]);
+    const bridge = new AcpInteractionBridge(conn, session.handle, SESSION_ID);
+    await flush();
+
+    expect(session.responses).toEqual([{ id: 'question-el-1', response: null }]);
+    bridge.dispose();
+  });
+
+  it('re-dispatches a pending interaction after a transient respond failure', async () => {
+    const session = makeFakeSession();
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
+    let respondCalls = 0;
+    const respond = vi.fn((id: string, response: unknown) => {
+      respondCalls += 1;
+      if (respondCalls <= 2) {
+        return Promise.reject(new Error('interaction approval-1 is already resolved'));
+      }
+      session.responses.push({ id, response });
+      return Promise.resolve();
+    });
+    (session.handle.interactions as { respond: unknown }).respond = respond;
+    const { conn } = makeFakeConn(() => ({
+      outcome: { outcome: 'selected', optionId: 'approve_once' },
+    }));
+    session.setPending([approvalInteraction]);
+    const bridge = new AcpInteractionBridge(conn, session.handle, SESSION_ID);
+    await flush();
+
+    // Both the primary and the fallback respond failed, so nothing settled.
+    expect(session.responses).toEqual([]);
+
+    session.setPending([]);
+    session.setPending([approvalInteraction]);
+    session.fire();
+    await flush();
+
+    expect(session.responses).toEqual([
+      { id: 'approval-1', response: { decision: 'approved', selectedLabel: 'Approve once' } },
+    ]);
+    expect(respond).toHaveBeenCalledTimes(3);
+    expect(
+      warn.mock.calls.filter(
+        (call) => call[0] === 'acp: interaction still pending after repeated dispatch failures',
+      ),
+    ).toHaveLength(0);
+    warn.mockRestore();
+    bridge.dispose();
+  });
+
+  it('stops re-dispatching and warns once after repeated dispatch failures', async () => {
+    const session = makeFakeSession();
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
+    const respond = vi.fn(() =>
+      Promise.reject(new Error('interaction approval-1 is already resolved')),
+    );
+    (session.handle.interactions as { respond: unknown }).respond = respond;
+    const { conn } = makeFakeConn(() => ({
+      outcome: { outcome: 'selected', optionId: 'approve_once' },
+    }));
+    session.setPending([approvalInteraction]);
+    const bridge = new AcpInteractionBridge(conn, session.handle, SESSION_ID);
+    await flush();
+
+    expect(respond).toHaveBeenCalledTimes(2);
+
+    session.fire();
+    await flush();
+    expect(respond).toHaveBeenCalledTimes(4);
+
+    const settledWarns = (): number =>
+      warn.mock.calls.filter(
+        (call) => call[0] === 'acp: interaction still pending after repeated dispatch failures',
+      ).length;
+
+    session.fire();
+    await flush();
+    expect(settledWarns()).toBe(1);
+    expect(respond).toHaveBeenCalledTimes(4);
+
+    session.fire();
+    session.fire();
+    await flush();
+    expect(settledWarns()).toBe(1);
+    expect(respond).toHaveBeenCalledTimes(4);
+    warn.mockRestore();
     bridge.dispose();
   });
 });

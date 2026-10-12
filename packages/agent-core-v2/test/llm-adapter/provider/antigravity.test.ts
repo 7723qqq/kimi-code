@@ -1,7 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { spawn } from 'node:child_process';
+import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { describe, expect, it, vi } from 'vitest';
 
 import type { Message, StreamedMessagePart } from '#human/llm/message';
 import {
+  AntigravityChatProvider,
   AntigravityStreamedMessage,
   buildAntigravityEnv,
   buildAntigravityPrompt,
@@ -9,6 +15,14 @@ import {
   getAntigravityModelCapability,
   mapModelToAntigravity,
 } from '#human/llm/requester/bases/antigravity/antigravity';
+import { createAntigravityRequester } from '#human/llm/requester/bases/antigravity/requester';
+
+const osState = vi.hoisted(() => ({ home: undefined as string | undefined }));
+
+vi.mock('node:os', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:os')>();
+  return { ...actual, homedir: () => osState.home ?? actual.homedir() };
+});
 
 describe('mapModelToAntigravity', () => {
   it('maps gemini-3.7-flash with default and custom effort', () => {
@@ -118,6 +132,272 @@ describe('detectAntigravityBinary', () => {
   it('detects existing binary if present on system', () => {
     const detected = detectAntigravityBinary();
     expect(detected === undefined || typeof detected === 'string').toBe(true);
+  });
+});
+
+interface FakeAgyOptions {
+  readonly stdout: string;
+  readonly exitCode?: number;
+  readonly stderrBytes?: number;
+  readonly stderrBytesPerWrite?: number;
+  readonly argvFile?: string;
+  readonly delayMs?: number;
+}
+
+function fakeAgyScript(options: FakeAgyOptions): string {
+  const lines = [
+    '#!/usr/bin/env node',
+    "const fs = require('node:fs');",
+    "const path = require('node:path');",
+  ];
+  if (options.argvFile !== undefined) {
+    lines.push(
+      `const argvFile = ${JSON.stringify(options.argvFile)};`,
+      "fs.appendFileSync(argvFile, JSON.stringify(process.argv.slice(2)) + '\\n');",
+    );
+  }
+  lines.push(
+    `const stdout = ${JSON.stringify(options.stdout)};`,
+    'if (stdout.length > 0) process.stdout.write(stdout);',
+  );
+  if (options.stderrBytes !== undefined) {
+    lines.push(
+      `let remaining = ${String(options.stderrBytes)};`,
+      `const perWrite = ${String(options.stderrBytesPerWrite ?? 4096)};`,
+      'const alphabet = "abcdefghijklmnopqrstuvwxyz";',
+      'let template = "";',
+      'while (template.length < perWrite) template += alphabet;',
+      'while (remaining > 0) {',
+      '  const size = Math.min(remaining, perWrite);',
+      "  fs.writeSync(2, template.slice(0, size));",
+      '  remaining -= size;',
+      '}',
+    );
+  }
+  lines.push(
+    `const delayMs = ${String(options.delayMs ?? 120)};`,
+    'setTimeout(() => process.exit(' + String(options.exitCode ?? 0) + '), delayMs);',
+  );
+  return lines.join('\n');
+}
+
+async function setupFakeHome(): Promise<{ home: string; binDir: string; restore: () => void }> {
+  const home = await mkdtemp(join(tmpdir(), 'agy-home-'));
+  const binDir = join(home, '.local', 'bin');
+  await mkdir(binDir, { recursive: true });
+  const previousHome = process.env['HOME'];
+  const previousResolved = osState.home;
+  process.env['HOME'] = home;
+  osState.home = home;
+  return {
+    home,
+    binDir,
+    restore: () => {
+      osState.home = previousResolved;
+      if (previousHome === undefined) {
+        delete process.env['HOME'];
+      } else {
+        process.env['HOME'] = previousHome;
+      }
+    },
+  };
+}
+
+async function writeFakeAgy(binDir: string, options: FakeAgyOptions): Promise<string> {
+  const binary = join(binDir, 'agy');
+  await writeFile(binary, fakeAgyScript(options));
+  await chmod(binary, 0o755);
+  return binary;
+}
+
+async function writeTranscript(home: string, conversationId: string, lines: string[]): Promise<void> {
+  const dir = join(home, '.gemini', 'antigravity-cli', 'brain', conversationId, '.system_generated', 'logs');
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, 'transcript.jsonl'), lines.map((line) => `${line}\n`).join(''));
+}
+
+const userMessage = (text: string): Message => ({ role: 'user', content: [{ type: 'text', text }] });
+const assistantMessage = (text: string): Message => ({
+  role: 'assistant',
+  content: [{ type: 'text', text }],
+  toolCalls: [],
+});
+
+describe('AntigravityChatProvider spawn behaviour', () => {
+  it('yields the result payload and then fails when the child exits non-zero', async () => {
+    const { home, binDir, restore } = await setupFakeHome();
+    try {
+      await writeFakeAgy(binDir, {
+        stdout:
+          '{"event":"init","conversation_id":"conv-partial"}\n' +
+          '{"event":"result","result":{"response":"PARTIAL"}}\n',
+        exitCode: 1,
+      });
+      const provider = new AntigravityChatProvider({ model: 'gemini-3.7-flash' });
+      const streamed = await provider.generate('', [], [userMessage('do it')]);
+      const parts: StreamedMessagePart[] = [];
+      let error: unknown;
+      try {
+        for await (const part of streamed) {
+          parts.push(part);
+        }
+      } catch (caught) {
+        error = caught;
+      }
+      expect(error).toBeInstanceOf(Error);
+      expect((error as Error).message).toContain('exited with code 1');
+      expect(parts).toEqual([{ type: 'text', text: 'PARTIAL' }]);
+      expect(streamed.finishReason).toBe('error');
+      expect(streamed.rawFinishReason).toBe('1');
+    } finally {
+      restore();
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it('completes without error when a result payload is followed by exit 0', async () => {
+    const { home, binDir, restore } = await setupFakeHome();
+    try {
+      await writeFakeAgy(binDir, {
+        stdout:
+          '{"event":"init","conversation_id":"conv-ok"}\n' +
+          '{"event":"result","result":{"response":"COMPLETE"}}\n',
+        exitCode: 0,
+      });
+      const provider = new AntigravityChatProvider({ model: 'gemini-3.7-flash' });
+      const streamed = await provider.generate('', [], [userMessage('do it')]);
+      const parts: StreamedMessagePart[] = [];
+      for await (const part of streamed) {
+        parts.push(part);
+      }
+      expect(parts).toEqual([{ type: 'text', text: 'COMPLETE' }]);
+      expect(streamed.finishReason).toBe('completed');
+    } finally {
+      restore();
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it('caps the buffered stderr tail instead of growing without bound', async () => {
+    const { home, binDir, restore } = await setupFakeHome();
+    try {
+      await writeFakeAgy(binDir, { stdout: '', exitCode: 1, stderrBytes: 160 * 1024 });
+      const provider = new AntigravityChatProvider({ model: 'gemini-3.7-flash' });
+      const streamed = await provider.generate('', [], [userMessage('do it')]);
+      let error: unknown;
+      try {
+        for await (const part of streamed) {
+          void part;
+        }
+      } catch (caught) {
+        error = caught;
+      }
+      expect(error).toBeInstanceOf(Error);
+      const message = (error as Error).message;
+      expect(message).toContain('exited with code 1');
+      const payload = message.slice(message.indexOf(': ') + 2);
+      expect(payload.length).toBeLessThanOrEqual(64 * 1024);
+      expect(payload.length).toBeGreaterThan(0);
+    } finally {
+      restore();
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+  it('picks up transcript lines written while the child runs, including a partial line', async () => {
+    const { home, binDir, restore } = await setupFakeHome();
+    try {
+      await writeFakeAgy(binDir, {
+        stdout: '{"event":"init","conversation_id":"conv-live"}\n',
+        exitCode: 0,
+        delayMs: 2500,
+      });
+      const provider = new AntigravityChatProvider({ model: 'gemini-3.7-flash' });
+      const streamed = await provider.generate('', [], [userMessage('do it')]);
+      await writeTranscript(home, 'conv-live', []);
+      const transcriptPath = join(
+        home,
+        '.gemini',
+        'antigravity-cli',
+        'brain',
+        'conv-live',
+        '.system_generated',
+        'logs',
+        'transcript.jsonl',
+      );
+      const firstLine = JSON.stringify({ type: 'PLANNER_RESPONSE', thinking: 'reasoning' });
+      const secondLine = JSON.stringify({ type: 'PLANNER_RESPONSE', thinking: 'reasoning continues' });
+      await writeFile(transcriptPath, `${firstLine}\n${secondLine.slice(0, 24)}`);
+      const parts: StreamedMessagePart[] = [];
+      const consumer = (async () => {
+        for await (const part of streamed) parts.push(part);
+      })();
+      await new Promise((resolve) => setTimeout(resolve, 400));
+      expect(parts.some((part) => part.type === 'think' && part.think === 'reasoning')).toBe(true);
+      expect(parts.some((part) => part.type === 'think' && part.think.includes('continues'))).toBe(
+        false,
+      );
+      await writeFile(transcriptPath, `${firstLine}\n${secondLine}`);
+      await consumer;
+      expect(parts.some((part) => part.type === 'think' && part.think === ' continues')).toBe(true);
+    } finally {
+      restore();
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('createAntigravityRequester conversation continuity', () => {
+  const readArgv = async (argvFile: string): Promise<string[][]> => {
+    const content = await readFile(argvFile, 'utf-8');
+    return content
+      .split('\n')
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line) as string[]);
+  };
+
+  const generateOnce = async (
+    requester: ReturnType<typeof createAntigravityRequester>,
+    messages: Message[],
+  ): Promise<void> => {
+    await requester.generate(
+      { model: { provider: 'antigravity', model: 'gemini-3.7-flash', capability: getAntigravityModelCapability() } },
+      { messages },
+      { signal: new AbortController().signal },
+    );
+  };
+
+  it('resumes the agy thread only when the history strictly extends the previous one', async () => {
+    const { home, binDir, restore } = await setupFakeHome();
+    const argvFile = join(home, 'argv.jsonl');
+    try {
+      await writeFakeAgy(binDir, {
+        stdout:
+          '{"event":"init","conversation_id":"conv-1"}\n' +
+          '{"event":"result","result":{"response":"OK"}}\n',
+        exitCode: 0,
+        argvFile,
+      });
+      const requester = createAntigravityRequester();
+      await generateOnce(requester, [userMessage('q1')]);
+      await generateOnce(requester, [userMessage('q1'), assistantMessage('a1'), userMessage('q2')]);
+      const third = [userMessage('fresh-1'), assistantMessage('fresh-a'), userMessage('fresh-2')];
+      await generateOnce(requester, third);
+
+      const argv = await readArgv(argvFile);
+      expect(argv).toHaveLength(3);
+      const [firstArgv, secondArgv, thirdArgv] = argv;
+      expect(firstArgv).not.toContain('--conversation');
+      expect(firstArgv?.[firstArgv.indexOf('-p') + 1]).toBe('q1');
+      expect(secondArgv?.slice(0, 2)).toEqual(['--conversation', 'conv-1']);
+      const secondPrompt = secondArgv?.[secondArgv.indexOf('-p') + 1] ?? '';
+      expect(secondPrompt).toBe('q2');
+      expect(secondPrompt).not.toContain('[User]:');
+      expect(thirdArgv).not.toContain('--conversation');
+      expect(thirdArgv?.[thirdArgv.indexOf('-p') + 1]).toContain('[User]:');
+    } finally {
+      restore();
+      await rm(home, { recursive: true, force: true });
+    }
   });
 });
 

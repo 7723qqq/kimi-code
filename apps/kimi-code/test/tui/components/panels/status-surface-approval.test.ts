@@ -437,6 +437,160 @@ describe('ApprovalRegion', () => {
     });
   });
 
+  describe('raw keys (text entry)', () => {
+    function makeFeedbackRegion(): {
+      region: ApprovalRegion;
+      surface: StatusSurfaceComponent;
+      onRespond: ReturnType<typeof vi.fn>;
+      panel: ApprovalPanelComponent;
+    } {
+      const onRespond = vi.fn();
+      const surface = new StatusSurfaceComponent({ terminalRows: () => 40 });
+      const region = new ApprovalRegion();
+      surface.setRegion(region);
+      const data = payload({
+        choices: [
+          { label: 'Allow', response: 'approved' },
+          { label: 'Reject with note', response: 'rejected', requires_feedback: true },
+        ],
+      });
+      const panel = new ApprovalPanelComponent({ data }, onRespond);
+      region.show(data, panel);
+      return { region, surface, onRespond, panel };
+    }
+
+    function makeFeedbackRegionWithSurface(): {
+      surface: StatusSurfaceComponent;
+      onRespond: ReturnType<typeof vi.fn>;
+    } {
+      const { surface, onRespond } = makeFeedbackRegion();
+      return { surface, onRespond };
+    }
+
+    it('takes the keyboard for the inline input and submits the typed reason', () => {
+      const { region, surface, onRespond, panel } = makeFeedbackRegion();
+      // Enter the requires_feedback choice from the folded form, then type.
+      expect(region.handleNumber(2)).toBe(true);
+      expect(panel.isTextEntryActive()).toBe(true);
+
+      // Through the surface, which is the entry point the editor calls.
+      expect(surface.handleRawInput('r')).toBe(true);
+      expect(surface.handleRawInput('e')).toBe(true);
+      expect(surface.handleRawInput('j')).toBe(true);
+      // Digits are text here, not answers: the old path read them as choices.
+      expect(onRespond).not.toHaveBeenCalled();
+      expect(surface.handleRawInput('\r')).toBe(true);
+
+      expect(onRespond).toHaveBeenCalledWith({
+        response: 'rejected',
+        feedback: 'rej',
+        selected_label: undefined,
+      });
+    });
+
+    it('sends typed digits to the inline input instead of answering with them', () => {
+      const { region, surface, onRespond } = makeFeedbackRegion();
+      expect(region.handleNumber(2)).toBe(true);
+
+      // '1' would answer "Allow" through the normalized mapping; with the
+      // inline input up it is text.
+      expect(surface.handleRawInput('1')).toBe(true);
+      expect(onRespond).not.toHaveBeenCalled();
+      expect(surface.handleRawInput('\r')).toBe(true);
+      expect(onRespond).toHaveBeenCalledWith(
+        expect.objectContaining({ response: 'rejected', feedback: '1' }),
+      );
+    });
+
+    it('falls through to the editor for keys the panel does not want', () => {
+      const { region, surface, panel } = makeFeedbackRegion();
+      // No inline input is up and 'r' is not one of the panel's Ctrl
+      // shortcuts, so the surface refuses it and the editor keeps the key.
+      expect(panel.isTextEntryActive()).toBe(false);
+      expect(region.handleRawInput('r')).toBe(false);
+      expect(surface.handleRawInput('r')).toBe(false);
+      expect(surface.handleRawInput('\u000F')).toBe(true);
+    });
+
+    it('consumes Ctrl+E and opens the preview for a previewable block', () => {
+      const onOpenPreview = vi.fn();
+      const surface = new StatusSurfaceComponent({ terminalRows: () => 40 });
+      const region = new ApprovalRegion();
+      surface.setRegion(region);
+      const data = payload({
+        display: [
+          { type: 'diff', path: 'a.ts', old_text: 'a\n', new_text: 'b\n', is_summary: false },
+        ],
+      });
+      const panel = new ApprovalPanelComponent({ data }, vi.fn(), undefined, onOpenPreview);
+      region.show(data, panel);
+
+      expect(surface.focusedRegion()).toBe('approval');
+      expect(surface.handleRawInput('\u0005')).toBe(true);
+      expect(onOpenPreview).toHaveBeenCalledTimes(1);
+      expect(onOpenPreview.mock.calls[0]?.[0]).toMatchObject({ type: 'diff', path: 'a.ts' });
+
+      // Nothing previewable: the panel answers Ctrl+E as a no-op (the same as
+      // `handleInput`), so the editor still must not see it.
+      const second = new StatusSurfaceComponent({ terminalRows: () => 40 });
+      const secondRegion = new ApprovalRegion();
+      second.setRegion(secondRegion);
+      const noPreview = vi.fn();
+      secondRegion.show(
+        payload(),
+        new ApprovalPanelComponent({ data: payload() }, vi.fn(), undefined, noPreview),
+      );
+      expect(second.handleRawInput('\u0005')).toBe(true);
+      expect(noPreview).not.toHaveBeenCalled();
+    });
+
+    it('types an approval rejection reason through the editor end to end', async () => {
+      // The whole chain the defect was about: the editor is the only place the
+      // keys arrive, and `StatusSurfaceKey` cannot carry them.
+      const { CustomEditor } = await import('#/tui/components/editor/custom-editor');
+      const tui = {
+        requestRender: vi.fn(),
+        render: vi.fn(() => []),
+        terminal: { rows: 40, cols: 120 },
+      } as unknown as import('@moonshot-ai/pi-tui').TUI;
+      const editor = new CustomEditor(tui);
+      const { surface, onRespond } = makeFeedbackRegionWithSurface();
+      editor.onStatusSurfaceKey = (key) => surface.handleStatusSurfaceKey(key);
+      editor.onStatusSurfaceRawInput = (data) => surface.handleRawInput(data);
+
+      // 2 enters the feedback choice, then the reason is typed and submitted.
+      for (const key of ['2', 'n', 'o', '!']) editor.handleInput(key);
+      expect(onRespond).not.toHaveBeenCalled();
+      editor.handleInput('\r');
+
+      expect(onRespond).toHaveBeenCalledWith({
+        response: 'rejected',
+        feedback: 'no!',
+        selected_label: undefined,
+      });
+      // None of it leaked into the draft.
+      expect(editor.getText()).toBe('');
+    });
+
+    it('does not consume Ctrl+E when the approval lost focus', () => {
+      const onOpenPreview = vi.fn();
+      const surface = new StatusSurfaceComponent({ terminalRows: () => 40 });
+      const region = new ApprovalRegion();
+      surface.setRegion(region);
+      const data = payload({
+        display: [
+          { type: 'diff', path: 'a.ts', old_text: 'a\n', new_text: 'b\n', is_summary: false },
+        ],
+      });
+      const panel = new ApprovalPanelComponent({ data }, vi.fn(), undefined, onOpenPreview);
+      region.show(data, panel);
+      surface.focusRegion(null);
+
+      expect(surface.handleRawInput('\u0005')).toBe(false);
+      expect(onOpenPreview).not.toHaveBeenCalled();
+    });
+  });
+
   describe('left column keys', () => {
     it('walks the options with the arrow keys', () => {
       const { region, onRespond } = makeRegionWithPanel();

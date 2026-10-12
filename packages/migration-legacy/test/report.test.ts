@@ -52,7 +52,11 @@ describe('writeReport', () => {
           failures: [{ sourcePath: '/x/bad-history.jsonl', reason: 'EACCES' }],
         },
         skills: { copied: 0, skippedExisting: 0, failures: [] },
-        plans: { copied: 0, skippedExisting: 0 },
+        plans: {
+          copied: 1,
+          skippedExisting: 0,
+          failures: [{ sourcePath: '/x/plans/bad.md', reason: 'EACCES' }],
+        },
         sessions: {
           scope: 'all',
           bucketsScanned: 0,
@@ -64,6 +68,7 @@ describe('writeReport', () => {
           sessionsSkippedPlaceholder: 0,
           sessionsSkippedEmpty: 0,
           sessionsFailed: [],
+          subagentFailures: [{ sourcePath: '/x/ses/subagents/sub1', reason: 'ENOENT' }],
           sessionsConflicts: [],
           sessionsDebrisArchived: [
             { targetPath: '/t/ses_x', archivedPath: '/t/ses_x.debris-2026-01-01T00-00-00-000Z' },
@@ -90,6 +95,12 @@ describe('writeReport', () => {
     ]);
     expect(parsed.summary.sessions.sessionsDebrisArchived).toEqual([
       { targetPath: '/t/ses_x', archivedPath: '/t/ses_x.debris-2026-01-01T00-00-00-000Z' },
+    ]);
+    expect(parsed.summary.plans.failures).toEqual([
+      { sourcePath: '/x/plans/bad.md', reason: 'EACCES' },
+    ]);
+    expect(parsed.summary.sessions.subagentFailures).toEqual([
+      { sourcePath: '/x/ses/subagents/sub1', reason: 'ENOENT' },
     ]);
   });
 });

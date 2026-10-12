@@ -176,6 +176,12 @@ export const KNOWN_DIFFERENCES: readonly KnownDifference[] = [
     summary:
       'The reference wraps the trailing backslash in an ERROR node and flags hasError; this parser keeps it as word text inside the command (bash itself accepts it).',
   },
+  {
+    id: 'expansion-transformation-leftover',
+    readmeAnchor: 'Text after the `${v@` transformation letter (`${x@UQ}`, `${x@Q$(echo hi)}`)',
+    summary:
+      'The leftover bytes are one ERROR node inside the expansion with hasError here (bash rejects the form); the reference splits the expansion and re-parses it as a concatenation.',
+  },
 ];
 
 const KNOWN_DIFFERENCE_IDS: ReadonlySet<string> = new Set(KNOWN_DIFFERENCES.map((entry) => entry.id));

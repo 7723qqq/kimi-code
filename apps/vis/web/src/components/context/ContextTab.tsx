@@ -29,6 +29,10 @@ export function ContextTab({ sessionId, initialAgentId = 'main' }: ContextTabPro
 
   const agents = detail?.agents ?? [];
   const messages = ctx?.messages ?? [];
+  // Wire-reader / blob-resolver / projector caveats for this read (malformed
+  // records that were skipped). Projector-level ones arrive here too — see
+  // `context-projector.ts` (audit a37/F3+F4).
+  const warnings = ctx?.warnings ?? [];
   const sessionUsage = ctx?.usage.byScope.session ?? EMPTY_USAGE;
   const turnUsage = ctx?.usage.byScope.turn ?? EMPTY_USAGE;
   const cumulativeUsage: TokenUsage = {
@@ -141,6 +145,17 @@ export function ContextTab({ sessionId, initialAgentId = 'main' }: ContextTabPro
       {history === 'full' ? (
         <div className="shrink-0 border-b border-border bg-surface-1 px-3 py-1 font-mono text-[10.5px] text-fg-3">
           {t('context.fullHistoryHint')}
+        </div>
+      ) : null}
+
+      {/* Malformed-record caveats from the read (wire-reader, blob-resolver,
+          context-projector). Same strip as WireTab so both tabs read alike. */}
+      {warnings.length > 0 ? (
+        <div className="shrink-0 border-b border-[var(--color-sev-warning)] bg-[color-mix(in_oklab,var(--color-sev-warning)_8%,transparent)] px-3 py-1 font-mono text-[11px] text-[var(--color-sev-warning)]">
+          {t(warnings.length > 1 ? 'wire.warnings' : 'wire.warning', {
+            count: warnings.length,
+            first: warnings[0] ?? '',
+          })}
         </div>
       ) : null}
 

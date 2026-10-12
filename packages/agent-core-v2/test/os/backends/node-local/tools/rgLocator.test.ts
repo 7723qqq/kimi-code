@@ -1,5 +1,13 @@
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 
 import { join } from 'pathe';
@@ -70,7 +78,7 @@ describe('findExistingRg', () => {
 
   it('resolves from share-dir when cached', async () => {
     const cached = join(fakeShare, 'bin', process.platform === 'win32' ? 'rg.exe' : 'rg');
-    writeFileSync(cached, 'fake rg');
+    writeFileSync(cached, 'fake rg', { mode: 0o755 });
     const probe = noRgProbe();
     const result = await findExistingRg(probe, fakeShare);
 
@@ -78,13 +86,29 @@ describe('findExistingRg', () => {
     expect(probe.exec).not.toHaveBeenCalled();
   });
 
+  it.skipIf(process.platform === 'win32')(
+    'ignores a cached entry that lost its executable bit',
+    async () => {
+      const cached = join(fakeShare, 'bin', 'rg');
+      writeFileSync(cached, 'fake rg', { mode: 0o644 });
+
+      expect(await findExistingRg(noRgProbe(), fakeShare)).toBeUndefined();
+
+      chmodSync(cached, 0o755);
+      expect(await findExistingRg(noRgProbe(), fakeShare)).toEqual({
+        path: cached,
+        source: 'share-bin-cached',
+      });
+    },
+  );
+
   it('prefers system PATH over share-dir when both are available', async () => {
     const binDir = join(fakeShare, 'path-bin');
     mkdirSync(binDir, { recursive: true });
     const systemRg = join(binDir, process.platform === 'win32' ? 'rg.exe' : 'rg');
     const cached = join(fakeShare, 'bin', process.platform === 'win32' ? 'rg.exe' : 'rg');
-    writeFileSync(systemRg, 'fake system rg');
-    writeFileSync(cached, 'fake cached rg');
+    writeFileSync(systemRg, 'fake system rg', { mode: 0o755 });
+    writeFileSync(cached, 'fake cached rg', { mode: 0o755 });
     process.env['PATH'] = binDir;
     const probe = noRgProbe();
     const result = await findExistingRg(probe, fakeShare);
@@ -523,6 +547,48 @@ describe('ensureRgPath Windows download branch', () => {
     expect(readFileSync(installed)).toEqual(payload);
   });
 
+  it('atomically replaces a stale, read-only cached binary', async () => {
+    const payload = Buffer.from('MZfresh-pe-bytes', 'utf8');
+    const zipBuf = await buildFixtureZip([
+      {
+        name: 'ripgrep-15.0.0-x86_64-pc-windows-msvc/rg.exe',
+        content: payload,
+      },
+    ]);
+
+    const archivePath = join(fakeShare, 'fixture.zip');
+    const installed = join(fakeShare, 'bin', 'rg.exe');
+    writeFileSync(archivePath, zipBuf);
+    writeFileSync(installed, 'MZtruncated-pe-bytes', { mode: 0o444 });
+
+    try {
+      await expect(extractRgFromZip(archivePath, installed)).resolves.toBeUndefined();
+
+      expect(readFileSync(installed)).toEqual(payload);
+      expect(readdirSync(join(fakeShare, 'bin'))).toEqual(['rg.exe']);
+    } finally {
+      chmodSync(installed, 0o644);
+    }
+  });
+
+  it('leaves no staging file behind when the install cannot be completed', async () => {
+    const zipBuf = await buildFixtureZip([
+      {
+        name: 'ripgrep-15.0.0-x86_64-pc-windows-msvc/rg.exe',
+        content: Buffer.from('MZfake-pe-bytes', 'utf8'),
+      },
+    ]);
+    const archivePath = join(fakeShare, 'fixture.zip');
+    const installed = join(fakeShare, 'bin', 'rg.exe');
+    writeFileSync(archivePath, zipBuf);
+    mkdirSync(installed, { recursive: true });
+    writeFileSync(join(installed, 'occupied'), 'not replaceable');
+
+    await expect(extractRgFromZip(archivePath, installed)).rejects.toThrow();
+
+    expect(readdirSync(join(fakeShare, 'bin'))).toEqual(['rg.exe']);
+  });
+
   it('throws with "CDN content may have changed" when the zip omits rg.exe', async () => {
     const zipBuf = await buildFixtureZip([{ name: 'README.md', content: Buffer.from('readme') }]);
     const archivePath = join(fakeShare, 'fixture.zip');
@@ -532,6 +598,7 @@ describe('ensureRgPath Windows download branch', () => {
     await expect(extractRgFromZip(archivePath, installed)).rejects.toThrow(
       /CDN content may have changed/,
     );
+    expect(existsSync(installed)).toBe(false);
   });
 
   it('surfaces HTTP failure on Windows with status + statusText', async () => {

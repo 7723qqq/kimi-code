@@ -324,6 +324,7 @@ export class WritePath<V> {
     this.deps.ensureWritable();
     if (!this.deps.writeOps.enter()) throw backupInProgressError();
     try {
+      this.checkKey(key);
       await this.awaitRotation();
       const existed = this.deps.store().has(toKStr(key));
       if (!existed) return false;
@@ -756,6 +757,7 @@ export class WritePath<V> {
     this.deps.ensureWritable();
     if (!this.deps.writeOps.enter()) throw backupInProgressError();
     try {
+      this.checkKey(key);
       await this.awaitRotation();
       const k = toKStr(key);
       const cur = this.deps.store().getRecord(k);

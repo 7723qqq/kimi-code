@@ -140,7 +140,7 @@ export interface SessionEventHost {
   noteCompactionFinished(): void;
   handleTurnStarted?(event: Extract<Event, { type: 'turn.started' }>): void;
   handleTurnEnded?(event: Extract<Event, { type: 'turn.ended' }>): void;
-  mountEditorReplacement(panel: Component & Focusable): void;
+  mountEditorReplacement(panel: Component & Focusable, onDisplaced?: () => void): void;
   restoreEditor(): void;
   restoreInputText(text: string): void;
   appendTranscriptEntry(entry: TranscriptEntry, component?: Component): void;

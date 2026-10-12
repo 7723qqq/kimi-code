@@ -2,6 +2,10 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import {
+  REMOTE_CONTROL_ORIGIN_FIX_PATH,
+  REMOTE_CONTROL_ORIGIN_FIX_SCRIPT,
+} from '@moonshot-ai/remote-control';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
@@ -46,5 +50,14 @@ describe('web asset cache policy', () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.headers['cache-control']).toBe('no-cache');
+  });
+
+  it('serves the Remote Control origin fix as a same-origin script', async () => {
+    const response = await app.inject({ method: 'GET', url: REMOTE_CONTROL_ORIGIN_FIX_PATH });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.headers['content-type']).toBe('text/javascript; charset=utf-8');
+    expect(response.headers['cache-control']).toBe('no-cache');
+    expect(response.body).toBe(REMOTE_CONTROL_ORIGIN_FIX_SCRIPT);
   });
 });

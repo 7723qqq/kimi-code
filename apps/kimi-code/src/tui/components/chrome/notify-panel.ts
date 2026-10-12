@@ -155,6 +155,13 @@ export class NotifyPanelComponent implements Component {
   /** How many body rows the displayed entry needs, and at what width. */
   private lastBodyHeight = 0;
   private lastWidth = 80;
+  /**
+   * Body rows the last layout may actually draw: the host's granted budget
+   * when there is one, the box's own cap otherwise. Recorded so
+   * {@link hasHiddenContent} can answer the fold contract after unfolding —
+   * the box is clipping its body, so a click must be able to close it again.
+   */
+  private lastGrantedBodyBudget = 0;
   /** Clickable spans of the top border, refreshed by every `title()` call. */
   private tabHitRanges: TabHitRange[] = [];
   /** `+N done` expanded into individual tabs (mouse toggle). */
@@ -206,28 +213,29 @@ export class NotifyPanelComponent implements Component {
   /**
    * Rows the box would like at this width, for the surface's budget pass.
    *
-   * Measured by rendering at the panel's own cap rather than guessed from the
-   * entry text: markdown wrapping, the tab strip's degradation ladder and the
-   * one-line stub all change the answer, and a guess that disagreed with the
-   * paint is exactly what made the old fixed ceilings wrong.
+   * Pure layout: the measurement answers the surface's question and stops
+   * there. It used to render a full paint pass, which also ran the render's
+   * state writes — measuring at the box's own cap (a larger budget than the
+   * surface later grants) pinned a following view to a tail the real paint
+   * then scrolled away, so a layout pass skipped the unread middle of an
+   * update. The stub is one row, and below {@link MIN_BODY_ROWS} of body there
+   * is nothing but the stub to measure.
    */
   measureHeight(width: number): number {
     if (this.channels.length === 0) return 0;
-    return this.paint(width).length;
-  }
-
-  /**
-   * Render at the panel's own cap, leaving the granted budget untouched.
-   *
-   * `render` is this method with the budget left as the host set it; measuring
-   * through a temporary clear-and-restore would leave the panel resized if
-   * anything threw in between.
-   */
-  private paint(width: number): string[] {
+    // Measured at the box's own cap, not at the budget the host granted last
+    // frame: the surface is asking what the box would draw if it had the rows,
+    // and answering from a stale grant would under-report the height it needs.
+    // Clearing the budget is also what decides `mustCollapse` here — a box that
+    // only looks like a stub because a short strip squeezed it still measures
+    // its real height. Nothing but the layout runs: no `scroll`, `followTail`
+    // or `autoAdvance` write, so a measurement cannot move the reader.
     const granted = this.budget;
     this.budget = undefined;
     try {
-      return this.render(width);
+      if (this.mustCollapse()) return 1;
+      const layout = this.layoutBody(width);
+      return 1 + Math.min(layout.bodyRows.length, layout.budget);
     } finally {
       this.budget = granted;
     }
@@ -309,12 +317,22 @@ export class NotifyPanelComponent implements Component {
   }
 
   /**
-   * True when unfolding would reveal something — the panel is folded and there
-   * is at least one update to show. A panel with nothing to reveal stays inert so
-   * a click on it does not claim to have done something.
+   * Whether unfolding right now would reveal rows that are not on screen.
+   *
+   * The surface's only fold predicate, so the answer has to hold in both
+   * directions: folded, the body is entirely hidden; expanded, it stays true
+   * while the granted budget still clips the body — otherwise the box could be
+   * opened but never closed, and a click on an expanded box did nothing at all.
+   * The approval region answers the same contract the same way, by comparing
+   * the rows it painted against the rows it was granted.
+   *
+   * Before the first paint there is nothing on screen either way, so an empty
+   * box (and one whose entry fits) stays inert rather than claiming a fold.
    */
   hasHiddenContent(): boolean {
-    return this.collapsed && this.channels.length > 0;
+    if (this.channels.length === 0) return false;
+    if (this.collapsed) return true;
+    return this.lastBodyHeight > this.lastGrantedBodyBudget;
   }
 
   /**
@@ -670,16 +688,20 @@ export class NotifyPanelComponent implements Component {
 
   invalidate(): void {}
 
-  render(width: number): string[] {
-    if (this.channels.length === 0) return [];
-    // The strip's frame belongs to the status surface, so the panel draws
-    // content only: the tab strip that used to be the box's top border opens
-    // the body as its own row.
-    if (this.mustCollapse()) {
-      return [this.stubLine(width)].map((line) => truncateToWidth(line, width));
-    }
-
-    const innerWidth = Math.max(1, width - 6);
+  /**
+   * The body layout at `width`: what the displayed entry renders to, and the
+   * window a paint may draw from it.
+   *
+   * Pure layout, deliberately separated from `render`'s state writes. `scroll`,
+   * `followTail` and `autoAdvance` describe what the *reader* has done, and a
+   * measurement pass (the surface asking how many rows the box wants, at the
+   * box's own cap rather than the smaller budget the surface then grants) is not
+   * the reader: running those writes during a measurement pinned a following
+   * view to a tail the next real paint scrolled away, so an update's unread
+   * middle was skipped. `granted` records the budget only when the host granted
+   * one; a measurement leaves the box at full height and must not look clipped.
+   */
+  private layoutBody(width: number): { bodyRows: string[]; budget: number; maxScroll: number } {
     const ch = this.activeChannel();
     const entry = ch.entries[Math.min(ch.page, ch.entries.length - 1)]!;
     const bodyRows = new Markdown(
@@ -689,14 +711,33 @@ export class NotifyPanelComponent implements Component {
       createMarkdownTheme(),
       undefined,
       createMarkdownOptions(),
-    ).render(innerWidth);
+    ).render(Math.max(1, width - 6));
 
     // Record the entry's full height and width so `scrollBy` can clamp against
     // it: the rendered window is the only place the real height is known.
     this.lastBodyHeight = bodyRows.length;
     this.lastWidth = width;
     const budget = Math.max(MIN_BODY_ROWS, this.bodyBudget());
-    const maxScroll = Math.max(0, bodyRows.length - budget);
+    // The rows this layout may actually draw: the host's grant when there is
+    // one, the box's own cap otherwise. Recording it unconditionally is what
+    // lets a standalone mount answer "is the body clipped?" too — the cap is
+    // its clipping authority — and the surface's paint runs after its budget
+    // pass, so the granted number is the one left behind.
+    this.lastGrantedBodyBudget = budget;
+    return { bodyRows, budget, maxScroll: Math.max(0, bodyRows.length - budget) };
+  }
+
+  render(width: number): string[] {
+    if (this.channels.length === 0) return [];
+    // The strip's frame belongs to the status surface, so the panel draws
+    // content only: the tab strip that used to be the box's top border opens
+    // the body as its own row.
+    if (this.mustCollapse()) {
+      return [this.stubLine(width)].map((line) => truncateToWidth(line, width));
+    }
+
+    const ch = this.activeChannel();
+    const { bodyRows, budget, maxScroll } = this.layoutBody(width);
     // A following view pins to the newest rows; a browsing one keeps its offset
     // clamped to the content. Focus is deliberately not consulted: the wheel can
     // scroll the box without taking the keyboard, so "is the user reading the

@@ -1,8 +1,8 @@
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   resetUnexpectedErrorHandler,
@@ -10,6 +10,7 @@ import {
 } from '#/_base/errors/unexpectedError';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { CloudAppender, type CloudAppenderOptions } from '#/app/telemetry/cloudAppender';
+import { DISK_EVENT_MAX_AGE_MS } from '#/app/telemetry/cloudTransport';
 
 import { stubBootstrap, stubClientIdentity } from '../bootstrap/stubs';
 
@@ -407,6 +408,101 @@ describe('CloudAppender', () => {
     expect(
       readdirSync(join(homeDir, 'telemetry')).filter((f) => f.startsWith('failed_')),
     ).toHaveLength(0);
+  });
+
+  it('prunes expired failed batches when the periodic flush starts', async () => {
+    const telemetryDir = join(homeDir, 'telemetry');
+    mkdirSync(telemetryDir, { recursive: true });
+    const staleName = `failed_${Date.now() - DISK_EVENT_MAX_AGE_MS - 60_000}_aaaa.jsonl`;
+    writeFileSync(join(telemetryDir, staleName), '{}\n');
+
+    const appender = new CloudAppender(
+      baseOptions({
+        homeDir,
+        fetchImpl: makeFetch(() => statusResponse(500)),
+      }),
+    );
+    appender.track({ event: 'evt', context: {}, properties: {} });
+    await appender.flush();
+    expect(readdirSync(telemetryDir).filter((f) => f.startsWith('failed_'))).toHaveLength(2);
+
+    try {
+      appender.startPeriodicFlush();
+      await vi.waitFor(() => {
+        expect(readdirSync(telemetryDir).filter((f) => f.startsWith('failed_'))).toHaveLength(1);
+      });
+    } finally {
+      appender.stopPeriodicFlush();
+    }
+    const remaining = readdirSync(telemetryDir).filter((f) => f.startsWith('failed_'));
+    expect(remaining).not.toContain(staleName);
+  });
+
+  it('caps the number of failed batches by deleting the oldest first', async () => {
+    const telemetryDir = join(homeDir, 'telemetry');
+    mkdirSync(telemetryDir, { recursive: true });
+    const base = Date.now();
+    for (let i = 0; i < 5; i += 1) {
+      writeFileSync(join(telemetryDir, `failed_${base - i * 1000}_k${i}.jsonl`), '{}\n');
+    }
+
+    const appender = new CloudAppender(
+      baseOptions({
+        homeDir,
+        fetchImpl: makeFetch(() => okResponse()),
+        maxDiskFiles: 2,
+      }),
+    );
+    await appender.pruneDiskEvents();
+
+    const remaining = readdirSync(telemetryDir)
+      .filter((f) => f.startsWith('failed_'))
+      .toSorted();
+    expect(remaining).toHaveLength(2);
+    expect(remaining).toEqual([`failed_${base - 1000}_k1.jsonl`, `failed_${base}_k0.jsonl`]);
+  });
+
+  it('caps the total bytes of failed batches by deleting the oldest first', async () => {
+    const telemetryDir = join(homeDir, 'telemetry');
+    mkdirSync(telemetryDir, { recursive: true });
+    const base = Date.now();
+    const line = `${JSON.stringify({ pad: 'x'.repeat(100) })}\n`;
+    for (let i = 0; i < 3; i += 1) {
+      writeFileSync(join(telemetryDir, `failed_${base - i * 1000}_b${i}.jsonl`), line);
+    }
+
+    const appender = new CloudAppender(
+      baseOptions({
+        homeDir,
+        fetchImpl: makeFetch(() => okResponse()),
+        maxDiskBytes: 250,
+      }),
+    );
+    await appender.pruneDiskEvents();
+
+    const remaining = readdirSync(telemetryDir).filter((f) => f.startsWith('failed_'));
+    expect(remaining).toHaveLength(2);
+    expect(remaining).not.toContain(`failed_${base - 2000}_b2.jsonl`);
+  });
+
+  it('prunes corrupt failed batches without touching valid ones', async () => {
+    const telemetryDir = join(homeDir, 'telemetry');
+    mkdirSync(telemetryDir, { recursive: true });
+    const base = Date.now();
+    writeFileSync(join(telemetryDir, `failed_${base}_corrupt.jsonl`), 'not json\n');
+    writeFileSync(join(telemetryDir, `failed_${base - 1000}_valid.jsonl`), '{}\n');
+
+
+    const appender = new CloudAppender(
+      baseOptions({
+        homeDir,
+        fetchImpl: makeFetch(() => okResponse()),
+      }),
+    );
+    await appender.pruneDiskEvents();
+
+    const remaining = readdirSync(telemetryDir).filter((f) => f.startsWith('failed_'));
+    expect(remaining).toEqual([`failed_${base - 1000}_valid.jsonl`]);
   });
 
   it('drops null values from the outbound payload', async () => {

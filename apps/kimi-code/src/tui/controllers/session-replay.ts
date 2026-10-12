@@ -47,7 +47,6 @@ import {
   replayEntry,
   skillActivationFromOrigin,
   pluginCommandFromOrigin,
-  stripBundledSkillParts,
   toolCallFromReplayMessage,
   toolResultOutput,
   withoutUserPromptSubmitHookParts,
@@ -501,40 +500,6 @@ export class SessionReplayRenderer {
         context,
         formatHookResultMessageForTranscript(part.text, 'UserPromptSubmit', false),
       );
-    }
-  }
-
-  private renderBundledPrompt(
-    context: ReplayRenderContext,
-    message: ContextMessage,
-    hookResults: readonly ContextMessage[] = [],
-  ): void {
-    // The bundle is one message: advance once, rebuild the per-skill cards
-    // from the prompt origin, then show the caller's own parts (the engine
-    // prepends one rendered text part per bundled skill to the content).
-    this.advanceTurn(context);
-    this.renderBundledSkillCards(context, message);
-    for (const hookResult of hookResults) {
-      this.renderHookResult(context, hookResult);
-    }
-    this.renderHookParts(context, message);
-    const callerMessage = {
-      ...message,
-      content: withoutUserPromptSubmitHookParts(message.content),
-    };
-    this.host.appendTranscriptEntry(
-      replayEntry(
-        context,
-        'user',
-        contentPartsToText(stripBundledSkillParts(callerMessage)),
-        'plain',
-      ),
-    );
-  }
-
-  private renderBundledSkillCards(context: ReplayRenderContext, message: ContextMessage): void {
-    for (const skill of bundledSkillsFromOrigin(message.origin)) {
-      this.renderSkillActivation(context, skill);
     }
   }
 

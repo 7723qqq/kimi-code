@@ -1543,6 +1543,8 @@ export default {
         failed: 'Could not rewrite the prompt: {{error}}',
         emptyDraft: 'Type a prompt first, then rewrite it.',
         noSession: 'Start a session before rewriting a prompt.',
+        busy: 'A rewrite is already in progress; try again once it finishes.',
+        displaced: 'The rewrite was dismissed because another panel opened.',
       },
       updatePreferenceSelector: {
         title: 'Automatic updates',
@@ -2005,6 +2007,9 @@ export default {
       visRunning: 'kimi vis is running at {{url}}',
       visStopHint: 'Press Ctrl-C to stop.',
       visBrowserFailed: 'Could not open a browser; visit {{url}} manually.',
+      // sub/confirm.ts
+      confirmPromptEof:
+        'error: no answer available (stdin closed); pass -y to accept the previous session or give an explicit session id.',
       // sub/export.ts
       exportNoSession: 'No previous session found to export.',
       exportCancelled: 'Export cancelled.',
@@ -2014,6 +2019,9 @@ export default {
       forkCancelled: 'Fork cancelled.',
       forkedTo: 'Forked to {{id}}{{title}} in {{elapsedMs}}ms',
       forkConfirmPrompt: 'Fork previous session "{{title}}"? [Y/n] ',
+      // sub/web/run.ts
+      serverShutdownStepFailed:
+        'Server shutdown step "{{step}}" failed; the process is exiting with a non-zero code.',
       // sub/doctor.ts
       doctorFileNotExist: 'File does not exist.',
       doctorFileNotExistDefaults: 'File does not exist; built-in defaults will apply.',
@@ -2183,6 +2191,11 @@ export default {
       minidbWorkerSearchResultIncorrect:
         'MiniDb worker-built text index returned an incorrect search result',
       nativeManifestNotAvailable: 'Native asset manifest is not available.',
+      // main.ts / native worker install
+      nativeWorkerInstallFailed:
+        'Native worker "{{worker}}" failed to install ({{code}}); its index runs in the degraded fallback.',
+      nativeWorkerAssetMissing:
+        'Native worker "{{worker}}" is missing from this build; its index runs in the degraded fallback.',
       // utils/clipboard/clipboard-text.ts
       noClipboardCommandAvailable: 'No clipboard command is available.',
       // utils/process/fd-detect.ts
@@ -2667,6 +2680,7 @@ export default {
       kimiTuiNoShellCommand: 'No shell command running.',
       kimiTuiCommandStarting: 'Command is still starting — try again.',
       kimiTuiCommandFinished: 'Command already finished.',
+      autocompleteFailed: 'Autocomplete failed: {{error}}',
       kimiTuiMoveToBackgroundFailed: 'Failed to move to background: {{error}}',
       kimiTuiMovedToBackground: 'Moved to background. /tasks to view.',
       kimiTuiListTasksFailed: 'Failed to list tasks: {{error}}',
@@ -2691,6 +2705,10 @@ export default {
       feedbackNotSignedIn: "You're not signed in. Opening GitHub Issues for feedback…",
       feedbackSentUploadFailed:
         'Feedback sent; attachment upload failed — see feedback-upload.log.',
+      feedbackCodebaseTruncatedFileCount:
+        'Feedback sent; the codebase archive was truncated at {{limit}} files — it contains only the files scanned before the cap.',
+      feedbackCodebaseTruncatedTotalSize:
+        'Feedback sent; the codebase archive was truncated at {{limit}} bytes of source — it contains only the files scanned before the cap.',
       feedbackHttpFailed: 'Failed to submit feedback (HTTP {{status}}).',
       feedbackSession: 'Session: {{sessionId}}',
       feedbackId: 'Feedback ID: {{id}}',

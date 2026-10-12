@@ -270,19 +270,37 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     await boot();
     const { status, body } = await postJson<unknown>('/api/v1/providers', {
       id: 'vertex',
-      type: 'vertexai',
+      type: 'google-genai',
+      base_url: 'https://us-central1-aiplatform.googleapis.com/v1',
       models: [{ model: 'gemini-2.5-pro', max_context_size: 1048576 }],
     });
     expect(status).toBe(201);
     expect(body.code).toBe(0);
     expect(body.data).toEqual({
       id: 'vertex',
-      type: 'vertexai',
+      type: 'google-genai',
+      base_url: 'https://us-central1-aiplatform.googleapis.com/v1',
       default_model: 'vertex/gemini-2.5-pro',
       has_api_key: false,
       status: 'unconfigured',
       models: ['vertex/gemini-2.5-pro'],
     });
+  });
+
+  it('rejects the removed vertexai wire type with 40001 and writes nothing', async () => {
+    await boot();
+    const { status, body } = await postJson<unknown>('/api/v1/providers', {
+      id: 'vertex',
+      type: 'vertexai',
+      models: [{ model: 'gemini-2.5-pro', max_context_size: 1048576 }],
+    });
+    expect(status).toBe(200);
+    expect(body.code).toBe(40001);
+    expect(body.msg).toContain('type');
+
+    const onDisk = await readConfigToml();
+    expect(onDisk['providers']).toBeUndefined();
+    expect(onDisk['models']).toBeUndefined();
   });
 
   it('seeds the global default_model on a fresh setup (the provider default wins)', async () => {
@@ -694,6 +712,43 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
         adaptive_thinking: true,
       },
     });
+  });
+
+  it('drops a capability the form omits from config.toml instead of unioning it back', async () => {
+    const CAPABILITY_TOML = [
+      '[providers.openai]',
+      'type = "openai"',
+      'api_key = "sk-openai"',
+      '',
+      '[models."openai/gpt-4o"]',
+      'provider = "openai"',
+      'model = "gpt-4o"',
+      'max_context_size = 128000',
+      'capabilities = ["thinking", "image_in"]',
+      '',
+    ].join('\n');
+    await boot(CAPABILITY_TOML);
+    const { status, body } = await putJson<unknown>('/api/v1/providers/openai', {
+      type: 'openai',
+      models: [
+        {
+          model: 'gpt-4o',
+          max_context_size: 128000,
+          capabilities: ['thinking'],
+        },
+      ],
+    });
+    expect(status).toBe(200);
+    expect(body.code).toBe(0);
+
+    let onDisk = await readConfigToml();
+    let models = onDisk['models'] as Record<string, Record<string, unknown>>;
+    expect(models['openai/gpt-4o']?.['capabilities']).toEqual(['thinking']);
+
+    await (server as RunningServer).core.accessor.get(IConfigService).reload();
+    onDisk = await readConfigToml();
+    models = onDisk['models'] as Record<string, Record<string, unknown>>;
+    expect(models['openai/gpt-4o']?.['capabilities']).toEqual(['thinking']);
   });
 
   it('never touches default_model when the rebuild drops its alias (no rename)', async () => {

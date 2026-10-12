@@ -57,10 +57,23 @@ export class RotatingFileSink implements Sink {
 
   async close(): Promise<void> {
     if (this.closed) return;
+    // The flag is set before the final flush so that a drain queued by a
+    // previous `enqueue` microtask cannot re-own the batch between
+    // `restorePending` and the drop report below; the final flush itself still
+    // runs because `drain` does not consult `closed`. New lines are refused
+    // from here on, which is the same guarantee `enqueue`/`flushSync` gave
+    // before.
     this.closed = true;
     try {
       await this.flush();
     } catch {}
+    if (this.pending.length > 0) {
+      // Deliberately not rate-limited: a batch lost on close is the last
+      // chance to say those lines ever existed.
+      const dropped = this.pending.length;
+      this.pending = [];
+      this.writeStderr(`[logger] dropped ${dropped} buffered entries on close\n`);
+    }
   }
 
   flushSync(): void {
@@ -88,24 +101,34 @@ export class RotatingFileSink implements Sink {
     const droppedLine = this.takeDroppedNotice();
     const lines = droppedLine === '' ? [...this.pending] : [...this.pending, droppedLine];
     this.pending = [];
+    let appended = 0;
+    let failure: unknown;
     try {
       await mkdir(dirname(this.options.path), { recursive: true });
       if (this.currentBytes < 0) {
         this.currentBytes = await this.statSize(this.options.path);
       }
-      await this.appendLines(lines);
+      const result = await this.appendLines(lines);
+      appended = result.appended;
+      failure = result.error;
 
-      if (!this.directorySynced) {
+      if (failure === undefined && !this.directorySynced) {
         await syncDir(dirname(this.options.path));
         this.directorySynced = true;
       }
-
-      return true;
     } catch (error) {
-      this.noteFailure(error);
-      this.restorePending(lines);
+      failure = error;
+    }
+
+    if (failure !== undefined) {
+      this.noteFailure(failure);
+      // Only the lines that never reached the file are put back: everything
+      // up to `appended` is already durable, and re-queuing it would write
+      // those lines a second time once the sink recovers.
+      this.restorePending(lines.slice(appended));
       return false;
     }
+    return true;
   }
 
   private restorePending(lines: readonly string[]): void {
@@ -119,35 +142,50 @@ export class RotatingFileSink implements Sink {
     this.pending = restored.slice(overflow);
   }
 
-  private async appendLines(lines: readonly string[]): Promise<void> {
+  private async appendLines(
+    lines: readonly string[],
+  ): Promise<{ appended: number; error?: unknown }> {
+    let appended = 0;
     let chunk = '';
     let chunkBytes = 0;
-    for (const line of lines) {
-      const lineBytes = Buffer.byteLength(line, 'utf-8');
-      if (
-        chunkBytes > 0 &&
-        (chunkBytes + lineBytes > this.options.maxBytes ||
-          this.currentBytes + chunkBytes + lineBytes > this.options.maxBytes)
-      ) {
+    let chunkLines = 0;
+    try {
+      for (const line of lines) {
+        const lineBytes = Buffer.byteLength(line, 'utf-8');
+        if (
+          chunkBytes > 0 &&
+          (chunkBytes + lineBytes > this.options.maxBytes ||
+            this.currentBytes + chunkBytes + lineBytes > this.options.maxBytes)
+        ) {
+          await this.appendChunk(chunk);
+          appended += chunkLines;
+          await this.rotateIfFull();
+          chunk = '';
+          chunkBytes = 0;
+          chunkLines = 0;
+        }
+
+        if (
+          chunkBytes === 0 &&
+          this.currentBytes > 0 &&
+          this.currentBytes + lineBytes > this.options.maxBytes
+        ) {
+          await this.rotate();
+        }
+
+        chunk += line;
+        chunkBytes += lineBytes;
+        chunkLines += 1;
+      }
+      if (chunkBytes > 0) {
         await this.appendChunk(chunk);
-        chunk = '';
-        chunkBytes = 0;
+        appended += chunkLines;
+        await this.rotateIfFull();
       }
-
-      if (
-        chunkBytes === 0 &&
-        this.currentBytes > 0 &&
-        this.currentBytes + lineBytes > this.options.maxBytes
-      ) {
-        await this.rotate();
-      }
-
-      chunk += line;
-      chunkBytes += lineBytes;
+    } catch (error) {
+      return { appended, error };
     }
-    if (chunkBytes > 0) {
-      await this.appendChunk(chunk);
-    }
+    return { appended };
   }
 
   private async appendChunk(chunk: string): Promise<void> {
@@ -159,6 +197,9 @@ export class RotatingFileSink implements Sink {
       await fh.close();
     }
     this.currentBytes += Buffer.byteLength(chunk, 'utf-8');
+  }
+
+  private async rotateIfFull(): Promise<void> {
     if (this.currentBytes >= this.options.maxBytes) {
       await this.rotate();
     }
@@ -211,8 +252,12 @@ export class RotatingFileSink implements Sink {
     if (now - this.lastStderrNotice < STDERR_NOTICE_INTERVAL_MS) return;
     this.lastStderrNotice = now;
     const code = (error as NodeJS.ErrnoException)?.code ?? 'UNKNOWN';
+    this.writeStderr(`[logger] write failed: ${code}\n`);
+  }
+
+  private writeStderr(line: string): void {
     try {
-      process.stderr.write(`[logger] write failed: ${code}\n`);
+      process.stderr.write(line);
     } catch {}
   }
 }

@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest';
 
 import { transcriptEventSchema } from '#/contract/events';
 import { projectTranscriptUserOrigin } from '#/contract/origin';
+import type { ModesMeta, ModesMetaMerge } from '#/model/meta';
 import {
   agentTranscriptSnapshotSchema,
   isPlainAgentId,
+  modesMetaMergeSchema,
+  modesMetaSchema,
   transcriptOperationSchema,
   transcriptOpsCatchupResponseSchema,
   transcriptPlanResponseSchema,
@@ -482,6 +485,30 @@ describe('ViewRegistry', () => {
 });
 
 describe('contract schemas', () => {
+  it('modes schemas carry every key the model declares', () => {
+    const modelKeys: Record<keyof ModesMeta, true> = {
+      plan: true,
+      spec: true,
+      swarm: true,
+      tower: true,
+    };
+    const mergeKeys: Record<keyof ModesMetaMerge, true> = {
+      plan: true,
+      spec: true,
+      swarm: true,
+      tower: true,
+    };
+    expect(Object.keys(modesMetaSchema.shape).toSorted()).toEqual(
+      Object.keys(modelKeys).toSorted(),
+    );
+    expect(Object.keys(modesMetaMergeSchema.shape).toSorted()).toEqual(
+      Object.keys(mergeKeys).toSorted(),
+    );
+    const modes = { plan: {}, spec: { dir: '/d' }, swarm: {}, tower: {} };
+    expect(modesMetaSchema.parse(modes)).toEqual(modes);
+    expect(modesMetaMergeSchema.parse(modes)).toEqual(modes);
+  });
+
   it('roundtrips every op kind', () => {
     const ops: TranscriptOperation[] = [
       {

@@ -62,7 +62,11 @@ import {
   type AnthropicModelVersion,
 } from './anthropic-profile';
 import { mergeConsecutiveUserMessages } from './merge-user-messages';
-import { tryNativeLlmStream, tryNativeLlmStreamIncremental } from './native-stream';
+import {
+  NativeLlmApiError,
+  tryNativeLlmStream,
+  tryNativeLlmStreamIncremental,
+} from './native-stream';
 import { AuthClientLRU, mergeRequestHeaders, resolveAuthBackedClient } from './request-auth';
 import { normalizeToolCallIdsForProvider, sanitizeToolCallId } from './tool-call-id';
 
@@ -598,6 +602,16 @@ export function convertAnthropicError(
   // sees each raw failure exactly once.
   if (error instanceof ChatProviderError) {
     return error;
+  }
+  // Native fast-path failures carry the HTTP status the Rust pipeline parsed
+  // off the wire (`API error (<status>): <body>`); classify them with the same
+  // status rule and vendor hook as an SDK error, otherwise a bare `Error`
+  // reaches `isRetryableGenerateError` and a transient 429 kills the step.
+  if (error instanceof NativeLlmApiError) {
+    return (
+      convertErrorHook?.(error) ??
+      normalizeAPIStatusError(error.status ?? 500, error.message, null, undefined)
+    );
   }
   // Vendor classification next: the hook sees the RAW SDK error (the base
   // conversion below drops the parsed body detail), and `undefined` keeps
@@ -1136,6 +1150,7 @@ export class AnthropicChatProvider implements ChatProvider {
           apiKey: nativeApiKey,
           model: this._model,
           requestBody: JSON.stringify({ ...createParams, stream: true }),
+          // Idle deadline: any SSE event resets it, so a long answer is not cut off.
           timeoutMs: 120_000,
           extraHeaders: nativeHeaders,
           signal: options?.signal,

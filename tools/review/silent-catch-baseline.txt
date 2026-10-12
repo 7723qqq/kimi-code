@@ -47,7 +47,6 @@ apps/vis/server/src/lib/session-store.ts  3
 apps/vis/web/src/api.ts  2
 apps/vis/web/src/hooks/useTheme.ts  2
 apps/vscode/src/handlers/file.handler.ts  1
-apps/vscode/src/handlers/mcp.handler.ts  1
 apps/vscode/src/handlers/session.handler.ts  1
 apps/vscode/src/utils/session-context.ts  2
 packages/acp-server/src/acp-fs/acpConnection.ts  1
@@ -72,7 +71,6 @@ packages/agent-core-v2/src/agent/team/coordinator.ts  1
 packages/agent-core-v2/src/agent/team/debate-coordinator.ts  1
 packages/agent-core-v2/src/agent/toolExecutor/toolExecutorService.ts  1
 packages/agent-core-v2/src/agent/tools/os/bash/bashTool.ts  3
-packages/agent-core-v2/src/agent/tools/os/bash/native-bash-process.ts  1
 packages/agent-core-v2/src/agent/tools/os/bash/process-task.ts  3
 packages/agent-core-v2/src/agent/tools/os/glob/globTool.ts  2
 packages/agent-core-v2/src/agent/tools/os/grep/grepTool.ts  3
@@ -99,13 +97,11 @@ packages/agent-core-v2/src/features/externalHooks/session/sessionExternalHooksSe
 packages/agent-core-v2/src/features/goal/goalService.ts  1
 packages/agent-core-v2/src/features/lsp/lspInstance.ts  3
 packages/agent-core-v2/src/features/lsp/lspStdioProvider.ts  1
-packages/agent-core-v2/src/features/plan/tools/exit-plan-mode/exitPlanModeTool.ts  1
 packages/agent-core-v2/src/features/reminder/reminderService.ts  1
 packages/agent-core-v2/src/features/spec/specService.ts  1
-packages/agent-core-v2/src/features/spec/tools/exit-spec-mode/exitSpecModeTool.ts  1
 packages/agent-core-v2/src/features/tower/protocol/store.ts  2
 packages/agent-core-v2/src/human/llm-kimi/schema.ts  2
-packages/agent-core-v2/src/human/llm/requester/bases/antigravity/antigravity.ts  4
+packages/agent-core-v2/src/human/llm/requester/bases/antigravity/antigravity.ts  3
 packages/agent-core-v2/src/human/llm/requester/bases/google-genai/lower.ts  1
 packages/agent-core-v2/src/mcpCore/client-stdio.ts  1
 packages/agent-core-v2/src/mcpCore/connection-manager.ts  1
@@ -113,7 +109,6 @@ packages/agent-core-v2/src/mcpCore/oauth/service.ts  1
 packages/agent-core-v2/src/os/backends/host/hostProcessService.ts  1
 packages/agent-core-v2/src/os/backends/host/hostTerminalService.ts  1
 packages/agent-core-v2/src/os/backends/host/tools/runRg.ts  4
-packages/agent-core-v2/src/runtime/runtimeRegistry.ts  1
 packages/agent-core-v2/src/session/agentLifecycle/agentLifecycleService.ts  2
 packages/agent-core-v2/src/session/agentLifecycle/profile/gitContext.ts  3
 packages/agent-core-v2/src/session/subagent/backend/acpBackend.ts  1

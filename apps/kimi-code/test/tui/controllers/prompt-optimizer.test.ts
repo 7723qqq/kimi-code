@@ -14,6 +14,8 @@ vi.mock('#/i18n', () => ({
       'tui.dialogs.promptOptimize.hint': '{{accept}} accept · {{discard}} discard',
       'tui.dialogs.promptOptimize.accept': 'Accept rewrite',
       'tui.dialogs.promptOptimize.discard': 'Keep original',
+      'tui.dialogs.promptOptimize.busy': 'A rewrite is already in progress.',
+      'tui.dialogs.promptOptimize.displaced': 'The rewrite was dismissed by another panel.',
     };
     const msg = translations[key] ?? key;
     if (params === undefined) return msg;
@@ -39,6 +41,7 @@ interface Harness {
   lastPanel(): {
     handleInput(data: string): void;
   };
+  displace(): void;
 }
 
 function createHarness(draft = 'fix the parser'): Harness {
@@ -58,6 +61,7 @@ function createHarness(draft = 'fix the parser'): Harness {
   };
 
   let panel: { handleInput(data: string): void } | undefined;
+  let onDisplaced: (() => void) | undefined;
   const host: PromptOptimizerHost = {
     state: {
       editor,
@@ -68,8 +72,12 @@ function createHarness(draft = 'fix the parser'): Harness {
     ensureSession: vi.fn(async () => session),
     showError,
     track,
-    mountEditorReplacement: (mounted: { handleInput(data: string): void }) => {
+    mountEditorReplacement: (
+      mounted: { handleInput(data: string): void },
+      displaced?: () => void,
+    ) => {
       panel = mounted;
+      onDisplaced = displaced;
       mount(mounted);
     },
     restoreEditor,
@@ -90,6 +98,12 @@ function createHarness(draft = 'fix the parser'): Harness {
     lastPanel: () => {
       if (panel === undefined) throw new Error('no panel mounted');
       return panel;
+    },
+    displace: () => {
+      if (onDisplaced === undefined) throw new Error('no displacement hook mounted');
+      const displaced = onDisplaced;
+      onDisplaced = undefined;
+      displaced();
     },
   };
 }
@@ -248,5 +262,53 @@ describe('PromptOptimizerController', () => {
 
     expect(h.mount).not.toHaveBeenCalled();
     expect(h.track).toHaveBeenCalledWith('prompt_optimize_unchanged');
+  });
+
+  it('settles the rewrite and clears busy when another panel displaces the panel', async () => {
+    const h = createHarness();
+    const pending = h.controller.optimize();
+    await vi.waitFor(() => expect(h.mount).toHaveBeenCalledOnce());
+
+    h.displace();
+    await pending;
+
+    // The displaced panel kept the draft and said so; the newer panel still
+    // owns the editor slot, so no restore may run.
+    expect(h.editor.setText).not.toHaveBeenCalled();
+    expect(h.restoreEditor).not.toHaveBeenCalled();
+    expect(h.showError).toHaveBeenCalledTimes(1);
+    expect(h.track).toHaveBeenCalledWith('prompt_optimize_displaced');
+    expect(h.setEditorOptimizing).toHaveBeenLastCalledWith(false);
+
+    // `inFlight` is reset, so a later Ctrl+P runs the engine again instead of
+    // silently no-oping until the process exits.
+    h.optimizePrompt.mockResolvedValueOnce('Rewrite the parser differently.');
+    const next = h.controller.optimize();
+    await vi.waitFor(() => expect(h.optimizePrompt).toHaveBeenCalledTimes(2));
+    h.lastPanel().handleInput(ESC);
+    await next;
+  });
+
+  it('reports busy instead of returning silently while a rewrite is in flight', async () => {
+    const h = createHarness();
+    let release!: (value: string) => void;
+    const gate = new Promise<string>((resolve) => {
+      release = resolve;
+    });
+    h.optimizePrompt.mockReturnValueOnce(gate);
+
+    const pending = h.controller.optimize();
+    await vi.waitFor(() => expect(h.setEditorOptimizing).toHaveBeenCalledWith(true));
+
+    await h.controller.optimize();
+
+    expect(h.optimizePrompt).toHaveBeenCalledTimes(1);
+    expect(h.showError).toHaveBeenCalledWith(expect.stringContaining('already in progress'));
+    expect(h.track).toHaveBeenCalledWith('prompt_optimize_busy');
+
+    release('Rewrite the parser to reject trailing input.');
+    await vi.waitFor(() => expect(h.mount).toHaveBeenCalledOnce());
+    h.lastPanel().handleInput(ESC);
+    await pending;
   });
 });

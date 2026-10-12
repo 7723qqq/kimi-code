@@ -91,7 +91,6 @@ export function makeStartupInput(): KimiTUIStartupInput {
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },
-      astron: { stream: true, temperature: 1.0, maxTokens: 32768, searchDisable: true },
       statusLine: { items: null, command: null },
     },
     version: '0.0.0-test',

@@ -70,7 +70,6 @@ describe('update preference commands', () => {
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: false },
       statusLine: { items: null, command: null },
-      astron: { stream: true, temperature: 1, maxTokens: 32768, searchDisable: true },
       markdown: { mermaid: 'final' },
     });
     expect(setAppState).toHaveBeenCalledWith({ upgrade: { autoInstall: false } });

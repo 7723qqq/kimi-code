@@ -54,6 +54,7 @@ export {
 } from '#/errors';
 
 export {
+  configureDiagnosticLogging,
   flushDiagnosticLogs,
   flushDiagnosticLogsSync,
   log,

@@ -1,5 +1,3 @@
-import { createInterface } from 'node:readline/promises';
-
 import {
   createKimiHarness,
   type KimiHarness,
@@ -19,6 +17,8 @@ import { createKimiCodeHostIdentity } from '#/cli/version';
 import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE } from '#/constant/app';
 import { t } from '#/i18n';
 
+import { promptYesNo, type ConfirmPromptAnswer } from './confirm';
+
 interface WritableLike {
   write(chunk: string): boolean;
 }
@@ -31,7 +31,7 @@ export interface ForkedSessionResult {
 export interface ForkDeps {
   readonly listSessions: (workDir: string) => Promise<readonly SessionSummary[]>;
   readonly forkSession: (sessionId: string) => Promise<ForkedSessionResult>;
-  readonly confirmPreviousSession: (summary: SessionSummary) => Promise<boolean>;
+  readonly confirmPreviousSession: (summary: SessionSummary) => Promise<ConfirmPromptAnswer>;
   readonly cwd: () => string;
   readonly stdout: WritableLike;
   readonly stderr: WritableLike;
@@ -57,8 +57,12 @@ export async function handleFork(
       deps.exit(1);
     }
     if (!opts.yes) {
-      const confirmed = await deps.confirmPreviousSession(latest);
-      if (!confirmed) {
+      const answer = await deps.confirmPreviousSession(latest);
+      if (answer === 'eof') {
+        deps.stderr.write(t('tui.statusMessages.confirmPromptEof') + '\n');
+        deps.exit(1);
+      }
+      if (answer === 'no') {
         deps.stdout.write(t('tui.statusMessages.forkCancelled') + '\n');
         return;
       }
@@ -178,16 +182,9 @@ function normalizeOptionalSessionId(sessionId: string | undefined): string | und
   return trimmed === undefined || trimmed === '' ? undefined : trimmed;
 }
 
-async function confirmPreviousSession(summary: SessionSummary): Promise<boolean> {
-  const rl = createInterface({ input: process.stdin, output: process.stderr });
-  try {
-    const title = summary.title === undefined ? summary.id : `${summary.title} (${summary.id})`;
-    const answer = await rl.question(t('tui.statusMessages.forkConfirmPrompt', { title }));
-    const trimmed = answer.trim().toLowerCase();
-    return trimmed === '' || trimmed === 'y' || trimmed === 'yes';
-  } finally {
-    rl.close();
-  }
+async function confirmPreviousSession(summary: SessionSummary): Promise<ConfirmPromptAnswer> {
+  const title = summary.title === undefined ? summary.id : `${summary.title} (${summary.id})`;
+  return promptYesNo(t('tui.statusMessages.forkConfirmPrompt', { title }));
 }
 
 function errorMessage(error: unknown): string {

@@ -9,6 +9,7 @@
 import type { ReactNode } from 'react';
 
 import { t } from '../../i18n';
+import { MISSING_APPROVAL_RESULT, readApprovalResult } from '../../lib/recordGuards';
 import type { AgentRecord, AgentRecordOf } from '../../types';
 import { JsonViewer } from '../shared/JsonViewer';
 import type { PillTone } from '../shared/Pill';
@@ -798,12 +799,12 @@ export const WIRE_RENDERERS: RendererMap = {
     tone: 'approval',
     label: 'approval',
     headline: (r) => {
+      // `result` is type-asserted only; render a placeholder for a malformed
+      // record rather than dereferencing undefined (which blanked the app).
+      const result = readApprovalResult(r);
+      const decision = result?.decision ?? MISSING_APPROVAL_RESULT;
       const tone =
-        r.result.decision === 'approved'
-          ? 'success'
-          : r.result.decision === 'rejected'
-            ? 'error'
-            : 'neutral';
+        decision === 'approved' ? 'success' : decision === 'rejected' ? 'error' : 'neutral';
       return {
         main: (
           <span className="flex items-center gap-2 min-w-0">
@@ -811,52 +812,55 @@ export const WIRE_RENDERERS: RendererMap = {
               {r.toolName}#{r.toolCallId.slice(-8)}
             </Mono>
             <Pill tone={tone} variant="soft">
-              {r.result.decision}
+              {decision}
             </Pill>
-            {r.result.scope ? <Dim>({r.result.scope})</Dim> : null}
+            {result?.scope ? <Dim>({result.scope})</Dim> : null}
           </span>
         ),
       };
     },
-    detail: (r) => (
-      <div className="grid grid-cols-[140px_1fr] gap-x-3 gap-y-[2px]">
-        <FieldRow label="toolName">
-          <Mono>{r.toolName}</Mono>
-        </FieldRow>
-        <FieldRow label="toolCallId">
-          <Mono>{r.toolCallId}</Mono>
-        </FieldRow>
-        <FieldRow label="action">
-          <Mono>{r.action}</Mono>
-        </FieldRow>
-        <FieldRow label="turnId">
-          <span className="text-[var(--color-sev-info)]">{r.turnId}</span>
-        </FieldRow>
-        <FieldRow label="decision">
-          <span className="text-fg-0">{r.result.decision}</span>
-        </FieldRow>
-        {r.result.scope !== undefined ? (
-          <FieldRow label="scope">
-            <Mono>{r.result.scope}</Mono>
+    detail: (r) => {
+      const result = readApprovalResult(r);
+      return (
+        <div className="grid grid-cols-[140px_1fr] gap-x-3 gap-y-[2px]">
+          <FieldRow label="toolName">
+            <Mono>{r.toolName}</Mono>
           </FieldRow>
-        ) : null}
-        {r.sessionApprovalRule !== undefined ? (
-          <FieldRow label="sessionApprovalRule" wide>
-            <Mono className="break-all">{r.sessionApprovalRule}</Mono>
+          <FieldRow label="toolCallId">
+            <Mono>{r.toolCallId}</Mono>
           </FieldRow>
-        ) : null}
-        {r.result.selectedLabel !== undefined ? (
-          <FieldRow label="selectedLabel" wide>
-            <Mono className="break-all">{r.result.selectedLabel}</Mono>
+          <FieldRow label="action">
+            <Mono>{r.action}</Mono>
           </FieldRow>
-        ) : null}
-        {r.result.feedback !== undefined ? (
-          <FieldRow label="feedback" wide>
-            <pre className="whitespace-pre-wrap break-words text-fg-1">{r.result.feedback}</pre>
+          <FieldRow label="turnId">
+            <span className="text-[var(--color-sev-info)]">{r.turnId}</span>
           </FieldRow>
-        ) : null}
-      </div>
-    ),
+          <FieldRow label="decision">
+            <span className="text-fg-0">{result?.decision ?? MISSING_APPROVAL_RESULT}</span>
+          </FieldRow>
+          {result?.scope !== undefined ? (
+            <FieldRow label="scope">
+              <Mono>{result.scope}</Mono>
+            </FieldRow>
+          ) : null}
+          {r.sessionApprovalRule !== undefined ? (
+            <FieldRow label="sessionApprovalRule" wide>
+              <Mono className="break-all">{r.sessionApprovalRule}</Mono>
+            </FieldRow>
+          ) : null}
+          {result?.selectedLabel !== undefined ? (
+            <FieldRow label="selectedLabel" wide>
+              <Mono className="break-all">{result.selectedLabel}</Mono>
+            </FieldRow>
+          ) : null}
+          {result?.feedback !== undefined ? (
+            <FieldRow label="feedback" wide>
+              <pre className="whitespace-pre-wrap break-words text-fg-1">{result.feedback}</pre>
+            </FieldRow>
+          ) : null}
+        </div>
+      );
+    },
   },
 
   'usage.record': {

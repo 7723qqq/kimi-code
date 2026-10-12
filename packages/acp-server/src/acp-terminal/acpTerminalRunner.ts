@@ -22,6 +22,15 @@ import { AcpHostFileSystem, IAcpConnection, type IAcpTerminalHandle } from '../a
 
 const OUTPUT_BYTE_LIMIT = 4 * 1024 * 1024;
 const OUTPUT_POLL_MS = 250;
+/**
+ * Pushed onto the tool's `stdout` (and therefore into the model's tool result)
+ * when the client's terminal buffer no longer shares a prefix with what we
+ * already forwarded — either because it truncated at `outputByteLimit` or
+ * because it dropped bytes from the head. Without this marker the model would
+ * silently read output whose beginning is missing.
+ */
+const TRUNCATION_NOTICE =
+  '\n[terminal] output truncated at 4 MiB; earlier bytes are not recoverable\n';
 let nextGeneration = 1;
 
 function isBashToolInvocation(args: readonly string[], options?: HostProcessOptions): boolean {
@@ -85,6 +94,12 @@ class AcpTerminalProcess implements IHostProcess {
 
   private _exitCode: number | null = null;
   private emitted = 0;
+  /**
+   * Set once the client's buffer stopped being a superset of what we already
+   * forwarded (truncation, or an unmarked shrink); the notice is written at
+   * most once so a long-running command cannot flood the tool result.
+   */
+  private truncatedNotified = false;
   private readonly pollTimer: ReturnType<typeof setInterval>;
   private readonly waitPromise: Promise<number>;
   private released = false;
@@ -140,14 +155,38 @@ class AcpTerminalProcess implements IHostProcess {
 
   private async pump(): Promise<void> {
     try {
-      const { output } = await this.handle.currentOutput();
+      const { output, truncated } = await this.handle.currentOutput();
+      if (truncated === true) {
+        // The client's buffer no longer starts where our forwarded prefix
+        // ended: it hit its own `outputByteLimit` and dropped the head, so
+        // `output` is a rolling window whose offset we cannot know. Rebasing
+        // on its current length keeps later deltas contiguous; the bytes we
+        // never saw are unrecoverable, which is exactly what the one-shot
+        // marker tells the model.
+        this.notifyTruncated();
+        this.emitted = output.length;
+        return;
+      }
       if (output.length > this.emitted) {
         this.stdout.write(output.slice(this.emitted));
         this.emitted = output.length;
-      } else if (output.length < this.emitted) {
+        return;
+      }
+      if (output.length < this.emitted) {
+        // An unmarked shrink (the client dropped bytes without flagging it):
+        // same verdict as a truncation — the head is gone, so make it
+        // observable rather than silently resuming at a shifted offset.
+        this.notifyTruncated();
         this.emitted = output.length;
       }
     } catch {}
+  }
+
+  /** Write {@link TRUNCATION_NOTICE} at most once per process. */
+  private notifyTruncated(): void {
+    if (this.truncatedNotified) return;
+    this.truncatedNotified = true;
+    this.stdout.write(TRUNCATION_NOTICE);
   }
 
   private stopPolling(): void {

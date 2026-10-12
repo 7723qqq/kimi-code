@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { getLocale, setLocale } from '#/i18n';
 import {
   handleReloadCommand,
   handleReloadTuiCommand,
@@ -198,6 +199,35 @@ auto_install = false
     );
   });
 
+  it('applies a locale changed in tui.toml to the i18n engine, the engine and appState', async () => {
+    await writeTuiConfig('locale = "zh"\n');
+    const host = makeHost();
+    const mutable = host as unknown as { harness: { setEngineLocale: ReturnType<typeof vi.fn> } };
+
+    try {
+      await handleReloadTuiCommand(host);
+
+      expect(getLocale()).toBe('zh');
+      expect(mutable.harness.setEngineLocale).toHaveBeenCalledWith('zh');
+      expect(host.setAppState).toHaveBeenCalledWith({ locale: 'zh' });
+      expect(host.state.appState.locale).toBe('zh');
+    } finally {
+      setLocale('en');
+    }
+  });
+
+  it('does not touch the locale machinery when tui.toml keeps the current language', async () => {
+    await writeTuiConfig('locale = "en"\n');
+    const host = makeHost();
+    const mutable = host as unknown as { harness: { setEngineLocale: ReturnType<typeof vi.fn> } };
+
+    await handleReloadTuiCommand(host);
+
+    expect(getLocale()).toBe('en');
+    expect(mutable.harness.setEngineLocale).not.toHaveBeenCalled();
+    expect(host.setAppState).not.toHaveBeenCalledWith({ locale: 'en' });
+  });
+
   it('notices a required restart when tui_mode differs from the running UI mode', async () => {
     await writeTuiConfig('tui_mode = "fullscreen"\n');
     const host = makeHost();
@@ -238,6 +268,7 @@ function makeHost({
   const state = {
     appState: {
       theme: 'dark',
+      locale: 'en',
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },
@@ -261,6 +292,7 @@ function makeHost({
     session,
     harness: {
       reloadSession: vi.fn(async () => session),
+      setEngineLocale: vi.fn(),
       getConfig: vi.fn(async () => ({
         models: {
           fresh: { provider: 'test', model: 'fresh-model', maxContextSize: 1000 },
@@ -285,6 +317,7 @@ function makeHost({
   } as unknown as SlashCommandHost & {
     readonly harness: {
       readonly reloadSession: ReturnType<typeof vi.fn>;
+      readonly setEngineLocale: ReturnType<typeof vi.fn>;
       readonly getConfig: ReturnType<typeof vi.fn>;
       readonly getExperimentalFeatures: ReturnType<typeof vi.fn>;
     };

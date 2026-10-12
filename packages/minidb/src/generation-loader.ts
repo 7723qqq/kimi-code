@@ -48,8 +48,8 @@ import { IndexManager } from './index-manager.js';
 import type { IndexInfo } from './index-manager.js';
 import type { LifecycleTracker } from './lifecycle-status.js';
 import { MaintenanceCancelledError } from './maintenance.js';
-import { frameToOps, walApplySlicer } from './recovery.js';
-import type { RecoveryMode, RecoveryInfo, ValueMode, RecoveredOp } from './recovery.js';
+import { frameToOps, readWalTailFd, walApplySlicer } from './recovery.js';
+import type { RecoveryMode, RecoveryInfo, ValueMode, RecoveredOp, WalTail } from './recovery.js';
 import type { Store } from './store.js';
 import type { TextIndex } from './text-index/index.js';
 import { yieldToLoop } from './text-index/tokenize.js';
@@ -283,6 +283,7 @@ export class GenerationLoader<V> {
       snapshotCorruptRanges: [],
       lostBytes: replay.corruptRanges.reduce((a, [s, e]) => a + (e - s), 0),
       walScanEnd: replay.walScanEnd,
+      ...(replay.walTail ? { walScanTail: replay.walTail } : {}),
       walDev: cp.walDev,
       walIno: cp.walIno,
       snapshotDev: cp.snapshotDev,
@@ -589,6 +590,7 @@ export class GenerationLoader<V> {
   ): Promise<{
     walFrames: number;
     walScanEnd: number;
+    walTail: WalTail | null;
     corruptRanges: [number, number][];
     truncatedWal: boolean;
     corruptBatches: number;
@@ -616,6 +618,13 @@ export class GenerationLoader<V> {
         }
       }
       this.deps.lifecycle.time('walApplyMs', performance.now() - tApply);
+      // Content fingerprint of the window below the replay endpoint (see
+      // WalTail): the continuation watermark a replica anchors on needs it to
+      // tell an append from an in-place rewrite of the already-applied prefix.
+      // Read BEFORE the torn-tail truncation below — that truncation only
+      // removes bytes at/after the endpoint, so the window is the same either
+      // way, and this keeps the fd the scan verified.
+      const walTail = readWalTailFd(fd, r.eofOffset);
       let truncatedWal = false;
       const last = r.corruptRanges.at(-1);
       if (last && last[1] === st.size && !this.deps.readOnly()) {
@@ -626,6 +635,7 @@ export class GenerationLoader<V> {
       return {
         walFrames: r.frames.length,
         walScanEnd: r.eofOffset,
+        walTail,
         corruptRanges: r.corruptRanges,
         truncatedWal,
         corruptBatches,

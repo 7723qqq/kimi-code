@@ -217,6 +217,20 @@ test('batch rejects an empty key', async () => {
   await fs.rm(dir, { recursive: true, force: true });
 });
 
+test('del / expire validate the key before probing the store', async () => {
+  const dir = await tmpDir();
+  const db = await MiniDb.open({ dir, valueCodec: 'string' });
+  const tooLong = 'k'.repeat(200);
+  await assert.rejects(() => db.del(tooLong), /key too long/);
+  await db.set('present', 'v');
+  await assert.rejects(() => db.expire(tooLong, 1000), /key too long/);
+  assert.equal(await db.del('absent'), false, 'deleting a missing valid key is still false');
+  assert.equal(await db.expire('absent', 1000), false, 'expiring a missing valid key is still false');
+  assert.equal(await db.get('present'), 'v');
+  await db.close();
+  await fs.rm(dir, { recursive: true, force: true });
+});
+
 // --- index lookup errors ---------------------------------------------------
 
 test('findEq / findRange on a missing index throw', async () => {

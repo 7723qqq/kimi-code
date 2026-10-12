@@ -18,6 +18,8 @@ import type { ModelRecord } from './model';
 import type { ResolvedModelAuthMaterial } from './model.types';
 import { drivesThinkingThroughTraits } from './thinking';
 
+const LEGACY_VERTEX_PROVIDER_TYPE = 'vertexai';
+
 export function resolveModelAuthMaterial(args: {
   readonly modelId: string;
   readonly model: ModelRecord;
@@ -146,6 +148,7 @@ export function resolveModelProtocol(
   }
   const providerType = provider?.type;
   if (providerType !== undefined) {
+    if (providerType === LEGACY_VERTEX_PROVIDER_TYPE) return 'google-genai';
     const asProtocol = ProtocolSchema.safeParse(providerType);
     if (asProtocol.success) {
       return asProtocol.data;

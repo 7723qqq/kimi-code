@@ -2,6 +2,10 @@ import { createReadStream } from 'node:fs';
 import { stat } from 'node:fs/promises';
 import { extname, join, normalize, relative, resolve, sep } from 'node:path';
 
+import {
+  REMOTE_CONTROL_ORIGIN_FIX_PATH,
+  REMOTE_CONTROL_ORIGIN_FIX_SCRIPT,
+} from '@moonshot-ai/remote-control';
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import { t } from '../i18n';
@@ -19,6 +23,12 @@ export async function registerWebAssetRoutes(
 ): Promise<void> {
   await assertWebAssets(assetsDir);
 
+  app.get(REMOTE_CONTROL_ORIGIN_FIX_PATH, async (_req, reply) =>
+    reply
+      .type('text/javascript; charset=utf-8')
+      .header('Cache-Control', 'no-cache')
+      .send(REMOTE_CONTROL_ORIGIN_FIX_SCRIPT),
+  );
   app.get('/', async (req, reply) => serveWebAsset(req, reply, assetsDir));
   app.get('/*', async (req, reply) => serveWebAsset(req, reply, assetsDir));
 }

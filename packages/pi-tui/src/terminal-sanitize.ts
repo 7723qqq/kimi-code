@@ -14,6 +14,9 @@
 const UNSAFE_CHARS = /[\u0000-\u0008\u000a-\u001f\u007f-\u009f]/;
 const UNSAFE_CHARS_GLOBAL = /[\u0000-\u0008\u000a-\u001f\u007f-\u009f]/g;
 
+/** Every C0/C1 byte (tab and newline included) plus DEL. */
+const ALL_CONTROL_CHARS_GLOBAL = /[\u0000-\u001f\u007f-\u009f]/g;
+
 /**
  * True when `text` contains a control byte that could terminate or extend a
  * terminal escape sequence (BEL, ESC, CR, C1 range, ...). Tab is allowed: it
@@ -31,4 +34,18 @@ export function hasUnsafeTerminalChars(text: string): boolean {
  */
 export function sanitizeTerminalPayload(text: string): string {
   return text.replace(UNSAFE_CHARS_GLOBAL, '\uFFFD');
+}
+
+/**
+ * Drop every control byte (C0, C1, DEL) and normalise the layout characters a
+ * window title cannot carry, so the caller only ever appends the OSC 0
+ * terminator it chose. Printable text is preserved verbatim; a title that is
+ * empty or all control bytes yields an empty string, and the caller must then
+ * write nothing at all.
+ */
+export function sanitizeTitleParameter(title: string): string {
+  return title
+    .replace(/[\t\n\r\u00a0]+/g, ' ')
+    .replace(ALL_CONTROL_CHARS_GLOBAL, '')
+    .trim();
 }

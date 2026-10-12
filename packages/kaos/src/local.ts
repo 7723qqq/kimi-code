@@ -20,8 +20,8 @@ import { KaosFileExistsError, KaosValueError } from './errors';
 import {
   BufferedReadable,
   decodeFileTextWithErrors,
-  decodeTextWithErrors,
   globPatternToRegex,
+  splitLinesKeepingTerminator,
 } from './internal';
 import type { Kaos } from './kaos';
 import { applyLoginShellPathFromNode } from './login-shell-path';
@@ -30,6 +30,9 @@ import type { StatResult } from './types';
 
 const isWindows: boolean = process.platform === 'win32';
 const READ_CHUNK_SIZE = 64 * 1024;
+// Same value as agent-core-v2's hostProcessService so the two taskkill
+// call sites stop waiting at the same point.
+const TASKKILL_TIMEOUT_MS = 5_000;
 
 type TextDecodeErrors = 'strict' | 'replace' | 'ignore';
 
@@ -133,16 +136,34 @@ class LocalProcess implements KaosProcess {
     // TerminateProcess on Windows — so always force-terminate the tree.
     if (isWindows) {
       const taskkillArgs = ['/T', '/F', '/PID', String(this.pid)];
-      return new Promise<void>((resolve) => {
-        const killer = spawn('taskkill', taskkillArgs, {
-          stdio: 'ignore',
-          windowsHide: true,
-        });
-        const done = (): void => {
-          resolve();
-        };
-        killer.once('error', done);
-        killer.once('close', done);
+      const killer = spawn('taskkill', taskkillArgs, {
+        stdio: 'ignore',
+        windowsHide: true,
+      });
+      // `taskkill /T` on an unkillable tree (hung process, deep descendants)
+      // never reports back, so bound the wait: `kill()` stays best-effort and
+      // must resolve instead of hanging the caller's cancellation path.
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      return Promise.race([
+        new Promise<boolean>((resolve) => {
+          const done = (): void => {
+            resolve(true);
+          };
+          killer.once('error', done);
+          killer.once('close', done);
+        }),
+        new Promise<boolean>((resolve) => {
+          timer = setTimeout(() => {
+            resolve(false);
+          }, TASKKILL_TIMEOUT_MS);
+          timer.unref?.();
+        }),
+      ]).then((exited) => {
+        clearTimeout(timer);
+        if (!exited) {
+          killer.unref();
+          killer.kill();
+        }
       });
     }
 
@@ -546,6 +567,7 @@ export class LocalKaos implements Kaos {
     path: string,
     options: { startLine: number; maxLines: number; errors?: TextDecodeErrors },
   ): AsyncGenerator<string> {
+    if (options.maxLines <= 0) return;
     const resolved = this._resolvePath(path);
     const errors = options.errors ?? 'strict';
     yield* this._readUtf8Lines(resolved, path, errors, {
@@ -632,9 +654,9 @@ export class LocalKaos implements Kaos {
           const lineOffset = pending.length === 0 ? fileOffset + lineStart : pendingOffset;
           const line = pending.length === 0 ? piece : Buffer.concat([...pending, piece]);
           if (lineNo >= startLine) {
+            if (yielded >= maxLines) return;
             yield decodeFileTextWithErrors(line, 'utf-8', errors, displayPath, lineOffset !== 0);
             yielded += 1;
-            if (yielded >= maxLines) return;
           }
           pending = [];
           lineStart = i + 1;
@@ -786,20 +808,6 @@ export class LocalKaos implements Kaos {
 
 function isUtf8Encoding(encoding: BufferEncoding): boolean {
   return encoding === 'utf-8' || encoding === 'utf8';
-}
-
-function* splitLinesKeepingTerminator(text: string): Generator<string> {
-  if (text.length === 0) return;
-  let start = 0;
-  for (let i = 0; i < text.length; i += 1) {
-    if (text.codePointAt(i) === 0x0a) {
-      yield text.slice(start, i + 1);
-      start = i + 1;
-    }
-  }
-  if (start < text.length) {
-    yield text.slice(start);
-  }
 }
 
 function updateLineEndingFlagsFromBytes(

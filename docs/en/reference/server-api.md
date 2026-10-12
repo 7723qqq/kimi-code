@@ -64,7 +64,7 @@ Error codes are grouped by band:
 | `0` | Success | |
 | `400xx` | Bad request | `40001` validation failed (`details` lists each field), `40003` provider is OAuth-managed |
 | `401xx` | Auth and readiness | `40101` unauthorized, `40110` no provider configured, `40113` model not resolved |
-| `404xx` | Not found | `40401` session, `40408` MCP server, `40409` file path |
+| `404xx` | Not found | `40401` session, `40408` MCP server, `40409` file path, `40421` agent |
 | `409xx` | State conflict | `40901` session busy, `40902` approval already resolved, `40922` page conditions mismatch `page_token` |
 | `410xx` | Expired | `41001` approval timed out, `41002` question timed out, `41003` temporary file expired |
 | `413xx` | Size or boundary exceeded | `41302` file read over 10 MB, `41304` path escapes the session directory |
@@ -325,7 +325,9 @@ On success, `data` is the config object; its fields mirror the top-level domains
 
 #### `POST /api/v1/config`
 
-Merge-patches the global configuration: each top-level domain in the body is deep-merged into that domain, and domains absent from the body are left untouched. Setting `yolo` to `true` is shorthand for `default_permission_mode: "yolo"`; a rejected patch (invalid value or persistence failure) returns `40001` with the underlying message.
+Merge-patches the global configuration: each top-level domain in the body is deep-merged into that domain, and domains absent from the body are left untouched. Setting `yolo` to `true` is shorthand for `default_permission_mode: "yolo"`; a rejected patch (invalid value) returns `40001` with the underlying message.
+
+Domains are written one at a time, in body order, so a multi-domain patch is not atomic. When one domain cannot be persisted — `config.toml` is unreadable or unparsable, the engine refuses to overwrite it, and no further domain is attempted — the response is `50003` instead of `40001`, and `msg` names both sides of the split: `... (applied: planMode, telemetry; failed: models)`. `applied` lists the camelCase domains already written to disk (the caller must decide whether to roll them back), `failed` names the domain whose write aborted. A `40001` therefore means the request itself was rejected before any write, while `50003` means the patch was valid but could not be fully persisted (fix `config.toml` and reload, then retry).
 
 Every config change — a successful update through this endpoint, an external edit of `config.toml`, or a server-side write such as an OAuth login refresh — is broadcast as the global `event.config.changed` event. Changes inside a short window are merged into one event carrying the affected domain names in `changedFields` (camelCase config domains, for example `defaultModel`) and the full current config projection in `config` (same shape as the `GET /api/v1/config` response).
 
@@ -2220,7 +2222,7 @@ A next-generation session query for list views — filtering, sorting, and field
 | `page_token` | Pagination token from the previous page |
 | `page` | Stateless 1-based page number; mutually exclusive with `page_token` (`40001` when combined) |
 
-Every response item carries the `workspace`, `meta`, and `activity` groups, plus `git` when `include=git` — or just `{ id, archived }` under `fields=id,archived`. The `activity` group also reports `model`: the session's bound model alias while it is live in this process, `null` for cold (not currently loaded) sessions. Every page additionally carries `total`, the size of the filtered set. The page token binds the first page's query conditions (including the projection); changing them mid-pagination returns `40922`. `page` mode is a stateless alternative for jumping to arbitrary pages: every request is an independent snapshot, no token is minted, and `next_page_token` is always `null`.
+Every response item carries the `workspace`, `meta`, and `activity` groups, plus `git` when `include=git` — or just `{ id, archived }` under `fields=id,archived`. The `activity` group also reports `model`: the session's bound model alias while it is live in this process, `null` for cold (not currently loaded) sessions. Every page additionally carries `total`, the size of the filtered set. Listing scans the session index up to a bound — `20000` entries (`100000` under the `id,archived` projection) — before filtering, sorting, and paginating in memory, so `total` counts the scanned window rather than the whole store. When the scan saturates that bound the page carries `scan_truncated: true` (absent otherwise) and the server logs a warning: `total` is then a lower bound on the full matching count, and the reliable escape hatch is narrowing the query conditions (workspace, time range, `meta.has_prompt`). The page token binds the first page's query conditions (including the projection); changing them mid-pagination returns `40922`. `page` mode is a stateless alternative for jumping to arbitrary pages: every request is an independent snapshot, no token is minted, and `next_page_token` is always `null`.
 
 With `view=by_workspace` the same filtered, sorted set is re-projected into per-workspace groups, so an overview client replaces one polling loop per workspace with a single request:
 

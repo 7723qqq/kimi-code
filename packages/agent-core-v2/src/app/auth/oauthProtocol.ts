@@ -9,6 +9,7 @@ export const oauthFlowStatusEnum = z.enum([
   'denied',
   'expired',
   'cancelled',
+  'failed',
 ]);
 export type OAuthFlowStatus = z.infer<typeof oauthFlowStatusEnum>;
 

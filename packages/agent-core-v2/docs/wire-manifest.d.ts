@@ -952,6 +952,7 @@ interface TurnEndedPayload {
     };
   };
   durationMs?: number;
+  interruptReason?: 'user_cancelled' | 'aborted' | 'max_steps' | 'error' | 'filtered' | 'blocked';
   stopReason?: string;
   traceId?: string;
 }

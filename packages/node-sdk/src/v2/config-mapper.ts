@@ -34,11 +34,14 @@ const KIMI_CONFIG_DOMAINS = [
   'permission',
   'hooks',
   'services',
+  'github',
   'mergeAllAvailableSkills',
   'extraSkillDirs',
+  'extraAgentDirs',
   'loopControl',
   'background',
   'subagent',
+  'agent',
   'secondaryModel',
   'mcp',
   'image',
@@ -50,9 +53,9 @@ const KIMI_CONFIG_DOMAINS = [
 /**
  * Pick the v1-shaped fields out of the v2 engine's resolved config
  * (`config.getAll()` — the effective view: file values plus env overlays
- * plus registered section defaults). Domains v2 knows but v1 does not
- * (`cron`, `tools`, `extraAgentDirs`, ...) are dropped,
- * mirroring how v1's schema strips unknown top-level keys.
+ * plus registered section defaults). Domains the v2 engine registers but
+ * the v1 schema does not declare (`cron`, `tools`, `read`, ...) are
+ * dropped, mirroring how v1's schema strips unknown top-level keys.
  */
 export function resolvedConfigToKimiConfig(resolved: Record<string, unknown>): KimiConfig {
   const config: Record<string, unknown> = {};

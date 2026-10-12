@@ -12,6 +12,7 @@ import {
 import { IGitService, type FsPullRequest } from '@moonshot-ai/agent-core-v2/app/git/git';
 import { z } from 'zod';
 
+import { requestLog } from '../../lib/requestLog';
 import { defineRoute } from '../../middleware/defineRoute';
 import { errEnvelope, okEnvelope } from '../../protocol/envelope';
 import { ErrorCode } from '../../protocol/error-codes';
@@ -51,6 +52,8 @@ type V2View = z.infer<typeof v2ViewSchema>;
 
 const DEFAULT_PAGE_SIZE = 50;
 const DEFAULT_GROUP_PAGE_SIZE = 5;
+const V2_LIST_SCAN_LIMIT = 20_000;
+const V2_LIST_IDS_SCAN_LIMIT = 100_000;
 
 const repeatedParam = <T extends z.ZodTypeAny>(item: T) =>
   z.union([item, z.array(item).min(1)]).optional();
@@ -235,6 +238,7 @@ const v2SessionPageSchema = z.object({
   total: z.number().int(),
   has_more: z.boolean(),
   next_page_token: z.string().nullable(),
+  scan_truncated: z.boolean().optional(),
 });
 
 const v2SessionGroupSchema = z.object({
@@ -248,6 +252,7 @@ const v2SessionGroupPageSchema = z.object({
   total: z.number().int(),
   has_more: z.boolean(),
   next_page_token: z.string().nullable(),
+  scan_truncated: z.boolean().optional(),
 });
 
 const detailsSchema = z.array(z.object({ path: z.string(), message: z.string() }));
@@ -508,10 +513,23 @@ export function registerV2SessionsRoutes(app: V2SessionsRouteHost, core: Scope):
         workspaceIds = [...new Set(sets.flat())];
       }
 
+      const scanLimit = query.projection ? V2_LIST_IDS_SCAN_LIMIT : V2_LIST_SCAN_LIMIT;
       const page = await core.accessor.get(ISessionIndex).listRecent({
         workspaceIds,
         includeArchived: query.archived !== 'false',
+        limit: scanLimit,
       });
+      const scanTruncated = page.items.length >= scanLimit;
+      if (scanTruncated) {
+        requestLog(req)?.warn(
+          {
+            scan_limit: scanLimit,
+            scanned: page.items.length,
+            projection: query.projection,
+          },
+          'v2 sessions list truncated at the scan limit; total now counts only the scanned window',
+        );
+      }
 
       const factsById = new Map<string, SessionFacts>();
       const factsOf = (id: string): SessionFacts => {
@@ -678,7 +696,13 @@ export function registerV2SessionsRoutes(app: V2SessionsRouteHost, core: Scope):
 
         reply.send(
           okEnvelope(
-            { groups, total: groupList.length, has_more: hasMore, next_page_token: nextPageToken },
+            {
+              groups,
+              total: groupList.length,
+              has_more: hasMore,
+              next_page_token: nextPageToken,
+              scan_truncated: scanTruncated ? true : undefined,
+            },
             req.id,
           ),
         );
@@ -715,6 +739,7 @@ export function registerV2SessionsRoutes(app: V2SessionsRouteHost, core: Scope):
               total: sorted.length,
               has_more: hasMore,
               next_page_token: nextPageToken,
+              scan_truncated: scanTruncated ? true : undefined,
             },
             req.id,
           ),
@@ -726,7 +751,13 @@ export function registerV2SessionsRoutes(app: V2SessionsRouteHost, core: Scope):
 
       reply.send(
         okEnvelope(
-          { items, total: sorted.length, has_more: hasMore, next_page_token: nextPageToken },
+          {
+            items,
+            total: sorted.length,
+            has_more: hasMore,
+            next_page_token: nextPageToken,
+            scan_truncated: scanTruncated ? true : undefined,
+          },
           req.id,
         ),
       );

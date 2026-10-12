@@ -1,10 +1,5 @@
 import type { ModelAlias, ThinkingEffort } from '@moonshot-ai/kimi-code-sdk';
 
-/** Whether a thinking effort represents "thinking enabled" (anything but 'off'). */
-export function isThinkingOn(effort: ThinkingEffort): boolean {
-  return effort !== 'off';
-}
-
 /**
  * Project a thinking effort to the `[thinking]` config patch persisted to
  * config.toml. `'off'` disables thinking; `'on'` is the boolean-model

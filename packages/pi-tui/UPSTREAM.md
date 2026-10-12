@@ -198,3 +198,27 @@ Each card: **decision** and **why not in the app**. Status is `keep` or `absorbe
 **Decision:** Fullscreen hosts can register synchronous `addLayoutEffect` callbacks after layout and search reveal, before terminal output. An effect's `requestRender` coalesces into another complete layout pass without invalidating component caches; only the settled frame is written. Search keeps its selected occurrence while effect-driven layout shifts rendered rows; selections retain their content when effects only add or remove leading empty rows. Effects must converge within ten passes or rendering throws. With no effects registered, the existing rendering path is preserved.
 
 **Why not in the app:** The settled scroll state and the opportunity to repeat layout before terminal output belong to the alternate-screen render path. Hosts cannot reach this point through component composition alone.
+
+### title-and-osc-payload-hygiene — keep
+
+**Decision:** Text written into an escape sequence cannot terminate it. The OSC 8 hyperlink helper refuses a URL carrying control bytes (the link degrades to plain text) and replaces unsafe bytes; `Terminal.setTitle` strips every C0/C1 byte from an OSC 0 title, folds tabs and newlines to spaces, and writes nothing at all when the sanitized title is empty.
+
+**Why not in the app:** The sequence-building sites are inside the library (`hyperlink`, `ProcessTerminal.setTitle`, the image encoders); every host that renders model-authored text reaches them.
+
+### autocomplete-survives-provider-failure — keep
+
+**Decision:** A rejection from an autocomplete provider cannot poison the request chain. Every later request awaits a normalised slot, so the failure is not rethrown forever; abort-shaped rejections stay silent; a real error is reported once per error identity through the optional `onAutocompleteError` callback, and the in-flight abort controller plus the suggestions UI are cleared so no stale loading state survives.
+
+**Why not in the app:** The request chain, the abort controller and the completion UI are editor internals; the host only sees the callback.
+
+### paste-marker-ids-are-never-reused — keep
+
+**Decision:** Backspacing a paste marker releases its payload only when no remaining marker references that id (the deleted segment may have been a typed copy of a live marker). Higher ids are renumbered in registry and text from one map, so the two cannot disagree; `pasteCounter` is never decremented, so an id that was released is never handed to a later paste. Ids are therefore not contiguous after a mid-list deletion: `#1 #3` is possible.
+
+**Why not in the app:** Marker-aware segmentation, the registry and the renumbering all live in the editor's input state machine.
+
+### undo-snapshots-share-immutable-payloads — keep
+
+**Decision:** Undo snapshots deep-copy only the small editor state; the paste registry is shared by reference and the stack drops its oldest snapshot past `undoDepth` (default 200), so a multi-megabyte paste is not multiplied by the number of undo steps. Sound because registry entries are replaced, never mutated in place. Backspace deletion geometry is measured on the text as it stands, so a paste renumbering that shortens the line cannot leave a character behind.
+
+**Why not in the app:** The undo stack and the deletion path are editor internals.

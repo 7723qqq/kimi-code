@@ -61,6 +61,7 @@
 
 [background]
 # max_running_tasks: integer
+# max_settled_tasks: integer
 # keep_alive_on_exit: boolean
 # bash_auto_background_on_timeout: boolean
 # bash_task_timeout_s: integer
@@ -490,6 +491,7 @@ timeout_ms = 7200000
 
 [task]
 # max_running_tasks: integer
+# max_settled_tasks: integer
 # keep_alive_on_exit: boolean
 # bash_auto_background_on_timeout: boolean
 # bash_task_timeout_s: integer

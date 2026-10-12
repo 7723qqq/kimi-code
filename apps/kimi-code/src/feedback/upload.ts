@@ -3,7 +3,10 @@ import { Readable } from 'node:stream';
 
 import type { FeedbackArchive } from './archive';
 
-const MAX_ARCHIVE_SIZE = 524_288_000; // 500 MiB, matches the backend limit.
+/** Upper bound for an uploaded archive, matching the backend's per-upload limit.
+ *  Shared with the session-archive digest path, which must reject an
+ *  over-limit export before reading it into the hasher. */
+export const MAX_ARCHIVE_SIZE = 524_288_000; // 500 MiB, matches the backend limit.
 const DEFAULT_CONCURRENCY = 3;
 const DEFAULT_MAX_RETRIES = 3;
 const DEFAULT_PART_TIMEOUT_MS = 60_000;

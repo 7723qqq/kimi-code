@@ -26,6 +26,7 @@ import { declaredProviderCredential } from '@moonshot-ai/kimi-code-oauth/provide
 
 import { Disposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { toErrorMessage } from '#/_base/errors/errorMessage';
 import { ILogService } from '#/_base/log/log';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
@@ -54,6 +55,7 @@ import {
   type OAuthRef,
   type ProviderConfig,
   type ProvidersChangedEvent,
+  type ProvidersSection,
 } from '#/llm-adapter/provider/provider';
 import { isOAuthCatalogVendor } from '#/llm-adapter/provider/provider-definition';
 
@@ -537,26 +539,39 @@ export class OAuthService extends Disposable implements IOAuthService {
   private async completeAlreadyAuthenticatedLogin(state: FlowState): Promise<void> {
     if (state.status !== 'pending') return;
     state.tokenGranted = true;
-    await this.provisionAfterSuccess(state);
+    const provisioned = await this.provisionAfterSuccess(state);
+    if (!provisioned) {
+      throw new Error2(
+        ErrorCodes.CONFIG_PERSIST_BLOCKED,
+        state.errorMessage ??
+          `Refusing to report login success: ${state.provider} was not provisioned.`,
+        { details: { provider_id: state.provider } },
+      );
+    }
   }
 
-  private async provisionAfterSuccess(state: FlowState): Promise<void> {
+  private async provisionAfterSuccess(state: FlowState): Promise<boolean> {
+    let provisioned = false;
     try {
       await this.provisionProvider(state.provider, state.oauthRef, state.loginBaseUrl);
-      if (this.flows.get(state.provider) !== state) return;
+      if (this.flows.get(state.provider) !== state) return true;
+      provisioned = true;
       if (state.provider === KIMI_CODE_PROVIDER_NAME) {
         await this.refreshOAuthProviderModelsBestEffort(state.provider);
       }
     } catch (error) {
+      state.errorMessage = toErrorMessage(error);
+      this.setTerminal(state, 'failed');
       this.log.warn('oauth provider provisioning failed', {
         provider: state.provider,
-        error: error instanceof Error ? error.message : String(error),
+        error: toErrorMessage(error),
       });
     } finally {
       if (state.status === 'pending') {
         this.setTerminal(state, 'authenticated');
       }
     }
+    return provisioned;
   }
 
   private async provisionProvider(
@@ -565,14 +580,44 @@ export class OAuthService extends Disposable implements IOAuthService {
     loginBaseUrl: string | undefined,
   ): Promise<void> {
     if (oauthRef === undefined && provider !== KIMI_CODE_PROVIDER_NAME) return;
-    const baseUrl =
-      loginBaseUrl ?? this.providerService.get(provider)?.baseUrl ?? kimiCodeBaseUrl();
-    await this.providerService.set(provider, {
+    const before = this.readPersistedProvider(provider);
+    const desired: ProviderConfig = {
       type: 'kimi',
-      baseUrl,
+      baseUrl: loginBaseUrl ?? this.providerService.get(provider)?.baseUrl ?? kimiCodeBaseUrl(),
       apiKey: '',
       oauth: oauthRef,
+    };
+    await this.providerService.set(provider, desired);
+    const after = this.readPersistedProvider(provider);
+    if (
+      after !== undefined &&
+      after.baseUrl === desired.baseUrl &&
+      sameOAuthRef(after.oauth, desired.oauth)
+    ) {
+      return;
+    }
+    const outcome =
+      before === undefined
+        ? 'absent'
+        : after === undefined
+          ? 'absent-after-write'
+          : sameOAuthRef(before.oauth, after.oauth) && before.baseUrl === after.baseUrl
+            ? 'unchanged'
+            : 'diverged';
+    this.log.warn('oauth provider provisioning was not persisted', {
+      provider,
+      outcome,
+      config_path: this.bootstrap.configPath,
     });
+    throw new Error2(
+      ErrorCodes.CONFIG_PERSIST_BLOCKED,
+      `Refusing to report login success: ${provider} was not written to ${this.bootstrap.configPath}.`,
+      { details: { provider_id: provider, outcome } },
+    );
+  }
+
+  private readPersistedProvider(provider: string): ProviderConfig | undefined {
+    return this.config.inspect<ProvidersSection>(PROVIDERS_SECTION).userValue?.[provider];
   }
 
   private async refreshOAuthProviderModelsBestEffort(provider: string): Promise<void> {
@@ -775,6 +820,11 @@ function ensureReadyFailureReason(
   if (error instanceof AuthTokenMissingError) return 'token_missing';
   if (error instanceof AuthCredentialEnvMissingError) return 'token_missing';
   return undefined;
+}
+
+function sameOAuthRef(a: OAuthRef | undefined, b: OAuthRef | undefined): boolean {
+  if (a === undefined || b === undefined) return a === b;
+  return a.storage === b.storage && a.key === b.key && a.oauthHost === b.oauthHost;
 }
 
 function classifyFailure(err: unknown): TerminalOAuthFlowStatus {

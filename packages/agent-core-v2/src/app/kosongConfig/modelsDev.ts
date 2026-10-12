@@ -61,7 +61,6 @@ const KNOWN_WIRE_TYPES = [
   'kimi',
   'google-genai',
   'openai_responses',
-  'vertexai',
   'antigravity',
 ] as const satisfies readonly ProviderType[];
 
@@ -157,7 +156,7 @@ function inferDeclaredWireType(entry: ModelsDevProviderEntry): ProviderType | un
   if (npm.includes('anthropic') || id.includes('anthropic') || id.includes('claude')) {
     return 'anthropic';
   }
-  if (id.includes('vertex')) return 'vertexai';
+  if (id.includes('vertex')) return 'google-genai';
   if (npm.includes('google') || id.includes('google') || id.includes('gemini')) {
     return 'google-genai';
   }
@@ -328,7 +327,7 @@ function applyModelProviderOverride(
 function inferOverrideWire(npm: string): ProviderType | undefined {
   const normalized = npm.toLowerCase();
   if (normalized.includes('anthropic')) return 'anthropic';
-  if (normalized.includes('vertex')) return 'vertexai';
+  if (normalized.includes('vertex')) return 'google-genai';
   if (normalized.includes('google')) return 'google-genai';
   if (normalized.includes('openai')) return 'openai';
   return undefined;

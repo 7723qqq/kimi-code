@@ -483,8 +483,217 @@ function shellQuote(s: string): string {
   return `'${s.replaceAll("'", "'\\''")}'`;
 }
 
-const WINDOWS_NUL_REDIRECT = /(\d?&?>+\s*)[Nn][Uu][Ll](?=\s|$|[|&;)\n])/g;
+const NUL_TARGET_BOUNDARY = /[\s|&;)]/;
+
+interface HeredocDelimiter {
+  readonly delimiter: string;
+  readonly start: number;
+}
+
+function isNulRedirectAt(text: string, at: number): boolean {
+  if (text.slice(at, at + 3).toLowerCase() !== 'nul') return false;
+  return at + 3 >= text.length || NUL_TARGET_BOUNDARY.test(text[at + 3]!);
+}
+
+function nulRedirectWordStart(text: string, at: number): number | undefined {
+  let cursor = at + 1;
+  if (text[cursor] === '>') cursor++;
+  while (text[cursor] === ' ' || text[cursor] === '\t') cursor++;
+  return isNulRedirectAt(text, cursor) ? cursor : undefined;
+}
+
+function readHeredocDelimiter(text: string, at: number): HeredocDelimiter | undefined {
+  let cursor = at + 2;
+  if (text[cursor] === '-') cursor++;
+  while (text[cursor] === ' ' || text[cursor] === '\t') cursor++;
+  const quote = text[cursor];
+  if (quote === "'" || quote === '"') {
+    const close = text.indexOf(quote, cursor + 1);
+    if (close === -1) return undefined;
+    const delimiter = text.slice(cursor + 1, close);
+    if (delimiter.length === 0) return undefined;
+    return { delimiter, start: at };
+  }
+  const wordStart = cursor;
+  while (cursor < text.length && !/[\s|&;()<>]/.test(text[cursor]!)) cursor++;
+  if (cursor === wordStart) return undefined;
+  return { delimiter: text.slice(wordStart, cursor), start: at };
+}
+
+function endOfLineIncludingNewline(text: string, at: number): number {
+  const newline = text.indexOf('\n', at);
+  return newline === -1 ? text.length : newline + 1;
+}
+
+function heredocBodyEnd(text: string, at: number, delimiter: string): number {
+  let cursor = at;
+  while (cursor < text.length) {
+    const lineEnd = endOfLineIncludingNewline(text, cursor);
+    const line = text.slice(cursor, lineEnd);
+    cursor = lineEnd;
+    if (line.trim() === delimiter || line.trim() === `${delimiter};`) return cursor;
+  }
+  return text.length;
+}
+
+function readSubstitutionBody(text: string, at: number): { body: string; end: number } {
+  let depth = 1;
+  let cursor = at;
+  while (cursor < text.length) {
+    const ch = text[cursor]!;
+    if (ch === '\\') {
+      cursor += 2;
+      continue;
+    }
+    if (ch === "'" || ch === '"') {
+      const close = text.indexOf(ch, cursor + 1);
+      cursor = close === -1 ? text.length : close + 1;
+      continue;
+    }
+    if (ch === '(') depth++;
+    if (ch === ')') {
+      depth--;
+      if (depth === 0) return { body: text.slice(at, cursor), end: cursor + 1 };
+    }
+    cursor++;
+  }
+  return { body: text.slice(at), end: text.length };
+}
+
+function readBacktickBody(text: string, at: number): { body: string; end: number } {
+  let cursor = at;
+  while (cursor < text.length) {
+    const ch = text[cursor]!;
+    if (ch === '\\') {
+      cursor += 2;
+      continue;
+    }
+    if (ch === '`') return { body: text.slice(at, cursor), end: cursor + 1 };
+    cursor++;
+  }
+  return { body: text.slice(at), end: text.length };
+}
+
+function rewriteNulRedirects(text: string): string {
+  const out: string[] = [];
+  let plain = '';
+  const flushPlain = (): void => {
+    if (plain.length > 0) {
+      out.push(plain);
+      plain = '';
+    }
+  };
+  const lastPlainChar = (): string => plain.slice(-1);
+
+  let cursor = 0;
+  let inSingle = false;
+  let inDouble = false;
+  while (cursor < text.length) {
+    const ch = text[cursor]!;
+
+    if (inSingle) {
+      plain += ch;
+      if (ch === "'") inSingle = false;
+      cursor++;
+      continue;
+    }
+
+    if (ch === '\\') {
+      plain += text.slice(cursor, cursor + 2);
+      cursor += 2;
+      continue;
+    }
+
+    if (inDouble) {
+      if (ch === '"') {
+        plain += ch;
+        inDouble = false;
+        cursor++;
+        continue;
+      }
+      if (ch === '$' && text[cursor + 1] === '(') {
+        const inner = readSubstitutionBody(text, cursor + 2);
+        flushPlain();
+        out.push('$(', rewriteNulRedirects(inner.body), ')');
+        cursor = inner.end;
+        continue;
+      }
+      if (ch === '`') {
+        const inner = readBacktickBody(text, cursor + 1);
+        flushPlain();
+        out.push('`', rewriteNulRedirects(inner.body), '`');
+        cursor = inner.end;
+        continue;
+      }
+      plain += ch;
+      cursor++;
+      continue;
+    }
+
+    if (ch === "'" || ch === '"') {
+      flushPlain();
+      inSingle = ch === "'";
+      inDouble = ch === '"';
+      out.push(ch);
+      cursor++;
+      continue;
+    }
+
+    if (ch === '`') {
+      const inner = readBacktickBody(text, cursor + 1);
+      flushPlain();
+      out.push('`', rewriteNulRedirects(inner.body), '`');
+      cursor = inner.end;
+      continue;
+    }
+
+    if (ch === '$' && text[cursor + 1] === '(') {
+      const inner = readSubstitutionBody(text, cursor + 2);
+      flushPlain();
+      out.push('$(', rewriteNulRedirects(inner.body), ')');
+      cursor = inner.end;
+      continue;
+    }
+
+    if (ch === '#' && (lastPlainChar() === '' || /[\s;|&(]/.test(lastPlainChar()))) {
+      const lineEnd = endOfLineIncludingNewline(text, cursor);
+      plain += text.slice(cursor, lineEnd);
+      cursor = lineEnd;
+      continue;
+    }
+
+    if (ch === '<' && text[cursor + 1] === '<' && text[cursor + 2] !== '<') {
+      const heredoc = readHeredocDelimiter(text, cursor);
+      if (heredoc === undefined) {
+        plain += '<<';
+        cursor += 2;
+        continue;
+      }
+      const lineEnd = endOfLineIncludingNewline(text, heredoc.start);
+      const bodyEnd = heredocBodyEnd(text, lineEnd, heredoc.delimiter);
+      plain += text.slice(cursor, lineEnd);
+      flushPlain();
+      out.push(text.slice(lineEnd, bodyEnd));
+      cursor = bodyEnd;
+      continue;
+    }
+
+    if (ch === '>') {
+      const nulStart = nulRedirectWordStart(text, cursor);
+      if (nulStart !== undefined) {
+        plain += `${text.slice(cursor, nulStart)}/dev/null`;
+        cursor = nulStart + 3;
+        continue;
+      }
+    }
+
+    plain += ch;
+    cursor++;
+  }
+  flushPlain();
+  return out.join('');
+}
 
 function rewriteWindowsNullRedirect(command: string): string {
-  return command.replace(WINDOWS_NUL_REDIRECT, '$1/dev/null');
+  return rewriteNulRedirects(command);
 }

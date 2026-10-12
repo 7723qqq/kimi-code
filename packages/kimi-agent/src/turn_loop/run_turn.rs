@@ -286,20 +286,9 @@ pub fn run_turn<'a>(
                         usage: total_usage,
                     });
                 }
-                LoopStepStopReason::Error(_msg) => {
-                    // An LLM error that exhausted all retries must stop the
-                    // turn — continuing would spin the loop without progress,
-                    // potentially forever if the error is deterministic (e.g.
-                    // 400 Bad Request from a misconfigured provider).
-                    // Note: the error message (_msg) is intentionally not
-                    // surfaced here — it has already been logged by retry logic.
-                    drain_pending_precise(&mut messages, &mut pending_precise).await;
-                    return Ok(TurnResult {
-                        stop_reason: LoopTurnStopReason::EndTurn,
-                        steps,
-                        usage: total_usage,
-                    });
-                }
+                // Failure has no representation here: any LLM error that
+                // exhausts its retries is propagated as `Err` by the `?`
+                // above, so no `Error` stop reason can reach this match.
             }
         }
 

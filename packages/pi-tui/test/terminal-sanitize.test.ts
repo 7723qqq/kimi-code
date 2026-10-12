@@ -62,7 +62,7 @@ describe("terminal escape payloads", () => {
 			terminal.setTitle("session\u0007\u001b]2;pwned");
 			const titleWrite = writes.find((chunk) => chunk.startsWith("\x1b]0;"));
 			assert.ok(titleWrite !== undefined, "setTitle writes an OSC 0 sequence");
-			assert.strictEqual(titleWrite, "\x1b]0;session\uFFFD\uFFFD]2;pwned\u0007");
+			assert.strictEqual(titleWrite, "\x1b]0;session]2;pwned\x07");
 			assert.ok(
 				!/[\u0000-\u0008\u000a-\u001f]/.test(titleWrite.slice(4, -1)),
 				"the title payload carries no raw control byte",

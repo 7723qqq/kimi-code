@@ -157,6 +157,7 @@ export function createMachineTools(options: CreateMachineToolsOptions): MachineT
       }
     } finally {
       batchInFlight = false;
+      flushIfReady();
     }
   };
 
@@ -267,11 +268,20 @@ export function createMachineTools(options: CreateMachineToolsOptions): MachineT
         for (const entry of stale) settleAborted(entry);
         return;
       }
-      expectedIds = [
+      const nextIds = [
         ...new Set(
           expectedCalls.filter((call) => definitions.has(call.name)).map((call) => call.id),
         ),
       ];
+      const nextIdSet = new Set(nextIds);
+      const stranded: PendingEntry[] = [];
+      for (const [id, entry] of pending) {
+        if (nextIdSet.has(id)) continue;
+        pending.delete(id);
+        stranded.push(entry);
+      }
+      for (const entry of stranded) settleAborted(entry);
+      expectedIds = nextIds;
       flushIfReady();
     },
     handleProgress: (toolCallId, update) => {

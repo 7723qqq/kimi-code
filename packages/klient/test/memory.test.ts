@@ -48,6 +48,48 @@ describe('memory dispatcher specifics', () => {
     await rm(homeDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 });
   });
 
+  // A26/F4: a `workspaceId` scope used to materialize the workspace instance
+  // through `IWorkspaceInstanceManager` and then answer every service from the
+  // ROOT app scope — the instance was dropped and the caller got root data or
+  // `REQUEST_INVALID`, depending on the service. Refusing outright is the
+  // documented contract: an engine `WorkspaceInstance` is not a `ScopeLike`.
+  it('refuses a workspace-scoped call instead of answering from the root scope', async () => {
+    const { homeDir, app } = await makeEngine();
+    const dispatcher = createMemoryDispatcher(app);
+    try {
+      await expect(
+        dispatcher.call({ workspaceId: 'ws_x' }, 'workspaceService', 'list', []),
+      ).rejects.toMatchObject({
+        name: 'RPCError',
+        code: 40001,
+        message: 'workspace scope is not supported by the memory transport',
+      });
+
+      // The rejection is a scope verdict, not an unknown-method one: an
+      // agent-scope-only service must report "not supported" as well.
+      await expect(
+        dispatcher.call({ workspaceId: 'ws_x' }, 'agentSkillService', 'list', []),
+      ).rejects.toMatchObject({ code: 40001 });
+
+      // A subscription under a workspace scope fails through `onError`, the
+      // same shape the memory transport already uses for scope failures.
+      const errors: Error[] = [];
+      const sub = dispatcher.listen({ workspaceId: 'ws_x' }, { kind: 'stream', name: 'events' },
+        () => undefined, (error) => errors.push(error));
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      sub.dispose();
+      expect(errors).toHaveLength(1);
+      expect(errors[0]?.message).toContain('workspace scope is not supported');
+
+      // The workspace was never materialized, so no instance lingers either.
+      const { IWorkspaceInstanceManager } = await import('@moonshot-ai/agent-core-v2');
+      expect(app.accessor.get(IWorkspaceInstanceManager).get('ws_x')).toBeUndefined();
+    } finally {
+      app.dispose();
+      await rm(homeDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 });
+    }
+  });
+
   it('rejects session/agent scopes for now', async () => {
     const { homeDir, app } = await makeEngine();
     const dispatcher = createMemoryDispatcher(app);

@@ -669,14 +669,14 @@ describe('server-v2 /api/v1/debug RPC', () => {
     }
   });
 
-  it('returns 40401 when the agent does not exist', async () => {
+  it('returns 40421 when the agent does not exist', async () => {
     const id = await createSession(home as string);
     const { body } = await call<null>(
       'POST',
       rpc('agent', IAgentPromptChannel, 'submit', { sid: id, aid: 'does-not-exist' }),
       { input: [{ type: 'text', text: 'hello' }] },
     );
-    expect(body.code).toBe(40401);
+    expect(body.code).toBe(40421);
     expect(body.msg).toBe(`agent does-not-exist not found in session ${id}`);
   });
 

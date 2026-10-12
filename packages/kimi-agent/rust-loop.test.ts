@@ -79,6 +79,19 @@ describe('mapStopReason', () => {
   it('maps empty string to unknown', () => {
     expect(mapStopReason('')).toBe('unknown');
   });
+
+  // Rust used to encode a failed turn as a *successful* result whose
+  // stop_reason read `Error: <detail>`. That string must not be reported as
+  // `unknown` (which reads as "a reason we do not know") — it means the turn
+  // failed, so both ends must call it the same thing.
+  it('maps an Error: prefixed reason to error', () => {
+    expect(mapStopReason('Error: boom')).toBe('error');
+    expect(mapStopReason('Error:')).toBe('error');
+  });
+
+  it('does not treat a reason merely containing Error as a failure', () => {
+    expect(mapStopReason('NotAnError')).toBe('unknown');
+  });
 });
 
 describe('WorkspacePredictor', () => {

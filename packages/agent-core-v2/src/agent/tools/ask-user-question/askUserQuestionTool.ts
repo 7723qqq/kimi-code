@@ -23,6 +23,7 @@ import {
   INTERACTION_TAG_TOOL_CALL_ID,
   INTERACTION_TAG_TURN_ID,
   isInteractionCancellation,
+  type InteractionCancellation,
   type InteractionTags,
 } from '#/human/interaction/interaction';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
@@ -168,9 +169,17 @@ export class AskUserQuestionTool implements IAskUserQuestionTool {
     }: Pick<ExecutableToolContext, 'toolCallId' | 'signal' | 'turnId' | 'trace'>,
   ): Promise<ExecutableToolResult> {
     try {
-      const result = await this.requestQuestion(args, { toolCallId, turnId, signal });
+      const outcome = await this.requestQuestion(args, { toolCallId, turnId, signal });
+      if (isInteractionCancellation(outcome) && outcome.reason === 'unsupported') {
+        return {
+          isError: true,
+          output: QUESTION_UNSUPPORTED_FAILURE_MESSAGE,
+        };
+      }
 
-      const normalized = normalizeQuestionResult(result);
+      const normalized = normalizeQuestionResult(
+        isInteractionCancellation(outcome) ? null : outcome,
+      );
       if (normalized === null || Object.keys(normalized.answers).length === 0) {
         const properties: QuestionDismissedEvent = {
           trace_id: trace?.traceId,
@@ -206,7 +215,7 @@ export class AskUserQuestionTool implements IAskUserQuestionTool {
   private requestQuestion(
     args: AskUserQuestionInput,
     { toolCallId, signal, turnId }: Pick<ExecutableToolContext, 'toolCallId' | 'signal' | 'turnId'>,
-  ): Promise<QuestionResult> {
+  ): Promise<QuestionResult | InteractionCancellation> {
     const id = `question_${randomUUID()}`;
     const tags: InteractionTags = {
       [INTERACTION_TAG_AGENT_ID]: this.scopeContext.agentId,
@@ -233,9 +242,7 @@ export class AskUserQuestionTool implements IAskUserQuestionTool {
         },
         tags,
       })
-      .then((response) =>
-        isInteractionCancellation(response) ? null : (response as QuestionResult),
-      );
+      .then((response) => response as QuestionResult | InteractionCancellation);
     if (signal.aborted) {
       interactions.respond(id, null);
     } else {

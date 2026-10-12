@@ -9,8 +9,15 @@ import type { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifec
 import type { ISessionContext } from '#/session/sessionContext/sessionContext';
 import type { ISessionSubagentService } from '#/session/subagent/subagent';
 
-import { executeWorkflow, type WorkflowRuntimeDeps } from './workflowRuntime';
+import {
+  executeWorkflow,
+  WORKFLOW_CANCELLED_ERROR_MESSAGE,
+  WORKFLOW_DEADLINE_ERROR_MESSAGE,
+  type WorkflowRuntimeDeps,
+} from './workflowRuntime';
 import type { WorkflowMeta, WorkflowRunEntry, WorkflowRunResult } from './workflowTypes';
+
+const CANCEL_SETTLE_GRACE_MS = 5_000;
 
 export interface WorkflowStartInput {
   readonly script: string;
@@ -19,6 +26,7 @@ export interface WorkflowStartInput {
   readonly sessionContext: ISessionContext;
   readonly lifecycle: IAgentLifecycleService;
   readonly subagents: ISessionSubagentService;
+  readonly deadlineMs?: number;
 }
 
 export interface IWorkflowService {
@@ -66,12 +74,13 @@ export class WorkflowService extends Disposable implements IWorkflowService {
     };
     this.runs.set(runId, entry);
 
-    void this.runWorkflow(runId, input, entry).catch((error) => {
+    const runPromise = this.runWorkflow(runId, input, entry).catch((error) => {
       entry.status = 'failed';
       entry.error = error instanceof Error ? error.message : String(error);
       entry.finishedAt = Date.now();
       this.log.error('workflow.run.uncaught', { runId, error: entry.error });
     });
+    entry.runPromise = runPromise;
 
     return { runId };
   }
@@ -97,13 +106,17 @@ export class WorkflowService extends Disposable implements IWorkflowService {
         args: input.args,
         deps,
         entry,
+        ...(input.deadlineMs !== undefined ? { deadlineMs: input.deadlineMs } : {}),
       });
       entry.status = 'completed';
       entry.result = result;
       entry.finishedAt = Date.now();
       this.log.info('workflow.run.completed', { runId, agentCount: entry.agentCount });
     } catch (error) {
-      if (entry.abortController.signal.aborted) {
+      const reason = entry.abortController.signal.reason;
+      const deadlineExceeded =
+        reason instanceof Error && reason.message === WORKFLOW_DEADLINE_ERROR_MESSAGE;
+      if (entry.abortController.signal.aborted && !deadlineExceeded) {
         entry.status = 'cancelled';
       } else {
         entry.status = 'failed';
@@ -150,13 +163,37 @@ export class WorkflowService extends Disposable implements IWorkflowService {
   async cancel(runId: string): Promise<void> {
     const entry = this.runs.get(runId);
     if (entry === undefined) return;
+    if (entry.status !== 'running') return;
+
+    entry.abortController.abort(new Error(WORKFLOW_CANCELLED_ERROR_MESSAGE));
+
+    const runPromise = entry.runPromise;
+    if (runPromise === undefined) return;
+
+    let graceTimer: ReturnType<typeof setTimeout> | undefined;
+    const gracePromise = new Promise<boolean>((resolve) => {
+      graceTimer = setTimeout(() => {
+        resolve(false);
+      }, CANCEL_SETTLE_GRACE_MS);
+    });
+
+    try {
+      const settled = await Promise.race([
+        runPromise.then(
+          () => true,
+          () => true,
+        ),
+        gracePromise,
+      ]);
+      if (settled) return;
+      this.log.warn('workflow.cancel.script-still-running', { runId });
+    } finally {
+      if (graceTimer) clearTimeout(graceTimer);
+    }
+
     if (entry.status === 'running') {
-      entry.abortController.abort();
-      await new Promise((resolve) => setTimeout(resolve, 100));
-      if (entry.status === 'running') {
-        entry.status = 'cancelled';
-        entry.finishedAt = Date.now();
-      }
+      entry.status = 'cancelled';
+      entry.finishedAt = Date.now();
     }
   }
 

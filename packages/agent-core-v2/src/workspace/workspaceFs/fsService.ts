@@ -162,6 +162,7 @@ export class WorkspaceFsService implements IWorkspaceFsService {
     const items: FsEntry[] = [];
     const childrenByPath: Record<string, FsEntry[]> = {};
     let truncated = false;
+    let nestedCount = 0;
 
     interface QueueEntry {
       readonly relPath: string;
@@ -208,6 +209,13 @@ export class WorkspaceFsService implements IWorkspaceFsService {
         if (items.length >= req.limit && entry.depthRemaining === req.depth) {
           truncated = true;
           break;
+        }
+        if (entry.depthRemaining !== req.depth) {
+          if (nestedCount >= req.limit) {
+            truncated = true;
+            break;
+          }
+          nestedCount += 1;
         }
         const fsEntry = buildFsEntry(child.relPath, child.name, child.stat, false);
         if (entry.depthRemaining === req.depth) {

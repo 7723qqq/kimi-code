@@ -342,6 +342,16 @@ redis-cli -p 6379 GET foo
 
 Supported commands: `PING ECHO GET SET DEL EXISTS MGET MSET TTL DBSIZE COMPACT INFO QUIT`.
 
+`DEL` validates the key length like `SET` does: a key longer than 128 bytes is
+an `-ERR` reply instead of a silent `:0`.
+
+`SET` implements no conditional or option-preserving form: `NX`, `XX`, `GET` and
+`KEEPTTL` are rejected with `-ERR` rather than silently ignored (an ignored `NX`
+overwrote the key and still answered `+OK`), and so is any unknown token. A
+`EX`/`PX` of zero or less is `-ERR invalid expire time` instead of a key that
+never expires. Since the server offers no atomic check-then-set, a lock built
+from `EXISTS` + `SET` is racy across connections.
+
 ## Benchmarks
 
 Measured on Node v24, 100-byte values (`bun run bench`, `N=100000`):

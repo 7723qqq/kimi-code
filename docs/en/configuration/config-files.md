@@ -376,6 +376,7 @@ Retries only apply to transient failures: connection errors, timeouts, HTTP 429 
 | Field | Type | Default | Description |
 | --- | --- | --- | --- |
 | `max_running_tasks` | `integer` | — | Maximum number of background tasks running concurrently |
+| `max_settled_tasks` | `integer` | `200` | Maximum number of finished tasks kept in memory per agent. Beyond it the oldest finished task is dropped from the live map: `TaskList`/`TaskOutput` can still answer for its id, but its output preview comes only from the persisted log file |
 | `keep_alive_on_exit` | `boolean` | `false` | Whether to keep still-running background tasks when the session closes; in print mode only a fallback when `print_background_mode` is unset (`true` = `drain`) |
 | `kill_grace_period_ms` | `integer` | `5000` | Grace period in milliseconds after a task is asked to terminate; still-running tasks are force-stopped when it elapses |
 | `bash_auto_background_on_timeout` | `boolean` | `true` | Move a foreground `Bash` command to a background task on timeout instead of killing it; set to `false` to kill timed-out foreground commands instead |
@@ -638,15 +639,9 @@ Alongside `config.toml`, the CLI keeps terminal-UI and client preferences in a c
 | `[notifications].enabled` | `boolean` | `true` | Whether desktop notifications are sent |
 | `[notifications].notification_condition` | `string` | `unfocused` | When to notify: `unfocused` (only when the terminal is not focused) or `always` |
 | `[upgrade].auto_install` | `boolean` | `true` | Whether new versions are installed automatically |
-| `[astron].stream` | `boolean` | `true` | Astron provider: stream responses |
-| `[astron].temperature` | `number` | `1.0` | Astron provider: sampling temperature, `0`–`2` |
-| `[astron].max_tokens` | `number` | `32768` | Astron provider: maximum output tokens, at least `1` |
-| `[astron].search_disable` | `boolean` | `true` | Astron provider: disable web search |
 | `[markdown].mermaid` | `string` | `final` | Draw Mermaid code blocks as diagrams in the terminal: `final` renders them once the block is complete, `off` keeps the highlighted source |
 | `[status_line].items` | `string[] \| null` | `null` | Built-in slots on the first footer line and their order: `mode`, `goal`, `model`, `tasks`, `cwd`, `git`, `tips`; `null` keeps the built-in layout, unknown ids are skipped with a warning |
 | `[status_line].command` | `string \| null` | `null` | Custom status line command: its first stdout line replaces the footer, and a JSON snapshot is passed on stdin; `null` disables it. Capped at 300ms, throttled to once per second, failures fall back to the built-in layout |
-
-The `[astron]` block holds the Astron provider's sampling settings; the `/settings` Astron panel edits the same fields under `[providers.astron]` in `config.toml`.
 
 <details>
 <summary>Fields in the stdin JSON snapshot</summary>
@@ -673,12 +668,6 @@ notification_condition = "unfocused" # "unfocused" | "always"
 
 [upgrade]
 auto_install = true
-
-[astron]
-stream = true
-temperature = 1.0
-max_tokens = 32768
-search_disable = true
 
 # [markdown]
 # mermaid = "final" # "final" | "off"

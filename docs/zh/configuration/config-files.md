@@ -376,6 +376,7 @@ k3-max = "同一模型的 max Thinking 档位。适合最难的子任务。"
 | 字段 | 类型 | 默认值 | 说明 |
 | --- | --- | --- | --- |
 | `max_running_tasks` | `integer` | — | 同时运行的最大后台任务数 |
+| `max_settled_tasks` | `integer` | `200` | 每个 agent 在内存中保留的已完成任务上限；超出后最老的已完成任务从活动表中移除：`TaskList`/`TaskOutput` 仍能按 id 回答，但输出预览只能来自磁盘日志文件 |
 | `keep_alive_on_exit` | `boolean` | `false` | 会话关闭时是否保留仍在运行的后台任务；print 模式下仅作 `print_background_mode` 的回退：`true` 等价于 `drain` |
 | `kill_grace_period_ms` | `integer` | `5000` | 任务被请求正常终止后，等待自行结束的宽限时间（毫秒），超时后强制停止 |
 | `bash_auto_background_on_timeout` | `boolean` | `true` | 前台 `Bash` 命令超时后转为后台任务而非终止；设为 `false` 恢复超时即终止 |
@@ -638,15 +639,9 @@ MCP server 的声明配置写在 `~/.kimi-code/mcp.json` 或项目内 `.kimi-cod
 | `[notifications].enabled` | `boolean` | `true` | 是否发送桌面通知 |
 | `[notifications].notification_condition` | `string` | `unfocused` | 何时通知：`unfocused`（仅终端失去焦点时）或 `always`（总是） |
 | `[upgrade].auto_install` | `boolean` | `true` | 是否自动安装新版本 |
-| `[astron].stream` | `boolean` | `true` | Astron 供应商：流式返回 |
-| `[astron].temperature` | `number` | `1.0` | Astron 供应商：采样温度，取值 `0`–`2` |
-| `[astron].max_tokens` | `number` | `32768` | Astron 供应商：最大输出 token 数，至少为 `1` |
-| `[astron].search_disable` | `boolean` | `true` | Astron 供应商：关闭网页搜索 |
 | `[markdown].mermaid` | `string` | `final` | 在终端里把 Mermaid 代码块画成图：`final` 在代码块结束后渲染，`off` 保留高亮源码 |
 | `[status_line].items` | `string[] \| null` | `null` | 底部状态栏第一行的内置槽位及顺序：`mode`、`goal`、`model`、`tasks`、`cwd`、`git`、`tips`；`null` 表示沿用内置布局，未知 id 跳过并告警 |
 | `[status_line].command` | `string \| null` | `null` | 自定义状态栏命令：stdout 首行替换状态栏，stdin 收 JSON 快照；`null` 表示关闭。上限 300ms、每秒一次，失败回退内置布局 |
-
-`[astron]` 存放 Astron 供应商的采样设置；`/settings` 的 Astron 面板改的是 `config.toml` 里同名的 `[providers.astron]` 字段。
 
 <details>
 <summary>command 的 stdin 输入</summary>
@@ -673,12 +668,6 @@ notification_condition = "unfocused" # "unfocused" | "always"
 
 [upgrade]
 auto_install = true
-
-[astron]
-stream = true
-temperature = 1.0
-max_tokens = 32768
-search_disable = true
 
 # [markdown]
 # mermaid = "final" # "final" | "off"

@@ -6,6 +6,9 @@ import { HostProcessService } from '#/os/backends/host/hostProcessService';
 
 const hostProcess = new HostProcessService();
 
+const MAX_HOOK_OUTPUT_CHARS = 64 * 1024;
+const TRUNCATED_MARKER = '\n[hook output truncated]';
+
 function nodeCommand(source: string): string {
   return `node -e ${JSON.stringify(source.replaceAll(/\s*\n\s*/g, ' '))}`;
 }
@@ -160,6 +163,79 @@ describe('runHook process runner', () => {
     );
 
     expect(result.stdout?.trim()).toBe('Write');
+  });
+});
+
+describe('runHook bounded output accumulation', () => {
+  it('caps stdout at the limit, appends a truncation marker and flags the result', async () => {
+    const result = await runHook(
+      hostProcess,
+      nodeCommand('process.stdout.write("x".repeat(5 * 1024 * 1024));'),
+      {},
+      { timeout: 20 },
+    );
+
+    expect(result.action).toBe('allow');
+    expect(result.stdout?.length).toBe(MAX_HOOK_OUTPUT_CHARS + TRUNCATED_MARKER.length);
+    expect(result.stdout?.endsWith(TRUNCATED_MARKER)).toBe(true);
+    expect(result.stdout?.startsWith('xxxx')).toBe(true);
+    expect(result.outputTruncated).toBe(true);
+    expect(result.exitCode).toBe(0);
+  });
+
+  it('caps stderr at the limit and flags the result', async () => {
+    const result = await runHook(
+      hostProcess,
+      nodeCommand('process.stderr.write("e".repeat(5 * 1024 * 1024));'),
+      {},
+      { timeout: 20 },
+    );
+
+    expect(result.action).toBe('allow');
+    expect(result.stderr?.length).toBe(MAX_HOOK_OUTPUT_CHARS + TRUNCATED_MARKER.length);
+    expect(result.stderr?.endsWith(TRUNCATED_MARKER)).toBe(true);
+    expect(result.outputTruncated).toBe(true);
+  });
+
+  it('flags truncation on the block path when the hook exits 2 after massive output', async () => {
+    const result = await runHook(
+      hostProcess,
+      nodeCommand('process.stderr.write("e".repeat(5 * 1024 * 1024)); process.exit(2);'),
+      {},
+      { timeout: 20 },
+    );
+
+    expect(result.action).toBe('block');
+    expect(result.stderr?.length).toBe(MAX_HOOK_OUTPUT_CHARS + TRUNCATED_MARKER.length);
+    expect(result.outputTruncated).toBe(true);
+  });
+
+  it('reclaims the process on the timeout path even when output was truncated', async () => {
+    const result = await runHook(
+      hostProcess,
+      nodeCommand('process.stdout.write("x".repeat(5 * 1024 * 1024)); setTimeout(() => {}, 10000);'),
+      {},
+      { timeout: 0.5 },
+    );
+
+    expect(result.action).toBe('allow');
+    expect(result.timedOut).toBe(true);
+    expect(result.outputTruncated).toBe(true);
+    expect(result.stdout?.length).toBe(MAX_HOOK_OUTPUT_CHARS + TRUNCATED_MARKER.length);
+  });
+
+  it('leaves sub-limit output byte-for-byte intact and unmarked', async () => {
+    const payload = 'y'.repeat(4096);
+    const result = await runHook(
+      hostProcess,
+      nodeCommand(`process.stdout.write("y".repeat(4096));`),
+      {},
+      { timeout: 5 },
+    );
+
+    expect(result.stdout).toBe(payload);
+    expect(result.stdout?.includes(TRUNCATED_MARKER)).toBe(false);
+    expect(result.outputTruncated).toBeFalsy();
   });
 });
 

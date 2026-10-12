@@ -249,7 +249,7 @@ import type { AgentContextData } from '#/context';
 import { ErrorCodes, isKimiErrorCode, KimiError, type KimiErrorCode } from '#/errors';
 import type { ExperimentalFeatureState } from '#/flag';
 import { KimiHarness } from '#/kimi-harness';
-import { log } from '#/logging/logger';
+import { configureDiagnosticLogging, log } from '#/logging/logger';
 import type { BeginGlobalMcpServerAuthResult } from '#/mcp';
 import {
   SDKRpcClientBase,
@@ -474,6 +474,10 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       },
       [...logSeed(resolveLoggingConfig({ homeDir: this.homeDir, env: process.env }))],
     );
+    // The engine seed above feeds the engine's own DI sink; the host-side
+    // `log` surface (used by this client and by the embedding app) needs its
+    // root logger configured separately or every `log.*` call is dropped.
+    void configureDiagnosticLogging({ homeDir: this.homeDir, env: process.env });
     this.app = app;
     this.klient = createKlient({ scope: app });
     this.configReady = app.accessor.get(IConfigService).ready;

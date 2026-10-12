@@ -660,6 +660,45 @@ describe('runShell', () => {
     });
   });
 
+  it('folds worker-install startup warnings into the same startup notice', async () => {
+    mocks.loadTuiConfig.mockRejectedValue(
+      new mocks.TuiConfigParseError({
+        theme: 'dark',
+        editorCommand: null,
+        notifications: { enabled: true, condition: 'unfocused' },
+      }),
+    );
+    mocks.tuiStart.mockResolvedValue(undefined);
+
+    await runShell(minimalCliOptions, '1.2.3-test', {
+      startupWarnings: ['Native worker "kap-search" failed to install (EACCES).'],
+    });
+
+    const [, , startupInput] = mocks.kimiTuiConstructor.mock.calls[0]!;
+    // A parse warning and a degraded-worker warning must both survive: the
+    // notice is the only user-visible channel for either.
+    expect(startupInput).toMatchObject({
+      startupNotice:
+        'Invalid TUI config in ~/.kimi-code/tui.toml; using defaults.\nNative worker "kap-search" failed to install (EACCES).',
+    });
+  });
+
+  it('passes only the worker warnings when there is no config warning', async () => {
+    mocks.loadTuiConfig.mockResolvedValue({
+      theme: 'dark',
+      editorCommand: null,
+      notifications: { enabled: true, condition: 'unfocused' },
+    });
+    mocks.tuiStart.mockResolvedValue(undefined);
+
+    await runShell(minimalCliOptions, '1.2.3-test', {
+      startupWarnings: ['minidb degraded'],
+    });
+
+    const [, , startupInput] = mocks.kimiTuiConstructor.mock.calls[0]!;
+    expect(startupInput).toMatchObject({ startupNotice: 'minidb degraded' });
+  });
+
   it('leaves config.toml diagnostics to the TUI instead of the startup notice', async () => {
     mocks.loadTuiConfig.mockResolvedValue({
       theme: 'dark',

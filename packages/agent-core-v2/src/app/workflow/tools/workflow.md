@@ -14,6 +14,12 @@ You can also run an inline script:
 Workflow({ operation: "run", script: "export const meta = { name: 'quick', description: '...' };\nphase('search');\nconst result = await agent('Search for...');\nreturn result;", args: "..." })
 ```
 
+The script runs under a 30-minute default deadline, counted from launch and covering the whole script, not just its synchronous start. Pass `deadline_ms` to raise or lower it for a single run — a long workflow that intentionally runs for hours must ask for the time it needs:
+```
+Workflow({ operation: "run", name: "deep-research", args: "...", deadline_ms: 7200000 })
+```
+A script that exceeds the deadline is aborted: the run ends as `failed` with `Workflow script deadline exceeded`, and any subagent it started is cancelled. The same applies to a script stuck in a tight synchronous loop with no `await`: that kind of loop blocks the process it runs in, so it is cut off at 30 seconds and the run fails.
+
 ### `status` — check progress
 ```
 Workflow({ operation: "status", run_id: "wf_1" })

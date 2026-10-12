@@ -133,7 +133,12 @@ export interface MigrationSummary {
     /** Entries that could not be copied; the step continued past them. */
     readonly failures: readonly SessionMigrationFailure[];
   };
-  readonly plans: { readonly copied: number; readonly skippedExisting: number };
+  readonly plans: {
+    readonly copied: number;
+    readonly skippedExisting: number;
+    /** Entries that could not be copied; the step continued past them. */
+    readonly failures: readonly SessionMigrationFailure[];
+  };
   readonly sessions: SessionsSummary;
 }
 
@@ -149,6 +154,12 @@ export interface SessionsSummary {
   readonly sessionsSkippedPlaceholder: number;
   readonly sessionsSkippedEmpty: number;
   readonly sessionsFailed: readonly SessionMigrationFailure[];
+  /**
+   * Subagent dirs under migrated sessions that could not be imported — the
+   * session's main wire still references them, so the missing subagent must
+   * be visible rather than silently absent.
+   */
+  readonly subagentFailures: readonly SessionMigrationFailure[];
   readonly sessionsConflicts: ReadonlyArray<{
     readonly sourcePath: string;
     readonly targetPath: string;

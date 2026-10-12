@@ -169,11 +169,9 @@ export class ModelsDevImportService implements IModelsDevImportService {
     await config.replace(PROVIDERS_SECTION, { ...providers, [targetId]: provider });
 
     const records = config.inspect<ModelsSection>(MODELS_SECTION).userValue ?? {};
-    const withoutTarget = Object.fromEntries(
+    const nextModels = Object.fromEntries(
       Object.entries(records).filter(([, record]) => record.provider !== targetId),
     );
-    await config.replace(MODELS_SECTION, withoutTarget);
-    const nextModels = { ...withoutTarget };
     for (const model of models) {
       nextModels[`${targetId}/${model.id}`] = modelsDevModelToRecord(targetId, model);
     }

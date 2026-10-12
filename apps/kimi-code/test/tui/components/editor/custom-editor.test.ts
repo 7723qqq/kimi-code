@@ -690,6 +690,54 @@ describe('CustomEditor shortcut telemetry hooks', () => {
     expect(editor.render(60).join('\n')).toBe(idle);
   });
 
+  it('routes a raw key to the status strip ahead of the normalized mapping', () => {
+    // `StatusSurfaceKey` carries no printable text, so a panel with an active
+    // inline input (an approval's rejection reason) receives the key here and
+    // the editor leaves the draft alone.
+    const editor = makeEditor();
+    const onStatusSurfaceRawInput = vi.fn().mockReturnValue(true);
+    const onStatusSurfaceKey = vi.fn().mockReturnValue(true);
+    editor.onStatusSurfaceRawInput = onStatusSurfaceRawInput;
+    editor.onStatusSurfaceKey = onStatusSurfaceKey;
+
+    editor.handleInput('r');
+
+    expect(onStatusSurfaceRawInput).toHaveBeenCalledWith('r');
+    expect(editor.getText()).toBe('');
+    // The raw channel answers first; a consumed key never reaches the mapping.
+    expect(onStatusSurfaceKey).not.toHaveBeenCalled();
+
+    // A key the mapping *would* claim — `3` is `digit3` — still goes raw while
+    // the panel's inline input is up, which is what makes the ordering (raw
+    // before `statusSurfaceKeyOf`) load-bearing.
+    editor.handleInput('3');
+    expect(onStatusSurfaceRawInput).toHaveBeenCalledWith('3');
+    expect(onStatusSurfaceKey).not.toHaveBeenCalled();
+    expect(editor.getText()).toBe('');
+  });
+
+  it('routes Ctrl+E through the raw channel, which has no normalized key', () => {
+    const editor = makeEditor();
+    const onStatusSurfaceRawInput = vi.fn().mockReturnValue(true);
+    editor.onStatusSurfaceRawInput = onStatusSurfaceRawInput;
+
+    editor.handleInput('\u0005');
+
+    expect(onStatusSurfaceRawInput).toHaveBeenCalledWith('\u0005');
+  });
+
+  it('leaves the key to the editor when the raw channel rejects it', () => {
+    const editor = makeEditor();
+    editor.onStatusSurfaceRawInput = vi.fn().mockReturnValue(false);
+    const onStatusSurfaceKey = vi.fn().mockReturnValue(true);
+    editor.onStatusSurfaceKey = onStatusSurfaceKey;
+
+    editor.handleInput('r');
+
+    expect(onStatusSurfaceKey).not.toHaveBeenCalled();
+    expect(editor.getText()).toBe('r');
+  });
+
   it('routes Ctrl+T to the status strip as a fold toggle', () => {
     const editor = makeEditor();
     const onStatusSurfaceKey = vi.fn().mockReturnValue(true);

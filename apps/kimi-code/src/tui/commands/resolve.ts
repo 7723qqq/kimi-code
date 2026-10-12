@@ -57,10 +57,17 @@ export function resolveSlashCommandInput(options: ResolveSlashCommandInput): Sla
 
   const command = findBuiltInSlashCommand(parsed.name);
   // `command` is a literal union where only some members carry `experimentalFlag`; widen to read it.
-  if (
-    command !== undefined &&
-    isExperimentalFlagEnabled((command as KimiSlashCommand).experimentalFlag)
-  ) {
+  if (command !== undefined) {
+    if (!isExperimentalFlagEnabled((command as KimiSlashCommand).experimentalFlag)) {
+      // The command exists but its experimental flag is off: reject it here
+      // instead of letting the slash text fall through to the model as a
+      // prompt (the registry declares such commands hidden and blocked).
+      return {
+        kind: 'invalid',
+        commandName: parsed.name,
+        reason: 'unknown',
+      };
+    }
     const busyReason = slashCommandBusyReason(options);
     if (
       busyReason !== undefined &&

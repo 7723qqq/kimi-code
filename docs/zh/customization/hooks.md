@@ -90,6 +90,8 @@ Hook 命令的工作目录默认为当前会话的项目目录，除非该规则
 | 其他非零值 | 脚本出错 | 默认放行（fail-open） |
 | 超时或崩溃 | 脚本异常 | 默认放行（fail-open） |
 
+hook 的 stdout 与 stderr 各自上限为 64 KiB，超出部分会被丢弃并追加 `[hook output truncated]` 标记（保留前 64 KiB）。不要通过 stdout 传递大量数据，改为写入文件并引用路径。只有 stdout 的前 64 KiB 可能被附加到上下文。
+
 也可以通过标准输出返回一段 JSON 来阻断：
 
 ```json

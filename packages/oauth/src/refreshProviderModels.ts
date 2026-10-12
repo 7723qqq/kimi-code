@@ -72,6 +72,14 @@ export interface RefreshResult {
 
 export type RefreshProviderScope = 'all' | 'oauth';
 
+/**
+ * Wall-clock budget for a single open-platform `/models` fetch. The fetch used
+ * to run without any deadline, so a host that accepted the connection and then
+ * went silent held the awaited refresh (TUI background refresh, daemon RPC
+ * chain) for undici's default 300 s.
+ */
+export const OPEN_PLATFORM_FETCH_TIMEOUT_MS = 30_000;
+
 export interface RefreshProviderOptions {
   readonly scope?: RefreshProviderScope;
   /**
@@ -80,6 +88,17 @@ export interface RefreshProviderOptions {
    * group it belongs to is fetched but only the target entry is applied.
    */
   readonly providerId?: string;
+  /**
+   * Cancels the refresh from the caller's side; combined with the per-fetch
+   * deadline via {@link AbortSignal.any}. An abort surfaces as a `failed`
+   * entry for the provider in flight, never as a rejected refresh.
+   */
+  readonly signal?: AbortSignal;
+  /**
+   * Overrides {@link OPEN_PLATFORM_FETCH_TIMEOUT_MS} for every
+   * open-platform fetch this call performs.
+   */
+  readonly timeoutMs?: number;
 }
 
 interface ProviderView {
@@ -420,6 +439,7 @@ export async function refreshProviderModels(
   const failed: Array<{ provider: string; reason: string }> = [];
   const scope = options.scope ?? 'all';
   const targetId = options.providerId;
+  const fetchTimeoutMs = options.timeoutMs ?? OPEN_PLATFORM_FETCH_TIMEOUT_MS;
 
   let config = await host.getConfig();
 
@@ -541,7 +561,11 @@ export async function refreshProviderModels(
         });
         continue;
       }
-      let models = await fetchOpenPlatformModels(platform, apiKey);
+      const signal =
+        options.signal !== undefined
+          ? AbortSignal.any([options.signal, AbortSignal.timeout(fetchTimeoutMs)])
+          : AbortSignal.timeout(fetchTimeoutMs);
+      let models = await fetchOpenPlatformModels(platform, apiKey, undefined, signal);
       models = filterModelsByPrefix(models, platform);
       if (models.length === 0) {
         failed.push({ provider: providerId, reason: 'provider returned no models' });

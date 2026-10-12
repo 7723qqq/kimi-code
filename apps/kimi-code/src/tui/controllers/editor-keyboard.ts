@@ -77,6 +77,8 @@ export interface EditorKeyboardHost {
   toggleStatusSurfaceFocus(): boolean;
   /** Route one routed key to the status strip; false when nothing claimed it. */
   handleStatusSurfaceKey(key: StatusSurfaceKey): boolean;
+  /** Route one raw key to the status strip; false when nothing claimed it. */
+  handleStatusSurfaceRawInput(data: string): boolean;
   detachCurrentForegroundTask(): void;
   cancelRunningShellCommand(): void;
   hideSessionPicker(): void;
@@ -355,6 +357,8 @@ export class EditorKeyboardController {
       return host.handleStatusSurfaceKey(key);
     };
 
+    editor.onStatusSurfaceRawInput = (data): boolean => host.handleStatusSurfaceRawInput(data);
+
     editor.onCtrlS = (): void => {
       void this.steerWithEditorDraft();
     };
@@ -377,6 +381,12 @@ export class EditorKeyboardController {
 
     editor.onUndo = () => {
       host.track('undo');
+    };
+
+    editor.onAutocompleteError = (error: unknown) => {
+      host.showError(
+        t('tui.messages.autocompleteFailed', { error: formatErrorMessage(error) }),
+      );
     };
 
     editor.onTextPaste = () => {

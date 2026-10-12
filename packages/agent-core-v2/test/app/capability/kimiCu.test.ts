@@ -1,4 +1,4 @@
-import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Readable, Writable } from 'node:stream';
@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { CapabilityEntryContext } from '#/app/capability/entries/context';
 import {
   createKimiCuEntry,
-  elevatedDittoScript,
+  elevatedSwapScript,
   parsePermissionStatus,
   parseWindowsDoctorOutput,
   readAppBundleVersion,
@@ -196,15 +196,29 @@ describe('windowsPowerShellPath', () => {
   });
 });
 
-describe('elevatedDittoScript', () => {
-  it('shell-quotes both paths so spaces and metacharacters stay literal', () => {
-    expect(elevatedDittoScript('/tmp/kimi cu/app', '/Applications/KimiCU.app')).toBe(
-      "/usr/bin/ditto '/tmp/kimi cu/app' '/Applications/KimiCU.app'",
+describe('elevatedSwapScript', () => {
+  it('swaps the staged bundle in under one shell-quoted transaction', () => {
+    expect(
+      elevatedSwapScript('/tmp/kimi cu/app', '/Applications/KimiCU.app', '/Applications/x.new-1-2'),
+    ).toBe(
+      "set -e; rm -rf '/Applications/KimiCU.app.bak'; rm -rf '/Applications/x.new-1-2'; " +
+        "/usr/bin/ditto '/tmp/kimi cu/app' '/Applications/x.new-1-2'; " +
+        "if [ -e '/Applications/KimiCU.app' ]; then /bin/mv '/Applications/KimiCU.app' '/Applications/KimiCU.app.bak'; fi; " +
+        "if ! /bin/mv '/Applications/x.new-1-2' '/Applications/KimiCU.app'; then " +
+        "if [ -e '/Applications/KimiCU.app.bak' ]; then /bin/mv '/Applications/KimiCU.app.bak' '/Applications/KimiCU.app'; fi; " +
+        'exit 1; fi; ' +
+        "rm -rf '/Applications/KimiCU.app.bak'",
     );
-    const script = elevatedDittoScript("$(touch /tmp/pwned); echo '", '/Applications/KimiCU.app');
-    expect(script).toBe(
-      "/usr/bin/ditto '$(touch /tmp/pwned); echo '\\''' '/Applications/KimiCU.app'",
+  });
+
+  it('shell-quotes every path so spaces and metacharacters stay literal', () => {
+    const script = elevatedSwapScript(
+      "$(touch /tmp/pwned); echo '",
+      '/Applications/KimiCU.app',
+      '/Applications/KimiCU.app.new-x',
     );
+    expect(script).toContain("/usr/bin/ditto '$(touch /tmp/pwned); echo '\\'''");
+    expect(script).not.toContain('ditto $(touch');
   });
 });
 
@@ -1037,10 +1051,17 @@ describe('kimi-cu entry', () => {
     const hostProcess = {
       spawn: async (command: string, args: readonly string[] = []) => {
         const proc = await host.service.spawn(command, args);
-        if (command === 'ditto' && String(args.at(-1)).includes('KimiCU.app')) {
-          await mkdir(path.dirname(appBin), { recursive: true });
-          await writeFile(appBin, '#!/bin/sh\n');
-          await chmod(appBin, 0o755);
+        const destination = String(args.at(-1));
+        if (
+          command === 'ditto' &&
+          (destination.includes('KimiCU.app') || args[0]?.includes('KimiCU.app'))
+        ) {
+          const stampedBin = destination.includes('KimiCU.app')
+            ? path.join(destination, 'Contents', 'MacOS', 'kimi-cu')
+            : appBin;
+          await mkdir(path.dirname(stampedBin), { recursive: true });
+          await writeFile(stampedBin, '#!/bin/sh\n');
+          await chmod(stampedBin, 0o755);
         }
         return proc;
       },
@@ -1149,5 +1170,146 @@ describe('kimi-cu entry', () => {
       state: 'missing',
       detail: 'not executable',
     });
+  });
+
+  async function installableMacSetup(
+    host: { service: IHostProcessService; calls: string[] },
+    appBody: string,
+  ): Promise<{ hostProcess: IHostProcessService }> {
+    const placeBundle = async (source: string, target: string): Promise<void> => {
+      await mkdir(path.join(target, 'Contents', 'MacOS'), { recursive: true });
+      const sourceBin = path.join(source, 'Contents', 'MacOS', 'kimi-cu');
+      const body = await readFile(sourceBin, 'utf8').catch(() => appBody);
+      const bin = path.join(target, 'Contents', 'MacOS', 'kimi-cu');
+      await writeFile(bin, body);
+      await chmod(bin, 0o755);
+      await writeFile(
+        path.join(target, 'Contents', 'Info.plist'),
+        '<key>CFBundleShortVersionString</key>\n<string>0.5.5</string>',
+      );
+    };
+    const hostProcess = {
+      spawn: async (command: string, args: readonly string[] = []) => {
+        const proc = await host.service.spawn(command, args);
+        const destination = String(args.at(-1));
+        const source = String(args[0]);
+        if (command === 'ditto') {
+          const from = args[0] === '-x' ? String(args[2]) : source;
+          if (args[0] === '-x') {
+            await placeBundle(path.join(from, 'KimiCU.app'), path.join(destination, 'KimiCU.app'));
+          } else if (destination.includes('KimiCU.app')) {
+            await placeBundle(from, destination);
+          }
+        }
+        return proc;
+      },
+    } as IHostProcessService;
+    return { hostProcess };
+  }
+
+  const macFetchImpl = (() =>
+    Promise.resolve(
+      new Response(new Uint8Array([1, 2, 3]), {
+        status: 200,
+        headers: { 'content-length': '3' },
+      }),
+    )) as never;
+
+  it('keeps the installed app when the staged copy cannot be made', async () => {
+    const applicationsDir = await fakeAppBundle();
+    const appBin = path.join(applicationsDir, 'KimiCU.app', 'Contents', 'MacOS', 'kimi-cu');
+    const plugins = fakePlugins([{ id: 'kimi-cu', enabled: true, state: 'ok', version: '0.5.4' }]);
+    const host = fakeHostProcess([
+      { match: 'ditto -x -k', code: 0 },
+      { match: 'ditto', code: 1, stderr: 'ditto: Copy failed' },
+      { match: 'osascript', code: 1, stderr: 'User canceled.' },
+      { match: 'service-status', code: 0, stdout: 'SMAppService status=1' },
+      {
+        match: 'xpc-ping',
+        code: 0,
+        stdout: 'permissionStatus: accessibility=true screenRecording=true',
+      },
+    ]);
+    const entry = createKimiCuEntry(
+      makeCtx({
+        applicationsDir,
+        plugins: plugins.service,
+        hostProcess: host.service,
+        fetchImpl: macFetchImpl,
+      }),
+    );
+
+    await expect(entry.install(() => {})).rejects.toThrow(/Failed to install KimiCU\.app/);
+    expect(await readFile(appBin, 'utf8')).toBe('#!/bin/sh\n');
+    expect(host.calls.some((call) => call.includes('uninstall'))).toBe(false);
+  });
+
+  it('restores the installed app when the staged swap fails', async () => {
+    const applicationsDir = await fakeAppBundle();
+    const plugins = fakePlugins([{ id: 'kimi-cu', enabled: true, state: 'ok', version: '0.5.4' }]);
+    const host = fakeHostProcess([
+      { match: 'service-status', code: 0, stdout: 'SMAppService status=1' },
+      {
+        match: 'xpc-ping',
+        code: 0,
+        stdout: 'permissionStatus: accessibility=true screenRecording=true',
+      },
+    ]);
+    const { hostProcess } = await installableMacSetup(host, '#!/bin/sh\n');
+    const offendingHost = {
+      spawn: async (command: string, args: readonly string[] = []) => {
+        const proc = await hostProcess.spawn(command, args);
+        if (command === 'ditto' && String(args.at(-1)).includes('.new-')) {
+          await rm(String(args.at(-1)), { recursive: true, force: true });
+        }
+        return proc;
+      },
+    } as IHostProcessService;
+    const entry = createKimiCuEntry(
+      makeCtx({
+        applicationsDir,
+        plugins: plugins.service,
+        hostProcess: offendingHost,
+        fetchImpl: macFetchImpl,
+      }),
+    );
+
+    await expect(entry.install(() => {})).rejects.toThrow(/staged bundle could not replace/);
+    expect(await readdir(applicationsDir)).toEqual(['KimiCU.app']);
+    const infoPlist = path.join(applicationsDir, 'KimiCU.app', 'Contents', 'Info.plist');
+    expect(await readAppBundleVersion(infoPlist)).toBe('0.5.4');
+  });
+
+  it('replaces the installed app and leaves no staging entries after a successful install', async () => {
+    const applicationsDir = await fakeAppBundle();
+    await mkdir(path.join(applicationsDir, 'KimiCU.app.bak-1-1'), { recursive: true });
+    await mkdir(path.join(applicationsDir, 'KimiCU.app.new-1-1'), { recursive: true });
+    await mkdir(path.join(applicationsDir, 'KimiCU.app.bak'), { recursive: true });
+    const plugins = fakePlugins([{ id: 'kimi-cu', enabled: true, state: 'ok', version: '0.5.4' }]);
+    const host = fakeHostProcess([
+      { match: 'service-status', code: 0, stdout: 'SMAppService status=1' },
+      {
+        match: 'xpc-ping',
+        code: 0,
+        stdout: 'permissionStatus: accessibility=true screenRecording=true',
+      },
+    ]);
+    const { hostProcess } = await installableMacSetup(host, '#!/bin/sh\necho new\n');
+    const entry = createKimiCuEntry(
+      makeCtx({
+        applicationsDir,
+        plugins: plugins.service,
+        hostProcess,
+        fetchImpl: macFetchImpl,
+      }),
+    );
+
+    await entry.install(() => {});
+
+    const infoPlist = path.join(applicationsDir, 'KimiCU.app', 'Contents', 'Info.plist');
+    expect(await readAppBundleVersion(infoPlist)).toBe('0.5.5');
+    const leftovers = await readdir(applicationsDir);
+    expect(leftovers.filter((entry) => /^KimiCU\.app\.(new|bak)-/.test(entry))).toEqual([]);
+    expect(host.calls.some((call) => call.includes('xattr -dr com.apple.quarantine'))).toBe(true);
   });
 });

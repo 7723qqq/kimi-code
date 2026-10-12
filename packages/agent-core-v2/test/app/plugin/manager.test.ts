@@ -5,6 +5,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import type { ILogger } from '#/_base/log/log';
 import { PluginManager } from '#/app/plugin/manager';
 
 import { createZipFromDir } from './zip-helper';
@@ -350,12 +351,41 @@ describe('PluginManager', () => {
         });
       }) as typeof fetch,
     );
-    const manager = new PluginManager({ kimiHomeDir: home });
+    const warn = vi.fn();
+    const log: ILogger = {
+      error: vi.fn(),
+      warn,
+      info: vi.fn(),
+      debug: vi.fn(),
+      child: vi.fn(),
+    };
+    const manager = new PluginManager({ kimiHomeDir: home, log });
     await manager.load();
 
-    await expect(manager.checkUpdates()).resolves.toEqual([
-      expect.objectContaining({ id: 'good', updateAvailable: true }),
-    ]);
+    const statuses = await manager.checkUpdates();
+
+    expect(statuses).toHaveLength(2);
+    const good = statuses.find((status) => status.id === 'good');
+    const offline = statuses.find((status) => status.id === 'offline');
+    expect(good).toEqual(expect.objectContaining({ id: 'good', updateAvailable: true }));
+    expect(good?.checkFailed).toBeUndefined();
+    expect(good?.errorMessage).toBeUndefined();
+    expect(offline).toEqual(
+      expect.objectContaining({
+        id: 'offline',
+        source: 'github',
+        current: { kind: 'tag', value: 'v1' },
+        latest: { kind: 'tag', value: 'v1' },
+        displayVersion: 'v1',
+        updateAvailable: false,
+        checkFailed: true,
+      }),
+    );
+    expect(offline?.errorMessage).toBe('network offline');
+    expect(warn).toHaveBeenCalledWith(
+      'plugin update check failed',
+      expect.objectContaining({ id: 'offline' }),
+    );
   });
 
   it('persists enabled state changes', async () => {

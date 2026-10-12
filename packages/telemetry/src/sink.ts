@@ -1,6 +1,7 @@
 import { arch, platform, release } from 'node:os';
 
 import { cleanTelemetryProperties } from './privacy';
+import { TelemetryPersistedError } from './transport';
 import type {
   EnrichedTelemetryEvent,
   TelemetryContext,
@@ -91,7 +92,9 @@ export class EventSink {
     try {
       await this.transport.send(events, signal);
     } catch (error) {
-      this.buffer = [...events, ...this.buffer];
+      if (!(error instanceof TelemetryPersistedError)) {
+        this.buffer = [...events, ...this.buffer];
+      }
       throw error;
     }
   }

@@ -154,13 +154,25 @@ async function handle(db: MiniDb<string>, args: Buffer[]): Promise<string | Buff
         const opt = S(i)!.toUpperCase();
         if (opt === 'EX') ttl = Number(S(++i)) * 1000;
         else if (opt === 'PX') ttl = Number(S(++i));
+        // Options this server does not implement must fail loudly, before the
+        // write: ignoring NX/XX turned `SET lock owner NX EX 30` into an
+        // unconditional overwrite that answered +OK, and ignoring KEEPTTL
+        // cleared the TTL the caller asked to keep.
+        else if (opt === 'NX' || opt === 'XX' || opt === 'GET' || opt === 'KEEPTTL')
+          return reply.err(`unsupported option '${opt.toLowerCase()}' for 'set'`);
+        else return reply.err('syntax error');
       }
       // `ttl ? … : {}` used to turn NaN/0 into "no expiry": `SET k v EX abc`
       // answered +OK and stored the key forever. Validate the same way the
       // programmatic API does so a bad EX/PX is an error, not a silent
       // no-op. `ttl` stays undefined when no option was given.
-      if (ttl !== undefined) parseTtlMs(ttl);
-      await db.set(key, val, ttl ? { ttl } : {});
+      if (ttl !== undefined) {
+        parseTtlMs(ttl);
+        // A zero TTL is not "no expiry" either: Redis answers with an error
+        // rather than storing a key that can never expire.
+        if (ttl <= 0) return reply.err("invalid expire time in 'set' command");
+      }
+      await db.set(key, val, ttl !== undefined ? { ttl } : {});
       return reply.ok();
     }
     case 'DEL': {
@@ -182,6 +194,11 @@ async function handle(db: MiniDb<string>, args: Buffer[]): Promise<string | Buff
       return reply.array(out);
     }
     case 'MSET': {
+      // A trailing key without a value used to be dropped silently and still
+      // answered +OK, so a truncated pipeline looked like a successful atomic
+      // batch (Redis replies with a wrong-arity error instead).
+      if (args.length === 1 || (args.length - 1) % 2 !== 0)
+        return reply.err("wrong number of arguments for 'mset'");
       const entries: (readonly [string, string])[] = [];
       for (let i = 1; i + 1 < args.length; i += 2) entries.push([S(i)!, S(i + 1)!]);
       await db.mset(entries); // atomic batch (single WAL frame), like Redis MSET
@@ -190,7 +207,14 @@ async function handle(db: MiniDb<string>, args: Buffer[]): Promise<string | Buff
     case 'TTL': {
       const key = S(1);
       if (key === undefined) return reply.err("wrong number of arguments for 'ttl'");
-      return reply.int(Math.trunc(db.ttl(key) / 1000));
+      const t = db.ttl(key);
+      // -1 (exists, no expiry) and -2 (missing) are sentinels, not seconds:
+      // dividing them by 1000 collapsed both onto `:0`, so an expiring-now key
+      // and a `nolimit` key were indistinguishable from "no such key".
+      // The live branch rounds to the nearest second the way Redis does: a key
+      // set with `PX 1000` already reads back 998 ms, and truncating that
+      // answered `:0` for a key that had not expired yet.
+      return reply.int(t < 0 ? t : Math.floor((t + 500) / 1000));
     }
     case 'DBSIZE':
       return reply.int(db.size);

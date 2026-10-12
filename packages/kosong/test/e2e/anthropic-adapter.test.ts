@@ -333,7 +333,7 @@ describe('e2e: Anthropic adapter bridge', () => {
 
       expect(stream.id).toBe('msg_1');
       expect(stream.usage).toEqual({
-        inputOther: 16,
+        inputOther: 19,
         output: 7,
         inputCacheRead: 2,
         inputCacheCreation: 1,

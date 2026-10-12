@@ -380,6 +380,22 @@ export class StatusSurfaceComponent implements Component {
   }
 
   /**
+   * Hand a raw key to the focused region before the editor's own mapping.
+   *
+   * Returns true when the focused region consumed it; false — no focus, or the
+   * region has no use for this key — means the caller should continue with its
+   * own binding. This is the only route by which a panel receives printable
+   * text and its own Ctrl shortcuts.
+   */
+  handleRawInput(data: string): boolean {
+    const focused = this.focusedRegionId === null ? undefined : this.regions.get(this.focusedRegionId);
+    if (focused === undefined) return false;
+    if (focused.handleRawInput?.(data) !== true) return false;
+    this.onRequestRender();
+    return true;
+  }
+
+  /**
    * Move the keyboard to the other column of the strip (`Tab`).
    *
    * Only a strip-level gesture: it needs the geometry, which is the one thing

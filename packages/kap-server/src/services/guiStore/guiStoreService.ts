@@ -2,19 +2,25 @@ import { randomBytes } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
+import { Error2, ErrorCodes } from '@moonshot-ai/agent-core-v2';
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
 
 import type { IGuiStoreService } from './guiStore';
 
 export interface GuiStoreLogger {
   warn(obj: unknown, msg: string): void;
+  error(obj: unknown, msg: string): void;
 }
 
-const noopLogger: GuiStoreLogger = { warn: () => {} };
+const noopLogger: GuiStoreLogger = { warn: () => {}, error: () => {} };
 
 function emptyStore(): Record<string, string> {
   return Object.create(null) as Record<string, string>;
 }
+
+type ReadResult =
+  | { ok: true; store: Record<string, string> }
+  | { ok: false; reason: string };
 
 export class GuiStoreService implements IGuiStoreService {
   readonly _serviceBrand: undefined;
@@ -29,14 +35,16 @@ export class GuiStoreService implements IGuiStoreService {
   }
 
   async getItem(key: string): Promise<string | null> {
-    const all = await this.readAll();
+    const result = await this.readAll();
+    if (!result.ok) return null;
+    const all = result.store;
     if (!Object.prototype.hasOwnProperty.call(all, key)) return null;
     return all[key] ?? null;
   }
 
   async setItem(key: string, value: string): Promise<void> {
     await this.withLock(async () => {
-      const all = await this.readAll();
+      const all = await this.readWritable();
       all[key] = value;
       await this.writeAll(all);
     });
@@ -44,7 +52,7 @@ export class GuiStoreService implements IGuiStoreService {
 
   async removeItem(key: string): Promise<void> {
     await this.withLock(async () => {
-      const all = await this.readAll();
+      const all = await this.readWritable();
       if (Object.prototype.hasOwnProperty.call(all, key)) {
         delete all[key];
         await this.writeAll(all);
@@ -57,8 +65,19 @@ export class GuiStoreService implements IGuiStoreService {
   }
 
   async length(): Promise<number> {
-    const all = await this.readAll();
-    return Object.keys(all).length;
+    const result = await this.readAll();
+    return result.ok ? Object.keys(result.store).length : 0;
+  }
+
+  private async readWritable(): Promise<Record<string, string>> {
+    const result = await this.readAll();
+    if (!result.ok) {
+      throw new Error2(
+        ErrorCodes.CONFIG_INVALID,
+        `gui.toml is unreadable (${result.reason}); refusing to overwrite ${this.filePath}`,
+      );
+    }
+    return result.store;
   }
 
   private withLock(fn: () => Promise<void>): Promise<void> {
@@ -70,29 +89,40 @@ export class GuiStoreService implements IGuiStoreService {
     return run;
   }
 
-  private async readAll(): Promise<Record<string, string>> {
+  private async readAll(): Promise<ReadResult> {
     let text: string;
     try {
       text = await readFile(this.filePath, 'utf-8');
     } catch (error) {
-      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return emptyStore();
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return { ok: true, store: emptyStore() };
+      }
       throw error;
     }
-    if (text.trim().length === 0) return emptyStore();
+    if (text.trim().length === 0) return { ok: true, store: emptyStore() };
+    let parsed: Record<string, unknown>;
     try {
-      const parsed = parseToml(text) as Record<string, unknown>;
-      const out = emptyStore();
-      for (const [k, v] of Object.entries(parsed)) {
-        if (typeof v === 'string') out[k] = v;
-      }
-      return out;
+      parsed = parseToml(text) as Record<string, unknown>;
     } catch (error) {
-      this.logger.warn(
+      this.logger.error(
         { filePath: this.filePath, err: error },
-        'gui.toml parse failed; using an empty store',
+        'gui.toml parse failed; writes are refused until the file is fixed or cleared',
       );
-      return emptyStore();
+      return { ok: false, reason: `parse failed: ${(error as Error).message}` };
     }
+    const out = emptyStore();
+    for (const [k, v] of Object.entries(parsed)) {
+      if (typeof v === 'string') {
+        out[k] = v;
+      } else {
+        this.logger.warn(
+          { filePath: this.filePath, key: k, type: v === null ? 'null' : typeof v },
+          'gui.toml has a non-string value; writes are refused until the file is fixed or cleared',
+        );
+        return { ok: false, reason: `key ${JSON.stringify(k)} is not a string` };
+      }
+    }
+    return { ok: true, store: out };
   }
 
   private async writeAll(obj: Record<string, string>): Promise<void> {

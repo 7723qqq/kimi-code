@@ -162,6 +162,8 @@ export const pluginUpdateStatusSchema = z.object({
   latest: pluginGithubRefSchema,
   displayVersion: z.string(),
   updateAvailable: z.boolean(),
+  checkFailed: z.boolean().optional(),
+  errorMessage: z.string().optional(),
 });
 
 export const pluginCommandDefSchema = z.object({

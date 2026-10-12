@@ -185,16 +185,14 @@ async fn main() -> anyhow::Result<()> {
                             types::JsonRpcError::internal_error(format!("Serialization error: {e}"))
                         })
                     }
-                    Err(e) => {
-                        let output = RunTurnResult {
-                            stop_reason: format!("Error: {e}"),
-                            steps: 0,
-                            usage: TokenUsage::default(),
-                        };
-                        serde_json::to_value(&output).map_err(|_| {
-                            types::JsonRpcError::internal_error(format!("Turn failed: {e}"))
-                        })
-                    }
+                    // A failed turn is a failed request: report it as a
+                    // JSON-RPC error rather than a successful result whose
+                    // `stop_reason` happens to start with "Error: ". Callers
+                    // cannot tell the two apart otherwise, and would treat a
+                    // crashed turn as a completed one.
+                    Err(e) => Err(types::JsonRpcError::internal_error(format!(
+                        "Turn failed: {e}"
+                    ))),
                 }
             })
         },

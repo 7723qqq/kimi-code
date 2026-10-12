@@ -60,6 +60,7 @@ function makeTool(
       req: QuestionRequest,
       requestOptions?: { readonly agentId?: string; readonly detached?: boolean },
     ) => Promise<QuestionResult>;
+    readonly rawResponse?: () => unknown;
   } = {},
 ): {
   readonly tool: IAskUserQuestionTool;
@@ -115,6 +116,10 @@ function makeTool(
     })) {
       if (seen.has(pending.id)) continue;
       seen.add(pending.id);
+      if (options.rawResponse !== undefined) {
+        interactions.respond(pending.id, options.rawResponse());
+        continue;
+      }
       const agentId = pending.tags[INTERACTION_TAG_AGENT_ID];
       void request(pending.payload as QuestionRequest, {
         agentId: typeof agentId === 'string' ? agentId : 'main',
@@ -442,6 +447,45 @@ describe('AskUserQuestionTool', () => {
     expect(result.output).toContain('dismissed');
     expect(result.output).toContain('answers');
     expect(telemetryTrack).toHaveBeenCalledWith('question_dismissed', { trace_id: undefined });
+  });
+
+  it('reports an unsupported host when the interaction settles as unsupported', async () => {
+    const { tool, telemetryTrack } = makeTool({
+      rawResponse: () => ({ cancelled: true, reason: 'unsupported' }),
+    });
+
+    const result = await executeTool(tool, {
+      turnId: 0,
+      toolCallId: 'call_question',
+      args: input(),
+      signal,
+    });
+
+    expect(result).toEqual({
+      isError: true,
+      output:
+        'The connected client does not support interactive questions. Do NOT call this tool again. Ask the user directly in your text response instead.',
+    });
+    expect(telemetryTrack).not.toHaveBeenCalled();
+  });
+
+  it('keeps the dismissed message when the host settles the question with null', async () => {
+    const { tool } = makeTool({ request: async () => null });
+
+    const result = await executeTool(tool, {
+      turnId: 0,
+      toolCallId: 'call_question',
+      args: input(),
+      signal,
+    });
+
+    expect(result).toEqual({
+      isError: false,
+      output: JSON.stringify({
+        answers: {},
+        note: 'User dismissed the question without answering.',
+      }),
+    });
   });
 
   it('resolves dismissed when the waiting question is aborted', async () => {

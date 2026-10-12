@@ -1,4 +1,5 @@
 import { EventEmitter } from 'node:events';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import { KaosFileExistsError, KaosValueError } from '#/errors';
 import {
@@ -32,6 +33,16 @@ async function streamToBuffer(stream: NodeJS.ReadableStream): Promise<Buffer> {
     chunks.push(Buffer.from(chunk as Buffer));
   }
   return Buffer.concat(chunks);
+}
+
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
+  return Promise.race([
+    promise,
+    (async () => {
+      await delay(timeoutMs);
+      throw new Error(`timed out after ${timeoutMs}ms`);
+    })(),
+  ]);
 }
 
 // Explicit opt-in smoke: set KAOS_SSH_SMOKE=1 plus SSH credentials.
@@ -183,7 +194,7 @@ describe.skipIf(process.platform === 'win32' || !SSH_SMOKE)('SSHKaos smoke', () 
     for await (const line of sshKaos.readLines(textPath)) {
       lines.push(line);
     }
-    expect(lines).toEqual(['Hello SSH', 'More data']);
+    expect(lines).toEqual(['Hello SSH\n', 'More data\n']);
 
     const bytesPayload = Buffer.from(Array.from({ length: 32 }, (_, i) => i));
     const bytesWritten = await sshKaos.writeBytes(bytesPath, bytesPayload);
@@ -1465,14 +1476,35 @@ describe('SSHKaos mkdir existOk edge cases', () => {
 });
 
 describe('SSHKaos.close lifecycle', () => {
+  // Mirrors ssh2's `Client`: `end()` is a no-op once the transport is gone and
+  // `close` fires only once, so a connection that already dropped cannot be
+  // revived by a later `end()`.
   class FakeClient extends EventEmitter {
-    closed = false;
+    private _closed = false;
+    endCalls = 0;
+    destroyCalls = 0;
+    neverReportsClose = false;
+
+    get closed(): boolean {
+      return this._closed;
+    }
+
+    override emit(event: string | symbol, ...args: unknown[]): boolean {
+      if (event === 'close') this._closed = true;
+      return super.emit(event, ...args);
+    }
 
     end(): void {
+      this.endCalls += 1;
+      if (this._closed || this.neverReportsClose) return;
       queueMicrotask(() => {
-        this.closed = true;
         this.emit('close');
       });
+    }
+
+    destroy(): void {
+      this.destroyCalls += 1;
+      this._closed = true;
     }
 
     exec(
@@ -1495,24 +1527,22 @@ describe('SSHKaos.close lifecycle', () => {
   }
 
   function createCloseableKaos(): SSHKaos {
-    const instance = Object.create(SSHKaos.prototype) as SSHKaos;
-    const internals = instance as unknown as {
-      _client: FakeClient;
-      _cwd: string;
-      _home: string;
-      _sftp: { end(): void };
-      _envLayers: readonly Record<string, string>[];
-    };
-    internals._client = new FakeClient();
-    internals._cwd = '/tmp';
-    internals._home = '/tmp';
-    internals._envLayers = [];
-    internals._sftp = {
+    const sftp = {
       end(): void {
         // no-op
       },
     };
-    return instance;
+    // Go through the real constructor so the client-death subscription is
+    // exercised; the private modifier is compile-time only.
+    const Ctor = SSHKaos as unknown as new (
+      client: FakeClient,
+      sftp: { end(): void },
+      home: string,
+      cwd: string,
+      osEnv: unknown,
+      envLayers: readonly Record<string, string>[],
+    ) => SSHKaos;
+    return new Ctor(new FakeClient(), sftp, '/tmp', '/tmp', {}, []);
   }
 
   it('awaits the close event before allowing follow-up execs to observe the closed state', async () => {
@@ -1521,5 +1551,38 @@ describe('SSHKaos.close lifecycle', () => {
     await kaos.close();
 
     await expect(kaos.exec('pwd')).rejects.toThrow(/channel closed/);
+  });
+
+  it('settles immediately when the client already emitted close', async () => {
+    const kaos = createCloseableKaos();
+    const client = (kaos as unknown as { _client: FakeClient })._client;
+    // An idle timeout / dropped link fires the event before anyone calls
+    // close(), so waiting for it again would hang forever.
+    client.emit('close');
+
+    await expect(withTimeout(kaos.close(), 1_000)).resolves.toBeUndefined();
+  });
+
+  it('settles and destroys a client that never reports close', async () => {
+    const kaos = createCloseableKaos();
+    const client = (kaos as unknown as { _client: FakeClient })._client;
+    client.neverReportsClose = true;
+
+    // The wait is bounded by SSH_CLOSE_TIMEOUT_MS (5 s), not by the client.
+    await expect(withTimeout(kaos.close(), 6_000)).resolves.toBeUndefined();
+    expect(client.destroyCalls).toBeGreaterThan(0);
+  }, 10_000);
+
+  it('is idempotent: a second close() resolves without touching the client again', async () => {
+    const kaos = createCloseableKaos();
+    const client = (kaos as unknown as { _client: FakeClient })._client;
+
+    await kaos.close();
+    const endCallsAfterFirstClose = client.endCalls;
+
+    await expect(withTimeout(kaos.close(), 1_000)).resolves.toBeUndefined();
+
+    expect(client.endCalls).toBe(endCallsAfterFirstClose);
+    expect(client.destroyCalls).toBe(0);
   });
 });

@@ -155,7 +155,9 @@ async function findRgOnPath(): Promise<string | undefined> {
 
 async function isExecutableFile(path: string): Promise<boolean> {
   try {
-    return (await stat(path)).isFile();
+    const info = await stat(path);
+    if (!info.isFile()) return false;
+    return process.platform === 'win32' || (info.mode & 0o111) !== 0;
   } catch {
     return false;
   }
@@ -313,13 +315,17 @@ export async function extractRgFromZip(archivePath: string, destination: string)
             zipfile.close();
             return;
           }
-          const out = createWriteStream(destination);
+          const staging = `${destination}.partial-${String(process.pid)}-${String(Date.now())}`;
+          const out = createWriteStream(staging);
           void (async () => {
             try {
               await pipeline(stream, out);
+              await chmod(staging, 0o755);
+              await rename(staging, destination);
               zipfile.close();
               resolve();
             } catch (error) {
+              await rm(staging, { force: true }).catch(() => null);
               zipfile.close();
               reject(
                 new Error2(

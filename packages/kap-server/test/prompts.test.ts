@@ -11,6 +11,7 @@ import {
   symlink,
   writeFile,
 } from 'node:fs/promises';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { deflateSync } from 'node:zlib';
@@ -27,6 +28,8 @@ import {
   IAgentStateService,
   IAgentToolPolicyService,
   IBootstrapService,
+  Error2,
+  ErrorCodes,
   IConfigService,
   IEventBus,
   IFileService,
@@ -38,7 +41,12 @@ import {
 } from '@moonshot-ai/agent-core-v2';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { projectPromptSnapshot, watchPromptSettlements } from '../src/routes/prompts';
+import {
+  projectPromptSnapshot,
+  reservedPromptIdCount,
+  reservePromptId,
+  watchPromptSettlements,
+} from '../src/routes/prompts';
 import { type RunningServer, startServer } from '../src/start';
 import { authHeaders } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
@@ -221,6 +229,13 @@ async function writeConfigToml(dir: string, content: string): Promise<void> {
   const tmpPath = join(dir, `config.toml.${process.pid}.${configTomlSeq}.tmp`);
   await writeFile(tmpPath, content, 'utf-8');
   await rename(tmpPath, join(dir, 'config.toml'));
+}
+
+function promptTomlWithBaseUrl(port: number): string {
+  return PROMPT_TOML.replace(
+    'base_url = "http://127.0.0.1:9999"',
+    `base_url = "http://127.0.0.1:${String(port)}"`,
+  );
 }
 
 describe('server-v2 /api/v1 prompts', () => {
@@ -1027,6 +1042,67 @@ describe('server-v2 /api/v1 prompts', () => {
     const captionPart = promptMessage?.content[0];
     expect(captionPart?.type).toBe('text');
     expect((captionPart as { type: 'text'; text: string }).text).toContain('Image compressed');
+  });
+
+  it('keeps the transient upload until the turn settles, not only until it launches', async () => {
+    const hanging = createServer(() => {});
+    await new Promise<void>((resolve) => {
+      hanging.listen(0, '127.0.0.1', resolve);
+    });
+    const address = hanging.address();
+    if (address === null || typeof address !== 'object') throw new Error('no hanging llm port');
+    try {
+      await writeConfigToml(home as string, promptTomlWithBaseUrl(address.port));
+      await (server as RunningServer).core.accessor.get(IConfigService).reload();
+      const id = await createSession(home as string);
+      await createMainAgent(id);
+      await setSessionModel(id, 'stub');
+
+      const bigPng = solidPng(3600, 1800);
+      const uploaded = await uploadFile(bigPng, 'image/png', 'big.png');
+      const submitted = await call<PromptItemWire>('POST', `/api/v1/sessions/${id}/prompts`, {
+        content: [{ type: 'image', source: { kind: 'file', file_id: uploaded.id } }],
+      });
+      expect(submitted.body.code).toBe(0);
+
+      const content = submitted.body.data.content as Array<Record<string, unknown>>;
+      expect(content).toHaveLength(2);
+      const image = content[1] as { source: { kind: string; file_id: string } };
+      const transientFileId = image.source.file_id;
+      expect(transientFileId).not.toBe(uploaded.id);
+
+      const files = server!.core.accessor.get(IFileService);
+      const transientPresent = (): Promise<boolean> =>
+        files.get(transientFileId).then(
+          () => true,
+          () => false,
+        );
+      const session = getLiveSessionById(server!.core.accessor, id)!;
+      const main = session.accessor.get(IAgentLifecycleService).handleOf('main')!;
+      const handle = main.accessor
+        .get(IAgentLoopService)
+        .promptHandle(submitted.body.data.prompt_id);
+      expect(handle).toBeDefined();
+      await handle!.launched;
+      expect(await transientPresent()).toBe(true);
+
+      const aborted = await call<{ aborted: boolean }>(
+        'POST',
+        `/api/v1/sessions/${id}/prompts/${submitted.body.data.prompt_id}:abort`,
+      );
+      expect(aborted.body.code).toBe(0);
+      expect((await handle!.completion).state).toBe('cancelled');
+      await vi.waitFor(async () => {
+        expect(await transientPresent()).toBe(false);
+      });
+    } finally {
+      hanging.closeAllConnections();
+      await new Promise<void>((resolve) => {
+        hanging.close(() => {
+          resolve();
+        });
+      });
+    }
   });
 
   it('rolls back a compressed upload when a later prompt part fails to resolve', async () => {
@@ -2134,5 +2210,51 @@ describe('server-v2 /api/v1 prompts', () => {
       ?.accessor.get(IAgentToolPolicyService);
     expect(toolPolicy?.isToolActive('Bash')).toBe(false);
     expect(toolPolicy?.isToolActive('Read')).toBe(true);
+  });
+});
+
+describe('reservePromptId bookkeeping', () => {
+  it('keeps only caller-provided prompt ids in the per-session reservation set', () => {
+    expect(reservedPromptIdCount('s1')).toBe(0);
+
+    const generated = reservePromptId('s1');
+    expect(generated.id).toMatch(/^msg_/);
+    expect(reservedPromptIdCount('s1')).toBe(0);
+
+    const explicit = reservePromptId('s1', 'p1');
+    expect(explicit.id).toBe('p1');
+    expect(reservedPromptIdCount('s1')).toBe(1);
+
+    expect(reservePromptId('s1', 'p2').id).toBe('p2');
+    expect(reservedPromptIdCount('s1')).toBe(2);
+    expect(reservedPromptIdCount('s2')).toBe(0);
+  });
+
+  it('still rejects a repeated caller-provided prompt id until the reservation is disposed', () => {
+    const first = reservePromptId('s3', 'p1');
+    let conflict: unknown;
+    try {
+      reservePromptId('s3', 'p1');
+    } catch (error) {
+      conflict = error;
+    }
+    expect(conflict).toBeInstanceOf(Error2);
+    expect((conflict as Error2).code).toBe(ErrorCodes.PROMPT_ID_CONFLICT);
+
+    first.dispose();
+    expect(reservedPromptIdCount('s3')).toBe(0);
+    expect(reservePromptId('s3', 'p1').id).toBe('p1');
+  });
+
+  it('drops a caller-provided prompt id once the reservation is submitted, and never a generated one', () => {
+    const submitted = reservePromptId('s4', 'p1');
+    submitted.submit();
+    submitted.dispose();
+    expect(reservedPromptIdCount('s4')).toBe(1);
+
+    const generated = reservePromptId('s4');
+    generated.submit();
+    generated.dispose();
+    expect(reservedPromptIdCount('s4')).toBe(1);
   });
 });

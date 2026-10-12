@@ -79,6 +79,41 @@ export interface StartForegroundHooks {
   onShutdown?: (reason: string) => void | Promise<void>;
 }
 
+/** One teardown step of the foreground server, named for failure reporting. */
+export interface ShutdownStep {
+  readonly name: string;
+  run(): void | Promise<void>;
+}
+
+/**
+ * Run every teardown step, each isolated from the others, and return the names
+ * of the ones that failed.
+ *
+ * Every step must be attempted: `close()` releasing the port/lock and flushing
+ * telemetry is strictly more important than an earlier `onShutdown` hook
+ * throwing, and the caller needs the failure list to pick an exit code. The
+ * pre-fix code shared one `try` between `close()` and `shutdownTelemetry()`, so
+ * a rejecting `close()` skipped the telemetry flush entirely.
+ */
+export async function runShutdownSteps(
+  steps: readonly ShutdownStep[],
+): Promise<readonly string[]> {
+  const failures: string[] = [];
+  for (const step of steps) {
+    try {
+      await step.run();
+    } catch {
+      failures.push(step.name);
+    }
+  }
+  return failures;
+}
+
+/** Teardown failures are reported to the caller and, for scripts, the exit code. */
+export function shutdownExitCode(failures: readonly string[]): 0 | 1 {
+  return failures.length === 0 ? 0 : 1;
+}
+
 export interface WebCommandDeps {
   /** Foreground runner; defaults to the real in-process runner when omitted. */
   startServerForeground?: (
@@ -309,24 +344,37 @@ async function runServerInProcess(
     if (stopping) return;
     stopping = true;
     running?.logger.info({ reason }, 'server shutting down');
-    try {
-      await hooks.onShutdown?.(reason);
-    } catch (error) {
-      running?.logger.error(
-        { err: error instanceof Error ? error : new Error(String(error)) },
-        'foreground shutdown hook error',
+    const steps: ShutdownStep[] = [
+      {
+        name: 'onShutdown',
+        run: async () => {
+          await hooks.onShutdown?.(reason);
+        },
+      },
+      {
+        name: 'close',
+        run: async () => {
+          await running?.close();
+        },
+      },
+      {
+        name: 'telemetry',
+        run: async () => {
+          await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS });
+        },
+      },
+    ];
+    const failures = await runShutdownSteps(steps);
+    // The logger defaults to `silent`, so a teardown failure would otherwise be
+    // invisible: report it on stderr (the same channel the action uses for
+    // errors) and make the exit code carry it for scripts.
+    for (const name of failures) {
+      running?.logger.error({ reason, step: name }, 'server shutdown step failed');
+      process.stderr.write(
+        t('tui.statusMessages.serverShutdownStepFailed', { step: name }) + '\n',
       );
     }
-    try {
-      await running?.close();
-      await shutdownTelemetry({ timeoutMs: CLI_SHUTDOWN_TIMEOUT_MS });
-    } catch (error) {
-      running?.logger.error(
-        { err: error instanceof Error ? error : new Error(String(error)) },
-        'server shutdown error',
-      );
-    }
-    process.exit(0);
+    process.exit(shutdownExitCode(failures));
   }
 
   // kap-server (the DI × Scope engine server) is the only server flavor. Its

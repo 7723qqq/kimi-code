@@ -2496,6 +2496,10 @@ export class KimiTUI {
     return this.state.statusSurface.handleStatusSurfaceKey(key);
   }
 
+  handleStatusSurfaceRawInput(data: string): boolean {
+    return this.state.statusSurface.handleRawInput(data);
+  }
+
   private async detachRunningShellCommand(): Promise<void> {
     // Only one `!` command runs at a time (input is queued while busy).
     const next = this.shellOutputStreams.entries().next();
@@ -2694,9 +2698,9 @@ export class KimiTUI {
   // Dialogs / Selectors
   // =========================================================================
 
-  mountEditorReplacement(panel: Component & Focusable): void {
+  mountEditorReplacement(panel: Component & Focusable, onDisplaced?: () => void): void {
     this.surveyController.notifyDisplaced();
-    this.dialogController.mountEditorReplacement(panel);
+    this.dialogController.mountEditorReplacement(panel, onDisplaced);
   }
 
   restoreEditor(): void {

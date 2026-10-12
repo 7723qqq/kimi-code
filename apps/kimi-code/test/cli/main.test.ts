@@ -8,7 +8,8 @@ import { runPrompt } from '#/cli/run-prompt';
 import { runShell } from '#/cli/run-shell';
 import { formatStartupError } from '#/cli/startup-error';
 import { runUpdatePreflight } from '#/cli/update/preflight';
-import { handleMainCommand, handleUpgradeCommand, main } from '#/main';
+import { handleMainCommand, handleUpgradeCommand, main, workerInstallWarnings } from '#/main';
+import type { WorkerInstallDescriptor } from '#/main';
 
 const mocks = vi.hoisted(() => {
   const parse = vi.fn();
@@ -252,7 +253,7 @@ describe('main entry command handling', () => {
     expect(mocks.runUpdatePreflight.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.runShell.mock.invocationCallOrder[0]!,
     );
-    expect(runShell).toHaveBeenCalledWith(opts, '0.0.1-alpha.2');
+    expect(runShell).toHaveBeenCalledWith(opts, '0.0.1-alpha.2', { startupWarnings: [] });
   });
 
   it('runs prompt mode without interactive update preflight', async () => {
@@ -366,7 +367,20 @@ describe('main entry command handling', () => {
     expect(runUpdatePreflight).toHaveBeenCalledWith('0.0.1-alpha.2', {
       track: expect.any(Function),
     });
-    expect(runShell).toHaveBeenCalledWith(opts, '0.0.1-alpha.2');
+    expect(runShell).toHaveBeenCalledWith(opts, '0.0.1-alpha.2', { startupWarnings: [] });
+  });
+
+  it('forwards startup warnings to runShell', async () => {
+    const opts = defaultOpts();
+    mocks.validateOptions.mockReturnValue({ options: opts, uiMode: 'shell' });
+    mocks.runUpdatePreflight.mockResolvedValue('continue');
+    mocks.runShell.mockResolvedValue(void 0);
+
+    await handleMainCommand(opts, '0.0.1-alpha.2', ['minidb is degraded']);
+
+    expect(runShell).toHaveBeenCalledWith(opts, '0.0.1-alpha.2', {
+      startupWarnings: ['minidb is degraded'],
+    });
   });
 
   it('installs crash handlers before parsing CLI arguments', async () => {
@@ -496,5 +510,46 @@ describe('main entry command handling', () => {
         operation: 'run prompt',
       }),
     ).toBe('error: failed to run prompt: Provider not set\n');
+  });
+});
+
+describe('workerInstallWarnings', () => {
+  const installs = (
+    status: WorkerInstallDescriptor['status'],
+  ): readonly WorkerInstallDescriptor[] => [{ label: 'minidb-text-build', status }];
+
+  it('reports a failed install with its error code', () => {
+    const warnings = workerInstallWarnings(installs({ status: 'failed', errorCode: 'EACCES' }));
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('minidb-text-build');
+    expect(warnings[0]).toContain('EACCES');
+  });
+
+  it('reports a missing native asset', () => {
+    const warnings = workerInstallWarnings(installs({ status: 'asset-missing' }));
+
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain('minidb-text-build');
+  });
+
+  it('stays silent for installed and not-packaged workers', () => {
+    expect(
+      workerInstallWarnings(
+        installs({ status: 'installed', assetSha256: 'abc', basename: 'worker.js' }),
+      ),
+    ).toEqual([]);
+    expect(workerInstallWarnings(installs({ status: 'not-packaged' }))).toEqual([]);
+  });
+
+  it('reports each degraded worker separately', () => {
+    const warnings = workerInstallWarnings([
+      { label: 'minidb-text-build', status: { status: 'failed', errorCode: 'ENOSPC' } },
+      { label: 'kap-search', status: { status: 'asset-missing' } },
+    ]);
+
+    expect(warnings).toHaveLength(2);
+    expect(warnings[0]).toContain('minidb-text-build');
+    expect(warnings[1]).toContain('kap-search');
   });
 });

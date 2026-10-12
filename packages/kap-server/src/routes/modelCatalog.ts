@@ -1,4 +1,7 @@
 import {
+  Error2,
+  ErrorCodes,
+  getProviderDefinition,
   IConfigService,
   IKosongConfigService,
   IModelCatalog,
@@ -7,6 +10,7 @@ import {
   IModelsDevImportService,
   isError2,
   ModelsDevImportErrors,
+  ProtocolSchema,
   type ModelRecord,
   type ModelsSection,
   type ProviderConfig,
@@ -173,6 +177,7 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
       errors: {
         [ErrorCode.VALIDATION_FAILED]: {},
         [ErrorCode.MODEL_NOT_FOUND]: {},
+        [ErrorCode.PERSISTENCE_FAILURE]: {},
       },
       description: 'Set the global default model alias',
       tags: ['models'],
@@ -252,6 +257,17 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
         }
 
         const provider: ProviderConfig = { type: req.body.type };
+        const unavailable = resolveWireOrProtocolUnavailable(req.body.type);
+        if (unavailable !== undefined) {
+          reply.send(
+            errEnvelope(
+              ErrorCode.VALIDATION_FAILED,
+              `provider type ${unavailable} has no registered wire protocol; use one of ${ProtocolSchema.options.join(', ')}`,
+              req.id,
+            ),
+          );
+          return;
+        }
         const credential = reconcileProviderCredentialUpdate(
           {},
           { apiKey: req.body.api_key, apiKeyEnv: req.body.api_key_env },
@@ -278,6 +294,7 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
           };
           if (entry.display_name !== undefined) alias.displayName = entry.display_name;
           if (entry.capabilities !== undefined) alias.capabilities = [...entry.capabilities];
+          if (entry.protocol !== undefined) alias.protocol = entry.protocol;
           if (entry.max_output_size !== undefined) alias.maxOutputSize = entry.max_output_size;
           if (entry.support_efforts !== undefined)
             alias.supportEfforts = [...entry.support_efforts];
@@ -364,6 +381,17 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
         }
 
         const provider: ProviderConfig = { ...target, type: req.body.type };
+        const unavailable = resolveWireOrProtocolUnavailable(req.body.type);
+        if (unavailable !== undefined) {
+          reply.send(
+            errEnvelope(
+              ErrorCode.VALIDATION_FAILED,
+              `provider type ${unavailable} has no registered wire protocol; use one of ${ProtocolSchema.options.join(', ')}`,
+              req.id,
+            ),
+          );
+          return;
+        }
         const credential = reconcileProviderCredentialUpdate(
           target,
           { apiKey: req.body.api_key, apiKeyEnv: req.body.api_key_env },
@@ -428,6 +456,7 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
           alias.displayName = entry.display_name !== undefined ? entry.display_name : undefined;
           alias.capabilities =
             entry.capabilities !== undefined ? [...entry.capabilities] : undefined;
+          alias.protocol = entry.protocol !== undefined ? entry.protocol : undefined;
           alias.maxOutputSize =
             entry.max_output_size !== undefined ? entry.max_output_size : undefined;
           alias.supportEfforts =
@@ -735,7 +764,25 @@ function sendMappedError(
     reply.send(errEnvelope(ErrorCode.MODEL_NOT_FOUND, err.message, requestId, err.stack));
     return true;
   }
+  if (isPersistBlocked(err)) {
+    reply.send(errEnvelope(ErrorCode.PERSISTENCE_FAILURE, err.message, requestId, err.stack));
+    return true;
+  }
   return false;
+}
+
+function isPersistBlocked(err: Error2): boolean {
+  return (
+    err.code === ErrorCodes.CONFIG_PERSIST_BLOCKED ||
+    err.code === ErrorCodes.STORAGE_IO_FAILED ||
+    err.code === ErrorCodes.STORAGE_LOCKED
+  );
+}
+
+function resolveWireOrProtocolUnavailable(wireType: string): string | undefined {
+  if (ProtocolSchema.safeParse(wireType).success) return undefined;
+  if (getProviderDefinition(wireType) !== undefined) return undefined;
+  return wireType;
 }
 
 const MODELS_DEV_IMPORT_ERROR_CODES: Record<string, number> = {

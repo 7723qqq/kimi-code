@@ -34,6 +34,7 @@ import {
 import { Events, Methods } from "../shared/bridge";
 import {
   MCP_SECRET_MASK,
+  type MCPServerCatalog,
   type MCPServerConfig,
   type UpdateMCPServerRequest,
 } from "../shared/legacy-sdk";
@@ -160,12 +161,12 @@ async function createMcpHandlerRig(): Promise<McpHandlerRig> {
 async function updateMcpServer(
   rig: McpHandlerRig,
   request: UpdateMCPServerRequest | MCPServerConfig,
-): Promise<MCPServerConfig[]> {
-  return mcpHandlers[Methods.UpdateMCPServer]!(request, mcpHandlerContext(rig)) as Promise<MCPServerConfig[]>;
+): Promise<MCPServerCatalog> {
+  return mcpHandlers[Methods.UpdateMCPServer]!(request, mcpHandlerContext(rig)) as Promise<MCPServerCatalog>;
 }
 
-async function getMcpServers(rig: McpHandlerRig): Promise<MCPServerConfig[]> {
-  return mcpHandlers[Methods.GetMCPServers]!(undefined, mcpHandlerContext(rig)) as Promise<MCPServerConfig[]>;
+async function getMcpServers(rig: McpHandlerRig): Promise<MCPServerCatalog> {
+  return mcpHandlers[Methods.GetMCPServers]!(undefined, mcpHandlerContext(rig)) as Promise<MCPServerCatalog>;
 }
 
 /**
@@ -476,7 +477,7 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
       },
     });
 
-    const servers = await getMcpServers(rig);
+    const { servers } = await getMcpServers(rig);
 
     expect(stripMcpTags(servers)).toEqual([
       {
@@ -511,7 +512,7 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
       url: "https://example.test/mcp",
     });
 
-    const servers = await getMcpServers(rig);
+    const { servers } = await getMcpServers(rig);
 
     expect(servers).toEqual([
       {
@@ -549,19 +550,19 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
       const projectEntry = servers.find((server) => server.name === "project-api");
       expect(projectEntry).toMatchObject({ mutable: false, url: "https://example.test/project" });
     };
-    assertList(await call(Methods.GetMCPServers, undefined));
+    assertList((await call<MCPServerCatalog>(Methods.GetMCPServers, undefined)).servers);
 
-    const added = await call<MCPServerConfig[]>(Methods.AddMCPServer, {
+    const added = await call<MCPServerCatalog>(Methods.AddMCPServer, {
       name: "user-api",
       transport: "http",
       url: "https://example.test/user",
     });
-    assertList(added);
-    assertList(rig.broadcasts.at(-1)!.data as MCPServerConfig[]);
+    assertList(added.servers);
+    assertList((rig.broadcasts.at(-1)!.data as MCPServerCatalog).servers);
 
-    const removed = await call<MCPServerConfig[]>(Methods.RemoveMCPServer, { name: "user-api" });
-    assertList(removed);
-    assertList(rig.broadcasts.at(-1)!.data as MCPServerConfig[]);
+    const removed = await call<MCPServerCatalog>(Methods.RemoveMCPServer, { name: "user-api" });
+    assertList(removed.servers);
+    assertList((rig.broadcasts.at(-1)!.data as MCPServerCatalog).servers);
   });
 
   it("logs a failed MCP test without returning credential values to the Webview", async () => {
@@ -602,7 +603,7 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
       },
     });
 
-    const servers = await updateMcpServer(rig, {
+    const { servers } = await updateMcpServer(rig, {
       originalName: "remote",
       server: {
         name: "remote",
@@ -627,7 +628,11 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
       },
     ]);
     expect(rig.broadcasts).toEqual([
-      { event: Events.MCPServersChanged, data: servers, webviewId: undefined },
+      {
+        event: Events.MCPServersChanged,
+        data: expect.objectContaining({ servers }),
+        webviewId: undefined,
+      },
     ]);
     await expect(listStoredMcpServers(rig)).resolves.toEqual([
       {
@@ -654,7 +659,7 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
       },
     });
 
-    const servers = await updateMcpServer(rig, {
+    const { servers } = await updateMcpServer(rig, {
       originalName: "local",
       server: {
         name: "local",
@@ -700,7 +705,7 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
       headers: { Authorization: "Bearer old-secret" },
     });
 
-    const servers = await updateMcpServer(rig, {
+    const { servers } = await updateMcpServer(rig, {
       originalName: "remote",
       server: {
         name: "remote",
@@ -730,7 +735,7 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
       env: { SERVICE_TOKEN: "old-secret" },
     });
 
-    const servers = await updateMcpServer(rig, {
+    const { servers } = await updateMcpServer(rig, {
       originalName: "local",
       server: {
         name: "local",
@@ -790,7 +795,7 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
       env: { KEEP: "yes" },
     });
 
-    const servers = await updateMcpServer(rig, {
+    const { servers } = await updateMcpServer(rig, {
       originalName: "local",
       server: {
         name: "local",
@@ -820,7 +825,7 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
       env: { REMOVE_TOKEN: "stored-secret" },
     });
 
-    const servers = await updateMcpServer(rig, {
+    const { servers } = await updateMcpServer(rig, {
       originalName: "local",
       server: {
         name: "local",
@@ -851,7 +856,7 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
       auth: "oauth",
     });
 
-    const servers = await updateMcpServer(rig, {
+    const { servers } = await updateMcpServer(rig, {
       originalName: "remote",
       server: {
         name: "remote",
@@ -884,7 +889,7 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
       auth: "oauth",
     });
 
-    const servers = await updateMcpServer(rig, {
+    const { servers } = await updateMcpServer(rig, {
       originalName: "remote",
       server: {
         name: "remote",
@@ -917,7 +922,7 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
       auth: "oauth",
     });
 
-    const servers = await updateMcpServer(rig, {
+    const { servers } = await updateMcpServer(rig, {
       originalName: "remote",
       server: {
         name: "remote",
@@ -949,7 +954,7 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
       enabled: false,
     });
 
-    const servers = await updateMcpServer(rig, {
+    const { servers } = await updateMcpServer(rig, {
       originalName: "old-name",
       server: {
         name: "new-name",
@@ -987,7 +992,7 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
       command: "old-command",
     });
 
-    const servers = await updateMcpServer(rig, {
+    const { servers } = await updateMcpServer(rig, {
       originalName: "windows",
       server: {
         name: "windows",
@@ -1013,7 +1018,7 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
       command: "node.exe",
     });
 
-    const servers = await updateMcpServer(rig, {
+    const { servers } = await updateMcpServer(rig, {
       originalName: "windows",
       server: {
         name: "windows",

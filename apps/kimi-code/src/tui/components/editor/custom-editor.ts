@@ -139,6 +139,7 @@ function stripSgr(s: string): string {
 
 interface CustomEditorOptions {
   disablePasteBurst?: boolean;
+  onAutocompleteError?: (error: unknown) => void;
 }
 
 export class CustomEditor extends Editor {
@@ -174,6 +175,17 @@ export class CustomEditor extends Editor {
    * strip-local binding cannot claim them there.
    */
   public onStatusSurfaceKey?: (key: StatusSurfaceKey) => boolean;
+  /**
+   * Route a raw key to the status strip before {@link statusSurfaceKeyOf} gets
+   * it; return `true` to consume.
+   *
+   * `StatusSurfaceKey` is a normalized vocabulary, so it cannot carry printable
+   * text (an approval's rejection reason) or the Ctrl shortcuts a panel owns
+   * with no normalized name (`Ctrl+E` preview, `Ctrl+O`). Those go here, ahead
+   * of the mapping, so a panel whose inline input is active keeps Enter, Esc,
+   * ↑/↓ and the digits for itself instead of having them read as answers.
+   */
+  public onStatusSurfaceRawInput?: (data: string) => boolean;
   public onUndo?: () => void;
   public onTextPaste?: () => void;
   /**
@@ -583,6 +595,10 @@ export class CustomEditor extends Editor {
     // behavior below. Active autocomplete outranks the strip: its menu needs the
     // same keys for selection and dismissal.
     if (!this.hasAutocompleteActivity()) {
+      // Raw keys first: a panel with an active inline input needs the text, the
+      // digits and Enter itself, all of which `statusSurfaceKeyOf` would flatten
+      // or drop.
+      if (this.onStatusSurfaceRawInput?.(normalized) === true) return;
       const panelKey = statusSurfaceKeyOf(normalized);
       if (panelKey !== undefined && this.onStatusSurfaceKey?.(panelKey) === true) return;
     }

@@ -42,6 +42,21 @@ export function getFeedbackStatusUploadFailed(): string {
   return t('tui.messages.feedbackSentUploadFailed');
 }
 
+/**
+ * Status line for a codebase attachment that uploaded successfully but only
+ * after the scan hit its file-count/archive-size cap: the archive the backend
+ * received is a prefix of the repository, which must not be reported as a
+ * complete attachment.
+ */
+export function getFeedbackStatusCodebaseTruncated(exceeded: {
+  readonly reason: 'file-count' | 'total-size';
+  readonly limit: number;
+}): string {
+  return exceeded.reason === 'file-count'
+    ? t('tui.messages.feedbackCodebaseTruncatedFileCount', { limit: String(exceeded.limit) })
+    : t('tui.messages.feedbackCodebaseTruncatedTotalSize', { limit: String(exceeded.limit) });
+}
+
 export function feedbackHttpErrorMessage(status: number): string {
   return t('tui.messages.feedbackHttpFailed', { status: String(status) });
 }

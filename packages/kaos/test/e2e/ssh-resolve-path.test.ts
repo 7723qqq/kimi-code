@@ -228,13 +228,13 @@ describe('e2e: SSHKaos relative path resolution after chdir (mocked SFTP)', () =
       for await (const line of kaos.readLines('app.log')) {
         lines.push(line);
       }
-      expect(lines).toEqual(['line1', 'line2', 'line3']);
+      expect(lines).toEqual(['line1\n', 'line2\n', 'line3']);
 
       const readCalls = state.calls.filter((c) => c.method === 'readFile');
       expect(readCalls.some((c) => c.path === '/var/log/app.log')).toBe(true);
     });
 
-    it('readLines strips CRLF terminators', async () => {
+    it('readLines keeps terminators and matches LocalKaos line semantics', async () => {
       state.dirs.add('/var/log');
       await kaos.chdir('/var/log');
       state.files.set('/var/log/app-crlf.log', Buffer.from('line1\r\nline2\r\n'));
@@ -244,7 +244,29 @@ describe('e2e: SSHKaos relative path resolution after chdir (mocked SFTP)', () =
         lines.push(line);
       }
 
-      expect(lines).toEqual(['line1', 'line2']);
+      // Same definition of a line as LocalKaos: the terminator stays part of
+      // the line, a CR before the LF is content, and there is no extra empty
+      // line after the final terminator.
+      expect(lines).toEqual(['line1\r\n', 'line2\r\n']);
+    });
+
+    it('readLines agrees with LocalKaos on a lone CR and an empty file', async () => {
+      state.dirs.add('/var/log');
+      await kaos.chdir('/var/log');
+      state.files.set('/var/log/lone-cr.log', Buffer.from('a\rB\n'));
+      state.files.set('/var/log/empty.log', Buffer.alloc(0));
+
+      const loneCr: string[] = [];
+      for await (const line of kaos.readLines('lone-cr.log')) {
+        loneCr.push(line);
+      }
+      expect(loneCr).toEqual(['a\rB\n']);
+
+      const empty: string[] = [];
+      for await (const line of kaos.readLines('empty.log')) {
+        empty.push(line);
+      }
+      expect(empty).toEqual([]);
     });
   });
 

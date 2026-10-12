@@ -79,6 +79,37 @@ describe('createMachineTools duplicate tool call ids', () => {
     expect(tools.extras.has('t2')).toBe(true);
   });
 
+  it('settles pending calls that the replaced expected set can no longer satisfy', async () => {
+    const { toolExecutor, batches } = createRecordingExecutor();
+    const onBatchError = vi.fn();
+    const tools = createMachineTools({
+      toolExecutor,
+      toolInfos: () => toolInfos,
+      turnId: () => 1,
+      onBatchError,
+    });
+    tools.sync();
+    const bash = tools.tools.find((tool) => tool.name === 'Bash');
+    if (bash === undefined) throw new Error('missing tool definition');
+
+    tools.beginBatch([call('t1', 'Bash'), call('t2', 'Bash')]);
+    const stranded = bash.execute(input(call('t1', 'Bash')));
+
+    tools.beginBatch([call('t3', 'Bash')]);
+    const settled = await stranded;
+
+    expect(settled.isError).toBe(true);
+    expect(settled.content).toEqual([
+      { type: 'text', text: 'Tool "Bash" aborted before execution.' },
+    ]);
+    expect(batches).toEqual([]);
+
+    const next = bash.execute(input(call('t3', 'Bash')));
+    await expect(next).resolves.toEqual({ content: [{ type: 'text', text: 'ok:t3' }] });
+    expect(batches).toEqual([['t3']]);
+    expect(onBatchError).not.toHaveBeenCalled();
+  });
+
   it('reports executor failures through onBatchError and settles every pending call', async () => {
     const toolExecutor = {
       execute: (): AsyncIterable<ToolExecutionResult> => ({

@@ -182,10 +182,18 @@ export class FileManager {
     return results.filter((result): result is ProjectFile => result !== undefined);
   }
 
-  async listDirectory(workDirUri: vscode.Uri, directory: string): Promise<ProjectFile[]> {
+  /**
+   * The direct children of `directory` (root when the path is empty), or
+   * `undefined` when the directory cannot be read — callers then fall back to
+   * their own search instead of showing an empty folder.
+   */
+  async listDirectory(
+    workDirUri: vscode.Uri,
+    directory: string,
+  ): Promise<ProjectFile[] | undefined> {
     const requested = resolveWorkspacePath(workDirUri, directory, { allowRoot: true });
     if (requested === undefined || !(await isWorkspacePathContained(workDirUri, requested.uri)))
-      return [];
+      return undefined;
     try {
       const entries = await vscode.workspace.fs.readDirectory(requested.uri);
       const resolvedEntries = await Promise.all(
@@ -208,7 +216,7 @@ export class FileManager {
           a.isDirectory === b.isDirectory ? a.name.localeCompare(b.name) : a.isDirectory ? -1 : 1,
         );
     } catch {
-      return [];
+      return undefined;
     }
   }
 

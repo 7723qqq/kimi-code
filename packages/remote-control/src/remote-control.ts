@@ -20,6 +20,11 @@ export const REMOTE_CONTROL_RELAY_ORIGIN = 'https://code-rc.kimi.com';
 
 export const REMOTE_CONTROL_RELAY_URL_ENV = 'KIMI_CODE_REMOTE_CONTROL_RELAY_URL';
 
+export const REMOTE_CONTROL_ORIGIN_FIX_PATH = '/kimi-remote-origin.js';
+
+export const REMOTE_CONTROL_ORIGIN_FIX_SCRIPT =
+  "(function(){var p='';try{p=new URL('.',document.currentScript.src).pathname}catch(e){}if(p.charAt(p.length-1)==='/')p=p.slice(0,-1);try{sessionStorage.setItem('kimi-desktop-server-origin',location.origin+p)}catch(e){}var w=function(f){return function(s,t,u){if(typeof u==='string'&&u.charAt(0)==='/'&&u.indexOf(p)!==0)u=p+u;return f.apply(this,[s,t,u])}};history.pushState=w(history.pushState);history.replaceState=w(history.replaceState)})();";
+
 export function resolveRemoteControlRelayOrigin(
   env: Readonly<Record<string, string | undefined>> = process.env,
   fallback: string = REMOTE_CONTROL_RELAY_ORIGIN,
@@ -30,6 +35,10 @@ export function resolveRemoteControlRelayOrigin(
 
 const MAX_HTTP_HEADER_BYTES = 64 * 1024;
 const MAX_HTTP_REQUEST_BYTES = 10 * 1024 * 1024;
+const MAX_HTTP_RESPONSE_BYTES = 32 * 1024 * 1024;
+const HTTP_TUNNEL_MESSAGE_OVERHEAD_BYTES = 1024;
+const MAX_PENDING_HTTP_REQUESTS = 64;
+const MAX_ACTIVE_STREAMS = 64;
 const HTTP_REQUEST_TIMEOUT_MS = 30_000;
 const REGISTER_TIMEOUT_MS = 10_000;
 const MAX_RECONNECT_DELAY_MS = 30_000;
@@ -80,6 +89,7 @@ interface RelayMessage {
 interface PendingHttpRequest {
   readonly chunks: Buffer[];
   size: number;
+  charged: number;
 }
 
 export interface ParsedRawHttpRequest {
@@ -107,6 +117,7 @@ export interface RemoteControlOptions {
   readonly onStatus?: (status: RemoteControlStatus) => void;
   readonly pingIntervalMs?: number;
   readonly silenceTimeoutMs?: number;
+  readonly maxHttpResponseBytes?: number;
 }
 
 export interface RemoteControlHandle {
@@ -205,8 +216,7 @@ export function rewriteRemoteControlResponse(
 ): Buffer {
   const normalizedPrefix = publicPrefix.replace(/\/+$/, '');
   if (contentType.toLowerCase().includes('text/html')) {
-    const prefixLiteral = JSON.stringify(normalizedPrefix);
-    const injected = `<script>(function(){var p=${prefixLiteral};try{sessionStorage.setItem('kimi-desktop-server-origin',location.origin+p)}catch(e){}var w=function(f){return function(s,t,u){if(typeof u==='string'&&u.charAt(0)==='/'&&u.indexOf(p)!==0)u=p+u;return f.apply(this,[s,t,u])}};history.pushState=w(history.pushState);history.replaceState=w(history.replaceState)})();</script>`;
+    const injected = `<script src="${REMOTE_CONTROL_ORIGIN_FIX_PATH}"></script>`;
     let text = body.toString('utf8');
     const headMatch = /<head(?:\s[^>]*)?>/i.exec(text);
     text =
@@ -348,6 +358,7 @@ class RemoteControlClient {
   private reconnectImmediately = false;
   private readonly pingIntervalMs: number;
   private readonly silenceTimeoutMs: number;
+  private readonly maxHttpResponseBytes: number;
   private stopped = false;
   private connected = false;
   private relayOnline = false;
@@ -373,6 +384,7 @@ class RemoteControlClient {
     this.onStatus = options.onStatus ?? (() => {});
     this.pingIntervalMs = options.pingIntervalMs ?? RELAY_PING_INTERVAL_MS;
     this.silenceTimeoutMs = options.silenceTimeoutMs ?? RELAY_SILENCE_TIMEOUT_MS;
+    this.maxHttpResponseBytes = options.maxHttpResponseBytes ?? MAX_HTTP_RESPONSE_BYTES;
   }
 
   async start(): Promise<void> {
@@ -573,14 +585,28 @@ class RemoteControlClient {
       if (this.pendingHttpBytes + minDecodedBytes > MAX_HTTP_REQUEST_BYTES) {
         throw new SyntaxError('HTTP tunnel request exceeds 10 MiB');
       }
+      if (
+        !this.pendingHttpRequests.has(requestId) &&
+        this.pendingHttpRequests.size >= MAX_PENDING_HTTP_REQUESTS
+      ) {
+        throw new SyntaxError(
+          `HTTP tunnel has more than ${MAX_PENDING_HTTP_REQUESTS} concurrent requests`,
+        );
+      }
       const chunk = decodeBase64(bodyBase64);
-      const pending = this.pendingHttpRequests.get(requestId) ?? { chunks: [], size: 0 };
-      if (this.pendingHttpBytes + chunk.length > MAX_HTTP_REQUEST_BYTES) {
+      const pending = this.pendingHttpRequests.get(requestId) ?? {
+        chunks: [],
+        size: 0,
+        charged: 0,
+      };
+      const charged = chunk.length + HTTP_TUNNEL_MESSAGE_OVERHEAD_BYTES;
+      if (this.pendingHttpBytes + charged > MAX_HTTP_REQUEST_BYTES) {
         throw new SyntaxError('HTTP tunnel request exceeds 10 MiB');
       }
       pending.chunks.push(chunk);
       pending.size += chunk.length;
-      this.pendingHttpBytes += chunk.length;
+      pending.charged += charged;
+      this.pendingHttpBytes += charged;
       this.pendingHttpRequests.set(requestId, pending);
       if (!parsed['is_last']) return;
       const rawRequest = Buffer.concat(pending.chunks, pending.size);
@@ -604,6 +630,7 @@ class RemoteControlClient {
         parsed,
         this.localServerToken(),
         this.publicPrefix(),
+        this.maxHttpResponseBytes,
       );
       this.sendHttpResponse(requestId, response);
     } catch (error) {
@@ -614,13 +641,20 @@ class RemoteControlClient {
   }
 
   private sendHttpResponse(requestId: string, response: Buffer): void {
+    let payload = response;
+    if (payload.length > this.maxHttpResponseBytes) {
+      payload = buildErrorResponse(502);
+      this.stderr.write(
+        `Remote Control HTTP response exceeds ${this.maxHttpResponseBytes} bytes (maxHttpResponseBytes)\n`,
+      );
+    }
     if (this.http?.readyState !== WebSocket.OPEN) return;
     this.http.send(
       JSON.stringify({
         request_id: requestId,
         type: 'response',
         is_last: true,
-        body_base64: response.toString('base64'),
+        body_base64: payload.toString('base64'),
       }),
     );
   }
@@ -642,6 +676,17 @@ class RemoteControlClient {
           'invalid local WebSocket path',
         );
       }
+      return;
+    }
+
+    if (this.streams.has(streamId)) this.closeStream(streamId);
+    if (this.streams.size >= MAX_ACTIVE_STREAMS) {
+      this.sendOpenStreamResult(
+        streamId,
+        false,
+        'TOO_MANY_STREAMS',
+        `more than ${MAX_ACTIVE_STREAMS} concurrent streams`,
+      );
       return;
     }
 
@@ -718,7 +763,7 @@ class RemoteControlClient {
     const pending = this.pendingHttpRequests.get(requestId);
     if (pending === undefined) return;
     this.pendingHttpRequests.delete(requestId);
-    this.pendingHttpBytes -= pending.size;
+    this.pendingHttpBytes = Math.max(0, this.pendingHttpBytes - pending.charged);
   }
 
   private closeCycle(): void {
@@ -876,6 +921,7 @@ function requestLocalHttp(
   parsed: ParsedRawHttpRequest,
   serverToken: string,
   publicPrefix: string,
+  maxResponseBytes: number,
 ): Promise<Buffer> {
   const origin = new URL(localOrigin);
   return new Promise((resolve, reject) => {
@@ -891,7 +937,19 @@ function requestLocalHttp(
       },
       (response) => {
         const chunks: Buffer[] = [];
-        response.on('data', (chunk: Buffer | string) => chunks.push(Buffer.from(chunk)));
+        let received = 0;
+        response.on('data', (chunk: Buffer | string) => {
+          received += chunk.length;
+          if (received > maxResponseBytes) {
+            response.destroy(
+              new Error(
+                `local HTTP response exceeds ${maxResponseBytes} bytes (maxHttpResponseBytes)`,
+              ),
+            );
+            return;
+          }
+          chunks.push(Buffer.from(chunk));
+        });
         response.once('error', reject);
         response.once('end', () => {
           void (async (): Promise<Buffer> => {

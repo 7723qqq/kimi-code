@@ -276,7 +276,7 @@ describe('models TOML transforms', () => {
     });
   });
 
-  it('unions on-disk capabilities with memory capabilities in modelsToToml', () => {
+  it('replaces on-disk capabilities with the memory capabilities in modelsToToml', () => {
     expect(
       modelsToToml(
         {
@@ -301,7 +301,7 @@ describe('models TOML transforms', () => {
         provider: 'p',
         model: 'm',
         max_context_size: 1000,
-        capabilities: ['thinking', 'tool_use', 'image_in'],
+        capabilities: ['thinking'],
       },
     });
   });

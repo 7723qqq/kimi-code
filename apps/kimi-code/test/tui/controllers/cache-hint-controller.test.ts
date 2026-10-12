@@ -27,6 +27,8 @@ function makeHost(
 ) {
   const state = {
     activeDialog: null as string | null,
+    editor: { setText: vi.fn(), getText: vi.fn(() => '') },
+    ui: { requestRender: vi.fn() },
     appState: {
       model: 'k2',
       availableModels: { k2: { model: 'kimi-k2', provider: 'managed:kimi-code' } },
@@ -249,6 +251,33 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
       expect.objectContaining({ scene: 'idle', model: 'k2' }),
     );
     vi.restoreAllMocks();
+  });
+
+  it('restores the stashed submit when another panel displaces the dialog', async () => {
+    peekMock.mockReturnValue(CONFIG);
+    const { host, state } = makeHost();
+    const controller = new CacheHintController(host);
+    controller.recordActivity();
+    vi.spyOn(Date, 'now').mockReturnValue(Date.now() + 1200_000);
+
+    expect(controller.maybeInterceptOnSubmit('hello')).toBe(true);
+    expect(host.mountEditorReplacement).toHaveBeenCalledOnce();
+    const [, onDisplaced] = (host.mountEditorReplacement as ReturnType<typeof vi.fn>).mock
+      .calls[0] as [unknown, () => void];
+    expect(onDisplaced).toBeTypeOf('function');
+    vi.restoreAllMocks();
+
+    // An AskUserQuestion (or any other editor-replacement panel) takes the
+    // slot; the cleared dialog can never resolve, so the mount callback must.
+    onDisplaced();
+    await flush();
+
+    expect(host.sendNormalUserInput).not.toHaveBeenCalled();
+    expect(host.recallStashedMedia).toHaveBeenCalledTimes(1);
+    expect(state.editor.setText).toHaveBeenCalledWith('hello');
+    // The newer panel owns the slot: no restore may run through it.
+    expect(host.restoreInputText).not.toHaveBeenCalled();
+    expect(host.restoreEditor).not.toHaveBeenCalled();
   });
 
   it('does not advance the cache baseline at turn begin (the prompt may fail pre-model)', () => {

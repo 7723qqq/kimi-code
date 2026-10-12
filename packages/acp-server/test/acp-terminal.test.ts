@@ -6,7 +6,7 @@ import type {
   Runtime,
   RuntimeProviderHost,
 } from '@moonshot-ai/agent-core-v2';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type { IAcpConnection, IAcpTerminalHandle } from '../src/acp-fs/acpConnection';
 import { AcpHostFileSystem } from '../src/acp-fs/acpFsService';
@@ -195,5 +195,66 @@ describe('AcpProcessService local fallback', () => {
       args: ['--files', '--hidden'],
       options: { cwd: '/repo' },
     });
+  });
+});
+
+describe('AcpTerminalProcess truncated output', () => {
+  const FOUR_MIB = 4 * 1024 * 1024;
+  const NOTICE = '\n[terminal] output truncated at 4 MiB; earlier bytes are not recoverable\n';
+  const bashEnv = { NO_COLOR: '1', TERM: 'dumb' };
+
+  /** A handle replaying one frame per `currentOutput()` call (last frame repeats). */
+  function makeSequenceHandle(
+    frames: ReadonlyArray<{ output: string; truncated: boolean }>,
+  ): IAcpTerminalHandle {
+    let index = 0;
+    return {
+      id: 'term-rolling',
+      currentOutput: async () => frames[Math.min(index++, frames.length - 1)]!,
+      waitForExit: () => new Promise<never>(() => {}),
+      kill: async () => ({}),
+      release: async () => ({}),
+    };
+  }
+
+  it('marks a truncated window once and rebases the delta instead of re-emitting it', async () => {
+    vi.useFakeTimers();
+    try {
+      const head = 'start-';
+      const tail = 'TAIL-after-truncation-31-bytes!';
+      expect(tail).toHaveLength(31);
+      // Frame 1: a normal prefix. Frame 2: the client's buffer hit its own
+      // 4 MiB limit and flagged it. Frame 3: the buffer rolled in place —
+      // same length, entirely different (shifted) content. Frame 4: growth
+      // resumes on the rolled-over window.
+      const handle = makeSequenceHandle([
+        { output: head, truncated: false },
+        { output: 'a'.repeat(FOUR_MIB), truncated: true },
+        { output: 'b'.repeat(FOUR_MIB), truncated: false },
+        { output: `${'b'.repeat(FOUR_MIB)}${tail}`, truncated: false },
+      ]);
+      const connection = makeConnection({ terminalEnabled: true, createTerminal: () => handle });
+      const runtime = await bindRuntime(makeEnvironment(), { connection });
+
+      const proc = await runtime.process!.spawn('/bin/bash', ['-c', 'echo hi'], {
+        env: bashEnv,
+      });
+      const chunks: Buffer[] = [];
+      proc.stdout.on('data', (chunk: Buffer) => chunks.push(chunk));
+
+      // One pump per poll tick.
+      for (let tick = 0; tick < 5; tick += 1) await vi.advanceTimersByTimeAsync(250);
+
+      const stdout = Buffer.concat(chunks).toString('utf8');
+      // The rolled-over 4 MiB window is never re-emitted wholesale (under the
+      // old length-only comparison it arrived in full, shifted by the prefix
+      // already written).
+      expect(stdout).not.toContain('a'.repeat(1024));
+      // Exactly one marker, and the post-rebase delta follows it.
+      expect(stdout.split(NOTICE)).toHaveLength(2);
+      expect(stdout).toBe(`${head}${NOTICE}${tail}`);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

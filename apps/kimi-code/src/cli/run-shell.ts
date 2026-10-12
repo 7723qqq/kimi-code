@@ -25,6 +25,7 @@ import { loadTuiConfig, TuiConfigParseError } from '#/tui/config';
 import { CHROME_GUTTER } from '#/tui/constant/rendering';
 import { KimiTUI } from '#/tui/index';
 import { currentTheme, getColorPalette } from '#/tui/theme';
+import { combineStartupNotice } from '#/tui/utils/startup';
 import { resolveCommandPath } from '#/utils/process/resolve-command';
 import { startupTrace } from '#/utils/startup-trace';
 import { toTerminalHyperlink } from '#/utils/terminal-hyperlink';
@@ -38,7 +39,7 @@ import { createKimiCodeHostIdentity } from './version';
 export async function runShell(
   opts: CLIOptions,
   version: string,
-  runOptions: { readonly migrateOnly?: boolean } = {},
+  runOptions: { readonly migrateOnly?: boolean; readonly startupWarnings?: readonly string[] } = {},
 ): Promise<void> {
   const startedAt = Date.now();
   const configStartedAt = startedAt;
@@ -133,6 +134,13 @@ export async function runShell(
   // Resolve --agent/--agent-file once for the startup session; validateOptions
   // has already rejected them alongside --session/--continue.
   const agentProfile = await resolveAgentProfileSelection(opts, workDir);
+  // Degraded native workers (embeddable-asset install failures) are appended to
+  // the same dim startup notice as tui.toml parse errors, so a broken install
+  // is visible on screen instead of only in the trace file.
+  const startupNotice = combineStartupNotice(
+    configWarning,
+    runOptions.startupWarnings?.length ? runOptions.startupWarnings.join('\n') : undefined,
+  );
   const tui = new KimiTUI(harness, {
     cliOptions: opts,
     agentProfile,
@@ -140,7 +148,7 @@ export async function runShell(
     tuiConfig,
     version,
     workDir,
-    startupNotice: configWarning,
+    startupNotice,
     migrationPlan,
     migrateOnly: runOptions.migrateOnly,
     telemetryDisabled: config.telemetry === false,

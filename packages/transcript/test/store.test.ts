@@ -500,6 +500,41 @@ describe('AgentTranscript', () => {
     expect(task?.usage?.inputOther).toBe(100);
   });
 
+  it('task upserts carry model/thinkingEffort changes', () => {
+    const tx = new AgentTranscript('main');
+    tx.apply([
+      {
+        op: 'task.upsert',
+        task: {
+          taskId: 'task1',
+          kind: 'subagent',
+          state: 'running',
+          detached: false,
+          outputTail: '',
+          model: 'k2',
+          thinkingEffort: 'low',
+        },
+      },
+    ]);
+    const regraded = tx.apply([
+      {
+        op: 'task.upsert',
+        task: {
+          taskId: 'task1',
+          kind: 'subagent',
+          state: 'running',
+          detached: false,
+          outputTail: '',
+          model: 'k3',
+          thinkingEffort: 'high',
+        },
+      },
+    ]);
+    expect(regraded.accepted).toHaveLength(1);
+    expect(tx.getTask('task1')?.model).toBe('k3');
+    expect(tx.getTask('task1')?.thinkingEffort).toBe('high');
+  });
+
   it('items.remove clears anchored interactions and their pending entries', () => {
     const tx = new AgentTranscript('main');
     tx.apply([
@@ -638,6 +673,23 @@ describe('AgentTranscript', () => {
     ]);
     expect(tx.getMeta().goal?.status).toBe('active');
     expect(tx.getMeta().modes?.plan?.reviewPath).toBe('/p');
+  });
+
+  it('meta.merge keeps modes.spec and clears it on null without touching plan', () => {
+    const tx = new AgentTranscript('main');
+    const entered = tx.apply([
+      { op: 'meta.merge', meta: { modes: { plan: { version: 3 }, spec: { dir: '/d' } } } },
+    ]);
+    expect(entered.accepted).toHaveLength(1);
+    expect(tx.getMeta().modes?.spec?.dir).toBe('/d');
+
+    const left = tx.apply([{ op: 'meta.merge', meta: { modes: { spec: null } } }]);
+    expect(left.accepted).toHaveLength(1);
+    expect(tx.getMeta().modes?.spec).toBeUndefined();
+    expect(tx.getMeta().modes?.plan?.version).toBe(3);
+
+    tx.apply([{ op: 'meta.merge', meta: { modes: { plan: null } } }]);
+    expect(tx.getMeta().modes).toBeUndefined();
   });
 
   it('meta.merge clears a mode badge on null and keeps absent keys', () => {

@@ -1,11 +1,13 @@
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { parseConfigString } from '#/config/index';
-import { createKimiConfigRpc } from '#/index';
+import { createKimiConfigRpc, createKimiHarness } from '#/index';
+
+import { TEST_IDENTITY } from './test-identity';
 
 const toPosix = (p: string): string => p.replaceAll('\\', '/');
 
@@ -13,7 +15,7 @@ const tempDirs: string[] = [];
 
 afterEach(async () => {
   for (const dir of tempDirs.splice(0)) {
-    await rm(dir, { recursive: true, force: true });
+    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
   }
 });
 
@@ -70,5 +72,35 @@ api_key_env = "ACME_API_KEY"
 
     await expect(rpc.validateConfigToml({ text })).resolves.toBeUndefined();
     expect(parseConfigString(text).providers['acme']?.apiKeyEnv).toBe('ACME_API_KEY');
+  });
+
+  it('reads back github, extraAgentDirs and agent through getConfig', async () => {
+    const homeDir = await makeTempDir();
+    await writeFile(
+      join(homeDir, 'config.toml'),
+      `
+extra_agent_dirs = ["/tmp/extra-agents"]
+
+[github]
+token = "ghp_test_token"
+base_url = "https://ghe.example.test/api/v3"
+
+[agent]
+engine = "js"
+`,
+      'utf-8',
+    );
+    const harness = createKimiHarness({ identity: TEST_IDENTITY, homeDir });
+    try {
+      const config = await harness.getConfig();
+      expect(config.github).toEqual({
+        token: 'ghp_test_token',
+        baseUrl: 'https://ghe.example.test/api/v3',
+      });
+      expect(config.extraAgentDirs).toEqual(['/tmp/extra-agents']);
+      expect(config.agent).toEqual({ engine: 'js' });
+    } finally {
+      await harness.close();
+    }
   });
 });

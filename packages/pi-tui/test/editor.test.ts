@@ -2408,6 +2408,75 @@ describe("Editor component", () => {
 		});
 	});
 
+	describe("Undo memory bounds", () => {
+		/** 12-line paste content with a distinguishing tag */
+		function bigPaste(tag: string): string {
+			return Array.from({ length: 12 }, (_, i) => `${tag}${i}`).join("\n");
+		}
+
+		function pastePayload(editor: Editor, payload: string): void {
+			editor.handleInput(`\x1b[200~${payload}\x1b[201~`);
+		}
+
+		it("bounds undo snapshot memory for large pastes", () => {
+			const payload = `${"x".repeat(2_000_000)}\n${"y".repeat(200_000)}\n${"z".repeat(200_000)}`;
+			const heapAfter = (undoSteps: number, paste: boolean): number => {
+				const editor = new Editor(createTestTUI(), defaultEditorTheme);
+				(globalThis as { gc?: () => void }).gc?.();
+				const before = process.memoryUsage().heapUsed;
+
+				if (paste) pastePayload(editor, payload);
+				for (let i = 0; i < undoSteps; i++) {
+					editor.handleInput("w");
+					editor.handleInput(" ");
+				}
+
+				(globalThis as { gc?: () => void }).gc?.();
+				return process.memoryUsage().heapUsed - before;
+			};
+
+			// Same 120 undo units with and without the paste: retention must not
+			// grow with the payload, and the paste-free run subtracts the noise a
+			// running test suite leaves in the heap. Measured on both runtimes,
+			// copying the registry grows this figure by 265 MB or more, while a
+			// shared registry stays within the drift of the noise floor.
+			const growth = heapAfter(120, true) - heapAfter(120, false);
+			assert.ok(
+				growth < 100 * 1024 * 1024,
+				`undo snapshots must not copy the paste payload per step (grew ${Math.round(growth / 1024 / 1024)} MB)`,
+			);
+		});
+
+		it("restores the paste registry and expands the payload after undo", () => {
+			const editor = new Editor(createTestTUI(), defaultEditorTheme);
+			const payload = bigPaste("payload");
+			pastePayload(editor, payload);
+			const marker = editor.getText();
+			assert.match(marker, /\[paste #1 \+12 lines\]/);
+			assert.ok(editor.getExpandedText().includes("payload11"));
+
+			editor.handleInput("tail");
+			editor.handleInput("\x1b[45;5u"); // Ctrl+- (undo)
+			assert.strictEqual(editor.getText(), marker);
+			assert.ok(
+				editor.getExpandedText().includes("payload11"),
+				"the undone snapshot still expands its payload",
+			);
+		});
+
+		it("caps undo stack depth", () => {
+			const editor = new Editor(createTestTUI(), defaultEditorTheme, { undoDepth: 200 });
+			const stack = editor as unknown as { getUndoDepth(): number };
+
+			for (let i = 0; i < 1000; i++) {
+				editor.handleInput("x");
+				editor.handleInput(" ");
+			}
+
+			assert.ok(stack.getUndoDepth() <= 200, `depth capped (got ${stack.getUndoDepth()})`);
+		});
+	});
+
 	describe("Autocomplete", () => {
 		it("auto-applies single force-file suggestion without showing menu", async () => {
 			const editor = new Editor(createTestTUI(), defaultEditorTheme);
@@ -2758,6 +2827,97 @@ describe("Editor component", () => {
 			await new Promise((resolve) => setTimeout(resolve, 50));
 
 			assert.strictEqual(aborts, 1);
+		});
+
+		it("keeps autocomplete alive after a provider rejection and reports it once", async () => {
+			const editor = new Editor(createTestTUI(), defaultEditorTheme);
+			let suggestionCalls = 0;
+			let reportCalls = 0;
+			const unhandled: unknown[] = [];
+			const onUnhandled = (reason: unknown): void => {
+				unhandled.push(reason);
+			};
+			process.on("unhandledRejection", onUnhandled);
+
+			try {
+				const failure = new Error("provider exploded");
+				const mockProvider: AutocompleteProvider = {
+					getSuggestions: async () => {
+						suggestionCalls += 1;
+						throw failure;
+					},
+					applyCompletion,
+				};
+				editor.setAutocompleteProvider(mockProvider);
+				editor.onAutocompleteError = () => {
+					reportCalls += 1;
+				};
+
+				editor.handleInput("@");
+				editor.handleInput("m");
+				await new Promise((resolve) => setTimeout(resolve, 50));
+				await flushAutocomplete();
+				await new Promise((resolve) => setTimeout(resolve, 20));
+
+				assert.strictEqual(reportCalls, 1, "a provider error is reported once");
+				assert.strictEqual(unhandled.length, 0, "no unhandled rejection escapes");
+				assert.strictEqual(editor.isShowingAutocomplete(), false, "no stale suggestions");
+
+				// The request chain must survive: the next keystroke still queries.
+				editor.handleInput("a");
+				await new Promise((resolve) => setTimeout(resolve, 50));
+				await flushAutocomplete();
+				await new Promise((resolve) => setTimeout(resolve, 20));
+
+				assert.ok(suggestionCalls >= 2, `provider re-queried (calls=${suggestionCalls})`);
+				assert.strictEqual(reportCalls, 1, "the same failure is not reported again");
+				assert.strictEqual(unhandled.length, 0, "no unhandled rejection escapes");
+			} finally {
+				process.off("unhandledRejection", onUnhandled);
+			}
+		});
+
+		it("stays silent when the provider rejects with an abort", async () => {
+			const editor = new Editor(createTestTUI(), defaultEditorTheme);
+			let suggestionCalls = 0;
+			let reportCalls = 0;
+			const unhandled: unknown[] = [];
+			const onUnhandled = (reason: unknown): void => {
+				unhandled.push(reason);
+			};
+			process.on("unhandledRejection", onUnhandled);
+
+			try {
+				const abortError = new DOMException("Aborted", "AbortError");
+				const mockProvider: AutocompleteProvider = {
+					getSuggestions: async () => {
+						suggestionCalls += 1;
+						throw abortError;
+					},
+					applyCompletion,
+				};
+				editor.setAutocompleteProvider(mockProvider);
+				editor.onAutocompleteError = () => {
+					reportCalls += 1;
+				};
+
+				editor.handleInput("@");
+				editor.handleInput("m");
+				await new Promise((resolve) => setTimeout(resolve, 50));
+				await flushAutocomplete();
+				await new Promise((resolve) => setTimeout(resolve, 20));
+
+				assert.strictEqual(reportCalls, 0, "aborts are the expected cancellation path");
+				assert.strictEqual(unhandled.length, 0, "no unhandled rejection escapes");
+
+				editor.handleInput("a");
+				await new Promise((resolve) => setTimeout(resolve, 50));
+				await flushAutocomplete();
+				await new Promise((resolve) => setTimeout(resolve, 20));
+				assert.ok(suggestionCalls >= 2, `provider re-queried (calls=${suggestionCalls})`);
+			} finally {
+				process.off("unhandledRejection", onUnhandled);
+			}
 		});
 
 		it("hides autocomplete when backspacing slash command to empty", async () => {
@@ -4133,6 +4293,57 @@ describe("Editor component", () => {
 			editor.handleInput("\x7f");
 			assert.strictEqual(editor.getText(), "AB");
 			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 1 });
+		});
+
+		it("does not reuse a paste id that is still referenced", () => {
+			const editor = new Editor(createTestTUI(), defaultEditorTheme);
+			editor.handleInput(`\x1b[200~${bigPaste("ONE")}\x1b[201~`);
+			const markerOne = editor.getText();
+			assert.strictEqual(markerOne, "[paste #1 +12 lines]");
+
+			// Type a literal copy of the marker, then delete the second one:
+			// the buffer still references id 1 through the first marker.
+			editor.handleInput(`\x1b[200~${markerOne}\x1b[201~`);
+			assert.strictEqual(editor.getText(), `${markerOne}${markerOne}`);
+			editor.handleInput("\x7f");
+			assert.strictEqual(editor.getText(), markerOne);
+
+			editor.handleInput(`\x1b[200~${bigPaste("TWO")}\x1b[201~`);
+			const text = editor.getText();
+			const expanded = editor.getExpandedText();
+			assert.strictEqual(expanded.split("ONE0").length - 1, 1, "ONE appears once");
+			assert.strictEqual(expanded.split("TWO0").length - 1, 1, "TWO appears once");
+			assert.deepStrictEqual(
+				text.match(/\[paste #(\d+) \+12 lines\]/g),
+				["[paste #1 +12 lines]", "[paste #2 +12 lines]"],
+			);
+		});
+
+		it("keeps deletion geometry correct when backspace renumbers 2-digit marker ids", () => {
+			const editor = new Editor(createTestTUI(), defaultEditorTheme);
+			for (let i = 0; i < 9; i++) {
+				editor.handleInput(`\x1b[200~${bigPaste(`tag${i}`)}\x1b[201~`);
+			}
+			editor.handleInput("\x01"); // Ctrl+A
+			editor.handleInput(`\x1b[200~${bigPaste("ten")}\x1b[201~`);
+			const before = editor.getText();
+			assert.match(before, /^\[paste #10 \+12 lines\]/);
+
+			editor.handleInput("\x05"); // Ctrl+E
+			editor.handleInput("\x7f"); // Backspace: delete the id-10 marker
+
+			// The tail marker (20 chars) is removed and the id-10 marker in
+			// front of the cursor shrinks to id 9: 201 - 20 - 1 = 180. The
+			// cursor lands on the boundary of the renumbered marker.
+			const after = editor.getText();
+			assert.strictEqual(before.length, 201);
+			assert.strictEqual(after.length, 180);
+			assert.ok(!after.endsWith("["));
+			assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 180 });
+			assert.ok(after.startsWith("[paste #9 "), `head is ${after.slice(0, 20)}`);
+			assert.strictEqual(new Set(after.match(/\[paste #(\d+)/g)).size, 9);
+			assert.ok(!editor.getExpandedText().includes("tag80"));
+			assert.ok(editor.getExpandedText().includes("ten0"));
 		});
 
 		it("treats paste marker as single unit for forward delete", () => {

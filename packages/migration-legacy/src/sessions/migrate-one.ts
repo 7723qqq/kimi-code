@@ -6,6 +6,7 @@ import { readTodoItems } from '@moonshot-ai/agent-core-v2/features/todo/todoItem
 
 import type { OldSessionState } from '../kimi-cli-schema.js';
 import { targetSessionsDir } from '../paths.js';
+import type { SessionMigrationFailure } from '../types.js';
 import { closeDanglingToolCalls } from './close-tool-calls.js';
 import { readMergedSessionState, type LegacySessionRef } from './source.js';
 import { writeSessionState } from './state-writer.js';
@@ -26,6 +27,8 @@ export type MigrateOneResult =
       readonly targetDir: string;
       /** Set when a debris target dir was renamed aside (not deleted) before re-migrating. */
       readonly debrisArchivedTo?: string;
+      /** Subagent dirs that could not be migrated; the session itself was. */
+      readonly subagentFailures?: readonly SessionMigrationFailure[];
     }
   | { readonly outcome: 'already-migrated'; readonly targetDir: string }
   | { readonly outcome: 'conflict'; readonly targetDir: string }
@@ -142,18 +145,20 @@ export async function migrateOneSession(input: MigrateOneInput): Promise<Migrate
     }
   }
 
+  let subagentFailures: readonly SessionMigrationFailure[] = [];
+
   try {
     await mkdir(targetDir, { recursive: true, mode: 0o700 });
     const subagents =
       input.source.sessionDir === undefined
-        ? []
+        ? { infos: [], failures: [] }
         : await migrateLegacySubagents(input.source.sessionDir, targetDir);
     await writeMainAgentWire(targetDir, {
       createdAtMs,
       messages,
       lastUsageTokenCount: extractLastUsageTokenCount(contextLines),
       todoItems: readTodoItems(oldState.todos),
-      subagentTasks: subagents.map(buildSubagentTaskRecords),
+      subagentTasks: subagents.infos.map(buildSubagentTaskRecords),
     });
     await writeSessionState(targetDir, {
       oldState,
@@ -165,8 +170,9 @@ export async function migrateOneSession(input: MigrateOneInput): Promise<Migrate
       oldSessionUuid: input.source.uuid,
       wireProtocolFromOld,
       createdAtMs,
-      subagentIds: subagents.map((s) => s.agentId),
+      subagentIds: subagents.infos.map((s) => s.agentId),
     });
+    subagentFailures = subagents.failures;
   } catch (error) {
     // A partially-written targetDir would trip the conflict guard on re-run
     // and strand this session forever. Clean it up and report a soft failure
@@ -185,9 +191,11 @@ export async function migrateOneSession(input: MigrateOneInput): Promise<Migrate
   // it only leaves ordering slightly off.
   await applyOriginalMtime(targetDir, createdAtMs);
 
-  return debrisArchivedTo === undefined
-    ? { outcome: 'migrated', targetDir }
-    : { outcome: 'migrated', targetDir, debrisArchivedTo };
+  const base =
+    debrisArchivedTo === undefined
+      ? { outcome: 'migrated' as const, targetDir }
+      : { outcome: 'migrated' as const, targetDir, debrisArchivedTo };
+  return subagentFailures.length === 0 ? base : { ...base, subagentFailures };
 }
 
 /**

@@ -5,7 +5,7 @@
  * Run: cd apps/vscode && bun run test -- baseline.manager.test.ts
  */
 import fs, { existsSync, writeFileSync } from 'node:fs';
-import { chmod, mkdir, mkdtemp, readFile, rm, symlink, unlink, writeFile } from 'node:fs/promises';
+import { chmod, lstat, mkdir, mkdtemp, open, readdir, readFile, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -145,6 +145,81 @@ describe('file baselines (capture, compare, keep, and undo)', () => {
     await manager.undo(session, filePath);
 
     await expect(readFile(filePath, 'utf-8')).resolves.toBe('first\r\nsecond\r\n');
+  });
+
+  it('restores the original content and keeps the file mode when undo runs', async () => {
+    const session = createSession();
+    const filePath = join(workDir, 'script.sh');
+    await writeFile(filePath, '#!/bin/sh\necho original\n', 'utf-8');
+    await chmod(filePath, 0o600);
+    await manager.capture(session, filePath);
+    await manager.undo(session, filePath);
+
+    await expect(readFile(filePath, 'utf-8')).resolves.toBe('#!/bin/sh\necho original\n');
+    expect((await stat(filePath)).mode & 0o777).toBe(0o600);
+  });
+
+  it('restores the snapshotted file behind an in-workspace symlink', async () => {
+    const session = createSession();
+    const target = join(workDir, 'target.txt');
+    const link = join(workDir, 'link.txt');
+    await writeFile(target, 'original\n', 'utf-8');
+    await symlink(target, link);
+    await manager.capture(session, link);
+    await writeFile(target, 'changed\n', 'utf-8');
+
+    await manager.undo(session, link);
+
+    expect((await lstat(link)).isSymbolicLink()).toBe(true);
+    await expect(readFile(target, 'utf-8')).resolves.toBe('original\n');
+  });
+
+  it('leaves no temporary file behind when undo restores the original', async () => {
+    const session = createSession();
+    const filePath = join(workDir, 'app.ts');
+    await writeFile(filePath, 'original\n', 'utf-8');
+    await manager.capture(session, filePath);
+    await writeFile(filePath, 'changed\n', 'utf-8');
+
+    await manager.undo(session, filePath);
+
+    await expect(readdir(workDir)).resolves.toEqual(['app.ts']);
+  });
+
+  it('recreates a file the session deleted after it was captured', async () => {
+    const session = createSession();
+    const filePath = join(workDir, 'src', 'app.ts');
+    await mkdir(join(workDir, 'src'), { recursive: true });
+    await writeFile(filePath, 'original\n', 'utf-8');
+    await manager.capture(session, 'src/app.ts');
+    await rm(join(workDir, 'src'), { recursive: true });
+
+    await manager.undo(session, 'src/app.ts');
+
+    await expect(readFile(filePath, 'utf-8')).resolves.toBe('original\n');
+  });
+
+  it('replaces the restored file instead of truncating it in place', async () => {
+    const session = createSession();
+    const filePath = join(workDir, 'app.ts');
+    await writeFile(filePath, 'original content\n', 'utf-8');
+    await manager.capture(session, filePath);
+    await writeFile(filePath, 'changed\n', 'utf-8');
+    // A reader that opened the file before the restore: with `writeFile` it
+    // would observe the truncated intermediate state, with a rename it keeps
+    // reading the complete original.
+    const heldOpen = await open(filePath, 'r');
+
+    try {
+      await manager.undo(session, filePath);
+
+      await expect(readFile(filePath, 'utf-8')).resolves.toBe('original content\n');
+      const handle = await heldOpen.readFile({ encoding: 'utf-8' });
+      expect(handle).toBe('changed\n');
+    } finally {
+      await heldOpen.close();
+    }
+    await expect(readdir(workDir)).resolves.toEqual(['app.ts']);
   });
 
   it('captures a new original after keep accepts the previous changes', async () => {

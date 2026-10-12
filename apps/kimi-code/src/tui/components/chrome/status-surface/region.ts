@@ -199,6 +199,18 @@ export interface StatusRegion {
   /** Keyboard, delivered only while the region owns focus. */
   handleKey?(key: RegionKey): boolean;
 
+  /**
+   * Raw keyboard, delivered only while the region owns focus and only when the
+   * surface's own `StatusSurfaceKey` mapping has nothing for the key — the
+   * route for what `handleKey` cannot carry: printable text (an approval's
+   * rejection reason) and the Ctrl shortcuts a panel owns that have no
+   * normalized `RegionKey` (`Ctrl+E`, `Ctrl+O`).
+   *
+   * A `false` return means the region did not want the key, and the editor's
+   * own binding runs.
+   */
+  handleRawInput?(data: string): boolean;
+
   /** Mouse, in region-local coordinates. */
   handleMouse?(event: RegionMouseEvent): TuiMouseEventResult | undefined;
 

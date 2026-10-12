@@ -7,6 +7,7 @@ import { openUrl } from '#/utils/open-url';
 import { quotaUsageRows } from '#/utils/usage/usage-format';
 
 import { submitFeedbackWithAttachments } from '../../feedback/feedback-attachments';
+import type { FeedbackCodebaseLimitExceeded } from '../../feedback/codebase';
 import { buildMcpStatusReportLines } from '../components/messages/mcp-status-panel';
 import { buildStatusReportLines } from '../components/messages/status-panel';
 import {
@@ -25,6 +26,7 @@ import {
   getFeedbackStatusNotSignedIn,
   getFeedbackStatusSubmitting,
   getFeedbackStatusSuccess,
+  getFeedbackStatusCodebaseTruncated,
   getFeedbackStatusUploadFailed,
   kimiCodeSignupUrl,
   withFeedbackVersionPrefix,
@@ -114,8 +116,11 @@ export async function handleFeedbackCommand(host: SlashCommandHost): Promise<voi
     // already exists server-side — so a throw here degrades to the
     // partial-failure status, never to the GitHub fallback in the outer catch.
     let attachmentFailed = false;
+    let codebaseTruncated: FeedbackCodebaseLimitExceeded | undefined;
     try {
-      attachmentFailed = await submitFeedbackWithAttachments(host, res.feedbackId, level);
+      const outcome = await submitFeedbackWithAttachments(host, res.feedbackId, level);
+      attachmentFailed = outcome.failed;
+      codebaseTruncated = outcome.codebaseTruncated;
     } catch {
       attachmentFailed = true;
     }
@@ -126,6 +131,12 @@ export async function handleFeedbackCommand(host: SlashCommandHost): Promise<voi
     host.track(FEEDBACK_TELEMETRY_EVENT);
     if (attachmentFailed) {
       host.showStatus(getFeedbackStatusUploadFailed());
+    }
+    // A truncated codebase archive is not a failure (the upload succeeded) but
+    // it is also not a full attachment: say so instead of implying the whole
+    // repository was sent.
+    if (codebaseTruncated !== undefined) {
+      host.showStatus(getFeedbackStatusCodebaseTruncated(codebaseTruncated));
     }
   } catch (error) {
     stopSpinner({ ok: false, label: getFeedbackStatusNetworkError() });

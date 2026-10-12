@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, posix } from 'node:path';
 
@@ -32,6 +32,7 @@ import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { BlobStoreService } from '#/persistence/backends/node-fs/blobStoreService';
+import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IBlobStore } from '#/persistence/interface/blobStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
@@ -529,6 +530,58 @@ describe('AgentFileHistoryService', () => {
     await fireEdit(service, '/elsewhere/notes.md', 1);
 
     expect(service.history().tracked).toEqual(['/elsewhere/notes.md']);
+  });
+
+  it('deletes unreferenced blobs under the file-history directory and keeps referenced ones', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'file-history-sweep-'));
+    const backend = new FileStorageService(dir);
+    blobs = new BlobStoreService(backend);
+    const service = createService();
+    try {
+      setFile('/ws/a.txt', 'v1\n');
+
+      startTurn(1);
+      await fireEdit(service, '/ws/a.txt', 1);
+      await service.settled();
+      setFile('/ws/a.txt', 'v2\n');
+
+      const orphan = 'file-history/orphan@v1';
+      await blobs.put(scopeCtx.scope(), orphan, encoder.encode('stale\n'));
+      await blobs.put(scopeCtx.scope(), 'other-scope/keep.bin', encoder.encode('keep\n'));
+
+      endTurn(1);
+      startTurn(2);
+      await service.settled();
+
+      const referenced = [
+        ...new Set(
+          service
+            .history()
+            .checkpoints.flatMap((checkpoint) =>
+              Object.values(checkpoint.entries).map((entry) => entry.key!),
+            ),
+        ),
+      ];
+      expect(referenced).toHaveLength(2);
+      for (const key of referenced) {
+        expect(key).toMatch(/^file-history\/[0-9a-f]+@v\d+$/);
+      }
+
+      expect(await backend.read(scopeCtx.scope(), orphan)).toBeUndefined();
+      expect(await backend.read(scopeCtx.scope(), 'other-scope/keep.bin')).toBeDefined();
+      for (const key of referenced) {
+        expect(await backend.read(scopeCtx.scope(), key)).toBeDefined();
+      }
+
+      expect(
+        (await backend.list(scopeCtx.scope(), 'file-history', { recursive: true })).toSorted(),
+      ).toEqual([...referenced].sort());
+
+      const onDisk = await readdir(join(dir, scopeCtx.scope(), 'file-history'));
+      expect(onDisk).toHaveLength(referenced.length);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
 

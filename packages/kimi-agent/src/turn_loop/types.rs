@@ -748,8 +748,6 @@ pub enum LoopStepStopReason {
     ToolCalls(Vec<ToolCall>),
     /// The step was aborted.
     Aborted,
-    /// An error occurred.
-    Error(String),
 }
 
 #[cfg(test)]

@@ -765,6 +765,29 @@ describe('OAuthService', () => {
     await vi.waitFor(() => expect(svc.getFlow(OAUTH_PROVIDER)?.status).toBe('authenticated'));
   });
 
+  it('fails the login instead of reporting success when the provider was never written', async () => {
+    stubManagedModelsFetch();
+    toolkit.login.mockImplementation((_provider, options) => {
+      options.onDeviceCode(deviceAuth);
+      return Promise.resolve({ providerName: OAUTH_PROVIDER, ok: true });
+    });
+    providerSet.mockResolvedValue(undefined);
+    const svc = createService();
+    await svc.startLogin(OAUTH_PROVIDER);
+
+    await vi.waitFor(() => expect(svc.getFlow(OAUTH_PROVIDER)?.status).toBe('failed'));
+    expect(svc.getFlow(OAUTH_PROVIDER)?.error_message).toContain('was not written to');
+  });
+
+  it('rejects the already-authenticated fast path when the provider was never written', async () => {
+    stubManagedModelsFetch();
+    toolkit.login.mockResolvedValue({ providerName: OAUTH_PROVIDER, ok: true });
+    providerSet.mockResolvedValue(undefined);
+    const svc = createService();
+
+    await expect(svc.startLogin(OAUTH_PROVIDER)).rejects.toThrow('was not written to');
+  });
+
   it('cancelLogin aborts a pending flow and marks it cancelled', async () => {
     let capturedSignal: AbortSignal | undefined;
     toolkit.login.mockImplementation((_provider, options) => {

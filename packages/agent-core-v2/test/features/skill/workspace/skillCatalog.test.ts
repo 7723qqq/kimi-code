@@ -772,6 +772,7 @@ describe('WorkspaceSkillCatalogService', () => {
       stubPair(IConfigService, configStub()),
       stubPair(IProviderService, stubProviderService()),
       stubPair(ITelemetryService, noopTelemetryService),
+      stubPair(ILogService, stubLog()),
     ]);
     const ws = workspaceContextStub('/work');
     const workspace = host.child('program', 'w1', [

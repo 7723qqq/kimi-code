@@ -46,6 +46,12 @@ export interface Klient {
   readonly events: KlientEvents;
   session(sessionId: string): SessionHandle;
   close(): Promise<void>;
+  /**
+   * Test-only probe: how many event hubs this klient currently tracks. The
+   * global hub always counts, and a session/agent hub is added on first
+   * subscription — a handle used for calls alone must not move the number.
+   */
+  __hubCountForTest?(): number;
 }
 
 export function createKlientFromChannel(
@@ -130,24 +136,45 @@ export function createKlientFromChannel(
     hubs.add(hub);
     return hub;
   };
+  /**
+   * The session/agent hubs are memoized behind the handle's `events` getter,
+   * not allocated eagerly: a handle used only for calls (`get()`, `update()`,
+   * `setTitle()`) never creates an `EventHub`, so it cannot leak one. Tracking
+   * starts on the first subscription, when the hub has a caller-visible
+   * lifetime; `close()` on never-subscribed hubs is then unnecessary.
+   */
+  const lazyHub = <TPayloadMap extends object>(
+    scope: ScopeRef,
+    registrations: Record<string, EventRegistration>,
+  ): (() => KlientEvents<TPayloadMap>) => {
+    let hub: KlientEvents<TPayloadMap> | undefined;
+    return () => (hub ??= makeHub<TPayloadMap>(scope, registrations));
+  };
 
   return {
     global: createGlobalFacade(call, callStream),
     events: makeHub<KlientEventPayloads>({}, globalEvents),
     session(sessionId: string): SessionHandle {
       const scope: ScopeRef = { sessionId };
+      const sessionHub = lazyHub<SessionEventPayloads>(scope, sessionEvents);
       return {
         ...createSessionFacade(call, sessionId),
-        events: makeHub<SessionEventPayloads>(scope, sessionEvents),
+        get events(): KlientEvents<SessionEventPayloads> {
+          return sessionHub();
+        },
         agent(agentId: string): AgentHandle {
           const agentScope: ScopeRef = { sessionId, agentId };
+          const agentHub = lazyHub<AgentEventPayloads>(agentScope, agentEvents);
           return {
             ...createAgentFacade(call, agentScope),
-            events: makeHub<AgentEventPayloads>(agentScope, agentEvents),
+            get events(): KlientEvents<AgentEventPayloads> {
+              return agentHub();
+            },
           };
         },
       };
     },
+    __hubCountForTest: () => hubs.size,
     close: () => {
       for (const hub of hubs) {
         hub.close();

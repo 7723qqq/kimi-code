@@ -11,6 +11,7 @@ import {
 } from '@moonshot-ai/agent-core-v2';
 
 import type { ContextMessage } from '#/context';
+import { log } from '#/logging/logger';
 import {
   isAgentReplayUserTurnMessage,
   limitAgentReplayByTurns,
@@ -41,7 +42,14 @@ export async function foldAgentWireReplay(
 
 async function foldAgentWireReplayFull(wirePath: string): Promise<FoldedAgentReplay> {
   try {
-    const records = parseWireRecords(await readFile(wirePath, 'utf-8'));
+    const parsed = parseWireRecords(await readFile(wirePath, 'utf-8'));
+    if (parsed.corruptAt !== undefined) {
+      log.warn('wire replay stopped at a corrupted line', {
+        wirePath,
+        line: parsed.corruptAt.line,
+      });
+    }
+    const records = parsed.records;
     if (records.length === 0) return EMPTY_FOLD;
     const folded = foldWireRecords(records);
     return {
@@ -69,20 +77,28 @@ function mapReplayRecord(record: V2AgentReplayRecord): AgentReplayRecord {
   return record as unknown as AgentReplayRecord;
 }
 
-function parseWireRecords(content: string): WireRecord[] {
+interface ParsedWireRecords {
+  readonly records: WireRecord[];
+  readonly corruptAt?: { readonly line: number };
+}
+
+function parseWireRecords(content: string): ParsedWireRecords {
   const lines = content.split('\n');
   const records: WireRecord[] = [];
+  let corruptAt: { line: number } | undefined;
   for (const [index, rawLine] of lines.entries()) {
     const line = rawLine.endsWith('\r') ? rawLine.slice(0, -1) : rawLine;
     if (line.length === 0) continue;
     try {
       records.push(JSON.parse(line) as WireRecord);
-    } catch (error) {
-      if (index === lines.length - 1) break;
-      throw error;
+    } catch {
+      if (index !== lines.length - 1) {
+        corruptAt = { line: index + 1 };
+      }
+      break;
     }
   }
-  return records;
+  return corruptAt === undefined ? { records } : { records, corruptAt };
 }
 
 const SCAN_CHUNK_BYTES = 4 * 1024 * 1024;

@@ -7,7 +7,7 @@ import {
   ContextClear,
   ContextUndo,
 } from '#/agent/contextMemory/contextEvents';
-import type { Event2, Event2Class } from '#/app/event/event2';
+import { event2FromRecord, type Event2, type Event2Class } from '#/app/event/event2';
 import type { FoldContext } from '#/state/state';
 import {
   TurnCancel,
@@ -161,7 +161,7 @@ describe('turnKey anchorTurnIds', () => {
 });
 
 describe('TurnEnded serialization', () => {
-  it('emits the op record shape without the bus-only interruptReason', () => {
+  it('persists the interruptReason and keeps it across a wire-record round trip', () => {
     const event = new TurnEnded(
       {
         agentId: 'main',
@@ -172,14 +172,34 @@ describe('TurnEnded serialization', () => {
       },
       42,
     );
-    expect(event.serialize()).toEqual({
+    const record = event.serialize();
+    expect(record).toEqual({
       type: 'turn.ended',
       agentId: 'main',
       turnId: 3,
       reason: 'cancelled',
       durationMs: 12,
+      interruptReason: 'user_cancelled',
       time: 42,
     });
+
+    const rebuilt = event2FromRecord(TurnEnded, record);
+    expect(rebuilt).toBeInstanceOf(TurnEnded);
+    expect(rebuilt?.time).toBe(42);
+    expect((rebuilt as TurnEnded).interruptReason).toBe('user_cancelled');
+    expect((rebuilt as TurnEnded).durationMs).toBe(12);
+  });
+
+  it('rejects a record whose interruptReason is outside the declared union', () => {
+    expect(
+      event2FromRecord(TurnEnded, {
+        type: 'turn.ended',
+        agentId: 'main',
+        turnId: 3,
+        reason: 'cancelled',
+        interruptReason: 'meltdown',
+      }),
+    ).toBeUndefined();
   });
 
   it('omits absent optional fields from the record', () => {

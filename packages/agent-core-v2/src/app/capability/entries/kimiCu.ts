@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { constants, createReadStream } from 'node:fs';
-import { access, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -254,8 +254,17 @@ function shQuote(value: string): string {
   return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
-export function elevatedDittoScript(from: string, to: string): string {
-  return `/usr/bin/ditto ${shQuote(from)} ${shQuote(to)}`;
+export function elevatedSwapScript(from: string, to: string, staged: string): string {
+  const backup = `${to}.bak`;
+  return (
+    `set -e; rm -rf ${shQuote(backup)}; rm -rf ${shQuote(staged)}; ` +
+    `/usr/bin/ditto ${shQuote(from)} ${shQuote(staged)}; ` +
+    `if [ -e ${shQuote(to)} ]; then /bin/mv ${shQuote(to)} ${shQuote(backup)}; fi; ` +
+    `if ! /bin/mv ${shQuote(staged)} ${shQuote(to)}; then ` +
+    `if [ -e ${shQuote(backup)} ]; then /bin/mv ${shQuote(backup)} ${shQuote(to)}; fi; ` +
+    `exit 1; fi; ` +
+    `rm -rf ${shQuote(backup)}`
+  );
 }
 
 function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
@@ -413,25 +422,63 @@ function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
     });
   }
 
+  async function leftoverStagingPaths(): Promise<string[]> {
+    const entries = await readdir(applicationsDir).catch(() => [] as string[]);
+    return entries
+      .filter((entry) => /^KimiCU\.app\.(new-\d+-\d+|bak(-\d+-\d+)?)$/.test(entry))
+      .map((entry) => path.join(applicationsDir, entry));
+  }
+
+  async function removeLeftoverStagingEntries(): Promise<void> {
+    for (const leftover of await leftoverStagingPaths()) {
+      await rm(leftover, { recursive: true, force: true }).catch(() => undefined);
+    }
+  }
+
   async function moveAppIntoPlace(unzippedApp: string): Promise<void> {
-    await rm(appPath, { recursive: true, force: true }).catch(() => undefined);
-    const direct = await runCommand(ctx.hostProcess, 'ditto', [unzippedApp, appPath], {
+    const tail = `${process.pid}-${Date.now()}`;
+    const staged = `${appPath}.new-${tail}`;
+    const backup = `${appPath}.bak-${tail}`;
+    await removeLeftoverStagingEntries();
+    const direct = await runCommand(ctx.hostProcess, 'ditto', [unzippedApp, staged], {
       timeout: commandTimeoutMs,
     });
-    if (direct.code === 0) return;
-    const script = appleScriptQuote(elevatedDittoScript(unzippedApp, appPath));
-    const elevated = await runCommand(
-      ctx.hostProcess,
-      'osascript',
-      ['-e', `do shell script "${script}" with administrator privileges`],
-      { timeout: 120_000 },
+    if (direct.code !== 0) {
+      const script = appleScriptQuote(elevatedSwapScript(unzippedApp, appPath, staged));
+      const elevated = await runCommand(
+        ctx.hostProcess,
+        'osascript',
+        ['-e', `do shell script "${script}" with administrator privileges`],
+        { timeout: 120_000 },
+      );
+      if (elevated.code !== 0) {
+        throw new Error(
+          `Failed to install ${APP_BUNDLE} into ${applicationsDir} ` +
+            `(direct: ${direct.stderr.trim() || direct.code}; elevated: ${elevated.stderr.trim() || elevated.code})`,
+        );
+      }
+      await stopOldProcesses();
+      return;
+    }
+    await stopOldProcesses();
+    const hadPrevious = await exists(appPath);
+    if (hadPrevious) {
+      await rename(appPath, backup);
+    }
+    const placed = await rename(staged, appPath).then(
+      () => true,
+      () => false,
     );
-    if (elevated.code !== 0) {
+    if (!placed) {
+      if (hadPrevious) {
+        await rename(backup, appPath).catch(() => undefined);
+      }
       throw new Error(
-        `Failed to install ${APP_BUNDLE} into ${applicationsDir} ` +
-          `(direct: ${direct.stderr.trim() || direct.code}; elevated: ${elevated.stderr.trim() || elevated.code})`,
+        `Failed to install ${APP_BUNDLE} into ${applicationsDir}: ` +
+          `the staged bundle could not replace the installed app`,
       );
     }
+    await rm(backup, { recursive: true, force: true }).catch(() => undefined);
   }
 
   async function install(report: CapabilityInstallReporter): Promise<string | undefined> {
@@ -481,7 +528,6 @@ function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
         if (unzipped.code !== 0) {
           throw new Error(`Failed to unzip KimiCU.app: ${unzipped.stderr || unzipped.stdout}`);
         }
-        await stopOldProcesses();
         await moveAppIntoPlace(path.join(unzipDir, APP_BUNDLE));
         await runCommand(ctx.hostProcess, 'xattr', ['-dr', 'com.apple.quarantine', appPath], {
           timeout: commandTimeoutMs,

@@ -729,6 +729,7 @@ export class OpenAILegacyChatProvider implements ChatProvider {
             apiKey: nativeApiKey,
             model: this._model,
             requestBody: JSON.stringify(createParams),
+            // Idle deadline: any SSE event resets it, so a long answer is not cut off.
             timeoutMs: 120_000,
             extraHeaders: nativeExtraHeaders,
             signal: options?.signal,

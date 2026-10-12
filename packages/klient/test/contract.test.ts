@@ -10,7 +10,7 @@ import { describe, expect, it } from 'vitest';
 
 import { promptPayloadSchema } from '../src/contract/agent/schemas.js';
 import { mcpServerAuthFlowHandleSchema } from '../src/contract/global/mcpManagement.js';
-import { pluginManifestSchema } from '../src/contract/global/plugins.js';
+import { pluginManifestSchema, pluginUpdateStatusSchema } from '../src/contract/global/plugins.js';
 import { createSessionOptionsSchema } from '../src/contract/session/lifecycle.js';
 
 type McpTimeoutField = 'startupTimeoutMs' | 'toolTimeoutMs';
@@ -102,6 +102,42 @@ describe('MCP timeout contract validation', () => {
       mcpServerAuthFlowHandleSchema.safeParse({ flowId: 'flow-1', timeoutMs: 2_147_483_648 })
         .success,
     ).toBe(false);
+  });
+
+  it('plugin update status keeps the failure channel on the wire', () => {
+    const parsed = pluginUpdateStatusSchema.safeParse({
+      id: 'offline',
+      source: 'github',
+      current: { kind: 'tag', value: 'v1' },
+      latest: { kind: 'tag', value: 'v1' },
+      displayVersion: 'v1',
+      updateAvailable: false,
+      checkFailed: true,
+      errorMessage: 'network offline',
+    });
+    expect(parsed.success).toBe(true);
+    expect(parsed.data).toEqual({
+      id: 'offline',
+      source: 'github',
+      current: { kind: 'tag', value: 'v1' },
+      latest: { kind: 'tag', value: 'v1' },
+      displayVersion: 'v1',
+      updateAvailable: false,
+      checkFailed: true,
+      errorMessage: 'network offline',
+    });
+  });
+
+  it('plugin update status leaves the failure channel unset on success', () => {
+    const parsed = pluginUpdateStatusSchema.safeParse({
+      id: 'good',
+      source: 'github',
+      latest: { kind: 'tag', value: 'v2' },
+      displayVersion: 'v2',
+      updateAvailable: true,
+    });
+    expect(parsed.success).toBe(true);
+    expect(parsed.data?.checkFailed).toBeUndefined();
   });
 });
 

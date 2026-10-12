@@ -97,6 +97,7 @@ export const finishReasonSchema = z.enum([
   'truncated',
   'filtered',
   'paused',
+  'error',
   'other',
 ]) satisfies z.ZodType<FinishReason>;
 

@@ -5,7 +5,7 @@ import { setKittyProtocolActive } from './keys.ts';
 import { isNativeModifierPressed } from './native-modifiers.ts';
 import { getNativePlatformHelper } from './native-platform.ts';
 import { StdinBuffer } from './stdin-buffer.ts';
-import { sanitizeTerminalPayload } from './terminal-sanitize.ts';
+import { sanitizeTitleParameter } from './terminal-sanitize.ts';
 
 const TERMINAL_PROGRESS_KEEPALIVE_MS = 1000;
 const TERMINAL_PROGRESS_ACTIVE_SEQUENCE = '\x1b]9;4;3\x07';
@@ -528,7 +528,12 @@ export class ProcessTerminal implements Terminal {
     // OSC 0;title BEL - set terminal window title. The title can carry
     // caller-supplied text (a session name, a prompt excerpt), so a control
     // byte must not be able to terminate the sequence and inject its own.
-    process.stdout.write(`\x1b]0;${sanitizeTerminalPayload(title)}\x07`);
+    // Belt and braces: layout characters are normalised, a title that is
+    // empty or all control bytes writes nothing at all (a bare "\x1b]0;\x07"
+    // would make the terminal blank the title on every refresh).
+    const sanitizedTitle = sanitizeTitleParameter(title);
+    if (sanitizedTitle.length === 0) return;
+    process.stdout.write(`\x1b]0;${sanitizedTitle}\x07`);
   }
 
   setProgress(active: boolean): void {

@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { existsSync, readFileSync } from 'node:fs';
+import { closeSync, existsSync, openSync, readSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -17,8 +17,11 @@ import type {
 
 export interface AntigravityGenerateOptions {
   signal?: AbortSignal;
+  conversationId?: string;
   onRequestSent?: () => void;
 }
+
+export const ANTIGRAVITY_STDERR_LIMIT = 64 * 1024;
 
 export interface StreamedMessage {
   [Symbol.asyncIterator](): AsyncIterator<StreamedMessagePart>;
@@ -257,7 +260,7 @@ export class AntigravityChatProvider {
     const agyModel = mapModelToAntigravity(this.modelName, this.thinkingEffort ?? undefined);
     const { promptText, useConversationId } = buildAntigravityPrompt(
       history,
-      this._lastConversationId,
+      options?.conversationId ?? this._lastConversationId,
     );
 
     const args = [
@@ -310,6 +313,7 @@ export class AntigravityChatProvider {
     let finalResponseText = '';
     let conversationId: string | undefined;
     let transcriptOffset = 0;
+    let transcriptPending: Buffer = Buffer.alloc(0);
     let lastSeenThinkingLength = 0;
 
     type TranscriptToolCall = { name: string; args: Record<string, unknown> };
@@ -328,7 +332,7 @@ export class AntigravityChatProvider {
       return parts.join(', ');
     };
 
-    const syncTranscript = () => {
+    const syncTranscript = (flushPending = false) => {
       if (!conversationId) return;
       const transcriptPath = join(
         homedir(),
@@ -336,66 +340,103 @@ export class AntigravityChatProvider {
         conversationId,
         '.system_generated/logs/transcript.jsonl',
       );
-      if (!existsSync(transcriptPath)) return;
+      let size: number;
       try {
-        const fileContent = readFileSync(transcriptPath, 'utf-8');
-        const lines = fileContent.split('\n');
-        for (let i = transcriptOffset; i < lines.length; i++) {
-          const line = lines[i]?.trim();
-          if (!line) continue;
+        size = statSync(transcriptPath).size;
+      } catch {
+        return;
+      }
+      if (size < transcriptOffset) {
+        transcriptOffset = 0;
+        transcriptPending = Buffer.alloc(0);
+      }
+      let chunk: Buffer | undefined;
+      if (size > transcriptOffset) {
+        try {
+          const fd = openSync(transcriptPath, 'r');
           try {
-            const entry = JSON.parse(line);
-            if (entry.type === 'PLANNER_RESPONSE') {
-              if (
-                typeof entry.thinking === 'string' &&
-                entry.thinking.length > lastSeenThinkingLength
-              ) {
-                const newThinking = entry.thinking.slice(lastSeenThinkingLength);
-                lastSeenThinkingLength = entry.thinking.length;
-                queue.push({ type: 'think', think: newThinking });
-                resolveNext?.();
-              }
-              if (Array.isArray(entry.tool_calls) && entry.tool_calls.length > 0) {
-                for (const tc of entry.tool_calls as TranscriptToolCall[]) {
-                  if (tc && typeof tc.name === 'string') {
-                    pendingToolCalls.push(tc);
-                    const argsStr = formatToolArgs(
-                      (tc.args as Record<string, unknown> | undefined) ?? {},
-                    );
-                    const thinkLine = `\n🔧 ${tc.name}(${argsStr})`;
-                    queue.push({ type: 'think', think: thinkLine });
-                    resolveNext?.();
-                    awaitingToolResult = true;
-                  }
-                }
-              }
-              if (
-                typeof entry.content === 'string' &&
-                entry.content.length > 0 &&
-                finalResponseText.length === 0
-              ) {
-                finalResponseText = entry.content;
-              }
-            } else if (entry.type === 'GENERIC' && awaitingToolResult) {
-              awaitingToolResult = false;
-              if (typeof entry.content === 'string') {
-                const firstLine =
-                  (entry.content as string).split('\n').find((l: string) => l.trim().length > 0) ??
-                  '';
-                const snippet = firstLine.slice(0, 160);
-                if (snippet) {
-                  queue.push({ type: 'think', think: `\n   ↳ ${snippet}` });
+            const buffer = Buffer.allocUnsafe(size - transcriptOffset);
+            let read = 0;
+            while (read < buffer.length) {
+              const step = readSync(fd, buffer, read, buffer.length - read, transcriptOffset + read);
+              if (step <= 0) break;
+              read += step;
+            }
+            transcriptOffset += read;
+            chunk = buffer.subarray(0, read);
+          } finally {
+            closeSync(fd);
+          }
+        } catch {
+          return;
+        }
+      } else if (!flushPending) {
+        return;
+      }
+      const combined =
+        chunk === undefined
+          ? transcriptPending
+          : Buffer.concat([transcriptPending, chunk]);
+      const boundary = flushPending ? combined.length : combined.lastIndexOf(0x0a);
+      if (boundary < 0) {
+        transcriptPending = combined;
+        return;
+      }
+      const complete = combined.subarray(0, boundary).toString('utf-8');
+      transcriptPending = combined.subarray(boundary + 1);
+      for (const rawLine of complete.split('\n')) {
+        const line = rawLine.trim();
+        if (!line) continue;
+        try {
+          const entry = JSON.parse(line);
+          if (entry.type === 'PLANNER_RESPONSE') {
+            if (
+              typeof entry.thinking === 'string' &&
+              entry.thinking.length > lastSeenThinkingLength
+            ) {
+              const newThinking = entry.thinking.slice(lastSeenThinkingLength);
+              lastSeenThinkingLength = entry.thinking.length;
+              queue.push({ type: 'think', think: newThinking });
+              resolveNext?.();
+            }
+            if (Array.isArray(entry.tool_calls) && entry.tool_calls.length > 0) {
+              for (const tc of entry.tool_calls as TranscriptToolCall[]) {
+                if (tc && typeof tc.name === 'string') {
+                  pendingToolCalls.push(tc);
+                  const argsStr = formatToolArgs(
+                    (tc.args as Record<string, unknown> | undefined) ?? {},
+                  );
+                  const thinkLine = `\n🔧 ${tc.name}(${argsStr})`;
+                  queue.push({ type: 'think', think: thinkLine });
                   resolveNext?.();
+                  awaitingToolResult = true;
                 }
               }
             }
-          } catch {}
-        }
-        transcriptOffset = Math.max(transcriptOffset, lines.length > 1 ? lines.length - 1 : 0);
-      } catch {}
+            if (
+              typeof entry.content === 'string' &&
+              entry.content.length > 0 &&
+              finalResponseText.length === 0
+            ) {
+              finalResponseText = entry.content;
+            }
+          } else if (entry.type === 'GENERIC' && awaitingToolResult) {
+            awaitingToolResult = false;
+            if (typeof entry.content === 'string') {
+              const firstLine =
+                (entry.content as string).split('\n').find((l: string) => l.trim().length > 0) ?? '';
+              const snippet = firstLine.slice(0, 160);
+              if (snippet) {
+                queue.push({ type: 'think', think: `\n   ↳ ${snippet}` });
+                resolveNext?.();
+              }
+            }
+          }
+        } catch {}
+      }
     };
 
-    const transcriptPoller = setInterval(syncTranscript, 100);
+    const transcriptPoller = setInterval(syncTranscript, 250);
 
     let streamed: AntigravityStreamedMessage;
 
@@ -450,6 +491,9 @@ export class AntigravityChatProvider {
     let stderrOutput = '';
     child.stderr?.on('data', (d) => {
       stderrOutput += d.toString();
+      if (stderrOutput.length > ANTIGRAVITY_STDERR_LIMIT) {
+        stderrOutput = stderrOutput.slice(stderrOutput.length - ANTIGRAVITY_STDERR_LIMIT);
+      }
     });
 
     child.on('error', (err) => {
@@ -460,11 +504,12 @@ export class AntigravityChatProvider {
 
     child.on('exit', (code) => {
       clearInterval(transcriptPoller);
-      syncTranscript();
+      syncTranscript(true);
       if (options?.signal) {
         options.signal.removeEventListener('abort', onAbort);
       }
-      if (code !== 0 && !aborted && queue.length === 0 && finalResponseText.length === 0) {
+      if (code !== 0 && !aborted) {
+        streamed?.setFinishReason('error', String(code));
         errorOccurred = new Error(`Antigravity exited with code ${code}: ${stderrOutput}`);
       }
       isDone = true;
@@ -486,6 +531,10 @@ export class AntigravityChatProvider {
           continue;
         }
         if (errorOccurred) {
+          if (!yieldedAnyText && finalResponseText.length > 0) {
+            yieldedAnyText = true;
+            yield { type: 'text', text: finalResponseText };
+          }
           throw errorOccurred;
         }
         if (isDone) {

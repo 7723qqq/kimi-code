@@ -101,6 +101,39 @@ describe('ExperimentsSelectorComponent', () => {
     expect(onApply).not.toHaveBeenCalled();
   });
 
+  it('treats a space as part of the query once searching has started', () => {
+    const onApply = vi.fn<(changes: readonly ExperimentalFeatureDraftChange[]) => void>();
+    const selector = new ExperimentsSelectorComponent({
+      features: [feature()],
+      onApply,
+      onCancel: vi.fn(),
+    });
+
+    for (const char of 'web search') selector.handleInput(char);
+
+    // The space belongs to the query, so no draft was flipped on the way.
+    expect(text(selector)).toContain('Search: web search');
+    expect(text(selector)).toContain(' [ Apply changes and reload ]  no changes');
+    expect(text(selector)).not.toContain('modified');
+
+    selector.handleInput(ENTER);
+    expect(onApply).not.toHaveBeenCalled();
+  });
+
+  it('still toggles with a space while the query is empty', () => {
+    // The single-key toggle keeps working where it is unambiguous: nothing has
+    // been typed yet, so the space cannot belong to a search.
+    const selector = new ExperimentsSelectorComponent({
+      features: [feature()],
+      onApply: vi.fn(),
+      onCancel: vi.fn(),
+    });
+
+    selector.handleInput(' ');
+
+    expect(text(selector)).toContain('  ❯ Micro compaction (cache-miss tool-result truncation)  disabled');
+  });
+
   it('filters by typing and clears the query before cancelling', () => {
     const onCancel = vi.fn();
     const selector = new ExperimentsSelectorComponent({

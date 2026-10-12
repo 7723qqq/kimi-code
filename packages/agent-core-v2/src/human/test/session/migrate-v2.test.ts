@@ -22,6 +22,9 @@ import { createActor, waitFor } from '#/xstate2';
 
 const MAIN = 'main';
 
+const COMPACTION_CONTINUATION_TEXT =
+  '<system-reminder>\nContext compaction is complete — continue the work that was in progress when it began.\n</system-reminder>';
+
 const model: LlmModel = { provider: 'test', model: 'test-model', capability: UNKNOWN_CAPABILITY };
 
 type SessionActor = ReturnType<typeof createTestSession>;
@@ -116,14 +119,24 @@ async function makeV2SessionDir(fixture: V2SessionFixture): Promise<string> {
   return dir;
 }
 
-function appendUser(text: string, agentId = MAIN, origin?: unknown): Record<string, unknown> {
+async function simulateInterruptedMigration(dir: string): Promise<void> {
+  await mkdir(join(dir, 'blobs'), { recursive: true });
+  await writeFile(join(dir, 'blobs', 'stale-blob'), 'stale');
+}
+
+function appendUser(
+  text: string,
+  agentId = MAIN,
+  origin?: unknown,
+  extraParts: Record<string, unknown>[] = [],
+): Record<string, unknown> {
   return {
     type: 'context.append_message',
     agentId,
     time: 1,
     message: {
       role: 'user',
-      content: [{ type: 'text', text }],
+      content: [{ type: 'text', text }, ...extraParts],
       toolCalls: [],
       origin: origin ?? { kind: 'user' },
     },
@@ -437,6 +450,7 @@ describe('migrateV2Session', () => {
     expect(loadedBoundary.agents[0]!.messages.map((entry) => extractText(entry.message))).toEqual([
       'old',
       'SUM',
+      COMPACTION_CONTINUATION_TEXT,
       'new',
     ]);
   });
@@ -470,11 +484,17 @@ describe('migrateV2Session', () => {
     });
     const loaded = await loadMigrated(dir);
     const agent = loaded.agents[0]!;
-    expect(agent.messages.map((entry) => extractText(entry.message))).toEqual(['u1', 'u3', 'CTX']);
+    expect(agent.messages.map((entry) => extractText(entry.message))).toEqual([
+      'u1',
+      'u3',
+      'CTX',
+      COMPACTION_CONTINUATION_TEXT,
+    ]);
     expect(agent.messages.map((entry) => entry.meta?.source)).toEqual([
       'input',
       'input',
       'compaction_summary',
+      'injection',
     ]);
 
     const big = 'x'.repeat(90_000);
@@ -502,11 +522,13 @@ describe('migrateV2Session', () => {
       'injection',
       'input',
       'compaction_summary',
+      'injection',
     ]);
     expect(extractText(elidedMessages[0]!.message)).toHaveLength(8_000);
     expect(extractText(elidedMessages[1]!.message)).toContain('roughly 2499 tokens');
     expect(extractText(elidedMessages[2]!.message)).toHaveLength(72_000);
     expect(extractText(elidedMessages[3]!.message)).toBe('BIG-SUM');
+    expect(extractText(elidedMessages[4]!.message)).toBe(COMPACTION_CONTINUATION_TEXT);
 
     const legacy = await makeV2SessionDir({
       agents: {
@@ -606,6 +628,68 @@ describe('migrateV2Session', () => {
     });
     const second = agent.messages[1]?.message.content[0];
     expect(second).toEqual({ type: 'image_url', imageUrl: { url: '[media missing]' } });
+  });
+
+  it('recovers from a migration interrupted after blobs were renamed and keeps those blobs', async () => {
+    const big = 'z'.repeat(70_000);
+    const dir = await makeV2SessionDir({
+      agents: { [MAIN]: { records: [turnPrompt(), appendUser(big)] } },
+    });
+    await simulateInterruptedMigration(dir);
+    expect(await readdir(dir)).toEqual(expect.arrayContaining(['agents', 'blobs', 'state.json']));
+
+    const result = await migrateV2Session(dir);
+    expect(result.treeName).toBe('session');
+
+    const blobs = await readdir(join(dir, 'blobs'));
+    expect(blobs).toContain('stale-blob');
+    expect(blobs.filter((name) => name !== 'stale-blob')).toHaveLength(1);
+
+    const reopened = await openSessionStore(dir);
+    expect(reopened.migrated).toBe(false);
+    const agents = await loadAgents(reopened.stores);
+    expect(agents[0]!.messages.map((entry) => extractText(entry.message))).toEqual([big]);
+  });
+
+  it('preserves hook and skill parts when truncating a compaction boundary message', async () => {
+    const hook = { type: 'text', text: '<hook/>', meta: { source: 'user prompt submit hook' } };
+    const skill = {
+      type: 'text',
+      text: 'SKILL',
+      meta: { source: 'skill activation', activationId: 'a1' },
+    };
+    const dir = await makeV2SessionDir({
+      agents: {
+        [MAIN]: {
+          records: [
+            appendUser('y'.repeat(120_000), MAIN, undefined, [hook, skill]),
+            {
+              type: 'context.apply_compaction',
+              agentId: MAIN,
+              time: 1,
+              summary: 'S',
+              contextSummary: 'CTX',
+              compactedCount: 1,
+              keptUserMessageCount: 1,
+            },
+          ],
+        },
+      },
+    });
+    const loaded = await loadMigrated(dir);
+    const messages = loaded.agents[0]!.messages;
+    expect(messages.map((entry) => entry.meta?.source)).toEqual([
+      'input',
+      'injection',
+      'input',
+      'compaction_summary',
+      'injection',
+    ]);
+    const [head, , tail] = messages;
+    expect(head!.message.content).toEqual([hook, skill, { type: 'text', text: expect.any(String) }]);
+    expect(tail!.message.content).toEqual([hook, skill, { type: 'text', text: expect.any(String) }]);
+    expect(extractText(head!.message)).toHaveLength(8_012);
+    expect(extractText(tail!.message)).toHaveLength(72_012);
   });
 
   it('handles legacy protocol versions and rejects newer ones', async () => {

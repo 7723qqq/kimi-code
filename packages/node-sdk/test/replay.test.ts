@@ -1,7 +1,28 @@
-import { describe, expect, it } from 'vitest';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
+import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { log } from '#/logging/logger';
 import { limitAgentReplayByTurns, type AgentReplayRecord } from '#/replay';
+import { foldAgentWireReplay } from '#/v2/resume-replay';
 import { v2MetaToSessionMeta } from '#/v2/session-mapper';
+
+const tempDirs: string[] = [];
+
+afterEach(async () => {
+  vi.restoreAllMocks();
+  for (const dir of tempDirs.splice(0)) {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+async function makeTempDir(): Promise<string> {
+  const dir = await mkdtemp(join(tmpdir(), 'kimi-sdk-replay-'));
+  tempDirs.push(dir);
+  return dir;
+}
 
 function userTurn(text: string, time: number): AgentReplayRecord {
   return {
@@ -132,6 +153,68 @@ describe('limitAgentReplayByTurns', () => {
     const limited = limitAgentReplayByTurns(records, 5);
     expect(JSON.stringify(limited)).toContain('prompt 3');
     expect(JSON.stringify(limited)).not.toContain('prompt 2');
+  });
+});
+
+describe('foldAgentWireReplay corruption handling', () => {
+  it('keeps the records before a corrupted non-tail line and warns once', async () => {
+    const dir = await makeTempDir();
+    const wirePath = join(dir, 'wire.jsonl');
+    await writeFile(
+      wirePath,
+      [
+        '{"type":"permission.set_mode","mode":"auto","time":2}',
+        '{"type":"permission.set_mode","mode":"aut',
+        '{"type":"permission.set_mode","mode":"yolo","time":9}',
+      ].join('\n') + '\n',
+      'utf-8',
+    );
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
+
+    const folded = await foldAgentWireReplay(wirePath);
+
+    expect(folded.replay).toEqual([{ type: 'permission_updated', mode: 'auto', time: 2 }]);
+    expect(folded.toolStore).toEqual({});
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledWith('wire replay stopped at a corrupted line', {
+      wirePath,
+      line: 2,
+    });
+  });
+
+  it('tolerates a truncated tail line without warning', async () => {
+    const dir = await makeTempDir();
+    const wirePath = join(dir, 'wire-tail.jsonl');
+    await writeFile(
+      wirePath,
+      '{"type":"metadata","protocol_version":"1.5","created_at":1}\n' +
+        '{"type":"permission.set_mode","mode":"auto","time":2}\n' +
+        '{"type":"permission.set_mode","mode":"yo',
+      'utf-8',
+    );
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
+
+    const folded = await foldAgentWireReplay(wirePath);
+
+    expect(folded.replay).toEqual([{ type: 'permission_updated', mode: 'auto', time: 2 }]);
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it('returns an empty fold when the first line is the corrupted one', async () => {
+    const dir = await makeTempDir();
+    const wirePath = join(dir, 'wire-head.jsonl');
+    await writeFile(
+      wirePath,
+      [
+        '{not json',
+        '{"type":"permission.set_mode","mode":"auto","time":2}',
+      ].join('\n') + '\n',
+      'utf-8',
+    );
+    const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
+
+    await expect(foldAgentWireReplay(wirePath)).resolves.toEqual({ replay: [], toolStore: {} });
+    expect(warn).toHaveBeenCalledTimes(1);
   });
 });
 

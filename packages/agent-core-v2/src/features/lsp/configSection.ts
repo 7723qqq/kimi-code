@@ -33,6 +33,10 @@ export const LspServerConfigSchema = z.object({
     .number()
     .optional()
     .describe('Grace period after SIGTERM before SIGKILL (default 2000).'),
+  initializeTimeoutMs: z
+    .number()
+    .optional()
+    .describe('Deadline for the initialize handshake before the server is killed (default 10000).'),
   cancelGraceMs: z
     .number()
     .optional()

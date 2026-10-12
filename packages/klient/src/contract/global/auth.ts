@@ -17,6 +17,7 @@ export const oAuthFlowStatusSchema = z.enum([
   'denied',
   'expired',
   'cancelled',
+  'failed',
 ]);
 
 export const oAuthFlowStartSchema = z.discriminatedUnion('status', [

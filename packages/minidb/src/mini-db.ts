@@ -53,10 +53,11 @@ import type {
 } from './maintenance.js';
 import { MemoryGuard } from './memory-guard.js';
 import { OpTracker } from './op-tracker.js';
+import { DEFAULT_TEXT_BUILD_MEMORY_BYTES } from './options.js';
 import { QueryEngine } from './query-engine.js';
 import { ReadPath } from './read-path.js';
 import { catchUpWalAsync } from './recovery.js';
-import type { RecoveryMode, RecoveryInfo, ValueMode, RecoveredOp } from './recovery.js';
+import type { RecoveryMode, RecoveryInfo, ValueMode, RecoveredOp, WalTail } from './recovery.js';
 import { withWindowsEpermRetry } from './rename-replace.js';
 import { createSerializer } from './serialize.js';
 import type { RangeOptions } from './skiplist.js';
@@ -145,8 +146,11 @@ export class MiniDb<V = unknown> {
   recoveryInfo: RecoveryInfo | null = null;
   /** Continuation watermark for catchUpFromWal: the WAL inode + applied
    *  offset as advanced by the last successful catch-up (recoveryInfo's scan
-   *  endpoint anchors the first call). */
-  private walTail: { dev: number; ino: number; size: number } | null = null;
+   *  endpoint anchors the first call). `tail` fingerprint the bytes below the
+   *  offset: identity alone cannot tell an append from an in-place rewrite of
+   *  the scanned prefix (recoverWalInPlace truncates this same inode and new
+   *  frames are written back below the stored offset). */
+  private walTail: { dev: number; ino: number; size: number; tail: WalTail | null } | null = null;
   /** Catch-up serializer: the sliced async apply yields to the event loop, so
    *  overlapping catch-ups would interleave op-by-op (the pre-async apply was
    *  atomic per call by virtue of being synchronous). Chaining restores that
@@ -235,7 +239,7 @@ export class MiniDb<V = unknown> {
   private textWorkerDisabled = false;
   /** Stage 6: worker aggregation memory budget. */
   /* Non-private (package-internal): lifecycle.ts reads/writes this through its LifecycleHost view. */ textBuildMemoryBytes =
-    128 * 1024 * 1024;
+    DEFAULT_TEXT_BUILD_MEMORY_BYTES;
   /** TUI-safe worker-slot policy: how long a worker-eligible text build
    *  queues for a process-wide slot before the bounded inline core is
    *  allowed as the last resort (never the unbounded staged aggregation). */
@@ -1547,13 +1551,16 @@ export class MiniDb<V = unknown> {
     const ri = this.recoveryInfo;
     const anchor =
       this.walTail ??
-      (ri && ri.walIno ? { dev: ri.walDev, ino: ri.walIno, size: ri.walScanEnd } : null);
+      (ri && ri.walIno
+        ? { dev: ri.walDev, ino: ri.walIno, size: ri.walScanEnd, tail: ri.walScanTail ?? null }
+        : null);
     if (!anchor || offset !== anchor.size) return null;
     const res = await catchUpWalAsync(this.walPath, offset, anchor, (f, fd, slice) =>
       this.applyRecoveredFrameAsync(f, fd, slice),
     );
-    if (res) this.walTail = { dev: anchor.dev, ino: anchor.ino, size: res.offset };
-    return res;
+    if (!res) return null;
+    this.walTail = { dev: anchor.dev, ino: anchor.ino, size: res.offset, tail: res.tail };
+    return { offset: res.offset, appliedFrames: res.appliedFrames };
   }
 
   async compact(): Promise<void> {

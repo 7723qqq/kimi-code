@@ -372,7 +372,7 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
           await Promise.race([handle.launched, handle.completion]);
         }
         const staging = preparedMedia;
-        void Promise.race([handle.launched, handle.completion]).then(
+        void handle.completion.then(
           () => staging?.discard(),
           () => staging?.discard(),
         );
@@ -576,7 +576,9 @@ export function reservePromptId(sessionId: string, promptId?: string): PromptIdR
     throw new Error2(ErrorCodes.PROMPT_ID_CONFLICT, `prompt_id '${promptId}' is already in use`);
   }
   const id = promptId ?? newMessageId();
-  reserved.add(id);
+  if (promptId !== undefined) {
+    reserved.add(id);
+  }
   let submitted = false;
   return {
     id,
@@ -587,6 +589,10 @@ export function reservePromptId(sessionId: string, promptId?: string): PromptIdR
       if (!submitted) reserved.delete(id);
     },
   };
+}
+
+export function reservedPromptIdCount(sessionId: string): number {
+  return reservedPromptIds.get(sessionId)?.size ?? 0;
 }
 
 export function watchPromptSettlements(events: IEventBus): {

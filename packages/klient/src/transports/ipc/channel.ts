@@ -87,14 +87,13 @@ export class IpcChannel implements KlientChannel {
     this.ready.catch(() => {});
 
     this.socket.on('data', (chunk) => {
-      for (const frame of this.decoder.push(chunk.toString('utf8'))) {
+      for (const frame of this.decoder.push(chunk)) {
         this.onFrame(frame);
       }
     });
     this.socket.on('close', () => {
       this.closed = true;
       this.failAll(new Error('ipc closed'));
-      this.listens.clear();
     });
     this.socket.on('error', () => {
       // 'close' always follows; teardown lives there.
@@ -230,25 +229,33 @@ export class IpcChannel implements KlientChannel {
         const ensureStarted = (): void => {
           if (started) return;
           started = true;
-          void this.ready.then(() => {
-            if (this.closed) {
-              pending.error(new Error('ipc closed'));
-              return;
-            }
-            streamId = this.nextId();
-            this.streams.set(streamId, pending);
-            this.send({
-              type: 'stream',
-              id: streamId,
-              scope: scopeKindOf(scope),
-              service,
-              method,
-              arg: trimTrailingUndefined(args),
-              workspaceId: scope.workspaceId,
-              sessionId: scope.sessionId,
-              agentId: scope.agentId,
-            });
-          });
+          void this.ready.then(
+            () => {
+              if (this.closed) {
+                pending.error(new Error('ipc closed'));
+                return;
+              }
+              streamId = this.nextId();
+              this.streams.set(streamId, pending);
+              this.send({
+                type: 'stream',
+                id: streamId,
+                scope: scopeKindOf(scope),
+                service,
+                method,
+                arg: trimTrailingUndefined(args),
+                workspaceId: scope.workspaceId,
+                sessionId: scope.sessionId,
+                agentId: scope.agentId,
+              });
+            },
+            (error: unknown) => {
+              // The handshake failed, so the stream frame never went out and no
+              // terminal frame can arrive: fail the iteration instead of leaving
+              // `next()` pending (a stream has no default deadline).
+              pending.error(error instanceof Error ? error : new Error(String(error)));
+            },
+          );
         };
 
         return {
@@ -307,15 +314,28 @@ export class IpcChannel implements KlientChannel {
       source.kind === 'stream'
         ? { ...base, event: source.name }
         : { ...base, service: source.service, event: source.event };
-    void this.ready.then(() => {
-      this.send(frame);
-    });
+    void this.ready.then(
+      () => {
+        this.send(frame);
+      },
+      (error: unknown) => {
+        // The handshake never completed, so the frame was never sent: report
+        // the failure once instead of leaving the listener waiting forever.
+        this.failListens(error instanceof Error ? error : new Error(String(error)));
+      },
+    );
     return {
       dispose: () => {
         if (!this.listens.delete(id)) return;
-        void this.ready.then(() => {
-          this.send({ type: 'unlisten', id });
-        });
+        void this.ready.then(
+          () => {
+            this.send({ type: 'unlisten', id });
+          },
+          () => {
+            // Nothing was registered on the wire; the failure is reported by
+            // the `listen` handler above.
+          },
+        );
       },
     };
   }
@@ -324,7 +344,6 @@ export class IpcChannel implements KlientChannel {
     if (this.closed) return Promise.resolve();
     this.closed = true;
     this.failAll(new Error('ipc closed'));
-    this.listens.clear();
     this.socket.end();
     return Promise.resolve();
   }
@@ -414,6 +433,20 @@ export class IpcChannel implements KlientChannel {
       s.error(err);
     }
     this.streams.clear();
+    this.failListens(err);
+  }
+
+  /**
+   * Deliver a terminal failure to every pending listener. A listener whose
+   * subscription never made it to the wire would otherwise stay silent while
+   * `ready` is rejected — the same failure the memory transport reports
+   * through `onError`.
+   */
+  private failListens(error: Error): void {
+    for (const entry of this.listens.values()) {
+      entry.onError?.(error);
+    }
+    this.listens.clear();
   }
 
   private send(frame: IpcFrame): void {

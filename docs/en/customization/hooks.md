@@ -90,6 +90,8 @@ After the script exits, the CLI determines the hook's intent based on the exit c
 | Other non-zero | Script error | Default allow (fail-open) |
 | Timeout or crash | Script exception | Default allow (fail-open) |
 
+Hook stdout and stderr are each capped at 64 KiB; anything beyond that is dropped and replaced with a `[hook output truncated]` marker (the first 64 KiB is kept). Avoid routing large data through stdout — write it to a file and reference the path instead. Only stdout, and only the first 64 KiB of it, can be appended to context.
+
 You can also return a JSON object via stdout to block:
 
 ```json

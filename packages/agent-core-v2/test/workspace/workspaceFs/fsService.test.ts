@@ -1374,6 +1374,51 @@ describe('WorkspaceFsService.list', () => {
     ]);
   });
 
+  it('bounds nested children_by_path entries by the shared limit budget', async () => {
+    const files: Record<string, string> = {};
+    for (let i = 0; i < 20; i += 1) {
+      for (let j = 0; j < 20; j += 1) {
+        for (let k = 0; k < 20; k += 1) {
+          files[`d${i}/s${j}/f${k}.ts`] = '';
+        }
+      }
+    }
+    const fs = makeSession(files, emptyHandler);
+    const result = await fs.list({
+      path: '.',
+      depth: 3,
+      limit: 10,
+      show_hidden: false,
+      follow_gitignore: false,
+      sort: 'name_asc',
+      include_git_status: false,
+    });
+    const nested = Object.values(result.children_by_path ?? {}).flat();
+    expect(result.items.length).toBeLessThanOrEqual(10);
+    expect(nested.length).toBeLessThanOrEqual(10);
+    expect(result.truncated).toBe(true);
+  });
+
+  it('leaves depth 1 without children_by_path and within the limit', async () => {
+    const files: Record<string, string> = {};
+    for (let i = 0; i < 20; i += 1) {
+      files[`f${i}.ts`] = '';
+    }
+    const fs = makeSession(files, emptyHandler);
+    const result = await fs.list({
+      path: '.',
+      depth: 1,
+      limit: 10,
+      show_hidden: false,
+      follow_gitignore: false,
+      sort: 'name_asc',
+      include_git_status: false,
+    });
+    expect(result.items.length).toBeLessThanOrEqual(10);
+    expect(result.children_by_path).toBeUndefined();
+    expect(result.truncated).toBe(true);
+  });
+
   it('sorts children by mtime descending', async () => {
     const fs = makeSession(
       { 'a.txt': 'x', 'b.txt': 'x', 'c.txt': 'x' },

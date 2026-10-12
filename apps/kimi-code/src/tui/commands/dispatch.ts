@@ -131,7 +131,7 @@ export interface SlashCommandHost {
   appendTranscriptEntry(entry: TranscriptEntry, component?: Component): void;
   mountTranscriptComponent(entry: TranscriptEntry, component: Component): void;
   track(event: string, props?: Record<string, unknown>): void;
-  mountEditorReplacement(panel: Component & Focusable): void;
+  mountEditorReplacement(panel: Component & Focusable, onDisplaced?: () => void): void;
   restoreEditor(): void;
   restoreInputText(text: string): void;
   refreshSlashCommandAutocomplete(): void;
@@ -331,6 +331,9 @@ async function executeSlashCommand(host: SlashCommandHost, input: string): Promi
         command: intent.commandName,
       });
       host.showError(t('tui.messages.configInvalidSlashCommand', { name: intent.commandName }));
+      // Same rationale as the `blocked` branch above: the editor buffer was
+      // cleared on submit, so a rejected command line is handed back.
+      host.restoreInputText(input);
       return;
     case 'skill': {
       if (host.state.appState.model.trim().length === 0) {

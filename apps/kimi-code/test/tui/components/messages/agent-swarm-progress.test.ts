@@ -599,6 +599,25 @@ describe('AgentSwarmProgressComponent', () => {
     expect(output).toContain('✗ Agent timed out after 30s.');
   });
 
+  it('reports the swarm itself as failed even after a member completed', () => {
+    // The whole-swarm failure outranks the members' own phases: `markSwarmFailed`
+    // is what a non-parsable error result turns into, and it leaves the members
+    // that already finished as `completed`. Reading the phases first reported
+    // "Completed." for a swarm whose cells were all ✗, so the header and the
+    // cells disagreed and neither the user nor the summary learned it had failed.
+    const component = createComponent();
+
+    registerSubagents(component, 2);
+    component.markCompleted('agent-1', 'Imports are stable');
+    component.markToolCallEnded();
+    component.markSwarmFailed('boom');
+
+    const output = renderText(component, 120);
+
+    expect(output).toContain('Failed.');
+    expect(output).not.toContain('Completed.');
+  });
+
   it('uses the latest assistant line as completed output when no summary is available', () => {
     const component = createComponent();
 

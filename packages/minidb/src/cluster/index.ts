@@ -39,8 +39,9 @@ import type {
   ScanEntry,
   SetOptions,
 } from '../index.js';
-import { LockError } from '../lockfile.js';
+import { LockError, LockFile } from '../lockfile.js';
 import { getPath } from '../query.js';
+import { writeFileAtomic } from '../value-codec.js';
 import { Coordinator } from './coordinator.js';
 import { ShardLockPool } from './lock-pool.js';
 import { Router } from './router.js';
@@ -86,6 +87,7 @@ export class ClusterDb<V = unknown> {
     private readonly pool: ShardLockPool,
     private readonly coordinator: Coordinator<V>,
     private readonly indexPath: string,
+    private readonly registryLockAcquireTimeoutMs: number,
     readonly readOnly: boolean,
   ) {}
 
@@ -100,7 +102,32 @@ export class ClusterDb<V = unknown> {
     await topology.ensureShardDirs();
     const router = new Router(opts.dir, topology.meta);
     const readOnly = !!opts.readOnly;
+    const lockAcquireTimeoutMs = opts.lockAcquireTimeoutMs ?? 30_000;
     const indexPath = path.join(opts.dir, CLUSTER_INDEX_FILE);
+
+    // A crashed create/drop index can strand an atomic-write temp next to the
+    // registry (`cluster.indexes.json.tmp-<pid>[-<seq>]`). Those names never
+    // collide with the registry lock (`… .lock`) or its sidecars. Only the
+    // writer sweeps them, and only when the owning pid is DEAD (the same
+    // liveness rule LockFile uses): a live peer's in-flight temp must survive
+    // to its rename. A read-only opener never touches them at all. (The
+    // db-directory sweep in lifecycle.ts does not cover the cluster root, so
+    // this is the only cleanup point.)
+    if (!readOnly) {
+      const prefix = `${CLUSTER_INDEX_FILE}.tmp-`;
+      for (const entry of await fs.readdir(opts.dir).catch(() => [] as string[])) {
+        if (!entry.startsWith(prefix)) continue;
+        const pid = Number(entry.slice(prefix.length).split('-')[0]);
+        if (!Number.isInteger(pid) || pid === process.pid) continue;
+        try {
+          process.kill(pid, 0);
+          continue; // Still alive: its tmp is in flight, not stranded.
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code === 'EPERM') continue;
+        }
+        await fs.rm(path.join(opts.dir, entry), { force: true });
+      }
+    }
 
     const pool = new ShardLockPool({
       writerOpts: {
@@ -120,7 +147,7 @@ export class ClusterDb<V = unknown> {
         recovery: opts.recovery,
       },
       lockRenewMs: opts.lockRenewMs ?? 10_000,
-      lockAcquireTimeoutMs: opts.lockAcquireTimeoutMs ?? 30_000,
+      lockAcquireTimeoutMs,
       lockHoldMs: opts.lockHoldMs ?? 250,
       maxWriters: opts.lockPoolMaxShards ?? 16,
       maxReaders: opts.readersMaxShards ?? topology.shardCount,
@@ -150,7 +177,15 @@ export class ClusterDb<V = unknown> {
         pool.withWriter(shardId, router.shardDir(shardId), (db) => fn(db as MiniDb<V>)),
       opts.crossShard ?? 'best-effort',
     );
-    return new ClusterDb<V>(topology, router, pool, coordinator, indexPath, readOnly);
+    return new ClusterDb<V>(
+      topology,
+      router,
+      pool,
+      coordinator,
+      indexPath,
+      lockAcquireTimeoutMs,
+      readOnly,
+    );
   }
 
   private ensureOpen(): void {
@@ -336,9 +371,12 @@ export class ClusterDb<V = unknown> {
   }
 
   private static async saveRegistry(file: string, reg: ClusterIndexRegistry): Promise<void> {
-    const tmp = `${file}.tmp-${process.pid}`;
-    await fs.writeFile(tmp, JSON.stringify(reg, null, 2));
-    await fs.rename(tmp, file);
+    // The same atomic-write discipline as the per-shard definition sidecars:
+    // a unique tmp, the CONTENT fsynced before the rename, and a strict
+    // directory fsync last — a crash mid-create/drop can no longer leave a
+    // zero-length or torn registry that the next open would read as a
+    // SyntaxError (which consumers classify as a destructive 'rebuild').
+    await writeFileAtomic(file, JSON.stringify(reg, null, 2));
   }
 
   /** Compare two index definitions by their effective values (defaults
@@ -376,6 +414,35 @@ export class ClusterDb<V = unknown> {
     }
   }
 
+  /** Held by every registry mutation for its whole load→publish cycle. The
+   *  post-save re-read below only proves "my own content is still there": it
+   *  cannot see a competitor that loaded an older copy (load A → load B →
+   *  save A → re-read A → save B → re-read B), whose write would silently
+   *  drop A's entry. A file lock over the registry (the db.lock primitive,
+   *  with pid-based stale takeover) makes the second writer wait instead, so
+   *  concurrent creates from different processes both survive. Acquire is
+   *  retried with jitter up to lockAcquireTimeoutMs, then reported as a
+   *  LockError like any contended shard lock. */
+  private async withCrossProcessRegistryLock<T>(fn: () => Promise<T>): Promise<T> {
+    const lock = new LockFile(`${this.indexPath}.lock`);
+    const deadline = Date.now() + this.registryLockAcquireTimeoutMs;
+    for (;;) {
+      if (await lock.acquire()) break;
+      const delay = 10 + Math.floor(Math.random() * 41);
+      if (Date.now() + delay > deadline) {
+        throw new LockError(
+          `timed out acquiring the cluster index registry lock ${lock.path} after ${this.registryLockAcquireTimeoutMs}ms`,
+        );
+      }
+      await sleep(delay);
+    }
+    try {
+      return await fn();
+    } finally {
+      await lock.release();
+    }
+  }
+
   /** Publish one registry mutation as a compare-and-swap loop: every attempt
    *  re-loads the registry, re-applies the mutation idempotently
    *  (append-if-absent for creates, remove-if-present for drops; mutate
@@ -386,14 +453,20 @@ export class ClusterDb<V = unknown> {
    *  jittered backoff. */
   private async mutateRegistry(mutate: (reg: ClusterIndexRegistry) => boolean): Promise<void> {
     for (let attempt = 0; ; attempt++) {
-      const done = await ClusterDb.withRegistryLock(this.indexPath, async () => {
-        const reg = await ClusterDb.loadRegistry(this.indexPath);
-        if (!mutate(reg)) return true; // The effect is already published.
-        const published = JSON.stringify(reg);
-        await ClusterDb.saveRegistry(this.indexPath, reg);
-        const reread = await ClusterDb.loadRegistry(this.indexPath);
-        return JSON.stringify(reread) === published;
-      });
+      // The in-process lock keeps ClusterDb instances of THIS process from
+      // interleaving; the file lock inside it makes the whole load→publish
+      // cycle exclusive across processes (one LockFile per process would
+      // spuriously contend with itself, so the ordering matters).
+      const done = await ClusterDb.withRegistryLock(this.indexPath, () =>
+        this.withCrossProcessRegistryLock(async () => {
+          const reg = await ClusterDb.loadRegistry(this.indexPath);
+          if (!mutate(reg)) return true; // The effect is already published.
+          const published = JSON.stringify(reg);
+          await ClusterDb.saveRegistry(this.indexPath, reg);
+          const reread = await ClusterDb.loadRegistry(this.indexPath);
+          return JSON.stringify(reread) === published;
+        }),
+      );
       if (done) return;
       if (attempt >= 19)
         throw new Error(

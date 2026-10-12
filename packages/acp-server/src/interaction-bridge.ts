@@ -14,8 +14,10 @@
  * settles the parked request via `session.interactions.respond(id, ...)`.
  */
 
+import { RequestError } from '@agentclientprotocol/sdk';
 import type {
   Interaction,
+  InteractionCancellation,
   QuestionAnswers,
   QuestionRequest,
   SessionApprovalRequest as ApprovalRequest,
@@ -39,9 +41,27 @@ import {
   questionRequestToElicitationParams,
 } from './question';
 
+const METHOD_NOT_FOUND = -32601;
+
+const UNSUPPORTED_QUESTION_RESPONSE: InteractionCancellation = {
+  cancelled: true,
+  reason: 'unsupported',
+};
+
+function isMethodNotFound(error: unknown): boolean {
+  return error instanceof RequestError && error.code === METHOD_NOT_FOUND;
+}
+
 export class AcpInteractionBridge {
   /** Ids the bridge has already begun handling — guards against re-entry. */
   private readonly inFlight = new Set<string>();
+  /**
+   * Dispatch attempts per interaction id. `dispatch` releases the id from
+   * {@link inFlight} when it settles, so a pending id that failed to settle is
+   * retried on the next `interactions.changed` — this counter is what stops
+   * that retry from livelocking against a client that keeps failing.
+   */
+  private readonly attempts = new Map<string, number>();
   private readonly subscription: IDisposable;
   private disposed = false;
 
@@ -79,6 +99,7 @@ export class AcpInteractionBridge {
     this.disposed = true;
     this.subscription.dispose();
     this.inFlight.clear();
+    this.attempts.clear();
   }
 
   private onPendingChanged(pending: readonly Interaction[]): void {
@@ -86,6 +107,17 @@ export class AcpInteractionBridge {
     for (const interaction of pending) {
       if (this.inFlight.has(interaction.id)) continue;
       if (interaction.kind !== 'approval' && interaction.kind !== 'question') continue;
+      const attempts = this.attempts.get(interaction.id) ?? 0;
+      if (attempts >= 2) {
+        this.inFlight.add(interaction.id);
+        log.warn('acp: interaction still pending after repeated dispatch failures', {
+          sessionId: this.sessionId,
+          interactionId: interaction.id,
+          kind: interaction.kind,
+        });
+        continue;
+      }
+      this.attempts.set(interaction.id, attempts + 1);
       this.inFlight.add(interaction.id);
       void this.dispatch(interaction);
     }
@@ -94,15 +126,18 @@ export class AcpInteractionBridge {
   private async dispatch(interaction: Interaction): Promise<void> {
     const respond = (response: unknown): Promise<void> =>
       this.session.interactions.respond(interaction.id, response);
+    let settled = false;
     try {
       if (interaction.kind === 'approval') {
         const response = await this.handleApproval(interaction.payload as ApprovalRequest);
         await respond(response);
+        settled = true;
         return;
       }
       if (interaction.kind === 'question') {
         const result = await this.handleQuestion(interaction.payload as QuestionRequest);
         await respond(result);
+        settled = true;
       }
     } catch (error) {
       // `respond` itself never throws for a still-pending id, and the handlers
@@ -119,13 +154,21 @@ export class AcpInteractionBridge {
         interaction.kind === 'approval'
           ? ({ decision: 'rejected' } satisfies ApprovalResponse)
           : null;
-      await respond(fallback).catch((respondError: unknown) => {
-        log.warn('acp: interaction bridge fallback respond failed', {
-          sessionId: this.sessionId,
-          interactionId: interaction.id,
-          error: respondError instanceof Error ? respondError.message : String(respondError),
-        });
-      });
+      await respond(fallback).then(
+        () => {
+          settled = true;
+        },
+        (respondError: unknown) => {
+          log.warn('acp: interaction bridge fallback respond failed', {
+            sessionId: this.sessionId,
+            interactionId: interaction.id,
+            error: respondError instanceof Error ? respondError.message : String(respondError),
+          });
+        },
+      );
+    } finally {
+      if (settled) this.attempts.delete(interaction.id);
+      this.inFlight.delete(interaction.id);
     }
   }
 
@@ -171,11 +214,16 @@ export class AcpInteractionBridge {
    *
    * An `elicitation/create` RPC failure (e.g. a client that advertises the
    * capability but rejects the method) falls back to the permission bridge
-   * for the same request. Any failure of the final attempt resolves with
-   * `null` so the tool takes its canonical "user dismissed" branch —
-   * strictly safer than fabricating an answer.
+   * for the same request. A method-not-found failure with no other usable
+   * question surface resolves with `{ cancelled: true, reason: 'unsupported' }`
+   * so the tool reports an unsupported host rather than a user dismissal;
+   * any other failure of the final attempt resolves with `null` so the tool
+   * takes its canonical "user dismissed" branch — strictly safer than
+   * fabricating an answer.
    */
-  private async handleQuestion(req: QuestionRequest): Promise<QuestionAnswers | null> {
+  private async handleQuestion(
+    req: QuestionRequest,
+  ): Promise<QuestionAnswers | InteractionCancellation | null> {
     const questions = req.questions;
     if (questions.length === 0) {
       log.warn('acp: handleQuestion received empty questions array', {
@@ -186,6 +234,7 @@ export class AcpInteractionBridge {
     const rawToolCallId = req.toolCallId ?? 'ask-user';
     const toolCallId =
       req.turnId !== undefined ? acpToolCallId(req.turnId, rawToolCallId) : rawToolCallId;
+    let elicitationUnavailable = false;
     if (this.elicitationForm) {
       try {
         const response = await this.conn.createElicitation(
@@ -193,6 +242,7 @@ export class AcpInteractionBridge {
         );
         return elicitationResponseToQuestionAnswers(questions, response);
       } catch (error) {
+        elicitationUnavailable = true;
         log.warn('acp: elicitation/create failed; falling back to request_permission', {
           sessionId: this.sessionId,
           toolCallId: req.toolCallId,
@@ -220,6 +270,13 @@ export class AcpInteractionBridge {
       });
       return outcomeToQuestionAnswer(q, response);
     } catch (error) {
+      if (isMethodNotFound(error) && (!this.elicitationForm || elicitationUnavailable)) {
+        log.warn('acp: client has no interactive question surface; reporting unsupported', {
+          sessionId: this.sessionId,
+          toolCallId: req.toolCallId,
+        });
+        return UNSUPPORTED_QUESTION_RESPONSE;
+      }
       log.warn('acp: requestPermission (question) failed; dismissing', {
         sessionId: this.sessionId,
         toolCallId: req.toolCallId,

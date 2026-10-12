@@ -39,6 +39,8 @@ export interface CloudTransportOptions {
   readonly fetchImpl?: typeof fetch;
   readonly retryBackoffsMs?: readonly number[];
   readonly requestTimeoutMs?: number;
+  readonly maxDiskFiles?: number;
+  readonly maxDiskBytes?: number;
   readonly sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   readonly now?: () => number;
 }
@@ -46,6 +48,8 @@ export interface CloudTransportOptions {
 export const SERVER_EVENT_PREFIX = 'kfc_';
 export const USER_ID_PREFIX = 'kfc_device_id_';
 export const DISK_EVENT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+export const DISK_EVENT_MAX_FILES = 500;
+export const DISK_EVENT_MAX_BYTES = 50 * 1024 * 1024;
 export const RETRY_BACKOFFS_MS = [1_000, 4_000, 16_000] as const;
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
@@ -68,6 +72,8 @@ export class CloudTransport {
   private readonly fetchImpl: typeof fetch;
   private readonly retryBackoffsMs: readonly number[];
   private readonly requestTimeoutMs: number;
+  private readonly maxDiskFiles: number;
+  private readonly maxDiskBytes: number;
   private readonly sleepImpl: (ms: number, signal?: AbortSignal) => Promise<void>;
   private readonly now: () => number;
 
@@ -84,6 +90,8 @@ export class CloudTransport {
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
     this.retryBackoffsMs = options.retryBackoffsMs ?? RETRY_BACKOFFS_MS;
     this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
+    this.maxDiskFiles = options.maxDiskFiles ?? DISK_EVENT_MAX_FILES;
+    this.maxDiskBytes = options.maxDiskBytes ?? DISK_EVENT_MAX_BYTES;
     this.sleepImpl = options.sleep ?? abortableSleep;
     this.now = options.now ?? Date.now;
   }
@@ -145,25 +153,17 @@ export class CloudTransport {
 
   async retryDiskEvents(): Promise<void> {
     if (this.endpoint === undefined) return;
+    await this.pruneExpiredDiskEvents();
     const keys = await this.storage.list(TELEMETRY_SCOPE, FAILED_PREFIX);
-    const now = this.now();
     for (const key of keys) {
       if (!key.startsWith(FAILED_PREFIX) || !key.endsWith(JSONL_SUFFIX)) continue;
-      const createdAt = parseFailedTimestamp(key);
-      if (createdAt === undefined || now - createdAt > DISK_EVENT_MAX_AGE_MS) {
-        await this.storage.delete(TELEMETRY_SCOPE, key).catch(() => undefined);
-        continue;
-      }
 
       let events: EnrichedCloudEvent[];
       let payload: CloudPayload;
       try {
         events = await this.readJsonl(key);
         payload = buildPayload(events, this.deviceId);
-      } catch (error) {
-        if (error instanceof SyntaxError || error instanceof TypeError) {
-          await this.storage.delete(TELEMETRY_SCOPE, key).catch(() => undefined);
-        }
+      } catch {
         continue;
       }
 
@@ -173,6 +173,49 @@ export class CloudTransport {
       } catch (error) {
         if (error instanceof TransientCloudError) continue;
       }
+    }
+  }
+
+  async pruneExpiredDiskEvents(): Promise<void> {
+    const listed = await this.storage.list(TELEMETRY_SCOPE, FAILED_PREFIX);
+    const now = this.now();
+    const survivors: string[] = [];
+    for (const key of listed) {
+      if (!key.startsWith(FAILED_PREFIX) || !key.endsWith(JSONL_SUFFIX)) continue;
+      const createdAt = parseFailedTimestamp(key);
+      if (createdAt === undefined || now - createdAt > DISK_EVENT_MAX_AGE_MS) {
+        await this.storage.delete(TELEMETRY_SCOPE, key).catch(() => undefined);
+        continue;
+      }
+      try {
+        await this.readJsonl(key);
+      } catch (error) {
+        if (error instanceof SyntaxError || error instanceof TypeError) {
+          await this.storage.delete(TELEMETRY_SCOPE, key).catch(() => undefined);
+          continue;
+        }
+      }
+      survivors.push(key);
+    }
+    await this.enforceDiskEventCaps(survivors);
+  }
+
+  private async enforceDiskEventCaps(keys: readonly string[]): Promise<void> {
+    const sized: Array<{ key: string; createdAt: number; size: number }> = [];
+    for (const key of keys) {
+      const size = await this.storage.size(TELEMETRY_SCOPE, key).catch(() => undefined);
+      if (size === undefined) continue;
+      sized.push({ key, createdAt: parseFailedTimestamp(key) ?? 0, size });
+    }
+    sized.sort((a, b) => a.createdAt - b.createdAt);
+    let totalBytes = 0;
+    for (const entry of sized) totalBytes += entry.size;
+    let totalFiles = sized.length;
+    for (const entry of sized) {
+      if (totalFiles <= this.maxDiskFiles && totalBytes <= this.maxDiskBytes) return;
+      await this.storage.delete(TELEMETRY_SCOPE, entry.key).catch(() => undefined);
+      totalFiles -= 1;
+      totalBytes -= entry.size;
     }
   }
 

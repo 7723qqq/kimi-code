@@ -2,9 +2,10 @@
  * In-process dispatcher — resolves a wire triple `(service, method, args)`
  * against a live engine scope and mirrors kap-server's dispatcher semantics
  * (reflection call, non-function members are property reads, `main` agent
- * auto-materialized via `ensureMainAgent`). Scope routing resolves workspace
- * instances through `IWorkspaceInstanceManager` and live sessions through the
- * App `SessionManager`, matching the server's `resolveScope`. Every argument,
+ * auto-materialized via `ensureMainAgent`). Scope routing resolves live
+ * sessions through the App `SessionManager`, matching the server's
+ * `resolveScope`; a `workspaceId` scope is refused outright, since an engine
+ * workspace instance is not a routable scope here. Every argument,
  * result, and event payload passes
  * through `wireClone` (a JSON round-trip), so consumers observe
  * byte-identical data no matter whether the call crossed a socket or stayed
@@ -44,7 +45,6 @@ import {
 import { IAgentLifecycleService } from '@moonshot-ai/agent-core-v2/session/agentLifecycle/agentLifecycle';
 import { MAIN_AGENT_ID } from '@moonshot-ai/agent-core-v2/session/agentLifecycle/agentLifecycle';
 import { ensureMainAgent } from '@moonshot-ai/agent-core-v2/session/agentLifecycle/mainAgent';
-import { IWorkspaceInstanceManager } from '@moonshot-ai/agent-core-v2/workspace/workspaceInstance/workspaceInstanceManager';
 
 import type { CallOptions, EventSourceRef, IDisposable, ScopeRef } from '../../core/channel.js';
 import { RPCError } from '../../core/errors.js';
@@ -312,11 +312,15 @@ export function createMemoryDispatcher(root: ScopeLike): MemoryDispatcher {
   /** Mirrors kap-server's `resolveScope`, incl. main-agent materialization. */
   async function resolveScope(scope: ScopeRef): Promise<ResolvedScope> {
     if (scope.workspaceId !== undefined) {
-      const workspace = await root.accessor
-        .get(IWorkspaceInstanceManager)
-        .getOrCreate({ workspaceId: scope.workspaceId });
-      void workspace.program;
-      return { kind: 'workspace', like: root };
+      // An engine `WorkspaceInstance` is not a `ScopeLike` (it has no
+      // `accessor.get`), so a workspace-scoped call cannot be served here. It
+      // used to materialize the workspace and then answer from the root app
+      // scope — silently the wrong data, and the materialized instance was
+      // dropped on the floor. Refuse instead of faking it.
+      throw new RPCError(
+        REQUEST_INVALID,
+        'workspace scope is not supported by the memory transport',
+      );
     }
     if (scope.sessionId === undefined) return { kind: 'core', like: root };
     const session =
@@ -533,7 +537,7 @@ export function createMemoryDispatcher(root: ScopeLike): MemoryDispatcher {
       }
     },
 
-    stream(scope, service, method, args, options?): AsyncIterable<unknown> {
+    stream(scope, service, method, args, _options?): AsyncIterable<unknown> {
       // Special case: modelResolver.generate routes to IModelCatalog.generate
       // (which owns credential recovery); the dispatcher only supplies the
       // abort signal so client cancellation still reaches the request.

@@ -1628,6 +1628,7 @@ function totalStatus(
   force: { readonly failed: boolean; readonly aborted: boolean },
 ): TotalStatus {
   if (force.aborted) return 'aborted';
+  if (force.failed) return 'failed';
   const phases = new Set(members.map((m) => m.phase));
   const hasActive =
     phases.has('pending') ||
@@ -1639,7 +1640,6 @@ function totalStatus(
     if (phases.has('completed')) return 'completed';
     return 'failed';
   }
-  if (force.failed) return 'failed';
   if (phases.has('suspended') && !phases.has('running')) return 'suspended';
   return 'working';
 }

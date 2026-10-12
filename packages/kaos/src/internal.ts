@@ -207,6 +207,19 @@ export function decodeFileTextWithErrors(
   }
 }
 
+/**
+ * RegExp metacharacters that a glob pattern writes literally (unlike `*`/`?`,
+ * which are the glob wildcards) and that therefore must be backslash-escaped
+ * when emitted into the regex.
+ */
+const REGEX_LITERAL_CHARS = /[{}()+.\\[\]^$|]/g;
+/**
+ * The same set plus the wildcards: a `*`/`?` reached through a pattern escape
+ * is literal, and emitting it raw would turn it back into a quantifier — or,
+ * right after `^`, produce an invalid regex.
+ */
+const REGEX_LITERAL_ESCAPED_CHARS = /[{}()+.\\[\]^$|*?]/g;
+
 export function globPatternToRegex(pattern: string, caseSensitive: boolean): RegExp {
   let regex = '^';
   for (let i = 0; i < pattern.length; i++) {
@@ -244,7 +257,7 @@ export function globPatternToRegex(pattern: string, caseSensitive: boolean): Reg
       case '\\': {
         if (i + 1 < pattern.length) {
           const next = pattern.charAt(i + 1);
-          regex += next.replaceAll(/[{}()+.\\[\]^$|]/g, '\\$&');
+          regex += next.replaceAll(REGEX_LITERAL_ESCAPED_CHARS, '\\$&');
           // Advance past the escaped character so it is not processed
           // again as a regex metacharacter. match literally.
           i++;
@@ -254,11 +267,33 @@ export function globPatternToRegex(pattern: string, caseSensitive: boolean): Reg
         break;
       }
       default:
-        regex += ch.replaceAll(/[{}()+.\\[\]^$|]/g, '\\$&');
+        regex += ch.replaceAll(REGEX_LITERAL_CHARS, '\\$&');
     }
   }
   regex += '$';
   return new RegExp(regex, caseSensitive ? '' : 'i');
+}
+
+/**
+ * Split text into lines, keeping the LF terminator on each line: only `\n`
+ * starts a new line (a `\r` is content, not a terminator), and the final line
+ * has no terminator only when the file does not end with one. An empty string
+ * yields zero lines. Shared by `LocalKaos` and `SSHKaos` so both agree on what
+ * a "line" is.
+ * @internal
+ */
+export function* splitLinesKeepingTerminator(text: string): Generator<string> {
+  if (text.length === 0) return;
+  let start = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    if (text.codePointAt(i) === 0x0a) {
+      yield text.slice(start, i + 1);
+      start = i + 1;
+    }
+  }
+  if (start < text.length) {
+    yield text.slice(start);
+  }
 }
 
 /**

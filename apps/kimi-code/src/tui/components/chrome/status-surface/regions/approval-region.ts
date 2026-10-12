@@ -256,6 +256,18 @@ export class ApprovalRegion implements StatusRegion {
   }
 
   /**
+   * Raw keys the editor passed up, before the surface normalizes them.
+   *
+   * `handleKey` speaks `RegionKey`, which carries no printable text and no Ctrl
+   * shortcuts: enough to answer an approval, not enough to type a rejection
+   * reason or to open the full-screen preview. The panel decides what it wants
+   * and a `false` sends the key back to the editor.
+   */
+  handleRawInput(data: string): boolean {
+    return this.panel?.handleSurfaceInput(data) ?? false;
+  }
+
+  /**
    * Numeric quick-pick, keyed by the number **shown on screen** (1-based).
    *
    * The folded form shows the numbers, so they have to work without expanding —

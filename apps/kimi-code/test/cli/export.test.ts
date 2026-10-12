@@ -173,7 +173,7 @@ function makeDeps(overrides: Partial<ExportDeps> = {}): {
       exportInputs.push(input);
       return makeResult(input.id, input.outputPath ?? join(tmp, `${input.id}.zip`));
     },
-    confirmPreviousSession: async () => true,
+    confirmPreviousSession: async () => 'yes',
     getInstallSource: async () => 'npm-global',
     getShellEnv: () => ({ term: 'xterm-256color', shell: '/bin/zsh' }),
     version: '1.0.0-test',
@@ -293,7 +293,7 @@ describe('kimi export', () => {
       listSessions: async () => [previous],
       confirmPreviousSession: async (summary) => {
         summaries.push(summary);
-        return false;
+        return 'no';
       },
     });
 
@@ -342,7 +342,7 @@ describe('kimi export', () => {
     const previous = makeSummary('ses_global_log');
     const { deps, stdout, exitCodes, exportInputs } = makeDeps({
       listSessions: async () => [previous],
-      confirmPreviousSession: async () => true,
+      confirmPreviousSession: async () => 'yes',
     });
     const program = new Command('kimi');
     registerExportCommand(program, deps);

@@ -6,13 +6,17 @@ import {
   Error2,
   ErrorCodes,
   ISessionIndex,
+  ISessionManager,
   IEventService,
   IWorkspaceAliases,
+  IWorkspaceInstanceManager,
+  IWorkspaceService,
   closeSessionById,
   getLiveSessionById,
   resumeSessionById,
   sessionDirOf,
   type Event2,
+  type Scope,
   type SessionSummary,
 } from '@moonshot-ai/agent-core-v2';
 import {
@@ -22,7 +26,7 @@ import {
 } from '@moonshot-ai/agent-core-v2/app/git/git';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { mapActivityStatus } from '../src/routes/v2/sessions';
+import { mapActivityStatus, registerV2SessionsRoutes } from '../src/routes/v2/sessions';
 import { type RunningServer, startServer } from '../src/start';
 import { authHeaders, authedFetch } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
@@ -481,6 +485,8 @@ describe('server /api/v2/sessions', () => {
   it('carries total (filtered set size) in every page mode', async () => {
     const all = await getData();
     expect(all.total).toBe(3);
+    expect('scan_truncated' in (all as object)).toBe(false);
+    expect('scan_truncated' in ((await getData('?view=by_workspace')) as object)).toBe(false);
 
     const filtered = await getData(`?workspace.id=${WS_A}`);
     expect(filtered.total).toBe(2);
@@ -769,6 +775,155 @@ describe('server /api/v2/sessions', () => {
     const merged = page.groups.find((group) => group.workspace.id === WS_A);
     expect(merged?.sessions.map((item) => item.id)).toEqual(['s5', 's1', 's2']);
     expect(merged?.total).toBe(3);
+  });
+});
+
+describe('GET /api/v2/sessions scan bound (a18/F6)', () => {
+  const SCAN_LIMIT = 20_000;
+  const IDS_SCAN_LIMIT = 100_000;
+
+  interface ListCall {
+    workspaceIds?: readonly string[];
+    includeArchived?: boolean;
+    limit?: number;
+  }
+
+  interface CapturedRoute {
+    options: { schema?: Record<string, unknown> };
+    handler: (
+      req: { id: string; query: unknown; params: unknown },
+      reply: { send(payload: unknown): unknown },
+    ) => Promise<void> | void;
+  }
+
+  function harness(count: number) {
+    const calls: ListCall[] = [];
+    const warned: { obj: Record<string, unknown>; msg: string }[] = [];
+    const summaries: SessionSummary[] = Array.from({ length: count }, (_unused, index) => ({
+      id: `s${String(index)}`,
+      workspaceId: WS_A,
+      cwd: '/repo/a',
+      title: `t${String(index)}`,
+      lastPrompt: 'p',
+      createdAt: index,
+      updatedAt: index,
+      archived: false,
+    }));
+    const sessionIndex = stubSessionIndex(summaries);
+    const seededListRecent = sessionIndex.listRecent.bind(sessionIndex);
+    sessionIndex.listRecent = async (query) => {
+      calls.push({
+        workspaceIds: query.workspaceIds,
+        includeArchived: query.includeArchived,
+        limit: query.limit,
+      });
+      const page = await seededListRecent(query);
+      return page;
+    };
+    const core = {
+      accessor: {
+        get: (token: unknown): unknown => {
+          if (token === ISessionIndex) return sessionIndex;
+          if (token === IWorkspaceAliases) {
+            return { resolveAliasIds: (id: string) => Promise.resolve([id]) };
+          }
+          if (token === IWorkspaceService) {
+            return { list: () => Promise.resolve([{ id: WS_A, root: '/repo/a' }]) };
+          }
+          if (token === IWorkspaceInstanceManager) {
+            return { list: () => Promise.resolve([]) };
+          }
+          if (token === ISessionManager) {
+            return { get: () => undefined };
+          }
+          return undefined;
+        },
+      },
+    } as unknown as Scope;
+    const captured: CapturedRoute[] = [];
+    const app = {
+      get: (
+        _path: string,
+        options: CapturedRoute['options'],
+        handler: CapturedRoute['handler'],
+      ) => {
+        captured.push({ options, handler });
+        return undefined;
+      },
+      post: () => undefined,
+    };
+    registerV2SessionsRoutes(app as never, core);
+    const route = captured.at(0);
+    if (route === undefined) throw new Error('GET /api/v2/sessions route was not registered');
+    const call = async (query: Record<string, unknown>): Promise<EnvelopeWire> => {
+      let payload: unknown;
+      await route.handler(
+        {
+          id: 'req-1',
+          query,
+          params: {},
+          log: {
+            info: () => {},
+            warn: (obj: Record<string, unknown>, msg: string) => warned.push({ obj, msg }),
+            error: () => {},
+          },
+        } as never,
+        {
+          send: (value: unknown) => {
+            payload = value;
+          },
+        } as never,
+      );
+      return payload as EnvelopeWire;
+    };
+    return { call, calls, warned };
+  }
+
+  function fullQuery(extra: Record<string, unknown> = {}): Record<string, unknown> {
+    return {
+      'meta.archived': 'false',
+      view: 'flat',
+      sort: 'meta.updated_at_desc',
+      includeGit: false,
+      pageSize: 50,
+      projection: false,
+      ...extra,
+    };
+  }
+
+  it('bounds the index scan and flags truncation when the window is saturated', async () => {
+    const { call, calls, warned } = harness(SCAN_LIMIT);
+    const body = await call(fullQuery());
+
+    expect(calls).toHaveLength(1);
+    expect(calls[0]?.limit).toBe(SCAN_LIMIT);
+    expect(body.code).toBe(0);
+    const data = body.data as unknown as PageWireV2 & { scan_truncated?: boolean };
+    expect(data.scan_truncated).toBe(true);
+    expect(data.total).toBeLessThanOrEqual(SCAN_LIMIT);
+    expect(data.items.length).toBe(50);
+    expect(warned.some((entry) => entry.msg.includes('scan limit'))).toBe(true);
+  });
+
+  it('relaxes the scan bound for the ids projection', async () => {
+    const { call, calls } = harness(10);
+    const body = await call(fullQuery({ projection: true, fields: 'id,archived' }));
+
+    expect(calls[0]?.limit).toBe(IDS_SCAN_LIMIT);
+    const data = body.data as unknown as PageWireV2 & { scan_truncated?: boolean };
+    expect(data.scan_truncated).toBeUndefined();
+    expect(data.total).toBe(10);
+  });
+
+  it('omits scan_truncated when the whole index fits inside the scan window', async () => {
+    const { call, calls, warned } = harness(3);
+    const body = await call(fullQuery());
+
+    expect(calls[0]?.limit).toBe(SCAN_LIMIT);
+    const data = body.data as unknown as PageWireV2 & { scan_truncated?: boolean };
+    expect(data.scan_truncated).toBeUndefined();
+    expect(data.total).toBe(3);
+    expect(warned).toEqual([]);
   });
 });
 

@@ -1,4 +1,4 @@
-import { PROVIDER_ID_PATTERN } from '@moonshot-ai/agent-core-v2';
+import { PROVIDER_ID_PATTERN, ProtocolSchema } from '@moonshot-ai/agent-core-v2';
 import {
   modelCatalogItemSchema,
   providerCatalogItemSchema,
@@ -26,7 +26,6 @@ export const providerWireTypeSchema = z.enum([
   'openai_responses',
   'anthropic',
   'google-genai',
-  'vertexai',
 ]);
 export type ProviderWireType = z.infer<typeof providerWireTypeSchema>;
 
@@ -38,6 +37,7 @@ export const createProviderModelSchema = z.object({
   max_output_size: z.number().int().min(1).optional(),
   support_efforts: z.array(z.string().min(1)).optional(),
   adaptive_thinking: z.boolean().optional(),
+  protocol: z.enum(ProtocolSchema.options).optional(),
 });
 export type CreateProviderModel = z.infer<typeof createProviderModelSchema>;
 

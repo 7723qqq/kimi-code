@@ -181,6 +181,12 @@ export interface KimiConfig {
 /** Placeholder returned to the Webview instead of a stored MCP credential. */
 export const MCP_SECRET_MASK = '••••••••';
 
+export interface MCPServerCatalog {
+  servers: MCPServerConfig[];
+  /** Project-layer config files that could not be read or parsed. */
+  warnings?: string[];
+}
+
 export interface MCPServerConfig {
   name: string;
   transport: 'http' | 'stdio';

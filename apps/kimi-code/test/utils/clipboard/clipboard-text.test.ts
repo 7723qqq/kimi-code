@@ -78,6 +78,28 @@ describe('copyTextToClipboard', () => {
       /(?:clip\.exe|pbcopy|wl-copy|xclip) exited with code 1: missing/,
     );
   });
+
+  it('bounds the platform write helper with a finite timeout', async () => {
+    stubStdoutTTY(false);
+    clipboardMock.setText = undefined as unknown as ReturnType<typeof vi.fn>;
+    spawnSyncMock.mockImplementation((command: string) =>
+      command === 'xclip'
+        ? ({ status: 0, stderr: '' } as ReturnType<typeof spawnSync>)
+        : ({ status: 1, stderr: 'missing' } as ReturnType<typeof spawnSync>),
+    );
+
+    await copyTextToClipboard('cd "/tmp/proj-b"');
+
+    // Both candidates must carry the bound: with no `timeout` the parent waits
+    // for the child's stdout to close, and a daemonizing `wl-copy`/`xclip`
+    // keeps that pipe open forever (the CLI hangs silently).
+    expect(spawnSyncMock.mock.calls.map((call) => call[0])).toEqual(['wl-copy', 'xclip']);
+    for (const call of spawnSyncMock.mock.calls) {
+      const options = call[2] as { timeout?: number } | undefined;
+      expect(typeof options?.timeout).toBe('number');
+      expect(options?.timeout).toBeGreaterThan(0);
+    }
+  });
 });
 
 describe('buildClipboardOSC52', () => {

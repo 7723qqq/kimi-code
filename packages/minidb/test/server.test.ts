@@ -106,6 +106,85 @@ test('RESP server: SET rejects a non-finite or negative EX/PX', async () => {
   }
 });
 
+// `SET k v NX` / `XX` / `GET` / `KEEPTTL` used to be accepted and ignored: the
+// write went through unconditionally, so `SET lock owner NX EX 30` overwrote
+// someone else's value and still answered +OK. Unsupported options must now be
+// rejected before the write, and a misspelled token must not be silently taken
+// as "no options".
+test('RESP server: SET rejects unsupported or unknown options without writing', async () => {
+  const dir = await tmpDir();
+  const srv = await startServer({ dir, port: 0, fsyncPolicy: 'no' });
+  try {
+    const sock = await connect(srv.port);
+    assert.equal(await send(sock, encode('SET', 'k', 'v1')), '+OK\r\n');
+
+    assert.match(await send(sock, encode('SET', 'k', 'v2', 'NX')), /^-ERR .*nx/);
+    assert.equal(await send(sock, encode('GET', 'k')), '$2\r\nv1\r\n');
+
+    assert.match(await send(sock, encode('SET', 'fresh', 'v', 'XX')), /^-ERR .*xx/);
+    assert.equal(await send(sock, encode('EXISTS', 'fresh')), ':0\r\n');
+
+    assert.match(await send(sock, encode('SET', 'k', 'v3', 'KEEPTTL')), /^-ERR .*keepttl/);
+    assert.match(await send(sock, encode('SET', 'k', 'v4', 'GET')), /^-ERR .*get/);
+    assert.equal(await send(sock, encode('GET', 'k')), '$2\r\nv1\r\n');
+
+    // A rejected KEEPTTL must not have been applied as "clear the TTL": the
+    // rejected request leaves both the value and the existing expiry alone.
+    assert.equal(await send(sock, encode('SET', 'ttlkey', 'v', 'EX', '100')), '+OK\r\n');
+    assert.match(await send(sock, encode('SET', 'ttlkey', 'v2', 'KEEPTTL')), /^-ERR .*keepttl/);
+    const kept = Number((await send(sock, encode('TTL', 'ttlkey'))).slice(1));
+    assert.ok(kept > 0 && kept <= 100, `TTL after a rejected KEEPTTL = ${kept}`);
+    assert.equal(await send(sock, encode('GET', 'ttlkey')), '$1\r\nv\r\n');
+
+    assert.match(await send(sock, encode('SET', 'k', 'v5', 'BOGUS')), /^-ERR syntax error/);
+    assert.equal(await send(sock, encode('GET', 'k')), '$2\r\nv1\r\n');
+
+    // A dangling EX/PX still goes through the same validation, and a rejected
+    // trailing option means the whole command wrote nothing.
+    assert.ok((await send(sock, encode('SET', 'k', 'v6', 'EX'))).startsWith('-ERR'));
+    assert.ok((await send(sock, encode('SET', 'k', 'v7', 'EX', '10', 'BOGUS'))).startsWith('-ERR'));
+    assert.equal(await send(sock, encode('GET', 'k')), '$2\r\nv1\r\n');
+    assert.equal(await send(sock, encode('TTL', 'k')), ':-1\r\n');
+    sock.end();
+  } finally {
+    await srv.close();
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+// `SET k v PX 0` passed validation and then `ttl ? {ttl} : {}` dropped the zero,
+// so the caller got +OK and a key that never expires. Redis rejects a zero
+// expire time; so must we.
+test('RESP server: SET rejects a zero EX/PX instead of storing forever', async () => {
+  const dir = await tmpDir();
+  const srv = await startServer({ dir, port: 0, fsyncPolicy: 'no' });
+  try {
+    const sock = await connect(srv.port);
+    assert.match(
+      await send(sock, encode('SET', 'px0', 'v', 'PX', '0')),
+      /^-ERR invalid expire time/,
+    );
+    assert.equal(await send(sock, encode('GET', 'px0')), '$-1\r\n');
+    assert.equal(await send(sock, encode('TTL', 'px0')), ':-2\r\n');
+
+    assert.match(await send(sock, encode('SET', 'ex0', 'v', 'EX', '0')), /^-ERR invalid expire time/);
+    assert.equal(await send(sock, encode('GET', 'ex0')), '$-1\r\n');
+
+    // The valid cases keep working and still expire. `PX 1600` (not 1000)
+    // because the reply must round to the nearest second: truncating the
+    // remaining ~1599 ms would answer `:1` here and `:0` for `PX 1000`.
+    assert.equal(await send(sock, encode('SET', 'px', 'v', 'PX', '1600')), '+OK\r\n');
+    assert.equal(await send(sock, encode('TTL', 'px')), ':2\r\n');
+    assert.equal(await send(sock, encode('SET', 'ex', 'v', 'EX', '1')), '+OK\r\n');
+    await new Promise((r) => setTimeout(r, 1100));
+    assert.equal(await send(sock, encode('GET', 'ex')), '$-1\r\n');
+    sock.end();
+  } finally {
+    await srv.close();
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
 // The counterpart: a valid TTL is still accepted and actually expires the key.
 test('RESP server: SET honors a valid EX', async () => {
   const dir = await tmpDir();

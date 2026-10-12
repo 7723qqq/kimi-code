@@ -325,3 +325,99 @@ test('sort ascending/descending, skip and limit', async () => {
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
+
+test('bare RegExp filter is never answered from an equality index', async () => {
+  const dir = await tmpDir();
+  try {
+    const db = await MiniDb.open({ dir, valueCodec: 'json' });
+    await db.set('a', { name: 'abigail' }, { dt: { seq: 1 } });
+    await db.set('b', { name: 'abner' }, { dt: { seq: 2 } });
+    await db.set('c', { name: 'zoe' }, { dt: { seq: 3 } });
+
+    const before = db
+      .query({ filter: { name: /^ab/ } })
+      .map((r) => r.key)
+      .toSorted();
+    assert.deepEqual(before, ['a', 'b']);
+    assert.deepEqual(
+      db.query({ dt: { seq: {} }, filter: { name: /^ab/ }, limit: 2 }).map((r) => r.key),
+      ['a', 'b'],
+    );
+
+    await db.createIndex('byName', { field: 'name' });
+
+    const after = db
+      .query({ filter: { name: /^ab/ } })
+      .map((r) => r.key)
+      .toSorted();
+    assert.deepEqual(after, before);
+    assert.ok(after.length > 0);
+    // The bare RegExp form and the explicit $regex form agree.
+    assert.deepEqual(
+      after,
+      db
+        .query({ filter: { name: { $regex: '^ab' } } })
+        .map((r) => r.key)
+        .toSorted(),
+    );
+    assert.deepEqual(
+      await db
+        .queryAsync({ filter: { name: /^ab/ } })
+        .then((rs) => rs.map((r) => r.key).toSorted()),
+      before,
+    );
+    // dt fast path variant: every candidate would be rejected by hasEq.
+    assert.deepEqual(
+      db.query({ dt: { seq: {} }, filter: { name: /^ab/ }, limit: 2 }).map((r) => r.key),
+      ['a', 'b'],
+    );
+    assert.deepEqual(
+      (await db.queryAsync({ dt: { seq: {} }, filter: { name: /^ab/ }, limit: 2 })).map(
+        (r) => r.key,
+      ),
+      ['a', 'b'],
+    );
+    await db.close();
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('dt sort orders identically with and without limit', async () => {
+  const dir = await tmpDir();
+  try {
+    const db = await MiniDb.open({ dir, valueCodec: 'json' });
+    // dt.seq and the value field seq point in opposite directions, so a plan
+    // that sorted by the decoded value would visibly disagree.
+    await db.set('a', { seq: 3 }, { dt: { seq: 1 } });
+    await db.set('b', { seq: 2 }, { dt: { seq: 2 } });
+    await db.set('c', { seq: 1 }, { dt: { seq: 3 } });
+
+    for (const sortDir of [1, -1] as const) {
+      const unbounded = db.query({ dt: { seq: {} }, sort: { seq: sortDir } }).map((r) => r.key);
+      const bounded = db
+        .query({ dt: { seq: {} }, sort: { seq: sortDir }, limit: 2 })
+        .map((r) => r.key);
+      assert.deepEqual(bounded, unbounded.slice(0, 2));
+      const asyncUnbounded = (
+        await db.queryAsync({ dt: { seq: {} }, sort: { seq: sortDir } })
+      ).map((r) => r.key);
+      const asyncBounded = (
+        await db.queryAsync({ dt: { seq: {} }, sort: { seq: sortDir }, limit: 2 })
+      ).map((r) => r.key);
+      assert.deepEqual(asyncUnbounded, unbounded);
+      assert.deepEqual(asyncBounded, bounded);
+    }
+
+    assert.deepEqual(
+      db.query({ dt: { seq: {} }, sort: { seq: 1 } }).map((r) => r.key),
+      ['a', 'b', 'c'],
+    );
+    const desc = db.query({ dt: { seq: {} }, sort: { seq: -1 } }).map((r) => r.key);
+    assert.deepEqual(desc, ['c', 'b', 'a']);
+    assert.equal(desc[0], 'c'); // dt largest first
+    await db.close();
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});

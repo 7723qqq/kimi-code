@@ -69,6 +69,20 @@ const CATALOG = {
       },
     },
   },
+  'google-vertex': {
+    id: 'google-vertex',
+    name: 'Google Vertex AI',
+    api: 'https://us-central1-aiplatform.googleapis.com/v1',
+    npm: '@ai-sdk/google-vertex',
+    models: {
+      'gemini-2.5-pro': {
+        id: 'gemini-2.5-pro',
+        name: 'Gemini 2.5 Pro',
+        limit: { context: 1048576 },
+        modalities: { input: ['text'], output: ['text'] },
+      },
+    },
+  },
 } as const;
 
 const REGISTRY_URL = 'https://internal.example/api.json';
@@ -186,12 +200,37 @@ describe('IModelsDevImportService', () => {
       expect.objectContaining({ id: 'gpt-4.1', max_context_size: 1047576 }),
     ]);
     expect(byId.get('gateway')).toMatchObject({ needs_base_url: true, wire_type: 'openai', base_url: null });
+    expect(byId.get('google-vertex')).toMatchObject({
+      wire_type: 'google-genai',
+      base_url: 'https://us-central1-aiplatform.googleapis.com/v1',
+    });
     expect(byId.get('bedrock')).toMatchObject({
       rejected: true,
       wire_type: null,
       base_url: null,
       reject_reason: 'proprietary-sdk',
     });
+  });
+
+  it('imports a vertex catalog entry as google-genai instead of the removed vertexai wire', async () => {
+    setModelsDevUpstreamForTest({ fetchImpl: fetchJson(CATALOG) });
+    const { config, imports } = createHost({ providers: {}, models: {} });
+
+    const result = await imports.importModelsDevProvider({ catalogId: 'google-vertex' });
+
+    expect(result.modelsImported).toBe(1);
+    const providers = config.inspect<ProvidersSection>(PROVIDERS_SECTION).userValue ?? {};
+    expect(providers['google-vertex']).toMatchObject({
+      type: 'google-genai',
+      baseUrl: 'https://us-central1-aiplatform.googleapis.com/v1',
+    });
+    const models = config.inspect<ModelsSection>(MODELS_SECTION).userValue ?? {};
+    expect(models['google-vertex/gemini-2.5-pro']).toMatchObject({
+      provider: 'google-vertex',
+      model: 'gemini-2.5-pro',
+      maxContextSize: 1048576,
+    });
+    expect(providers['google-vertex']?.type).not.toBe('vertexai');
   });
 
   it('throws provider.catalog_entry_not_found for an unknown catalog id', async () => {
@@ -318,6 +357,41 @@ describe('IModelsDevImportService', () => {
     await imports.importModelsDevProvider({ catalogId: 'openai', apiKey: 'sk-new' });
     providers = config.inspect<ProvidersSection>(PROVIDERS_SECTION).userValue ?? {};
     expect(providers['openai']?.apiKey).toBe('sk-new');
+  });
+
+  it('keeps the target provider aliases when the models write fails (single write)', async () => {
+    setModelsDevUpstreamForTest({ fetchImpl: fetchJson(CATALOG) });
+    const { config, imports } = createHost({
+      providers: { openai: { type: 'openai', apiKey: 'sk-old' } },
+      models: {
+        'openai/gpt-4o': { provider: 'openai', model: 'gpt-4o', maxContextSize: 128000 },
+        k2: { provider: 'kimi', model: 'kimi-k2', maxContextSize: 131072 },
+      },
+    });
+    const original = config.replace.bind(config);
+    const modelsWrites: Array<Record<string, unknown>> = [];
+    vi.spyOn(config, 'replace').mockImplementation((domain: string, value: unknown) => {
+      if (domain !== MODELS_SECTION) return original(domain, value);
+      modelsWrites.push(value as Record<string, unknown>);
+      const submitted = value as Record<string, unknown>;
+      return submitted['openai/gpt-4.1'] !== undefined
+        ? Promise.reject(new Error('disk full'))
+        : original(domain, value);
+    });
+
+    await expect(imports.importModelsDevProvider({ catalogId: 'openai' })).rejects.toThrow(
+      'disk full',
+    );
+
+    const models = config.inspect<ModelsSection>(MODELS_SECTION).userValue ?? {};
+    expect(models['openai/gpt-4o']).toEqual({
+      provider: 'openai',
+      model: 'gpt-4o',
+      maxContextSize: 128000,
+    });
+    expect(models['k2']).toEqual({ provider: 'kimi', model: 'kimi-k2', maxContextSize: 131072 });
+    expect(models['openai/gpt-4.1']).toBeUndefined();
+    expect(modelsWrites).toHaveLength(1);
   });
 
   it('keeps a hand-edited api_key_env on a re-import without a key, drops it when a new key is given', async () => {

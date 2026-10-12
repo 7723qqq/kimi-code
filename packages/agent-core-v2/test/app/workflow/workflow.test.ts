@@ -1,8 +1,92 @@
+import { tmpdir } from 'node:os';
+
 import { describe, expect, it } from 'vitest';
 
+import type { ILogService } from '#/_base/log/log';
 import { WorkflowTool, WorkflowToolInputSchema } from '#/app/workflow/tools/workflow';
 import { parseMeta, listBuiltins, getBuiltin } from '#/app/workflow/workflowRegistry';
+import {
+  executeWorkflow,
+  WORKFLOW_CANCELLED_ERROR_MESSAGE,
+  WORKFLOW_DEADLINE_DEFAULT_MS,
+  WORKFLOW_SYNC_PREFIX_LIMIT_MS,
+  type WorkflowRuntimeDeps,
+} from '#/app/workflow/workflowRuntime';
 import { WorkflowService } from '#/app/workflow/workflowService';
+import type { WorkflowRunEntry } from '#/app/workflow/workflowTypes';
+
+interface FakeLog {
+  readonly level: 'debug';
+  setLevel: () => void;
+  flush: () => Promise<void>;
+  child: () => FakeLog;
+  error: (message: string, payload?: unknown) => void;
+  warn: (message: string, payload?: unknown) => void;
+  info: (message: string, payload?: unknown) => void;
+  debug: (message: string, payload?: unknown) => void;
+}
+
+function makeLog(): { log: FakeLog; entries: { message: string; payload?: unknown }[] } {
+  const entries: { message: string; payload?: unknown }[] = [];
+  const log: FakeLog = {
+    level: 'debug',
+    setLevel: () => {},
+    flush: async () => {},
+    child: () => log,
+    error: (message, payload) => entries.push({ message, payload }),
+    warn: (message, payload) => entries.push({ message, payload }),
+    info: (message, payload) => entries.push({ message, payload }),
+    debug: (message, payload) => entries.push({ message, payload }),
+  };
+  return { log, entries };
+}
+
+function makeRuntimeDeps(workspaceRoot: string): WorkflowRuntimeDeps {
+  const { log } = makeLog();
+  return {
+    lifecycle: {} as never,
+    subagents: {} as never,
+    sessionContext: {} as never,
+    log: log as unknown as ILogService,
+    callerAgentId: 'main',
+    workspaceRoot,
+  };
+}
+
+function makeEntry(): WorkflowRunEntry {
+  return {
+    runId: 'wf_test',
+    status: 'running',
+    agentCount: 0,
+    startedAt: Date.now(),
+    abortController: new AbortController(),
+  };
+}
+
+function makeService(): WorkflowService {
+  const { log } = makeLog();
+  return new WorkflowService(
+    {
+      homeDir: '/tmp',
+      configPath: '/tmp/config',
+      sessionsDir: '/tmp/sessions',
+      getEnv: () => undefined,
+    } as never,
+    log as unknown as ILogService,
+    { getWebSearchProvider: () => undefined } as never,
+  );
+}
+
+function makeTool(workflow: WorkflowService): WorkflowTool {
+  return new WorkflowTool(
+    workflow,
+    { homeDir: tmpdir() } as never,
+    { cwd: tmpdir() } as never,
+    {} as never,
+    {} as never,
+    { agentId: 'main' } as never,
+  );
+}
 
 describe('workflowRegistry', () => {
   describe('parseMeta', () => {
@@ -210,6 +294,21 @@ describe('WorkflowTool input schema', () => {
     });
     expect(result.success).toBe(false);
   });
+
+  it('accepts an optional deadline_ms for run', () => {
+    const result = WorkflowToolInputSchema.safeParse({
+      operation: 'run',
+      name: 'deep-research',
+      deadline_ms: 7_200_000,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it('exposes deadline_ms in the model-visible parameters', () => {
+    const tool = makeTool(makeService());
+    const properties = (tool.parameters as { properties?: Record<string, unknown> }).properties;
+    expect(Object.keys(properties ?? {})).toContain('deadline_ms');
+  });
 });
 
 describe('built-in workflow scripts', () => {
@@ -336,6 +435,131 @@ describe('WorkflowService behavior', () => {
       { getWebSearchProvider: () => undefined } as any,
     );
     await expect(svc.cancel('nonexistent')).resolves.toBeUndefined();
+  });
+});
+
+describe('workflow run deadline and cancellation', () => {
+  it('uses the documented default deadline and sync prefix limit', () => {
+    expect(WORKFLOW_DEADLINE_DEFAULT_MS).toBe(30 * 60 * 1000);
+    expect(WORKFLOW_SYNC_PREFIX_LIMIT_MS).toBe(30_000);
+  });
+
+  it('aborts a synchronous infinite loop at the sync prefix limit', { timeout: 5_000 }, async () => {
+    const entry = makeEntry();
+    const started = Date.now();
+
+    await expect(
+      executeWorkflow({
+        script: 'while (true) {}',
+        deps: makeRuntimeDeps(tmpdir()),
+        entry,
+        deadlineMs: 3_000,
+        syncPrefixLimitMs: 300,
+      }),
+    ).rejects.toThrow(/timed out/);
+
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  it('aborts a run that is stuck on a pending promise', { timeout: 5_000 }, async () => {
+    const entry = makeEntry();
+    const started = Date.now();
+
+    await expect(
+      executeWorkflow({
+        script: 'await new Promise(() => {});\nreturn "unreachable";',
+        deps: makeRuntimeDeps(tmpdir()),
+        entry,
+        deadlineMs: 400,
+      }),
+    ).rejects.toThrow(/deadline exceeded/);
+
+    expect(entry.abortController.signal.aborted).toBe(true);
+    expect(Date.now() - started).toBeLessThan(2_000);
+  });
+
+  it('rejects an in-flight run as soon as it is aborted', { timeout: 5_000 }, async () => {
+    const entry = makeEntry();
+    const run = executeWorkflow({
+      script: 'await new Promise(() => {});\nreturn "unreachable";',
+      deps: makeRuntimeDeps(tmpdir()),
+      entry,
+      deadlineMs: 60_000,
+    });
+
+    setTimeout(() => {
+      entry.abortController.abort(new Error(WORKFLOW_CANCELLED_ERROR_MESSAGE));
+    }, 50);
+    const started = Date.now();
+
+    await expect(run).rejects.toThrow(WORKFLOW_CANCELLED_ERROR_MESSAGE);
+    expect(Date.now() - started).toBeLessThan(1_500);
+  });
+
+  it('returns the result of a normal script', async () => {
+    const entry = makeEntry();
+
+    await expect(
+      executeWorkflow({
+        script: 'return 1 + 2;',
+        deps: makeRuntimeDeps(tmpdir()),
+        entry,
+      }),
+    ).resolves.toBe(3);
+  });
+
+  it('marks a started run failed once its deadline passes', { timeout: 10_000 }, async () => {
+    const svc = makeService();
+    const { runId } = await svc.start({
+      script: 'await new Promise(() => {});\nreturn "unreachable";',
+      callerAgentId: 'main',
+      sessionContext: { cwd: tmpdir() } as never,
+      lifecycle: {} as never,
+      subagents: {} as never,
+      deadlineMs: 300,
+    });
+
+    const result = await svc.wait(runId, 3_000);
+    expect(result.status).toBe('failed');
+    expect(result.error).toContain('deadline exceeded');
+  });
+
+  it('reports a cancelled run as cancelled once the script stops', { timeout: 10_000 }, async () => {
+    const svc = makeService();
+    const { runId } = await svc.start({
+      script: 'await new Promise(() => {});\nreturn "unreachable";',
+      callerAgentId: 'main',
+      sessionContext: { cwd: tmpdir() } as never,
+      lifecycle: {} as never,
+      subagents: {} as never,
+    });
+
+    await svc.cancel(runId);
+
+    const result = await svc.wait(runId, 1_000);
+    expect(result.status).toBe('cancelled');
+    expect(result.finishedAt).toBeDefined();
+  });
+
+  it('honours a deadline_ms passed through the Workflow tool', { timeout: 10_000 }, async () => {
+    const svc = makeService();
+    const tool = makeTool(svc);
+    const execution = tool.resolveExecution({
+      operation: 'run',
+      script: 'await new Promise(() => {});\nreturn "unreachable";',
+      deadline_ms: 300,
+    });
+    if ('isError' in execution && execution.isError) throw new Error('unexpected tool error');
+
+    const output = await (execution as { execute: (ctx: never) => Promise<{ output: unknown }> }).execute(
+      {} as never,
+    );
+    const match = /run_id: (wf_\d+)/.exec(String(output.output));
+    expect(match).not.toBeNull();
+
+    const result = await svc.wait(match![1]!, 3_000);
+    expect(result.status).toBe('failed');
+    expect(result.error).toContain('deadline exceeded');
   });
 });
 

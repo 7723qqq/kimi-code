@@ -8,6 +8,7 @@ import {
   effectiveModelConfig,
   resolveModelAuthMaterial,
   resolveModelForReady,
+  resolveModelProtocol,
 } from '#/llm-adapter/model/model-auth';
 
 function authMaterial(args: {
@@ -164,6 +165,22 @@ describe('deriveProviderId', () => {
   it('keys flat providers by the baseUrl origin', () => {
     expect(deriveProviderId('https://api.example.test/v1')).toBe('api.example.test');
     expect(deriveProviderId('not-a-url')).toBe('not-a-url');
+  });
+});
+
+describe('resolveModelProtocol', () => {
+  it('maps the legacy vertexai provider type to google-genai so old config.toml keeps loading', () => {
+    expect(resolveModelProtocol({ model: 'm' }, { type: 'vertexai' })).toBe('google-genai');
+    expect(resolveModelProtocol({ model: 'm', protocol: 'anthropic' }, { type: 'vertexai' })).toBe(
+      'anthropic',
+    );
+  });
+
+  it('still resolves the supported wire types and rejects unknown vendors', () => {
+    expect(resolveModelProtocol({ model: 'm' }, { type: 'google-genai' })).toBe('google-genai');
+    expect(resolveModelProtocol({ model: 'm' }, { type: 'openai' })).toBe('openai');
+    expect(resolveModelProtocol({ model: 'm' }, { type: 'my-vendor' })).toBeUndefined();
+    expect(resolveModelProtocol({ model: 'm' }, undefined)).toBeUndefined();
   });
 });
 

@@ -5,8 +5,6 @@
  * The actual ZIP/manifest export is owned by the SDK.
  */
 
-import { createInterface } from 'node:readline/promises';
-
 import {
   createKimiHarness,
   type ExportSessionInput,
@@ -31,6 +29,8 @@ import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE } from '#/constant/app';
 import { t } from '#/i18n';
 import { detectShellEnvironment } from '#/utils/process/shell-env';
 
+import { promptYesNo, type ConfirmPromptAnswer } from './confirm';
+
 interface WritableLike {
   write(chunk: string): boolean;
 }
@@ -45,7 +45,9 @@ export interface PreviousSessionSummary {
 export interface ExportDeps {
   readonly listSessions: (workDir: string) => Promise<readonly SessionSummary[]>;
   readonly exportSession: (input: ExportSessionInput) => Promise<ExportSessionResult>;
-  readonly confirmPreviousSession: (summary: PreviousSessionSummary) => Promise<boolean>;
+  readonly confirmPreviousSession: (
+    summary: PreviousSessionSummary,
+  ) => Promise<ConfirmPromptAnswer>;
   readonly getInstallSource: () => Promise<string>;
   readonly getShellEnv: () => ShellEnvironment;
   readonly version: string;
@@ -79,10 +81,12 @@ export async function handleExport(
     }
     resolvedId = previousSummary.id;
     if (!opts.yes) {
-      const confirmed = await deps.confirmPreviousSession(
-        toPreviousSessionSummary(previousSummary),
-      );
-      if (!confirmed) {
+      const answer = await deps.confirmPreviousSession(toPreviousSessionSummary(previousSummary));
+      if (answer === 'eof') {
+        deps.stderr.write(t('tui.statusMessages.confirmPromptEof') + '\n');
+        deps.exit(1);
+      }
+      if (answer === 'no') {
         deps.stdout.write(t('tui.statusMessages.exportCancelled') + '\n');
         return;
       }
@@ -234,17 +238,12 @@ function normalizeOptionalSessionId(sessionId: string | undefined): string | und
   return trimmed === undefined || trimmed === '' ? undefined : trimmed;
 }
 
-async function confirmPreviousSession(summary: PreviousSessionSummary): Promise<boolean> {
-  const rl = createInterface({ input: process.stdin, output: process.stderr });
-  try {
-    const title =
-      summary.title === undefined ? summary.sessionId : `${summary.title} (${summary.sessionId})`;
-    const answer = await rl.question(t('tui.statusMessages.exportConfirmPrompt', { title }));
-    const trimmed = answer.trim().toLowerCase();
-    return trimmed === '' || trimmed === 'y' || trimmed === 'yes';
-  } finally {
-    rl.close();
-  }
+async function confirmPreviousSession(
+  summary: PreviousSessionSummary,
+): Promise<ConfirmPromptAnswer> {
+  const title =
+    summary.title === undefined ? summary.sessionId : `${summary.title} (${summary.sessionId})`;
+  return promptYesNo(t('tui.statusMessages.exportConfirmPrompt', { title }));
 }
 
 function errorMessage(error: unknown): string {

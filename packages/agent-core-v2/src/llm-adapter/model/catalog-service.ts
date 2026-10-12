@@ -7,6 +7,9 @@ import {
 import { Disposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Error2 } from '#/_base/errors/errors';
+import { IConfigService } from '#/app/config/config';
+import { ConfigErrors } from '#/app/config/errors';
+import { DEFAULT_MODEL_SECTION } from '#/app/kosongConfig/configSection';
 import { LifecycleScope } from '#/app/scopes';
 import {
   createOAuthCredentialProvider,
@@ -86,6 +89,7 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
     @IProtocolAdapterRegistry
     private readonly protocolRegistry: IProtocolAdapterRegistry,
     @IHostRequestHeaders private readonly hostRequestHeaders: IHostRequestHeaders,
+    @IConfigService private readonly config: IConfigService,
   ) {
     super();
     this._register(
@@ -253,6 +257,13 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
     const record = rawRecordOf(definition);
     const model = this.get(modelId);
     await this.models.setDefaultModel(modelId);
+    const persisted = this.config.inspect<string>(DEFAULT_MODEL_SECTION).userValue;
+    if (persisted !== modelId) {
+      throw new Error2(
+        ConfigErrors.codes.CONFIG_PERSIST_BLOCKED,
+        `Refusing to report success: default_model was not persisted (config still says ${persisted ?? 'nothing'}).`,
+      );
+    }
     return {
       default_model: modelId,
       model: toProtocolModel(model, record, this.providerTypeOf(record)),

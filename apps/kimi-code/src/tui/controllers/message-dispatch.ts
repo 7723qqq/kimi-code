@@ -282,7 +282,17 @@ export class MessageDispatchController {
     extraction: ExtractionResult,
   ): Promise<void> {
     const knownEntryIds = new Set(this.host.state.transcriptEntries.map((entry) => entry.id));
-    await session.promptWithSkills(
+    // The bundled submission owns its pasted media exactly like a plain
+    // prompt does: lease the retains now and hand the lease to the dispatch so
+    // the consuming `skill_activation` turn releases (deletes) the uploads at
+    // turn end. Without a lease nothing ever consumes the retain and the
+    // daemon upload outlives the turn, the queue and the session.
+    const stagingLease = this.staging.create(
+      [...new Set([...extraction.imageAttachmentIds, ...extraction.videoAttachmentIds])],
+      [],
+      'skill_activation',
+    );
+    const request = session.promptWithSkills(
       extraction.hasMedia
         ? resolveOriginalCaptions(
             extraction.parts,
@@ -293,6 +303,12 @@ export class MessageDispatchController {
         : text,
       activations.map((activation) => ({ name: activation.skillName, args: activation.args })),
     );
+    this.staging.trackDispatch(stagingLease, request, (error: unknown) => {
+      this.failSessionRequest(
+        t('tui.statusMessages.skillActivationFailed', { error: formatErrorMessage(error) }),
+      );
+    });
+    await request;
     // The engine bundles the activations into the prompt's own message, and
     // the `skill.activated` events land synchronously during the call — so
     // the cards appended for this submission are the skill_activation entries

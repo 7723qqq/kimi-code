@@ -7,6 +7,8 @@ import {
   ChatProviderError,
 } from '@moonshot-ai/kosong';
 
+import { log } from '#/logging/logger';
+
 /**
  * Error codes for Kimi Core's public error protocol.
  *
@@ -1422,7 +1424,15 @@ function sanitizeStatusErrorMessage(message: string): string {
 }
 
 export function fromKimiErrorPayload(payload: KimiErrorPayload): KimiError {
-  return new KimiError(payload.code, payload.message, {
+  const declared = isKimiErrorCode(payload.code);
+  if (!declared) {
+    log.warn('unknown Kimi error code from wire; restating as internal', {
+      code: payload.code,
+      message: payload.message,
+    });
+  }
+  const code: KimiErrorCode = declared ? payload.code : ErrorCodes.INTERNAL;
+  return new KimiError(code, payload.message, {
     details: payload.details,
   });
 }

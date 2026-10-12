@@ -209,17 +209,20 @@ describe("Webview workspace paths (selected-directory containment)", () => {
     ]);
   });
 
-  it("degrades to an empty list when engine suggestions fail", async () => {
+  it("falls back to the workspace search when engine suggestions fail", async () => {
     const workDir = join(root, "project");
     await mkdir(workDir);
     const ctx = createContext(vscodeHost.Uri.file(workDir));
     vi.mocked(ctx.harness.suggestFiles).mockRejectedValue(new Error("engine down"));
+    const inside = join(workDir, "inside.ts");
+    await writeFile(inside, "inside");
+    vscodeHost.findFiles.mockResolvedValue([vscodeHost.Uri.file(inside)]);
 
     const files = await fileHandlers[Methods.GetProjectFiles]!({ query: "app" }, ctx);
 
-    expect(files).toEqual([]);
+    expect(files).toEqual([{ path: "inside.ts", name: "inside.ts", isDirectory: false }]);
     expect(ctx.logError).toHaveBeenCalled();
-    expect(vscodeHost.findFiles).not.toHaveBeenCalled();
+    expect(vscodeHost.findFiles).toHaveBeenCalledTimes(1);
   });
 
   it("refuses to open a symlink whose target lies outside the selected working directory", async () => {

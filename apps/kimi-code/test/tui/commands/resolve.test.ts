@@ -271,10 +271,25 @@ describe('resolveSlashCommandInput', () => {
     });
   });
 
-  it('does not resolve /tower as a builtin when the tower flag is disabled', () => {
+  it('rejects /tower as invalid, instead of sending the slash text to the model', () => {
     expect(resolve('/tower Ship feature X')).toEqual({
-      kind: 'message',
-      input: '/tower Ship feature X',
+      kind: 'invalid',
+      commandName: 'tower',
+      reason: 'unknown',
+    });
+  });
+
+  it('does not let a same-named skill swallow a disabled experimental command', () => {
+    const command = resolve('/tower status', { skillCommandMap: new Map([['tower', 'tower']]) });
+
+    expect(command).toEqual({ kind: 'invalid', commandName: 'tower', reason: 'unknown' });
+  });
+
+  it('rejects a disabled experimental command with no args too', () => {
+    expect(resolve('/tower')).toEqual({
+      kind: 'invalid',
+      commandName: 'tower',
+      reason: 'unknown',
     });
   });
 });

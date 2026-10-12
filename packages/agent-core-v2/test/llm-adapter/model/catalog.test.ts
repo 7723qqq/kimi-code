@@ -6,6 +6,7 @@ import { ILogService } from '#/_base/log/log';
 import { isError2 } from '#/_base/errors/errors';
 import { IConfigService } from '#/app/config/config';
 import { ConfigErrors } from '#/app/config/errors';
+import { DEFAULT_MODEL_SECTION } from '#/app/kosongConfig/configSection';
 import { UNKNOWN_CAPABILITY, isUnknownCapability } from '#/llm-adapter/contract/capability';
 import { emptyUsage } from '#human/llm/usage';
 import type { LlmRequester } from '#human/llm/requester/requester';
@@ -82,6 +83,10 @@ function createHost(
     (sections['models'] ?? {}) as ModelsSection,
     sections['defaultModel'] as string | undefined,
   );
+  models.onDidChangeDefaultModel((e) => {
+    if (config.get<string>(DEFAULT_MODEL_SECTION) === e.id) return;
+    e.waitUntil(config.replace(DEFAULT_MODEL_SECTION, e.id));
+  });
   return {
     host,
     config,
@@ -679,7 +684,7 @@ describe('headers merge order', () => {
 
 describe('ModelCatalog ping', () => {
   it('returns the streamed text and usage on a live success', async () => {
-    const { host, models, providers } = createHost(kimiSections, stubModelOAuthTokens());
+    const { host, models, providers, config } = createHost(kimiSections, stubModelOAuthTokens());
     try {
       const fakeRequester: LlmRequester = {
         generate: (_config, _content, control) => {
@@ -729,6 +734,7 @@ describe('ModelCatalog ping', () => {
         stubModelOAuthTokens(),
         registry,
         { headers: {}, thirdPartyHeaders: {} },
+        config,
       );
       const result = await catalog.ping('k1');
       expect(result).toMatchObject({ ok: true, text: 'pong', finishReason: 'completed' });

@@ -258,6 +258,79 @@ describe('TowerSpawnTool', () => {
     expect(entry?.deathReason).toBe('provider blew up');
   });
 
+  it('aborts the worker and records the death when roster registration fails', async () => {
+    const markSpy = vi.spyOn(TowerStore.prototype, 'markAgentDied');
+    const registerSpy = vi
+      .spyOn(TowerStore.prototype, 'registerAgent')
+      .mockRejectedValue(new Error('state lock timed out after 10000ms'));
+    try {
+      const result = await execute(WORKER_ARGS).catch((error: unknown) => ({
+        output: `spawn rejected instead of reporting the bookkeeping failure: ${error instanceof Error ? error.message : String(error)}`,
+        isError: true as const,
+      }));
+
+      expect(result.isError).toBe(true);
+      expect(result.output).toContain(
+        'tower spawn failed after the worker started: state lock timed out after 10000ms',
+      );
+      expect(result.output).toContain('agent_id: agent-7');
+      expect(result.output).toContain('check that the worktree is idle before any fresh spawn');
+      const spawnedSignal = runAgent.mock.calls[0]?.[2]?.signal as AbortSignal;
+      expect(spawnedSignal.aborted).toBe(true);
+      expect(markSpy).toHaveBeenCalledWith(
+        'agent-7',
+        'failed',
+        'registration failed: state lock timed out after 10000ms',
+        'session-spawn-test',
+      );
+      completion.reject(new Error('aborted by the spawn failure'));
+      await vi.waitFor(() => {
+        expect(release).toHaveBeenCalledTimes(1);
+      });
+
+      const state = await store.load();
+      expect(state.roster.agents).toEqual([]);
+      expect(state.missions.find((m) => m.id === 'M1')?.status).toBe('planned');
+      const activityLog = await readFile(join(repo, '.tower/comms/log/activity.log'), 'utf8');
+      expect(activityLog).not.toMatch(/spawn /);
+    } finally {
+      registerSpy.mockRestore();
+      markSpy.mockRestore();
+    }
+  });
+
+  it('aborts the worker when the roster bookkeeping fails after registration', async () => {
+    const updateSpy = vi
+      .spyOn(TowerStore.prototype, 'updateMission')
+      .mockRejectedValue(new Error('ENOSPC: no space left on device'));
+    try {
+      const result = await execute(WORKER_ARGS).catch((error: unknown) => ({
+        output: `spawn rejected instead of reporting the bookkeeping failure: ${error instanceof Error ? error.message : String(error)}`,
+        isError: true as const,
+      }));
+
+      expect(result.isError).toBe(true);
+      expect(result.output).toContain('ENOSPC: no space left on device');
+      expect(result.output).toContain('agent_id: agent-7');
+      const spawnedSignal = runAgent.mock.calls[0]?.[2]?.signal as AbortSignal;
+      expect(spawnedSignal.aborted).toBe(true);
+      completion.reject(new Error('aborted by the spawn failure'));
+      await vi.waitFor(() => {
+        expect(release).toHaveBeenCalledTimes(1);
+      });
+
+      const state = await store.load();
+      const entry = state.roster.agents.find((agent) => agent.agentId === 'agent-7');
+      expect(entry?.deathStatus).toBe('failed');
+      expect(entry?.deathReason).toBe('registration failed: ENOSPC: no space left on device');
+      const activityLog = await readFile(join(repo, '.tower/comms/log/activity.log'), 'utf8');
+      expect(activityLog).toMatch(/died .*status=failed/);
+      expect(activityLog).not.toMatch(/spawn /);
+    } finally {
+      updateSpy.mockRestore();
+    }
+  });
+
   it('rejects non-main callers with the main-agent-only error before any work', async () => {
     ix.stub(IAgentScopeContext, { agentId: 'agent-w1', scope: (subKey?: string) => subKey ?? '' });
 

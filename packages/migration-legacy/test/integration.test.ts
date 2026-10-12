@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile, readFile, rm, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -6,7 +6,9 @@ import { fileURLToPath } from 'node:url';
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 
 import { detectMigration, runMigration } from '../src/index.js';
+import { migrationErrorsLogFile } from '../src/paths.js';
 import { computeWorkdirBucket, oldMd5BucketName } from '../src/sessions/workdir-bucket.js';
+import type { MigrationReport } from '../src/types.js';
 
 const FIXTURES = fileURLToPath(new URL('./fixtures', import.meta.url));
 const SOURCE_HOME = join(FIXTURES, 'multi-workdir', '.kimi');
@@ -267,6 +269,105 @@ describe('runMigration (end-to-end on multi-workdir fixture)', () => {
       await expect(readFile(join(tgt, 'credentials', 'kimi-code.json'), 'utf-8')).rejects.toThrow();
       // The report tells the user to sign in again in kimi-code.
       expect(report.notices.oauthLoginsRequiringRelogin).toContain('kimi-code');
+    } finally {
+      await rm(src, { recursive: true, force: true });
+    }
+  });
+
+  it('records an unreadable plan file as a step failure without aborting the run', async () => {
+    const src = await mkdtemp(join(tmpdir(), 'plans-e2e-src-'));
+    const plansSource = await mkdtemp(join(tmpdir(), 'plans-e2e-source-'));
+    const broken = join(plansSource, 'broken.md');
+    try {
+      await writeFile(join(plansSource, 'good.md'), 'GOOD');
+      await writeFile(broken, 'SECRET');
+      // Non-root cannot read this file, so copyFile() fails for this entry only.
+      await chmod(broken, 0o000);
+
+      const plan = await detectMigration({ sourcePath: src });
+      const report = await runMigration({
+        plan,
+        scope: { config: true, mcp: true, userHistory: true, skills: true, sessions: true },
+        source: src,
+        target: tgt,
+        plansSourceDir: plansSource,
+      });
+
+      expect(report.summary.plans.copied).toBe(1);
+      expect(report.summary.plans.failures).toHaveLength(1);
+      expect(report.summary.plans.failures[0]?.sourcePath).toBe(broken);
+      expect(report.summary.plans.failures[0]?.reason.length).toBeGreaterThan(0);
+      await expect(readFile(join(tgt, 'plans', 'good.md'), 'utf-8')).resolves.toBe('GOOD');
+
+      const persisted = JSON.parse(
+        await readFile(join(tgt, 'migration-report.json'), 'utf-8'),
+      ) as MigrationReport;
+      expect(persisted.summary.plans.failures).toEqual([
+        { sourcePath: broken, reason: report.summary.plans.failures[0]?.reason },
+      ]);
+
+      const log = await readFile(migrationErrorsLogFile(tgt), 'utf-8');
+      expect(log).toContain(broken);
+    } finally {
+      await chmod(broken, 0o600);
+      await rm(src, { recursive: true, force: true });
+      await rm(plansSource, { recursive: true, force: true });
+    }
+  });
+
+  it('surfaces a subagent that could not be migrated while the session still succeeds', async () => {
+    const src = await mkdtemp(join(tmpdir(), 'subagent-e2e-src-'));
+    try {
+      const bucket = join(src, 'sessions', oldMd5BucketName('/proj-a'));
+      const sessionDir = join(bucket, 'uuid-sub');
+      await mkdir(join(sessionDir, 'subagents', 'sub1'), { recursive: true });
+      await writeFile(
+        join(src, 'kimi.json'),
+        JSON.stringify({ work_dirs: [{ path: '/proj-a', kaos: 'local', last_session_id: null }] }),
+      );
+      await writeFile(
+        join(sessionDir, 'context.jsonl'),
+        [
+          '{"role":"user","content":"run a subagent"}',
+          '{"role":"assistant","content":[],"tool_calls":[{"type":"function","id":"tool_X","function":{"name":"Agent","arguments":"{\\"description\\":\\"calc\\"}"}}]}',
+          '{"role":"tool","tool_call_id":"tool_X","content":"56088"}',
+        ].join('\n') + '\n',
+      );
+      await writeFile(join(sessionDir, 'state.json'), '{}');
+      await writeFile(
+        join(sessionDir, 'wire.jsonl'),
+        [
+          '{"type":"metadata","protocol_version":"1.10"}',
+          '{"timestamp":1,"message":{"type":"SubagentEvent","payload":{"parent_tool_call_id":"tool_X","agent_id":"sub1","subagent_type":"coder","event":{"type":"TurnBegin","payload":{"user_input":"calc"}}}}}',
+        ].join('\n') + '\n',
+      );
+      await writeFile(
+        join(sessionDir, 'subagents', 'sub1', 'meta.json'),
+        JSON.stringify({ agent_id: 'sub1', subagent_type: 'coder', status: 'idle' }),
+      );
+
+      const plan = await detectMigration({ sourcePath: src });
+      const report = await runMigration({
+        plan,
+        scope: { config: true, mcp: true, userHistory: true, skills: true, sessions: true },
+        source: src,
+        target: tgt,
+      });
+
+      expect(report.summary.sessions.sessionsMigrated).toBe(1);
+      expect(report.summary.sessions.sessionsFailed).toEqual([]);
+      expect(report.summary.sessions.subagentFailures).toHaveLength(1);
+      const failure = report.summary.sessions.subagentFailures[0];
+      expect(failure?.sourcePath).toBe(join(sessionDir, 'subagents', 'sub1'));
+      expect(failure?.reason.length).toBeGreaterThan(0);
+
+      const log = await readFile(migrationErrorsLogFile(tgt), 'utf-8');
+      expect(log).toContain(join(sessionDir, 'subagents', 'sub1'));
+
+      const persisted = JSON.parse(
+        await readFile(join(tgt, 'migration-report.json'), 'utf-8'),
+      ) as MigrationReport;
+      expect(persisted.summary.sessions.subagentFailures).toHaveLength(1);
     } finally {
       await rm(src, { recursive: true, force: true });
     }

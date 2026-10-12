@@ -1314,6 +1314,58 @@ describe('BashTool', () => {
     expect(args[1]).toBe("cd '/c/Users/me/project' && ls 2>/dev/null");
   });
 
+  it('keeps a quoted > nul literal on Windows instead of rewriting it', async () => {
+    const { runner, exec } = createTestRunner(processWithOutput({ stdout: '' }));
+    const tool = bashTool(runner, windowsBashEnv, createTestCtx('C:\\Users\\me\\project'));
+
+    await executeTool(tool, context({ command: 'grep -n "> nul" log.txt', timeout: 60 }));
+
+    const args = exec.mock.calls[0]?.[1] as readonly string[];
+    expect(args[1]).toBe('cd \'/c/Users/me/project\' && grep -n "> nul" log.txt');
+  });
+
+  it('keeps a > nul literal inside a double-quoted string that is not a redirect target', async () => {
+    const { runner, exec } = createTestRunner(processWithOutput({ stdout: '' }));
+    const tool = bashTool(runner, windowsBashEnv, createTestCtx('C:\\Users\\me\\project'));
+
+    await executeTool(tool, context({ command: 'grep -n "> nul " log.txt', timeout: 60 }));
+
+    const args = exec.mock.calls[0]?.[1] as readonly string[];
+    expect(args[1]).toBe('cd \'/c/Users/me/project\' && grep -n "> nul " log.txt');
+  });
+
+  it('keeps > nul literal in single quotes on Windows', async () => {
+    const { runner, exec } = createTestRunner(processWithOutput({ stdout: '' }));
+    const tool = bashTool(runner, windowsBashEnv, createTestCtx('C:\\Users\\me\\project'));
+
+    await executeTool(tool, context({ command: "grep -n '> nul' log.txt", timeout: 60 }));
+
+    const args = exec.mock.calls[0]?.[1] as readonly string[];
+    expect(args[1]).toBe("cd '/c/Users/me/project' && grep -n '> nul' log.txt");
+  });
+
+  it('does not rewrite > nul lines inside a heredoc body but still rewrites the trailing redirect', async () => {
+    const { runner, exec } = createTestRunner(processWithOutput({ stdout: '' }));
+    const tool = bashTool(runner, windowsBashEnv, createTestCtx('C:\\Users\\me\\project'));
+
+    await executeTool(tool, context({ command: 'cat <<EOF\necho hi > nul\nEOF\nls 2>nul', timeout: 60 }));
+
+    const args = exec.mock.calls[0]?.[1] as readonly string[];
+    expect(args[1]).toBe("cd '/c/Users/me/project' && cat <<EOF\necho hi > nul\nEOF\nls 2>/dev/null");
+  });
+
+  it('does not rewrite > nul inside a quoted heredoc delimiter body nor inside $( )', async () => {
+    const { runner, exec } = createTestRunner(processWithOutput({ stdout: '' }));
+    const tool = bashTool(runner, windowsBashEnv, createTestCtx('C:\\Users\\me\\project'));
+
+    await executeTool(tool, context({ command: "cat <<'EOF'\necho hi > nul\nEOF\necho $(ls 2>nul)", timeout: 60 }));
+
+    const args = exec.mock.calls[0]?.[1] as readonly string[];
+    expect(args[1]).toBe(
+      "cd '/c/Users/me/project' && cat <<'EOF'\necho hi > nul\nEOF\necho $(ls 2>/dev/null)",
+    );
+  });
+
   it('passes nul-redirect through unchanged on Linux so the argv keeps the literal file target', async () => {
     const { runner, exec } = createTestRunner(processWithOutput({ stdout: '' }));
     const tool = bashTool(runner);

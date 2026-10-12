@@ -222,6 +222,35 @@ describe('NotifyPanelComponent', () => {
     expect(render(panel).join('\n')).toContain('• row 5 ');
   });
 
+  it('does not let a height measurement move the reader', () => {
+    // The surface measures the box before it grants rows, and it measures at the
+    // box's own cap — a larger budget than the box is then given. Letting the
+    // measurement run the render's state writes pinned a following view to the
+    // measurement's tail, and the next paint then scrolled to the real one: a
+    // layout pass skipped the unread middle of an update, with no key or wheel
+    // behind it.
+    const panel = new NotifyPanelComponent();
+    panel.upsert(entry('tc-1', listRows(30)));
+    panel.setBudget(5);
+    render(panel);
+
+    // Walk down to row 20. That offset is the tail as the measurement's own cap
+    // sees it (11 body rows of 30), so the old pass stopped the walk here.
+    for (let step = 0; step < 19; step += 1) {
+      expect(panel.advanceAutoScroll()).toBe(true);
+    }
+    expect(render(panel).join('\n')).toContain('• row 20 ');
+
+    expect(panel.measureHeight(80)).toBeGreaterThan(0);
+
+    // Same window, and the walk is still running: a measurement answers a
+    // question about height, it is not the reader taking over.
+    const after = render(panel).join('\n');
+    expect(after).toContain('• row 20 ');
+    expect(after).not.toContain('• row 30 ');
+    expect(panel.advanceAutoScroll()).toBe(true);
+  });
+
   it('scrolls the capped body with scrollBy, clamped to the entry bounds', () => {
     const panel = new NotifyPanelComponent();
     panel.upsert(entry('tc-1', listRows(30)));
@@ -676,6 +705,31 @@ describe('NotifyPanelComponent', () => {
 
     panel.setExpanded(true);
     expect(render(panel).join('\n')).toContain('an update');
+  });
+
+  it('reports hidden rows while expanded when the granted budget clips the body', () => {
+    // The surface's fold contract: after unfolding, the predicate has to stay
+    // true while the granted budget still clips the body, or the box can be
+    // opened but never closed. The old answer was `collapsed && …`, which was
+    // false for every expanded box — a click on one did nothing at all, and
+    // `Ctrl+T` was the only way back.
+    const clipped = new NotifyPanelComponent();
+    clipped.upsert(entry('tc-1', listRows(30)));
+    clipped.setBudget(5);
+    render(clipped);
+
+    expect(clipped.isExpanded()).toBe(true);
+    expect(hasHiddenContent(clipped)).toBe(true);
+
+    // A box whose entry fits inside its budget hides nothing: a click on it
+    // must not claim to have folded anything.
+    const fitting = new NotifyPanelComponent();
+    fitting.upsert(entry('tc-2', 'a single line'));
+    fitting.setBudget(12);
+    render(fitting);
+
+    expect(fitting.isExpanded()).toBe(true);
+    expect(hasHiddenContent(fitting)).toBe(false);
   });
 
   it('folds and unfolds through setExpanded', () => {

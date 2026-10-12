@@ -171,8 +171,19 @@ function truncateTextToTokensFromEnd(text: string, maxTokens: number): string {
   return text.slice(start);
 }
 
+function isPreservedOverlayPart(part: ContentPart): boolean {
+  return (
+    part.type === 'text' &&
+    (part.meta?.source === 'user prompt submit hook' || part.meta?.source === 'skill activation')
+  );
+}
+
 function replaceMessageText(message: V2ContextMessage, text: string): V2ContextMessage {
-  return { ...message, content: [{ type: 'text', text }], toolCalls: [] };
+  return {
+    ...message,
+    content: [...message.content.filter(isPreservedOverlayPart), { type: 'text', text }],
+    toolCalls: [],
+  };
 }
 
 function wrapSystemReminder(content: string): string {
@@ -201,6 +212,22 @@ function createCompactionElisionMessage(omittedTokens: number): V2ContextMessage
     ],
     toolCalls: [],
     origin: { kind: 'injection', variant: 'compaction_elision' },
+  };
+}
+
+function createCompactionContinuationMessage(): V2ContextMessage {
+  return {
+    role: 'user',
+    content: [
+      {
+        type: 'text',
+        text: wrapSystemReminder(
+          'Context compaction is complete — continue the work that was in progress when it began.',
+        ),
+      },
+    ],
+    toolCalls: [],
+    origin: { kind: 'injection', variant: 'compaction_continuation' },
   };
 }
 
@@ -354,7 +381,11 @@ function buildCompactionMessages(
         ...selection.tail,
       ]
     : [...selection.head, ...selection.tail];
-  return [...kept, createCompactionSummaryMessage(contextSummary)];
+  return [
+    ...kept,
+    createCompactionSummaryMessage(contextSummary),
+    createCompactionContinuationMessage(),
+  ];
 }
 
 interface UndoCut {

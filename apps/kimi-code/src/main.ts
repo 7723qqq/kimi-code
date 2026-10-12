@@ -6,6 +6,7 @@
  */
 
 import {
+  configureDiagnosticLogging,
   createKimiHarness,
   flushDiagnosticLogs,
   installGlobalProxyDispatcher,
@@ -42,8 +43,10 @@ import { createKimiCodeHostIdentity, getVersion } from './cli/version';
 import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_UI_MODE, PROCESS_NAME } from './constant/app';
 import { runHeadlessMigrate, type MigrateCommandOptions } from './migration/index';
 import { installMinidbTextBuildWorker } from './native/minidb-worker';
+import type { MinidbTextBuildWorkerInstallStatus } from './native/minidb-worker';
 import { cleanupStaleNativeCacheForCurrent } from './native/native-assets';
 import { installKapSearchWorker } from './native/search-worker';
+import type { KapSearchWorkerInstallStatus } from './native/search-worker';
 import { runNativeAssetSmokeIfRequested } from './native/smoke';
 import { startupTrace } from './utils/startup-trace';
 
@@ -62,6 +65,7 @@ export interface MainCommandOutcome {
 export async function handleMainCommand(
   opts: CLIOptions,
   version: string,
+  startupWarnings: readonly string[] = [],
 ): Promise<MainCommandOutcome> {
   let validated: ReturnType<typeof validateOptions>;
   startupTrace('main:enter');
@@ -91,7 +95,7 @@ export async function handleMainCommand(
   }
 
   startupTrace('runShell:begin');
-  await runShell(validated.options, version);
+  await runShell(validated.options, version, { startupWarnings });
   return { headlessCompleted: false };
 }
 
@@ -188,7 +192,50 @@ export function main(): void {
     });
 }
 
+/** Names the worker whose embedded native asset could not be installed, so the
+ *  startup notice says which index is degraded instead of only logging it. */
+export interface WorkerInstallDescriptor {
+  readonly label: string;
+  readonly status: MinidbTextBuildWorkerInstallStatus | KapSearchWorkerInstallStatus;
+}
+
+/**
+ * Turn worker-install outcomes into user-visible startup warnings.
+ *
+ * The install status is the only diagnostic the startup path has for a missing
+ * or corrupt native asset, and its previous sole consumer (`startupTrace`) is a
+ * no-op unless `KIMI_STARTUP_TRACE` is set. `installed` and `not-packaged` (a
+ * source/non-native run) are normal states and produce nothing.
+ */
+export function workerInstallWarnings(
+  installs: readonly WorkerInstallDescriptor[],
+): readonly string[] {
+  const warnings: string[] = [];
+  for (const install of installs) {
+    if (install.status.status === 'failed') {
+      warnings.push(
+        t('tui.statusMessages.nativeWorkerInstallFailed', {
+          worker: install.label,
+          code: install.status.errorCode,
+        }),
+      );
+      continue;
+    }
+    if (install.status.status === 'asset-missing') {
+      warnings.push(t('tui.statusMessages.nativeWorkerAssetMissing', { worker: install.label }));
+    }
+  }
+  return warnings;
+}
+
 function bootstrap(): void {
+  // Configure the host-side diagnostic logger first: every symbol below this
+  // point (proxy install, worker setup, CLI dispatch) logs through `log`, and
+  // an unconfigured root logger drops those lines silently. Failures are not
+  // fatal — diagnostics are best-effort and must not block startup.
+  void configureDiagnosticLogging({ homeDir: resolveKimiHome(), env: process.env }).catch(
+    () => undefined,
+  );
   // Route all outbound fetch through HTTP_PROXY/HTTPS_PROXY (honoring NO_PROXY)
   // before any client is constructed. No-op when no proxy variable is set; an
   // invalid proxy URL is reported and ignored rather than aborting startup.
@@ -216,6 +263,13 @@ function bootstrap(): void {
   );
   if (runNativeAssetSmokeIfRequested()) return;
 
+  // Degraded workers are reported through the TUI startup notice; the tracer
+  // lines above stay as the debug-only record.
+  const workerWarnings = workerInstallWarnings([
+    { label: 'minidb-text-build', status: workerInstall },
+    { label: 'kap-search', status: searchWorkerInstall },
+  ]);
+
   // Start the background cleanup of stale native cache. Fire-and-forget; must not block startup or throw.
   queueMicrotask(() => {
     try {
@@ -230,7 +284,7 @@ function bootstrap(): void {
   const program = createProgram(
     version,
     (opts) => {
-      void handleMainCommand(opts, version)
+      void handleMainCommand(opts, version, workerWarnings)
         .then(async (outcome) => {
           // Only the process entrypoint disposes of the process. Print mode
           // relies on the event loop draining to exit; flush any buffered output

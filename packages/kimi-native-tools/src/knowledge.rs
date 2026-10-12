@@ -211,6 +211,25 @@ pub fn knowledge_add(
     })
 }
 
+/// Escape a user query into an FTS5 MATCH expression.
+///
+/// A raw natural-language query is not a valid MATCH expression: `"` opens a
+/// phrase, `AND`/`OR`/`NEAR`/`*` are operators, and when parsing fails the
+/// failure is reported per row — the shape that used to end up as "no matching
+/// knowledge entries" for a query whose entry was right there.
+///
+/// Every whitespace-separated term is quoted as a phrase and the terms are
+/// OR-ed, so `foo "bar` searches for `foo` or `bar` instead of failing to
+/// parse. Any quote left after that doubling is an empty phrase, which FTS5
+/// tokenises to nothing rather than to a syntax error.
+fn escape_fts_query(query: &str) -> String {
+    query
+        .split_whitespace()
+        .map(|w| format!("\"{}\"", w.replace('"', "\"\"")))
+        .collect::<Vec<_>>()
+        .join(" OR ")
+}
+
 /// Canonical form for scope comparison: `/`-separated, no trailing separator.
 /// A scope is a DIRECTORY prefix, so the comparison must respect boundaries —
 /// `G:/repo` covers `G:/repo/src` but never `G:/repo-old`.
@@ -251,8 +270,9 @@ pub fn knowledge_search(
             ).map_err(|e| format!("{e}"))?;
             let rows = stmt
                 .query_map(params![min_confidence, candidate], row_to_entry)
-                .map_err(|e| format!("{e}"))?;
-            for row in rows.flatten() {
+                .map_err(|e| format!("knowledge search failed: {e}"))?;
+            for row in rows {
+                let row = row.map_err(|e| format!("knowledge search failed: {e}"))?;
                 let score = if row.scope.is_some() { 3.0 } else { 1.0 };
                 let id = row.id.clone();
                 let e = results_map.entry(id).or_insert_with(|| (row, 0.0, vec![]));
@@ -263,33 +283,30 @@ pub fn knowledge_search(
 
         // 2. FTS5
         if !query.is_empty() && query != "*" {
-            let fts_query = if query.contains('"') {
-                query.clone()
-            } else {
-                query
-                    .split_whitespace()
-                    .map(|w| format!("\"{}\"", w.replace('"', "\"\"")))
-                    .collect::<Vec<_>>()
-                    .join(" OR ")
-            };
+            let fts_query = escape_fts_query(&query);
             let sql = "SELECT e.id,e.category,e.title,e.content,e.tags,e.scope,e.confidence,e.source,e.created_at,e.updated_at,rank FROM entries_fts f JOIN entries e ON e.rowid=f.rowid WHERE entries_fts MATCH ?1 AND e.confidence >= ?2 ORDER BY rank LIMIT 20";
-            if let Ok(mut stmt) = conn.prepare(sql) {
-                if let Ok(rows) = stmt.query_map(params![fts_query, min_confidence], |r| {
+            let mut stmt = conn.prepare(sql).map_err(|e| format!("{e}"))?;
+            // FTS5 reports MATCH parse failures on the first `next()` of the
+            // row iterator, not from `query_map`, so the rows are collected
+            // with `?` — a malformed query must surface as an error the caller
+            // can see, never as "the library has nothing matching".
+            let rows = stmt
+                .query_map(params![fts_query, min_confidence], |r| {
                     let entry = row_to_entry(r)?;
                     let rank: f64 = r.get(10)?;
                     Ok((entry, rank))
-                }) {
-                    for row in rows.flatten() {
-                        let (entry, rank) = row;
-                        let score = 2.0 * (1.0 / (1.0 + rank.abs()));
-                        let id = entry.id.clone();
-                        let e = results_map
-                            .entry(id)
-                            .or_insert_with(|| (entry, 0.0, vec![]));
-                        e.1 += score;
-                        e.2.push("fts".to_string());
-                    }
-                }
+                })
+                .map_err(|e| format!("knowledge search failed: {e}"))?;
+            for row in rows {
+                let (entry, rank) =
+                    row.map_err(|e| format!("knowledge search failed: {e}"))?;
+                let score = 2.0 * (1.0 / (1.0 + rank.abs()));
+                let id = entry.id.clone();
+                let e = results_map
+                    .entry(id)
+                    .or_insert_with(|| (entry, 0.0, vec![]));
+                e.1 += score;
+                e.2.push("fts".to_string());
             }
         }
 
@@ -305,7 +322,8 @@ pub fn knowledge_search(
                 let rows = stmt
                     .query_map(params![min_confidence], row_to_entry)
                     .map_err(|e| format!("{e}"))?;
-                for row in rows.flatten() {
+                for row in rows {
+                    let row = row.map_err(|e| format!("knowledge search failed: {e}"))?;
                     let entry_tags: HashSet<&str> = row.tags.iter().map(|s| s.as_str()).collect();
                     let overlap = query_tags.intersection(&entry_tags).count();
                     if overlap > 0 {
@@ -647,6 +665,51 @@ mod tests {
             assert_eq!(results.len(), 2, "expected scope match for {candidate}");
             assert_eq!(results[0]["entry"]["title"], "Scoped rule");
         }
+    }
+
+    #[test]
+    fn test_search_malformed_quotes_is_not_silently_empty() {
+        // A natural-language query carrying a `"` must never be reported as
+        // "no matching entries" for an entry that is right there: the FTS5
+        // parse error used to be swallowed (per-row error dropped), so the
+        // caller could not tell "syntax error" from "nothing matches".
+        let _guard = TEST_LOCK.lock().unwrap();
+        let _db = TestDb::new();
+        add_entry("Foo bar rule", "pitfall", "foo bar is the rule.");
+
+        let results: Vec<serde_json::Value> = parse_vec(
+            &knowledge_search("foo \"bar".to_string(), None, None, 10, 0.0).unwrap(),
+        );
+        assert!(
+            !results.is_empty(),
+            "an unbalanced quote must still find `foo bar`, not return an empty set"
+        );
+        assert_eq!(results[0]["entry"]["title"], "Foo bar rule");
+        assert!(results[0]["match_source"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("fts")));
+    }
+
+    #[test]
+    fn test_search_unparseable_query_reports_error() {
+        // Escaping removes the natural-language failures, but a query carrying
+        // no searchable term at all still builds an empty MATCH expression
+        // (`fts5: syntax error near ""`). That failure is reported on the first
+        // row, so it used to be swallowed into an empty result set — the caller
+        // could not tell "FTS5 refused this" from "the library has nothing on
+        // it". It must surface as an error.
+        let _guard = TEST_LOCK.lock().unwrap();
+        let _db = TestDb::new();
+        add_entry("Foo bar rule", "pitfall", "foo bar is the rule.");
+
+        let err = knowledge_search("   ".to_string(), None, None, 10, 0.0)
+            .expect_err("an unparseable MATCH expression must not look like an empty library");
+        assert!(
+            err.reason.contains("knowledge search failed"),
+            "error should name the failing search, got: {}",
+            err.reason
+        );
     }
 
     #[test]

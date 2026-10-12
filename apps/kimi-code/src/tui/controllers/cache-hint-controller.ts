@@ -46,7 +46,7 @@ export interface CacheHintHost {
   readonly state: TUIState;
   track(event: string, props?: Record<string, unknown>): void;
   setAppState(patch: Partial<AppState>): void;
-  mountEditorReplacement(panel: Component & Focusable): void;
+  mountEditorReplacement(panel: Component & Focusable, onDisplaced?: () => void): void;
   restoreEditor(): void;
   restoreInputText(text: string): void;
   showError(message: string): void;
@@ -432,6 +432,17 @@ export class CacheHintController {
     this.host.recallStashedMedia(stash.extraction);
   }
 
+  /** Same as {@link restoreStashedInput}, but for a dialog that was displaced:
+   *  the editor slot holds the newer panel now, so the draft is written
+   *  straight into the editor instead of restoring (and clearing) the slot. */
+  private restoreStashedTextWithoutSlot(stash: StashedSubmit | undefined): void {
+    if (stash === undefined) return;
+    this.restoredTexts.push(stash.text);
+    this.host.state.editor.setText(this.restoredTexts.join('\n'));
+    this.host.recallStashedMedia(stash.extraction);
+    this.host.state.ui.requestRender();
+  }
+
   private upstreamModelId(): string | undefined {
     const { model, availableModels, availableProviders } = this.host.state.appState;
     const alias = availableModels[model];
@@ -467,7 +478,7 @@ export class CacheHintController {
       idle_seconds: decision.idleSeconds,
       total_tokens: decision.totalTokens,
     });
-    const action = await new Promise<CacheHintAction | 'dismiss'>((resolve) => {
+    const action = await new Promise<CacheHintAction | 'dismiss' | 'displaced'>((resolve) => {
       host.state.activeDialog = 'cache-hint';
       host.mountEditorReplacement(
         new CacheHintDialogComponent({
@@ -480,16 +491,27 @@ export class CacheHintController {
             resolve('dismiss');
           },
         }),
+        // A panel swapped out mid-await (AskUserQuestion, picker, …) is
+        // `clear()`ed without a dispose hook, so its `onSelect`/`onCancel`
+        // can never fire; settle here instead of leaving the stashed submit
+        // (and its staged media) hanging forever.
+        () => {
+          resolve('displaced');
+        },
       );
     });
-    host.state.activeDialog = null;
-    host.restoreEditor();
+    if (action !== 'displaced') {
+      host.state.activeDialog = null;
+      host.restoreEditor();
+    } else if (host.state.activeDialog === 'cache-hint') {
+      host.state.activeDialog = null;
+    }
     host.track('cache_hint_action', { action, scene });
     await this.runAction(action, stashed);
   }
 
   private async runAction(
-    action: CacheHintAction | 'dismiss',
+    action: CacheHintAction | 'dismiss' | 'displaced',
     stashed: StashedSubmit | undefined,
   ): Promise<void> {
     const { host } = this;
@@ -500,6 +522,13 @@ export class CacheHintController {
     switch (action) {
       case 'dismiss':
         restoreInput();
+        return;
+      case 'displaced':
+        // A newer panel owns the editor slot: hand the draft back and release
+        // the stash's media (recall semantics) without touching the slot —
+        // `restoreEditor()`/`restoreInputText()` would clear that panel.
+        this.lastDialogRestored = true;
+        this.restoreStashedTextWithoutSlot(stashed);
         return;
       case 'never':
         host.setAppState({ cacheExpiryHint: false });

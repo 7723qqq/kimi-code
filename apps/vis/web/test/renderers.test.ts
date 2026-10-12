@@ -274,4 +274,52 @@ describe('wire renderers', () => {
     expect(markup).toContain('invalid');
     expect(markup).not.toContain('[object Object]');
   });
+
+  // Audit a37/F2 — `permission.record_approval_result.result` is asserted by
+  // the type only, so an imported / hand-edited record can reach the renderer
+  // without it. Dereferencing `r.result` used to throw here and unmount the
+  // React root (blank app); the renderer must instead show a neutral
+  // placeholder and keep rendering.
+  it.each([
+    ['missing result', undefined],
+    ['null result', null],
+    ['string result', 'broken'],
+    ['numeric result', 42],
+  ])('renders an approval record with a %s as a placeholder', (_label, result) => {
+    const renderer = WIRE_RENDERERS['permission.record_approval_result'];
+    const record = { type: 'permission.record_approval_result', toolName: 'Bash', toolCallId: 'call-12345678', action: 'approve', turnId: 't1', result } as unknown as Parameters<typeof renderer.headline>[0];
+
+    const headline = renderer.headline(record);
+    const detail = renderer.detail?.(record);
+    const markup = [headline.main, headline.right, detail]
+      .map((node) => renderToStaticMarkup(node))
+      .join('');
+
+    // react-dom/server escapes the angle brackets in static markup.
+    expect(markup).toContain('&lt;missing result&gt;');
+    expect(markup).not.toContain('undefined');
+    expect(markup).not.toContain('[object Object]');
+  });
+
+  it('still renders a well-formed approval decision and its scope', () => {
+    const renderer = WIRE_RENDERERS['permission.record_approval_result'];
+    const record = {
+      type: 'permission.record_approval_result',
+      toolName: 'Bash',
+      toolCallId: 'call-12345678',
+      action: 'approve',
+      turnId: 't1',
+      result: { decision: 'approved', scope: 'session', feedback: 'ok' },
+    } as unknown as Parameters<typeof renderer.headline>[0];
+
+    const headline = renderToStaticMarkup(renderer.headline(record).main);
+    const detail = renderToStaticMarkup(renderer.detail?.(record));
+
+    expect(headline).toContain('approved');
+    expect(headline).toContain('session');
+    expect(headline).not.toContain('<missing result>');
+    expect(detail).toContain('approved');
+    expect(detail).toContain('session');
+    expect(detail).toContain('ok');
+  });
 });

@@ -29,6 +29,7 @@ import { useSessionActivities } from '../activity/useSessionActivity';
 import type { InspectClient } from '../channel';
 import { useConnection } from '../connection';
 import { t } from '../i18n';
+import { createSession } from '../lib/createSession';
 import {
   fetchV2SessionGroups,
   fetchV2SessionsPage,
@@ -187,29 +188,27 @@ export function Sidebar({
     [groups.data],
   );
 
-  const createSession = async (ws: Workspace | null) => {
-    // With a workspace, the server derives workDir from workspace.root, so no cwd is needed.
-    let body: string;
-    if (ws !== null) {
-      body = JSON.stringify({ workspace_id: ws.id });
-    } else {
-      const cwd = window.prompt('Working directory for the new session:', '');
-      if (cwd === null || cwd.trim() === '') return;
-      body = JSON.stringify({ metadata: { cwd: cwd.trim() } });
+  const onCreateSession = async (ws: Workspace | null): Promise<void> => {
+    let cwd: string | undefined;
+    if (ws === null) {
+      const prompted = window.prompt('Working directory for the new session:', '');
+      if (prompted === null || prompted.trim() === '') return;
+      cwd = prompted.trim();
     }
-    const headers: Record<string, string> = { 'content-type': 'application/json' };
-    if (token !== '') headers['authorization'] = `Bearer ${token}`;
-    const res = await fetch(`${baseUrl}/api/v1/sessions`, {
-      method: 'POST',
-      headers,
-      body,
+    // With a workspace the server derives workDir from workspace.root, so no cwd is needed.
+    // Every failure mode comes back as a value — an HTTP status, a non-JSON body or
+    // a non-zero business code — so the turn never ends in an unobserved rejection.
+    const created = await createSession({
+      baseUrl,
+      token: authToken,
+      workspaceId: ws?.id,
+      cwd,
     });
-    const envelope = (await res.json()) as { code: number; msg: string; data: { id: string } };
-    if (envelope.code !== 0) {
-      window.alert(`create session failed: ${envelope.msg}`);
+    if (!created.ok) {
+      window.alert(`create session failed: ${created.reason}`);
       return;
     }
-    const sessionId = envelope.data.id;
+    const sessionId = created.sessionId;
     // The REST create route ignores agent_config, so bind the default model
     // over the channel — the same resume + setModel path the Model Catalog's
     // "+ Session" button uses. Best-effort: a failure leaves the session
@@ -274,7 +273,7 @@ export function Sidebar({
 
       {/* Toolbar: new session + sort */}
       <div className="flex items-center justify-between border-b border-neutral-800 px-2 py-1">
-        <NewSessionMenu workspaces={workspaces.data ?? []} onCreate={createSession} />
+        <NewSessionMenu workspaces={workspaces.data ?? []} onCreate={onCreateSession} />
         <button
           className="rounded border border-neutral-700 px-2 py-0.5 text-[11px] text-neutral-400 hover:bg-neutral-800"
           title="Click to change sort"

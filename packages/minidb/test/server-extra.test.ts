@@ -68,6 +68,41 @@ test('RESP: EXISTS / MSET / MGET / TTL', async () => {
     assert.equal(await send(sock, encode('EXISTS', 'a')), ':1\r\n');
     assert.equal(await send(sock, encode('EXISTS', 'z')), ':0\r\n');
     assert.equal(await send(sock, encode('MGET', 'a', 'b')), '*2\r\n$1\r\n1\r\n$1\r\n2\r\n');
+    // TTL must keep the Redis sentinels instead of dividing them by 1000
+    // (`Math.trunc(-1 / 1000)` is `-0`, which the wire prints as `:0`, so a
+    // missing key and a key with no expiry both looked like "expires now").
+    assert.equal(await send(sock, encode('TTL', 'nosuchkey')), ':-2\r\n');
+    assert.equal(await send(sock, encode('TTL', 'a')), ':-1\r\n');
+    // A live TTL is reported in whole seconds, rounded (not truncated) to the
+    // nearest one the way Redis does: `PX 1600` is already at ~1599 ms when it
+    // is read back, so truncation answers `:1` for a key with ~2 s left.
+    assert.equal(await send(sock, encode('SET', 'px', 'v', 'PX', '1600')), '+OK\r\n');
+    assert.equal(await send(sock, encode('TTL', 'px')), ':2\r\n');
+    sock.end();
+  } finally {
+    await srv.close();
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('RESP: MSET rejects an odd argument count without writing anything', async () => {
+  const dir = await tmpDir();
+  const srv = await startServer({ dir, port: 0, fsyncPolicy: 'no' });
+  try {
+    const sock = await connect(srv.port);
+    // A trailing key without a value used to be dropped silently and the
+    // command still answered +OK, so a truncated pipeline looked like a
+    // successful atomic batch. Nothing may be written when the arity is wrong.
+    assert.match(
+      await send(sock, encode('MSET', 'k1', 'v1', 'k2')),
+      /^-ERR wrong number of arguments/,
+    );
+    assert.equal(await send(sock, encode('GET', 'k1')), '$-1\r\n');
+    assert.equal(await send(sock, encode('GET', 'k2')), '$-1\r\n');
+    assert.match(await send(sock, encode('MSET')), /^-ERR wrong number of arguments/);
+    // The even form is still an atomic batch.
+    assert.equal(await send(sock, encode('MSET', 'k1', 'v1', 'k2', 'v2')), '+OK\r\n');
+    assert.equal(await send(sock, encode('MGET', 'k1', 'k2')), '*2\r\n$2\r\nv1\r\n$2\r\nv2\r\n');
     sock.end();
   } finally {
     await srv.close();

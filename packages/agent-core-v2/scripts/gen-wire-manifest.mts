@@ -742,7 +742,7 @@ function summarizeTsType(name: string, fromFile: string, budget: Budget): Sketch
 }
 
 function friendlyZodExpr(expr: string, ownerFile: string, depth = 0): Sketch {
-  let text = expr.replaceAll(/\s+/g, ' ').trim();
+  let text = expr.replaceAll(/\s+/g, ' ').replaceAll(/\s*\.\s*/g, '.').trim();
   let stripped = true;
   while (stripped) {
     stripped = false;

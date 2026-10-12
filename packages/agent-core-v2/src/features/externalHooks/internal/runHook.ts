@@ -31,6 +31,16 @@ export function buildHookSpawnOptions(options: {
 
 const DEFAULT_TIMEOUT_SECONDS = 30;
 const KILL_GRACE_MS = 100;
+const MAX_HOOK_OUTPUT_CHARS = 64 * 1024;
+const OUTPUT_TRUNCATED_MARKER = '\n[hook output truncated]';
+
+function appendCapped(current: string, chunk: string): { text: string; truncated: boolean } {
+  const remaining = MAX_HOOK_OUTPUT_CHARS - current.length;
+  if (remaining <= 0) return { text: current, truncated: chunk.length > 0 };
+  if (chunk.length <= remaining) return { text: current + chunk, truncated: false };
+  return { text: current + chunk.slice(0, remaining) + OUTPUT_TRUNCATED_MARKER, truncated: true };
+}
+
 const OptionalStringSchema = z.preprocess((value) => {
   if (value === undefined || value === null) return undefined;
   if (typeof value === 'string') return value;
@@ -80,6 +90,7 @@ export async function runHook(
   return new Promise<HookResult>((resolve) => {
     let stdout = '';
     let stderr = '';
+    let truncated = false;
     let settled = false;
     const timeoutMs = timeoutSeconds(options.timeout) * 1000;
 
@@ -98,10 +109,14 @@ export async function runHook(
     proc.stdout.setEncoding('utf8');
     proc.stderr.setEncoding('utf8');
     proc.stdout.on('data', (chunk: string) => {
-      stdout += chunk;
+      const appended = appendCapped(stdout, chunk);
+      stdout = appended.text;
+      truncated ||= appended.truncated;
     });
     proc.stderr.on('data', (chunk: string) => {
-      stderr += chunk;
+      const appended = appendCapped(stderr, chunk);
+      stderr = appended.text;
+      truncated ||= appended.truncated;
     });
 
     const stdoutDone = new Promise<void>((done) => proc.stdout.once('end', done));
@@ -109,36 +124,52 @@ export async function runHook(
     void Promise.all([proc.wait(), stdoutDone, stderrDone]).then(
       ([code]) => {
         void proc.dispose();
-        settle(resultFromExitCode(code, stdout, stderr));
+        settle(resultFromExitCode(code, stdout, stderr, truncated));
       },
       (error) => {
         void proc.dispose();
+        const failureStderr = stderr + errorMessage(error);
         if (options.failClosed === true) {
           settle(
             blockResult(
               'Permission hook errored while running',
               undefined,
-              stderr + errorMessage(error),
+              failureStderr,
+              truncated,
             ),
           );
           return;
         }
-        settle(allowResult({ stdout, stderr: stderr + errorMessage(error), errored: true }));
+        settle(
+          allowResult({
+            stdout,
+            stderr: failureStderr,
+            errored: true,
+            outputTruncated: truncated,
+          }),
+        );
       },
     );
 
     const timeout = setTimeout(() => {
       killProcess(proc);
       if (options.failClosed === true) {
-        settle(blockResult('Permission hook timed out', undefined, `${stderr} (timed out)`));
+        settle(
+          blockResult(
+            'Permission hook timed out',
+            undefined,
+            `${stderr} (timed out)`,
+            truncated,
+          ),
+        );
         return;
       }
-      settle(allowResult({ stdout, stderr, timedOut: true }));
+      settle(allowResult({ stdout, stderr, timedOut: true, outputTruncated: truncated }));
     }, timeoutMs);
 
     const onAbort = (): void => {
       killProcess(proc);
-      settle(allowResult({ stdout, stderr }));
+      settle(allowResult({ stdout, stderr, outputTruncated: truncated }));
     };
 
     options.signal?.addEventListener('abort', onAbort, { once: true });
@@ -156,7 +187,12 @@ function timeoutSeconds(timeout: number): number {
   return Number.isFinite(timeout) && timeout > 0 ? timeout : DEFAULT_TIMEOUT_SECONDS;
 }
 
-function resultFromExitCode(exitCode: number, stdout: string, stderr: string): HookResult {
+function resultFromExitCode(
+  exitCode: number,
+  stdout: string,
+  stderr: string,
+  outputTruncated: boolean,
+): HookResult {
   if (exitCode === 2) {
     const message = stderr.trim();
     return {
@@ -166,6 +202,7 @@ function resultFromExitCode(exitCode: number, stdout: string, stderr: string): H
       stdout,
       stderr,
       exitCode,
+      outputTruncated,
     };
   }
 
@@ -179,6 +216,7 @@ function resultFromExitCode(exitCode: number, stdout: string, stderr: string): H
       stderr,
       exitCode,
       structuredOutput: structured.structuredOutput,
+      outputTruncated,
     };
   }
 
@@ -188,6 +226,7 @@ function resultFromExitCode(exitCode: number, stdout: string, stderr: string): H
     stderr,
     exitCode,
     structuredOutput: structured?.structuredOutput,
+    outputTruncated,
   });
 }
 
@@ -232,6 +271,7 @@ function allowResult(input: {
   readonly timedOut?: boolean;
   readonly errored?: boolean;
   readonly structuredOutput?: boolean;
+  readonly outputTruncated?: boolean;
 }): HookResult {
   return {
     action: 'allow',
@@ -242,6 +282,7 @@ function allowResult(input: {
     timedOut: input.timedOut,
     errored: input.errored,
     structuredOutput: input.structuredOutput,
+    outputTruncated: input.outputTruncated,
   };
 }
 
@@ -261,6 +302,7 @@ function blockResult(
   reason: string,
   stdout: string | undefined,
   stderr: string | undefined,
+  outputTruncated?: boolean,
 ): HookResult {
   return {
     action: 'block',
@@ -268,6 +310,7 @@ function blockResult(
     reason,
     stdout,
     stderr,
+    outputTruncated,
   };
 }
 

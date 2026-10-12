@@ -22,8 +22,9 @@ import {
   getTextBuildWorkerRuntimeState,
   resetTextBuildWorkerRuntime,
 } from '../src/worker-runtime.js';
-import { buildTextArtifacts } from '../src/worker/text-build-core.js';
+import { buildTextArtifacts, SegmentReader } from '../src/worker/text-build-core.js';
 import type { TextBuildCoreSpec } from '../src/worker/text-build-core.js';
+import { encodePostingList, encodeRecord } from '../src/text-postings.js';
 import {
   startWorkerTextBuild,
   WorkerTextBuildError,
@@ -453,6 +454,52 @@ describe('build core (segmented external merge)', () => {
       await db.close();
     },
   );
+
+  test(
+    'a record larger than the reader window is read straight from the fd',
+    { timeout: 30_000 },
+    async () => {
+      const dir = await openTmp('seg-big-record');
+      const segPath = path.join(dir, 'text-ft.postings.seg-0');
+      const payload = encodePostingList([
+        [1, 1],
+        [2, 1],
+      ]);
+      const payloadLen = 1024 * 1024 + 1;
+      const padded = Buffer.concat([payload, Buffer.alloc(payloadLen - payload.length, 3)]);
+      const rec = encodeRecord('big', 2, padded);
+      // The reader window is 1 MiB: this record cannot fit it, so it must
+      // come from a direct positioned read instead of the window.
+      expect(rec.length).toBeGreaterThan(1 << 20);
+      expect(rec.readUInt32LE(2 + 3 + 4)).toBe(payloadLen);
+      await fs.writeFile(segPath, rec);
+
+      const reader = await SegmentReader.open(segPath);
+      try {
+        expect(reader.current).not.toBeNull();
+        expect(reader.current!.term).toBe('big');
+        expect(reader.current!.df).toBe(2);
+        expect(reader.current!.payload.length).toBe(payloadLen);
+        expect(reader.current!.payload.subarray(0, payload.length)).toEqual(payload);
+        // Every byte past the encoded pairs is the pad actually staged on disk.
+        expect(
+          reader.current!.payload.subarray(payload.length).every((b) => b === 3),
+        ).toBe(true);
+        await reader.advance();
+        expect(reader.current).toBeNull();
+      } finally {
+        reader.close();
+      }
+    },
+  );
+
+  test('a segment record overrunning the file fails instead of spinning', async () => {
+    const dir = await openTmp('seg-truncated');
+    const segPath = path.join(dir, 'text-ft.postings.seg-0');
+    const rec = encodeRecord('trunc', 1, encodePostingList([[1, 1]]));
+    await fs.writeFile(segPath, rec.subarray(0, rec.length - 4));
+    await expect(SegmentReader.open(segPath)).rejects.toThrow(/overruns the file/);
+  });
 
   test('pinned WAL prefix: appends past the checkpoint are invisible to the build', async () => {
     const dir = await openTmp('pin');

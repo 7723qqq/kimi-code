@@ -14,7 +14,12 @@ import type {
 
 import type { Environment } from './environment';
 import { KaosError, KaosFileExistsError, KaosValueError } from './errors';
-import { BufferedReadable, decodeTextWithErrors, globPatternToRegex } from './internal';
+import {
+  BufferedReadable,
+  decodeTextWithErrors,
+  globPatternToRegex,
+  splitLinesKeepingTerminator,
+} from './internal';
 import type { Kaos } from './kaos';
 import type { KaosProcess } from './process';
 import type { StatResult } from './types';
@@ -38,6 +43,10 @@ const DEFAULT_SFTP_STATUS_CODE = {
   OP_UNSUPPORTED: 8,
   PERMISSION_DENIED: 3,
 } as const;
+
+// How long `SSHKaos.close()` waits for the transport's `close` event before
+// forcing the issue with `Client.destroy()`.
+const SSH_CLOSE_TIMEOUT_MS = 5_000;
 
 // ── SSH options ────────────────────────────────────────────────────────
 
@@ -531,6 +540,12 @@ export class SSHKaos implements Kaos {
   private _home: string;
   private _cwd: string;
   private readonly _envLayers: readonly Record<string, string>[];
+  /**
+   * Set once the transport is known to be gone — by `close()`, or by the
+   * client emitting `close`/`error` on its own. `close()` returns immediately
+   * afterwards: the event it used to await has already fired.
+   */
+  private _closed: boolean = false;
 
   /**
    * OS / shell probe of the remote host, captured once during `create()`.
@@ -553,7 +568,18 @@ export class SSHKaos implements Kaos {
     this._cwd = cwd;
     this.osEnv = osEnv;
     this._envLayers = envLayers;
+    // Track the transport's own death: an idle timeout or a dropped link
+    // emits `close` with nobody listening, and then `close()` must not wait
+    // for an event that will never fire again. Test doubles and hand-built
+    // instances may pass a client that is not an EventEmitter, hence the guard.
+    const trackable = this._client as Partial<Pick<Client, 'on'>>;
+    trackable.on?.('close', this._onClientClose);
+    trackable.on?.('error', this._onClientClose);
   }
+
+  private readonly _onClientClose = (): void => {
+    this._closed = true;
+  };
 
   withCwd(cwd: string): SSHKaos {
     return new SSHKaos(this._client, this._sftp, this._home, cwd, this.osEnv, this._envLayers);
@@ -824,22 +850,11 @@ export class SSHKaos implements Kaos {
     path: string,
     options?: { encoding?: BufferEncoding; errors?: 'strict' | 'replace' | 'ignore' },
   ): AsyncGenerator<string> {
-    // SFTP does not support streaming line reads; read all then split.
-    // Match Python's splitlines() semantics: returned lines do NOT include
-    // the line terminator, and a trailing newline does not create an extra
-    // empty line.
+    // SFTP does not support streaming line reads; read all then split with the
+    // same helper LocalKaos uses, so both implementations agree on what a line
+    // is: terminators are kept, only `\n` splits, a lone `\r` is content.
     const text = await this.readText(this._resolvePath(path), options);
-    if (text === '') {
-      return;
-    }
-
-    const lines = text.split(/\r\n|[\n\r]/u);
-    if (/(?:\r\n|[\n\r])$/u.test(text)) {
-      lines.pop();
-    }
-    for (const line of lines) {
-      yield line ?? '';
-    }
+    yield* splitLinesKeepingTerminator(text);
   }
 
   async writeBytes(path: string, data: Buffer): Promise<number> {
@@ -1048,14 +1063,37 @@ export class SSHKaos implements Kaos {
 
   /**
    * Close the SSH connection. After this, the SSHKaos instance is unusable.
+   * Idempotent, and bounded: a connection that is already gone (or a client
+   * that never reports the close) settles instead of hanging the caller.
    */
-  close(): Promise<void> {
-    this._sftp.end();
-    return new Promise<void>((resolve) => {
-      this._client.once('close', () => {
-        resolve();
-      });
-      this._client.end();
-    });
+  async close(): Promise<void> {
+    if (this._closed) return;
+    this._closed = true;
+    try {
+      this._sftp.end();
+    } catch (error) {
+      process.stderr.write(
+        `[kaos/ssh] SFTP teardown failed during close(): ${error instanceof Error ? error.message : String(error)}\n`,
+      );
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const closed = await Promise.race([
+      new Promise<boolean>((resolve) => {
+        this._client.once('close', () => {
+          resolve(true);
+        });
+        this._client.end();
+      }),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(() => {
+          resolve(false);
+        }, SSH_CLOSE_TIMEOUT_MS);
+        timer.unref?.();
+      }),
+    ]);
+    clearTimeout(timer);
+    if (!closed) {
+      this._client.destroy();
+    }
   }
 }

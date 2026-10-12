@@ -68,6 +68,9 @@ export interface ContextProjection {
   planMode: { active: boolean; id?: string };
   goal: GoalSnapshot | null;
   swarm: { active: boolean; trigger?: string };
+  /** Records skipped because their payload did not match the expected shape
+   *  (see the per-record guards below). Empty on a clean fold. */
+  warnings: string[];
 }
 
 const ZERO: TokenUsage = { inputOther: 0, output: 0, inputCacheRead: 0, inputCacheCreation: 0 };
@@ -117,6 +120,10 @@ export function projectContext(
     byModel: {},
   };
   const config: ConfigSnapshot = {};
+  /** Caveats collected while folding records: malformed payloads that were
+   *  skipped instead of throwing. Surfaced by `/context` alongside the
+   *  wire-reader/blob-resolver warnings. */
+  const warnings: string[] = [];
   let permissionMode: PermissionMode | null = null;
   let planActive = false;
   let planId: string | undefined;
@@ -260,16 +267,26 @@ export function projectContext(
       case 'context.replace_tool_result': {
         // Fork-only durable record (Rust engine prediction fast-path): the
         // precise result overwrites the recorded prediction content.
+        //
+        // `result`/`result.output` shape is asserted by the type only — the
+        // wire-reader parses whatever JSON is on disk, so an imported or
+        // hand-edited record can reach us without either. A malformed payload
+        // keeps the recorded prediction and is reported instead of throwing
+        // (which would 500 the whole /context route).
+        const output: unknown = (rec as { result?: { output?: unknown } }).result?.output;
         for (let i = messages.length - 1; i >= 0; i--) {
           const candidate = messages[i];
           if (candidate === undefined) continue;
           const msg = candidate.message;
           if (msg.role === 'tool' && msg.toolCallId === rec.toolCallId) {
-            const content =
-              typeof rec.result.output === 'string'
-                ? [{ type: 'text' as const, text: rec.result.output }]
-                : [...rec.result.output];
-            candidate.message = { ...msg, content };
+            const replaced = replaceToolResultContent(msg, output);
+            if (replaced === undefined) {
+              warnings.push(
+                `line ${entry.lineNo}: context.replace_tool_result skipped: malformed 'result.output'`,
+              );
+            } else {
+              candidate.message = replaced;
+            }
             break;
           }
         }
@@ -412,10 +429,24 @@ export function projectContext(
         // byScope keeps per-scope cumulative spend. This is NOT the live context-window
         // fill — that is `contextTokens` (latest step.end.usage). The web TokenBar shows
         // contextTokens; byScope/byModel are for the cumulative breakdown only.
-        const scope = (rec.usageScope ?? 'session') as 'session' | 'turn';
-        addUsage(usage.byScope[scope], rec.usage);
+        //
+        // The engine types `usageScope` as `z.custom<UsageRecordScope>()` (no
+        // runtime validation) and we read raw JSON, so an unexpected value must
+        // not pick a non-existent bucket: unknown → 'session', like a missing
+        // scope. `usage` itself can be missing/garbage on an imported or
+        // hand-edited wire; unknown fields then count as 0 so an amount is
+        // never silently dropped from a KNOWN bucket.
+        const scope: 'session' | 'turn' = rec.usageScope === 'turn' ? 'turn' : 'session';
+        usage.byScope[scope] ??= { ...ZERO };
+        const numeric = readUsage(rec.usage);
+        if (numeric === undefined) {
+          warnings.push(
+            `line ${entry.lineNo}: usage.record had no numeric usage fields, counted as 0`,
+          );
+        }
+        addUsage(usage.byScope[scope], numeric ?? ZERO);
         usage.byModel[rec.model] ??= { ...ZERO };
-        addUsage(usage.byModel[rec.model]!, rec.usage);
+        addUsage(usage.byModel[rec.model]!, numeric ?? ZERO);
         break;
       }
       case 'config.update': {
@@ -655,14 +686,53 @@ export function projectContext(
     planMode: { active: planActive, id: planId },
     goal,
     swarm,
+    warnings,
   };
 }
 
-function addUsage(into: TokenUsage, src: TokenUsage): void {
+function addUsage(into: TokenUsage | undefined, src: TokenUsage | undefined): void {
+  if (into === undefined || src === undefined) return;
   (into as any).inputOther += src.inputOther;
   (into as any).output += src.output;
   (into as any).inputCacheRead += src.inputCacheRead;
   (into as any).inputCacheCreation += src.inputCacheCreation;
+}
+
+/** Read the four numeric usage fields out of an untrusted payload, treating
+ *  a missing / non-numeric field as 0. Returns `undefined` when NONE of them
+ *  is a number, so the caller can report the record instead of silently
+ *  adding a zero row. */
+function readUsage(value: unknown): TokenUsage | undefined {
+  if (value === null || typeof value !== 'object') return undefined;
+  const rec = value as Record<string, unknown>;
+  const num = (field: unknown): number =>
+    typeof field === 'number' && Number.isFinite(field) ? field : 0;
+  const usage: TokenUsage = {
+    inputOther: num(rec['inputOther']),
+    output: num(rec['output']),
+    inputCacheRead: num(rec['inputCacheRead']),
+    inputCacheCreation: num(rec['inputCacheCreation']),
+  };
+  const known = ['inputOther', 'output', 'inputCacheRead', 'inputCacheCreation'].some(
+    (field) => typeof rec[field] === 'number',
+  );
+  return known ? usage : undefined;
+}
+
+/** Apply a `context.replace_tool_result` payload to a tool message. Returns
+ *  the updated message, or `undefined` when `output` is not a string / content
+ *  part array — the caller then keeps the recorded prediction and warns. */
+function replaceToolResultContent(
+  msg: ContextMessage,
+  output: unknown,
+): ContextMessage | undefined {
+  if (typeof output === 'string') {
+    return { ...msg, content: [{ type: 'text', text: output }] };
+  }
+  if (Array.isArray(output)) {
+    return { ...msg, content: output as ContentPart[] };
+  }
+  return undefined;
 }
 
 const MICRO_TRUNCATED_MARKER = '[Old tool result content cleared]';

@@ -1,6 +1,7 @@
 import type { IFileSystemStorageService } from '#/persistence/interface/storage';
 import {
   type StorageAppendOptions,
+  type StorageListOptions,
   type StorageReadRange,
   type StorageWriteOptions,
 } from '#/persistence/interface/storage';
@@ -86,7 +87,11 @@ export class InMemoryStorageService implements IFileSystemStorageService {
     this.mtimes.set(this.keyFor(scope, key), Date.now());
   }
 
-  async list(scope: string, prefix?: string): Promise<readonly string[]> {
+  async list(
+    scope: string,
+    prefix?: string,
+    _options: StorageListOptions = {},
+  ): Promise<readonly string[]> {
     const bucket = this.scopes.get(scope);
     if (bucket === undefined) return [];
     const keys = [...bucket.keys()];

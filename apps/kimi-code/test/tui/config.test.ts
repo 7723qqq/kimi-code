@@ -9,6 +9,7 @@ import {
   getInvalidTuiConfigMessage,
   loadTuiConfig,
   parseTuiConfig,
+  renderTuiConfig,
   saveTuiConfig,
   TuiConfigParseError,
 } from '#/tui/config';
@@ -72,7 +73,6 @@ auto_install = false
       editorCommand: 'code --wait',
       notifications: { enabled: false, condition: 'always' },
       upgrade: { autoInstall: false },
-      astron: { stream: true, temperature: 1, maxTokens: 32768, searchDisable: true },
       statusLine: { items: null, command: null },
       markdown: { mermaid: 'final' },
     });
@@ -116,6 +116,19 @@ disable_feedback_survey = true
     expect(config.disableFeedbackSurvey).toBe(true);
   });
 
+  it('ignores a hand-written [astron] section instead of round-tripping it', () => {
+    const warnings: string[] = [];
+    const config = parseTuiConfig('[astron]\ntemperature = 0.5\n', (message) =>
+      warnings.push(message),
+    );
+
+    expect('astron' in config).toBe(false);
+    expect(renderTuiConfig(config)).not.toContain('[astron]');
+    expect(warnings).toEqual([
+      '[tui.toml] [astron] is ignored; the Astron panel writes [providers.astron] in config.toml',
+    ]);
+  });
+
   it('normalizes an empty editor command to auto-detect', () => {
     const config = parseTuiConfig(`
 [editor]
@@ -133,7 +146,6 @@ command = "   "
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },
-      astron: { stream: true, temperature: 1, maxTokens: 32768, searchDisable: true },
       statusLine: { items: null, command: null },
       markdown: { mermaid: 'final' },
     });
@@ -170,7 +182,6 @@ command = "   "
         editorCommand: 'vim',
         notifications: { enabled: false, condition: 'always' },
         upgrade: { autoInstall: false },
-        astron: { stream: true, temperature: 0.7, maxTokens: 4096, searchDisable: false },
         statusLine: { items: null, command: null },
       },
       filePath,
@@ -187,7 +198,6 @@ command = "   "
       editorCommand: 'vim',
       notifications: { enabled: false, condition: 'always' },
       upgrade: { autoInstall: false },
-      astron: { stream: true, temperature: 0.7, maxTokens: 4096, searchDisable: false },
       statusLine: { items: null, command: null },
       markdown: { mermaid: 'final' },
     });
@@ -214,7 +224,6 @@ command = "   "
         editorCommand: null,
         notifications: DEFAULT_TUI_CONFIG.notifications,
         upgrade: DEFAULT_TUI_CONFIG.upgrade,
-        astron: DEFAULT_TUI_CONFIG.astron,
         statusLine: DEFAULT_TUI_CONFIG.statusLine,
       },
       filePath,

@@ -1,13 +1,47 @@
 import { readFile, mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, dirname, join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { createKimiHarness, flushDiagnosticLogs, log } from '#/index';
-import { __resetRootLoggerForTest, getRootLogger } from '#/logging/index';
+import { __resetRootLoggerForTest, getRootLogger, RotatingFileSink } from '#/logging/index';
 
 import { TEST_IDENTITY } from './test-identity';
+
+// A transparent `open()` wrapper: real file handles everywhere, except that an
+// append whose payload contains `sinkFault.failOn` rejects with EIO. Lets the
+// sink tests simulate a mid-batch disk failure (ENOSPC/EIO) without touching
+// the fs layer the harness tests in this file depend on.
+const sinkFault = vi.hoisted(() => ({ failOn: undefined as string | undefined }));
+
+const SINK_FAULT_MARKER = '@@sink-fault@@';
+
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>();
+  return {
+    ...actual,
+    open: async (...args: Parameters<typeof actual.open>) => {
+      const handle = await actual.open(...args);
+      const original = handle.appendFile.bind(handle) as (
+        data: string | Uint8Array,
+        ...rest: unknown[]
+      ) => Promise<void>;
+      (handle as unknown as { appendFile: unknown }).appendFile = async (
+        data: string | Uint8Array,
+        ...rest: unknown[]
+      ): Promise<void> => {
+        const text = typeof data === 'string' ? data : Buffer.from(data).toString('utf-8');
+        const marker = sinkFault.failOn;
+        if (marker !== undefined && text.includes(marker)) {
+          throw Object.assign(new Error('EIO: simulated append failure'), { code: 'EIO' });
+        }
+        await original(data, ...rest);
+      };
+      return handle;
+    },
+  };
+});
 
 const tempDirs: string[] = [];
 
@@ -83,9 +117,23 @@ describe('Local logging — harness integration', () => {
     const exposed = Object.keys(sdk);
     expect(exposed).toContain('log');
     expect(exposed).toContain('flushDiagnosticLogs');
+    expect(exposed).toContain('configureDiagnosticLogging');
     expect(exposed).not.toContain('getLogger');
     expect(exposed).not.toContain('getRootLogger');
     expect(exposed).not.toContain('installProcessCrashHandlers');
+  });
+
+  it('writes host-side log lines after harness construction without a manual configure', async () => {
+    const homeDir = await makeTempDir('kimi-log-home-');
+    const harness = createKimiHarness({ identity: TEST_IDENTITY, homeDir });
+    try {
+      log.error('boom');
+      await flushDiagnosticLogs();
+      const text = await readFile(join(homeDir, 'logs', 'kimi-code.log'), 'utf-8');
+      expect(text).toContain('boom');
+    } finally {
+      await harness.close();
+    }
   });
 
   it('checks that an empty session log directory does not get a log file', async () => {
@@ -156,5 +204,96 @@ describe('Local logging — port unit behavior', () => {
     expect(text).toContain('warn should land');
     expect(text).not.toContain('info should be filtered');
     await __resetRootLoggerForTest();
+  });
+});
+
+
+describe('RotatingFileSink — partial drain recovery', () => {
+  // One line per chunk: small enough that a failure on the second chunk means
+  // the first one was already written (and rotated) to disk.
+  const SINK_MAX_BYTES = 64;
+  const SINK_FILES = 5;
+
+  function makeSink(path: string): RotatingFileSink {
+    return new RotatingFileSink({ path, maxBytes: SINK_MAX_BYTES, files: SINK_FILES });
+  }
+
+  // Rotation moves `kimi-code.log` to `.1`, `.2`, …; a line's fate can only be
+  // judged against the whole tree.
+  async function readLogTree(logPath: string): Promise<string> {
+    const dir = dirname(logPath);
+    const name = basename(logPath);
+    let names: string[] = [];
+    try {
+      names = await readdir(dir);
+    } catch {
+      return '';
+    }
+    const parts: string[] = [];
+    for (const file of names.filter((n) => n === name || n.startsWith(`${name}.`)).sort()) {
+      parts.push(await readFile(join(dir, file), 'utf-8'));
+    }
+    return parts.join('');
+  }
+
+  beforeEach(() => {
+    sinkFault.failOn = undefined;
+  });
+
+  afterEach(() => {
+    sinkFault.failOn = undefined;
+  });
+
+  it('does not rewrite a chunk that already reached the file when a later chunk fails', async () => {
+    const homeDir = await makeTempDir('kimi-log-sink-');
+    const logPath = join(homeDir, 'logs', 'kimi-code.log');
+    const sink = makeSink(logPath);
+    const first = `first-chunk-${'p'.repeat(40)}\n`;
+    const second = `second-chunk-${SINK_FAULT_MARKER}\n`;
+    const third = `third-chunk-${'p'.repeat(40)}\n`;
+
+    // The fault is armed before the first line is queued, so the drain the
+    // sink schedules from `enqueue` (a microtask) fails too — the failing
+    // path is what is under test, not a lucky successful write.
+    sinkFault.failOn = SINK_FAULT_MARKER;
+    sink.enqueue(first);
+    sink.enqueue(second);
+    sink.enqueue(third);
+    expect(await sink.flush()).toBe(false);
+
+    sinkFault.failOn = undefined;
+    expect(await sink.flush()).toBe(true);
+
+    const text = await readLogTree(logPath);
+    // The first chunk landed before the failure; re-queuing the whole batch
+    // wrote it a second time.
+    expect(text.split(first).length - 1).toBe(1);
+    expect(text).toContain('second-chunk-');
+    expect(text).toContain('third-chunk-');
+  });
+
+  it('reports buffered entries dropped on close when the final drain still fails', async () => {
+    const homeDir = await makeTempDir('kimi-log-sink-');
+    const logPath = join(homeDir, 'logs', 'kimi-code.log');
+    const sink = makeSink(logPath);
+    sinkFault.failOn = SINK_FAULT_MARKER;
+    sink.enqueue(`doomed-a-${SINK_FAULT_MARKER}\n`);
+    sink.enqueue(`doomed-b-${SINK_FAULT_MARKER}\n`);
+
+    const stderrChunks: string[] = [];
+    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: unknown) => {
+      stderrChunks.push(String(chunk));
+      return true;
+    });
+    try {
+      await sink.close();
+    } finally {
+      writeSpy.mockRestore();
+      sinkFault.failOn = undefined;
+    }
+
+    const dropped = stderrChunks.find((chunk) => chunk.includes('dropped'));
+    expect(dropped).toBeDefined();
+    expect(dropped).toContain('2');
   });
 });

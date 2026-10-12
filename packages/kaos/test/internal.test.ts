@@ -1,10 +1,20 @@
 import { once } from 'node:events';
+import { mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { PassThrough } from 'node:stream';
 import { setImmediate as defer, setTimeout as delay } from 'node:timers/promises';
 
 import { describe, expect, it } from 'vitest';
 
-import { BufferedReadable, decodeTextWithErrors, globPatternToRegex } from '#/internal';
+import {
+  BufferedReadable,
+  decodeTextWithErrors,
+  globPatternToRegex,
+  splitLinesKeepingTerminator,
+} from '#/internal';
+import { LocalKaos } from '#/local';
+import { SSHKaos } from '#/ssh';
 
 async function collectBytes(readable: AsyncIterable<Uint8Array | string>): Promise<Buffer> {
   const chunks: Buffer[] = [];
@@ -275,6 +285,29 @@ describe('globPatternToRegex additional cases', () => {
     expect(regex.test('file\\.txt')).toBe(true);
     expect(regex.test('filez.txt')).toBe(false);
   });
+
+  it('matches a literal `*` when it is backslash-escaped', () => {
+    // `\*` is the only way to say "a literal asterisk" in a glob pattern.
+    // Emitting an unescaped `*` turns it into a quantifier: `a\*` used to
+    // match `aaa` and miss the literal `a*` file.
+    const regex = globPatternToRegex('a\\*', true);
+    expect(regex.test('a*')).toBe(true);
+    expect(regex.test('aaa')).toBe(false);
+    expect(regex.test('a')).toBe(false);
+  });
+
+  it('builds a valid regex for a pattern that is only an escaped wildcard', () => {
+    // `\*` alone used to produce `/^*/` → `SyntaxError: nothing to repeat`.
+    const regex = globPatternToRegex('\\*', true);
+    expect(regex.test('*')).toBe(true);
+    expect(regex.test('abc')).toBe(false);
+    expect(regex.test('')).toBe(false);
+
+    const question = globPatternToRegex('\\?', true);
+    expect(question.test('?')).toBe(true);
+    expect(question.test('a')).toBe(false);
+    expect(question.test('')).toBe(false);
+  });
 });
 
 describe('globPatternToRegex', () => {
@@ -339,5 +372,64 @@ describe('globPatternToRegex', () => {
       expect(regex.test('foo.txt')).toBe(false);
       expect(regex.test('a/b/foo.txt')).toBe(false);
     });
+  });
+});
+
+describe('readLines semantics shared by LocalKaos and SSHKaos', () => {
+  // Same inputs, both implementations: the yielded line sequences must agree
+  // byte for byte. `splitLinesKeepingTerminator` is the shared definition of a
+  // line — terminators kept, only LF splits, a lone CR is content, empty file
+  // yields nothing — so the helper assertions here cover both.
+  const FIXTURES: Array<[string, string]> = [
+    ['multiline LF', 'line1\nline2\nline3\n'],
+    ['no trailing newline', 'line1\nline2'],
+    ['single line', 'only'],
+    ['single newline', '\n'],
+    ['empty', ''],
+    ['crlf', 'a\r\nb\r\n'],
+    ['lone cr', 'a\rB\n'],
+    ['cr only', 'a\rb'],
+  ];
+
+  function fakeSshKaos(content: Buffer): SSHKaos {
+    const sftp = {
+      readFile(_path: string, cb: (err: Error | null, data: Buffer) => void): void {
+        cb(null, content);
+      },
+    };
+    const instance = Object.create(SSHKaos.prototype) as SSHKaos;
+    const internals = instance as unknown as { _sftp: unknown; _cwd: string; _home: string };
+    internals._sftp = sftp;
+    internals._cwd = '/';
+    internals._home = '/';
+    return instance;
+  }
+
+  async function collect(generator: AsyncGenerator<string>): Promise<string[]> {
+    const lines: string[] = [];
+    for await (const line of generator) {
+      lines.push(line);
+    }
+    return lines;
+  }
+
+  it('yields identical line sequences from LocalKaos and SSHKaos', async () => {
+    const kaos = await LocalKaos.create();
+    const dir = await realpath(await mkdtemp(join(tmpdir(), 'kaos-lines-')));
+    try {
+      for (const [name, content] of FIXTURES) {
+        const path = join(dir, `${name.replaceAll(' ', '-')}.txt`);
+        await writeFile(path, content, 'utf-8');
+
+        const fromLocal = await collect(kaos.readLines(path));
+        const fromSsh = await collect(fakeSshKaos(Buffer.from(content, 'utf-8')).readLines(path));
+        const fromHelper = [...splitLinesKeepingTerminator(content)];
+
+        expect(fromLocal, name).toEqual(fromHelper);
+        expect(fromSsh, name).toEqual(fromLocal);
+      }
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });

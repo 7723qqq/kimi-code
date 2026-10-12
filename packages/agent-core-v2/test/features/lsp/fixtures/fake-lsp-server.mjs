@@ -2,6 +2,9 @@ import { Buffer } from 'node:buffer';
 
 const crashAfter = Number(process.env.FAKE_LSP_CRASH_AFTER ?? '0');
 const slowMs = Number(process.env.FAKE_LSP_SLOW_MS ?? '0');
+const silentInitialize = process.env.FAKE_LSP_SILENT_INITIALIZE === '1';
+const malformedFrame = process.env.FAKE_LSP_MALFORMED_FRAME === '1';
+const positionEncoding = process.env.FAKE_LSP_POSITION_ENCODING;
 let queryCount = 0;
 
 let buffer = Buffer.alloc(0);
@@ -44,11 +47,13 @@ function handleMessage(message) {
   if (message.id === undefined) return;
 
   if (message.method === 'initialize') {
+    if (silentInitialize) return;
     send({
       jsonrpc: '2.0',
       id: message.id,
       result: {
         capabilities: {
+          ...(positionEncoding === undefined ? {} : { positionEncoding }),
           definitionProvider: true,
           referencesProvider: true,
           implementationProvider: true,
@@ -62,6 +67,10 @@ function handleMessage(message) {
   queryCount += 1;
   if (crashAfter > 0 && queryCount >= crashAfter) {
     process.exit(1);
+    return;
+  }
+  if (malformedFrame) {
+    process.stdout.write(Buffer.from('Content-Length: 4\r\n\r\nnope', 'utf8'));
     return;
   }
 

@@ -71,7 +71,7 @@ export class AsyncTransport {
     };
     if (signal?.aborted === true) {
       saveEventsToDisk();
-      throw abortError();
+      throw new TelemetryPersistedError('telemetry batch persisted before an aborted send');
     }
 
     let payload: TelemetryPayload;
@@ -89,7 +89,7 @@ export class AsyncTransport {
         } catch (error) {
           if (isSignalAborted(signal) || isAbortError(error)) {
             saveEventsToDisk();
-            throw error;
+            throw new TelemetryPersistedError('telemetry batch persisted after an aborted send');
           }
           if (!(error instanceof TransientTelemetryError)) {
             break;
@@ -100,9 +100,10 @@ export class AsyncTransport {
         }
       }
     } catch (error) {
+      if (error instanceof TelemetryPersistedError) throw error;
       if (isSignalAborted(signal) || isAbortError(error)) {
         saveEventsToDisk();
-        throw error;
+        throw new TelemetryPersistedError('telemetry batch persisted after an aborted backoff');
       }
     }
 
@@ -230,6 +231,8 @@ export class AsyncTransport {
 export class TransientTelemetryError extends Error {
   override readonly name = 'TransientTelemetryError';
 }
+
+export class TelemetryPersistedError extends Error {}
 
 export function buildUserId(deviceId: string): string {
   return USER_ID_PREFIX + deviceId;

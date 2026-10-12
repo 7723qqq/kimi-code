@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  isThinkingOn,
   thinkingEffortFromConfig,
   thinkingEffortToConfig,
 } from '@/tui/utils/thinking-config';
@@ -100,18 +99,6 @@ describe('thinkingEffortToConfig', () => {
       ).toEqual(expected);
     },
   );
-});
-
-describe('isThinkingOn', () => {
-  it.each([
-    ['off', false],
-    ['on', true],
-    ['low', true],
-    ['high', true],
-    ['max', true],
-  ] as const)('%s → %s', (effort, expected) => {
-    expect(isThinkingOn(effort)).toBe(expected);
-  });
 });
 
 describe('thinkingEffortFromConfig', () => {

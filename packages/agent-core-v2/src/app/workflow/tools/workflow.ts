@@ -30,6 +30,12 @@ export const WorkflowToolInputSchema = z
     args: z.string().optional().describe('Arguments to pass to the workflow (for `run`).'),
     run_id: z.string().optional().describe('Workflow run ID (for `status`, `wait`, `cancel`).'),
     timeout_ms: z.number().optional().describe('Timeout in milliseconds (for `wait`).'),
+    deadline_ms: z
+      .number()
+      .optional()
+      .describe(
+        'Total runtime limit in milliseconds for the script (for `run`). Defaults to 1800000 (30 minutes).',
+      ),
   })
   .strict();
 
@@ -116,6 +122,7 @@ export class WorkflowTool implements IWorkflowTool {
       sessionContext: this.sessionContext,
       lifecycle: this.lifecycle,
       subagents: this.subagents,
+      ...(args.deadline_ms !== undefined ? { deadlineMs: args.deadline_ms } : {}),
     });
 
     return {

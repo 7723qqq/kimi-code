@@ -13,6 +13,7 @@ import type { Handler, HandlerContext } from "./types";
 
 interface GetProjectFilesParams {
   query?: string;
+  directory?: string;
 }
 interface PickMediaParams { maxCount?: number; includeVideo?: boolean }
 interface FilePathParams { filePath: string }
@@ -37,11 +38,18 @@ const FILE_SUGGEST_LIMIT = 20;
 
 const getProjectFiles: Handler<GetProjectFilesParams | undefined, ProjectFile[]> = async (params, ctx) => {
   if (!ctx.workDirUri || !ctx.workDir) return [];
+  if (params?.directory !== undefined) {
+    const entries = await ctx.fileManager.listDirectory(ctx.requireWorkDirUri(), params.directory);
+    if (entries !== undefined) return entries;
+    return ctx.fileManager.searchFiles(ctx.workDirUri, params.directory);
+  }
   const suggested = await suggestFiles(ctx, params?.query ?? "");
   if (suggested !== undefined) return suggested;
   return ctx.fileManager.searchFiles(ctx.workDirUri, params?.query);
 };
 
+// `undefined` means "the engine cannot answer right now"; the caller then falls
+// back to its own workspace search. An empty array is a real empty result.
 async function suggestFiles(ctx: HandlerContext, query: string): Promise<ProjectFile[] | undefined> {
   try {
     const result = await ctx.harness.suggestFiles(ctx.requireWorkDir(), { query, limit: FILE_SUGGEST_LIMIT });
@@ -53,8 +61,18 @@ async function suggestFiles(ctx: HandlerContext, query: string): Promise<Project
       matchPositions: [...item.matchPositions],
     }));
   } catch (error) {
-    ctx.logError("File suggest failed", error);
-    return [];
+    ctx.logError("File suggest failed; falling back to workspace search", error);
+    return undefined;
+  }
+}
+
+// A real path may contain a stray `%` (`shots/50%-done.png`), which
+// `decodeURIComponent` rejects; callers may also pass an already-encoded path.
+function safeDecode(value: string): string | undefined {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return undefined;
   }
 }
 
@@ -177,7 +195,13 @@ const checkFilesExist: Handler<CheckFilesExistParams, Record<string, boolean>> =
 
 const getImageDataUri: Handler<FilePathParams, string | null> = async ({ filePath }, ctx) => {
   if (!ctx.workDirUri) return null;
-  const resolved = await resolveExistingWorkspaceFile(ctx.workDirUri, decodeURIComponent(filePath));
+  // Literal path first, like every sibling handler; only then retry with a
+  // percent-decoded form so `a%20b.png` still reaches a real `a b.png`.
+  let resolved = await resolveExistingWorkspaceFile(ctx.workDirUri, filePath);
+  const decoded = safeDecode(filePath);
+  if (resolved === undefined && decoded !== undefined && decoded !== filePath) {
+    resolved = await resolveExistingWorkspaceFile(ctx.workDirUri, decoded);
+  }
   if (resolved === undefined) return null;
   const mime = IMAGE_MIME_TYPES[path.extname(resolved.relativePath).toLowerCase()];
   if (!mime) return null;

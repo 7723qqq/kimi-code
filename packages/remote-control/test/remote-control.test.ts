@@ -21,6 +21,8 @@ import {
   buildRemoteControlUrl,
   filterForwardRequestHeaders,
   parseRawHttpRequest,
+  REMOTE_CONTROL_ORIGIN_FIX_PATH,
+  REMOTE_CONTROL_ORIGIN_FIX_SCRIPT,
   resolveRemoteControlRelayOrigin,
   rewriteRemoteControlResponse,
   startRemoteControl,
@@ -116,10 +118,14 @@ describe('Remote Control HTTP forwarding', () => {
     ).toString();
     expect(html).toContain(`src="${prefix}/boot.js"`);
     expect(html).toContain(`href="${prefix}/x"`);
-    expect(html).toContain(
+    expect(html).toContain(`src="${prefix}${REMOTE_CONTROL_ORIGIN_FIX_PATH}"`);
+    expect(html).not.toContain('sessionStorage.setItem(');
+    expect(html).not.toContain('history.pushState=w(history.pushState)');
+    expect(REMOTE_CONTROL_ORIGIN_FIX_SCRIPT).toContain(
       "sessionStorage.setItem('kimi-desktop-server-origin',location.origin+p)",
     );
-    expect(html).toContain('history.pushState=w(history.pushState)');
+    expect(REMOTE_CONTROL_ORIGIN_FIX_SCRIPT).toContain('history.pushState=w(history.pushState)');
+    expect(REMOTE_CONTROL_ORIGIN_FIX_SCRIPT).toContain('document.currentScript.src');
 
     const js = rewriteRemoteControlResponse(
       'text/javascript',
@@ -445,6 +451,10 @@ describe('Remote Control tunnel', () => {
     expect(localHttpRequest?.headers['accept-encoding']).toBeUndefined();
     expect(response).toContain('Cache-Control: no-cache');
     expect(response).toContain(`/coding-relay/devices/${handle.deviceId}/boot.js`);
+    expect(response).toContain(
+      `<script src="/coding-relay/devices/${handle.deviceId}${REMOTE_CONTROL_ORIGIN_FIX_PATH}"></script>`,
+    );
+    expect(response).not.toContain('sessionStorage.setItem(');
 
     currentToken = 'rotated-server-token';
     const rotatedResponsePromise = nextJsonMessage(httpConnections[0]!);
@@ -672,6 +682,198 @@ describe('Remote Control tunnel', () => {
       ),
     );
   });
+
+  it('rejects a stream of zero-byte tunnel chunks for one request id', async () => {
+    const homeDir = await createRemoteControlHome(TOKEN.refreshToken);
+    const relay = await startAuthRelay();
+    const localServer = createServer((_request, response) => {
+      response.writeHead(200, { 'Content-Type': 'text/plain' });
+      response.end('forwarded');
+    });
+    const localPort = await listen(localServer);
+    cleanups.push(() => closeServer(localServer));
+
+    let handle: RemoteControlHandle | undefined;
+    cleanups.push(async () => handle?.close());
+    handle = await startRemoteControl({
+      homeDir,
+      localOrigin: `http://127.0.0.1:${localPort}`,
+      localServerToken: 'local-server-token',
+      clientVersion: CLIENT_VERSION,
+      relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
+      stderr: { write: () => true },
+    });
+    await waitFor(() => relay.httpSockets.length === 1);
+    const httpSocket = relay.httpSockets[0]!;
+
+    const rejectedPromise = nextJsonMessage(httpSocket);
+    let rejected = false;
+    void rejectedPromise.then(() => {
+      rejected = true;
+    });
+    const sentLimit = 20_000;
+    let sent = 0;
+    while (sent < sentLimit && !rejected) {
+      httpSocket.send(
+        JSON.stringify({
+          request_id: 'zero-byte',
+          type: 'request',
+          is_last: false,
+          body_base64: '',
+        }),
+      );
+      sent += 1;
+      if (sent % 10 === 0) await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    expect(sent).toBeLessThan(sentLimit);
+    expect(sent).toBeLessThanOrEqual((10 * 1024 * 1024) / 1024 + 100);
+    const rejectedResponse = Buffer.from(
+      (await rejectedPromise)['body_base64'] as string,
+      'base64',
+    ).toString();
+    expect(rejectedResponse).toContain('HTTP/1.1 400 Bad Request');
+
+    const drained: unknown[] = [];
+    const drain = (data: RawData): void => {
+      drained.push(JSON.parse(rawDataText(data)) as unknown);
+    };
+    httpSocket.on('message', drain);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    httpSocket.off('message', drain);
+
+    const forwardedPromise = nextJsonMessage(httpSocket);
+    httpSocket.send(
+      JSON.stringify({
+        request_id: 'legit',
+        type: 'request',
+        is_last: true,
+        body_base64: Buffer.from('GET / HTTP/1.1\r\nHost: relay.test\r\n\r\n').toString('base64'),
+      }),
+    );
+    const forwarded = Buffer.from(
+      (await forwardedPromise)['body_base64'] as string,
+      'base64',
+    ).toString();
+    expect(forwarded).toContain('HTTP/1.1 200 OK');
+    expect(forwarded).toContain('forwarded');
+  }, 30_000);
+
+  it('fails a tunnel response that exceeds the response size limit', async () => {
+    const homeDir = await createRemoteControlHome(TOKEN.refreshToken);
+    const relay = await startAuthRelay();
+    const responseLimit = 64 * 1024;
+    const totalBytes = 32 * 1024 * 1024;
+    const piece = Buffer.alloc(1024 * 1024, 0x62);
+    let serverWrote = 0;
+    let serverCompleted = false;
+    let serverClosed = false;
+    const localServer = createServer((_request, response) => {
+      response.writeHead(200, { 'Content-Type': 'application/octet-stream' });
+      response.on('error', () => {});
+      const timer = setInterval(() => {
+        if (serverWrote >= totalBytes) {
+          clearInterval(timer);
+          serverCompleted = true;
+          response.end();
+          return;
+        }
+        serverWrote += piece.length;
+        response.write(piece);
+      }, 2);
+      response.on('close', () => {
+        serverClosed = true;
+        clearInterval(timer);
+      });
+    });
+    const localPort = await listen(localServer);
+    cleanups.push(() => closeServer(localServer));
+
+    let logs = '';
+    let handle: RemoteControlHandle | undefined;
+    cleanups.push(async () => handle?.close());
+    handle = await startRemoteControl({
+      homeDir,
+      localOrigin: `http://127.0.0.1:${localPort}`,
+      localServerToken: 'local-server-token',
+      clientVersion: CLIENT_VERSION,
+      relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
+      stderr: { write: (text) => ((logs += String(text)), true) },
+      maxHttpResponseBytes: responseLimit,
+    });
+    await waitFor(() => relay.httpSockets.length === 1);
+    const httpSocket = relay.httpSockets[0]!;
+
+    const responsePromise = nextJsonMessage(httpSocket);
+    httpSocket.send(
+      JSON.stringify({
+        request_id: 'oversized',
+        type: 'request',
+        is_last: true,
+        body_base64: Buffer.from('GET /big HTTP/1.1\r\nHost: relay.test\r\n\r\n').toString(
+          'base64',
+        ),
+      }),
+    );
+    const response = Buffer.from(
+      (await responsePromise)['body_base64'] as string,
+      'base64',
+    ).toString();
+    expect(response).toContain('HTTP/1.1 502 Bad Gateway');
+    expect(logs).toContain(`exceeds ${responseLimit} bytes`);
+    expect(logs).toContain('maxHttpResponseBytes');
+
+    await waitFor(() => serverClosed);
+    expect(serverCompleted).toBe(false);
+    expect(serverWrote).toBeLessThan(totalBytes);
+  }, 30_000);
+
+  it('reclaims the previous sockets when a stream id is opened twice', async () => {
+    const homeDir = await createRemoteControlHome(TOKEN.refreshToken);
+    const relay = await startAuthRelay();
+    const localWsServer = new WebSocketServer({ noServer: true });
+    const localSockets: WebSocket[] = [];
+    const localServer = createServer();
+    localServer.on('upgrade', (request, socket, head) => {
+      localWsServer.handleUpgrade(request, socket, head, (ws) =>
+        localWsServer.emit('connection', ws, request),
+      );
+    });
+    const localPort = await listen(localServer);
+    cleanups.push(() => closeServer(localServer));
+    localWsServer.on('connection', (ws) => localSockets.push(ws));
+
+    let handle: RemoteControlHandle | undefined;
+    cleanups.push(async () => handle?.close());
+    handle = await startRemoteControl({
+      homeDir,
+      localOrigin: `http://127.0.0.1:${localPort}`,
+      localServerToken: 'local-server-token',
+      clientVersion: CLIENT_VERSION,
+      relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
+      stderr: { write: () => true },
+    });
+    await waitFor(() => relay.managementSockets.length === 1);
+
+    const openStream = (): void => {
+      relay.managementSockets[0]!.send(
+        JSON.stringify({
+          type: 'open_ws',
+          payload: { stream_id: 'stream-dup', path: '/api/v1/ws' },
+        }),
+      );
+    };
+    openStream();
+    await waitFor(() => localSockets.length === 1 && relay.httpSockets.length === 2);
+    const firstLocal = localSockets[0]!;
+    const firstTunnel = relay.httpSockets[1]!;
+
+    openStream();
+    await waitFor(() => localSockets.length === 2 && relay.httpSockets.length === 3);
+    await waitFor(() => firstLocal.readyState === 3);
+    expect(firstTunnel.readyState).toBe(3);
+    expect(localSockets[1]!.readyState).toBe(1);
+    expect(relay.httpSockets[2]!.readyState).toBe(1);
+  }, 30_000);
 
   it('reconnects when the relay goes silent without closing the sockets', async () => {
     const homeDir = await createRemoteControlHome(TOKEN.refreshToken);

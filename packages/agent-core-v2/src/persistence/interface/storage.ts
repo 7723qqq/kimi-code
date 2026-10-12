@@ -117,6 +117,10 @@ export interface StorageReadRange {
   readonly end: number;
 }
 
+export interface StorageListOptions {
+  readonly recursive?: boolean;
+}
+
 export interface IFileSystemStorageService {
   readonly _serviceBrand: undefined;
 
@@ -135,7 +139,7 @@ export interface IFileSystemStorageService {
     data: Uint8Array,
     options?: StorageAppendOptions,
   ): Promise<void>;
-  list(scope: string, prefix?: string): Promise<readonly string[]>;
+  list(scope: string, prefix?: string, options?: StorageListOptions): Promise<readonly string[]>;
   delete(scope: string, key: string): Promise<void>;
   size(scope: string, key: string): Promise<number | undefined>;
   mtime(scope: string, key: string): Promise<number | undefined>;

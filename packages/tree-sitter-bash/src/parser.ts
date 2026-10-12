@@ -2510,9 +2510,18 @@ export class Parser {
       return this.parseExpansionPattern(expansion, j + operator.length, innerEnd);
     }
     if (one === '@' && j + 1 < innerEnd) {
+      // ${v@Q}: exactly one transformation letter. Anything after it is
+      // leftover (bash rejects it as a bad substitution); cover the rest of
+      // the region with an ERROR node and flag the error, like exprLeftover.
+      const letterEnd = j + 2;
       this.addKid(expansion, this.anon('@', j, j + 1));
-      this.addKid(expansion, this.anon(this.source[j + 1]!, j + 1, j + 2));
-      return j + 2;
+      this.addKid(expansion, this.anon(this.source[j + 1]!, j + 1, letterEnd));
+      if (letterEnd < innerEnd) {
+        this.hasError = true;
+        this.addKid(expansion, this.frame('ERROR', letterEnd, innerEnd));
+        return innerEnd;
+      }
+      return letterEnd;
     }
     if (one === ':' && two !== ':-' && two !== ':=' && two !== ':+' && two !== ':?') {
       // Max length: ${v:offset:length} — arithmetic values.

@@ -41,6 +41,7 @@ import { requestLog } from '../lib/requestLog';
 import { defineRoute } from '../middleware/defineRoute';
 import { ErrorCode } from '../protocol/error-codes';
 import { pageResponseSchema } from '../protocol/pagination';
+import { booleanQueryParam } from '../protocol/query-params';
 import {
   archiveSessionResponseSchema,
   compactSessionRequestSchema,
@@ -93,12 +94,6 @@ interface SessionRouteHost {
     ) => Promise<void> | void,
   ): unknown;
 }
-
-const booleanQueryParam = z.preprocess((value) => {
-  if (value === 'true' || value === '1' || value === 1 || value === true) return true;
-  if (value === 'false' || value === '0' || value === 0 || value === false) return false;
-  return value;
-}, z.boolean().optional());
 
 const DEFAULT_SESSION_LIST_PAGE_SIZE = 20;
 

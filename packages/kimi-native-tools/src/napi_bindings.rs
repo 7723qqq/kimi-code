@@ -1884,6 +1884,9 @@ pub struct NativeLlmStreamConfig {
     /// not read it — the model name already rides inside `request_body`.
     pub model: String,
     pub request_body: String,
+    /// Idle deadline in milliseconds: how long the stream may go without a
+    /// single SSE event. The caller's 120 s means "no data for 120 s", not
+    /// "the whole answer in 120 s"; the overall request has its own ceiling.
     pub timeout_ms: Option<u32>,
     pub extra_headers: Option<Vec<NativeLlmStreamHeader>>,
 }

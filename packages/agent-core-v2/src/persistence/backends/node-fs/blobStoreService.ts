@@ -1,7 +1,10 @@
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { LifecycleScope } from '#/app/scopes';
 import { IBlobStore, type BlobReadRange } from '#/persistence/interface/blobStore';
-import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import {
+  IFileSystemStorageService,
+  type StorageListOptions,
+} from '#/persistence/interface/storage';
 
 export class BlobStoreService implements IBlobStore {
   declare readonly _serviceBrand: undefined;
@@ -32,8 +35,12 @@ export class BlobStoreService implements IBlobStore {
     await this.storage.delete(scope, key);
   }
 
-  async list(scope: string, prefix?: string): Promise<readonly string[]> {
-    return this.storage.list(scope, prefix);
+  async list(
+    scope: string,
+    prefix?: string,
+    options: StorageListOptions = {},
+  ): Promise<readonly string[]> {
+    return this.storage.list(scope, prefix, options);
   }
 }
 

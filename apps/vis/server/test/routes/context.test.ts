@@ -1,4 +1,7 @@
 import { describe, it, expect, afterEach } from 'vitest';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { buildCompactionContinuationText } from '@moonshot-ai/agent-core-v2/agent/contextMemory/compactionHandoff';
 import { buildSessionFixture } from '../fixtures/build';
 import { contextRoute } from '../../src/routes/context';
@@ -97,5 +100,74 @@ describe('context route', () => {
     expect(fullBody.messages[0]!.message.content[0]).toMatchObject({ text: 'before compaction' });
     expect(fullBody.messages[1]!.message.content[0]).toMatchObject({ text: 'assistant reply' });
     expect(fullBody.messages[3]!.message.content[0]).toMatchObject({ text: 'after compaction' });
+  });
+
+  // Audit a37/F3 + a37/F4 — a single malformed record used to throw out of
+  // `projectContext`, and the catch-all in this route turned that into a
+  // permanent 500 for the whole session. The records must be skipped, the
+  // route must stay 200, and the caveats must reach the UI's warnings channel.
+  it('stays 200 on malformed usage / replace_tool_result records and reports them', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'vis-ctx-malformed-'));
+    cleanup = () => rm(home, { recursive: true, force: true });
+    const sessionDir = join(home, 'sessions', 'wd_test_malformed', 'session_fixture');
+    const agentsDir = join(sessionDir, 'agents', 'main');
+    await mkdir(agentsDir, { recursive: true });
+    await writeFile(
+      join(agentsDir, 'wire.jsonl'),
+      [
+        JSON.stringify({ type: 'metadata', protocol_version: '1.5', created_at: 1 }),
+        JSON.stringify({
+          type: 'context.append_message',
+          message: {
+            role: 'tool',
+            toolCallId: 'call-1',
+            content: [{ type: 'text', text: 'predicted' }],
+          },
+          time: 2,
+        }),
+        JSON.stringify({ type: 'context.replace_tool_result', toolCallId: 'call-1', time: 3 }),
+        JSON.stringify({
+          type: 'usage.record',
+          model: 'm',
+          usageScope: 'x',
+          usage: { inputOther: 1, output: 2, inputCacheRead: 3, inputCacheCreation: 4 },
+          time: 4,
+        }),
+        JSON.stringify({
+          type: 'usage.record',
+          model: 'm',
+          usage: { inputOther: 5, output: 6, inputCacheRead: 0, inputCacheCreation: 0 },
+          time: 5,
+        }),
+      ].join('\n') + '\n',
+    );
+    await writeFile(
+      join(home, 'session_index.jsonl'),
+      JSON.stringify({
+        sessionId: 'session_fixture',
+        sessionDir,
+        workDir: '/tmp/work',
+      }) + '\n',
+    );
+
+    const app = contextRoute(home);
+    const res = await app.request('/session_fixture/context?agent=main');
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as {
+      messages: { message: { content: { type: string; text?: string }[] } }[];
+      usage: { byScope: { session: Record<string, number>; turn: Record<string, number> } };
+      warnings: string[];
+    };
+
+    // The malformed replace kept the prediction; the unknown scope folded into
+    // session (1+5 / 2+6) and the second, well-formed record still counted.
+    expect(body.messages[0]!.message.content).toEqual([{ type: 'text', text: 'predicted' }]);
+    expect(body.usage.byScope.session).toEqual({
+      inputOther: 6, output: 8, inputCacheRead: 3, inputCacheCreation: 4,
+    });
+    expect(body.usage.byScope.turn).toEqual({
+      inputOther: 0, output: 0, inputCacheRead: 0, inputCacheCreation: 0,
+    });
+    expect(body.warnings.some((w) => /replace_tool_result skipped/.test(w))).toBe(true);
   });
 });

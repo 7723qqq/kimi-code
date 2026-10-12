@@ -112,7 +112,13 @@ export async function writeFileAtomic(
 ): Promise<void> {
   const tmp = `${file}.tmp-${process.pid}-${++sidecarTmpSeq}`;
   try {
-    await fs.writeFile(tmp, data, 'utf8');
+    const h = await fs.open(tmp, 'w');
+    try {
+      await h.writeFile(data, 'utf8');
+      await h.sync();
+    } finally {
+      await h.close().catch(() => {});
+    }
     await fs.rename(tmp, file);
   } finally {
     // A successful rename already moved the tmp away (this rm is a no-op); a

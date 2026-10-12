@@ -1,9 +1,11 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import {
   ConfigChanged,
+  Error2,
+  ErrorCodes,
   IConfigService,
   IEventService,
   type ConfigSectionChangedEvent,
@@ -19,6 +21,7 @@ import {
   patchConfigRequestSchema,
   type ConfigResponse,
 } from '../src/protocol/rest-config';
+import { registerConfigRoutes } from '../src/routes/config';
 import { startConfigChangedPublisher } from '../src/services/config/configChangedPublisher';
 import { type RunningServer, startServer } from '../src/start';
 import { authedFetch, bearerToken } from './helpers/auth';
@@ -565,5 +568,148 @@ describe('configChangedPublisher', () => {
 
     expect(published).toHaveLength(0);
     expect(isDisposed()).toBe(true);
+  });
+});
+
+describe('POST /config persistence failure reporting (a18/F2)', () => {
+  const DOMAINS = ['planMode', 'autoSessionTitle', 'telemetry'] as const;
+
+  interface CapturedRoute {
+    handler: (
+      req: { id: string; body: unknown },
+      reply: { send(payload: unknown): void },
+    ) => Promise<void> | void;
+  }
+
+  function harness(failOnDomain: string | undefined) {
+    const captured: CapturedRoute[] = [];
+    const applied: string[] = [];
+    const setCalls: string[] = [];
+    const logged: { level: string; msg: string }[] = [];
+    const configService = {
+      ready: Promise.resolve(),
+      set: (domain: string): void => {
+        setCalls.push(domain);
+        if (domain === failOnDomain) {
+          applied.push(domain);
+          throw new Error2(
+            ErrorCodes.CONFIG_PERSIST_BLOCKED,
+            'Refusing to persist config: /tmp/config.toml could not be read; fix the file and reload before writing.',
+          );
+        }
+        applied.push(domain);
+      },
+      getAll: (): Record<string, unknown> => ({ defaultPermissionMode: 'auto' }),
+    };
+    const core = {
+      accessor: {
+        get: (token: unknown): unknown => {
+          if (token === IConfigService) return configService;
+          throw new Error(`unexpected service request: ${String(token)}`);
+        },
+      },
+    } as unknown as Scope;
+    const app = {
+      post: (_path: string, _options: unknown, handler: CapturedRoute['handler']): unknown => {
+        captured.push({ handler });
+        return undefined;
+      },
+      get: (): unknown => undefined,
+    };
+    registerConfigRoutes(app as never, core);
+    const post = captured.at(-1);
+    if (post === undefined) throw new Error('POST /config route was not registered');
+    const send = async (body: Record<string, unknown>): Promise<Envelope<unknown>> => {
+      let payload: unknown;
+      await post.handler(
+        {
+          id: 'req-1',
+          body,
+          log: {
+            info: () => {},
+            warn: () => {},
+            error: (_obj: object, msg: string) => logged.push({ level: 'error', msg }),
+          },
+        } as never,
+        {
+          send: (value: unknown) => {
+            payload = value;
+          },
+        },
+      );
+      return payload as Envelope<unknown>;
+    };
+    return { send, setCalls, applied, logged };
+  }
+
+  it('still merges every provided domain and answers 0 on the happy path', async () => {
+    const { send, setCalls } = harness(undefined);
+    const body = await send({ plan_mode: true, auto_session_title: false, telemetry: true });
+    expect(body.code).toBe(0);
+    expect(body.request_id).toBe('req-1');
+    expect(setCalls).toEqual([...DOMAINS]);
+  });
+
+  it('reports 50003 with the applied and failed domains when persistence is blocked mid-patch', async () => {
+    const { send, setCalls, logged } = harness('autoSessionTitle');
+    const body = await send({ plan_mode: true, auto_session_title: false, telemetry: true });
+
+    expect(body.code).toBe(ErrorCode.PERSISTENCE_FAILURE);
+    expect(body.code).toBe(50003);
+    expect(body.request_id).toBe('req-1');
+    expect(body.data).toBeNull();
+    expect(body.msg).toContain('applied: planMode');
+    expect(body.msg).toContain('failed: autoSessionTitle');
+    expect(body.msg).toContain('fix the file and reload before writing');
+    expect(setCalls).toEqual(['planMode', 'autoSessionTitle']);
+    expect(logged.some((entry) => entry.msg.includes('persist'))).toBe(true);
+  });
+
+  it('reports the first failing domain when the very first domain is blocked', async () => {
+    const { send } = harness('planMode');
+    const body = await send({ plan_mode: true, auto_session_title: false });
+
+    expect(body.code).toBe(50003);
+    expect(body.msg).toContain('applied: (none)');
+    expect(body.msg).toContain('failed: planMode');
+  });
+
+  it('answers 50003 with the applied and failed domains on the real endpoint when config.toml is unreadable', async () => {
+    const brokenHome = await mkdtemp(join(tmpdir(), 'kimi-server-v2-config-broken-'));
+    const broken = await startServer({
+      hostIdentity: TEST_HOST_IDENTITY,
+      host: '127.0.0.1',
+      port: 0,
+      homeDir: brokenHome,
+      logLevel: 'silent',
+    });
+    try {
+      const tomlPath = join(brokenHome, 'config.toml');
+      await writeFile(tomlPath, 'this is = not = toml\n', 'utf-8');
+      await broken.core.accessor.get(IConfigService).reload();
+
+      const res = await authedFetch(broken, `http://127.0.0.1:${broken.port}`, '/api/v1/config', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ plan_mode: true }),
+      });
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Envelope<unknown>;
+      expect(body.code).toBe(50003);
+      expect(body.code).toBe(ErrorCode.PERSISTENCE_FAILURE);
+      expect(body.msg).toContain('applied: (none)');
+      expect(body.msg).toContain('failed: planMode');
+      expect(typeof body.request_id).toBe('string');
+
+      expect(await readFile(tomlPath, 'utf-8')).toBe('this is = not = toml\n');
+    } finally {
+      await broken.close();
+      await rm(brokenHome, {
+        recursive: true,
+        force: true,
+        maxRetries: 5,
+        retryDelay: 50,
+      } as never);
+    }
   });
 });

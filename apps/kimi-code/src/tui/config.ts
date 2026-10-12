@@ -37,20 +37,6 @@ export const UpgradePreferencesSchema = z.object({
   autoInstall: z.boolean(),
 });
 
-export const AstronSettingsSchema = z.object({
-  stream: z.boolean(),
-  temperature: z.number(),
-  maxTokens: z.number(),
-  searchDisable: z.boolean(),
-});
-
-export const ASTRON_DEFAULT_SETTINGS = AstronSettingsSchema.parse({
-  stream: true,
-  temperature: 1.0,
-  maxTokens: 32768,
-  searchDisable: true,
-});
-
 export const STATUS_LINE_ITEMS = ['mode', 'goal', 'model', 'tasks', 'cwd', 'git', 'tips'] as const;
 export type StatusLineItem = (typeof STATUS_LINE_ITEMS)[number];
 
@@ -139,7 +125,6 @@ export const TuiConfigSchema = z.object({
   editorCommand: z.string().nullable(),
   notifications: NotificationsConfigSchema,
   upgrade: UpgradePreferencesSchema,
-  astron: AstronSettingsSchema,
   /** Present in every normalized config; optional only so hand-built test
    * fixtures from before this field existed still typecheck. */
   statusLine: StatusLineConfigSchema.optional(),
@@ -152,7 +137,6 @@ export type TuiConfigFileShape = z.infer<typeof TuiConfigFileSchema>;
 export type TuiConfig = z.infer<typeof TuiConfigSchema>;
 export type NotificationsConfig = z.infer<typeof NotificationsConfigSchema>;
 export type UpgradePreferences = z.infer<typeof UpgradePreferencesSchema>;
-export type AstronSettings = z.infer<typeof AstronSettingsSchema>;
 
 export const DEFAULT_NOTIFICATIONS_CONFIG: NotificationsConfig = {
   enabled: true,
@@ -174,7 +158,6 @@ export const DEFAULT_TUI_CONFIG: TuiConfig = TuiConfigSchema.parse({
   editorCommand: null,
   notifications: DEFAULT_NOTIFICATIONS_CONFIG,
   upgrade: DEFAULT_UPGRADE_PREFERENCES,
-  astron: ASTRON_DEFAULT_SETTINGS,
   statusLine: DEFAULT_STATUS_LINE_CONFIG,
   markdown: DEFAULT_MARKDOWN_CONFIG,
 });
@@ -263,6 +246,11 @@ export function normalizeTuiConfig(
     console.warn(message);
   },
 ): TuiConfig {
+  if (config.astron !== undefined) {
+    warn(
+      '[tui.toml] [astron] is ignored; the Astron panel writes [providers.astron] in config.toml',
+    );
+  }
   const command = config.editor?.command?.trim();
   const statusLineCommand = config.status_line?.command?.trim();
   const knownItems = new Set<string>(STATUS_LINE_ITEMS);
@@ -311,12 +299,6 @@ export function normalizeTuiConfig(
     },
     upgrade: {
       autoInstall: config.upgrade?.auto_install ?? DEFAULT_UPGRADE_PREFERENCES.autoInstall,
-    },
-    astron: {
-      stream: config.astron?.stream ?? ASTRON_DEFAULT_SETTINGS.stream,
-      temperature: config.astron?.temperature ?? ASTRON_DEFAULT_SETTINGS.temperature,
-      maxTokens: config.astron?.max_tokens ?? ASTRON_DEFAULT_SETTINGS.maxTokens,
-      searchDisable: config.astron?.search_disable ?? ASTRON_DEFAULT_SETTINGS.searchDisable,
     },
     statusLine: {
       items: statusLineItems,
@@ -386,12 +368,6 @@ notification_condition = "${config.notifications.condition}" # "unfocused" | "al
 
 [upgrade]
 auto_install = ${String(config.upgrade.autoInstall)} # true | false
-
-[astron]
-stream = ${String(config.astron.stream)}
-temperature = ${String(config.astron.temperature)}
-max_tokens = ${String(config.astron.maxTokens)}
-search_disable = ${String(config.astron.searchDisable)}
 
 ${markdownSection}
 ${statusSection}`;

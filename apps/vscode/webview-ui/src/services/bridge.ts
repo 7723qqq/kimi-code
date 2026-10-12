@@ -2,6 +2,7 @@ import { Methods, Events } from 'shared/bridge';
 import type {
   ApprovalResponse,
   ContentPart,
+  MCPServerCatalog,
   MCPServerConfig,
   SessionInfo,
   KimiConfig,
@@ -159,20 +160,20 @@ class Bridge {
   }
 
   getMCPServers() {
-    return this.call<MCPServerConfig[]>(Methods.GetMCPServers);
+    return this.call<MCPServerCatalog>(Methods.GetMCPServers);
   }
 
   addMCPServer(serverConfig: MCPServerConfig) {
-    return this.call<MCPServerConfig[]>(Methods.AddMCPServer, serverConfig);
+    return this.call<MCPServerCatalog>(Methods.AddMCPServer, serverConfig);
   }
 
   updateMCPServer(originalName: string, serverConfig: MCPServerConfig) {
     const request: UpdateMCPServerRequest = { originalName, server: serverConfig };
-    return this.call<MCPServerConfig[]>(Methods.UpdateMCPServer, request);
+    return this.call<MCPServerCatalog>(Methods.UpdateMCPServer, request);
   }
 
   removeMCPServer(name: string) {
-    return this.call<MCPServerConfig[]>(Methods.RemoveMCPServer, { name });
+    return this.call<MCPServerCatalog>(Methods.RemoveMCPServer, { name });
   }
 
   authMCP(name: string) {

@@ -518,4 +518,48 @@ describe('migrateOneSession subagent migration', () => {
     expect(second.outcome).toBe('already-migrated');
   });
 
+  it('reports a subagent whose context is unreadable and keeps the dangling reference visible', async () => {
+    const srcDir = await seedSourceWithSubagent();
+    await rm(join(srcDir, 'subagents', 'sub1', 'context.jsonl'));
+
+    const result = await migrateOneSession({
+      source: { uuid: 'sub-session-broken-uuid', sessionDir: srcDir, contextPath: join(srcDir, 'context.jsonl') },
+      workdirPath,
+      targetHome,
+    });
+
+    expect(result.outcome).toBe('migrated');
+    const migrated = result as Extract<MigrateOneResult, { outcome: 'migrated' }>;
+    expect(migrated.subagentFailures).toEqual([
+      {
+        sourcePath: join(srcDir, 'subagents', 'sub1'),
+        reason: expect.stringContaining('ENOENT'),
+      },
+    ]);
+
+    const state = JSON.parse(await readFile(join(migrated.targetDir, 'state.json'), 'utf-8'));
+    expect(state.agents.sub1).toBeUndefined();
+
+    const mainWire = (await readFile(join(migrated.targetDir, 'agents', 'main', 'wire.jsonl'), 'utf-8'))
+      .split('\n')
+      .filter((l) => l.length > 0)
+      .map((l) => JSON.parse(l) as { type: string; info?: { taskId?: string } });
+    expect(mainWire.some((r) => r.type === 'task.started' && r.info?.taskId === 'sub1')).toBe(false);
+    await expect(readFile(join(migrated.targetDir, 'agents', 'sub1', 'wire.jsonl'), 'utf-8')).rejects.toThrow();
+  });
+
+  it('does not report an empty subagent dir as a failure', async () => {
+    const srcDir = await seedSourceWithSubagent();
+    await writeFile(join(srcDir, 'subagents', 'sub1', 'context.jsonl'), '');
+
+    const result = await migrateOneSession({
+      source: { uuid: 'sub-session-empty-uuid', sessionDir: srcDir, contextPath: join(srcDir, 'context.jsonl') },
+      workdirPath,
+      targetHome,
+    });
+
+    expect(result.outcome).toBe('migrated');
+    const migrated = result as Extract<MigrateOneResult, { outcome: 'migrated' }>;
+    expect(migrated.subagentFailures ?? []).toEqual([]);
+  });
 });

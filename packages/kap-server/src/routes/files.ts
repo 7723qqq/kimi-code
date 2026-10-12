@@ -2,6 +2,7 @@ import multipart from '@fastify/multipart';
 import { ErrorCodes, IFileService, Error2, type Scope } from '@moonshot-ai/agent-core-v2';
 import { z } from 'zod';
 
+import { buildContentDisposition } from '../lib/contentDisposition';
 import { requestLog } from '../lib/requestLog';
 import { defineRoute } from '../middleware/defineRoute';
 import { errEnvelope, internalErrorEnvelope, okEnvelope } from '../protocol/envelope';
@@ -226,14 +227,6 @@ function readFieldNumber(field: unknown): number | undefined {
 
 function readRangeHeader(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
-}
-
-function buildContentDisposition(name: string, mediaType?: string): string {
-  const disposition = /^(image|video|audio)\//.test(mediaType ?? '') ? 'inline' : 'attachment';
-  if (/^[\w. ()+[\]-]+$/.test(name)) {
-    return `${disposition}; filename="${name}"`;
-  }
-  return disposition;
 }
 
 interface ByteRange {

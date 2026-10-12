@@ -12,7 +12,6 @@
 #
 # Regenerate with:
 #   ./tools/review/zig-out/bin/review --check=orphan-exports --json
-
 __resetRootLoggerForTest  packages/node-sdk/src/logging/logger.ts
 _clearAgentToolContributionsForTests  packages/agent-core-v2/src/agent/toolRegistry/toolContribution.ts
 _clearFeatureRecipesForTests  packages/agent-core-v2/src/features/featureRegistry.ts
@@ -77,6 +76,7 @@ renderDiffLines  apps/kimi-code/src/tui/components/media/diff-preview.ts
 renderHeaderContent  apps/kimi-code/src/tui/components/messages/truncated-header-line.ts
 replayRecordTurnCount  apps/vscode/src/runtime/replay-adapter.ts
 replayToWebviewEvents  apps/vscode/src/runtime/replay-adapter.ts
+reservedPromptIdCount  packages/kap-server/src/routes/prompts.ts
 resetCacheHintConfigCache  apps/kimi-code/src/utils/cache-hint-config.ts
 resetDefaultTelemetryClientForTests  packages/telemetry/src/client.ts
 resetH3States  packages/agent-core-v2/src/app/auth/webSearch/engines/http3.ts

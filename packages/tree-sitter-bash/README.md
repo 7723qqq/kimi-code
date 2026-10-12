@@ -131,6 +131,15 @@ and pinned by a stored expectation in `test/fixtures/` — see
     text here, keeping the whole command visible; the reference wraps the
     backslash in an `ERROR` node and flags `hasError`. bash itself accepts
     the trailing backslash, so the reference's tree is the odd one out.
+  - Text after the `${v@` transformation letter (`${x@UQ}`,
+    `${x@Q$(echo hi)}`) is leftover: a single `ERROR` node covers it inside
+    the `expansion` and `hasError` is set, so no byte of the form drops out
+    of the tree. bash rejects such a form as a bad substitution. The
+    reference instead ends the `expansion` at the letter (inserting a
+    zero-width `}`) and re-parses the rest as a `concatenation` — for
+    `${x@Q$(echo hi)}` that turns the tail into a real
+    `command_substitution`, which is why the deviation is documented rather
+    than matched.
 - A trailing connector (`ls &&`, `ls |`) yields a single-child
   `list` / `pipeline` with `hasError: true`; tree-sitter-bash inserts a
   zero-width `command` recovery node.

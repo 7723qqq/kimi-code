@@ -1506,6 +1506,8 @@ export default {
         failed: '提示词重写失败：{{error}}',
         emptyDraft: '请先输入提示词，再执行重写。',
         noSession: '请先开始一个会话再重写提示词。',
+        busy: '已有一次重写正在进行，请等它结束后再试。',
+        displaced: '因其他面板打开，本次重写已丢弃。',
       },
       updatePreferenceSelector: {
         title: '自动更新',
@@ -1939,6 +1941,9 @@ export default {
       visRunning: 'kimi vis 正在运行：{{url}}',
       visStopHint: '按 Ctrl-C 停止。',
       visBrowserFailed: '无法打开浏览器；请手动访问 {{url}}。',
+      // sub/confirm.ts
+      confirmPromptEof:
+        '错误：无法获取确认（标准输入已关闭）；请使用 -y 接受上一个会话，或显式指定会话 ID。',
       // sub/export.ts
       exportNoSession: '没有可导出的上一个会话。',
       exportCancelled: '导出已取消。',
@@ -1948,6 +1953,8 @@ export default {
       forkCancelled: '派生已取消。',
       forkedTo: '已派生到 {{id}}{{title}}，耗时 {{elapsedMs}}ms',
       forkConfirmPrompt: '派生上一个会话"{{title}}"？[Y/n] ',
+      // sub/web/run.ts
+      serverShutdownStepFailed: '服务器关闭步骤“{{step}}”失败；进程将以非零退出码结束。',
       // sub/doctor.ts
       doctorFileNotExist: '文件不存在。',
       doctorFileNotExistDefaults: '文件不存在；将使用内置默认值。',
@@ -2110,6 +2117,11 @@ export default {
       // native/smoke.ts
       minidbWorkerSearchResultIncorrect: 'MiniDb worker 构建的文本索引返回了错误的搜索结果',
       nativeManifestNotAvailable: '原生资源清单不可用。',
+      // main.ts / native worker install
+      nativeWorkerInstallFailed:
+        '原生 worker "{{worker}}" 安装失败（{{code}}）；其索引已降级为回退实现。',
+      nativeWorkerAssetMissing:
+        '此构建中缺少原生 worker "{{worker}}"；其索引已降级为回退实现。',
       // utils/clipboard/clipboard-text.ts
       noClipboardCommandAvailable: '没有可用的剪贴板命令。',
       // utils/process/fd-detect.ts
@@ -2587,6 +2599,7 @@ export default {
       kimiTuiNoShellCommand: '没有正在运行的 shell 命令。',
       kimiTuiCommandStarting: '命令仍在启动中 — 请重试。',
       kimiTuiCommandFinished: '命令已结束。',
+      autocompleteFailed: '自动补全失败：{{error}}',
       kimiTuiMoveToBackgroundFailed: '移到后台失败：{{error}}',
       kimiTuiMovedToBackground: '已移到后台。使用 /tasks 查看。',
       kimiTuiListTasksFailed: '列出任务失败：{{error}}',
@@ -2610,6 +2623,10 @@ export default {
       feedbackOpeningGithub: '正在打开 GitHub Issues 作为备选…',
       feedbackNotSignedIn: '你尚未登录。正在打开 GitHub Issues 提交反馈…',
       feedbackSentUploadFailed: '反馈已发送；附件上传失败——参见 feedback-upload.log。',
+      feedbackCodebaseTruncatedFileCount:
+        '反馈已发送；代码库归档在 {{limit}} 个文件处被截断——仅包含达到上限前扫描到的文件。',
+      feedbackCodebaseTruncatedTotalSize:
+        '反馈已发送；代码库归档在 {{limit}} 字节源码处被截断——仅包含达到上限前扫描到的文件。',
       feedbackHttpFailed: '提交反馈失败（HTTP {{status}}）。',
       feedbackSession: '会话：{{sessionId}}',
       feedbackId: '反馈 ID：{{id}}',

@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -203,5 +203,73 @@ describe('server-v2 gui store routes', () => {
     await setItem(appOf(server as RunningServer), 'theme', 'modern');
     const mode = (await stat(join(home as string, 'gui.toml'))).mode & 0o777;
     expect(mode).toBe(0o600);
+  });
+
+  it('refuses to overwrite a gui.toml that has a non-string value', async () => {
+    const api = appOf(server as RunningServer);
+    const path = join(home as string, 'gui.toml');
+    const corrupt = 'theme = 1\nother = "keep"\n';
+    await writeFile(path, corrupt, 'utf-8');
+
+    const res = await setItem(api, 'a', '1');
+    const env = envelopeOf<null>(res.json());
+    expect(env.code).toBe(40001);
+    expect(env.msg).toContain('gui.toml');
+    expect(env.msg).toContain(path);
+
+    expect(await readFile(path, 'utf-8')).toBe(corrupt);
+  });
+
+  it('refuses to overwrite a gui.toml that does not parse', async () => {
+    const api = appOf(server as RunningServer);
+    const path = join(home as string, 'gui.toml');
+    const corrupt = 'theme = "modern"\nbroken\n';
+    await writeFile(path, corrupt, 'utf-8');
+
+    const res = await setItem(api, 'a', '1');
+    const env = envelopeOf<null>(res.json());
+    expect(env.code).toBe(40001);
+    expect(env.msg).toContain(path);
+
+    expect(await readFile(path, 'utf-8')).toBe(corrupt);
+  });
+
+  it('degrades reads to null/0 on an unreadable gui.toml and does not write', async () => {
+    const api = appOf(server as RunningServer);
+    const path = join(home as string, 'gui.toml');
+    const corrupt = 'theme = 1\n';
+    await writeFile(path, corrupt, 'utf-8');
+
+    const getEnv = envelopeOf<{ value: string | null }>((await getItem(api, 'theme')).json());
+    expect(getEnv.code).toBe(0);
+    expect(getEnv.data?.value).toBeNull();
+
+    const lenEnv = envelopeOf<{ length: number }>(
+      (await api.inject({ method: 'GET', url: '/api/v1/gui/store/length' })).json(),
+    );
+    expect(lenEnv.data?.length).toBe(0);
+
+    const rmRes = await api.inject({
+      method: 'POST',
+      url: '/api/v1/gui/store/removeItem',
+      payload: { key: 'theme' },
+    });
+    expect(envelopeOf<null>(rmRes.json()).code).toBe(40001);
+    expect(await readFile(path, 'utf-8')).toBe(corrupt);
+  });
+
+  it('clear is the escape hatch for an unreadable gui.toml', async () => {
+    const api = appOf(server as RunningServer);
+    const path = join(home as string, 'gui.toml');
+    await writeFile(path, 'theme = 1\n', 'utf-8');
+
+    const clearRes = await api.inject({ method: 'POST', url: '/api/v1/gui/store/clear' });
+    expect(envelopeOf<null>(clearRes.json()).code).toBe(0);
+
+    const setRes = await setItem(api, 'a', '1');
+    expect(envelopeOf<null>(setRes.json()).code).toBe(0);
+    expect(
+      envelopeOf<{ value: string | null }>((await getItem(api, 'a')).json()).data?.value,
+    ).toBe('1');
   });
 });

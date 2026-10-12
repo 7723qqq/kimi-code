@@ -183,7 +183,6 @@ function makeStartupInput(): KimiTUIStartupInput {
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },
-      astron: { stream: true, temperature: 1.0, maxTokens: 32768, searchDisable: true },
       statusLine: { items: null, command: null },
     },
     version: '0.0.0-test',
@@ -485,9 +484,14 @@ function stagedImage(imageStore: ImageAttachmentStore, fileId: string) {
  * Emits the turn.started/turn.ended pair that claims and then releases a
  * staged-media lease; `between` runs assertions after the claim.
  */
-function emitTurn(driver: MessageDriver, turnId: number, between?: () => void): void {
+function emitTurn(
+  driver: MessageDriver,
+  turnId: number,
+  between?: () => void,
+  origin: { kind: string } = { kind: 'user' },
+): void {
   driver.sessionEventHandler.handleEvent(
-    { type: 'turn.started', agentId: 'main', turnId, origin: { kind: 'user' } } as Event,
+    { type: 'turn.started', agentId: 'main', turnId, origin } as Event,
     () => {},
   );
   between?.();
@@ -3556,6 +3560,100 @@ command = "vim"
     });
     expect(attachment.fileId).toBeUndefined();
     expect(attachment.bytes).toEqual(new Uint8Array([0xaa, 0xbb]));
+  });
+
+  it('keeps a bundled-skill staging upload until the consuming turn ends', async () => {
+    const session = makeSession({ id: 'ses-lazy' });
+    const startupInput: KimiTUIStartupInput = {
+      ...makeStartupInput(),
+      cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
+    };
+    const { driver, harness } = await makeDriver(
+      session,
+      {
+        listWorkspaceSkills: vi.fn(async () => [
+          { name: 'review', description: 'Review skill', path: '/tmp/review', source: 'user' },
+          {
+            name: 'security',
+            description: 'Security skill',
+            path: '/tmp/security',
+            source: 'user',
+          },
+        ]),
+        listPluginCommands: vi.fn(async () => []),
+      },
+      startupInput,
+    );
+    await (driver as unknown as { refreshSkillCommands(): Promise<void> }).refreshSkillCommands();
+    const imageStore = (driver as unknown as { imageStore: ImageAttachmentStore }).imageStore;
+    const attachment = stagedImage(imageStore, 'file-skill');
+
+    driver.handleUserInput(`/skill:review inspect ${attachment.placeholder} /skill:security`);
+
+    await vi.waitFor(() => {
+      expect(session.promptWithSkills).toHaveBeenCalledOnce();
+    });
+    expect(harness.deleteFile).not.toHaveBeenCalled();
+    // The bundled submission's own turn carries the `skill_activation` origin;
+    // its lease must be claimed there and released (deleted) at turn end.
+    emitTurn(
+      driver,
+      1,
+      () => {
+        expect(harness.deleteFile).not.toHaveBeenCalled();
+      },
+      { kind: 'skill_activation' },
+    );
+    await vi.waitFor(() => {
+      expect(harness.deleteFile).toHaveBeenCalledWith('file-skill');
+    });
+    expect(attachment.fileId).toBeUndefined();
+  });
+
+  it('keeps a queued bundled-skill staging upload until its turn ends', async () => {
+    const session = makeSession({ id: 'ses-lazy' });
+    const startupInput: KimiTUIStartupInput = {
+      ...makeStartupInput(),
+      cliOptions: { ...makeStartupInput().cliOptions, model: 'k2' },
+    };
+    const { driver, harness } = await makeDriver(
+      session,
+      {
+        listWorkspaceSkills: vi.fn(async () => [
+          { name: 'review', description: 'Review skill', path: '/tmp/review', source: 'user' },
+          {
+            name: 'security',
+            description: 'Security skill',
+            path: '/tmp/security',
+            source: 'user',
+          },
+        ]),
+        listPluginCommands: vi.fn(async () => []),
+      },
+      startupInput,
+    );
+    await (driver as unknown as { refreshSkillCommands(): Promise<void> }).refreshSkillCommands();
+    const imageStore = (driver as unknown as { imageStore: ImageAttachmentStore }).imageStore;
+    const attachment = stagedImage(imageStore, 'file-skill-queued');
+    driver.state.appState.streamingPhase = 'waiting';
+
+    driver.handleUserInput(`/skill:review inspect ${attachment.placeholder} /skill:security`);
+    await vi.waitFor(() => {
+      expect(driver.state.queuedMessages).toHaveLength(1);
+    });
+    expect(session.promptWithSkills).not.toHaveBeenCalled();
+
+    driver.sendQueuedMessage(session, driver.state.queuedMessages[0]!);
+    await vi.waitFor(() => {
+      expect(session.promptWithSkills).toHaveBeenCalledOnce();
+    });
+    expect(harness.deleteFile).not.toHaveBeenCalled();
+
+    emitTurn(driver, 2, undefined, { kind: 'skill_activation' });
+    await vi.waitFor(() => {
+      expect(harness.deleteFile).toHaveBeenCalledWith('file-skill-queued');
+    });
+    expect(attachment.fileId).toBeUndefined();
   });
 
   it('keeps an image staging upload across lazy session creation (v2 engine)', async () => {

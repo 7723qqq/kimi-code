@@ -1,4 +1,4 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -250,6 +250,21 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
     const config = await getJson<{ default_model: string | null }>('/api/v1/config');
     expect(config.body.code).toBe(0);
     expect(config.body.data.default_model).toBe('turbo');
+  });
+
+  it('refuses to report success when the default model was not written to disk (tainted config)', async () => {
+    await boot(CATALOG_TOML);
+    const configPath = join(home as string, 'config.toml');
+    const broken = 'default_model = "turbo"\n\n[providers.kimi\n';
+    await writeFile(configPath, broken, 'utf-8');
+    await (server as RunningServer).core.accessor.get(IConfigService).reload();
+
+    const { body } = await postJson<unknown>('/api/v1/models/turbo:set_default', {});
+    expect(body.code).toBe(50003);
+    expect(body.data).toBeNull();
+    expect(body.msg).toContain('default_model was not persisted');
+
+    expect(await readFile(configPath, 'utf-8')).toBe(broken);
   });
 
   it('maps unknown provider and model ids to catalog not-found codes', async () => {

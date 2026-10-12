@@ -43,6 +43,7 @@ export async function migrateSessionsStep(input: SessionsStepInput): Promise<Ses
   let sessionsSkippedPlaceholder = 0;
   let sessionsSkippedEmpty = 0;
   const sessionsFailed: Array<{ sourcePath: string; reason: string }> = [];
+  const subagentFailures: Array<{ sourcePath: string; reason: string }> = [];
   const sessionsConflicts: Array<{ sourcePath: string; targetPath: string }> = [];
   const sessionsDebrisArchived: Array<{ targetPath: string; archivedPath: string }> = [];
 
@@ -140,6 +141,9 @@ export async function migrateSessionsStep(input: SessionsStepInput): Promise<Ses
           archivedPath: result.debrisArchivedTo,
         });
       }
+      if (result.subagentFailures !== undefined) {
+        subagentFailures.push(...result.subagentFailures);
+      }
       try {
         // `ensureSessionIndexEntry` is idempotent — if a stale index line for
         // this session survived a deleted target dir, re-migrating it must not
@@ -209,6 +213,7 @@ export async function migrateSessionsStep(input: SessionsStepInput): Promise<Ses
     sessionsSkippedPlaceholder,
     sessionsSkippedEmpty,
     sessionsFailed,
+    subagentFailures,
     sessionsConflicts,
     sessionsDebrisArchived,
   };
@@ -291,6 +296,7 @@ function emptySummary(): SessionsSummary {
     sessionsSkippedPlaceholder: 0,
     sessionsSkippedEmpty: 0,
     sessionsFailed: [],
+    subagentFailures: [],
     sessionsConflicts: [],
     sessionsDebrisArchived: [],
   };

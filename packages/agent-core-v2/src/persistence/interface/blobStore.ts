@@ -1,4 +1,5 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
+import type { StorageListOptions } from '#/persistence/interface/storage';
 
 export interface IBlobStore {
   readonly _serviceBrand: undefined;
@@ -9,7 +10,7 @@ export interface IBlobStore {
   getStream(scope: string, key: string, range?: BlobReadRange): AsyncIterable<Uint8Array>;
   has(scope: string, key: string): Promise<boolean>;
   delete(scope: string, key: string): Promise<void>;
-  list(scope: string, prefix?: string): Promise<readonly string[]>;
+  list(scope: string, prefix?: string, options?: StorageListOptions): Promise<readonly string[]>;
 }
 
 export interface BlobReadRange {

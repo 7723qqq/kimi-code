@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { appendFile, mkdir, readFile, rm, stat } from 'node:fs/promises';
+import { createReadStream } from 'node:fs';
+import { appendFile, mkdir, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { detectInstallSource } from '#/cli/update/source';
@@ -9,8 +10,13 @@ import { getLogDir } from '#/utils/paths';
 import { detectShellEnvironment } from '#/utils/process/shell-env';
 
 import { createFeedbackArchivePath, type FeedbackArchive } from './archive';
-import { packageCodebase, scanCodebase, type FeedbackCodebaseScanResult } from './codebase';
-import { uploadArchive, type FeedbackUploadUrlApi } from './upload';
+import {
+  packageCodebase,
+  scanCodebase,
+  type FeedbackCodebaseLimitExceeded,
+  type FeedbackCodebaseScanResult,
+} from './codebase';
+import { MAX_ARCHIVE_SIZE, uploadArchive, type FeedbackUploadUrlApi } from './upload';
 
 export const CODEBASE_ARCHIVE_FILENAME = 'repo.zip';
 export const SESSION_ARCHIVE_FILENAME = 'session.zip';
@@ -24,19 +30,27 @@ const CODEBASE_SCAN_TIMEOUT_MS = 3000;
  * is reported as a partial attachment failure instead of silently downgrading
  * the request.
  *
- * Returns `true` when at least one requested attachment failed so the caller
- * can surface a partial-failure status.
+ * `codebaseTruncated` reports the separate, non-failure outcome where the
+ * codebase archive uploaded fine but the scan hit its file-count/archive-size
+ * cap: the backend received a prefix of the repository, which the caller must
+ * say out loud rather than folding into "attached".
  */
+export interface FeedbackAttachmentOutcome {
+  /** True when at least one requested attachment could not be prepared/uploaded. */
+  readonly failed: boolean;
+  readonly codebaseTruncated?: FeedbackCodebaseLimitExceeded;
+}
+
 export async function submitFeedbackWithAttachments(
   host: SlashCommandHost,
   feedbackId: number,
   level: FeedbackAttachmentLevel,
-): Promise<boolean> {
+): Promise<FeedbackAttachmentOutcome> {
   const api = createFeedbackUploadApi(host);
 
   if (level === 'logs') {
     const uploaded = await prepareAndUploadSessionArchive(host, api, feedbackId);
-    return !uploaded;
+    return { failed: !uploaded };
   }
   if (level === 'logs+codebase') {
     const [sessionDir, scan] = await Promise.all([
@@ -47,9 +61,12 @@ export async function submitFeedbackWithAttachments(
       prepareAndUploadSessionArchive(host, api, feedbackId, sessionDir),
       prepareAndUploadCodebaseArchive(api, feedbackId, scan),
     ]);
-    return !uploadedSession || !uploadedCodebase;
+    return {
+      failed: !uploadedSession || !uploadedCodebase,
+      ...(scan?.exceedsLimit === undefined ? {} : { codebaseTruncated: scan.exceedsLimit }),
+    };
   }
-  return false;
+  return { failed: false };
 }
 
 async function prepareAndUploadSessionArchive(
@@ -120,14 +137,31 @@ async function uploadProducedArchive(
   }
 }
 
-async function archiveFromExportedSession(zipPath: string): Promise<FeedbackArchive> {
-  const data = await readFile(zipPath);
+/**
+ * Digest an exported session zip without ever holding it in memory: the export
+ * can be hundreds of MiB (it includes the global log), and the old
+ * `readFile`-then-hash path grew the CLI's RSS by the whole file just to derive
+ * two hashes. The size guard runs first so an over-limit archive fails before a
+ * single byte is read — `uploadArchive` would only reject it after `produce().
+ */
+export async function archiveFromExportedSession(zipPath: string): Promise<FeedbackArchive> {
   const archiveStat = await stat(zipPath);
+  if (archiveStat.size > MAX_ARCHIVE_SIZE) {
+    throw new Error(
+      `Failed to upload archive: size ${archiveStat.size} exceeds maximum allowed size ${MAX_ARCHIVE_SIZE}.`,
+    );
+  }
+  const sha256 = createHash('sha256');
+  const fingerprint = createHash('sha256');
+  for await (const chunk of createReadStream(zipPath)) {
+    sha256.update(chunk as Buffer);
+    fingerprint.update(chunk as Buffer);
+  }
   return {
     path: zipPath,
     size: archiveStat.size,
-    sha256: createHash('sha256').update(data).digest('hex'),
-    fingerprint: createHash('sha256').update(data).digest('hex'),
+    sha256: sha256.digest('hex'),
+    fingerprint: fingerprint.digest('hex'),
     fileCount: 1,
   };
 }

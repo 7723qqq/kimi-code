@@ -565,7 +565,7 @@ export interface ExitEvent {
 
 export interface OauthLoginFinishedEvent {
   provider: string;
-  status: 'authenticated' | 'cancelled' | 'expired' | 'denied';
+  status: 'authenticated' | 'cancelled' | 'expired' | 'denied' | 'failed';
   duration_ms: number;
 }
 

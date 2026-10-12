@@ -77,7 +77,12 @@ export class QueryEngine<V> {
 
     const eqIndex = fieldIndexes.find((i) => i.type === 'equality');
     if (eqIndex) {
-      if (!isOpObj) return new Set(indexes.findEq(eqIndex.name, cond));
+      // A bare RegExp condition has no scalar index key of its own — answering
+      // it from the equality index would silently return zero rows.
+      if (!isOpObj) {
+        if (cond instanceof RegExp) return null;
+        return new Set(indexes.findEq(eqIndex.name, cond));
+      }
       if (ops && Object.keys(ops).length === 1 && '$eq' in ops) {
         return new Set(indexes.findEq(eqIndex.name, ops['$eq']));
       }
@@ -143,6 +148,9 @@ export class QueryEngine<V> {
         if (Object.keys(ops).length === 1 && '$eq' in ops)
           out.push({ name: idx.name, value: ops['$eq'] });
       } else {
+        // A bare RegExp is not an equality value: `hasEq` would reject every
+        // candidate and empty the result set.
+        if (cond instanceof RegExp) continue;
         out.push({ name: idx.name, value: cond });
       }
     }
@@ -152,12 +160,15 @@ export class QueryEngine<V> {
   // Fast path: a query bounded by a single dt column whose result order is that
   // dt column can walk the dt skiplist in order and stop as soon as `limit`
   // qualifying rows are found, instead of materializing + decoding + sorting the
-  // whole candidate set. Returns null when the query is not eligible (caller
-  // falls back to the general path). Kept conservative so results match exactly.
+  // whole candidate set. This is the only plan for a dt-ordered query — it
+  // applies with or without `limit`, because the general path sorts by the
+  // decoded `getPath(value, sortKey)` and would order the very same query
+  // differently (dt skiplist order also tie-breaks equal dt by record key).
+  // Returns null when the query is not eligible (caller falls back to the
+  // general path).
   private tryDtOrderedLimit(q: QueryOptions): ScanEntry<V>[] | null {
     if (q.text) return null; // text has its own ranking
     if (q.key !== undefined) return null;
-    if (q.limit === undefined) return null; // unbounded -> full return, no win
     if (!q.dt) return null;
     const dtCols = Object.keys(q.dt);
     if (dtCols.length !== 1) return null;
@@ -213,7 +224,7 @@ export class QueryEngine<V> {
         skipped++;
         continue;
       }
-      if (out.length >= limit) break;
+      if (limit !== undefined && out.length >= limit) break;
       out.push({ key: kstr, value, dt: r?.dt ?? undefined });
     }
 
@@ -456,7 +467,6 @@ export class QueryEngine<V> {
   private async tryDtOrderedLimitAsync(q: QueryOptions): Promise<ScanEntry<V>[] | null> {
     if (q.text) return null;
     if (q.key !== undefined) return null;
-    if (q.limit === undefined) return null;
     if (!q.dt) return null;
     const dtCols = Object.keys(q.dt);
     if (dtCols.length !== 1) return null;
@@ -506,7 +516,7 @@ export class QueryEngine<V> {
         skipped++;
         continue;
       }
-      if (out.length >= limit) break;
+      if (limit !== undefined && out.length >= limit) break;
       out.push({ key: kstr, value, dt: r?.dt ?? undefined });
     }
 

@@ -1,3 +1,5 @@
+import { getEventListeners } from 'node:events';
+
 import { describe, it, expect, vi } from 'vitest';
 
 import {
@@ -1717,6 +1719,35 @@ describe('GoogleGenAIChatProvider', () => {
 
       expect(caught).toBeInstanceOf(DOMException);
       expect((caught as DOMException).name).toBe('AbortError');
+    });
+
+    it('leaves no abort listener behind when the request wins the race', async () => {
+      const provider = createProvider({ stream: true });
+      const mockModels = (provider as unknown as { _client: { models: Record<string, unknown> } })
+        ._client.models;
+
+      async function* mockStream() {
+        yield { candidates: [{ content: { parts: [{ text: 'ok' }] } }] };
+      }
+      mockModels['generateContentStream'] = vi
+        .fn()
+        .mockImplementation(() => Promise.resolve(mockStream()));
+
+      // A session-level signal is handed to every `generate()` of the turn: the
+      // listener added for the race must be removed when the SDK request wins,
+      // or a long turn accumulates one listener per call and trips Node's
+      // MaxListenersExceededWarning (default ceiling 10).
+      const controller = new AbortController();
+      const history: Message[] = [
+        { role: 'user', content: [{ type: 'text', text: 'Hi' }], toolCalls: [] },
+      ];
+
+      for (let i = 0; i < 20; i += 1) {
+        const stream = await provider.generate('', [], history, { signal: controller.signal });
+        for await (const part of stream) void part;
+      }
+
+      expect(getEventListeners(controller.signal, 'abort')).toHaveLength(0);
     });
   });
 });

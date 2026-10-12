@@ -221,9 +221,10 @@ describe('todo and update regions share one surface', () => {
     expect(wheeled?.handled).toBe(true);
     expect(text(surface.render(100))).not.toContain('row 01');
 
-    // A click on the body must not take the keyboard. It does not have to fold
-    // anything here — the panel is expanded and has nothing hidden — but the
-    // keyboard must stay with the editor either way.
+    // A click on the body must not take the keyboard. It folds the box here —
+    // the 30-row entry is clipped by the granted budget, which is exactly what
+    // `hasHiddenContent` reports — but the keyboard must stay with the editor
+    // either way: the pointer reads, `Ctrl+N` owns the keys.
     const clicked = surface.handleMouse({
       type: 'click',
       button: 'left',
@@ -236,7 +237,43 @@ describe('todo and update regions share one surface', () => {
       alt: false,
       ctrl: false,
     });
-    expect(clicked ?? null).toBeNull();
+    expect(clicked?.handled).toBe(true);
     expect(surface.focusedRegion()).toBeNull();
+  });
+
+  it('folds the expanded updates box again when its body is clipped', () => {
+    // The other half of the fold contract: with the body clipped, a click has
+    // to close the box. It used to be a one-way door — `hasHiddenContent` was
+    // false for every expanded box, so the surface's click fell through to
+    // nothing and only `Ctrl+T` could fold it back.
+    const { surface, notifyPanel } = buildSurface(12);
+    notifyPanel.upsert({
+      id: '1',
+      agentId: 'main',
+      time: 0,
+      text: Array.from({ length: 30 }, (_, i) => `- row ${String(i + 1).padStart(2, '0')}`).join(
+        '\n',
+      ),
+    });
+    surface.render(100);
+    const box = surface.regionRects().find((entry) => entry.id === 'updates')!;
+
+    expect(notifyPanel.isExpanded()).toBe(true);
+    const clicked = surface.handleMouse({
+      type: 'click',
+      button: 'left',
+      x: box.col + 3,
+      y: box.from + 1,
+      screenX: box.col + 3,
+      screenY: box.from + 1,
+      width: 100,
+      height: 12,
+      shift: false,
+      alt: false,
+      ctrl: false,
+    });
+
+    expect(clicked?.handled).toBe(true);
+    expect(notifyPanel.isExpanded()).toBe(false);
   });
 });

@@ -431,15 +431,16 @@ export class AgentFileHistoryService extends Service implements IAgentFileHistor
         if (entry.key !== null) referenced.add(entry.key);
       }
     }
-    let names: readonly string[];
+    let keys: readonly string[];
     try {
-      names = await this.blobs.list(`${this.agentCtx.scope()}/${FILE_HISTORY_BLOB_PREFIX}`);
+      keys = await this.blobs.list(this.agentCtx.scope(), FILE_HISTORY_BLOB_PREFIX, {
+        recursive: true,
+      });
     } catch (error) {
       onUnexpectedError(error);
       return;
     }
-    for (const name of names) {
-      const key = `${FILE_HISTORY_BLOB_PREFIX}/${name}`;
+    for (const key of keys) {
       if (referenced.has(key)) continue;
       try {
         await this.blobs.delete(this.agentCtx.scope(), key);

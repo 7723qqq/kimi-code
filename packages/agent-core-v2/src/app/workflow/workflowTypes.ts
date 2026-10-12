@@ -42,4 +42,5 @@ export interface WorkflowRunEntry {
   readonly startedAt: number;
   finishedAt?: number;
   readonly abortController: AbortController;
+  runPromise?: Promise<void>;
 }

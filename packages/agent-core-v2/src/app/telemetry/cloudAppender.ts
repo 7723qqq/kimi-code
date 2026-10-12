@@ -37,6 +37,8 @@ export interface CloudAppenderOptions {
   readonly fetchImpl?: typeof fetch;
   readonly retryBackoffsMs?: readonly number[];
   readonly requestTimeoutMs?: number;
+  readonly maxDiskFiles?: number;
+  readonly maxDiskBytes?: number;
   readonly sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   readonly now?: () => number;
 }
@@ -64,6 +66,7 @@ export function createCloudAppender(
 
 const DEFAULT_FLUSH_THRESHOLD = 50;
 const DEFAULT_FLUSH_INTERVAL_MS = 30_000;
+const PRUNE_EVERY_N_TICKS = 20;
 
 export class CloudAppender implements ITelemetryAppender {
   private readonly transport: CloudTransport;
@@ -93,6 +96,8 @@ export class CloudAppender implements ITelemetryAppender {
       fetchImpl: options.fetchImpl,
       retryBackoffsMs: options.retryBackoffsMs,
       requestTimeoutMs: options.requestTimeoutMs,
+      maxDiskFiles: options.maxDiskFiles,
+      maxDiskBytes: options.maxDiskBytes,
       sleep: options.sleep,
       now: options.now,
     });
@@ -138,8 +143,14 @@ export class CloudAppender implements ITelemetryAppender {
 
   startPeriodicFlush(): void {
     if (this.flushTimer !== null) return;
+    void this.pruneDiskEvents();
+    let ticks = 0;
     this.flushTimer = setInterval(() => {
       void this.flush().catch(() => {});
+      ticks += 1;
+      if (ticks % PRUNE_EVERY_N_TICKS === 0) {
+        void this.pruneDiskEvents();
+      }
     }, this.flushIntervalMs);
     this.flushTimer.unref?.();
   }
@@ -152,6 +163,10 @@ export class CloudAppender implements ITelemetryAppender {
 
   async retryDiskEvents(): Promise<void> {
     await this.transport.retryDiskEvents();
+  }
+
+  async pruneDiskEvents(): Promise<void> {
+    await this.transport.pruneExpiredDiskEvents().catch(() => undefined);
   }
 }
 

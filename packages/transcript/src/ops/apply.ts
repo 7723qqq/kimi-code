@@ -549,7 +549,9 @@ function taskEquals(a: TranscriptTask, b: TranscriptTask): boolean {
     a.resultSummary === b.resultSummary &&
     a.error === b.error &&
     a.stateReason === b.stateReason &&
-    a.usage === b.usage
+    a.usage === b.usage &&
+    a.model === b.model &&
+    a.thinkingEffort === b.thinkingEffort
   );
 }
 
@@ -569,6 +571,7 @@ function applyMetaMerge(state: AgentState, meta: TranscriptMetaMerge): ApplyResu
     meta.modes !== undefined
       ? {
           plan: meta.modes.plan === null ? undefined : (meta.modes.plan ?? state.meta.modes?.plan),
+          spec: meta.modes.spec === null ? undefined : (meta.modes.spec ?? state.meta.modes?.spec),
           swarm:
             meta.modes.swarm === null ? undefined : (meta.modes.swarm ?? state.meta.modes?.swarm),
           tower:
@@ -583,6 +586,7 @@ function applyMetaMerge(state: AgentState, meta: TranscriptMetaMerge): ApplyResu
     modes:
       modes !== undefined &&
       modes.plan === undefined &&
+      modes.spec === undefined &&
       modes.swarm === undefined &&
       modes.tower === undefined
         ? undefined

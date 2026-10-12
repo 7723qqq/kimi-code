@@ -194,3 +194,46 @@ describe('FileStorageService — mtime', () => {
     expect(await svc.mtime('scope', 'k.json')).toBeUndefined();
   });
 });
+
+describe('FileStorageService — recursive list', () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), 'fss-list-'));
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it('walks subdirectories and returns scope-relative keys filtered by prefix', async () => {
+    const svc = new FileStorageService(dir);
+    await svc.write('scope', 'top.bin', encoder.encode('t'));
+    await svc.write('scope', 'file-history/aaa@v1', encoder.encode('a'));
+    await svc.write('scope', 'file-history/nested/deep/bbb@v2', encoder.encode('b'));
+    await svc.write('scope', 'other-scope/keep.bin', encoder.encode('k'));
+
+    expect((await svc.list('scope', 'file-history', { recursive: true })).toSorted()).toEqual([
+      'file-history/aaa@v1',
+      'file-history/nested/deep/bbb@v2',
+    ]);
+    expect(await svc.list('scope', undefined, { recursive: true })).toHaveLength(4);
+  });
+
+  it('keeps the default listing non-recursive and flat', async () => {
+    const svc = new FileStorageService(dir);
+    await svc.write('scope', 'top.bin', encoder.encode('t'));
+    await svc.write('scope', 'file-history/aaa@v1', encoder.encode('a'));
+
+    expect(await svc.list('scope')).toEqual(['file-history', 'top.bin']);
+    expect(await svc.list('scope', 'file-history')).toEqual(['file-history']);
+  });
+
+  it('returns [] for a missing scope and for a prefix with no matches', async () => {
+    const svc = new FileStorageService(dir);
+    await svc.write('scope', 'file-history/aaa@v1', encoder.encode('a'));
+
+    expect(await svc.list('missing-scope', undefined, { recursive: true })).toEqual([]);
+    expect(await svc.list('scope', 'no-such-prefix', { recursive: true })).toEqual([]);
+  });
+});

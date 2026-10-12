@@ -191,6 +191,8 @@ export interface PluginUpdateStatus {
   readonly latest: PluginGithubRef;
   readonly displayVersion: string;
   readonly updateAvailable: boolean;
+  readonly checkFailed?: boolean;
+  readonly errorMessage?: string;
 }
 
 export const PLUGIN_NAME_REGEX = /^[a-z0-9][a-z0-9_-]{0,63}$/;

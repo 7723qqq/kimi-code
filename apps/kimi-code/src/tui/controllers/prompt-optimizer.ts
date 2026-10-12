@@ -32,7 +32,7 @@ export interface PromptOptimizerHost {
   ensureSession(): Promise<Session | undefined>;
   showError(msg: string): void;
   track(event: string, props?: Record<string, unknown>): void;
-  mountEditorReplacement(panel: PromptOptimizePanelComponent): void;
+  mountEditorReplacement(panel: PromptOptimizePanelComponent, onDisplaced?: () => void): void;
   restoreEditor(): void;
   /**
    * Show or clear the in-flight rewrite signal on the editor. The rewrite waits
@@ -49,7 +49,13 @@ export class PromptOptimizerController {
 
   async optimize(): Promise<void> {
     const { host } = this;
-    if (this.inFlight) return;
+    if (this.inFlight) {
+      // The rewrite is discarded on a displaced panel (see `confirm`), so an
+      // ignored Ctrl+P must say so instead of looking like a dead key.
+      host.track('prompt_optimize_busy');
+      host.showError(t('tui.dialogs.promptOptimize.busy'));
+      return;
+    }
     const draft = host.state.editor.getText().trim();
     if (draft.length === 0) {
       host.track('prompt_optimize_empty_draft');
@@ -92,11 +98,16 @@ export class PromptOptimizerController {
   private confirm(original: string, optimized: string): Promise<void> {
     const { host } = this;
     return new Promise((resolve) => {
-      const finish = (choice: PromptOptimizeChoice): void => {
+      const finish = (
+        choice: PromptOptimizeChoice,
+        options?: { readonly restoreEditor?: boolean },
+      ): void => {
         if (host.state.activeDialog === 'prompt-optimize') {
           host.state.activeDialog = null;
         }
-        host.restoreEditor();
+        // A panel displaced by a newer one (AskUserQuestion, a picker, …) no
+        // longer owns the editor slot: restoring it would clear that panel.
+        if (options?.restoreEditor !== false) host.restoreEditor();
         if (choice === 'accept') {
           host.track('prompt_optimize_accepted');
           host.state.editor.setText(optimized, { preservePasteRegistry: true });
@@ -113,6 +124,13 @@ export class PromptOptimizerController {
           onSelect: finish,
           maxVisible: diffBudget(host.state.terminal.rows),
         }),
+        // `clear()`ed panels get no dispose hook, so without this the await
+        // below (and the `inFlight` flag covering it) would never settle.
+        () => {
+          host.track('prompt_optimize_displaced');
+          host.showError(t('tui.dialogs.promptOptimize.displaced'));
+          finish('discard', { restoreEditor: false });
+        },
       );
     });
   }
