@@ -1133,7 +1133,11 @@ describe('refreshAllProviderModels', () => {
       resolveOAuthToken: vi.fn(),
     });
 
-    expect(result).toEqual({ changed: [], unchanged: [], failed: [] });
+    expect(result).toEqual({
+      changed: [],
+      unchanged: [],
+      failed: [{ provider: 'my-kimi', reason: 'provider returned no models' }],
+    });
     expect(host.setConfig).not.toHaveBeenCalled();
     expect(host.current().models?.['my-kimi/kimi-for-coding']).toBeDefined();
   });

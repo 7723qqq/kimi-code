@@ -88,9 +88,13 @@ vi.mock('../../src/feedback/codebase', async (importOriginal) => {
   };
 });
 
-vi.mock('../../src/feedback/upload', () => ({
-  uploadArchive: vi.fn(),
-}));
+vi.mock('../../src/feedback/upload', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../src/feedback/upload')>();
+  return {
+    ...actual,
+    uploadArchive: vi.fn(),
+  };
+});
 
 vi.mock('../../src/feedback/archive', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../src/feedback/archive')>();

@@ -19,8 +19,11 @@ function makeEditor(): CustomEditor {
 }
 
 async function flushAutocomplete(): Promise<void> {
-  await Promise.resolve();
-  await Promise.resolve();
+  // The editor serialises requests through `autocompleteRequestTask` and the
+  // task itself awaits the provider, so two microtask ticks are not enough:
+  // let the whole chain (including a zero-delay debounce timer) drain.
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function providerReturning(items: AutocompleteItem[]): AutocompleteProvider {
