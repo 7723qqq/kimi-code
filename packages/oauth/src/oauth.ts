@@ -11,6 +11,7 @@
  */
 
 import { extractApiErrorMessage } from './api-error';
+import { redactString } from './redact';
 import {
   OAuthConnectionError,
   OAuthError,
@@ -28,8 +29,14 @@ import { isRecord } from './utils';
 
 const RETRYABLE_STATUSES = new Set([429, 500, 502, 503, 504]);
 
+/**
+ * Server-provided error text, with secrets stripped. An OAuth host (or a proxy
+ * in front of it) can echo the request's own token back in `error_description`;
+ * `readApiErrorMessage` has always redacted, and these token/device endpoints
+ * must not be the one path where a secret reaches stderr and the logs.
+ */
 function pickErrorDetail(data: Record<string, unknown>): string {
-  return extractApiErrorMessage(data) ?? 'unknown';
+  return redactString(extractApiErrorMessage(data) ?? 'unknown');
 }
 
 function tokenFromResponse(payload: Record<string, unknown>): TokenInfo {
@@ -207,8 +214,12 @@ export async function pollDeviceToken(
 
   const errorCode = typeof data['error'] === 'string' ? data['error'] : 'unknown_error';
   const detail = extractApiErrorMessage(data);
+  // Same redaction rule as `pickErrorDetail`: this description is carried into
+  // the thrown error and printed by the CLI.
   const description =
-    typeof data['error_description'] === 'string' ? data['error_description'] : (detail ?? '');
+    typeof data['error_description'] === 'string'
+      ? redactString(data['error_description'])
+      : redactString(detail ?? '');
   switch (errorCode) {
     case 'authorization_pending':
     case 'slow_down':
@@ -219,7 +230,9 @@ export async function pollDeviceToken(
       return { kind: 'denied', description };
     default:
       throw new OAuthError(
-        `Device token polling failed (HTTP ${status}): ${detail ?? `${errorCode} ${description}`}`,
+        `Device token polling failed (HTTP ${status}): ${redactString(
+          detail ?? `${errorCode} ${description}`,
+        )}`,
       );
   }
 }

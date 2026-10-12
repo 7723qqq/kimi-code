@@ -337,7 +337,15 @@ export class OAuthManager {
   }
 
   async logout(): Promise<void> {
-    await this.storage.remove(this.config.name);
+    // Take the refresh lock so an in-flight refresh cannot write the token back
+    // after the removal. Best effort: a logout must not be blocked by another
+    // process holding the lock — the lock only orders the two writes.
+    const release = await this.acquireRefreshLock().catch(() => undefined);
+    try {
+      await this.storage.remove(this.config.name);
+    } finally {
+      await release?.();
+    }
   }
 
   /**
@@ -446,10 +454,13 @@ export class OAuthManager {
             `Stored token for "${this.config.name}" was rejected; re-login required.`,
           );
         case 'missing':
-          // File disappeared (e.g. logout from another process) while we
-          // waited for the lock; fall back to the snapshot we read pre-lock.
-          activeToken = token;
-          break;
+          // File disappeared (e.g. a logout from another process) while we
+          // waited for the lock. Resurrecting the pre-lock snapshot would undo
+          // that logout: the refresh would succeed and save the credential
+          // right back, leaving `hasToken()` true for a user who signed out.
+          throw new OAuthUnauthorizedError(
+            `Stored token for "${this.config.name}" was removed while refreshing; re-login required.`,
+          );
         case 'valid': {
           const after = afterLock.token;
           if (!this.shouldRefreshToken(after, force)) {

@@ -36,6 +36,7 @@ interface NativeStreamMetadata {
   inputTokens: number;
   outputTokens: number;
   cachedTokens: number;
+  cacheCreationTokens?: number;
   traceId?: string;
 }
 
@@ -190,6 +191,22 @@ function normalizeFinishReason(raw: string | undefined): FinishReason | null {
  * This class yields the pre-collected parts as an async iterator, matching
  * the interface expected by `generate.ts`.
  */
+/**
+ * Map the Rust stream metadata to `TokenUsage` with the SAME rule as the SDK
+ * reader (`extractAnthropicUsage`) and the engine: every counter is carried
+ * verbatim. Anthropic's `input_tokens` and the cache fields are siblings, not a
+ * total and its parts, so `input - cached` would (a) disagree with the SDK path
+ * on the same response and (b) go negative on a cache-heavy turn.
+ */
+export function nativeMetadataUsage(m: NativeStreamMetadata): TokenUsage {
+  return {
+    inputOther: m.inputTokens,
+    output: m.outputTokens,
+    inputCacheRead: m.cachedTokens,
+    inputCacheCreation: m.cacheCreationTokens ?? 0,
+  };
+}
+
 class NativeStreamedMessage implements StreamedMessage {
   private readonly _parts: StreamedMessagePart[];
   private readonly _id: string | null;
@@ -206,12 +223,7 @@ class NativeStreamedMessage implements StreamedMessage {
     this._finishReason = normalizeFinishReason(result.metadata.finishReason);
     this._rawFinishReason = result.metadata.finishReason ?? null;
     this._traceId = result.metadata.traceId ?? null;
-    this._usage = {
-      inputOther: result.metadata.inputTokens - result.metadata.cachedTokens,
-      output: result.metadata.outputTokens,
-      inputCacheRead: result.metadata.cachedTokens,
-      inputCacheCreation: 0,
-    };
+    this._usage = nativeMetadataUsage(result.metadata);
   }
 
   get id(): string | null {
@@ -406,12 +418,7 @@ class NativeIncrementalStreamedMessage implements StreamedMessage {
   get usage(): TokenUsage | null {
     const m = this._done()?.metadata;
     if (m === undefined) return null;
-    return {
-      inputOther: m.inputTokens - m.cachedTokens,
-      output: m.outputTokens,
-      inputCacheRead: m.cachedTokens,
-      inputCacheCreation: 0,
-    };
+    return nativeMetadataUsage(m);
   }
 
   get finishReason(): FinishReason | null {

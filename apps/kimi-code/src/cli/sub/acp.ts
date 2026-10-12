@@ -11,8 +11,12 @@
  *    the agent binary with the advertised `args:['--login']`).
  *  - `KIMI_CODE_HOME` (if set) is forwarded into `authMethods[0].env` so the
  *    login subprocess writes its token under the same data root the server
- *    reads from, and `process.argv[1]` is advertised as the legacy
- *    `_meta['terminal-auth'].command` fallback.
+ *    reads from, and the absolute path to this binary is advertised as the
+ *    legacy `_meta['terminal-auth'].command` fallback. Under a Bun single-file
+ *    build that path is `process.execPath`: `argv[1]` is then a virtual
+ *    `/$bunfs/...` path and every client `spawn` of it fails with ENOENT. For
+ *    an npm/bun-global script install the binary to spawn IS the script, so
+ *    `argv[1]` stays.
  *
  * `@moonshot-ai/acp-server` (and its `agent-core-v2` engine) is loaded via a
  * lazy dynamic import so parsing the CLI does not initialize the ACP engine —
@@ -21,6 +25,7 @@
 
 import type { Command } from 'commander';
 
+import { detectNativeInstall } from '#/cli/update/source';
 import { getVersion } from '#/cli/version';
 import { KIMI_CODE_HOME_ENV } from '#/constant/app';
 import { t } from '#/i18n';
@@ -51,8 +56,15 @@ export function registerAcpCommand(parent: Command): void {
           : undefined;
       // Legacy `_meta.terminal-auth` fallback for clients that don't yet
       // honor the first-class `type:'terminal'`. `command` is the absolute
-      // path to this very binary so the client can spawn it for login.
-      const legacyCommand = process.argv[1];
+      // path to this very binary so the client can spawn it for login: a
+      // single-file build must report `execPath`, while a script install
+      // (`dist/main.mjs` invoked by node/bun) must keep `argv[1]` — pointing
+      // a script install at `execPath` would advertise the runtime.
+      const argv1 = process.argv[1];
+      const legacyCommand =
+        detectNativeInstall().native || argv1 === undefined || argv1.length === 0
+          ? process.execPath
+          : argv1;
       try {
         const { runAcpServer } = await import('@moonshot-ai/acp-server');
         await runAcpServer({

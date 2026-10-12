@@ -31,14 +31,7 @@ import type { TokenUsage } from '#/usage';
 import type { ToolCallIdPolicy } from '../provider';
 import { usesOpenAIResponsesDeveloperRole } from './capability-registry';
 import { tryNativeLlmStream, tryNativeLlmStreamIncremental } from './native-stream';
-import {
-  convertOpenAIError,
-  isMediaPart,
-  isOpenAIInsufficientQuotaCode,
-  TOOL_RESULT_MEDIA_PLACEHOLDER,
-  TOOL_RESULT_MEDIA_PROMPT,
-  type ToolMessageConversion,
-} from './openai-common';
+import { TOOL_RESULT_MEDIA_PLACEHOLDER, TOOL_RESULT_MEDIA_PROMPT, convertOpenAIError, isMediaPart, isOpenAIInsufficientQuotaCode, resolveDeepSeekCacheSplit, type ToolMessageConversion } from './openai-common';
 import {
   mergeRequestHeaders,
   requireProviderApiKey,
@@ -85,6 +78,41 @@ function normalizeResponsesFinishReason(
 }
 
 type RawObject = Record<string, unknown>;
+
+/**
+ * The Responses API's usage reader, exported so the cross-engine parity test
+ * can drive the SAME payloads through it and the Chat Completions reader.
+ *
+ * The DeepSeek split is classified by the shared
+ * `resolveDeepSeekCacheSplit` (see `openai-common.ts`): a split summing to more
+ * than `input_tokens` is contradictory and falls back to the standard cached
+ * counter, never to `prompt_cache_miss_tokens`.
+ */
+export function extractResponsesUsage(usage: RawObject): TokenUsage {
+  const inputTokens = readNumberField(usage, 'input_tokens') ?? 0;
+  const outputTokens = readNumberField(usage, 'output_tokens') ?? 0;
+  const split = resolveDeepSeekCacheSplit(usage, inputTokens);
+  if (split !== undefined) {
+    return {
+      inputOther: split.miss ?? Math.max(inputTokens - split.cached, 0),
+      output: outputTokens,
+      inputCacheRead: split.cached,
+      inputCacheCreation: 0,
+    };
+  }
+  const details = readObjectField(usage, 'input_tokens_details');
+  const cached = details ? (readNumberField(details, 'cached_tokens') ?? 0) : 0;
+  // Cache writes are not reported by OpenAI-compatible APIs; the non-cached
+  // remainder of the input is the closest proxy — without it the hit rate
+  // reads/(reads+writes) would always be 100% whenever any token was read.
+  const cacheCreation = cached > 0 ? Math.max(inputTokens - cached, 0) : 0;
+  return {
+    inputOther: cached > 0 ? 0 : Math.max(inputTokens - cached, 0),
+    output: outputTokens,
+    inputCacheRead: cached,
+    inputCacheCreation: cacheCreation,
+  };
+}
 const OPENAI_RESPONSES_TOOL_CALL_ID_POLICY: ToolCallIdPolicy = {
   normalize: (id) => sanitizeOpenAIResponsesCallId(id, 64),
   maxLength: 64,
@@ -724,35 +752,7 @@ export class OpenAIResponsesStreamedMessage implements StreamedMessage {
   }
 
   private _extractUsage(usage: RawObject): void {
-    const inputTokens = readNumberField(usage, 'input_tokens') ?? 0;
-    const outputTokens = readNumberField(usage, 'output_tokens') ?? 0;
-    // DeepSeek proprietary: prompt_cache_hit_tokens / prompt_cache_miss_tokens
-    // (top-level, alongside input_tokens / output_tokens). Both buckets are
-    // reported directly, so read them verbatim — the same classification the
-    // Chat Completions extractor uses (see `openai-common.ts`).
-    const hit = readNumberField(usage, 'prompt_cache_hit_tokens');
-    if (hit !== undefined) {
-      const miss = readNumberField(usage, 'prompt_cache_miss_tokens');
-      this._usage = {
-        inputOther: miss ?? Math.max(inputTokens - hit, 0),
-        output: outputTokens,
-        inputCacheRead: hit,
-        inputCacheCreation: 0,
-      };
-      return;
-    }
-    const details = readObjectField(usage, 'input_tokens_details');
-    const cached = details ? (readNumberField(details, 'cached_tokens') ?? 0) : 0;
-    // Cache writes are not reported by OpenAI-compatible APIs; the non-cached
-    // remainder of the input is the closest proxy — without it the hit rate
-    // reads/(reads+writes) would always be 100% whenever any token was read.
-    const cacheCreation = cached > 0 ? Math.max(inputTokens - cached, 0) : 0;
-    this._usage = {
-      inputOther: cached > 0 ? 0 : Math.max(inputTokens - cached, 0),
-      output: outputTokens,
-      inputCacheRead: cached,
-      inputCacheCreation: cacheCreation,
-    };
+    this._usage = extractResponsesUsage(usage);
   }
 
   private async *_convertNonStreamResponse(
@@ -1168,10 +1168,14 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
 
     // ── Native stream fast-path ────────────────────────────────────────
     // Attempt the Rust native SSE pipeline before falling back to the SDK.
-    if (this._apiKey !== undefined && this._stream) {
+    // Per-request auth wins over the constructor credential here too.
+    const nativeAuth = options?.auth;
+    const nativeApiKey = nativeAuth?.apiKey ?? this._apiKey;
+    if (nativeApiKey !== undefined && this._stream) {
+      const mergedHeaders = mergeRequestHeaders(this._defaultHeaders, nativeAuth?.headers);
       const extraHeaders: Array<{ key: string; value: string }> = [];
-      if (this._defaultHeaders) {
-        for (const [k, v] of Object.entries(this._defaultHeaders)) {
+      if (mergedHeaders !== undefined) {
+        for (const [k, v] of Object.entries(mergedHeaders)) {
           extraHeaders.push({ key: k, value: v });
         }
       }
@@ -1180,7 +1184,7 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
         const nativeConfig = {
           provider: 'openai-responses' as const,
           url: `${this._baseUrl ?? 'https://api.openai.com/v1'}/responses`,
-          apiKey: this._apiKey,
+          apiKey: nativeApiKey,
           model: this._model,
           requestBody: JSON.stringify(createParams),
           timeoutMs: 120_000,

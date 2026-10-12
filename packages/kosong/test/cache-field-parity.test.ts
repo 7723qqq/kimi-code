@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import { extractUsage } from '#/providers/openai-common';
+import { extractResponsesUsage } from '#/providers/openai-responses';
+import { nativeMetadataUsage } from '#/providers/native-stream';
 import { extractAnthropicUsage } from '#/providers/anthropic-usage';
 
 // The v2 engine's OpenAI-compatible usage reader. Imported by relative path on
@@ -11,6 +13,7 @@ import { extractAnthropicUsage } from '#/providers/anthropic-usage';
 // direction too), which is exactly why the agreement is asserted from outside
 // both rather than enforced by a single implementation.
 import { parseOpenAIUsage } from '../../agent-core-v2/src/human/llm/requester/bases/openai/usage';
+import { parseOpenAIResponsesUsage } from '../../agent-core-v2/src/human/llm/requester/bases/openai-responses/format';
 import type { StreamParseSink } from '../../agent-core-v2/src/human/llm/protocol/format';
 import { anthropicFormat } from '../../agent-core-v2/src/human/llm/requester/bases/anthropic/format';
 
@@ -144,6 +147,143 @@ describe('deepseek cache-field classification agrees across engines', () => {
       const prompt = testCase.usage['prompt_tokens'] as number;
       expect(engine!.inputCacheRead + engine!.inputOther).toBeLessThanOrEqual(prompt);
     }
+  });
+});
+
+interface ResponsesCase {
+  readonly name: string;
+  readonly usage: Record<string, unknown>;
+  readonly inputOther: number;
+  readonly cacheRead: number;
+  /** True when the engine's Responses reader must reach the same numbers. */
+  readonly parity: boolean;
+}
+
+/**
+ * The Responses reader classifies the same DeepSeek split as the Chat
+ * Completions reader, including the contradictory payload that must be
+ * rejected. `input_tokens` / `output_tokens` / `input_tokens_details` are the
+ * Responses spelling of the counters.
+ */
+const RESPONSES_CASES: readonly ResponsesCase[] = [
+  {
+    name: 'contradictory split falls back to the standard cached count',
+    usage: {
+      input_tokens: 100,
+      output_tokens: 1,
+      prompt_cache_hit_tokens: 5000,
+      prompt_cache_miss_tokens: 0,
+      input_tokens_details: { cached_tokens: 40 },
+    },
+    inputOther: 60,
+    cacheRead: 40,
+    parity: true,
+  },
+  {
+    name: 'contradictory split with no fallback keeps the whole prompt as fresh input',
+    usage: {
+      input_tokens: 100,
+      output_tokens: 1,
+      prompt_cache_hit_tokens: 5000,
+      prompt_cache_miss_tokens: 0,
+    },
+    inputOther: 100,
+    cacheRead: 0,
+    parity: true,
+  },
+  {
+    name: 'consistent split is kept verbatim',
+    usage: {
+      input_tokens: 500,
+      output_tokens: 1,
+      prompt_cache_hit_tokens: 120,
+      prompt_cache_miss_tokens: 380,
+    },
+    inputOther: 380,
+    cacheRead: 120,
+    parity: false,
+  },
+];
+
+describe('responses cache-field classification agrees across engines', () => {
+  // The engine's Responses reader does not read the DeepSeek split at all, so
+  // the two implementations must agree on the payloads where the split is
+  // REJECTED — that is the dimension this fix aligned.
+  for (const testCase of RESPONSES_CASES.filter((c) => c.parity)) {
+    it(testCase.name, () => {
+      const kosong = extractResponsesUsage(testCase.usage);
+      const engine = parseOpenAIResponsesUsage(testCase.usage);
+
+      expect(engine).toBeDefined();
+      expect(kosong.inputCacheRead).toBe(testCase.cacheRead);
+      expect(kosong.inputOther).toBe(testCase.inputOther);
+      expect(engine!.inputCacheRead).toBe(kosong.inputCacheRead);
+      expect(engine!.inputOther).toBe(kosong.inputOther);
+      // Never let the two buckets claim more than the prompt reports.
+      expect(kosong.inputCacheRead + kosong.inputOther).toBeLessThanOrEqual(
+        (testCase.usage['input_tokens'] as number) ?? Infinity,
+      );
+    });
+  }
+
+  it('keeps a consistent DeepSeek split verbatim instead of treating it as a total', () => {
+    // The engine's Responses reader reports no cache read here; kosong keeps
+    // the split as its own buckets (the payload is self-consistent, so there
+    // is nothing to reject). Documented so the divergence is not a surprise.
+    const testCase = RESPONSES_CASES.find((c) => !c.parity)!;
+    const kosong = extractResponsesUsage(testCase.usage);
+
+    expect(kosong.inputCacheRead).toBe(testCase.cacheRead);
+    expect(kosong.inputOther).toBe(testCase.inputOther);
+  });
+});
+
+describe('anthropic usage agrees between the native and SDK paths', () => {
+  // One payload, two readers: the Rust fast-path metadata and the SDK stream
+  // parser must classify it identically, including the cache-write counter the
+  // native path used to drop.
+  const payload = {
+    input_tokens: 10,
+    output_tokens: 1,
+    cache_read_input_tokens: 3,
+    cache_creation_input_tokens: 2,
+  };
+
+  it('carries every counter verbatim on the native path', () => {
+    const native = nativeMetadataUsage({
+      inputTokens: payload.input_tokens,
+      outputTokens: payload.output_tokens,
+      cachedTokens: payload.cache_read_input_tokens,
+      cacheCreationTokens: payload.cache_creation_input_tokens,
+    });
+    const sdk = extractAnthropicUsage(payload);
+
+    expect(native).toEqual(sdk);
+    expect(native).toEqual({
+      inputOther: 10,
+      output: 1,
+      inputCacheRead: 3,
+      inputCacheCreation: 2,
+    });
+  });
+
+  it('matches the native path on a cache-heavy turn instead of going negative', () => {
+    const heavy = {
+      input_tokens: 11,
+      output_tokens: 1,
+      cache_read_input_tokens: 1434,
+      cache_creation_input_tokens: 0,
+    };
+
+    const native = nativeMetadataUsage({
+      inputTokens: heavy.input_tokens,
+      outputTokens: heavy.output_tokens,
+      cachedTokens: heavy.cache_read_input_tokens,
+      cacheCreationTokens: heavy.cache_creation_input_tokens,
+    });
+
+    expect(native).toEqual(extractAnthropicUsage(heavy));
+    expect(native.inputOther).toBeGreaterThanOrEqual(0);
   });
 });
 

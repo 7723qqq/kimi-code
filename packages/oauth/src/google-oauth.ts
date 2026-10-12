@@ -165,8 +165,12 @@ export class GoogleOAuthManager {
       } catch (error) {
         console.warn(`[google-oauth] Token refresh failed: ${errorText(error)}`);
         try {
-          // Refresh failed (e.g. imported client token). Try re-reading Antigravity credentials
-          const synced = await this.importAntigravityCredentials();
+          // Refresh failed (e.g. imported client token). Try re-reading
+          // Antigravity credentials WITHOUT persisting: a transient refresh
+          // failure must not let an unrelated (possibly stale) file overwrite
+          // the credential that is still valid. Only a token that passes the
+          // usability check below is written.
+          const synced = await this.importAntigravityCredentials({ persist: false });
           if (
             synced &&
             synced.accessToken.length > 0 &&
@@ -175,6 +179,7 @@ export class GoogleOAuthManager {
             console.warn(
               '[google-oauth] Falling back to freshly imported Antigravity credentials.',
             );
+            await this.saveToken(synced);
             return synced.accessToken;
           }
         } catch (syncError) {
@@ -489,7 +494,9 @@ export class GoogleOAuthManager {
    * Imports existing credentials from Google Antigravity (~/.gemini/oauth_creds.json)
    * into Kimi Code's credentials store.
    */
-  async importAntigravityCredentials(): Promise<TokenInfo | undefined> {
+  async importAntigravityCredentials(
+    options: { persist?: boolean } = {},
+  ): Promise<TokenInfo | undefined> {
     const detection = GoogleOAuthManager.detectAntigravityCredentials();
     if (!detection.available || !detection.credsPath) return undefined;
 
@@ -503,16 +510,28 @@ export class GoogleOAuthManager {
         : Math.floor(Date.now() / 1000) + 3600;
       const expiresIn = Math.max(expiresAt - Math.floor(Date.now() / 1000), 0);
 
+      // Never overwrite a stored refresh token with an empty one: the imported
+      // file legitimately has none when it was written by a client that only
+      // holds an access token, and the stored one is what keeps the user logged
+      // in after the imported access token expires.
+      const existing = await this.loadToken().catch(() => undefined);
+      const importedRefreshToken =
+        typeof creds.refresh_token === 'string' && creds.refresh_token.length > 0
+          ? creds.refresh_token
+          : (existing?.refreshToken ?? '');
       const tokenInfo: TokenInfo = {
         accessToken: creds.access_token,
-        refreshToken: creds.refresh_token ?? '',
+        refreshToken: importedRefreshToken,
         tokenType: creds.token_type ?? 'Bearer',
         expiresAt,
         expiresIn,
         scope: creds.scope ?? '',
       };
 
-      await this.saveToken(tokenInfo);
+      // `persist: false` lets a caller validate the imported token BEFORE it
+      // reaches storage — an unused-but-valid file must not be able to replace
+      // a working credential.
+      if (options.persist ?? true) await this.saveToken(tokenInfo);
       return tokenInfo;
     } catch (error) {
       throw new OAuthError(

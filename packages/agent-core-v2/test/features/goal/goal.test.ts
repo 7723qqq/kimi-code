@@ -1470,7 +1470,6 @@ describe('AgentGoalService core workflow hooks', () => {
 
   it('accounts recorded turn usage for active goal turns', async () => {
     await goals.createGoal({ objective: 'finish the task' });
-    await goals.setBudgetLimits({ budgetLimits: { tokenBudget: 7 } }, 'model');
 
     const turn = loopService.startTurn();
     eventBus.publish(
@@ -1479,13 +1478,21 @@ describe('AgentGoalService core workflow hooks', () => {
 
     expect(
       await recordStepUsage(usageService, goals, turn, {
+        // Cache READS are excluded from the charge; the fresh input (40k) plus
+        // the cache-write (50k) plus output is what counts, and it is the input
+        // side that makes a budget reachable at all.
         inputCacheRead: 100_000,
         inputCacheCreation: 50_000,
         inputOther: 40_000,
         output: 4,
       }),
     ).toBe(false);
-    expect(goals.getGoal().goal).toMatchObject({ status: 'active', tokensUsed: 4 });
+    expect(goals.getGoal().goal).toMatchObject({ status: 'active', tokensUsed: 90_004 });
+
+    // A budget the first charge does NOT cross: it is the second charge that
+    // pushes the reported total over, which is exactly what charging output
+    // alone could never do for this payload.
+    await goals.setBudgetLimits({ budgetLimits: { tokenBudget: 100_000 } }, 'model');
     expect(
       await recordStepUsage(usageService, goals, turn, {
         inputCacheRead: 0,
@@ -1497,8 +1504,8 @@ describe('AgentGoalService core workflow hooks', () => {
 
     expect(goals.getGoal().goal).toMatchObject({
       status: 'blocked',
-      tokensUsed: 7,
-      terminalReason: 'Blocked after goal budget reached: token budget 7',
+      tokensUsed: 180_007,
+      terminalReason: 'Blocked after goal budget reached: token budget 100000',
     });
   });
 
@@ -1574,9 +1581,11 @@ describe('AgentGoalService core workflow hooks', () => {
       }),
     ).toBe(false);
 
+    // The whole charge counts: fresh input (50) + cache write (0) + output (6).
+    // Cache reads (100) stay out of it.
     expect(goals.getGoal().goal).toMatchObject({
       status: 'active',
-      tokensUsed: 6,
+      tokensUsed: 56,
     });
   });
 

@@ -35,6 +35,7 @@ import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { WAIT_FOR_FLAG_ID } from '#/agent/tools/task/task-wait/flag';
 import { type UsageRecordedContext } from '#/agent/usage/usage';
+import { chargeableTokens } from '#human/llm/usage';
 import { IConfigService } from '#/app/config/config';
 import { registerEvent2Class } from '#/app/event/event2';
 import { IEventBus } from '#/app/event/eventBus';
@@ -611,7 +612,7 @@ function handleUsageRecorded(context: GoalOperationContext, ctx: UsageRecordedCo
   if (source?.type !== 'turn') return;
   const goalId = context.effects.goalDrivenTurns.get(source.turnId);
   if (goalId === undefined) return;
-  accountTokenUsage(context, ctx.usage.output, goalId);
+  accountTokenUsage(context, chargeableTokens(ctx.usage), goalId);
 }
 
 function handleAfterStep(context: GoalOperationContext, ctx: AfterStepContext): void {

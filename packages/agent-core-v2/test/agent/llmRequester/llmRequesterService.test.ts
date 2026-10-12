@@ -1332,6 +1332,24 @@ describe('estimateLlmRequestBytes', () => {
     ];
     expect(estimateLlmRequestBytes(messages)).toBe(3 + 2 + 3 + 24 + 7);
   });
+
+  it('measures UTF-8 bytes, not UTF-16 code units', () => {
+    const messages: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: '中'.repeat(3) }], toolCalls: [] },
+    ];
+
+    // Three CJK characters are three code units but NINE bytes; the budget and
+    // the reported figure are both in bytes.
+    expect(estimateLlmRequestBytes(messages)).toBe(9);
+  });
+
+  it('counts an emoji at its UTF-8 width', () => {
+    const messages: Message[] = [
+      { role: 'user', content: [{ type: 'text', text: '🙂' }], toolCalls: [] },
+    ];
+
+    expect(estimateLlmRequestBytes(messages)).toBe(4);
+  });
 });
 
 describe('AgentLLMRequesterService proactive media eviction', () => {
@@ -1452,6 +1470,44 @@ describe('AgentLLMRequesterService proactive media eviction', () => {
       evictedMediaCount: 4,
       projection: 'media-stripped',
     });
+  });
+
+  it('triggers on the BYTE size of CJK text, not its code-unit count', async () => {
+    const calls = { value: 0 };
+    const capturedInputs: ModelRequestInput[] = [];
+    // Bare data-URL prefix only: the text must be what crosses the budget.
+    const url = imageDataUrl('', 0);
+    const { service, warnings } = createService(
+      createRequester(calls, null, [], capturedInputs),
+      undefined,
+      {
+        contextMessages: [
+          {
+            role: 'user',
+            content: [
+              // Eight CJK characters = 8 code units but 24 bytes; with the
+              // 23-byte URL prefix the request is 47 bytes but only 31 code
+              // units. A budget of 40 is overrun in bytes and NOT in code
+              // units, so this case fails outright under `.length`.
+              { type: 'text', text: '中文测试内容文本' },
+              { type: 'image_url', imageUrl: { url } },
+            ],
+            toolCalls: [],
+          },
+        ],
+        configValues: { llmRequester: { requestByteBudget: 40 } },
+      },
+    );
+
+    await service.request();
+
+    expect(calls.value).toBe(1);
+    expect(sentParts(capturedInputs).urls).toEqual([]);
+    expect(
+      warnings
+        .find((warning) => warning.message.includes('evicting older media'))
+        ?.context,
+    ).toMatchObject({ budgetBytes: 40 });
   });
 
   it('honors a custom request byte budget from config', async () => {

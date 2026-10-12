@@ -1119,16 +1119,21 @@ export class AnthropicChatProvider implements ChatProvider {
     // Attempt the Rust native SSE pipeline before falling back to the SDK.
     // The native client always sends the credential as `x-api-key`, so it is
     // skipped for OAuth tokens, which must travel as `Authorization: Bearer`.
-    if (this._stream && this._apiKey !== undefined && !isAnthropicOAuthApiKey(this._apiKey)) {
+    // Per-request auth (the documented rotation entry point) wins over the
+    // constructor credential here exactly as it does on the SDK path — using
+    // the constructor key instead would bill the wrong account and drop the
+    // per-request headers.
+    const nativeApiKey = options?.auth?.apiKey ?? this._apiKey;
+    if (this._stream && nativeApiKey !== undefined && !isAnthropicOAuthApiKey(nativeApiKey)) {
       const nativeHeaders: Array<{ key: string; value: string }> = [];
-      for (const [k, v] of Object.entries(extraHeaders)) {
+      for (const [k, v] of Object.entries(headers ?? extraHeaders)) {
         nativeHeaders.push({ key: k, value: v });
       }
       try {
         const nativeConfig = {
           provider: 'anthropic' as const,
           url: `${this._baseUrl ?? 'https://api.anthropic.com'}/v1/messages`,
-          apiKey: this._apiKey,
+          apiKey: nativeApiKey,
           model: this._model,
           requestBody: JSON.stringify({ ...createParams, stream: true }),
           timeoutMs: 120_000,

@@ -202,6 +202,46 @@ export function isFunctionToolCall<T extends { type: string }>(
 }
 
 /**
+ * Classify the DeepSeek proprietary cache split (`prompt_cache_hit_tokens` /
+ * `prompt_cache_miss_tokens`, top-level alongside `prompt_tokens`).
+ *
+ * Returns `undefined` when the hit counter is absent, so callers fall through
+ * to the OpenAI/Moonshot counters. When the pair IS present but its parts sum
+ * to more than the prompt total the fields cannot both be right: the split is
+ * REJECTED and the reported cached count comes from the standard fields
+ * (`cached_tokens`, then `prompt_tokens_details.cached_tokens`), with no miss.
+ * A sum that is merely smaller is not an error — an endpoint may report only
+ * part of the split. Shared by the Chat Completions and Responses readers so
+ * one payload cannot get two classifications.
+ */
+export function resolveDeepSeekCacheSplit(
+  usage: Record<string, unknown>,
+  promptTokens: number,
+): { readonly cached: number; readonly miss: number | undefined } | undefined {
+  const hit = usage['prompt_cache_hit_tokens'];
+  if (typeof hit !== 'number') return undefined;
+  const rawMiss = usage['prompt_cache_miss_tokens'];
+  if (typeof rawMiss === 'number' && hit + rawMiss > promptTokens) {
+    return { cached: readStandardCachedCount(usage), miss: undefined };
+  }
+  return { cached: hit, miss: typeof rawMiss === 'number' ? rawMiss : undefined };
+}
+
+function readStandardCachedCount(usage: Record<string, unknown>): number {
+  if (typeof usage['cached_tokens'] === 'number') return usage['cached_tokens'];
+  // Both spellings of the nested counter: Chat Completions uses
+  // `prompt_tokens_details`, the Responses API uses `input_tokens_details`.
+  for (const key of ['prompt_tokens_details', 'input_tokens_details']) {
+    const details = usage[key];
+    if (typeof details === 'object' && details !== null) {
+      const cached = (details as Record<string, unknown>)['cached_tokens'];
+      if (typeof cached === 'number') return cached;
+    }
+  }
+  return 0;
+}
+
+/**
  * Extract `TokenUsage` from an OpenAI-compatible usage object.
  */
 export function extractUsage(usage: unknown): TokenUsage | null {
@@ -214,30 +254,10 @@ export function extractUsage(usage: unknown): TokenUsage | null {
 
   let cached = 0;
   let miss: number | undefined;
-  // DeepSeek proprietary: prompt_cache_hit_tokens / prompt_cache_miss_tokens
-  // (top-level, alongside prompt_tokens / completion_tokens). When the pair is
-  // present but its parts sum to more than prompt_tokens the fields cannot both
-  // be right, so they are rejected and the OpenAI/Moonshot counters below are
-  // used instead. A sum that is merely less than prompt_tokens is not an error:
-  // an endpoint may report only part of the split.
-  const deepSeekHit = u['prompt_cache_hit_tokens'];
-  if (typeof deepSeekHit === 'number') {
-    const deepSeekMiss = u['prompt_cache_miss_tokens'];
-    const contradicts =
-      typeof deepSeekMiss === 'number' && deepSeekHit + deepSeekMiss > promptTokens;
-    if (contradicts) {
-      cached = typeof u['cached_tokens'] === 'number' ? u['cached_tokens'] : 0;
-      if (cached === 0) {
-        const details = u['prompt_tokens_details'];
-        if (typeof details === 'object' && details !== null) {
-          const detailed = (details as Record<string, unknown>)['cached_tokens'];
-          if (typeof detailed === 'number') cached = detailed;
-        }
-      }
-    } else {
-      cached = deepSeekHit;
-      if (typeof deepSeekMiss === 'number') miss = deepSeekMiss;
-    }
+  const deepSeek = resolveDeepSeekCacheSplit(u, promptTokens);
+  if (deepSeek !== undefined) {
+    cached = deepSeek.cached;
+    miss = deepSeek.miss;
   } else if (typeof u['cached_tokens'] === 'number') {
     // Moonshot proprietary: top-level cached_tokens
     cached = u['cached_tokens'];

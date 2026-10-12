@@ -631,6 +631,7 @@ export interface NativeLlmStreamMetadata {
   inputTokens: number;
   outputTokens: number;
   cachedTokens: number;
+  cacheCreationTokens?: number;
   traceId?: string;
 }
 

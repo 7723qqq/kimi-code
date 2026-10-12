@@ -710,10 +710,15 @@ export class OpenAILegacyChatProvider implements ChatProvider {
     try {
       // ── Native stream fast-path ──────────────────────────────────────
       // Attempt the Rust native SSE pipeline before falling back to the SDK.
-      if (this._stream && this._apiKey !== undefined) {
+      // Per-request auth wins over the constructor credential, on the native
+      // path exactly as on the SDK path (see `requireProviderApiKey`).
+      const nativeAuth = options?.auth;
+      const nativeApiKey = nativeAuth?.apiKey ?? this._apiKey;
+      const nativeMergedHeaders = mergeRequestHeaders(this._defaultHeaders, nativeAuth?.headers);
+      if (this._stream && nativeApiKey !== undefined) {
         const nativeExtraHeaders: Array<{ key: string; value: string }> = [];
-        if (this._defaultHeaders) {
-          for (const [k, v] of Object.entries(this._defaultHeaders)) {
+        if (nativeMergedHeaders !== undefined) {
+          for (const [k, v] of Object.entries(nativeMergedHeaders)) {
             nativeExtraHeaders.push({ key: k, value: v });
           }
         }
@@ -721,7 +726,7 @@ export class OpenAILegacyChatProvider implements ChatProvider {
           const nativeConfig = {
             provider: 'openai-legacy' as const,
             url: `${this._baseUrl ?? 'https://api.openai.com/v1'}/chat/completions`,
-            apiKey: this._apiKey,
+            apiKey: nativeApiKey,
             model: this._model,
             requestBody: JSON.stringify(createParams),
             timeoutMs: 120_000,

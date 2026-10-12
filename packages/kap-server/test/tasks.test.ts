@@ -311,6 +311,23 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
     expect(plain.body.data.output_bytes).toBeUndefined();
   });
 
+  it('honors output_bytes as a BYTE budget, even for multi-byte text', async () => {
+    const id = await createSession();
+    const tasks = await mainAgentTasks(id);
+    // 4096 CJK characters = 4096 UTF-16 code units but 12288 bytes.
+    const taskId = tasks.registerTask(fakeTask('process', '中'.repeat(4096)));
+    await flush();
+
+    const got = await getJson<TaskWire>(
+      `/api/v1/sessions/${id}/tasks/${taskId}?with_output=true&output_bytes=4096`,
+    );
+    expect(got.body.code).toBe(0);
+    expect(got.body.data.output_bytes).toBeLessThanOrEqual(4096);
+    expect(Buffer.byteLength(got.body.data.output_preview ?? '', 'utf-8')).toBe(
+      got.body.data.output_bytes,
+    );
+  });
+
   it('cancels a running task and reports 40904 on a second cancel', async () => {
     const id = await createSession();
     const tasks = await mainAgentTasks(id);

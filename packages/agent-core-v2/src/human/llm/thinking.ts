@@ -27,7 +27,8 @@ export type ThinkingConfigErrorCode =
   | 'effort-not-supported'
   | 'thinking-unsupported'
   | 'thinking-cannot-disable'
-  | 'off-needs-offeffort';
+  | 'off-needs-offeffort'
+  | 'budget-exceeds-cap';
 
 export class ThinkingConfigError extends SyntaxRequestFormatError {
   readonly code: ThinkingConfigErrorCode;

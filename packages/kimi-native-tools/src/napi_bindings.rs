@@ -1927,6 +1927,7 @@ pub struct NativeLlmStreamMetadata {
     pub input_tokens: u32,
     pub output_tokens: u32,
     pub cached_tokens: u32,
+    pub cache_creation_tokens: u32,
     pub trace_id: Option<String>,
 }
 
@@ -2002,6 +2003,7 @@ pub async fn native_llm_stream(config: NativeLlmStreamConfig) -> NativeLlmStream
                     input_tokens: metadata.input_tokens,
                     output_tokens: metadata.output_tokens,
                     cached_tokens: metadata.cached_tokens,
+                    cache_creation_tokens: metadata.cache_creation_tokens,
                     trace_id: metadata.trace_id,
                 },
                 error,
@@ -2015,6 +2017,7 @@ pub async fn native_llm_stream(config: NativeLlmStreamConfig) -> NativeLlmStream
                 input_tokens: 0,
                 output_tokens: 0,
                 cached_tokens: 0,
+                cache_creation_tokens: 0,
                 trace_id: None,
             },
             error: Some(e),
@@ -2123,6 +2126,7 @@ pub fn native_llm_stream_streaming(
                         input_tokens: m.input_tokens,
                         output_tokens: m.output_tokens,
                         cached_tokens: m.cached_tokens,
+                        cache_creation_tokens: m.cache_creation_tokens,
                         trace_id: m.trace_id,
                     }),
                     error: None,

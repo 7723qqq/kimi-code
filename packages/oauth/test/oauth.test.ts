@@ -334,6 +334,22 @@ describe('pollDeviceToken', () => {
     expect(res.token.expiresAt).toBeGreaterThan(Date.now() / 1000);
   });
 
+  it('redacts secrets the server echoes back in error_description', async () => {
+    server.enqueue('/api/oauth/token', {
+      status: 400,
+      body: {
+        error: 'invalid_grant',
+        error_description: 'invalid grant refresh_token=SECRETVALUE',
+      },
+    });
+
+    const error = await pollToken(flowConfig(), 'devcode123').catch((e: unknown) => e);
+
+    expect(error).toBeInstanceOf(OAuthError);
+    expect((error as Error).message).toContain('[REDACTED]');
+    expect((error as Error).message).not.toContain('SECRETVALUE');
+  });
+
   it('omits X-Msh-* device headers when deviceHeaders are absent', async () => {
     server.enqueue('/api/oauth/token', {
       status: 200,

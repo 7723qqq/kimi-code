@@ -140,6 +140,15 @@ const TERMINAL_OUTPUT_TAIL_BYTES = 4 * 1024;
 
 const MAX_TASK_OUTPUT_BYTES = 16 * 1024 * 1024;
 
+function alignToCharacterStart(buffer: Uint8Array, offset: number): number {
+  if (offset <= 0) return 0;
+  let index = offset;
+  while (index < buffer.byteLength && (buffer[index]! & 0b1100_0000) === 0b1000_0000) {
+    index += 1;
+  }
+  return index;
+}
+
 function outputLimitReason(): string {
   const mib = Math.floor(MAX_TASK_OUTPUT_BYTES / (1024 * 1024));
   return (
@@ -573,7 +582,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
 
     const available = Buffer.from(entry.outputChunks.join(''), 'utf-8');
     const previewBytes = Math.min(previewLimit, available.byteLength, entry.outputSizeBytes);
-    const previewOffset = Math.max(0, available.byteLength - previewBytes);
+    const previewOffset = alignToCharacterStart(available, available.byteLength - previewBytes);
     return {
       outputSizeBytes: entry.outputSizeBytes,
       previewBytes,
@@ -584,9 +593,10 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
   }
 
   async readOutput(taskId: string, tail?: number): Promise<string> {
-    const output = (await this.getOutputSnapshot(taskId, Number.MAX_SAFE_INTEGER)).preview;
-    if (tail === undefined) return output;
-    return output.slice(-Math.max(0, Math.trunc(tail)));
+    if (tail === undefined) {
+      return (await this.getOutputSnapshot(taskId, Number.MAX_SAFE_INTEGER)).preview;
+    }
+    return (await this.getOutputSnapshot(taskId, Math.max(0, Math.trunc(tail)))).preview;
   }
 
   async suppressTerminalNotification(taskId: string): Promise<void> {

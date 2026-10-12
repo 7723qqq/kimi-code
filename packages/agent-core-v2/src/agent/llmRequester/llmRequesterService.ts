@@ -998,17 +998,31 @@ class MutableLLMRequestTrace implements LLMRequestTrace {
   }
 }
 
+/**
+ * UTF-8 byte length of the request body, not the UTF-16 code-unit count.
+ * `String.length` counts code units, so a CJK-heavy message measured about a
+ * third of its real size and the eviction threshold was only reached after the
+ * provider had already rejected the body; the telemetry figure was off by the
+ * same factor. Base64 payloads (image/audio/video URLs) are ASCII, so their
+ * byte count equals their length and nothing changes for them.
+ */
+function byteLength(value: string | null | undefined): number {
+  if (value === undefined || value === null) return 0;
+  return Buffer.byteLength(value, 'utf8');
+}
+
 export function estimateLlmRequestBytes(messages: readonly Message[]): number {
   let total = 0;
   for (const message of messages) {
     for (const part of message.content) {
-      if (part.type === 'text') total += part.text.length;
-      else if (part.type === 'think') total += part.think.length + (part.encrypted?.length ?? 0);
-      else if (part.type === 'image_url') total += part.imageUrl.url.length;
-      else if (part.type === 'audio_url') total += part.audioUrl.url.length;
-      else if (part.type === 'video_url') total += part.videoUrl.url.length;
+      if (part.type === 'text') total += byteLength(part.text);
+      else if (part.type === 'think') {
+        total += byteLength(part.think) + byteLength(part.encrypted);
+      } else if (part.type === 'image_url') total += byteLength(part.imageUrl.url);
+      else if (part.type === 'audio_url') total += byteLength(part.audioUrl.url);
+      else if (part.type === 'video_url') total += byteLength(part.videoUrl.url);
     }
-    for (const call of message.toolCalls) total += call.arguments?.length ?? 0;
+    for (const call of message.toolCalls) total += byteLength(call.arguments);
   }
   return total;
 }

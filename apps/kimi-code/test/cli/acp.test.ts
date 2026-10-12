@@ -115,20 +115,35 @@ describe('kimi acp', () => {
     }
   });
 
-  it('forwards process.argv[1] as terminalAuthLegacyCommand', async () => {
-    const program = new Command('kimi').exitOverride();
-    registerAcpCommand(program);
+  it('advertises process.execPath on a native install and argv[1] on a script install', async () => {
+    const detectSpy = vi.spyOn(
+      await import('#/cli/update/source'),
+      'detectNativeInstall',
+    );
 
-    await expect(program.parseAsync(['node', 'kimi', 'acp'])).rejects.toThrow(ExitCalled);
-
-    const optsArg = vi.mocked(runAcpServer).mock.calls[0]?.[0] as {
+    detectSpy.mockReturnValue({ native: true, kind: 'bun' });
+    const nativeProgram = new Command('kimi').exitOverride();
+    registerAcpCommand(nativeProgram);
+    await expect(nativeProgram.parseAsync(['node', 'kimi', 'acp'])).rejects.toThrow(ExitCalled);
+    const nativeOpts = vi.mocked(runAcpServer).mock.calls[0]?.[0] as {
       terminalAuthLegacyCommand?: string;
     };
-    // process.argv[1] points at the test runner entry — non-empty
-    // absolute-ish path, exactly what we want forwarded.
-    expect(typeof optsArg.terminalAuthLegacyCommand).toBe('string');
-    expect((optsArg.terminalAuthLegacyCommand ?? '').length).toBeGreaterThan(0);
-    expect(optsArg.terminalAuthLegacyCommand).toBe(process.argv[1]);
+    // A single-file build's argv[1] is a /$bunfs virtual path that no client
+    // can spawn; execPath is the real binary.
+    expect(nativeOpts.terminalAuthLegacyCommand).toBe(process.execPath);
+
+    vi.mocked(runAcpServer).mockClear();
+    detectSpy.mockReturnValue({ native: false });
+    const scriptProgram = new Command('kimi').exitOverride();
+    registerAcpCommand(scriptProgram);
+    await expect(scriptProgram.parseAsync(['node', 'kimi', 'acp'])).rejects.toThrow(ExitCalled);
+    const scriptOpts = vi.mocked(runAcpServer).mock.calls[0]?.[0] as {
+      terminalAuthLegacyCommand?: string;
+    };
+    // A global script install's bin IS the script, so pointing at execPath
+    // would advertise node/bun itself.
+    expect(scriptOpts.terminalAuthLegacyCommand).toBe(process.argv[1]);
+    detectSpy.mockRestore();
   });
 
   it('exits without starting the ACP server when --login is passed', async () => {

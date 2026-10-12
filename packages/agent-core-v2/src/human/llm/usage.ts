@@ -18,6 +18,18 @@ export function grandTotal(usage: TokenUsage): number {
   return inputTotal(usage) + usage.output;
 }
 
+/**
+ * The token count a budget is charged for: fresh input + cache writes + output.
+ * Cache READS are excluded — they are re-sent context the provider serves from
+ * its cache, which is why the native ledger (`kimi-native-tools/src/goal/accounting.rs`)
+ * charges `input - cached + output` and this must agree with it. Charging
+ * output alone under-reported by an order of magnitude: real requests carry
+ * 10-20x more input than output, so a 500k budget never fired.
+ */
+export function chargeableTokens(usage: TokenUsage): number {
+  return usage.inputOther + usage.inputCacheCreation + usage.output;
+}
+
 export function addUsage(a: TokenUsage, b: TokenUsage): TokenUsage {
   return {
     inputOther: a.inputOther + b.inputOther,

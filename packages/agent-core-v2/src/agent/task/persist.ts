@@ -15,6 +15,14 @@ const OUTPUT_LOG_KEY = 'output.log';
 const JSON_SUFFIX = '.json';
 
 const textEncoder = new TextEncoder();
+function alignToCharacterStart(buffer: Uint8Array, offset: number): number {
+  if (offset <= 0) return 0;
+  let index = offset;
+  while (index < buffer.byteLength && (buffer[index]! & 0b1100_0000) === 0b1000_0000) {
+    index += 1;
+  }
+  return index;
+}
 const textDecoder = new TextDecoder();
 
 type PersistedTask = AgentTaskInfo;
@@ -139,7 +147,7 @@ export class AgentTaskPersistence {
     if (output === undefined) return undefined;
     const previewLimit = Math.max(0, Math.trunc(maxPreviewBytes));
     const previewBytes = Math.min(previewLimit, output.data.byteLength);
-    const previewOffset = output.data.byteLength - previewBytes;
+    const previewOffset = alignToCharacterStart(output.data, output.data.byteLength - previewBytes);
     return {
       outputPath: this.taskOutputFileAt(taskId, output.root),
       outputSizeBytes: output.data.byteLength,

@@ -479,6 +479,40 @@ describe('OAuthManager.ensureFresh', () => {
   });
 });
 
+describe('OAuthManager.ensureFresh — logout during a locked refresh', () => {
+  it('refuses to resurrect a credential removed while waiting for the lock', async () => {
+    const storage = new InMemoryStorage();
+    await storage.save('kimi-code', makeToken({ expiresAt: currentNow + 200 }));
+
+    // Every load AFTER the pre-lock snapshot sees the token gone: that is the
+    // other process's `logout` landing while this one waited for the lock.
+    const originalLoad = storage.load.bind(storage);
+    let loads = 0;
+    let removedDuringWait = false;
+    storage.load = async (name: string) => {
+      loads += 1;
+      if (loads > 1) {
+        if (!removedDuringWait) {
+          removedDuringWait = true;
+          await storage.remove(name);
+        }
+        return undefined;
+      }
+      return originalLoad(name);
+    };
+
+    const refreshImpl = vi.fn().mockResolvedValue(makeToken({ accessToken: 'resurrected' }));
+    const mgr = new OAuthManager({ config, storage, now, refreshTokenImpl: refreshImpl });
+
+    await expect(mgr.ensureFresh({ force: true })).rejects.toThrow(
+      /was removed while refreshing/,
+    );
+
+    expect(refreshImpl).not.toHaveBeenCalled();
+    expect(await storage.load('kimi-code')).toBeUndefined();
+  });
+});
+
 describe('OAuthManager.ensureFresh — rejected refresh token retention', () => {
   it('suppresses a rejected refresh_token until the on-disk token rotates', async () => {
     const storage = new InMemoryStorage();

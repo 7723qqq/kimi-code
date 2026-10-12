@@ -8,6 +8,7 @@ import type { ProtocolBase, ProtocolRequesterOptions, TraitContext } from '#/llm
 import { resolveModelConnection } from '#/llm/protocol/connection';
 import { resolveMaxCompletionCap, type FormatRequestInput } from '#/llm/protocol/format';
 import { applyThinking } from '#/llm/protocol/thinking';
+import { ThinkingConfigError } from '#/llm/thinking';
 import {
   mergeRequestHeaders,
   type LlmClientContext,
@@ -103,6 +104,27 @@ export interface AnthropicRequestPreparationOptions {
   readonly betaApi?: boolean;
 }
 
+const MIN_ANTHROPIC_THINKING_BUDGET = 1024;
+
+function clampThinkingBudget(
+  kwargs: Record<string, unknown>,
+  finalCap: number,
+  model: string,
+): void {
+  const thinking = kwargs['thinking'];
+  if (thinking === null || typeof thinking !== 'object') return;
+  const budget = (thinking as Record<string, unknown>)['budget_tokens'];
+  if (typeof budget !== 'number' || budget < finalCap) return;
+  if (finalCap <= MIN_ANTHROPIC_THINKING_BUDGET) {
+    throw new ThinkingConfigError(
+      'budget-exceeds-cap',
+      `Thinking budget for '${model}' needs at least ${MIN_ANTHROPIC_THINKING_BUDGET} tokens but max_tokens is ${finalCap}. Raise maxCompletionTokens or lower the thinking effort.`,
+    );
+  }
+  const clamped = Math.max(MIN_ANTHROPIC_THINKING_BUDGET, finalCap - 1);
+  (thinking as Record<string, unknown>)['budget_tokens'] = clamped;
+}
+
 export function prepareAnthropicRequest(
   input: FormatRequestInput,
   options?: AnthropicRequestPreparationOptions,
@@ -119,11 +141,12 @@ export function prepareAnthropicRequest(
     kwargs = applyAnthropicResponseFormat(kwargs, input.responseFormat);
   }
   const cap = resolveMaxCompletionCap(input);
+  const finalCap = resolveDefaultMaxTokens(ctx.model.model, cap);
+  clampThinkingBudget(kwargs, finalCap, ctx.model.model);
   if (cap !== undefined) {
-    const capped = resolveDefaultMaxTokens(ctx.model.model, cap);
     kwargs = {
       ...kwargs,
-      ...(trait?.encodeMaxCompletionTokens?.(capped, ctx) ?? encodeAnthropicMaxTokens(capped)),
+      ...(trait?.encodeMaxCompletionTokens?.(finalCap, ctx) ?? encodeAnthropicMaxTokens(finalCap)),
     };
   }
   kwargs = assign(kwargs, input.extraParams?.anthropic ?? {});

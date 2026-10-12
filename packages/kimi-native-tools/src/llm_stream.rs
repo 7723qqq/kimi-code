@@ -55,6 +55,7 @@ pub struct StreamMetadata {
     pub input_tokens: u32,
     pub output_tokens: u32,
     pub cached_tokens: u32,
+    pub cache_creation_tokens: u32,
     pub trace_id: Option<String>,
 }
 
@@ -545,6 +546,12 @@ fn decode_anthropic_event(event: &Value, metadata: &mut StreamMetadata) -> Vec<S
                         .get("cache_read_input_tokens")
                         .and_then(|v| v.as_u64())
                         .unwrap_or(0) as u32;
+                    if let Some(creation) = usage
+                        .get("cache_creation_input_tokens")
+                        .and_then(|v| v.as_u64())
+                    {
+                        metadata.cache_creation_tokens = creation as u32;
+                    }
                 }
             }
             vec![]
@@ -669,6 +676,12 @@ fn decode_anthropic_event(event: &Value, metadata: &mut StreamMetadata) -> Vec<S
                 }
                 if let Some(input) = usage.get("input_tokens").and_then(|v| v.as_u64()) {
                     metadata.input_tokens = input as u32;
+                }
+                if let Some(creation) = usage
+                    .get("cache_creation_input_tokens")
+                    .and_then(|v| v.as_u64())
+                {
+                    metadata.cache_creation_tokens = creation as u32;
                 }
             }
             if let Some(delta) = event.get("delta") {
@@ -1151,7 +1164,12 @@ mod tests {
             "type": "message_start",
             "message": {
                 "id": "msg_abc",
-                "usage": { "input_tokens": 200, "output_tokens": 0, "cache_read_input_tokens": 50 }
+                "usage": {
+                    "input_tokens": 200,
+                    "output_tokens": 0,
+                    "cache_read_input_tokens": 50,
+                    "cache_creation_input_tokens": 7
+                }
             }
         });
         let parts = decode_anthropic_event(&event, &mut meta);
@@ -1159,6 +1177,38 @@ mod tests {
         assert_eq!(meta.response_id.as_deref(), Some("msg_abc"));
         assert_eq!(meta.input_tokens, 200);
         assert_eq!(meta.cached_tokens, 50);
+        assert_eq!(meta.cache_creation_tokens, 7);
+    }
+
+    #[test]
+    fn test_anthropic_message_delta_cache_creation() {
+        let mut meta = StreamMetadata::default();
+        let event = json!({
+            "type": "message_delta",
+            "delta": { "stop_reason": "end_turn" },
+            "usage": {
+                "output_tokens": 55,
+                "input_tokens": 300,
+                "cache_read_input_tokens": 80,
+                "cache_creation_input_tokens": 12
+            }
+        });
+        decode_anthropic_event(&event, &mut meta);
+        assert_eq!(meta.cache_creation_tokens, 12);
+    }
+
+    #[test]
+    fn test_anthropic_message_start_without_cache_creation_leaves_zero() {
+        let mut meta = StreamMetadata::default();
+        let event = json!({
+            "type": "message_start",
+            "message": {
+                "id": "msg_no_creation",
+                "usage": { "input_tokens": 5, "output_tokens": 0 }
+            }
+        });
+        decode_anthropic_event(&event, &mut meta);
+        assert_eq!(meta.cache_creation_tokens, 0);
     }
 
     #[test]

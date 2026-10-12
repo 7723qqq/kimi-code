@@ -1650,6 +1650,40 @@ describe('anthropic thinking kwargs', () => {
     expect(client.requestHeaders()?.['anthropic-beta']).toBe('interleaved-thinking-2025-05-14');
 
     await defaultRequester.generate(
+      { model: { ...model, model: 'claude-3-7-sonnet' }, thinking: { effort: 'high' } },
+      { messages },
+      { signal: new AbortController().signal },
+    );
+    body = client.body();
+    expect(body['max_tokens']).toBe(8192);
+    expect(body['thinking']).toEqual({ type: 'enabled', budget_tokens: 8191 });
+
+    const syntaxEvents: unknown[] = [];
+    await defaultRequester.generate(
+      {
+        model: { ...model, model: 'claude-3-7-sonnet' },
+        thinking: { effort: 'high' },
+        maxCompletionTokens: 512,
+        maxContextTokens: 100,
+        usedContextTokens: 99,
+      },
+      { messages },
+      {
+        signal: new AbortController().signal,
+        onEvent: (event) => {
+          if (event.type === 'llm.failed.syntax') syntaxEvents.push(event.error);
+        },
+      },
+    );
+    expect(syntaxEvents).toEqual([
+      expect.objectContaining({
+        kind: 'syntax',
+        code: 'thinking_config',
+        message: expect.stringContaining('max_tokens is 512'),
+      }),
+    ]);
+
+    await defaultRequester.generate(
       { model, thinking: { effort: 'high', keep: 'all' } },
       { messages },
       { signal: new AbortController().signal },
@@ -1889,6 +1923,58 @@ describe('openai responses base', () => {
 });
 
 describe('google genai base', () => {
+  it('forwards usageMetadata on a chunk without a finish reason', async () => {
+    const client = stubGoogleClient([
+      {
+        usageMetadata: {
+          promptTokenCount: 10,
+          candidatesTokenCount: 5,
+          cachedContentTokenCount: 4,
+        },
+      },
+    ]);
+    const requester = createGoogleGenAIRequester({
+      clientFactory: client.clientFactory,
+    });
+    const usages: TokenUsage[] = [];
+    await requester.generate(
+      { model: { ...model, model: 'gemini-2.5-flash', apiKey: 'test-key' } },
+      { messages: [createUserMessage('hi')] },
+      {
+        signal: new AbortController().signal,
+        onEvent: (event) => {
+          if (event.type === 'llm.streaming.usage') usages.push(event.usage);
+        },
+      },
+    );
+
+    expect(usages).toEqual([
+      expect.objectContaining({ inputOther: 6, output: 5, inputCacheRead: 4, inputCacheCreation: 0 }),
+    ]);
+  });
+
+  it('does not invent a usage event when the chunk carries no usageMetadata', async () => {
+    const client = stubGoogleClient([
+      { responseId: 'gemini-resp-no-usage', candidates: [{ finishReason: 'STOP' }] },
+    ]);
+    const requester = createGoogleGenAIRequester({
+      clientFactory: client.clientFactory,
+    });
+    const usages: TokenUsage[] = [];
+    await requester.generate(
+      { model: { ...model, model: 'gemini-2.5-flash', apiKey: 'test-key' } },
+      { messages: [createUserMessage('hi')] },
+      {
+        signal: new AbortController().signal,
+        onEvent: (event) => {
+          if (event.type === 'llm.streaming.usage') usages.push(event.usage);
+        },
+      },
+    );
+
+    expect(usages).toEqual([]);
+  });
+
   it('converts contents and maps usageMetadata', async () => {
     const client = stubGoogleClient([
       {

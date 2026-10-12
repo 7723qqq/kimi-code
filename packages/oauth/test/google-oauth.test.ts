@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -169,6 +169,44 @@ describe('Google OAuth & Gemini Module', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(a).toBe('refreshed-token');
     expect(b).toBe('refreshed-token');
+  });
+
+  it('does not let a stale Antigravity file destroy a working credential', async () => {
+    await manager.saveToken({
+      accessToken: 'my-access-token',
+      refreshToken: 'valid-refresh-token',
+      expiresAt: Math.floor(Date.now() / 1000) + 60,
+      scope: '',
+      tokenType: 'Bearer',
+      expiresIn: 60,
+    });
+
+    // The Antigravity file exists but holds an EXPIRED token, and it has no
+    // refresh token of its own. Importing it must not reach storage.
+    const credsPath = join(tmpDir, 'oauth_creds.json');
+    writeFileSync(
+      credsPath,
+      JSON.stringify({
+        access_token: 'stale-imported-token',
+        expiry_date: Date.now() - 60_000,
+      }),
+    );
+    vi.spyOn(GoogleOAuthManager, 'detectAntigravityCredentials').mockReturnValue({
+      available: true,
+      credsPath,
+    });
+
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({ ok: false, status: 400, text: async () => 'invalid_grant' }),
+    );
+
+    await expect(manager.getValidAccessToken()).rejects.toThrow(OAuthUnauthorizedError);
+
+    const stored = await manager.loadToken();
+    expect(stored?.refreshToken).toBe('valid-refresh-token');
+    expect(stored?.accessToken).toBe('my-access-token');
   });
 
   it('propagates the failure reason from importAntigravityCredentials', async () => {
