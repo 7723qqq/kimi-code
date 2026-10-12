@@ -448,7 +448,12 @@ export async function refreshProviderModels(
         accessToken,
         baseUrl: auth.baseUrl,
       });
-      if (models.length > 0) {
+      if (models.length === 0) {
+        failed.push({
+          provider: KIMI_CODE_PROVIDER_NAME,
+          reason: 'No models available for Kimi Code.',
+        });
+      } else {
         config = await rebaseSelectionAfterFetch(host, config);
         const next = structuredClone(config);
         applyManagedKimiCodeConfig(next, {
@@ -529,10 +534,19 @@ export async function refreshProviderModels(
     try {
       const declared = declaredProviderCredential(providerConfig, providerId);
       const apiKey = resolveProviderApiKey(providerConfig, providerId);
-      if (apiKey === undefined) continue;
+      if (apiKey === undefined) {
+        failed.push({
+          provider: providerId,
+          reason: `no API key configured for ${providerId}`,
+        });
+        continue;
+      }
       let models = await fetchOpenPlatformModels(platform, apiKey);
       models = filterModelsByPrefix(models, platform);
-      if (models.length === 0) continue;
+      if (models.length === 0) {
+        failed.push({ provider: providerId, reason: 'provider returned no models' });
+        continue;
+      }
 
       config = await rebaseSelectionAfterFetch(host, config);
       const selectedModelId = pickDefaultModel(config, providerId, models);
@@ -616,13 +630,22 @@ export async function refreshProviderModels(
 
     try {
       const apiKey = resolveProviderApiKey(provider, providerId);
-      if (apiKey === undefined) continue;
+      if (apiKey === undefined) {
+        failed.push({
+          provider: providerId,
+          reason: `no API key configured for ${providerId}`,
+        });
+        continue;
+      }
       const models = await fetchManagedKimiCodeModels({
         accessToken: apiKey,
         baseUrl: provider.baseUrl,
         credentialKind: 'apiKey',
       });
-      if (models.length === 0) continue;
+      if (models.length === 0) {
+        failed.push({ provider: providerId, reason: 'provider returned no models' });
+        continue;
+      }
 
       config = await rebaseSelectionAfterFetch(host, config);
       // A hand-written `managed:kimi-code` shares the OAuth branch's
