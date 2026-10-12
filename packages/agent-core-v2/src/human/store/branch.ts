@@ -25,6 +25,7 @@ export class Branch {
   private degradedFlag: boolean;
   private truncateAt: number | null;
   private tail: Promise<unknown>;
+  private headerWrite: Promise<unknown> = Promise.resolve();
 
   private constructor(
     ctx: TreeContext,
@@ -73,9 +74,9 @@ export class Branch {
       parentSeq: from?.seq,
     };
     const branch = new Branch(ctx, header, [], false, null, resolveBranch);
-    void branch
-      .enqueue(() => ctx.backend.trees.write(tree, name, encodeHeader(header)))
-      .catch(() => undefined);
+    branch.headerWrite = branch.enqueue(() =>
+      ctx.backend.trees.write(tree, name, encodeHeader(header)),
+    );
     return branch;
   }
 
@@ -152,6 +153,7 @@ export class Branch {
 
   append(input: AppendInput): Promise<EntryLine> {
     return this.enqueue(async () => {
+      await this.awaitHeader();
       this.assertWritable();
       const seq = this.entries.length;
       const serialized = JSON.stringify(input.data ?? null);
@@ -173,6 +175,7 @@ export class Branch {
 
   repair(): Promise<void> {
     return this.enqueue(async () => {
+      await this.awaitHeader();
       if (!this.degradedFlag) return;
       const content = await this.ctx.backend.trees.read(this.tree, this.name);
       const physical = content.split('\n');
@@ -186,7 +189,16 @@ export class Branch {
   }
 
   settled(): Promise<void> {
-    return this.tail.then(() => undefined);
+    return this.headerWrite.then(() => this.tail).then(() => undefined);
+  }
+
+  private async awaitHeader(): Promise<void> {
+    try {
+      await this.headerWrite;
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      throw new StoreError('io', `failed to write the branch header: ${detail}`);
+    }
   }
 
   entryAt(seq: number): EntryLine | null {

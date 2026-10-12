@@ -992,11 +992,25 @@ export class TowerStore {
   }
 
   async readInbox(callerName: string, limit: number): Promise<readonly TowerInboxItem[]> {
+    const state = await this.load();
+    const entry = state.roster.agents.find((agent) => agent.name === callerName);
+    const since = entry?.lastInboxReadAt ?? entry?.spawnedAt;
     const items = (await this.listInboxItems()).filter(
-      (item) => callerName === TOWER_NAME || item.to === callerName || item.to === BROADCAST_NAME,
+      (item) =>
+        (callerName === TOWER_NAME || item.to === callerName || item.to === BROADCAST_NAME) &&
+        (since === undefined || item.sentAt > since),
     );
-    items.sort((a, b) => b.sentAt.localeCompare(a.sentAt));
+    items.sort((a, b) => a.sentAt.localeCompare(b.sentAt));
     return items.slice(0, Math.max(1, limit));
+  }
+
+  async hasNewerInbox(callerName: string, afterSentAt: string): Promise<boolean> {
+    const items = await this.listInboxItems();
+    return items.some(
+      (item) =>
+        (callerName === TOWER_NAME || item.to === callerName || item.to === BROADCAST_NAME) &&
+        item.sentAt > afterSentAt,
+    );
   }
 
   async markInboxRead(callerName: string, newestSeenSentAt?: string): Promise<void> {

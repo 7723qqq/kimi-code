@@ -25,6 +25,7 @@ import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { stripDynamicToolContext } from '#/agent/toolSelect/dynamicTools';
 import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
+import { WarningIssued } from '#/agent/profile/profileOps';
 import { IEventBus } from '#/app/event/eventBus';
 import { LifecycleScope } from '#/app/scopes';
 import type { CompactionFailedEvent, CompactionFinishedEvent } from '#/app/telemetry/events';
@@ -858,6 +859,18 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
       await this.wire.flush();
     } catch (error) {
       onUnexpectedError(error);
+      try {
+        void this.dispatcher.dispatch(
+          new WarningIssued({
+            agentId: this.agent.agentId,
+            message:
+              'The wire journal could not be flushed, so this compaction summary has no Context Recovery pointer; the compacted transcript cannot be read back.',
+            code: 'compaction-journal-unavailable',
+          }),
+        );
+      } catch (dispatchError) {
+        onUnexpectedError(dispatchError);
+      }
       return undefined;
     }
     const end = this.wire.lineCount();

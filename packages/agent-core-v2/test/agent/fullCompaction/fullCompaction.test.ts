@@ -49,6 +49,7 @@ import {
 } from '#/index';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IWireService } from '#/wire/wire';
+import { stubAgentWire } from '../../wire/stubs';
 import { IAgentTodoService } from '#/features/todo/todoService';
 import { IAgentGoalService } from '#/features/goal/goalService';
 import { HostFileSystem } from '#/os/backends/host/hostFsService';
@@ -3577,6 +3578,32 @@ describe('FullCompaction context recovery pointer', () => {
     expect(record?.summary).not.toContain('Context Recovery');
     expect(record?.contextSummary).toContain('Context Recovery');
     await ctx.expectResumeMatches();
+  });
+
+  it('warns when the journal flush fails, because the note loses its pointer', async () => {
+    const wire = stubAgentWire(async () => {
+      throw new Error('disk full');
+    });
+    const ctx = recoveryAgent(
+      agentService(IWireService, {
+        ...wire,
+        journalPath: () => `${JOURNAL_HOME}/wire.jsonl`,
+        lineCount: () => 100,
+      }),
+    );
+    ctx.appendExchange(1, 'old user one', 'old assistant one', 20);
+
+    await compactOnce(ctx, 'Compacted summary.');
+
+    const events = ctx.newEvents() as readonly { event: string; args?: { code?: string } }[];
+    expect(
+      events.some(
+        (entry) =>
+          entry.event === 'warning' && entry.args?.['code'] === 'compaction-journal-unavailable',
+      ),
+    ).toBe(true);
+    const [record] = applyCompactionRecords(ctx);
+    expect(record?.contextSummary ?? '').not.toContain('## Context Recovery');
   });
 
   it('lists every earlier window after repeated compactions', async () => {

@@ -116,7 +116,10 @@ export class WireService extends Service implements IWireService, IAgentJournal 
         const output = dehydrate === undefined ? record : await dehydrate(record, transform);
         this.appendRecordLow(output);
       })
-      .catch((error: unknown) => onUnexpectedError(error));
+      .catch((error: unknown) => {
+        this.persistError = error instanceof Error ? error : new Error(String(error));
+        onUnexpectedError(error);
+      });
     this.persistQueue = queued;
     void queued.then(() => {
       if (this.persistQueue === queued) this.persistQueue = undefined;

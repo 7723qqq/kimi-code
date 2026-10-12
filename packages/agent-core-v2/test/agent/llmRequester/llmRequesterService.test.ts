@@ -1338,8 +1338,6 @@ describe('estimateLlmRequestBytes', () => {
       { role: 'user', content: [{ type: 'text', text: '中'.repeat(3) }], toolCalls: [] },
     ];
 
-    // Three CJK characters are three code units but NINE bytes; the budget and
-    // the reported figure are both in bytes.
     expect(estimateLlmRequestBytes(messages)).toBe(9);
   });
 
@@ -1475,7 +1473,6 @@ describe('AgentLLMRequesterService proactive media eviction', () => {
   it('triggers on the BYTE size of CJK text, not its code-unit count', async () => {
     const calls = { value: 0 };
     const capturedInputs: ModelRequestInput[] = [];
-    // Bare data-URL prefix only: the text must be what crosses the budget.
     const url = imageDataUrl('', 0);
     const { service, warnings } = createService(
       createRequester(calls, null, [], capturedInputs),
@@ -1485,10 +1482,6 @@ describe('AgentLLMRequesterService proactive media eviction', () => {
           {
             role: 'user',
             content: [
-              // Eight CJK characters = 8 code units but 24 bytes; with the
-              // 23-byte URL prefix the request is 47 bytes but only 31 code
-              // units. A budget of 40 is overrun in bytes and NOT in code
-              // units, so this case fails outright under `.length`.
               { type: 'text', text: '中文测试内容文本' },
               { type: 'image_url', imageUrl: { url } },
             ],

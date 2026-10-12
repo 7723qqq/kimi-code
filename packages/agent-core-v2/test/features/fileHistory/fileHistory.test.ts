@@ -61,6 +61,7 @@ describe('AgentFileHistoryService', () => {
   let blobs: IBlobStore;
   let scopeCtx: IAgentScopeContext;
   let files: Map<string, Uint8Array>;
+  let tornReads: Set<string>;
 
   beforeEach(() => {
     disposables = new DisposableStore();
@@ -83,6 +84,7 @@ describe('AgentFileHistoryService', () => {
     executorEvents = stubToolExecutorEvents();
     blobs = new BlobStoreService(new InMemoryStorageService());
     files = new Map();
+    tornReads = new Set();
   });
 
   afterEach(() => {
@@ -112,7 +114,7 @@ describe('AgentFileHistoryService', () => {
       readBytes: async (path: string) => {
         const content = files.get(path);
         if (content === undefined) throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
-        return content;
+        return tornReads.has(path) ? encoder.encode('x'.repeat(content.byteLength + 8)) : content;
       },
     });
   }
@@ -354,6 +356,24 @@ describe('AgentFileHistoryService', () => {
     expect(await service.changes(1)).toEqual([
       { path: 'big.txt', status: 'modified', additions: 0, deletions: 0, oversize: true },
     ]);
+  });
+
+  it('reports a file whose read keeps tearing instead of dropping it from the list', async () => {
+    const service = createService();
+    setFile('/ws/tear.txt', 'before\n');
+    startTurn(2);
+    await fireEdit(service, '/ws/tear.txt', 2);
+
+    tornReads.add('/ws/tear.txt');
+    endTurn(2);
+    await service.settled();
+
+    const changes = await service.changes(2);
+    const torn = changes.find((change) => change.path.endsWith('tear.txt'));
+    expect(torn).toBeDefined();
+    expect(torn?.unreadable).toBe(true);
+    expect(torn?.additions).toBe(0);
+    expect(torn?.deletions).toBe(0);
   });
 
   it('declines to count over-budget file pairs instead of approximating', () => {

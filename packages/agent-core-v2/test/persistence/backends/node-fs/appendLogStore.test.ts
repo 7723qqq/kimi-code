@@ -1,4 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import {
+  resetUnexpectedErrorHandler,
+  setUnexpectedErrorHandler,
+} from '#/_base/errors/unexpectedError';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
@@ -205,6 +209,7 @@ describe('AppendLogStore', () => {
     await Promise.all([orderedFlush, currentFlush]);
     expect(await collect<Rec>(SCOPE, KEY)).toEqual([{ n: 2 }]);
     replacementOwner.dispose();
+    await expect(record.drainRetirements()).rejects.toThrow('append-log retirement flush failed');
   });
 
   it('final release retirement is awaited by drainRetirements', async () => {
@@ -240,6 +245,28 @@ describe('AppendLogStore', () => {
     await draining;
     expect(drained).toBe(true);
     expect(await collect<Rec>(SCOPE, KEY)).toEqual([{ n: 1 }]);
+  });
+
+  it('surfaces an append failure with no onError through the unexpected-error channel', async () => {
+    const failure = new Error('no-handler append failed');
+    const originalAppend = storage.append.bind(storage);
+    storage.append = async () => {
+      throw failure;
+    };
+    const seen: unknown[] = [];
+    setUnexpectedErrorHandler((error) => seen.push(error));
+    try {
+      const owner = record.acquire(SCOPE, KEY);
+      record.append(SCOPE, KEY, { n: 1 });
+      await expect(record.flush()).rejects.toBe(failure);
+      expect(seen).toContain(failure);
+      owner.dispose();
+      storage.append = originalAppend;
+      await record.drainRetirements().catch(() => {});
+    } finally {
+      resetUnexpectedErrorHandler();
+      storage.append = originalAppend;
+    }
   });
 
   it('keeps a sticky failure until every acquired owner releases it', async () => {

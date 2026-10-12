@@ -120,8 +120,6 @@ describe('WorkspaceDirsService session sandbox', () => {
     const dirs = await service();
     const config = ix.get(IProjectLocalConfigService);
 
-    // The config source is not sandbox-checked: an existing local.toml must not
-    // stop the workspace from starting.
     await expect(config.resolveAdditionalDirs(workspaceDir, ['/etc'], 'config')).resolves.toEqual([
       '/etc',
     ]);

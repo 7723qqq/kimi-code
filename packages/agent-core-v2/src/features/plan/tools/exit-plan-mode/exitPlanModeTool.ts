@@ -1,3 +1,4 @@
+import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { agentContextOfScope, IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
@@ -26,6 +27,8 @@ export class ExitPlanModeTool implements IExitPlanModeTool {
   readonly name = 'ExitPlanMode' as const;
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(ExitPlanModeInputSchema);
+
+  private revisionError: Error | undefined;
 
   constructor(
     @IAgentPlanService private readonly planMode: IAgentPlanService,
@@ -56,7 +59,11 @@ export class ExitPlanModeTool implements IExitPlanModeTool {
     if (data === null || data.content.trim().length === 0) return undefined;
     try {
       await this.planMode.recordRevision();
-    } catch {}
+      this.revisionError = undefined;
+    } catch (error) {
+      onUnexpectedError(error);
+      this.revisionError = error instanceof Error ? error : new Error(String(error));
+    }
     const display: ToolInputDisplay = {
       kind: 'plan_review',
       plan: data.content,
@@ -66,6 +73,13 @@ export class ExitPlanModeTool implements IExitPlanModeTool {
       display.options = args.options;
     }
     return display;
+  }
+
+  private takeRevisionWarning(): string {
+    const error = this.revisionError;
+    if (error === undefined) return '';
+    this.revisionError = undefined;
+    return `\n\nWarning: this revision could not be snapshotted (${error.message}) — it will not appear in history.`;
   }
 
   private async execution(args: ExitPlanModeInput): Promise<ExecutableToolResult> {
@@ -96,7 +110,7 @@ export class ExitPlanModeTool implements IExitPlanModeTool {
       });
       return {
         isError: false,
-        output: `Exited plan mode. ${formatAutoApprovedPlanForOutput(resolvedPlan.plan, resolvedPlan.path)}${seeded}`,
+        output: `Exited plan mode. ${formatAutoApprovedPlanForOutput(resolvedPlan.plan, resolvedPlan.path)}${seeded}${this.takeRevisionWarning()}`,
       };
     }
 
@@ -105,7 +119,7 @@ export class ExitPlanModeTool implements IExitPlanModeTool {
     });
     return {
       isError: false,
-      output: `Exited plan mode. ${formatPlanForOutput(resolvedPlan.plan, resolvedPlan.path)}${seeded}`,
+      output: `Exited plan mode. ${formatPlanForOutput(resolvedPlan.plan, resolvedPlan.path)}${seeded}${this.takeRevisionWarning()}`,
     };
   }
 

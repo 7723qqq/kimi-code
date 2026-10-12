@@ -151,11 +151,6 @@ export async function isRegisteredWorktree(repoRoot: string, path: string): Prom
   return inside.length > 0 && !inside.startsWith('..') && !isAbsolute(inside);
 }
 
-/**
- * Three-state dirtiness. `'unknown'` is what a failed `git status` produces —
- * distinct from `'clean'` on purpose: a caller that treats an unanswerable
- * probe as "nothing to lose" would force-remove uncommitted work.
- */
 export type WorktreeDirtyState = 'clean' | 'dirty' | 'unknown';
 
 export async function worktreeDirtyState(path: string): Promise<WorktreeDirtyState> {

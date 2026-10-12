@@ -1,4 +1,5 @@
 import { Emitter, type Event } from '#/_base/event';
+import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 
 import type { Runtime, RuntimeBinding, RuntimeCapability, RuntimeLease } from './runtime';
 
@@ -8,7 +9,8 @@ export type RuntimeErrorCode =
   | 'runtime.not_found'
   | 'runtime.unavailable'
   | 'runtime.capability_unavailable'
-  | 'runtime.conflict';
+  | 'runtime.conflict'
+  | 'runtime.drain_timeout';
 
 export class RuntimeError extends Error {
   constructor(
@@ -378,10 +380,14 @@ export class RuntimeRegistry {
       });
       const resources = [...generation.resources].reverse();
       generation.resources.clear();
+      const failures: unknown[] = [];
       for (const resource of resources) {
         try {
           await resource.dispose();
-        } catch {}
+        } catch (error) {
+          failures.push(error);
+          onUnexpectedError(error);
+        }
       }
       if (generation.leases > 0) {
         await Promise.race([
@@ -391,9 +397,22 @@ export class RuntimeRegistry {
           new Promise<void>((resolve) => setTimeout(resolve, this.drainTimeoutMs)),
         ]);
       }
+      if (generation.leases > 0) {
+        onUnexpectedError(
+          new RuntimeError(
+            'runtime.drain_timeout',
+            `runtime ${generation.runtime.identity.runtimeId} still has ${String(
+              generation.leases,
+            )} lease(s) after ${String(this.drainTimeoutMs)}ms`,
+          ),
+        );
+      }
       if (!generation.disposed) {
         generation.disposed = true;
         await generation.runtime.dispose();
+      }
+      if (failures.length > 0) {
+        throw new AggregateError(failures, 'runtime resources failed to dispose');
       }
     })();
     return generation.drainPromise;

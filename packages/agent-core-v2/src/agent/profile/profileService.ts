@@ -132,6 +132,10 @@ export const profileEmittedPluginBudgetWarningsKey = defineState<Set<string>>(
   'profile.emittedPluginBudgetWarnings',
   () => new Set(),
 );
+export const profileSkillListingWarningEmittedKey = defineState<boolean>(
+  'profile.skillListingWarningEmitted',
+  () => false,
+);
 
 export class AgentProfileService extends Disposable implements IAgentProfileService {
   declare readonly _serviceBrand: undefined;
@@ -182,6 +186,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     this.states.contributeState(profileEmittedThinkingEffortWarningsKey);
     this.states.contributeState(profileEmittedToolPatternWarningsKey);
     this.states.contributeState(profileEmittedPluginBudgetWarningsKey);
+    this.states.contributeState(profileSkillListingWarningEmittedKey);
     this.configure({});
     this._register(
       this.dispatcher.hooks.onDidRestore.register('profile', async (_ctx, next) => {
@@ -224,6 +229,14 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
 
   private get emittedPluginBudgetWarnings(): Set<string> {
     return this.states.get(profileEmittedPluginBudgetWarningsKey);
+  }
+
+  private get emittedSkillListingWarning(): boolean {
+    return this.states.get(profileSkillListingWarningEmittedKey);
+  }
+
+  private set emittedSkillListingWarning(value: boolean) {
+    this.states.set(profileSkillListingWarningEmittedKey, value);
   }
 
   configure(options: ProfileServiceOptions): void {
@@ -980,7 +993,19 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
       const listing = this.skillCatalog.catalog.getModelSkillListing();
       this.frozenSkillListing = listing;
       return listing;
-    } catch {
+    } catch (error) {
+      this.log.warn('skill listing unavailable', { error });
+      if (!this.emittedSkillListingWarning) {
+        this.emittedSkillListingWarning = true;
+        void this.dispatcher.dispatch(
+          new WarningIssued({
+            agentId: this.scopeContext.agentId,
+            message:
+              'The skill listing could not be read, so this session does not advertise any skills. Skills may still be callable by name.',
+            code: 'skill-listing-unavailable',
+          }),
+        );
+      }
       return '';
     }
   }

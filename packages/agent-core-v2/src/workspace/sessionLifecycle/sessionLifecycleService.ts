@@ -118,7 +118,6 @@ const SESSION_CREATE_RELOAD_SKILL_SOURCES: readonly string[] = [
 export class SessionLifecycleService extends Disposable implements ISessionLifecycleService {
   declare readonly _serviceBrand: undefined;
   private readonly sessions = new Map<string, ISessionScopeHandle>();
-  /** Per-session release of the ephemeral additional dirs it merged in. */
   private readonly additionalDirReleases = new Map<string, IDisposable>();
   private readonly _onWillCreateSession = this._register(new Emitter<SessionWillCreateEvent>());
   readonly onWillCreateSession: Event<SessionWillCreateEvent> = this._onWillCreateSession.event;
@@ -224,12 +223,6 @@ export class SessionLifecycleService extends Disposable implements ISessionLifec
     return handle;
   }
 
-  /**
-   * Release the ephemeral additional dirs a session merged in. Called from every
-   * path that drops a session from `sessions`, so a deleted or archived session
-   * stops widening the sandbox (and the directories it named stop being visible
-   * to the workspace) instead of leaking until the process exits.
-   */
   private releaseAdditionalDirs(sessionId: string): void {
     const release = this.additionalDirReleases.get(sessionId);
     if (release === undefined) return;

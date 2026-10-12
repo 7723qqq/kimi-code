@@ -2660,10 +2660,6 @@ describe('teardown', () => {
       content: 'z\n',
     });
     const wt = worktreeOf(mission);
-    // A corrupt index makes `git status` fail while `git rev-parse --git-dir`
-    // (the registration probe) still answers, so the worktree is visited and
-    // only the dirtiness probe is unanswerable. A worktree's `.git` is a file
-    // holding `gitdir: <admin path>`, and the index lives in that admin dir.
     const pointer = await readFile(join(wt, '.git'), 'utf8');
     const gitDir = resolve(dirname(wt), pointer.replace(/^gitdir:\s*/, '').trim());
     await writeFile(join(gitDir, 'index'), 'not-an-index\n');

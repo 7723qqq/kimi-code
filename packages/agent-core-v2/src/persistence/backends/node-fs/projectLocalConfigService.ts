@@ -307,7 +307,6 @@ registerScopedService(
   'projectLocalConfig',
 );
 
-/** Platform system directories a session must not be handed as a workspace root. */
 const POSIX_SYSTEM_DIRS: readonly string[] = [
   '/etc',
   '/usr',
@@ -322,17 +321,6 @@ const POSIX_SYSTEM_DIRS: readonly string[] = [
   '/var',
 ];
 
-/**
- * A session's `additionalDirs` widens the sandbox for every session in the
- * workspace (the list is workspace state, and the fs checks read it globally),
- * so the sources that may NOT be widened by a mere create/resume call are
- * refused here: the filesystem root, the home directory itself, platform
- * system directories, and any ancestor of the workspace root — each of those
- * would hand the agent the machine rather than a project.
- *
- * The disk `local.toml` channel keeps its old behaviour (warn-only): an
- * existing config must not make the workspace fail to start.
- */
 function assertSessionDirWithinSandbox(
   resolvedDir: string,
   baseDir: string,

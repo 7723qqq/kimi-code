@@ -60,10 +60,6 @@ export class WorkspaceTrustService extends Disposable implements IWorkspaceTrust
   }
 
   async trust(): Promise<void> {
-    // Idempotent against the STORE, not against the in-memory flag: the flag
-    // can be false while a record still exists on disk (a failed read at
-    // initialize(), or a record written by another process), and guarding on it
-    // would leave that record in place.
     await writeWorkspaceTrust(this.docs, this.root, Date.now());
     if (this.trusted) return;
     this.trusted = true;
@@ -72,9 +68,6 @@ export class WorkspaceTrustService extends Disposable implements IWorkspaceTrust
   }
 
   async untrust(): Promise<void> {
-    // Same reasoning as `trust()`: a revocation must delete the record even
-    // when this instance's flag is already false, or the workspace silently
-    // re-trusts itself on the next start from the surviving record.
     await deleteWorkspaceTrust(this.docs, this.root);
     if (!this.trusted) return;
     this.trusted = false;

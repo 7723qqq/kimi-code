@@ -379,6 +379,38 @@ describe('AgentProfileService.applyProfile', () => {
     change.dispose();
   });
 
+  it('warns once when the skill catalog cannot be read', async () => {
+    const change = new Emitter<string>();
+    const rejecting = Promise.reject(new Error('catalog unavailable'));
+    rejecting.catch(() => {});
+    const { ctx: context, profile: svc } = buildContext(
+      skillCatalogWithChange(change, new InMemorySkillCatalog(), rejecting),
+    );
+
+    let seen: readonly { event: string; args?: { code?: string } }[] = [];
+    const drain = (): void => {
+      seen = [
+        ...seen,
+        ...(context.newEvents() as readonly { event: string; args?: { code?: string } }[]),
+      ];
+    };
+    const skillWarnings = (): readonly unknown[] =>
+      seen.filter(
+        (entry) => entry.event === 'warning' && entry.args?.['code'] === 'skill-listing-unavailable',
+      );
+
+    await svc.applyProfile(skillsProfile);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    drain();
+    expect(svc.data().systemPrompt).toBe('skills:');
+    expect(skillWarnings()).toHaveLength(1);
+
+    await svc.applyProfile(skillsProfile);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    drain();
+    expect(skillWarnings()).toHaveLength(1);
+  });
+
   it('does not rebuild the system prompt when the plugin skill source changes', async () => {
     let renders = 0;
     const countingProfile: ResolvedAgentProfile = normalizeAgentProfile({
@@ -457,11 +489,12 @@ describe('AgentProfileService.applyProfile', () => {
 function skillCatalogWithChange(
   change: Emitter<string>,
   catalog: SkillCatalog = new InMemorySkillCatalog(),
+  ready: Promise<void> = Promise.resolve(),
 ): TestAgentServiceOverride {
   return sessionService(ISessionSkillCatalog, {
     _serviceBrand: undefined,
     catalog,
-    ready: Promise.resolve(),
+    ready,
     onDidChange: change.event,
     load: async () => {},
     reload: async () => {},

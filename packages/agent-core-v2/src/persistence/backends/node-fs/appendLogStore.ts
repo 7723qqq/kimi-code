@@ -1,4 +1,5 @@
 import { Disposable, toDisposable, type IDisposable } from '#/_base/di/lifecycle';
+import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Emitter, type Event } from '#/_base/event';
 import { LifecycleScope } from '#/app/scopes';
@@ -16,9 +17,14 @@ const textEncoder = new TextEncoder();
 
 const pendingRetirements = new Set<Promise<void>>();
 
+const retirementFailures: unknown[] = [];
+
 export async function drainAppendLogRetirements(): Promise<void> {
   while (pendingRetirements.size > 0) {
     await Promise.all(pendingRetirements);
+  }
+  if (retirementFailures.length > 0) {
+    throw new AggregateError(retirementFailures.splice(0), 'append-log retirement flush failed');
   }
 }
 
@@ -194,7 +200,9 @@ export class AppendLogStore extends Disposable implements IAppendLogStore {
     state.flushScheduled = true;
     queueMicrotask(() => {
       state.flushScheduled = false;
-      void this.flushState(scope, key, state).catch((error) => state.onError?.(error));
+      void this.flushState(scope, key, state).catch((error) => {
+        (state.onError ?? onUnexpectedError)(error);
+      });
     });
   }
 
@@ -214,7 +222,10 @@ export class AppendLogStore extends Disposable implements IAppendLogStore {
     state.refCount--;
     if (state.refCount > 0) return;
     state.retired = true;
-    const retirement = this.settleRetiredState(scope, key, state).catch(() => undefined);
+    const retirement = this.settleRetiredState(scope, key, state).catch((error: unknown) => {
+      retirementFailures.push(error);
+      onUnexpectedError(error);
+    });
     state.retirement = retirement;
     pendingRetirements.add(retirement);
     void retirement.finally(() => pendingRetirements.delete(retirement));

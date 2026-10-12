@@ -42,6 +42,8 @@ import {
 import { touchFileHistorySession } from './fileHistoryRetention';
 
 export const FILE_HISTORY_MAX_FILE_BYTES = 4 * 1024 * 1024;
+
+const FILE_HISTORY_READ_ATTEMPTS = 3;
 export { FILE_HISTORY_BLOB_PREFIX } from './fileHistory';
 
 export class AgentFileHistoryService extends Service implements IAgentFileHistoryService {
@@ -164,12 +166,26 @@ export class AgentFileHistoryService extends Service implements IAgentFileHistor
       let liveMissing = false;
       let afterBytes: Uint8Array | undefined;
       if (end !== undefined) {
+        if (after?.unreadable === true) {
+          changes.push({
+            path,
+            status: beforeMissing ? 'added' : 'modified',
+            additions: 0,
+            deletions: 0,
+            unreadable: true,
+          });
+          continue;
+        }
         if (before?.oversize !== true && after?.oversize !== true) {
           afterBytes = await this.entryBytes(after);
         }
       } else {
         const current = await this.readCurrent(path);
-        if (current === 'unreadable') continue;
+        if (current === 'unreadable') {
+          const status = beforeMissing ? 'added' : 'modified';
+          changes.push({ path, status, additions: 0, deletions: 0, unreadable: true });
+          continue;
+        }
         if (current instanceof Uint8Array) afterBytes = current;
         else if (current === 'missing') liveMissing = true;
         else liveOversize = { size: current.oversizeBytes, mtimeMs: current.mtimeMs };
@@ -348,7 +364,10 @@ export class AgentFileHistoryService extends Service implements IAgentFileHistor
     for (const [pathKey, before] of Object.entries(start.entries)) {
       const nextVersion = maxVersion(state.checkpoints, pathKey) + 1;
       const current = await this.readCurrent(pathKey);
-      if (current === 'unreadable') continue;
+      if (current === 'unreadable') {
+        entries[pathKey] = { key: null, version: nextVersion, unreadable: true };
+        continue;
+      }
       if (current === 'missing') {
         if (before.key !== null || before.oversize === true) {
           entries[pathKey] = { key: null, version: nextVersion };
@@ -462,6 +481,17 @@ export class AgentFileHistoryService extends Service implements IAgentFileHistor
     pathKey: string,
   ): Promise<Uint8Array | 'missing' | 'unreadable' | { oversizeBytes: number; mtimeMs?: number }> {
     const absolute = isAbsolute(pathKey) ? pathKey : resolve(this.workspaceCtx.workDir, pathKey);
+    let result = await this.readCurrentOnce(absolute);
+    for (let attempt = 1; attempt < FILE_HISTORY_READ_ATTEMPTS && result === 'unreadable'; attempt += 1) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+      result = await this.readCurrentOnce(absolute);
+    }
+    return result;
+  }
+
+  private async readCurrentOnce(
+    absolute: string,
+  ): Promise<Uint8Array | 'missing' | 'unreadable' | { oversizeBytes: number; mtimeMs?: number }> {
     const lease = this.runtime.acquire(['fs']);
     try {
       const fs = lease.runtime.fs;

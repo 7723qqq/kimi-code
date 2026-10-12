@@ -998,14 +998,6 @@ class MutableLLMRequestTrace implements LLMRequestTrace {
   }
 }
 
-/**
- * UTF-8 byte length of the request body, not the UTF-16 code-unit count.
- * `String.length` counts code units, so a CJK-heavy message measured about a
- * third of its real size and the eviction threshold was only reached after the
- * provider had already rejected the body; the telemetry figure was off by the
- * same factor. Base64 payloads (image/audio/video URLs) are ASCII, so their
- * byte count equals their length and nothing changes for them.
- */
 function byteLength(value: string | null | undefined): number {
   if (value === undefined || value === null) return 0;
   return Buffer.byteLength(value, 'utf8');

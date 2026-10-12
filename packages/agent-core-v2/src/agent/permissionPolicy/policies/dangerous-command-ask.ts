@@ -60,11 +60,6 @@ const PRIVILEGE_VALUE_OPTIONS: ReadonlySet<string> = new Set([
 
 const NESTED_SHELLS: ReadonlySet<string> = new Set(['sh', 'bash', 'dash', 'zsh', 'ksh', 'ash']);
 
-/**
- * Options of a nested shell that take their value as the NEXT argument. The
- * scanner must step over the value, or a value like `pipefail` is mistaken for
- * a positional operand and the scan stops before ever seeing `-c`.
- */
 const NESTED_SHELL_VALUE_OPTIONS: ReadonlySet<string> = new Set([
   '-o',
   '+o',
@@ -243,9 +238,6 @@ function analyzeInvocation(
           i += 1;
           continue;
         }
-        // Only a short-option cluster can carry `-c`; a long option such as
-        // `--noprofile` contains a `c` but is not `-c`, and treating it as one
-        // would invent an unanalyzable payload that does not exist.
         if (/^-[a-zA-Z]*c[a-zA-Z]*$/.test(arg)) payloadIndex = i + 1;
         continue;
       }

@@ -10,12 +10,6 @@ export interface IProjectLocalConfigService {
   readonly _serviceBrand: undefined;
 
   readAdditionalDirs(workDir: string): Promise<ProjectAdditionalDirsLoadResult>;
-  /**
-   * Resolve configured additional dirs against `baseDir`. `source` selects the
-   * policy: `'session'` (a create/resume payload) is validated against the
-   * machine-scale directories a session must not be handed; `'config'`
-   * (project `local.toml`) keeps the permissive legacy behaviour.
-   */
   resolveAdditionalDirs(
     baseDir: string,
     additionalDirs: readonly string[],

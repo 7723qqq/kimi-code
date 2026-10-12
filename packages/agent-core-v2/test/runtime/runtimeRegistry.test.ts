@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from 'vitest';
 
+import {
+  resetUnexpectedErrorHandler,
+  setUnexpectedErrorHandler,
+} from '#/_base/errors/unexpectedError';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
 import { RuntimeError, RuntimeRegistry } from '#/runtime/runtimeRegistry';
 
@@ -225,6 +229,51 @@ describe('RuntimeRegistry', () => {
     expect(counts.get('a')).toBe(1);
     expect(counts.get('b')).toBe(1);
     expect(counts.get('c')).toBe(1);
+  });
+
+  it('reports a resource that failed to dispose, after disposing the rest', async () => {
+    const registry = new RuntimeRegistry('workspace');
+    const registration = registry.register(runtime('one'));
+    const lease = registry.acquire({ workspaceId: 'workspace', runtimeId: 'local' });
+    const order: string[] = [];
+    const boom = new Error('dispose exploded');
+    lease.track({
+      dispose: () => {
+        order.push('bad');
+        throw boom;
+      },
+    });
+    lease.track({
+      dispose: () => {
+        order.push('good');
+      },
+    });
+
+    const replacement = registration.replace(runtime('two'));
+    lease.dispose();
+
+    await expect(replacement).rejects.toBeInstanceOf(AggregateError);
+    expect(order).toEqual(['good', 'bad']);
+  });
+
+  it('signals a lease that never came back before force-releasing', async () => {
+    const registry = new RuntimeRegistry('workspace', 1);
+    const registration = registry.register(runtime('one'));
+    const lease = registry.acquire({ workspaceId: 'workspace', runtimeId: 'local' });
+    const seen: unknown[] = [];
+    setUnexpectedErrorHandler((error) => seen.push(error));
+    try {
+      const replacement = registration.replace(runtime('two'));
+      await replacement;
+      expect(
+        seen.some(
+          (error) => error instanceof RuntimeError && error.code === 'runtime.drain_timeout',
+        ),
+      ).toBe(true);
+    } finally {
+      lease.dispose();
+      resetUnexpectedErrorHandler();
+    }
   });
 
   it('rejects track once the generation is draining', async () => {

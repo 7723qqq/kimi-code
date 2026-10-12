@@ -66,10 +66,6 @@ export class WorkspaceDirsService extends Disposable implements IWorkspaceDirs {
     this.states.set(workspaceDirsEphemeralDirsKey, value);
   }
 
-  /**
-   * Reference counts behind `ephemeralDirs`: several live sessions may name the
-   * same directory, and releasing one must not revoke it for the others.
-   */
   private readonly ephemeralRefs = new Map<string, number>();
 
   get additionalDirs(): readonly string[] {

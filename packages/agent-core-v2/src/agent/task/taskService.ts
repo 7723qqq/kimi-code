@@ -15,6 +15,7 @@ import { IAgentConversationUndoParticipantRegistry } from '#/agent/contextMemory
 import type { TaskOrigin } from '#/agent/contextMemory/types';
 import { IAgentLoopService, type LoopNotifyHandle } from '#/agent/loop/loop';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { WarningIssued } from '#/agent/profile/profileOps';
 import '#/agent/contextMemory/conversationTime';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { formatTaskList } from '#/agent/tools/task/task-list/taskListTool';
@@ -128,6 +129,7 @@ interface ManagedTask {
   pendingOutput: string[];
   pendingOutputBytes: number;
   outputPersistStarted: boolean;
+  persistenceError?: Error;
   timeoutHandle?: ReturnType<typeof setTimeout>;
   timedOut: boolean;
   readonly waiters: Array<() => void>;
@@ -571,9 +573,10 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     const persistence = this.persistence;
     const persisted = await persistence.readTaskOutputSnapshot(taskId, previewLimit);
     if (persisted !== undefined) {
+      const entry = this.tasks.get(taskId);
       return {
         ...persisted,
-        fullOutputAvailable: true,
+        fullOutputAvailable: entry?.persistenceError === undefined,
       };
     }
 
@@ -1005,7 +1008,12 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     const persistence = this.persistence;
     entry.outputWriteQueue = entry.outputWriteQueue
       .then(() => persistence.appendTaskOutput(entry.taskId, chunk))
-      .catch(() => {});
+      .catch((error: unknown) => {
+        if (entry.persistenceError === undefined) {
+          entry.persistenceError = error instanceof Error ? error : new Error(String(error));
+        }
+        this.log.error('task output write failed', { taskId: entry.taskId, error });
+      });
   }
 
   private startOutputPersist(entry: ManagedTask): void {
@@ -1070,10 +1078,30 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
       entry.terminalNotificationSuppressed = true;
       await this.persistLive(entry);
     }
+    if (entry.persistenceError !== undefined) {
+      this.warnOutputPersistenceFailed(entry, entry.persistenceError);
+    }
     this.fireTerminalEffects(entry);
     foregroundRelease?.resolve('terminal');
     this.resolveWaiters(entry);
     return true;
+  }
+
+  private warnOutputPersistenceFailed(entry: ManagedTask, error: Error): void {
+    try {
+      void this.dispatcher.dispatch(
+        new WarningIssued({
+          agentId: this.scopeContext.agentId,
+          code: 'task_output_persistence_failed',
+          message: `Output of task "${entry.taskId}" could not be fully written to disk; the stored log may be incomplete (${error.message}).`,
+        }),
+      );
+    } catch (dispatchError) {
+      this.log.error('task output warning dispatch failed', {
+        taskId: entry.taskId,
+        error: dispatchError,
+      });
+    }
   }
 
   private fireTerminalEffects(entry: ManagedTask): void {

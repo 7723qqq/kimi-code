@@ -232,7 +232,7 @@ describe('WireService appendRecord', () => {
         throw expected;
       });
       stub.appendRecord({ type: 'wire.test.good', time: 2 });
-      await stub.flush();
+      await expect(stub.flush()).rejects.toThrow(expected);
 
       expect(unexpected).toEqual([expected]);
       expect(records).toEqual([{ type: 'wire.test.good', time: 2 }]);

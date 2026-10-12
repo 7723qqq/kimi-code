@@ -22,11 +22,6 @@ export interface IWorkspaceDirs {
   readonly additionalDirs: readonly string[];
   readonly onDidChange: Event<void>;
   addDir(input: WorkspaceAddDirInput): Promise<WorkspaceAdditionalDirsResult>;
-  /**
-   * Widen the workspace with a session's extra roots. Returns a disposable that
-   * releases THIS session's hold; the directories stay while any other live
-   * session still names them.
-   */
   mergeAdditionalDirs(baseDir: string, dirs: readonly string[]): Promise<IDisposable>;
   sessionInfo(): ISessionWorkspaceInfo;
 }

@@ -284,6 +284,8 @@ describe('ExitPlanMode option output', () => {
     expect(recordRevision).toHaveBeenCalledTimes(1);
     expect(result.isError).toBeFalsy();
     expect(result.output).toContain('Exited plan mode');
+    expect(result.output).toContain('could not be snapshotted');
+    expect(result.output).toContain('disk full');
   });
 
   it('skips revision recording when the plan content is empty', async () => {

@@ -1,3 +1,4 @@
+import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import type { SpecSubmittedEvent } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
@@ -16,11 +17,20 @@ export class ExitSpecModeTool implements IExitSpecModeTool {
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(ExitSpecModeInputSchema);
 
+  private revisionError: Error | undefined;
+
   constructor(
     @IAgentSpecService private readonly spec: IAgentSpecService,
     @IAgentPermissionModeService private readonly permissionMode: IAgentPermissionModeService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
   ) {}
+
+  private takeRevisionWarning(): string {
+    const error = this.revisionError;
+    if (error === undefined) return '';
+    this.revisionError = undefined;
+    return `\n\nWarning: this revision could not be snapshotted (${error.message}) — it will not appear in history.`;
+  }
 
   async resolveExecution(args: ExitSpecModeInput): Promise<ToolExecution> {
     return {
@@ -43,7 +53,11 @@ export class ExitSpecModeTool implements IExitSpecModeTool {
     if (data === null || !data.complete) return undefined;
     try {
       await this.spec.recordRevision(data);
-    } catch {}
+      this.revisionError = undefined;
+    } catch (error) {
+      onUnexpectedError(error);
+      this.revisionError = error instanceof Error ? error : new Error(String(error));
+    }
     const display: ToolInputDisplay = {
       kind: 'spec_review',
       dir: data.dir,
@@ -87,14 +101,14 @@ export class ExitSpecModeTool implements IExitSpecModeTool {
       this.telemetry.track2('spec_resolved', { outcome: 'approved_without_review' });
       return {
         isError: false,
-        output: `Exited spec mode. Spec saved to: ${status.dir} — work through ${status.dir}/tasks.md, recording progress in ${status.dir}/progress.md as you go.\nNote: this spec was auto-approved without user review — the user has NOT explicitly approved it. Follow the user's original instructions on whether to proceed with execution; if they asked you to stop, wait, or only summarize, do not start executing.`,
+        output: `Exited spec mode. Spec saved to: ${status.dir} — work through ${status.dir}/tasks.md, recording progress in ${status.dir}/progress.md as you go.\nNote: this spec was auto-approved without user review — the user has NOT explicitly approved it. Follow the user's original instructions on whether to proceed with execution; if they asked you to stop, wait, or only summarize, do not start executing.${this.takeRevisionWarning()}`,
       };
     }
 
     this.telemetry.track2('spec_resolved', { outcome: 'approved' });
     return {
       isError: false,
-      output: `Exited spec mode. Spec saved to: ${status.dir}\n\nWork through ${status.dir}/tasks.md, recording progress in ${status.dir}/progress.md as you go.`,
+      output: `Exited spec mode. Spec saved to: ${status.dir}\n\nWork through ${status.dir}/tasks.md, recording progress in ${status.dir}/progress.md as you go.${this.takeRevisionWarning()}`,
     };
   }
 

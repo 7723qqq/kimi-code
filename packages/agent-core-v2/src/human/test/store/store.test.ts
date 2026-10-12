@@ -47,6 +47,23 @@ describe('append', () => {
     expect(fileOf(backend, 'chat', 'main').trim().split('\n')).toHaveLength(3);
   });
 
+  it('refuses to append when the branch header never landed', async () => {
+    const backend = new MemoryBackend();
+    const original = backend.trees.write.bind(backend.trees);
+    backend.trees.write = async () => {
+      throw new Error('ENOSPC: no space left on device');
+    };
+    const store = await openStore(backend);
+    const tree = await store.tree('chat');
+    const main = tree.createBranch('main');
+
+    await expect(main.append(entryData('a'))).rejects.toThrow(/branch header/);
+
+    const files = backend.trees.files.get('chat');
+    expect(files?.get('main')).toBeUndefined();
+    backend.trees.write = original;
+  });
+
   it('rejects appends on a degraded branch', async () => {
     const backend = new MemoryBackend();
     backend.trees.files.set(

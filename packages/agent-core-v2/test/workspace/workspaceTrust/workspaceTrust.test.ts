@@ -155,9 +155,6 @@ describe('WorkspaceTrustService', () => {
     const backing = new JsonAtomicDocumentStore(new FileStorageService(homeDir));
     await writeWorkspaceTrust(backing, root, 1);
 
-    // The first read fails, so initialize() leaves the flag false while the
-    // record survives on disk — exactly the state that used to make untrust()
-    // a silent no-op.
     let failNextRead = true;
     const flaky: IAtomicDocumentStore = {
       get: async (scope, key) => {
@@ -179,7 +176,6 @@ describe('WorkspaceTrustService', () => {
     await service.untrust();
 
     expect(await readWorkspaceTrust(backing, root)).toBe(false);
-    // The flag never changed, so no event is emitted — the deletion is the fix.
     expect(events).toEqual([]);
   });
 

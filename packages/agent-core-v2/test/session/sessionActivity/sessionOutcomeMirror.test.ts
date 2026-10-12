@@ -10,6 +10,7 @@ import {
   type Scope,
 } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair, type ScopedTestHost } from '#/_base/di/test';
+import { ILogService } from '#/_base/log/log';
 import { Emitter, Event } from '#/_base/event';
 import { IEventBus } from '#/app/event/eventBus';
 import type { Event2, Event2Class } from '#/app/event/event2';
@@ -144,6 +145,17 @@ describe('SessionOutcomeMirror (Session scope)', () => {
   let writes: (SessionMeta['lastTurnReason'])[];
   let touches: boolean[];
   let failNextWrite: boolean;
+  const logged: unknown[] = [];
+  const logStub = {
+    info: () => {},
+    warn: (_message: string, error?: unknown) => {
+      logged.push(error);
+    },
+    error: () => {},
+    debug: () => {},
+    trace: () => {},
+    withContext: () => logStub,
+  } as unknown as ILogService;
 
   beforeEach(() => {
     _clearScopedRegistryForTests();
@@ -172,6 +184,7 @@ describe('SessionOutcomeMirror (Session scope)', () => {
     host = createScopedTestHost();
     session = host.child(LifecycleScope.Session, 'session-a', [
       stubPair(ISessionMetadata, metadata as unknown as ISessionMetadata),
+      stubPair(ILogService, logStub),
     ]);
     lifecycle = session.accessor.get(IAgentLifecycleService) as unknown as FakeAgentLifecycle;
     session.accessor.get(ISessionOutcomeMirror);
@@ -209,12 +222,14 @@ describe('SessionOutcomeMirror (Session scope)', () => {
     expect(writes).toEqual(['failed', undefined]);
   });
 
-  it('retries the write when a persist fails', async () => {
+  it('retries the write when a persist fails, and says so', async () => {
     lifecycle.addMain();
     await tick();
+    const before = logged.length;
     failNextWrite = true;
     ended('failed');
     await tick();
+    expect(logged.length).toBe(before + 1);
     ended('failed');
     expect(writes).toEqual(['failed']);
   });
@@ -225,6 +240,7 @@ describe('SessionOutcomeMirror (Session scope)', () => {
     ended('failed');
     expect(writes).toEqual(['failed']);
     const second = host.child(LifecycleScope.Session, 'session-b', [
+      stubPair(ILogService, logStub),
       stubPair(ISessionMetadata, {
         read: async () => ({ lastTurnReason: 'failed' }) as SessionMeta,
         update: async (patch: { lastTurnReason?: SessionMeta['lastTurnReason'] }) => {
@@ -320,6 +336,7 @@ describe('SessionOutcomeMirror (Session scope)', () => {
 
   it('clears a stale persisted outcome when the replayed wire has no ended turn', async () => {
     const stale = host.child(LifecycleScope.Session, 'session-stale', [
+      stubPair(ILogService, logStub),
       stubPair(ISessionMetadata, {
         read: async () => ({ lastTurnReason: 'cancelled' }) as SessionMeta,
         update: async (
@@ -343,6 +360,7 @@ describe('SessionOutcomeMirror (Session scope)', () => {
 
   it('keeps the adopted outcome when the replayed wire still has its ended turn', async () => {
     const fresh = host.child(LifecycleScope.Session, 'session-fresh', [
+      stubPair(ILogService, logStub),
       stubPair(ISessionMetadata, {
         read: async () => ({ lastTurnReason: 'cancelled' }) as SessionMeta,
         update: async (patch: { lastTurnReason?: SessionMeta['lastTurnReason'] }) => {

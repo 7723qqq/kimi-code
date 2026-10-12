@@ -1,4 +1,5 @@
 import { Disposable, DisposableStore } from '#/_base/di/lifecycle';
+import { ILogService } from '#/_base/log/log';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { TurnStarted } from '#/agent/loop/turnEvents';
 import { TurnEnded, turnKey } from '#/agent/loop/turnOps';
@@ -26,6 +27,7 @@ export class SessionOutcomeMirror extends Disposable implements ISessionOutcomeM
   constructor(
     @IAgentLifecycleService private readonly agents: IAgentLifecycleService,
     @ISessionMetadata private readonly metadata: ISessionMetadata,
+    @ILogService private readonly log: ILogService,
   ) {
     super();
     this.metadataReady = this.metadata
@@ -158,7 +160,11 @@ export class SessionOutcomeMirror extends Disposable implements ISessionOutcomeM
       outcome === undefined ? undefined : (opts?.turnId ?? this.lastPersistedTurnId);
     void this.metadata
       .update({ lastTurnReason: outcome }, { touchUpdatedAt: opts?.touchUpdatedAt })
-      .catch(() => {
+      .catch((error: unknown) => {
+        this.log.warn(
+          `session outcome persist failed: lastTurnReason=${String(outcome)}`,
+          error,
+        );
         if (this.lastPersisted === outcome) {
           this.lastPersisted = previous;
           this.lastPersistedTurnId = previousTurnId;

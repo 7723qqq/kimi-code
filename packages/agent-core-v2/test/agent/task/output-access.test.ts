@@ -1,6 +1,6 @@
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { Readable } from 'node:stream';
+import { PassThrough, Readable } from 'node:stream';
 import type { Writable } from 'node:stream';
 import { join } from 'pathe';
 import type { IHostProcess } from '#/os/interface/hostProcess';
@@ -191,6 +191,43 @@ describe('AgentTaskService — readOutput / getOutputSnapshot', () => {
       fullOutputAvailable: false,
       preview: '',
     });
+  });
+
+  it('reports a failed output write instead of claiming the log is complete', async () => {
+    const stdout = new PassThrough();
+    const taskId = registerProcess(
+      manager,
+      { ...immediateProcess(0), stdout },
+      'echo',
+      'failing',
+    );
+    stdout.write('live\n');
+    await waitForOutput(manager, taskId, 'live');
+
+    await persistence.appendTaskOutput(taskId, 'live\n');
+
+    const owned = (manager as unknown as {
+      persistence: { appendTaskOutput(id: string, chunk: string): Promise<void> };
+    }).persistence;
+    const original = owned.appendTaskOutput.bind(owned);
+    owned.appendTaskOutput = async () => {
+      throw new Error('disk full');
+    };
+    try {
+      manager.persistOutput(taskId);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+      stdout.write('late\n');
+      await new Promise((resolve) => setTimeout(resolve, 60));
+
+      const snapshot = await manager.getOutputSnapshot(taskId, 4_000);
+      expect(snapshot.outputPath).toBeDefined();
+      expect(snapshot.fullOutputAvailable).toBe(false);
+
+      stdout.end();
+      await manager.wait(taskId);
+    } finally {
+      owned.appendTaskOutput = original;
+    }
   });
 
   it('readOutput returns live ring-buffer content while task is in memory', async () => {
