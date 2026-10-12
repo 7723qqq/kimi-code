@@ -12,8 +12,17 @@
  *
  * The models zone is a row summary list (Up / Down select, `A` append, `D`
  * delete — never below one row, `E` / Enter edit); the row editor (Model ID →
- * Context → Display name) lives inside the same box as a sub-state, so no
- * nested dialog is needed. The API key renders masked; Ctrl-R reveals it.
+ * Context → Max input → Max output → Display name → Capabilities → Thinking
+ * efforts → Default effort → Off effort → Adaptive thinking) lives inside the
+ * same box as a sub-state, so no nested dialog is needed. Two of those fields
+ * are not text: Capabilities is a Left / Right cursor with Space toggling the
+ * name under it, Adaptive thinking is a Space toggle. The API key renders
+ * masked; Ctrl-R reveals it.
+ *
+ * Every optional row field is three-state — `undefined` means the form does
+ * not own it (the alias keeps what it declared), `''` means the user cleared
+ * it (the write deletes the key), anything else is written as typed — so the
+ * editor only turns a blank into `''` for a field the row already carried.
  *
  * Validation is `validateProviderForm` from `#/utils/provider-form`; the
  * failing code renders as an inline hint (top of the form) and the focus
@@ -39,8 +48,11 @@ import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import { printableChar } from '#/tui/utils/printable-key';
 import {
+  CAPABILITY_NAMES,
   defaultModelRow,
+  isCapabilityName,
   normalizeBaseUrlForType,
+  parseEffortList,
   PROVIDER_WIRE_TYPES,
   validateProviderForm,
   type ProviderFormError,
@@ -70,10 +82,31 @@ export type ProviderFormDialogResult =
   | { readonly kind: 'cancel' };
 
 type FieldId = 'id' | 'type' | 'apiKey' | 'baseUrl' | 'models' | 'save';
-type RowFieldId = 'model' | 'context' | 'displayName';
+type RowFieldId =
+  | 'model'
+  | 'context'
+  | 'maxInputSize'
+  | 'maxOutputSize'
+  | 'displayName'
+  | 'capabilities'
+  | 'supportEfforts'
+  | 'defaultEffort'
+  | 'offEffort'
+  | 'adaptiveThinking';
 
 const FIELD_ORDER: readonly FieldId[] = ['id', 'type', 'apiKey', 'baseUrl', 'models', 'save'];
-const ROW_FIELD_ORDER: readonly RowFieldId[] = ['model', 'context', 'displayName'];
+const ROW_FIELD_ORDER: readonly RowFieldId[] = [
+  'model',
+  'context',
+  'maxInputSize',
+  'maxOutputSize',
+  'displayName',
+  'capabilities',
+  'supportEfforts',
+  'defaultEffort',
+  'offEffort',
+  'adaptiveThinking',
+];
 const INPUT_PREFIX = '> ';
 const POSITIVE_INTEGER_PATTERN = /^\d+$/;
 
@@ -95,11 +128,33 @@ function hintText(code: ProviderFormError): string {
       return t('tui.dialogs.providerForm.error.contextSizeInvalid');
     case 'modelDuplicate':
       return t('tui.dialogs.providerForm.error.modelDuplicate');
+    case 'capabilityUnknown':
+      return t('tui.dialogs.providerForm.error.capabilityUnknown');
+    case 'defaultEffortNotSupported':
+      return t('tui.dialogs.providerForm.error.defaultEffortNotSupported');
   }
 }
 
 function labelStyled(text: string, focused: boolean): string {
   return focused ? currentTheme.boldFg('accent', text) : currentTheme.fg('textDim', text);
+}
+
+/**
+ * Commit one optional text field from the row editor.
+ *
+ * A blank input clears the key only when the row already carried something to
+ * clear; a row that never declared the field keeps it absent, so merely
+ * opening the editor cannot turn "not set" into "cleared" — the pure layer
+ * treats the two differently.
+ */
+function assignOptionalText(
+  row: ProviderFormModelRow,
+  key: 'maxInputSize' | 'maxOutputSize' | 'supportEfforts' | 'defaultEffort' | 'offEffort',
+  raw: string,
+  previous: string | undefined,
+): void {
+  if (raw === '' && previous === undefined) return;
+  row[key] = raw;
 }
 
 /**
@@ -141,7 +196,12 @@ export class ProviderFormDialogComponent extends Container implements Focusable 
   private readonly baseUrlInput = new Input();
   private readonly rowModelInput = new Input();
   private readonly rowContextInput = new Input();
+  private readonly rowMaxInputSizeInput = new Input();
+  private readonly rowMaxOutputSizeInput = new Input();
   private readonly rowDisplayNameInput = new Input();
+  private readonly rowSupportEffortsInput = new Input();
+  private readonly rowDefaultEffortInput = new Input();
+  private readonly rowOffEffortInput = new Input();
 
   private activeField: FieldId = 'id';
   private typeIndex = 0;
@@ -150,6 +210,11 @@ export class ProviderFormDialogComponent extends Container implements Focusable 
   private modelsMode: 'list' | 'row' = 'list';
   private rowField: RowFieldId = 'model';
   private rowBackup: ProviderFormModelRow | null = null;
+  /** Capabilities being edited; `undefined` until the user toggles one. */
+  private rowCapabilities: string[] | undefined;
+  private rowCapabilityCursor = 0;
+  /** Adaptive thinking being edited; `undefined` until the user toggles it. */
+  private rowAdaptiveThinking: boolean | undefined;
   private apiKeyRevealed = false;
   private hint: ProviderFormError | null = null;
   private done = false;
@@ -188,10 +253,25 @@ export class ProviderFormDialogComponent extends Container implements Focusable 
       this.rowField = 'context';
     };
     this.rowContextInput.onSubmit = () => {
+      this.rowField = 'maxInputSize';
+    };
+    this.rowMaxInputSizeInput.onSubmit = () => {
+      this.rowField = 'maxOutputSize';
+    };
+    this.rowMaxOutputSizeInput.onSubmit = () => {
       this.rowField = 'displayName';
     };
     this.rowDisplayNameInput.onSubmit = () => {
-      this.commitRow();
+      this.rowField = 'capabilities';
+    };
+    this.rowSupportEffortsInput.onSubmit = () => {
+      this.rowField = 'defaultEffort';
+    };
+    this.rowDefaultEffortInput.onSubmit = () => {
+      this.rowField = 'offEffort';
+    };
+    this.rowOffEffortInput.onSubmit = () => {
+      this.rowField = 'adaptiveThinking';
     };
   }
 
@@ -306,7 +386,12 @@ export class ProviderFormDialogComponent extends Container implements Focusable 
     this.baseUrlInput.focused = fieldFocused('baseUrl');
     this.rowModelInput.focused = rowFocused('model');
     this.rowContextInput.focused = rowFocused('context');
+    this.rowMaxInputSizeInput.focused = rowFocused('maxInputSize');
+    this.rowMaxOutputSizeInput.focused = rowFocused('maxOutputSize');
     this.rowDisplayNameInput.focused = rowFocused('displayName');
+    this.rowSupportEffortsInput.focused = rowFocused('supportEfforts');
+    this.rowDefaultEffortInput.focused = rowFocused('defaultEffort');
+    this.rowOffEffortInput.focused = rowFocused('offEffort');
 
     const safeWidth = Math.max(0, width);
     if (safeWidth <= 0) return [''];
@@ -375,7 +460,12 @@ export class ProviderFormDialogComponent extends Container implements Focusable 
       this.baseUrlInput,
       this.rowModelInput,
       this.rowContextInput,
+      this.rowMaxInputSizeInput,
+      this.rowMaxOutputSizeInput,
       this.rowDisplayNameInput,
+      this.rowSupportEffortsInput,
+      this.rowDefaultEffortInput,
+      this.rowOffEffortInput,
     ];
   }
 
@@ -457,21 +547,69 @@ export class ProviderFormDialogComponent extends Container implements Focusable 
       model: draft.model,
     });
     const active = this.focused && !this.done;
+    const focusedHere = (field: RowFieldId): boolean => active && this.rowField === field;
+    const hintFor = (field: RowFieldId, text: string): string[] =>
+      focusedHere(field) ? [currentTheme.fg('textMuted', text)] : [];
+    const selected = this.rowCapabilities ?? [];
+    const capability = CAPABILITY_NAMES[this.rowCapabilityCursor] ?? CAPABILITY_NAMES[0];
+    const capabilityValue =
+      selected.length === 0 ? t('tui.dialogs.providerForm.capabilitiesNone') : selected.join(', ');
     return [
       currentTheme.fg('textStrong', summary),
-      labelStyled(t('tui.dialogs.providerForm.modelIdLabel'), active && this.rowField === 'model'),
+      currentTheme.fg('textMuted', t('tui.dialogs.providerForm.optionalHint')),
+      labelStyled(t('tui.dialogs.providerForm.modelIdLabel'), focusedHere('model')),
       this.inputLine(this.rowModelInput, innerWidth),
-      labelStyled(
-        t('tui.dialogs.providerForm.contextLabel'),
-        active && this.rowField === 'context',
-      ),
+      labelStyled(t('tui.dialogs.providerForm.contextLabel'), focusedHere('context')),
       this.inputLine(this.rowContextInput, innerWidth),
-      labelStyled(
-        t('tui.dialogs.providerForm.displayNameLabel'),
-        active && this.rowField === 'displayName',
-      ),
+      labelStyled(t('tui.dialogs.providerForm.maxInputSizeLabel'), focusedHere('maxInputSize')),
+      this.inputLine(this.rowMaxInputSizeInput, innerWidth),
+      ...hintFor('maxInputSize', t('tui.dialogs.providerForm.maxInputSizeHint')),
+      labelStyled(t('tui.dialogs.providerForm.maxOutputSizeLabel'), focusedHere('maxOutputSize')),
+      this.inputLine(this.rowMaxOutputSizeInput, innerWidth),
+      labelStyled(t('tui.dialogs.providerForm.displayNameLabel'), focusedHere('displayName')),
       this.inputLine(this.rowDisplayNameInput, innerWidth),
+      labelStyled(
+        t('tui.dialogs.providerForm.capabilitiesValue', { value: capabilityValue }),
+        focusedHere('capabilities'),
+      ),
+      this.capabilityPickerLine(capability, selected.includes(capability)),
+      ...hintFor('capabilities', t('tui.dialogs.providerForm.capabilitiesHint')),
+      labelStyled(t('tui.dialogs.providerForm.supportEffortsLabel'), focusedHere('supportEfforts')),
+      this.inputLine(this.rowSupportEffortsInput, innerWidth),
+      ...hintFor('supportEfforts', t('tui.dialogs.providerForm.supportEffortsHint')),
+      labelStyled(t('tui.dialogs.providerForm.defaultEffortLabel'), focusedHere('defaultEffort')),
+      this.inputLine(this.rowDefaultEffortInput, innerWidth),
+      labelStyled(t('tui.dialogs.providerForm.offEffortLabel'), focusedHere('offEffort')),
+      this.inputLine(this.rowOffEffortInput, innerWidth),
+      labelStyled(
+        t('tui.dialogs.providerForm.adaptiveThinkingLabel'),
+        focusedHere('adaptiveThinking'),
+      ),
+      this.adaptiveThinkingLine(),
+      ...hintFor('adaptiveThinking', t('tui.dialogs.providerForm.adaptiveThinkingHint')),
     ];
+  }
+
+  /** The capability under the Left / Right cursor, checked when selected. */
+  private capabilityPickerLine(capability: string, selected: boolean): string {
+    const text = `‹ [${selected ? '✓' : ' '}] ${capability} ›`;
+    if (this.disabled) return currentTheme.dim(text);
+    return this.rowFieldFocused('capabilities')
+      ? currentTheme.boldFg('accent', text)
+      : currentTheme.fg('text', text);
+  }
+
+  /** The adaptive-thinking toggle: a Space-driven on / off switch. */
+  private adaptiveThinkingLine(): string {
+    const on = this.rowAdaptiveThinking === true;
+    const text = on ? '[✓] enabled' : '[ ] disabled';
+    if (this.disabled) return currentTheme.dim(text);
+    if (this.rowFieldFocused('adaptiveThinking')) return currentTheme.boldFg('accent', text);
+    return on ? currentTheme.fg('success', text) : currentTheme.fg('textDim', text);
+  }
+
+  private rowFieldFocused(field: RowFieldId): boolean {
+    return this.focused && !this.done && this.modelsMode === 'row' && this.rowField === field;
   }
 
   private saveLine(focused: boolean): string {
@@ -543,17 +681,54 @@ export class ProviderFormDialogComponent extends Container implements Focusable 
     this.rowBackup = { ...row };
     this.rowModelInput.setValue(row.model);
     this.rowContextInput.setValue(row.maxContextSize);
+    this.rowMaxInputSizeInput.setValue(row.maxInputSize ?? '');
+    this.rowMaxOutputSizeInput.setValue(row.maxOutputSize ?? '');
     this.rowDisplayNameInput.setValue(row.displayName);
+    this.rowSupportEffortsInput.setValue(row.supportEfforts ?? '');
+    this.rowDefaultEffortInput.setValue(row.defaultEffort ?? '');
+    this.rowOffEffortInput.setValue(row.offEffort ?? '');
+    this.rowCapabilities = row.capabilities === undefined ? undefined : [...row.capabilities];
+    this.rowCapabilityCursor = 0;
+    this.rowAdaptiveThinking = row.adaptiveThinking;
     this.rowField = 'model';
     this.modelsMode = 'row';
   }
 
   private commitRow(): void {
-    this.models[this.selectedRow] = {
+    const previous = this.draftRow();
+    const row: ProviderFormModelRow = {
       model: this.rowModelInput.getValue(),
       maxContextSize: this.rowContextInput.getValue(),
       displayName: this.rowDisplayNameInput.getValue(),
     };
+    assignOptionalText(
+      row,
+      'maxInputSize',
+      this.rowMaxInputSizeInput.getValue(),
+      previous.maxInputSize,
+    );
+    assignOptionalText(
+      row,
+      'maxOutputSize',
+      this.rowMaxOutputSizeInput.getValue(),
+      previous.maxOutputSize,
+    );
+    assignOptionalText(
+      row,
+      'supportEfforts',
+      this.rowSupportEffortsInput.getValue(),
+      previous.supportEfforts,
+    );
+    assignOptionalText(
+      row,
+      'defaultEffort',
+      this.rowDefaultEffortInput.getValue(),
+      previous.defaultEffort,
+    );
+    assignOptionalText(row, 'offEffort', this.rowOffEffortInput.getValue(), previous.offEffort);
+    if (this.rowCapabilities !== undefined) row.capabilities = [...this.rowCapabilities];
+    if (this.rowAdaptiveThinking !== undefined) row.adaptiveThinking = this.rowAdaptiveThinking;
+    this.models[this.selectedRow] = row;
     this.rowBackup = null;
     this.modelsMode = 'list';
   }
@@ -566,23 +741,76 @@ export class ProviderFormDialogComponent extends Container implements Focusable 
 
   private handleRowInput(data: string): void {
     if (matchesKey(data, Key.tab)) {
-      this.rowField = step(ROW_FIELD_ORDER, this.rowField, 1, true) ?? this.rowField;
+      this.moveRowField(1, true);
       return;
     }
     if (matchesKey(data, Key.shift('tab'))) {
-      this.rowField = step(ROW_FIELD_ORDER, this.rowField, -1, true) ?? this.rowField;
+      this.moveRowField(-1, true);
       return;
     }
     if (matchesKey(data, Key.up)) {
-      this.rowField = step(ROW_FIELD_ORDER, this.rowField, -1, false) ?? this.rowField;
+      this.moveRowField(-1, false);
       return;
     }
     if (matchesKey(data, Key.down)) {
-      this.rowField = step(ROW_FIELD_ORDER, this.rowField, 1, false) ?? this.rowField;
+      this.moveRowField(1, false);
       return;
     }
     this.hint = null;
+    if (this.rowField === 'capabilities') {
+      if (matchesKey(data, Key.left)) {
+        this.moveCapabilityCursor(-1);
+        return;
+      }
+      if (matchesKey(data, Key.right)) {
+        this.moveCapabilityCursor(1);
+        return;
+      }
+      if (matchesKey(data, Key.space) || printableChar(data) === ' ') {
+        this.toggleCapability();
+        return;
+      }
+      if (isSubmit(data)) this.moveRowField(1, false);
+      return;
+    }
+    if (this.rowField === 'adaptiveThinking') {
+      if (matchesKey(data, Key.space) || printableChar(data) === ' ') {
+        this.toggleAdaptiveThinking();
+        return;
+      }
+      if (isSubmit(data)) this.commitRow();
+      return;
+    }
     this.rowInput(this.rowField).handleInput(data);
+  }
+
+  /** Next / previous row field, clamped or wrapping at the ends. */
+  private moveRowField(delta: number, wrap: boolean): void {
+    this.rowField = step(ROW_FIELD_ORDER, this.rowField, delta, wrap) ?? this.rowField;
+  }
+
+  private moveCapabilityCursor(delta: number): void {
+    const count = CAPABILITY_NAMES.length;
+    this.rowCapabilityCursor = (this.rowCapabilityCursor + delta + count) % count;
+  }
+
+  /**
+   * Flip the capability under the cursor. Toggling also drops names the form
+   * does not offer — validation refuses them anyway, so this is the only way
+   * to clear one a stored alias carried.
+   */
+  private toggleCapability(): void {
+    const name = CAPABILITY_NAMES[this.rowCapabilityCursor] ?? CAPABILITY_NAMES[0];
+    const selected = new Set<string>(this.rowCapabilities ?? []);
+    if (selected.has(name)) selected.delete(name);
+    else selected.add(name);
+    // Rebuilt in CAPABILITY_NAMES order so the summary line does not reshuffle
+    // as the user toggles.
+    this.rowCapabilities = CAPABILITY_NAMES.filter((capability) => selected.has(capability));
+  }
+
+  private toggleAdaptiveThinking(): void {
+    this.rowAdaptiveThinking = this.rowAdaptiveThinking !== true;
   }
 
   private rowInput(field: RowFieldId): Input {
@@ -591,8 +819,22 @@ export class ProviderFormDialogComponent extends Container implements Focusable 
         return this.rowModelInput;
       case 'context':
         return this.rowContextInput;
+      case 'maxInputSize':
+        return this.rowMaxInputSizeInput;
+      case 'maxOutputSize':
+        return this.rowMaxOutputSizeInput;
       case 'displayName':
         return this.rowDisplayNameInput;
+      case 'supportEfforts':
+        return this.rowSupportEffortsInput;
+      case 'defaultEffort':
+        return this.rowDefaultEffortInput;
+      case 'offEffort':
+        return this.rowOffEffortInput;
+      case 'capabilities':
+      case 'adaptiveThinking':
+        // Not text fields: their keys are handled before this point.
+        return this.rowModelInput;
     }
   }
 
@@ -649,6 +891,19 @@ export class ProviderFormDialogComponent extends Container implements Focusable 
             this.models.some((other) => other !== row && other.model.trim() === row.model.trim()),
           'model',
         );
+        return;
+      case 'capabilityUnknown':
+        this.focusRowError(
+          (row) => (row.capabilities ?? []).some((capability) => !isCapabilityName(capability)),
+          'capabilities',
+        );
+        return;
+      case 'defaultEffortNotSupported':
+        this.focusRowError((row) => {
+          const effort = row.defaultEffort?.trim() ?? '';
+          if (effort === '') return false;
+          return !parseEffortList(row.supportEfforts).includes(effort);
+        }, 'defaultEffort');
         return;
     }
   }

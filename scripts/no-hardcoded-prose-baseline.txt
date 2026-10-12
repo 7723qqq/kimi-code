@@ -11,7 +11,7 @@ apps/kimi-code/src/cli/run-shell.ts  1  1c24a2530e22
 apps/kimi-code/src/cli/sub/acp.ts  1  a56a2e3486ac
 apps/kimi-code/src/cli/sub/update-download.ts  1  69541bad3a62
 apps/kimi-code/src/cli/sub/upgrade.ts  8  c90856526473
-apps/kimi-code/src/cli/sub/web/run.ts  5  c7b91c902569
+apps/kimi-code/src/cli/sub/web/run.ts  4  ee262de80890
 apps/kimi-code/src/cli/telemetry.ts  2  4f64b2567e6b
 apps/kimi-code/src/cli/update/cdn.ts  5  1655c07aee35
 apps/kimi-code/src/cli/update/native-manifest.ts  5  98c7c022b60d
@@ -93,7 +93,7 @@ apps/vscode/src/extension.ts  21  43ce085075c9
 apps/vscode/src/handlers/auth.handler.ts  4  f34c0e63dc14
 apps/vscode/src/handlers/chat.handler.ts  4  b221a4b52de5
 apps/vscode/src/handlers/config.handler.ts  9  c5c48792d73b
-apps/vscode/src/handlers/file.handler.ts  4  6b0d8b75b2c2
+apps/vscode/src/handlers/file.handler.ts  4  c90305863864
 apps/vscode/src/handlers/mcp.handler.ts  1  948984637828
 apps/vscode/src/handlers/session.handler.ts  13  e7bd6cd7b9bf
 apps/vscode/src/handlers/slash-command.ts  30  234fcf366af7

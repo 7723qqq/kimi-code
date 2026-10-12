@@ -55,21 +55,21 @@ In the `/provider` manager, move the cursor to the `[ Add New Platform ]` row an
 | API protocol | One of the six types: `kimi`, `openai`, `openai_responses`, `anthropic`, `google-genai`, `vertexai`, listed under [Supported provider types](#supported-provider-types) |
 | API key | Required when adding; written to `api_key`. When editing, the field is prefilled with the stored key, and clearing it deletes the stored credential (written as `api_key = ""`) |
 | Base URL | Written to `base_url`; it cannot be empty. Switching the protocol to `anthropic` strips a trailing `/v1` |
-| Models | At least one row. Each row has three fields: model ID (the alias in `[models."<id>/<model>"]`), context size (a positive integer written to `max_context_size`), and display name (optional, written to `display_name`) |
+| Models | At least one row. Each row carries the model ID (the alias in `[models."<id>/<model>"]`), context size (a positive integer written to `max_context_size`), display name (optional, written to `display_name`), and seven optional fields: `max_input_tokens`, `max_output_tokens`, `capabilities`, `support_efforts`, `default_effort`, `off_effort` and `adaptive_thinking`. Optional fields are only written when you set them: leaving one blank omits the key rather than writing an empty value, and editing a row leaves fields the form does not present exactly as they were |
 
 Keys and interaction:
 
 - `Tab` / `Shift-Tab` / `↑` / `↓` move focus between Provider ID → API protocol → API key → Base URL → Models → Save, and `Enter` moves to the next item (inside the models list it edits the selected row, and on Save it submits)
 - On the API protocol field, `←` / `→` or space cycles through the six types
-- Inside the models list, `A` appends a row, `D` deletes the selected row (the last remaining row cannot be deleted), and `E` or `Enter` opens the row editor (model ID → context size → display name; `Enter` on the last field writes the row back, `Esc` discards that row's edits)
+- Inside the models list, `A` appends a row, `D` deletes the selected row (the last remaining row cannot be deleted), and `E` or `Enter` opens the row editor (model ID → context size → max input tokens → max output tokens → display name → capabilities → thinking efforts → default thinking effort → off effort → adaptive thinking; `Enter` on the last field writes the row back, `Esc` discards that row's edits). In the capabilities field `←` / `→` pick a name and space toggles it; on adaptive thinking space toggles directly
 - The API key is masked by default; `Ctrl-R` reveals it
 - `Esc` cancels the form without writing anything
 
-Validation is the same rule set the CLI uses: an invalid provider ID, a missing key when adding, an empty base URL, no model rows at all, a context size that is not a positive integer, or two rows sharing a model ID each show an inline message, keep everything you typed, and write nothing to the configuration file.
+Validation is the same rule set the CLI uses: an invalid provider ID, a missing key when adding, an empty base URL, no model rows at all, a context size that is not a positive integer, two rows sharing a model ID, a capability name outside the eight the engine knows, or a default thinking effort that is not in that row's `support_efforts` each show an inline message, keep everything you typed, and write nothing to the configuration file. The eight capability names are `image_in`, `video_in`, `audio_in`, `pdf_in`, `thinking`, `always_thinking`, `tool_use` and `dynamically_loaded_tools`; declaring `always_thinking` implies `thinking`. `support_efforts` is comma-separated and its **order is meaningful** — the default effort is the middle entry and the persistence ceiling is derived from the index — so the order you type is the order that is written, with duplicates collapsed. A blank `max_input_tokens` follows the context window rather than meaning "unlimited".
 
-Saving writes `[providers.<id>]` and one alias per model in a single write, refreshes the runtime, and then opens the same default-model selector the catalog import uses (press `Esc` to skip it: the provider stays saved with no default model chosen). A newly created model alias carries `capabilities = [ "tool_use", "thinking" ]` and `adaptive_thinking = true`; a blank display name writes no `display_name`.
+Saving writes `[providers.<id>]` and one alias per model in a single write, refreshes the runtime, and then opens the same default-model selector the catalog import uses (press `Esc` to skip it: the provider stays saved with no default model chosen). A newly created model alias carries `capabilities = [ "tool_use", "thinking" ]` and writes no `adaptive_thinking` — omitting it lets the engine infer adaptive thinking from the model name, which is what an anthropic-profile model already does, whereas forcing it on was wrong for the budget-style gateways people add by hand. A blank display name writes no `display_name`.
 
-**Editing and renaming**: move the cursor to the provider's row in the manager list and press `E`. The form is prefilled from the last saved configuration, API key included. Saving **removes the old record first, then writes the new one** — that is what keeps a rename or a deleted row from leaving residue behind: the old model aliases and any dangling `default_model` / `default_provider` are cascaded away by the removal, and pointers that referenced this provider migrate to the new id as it is written. Fields outside the form (`env`, `custom_headers`, `source`, and per-row `max_output_size`, `capabilities`, `support_efforts`, …) keep their values; a rename does not rewrite the references inside [`[secondary_model]`](./config-files.md#secondary_model).
+**Editing and renaming**: move the cursor to the provider's row in the manager list and press `E`. The form is prefilled from the last saved configuration, API key included. Saving **removes the old record first, then writes the new one** — that is what keeps a rename or a deleted row from leaving residue behind: the old model aliases and any dangling `default_model` / `default_provider` are cascaded away by the removal, and pointers that referenced this provider migrate to the new id as it is written. Fields outside the form (`env`, `custom_headers`, `source`, and per-row `overrides`, `reasoning_key`, `beta_api`, …) keep their values; a rename does not rewrite the references inside [`[secondary_model]`](./config-files.md#secondary_model).
 
 A write is refused, with a message and no change to the configuration file, when the new provider ID is already taken by another provider or when a new alias would take over another provider's model. The form only knows the six protocols: a provider whose stored type is outside them (the engine-only `astron`, for example) reports an unsupported protocol and cannot be edited here.
 
@@ -90,6 +90,13 @@ Every `create` option:
 | `--model <model>` | Model ID; the alias becomes `<id>/<model>` |
 | `--max-context-size <tokens>` | Context window for that model, a positive integer written to `max_context_size` |
 | `--display-name <name>` | Optional display name for the model |
+| `--max-input-size <tokens>` | Optional prompt/input cap written to `max_input_tokens`; blank follows `max_context_size` |
+| `--max-output-size <tokens>` | Optional output cap written to `max_output_tokens` |
+| `--capabilities <list>` | Optional comma-separated capabilities; one of `image_in`, `video_in`, `audio_in`, `pdf_in`, `thinking`, `always_thinking`, `tool_use`, `dynamically_loaded_tools` |
+| `--support-efforts <list>` | Optional comma-separated thinking efforts, weakest first (the order is written as given) |
+| `--default-effort <name>` | Optional default effort; must be one of `--support-efforts` |
+| `--off-effort <name>` | Optional effort value that means "thinking off" on the wire |
+| `--adaptive-thinking` / `--no-adaptive-thinking` | Optional — write `adaptive_thinking = true`, or omit it; without either flag a new row omits it |
 | `--default` | Optional — also set `default_model` to `<id>/<model>` |
 | `--json` | Optional — print the resulting `providers` and `models` as JSON, with API key plaintext stripped |
 
@@ -119,10 +126,17 @@ Every `update <providerId>` option:
 | `--model <model>` | Add or overwrite one model row: an existing row keeps the context size and display name you leave out, while a new model ID needs `--max-context-size` |
 | `--max-context-size <tokens>` | Used together with `--model` |
 | `--display-name <name>` | Used together with `--model`; omitted, the row keeps its current name |
+| `--max-input-size <tokens>` | Used together with `--model`; an explicitly blank value clears `max_input_tokens` |
+| `--max-output-size <tokens>` | Used together with `--model`; an explicitly blank value clears `max_output_tokens` |
+| `--capabilities <list>` | Used together with `--model`; replaces the row's capabilities |
+| `--support-efforts <list>` | Used together with `--model`; replaces the row's efforts, order as written |
+| `--default-effort <name>` | Used together with `--model`; must be one of the row's `--support-efforts` |
+| `--off-effort <name>` | Used together with `--model` |
+| `--adaptive-thinking` / `--no-adaptive-thinking` | Used together with `--model`; `--no-adaptive-thinking` omits the key |
 | `--default` | Point `default_model` at this run's model (the first row when `--model` is omitted) |
 | `--json` | Print the resulting configuration as JSON, with API key plaintext stripped |
 
-**Fields you leave out keep their stored values**; only `--model` changes the set of models. A rename or a removed row goes through the same write path as the form: the old id is removed first (cascading its old aliases and dangling default pointers), then the new record is written, migrating `default_model` / `default_provider` to the new id while fields outside the form (`env`, `custom_headers`, `source`, `max_output_size`, …) survive.
+**Fields you leave out keep their stored values**; only `--model` changes the set of models. A model-row option that names optional fields without `--model` is an error rather than a silent drop, and a row option whose value is explicitly blank clears that key. A rename or a removed row goes through the same write path as the form: the old id is removed first (cascading its old aliases and dangling default pointers), then the new record is written, migrating `default_model` / `default_provider` to the new id while fields outside the form (`env`, `custom_headers`, `source`, `max_output_size`, …) survive.
 
 ```sh
 # Rename and change the endpoint, keeping every other field

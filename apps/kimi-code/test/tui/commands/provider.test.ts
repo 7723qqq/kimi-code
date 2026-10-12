@@ -87,9 +87,9 @@ describe('setDefaultModel', () => {
     expect(host.authFlow.activateModelAfterLogin).toHaveBeenCalledWith('opus', 'xhigh');
     // The application must come after the refresh, or the persisted value
     // reactivated by refreshConfigAfterLogin would clobber the pick.
-    expect(
-      host.authFlow.activateModelAfterLogin.mock.invocationCallOrder[0]!,
-    ).toBeGreaterThan(host.authFlow.refreshConfigAfterLogin.mock.invocationCallOrder[0]!);
+    expect(host.authFlow.activateModelAfterLogin.mock.invocationCallOrder[0]!).toBeGreaterThan(
+      host.authFlow.refreshConfigAfterLogin.mock.invocationCallOrder[0]!,
+    );
     // Without a session the engine never sees the pick, so the TUI stays the
     // sole model_switch producer.
     expect(host.track).toHaveBeenCalledWith('model_switch', { model: 'opus' });
@@ -165,9 +165,9 @@ describe('setDefaultModel', () => {
     await setDefaultModel(host, 'opus', 'high');
 
     expect(host.waitForLazyCreation).toHaveBeenCalled();
-    expect(
-      host.waitForLazyCreation.mock.invocationCallOrder[0]!,
-    ).toBeLessThan(host.harness.setConfig.mock.invocationCallOrder[0]!);
+    expect(host.waitForLazyCreation.mock.invocationCallOrder[0]!).toBeLessThan(
+      host.harness.setConfig.mock.invocationCallOrder[0]!,
+    );
   });
 });
 
@@ -313,6 +313,29 @@ const EDIT_CONFIG: KimiConfig = {
   defaultModel: 'demo/gpt-4.1',
 };
 
+/** An alias that declares every optional field the edit form now owns. */
+const RICH_CONFIG: KimiConfig = {
+  providers: {
+    demo: { type: 'openai', apiKey: 'sk-old', baseUrl: 'https://api.example.com/v1' },
+  },
+  models: {
+    'demo/gpt-4.1': {
+      provider: 'demo',
+      model: 'gpt-4.1',
+      maxContextSize: 128000,
+      displayName: 'GPT-4.1',
+      capabilities: ['tool_use', 'image_in'],
+      maxInputSize: 272000,
+      maxOutputSize: 8192,
+      supportEfforts: ['low', 'high'],
+      defaultEffort: 'high',
+      offEffort: 'none',
+      adaptiveThinking: true,
+    },
+  },
+  defaultModel: 'demo/gpt-4.1',
+};
+
 /** Two aliases on one provider, so a row deletion is visible in the patch. */
 const TWO_MODEL_CONFIG: KimiConfig = {
   providers: {
@@ -389,8 +412,8 @@ function fillAddForm(
   typeText(form, value.model);
   form.handleInput(ENTER); // model -> context
   typeText(form, value.context);
-  form.handleInput(ENTER); // context -> display name
-  form.handleInput(ENTER); // commit, back to the list
+  form.handleInput(ENTER); // context -> max input
+  for (let i = 0; i < 8; i++) form.handleInput(ENTER); // the optional tail, then commit
   form.handleInput(TAB); // models -> save
   form.handleInput(ENTER); // submit
 }
@@ -555,6 +578,63 @@ describe('/provider edit (E)', () => {
     await waitForPanel(rig, ProviderManagerComponent);
     expect(rig.host.harness.setConfig).not.toHaveBeenCalled();
     expect(rig.readConfig()).toEqual(EDIT_CONFIG);
+  });
+
+  it('prefills the optional alias fields and writes them back untouched', async () => {
+    const rig = makeCommandRig(RICH_CONFIG);
+    const form = await openEditForm(rig);
+
+    for (let i = 0; i < 4; i++) form.handleInput(TAB); // id → models
+    form.handleInput(ENTER); // open the row editor
+    const out = plain(form);
+    expect(out).toContain('Capabilities: tool_use, image_in');
+    expect(out).toContain('272000');
+    expect(out).toContain('8192');
+    expect(out).toContain('low, high');
+    expect(out).toContain('[✓] enabled');
+
+    for (let i = 0; i < 10; i++) form.handleInput(ENTER); // walk the row to the commit
+    form.handleInput(TAB); // models → save
+    form.handleInput(ENTER);
+
+    await vi.waitFor(() => {
+      expect(rig.host.harness.setConfig).toHaveBeenCalledTimes(1);
+    });
+    // Prefilling the row and committing it back must be a no-op: every value
+    // the alias declared reached the editor and returned unchanged.
+    expect(rig.readConfig().models?.['demo/gpt-4.1']).toMatchObject({
+      capabilities: ['tool_use', 'image_in'],
+      maxInputSize: 272000,
+      maxOutputSize: 8192,
+      supportEfforts: ['low', 'high'],
+      defaultEffort: 'high',
+      offEffort: 'none',
+      adaptiveThinking: true,
+      displayName: 'GPT-4.1',
+    });
+  });
+
+  it('writes only the alias fields the form owns, without inventing the rest', async () => {
+    const rig = makeCommandRig(EDIT_CONFIG);
+    const form = await openEditForm(rig);
+
+    for (let i = 0; i < 5; i++) form.handleInput(TAB); // id → save
+    form.handleInput(ENTER);
+
+    await vi.waitFor(() => {
+      expect(rig.host.harness.setConfig).toHaveBeenCalledTimes(1);
+    });
+    // capabilities / adaptiveThinking were declared and round-trip; the
+    // optional fields the alias never declared must not appear just because
+    // the form now owns them.
+    expect(rig.readConfig().models?.['demo/gpt-4.1']).toEqual({
+      provider: 'demo',
+      model: 'gpt-4.1',
+      maxContextSize: 128000,
+      capabilities: ['tool_use', 'thinking'],
+      adaptiveThinking: true,
+      displayName: 'GPT-4.1',
+    });
   });
 
   it('renames through removeProvider + setConfig and leaves no old id behind', async () => {

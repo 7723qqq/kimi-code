@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { KimiConfig } from '@moonshot-ai/kimi-code-sdk';
 
 import {
+  CAPABILITY_NAMES,
   PROVIDER_WIRE_TYPES,
   buildAddPatch,
   defaultModelRow,
@@ -93,6 +94,49 @@ describe('PROVIDER_WIRE_TYPES', () => {
 describe('validateProviderForm', () => {
   it('accepts a complete value', () => {
     expect(validateProviderForm(formValue(), { requireApiKey: true })).toBeNull();
+  });
+
+  it('accepts a row that sets every optional field', () => {
+    const value = formValue({
+      models: [
+        modelRow({
+          capabilities: [...CAPABILITY_NAMES],
+          maxInputSize: '1',
+          maxOutputSize: '1',
+          supportEfforts: 'low,high',
+          defaultEffort: 'high',
+          offEffort: 'none',
+          adaptiveThinking: true,
+        }),
+      ],
+    });
+    expect(validateProviderForm(value, { requireApiKey: true })).toBeNull();
+  });
+
+  it('rejects a capability name the engine does not know', () => {
+    const value = formValue({ models: [modelRow({ capabilities: ['tool_use', 'pdf'] })] });
+    expect(validateProviderForm(value, { requireApiKey: true })).toBe('capabilityUnknown');
+  });
+
+  it('rejects a default effort the model does not declare', () => {
+    // The SDK and the engine both drop a default that is not in the list, so
+    // the form must refuse it rather than write a value nothing reads.
+    const unsupported = formValue({
+      models: [modelRow({ supportEfforts: 'low,high', defaultEffort: 'max' })],
+    });
+    expect(validateProviderForm(unsupported, { requireApiKey: true })).toBe(
+      'defaultEffortNotSupported',
+    );
+
+    const withoutList = formValue({ models: [modelRow({ defaultEffort: 'high' })] });
+    expect(validateProviderForm(withoutList, { requireApiKey: true })).toBe(
+      'defaultEffortNotSupported',
+    );
+
+    const supported = formValue({
+      models: [modelRow({ supportEfforts: ' low , high ', defaultEffort: ' low ' })],
+    });
+    expect(validateProviderForm(supported, { requireApiKey: true })).toBeNull();
   });
 
   it('requires the API key only when asked', () => {
@@ -217,12 +261,16 @@ describe('defaultModelRow', () => {
 });
 
 describe('buildAddPatch', () => {
-  it('writes the provider and the model alias with the official defaults', () => {
+  it('writes the provider and the model alias with the documented defaults', () => {
     const patch = buildAddPatch(formValue({ models: [modelRow({ displayName: 'GPT 4.1' })] }));
 
     expect(patch.providers).toStrictEqual({
       demo: { type: 'openai', baseUrl: 'https://api.example.com/v1', apiKey: 'sk-demo' },
     });
+    // `adaptive_thinking` is deliberately absent: forcing it made every
+    // hand-added model declare adaptive thinking, which is wrong for
+    // budget-style gateways. Omitting it lets the engine infer from the model
+    // name, which is what the anthropic profile already does.
     expect(patch.models).toStrictEqual({
       'demo/gpt-4.1': {
         provider: 'demo',
@@ -230,9 +278,132 @@ describe('buildAddPatch', () => {
         maxContextSize: 128000,
         displayName: 'GPT 4.1',
         capabilities: ['tool_use', 'thinking'],
-        adaptiveThinking: true,
       },
     });
+  });
+
+  it('writes the effort fields a row declares, keeping the declared order', () => {
+    const patch = buildAddPatch(
+      formValue({
+        models: [
+          modelRow({
+            supportEfforts: ' low , high ,low,  max ',
+            defaultEffort: 'high',
+            offEffort: 'none',
+          }),
+        ],
+      }),
+    );
+
+    // Order is semantic: the default effort is the middle entry and the
+    // persistence ceiling is computed from the index, so a "nicer" sort would
+    // change behaviour. Duplicates collapse; order does not change.
+    expect(patch.models?.['demo/gpt-4.1']).toMatchObject({
+      supportEfforts: ['low', 'high', 'max'],
+      defaultEffort: 'high',
+      offEffort: 'none',
+    });
+  });
+
+  it('writes the context sub-limits and the capability list a row declares', () => {
+    const patch = buildAddPatch(
+      formValue({
+        models: [
+          modelRow({
+            maxInputSize: ' 272000 ',
+            maxOutputSize: '128000',
+            capabilities: ['tool_use', 'pdf_in', 'image_in'],
+          }),
+        ],
+      }),
+    );
+
+    expect(patch.models?.['demo/gpt-4.1']).toMatchObject({
+      maxInputSize: 272000,
+      maxOutputSize: 128000,
+      capabilities: ['tool_use', 'pdf_in', 'image_in'],
+    });
+  });
+
+  it('drops a key the user cleared instead of writing an empty value', () => {
+    const current: KimiConfig = {
+      providers: { demo: { type: 'openai', baseUrl: 'https://api.example.com/v1' } },
+      models: {
+        'demo/gpt-4.1': {
+          provider: 'demo',
+          model: 'gpt-4.1',
+          maxContextSize: 128000,
+          maxInputSize: 272000,
+          maxOutputSize: 128000,
+          supportEfforts: ['low', 'high'],
+          defaultEffort: 'high',
+          offEffort: 'none',
+          adaptiveThinking: true,
+          displayName: 'GPT 4.1',
+        },
+      },
+    };
+    const result = planEditWrite(
+      current,
+      formValue({
+        models: [
+          modelRow({
+            displayName: 'GPT 4.1',
+            maxInputSize: '',
+            maxOutputSize: '   ',
+            supportEfforts: '',
+            defaultEffort: '',
+            offEffort: '',
+            adaptiveThinking: false,
+          }),
+        ],
+      }),
+      'demo',
+    );
+
+    const alias = result.patch.models?.['demo/gpt-4.1'];
+    expect(alias).toBeDefined();
+    expect('maxInputSize' in alias!).toBe(false);
+    expect('maxOutputSize' in alias!).toBe(false);
+    expect('supportEfforts' in alias!).toBe(false);
+    expect('defaultEffort' in alias!).toBe(false);
+    expect('offEffort' in alias!).toBe(false);
+    expect('adaptiveThinking' in alias!).toBe(false);
+    expect(alias!.maxContextSize).toBe(128000);
+  });
+
+  it('leaves a field the form does not present untouched when editing', () => {
+    const current: KimiConfig = {
+      providers: { demo: { type: 'openai', baseUrl: 'https://api.example.com/v1' } },
+      models: {
+        'demo/gpt-4.1': {
+          provider: 'demo',
+          model: 'gpt-4.1',
+          maxContextSize: 128000,
+          maxInputSize: 272000,
+          supportEfforts: ['low', 'high'],
+          defaultEffort: 'high',
+          adaptiveThinking: true,
+        },
+      },
+    };
+    const result = planEditWrite(current, formValue(), 'demo');
+
+    // Every new field is optional and `undefined` means "not presented here",
+    // which must not be confused with "cleared".
+    expect(result.patch.models?.['demo/gpt-4.1']).toMatchObject({
+      maxInputSize: 272000,
+      supportEfforts: ['low', 'high'],
+      defaultEffort: 'high',
+      adaptiveThinking: true,
+    });
+  });
+
+  it('writes adaptive_thinking when the row asks for it', () => {
+    const patch = buildAddPatch(
+      formValue({ models: [modelRow({ adaptiveThinking: true })] }),
+    );
+    expect(patch.models?.['demo/gpt-4.1']?.adaptiveThinking).toBe(true);
   });
 
   it('trims every written value and unfolds multiple model rows', () => {

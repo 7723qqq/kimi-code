@@ -150,8 +150,8 @@ async function readProjectMcpServers(
     let parsed: { mcpServers?: Record<string, any> };
     try {
       parsed = JSON.parse(content) as { mcpServers?: Record<string, any> };
-    } catch {
-      warnings.push(`${file}: not valid JSON`);
+    } catch (error) {
+      warnings.push(`${file}: ${describeError(error)}`);
       continue;
     }
     if (parsed.mcpServers && typeof parsed.mcpServers === "object") {

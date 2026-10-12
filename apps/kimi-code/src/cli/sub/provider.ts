@@ -14,7 +14,10 @@
  * `create` / `update` are the non-interactive twin of the TUI's manual
  * provider form: both build the same form value and hand it to the shared
  * `utils/provider-form.ts` module, so the CLI and the TUI validate and write
- * a hand-typed provider identically.
+ * a hand-typed provider identically. One flag per optional model field, and
+ * the row follows the shared three-state rule: a flag that was not given
+ * leaves the field `undefined` (an edit keeps the stored value), a blank flag
+ * clears the stored key.
  */
 
 import {
@@ -38,6 +41,8 @@ import { t, type TranslationKey } from '#/i18n';
 import { fetchCatalogOrBuiltIn } from '#/utils/catalog-fetch';
 import {
   buildAddPatch,
+  CAPABILITY_NAMES,
+  parseList,
   planEditWrite,
   PROVIDER_WIRE_TYPES,
   validateProviderForm,
@@ -88,6 +93,20 @@ interface CreateOptions {
   readonly model?: string;
   readonly maxContextSize?: string;
   readonly displayName?: string;
+  /**
+   * The optional model-row fields. Absent means "the user did not name this
+   * field": nothing is written for a new row and the stored value survives on
+   * an edited one. An explicitly blank flag clears the key instead (see
+   * `applyOptionalNumber` in `utils/provider-form.ts` for the three states).
+   */
+  readonly maxInputSize?: string;
+  readonly maxOutputSize?: string;
+  readonly capabilities?: string;
+  readonly supportEfforts?: string;
+  readonly defaultEffort?: string;
+  readonly offEffort?: string;
+  /** `--adaptive-thinking` sets it, `--no-adaptive-thinking` clears it, neither keeps it. */
+  readonly adaptiveThinking?: boolean;
   readonly default?: boolean;
   readonly json?: boolean;
 }
@@ -298,6 +317,8 @@ const PROVIDER_FORM_ERROR_KEYS: Record<ProviderFormError, TranslationKey> = {
   contextSizeRequired: 'tui.dialogs.providerForm.error.contextSizeRequired',
   contextSizeInvalid: 'tui.dialogs.providerForm.error.contextSizeInvalid',
   modelDuplicate: 'tui.dialogs.providerForm.error.modelDuplicate',
+  capabilityUnknown: 'tui.dialogs.providerForm.error.capabilityUnknown',
+  defaultEffortNotSupported: 'tui.dialogs.providerForm.error.defaultEffortNotSupported',
 };
 
 function rejectProviderForm(deps: ProviderDeps, error: ProviderFormError): never {
@@ -333,12 +354,81 @@ function resolveWireType(deps: ProviderDeps, raw: string | undefined): ProviderW
   return wireType;
 }
 
-function createFormInput(deps: ProviderDeps, opts: CreateOptions): ProviderFormInput {
+const POSITIVE_INTEGER_PATTERN = /^\d+$/;
+
+/** The flags that describe one model row — the row `--model` names. */
+const MODEL_ROW_OPTION_KEYS = [
+  'maxContextSize',
+  'displayName',
+  'maxInputSize',
+  'maxOutputSize',
+  'capabilities',
+  'supportEfforts',
+  'defaultEffort',
+  'offEffort',
+  'adaptiveThinking',
+] as const satisfies readonly (keyof CreateOptions)[];
+
+/**
+ * A token-count flag. Absent keeps `previous` (which is `undefined` when the
+ * flag belongs to a brand-new row); blank clears the stored key; anything else
+ * must be a positive integer, the shape the engine's config schema accepts.
+ */
+function sizeField(
+  deps: ProviderDeps,
+  raw: string | undefined,
+  previous: string | undefined,
+): string | undefined {
+  if (raw === undefined) return previous;
+  const value = raw.trim();
+  if (value === '') return '';
+  if (!POSITIVE_INTEGER_PATTERN.test(value) || Number(value) < 1) {
+    deps.stderr.write(t('tui.dialogs.providerForm.error.contextSizeInvalid') + '\n');
+    deps.exit(1);
+  }
+  return value;
+}
+
+/**
+ * Builds the row the flags describe. `previous` is the stored alias of the same
+ * model id in edit mode: every optional field it declares is carried into the
+ * row, so the flags only name what actually changes, and a field neither side
+ * sets stays `undefined` — the write layer reads that as "this form does not
+ * present the field" and keeps whatever the alias already had.
+ */
+function modelRowFromOptions(
+  deps: ProviderDeps,
+  opts: CreateOptions,
+  previous?: ProviderFormModelRow,
+): ProviderFormModelRow {
   const row: ProviderFormModelRow = {
     model: opts.model ?? '',
-    maxContextSize: opts.maxContextSize ?? '',
-    displayName: opts.displayName ?? '',
+    maxContextSize: opts.maxContextSize ?? previous?.maxContextSize ?? '',
+    displayName: opts.displayName ?? previous?.displayName ?? '',
   };
+  // An explicitly blank `--capabilities` is an empty list, which the write
+  // layer normalises to a deletion instead of writing `capabilities = []`.
+  const capabilities =
+    opts.capabilities === undefined ? previous?.capabilities : parseList(opts.capabilities);
+  if (capabilities !== undefined) row.capabilities = [...capabilities];
+  const maxInputSize = sizeField(deps, opts.maxInputSize, previous?.maxInputSize);
+  if (maxInputSize !== undefined) row.maxInputSize = maxInputSize;
+  const maxOutputSize = sizeField(deps, opts.maxOutputSize, previous?.maxOutputSize);
+  if (maxOutputSize !== undefined) row.maxOutputSize = maxOutputSize;
+  const supportEfforts = opts.supportEfforts ?? previous?.supportEfforts;
+  if (supportEfforts !== undefined) row.supportEfforts = supportEfforts;
+  const defaultEffort = opts.defaultEffort ?? previous?.defaultEffort;
+  if (defaultEffort !== undefined) row.defaultEffort = defaultEffort;
+  const offEffort = opts.offEffort ?? previous?.offEffort;
+  if (offEffort !== undefined) row.offEffort = offEffort;
+  // `??` is what lets `--no-adaptive-thinking` (false = clear) through.
+  const adaptiveThinking = opts.adaptiveThinking ?? previous?.adaptiveThinking;
+  if (adaptiveThinking !== undefined) row.adaptiveThinking = adaptiveThinking;
+  return row;
+}
+
+function createFormInput(deps: ProviderDeps, opts: CreateOptions): ProviderFormInput {
+  const row = modelRowFromOptions(deps, opts);
   const value: ProviderFormValue = {
     id: opts.id ?? '',
     type: resolveWireType(deps, opts.type),
@@ -352,6 +442,19 @@ function createFormInput(deps: ProviderDeps, opts: CreateOptions): ProviderFormI
   return { value, model: row.model.trim() };
 }
 
+/**
+ * A model-row flag only means something on a row, and `--model` is what names
+ * that row. Without it the flags would describe a model the command then drops
+ * (the historical behaviour of `--max-context-size` and `--display-name`), so
+ * the command refuses and points at `--model` instead.
+ */
+function requireModelFlag(deps: ProviderDeps, opts: UpdateOptions): void {
+  if (opts.model !== undefined) return;
+  if (!MODEL_ROW_OPTION_KEYS.some((key) => opts[key] !== undefined)) return;
+  deps.stderr.write(`--model: ${t('cli.optionDescriptions.providerCreateModel')}\n`);
+  deps.exit(1);
+}
+
 function updateFormInput(
   deps: ProviderDeps,
   opts: UpdateOptions,
@@ -359,22 +462,21 @@ function updateFormInput(
   current: KimiConfig,
   previous: NonNullable<KimiConfig['providers'][string]>,
 ): ProviderFormInput {
+  requireModelFlag(deps, opts);
+
   const renamedId = (opts.newId ?? '').trim();
   const rows = providerModelRows(current, providerId);
 
   const requestedModel = (opts.model ?? '').trim();
   let models = rows;
   if (opts.model !== undefined) {
-    // Upsert: an existing row keeps the budget and name the flags omit, a new
-    // model id needs `--max-context-size` like `create` does.
+    // Upsert: the row starts from the stored alias of the same model id, so a
+    // flag that omits a field keeps the stored value and a new model id needs
+    // `--max-context-size` like `create` does.
     const existing = rows.find((row) => row.model.trim() === requestedModel);
     models = [
       ...rows.filter((row) => row.model.trim() !== requestedModel),
-      {
-        model: opts.model,
-        maxContextSize: opts.maxContextSize ?? existing?.maxContextSize ?? '',
-        displayName: opts.displayName ?? existing?.displayName ?? '',
-      },
+      modelRowFromOptions(deps, opts, existing),
     ];
   }
 
@@ -397,15 +499,43 @@ function updateFormInput(
   return { value, model: requestedModel === '' ? (models[0]?.model.trim() ?? '') : requestedModel };
 }
 
+/**
+ * The stored aliases of one provider as rows, with every optional field the
+ * alias declares carried into the row: `planEditWrite` rebuilds all of them, so
+ * a row is meant to be a complete description of its alias. The states a row
+ * cannot write back stay out of the row instead of flattening into a deletion,
+ * the way the TUI's prefill does.
+ */
 function providerModelRows(current: KimiConfig, providerId: string): ProviderFormModelRow[] {
   const rows: ProviderFormModelRow[] = [];
   for (const alias of Object.values(current.models ?? {})) {
     if (alias.provider !== providerId) continue;
-    rows.push({
+    const row: ProviderFormModelRow = {
       model: alias.model,
       maxContextSize: String(alias.maxContextSize),
       displayName: alias.displayName ?? '',
-    });
+    };
+    // An empty list is a state of its own: `capabilities = []` declares nothing
+    // and `support_efforts = []` is an empty ladder, while an omitted key falls
+    // back to inference for both.
+    if (alias.capabilities !== undefined && alias.capabilities.length > 0) {
+      row.capabilities = [...alias.capabilities];
+    }
+    if (alias.maxInputSize !== undefined) row.maxInputSize = String(alias.maxInputSize);
+    if (alias.maxOutputSize !== undefined) row.maxOutputSize = String(alias.maxOutputSize);
+    if (alias.supportEfforts !== undefined && alias.supportEfforts.length > 0) {
+      row.supportEfforts = alias.supportEfforts.join(', ');
+    }
+    // A stored empty name and a stored `adaptiveThinking: false` are states the
+    // row cannot write back either: '' in a row clears the key, and `false`
+    // clears it too even though the engine reads the stored `false` as "use the
+    // budget-effort ladder".
+    if (alias.defaultEffort !== undefined && alias.defaultEffort !== '') {
+      row.defaultEffort = alias.defaultEffort;
+    }
+    if (alias.offEffort !== undefined && alias.offEffort !== '') row.offEffort = alias.offEffort;
+    if (alias.adaptiveThinking === true) row.adaptiveThinking = true;
+    rows.push(row);
   }
   return rows;
 }
@@ -780,6 +910,13 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
     .command('catalog')
     .description(t('cli.commandDescriptions.providerCatalog'));
 
+  // `--capabilities` has no picker to show the legal names, so the help text
+  // lists them. Both manual commands take the same row flags: each option
+  // describes the one model row that `--model` names.
+  const capabilitiesDescription = `${t(
+    'tui.dialogs.providerForm.capabilitiesLabel',
+  )}: ${CAPABILITY_NAMES.join(', ')}`;
+
   provider
     .command('create')
     .description(t('cli.commandDescriptions.providerCreate'))
@@ -790,6 +927,14 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
     .option('--model <model>', t('cli.optionDescriptions.providerCreateModel'))
     .option('--max-context-size <tokens>', t('cli.optionDescriptions.providerCreateMaxContextSize'))
     .option('--display-name <name>', t('cli.optionDescriptions.providerCreateDisplayName'))
+    .option('--max-input-size <tokens>', t('tui.dialogs.providerForm.maxInputSizeLabel'))
+    .option('--max-output-size <tokens>', t('tui.dialogs.providerForm.maxOutputSizeLabel'))
+    .option('--capabilities <list>', capabilitiesDescription)
+    .option('--support-efforts <list>', t('tui.dialogs.providerForm.supportEffortsLabel'))
+    .option('--default-effort <name>', t('tui.dialogs.providerForm.defaultEffortLabel'))
+    .option('--off-effort <name>', t('tui.dialogs.providerForm.offEffortLabel'))
+    .option('--adaptive-thinking', t('tui.dialogs.providerForm.adaptiveThinkingLabel'))
+    .option('--no-adaptive-thinking', t('tui.dialogs.providerForm.adaptiveThinkingLabel'))
     .option('--default', t('cli.optionDescriptions.providerCreateDefault'), false)
     .option('--json', t('cli.optionDescriptions.providerListJson'), false)
     .action(async (options: CreateOptions) => {
@@ -807,6 +952,14 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
     .option('--model <model>', t('cli.optionDescriptions.providerCreateModel'))
     .option('--max-context-size <tokens>', t('cli.optionDescriptions.providerCreateMaxContextSize'))
     .option('--display-name <name>', t('cli.optionDescriptions.providerCreateDisplayName'))
+    .option('--max-input-size <tokens>', t('tui.dialogs.providerForm.maxInputSizeLabel'))
+    .option('--max-output-size <tokens>', t('tui.dialogs.providerForm.maxOutputSizeLabel'))
+    .option('--capabilities <list>', capabilitiesDescription)
+    .option('--support-efforts <list>', t('tui.dialogs.providerForm.supportEffortsLabel'))
+    .option('--default-effort <name>', t('tui.dialogs.providerForm.defaultEffortLabel'))
+    .option('--off-effort <name>', t('tui.dialogs.providerForm.offEffortLabel'))
+    .option('--adaptive-thinking', t('tui.dialogs.providerForm.adaptiveThinkingLabel'))
+    .option('--no-adaptive-thinking', t('tui.dialogs.providerForm.adaptiveThinkingLabel'))
     .option('--default', t('cli.optionDescriptions.providerCreateDefault'), false)
     .option('--json', t('cli.optionDescriptions.providerListJson'), false)
     .action(async (providerId: string, options: UpdateOptions) => {

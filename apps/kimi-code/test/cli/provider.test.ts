@@ -1204,6 +1204,11 @@ function makeRenameInitial(): KimiConfig {
         displayName: 'GPT 4.1',
         capabilities: ['tool_use'],
         maxOutputSize: 8192,
+        maxInputSize: 272_000,
+        supportEfforts: ['low', 'medium', 'high'],
+        defaultEffort: 'medium',
+        offEffort: 'none',
+        adaptiveThinking: true,
       },
       'other/claude': { provider: 'other', model: 'claude', maxContextSize: 200_000 },
     },
@@ -1232,8 +1237,11 @@ describe('kimi provider create', () => {
       model: 'gpt-4.1',
       maxContextSize: 128_000,
       capabilities: ['tool_use', 'thinking'],
-      adaptiveThinking: true,
     });
+    // The row is new and no flag named an optional field, so none of them is
+    // written: `undefined` reads as "not presented", not as "cleared".
+    expect(config.models?.['demo/gpt-4.1']?.maxInputSize).toBeUndefined();
+    expect(config.models?.['demo/gpt-4.1']?.adaptiveThinking).toBeUndefined();
     expect(config.defaultModel).toBeUndefined();
 
     const toml = await readFile(join(harness.homeDir, 'config.toml'), 'utf8');
@@ -1244,6 +1252,93 @@ describe('kimi provider create', () => {
     expect(output).toContain('Provider "demo" added.');
     expect(output).toContain('  - demo/gpt-4.1');
     expect(output).not.toContain('sk-x');
+  });
+
+  it('writes every optional model field the flags name', async () => {
+    const { harness, current } = makeHarness({ providers: {} } as KimiConfig);
+    const { deps, exitCodes } = makeDeps(harness);
+
+    await tryRun(() =>
+      handleProviderCreate(deps, {
+        ...CREATE_FLAGS,
+        maxInputSize: '64000',
+        maxOutputSize: '8000',
+        capabilities: ' tool_use,image_in , pdf_in ',
+        supportEfforts: ' low,high ,low ',
+        defaultEffort: 'high',
+        offEffort: 'none',
+        adaptiveThinking: true,
+      }),
+    );
+
+    expect(exitCodes).toEqual([]);
+    expect(current().models?.['demo/gpt-4.1']).toMatchObject({
+      maxInputSize: 64_000,
+      maxOutputSize: 8000,
+      capabilities: ['tool_use', 'image_in', 'pdf_in'],
+      // parseEffortList trims and de-duplicates without reordering.
+      supportEfforts: ['low', 'high'],
+      defaultEffort: 'high',
+      offEffort: 'none',
+      adaptiveThinking: true,
+    });
+  });
+
+  it('takes an explicitly blank optional flag as "clear this key"', async () => {
+    const { harness, current } = makeHarness({ providers: {} } as KimiConfig);
+    const { deps, exitCodes } = makeDeps(harness);
+
+    await tryRun(() =>
+      handleProviderCreate(deps, {
+        ...CREATE_FLAGS,
+        capabilities: '',
+        maxInputSize: '',
+        supportEfforts: '',
+      }),
+    );
+
+    expect(exitCodes).toEqual([]);
+    // A blank `--capabilities` beats the shared default too: the row declares
+    // nothing instead of `['tool_use', 'thinking']`.
+    expect(current().models?.['demo/gpt-4.1']?.capabilities).toBeUndefined();
+    expect(current().models?.['demo/gpt-4.1']?.maxInputSize).toBeUndefined();
+    expect(current().models?.['demo/gpt-4.1']?.supportEfforts).toBeUndefined();
+  });
+
+  it('refuses a capability or a default effort the shared rules reject', async () => {
+    const { harness, setConfigCalls } = makeHarness({ providers: {} } as KimiConfig);
+    const { deps, stderr, exitCodes } = makeDeps(harness);
+
+    await tryRun(() =>
+      handleProviderCreate(deps, { ...CREATE_FLAGS, capabilities: 'tool_use,pdf' }),
+    );
+    expect(exitCodes).toEqual([1]);
+    expect(stderr.join('')).toContain(t('tui.dialogs.providerForm.error.capabilityUnknown'));
+
+    await tryRun(() =>
+      handleProviderCreate(deps, {
+        ...CREATE_FLAGS,
+        supportEfforts: 'low,high',
+        defaultEffort: 'max',
+      }),
+    );
+    expect(exitCodes).toEqual([1, 1]);
+    expect(stderr.join('')).toContain(
+      t('tui.dialogs.providerForm.error.defaultEffortNotSupported'),
+    );
+    expect(setConfigCalls).toEqual([]);
+  });
+
+  it('refuses a token budget that is not a positive integer', async () => {
+    const { harness, setConfigCalls } = makeHarness({ providers: {} } as KimiConfig);
+    const { deps, stderr, exitCodes } = makeDeps(harness);
+
+    await tryRun(() => handleProviderCreate(deps, { ...CREATE_FLAGS, maxInputSize: '64k' }));
+    await tryRun(() => handleProviderCreate(deps, { ...CREATE_FLAGS, maxOutputSize: '0' }));
+
+    expect(exitCodes).toEqual([1, 1]);
+    expect(stderr.join('')).toContain(t('tui.dialogs.providerForm.error.contextSizeInvalid'));
+    expect(setConfigCalls).toEqual([]);
   });
 
   it('writes exactly the patch buildAddPatch produces for the same form value', async () => {
@@ -1385,6 +1480,13 @@ describe('kimi provider update', () => {
       displayName: 'GPT 4.1',
       capabilities: ['tool_use'],
       maxOutputSize: 8192,
+      // The rename names no model row, so every row is written back from its
+      // stored alias and the optional fields survive untouched.
+      maxInputSize: 272_000,
+      supportEfforts: ['low', 'medium', 'high'],
+      defaultEffort: 'medium',
+      offEffort: 'none',
+      adaptiveThinking: true,
     });
     expect(config.models?.['other/claude']).toBeDefined();
     expect(config.providers['other']).toMatchObject({ type: 'anthropic' });
@@ -1408,12 +1510,27 @@ describe('kimi provider update', () => {
       }),
     );
 
+    // Every optional field of the stored alias is carried into the row the
+    // handler builds, so this pins the prefill along with the patch.
     const expectedValue: ProviderFormValue = {
       id: 'demo2',
       type: 'openai',
       apiKey: '',
       baseUrl: 'https://api2.example.com/v1',
-      models: [{ model: 'gpt-4.1', maxContextSize: '128000', displayName: 'GPT 4.1' }],
+      models: [
+        {
+          model: 'gpt-4.1',
+          maxContextSize: '128000',
+          displayName: 'GPT 4.1',
+          capabilities: ['tool_use'],
+          maxInputSize: '272000',
+          maxOutputSize: '8192',
+          supportEfforts: 'low, medium, high',
+          defaultEffort: 'medium',
+          offEffort: 'none',
+          adaptiveThinking: true,
+        },
+      ],
     };
     const plan = planEditWrite(initial, expectedValue, 'demo');
     expect(plan.providerIdTaken).toBe(false);
@@ -1480,22 +1597,159 @@ describe('kimi provider update', () => {
       maxContextSize: 64_000,
       displayName: 'GPT 4.2',
       capabilities: ['tool_use', 'thinking'],
+    });
+    // A brand-new model id has no stored alias to inherit from and no flag
+    // named the optional fields, so nothing is written for them.
+    expect(current().models?.['demo/gpt-4.2']?.adaptiveThinking).toBeUndefined();
+    expect(current().models?.['demo/gpt-4.2']?.maxInputSize).toBeUndefined();
+    // The row the command did not name keeps its own optional fields.
+    expect(current().models?.['demo/gpt-4.1']).toMatchObject({
+      displayName: 'GPT 4.1',
+      maxInputSize: 272_000,
+      supportEfforts: ['low', 'medium', 'high'],
+      defaultEffort: 'medium',
+      offEffort: 'none',
       adaptiveThinking: true,
     });
-    expect(current().models?.['demo/gpt-4.1']).toMatchObject({ displayName: 'GPT 4.1' });
   });
 
-  it('inherits the stored context size and name when --model names an existing row', async () => {
+  it('writes the optional fields the flags name on the upserted row', async () => {
     const { harness, current } = makeHarness(makeRenameInitial());
     const { deps, exitCodes } = makeDeps(harness);
 
-    await tryRun(() => handleProviderUpdate(deps, 'demo', { model: 'gpt-4.1' }));
+    await tryRun(() =>
+      handleProviderUpdate(deps, 'demo', {
+        model: 'gpt-4.2',
+        maxContextSize: '64000',
+        maxInputSize: '32000',
+        maxOutputSize: '4000',
+        capabilities: 'image_in,tool_use',
+        supportEfforts: 'low,high',
+        defaultEffort: 'high',
+        offEffort: '',
+        adaptiveThinking: true,
+      }),
+    );
+
+    expect(exitCodes).toEqual([]);
+    expect(current().models?.['demo/gpt-4.2']).toMatchObject({
+      maxInputSize: 32_000,
+      maxOutputSize: 4000,
+      capabilities: ['image_in', 'tool_use'],
+      supportEfforts: ['low', 'high'],
+      defaultEffort: 'high',
+      adaptiveThinking: true,
+    });
+    // `--off-effort ''` asked for the key to be gone.
+    expect(current().models?.['demo/gpt-4.2']?.offEffort).toBeUndefined();
+  });
+
+  it('inherits every stored optional field when --model names an existing row', async () => {
+    const { harness, current } = makeHarness(makeRenameInitial());
+    const { deps, exitCodes } = makeDeps(harness);
+
+    await tryRun(() =>
+      handleProviderUpdate(deps, 'demo', { model: 'gpt-4.1', maxContextSize: '131072' }),
+    );
 
     expect(exitCodes).toEqual([]);
     expect(current().models?.['demo/gpt-4.1']).toMatchObject({
-      maxContextSize: 128_000,
+      maxContextSize: 131_072,
       displayName: 'GPT 4.1',
+      capabilities: ['tool_use'],
+      maxInputSize: 272_000,
+      maxOutputSize: 8192,
+      supportEfforts: ['low', 'medium', 'high'],
+      defaultEffort: 'medium',
+      offEffort: 'none',
+      adaptiveThinking: true,
     });
+  });
+
+  it('clears the optional fields an explicitly blank flag names', async () => {
+    const { harness, current } = makeHarness(makeRenameInitial());
+    const { deps, exitCodes } = makeDeps(harness);
+
+    await tryRun(() =>
+      handleProviderUpdate(deps, 'demo', {
+        model: 'gpt-4.1',
+        maxInputSize: '',
+        maxOutputSize: '',
+        capabilities: '',
+        supportEfforts: '',
+        defaultEffort: '',
+        offEffort: '',
+        adaptiveThinking: false,
+      }),
+    );
+
+    expect(exitCodes).toEqual([]);
+    const alias = current().models?.['demo/gpt-4.1'];
+    expect(alias?.maxInputSize).toBeUndefined();
+    expect(alias?.maxOutputSize).toBeUndefined();
+    expect(alias?.capabilities).toBeUndefined();
+    expect(alias?.supportEfforts).toBeUndefined();
+    expect(alias?.defaultEffort).toBeUndefined();
+    expect(alias?.offEffort).toBeUndefined();
+    expect(alias?.adaptiveThinking).toBeUndefined();
+    // Fields no blank flag named keep their stored value.
+    expect(alias?.maxContextSize).toBe(128_000);
+    expect(alias?.displayName).toBe('GPT 4.1');
+  });
+
+  it('keeps the stored states a row cannot write back', async () => {
+    // `capabilities = []`, `support_efforts = []`, an empty effort name and
+    // `adaptive_thinking = false` are each a state of their own, and a row
+    // cannot produce any of them: presenting them would flatten each one into a
+    // deletion on the next write.
+    const initial: KimiConfig = {
+      providers: {
+        demo: { type: 'openai', apiKey: 'sk-x', baseUrl: 'https://api.example.com/v1' },
+      },
+      models: {
+        'demo/gpt-4.1': {
+          provider: 'demo',
+          model: 'gpt-4.1',
+          maxContextSize: 128_000,
+          displayName: 'GPT 4.1',
+          capabilities: [],
+          maxInputSize: 272_000,
+          supportEfforts: [],
+          defaultEffort: '',
+          offEffort: '',
+          adaptiveThinking: false,
+        },
+      },
+      defaultModel: 'demo/gpt-4.1',
+    } as unknown as KimiConfig;
+    const { harness, current } = makeHarness(initial);
+    const { deps, exitCodes } = makeDeps(harness);
+
+    await tryRun(() => handleProviderUpdate(deps, 'demo', { newId: 'demo2' }));
+
+    expect(exitCodes).toEqual([]);
+    const alias = current().models?.['demo2/gpt-4.1'];
+    expect(alias?.capabilities).toEqual([]);
+    expect(alias?.supportEfforts).toEqual([]);
+    expect(alias?.defaultEffort).toBe('');
+    expect(alias?.offEffort).toBe('');
+    expect(alias?.adaptiveThinking).toBe(false);
+    // The fields whose stored value a row can carry still round-trip.
+    expect(alias?.maxInputSize).toBe(272_000);
+  });
+
+  it('refuses a model-row flag that names no model', async () => {
+    const { harness, current, setConfigCalls, removeCalls } = makeHarness(makeRenameInitial());
+    const { deps, stderr, exitCodes } = makeDeps(harness);
+
+    await tryRun(() => handleProviderUpdate(deps, 'demo', { capabilities: 'tool_use' }));
+    await tryRun(() => handleProviderUpdate(deps, 'demo', { displayName: 'Renamed' }));
+
+    expect(exitCodes).toEqual([1, 1]);
+    expect(stderr.join('')).toContain(t('cli.optionDescriptions.providerCreateModel'));
+    expect(setConfigCalls).toEqual([]);
+    expect(removeCalls).toEqual([]);
+    expect(current().models?.['demo/gpt-4.1']?.['displayName']).toBe('GPT 4.1');
   });
 
   it('points default_model at the renamed alias when --default is passed', async () => {
@@ -1623,6 +1877,11 @@ describe('kimi provider create/update routing', () => {
           'gpt-4.1',
           '--max-context-size',
           '128000',
+          '--max-input-size',
+          '64000',
+          '--capabilities',
+          'tool_use,image_in',
+          '--adaptive-thinking',
         ],
         { from: 'node' },
       ),
@@ -1630,12 +1889,32 @@ describe('kimi provider create/update routing', () => {
 
     expect(exitCodes).toEqual([]);
     expect((await current()).providers['demo']).toBeDefined();
+    expect((await current()).models?.['demo/gpt-4.1']).toMatchObject({
+      maxInputSize: 64_000,
+      capabilities: ['tool_use', 'image_in'],
+      adaptiveThinking: true,
+    });
     expect(stdout.join('')).toContain('Provider "demo" added.');
 
     await tryRun(() =>
-      program.parseAsync(['node', 'kimi', 'provider', 'update', 'demo', '--new-id', 'demo2'], {
-        from: 'node',
-      }),
+      program.parseAsync(
+        [
+          'node',
+          'kimi',
+          'provider',
+          'update',
+          'demo',
+          '--new-id',
+          'demo2',
+          '--model',
+          'gpt-4.1',
+          '--max-output-size',
+          '8000',
+          // `--no-adaptive-thinking` is the clear form of the toggle.
+          '--no-adaptive-thinking',
+        ],
+        { from: 'node' },
+      ),
     );
 
     expect(exitCodes).toEqual([]);
@@ -1644,6 +1923,12 @@ describe('kimi provider create/update routing', () => {
     expect(config.providers['demo']).toBeUndefined();
     expect(config.providers['demo2']).toBeDefined();
     expect(Object.keys(config.models ?? {})).toEqual(['demo2/gpt-4.1']);
+    expect(config.models?.['demo2/gpt-4.1']).toMatchObject({
+      maxInputSize: 64_000,
+      maxOutputSize: 8000,
+      capabilities: ['tool_use', 'image_in'],
+    });
+    expect(config.models?.['demo2/gpt-4.1']?.adaptiveThinking).toBeUndefined();
     expect(stdout.join('')).toContain('Provider "demo2" updated.');
   });
 

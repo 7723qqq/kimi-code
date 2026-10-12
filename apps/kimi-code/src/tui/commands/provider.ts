@@ -601,11 +601,33 @@ function providerFormRows(config: KimiConfig, providerId: string): ProviderFormM
   const rows: ProviderFormModelRow[] = [];
   for (const alias of Object.values(config.models ?? {})) {
     if (alias.provider !== providerId) continue;
-    rows.push({
+    const row: ProviderFormModelRow = {
       model: alias.model,
       maxContextSize: String(alias.maxContextSize),
       displayName: alias.displayName ?? '',
-    });
+    };
+    // Only what the alias actually declares is presented: `undefined` means
+    // "the form does not own this field", so the write keeps the stored value
+    // instead of clearing it. An empty list stays absent for the same reason —
+    // `[]` and an omitted key mean different things to the engine, and the form
+    // cannot write the former back on purpose.
+    if (alias.capabilities !== undefined && alias.capabilities.length > 0) {
+      row.capabilities = [...alias.capabilities];
+    }
+    if (alias.maxInputSize !== undefined) row.maxInputSize = String(alias.maxInputSize);
+    if (alias.maxOutputSize !== undefined) row.maxOutputSize = String(alias.maxOutputSize);
+    if (alias.supportEfforts !== undefined && alias.supportEfforts.length > 0) {
+      row.supportEfforts = alias.supportEfforts.join(', ');
+    }
+    if (alias.defaultEffort !== undefined && alias.defaultEffort !== '') {
+      row.defaultEffort = alias.defaultEffort;
+    }
+    if (alias.offEffort !== undefined && alias.offEffort !== '') row.offEffort = alias.offEffort;
+    // `adaptiveThinking === false` picks the budget-effort ladder in the
+    // engine, so a row merely showing the toggle off must not overwrite it:
+    // only an explicit `true` is presented, and `undefined` keeps the rest.
+    if (alias.adaptiveThinking === true) row.adaptiveThinking = true;
+    rows.push(row);
   }
   return rows;
 }

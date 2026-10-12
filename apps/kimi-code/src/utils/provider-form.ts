@@ -20,10 +20,45 @@ export const PROVIDER_WIRE_TYPES = [
 
 export type ProviderWireType = (typeof PROVIDER_WIRE_TYPES)[number];
 
+export const CAPABILITY_NAMES = [
+  'image_in',
+  'video_in',
+  'audio_in',
+  'pdf_in',
+  'thinking',
+  'always_thinking',
+  'tool_use',
+  'dynamically_loaded_tools',
+] as const;
+
+export type CapabilityName = (typeof CAPABILITY_NAMES)[number];
+
+export function isCapabilityName(value: string): value is CapabilityName {
+  return (CAPABILITY_NAMES as readonly string[]).includes(value);
+}
+
+export const THINKING_EFFORT_NAMES = ['off', 'low', 'medium', 'high', 'max', 'xhigh'] as const;
+
 export interface ProviderFormModelRow {
   model: string;
   maxContextSize: string;
   displayName: string;
+  /**
+   * Model capabilities. Absent means "not set here": a new row writes nothing,
+   * and an edited row keeps whatever the alias already declared. An empty
+   * array is normalised to absent rather than written, because the engine
+   * distinguishes `capabilities = []` (declares nothing, stays known) from an
+   * omitted key (falls back to the model-name inference), and the form has no
+   * way to express the former on purpose.
+   */
+  capabilities?: string[];
+  maxInputSize?: string;
+  maxOutputSize?: string;
+  /** Ordered by strength: the default effort is the middle entry. */
+  supportEfforts?: string;
+  defaultEffort?: string;
+  offEffort?: string;
+  adaptiveThinking?: boolean;
 }
 
 export interface ProviderFormValue {
@@ -42,7 +77,27 @@ export type ProviderFormError =
   | 'modelRequired'
   | 'contextSizeRequired'
   | 'contextSizeInvalid'
-  | 'modelDuplicate';
+  | 'modelDuplicate'
+  | 'capabilityUnknown'
+  | 'defaultEffortNotSupported';
+
+export function parseList(raw: string | undefined): string[] {
+  return (raw ?? '')
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
+export function parseEffortList(raw: string | undefined): string[] {
+  const seen = new Set<string>();
+  const efforts: string[] = [];
+  for (const effort of parseList(raw)) {
+    if (seen.has(effort)) continue;
+    seen.add(effort);
+    efforts.push(effort);
+  }
+  return efforts;
+}
 
 export interface PlanEditWriteOptions {
   /**
@@ -91,6 +146,16 @@ export function validateProviderForm(
       return 'contextSizeInvalid';
     }
   }
+  for (const row of value.models) {
+    for (const capability of row.capabilities ?? []) {
+      if (!isCapabilityName(capability)) return 'capabilityUnknown';
+    }
+    if (row.defaultEffort !== undefined && row.defaultEffort.trim() !== '') {
+      const efforts = parseEffortList(row.supportEfforts);
+      if (efforts.length === 0) return 'defaultEffortNotSupported';
+      if (!efforts.includes(row.defaultEffort.trim())) return 'defaultEffortNotSupported';
+    }
+  }
   // Duplicates come after every row's own errors, so a malformed row reports
   // its own code first (kap's `refineProviderForm` shape: `duplicate model`).
   const seenModels = new Set<string>();
@@ -107,8 +172,68 @@ export function normalizeBaseUrlForType(baseUrl: string, type: ProviderWireType)
   return type === 'anthropic' ? baseUrl.replace(/\/v1\/?$/, '') : baseUrl;
 }
 
+/**
+ * Capabilities a brand-new manual model declares. The historical default, kept
+ * because a hand-added model name is usually one the engine cannot classify on
+ * its own: without `tool_use` a custom gateway model would lose its tools.
+ */
+export const DEFAULT_MODEL_CAPABILITIES = ['tool_use', 'thinking'] as const;
+
 export function defaultModelRow(): ProviderFormModelRow {
   return { model: '', maxContextSize: '', displayName: '' };
+}
+
+/**
+ * Apply one optional field the form may own.
+ *
+ * Three states, and the difference between the first two is the whole point:
+ * `undefined` means the form does not present this field at all, so whatever
+ * the alias already declared survives untouched; an empty string means the user
+ * cleared it, which deletes the key rather than writing an empty value the
+ * engine would have to interpret; anything else is written.
+ */
+function applyOptionalNumber(
+  alias: ModelAlias,
+  key: 'maxInputSize' | 'maxOutputSize',
+  raw: string | undefined,
+): void {
+  if (raw === undefined) return;
+  const value = raw.trim();
+  if (value === '') {
+    delete alias[key];
+    return;
+  }
+  alias[key] = Number(value);
+}
+
+function applyOptionalString(
+  alias: ModelAlias,
+  key: 'defaultEffort' | 'offEffort',
+  value: string | undefined,
+): void {
+  if (value === undefined) return;
+  const trimmed = value.trim();
+  if (trimmed === '') {
+    delete alias[key];
+    return;
+  }
+  alias[key] = trimmed;
+}
+
+/**
+ * `supportEfforts` is a comma-separated list whose ORDER carries meaning — the
+ * default effort is the middle entry and the persistence ceiling is derived
+ * from the index — so this trims and de-duplicates while preserving the order
+ * the user typed, and never sorts.
+ */
+function applyEffortList(alias: ModelAlias, value: string | undefined): void {
+  if (value === undefined) return;
+  const efforts = parseEffortList(value);
+  if (efforts.length === 0) {
+    delete alias.supportEfforts;
+    return;
+  }
+  alias.supportEfforts = efforts;
 }
 
 /**
@@ -122,11 +247,33 @@ function buildModelAlias(
   previous?: ModelAlias,
 ): ModelAlias {
   const alias: ModelAlias = {
-    ...(previous ?? { capabilities: ['tool_use', 'thinking'], adaptiveThinking: true }),
+    ...(previous ?? { capabilities: [...DEFAULT_MODEL_CAPABILITIES] }),
     provider: providerId,
     model: row.model.trim(),
     maxContextSize: Number(row.maxContextSize.trim()),
   };
+
+  if (row.capabilities !== undefined) {
+    const capabilities = [...new Set(row.capabilities.map((c) => c.trim()).filter(Boolean))];
+    if (capabilities.length === 0) {
+      delete alias.capabilities;
+    } else {
+      alias.capabilities = capabilities;
+    }
+  }
+
+  applyOptionalNumber(alias, 'maxInputSize', row.maxInputSize);
+  applyOptionalNumber(alias, 'maxOutputSize', row.maxOutputSize);
+  applyEffortList(alias, row.supportEfforts);
+  applyOptionalString(alias, 'defaultEffort', row.defaultEffort);
+  applyOptionalString(alias, 'offEffort', row.offEffort);
+
+  if (row.adaptiveThinking === true) {
+    alias.adaptiveThinking = true;
+  } else if (row.adaptiveThinking === false) {
+    delete alias.adaptiveThinking;
+  }
+
   const displayName = row.displayName.trim();
   if (displayName === '') {
     delete alias.displayName;

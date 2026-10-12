@@ -55,21 +55,21 @@ Kimi Code CLI 支持同时接入多家模型供应商服务，模型在供应商
 | API 协议 | 六种类型之一：`kimi`、`openai`、`openai_responses`、`anthropic`、`google-genai`、`vertexai`，取值见[支持的供应商类型](#支持的供应商类型) |
 | API 密钥 | 添加时必填，写入 `api_key`。编辑已有供应商时该字段预填已存密钥，清空它表示删除已存凭据（落盘为 `api_key = ""`） |
 | 基础 URL | 写入 `base_url`，不能为空；协议切到 `anthropic` 时会自动去掉结尾的 `/v1` |
-| 模型 | 至少一行。每行三个字段：模型 ID（即 `[models."<id>/<model>"]` 的别名）、上下文长度（正整数，写入 `max_context_size`）、显示名称（可选，写入 `display_name`） |
+| 模型 | 至少一行。每行包含模型 ID（即 `[models."<id>/<model>"]` 的别名）、上下文长度（正整数，写入 `max_context_size`）、显示名称（可选，写入 `display_name`），以及七个可选字段：`max_input_tokens`、`max_output_tokens`、`capabilities`、`support_efforts`、`default_effort`、`off_effort`、`adaptive_thinking`。可选字段只有你设置时才写入：留空表示省略该键而不是写空值；编辑一行时，表单没有呈现的字段原样保留 |
 
 表单的键位与交互：
 
 - `Tab` / `Shift-Tab` / `↑` / `↓` 在 供应商 ID → API 协议 → API 密钥 → 基础 URL → 模型 → 保存 之间移动焦点，`Enter` 进入下一项（在模型区表示编辑选中的行，在「保存」上表示提交）
 - 在「API 协议」上按 `←` / `→` 或空格，在六种类型之间循环
-- 在模型区按 `A` 追加一行、`D` 删除选中的行（只剩一行时不可删）、`E` 或 `Enter` 进入行编辑（模型 ID → 上下文长度 → 显示名称，最后一个字段按 `Enter` 写回，按 `Esc` 放弃本行修改）
+- 在模型区按 `A` 追加一行、`D` 删除选中的行（只剩一行时不可删）、`E` 或 `Enter` 进入行编辑（模型 ID → 上下文长度 → 最大输入 token → 最大输出 token → 显示名称 → 模型能力 → 思考档位 → 默认思考档位 → 表示「关闭」的档位 → 自适应思考，最后一个字段按 `Enter` 写回，按 `Esc` 放弃本行修改）；在「模型能力」上用 `←` / `→` 选择、空格切换，在「自适应思考」上空格直接切换
 - API 密钥默认掩码显示，`Ctrl-R` 切换明文
 - `Esc` 取消表单，不写盘
 
-校验与 CLI 共用同一套规则：供应商 ID 非法、添加时缺少密钥、基础 URL 为空、没有任何模型行、上下文长度不是正整数、两行模型 ID 重复，都会在表单内显示提示、保留已填内容，并且不写入配置文件。
+校验与 CLI 共用同一套规则：供应商 ID 非法、添加时缺少密钥、基础 URL 为空、没有任何模型行、上下文长度不是正整数、两行模型 ID 重复、能力名不在引擎认识的八个之内、默认思考档位不在该行的 `support_efforts` 里，都会在表单内显示提示、保留已填内容，并且不写入配置文件。八个能力名是 `image_in`、`video_in`、`audio_in`、`pdf_in`、`thinking`、`always_thinking`、`tool_use`、`dynamically_loaded_tools`；声明 `always_thinking` 即隐含 `thinking`。`support_efforts` 用逗号分隔，**顺序有语义**——默认档位取中间那一档、持久化天花板按下标算——所以按你输入的顺序落盘，只去重不排序。`max_input_tokens` 留空表示跟随上下文窗口，而不是「无上限」。
 
-保存后一次写入 `[providers.<id>]` 与该供应商的每个模型别名，随后刷新运行环境，并弹出与目录导入同一个默认模型选择器（按 `Esc` 跳过则供应商已保存、默认模型不变）。新建的模型别名带 `capabilities = [ "tool_use", "thinking" ]` 和 `adaptive_thinking = true`；显示名称留空时不写 `display_name`。
+保存后一次写入 `[providers.<id>]` 与该供应商的每个模型别名，随后刷新运行环境，并弹出与目录导入同一个默认模型选择器（按 `Esc` 跳过则供应商已保存、默认模型不变）。新建的模型别名带 `capabilities = [ "tool_use", "thinking" ]`，但**不写** `adaptive_thinking`——省略它让引擎按模型名推断自适应思考（anthropic 配置档本来就这么做），而强行打开对用户手工添加的按量计费网关是错误默认值；显示名称留空时不写 `display_name`。
 
-**编辑与改名**：在管理器列表里把光标移到目标供应商行、按 `E`，表单以上一次保存的配置预填（含 API 密钥）。保存时**先删除旧记录、再写入新记录**——这正是改名与删行不留残渣的原因：旧模型别名、悬空的 `default_model` / `default_provider` 在删除时被级联清理，而指向该供应商的默认指针在写入时迁移到新 id。表单之外的字段（`env`、`custom_headers`、`source`，以及模型行上的 `max_output_size`、`capabilities`、`support_efforts` 等）保持原值；改名不会重写 [`[secondary_model]`](./config-files.md#secondary_model) 里的引用。
+**编辑与改名**：在管理器列表里把光标移到目标供应商行、按 `E`，表单以上一次保存的配置预填（含 API 密钥）。保存时**先删除旧记录、再写入新记录**——这正是改名与删行不留残渣的原因：旧模型别名、悬空的 `default_model` / `default_provider` 在删除时被级联清理，而指向该供应商的默认指针在写入时迁移到新 id。表单之外的字段（`env`、`custom_headers`、`source`，以及模型行上表单不呈现的 `overrides`、`reasoning_key`、`beta_api` 等）保持原值；改名不会重写 [`[secondary_model]`](./config-files.md#secondary_model) 里的引用。
 
 新的供应商 ID 已被别的供应商占用，或新别名会覆盖别的供应商的模型时，写入会被拒绝并给出提示，配置文件保持不变。表单只认六种协议：存储类型不在这六种之内的供应商（例如引擎内部的 `astron`）会提示协议不受支持，无法在这里编辑。
 
@@ -90,6 +90,13 @@ Kimi Code CLI 支持同时接入多家模型供应商服务，模型在供应商
 | `--model <model>` | 模型 ID，别名写成 `<id>/<model>` |
 | `--max-context-size <tokens>` | 该模型的上下文窗口，正整数，写入 `max_context_size` |
 | `--display-name <name>` | 可选，模型的显示名称 |
+| `--max-input-size <tokens>` | 可选，写入 `max_input_tokens` 的输入上限；留空表示跟随 `max_context_size` |
+| `--max-output-size <tokens>` | 可选，输出上限，写入 `max_output_tokens` |
+| `--capabilities <list>` | 可选，逗号分隔的能力，取值为 `image_in`、`video_in`、`audio_in`、`pdf_in`、`thinking`、`always_thinking`、`tool_use`、`dynamically_loaded_tools` |
+| `--support-efforts <list>` | 可选，逗号分隔的思考档位，由弱到强（按给定顺序写入） |
+| `--default-effort <name>` | 可选，默认档位，必须是 `--support-efforts` 之一 |
+| `--off-effort <name>` | 可选，表示线上「关闭思考」的档位值 |
+| `--adaptive-thinking` / `--no-adaptive-thinking` | 可选——写 `adaptive_thinking = true`，或省略该键；两个都不给时新行省略 |
 | `--default` | 可选，同时把 `default_model` 设为 `<id>/<model>` |
 | `--json` | 可选，以 JSON 输出写入后的 `providers` 与 `models`，其中已去掉 API 密钥明文 |
 
@@ -119,6 +126,13 @@ kimi provider create \
 | `--model <model>` | 新增或覆盖一行模型：同名行沿用未给的上下文长度与显示名称，新模型 ID 则需要 `--max-context-size` |
 | `--max-context-size <tokens>` | 配合 `--model` 使用 |
 | `--display-name <name>` | 配合 `--model` 使用；不给时沿用该行原值 |
+| `--max-input-size <tokens>` | 配合 `--model` 使用；显式留空表示清除 `max_input_tokens` |
+| `--max-output-size <tokens>` | 配合 `--model` 使用；显式留空表示清除 `max_output_tokens` |
+| `--capabilities <list>` | 配合 `--model` 使用；替换该行的能力 |
+| `--support-efforts <list>` | 配合 `--model` 使用；替换该行的档位，顺序按给定写入 |
+| `--default-effort <name>` | 配合 `--model` 使用；必须是该行 `--support-efforts` 之一 |
+| `--off-effort <name>` | 配合 `--model` 使用 |
+| `--adaptive-thinking` / `--no-adaptive-thinking` | 配合 `--model` 使用；`--no-adaptive-thinking` 表示省略该键 |
 | `--default` | 把 `default_model` 指向本次的模型（未给 `--model` 时是第一条） |
 | `--json` | 以 JSON 输出写入后的配置，其中已去掉 API 密钥明文 |
 
