@@ -456,6 +456,10 @@ export class SessionEventBroadcaster {
     if (cursor.epoch !== undefined && cursor.epoch !== epoch) {
       return { events: [], resyncRequired: 'epoch_changed', currentSeq, epoch };
     }
+    const gapSince = journal.durabilityGapSince();
+    if (gapSince !== undefined && cursor.seq >= gapSince - 1) {
+      return { events: [], resyncRequired: 'buffer_overflow', currentSeq, epoch };
+    }
     if (cursor.seq > currentSeq) {
       return { events: [], resyncRequired: 'epoch_changed', currentSeq, epoch };
     }

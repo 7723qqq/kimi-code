@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -44,6 +44,32 @@ describe('SessionEventJournal', () => {
     const all = await j.readSince(0, 100);
     expect(all.map((e) => e.seq)).toEqual([1, 2, 3]);
     await j.close();
+  });
+
+  it('keeps failed lines and records a durability gap when the write fails', async () => {
+    const errors: unknown[] = [];
+    await mkdir(filePath, { recursive: true });
+    const journal = await SessionEventJournal.open(filePath, {
+      warn: () => {},
+      error: (...args: unknown[]) => errors.push(args),
+    } as never);
+
+    const seq = journal.nextSeq();
+    journal.append(seq, envelope(seq));
+    await journal.flush();
+
+    expect(journal.durabilityGapSince()).toBe(seq);
+    expect(errors.length).toBeGreaterThan(0);
+  });
+
+  it('does not record a gap when writes succeed', async () => {
+    const journal = await SessionEventJournal.open(filePath);
+
+    const seq = journal.nextSeq();
+    journal.append(seq, envelope(seq));
+    await journal.flush();
+
+    expect(journal.durabilityGapSince()).toBeUndefined();
   });
 
   it('recovers seq and epoch across reopen', async () => {

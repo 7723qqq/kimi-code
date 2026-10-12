@@ -6,6 +6,8 @@ import { ulid } from 'ulid';
 
 const JOURNAL_VERSION = 1;
 
+const MAX_PENDING_LINES = 4096;
+
 export interface EventEnvelope {
   readonly type: string;
   readonly seq: number;
@@ -45,6 +47,8 @@ const noopLogger: JournalLogger = { warn: () => {} };
 export class SessionEventJournal {
   private _seq: number;
   private pendingLines: string[] = [];
+  private durabilityGapSeq: number | undefined;
+  private headerWritten = false;
   private flushPromise: Promise<void> | undefined;
   private headerPending: boolean;
   private closed = false;
@@ -135,6 +139,7 @@ export class SessionEventJournal {
   async flush(): Promise<void> {
     while (this.flushPromise !== undefined || this.pendingLines.length > 0) {
       if (this.flushPromise === undefined) {
+        if (this.durabilityGapSeq !== undefined) return;
         this.flushPromise = this.flushOnce().finally(() => {
           this.flushPromise = undefined;
         });
@@ -152,12 +157,15 @@ export class SessionEventJournal {
     if (this.flushPromise !== undefined) return;
     this.flushPromise = this.flushOnce().finally(() => {
       this.flushPromise = undefined;
-      if (this.pendingLines.length > 0) this.scheduleFlush();
+      if (this.pendingLines.length > 0 && this.durabilityGapSeq === undefined) {
+        this.scheduleFlush();
+      }
     });
   }
 
   private async flushOnce(): Promise<void> {
     const lines: string[] = [];
+    let headerLine: string | undefined;
     if (this.headerPending) {
       const header: JournalHeaderLine = {
         kind: 'journal_header',
@@ -165,26 +173,61 @@ export class SessionEventJournal {
         epoch: this.epoch,
         created_at: Date.now(),
       };
-      lines.push(JSON.stringify(header));
-      this.headerPending = false;
+      headerLine = JSON.stringify(header);
+      lines.push(headerLine);
     }
-    lines.push(...this.pendingLines);
-    this.pendingLines = [];
+    const batch = this.pendingLines.slice();
+    lines.push(...batch);
     if (lines.length === 0) return;
     try {
       await mkdir(dirname(this.filePath), { recursive: true });
       await appendFile(this.filePath, lines.join('\n') + '\n', 'utf8');
+      this.headerPending = false;
+      this.pendingLines.splice(0, batch.length);
     } catch (error) {
-      this.logger.warn(
-        { filePath: this.filePath, err: String(error) },
-        'event journal write failed; events remain live-only this round',
+      const firstSeq = firstSeqOf(batch);
+      if (firstSeq !== undefined) {
+        this.durabilityGapSeq =
+          this.durabilityGapSeq === undefined
+            ? firstSeq
+            : Math.min(this.durabilityGapSeq, firstSeq);
+        this.pendingLines = [...batch, ...this.pendingLines].slice(-MAX_PENDING_LINES);
+      }
+      this.logger.error?.(
+        {
+          filePath: this.filePath,
+          err: String(error),
+          seqFrom: firstSeq,
+          seqTo: lastSeqOf(batch),
+        },
+        'event journal write failed; events remain live-only and cannot be replayed',
       );
     }
+  }
+
+  durabilityGapSince(): number | undefined {
+    return this.durabilityGapSeq;
   }
 }
 
 export function sessionJournalPath(eventsDir: string, sessionId: string): string {
   return join(eventsDir, `${sessionId}.jsonl`);
+}
+
+function firstSeqOf(lines: readonly string[]): number | undefined {
+  for (const raw of lines) {
+    const parsed = parseJournalLine(raw);
+    if (parsed !== undefined && parsed.kind === 'event') return parsed.seq;
+  }
+  return undefined;
+}
+
+function lastSeqOf(lines: readonly string[]): number | undefined {
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const parsed = parseJournalLine(lines[i]!);
+    if (parsed !== undefined && parsed.kind === 'event') return parsed.seq;
+  }
+  return undefined;
 }
 
 function parseJournalLine(raw: string): JournalHeaderLine | JournalEventLine | undefined {

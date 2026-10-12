@@ -319,6 +319,39 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
     conn.close();
   });
 
+  it('sends a resync_required frame when a session is not live', async () => {
+    const socket = new FakeSocket();
+    const broadcaster = Object.assign(makeBroadcaster(), {
+      subscribe: async () => false,
+      getCursor: async () => ({ seq: 7, epoch: 'ep_x' }),
+    }) as unknown as SessionEventBroadcaster;
+    const conn = makeConn(socket, { broadcaster });
+
+    socket.emit('message', controlFrame('subscribe', { session_ids: ['s1'] }));
+    await vi.waitFor(() => {
+      expect(
+        (socket.frames() as Array<{ type: string }>).some(
+          (frame) => frame.type === 'resync_required',
+        ),
+      ).toBe(true);
+    });
+
+    const resync = (
+      socket.frames() as Array<{ type: string; payload?: Record<string, unknown> }>
+    ).find((frame) => frame.type === 'resync_required');
+    expect(resync?.payload).toMatchObject({
+      session_id: 's1',
+      reason: 'session_recreated',
+      current_seq: 7,
+    });
+    const ack = (socket.frames() as Array<{ type: string; payload?: Record<string, unknown> }>).find(
+      (frame) => frame.type === 'ack',
+    );
+    expect(
+      ack?.payload?.['not_found'] ?? ack?.payload?.['resync_required'],
+    ).toEqual(['s1']);
+  });
+
   it('acks (and logs) when a control-frame task rejects instead of leaving the client waiting', async () => {
     const socket = new FakeSocket();
     const errors: unknown[] = [];
