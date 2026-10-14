@@ -6,6 +6,8 @@ import { syncDir } from '#/utils/fs';
 
 export const PENDING_MAX = 1000;
 const STDERR_NOTICE_INTERVAL_MS = 30_000;
+const RETRY_BACKOFF_MIN_MS = 1_000;
+const RETRY_BACKOFF_MAX_MS = STDERR_NOTICE_INTERVAL_MS;
 
 class AsyncSerialQueue {
   private tail: Promise<unknown> = Promise.resolve();
@@ -36,6 +38,8 @@ export class RotatingFileSink implements Sink {
   private dropped = 0;
   private closed = false;
   private lastStderrNotice = 0;
+  private nextAttemptAt = 0;
+  private backoffMs = 0;
   private currentBytes = -1;
   private directorySynced = false;
 
@@ -89,11 +93,26 @@ export class RotatingFileSink implements Sink {
   }
 
   private scheduleDrain(): void {
-    if (this.closed) return;
+    if (this.closed || this.suppressAutoDrain()) return;
     queueMicrotask(() => {
-      if (this.closed || this.pending.length === 0) return;
-      this.queue.run(() => this.drain()).catch(() => {});
+      if (this.closed || this.pending.length === 0 || this.suppressAutoDrain()) return;
+      this.queue
+        // One `enqueue` schedules one of these, so a burst arriving while the
+        // sink is down queues N tasks before the first failure is observed: the
+        // deadline has to be re-read when the task reaches the queue head, not
+        // when it was scheduled. The `false` is never observed (the caller only
+        // rejects on failure) — it means the batch stayed buffered.
+        .run(() => (this.suppressAutoDrain() ? Promise.resolve(false) : this.drain()))
+        .catch(() => {});
     });
+  }
+
+  // Only the automatic retry is gated: `flush`, `close` and `flushSync` must be
+  // able to report whether the pending buffer reached the file, so they always
+  // attempt.
+
+  private suppressAutoDrain(): boolean {
+    return Date.now() < this.nextAttemptAt;
   }
 
   private async drain(): Promise<boolean> {
@@ -122,13 +141,24 @@ export class RotatingFileSink implements Sink {
 
     if (failure !== undefined) {
       this.noteFailure(failure);
+      this.noteBackoff();
       // Only the lines that never reached the file are put back: everything
       // up to `appended` is already durable, and re-queuing it would write
       // those lines a second time once the sink recovers.
       this.restorePending(lines.slice(appended));
       return false;
     }
+    this.backoffMs = 0;
+    this.nextAttemptAt = 0;
     return true;
+  }
+
+  private noteBackoff(): void {
+    this.backoffMs = Math.min(
+      this.backoffMs === 0 ? RETRY_BACKOFF_MIN_MS : this.backoffMs * 2,
+      RETRY_BACKOFF_MAX_MS,
+    );
+    this.nextAttemptAt = Date.now() + this.backoffMs;
   }
 
   private restorePending(lines: readonly string[]): void {

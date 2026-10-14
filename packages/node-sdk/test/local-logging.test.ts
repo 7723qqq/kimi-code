@@ -12,8 +12,9 @@ import { TEST_IDENTITY } from './test-identity';
 // A transparent `open()` wrapper: real file handles everywhere, except that an
 // append whose payload contains `sinkFault.failOn` rejects with EIO. Lets the
 // sink tests simulate a mid-batch disk failure (ENOSPC/EIO) without touching
-// the fs layer the harness tests in this file depend on.
-const sinkFault = vi.hoisted(() => ({ failOn: undefined as string | undefined }));
+// the fs layer the harness tests in this file depend on. `attempts` counts
+// every append, which is the file-level work one drain performs.
+const sinkFault = vi.hoisted(() => ({ failOn: undefined as string | undefined, attempts: 0 }));
 
 const SINK_FAULT_MARKER = '@@sink-fault@@';
 
@@ -33,6 +34,7 @@ vi.mock('node:fs/promises', async (importOriginal) => {
       ): Promise<void> => {
         const text = typeof data === 'string' ? data : Buffer.from(data).toString('utf-8');
         const marker = sinkFault.failOn;
+        sinkFault.attempts++;
         if (marker !== undefined && text.includes(marker)) {
           throw Object.assign(new Error('EIO: simulated append failure'), { code: 'EIO' });
         }
@@ -236,12 +238,22 @@ describe('RotatingFileSink — partial drain recovery', () => {
     return parts.join('');
   }
 
+  // The drain waits on fs work that hops through the threadpool; under the Bun
+  // runtime `setImmediate` does not join those callbacks, so wait on real
+  // timers (these tests fake `Date` only, so `setTimeout` still elapses).
+  async function settle(): Promise<void> {
+    await new Promise<void>((resolve) => setTimeout(resolve, 20));
+  }
+
   beforeEach(() => {
     sinkFault.failOn = undefined;
+    sinkFault.attempts = 0;
   });
 
   afterEach(() => {
     sinkFault.failOn = undefined;
+    sinkFault.attempts = 0;
+    vi.useRealTimers();
   });
 
   it('does not rewrite a chunk that already reached the file when a later chunk fails', async () => {
@@ -295,5 +307,48 @@ describe('RotatingFileSink — partial drain recovery', () => {
     const dropped = stderrChunks.find((chunk) => chunk.includes('dropped'));
     expect(dropped).toBeDefined();
     expect(dropped).toContain('2');
+  });
+
+  it('rate-limits automatic retries of a permanently failing sink, but never an explicit flush', async () => {
+    const homeDir = await makeTempDir('kimi-log-sink-');
+    const logPath = join(homeDir, 'logs', 'kimi-code.log');
+    const sink = makeSink(logPath);
+    const now = Date.now();
+    sinkFault.failOn = SINK_FAULT_MARKER;
+
+    // Frozen clock: the retry deadline set by the first failure stays in the
+    // future for the whole test, so this measures the gate, not the scheduler.
+    // Only `Date` is faked, leaving real timers for `settle`.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(now);
+
+    // A synchronous burst — every `enqueue` queues its own drain microtask.
+    // Ungated this is one append attempt per line; the burst itself may cost a
+    // couple of attempts before the deadline is set, so allow that slack and
+    // still fail hard on per-line amplification.
+    for (let i = 0; i < 100; i++) {
+      sink.enqueue(`burst-${i}-${SINK_FAULT_MARKER}\n`);
+    }
+    await settle();
+    const afterBurst = sinkFault.attempts;
+    expect(afterBurst).toBeGreaterThan(0);
+    expect(afterBurst).toBeLessThanOrEqual(3);
+
+    // Lines written inside the backoff window must not re-drive the batch.
+    for (let i = 0; i < 100; i++) {
+      sink.enqueue(`window-${i}-${SINK_FAULT_MARKER}\n`);
+    }
+    await settle();
+    expect(sinkFault.attempts).toBe(afterBurst);
+
+    // Shutdown paths are not gated: an explicit flush still attempts now.
+    expect(await sink.flush()).toBe(false);
+    expect(sinkFault.attempts).toBe(afterBurst + 1);
+
+    // Past the deadline the sink retries on its own again, without a flush.
+    vi.setSystemTime(now + 60_000);
+    sink.enqueue(`after-deadline-${SINK_FAULT_MARKER}\n`);
+    await settle();
+    expect(sinkFault.attempts).toBe(afterBurst + 2);
   });
 });
