@@ -24,6 +24,7 @@
  * negated flag writes it and a `--clear-*` flag is what drops the key.
  */
 
+import { isOpenPlatformId } from '@moonshot-ai/kimi-code-oauth';
 import {
   applyCatalogProvider,
   catalogProviderModels,
@@ -47,6 +48,7 @@ import { fetchCatalogOrBuiltIn } from '#/utils/catalog-fetch';
 import {
   buildAddPatch,
   CAPABILITY_NAMES,
+  formatEffortList,
   parseList,
   planEditWrite,
   PROVIDER_WIRE_TYPES,
@@ -256,8 +258,13 @@ export async function handleProviderRemove(deps: ProviderDeps, providerId: strin
   const harness = deps.getHarness();
   await harness.ensureConfigFile();
   const config = await harness.getConfig();
-  if (config.providers[providerId] === undefined) {
+  const target = config.providers[providerId];
+  if (target === undefined) {
     deps.stderr.write(t('tui.statusMessages.providerNotFound', { id: providerId }) + '\n');
+    deps.exit(1);
+  }
+  if (target.oauth !== undefined) {
+    deps.stderr.write(t('tui.dialogs.providerForm.managedReadonly') + '\n');
     deps.exit(1);
   }
   await harness.removeProvider(providerId);
@@ -316,6 +323,10 @@ export async function handleProviderUpdate(
   const previous = current.providers[providerId];
   if (previous === undefined) {
     deps.stderr.write(t('tui.statusMessages.providerNotFound', { id: providerId }) + '\n');
+    deps.exit(1);
+  }
+  if (previous.oauth !== undefined || isOpenPlatformId(providerId)) {
+    deps.stderr.write(t('tui.dialogs.providerForm.managedReadonly') + '\n');
     deps.exit(1);
   }
 
@@ -675,6 +686,9 @@ function updateFormInput(
     apiKey: opts.apiKey ?? previous.apiKey ?? '',
     baseUrl: opts.baseUrl ?? previous.baseUrl ?? '',
     ...providerFieldsFromOptions(opts),
+    ...(opts.apiKeyEnv === undefined && previous.apiKeyEnv !== undefined
+      ? { apiKeyEnv: previous.apiKeyEnv }
+      : undefined),
     models,
   };
   const error = validateProviderForm(value, { requireApiKey: false });
@@ -710,7 +724,7 @@ function providerModelRows(current: KimiConfig, providerId: string): ProviderFor
     if (alias.maxInputSize !== undefined) row.maxInputSize = String(alias.maxInputSize);
     if (alias.maxOutputSize !== undefined) row.maxOutputSize = String(alias.maxOutputSize);
     if (alias.supportEfforts !== undefined && alias.supportEfforts.length > 0) {
-      row.supportEfforts = alias.supportEfforts.join(', ');
+      row.supportEfforts = formatEffortList(alias.supportEfforts);
     }
     if (alias.defaultEffort !== undefined && alias.defaultEffort !== '') {
       row.defaultEffort = alias.defaultEffort;

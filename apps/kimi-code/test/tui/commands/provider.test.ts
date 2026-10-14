@@ -990,4 +990,52 @@ describe('/provider edit (E)', () => {
     // between them fails here rather than on a user's machine.
     expect(await runEdit(true)).toEqual(await runEdit(false));
   });
+
+  it('catches a persistence failure during edit, shows the error, and reopens the manager', async () => {
+    const rig = makeCommandRig(EDIT_CONFIG);
+    rig.host.harness.setConfig.mockRejectedValueOnce(new Error('write failed'));
+    const form = await openEditForm(rig);
+
+    for (let i = 0; i < 9; i++) form.handleInput(TAB);
+    form.handleInput(ENTER);
+
+    await waitForPanel(rig, ProviderManagerComponent);
+    expect(rig.host.showError).toHaveBeenCalledWith(
+      t('tui.statusMessages.providerFormFailed', { error: 'write failed' }),
+    );
+  });
+
+  it('prompts to select which provider to edit when pressing E on a multi-provider custom registry group', async () => {
+    const groupedConfig: KimiConfig = {
+      providers: {
+        alpha: {
+          type: 'openai',
+          apiKey: 'sk-a',
+          baseUrl: 'https://reg.test/v1',
+          source: { kind: 'apiJson', url: 'https://reg.test/api.json', apiKey: '' },
+        },
+        beta: {
+          type: 'anthropic',
+          apiKey: 'sk-b',
+          baseUrl: 'https://reg.test/anthropic',
+          source: { kind: 'apiJson', url: 'https://reg.test/api.json', apiKey: '' },
+        },
+      },
+      models: {
+        'alpha/m1': { provider: 'alpha', model: 'm1', maxContextSize: 128000 },
+        'beta/m2': { provider: 'beta', model: 'm2', maxContextSize: 200000 },
+      },
+    };
+    const rig = makeCommandRig(groupedConfig);
+    await handleProviderCommand(rig.host);
+    currentPanel<ProviderManagerComponent>(rig).handleInput('E');
+
+    const picker = await waitForPanel(rig, ChoicePickerComponent);
+    picker.handleInput(DOWN);
+    picker.handleInput(ENTER);
+
+    const form = await waitForPanel(rig, ProviderFormDialogComponent);
+    expect(plain(form)).toContain('beta');
+    expect(plain(form)).toContain('https://reg.test/anthropic');
+  });
 });

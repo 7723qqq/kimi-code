@@ -285,6 +285,20 @@ export function validateProviderForm(
     if (!POSITIVE_INTEGER_PATTERN.test(maxContextSize) || Number(maxContextSize) < 1) {
       return 'contextSizeInvalid';
     }
+    const maxInputSize = (row.maxInputSize ?? '').trim();
+    if (
+      maxInputSize !== '' &&
+      (!POSITIVE_INTEGER_PATTERN.test(maxInputSize) || Number(maxInputSize) < 1)
+    ) {
+      return 'contextSizeInvalid';
+    }
+    const maxOutputSize = (row.maxOutputSize ?? '').trim();
+    if (
+      maxOutputSize !== '' &&
+      (!POSITIVE_INTEGER_PATTERN.test(maxOutputSize) || Number(maxOutputSize) < 1)
+    ) {
+      return 'contextSizeInvalid';
+    }
   }
   for (const row of value.models) {
     for (const capability of row.capabilities ?? []) {

@@ -956,6 +956,26 @@ describe('the fields the manual form grew', () => {
     expect(validateProviderForm(formValue({ env: '=acme' }), { requireApiKey: true })).toBe(
       'envInvalid',
     );
+    expect(
+      validateProviderForm(formValue({ models: [modelRow({ maxInputSize: '0' })] }), {
+        requireApiKey: true,
+      }),
+    ).toBe('contextSizeInvalid');
+    expect(
+      validateProviderForm(formValue({ models: [modelRow({ maxInputSize: 'abc' })] }), {
+        requireApiKey: true,
+      }),
+    ).toBe('contextSizeInvalid');
+    expect(
+      validateProviderForm(formValue({ models: [modelRow({ maxOutputSize: '0' })] }), {
+        requireApiKey: true,
+      }),
+    ).toBe('contextSizeInvalid');
+    expect(
+      validateProviderForm(formValue({ models: [modelRow({ maxOutputSize: '-5' })] }), {
+        requireApiKey: true,
+      }),
+    ).toBe('contextSizeInvalid');
   });
 
   it('parses and formats the flat records the two text fields carry', () => {

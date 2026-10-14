@@ -1281,14 +1281,47 @@ export class ProviderFormDialogComponent extends Container implements Focusable 
       case 'contextSizeRequired':
         this.focusRowError((row) => row.maxContextSize.trim() === '', 'context');
         return;
-      case 'contextSizeInvalid':
-        this.focusRowError(
-          (row) =>
-            row.maxContextSize.trim() !== '' &&
-            !POSITIVE_INTEGER_PATTERN.test(row.maxContextSize.trim()),
-          'context',
-        );
+      case 'contextSizeInvalid': {
+        for (let i = 0; i < this.models.length; i++) {
+          const row = this.models[i];
+          if (row === undefined) continue;
+          const context = row.maxContextSize.trim();
+          if (
+            context !== '' &&
+            (!POSITIVE_INTEGER_PATTERN.test(context) || Number(context) < 1)
+          ) {
+            this.activeField = 'models';
+            this.selectRow(i);
+            this.openRowEditor();
+            this.rowField = 'context';
+            return;
+          }
+          const maxInput = (row.maxInputSize ?? '').trim();
+          if (
+            maxInput !== '' &&
+            (!POSITIVE_INTEGER_PATTERN.test(maxInput) || Number(maxInput) < 1)
+          ) {
+            this.activeField = 'models';
+            this.selectRow(i);
+            this.openRowEditor();
+            this.rowField = 'maxInputSize';
+            return;
+          }
+          const maxOutput = (row.maxOutputSize ?? '').trim();
+          if (
+            maxOutput !== '' &&
+            (!POSITIVE_INTEGER_PATTERN.test(maxOutput) || Number(maxOutput) < 1)
+          ) {
+            this.activeField = 'models';
+            this.selectRow(i);
+            this.openRowEditor();
+            this.rowField = 'maxOutputSize';
+            return;
+          }
+        }
+        this.focusRowError(() => false, 'context');
         return;
+      }
       case 'modelDuplicate':
         // Focus the first row of every duplicated-model group.
         this.focusRowError(

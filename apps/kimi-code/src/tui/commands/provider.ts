@@ -128,14 +128,12 @@ async function handleProviderAdd(host: SlashCommandHost): Promise<void> {
     return;
   }
 
-  if (source === 'known') {
-    await handleCatalogProviderAdd(host);
-    return;
-  }
   const handled =
-    source === 'manual'
-      ? await handleManualProviderAdd(host)
-      : await handleCustomRegistryAddViaDialog(host);
+    source === 'known'
+      ? await handleCatalogProviderAdd(host)
+      : source === 'manual'
+        ? await handleManualProviderAdd(host)
+        : await handleCustomRegistryAddViaDialog(host);
   if (!handled) {
     reopenProviderManager(host);
   }
@@ -171,7 +169,7 @@ function promptProviderAddSource(
   });
 }
 
-async function handleCatalogProviderAdd(host: SlashCommandHost): Promise<void> {
+async function handleCatalogProviderAdd(host: SlashCommandHost): Promise<boolean> {
   const controller = new AbortController();
   const cancel = (): void => {
     controller.abort();
@@ -215,23 +213,23 @@ async function handleCatalogProviderAdd(host: SlashCommandHost): Promise<void> {
     if (host.cancelInFlight === cancel) host.cancelInFlight = undefined;
   }
 
-  if (catalog === undefined) return;
+  if (catalog === undefined) return false;
 
   const providerId = await promptCatalogProviderSelection(host, catalog);
-  if (providerId === undefined) return;
+  if (providerId === undefined) return false;
   const entry = catalog[providerId];
-  if (entry === undefined) return;
+  if (entry === undefined) return false;
 
   const models = catalogProviderModels(entry);
   if (models.length === 0) {
     host.showError(t('tui.commands.provider.noUsableModels', { id: providerId }));
-    return;
+    return false;
   }
 
   let resolution = resolveCatalogImport(entry);
   if (resolution.kind === 'needs-base-url') {
     const entered = await promptBaseUrl(host, entry.name ?? providerId);
-    if (entered === undefined) return;
+    if (entered === undefined) return false;
     resolution = resolveCatalogImport(entry, entered);
   }
   if (resolution.kind !== 'ok') {
@@ -249,12 +247,12 @@ async function handleCatalogProviderAdd(host: SlashCommandHost): Promise<void> {
         host.showError(t('tui.statusMessages.providerCatalogPlaceholderBaseUrl'));
       }
     }
-    return;
+    return false;
   }
   const { wire, baseUrl } = resolution;
 
   const apiKey = await promptApiKey(host, entry.name ?? providerId);
-  if (apiKey === undefined) return;
+  if (apiKey === undefined) return false;
 
   // Persist the provider and all its models immediately after the api key is
   // entered. The model selector that follows is just a convenience to pick the
@@ -265,6 +263,8 @@ async function handleCatalogProviderAdd(host: SlashCommandHost): Promise<void> {
   // replace where the host can: an exit between a removal and its patch would
   // otherwise leave the provider and every alias it had gone from config.toml.
   let config = await host.harness.getConfig();
+  const previousDefaultModel = config.defaultModel;
+  const previousThinking = config.thinking;
   const replacing = config.providers[providerId] !== undefined;
   if (replacing) config = removeProviderFromConfig(config, providerId);
   applyCatalogProvider(config, {
@@ -276,50 +276,40 @@ async function handleCatalogProviderAdd(host: SlashCommandHost): Promise<void> {
     selectedModelId: '', // no default yet; user picks in the model selector
     thinking: false, // will be resolved by the model selector
   });
+  const stillResolves =
+    previousDefaultModel !== undefined && config.models?.[previousDefaultModel] !== undefined;
+  config.defaultModel = stillResolves ? previousDefaultModel : undefined;
+  config.thinking = previousThinking;
 
-  await persistProviderWrite(host.harness, {
-    patch: { providers: config.providers, models: config.models },
-    sections: providerSectionsOf(config),
-    // Folded into `sections` already; a host without atomic sections still has
-    // to cascade the old record away before the merge.
-    removeProviderId: replacing ? providerId : undefined,
-  });
+  try {
+    await persistProviderWrite(host.harness, {
+      patch: {
+        providers: config.providers,
+        models: config.models,
+        defaultModel: config.defaultModel,
+        thinking: config.thinking,
+      },
+      sections: providerSectionsOf(config),
+      // Folded into `sections` already; a host without atomic sections still has
+      // to cascade the old record away before the merge.
+      removeProviderId: replacing ? providerId : undefined,
+    });
+    await host.authFlow.refreshConfigAfterLogin();
+  } catch (error) {
+    host.showError(
+      t('tui.statusMessages.providerFormFailed', { error: formatErrorMessage(error) }),
+    );
+    return false;
+  }
 
-  await host.authFlow.refreshConfigAfterLogin();
   host.track('connect', { provider: providerId, method: 'catalog' });
   host.showStatus(t('tui.commands.provider.added', { name: entry.name ?? providerId }));
   if (resolution.guessed) {
     host.showStatus(t('tui.commands.provider.protocolGuessed', { id: providerId }));
   }
 
-  // Build a merged model dictionary that includes existing models plus the
-  // newly-persisted provider's models, so the tabbed selector shows every
-  // provider's tab (the new provider's tab starts active via initialTabId).
-  // The v1 runtime may carry the synthesized `__secondary__` derived entry —
-  // never selectable in a picker.
-  const stateModels = await host.harness.getConfig().then((c) => c.models ?? {});
-  const mergedModels = { ...stateModels };
-  delete mergedModels[SECONDARY_DERIVED_MODEL_ALIAS];
-
-  const selector = new TabbedModelSelectorComponent({
-    models: mergedModels,
-    currentValue: host.state.appState.model,
-    selectedValue: Object.keys(mergedModels).find((a) => a.startsWith(`${providerId}/`)),
-    currentThinkingEffort: host.state.appState.thinkingEffort,
-    initialTabId: providerId,
-    onSelect: ({ alias, thinking }) => {
-      host.restoreEditor();
-      void setDefaultModel(host, alias, thinking).catch((error: unknown) => {
-        host.showError(
-          t('tui.commands.provider.setDefaultModelFailed', { error: formatErrorMessage(error) }),
-        );
-      });
-    },
-    onCancel: () => {
-      host.restoreEditor();
-    },
-  });
-  host.mountEditorReplacement(selector);
+  await mountProviderModelSelector(host, [providerId]);
+  return true;
 }
 
 export async function setDefaultModel(
@@ -440,8 +430,11 @@ async function mountProviderModelSelector(
   host: SlashCommandHost,
   providerIds: readonly string[],
 ): Promise<void> {
-  const stateModels = { ...(await host.harness.getConfig().then((c) => c.models ?? {})) };
-  delete stateModels[SECONDARY_DERIVED_MODEL_ALIAS];
+  const rawModels = { ...(await host.harness.getConfig().then((c) => c.models ?? {})) };
+  delete rawModels[SECONDARY_DERIVED_MODEL_ALIAS];
+  const stateModels = Object.fromEntries(
+    Object.entries(rawModels).map(([alias, model]) => [alias, effectiveModelForHost(host, model)]),
+  );
   const firstNewAlias = Object.keys(stateModels).find((alias) =>
     providerIds.some((providerId) => alias.startsWith(`${providerId}/`)),
   );
@@ -525,17 +518,33 @@ async function handleManualProviderAdd(host: SlashCommandHost): Promise<boolean>
  */
 async function handleProviderEdit(host: SlashCommandHost, providerId: string): Promise<void> {
   const config = await host.harness.getConfig();
-  const provider = config.providers[providerId];
+  let targetId = providerId;
+  let provider = config.providers[targetId];
   if (provider === undefined) {
     // The list snapshot is stale (the provider is already gone): re-render.
     reopenProviderManager(host);
     return;
   }
 
+  const groupIds = customRegistrySiblingIds(config, provider);
+  if (groupIds.length > 1) {
+    const picked = await promptGroupedProviderEditSelection(host, groupIds);
+    if (picked === undefined) {
+      reopenProviderManager(host);
+      return;
+    }
+    targetId = picked;
+    provider = config.providers[targetId];
+    if (provider === undefined) {
+      reopenProviderManager(host);
+      return;
+    }
+  }
+
   const value = await promptProviderForm(host, {
     mode: 'edit',
     provider: {
-      id: providerId,
+      id: targetId,
       // The stored type verbatim, `astron` included: the form carries a type it
       // cannot offer as an extra `type` candidate instead of collapsing the
       // record onto one of its own six.
@@ -546,20 +555,20 @@ async function handleProviderEdit(host: SlashCommandHost, providerId: string): P
       defaultModel: provider.defaultModel,
       customHeaders: provider.customHeaders,
       env: provider.env,
-      models: providerFormRows(config, providerId),
+      models: providerFormRows(config, targetId),
     },
     // Both kinds of managed record are read-only here. `oauth` alone would miss
     // the Open Platform providers — they are written with `oauth` dropped — and
     // renaming one orphans its credential while the next refresh re-adds the
     // original id beside the renamed copy.
-    readOnly: provider.oauth !== undefined || isOpenPlatformId(providerId),
+    readOnly: provider.oauth !== undefined || isOpenPlatformId(targetId),
   });
   if (value === undefined) {
     reopenProviderManager(host);
     return;
   }
 
-  const plan = planEditWrite(config, value, providerId, {
+  const plan = planEditWrite(config, value, targetId, {
     // A stored credential the user blanked out means "clear it"; a provider
     // that never had one keeps the key out of the written record.
     clearApiKey: provider.apiKey !== undefined && value.apiKey.trim() === '',
@@ -577,10 +586,56 @@ async function handleProviderEdit(host: SlashCommandHost, providerId: string): P
     return;
   }
 
-  await persistProviderWrite(host.harness, plan);
-  await host.authFlow.refreshConfigAfterLogin();
-  host.showStatus(t('tui.statusMessages.providerFormUpdated', { id: value.id.trim() }), 'success');
+  try {
+    await persistProviderWrite(host.harness, plan);
+    await host.authFlow.refreshConfigAfterLogin();
+    host.showStatus(t('tui.statusMessages.providerFormUpdated', { id: value.id.trim() }), 'success');
+  } catch (error) {
+    host.showError(
+      t('tui.statusMessages.providerFormFailed', { error: formatErrorMessage(error) }),
+    );
+  }
   reopenProviderManager(host);
+}
+
+function customRegistrySiblingIds(
+  config: KimiConfig,
+  provider: KimiConfig['providers'][string],
+): string[] {
+  const source = provider.source;
+  if (source?.kind !== 'apiJson') return [];
+  const ids: string[] = [];
+  for (const [id, candidate] of Object.entries(config.providers)) {
+    if (
+      candidate.source?.kind === 'apiJson' &&
+      candidate.source.url === source.url &&
+      candidate.source.apiKey === source.apiKey
+    ) {
+      ids.push(id);
+    }
+  }
+  return ids;
+}
+
+function promptGroupedProviderEditSelection(
+  host: SlashCommandHost,
+  providerIds: readonly string[],
+): Promise<string | undefined> {
+  return new Promise((resolve) => {
+    const picker = new ChoicePickerComponent({
+      title: t('tui.statusMessages.selectProviderTitle'),
+      options: providerIds.map((id) => ({ value: id, label: id })),
+      onSelect: (value) => {
+        host.restoreEditor();
+        resolve(value);
+      },
+      onCancel: () => {
+        host.restoreEditor();
+        resolve(undefined);
+      },
+    });
+    host.mountEditorReplacement(picker);
+  });
 }
 
 /**

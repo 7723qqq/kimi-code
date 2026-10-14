@@ -429,6 +429,25 @@ describe('ProviderFormDialogComponent', () => {
     expect(plain(dialog)).toContain(t(`${FORM}.modelRowLabel`, { index: '1', model: 'gpt-4.1' }));
   });
 
+  it('rejects invalid maxInputSize and maxOutputSize values and focuses the offending row field', () => {
+    const { dialog, onDone } = makeDialog({
+      mode: 'edit',
+      provider: {
+        ...EDIT_PROVIDER,
+        models: [
+          { model: 'gpt-4.1', maxContextSize: '128000', displayName: '', maxInputSize: 'abc' },
+        ],
+      },
+    });
+    for (let i = 0; i < 9; i++) dialog.handleInput(TAB);
+    dialog.handleInput(ENTER);
+
+    expect(onDone).not.toHaveBeenCalled();
+    expect(plain(dialog)).toContain(t(`${FORM}.error.contextSizeInvalid`));
+    expect(footerOf(dialog)).toBe('row');
+    expect(plain(dialog, 200)).toContain(t(`${FORM}.maxInputSizeHint`));
+  });
+
   it('prefills edit mode, masks the API key, and toggles it with Ctrl-R', () => {
     const { dialog, onDone } = makeDialog({ mode: 'edit', provider: EDIT_PROVIDER });
     const out = plain(dialog);

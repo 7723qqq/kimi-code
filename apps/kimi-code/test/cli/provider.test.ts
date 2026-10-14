@@ -2447,6 +2447,62 @@ describe('kimi provider update', () => {
     expect(setConfigCalls).toEqual([]);
     expect(removeCalls).toEqual([]);
   });
+
+  it('refuses --api-key when the provider already stores apiKeyEnv unless apiKeyEnv is cleared', async () => {
+    const { harness, current, setConfigCalls } = makeHarness(makeOverrideInitial());
+    const { deps, stderr, exitCodes } = makeDeps(harness);
+
+    await tryRun(() => handleProviderUpdate(deps, 'demo', { apiKey: 'sk-inline' }));
+
+    expect(exitCodes).toEqual([1]);
+    expect(stderr.join('')).toContain(t('tui.dialogs.providerForm.error.apiKeyConflict'));
+    expect(setConfigCalls).toEqual([]);
+    expect(current().providers['demo']?.apiKeyEnv).toBe('DEMO_API_KEY');
+  });
+
+  it('refuses updating or removing an OAuth-managed provider and updating an Open Platform provider', async () => {
+    const managedInitial: KimiConfig = {
+      providers: {
+        'managed:kimi-code': {
+          type: 'kimi',
+          baseUrl: 'https://api.kimi.com/coding/v1',
+          oauth: { storage: 'file', key: 'oauth/kimi-code' },
+        },
+        'moonshot-cn': {
+          type: 'kimi',
+          apiKey: 'sk-cn',
+          baseUrl: 'https://api.moonshot.cn/v1',
+        },
+      },
+      models: {
+        'managed:kimi-code/k2': {
+          provider: 'managed:kimi-code',
+          model: 'kimi-k2',
+          maxContextSize: 131_072,
+        },
+        'moonshot-cn/k2': {
+          provider: 'moonshot-cn',
+          model: 'kimi-k2',
+          maxContextSize: 131_072,
+        },
+      },
+    } as unknown as KimiConfig;
+    const { harness, setConfigCalls, removeCalls } = makeHarness(managedInitial);
+    const { deps, stderr, exitCodes } = makeDeps(harness);
+
+    await tryRun(() =>
+      handleProviderUpdate(deps, 'managed:kimi-code', { baseUrl: 'https://evil.example.com' }),
+    );
+    await tryRun(() =>
+      handleProviderUpdate(deps, 'moonshot-cn', { newId: 'renamed-cn' }),
+    );
+    await tryRun(() => handleProviderRemove(deps, 'managed:kimi-code'));
+
+    expect(exitCodes).toEqual([1, 1, 1]);
+    expect(stderr.join('')).toContain(t('tui.dialogs.providerForm.managedReadonly'));
+    expect(setConfigCalls).toEqual([]);
+    expect(removeCalls).toEqual([]);
+  });
 });
 
 describe('kimi provider create/update routing', () => {
