@@ -1,5 +1,5 @@
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/sdk/shared/stdio.js';
+import { deserializeMessage, serializeMessage } from '@modelcontextprotocol/sdk/shared/stdio.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 
@@ -162,7 +162,7 @@ class RuntimeStdioTransport implements Transport {
   onclose?: () => void;
   onerror?: (error: Error) => void;
   onmessage?: <T extends JSONRPCMessage>(message: T) => void;
-  private readonly readBuffer = new ReadBuffer();
+  private readonly readBuffer = new StdioFrameBuffer();
   private process: IHostProcess | undefined;
   private lease: ReturnType<IRuntimeResolver['acquire']> | undefined;
   private started = false;
@@ -279,9 +279,9 @@ class RuntimeStdioTransport implements Transport {
     this.readBuffer.append(typeof chunk === 'string' ? Buffer.from(chunk) : chunk);
     while (true) {
       try {
-        const message = this.readBuffer.readMessage();
-        if (message === null) return;
-        this.onmessage?.(message);
+        const line = this.readBuffer.readLine();
+        if (line === null) return;
+        this.onmessage?.(deserializeMessage(line));
       } catch (error) {
         this.onerror?.(error instanceof Error ? error : new Error(String(error)));
       }
@@ -320,6 +320,45 @@ class RuntimeStdioTransport implements Transport {
     if (this.drainTimer === undefined) return;
     clearTimeout(this.drainTimer);
     this.drainTimer = undefined;
+  }
+}
+
+export class StdioFrameBuffer {
+  private parts: Buffer[] = [];
+  private scannedParts = 0;
+
+  append(chunk: Buffer): void {
+    if (chunk.length === 0) return;
+    this.parts.push(chunk);
+  }
+
+  readLine(): string | null {
+    for (let index = this.scannedParts; index < this.parts.length; index += 1) {
+      const part = this.parts[index];
+      if (part === undefined) continue;
+      const end = part.indexOf('\n');
+      if (end === -1) continue;
+      const line = this.take(index, end, part);
+      return line.at(-1) === '\r' ? line.slice(0, -1) : line;
+    }
+    this.scannedParts = this.parts.length;
+    return null;
+  }
+
+  clear(): void {
+    this.parts = [];
+    this.scannedParts = 0;
+  }
+
+  private take(index: number, end: number, current: Buffer): string {
+    const parts = this.parts;
+    const line = parts.slice(0, index);
+    line.push(current.subarray(0, end));
+    const rest = current.subarray(end + 1);
+    const tail = parts.slice(index + 1);
+    this.parts = rest.length === 0 ? tail : [rest, ...tail];
+    this.scannedParts = 0;
+    return Buffer.concat(line).toString('utf8');
   }
 }
 

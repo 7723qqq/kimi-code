@@ -46,7 +46,7 @@ import {
   type MachineRequesterGateDecision,
 } from './requester';
 import { appendedStoreJournal, seededStoreJournal } from './storeJournal';
-import { createMachineTools, type MachineTools, type ToolResultExtras } from './tools';
+import { createMachineTools, type MachineTools } from './tools';
 
 export type { PromptGateVerdict };
 
@@ -224,7 +224,6 @@ export interface MachineEngine {
   snapshot(): MachineEngineSnapshot;
   currentStep(): number;
   lastFinish(): AgentLLMRequestFinish | undefined;
-  readonly toolExtras: ReadonlyMap<string, ToolResultExtras>;
   handleToolProgress(toolCallId: string, update: AgentToolUpdate): void;
 }
 
@@ -659,7 +658,6 @@ export function attachMachineEngine(
     },
     lastFinish: () => requester.lastFinish(),
     currentStep: () => currentStep,
-    toolExtras: tools.extras,
     handleToolProgress: (toolCallId, update) => {
       tools.handleProgress(toolCallId, update);
     },

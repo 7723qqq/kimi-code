@@ -118,7 +118,6 @@ function stubAttachEngine(): MachineEngine {
     snapshot: () => ({ running: false, aborting: false, waitingForBackground: false, paused: false, queue: [], queueLength: 0, queueIds: [], notificationCount: 0, reminderCount: 0, backgroundCount: 0 }),
     currentStep: () => 0,
     lastFinish: () => undefined,
-    toolExtras: new Map(),
     handleToolProgress: () => {},
   };
 }

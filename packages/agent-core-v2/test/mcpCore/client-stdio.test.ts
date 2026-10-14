@@ -4,8 +4,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 import { describe, expect, it } from 'vitest';
 
+import { deserializeMessage } from '@modelcontextprotocol/sdk/shared/stdio.js';
+
 import { Error2 } from '#/errors';
-import { BoundedTail, mergeStdioEnv, StdioMcpClient, type StdioMcpClientOptions } from '#/mcpCore/client-stdio';
+import {
+  BoundedTail,
+  mergeStdioEnv,
+  StdioFrameBuffer,
+  StdioMcpClient,
+  type StdioMcpClientOptions,
+} from '#/mcpCore/client-stdio';
 import type { McpServerStdioConfig } from '#/mcpCore/config-schema';
 import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
@@ -398,6 +406,60 @@ describe('mergeStdioEnv', () => {
     const dir = mkdtempSync(join(tmpdir(), 'kimi-mcp-env-'));
     await rm(dir, { recursive: true, force: true });
     expect(mergeStdioEnv(undefined, { PATH: dir })['PATH']).toBe(dir);
+  });
+});
+
+describe('StdioFrameBuffer', () => {
+  const frameOf = (payload: unknown): Buffer => Buffer.from(`${JSON.stringify(payload)}\n`);
+
+  function splitInto(buffer: Buffer, chunkCount: number): Buffer[] {
+    const size = Math.ceil(buffer.length / chunkCount);
+    const chunks: Buffer[] = [];
+    for (let offset = 0; offset < buffer.length; offset += size) {
+      chunks.push(buffer.subarray(offset, Math.min(offset + size, buffer.length)));
+    }
+    return chunks;
+  }
+
+  it('parses one large frame split across many small chunks', () => {
+    const payload = { jsonrpc: '2.0', id: 1, result: { text: 'x'.repeat(1024 * 1024) } };
+    const frame = frameOf(payload);
+    const split = splitInto(frame, 4096);
+    const lines: string[] = [];
+    const buffer = new StdioFrameBuffer();
+    for (const chunk of split) {
+      buffer.append(chunk);
+      const line = buffer.readLine();
+      if (line !== null) lines.push(line);
+    }
+    expect(lines).toHaveLength(1);
+    expect(deserializeMessage(lines[0]!)).toEqual(payload);
+  });
+
+  it('parses two frames delivered in a single chunk', () => {
+    const first = { jsonrpc: '2.0', id: 1, result: {} };
+    const second = { jsonrpc: '2.0', method: 'notifications/progress', params: { progress: 1 } };
+    const buffer = new StdioFrameBuffer();
+    buffer.append(Buffer.concat([frameOf(first), frameOf(second)]));
+    expect(buffer.readLine()).toBe(JSON.stringify(first));
+    expect(buffer.readLine()).toBe(JSON.stringify(second));
+    expect(buffer.readLine()).toBeNull();
+  });
+
+  it('keeps a frame that arrived in the same chunk as its predecessor', () => {
+    const buffer = new StdioFrameBuffer();
+    buffer.append(Buffer.from('{"jsonrpc":"2.0","method":"notifications/initialized"}\n{"jsonrpc":'));
+    expect(buffer.readLine()).toBe('{"jsonrpc":"2.0","method":"notifications/initialized"}');
+    expect(buffer.readLine()).toBeNull();
+    buffer.append(Buffer.from('"2.0","id":7,"result":{"ok":true}}\n'));
+    expect(JSON.parse(buffer.readLine()!)).toEqual({ jsonrpc: '2.0', id: 7, result: { ok: true } });
+    expect(buffer.readLine()).toBeNull();
+  });
+
+  it('strips a CRLF terminator like the SDK read buffer', () => {
+    const buffer = new StdioFrameBuffer();
+    buffer.append(Buffer.from('{"jsonrpc":"2.0","id":1,"result":{}}\r\n'));
+    expect(buffer.readLine()).toBe('{"jsonrpc":"2.0","id":1,"result":{}}');
   });
 });
 

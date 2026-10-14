@@ -291,8 +291,12 @@ export class AntigravityChatProvider {
     }
 
     let aborted = false;
+    let transcriptPoller: ReturnType<typeof setInterval> | undefined;
     const onAbort = () => {
       aborted = true;
+      if (transcriptPoller !== undefined) {
+        clearInterval(transcriptPoller);
+      }
       try {
         child.kill('SIGTERM');
       } catch {}
@@ -436,7 +440,8 @@ export class AntigravityChatProvider {
       }
     };
 
-    const transcriptPoller = setInterval(syncTranscript, 250);
+    transcriptPoller = setInterval(syncTranscript, 250);
+    transcriptPoller.unref?.();
 
     let streamed: AntigravityStreamedMessage;
 
@@ -518,38 +523,44 @@ export class AntigravityChatProvider {
 
     async function* makeGenerator(): AsyncGenerator<StreamedMessagePart> {
       let yieldedAnyText = false;
-      while (true) {
-        if (options?.signal?.aborted || aborted) {
-          throw new DOMException('The operation was aborted.', 'AbortError');
-        }
-        if (queue.length > 0) {
-          const item = queue.shift()!;
-          if (item.type === 'text' && item.text.trim().length > 0) {
-            yieldedAnyText = true;
+      try {
+        while (true) {
+          if (options?.signal?.aborted || aborted) {
+            throw new DOMException('The operation was aborted.', 'AbortError');
           }
-          yield item;
-          continue;
-        }
-        if (errorOccurred) {
-          if (!yieldedAnyText && finalResponseText.length > 0) {
-            yieldedAnyText = true;
-            yield { type: 'text', text: finalResponseText };
+          if (queue.length > 0) {
+            const item = queue.shift()!;
+            if (item.type === 'text' && item.text.trim().length > 0) {
+              yieldedAnyText = true;
+            }
+            yield item;
+            continue;
           }
-          throw errorOccurred;
-        }
-        if (isDone) {
-          if (!yieldedAnyText && finalResponseText.length > 0) {
-            yieldedAnyText = true;
-            yield { type: 'text', text: finalResponseText };
+          if (errorOccurred) {
+            if (!yieldedAnyText && finalResponseText.length > 0) {
+              yieldedAnyText = true;
+              yield { type: 'text', text: finalResponseText };
+            }
+            throw errorOccurred;
           }
-          if (!yieldedAnyText) {
-            yield { type: 'text', text: finalResponseText || ' ' };
+          if (isDone) {
+            if (!yieldedAnyText && finalResponseText.length > 0) {
+              yieldedAnyText = true;
+              yield { type: 'text', text: finalResponseText };
+            }
+            if (!yieldedAnyText) {
+              yield { type: 'text', text: finalResponseText || ' ' };
+            }
+            break;
           }
-          break;
+          await new Promise<void>((resolve) => {
+            resolveNext = resolve;
+          });
         }
-        await new Promise<void>((resolve) => {
-          resolveNext = resolve;
-        });
+      } finally {
+        if (transcriptPoller !== undefined) {
+          clearInterval(transcriptPoller);
+        }
       }
     }
 

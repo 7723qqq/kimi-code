@@ -6,7 +6,6 @@ import type {
 } from '#/agent/toolExecutor/toolExecutor';
 import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
 import type {
-  ToolDelivery,
   ToolInfo,
   ToolResult as AgentToolResult,
   ToolUpdate as AgentToolUpdate,
@@ -19,16 +18,6 @@ const EMPTY_TOOL_PARAMETERS: Record<string, unknown> = {
   type: 'object',
   properties: {},
 };
-
-export interface ToolResultExtras {
-  readonly stopTurn?: boolean;
-  readonly stopTurnReason?: string;
-  readonly note?: string;
-  readonly delivery?: ToolDelivery;
-  readonly stopBatchAfterThis?: boolean;
-  readonly output?: string | ContentPart[];
-  readonly isError?: boolean;
-}
 
 export interface CreateMachineToolsOptions {
   readonly toolExecutor: IAgentToolExecutorService;
@@ -44,7 +33,6 @@ export interface CreateMachineToolsOptions {
 export interface MachineTools {
   readonly tools: ToolDefinition[];
   readonly executor: ToolExecutor;
-  readonly extras: ReadonlyMap<string, ToolResultExtras>;
   sync(): void;
   beginBatch(expectedCalls?: readonly ToolCall[]): void;
   handleProgress(toolCallId: string, update: AgentToolUpdate): void;
@@ -61,7 +49,6 @@ function toContentParts(output: string | ContentPart[]): ContentPart[] {
 }
 
 export function createMachineTools(options: CreateMachineToolsOptions): MachineTools {
-  const extras = new Map<string, ToolResultExtras>();
   const progressHandlers = new Map<string, ((update: ToolUpdate) => void) | undefined>();
   const definitions = new Map<string, ToolDefinition>();
   const tools: ToolDefinition[] = [];
@@ -171,15 +158,6 @@ export function createMachineTools(options: CreateMachineToolsOptions): MachineT
     const id = entry.input.toolCall.id;
     const { result } = matched;
     options.onToolResult?.(id, result, matched.durationMs);
-    extras.set(id, {
-      stopTurn: result.stopTurn,
-      stopTurnReason: result.stopTurnReason,
-      note: result.note,
-      delivery: result.delivery,
-      stopBatchAfterThis: result.stopBatchAfterThis,
-      output: result.output,
-      isError: result.isError,
-    });
     settleEntry(entry, {
       content: toContentParts(result.output),
       isError: result.isError === true ? true : undefined,
@@ -257,7 +235,6 @@ export function createMachineTools(options: CreateMachineToolsOptions): MachineT
         return tool.execute(input);
       },
     },
-    extras,
     sync: materialize,
     beginBatch: (expectedCalls) => {
       materialize();

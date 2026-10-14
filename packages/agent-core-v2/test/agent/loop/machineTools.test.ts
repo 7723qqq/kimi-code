@@ -75,8 +75,6 @@ describe('createMachineTools duplicate tool call ids', () => {
     expect(secondResult.content).toEqual([{ type: 'text', text: 'ok:t1' }]);
     expect(secondResult.isError).toBeUndefined();
     expect(thirdResult.content).toEqual([{ type: 'text', text: 'ok:t2' }]);
-    expect(tools.extras.has('t1')).toBe(true);
-    expect(tools.extras.has('t2')).toBe(true);
   });
 
   it('settles pending calls that the replaced expected set can no longer satisfy', async () => {

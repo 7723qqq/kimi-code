@@ -105,11 +105,24 @@ export function parseTree(entries: readonly WireLine[], lastLine: number): WireT
   };
 }
 
+function firstLineAtOrAfter(entries: readonly WireLine[], line: number): number {
+  let low = 0;
+  let high = entries.length;
+  while (low < high) {
+    const mid = (low + high) >> 1;
+    if (entries[mid]!.line < line) low = mid + 1;
+    else high = mid;
+  }
+  return low;
+}
+
 export function activeChain(entries: readonly WireLine[], tree: WireTree): WireLine[] {
   const segments = new Map(tree.segments.map((segment) => [segment.branch, segment]));
-  const out: WireLine[] = [];
+  const windows: { readonly fromLine: number; readonly toLine: number }[] = [];
   const visited = new Set<string>();
-  const walk = (branch: string, upto: number | undefined): void => {
+  let branch: string | undefined = tree.activeBranch;
+  let upto: number | undefined;
+  while (branch !== undefined) {
     if (visited.has(branch)) {
       throw new Error(`agent.switched base chain cycles at branch '${branch}'`);
     }
@@ -118,15 +131,22 @@ export function activeChain(entries: readonly WireLine[], tree: WireTree): WireL
     if (segment === undefined) {
       throw new Error(`agent.switched base chain references unknown branch '${branch}'`);
     }
-    if (segment.edge !== undefined) walk(segment.edge.base.branch, segment.edge.base.line);
-    const floor = segment.edge === undefined ? 1 : segment.edge.line + 1;
-    const ceil = upto ?? segment.toLine;
-    for (const entry of entries) {
+    windows.push({
+      fromLine: segment.edge === undefined ? 1 : segment.edge.line + 1,
+      toLine: upto ?? segment.toLine,
+    });
+    upto = segment.edge?.base.line;
+    branch = segment.edge?.base.branch;
+  }
+  const out: WireLine[] = [];
+  for (let position = windows.length - 1; position >= 0; position -= 1) {
+    const { fromLine, toLine } = windows[position]!;
+    for (let index = firstLineAtOrAfter(entries, fromLine); index < entries.length; index += 1) {
+      const entry = entries[index]!;
+      if (entry.line > toLine) break;
       if (entry.record.type === AGENT_SWITCHED_TYPE) continue;
-      if (entry.line < floor || entry.line > ceil) continue;
       out.push(entry);
     }
-  };
-  walk(tree.activeBranch, undefined);
+  }
   return out;
 }

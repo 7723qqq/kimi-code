@@ -209,7 +209,6 @@ function stubAttachEngine(): MachineEngine {
     }),
     currentStep: () => 0,
     lastFinish: () => undefined,
-    toolExtras: new Map(),
     handleToolProgress: () => {},
   };
 }
