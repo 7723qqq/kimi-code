@@ -43,7 +43,9 @@ export function resolveModelAuthMaterial(args: {
     };
   }
 
-  const providerAuthType = args.provider?.type ?? args.model.protocol;
+  const rawAuthType = args.provider?.type ?? args.model.protocol;
+  const providerAuthType =
+    rawAuthType === LEGACY_VERTEX_PROVIDER_TYPE ? 'google-genai' : rawAuthType;
   const providerEndpoint =
     providerAuthType === undefined
       ? {}
@@ -173,7 +175,9 @@ export function resolveEndpointBaseUrl(
   if (fromProvider !== undefined) {
     return fromProvider;
   }
-  const endpointType = provider.type ?? model.protocol;
+  const rawEndpointType = provider.type ?? model.protocol;
+  const endpointType =
+    rawEndpointType === LEGACY_VERTEX_PROVIDER_TYPE ? 'google-genai' : rawEndpointType;
   const endpoint =
     endpointType === undefined ? {} : explainProviderEndpoint(endpointType, provider.env ?? {});
   return nonEmpty(endpoint.baseUrl);

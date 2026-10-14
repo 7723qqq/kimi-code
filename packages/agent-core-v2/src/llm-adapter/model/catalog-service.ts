@@ -592,6 +592,10 @@ function buildProtocolProviderOptions(
         options.vertexai = true;
         options.project = project;
         options.location = location;
+      } else if (provider?.type === 'vertexai') {
+        options.vertexai = true;
+        if (project !== undefined) options.project = project;
+        if (location !== undefined) options.location = location;
       }
       break;
     }
@@ -645,7 +649,8 @@ function hasConfiguredApiKey(provider: CatalogProviderInfo): boolean {
   const apiKeyEnv = nonEmpty(provider.apiKeyEnv);
   if (apiKeyEnv !== undefined) return nonEmpty(process.env[apiKeyEnv]) !== undefined;
   if (provider.type === undefined) return false;
-  return resolveProviderEndpoint(provider.type, provider.env ?? {}).apiKey !== undefined;
+  const endpointType = provider.type === 'vertexai' ? 'google-genai' : provider.type;
+  return resolveProviderEndpoint(endpointType, provider.env ?? {}).apiKey !== undefined;
 }
 
 registerScopedService(
