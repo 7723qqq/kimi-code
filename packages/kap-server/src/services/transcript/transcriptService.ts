@@ -98,7 +98,10 @@ export class TranscriptService {
     string,
     Set<(event: TranscriptChangeEvent, seq: number) => void>
   >();
-  private readonly healTimers = new Map<string, { ordinals: Set<number>; timer: NodeJS.Timeout }>();
+  private readonly healTimers = new Map<
+    string,
+    { ordinals: Set<number>; timer: NodeJS.Timeout; firstScheduledAt: number }
+  >();
   private readonly wireCache = new WireRecordCache();
 
   constructor(private readonly deps: TranscriptServiceDeps) {
@@ -320,16 +323,17 @@ export class TranscriptService {
     const existing = this.healTimers.get(key);
     if (existing !== undefined) {
       existing.ordinals.add(ordinal);
-      existing.timer.refresh();
+      if (Date.now() - existing.firstScheduledAt < TURN_HEAL_MAX_DELAY_MS) existing.timer.refresh();
       return;
     }
     const ordinals = new Set([ordinal]);
+    const firstScheduledAt = Date.now();
     const timer = setTimeout(() => {
       this.healTimers.delete(key);
       void this.healEndedTurns(sessionId, agentId, ordinals);
     }, TURN_HEAL_DEBOUNCE_MS);
     timer.unref();
-    this.healTimers.set(key, { ordinals, timer });
+    this.healTimers.set(key, { ordinals, timer, firstScheduledAt });
   }
 
   private liveTurnOverlay(
@@ -814,6 +818,7 @@ export function snapshotTurnOps(turn: TranscriptTurn): TranscriptOperation[] {
 }
 
 const TURN_HEAL_DEBOUNCE_MS = 250;
+const TURN_HEAL_MAX_DELAY_MS = 2000;
 const TERMINAL_TURN_STATES: ReadonlySet<TranscriptTurn['state']> = new Set([
   'completed',
   'failed',
