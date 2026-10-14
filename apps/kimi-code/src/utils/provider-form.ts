@@ -220,6 +220,44 @@ export function formatKeyValueList(map: Record<string, string> | undefined): str
     .join(', ');
 }
 
+/**
+ * The text a PARTIAL write leaves behind, for the two repeatable CLI flags that
+ * have no text field of their own: the named entries merged OVER the stored
+ * record, or exactly the named entries when the caller asked to clear first.
+ *
+ * Merging is the whole point — a replacement would silently drop every entry the
+ * command line did not name (`--custom-header X-Trace=1` taking a stored
+ * `Authorization` with it), and the TUI cannot lose them because it hands over
+ * the prefilled text instead. `--clear-custom-headers`/`--clear-env` alongside a
+ * value flag is the spelled-out way to replace.
+ *
+ * An entry that does not parse is kept as typed rather than dropped here, so
+ * `validateProviderForm` reports it instead of this layer swallowing it.
+ * `undefined` means "leave the stored record alone".
+ */
+export function mergeKeyValueText(
+  entries: readonly string[] | undefined,
+  clear: boolean | undefined,
+  stored: Record<string, string> | undefined,
+): string | undefined {
+  if (entries === undefined || entries.length === 0) {
+    return clear === true ? '' : undefined;
+  }
+  const merged = new Map<string, string>(clear === true ? [] : Object.entries(stored ?? {}));
+  const unparsed: string[] = [];
+  for (const entry of entries) {
+    const separator = entry.indexOf('=');
+    const key = separator > 0 ? entry.slice(0, separator).trim() : '';
+    if (key === '') {
+      unparsed.push(entry);
+      continue;
+    }
+    merged.set(key, entry.slice(separator + 1).trim());
+  }
+  const text = formatKeyValueList(Object.fromEntries(merged));
+  return [text, ...unparsed].filter((part) => part !== '').join(', ');
+}
+
 export interface PlanEditWriteOptions {
   /**
    * The edit form left the API key field blank on purpose: write an explicit
@@ -531,10 +569,7 @@ function buildModelAlias(
 }
 
 /** The aliases of one provider, keyed by model id so edit rows can match them. */
-function collectProviderAliases(
-  current: KimiConfig,
-  providerId: string,
-): Map<string, ModelAlias> {
+function collectProviderAliases(current: KimiConfig, providerId: string): Map<string, ModelAlias> {
   const aliases = new Map<string, ModelAlias>();
   for (const [key, alias] of Object.entries(current.models ?? {})) {
     if (alias.provider !== providerId) continue;
@@ -579,11 +614,21 @@ export function buildAddPatch(value: ProviderFormValue): KimiConfigPatch {
  * and `searchDisable` are dropped there. An alias matched by model id is
  * rebuilt from its old object for the same reason.
  *
+ * Alias keys are NOT all rebuilt, because the removal this pairs with cascades
+ * every alias whose `provider` names the previous id — including keys the form
+ * never shows, such as a hand-written `[models.fast]`. A key the form does not
+ * build itself is therefore CARRIED: verbatim key, unchanged model, `provider`
+ * rewritten to the new id. A key is carried only while its model is still a
+ * submitted row, so deleting a row still deletes its aliases, and it is never
+ * carried over a key the rebuild writes — which is what keeps a rename from
+ * leaving the old id behind as a second key for one model.
+ *
  * The plan carries both shapes of the same write: the patch for a host that
  * merges, and {@link PlanEditWriteResult.sections} for a host that can replace
  * the affected sections in one write. `persistProviderWrite` picks between
  * them; the two leave identical configs, which is what
- * `test/utils/provider-form.test.ts` pins down.
+ * `test/utils/provider-form.test.ts` pins down. The carried keys join the same
+ * `models` map that feeds both, so the two shapes agree about them too.
  */
 export function planEditWrite(
   current: KimiConfig,
@@ -599,6 +644,21 @@ export function planEditWrite(
   for (const row of value.models) {
     const model = row.model.trim();
     models[`${newId}/${model}`] = buildModelAlias(row, newId, previousAliases.get(model));
+  }
+
+  // Alias keys this write does not build — a hand-written `[models.fast]` — are
+  // carried over instead of being left to the removal, which cascades EVERY
+  // alias of the previous id. Without this an edit that never mentions models
+  // would delete them. A model the form no longer lists takes its keys with it,
+  // and the previous id's canonical key is left to the rebuild above so a rename
+  // cannot leave the old spelling behind as a second key for one model.
+  const submittedModels = new Set(value.models.map((row) => row.model.trim()));
+  for (const [key, alias] of Object.entries(current.models ?? {})) {
+    if (alias.provider !== previousId) continue;
+    if (Object.hasOwn(models, key)) continue;
+    if (key === `${previousId}/${alias.model}`) continue;
+    if (!submittedModels.has(alias.model.trim())) continue;
+    models[key] = { ...alias, provider: newId };
   }
 
   const provider: ProviderConfig = { ...previousProvider, type: value.type };

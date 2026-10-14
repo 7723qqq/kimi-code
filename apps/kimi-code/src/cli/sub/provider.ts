@@ -49,6 +49,7 @@ import {
   buildAddPatch,
   CAPABILITY_NAMES,
   formatEffortList,
+  mergeKeyValueText,
   parseList,
   planEditWrite,
   PROVIDER_WIRE_TYPES,
@@ -59,6 +60,7 @@ import {
   type ProviderFormValue,
   type ProviderWireType,
 } from '#/utils/provider-form';
+import { isLoginAccountProviderId, isProviderIdLocked } from '#/utils/provider-managed';
 import { persistProviderWrite, providerSectionsOf } from '#/utils/provider-write';
 
 interface WritableLike {
@@ -169,10 +171,13 @@ interface CreateOptions {
    */
   readonly providerDefaultModel?: string;
   /**
-   * `--custom-header k=v`, repeatable. The entries are joined into the
+   * `--custom-header k=v`, repeatable. The entries are MERGED over the stored
+   * map, so naming one header keeps every header this line does not mention; an
+   * omitted flag keeps the stored map untouched, and `--clear-custom-headers`
+   * is what drops entries — alone for the whole map, or alongside this flag to
+   * replace it with exactly the entries named. The entries are joined into the
    * `k=v, k2=v2` text the shared parser reads, so a value cannot contain a
-   * comma; an omitted flag keeps the stored map and `--clear-custom-headers`
-   * empties it (a `--custom-header` given alongside wins).
+   * comma.
    */
   readonly customHeader?: readonly string[];
   /** `--env k=v`, repeatable: provider-scoped environment, shaped like `--custom-header`. */
@@ -254,7 +259,19 @@ export async function handleProviderAdd(
   }
 }
 
-export async function handleProviderRemove(deps: ProviderDeps, providerId: string): Promise<void> {
+/**
+ * `--force` is the escape hatch for the one removal `remove` refuses by
+ * default: the account `/login` and `/logout` own.
+ */
+interface RemoveOptions {
+  readonly force?: boolean;
+}
+
+export async function handleProviderRemove(
+  deps: ProviderDeps,
+  providerId: string,
+  opts: RemoveOptions = {},
+): Promise<void> {
   const harness = deps.getHarness();
   await harness.ensureConfigFile();
   const config = await harness.getConfig();
@@ -263,9 +280,21 @@ export async function handleProviderRemove(deps: ProviderDeps, providerId: strin
     deps.stderr.write(t('tui.statusMessages.providerNotFound', { id: providerId }) + '\n');
     deps.exit(1);
   }
-  if (target.oauth !== undefined) {
-    deps.stderr.write(t('tui.dialogs.providerForm.managedReadonly') + '\n');
-    deps.exit(1);
+  // `/login` and `/logout` own this record — the TUI hides its row outright —
+  // so deleting it here throws the credential away behind the account's own
+  // commands, which re-provision it on the next login. `--force` is the
+  // escape hatch for the removal a user really means.
+  if (opts.force !== true) {
+    if (isLoginAccountProviderId(providerId)) {
+      deps.stderr.write(
+        t('tui.statusMessages.providerRemoveLoginAccount', { id: providerId }) + '\n',
+      );
+      deps.exit(1);
+    }
+    if (target.oauth !== undefined) {
+      deps.stderr.write(t('tui.dialogs.providerForm.managedReadonly') + '\n');
+      deps.exit(1);
+    }
   }
   await harness.removeProvider(providerId);
   deps.stdout.write(t('tui.statusMessages.providerRemoved', { id: providerId }) + '\n');
@@ -327,6 +356,17 @@ export async function handleProviderUpdate(
   }
   if (previous.oauth !== undefined || isOpenPlatformId(providerId)) {
     deps.stderr.write(t('tui.dialogs.providerForm.managedReadonly') + '\n');
+    deps.exit(1);
+  }
+
+  // The id of a login account, an Open Platform provider or a registry import
+  // is owned outside the config, so renaming it here would not move the record:
+  // it would write a copy under the new id and orphan the credential — and the
+  // registry entry — the old one points at, which the next refresh or login
+  // then re-adds beside the copy. Editing config.toml by hand stays possible.
+  const renamedId = (opts.newId ?? '').trim();
+  if (renamedId !== '' && renamedId !== providerId && isProviderIdLocked(providerId, previous)) {
+    deps.stderr.write(t('tui.dialogs.providerForm.error.idLocked', { id: providerId }) + '\n');
     deps.exit(1);
   }
 
@@ -579,36 +619,33 @@ function modelRowFromOptions(
 }
 
 /**
- * `k=v` entries as the `k=v, k2=v2` text the shared parser reads. An untouched
- * repeatable flag collects nothing at all, which keeps the stored record; the
- * `--clear-*` spelling is the explicit way to empty it.
- */
-function keyValueField(
-  entries: readonly string[] | undefined,
-  clear: boolean | undefined,
-): string | undefined {
-  if (entries !== undefined && entries.length > 0) return entries.join(', ');
-  return clear === true ? '' : undefined;
-}
-
-/**
  * The provider-level fields the two manual commands share.
  *
  * `--api-key-env` and `--provider-default-model` follow the file's own-vs-keep
  * rule: an omitted flag leaves the property `undefined`, which the write layer
  * reads as "keep the stored value", while an explicit empty value asks for the
- * field to be dropped. The two `k=v` records come from repeatable flags joined
- * into the text the shared parser reads; `--clear-*` empties one, and a value
- * flag given alongside it wins because it names what to write.
+ * field to be dropped.
+ *
+ * The two `k=v` records are MERGED by the shared helper rather than joined
+ * here: the flags carry only what this command line names while the write layer
+ * replaces the whole record, so joining them would take every stored entry the
+ * line did not name down with it — the silent loss a lone `--custom-header
+ * X-Trace=1` used to cause. `stored` is the record to merge over: the caller's
+ * `previous` on an edit, and `undefined` on `create`, which has none.
  */
 function providerFieldsFromOptions(
   opts: CreateOptions,
+  stored?: Pick<NonNullable<KimiConfig['providers'][string]>, 'customHeaders' | 'env'>,
 ): Pick<ProviderFormValue, 'apiKeyEnv' | 'defaultModel' | 'customHeaders' | 'env'> {
   return {
     apiKeyEnv: opts.apiKeyEnv,
     defaultModel: opts.providerDefaultModel,
-    customHeaders: keyValueField(opts.customHeader, opts.clearCustomHeaders),
-    env: keyValueField(opts.env, opts.clearEnv),
+    customHeaders: mergeKeyValueText(
+      opts.customHeader,
+      opts.clearCustomHeaders,
+      stored?.customHeaders,
+    ),
+    env: mergeKeyValueText(opts.env, opts.clearEnv, stored?.env),
   };
 }
 
@@ -685,7 +722,7 @@ function updateFormInput(
     // An explicit `--api-key ''` still drops the stored key (`clearApiKey`).
     apiKey: opts.apiKey ?? previous.apiKey ?? '',
     baseUrl: opts.baseUrl ?? previous.baseUrl ?? '',
-    ...providerFieldsFromOptions(opts),
+    ...providerFieldsFromOptions(opts, previous),
     ...(opts.apiKeyEnv === undefined && previous.apiKeyEnv !== undefined
       ? { apiKeyEnv: previous.apiKeyEnv }
       : undefined),
@@ -1104,9 +1141,12 @@ export function registerProviderCommand(parent: Command, deps?: Partial<Provider
   provider
     .command('remove <providerId>')
     .description(t('cli.commandDescriptions.providerRemove'))
-    .action(async (providerId: string) => {
+    .option('--force', t('cli.optionDescriptions.providerRemoveForce'))
+    .action(async (providerId: string, options: { force?: boolean }) => {
       const resolved = resolveDeps(deps);
-      await runAction(resolved, () => handleProviderRemove(resolved, providerId));
+      await runAction(resolved, () =>
+        handleProviderRemove(resolved, providerId, { force: options.force === true }),
+      );
     });
 
   provider

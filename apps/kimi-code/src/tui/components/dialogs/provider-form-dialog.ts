@@ -43,7 +43,10 @@
  * provider is written with `oauth` dropped — and getting it wrong is not
  * cosmetic: renaming one would orphan its credential and let the next refresh
  * re-add the original id beside it. Nothing is focusable in that mode, no key
- * mutates the form, and the footer explains why.
+ * mutates the form, and the footer explains why. `idLocked` is the narrower
+ * version of the same call, for a record whose identity alone is owned outside
+ * (a custom-registry import, matched against the registry by id): every field
+ * stays editable, only the id refuses input, and the note beside it says why.
  */
 
 import type { ProviderConfig, ProviderType } from '@moonshot-ai/kimi-code-sdk';
@@ -104,6 +107,16 @@ export interface ProviderFormDialogOptions {
    * and let the next refresh re-add the original id beside it.
    */
   readonly readOnly?: boolean;
+  /**
+   * Locks the id field alone, for a record whose identity is owned outside the
+   * form while the rest of it is not (a custom-registry import: its models are
+   * re-fetched from the registry, but the id has to keep matching the entry
+   * the registry was imported from, or the next refresh drops this record and
+   * re-adds the registry's own id beside it). The field stays visible and
+   * focusable so the id can be read, and it renders the reason it rejects
+   * input instead of swallowing keystrokes in silence.
+   */
+  readonly idLocked?: boolean;
 }
 
 export type ProviderFormDialogResult =
@@ -273,10 +286,21 @@ function toggleStateText(value: ProviderFormToggle | undefined): string {
  * The state `Space` moves to: not declared → enabled → disabled → not declared.
  * A `'clear'` handed in by a caller sits at the undeclared position, so the
  * first press declares the field instead of deleting it again.
+ *
+ * `declared` is what the STORED row said about the field when the editor opened
+ * on it, and it is what separates the two `false` positions. A `false` the
+ * record declared is a declaration of its own (the engine reads it as the
+ * budget-effort ladder), so the next press has to be `'clear'` — DELETE the key.
+ * The undeclared position instead means "the form does not own this field", and
+ * with it `commitRow` writes nothing, leaving the old `false` in place: the line
+ * would read "not declared" while the write kept the key.
  */
-function nextToggleState(value: ProviderFormToggle | undefined): ProviderFormToggle | undefined {
+function nextToggleState(
+  value: ProviderFormToggle | undefined,
+  declared: boolean,
+): ProviderFormToggle | undefined {
   if (value === true) return false;
-  if (value === false) return undefined;
+  if (value === false) return declared ? 'clear' : undefined;
   return true;
 }
 
@@ -311,6 +335,9 @@ export class ProviderFormDialogComponent extends Container implements Focusable 
 
   /** True when the caller marked the record managed: every field is locked. */
   readonly disabled: boolean;
+
+  /** True when the caller locked the id alone: the record's identity is owned outside. */
+  readonly idLocked: boolean;
 
   private readonly mode: 'add' | 'edit';
   private readonly onDone: (result: ProviderFormDialogResult) => void;
@@ -363,6 +390,15 @@ export class ProviderFormDialogComponent extends Container implements Focusable 
   private rowAdaptiveThinking: ProviderFormToggle | undefined;
   /** Beta API being edited; the same three states as {@link rowAdaptiveThinking}. */
   private rowBetaApi: ProviderFormToggle | undefined;
+  /**
+   * Whether the row this editor opened on DECLARED each toggle. A stored `false`
+   * is a declaration of its own, so `Space` has to delete the key from there
+   * rather than drop back to the position that keeps it; see
+   * {@link nextToggleState}. Reset with the rest of the row-editor state, so a
+   * later visit to the row re-reads what the row says then.
+   */
+  private rowAdaptiveThinkingDeclared = false;
+  private rowBetaApiDeclared = false;
   /** The protocol override being edited; `''` lets the provider's type decide. */
   private rowProtocol: '' | 'anthropic' | 'openai_responses' = '';
   /** The selected default effort; `''` is the leading "not declared" position. */
@@ -381,6 +417,7 @@ export class ProviderFormDialogComponent extends Container implements Focusable 
 
     const provider = options.mode === 'edit' ? options.provider : undefined;
     this.disabled = options.readOnly === true;
+    this.idLocked = options.idLocked === true;
     const storedType = provider?.type;
     this.types =
       storedType === undefined || (PROVIDER_WIRE_TYPES as readonly string[]).includes(storedType)
@@ -552,6 +589,14 @@ export class ProviderFormDialogComponent extends Container implements Focusable 
       this.apiKeyRevealed = !this.apiKeyRevealed;
       return;
     }
+    if (this.activeField === 'id' && this.idLocked && !isSubmit(data)) {
+      // The id is the record's identity, owned by whatever re-provisions the
+      // record BY ID. Swallowing the keys in silence would leave the user typing
+      // into a dead field, so the note under it carries the reason
+      // (`idNoteLines`) — and Enter still advances, because the field is closed
+      // to edits, not to navigation. The value it keeps is what gets submitted.
+      return;
+    }
 
     this.hint = null;
     this.activeInput().handleInput(data);
@@ -606,6 +651,7 @@ export class ProviderFormDialogComponent extends Container implements Focusable 
       '',
       labelStyled(t('tui.dialogs.providerForm.idLabel'), fieldFocused('id')),
       this.inputLine(this.idInput, innerWidth),
+      ...this.idNoteLines(),
       '',
       labelStyled(t('tui.dialogs.providerForm.typeLabel'), fieldFocused('type')),
       this.typeLine(),
@@ -734,6 +780,20 @@ export class ProviderFormDialogComponent extends Container implements Focusable 
     if (this.disabled) return t('tui.dialogs.providerForm.apiKeyManaged');
     if (this.activeField !== 'apiKey' || this.apiKeyRevealed) return null;
     return t('tui.dialogs.providerForm.apiKeyRevealHint');
+  }
+
+  /**
+   * The reason a locked id refuses input, shown for as long as the lock is in
+   * force. It renders from the moment the form opens rather than only once the
+   * user has typed into the field: the whole point of the lock is that the field
+   * is dead, and a dead field the user had to discover by trial is what this
+   * note exists to prevent. The fully read-only form is left out —
+   * `managedReadonly` already says why nothing there can be edited, and for an
+   * `oauth` record the registry rule would name the wrong reason.
+   */
+  private idNoteLines(): string[] {
+    if (!this.idLocked || this.disabled) return [];
+    return [currentTheme.fg('textMuted', t('tui.dialogs.providerForm.idLockedHint'))];
   }
 
   private typeLine(): string {
@@ -994,7 +1054,9 @@ export class ProviderFormDialogComponent extends Container implements Focusable 
     this.rowCapabilities = row.capabilities === undefined ? undefined : [...row.capabilities];
     this.rowCapabilityCursor = 0;
     this.rowAdaptiveThinking = row.adaptiveThinking;
+    this.rowAdaptiveThinkingDeclared = row.adaptiveThinking !== undefined;
     this.rowBetaApi = row.betaApi;
+    this.rowBetaApiDeclared = row.betaApi !== undefined;
     this.rowProtocol = row.protocol ?? '';
     // A stored value is presented as it is, even when the ladder does not offer
     // it: the form never rewrites a declaration it cannot show, and validation
@@ -1156,13 +1218,16 @@ export class ProviderFormDialogComponent extends Container implements Focusable 
     this.rowCapabilities = CAPABILITY_NAMES.filter((capability) => selected.has(capability));
   }
 
-  /** Space on a toggle field: not declared → enabled → disabled → not declared. */
+  /** Space on a toggle field: see {@link nextToggleState} for the positions. */
   private toggleRowSwitch(field: 'adaptiveThinking' | 'betaApi'): void {
     if (field === 'adaptiveThinking') {
-      this.rowAdaptiveThinking = nextToggleState(this.rowAdaptiveThinking);
+      this.rowAdaptiveThinking = nextToggleState(
+        this.rowAdaptiveThinking,
+        this.rowAdaptiveThinkingDeclared,
+      );
       return;
     }
-    this.rowBetaApi = nextToggleState(this.rowBetaApi);
+    this.rowBetaApi = nextToggleState(this.rowBetaApi, this.rowBetaApiDeclared);
   }
 
   /**
@@ -1286,10 +1351,10 @@ export class ProviderFormDialogComponent extends Container implements Focusable 
           const row = this.models[i];
           if (row === undefined) continue;
           const context = row.maxContextSize.trim();
-          if (
-            context !== '' &&
-            (!POSITIVE_INTEGER_PATTERN.test(context) || Number(context) < 1)
-          ) {
+          // The validator's rule, term for term: the pattern alone accepts `0`,
+          // so deriving it from the pattern let `0` match no row at all and the
+          // `findIndex === -1` fallback pointed at row 1 instead of the offender.
+          if (context !== '' && (!POSITIVE_INTEGER_PATTERN.test(context) || Number(context) < 1)) {
             this.activeField = 'models';
             this.selectRow(i);
             this.openRowEditor();

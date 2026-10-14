@@ -1,4 +1,3 @@
-import { isOpenPlatformId } from '@moonshot-ai/kimi-code-oauth';
 import {
   applyCatalogProvider,
   catalogProviderModels,
@@ -25,6 +24,7 @@ import {
   type ProviderFormModelRow,
   type ProviderFormValue,
 } from '#/utils/provider-form';
+import { isFormReadOnlyProvider, isProviderIdLocked } from '#/utils/provider-managed';
 import { persistProviderWrite, providerSectionsOf } from '#/utils/provider-write';
 
 import { ChoicePickerComponent } from '../components/dialogs/choice-picker';
@@ -560,8 +560,11 @@ async function handleProviderEdit(host: SlashCommandHost, providerId: string): P
     // Both kinds of managed record are read-only here. `oauth` alone would miss
     // the Open Platform providers — they are written with `oauth` dropped — and
     // renaming one orphans its credential while the next refresh re-adds the
-    // original id beside the renamed copy.
-    readOnly: provider.oauth !== undefined || isOpenPlatformId(targetId),
+    // original id beside the renamed copy. A registry import is the narrower
+    // case: its models are re-fetched from the registry, so only the id it is
+    // looked up by is closed to edits.
+    readOnly: isFormReadOnlyProvider(targetId, provider),
+    idLocked: isProviderIdLocked(targetId, provider),
   });
   if (value === undefined) {
     reopenProviderManager(host);
@@ -589,7 +592,10 @@ async function handleProviderEdit(host: SlashCommandHost, providerId: string): P
   try {
     await persistProviderWrite(host.harness, plan);
     await host.authFlow.refreshConfigAfterLogin();
-    host.showStatus(t('tui.statusMessages.providerFormUpdated', { id: value.id.trim() }), 'success');
+    host.showStatus(
+      t('tui.statusMessages.providerFormUpdated', { id: value.id.trim() }),
+      'success',
+    );
   } catch (error) {
     host.showError(
       t('tui.statusMessages.providerFormFailed', { error: formatErrorMessage(error) }),
@@ -598,21 +604,24 @@ async function handleProviderEdit(host: SlashCommandHost, providerId: string): P
   reopenProviderManager(host);
 }
 
+function registryEntryKey(provider: KimiConfig['providers'][string]): string | undefined {
+  const source = provider.source as
+    | { readonly kind?: unknown; readonly url?: unknown; readonly apiKey?: unknown }
+    | undefined;
+  if (source?.kind !== 'apiJson') return undefined;
+  if (typeof source.url !== 'string') return undefined;
+  return `${source.url}\u0000${typeof source.apiKey === 'string' ? source.apiKey : ''}`;
+}
+
 function customRegistrySiblingIds(
   config: KimiConfig,
   provider: KimiConfig['providers'][string],
 ): string[] {
-  const source = provider.source;
-  if (source?.kind !== 'apiJson') return [];
+  const key = registryEntryKey(provider);
+  if (key === undefined) return [];
   const ids: string[] = [];
   for (const [id, candidate] of Object.entries(config.providers)) {
-    if (
-      candidate.source?.kind === 'apiJson' &&
-      candidate.source.url === source.url &&
-      candidate.source.apiKey === source.apiKey
-    ) {
-      ids.push(id);
-    }
+    if (registryEntryKey(candidate) === key) ids.push(id);
   }
   return ids;
 }

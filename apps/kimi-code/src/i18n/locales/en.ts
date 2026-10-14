@@ -483,6 +483,8 @@ export default {
       providerApiKey:
         'Registry API key. Falls back to KIMI_REGISTRY_API_KEY; omit both for public registries.',
       providerListJson: 'Emit the raw providers/models config as JSON.',
+      providerRemoveForce:
+        'Remove the /login account as well, which is refused without this flag.',
       providerCatalogFilter: 'Case-insensitive id/name substring filter.',
       providerCatalogJson: 'Emit the matching catalog slice as JSON.',
       providerCatalogApiKey: 'API key for the provider. Falls back to KIMI_REGISTRY_API_KEY.',
@@ -501,10 +503,12 @@ export default {
       providerCreateNewId: 'Rename the provider to this id.',
       providerCreateApiKeyEnv: 'Env var name holding the API key, instead of --api-key.',
       providerCreateProviderDefaultModel: "This provider's own default model, by model ID.",
-      providerCreateCustomHeader: 'Request header as k=v. Repeatable.',
-      providerCreateEnv: 'Provider env entry as k=v. Repeatable.',
-      providerClearCustomHeaders: 'Clear every request header.',
-      providerClearEnv: 'Clear the provider env.',
+      providerCreateCustomHeader:
+        'Request header as k=v, merged over the stored headers. Repeatable.',
+      providerCreateEnv: 'Provider env entry as k=v, merged over the stored env. Repeatable.',
+      providerClearCustomHeaders:
+        'Clear the stored request headers; with --custom-header, replace them with exactly those.',
+      providerClearEnv: 'Clear the stored provider env; with --env, replace it with exactly those.',
       providerCreateProtocol: 'Per-model protocol override: none, anthropic or openai_responses.',
       providerCreateModelBaseUrl: 'Per-model endpoint override.',
       providerCreateReasoningKey: 'Wire field carrying reasoning content.',
@@ -694,7 +698,6 @@ export default {
       workflowCancelUsage: 'Usage: /workflow cancel <runId>',
       team: 'Start a team discussion among multiple agents',
       secondaryModel: 'Configure the secondary model for subagents',
-      multiLlm: 'Configure MultiLLM concurrent providers (Rust engine)',
       model: 'Switch LLM model',
       effort: 'Switch thinking effort',
       provider: 'Manage AI providers (add / delete / refresh)',
@@ -968,6 +971,8 @@ export default {
         apiKeyRevealHint: 'Ctrl-R to reveal',
         managedReadonly:
           'This provider is managed by Kimi Code; its settings cannot be edited here.',
+        idLockedHint:
+          'Imported from a custom registry — the ID must keep matching the registry entry, so it cannot be changed here.',
         error: {
           idRequired: 'Provider ID is required.',
           idInvalid:
@@ -991,6 +996,8 @@ export default {
           envInvalid: 'Provider env must be comma-separated k=v pairs.',
           idTaken: 'That provider ID already exists',
           aliasConflict: 'Those model aliases belong to another provider',
+          idLocked:
+            'The ID of "{{id}}" is managed outside config.toml, so it cannot be renamed here — edit config.toml by hand instead.',
         },
       },
       editorSelector: {
@@ -1987,6 +1994,8 @@ export default {
       providerNoUsable: 'Registry at {{url}} contained no usable providers.',
       providerNotFound: 'Provider "{{id}}" not found.',
       providerRemoved: 'Removed provider "{{id}}".',
+      providerRemoveLoginAccount:
+        'Provider "{{id}}" is the account /login and /logout manage, so removing it deletes the stored credential and its models. Pass --force to remove it anyway.',
       providerNoneConfigured: 'No providers configured.',
       providerDefaultModel: 'Default model: {{model}}',
       providerCatalogNoMatch: 'No providers in catalog match "{{filter}}".',

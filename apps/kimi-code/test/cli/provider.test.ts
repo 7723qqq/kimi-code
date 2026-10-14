@@ -2493,15 +2493,54 @@ describe('kimi provider update', () => {
     await tryRun(() =>
       handleProviderUpdate(deps, 'managed:kimi-code', { baseUrl: 'https://evil.example.com' }),
     );
-    await tryRun(() =>
-      handleProviderUpdate(deps, 'moonshot-cn', { newId: 'renamed-cn' }),
-    );
+    await tryRun(() => handleProviderUpdate(deps, 'moonshot-cn', { newId: 'renamed-cn' }));
     await tryRun(() => handleProviderRemove(deps, 'managed:kimi-code'));
 
     expect(exitCodes).toEqual([1, 1, 1]);
     expect(stderr.join('')).toContain(t('tui.dialogs.providerForm.managedReadonly'));
     expect(setConfigCalls).toEqual([]);
     expect(removeCalls).toEqual([]);
+  });
+
+  it('--force is the escape hatch for the login account the removal refuses by default', async () => {
+    const loginAccount: KimiConfig = {
+      providers: {
+        'managed:kimi-code': {
+          type: 'kimi',
+          baseUrl: 'https://api.kimi.com/coding/v1',
+          oauth: { storage: 'file', key: 'oauth/kimi-code' },
+        },
+      },
+      models: {
+        'managed:kimi-code/k2': {
+          provider: 'managed:kimi-code',
+          model: 'kimi-k2',
+          maxContextSize: 131_072,
+        },
+      },
+    } as unknown as KimiConfig;
+
+    const refused = makeHarness(loginAccount);
+    const refusedDeps = makeDeps(refused.harness);
+    await tryRun(() => handleProviderRemove(refusedDeps.deps, 'managed:kimi-code'));
+    expect(refusedDeps.exitCodes).toEqual([1]);
+    expect(refusedDeps.stdout.join('')).toBe('');
+    expect(refusedDeps.stderr.join('')).toContain(
+      t('tui.statusMessages.providerRemoveLoginAccount', { id: 'managed:kimi-code' }),
+    );
+    expect(refused.removeCalls).toEqual([]);
+    expect(refused.current().providers['managed:kimi-code']).toBeDefined();
+
+    const forced = makeHarness(loginAccount);
+    const forcedDeps = makeDeps(forced.harness);
+    await tryRun(() => handleProviderRemove(forcedDeps.deps, 'managed:kimi-code', { force: true }));
+    expect(forcedDeps.exitCodes).toEqual([]);
+    expect(forced.removeCalls).toEqual(['managed:kimi-code']);
+    expect(forced.current().providers['managed:kimi-code']).toBeUndefined();
+    expect(forced.current().models?.['managed:kimi-code/k2']).toBeUndefined();
+    expect(forcedDeps.stdout.join('')).toContain(
+      t('tui.statusMessages.providerRemoved', { id: 'managed:kimi-code' }),
+    );
   });
 });
 
@@ -2610,10 +2649,15 @@ describe('kimi provider create/update routing', () => {
       capabilities: ['tool_use', 'image_in'],
       adaptiveThinking: false,
     });
-    // The header map holds this parse's entry only, and `--clear-env` dropped
-    // the record the create parse wrote. Neither flag touched the default
-    // pointer, which followed the rename instead.
-    expect(config.providers['demo2']?.customHeaders).toEqual({ 'x-src': 'cli' });
+    // The header map keeps the entry the create parse wrote and adds this
+    // parse's over it — the flags MERGE over the stored record rather than
+    // replacing it — while `--clear-env` dropped the env record outright.
+    // Neither flag touched the default pointer, which followed the rename
+    // instead.
+    expect(config.providers['demo2']?.customHeaders).toEqual({
+      'x-tenant': 'acme',
+      'x-src': 'cli',
+    });
     expect(hasKey(config.providers['demo2'], 'env')).toBe(false);
     expect(config.providers['demo2']?.defaultModel).toBe('demo2/gpt-4.1');
     expect(stdout.join('')).toContain('Provider "demo2" updated.');

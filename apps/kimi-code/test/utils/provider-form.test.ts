@@ -1,6 +1,5 @@
-import { describe, expect, it } from 'vitest';
-
 import type { KimiConfig } from '@moonshot-ai/kimi-code-sdk';
+import { describe, expect, it } from 'vitest';
 
 import {
   CAPABILITY_NAMES,
@@ -407,9 +406,7 @@ describe('buildAddPatch', () => {
   });
 
   it('writes adaptive_thinking when the row asks for it', () => {
-    const patch = buildAddPatch(
-      formValue({ models: [modelRow({ adaptiveThinking: true })] }),
-    );
+    const patch = buildAddPatch(formValue({ models: [modelRow({ adaptiveThinking: true })] }));
     expect(patch.models?.['demo/gpt-4.1']?.adaptiveThinking).toBe(true);
   });
 
