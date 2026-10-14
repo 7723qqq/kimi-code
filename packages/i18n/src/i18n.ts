@@ -14,7 +14,7 @@ export type TranslationKey = SharedTranslationKey<typeof en>;
 
 // ── Pre-computed flat lookup maps ───────────────────────────────────────────
 // Converts nested message trees to flat Map<dotPath, string> at module init,
-// turning O(depth) tree traversal into O(1) Map.get for the JS fallback path.
+// turning O(depth) tree traversal into O(1) Map.get for the hot lookup path.
 
 function flattenMessages(obj: object, prefix = ''): Map<string, string> {
   const map = new Map<string, string>();
@@ -36,66 +36,6 @@ const flatMessages: Record<Locale, Map<string, string>> = {
   zh: flattenMessages(zh),
 };
 
-// ── Optional native Rust engine ─────────────────────────────────────────────
-// The Rust engine (`@moonshot-ai/kimi-native-tools`) provides a faster path
-// via napi-rs. When unavailable (e.g. in a browser or packaged single-file
-// binary), we fall back to the pure-JS implementation transparently.
-
-interface NativeModule {
-  nativeTranslateCached?: (
-    localeJson: string,
-    fallbackJson: string,
-    key: string,
-    params: Record<string, string> | null | undefined,
-  ) => string;
-  nativeTranslate: (
-    localeJson: string,
-    fallbackJson: string,
-    key: string,
-    params: Record<string, string> | null | undefined,
-  ) => string;
-  nativeTranslateClearCache?: () => void;
-}
-
-// Load native module lazily on first use (not at module init) to respect
-// KIMI_I18N_FORCE_JS env var set during test setup. After first resolution,
-// subsequent calls are a single `!== undefined` check.
-function loadNativeImpl(): NativeModule | null {
-  if (process.env['KIMI_I18N_FORCE_JS']) {
-    return null;
-  }
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    const mod = require('@moonshot-ai/kimi-native-tools') as NativeModule;
-    if (
-      typeof mod.nativeTranslateCached !== 'function' &&
-      typeof mod.nativeTranslate !== 'function'
-    ) {
-      return null;
-    }
-    return mod;
-  } catch {
-    return null;
-  }
-}
-
-let _native: NativeModule | null | undefined; // undefined = not yet resolved
-
-function getNative(): NativeModule | null {
-  if (_native !== undefined) return _native;
-  _native = loadNativeImpl();
-  return _native;
-}
-
-// ── Eager JSON pre-serialization ────────────────────────────────────────────
-// Only 2 locales exist, so pre-serialize both at module init to avoid lazy
-// serialization cost on first t() call after locale switch.
-
-const localeJsonMap: Record<Locale, string> = {
-  en: JSON.stringify(en),
-  zh: JSON.stringify(zh),
-};
-
 // ── Locale detection ────────────────────────────────────────────────────────
 
 let currentLocale: Locale = detectLocaleNode();
@@ -103,8 +43,6 @@ let currentLocale: Locale = detectLocaleNode();
 export function setLocale(locale: Locale): void {
   if (locale === 'en' || locale === 'zh') {
     currentLocale = locale;
-    // Invalidate the Rust-side cache so stale parsed JSON is evicted.
-    getNative()?.nativeTranslateClearCache?.();
   }
 }
 
@@ -115,31 +53,20 @@ export function getLocale(): Locale {
 export type Engine = 'rust' | 'js';
 
 /**
- * Returns whether the native Rust engine is active, or the pure-JS fallback.
+ * Returns the translation engine in use. Always `'js'`: lookups run in-process
+ * against the flat message maps.
  *
- * - `'rust'` — `@moonshot-ai/kimi-native-tools` napi module loaded successfully
- * - `'js'`   — napi module unavailable, using pure-JS translation
+ * The napi round-trip through `@moonshot-ai/kimi-native-tools` shipped the
+ * whole locale JSON (about 130 KB, twice) across the boundary on every `t()`
+ * call — ~290 µs per call against ~0.05 µs for this lookup. The engine emits
+ * translated strings on hot event paths, so that bridge was pure main-thread
+ * cost; the trees already live in JS. Kept as an API for compatibility.
  */
 export function getEngine(): Engine {
-  return getNative() ? 'rust' : 'js';
+  return 'js';
 }
 
-// ── Optimized params conversion ─────────────────────────────────────────────
-// Skip Object.fromEntries/entries/map when all values are already strings.
-
-function toStringParams(params: Record<string, string | number>): Record<string, string> {
-  let allStrings = true;
-  for (const v of Object.values(params)) {
-    if (typeof v !== 'string') {
-      allStrings = false;
-      break;
-    }
-  }
-  if (allStrings) return params as Record<string, string>;
-  return Object.fromEntries(Object.entries(params).map(([k, v]) => [k, String(v)]));
-}
-
-// ── Pure-JS fallback (flat map) ─────────────────────────────────────────────
+// ── In-process lookup (flat map) ────────────────────────────────────────────
 
 function translatePure(key: string, params?: Record<string, string | number>): string {
   const message = flatMessages[currentLocale].get(key) ?? flatMessages.en.get(key);
@@ -155,27 +82,5 @@ export function t(
   key: TranslationKey | (string & {}),
   params?: Record<string, string | number>,
 ): string {
-  const native = getNative();
-  if (native) {
-    // Use the Rust native engine with pre-serialized JSON.
-    const stringParams = params ? toStringParams(params) : undefined;
-
-    if (native.nativeTranslateCached) {
-      return native.nativeTranslateCached(
-        localeJsonMap[currentLocale],
-        localeJsonMap.en,
-        key,
-        stringParams,
-      );
-    }
-    return native.nativeTranslate(
-      localeJsonMap[currentLocale],
-      localeJsonMap.en,
-      key,
-      stringParams,
-    );
-  }
-
-  // Fall back to pure-JS implementation (O(1) flat map lookup).
   return translatePure(key, params);
 }

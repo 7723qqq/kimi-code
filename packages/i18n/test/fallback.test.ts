@@ -1,20 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 
-// Force the pure-JS fallback path via environment variable.
-// This is checked by loadNativeImpl() before attempting to load the native module.
-beforeEach(() => {
-  process.env['KIMI_I18N_FORCE_JS'] = '1';
-});
-
-afterEach(() => {
-  delete process.env['KIMI_I18N_FORCE_JS'];
-});
-
 import { t, setLocale, getLocale, getEngine } from '#/i18n';
 import en from '#/locales/en';
 import zh from '#/locales/zh';
 
-describe('i18n fallback (KIMI_I18N_FORCE_JS=1)', () => {
+describe('i18n in-process lookup', () => {
   beforeEach(() => {
     setLocale('en');
   });
@@ -23,7 +13,7 @@ describe('i18n fallback (KIMI_I18N_FORCE_JS=1)', () => {
     setLocale('en');
   });
 
-  it('getEngine() returns "js" when native module is forced off', () => {
+  it('getEngine() returns "js"', () => {
     expect(getEngine()).toBe('js');
   });
 
