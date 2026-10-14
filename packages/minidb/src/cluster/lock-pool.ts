@@ -11,24 +11,23 @@
 // does not currently hold. A MiniDb reader replays snapshot+WAL only at open
 // time and would go stale afterwards, so every reader use is guarded by a
 // cheap file fingerprint (dev:ino:size:mtimeMs of the shard's WAL, snapshot,
-// CURRENT, and every index-definition sidecar — FINGERPRINT_FILES, derived
-// from the authoritative generation module so a newly added file can never be
+// and every index-definition sidecar — READER_FINGERPRINT_FILES, derived from
+// the authoritative generation module so a newly added file can never be
 // missed). A change refreshes the reader first:
 //  - when only the WAL changed as pure appends on the same inode (tracked by
 //    a {dev, ino, size} watermark), the appended frames are scanned and
 //    applied incrementally (MiniDb.catchUpFromWal) — O(delta);
-//  - anything else (rotation, truncation, a generation switch on CURRENT,
-//    snapshot/index-def changes, an offset that turns out not to be a frame
-//    boundary) falls back to a close + full reopen — with a published
-//    generation that reopen loads the new checkpoint instead of rebuilding
-//    every index from the full corpus.
+//  - anything else (rotation, truncation, snapshot/index-def changes, an
+//    offset that turns out not to be a frame boundary) falls back to a close +
+//    full reopen — with a published generation that reopen loads the new
+//    checkpoint instead of rebuilding every index from the full corpus.
 // Because a writer's WAL append is complete before its set() resolves, a read
 // that starts after another process's write resolved always observes it.
 
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { FINGERPRINT_FILES } from '../generation.js';
+import { CURRENT_FILE, FINGERPRINT_FILES } from '../generation.js';
 import type { MiniDb } from '../index.js';
 import { LockError } from '../lockfile.js';
 import { OpTracker } from '../op-tracker.js';
@@ -63,7 +62,7 @@ interface WriterEntry {
 interface ReaderEntry {
   handle: ShardHandle;
   fingerprint: string;
-  /** Per-file fingerprint parts, in FINGERPRINT_FILES order. */
+  /** Per-file fingerprint parts, in READER_FINGERPRINT_FILES order. */
   fpParts: string[];
   /** WAL watermark the instance's data represents: the {dev, ino} anchor of
    *  the WAL inode recovery (or the last catch-up) read, and the byte offset
@@ -72,6 +71,15 @@ interface ReaderEntry {
   lastUsedAt: number;
   busy: number;
 }
+
+/** The files a cached reader's freshness verdict actually depends on:
+ *  FINGERPRINT_FILES minus CURRENT. CURRENT is not read here because no read
+ *  may act on it — a generation publish that moves CURRENT alone changes
+ *  nothing this pool can see (nothing from the new generation is loaded until
+ *  the reader is reopened for another reason), so stat-ing it per read would
+ *  discard the result. Do not "restore" CURRENT: it costs a stat per reader
+ *  use and can never change the verdict. */
+const READER_FINGERPRINT_FILES = FINGERPRINT_FILES.filter((f) => f !== CURRENT_FILE);
 
 async function statFingerprint(file: string): Promise<string> {
   try {
@@ -86,7 +94,7 @@ async function statFingerprint(file: string): Promise<string> {
 }
 
 async function shardFingerprint(dir: string): Promise<string[]> {
-  return Promise.all(FINGERPRINT_FILES.map((f) => statFingerprint(path.join(dir, f))));
+  return Promise.all(READER_FINGERPRINT_FILES.map((f) => statFingerprint(path.join(dir, f))));
 }
 
 /** WAL watermark for a freshly opened reader: the exact inode recovery
@@ -366,16 +374,14 @@ export class ShardLockPool {
       // this reopen path too: it rewrites its sidecar, which the fingerprint
       // tracks.
       //
-      // CURRENT (parts[2]) is deliberately NOT part of the wal-only verdict:
-      // a pure generation publish (background build / manual rebuild) changes
-      // CURRENT without rotating the snapshot, and the reader's WAL-catch-up
-      // view stays perfectly valid — forcing a reopen would just churn. A
-      // compaction always rotates the snapshot, and THAT is what sends the
-      // reader to a reopen (which then loads the new generation instead of
-      // rebuilding from the corpus).
+      // A generation publish that touches CURRENT alone is invisible here by
+      // design (see READER_FINGERPRINT_FILES): it rotates nothing, and the
+      // reader's WAL-catch-up view over the untouched snapshot/WAL stays
+      // perfectly valid. A compaction always rotates the snapshot, and THAT
+      // is what sends the reader to a reopen (which then loads the new
+      // generation instead of rebuilding from the corpus).
       let walOnly = true;
       for (let i = 1; i < parts.length; i++) {
-        if (i === 2) continue; // CURRENT — see above
         if (parts[i] !== cached.fpParts[i]) {
           walOnly = false;
           break;
