@@ -71,7 +71,7 @@ export function findViolations({ rootReachable, baseline }) {
   const violations = [];
   for (const root of SCAN_ROOTS) {
     for (const abs of walk(join(REPO_ROOT, root))) {
-      const rel = relative(REPO_ROOT, abs);
+      const rel = relative(REPO_ROOT, abs).replaceAll('\\', '/');
       let source;
       try {
         source = readFileSync(abs, 'utf8');
