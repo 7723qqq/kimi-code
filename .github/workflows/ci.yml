@@ -282,11 +282,7 @@ jobs:
             ~/.cargo/registry
             ~/.cargo/git
             packages/kimi-native-tools/target
-            packages/kimi-agent/target
-          key: cargo-${{ runner.os }}-${{ hashFiles('packages/kimi-native-tools/Cargo.lock', 'packages/kimi-agent/Cargo.lock') }}
+          key: cargo-${{ runner.os }}-${{ hashFiles('packages/kimi-native-tools/Cargo.lock') }}
 
       - name: Test kimi-native-tools
         run: cargo test --offline --manifest-path packages/kimi-native-tools/Cargo.toml
-
-      - name: Test kimi-agent
-        run: cargo test --offline --manifest-path packages/kimi-agent/Cargo.toml

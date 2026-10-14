@@ -49,7 +49,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 | **Bun** >= 1.4 | Package manager and script runner (hoisted workspace via root package.json; `bun.lock` is the lockfile). Also compiles the release binary (`build-bun.mjs`) |
 | **tsdown** 0.22.0 | ESM bundler for TypeScript packages |
 | **vite** 6.x | Web app bundler (vis-web, vscode webview) |
-| **Cargo** | Rust build for `kimi-native-tools` and `kimi-agent` (napi-rs) |
+| **Cargo** | Rust build for `kimi-native-tools` (napi-rs) |
 | **Nix flake** | Reproducible builds for Linux/macOS |
 
 ### Quality Tooling
@@ -159,7 +159,6 @@ packages/
   i18n-shared/         — Shared i18n core (types, locale detection, web-safe)
   kaos/                — Execution environment abstraction (local / ssh / login-shell)
   kap-server/          — Kimi Code local server (REST + WebSocket)
-  kimi-agent/          — Rust agent engine (experimental)
   kimi-native-tools/   — Rust native Node addon (napi-rs)
   klient/              — Client SDK (contract-driven facade over agent-core-v2)
   kosong/              — Frozen legacy LLM / provider kernel (published SDK + oauth only)
@@ -368,9 +367,6 @@ make build            # bun run build
 make typecheck        # Full typecheck
 make lint             # oxlint
 make test             # vitest
-make rust-build       # cargo build --release (run from packages/kimi-agent)
-make rust-check       # cargo check
-make rust-test        # cargo test + kimi-agent --test
 ```
 
 ### Package-specific commands
@@ -406,8 +402,8 @@ GitHub Actions (`ci.yml`) runs on every PR and push to `main`. Every job install
 6. **typecheck** — TypeScript check across all packages (`tsgo` from `@typescript/native-preview`, run via `bunx --bun`)
 7. **review** — `zig build` and `zig build test` in `tools/review` (Zig installed via
    `mlugg/setup-zig`), then the structural checks described under "Structural review" above
-8. **test-rust** — `cargo test --offline` for both Rust crates (`kimi-native-tools`,
-   `kimi-agent`); every other job is Bun-only and installs no Rust toolchain
+8. **test-rust** — `cargo test --offline` for the Rust crate (`kimi-native-tools`);
+   every other job is Bun-only and installs no Rust toolchain
 
 `ci.yml` also carries a `test-windows` job (the full suite on Windows). It is parked with `if: false` while Windows tests are stabilized, so it is not part of the pre-merge pipeline.
 
@@ -427,7 +423,7 @@ The macOS and Windows signing steps degrade safely when their secrets are unset:
 
 ### Nix build maintenance
 
-`nix-build.yml` builds the CLI in a pure sandbox. Dependencies come from the `bunDeps` fixed-output derivation in `flake.nix` (hoisted `node_modules` + cargo vendor dirs for both napi packages). After changing `bun.lock` or either `Cargo.lock`, expect one hash-mismatch round: set `outputHash` to `lib.fakeSha256`, push, then paste the `got:` hash (the nix-build bot posts it on PRs). Sandbox quirks: no `/usr/bin/env` (invoke node-gyp/napi via `node <js-entry>`), and FOD outputs must not contain store paths. See CONTRIBUTING → "Nix build".
+`nix-build.yml` builds the CLI in a pure sandbox. Dependencies come from the `bunDeps` fixed-output derivation in `flake.nix` (hoisted `node_modules` + the cargo vendor dir for the napi package). After changing `bun.lock` or the `Cargo.lock`, expect one hash-mismatch round: set `outputHash` to `lib.fakeSha256`, push, then paste the `got:` hash (the nix-build bot posts it on PRs). Sandbox quirks: no `/usr/bin/env` (invoke node-gyp/napi via `node <js-entry>`), and FOD outputs must not contain store paths. See CONTRIBUTING → "Nix build".
 
 ---
 

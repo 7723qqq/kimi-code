@@ -61,7 +61,7 @@ bun install
 - `bun run dev:local` — 从全新 bundle 以开发模式运行 CLI（增量，约 2 秒）。加 `:watch`（`bun run dev:local:watch`）可在源码变化时自动重建并重跑。**请用它而不是 `bun run dev:cli`**：后者直接执行 `src/main.ts`，而 Bun 不解析各包依赖的 `#/*` 子路径导入，会在启动时报 `Cannot find module '#/kimi-harness'`。
 - `bun run test` — 运行测试（vitest）
 - `bun --bun run test` — 运行测试（vitest）。**这是规范命令，也是 CI 使用的命令**（`.github/workflows/ci.yml`）。`--bun` 让 vitest 跑在 Bun 运行时而非 Node 上，两者结果会不同：实测出现过 `bunx vitest` 通过、而 `bun --bun run test` 在同一份代码上失败的情况。判断测试是否变绿时请一律使用 `bun --bun run test`。
-- `bun run typecheck` — TypeScript 检查（注意：会先构建各包）。覆盖 `packages/*` 与 `kimi-code`、`kimi-inspect`、`vscode`、`vis/server`、`vis/web` 五个 app；**不覆盖** `docs/`（VitePress 内容）以及 `packages/kimi-agent`、`packages/kimi-native-tools`（Rust/原生，无 tsconfig）。
+- `bun run typecheck` — TypeScript 检查（注意：会先构建各包）。覆盖 `packages/*` 与 `kimi-code`、`kimi-inspect`、`vscode`、`vis/server`、`vis/web` 五个 app；**不覆盖** `docs/`（VitePress 内容）以及 `packages/kimi-native-tools`（Rust/原生，无 tsconfig）。
 - `bun run build:docs` — 构建用户文档。VitePress 遇到失效的内部链接会直接失败，因此改动 `docs/` 下任何内容后请运行它。
 - `bun run lint` — oxlint
 - `bun run lint:fix` — oxlint 自动修复
@@ -99,7 +99,7 @@ cd apps/kimi-code && bun run build
 
 **要替换已安装的 `kimi` 命令**时，构建自包含二进制并覆盖已安装的那份——见下文的[原生构建（自包含二进制）](#原生构建自包含二进制)。发布包就是这个单文件二进制，因此这是让本地构建以 `kimi` 身份运行的唯一方式。
 
-> **不要把 `apps/kimi-code/dist/` 复制到 `~/.kimi-code/`。** 该布局无法运行：bundle 在加载时要解析原生 addon 与其运行时依赖，而 `dist/` 副本两者都不带。把 `.node` 文件复制进 `dist/chunks/` 也修不好——加载器需要 `@moonshot-ai/kimi-native-tools` 是一个可解析的包，之后下一个依赖（`qrcode`、`ws`、`@moonshot-ai/kimi-agent`）又会接着缺失。`dist/` 是给打包器用的构建产物，不是可部署的目录树。
+> **不要把 `apps/kimi-code/dist/` 复制到 `~/.kimi-code/`。** 该布局无法运行：bundle 在加载时要解析原生 addon 与其运行时依赖，而 `dist/` 副本两者都不带。把 `.node` 文件复制进 `dist/chunks/` 也修不好——加载器需要 `@moonshot-ai/kimi-native-tools` 是一个可解析的包，之后下一个依赖（`qrcode`、`ws`）又会接着缺失。`dist/` 是给打包器用的构建产物，不是可部署的目录树。
 
 ### 原生构建（自包含二进制）
 
@@ -161,11 +161,11 @@ bun scripts/native/bench-native.mjs ./dist-native/bin/linux-x64/kimi --runs 20
 
 ### Nix 构建
 
-`nix-build.yml` 在纯净沙箱中构建 CLI。依赖来自一个固定输出派生（`flake.nix` 中的 `bunDeps`）：它物化 hoisted 的 `node_modules` 树，以及两个 napi 包（`kimi-native-tools`、`kimi-agent`）的 cargo vendor 目录；主派生随后离线编译。编辑 `flake.nix` 或原生构建步骤时需要知道的沙箱特性：
+`nix-build.yml` 在纯净沙箱中构建 CLI。依赖来自一个固定输出派生（`flake.nix` 中的 `bunDeps`）：它物化 hoisted 的 `node_modules` 树，以及 napi 包（`kimi-native-tools`）的 cargo vendor 目录；主派生随后离线编译。编辑 `flake.nix` 或原生构建步骤时需要知道的沙箱特性：
 
 - 沙箱中没有 `/usr/bin/env`——请用 `node <js入口>` 调用 node-gyp 和 napi CLI，不要用它们的 bin 启动器。
 - FOD 输出不得包含 `/nix/store/...` 字符串：绝不让 `cargo vendor` 把它建议的配置写进输出，也不要把 store 路径插值进安装脚本。
-- 改动 `bun.lock` 或任一 `Cargo.lock` 后，会有一次哈希不匹配轮次：把失败日志中的 `got:` 哈希（PR 上由 nix-build bot 自动贴出）填回 `flake.nix` 的 `outputHash`。
+- 改动 `bun.lock` 或 `Cargo.lock` 后，会有一次哈希不匹配轮次：把失败日志中的 `got:` 哈希（PR 上由 nix-build bot 自动贴出）填回 `flake.nix` 的 `outputHash`。
 
 ### 常见问题
 

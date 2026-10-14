@@ -1,4 +1,4 @@
-.PHONY: prepare build typecheck lint lint-fix lint-pkg sherif test test-watch test-coverage clean changeset version publish release dev vis rust-build rust-check rust-test
+.PHONY: prepare build typecheck lint lint-fix lint-pkg sherif test test-watch test-coverage clean changeset version publish release dev vis
 
 ## Setup
 
@@ -60,18 +60,6 @@ release: version publish
 
 dev:
 	bun run dev:cli
-
-## Rust binaries
-
-rust-build:
-	cd packages/kimi-agent && cargo build --release
-
-rust-check:
-	cd packages/kimi-agent && cargo check
-
-rust-test:
-	cd packages/kimi-agent && cargo test
-	cd packages/kimi-agent && cargo run -- --test
 
 ## vis
 

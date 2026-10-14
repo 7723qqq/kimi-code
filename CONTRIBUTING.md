@@ -62,7 +62,7 @@ Useful scripts:
 
 - `bun run dev:local` — run the CLI in dev mode from a fresh bundle (incremental, ~2s). Add `:watch` (`bun run dev:local:watch`) to rebuild and re-run on every source change. **Use this rather than `bun run dev:cli`:** that path executes `src/main.ts` directly, and Bun does not resolve the `#/*` subpath imports the packages rely on, so it aborts with `Cannot find module '#/kimi-harness'`.
 - `bun --bun run test` — run tests (vitest). **This is the canonical command and what CI runs** (`.github/workflows/ci.yml`). The `--bun` flag runs vitest on the Bun runtime rather than Node, and the two produce different results: `bunx vitest` has been observed to pass while `bun --bun run test` fails on the same code. Always use `bun --bun run test` when checking whether a suite is green.
-- `bun run typecheck` — TypeScript check (note: builds packages first). Covers `packages/*` plus the `kimi-code`, `kimi-inspect`, `vscode`, `vis/server` and `vis/web` apps. It does **not** cover `docs/` (VitePress content) or `packages/kimi-agent` and `packages/kimi-native-tools` (Rust/native, no `tsconfig`).
+- `bun run typecheck` — TypeScript check (note: builds packages first). Covers `packages/*` plus the `kimi-code`, `kimi-inspect`, `vscode`, `vis/server` and `vis/web` apps. It does **not** cover `docs/` (VitePress content) or `packages/kimi-native-tools` (Rust/native, no `tsconfig`).
 - `bun run build:docs` — build the user documentation. VitePress fails on dead internal links, so run this after editing anything under `docs/`.
 - `bun run lint` — oxlint
 - `bun run lint:fix` — oxlint with auto-fix
@@ -100,7 +100,7 @@ There are two ways to run a local build, and they are not interchangeable.
 
 **To replace the installed `kimi` command**, build the self-contained binary and copy it over the installed one — see [Native build](#native-build-self-contained-binary) below. The published package is that single-file binary, so this is the only way to get a local build running as `kimi`.
 
-> **Do not copy `apps/kimi-code/dist/` into `~/.kimi-code/`.** That layout cannot run: the bundle resolves the native addon and its runtime dependencies at load time, and a `dist/` copy carries neither. Copying the `.node` file into `dist/chunks/` does not fix it either — the loader needs `@moonshot-ai/kimi-native-tools` as a resolvable package, and then the next dependency (`qrcode`, `ws`, `@moonshot-ai/kimi-agent`) is missing in turn. `dist/` is build output for the bundler, not a deployable tree.
+> **Do not copy `apps/kimi-code/dist/` into `~/.kimi-code/`.** That layout cannot run: the bundle resolves the native addon and its runtime dependencies at load time, and a `dist/` copy carries neither. Copying the `.node` file into `dist/chunks/` does not fix it either — the loader needs `@moonshot-ai/kimi-native-tools` as a resolvable package, and then the next dependency (`qrcode`, `ws`) is missing in turn. `dist/` is build output for the bundler, not a deployable tree.
 
 ### Native build (self-contained binary)
 
@@ -162,11 +162,11 @@ bun scripts/native/bench-native.mjs ./dist-native/bin/linux-x64/kimi --runs 20
 
 ### Nix build
 
-`nix-build.yml` builds the CLI in a pure sandbox. Dependencies come from one fixed-output derivation (`bunDeps` in `flake.nix`) that materializes the hoisted `node_modules` tree plus cargo vendor directories for both napi packages (`kimi-native-tools`, `kimi-agent`); the main derivation then compiles offline. Sandbox quirks to know when editing `flake.nix` or native build steps:
+`nix-build.yml` builds the CLI in a pure sandbox. Dependencies come from one fixed-output derivation (`bunDeps` in `flake.nix`) that materializes the hoisted `node_modules` tree plus the cargo vendor directory for the napi package (`kimi-native-tools`); the main derivation then compiles offline. Sandbox quirks to know when editing `flake.nix` or native build steps:
 
 - There is no `/usr/bin/env` in the sandbox — invoke `node-gyp` and the napi CLI through `node <js-entry>` instead of their bin shims.
 - FOD outputs must not contain `/nix/store/...` strings: never let `cargo vendor` write its suggested config into the output, and never interpolate store paths into the install script.
-- After changing `bun.lock` or either `Cargo.lock`, expect one hash-mismatch round: paste the `got:` hash (the nix-build bot posts it on PRs) into `outputHash`.
+- After changing `bun.lock` or the `Cargo.lock`, expect one hash-mismatch round: paste the `got:` hash (the nix-build bot posts it on PRs) into `outputHash`.
 
 ### Common Issues
 

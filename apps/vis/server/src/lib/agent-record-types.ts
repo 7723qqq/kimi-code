@@ -132,10 +132,10 @@ export interface MicroCompactionClampRecord {
   readonly time?: number;
 }
 
-/** Fork-only durable record: the Rust engine's prediction fast-path replaces a
- *  recorded prediction with the precise tool result in place
- *  (`packages/kimi-agent/rust-loop.ts` `replaceToolResult`). agent-core-v2 does
- *  not declare this record kind, but fork-written wires still contain it. */
+/** Fork-only durable record: a prediction fast-path replaces a recorded guess
+ *  with the precise tool result in place (the tool-call entry's output is
+ *  overwritten rather than appended as a new record). agent-core-v2 does not
+ *  declare this record kind, but fork-written wires still contain it. */
 export interface ContextReplaceToolResultRecord {
   readonly type: 'context.replace_tool_result';
   readonly toolCallId: string;

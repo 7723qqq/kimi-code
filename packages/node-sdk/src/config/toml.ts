@@ -23,7 +23,6 @@ import {
   KimiConfigSchema,
   formatConfigValidationError,
   getDefaultConfig,
-  type AgentConfig,
   type BackgroundConfig,
   type ExperimentalConfig,
   type GithubConfig,
@@ -353,8 +352,6 @@ export function transformTomlData(data: Record<string, unknown>): Record<string,
       result[targetKey] = transformPlainObject(value);
     } else if (targetKey === 'subagent' && isPlainObject(value)) {
       result[targetKey] = transformPlainObject(value);
-    } else if (targetKey === 'agent' && isPlainObject(value)) {
-      result[targetKey] = transformPlainObject(value);
     } else if (targetKey === 'secondaryModel' && isPlainObject(value)) {
       result[targetKey] = transformPlainObject(value);
     } else if (targetKey === 'mcp' && isPlainObject(value)) {
@@ -514,6 +511,9 @@ export function configToTomlData(config: KimiConfig): Record<string, unknown> {
   delete out['defaultPermissionMode'];
   delete out['default_thinking'];
   delete out['defaultThinking'];
+  // The retired Rust-engine config section: only the raw passthrough would
+  // carry it now, and a rewrite must not resurrect it.
+  delete out['agent'];
 
   // Top-level scalar fields
   const scalarFields: (keyof KimiConfig)[] = [
@@ -540,7 +540,6 @@ export function configToTomlData(config: KimiConfig): Record<string, unknown> {
   setSection(out, 'loop_control', config.loopControl, loopControlToToml);
   setSection(out, 'background', config.background, backgroundToToml);
   setSection(out, 'subagent', config.subagent, subagentToToml);
-  setSection(out, 'agent', config.agent, agentToToml);
   setSection(out, 'secondary_model', config.secondaryModel, secondaryModelToToml);
   setSection(out, 'mcp', config.mcp, mcpToToml);
   setSection(out, 'image', config.image, imageToToml);
@@ -775,14 +774,6 @@ function mcpToToml(mcp: McpConfig, rawMcp: unknown): Record<string, unknown> {
 function imageToToml(image: ImageConfig, rawImage: unknown): Record<string, unknown> {
   const out = cloneRecord(rawImage);
   for (const [key, value] of Object.entries(image)) {
-    setDefined(out, camelToSnake(key), value);
-  }
-  return out;
-}
-
-function agentToToml(agent: AgentConfig, rawAgent: unknown): Record<string, unknown> {
-  const out = cloneRecord(rawAgent);
-  for (const [key, value] of Object.entries(agent)) {
     setDefined(out, camelToSnake(key), value);
   }
   return out;

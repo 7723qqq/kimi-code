@@ -74,7 +74,7 @@ api_key_env = "ACME_API_KEY"
     expect(parseConfigString(text).providers['acme']?.apiKeyEnv).toBe('ACME_API_KEY');
   });
 
-  it('reads back github, extraAgentDirs and agent through getConfig', async () => {
+  it('reads back github and extraAgentDirs through getConfig', async () => {
     const homeDir = await makeTempDir();
     await writeFile(
       join(homeDir, 'config.toml'),
@@ -84,9 +84,6 @@ extra_agent_dirs = ["/tmp/extra-agents"]
 [github]
 token = "ghp_test_token"
 base_url = "https://ghe.example.test/api/v3"
-
-[agent]
-engine = "js"
 `,
       'utf-8',
     );
@@ -98,7 +95,6 @@ engine = "js"
         baseUrl: 'https://ghe.example.test/api/v3',
       });
       expect(config.extraAgentDirs).toEqual(['/tmp/extra-agents']);
-      expect(config.agent).toEqual({ engine: 'js' });
     } finally {
       await harness.close();
     }

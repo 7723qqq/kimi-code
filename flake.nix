@@ -171,7 +171,6 @@
         ./packages/kaos
         ./packages/kap-server
         ./packages/kimi-native-tools
-        ./packages/kimi-agent
         ./packages/klient
         ./packages/kosong
         ./packages/migration-legacy
@@ -277,22 +276,23 @@
               # because cacert is in nativeBuildInputs above.
               bun install --frozen-lockfile --ignore-scripts
               install -d $out && mv node_modules $out/node_modules
-              # Vendor the Rust crates for both napi packages so the main
-              # derivation can compile offline (CARGO_NET_OFFLINE=true).
+              # Vendor the Rust crates for kimi-native-tools into
+              # $out/vendor so the main derivation can compile offline
+              # (CARGO_NET_OFFLINE=true).
               # NOTE: do NOT let cargo write its suggested config here —
               # with an absolute $out target it would embed this store
               # path, which FOD outputs must never reference. The main
               # derivation generates the config itself.
               cd packages/kimi-native-tools
               cargo vendor --locked $out/vendor > /dev/null
-              cd ../kimi-agent
-              cargo vendor --locked $out/vendor-agent > /dev/null
-              cd -
               runHook postInstall
             '';
 
-            # Update via the fake-hash dance: set to lib.fakeSha256, build,
-            # paste the "got:" hash reported by Nix.
+            # STALE HASH: removing the second vendored Rust crate tree
+            # changed this FOD's vendored content set, so the outputHash
+            # below no longer matches. Recompute it with the fake-hash
+            # dance — set it to lib.fakeSha256, build, and paste the
+            # "got:" hash reported by Nix.
             outputHashMode = "recursive";
             outputHashAlgo = "sha256";
             outputHash = "sha256-MHsoYo1Mmu7jaSsFwa+5V+7NLc2JcSMF1J0+I1PTs94=";
@@ -339,14 +339,6 @@ replace-with = "vendored-sources"
 [source.vendored-sources]
 directory = "${bunDeps}/vendor"
 EOF
-              mkdir -p packages/kimi-agent/.cargo
-              cat > packages/kimi-agent/.cargo/config.toml <<EOF
-[source.crates-io]
-replace-with = "vendored-sources"
-
-[source.vendored-sources]
-directory = "${bunDeps}/vendor-agent"
-EOF
               export CARGO_NET_OFFLINE=true
               runHook postConfigure
             '';
@@ -369,8 +361,6 @@ EOF
               # below). Invoke napi's JS entry directly — its bin shim uses
               # `#!/usr/bin/env`, absent in the sandbox.
               (cd packages/kimi-native-tools && bun ../../node_modules/@napi-rs/cli/dist/cli.js build --platform --release --dts target/napi-generated.d.ts)
-              # kimi-agent is the second napi addon embedded as an asset.
-              (cd packages/kimi-agent && bun ../../node_modules/@napi-rs/cli/dist/cli.js build --platform --release --dts target/napi-generated.d.ts)
               # The Bun build step embeds the Kimi web assets from
               # apps/kimi-code/dist-web and fails if that directory is
               # missing. The bundle is committed (synced from the code-app

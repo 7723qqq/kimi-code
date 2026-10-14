@@ -213,41 +213,6 @@ export const SubagentConfigSchema = z.object({
 
 export type SubagentConfig = z.infer<typeof SubagentConfigSchema>;
 
-export const AgentConfigSchema = z.object({
-  /**
-   * Which agent engine to use.
-   * - `"js"` (default): the existing TypeScript agent engine
-   * - `"rust"`: the Rust agent engine (kimi-agent binary via stdio JSON-RPC)
-   */
-  engine: z.enum(['js', 'rust']).default('js'),
-  /**
-   * MultiLLM: list of provider names to use for concurrent execution.
-   * When set and `engine === "rust"`, the Rust engine sends the same prompt
-   * to all listed providers concurrently and returns the first response
-   * ("first past the post").
-   */
-  multiLlm: z.array(z.string()).optional(),
-  /**
-   * Native HTTP LLM transport (Rust engine only). Names a provider from
-   * `providers` that the Rust engine should call directly over HTTP with
-   * SSE streaming, instead of proxying each LLM call back through the JS
-   * host. Only `openai`/`kimi` (Chat Completions) and `anthropic`
-   * (Messages) provider types are supported; other types fall back to the
-   * host proxy.
-   */
-  nativeLlmProvider: z.string().optional(),
-  /**
-   * Native tool execution (Rust engine only). When true, read-only tools
-   * (Read/Grep/Glob) execute inside the Rust engine process, sandboxed to
-   * the workspace root — skipping the host round-trip. Anything outside
-   * the sandbox or not natively supported still executes on the JS host
-   * under the full permission system.
-   */
-  nativeTools: z.boolean().optional(),
-});
-
-export type AgentConfig = z.infer<typeof AgentConfigSchema>;
-
 export const MAX_MCP_TIMEOUT_MS = 2_147_483_647;
 const McpTimeoutMsSchema = z.number().int().min(1).max(MAX_MCP_TIMEOUT_MS);
 
@@ -455,7 +420,6 @@ export const KimiConfigSchema = z.object({
   loopControl: LoopControlSchema.optional(),
   background: BackgroundConfigSchema.optional(),
   subagent: SubagentConfigSchema.optional(),
-  agent: AgentConfigSchema.optional(),
   secondaryModel: SecondaryModelConfigSchema.optional(),
   mcp: McpConfigSchema.optional(),
   image: ImageConfigSchema.optional(),
@@ -474,7 +438,6 @@ const PermissionConfigPatchSchema = PermissionConfigSchema.partial();
 const LoopControlPatchSchema = LoopControlSchema.partial();
 const BackgroundConfigPatchSchema = BackgroundConfigSchema.partial();
 const SubagentConfigPatchSchema = SubagentConfigSchema.partial();
-const AgentConfigPatchSchema = AgentConfigSchema.partial();
 const SecondaryModelConfigPatchSchema = SecondaryModelConfigSchema.partial();
 const McpConfigPatchSchema = McpConfigSchema.partial();
 const ImageConfigPatchSchema = ImageConfigSchema.partial();
@@ -509,7 +472,6 @@ export const KimiConfigPatchSchema = z
     loopControl: LoopControlPatchSchema.optional(),
     background: BackgroundConfigPatchSchema.optional(),
     subagent: SubagentConfigPatchSchema.optional(),
-    agent: AgentConfigPatchSchema.optional(),
     secondaryModel: SecondaryModelConfigPatchSchema.optional(),
     mcp: McpConfigPatchSchema.optional(),
     image: ImageConfigPatchSchema.optional(),
