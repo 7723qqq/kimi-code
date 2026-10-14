@@ -222,3 +222,15 @@ Each card: **decision** and **why not in the app**. Status is `keep` or `absorbe
 **Decision:** Undo snapshots deep-copy only the small editor state; the paste registry is shared by reference and the stack drops its oldest snapshot past `undoDepth` (default 200), so a multi-megabyte paste is not multiplied by the number of undo steps. Sound because registry entries are replaced, never mutated in place. Backspace deletion geometry is measured on the text as it stands, so a paste renumbering that shortens the line cannot leave a character behind.
 
 **Why not in the app:** The undo stack and the deletion path are editor internals.
+
+### clean-frames-do-not-rearm-forever — keep
+
+**Decision:** The coalescer keeps re-arming only while frames produce output. The frame reports that through `markFrameOutput()`, set by each renderer where it emits rows (not where it writes bytes: every frame also writes the synchronized-output wrapper and cursor placement). A request raised during a frame that emitted nothing is answered at most once more, then dropped and the pending request cleared, so the next host request still schedules a frame. Without the bound, a request raised by the render pass itself — the layout walk hands components the frame's `requestRender` callback — chains frames at 62.5 Hz on a static screen, which is a permanent CPU burn with zero output. The forced path needs its own counter because it cannot reuse the output test: `requestRender(true)` empties the previous-screen caches, so a forced frame always repaints every row and always reports output, and the output test therefore cannot distinguish a runaway forced chain from live state. A forced frame is still delivered immediately, answers a request it raised itself at most once, and then drops it, so a host forced render always starts a fresh chain.
+
+**Why not in the app:** The re-arm lives inside the render loop's timer; the host can neither observe it nor bound it from a component.
+
+### loader-timer-is-not-a-reason-to-live — keep
+
+**Decision:** `Loader` unrefs its animation interval, and `Loader.dispose()` stops the animation — `CancellableLoader` inherits it and no longer carries its own duplicate. A repaint loop that runs every 80 ms is not a reason for a host process to stay alive, and a component that can be spliced out of the tree needs an explicit stop edge rather than relying on the owner dropping its last reference. The constructor still arms the animation: both in-repo users (`chat-simple`, and `CancellableLoader`'s documented example) rely on construction arming and never call `start()`.
+
+**Why not in the app:** The interval, the frame counter and the repaint call are the component's internals; the host only sees `dispose()`.

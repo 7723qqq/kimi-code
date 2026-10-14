@@ -56,6 +56,10 @@ export class Loader extends Text {
     }
   }
 
+  dispose(): void {
+    this.stop();
+  }
+
   setMessage(message: string): void {
     this.message = message;
     this.updateDisplay();
@@ -86,6 +90,8 @@ export class Loader extends Text {
       this.currentFrame = (this.currentFrame + 1) % this.frames.length;
       this.updateDisplay();
     }, this.intervalMs);
+    // An animation is never a reason for the host process to stay alive.
+    this.intervalId.unref?.();
   }
 
   protected getRenderedIndicator(): string {

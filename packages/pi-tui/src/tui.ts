@@ -521,6 +521,22 @@ export abstract class TuiBase extends Container implements TUI {
   private renderTimer: NodeJS.Timeout | undefined;
   private lastRenderAt = 0;
   private static readonly MIN_RENDER_INTERVAL_MS = 16;
+  /**
+   * Whether the frame currently running emitted content. Renderers set it where they write
+   * rows, not where they call `terminal.write`: every frame also writes the synchronized-output
+   * wrapper and cursor placement, so byte counts cannot tell a clean frame from a churning one.
+   */
+  private frameProducedOutput = false;
+  /** How many times in a row the coalescer re-armed after a frame that produced no output. */
+  private cleanFrameReArms = 0;
+  /**
+   * A force request emptied the previous-frame caches for the next frame, which therefore repaints
+   * every row and reports output however static the content is: only this flag can route that
+   * frame to the forced-frame cap instead of the output test.
+   */
+  private forcedFramePending = false;
+  /** How many times the current chain re-armed after a forced frame. */
+  private forcedFrameReArms = 0;
   private showHardwareCursor = false;
   private clearOnShrink = false;
   protected fullRedrawCount = 0;
@@ -555,6 +571,14 @@ export abstract class TuiBase extends Container implements TUI {
   }
 
   protected abstract doRender(): void;
+
+  /**
+   * Report that the running frame produced output. Renderers call this where they decide to
+   * emit rows, so `scheduleRender()` can tell a clean frame from one that moved pixels.
+   */
+  protected markFrameOutput(): void {
+    this.frameProducedOutput = true;
+  }
 
   protected resetRenderState(): void {}
 
@@ -1067,6 +1091,7 @@ export abstract class TuiBase extends Container implements TUI {
   requestRender(force = false): void {
     if (force) {
       this.resetRenderState();
+      this.forcedFramePending = true;
       this.requestImmediateRender();
       return;
     }
@@ -1082,13 +1107,17 @@ export abstract class TuiBase extends Container implements TUI {
     this.immediateRenderScheduled = true;
     process.nextTick(() => {
       this.immediateRenderScheduled = false;
+      const forced = this.forcedFramePending;
+      this.forcedFramePending = false;
       if (this.stopped || !this.renderRequested) return;
       // A previously queued scheduleRender() can create a timer before this
       // callback runs. User input must preempt that throttled frame.
       this.cancelRenderTimer();
       this.renderRequested = false;
       this.lastRenderAt = performance.now();
+      this.frameProducedOutput = false;
       this.doRender();
+      this.reArmedAfterFrame(forced);
     });
   }
 
@@ -1111,11 +1140,57 @@ export abstract class TuiBase extends Container implements TUI {
       }
       this.renderRequested = false;
       this.lastRenderAt = performance.now();
+      this.frameProducedOutput = false;
       this.doRender();
-      if (this.renderRequested) {
-        this.scheduleRender();
-      }
+      this.reArmedAfterFrame(false);
     }, delay);
+  }
+
+  /**
+   * Decide what happens to a request raised during the frame that just ran. Such a request is
+   * raised by that frame itself (a component writing state, a cache invalidation, a width setter
+   * — the layout walk hands components the frame's requestRender callback), so re-rendering the
+   * same input answers nothing and a chain of these burns CPU on a static screen. Both caps below
+   * answer the frame's own request exactly once — so a change that landed just after the pass read
+   * its inputs is not swallowed — and then drop it, clearing the pending request so the next host
+   * or component requestRender() still starts a fresh frame.
+   */
+  private reArmedAfterFrame(forced: boolean): void {
+    if (!this.renderRequested) {
+      this.cleanFrameReArms = 0;
+      this.forcedFrameReArms = 0;
+      return;
+    }
+    if (forced) {
+      // The forced frame emptied the previous-frame caches before it ran, so it repainted every
+      // row and reported output however static the content is: frameProducedOutput cannot tell it
+      // apart from live state, and only this counter bounds the chain.
+      this.forcedFrameReArms += 1;
+      if (this.forcedFrameReArms > 1) {
+        this.forcedFrameReArms = 0;
+        this.renderRequested = false;
+        return;
+      }
+      this.scheduleRender();
+      return;
+    }
+    if (this.frameProducedOutput) {
+      // The frame moved pixels, so the request it raised came from live state: keep rendering.
+      this.cleanFrameReArms = 0;
+      this.forcedFrameReArms = 0;
+      this.scheduleRender();
+      return;
+    }
+    // A request raised *during* a frame that emitted nothing was raised by that frame itself.
+    // Re-rendering identical input emits nothing again, so re-arming unconditionally here is a
+    // permanent 62.5 Hz chain that burns CPU on a static screen.
+    this.cleanFrameReArms += 1;
+    if (this.cleanFrameReArms > 1) {
+      this.cleanFrameReArms = 0;
+      this.renderRequested = false;
+      return;
+    }
+    this.scheduleRender();
   }
 
   private handleTerminalInput(data: string): void {

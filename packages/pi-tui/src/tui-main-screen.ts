@@ -344,6 +344,7 @@ export class TuiMainScreen extends TuiBase implements TUI {
     // Helper to clear scrollback and viewport and render all new lines
     const fullRender = (clear: boolean): void => {
       this.fullRedrawCount += 1;
+      this.markFrameOutput();
       const output = new BoundedTerminalWriter((data) => this.terminal.write(data));
       output.append('\x1b[?2026h'); // Begin synchronized output
       if (clear) {
@@ -471,6 +472,8 @@ export class TuiMainScreen extends TuiBase implements TUI {
 
     // No changes - but still need to update hardware cursor position if it moved
     if (firstChanged === -1) {
+      // Deliberately no markFrameOutput() here: a frame with no content is what lets
+      // scheduleRender() end a render chain that is feeding itself. See TuiBase.scheduleRender.
       this.positionHardwareCursor(cursorPos, newLines.length);
       this.previousViewportTop = prevViewportTop;
       this.previousHeight = height;
@@ -485,6 +488,7 @@ export class TuiMainScreen extends TuiBase implements TUI {
     // All changes are in deleted lines (nothing to render, just clear)
     if (firstChanged >= newLines.length) {
       if (this.previousLines.length > newLines.length) {
+        this.markFrameOutput();
         const output = new BoundedTerminalWriter((data) => this.terminal.write(data));
         output.append('\x1b[?2026h');
         output.append(this.deleteChangedKittyImages(firstChanged, lastChanged));
@@ -544,6 +548,7 @@ export class TuiMainScreen extends TuiBase implements TUI {
 
     // Render from first changed line to end
     // Keep updates wrapped in synchronized output while writing bounded chunks.
+    this.markFrameOutput();
     const output = new BoundedTerminalWriter((data) => this.terminal.write(data));
     output.append('\x1b[?2026h'); // Begin synchronized output
     output.append(this.deleteChangedKittyImages(firstChanged, lastChanged));

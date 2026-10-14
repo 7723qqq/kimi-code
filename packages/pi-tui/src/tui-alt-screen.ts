@@ -1921,6 +1921,10 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
         ? this.prepareKittyScreen(screen)
         : { lines: screen, evictedImageDeletion: '' };
 
+    // Track whether this frame changes what is on screen. Every frame writes the
+    // synchronized-output wrapper and cursor placement, so the guard in scheduleRender() keys
+    // off emitted rows instead of bytes written.
+    let wroteContent = redrawImages;
     let buffer = BEGIN_SYNCHRONIZED_OUTPUT;
     if (fullRedraw) {
       this.fullRedrawCount += 1;
@@ -1933,10 +1937,12 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
       if (this.imageProtocol === 'iterm2') buffer += '\x1b[2J';
       else if (this.imageProtocol === 'kitty') buffer += deleteAllKittyPlacements();
     }
+    if (preparedKittyScreen.evictedImageDeletion !== '') wroteContent = true;
     buffer += preparedKittyScreen.evictedImageDeletion;
 
     for (let row = 0; row < height; row++) {
       if (!fullRedraw && !imagesNeedRedraw && screen[row] === this.previousScreen[row]) continue;
+      wroteContent = true;
       buffer += `\x1b[${row + 1};1H\x1b[2K${preparedKittyScreen.lines[row] ?? ''}`;
     }
 
@@ -1948,6 +1954,7 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
     }
     buffer += END_SYNCHRONIZED_OUTPUT;
     this.terminal.write(buffer);
+    if (wroteContent) this.markFrameOutput();
 
     this.previousScreen = screen;
     this.previousScreenWidth = width;
