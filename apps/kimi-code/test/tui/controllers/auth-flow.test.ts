@@ -1,9 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import {
-  AuthFlowController,
-  type AuthFlowHost,
-} from '#/tui/controllers/auth-flow';
+import { AuthFlowController, type AuthFlowHost } from '#/tui/controllers/auth-flow';
 
 function makeHost(
   options: {
@@ -35,7 +32,9 @@ function makeHost(
       createSession: vi.fn(async () => ({ id: 'ses-new', summary: { title: null } })),
       getConfig: vi.fn(async () => ({
         defaultModel: options.defaultModel,
-        models: { k2: { provider: 'managed:kimi-code', model: 'kimi-k2', maxContextSize: 200_000 } },
+        models: {
+          k2: { provider: 'managed:kimi-code', model: 'kimi-k2', maxContextSize: 200_000 },
+        },
         providers: {},
       })),
     },
@@ -124,5 +123,27 @@ describe('refreshConfigAfterLogin', () => {
     const reachedLazy = await new AuthFlowController(lazy.host).refreshConfigAfterLogin();
     expect(reachedLazy).toBe(false);
     expect(lazy.host.harness.createSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('refreshConfigAfterLogout', () => {
+  it('clears the active model on a live session when the removed provider owned it and no default remains', async () => {
+    const { host, appState } = makeHost({ withSession: true });
+    const authFlow = new AuthFlowController(host);
+
+    await authFlow.refreshConfigAfterLogout();
+
+    expect(appState.model).toBe('');
+    expect(appState.thinkingEffort).toBe('off');
+  });
+
+  it('activates the fallback default model on a live session when the active model was removed', async () => {
+    const { host, appState, session } = makeHost({ withSession: true, defaultModel: 'k2' });
+    const authFlow = new AuthFlowController(host);
+
+    await authFlow.refreshConfigAfterLogout();
+
+    expect(session!.setModel).toHaveBeenCalledWith('k2');
+    expect(appState.model).toBe('k2');
   });
 });

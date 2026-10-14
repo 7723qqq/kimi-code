@@ -21,6 +21,7 @@ import { thinkingEffortFromConfig } from '../utils/thinking-config';
 
 export interface AuthFlowHost {
   session: Session | undefined;
+  readonly state?: { readonly appState: AppState };
   readonly harness: KimiHarness;
   readonly options: KimiTUIOptions;
 
@@ -142,8 +143,33 @@ export class AuthFlowController {
     const availableProviders = config.providers ?? {};
 
     if (this.host.session !== undefined) {
-      this.host.setAppState({ availableModels, availableProviders });
-      return;
+      const currentModel = this.host.state?.appState.model;
+      if (
+        currentModel !== undefined &&
+        currentModel !== '' &&
+        availableModels[currentModel] !== undefined
+      ) {
+        this.host.setAppState({ availableModels, availableProviders });
+        return;
+      }
+      const fallbackModel =
+        config.defaultModel !== undefined && availableModels[config.defaultModel] !== undefined
+          ? config.defaultModel
+          : undefined;
+      if (fallbackModel !== undefined) {
+        const selected = availableModels[fallbackModel]!;
+        await this.activateModelAfterLogin(
+          fallbackModel,
+          thinkingEffortFromConfig(config.thinking),
+        );
+        this.host.setAppState({
+          availableModels,
+          availableProviders,
+          model: fallbackModel,
+          maxContextTokens: selected.maxContextSize,
+        });
+        return;
+      }
     }
 
     this.host.setAppState({
