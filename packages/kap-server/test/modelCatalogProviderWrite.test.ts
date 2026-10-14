@@ -714,6 +714,43 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     });
   });
 
+  it('preserves existing protocol and max_output_size when replace omits them, and migrates bare default_model alias on in-place replace', async () => {
+    const PRESERVE_TOML = [
+      'default_model = "gpt4o"',
+      '',
+      '[providers.openai]',
+      'type = "openai"',
+      'api_key = "sk-openai"',
+      '',
+      '[models.gpt4o]',
+      'provider = "openai"',
+      'model = "gpt-4o"',
+      'max_context_size = 128000',
+      'protocol = "anthropic"',
+      'max_output_size = 16384',
+      '',
+    ].join('\n');
+    await boot(PRESERVE_TOML);
+    const { status, body } = await putJson<unknown>('/api/v1/providers/openai', {
+      type: 'openai',
+      models: [{ model: 'gpt-4o', max_context_size: 256000 }],
+    });
+    expect(status).toBe(200);
+    expect(body.code).toBe(0);
+
+    const onDisk = await readConfigToml();
+    expect(onDisk['default_model']).toBe('openai/gpt-4o');
+    expect(onDisk['models']).toEqual({
+      'openai/gpt-4o': {
+        provider: 'openai',
+        model: 'gpt-4o',
+        max_context_size: 256000,
+        protocol: 'anthropic',
+        max_output_size: 16384,
+      },
+    });
+  });
+
   it('drops a capability the form omits from config.toml instead of unioning it back', async () => {
     const CAPABILITY_TOML = [
       '[providers.openai]',

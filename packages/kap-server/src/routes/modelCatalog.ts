@@ -447,8 +447,9 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
             .map((record) => [record.model as string, record] as const),
         );
         for (const entry of req.body.models) {
+          const previous = previousByModel.get(entry.model);
           const alias: ModelRecord = {
-            ...previousByModel.get(entry.model),
+            ...previous,
             provider: newId,
             model: entry.model,
             maxContextSize: entry.max_context_size,
@@ -456,9 +457,9 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
           alias.displayName = entry.display_name !== undefined ? entry.display_name : undefined;
           alias.capabilities =
             entry.capabilities !== undefined ? [...entry.capabilities] : undefined;
-          alias.protocol = entry.protocol !== undefined ? entry.protocol : undefined;
+          alias.protocol = entry.protocol !== undefined ? entry.protocol : previous?.protocol;
           alias.maxOutputSize =
-            entry.max_output_size !== undefined ? entry.max_output_size : undefined;
+            entry.max_output_size !== undefined ? entry.max_output_size : previous?.maxOutputSize;
           alias.supportEfforts =
             entry.support_efforts !== undefined ? [...entry.support_efforts] : undefined;
           alias.adaptiveThinking =
@@ -472,14 +473,17 @@ export function registerModelCatalogRoutes(app: ModelCatalogRouteHost, core: Sco
           if (defaultProvider === provider_id) {
             await config.replace(DEFAULT_PROVIDER_SECTION, newId);
           }
-          const defaultModel = config.inspect<string>(DEFAULT_MODEL_SECTION).userValue;
-          if (defaultModel !== undefined && previousAliasIds.has(defaultModel)) {
-            const renamedModel = models[defaultModel]?.model;
-            const renamedAlias =
-              renamedModel !== undefined ? `${newId}/${renamedModel}` : undefined;
-            if (renamedAlias !== undefined && nextModels[renamedAlias] !== undefined) {
-              await config.replace(DEFAULT_MODEL_SECTION, renamedAlias);
-            }
+        }
+        const defaultModel = config.inspect<string>(DEFAULT_MODEL_SECTION).userValue;
+        if (defaultModel !== undefined && previousAliasIds.has(defaultModel)) {
+          const renamedModel = models[defaultModel]?.model;
+          const renamedAlias = renamedModel !== undefined ? `${newId}/${renamedModel}` : undefined;
+          if (
+            renamedAlias !== undefined &&
+            renamedAlias !== defaultModel &&
+            nextModels[renamedAlias] !== undefined
+          ) {
+            await config.replace(DEFAULT_MODEL_SECTION, renamedAlias);
           }
         }
 
