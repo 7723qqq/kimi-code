@@ -1132,6 +1132,17 @@ export class ToolCallComponent extends Container {
     if (cb !== undefined) cb();
   }
 
+  /**
+   * Phase-only read for cheap change detection. `getSubagentSnapshot()` also
+   * derives latest activity, coerces args and allocates a snapshot object —
+   * work an owning group does not need when it is only comparing phases, and
+   * which it would otherwise repeat for every card on every card's tick.
+   * Returns exactly the value `getSubagentSnapshot().phase` would.
+   */
+  getSubagentPhase(): SubagentPhase | undefined {
+    return this.getDerivedSubagentPhase();
+  }
+
   getSubagentSnapshot(): ToolCallSubagentSnapshot {
     const finished = this.finishedSubCalls.length + this.hiddenSubCallCount;
     const contextTokens = this.subagentContextTokens;
@@ -1283,6 +1294,11 @@ export class ToolCallComponent extends Container {
       this.rebuildBody();
       this.ui?.requestRender();
     }, STREAMING_PROGRESS_INTERVAL_MS);
+    // Same shape as the swarm-progress frame timer and the footer loaders: a
+    // preview animation must never be the reason the event loop stays open.
+    if (typeof this.streamingProgressTimer === 'object' && 'unref' in this.streamingProgressTimer) {
+      this.streamingProgressTimer.unref();
+    }
   }
 
   private stopStreamingProgressTimer(): void {
@@ -1356,6 +1372,10 @@ export class ToolCallComponent extends Container {
       this.notifySnapshotChange();
       this.ui?.requestRender();
     }, BRAILLE_SPINNER_INTERVAL_MS);
+    // Matches the swarm-progress frame timer and the footer loaders.
+    if (typeof this.subagentElapsedTimer === 'object' && 'unref' in this.subagentElapsedTimer) {
+      this.subagentElapsedTimer.unref();
+    }
   }
 
   private stopSubagentElapsedTimer(): void {

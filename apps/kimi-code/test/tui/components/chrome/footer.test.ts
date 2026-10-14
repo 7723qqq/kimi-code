@@ -436,3 +436,78 @@ describe('FooterComponent ctrl+o hint beside an inline tips slot', () => {
     footer.dispose();
   });
 });
+
+describe('FooterComponent thinking pulse', () => {
+  // Pins the cadence in footer.ts (THINKING_PULSE_INTERVAL_MS / _STEP): the pulse
+  // timer is private, so this test file is the only place the numbers are
+  // restated. 8 steps x 200 ms = the 1.6 s breathing cycle.
+  const PULSE_INTERVAL_MS = 200;
+  const PULSE_STEPS_PER_CYCLE = 8;
+  const previousChalkLevel = chalk.level;
+
+  // The gate is `thinkingEffort !== 'off' && streamingPhase !== 'idle'`.
+  const thinkingState: AppState = {
+    ...appState,
+    thinkingEffort: 'high',
+    streamingPhase: 'thinking',
+  };
+
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    chalk.level = previousChalkLevel;
+  });
+
+  function armPulse(): { footer: FooterComponent; onRefresh: ReturnType<typeof vi.fn> } {
+    const onRefresh = vi.fn();
+    const footer = new FooterComponent(thinkingState, onRefresh);
+    // A fresh footer arms no pulse timer: the gate lives on setState.
+    footer.setState(thinkingState);
+    return { footer, onRefresh };
+  }
+
+  it('skips the repaint while the pulse renders the same badge text', () => {
+    // Colour level 0 (NO_COLOR, a dumb terminal, piped output): chalk returns the
+    // bare suffix, so every phase produces the identical string.
+    chalk.level = 0;
+    const { footer, onRefresh } = armPulse();
+
+    vi.advanceTimersByTime(PULSE_INTERVAL_MS * PULSE_STEPS_PER_CYCLE);
+
+    // One repaint — the first tick, which has nothing to compare against — and
+    // then none, instead of one full TUI repaint per tick.
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+    footer.dispose();
+  });
+
+  it('still repaints on every step while the ramp changes colour', () => {
+    chalk.level = 3;
+    const { footer, onRefresh } = armPulse();
+
+    vi.advanceTimersByTime(PULSE_INTERVAL_MS * PULSE_STEPS_PER_CYCLE);
+
+    // The palette's text and textDim are far enough apart that each of the 8
+    // phases rounds to a different colour, so the guard never fires here: the
+    // animation is intact, only its cadence changed (20 ticks -> 8 per cycle).
+    expect(onRefresh).toHaveBeenCalledTimes(PULSE_STEPS_PER_CYCLE);
+    footer.dispose();
+  });
+
+  it('clears the pulse timer when the gate goes false', () => {
+    chalk.level = 3;
+    const { footer, onRefresh } = armPulse();
+    vi.advanceTimersByTime(PULSE_INTERVAL_MS);
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+
+    footer.setState({ ...thinkingState, streamingPhase: 'idle' });
+
+    // Cleared, not merely neutered: no interval is left on the clock.
+    expect(vi.getTimerCount()).toBe(0);
+    vi.advanceTimersByTime(PULSE_INTERVAL_MS * 5);
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+    footer.dispose();
+  });
+});

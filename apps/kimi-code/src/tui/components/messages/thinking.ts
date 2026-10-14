@@ -167,6 +167,11 @@ export class ThinkingComponent implements Component {
       this.markRenderDirty();
       this.ui?.requestRender();
     }, BRAILLE_SPINNER_INTERVAL_MS);
+    // Live thinking animates on a timer; it must not by itself keep the process
+    // alive once the turn ends.
+    if (typeof this.spinnerInterval === 'object' && 'unref' in this.spinnerInterval) {
+      this.spinnerInterval.unref();
+    }
   }
 
   private stopSpinner(): void {

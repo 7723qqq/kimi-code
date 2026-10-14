@@ -120,7 +120,18 @@ describe('runUpdateDownloadCommand', () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
+  });
+
+  const stagedRecord = (overrides: Record<string, unknown> = {}) => ({
+    version: '0.7.0',
+    target: 'win32-x64',
+    exeFileName: 'kimi-0.7.0.4242.1700000000000.0.exe',
+    sha256: STAGED_HASH,
+    exeSize: 5,
+    stagedAt: '2024-01-01T00:00:00.000Z',
+    ...overrides,
   });
 
   it('refuses on non-native installs', async () => {
@@ -213,6 +224,50 @@ describe('runUpdateDownloadCommand', () => {
       expect.objectContaining({ version: '0.7.0' }),
     );
     expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it('hashes the staged payload once per generation instead of once per poll', async () => {
+    // The waiter polls every 2 s while the holder works, and each poll used to
+    // re-read and re-hash the ~180 MB payload. Nothing about the generation
+    // changes, so the verified verdict must be reused for the whole wait.
+    vi.useFakeTimers();
+    mocks.tryAcquireUpdateInstallLock.mockResolvedValue(null);
+    mocks.readUpdateInstallLockVersion.mockResolvedValue('0.7.0');
+    mocks.readStagedNativeUpdate.mockResolvedValue(stagedRecord());
+    mocks.hashFileSha256.mockResolvedValue(STAGED_HASH);
+    // A concurrent swap claim/restore cycle keeps the manual promotion from
+    // persisting, so the waiter polls on and on.
+    mocks.promoteStagedUpdateToManual.mockResolvedValue(false);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const pending = runUpdateDownloadCommand('0.7.0', true);
+    await vi.advanceTimersByTimeAsync(2_000 * 5);
+    expect(mocks.readStagedNativeUpdate.mock.calls.length).toBeGreaterThan(4);
+    expect(mocks.hashFileSha256).toHaveBeenCalledTimes(1);
+    // The rest of the bounded wait still costs no further hashing.
+    await vi.advanceTimersByTimeAsync(7 * 60 * 60 * 1000);
+    await expect(pending).resolves.toBe(1);
+    expect(mocks.hashFileSha256).toHaveBeenCalledTimes(1);
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('already downloading'));
+  });
+
+  it('hands the caller its error path when the wait outlives its deadline', async () => {
+    // A holder that is alive but wedged keeps its lock fresh forever, so
+    // nothing else would end this wait: without a deadline this poller (and a
+    // foreground `kimi upgrade`) would run forever. The expired wait falls
+    // through to the caller's existing "another update is already
+    // downloading" failure instead of a success that never happened.
+    vi.useFakeTimers();
+    mocks.tryAcquireUpdateInstallLock.mockResolvedValue(null);
+    mocks.readUpdateInstallLockVersion.mockResolvedValue('0.7.0');
+    mocks.readStagedNativeUpdate.mockResolvedValue(null);
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const pending = runUpdateDownloadCommand('0.7.0');
+    await vi.advanceTimersByTimeAsync(7 * 60 * 60 * 1000);
+    await expect(pending).resolves.toBe(1);
+    expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('already downloading'));
+    expect(mocks.stageNativeUpdate).not.toHaveBeenCalled();
   });
 
   it('fails instead of a false success when the lock holder stages another version', async () => {

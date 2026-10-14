@@ -111,7 +111,11 @@ export class AgentGroupComponent extends Container {
   private detectPhaseTransition(): boolean {
     let changed = false;
     for (const e of this.entries) {
-      const phase = e.tc.getSubagentSnapshot().phase;
+      // Phase-only read: this runs on *every* card snapshot notification
+      // (before the 200ms throttle below ever applies), so building a full
+      // snapshot per card here made every card's tick cost a full sweep of
+      // all the others.
+      const phase = e.tc.getSubagentPhase();
       if (this.lastFlushPhases.get(e.toolCallId) !== phase) {
         changed = true;
         break;

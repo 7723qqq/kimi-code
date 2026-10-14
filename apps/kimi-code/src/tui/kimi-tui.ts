@@ -2301,6 +2301,9 @@ export class KimiTUI {
   showProgressSpinner(label: string): LoginProgressSpinnerHandle {
     const tint = (s: string): string => currentTheme.fg('primary', s);
     const spinner = new MoonLoader(this.state.ui, 'braille', tint, label);
+    // Ownership: MoonLoader arms nothing by itself; this returned handle starts
+    // the frames and the `stop()` below is what ends them.
+    spinner.start();
     const entry: TranscriptEntry = {
       id: nextTranscriptId(),
       kind: 'status',

@@ -1271,6 +1271,11 @@ export class SessionEventHandler {
     }
     const tint = (s: string): string => currentTheme.fg('textMuted', s);
     const spinner = new MoonLoader(state.ui, 'braille', tint, label);
+    // Ownership: MoonLoader arms nothing by itself, so this controller starts the
+    // frames here and ends them in `finalizeMcpServerStatusRow` — and, when the
+    // session switches before a server ever settles, in
+    // `stopAllMcpServerStatusSpinners`.
+    spinner.start();
     const entry: TranscriptEntry = {
       id: nextTranscriptId(),
       kind: 'status',

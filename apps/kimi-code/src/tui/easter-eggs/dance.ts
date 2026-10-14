@@ -177,6 +177,11 @@ export class RainbowDance implements RainbowDanceController {
       this.currentPhase += 1;
       this.requestRender();
     }, DANCE_FRAME_MS);
+    // The dance is decoration: it must never be the thing holding the event loop
+    // open on its own.
+    if (this.frameTimer !== null && typeof this.frameTimer === 'object' && 'unref' in this.frameTimer) {
+      this.frameTimer.unref();
+    }
     this.flowStopTimer = setTimeout(() => {
       this.settle(opts.hold);
     }, DANCE_FLOW_MS);

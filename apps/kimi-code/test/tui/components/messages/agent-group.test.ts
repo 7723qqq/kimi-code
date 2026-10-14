@@ -285,15 +285,17 @@ describe('AgentGroupComponent', () => {
     vi.setSystemTime(5_000);
     done.onSubagentCompleted({ resultSummary: 'done' });
 
+    const phases = vi.spyOn(done, 'getSubagentPhase');
     const snapshots = vi.spyOn(done, 'getSubagentSnapshot');
 
-    // A non-phase change is throttled into one flush: one snapshot pass for the
-    // transition check, one for the rebuild it triggers.
+    // A non-phase change is throttled into one flush: one phase-only read for
+    // the transition check, one full snapshot for the rebuild it triggers.
     done.updateSubagentMetrics({ modelDisplay: 'Kimi K2.5' });
     vi.mocked(ui.requestRender).mockClear();
     vi.runOnlyPendingTimers();
 
-    expect(snapshots).toHaveBeenCalledTimes(2);
+    expect(phases).toHaveBeenCalledTimes(1);
+    expect(snapshots).toHaveBeenCalledTimes(1);
     expect(ui.requestRender).toHaveBeenCalledTimes(1);
 
     group.dispose();

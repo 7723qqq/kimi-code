@@ -25,6 +25,24 @@ import { t } from '#/i18n';
 
 const LOCK_HELD_POLL_INTERVAL_MS = 2_000;
 
+/**
+ * Upper bound on the wait for another worker's stage. Only its holder's DEATH
+ * ends the wait early (its lock then goes stale — see install-lock): a holder
+ * alive but wedged keeps its lock fresh forever, so without a bound this loop
+ * — and a foreground `kimi upgrade` waiting in it — never returns. A slow
+ * link legitimately takes hours (the download is idle-bounded, not
+ * duration-bounded), so the bound is deliberately generous: it only ends a
+ * wait that has stopped being an update and become a leak.
+ */
+const STAGE_WAIT_MAX_MS = 6 * 60 * 60 * 1000;
+
+/** The stage record fields that identify one published generation. */
+type StagedGeneration = {
+  readonly exeFileName: string;
+  readonly sha256: string;
+  readonly stagedAt: string;
+};
+
 type StagedUpdateWait =
   | { readonly status: 'staged' }
   | { readonly status: 'takeover'; readonly lock: UpdateInstallLockHandle | null };
@@ -55,13 +73,38 @@ async function waitForStagedUpdate(
   exePath: string,
   manual: boolean,
 ): Promise<StagedUpdateWait> {
+  const deadline = Date.now() + STAGE_WAIT_MAX_MS;
+  // Identity of the generation whose payload the last hash verified. A stage
+  // publishes its payload BEFORE the metadata pointing at it and a published
+  // payload is never replaced, so a record with an unchanged identity still
+  // describes exactly the bytes that verified — hashing costs one pass per
+  // generation instead of one per poll (the payload is ~180 MB, the poll 2 s).
+  // Only VERIFIED verdicts are cached: an unverified one is re-read every
+  // poll, since the holder may be repairing that very generation in place
+  // (only the metadata write retargets the record).
+  let hashedGeneration: StagedGeneration | null = null;
   for (;;) {
     const staged = await readStagedNativeUpdate(exePath);
-    const digest =
-      staged !== null && staged.version === version
-        ? await hashFileSha256(stagedExePath(exePath, staged))
-        : null;
-    if (staged !== null && digest === staged.sha256) {
+    let verified = false;
+    if (staged !== null && staged.version === version) {
+      const identity: StagedGeneration = {
+        exeFileName: staged.exeFileName,
+        sha256: staged.sha256,
+        stagedAt: staged.stagedAt,
+      };
+      if (
+        hashedGeneration !== null &&
+        hashedGeneration.exeFileName === identity.exeFileName &&
+        hashedGeneration.sha256 === identity.sha256 &&
+        hashedGeneration.stagedAt === identity.stagedAt
+      ) {
+        verified = true;
+      } else {
+        verified = (await hashFileSha256(stagedExePath(exePath, staged))) === staged.sha256;
+        hashedGeneration = verified ? identity : null;
+      }
+    }
+    if (staged !== null && verified) {
       if (!manual || (await promoteStagedUpdateToManual(exePath, staged))) {
         return { status: 'staged' };
       }
@@ -79,6 +122,12 @@ async function waitForStagedUpdate(
     await new Promise((resolve) => {
       setTimeout(resolve, LOCK_HELD_POLL_INTERVAL_MS);
     });
+    if (Date.now() >= deadline) {
+      // Out of time: hand the caller the same outcome a released lock
+      // produces — a final acquire that reports the surviving holder as
+      // `null` (its error path) instead of polling forever.
+      return { status: 'takeover', lock: await tryAcquireUpdateInstallLock({ version }) };
+    }
   }
 }
 

@@ -754,6 +754,74 @@ describe('TasksBrowserController — opening an agent task', () => {
     controller.close();
   });
 
+  it('does not poll the output of a task that already settled', async () => {
+    const store = new SubagentActivityStore();
+    const { host, state } = makeControllerHost(
+      [
+        task({
+          taskId: 'agent-task-1',
+          kind: 'agent',
+          agentId: 'agent-1',
+          status: 'completed',
+        } as Partial<BackgroundTaskInfo>),
+      ],
+      store,
+    );
+    const getOutput = vi.fn(async () => 'captured output');
+    host.session.getBackgroundTaskOutput = getOutput;
+    const controller = new TasksBrowserController(host as never);
+    await controller.show();
+
+    vi.useFakeTimers();
+    try {
+      await openSelectedViewer(controller, 'agent-task-1');
+      const opened = getOutput.mock.calls.length;
+
+      await vi.advanceTimersByTimeAsync(3_000);
+
+      expect(getOutput.mock.calls.length).toBe(opened);
+      const viewer = (state.tasksBrowser as { viewer?: { pollTimer?: unknown } }).viewer;
+      expect(viewer?.pollTimer).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+      controller.close();
+    }
+  });
+
+  it('stops polling once a running task settles', async () => {
+    const store = new SubagentActivityStore();
+    const running = task({
+      taskId: 'agent-task-1',
+      kind: 'agent',
+      agentId: 'agent-1',
+      status: 'running',
+    } as Partial<BackgroundTaskInfo>);
+    const { host } = makeControllerHost([running], store);
+    const getOutput = vi.fn(async () => 'captured output');
+    host.session.getBackgroundTaskOutput = getOutput;
+    const controller = new TasksBrowserController(host as never);
+    await controller.show();
+
+    vi.useFakeTimers();
+    try {
+      await openSelectedViewer(controller, 'agent-task-1');
+      const opened = getOutput.mock.calls.length;
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(getOutput.mock.calls.length).toBe(opened + 1);
+
+      (running as { status: string }).status = 'completed';
+      await vi.advanceTimersByTimeAsync(1_000);
+      const settled = getOutput.mock.calls.length;
+
+      await vi.advanceTimersByTimeAsync(5_000);
+      expect(getOutput.mock.calls.length).toBe(settled);
+    } finally {
+      vi.useRealTimers();
+      controller.close();
+    }
+  });
+
   it('feeds the preview pane from the activity store for agent tasks', async () => {
     const store = new SubagentActivityStore();
     store.ensureRecord({ agentId: 'agent-1', agentName: 'explore', parentToolCallId: 'tc-1' });

@@ -54,7 +54,17 @@ const DEFAULT_STATUS_LINE_ITEMS = ['mode', 'goal', 'model', 'tasks', 'cwd', 'git
 
 const MAX_CWD_SEGMENTS = 3;
 const GOAL_TIMER_INTERVAL_MS = 1_000;
-const THINKING_PULSE_INTERVAL_MS = 80;
+/**
+ * Thinking-suffix breathing ramp. The visible cycle is the contract, not the
+ * tick rate: 8 steps of 0.125 at 200 ms is the same 1.6 s cycle the fork
+ * originally ran as 20 steps of 0.05 at 80 ms, with 2.5x fewer ticks
+ * (12.5 repaints/s -> 5 repaints/s) — and each tick that would render the same
+ * text is skipped outright, see `FooterComponent.pulseOutput`. 0.125 was picked
+ * over 0.1 because 0.1 would stretch the cycle to 2 s and change how the pulse
+ * reads to the user, while 0.125 keeps the ramp pixel-for-pixel the same shape.
+ */
+const THINKING_PULSE_INTERVAL_MS = 200;
+const THINKING_PULSE_STEP = 0.125;
 
 // Toolbar tips — rotates every 10s. Most tips are short and pair up (two
 // joined by " | ") when space allows; tips flagged `solo` are long or
@@ -144,6 +154,26 @@ function modelDisplayName(state: AppState): string {
   const model = state.availableModels[state.model];
   const effective = model === undefined ? undefined : effectiveModelAlias(model);
   return effective?.displayName ?? effective?.model ?? state.model;
+}
+
+/**
+ * The "thinking" suffix of the model slot, e.g. `thinking: high`, or `''` when
+ * effort is off. Split out of `buildSlots` so the pulse timer can compare the
+ * exact text the ramp colours; a second copy of these effort rules that drifted
+ * from the render path would either freeze the punctuation or repaint forever.
+ */
+function thinkingSuffixLabel(state: AppState): string {
+  const effort = state.thinkingEffort;
+  if (effort === 'off') return '';
+  const rawCurrentModel = state.availableModels[state.model];
+  const currentModel =
+    rawCurrentModel === undefined ? undefined : effectiveModelAlias(rawCurrentModel);
+  // Only effort-capable models (those declaring support_efforts) show the
+  // concrete effort; legacy boolean models keep the plain "thinking" suffix.
+  const hasEfforts = (currentModel?.supportEfforts?.length ?? 0) > 0;
+  return hasEfforts && effort !== 'on'
+    ? t('tui.chrome.footer.thinkingEffort', { effort })
+    : t('tui.chrome.footer.thinking');
 }
 
 function shortenCwd(path: string): string {
@@ -351,6 +381,13 @@ export class FooterComponent implements Component {
   private goalTimer: ReturnType<typeof setInterval> | null = null;
   private pulseTimer: ReturnType<typeof setInterval> | null = null;
   private pulsePhase = 0;
+  /**
+   * The pulse output the frame was last painted for, as `pulseOutput()` returned
+   * it at that phase. `null` doubles as "nothing on screen consumes the ramp"
+   * and as the starting "unknown", which makes the first tick after an arm
+   * repaint rather than trust a comparison it never established.
+   */
+  private lastPulseOutput: string | null = null;
   private statusLineRunner: StatusLineCommandRunner | null = null;
   /**
    * Non-terminal background-task counts split by kind so the footer can
@@ -645,23 +682,11 @@ export class FooterComponent implements Component {
 
     const model = modelDisplayName(state);
     if (model) {
-      const effort = state.thinkingEffort;
-      const rawCurrentModel = state.availableModels[state.model];
-      const currentModel =
-        rawCurrentModel === undefined ? undefined : effectiveModelAlias(rawCurrentModel);
-      // Only effort-capable models (those declaring support_efforts) show the
-      // concrete effort; legacy boolean models keep the plain "thinking" suffix.
-      const hasEfforts = (currentModel?.supportEfforts?.length ?? 0) > 0;
-      const thinkingLabel =
-        effort !== 'off'
-          ? hasEfforts && effort !== 'on'
-            ? t('tui.chrome.footer.thinkingEffort', { effort })
-            : t('tui.chrome.footer.thinking')
-          : '';
-      const thinkingColor =
-        this.pulsePhase > 0
-          ? pulseHexColor(colors.textDim, colors.text, Math.sin(this.pulsePhase * Math.PI))
-          : colors.text;
+      const thinkingLabel = thinkingSuffixLabel(state);
+      // `pulseSuffixColor` is shared with the pulse timer, which decides whether
+      // a tick would repaint anything by comparing the string this colour
+      // produces — so both paths must derive the colour identically.
+      const thinkingColor = pulseSuffixColor(this.pulsePhase, colors);
       const modelLabel = `${model}${thinkingLabel}`;
       let renderedModelLabel =
         chalk.hex(colors.text)(model) +
@@ -751,8 +776,7 @@ export class FooterComponent implements Component {
     if (thinking) {
       if (this.pulseTimer !== null) return;
       this.pulseTimer = setInterval(() => {
-        this.pulsePhase = (this.pulsePhase + 0.05) % 1;
-        this.onRefresh();
+        this.tickPulse();
       }, THINKING_PULSE_INTERVAL_MS);
       this.pulseTimer.unref?.();
       return;
@@ -762,6 +786,56 @@ export class FooterComponent implements Component {
       this.pulseTimer = null;
     }
     this.pulsePhase = 0;
+    // The gate flip that lands here is itself a state update, so the resting
+    // phase is painted by that render; the next arm starts from "unknown" and
+    // repaints once rather than trust a comparison from the previous turn.
+    this.lastPulseOutput = null;
+  }
+
+  /**
+   * Advance the breathing ramp one step, and repaint only when the step changes
+   * what the ramp draws.
+   *
+   * The ramp reaches the screen in exactly one place — the colour of the model
+   * slot's "thinking" suffix, see `pulseOutput` — so comparing that produced
+   * string answers the whole question "would this tick change a single character
+   * of the frame?". Skipping the repaint on an unchanged string is safe because
+   * nothing else about the phase is observable: `pulsePhase` is private, this
+   * timer is its only writer, and every other input the suffix depends on
+   * (model, effort, the /dance takeover, the palette) arrives through `setState`
+   * or a theme switch, both of which repaint on their own. The guard can
+   * therefore only drop repaints that would redraw the frame byte for byte.
+   *
+   * The saving is not theoretical: with colours off (NO_COLOR, a dumb terminal,
+   * piped output) chalk hands back the bare suffix and all eight phases produce
+   * the identical string, so a long "thinking" turn costs one repaint per arm
+   * instead of five per second.
+   */
+  private tickPulse(): void {
+    this.pulsePhase = (this.pulsePhase + THINKING_PULSE_STEP) % 1;
+    const produced = this.pulseOutput();
+    if (produced === this.lastPulseOutput) return;
+    this.lastPulseOutput = produced;
+    this.onRefresh();
+  }
+
+  /**
+   * The text the ramp paints, or `null` when it reaches nothing on screen: the
+   * ramp only colours the model slot's thinking suffix, so a missing model name,
+   * an empty suffix, or the /dance takeover (which renders the whole label on its
+   * own clock) all mean that a phase change draws exactly the same frame.
+   *
+   * The *coloured* string is what gets compared — not the phase, and not the
+   * colour alone — because the coloured string is what chalk actually puts on
+   * the frame: at colour level 0 every phase hands back the same characters.
+   */
+  private pulseOutput(): string | null {
+    const state = this.state;
+    if (isRainbowDancing()) return null;
+    if (modelDisplayName(state).length === 0) return null;
+    const label = thinkingSuffixLabel(state);
+    if (label.length === 0) return null;
+    return chalk.hex(pulseSuffixColor(this.pulsePhase, currentTheme.palette))(label);
   }
 
   dispose(): void {
@@ -797,6 +871,20 @@ function goalSnapshotKey(goal: AppState['goal']): string | null {
     String(goal.budget.turnBudget),
     String(goal.budget.wallClockBudgetMs),
   ].join('\u0000');
+}
+
+/**
+ * Colour the breathing ramp paints the model slot's "thinking" suffix with at a
+ * given phase. Phase 0 is the resting point rather than the dim end of the ramp:
+ * the render path has always painted the plain text colour when no pulse is
+ * running, so the mixer is skipped there and the ramp starts and ends at full
+ * brightness instead of jumping to and from it. The sine makes it ease into and
+ * out of the dim end.
+ */
+function pulseSuffixColor(phase: number, colors: ColorPalette): string {
+  return phase > 0
+    ? pulseHexColor(colors.textDim, colors.text, Math.sin(phase * Math.PI))
+    : colors.text;
 }
 
 function pulseHexColor(fromHex: string, toHex: string, t: number): string {

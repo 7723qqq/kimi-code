@@ -39,9 +39,13 @@ import { t } from '#/i18n';
 import { NOTIFY_AUTOSCROLL_INTERVAL_MS } from '#/tui/constant/rendering';
 import { Markdown } from '#/tui/components/markdown/markdown';
 import { MAIN_AGENT_ID } from '#/tui/constant/kimi-tui';
-import { currentTheme } from '#/tui/theme';
+import { currentTheme, type ColorPalette } from '#/tui/theme';
 import { createMarkdownTheme } from '#/tui/theme/pi-tui-theme';
-import { createMarkdownOptions } from '#/tui/utils/markdown-options';
+import {
+  createMarkdownOptions,
+  getMarkdownMermaidMode,
+  type MermaidRenderMode,
+} from '#/tui/utils/markdown-options';
 
 export interface NotifyEntry {
   readonly id: string;
@@ -134,6 +138,25 @@ interface TabHitRange {
 }
 
 /**
+ * One entry's rendered body and the inputs it was rendered from.
+ *
+ * The key is deliberately wider than `(text, width)`. The rows carry ANSI
+ * colours and the structure the Markdown options select, and none of those
+ * changes reaches the box as an invalidation — the status surface forwards
+ * `invalidate()` to its regions and the updates region does not implement one —
+ * so a key that stopped at the text and the width would keep painting the
+ * palette of a scheme the user has already left.
+ */
+interface RenderedBodyCache {
+  readonly text: string;
+  readonly renderWidth: number;
+  readonly palette: ColorPalette;
+  readonly latex: boolean | undefined;
+  readonly mermaid: MermaidRenderMode;
+  readonly rows: string[];
+}
+
+/**
  * The share of the terminal a standalone box may claim: half the screen, never
  * more than `cap`, and never zero. Used when no host granted an explicit budget.
  */
@@ -166,6 +189,13 @@ export class NotifyPanelComponent implements Component {
    * the box is clipping its body, so a click must be able to close it again.
    */
   private lastGrantedBodyBudget = 0;
+  /**
+   * The viewed entry's rendered body, shared by the two passes of one frame:
+   * the surface's height measurement and the paint that follows it both need
+   * the same rows, and each used to build its own `Markdown` and parse the same
+   * text, so a frame lexed and re-wrapped every line twice.
+   */
+  private lastBody: RenderedBodyCache | undefined;
   /** Clickable spans of the top border, refreshed by every `title()` call. */
   private tabHitRanges: TabHitRange[] = [];
   /** `+N done` expanded into individual tabs (mouse toggle). */
@@ -671,18 +701,55 @@ export class NotifyPanelComponent implements Component {
     this.autoScrollTimer = undefined;
   }
 
+  /**
+   * The displayed entry's rendered rows at `width`, or the ones already
+   * rendered for exactly this input.
+   *
+   * A frame asks for the body twice — once for the surface's height
+   * measurement, once for the paint that follows — and each call used to build
+   * a `Markdown` and lex and wrap the same text again. Sharing the rows makes
+   * the second ask free.
+   *
+   * `text` and `renderWidth` are the layout key; the palette and the two
+   * Markdown options are in the key as well because they decide the colours and
+   * the structure that the rows carry, and neither announces itself: the box is
+   * never invalidated, so no hook would come along to drop a stale entry.
+   */
+  private bodyRows(text: string, width: number): string[] {
+    const trimmed = text.trim();
+    const renderWidth = Math.max(1, width - 6);
+    const options = createMarkdownOptions();
+    const mermaid = getMarkdownMermaidMode();
+    const palette = currentTheme.palette;
+    const cached = this.lastBody;
+    if (
+      cached !== undefined &&
+      cached.text === trimmed &&
+      cached.renderWidth === renderWidth &&
+      cached.palette === palette &&
+      cached.latex === options.renderLatex &&
+      cached.mermaid === mermaid
+    ) {
+      return cached.rows;
+    }
+    const markdown = new Markdown(trimmed, 0, 0, createMarkdownTheme(), undefined, options);
+    const rows = markdown.render(renderWidth);
+    this.lastBody = {
+      text: trimmed,
+      renderWidth,
+      palette,
+      latex: options.renderLatex,
+      mermaid,
+      rows,
+    };
+    return rows;
+  }
+
   /** Body rows the displayed entry needs at the current width, unwrapped. */
   private measureBodyHeight(ch: NotifyChannel, width = this.lastWidth): number {
     const entry = ch.entries[Math.min(ch.page, ch.entries.length - 1)];
     if (entry === undefined) return 0;
-    return new Markdown(
-      entry.text.trim(),
-      0,
-      0,
-      createMarkdownTheme(),
-      undefined,
-      createMarkdownOptions(),
-    ).render(Math.max(1, width - 6)).length;
+    return this.bodyRows(entry.text, width).length;
   }
 
   /** Rows of the displayed update currently out of view, for the title hint. */
@@ -708,14 +775,7 @@ export class NotifyPanelComponent implements Component {
   private layoutBody(width: number): { bodyRows: string[]; budget: number; maxScroll: number } {
     const ch = this.activeChannel();
     const entry = ch.entries[Math.min(ch.page, ch.entries.length - 1)]!;
-    const bodyRows = new Markdown(
-      entry.text.trim(),
-      0,
-      0,
-      createMarkdownTheme(),
-      undefined,
-      createMarkdownOptions(),
-    ).render(Math.max(1, width - 6));
+    const bodyRows = this.bodyRows(entry.text, width);
 
     // Record the entry's full height and width so `scrollBy` can clamp against
     // it: the rendered window is the only place the real height is known.

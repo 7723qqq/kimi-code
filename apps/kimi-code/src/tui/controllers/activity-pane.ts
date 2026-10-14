@@ -234,6 +234,9 @@ export class ActivityPaneController {
 
     if (state.activitySpinner === null) {
       const instance = new MoonLoader(state.ui, style, colorFn, label);
+      // MoonLoader arms nothing on construction, so the pane that mounts it is
+      // the owner: it starts the frames here and `stopActivitySpinner` ends them.
+      instance.start();
       state.activitySpinner = { instance, style };
       return instance;
     }

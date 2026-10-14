@@ -442,6 +442,10 @@ describe('fullscreen layout', () => {
     // User message, then a streaming assistant message with the activity pane up.
     state.transcriptContainer.addChild(new UserMessageComponent('分析下这个项目'));
     const spinner = new MoonLoader(state.ui);
+    // MoonLoader arms nothing on construction; whoever mounts it owns the frames.
+    // This stand-in for the activity pane starts it so the row renders the frame
+    // exactly as it did when the constructor auto-started.
+    spinner.start();
     state.activityContainer.addChild(
       new ActivityPaneComponent({ mode: 'tool', spinner, tip: 'streaming' }),
     );

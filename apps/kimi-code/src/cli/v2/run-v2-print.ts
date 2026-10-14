@@ -133,6 +133,14 @@ const GOAL_WAIT_POLL_MS = 250;
 /** Re-check each agent's prompt queue while waiting for it to drain at exit. */
 const PROMPT_QUIESCE_POLL_MS = 10;
 /**
+ * Upper bound on the quiesce loop itself. `raceWithTimeout(..., CLI_SHUTDOWN_TIMEOUT_MS)`
+ * at the call site only bounds the *caller*: the loop keeps running (and keeps
+ * snapshotting every loop) after that race resolves, which either wedges the process
+ * forever when `settled()` never resolves or spins at 100 Hz while a producer keeps
+ * re-submitting. Staying under `CLI_SHUTDOWN_TIMEOUT_MS` lets the loop end on its own.
+ */
+const PROMPT_QUIESCE_MAX_MS = CLI_SHUTDOWN_TIMEOUT_MS - 500;
+/**
  * Slack on top of a scheduled cron fire time while waiting for the steered
  * turn: covers the 1s tick poll interval plus fire → inject → turn-launch
  * latency.
@@ -1050,14 +1058,37 @@ async function quiesceSessionAgents(
   );
   // Repeat until every queue is empty and every loop freezable: a prompt can
   // still surface from the launch window or a cancelled turn's settle chain.
+  // Both waits are bounded by one deadline: a `settled()` that never resolves
+  // would otherwise park the iteration before it can sleep, and the caller's
+  // `raceWithTimeout` cannot end a loop it has already stopped waiting on.
+  const deadline = Date.now() + PROMPT_QUIESCE_MAX_MS;
+  const remainingMs = (): number => deadline - Date.now();
+  const waitForSettleOrDeadline = async (): Promise<void> => {
+    const remaining = remainingMs();
+    if (remaining <= 0) return;
+    await Promise.race([
+      Promise.allSettled(loops.map((loop) => loop.settled())),
+      new Promise<void>((resolve) => {
+        setTimeout(resolve, remaining).unref?.();
+      }),
+    ]);
+  };
+  const waitForPollOrDeadline = async (): Promise<void> => {
+    const remaining = remainingMs();
+    if (remaining <= 0) return;
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, Math.min(PROMPT_QUIESCE_POLL_MS, remaining)).unref?.();
+    });
+  };
   for (;;) {
+    if (remainingMs() <= 0) return undefined;
     for (const loop of loops) {
       for (const queueId of loop.snapshot().queue.map((item) => item.meta?.promptId)) {
         if (queueId !== undefined) loop.cancel({ promptId: queueId });
       }
       loop.cancel();
     }
-    await Promise.allSettled(loops.map((loop) => loop.settled()));
+    await waitForSettleOrDeadline();
     const guards: { dispose(): void }[] = [];
     let frozen = true;
     for (const loop of loops) {
@@ -1088,9 +1119,8 @@ async function quiesceSessionAgents(
       };
     }
     for (const guard of guards) guard.dispose();
-    await new Promise((resolve) => {
-      setTimeout(resolve, PROMPT_QUIESCE_POLL_MS);
-    });
+    if (remainingMs() <= 0) return undefined;
+    await waitForPollOrDeadline();
   }
 }
 

@@ -54,7 +54,7 @@ export type TasksBrowserState = {
         taskId: string;
         output: string;
         refreshId: number;
-        pollTimer: NodeJS.Timeout;
+        pollTimer: NodeJS.Timeout | undefined;
         /** Last `agentId:version` fed to the activity viewer; polls skip when unchanged. */
         lastRecordKey?: string;
       }
@@ -163,6 +163,17 @@ export class TasksBrowserController {
 
     const session = this.host.session;
     if (session === undefined) return;
+
+    // A settled task's output cannot change further, so stop the poll instead of
+    // re-reading the whole log (up to MAX_TASK_OUTPUT_BYTES) once a second for as
+    // long as the viewer stays open. `pollTimer` is the only handle the controller
+    // keeps, so both the timer and the entry must be cleared here.
+    const taskInfo = this.host.backgroundTasks.get(viewer.taskId);
+    if (taskInfo !== undefined && taskInfo.status !== 'running') {
+      if (viewer.pollTimer !== undefined) clearInterval(viewer.pollTimer);
+      viewer.pollTimer = undefined;
+      return;
+    }
 
     const myRefreshId = ++viewer.refreshId;
     let output: string;
