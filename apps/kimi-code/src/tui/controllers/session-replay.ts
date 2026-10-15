@@ -49,6 +49,7 @@ import {
   pluginCommandFromOrigin,
   toolCallFromReplayMessage,
   toolResultOutput,
+  userSlashSkillPromptText,
   withoutUserPromptSubmitHookParts,
   type BackgroundTaskNotificationOrigin,
   type ReplayRenderContext,
@@ -465,10 +466,11 @@ export class SessionReplayRenderer {
     this.flushAssistant(context);
     const skill = skillActivationFromOrigin(message.origin);
     if (skill !== undefined) {
-      this.renderSkillActivation(context, skill);
-      if (message.origin?.kind === 'skill_activation' && message.origin.trigger === 'user-slash') {
-        this.advanceTurn(context);
+      if (skill.trigger === 'user-slash') {
+        this.renderUserSlashSkillPrompt(context, message, skill);
+        return;
       }
+      this.renderSkillActivation(context, skill);
       this.renderHookParts(context, message);
       return;
     }
@@ -500,6 +502,40 @@ export class SessionReplayRenderer {
         context,
         formatHookResultMessageForTranscript(part.text, 'UserPromptSubmit', false),
       );
+    }
+  }
+
+  private renderBundledPrompt(
+    context: ReplayRenderContext,
+    message: ContextMessage,
+    hookResults: readonly ContextMessage[] = [],
+  ): void {
+    this.advanceTurn(context);
+    this.registerBundledSkillActivations(context, message);
+    for (const hookResult of hookResults) {
+      this.renderHookResult(context, hookResult);
+    }
+    this.renderHookParts(context, message);
+    const callerMessage = { ...message, content: withoutUserPromptSubmitHookParts(message.content) };
+    this.host.appendTranscriptEntry({
+      ...replayEntry(
+        context,
+        'user',
+        contentPartsToText(stripBundledSkillParts(callerMessage)),
+        'plain',
+      ),
+      skillNames: bundledSkillsFromOrigin(message.origin).map((skill) => skill.skillName),
+    });
+  }
+
+  private registerBundledSkillActivations(
+    context: ReplayRenderContext,
+    message: ContextMessage,
+  ): void {
+    const { sessionEventHandler } = this.host;
+    for (const skill of bundledSkillsFromOrigin(message.origin)) {
+      context.skillActivationIds.add(skill.activationId);
+      sessionEventHandler.seenSkillActivationIds.add(skill.activationId);
     }
   }
 
@@ -575,15 +611,37 @@ export class SessionReplayRenderer {
   // Special content renderers
   // ---------------------------------------------------------------------------
 
+  private renderUserSlashSkillPrompt(
+    context: ReplayRenderContext,
+    message: ContextMessage,
+    skill: SkillActivationProjection,
+  ): void {
+    const { sessionEventHandler } = this.host;
+    if (context.skillActivationIds.has(skill.activationId)) return;
+    if (sessionEventHandler.seenSkillActivationIds.has(skill.activationId)) return;
+    context.skillActivationIds.add(skill.activationId);
+    sessionEventHandler.seenSkillActivationIds.add(skill.activationId);
+    this.advanceTurn(context);
+    this.renderHookParts(context, message);
+    this.host.appendTranscriptEntry({
+      ...replayEntry(context, 'user', userSlashSkillPromptText(message, skill), 'plain'),
+      skillNames: [skill.skillName],
+      skillActivationId: skill.activationId,
+      skillName: skill.skillName,
+      skillArgs: skill.skillArgs,
+      skillTrigger: skill.trigger,
+    });
+  }
+
   private renderSkillActivation(
     context: ReplayRenderContext,
     skill: SkillActivationProjection,
   ): void {
     const { sessionEventHandler } = this.host;
     if (context.skillActivationIds.has(skill.activationId)) return;
-    if (sessionEventHandler.renderedSkillActivationIds.has(skill.activationId)) return;
+    if (sessionEventHandler.seenSkillActivationIds.has(skill.activationId)) return;
     context.skillActivationIds.add(skill.activationId);
-    sessionEventHandler.renderedSkillActivationIds.add(skill.activationId);
+    sessionEventHandler.seenSkillActivationIds.add(skill.activationId);
     this.host.appendTranscriptEntry({
       ...replayEntry(
         context,

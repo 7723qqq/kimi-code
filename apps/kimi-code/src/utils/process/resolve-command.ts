@@ -1,5 +1,5 @@
 import { accessSync, constants, statSync } from 'node:fs';
-import { isAbsolute, join, relative, resolve } from 'node:path';
+import { isAbsolute, join, parse, relative, resolve } from 'node:path';
 
 // cmd.exe / CreateProcess search the current directory before PATH, so on
 // Windows a bare command name can execute a binary planted in the workspace
@@ -43,6 +43,7 @@ function isExecutableFile(candidate: string, platform: NodeJS.Platform): boolean
 function isInsideCwd(candidate: string, cwd: string, platform: NodeJS.Platform): boolean {
   let resolvedCandidate = resolve(candidate);
   let resolvedCwd = resolve(cwd);
+  if (resolvedCwd === parse(resolvedCwd).root) return false;
   if (platform === 'win32') {
     resolvedCandidate = resolvedCandidate.toLowerCase();
     resolvedCwd = resolvedCwd.toLowerCase();
@@ -74,8 +75,6 @@ export function resolveCommandPath(
     for (const name of names) {
       const candidate = join(dir, name);
       if (!isExecutableFile(candidate, platform)) continue;
-      // A hit inside the cwd is refused, but it must not abort the search:
-      // keep scanning the remaining PATH entries for a hit outside the cwd.
       if (isInsideCwd(candidate, cwd, platform)) continue;
       return resolve(candidate);
     }

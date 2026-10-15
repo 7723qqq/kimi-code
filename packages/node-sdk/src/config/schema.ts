@@ -337,9 +337,7 @@ export const McpServerStdioConfigSchema = z.object({
   args: z.array(z.string()).optional(),
   env: StringRecordSchema.optional(),
   cwd: z.string().optional(),
-  // Reserved for future kaos-backed stdio launchers. `undefined` and `'local'`
-  // both mean direct child_process spawn for now.
-  executor: z.enum(['local', 'kaos']).optional(),
+  executor: z.enum(['local']).optional(),
   ...McpServerCommonFields,
 });
 

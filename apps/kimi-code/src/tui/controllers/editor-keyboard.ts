@@ -31,9 +31,9 @@ import type {
   VideoAttachment,
 } from '../utils/image-attachment-store';
 import { extractMediaAttachments, imageExtensionForMime } from '../utils/image-placeholder';
-import type { ExtractionResult } from '../utils/image-placeholder';
-import { extractInlineSkillActivations } from '../utils/inline-skill-tokens';
-import type { StatusSurfaceKey } from '../components/chrome/status-surface/region';
+import { resolveUserInput } from '../commands/resolve';
+import type { PendingExit, QueuedMessage } from '../types';
+import type { TUIState } from '../tui-state';
 import type { BtwPanelController } from './btw-panel';
 import type { PromptOptimizerController } from './prompt-optimizer';
 import type { SurveyController } from './survey-controller';
@@ -54,8 +54,8 @@ export interface EditorKeyboardHost {
   readonly surveyController: SurveyController;
   readonly promptOptimizer: PromptOptimizerController;
   readonly skillCommandMap: Map<string, string>;
-  steerMessage(session: Session, input: readonly SteerInputItem[]): void;
-  steerSkillActivation(session: Session, skillName: string, skillArgs: string): void;
+  readonly pluginCommandMap: Map<string, string>;
+  steerQueuedMessagesIntoRunningTurn(manual?: boolean): void;
   validateMediaCapabilities(extraction: {
     hasMedia: boolean;
     imageAttachmentIds: readonly number[];
@@ -99,6 +99,7 @@ export interface EditorKeyboardHost {
 export class EditorKeyboardController {
   private pendingExit: PendingExit | null = null;
   private pendingUndoEsc: { readonly timer: ReturnType<typeof setTimeout> } | null = null;
+  private disposed = false;
 
   constructor(
     private readonly host: EditorKeyboardHost,
@@ -112,6 +113,17 @@ export class EditorKeyboardController {
     editor.onSubmit = (text: string) => {
       if (host.surveyController.handleSubmit(text)) return;
       host.handleUserInput(text);
+    };
+
+    // After dispose (shutdown), consume every key here so no shortcut can fire
+    // while the UI is being torn down — Ctrl+C is handled earlier, at the UI
+    // input-listener level.
+    editor.onPreInput = (data: string) => {
+      if (this.disposed) return true;
+      if (matchesKey(data, Key.escape)) this.clearPendingExit();
+      const consumed = host.surveyController.handlePreInput(data);
+      if (consumed) this.clearPendingUndoEsc();
+      return consumed;
     };
 
     editor.onChange = (text: string) => {
@@ -363,9 +375,64 @@ export class EditorKeyboardController {
       void this.steerWithEditorDraft();
     };
 
-    editor.onOptimizePrompt = (): void => {
-      host.track('shortcut_optimize_prompt');
-      void host.promptOptimizer.optimize();
+    editor.onNotifyPanelKey = (key) => host.handleNotifyPanelKey(key);
+
+    editor.onCtrlS = () => {
+      if (
+        host.state.appState.streamingPhase === 'idle' ||
+        host.state.appState.streamingPhase === 'shell' ||
+        host.state.appState.isCompacting ||
+        host.isSteeringQueuedMessages()
+      ) return;
+      const text = (editor.getExpandedText?.() ?? editor.getText()).trim();
+      const editorIsBash = editor.inputMode === 'bash';
+      let extraction: ReturnType<typeof extractMediaAttachments> | undefined;
+      if (!editorIsBash && text.length > 0) {
+        try {
+          extraction = extractMediaAttachments(text, this.imageStore);
+        } catch (error) {
+          host.showError(`Failed to prepare media attachment: ${formatErrorMessage(error)}`);
+          return;
+        }
+        if (!host.validateMediaCapabilities(extraction)) {
+          host.releaseStagingMedia([
+            ...extraction.imageAttachmentIds,
+            ...extraction.videoAttachmentIds,
+          ]);
+          return;
+        }
+      }
+      if (host.state.appState.model.trim().length === 0 || host.session === undefined) {
+        host.releaseStagingMedia([
+          ...(extraction?.imageAttachmentIds ?? []),
+          ...(extraction?.videoAttachmentIds ?? []),
+        ]);
+        host.showError(LLM_NOT_SET_MESSAGE);
+        return;
+      }
+      if (extraction !== undefined) {
+        const { activations } = resolveUserInput({
+          input: text,
+          skillCommandMap: host.skillCommandMap,
+          pluginCommandMap: host.pluginCommandMap,
+          isStreaming: true,
+          isCompacting: host.state.appState.isCompacting,
+        });
+        host.state.queuedMessages.push({
+          text,
+          agentId: host.harness?.interactiveAgentId,
+          parts: extraction.hasMedia ? extraction.parts : undefined,
+          imageAttachmentIds:
+            extraction.imageAttachmentIds.length > 0 ? extraction.imageAttachmentIds : undefined,
+          videoAttachmentIds:
+            extraction.videoAttachmentIds.length > 0 ? extraction.videoAttachmentIds : undefined,
+          inlineSkillActivations: activations.length > 0 ? activations : undefined,
+        });
+        editor.setText('');
+      }
+      host.steerQueuedMessagesIntoRunningTurn(true);
+      host.updateQueueDisplay();
+      host.state.ui.requestRender();
     };
 
     editor.onCtrlB = (): boolean => {
@@ -574,6 +641,7 @@ export class EditorKeyboardController {
   }
 
   dispose(): void {
+    this.disposed = true;
     this.clearPendingExit();
     this.clearPendingUndoEsc();
   }

@@ -31,8 +31,8 @@
  * by hand — wheel, arrows or paging — cancels the walk immediately.
  */
 
-import type { Component, TuiMouseEvent, TuiMouseEventResult } from '@moonshot-ai/pi-tui';
-import { truncateToWidth, visibleWidth } from '@moonshot-ai/pi-tui';
+import type { Component } from '@moonshot-ai/pi-tui';
+import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 
 import { t } from '#/i18n';
@@ -52,6 +52,8 @@ export interface NotifyEntry {
   readonly agentId: string;
   readonly agentName?: string;
   readonly time: number;
+  /** One-line headline of the update; absent for updates posted without one. */
+  readonly title?: string;
   readonly text: string;
 }
 
@@ -775,47 +777,26 @@ export class NotifyPanelComponent implements Component {
   private layoutBody(width: number): { bodyRows: string[]; budget: number; maxScroll: number } {
     const ch = this.activeChannel();
     const entry = ch.entries[Math.min(ch.page, ch.entries.length - 1)]!;
-    const bodyRows = this.bodyRows(entry.text, width);
-
-    // Record the entry's full height and width so `scrollBy` can clamp against
-    // it: the rendered window is the only place the real height is known.
-    this.lastBodyHeight = bodyRows.length;
-    this.lastWidth = width;
-    const budget = Math.max(MIN_BODY_ROWS, this.bodyBudget());
-    // The rows this layout may actually draw: the host's grant when there is
-    // one, the box's own cap otherwise. Recording it unconditionally is what
-    // lets a standalone mount answer "is the body clipped?" too — the cap is
-    // its clipping authority — and the surface's paint runs after its budget
-    // pass, so the granted number is the one left behind.
-    this.lastGrantedBodyBudget = budget;
-    return { bodyRows, budget, maxScroll: Math.max(0, bodyRows.length - budget) };
-  }
-
-  render(width: number): string[] {
-    if (this.channels.length === 0) return [];
-    // The strip's frame belongs to the status surface, so the panel draws
-    // content only: the tab strip that used to be the box's top border opens
-    // the body as its own row.
-    if (this.mustCollapse()) {
-      return [this.stubLine(width)].map((line) => truncateToWidth(line, width));
-    }
-
-    const ch = this.activeChannel();
-    const { bodyRows, budget, maxScroll } = this.layoutBody(width);
-    // A following view pins to the newest rows; a browsing one keeps its offset
-    // clamped to the content. Focus is deliberately not consulted: the wheel can
-    // scroll the box without taking the keyboard, so "is the user reading the
-    // tail" is its own piece of state (`followTail`), not a focus consequence.
-    if (ch.followTail) ch.scroll = maxScroll;
-    else if (ch.scroll > maxScroll) ch.scroll = maxScroll;
-    // An auto-advancing view that has reached the end has nothing left to walk:
-    // stop the timer here, since the render is where the real height is known.
-    if (ch.autoAdvance && ch.scroll >= maxScroll) {
-      ch.autoAdvance = false;
-      ch.followTail = true;
-      this.syncAutoScrollTimer();
-    }
-    const windowRows = bodyRows.slice(ch.scroll, ch.scroll + budget);
+    const titleRows =
+      entry.title === undefined
+        ? []
+        : [
+            ...wrapTextWithAnsi(entry.title, innerWidth).map((row) =>
+              chalk.hex(c.textStrong).bold(row),
+            ),
+            '',
+          ];
+    const bodyRows = [
+      ...titleRows,
+      ...new Markdown(
+        entry.text.trim(),
+        0,
+        0,
+        createMarkdownTheme(),
+        undefined,
+        createMarkdownOptions(),
+      ).render(innerWidth),
+    ];
 
     const padRow = (row: string): string => `   ${padToVisibleWidth(row, width - 6)}   `;
     const lines: string[] = [this.headerRow(width)];
@@ -894,11 +875,12 @@ export class NotifyPanelComponent implements Component {
     return ` ${marker} ${dim(`${shortCount} · ctrl+n`)}`;
   }
 
-  /** First non-empty line of the current entry, stripped of list/bold markers. */
+  /** The current entry's title, else its first non-empty line stripped of list/bold markers. */
   private stubPreviewText(): string | undefined {
     const ch = this.activeChannel();
     const entry = ch.entries[Math.min(ch.page, ch.entries.length - 1)];
     if (entry === undefined) return undefined;
+    if (entry.title !== undefined) return entry.title;
     const firstLine = entry.text
       .trim()
       .split('\n')

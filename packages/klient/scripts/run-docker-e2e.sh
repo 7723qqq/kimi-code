@@ -41,9 +41,26 @@ REPORT_ROOT_CONTAINER="/data/server-e2e-reports/docker"
 REPORT_DIR_CONTAINER="${REPORT_ROOT_CONTAINER}/${REPORT_DIR_NAME}"
 TMPDIR_CONTAINER="/data/docker-e2e/tmp"
 
-# Bun installs everything hoisted into the workspace-root node_modules, so a
-# single writable volume there is enough (the repo checkout stays read-only).
-NM_ROOT="${STATE_ROOT}/docker-e2e/${RUN_ID}/nm/root"
+NM_ROOT="${STATE_ROOT}/docker-e2e/${RUN_ID}/nm"
+
+workspace_node_modules=(
+  "root:/workspace/kimi-code/node_modules"
+  "apps_kimi-code:/workspace/kimi-code/apps/kimi-code/node_modules"
+  "apps_kimi-web:/workspace/kimi-code/apps/kimi-web/node_modules"
+  "apps_vis:/workspace/kimi-code/apps/vis/node_modules"
+  "apps_vis_server:/workspace/kimi-code/apps/vis/server/node_modules"
+  "apps_vis_web:/workspace/kimi-code/apps/vis/web/node_modules"
+  "docs:/workspace/kimi-code/docs/node_modules"
+  "pkg_kap-server:/workspace/kimi-code/packages/kap-server/node_modules"
+  "pkg_server-e2e:/workspace/kimi-code/packages/klient/node_modules"
+  "pkg_kosong:/workspace/kimi-code/packages/kosong/node_modules"
+  "pkg_migration-legacy:/workspace/kimi-code/packages/migration-legacy/node_modules"
+  "pkg_node-sdk:/workspace/kimi-code/packages/node-sdk/node_modules"
+  "pkg_oauth:/workspace/kimi-code/packages/oauth/node_modules"
+  "pkg_protocol:/workspace/kimi-code/packages/protocol/node_modules"
+  "pkg_services:/workspace/kimi-code/packages/services/node_modules"
+  "pkg_telemetry:/workspace/kimi-code/packages/telemetry/node_modules"
+)
 
 mkdir -p "${STATE_ROOT}" "${KIMI_HOME_HOST}" "${REPORT_DIR_HOST}" "${NM_ROOT}"
 

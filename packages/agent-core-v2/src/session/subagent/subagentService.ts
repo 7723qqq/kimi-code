@@ -9,15 +9,19 @@ import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import { agentContextOf } from '#/agent/scopeContext/scopeContext';
 import { IAgentUserToolService } from '#/agent/userTool/userTool';
 import {
-  rootDelegationExtras,
   subagentAllowlistFor,
   subagentTypeNotAllowedMessage,
   withoutDelegatingTargets,
 } from '#/app/agentProfileCatalog/profile-shared';
 import { applyProfilePromptPrefix } from '#/app/agentProfileCatalog/promptPrefix';
 import { IConfigService } from '#/app/config/config';
-import { LifecycleScope } from '#/app/scopes';
-import { Error2, ErrorCodes } from '#/errors';
+import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
+import { ILogService } from '#/_base/log/log';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
+import { createHooks } from '#/hooks';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { agentContextOf } from '#/agent/scopeContext/scopeContext';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { createHooks } from '#/hooks';
 import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
@@ -98,11 +102,7 @@ export class SessionSubagentService extends Service implements ISessionSubagentS
         : undefined;
     const requestedProfileName =
       requested ?? (fork ? (own.profileName ?? DEFAULT_PROFILE_NAME) : DEFAULT_PROFILE_NAME);
-    const extras =
-      input.callerAgentId === MAIN_AGENT_ID
-        ? rootDelegationExtras(this.catalog, own, this.catalog.list())
-        : undefined;
-    let allowlist = subagentAllowlistFor(this.catalog, own, extras);
+    let allowlist = subagentAllowlistFor(this.catalog, own);
     if (allowlist !== undefined && own.subagents === undefined) {
       allowlist = withoutDelegatingTargets(this.catalog, allowlist);
     }

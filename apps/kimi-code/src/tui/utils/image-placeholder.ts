@@ -75,6 +75,7 @@ import { MEDIA_FILE_REF_MIN_REMAINING_MS } from '../constant/media';
 import type {
   ImageAttachment,
   ImageAttachmentStore,
+  MediaAttachment,
   VideoAttachment,
 } from './image-attachment-store';
 
@@ -98,6 +99,8 @@ export interface ExtractionResult {
    * snapshots to rebuild the image parts as inline data URLs.
    */
   imageSnapshots: ImageResendSnapshot[];
+  mediaSnapshots?: readonly MediaAttachment[];
+  mediaGeneration?: number;
 }
 
 export interface ImageResendSnapshot {
@@ -215,6 +218,7 @@ function extractMediaAttachmentsSync(text: string, store: ImageAttachmentStore):
   const imageAttachmentIds: number[] = [];
   const videoAttachmentIds: number[] = [];
   const imageSnapshots: ImageResendSnapshot[] = [];
+  const mediaSnapshots: MediaAttachment[] = [];
   let cursor = 0;
   let hasMedia = false;
 
@@ -228,6 +232,7 @@ function extractMediaAttachmentsSync(text: string, store: ImageAttachmentStore):
     const attachment = store.get(id);
     if (attachment === undefined) continue; // stale / user-typed — leave as text
     if (attachment.kind !== kind) continue;
+    mediaSnapshots.push(attachment);
     const before = text.slice(cursor, match.index);
     pushText(parts, before);
     if (attachment.kind === 'video') {
@@ -290,6 +295,8 @@ function extractMediaAttachmentsSync(text: string, store: ImageAttachmentStore):
     imageAttachmentIds,
     videoAttachmentIds,
     imageSnapshots,
+    mediaSnapshots: mediaSnapshots.length > 0 ? mediaSnapshots : undefined,
+    mediaGeneration: store.generation,
   };
 }
 
@@ -482,6 +489,7 @@ export interface MediaTagRewriteResult {
   imageAttachmentIds: number[];
   videoAttachmentIds: number[];
   stagingPaths: string[];
+  cachedVideos: VideoAttachment[];
 }
 
 /**
@@ -510,10 +518,12 @@ export function rewriteMediaPlaceholders(
   text: string,
   store: ImageAttachmentStore,
   style: MediaReferenceStyle = 'tag',
+  mediaSnapshots?: readonly MediaAttachment[],
 ): MediaTagRewriteResult {
   const imageAttachmentIds: number[] = [];
   const videoAttachmentIds: number[] = [];
   const stagingPaths: string[] = [];
+  const cachedVideos: VideoAttachment[] = [];
   let cursor = 0;
   let out = '';
 
@@ -525,8 +535,10 @@ export function rewriteMediaPlaceholders(
       if (kind !== 'image' && kind !== 'video') continue;
       if (idStr === undefined) continue;
       const id = Number.parseInt(idStr, 10);
-      const attachment = store.get(id);
-      if (attachment === undefined) continue; // stale / user-typed — leave as text
+      const attachment = mediaSnapshots === undefined
+        ? store.get(id)
+        : mediaSnapshots.find((snapshot) => snapshot.id === id);
+      if (attachment === undefined) continue;
       if (attachment.kind !== kind) continue;
       out += text.slice(cursor, match.index);
       if (attachment.kind === 'video') {
@@ -536,7 +548,8 @@ export function rewriteMediaPlaceholders(
           style === 'plain'
             ? formatMediaReference('video', path)
             : buildMediaPathTag('video', path);
-        videoAttachmentIds.push(id);
+        cachedVideos.push(attachment);
+        if (store.get(id) === attachment) videoAttachmentIds.push(id);
       } else {
         const path = materializeImageToCache(attachment);
         stagingPaths.push(path);
@@ -544,12 +557,12 @@ export function rewriteMediaPlaceholders(
           style === 'plain'
             ? formatMediaReference('image', path)
             : buildMediaPathTag('image', path);
-        imageAttachmentIds.push(id);
+        if (store.get(id) === attachment) imageAttachmentIds.push(id);
       }
       cursor = match.index + literal.length;
     }
 
-    const hasMedia = imageAttachmentIds.length + videoAttachmentIds.length > 0;
+    const hasMedia = stagingPaths.length > 0;
     store.retainFileIds(imageAttachmentIds);
     return {
       text: hasMedia ? out + text.slice(cursor) : text,
@@ -557,11 +570,28 @@ export function rewriteMediaPlaceholders(
       imageAttachmentIds,
       videoAttachmentIds,
       stagingPaths,
+      cachedVideos,
     };
   } catch (error) {
     cleanupStagingPaths(stagingPaths);
     throw error;
   }
+}
+
+export function omitExpiredVideoFileRefs(
+  parts: readonly PromptPart[],
+  cachedVideos: readonly VideoAttachment[],
+): PromptPart[] {
+  const expiredUrls = new Set(
+    cachedVideos.flatMap((attachment) =>
+      attachment.fileId !== undefined &&
+      attachment.fileExpiresAt !== undefined &&
+      attachment.fileExpiresAt - Date.now() <= MEDIA_FILE_REF_MIN_REMAINING_MS
+        ? [buildDaemonFileUrl(attachment.fileId)]
+        : [],
+    ),
+  );
+  return parts.filter((part) => part.type !== 'video_url' || !expiredUrls.has(part.videoUrl.url));
 }
 
 function cleanupStagingPaths(paths: readonly string[]): void {

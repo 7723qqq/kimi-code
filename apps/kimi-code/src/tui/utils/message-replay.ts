@@ -43,6 +43,7 @@ export interface SkillActivationProjection {
   readonly activationId: string;
   readonly skillName: string;
   readonly skillArgs?: string;
+  readonly skillSource?: string;
   readonly trigger: SkillActivationTrigger;
 }
 
@@ -296,6 +297,28 @@ export function backgroundOrigin(
   return origin?.kind === 'background_task' || origin?.kind === 'task' ? origin : undefined;
 }
 
+export function skillActivationFromOrigin(
+  origin: PromptOrigin | undefined,
+): SkillActivationProjection | undefined {
+  if (origin?.kind !== 'skill_activation') return undefined;
+  return {
+    activationId: origin.activationId,
+    skillName: origin.skillName,
+    skillArgs: origin.skillArgs,
+    skillSource: origin.skillSource,
+    trigger: origin.trigger,
+  };
+}
+
+/**
+ * The v2 engine bundles a prompt's inline skill activations into the prompt
+ * message itself: the rendered skill blocks precede the caller's parts in
+ * the content, and this origin field carries every activation's metadata so
+ * replay can rebuild the per-skill cards from the single message. The SDK's
+ * origin union is typed from the v1 engine, which never sets the field, so
+ * read it structurally here instead of widening the deprecated v1 package's
+ * types.
+ */
 export function bundledSkillsFromOrigin(
   origin: PromptOrigin | undefined,
 ): readonly SkillActivationProjection[] {
@@ -340,6 +363,35 @@ export function skillActivationFromOrigin(
     skillArgs: origin.skillArgs,
     trigger: origin.trigger,
   };
+}
+
+export function userSlashSkillPromptText(
+  message: ContextMessage,
+  skill: SkillActivationProjection,
+): string {
+  const parts = withoutUserPromptSubmitHookParts(message.content);
+  const [first, ...rest] = parts;
+  const callerParts = first?.type === 'text' ? rest : parts;
+  const name = skill.skillSource === 'builtin' ? skill.skillName : `skill:${skill.skillName}`;
+  const args = skill.skillArgs ?? '';
+  const command = args.trim().length > 0 ? `/${name} ${args}` : `/${name}`;
+  // Media parts mean the caller content came from an external activation with
+  // attachments (e.g. kap-server), never from a typed command: keep the
+  // command identity and show the attachment rendering alongside it.
+  if (callerParts.some((part) => part.type !== 'text')) {
+    const attachmentText = contentPartsToText(callerParts).trim();
+    return attachmentText.length > 0 ? `${command} ${attachmentText}` : command;
+  }
+  const callerText = contentPartsToText(callerParts);
+  const trimmed = callerText.trim();
+  if (trimmed.length === 0) return command;
+  // Text-only caller content is ambiguous: a saved typed command always
+  // starts with the slash mention, while external text attachments (the
+  // kap-server activation API accepts text attachments) are arbitrary prose
+  // — prepend the reconstructed command for the latter so the activated
+  // skill stays identifiable.
+  if (trimmed.startsWith('/')) return callerText;
+  return `${command} ${trimmed}`;
 }
 
 export function pluginCommandFromOrigin(

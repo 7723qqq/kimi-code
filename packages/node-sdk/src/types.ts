@@ -1,6 +1,8 @@
 import type { HostUiCapability } from '@moonshot-ai/agent-core-v2';
-import type { ExportSessionManifest, ShellEnvironment } from '@moonshot-ai/agent-core-v2';
-import type { Kaos } from '@moonshot-ai/kaos';
+import type {
+  ExportSessionManifest,
+  ShellEnvironment,
+} from '@moonshot-ai/agent-core-v2/app/sessionExport/sessionExport';
 import type { KimiHostIdentity, OAuthRefreshOutcome } from '@moonshot-ai/kimi-code-oauth';
 import type { ContentPart } from '@moonshot-ai/kosong';
 
@@ -228,8 +230,6 @@ export interface CreateSessionOptions {
   readonly planMode?: boolean;
   readonly specMode?: boolean;
   readonly metadata?: JsonObject | undefined;
-  readonly kaos?: Kaos | undefined;
-  readonly persistenceKaos?: Kaos | undefined;
   readonly additionalDirs?: readonly string[];
   /**
    * Main-agent profile name (`--agent`): a builtin profile or one defined by
@@ -267,8 +267,6 @@ export interface GenerateSessionTitleInput {
 
 export interface ResumeSessionInput {
   readonly id: string;
-  readonly kaos?: Kaos | undefined;
-  readonly persistenceKaos?: Kaos | undefined;
   readonly additionalDirs?: readonly string[];
   /** Re-select the session's already-bound main profile; a different name fails. */
   readonly agentProfile?: string;

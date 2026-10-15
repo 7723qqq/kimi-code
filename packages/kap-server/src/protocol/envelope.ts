@@ -41,27 +41,7 @@ export function errEnvelope(
   msg: string,
   requestId: string,
   stack?: string,
+  details?: unknown,
 ): Envelope<null> {
-  return {
-    code,
-    msg,
-    data: null,
-    request_id: requestId,
-    stack: stackTracesEnabled ? stack : undefined,
-  };
-}
-
-export function internalErrorEnvelope(
-  err: unknown,
-  requestId: string,
-  prefix?: string,
-): Envelope<null> {
-  const cause = err instanceof Error && err.message !== '' ? err.message : 'internal error';
-  const message = exposeErrorDetails ? cause : 'internal error';
-  return errEnvelope(
-    ErrorCode.INTERNAL_ERROR,
-    prefix === undefined ? message : `${prefix}${message}`,
-    requestId,
-    err instanceof Error ? err.stack : undefined,
-  );
+  return { code, msg, data: null, request_id: requestId, stack, details };
 }

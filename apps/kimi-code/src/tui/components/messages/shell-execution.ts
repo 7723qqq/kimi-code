@@ -3,6 +3,7 @@ import { Container, Text } from '@moonshot-ai/pi-tui';
 
 import { currentTheme } from '#/tui/theme';
 import type { ToolCallBlockData, ToolResultBlockData } from '#/tui/types';
+import { sanitizeShellOutput } from '#/tui/utils/shell-output';
 
 import { outcomeRows } from './tool-renderers/outcome';
 import { TruncatedOutputComponent } from './tool-renderers/truncated';
@@ -59,8 +60,10 @@ export class ShellExecutionComponent extends Container {
     expandHint: boolean,
   ): void {
     if (!result.output) return;
+    // Untrusted bytes: sanitize the whole buffer, not each chunk, so escape
+    // sequences split across live-output chunks cannot reach the terminal.
     this.addChild(
-      new TruncatedOutputComponent(result.output, {
+      new TruncatedOutputComponent(sanitizeShellOutput(result.output), {
         expanded,
         isError: result.is_error ?? false,
         maxLines: PREVIEW_LINES,

@@ -1,6 +1,8 @@
 import chalk from 'chalk';
 
 import { splitTokenFragment } from '#/cli/sub/web/access-urls';
+import { getVersion } from '#/cli/version';
+import { CLI_MSH_PLATFORM, CLI_USER_AGENT_PRODUCT } from '#/constant/app';
 import {
   buildRemoteControlUrl,
   formatRemoteControlAlreadyRunning,
@@ -58,7 +60,7 @@ export async function handleRemoteControlCommand(host: SlashCommandHost): Promis
     let remoteControl: Awaited<ReturnType<typeof startRemoteControl>> | undefined;
     try {
       await startServerForeground(options, {
-        onReady: async (origin) => {
+        onReady: async (origin, controls) => {
           const dataDir = getDataDir();
           const token = tryResolveServerToken(dataDir);
           if (token === undefined) throw new Error(t('tui.statusMessages.unableToReadServerToken'));
@@ -74,15 +76,30 @@ export async function handleRemoteControlCommand(host: SlashCommandHost): Promis
             homeDir: dataDir,
             localOrigin: origin,
             localServerToken: token,
-            clientVersion: `kimi-code/${getVersion()}`,
+            clientVersion: `${CLI_USER_AGENT_PRODUCT}/${getVersion()}`,
+            urlSource: CLI_MSH_PLATFORM,
             configuredOAuthKey: persisted?.key,
             configuredOAuthHost: persisted?.oauthHost,
             onStatus,
           });
+          void remoteControl.closed.then(
+            (reason) => {
+              if (reason === 'user_requested') {
+                controls?.requestShutdown('remote_control_user_requested');
+              }
+            },
+            (error) => {
+              process.stderr.write(
+                `Remote Control lock release failed: ${formatErrorMessage(error)}\n`,
+              );
+              controls?.requestShutdown('remote_control_closed');
+            },
+          );
           const url = buildRemoteControlUrl(
             remoteControl.deviceId,
             session?.id,
             remoteControl.relayOrigin,
+            CLI_MSH_PLATFORM,
           );
           const qrCode = await generateRemoteControlQr(url, dataDir);
           process.stdout.write(

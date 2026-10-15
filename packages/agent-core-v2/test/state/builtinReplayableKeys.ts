@@ -22,7 +22,7 @@ import { fileHistoryKey } from '#/features/fileHistory/fileHistoryOps';
 import { planKey } from '#/features/plan/planOps';
 import { specKey } from '#/features/spec/specOps';
 import { swarmKey } from '#/features/swarm/swarmOps';
-import { towerBaseKey, towerKey, towerOwnerKey } from '#/features/tower/towerOps';
+import { towerKey, towerOwnerKey } from '#/features/tower/towerOps';
 
 export const BUILTIN_REPLAYABLE_STATE_KEYS: readonly ReplayableStateKey<any>[] = [
   contextMemoryKey,
@@ -49,5 +49,4 @@ export const BUILTIN_REPLAYABLE_STATE_KEYS: readonly ReplayableStateKey<any>[] =
   swarmKey,
   towerKey,
   towerOwnerKey,
-  towerBaseKey,
 ];

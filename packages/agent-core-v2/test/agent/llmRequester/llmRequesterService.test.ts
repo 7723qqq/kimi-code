@@ -262,6 +262,7 @@ function createService(
   const usage = { record: () => Promise.resolve(), status: () => ({}) };
   const context = {
     get: () => options.contextMessages ?? history,
+    prefixRevision: () => 0,
   };
   const tools = { list: () => [] };
   const configValues = options.configValues ?? {};
