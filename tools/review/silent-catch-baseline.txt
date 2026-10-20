@@ -55,7 +55,6 @@ packages/acp-server/src/start.ts  1
 packages/agent-core-v2/src/_base/lifecycle/keyedResource.ts  1
 packages/agent-core-v2/src/_base/log/fileLog.ts  2
 packages/agent-core-v2/src/_base/log/formatter.ts  1
-packages/agent-core-v2/src/_base/native-tools.ts  1
 packages/agent-core-v2/src/_base/utils/fs.ts  3
 packages/agent-core-v2/src/agent/agentsMdReminder/agentsMdReminderService.ts  1
 packages/agent-core-v2/src/agent/goal/judge/goalJudgeService.ts  2
@@ -114,7 +113,6 @@ packages/agent-core-v2/src/session/agentLifecycle/profile/gitContext.ts  3
 packages/agent-core-v2/src/session/subagent/backend/acpBackend.ts  1
 packages/agent-core-v2/src/session/subagent/backend/codexBackend.ts  1
 packages/agent-core-v2/src/session/terminal/terminalService.ts  1
-packages/agent-core-v2/src/tool/native-glob-match.ts  1
 packages/agent-core-v2/src/workspace/workspaceFs/fsService.ts  2
 packages/agent-core-v2/src/workspace/workspaceFs/internal/runRg.ts  4
 packages/agent-core-v2/src/workspace/workspaceTrust/trustRecord.ts  1

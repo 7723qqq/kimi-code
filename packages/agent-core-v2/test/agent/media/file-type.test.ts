@@ -1,9 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
-
-vi.mock('#/_base/native-tools', async () => {
-  const actual = await vi.importActual<Record<string, unknown>>('#/_base/native-tools');
-  return Object.fromEntries(Object.keys(actual).map((key) => [key, () => undefined]));
-});
+import { describe, expect, it } from 'vitest';
 
 // eslint-disable-next-line import/no-unresolved
 import {
