@@ -1,3 +1,5 @@
+import { toLlmSyntaxErrorMessage } from '#/llm/syntax-errors';
+import { encodeReasoningEffortFallback } from '#/llm/thinking';
 import OpenAI from 'openai';
 import { assign, shake } from 'radashi';
 

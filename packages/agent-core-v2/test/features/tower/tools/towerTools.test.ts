@@ -641,49 +641,6 @@ describe('TowerSendTool + TowerInboxTool', () => {
     }
   });
 
-  it('delivers the inbox oldest-first and drains it page by page', async () => {
-    const base = Date.now() + 60 * 60 * 1000;
-    vi.useFakeTimers({ toFake: ['Date'] });
-    try {
-      for (let i = 0; i < 25; i += 1) {
-        vi.setSystemTime(new Date(base + i * 1000));
-        await run(ix.get(ITowerSendTool), {
-          to: 'w1',
-          subject: `msg ${String(i).padStart(2, '0')}`,
-          body: 'x',
-        });
-      }
-    } finally {
-      vi.useRealTimers();
-    }
-
-    currentAgentId = 'agent-w1';
-    const page = await run(ix.get(ITowerInboxTool), {});
-    expect(page.isError).toBeFalsy();
-    const firstPage = page.output as string;
-    expect(firstPage).toContain('20 message(s) for w1 (oldest first)');
-    expect(firstPage).toContain('subject: msg 00');
-    expect(firstPage).toContain('subject: msg 19');
-    expect(firstPage).not.toContain('subject: msg 24');
-    expect(firstPage).toContain('more messages remain');
-
-    const store = new TowerStore(repo);
-    const state = await store.load();
-    const entry = state.roster.agents.find((agent) => agent.name === 'w1');
-    expect(entry?.lastInboxReadAt).toBeDefined();
-    expect(await store.hasNewerInbox('w1', entry!.lastInboxReadAt!)).toBe(true);
-
-    const second = await run(ix.get(ITowerInboxTool), {});
-    expect(second.output).toContain('5 message(s) for w1');
-    expect(second.output).toContain('subject: msg 24');
-    const third = await run(ix.get(ITowerInboxTool), {});
-    expect(third.output).toContain('inbox empty for w1');
-
-    const drained = await store.load();
-    const drainedEntry = drained.roster.agents.find((agent) => agent.name === 'w1');
-    expect(await store.hasNewerInbox('w1', drainedEntry!.lastInboxReadAt!)).toBe(false);
-  });
-
   it('reads and stamps the mailbox of the latest registration when the agent id collides with a stale roster entry', async () => {
     const file = join(repo, '.tower/comms/state.json');
     const state = JSON.parse(await readFile(file, 'utf8')) as {

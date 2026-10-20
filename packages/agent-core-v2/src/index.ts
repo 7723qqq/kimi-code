@@ -280,6 +280,7 @@ export * from '#/workspace/workspaceAgentProfileLoader/pluginAgentProfileLoader'
 export * from '#/workspace/workspaceAgentProfileLoader/pluginAgentProfileLoaderService';
 
 export type { SkillSource } from '#/features/skill/catalog/types';
+export * from '#/features/notify/tools/notify-user/notifyOutput';
 export * from '#/features/skill/tools/skill';
 export * from '#/features/skill/skill';
 export * from '#/features/skill/skillService';

@@ -170,8 +170,16 @@ export async function isRegisteredWorktree(repoRoot: string, path: string): Prom
   return inside.length > 0 && !inside.startsWith('..') && !isAbsolute(inside);
 }
 
+export type WorktreeDirtyState = 'clean' | 'dirty' | 'unknown';
+
+export async function worktreeDirtyState(path: string): Promise<WorktreeDirtyState> {
+  const status = await tryGit(path, ['status', '--porcelain']);
+  if (status === null) return 'unknown';
+  return status.trim().length > 0 ? 'dirty' : 'clean';
+}
+
 export async function isWorktreeDirty(path: string): Promise<boolean> {
-  return (await git(path, ['status', '--porcelain'])).trim().length > 0;
+  return (await worktreeDirtyState(path)) === 'dirty';
 }
 
 async function hasMergeHead(cwd: string): Promise<boolean> {

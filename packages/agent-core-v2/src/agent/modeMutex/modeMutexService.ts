@@ -41,18 +41,22 @@ export class AgentModeMutexService extends Disposable implements IAgentModeMutex
     super();
     this._register(
       eventBus.subscribe(PlanModeEnter, () => {
-        if (this.tower.isActive) void this.tower.exit('mode-mutex');
+        this.evictConflictsOf('plan');
       }),
     );
     this._register(
       eventBus.subscribe(SwarmModeEnter, () => {
-        if (this.tower.isActive) void this.tower.exit('mode-mutex');
+        this.evictConflictsOf('swarm');
+      }),
+    );
+    this._register(
+      eventBus.subscribe(SpecModeEnter, () => {
+        this.evictConflictsOf('spec');
       }),
     );
     this._register(
       eventBus.subscribe(TowerModeEnter, () => {
-        if (this.agentState.get(planKey).active) this.plan.exit();
-        if (this.swarm.isActive) this.swarm.exit();
+        this.evictConflictsOf('tower');
         if (this.goal?.getGoal().goal?.status === 'active') {
           void this.goal.pauseGoal({ reason: 'Paused after tower mode entered' }, 'system');
         }
@@ -150,7 +154,7 @@ export class AgentModeMutexService extends Disposable implements IAgentModeMutex
           if (this.swarm.isActive) this.swarm.exit();
           break;
         case 'tower':
-          if (this.tower.isActive) void this.tower.exit();
+          if (this.tower.isActive) void this.tower.exit('mode-mutex');
           break;
       }
     }

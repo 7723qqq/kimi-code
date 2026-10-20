@@ -20,6 +20,7 @@ import {
   isAncestor,
   isInsideRepo,
   isRegisteredWorktree,
+  isWorktreeDirty,
   mergeNoFf,
   tryGit,
   worktreeAdd,

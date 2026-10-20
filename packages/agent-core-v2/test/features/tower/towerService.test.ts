@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { existsSync } from 'node:fs';
+import { existsSync, realpathSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -959,6 +959,7 @@ describe('AgentTowerService', () => {
         owner: 'session-other',
         pid: process.pid,
       });
+      const clearSkip = skips.find((entry) => entry.msg.includes('death clear'));
       expect(clearSkip?.payload).toMatchObject({
         event: 'SubagentStarted',
         agentId: 'agent-w2',
@@ -3764,7 +3765,7 @@ describe('AgentTowerService', () => {
     let slot: string;
 
     beforeEach(async () => {
-      repo = await mkdtemp(join(tmpdir(), 'tower-bash-guard-'));
+      repo = realpathSync.native(await mkdtemp(join(tmpdir(), 'tower-bash-guard-')));
       await initGitRepo(repo);
       await writeFile(join(repo, 'README.md'), '# fixture\n');
       await execFileAsync('git', ['add', 'README.md'], { cwd: repo });
@@ -3782,12 +3783,16 @@ describe('AgentTowerService', () => {
 
     function bashHookContext(command: string, cwd?: string): ResolvedToolExecutionHookContext {
       const call = toolCall('Bash', 'call_bash');
+      // Bash command text: Windows absolute paths are written with forward
+      // slashes (bash treats `\` as an escape — `C:\Users\…` loses its
+      // separators to escaping and the guard's path tokens no longer match).
+      const bashCommand = command.replaceAll('\\', '/');
       return {
         turnId: 0,
         signal,
         toolCall: call,
         toolCalls: [call],
-        args: cwd === undefined ? { command } : { command, cwd },
+        args: cwd === undefined ? { command: bashCommand } : { command: bashCommand, cwd },
         execution: { approvalRule: 'Bash', execute: async () => ({ output: '' }) },
       };
     }

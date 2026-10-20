@@ -3,24 +3,7 @@ import * as posixPath from 'node:path/posix';
 import { Jimp } from 'jimp';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { Emitter } from '#/_base/event';
-import { OrderedHookSlot } from '#/hooks';
-import type { IEventDispatcher } from '#/state/eventDispatcher';
-import {
-  resetUnexpectedErrorHandler,
-  setUnexpectedErrorHandler,
-} from '#/_base/errors/unexpectedError';
-import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import type { IHostEnvironment } from '#/os/interface/hostEnvironment';
-import type { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
-import type { Runtime } from '#/runtime/runtime';
-import type { ITelemetryService, TelemetryProperties } from '#/app/telemetry/telemetry';
-import {
-  ReadMediaFileInputSchema,
-  type ReadMediaFileInput,
-  type VideoUploader,
-} from '#/agent/tools/read-media-file/read-media-file';
-import { ReadMediaFileTool } from '#/agent/tools/read-media-file/readMediaFileTool';
+import { sniffImageDimensions } from '#/agent/media/file-type';
 import {
   MAX_IMAGE_DECODE_BYTES,
   setConfiguredReadImageByteBudget,
@@ -857,11 +840,13 @@ describe('Read tool media reads', () => {
     const controller = new AbortController();
     const videoUploader = vi.fn<VideoUploader>((_input, options) =>
       new Promise((_resolve, reject) => {
-        options?.signal?.addEventListener('abort', () => {
-          reject(new Error('upload cancelled'));
-        }, {
-          once: true,
-        });
+        options?.signal?.addEventListener(
+          'abort',
+          () => {
+            reject(new Error('upload cancelled'));
+          },
+          { once: true },
+        );
       }),
     );
     const tool = makeTool(
@@ -872,7 +857,11 @@ describe('Read tool media reads', () => {
     const execution = await tool.resolveExecution({ path: '/workspace/clip.mp4' });
     if (!('execute' in execution)) throw new Error('Expected an executable tool call');
 
-    const pending = execution.execute({ turnId: 1, toolCallId: 'call_media', signal: controller.signal });
+    const pending = execution.execute({
+      turnId: 1,
+      toolCallId: 'call_media',
+      signal: controller.signal,
+    });
     await vi.waitFor(() => {
       expect(videoUploader).toHaveBeenCalledOnce();
     });
@@ -973,76 +962,15 @@ describe('Read tool media reads', () => {
   });
 });
 
-describe('registerMediaTools', () => {
-  const fs = createTestFs({});
-  const env = createTestEnv();
-
-  it('registers ReadMediaFile when the model supports image input', () => {
-    const registry = new AgentToolRegistryService();
-    const disposable = registerMediaTools(registry, {
-      runtime: runtimeFor(fs, env),
-      workspace: WORKSPACE,
-      capabilities: capabilities({ image_in: true, video_in: false }),
-    });
-    expect(registry.resolve('ReadMediaFile')).toBeInstanceOf(ReadMediaFileTool);
-    disposable.dispose();
-    expect(registry.resolve('ReadMediaFile')).toBeUndefined();
-  });
-
-  it('registers ReadMediaFile when the model supports video input', () => {
-    const registry = new AgentToolRegistryService();
-    registerMediaTools(registry, {
-      runtime: runtimeFor(fs, env),
-      workspace: WORKSPACE,
-      capabilities: capabilities({ image_in: false, video_in: true }),
-    });
-    expect(registry.resolve('ReadMediaFile')).toBeInstanceOf(ReadMediaFileTool);
-  });
-
-  it('does not register anything when the model lacks media capability', () => {
-    const registry = new AgentToolRegistryService();
-    const disposable = registerMediaTools(registry, {
-      runtime: runtimeFor(fs, env),
-      workspace: WORKSPACE,
-      capabilities: capabilities({ image_in: false, video_in: false }),
-    });
-    expect(registry.resolve('ReadMediaFile')).toBeUndefined();
-    expect(() => disposable.dispose()).not.toThrow();
-  });
-
-  it('does not register when the runtime lacks filesystem availability', () => {
-    const registry = new AgentToolRegistryService();
-    const availableRuntime = runtimeFor(fs, env);
-    registerMediaTools(registry, {
-      runtime: { ...availableRuntime, isAvailable: () => false },
-      workspace: WORKSPACE,
-      capabilities: capabilities({ image_in: true, video_in: true }),
-    });
-    expect(registry.resolve('ReadMediaFile')).toBeUndefined();
-  });
-});
-
-describe('AgentMediaToolsRegistrar', () => {
-  interface ProfileState {
-    alias: string;
-    capabilities: ModelCapability;
-  }
-
-  function createRegistrarHarness(
-    files: Record<string, FakeFile> = {},
-    providerTypes: Record<string, string> = {},
-    attachmentStore?: ISessionMediaStore,
-  ) {
-    const registry = new AgentToolRegistryService();
-    const eventBus = new EventBusService();
-    const onDidRestore = new OrderedHookSlot();
-    const dispatcher = { hooks: { onDidRestore } } as unknown as IEventDispatcher;
-    const agentContext = stubAgentContext('main', 1);
-    eventBus.activateAgent(agentContext);
-    const state: ProfileState = {
-      alias: '',
-      capabilities: capabilities({ image_in: false, video_in: false }),
-    };
+describe('MediaReadContextService', () => {
+  function createService(options?: {
+    runtimeAvailable?: boolean;
+    alias?: string;
+    caps?: ModelCapability;
+    brokenAlias?: boolean;
+    uploadVideo?: ModelRequester['uploadVideo'];
+    telemetry?: ITelemetryService;
+  }): MediaReadContextService {
     const profile = {
       getModelCapabilities: () =>
         options?.caps ?? capabilities({ image_in: false, video_in: false }),
@@ -1071,34 +999,9 @@ describe('AgentMediaToolsRegistrar', () => {
     return new MediaReadContextService(
       profile,
       modelCatalog,
-      eventBus,
-      dispatcher,
       runtime,
       options?.telemetry ?? recordingTelemetry([]),
     );
-    const bindModel = (alias: string, caps: ModelCapability): void => {
-      state.alias = alias;
-      state.capabilities = caps;
-      eventBus.publish(
-        new AgentStatusUpdated({
-          agentId: 'main',
-          model: alias,
-          maxContextTokens: caps.max_context_tokens,
-        }),
-        agentContext,
-      );
-    };
-    const setRuntimeAvailable = (available: boolean): void => {
-      runtimeAvailable = available;
-      runtimeChanges.fire();
-    };
-    const breakAlias = (alias: string): void => {
-      brokenAliases.add(alias);
-    };
-    const healAlias = (alias: string): void => {
-      brokenAliases.delete(alias);
-    };
-    return { registry, registrar, state, onDidRestore, bindModel, setRuntimeAvailable, breakAlias, healAlias };
   }
 
   it('returns undefined when the runtime lacks filesystem availability', () => {
@@ -1106,34 +1009,14 @@ describe('AgentMediaToolsRegistrar', () => {
     expect(service.getMediaReadContext()).toBeUndefined();
   });
 
-  it('registers ReadMediaFile after a silent profile restore', async () => {
-    const { registry, state, onDidRestore } = createRegistrarHarness();
-    state.alias = 'vision-model';
-    state.capabilities = capabilities({ image_in: true, video_in: false });
-    expect(registry.resolve('ReadMediaFile')).toBeUndefined();
-
-    await onDidRestore.run({});
-
-    expect(registry.resolve('ReadMediaFile')).toBeInstanceOf(ReadMediaFileTool);
-  });
-
-  it('hands the bound model provider type to ReadMediaFile', async () => {
-    const heic = Buffer.from([
-      0x00, 0x00, 0x00, 0x18, 0x66, 0x74, 0x79, 0x70, 0x68, 0x65, 0x69, 0x63, 0x00, 0x00, 0x00, 0x00,
-      0x68, 0x65, 0x69, 0x63, 0x00, 0x00, 0x00, 0x00,
-    ]);
-    const { registry, bindModel } = createRegistrarHarness(
-      { '/workspace/photo.heic': { data: heic } },
-      { 'kimi-vision': 'kimi' },
-    );
-    const readWith = async (alias: string) => {
-      bindModel(alias, capabilities({ image_in: true, video_in: false }));
-      const tool = registry.resolve('ReadMediaFile') as ReadMediaFileTool;
-      return execute(tool, { path: '/workspace/photo.heic' });
-    };
-
-    expect((await readWith('kimi-vision')).isError).toBeFalsy();
-    expect((await readWith('other-vision')).isError).toBe(true);
+  it('exposes the bound profile capabilities and telemetry', () => {
+    const caps = capabilities({ image_in: true, video_in: false });
+    const telemetry = recordingTelemetry([]);
+    const service = createService({ alias: 'vision-model', caps, telemetry });
+    const ctx = service.getMediaReadContext();
+    expect(ctx).toBeDefined();
+    expect(ctx!.capabilities).toBe(caps);
+    expect(ctx!.telemetry).toBe(telemetry);
   });
 
   it('builds a video uploader when the bound alias resolves', () => {

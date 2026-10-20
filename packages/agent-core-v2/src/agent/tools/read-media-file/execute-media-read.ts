@@ -159,15 +159,21 @@ async function videoContentPart(
   data: Buffer,
   mimeType: string,
   safePath: string,
+  signal?: AbortSignal,
 ): Promise<ContentPart> {
+  signal?.throwIfAborted();
   if (ctx.videoUploader !== undefined) {
     try {
-      return await ctx.videoUploader({
-        data,
-        mimeType,
-        filename: safePath.split(/[\\/]/).at(-1),
-      });
+      return await ctx.videoUploader(
+        {
+          data,
+          mimeType,
+          filename: safePath.split(/[\\/]/).at(-1),
+        },
+        { signal },
+      );
     } catch (error) {
+      if (signal?.aborted) throw error;
       if (shouldSurfaceVideoUploadError(error, ctx.inlineVideoSupported)) throw error;
     }
   }
@@ -180,6 +186,7 @@ export async function executeMediaRead(
   source: FileReadSource,
   env: HostEnvironmentInfo | undefined,
   header: Uint8Array,
+  signal?: AbortSignal,
 ): Promise<ExecutableToolResult> {
   const telemetry = ctx.telemetry;
   const telemetrySource = 'read_media';
@@ -191,6 +198,7 @@ export async function executeMediaRead(
   };
 
   try {
+    signal?.throwIfAborted();
     const fileType = detectFileType(safePath, header, 'media');
 
     if (fileType.kind === 'text') {
@@ -438,7 +446,7 @@ export async function executeMediaRead(
         },
       };
     } else {
-      mediaPart = await videoContentPart(ctx, data, fileType.mimeType, safePath);
+      mediaPart = await videoContentPart(ctx, data, fileType.mimeType, safePath, signal);
     }
 
     const tag = fileType.kind === 'image' ? 'image' : fileType.kind;
@@ -461,6 +469,7 @@ export async function executeMediaRead(
 
     return { output, note, isError: false };
   } catch (error) {
+    if (signal?.aborted) throw error;
     return {
       isError: true,
       output: `Failed to read ${args.path}: ${error instanceof Error ? error.message : String(error)}`,

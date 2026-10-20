@@ -11,8 +11,6 @@ import {
 } from '#/features/notify/notifyUserAvailability';
 import {
   INotifyUserTool,
-  NOTIFY_USER_DELIVERED_OUTPUT,
-  NOTIFY_USER_SUPPRESSED_OUTPUT,
   NOTIFY_USER_TOOL_NAME,
   NotifyUserInputSchema,
 } from '#/features/notify/tools/notify-user/notify-user';

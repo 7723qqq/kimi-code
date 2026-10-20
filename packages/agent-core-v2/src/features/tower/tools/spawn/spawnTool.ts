@@ -284,54 +284,78 @@ export class TowerSpawnTool implements ITowerSpawnTool {
             });
           slotHeld = false;
 
-          await store.registerAgent({
-            name: args.name,
-            agentId: handle.agentId,
-            sessionId: this.sessionContext.sessionId,
-            kind: args.kind,
-            missionId: mission?.id,
-            reviewTarget,
-            reviewMissionId: reviewMission?.id,
-            worktree: mission?.worktree,
-            branch: mission?.branch,
-            spawnedAt: new Date().toISOString(),
-          });
-          const settled = this.tasks.getTask(taskId);
-          if (
-            settled !== undefined &&
-            isAgentTaskTerminal(settled.status) &&
-            settled.status !== 'completed'
-          ) {
-            await store.markAgentDied(
-              handle.agentId,
-              settled.status,
-              settled.stopReason,
-              this.sessionContext.sessionId,
-            );
-          }
-          if (mission !== undefined) {
-            await store.updateMission(
-              TOWER_NAME,
-              mission.id,
-              { status: 'active', owner: args.name },
-              { silent: true },
-            );
-          }
-          await store.appendLog(
-            TOWER_NAME,
-            'spawn',
-            {
+          try {
+            await store.registerAgent({
               name: args.name,
+              agentId: handle.agentId,
+              sessionId: this.sessionContext.sessionId,
               kind: args.kind,
-              agent: handle.agentId,
-              mission: mission?.id,
-              target: reviewTarget,
-              model: binding?.model,
-            },
-            mission !== undefined
-              ? join(MISSIONS_DIR, missionFileName(mission.id, mission.slug))
-              : undefined,
-          );
+              missionId: mission?.id,
+              reviewTarget,
+              reviewMissionId: reviewMission?.id,
+              worktree: mission?.worktree,
+              branch: mission?.branch,
+              spawnedAt: new Date().toISOString(),
+            });
+            const settled = this.tasks.getTask(taskId);
+            if (
+              settled !== undefined &&
+              isAgentTaskTerminal(settled.status) &&
+              settled.status !== 'completed'
+            ) {
+              await store.markAgentDied(
+                handle.agentId,
+                settled.status,
+                settled.stopReason,
+                this.sessionContext.sessionId,
+              );
+            }
+            if (mission !== undefined) {
+              await store.updateMission(
+                TOWER_NAME,
+                mission.id,
+                { status: 'active', owner: args.name },
+                { silent: true },
+              );
+            }
+            await store.appendLog(
+              TOWER_NAME,
+              'spawn',
+              {
+                name: args.name,
+                kind: args.kind,
+                agent: handle.agentId,
+                mission: mission?.id,
+                target: reviewTarget,
+                model: binding?.model,
+              },
+              mission !== undefined
+                ? join(MISSIONS_DIR, missionFileName(mission.id, mission.slug))
+                : undefined,
+            );
+          } catch (error) {
+            const detail = error instanceof Error ? error.message : String(error);
+            controller.abort();
+            void handle.completion.catch(() => {});
+            try {
+              await store.markAgentDied(
+                handle.agentId,
+                'failed',
+                `registration failed: ${detail}`,
+                this.sessionContext.sessionId,
+              );
+            } catch (markError) {
+              onUnexpectedError(markError);
+            }
+            return {
+              output: [
+                `tower spawn failed after the worker started: ${detail}`,
+                `agent_id: ${handle.agentId}`,
+                'the worker has been aborted, so nothing runs outside the roster; work already on its branch is preserved — resume it with Agent(resume=..., run_in_background=true, prompt="...") instead of spawning a duplicate, and check that the worktree is idle before any fresh spawn.',
+              ].join('\n'),
+              isError: true,
+            };
+          }
 
           return {
             output: [

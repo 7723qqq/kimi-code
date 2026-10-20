@@ -42,6 +42,8 @@ describe('AgentModeMutexService', () => {
   let swarmActive: boolean;
   let towerActive: boolean;
   let goalStatus: string | undefined;
+  let state: IAgentStateService;
+  let mutex: IAgentModeMutexService;
 
   beforeEach(() => {
     disposables = new DisposableStore();
@@ -51,15 +53,49 @@ describe('AgentModeMutexService', () => {
     registerTestAgentWire(ix, testWireScope('wire', 'mode-mutex-test'), {
       eventBus: ix.get(IEventBus),
     });
-    planExit = vi.fn();
-    swarmExit = vi.fn();
-    towerExit = vi.fn();
-    goalPause = vi.fn();
-    dispatch = vi.fn();
+    state = ix.get(IAgentStateService);
+    state.contributeState(planKey);
+    state.contributeState(specKey);
     swarmActive = false;
     towerActive = false;
     goalStatus = undefined;
-    ix.stub(IAgentPlanService, { exit: planExit } as unknown as IAgentPlanService);
+    goalPause = vi.fn();
+    dispatch = vi.fn();
+
+    planEnter = vi.fn(async () => {
+      state.set(planKey, { active: true, id: 'plan_1' });
+    });
+    planExit = vi.fn(() => {
+      state.set(planKey, { active: false });
+    });
+    specEnter = vi.fn(async () => {
+      state.set(specKey, { active: true, id: 'spec_1' });
+    });
+    specExit = vi.fn(() => {
+      state.set(specKey, { active: false });
+    });
+    swarmEnter = vi.fn(() => {
+      swarmActive = true;
+    });
+    swarmExit = vi.fn(() => {
+      swarmActive = false;
+    });
+    towerEnter = vi.fn(async () => {
+      towerActive = true;
+      return { entered: true } as const;
+    });
+    towerExit = vi.fn(async () => {
+      towerActive = false;
+    });
+
+    ix.stub(IAgentPlanService, {
+      enter: planEnter,
+      exit: planExit,
+    } as unknown as IAgentPlanService);
+    ix.stub(IAgentSpecService, {
+      enter: specEnter,
+      exit: specExit,
+    } as unknown as IAgentSpecService);
     ix.stub(IAgentSwarmService, {
       enter: swarmEnter,
       exit: swarmExit,
@@ -79,22 +115,57 @@ describe('AgentModeMutexService', () => {
       getGoal: () => ({ goal: goalStatus === undefined ? null : { status: goalStatus } }),
     } as unknown as IAgentGoalService);
     ix.stub(IEventDispatcher, { dispatch } as unknown as IEventDispatcher);
-    ix.get(IAgentStateService).contributeState(planKey);
+
     ix.set(IAgentModeMutexService, new SyncDescriptor(AgentModeMutexService));
     mutex = ix.get(IAgentModeMutexService);
   });
   afterEach(() => disposables.dispose());
 
-  function publish(event: PlanModeEnter | SwarmModeEnter | TowerModeEnter | GoalUpdated): void {
+  function publish(
+    event: PlanModeEnter | SwarmModeEnter | TowerModeEnter | GoalUpdated,
+  ): void {
     const agentContext = ix.get(IAgentScopeContext).agentContext;
     ix.get(IEventBus).publish(event, agentContext);
   }
 
-  it('plan mode entry exits an active tower mode', () => {
-    towerActive = true;
-    publish(new PlanModeEnter({ agentId: 'test-agent', id: 'plan_1' }));
-    expect(towerExit).toHaveBeenCalledTimes(1);
-    expect(towerExit).toHaveBeenCalledWith('mode-mutex');
+  describe('event subscriptions (existing behaviour)', () => {
+    it('plan mode entry exits an active tower mode', () => {
+      towerActive = true;
+      publish(new PlanModeEnter({ agentId: 'test-agent', id: 'plan_1' }));
+      expect(towerExit).toHaveBeenCalledTimes(1);
+      expect(towerExit).toHaveBeenCalledWith('mode-mutex');
+    });
+
+    it('plan mode entry leaves an inactive tower mode alone', () => {
+      publish(new PlanModeEnter({ agentId: 'test-agent', id: 'plan_1' }));
+      expect(towerExit).not.toHaveBeenCalled();
+    });
+
+    it('swarm mode entry exits an active tower mode', () => {
+      towerActive = true;
+      publish(new SwarmModeEnter({ agentId: 'test-agent', trigger: 'manual' }));
+      expect(towerExit).toHaveBeenCalledTimes(1);
+      expect(towerExit).toHaveBeenCalledWith('mode-mutex');
+    });
+
+    it('swarm mode entry leaves an inactive tower mode alone', () => {
+      publish(new SwarmModeEnter({ agentId: 'test-agent', trigger: 'manual' }));
+      expect(towerExit).not.toHaveBeenCalled();
+    });
+
+    it('tower mode entry exits an active plan mode and an active swarm mode', () => {
+      state.set(planKey, { active: true, id: 'plan_1' });
+      swarmActive = true;
+      publish(new TowerModeEnter({ agentId: 'test-agent' }));
+      expect(planExit).toHaveBeenCalledTimes(1);
+      expect(swarmExit).toHaveBeenCalledTimes(1);
+    });
+
+    it('tower mode entry leaves inactive plan and swarm modes alone', () => {
+      publish(new TowerModeEnter({ agentId: 'test-agent' }));
+      expect(planExit).not.toHaveBeenCalled();
+      expect(swarmExit).not.toHaveBeenCalled();
+    });
   });
 
   describe('activeMode', () => {
@@ -114,11 +185,61 @@ describe('AgentModeMutexService', () => {
     });
   });
 
-  it('swarm mode entry exits an active tower mode', () => {
-    towerActive = true;
-    publish(new SwarmModeEnter({ agentId: 'test-agent', trigger: 'manual' }));
-    expect(towerExit).toHaveBeenCalledTimes(1);
-    expect(towerExit).toHaveBeenCalledWith('mode-mutex');
+  describe('switchTo', () => {
+    it('evicts an active plan mode when entering spec', async () => {
+      await mutex.switchTo('plan');
+      await mutex.switchTo('spec');
+      expect(state.get(planKey).active).toBe(false);
+      expect(state.get(specKey).active).toBe(true);
+    });
+
+    it('evicts an active spec mode when entering plan', async () => {
+      await mutex.switchTo('spec');
+      await mutex.switchTo('plan');
+      expect(state.get(specKey).active).toBe(false);
+      expect(state.get(planKey).active).toBe(true);
+    });
+
+    it('is a no-op when the target mode is already active', async () => {
+      await mutex.switchTo('spec');
+      await expect(mutex.switchTo('spec')).resolves.toBeUndefined();
+      expect(specEnter).toHaveBeenCalledTimes(1);
+    });
+
+    it('leaves plan and swarm both active — the allowed pair', async () => {
+      await mutex.switchTo('plan');
+      await mutex.switchTo('swarm');
+      expect(state.get(planKey).active).toBe(true);
+      expect(swarmActive).toBe(true);
+    });
+
+    it('evicts spec when entering tower', async () => {
+      await mutex.switchTo('spec');
+      await mutex.switchTo('tower');
+      expect(state.get(specKey).active).toBe(false);
+      expect(towerActive).toBe(true);
+    });
+
+    it('evicts tower when entering spec', async () => {
+      await mutex.switchTo('tower');
+      await mutex.switchTo('spec');
+      expect(towerActive).toBe(false);
+      expect(state.get(specKey).active).toBe(true);
+    });
+
+    it('evicts spec when entering swarm', async () => {
+      await mutex.switchTo('spec');
+      await mutex.switchTo('swarm');
+      expect(state.get(specKey).active).toBe(false);
+      expect(swarmActive).toBe(true);
+    });
+
+    it('evicts swarm when entering spec', async () => {
+      await mutex.switchTo('swarm');
+      await mutex.switchTo('spec');
+      expect(swarmActive).toBe(false);
+      expect(state.get(specKey).active).toBe(true);
+    });
   });
 
   describe('switchTo — failure semantics', () => {

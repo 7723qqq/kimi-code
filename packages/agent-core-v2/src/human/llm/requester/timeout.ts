@@ -1,4 +1,4 @@
-import { Agent, EnvHttpProxyAgent, type Dispatcher } from 'undici';
+import { Agent, EnvHttpProxyAgent, type Dispatcher } from './undici-npm';
 
 export const LLM_HEADERS_TIMEOUT_ENV = 'KIMI_CODE_LLM_HEADERS_TIMEOUT_MS';
 

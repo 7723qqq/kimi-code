@@ -254,7 +254,7 @@ export class ReadTool implements IReadTool {
           pathClass: env.pathClass,
           homeDir: env.homeDir,
         }),
-      execute: async () => {
+      execute: async ({ signal }) => {
         const lease = this.runtime.acquire(['fs']);
         try {
           if (lease.runtime.identity.generation !== inspected.identity.generation) {
@@ -269,6 +269,7 @@ export class ReadTool implements IReadTool {
             args,
             inspected.environment,
             eventLog,
+            signal,
           );
           return { ...result, spillExempt: true };
         } finally {
@@ -286,8 +287,8 @@ export class ReadTool implements IReadTool {
       display: { kind: 'file_io', operation: 'read', path: source.localPath ?? args.path },
       approvalRule: literalRulePattern(this.name, args.path),
       matchesRule: (ruleArgs) => matchesGlobRuleSubject(ruleArgs, args.path),
-      execute: async () => ({
-        ...withAttachmentLocation(await this.execution(source, args, undefined, false), source),
+      execute: async ({ signal }) => ({
+        ...withAttachmentLocation(await this.execution(source, args, undefined, false, signal), source),
         spillExempt: true,
       }),
     };
@@ -298,8 +299,10 @@ export class ReadTool implements IReadTool {
     args: ReadInput,
     env: HostEnvironmentInfo | undefined,
     eventLog: boolean,
+    signal?: AbortSignal,
   ): Promise<ExecutableToolResult> {
     try {
+      signal?.throwIfAborted();
       let stat: Awaited<ReturnType<IHostFileSystem['stat']>>;
       try {
         stat = await source.stat();
@@ -333,7 +336,7 @@ export class ReadTool implements IReadTool {
             output: 'Media reading is unavailable in the current runtime.',
           };
         }
-        return await executeMediaRead(mediaCtx, args, source, env, header);
+        return await executeMediaRead(mediaCtx, args, source, env, header, signal);
       }
       if (args.region !== undefined || args.full_resolution === true) {
         return {
@@ -407,6 +410,7 @@ export class ReadTool implements IReadTool {
       }
       return result;
     } catch (error) {
+      if (signal?.aborted) throw error;
       if (isTextDecodeError(error)) {
         return { isError: true, output: notUtf8DecodableFileOutput(args.path) };
       }

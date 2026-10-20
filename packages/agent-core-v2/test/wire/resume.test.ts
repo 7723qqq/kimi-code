@@ -398,7 +398,7 @@ describe('Agent resume', () => {
     await live.rpc.prompt({ input: [{ type: 'text', text: 'Prompt before resume' }] });
     await live.untilTurnEnd();
     const liveTools = live.llmCalls.at(-1)!.tools.map((tool) => tool.name);
-    expect(liveTools).toContain('ReadMediaFile');
+    expect(liveTools).toContain('Read');
 
     const resumed = testAgent({
       persistence: new RecordingAgentPersistence(persistence.records as unknown as WireRecord[]),

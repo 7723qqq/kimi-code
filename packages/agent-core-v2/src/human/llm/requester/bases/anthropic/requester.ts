@@ -1,3 +1,4 @@
+import { toLlmSyntaxErrorMessage } from '#/llm/syntax-errors';
 import Anthropic from '@anthropic-ai/sdk';
 import { assign, shake } from 'radashi';
 
