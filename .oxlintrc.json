@@ -146,8 +146,7 @@
     {
       "files": [
         "packages/agent-core-v2/src/_base/di/cascadeEngine.ts",
-        "packages/oauth/src/oauth-token-transaction.ts",
-        "packages/kaos/**/*.ts"
+        "packages/oauth/src/oauth-token-transaction.ts"
       ],
       "rules": {
         // oxlint 1.59's no-useless-undefined misfires on REQUIRED parameters
