@@ -8,7 +8,6 @@ import {
   type AgentLLMTurnRequestSnapshot,
 } from '#/agent/llmRequester/llmRequester';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { LifecycleScope } from '#/app/scopes';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IModelCatalog } from '#/llm-adapter/model/catalog';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';

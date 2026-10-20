@@ -1,3 +1,5 @@
+import type { ITowerSendTool } from './send';
+import { TowerSendToolInputSchema, type TowerSendToolInput } from './send';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentTaskService } from '#/agent/task/task';
 import { ISessionEventBus } from '#/app/event/eventBus';

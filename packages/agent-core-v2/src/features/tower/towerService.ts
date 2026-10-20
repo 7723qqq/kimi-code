@@ -1,3 +1,5 @@
+import { IAgentReminderService } from '#/features/reminder/reminderService';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { isAbsolute, join, resolve } from 'node:path';
 
 import { Disposable, toDisposable } from '#/_base/di/lifecycle';
@@ -17,11 +19,8 @@ import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { IAgentTaskService } from '#/agent/task/task';
 import type { AgentTaskInfo } from '#/agent/task/types';
 import { TaskTerminatedNotice } from '#/agent/task/taskOps';
-import type { AgentTaskInfo } from '#/agent/task/types';
-import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { denyToolExecution } from '#/agent/toolExecutor/beforeToolExecuteEvent';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { AgentStatusUpdated } from '#/agent/usage/usageEvents';
 import { IConfigService } from '#/app/config/config';
 import { IEventBus, ISessionEventBus } from '#/app/event/eventBus';
@@ -37,14 +36,9 @@ import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { isUntitled } from '#/session/sessionMetadata/promptMetadata';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { SubagentStarted } from '#/session/subagent/mirrorAgentRun';
-import { IEventDispatcher } from '#/state/eventDispatcher';
 import { isWithinDirectory } from '#/tool/path-access';
 import type { ToolFileAccess } from '#/tool/toolContract';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
-import { isUntitled } from '#/session/sessionMetadata/promptMetadata';
-import { SubagentStarted } from '#/session/subagent/mirrorAgentRun';
 import { TowerModeInjection } from './injection/towerModeInjection';
 import {
   BROADCAST_NAME,

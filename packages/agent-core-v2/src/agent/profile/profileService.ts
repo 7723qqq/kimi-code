@@ -80,19 +80,12 @@ import {
 import type { SystemPromptRenderResult } from '#/app/agentProfileCatalog/agentProfileCatalog';
 
 import { IAgentProfileService, ProfileError, ProfileErrors } from './profile';
-import { TOOLS_SECTION, type ToolsConfig } from '#/agent/toolPolicy/configSection';
-import { isToolActiveComposed, findInactiveToolPatterns, literalToolNames, type InactiveToolPattern } from '#/agent/toolPolicy/evaluate';
-import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
-import { ISessionNotify } from '#/features/notify/sessionNotify';
-import { NOTIFY_USER_TOOL_NAME } from '#/features/notify/tools/notify-user/notify-user';
 import {
-  renderAgentProfilePrompt,
   rootDelegationExtras,
   subagentAllowlistFor,
   withoutDelegatingTargets,
 } from '#/app/agentProfileCatalog/profile-shared';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
-import { getAgentToolContributions } from '#/agent/toolRegistry/toolContribution';
 import {
   profileActiveToolsKey,
   ConfigUpdate,

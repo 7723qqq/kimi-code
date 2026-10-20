@@ -1,3 +1,4 @@
+import { formatTaskList } from '#/agent/tools/task/task-list/taskListTool';
 import { randomBytes } from 'node:crypto';
 
 import { join } from 'pathe';
@@ -24,19 +25,12 @@ import { WAIT_FOR_FLAG_ID } from '#/agent/tools/task/task-wait/flag';
 import { IFlagService } from '#/app/flag/flag';
 import { ITaskService, type ITaskHandle, TERMINAL_TASK_STATES } from '#/app/task/task';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
-import {
-  TERMINAL_STATUSES,
-  type AgentTaskInfoBase,
-  type AgentTaskSettlement,
-} from './types';
 import { renderNotificationXml } from './notificationXml';
 import { formatTaskWallTime } from './wallTime';
 
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IConfigService } from '#/app/config/config';
 import { IEventBus, ISessionEventBus } from '#/app/event/eventBus';
 import { LifecycleScope } from '#/app/scopes';
-import { ITaskService, type ITaskHandle, TERMINAL_TASK_STATES } from '#/app/task/task';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { Error2, ErrorCodes } from '#/errors';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
@@ -48,7 +42,6 @@ import { defineState } from '#/state/state';
 import type { ContentPart } from '#human/llm/message';
 
 import { resolveAgentTaskConfig } from './configSection';
-import { renderNotificationXml } from './notificationXml';
 import { AgentTaskPersistence } from './persist';
 import {
   IAgentTaskService,
@@ -65,7 +58,6 @@ import {
 } from './task';
 import { taskKey, TaskNotified, TaskStarted, TaskTerminated, TaskWaitDelivered } from './taskOps';
 import { TERMINAL_STATUSES, type AgentTaskInfoBase, type AgentTaskSettlement } from './types';
-import { formatTaskWallTime } from './wallTime';
 import '#/agent/tools/task/task-output/taskOutputTool';
 import '#/agent/tools/task/task-stop/taskStopTool';
 import '#/agent/tools/task/task-wait/taskWaitTool';

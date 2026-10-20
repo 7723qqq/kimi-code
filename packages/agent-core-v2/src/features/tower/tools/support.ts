@@ -1,4 +1,3 @@
-import type { AgentContext } from '#/agent/agentContext/agentContext';
 import {
   GitError,
   TowerProtocolError,

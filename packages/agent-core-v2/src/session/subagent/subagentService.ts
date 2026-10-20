@@ -1,3 +1,5 @@
+import { LifecycleScope } from '#/app/scopes';
+import { Error2, ErrorCodes } from '#/errors';
 import { type IAgentScopeHandle, ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
 import { Emitter } from '#/_base/event';
@@ -16,20 +18,13 @@ import {
 import { applyProfilePromptPrefix } from '#/app/agentProfileCatalog/promptPrefix';
 import { IConfigService } from '#/app/config/config';
 import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
-import { ILogService } from '#/_base/log/log';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
 import { createHooks } from '#/hooks';
-import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import { agentContextOf } from '#/agent/scopeContext/scopeContext';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
-import { createHooks } from '#/hooks';
-import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
 import type { Runtime } from '#/runtime/runtime';
-import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
-import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
 
 import {
   resolveSubagentBinding,

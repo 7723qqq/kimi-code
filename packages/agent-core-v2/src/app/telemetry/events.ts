@@ -1,3 +1,4 @@
+import type { AgentTelemetryContext } from './context';
 import type { TowerExitReason } from '#/features/tower/tower';
 
 import type { TelemetryPrimitive } from './telemetry';

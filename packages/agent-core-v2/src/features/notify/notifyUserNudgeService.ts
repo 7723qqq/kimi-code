@@ -31,34 +31,22 @@ interface NotifyUserNudgeActorContext {
   readonly runtime: AgentActorContext<null>;
 }
 
-const notifyUserNudgeReminders = fromCallback(
-  ({
-    input,
-  }: {
-    input: {
-      readonly runtime: AgentActorContext<null>;
-    };
-  }) => {
-    const runtime = input.runtime;
-    const available = (): boolean =>
-      notifyUserAvailable(runtime.get(IFlagService), runtime.get(IBootstrapService));
-    if (!available()) return () => {};
-    const registration = runtime
-      .get(IAgentReminderService)
-      .register(NOTIFY_USER_NUDGE_VARIANT, ({ lastInjectedAt }): string | undefined => {
-        if (!available()) return undefined;
-        if (runtime.get(IAgentToolRegistryService).resolve(NOTIFY_USER_TOOL_NAME) === undefined) {
-          return undefined;
-        }
-        const history = runtime.get(IAgentContextMemoryService).get();
-        const streak = toolCallsSinceLastNotify(history);
-        const callsSinceLastNudge =
-          lastInjectedAt === null ? null : toolCallsSincePosition(history, lastInjectedAt);
-        if (shouldNudgeNotifyUser(streak, callsSinceLastNudge))
-          return renderNotifyUserNudge(streak);
-        if (shouldNudgeMidResponse(lastMidResponsePosition(history), lastInjectedAt)) {
-          return renderMidResponseHint();
-        }
+const notifyUserNudgeReminders = fromCallback(({
+  input,
+}: {
+  input: {
+    readonly runtime: AgentActorContext<null>;
+  };
+}) => {
+  const runtime = input.runtime;
+  const available = (): boolean =>
+    notifyUserAvailable(runtime.get(IFlagService), runtime.get(IBootstrapService));
+  if (!available()) return () => {};
+  const registration = runtime.get(IAgentReminderService).register(
+    NOTIFY_USER_NUDGE_VARIANT,
+    ({ lastInjectedAt }): string | undefined => {
+      if (!available()) return undefined;
+      if (runtime.get(IAgentToolRegistryService).resolve(NOTIFY_USER_TOOL_NAME) === undefined) {
         return undefined;
       }
       const history = runtime.get(IAgentContextMemoryService).get();

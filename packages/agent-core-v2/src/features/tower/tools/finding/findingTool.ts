@@ -1,3 +1,5 @@
+import type { ITowerFindingTool } from './finding';
+import { TowerFindingToolInputSchema, type TowerFindingToolInput } from './finding';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { toInputJsonSchema } from '#/tool/input-schema';
