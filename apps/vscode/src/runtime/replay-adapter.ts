@@ -545,7 +545,7 @@ function toLegacyContent(content: readonly ContentPart[]): LegacyContentPart[] {
   return result;
 }
 
-const SKILL_ACTIVATION_PART_SOURCE = "skill activation";
+import { SKILL_ACTIVATION_PART_SOURCE } from "@moonshot-ai/kimi-code-sdk";
 
 function isSkillActivationPart(part: ContentPart): boolean {
   return (

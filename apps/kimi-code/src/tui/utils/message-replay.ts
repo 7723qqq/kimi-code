@@ -8,7 +8,11 @@ import type {
   ResumedAgentState,
   ToolCall,
 } from '@moonshot-ai/kimi-code-sdk';
-import { limitAgentReplayByTurns } from '@moonshot-ai/kimi-code-sdk';
+import {
+  limitAgentReplayByTurns,
+  SKILL_ACTIVATION_PART_SOURCE,
+  USER_PROMPT_SUBMIT_HOOK_SOURCE,
+} from '@moonshot-ai/kimi-code-sdk';
 
 import type {
   AppState,
@@ -229,11 +233,9 @@ export function isUserPromptSubmitHookPart(
 ): part is Extract<ContentPart, { type: 'text' }> {
   return (
     part.type === 'text' &&
-    (part as { meta?: { source?: unknown } }).meta?.source === 'user prompt submit hook'
+    (part as { meta?: { source?: unknown } }).meta?.source === USER_PROMPT_SUBMIT_HOOK_SOURCE
   );
 }
-
-const SKILL_ACTIVATION_PART_SOURCE = 'skill activation';
 
 export function isSkillActivationPart(part: ContentPart): boolean {
   return (

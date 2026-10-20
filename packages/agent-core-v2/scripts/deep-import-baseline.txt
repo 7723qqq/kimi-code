@@ -263,6 +263,8 @@ packages/migration-legacy/test/v2-session-scan.ts persistence/backends/node-fs/f
 packages/node-sdk/src/config/schema.ts agent/permissionRules/matchesRule
 packages/node-sdk/src/events.ts tool/toolContract
 packages/node-sdk/src/index.ts agent/media/mediaRef
+packages/node-sdk/src/index.ts agent/contextMemory/hookParts
+packages/node-sdk/src/index.ts human/agent/origin
 packages/node-sdk/src/index.ts session/subagent/configSection
 packages/node-sdk/src/proxy.ts _base/utils/proxy
 packages/node-sdk/src/sdk-rpc-client-v2.ts _base/utils/workdir-slug

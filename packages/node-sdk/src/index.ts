@@ -127,3 +127,6 @@ export type {
 
 export * from '#/events';
 export type * from '#/types';
+
+export { SKILL_ACTIVATION_PART_SOURCE } from '@moonshot-ai/agent-core-v2/human/agent/origin';
+export { USER_PROMPT_SUBMIT_HOOK_SOURCE } from '@moonshot-ai/agent-core-v2/agent/contextMemory/hookParts';
