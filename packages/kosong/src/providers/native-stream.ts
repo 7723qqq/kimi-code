@@ -404,7 +404,7 @@ export async function tryNativeLlmStreamIncremental(
         apiKey: config.apiKey,
         model: config.model,
         requestBody: config.requestBody,
-        timeoutMs: config.timeoutMs ?? null,
+        timeoutMs: config.timeoutMs ?? undefined,
         extraHeaders: config.extraHeaders ?? undefined,
       },
       onEvent,
@@ -521,7 +521,7 @@ export async function tryNativeLlmStream(
         apiKey: config.apiKey,
         model: config.model,
         requestBody: config.requestBody,
-        timeoutMs: config.timeoutMs ?? null,
+        timeoutMs: config.timeoutMs ?? undefined,
         extraHeaders: config.extraHeaders ?? null,
       });
 

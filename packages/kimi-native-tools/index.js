@@ -97,7 +97,7 @@ async function nativeLlmStream(config) {
     apiKey: config.apiKey,
     model: config.model,
     requestBody: config.requestBody,
-    timeoutMs: config.timeoutMs ?? null,
+    timeoutMs: config.timeoutMs ?? undefined,
     extraHeaders: config.extraHeaders ?? null,
   });
 }
@@ -124,7 +124,7 @@ function nativeLlmStreamStreaming(config, onEvent) {
       apiKey: config.apiKey,
       model: config.model,
       requestBody: config.requestBody,
-      timeoutMs: config.timeoutMs ?? null,
+      timeoutMs: config.timeoutMs ?? undefined,
       extraHeaders: config.extraHeaders ?? undefined,
     },
     onEvent,
