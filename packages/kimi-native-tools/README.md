@@ -1,8 +1,8 @@
 # @moonshot-ai/kimi-native-tools
 
-Rust-native implementations of the core Kimi Code tools: `Read`, `Write`, `Edit`, `Grep`, `Glob`, and `Bash`.
+Rust-native implementation of the LLM SSE streaming pipeline for Kimi Code.
 
-This package is consumed directly by `apps/kimi-code` and `packages/i18n`, and is bundled into the Kimi Code CLI. The native module is the primary implementation of the core tools when available, falling back to the TypeScript implementations when the addon cannot be loaded.
+This package is consumed directly by `packages/kosong`, which prefers the native streaming path and falls back to the provider SDKs when the addon cannot be loaded. Knowledge storage (`bun:sqlite`) and token estimation live in TypeScript and do not use this package.
 
 ## Building
 
