@@ -62,11 +62,6 @@ import {
   type AnthropicModelVersion,
 } from './anthropic-profile';
 import { mergeConsecutiveUserMessages } from './merge-user-messages';
-import {
-  NativeLlmApiError,
-  tryNativeLlmStream,
-  tryNativeLlmStreamIncremental,
-} from './native-stream';
 import { AuthClientLRU, mergeRequestHeaders, resolveAuthBackedClient } from './request-auth';
 import { normalizeToolCallIdsForProvider, sanitizeToolCallId } from './tool-call-id';
 
@@ -640,16 +635,6 @@ export function convertAnthropicError(
   if (error instanceof ChatProviderError) {
     return error;
   }
-  // Native fast-path failures carry the HTTP status the Rust pipeline parsed
-  // off the wire (`API error (<status>): <body>`); classify them with the same
-  // status rule and vendor hook as an SDK error, otherwise a bare `Error`
-  // reaches `isRetryableGenerateError` and a transient 429 kills the step.
-  if (error instanceof NativeLlmApiError) {
-    return (
-      convertErrorHook?.(error) ??
-      normalizeAPIStatusError(error.status ?? 500, error.message, null, undefined)
-    );
-  }
   // Vendor classification next: the hook sees the RAW SDK error (the base
   // conversion below drops the parsed body detail), and `undefined` keeps
   // the base classification.
@@ -1166,66 +1151,6 @@ export class AnthropicChatProvider implements ChatProvider {
     const finalRequestOptions = Object.keys(requestOptions).length > 0 ? requestOptions : undefined;
     const client = this._createClient(options?.auth);
 
-    // ── Native stream fast-path ────────────────────────────────────────
-    // Attempt the Rust native SSE pipeline before falling back to the SDK.
-    // The native client always sends the credential as `x-api-key`, so it is
-    // skipped for OAuth tokens, which must travel as `Authorization: Bearer`.
-    // Per-request auth (the documented rotation entry point) wins over the
-    // constructor credential here exactly as it does on the SDK path — using
-    // the constructor key instead would bill the wrong account and drop the
-    // per-request headers.
-    const nativeApiKey = options?.auth?.apiKey ?? this._apiKey;
-    if (this._stream && nativeApiKey !== undefined && !isAnthropicOAuthApiKey(nativeApiKey)) {
-      const nativeHeaders: Array<{ key: string; value: string }> = [];
-      for (const [k, v] of Object.entries(headers ?? extraHeaders)) {
-        nativeHeaders.push({ key: k, value: v });
-      }
-      try {
-        const nativeConfig = {
-          provider: 'anthropic' as const,
-          url: `${this._baseUrl ?? 'https://api.anthropic.com'}/v1/messages`,
-          apiKey: nativeApiKey,
-          model: this._model,
-          requestBody: JSON.stringify({ ...createParams, stream: true }),
-          // Idle deadline: any SSE event resets it, so a long answer is not cut off.
-          timeoutMs: 120_000,
-          extraHeaders: nativeHeaders,
-          signal: options?.signal,
-        };
-        // Prefer true incremental streaming (TSFN); fall back to the buffered
-        // native path only when the streaming binding is unavailable.
-        const incremental = await tryNativeLlmStreamIncremental(nativeConfig);
-        if (incremental !== undefined) {
-          // Report only once a request actually went out — the SDK path below
-          // reports its own, so never report here before knowing the native
-          // branch is used (a binding-unavailable/fallback path would double).
-          options?.onRequestSent?.();
-          return incremental;
-        }
-        const nativeResult = await tryNativeLlmStream(nativeConfig);
-        if (nativeResult !== undefined) {
-          options?.onRequestSent?.();
-          return nativeResult;
-        }
-      } catch (error) {
-        // A user cancel must propagate, not fall through to a re-issued SDK
-        // request the caller has explicitly aborted.
-        if (error instanceof Error && error.name === 'AbortError') {
-          throw error;
-        }
-        // Native stream failed — fall through to SDK. Log the reason so a
-        // systematic native failure is diagnosable instead of silently
-        // doubling every LLM request.
-        console.warn(
-          `[kosong] native LLM stream (anthropic) failed, falling back to SDK: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
-      }
-    }
-    // ── End native fast-path ──────────────────────────────────────────
-    // Report the SDK request (the native branch reports its own above); the
-    // native fast-path must not double-report a successful native request.
     options?.onRequestSent?.();
 
     if (this._stream) {

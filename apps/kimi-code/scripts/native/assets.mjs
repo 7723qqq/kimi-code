@@ -138,10 +138,9 @@ async function collectPackageFiles({
   if (includeEntryJs) {
     const entry = resolvePackageEntry(packageRoot, packageJson);
     if (entry === null) {
-      // `native-files` packages may legitimately lack a JS entry: a package
-      // whose JS is loaded elsewhere (e.g. @moonshot-ai/kimi-native-tools is
-      // required through the native-asset loader) ships only its .node binary.
-      // Modes whose extracted tree must be requireable fail hard.
+      // `native-files` packages may legitimately lack a JS entry when their JS
+      // is loaded elsewhere and only the .node binary ships. Modes whose
+      // extracted tree must be requireable fail hard.
       if (requireEntryJs) {
         fail(`Native package ${packageName} has no resolvable entry point at ${packageRoot}`);
       }

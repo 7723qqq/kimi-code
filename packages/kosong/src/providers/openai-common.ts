@@ -22,7 +22,6 @@ import type { ContentPart, Message } from '../message';
 import type { FinishReason } from '../provider';
 import type { Tool } from '../tool';
 import type { TokenUsage } from '../usage';
-import { NativeLlmApiError } from './native-stream';
 
 export interface OpenAIContentPart {
   type: string;
@@ -143,16 +142,6 @@ export function convertOpenAIError(
   // once even when a stream-minted error crosses an outer catch.
   if (error instanceof ChatProviderError) {
     return error;
-  }
-  // Native fast-path failures carry the HTTP status the Rust pipeline parsed
-  // off the wire (`API error (<status>): <body>`); classify them with the same
-  // status rule and vendor hook as an SDK error, otherwise a bare `Error`
-  // reaches `isRetryableGenerateError` and a transient 429 kills the step.
-  if (error instanceof NativeLlmApiError) {
-    return (
-      convertErrorHook?.(error) ??
-      normalizeAPIStatusError(error.status ?? 500, error.message, null, undefined)
-    );
   }
   // Vendor classification next: the hook sees the RAW error (the base
   // conversion below drops the SDK-parsed body `error.code`/`error.type`),

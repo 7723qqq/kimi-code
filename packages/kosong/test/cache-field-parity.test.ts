@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 
 import { extractUsage } from '#/providers/openai-common';
 import { extractResponsesUsage } from '#/providers/openai-responses';
-import { nativeMetadataUsage } from '#/providers/native-stream';
 import { extractAnthropicUsage } from '#/providers/anthropic-usage';
 
 // The v2 engine's OpenAI-compatible usage reader. Imported by relative path on
@@ -235,55 +234,6 @@ describe('responses cache-field classification agrees across engines', () => {
 
     expect(kosong.inputCacheRead).toBe(testCase.cacheRead);
     expect(kosong.inputOther).toBe(testCase.inputOther);
-  });
-});
-
-describe('anthropic usage agrees between the native and SDK paths', () => {
-  // One payload, two readers: the Rust fast-path metadata and the SDK stream
-  // parser must classify it identically, including the cache-write counter the
-  // native path used to drop.
-  const payload = {
-    input_tokens: 10,
-    output_tokens: 1,
-    cache_read_input_tokens: 3,
-    cache_creation_input_tokens: 2,
-  };
-
-  it('carries every counter verbatim on the native path', () => {
-    const native = nativeMetadataUsage({
-      inputTokens: payload.input_tokens,
-      outputTokens: payload.output_tokens,
-      cachedTokens: payload.cache_read_input_tokens,
-      cacheCreationTokens: payload.cache_creation_input_tokens,
-    });
-    const sdk = extractAnthropicUsage(payload);
-
-    expect(native).toEqual(sdk);
-    expect(native).toEqual({
-      inputOther: 10,
-      output: 1,
-      inputCacheRead: 3,
-      inputCacheCreation: 2,
-    });
-  });
-
-  it('matches the native path on a cache-heavy turn instead of going negative', () => {
-    const heavy = {
-      input_tokens: 11,
-      output_tokens: 1,
-      cache_read_input_tokens: 1434,
-      cache_creation_input_tokens: 0,
-    };
-
-    const native = nativeMetadataUsage({
-      inputTokens: heavy.input_tokens,
-      outputTokens: heavy.output_tokens,
-      cachedTokens: heavy.cache_read_input_tokens,
-      cacheCreationTokens: heavy.cache_creation_input_tokens,
-    });
-
-    expect(native).toEqual(extractAnthropicUsage(heavy));
-    expect(native.inputOther).toBeGreaterThanOrEqual(0);
   });
 });
 

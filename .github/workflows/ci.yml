@@ -67,12 +67,6 @@ jobs:
 
       - run: bun install --frozen-lockfile
 
-      - name: Install Rust toolchain (kimi-native-tools)
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Build kimi-native-tools
-        run: cd packages/kimi-native-tools && bun run build
-
       # The vitest suite runs under the Bun runtime (`--bun`): Bun is the
       # canonical dev/test toolchain and the shards need no Node install.
       - run: bun --bun run test --shard=${{ matrix.shard }}/5
@@ -279,26 +273,3 @@ jobs:
       - name: Typecheck vis-web
         run: cd apps/vis/web && bun --bun run typecheck
 
-  # The Rust crates carry 683 `#[test]`s between them. Every other job is
-  # Bun-only and installs no Rust toolchain, and `_native-build.yml` (the only
-  # workflow that mentions cargo) runs on tags and manual dispatch, never on a
-  # pull request — so until this job existed a broken unit test could only be
-  # discovered while cutting a release.
-  test-rust:
-    runs-on: ubuntu-latest
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/registry
-            ~/.cargo/git
-            packages/kimi-native-tools/target
-          key: cargo-${{ runner.os }}-${{ hashFiles('packages/kimi-native-tools/Cargo.lock') }}
-
-      - name: Test kimi-native-tools
-        run: cargo test --offline --manifest-path packages/kimi-native-tools/Cargo.toml

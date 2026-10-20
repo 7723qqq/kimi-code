@@ -17,19 +17,6 @@ import {
 } from '#/providers/openai-responses';
 import type { Tool } from '#/tool';
 
-// The Rust native LLM stream replaces the mock SDK client with real network
-// calls when the addon is loadable; force the TS/SDK fallback in tests.
-vi.mock('../src/providers/native-stream', async () => {
-  const actual = await vi.importActual<typeof import('../src/providers/native-stream')>(
-    '../src/providers/native-stream',
-  );
-  return {
-    ...actual,
-    tryNativeLlmStream: () => undefined,
-    tryNativeLlmStreamIncremental: () => undefined,
-  };
-});
-
 function makeResponsesAPIResponse() {
   return {
     id: 'resp_test123',

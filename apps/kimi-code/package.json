@@ -111,8 +111,7 @@
     "zod": "catalog:"
   },
   "optionalDependencies": {
-    "@mariozechner/clipboard": "^0.3.9",
-    "@moonshot-ai/kimi-native-tools": "workspace:^"
+    "@mariozechner/clipboard": "^0.3.9"
   },
   "engines": {
     "bun": ">=1.4.0"

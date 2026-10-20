@@ -166,6 +166,8 @@
       workspacePaths = [
         ./packages/acp-server
         ./packages/agent-core-v2
+        ./packages/i18n
+        ./packages/i18n-shared
         ./packages/kap-server
         ./packages/klient
         ./packages/kosong
@@ -240,7 +242,6 @@
                 ./package.json
                 ./bun.lock
                 ./bunfig.toml
-                ./patches
                 ./tsconfig.json
                 ./vitest.config.ts
                 ./LICENSE
@@ -250,9 +251,8 @@
           };
 
           # Fixed-output derivation: materialize the project's node_modules
-          # from the npm registry and the Rust crate vendor directory for
-          # kimi-native-tools from crates.io (the FOD is the only place
-          # network access is allowed).
+          # from the npm registry (the FOD is the only place network access is
+          # allowed).
           #
           # Bun's internal cache directory is NOT usable as a FOD output —
           # its extracted-package presence and gzip framing vary between
@@ -277,12 +277,8 @@
             nativeBuildInputs = [
               bun
               nodejs
-              # cargo vendor needs a CA bundle for crates.io and may fall
-              # back to the git index protocol.
+              # TLS trust store for the registry fetch.
               pkgs.cacert
-              pkgs.git
-              pkgs.cargo
-              pkgs.rustc
             ];
 
             dontConfigure = true;
@@ -301,23 +297,13 @@
               # because cacert is in nativeBuildInputs above.
               bun install --frozen-lockfile --ignore-scripts
               install -d $out && mv node_modules $out/node_modules
-              # Vendor the Rust crates for kimi-native-tools into
-              # $out/vendor so the main derivation can compile offline
-              # (CARGO_NET_OFFLINE=true).
-              # NOTE: do NOT let cargo write its suggested config here —
-              # with an absolute $out target it would embed this store
-              # path, which FOD outputs must never reference. The main
-              # derivation generates the config itself.
-              cd packages/kimi-native-tools
-              cargo vendor --locked $out/vendor > /dev/null
               runHook postInstall
             '';
 
-            # STALE HASH: removing the second vendored Rust crate tree
-            # changed this FOD's vendored content set, so the outputHash
-            # below no longer matches. Recompute it with the fake-hash
-            # dance — set it to lib.fakeSha256, build, and paste the
-            # "got:" hash reported by Nix.
+            # The outputHash below pins the hoisted node_modules tree.
+            # Dropping the Rust addon changed this FOD's content set, so the
+            # value must be recomputed with the fake-hash dance — set it to
+            # lib.fakeSha256, build, and paste the "got:" hash Nix reports.
             outputHashMode = "recursive";
             outputHashAlgo = "sha256";
             outputHash = "sha256-MHsoYo1Mmu7jaSsFwa+5V+7NLc2JcSMF1J0+I1PTs94=";
@@ -335,11 +321,6 @@
               pkgs.makeWrapper
               pkgs.python3
               pkgs.gnumake
-              # kimi-native-tools' .node addon is compiled from source in
-              # the sandbox (napi-rs → cargo); the Bun build's asset
-              # collector refuses to proceed without it.
-              pkgs.cargo
-              pkgs.rustc
             ]
             ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
               pkgs.darwin.sigtool
@@ -353,18 +334,6 @@
               export npm_config_nodedir=${nodejs}
               cp -a ${bunDeps}/node_modules ./node_modules
               chmod -R u+w ./node_modules
-              # Wire the vendored crates for the offline napi build: the
-              # main derivation may reference store paths, so point cargo
-              # at the FOD's vendor dir with an absolute path.
-              mkdir -p packages/kimi-native-tools/.cargo
-              cat > packages/kimi-native-tools/.cargo/config.toml <<EOF
-[source.crates-io]
-replace-with = "vendored-sources"
-
-[source.vendored-sources]
-directory = "${bunDeps}/vendor"
-EOF
-              export CARGO_NET_OFFLINE=true
               runHook postConfigure
             '';
 
@@ -381,11 +350,6 @@ EOF
                     "await runVerifyStep({ requireGatekeeper: false });" \
                     "// runVerifyStep skipped in nix sandbox (sigtool lacks -dv)"
               ''}
-              # Build the Rust native addon from source: its .node is an
-              # asset embedded in the Bun binary (collected by assets.mjs
-              # below). Invoke napi's JS entry directly — its bin shim uses
-              # `#!/usr/bin/env`, absent in the sandbox.
-              (cd packages/kimi-native-tools && bun ../../node_modules/@napi-rs/cli/dist/cli.js build --platform --release --dts target/napi-generated.d.ts)
               # The Bun build step embeds the Kimi web assets from
               # apps/kimi-code/dist-web and fails if that directory is
               # missing. The bundle is committed (synced from the code-app

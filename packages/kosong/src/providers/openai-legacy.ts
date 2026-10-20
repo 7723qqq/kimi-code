@@ -37,7 +37,6 @@ import {
   convertChatCompletionStreamToolCall,
   type BufferedChatCompletionToolCall,
 } from './chat-completions-stream';
-import { tryNativeLlmStream, tryNativeLlmStreamIncremental } from './native-stream';
 import {
   convertContentPart,
   convertOpenAIError,
@@ -711,69 +710,6 @@ export class OpenAILegacyChatProvider implements ChatProvider {
     }
 
     try {
-      // ── Native stream fast-path ──────────────────────────────────────
-      // Attempt the Rust native SSE pipeline before falling back to the SDK.
-      // Per-request auth wins over the constructor credential, on the native
-      // path exactly as on the SDK path (see `requireProviderApiKey`).
-      const nativeAuth = options?.auth;
-      const nativeApiKey = nativeAuth?.apiKey ?? this._apiKey;
-      const nativeMergedHeaders = mergeRequestHeaders(this._defaultHeaders, nativeAuth?.headers);
-      if (this._stream && nativeApiKey !== undefined) {
-        const nativeExtraHeaders: Array<{ key: string; value: string }> = [];
-        if (nativeMergedHeaders !== undefined) {
-          for (const [k, v] of Object.entries(nativeMergedHeaders)) {
-            nativeExtraHeaders.push({ key: k, value: v });
-          }
-        }
-        try {
-          const nativeConfig = {
-            provider: 'openai-legacy' as const,
-            url: `${this._baseUrl ?? 'https://api.openai.com/v1'}/chat/completions`,
-            apiKey: nativeApiKey,
-            model: this._model,
-            requestBody: JSON.stringify(createParams),
-            // Idle deadline: any SSE event resets it, so a long answer is not cut off.
-            timeoutMs: 120_000,
-            extraHeaders: nativeExtraHeaders,
-            signal: options?.signal,
-          };
-          // Prefer true incremental streaming (TSFN); fall back to the buffered
-          // native path only when the streaming binding is unavailable.
-          const incremental = await tryNativeLlmStreamIncremental(nativeConfig);
-          if (incremental !== undefined) {
-            // Report only once a request actually went out — the SDK path below
-            // reports its own, so never report here before knowing the native
-            // branch is used (a binding-unavailable/fallback path would double).
-            options?.onRequestSent?.();
-            return incremental;
-          }
-          const nativeResult = await tryNativeLlmStream(nativeConfig);
-          if (nativeResult !== undefined) {
-            options?.onRequestSent?.();
-            if (nativeResult.traceId && options?.onTraceId) {
-              options.onTraceId(nativeResult.traceId);
-            }
-            return nativeResult;
-          }
-        } catch (error) {
-          // A user cancel must propagate, not fall through to a re-issued SDK
-          // request the caller has explicitly aborted.
-          if (error instanceof Error && error.name === 'AbortError') {
-            throw error;
-          }
-          // Native stream failed — fall through to SDK. Log the reason: a
-          // silently swallowed failure would otherwise re-issue the whole
-          // request over the SDK path with zero diagnostics (and no circuit
-          // breaker feedback loop).
-          console.warn(
-            `[kosong] native LLM stream (openai-legacy) failed, falling back to SDK: ${
-              error instanceof Error ? error.message : String(error)
-            }`,
-          );
-        }
-      }
-      // ── End native fast-path ────────────────────────────────────────
-
       const client = this._createClient(options?.auth);
       options?.onRequestSent?.();
       const response = (await client.chat.completions.create(

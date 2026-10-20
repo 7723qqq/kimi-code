@@ -30,7 +30,6 @@ import type { TokenUsage } from '#/usage';
 
 import type { ToolCallIdPolicy } from '../provider';
 import { usesOpenAIResponsesDeveloperRole } from './capability-registry';
-import { tryNativeLlmStream, tryNativeLlmStreamIncremental } from './native-stream';
 import { TOOL_RESULT_MEDIA_PLACEHOLDER, TOOL_RESULT_MEDIA_PROMPT, convertOpenAIError, isMediaPart, isOpenAIInsufficientQuotaCode, resolveDeepSeekCacheSplit, type ToolMessageConversion } from './openai-common';
 import {
   mergeRequestHeaders,
@@ -1178,63 +1177,6 @@ export class OpenAIResponsesChatProvider implements ChatProvider {
         ...responseFormatToResponsesText(options.responseFormat),
       };
     }
-
-    // ── Native stream fast-path ────────────────────────────────────────
-    // Attempt the Rust native SSE pipeline before falling back to the SDK.
-    // Per-request auth wins over the constructor credential here too.
-    const nativeAuth = options?.auth;
-    const nativeApiKey = nativeAuth?.apiKey ?? this._apiKey;
-    if (nativeApiKey !== undefined && this._stream) {
-      const mergedHeaders = mergeRequestHeaders(this._defaultHeaders, nativeAuth?.headers);
-      const extraHeaders: Array<{ key: string; value: string }> = [];
-      if (mergedHeaders !== undefined) {
-        for (const [k, v] of Object.entries(mergedHeaders)) {
-          extraHeaders.push({ key: k, value: v });
-        }
-      }
-      try {
-        options?.onRequestSent?.();
-        const nativeConfig = {
-          provider: 'openai-responses' as const,
-          url: `${this._baseUrl ?? 'https://api.openai.com/v1'}/responses`,
-          apiKey: nativeApiKey,
-          model: this._model,
-          requestBody: JSON.stringify(createParams),
-          // Idle deadline: any SSE event resets it, so a long answer is not cut off.
-          timeoutMs: 120_000,
-          extraHeaders,
-          signal: options?.signal,
-        };
-        // Prefer true incremental streaming (TSFN); fall back to the buffered
-        // native path only when the streaming binding is unavailable.
-        const incremental = await tryNativeLlmStreamIncremental(nativeConfig);
-        if (incremental !== undefined) {
-          return incremental;
-        }
-        const nativeResult = await tryNativeLlmStream(nativeConfig);
-        if (nativeResult !== undefined) {
-          if (nativeResult.traceId && options?.onTraceId) {
-            options.onTraceId(nativeResult.traceId);
-          }
-          return nativeResult;
-        }
-      } catch (error) {
-        // A user cancel must propagate, not fall through to a re-issued SDK
-        // request the caller has explicitly aborted.
-        if (error instanceof Error && error.name === 'AbortError') {
-          throw error;
-        }
-        // Native stream failed (TLS/connection/Rust error) — fall through to
-        // SDK. Log the reason so a systematic native failure is diagnosable
-        // instead of silently doubling every LLM request.
-        console.warn(
-          `[kosong] native LLM stream (openai-responses) failed, falling back to SDK: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        );
-      }
-    }
-    // ── End native fast-path ──────────────────────────────────────────
 
     try {
       const client = this._createClient(options?.auth);

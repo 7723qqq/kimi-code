@@ -21,20 +21,6 @@ import {
 } from '#/errors';
 import { convertAnthropicError, AnthropicChatProvider } from '#/providers/anthropic';
 import { classifyKimiQuotaError } from '#/providers/kimi-errors';
-import { NativeLlmApiError } from '#/providers/native-stream';
-
-// The Rust native LLM stream replaces the mock SDK client with real network
-// calls when the addon is loadable; force the TS/SDK fallback in tests.
-vi.mock('../src/providers/native-stream', async () => {
-  const actual = await vi.importActual<typeof import('../src/providers/native-stream')>(
-    '../src/providers/native-stream',
-  );
-  return {
-    ...actual,
-    tryNativeLlmStream: () => undefined,
-    tryNativeLlmStreamIncremental: () => undefined,
-  };
-});
 describe('convertAnthropicError', () => {
   it('APIConnectionTimeoutError -> APITimeoutError (not misclassified as connection)', () => {
     const err = new AnthropicTimeoutError({ message: 'timed out' });
@@ -573,47 +559,6 @@ describe('convertAnthropicError: quota-exhausted 429 via the convertError hook',
     });
     expect(result).toBe(converted);
     expect(calls).toHaveLength(0);
-  });
-
-  it('classifies a native 429 as retryable instead of leaking a bare Error', () => {
-    // The Rust pipeline mints `NativeLlmApiError` during stream CONSUMPTION,
-    // i.e. after the provider's `try/catch` around `tryNativeLlmStream*` has
-    // returned. Without the converter's native branch this reached
-    // `isRetryableGenerateError` as a plain `Error` and killed the step on the
-    // first transient 429.
-    const result = convertAnthropicError(
-      new NativeLlmApiError('API error (429): rate limited', 429),
-    );
-    expect(result).toBeInstanceOf(APIProviderRateLimitError);
-    expect((result as APIStatusError).statusCode).toBe(429);
-    expect(isRetryableGenerateError(result)).toBe(true);
-  });
-
-  it('classifies a native 401 into its own status category', () => {
-    const result = convertAnthropicError(new NativeLlmApiError('API error (401): bad key', 401));
-    expect(result).toBeInstanceOf(APIStatusError);
-    expect((result as APIStatusError).statusCode).toBe(401);
-    expect(isRetryableGenerateError(result)).toBe(false);
-  });
-
-  it('treats a status-less native failure as a retryable 5xx', () => {
-    // A connection reset surfaces as `SSE stream error: …` with no HTTP status;
-    // assuming 5xx keeps it retryable rather than fatal.
-    const result = convertAnthropicError(new NativeLlmApiError('SSE stream error: reset'));
-    expect((result as APIStatusError).statusCode).toBe(500);
-    expect(isRetryableGenerateError(result)).toBe(true);
-  });
-
-  it('routes a native 429 through the vendor quota hook', () => {
-    const result = convertAnthropicError(
-      new NativeLlmApiError(
-        'API error (429): your account is suspended due to insufficient balance, please recharge your account',
-        429,
-      ),
-      classifyKimiQuotaError,
-    );
-    expect(result).toBeInstanceOf(APIProviderQuotaExhaustedError);
-    expect(isRetryableGenerateError(result)).toBe(false);
   });
 
   it('the provider threads options.convertError to its generate catch', async () => {

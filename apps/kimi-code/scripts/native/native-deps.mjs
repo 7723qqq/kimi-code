@@ -87,14 +87,6 @@ export const nativeDeps = Object.freeze([
     parent: null,
     nativeFileRelatives: (target) => piTuiNativeFileByTarget[target] ?? [],
   },
-  {
-    id: 'kimi-native-tools',
-    name: () => '@moonshot-ai/kimi-native-tools',
-    // Rust NAPI module — LLM SSE streaming.
-    // JS is bundled; only the .node binary needs to ship as a native asset.
-    collect: 'native-files',
-    parent: null,
-  },
 ]);
 
 /**
