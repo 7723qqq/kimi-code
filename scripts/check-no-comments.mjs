@@ -115,6 +115,10 @@ const PRINT_COUNTS = process.argv.includes('--print-counts');
 
 const BASELINE_PATH = path.join(ROOT, 'scripts', 'no-comments-baseline.txt');
 
+function repoRel(file) {
+  return path.relative(ROOT, file).split(path.sep).join('/');
+}
+
 function loadBaseline() {
   if (!fs.existsSync(BASELINE_PATH)) return new Map();
   const entries = new Map();
@@ -161,7 +165,7 @@ if (PRINT_COUNTS) {
   for (const f of files) {
     const violations = checkFile(f);
     if (violations.length > 0) {
-      counted.push([path.relative(ROOT, f), violations.length, digestOf(violations)]);
+      counted.push([repoRel(f), violations.length, digestOf(violations)]);
     }
   }
   counted.sort((a, b) => (a[0] < b[0] ? -1 : 1));
@@ -173,7 +177,7 @@ for (const f of files) {
   const violations = checkFile(f);
   if (violations.length === 0) continue;
 
-  const rel = path.relative(ROOT, f);
+  const rel = repoRel(f);
   const allowed = baseline.get(rel);
   const tolerated = allowed?.count ?? 0;
   if (tolerated > 0) matchedBaseline.add(rel);

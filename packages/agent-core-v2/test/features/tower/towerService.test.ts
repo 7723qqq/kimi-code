@@ -3783,9 +3783,6 @@ describe('AgentTowerService', () => {
 
     function bashHookContext(command: string, cwd?: string): ResolvedToolExecutionHookContext {
       const call = toolCall('Bash', 'call_bash');
-      // Bash command text: Windows absolute paths are written with forward
-      // slashes (bash treats `\` as an escape — `C:\Users\…` loses its
-      // separators to escaping and the guard's path tokens no longer match).
       const bashCommand = command.replaceAll('\\', '/');
       return {
         turnId: 0,
