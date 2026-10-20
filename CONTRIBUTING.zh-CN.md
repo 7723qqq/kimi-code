@@ -29,8 +29,8 @@ Kimi Code 对 CLI/TUI 行为、agent 工作流和公开 API 已有自己的主�
 - `apps/vscode` — VS Code 插件
 - `apps/vis` — 会话调试可视化工具
 - `packages/node-sdk` — 公开 TypeScript SDK（`@moonshot-ai/kimi-code-sdk`）
-- `packages/agent-core-v2` — 当前的 agent 引擎（v2，DI Scope 架构）；`packages/agent-core` 为 v1，正在逐步废弃
-- `packages/klient`、`kap-server`、`protocol`、`transcript`、`kosong`、`oauth`、`telemetry` — 内部引擎包
+- `packages/agent-core-v2` — 当前的 agent 引擎（v2，DI Scope 架构）；本 fork 已整体删除 v1 引擎 `packages/agent-core`
+- `packages/klient`、`kap-server`、`acp-server`、`transcript`、`kosong`、`oauth`、`telemetry`、`i18n`、`i18n-shared` — 内部引擎包
 - `docs/` — VitePress 双语文档站
 
 完整项目地图见 [DEVELOP.md](DEVELOP.md)。
@@ -47,9 +47,6 @@ bun install
 
 > **Bun 版本须知**：仓库提交的 `bun.lock` 是 lockfileVersion 3（由嵌套
 > `overrides` 触发），必须使用 **Bun >= 1.4** —— 更旧的 Bun 无法读取。
-> 另外，本机升级 Bun 后的第一次 `bun install` 会把
-> `patches/ssh2@1.17.0.patch` 重新打一次：补丁缓存键已从「前 16KiB 哈希」
-> 改为整文件 SHA-1，属预期行为而非故障。
 
 **同步上游须知**：本 fork 已整体删除 `packages/agent-core`（v1 引擎），
 而上游仍在持续修补它。`.gitattributes` 已将这些路径标记为
@@ -58,10 +55,10 @@ bun install
 
 常用脚本：
 
-- `bun run dev:local` — 从全新 bundle 以开发模式运行 CLI（增量，约 2 秒）。加 `:watch`（`bun run dev:local:watch`）可在源码变化时自动重建并重跑。**请用它而不是 `bun run dev:cli`**：后者直接执行 `src/main.ts`，而 Bun 不解析各包依赖的 `#/*` 子路径导入，会在启动时报 `Cannot find module '#/kimi-harness'`。
+- `bun run dev:local` — 从全新 bundle 以开发模式运行 CLI（增量，约 2 秒）。加 `:watch`（`bun run dev:local:watch`）可在源码变化时自动重建并重跑。另外两条路径：`bun run dev:cli` 转到 `apps/kimi-code/scripts/dev.mjs`（先起本地插件市场服务，再运行 CLI），`start-native.bat` 走的就是这条；真正直接执行 `src/main.ts` 的是 `dev:cli-only`，它在 Bun 1.4.2 下是坏的 —— Bun 不解析各包依赖的 `#/*` 子路径导入，会在启动时报 `Cannot find module '#/kimi-harness'`。
 - `bun run test` — 运行测试（vitest）
 - `bun --bun run test` — 运行测试（vitest）。**这是规范命令，也是 CI 使用的命令**（`.github/workflows/ci.yml`）。`--bun` 让 vitest 跑在 Bun 运行时而非 Node 上，两者结果会不同：实测出现过 `bunx vitest` 通过、而 `bun --bun run test` 在同一份代码上失败的情况。判断测试是否变绿时请一律使用 `bun --bun run test`。
-- `bun run typecheck` — TypeScript 检查（注意：会先构建各包）。覆盖 `packages/*` 与 `kimi-code`、`kimi-inspect`、`vscode`、`vis/server`、`vis/web` 五个 app；**不覆盖** `docs/`（VitePress 内容）以及 `packages/kimi-native-tools`（Rust/原生，无 tsconfig）。
+- `bun run typecheck` — TypeScript 检查（注意：会先构建各包）。覆盖 `packages/*` 与 `kimi-code`、`kimi-inspect`、`vscode`、`vis/server`、`vis/web` 五个 app；**不覆盖** `docs/`（VitePress 内容）。
 - `bun run build:docs` — 构建用户文档。VitePress 遇到失效的内部链接会直接失败，因此改动 `docs/` 下任何内容后请运行它。
 - `bun run lint` — oxlint
 - `bun run lint:fix` — oxlint 自动修复
@@ -99,11 +96,11 @@ cd apps/kimi-code && bun run build
 
 **要替换已安装的 `kimi` 命令**时，构建自包含二进制并覆盖已安装的那份——见下文的[原生构建（自包含二进制）](#原生构建自包含二进制)。发布包就是这个单文件二进制，因此这是让本地构建以 `kimi` 身份运行的唯一方式。
 
-> **不要把 `apps/kimi-code/dist/` 复制到 `~/.kimi-code/`。** 该布局无法运行：bundle 在加载时要解析原生 addon 与其运行时依赖，而 `dist/` 副本两者都不带。把 `.node` 文件复制进 `dist/chunks/` 也修不好——加载器需要 `@moonshot-ai/kimi-native-tools` 是一个可解析的包，之后下一个依赖（`qrcode`、`ws`）又会接着缺失。`dist/` 是给打包器用的构建产物，不是可部署的目录树。
+> **不要把 `apps/kimi-code/dist/` 复制到 `~/.kimi-code/`。** 该布局无法运行：bundle 在加载时要解析其运行时依赖，而 `dist/` 副本一个都不带（`qrcode`、`ws` 等）。`dist/` 是给打包器用的构建产物，不是可部署的目录树。
 
 ### 原生构建（自包含二进制）
 
-原生构建用 Bun 把 CLI 编译为单文件可执行文件。需要 Bun >= 1.4（`curl -fsSL https://bun.sh/install | bash`；详见 [bun.sh](https://bun.sh)），构建脚本本身也运行在 Bun 上；Rust 工具链必需，因为要嵌入 `kimi-native-tools` 的 `.node` 二进制。
+原生构建用 Bun 把 CLI 编译为单文件可执行文件。需要 Bun >= 1.4（`curl -fsSL https://bun.sh/install | bash`；详见 [bun.sh](https://bun.sh)），构建脚本本身也运行在 Bun 上。
 
 Windows（x64）：
 
@@ -137,7 +134,7 @@ cp apps/kimi-code/dist-native/bin/linux-x64/kimi ~/.kimi-code/bin/kimi-new
 mv ~/.kimi-code/bin/kimi-new ~/.kimi-code/bin/kimi
 ```
 
-> **注意**：原生构建要求 `@moonshot-ai/kimi-native-tools` 出现在 `apps/kimi-code/package.json` 的依赖中，并在 `apps/kimi-code/scripts/native/native-deps.mjs` 中登记。已知坑见[常见问题](#常见问题)。
+> **注意**：已知坑见[常见问题](#常见问题)。
 
 `--profile=release`（`bun run build:native:bun:release`）会生成内置目录，macOS 上用 `APPLE_SIGNING_IDENTITY` 签名并运行 codesign 自检。CI 通过 `_native-build.yml` 的 `native-bundle-bun` job 构建全部六个目标（经 `KIMI_CODE_NATIVE_ENGINE=bun` 打包为 `kimi-code-bun-<target>.zip`）。
 
@@ -161,11 +158,11 @@ bun scripts/native/bench-native.mjs ./dist-native/bin/linux-x64/kimi --runs 20
 
 ### Nix 构建
 
-`nix-build.yml` 在纯净沙箱中构建 CLI。依赖来自一个固定输出派生（`flake.nix` 中的 `bunDeps`）：它物化 hoisted 的 `node_modules` 树，以及 napi 包（`kimi-native-tools`）的 cargo vendor 目录；主派生随后离线编译。编辑 `flake.nix` 或原生构建步骤时需要知道的沙箱特性：
+`nix-build.yml` 在纯净沙箱中构建 CLI。依赖来自一个固定输出派生（`flake.nix` 中的 `bunDeps`）：它物化 hoisted 的 `node_modules` 树；主派生随后离线编译。编辑 `flake.nix` 或原生构建步骤时需要知道的沙箱特性：
 
-- 沙箱中没有 `/usr/bin/env`——请用 `node <js入口>` 调用 node-gyp 和 napi CLI，不要用它们的 bin 启动器。
-- FOD 输出不得包含 `/nix/store/...` 字符串：绝不让 `cargo vendor` 把它建议的配置写进输出，也不要把 store 路径插值进安装脚本。
-- 改动 `bun.lock` 或 `Cargo.lock` 后，会有一次哈希不匹配轮次：把失败日志中的 `got:` 哈希（PR 上由 nix-build bot 自动贴出）填回 `flake.nix` 的 `outputHash`。
+- 沙箱中没有 `/usr/bin/env`——请用 `node <js入口>` 调用 node-gyp，不要用它的 bin 启动器。
+- FOD 输出不得包含 `/nix/store/...` 字符串：不要把 store 路径插值进安装脚本。
+- 改动 `bun.lock` 后，会有一次哈希不匹配轮次：把失败日志中的 `got:` 哈希（PR 上由 nix-build bot 自动贴出）填回 `flake.nix` 的 `outputHash`。
 
 ### 常见问题
 
@@ -173,8 +170,6 @@ bun scripts/native/bench-native.mjs ./dist-native/bin/linux-x64/kimi --runs 20
 |---------|-------|-----|
 | `Cannot find module '@moonshot-ai/i18n-shared'` | workspace 链接失效；新增包后 `bun install` 尚未重新链接 | 运行 `bun install` |
 | `ERR_MODULE_NOT_FOUND` 指向 `.kimi-code/node_modules` 里的 `src/index.ts` | 部署后的 package.json exports 仍指向源码文件 | 把 exports 改为指向 `dist/*.mjs` |
-| `Failed to load kimi-native-tools binding` | `dist/chunks/` 里缺 `.node` 文件（ESM bundle 从 chunk 目录解析） | 把 `.node` 文件直接复制进 `dist/chunks/` |
-| 打包产物报 `ERR_UNKNOWN_BUILTIN_MODULE: @moonshot-ai/kimi-native-tools` | 原生模块未在 `native-deps.mjs` 中登记 | 在 `nativeDeps` 数组里加一条，`collect: 'native-files'` |
 | `packages/i18n-shared` 构建报 `UNRESOLVED_ENTRY` | 缺 `src/index.ts` | 新建 `src/index.ts`，重新导出 types、core 与 detect 模块 |
 | CDN 下载的 `kimi.exe` 在 `locale=zh` 下仍显示英文 | CDN 二进制只包含打包时的语言；下载日期决定版本 | 本地构建，或等下一次 CDN 发布 |
 | `bun run` 下出现意料之外的环境变量 | Bun 会自动加载 `.env`（pnpm 时代的开发流程不会） | 删除或重命名该文件，或用 `bun --no-env-file` 运行 |

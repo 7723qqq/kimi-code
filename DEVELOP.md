@@ -2,7 +2,7 @@
 
 Reply in the same language as the user.
 
-This is a TypeScript monorepo built for agent-assisted development. This file is the single source of truth for project-wide knowledge. Keep it focused on the project map, hard constraints, and workflow requirements — things every task needs to know.
+This is a TypeScript monorepo built for agent-assisted development. This file is the project's reference: what it is made of and how to build, run, and navigate it. The rules a change must obey live in [`CONVENTIONS.md`](CONVENTIONS.md); the always-loaded entry point is [`AGENTS.md`](AGENTS.md). See "Keeping this documentation honest" at the end for how the three stay from drifting into each other.
 
 ## Project Overview
 
@@ -11,7 +11,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 - **Author**: Moonshot AI
 - **License**: MIT
 - **Homepage**: https://github.com/MoonshotAI/kimi-code
-- **Version**: `@moonshot-ai/kimi-code` 2.1.1 (the main CLI app)
+- **Version**: `@moonshot-ai/kimi-code` 2.2.0 (the main CLI app — follows upstream)
 
 > **Note**: This repository is a personal experimental fork of MoonshotAI/kimi-code. Not affiliated with Moonshot AI. Use at your own risk — do not submit PRs from this fork to upstream.
 
@@ -19,8 +19,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 
 - **i18n / Multi-language support** — Complete Chinese-English bilingual support across TUI, CLI, and Web UI. All hardcoded English strings replaced with `t()` calls. Switch locale via the `/settings` dialog (aliased as `/config`), locale selector inside.
 - **Team** — Multi-agent discussion and collaboration tool; agents can debate, cross-review, and reach consensus before output.
-- **Rust Native Tools** — Performance-critical tools (grep, glob, edit, read, write, bash, token counting, output truncation) rewritten in Rust as a native Node addon, significantly faster than JS.
-- **Windows launchers** — `start-native.bat` builds the native Rust tools if needed and launches the CLI in dev mode (`bun run dev:cli`, Bun executing `src/main.ts` directly); `start-desktop.bat` builds and launches a locally vendored desktop shell when `apps/kimi-desktop` is present (the shell source is not tracked in this fork).
+- **Windows launchers** — `start-native.bat` runs the CLI via `bun run dev:cli` (which delegates to `apps/kimi-code/scripts/dev.mjs`, starting the local plugin-marketplace server first); `start-desktop.bat` builds and launches a locally vendored desktop shell when `apps/kimi-desktop` is present (the shell source is not tracked in this fork).
 - **Bun toolchain & packaging** — Bun is both the package manager (hoisted workspace, `bun.lock`) and the sole native-binary packaging engine (`bun build --compile` via `apps/kimi-code/scripts/native/build-bun.mjs`); the former pnpm workspace setup and the Node SEA build chain were retired. Install, build, lint, typecheck, the native build pipeline, and the vitest suites (`bun --bun run test`) all run on Bun, and no CI job installs Node; the Nix build path (`flake.nix`, `nix-build.yml`) still requires Node. Self-update remains engine-aware for legacy SEA installs.
 - **DeepSeek Harness capability fusion** — Selected capabilities ported from [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) (MIT): subagent delegation-depth accounting (`session/agentLifecycle/subagentMetadata.ts`), the eval-mode code-runtime worker (`features/codeRuntime/codeWorkerSource.ts`), and the session-query record types (`features/sessionQuery/types.ts`). Ported modules carry a source note in their header; capability selection and comparison notes live in the session report.
 
@@ -38,7 +37,6 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 | Module system | ESM (`"type": "module"` in every package) |
 | Dev runtime | **Bun** >= 1.4 — install, build, lint, typecheck, and the vitest suites (`bun --bun run test`) all run through bun |
 | Published CLI runtime | **Bun** >= 1.4.0 (`engines` floor of the published package) |
-| Native code | **Rust** (via napi-rs for Node addon, pure Rust CLI tools) |
 | Web UI (peer) | **Vue 3** + **Vite** |
 | VS Code extension | **React 19** + **TailwindCSS 4** + **shadcn/ui** |
 
@@ -49,7 +47,6 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 | **Bun** >= 1.4 | Package manager and script runner (hoisted workspace via root package.json; `bun.lock` is the lockfile). Also compiles the release binary (`build-bun.mjs`) |
 | **tsdown** 0.22.0 | ESM bundler for TypeScript packages |
 | **vite** 6.x | Web app bundler (vis-web, vscode webview) |
-| **Cargo** | Rust build for `kimi-native-tools` (napi-rs) |
 | **Nix flake** | Reproducible builds for Linux/macOS |
 
 ### Quality Tooling
@@ -157,9 +154,7 @@ packages/
   agent-core-v2/       — Agent engine v2 (DI × Scope architecture)
   i18n/                — Shared i18n infrastructure (t() with en/zh support)
   i18n-shared/         — Shared i18n core (types, locale detection, web-safe)
-  kaos/                — Execution environment abstraction (local / ssh / login-shell)
   kap-server/          — Kimi Code local server (REST + WebSocket)
-  kimi-native-tools/   — Rust native Node addon (napi-rs)
   klient/              — Client SDK (contract-driven facade over agent-core-v2)
   kosong/              — Frozen legacy LLM / provider kernel (published SDK + oauth only)
   migration-legacy/    — Data migration from kimi-cli (~/.kimi/) to kimi-code (~/.kimi-code/)
@@ -177,6 +172,9 @@ packages/
 
 **`agent-core-v2`** (v0.4.3) — Next-gen agent engine with DI × Scope architecture. Service interfaces, DI containers, scope-bound session management. Consumed by `kap-server` and `klient`. Includes dependency graph analysis, domain layer linting, and contract type generation scripts.
 
+  - **Three** `LifecycleScope` tiers — `App` / `Session` / `Agent` (`app/scopes.ts`, mirrored in `SCOPE_TOPOLOGY`). `Workspace` is a **directory namespace prefix** inside the engine (`app/workspaceLifecycle/`, `app/workspaceSessions/`), **not** a fourth tier: there is no `LifecycleScope.Workspace`, and adding one is not a valid change.
+  - There is no App-level session lifecycle facade. Callers compose `ISessionIndex` → `IWorkspaceLifecycleService.handlerFor` → the handler.
+
 **`kosong`** (v0.5.6) — The frozen legacy LLM / provider kernel. Owns the contract types (`Message` / `ChatProvider` / `Tool` / `TokenUsage` / `ModelCapability`), the coded-error infrastructure (`Error2` + provider error taxonomy), and the pure-function layer (`generate()`, token estimation, error classification, provider wire helpers). It is retained for the published SDK and `oauth`; `agent-core-v2` **does not import it** — provider and request code lives in `packages/agent-core-v2/src/human/llm/`, and the v2 compatibility boundary is `packages/agent-core-v2/src/llm-adapter/`. The import path is rejected outright by `packages/agent-core-v2/scripts/check-import-boundaries.mjs`; see `docs/en/llm.md` for the layering rules. Because both packages carry a copy of the wire rules, `packages/kosong/test/cache-field-parity.test.ts` is the only thing keeping the two copies honest. Supports Anthropic, Google Gemini, and OpenAI-compatible providers. Uses `zod-to-json-schema` for tool schema conversion.
 
 **`klient`** (v0.1.2) — Client SDK. A contract-driven facade over agent-core-v2 with aggregated `global.*` / `session(id).*` / `agent(id).*` methods, zod validation on every call, and transport abstraction (ipc or memory). Also hosts e2e suites.
@@ -184,9 +182,6 @@ packages/
 **`kap-server`** — The Kimi Code local server. Backed by DI × Scope agent engine. Exposes sessions over REST + WebSocket (`/api/v1` + `/api/v1/ws`). Debug surface at `/api/v1/debug/*`. Bootstrapped from `src/start.ts`.
 
 **`transcript`** (v0.0.2) — Isomorphic transcript rendering data layer. Pure TypeScript (browser-safe). Agent-granular L1 store, idempotent L2 operations, granularity-gated L3 subscriptions (`off/turn/block/delta`), framework-free L4 view registry. Owns all transcript contract types in `src/contract/`.
-
-**`kimi-native-tools`** — Rust native addon via napi-rs. Implements: bash execution, grep, glob, read, write, edit, token counting, output truncation, web fetching (HTML rendering via scraper), image processing, SSE/eventsource streaming, SQLite (rusqlite), ULID generation, and more. Single `cdylib` crate (no Cargo workspace).
-
 
 **`minidb`** (v0.2.0) — Pure-Node.js embedded key-value database. Combines Redis-style in-memory KV with SQLite-style WAL + snapshot persistence. Includes cluster support.
 
@@ -322,7 +317,6 @@ the `cwd` its script expects — `bun run` resolves relative to the package — 
 - **Bun**: `>= 1.4` — required. Package manager, script runner, and dev-toolchain runtime (`bun.lock` is the lockfile, specified via `bunVersion` in `flake.nix`); build, lint, typecheck, locale checks, and the vitest suites (`bun --bun run test`) all run through bun.
 - **Node.js**: not required for the Bun-based dev workflow — build, lint, typecheck, the native pipeline, and the test suites all run under Bun (pi-tui's node:test suite included), and no CI job installs Node. The Nix build path is the exception: `flake.nix` pins `minNodeVersion = "24.15.0"` and fails evaluation below it, keeps `nodejs` in the derivation's `nativeBuildInputs` and the devShell, and runs `node apps/kimi-code/scripts/check-web-assets.mjs` as a build step, so `nix-build.yml` needs Node on every PR.
 - **Published package engines**: the published package declares `"bun": ">=1.4.0"` — the same floor the dev toolchain requires.
-- **Rust** (optional, for native tools): Stable toolchain, MSVC on Windows.
 - **Git for Windows** (Windows only): Optional; used as the POSIX shell fallback when PowerShell is unavailable. Set `KIMI_SHELL_PATH` to pin a specific shell.
 
 ---
@@ -335,13 +329,12 @@ the `cwd` its script expects — `bun run` resolves relative to the package — 
 bun install                   # Install all dependencies
 bun run build                 # Build all workspace packages
 bun run build:packages        # Build only packages/*
-bun run dev:local             # Run the CLI from a fresh bundle (works; incremental, ~2s)
+bun run dev:cli               # Run the CLI in dev mode; delegates to
+                              # apps/kimi-code/scripts/dev.mjs (starts a local plugin
+                              # marketplace server, then runs the CLI). This is the
+                              # path `start-native.bat` uses.
+bun run dev:local              # Run the CLI from a fresh bundle (works; incremental, ~2s)
 bun run dev:local:watch       # Same, rebuilding and re-running on every source change
-bun run dev:cli               # BROKEN under Bun 1.4.2: it executes src/main.ts, and Bun does
-                              # not resolve `package.json` `imports` wildcards (`"#/*"`), so
-                              # the first `#/` import aborts with "Cannot find module '#/kimi-harness'".
-                              # Node resolves those, and `bunx tsx` proves it, but main.ts hard-exits
-                              # on a non-Bun runtime — so neither runtime can run the source path.
 bun run dev:server            # Run server in dev mode
 bun run test                  # Run all tests (vitest)
 bun run test:watch            # Watch mode
@@ -378,9 +371,7 @@ cd apps/kimi-code && bun run dev
 cd apps/kimi-code && bun run test
 cd apps/kimi-code && bun run e2e     # E2E tests (sets KIMI_E2E=1)
 
-# Native tools (Rust)
-cd packages/kimi-native-tools && cargo test --lib  # cdylib crate: doc tests unsupported
-cd packages/kimi-native-tools && cargo build --release
+# Native binary packaging
 bun run build:native:bun:release  # Full release build (from apps/kimi-code)
 
 # VS Code extension
@@ -402,12 +393,10 @@ GitHub Actions (`ci.yml`) runs on every PR and push to `main`. Every job install
 6. **typecheck** — TypeScript check across all packages (`tsgo` from `@typescript/native-preview`, run via `bunx --bun`)
 7. **review** — `zig build` and `zig build test` in `tools/review` (Zig installed via
    `mlugg/setup-zig`), then the structural checks described under "Structural review" above
-8. **test-rust** — `cargo test --offline` for the Rust crate (`kimi-native-tools`);
-   every other job is Bun-only and installs no Rust toolchain
 
 `ci.yml` also carries a `test-windows` job (the full suite on Windows). It is parked with `if: false` while Windows tests are stabilized, so it is not part of the pre-merge pipeline.
 
-Two more jobs run outside `ci.yml`. **native bundle** is built by `_native-build.yml` (a `workflow_call` workflow invoked from `release.yml` and `manual-native-bundle.yml`) on a 6-target matrix (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64, win32-arm64): `(cd packages/kimi-native-tools && bun run build)` (napi-rs build; no cargo test), then Bun single-file packaging (`build:native:bun`) and a native smoke test. **codeql** (`codeql.yml`) scans js/ts on pushes to `main` and on a weekly schedule; a branch ruleset requires CodeQL results (plus blocks force pushes and branch deletion) for merges into `main`.
+One more job runs outside `ci.yml`. **native bundle** is built by `_native-build.yml` (a `workflow_call` workflow invoked from `release.yml` and `manual-native-bundle.yml`) on a 6-target matrix (linux-x64, linux-arm64, darwin-x64, darwin-arm64, win32-x64, win32-arm64): Bun single-file packaging (`build:native:bun`) followed by a native smoke test. **codeql** (`codeql.yml`) scans js/ts on pushes to `main` and on a weekly schedule; a branch ruleset requires CodeQL results (plus blocks force pushes and branch deletion) for merges into `main`.
 
 Additional workflows: `_native-build.yml`, `codeql.yml`, `docs-deploy.yml`, `manual-native-bundle.yml`, `nix-build.yml`, `pkg-pr-new.yml`, `pr-title-checker.yml`, `release-native.yml`, `release.yml`, `vscode-publish.yml`.
 
@@ -427,110 +416,9 @@ The macOS and Windows signing steps degrade safely when their secrets are unset:
 
 ---
 
-## Code Style & Conventions
-
-### Formatting (oxfmt)
-
-- 2-space indentation, spaces not tabs
-- 100 print width
-- Single quotes, trailing commas, LF line endings
-- Import sorting: builtin → external → internal → parent/sibling/index → unknown
-- For full config, see `.oxfmtrc.json`
-
-### Linting (oxlint)
-
-- **Plugins**: typescript, import, unicorn, promise, node
-- **Key rules**:
-  - `eqeqeq: error`, `no-throw-literal: off`
-  - `typescript/no-misused-promises: error`, `typescript/return-await: error`
-  - `import/no-cycle: error`, `import/no-self-import: error`
-  - `unicorn/prefer-node-protocol: error`
-  - `no-console: warn`, `no-explicit-any: warn`, `no-non-null-assertion: warn`
-  - `consistent-type-imports: warn`
-- Test files get relaxed rules (no-explicit-any off, no-console off, vitest plugin rules)
-- `packages/kosong/src/providers/` gets relaxed unsafety rules
-- For full config with all overrides, see `.oxlintrc.json`
-- Ignored: `dist/`, `dist-web/`, `coverage/`, `node_modules/`, `apps/*/scripts/`, `docs/smoke-archive/`, `packages/pi-tui/`, `*.generated.ts`, `参考目录/`
-- **Package publishing lint (`lint:pkg`)**: `publint` + `attw` on `@moonshot-ai/kimi-code`. Invoked only by `bun run publish` (the publish pipeline), not by the CI lint job — keep this in mind when chasing lint failures locally.
-
-### TypeScript Config (root `tsconfig.json`)
-
-- **target**: ES2024
-- **module**: preserve (bundler mode)
-- **strict**: true
-- **Additional strictness**: `noUncheckedIndexedAccess`, `noImplicitOverride`, `noPropertyAccessFromIndexSignature`, `noFallthroughCasesInSwitch`, `verbatimModuleSyntax`
-- **JSX**: react-jsx (React 19)
-- **noEmit**: true (tsdown handles bundling)
-- **skipLibCheck**: true
-
-### General Coding Rules
-
-- `packages/agent-core-v2`, `packages/kap-server`, and `packages/transcript` are comment-free zones: no comments of any kind — no line/block comments, no JSDoc (not even on exported symbols); the only exception is load-bearing lint-suppression directives (`oxlint-disable` / `eslint-disable`), while other tooling directives (`@ts-expect-error`, …) stay banned. `scripts/check-no-comments.mjs` reports violations over `.ts`/`.tsx`/`.mts`/`.mjs` under `src/`/`test/`/`scripts/`, and the lint job in `ci.yml` runs it on every PR.
-  - `scripts/no-comments-baseline.txt` is the accepted-debt ledger for this rule: one `path  count` entry per file whose existing comments were reviewed and kept (the 2026 DeepSeek adaptation work explains design constraints — why two token constants must stay independent, why DeepSeek needs the whole reasoning history, how the `##` fence cut stays balanced). The check fails on any violation **beyond** a file's count, so a new comment is a decision rather than an accident, and it reports entries that dropped below their count so the ledger cannot rot. Move rationale into `docs/` and lower the number rather than adding a new entry. Regenerate the body with `bun run check:no-comments:counts`.
-- For optional object properties, pass `undefined` directly instead of using conditional spread.
-  - YES: `{ user }`
-  - NO: `{ ...(user ? { user } : undefined) }`
-- Optional object properties do not need to additionally allow `undefined` in the type.
-  - YES: `interface Options { user?: User }`
-  - NO: `interface Options { user?: User | undefined }`
-- Internal methods with only a single parameter should not be turned into options objects just for stylistic uniformity.
-- Except for a package's `index.ts`, other `index.ts` files should prefer `export * from './module';`.
-- Prefer importing via `import ... from '#/...'` (subpath imports), which serves the same purpose as `import ... from '@/...'`.
-- Do not add too many new test files. Prefer adding tests to the existing test file of the corresponding component or module.
-- When a test fails because of a user modification, default to fixing the test first; do not change the implementation to satisfy an old test unless the implementation truly has a bug.
-- Do not sacrifice code quality for external compatibility unless the user explicitly asks for it.
-
-### i18n Conventions
-
-Classification comes first — most "hardcoded string" reports are the wrong category:
-
-| Class | What it is | Where it lives | Translated? |
-| --- | --- | --- | --- |
-| C1 UI copy | Text a person reads: panel titles, status lines, buttons, `errorCodes.*` | each app's `locales/*.ts` | yes, via `t()` |
-| C2 Model assets | Prompts and tool descriptions sent to the LLM | engine constants (`tools/*/description`, prompt files) | no — deliberately English |
-| C3 Protocol / decision data | Branch keys, event fields, markers (`outcome`, `ReviewDecision`) | stable identifiers / typed enums | never |
-| C4 Developer diagnostics | Logs, internal throws, assertions | English constants | no (raw text is fine) |
-
-The rules that follow from it:
-
-- All user-facing strings (C1) must use `t()` calls from the i18n framework.
-- Supported locales: `en` (English), `zh` (Chinese).
-- The per-tree `locales/*.ts` files are the single source of truth for translations. Locale data reaches the engine as an in-memory JSON string (`JSON.stringify(en)` in `apps/kimi-code/src/i18n/index.ts`), so there is no generated locale JSON to regenerate or commit.
-- **Never localize a value that code compares.** If a branch keys off a string, that string is C3: export a constant from the producing package (`ReviewDecision`, `GoalPauseReason`, `InstantiationServiceDisposedError`) and compare that. `tools/review`'s `text-as-protocol` check fails the build on a comparison against sentence-shaped text.
-- **Never put a localized label on the wire.** A UI choice that round-trips back to the engine carries a stable id (`reject`, `revise`, `auto`), not the rendered label; the label stays in the locale tree.
-- Error codes are a contract: every code in the engine registry (`packages/agent-core-v2/src/errors.ts`) needs `errorCodes.<camelCaseCode>` in **both** locale trees. The engine's own `ErrorInfo` carries only `retryable`/`public` — titles and actions were removed so there is one place to change a sentence.
-- Language follows the user at runtime: the TUI pushes its locale into the engine with `harness.setEngineLocale(...)`, so engine-side strings do not stay in the launch language after a `/settings` switch.
-
-Gates (all wired into CI's `lint` job):
-
-- `bun scripts/check-no-hardcoded-prose.mjs` — prose literals outside `t()` in every UI tree. Shrink-only ledger at `scripts/no-hardcoded-prose-baseline.txt`; a new hardcoded string fails the run, and localizing strings lowers the number (regenerate with `--print-counts`).
-- `bun scripts/check-t-call-coverage.mjs` — every `t()` key exists (across kimi-code, agent-core-v2 + kap-server + klient, kimi-inspect, vis-web, and the VS Code webview, `.vue`/`.tsx` templates included), every engine error code has en+zh entries, and no `errorCodes.*` value in `zh` is a copy of its English sentence. Scaffold missing codes with `bun scripts/gen-error-locale-skeleton.mjs`.
-- `bun scripts/check-locale-keys.mjs`, `bun scripts/check-locale-placeholders.cjs` — en/zh parity and `{{param}}` consistency.
-- `bun scripts/scan-hardcoded-v2.mjs` — by hand: finds a source literal that already exists in a locale file (the narrower, value-level complement to the prose scan).
-- `./tools/review/zig-out/bin/review --check=text-as-protocol` — cross-layer comparisons against message text.
-
-When you add user-visible text: add the key to **both** locales in the same change, prefer a `{{param}}` over string concatenation, and do not add a baseline entry — a new entry is a review decision, and the answer is normally "use `t()`".
-
-#### Locale ownership and the metric snapshot
-
-Each locale tree has one owner — the person who answers "is this sentence right?" for that
-surface. Ownership follows the tree, not the feature, because a locale file is a single unit of
-review:
-
-| Tree | Surface | Owner |
-| --- | --- | --- |
-| `apps/kimi-code/src/i18n/locales` | CLI/TUI copy, `errorCodes.*` (the error-code display contract) | TUI maintainers |
-| `packages/i18n/src/locales` | engine-side strings reached through `@moonshot-ai/kimi-i18n` | engine maintainers |
-| `apps/kimi-inspect/src/i18n/locales`, `apps/vis/web/src/i18n/locales`, `apps/vscode/webview-ui/src/i18n/locales` | developer-facing tools | tool maintainers |
-
-The count to watch is the prose ledger, not the number of locale keys: a shrinking ledger means
-copy moved onto `t()`, while a growing one means new hardcoded text was accepted. Record both the
-ledger total and the error-code coverage in the audit report for the release, next to the other
-metrics, with the commands from this section as the evidence.
-
----
-
 ## Testing Instructions
+
+> Rules that govern *how* tests are written live in [`CONVENTIONS.md` → Testing Rules](CONVENTIONS.md#testing-rules). This section covers how to run them.
 
 ### Test Framework
 
@@ -593,8 +481,6 @@ The monorepo enforces safe minimum versions for known-vulnerable packages via `o
 - `hono >= 4.12.18`, `body-parser >= 2.3.0`, `ws >= 8.21.0`
 - `js-yaml >= 4.2.0`, `vite >= 6.4.3`, `postcss >= 8.5.18`
 
-Two dependencies are deliberately removed: `ssh2@1.17.0>cpu-features` and `ssh2@1.17.0>nan` are both overridden to `-` (skip installation).
-
 ### CI Security Checks
 
 - Secret scanning via GitHub's built-in scan
@@ -625,67 +511,37 @@ Two dependencies are deliberately removed: `ssh2@1.17.0>cpu-features` and `ssh2@
 
 ---
 
-## Experimental Features
+## `specs/` — Spec Mode Output
 
-- Gate a not-yet-public feature behind an experimental flag. Register the flag from the owning domain's own module (definitions are contributed **decentrally** — each domain calls `registerFlagDefinition` at its module's top level, e.g. `packages/agent-core-v2/src/features/tower/flag.ts`; there is no central catalog to edit by hand), then check it with `flags.enabled('my-feature')`.
-- Flags are env-driven; precedence is per-flag env > `[experimental]` config > master env > the flag's `default`; the `default` is chosen per flag as needed (e.g. the tower flag defaults to `false`, while `tool_select`, `wait_for`, and `xunfei_coding_plan` default to `true`):
-  - `KIMI_CODE_EXPERIMENTAL_<NAME>` toggles one
-  - `KIMI_CODE_EXPERIMENTAL_FLAG` enables all
-- Release by flipping the flag's `default` to `true`.
+`specs/<id>/` holds the documents **Spec mode** writes (`docs/en/reference/tools.md` → Tools). Spec mode agrees a written contract before any code changes; unlike a plan, which is a per-session scratch file, a spec is committed with the code and read back by later sessions and teammates. This directory does not exist upstream — it is fork-only.
+
+- **A spec is a requirements contract, not a description of current state.** Read it to learn what was wanted and why a decision was made. To judge whether the implementation satisfies it, read the code — never trust a spec's account of the state.
+- Version numbers, package names, script names, and commands inside a spec describe a tree that may no longer exist. They are evidence of a past decision, not instructions to follow.
+- Lint and the docs gates reach into `specs/`, so prose written there can affect tooling results. Do not put anything in a spec that would fail a repo-wide check.
+- Do not edit a shipped spec to make it "current" — it is a record. Write a new one.
 
 ---
 
-## Commit Convention (Conventional Commits)
+## Keeping this documentation honest
 
-- Commit messages follow Conventional Commits (`feat:`, `fix:`, `chore:`, ...). PR titles are enforced by the `pr-title-checker.yml` workflow.
+This file is duplicated from upstream and this fork has diverged from it for thousands of commits, so drifted instructions are a recurring failure mode here rather than an exception. Two things prevent the next round.
 
-## Where to Update Instructions
+### One owner per fact
 
-- Hard rules that affect almost every task: update the root `DEVELOP.md`.
-- Rules that only affect a specific directory: update the nearest sub-directory `DEVELOP.md`.
-- Keep instruction updates focused and supported by code facts.
+Every fact lives in exactly one place. Other files link to it; they never restate a second copy. When you change something, update its owner — and only its owner.
 
-## Working Principles
+| Fact | Owner |
+| --- | --- |
+| Project structure, packages, scripts, commands, CI, toolchain | this file |
+| Coding rules, i18n rules, review rules, changeset rules | [`CONVENTIONS.md`](CONVENTIONS.md) |
+| Always-loaded agent instructions | [`AGENTS.md`](AGENTS.md) — a thin pointer, nothing more |
+| Contribution policy, PR process | [`CONTRIBUTING.md`](CONTRIBUTING.md) + `CONTRIBUTING.zh-CN.md` |
+| User-facing behavior and terminology | `docs/en/` + `docs/zh/`, per [`docs/DEVELOP.md`](docs/DEVELOP.md) |
+| Goal-mode internal design | [`GOAL.md`](GOAL.md) |
+| Per-package detail | that package's own `DEVELOP.md` / `AGENTS.md` |
 
-- Think from first principles. Start from real requirements, code facts, and verification results; if the goal is unclear, discuss it with the user first.
-- Treat code, not documentation, as the source of truth. Unless the user explicitly says otherwise, do not read ordinary Markdown just to understand the implementation.
-- Before making code changes, read the relevant code and the most recent constraints, and follow the nearest `DEVELOP.md` in the directory tree.
-- Keep changes focused. Do not slip in unrelated refactors along the way.
-- When committing, do not add any co-author attribution, and do not reveal the identity of the agent in commit messages, PR descriptions, or any explanatory text.
-- Push every commit to `origin` immediately after `git commit`. Never let local and remote diverge — applies to feature, fix, and experimental branches alike, so local work is never lost and the remote does not fall behind.
+### Verify before copying from upstream
 
-## Workflow Requirements
+When syncing anything from `upstream/main`, re-check every copied fact against **this** branch. The package manager, the package inventory, the script names, the lifecycle tiers, and which packages exist at all all differ here. "Upstream says so" is not a reason to keep it — several instructions in this repo were upstream's and were wrong on arrival. `tools/review`'s `upstream-drift` check watches for *files* deleted relative to upstream; it does not watch for *sentences* that went stale, which is why this section exists.
 
-- Prefer `rg` / `rg --files` when reading code.
-- When designing changes, follow existing boundaries and local patterns first.
-- In public text and test data, replace real internal identifiers with neutral placeholders such as `example.com`, `example.test`, and `YOUR_API_KEY`.
-- When opening a PR, fill in `PULL_REQUEST_TEMPLATE.md` — link the related issue or explain the problem, then describe what changed. Do not leave placeholder text.
-- After finishing a task and before submitting a PR, you must run the `gen-changesets` skill.
-- Do not commit throwaway scratch or exploratory files. Never stage: handoff documents (`HANDOVER-*.md`, `HANDOFF-*.md`, `handoff.md`), UI mockups (`*-designs.html`, `*-mockup.html`, `*-demo.html`), or any `.tmp/` content.
-## Code Review Rules
-
-These rules apply to every pull request review, automated or human. The user populations and contract files they refer to are listed in `.agents/skills/review-pr/surfaces.md`.
-
-### Enumerate changed behavior, not just bugs
-
-Any input that worked before the change — a config key, env var, CLI flag, provider response shape, session written by an older version, client request, or hook payload — must behave the same after it unless the PR declares the change. For every deleted or narrowed branch, condition, default, or prompt sentence, ask who reached it before and where they go now; for every new condition, ask which existing inputs now match it first. Flag a PR that calls a path "unchanged" when its branch condition moved.
-
-### A flipped default or removed behavior needs a named loss and an escape hatch
-
-Everyone on the old default is affected. Require the changeset to name the behavior users lose, not only the new default; a config, env, or flag escape hatch or a maintainer's explicit sign-off in the PR; and a test that pins the old behavior for the population that keeps it.
-
-### Prompt text is behavior
-
-Editing or deleting sentences under `packages/agent-core-v2/src/**/*.md` (system prompt, tool descriptions, reminders, overlays, built-in skills) changes agent behavior for every user who receives that prompt. "No test references the sentence" is not evidence of no impact. Require the PR to name the population that receives the text (every session, plan mode, a flag-gated feature such as Tower), what the sentence enforced, who relied on it, and what enforces it now.
-
-### Contract files are tripwires
-
-The manifests under `packages/agent-core-v2/docs/` (`config-manifest.toml`, `wire-manifest.d.ts`, `state-manifest.d.ts`), `packages/kap-server/test/__snapshots__/apiSurface.snapshot.test.ts.snap`, `packages/node-sdk/src/index.ts`, `packages/agent-core-v2/src/features/externalHooks/`, `packages/acp-server/`, and `apps/kimi-code/src/cli/` are consumed outside this repository: desktop and web in code-app, the VS Code extension, ACP clients such as Zed, SDK users, hook scripts, and headless-output parsers. When they change, require the PR to name the consumers and how data and clients from the previous release keep working.
-
-### Ports and refactors carry the old path's feature inventory
-
-When a change replaces or bypasses an existing path, require a list of what the old path did — env vars honored, fallbacks, accepted inputs — and where each item lives in the new path. A silently dropped item is a regression, not a cleanup.
-
-### Silent failure outranks a crash
-
-A change that makes the product silently ignore configuration, silently approve or skip an action, or silently drop data is the most severe finding: users get no signal to report.
+---

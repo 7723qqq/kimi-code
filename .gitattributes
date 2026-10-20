@@ -15,3 +15,11 @@
 # to be configured once per clone:
 #   git config merge.ours.driver true
 packages/agent-core/** merge=ours -diff
+
+# AGENTS.md is injected into every session's prompt as reference data, so it is
+# read constantly and its size is a per-turn cost. Upstream keeps editing its own
+# copy (it still describes pnpm, Node >=24, and four LifecycleScope tiers — none
+# of which are true on this branch), and a merge would otherwise overwrite the
+# fork's thin pointer with that stale 123-line file. Resolve to ours for the same
+# reason as packages/agent-core above.
+AGENTS.md merge=ours -diff

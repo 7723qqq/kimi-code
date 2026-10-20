@@ -13,7 +13,6 @@ Compared to upstream, this fork adds:
 
 - **🌐 i18n / Multi-language support.** Complete Chinese-English bilingual support across TUI, CLI, and Web UI. All hardcoded English strings replaced with `t()` calls. Switch locale via the `/settings` dialog (aliased as `/config`), locale selector inside.
 - **🤖 Team.** Multi-agent discussion and collaboration tool — agents can debate, cross-review, and reach consensus before output.
-- **⚡ Rust Native Tools.** Performance-critical tools (grep, glob, edit, read, write, bash, token counting, output truncation) rewritten in Rust as native Node addon, significantly faster than JS.
 - **🪟 Windows launchers.** `start-native.bat` launches the native CLI; `start-desktop.bat` builds/launches a locally vendored desktop shell when present.
 - **🥖 Bun as the sole packaging engine.** Release binaries are single-file builds via `bun build --compile`, produced by the CI six-platform matrix (linux/darwin/win32 × x64/arm64). The former default Node.js SEA pipeline has been retired: pi-tui helpers load from the packaged-asset cache, URL-fetch SSRF semantics are identical across runtimes (bundled undici), self-update is engine-aware and still recognizes legacy SEA installs, and `/status` shows a Runtime row.
 - Various other fixes and QoL improvements.
@@ -26,7 +25,10 @@ Kimi Code CLI is an AI coding agent that runs in your terminal — it can read a
 
 ## Install
 
-Install with the official script. No Node.js required.
+> ⚠️ **This fork does not publish packages or installers.** The official script and npm packages below install **upstream MoonshotAI/kimi-code**, not this fork — they will not give you the i18n or Team features described above. To run this fork, build it from source (see below). The commands are kept here only to document what upstream's install path looks like.
+
+<details>
+<summary>Upstream install path (installs upstream, <em>not</em> this fork)</summary>
 
 - **macOS or Linux**:
 
@@ -40,15 +42,31 @@ curl -fsSL https://code.kimi.com/kimi-code/install.sh | bash
 irm https://code.kimi.com/kimi-code/install.ps1 | iex
 ```
 
+</details>
+
 > On Windows, the CLI has built-in shell detection: it prefers PowerShell 7, then Windows PowerShell, then Git Bash (if installed). To pin a specific shell (for example `bash.exe`, `pwsh.exe`, or `cmd.exe`), set `KIMI_SHELL_PATH` to its absolute path.
 
-Then, run it with a new shell session:
+## Run This Fork From Source
+
+Requirements: **Bun >= 1.4** and **Git**. Node.js is not required — Bun is the package manager, runtime, and packaging engine here. The Nix build path (`flake.nix`) is the only thing that still needs Node.js >= 24.15.0.
 
 ```sh
-kimi --version
+git clone https://github.com/7723qqq/kimi-code.git
+cd kimi-code
+git switch norust          # norust is the working branch; origin/HEAD points at it
+bun install
 ```
 
-For npm install, upgrade, uninstall, see [Getting Started](https://moonshotai.github.io/kimi-code/en/guides/getting-started).
+Then run the CLI:
+
+```sh
+bun run dev:local           # build a bundle (~2s) and run the CLI from it
+bun run dev:local:watch     # same, rebuilding and re-running on every change
+```
+
+On Windows you can also double-click `start-native.bat`, which launches the CLI.
+
+> ⚠️ **Avoid `dev:cli-only`.** That script executes `src/main.ts` directly, and Bun 1.4.2 does not resolve the `package.json` `imports` wildcard `"#/*": "./src/*.ts"`, so the first `#/` import aborts with `Cannot find module '#/kimi-harness'`. Node resolves those wildcards correctly, but `main.ts` hard-exits on a non-Bun runtime — so neither runtime can run the source path directly. Use `dev:cli` (delegates to `scripts/dev.mjs`) or `dev:local` (bundles first, so tsdown inlines every `#/` specifier).
 
 ## Quick Start
 
@@ -56,7 +74,7 @@ Open a project and start the interactive UI:
 
 ```sh
 cd your-project
-kimi
+bun run dev:local -- --cwd .
 ```
 
 On first launch, run `/login` inside Kimi Code CLI and choose either Kimi Code OAuth or a Moonshot AI Open Platform API key. After login, try your first task:
@@ -67,7 +85,7 @@ Take a look at this project and explain its main directories.
 
 ## Key Features
 
-- **Single-binary distribution.** Install with one command: no Node.js setup, PATH gymnastics, or global module conflicts.
+- **Single-binary distribution.** Upstream offers a one-command install with no Node.js setup, PATH gymnastics, or global module conflicts. (This fork does not publish binaries — build from source.)
 - **Blazing-fast startup.** The TUI is ready in milliseconds, so starting a session never feels heavy.
 - **Purpose-built TUI.** A carefully tuned interface, optimized end to end for long, focused agent sessions.
 - **Video input.** Drop a screen recording or demo clip into the chat and let the agent watch what is hard to describe in words — turn a reference clip into a LUT, a long video into a short, a screen recording into working code, and more.
@@ -80,6 +98,8 @@ Take a look at this project and explain its main directories.
 ## Use it in your editor (ACP)
 
 Kimi Code CLI speaks the [Agent Client Protocol](https://agentclientprotocol.com/), so ACP-compatible editors and IDEs (Zed, JetBrains, …) can drive a session over stdio. Log in once, then point your editor at the `kimi acp` subcommand — no extra login needed.
+
+> Running from source? There is no globally installed `kimi` binary, so point your editor at the bundle this fork produces. Build it once with `bun run dev:local` (or `bun run build`), then reference `apps/kimi-code/dist/main.mjs` in place of the `kimi` command below.
 
 For Zed, add this to `~/.config/zed/settings.json`:
 
@@ -109,23 +129,20 @@ Then open a new conversation in Zed's Agent panel. See [Using in IDEs](https://m
 
 ## Develop
 
-Requirements: Bun >= 1.4. Node.js is not required for the Bun-based dev workflow — install, build, lint, typecheck, and the test suites all run through Bun. The Nix build path is the exception: `flake.nix` requires Node.js >= 24.15.0.
-
 ```sh
-git clone https://github.com/7723qqq/kimi-code.git
-cd kimi-code
 bun install
 ```
 
 ```sh
-bun run dev:cli    # run the CLI in dev mode
-bun run test       # run tests
-bun run typecheck  # TypeScript check
-bun run lint       # oxlint
-bun run build      # build all packages
+bun run dev:local     # run the CLI from a fresh bundle (use this, not dev:cli)
+bun run dev:local:watch
+bun run build         # build all workspace packages
+bun run typecheck     # TypeScript check (builds packages first)
+bun run lint          # oxlint --type-aware
+bun run test          # run tests (use `bun --bun run test` to run them under Bun)
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contribution guide.
+See [DEVELOP.md](DEVELOP.md) for the full command reference and [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution guide.
 
 ## Community
 

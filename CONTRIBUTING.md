@@ -29,8 +29,8 @@ This is a Bun monorepo. The most relevant entry points are:
 - `apps/vscode` — VS Code extension
 - `apps/vis` — session debug visualizer
 - `packages/node-sdk` — public TypeScript SDK (`@moonshot-ai/kimi-code-sdk`)
-- `packages/agent-core-v2` — the agent engine (v2, DI Scope architecture); `packages/agent-core` is v1 and being phased out
-- `packages/klient`, `kap-server`, `protocol`, `transcript`, `kosong`, `oauth`, `telemetry` — internal engine packages
+- `packages/agent-core-v2` — the agent engine (v2, DI Scope architecture); the v1 engine `packages/agent-core` has been deleted in this fork
+- `packages/klient`, `kap-server`, `acp-server`, `transcript`, `kosong`, `oauth`, `telemetry`, `i18n`, `i18n-shared` — internal engine packages
 - `docs/` — VitePress bilingual docs site
 
 For the full project map, see [DEVELOP.md](DEVELOP.md).
@@ -47,10 +47,7 @@ bun install
 
 > **Bun version note:** the committed `bun.lock` is lockfileVersion 3
 > (required by the nested `overrides`), so Bun **>= 1.4** is mandatory —
-> older Bun releases cannot read it. Also, after upgrading your local Bun,
-> the first `bun install` re-applies `patches/ssh2@1.17.0.patch` once; the
-> patch cache key changed from a 16 KiB hash to the full-file SHA-1. This is
-> expected, not a bug.
+> older Bun releases cannot read it.
 
 **Syncing upstream:** this fork deletes `packages/agent-core` (the v1 engine)
 while upstream keeps patching it. `.gitattributes` marks those paths
@@ -60,9 +57,9 @@ modify/delete conflicts. One-time setup per clone:
 
 Useful scripts:
 
-- `bun run dev:local` — run the CLI in dev mode from a fresh bundle (incremental, ~2s). Add `:watch` (`bun run dev:local:watch`) to rebuild and re-run on every source change. **Use this rather than `bun run dev:cli`:** that path executes `src/main.ts` directly, and Bun does not resolve the `#/*` subpath imports the packages rely on, so it aborts with `Cannot find module '#/kimi-harness'`.
+- `bun run dev:local` — run the CLI in dev mode from a fresh bundle (incremental, ~2s). Add `:watch` (`bun run dev:local:watch`) to rebuild and re-run on every source change. Two other paths exist: `bun run dev:cli` delegates to `apps/kimi-code/scripts/dev.mjs` (starts a local plugin marketplace server, then runs the CLI) and is what `start-native.bat` uses; `dev:cli-only` is the one that executes `src/main.ts` directly and is broken under Bun 1.4.2, because Bun does not resolve the `#/*` subpath imports the packages rely on, so it aborts with `Cannot find module '#/kimi-harness'`.
 - `bun --bun run test` — run tests (vitest). **This is the canonical command and what CI runs** (`.github/workflows/ci.yml`). The `--bun` flag runs vitest on the Bun runtime rather than Node, and the two produce different results: `bunx vitest` has been observed to pass while `bun --bun run test` fails on the same code. Always use `bun --bun run test` when checking whether a suite is green.
-- `bun run typecheck` — TypeScript check (note: builds packages first). Covers `packages/*` plus the `kimi-code`, `kimi-inspect`, `vscode`, `vis/server` and `vis/web` apps. It does **not** cover `docs/` (VitePress content) or `packages/kimi-native-tools` (Rust/native, no `tsconfig`).
+- `bun run typecheck` — TypeScript check (note: builds packages first). Covers `packages/*` plus the `kimi-code`, `kimi-inspect`, `vscode`, `vis/server` and `vis/web` apps. It does **not** cover `docs/` (VitePress content).
 - `bun run build:docs` — build the user documentation. VitePress fails on dead internal links, so run this after editing anything under `docs/`.
 - `bun run lint` — oxlint
 - `bun run lint:fix` — oxlint with auto-fix
@@ -100,11 +97,11 @@ There are two ways to run a local build, and they are not interchangeable.
 
 **To replace the installed `kimi` command**, build the self-contained binary and copy it over the installed one — see [Native build](#native-build-self-contained-binary) below. The published package is that single-file binary, so this is the only way to get a local build running as `kimi`.
 
-> **Do not copy `apps/kimi-code/dist/` into `~/.kimi-code/`.** That layout cannot run: the bundle resolves the native addon and its runtime dependencies at load time, and a `dist/` copy carries neither. Copying the `.node` file into `dist/chunks/` does not fix it either — the loader needs `@moonshot-ai/kimi-native-tools` as a resolvable package, and then the next dependency (`qrcode`, `ws`) is missing in turn. `dist/` is build output for the bundler, not a deployable tree.
+> **Do not copy `apps/kimi-code/dist/` into `~/.kimi-code/`.** That layout cannot run: the bundle resolves its runtime dependencies at load time and a `dist/` copy carries none of them (`qrcode`, `ws`, ...). `dist/` is build output for the bundler, not a deployable tree.
 
 ### Native build (self-contained binary)
 
-The native build compiles the CLI into a standalone single-file executable with Bun. Requires Bun >= 1.4 (`curl -fsSL https://bun.sh/install | bash`; see [bun.sh](https://bun.sh)); the build script itself runs under Bun as well. A Rust toolchain is required because the `kimi-native-tools` `.node` binary is embedded.
+The native build compiles the CLI into a standalone single-file executable with Bun. Requires Bun >= 1.4 (`curl -fsSL https://bun.sh/install | bash`; see [bun.sh](https://bun.sh)); the build script itself runs under Bun as well.
 
 Windows (x64):
 
@@ -138,7 +135,7 @@ cp apps/kimi-code/dist-native/bin/linux-x64/kimi ~/.kimi-code/bin/kimi-new
 mv ~/.kimi-code/bin/kimi-new ~/.kimi-code/bin/kimi
 ```
 
-> **Note**: The native build requires `@moonshot-ai/kimi-native-tools` listed as a dependency in `apps/kimi-code/package.json` and registered in `apps/kimi-code/scripts/native/native-deps.mjs`. See [Common Issues](#common-issues) for known pitfalls.
+> **Note**: See [Common Issues](#common-issues) for known pitfalls.
 
 `--profile=release` (`bun run build:native:bun:release`) generates the built-in catalog, signs with `APPLE_SIGNING_IDENTITY` on macOS, and runs the codesign self-check. CI builds all six targets in the `native-bundle-bun` job of `_native-build.yml` (packaged as `kimi-code-bun-<target>.zip` via `KIMI_CODE_NATIVE_ENGINE=bun`).
 
@@ -162,11 +159,11 @@ bun scripts/native/bench-native.mjs ./dist-native/bin/linux-x64/kimi --runs 20
 
 ### Nix build
 
-`nix-build.yml` builds the CLI in a pure sandbox. Dependencies come from one fixed-output derivation (`bunDeps` in `flake.nix`) that materializes the hoisted `node_modules` tree plus the cargo vendor directory for the napi package (`kimi-native-tools`); the main derivation then compiles offline. Sandbox quirks to know when editing `flake.nix` or native build steps:
+`nix-build.yml` builds the CLI in a pure sandbox. Dependencies come from one fixed-output derivation (`bunDeps` in `flake.nix`) that materializes the hoisted `node_modules` tree; the main derivation then compiles offline. Sandbox quirks to know when editing `flake.nix` or native build steps:
 
-- There is no `/usr/bin/env` in the sandbox — invoke `node-gyp` and the napi CLI through `node <js-entry>` instead of their bin shims.
-- FOD outputs must not contain `/nix/store/...` strings: never let `cargo vendor` write its suggested config into the output, and never interpolate store paths into the install script.
-- After changing `bun.lock` or the `Cargo.lock`, expect one hash-mismatch round: paste the `got:` hash (the nix-build bot posts it on PRs) into `outputHash`.
+- There is no `/usr/bin/env` in the sandbox — invoke `node-gyp` through `node <js-entry>` instead of its bin shim.
+- FOD outputs must not contain `/nix/store/...` strings: never interpolate store paths into the install script.
+- After changing `bun.lock`, expect one hash-mismatch round: paste the `got:` hash (the nix-build bot posts it on PRs) into `outputHash`.
 
 ### Common Issues
 
@@ -174,8 +171,6 @@ bun scripts/native/bench-native.mjs ./dist-native/bin/linux-x64/kimi --runs 20
 |---------|-------|-----|
 | `Cannot find module '@moonshot-ai/i18n-shared'` | Workspace link broken; `bun install` hasn't re-linked after adding packages | Run `bun install` |
 | `ERR_MODULE_NOT_FOUND` pointing to `src/index.ts` in `.kimi-code/node_modules` | Deployed package.json exports still point to source files | Edit exports to point to `dist/*.mjs` |
-| `Failed to load kimi-native-tools binding` | `.node` files missing from `dist/chunks/` (the ESM bundle resolves from chunk directory) | Copy `.node` files directly into `dist/chunks/` |
-| `ERR_UNKNOWN_BUILTIN_MODULE: @moonshot-ai/kimi-native-tools` in the packaged binary | Native module not registered in `native-deps.mjs` | Add entry to `nativeDeps` array with `collect: 'native-files'` |
 | `packages/i18n-shared` build fails with `UNRESOLVED_ENTRY` | Missing `src/index.ts` | Create `src/index.ts` re-exporting types, core, and detect modules |
 | `kimi.exe` from CDN shows English despite `locale=zh` | The CDN binary includes only the bundled locale; download date determines version | Build locally or wait for next CDN release |
 | Unexpected env vars appear under `bun run` | Bun auto-loads `.env` (the pnpm-era dev flow did not) | Remove or rename the file, or run `bun --no-env-file` |
