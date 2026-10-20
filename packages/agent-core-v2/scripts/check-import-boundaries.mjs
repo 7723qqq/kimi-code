@@ -22,9 +22,6 @@ const BASES_INTERNAL_MODULE_RE =
   /\/llm\/requester\/bases\/[^/]+\/(?:format|lower|patterns|reasoning-key)$/;
 const TEST_DIR_RE = /\/test(?:\/|$)/;
 
-// These regexes are written for repository-relative paths, so both sides are
-// normalised first: a Windows file path carries backslashes and every rule
-// below would silently match nothing.
 function onSlashes(value) {
   return value.replaceAll('\\', '/');
 }
