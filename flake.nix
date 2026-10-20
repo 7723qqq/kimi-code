@@ -300,13 +300,17 @@
               runHook postInstall
             '';
 
-            # The outputHash below pins the hoisted node_modules tree.
-            # Dropping the Rust addon changed this FOD's content set, so the
-            # value must be recomputed with the fake-hash dance — set it to
-            # lib.fakeSha256, build, and paste the "got:" hash Nix reports.
+            # The outputHash below pins the hoisted node_modules tree. Every
+            # input is pinned (bun.lock, the fileset, nixpkgs), so this FOD
+            # only needs recomputing when one of them changes — most recently
+            # when the Rust addon left the tree. This box cannot compute it:
+            # the hash covers a Linux install (win32/macOS trees differ in
+            # their optional native packages), so it has to come from a Nix
+            # builder. lib.fakeSha256 forces the next build to fail with
+            # "got: sha256-…"; paste that value here.
             outputHashMode = "recursive";
             outputHashAlgo = "sha256";
-            outputHash = "sha256-MHsoYo1Mmu7jaSsFwa+5V+7NLc2JcSMF1J0+I1PTs94=";
+            outputHash = lib.fakeSha256;
           });
 
           kimi-code = pkgs.stdenv.mkDerivation (finalAttrs: {
