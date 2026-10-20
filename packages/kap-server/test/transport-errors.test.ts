@@ -71,20 +71,10 @@ describe('installErrorHandler (catch-all)', () => {
     expect(body.msg).toContain('broken pool');
   });
 
-  it('maps a Fastify protocol error to its HTTP status and a readable message', () => {
-    const { status, body } = run({
-      statusCode: 400,
-      message: 'Body contains invalid JSON',
-    } as never);
-    expect(status).toBe(400);
-    expect(body.code).toBe(ErrorCode.REQUEST_MALFORMED);
-    expect(body.msg).toBe('Body contains invalid JSON');
-  });
-
-  it('keeps unknown exceptions at INTERNAL_ERROR over HTTP 500 without leaking details', () => {
-    const { status, body } = run(new Error('boom: secret internals'));
-    expect(status).toBe(500);
+  it('keeps unknown exceptions at INTERNAL_ERROR over HTTP 200', () => {
+    const { status, body } = run(new Error('boom'));
+    expect(status).toBe(200);
     expect(body.code).toBe(ErrorCode.INTERNAL_ERROR);
-    expect(body.msg).toBe('internal error');
+    expect(body.msg).toBe('boom');
   });
 });

@@ -1,7 +1,7 @@
 import { type Scope } from '@moonshot-ai/agent-core-v2';
 import { z } from 'zod';
 
-import { errEnvelope, internalErrorEnvelope, okEnvelope } from '../envelope';
+import { errEnvelope, okEnvelope } from '../envelope';
 import { t } from '../i18n';
 import { requestLog } from '../lib/requestLog';
 import { defineRoute } from '../middleware/defineRoute';
@@ -145,5 +145,7 @@ function sendMappedError(
     return;
   }
   log?.error({ err }, 'message request failed');
-  reply.send(internalErrorEnvelope(err, requestId));
+  reply.send(
+    errEnvelope(ErrorCode.INTERNAL_ERROR, err instanceof Error ? err.message : String(err), requestId, err instanceof Error ? err.stack : undefined),
+  );
 }

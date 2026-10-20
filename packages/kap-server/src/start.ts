@@ -38,7 +38,6 @@ import {
   kimiRegionProfile,
   type KimiHostIdentity,
 } from '@moonshot-ai/kimi-code-oauth';
-import { createRemoteControlManager } from '@moonshot-ai/remote-control';
 import Fastify, { type FastifyInstance } from 'fastify';
 
 import { installErrorHandler } from './error-handler';
@@ -50,7 +49,6 @@ import { createAuthFailureLimiter } from './middleware/rateLimit';
 import { createSecurityHeadersHook } from './middleware/securityHeaders';
 import { transformOpenApiDocument } from './openapi/transforms';
 import { createAsyncApiDocument } from './protocol/asyncapi';
-import { enableEnvelopeStackTraces, setExposeErrorDetails } from './protocol/envelope';
 import { resolveRequestId } from './request-id';
 import { registerRequestLogging } from './requestLogging';
 import { registerApiV1Routes } from './routes/registerApiV1Routes';
@@ -58,6 +56,7 @@ import { registerApiV2Routes } from './routes/registerApiV2Routes';
 import { registerWebAssetRoutes } from './routes/webAssets';
 import { drainGlobalSearchDisposals, IGlobalSearchService } from './search/searchService';
 import { classify } from './security/bindClassify';
+import { ConnectionRegistry, type IConnectionRegistry } from './transport/ws/connectionRegistry';
 import { createAuthTokenService, type IAuthTokenService } from './services/auth/authTokenService';
 import { createCredentialValidator } from './services/auth/credentials';
 import { resolvePasswordHash } from './services/auth/password';
@@ -76,20 +75,18 @@ import {
   shutdownServerTelemetry,
 } from './services/telemetry';
 import { TranscriptService } from './services/transcript/transcriptService';
-import { ModelCatalogRefreshScheduler } from './services/modelCatalog/modelCatalogRefreshScheduler';
-import { startConfigChangedPublisher } from './services/config/configChangedPublisher';
-import { createAuthFailureLimiter } from './middleware/rateLimit';
+import { extractWsBearerToken } from './transport/ws/bearerProtocol';
+import { registerWsDebug, WS_DEBUG_PATH } from './transport/ws/debug/registerWsDebug';
+import type { ConfigWarningItem } from './transport/ws/v1/events';
+import { registerWsV1, WS_PATH as WS_PATH_V1 } from './transport/ws/v1/registerWsV1';
+import { SessionEventBroadcaster } from './transport/ws/v1/sessionEventBroadcaster';
+import { getServerVersion } from './version';
 import {
   createRemoteControlManager,
   RemoteControlDeviceClient,
 } from '@moonshot-ai/remote-control';
 
-import { createAuthTokenService, type IAuthTokenService } from './services/auth/authTokenService';
-import { createCredentialValidator } from './services/auth/credentials';
-import { resolvePasswordHash } from './services/auth/password';
-import { createTokenStore } from './services/auth/tokenStore';
 
-import { drainGlobalSearchDisposals, IGlobalSearchService } from './search/searchService';
 
 export interface ServerHostIdentity extends KimiHostIdentity {
   readonly displayName?: string;
@@ -164,8 +161,6 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
   const enableShutdown = exposureClass === 'loopback' || opts.allowRemoteShutdown === true;
   const enableTerminals = exposureClass === 'loopback';
   const debugEndpoints = exposureClass === 'loopback' && opts.debugEndpoints === true;
-  setExposeErrorDetails(exposureClass === 'loopback');
-  if (debugEndpoints) enableEnvelopeStackTraces();
   const logger = opts.logger ?? createServerLogger({ level: opts.logLevel ?? 'info' });
   const onUnhandledRejection = (reason: unknown): void => {
     logger.error(

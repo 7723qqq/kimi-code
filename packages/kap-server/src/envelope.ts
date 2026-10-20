@@ -1,7 +1,1 @@
-export {
-  errEnvelope,
-  internalErrorEnvelope,
-  okEnvelope,
-  setExposeErrorDetails,
-  type Envelope,
-} from './protocol/envelope';
+export { okEnvelope, errEnvelope, type Envelope } from './protocol/envelope';

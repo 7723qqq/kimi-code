@@ -1,7 +1,5 @@
 import { z } from 'zod';
 
-import { ErrorCode } from './error-codes';
-
 export const envelopeSchema = <T extends z.ZodTypeAny>(data: T) =>
   z.object({
     code: z.number().int(),
@@ -23,17 +21,6 @@ export interface Envelope<T> {
 
 export function okEnvelope<T>(data: T, requestId: string): Envelope<T> {
   return { code: 0, msg: 'success', data, request_id: requestId };
-}
-
-let exposeErrorDetails = false;
-let stackTracesEnabled = false;
-
-export function setExposeErrorDetails(value: boolean): void {
-  exposeErrorDetails = value;
-}
-
-export function enableEnvelopeStackTraces(): void {
-  stackTracesEnabled = true;
 }
 
 export function errEnvelope(

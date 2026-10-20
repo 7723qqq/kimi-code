@@ -50,7 +50,7 @@ export type RemoteControlDeviceParams = z.infer<typeof remoteControlDeviceParams
 
 export const renameRemoteControlDeviceRequestSchema = z.object({
   alias: z.string().trim().min(1).max(50),
-});
+}).strict();
 export type RenameRemoteControlDeviceRequest = z.infer<
   typeof renameRemoteControlDeviceRequestSchema
 >;

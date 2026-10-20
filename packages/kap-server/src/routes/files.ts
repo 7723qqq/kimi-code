@@ -5,7 +5,7 @@ import { z } from 'zod';
 import { buildContentDisposition } from '../lib/contentDisposition';
 import { requestLog } from '../lib/requestLog';
 import { defineRoute } from '../middleware/defineRoute';
-import { errEnvelope, internalErrorEnvelope, okEnvelope } from '../protocol/envelope';
+import { errEnvelope, okEnvelope } from '../protocol/envelope';
 import { ErrorCode } from '../protocol/error-codes';
 import {
   deleteFileParamSchema,
@@ -201,7 +201,15 @@ function sendMappedError(reply: FilesReply, req: { id: string }, err: unknown): 
     return;
   }
   requestLog(req)?.error({ err }, 'file request failed');
-  reply.code(500).send(internalErrorEnvelope(err, requestId));
+  reply
+    .code(500)
+    .send(
+      errEnvelope(
+        ErrorCode.INTERNAL_ERROR,
+        err instanceof Error ? err.message : 'internal error',
+        requestId,
+      ),
+    );
 }
 
 const fieldValueSchema = z.object({ value: z.unknown() });

@@ -1,8 +1,8 @@
 import { ErrorCodes, isError2 } from '@moonshot-ai/agent-core-v2';
-import type { FastifyError } from 'fastify';
 
-import { errEnvelope, internalErrorEnvelope } from './envelope';
+import { errEnvelope } from './envelope';
 import { ErrorCode } from './protocol/error-codes';
+import type { FastifyError } from 'fastify';
 
 interface ErrorHandlerHost {
   setErrorHandler(
@@ -23,15 +23,14 @@ export function installErrorHandler(app: ErrorHandlerHost): void {
         .send(errEnvelope(ErrorCode.VALIDATION_FAILED, err.message, requestId, err.stack));
       return;
     }
-    if (typeof err.statusCode === 'number' && err.statusCode < 500) {
-      reply
-        .status(err.statusCode)
-        .send(
-          errEnvelope(ErrorCode.REQUEST_MALFORMED, err.message || 'malformed request', requestId),
-        );
-      return;
-    }
     req.log.error({ err, request_id: requestId }, 'unhandled error');
-    reply.status(500).send(internalErrorEnvelope(err, requestId));
+    reply.status(200).send(
+      errEnvelope(
+        ErrorCode.INTERNAL_ERROR,
+        err.message !== undefined && err.message !== '' ? err.message : 'internal error',
+        requestId,
+        err.stack,
+      ),
+    );
   });
 }

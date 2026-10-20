@@ -15,7 +15,7 @@ import type { KimiHostIdentity } from '@moonshot-ai/kimi-code-oauth';
 
 import { requestLog } from '../lib/requestLog';
 import { defineRoute } from '../middleware/defineRoute';
-import { errEnvelope, internalErrorEnvelope } from '../protocol/envelope';
+import { errEnvelope } from '../protocol/envelope';
 import { ErrorCode } from '../protocol/error-codes';
 import { exportSessionParamsSchema, exportSessionRequestSchema } from '../protocol/rest-session';
 
@@ -180,5 +180,11 @@ function sendMappedError(reply: SessionExportReply, req: { id: string }, error: 
     }
   }
   requestLog(req)?.error({ err: error }, 'session export failed');
-  reply.send(internalErrorEnvelope(error, requestId));
+  reply.send(
+    errEnvelope(
+      ErrorCode.INTERNAL_ERROR,
+      error instanceof Error ? error.message : 'internal error',
+      requestId,
+    ),
+  );
 }

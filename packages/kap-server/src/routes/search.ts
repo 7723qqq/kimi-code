@@ -1,7 +1,7 @@
 import { type Scope } from '@moonshot-ai/agent-core-v2';
 import { z } from 'zod';
 
-import { errEnvelope, internalErrorEnvelope, okEnvelope } from '../envelope';
+import { errEnvelope, okEnvelope } from '../envelope';
 import { requestLog } from '../lib/requestLog';
 import { defineRoute } from '../middleware/defineRoute';
 import { ErrorCode } from '../protocol/error-codes';
@@ -101,7 +101,14 @@ export function registerSearchRoutes(app: SearchRouteHost, core: Scope): void {
           return;
         }
         requestLog(req)?.error({ err: error }, 'global search request failed');
-        reply.send(internalErrorEnvelope(error, req.id));
+        reply.send(
+          errEnvelope(
+            ErrorCode.INTERNAL_ERROR,
+            error instanceof Error ? error.message : String(error),
+            req.id,
+            error instanceof Error ? error.stack : undefined,
+          ),
+        );
       }
     },
   );
