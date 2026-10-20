@@ -541,7 +541,8 @@ export class AgentFileHistoryService extends Service implements IAgentFileHistor
   }
 
   private comparisonKey(pathKey: string): string {
-    return isWindowsPath(this.workspaceCtx.workDir) ? pathKey.toLowerCase() : pathKey;
+    if (!isWindowsPath(this.workspaceCtx.workDir)) return pathKey;
+    return pathKey.replaceAll('\\', '/').toLowerCase();
   }
 }
 

@@ -623,20 +623,20 @@ describe('file history through real scripted turns', () => {
       expect(await readFile(file, 'utf8')).toBe('alpha\ndelta\n');
 
       const state = service.history();
-      expect(state.tracked).toEqual([file]);
+      expect(state.tracked).toEqual([file.replaceAll('\\', '/')]);
       const startOfTurn0 = state.checkpoints.find((c) => c.turnId === 0);
       const endOfTurn0 = state.checkpoints.find((c) => c.turnId === 0 && c.phase === 'end');
       const startOfTurn1 = state.checkpoints.find((c) => c.turnId === 1);
-      expect(startOfTurn0?.entries[file]?.version).toBe(1);
-      expect(endOfTurn0?.entries[file]?.version).toBe(2);
-      expect(startOfTurn1?.entries[file]).toBeUndefined();
+      expect(startOfTurn0?.entries[file.replaceAll('\\', '/')]?.version).toBe(1);
+      expect(endOfTurn0?.entries[file.replaceAll('\\', '/')]?.version).toBe(2);
+      expect(startOfTurn1?.entries[file.replaceAll('\\', '/')]).toBeUndefined();
 
       expect((await service.contentAt(0, file))?.content).toBe('alpha\nbeta\n');
       expect((await service.contentAt(0, file, 'end'))?.content).toBe('alpha\ndelta\n');
       expect(await service.contentAt(1, file)).toBeUndefined();
 
       expect(await service.changes(0)).toEqual([
-        { path: file, status: 'modified', additions: 1, deletions: 1 },
+        { path: file.replaceAll('\\', '/'), status: 'modified', additions: 1, deletions: 1 },
       ]);
       expect(await service.changes(1)).toEqual([]);
 
@@ -676,12 +676,14 @@ describe('file history through real scripted turns', () => {
       await service.settled();
 
       const state = service.history();
-      expect(state.checkpoints.find((c) => c.turnId === 0)?.entries[file]).toEqual({
+      expect(
+        state.checkpoints.find((c) => c.turnId === 0)?.entries[file.replaceAll('\\', '/')],
+      ).toEqual({
         key: null,
         version: 1,
       });
       expect(await service.changes(0)).toEqual([
-        { path: file, status: 'added', additions: 3, deletions: 0 },
+        { path: file.replaceAll('\\', '/'), status: 'added', additions: 3, deletions: 0 },
       ]);
     } finally {
       await ctx.dispose();

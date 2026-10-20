@@ -22,21 +22,32 @@ const BASES_INTERNAL_MODULE_RE =
   /\/llm\/requester\/bases\/[^/]+\/(?:format|lower|patterns|reasoning-key)$/;
 const TEST_DIR_RE = /\/test(?:\/|$)/;
 
+// These regexes are written for repository-relative paths, so both sides are
+// normalised first: a Windows file path carries backslashes and every rule
+// below would silently match nothing.
+function onSlashes(value) {
+  return value.replaceAll('\\', '/');
+}
+
 function traitBoundaryViolation(absFile, targetAbs, specifier) {
+  const file = onSlashes(absFile);
+  const target = onSlashes(targetAbs);
   const message = `format and trait never import each other ('${specifier}') — both sides speak only the neutral wire/chunk types in the protocol's contract.ts`;
-  if (TRAIT_FILE_RE.test(absFile) && FORMAT_LOWER_MODULE_RE.test(targetAbs)) {
+  if (TRAIT_FILE_RE.test(file) && FORMAT_LOWER_MODULE_RE.test(target)) {
     return message;
   }
-  if (FORMAT_LOWER_FILE_RE.test(absFile) && TRAIT_MODULE_RE.test(targetAbs)) {
+  if (FORMAT_LOWER_FILE_RE.test(file) && TRAIT_MODULE_RE.test(target)) {
     return message;
   }
   return undefined;
 }
 
 function basesInternalViolation(absFile, targetAbs, specifier) {
-  if (!BASES_INTERNAL_MODULE_RE.test(targetAbs)) return undefined;
-  if (TRAIT_FILE_RE.test(absFile) && FORMAT_LOWER_MODULE_RE.test(targetAbs)) return undefined;
-  if (BASES_DIR_RE.test(absFile) || TEST_DIR_RE.test(absFile)) return undefined;
+  const file = onSlashes(absFile);
+  const target = onSlashes(targetAbs);
+  if (!BASES_INTERNAL_MODULE_RE.test(target)) return undefined;
+  if (TRAIT_FILE_RE.test(file) && FORMAT_LOWER_MODULE_RE.test(target)) return undefined;
+  if (BASES_DIR_RE.test(file) || TEST_DIR_RE.test(file)) return undefined;
   return `protocol format modules are internal to the requester pipeline ('${specifier}') — only llm/requester/bases code and tests may import format/lower/patterns; everyone else speaks contract/trait/requester`;
 }
 
