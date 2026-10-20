@@ -48,8 +48,15 @@ export async function foldAgentWireReplay(
 async function foldAgentWireReplayFull(wirePath: string): Promise<FoldedAgentReplay> {
   try {
     const userTurns = new UserTurnCounter();
-    const records = parseWireRecords(await readFile(wirePath, 'utf-8'), userTurns);
-    if (records.length === 0) return { ...EMPTY_FOLD, userTurnCount: userTurns.count };
+    const parsed = parseWireRecords(await readFile(wirePath, 'utf-8'), userTurns);
+    if (parsed.corruptAt !== undefined) {
+      log.warn('wire replay stopped at a corrupted line', {
+        wirePath,
+        line: parsed.corruptAt.line,
+      });
+    }
+    const records = parsed.records;
+    if (records.length === 0) return EMPTY_FOLD;
     const folded = foldWireRecords(records);
     return {
       replay: folded.replay.map(mapReplayRecord),
@@ -77,7 +84,12 @@ function mapReplayRecord(record: V2AgentReplayRecord): AgentReplayRecord {
   return record as unknown as AgentReplayRecord;
 }
 
-function parseWireRecords(content: string, userTurns: UserTurnCounter): WireRecord[] {
+interface ParsedWireRecords {
+  readonly records: WireRecord[];
+  readonly corruptAt?: { readonly line: number };
+}
+
+function parseWireRecords(content: string, userTurns: UserTurnCounter): ParsedWireRecords {
   const lines = content.split('\n');
   const records: WireRecord[] = [];
   let corruptAt: { line: number } | undefined;
@@ -88,12 +100,13 @@ function parseWireRecords(content: string, userTurns: UserTurnCounter): WireReco
       const record = JSON.parse(line) as WireRecord;
       userTurns.observe(record, index);
       records.push(record);
-    } catch (error) {
+    } catch {
       if (index === lines.length - 1) {
         userTurns.invalidate();
-        break;
+      } else {
+        corruptAt = { line: index + 1 };
       }
-      throw error;
+      break;
     }
   }
   return corruptAt === undefined ? { records } : { records, corruptAt };

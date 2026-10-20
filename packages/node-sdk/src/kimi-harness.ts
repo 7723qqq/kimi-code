@@ -1,4 +1,5 @@
 import { ErrorCodes, KimiError } from '#/errors';
+import type { KimiAuthFacade } from '#/auth';
 import type { ExperimentalFeatureState } from '#/flag';
 import type { ImageLimits } from '#/image';
 import type { SDKRpcClientBase } from '#/rpc';

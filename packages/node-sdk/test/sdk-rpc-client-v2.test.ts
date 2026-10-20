@@ -70,32 +70,8 @@ import {
   resetModelsDevUpstreamForTest,
   setModelsDevUpstreamForTest,
 } from '@moonshot-ai/agent-core-v2/app/kosongConfig/modelsDevUpstream';
-import { McpOAuthService as McpOAuthServiceV2 } from '@moonshot-ai/agent-core-v2/mcpCore/oauth/service';
-import {
-  FileTokenStorage,
-  resolveKimiCodeOAuthRef,
-  resolveKimiTokenStorageName,
-} from '@moonshot-ai/kimi-code-oauth';
-import { afterEach, describe, expect, it, vi } from 'vitest';
-
-import {
-  buildDaemonFileUrl,
-  createKimiHarness,
-  ErrorCodes,
-  isDaemonFileUrl,
-  isKimiError,
-  KimiHarness,
-  limitAgentReplayByTurns,
-  removeProviderFromConfig,
-  SDKRpcClientV2,
-  toKimiErrorPayload,
-  type Event,
-  type KimiConfig,
-} from '#/index';
-import { foldAgentWireReplay } from '#/v2/resume-replay';
 
 import { recordingTelemetry, type TelemetryRecord } from './telemetry';
-import { TEST_IDENTITY } from './test-identity';
 
 const hostEnvProbe = vi.hoisted(() => ({ failWithMissingShell: false }));
 

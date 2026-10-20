@@ -121,6 +121,7 @@ export interface RemoteControlOptions {
   readonly onStatus?: (status: RemoteControlStatus) => void;
   readonly pingIntervalMs?: number;
   readonly silenceTimeoutMs?: number;
+  readonly maxHttpResponseBytes?: number;
   readonly signal?: AbortSignal;
 }
 

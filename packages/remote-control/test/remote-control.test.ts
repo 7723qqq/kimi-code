@@ -2,6 +2,7 @@ import { spawn } from 'node:child_process';
 import type { Duplex } from 'node:stream';
 import { existsSync, chmodSync, mkdtempSync, rmSync } from 'node:fs';
 import { mkdir, chmod, readFile, writeFile } from 'node:fs/promises';
+import { createServer, type IncomingMessage } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
@@ -29,7 +30,6 @@ import {
   type RemoteControlHandle,
 } from '../src/remote-control';
 import { RemoteControlDeviceClient } from '../src/device-client';
-import { remoteControlLockPath } from '../src/lock';
 import { createRemoteControlManager } from '../src/manager';
 
 const CLIENT_VERSION = 'kimi-code/test';
@@ -731,6 +731,7 @@ describe('Remote Control tunnel', () => {
       localOrigin: `http://127.0.0.1:${localPort}`,
       localServerToken: 'local-server-token',
       clientVersion: CLIENT_VERSION,
+      urlSource: 'kimi_code_cli',
       relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
       stderr: { write: () => true },
     });
@@ -827,6 +828,7 @@ describe('Remote Control tunnel', () => {
       localOrigin: `http://127.0.0.1:${localPort}`,
       localServerToken: 'local-server-token',
       clientVersion: CLIENT_VERSION,
+      urlSource: 'kimi_code_cli',
       relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
       stderr: { write: (text) => ((logs += String(text)), true) },
       maxHttpResponseBytes: responseLimit,
@@ -880,6 +882,7 @@ describe('Remote Control tunnel', () => {
       localOrigin: `http://127.0.0.1:${localPort}`,
       localServerToken: 'local-server-token',
       clientVersion: CLIENT_VERSION,
+      urlSource: 'kimi_code_cli',
       relayOrigin: `http://127.0.0.1:${relay.port}/coding-relay`,
       stderr: { write: () => true },
     });

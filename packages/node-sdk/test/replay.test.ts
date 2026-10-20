@@ -116,7 +116,9 @@ describe('limitAgentReplayByTurns', () => {
     const origin = {
       kind: 'user' as const,
       inTurn: true as const,
-      skillActivations: [{ activationId: 'activation-review', skillName: 'review' }],
+      skillActivations: [
+        { kind: 'skill_activation' as const, trigger: 'user-slash' as const, activationId: 'activation-review', skillName: 'review' },
+      ],
     };
     const currentTurn = userTurn('current prompt', 2);
     const steered: AgentReplayRecord = {
