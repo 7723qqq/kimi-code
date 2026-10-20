@@ -916,7 +916,7 @@ export class SessionEventHandler {
     }
     if (shouldRenderTowerGoalExit) {
       this.host.state.transcriptContainer.addChild(
-        new StatusMessageComponent('Tower mode ended — a goal was activated'),
+        new StatusMessageComponent(t('tui.statusMessages.towerGoalExit')),
       );
       this.host.state.ui.requestRender();
     }

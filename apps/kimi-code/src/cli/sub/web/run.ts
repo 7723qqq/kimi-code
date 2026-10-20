@@ -265,7 +265,9 @@ export async function handleWebCommand(
           },
           (error) => {
             deps.stderr.write(
-              `Remote Control lock release failed: ${error instanceof Error ? error.message : String(error)}\n`,
+              `${t('cli.commandDescriptions.remoteControlLockReleaseFailed', {
+                error: error instanceof Error ? error.message : String(error),
+              })}\n`,
             );
             controls?.requestShutdown('remote_control_closed');
           },

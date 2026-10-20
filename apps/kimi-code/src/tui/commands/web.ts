@@ -89,7 +89,9 @@ export async function handleRemoteControlCommand(host: SlashCommandHost): Promis
             },
             (error) => {
               process.stderr.write(
-                `Remote Control lock release failed: ${formatErrorMessage(error)}\n`,
+                `${t('cli.commandDescriptions.remoteControlLockReleaseFailed', {
+                  error: formatErrorMessage(error),
+                })}\n`,
               );
               controls?.requestShutdown('remote_control_closed');
             },

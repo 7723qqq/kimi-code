@@ -425,6 +425,8 @@ export default {
       session: 'Manage sessions non-interactively.',
       sessionList: 'List sessions, most recently updated first.',
       rc: 'Run the local Kimi server and open the web UI through Remote Control.',
+      app: 'Open a new chat in the Kimi Code desktop app for this directory.',
+      remoteControlLockReleaseFailed: 'Remote Control lock release failed: {{error}}',
       serverKill:
         'Deprecated — stop a server started by a version before 0.28.0 (recorded in the legacy server lock). Servers started by `kimi web` run in the foreground — stop them with Ctrl+C.',
     },
@@ -2246,6 +2248,12 @@ export default {
       btwBusyNotice: 'Wait for /btw to finish before sending another question.',
       btwInterrupted: 'Interrupted by user',
       btwFiltered: 'Provider safety policy blocked the response.',
+      btwMediaUnsupported: 'Current model does not support this media input.',
+      btwTurnEndedReason: 'BTW turn ended with reason: {{reason}}',
+      // commands/tower.ts, controllers/session-event-handler.ts
+      towerStatusTitle: 'Tower status',
+      towerStatusFailed: 'Failed to read tower status: {{error}}',
+      towerGoalExit: 'Tower mode ended — a goal was activated',
       // subagent-event-handler.ts
       subagentRun: 'Run {{name}} agent',
       subagentAbortedByUser: 'Aborted by the user',

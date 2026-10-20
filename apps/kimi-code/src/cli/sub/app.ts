@@ -1,12 +1,13 @@
 import { resolve } from 'node:path';
 import type { Command } from 'commander';
 
+import { t } from '#/i18n';
 import { openUrl } from '#/utils/open-url';
 
 export function registerAppCommand(program: Command): void {
   program
     .command('app [path]')
-    .description('Open a new chat in the Kimi Code desktop app for this directory.')
+    .description(t('cli.commandDescriptions.app'))
     .action((path?: string) => {
       const root = resolve(path ?? process.cwd());
       openUrl(`kimi-code://open?root=${encodeURIComponent(root)}&new=1`, () => {

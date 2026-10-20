@@ -24,9 +24,14 @@ export async function handleTowerCommand(host: SlashCommandHost, args: string): 
       // The SDK returns the engine-rendered summary; its first line is the
       // state headline, which the notice lifts into the title.
       const [title, ...rest] = (await session.getTowerStatus()).split('\n');
-      host.showNotice(title ?? 'Tower status', rest.length > 0 ? rest.join('\n') : undefined);
+      host.showNotice(
+        title ?? t('tui.statusMessages.towerStatusTitle'),
+        rest.length > 0 ? rest.join('\n') : undefined,
+      );
     } catch (error) {
-      host.showError(`Failed to read tower status: ${formatErrorMessage(error)}`);
+      host.showError(
+        t('tui.statusMessages.towerStatusFailed', { error: formatErrorMessage(error) }),
+      );
     }
     return;
   }

@@ -207,7 +207,7 @@ export class BtwPanelController {
         ? () => this.promptWithSkills(agentId, session, prompt, panel, inlineSkillActivations)
         : () => session.prompt(prompt);
     void this.withInteractiveAgent(agentId, send).catch((error: unknown) => {
-      panel.markFailed(`Failed to send /btw prompt: ${formatErrorMessage(error)}`);
+      panel.markFailed(t('tui.messages.btwSendFailed', { error: formatErrorMessage(error) }));
       this.host.state.ui.requestRender();
     });
   }
@@ -230,7 +230,7 @@ export class BtwPanelController {
       // Ctrl-C during the media wait: no child turn existed for cancel() to
       // stop, so settle the question here instead of dispatching it anyway.
       if (this.cancelledAgentIds.delete(agentId)) {
-        panel.markFailed('Interrupted by user');
+        panel.markFailed(t('tui.statusMessages.btwInterrupted'));
         return;
       }
       if (
@@ -242,7 +242,7 @@ export class BtwPanelController {
         extractMediaAttachments(prompt, this.imageStore),
       );
       if (!this.host.validateMediaCapabilities(extraction)) {
-        throw new Error('Current model does not support this media input.');
+        throw new Error(t('tui.statusMessages.btwMediaUnsupported'));
       }
       prepared = this.host.prepareSkillActivations(activations);
       const input = extraction.hasMedia
@@ -305,5 +305,5 @@ function formatBtwTurnEnd(event: Extract<Event, { type: 'turn.ended' }>): string
   if (event.reason === 'blocked') {
     return t('tui.statusMessages.promptBlocked');
   }
-  return `BTW turn ended with reason: ${event.reason}`;
+  return t('tui.statusMessages.btwTurnEndedReason', { reason: event.reason });
 }

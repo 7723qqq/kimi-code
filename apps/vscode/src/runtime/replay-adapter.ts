@@ -545,10 +545,12 @@ function toLegacyContent(content: readonly ContentPart[]): LegacyContentPart[] {
   return result;
 }
 
+const SKILL_ACTIVATION_PART_SOURCE = "skill activation";
+
 function isSkillActivationPart(part: ContentPart): boolean {
   return (
     part.type === "text" &&
-    (part as { meta?: { source?: unknown } }).meta?.source === "skill activation"
+    (part as { meta?: { source?: unknown } }).meta?.source === SKILL_ACTIVATION_PART_SOURCE
   );
 }
 

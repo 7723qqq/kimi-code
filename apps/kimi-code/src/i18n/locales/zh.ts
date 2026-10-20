@@ -414,6 +414,8 @@ export default {
       session: '非交互式管理会话。',
       sessionList: '列出会话，最近更新的排在最前。',
       rc: '运行本地 Kimi 服务器，并通过 Remote Control 打开 Web UI。',
+      app: '在 Kimi Code 桌面应用中为此目录新建一个对话。',
+      remoteControlLockReleaseFailed: 'Remote Control 锁释放失败：{{error}}',
       serverKill:
         '已弃用 — 停止 0.28.0 之前版本启动的服务器（记录在旧版服务器锁文件中）。由 `kimi web` 启动的服务器在前台运行 — 请用 Ctrl+C 停止。',
     },
@@ -2161,6 +2163,12 @@ export default {
       btwBusyNotice: '请等待 /btw 完成后再发送其他问题。',
       btwInterrupted: '用户中断',
       btwFiltered: '供应商安全策略拦截了响应。',
+      btwMediaUnsupported: '当前模型不支持该媒体输入。',
+      btwTurnEndedReason: 'BTW 轮次已结束，原因：{{reason}}',
+      // commands/tower.ts, controllers/session-event-handler.ts
+      towerStatusTitle: 'Tower 状态',
+      towerStatusFailed: '读取 Tower 状态失败：{{error}}',
+      towerGoalExit: 'Tower 模式已结束——有目标被激活',
       // subagent-event-handler.ts
       subagentRun: '运行 {{name}} 智能体',
       subagentAbortedByUser: '已被用户中止',
