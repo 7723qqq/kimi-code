@@ -267,6 +267,7 @@ packages/node-sdk/src/index.ts session/subagent/configSection
 packages/node-sdk/src/proxy.ts _base/utils/proxy
 packages/node-sdk/src/sdk-rpc-client-v2.ts _base/utils/workdir-slug
 packages/node-sdk/src/sdk-rpc-client-v2.ts app/mcpConfig/configLoader
+packages/node-sdk/src/sdk-rpc-client-v2.ts features/tower/tools/status/statusReader
 packages/node-sdk/src/sdk-rpc-client-v2.ts mcpCore/connection-manager
 packages/node-sdk/src/sdk-rpc-client-v2.ts persistence/interface/appendLogStore
 packages/node-sdk/src/sdk-rpc-client-v2.ts workspace/workspaceFs/fs
@@ -277,5 +278,6 @@ packages/node-sdk/test/export-session.test.ts wire/migration/migration
 packages/node-sdk/test/mcp-config.test.ts mcpCore/oauth/store
 packages/node-sdk/test/sdk-rpc-client-v2.test.ts _base/execEnv/environmentProbe
 packages/node-sdk/test/sdk-rpc-client-v2.test.ts app/kosongConfig/modelsDevUpstream
+packages/node-sdk/test/sdk-rpc-client-v2.test.ts features/tower/protocol/store
 packages/node-sdk/test/sdk-rpc-client-v2.test.ts mcpCore/oauth/service
 packages/remote-control/src/manager.ts human/xstate2

@@ -238,7 +238,11 @@ describe('foldAgentWireReplay corruption handling', () => {
     );
     const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
 
-    await expect(foldAgentWireReplay(wirePath)).resolves.toEqual({ replay: [], toolStore: {} });
+    await expect(foldAgentWireReplay(wirePath)).resolves.toEqual({
+      replay: [],
+      toolStore: {},
+      userTurnCount: 0,
+    });
     expect(warn).toHaveBeenCalledTimes(1);
   });
 });

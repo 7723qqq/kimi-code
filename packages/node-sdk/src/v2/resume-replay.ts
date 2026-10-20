@@ -56,7 +56,7 @@ async function foldAgentWireReplayFull(wirePath: string): Promise<FoldedAgentRep
       });
     }
     const records = parsed.records;
-    if (records.length === 0) return EMPTY_FOLD;
+    if (records.length === 0) return { ...EMPTY_FOLD, userTurnCount: userTurns.count };
     const folded = foldWireRecords(records);
     return {
       replay: folded.replay.map(mapReplayRecord),
