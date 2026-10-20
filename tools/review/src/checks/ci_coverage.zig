@@ -138,7 +138,18 @@ fn expandGlobs(ctx: *check.Context, globs: []const []const u8) ![]const []const 
                 const dirs = walk.listDirs(ctx.alloc, ctx.io, dir) catch continue;
                 defer walk.freeFiles(ctx.alloc, dirs);
                 for (dirs) |d| {
-                    try included.append(ctx.alloc, try std.fs.path.join(ctx.alloc, &.{ parent, d }));
+                    // Join with a forward slash on purpose. `std.fs.path.join`
+                    // would emit `packages\<dir>` on Windows, and every
+                    // consumer of this list — the vitest `projects` globs and the
+                    // `.github/workflows/` text — is written with forward slashes,
+                    // so a backslash member matches nothing and every package is
+                    // reported as uncovered. Repository-relative paths in this
+                    // check are always slash-separated.
+                    try included.append(ctx.alloc, try std.fmt.allocPrint(
+                        ctx.alloc,
+                        "{s}/{s}",
+                        .{ parent, d },
+                    ));
                 }
             } else |_| {}
             continue;
