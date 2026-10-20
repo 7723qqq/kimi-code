@@ -477,6 +477,7 @@ describe("replay adapter (renders the public SDK resume state for the Webview)",
   ]))("restores bundled skill input and media without expanded instructions ($input, $format)", ({ input, skills, format }) => {
     const skillActivations = skills.map((skill, index) => ({
       ...skill,
+      kind: "skill_activation" as const,
       activationId: `activation-${index + 1}`,
       trigger: "user-slash" as const,
     }));

@@ -57,6 +57,7 @@ function makeHost(
       if (overrides.createNewSessionFails !== true) state.appState.sessionId = 's2';
     }),
     sendNormalUserInput: vi.fn(async () => undefined),
+    sendInlineSkillUserInput: vi.fn(async () => undefined),
   };
   return { host, state };
 }

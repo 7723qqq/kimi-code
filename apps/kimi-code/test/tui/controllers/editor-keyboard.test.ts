@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { CTRL_C_HINT, DOUBLE_ESC_WINDOW_MS } from '#/tui/constant/kimi-tui';
+import { DOUBLE_ESC_WINDOW_MS, getCtrlCHint } from '#/tui/constant/kimi-tui';
 import {
   EditorKeyboardController,
   nextReviewMode,
@@ -19,6 +19,7 @@ interface Harness {
   readonly btwCancelRunning: ReturnType<typeof vi.fn>;
   readonly btwCloseOrCancel: ReturnType<typeof vi.fn>;
   readonly footerHint: ReturnType<typeof vi.fn>;
+  readonly promptOptimizer: { readonly optimize: ReturnType<typeof vi.fn> };
   readonly stop: ReturnType<typeof vi.fn>;
   readonly survey: {
     readonly handlePreInput: ReturnType<typeof vi.fn<(data: string) => boolean>>;
@@ -94,6 +95,7 @@ function createHarness(options: { streamingPhase?: string; isCompacting?: boolea
     btwCancelRunning,
     btwCloseOrCancel,
     footerHint,
+    promptOptimizer,
     stop,
     survey,
   };
@@ -254,7 +256,7 @@ describe('EditorKeyboardController disposal', () => {
     const { editor, controller, footerHint, stop } = createHarness();
 
     pressCtrlC(editor);
-    expect(footerHint).toHaveBeenCalledWith(CTRL_C_HINT);
+    expect(footerHint).toHaveBeenCalledWith(getCtrlCHint());
 
     controller.dispose();
     footerHint.mockClear();

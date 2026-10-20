@@ -353,18 +353,6 @@ export function stripBundledSkillParts(message: ContextMessage): readonly Conten
   );
 }
 
-export function skillActivationFromOrigin(
-  origin: PromptOrigin | undefined,
-): SkillActivationProjection | undefined {
-  if (origin?.kind !== 'skill_activation') return undefined;
-  return {
-    activationId: origin.activationId,
-    skillName: origin.skillName,
-    skillArgs: origin.skillArgs,
-    trigger: origin.trigger,
-  };
-}
-
 export function userSlashSkillPromptText(
   message: ContextMessage,
   skill: SkillActivationProjection,

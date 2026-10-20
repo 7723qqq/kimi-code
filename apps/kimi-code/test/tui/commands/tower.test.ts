@@ -4,7 +4,7 @@ import type { Session } from '@moonshot-ai/kimi-code-sdk';
 
 import { handleTowerCommand } from '#/tui/commands/index';
 import type { SlashCommandHost } from '#/tui/commands/dispatch';
-import { TOWER_TEARDOWN_PROMPT } from '#/tui/constant/kimi-tui';
+import { getLlmNotSetMessage, TOWER_TEARDOWN_PROMPT } from '#/tui/constant/kimi-tui';
 
 function makeHost(
   overrides: {

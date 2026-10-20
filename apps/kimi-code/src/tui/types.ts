@@ -344,7 +344,11 @@ export interface QueuedMessage {
   readonly imageAttachmentIds?: readonly number[];
   readonly videoAttachmentIds?: readonly number[];
   readonly mediaSnapshots?: readonly MediaAttachment[];
-  readonly mode?: 'prompt' | 'bash';
+  /** `bash` for a `!` shell command queued while another command is running;
+   *  `skill` for a slash-skill activation; undefined (=`prompt`) for a normal message. */
+  readonly mode?: 'prompt' | 'bash' | 'skill';
+  readonly skillName?: string;
+  readonly skillArgs?: string;
   /** Skills to activate together with this queued message's prompt. */
   readonly inlineSkillActivations?: readonly InlineSkillActivation[];
 }

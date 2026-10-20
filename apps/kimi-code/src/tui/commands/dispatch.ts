@@ -80,6 +80,7 @@ export { handleLoginCommand, handleLogoutCommand } from './auth';
 export { handleBtwCommand } from './btw';
 export { handleCopyCommand } from './copy';
 export { handleDesktopCommand } from './desktop';
+import { handleAddDirCommand } from './add-dir';
 export { handleAddDirCommand } from './add-dir';
 export {
   handleCompactCommand,

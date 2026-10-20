@@ -152,7 +152,7 @@ describe('UserMessageComponent', () => {
     }
 
     afterEach(() => {
-      currentTheme.setPalette(darkColors);
+      currentTheme.setPalette(darkColors, 'dark');
     });
 
     it('highlights only the listed skill tokens and keeps the text verbatim', () => {
@@ -215,7 +215,7 @@ describe('UserMessageComponent', () => {
         const dark = component.render(80).join('\n');
         expect(dark).toContain(chalk.hex(darkColors.primary).bold('/skill:review'));
 
-        currentTheme.setPalette(lightColors);
+        currentTheme.setPalette(lightColors, 'light');
         component.invalidate();
         const light = component.render(80).join('\n');
         expect(light).toContain(chalk.hex(lightColors.primary).bold('/skill:review'));

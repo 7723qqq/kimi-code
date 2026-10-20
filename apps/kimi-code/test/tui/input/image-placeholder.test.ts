@@ -92,12 +92,12 @@ describe('omitExpiredVideoFileRefs', () => {
 });
 
 describe('extractMediaAttachments', () => {
-  it('uses captured argument media after a reset without retaining a reused attachment id', () => {
+  it('uses captured argument media after a reset without retaining a reused attachment id', async () => {
     const { cleanup } = setupTempCache();
     try {
       const store = new ImageAttachmentStore();
       const original = store.addImage(new Uint8Array([1]), 'image/png', 1, 1);
-      const extraction = extractMediaAttachments(original.placeholder, store);
+      const extraction = await extractMediaAttachments(original.placeholder, store);
       store.clear();
       const current = store.addImage(new Uint8Array([2]), 'image/png', 1, 1, undefined, 'file-current');
       expect(current.id).toBe(original.id);
@@ -115,7 +115,7 @@ describe('extractMediaAttachments', () => {
       cleanup();
     }
   });
-  it('returns no parts and hasMedia=false for plain text', () => {
+  it('returns no parts and hasMedia=false for plain text', async () => {
     const store = new ImageAttachmentStore();
     const r = await extractMediaAttachments('hello world', store);
     expect(r.hasMedia).toBe(false);

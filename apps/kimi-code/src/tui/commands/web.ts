@@ -14,7 +14,6 @@ import {
 } from '#/cli/sub/web/remote-control';
 import { formatReadyBanner, startServerForeground } from '#/cli/sub/web/run';
 import { parseServerOptions, tryResolveServerToken } from '#/cli/sub/web/shared';
-import { getVersion } from '#/cli/version';
 import { t } from '#/i18n';
 import { openUrl } from '#/utils/open-url';
 import { getDataDir } from '#/utils/paths';

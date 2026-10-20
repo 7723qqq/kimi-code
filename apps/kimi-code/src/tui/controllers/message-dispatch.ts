@@ -11,14 +11,16 @@ import type {
   AppState,
   InlineSkillActivation,
   LivePaneState,
+  PreparedSkillActivations,
   QueuedMessage,
   SteerInputItem,
   TranscriptEntry,
 } from '../types';
 import { formatErrorMessage } from '../utils/event-payload';
-import type { ImageAttachmentStore } from '../utils/image-attachment-store';
+import type { ImageAttachmentStore, MediaAttachment } from '../utils/image-attachment-store';
 import {
   extractMediaAttachments,
+  omitExpiredVideoFileRefs,
   originalsDirForSession,
   pendingMediaIngestions,
   refreshExpiringImageFileRefs,
@@ -38,6 +40,7 @@ export interface SendMessageOptions {
   readonly parts?: readonly PromptPart[];
   readonly imageAttachmentIds?: readonly number[];
   readonly videoAttachmentIds?: readonly number[];
+  readonly mediaSnapshots?: readonly MediaAttachment[];
   readonly hasMedia?: boolean;
   /**
    * Lease pre-created at extraction time by `sendNormalUserInput`. Dispatch
@@ -65,6 +68,11 @@ export interface MessageDispatchHost {
   ensureSession(): Promise<Session | undefined>;
   appendTranscriptEntry(entry: TranscriptEntry): void;
   removeTranscriptEntries(entries: readonly TranscriptEntry[]): void;
+  prepareSkillActivations(
+    activations: readonly InlineSkillActivation[],
+    mediaSnapshots?: readonly MediaAttachment[],
+  ): PreparedSkillActivations;
+  releaseSkillArgumentMedia(prepared: PreparedSkillActivations): void;
   showError(message: string): void;
   updateQueueDisplay(): void;
   patchLivePane(patch: Partial<LivePaneState>): void;
@@ -213,12 +221,40 @@ export class MessageDispatchController {
     activations: readonly InlineSkillActivation[],
     preExtracted?: ExtractionResult,
   ): Promise<void> {
-    if (this.host.btwPanelController.sendUserInput(text)) return;
+    if (this.host.btwPanelController.sendUserInput(text, activations)) return;
     if (this.host.state.appState.model.trim().length === 0) {
       this.host.showError(getLlmNotSetMessage());
       return;
     }
+    const originatingSession = this.host.session;
+    const mediaGeneration = this.imageStore.generation;
     let extraction: ExtractionResult;
+    if (preExtracted === undefined) {
+      // A just-pasted image/video may still be finishing its background
+      // ingestion (compression/daemon upload): give it a bounded moment so
+      // the submit can use the daemon-ref form — a slower image ingestion
+      // extracts to the inline fallback instead, a slower video upload
+      // refuses the submission below. Undefined when nothing is pending,
+      // keeping the media-free send path synchronous.
+      const ingestionWait = pendingMediaIngestions(
+        text,
+        this.imageStore,
+        MEDIA_INGESTION_SUBMIT_WAIT_MS,
+      );
+      if (ingestionWait !== undefined) await ingestionWait;
+      // The ingestion wait can outlive the submit: a session switch (or a
+      // store clear) during it must not dispatch the stale prompt's media into
+      // the wrong session.
+      if (
+        (originatingSession !== undefined && this.host.session !== originatingSession) ||
+        this.imageStore.generation !== mediaGeneration
+      ) {
+        this.host.showError(
+          t('tui.statusMessages.sessionChangedWhilePreparingMedia'),
+        );
+        return;
+      }
+    }
     try {
       const extracted =
         preExtracted ??
@@ -234,18 +270,30 @@ export class MessageDispatchController {
       );
       return;
     }
-    if (!this.validateMediaCapabilities(extraction)) return;
-    if (this.host.cacheHint.maybeInterceptOnSubmit(text, extraction)) return;
+    if (!this.validateMediaCapabilities(extraction)) {
+      this.staging.releaseMedia(
+        [...extraction.imageAttachmentIds, ...extraction.videoAttachmentIds],
+        [],
+      );
+      return;
+    }
+    if (this.host.cacheHint.maybeInterceptOnSubmit(text, extraction, activations)) return;
     let session = this.host.session;
     if (session === undefined) {
       // Dispatch only routes here on the v2 engine, so the session is created
       // lazily on first use exactly like a normal prompt.
       session = await this.host.ensureSession();
-      if (session === undefined) return;
+      if (session === undefined) {
+        this.staging.releaseMedia(
+          [...extraction.imageAttachmentIds, ...extraction.videoAttachmentIds],
+          [],
+        );
+        return;
+      }
     }
     if (
       this.host.deferUserMessages ||
-      this.host.state.appState.goal?.status === 'active' ||
+      this.steeringQueuedMessages.size > 0 ||
       this.host.state.appState.streamingPhase !== 'idle' ||
       this.host.state.appState.isCompacting
     ) {
@@ -257,6 +305,7 @@ export class MessageDispatchController {
               parts: extraction.parts,
               imageAttachmentIds: extraction.imageAttachmentIds,
               videoAttachmentIds: extraction.videoAttachmentIds,
+              mediaSnapshots: extraction.mediaSnapshots,
               inlineSkillActivations: activations,
             }
           : { inlineSkillActivations: activations },
@@ -287,52 +336,96 @@ export class MessageDispatchController {
     // the consuming `skill_activation` turn releases (deletes) the uploads at
     // turn end. Without a lease nothing ever consumes the retain and the
     // daemon upload outlives the turn, the queue and the session.
-    const stagingLease = this.staging.create(
-      [...new Set([...extraction.imageAttachmentIds, ...extraction.videoAttachmentIds])],
-      [],
-      'skill_activation',
-    );
-    const request = session.promptWithSkills(
-      extraction.hasMedia
+    let prepared: PreparedSkillActivations | undefined;
+    let input: string | readonly PromptPart[];
+    try {
+      prepared = this.host.prepareSkillActivations(activations, extraction.mediaSnapshots);
+      input = extraction.hasMedia
         ? resolveOriginalCaptions(
-            extraction.parts,
+            omitExpiredVideoFileRefs(extraction.parts, prepared.cachedVideos),
             extraction.imageAttachmentIds,
             this.imageStore,
             originalsDirForSession(session),
           )
-        : text,
-      activations.map((activation) => ({ name: activation.skillName, args: activation.args })),
-    );
-    this.staging.trackDispatch(stagingLease, request, (error: unknown) => {
-      this.failSessionRequest(
-        t('tui.statusMessages.skillActivationFailed', { error: formatErrorMessage(error) }),
+        : text;
+    } catch (error) {
+      if (prepared !== undefined) this.host.releaseSkillArgumentMedia(prepared);
+      this.staging.releaseMedia(
+        [...extraction.imageAttachmentIds, ...extraction.videoAttachmentIds],
+        [],
       );
-    });
-    await request;
-    // The engine bundles the activations into the prompt's own message, and
-    // the `skill.activated` events land synchronously during the call — so
-    // the cards appended for this submission are the skill_activation entries
-    // with fresh ids (the window trim may replace the entries array mid-call,
-    // so membership is decided by id, not by index into a captured array).
-    // Appending the user entry afterwards keeps the live transcript in the
-    // same order as a resumed replay (skill cards first, prompt last).
-    // Marking only happens once the submission was accepted: a rejected
-    // bundle leaves no cards and must not leave a local undo anchor the
-    // engine never recorded.
-    for (const entry of this.host.state.transcriptEntries) {
-      if (entry.kind === 'skill_activation' && !knownEntryIds.has(entry.id)) {
-        entry.bundledWithPrompt = true;
-      }
+      this.failSessionRequest(
+        t('tui.statusMessages.failedToPrepareMediaAttachment', {
+          error: formatErrorMessage(error),
+        }),
+      );
+      return;
     }
+    // `mediaAttachmentIds` multiplicity is the retain count the lease must
+    // release: dedupe per contribution (extraction retains once per unique id;
+    // each skill arg rewrite retains its own), never across them.
+    const stagingLease = this.staging.create(
+      [
+        ...new Set([...extraction.imageAttachmentIds, ...extraction.videoAttachmentIds]),
+        ...prepared.mediaAttachmentIds,
+      ],
+      prepared.stagingPaths,
+      'user',
+    );
+    // The user entry lands before the dispatch so the submission is never
+    // lost: a rejected bundle keeps its history (and its input-recall anchor)
+    // instead of vanishing with the failed request.
     this.host.appendTranscriptEntry({
       id: nextTranscriptId(),
       kind: 'user',
       turnId: undefined,
       renderMode: 'plain',
       content: text,
+      skillNames: activations.map((activation) => activation.skillName),
       imageAttachmentIds:
         extraction.imageAttachmentIds.length > 0 ? extraction.imageAttachmentIds : undefined,
     });
+    const request = session.promptWithSkills(input, prepared.skills);
+    this.staging.trackDispatch(stagingLease, request, (error: unknown) => {
+      // A rejected bundle never reached a turn: hand the staged media back to
+      // raw ownership and release the retains without deleting the daemon
+      // uploads — the failed input stays in history and its recall re-submits
+      // the same `fileId` (see `retries a failed skill video`).
+      if (
+        this.host.session === session &&
+        stagingLease !== undefined &&
+        stagingLease.turnId === undefined
+      ) {
+        this.staging.defer(stagingLease);
+        for (const id of stagingLease.mediaAttachmentIds) this.staging.releaseRecalled([id]);
+        this.staging.releaseMedia([], stagingLease.paths);
+      }
+      this.handleSkillActivationError(session, error);
+    });
+    // The engine bundles the activations into the prompt's own message, and
+    // the `skill.activated` events land synchronously during the call — so
+    // the cards appended for this submission are the skill_activation entries
+    // with fresh ids (the window trim may replace the entries array mid-call,
+    // so membership is decided by id, not by index into a captured array).
+    // Marking only happens once the submission was accepted: a rejected
+    // bundle leaves no cards and must not leave a local undo anchor the
+    // engine never recorded.
+    void request.then(() => {
+      for (const entry of this.host.state.transcriptEntries) {
+        if (entry.kind === 'skill_activation' && !knownEntryIds.has(entry.id)) {
+          entry.bundledWithPrompt = true;
+        }
+      }
+    });
+  }
+
+  private handleSkillActivationError(session: Session, error: unknown): void {
+    if (this.host.session !== session) return;
+    const message = t('tui.statusMessages.skillActivationFailed', {
+      error: formatErrorMessage(error),
+    });
+    if (this.host.streamingUI.getTurnContext().turnId === undefined) this.failSessionRequest(message);
+    else this.host.showError(message);
   }
 
   validateMediaCapabilities(extraction: {
@@ -424,6 +517,7 @@ export class MessageDispatchController {
       imageAttachmentIds: nonEmptyIds(options?.imageAttachmentIds),
       videoAttachmentIds: nonEmptyIds(options?.videoAttachmentIds),
       mode,
+      mediaSnapshots: options?.mediaSnapshots,
       inlineSkillActivations: options?.inlineSkillActivations,
     };
   }
@@ -722,6 +816,7 @@ export class MessageDispatchController {
     }
     if (
       this.host.deferUserMessages ||
+      this.steeringQueuedMessages.size > 0 ||
       this.host.state.appState.streamingPhase !== 'idle' ||
       this.host.state.appState.isCompacting
     ) {
@@ -753,56 +848,110 @@ export class MessageDispatchController {
     );
   }
 
-  /** Steers the whole queue into the running turn when it is prompt-only.
-   *  The steered items stay at the front of the queue while the steer is in
-   *  flight, and the queue holds (see `shiftQueuedMessage`) so nothing queued
-   *  behind them dispatches first: success removes them, failure leaves them
-   *  queued in place, and a queue left behind by an ended turn drains once
-   *  the steer settles. */
-  steerQueuedMessagesIntoRunningTurn(): void {
+  /** Steers the queue into the running turn. `manual` (Ctrl-S) skips bash items
+   *  and sends each inline-skill bundle as its own group, so a grouped
+   *  submission is never spliced around; the automatic path requires the whole
+   *  queue to be steerable before it moves anything. */
+  steerQueuedMessagesIntoRunningTurn(manual = false): void {
     const session = this.host.session;
     if (session === undefined || this.steeringQueuedMessages.size > 0) return;
-    if (!this.canSteerQueueIntoRunningTurn()) return;
-    const batch = [...this.host.state.queuedMessages];
-    if (batch.length === 0 || !batch.every(isSteerableQueuedMessage)) return;
-    for (const message of batch) this.steeringQueuedMessages.add(message);
-    this.host.updateQueueDisplay();
-    // Same expiring-upload refresh as the queue drain (`sendQueuedMessage`):
-    // an image whose daemon upload expired falls back to its retained bytes.
-    const items = batch.map((message) => {
-      const item = toSteerInputItem(message);
-      if (message.parts === undefined) return item;
-      return {
-        ...item,
-        parts: refreshExpiringImageFileRefs(
-          message.parts,
-          message.imageAttachmentIds ?? [],
-          this.imageStore,
-        ),
-      };
-    });
-    this.steerMessage(session, items, (steered) => {
-      for (const message of batch) this.steeringQueuedMessages.delete(message);
-      if (this.host.session !== session) return;
-      if (steered) {
-        const done = new Set(batch);
-        this.host.state.queuedMessages = this.host.state.queuedMessages.filter((m) => !done.has(m));
+    if (manual ? !this.canManuallySteer() : !this.canSteerQueueIntoRunningTurn()) return;
+    const batch = manual
+      ? this.host.state.queuedMessages.filter((message) => message.mode !== 'bash')
+      : [...this.host.state.queuedMessages];
+    if (batch.length === 0 || (!manual && !batch.every(isSteerableQueuedMessage))) return;
+    const pending = [...batch];
+    const sendNext = (): void => {
+      if (this.host.deferUserMessages || this.host.state.appState.isCompacting) return;
+      let first = pending.shift();
+      while (first !== undefined && !this.host.state.queuedMessages.includes(first)) {
+        first = pending.shift();
       }
-      this.host.updateQueueDisplay();
-      if (steered && this.canSteerQueueIntoRunningTurn()) {
-        this.steerQueuedMessagesIntoRunningTurn();
+      if (first === undefined) {
+        this.host.updateQueueDisplay();
+        if (!manual && this.canSteerQueueIntoRunningTurn()) {
+          this.steerQueuedMessagesIntoRunningTurn();
+        } else {
+          this.drainQueueIfIdle();
+        }
         return;
       }
-      // A turn that ended while the steer was in flight could not drain the
-      // held queue. A prompt dispatched now while the engine still runs a
-      // turn launched by the steer is queued behind it by the engine, so the
-      // order holds either way.
-      this.drainQueueIfIdle();
-    });
+      // An inline-skill bundle steers as its own group so its prompt and its
+      // activations reach the model together; plain items coalesce into one
+      // run while no bundle separates them.
+      const group = [first];
+      if (first.inlineSkillActivations === undefined) {
+        while (pending[0] !== undefined && pending[0].inlineSkillActivations === undefined) {
+          const next = pending.shift()!;
+          if (this.host.state.queuedMessages.includes(next)) group.push(next);
+        }
+      }
+      for (const message of group) this.steeringQueuedMessages.add(message);
+      this.host.updateQueueDisplay();
+      const items = group.map((message) => {
+        const item = toSteerInputItem(message);
+        if (message.parts === undefined) return item;
+        return {
+          ...item,
+          parts: refreshExpiringImageFileRefs(
+            message.parts,
+            message.imageAttachmentIds ?? [],
+            this.imageStore,
+          ),
+        };
+      });
+      this.steerMessage(
+        session,
+        items,
+        (steered) => {
+          for (const message of group) this.steeringQueuedMessages.delete(message);
+          if (this.host.session !== session) return;
+          if (steered || manual) {
+            const done = new Set(group);
+            this.host.state.queuedMessages = this.host.state.queuedMessages.filter(
+              (message) => !done.has(message),
+            );
+          }
+          if (!steered) {
+            this.staging.releaseQueued(
+              group.filter((message) => !this.host.state.queuedMessages.includes(message)),
+            );
+          }
+          this.host.updateQueueDisplay();
+          if (steered || manual) {
+            sendNext();
+            return;
+          }
+          // A turn that ended while the steer was in flight could not drain
+          // the held queue. A prompt dispatched now while the engine still runs
+          // a turn launched by the steer is queued behind it by the engine, so
+          // the order holds either way.
+          this.drainQueueIfIdle();
+        },
+        manual,
+      );
+    };
+    sendNext();
+  }
+
+  canManuallySteer(): boolean {
+    const phase = this.host.state.appState.streamingPhase;
+    return (
+      !this.host.deferUserMessages &&
+      !this.host.state.appState.isCompacting &&
+      phase !== 'idle' &&
+      phase !== 'shell' &&
+      this.steeringQueuedMessages.size === 0
+    );
   }
 
   isSteeringQueuedMessages(): boolean {
     return this.steeringQueuedMessages.size > 0;
+  }
+
+  /** A queue discard must not release media owned by an in-flight steer. */
+  isSteeringQueuedMessage(message: QueuedMessage): boolean {
+    return this.steeringQueuedMessages.has(message);
   }
 
   private drainQueueIfIdle(): void {
@@ -843,58 +992,93 @@ export class MessageDispatchController {
     session: Session,
     input: readonly SteerInputItem[],
     onSettled?: (steered: boolean) => void,
+    manual = false,
   ): void {
     if (this.host.deferUserMessages || this.host.state.appState.isCompacting) {
-      for (const item of input) {
-        this.enqueueMessage(item.text, item);
+      if (onSettled !== undefined) {
+        onSettled(false);
+      } else {
+        for (const item of input) this.enqueueMessage(item.text, item);
       }
       return;
     }
-    if (this.host.state.appState.streamingPhase === 'idle') {
-      for (const item of input) {
-        this.sendMessageInternal(session, item.text, item);
+    const activations = input.flatMap((item) => item.inlineSkillActivations ?? []);
+    let prepared: PreparedSkillActivations | undefined;
+    let resolvedInput: readonly SteerInputItem[];
+    try {
+      if (activations.length > 0) {
+        prepared = this.host.prepareSkillActivations(
+          activations,
+          input.some((item) => item.mediaSnapshots !== undefined)
+            ? input.flatMap((item) => item.mediaSnapshots ?? [])
+            : undefined,
+        );
       }
+      resolvedInput = input.map((item) =>
+        item.parts === undefined
+          ? item
+          : {
+              ...item,
+              parts: resolveOriginalCaptions(
+                prepared === undefined
+                  ? item.parts
+                  : omitExpiredVideoFileRefs(item.parts, prepared.cachedVideos),
+                item.imageAttachmentIds ?? [],
+                this.imageStore,
+                originalsDirForSession(session),
+              ),
+            },
+      );
+    } catch (error) {
+      if (prepared !== undefined) this.host.releaseSkillArgumentMedia(prepared);
+      this.host.showError(
+        t('tui.statusMessages.failedToPrepareMediaAttachment', {
+          error: formatErrorMessage(error),
+        }),
+      );
+      onSettled?.(false);
       return;
     }
-
-    const steeredEntries: TranscriptEntry[] = [];
-    for (const item of input) {
-      const entry: TranscriptEntry = {
-        id: nextTranscriptId(),
-        kind: 'user',
-        turnId: this.host.streamingUI.getTurnContext().turnId,
-        renderMode: 'plain',
-        content: item.text,
-        imageAttachmentIds: nonEmptyIds(item.imageAttachmentIds),
-      };
-      steeredEntries.push(entry);
-      this.host.appendTranscriptEntry(entry);
-    }
+    const startsNewTurn = this.host.state.appState.streamingPhase === 'idle';
+    if (startsNewTurn) this.beginSessionRequest();
+    const steeredEntries: TranscriptEntry[] = input.map((item) => ({
+      id: nextTranscriptId(),
+      kind: 'user',
+      turnId: this.host.streamingUI.getTurnContext().turnId,
+      renderMode: 'plain',
+      content: item.text,
+      skillNames: item.inlineSkillActivations?.map((activation) => activation.skillName),
+      imageAttachmentIds: nonEmptyIds(item.imageAttachmentIds),
+    }));
+    for (const entry of steeredEntries) this.host.appendTranscriptEntry(entry);
 
     // Dedupe per item, not across the batch: each queued message retained a
     // shared medium once, so the batch's id multiplicity is the retain count.
+    // A skill arg rewrite retains its own ids, so `prepared`'s stay additive.
     const mediaAttachmentIds = input.flatMap((item) => [
       ...new Set([...(item.imageAttachmentIds ?? []), ...(item.videoAttachmentIds ?? [])]),
     ]);
-    const stagingLease = this.staging.create(mediaAttachmentIds, [], 'user');
-    const currentTurnId = this.host.streamingUI.getTurnContext().turnId;
-    if (currentTurnId !== undefined) this.staging.bindToTurn(stagingLease, currentTurnId);
-    // Same dispatch-time caption resolution as sendMessageInternal — the
-    // running turn's session owns the persisted originals.
-    const resolvedInput = input.map((item) =>
-      item.parts === undefined
-        ? item
-        : {
-            ...item,
-            parts: resolveOriginalCaptions(
-              item.parts,
-              item.imageAttachmentIds ?? [],
-              this.imageStore,
-              originalsDirForSession(session),
-            ),
-          },
+    const stagingLease = this.staging.create(
+      [...mediaAttachmentIds, ...(prepared?.mediaAttachmentIds ?? [])],
+      prepared?.stagingPaths ?? [],
+      'user',
     );
-    const request = session.steer(combineSteerInput(resolvedInput));
+    const currentTurnId = this.host.streamingUI.getTurnContext().turnId;
+    // Skill steers may not merge into the current turn: an untracked active
+    // turn (e.g. a goal continuation) has no steerable prompt, so the engine
+    // queues the submission — and binding the lease here would release its
+    // media when that unrelated turn ends. Leave skill leases unclaimed so
+    // the submission's own turn.started claims them; a merged steer simply
+    // retires its media at session close instead.
+    if (currentTurnId !== undefined && prepared === undefined) {
+      this.staging.bindToTurn(stagingLease, currentTurnId);
+    }
+    const request =
+      prepared === undefined
+        ? session.steer(combineSteerInput(resolvedInput))
+        : session.promptWithSkills(combineSteerInput(resolvedInput), prepared.skills, {
+            steerIfActive: true,
+          });
     if (onSettled !== undefined) {
       void request.then(
         () => onSettled(true),
@@ -902,18 +1086,24 @@ export class MessageDispatchController {
       );
     }
     this.staging.trackDispatch(stagingLease, request, (error) => {
+      if (this.host.session !== session) {
+        onSettled?.(false);
+        return;
+      }
+      const message = t('tui.statusMessages.failedToSteer', {
+        error: formatErrorMessage(error),
+      });
+      if (startsNewTurn && this.host.streamingUI.getTurnContext().turnId === undefined) {
+        this.failSessionRequest(message);
+      } else {
+        this.host.showError(message);
+      }
       if (onSettled !== undefined) {
-        if (this.host.session !== session) {
-          onSettled(false);
-          return;
-        }
         this.staging.defer(stagingLease);
-        this.removeTranscriptEntries(steeredEntries);
+        if (prepared !== undefined) this.host.releaseSkillArgumentMedia(prepared);
+        if (prepared === undefined && !manual) this.removeTranscriptEntries(steeredEntries);
         onSettled(false);
       }
-      this.host.showError(
-        t('tui.statusMessages.failedToSteer', { error: formatErrorMessage(error) }),
-      );
     });
   }
 
@@ -936,5 +1126,7 @@ function toSteerInputItem(message: QueuedMessage): SteerInputItem {
     parts: message.parts,
     imageAttachmentIds: message.imageAttachmentIds,
     videoAttachmentIds: message.videoAttachmentIds,
+    mediaSnapshots: message.mediaSnapshots,
+    inlineSkillActivations: message.inlineSkillActivations,
   };
 }

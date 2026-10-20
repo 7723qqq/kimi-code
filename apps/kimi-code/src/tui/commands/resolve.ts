@@ -9,9 +9,6 @@ import {
   type BuiltinSlashCommand,
   type BuiltinSlashCommandName,
 } from './registry';
-import { isExperimentalFlagEnabled } from './experimental-flags';
-import { parseSlashInput } from './parse';
-import type { TUIState } from '../tui-state';
 import type { InlineSkillActivation } from '../types';
 import { extractInlineSkillActivations, findInlineSkillTokens } from '../utils/inline-skill-tokens';
 import type {

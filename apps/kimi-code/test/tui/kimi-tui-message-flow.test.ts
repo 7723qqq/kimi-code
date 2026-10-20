@@ -20,12 +20,6 @@ import {
   type GoalSnapshot,
   type Session,
 } from '@moonshot-ai/kimi-code-sdk';
-import {
-  deleteAllKittyImages,
-  resetCapabilitiesCache,
-  setCapabilities,
-  type TuiMouseEvent,
-} from '@moonshot-ai/pi-tui';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ApprovalPanelComponent } from '#/tui/components/dialogs/approval-panel';
@@ -47,8 +41,6 @@ import {
   type FeedbackPromptResult,
 } from '#/tui/commands/prompts';
 import { WelcomeComponent } from '#/tui/components/chrome/welcome';
-import { ApprovalPanelComponent } from '#/tui/components/dialogs/approval-panel';
-import { EffortSelectorComponent } from '#/tui/components/dialogs/effort-selector';
 import { ModelSelectorComponent } from '#/tui/components/dialogs/model-selector';
 import { PermissionSelectorComponent } from '#/tui/components/dialogs/permission-selector';
 import {
@@ -82,12 +74,7 @@ import {
   TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED,
   TRANSCRIPT_KEEP_RECENT_STEPS,
 } from '#/tui/utils/transcript-window';
-import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
-import { openUrl } from '#/utils/open-url';
 
-import { createFeedbackArchivePath } from '../../src/feedback/archive';
-import { packageCodebase, scanCodebase } from '../../src/feedback/codebase';
-import { uploadArchive } from '../../src/feedback/upload';
 
 vi.mock('#/tui/commands/prompts', async (importOriginal) => {
   const actual = await importOriginal<typeof import('#/tui/commands/prompts')>();
@@ -3716,15 +3703,16 @@ command = "vim"
       expect(session.promptWithSkills).toHaveBeenCalledOnce();
     });
     expect(harness.deleteFile).not.toHaveBeenCalled();
-    // The bundled submission's own turn carries the `skill_activation` origin;
-    // its lease must be claimed there and released (deleted) at turn end.
+    // The bundled submission's own turn carries the `user` origin (its prompt
+    // origin is `user`); its lease must be claimed there and released (deleted)
+    // at turn end — not prematurely at the intermediate check below.
     emitTurn(
       driver,
       1,
       () => {
         expect(harness.deleteFile).not.toHaveBeenCalled();
       },
-      { kind: 'skill_activation' },
+      { kind: 'user' },
     );
     await vi.waitFor(() => {
       expect(harness.deleteFile).toHaveBeenCalledWith('file-skill');
@@ -3771,7 +3759,7 @@ command = "vim"
     });
     expect(harness.deleteFile).not.toHaveBeenCalled();
 
-    emitTurn(driver, 2, undefined, { kind: 'skill_activation' });
+    emitTurn(driver, 2, undefined, { kind: 'user' });
     await vi.waitFor(() => {
       expect(harness.deleteFile).toHaveBeenCalledWith('file-skill-queued');
     });
@@ -3945,7 +3933,7 @@ command = "vim"
     const first = imageStore.addImage(new Uint8Array([1]), 'image/png', 1, 1, undefined, 'file-first');
     const second = imageStore.addImage(new Uint8Array([2]), 'image/png', 1, 1, undefined, 'file-second');
     const input = `/skill:review ${first.placeholder} ${second.placeholder}`;
-    const extraction = extractMediaAttachments(input, imageStore);
+    const extraction = await extractMediaAttachments(input, imageStore);
     imageStore.remove(first.id);
     driver.state.appState.streamingPhase = 'waiting';
     await (
@@ -4056,7 +4044,7 @@ command = "vim"
       type: 'video_url', videoUrl: { url: 'kimi-file://file-expiring-video' },
     });
     const args = (skills as Array<{ args: string }>)[0]!.args;
-    const path = args.match(/Attached video file: (.+?) \(open it with ReadMediaFile\)/)?.[1];
+    const path = args.match(/Attached video file: (.+?) \(open it with Read\)/)?.[1];
     expect(path).toBeDefined();
     expect(await readFile(path!)).toEqual(Buffer.from('example video'));
     expect(driver.state.transcriptEntries).toContainEqual(expect.objectContaining({
@@ -4130,7 +4118,7 @@ command = "vim"
       expect(skills).toEqual([{ name: 'review', args: expect.stringContaining(`Attached ${kind} file:`) }]);
       const args = (skills as Array<{ args: string }>)[0]!.args;
       expect(args).not.toContain(attachment.placeholder);
-      const path = args.match(/Attached (?:image|video) file: (.+?) \(open it with ReadMediaFile\)/)?.[1];
+      const path = args.match(/Attached (?:image|video) file: (.+?) \(open it with Read\)/)?.[1];
       expect(path).toBeDefined();
       expect(await readFile(path!)).toEqual(kind === 'image' ? Buffer.from([0xaa, 0xbb]) : Buffer.from('example video'));
       expect(driver.state.transcriptEntries).toContainEqual(expect.objectContaining({
@@ -4975,7 +4963,7 @@ command = "vim"
       { type: 'image_url', imageUrl: { url: 'kimi-file://file-skill-media' } },
     ]);
     expect(skills[0]?.name).toBe('review');
-    expect(skills[0]?.args).toMatch(/^look Attached image file: .+\.png \(open it with ReadMediaFile\)$/);
+    expect(skills[0]?.args).toMatch(/^look Attached image file: .+\.png \(open it with Read\)$/);
     expect(skills[0]?.args).not.toContain(attachment.placeholder);
     expect(driver.state.transcriptEntries).toContainEqual(
       expect.objectContaining({ kind: 'user', content: text, skillNames: ['review'] }),
@@ -5942,7 +5930,7 @@ command = "vim"
                         index: 0,
                         id: 'call_video_1',
                         type: 'function',
-                        function: { name: 'ReadMediaFile', arguments: '{"path":"clip.mp4"}' },
+                        function: { name: 'Read', arguments: '{"path":"clip.mp4"}' },
                       },
                     ],
                   },

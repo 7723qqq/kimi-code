@@ -271,7 +271,11 @@ async function replayIntoDriver(
   const initial = makeSession([]);
   const resumed = makeSession(replay, overrides);
   const driver = await makeDriver(initial);
-  await driver.switchToSession(resumed, 'Resumed session (ses-replay).');
+  const resumeNotice = 'Resumed session (ses-replay).';
+  await driver.switchToSession(resumed, resumeNotice);
+  const entries = driver.state.transcriptEntries;
+  const last = entries.at(-1);
+  if (last?.kind === 'status' && last.content === resumeNotice) entries.pop();
   return driver;
 }
 
@@ -1170,8 +1174,8 @@ describe('KimiTUI resume message replay', () => {
           origin: {
             kind: 'user',
             skillActivations: [
-              { activationId: 'act-1', skillName: 'review' },
-              { activationId: 'act-2', skillName: 'security' },
+              { kind: 'skill_activation', trigger: 'user-slash', activationId: 'act-1', skillName: 'review' },
+              { kind: 'skill_activation', trigger: 'user-slash', activationId: 'act-2', skillName: 'security' },
             ],
           } as PromptOrigin,
         },
@@ -1201,7 +1205,9 @@ describe('KimiTUI resume message replay', () => {
         {
           origin: {
             kind: 'user',
-            skillActivations: [{ activationId: 'act-3', skillName: 'commit' }],
+            skillActivations: [
+              { kind: 'skill_activation', trigger: 'user-slash', activationId: 'act-3', skillName: 'commit' },
+            ],
           } as PromptOrigin,
         },
       ),
@@ -1233,7 +1239,9 @@ describe('KimiTUI resume message replay', () => {
           origin: {
             kind: 'user',
             inTurn: true,
-            skillActivations: [{ activationId: 'act-steer', skillName: 'review' }],
+            skillActivations: [
+              { kind: 'skill_activation', trigger: 'user-slash', activationId: 'act-steer', skillName: 'review' },
+            ],
           } as PromptOrigin,
         },
       ),

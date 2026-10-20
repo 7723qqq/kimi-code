@@ -9,7 +9,6 @@ import { createMarkdownTheme } from '../theme/pi-tui-theme';
 import type { TUIState } from '../tui-state';
 import { formatErrorMessage } from '../utils/event-payload';
 import { formatHookResultPlain } from '../utils/hook-result-format';
-import { createMarkdownTheme } from '../theme/pi-tui-theme';
 import type { InlineSkillActivation, PreparedSkillActivations } from '../types';
 import { MEDIA_INGESTION_SUBMIT_WAIT_MS } from '../constant/media';
 import type { ImageAttachmentStore } from '../utils/image-attachment-store';
@@ -21,9 +20,6 @@ import {
   type ExtractionResult,
 } from '../utils/image-placeholder';
 import type { StagingLease, StagingLeaseTracker } from './staging-leases';
-import type { TUIState } from '../tui-state';
-
-const BTW_BUSY_NOTICE = 'Wait for /btw to finish before sending another question.';
 
 export interface BtwPanelHost {
   state: TUIState;
@@ -53,20 +49,24 @@ export class BtwPanelController {
     private readonly staging: StagingLeaseTracker,
   ) {}
 
-  open(agentId: string, initialPrompt: string): void {
+  open(
+    agentId: string,
+    initialPrompt: string,
+    inlineSkillActivations?: readonly InlineSkillActivation[],
+  ): void {
     let panel: BtwPanelComponent;
     panel = new BtwPanelComponent({
       markdownTheme: createMarkdownTheme(),
       canUseScrollKeys: () => this.host.state.editor.getText().length === 0,
       terminalRows: () => this.host.state.terminal.rows,
-      onPrompt: (prompt) => {
-        this.promptAgent(agentId, prompt, panel);
+      onPrompt: (prompt, inlineSkillActivations) => {
+        this.promptAgent(agentId, prompt, panel, inlineSkillActivations);
       },
     });
     this.active = { agentId, panel };
     this.panelsByAgentId.set(agentId, panel);
     this.mount(panel);
-    panel.submit(initialPrompt);
+    panel.submit(initialPrompt, inlineSkillActivations);
   }
 
   isActive(): boolean {
@@ -103,14 +103,14 @@ export class BtwPanelController {
     return true;
   }
 
-  sendUserInput(text: string): boolean {
+  sendUserInput(text: string, inlineSkillActivations?: readonly InlineSkillActivation[]): boolean {
     const active = this.active;
     if (active === undefined) return false;
     if (active.panel.isRunning()) {
       this.showBusyNotice(active, text);
       return true;
     }
-    active.panel.submit(text);
+    active.panel.submit(text, inlineSkillActivations);
     this.host.state.ui.setFocus(this.host.state.editor);
     this.host.state.ui.requestRender();
     return true;
@@ -190,7 +190,12 @@ export class BtwPanelController {
     this.host.state.ui.requestRender();
   }
 
-  private promptAgent(agentId: string, prompt: string, panel: BtwPanelComponent): void {
+  private promptAgent(
+    agentId: string,
+    prompt: string,
+    panel: BtwPanelComponent,
+    inlineSkillActivations?: readonly InlineSkillActivation[],
+  ): void {
     const session = this.host.session;
     if (session === undefined) {
       panel.markFailed(getNoActiveSessionMessage());
@@ -233,7 +238,9 @@ export class BtwPanelController {
         this.panelsByAgentId.get(agentId) !== panel ||
         !panel.isRunning()
       ) return;
-      extraction = extractMediaAttachments(prompt, this.imageStore);
+      extraction = await Promise.resolve(
+        extractMediaAttachments(prompt, this.imageStore),
+      );
       if (!this.host.validateMediaCapabilities(extraction)) {
         throw new Error('Current model does not support this media input.');
       }

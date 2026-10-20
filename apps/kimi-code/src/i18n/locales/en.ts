@@ -648,6 +648,7 @@ export default {
         noActiveSession: 'No active session. Send /login to login.',
         oauthLoginExpired: 'OAuth login expired. Send /login to login.',
         sessionlessStartup: 'No session yet — one will be created on your first message.',
+        shuttingDown: 'Shutting down… (running shutdown hooks)',
         tuiModeRestart: 'TUI mode takes effect after restarting Kimi Code.',
       },
       tips: {
@@ -1774,6 +1775,8 @@ export default {
       skillFailed: 'Skill "{{name}}" failed: {{error}}',
       skillActivationFailed: 'Skill activation failed: {{error}}',
       failedToPrepareMediaAttachment: 'Failed to prepare media attachment: {{error}}',
+      sessionChangedWhilePreparingMedia:
+        'Session changed while preparing media attachment; skill prompt not sent.',
       videoStillUploading: 'Video "{{label}}" is still uploading; try again in a moment.',
       videoExpired: 'Video "{{label}}" expired before it was sent; paste it again.',
       videoUploadFailed: 'Video "{{label}}" could not be uploaded; paste it again.',
@@ -2584,9 +2587,6 @@ export default {
         on: 'on',
         off: 'off',
         sessionNone: 'none',
-        nativeToolsLabel: 'Native tools',
-        nativeToolsRust: 'rust',
-        nativeToolsJs: 'js (fallback)',
         contextWindow: 'Context window',
         noContextData: 'No context window data available.',
       },

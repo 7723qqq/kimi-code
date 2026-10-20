@@ -1331,8 +1331,7 @@ export class SessionEventHandler {
       // v2 declares `trigger` as a plain string; the engine only ever emits
       // the three `SkillActivationTrigger` values (see SkillActivationOrigin).
       skillTrigger: event.trigger as SkillActivationTrigger,
-    };
-    this.host.appendTranscriptEntry(entry);
+    });
   }
 
   private handlePluginCommandActivated(event: PluginCommandActivatedEvent): void {

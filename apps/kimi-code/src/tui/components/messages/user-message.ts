@@ -161,10 +161,6 @@ function normalizeSkillTokenName(name: string): string {
   return name.startsWith('skill:') ? name.slice('skill:'.length) : name;
 }
 
-function isImageLine(line: string): boolean {
-  return line.includes('\u001B_G') || line.includes('\u001B]1337;File=');
-}
-
 /**
  * Invisible turn-boundary marker for replay. Some replayed records start a
  * new turn without anything to show — the goal driver's synthetic

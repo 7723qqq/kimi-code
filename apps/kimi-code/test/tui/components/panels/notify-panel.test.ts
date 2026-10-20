@@ -351,15 +351,15 @@ describe('NotifyPanelComponent', () => {
     const lines = render(panel);
     const titleRow = lines.findIndex((line) => line.includes('Root cause found'));
     const bodyRow = lines.findIndex((line) => line.includes('Two refreshes reuse one token.'));
-    expect(titleRow).toBeGreaterThan(1);
+    expect(titleRow).toBeGreaterThan(0);
     expect(bodyRow).toBe(titleRow + 2);
-    expect(lines[titleRow + 1]).toMatch(/^│\s*│$/);
+    expect(lines[titleRow + 1]).toMatch(/^\s+$/);
 
     panel.setEnded(true);
     const collapsed = render(panel);
-    expect(collapsed).toHaveLength(2);
-    expect(collapsed[1]).toContain('Root cause found');
-    expect(collapsed[1]).not.toContain('Two refreshes');
+    expect(collapsed).toHaveLength(1);
+    expect(collapsed[0]).toContain('Root cause found');
+    expect(collapsed[0]).not.toContain('Two refreshes');
   });
 
   it('stays expanded when the turn ends while the user is reading, folds on blur', () => {

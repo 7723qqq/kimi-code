@@ -22,18 +22,17 @@ import {
   getLlmNotSetMessage,
 } from '../constant/kimi-tui';
 import { MEDIA_STAGING_TTL_SECONDS } from '../constant/media';
+import type { StatusSurfaceKey } from '../components/chrome/status-surface/region';
 import type { TUIState } from '../tui-state';
-import type { PendingExit, QueuedMessage, SteerInputItem } from '../types';
+import type { PendingExit, QueuedMessage } from '../types';
 import { formatErrorMessage } from '../utils/event-payload';
 import type {
   ImageAttachment,
   ImageAttachmentStore,
   VideoAttachment,
 } from '../utils/image-attachment-store';
-import { extractMediaAttachments, imageExtensionForMime } from '../utils/image-placeholder';
+import { extractMediaAttachments, imageExtensionForMime, type ExtractionResult } from '../utils/image-placeholder';
 import { resolveUserInput } from '../commands/resolve';
-import type { PendingExit, QueuedMessage } from '../types';
-import type { TUIState } from '../tui-state';
 import type { BtwPanelController } from './btw-panel';
 import type { PromptOptimizerController } from './prompt-optimizer';
 import type { SurveyController } from './survey-controller';
@@ -191,11 +190,9 @@ export class EditorKeyboardController {
       this.clearPendingUndoEsc();
     };
 
-    editor.onPreInput = (data: string) => {
-      if (matchesKey(data, Key.escape)) this.clearPendingExit();
-      const consumed = host.surveyController.handlePreInput(data);
-      if (consumed) this.clearPendingUndoEsc();
-      return consumed;
+    editor.onOptimizePrompt = (): void => {
+      host.track('shortcut_optimize_prompt');
+      void host.promptOptimizer.optimize();
     };
 
     editor.onCtrlC = () => {
@@ -372,67 +369,7 @@ export class EditorKeyboardController {
     editor.onStatusSurfaceRawInput = (data): boolean => host.handleStatusSurfaceRawInput(data);
 
     editor.onCtrlS = (): void => {
-      void this.steerWithEditorDraft();
-    };
-
-    editor.onNotifyPanelKey = (key) => host.handleNotifyPanelKey(key);
-
-    editor.onCtrlS = () => {
-      if (
-        host.state.appState.streamingPhase === 'idle' ||
-        host.state.appState.streamingPhase === 'shell' ||
-        host.state.appState.isCompacting ||
-        host.isSteeringQueuedMessages()
-      ) return;
-      const text = (editor.getExpandedText?.() ?? editor.getText()).trim();
-      const editorIsBash = editor.inputMode === 'bash';
-      let extraction: ReturnType<typeof extractMediaAttachments> | undefined;
-      if (!editorIsBash && text.length > 0) {
-        try {
-          extraction = extractMediaAttachments(text, this.imageStore);
-        } catch (error) {
-          host.showError(`Failed to prepare media attachment: ${formatErrorMessage(error)}`);
-          return;
-        }
-        if (!host.validateMediaCapabilities(extraction)) {
-          host.releaseStagingMedia([
-            ...extraction.imageAttachmentIds,
-            ...extraction.videoAttachmentIds,
-          ]);
-          return;
-        }
-      }
-      if (host.state.appState.model.trim().length === 0 || host.session === undefined) {
-        host.releaseStagingMedia([
-          ...(extraction?.imageAttachmentIds ?? []),
-          ...(extraction?.videoAttachmentIds ?? []),
-        ]);
-        host.showError(LLM_NOT_SET_MESSAGE);
-        return;
-      }
-      if (extraction !== undefined) {
-        const { activations } = resolveUserInput({
-          input: text,
-          skillCommandMap: host.skillCommandMap,
-          pluginCommandMap: host.pluginCommandMap,
-          isStreaming: true,
-          isCompacting: host.state.appState.isCompacting,
-        });
-        host.state.queuedMessages.push({
-          text,
-          agentId: host.harness?.interactiveAgentId,
-          parts: extraction.hasMedia ? extraction.parts : undefined,
-          imageAttachmentIds:
-            extraction.imageAttachmentIds.length > 0 ? extraction.imageAttachmentIds : undefined,
-          videoAttachmentIds:
-            extraction.videoAttachmentIds.length > 0 ? extraction.videoAttachmentIds : undefined,
-          inlineSkillActivations: activations.length > 0 ? activations : undefined,
-        });
-        editor.setText('');
-      }
-      host.steerQueuedMessagesIntoRunningTurn(true);
-      host.updateQueueDisplay();
-      host.state.ui.requestRender();
+      this.steerWithEditorDraft();
     };
 
     editor.onCtrlB = (): boolean => {
@@ -495,144 +432,91 @@ export class EditorKeyboardController {
    * non-bash items). Extraction is awaited so a bare image path in the draft
    * attaches through the full paste-time ingestion before the parts are sent.
    */
-  private async steerWithEditorDraft(): Promise<void> {
+  private steerWithEditorDraft(): void {
     const { host } = this;
     const editor = host.state.editor;
     if (
       host.state.appState.streamingPhase === 'idle' ||
       host.state.appState.streamingPhase === 'shell' ||
-      host.state.appState.isCompacting
-    )
+      host.state.appState.isCompacting ||
+      host.isSteeringQueuedMessages()
+    ) {
       return;
-    // An automatic steer of the queue is still in flight: steering more now
-    // could reach the model ahead of it, so the keypress is ignored for
-    // that brief window and the draft stays in the editor.
-    if (host.isSteeringQueuedMessages()) return;
-    const text = editor.getText().trim();
+    }
+    const text = (editor.getExpandedText?.() ?? editor.getText()).trim();
     const editorIsBash = editor.inputMode === 'bash';
-
-    // Bash commands (`! …`) are not steerable: keep them queued so they run
-    // after the current task instead of being injected into the turn as text.
-    // A message carrying inline-skill activations also stays queued (and
-    // everything after it keeps FIFO order): its grouped submission must not
-    // be spliced around. Everything else steers in queue order — plain text as
-    // a steered message, slash-skill items as activations fired into the
-    // running turn (never as literal text).
-    const queued = host.state.queuedMessages;
-    const firstBundle = queued.findIndex((m) => m.inlineSkillActivations !== undefined);
-    const windowBeforeFirstBundle = firstBundle === -1 ? queued : queued.slice(0, firstBundle);
-    const steerable = windowBeforeFirstBundle.filter((m) => m.mode !== 'bash');
-    const editorHasInlineSkills =
-      !editorIsBash &&
-      text.length > 0 &&
-      extractInlineSkillActivations(text, host.skillCommandMap).length > 0;
-
-    type SteerRun =
-      | { readonly kind: 'text'; readonly items: SteerInputItem[] }
-      | { readonly kind: 'skill'; readonly skillName: string; readonly skillArgs: string };
-    const runs: SteerRun[] = [];
-    let textRun: SteerInputItem[] = [];
-    const flushTextRun = (): void => {
-      if (textRun.length > 0) {
-        runs.push({ kind: 'text', items: textRun });
-        textRun = [];
-      }
-    };
-    for (const m of steerable) {
-      if (m.mode === 'skill' && m.skillName !== undefined) {
-        flushTextRun();
-        runs.push({ kind: 'skill', skillName: m.skillName, skillArgs: m.skillArgs ?? '' });
-        continue;
-      }
-      const trimmed = m.text.trim();
-      if (trimmed.length > 0) {
-        // Queued items carry the parts extracted when they were submitted
-        // (and were already capability-validated then).
-        textRun.push({
-          text: trimmed,
-          parts: m.parts,
-          imageAttachmentIds: m.imageAttachmentIds,
-          videoAttachmentIds: m.videoAttachmentIds,
-        });
-      }
+    if (editorIsBash || text.length === 0) {
+      host.steerQueuedMessagesIntoRunningTurn(true);
+      host.updateQueueDisplay();
+      host.state.ui.requestRender();
+      return;
     }
-    let editorExtraction: ExtractionResult | undefined;
-    if (!editorIsBash && text.length > 0 && !editorHasInlineSkills && firstBundle === -1) {
-      try {
-        editorExtraction = await extractMediaAttachments(
-          text,
-          this.imageStore,
-          (attachment, bytes, mime, width, height) =>
-            this.prepareImageAttachment(attachment, bytes, mime, width, height),
-        );
-      } catch (error) {
-        // Media expansion failed (e.g. the pasted video's upload is still
-        // in flight) — leave the queue and the editor draft untouched.
-        host.showError(
-          t('tui.statusMessages.failedToPrepareMediaAttachment', {
-            error: formatErrorMessage(error),
-          }),
-        );
-        return;
-      }
-      textRun.push({
+    let extraction: ExtractionResult | Promise<ExtractionResult>;
+    try {
+      extraction = extractMediaAttachments(
         text,
-        parts: editorExtraction.hasMedia ? editorExtraction.parts : undefined,
-        imageAttachmentIds:
-          editorExtraction.imageAttachmentIds.length > 0
-            ? editorExtraction.imageAttachmentIds
-            : undefined,
-        videoAttachmentIds:
-          editorExtraction.videoAttachmentIds.length > 0
-            ? editorExtraction.videoAttachmentIds
-            : undefined,
-      });
-    }
-    flushTextRun();
-
-    if (runs.length > 0) {
-      // The editor draft is fresh input: gate it on the model's media
-      // capabilities before splicing the queue, so a rejection leaves the
-      // queue and the draft untouched.
-      if (editorExtraction !== undefined && !host.validateMediaCapabilities(editorExtraction)) {
-        host.releaseStagingMedia([
-          ...editorExtraction.imageAttachmentIds,
-          ...editorExtraction.videoAttachmentIds,
-        ]);
-        return;
-      }
-    }
-
-    if (runs.length > 0) {
-      const session = host.session;
-      if (host.state.appState.model.trim().length === 0 || session === undefined) {
-        host.releaseStagingMedia([
-          ...(editorExtraction?.imageAttachmentIds ?? []),
-          ...(editorExtraction?.videoAttachmentIds ?? []),
-        ]);
-        host.showError(getLlmNotSetMessage());
-        return;
-      }
-      // Mutate the queue/editor only after the guard passes, so an
-      // early-return here never drops the user's queued non-bash items or
-      // the draft text. Bash items and everything from the first inline-skill
-      // bundle onward stay queued.
-      host.state.queuedMessages = queued.filter(
-        (m, index) => m.mode === 'bash' || (firstBundle !== -1 && index >= firstBundle),
+        this.imageStore,
+        (attachment, bytes, mime, width, height) =>
+          this.prepareImageAttachment(attachment, bytes, mime, width, height),
       );
-      if (!editorIsBash && !editorHasInlineSkills && firstBundle === -1) editor.setText('');
-      for (const run of runs) {
-        if (run.kind === 'text') {
-          host.steerMessage(session, run.items);
-        } else {
-          host.steerSkillActivation(session, run.skillName, run.skillArgs);
-        }
-      }
+    } catch (error) {
+      host.showError(
+        t('tui.statusMessages.failedToPrepareMediaAttachment', {
+          error: formatErrorMessage(error),
+        }),
+      );
+      return;
     }
+    if (extraction instanceof Promise) {
+      void extraction.then(
+        (resolved) => this.steerDraftWithExtraction(text, resolved),
+        (error: unknown) => {
+          host.showError(
+            t('tui.statusMessages.failedToPrepareMediaAttachment', {
+              error: formatErrorMessage(error),
+            }),
+          );
+        },
+      );
+      return;
+    }
+    this.steerDraftWithExtraction(text, extraction);
+  }
+
+  private steerDraftWithExtraction(text: string, extraction: ExtractionResult): void {
+    const { host } = this;
+    const editor = host.state.editor;
+    if (!host.validateMediaCapabilities(extraction)) {
+      host.releaseStagingMedia([...extraction.imageAttachmentIds, ...extraction.videoAttachmentIds]);
+      return;
+    }
+    if (host.state.appState.model.trim().length === 0 || host.session === undefined) {
+      host.releaseStagingMedia([...extraction.imageAttachmentIds, ...extraction.videoAttachmentIds]);
+      host.showError(getLlmNotSetMessage());
+      return;
+    }
+    const { activations } = resolveUserInput({
+      input: text,
+      skillCommandMap: host.skillCommandMap,
+      pluginCommandMap: host.pluginCommandMap,
+      isStreaming: true,
+      isCompacting: host.state.appState.isCompacting,
+    });
+    host.state.queuedMessages.push({
+      text,
+      agentId: host.harness?.interactiveAgentId,
+      parts: extraction.hasMedia ? extraction.parts : undefined,
+      imageAttachmentIds:
+        extraction.imageAttachmentIds.length > 0 ? extraction.imageAttachmentIds : undefined,
+      videoAttachmentIds:
+        extraction.videoAttachmentIds.length > 0 ? extraction.videoAttachmentIds : undefined,
+      inlineSkillActivations: activations.length > 0 ? activations : undefined,
+    });
+    editor.setText('');
+    host.steerQueuedMessagesIntoRunningTurn(true);
     host.updateQueueDisplay();
     host.state.ui.requestRender();
   }
-
   clearPendingExit(): void {
     if (!this.pendingExit) return;
     clearTimeout(this.pendingExit.timer);
