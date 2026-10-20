@@ -40,7 +40,6 @@
     "clean": "bun -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })\""
   },
   "dependencies": {
-    "@moonshot-ai/i18n-shared": "workspace:^",
-    "@moonshot-ai/kimi-native-tools": "workspace:^"
+    "@moonshot-ai/i18n-shared": "workspace:^"
   }
 }

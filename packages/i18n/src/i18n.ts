@@ -56,11 +56,11 @@ export type Engine = 'rust' | 'js';
  * Returns the translation engine in use. Always `'js'`: lookups run in-process
  * against the flat message maps.
  *
- * The napi round-trip through `@moonshot-ai/kimi-native-tools` shipped the
- * whole locale JSON (about 130 KB, twice) across the boundary on every `t()`
- * call — ~290 µs per call against ~0.05 µs for this lookup. The engine emits
- * translated strings on hot event paths, so that bridge was pure main-thread
- * cost; the trees already live in JS. Kept as an API for compatibility.
+ * The former napi round-trip shipped the whole locale JSON (about 130 KB,
+ * twice) across the boundary on every `t()` call — ~290 µs per call against
+ * ~0.05 µs for this lookup. The engine emits translated strings on hot event
+ * paths, so that bridge was pure main-thread cost; the trees already live in
+ * JS. Kept as an API for compatibility.
  */
 export function getEngine(): Engine {
   return 'js';

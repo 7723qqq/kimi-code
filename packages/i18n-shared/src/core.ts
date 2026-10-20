@@ -1,12 +1,8 @@
 /**
- * Pure-JS translation core — mirrors the Rust `translation.rs` engine exactly.
+ * Pure-JS translation core — the only translation engine.
  *
- * This is the browser-side fallback when the Rust napi module is unavailable.
- * The logic is identical: `resolve` walks dot-separated keys, `interpolate`
- * replaces `{{param}}` tokens, and `translate` chains both with fallback.
- *
- * Keeping this in sync with `packages/kimi-native-tools/src/translation.rs`
- * ensures that all apps produce identical translations regardless of engine.
+ * `resolve` walks dot-separated keys, `interpolate` replaces `{{param}}`
+ * tokens, and `translate` chains both with fallback.
  */
 
 import type { MessageValue } from './types.js';
