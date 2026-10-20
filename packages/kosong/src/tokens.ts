@@ -4,12 +4,10 @@
  * Estimates are heuristic (ASCII ≈ 4 chars/token, non-ASCII ≈ 1 token/char,
  * media parts a flat `MEDIA_TOKEN_ESTIMATE`); they size context windows and
  * compaction budgets, never billing. Per-message results are memoized on the
- * message object via a WeakMap. When the native addon is available, the
- * Rust estimator is used as the primary path.
+ * message object via a WeakMap.
  */
 
 import type { ContentPart, Message } from './message';
-import { tryNativeEstimateTokens, tryNativeEstimateTokensBatch } from './native-tools';
 import type { Tool } from './tool';
 
 const messageTokenEstimateCache = new WeakMap<Message, number>();
@@ -24,8 +22,6 @@ const messageTokenEstimateCache = new WeakMap<Message, number>();
 const JSON_TOKEN_MULTIPLIER = 1.3;
 
 export function estimateTokens(text: string): number {
-  const native = tryNativeEstimateTokens(text);
-  if (native !== undefined) return native;
   return tsEstimateTokens(text);
 }
 
@@ -59,24 +55,12 @@ export function estimateTokensForMessages(messages: readonly Message[]): number 
 }
 
 export function estimateTokensForTools(tools: readonly Tool[]): number {
-  const texts: string[] = [];
-  for (const tool of tools) {
-    texts.push(tool.name);
-    texts.push(tool.description);
-    texts.push(JSON.stringify(tool.parameters));
-  }
-  const native = tryNativeEstimateTokensBatch(texts);
-  if (native !== undefined) {
-    return Math.ceil(native * JSON_TOKEN_MULTIPLIER);
-  }
   let total = 0;
   for (const tool of tools) {
     total += estimateTokens(tool.name);
     total += estimateTokens(tool.description);
     total += estimateTokens(JSON.stringify(tool.parameters));
   }
-  // The multiplier applies to the summed estimate, matching the native batch
-  // path above — applying it per-tool would make the two paths disagree.
   return Math.ceil(total * JSON_TOKEN_MULTIPLIER);
 }
 

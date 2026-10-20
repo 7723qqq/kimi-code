@@ -19,58 +19,7 @@ import {
 } from './knowledge';
 import { KnowledgeInjection } from './knowledgeInjection';
 import { KnowledgeLearner } from './knowledgeLearner';
-
-interface NativeKnowledgeApi {
-  knowledgeOpen(dbPath: string): void;
-  knowledgeClose(dbPath?: string | null): void;
-  knowledgeAdd(
-    title: string,
-    category: string,
-    content: string,
-    tags: string,
-    scope: string | null | undefined,
-    source: string,
-    confidence: number,
-  ): string;
-  knowledgeSearch(
-    query: string,
-    scopePath: string | null | undefined,
-    tags: string | null | undefined,
-    limit: number,
-    minConfidence: number,
-  ): string;
-  knowledgeRemove(id: string): boolean;
-  knowledgeConfirm(id: string): boolean;
-  knowledgeReject?(id: string): boolean;
-  knowledgeStats(): string;
-  knowledgeImport(markdown: string): string;
-}
-
-function hasKnowledgeApi(candidate: unknown): candidate is NativeKnowledgeApi {
-  if (typeof candidate !== 'object' || candidate === null) return false;
-  const api = candidate as Record<string, unknown>;
-  const required = [
-    'knowledgeOpen',
-    'knowledgeAdd',
-    'knowledgeSearch',
-    'knowledgeRemove',
-    'knowledgeConfirm',
-    'knowledgeStats',
-    'knowledgeImport',
-  ];
-  return required.every((name) => typeof api[name] === 'function');
-}
-
-let nativeKnowledge: NativeKnowledgeApi | undefined;
-
-try {
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const loaded: unknown = require('@moonshot-ai/kimi-native-tools');
-  nativeKnowledge = hasKnowledgeApi(loaded) ? loaded : undefined;
-} catch (error) {
-  void error;
-  nativeKnowledge = undefined;
-}
+import * as sqliteKnowledge from './sqliteKnowledge';
 
 export const INJECTION_CONFIDENCE_FLOOR = 0.5;
 
@@ -89,9 +38,9 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
     @ILogService private readonly log: ILogService,
   ) {
     super();
-    if (!nativeKnowledge) {
+    if (!sqliteKnowledge.isAvailable()) {
       this.log.warn(
-        'Knowledge native API not available in this build — knowledge features disabled',
+        'Knowledge database backend not available in this build — knowledge features disabled',
       );
     }
     if (this.scopeContext.agentId === 'main') {
@@ -100,16 +49,13 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
     }
   }
 
-  private get native(): NativeKnowledgeApi {
-    if (nativeKnowledge === undefined) {
-      throw new Error('knowledge database is not open');
-    }
-    return nativeKnowledge;
+  private get native(): typeof sqliteKnowledge {
+    return sqliteKnowledge;
   }
 
   private ensureDatabase(): boolean {
     if (this.initialized) return true;
-    if (!nativeKnowledge) return false;
+    if (!sqliteKnowledge.isAvailable()) return false;
 
     const override = process.env['KIMI_KNOWLEDGE_DB'];
     if (override !== undefined && override.length > 0) {
@@ -125,7 +71,7 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
 
   private openExisting(): boolean {
     if (this.initialized) return true;
-    if (!nativeKnowledge) return false;
+    if (!sqliteKnowledge.isAvailable()) return false;
 
     const override = process.env['KIMI_KNOWLEDGE_DB'];
     if (override !== undefined && override.length > 0) {
@@ -140,9 +86,9 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
   }
 
   private openAt(path: string): boolean {
-    if (!nativeKnowledge) return false;
+    if (!sqliteKnowledge.isAvailable()) return false;
     try {
-      nativeKnowledge.knowledgeOpen(path);
+      sqliteKnowledge.knowledgeOpen(path);
       this.initialized = true;
       this.currentDbPath = path;
       return true;
@@ -153,14 +99,14 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
   }
 
   open(projectDbPath: string, userDbPath: string): void {
-    if (!nativeKnowledge) return;
+    if (!sqliteKnowledge.isAvailable()) return;
     try {
       if (this.currentDbPath !== null) {
         try {
-          nativeKnowledge.knowledgeClose(this.currentDbPath);
+          sqliteKnowledge.knowledgeClose();
         } catch {}
       }
-      nativeKnowledge.knowledgeOpen(projectDbPath);
+      sqliteKnowledge.knowledgeOpen(projectDbPath);
       this.initialized = true;
       this.currentDbPath = projectDbPath;
     } catch (error) {
@@ -169,7 +115,7 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
         projectDbPath,
       });
       try {
-        nativeKnowledge.knowledgeOpen(userDbPath);
+        sqliteKnowledge.knowledgeOpen(userDbPath);
         this.initialized = true;
         this.currentDbPath = userDbPath;
       } catch (error) {
@@ -233,9 +179,7 @@ export class AgentKnowledgeService extends Disposable implements IAgentKnowledge
   reject(id: string): boolean {
     if (!this.ensureDatabase()) return false;
     try {
-      const api = this.native;
-      const reject = api.knowledgeReject?.bind(api) ?? api.knowledgeRemove.bind(api);
-      return reject(id);
+      return this.native.knowledgeRemove(id);
     } catch (error) {
       this.log.error('knowledge.reject failed', { error: error, id });
       return false;

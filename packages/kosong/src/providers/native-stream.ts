@@ -100,6 +100,7 @@ function parseNativeApiErrorStatus(message: string): number | undefined {
 let nativeModule: Record<string, unknown> | null | undefined;
 
 function getNativeModule(): Record<string, unknown> | undefined {
+  if (process.env['KIMI_NATIVE_STREAM'] === '0') return undefined;
   if (nativeModule === null) return undefined;
   if (nativeModule !== undefined) return nativeModule;
   try {

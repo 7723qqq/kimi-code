@@ -7,18 +7,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { IAgentKnowledgeService } from '#/agent/knowledge/knowledge';
 import { INJECTION_CONFIDENCE_FLOOR } from '#/agent/knowledge/knowledgeService';
 import { LEARNED_CONFIDENCE } from '#/agent/knowledge/knowledgeLearner';
+import * as sqliteKnowledge from '#/agent/knowledge/sqliteKnowledge';
 
 import { createTestAgent, type TestAgentContext } from '../../harness';
-
-const nativeKnowledge = (() => {
-  try {
-    return require('@moonshot-ai/kimi-native-tools') as {
-      knowledgeClose?: () => void;
-    };
-  } catch {
-    return undefined;
-  }
-})();
 
 describe('the learned-to-confirmed gate', () => {
   it('withholds a freshly learned entry', () => {
@@ -30,7 +21,7 @@ describe('the learned-to-confirmed gate', () => {
   });
 });
 
-describe('learning loop over the real native module', () => {
+describe('learning loop over the real sqlite store', () => {
   let ctx: TestAgentContext;
   let knowledge: IAgentKnowledgeService;
   let dir: string;
@@ -44,7 +35,7 @@ describe('learning loop over the real native module', () => {
 
   afterEach(async () => {
     await ctx.dispose();
-    nativeKnowledge?.knowledgeClose?.();
+    sqliteKnowledge.knowledgeClose();
     delete process.env['KIMI_KNOWLEDGE_DB'];
     rmSync(dir, { recursive: true, force: true });
   });
