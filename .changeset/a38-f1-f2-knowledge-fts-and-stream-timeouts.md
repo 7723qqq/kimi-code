@@ -1,5 +1,4 @@
 ---
-"@moonshot-ai/kimi-native-tools": patch
 "@moonshot-ai/kosong": patch
 "@moonshot-ai/agent-core-v2": patch
 ---

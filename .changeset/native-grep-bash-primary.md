@@ -1,5 +1,4 @@
 ---
-"@moonshot-ai/kimi-native-tools": minor
 "@moonshot-ai/agent-core-v2": minor
 "@moonshot-ai/kimi-code": minor
 ---

@@ -2,7 +2,6 @@
 "@moonshot-ai/agent-core-v2": patch
 "@moonshot-ai/pi-tui": patch
 "@moonshot-ai/tree-sitter-bash": patch
-"@moonshot-ai/kimi-native-tools": patch
 "@moonshot-ai/kimi-code": patch
 ---
 

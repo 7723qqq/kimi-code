@@ -1,7 +1,6 @@
 ---
 "@moonshot-ai/agent-core-v2": patch
 "@moonshot-ai/kimi-code": patch
-"@moonshot-ai/kimi-native-tools": patch
 ---
 
 Cache-correctness and prompt-cache-stability hardening:

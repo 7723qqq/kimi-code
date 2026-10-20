@@ -1,5 +1,5 @@
 ---
-"@moonshot-ai/oauth": patch
+"@moonshot-ai/kimi-code-oauth": patch
 ---
 
 An open-platform model refresh now gives up on a stalled `/models` host instead of hanging. `refreshProviderModels` called `fetchOpenPlatformModels(platform, apiKey)` with two arguments, so the `signal` parameter the fetcher already threads into `fetch` was always `undefined`: a provider that accepted the TCP connection and then went silent (`api.moonshot.cn` / `api.moonshot.ai`) held the awaited refresh — the TUI background refresh and the daemon RPC chain behind it — for undici's default 300 s, which users saw as "refresh does nothing" rather than a failure. Each open-platform fetch now carries its own deadline (`OPEN_PLATFORM_FETCH_TIMEOUT_MS`, 30 s, overridable per call via the new `options.timeoutMs`), and `RefreshProviderOptions.signal` lets a caller cancel the whole refresh; both are merged with `AbortSignal.any`. A timeout or cancellation lands in the existing `failed` bucket with the provider id, so `/refresh` reports which provider did not refresh. The trade-off is deliberate: a slow network that would have finished the first big catalog fetch in over 30 s now fails visibly, with the constant and `options.timeoutMs` as the escape hatches.

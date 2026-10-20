@@ -1,7 +1,6 @@
 ---
 "@moonshot-ai/kimi-code": minor
 "@moonshot-ai/agent-core-v2": minor
-"@moonshot-ai/kimi-native-tools": minor
 "@moonshot-ai/kimi-code-sdk": patch
 "@moonshot-ai/kap-server": patch
 ---

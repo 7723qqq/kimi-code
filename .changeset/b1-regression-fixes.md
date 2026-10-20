@@ -1,5 +1,4 @@
 ---
-"@moonshot-ai/kaos": patch
 "@moonshot-ai/agent-core-v2": patch
 "@moonshot-ai/kosong": patch
 ---
