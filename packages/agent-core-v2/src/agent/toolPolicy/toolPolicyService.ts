@@ -7,10 +7,10 @@ import { IConfigService } from '#/app/config/config';
 import { LifecycleScope } from '#/app/scopes';
 import { ISessionToolPolicy } from '#/session/sessionToolPolicy/sessionToolPolicy';
 import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionToolPolicyGate';
-import type { ToolSource } from '#/tool/toolContract';
+import { isMcpToolName, type ToolSource } from '#/tool/toolContract';
 
 import { TOOLS_SECTION, type ToolsConfig } from './configSection';
-import { isToolActiveComposed, type ToolActivationPolicy } from './evaluate';
+import { isToolActive, isToolActiveComposed, type ToolActivationPolicy } from './evaluate';
 import { IAgentToolPolicyService } from './toolPolicy';
 
 export class AgentToolPolicyService extends Disposable implements IAgentToolPolicyService {
@@ -53,6 +53,29 @@ export class AgentToolPolicyService extends Disposable implements IAgentToolPoli
       name,
       source,
     );
+  }
+
+  isToolDenied(name: string, source: ToolSource = isMcpToolName(name) ? 'mcp' : 'builtin'): boolean {
+    const deniedBy = (list: readonly string[] | undefined): boolean =>
+      list !== undefined && !isToolActive({ disallowedTools: list }, name, source);
+    return (
+      deniedBy(this.toolPolicyGate.disabledTools) ||
+      deniedBy(this.profile.data().disallowedTools) ||
+      deniedBy(this.globalPolicy?.disabled) ||
+      deniedBy(this.sessionToolPolicy.disabledTools())
+    );
+  }
+
+  getPolicyFingerprint(): string {
+    const profile = this.profile.data();
+    return JSON.stringify([
+      this.toolPolicyGate.disabledTools,
+      profile.activeToolNames,
+      profile.disallowedTools,
+      this.globalPolicy?.enabled,
+      this.globalPolicy?.disabled,
+      this.sessionToolPolicy.disabledTools(),
+    ].map((names) => names === undefined ? null : [...new Set(names)].toSorted()));
   }
 
   isToolActiveForDisclosure(name: string, source: ToolSource = 'builtin'): boolean {
