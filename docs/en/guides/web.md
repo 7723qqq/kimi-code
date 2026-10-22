@@ -24,9 +24,9 @@ If you're already in the CLI, you can also type `/web` to hand the current sessi
 The startup banner prints the access URL — if the browser doesn't open by itself, copy this URL and open it manually:
 
 ```text
-Local:    http://127.0.0.1:58627/#token=...
-Token:    ...
-Stop:     Ctrl+C
+Local:   http://127.0.0.1:58627/#token=...
+Token:   ...
+Stop:    Ctrl+C
 ```
 
 ::: warning
@@ -50,8 +50,9 @@ The `#token=` fragment is the access credential — don't share it. Stop the ser
 | `/new` | Start a new session |
 | `/goal` | Enter Goal mode and keep working toward the same objective across turns |
 | `/compact` | Compact the current session's context |
-| `/tower` | Tower multi-agent collaboration (experimental); `/tower <base-branch>` sets the base branch |
+| `/tower` | [Tower multi-agent collaboration](./tower.md) (experimental); `/tower <base-branch>` sets the base branch without sending an objective |
 | `/export` | Export the session content and troubleshooting logs as a ZIP |
+| `/remote-control` | Enable remote control to access the local web session remotely |
 
 ## Relationship with the CLI
 
