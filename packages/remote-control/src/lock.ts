@@ -1,4 +1,3 @@
-import { randomBytes } from 'node:crypto';
 import { mkdir, open, readFile, unlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
@@ -58,7 +57,7 @@ export async function acquireRemoteControlLock(
   await mkdir(dirname(lockPath), { recursive: true });
   const info: RemoteControlLockInfo = {
     pid: process.pid,
-    nonce: randomBytes(8).toString('hex'),
+    nonce: hexNonce(),
     localOrigin: details.localOrigin,
     deviceId: details.deviceId,
     url: details.url,
@@ -124,6 +123,12 @@ async function readRemoteControlLock(lockPath: string): Promise<RemoteControlLoc
     return undefined;
   }
   return decodeLock(raw);
+}
+
+function hexNonce(): string {
+  return Array.from(crypto.getRandomValues(new Uint8Array(8)), (byte) =>
+    byte.toString(16).padStart(2, '0'),
+  ).join('');
 }
 
 function encodeLock(info: RemoteControlLockInfo): string {

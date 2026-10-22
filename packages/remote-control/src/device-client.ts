@@ -10,6 +10,8 @@ import {
 
 import { resolveRemoteControlRelayOrigin } from './remote-control';
 
+export type RemoteControlFetch = (url: string, init?: RequestInit) => Promise<Response>;
+
 export interface RemoteControlDevice {
   readonly device_id: string;
   readonly alias: string;
@@ -42,7 +44,7 @@ export interface RemoteControlDeviceClientOptions {
   readonly configuredOAuthKey?: () => string | undefined;
   readonly configuredOAuthHost?: () => string | undefined;
   readonly relayOrigin?: string;
-  readonly fetchImpl?: typeof fetch;
+  readonly fetchImpl?: RemoteControlFetch;
 }
 
 interface RemoteControlDeviceContext {
@@ -59,7 +61,7 @@ const UNEXPECTED_LIST_RESPONSE = 'Remote Control device list returned an unexpec
 export class RemoteControlDeviceClient {
   private readonly cookies = new Map<string, string>();
   private readonly exchanges = new Map<string, Promise<string>>();
-  private readonly fetchImpl: typeof fetch;
+  private readonly fetchImpl: RemoteControlFetch;
   private sessionGeneration = 0;
   private abortController = new AbortController();
 
