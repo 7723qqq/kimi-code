@@ -40,6 +40,7 @@ type SubagentLifecycleEventOf<Type extends SubagentLifecycleEvent['type']> =
 export interface SubAgentEventHandlerDependencies {
   readonly backgroundTasks: ReadonlyMap<string, BackgroundTaskInfo>;
   readonly backgroundTaskTranscriptedTerminal: Set<string>;
+  readonly backgroundTaskTerminalEntries: Map<string, TranscriptEntry>;
   readonly syncBackgroundAgentBadge: () => void;
   /** Time source for tool-call timestamps; defaults to `Date.now`. */
   readonly now?: () => number;
@@ -306,11 +307,9 @@ export class SubAgentEventHandler {
     this.pruneForegroundOnlyRecord(event.subagentId);
     const backgroundMeta = this.backgroundAgentMetadata.get(event.subagentId);
     if (backgroundMeta !== undefined) {
-      const taskId = this.findAgentTaskId(
-        event.subagentId,
-        backgroundMeta,
-        this.deps.backgroundTasks,
-      );
+      const taskId =
+        backgroundMeta.taskId ??
+        this.findAgentTaskId(event.subagentId, backgroundMeta, this.deps.backgroundTasks);
       this.backgroundAgentMetadata.delete(event.subagentId);
       this.deps.syncBackgroundAgentBadge();
       if (taskId !== undefined && this.deps.backgroundTaskTranscriptedTerminal.has(taskId)) {
@@ -321,7 +320,10 @@ export class SubAgentEventHandler {
       }
       const extras =
         event.resultSummary === undefined ? undefined : { resultSummary: event.resultSummary };
-      this.appendBackgroundAgentEntry('completed', backgroundMeta, extras);
+      const entry = this.appendBackgroundAgentEntry('completed', backgroundMeta, extras);
+      if (taskId !== undefined) {
+        this.deps.backgroundTaskTerminalEntries.set(taskId, entry);
+      }
       return;
     }
 
@@ -335,11 +337,9 @@ export class SubAgentEventHandler {
     this.pruneForegroundOnlyRecord(event.subagentId);
     const backgroundMeta = this.backgroundAgentMetadata.get(event.subagentId);
     if (backgroundMeta !== undefined) {
-      const taskId = this.findAgentTaskId(
-        event.subagentId,
-        backgroundMeta,
-        this.deps.backgroundTasks,
-      );
+      const taskId =
+        backgroundMeta.taskId ??
+        this.findAgentTaskId(event.subagentId, backgroundMeta, this.deps.backgroundTasks);
       const task = taskId === undefined ? undefined : this.deps.backgroundTasks.get(taskId);
       this.backgroundAgentMetadata.delete(event.subagentId);
       this.deps.syncBackgroundAgentBadge();
@@ -358,7 +358,10 @@ export class SubAgentEventHandler {
       if (taskId !== undefined) {
         this.deps.backgroundTaskTranscriptedTerminal.add(taskId);
       }
-      this.appendBackgroundAgentEntry('failed', backgroundMeta, { error: event.error });
+      const entry = this.appendBackgroundAgentEntry('failed', backgroundMeta, { error: event.error });
+      if (taskId !== undefined) {
+        this.deps.backgroundTaskTerminalEntries.set(taskId, entry);
+      }
       return;
     }
 
@@ -372,11 +375,9 @@ export class SubAgentEventHandler {
     this.pruneForegroundOnlyRecord(event.subagentId);
     const backgroundMeta = this.backgroundAgentMetadata.get(event.subagentId);
     if (backgroundMeta !== undefined) {
-      const taskId = this.findAgentTaskId(
-        event.subagentId,
-        backgroundMeta,
-        this.deps.backgroundTasks,
-      );
+      const taskId =
+        backgroundMeta.taskId ??
+        this.findAgentTaskId(event.subagentId, backgroundMeta, this.deps.backgroundTasks);
       this.backgroundAgentMetadata.delete(event.subagentId);
       this.deps.syncBackgroundAgentBadge();
       this.host.streamingUI.applyBackgroundTaskTerminalStatus({
@@ -390,7 +391,10 @@ export class SubAgentEventHandler {
       if (taskId !== undefined) {
         this.deps.backgroundTaskTranscriptedTerminal.add(taskId);
       }
-      this.appendBackgroundAgentEntry('killed', backgroundMeta);
+      const entry = this.appendBackgroundAgentEntry('killed', backgroundMeta);
+      if (taskId !== undefined) {
+        this.deps.backgroundTaskTerminalEntries.set(taskId, entry);
+      }
       return;
     }
 
@@ -454,6 +458,7 @@ export class SubAgentEventHandler {
       description: typeof description === 'string' ? description : undefined,
       model: this.spawnedModelDisplay(event),
       effort: this.subagentEffortDisplay(event.thinkingEffort),
+      taskId: event.taskId,
     };
   }
 
@@ -461,7 +466,7 @@ export class SubAgentEventHandler {
     phase: BackgroundAgentStatusPhase,
     meta: BackgroundAgentMetadata,
     extras: { resultSummary?: string; error?: string } | undefined = undefined,
-  ): void {
+  ): TranscriptEntry {
     const status = formatBackgroundAgentTranscript(phase, meta, extras);
     const entry: TranscriptEntry = {
       id: nextTranscriptId(),
@@ -473,6 +478,7 @@ export class SubAgentEventHandler {
       backgroundAgentStatus: status,
     };
     this.host.appendTranscriptEntry(entry);
+    return entry;
   }
 
   private rememberSubagent(event: SubagentLifecycleEventOf<'subagent.spawned'>): void {

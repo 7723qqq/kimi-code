@@ -5,7 +5,7 @@ import { MESSAGE_INDENT } from '#/tui/constant/rendering';
 import { FAILURE_MARK, STATUS_BULLET } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import type { ColorPalette } from '#/tui/theme/colors';
-import type { BackgroundAgentStatusData } from '#/tui/types';
+import type { BackgroundAgentStatusData, BackgroundAgentStatusPhase } from '#/tui/types';
 import { isRenderCacheEnabled } from '#/tui/utils/render-cache';
 
 export class BackgroundAgentStatusComponent implements Component {
@@ -17,6 +17,10 @@ export class BackgroundAgentStatusComponent implements Component {
 
   constructor(private readonly data: BackgroundAgentStatusData) {
     this.textComponent = new Text(this.styled(), 0, 0);
+  }
+
+  get phase(): BackgroundAgentStatusPhase {
+    return this.data.phase;
   }
 
   invalidate(): void {

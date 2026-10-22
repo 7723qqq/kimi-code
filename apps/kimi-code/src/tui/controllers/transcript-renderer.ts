@@ -260,6 +260,32 @@ export class TranscriptRendererController {
     this.host.state.ui.requestRender();
   }
 
+  /**
+   * Relocate an already-mounted transcript entry (and its component) to the
+   * end of the transcript. Used to re-anchor an asynchronously mounted
+   * background-task terminal card to the start of its notification turn, so
+   * the card's fold-segment boundary guards that turn's output instead of
+   * splitting whatever turn happened to be live when the task terminated.
+   * Returns false when the entry is no longer mounted (e.g. trimmed).
+   */
+  moveTranscriptEntryToEnd(entry: TranscriptEntry): boolean {
+    const entries = this.host.state.transcriptEntries;
+    const entryIndex = entries.indexOf(entry);
+    if (entryIndex < 0) return false;
+    entries.splice(entryIndex, 1);
+    entries.push(entry);
+    const children = this.host.state.transcriptContainer.children;
+    const childIndex = children.findIndex(
+      (child) => getTranscriptComponentEntry(child) === entry,
+    );
+    if (childIndex >= 0) {
+      const [component] = children.splice(childIndex, 1);
+      children.push(component!);
+    }
+    this.host.state.ui.requestRender();
+    return true;
+  }
+
   appendApprovalTranscriptEntry(request: ApprovalRequest, response: ApprovalResponse): void {
     if (
       request.toolName === 'ExitPlanMode' ||
@@ -365,13 +391,22 @@ export class TranscriptRendererController {
 
   /**
    * Fold-segment boundary: everything {@link isTurnBoundaryComponent} counts,
-   * plus the cron card. A cron-fired turn mounts no user message, so without
-   * the card as a boundary its output would share the previous user turn's
+   * plus the cron card and terminal background-task cards. Cron-fired and
+   * task-notification turns mount no user message, so without one of these
+   * cards as a boundary their output would share the previous user turn's
    * fold segment — and the completed-turn assistant cap would fold that turn's
-   * final answer into the step summary.
+   * final answer into the step summary. A task-notification turn re-anchors
+   * its terminal card to the turn's start (see SessionEventHandler), because
+   * the card's asynchronous mount point may sit inside an unrelated turn;
+   * cards that never get a notification turn (resumed sessions, missed
+   * drains) still bound whatever segment they landed in.
    */
   private isFoldSegmentBoundaryComponent(child: Component): boolean {
-    return this.isTurnBoundaryComponent(child) || child instanceof CronMessageComponent;
+    return (
+      this.isTurnBoundaryComponent(child) ||
+      child instanceof CronMessageComponent ||
+      (child instanceof BackgroundAgentStatusComponent && child.phase !== 'started')
+    );
   }
 
   private trimTranscriptWindow(): boolean {

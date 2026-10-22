@@ -39,6 +39,7 @@ function makeSwarmHandler(clock: FakeClock = createFakeClock()) {
   const handler = new SubAgentEventHandler(host as never, {
     backgroundTasks: new Map(),
     backgroundTaskTranscriptedTerminal: new Set(),
+    backgroundTaskTerminalEntries: new Map(),
     syncBackgroundAgentBadge: mock(),
     now: () => clock.now(),
     clock,

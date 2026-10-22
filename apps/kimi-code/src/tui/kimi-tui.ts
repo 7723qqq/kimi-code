@@ -2347,6 +2347,10 @@ export class KimiTUI {
     this.transcriptRenderer.removeTranscriptEntries(entries);
   }
 
+  moveTranscriptEntryToEnd(entry: TranscriptEntry): boolean {
+    return this.transcriptRenderer.moveTranscriptEntryToEnd(entry);
+  }
+
   mergeCurrentTurnSteps(): boolean {
     return this.transcriptRenderer.mergeCurrentTurnSteps();
   }
