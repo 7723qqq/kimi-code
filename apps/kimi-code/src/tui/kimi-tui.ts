@@ -2626,6 +2626,10 @@ export class KimiTUI {
     return this.state.statusSurface.handleStatusSurfaceKey(key);
   }
 
+  isStatusSurfaceFocused(): boolean {
+    return this.state.statusSurface.focusedRegion() !== null;
+  }
+
   handleStatusSurfaceRawInput(data: string): boolean {
     return this.state.statusSurface.handleRawInput(data);
   }

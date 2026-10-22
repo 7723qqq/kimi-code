@@ -777,6 +777,7 @@ describe('CustomEditor shortcut telemetry hooks', () => {
     const editor = makeEditor();
     const onStatusSurfaceKey = mock().mockReturnValue(true);
     editor.onStatusSurfaceKey = onStatusSurfaceKey;
+    editor.onStatusSurfaceFocused = () => true;
     editor.setText('draft');
     editor.handleInput(key);
     expect(onStatusSurfaceKey).toHaveBeenCalledWith(panelKey);
@@ -1091,5 +1092,47 @@ describe('CustomEditor drag & drop image path', () => {
     editor.handleInput('C:\\Users\\me\\img.png');
     expect(onPasteImagePath).toHaveBeenCalledWith('C:\\Users\\me\\img.png');
     expect(editor.getText()).toBe('C:\\Users\\me\\img.png');
+  });
+});
+
+describe('bare arrows and the status strip', () => {
+  function withStrip(editor: CustomEditor, focused: () => boolean): string[] {
+    const stripKeys: string[] = [];
+    editor.onStatusSurfaceFocused = focused;
+    editor.onStatusSurfaceKey = (key) => {
+      stripKeys.push(key);
+      return true;
+    };
+    return stripKeys;
+  }
+
+  it('keeps the bare arrows for the editor when no region is focused', () => {
+    const editor = makeEditor();
+    const stripKeys = withStrip(editor, () => false);
+
+    editor.handleInput('\x1b[B');
+    editor.handleInput('\x1b[A');
+
+    expect(stripKeys).toEqual([]);
+  });
+
+  it('hands the bare arrows to the strip when a region is focused', () => {
+    const editor = makeEditor();
+    const stripKeys = withStrip(editor, () => true);
+
+    editor.handleInput('\x1b[B');
+    editor.handleInput('\x1b[A');
+
+    expect(stripKeys).toEqual(['down', 'up']);
+  });
+
+  it('still scrolls the strip with shift+arrows while unfocused', () => {
+    const editor = makeEditor();
+    const stripKeys = withStrip(editor, () => false);
+
+    editor.handleInput('\x1b[1;2B');
+    editor.handleInput('\x1b[1;2A');
+
+    expect(stripKeys).toEqual(['down', 'up']);
   });
 });

@@ -176,6 +176,13 @@ export class CustomEditor extends Editor {
    */
   public onStatusSurfaceKey?: (key: StatusSurfaceKey) => boolean;
   /**
+   * Whether the status strip currently holds the keyboard.
+   *
+   * Plain ↑/↓ belong to prompt history unless a region is focused; `Shift+↑/↓`
+   * is the strip's own scroll gesture and needs no focus.
+   */
+  public onStatusSurfaceFocused?: () => boolean;
+  /**
    * Route a raw key to the status strip before {@link statusSurfaceKeyOf} gets
    * it; return `true` to consume.
    *
@@ -600,7 +607,14 @@ export class CustomEditor extends Editor {
       // or drop.
       if (this.onStatusSurfaceRawInput?.(normalized) === true) return;
       const panelKey = statusSurfaceKeyOf(normalized);
-      if (panelKey !== undefined && this.onStatusSurfaceKey?.(panelKey) === true) return;
+      const bareArrow = panelKey === 'up' || panelKey === 'down';
+      if (bareArrow && this.onStatusSurfaceFocused?.() !== true) {
+        // No region owns the keyboard, so the bare arrows stay with prompt
+        // history and cursor movement; `Shift+↑/↓` above scrolls the strip
+        // without moving focus.
+      } else if (panelKey !== undefined && this.onStatusSurfaceKey?.(panelKey) === true) {
+        return;
+      }
     }
 
     if (matchesKey(normalized, 'shift+tab')) {

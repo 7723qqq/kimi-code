@@ -75,6 +75,8 @@ export interface EditorKeyboardHost {
   toggleTodoPanelExpansion(): boolean;
   /** Move keyboard focus into the status strip's updates region, or release it. */
   toggleStatusSurfaceFocus(): boolean;
+  /** Whether a status-strip region currently owns the keyboard. */
+  isStatusSurfaceFocused(): boolean;
   /** Route one routed key to the status strip; false when nothing claimed it. */
   handleStatusSurfaceKey(key: StatusSurfaceKey): boolean;
   /** Route one raw key to the status strip; false when nothing claimed it. */
@@ -374,6 +376,7 @@ export class EditorKeyboardController {
       }
       return host.handleStatusSurfaceKey(key);
     };
+    editor.onStatusSurfaceFocused = () => host.isStatusSurfaceFocused();
 
     editor.onStatusSurfaceRawInput = (data): boolean => host.handleStatusSurfaceRawInput(data);
 
