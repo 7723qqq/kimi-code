@@ -317,7 +317,6 @@ export const goalChangeSchema = z.object({
 
 export const kimiErrorCodeSchema = z.enum([
   'config.invalid',
-  'default_workspace.unavailable',
   'session.not_found',
   'session.already_exists',
   'session.id_invalid',

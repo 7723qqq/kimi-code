@@ -37,7 +37,6 @@ import { SessionErrors } from '#/session/errors';
 import { StateErrors } from '#/state/errors';
 import { WireErrors } from '#/wire/errors';
 import { FsErrors } from '#/workspace/workspaceFs/internal/errors';
-import { DefaultWorkspaceErrors } from '#/app/defaultWorkspace/errors';
 
 export * from '#/_base/errors/codes';
 export * from '#/_base/errors/errorMessage';
@@ -79,7 +78,6 @@ export { UsageErrors } from '#/agent/usage/errors';
 export { WebErrors } from '#/app/web/errors';
 export { WireErrors } from '#/wire/errors';
 export { WorkspaceErrors } from '#/app/workspace/errors';
-export { DefaultWorkspaceErrors } from '#/app/defaultWorkspace/errors';
 export { EventErrors } from '#/app/event/errors';
 export { StateErrors } from '#/state/errors';
 
@@ -120,7 +118,6 @@ export const ErrorCodes = {
   ...WebErrors.codes,
   ...WireErrors.codes,
   ...WorkspaceErrors.codes,
-  ...DefaultWorkspaceErrors.codes,
   ...EventErrors.codes,
   ...StateErrors.codes,
 } as const;
