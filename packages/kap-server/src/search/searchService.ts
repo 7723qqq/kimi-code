@@ -85,6 +85,24 @@ async function pathExists(path: string): Promise<boolean> {
 
 const pendingDisposals = new Set<Promise<void>>();
 
+const SHUTDOWN_DRAIN_BUDGET_MS = 2_000;
+
+async function settleWithin(promises: Promise<unknown>[], budgetMs: number): Promise<void> {
+  if (promises.length === 0) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      Promise.allSettled(promises),
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, budgetMs);
+        timer.unref?.();
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
 export async function drainGlobalSearchDisposals(): Promise<void> {
   while (pendingDisposals.size > 0) {
     await Promise.all(pendingDisposals);
@@ -304,8 +322,13 @@ export class GlobalSearchService implements IGlobalSearchService {
     }
     this.backend?.beginClose();
     const pending = (async () => {
-      await this.syncPromise?.catch(() => {});
-      await this.refreshPromise?.catch(() => {});
+      await settleWithin(
+        [
+          this.syncPromise?.catch(() => {}) ?? Promise.resolve(),
+          this.refreshPromise?.catch(() => {}) ?? Promise.resolve(),
+        ],
+        SHUTDOWN_DRAIN_BUDGET_MS,
+      );
       const backend = await this.backendPromise;
       await backend?.dispose();
       this.drainSettled = true;
@@ -442,6 +465,7 @@ export class GlobalSearchService implements IGlobalSearchService {
     const budget = {
       deadlineAt: Date.now() + this.queryDeadlineMs,
       textCharsLeft: this.queryTextBudgetChars,
+      now: () => Date.now(),
     };
     const boundary = page.kind === 'keyset' ? page.boundary : undefined;
     const matched =

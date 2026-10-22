@@ -2,7 +2,7 @@ import { mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 import type { IConfigService } from '#/app/config/config';
 import { AttachmentService } from '#/features/attachment/attachmentService';

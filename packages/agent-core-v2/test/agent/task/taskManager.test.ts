@@ -4,8 +4,11 @@ import { PassThrough, Readable } from 'node:stream';
 import type { Writable } from 'node:stream';
 import { join } from 'pathe';
 
-import type { IHostProcess } from '#/os/interface/hostProcess';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { IHostClock } from '#/os/interface/hostClock';
+import { IHostProcessService, type IHostProcess } from '#/os/interface/hostProcess';
+import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
+import { describe, expect, it, mock, spyOn } from 'bun:test';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import {
   IAgentTaskService,
@@ -19,6 +22,7 @@ import { ProcessTask } from '#/agent/tools/os/bash/process-task';
 import { isUserCancellation, userCancellationReason } from '#/_base/utils/abort';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import {
+  appService,
   configServices,
   createTestAgent,
   homeDirServices,
@@ -33,21 +37,138 @@ import {
 const MiB = 1024 * 1024;
 const LIMIT_BYTES = 16 * MiB;
 
+interface FakeHostClock extends IHostClock {
+  set(nowMs: number): void;
+}
+
+interface FakeHostTimerHandle extends IHostTimerHandle {
+  readonly id: number;
+}
+
+interface FakeHostTimers extends IHostTimers {
+  advance(byMs: number): void;
+  readonly calls: readonly string[];
+  readonly pending: number;
+}
+
+interface FakeHostTime {
+  readonly clock: FakeHostClock;
+  readonly timers: FakeHostTimers;
+}
+
+function createFakeHostTime(startMs = 0): FakeHostTime {
+  let nowMs = startMs;
+  let nextId = 1;
+  const calls: string[] = [];
+  const scheduled: Array<{
+    readonly id: number;
+    readonly kind: 'setClampedTimeout' | 'setTimeout';
+    readonly delayMs: number;
+    readonly due: number;
+    readonly callback: () => void;
+    cancelled: boolean;
+  }> = [];
+
+  const schedule = (
+    kind: 'setClampedTimeout' | 'setTimeout',
+    callback: () => void,
+    delayMs: number,
+  ): FakeHostTimerHandle => {
+    const timer = {
+      id: nextId++,
+      kind,
+      delayMs,
+      due: nowMs + delayMs,
+      callback,
+      cancelled: false,
+    };
+    scheduled.push(timer);
+    calls.push(`${kind}:${String(delayMs)}`);
+    return { id: timer.id, unref: () => {} };
+  };
+
+  const clock: FakeHostClock = {
+    _serviceBrand: undefined,
+    now: () => new Date(nowMs),
+    timeZone: () => 'UTC',
+    set: (value) => {
+      nowMs = value;
+    },
+  };
+
+  const timers: FakeHostTimers = {
+    _serviceBrand: undefined,
+    setClampedTimeout: (callback, timeoutMs) => schedule('setClampedTimeout', callback, timeoutMs),
+    setTimeout: (callback, timeoutMs) => schedule('setTimeout', callback, timeoutMs),
+    clearTimeout: (handle) => {
+      const id = (handle as FakeHostTimerHandle).id;
+      const timer = scheduled.find((candidate) => candidate.id === id);
+      if (timer !== undefined) timer.cancelled = true;
+      calls.push(`clear:${String(id)}`);
+    },
+    advance: (byMs) => {
+      const limit = nowMs + byMs;
+      let guard = 0;
+      for (;;) {
+        const next = scheduled
+          .filter((timer) => !timer.cancelled && timer.due <= limit)
+          .toSorted((left, right) => left.due - right.due || left.id - right.id)[0];
+        if (next === undefined) break;
+        guard += 1;
+        if (guard > 1_000) throw new Error('fake host timers advanced more than 1000 timers');
+        nowMs = next.due;
+        next.cancelled = true;
+        next.callback();
+      }
+      nowMs = limit;
+    },
+    get calls() {
+      return calls;
+    },
+    get pending() {
+      return scheduled.filter((timer) => !timer.cancelled).length;
+    },
+  };
+
+  return { clock, timers };
+}
+
+async function flushHostWork(): Promise<void> {
+  for (let i = 0; i < 4; i += 1) {
+    await Promise.resolve();
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+  }
+}
+
+async function advanceHostTime(timers: FakeHostTimers, byMs: number): Promise<void> {
+  await flushHostWork();
+  timers.advance(byMs);
+  await flushHostWork();
+}
+
 interface TaskServiceFixture {
   ctx: TestAgentContext;
   manager: TaskServiceTestManager;
   persistence?: ReturnType<typeof createAgentTaskPersistence>;
+  time: FakeHostTime;
 }
 
 function createAgentTaskService(options: {
   sessionDir?: string;
   maxRunningTasks?: number;
+  fakeTime?: boolean;
 } = {}): TaskServiceFixture {
   const persistence =
     options.sessionDir === undefined
       ? undefined
       : createAgentTaskPersistence(options.sessionDir);
+  const time = createFakeHostTime();
   const overrides: TestAgentServiceOverride[] = [];
+  if (options.fakeTime === true) {
+    overrides.push(appService(IHostClock, time.clock), appService(IHostTimers, time.timers));
+  }
   if (options.sessionDir !== undefined) {
     overrides.push(homeDirServices(options.sessionDir));
   }
@@ -63,6 +184,7 @@ function createAgentTaskService(options: {
     ctx,
     manager: ctx.get(IAgentTaskService) as TaskServiceTestManager,
     persistence,
+    time,
   };
 }
 
@@ -144,28 +266,28 @@ async function waitForOutput(
 function immediateProcess(exitCode: number, stdoutText = ''): IHostProcess {
   return {
     _serviceBrand: undefined,
-    stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
+    stdin: { write: mock(), end: mock() } as unknown as Writable,
     stdout: Readable.from(stdoutText ? [stdoutText] : []),
     stderr: Readable.from([]),
     pid: 10000 + exitCode,
     exitCode,
-    wait: vi.fn().mockResolvedValue(exitCode) as IHostProcess['wait'],
-    kill: vi.fn().mockResolvedValue(undefined) as IHostProcess['kill'],
-    dispose: vi.fn().mockResolvedValue(undefined) as IHostProcess['dispose'],
+    wait: mock().mockResolvedValue(exitCode) as IHostProcess['wait'],
+    kill: mock().mockResolvedValue(undefined) as IHostProcess['kill'],
+    dispose: mock().mockResolvedValue(undefined) as IHostProcess['dispose'],
   };
 }
 
 function rejectedProcess(error: Error): IHostProcess {
   return {
     _serviceBrand: undefined,
-    stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
+    stdin: { write: mock(), end: mock() } as unknown as Writable,
     stdout: Readable.from([]),
     stderr: Readable.from([]),
     pid: 99999,
     exitCode: null,
-    wait: vi.fn().mockRejectedValue(error) as IHostProcess['wait'],
-    kill: vi.fn().mockResolvedValue(undefined) as IHostProcess['kill'],
-    dispose: vi.fn().mockResolvedValue(undefined) as IHostProcess['dispose'],
+    wait: mock().mockRejectedValue(error) as IHostProcess['wait'],
+    kill: mock().mockResolvedValue(undefined) as IHostProcess['kill'],
+    dispose: mock().mockResolvedValue(undefined) as IHostProcess['dispose'],
   };
 }
 
@@ -173,17 +295,17 @@ function processWithStdoutError(message = 'stdout read failed'): IHostProcess {
   const stdout = new PassThrough();
   return {
     _serviceBrand: undefined,
-    stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
+    stdin: { write: mock(), end: mock() } as unknown as Writable,
     stdout,
     stderr: Readable.from([]),
     pid: 99998,
     exitCode: 0,
-    wait: vi.fn(async () => {
+    wait: mock(async () => {
       stdout.destroy(new Error(message));
       return 0;
     }) as IHostProcess['wait'],
-    kill: vi.fn().mockResolvedValue(undefined) as IHostProcess['kill'],
-    dispose: vi.fn().mockResolvedValue(undefined) as IHostProcess['dispose'],
+    kill: mock().mockResolvedValue(undefined) as IHostProcess['kill'],
+    dispose: mock().mockResolvedValue(undefined) as IHostProcess['dispose'],
   };
 }
 
@@ -201,16 +323,16 @@ function processWithStdoutErrorBeforeWait(message = 'stdout read failed'): {
   return {
     proc: {
       _serviceBrand: undefined,
-      stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
+      stdin: { write: mock(), end: mock() } as unknown as Writable,
       stdout,
       stderr: Readable.from([]),
       pid: 99997,
       get exitCode(): number | null {
         return currentExitCode;
       },
-      wait: vi.fn(() => waitPromise) as IHostProcess['wait'],
-      kill: vi.fn().mockResolvedValue(undefined) as IHostProcess['kill'],
-      dispose: vi.fn().mockResolvedValue(undefined) as IHostProcess['dispose'],
+      wait: mock(() => waitPromise) as IHostProcess['wait'],
+      kill: mock().mockResolvedValue(undefined) as IHostProcess['kill'],
+      dispose: mock().mockResolvedValue(undefined) as IHostProcess['dispose'],
     },
     failStdout: () => {
       stdout.destroy(new Error(message));
@@ -224,21 +346,21 @@ function processWithStdoutErrorBeforeWait(message = 'stdout read failed'): {
 
 function pendingProcess(exitOnKill = 143): {
   proc: IHostProcess;
-  killSpy: ReturnType<typeof vi.fn>;
+  killSpy: ReturnType<typeof mock>;
 } {
   let resolveWait: (n: number) => void = () => {};
   const waitPromise = new Promise<number>((resolve) => {
     resolveWait = resolve;
   });
   let currentExitCode: number | null = null;
-  const killSpy = vi.fn(async () => {
+  const killSpy = mock(async () => {
     if (currentExitCode !== null) return;
     currentExitCode = exitOnKill;
     resolveWait(exitOnKill);
   });
   const proc: IHostProcess = {
     _serviceBrand: undefined,
-    stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
+    stdin: { write: mock(), end: mock() } as unknown as Writable,
     stdout: Readable.from([]),
     stderr: Readable.from([]),
     pid: 54321,
@@ -247,14 +369,14 @@ function pendingProcess(exitOnKill = 143): {
     },
     wait: () => waitPromise,
     kill: killSpy as unknown as IHostProcess['kill'],
-    dispose: vi.fn().mockResolvedValue(undefined) as IHostProcess['dispose'],
+    dispose: mock().mockResolvedValue(undefined) as IHostProcess['dispose'],
   };
   return { proc, killSpy };
 }
 
 function streamingProcess(chunks: string[]): {
   proc: IHostProcess;
-  killSpy: ReturnType<typeof vi.fn>;
+  killSpy: ReturnType<typeof mock>;
 } {
   const stdout = Readable.from(chunks);
   const stderr = Readable.from([]);
@@ -267,7 +389,7 @@ function streamingProcess(chunks: string[]): {
     currentExitCode = 0;
     resolveWait(0);
   });
-  const killSpy = vi.fn(async (signal: NodeJS.Signals) => {
+  const killSpy = mock(async (signal: NodeJS.Signals) => {
     if (currentExitCode !== null) return;
     currentExitCode = signal === 'SIGKILL' ? 137 : 143;
     stdout.destroy();
@@ -275,7 +397,7 @@ function streamingProcess(chunks: string[]): {
   });
   const proc: IHostProcess = {
     _serviceBrand: undefined,
-    stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
+    stdin: { write: mock(), end: mock() } as unknown as Writable,
     stdout,
     stderr,
     pid: 54325,
@@ -284,14 +406,14 @@ function streamingProcess(chunks: string[]): {
     },
     wait: () => waitPromise,
     kill: killSpy as unknown as IHostProcess['kill'],
-    dispose: vi.fn().mockResolvedValue(undefined) as IHostProcess['dispose'],
+    dispose: mock().mockResolvedValue(undefined) as IHostProcess['dispose'],
   };
   return { proc, killSpy };
 }
 
 function sigtermIgnoringProcess(chunks: string[]): {
   proc: IHostProcess;
-  killSpy: ReturnType<typeof vi.fn>;
+  killSpy: ReturnType<typeof mock>;
 } {
   const stdout = Readable.from(chunks);
   const stderr = Readable.from([]);
@@ -304,7 +426,7 @@ function sigtermIgnoringProcess(chunks: string[]): {
     currentExitCode = 0;
     resolveWait(0);
   });
-  const killSpy = vi.fn(async (signal: NodeJS.Signals) => {
+  const killSpy = mock(async (signal: NodeJS.Signals) => {
     if (signal !== 'SIGKILL' || currentExitCode !== null) return;
     currentExitCode = 137;
     stdout.destroy();
@@ -312,7 +434,7 @@ function sigtermIgnoringProcess(chunks: string[]): {
   });
   const proc: IHostProcess = {
     _serviceBrand: undefined,
-    stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
+    stdin: { write: mock(), end: mock() } as unknown as Writable,
     stdout,
     stderr,
     pid: 54326,
@@ -321,14 +443,14 @@ function sigtermIgnoringProcess(chunks: string[]): {
     },
     wait: () => waitPromise,
     kill: killSpy as unknown as IHostProcess['kill'],
-    dispose: vi.fn().mockResolvedValue(undefined) as IHostProcess['dispose'],
+    dispose: mock().mockResolvedValue(undefined) as IHostProcess['dispose'],
   };
   return { proc, killSpy };
 }
 
 function manuallyResolvedProcess(): {
   proc: IHostProcess;
-  killSpy: ReturnType<typeof vi.fn>;
+  killSpy: ReturnType<typeof mock>;
   resolve: (exitCode: number) => void;
 } {
   let resolveWait: (n: number) => void = () => {};
@@ -336,10 +458,10 @@ function manuallyResolvedProcess(): {
     resolveWait = resolve;
   });
   let currentExitCode: number | null = null;
-  const killSpy = vi.fn().mockResolvedValue(undefined);
+  const killSpy = mock().mockResolvedValue(undefined);
   const proc: IHostProcess = {
     _serviceBrand: undefined,
-    stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
+    stdin: { write: mock(), end: mock() } as unknown as Writable,
     stdout: Readable.from([]),
     stderr: Readable.from([]),
     pid: 54324,
@@ -348,7 +470,7 @@ function manuallyResolvedProcess(): {
     },
     wait: () => waitPromise,
     kill: killSpy as unknown as IHostProcess['kill'],
-    dispose: vi.fn().mockResolvedValue(undefined) as IHostProcess['dispose'],
+    dispose: mock().mockResolvedValue(undefined) as IHostProcess['dispose'],
   };
   return {
     proc,
@@ -368,7 +490,7 @@ function processWithVisibleExitCodeBeforeWait(exitCode = 143): {
   let currentExitCode: number | null = null;
   const proc: IHostProcess = {
     _serviceBrand: undefined,
-    stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
+    stdin: { write: mock(), end: mock() } as unknown as Writable,
     stdout: Readable.from([]),
     stderr: Readable.from([]),
     pid: 54322,
@@ -376,8 +498,8 @@ function processWithVisibleExitCodeBeforeWait(exitCode = 143): {
       return currentExitCode;
     },
     wait: () => new Promise<number>(() => {}),
-    kill: vi.fn().mockResolvedValue(undefined) as IHostProcess['kill'],
-    dispose: vi.fn().mockResolvedValue(undefined) as IHostProcess['dispose'],
+    kill: mock().mockResolvedValue(undefined) as IHostProcess['kill'],
+    dispose: mock().mockResolvedValue(undefined) as IHostProcess['dispose'],
   };
   return {
     proc,
@@ -388,10 +510,6 @@ function processWithVisibleExitCodeBeforeWait(exitCode = 143): {
 }
 
 describe('AgentTaskService', () => {
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
   it('registers process tasks and exposes process metadata', () => {
     const { manager } = createAgentTaskService();
     const proc = immediateProcess(0);
@@ -637,7 +755,6 @@ describe('AgentTaskService', () => {
   });
 
   it('lists running tasks synchronously without waiting for task completion', () => {
-    vi.useFakeTimers();
     const { manager } = createAgentTaskService();
     const taskId = registerProcess(manager, pendingProcess().proc, 'sleep 60', 'running list');
 
@@ -684,7 +801,7 @@ describe('AgentTaskService', () => {
     const chunks = Array.from({ length: 20 }, () => 'x'.repeat(MiB));
     const { proc, killSpy } = streamingProcess(chunks);
     let forwardedChars = 0;
-    const onOutput = vi.fn((_kind: 'stdout' | 'stderr', text: string) => {
+    const onOutput = mock((_kind: 'stdout' | 'stderr', text: string) => {
       forwardedChars += text.length;
     });
 
@@ -848,7 +965,7 @@ describe('AgentTaskService', () => {
 
   it('disposes process resources after a process task completes', async () => {
     const { manager } = createAgentTaskService();
-    const dispose = vi.fn();
+    const dispose = mock();
     const proc = {
       ...immediateProcess(0, 'hello'),
       dispose,
@@ -857,7 +974,7 @@ describe('AgentTaskService', () => {
 
     await waitForTerminal(manager, taskId);
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(dispose).toHaveBeenCalledTimes(1);
     });
   });
@@ -950,7 +1067,7 @@ describe('AgentTaskService', () => {
   it('disposes process resources after a stopped process task settles', async () => {
     const { manager } = createAgentTaskService();
     const { proc, killSpy } = pendingProcess(143);
-    const dispose = vi.fn();
+    const dispose = mock();
     const disposableProc = {
       ...proc,
       dispose,
@@ -996,7 +1113,7 @@ describe('AgentTaskService', () => {
 
   function sigtermOnlyKillProcess(pid: number): {
     proc: IHostProcess;
-    killSpy: ReturnType<typeof vi.fn>;
+    killSpy: ReturnType<typeof mock>;
   } {
     const stdout = new PassThrough();
     let currentExitCode: number | null = null;
@@ -1004,7 +1121,7 @@ describe('AgentTaskService', () => {
     const waitPromise = new Promise<number>((resolve) => {
       resolveWait = resolve;
     });
-    const killSpy = vi.fn(async (signal: NodeJS.Signals) => {
+    const killSpy = mock(async (signal: NodeJS.Signals) => {
       if (currentExitCode !== null) return;
       if (signal !== 'SIGKILL') return;
       currentExitCode = 137;
@@ -1013,7 +1130,7 @@ describe('AgentTaskService', () => {
     });
     const proc: IHostProcess = {
       _serviceBrand: undefined,
-      stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
+      stdin: { write: mock(), end: mock() } as unknown as Writable,
       stdout,
       stderr: Readable.from([]),
       pid,
@@ -1022,25 +1139,29 @@ describe('AgentTaskService', () => {
       },
       wait: () => waitPromise,
       kill: killSpy as unknown as IHostProcess['kill'],
-      dispose: vi.fn().mockResolvedValue(undefined) as IHostProcess['dispose'],
+      dispose: mock().mockResolvedValue(undefined) as IHostProcess['dispose'],
     };
     return { proc, killSpy };
   }
 
   it('escalates a wall-clock timeout to SIGKILL when the process ignores SIGTERM', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    const { manager } = createAgentTaskService();
+    const { manager, time } = createAgentTaskService({ fakeTime: true });
     const { proc, killSpy } = sigtermOnlyKillProcess(54327);
     const taskId = manager.registerTask(new ProcessTask(proc, 'runaway', 'timeout sigkill'), {
       timeoutMs: 1,
     });
 
     const terminal = manager.wait(taskId);
-    await vi.advanceTimersByTimeAsync(1);
+    await advanceHostTime(time.timers, 1);
+    expect(time.timers.calls).toEqual([
+      'setClampedTimeout:1',
+      'setClampedTimeout:30000',
+      'setTimeout:5000',
+    ]);
     expect(killSpy).toHaveBeenCalledWith('SIGTERM');
     expect(killSpy).not.toHaveBeenCalledWith('SIGKILL');
 
-    await vi.advanceTimersByTimeAsync(5_000);
+    await advanceHostTime(time.timers, 5_000);
     const info = await terminal;
 
     expect(info?.status).toBe('timed_out');
@@ -1048,15 +1169,14 @@ describe('AgentTaskService', () => {
   });
 
   it('reports timed_out when a timed-out process exits to SIGTERM within the grace window', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    const { manager } = createAgentTaskService();
+    const { manager, time } = createAgentTaskService({ fakeTime: true });
     const { proc, killSpy } = pendingProcess();
     const taskId = manager.registerTask(new ProcessTask(proc, 'sleep 60', 'timeout graceful'), {
       timeoutMs: 1,
     });
 
     const terminal = manager.wait(taskId);
-    await vi.advanceTimersByTimeAsync(1);
+    await advanceHostTime(time.timers, 1);
     const info = await terminal;
 
     expect(info?.status).toBe('timed_out');
@@ -1065,8 +1185,7 @@ describe('AgentTaskService', () => {
   });
 
   it('applies the SIGTERM grace + SIGKILL escalation to a detachTimeout deadline', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    const { manager } = createAgentTaskService();
+    const { manager, time } = createAgentTaskService({ fakeTime: true });
     const { proc, killSpy } = sigtermOnlyKillProcess(54328);
     const taskId = manager.registerTask(new ProcessTask(proc, 'runaway', 'detach timeout'), {
       detached: false,
@@ -1075,8 +1194,8 @@ describe('AgentTaskService', () => {
     manager.detach(taskId);
 
     const terminal = manager.wait(taskId);
-    await vi.advanceTimersByTimeAsync(1);
-    await vi.advanceTimersByTimeAsync(5_000);
+    await advanceHostTime(time.timers, 1);
+    await advanceHostTime(time.timers, 5_000);
     const info = await terminal;
 
     expect(info?.status).toBe('timed_out');
@@ -1085,8 +1204,7 @@ describe('AgentTaskService', () => {
   });
 
   it('auto-backgrounds a foreground task instead of killing it when its deadline fires', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    const { manager } = createAgentTaskService();
+    const { manager, time } = createAgentTaskService({ fakeTime: true });
     const { proc, killSpy } = pendingProcess();
     const taskId = manager.registerTask(new ProcessTask(proc, 'sleep 60', 'auto background'), {
       detached: false,
@@ -1096,21 +1214,20 @@ describe('AgentTaskService', () => {
     });
     const waiting = manager.waitForForegroundRelease(taskId);
 
-    await vi.advanceTimersByTimeAsync(1_000);
+    await advanceHostTime(time.timers, 1_000);
     await expect(waiting).resolves.toBe('timeout_detached');
     expect(killSpy).not.toHaveBeenCalled();
     expect(manager.getTask(taskId)).toMatchObject({ status: 'running', detached: true });
 
-    await vi.advanceTimersByTimeAsync(1_000);
+    await advanceHostTime(time.timers, 1_000);
     expect(manager.getTask(taskId)?.status).toBe('running');
-    await vi.advanceTimersByTimeAsync(4_000);
+    await advanceHostTime(time.timers, 4_000);
     expect(manager.getTask(taskId)?.status).toBe('timed_out');
     expect(killSpy).toHaveBeenCalled();
   });
 
   it('kills a foreground task on timeout when auto-background is not enabled', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    const { manager } = createAgentTaskService();
+    const { manager, time } = createAgentTaskService({ fakeTime: true });
     const { proc, killSpy } = pendingProcess();
     const taskId = manager.registerTask(new ProcessTask(proc, 'sleep 60', 'plain timeout'), {
       detached: false,
@@ -1119,7 +1236,7 @@ describe('AgentTaskService', () => {
     });
     const waiting = manager.waitForForegroundRelease(taskId);
 
-    await vi.advanceTimersByTimeAsync(1_000);
+    await advanceHostTime(time.timers, 1_000);
     await expect(waiting).resolves.toBe('terminal');
     expect(killSpy).toHaveBeenCalled();
     expect(manager.getTask(taskId)?.status).toBe('timed_out');
@@ -1157,7 +1274,7 @@ describe('AgentTaskService', () => {
       resolveCompletion = resolve;
     });
     const controller = new AbortController();
-    const abort = vi.spyOn(controller, 'abort');
+    const abort = spyOn(controller, 'abort');
     const taskId = manager.registerTask(
       agentTask(completion, 'agent race test', { abortController: controller }),
     );
@@ -1179,7 +1296,7 @@ describe('AgentTaskService', () => {
       rejectCompletion = reject;
     });
     const controller = new AbortController();
-    const abort = vi.spyOn(controller, 'abort');
+    const abort = spyOn(controller, 'abort');
     const taskId = manager.registerTask(
       agentTask(completion, 'agent failure race test', { abortController: controller }),
     );
@@ -1204,7 +1321,7 @@ describe('AgentTaskService', () => {
     const abortError = new Error('The operation was aborted.');
     abortError.name = 'AbortError';
     const controller = new AbortController();
-    const abort = vi.spyOn(controller, 'abort').mockImplementation((reason?: unknown) => {
+    const abort = spyOn(controller, 'abort').mockImplementation((reason?: unknown) => {
       AbortController.prototype.abort.call(controller, reason);
       rejectCompletion(abortError);
     });
@@ -1222,19 +1339,19 @@ describe('AgentTaskService', () => {
   });
 
   it('stop finalizes a never-settling agent task after the grace window', async () => {
-    vi.useFakeTimers();
-    const { manager } = createAgentTaskService();
+    const { manager, time } = createAgentTaskService({ fakeTime: true });
     const controller = new AbortController();
-    const abort = vi.spyOn(controller, 'abort');
+    const abort = spyOn(controller, 'abort');
     const taskId = manager.registerTask(
       agentTask(new Promise(() => {}), 'hung agent task', { abortController: controller }),
     );
 
     const stopPromise = manager.stop(taskId, 'user requested');
     await Promise.resolve();
-    await vi.advanceTimersByTimeAsync(5_000);
+    await advanceHostTime(time.timers, 5_000);
     const stopped = await stopPromise;
 
+    expect(time.timers.calls).toEqual(['setTimeout:5000', 'clear:1']);
     expect(stopped).toMatchObject({
       status: 'killed',
       stopReason: 'user requested',
@@ -1298,17 +1415,38 @@ describe('AgentTaskService', () => {
   });
 
   it('clears task deadline timers when completion wins the race', async () => {
-    vi.useFakeTimers();
-    const { manager } = createAgentTaskService();
-    const baselineTimerCount = vi.getTimerCount();
+    const { manager, time } = createAgentTaskService({ fakeTime: true });
     const taskId = manager.registerTask(
       agentTask(Promise.resolve({ result: 'done' }), 'fast deadline task', {
         timeoutMs: 60_000,
       }),
     );
 
+    expect(time.timers.calls).toEqual(['setClampedTimeout:60000']);
+    expect(time.timers.pending).toBe(1);
+
     await expect(manager.wait(taskId, 60_000)).resolves.toMatchObject({ status: 'completed' });
-    expect(vi.getTimerCount()).toBeLessThanOrEqual(baselineTimerCount);
+    expect(time.timers.calls).toEqual([
+      'setClampedTimeout:60000',
+      'setClampedTimeout:60000',
+      'clear:1',
+      'clear:2',
+    ]);
+    expect(time.timers.pending).toBe(0);
+  });
+
+  it('stamps task timing from the injected host clock', async () => {
+    const { manager, time } = createAgentTaskService({ fakeTime: true });
+    time.clock.set(1_000);
+    const taskId = manager.registerTask(
+      agentTask(Promise.resolve({ result: 'done' }), 'clocked task'),
+    );
+
+    expect(manager.getTask(taskId)).toMatchObject({ startedAt: 1_000, endedAt: null });
+
+    time.clock.set(3_500);
+    await expect(manager.wait(taskId, 60_000)).resolves.toMatchObject({ status: 'completed' });
+    expect(manager.getTask(taskId)).toMatchObject({ startedAt: 1_000, endedAt: 3_500 });
   });
 
   it('returns undefined or empty output for unknown task ids', async () => {
@@ -1345,40 +1483,14 @@ describe('AgentTaskService', () => {
     }
   });
 
-  it('launches a real process and waits to completion', async () => {
-    const { spawn } = await import('node:child_process');
-    const { manager } = createAgentTaskService();
-    const child = spawn(
-      process.execPath,
-      ['-e', "process.stdout.write('bg-ok\\n')"],
-      { stdio: 'pipe' },
-    );
-    const proc: IHostProcess = {
-      _serviceBrand: undefined,
-      stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
-      stdout: child.stdout,
-      stderr: child.stderr,
-      pid: child.pid ?? 0,
-      get exitCode(): number | null {
-        return child.exitCode;
-      },
-      wait: () =>
-        new Promise<number>((resolve) => {
-          child.on('exit', (code) => {
-            resolve(code ?? 0);
-          });
-      }),
-      kill: vi.fn(async (signal?: NodeJS.Signals) => {
-        child.kill(signal ?? 'SIGTERM');
-      }) as unknown as IHostProcess['kill'],
-      dispose: vi.fn(async () => {
-        child.stdin?.destroy();
-        child.stdout?.destroy();
-        child.stderr?.destroy();
-      }) as IHostProcess['dispose'],
-    };
+  it('launches a real process through the host process service and waits to completion', async () => {
+    const { ctx, manager } = createAgentTaskService();
+    const proc = await ctx.get(IHostProcessService).spawn(process.execPath, [
+      '-e',
+      "process.stdout.write('bg-ok\\n')",
+    ]);
 
-    const taskId = registerProcess(manager, proc, 'node -e <stdout bg-ok>', 'real worker');
+    const taskId = registerProcess(manager, proc, 'bun -e <stdout bg-ok>', 'real worker');
     const info = await manager.wait(taskId, 10_000);
 
     expect(info).toMatchObject({ kind: 'process', status: 'completed', exitCode: 0 });

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { transcriptEventSchema } from '#/contract/events';
 import { projectTranscriptUserOrigin } from '#/contract/origin';
@@ -33,7 +33,7 @@ const idLabel = (i: TranscriptItem): string =>
 
 describe('client metadata in transcript user origins', () => {
   it('retains user-invoked single skill frame metadata without exposing model-triggered activations as user input', () => {
-    const origin = {
+    const origin: ReturnType<typeof transcriptUserOriginSchema.parse> = {
       kind: 'skill_activation',
       trigger: 'user-slash',
       skillName: 'example-skill',
@@ -118,7 +118,7 @@ describe('client metadata in transcript user origins', () => {
 
 describe('user slash skill activations as transcript origins', () => {
   it('projects a user-invoked activation and rejects a model-triggered one', () => {
-    const origin = {
+    const origin: ReturnType<typeof transcriptUserOriginSchema.parse> = {
       kind: 'skill_activation',
       trigger: 'user-slash',
       skillName: 'example-skill',
@@ -701,7 +701,9 @@ describe('contract schemas', () => {
       },
     ];
     for (const op of ops) {
-      expect(transcriptOperationSchema.parse(op)).toEqual(op);
+      expect(transcriptOperationSchema.parse(op)).toEqual(
+        op as ReturnType<typeof transcriptOperationSchema.parse>,
+      );
     }
   });
 
@@ -926,7 +928,10 @@ describe('contract schemas', () => {
   });
 
   it('roundtrips todo items carrying hierarchy and progress (all new fields optional)', () => {
-    const todo = {
+    const todo: Extract<
+      ReturnType<typeof transcriptOperationSchema.parse>,
+      { op: 'todo.upsert' }
+    >['todo'] = {
       todoId: 'todo',
       items: [
         { id: 'T1', parentId: null, kind: 'milestone', title: 'M1', status: 'pending' },
@@ -2597,7 +2602,7 @@ describe('foldWireRecordFacts (cold facts)', () => {
       'm4',
     ]);
     expect(goalMarkers[0]).toMatchObject({ at: new Date(1000).toISOString() });
-    expect(folded.items.slice(0, base.items.length)).toEqual(base.items);
+    expect(folded.items.slice(0, base.items.length)).toEqual(base.items as TranscriptItem[]);
 
     const cleared = foldWireRecordFacts(
       [

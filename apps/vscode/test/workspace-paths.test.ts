@@ -4,14 +4,16 @@
  * editor mentions use relative paths inside the working directory and absolute paths outside.
  * Wiring: real temporary local files plus the public handler/bridge surfaces;
  * VS Code host APIs are the only stubbed boundary.
- * Run: cd apps/vscode && bunx vitest run --config vitest.config.ts test/workspace-paths.test.ts
+ * Run: cd apps/vscode && bun test --isolate test/workspace-paths.test.ts
  */
 import { mkdtemp, mkdir, readFile, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { Event, Session } from "@moonshot-ai/kimi-code-sdk";
+import { afterEach, beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
+import type { Event, KimiHarness, Session } from "@moonshot-ai/kimi-code-sdk";
 import type * as vscode from "vscode";
+import { installVscode } from './vscode-host';
+import { SYMLINKS } from './helpers';
 import { Methods } from "../shared/bridge";
 import { BridgeHandler } from "../src/bridge-handler";
 import { fileHandlers } from "../src/handlers/file.handler";
@@ -21,7 +23,7 @@ import { SessionRuntime } from "../src/runtime/session-runtime";
 import { areSameFsPath, isFsPathInsideOrEqual } from "../src/utils/fs-path";
 import { relativeWorkspacePath } from "../src/utils/workspace-path";
 
-const vscodeHost = vi.hoisted(() => {
+const vscodeHost = (() => {
   function normalizeUriPath(value: string): string {
     const segments: string[] = [];
     for (const segment of value.replaceAll("\\", "/").split("/")) {
@@ -80,12 +82,12 @@ const vscodeHost = vi.hoisted(() => {
     }
   }
 
-  const readDirectory = vi.fn();
-  const stat = vi.fn();
-  const readFile = vi.fn();
-  const findFiles = vi.fn();
-  const executeCommand = vi.fn();
-  const showWarningMessage = vi.fn();
+  const readDirectory = mock();
+  const stat = mock();
+  const readFile = mock();
+  const findFiles = mock();
+  const executeCommand = mock();
+  const showWarningMessage = mock();
 
   return {
     Uri,
@@ -98,9 +100,9 @@ const vscodeHost = vi.hoisted(() => {
     showWarningMessage,
     workspaceFolders: [] as Array<{ uri: Uri }>,
   };
-});
+})();
 
-vi.mock("vscode", () => ({
+installVscode({
   Uri: vscodeHost.Uri,
   RelativePattern: vscodeHost.RelativePattern,
   FileType: { Unknown: 0, File: 1, Directory: 2, SymbolicLink: 64 },
@@ -116,10 +118,10 @@ vi.mock("vscode", () => ({
     },
     findFiles: vscodeHost.findFiles,
     createFileSystemWatcher: () => ({
-      onDidChange: vi.fn(),
-      onDidCreate: vi.fn(),
-      onDidDelete: vi.fn(),
-      dispose: vi.fn(),
+      onDidChange: mock(),
+      onDidCreate: mock(),
+      onDidDelete: mock(),
+      dispose: mock(),
     }),
     getConfiguration: () => ({ get: (_key: string, fallback: unknown) => fallback }),
     textDocuments: [],
@@ -128,20 +130,9 @@ vi.mock("vscode", () => ({
   window: {
     activeTextEditor: undefined,
     showWarningMessage: vscodeHost.showWarningMessage,
-    showQuickPick: vi.fn(),
-    showOpenDialog: vi.fn(),
+    showQuickPick: mock(),
+    showOpenDialog: mock(),
   },
-}));
-
-vi.mock("@moonshot-ai/kimi-code-sdk", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@moonshot-ai/kimi-code-sdk")>();
-  return {
-    ...original,
-    createKimiHarness: () => ({
-      homeDir: "/tmp/kimi-code-test-home",
-      close: vi.fn(),
-    }),
-  };
 });
 
 let root: string;
@@ -156,7 +147,7 @@ beforeEach(async () => {
   vscodeHost.stat.mockImplementation((uri: { fsPath: string }) => stat(uri.fsPath));
   vscodeHost.readFile.mockImplementation((uri: { fsPath: string }) => readFile(uri.fsPath));
   vscodeHost.findFiles.mockResolvedValue([]);
-  fileManager = new FileManager({} as never, vi.fn());
+  fileManager = new FileManager({} as never, mock());
   bridges = [];
   sessionRuntimes = [];
   extraRoots = [];
@@ -166,7 +157,7 @@ afterEach(async () => {
   await Promise.all(sessionRuntimes.map((runtime) => runtime.close()));
   await Promise.all(bridges.map((bridge) => bridge.dispose()));
   fileManager.dispose();
-  vi.clearAllMocks();
+  mock.clearAllMocks();
   await Promise.all([root, ...extraRoots].map((directory) => rm(directory, { recursive: true, force: true })));
 });
 
@@ -190,7 +181,7 @@ describe("Webview workspace paths (selected-directory containment)", () => {
     const workDir = join(root, "project");
     await mkdir(workDir);
     const ctx = createContext(vscodeHost.Uri.file(workDir));
-    const suggestFiles = vi.mocked(ctx.harness.suggestFiles);
+    const suggestFiles = ctx.harness.suggestFiles;
     suggestFiles.mockResolvedValue({
       items: [
         { path: "src/app.ts", name: "app.ts", kind: "file", matchPositions: [4, 5, 6] },
@@ -213,7 +204,7 @@ describe("Webview workspace paths (selected-directory containment)", () => {
     const workDir = join(root, "project");
     await mkdir(workDir);
     const ctx = createContext(vscodeHost.Uri.file(workDir));
-    vi.mocked(ctx.harness.suggestFiles).mockRejectedValue(new Error("engine down"));
+    ctx.harness.suggestFiles.mockRejectedValue(new Error("engine down"));
     const inside = join(workDir, "inside.ts");
     await writeFile(inside, "inside");
     vscodeHost.findFiles.mockResolvedValue([vscodeHost.Uri.file(inside)]);
@@ -225,7 +216,7 @@ describe("Webview workspace paths (selected-directory containment)", () => {
     expect(vscodeHost.findFiles).toHaveBeenCalledTimes(1);
   });
 
-  it("refuses to open a symlink whose target lies outside the selected working directory", async () => {
+  it.skipIf(!SYMLINKS)("refuses to open a symlink whose target lies outside the selected working directory", async () => {
     const workDir = join(root, "project");
     const outside = join(root, "outside.txt");
     await mkdir(workDir);
@@ -239,7 +230,7 @@ describe("Webview workspace paths (selected-directory containment)", () => {
     expect(vscodeHost.executeCommand).not.toHaveBeenCalled();
   });
 
-  it("omits an outside symlink when an SDK Write event requests baseline capture", async () => {
+  it.skipIf(!SYMLINKS)("omits an outside symlink when an SDK Write event requests baseline capture", async () => {
     const workDir = join(root, "project");
     const outsideRoot = await mkdtemp(join(tmpdir(), "kimi-vscode-baseline-outside-"));
     extraRoots.push(outsideRoot);
@@ -254,22 +245,22 @@ describe("Webview workspace paths (selected-directory containment)", () => {
       id: "session-1",
       workDir,
       summary: { id: "session-1", workDir },
-      setApprovalHandler: vi.fn(),
-      setQuestionHandler: vi.fn(),
+      setApprovalHandler: mock(),
+      setQuestionHandler: mock(),
       onEvent(listener: (event: Event) => void) {
         emit = listener;
-        return vi.fn();
+        return mock();
       },
-      close: vi.fn(),
+      close: mock(),
     } as unknown as Session;
     const runtime = new SessionRuntime({
       session,
       legacyApproval: { yolo: false, afk: false },
-      broadcast: vi.fn(),
+      broadcast: mock(),
       captureBaseline: (summary, filePath, webviewIds) => {
         bridge.captureFileBaseline(summary, filePath, webviewIds);
       },
-      log: vi.fn(),
+      log: mock(),
     });
     sessionRuntimes.push(runtime);
 
@@ -382,7 +373,7 @@ describe("Webview workspace paths (selected-directory containment)", () => {
     expect(mention).toBeNull();
   });
 
-  it("rejects a selected working directory whose symlink target leaves the workspace", async () => {
+  it.skipIf(!SYMLINKS)("rejects a selected working directory whose symlink target leaves the workspace", async () => {
     const outside = await mkdtemp(join(tmpdir(), "kimi-vscode-outside-"));
     extraRoots.push(outside);
     const linkedWorkDir = join(root, "linked-project");
@@ -424,7 +415,13 @@ async function getProjectFiles(workDir: string, params: { query?: string }) {
   return fileHandlers[Methods.GetProjectFiles]!(params, createContext(vscodeHost.Uri.file(workDir)));
 }
 
-function createContext(workDirUri: InstanceType<typeof vscodeHost.Uri>): HandlerContext {
+type SuggestFilesMock = Mock<KimiHarness["suggestFiles"]>;
+type TestContext = HandlerContext & { harness: { suggestFiles: SuggestFilesMock } };
+
+function createContext(workDirUri: InstanceType<typeof vscodeHost.Uri>): TestContext {
+  const harness: { suggestFiles: SuggestFilesMock } = {
+    suggestFiles: mock(async () => undefined),
+  };
   return {
     webviewId: "view-1",
     workDir: workDirUri.fsPath,
@@ -435,19 +432,20 @@ function createContext(workDirUri: InstanceType<typeof vscodeHost.Uri>): Handler
     requireWorkDir: () => workDirUri.fsPath,
     requireWorkDirUri: () => workDirUri as vscode.Uri,
     fileManager,
-    harness: { suggestFiles: vi.fn(async () => undefined) },
-    logError: vi.fn(),
-  } as unknown as HandlerContext;
+    harness,
+    logError: mock(),
+  } as unknown as TestContext;
 }
 
 function createBridge(): BridgeHandler {
   const bridge = new BridgeHandler(
-    vi.fn(),
-    { get: vi.fn(), update: vi.fn() } as unknown as vscode.Memento,
+    mock(),
+    { get: mock(), update: mock() } as unknown as vscode.Memento,
     join(root, "global-storage"),
-    vi.fn(),
-    vi.fn(),
-    vi.fn(),
+    mock(),
+    mock(),
+    mock(),
+    () => ({ homeDir: "/tmp/kimi-code-test-home", close: mock() }) as never,
   );
   bridges.push(bridge);
   return bridge;

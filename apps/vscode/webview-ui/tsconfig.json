@@ -5,6 +5,8 @@
     "module": "ESNext",
     "skipLibCheck": true,
     "moduleResolution": "bundler",
+    "typeRoots": ["../../../node_modules/@types", "../../../types"],
+    "types": ["node", "bun-test"],
     "allowImportingTsExtensions": true,
     "resolveJsonModule": true,
     "isolatedModules": true,
@@ -20,6 +22,5 @@
       "shared/*": ["../shared/*"]
     }
   },
-  "include": ["src", "../test/settings-store.test.ts", "../test/app-init.test.ts", "../test/webview"],
-  "exclude": ["../test/webview/jsdom-environment.ts"]
+  "include": ["src", "../test/settings-store.test.ts", "../test/app-init.test.ts", "../test/webview"]
 }

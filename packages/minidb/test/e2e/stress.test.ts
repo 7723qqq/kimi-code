@@ -16,9 +16,8 @@ import { spawn } from 'node:child_process';
 import fs from 'node:fs/promises';
 import net from 'node:net';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-import { expect, test } from 'vitest';
+import { expect, test } from 'bun:test';
 
 import { MiniDb, TextIndexBuildingError } from '../../src/index.js';
 import { startServer } from '../../src/server.js';

@@ -37,7 +37,7 @@ Kimi Code 对 CLI/TUI 行为、agent 工作流和公开 API 已有自己的主�
 
 ## 开发环境
 
-前置要求：Bun >= 1.4、Git。Bun 开发流程不再需要 Node.js——vitest 测试套件在 Bun 运行时下执行（`bun --bun run test`；本机装有 Node 时，普通 `bun run test` 依旧可用）。Nix 构建路径（`flake.nix`、`nix-build.yml`）仍要求 Node.js >= 24.15.0。
+前置要求：Bun >= 1.4、Git。Bun 开发流程不再需要 Node.js——测试套件由 Bun 的原生 `bun test` 执行（`bun run test` 逐包跑完整套件，不需要 Node）。Nix 构建路径（`flake.nix`、`nix-build.yml`）仍要求 Node.js >= 24.15.0。
 
 ```sh
 git clone https://github.com/7723qqq/kimi-code.git
@@ -57,7 +57,7 @@ bun install
 
 - `bun run dev:local` — 从全新 bundle 以开发模式运行 CLI（增量，约 2 秒）。加 `:watch`（`bun run dev:local:watch`）可在源码变化时自动重建并重跑。另外两条路径：`bun run dev:cli` 转到 `apps/kimi-code/scripts/dev.mjs`（先起本地插件市场服务，再运行 CLI），`start-native.bat` 走的就是这条；真正直接执行 `src/main.ts` 的是 `dev:cli-only`，它在 Bun 1.4.2 下是坏的 —— Bun 不解析各包依赖的 `#/*` 子路径导入，会在启动时报 `Cannot find module '#/kimi-harness'`。
 - `bun run test` — 运行测试（vitest）
-- `bun --bun run test` — 运行测试（vitest）。**这是规范命令，也是 CI 使用的命令**（`.github/workflows/ci.yml`）。`--bun` 让 vitest 跑在 Bun 运行时而非 Node 上，两者结果会不同：实测出现过 `bunx vitest` 通过、而 `bun --bun run test` 在同一份代码上失败的情况。判断测试是否变绿时请一律使用 `bun --bun run test`。
+- `bun run test` — 用 Bun 原生 `bun:test` 跑测试。**这是规范命令，也是 CI 使用的命令**（`.github/workflows/ci.yml`）。它会遍历每个包并在包内执行该包自己的 `bun test --isolate`，因此各包 `bunfig.toml` 的 preload / ignore 仍然生效。只跑某个包时，在该包内用 `bun test --isolate <路径>` 是范围最小的做法。
 - `bun run typecheck` — TypeScript 检查（注意：会先构建各包）。覆盖 `packages/*` 与 `kimi-code`、`kimi-inspect`、`vscode`、`vis/server`、`vis/web` 五个 app；**不覆盖** `docs/`（VitePress 内容）。
 - `bun run build:docs` — 构建用户文档。VitePress 遇到失效的内部链接会直接失败，因此改动 `docs/` 下任何内容后请运行它。
 - `bun run lint` — oxlint
@@ -148,7 +148,6 @@ Bun 字节码默认关闭：在本流水线上实测启动无收益，而字节�
 - 打包产物在加载时从提取的资产缓存解析 pi-tui 平台 helper。
 - 内置 URL-fetch 默认走捆绑的 `undici` fetch，保证 SSRF 防护语义一致。
 - 自更新感知引擎：native manifest 只携带 Bun 段，Bun 打包的二进制下载发布中对应的 Bun 产物，拒绝回退到任何其他引擎的二进制。
-- `/status` 报告打包引擎与原生工具实现（`Runtime  bun · rust`）。
 
 测量一次构建的启动开销：先把产物复制另存（构建会写入 `dist-native/bin/<target>/kimi`），然后运行：
 
@@ -160,7 +159,7 @@ bun scripts/native/bench-native.mjs ./dist-native/bin/linux-x64/kimi --runs 20
 
 `nix-build.yml` 在纯净沙箱中构建 CLI。依赖来自一个固定输出派生（`flake.nix` 中的 `bunDeps`）：它物化 hoisted 的 `node_modules` 树；主派生随后离线编译。编辑 `flake.nix` 或原生构建步骤时需要知道的沙箱特性：
 
-- 沙箱中没有 `/usr/bin/env`——请用 `node <js入口>` 调用 node-gyp，不要用它的 bin 启动器。
+- 沙箱中没有 `/usr/bin/env`——请用 `node <js入口>` 调用包的 JS 入口，不要用它的 bin 启动器。
 - FOD 输出不得包含 `/nix/store/...` 字符串：不要把 store 路径插值进安装脚本。
 - 改动 `bun.lock` 后，会有一次哈希不匹配轮次：把失败日志中的 `got:` 哈希（PR 上由 nix-build bot 自动贴出）填回 `flake.nix` 的 `outputHash`。
 
@@ -173,7 +172,7 @@ bun scripts/native/bench-native.mjs ./dist-native/bin/linux-x64/kimi --runs 20
 | `packages/i18n-shared` 构建报 `UNRESOLVED_ENTRY` | 缺 `src/index.ts` | 新建 `src/index.ts`，重新导出 types、core 与 detect 模块 |
 | CDN 下载的 `kimi.exe` 在 `locale=zh` 下仍显示英文 | CDN 二进制只包含打包时的语言；下载日期决定版本 | 本地构建，或等下一次 CDN 发布 |
 | `bun run` 下出现意料之外的环境变量 | Bun 会自动加载 `.env`（pnpm 时代的开发流程不会） | 删除或重命名该文件，或用 `bun --no-env-file` 运行 |
-| Nix 构建报 `hash mismatch in fixed-output derivation '...bun-deps...'` | `bun.lock` 或某个 `Cargo.lock` 变了，vendored 依赖的 FOD 输出随之改变 | 把 `flake.nix` 的 `outputHash` 设为 `lib.fakeSha256`，推送后把失败日志里的 `got:` 哈希填回去（PR 上由 nix-build bot 自动贴出） |
+| Nix 构建报 `hash mismatch in fixed-output derivation '...bun-deps...'` | `bun.lock` 变了，vendored 依赖的 FOD 输出随之改变 | 把 `flake.nix` 的 `outputHash` 设为 `lib.fakeSha256`，推送后把失败日志里的 `got:` 哈希填回去（PR 上由 nix-build bot 自动贴出） |
 
 ## 提交规范
 
@@ -220,7 +219,7 @@ PR 标题由 `pr-title-checker` 工作流强制校验——不合规的标题会
 
 ## Pull Requests
 
-PR 会自动套用 [PR 模板](.github/pull_request_template.md)。PR 标题必须遵循 [Conventional Commits](#提交规范)；每个 PR 的 CI 会运行 `bun run lint`、`bun run typecheck` 和 `bun --bun run test`。行为变更时请同步更新 `docs/` 下的用户文档——使用编程 agent 时使用 `gen-docs` 技能。
+PR 会自动套用 [PR 模板](.github/pull_request_template.md)。PR 标题必须遵循 [Conventional Commits](#提交规范)；每个 PR 的 CI 会运行 `bun run lint`、`bun run typecheck` 和 `bun run test`。行为变更时请同步更新 `docs/` 下的用户文档——使用编程 agent 时使用 `gen-docs` 技能。
 
 ## 代码风格
 

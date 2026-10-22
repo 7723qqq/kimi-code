@@ -4,12 +4,16 @@ import { PassThrough, Readable } from 'node:stream';
 import type { Writable } from 'node:stream';
 import { join } from 'pathe';
 import type { IHostProcess } from '#/os/interface/hostProcess';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { IAgentTaskService } from '#/agent/task/task';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { waitForAssertion } from '#test/helpers/waitFor';
+import { AgentTaskPersistence, IAgentTaskService } from '#/agent/task/task';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { TERMINAL_STATUSES } from '#/agent/task/types';
 import { TaskOutputTool } from '#/agent/tools/task/task-output/taskOutputTool';
 import { ProcessTask } from '#/agent/tools/os/bash/process-task';
+import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
+import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
+import type { StorageReadRange } from '#/persistence/interface/storage';
 import { createAgentTaskPersistence, type TaskServiceTestManager } from './stubs';
 import { taskServices, createTestAgent, homeDirServices, type TestAgentContext } from '../../harness';
 import { executeTool, type TestExecutableToolContext } from '../../tools/fixtures/execute-tool';
@@ -82,11 +86,11 @@ async function waitForTaskNotifications(
   if (tasks.length === 0) return;
 
   ctx.mockNextResponse({ type: 'text', text: 'notification drain ack' });
-  await vi.waitFor(() => {
+  await waitForAssertion(() => {
     const delivered = ctx.allEvents.filter((e) => e.event === 'task.notified').length;
     expect(delivered).toBeGreaterThanOrEqual(tasks.length);
   });
-  await vi.waitFor(() => {
+  await waitForAssertion(() => {
     const loop = ctx.get(IAgentLoopService);
     expect(loop.snapshot().state).toBe('idle');
     expect(loop.snapshot().hasPendingRequests).toBe(false);
@@ -106,14 +110,14 @@ async function waitForTaskNotifications(
 function immediateProcess(exitCode: number, stdoutText = ''): IHostProcess {
   return {
     _serviceBrand: undefined,
-    stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
+    stdin: { write: mock(), end: mock() } as unknown as Writable,
     stdout: Readable.from(stdoutText ? [stdoutText] : []),
     stderr: Readable.from([]),
     pid: 50000 + exitCode,
     exitCode,
-    wait: vi.fn().mockResolvedValue(exitCode) as IHostProcess['wait'],
-    kill: vi.fn().mockResolvedValue(undefined) as IHostProcess['kill'],
-    dispose: vi.fn().mockResolvedValue(undefined) as IHostProcess['dispose'],
+    wait: mock().mockResolvedValue(exitCode) as IHostProcess['wait'],
+    kill: mock().mockResolvedValue(undefined) as IHostProcess['kill'],
+    dispose: mock().mockResolvedValue(undefined) as IHostProcess['dispose'],
   };
 }
 
@@ -321,5 +325,136 @@ describe('AgentTaskService — readOutput / getOutputSnapshot', () => {
 
     expect(await manager.readOutput(taskId, 5)).toBe('ddddd');
     await manager.wait(taskId);
+  });
+});
+
+class RecordingFileStorageService extends FileStorageService {
+  readonly streamRanges: StorageReadRange[] = [];
+  readonly wholeReads: string[] = [];
+
+  override async *readStream(
+    scope: string,
+    key: string,
+    range?: StorageReadRange,
+  ): AsyncIterable<Uint8Array> {
+    this.streamRanges.push(range ?? { start: 0, end: -1 });
+    yield* super.readStream(scope, key, range);
+  }
+
+  override async read(scope: string, key: string): Promise<Uint8Array | undefined> {
+    this.wholeReads.push(key);
+    return super.read(scope, key);
+  }
+}
+
+describe('AgentTaskPersistence — ranged tail read', () => {
+  const PRIMARY_SCOPE = 'sessions/test-workspace/test-session/agents/main';
+  const FALLBACK_SCOPE = 'sessions/test-workspace/test-session';
+  const TASK_ID = 'bash-range001';
+
+  let rootDir: string;
+  let storage: RecordingFileStorageService;
+  let primary: AgentTaskPersistence;
+  let fallback: AgentTaskPersistence;
+
+  beforeEach(() => {
+    rootDir = mkdtempSync(join(tmpdir(), 'bpm-range-'));
+    storage = new RecordingFileStorageService(rootDir);
+    const docs = new JsonAtomicDocumentStore(storage);
+    primary = new AgentTaskPersistence(
+      join(rootDir, PRIMARY_SCOPE),
+      PRIMARY_SCOPE,
+      docs,
+      storage,
+      { dir: join(rootDir, FALLBACK_SCOPE), scope: FALLBACK_SCOPE },
+    );
+    fallback = new AgentTaskPersistence(
+      join(rootDir, FALLBACK_SCOPE),
+      FALLBACK_SCOPE,
+      docs,
+      storage,
+    );
+  });
+
+  afterEach(() => {
+    rmSync(rootDir, { recursive: true, force: true });
+  });
+
+  it('reads only the tail of a file larger than the preview limit', async () => {
+    const body = 'x'.repeat(4096) + 'TAIL';
+    await primary.appendTaskOutput(TASK_ID, body);
+
+    const snapshot = await primary.readTaskOutputSnapshot(TASK_ID, 64);
+
+    expect(snapshot?.outputSizeBytes).toBe(4100);
+    expect(snapshot?.previewBytes).toBe(64);
+    expect(snapshot?.truncated).toBe(true);
+    expect(snapshot?.preview).toBe('x'.repeat(60) + 'TAIL');
+    expect(snapshot?.preview?.endsWith('TAIL')).toBe(true);
+  });
+
+  it('returns the whole file when it is smaller than the preview limit', async () => {
+    await primary.appendTaskOutput(TASK_ID, 'small output');
+
+    const snapshot = await primary.readTaskOutputSnapshot(TASK_ID, 1024);
+
+    expect(snapshot?.outputSizeBytes).toBe(12);
+    expect(snapshot?.previewBytes).toBe(12);
+    expect(snapshot?.truncated).toBe(false);
+    expect(snapshot?.preview).toBe('small output');
+  });
+
+  it('starts the preview on a character boundary when a multi-byte character straddles the limit', async () => {
+    await primary.appendTaskOutput(TASK_ID, `a${'😀'.repeat(3)}`);
+
+    const snapshot = await primary.readTaskOutputSnapshot(TASK_ID, 5);
+
+    expect(snapshot?.outputSizeBytes).toBe(13);
+    expect(snapshot?.previewBytes).toBe(5);
+    expect(snapshot?.preview).toBe('😀');
+    expect(Buffer.byteLength(snapshot?.preview ?? '', 'utf-8')).toBeLessThanOrEqual(5);
+  });
+
+  it('returns undefined when the output log does not exist', async () => {
+    expect(await primary.readTaskOutputSnapshot('bash-missing0', 64)).toBeUndefined();
+  });
+
+  it('reads the tail from the fallback root when the primary root has no output', async () => {
+    await fallback.appendTaskOutput(TASK_ID, 'legacy output');
+
+    const snapshot = await primary.readTaskOutputSnapshot(TASK_ID, 6);
+
+    expect(snapshot?.outputPath).toBe(
+      join(rootDir, FALLBACK_SCOPE, 'tasks', TASK_ID, 'output.log'),
+    );
+    expect(snapshot?.outputSizeBytes).toBe(13);
+    expect(snapshot?.preview).toBe('output');
+  });
+
+  it('prefers the primary root output over the fallback root output', async () => {
+    await fallback.appendTaskOutput(TASK_ID, 'legacy output');
+    await primary.appendTaskOutput(TASK_ID, 'local output');
+
+    const snapshot = await primary.readTaskOutputSnapshot(TASK_ID, 100);
+
+    expect(snapshot?.outputPath).toBe(
+      join(rootDir, PRIMARY_SCOPE, 'tasks', TASK_ID, 'output.log'),
+    );
+    expect(snapshot?.preview).toBe('local output');
+  });
+
+  it('reads the preview through a ranged stream read instead of loading the whole log', async () => {
+    const body = 'y'.repeat(8192);
+    await primary.appendTaskOutput(TASK_ID, body);
+
+    const snapshot = await primary.readTaskOutputSnapshot(TASK_ID, 128);
+
+    expect(snapshot?.previewBytes).toBe(128);
+    expect(storage.wholeReads).toEqual([]);
+    expect(storage.streamRanges).toHaveLength(1);
+    const range = storage.streamRanges[0]!;
+    expect(range.end).toBe(8191);
+    expect(range.start).toBeLessThanOrEqual(8191 - 128);
+    expect(range.end - range.start + 1).toBeLessThanOrEqual(128 + 4);
   });
 });

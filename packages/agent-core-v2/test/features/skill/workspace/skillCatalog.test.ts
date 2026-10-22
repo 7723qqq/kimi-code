@@ -1,21 +1,20 @@
 import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { sep } from 'node:path';
 
 import { join } from 'pathe';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, spyOn } from 'bun:test';
+import * as watchNamespace from '#human/utils/watch';
 
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { createScopedChildHandle } from '#/_base/di/scope';
 import { LifecycleScope } from '#/app/scopes';
-import {
-  _clearScopedRegistryForTests,
-  registerScopedService,
-} from '#/_base/di/scope';
+import { _clearScopedRegistryForTests, registerScopedService } from '#/_base/di/scope';
 import { AsyncEmitter, Emitter, Event } from '#/_base/event';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IPluginService } from '#/app/plugin/plugin';
 import { PluginService } from '#/app/plugin/pluginService';
-import type { PluginReloadEvent } from '#/app/plugin/types';
+import { type PluginReloadEvent } from '#/app/plugin/types';
 import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
 import { IProviderService } from '#/llm-adapter/provider/provider';
 import { IAppStateService } from '#/app/state/appState';
@@ -25,29 +24,23 @@ import { WorkspaceStateService } from '#/workspace/state/workspaceStateService';
 import { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceContext';
 import { IConfigService } from '#/app/config/config';
 import { IFlagService } from '#/app/flag/flag';
-import {
-  EXTRA_SKILL_DIRS_SECTION,
-  MERGE_ALL_AVAILABLE_SKILLS_SECTION,
-} from '#/features/skill/catalog/configSection';
+import { EXTRA_SKILL_DIRS_SECTION, MERGE_ALL_AVAILABLE_SKILLS_SECTION } from '#/features/skill/catalog/configSection';
 import { BuiltinSkillSource, IBuiltinSkillSource } from '#/features/skill/catalog/builtinSkillSource';
 import { IUserFileSkillSource, UserFileSkillSource } from '#/features/skill/catalog/userFileSkillSource';
 import { InMemorySkillDiscovery } from '#/features/skill/catalog/inMemorySkillDiscovery';
-import type { SkillContribution } from '#/features/skill/catalog/skillSource';
+import { type InMemorySkillCatalog } from '#/features/skill/catalog/registry';
+import { type SkillContribution } from '#/features/skill/catalog/skillSource';
 import { IWorkspaceSkillCatalog } from '#/features/skill/workspace/workspaceSkillCatalog';
-import {
-  WorkspaceSkillCatalogService,
-  workspaceSkillCatalogContributionsKey,
-  workspaceSkillCatalogMergedKey,
-} from '#/features/skill/workspace/workspaceSkillCatalogService';
+import { WorkspaceSkillCatalogService, workspaceSkillCatalogContributionsKey, workspaceSkillCatalogMergedKey } from '#/features/skill/workspace/workspaceSkillCatalogService';
 import { ExplicitFileSkillSource, IExplicitFileSkillSource } from '#/features/skill/workspace/explicitFileSkillSource';
 import { ExtraFileSkillSource, IExtraFileSkillSource } from '#/features/skill/workspace/extraFileSkillSource';
 import { IWorkspaceRootSkillSource, WorkspaceRootSkillSource } from '#/features/skill/workspace/rootFileSkillSource';
 import { IPluginSkillSource, PluginSkillSource } from '#/features/skill/workspace/pluginSkillSource';
 import { ISkillDiscovery } from '#/features/skill/catalog/skillDiscovery';
 import { FileSkillDiscovery } from '#/features/skill/catalog/fileSkillDiscovery';
-import type { SkillRoot } from '#/features/skill/catalog/types';
+import { type SkillRoot } from '#/features/skill/catalog/types';
 import { ILogService } from '#/_base/log/log';
-import type { WatchChange, WatchOptions } from '#human/utils/watch';
+import { type WatchChange, type WatchOptions } from '#human/utils/watch';
 
 import { stubBootstrap } from '../../../app/bootstrap/stubs';
 import { stubFlag } from '../../../app/flag/stubs';
@@ -55,31 +48,35 @@ import { stubSkill } from '../catalog/stubs';
 import { stubProviderService } from '../../../app/provider/stubs';
 import { stubLog } from '../../../_base/log/stubs';
 
-const watchMockState = vi.hoisted(() => ({
+const watchMockState = (() => ({
   calls: [] as { path: string; options?: WatchOptions }[],
   factory: undefined as undefined | ((path: string, options?: WatchOptions) => unknown),
-}));
+}))();
 
-vi.mock('#human/utils/watch', async (importOriginal) => {
-  const original = await importOriginal<typeof import('#human/utils/watch')>();
-  const watch = (path: string, options?: WatchOptions) => {
-    watchMockState.calls.push({ path, options });
-    if (watchMockState.factory !== undefined) {
-      return watchMockState.factory(path, options) as ReturnType<typeof original.watch>;
-    }
-    return {
-      ready: Promise.resolve(),
-      onDidChange: () => ({ dispose: () => {} }),
-      dispose: () => {},
-    };
-  };
+const watchModule = watchNamespace;
+const originalWatch = watchModule.watch;
+
+function slashPath(value: string): string {
+  return value.split(sep).join('/');
+}
+
+const watch = (path: string, options?: WatchOptions) => {
+  watchMockState.calls.push({ path, options });
+  if (watchMockState.factory !== undefined) {
+    return watchMockState.factory(path, options) as ReturnType<typeof originalWatch>;
+  }
   return {
-    ...original,
-    watch,
-    watchCandidates: (root: string, _candidates: readonly string[], options?: WatchOptions) =>
-      watch(root, options),
+    ready: Promise.resolve(),
+    onDidChange: () => ({ dispose: () => {} }),
+    dispose: () => {},
   };
-});
+};
+
+spyOn(watchModule, 'watch').mockImplementation(watch as typeof originalWatch);
+spyOn(watchModule, 'watchCandidates').mockImplementation(
+  ((root: string, _candidates: readonly string[], options?: WatchOptions) =>
+    watch(root, options)) as typeof watchModule.watchCandidates,
+);
 
 const bootstrapStub = stubBootstrap('/home');
 
@@ -290,7 +287,7 @@ describe('WorkspaceSkillCatalogService', () => {
     const states = workspace.accessor.get(IWorkspaceStateService);
     const contributions = states.get(workspaceSkillCatalogContributionsKey);
     expect([...contributions.keys()]).toContain('workspace');
-    expect(states.get(workspaceSkillCatalogMergedKey)).toBe(catalog.catalog);
+    expect(states.get(workspaceSkillCatalogMergedKey)).toBe(catalog.catalog as InMemorySkillCatalog);
     expect(states.snapshot()['workspaceSkillCatalog.merged']).toBe('(InMemorySkillCatalog)');
     host.dispose();
   });
@@ -848,8 +845,9 @@ describe('WorkspaceSkillCatalogService', () => {
     }
 
     const handles: TestWatchHandle[] = [];
+    const projectRoots = new Set([workDir, watchedRoot].map(slashPath));
     watchMockState.factory = (path) => {
-      if (path !== workDir && path !== watchedRoot) return new TestWatchHandle(Promise.resolve());
+      if (!projectRoots.has(slashPath(path))) return new TestWatchHandle(Promise.resolve());
       const handle = new TestWatchHandle(
         handles.length === 0 ? Promise.resolve() : replacementReady.promise,
       );

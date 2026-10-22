@@ -2,21 +2,15 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import {
-  Error2,
-  ErrorCodes,
-  IMcpManagementService,
-  type GlobalMcpServerConfig,
-  type McpManagedServer,
-  type McpServerInspection,
-  type McpServerLocator,
-  type McpServerTestTarget,
-} from '@moonshot-ai/agent-core-v2';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { Error2, ErrorCodes, IMcpManagementService, type GlobalMcpServerConfig, type McpManagedServer, type McpServerInspection, type McpServerLocator, type McpServerTestTarget } from '@moonshot-ai/agent-core-v2';
+import { afterEach, describe, expect, it } from 'bun:test';
+import { removeTempHome } from './helpers/tempHome';
 
 import { type RunningServer, startServer } from '../src/start';
 import { authedFetch } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
+import { restoreEnvs } from './helpers/stubs';
+import { waitForAssertion } from './helpers/waitFor';
 
 interface EnvelopeWire<T = unknown> {
   code: number;
@@ -174,14 +168,14 @@ describe('server /api/v2/mcp', () => {
   let base: string;
 
   afterEach(async () => {
-    vi.unstubAllEnvs();
+    restoreEnvs();
     if (server !== undefined) {
       await server.close();
       server = undefined;
     }
     if (home !== undefined) {
       await new Promise((resolve) => setTimeout(resolve, 25));
-      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
+      await removeTempHome(home);
       home = undefined;
     }
   });
@@ -357,7 +351,11 @@ describe('server /api/v2/mcp', () => {
     it('tests an inline server config without saving it', async () => {
       const stub = makeMcpStub();
       await boot(stub);
-      const inline = { name: 'inline', transport: 'http', url: 'https://example.com/mcp' };
+      const inline = {
+        name: 'inline',
+        transport: 'http',
+        url: 'https://example.com/mcp',
+      } as const;
       const res = await call('POST', '/api/v2/mcp/servers:test', { server: inline });
       expect(res.body).toMatchObject({ code: 0, data: { success: true, output: 'probe ok' } });
       expect(stub.state.lastTestTarget).toEqual({ server: inline });
@@ -389,7 +387,7 @@ describe('server /api/v2/mcp', () => {
           authStatus: 'not-applicable',
           checkedAt: 1000,
         },
-      ]);
+      ] as unknown as McpServerInspection[]);
     });
 
     it('forwards cwd through locator-addressed inspection and OAuth operations', async () => {
@@ -505,12 +503,12 @@ describe('server /api/v2/mcp', () => {
         body: JSON.stringify({ flowId: 'flow-1' }),
         signal: controller.signal,
       });
-      await vi.waitFor(() => expect(reached).toBe(true));
+      await waitForAssertion(() => expect(reached).toBe(true));
 
       controller.abort();
 
       await expect(pending).rejects.toThrow();
-      await vi.waitFor(() => expect(seenSignal?.aborted).toBe(true));
+      await waitForAssertion(() => expect(seenSignal?.aborted).toBe(true));
     });
   });
 });

@@ -25,6 +25,11 @@ import {
   type NormalizedTodoItem,
   parseStreamingArgs,
 } from '../utils/event-payload';
+import {
+  SYSTEM_RENDER_CLOCK,
+  type RenderClock,
+  type RenderTimerHandle,
+} from '../utils/render-clock';
 import { notifyTerminalOnce } from '../utils/terminal-notification';
 import { nextTranscriptId } from '../utils/transcript-id';
 
@@ -51,11 +56,21 @@ export interface StreamingUIHost {
   mergeCompletedTurnAssistants(): void;
 }
 
+/**
+ * Time and timer sources for the coalescing flush and the queued-message
+ * dispatch. Injected by callers that need to drive those delays (tests), and
+ * left at the system clock everywhere else.
+ */
+export interface StreamingUITimingOptions {
+  readonly clock?: RenderClock | undefined;
+}
+
 export class StreamingUIController {
-  private flushTimer: ReturnType<typeof setTimeout> | undefined;
+  private flushTimer: RenderTimerHandle | undefined;
   private lastFlushAt: number | undefined;
   private pendingAssistantFlush = false;
   private pendingThinkingFlush = false;
+  private readonly clock: RenderClock;
   readonly pendingToolCallFlushIds = new Set<string>();
 
   // ---------------------------------------------------------------------------
@@ -94,7 +109,12 @@ export class StreamingUIController {
     group?: ReadGroupComponent;
   } | null = null;
 
-  constructor(private readonly host: StreamingUIHost) {}
+  constructor(
+    private readonly host: StreamingUIHost,
+    options: StreamingUITimingOptions = {},
+  ) {
+    this.clock = options.clock ?? SYSTEM_RENDER_CLOCK;
+  }
 
   // ---------------------------------------------------------------------------
   // Turn context — read/write accessors
@@ -362,7 +382,7 @@ export class StreamingUIController {
     const existing = this._streamingToolCallArguments.get(id);
     const argumentsText = appendStreamingArgsPreview(existing?.argumentsText, argumentsPart);
     const name = eventName ?? existing?.name ?? this._activeToolCalls.get(id)?.name ?? 'Tool';
-    const startedAtMs = existing?.startedAtMs ?? Date.now();
+    const startedAtMs = existing?.startedAtMs ?? this.clock.now();
     this._streamingToolCallArguments.set(id, { name, argumentsText, startedAtMs });
     this.pendingToolCallFlushIds.add(id);
   }
@@ -482,7 +502,7 @@ export class StreamingUIController {
 
   clearFlushTimer(): void {
     if (this.flushTimer === undefined) return;
-    clearTimeout(this.flushTimer);
+    this.clock.clearTimeout(this.flushTimer);
     this.flushTimer = undefined;
   }
 
@@ -504,8 +524,8 @@ export class StreamingUIController {
     const delay =
       this.lastFlushAt === undefined
         ? 0
-        : Math.max(0, STREAMING_UI_FLUSH_MS - (Date.now() - this.lastFlushAt));
-    this.flushTimer = setTimeout(() => {
+        : Math.max(0, STREAMING_UI_FLUSH_MS - (this.clock.now() - this.lastFlushAt));
+    this.flushTimer = this.clock.setTimeout(() => {
       this.flushTimer = undefined;
       this.flush();
     }, delay);
@@ -518,7 +538,7 @@ export class StreamingUIController {
 
   private flush(): void {
     if (!this.hasPending()) return;
-    this.lastFlushAt = Date.now();
+    this.lastFlushAt = this.clock.now();
     const shouldFlushThinking = this.pendingThinkingFlush;
     const shouldFlushAssistant = this.pendingAssistantFlush;
     const toolCallIds = [...this.pendingToolCallFlushIds];
@@ -619,7 +639,7 @@ export class StreamingUIController {
       state.queuedMessageDispatchPending = true;
       this.host.setAppState({ streamingPhase: 'idle' });
       this.host.resetLivePane();
-      setTimeout(() => {
+      this.clock.setTimeout(() => {
         state.queuedMessageDispatchPending = false;
         sendQueued(next);
       }, 0);

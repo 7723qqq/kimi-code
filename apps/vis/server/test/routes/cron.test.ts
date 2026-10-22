@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { describe, it, expect, afterEach } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 import { buildSessionFixture } from '../fixtures/build';
 import { cronRoute } from '../../src/routes/cron';

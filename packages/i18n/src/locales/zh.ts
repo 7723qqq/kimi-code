@@ -179,8 +179,6 @@ export const zh: DeepPartial<typeof import('./en').default> = {
     toolSelectTitle: '工具选择（渐进式工具暴露）',
     toolSelectDesc:
       '将 MCP 工具 schema 保持在不可变的顶层 tools[] 之外；模型通过 select_tools 工具按需加载。仅在能力目录声明动态加载工具的模型上生效。',
-    nativeToolsTitle: '原生工具',
-    nativeToolsDesc: '对 Read、Write、Edit、Grep、Glob 和 Bash 工具使用 Rust 原生实现。',
     rpcMicrotaskTitle: 'RPC 微任务调度',
     rpcMicrotaskDesc:
       '对进程内 RPC 模拟使用 queueMicrotask 而非 setTimeout(0)，降低每次调用的延迟。',

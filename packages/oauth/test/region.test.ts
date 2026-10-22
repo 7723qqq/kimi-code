@@ -1,7 +1,7 @@
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 import { DEFAULT_KIMI_CODE_OAUTH_HOST } from '#/constants';
 import { KIMI_CODE_OAUTH_KEY } from '#/managed-kimi-code';

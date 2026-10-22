@@ -29,6 +29,11 @@ import type { ColorPalette } from '#/tui/theme/colors';
 import type { AppState } from '#/tui/types';
 import { permissionModeDisplayName } from '#/tui/utils/permission-mode';
 import {
+  SYSTEM_RENDER_CLOCK,
+  type RenderClock,
+  type RenderTimerHandle,
+} from '#/tui/utils/render-clock';
+import {
   firstTokenAverageMs,
   fitSessionStatsText,
   formatStatDuration,
@@ -75,8 +80,12 @@ const TIP_SEPARATOR = ' | ';
 
 const getRotation = createLocaleKeyedTipRotation(getAllTips);
 
-function currentTipIndex(): number {
-  return Math.floor(Date.now() / TIP_ROTATE_INTERVAL_MS);
+/**
+ * Rotation index of the tip shown at `nowMs`. The clock is a parameter so the
+ * caller can drive the rotation from the same clock that paints the footer.
+ */
+function currentTipIndex(nowMs: number = Date.now()): number {
+  return Math.floor(nowMs / TIP_ROTATE_INTERVAL_MS);
 }
 
 /**
@@ -371,15 +380,16 @@ export function formatFooterGitBadge(status: GitStatus, colors: ColorPalette): s
 export class FooterComponent implements Component {
   private state: AppState;
   private readonly onRefresh: () => void;
+  private readonly clock: RenderClock;
   private gitCache: GitStatusCache;
   private gitCacheWorkDir: string;
   private transientHint: string | null = null;
   private warningHint: string | null = null;
   private expandHintProvider: (() => ToolOutputExpandHint | null) | null = null;
   private goalSnapshotKey: string | null = null;
-  private goalObservedAtMs = Date.now();
-  private goalTimer: ReturnType<typeof setInterval> | null = null;
-  private pulseTimer: ReturnType<typeof setInterval> | null = null;
+  private goalObservedAtMs: number | null = null;
+  private goalTimer: RenderTimerHandle | null = null;
+  private pulseTimer: RenderTimerHandle | null = null;
   private pulsePhase = 0;
   /**
    * The pulse output the frame was last painted for, as `pulseOutput()` returned
@@ -399,9 +409,19 @@ export class FooterComponent implements Component {
   private backgroundBashTaskCount = 0;
   private backgroundAgentCount = 0;
 
-  constructor(state: AppState, onRefresh: () => void = () => {}) {
+  /**
+   * `clock` defaults to the system clock, which keeps timers, the goal elapsed
+   * readout and the tip rotation on the same wall clock they have always used;
+   * inject one to drive all three from the same source in a test.
+   */
+  constructor(
+    state: AppState,
+    onRefresh: () => void = () => {},
+    clock: RenderClock = SYSTEM_RENDER_CLOCK,
+  ) {
     this.state = state;
     this.onRefresh = onRefresh;
+    this.clock = clock;
     this.gitCacheWorkDir = state.workDir;
     this.gitCache = createGitStatusCache(state.workDir, {
       onChange: this.onRefresh,
@@ -532,7 +552,7 @@ export class FooterComponent implements Component {
       const showTips = !tipsInline && (configured === null || configured.includes('tips'));
       const tipCandidates: string[] = [];
       if (showTips) {
-        const { primary, pair } = tipsForIndex(currentTipIndex());
+        const { primary, pair } = tipsForIndex(currentTipIndex(this.clock.now()));
         if (pair) tipCandidates.push(pair);
         if (primary) tipCandidates.push(primary);
       }
@@ -654,7 +674,7 @@ export class FooterComponent implements Component {
     };
 
     {
-      const { primary, pair } = tipsForIndex(currentTipIndex());
+      const { primary, pair } = tipsForIndex(currentTipIndex(this.clock.now()));
       const tip = pair ?? primary;
       if (tip) slots['tips'] = [chalk.hex(colors.textMuted)(tip)];
     }
@@ -749,25 +769,30 @@ export class FooterComponent implements Component {
     };
   }
 
+  /**
+   * Stamp when the current goal snapshot was observed, so an active goal's
+   * elapsed readout keeps advancing between snapshots. The first call stamps
+   * even for "no goal" — that observation time is the baseline every later
+   * delta is measured from.
+   */
   private syncGoalClock(goal: AppState['goal']): void {
     const key = goalSnapshotKey(goal);
-    if (key === this.goalSnapshotKey) return;
+    if (this.goalObservedAtMs !== null && key === this.goalSnapshotKey) return;
     this.goalSnapshotKey = key;
-    this.goalObservedAtMs = Date.now();
+    this.goalObservedAtMs = this.clock.now();
   }
 
   private syncGoalTimer(goal: AppState['goal']): void {
     if (goal?.status === 'active') {
       if (this.goalTimer !== null) return;
-      this.goalTimer = setInterval(() => {
+      this.goalTimer = this.armInterval(() => {
         this.onRefresh();
       }, GOAL_TIMER_INTERVAL_MS);
-      this.goalTimer.unref?.();
       return;
     }
 
     if (this.goalTimer !== null) {
-      clearInterval(this.goalTimer);
+      this.clock.clearInterval(this.goalTimer);
       this.goalTimer = null;
     }
   }
@@ -775,14 +800,13 @@ export class FooterComponent implements Component {
   private syncPulseTimer(thinking: boolean): void {
     if (thinking) {
       if (this.pulseTimer !== null) return;
-      this.pulseTimer = setInterval(() => {
+      this.pulseTimer = this.armInterval(() => {
         this.tickPulse();
       }, THINKING_PULSE_INTERVAL_MS);
-      this.pulseTimer.unref?.();
       return;
     }
     if (this.pulseTimer !== null) {
-      clearInterval(this.pulseTimer);
+      this.clock.clearInterval(this.pulseTimer);
       this.pulseTimer = null;
     }
     this.pulsePhase = 0;
@@ -840,21 +864,34 @@ export class FooterComponent implements Component {
 
   dispose(): void {
     if (this.goalTimer !== null) {
-      clearInterval(this.goalTimer);
+      this.clock.clearInterval(this.goalTimer);
       this.goalTimer = null;
     }
     if (this.pulseTimer !== null) {
-      clearInterval(this.pulseTimer);
+      this.clock.clearInterval(this.pulseTimer);
       this.pulseTimer = null;
     }
     this.statusLineRunner?.dispose();
     this.statusLineRunner = null;
   }
 
+  /**
+   * Arm a repeating timer on the injected clock. Only the system clock's
+   * handles are unref'd — a footer animation must never be the reason the
+   * process stays alive — while an injected clock (a test's fake) owns
+   * liveness itself and hands back handles whose `unref` means "cancel".
+   */
+  private armInterval(callback: () => void, intervalMs: number): RenderTimerHandle {
+    const handle = this.clock.setInterval(callback, intervalMs);
+    if (this.clock === SYSTEM_RENDER_CLOCK) handle.unref?.();
+    return handle;
+  }
+
   private goalWallClockMs(goal: AppState['goal']): number | undefined {
     if (goal === null || goal === undefined) return undefined;
     if (goal.status !== 'active') return goal.wallClockMs;
-    return goal.wallClockMs + Math.max(0, Date.now() - this.goalObservedAtMs);
+    const observedAtMs = this.goalObservedAtMs ?? this.clock.now();
+    return goal.wallClockMs + Math.max(0, this.clock.now() - observedAtMs);
   }
 }
 

@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { revealCommandFor } from '../../src/lib/reveal';
 
 describe('reveal', () => {

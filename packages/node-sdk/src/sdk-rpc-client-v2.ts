@@ -129,6 +129,7 @@ import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
+import type { ScopeSeed } from '@moonshot-ai/agent-core-v2/_base/di/scope';
 import { McpConnectionManager } from '@moonshot-ai/agent-core-v2/mcpCore/connection-manager';
 import { readTowerStatusSummary } from '@moonshot-ai/agent-core-v2/features/tower/tools/status/statusReader';
 import { loadMcpServers } from '@moonshot-ai/agent-core-v2/app/mcpConfig/configLoader';
@@ -370,6 +371,8 @@ export interface SDKRpcClientV2Options {
   readonly uiMode?: string;
   /** UI surfaces this host renders; forwarded as `BootstrapInput.args.uiCapabilities`. */
   readonly uiCapabilities?: readonly HostUiCapability[];
+  /** Extra DI seeds merged into the engine bootstrap, for hosts and tests that override a service. */
+  readonly serviceSeeds?: ScopeSeed;
 }
 
 /**
@@ -472,7 +475,10 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
           uiCapabilities: options.uiCapabilities,
         },
       },
-      [...logSeed(resolveLoggingConfig({ homeDir: this.homeDir, env: process.env }))],
+      [
+        ...logSeed(resolveLoggingConfig({ homeDir: this.homeDir, env: process.env })),
+        ...(options.serviceSeeds ?? []),
+      ],
     );
     // The engine seed above feeds the engine's own DI sink; the host-side
     // `log` surface (used by this client and by the embedding app) needs its

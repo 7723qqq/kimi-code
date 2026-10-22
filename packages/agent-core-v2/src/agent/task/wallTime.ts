@@ -3,7 +3,7 @@ export interface AgentTaskTiming {
   readonly endedAt: number | null;
 }
 
-export function formatTaskWallTime(task: AgentTaskTiming): string {
-  const durationMs = Math.max(0, (task.endedAt ?? Date.now()) - task.startedAt);
+export function formatTaskWallTime(task: AgentTaskTiming, nowMs: number = Date.now()): string {
+  const durationMs = Math.max(0, (task.endedAt ?? nowMs) - task.startedAt);
   return `${(durationMs / 1000).toFixed(3)} seconds`;
 }

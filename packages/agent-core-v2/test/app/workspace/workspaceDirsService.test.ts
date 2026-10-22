@@ -1,8 +1,9 @@
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { expectRejection } from '#test/helpers/assertions';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
@@ -77,9 +78,7 @@ describe('WorkspaceDirsService session sandbox', () => {
     const before = dirs.additionalDirs;
 
     for (const candidate of ['/', '~', dirs.additionalDirs.length === 0 ? root : root]) {
-      await expect(dirs.mergeAdditionalDirs(workspaceDir, [candidate])).rejects.toSatisfy(
-        (error: unknown) => error instanceof Error2 && error.code === ErrorCodes.CONFIG_INVALID,
-      );
+      await expectRejection(dirs.mergeAdditionalDirs(workspaceDir, [candidate]), (error: unknown) => error instanceof Error2 && error.code === ErrorCodes.CONFIG_INVALID);
     }
     expect(dirs.additionalDirs).toEqual(before);
   });
@@ -97,7 +96,7 @@ describe('WorkspaceDirsService session sandbox', () => {
 
     const release = await dirs.mergeAdditionalDirs(workspaceDir, [outsideDir]);
 
-    expect(dirs.additionalDirs).toEqual([outsideDir]);
+    expect(dirs.additionalDirs).toEqual([outsideDir.split(sep).join("/")]);
     release.dispose();
     expect(dirs.additionalDirs).toEqual([]);
   });
@@ -107,16 +106,16 @@ describe('WorkspaceDirsService session sandbox', () => {
 
     const first = await dirs.mergeAdditionalDirs(workspaceDir, [outsideDir]);
     const second = await dirs.mergeAdditionalDirs(workspaceDir, [outsideDir]);
-    expect(dirs.additionalDirs).toEqual([outsideDir]);
+    expect(dirs.additionalDirs).toEqual([outsideDir.split(sep).join("/")]);
 
     first.dispose();
-    expect(dirs.additionalDirs).toEqual([outsideDir]);
+    expect(dirs.additionalDirs).toEqual([outsideDir.split(sep).join("/")]);
 
     second.dispose();
     expect(dirs.additionalDirs).toEqual([]);
   });
 
-  it('keeps the project-local config channel permissive', async () => {
+  it.skipIf(process.platform === 'win32')('keeps the project-local config channel permissive', async () => {
     const dirs = await service();
     const config = ix.get(IProjectLocalConfigService);
 

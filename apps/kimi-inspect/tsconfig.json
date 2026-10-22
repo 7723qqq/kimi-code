@@ -9,7 +9,13 @@
   "extends": "../../tsconfig.json",
   "compilerOptions": {
     "lib": ["ES2023", "DOM", "DOM.Iterable"],
-    "types": ["node", "vite/client"],
+    // The inherited `typeRoots` are relative to the repo-root tsconfig, so they
+    // point outside this package's `types` lookup once `vite/client` (a plain
+    // node package, not an `@types` entry) has to be resolved. Root the lookup at
+    // the workspace `node_modules` as well, and keep the inherited `bun-test`
+    // so `bun:test` stays typed in the co-located suites.
+    "typeRoots": ["../../node_modules/@types", "../../types", "../../node_modules"],
+    "types": ["node", "bun-test", "vite/client"],
     "noEmit": true
   },
   "include": [

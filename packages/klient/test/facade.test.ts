@@ -1,8 +1,13 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
+
+import type { SessionSummary, SkillSummary } from '@moonshot-ai/agent-core-v2';
+import type { CapabilityStatus } from '@moonshot-ai/agent-core-v2/contract';
 
 import type { EventSourceRef, IDisposable, KlientChannel, ScopeRef } from '../src/core/channel.js';
+import type { AgentContextData, McpServerEntry } from '../src/core/facade/agent.js';
 import { createKlientFromChannel } from '../src/core/klient.js';
 import { KlientValidationError } from '../src/core/validation.js';
+import type { Page } from '../src/index.js';
 
 const tick = (ms = 0): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -12,7 +17,7 @@ class FakeChannel implements KlientChannel {
   readonly subscriptions: Array<{
     scope: ScopeRef;
     source: EventSourceRef;
-    dispose: ReturnType<typeof vi.fn>;
+    dispose: ReturnType<typeof mock>;
   }> = [];
   result: unknown;
   /** Keyed `${service}.${method}` result overrides. */
@@ -40,7 +45,7 @@ class FakeChannel implements KlientChannel {
     const id = this.nextSub;
     this.nextSub += 1;
     this.handlers.set(id, handler);
-    const dispose = vi.fn(() => {
+    const dispose = mock(() => {
       this.handlers.delete(id);
     });
     this.subscriptions.push({ scope, source, dispose });
@@ -121,7 +126,7 @@ describe('facade routing', () => {
   it('routes capability calls through the registered app service contract', async () => {
     const channel = new FakeChannel();
     const klient = createKlientFromChannel(channel);
-    const status = {
+    const status: CapabilityStatus = {
       id: 'kimi-cu',
       displayName: 'Kimi Computer Use',
       description: 'Background GUI automation',
@@ -286,7 +291,7 @@ describe('session skills routing', () => {
     const channel = new FakeChannel();
     const klient = createKlientFromChannel(channel);
 
-    const summaries = [
+    const summaries: readonly SkillSummary[] = [
       {
         name: 'review',
         description: 'review changes',
@@ -391,10 +396,11 @@ describe('session skills routing', () => {
 
     channel.results.set('agentContextMemoryService.get', [{ role: 'user' }]);
     channel.results.set('agentTokenCountingService.statusSize', 42);
-    await expect(agent.getContext()).resolves.toEqual({
+    const expectedContext = {
       history: [{ role: 'user' }],
       tokenCount: 42,
-    });
+    } as unknown as AgentContextData;
+    await expect(agent.getContext()).resolves.toEqual(expectedContext);
     expect(channel.calls).toEqual([
       { scope, service: 'agentContextMemoryService', method: 'get', args: [] },
       { scope, service: 'agentTokenCountingService', method: 'statusSize', args: [] },
@@ -408,7 +414,9 @@ describe('agent mcp / compaction routing', () => {
     const klient = createKlientFromChannel(channel);
     const agent = klient.session('s1').agent('main');
 
-    const entries = [{ name: 'mock', transport: 'stdio', status: 'pending', toolCount: 0 }];
+    const entries: readonly McpServerEntry[] = [
+      { name: 'mock', transport: 'stdio', status: 'pending', toolCount: 0 },
+    ];
     channel.results.set('agentMcpService.list', entries);
     await expect(agent.getMcpServers()).resolves.toEqual(entries);
     expect(channel.calls[0]).toEqual({
@@ -540,10 +548,11 @@ describe('contract validation', () => {
   it('validate:false skips both directions', async () => {
     const channel = new FakeChannel();
     const klient = createKlientFromChannel(channel, { validate: false });
-    channel.result = { anything: true };
+    const expectedPage = { anything: true } as unknown as Page<SessionSummary>;
+    channel.result = expectedPage;
     await expect(
       klient.global.sessions.list({ limit: '20' as unknown as number }),
-    ).resolves.toEqual({ anything: true });
+    ).resolves.toEqual(expectedPage);
   });
 });
 

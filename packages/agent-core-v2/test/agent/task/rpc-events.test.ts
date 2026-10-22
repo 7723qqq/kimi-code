@@ -5,7 +5,9 @@ import type { Writable } from 'node:stream';
 import { join } from 'pathe';
 
 import type { IHostProcess } from '#/os/interface/hostProcess';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
+import { describe, expect, it, mock, spyOn } from 'bun:test';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import {
   type AgentTaskInfo,
@@ -26,6 +28,7 @@ import { IAgentConversationUndoService } from '#/agent/undo/undo';
 import { ErrorCodes } from '#/errors';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import {
+  appService,
   configServices,
   createTestAgent,
   externalHookServices,
@@ -47,14 +50,14 @@ type FireAndForgetTrigger = IExternalHooksRunnerService['fireAndForgetTrigger'];
 function immediateProcess(exitCode: number, stdoutText = ''): IHostProcess {
   return {
     _serviceBrand: undefined,
-    stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
+    stdin: { write: mock(), end: mock() } as unknown as Writable,
     stdout: Readable.from(stdoutText ? [stdoutText] : []),
     stderr: Readable.from([]),
     pid: 30000 + exitCode,
     exitCode,
-    wait: vi.fn().mockResolvedValue(exitCode) as IHostProcess['wait'],
-    kill: vi.fn().mockResolvedValue(undefined) as IHostProcess['kill'],
-    dispose: vi.fn().mockResolvedValue(undefined) as IHostProcess['dispose'],
+    wait: mock().mockResolvedValue(exitCode) as IHostProcess['wait'],
+    kill: mock().mockResolvedValue(undefined) as IHostProcess['kill'],
+    dispose: mock().mockResolvedValue(undefined) as IHostProcess['dispose'],
   };
 }
 
@@ -66,7 +69,7 @@ function pendingProcess(): IHostProcess {
   let currentExitCode: number | null = null;
   return {
     _serviceBrand: undefined,
-    stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
+    stdin: { write: mock(), end: mock() } as unknown as Writable,
     stdout: Readable.from([]),
     stderr: Readable.from([]),
     pid: 99999,
@@ -74,12 +77,12 @@ function pendingProcess(): IHostProcess {
       return currentExitCode;
     },
     wait: () => waitPromise,
-    kill: vi.fn(async () => {
+    kill: mock(async () => {
       if (currentExitCode !== null) return;
       currentExitCode = 143;
       resolveWait(143);
     }) as unknown as IHostProcess['kill'],
-    dispose: vi.fn().mockResolvedValue(undefined) as IHostProcess['dispose'],
+    dispose: mock().mockResolvedValue(undefined) as IHostProcess['dispose'],
   };
 }
 
@@ -146,10 +149,10 @@ function persistedAgent(
 }
 
 interface FakeTaskAgent {
-  emitEvent: ReturnType<typeof vi.fn>;
+  emitEvent: ReturnType<typeof mock>;
   emittedEvents: Array<{ type: string; info?: unknown }>;
   kimiConfig?: { task?: { maxRunningTasks?: number } };
-  context: { appendUserMessage: ReturnType<typeof vi.fn> };
+  context: { appendUserMessage: ReturnType<typeof mock> };
   hooks?: { fireAndForgetTrigger: FireAndForgetTrigger };
 }
 
@@ -171,21 +174,97 @@ type TestContextMessage = {
   readonly content: readonly { readonly text: string }[];
 };
 
+interface FakeHostTimerHandle extends IHostTimerHandle {
+  readonly id: number;
+}
+
+interface FakeHostTimers extends IHostTimers {
+  advance(byMs: number): void;
+  readonly pending: number;
+}
+
+function createFakeHostTimers(): FakeHostTimers {
+  let nowMs = 0;
+  let nextId = 1;
+  const scheduled: Array<{
+    readonly id: number;
+    due: number;
+    readonly callback: () => void;
+    cancelled: boolean;
+  }> = [];
+
+  const schedule = (callback: () => void, delayMs: number): FakeHostTimerHandle => {
+    const id = nextId;
+    nextId += 1;
+    scheduled.push({ id, due: nowMs + delayMs, callback, cancelled: false });
+    return { id, unref: () => {} };
+  };
+
+  return {
+    _serviceBrand: undefined,
+    setClampedTimeout: (callback, timeoutMs) => schedule(callback, timeoutMs),
+    setTimeout: (callback, timeoutMs) => schedule(callback, timeoutMs),
+    clearTimeout: (handle) => {
+      const id = (handle as FakeHostTimerHandle).id;
+      const timer = scheduled.find((candidate) => candidate.id === id);
+      if (timer !== undefined) timer.cancelled = true;
+    },
+    advance: (byMs) => {
+      const limit = nowMs + byMs;
+      let guard = 0;
+      for (;;) {
+        const next = scheduled
+          .filter((timer) => !timer.cancelled && timer.due <= limit)
+          .sort((left, right) => left.due - right.due || left.id - right.id)[0];
+        if (next === undefined) break;
+        guard += 1;
+        if (guard > 1_000) throw new Error('fake host timers advanced more than 1000 timers');
+        nowMs = next.due;
+        next.cancelled = true;
+        next.callback();
+      }
+      nowMs = limit;
+    },
+    get pending() {
+      return scheduled.filter((timer) => !timer.cancelled).length;
+    },
+  };
+}
+
+async function flushHostWork(): Promise<void> {
+  for (let index = 0; index < 4; index += 1) {
+    await Promise.resolve();
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+  }
+}
+
+async function advanceHostTime(timers: FakeHostTimers, byMs: number): Promise<void> {
+  await flushHostWork();
+  timers.advance(byMs);
+  await flushHostWork();
+}
+
 function createAgentTaskService(options: {
   sessionDir?: string;
   maxRunningTasks?: number;
   hooks?: FakeTaskAgent['hooks'];
+  timers?: FakeHostTimers;
 } = {}): TaskServiceFixture {
   const records: TelemetryRecord[] = [];
   const telemetry = recordingTelemetry(records);
   const hookEngine: Pick<IExternalHooksRunnerService, 'trigger' | 'triggerBlock' | 'fireAndForgetTrigger'> | undefined = options.hooks === undefined
     ? undefined
     : {
-        trigger: vi.fn().mockResolvedValue([]),
-        triggerBlock: vi.fn().mockResolvedValue(undefined),
+        trigger: mock().mockResolvedValue([]),
+        triggerBlock: mock().mockResolvedValue(undefined),
         fireAndForgetTrigger: options.hooks.fireAndForgetTrigger,
       };
   const overrides: TestAgentServiceOverride[] = [telemetryServices(telemetry)];
+  if (options.timers !== undefined) {
+    overrides.push(appService(IHostTimers, options.timers));
+  }
   if (options.sessionDir !== undefined) {
     overrides.push(homeDirServices(options.sessionDir));
   }
@@ -208,11 +287,11 @@ function createAgentTaskService(options: {
   });
 
   const context = ctx.get(IAgentContextMemoryService);
-  const appendHistorySpy = vi.spyOn(context, 'append');
+  const appendHistorySpy = spyOn(context, 'append');
 
   const agent: FakeTaskAgent = {
     emittedEvents,
-    emitEvent: vi.fn((event: { type: string; info?: unknown }) => {
+    emitEvent: mock((event: { type: string; info?: unknown }) => {
       emittedEvents.push(event);
     }),
     kimiConfig:
@@ -261,7 +340,7 @@ function notifiedCount(ctx: TestAgentContext): number {
 
 async function drainNotifications(ctx: TestAgentContext): Promise<void> {
   ctx.mockNextResponse({ type: 'text', text: 'notification drain ack' });
-  await vi.waitFor(() => {
+  await waitForAssertion(() => {
     const loop = ctx.get(IAgentLoopService);
     expect(loop.snapshot().state).toBe('idle');
     expect(loop.snapshot().hasPendingRequests).toBe(false);
@@ -303,10 +382,6 @@ function registerProcess(
 }
 
 describe('AgentTaskService — event emission', () => {
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
   it('emits task.started for process tasks', () => {
     const { agent, manager, records } = createAgentTaskService();
     const taskId = registerProcess(manager, pendingProcess(), 'sleep 60', 'demo');
@@ -394,8 +469,8 @@ describe('AgentTaskService — event emission', () => {
   });
 
   it('tracks failed and timed-out terminal statuses', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    const { manager, records } = createAgentTaskService();
+    const timers = createFakeHostTimers();
+    const { manager, records } = createAgentTaskService({ timers });
     const failedId = registerProcess(manager, immediateProcess(1), 'false', 'failed');
     const timedOutId = manager.registerTask(
       agentTask(new Promise(() => {}), 'slow agent', { timeoutMs: 1 }),
@@ -404,7 +479,7 @@ describe('AgentTaskService — event emission', () => {
 
     await manager.wait(failedId);
     const timedOut = manager.wait(timedOutId);
-    await vi.advanceTimersByTimeAsync(5_010);
+    await advanceHostTime(timers, 5_010);
     await timedOut;
 
     expect(records).toContainEqual({
@@ -485,7 +560,7 @@ describe('AgentTaskService — notification delivery', () => {
 
     await manager.wait(taskId);
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(notifiedCount(ctx)).toBe(1);
     });
     await turnEnd;
@@ -520,7 +595,7 @@ describe('AgentTaskService — notification delivery', () => {
 
     await manager.wait(taskId);
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(notifiedCount(ctx)).toBe(1);
     });
     await turnEnd;
@@ -559,7 +634,7 @@ describe('AgentTaskService — notification delivery', () => {
 
     await manager.wait(taskId);
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(notifiedCount(ctx)).toBe(1);
     });
     await turnEnd;
@@ -586,7 +661,7 @@ describe('AgentTaskService — notification delivery', () => {
 
     await manager.wait(taskId);
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(notifiedCount(ctx)).toBe(1);
     });
     await turnEnd;
@@ -617,7 +692,7 @@ describe('AgentTaskService — notification delivery', () => {
 
     await manager.wait(taskId);
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(notifiedCount(ctx)).toBe(1);
     });
     await turnEnd;
@@ -639,7 +714,7 @@ describe('AgentTaskService — notification delivery', () => {
 
     await manager.wait(taskId);
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(notifiedCount(ctx)).toBe(1);
     });
     await drainNotifications(ctx);
@@ -663,7 +738,7 @@ describe('AgentTaskService — notification delivery', () => {
 
     await manager.stopByUser(taskId);
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(notifiedCount(ctx)).toBe(1);
     });
     await drainNotifications(ctx);
@@ -752,7 +827,7 @@ describe('AgentTaskService — notification delivery', () => {
       await manager.loadFromDisk();
       await manager.reconcile();
 
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         expect(agent.context.appendUserMessage).toHaveBeenCalledTimes(1);
       });
       const message = firstAppendedContextMessage(agent);
@@ -785,7 +860,7 @@ describe('AgentTaskService — notification delivery', () => {
       await manager.loadFromDisk();
       await manager.reconcile();
 
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         expect(agent.context.appendUserMessage).toHaveBeenCalledTimes(1);
       });
       const message = firstAppendedContextMessage(agent);
@@ -820,7 +895,7 @@ describe('AgentTaskService — notification delivery', () => {
       await manager.loadFromDisk();
       await manager.reconcile();
 
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         expect(agent.context.appendUserMessage).toHaveBeenCalledTimes(1);
       });
       const message = firstAppendedContextMessage(agent);
@@ -884,10 +959,10 @@ describe('AgentTaskService — notification delivery', () => {
 
       await manager.loadFromDisk();
       await manager.reconcile();
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         expect(agent.context.appendUserMessage).toHaveBeenCalledTimes(1);
       });
-      vi.spyOn(manager, 'getOutputSnapshot').mockRejectedValueOnce(
+      spyOn(manager, 'getOutputSnapshot').mockRejectedValueOnce(
         new Error('output unavailable'),
       );
 
@@ -930,7 +1005,7 @@ describe('AgentTaskService — notification delivery', () => {
       }).turn;
       await started;
       const taskId = registerProcess(manager, immediateProcess(0, 'done'), 'echo done', 'done');
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         expect(manager.getTask(taskId)?.status).toBe('completed');
         expect(loop.snapshot().hasPendingRequests).toBe(true);
       });
@@ -969,7 +1044,7 @@ describe('AgentTaskService — notification delivery', () => {
     const sessionDir = await mkdtemp(join(tmpdir(), 'kimi-bg-agent-lost-'));
     let fixture: TaskServiceFixture | undefined;
     try {
-      const fireAndForgetTrigger = vi.fn<FireAndForgetTrigger>(async () => []);
+      const fireAndForgetTrigger = mock<FireAndForgetTrigger>(async () => []);
       const persistence = createAgentTaskPersistence(sessionDir);
       await persistence.writeTask(
         persistedAgent({
@@ -989,7 +1064,7 @@ describe('AgentTaskService — notification delivery', () => {
       await manager.reconcile();
       await manager.reconcile();
 
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         expect(agent.context.appendUserMessage).toHaveBeenCalledTimes(1);
       });
       const message = firstAppendedContextMessage(agent);
@@ -999,7 +1074,7 @@ describe('AgentTaskService — notification delivery', () => {
       });
       expect(message.content[0]!.text).toContain('<system-reminder>');
       expect(message.content[0]!.text).toContain('agent-run00000');
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         expect(fireAndForgetTrigger).toHaveBeenCalledTimes(1);
       });
       expect(fireAndForgetTrigger).toHaveBeenCalledWith('Notification', expect.objectContaining({
@@ -1042,7 +1117,7 @@ describe('AgentTaskService — notification delivery', () => {
       await manager.reconcile();
 
       expect(agent.context.appendUserMessage).toHaveBeenCalledTimes(1);
-      await vi.waitFor(async () => {
+      await waitForAssertion(async () => {
         await expect(persistence.readTask('agent-hist0000')).resolves.toMatchObject({
           resumeReminded: true,
         });
@@ -1089,7 +1164,7 @@ describe('AgentTaskService — notification delivery', () => {
             message.origin.variant === 'task_resume_termination',
         ),
       ).toEqual([]);
-      await vi.waitFor(async () => {
+      await waitForAssertion(async () => {
         await expect(persistence.readTask('agent-old00000')).resolves.toMatchObject({
           resumeReminded: true,
         });
@@ -1119,7 +1194,7 @@ describe('AgentTaskService — notification delivery', () => {
           readonly persistence: Pick<ReturnType<typeof createAgentTaskPersistence>, 'writeTask'>;
         }
       ).persistence;
-      vi.spyOn(internalPersistence, 'writeTask').mockRejectedValueOnce(
+      spyOn(internalPersistence, 'writeTask').mockRejectedValueOnce(
         new Error('marker write failed'),
       );
 
@@ -1139,7 +1214,7 @@ describe('AgentTaskService — notification delivery', () => {
   });
 
   it('fires a Notification hook when a task agent notification is delivered', async () => {
-    const fireAndForgetTrigger = vi.fn<FireAndForgetTrigger>(async () => []);
+    const fireAndForgetTrigger = mock<FireAndForgetTrigger>(async () => []);
     const { ctx, manager } = createAgentTaskService({
       hooks: { fireAndForgetTrigger },
     });
@@ -1152,7 +1227,7 @@ describe('AgentTaskService — notification delivery', () => {
 
     await manager.wait(taskId);
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(notifiedCount(ctx)).toBe(1);
       expect(fireAndForgetTrigger).toHaveBeenCalled();
     });
@@ -1171,7 +1246,7 @@ describe('AgentTaskService — notification delivery', () => {
   });
 
   it('does not let Notification hook failures interrupt notification delivery', async () => {
-    const fireAndForgetTrigger = vi.fn<FireAndForgetTrigger>(async () => {
+    const fireAndForgetTrigger = mock<FireAndForgetTrigger>(() => {
       throw new Error('notification hook failed');
     });
     const { agent, ctx, manager } = createAgentTaskService({
@@ -1186,7 +1261,7 @@ describe('AgentTaskService — notification delivery', () => {
 
     await manager.wait(taskId);
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(notifiedCount(ctx)).toBe(1);
       expect(fireAndForgetTrigger).toHaveBeenCalled();
     });
@@ -1198,7 +1273,7 @@ describe('AgentTaskService — notification delivery', () => {
   });
 
   it('fires Notification hooks for process task notifications', async () => {
-    const fireAndForgetTrigger = vi.fn<FireAndForgetTrigger>(async () => []);
+    const fireAndForgetTrigger = mock<FireAndForgetTrigger>(async () => []);
     const { ctx, manager } = createAgentTaskService({
       hooks: { fireAndForgetTrigger },
     });
@@ -1206,7 +1281,7 @@ describe('AgentTaskService — notification delivery', () => {
 
     await manager.wait(taskId);
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(notifiedCount(ctx)).toBe(1);
       expect(fireAndForgetTrigger).toHaveBeenCalled();
     });
@@ -1238,7 +1313,7 @@ describe('AgentTaskService — agent recovery notification bodies', () => {
 
     await manager.wait(taskId);
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(notifiedCount(ctx)).toBe(1);
     });
     await drainNotifications(ctx);
@@ -1260,7 +1335,7 @@ describe('AgentTaskService — agent recovery notification bodies', () => {
 
     await manager.wait(taskId);
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(notifiedCount(ctx)).toBe(1);
     });
     await drainNotifications(ctx);
@@ -1275,7 +1350,7 @@ describe('AgentTaskService — agent recovery notification bodies', () => {
 
     await manager.wait(taskId);
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(notifiedCount(ctx)).toBe(1);
     });
     await drainNotifications(ctx);

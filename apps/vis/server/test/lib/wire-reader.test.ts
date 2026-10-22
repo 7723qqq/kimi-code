@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -121,8 +121,10 @@ describe('wire-reader', () => {
       expect(result.warnings).toEqual([]);
       expect(result.records).toHaveLength(2);
       // data === raw for current-protocol records (no migration applied).
-      expect(result.records[0]!.data).toEqual(result.records[0]!.raw);
-      expect(result.records[1]!.data).toEqual(result.records[1]!.raw);
+      // `data` is model-typed while `raw` stays the unvalidated JSON value, so
+      // Bun's `toEqual` overloads cannot infer one shared expected type.
+      expect(result.records[0]!.data as unknown).toEqual(result.records[0]!.raw);
+      expect(result.records[1]!.data as unknown).toEqual(result.records[1]!.raw);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

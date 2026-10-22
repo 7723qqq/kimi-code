@@ -1,10 +1,9 @@
 import { mkdtempSync } from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { setTimeout as sleep } from 'node:timers/promises';
 import { join } from 'pathe';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
@@ -39,6 +38,7 @@ import {
   slowToolStdioFixture,
   stdioFixture,
 } from '../../mcpCore/stubs';
+import { setTimeout as delay } from 'node:timers/promises';
 
 describe('Workspace MCP initialization', () => {
   let cwd: string;
@@ -128,7 +128,7 @@ describe('Workspace MCP initialization', () => {
     manager = service.connectionManager();
     expect(manager.list()).toEqual([]);
 
-    await sleep(50);
+    await delay(50);
     expect(manager.list()).toEqual([]);
 
     resolveConfigReady();

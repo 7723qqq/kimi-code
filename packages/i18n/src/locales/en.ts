@@ -188,9 +188,6 @@ export const en = {
     toolSelectTitle: 'Tool select (progressive tool disclosure)',
     toolSelectDesc:
       'Keep MCP tool schemas out of the immutable top-level tools[]; the model loads them on demand via the select_tools tool. Only takes effect on models whose capability catalog declares dynamically loaded tools.',
-    nativeToolsTitle: 'Native tools',
-    nativeToolsDesc:
-      'Use Rust-native implementations for Read, Write, Edit, Grep, Glob and Bash tools.',
     rpcMicrotaskTitle: 'RPC microtask scheduling',
     rpcMicrotaskDesc:
       'Use queueMicrotask instead of setTimeout(0) for in-process RPC simulation, reducing per-call latency.',

@@ -1,14 +1,11 @@
-import { isAbsolute, join, relative, resolve } from 'pathe';
+import { isAbsolute, join, resolve } from 'pathe';
 import { win32 as win32Path } from 'node:path';
 import { Readable, Writable } from 'node:stream';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { LifecycleScope } from '#/app/scopes';
-import {
-  ScopeActivation,
-  _clearScopedRegistryForTests,
-  registerScopedService,
-} from '#/_base/di/scope';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { relative } from 'pathe';
+
+import { ScopeActivation, _clearScopedRegistryForTests, registerScopedService } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { IGitService } from '#/app/git/git';
 import { ErrorCodes, Error2 } from '#/errors';
@@ -1666,7 +1663,7 @@ describe('WorkspaceFsService.resolveDownload', () => {
     const res = await fs.resolveDownload('a.txt');
     expect(res.size).toBe('hello'.length);
     expect(res.mime).toBe('text/plain');
-    expect(res.etag).toBeTypeOf('string');
+    expect(typeof res.etag).toBe('string');
     expect(res.modifiedAt).toBeInstanceOf(Date);
   });
 

@@ -3,8 +3,10 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { PassThrough, type Readable } from 'node:stream';
+import * as childProcess from 'node:child_process';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import { expectRejection } from '#test/helpers/assertions';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
@@ -14,6 +16,70 @@ import {
   HostProcessErrorCode,
   IHostProcessService,
 } from '#/os/interface/hostProcess';
+import type { IHostTimerHandle, IHostTimers } from '#/os/interface/hostTimers';
+
+interface FakeTimerHandle extends IHostTimerHandle {
+  readonly id: number;
+}
+
+interface FakeTimers extends IHostTimers {
+  advance(byMs: number): void;
+  readonly pending: number;
+}
+
+function createFakeTimers(): FakeTimers {
+  let nowMs = 0;
+  let nextId = 1;
+  const scheduled: Array<{
+    readonly id: number;
+    readonly due: number;
+    readonly callback: () => void;
+    cancelled: boolean;
+  }> = [];
+
+  const schedule = (callback: () => void, timeoutMs: number): FakeTimerHandle => {
+    const timer = { id: nextId, due: nowMs + timeoutMs, callback, cancelled: false };
+    nextId += 1;
+    scheduled.push(timer);
+    return { id: timer.id, unref: () => {} };
+  };
+
+  return {
+    _serviceBrand: undefined,
+    setClampedTimeout: (callback, timeoutMs) => schedule(callback, timeoutMs),
+    setTimeout: (callback, timeoutMs) => schedule(callback, timeoutMs),
+    clearTimeout: (handle) => {
+      const id = (handle as FakeTimerHandle).id;
+      const timer = scheduled.find((candidate) => candidate.id === id);
+      if (timer !== undefined) timer.cancelled = true;
+    },
+    advance: (byMs) => {
+      const limit = nowMs + byMs;
+      for (;;) {
+        const next = scheduled
+          .filter((timer) => !timer.cancelled && timer.due <= limit)
+          .toSorted((a, b) => a.due - b.due || a.id - b.id)[0];
+        if (next === undefined) break;
+        next.cancelled = true;
+        nowMs = next.due;
+        next.callback();
+      }
+      nowMs = limit;
+    },
+    get pending() {
+      return scheduled.filter((timer) => !timer.cancelled).length;
+    },
+  };
+}
+
+async function flushAsyncWork(): Promise<void> {
+  for (let i = 0; i < 4; i += 1) {
+    await Promise.resolve();
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+  }
+}
 
 async function collect(stream: Readable): Promise<string> {
   const chunks: Buffer[] = [];
@@ -61,8 +127,7 @@ describe('HostProcessService', () => {
 
   it('throws a coded error when the command does not exist', async () => {
     const svc = ix.get(IHostProcessService);
-    await expect(svc.spawn('definitely-not-a-real-command-42')).rejects.toSatisfy(
-      (err: unknown) => {
+    await expectRejection(svc.spawn('definitely-not-a-real-command-42'), (err: unknown) => {
         expect(err).toBeInstanceOf(HostProcessError);
         const error = err as HostProcessError;
         expect(error.code).toBe(HostProcessErrorCode.SpawnFailed);
@@ -73,8 +138,7 @@ describe('HostProcessService', () => {
         });
         expect(error.cause).toBeInstanceOf(Error);
         return true;
-      },
-    );
+      });
   });
 
   it('terminates a running process with kill()', async () => {
@@ -165,38 +229,34 @@ describe.skipIf(process.platform !== 'win32')('HostProcessService (Windows)', ()
 describe('HostProcessService on Windows', () => {
   let savedPlatform: string;
   let spawnedCommands: string[];
-  let taskkills: Array<{ kill: ReturnType<typeof vi.fn>; unref: ReturnType<typeof vi.fn> }>;
+  let taskkills: Array<{ kill: ReturnType<typeof mock>; unref: ReturnType<typeof mock> }>;
+
+  let spawnSpy: ReturnType<typeof spyOn> | undefined;
 
   beforeEach(() => {
     savedPlatform = process.platform;
     Object.defineProperty(process, 'platform', { value: 'win32' });
     spawnedCommands = [];
     taskkills = [];
-    vi.doMock('node:child_process', async (importOriginal) => ({
-      ...(await importOriginal<typeof import('node:child_process')>()),
-      spawn: (command: string, args: readonly string[]) => {
-        spawnedCommands.push([command, ...args].join(' '));
-        const child = Object.assign(new EventEmitter(), {
-          pid: 4242,
-          stdin: new PassThrough(),
-          stdout: new PassThrough(),
-          stderr: new PassThrough(),
-          kill: vi.fn(() => true),
-          unref: vi.fn(),
-        });
-        if (command === 'taskkill') taskkills.push(child);
-        else queueMicrotask(() => child.emit('spawn'));
-        return child;
-      },
-    }));
-    vi.resetModules();
-    vi.useFakeTimers();
+    spawnSpy = spyOn(childProcess, 'spawn').mockImplementation(((command: string, args: readonly string[]) => {
+      spawnedCommands.push([command, ...args].join(' '));
+      const child = Object.assign(new EventEmitter(), {
+        pid: 4242,
+        stdin: new PassThrough(),
+        stdout: new PassThrough(),
+        stderr: new PassThrough(),
+        kill: mock(() => true),
+        unref: mock(),
+      });
+      if (command === 'taskkill') taskkills.push(child);
+      else queueMicrotask(() => child.emit('spawn'));
+      return child;
+    }) as never);
   });
 
   afterEach(() => {
-    vi.useRealTimers();
-    vi.doUnmock('node:child_process');
-    vi.resetModules();
+    spawnSpy?.mockRestore();
+    spawnSpy = undefined;
     Object.defineProperty(process, 'platform', { value: savedPlatform });
   });
 
@@ -204,13 +264,17 @@ describe('HostProcessService on Windows', () => {
     const { HostProcessService: WindowsHostProcessService } = await import(
       '#/os/backends/host/hostProcessService'
     );
-    const proc = await new WindowsHostProcessService().spawn('node', ['-e', 'setTimeout(() => {}, 30000)']);
+    const timers = createFakeTimers();
+    const proc = await new WindowsHostProcessService(timers).spawn('node', ['-e', 'setTimeout(() => {}, 30000)']);
     let killed = false;
     const kill = proc.kill('SIGTERM').then(() => {
       killed = true;
     });
 
-    await vi.advanceTimersByTimeAsync(5_000);
+    await flushAsyncWork();
+    expect(timers.pending).toBe(1);
+    timers.advance(5_000);
+    await flushAsyncWork();
 
     expect(spawnedCommands).toContain('taskkill /T /F /PID 4242');
     expect(killed).toBe(true);

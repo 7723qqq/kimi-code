@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { ScopeUnits } from '#/_base/di/fiber';

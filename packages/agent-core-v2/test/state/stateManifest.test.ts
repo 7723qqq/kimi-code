@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 
 import { Project } from 'ts-morph';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { buildStateManifest, MANIFEST_PATH } from '../../scripts/gen-state-manifest.mts';
 

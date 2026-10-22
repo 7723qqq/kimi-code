@@ -1,5 +1,5 @@
 import type { ToolCall } from '#human/llm/message';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
 import { DefaultToolApprovePermissionPolicyService } from '#/agent/permissionPolicy/policies/default-tool-approve';

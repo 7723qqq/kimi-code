@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import { generate } from '#/generate';
 import type { ContentPart, Message, StreamedMessagePart, ToolCall } from '#/message';
@@ -50,8 +50,7 @@ async function captureRequestBody(
 ): Promise<Record<string, unknown>> {
   let capturedBody: Record<string, unknown> | undefined;
 
-  (provider as any)._client.chat.completions.create = vi
-    .fn()
+  (provider as any)._client.chat.completions.create = mock()
     .mockImplementation((params: unknown) => {
       capturedBody = params as Record<string, unknown>;
       return Promise.resolve(makeChatCompletionResponse());
@@ -778,8 +777,7 @@ describe('OpenAILegacyChatProvider', () => {
     it('echoes thinking under the dialect detected from the response', async () => {
       const provider = createProvider();
       const captured: Array<Record<string, unknown>> = [];
-      (provider as any)._client.chat.completions.create = vi
-        .fn()
+      (provider as any)._client.chat.completions.create = mock()
         .mockImplementation((params: unknown) => {
           captured.push(params as Record<string, unknown>);
           return Promise.resolve({
@@ -818,8 +816,7 @@ describe('OpenAILegacyChatProvider', () => {
     it('explicit reasoningKey pins the dialect against detection', async () => {
       const provider = createProvider({ reasoningKey: 'custom_reasoning' });
       const captured: Array<Record<string, unknown>> = [];
-      (provider as any)._client.chat.completions.create = vi
-        .fn()
+      (provider as any)._client.chat.completions.create = mock()
         .mockImplementation((params: unknown) => {
           captured.push(params as Record<string, unknown>);
           return Promise.resolve({
@@ -861,8 +858,7 @@ describe('OpenAILegacyChatProvider', () => {
     it('dialect detected on a per-step clone steers the original provider', async () => {
       const original = createProvider();
       const captured: Array<Record<string, unknown>> = [];
-      (original as any)._client.chat.completions.create = vi
-        .fn()
+      (original as any)._client.chat.completions.create = mock()
         .mockImplementation((params: unknown) => {
           captured.push(params as Record<string, unknown>);
           return Promise.resolve({
@@ -1610,7 +1606,7 @@ describe('OpenAILegacyChatProvider', () => {
         yield { id: 'c1', choices: [{ index: 0, delta: {}, finish_reason: 'stop' }] };
       }
 
-      (provider as any)._client.chat.completions.create = vi.fn().mockResolvedValue(mockedStream());
+      (provider as any)._client.chat.completions.create = mock().mockResolvedValue(mockedStream());
 
       const stream = await provider.generate(
         '',
@@ -1638,7 +1634,7 @@ describe('OpenAILegacyChatProvider', () => {
         yield { id: 'c1', choices: [{ index: 0, delta: { reasoning_content: '' } }] };
       }
 
-      (provider as any)._client.chat.completions.create = vi.fn().mockResolvedValue(mockedStream());
+      (provider as any)._client.chat.completions.create = mock().mockResolvedValue(mockedStream());
 
       const stream = await provider.generate('', [], []);
       const parts: StreamedMessagePart[] = [];
@@ -1765,7 +1761,7 @@ describe('OpenAILegacyChatProvider', () => {
 
     (
       provider as unknown as { _client: { chat: { completions: { create: unknown } } } }
-    )._client.chat.completions.create = vi.fn().mockResolvedValue(mockStream(chunks));
+    )._client.chat.completions.create = mock().mockResolvedValue(mockStream(chunks));
 
     const result = await generate(
       provider,
@@ -1817,7 +1813,7 @@ describe('OpenAILegacyChatProvider', () => {
 
     (
       provider as unknown as { _client: { chat: { completions: { create: unknown } } } }
-    )._client.chat.completions.create = vi.fn().mockResolvedValue(mockStream(chunks));
+    )._client.chat.completions.create = mock().mockResolvedValue(mockStream(chunks));
 
     const events: string[] = [];
     const result = await generate(
@@ -1878,8 +1874,7 @@ describe('OpenAILegacyChatProvider', () => {
     ];
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (provider as any)._client.chat.completions.create = vi
-      .fn()
+    (provider as any)._client.chat.completions.create = mock()
       .mockResolvedValue(mockStream(chunks));
 
     const stream = await provider.generate(
@@ -1921,8 +1916,7 @@ describe('OpenAILegacyChatProvider', () => {
     ];
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (provider as any)._client.chat.completions.create = vi
-      .fn()
+    (provider as any)._client.chat.completions.create = mock()
       .mockResolvedValue(mockStream(chunks));
 
     const result = await generate(
@@ -1959,7 +1953,7 @@ describe('OpenAILegacyChatProvider — non-stream response parsing', () => {
     provider: OpenAILegacyChatProvider,
     response: Record<string, unknown>,
   ): Promise<StreamedMessagePart[]> {
-    (provider as any)._client.chat.completions.create = vi.fn().mockResolvedValue(response);
+    (provider as any)._client.chat.completions.create = mock().mockResolvedValue(response);
 
     const stream = await provider.generate(
       '',
@@ -2204,7 +2198,7 @@ describe('OpenAILegacyChatProvider — non-indexed streaming tool_calls', () => 
 
     (
       provider as unknown as { _client: { chat: { completions: { create: unknown } } } }
-    )._client.chat.completions.create = vi.fn().mockResolvedValue(mockStream(chunks));
+    )._client.chat.completions.create = mock().mockResolvedValue(mockStream(chunks));
 
     const result = await generate(
       provider,
@@ -2246,7 +2240,7 @@ describe('OpenAILegacyChatProvider — non-indexed streaming tool_calls', () => 
 
     (
       provider as unknown as { _client: { chat: { completions: { create: unknown } } } }
-    )._client.chat.completions.create = vi.fn().mockResolvedValue(mockStream(chunks));
+    )._client.chat.completions.create = mock().mockResolvedValue(mockStream(chunks));
 
     const stream = await provider.generate('', [], []);
     const parts: Array<Record<string, unknown>> = [];
@@ -2278,7 +2272,7 @@ describe('OpenAILegacyChatProvider — non-indexed streaming tool_calls', () => 
 
     (
       provider as unknown as { _client: { chat: { completions: { create: unknown } } } }
-    )._client.chat.completions.create = vi.fn().mockResolvedValue(mockStream(chunks));
+    )._client.chat.completions.create = mock().mockResolvedValue(mockStream(chunks));
 
     const stream = await provider.generate('', [], []);
     const parts: Array<Record<string, unknown>> = [];
@@ -2311,7 +2305,7 @@ describe('OpenAILegacyChatProvider — non-indexed streaming tool_calls', () => 
 
     (
       provider as unknown as { _client: { chat: { completions: { create: unknown } } } }
-    )._client.chat.completions.create = vi.fn().mockResolvedValue(mockStream(chunks));
+    )._client.chat.completions.create = mock().mockResolvedValue(mockStream(chunks));
 
     const stream = await provider.generate('', [], []);
     const parts: Array<Record<string, unknown>> = [];

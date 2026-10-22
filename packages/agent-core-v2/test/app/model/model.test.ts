@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { ConfigRegistry } from '#/app/config/configService';
 import { ErrorCodes, Error2 } from '#/errors';

@@ -201,7 +201,7 @@ export class AgentToolDedupeService extends Service implements IAgentToolDedupeS
     @IEventBus eventBus: IEventBus,
   ) {
     super();
-    this.repeatBreakerEnabled = parseBooleanEnv(bootstrap.getEnv(REPEAT_BREAKER_ENV)) !== false;
+    this.repeatBreakerEnabled = parseBooleanEnv(bootstrap.getEnv(REPEAT_BREAKER_ENV)) === true;
     this.states.contributeState(toolDedupeStepCallsKey);
     this.states.contributeState(toolDedupeOriginalCallIndexKey);
     this.states.contributeState(toolDedupeSyntheticCallIdsKey);

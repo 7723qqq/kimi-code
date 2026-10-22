@@ -6,12 +6,12 @@
  * Git Bash probe, workspace trust, the config write cascade, deleteSession,
  * foldAgentWireReplay).
  * Wiring: real v2 engine bootstrapped on a temp KIMI_CODE_HOME; remote provider calls are stubbed.
- * Run: pnpm exec vitest run test/sdk-rpc-client-v2.test.ts
+ * Run: cd packages/node-sdk && bun test test/sdk-rpc-client-v2.test.ts
  */
 import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
 import {
@@ -19,7 +19,7 @@ import {
   resolveKimiCodeOAuthRef,
   resolveKimiTokenStorageName,
 } from '@moonshot-ai/kimi-code-oauth';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 
 import {
   buildDaemonFileUrl,
@@ -54,6 +54,7 @@ import {
   IAtomicDocumentStore,
   ISessionContext,
   IAgentTowerService,
+  IHostEnvironment,
   IHostRequestHeaders,
   IMcpManagementService,
   IMcpOAuthService,
@@ -64,6 +65,7 @@ import {
 
 import { McpOAuthService as McpOAuthServiceV2 } from '@moonshot-ai/agent-core-v2/mcpCore/oauth/service';
 import { TowerStore } from '@moonshot-ai/agent-core-v2/features/tower/protocol/store';
+import type { ScopeSeed } from '@moonshot-ai/agent-core-v2/_base/di/scope';
 
 import { TEST_IDENTITY } from './test-identity';
 import {
@@ -71,31 +73,52 @@ import {
   setModelsDevUpstreamForTest,
 } from '@moonshot-ai/agent-core-v2/app/kosongConfig/modelsDevUpstream';
 
+import { waitUntil } from './session-runtime-helpers';
+import { setEnv, restoreEnvs } from './stubs';
 import { recordingTelemetry, type TelemetryRecord } from './telemetry';
 
-const hostEnvProbe = vi.hoisted(() => ({ failWithMissingShell: false }));
-
-vi.mock('@moonshot-ai/agent-core-v2/_base/execEnv/environmentProbe', async (importOriginal) => {
-  const actual =
-    await importOriginal<
-      typeof import('@moonshot-ai/agent-core-v2/_base/execEnv/environmentProbe')
-    >();
-  return {
-    ...actual,
-    probeHostEnvironmentFromNode: () =>
-      hostEnvProbe.failWithMissingShell
-        ? Promise.reject(
-            new actual.ProbeShellNotFoundError('Git Bash missing (stubbed)', [
-              'C:\\Program Files\\Git\\bin\\bash.exe',
-            ]),
-          )
-        : actual.probeHostEnvironmentFromNode(),
-  };
-});
+/**
+ * Seeds a host-environment service whose `ready` rejects with the Git Bash
+ * probe error, so the engine sees a missing shell without mocking the probe
+ * module itself.
+ */
+function failingHostEnvironmentSeed(): ScopeSeed {
+  const ready = Promise.reject(
+    new HostProcessError(
+      OsProcessErrors.codes.SHELL_GIT_BASH_NOT_FOUND,
+      'Git Bash missing (stubbed)',
+    ),
+  );
+  ready.catch(() => {});
+  return [[IHostEnvironment, { _serviceBrand: undefined, ready } as unknown as IHostEnvironment]];
+}
 
 const tempDirs: string[] = [];
 
+/** The trust disclosure reports paths with forward slashes on every platform. */
+const slash = (value: string): string => value.replaceAll('\\', '/');
+
+/**
+ * Bun's `toEqual` treats an explicit `undefined` property as different from an
+ * absent one, while vitest's (and the wire shape) does not. Compare the JSON
+ * shape so the assertion keeps its original meaning.
+ */
+const wireShape = (value: unknown): unknown => JSON.parse(JSON.stringify(value));
+
+const SYMLINKS: boolean = await (async () => {
+  const probe = await mkdtemp(join(tmpdir(), 'kimi-sdk-symlink-probe-'));
+  try {
+    await symlink(join(probe, 'a'), join(probe, 'b'));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    await rm(probe, { recursive: true, force: true });
+  }
+})();
+
 afterEach(async () => {
+  restoreEnvs();
   resetModelsDevUpstreamForTest();
   // The read-model mirror/query-store close asynchronously on dispose; await
   // the drains so the rm below never races their final flush (ENOTEMPTY).
@@ -161,8 +184,10 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
     const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-work-'));
     tempDirs.push(workDir);
     const session = await harness.createSession({ id: 'ses_runtime', workDir });
+    console.error('STEP1 session created');
     try {
       const binding = await session.getRuntime();
+      console.error('STEP2 runtime', JSON.stringify(binding));
       expect(binding.runtimeId).toBe('local');
       expect(binding.workspaceId.length).toBeGreaterThan(0);
       await expect(session.switchRuntime('missing-runtime')).rejects.toThrow(/missing-runtime/);
@@ -255,7 +280,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
     const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
     try {
       const management = client.engineAccessor.get(IMcpManagementService);
-      const listSpy = vi.spyOn(management, 'listServers');
+      const listSpy = spyOn(management, 'listServers');
       const captureRejection = async (promise: Promise<unknown>): Promise<unknown> => {
         try {
           await promise;
@@ -323,8 +348,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
       releaseShutdown = resolve;
     });
     const baseShutdown = McpOAuthServiceV2.prototype.shutdown;
-    const shutdownSpy = vi
-      .spyOn(McpOAuthServiceV2.prototype, 'shutdown')
+    const shutdownSpy = spyOn(McpOAuthServiceV2.prototype, 'shutdown')
       .mockImplementation(function (this: McpOAuthServiceV2) {
         return baseShutdown.call(this).then(() => gate);
       });
@@ -333,9 +357,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
       const closePromise = client.close().then(() => {
         closed = true;
       });
-      await vi.waitFor(() => {
-        expect(shutdownSpy).toHaveBeenCalled();
-      });
+      await waitUntil(() => shutdownSpy.mock.calls.length > 0);
       await new Promise((resolve) => setImmediate(resolve));
       expect(closed).toBe(false);
       releaseShutdown();
@@ -376,40 +398,44 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
   });
 
   it('surfaces a missing Git Bash probe failure during ensureConfigFile on Windows', async () => {
-    hostEnvProbe.failWithMissingShell = true;
     const restorePlatform = stubProcessPlatform('win32');
     try {
       const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-'));
       tempDirs.push(homeDir);
-      const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+      const client = new SDKRpcClientV2({
+        homeDir,
+        identity: TEST_IDENTITY,
+        serviceSeeds: failingHostEnvironmentSeed(),
+      });
       try {
-        await expect(harness.ensureConfigFile()).rejects.toBeInstanceOf(HostProcessError);
-        await expect(harness.ensureConfigFile()).rejects.toMatchObject({
+        await expect(client.ensureConfigFile()).rejects.toBeInstanceOf(HostProcessError);
+        await expect(client.ensureConfigFile()).rejects.toMatchObject({
           code: OsProcessErrors.codes.SHELL_GIT_BASH_NOT_FOUND,
         });
       } finally {
-        await harness.close();
+        await client.close();
       }
     } finally {
-      hostEnvProbe.failWithMissingShell = false;
       restorePlatform();
     }
   });
 
   it('does not block ensureConfigFile on the host environment probe on POSIX', async () => {
-    hostEnvProbe.failWithMissingShell = true;
     const restorePlatform = stubProcessPlatform('darwin');
     try {
       const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-'));
       tempDirs.push(homeDir);
-      const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+      const client = new SDKRpcClientV2({
+        homeDir,
+        identity: TEST_IDENTITY,
+        serviceSeeds: failingHostEnvironmentSeed(),
+      });
       try {
-        await expect(harness.ensureConfigFile()).resolves.toBeUndefined();
+        await expect(client.ensureConfigFile()).resolves.toBeUndefined();
       } finally {
-        await harness.close();
+        await client.close();
       }
     } finally {
-      hostEnvProbe.failWithMissingShell = false;
       restorePlatform();
     }
   });
@@ -503,7 +529,7 @@ key = "${titleOAuthRef.key}"
 `,
       'utf-8',
     );
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       if (url === 'https://api.example.test/coding/v1/tools') {
         return new Response(JSON.stringify({ title: 'Generated title' }), {
@@ -613,7 +639,7 @@ key = "${titleOAuthRef.key}"
     const fetchResponse = new Promise<Response>((resolve) => {
       resolveFetch = resolve;
     });
-    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       if (url === 'https://api.example.test/coding/v1/tools') {
         markFetchStarted();
@@ -681,14 +707,13 @@ key = "${titleOAuthRef.key}"
       // The resumed session is a fresh, fully usable scope — not the handle
       // the temporary path just tore down.
       await client.renameSession({ id: 'ses_title_race', title: 'Resumed title' });
-      await expect
-        .poll(
-          async () =>
-            (await client.listSessions({ workDir })).find((item) => item.id === 'ses_title_race')
-              ?.title,
-          { interval: 50, timeout: 4000 },
-        )
-        .toBe('Resumed title');
+      const resumedTitle = await waitUntil(
+        async () =>
+          (await client.listSessions({ workDir })).find((item) => item.id === 'ses_title_race')
+            ?.title,
+        { interval: 50, timeout: 4000, until: (title) => title === 'Resumed title' },
+      );
+      expect(resumedTitle).toBe('Resumed title');
     } finally {
       await client.close();
       fetchSpy.mockRestore();
@@ -1218,8 +1243,8 @@ key = "${titleOAuthRef.key}"
   ])(
     'gates NotifyUser for all profiles and preserves fork prompts: %j',
     async ({ enabled, panel }) => {
-      vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
-      vi.stubEnv('KIMI_CODE_EXPERIMENTAL_NOTIFY_USER', '');
+      setEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
+      setEnv('KIMI_CODE_EXPERIMENTAL_NOTIFY_USER', '');
       const homeDir = await mkdtemp(join(tmpdir(), 'kimi-notify-home-'));
       const workDir = await mkdtemp(join(tmpdir(), 'kimi-notify-work-'));
       tempDirs.push(homeDir, workDir);
@@ -1367,7 +1392,7 @@ key = "${titleOAuthRef.key}"
         expect(migrated.accessor.get(IAgentToolRegistryService).list()).toEqual(originalTools);
       } finally {
         await client.close();
-        vi.unstubAllEnvs();
+        restoreEnvs();
       }
     },
     30_000,
@@ -1420,7 +1445,7 @@ key = "${titleOAuthRef.key}"
   });
 
   it('serves setTowerMode and getStatus towerMode through the agent scope tower service', async () => {
-    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_TOWER', '1');
+    setEnv('KIMI_CODE_EXPERIMENTAL_TOWER', '1');
     const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-'));
     tempDirs.push(homeDir);
     const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-work-'));
@@ -1454,14 +1479,14 @@ key = "${titleOAuthRef.key}"
         code: ErrorCodes.SESSION_NOT_FOUND,
       });
     } finally {
-      vi.unstubAllEnvs();
+      restoreEnvs();
       await client.close();
     }
   });
 
   it('rejects setTowerMode when the tower feature is unavailable', async () => {
-    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_TOWER', '0');
-    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
+    setEnv('KIMI_CODE_EXPERIMENTAL_TOWER', '0');
+    setEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
     const homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-'));
     tempDirs.push(homeDir);
     const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-work-'));
@@ -1481,13 +1506,13 @@ key = "${titleOAuthRef.key}"
       await client.setTowerMode({ sessionId: 'ses_tower_off', enabled: false });
       expect((await client.getStatus({ sessionId: 'ses_tower_off' })).towerMode).toBe(false);
     } finally {
-      vi.unstubAllEnvs();
+      restoreEnvs();
       await client.close();
     }
   });
 
   it('exposes Session tower mode and status APIs on the v2 harness', async () => {
-    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_TOWER', '1');
+    setEnv('KIMI_CODE_EXPERIMENTAL_TOWER', '1');
     const { harness } = await makeHarness();
     const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-work-'));
     tempDirs.push(workDir);
@@ -1508,13 +1533,13 @@ key = "${titleOAuthRef.key}"
         code: ErrorCodes.REQUEST_INVALID,
       });
     } finally {
-      vi.unstubAllEnvs();
+      restoreEnvs();
       await harness.close();
     }
   });
 
   it('serves the initialized tower status as an engine-rendered text summary', async () => {
-    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_TOWER', '1');
+    setEnv('KIMI_CODE_EXPERIMENTAL_TOWER', '1');
     const { harness } = await makeHarness();
     const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-work-'));
     tempDirs.push(workDir);
@@ -1563,7 +1588,7 @@ key = "${titleOAuthRef.key}"
       expect(inactiveBody).toContain(body);
       expect(inactiveBody).toContain(' tower release session=ses_tower_status');
     } finally {
-      vi.unstubAllEnvs();
+      restoreEnvs();
       await harness.close();
     }
   });
@@ -1607,28 +1632,30 @@ describe('SDKRpcClientV2 workspace trust', () => {
     try {
       const info = await harness.getWorkspaceTrustInfo(workDir);
       expect(info.trusted).toBe(false);
-      expect(info.gatedMcpServers).toEqual([
-        {
-          name: 'http-server',
-          transport: 'http',
-          url: 'https://example.test/mcp',
-          origin: await realpath(join(workDir, '.mcp.json')),
-        },
-        {
-          name: 'nested-server',
-          transport: 'stdio',
-          command: 'nested-cmd',
-          origin: await realpath(join(workDir, '.kimi-code', 'mcp.json')),
-        },
-        {
-          name: 'root-server',
-          transport: 'stdio',
-          command: 'root-cmd',
-          args: ['--safe'],
-          cwd: '/tmp/root',
-          origin: await realpath(join(workDir, '.mcp.json')),
-        },
-      ]);
+      expect(wireShape(info.gatedMcpServers)).toEqual(
+        wireShape([
+          {
+            name: 'http-server',
+            transport: 'http',
+            url: 'https://example.test/mcp',
+            origin: await realpath(join(workDir, '.mcp.json')),
+          },
+          {
+            name: 'nested-server',
+            transport: 'stdio',
+            command: 'nested-cmd',
+            origin: await realpath(join(workDir, '.kimi-code', 'mcp.json')),
+          },
+          {
+            name: 'root-server',
+            transport: 'stdio',
+            command: 'root-cmd',
+            args: ['--safe'],
+            cwd: slash(resolve(workDir, '/tmp/root')),
+            origin: await realpath(join(workDir, '.mcp.json')),
+          },
+        ]),
+      );
       const serialized = JSON.stringify(info);
       // Environment variables and headers stay in the source configuration.
       expect(serialized).not.toContain('hidden');
@@ -1667,28 +1694,30 @@ describe('SDKRpcClientV2 workspace trust', () => {
     try {
       const info = await harness.getWorkspaceTrustInfo(workDir);
       expect(info.trusted).toBe(false);
-      expect(info.gatedMcpServers).toEqual([
-        {
-          name: 'github',
-          transport: 'stdio',
-          command: 'project-github',
-          args: undefined,
-          cwd: workDir,
-          origin: await realpath(join(workDir, '.mcp.json')),
-        },
-        {
-          name: 'toString',
-          transport: 'http',
-          url: 'https://example.test/mcp',
-          origin: await realpath(join(workDir, '.mcp.json')),
-        },
-      ]);
+      expect(wireShape(info.gatedMcpServers)).toEqual(
+        wireShape([
+          {
+            name: 'github',
+            transport: 'stdio',
+            command: 'project-github',
+            args: undefined,
+            cwd: slash(workDir),
+            origin: await realpath(join(workDir, '.mcp.json')),
+          },
+          {
+            name: 'toString',
+            transport: 'http',
+            url: 'https://example.test/mcp',
+            origin: await realpath(join(workDir, '.mcp.json')),
+          },
+        ]),
+      );
     } finally {
       await harness.close();
     }
   });
 
-  it('reports failed configuration and instruction sources while retaining readable instructions', async () => {
+  it.skipIf(!SYMLINKS)('reports failed configuration and instruction sources while retaining readable instructions', async () => {
     const { harness } = await makeHarness();
     const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-work-'));
     tempDirs.push(workDir);
@@ -1719,7 +1748,7 @@ describe('SDKRpcClientV2 workspace trust', () => {
     }
   });
 
-  it('discloses additional directories and instruction sources of an untrusted workspace', async () => {
+  it.skipIf(!SYMLINKS)('discloses additional directories and instruction sources of an untrusted workspace', async () => {
     const { harness } = await makeHarness();
     const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-work-'));
     const outsideDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-outside-'));
@@ -1792,7 +1821,7 @@ describe('SDKRpcClientV2 workspace trust', () => {
     }
   });
 
-  it('points to the scanned agent directory for an effective workspace profile', async () => {
+  it.skipIf(!SYMLINKS)('points to the scanned agent directory for an effective workspace profile', async () => {
     const { harness } = await makeHarness();
     const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-work-'));
     const outsideDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-agent-source-'));
@@ -1909,7 +1938,7 @@ describe('foldAgentWireReplay', () => {
       '{"type":"metadata","protocol_version":"1.5","created_at":1}\n{not json\n{"type":"permission.set_mode","mode":"auto"}\n',
       'utf-8',
     );
-    await expect(foldAgentWireReplay(corrupt)).resolves.toEqual(empty);
+    await expect(foldAgentWireReplay(corrupt)).resolves.toEqual({ ...empty, userTurnCount: 0 });
     // A truncated TAIL line is tolerated: everything before it still folds.
     const truncatedTail = join(dir, 'truncated.jsonl');
     await writeFile(
@@ -2743,7 +2772,10 @@ describe('removeProviderFromConfig', () => {
       ...config,
       secondaryModel: { model: 'b/m1', default_effort: 'low' },
     } as unknown as KimiConfig;
-    expect(removeProviderFromConfig(legacy, 'b').secondaryModel).toEqual({
+    const secondaryModel = removeProviderFromConfig(legacy, 'b').secondaryModel as unknown as
+      | { readonly model: string; readonly default_effort: string }
+      | undefined;
+    expect(secondaryModel).toEqual({
       model: 'b/m1',
       default_effort: 'low',
     });

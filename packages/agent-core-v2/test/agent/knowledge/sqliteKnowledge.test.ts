@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import type { KnowledgeEntry, KnowledgeSearchResult } from '#/agent/knowledge/knowledge';
 import * as knowledge from '#/agent/knowledge/sqliteKnowledge';

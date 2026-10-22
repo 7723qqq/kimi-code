@@ -1,7 +1,7 @@
 import { createInterface } from 'node:readline';
 import { PassThrough } from 'node:stream';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import type { IProcess } from '#/session/process/processRunner';
 import { CodexWire, CodexWireClosedError } from '#/session/subagent/backend/codexWire';

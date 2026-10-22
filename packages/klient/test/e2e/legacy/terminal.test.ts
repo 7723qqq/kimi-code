@@ -6,7 +6,7 @@
  * Converted from the retired scenario `11-terminal.ts`. Skips when no server
  * is reachable at `KIMI_SERVER_URL`.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { DaemonClient, type AnyFrame } from '../harness/index.js';
 import { fetchWithReport } from '../harness/report.js';

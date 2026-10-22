@@ -4,7 +4,8 @@ import { join } from 'node:path';
 
 import { IConfigService } from '@moonshot-ai/agent-core-v2';
 import { parse as parseToml } from 'smol-toml';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { removeTempHome } from './helpers/tempHome';
 
 import { type RunningServer, startServer } from '../src/start';
 import { authHeaders } from './helpers/auth';
@@ -139,7 +140,7 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
+      await removeTempHome(home);
       home = undefined;
     }
     delete process.env['KIMI_CODE_MODEL_CATALOG_REFRESH_ON_START'];

@@ -1,50 +1,36 @@
-/* eslint-disable import/first -- vi.mock setup must run before the imports it stubs out. */
+import { spawn } from 'node:child_process';
 import { EventEmitter } from 'node:events';
-import { writeFile } from 'node:fs/promises';
-import type * as FsPromises from 'node:fs/promises';
+import * as fsPromises from 'node:fs/promises';
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
-
-const mocks = vi.hoisted(() => ({
-  spawn: vi.fn(),
-  rmCalls: vi.fn(),
-}));
-
-vi.mock('node:child_process', () => ({
-  spawn: mocks.spawn,
-}));
-
-vi.mock('node:fs/promises', async () => {
-  const actual = await vi.importActual<typeof FsPromises>('node:fs/promises');
-  return {
-    ...actual,
-    rm: (...args: Parameters<typeof actual.rm>) => {
-      mocks.rmCalls(...args);
-      return actual.rm(...args);
-    },
-  };
-});
-
+import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import type { Mock } from 'bun:test';
 import { editInExternalEditor, resolveEditorCommand } from '#/utils/process/external-editor';
+import { setEnv, restoreEnvs } from '#test/helpers/stubs';
+
+const { writeFile } = fsPromises;
+
+// Spy on the real namespace instead of replacing it: `rm` still has to delete the
+// temp directory, the test only needs to observe that cleanup happened.
+const rmSpy = spyOn(fsPromises, 'rm');
 
 afterEach(() => {
-  vi.unstubAllEnvs();
-  vi.clearAllMocks();
+  restoreEnvs();
+  rmSpy.mockClear();
 });
 
 describe('external-editor helpers', () => {
   it('prefers configured editor, then VISUAL, then EDITOR', () => {
-    vi.stubEnv('VISUAL', 'nvim');
-    vi.stubEnv('EDITOR', 'vim');
+    setEnv('VISUAL', 'nvim');
+    setEnv('EDITOR', 'vim');
 
     expect(resolveEditorCommand('code --wait')).toBe('code --wait');
     expect(resolveEditorCommand(null)).toBe('nvim');
-    vi.stubEnv('VISUAL', '');
+    setEnv('VISUAL', '');
     expect(resolveEditorCommand()).toBe('vim');
   });
 
   it('returns the edited contents on success and cleans up the temp directory', async () => {
-    mocks.spawn.mockImplementation((cmd: string, _opts: Record<string, unknown>) => {
+    const spawnEditor = mock((cmd: string, _opts: Record<string, unknown>) => {
       const child = new EventEmitter();
       // Extract the file path from the shell command (last argument after quoting).
       const match = cmd.match(/'([^']+prompt\.md)'/) || cmd.match(/"([^"]+prompt\.md)"/);
@@ -52,24 +38,44 @@ describe('external-editor helpers', () => {
       void writeFile(tmpFile, 'edited text', 'utf8').then(() => {
         child.emit('exit', 0);
       });
-      return child as never;
+      return child;
     });
 
-    await expect(editInExternalEditor('seed', 'code --wait')).resolves.toBe('edited text');
-    expect(mocks.spawn).toHaveBeenCalledWith(
-      expect.stringContaining('code --wait'),
-      { stdio: 'inherit', shell: true },
-    );
-    expect(mocks.rmCalls).toHaveBeenCalled();
+    await expect(
+      editInExternalEditor('seed', 'code --wait', {
+        spawn: spawnEditor as unknown as typeof spawn,
+      }),
+    ).resolves.toBe('edited text');
+    expect(spawnEditor).toHaveBeenCalledWith(expect.stringContaining('code --wait'), {
+      stdio: 'inherit',
+      shell: true,
+    });
+    expect(rmSpy).toHaveBeenCalled();
   });
 
   it('returns undefined when the editor exits non-zero', async () => {
-    mocks.spawn.mockImplementation(() => {
+    const spawnEditor: Mock<(cmd: string, opts: Record<string, unknown>) => EventEmitter> = mock(
+      () => {
+        const child = new EventEmitter();
+        queueMicrotask(() => child.emit('exit', 1));
+        return child;
+      },
+    );
+
+    await expect(
+      editInExternalEditor('seed', 'false', { spawn: spawnEditor as unknown as typeof spawn }),
+    ).resolves.toBeUndefined();
+  });
+
+  it('rejects when the editor cannot be spawned', async () => {
+    const spawnEditor = mock(() => {
       const child = new EventEmitter();
-      queueMicrotask(() => child.emit('exit', 1));
-      return child as never;
+      queueMicrotask(() => child.emit('error', new Error('no such editor')));
+      return child;
     });
 
-    await expect(editInExternalEditor('seed', 'false')).resolves.toBeUndefined();
+    await expect(
+      editInExternalEditor('seed', 'nope', { spawn: spawnEditor as unknown as typeof spawn }),
+    ).rejects.toThrow('no such editor');
   });
 });

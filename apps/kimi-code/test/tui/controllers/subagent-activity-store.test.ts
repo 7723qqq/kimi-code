@@ -1,5 +1,5 @@
 import type { Event } from '@moonshot-ai/kimi-code-sdk';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import {
   MAX_SUBAGENT_ACTIVITY_STEPS,

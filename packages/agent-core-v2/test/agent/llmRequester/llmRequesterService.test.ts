@@ -1,5 +1,5 @@
 import { createControlledPromise } from '@antfu/utils';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
@@ -31,7 +31,7 @@ import {
 import { UNKNOWN_CAPABILITY } from '#human/llm/capability';
 import type { LlmModel } from '#human/llm/model';
 import type { LlmRequester } from '#human/llm/requester/requester';
-import { createActor, emit, setup } from '#human/xstate2';
+import { createActor, emit, setup, SimulatedClock } from '#human/xstate2';
 import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentStateService } from '#/agent/state/agentState';
@@ -43,6 +43,7 @@ import { ISessionUsageService } from '#/session/usage/sessionUsage';
 import { IConfigService } from '#/app/config/config';
 import type { Event2 } from '#/app/event/event2';
 import { IEventBus } from '#/app/event/eventBus';
+import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
 import {
   APIConnectionError,
   APIContextOverflowError,
@@ -208,6 +209,93 @@ beforeEach(() => {
 
 afterEach(() => disposables.dispose());
 
+interface FakeHostTimerHandle extends IHostTimerHandle {
+  readonly id: number;
+}
+
+interface FakeHostTimers extends IHostTimers {
+  advance(byMs: number): void;
+  advanceNext(): void;
+  readonly pending: number;
+}
+
+function createFakeHostTimers(): FakeHostTimers {
+  let nowMs = 0;
+  let nextId = 1;
+  const scheduled: Array<{
+    readonly id: number;
+    due: number;
+    readonly callback: () => void;
+    cancelled: boolean;
+  }> = [];
+
+  const schedule = (callback: () => void, delayMs: number): FakeHostTimerHandle => {
+    const id = nextId;
+    nextId += 1;
+    scheduled.push({ id, due: nowMs + delayMs, callback, cancelled: false });
+    return { id, unref: () => {} };
+  };
+
+  const nextDue = (limit: number) =>
+    scheduled
+      .filter((timer) => !timer.cancelled && timer.due <= limit)
+      .sort((left, right) => left.due - right.due || left.id - right.id)[0];
+
+  const timers: FakeHostTimers = {
+    _serviceBrand: undefined,
+    setClampedTimeout: (callback, timeoutMs) => schedule(callback, timeoutMs),
+    setTimeout: (callback, timeoutMs) => schedule(callback, timeoutMs),
+    clearTimeout: (handle) => {
+      const id = (handle as FakeHostTimerHandle).id;
+      const timer = scheduled.find((candidate) => candidate.id === id);
+      if (timer !== undefined) timer.cancelled = true;
+    },
+    advance: (byMs) => {
+      const limit = nowMs + byMs;
+      let guard = 0;
+      for (;;) {
+        const next = nextDue(limit);
+        if (next === undefined) break;
+        guard += 1;
+        if (guard > 1_000) throw new Error('fake host timers advanced more than 1000 timers');
+        nowMs = next.due;
+        next.cancelled = true;
+        next.callback();
+      }
+      nowMs = limit;
+    },
+    advanceNext: () => {
+      const next = nextDue(Number.POSITIVE_INFINITY);
+      if (next === undefined) return;
+      nowMs = next.due;
+      next.cancelled = true;
+      next.callback();
+    },
+    get pending() {
+      return scheduled.filter((timer) => !timer.cancelled).length;
+    },
+  };
+  return timers;
+}
+
+async function flushHostWork(): Promise<void> {
+  for (let index = 0; index < 4; index += 1) {
+    await Promise.resolve();
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+  }
+}
+
+async function runAllHostTimers(timers: FakeHostTimers): Promise<void> {
+  for (let guard = 0; guard < 10_000; guard += 1) {
+    await flushHostWork();
+    if (timers.pending === 0) return;
+    timers.advanceNext();
+  }
+  throw new Error('runAllHostTimers exceeded 10000 timer steps');
+}
+
 function createService(
   requester: ModelRequester,
   projector:
@@ -220,10 +308,14 @@ function createService(
     readonly contextMessages?: Message[];
     readonly env?: Record<string, string>;
     readonly configValues?: Record<string, unknown>;
+    readonly timers?: FakeHostTimers;
   } = {},
 ) {
   const ix = disposables.add(new TestInstantiationService());
   ix.stub(IBootstrapService, stubBootstrap('/tmp/kimi-code-llm-requester-test', options.env ?? {}));
+  if (options.timers !== undefined) {
+    ix.stub(IHostTimers, options.timers);
+  }
   const thinkingLevel = options.thinkingLevel ?? 'off';
   const profile: Partial<IAgentProfileService> = {
     hasProvider: () => true,
@@ -430,12 +522,8 @@ describe('AgentLLMRequesterService strict resend', () => {
 });
 
 describe('AgentLLMRequesterService infinite retry', () => {
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
   it('retries every request error while KIMI_CODE_INFINITE_RETRY is set', async () => {
-    vi.useFakeTimers();
+    const timers = createFakeHostTimers();
     const calls = { value: 0 };
     const requester = createRequester(calls, new APIStatusError(400, 'endpoint broken'), [
       new APIStatusError(404, 'model not found'),
@@ -444,10 +532,11 @@ describe('AgentLLMRequesterService infinite retry', () => {
     ]);
     const { service } = createService(requester, undefined, {
       env: { [KIMI_CODE_INFINITE_RETRY_ENV]: '1' },
+      timers,
     });
 
     const promise = service.request();
-    await vi.runAllTimersAsync();
+    await runAllHostTimers(timers);
     const finish = await promise;
 
     expect(calls.value).toBe(5);
@@ -469,25 +558,27 @@ describe('AgentLLMRequesterService infinite retry', () => {
   });
 
   it('stops retrying when the caller aborts during the backoff wait', async () => {
-    vi.useFakeTimers();
+    const timers = createFakeHostTimers();
     const calls = { value: 0 };
     const requester = createRequester(calls, new APIStatusError(400, 'endpoint broken'));
     const { service } = createService(requester, undefined, {
       env: { [KIMI_CODE_INFINITE_RETRY_ENV]: '1' },
+      timers,
     });
     const controller = new AbortController();
-    setTimeout(() => controller.abort(new Error('stop')), 100);
+    timers.setTimeout(() => controller.abort(new Error('stop')), 100);
 
     const promise = service.request({}, undefined, controller.signal);
-    const assertion = expect(promise).rejects.toThrow('stop');
-    await vi.runAllTimersAsync();
-    await assertion;
+
+    void promise.catch(() => {});
+    await runAllHostTimers(timers);
+
+    await expect(promise).rejects.toThrow('stop');
 
     expect(calls.value).toBe(1);
   });
 
   it('keeps deterministic projection recovery ahead of infinite retry', async () => {
-    vi.useFakeTimers();
     const calls = { value: 0 };
     const requester = createRequester(calls, new APIRequestTooLargeError(413, 'Request Entity Too Large'));
     const { service } = createService(requester, undefined, {
@@ -500,7 +591,6 @@ describe('AgentLLMRequesterService infinite retry', () => {
   });
 
   it('lets context overflow reach deterministic recovery instead of retrying', async () => {
-    vi.useFakeTimers();
     const calls = { value: 0 };
     const requester = createRequester(
       calls,
@@ -515,26 +605,26 @@ describe('AgentLLMRequesterService infinite retry', () => {
   });
 
   it('retries operation requests indefinitely', async () => {
-    vi.useFakeTimers();
+    const timers = createFakeHostTimers();
     const calls = { value: 0 };
     const requester = createRequester(calls, new APIStatusError(400, 'endpoint broken'), [
       new APIStatusError(404, 'model not found'),
     ]);
     const { service } = createService(requester, undefined, {
       env: { [KIMI_CODE_INFINITE_RETRY_ENV]: '1' },
+      timers,
     });
 
     const promise = service.request({
       source: { type: 'operation', requestKind: 'full_compaction' },
     });
-    await vi.runAllTimersAsync();
+    await runAllHostTimers(timers);
     await promise;
 
     expect(calls.value).toBe(3);
   });
 
   it('does not retry when the switch is unset', async () => {
-    vi.useFakeTimers();
     const calls = { value: 0 };
     const requester = createRequester(calls, new APIStatusError(400, 'endpoint broken'));
     const { service } = createService(requester, undefined);
@@ -1172,7 +1262,7 @@ describe('AgentLLMRequesterService trace id', () => {
 describe('AgentLLMRequesterService media resolver wiring', () => {
   it('resolves the projected messages through the DI-injected media resolver', async () => {
     const requester = createRequester({ value: 0 }, null);
-    const resolve = vi.fn(async (messages: readonly Message[], _requester: ModelRequester) => messages);
+    const resolve = mock(async (messages: readonly Message[], _requester: ModelRequester) => messages);
     const { service } = createService(requester, undefined, {
       mediaResolver: { resolve },
     });
@@ -1416,7 +1506,7 @@ describe('AgentLLMRequesterService proactive media eviction', () => {
     expect(result.message.content).toEqual([{ type: 'text', text: 'ok' }]);
     expect(calls.value).toBe(1);
     const parts = sentParts(capturedInputs);
-    expect(parts.urls).toEqual([urls[2], urls[3]]);
+    expect(parts.urls).toEqual([urls[2]!, urls[3]!]);
     expect(
       parts.texts.filter((text) =>
         text.includes('dropped to fit the provider request size limit'),
@@ -1570,14 +1660,10 @@ describe('AgentLLMRequesterService proactive media eviction', () => {
 });
 
 describe('AgentLLMRequesterService attempt retry notification', () => {
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
   it('notifies before resending with a repaired projection', async () => {
     const calls = { value: 0 };
     const { service } = createService(createRequester(calls), undefined);
-    const onAttemptRetry = vi.fn();
+    const onAttemptRetry = mock();
 
     const result = await service.request({ onAttemptRetry });
 
@@ -1587,18 +1673,19 @@ describe('AgentLLMRequesterService attempt retry notification', () => {
   });
 
   it('notifies before each indefinite-retry backoff', async () => {
-    vi.useFakeTimers();
+    const timers = createFakeHostTimers();
     const calls = { value: 0 };
     const requester = createRequester(calls, new APIConnectionError('socket hang up'), [
       new APIConnectionError('socket hang up again'),
     ]);
     const { service } = createService(requester, undefined, {
       env: { [KIMI_CODE_INFINITE_RETRY_ENV]: '1' },
+      timers,
     });
-    const onAttemptRetry = vi.fn();
+    const onAttemptRetry = mock();
 
     const promise = service.request({ onAttemptRetry });
-    await vi.runAllTimersAsync();
+    await runAllHostTimers(timers);
     await promise;
 
     expect(calls.value).toBe(3);
@@ -1611,7 +1698,7 @@ describe('AgentLLMRequesterService attempt retry notification', () => {
       createRequester(calls, new APIStatusError(400, 'max_tokens must be positive')),
       undefined,
     );
-    const onAttemptRetry = vi.fn();
+    const onAttemptRetry = mock();
 
     await expect(service.request({ onAttemptRetry })).rejects.toMatchObject({ statusCode: 400 });
     expect(onAttemptRetry).not.toHaveBeenCalled();
@@ -1619,31 +1706,28 @@ describe('AgentLLMRequesterService attempt retry notification', () => {
 });
 
 describe('turn machine stream state across service-internal retries', () => {
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
   it('discards the interrupted attempt stream when the service retries below the turn', async () => {
-    vi.useFakeTimers();
+    const timers = createFakeHostTimers();
     const { service } = createService(
       createScriptedRequester([
         { ids: ['call_a'], error: new APIConnectionError('terminated') },
         { ids: ['call_b'] },
       ]),
       undefined,
-      { env: { [KIMI_CODE_INFINITE_RETRY_ENV]: '1' } },
+      { env: { [KIMI_CODE_INFINITE_RETRY_ENV]: '1' }, timers },
     );
     const machineRequester = createMachineRequester(service);
     const doneEntries: AssistantEntry[] = [];
     const actor = createActor(createTurnHarness(machineRequester.requester), {
       input: { request: { model: turnHarnessModel }, history: [] },
+      clock: new SimulatedClock(),
     });
     actor.on('llm.done', (event) => doneEntries.push(event.entry));
     actor.start();
 
-    await vi.runAllTimersAsync();
+    await runAllHostTimers(timers);
     for (let index = 0; index < 10; index += 1) {
-      await vi.advanceTimersByTimeAsync(0);
+      await flushHostWork();
     }
 
     expect(doneEntries).toHaveLength(1);

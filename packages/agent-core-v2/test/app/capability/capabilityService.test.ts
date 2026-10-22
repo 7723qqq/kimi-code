@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { isError2 } from '#/_base/errors/errors';
 import type { ILogService, LogPayload } from '#/_base/log/log';
@@ -7,6 +7,7 @@ import { CapabilityService } from '#/app/capability/capabilityService';
 import type {
   CapabilityDetectResult,
   CapabilityEntry,
+  CapabilityInstallProgress,
   CapabilityInstallReporter,
 } from '#/app/capability/types';
 
@@ -225,7 +226,7 @@ describe('CapabilityService', () => {
         },
       }),
     ]);
-    const seen: Array<{ id: string; install: { running: boolean; step?: string } }> = [];
+    const seen: Array<{ id: string; install: CapabilityInstallProgress }> = [];
     service.onDidChangeInstall((change) => {
       seen.push({ id: change.id, install: change.install });
     });

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { z } from 'zod';
 
 import { compileToolArgsValidator, validateToolArgs } from '#/tool/args-validator';

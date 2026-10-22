@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { extractUsage } from '#/providers/openai-common';
 import { extractResponsesUsage } from '#/providers/openai-responses';

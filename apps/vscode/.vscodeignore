@@ -12,7 +12,6 @@ shared/**
 .vscode/**
 tsconfig.json
 tsdown.config.ts
-vitest.config.ts
 .vscode-test.mjs
 eslint.config.mjs
 webview-ui/tsconfig.json

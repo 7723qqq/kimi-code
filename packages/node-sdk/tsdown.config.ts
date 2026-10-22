@@ -10,6 +10,11 @@ export default defineConfig({
   dts: false,
   outDir: 'dist',
   clean: true,
+  // The build resolves `#/*` per importing package through `package.json`
+  // `imports`; `tsconfig.build.json` clears the `paths` that the package
+  // tsconfig needs at test time, because a project-wide alias would also
+  // capture the `#/*` specifiers inside the bundled `agent-core-v2` sources.
+  tsconfig: 'tsconfig.build.json',
   plugins: [rawTextPlugin()],
   banner: {
     js: [

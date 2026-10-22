@@ -1,76 +1,20 @@
 import { execFile } from 'node:child_process';
-import {
-  appendFile,
-  mkdtemp,
-  mkdir,
-  readFile,
-  rename,
-  rm,
-  stat,
-  utimes,
-  writeFile,
-} from 'node:fs/promises';
+import { appendFile, mkdtemp, mkdir, readFile, rename, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
-import {
-  INTERACTION_TAG_SESSION_ID,
-  IAgentLifecycleService,
-  IAgentContextMemoryService,
-  IAgentConversationUndoParticipantRegistry,
-  IAgentLoopService,
-  IAgentScopeContext,
-  IAgentTaskService,
-  IEventBus,
-  IFlagService,
-  ISessionIndex,
-  ISessionMetadata,
-  ISessionLifecycleService,
-  ISessionManager,
-  IWireService,
-  IWorkspaceInstanceManager,
-  LifecycleScope,
-  interactions,
-  makeAgentScopeContext,
-  type AgentContext,
-  type ContextMessage,
-  type AgentConversationUndoParticipant,
-  type Event2,
-  TOWER_FLAG_ID,
-  _setTowerFeatureAssembledForTests,
-  type ISessionScopeHandle,
-  type Scope,
-} from '@moonshot-ai/agent-core-v2';
-import type { AgentActivitySnapshot } from '@moonshot-ai/agent-core-v2';
+import { IAgentLifecycleService, IAgentContextMemoryService, IAgentConversationUndoParticipantRegistry, IAgentLoopService, IAgentScopeContext, IAgentTaskService, IEventBus, IFlagService, ISessionIndex, ISessionMetadata, ISessionLifecycleService, ISessionManager, IWireService, IWorkspaceInstanceManager, interactions, makeAgentScopeContext, type AgentContext, type ContextMessage, type AgentConversationUndoParticipant, type Event2, TOWER_FLAG_ID, _setTowerFeatureAssembledForTests, type ISessionScopeHandle, type Scope } from '@moonshot-ai/agent-core-v2';
+import { type AgentActivitySnapshot } from '@moonshot-ai/agent-core-v2';
 import { TowerStore } from '@moonshot-ai/agent-core-v2/features/tower/protocol/index';
-import {
-  AgentTranscript,
-  TranscriptStore,
-  type AgentTranscriptSnapshot,
-  type AppendOp,
-  type FrameUpsertOp,
-  type InteractionUpsertOp,
-  type TranscriptFrame,
-  type TranscriptOperation,
-  type TranscriptTask,
-  type TranscriptTurn,
-} from '@moonshot-ai/transcript';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { AgentTranscript, TranscriptStore, type AgentTranscriptSnapshot, type AppendOp, type FrameUpsertOp, type InteractionUpsertOp, type TranscriptFrame, type TranscriptOperation, type TranscriptTask, type TranscriptTurn } from '@moonshot-ai/transcript';
+import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 
 import { toWireQuestion } from '../../src/protocol/question-wire';
-import type { LegacyActivityApproval } from '../../src/services/legacyStatus/legacyStatus';
+import { type LegacyActivityApproval } from '../../src/services/legacyStatus/legacyStatus';
 import { bindSessionTranscript } from '../../src/services/transcript/coreBinding';
-import {
-  AgentTranscriptProjector,
-  type ProjectorBusEvent,
-} from '../../src/services/transcript/coreEventMap';
-import {
-  healTurnOps,
-  TranscriptService,
-  snapshotToOps,
-  TRANSCRIPT_OPS_JOURNAL_CAPACITY,
-} from '../../src/services/transcript/transcriptService';
+import { AgentTranscriptProjector, type ProjectorBusEvent } from '../../src/services/transcript/coreEventMap';
+import { healTurnOps, TranscriptService, snapshotToOps, TRANSCRIPT_OPS_JOURNAL_CAPACITY } from '../../src/services/transcript/transcriptService';
 import { WireRecordCache, type ContextRecord } from '../../src/services/transcript/wireCache';
 
 _setTowerFeatureAssembledForTests(true);
@@ -244,7 +188,7 @@ describe('AgentTranscriptProjector', () => {
     const turn = turnOps('t1', tx.getItems());
     expect(turn.state).toBe('completed');
     expect(turn.origin).toEqual({ kind: 'user', payload: { kind: 'user' } });
-    expect(turn.endedAt).toBeTypeOf('string');
+    expect(typeof turn.endedAt).toBe('string');
     expect(turn.steps).toHaveLength(1);
     const step = turn.steps[0]!;
     expect(step.state).toBe('completed');
@@ -779,7 +723,7 @@ describe('AgentTranscriptProjector', () => {
 
     const ops = snapshotToOps(snapshot);
     expect(ops.filter((op) => op.op === 'attachment.upsert')).toEqual([
-      { op: 'attachment.upsert', attachment: snapshot.attachments[0] },
+      { op: 'attachment.upsert', attachment: snapshot.attachments[0]! },
     ]);
 
     const tx = new AgentTranscript('main');
@@ -1010,7 +954,7 @@ describe('AgentTranscriptProjector', () => {
 
     feed(ev({ type: 'turn.started', turnId: 2, origin: { kind: 'user' } }));
     feed(ev({ type: 'turn.ended', turnId: 2, reason: 'completed' }));
-    expect(turnOps('t2', tx.getItems()).endedAt).toBeTypeOf('string');
+    expect(typeof turnOps('t2', tx.getItems()).endedAt).toBe('string');
   });
 
   it('accumulates tool.call.delta into inputText, kept across tool.call.started', () => {
@@ -1279,7 +1223,7 @@ describe('AgentTranscriptProjector', () => {
 
     tx.apply(projector.map(ev({ type: 'shell.completed', commandId: 'c1', isError: false })));
     expect(tx.getTask('task-1')).toMatchObject({ kind: 'shell', state: 'completed' });
-    expect(tx.getTask('task-1')?.endedAt).toBeTypeOf('string');
+    expect(typeof tx.getTask('task-1')?.endedAt).toBe('string');
 
     tx.apply(projector.map(ev({ type: 'shell.started', commandId: 'c2', taskId: 'task-2' })));
     tx.apply(projector.map(ev({ type: 'shell.completed', commandId: 'c2', isError: true })));
@@ -2669,7 +2613,7 @@ describe('AgentTranscriptProjector', () => {
       attachmentOp?.op === 'attachment.upsert' ? attachmentOp.attachment.attachmentId : undefined,
     );
     expect(tx.getAttachment(attachmentIds![1]!)).toEqual({
-      attachmentId: attachmentIds![1],
+      attachmentId: attachmentIds![1]!,
       mediaType: 'text/plain',
       name: 'secret.txt',
       size: 12,
@@ -5436,7 +5380,7 @@ describe('bindSessionTranscript', () => {
             prompt: 'undone prompt',
           }),
         );
-        const read = vi.spyOn(service, 'readColdSnapshot');
+        const read = spyOn(service, 'readColdSnapshot');
         for (let i = 0; i < failures; i++)
           read.mockRejectedValueOnce(new Error('temporary read failure'));
         await main.undoParticipants.get('transcript')!.reconcileAfterUndo();
@@ -5469,7 +5413,7 @@ describe('bindSessionTranscript', () => {
       const pending = new Promise<AgentTranscriptSnapshot | undefined>((resolve) => {
         release = resolve;
       });
-      const read = vi.spyOn(service, 'readColdSnapshot').mockImplementationOnce(() => pending);
+      const read = spyOn(service, 'readColdSnapshot').mockImplementationOnce(() => pending);
       main.bus.emit(ev({ type: 'turn.ended', turnId: 0, reason: 'completed' }));
       await waitFor(() => read.mock.calls.length === 1);
       await writeFile(join(home, 'sessions', 'ws', 's1', 'agents', 'main', 'wire.jsonl'), '');
@@ -5562,7 +5506,7 @@ describe('bindSessionTranscript', () => {
 describe('WireRecordCache', () => {
   const wireText = (records: readonly unknown[]): string =>
     `${records.map((r) => JSON.stringify(r)).join('\n')}\n`;
-  const userMessage = (text: string, time: number): Record<string, unknown> => ({
+  const userMessage = (text: string, time: number): ContextRecord => ({
     type: 'context.append_message',
     message: {
       role: 'user',

@@ -1,3 +1,5 @@
+import type { RenderClock } from '#/tui/utils/render-clock';
+
 import { writeUpdateCache } from './cache';
 import { fetchLatestFromCdn, type FetchLatestResult } from './cdn';
 import { type UpdateCache } from './types';
@@ -12,6 +14,8 @@ export interface RefreshUpdateCacheDeps {
   readonly writeCache: (cache: UpdateCache) => Promise<void>;
   readonly now: () => Date;
   readonly timeoutMs?: number;
+  /** Clock for the default CDN fetch's request timeout; defaults to the system clock. */
+  readonly clock?: RenderClock;
 }
 
 export async function refreshUpdateCache(
@@ -19,7 +23,8 @@ export async function refreshUpdateCache(
 ): Promise<UpdateCache> {
   const resolved: RefreshUpdateCacheDeps = {
     fetchLatest:
-      overrides.fetchLatest ?? (() => fetchLatestFromCdn(undefined, overrides.timeoutMs)),
+      overrides.fetchLatest ??
+      (() => fetchLatestFromCdn(undefined, overrides.timeoutMs, overrides.clock)),
     writeCache: overrides.writeCache ?? writeUpdateCache,
     now: overrides.now ?? (() => new Date()),
   };

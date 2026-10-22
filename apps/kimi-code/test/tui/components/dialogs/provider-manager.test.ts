@@ -1,14 +1,11 @@
-import type { ProviderConfig } from '@moonshot-ai/kimi-code-sdk';
+import { type ProviderConfig } from '@moonshot-ai/kimi-code-sdk';
 import chalk from 'chalk';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, mock } from 'bun:test';
+import { darkColors } from '#/tui/theme/colors';
 
 import { DEFAULT_OAUTH_PROVIDER_NAME } from '#/constant/app';
 import { t } from '#/i18n';
-import {
-  ProviderManagerComponent,
-  type ProviderManagerOptions,
-} from '#/tui/components/dialogs/provider-manager';
-import { darkColors } from '#/tui/theme/colors';
+import { ProviderManagerComponent, type ProviderManagerOptions } from '#/tui/components/dialogs/provider-manager';
 
 // Truecolor SGR fragments for the darkColors tokens we assert on
 // (see theme/colors.ts). Forcing chalk.level below guarantees they appear.
@@ -26,10 +23,10 @@ function rendered(component: ProviderManagerComponent, width = 120): string {
 function makeComponent(overrides: Partial<ProviderManagerOptions> = {}): ProviderManagerComponent {
   return new ProviderManagerComponent({
     providers: {} as Record<string, ProviderConfig>,
-    onAdd: vi.fn(),
-    onEdit: vi.fn(),
-    onDeleteSource: vi.fn(),
-    onClose: vi.fn(),
+    onAdd: mock(),
+    onEdit: mock(),
+    onDeleteSource: mock(),
+    onClose: mock(),
     ...overrides,
   });
 }
@@ -112,7 +109,7 @@ describe('ProviderManagerComponent', () => {
   });
 
   it('deletes the highlighted provider via the D key with a y/N confirm', () => {
-    const onDeleteSource = vi.fn();
+    const onDeleteSource = mock();
     const component = makeComponent({
       providers: {
         acme: { baseUrl: 'https://acme.test' },
@@ -127,7 +124,7 @@ describe('ProviderManagerComponent', () => {
   });
 
   it('closes on Esc', () => {
-    const onClose = vi.fn();
+    const onClose = mock();
     const component = makeComponent({
       providers: {
         acme: { baseUrl: 'https://acme.test' },
@@ -139,7 +136,7 @@ describe('ProviderManagerComponent', () => {
   });
 
   it('edits the highlighted provider via the E key', () => {
-    const onEdit = vi.fn();
+    const onEdit = mock();
     const component = makeComponent({
       providers: {
         acme: { baseUrl: 'https://acme.test' },
@@ -154,7 +151,7 @@ describe('ProviderManagerComponent', () => {
   });
 
   it('edits the first provider of a grouped registry source row', () => {
-    const onEdit = vi.fn();
+    const onEdit = mock();
     const component = makeComponent({
       providers: {
         alpha: {
@@ -175,7 +172,7 @@ describe('ProviderManagerComponent', () => {
   });
 
   it('ignores E on the [ Add New Platform ] row and lists the key in the hint', () => {
-    const onEdit = vi.fn();
+    const onEdit = mock();
     const component = makeComponent({ onEdit });
 
     component.handleInput('E');
@@ -191,8 +188,8 @@ describe('ProviderManagerComponent', () => {
     // `/logout` owns that provider, and the delete path has no branch for it:
     // were it a row, `D` would offer a second way to remove an account the user
     // never configured here.
-    const onEdit = vi.fn();
-    const onDeleteSource = vi.fn();
+    const onEdit = mock();
+    const onDeleteSource = mock();
     const component = makeComponent({
       providers: {
         acme: { baseUrl: 'https://acme.test' },

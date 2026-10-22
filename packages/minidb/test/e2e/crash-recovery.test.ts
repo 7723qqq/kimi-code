@@ -10,9 +10,8 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 
-import { test } from 'vitest';
+import { test } from 'bun:test';
 
 import { MiniDb } from '../../src/index.js';
 import { tmpDir, rmrf } from './helpers/tmp.js';

@@ -1,10 +1,11 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock, spyOn } from 'bun:test';
 
 import { applyUpdatePreferenceChoice } from '#/tui/commands/config';
+import * as tuiConfig from '#/tui/config';
 import { darkColors } from '#/tui/theme/colors';
 
-const mocks = vi.hoisted(() => ({
-  saveTuiConfig: vi.fn(),
+const mocks = {
+  saveTuiConfig: spyOn(tuiConfig, 'saveTuiConfig').mockImplementation(async () => {}),
   t: (key: string, params?: Record<string, string | number>) => {
     const translations: Record<string, string> = {
       'tui.messages.configAutoUpdateSet': `Automatic updates ${String(params?.['state'] ?? '')}.`,
@@ -18,29 +19,19 @@ const mocks = vi.hoisted(() => ({
     };
     return translations[key] ?? key;
   },
-}));
+};
 
-vi.mock('#/i18n', () => ({
+void mock.module('#/i18n', () => ({
   t: mocks.t,
-  setLocale: vi.fn(),
+  setLocale: mock(),
   getLocale: () => 'en',
 }));
 
-vi.mock('../../../src/tui/config', async () => {
-  const actual = await vi.importActual<typeof import('../../../src/tui/config.js')>(
-    '../../../src/tui/config.js',
-  );
-  return {
-    ...actual,
-    saveTuiConfig: mocks.saveTuiConfig,
-  };
-});
-
 describe('update preference commands', () => {
   it('saves automatic update preference changes to tui.toml', async () => {
-    const setAppState = vi.fn();
-    const showStatus = vi.fn();
-    const track = vi.fn();
+    const setAppState = mock();
+    const showStatus = mock();
+    const track = mock();
     const host = {
       state: {
         appState: {
@@ -90,9 +81,9 @@ describe('update preference commands', () => {
         },
         theme: { palette: darkColors },
       },
-      setAppState: vi.fn(),
-      showStatus: vi.fn(),
-      track: vi.fn(),
+      setAppState: mock(),
+      showStatus: mock(),
+      track: mock(),
     };
 
     await applyUpdatePreferenceChoice(host, false);

@@ -15,7 +15,7 @@ import { pipeline } from 'node:stream/promises';
 import { promisify } from 'node:util';
 import { inflateRawSync } from 'node:zlib';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 import { ZipFile } from 'yazl';
 
 import { SUPPORTED_TARGETS } from '../../../scripts/native/native-deps.mjs';
@@ -171,7 +171,7 @@ describe('native release artifacts', () => {
     }
   }
 
-  it('produces a manifest from bun archive checksums', async () => {
+  it('produces a manifest from bun archive checksums', { timeout: 60_000 }, async () => {
     const releaseDir = await mkdtemp(join(tmpdir(), 'kimi-manifest-zip-'));
     try {
       await writeFullArtifactSet(releaseDir);
@@ -189,7 +189,7 @@ describe('native release artifacts', () => {
       };
       expect(manifest.version).toBe('0.5.0');
       expect(manifest.tag).toBe('@moonshot-ai/kimi-code@0.5.0');
-      expect(Object.keys(manifest.bun).toSorted()).toEqual(SUPPORTED_TARGETS);
+      expect(Object.keys(manifest.bun).toSorted()).toEqual([...SUPPORTED_TARGETS]);
       expect(manifest.bun['darwin-arm64']).toEqual({
         filename: 'kimi-code-bun-darwin-arm64.zip',
         checksum: bunChecksum('darwin-arm64'),
@@ -200,7 +200,7 @@ describe('native release artifacts', () => {
     }
   });
 
-  it('emits tar.gz and zst forms of each executable beside the manifest', async () => {
+  it('emits tar.gz and zst forms of each executable beside the manifest', { timeout: 60_000 }, async () => {
     const releaseDir = await mkdtemp(join(tmpdir(), 'kimi-manifest-extra-'));
     try {
       await writeFullArtifactSet(releaseDir);
@@ -227,12 +227,12 @@ describe('native release artifacts', () => {
         // Both forms must inflate back to the same executable the zip holds.
         const extracted = join(releaseDir, `extract-${target}`);
         mkdirSync(extracted, { recursive: true });
-        await execFileAsync('tar', [
-          '-xzf',
-          join(releaseDir, `kimi-code-${target}.tar.gz`),
-          '-C',
-          extracted,
-        ]);
+        // GNU tar reads `C:\...` as `host:path`, so both paths stay relative to a cwd.
+        await execFileAsync(
+          'tar',
+          ['-xzf', `kimi-code-${target}.tar.gz`, '-C', `extract-${target}`],
+          { cwd: releaseDir },
+        );
         expect(readFileSync(join(extracted, exeName))).toEqual(binary);
 
         const zstOut = join(extracted, `${exeName}.zst-out`);
@@ -264,7 +264,7 @@ describe('native release artifacts', () => {
     }
   });
 
-  it('fails when the bun section is incomplete', async () => {
+  it('fails when the bun section is incomplete', { timeout: 60_000 }, async () => {
     const releaseDir = await mkdtemp(join(tmpdir(), 'kimi-manifest-partialbun-'));
     const [...missing] = SUPPORTED_TARGETS;
     const uncovered = missing.pop();

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { todoItemSchema } from '#/features/todo/todoItem';
 import { TodoUpdated } from '#/features/todo/todoOps';

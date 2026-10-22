@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import type { McpServer } from '@agentclientprotocol/sdk';
 import type { ContentPart } from '@moonshot-ai/agent-core-v2';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 import {
   acpBlocksToContentParts,
@@ -162,6 +162,6 @@ describe('compressPromptImageParts', () => {
     const files = await readdir(originalsDir);
     expect(files).toHaveLength(1);
     expect(caption.text).toContain(files[0]!);
-    expect(await readFile(join(originalsDir, files[0]!))).toEqual(original);
+    expect(await readFile(join(originalsDir, files[0]!)) as Buffer).toEqual(original);
   });
 });

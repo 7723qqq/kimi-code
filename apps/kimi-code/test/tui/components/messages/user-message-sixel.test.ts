@@ -1,5 +1,6 @@
 import { resetCapabilitiesCache, setCapabilities } from '@moonshot-ai/pi-tui';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, mock } from 'bun:test';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { UserMessageComponent } from '#/tui/components/messages/user-message';
 import type { ImageAttachment } from '#/tui/utils/image-attachment-store';
@@ -21,7 +22,7 @@ const PNG_B64 =
 describe('UserMessageComponent image thumbnails (sixel)', () => {
   afterEach(() => {
     resetCapabilitiesCache();
-    vi.restoreAllMocks();
+    mock.restore();
   });
 
   it('swaps the sixel placeholder in through the render cache', async () => {
@@ -33,9 +34,12 @@ describe('UserMessageComponent image thumbnails (sixel)', () => {
     const placeholderFrame = component.render(80).join('\n');
     expect(placeholderFrame).toContain('image #1');
 
-    await vi.waitFor(() => {
-      const lines = component.render(80).join('\n');
-      expect(lines).toContain('\u001BPq');
-    });
+    await waitForAssertion(
+      () => {
+        const lines = component.render(80).join('\n');
+        expect(lines).toContain('\u001BPq');
+      },
+      { timeout: 5_000 },
+    );
   });
 });

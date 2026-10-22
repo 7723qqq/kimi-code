@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
 import type { ToolCall } from '#human/llm/message';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IEventBus } from '#/app/event/eventBus';
@@ -236,7 +236,8 @@ describe('ToolManager SkillTool wire behavior', () => {
     const skillSplice = persistence.records.find(
       (record) => recordContainsSkillLoaded(record, 'review'),
     );
-    expect(skillSplice).toMatchObject({
+    const skillSpliceSnapshot = structuredClone(skillSplice);
+    expect(skillSpliceSnapshot).toMatchObject({
       type: 'context.append_message',
       message: expect.objectContaining({
         role: 'user',
@@ -278,21 +279,21 @@ describe('ToolManager SkillTool restore behavior', () => {
   let ctx: TestAgentContext;
   let context: IAgentContextMemoryService;
   let skills: InMemorySkillCatalog;
-  let emit: ReturnType<typeof vi.spyOn>;
-  let track: ReturnType<typeof vi.spyOn>;
+  let emit: ReturnType<typeof spyOn>;
+  let track: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
     skills = new InMemorySkillCatalog();
     skills.register(makeSkill('review'));
     const telemetry = recordingTelemetry([]);
-    track = vi.spyOn(telemetry, 'track2');
+    track = spyOn(telemetry, 'track2');
     ctx = createTestAgent(
       skillServices(skills),
       telemetryServices(telemetry),
     );
     context = ctx.get(IAgentContextMemoryService);
     const events = ctx.get(IEventBus);
-    emit = vi.spyOn(events, 'publish');
+    emit = spyOn(events, 'publish');
   });
 
   afterEach(async () => {

@@ -1,5 +1,5 @@
 // apps/vis/server/test/lib/context-projector.test.ts
-import { describe, it, expect, afterEach } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 import { estimateTokensForMessages } from '@moonshot-ai/agent-core-v2/llm-adapter/contract/tokens';
 import { buildCompactionContinuationText } from '@moonshot-ai/agent-core-v2/agent/contextMemory/compactionHandoff';
 import { buildSessionFixture } from '../fixtures/build';

@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock, type Mock } from 'bun:test';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { handleAddDirCommand } from '#/tui/commands/add-dir';
 import { dispatchInput, type SlashCommandHost } from '#/tui/commands/dispatch';
@@ -28,7 +29,7 @@ function makeHost(additionalDirs: readonly string[] = []) {
     summary: {
       additionalDirs,
     },
-    addAdditionalDir: vi.fn(async (path: string, options: { persist: boolean }) => ({
+    addAdditionalDir: mock(async (path: string, options: { persist: boolean }) => ({
       additionalDirs: [...additionalDirs, path],
       projectRoot: '/repo',
       configPath: '/repo/.kimi-code/local.toml',
@@ -39,30 +40,30 @@ function makeHost(additionalDirs: readonly string[] = []) {
     state,
     session,
     skillCommandMap: new Map<string, string>(),
-    setAppState: vi.fn((patch: Record<string, unknown>) => Object.assign(state.appState, patch)),
-    refreshSlashCommandAutocomplete: vi.fn(),
-    appendTranscriptEntry: vi.fn(),
-    showError: vi.fn(),
-    showStatus: vi.fn(),
-    sendNormalUserInput: vi.fn(),
-    track: vi.fn(),
-    mountEditorReplacement: vi.fn((panel: MountedPanel) => {
+    setAppState: mock((patch: Record<string, unknown>) => Object.assign(state.appState, patch)),
+    refreshSlashCommandAutocomplete: mock(),
+    appendTranscriptEntry: mock(),
+    showError: mock(),
+    showStatus: mock(),
+    sendNormalUserInput: mock(),
+    track: mock(),
+    mountEditorReplacement: mock((panel: MountedPanel) => {
       mountedPanel = panel;
     }),
-    restoreEditor: vi.fn(() => {
+    restoreEditor: mock(() => {
       mountedPanel = null;
     }),
   } as unknown as SlashCommandHost & {
     session: typeof session;
     state: typeof state;
-    setAppState: ReturnType<typeof vi.fn>;
-    refreshSlashCommandAutocomplete: ReturnType<typeof vi.fn>;
-    appendTranscriptEntry: ReturnType<typeof vi.fn>;
-    showError: ReturnType<typeof vi.fn>;
-    showStatus: ReturnType<typeof vi.fn>;
-    sendNormalUserInput: ReturnType<typeof vi.fn>;
-    mountEditorReplacement: ReturnType<typeof vi.fn>;
-    restoreEditor: ReturnType<typeof vi.fn>;
+    setAppState: Mock<(...args: any[]) => any>;
+    refreshSlashCommandAutocomplete: Mock<(...args: any[]) => any>;
+    appendTranscriptEntry: Mock<(...args: any[]) => any>;
+    showError: Mock<(...args: any[]) => any>;
+    showStatus: Mock<(...args: any[]) => any>;
+    sendNormalUserInput: Mock<(...args: any[]) => any>;
+    mountEditorReplacement: Mock<(...args: any[]) => any>;
+    restoreEditor: Mock<(...args: any[]) => any>;
   };
   return {
     host,
@@ -119,15 +120,15 @@ describe('handleAddDirCommand', () => {
     await handleAddDirCommand(host, '../shared');
     getMountedPanel()?.handleInput(' ');
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(session.addAdditionalDir).toHaveBeenCalledWith('../shared', { persist: false });
     });
-    expect(host.restoreEditor).toHaveBeenCalledOnce();
+    expect(host.restoreEditor).toHaveBeenCalledTimes(1);
     expect(host.setAppState).toHaveBeenCalledWith({
       additionalDirs: ['../shared'],
     });
-    expect(host.refreshSlashCommandAutocomplete).toHaveBeenCalledOnce();
-    await vi.waitFor(() => {
+    expect(host.refreshSlashCommandAutocomplete).toHaveBeenCalledTimes(1);
+    await waitForAssertion(() => {
       expect(host.showStatus).toHaveBeenCalledWith(
         'Added workspace directory:\n  ../shared\n  For this session only',
         'success',
@@ -143,10 +144,10 @@ describe('handleAddDirCommand', () => {
     getMountedPanel()?.handleInput('\u001B[B');
     getMountedPanel()?.handleInput(' ');
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(session.addAdditionalDir).toHaveBeenCalledWith('../shared', { persist: true });
     });
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(host.showStatus).toHaveBeenCalledWith(
         'Added workspace directory:\n  ../shared\n  Saved to:\n  /repo/.kimi-code/local.toml',
         'success',
@@ -172,12 +173,12 @@ describe('handleAddDirCommand', () => {
     session.addAdditionalDir.mockRejectedValueOnce(new Error('workspace.additional_dir must exist and be a directory'));
 
     dispatchInput(host, '/add-dir ../other');
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(getMountedPanel()).not.toBeNull();
     });
     getMountedPanel()?.handleInput(' ');
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(host.showError).toHaveBeenCalledWith(
         'workspace.additional_dir must exist and be a directory',
       );
@@ -193,7 +194,7 @@ describe('handleAddDirCommand', () => {
     // Session-less v2: the path-adding form lazy-creates via ensureSession.
     Object.assign(host, {
       session: undefined,
-      ensureSession: vi.fn(async () => {
+      ensureSession: mock(async () => {
         // A first prompt starts a turn while the session is being created.
         host.state.appState.streamingPhase = 'waiting';
         return session;

@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 import { join } from 'pathe';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import {
   DEFAULT_AGENT_PROFILE_NAME,

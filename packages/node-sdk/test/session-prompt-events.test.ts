@@ -1,23 +1,25 @@
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 
 import { createKimiHarness, type Event, type KimiHarness } from '#/index';
 
 import { TEST_IDENTITY } from './test-identity';
+import { setEnv, restoreEnvs } from './stubs';
+import { setTimeout as delay } from 'node:timers/promises';
 
 const MODEL_URL = 'https://model.example.test/v1/chat/completions';
 
-const fakeProviderState = vi.hoisted(() => ({
-  calls: [] as Array<{
-    readonly systemPrompt: string;
-    readonly history: unknown;
-  }>,
+// Filled by the fetch stub in `beforeEach` and read by the tests.
+const fakeProviderState: {
+  calls: Array<{ readonly systemPrompt: string; readonly history: unknown }>;
+  responseText: string;
+} = {
+  calls: [],
   responseText: 'hello from fake provider',
-}));
+};
 
 function sseChunk(delta: Record<string, unknown>, finishReason: string | null = null): string {
   return `data: ${JSON.stringify({
@@ -35,14 +37,14 @@ function sseBody(text: string): string {
     .join('');
 }
 
-let fetchStub: ReturnType<typeof vi.spyOn> | undefined;
+let fetchStub: ReturnType<typeof spyOn> | undefined;
 
 const tempDirs: string[] = [];
 
 beforeEach(() => {
   fakeProviderState.calls.length = 0;
   fakeProviderState.responseText = 'hello from fake provider';
-  fetchStub = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+  fetchStub = spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     if (url !== MODEL_URL) {
       throw new Error(`Unexpected fetch: ${url}`);
@@ -64,6 +66,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
+  restoreEnvs();
   fetchStub?.mockRestore();
   fetchStub = undefined;
   for (const dir of tempDirs.splice(0)) {
@@ -96,8 +99,8 @@ async function removeTempDir(dir: string): Promise<void> {
 
 describe('Session.prompt events', () => {
   it('continues notifying sessions after disabling and restarting with identical prompt and tools', async () => {
-    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
-    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_NOTIFY_USER', '');
+    setEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
+    setEnv('KIMI_CODE_EXPERIMENTAL_NOTIFY_USER', '');
     const homeDir = await makeTempDir();
     const workDir = await makeTempDir();
     const requests: Array<{ tools: unknown; messages: Array<{ role: string; content: unknown }> }> =
@@ -182,7 +185,7 @@ describe('Session.prompt events', () => {
       );
     } finally {
       await harness.close();
-      vi.unstubAllEnvs();
+      restoreEnvs();
     }
   });
 

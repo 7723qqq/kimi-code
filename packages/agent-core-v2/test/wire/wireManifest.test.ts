@@ -1,9 +1,10 @@
 import { readFileSync } from 'node:fs';
 import { Project } from 'ts-morph';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
+import { AGENT_WIRE_RECORD_TYPES } from '#/wire/human';
 
 import { EVENT2_REGISTRY } from '#/app/event/event2';
-import { AGENT_WIRE_RECORD_TYPES, HUMAN_AGENT_DOMAIN } from '#/wire/human';
+import { HUMAN_AGENT_DOMAIN } from '#/wire/human';
 
 import { buildWireManifest, MANIFEST_PATH } from '../../scripts/gen-wire-manifest.mts';
 

@@ -2,7 +2,7 @@ import { Container } from '@moonshot-ai/pi-tui';
 import { NotifyPanelComponent } from '#/tui/components/chrome/notify-panel';
 import { UpdatesRegion } from '#/tui/components/chrome/status-surface/regions/updates-region';
 import type { Event } from '@moonshot-ai/kimi-code-sdk';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import { SessionEventHandler } from '#/tui/controllers/session-event-handler';
 import { getBuiltInPalette } from '#/tui/theme';
@@ -29,49 +29,49 @@ function makeHost() {
       queuedMessageDispatchPending: false,
       theme: { palette: getBuiltInPalette('dark') },
       toolOutputExpanded: false,
-      todoPanel: { getTodos: vi.fn(() => []) },
-      transcriptContainer: { addChild: vi.fn() },
-      ui: { requestRender: vi.fn() },
+      todoPanel: { getTodos: mock(() => []) },
+      transcriptContainer: { addChild: mock() },
+      ui: { requestRender: mock() },
     },
     session: { id: 's1' },
     aborted: false,
     sessionEventUnsubscribe: undefined,
     streamingUI: {
-      setTurnId: vi.fn(),
-      setStep: vi.fn(),
-      flushNow: vi.fn(),
-      resetToolUi: vi.fn(),
-      clearNotifyPanel: vi.fn(),
-      markNotifyPanelEnded: vi.fn(),
-      finalizeTurn: vi.fn(),
-      finalizeLiveTextBuffers: vi.fn(),
-      completeToolResult: vi.fn(),
-      getTurnContext: vi.fn(() => ({ turnId: '1', step: 0 })),
+      setTurnId: mock(),
+      setStep: mock(),
+      flushNow: mock(),
+      resetToolUi: mock(),
+      clearNotifyPanel: mock(),
+      markNotifyPanelEnded: mock(),
+      finalizeTurn: mock(),
+      finalizeLiveTextBuffers: mock(),
+      completeToolResult: mock(),
+      getTurnContext: mock(() => ({ turnId: '1', step: 0 })),
     },
-    requireSession: vi.fn(),
-    noteSessionTurnStarted: vi.fn(),
-    setAppState: vi.fn((patch: Record<string, unknown>) =>
+    requireSession: mock(),
+    noteSessionTurnStarted: mock(),
+    setAppState: mock((patch: Record<string, unknown>) =>
       Object.assign(host.state.appState, patch),
     ),
-    patchLivePane: vi.fn(),
-    resetLivePane: vi.fn(),
-    updateActivityPane: vi.fn(),
-    updateQueueDisplay: vi.fn(),
-    showError: vi.fn(),
-    showStatus: vi.fn(),
-    showNotice: vi.fn(),
-    track: vi.fn(),
-    recordSessionActivity: vi.fn(),
-    noteStepUsage: vi.fn(),
-    noteCompactionFinished: vi.fn(),
-    mountEditorReplacement: vi.fn(),
-    restoreEditor: vi.fn(),
-    restoreInputText: vi.fn(),
-    appendTranscriptEntry: vi.fn(),
-    sendNormalUserInput: vi.fn(),
-    sendQueuedMessage: vi.fn(),
-    shiftQueuedMessage: vi.fn(),
-    btwPanelController: { routeEvent: vi.fn(() => false) },
+    patchLivePane: mock(),
+    resetLivePane: mock(),
+    updateActivityPane: mock(),
+    updateQueueDisplay: mock(),
+    showError: mock(),
+    showStatus: mock(),
+    showNotice: mock(),
+    track: mock(),
+    recordSessionActivity: mock(),
+    noteStepUsage: mock(),
+    noteCompactionFinished: mock(),
+    mountEditorReplacement: mock(),
+    restoreEditor: mock(),
+    restoreInputText: mock(),
+    appendTranscriptEntry: mock(),
+    sendNormalUserInput: mock(),
+    sendQueuedMessage: mock(),
+    shiftQueuedMessage: mock(),
+    btwPanelController: { routeEvent: mock(() => false) },
     tasksBrowserController: {},
   };
   return { host: host as any };
@@ -104,8 +104,8 @@ describe('SessionEventHandler — update panel lifecycle', () => {
     handler.notifications.setEnabled(true);
     handler.notifications.handleEvent({ type: 'tool.call.started', sessionId: 's1', agentId: 'main', turnId: 0, toolCallId: 'n1', name: 'NotifyUser', args: { message: 'Earlier finding' } } as Event);
     handler.notifications.handleEvent({ type: 'tool.result', sessionId: 's1', agentId: 'main', turnId: 0, toolCallId: 'n1', output: 'Update shown to the user.' } as Event);
-    handler.handleEvent(turnStarted({ kind }), vi.fn());
-    handler.handleEvent(turnEnded(), vi.fn());
+    handler.handleEvent(turnStarted({ kind }), mock());
+    handler.handleEvent(turnEnded(), mock());
     expect(host.state.notifyPanel.getEntries().map((entry: { text: string }) => entry.text)).toEqual([]);
     expect(host.streamingUI.clearNotifyPanel).not.toHaveBeenCalled();
   });
@@ -114,8 +114,8 @@ describe('SessionEventHandler — update panel lifecycle', () => {
     const { host } = makeHost();
     const handler = new SessionEventHandler(host);
     handler.notifications.setEnabled(true);
-    handler.handleEvent({ type: 'tool.call.started', sessionId: 's1', agentId: 'worker-1', turnId: 9, toolCallId: 'n1', name: 'NotifyUser', args: { message: 'Child finding' } } as Event, vi.fn());
-    handler.handleEvent({ type: 'tool.result', sessionId: 's1', agentId: 'worker-1', turnId: 9, toolCallId: 'n1', output: 'Update shown to the user.' } as Event, vi.fn());
+    handler.handleEvent({ type: 'tool.call.started', sessionId: 's1', agentId: 'worker-1', turnId: 9, toolCallId: 'n1', name: 'NotifyUser', args: { message: 'Child finding' } } as Event, mock());
+    handler.handleEvent({ type: 'tool.result', sessionId: 's1', agentId: 'worker-1', turnId: 9, toolCallId: 'n1', output: 'Update shown to the user.' } as Event, mock());
     expect(host.state.notifyPanel.getEntries()[0]).toMatchObject({ agentId: 'worker-1', text: 'Child finding' });
     expect(host.streamingUI.setTurnId).not.toHaveBeenCalled();
     expect(host.streamingUI.completeToolResult).not.toHaveBeenCalled();

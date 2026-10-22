@@ -38,6 +38,24 @@ export interface CreateKimiDeviceIdOptions {
   readonly onFirstLaunch?: ((id: string) => void) | undefined;
 }
 
+/**
+ * The host facts `createKimiDeviceHeaders` reports.
+ *
+ * Production always reads the live host; a caller may override individual
+ * entries to describe a host it is not running on (an unsupported platform, a
+ * simulated macOS release). Overrides are merged over the real probe, so a test
+ * that only cares about the device name still gets a real device id and OS
+ * version.
+ */
+export interface KimiHostProbe {
+  readonly hostname: () => string;
+  readonly osType: () => string;
+  readonly osRelease: () => string;
+  readonly osArch: () => string;
+  /** Contents of {@link MACOS_SYSTEM_VERSION_PLIST}; throws when unreadable. */
+  readonly readMacOsSystemVersion: () => string;
+}
+
 export function readKimiDeviceId(homeDir: string): string | null {
   const deviceIdPath = join(homeDir, 'device_id');
   if (!existsSync(deviceIdPath)) return null;
@@ -79,13 +97,16 @@ export function createKimiDeviceHeaders(options: {
   /** Required and validated like the version: non-empty ASCII, no fallback —
       a blank or fabricated platform would silently misreport the host. */
   readonly platform: string;
+  /** Host facts to report instead of the live host; see {@link KimiHostProbe}. */
+  readonly host?: Partial<KimiHostProbe> | undefined;
 }): DeviceHeaders {
+  const host: KimiHostProbe = { ...defaultHostProbe, ...options.host };
   return {
     'X-Msh-Platform': requiredAsciiHeader(options.platform, 'Kimi identity platform'),
     'X-Msh-Version': requiredAsciiHeader(options.version, 'Kimi identity version'),
-    'X-Msh-Device-Name': asciiHeader(hostname()),
-    'X-Msh-Device-Model': asciiHeader(deviceModel()),
-    'X-Msh-Os-Version': asciiHeader(release()),
+    'X-Msh-Device-Name': asciiHeader(host.hostname()),
+    'X-Msh-Device-Model': asciiHeader(deviceModel(host)),
+    'X-Msh-Os-Version': asciiHeader(host.osRelease()),
     'X-Msh-Device-Id': createKimiDeviceId(options.homeDir),
   };
 }
@@ -176,11 +197,11 @@ export function assertKimiHostIdentity(identity: KimiHostIdentity | undefined): 
   return identity;
 }
 
-function deviceModel(): string {
-  const os = type();
-  const version = release();
-  const osArch = arch();
-  if (os === 'Darwin') return `macOS ${macOsProductVersion() ?? version} ${osArch}`;
+function deviceModel(host: KimiHostProbe): string {
+  const os = host.osType();
+  const version = host.osRelease();
+  const osArch = host.osArch();
+  if (os === 'Darwin') return `macOS ${macOsProductVersion(host) ?? version} ${osArch}`;
   if (os === 'Windows_NT') return `Windows ${version} ${osArch}`;
   return `${os} ${version} ${osArch}`.trim();
 }
@@ -191,9 +212,17 @@ function deviceModel(): string {
  */
 const MACOS_SYSTEM_VERSION_PLIST = '/System/Library/CoreServices/SystemVersion.plist';
 
-function macOsProductVersion(): string | undefined {
+const defaultHostProbe: KimiHostProbe = {
+  hostname,
+  osType: type,
+  osRelease: release,
+  osArch: arch,
+  readMacOsSystemVersion: () => readFileSync(MACOS_SYSTEM_VERSION_PLIST, 'utf-8'),
+};
+
+function macOsProductVersion(host: KimiHostProbe): string | undefined {
   try {
-    const plist = readFileSync(MACOS_SYSTEM_VERSION_PLIST, 'utf-8');
+    const plist = host.readMacOsSystemVersion();
     const version = /<key>ProductVersion<\/key>\s*<string>([^<]*)<\/string>/
       .exec(plist)?.[1]
       ?.trim();

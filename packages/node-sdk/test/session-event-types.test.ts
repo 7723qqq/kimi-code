@@ -1,6 +1,8 @@
-import { describe, expectTypeOf, it } from 'vitest';
+import { TaskOutput } from '@moonshot-ai/agent-core-v2';
+import { describe, expect, expectTypeOf, it } from 'bun:test';
 
 import type { ApprovalRequest, ApprovalResponse, Event, QuestionRequest } from '#/index';
+import { translateDomainEvent } from '#/v2/event-mapper';
 
 type EventByType<T extends Event['type']> = Extract<Event, { readonly type: T }>;
 
@@ -66,6 +68,26 @@ describe('Event public types', () => {
     expectTypeOf<ApprovalResponse['scope']>().toEqualTypeOf<'session' | undefined>();
   });
 
+  it('maps the v2 task.output event onto the v1 background.task.output name', () => {
+    const event = new TaskOutput({
+      agentId: 'main',
+      taskId: 'bash-12345678',
+      chunk: 'hello\n',
+      outputSizeBytes: 6,
+    });
+
+    const translated = translateDomainEvent(event, 's1', 'main');
+
+    expect(translated).toMatchObject({
+      type: 'background.task.output',
+      sessionId: 's1',
+      agentId: 'main',
+      taskId: 'bash-12345678',
+      chunk: 'hello\n',
+      outputSizeBytes: 6,
+    });
+  });
+
   it('covers every event in exhaustive switches', () => {
     function handle(event: Event): void {
       switch (event.type) {
@@ -119,6 +141,7 @@ describe('Event public types', () => {
         case 'task.terminated':
         case 'background.task.started':
         case 'background.task.terminated':
+        case 'background.task.output':
         case 'cron.fired':
         case 'prompt.submitted':
         case 'prompt.completed':

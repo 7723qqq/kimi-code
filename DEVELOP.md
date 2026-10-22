@@ -20,7 +20,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 - **i18n / Multi-language support** — Complete Chinese-English bilingual support across TUI, CLI, and Web UI. All hardcoded English strings replaced with `t()` calls. Switch locale via the `/settings` dialog (aliased as `/config`), locale selector inside.
 - **Team** — Multi-agent discussion and collaboration tool; agents can debate, cross-review, and reach consensus before output.
 - **Windows launchers** — `start-native.bat` runs the CLI via `bun run dev:cli` (which delegates to `apps/kimi-code/scripts/dev.mjs`, starting the local plugin-marketplace server first); `start-desktop.bat` builds and launches a locally vendored desktop shell when `apps/kimi-desktop` is present (the shell source is not tracked in this fork).
-- **Bun toolchain & packaging** — Bun is both the package manager (hoisted workspace, `bun.lock`) and the sole native-binary packaging engine (`bun build --compile` via `apps/kimi-code/scripts/native/build-bun.mjs`); the former pnpm workspace setup and the Node SEA build chain were retired. Install, build, lint, typecheck, the native build pipeline, and the vitest suites (`bun --bun run test`) all run on Bun, and no CI job installs Node; the Nix build path (`flake.nix`, `nix-build.yml`) still requires Node. Self-update remains engine-aware for legacy SEA installs.
+- **Bun toolchain & packaging** — Bun is both the package manager (hoisted workspace, `bun.lock`) and the sole native-binary packaging engine (`bun build --compile` via `apps/kimi-code/scripts/native/build-bun.mjs`); the former pnpm workspace setup and the Node SEA build chain were retired. Install, build, lint, typecheck, the native build pipeline, and the test suites (`bun run test`) all run on Bun, and no CI job installs Node; the Nix build path (`flake.nix`, `nix-build.yml`) still requires Node. Self-update remains engine-aware for legacy SEA installs.
 - **DeepSeek Harness capability fusion** — Selected capabilities ported from [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) (MIT): subagent delegation-depth accounting (`session/agentLifecycle/subagentMetadata.ts`), the eval-mode code-runtime worker (`features/codeRuntime/codeWorkerSource.ts`), and the session-query record types (`features/sessionQuery/types.ts`). Ported modules carry a source note in their header; capability selection and comparison notes live in the session report.
 
 > For a user-facing summary of these additions, see `README.md` → "What's Different in This Fork" (and its Chinese mirror `README.zh-CN.md` → "本 Fork 新增特性").
@@ -35,7 +35,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 |-------|-----------|
 | Primary language | **TypeScript** 6.0.2 (strict mode) |
 | Module system | ESM (`"type": "module"` in every package) |
-| Dev runtime | **Bun** >= 1.4 — install, build, lint, typecheck, and the vitest suites (`bun --bun run test`) all run through bun |
+| Dev runtime | **Bun** >= 1.4 — install, build, lint, typecheck, and the test suites (`bun run test`) all run through bun |
 | Published CLI runtime | **Bun** >= 1.4.0 (`engines` floor of the published package) |
 | Web UI (peer) | **Vue 3** + **Vite** |
 | VS Code extension | **React 19** + **TailwindCSS 4** + **shadcn/ui** |
@@ -55,7 +55,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 |------|---------|
 | **oxlint** 1.59.0 | Linter — correctness (error), suspicious (warn), pedantic (warn), perf (warn) |
 | **oxfmt** | Formatter — 100 print width, single quotes, trailing commas, sorted imports |
-| **vitest** 4.1.10 | Test runner (v8 coverage provider) |
+| **bun:test** (Bun 1.4.2) | Test runner and coverage (`bun test --coverage`, lcov) |
 | **simple-git-hooks** | Pre-commit hooks (runs `lint-staged`) |
 | **lint-staged** | Lint staged files with `oxlint --quiet` + `oxlint --type-aware --quiet` |
 | **changesets** | Version management and changelog generation |
@@ -161,7 +161,7 @@ packages/
   minidb/              — Embedded JSON document store (snapshot + WAL, full-text index)
   node-sdk/            — Public TypeScript SDK (@moonshot-ai/kimi-code-sdk)
   oauth/               — Kimi OAuth and managed auth utilities
-  pi-tui/              — Terminal UI framework (upstream dependency, node:test suite)
+  pi-tui/              — Terminal UI framework (upstream dependency, bun:test suite)
   remote-control/      — Kimi Remote Control tunnel client (relay registration + HTTP/WS forwarding)
   telemetry/           — Shared client-side telemetry infrastructure
   transcript/          — Isomorphic transcript rendering data layer
@@ -184,6 +184,8 @@ packages/
 **`transcript`** (v0.0.2) — Isomorphic transcript rendering data layer. Pure TypeScript (browser-safe). Agent-granular L1 store, idempotent L2 operations, granularity-gated L3 subscriptions (`off/turn/block/delta`), framework-free L4 view registry. Owns all transcript contract types in `src/contract/`.
 
 **`minidb`** (v0.2.0) — Pure-Node.js embedded key-value database. Combines Redis-style in-memory KV with SQLite-style WAL + snapshot persistence. Includes cluster support.
+
+**`node-sdk`** — Public SDK, and the one package whose `tsconfig.json` deliberately differs from what its compiler and bundler read. Its `#/*` subpath imports are resolved by Bun from `compilerOptions.paths` (Bun does not honour `package.json#imports` here), so the package tsconfig keeps them for the test run. A project-wide alias also captures the `#/*` specifiers inside the `agent-core-v2` sources this package pulls in, so both readers that see those sources use a view with an empty `paths`: `tsconfig.build.json` for `tsdown`, `tsconfig.typecheck.json` for `tsc`, and `tsconfig.dts.json` for the declaration build.
 
 ### Plugins
 
@@ -314,8 +316,8 @@ the `cwd` its script expects — `bun run` resolves relative to the package — 
 
 ## Environment Requirements
 
-- **Bun**: `>= 1.4` — required. Package manager, script runner, and dev-toolchain runtime (`bun.lock` is the lockfile, specified via `bunVersion` in `flake.nix`); build, lint, typecheck, locale checks, and the vitest suites (`bun --bun run test`) all run through bun.
-- **Node.js**: not required for the Bun-based dev workflow — build, lint, typecheck, the native pipeline, and the test suites all run under Bun (pi-tui's node:test suite included), and no CI job installs Node. The Nix build path is the exception: `flake.nix` pins `minNodeVersion = "24.15.0"` and fails evaluation below it, keeps `nodejs` in the derivation's `nativeBuildInputs` and the devShell, and runs `node apps/kimi-code/scripts/check-web-assets.mjs` as a build step, so `nix-build.yml` needs Node on every PR.
+- **Bun**: `>= 1.4` — required. Package manager, script runner, and dev-toolchain runtime (`bun.lock` is the lockfile, specified via `bunVersion` in `flake.nix`); build, lint, typecheck, locale checks, and the test suites (`bun run test`) all run through bun.
+- **Node.js**: not required for the Bun-based dev workflow — build, lint, typecheck, the native pipeline, and the test suites all run under Bun (pi-tui's bun:test suite included), and no CI job installs Node. The Nix build path is the exception: `flake.nix` pins `minNodeVersion = "24.15.0"` and fails evaluation below it, keeps `nodejs` in the derivation's `nativeBuildInputs` and the devShell, and runs `node apps/kimi-code/scripts/check-web-assets.mjs` as a build step, so `nix-build.yml` needs Node on every PR.
 - **Published package engines**: the published package declares `"bun": ">=1.4.0"` — the same floor the dev toolchain requires.
 - **Git for Windows** (Windows only): Optional; used as the POSIX shell fallback when PowerShell is unavailable. Set `KIMI_SHELL_PATH` to pin a specific shell.
 
@@ -336,7 +338,7 @@ bun run dev:cli               # Run the CLI in dev mode; delegates to
 bun run dev:local              # Run the CLI from a fresh bundle (works; incremental, ~2s)
 bun run dev:local:watch       # Same, rebuilding and re-running on every source change
 bun run dev:server            # Run server in dev mode
-bun run test                  # Run all tests (vitest)
+bun run test                  # Every package suite (CI scope; see Testing Rules)
 bun run test:watch            # Watch mode
 bun run test:coverage         # With coverage
 bun run typecheck             # TypeScript check (builds packages first)
@@ -359,7 +361,7 @@ make prepare          # bun install
 make build            # bun run build
 make typecheck        # Full typecheck
 make lint             # oxlint
-make test             # vitest
+make test             # bun test --isolate in every package
 ```
 
 ### Package-specific commands
@@ -368,8 +370,10 @@ make test             # vitest
 # CLI app
 cd apps/kimi-code && bun run build
 cd apps/kimi-code && bun run dev
-cd apps/kimi-code && bun run test
+bun test --isolate test/cli                 # CLI tests only
 cd apps/kimi-code && bun run e2e     # E2E tests (sets KIMI_E2E=1)
+# `cd apps/kimi-code && bun run test` is not scoped: it builds every package
+# (`build:packages`) and then runs the whole workspace suite.
 
 # Native binary packaging
 bun run build:native:bun:release  # Full release build (from apps/kimi-code)
@@ -386,12 +390,10 @@ To run a local build inside `~/.kimi-code/` instead of the released binary (Powe
 
 GitHub Actions (`ci.yml`) runs on every PR and push to `main`. Every job installs Bun via `oven-sh/setup-bun`; no job installs Node:
 1. **build** — Install, build, smoke test CLI bundle
-2. **test** — `bun --bun run test` (vitest under the Bun runtime) split across 5 parallel shards on Ubuntu
-3. **test-pi-tui** — `pi-tui` suite (dispatches to `bun test` under Bun, `node --test` under Node)
-4. **test-minidb** — `minidb` suite, which the root vitest projects exclude
-5. **lint** — `bun run lint` (oxlint --type-aware), `bun run sherif`, engine boundaries (`check:deep-imports`, then `check:boundaries`), locale key parity (`check-locale-keys.mjs`), locale placeholder validity (`check-locale-placeholders.cjs`), and `t()` call-site coverage (`check-t-call-coverage.mjs`)
-6. **typecheck** — TypeScript check across all packages (`tsgo` from `@typescript/native-preview`, run via `bunx --bun`)
-7. **review** — `zig build` and `zig build test` in `tools/review` (Zig installed via
+2. **test** — `bun run test --shard=N/5` split across 5 parallel Ubuntu shards; Bun's native `--shard` is forwarded to every package suite, and no job installs Node
+3. **lint** — `bun run lint` (oxlint --type-aware), `bun run sherif`, engine boundaries (`check:deep-imports`, then `check:boundaries`), locale key parity (`check-locale-keys.mjs`), locale placeholder validity (`check-locale-placeholders.cjs`), and `t()` call-site coverage (`check-t-call-coverage.mjs`)
+4. **typecheck** — TypeScript check across all packages (`tsgo` from `@typescript/native-preview`, run via `bunx --bun`)
+5. **review** — `zig build` and `zig build test` in `tools/review` (Zig installed via
    `mlugg/setup-zig`), then the structural checks described under "Structural review" above
 
 `ci.yml` also carries a `test-windows` job (the full suite on Windows). It is parked with `if: false` while Windows tests are stabilized, so it is not part of the pre-merge pipeline.
@@ -412,7 +414,7 @@ The macOS and Windows signing steps degrade safely when their secrets are unset:
 
 ### Nix build maintenance
 
-`nix-build.yml` builds the CLI in a pure sandbox. Dependencies come from the `bunDeps` fixed-output derivation in `flake.nix` (hoisted `node_modules` + the cargo vendor dir for the napi package). After changing `bun.lock` or the `Cargo.lock`, expect one hash-mismatch round: set `outputHash` to `lib.fakeSha256`, push, then paste the `got:` hash (the nix-build bot posts it on PRs). Sandbox quirks: no `/usr/bin/env` (invoke node-gyp/napi via `node <js-entry>`), and FOD outputs must not contain store paths. See CONTRIBUTING → "Nix build".
+`nix-build.yml` builds the CLI in a pure sandbox. Dependencies come from the `bunDeps` fixed-output derivation in `flake.nix` (the hoisted `node_modules` tree). After changing `bun.lock`, expect one hash-mismatch round: set `outputHash` to `lib.fakeSha256`, push, then paste the `got:` hash (the nix-build bot posts it on PRs). Sandbox quirks: no `/usr/bin/env` (invoke a package's JS entry through `node <js-entry>` instead of its bin shim), and FOD outputs must not contain store paths. See CONTRIBUTING → "Nix build".
 
 ---
 
@@ -422,40 +424,50 @@ The macOS and Windows signing steps degrade safely when their secrets are unset:
 
 ### Test Framework
 
-- **vitest 4.1.10** for all TypeScript/JavaScript tests (root-level)
-- **node:test** for `@moonshot-ai/pi-tui` (not part of vitest workspace; CI runs it with `bun --bun run test`, which dispatches to `bun test` under Bun and to `node --test` under a Node runtime)
-- **cargo test** for Rust packages (`kimi-native-tools`)
-- **Coverage**: v8 provider, reports in text + HTML
+- **`bun:test`** for every TypeScript/JavaScript suite in the workspace, run through each package's own `bun test`. Bun 1.4.2 is both the runtime and the runner; the repository no longer contains a vitest dependency or config.
+- Each package's `bunfig.toml` supplies `[test] preload` (setup modules) and `pathIgnorePatterns` (the heavy/e2e set). A CLI `--path-ignore-patterns` overrides the file, which is how the heavy scripts opt back in.
+- Every package `test` script passes `--isolate`: each test file gets a fresh global and module registry, which is what keeps `mock.module` registrations from leaking into the next file.
+- **`--timeout` is the only knob that reaches hooks.** Bun 1.4.2 applies `bunfig.toml`'s `[test] timeout` to test bodies only; a `beforeEach` that builds a real `git` fixture still dies at the built-in 5s. Every package script therefore passes a CLI `--timeout` (30s in `agent-core-v2`/`kimi-code`/`minidb`, 15s in `kap-server`). On a Windows host the first external spawn in a process also costs a one-off ~3s, which lands inside whichever hook spawns first.
+- **Platform gates are runtime probes, not platform branches.** A case that needs a capability the host may lack — creating a symlink (`EPERM` on Windows without Developer Mode), executing a `#!/usr/bin/env` fixture — probes the capability and skips visibly instead of failing, so the case still runs on a host that has it. Cases that pin a byte-for-byte POSIX prompt (the `fullCompaction` golden) are gated to Linux, because the expected bytes contain POSIX paths and `ls` output. One case — `mcpCore/oauth/service-lifecycle.test.ts` → "detaches a joined caller…" — is gated to non-Windows because Bun 1.4.2 segfaults on Windows when it follows the single-flight refresh case; every case in that file passes when run alone, so the fault is in the runtime, not the fixture.
+- **Coverage**: `bun test --coverage` (lcov reporter), per package.
 
-### Vitest Configuration
+### Test layout
 
-Defined in root `vitest.config.ts`. Projects:
-```
-packages/* (excluding packages/minidb)
-apps/kimi-code
-apps/kimi-inspect
-apps/vis/server
-apps/vis/web
-apps/vscode (from apps/vscode/vitest.projects.ts)
-```
-
-Coverage includes `packages/*/src/**/*.ts` and `apps/*/src/**/*.ts`, excludes test files and dist directories.
+There is no root test config. `scripts/run-tests.mjs` walks `packages/*`, `apps/*` and `apps/vis/*` and, for every package that declares a `test` script, runs `bun run test` **inside that package** so the package's own `bunfig.toml` applies. `--shard`, `--timeout`, `--coverage*`, `--bail`, `--test-name-pattern` and `--randomize` are forwarded to every package; `--include-heavy` adds `--path-ignore-patterns=**/node_modules/**` so the heavy/e2e sets run too.
 
 ### Running tests
 
+Pick the narrowest scope that can catch a regression from the change; the rule that
+decides when to widen it lives in [`CONVENTIONS.md` → Testing Rules](CONVENTIONS.md#testing-rules).
+
 ```sh
-bun run test                  # All vitest suites
-bun run test:watch            # Watch mode
-bun run test:coverage         # With coverage report
+# Default: the change lives in one package
+(cd packages/<package> && bun test --isolate <test-file…>)       # Only the affected files
+(cd packages/<package> && bun run test)                          # That package's own suite
+(cd packages/<package> && bun test --test-name-pattern <regex>)  # One test by name
+
+# Escalated: every package suite — this is the CI scope
+bun run test                  # All package suites, one package at a time
+bun run test:watch            # Every package's watcher, concurrently
+bun run test:coverage         # With an lcov coverage report per package
 bun run test:minidb           # minidb only — see below
-(cd packages/<package> && bun run test)  # Single package
-(cd packages/<package> && bun run vitest run -- --reporter=verbose)  # Verbose mode
+bun run test:heavy            # Includes the heavy/e2e sets (KIMI_TEST_HEAVY=1, KIMI_E2E=1)
 ```
 
-`minidb` is deliberately **not** part of the default `bun run test` project list
-(`vitest.config.ts`, `'!packages/minidb'`): its 45 files legitimately take ~40 s under
-shard parallelism, so it is excluded for speed and runs in its own CI job. Run it locally with
-`bun run test:minidb`; do not add it back to the default list to "fix" the omission.
+`minidb`'s `bunfig.toml` ignores `test/e2e/**`, `test/cluster/**` and `test/bench-json.test.ts` for
+speed; `bun run test:heavy` — or `bun test --isolate --path-ignore-patterns='**/node_modules/**'`
+inside the package — runs them.
+
+`agent-core-v2` ignores its real-I/O suites the same way: the four tower suites
+(`test/features/tower/store.test.ts`, `towerService.test.ts`,
+`tools/towerTools.test.ts`, `tools/spawnTool.test.ts` — each case drives a real
+`git init`/`worktree`/`merge` subprocess; measured at 2-way, 94–119 s per file)
+and `test/app/git/gitService.test.ts` (a `git` subprocess per assertion — 198 cases
+measured at 214s) and `test/mcpCore/{connection-manager,client-stdio}.test.ts`
+(a spawned runtime and a connection timeout per case). A process spawn costs ~65ms
+warm and up to ~3s cold on Windows, so any suite whose cases each drive git or a
+child process belongs in the heavy set rather than in the default run. The CI
+`test-heavy` job covers all of them.
 
 ### Test file conventions
 
@@ -502,7 +514,7 @@ The monorepo enforces safe minimum versions for known-vulnerable packages via `o
 ## Version Management (Changesets)
 
 - **This fork follows upstream versions.** Package `version` fields in `package.json` must stay identical to `upstream/main` — never run `bun run version` or `bun run publish` here, and never bump versions independently. When merging upstream releases, take their `package.json` version changes as-is.
-- Fork-only packages that do not exist upstream (`@moonshot-ai/i18n`, `@moonshot-ai/i18n-shared`, `@moonshot-ai/kimi-native-tools`) keep their own versions; do not bump them either unless a fork-specific release is explicitly requested.
+- Fork-only packages that do not exist upstream (`@moonshot-ai/i18n`, `@moonshot-ai/i18n-shared`) keep their own versions; do not bump them either unless a fork-specific release is explicitly requested.
 - Changesets are maintained **as a changelog source only**: keep writing them for user-facing changes so release notes stay available, but they are not consumed by a local release flow. Before merging upstream, prune accumulated non-user-facing entries (see the `gen-changesets` skill).
 - Every PR affecting release artifacts should include a changeset; docs-only, test-only, or CI-only PRs may skip changesets. Generate one with `bun run changeset`.
 - **Never** decide on a `major` bump on your own. When a change meets major criteria (breaking changes, incompatible user configuration, renamed/removed commands/arguments, changed behavior semantics), stop and ask the user for confirmation. Default to `minor` (fall back to `patch` if unclear).

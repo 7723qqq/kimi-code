@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, normalize, basename, dirname } from 'pathe';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
@@ -61,6 +61,7 @@ import { runWillBeginStepHooks, stubLoopWithHooks, type StubLoop } from '../loop
 import { stubContextMemory, type StubContextMemory } from '../contextMemory/stubs';
 import { registerLogServices } from '../../_base/log/stubs';
 import { stubAgentContext } from '../agentContext/stubs';
+import { SYMLINKS } from '../../_support/symlinkSupport';
 
 let disposables: DisposableStore;
 let homeDir: string;
@@ -1095,7 +1096,7 @@ describe('agentsMdReminder probing boundaries', () => {
     }
   });
 
-  it('discovers a symlinked directory through the link at its lexical address', async () => {
+  it.skipIf(!SYMLINKS)('discovers a symlinked directory through the link at its lexical address', async () => {
     const h = createHarness();
     const target = await mkdtemp(join(tmpdir(), 'kimi-reminder-target-'));
     const targetAgentsMd = await writeAgentsMd(target, 'target instructions');
@@ -1288,8 +1289,8 @@ describe('agentsMdReminder round-2 hardening', () => {
     const subDir = join(workDir, 'packages', 'kap-server');
     await writeAgentsMd(subDir);
     const hostFs = h.ix.get(IHostFileSystem);
-    const stat = vi.spyOn(hostFs, 'stat');
-    const readText = vi.spyOn(hostFs, 'readText');
+    const stat = spyOn(hostFs, 'stat');
+    const readText = spyOn(hostFs, 'readText');
 
     class ReadTool implements ExecutableTool<Record<string, unknown>> {
       readonly name = 'Read';
@@ -1485,11 +1486,11 @@ describe('agentsMdReminder Windows Bash paths', () => {
       isDirectory: true,
       size: 0,
     };
-    const stat = vi.fn(async (path: string): Promise<HostFileStat> => {
+    const stat = mock(async (path: string): Promise<HostFileStat> => {
       if (path === targetDir || path === join(projectRoot, '.git')) return directory;
       throw new Error(`missing: ${path}`);
     });
-    const readText = vi.fn(async (path: string): Promise<string> => {
+    const readText = mock(async (path: string): Promise<string> => {
       if (path === agentsMdPath) return 'windows instructions';
       throw new Error(`missing: ${path}`);
     });

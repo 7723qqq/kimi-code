@@ -3,8 +3,8 @@ import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
 import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import { Emitter, type Event } from '#/_base/event';
-import { isAbortError } from '#/_base/utils/abort';
-import { retryBackoffDelay, sleepForRetry } from '#/_base/utils/retry';
+import { isAbortError, abortable } from '#/_base/utils/abort';
+import { retryBackoffDelay } from '#/_base/utils/retry';
 import {
   buildCompactionSummaryText,
   isRealUserInput,
@@ -20,12 +20,12 @@ import { TurnStarted } from '#/agent/loop/turnEvents';
 import { TurnEnded } from '#/agent/loop/turnOps';
 import { AgentErrorEvent } from '#/agent/mcp/mcpEvents';
 import { IAgentProfileService, type ProfileModelContext } from '#/agent/profile/profile';
+import { WarningIssued } from '#/agent/profile/profileOps';
 import { agentContextOfScope, IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { stripDynamicToolContext } from '#/agent/toolSelect/dynamicTools';
 import { IAgentToolSelectService } from '#/agent/toolSelect/toolSelect';
-import { WarningIssued } from '#/agent/profile/profileOps';
 import { IEventBus } from '#/app/event/eventBus';
 import { LifecycleScope } from '#/app/scopes';
 import type { CompactionFailedEvent, CompactionFinishedEvent } from '#/app/telemetry/events';
@@ -52,6 +52,7 @@ import { imagePricingForModel, type ImageTokenPricing } from '#/llm-adapter/cont
 import type { LLMRequestTrace } from '#/llm-adapter/contract/request-trace';
 import { estimateTokensForMessage } from '#/llm-adapter/contract/tokens';
 import { runWithCredentialRecovery } from '#/llm-adapter/model/credential-recovery';
+import { IHostTimers } from '#/os/interface/hostTimers';
 import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { defineState } from '#/state/state';
@@ -163,6 +164,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     @IAgentLoopService private readonly loopService: IAgentLoopService,
     @IAgentStateService private readonly states: IAgentStateService,
     @IWireService private readonly wire: IWireService,
+    @IHostTimers private readonly timers: IHostTimers,
   ) {
     super();
     this.states.contributeState(fullCompactionKey);
@@ -741,7 +743,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
           if (requestAttempts >= maxAttempts) {
             throw error;
           }
-          await sleepForRetry(retryBackoffDelay(retryCount), signal);
+          await this.sleepBeforeRetry(retryBackoffDelay(retryCount), signal);
           retryCount += 1;
         }
       }
@@ -890,6 +892,14 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
 
   private tokenCountWithPending(): number {
     return this.tokenCounting.get(agentContextOfScope(this.agent)).size;
+  }
+
+  private sleepBeforeRetry(delayMs: number, signal: AbortSignal): Promise<void> {
+    signal.throwIfAborted();
+    const slept = new Promise<void>((resolve) => {
+      this.timers.setTimeout(resolve, delayMs);
+    });
+    return abortable(slept, signal);
   }
 }
 

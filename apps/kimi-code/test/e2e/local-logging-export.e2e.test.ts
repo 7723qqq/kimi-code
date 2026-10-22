@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import * as zlib from 'node:zlib';
 
 import { Command } from 'commander';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { readE2EFlags } from '#test/helpers/e2e-flags';
 
 import { registerExportCommand } from '#/cli/sub/export';
 import { createKimiCodeHostIdentity } from '#/cli/version';
@@ -12,7 +13,7 @@ import { createKimiHarness } from '@moonshot-ai/kimi-code-sdk';
 
 const GLOBAL_LOG = 'logs/global/kimi-code.log';
 const MAIN_WIRE = 'agents/main/wire.jsonl';
-const ENABLED = process.env['KIMI_E2E'] === '1';
+const ENABLED = readE2EFlags(process.env).e2e;
 
 let homeDir: string;
 let workDir: string;

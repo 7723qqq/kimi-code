@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { waitForAssertion, waitUntil } from '#test/helpers/waitFor';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { ContextSpliced } from '#/agent/contextMemory/contextEvents';
@@ -477,13 +478,13 @@ describe('AgentReminderService', () => {
     ctx.get(IFeatureManager).provideUnit(ReminderFeature);
 
     let calls = 0;
-    const revived = await vi.waitFor(() => ctx.get(IAgentReminderService));
+    const revived = await waitUntil(() => ctx.get(IAgentReminderService));
     revived.register('reprovide_test', () => {
       calls += 1;
       return undefined;
     });
     loop = ctx.get(IAgentLoopService) as StubLoop;
-    await vi.waitFor(async () => {
+    await waitForAssertion(async () => {
       await runInjectionStep();
       expect(calls).toBeGreaterThan(0);
     });

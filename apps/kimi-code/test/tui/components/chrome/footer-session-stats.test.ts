@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { FooterComponent } from '#/tui/components/chrome/footer';
 import type { AppState } from '#/tui/types';

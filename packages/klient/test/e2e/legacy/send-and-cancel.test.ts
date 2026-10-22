@@ -13,7 +13,7 @@
  * daemons do not expose `/debug/*`, so this file skips when that surface is
  * absent.
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 import { DaemonClient, EnvelopeError, type AnyFrame } from '../harness/index.js';
 import { fetchWithReport } from '../harness/report.js';

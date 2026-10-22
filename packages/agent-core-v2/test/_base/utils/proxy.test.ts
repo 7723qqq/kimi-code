@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import {
   createProxyDispatcher,
@@ -73,8 +73,8 @@ describe('proxy utilities', () => {
   it('builds dispatchers for HTTP and SOCKS proxy configurations', () => {
     const http = { id: 'http' } as never;
     const socks = { id: 'socks' } as never;
-    const makeHttpAgent = vi.fn().mockReturnValue(http);
-    const makeSocksAgent = vi.fn().mockReturnValue(socks);
+    const makeHttpAgent = mock().mockReturnValue(http);
+    const makeSocksAgent = mock().mockReturnValue(socks);
 
     expect(
       createProxyDispatcher(
@@ -103,8 +103,8 @@ describe('proxy utilities', () => {
 
   it('installs the global dispatcher only when a proxy dispatcher exists', () => {
     const dispatcher = { id: 'dispatcher' } as never;
-    const setGlobalDispatcher = vi.fn();
-    const createDispatcher = vi.fn().mockReturnValue(dispatcher);
+    const setGlobalDispatcher = mock();
+    const createDispatcher = mock().mockReturnValue(dispatcher);
 
     expect(
       installGlobalProxyDispatcher(

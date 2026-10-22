@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { Emitter } from '#/_base/event';
 import {
@@ -112,10 +112,10 @@ describe('AgentRuntimeBindingService', () => {
     registry.register(runtime('offline', 'offline-one', 'disconnected'));
 
     expect(() => binding.switch('missing')).toThrowError(
-      expect.objectContaining<Partial<RuntimeError>>({ code: 'runtime.not_found' }),
+      expect.objectContaining({ code: 'runtime.not_found' } satisfies Partial<RuntimeError>),
     );
     expect(() => binding.switch('offline')).toThrowError(
-      expect.objectContaining<Partial<RuntimeError>>({ code: 'runtime.unavailable' }),
+      expect.objectContaining({ code: 'runtime.unavailable' } satisfies Partial<RuntimeError>),
     );
     expect(binding.current).toEqual({ workspaceId: 'workspace', runtimeId: 'local' });
   });
@@ -123,7 +123,7 @@ describe('AgentRuntimeBindingService', () => {
   it('rejects cross-session workspace bindings', () => {
     const { binding } = setup();
     expect(() => binding.set({ workspaceId: 'other', runtimeId: 'remote' })).toThrowError(
-      expect.objectContaining<Partial<RuntimeError>>({ code: 'runtime.not_found' }),
+      expect.objectContaining({ code: 'runtime.not_found' } satisfies Partial<RuntimeError>),
     );
     expect(binding.current).toEqual({ workspaceId: 'workspace', runtimeId: 'local' });
   });

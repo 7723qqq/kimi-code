@@ -1,9 +1,13 @@
 import { Markdown as PiMarkdown, visibleWidth, type TuiMouseEvent } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 import { render as renderMermaidSource } from 'lovely-mermaid';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import * as lovelyMermaid from 'lovely-mermaid';
+import { afterEach, describe, expect, it, mock } from 'bun:test';
+import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { Markdown } from '#/tui/components/markdown/markdown';
+import { MermaidBlock } from '#/tui/components/markdown/mermaid-block';
 import { darkColors, lightColors } from '#/tui/theme/colors';
 import { createMarkdownTheme } from '#/tui/theme/pi-tui-theme';
 import { currentTheme } from '#/tui/theme/theme';
@@ -15,24 +19,28 @@ import {
 
 chalk.level = 3;
 
-const lovelyMock = vi.hoisted(() => ({
+const lovelyMock = {
   renderBehavior: undefined as undefined | (() => unknown),
+};
+
+// Snapshot the real renderer before `mock.module` patches the module record —
+// reading `lovelyMermaid.render` inside the factory would resolve to the mock
+// itself and recurse forever.
+const realMermaidRender = renderMermaidSource;
+
+void mock.module('lovely-mermaid', () => ({
+  ...lovelyMermaid,
+  render: (source: string) =>
+    lovelyMock.renderBehavior === undefined
+      ? realMermaidRender(source)
+      : lovelyMock.renderBehavior(),
 }));
 
-vi.mock('lovely-mermaid', async () => {
-  const actual = await vi.importActual<typeof import('lovely-mermaid')>('lovely-mermaid');
-  return {
-    ...actual,
-    render: (source: string) =>
-      lovelyMock.renderBehavior === undefined ? actual.render(source) : lovelyMock.renderBehavior(),
-  };
-});
+const clipboardMock = {
+  copyTextToClipboard: mock<(text: string) => Promise<'native' | 'osc52'>>(),
+};
 
-const clipboardMock = vi.hoisted(() => ({
-  copyTextToClipboard: vi.fn<(text: string) => Promise<'native' | 'osc52'>>(),
-}));
-
-vi.mock('#/utils/clipboard/clipboard-text', () => clipboardMock);
+void mock.module('#/utils/clipboard/clipboard-text', () => clipboardMock);
 
 function strip(text: string): string {
   return text.replaceAll(/\u001B\[[0-9;]*m/g, '');
@@ -334,6 +342,40 @@ describe('Markdown mermaid copy source', () => {
     return markdown.render(80).at(-1) ?? '';
   }
 
+  // The copy button belongs to MermaidBlock, and the block's clock is the only
+  // injectable one (`Markdown` builds its blocks internally), so the
+  // acknowledgement-window tests drive a block directly instead of a wrapper.
+  function makeCopyableBlock(clock: FakeClock): MermaidBlock {
+    return new MermaidBlock(
+      SIMPLE_FLOWCHART,
+      fenceOnly(SIMPLE_FLOWCHART),
+      0,
+      createMarkdownTheme(),
+      { copySource: true },
+      clock,
+    );
+  }
+
+  function blockText(block: MermaidBlock): string {
+    return strip(block.render(80).join('\n'));
+  }
+
+  function clickCopyButton(block: MermaidBlock): void {
+    const lines = block.render(80);
+    block.handleMouse(mouseEvent('press', 1, lines.length - 1, 80, lines.length));
+    block.handleMouse(mouseEvent('release', 1, lines.length - 1, 80, lines.length));
+  }
+
+  /** Let the clipboard promise's callbacks arm their timer before advancing the clock. */
+  async function settleCopy(): Promise<void> {
+    for (let i = 0; i < 4; i += 1) {
+      await Promise.resolve();
+      await new Promise<void>((resolve) => {
+        setImmediate(resolve);
+      });
+    }
+  }
+
   it('shows no button without copySource even in alt screen', () => {
     setMarkdownAltScreenActive(true);
     const markdown = new Markdown(fenceOnly(SIMPLE_FLOWCHART), 0, 0, createMarkdownTheme());
@@ -384,7 +426,7 @@ describe('Markdown mermaid copy source', () => {
     const release = releaseOn(markdown, 1, lines.length - 1, lines);
     expect(release?.handled).toBe(true);
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(clipboardMock.copyTextToClipboard).toHaveBeenCalled();
     });
     const copied = clipboardMock.copyTextToClipboard.mock.calls[0]?.[0] ?? '';
@@ -436,26 +478,20 @@ describe('Markdown mermaid copy source', () => {
   });
 
   it('briefly shows Copied after a successful copy', async () => {
-    vi.useFakeTimers();
-    try {
-      setMarkdownAltScreenActive(true);
-      const requestRender = vi.fn();
-      setMarkdownRenderRequester(requestRender);
-      clipboardMock.copyTextToClipboard.mockResolvedValue('native');
-      const markdown = makeCopyable();
-      const lines = markdown.render(80);
+    setMarkdownAltScreenActive(true);
+    const requestRender = mock();
+    setMarkdownRenderRequester(requestRender);
+    clipboardMock.copyTextToClipboard.mockResolvedValue('native');
+    const clock = createFakeClock();
+    const block = makeCopyableBlock(clock);
 
-      pressButton(markdown, lines);
-      releaseOn(markdown, 1, lines.length - 1, lines);
-      await vi.advanceTimersByTimeAsync(0);
-      expect(renderText(markdown, 80)).toContain('[Copied]');
+    clickCopyButton(block);
+    await settleCopy();
+    expect(blockText(block)).toContain('[Copied]');
 
-      await vi.advanceTimersByTimeAsync(1600);
-      expect(renderText(markdown, 80)).toContain('[Copy Source]');
-      expect(requestRender).toHaveBeenCalled();
-    } finally {
-      vi.useRealTimers();
-    }
+    clock.advance(1600);
+    expect(blockText(block)).toContain('[Copy Source]');
+    expect(requestRender).toHaveBeenCalled();
   });
 
   it('shows Copy failed when the clipboard write fails', async () => {
@@ -467,33 +503,31 @@ describe('Markdown mermaid copy source', () => {
     pressButton(markdown, lines);
     releaseOn(markdown, 1, lines.length - 1, lines);
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(renderText(markdown, 80)).toContain('[Copy failed]');
     });
   });
 
   it('keeps showing Copied until the latest acknowledgment elapses on repeated activations', async () => {
-    vi.useFakeTimers();
-    try {
-      setMarkdownAltScreenActive(true);
-      clipboardMock.copyTextToClipboard.mockResolvedValue('native');
-      const markdown = makeCopyable();
-      const lines = markdown.render(80);
-      const activate = () => {
-        pressButton(markdown, lines);
-        releaseOn(markdown, 1, lines.length - 1, lines);
-      };
+    setMarkdownAltScreenActive(true);
+    clipboardMock.copyTextToClipboard.mockResolvedValue('native');
+    const clock = createFakeClock();
+    const block = makeCopyableBlock(clock);
 
-      activate();
-      await vi.advanceTimersByTimeAsync(1000);
-      activate();
-      await vi.advanceTimersByTimeAsync(1000);
-      expect(renderText(markdown, 80)).toContain('[Copied]');
+    // Each advance is exact, so every window is pinned rather than raced.
+    clickCopyButton(block);
+    await settleCopy();
+    expect(blockText(block)).toContain('[Copied]');
 
-      await vi.advanceTimersByTimeAsync(600);
-      expect(renderText(markdown, 80)).toContain('[Copy Source]');
-    } finally {
-      vi.useRealTimers();
-    }
+    clock.advance(1000);
+    clickCopyButton(block);
+    await settleCopy();
+    expect(blockText(block)).toContain('[Copied]');
+
+    clock.advance(1000);
+    expect(blockText(block)).toContain('[Copied]');
+
+    clock.advance(600);
+    expect(blockText(block)).toContain('[Copy Source]');
   });
 });

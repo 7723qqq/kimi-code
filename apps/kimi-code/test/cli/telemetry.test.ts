@@ -3,14 +3,17 @@
  * `kimi web` / `kimi server run` host wiring added in `cli/telemetry.ts`.
  */
 
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, mock } from 'bun:test';
 
-const mocks = vi.hoisted(() => ({
-  initializeTelemetry: vi.fn(),
-  createKimiDeviceId: vi.fn(() => 'device-123'),
-  resolveKimiHome: vi.fn(() => '/home/.kimi-code'),
-  resolveConfigPath: vi.fn(() => '/home/.kimi-code/config.toml'),
-  loadRuntimeConfigSafe: vi.fn(
+import * as oauthModule from '@moonshot-ai/kimi-code-oauth';
+import * as sdkModule from '@moonshot-ai/kimi-code-sdk';
+
+const mocks = (() => ({
+  initializeTelemetry: mock(),
+  createKimiDeviceId: mock(() => 'device-123'),
+  resolveKimiHome: mock(() => '/home/.kimi-code'),
+  resolveConfigPath: mock(() => '/home/.kimi-code/config.toml'),
+  loadRuntimeConfigSafe: mock(
     (): {
       config: { defaultModel?: string; telemetry?: boolean };
       fileError: Error | undefined;
@@ -19,35 +22,33 @@ const mocks = vi.hoisted(() => ({
       fileError: undefined,
     }),
   ),
-  getCachedAccessToken: vi.fn(async () => 'tok'),
-}));
+  getCachedAccessToken: mock(async () => 'tok'),
+}))();
 
-vi.mock('@moonshot-ai/kimi-telemetry', () => ({
+void mock.module('@moonshot-ai/kimi-telemetry', () => ({
   initializeTelemetry: mocks.initializeTelemetry,
-  setTelemetryContext: vi.fn(),
-  track: vi.fn(),
-  withTelemetryContext: vi.fn(),
+  setTelemetryContext: mock(),
+  track: mock(),
+  withTelemetryContext: mock(),
 }));
 
-vi.mock('@moonshot-ai/kimi-code-oauth', async (importOriginal) => {
+void mock.module('@moonshot-ai/kimi-code-oauth', () => {
   // Spread the real module: the SDK's v2 client pulls agent-core-v2 into the
   // import graph, which subclasses KimiOAuthToolkit from this package.
-  const actual = await importOriginal<typeof import('@moonshot-ai/kimi-code-oauth')>();
   return {
-    ...actual,
+    ...oauthModule,
     createKimiDeviceId: mocks.createKimiDeviceId,
     KIMI_CODE_PROVIDER_NAME: 'managed:kimi-code',
   };
 });
 
-vi.mock('@moonshot-ai/kimi-code-sdk', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@moonshot-ai/kimi-code-sdk')>();
+void mock.module('@moonshot-ai/kimi-code-sdk', () => {
   return {
-    ...actual,
+    ...sdkModule,
     resolveKimiHome: mocks.resolveKimiHome,
     resolveConfigPath: mocks.resolveConfigPath,
     loadRuntimeConfigSafe: mocks.loadRuntimeConfigSafe,
-    KimiAuthFacade: vi.fn(function () {
+    KimiAuthFacade: mock(function () {
       return { getCachedAccessToken: mocks.getCachedAccessToken };
     }),
   };

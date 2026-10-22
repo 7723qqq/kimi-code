@@ -1,5 +1,5 @@
 import assert from "node:assert";
-import { describe, it } from "node:test";
+import { describe, it } from "bun:test";
 import { findWordBackward, findWordForward } from "../src/word-navigation.ts";
 
 describe("findWordBackward", () => {

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
@@ -9,7 +9,7 @@ import {
   ContextSpliced,
 } from '#/agent/contextMemory/contextEvents';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import type { ContextMessage } from '#/agent/contextMemory/types';
+import { type ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { MICRO_COMPACTION_FLAG_ENV } from '#/agent/microCompaction/flag';
 import {
@@ -22,31 +22,48 @@ import {
 } from '#/agent/microCompaction/microCompactionOps';
 import { AgentMicroCompactionService } from '#/agent/microCompaction/microCompactionService';
 import { IAgentProfileService } from '#/agent/profile/profile';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
-import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
-import type { Event2 } from '#/app/event/event2';
+import { Event2 } from '#/app/event/event2';
 import { type Event2Class } from '#/app/event/event2';
-import type { IEventBus } from '#/app/event/eventBus';
+import { IEventBus } from '#/app/event/eventBus';
 import { IFlagService } from '#/app/flag/flag';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import type { ModelCapability } from '#/llm-adapter/contract/capability';
+import { type ModelCapability } from '#/llm-adapter/contract/capability';
+import { IHostClock } from '#/os/interface/hostClock';
+import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
+import { IEventDispatcher } from '#/state/eventDispatcher';
+import { type WireRecord } from '#/wire/record';
+import { IWireService } from '#/wire/wire';
 import { emptyUsage } from '#human/llm/usage';
-import type { IEventDispatcher } from '#/state/eventDispatcher';
-import type { WireRecord } from '#/wire/record';
-import type { IWireService } from '#/wire/wire';
+import { setEnv, restoreEnvs } from '#test/helpers/stubs';
 
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
-import { testAgent, type TestAgentContext } from '../../harness';
-import { stubLoopWithHooks } from '../loop/stubs';
+import { appService, testAgent, type TestAgentContext } from '../../harness';
 import {
   recordingWireLog,
   registerTestAgentWire,
   registerTestEventDispatcher,
 } from '../../wire/stubs';
+import { stubLoopWithHooks } from '../loop/stubs';
 
 const MINUTE = 60 * 1000;
 const DEFAULT_MARKER = '[Old tool result content cleared]';
+
+interface FakeHostClock extends IHostClock {
+  set(nowMs: number): void;
+}
+
+function createFakeHostClock(startMs = 0): FakeHostClock {
+  let nowMs = startMs;
+  return {
+    _serviceBrand: undefined,
+    now: () => new Date(nowMs),
+    timeZone: () => 'UTC',
+    set: (value) => {
+      nowMs = value;
+    },
+  };
+}
 
 const TEST_MODEL_CAPABILITIES: ModelCapability = {
   image_in: true,
@@ -114,6 +131,7 @@ let flagEnabled = true;
 let contextSize = 256_000;
 let modelCapabilities: ModelCapability = TEST_MODEL_CAPABILITIES;
 let history: ContextMessage[];
+let clock: FakeHostClock;
 
 function createUnit(
   disposables: DisposableStore,
@@ -156,6 +174,7 @@ function createUnit(
   const hooks = loop.hooks;
 
   ix.stub(IFlagService, { enabled: () => flagEnabled });
+  ix.stub(IHostClock, clock);
   ix.stub(IAgentContextMemoryService, { get: () => history });
   ix.stub(ISessionTokenCountingService, {
     _serviceBrand: undefined,
@@ -230,13 +249,11 @@ describe('AgentMicroCompactionService', () => {
     contextSize = 256_000;
     modelCapabilities = TEST_MODEL_CAPABILITIES;
     history = [];
-    vi.useFakeTimers();
-    vi.setSystemTime(0);
+    clock = createFakeHostClock(0);
   });
 
   afterEach(() => {
-    vi.useRealTimers();
-    vi.unstubAllEnvs();
+    restoreEnvs();
     disposables.dispose();
   });
 
@@ -249,7 +266,7 @@ describe('AgentMicroCompactionService', () => {
     history.push(...toolExchange(1, 'result one'), ...toolExchange(2, 'result two'));
 
     await finishStep(hooks);
-    vi.setSystemTime(30 * MINUTE);
+    clock.set(30 * MINUTE);
 
     svc.detect();
     expect(hasMarker(svc.compact(history))).toBe(false);
@@ -270,7 +287,7 @@ describe('AgentMicroCompactionService', () => {
     );
 
     await finishStep(hooks);
-    vi.setSystemTime(61 * MINUTE);
+    clock.set(61 * MINUTE);
 
     svc.detect();
     const messages = svc.compact(history);
@@ -291,7 +308,7 @@ describe('AgentMicroCompactionService', () => {
     history.push(...toolExchange(1, 'ok'), ...toolExchange(2, 'x'.repeat(400)));
 
     await finishStep(hooks);
-    vi.setSystemTime(61 * MINUTE);
+    clock.set(61 * MINUTE);
 
     svc.detect();
     expect(toolTexts(svc.compact(history))).toEqual(['ok', DEFAULT_MARKER]);
@@ -311,7 +328,7 @@ describe('AgentMicroCompactionService', () => {
     });
 
     await finishStep(hooks);
-    vi.setSystemTime(61 * MINUTE);
+    clock.set(61 * MINUTE);
 
     svc.detect();
     expect(toolTexts(svc.compact(history))).toEqual([DEFAULT_MARKER, 'orphan tool-like output']);
@@ -328,7 +345,7 @@ describe('AgentMicroCompactionService', () => {
     history.push(...toolExchange(1, 'result one'));
 
     await finishStep(hooks);
-    vi.setSystemTime(61 * MINUTE);
+    clock.set(61 * MINUTE);
 
     svc.detect();
     expect(hasMarker(svc.compact(history))).toBe(false);
@@ -346,7 +363,7 @@ describe('AgentMicroCompactionService', () => {
     history.push(...toolExchange(1, 'result one'));
 
     await finishStep(hooks);
-    vi.setSystemTime(61 * MINUTE);
+    clock.set(61 * MINUTE);
 
     svc.detect();
     expect(toolTexts(svc.compact(history))).toEqual([DEFAULT_MARKER]);
@@ -362,17 +379,17 @@ describe('AgentMicroCompactionService', () => {
     history.push(...toolExchange(1, 'result one'), ...toolExchange(2, 'result two'));
 
     await finishStep(hooks);
-    vi.setSystemTime(61 * MINUTE);
+    clock.set(61 * MINUTE);
     svc.detect();
     expect(toolTexts(svc.compact(history))).toEqual([DEFAULT_MARKER, 'result two']);
 
     history.push(...toolExchange(3, 'result three'));
     await finishStep(hooks);
-    vi.setSystemTime(63 * MINUTE);
+    clock.set(63 * MINUTE);
     svc.detect();
     expect(toolTexts(svc.compact(history))).toEqual([DEFAULT_MARKER, 'result two', 'result three']);
 
-    vi.setSystemTime(123 * MINUTE);
+    clock.set(123 * MINUTE);
     svc.detect();
     expect(toolTexts(svc.compact(history))).toEqual([
       DEFAULT_MARKER,
@@ -477,7 +494,7 @@ describe('AgentMicroCompactionService', () => {
     );
 
     await finishStep(hooks);
-    vi.setSystemTime(61 * MINUTE);
+    clock.set(61 * MINUTE);
 
     svc.detect();
     const events = telemetryRecords.filter(
@@ -514,9 +531,9 @@ describe('AgentMicroCompactionService', () => {
     history.push(...toolExchange(1, 'result one'));
 
     await finishStep(hooks);
-    vi.setSystemTime(61 * MINUTE);
+    clock.set(61 * MINUTE);
     svc.detect();
-    vi.setSystemTime(62 * MINUTE);
+    clock.set(62 * MINUTE);
     svc.detect();
 
     expect(
@@ -535,7 +552,7 @@ describe('AgentMicroCompactionService', () => {
     history.push(...toolExchange(1, 'result one'));
 
     await finishStep(hooks);
-    vi.setSystemTime(61 * MINUTE);
+    clock.set(61 * MINUTE);
 
     svc.detect();
     expect(svc.compact(history)).toBe(history);
@@ -562,10 +579,9 @@ describe('MicroCompaction (integration)', () => {
   let ctx: TestAgentContext;
 
   beforeEach(() => {
-    vi.stubEnv(MICRO_COMPACTION_FLAG_ENV, '1');
-    vi.useFakeTimers();
-    vi.setSystemTime(0);
-    ctx = testAgent();
+    setEnv(MICRO_COMPACTION_FLAG_ENV, '1');
+    clock = createFakeHostClock(0);
+    ctx = testAgent(appService(IHostClock, clock));
     ctx.get(IAgentMicroCompactionService).setConfig({
       keepRecentMessages: 4,
       minContentTokens: 1,
@@ -575,8 +591,7 @@ describe('MicroCompaction (integration)', () => {
   });
 
   afterEach(async () => {
-    vi.useRealTimers();
-    vi.unstubAllEnvs();
+    restoreEnvs();
     try {
       await ctx.expectResumeMatches();
     } finally {
@@ -596,7 +611,7 @@ describe('MicroCompaction (integration)', () => {
       ...toolExchange(3, 'recent result three'),
     );
 
-    vi.setSystemTime(61 * MINUTE);
+    clock.set(61 * MINUTE);
     ctx.mockNextResponse({ type: 'text', text: 'done after micro compaction' });
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'continue' }] });
     await ctx.untilTurnEnd();
@@ -624,7 +639,7 @@ describe('MicroCompaction (integration)', () => {
       ...toolExchange(3, 'result three'),
     );
 
-    vi.setSystemTime(61 * MINUTE);
+    clock.set(61 * MINUTE);
     ctx.mockNextResponse({ type: 'text', text: 'done' });
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'continue' }] });
     await ctx.untilTurnEnd();

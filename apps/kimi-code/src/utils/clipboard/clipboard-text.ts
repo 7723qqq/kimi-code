@@ -2,7 +2,7 @@ import { spawnSync } from 'node:child_process';
 
 import { t } from '#/i18n';
 
-import { clipboard } from './clipboard-native';
+import { clipboard, type ClipboardModule } from './clipboard-native';
 import { writeClipboardOSC52 } from './clipboard-osc52';
 
 /**
@@ -14,11 +14,60 @@ import { writeClipboardOSC52 } from './clipboard-osc52';
  */
 const CLIPBOARD_WRITE_TIMEOUT_MS = 5000;
 
-function runClipboardCommand(command: string, args: readonly string[], input: string): void {
-  const result = spawnSync(command, args, {
-    encoding: 'utf8',
+export interface ClipboardWriteOptions {
+  readonly input: string;
+  readonly timeoutMs: number;
+}
+
+export interface ClipboardWriteResult {
+  readonly error?: Error | undefined;
+  readonly status: number | null;
+  readonly stderr: string;
+}
+
+export type ClipboardWriteRun = (
+  command: string,
+  args: readonly string[],
+  options: ClipboardWriteOptions,
+) => ClipboardWriteResult;
+
+export interface CopyTextDeps {
+  readonly clipboard: ClipboardModule | null;
+  readonly platform: NodeJS.Platform;
+  readonly run: ClipboardWriteRun;
+  readonly osc52: (text: string) => boolean;
+}
+
+export function createCopyTextDeps(overrides: Partial<CopyTextDeps> = {}): CopyTextDeps {
+  return {
+    clipboard,
+    platform: process.platform,
+    run: (command, args, options) => {
+      const result = spawnSync(command, [...args], {
+        encoding: 'utf8',
+        input: options.input,
+        timeout: options.timeoutMs,
+      });
+      return {
+        error: result.error,
+        status: result.status,
+        stderr: result.stderr ?? '',
+      };
+    },
+    osc52: (text) => writeClipboardOSC52(text),
+    ...overrides,
+  };
+}
+
+function runClipboardCommand(
+  deps: CopyTextDeps,
+  command: string,
+  args: readonly string[],
+  input: string,
+): void {
+  const result = deps.run(command, args, {
     input,
-    timeout: CLIPBOARD_WRITE_TIMEOUT_MS,
+    timeoutMs: CLIPBOARD_WRITE_TIMEOUT_MS,
   });
   if (result.error) throw result.error;
   if (result.status === 0) return;
@@ -31,11 +80,11 @@ function runClipboardCommand(command: string, args: readonly string[], input: st
   );
 }
 
-async function copyWithPlatformCommand(text: string): Promise<void> {
+async function copyWithPlatformCommand(deps: CopyTextDeps, text: string): Promise<void> {
   const commands =
-    process.platform === 'darwin'
+    deps.platform === 'darwin'
       ? [{ command: 'pbcopy', args: [] as string[] }]
-      : process.platform === 'win32'
+      : deps.platform === 'win32'
         ? [{ command: 'clip.exe', args: [] as string[] }]
         : [
             { command: 'wl-copy', args: [] as string[] },
@@ -45,7 +94,7 @@ async function copyWithPlatformCommand(text: string): Promise<void> {
   let lastError: unknown;
   for (const candidate of commands) {
     try {
-      runClipboardCommand(candidate.command, candidate.args, text);
+      runClipboardCommand(deps, candidate.command, candidate.args, text);
       return;
     } catch (error) {
       lastError = error;
@@ -60,13 +109,18 @@ async function copyWithPlatformCommand(text: string): Promise<void> {
  *  unverified OSC 52 escape emitted to the terminal as a last resort. */
 export type ClipboardCopyMethod = 'native' | 'osc52';
 
-export async function copyTextToClipboard(text: string): Promise<ClipboardCopyMethod> {
+export async function copyTextToClipboard(
+  text: string,
+  overrides: Partial<CopyTextDeps> = {},
+): Promise<ClipboardCopyMethod> {
+  const deps = createCopyTextDeps(overrides);
+
   // OSC 52 travels over stdout to the local terminal emulator, so it reaches
   // the clipboard even over SSH or in containers with no native clipboard
   // tool. Emit it up front; every failure path below can fall back on it.
-  const osc52Emitted = writeClipboardOSC52(text);
+  const osc52Emitted = deps.osc52(text);
 
-  const clipboardModule = clipboard;
+  const clipboardModule = deps.clipboard;
   if (clipboardModule?.setText !== undefined) {
     try {
       await clipboardModule.setText(text);
@@ -77,7 +131,7 @@ export async function copyTextToClipboard(text: string): Promise<ClipboardCopyMe
   }
 
   try {
-    await copyWithPlatformCommand(text);
+    await copyWithPlatformCommand(deps, text);
     return 'native';
   } catch (error) {
     // The native clipboard is unreachable (headless server, SSH session,

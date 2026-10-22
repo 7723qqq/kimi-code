@@ -2,20 +2,22 @@
  * Scenario: the VS Code host and another Node SDK client share one in-process Kimi home.
  * Responsibilities: outbound host identity, config/session interoperability, MCP credential/edit compatibility, and terminal provider failures.
  * Wiring: KimiRuntime, KimiHarness, core, storage, and HTTP provider adapter are real; only the remote provider is local.
- * Run: cd apps/vscode && bunx vitest run test/kimi-harness.integration.test.ts
+ * Run: cd apps/vscode && bun test --isolate test/kimi-harness.integration.test.ts
  */
 
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 
 import {
   createKimiHarness,
   type KimiHarness,
 } from "@moonshot-ai/kimi-code-sdk";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 
-vi.mock("vscode", () => ({
+import { installVscode } from './vscode-host';
+
+installVscode({
   Uri: { file: (path: string) => ({ fsPath: path }) },
   window: {
     showInformationMessage: async () => undefined,
@@ -25,7 +27,7 @@ vi.mock("vscode", () => ({
   workspace: {
     getConfiguration: () => ({ get: (_key: string, fallback: unknown) => fallback }),
   },
-}));
+});
 
 import {
   createFakeProviderHarness,
@@ -514,16 +516,18 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
 
     const { servers } = await getMcpServers(rig);
 
-    expect(servers).toEqual([
-      {
-        name: "remote",
-        transport: "http",
-        url: "https://example.test/mcp",
-        source: "global",
-        origin: join(rig.homeDir, "mcp.json"),
-        mutable: true,
-      },
-    ]);
+    expect(servers).toHaveLength(1);
+    expect(servers[0]).toMatchObject({
+      name: "remote",
+      transport: "http",
+      url: "https://example.test/mcp",
+      source: "global",
+      mutable: true,
+    });
+    // The origin is the global config file the server was declared in. The
+    // harness reports its own home, so compare the resolved path rather than a
+    // separator-specific string.
+    expect(resolve(servers[0]!.origin!)).toBe(resolve(join(rig.homeDir, "mcp.json")));
   });
 
   it("keeps project-layer servers in the list refreshed after every mutation", async () => {
@@ -567,7 +571,7 @@ describe("VS Code Kimi harness integration (shares one in-process SDK home)", ()
 
   it("logs a failed MCP test without returning credential values to the Webview", async () => {
     const rig = await createMcpHandlerRig();
-    vi.spyOn(rig.harness, "testMcpServer").mockResolvedValue({
+    spyOn(rig.harness, "testMcpServer").mockResolvedValue({
       success: false,
       output: [
         "spawn missing-mcp ENOENT",

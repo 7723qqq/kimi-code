@@ -1,14 +1,40 @@
-import type {
-  MigrationPlan,
-  MigrationReport,
-  RunMigrationInput,
-} from '@moonshot-ai/migration-legacy';
-import { describe, expect, it, vi } from 'vitest';
+import { type MigrationPlan, type MigrationReport, type RunMigrationInput } from '@moonshot-ai/migration-legacy';
+import { describe, expect, it, mock } from 'bun:test';
+import { createFakeClock } from '#test/helpers/fake-clock';
+
+import type { RenderClock, RenderTimerHandle } from '#/tui/utils/render-clock';
 
 import { MigrationScreenComponent, type MigrationScreenResult } from '#/migration/migration-screen';
-import { darkColors } from '#/tui/theme/colors';
 
-vi.mock('#/i18n', () => ({
+/**
+ * `createFakeClock` treats `unref()` as cancellation, but the progress spinner
+ * still has to tick in the progress phase. The adapter keeps handle identity for
+ * `clearInterval` while leaving `unref()` inert.
+ */
+function createSpinnerClock() {
+  const inner = createFakeClock(0);
+  const handles = new Map<RenderTimerHandle, RenderTimerHandle>();
+  const clock: Pick<RenderClock, 'setInterval' | 'clearInterval'> = {
+    setInterval: (callback, intervalMs) => {
+      const handle: RenderTimerHandle = {};
+      handles.set(handle, inner.setInterval(callback, intervalMs));
+      return handle;
+    },
+    clearInterval: (handle) => {
+      const target = handles.get(handle);
+      if (target !== undefined) inner.clearInterval(target);
+    },
+  };
+  return {
+    clock,
+    advance: (byMs: number): void => {
+      inner.advance(byMs);
+    },
+    inner,
+  };
+}
+
+void mock.module('#/i18n', () => ({
   t: (key: string, params?: Record<string, string>) => {
     const translations: Record<string, string> = {
       'tui.migration.badgeImported': '[imported]',
@@ -62,7 +88,7 @@ vi.mock('#/i18n', () => ({
     }
     return value;
   },
-  setLocale: vi.fn(),
+  setLocale: mock(),
   getLocale: () => 'en',
 }));
 
@@ -268,29 +294,27 @@ describe('MigrationScreenComponent — progress phase', () => {
   });
 
   it('animates the progress spinner while a migration step runs', async () => {
-    vi.useFakeTimers();
-    try {
-      const c = new MigrationScreenComponent({
-        plan: makePlan(),
-        sourceHome: '/x/.kimi',
-        targetHome: '/y/.kimi-code',
-        skipDecisionStep: true,
-        // A migration that never settles keeps the screen in the progress
-        // phase so the spinner animation can be observed.
-        runMigration: () => new Promise<MigrationReport>(() => {}),
-        onComplete: () => {},
-      });
-      c.handleInput('\r'); // ask2: "Config only" -> migration begins
-      c._testUpdateSessionProgress(1, 3); // surface the spinner line
-      const before = c.render(80).join('\n');
-      vi.advanceTimersByTime(400); // several spinner frames
-      const after = c.render(80).join('\n');
-      // Before the fix nothing advanced the spinner — the frame, and the whole
-      // progress render, stayed frozen on the first braille glyph.
-      expect(after).not.toBe(before);
-    } finally {
-      vi.useRealTimers();
-    }
+    const { clock, advance, inner } = createSpinnerClock();
+    const c = new MigrationScreenComponent({
+      plan: makePlan(),
+      sourceHome: '/x/.kimi',
+      targetHome: '/y/.kimi-code',
+      skipDecisionStep: true,
+      // A migration that never settles keeps the screen in the progress
+      // phase so the spinner animation can be observed.
+      runMigration: () => new Promise<MigrationReport>(() => {}),
+      onComplete: () => {},
+      clock,
+    });
+    c.handleInput('\r'); // ask2: "Config only" -> migration begins
+    c._testUpdateSessionProgress(1, 3); // surface the spinner line
+    const before = c.render(80).join('\n');
+    advance(400); // several spinner frames
+    const after = c.render(80).join('\n');
+    // Before the fix nothing advanced the spinner — the frame, and the whole
+    // progress render, stayed frozen on the first braille glyph.
+    expect(after).not.toBe(before);
+    expect(inner.activeTimers).toBe(1);
   });
 
   it('tracks Config and MCP as independent steps', () => {

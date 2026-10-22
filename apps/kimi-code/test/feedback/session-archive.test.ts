@@ -11,31 +11,24 @@
  */
 
 import { createHash } from 'node:crypto';
+import * as nodeFs from 'node:fs';
 import { open, readFile, rm, writeFile } from 'node:fs/promises';
 import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 
 import { archiveFromExportedSession } from '#/feedback/feedback-attachments';
 import { MAX_ARCHIVE_SIZE } from '#/feedback/upload';
 
-const readFileSpy = vi.fn<typeof readFile>();
-
-vi.mock('node:fs/promises', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:fs/promises')>();
-  return {
-    ...actual,
-    readFile: (...args: Parameters<typeof readFile>) => {
-      void readFileSpy(...args);
-      return actual.readFile(...args);
-    },
-  };
-});
+// `archiveFromExportedSession` streams the export, so `createReadStream` — not
+// `readFile` — is the call that would actually pull the file through memory.
+// Spying on the real namespace keeps the stream working while recording it.
+const readStreamSpy = spyOn(nodeFs, 'createReadStream');
 
 afterEach(() => {
-  readFileSpy.mockClear();
+  readStreamSpy.mockClear();
 });
 
 async function makeTempFileSize(size: number): Promise<string> {
@@ -62,7 +55,7 @@ describe('archiveFromExportedSession', () => {
   it('rejects an over-limit export from stat without reading its contents', async () => {
     const path = await makeTempFileSize(MAX_ARCHIVE_SIZE + 1);
     try {
-      readFileSpy.mockClear();
+      readStreamSpy.mockClear();
       const rssBefore = process.memoryUsage().rss;
       const startedAt = Date.now();
 
@@ -73,7 +66,7 @@ describe('archiveFromExportedSession', () => {
       );
 
       // Deterministic main assertion: nothing was read from the file.
-      expect(readFileSpy).not.toHaveBeenCalled();
+      expect(readStreamSpy).not.toHaveBeenCalled();
       // Auxiliary: hashing 500 MiB would be visible both in time and in RSS.
       expect(Date.now() - startedAt).toBeLessThan(2000);
       expect(process.memoryUsage().rss - rssBefore).toBeLessThan(200 * 1024 * 1024);

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import type { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentSpecService, type SpecData } from '#/features/spec/spec';
@@ -43,24 +43,24 @@ function permissionMode(mode: IAgentPermissionModeService['mode']): IAgentPermis
 
 interface SpecStubOptions {
   readonly status?: SpecData | null;
-  readonly readText?: ReturnType<typeof vi.fn>;
+  readonly readText?: ReturnType<typeof mock>;
 }
 
 function specService({ status = completeSpec(), readText }: SpecStubOptions = {}): {
   readonly service: IAgentSpecService;
-  readonly exit: ReturnType<typeof vi.fn>;
-  readonly recordRevision: ReturnType<typeof vi.fn>;
+  readonly exit: ReturnType<typeof mock>;
+  readonly recordRevision: ReturnType<typeof mock>;
 } {
-  const exit = vi.fn();
-  const recordRevision = vi.fn(async () => {});
+  const exit = mock();
+  const recordRevision = mock(async () => {});
   const service: IAgentSpecService = {
     _serviceBrand: undefined,
-    enter: vi.fn(async () => {}),
-    cancel: vi.fn(),
+    enter: mock(async () => {}),
+    cancel: mock(),
     exit,
-    clear: vi.fn(async () => {}),
+    clear: mock(async () => {}),
     recordRevision,
-    status: vi.fn(async () => status),
+    status: mock(async () => status),
     activeSpecDir: () => (status === null ? null : status.dir),
   };
   void readText;
@@ -73,11 +73,11 @@ function toolFor(options: {
   readonly records: TelemetryRecord[];
 }): {
   readonly tool: ExitSpecModeTool;
-  readonly exit: ReturnType<typeof vi.fn>;
-  readonly recordRevision: ReturnType<typeof vi.fn>;
-  readonly readText: ReturnType<typeof vi.fn>;
+  readonly exit: ReturnType<typeof mock>;
+  readonly recordRevision: ReturnType<typeof mock>;
+  readonly readText: ReturnType<typeof mock>;
 } {
-  const readText = options.spec?.readText ?? vi.fn(async (path: string) => `# ${path}`);
+  const readText = options.spec?.readText ?? mock(async (path: string) => `# ${path}`);
   const { service, exit, recordRevision } = specService({ ...options.spec, readText });
   const tool = new ExitSpecModeTool(
     service,
@@ -111,7 +111,7 @@ describe('ExitSpecModeTool telemetry and read cost', () => {
   });
 
   afterEach(() => {
-    vi.restoreAllMocks();
+    mock.restore();
   });
 
   it('emits exactly one spec_submitted per exit', async () => {

@@ -36,7 +36,13 @@ const OUTPUT_TRUNCATED_MARKER = '\n[hook output truncated]';
 
 function appendCapped(current: string, chunk: string): { text: string; truncated: boolean } {
   const remaining = MAX_HOOK_OUTPUT_CHARS - current.length;
-  if (remaining <= 0) return { text: current, truncated: chunk.length > 0 };
+  if (remaining <= 0) {
+    if (chunk.length === 0) return { text: current, truncated: false };
+    const text = current.endsWith(OUTPUT_TRUNCATED_MARKER)
+      ? current
+      : current + OUTPUT_TRUNCATED_MARKER;
+    return { text, truncated: true };
+  }
   if (chunk.length <= remaining) return { text: current + chunk, truncated: false };
   return { text: current + chunk.slice(0, remaining) + OUTPUT_TRUNCATED_MARKER, truncated: true };
 }

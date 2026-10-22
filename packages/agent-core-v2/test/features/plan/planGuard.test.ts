@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
@@ -138,7 +138,7 @@ describe('AgentPlanService plan-guard listener', () => {
     records = [];
     requests = [];
     approvalResponse = { decision: 'approved' };
-    formatDenyMessage = vi.fn((message: string) => message);
+    formatDenyMessage = mock((message: string) => message);
     mode = 'manual';
     files = new Map();
     permissionRan = false;
@@ -165,9 +165,9 @@ describe('AgentPlanService plan-guard listener', () => {
         reg.defineInstance(
           IHostFileSystem,
           createFakeHostFs({
-            mkdir: vi.fn().mockResolvedValue(undefined),
-            readText: vi.fn(async (path: string) => files.get(path) ?? ''),
-            writeText: vi.fn(async (path: string, content: string) => {
+            mkdir: mock().mockResolvedValue(undefined),
+            readText: mock(async (path: string) => files.get(path) ?? ''),
+            writeText: mock(async (path: string, content: string) => {
               files.set(path, content);
             }),
           }),

@@ -1,18 +1,14 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { promises as fsp } from 'node:fs';
 import os from 'node:os';
 import { join } from 'node:path';
 import { LifecycleScope } from '#/app/scopes';
-import {
-  ScopeActivation,
-  _clearScopedRegistryForTests,
-  registerScopedService,
-} from '#/_base/di/scope';
+import { ScopeActivation, _clearScopedRegistryForTests, registerScopedService } from '#/_base/di/scope';
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { ILogService } from '#/_base/log/log';
 import { encodeWorkDirKey, workspaceRootKey } from '#/_base/utils/workdir-slug';
-import { ErrorCodes, Error2 } from '#/errors';
+import { ErrorCodes } from '#/errors';
 import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
@@ -22,12 +18,14 @@ import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { IEventService } from '#/app/event/event';
-import type { Event2 } from '#/app/event/event2';
+import { Event2 } from '#/app/event/event2';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IWorkspaceService } from '#/app/workspace/workspace';
 import { WorkspaceService } from '#/app/workspace/workspaceService';
 import { FileWorkspacePersistence } from '#/app/workspace/fileWorkspacePersistence';
 import { IWorkspacePersistence, type PersistedWorkspaceEntry } from '#/app/workspace/workspacePersistence';
+import { isWatchEnabled, setWatchEnabled } from '#human/utils/watch';
+import { supportsSymlinks } from '#test/helpers/symlinks';
 import { stubBootstrap } from '../bootstrap/stubs';
 
 interface SessionIndexLine {
@@ -41,6 +39,7 @@ describe('WorkspaceService (file-backed)', () => {
   let currentHost: ReturnType<typeof createScopedTestHost> | undefined;
   let published: Array<{ type: string; payload: unknown }>;
   let appendLogs: AppendLogStore;
+  let watchWasEnabled: boolean;
 
   beforeEach(async () => {
     _clearScopedRegistryForTests();
@@ -60,11 +59,14 @@ describe('WorkspaceService (file-backed)', () => {
     );
     homeDir = await fsp.mkdtemp(join(os.tmpdir(), 'ws-registry-'));
     published = [];
+    watchWasEnabled = isWatchEnabled();
+    setWatchEnabled(false);
   });
 
   afterEach(async () => {
     currentHost?.dispose();
     currentHost = undefined;
+    setWatchEnabled(watchWasEnabled);
     await fsp.rm(homeDir, { recursive: true, force: true });
   });
 
@@ -433,15 +435,18 @@ describe('WorkspaceService (file-backed)', () => {
     expect(await build().list()).toEqual([]);
   });
 
-  it('accepts createOrTouch when the root is given through a symlink', async () => {
-    const real = join(homeDir, 'real-root');
-    await fsp.mkdir(real, { recursive: true });
-    const link = join(homeDir, 'link-root');
-    await fsp.symlink(real, link, 'dir');
-    const ws = await build().createOrTouch(link);
-    expect(ws.root).toBe(link);
-    expect(ws.id).toBe(encodeWorkDirKey(link));
-  });
+  it.skipIf(!supportsSymlinks())(
+    'accepts createOrTouch when the root is given through a symlink',
+    async () => {
+      const real = join(homeDir, 'real-root');
+      await fsp.mkdir(real, { recursive: true });
+      const link = join(homeDir, 'link-root');
+      await fsp.symlink(real, link, 'dir');
+      const ws = await build().createOrTouch(link);
+      expect(ws.root).toBe(link);
+      expect(ws.id).toBe(encodeWorkDirKey(link));
+    },
+  );
 
   it('rejects createOrTouch when a parent of the root is not a directory', async () => {
     const file = join(homeDir, 'a-file.txt');
@@ -536,9 +541,6 @@ describe('WorkspaceService (file-backed)', () => {
     expect(lower.id).not.toBe(upper.id);
     expect((await registry.list()).map((w) => w.root).toSorted()).toEqual(['/tmp/Foo', '/tmp/foo']);
   });
-
-
-
 
   it('delete tombstones every folded alias so a legacy split cannot resurface', async () => {
     const typedRoot = 'C:\\Users\\Foo\\Proj';

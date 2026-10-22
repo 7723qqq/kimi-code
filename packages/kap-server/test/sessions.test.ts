@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { inflateRawSync } from 'node:zlib';
 
 import {
@@ -45,11 +45,14 @@ import {
 import { sessionWarningsResponseSchema } from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionProtocol';
 import { SessionMetaUpdated } from '@moonshot-ai/agent-core-v2/session/sessionMetadata/sessionMetaEvents';
 import type { AgentTranscriptSnapshot } from '@moonshot-ai/transcript';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, mock, spyOn } from 'bun:test';
+import { removeTempHome } from './helpers/tempHome';
 
 import { type RunningServer, startServer } from '../src/start';
 import { authHeaders } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
+import { restoreEnvs } from './helpers/stubs';
+import { waitForAssertion } from './helpers/waitFor';
 
 interface Envelope<T> {
   code: number;
@@ -113,8 +116,8 @@ describe('server-v2 /api/v1/sessions', () => {
   });
 
   afterEach(async () => {
-    vi.restoreAllMocks();
-    vi.unstubAllEnvs();
+    mock.restore();
+    restoreEnvs();
     if (server !== baselineServer) {
       await restartWithFreshHome();
       baselineServer = server;
@@ -128,7 +131,7 @@ describe('server-v2 /api/v1/sessions', () => {
     }
     if (home !== undefined) {
       await new Promise((resolve) => setTimeout(resolve, 25));
-      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
+      await removeTempHome(home);
       home = undefined;
     }
   });
@@ -140,7 +143,7 @@ describe('server-v2 /api/v1/sessions', () => {
     }
     if (home !== undefined) {
       await new Promise((resolve) => setTimeout(resolve, 25));
-      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
+      await removeTempHome(home);
     }
     home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-sessions-'));
     server = await startServer({
@@ -227,7 +230,7 @@ describe('server-v2 /api/v1/sessions', () => {
       webLogPath: 'logs/kimi-web.jsonl',
     });
     expect(manifest.desktopVersion).toBeUndefined();
-    await expect.poll(() => listExportTempDirs(id)).toEqual([]);
+    await waitForAssertion(async () => expect(await listExportTempDirs(id)).toEqual([]));
   });
 
   it('returns the JSON session-not-found envelope instead of a ZIP', async () => {
@@ -236,7 +239,7 @@ describe('server-v2 /api/v1/sessions', () => {
 
     expect(status).toBe(200);
     expect(body.code).toBe(40401);
-    await expect.poll(() => listExportTempDirs(id)).toEqual([]);
+    await waitForAssertion(async () => expect(await listExportTempDirs(id)).toEqual([]));
   });
 
   it('cleans up the temporary archive when the client cancels the download', async () => {
@@ -265,7 +268,7 @@ describe('server-v2 /api/v1/sessions', () => {
     expect(first?.done).toBe(false);
     await reader?.cancel();
 
-    await expect.poll(() => listExportTempDirs(id)).toEqual([]);
+    await waitForAssertion(async () => expect(await listExportTempDirs(id)).toEqual([]));
   });
 
   it('rejects a Web log larger than 256 KiB in UTF-8', async () => {
@@ -556,7 +559,7 @@ describe('server-v2 /api/v1/sessions', () => {
     const page3 = await getJson<PageWire>(
       `/api/v1/sessions?page_size=3&before_id=${encodeURIComponent(cursor2)}`,
     );
-    expect(page3.body.data.items.map((s) => s.id)).toEqual([ids[0]]);
+    expect(page3.body.data.items.map((s) => s.id)).toEqual([ids[0]!]);
     expect(page3.body.data.has_more).toBe(false);
 
     const seen = [...page1.body.data.items, ...page2.body.data.items, ...page3.body.data.items].map(
@@ -684,7 +687,7 @@ describe('server-v2 /api/v1/sessions', () => {
 
     let toolsRequest: { method: string; params: { chat_content: string } } | undefined;
     const actualFetch = globalThis.fetch.bind(globalThis);
-    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       if (url === 'https://api.example.test/coding/v1/tools') {
         const body = init?.body;
@@ -1017,7 +1020,7 @@ describe('server-v2 /api/v1/sessions', () => {
     const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd: home } });
     const id = created.body.data.id;
     const journalPath = join(home!, 'server', 'events', `${id}.jsonl`);
-    await vi.waitFor(async () =>
+    await waitForAssertion(async () =>
       expect(await readFile(journalPath, 'utf8')).toContain('journal_header'),
     );
     await closeSessionById(server!.core.accessor, id);
@@ -1047,7 +1050,7 @@ describe('server-v2 /api/v1/sessions', () => {
       const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd: home } });
       const id = created.body.data.id;
       const journalPath = join(home!, 'server', 'events', `${id}.jsonl`);
-      await vi.waitFor(async () =>
+      await waitForAssertion(async () =>
         expect(await readFile(journalPath, 'utf8')).toContain('journal_header'),
       );
       const oldJournal = await readFile(journalPath, 'utf8');
@@ -1084,7 +1087,7 @@ describe('server-v2 /api/v1/sessions', () => {
             payload: { sessionId: id, agentId: 'main', patch: { title: 'Recreated session' } },
           }),
         );
-        await vi.waitFor(async () => {
+        await waitForAssertion(async () => {
           const journal = await readFile(journalPath, 'utf8');
           expect(journal).toContain('journal_header');
           expect(JSON.parse(journal.split('\n')[0]!).epoch).not.toBe(
@@ -1133,8 +1136,7 @@ describe('server-v2 /api/v1/sessions', () => {
     if (session === undefined) throw new Error('expected live session');
     await session.accessor.get(IAgentLifecycleService).create({ agentId: MAIN_AGENT_ID });
     const agent = session.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID)!;
-    const undo = vi
-      .spyOn(agent.accessor.get(IAgentConversationUndoService), 'undo')
+    const undo = spyOn(agent.accessor.get(IAgentConversationUndoService), 'undo')
       .mockRejectedValue(new Error2(ErrorCodes.SESSION_BUSY, 'session is busy'));
 
     try {
@@ -1414,14 +1416,14 @@ describe('server-v2 /api/v1/sessions', () => {
       expect(undone.body.code).toBe(code);
       const after = await getJson<AgentTranscriptSnapshot>(path);
       const turns = after.body.data.items.filter((item) => item.kind === 'turn');
-      expect(turns.map((turn) => turn.prompt)).toEqual(prompts);
+      expect(turns.map((turn) => turn.prompt)).toEqual([...prompts]);
       expect(
         turns
           .flatMap((turn) => turn.steps)
           .flatMap((step) => step.frames)
           .filter((frame) => frame.kind === 'text')
           .map((frame) => frame.text),
-      ).toEqual(texts);
+      ).toEqual([...texts]);
       expect(after.body.data.prompts).toEqual([]);
     },
   );
@@ -1733,7 +1735,7 @@ describe('server-v2 /api/v1/sessions', () => {
       for (const agentId of ['main', 'agent-0', 'agent-150', `agent-${subagentCount - 1}`]) {
         const entry = forkedState.agents[agentId];
         const source = agents[agentId]!;
-        expect(entry.homedir).toBe(join(forkedDir, 'agents', agentId));
+        expect(entry.homedir).toBe(join(forkedDir, 'agents', agentId).split(sep).join('/'));
         expect(entry.type).toBe(source.type);
         expect(entry.parentAgentId ?? null).toBe(source.parentAgentId);
         expect(entry.labels).toEqual(
@@ -2362,7 +2364,7 @@ describe('server-v2 /api/v1/sessions status context window', () => {
     }
     if (home !== undefined) {
       await new Promise((resolve) => setTimeout(resolve, 25));
-      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
+      await removeTempHome(home);
       home = undefined;
     }
   });
@@ -2452,7 +2454,7 @@ describe('server-v2 /api/v1/sessions (minidb read model)', () => {
     }
     if (home !== undefined) {
       await new Promise((resolve) => setTimeout(resolve, 25));
-      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
+      await removeTempHome(home);
       home = undefined;
     }
   });
@@ -2492,7 +2494,7 @@ describe('server-v2 /api/v1/sessions (minidb read model)', () => {
     });
     const id = created.body.data.id;
 
-    await vi.waitFor(
+    await waitForAssertion(
       async () => {
         const listed = await getJson<PageWire>('/api/v1/sessions');
         expect(listed.body.data.items.some((s) => s.id === id)).toBe(true);

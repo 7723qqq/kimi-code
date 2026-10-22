@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import { generate } from '#/generate';
 import type { Message, StreamedMessagePart } from '#/message';
@@ -82,7 +82,7 @@ function makeOpenAIChatClient(response: unknown) {
   return {
     chat: {
       completions: {
-        create: vi.fn().mockResolvedValue(response),
+        create: mock().mockResolvedValue(response),
       },
     },
   };
@@ -94,7 +94,7 @@ function makeKimiChatClient(response: unknown) {
   return {
     chat: {
       completions: {
-        create: vi.fn().mockImplementation(() => ({
+        create: mock().mockImplementation(() => ({
           withResponse: () => Promise.resolve({ data: response, response: new Response(null) }),
         })),
       },
@@ -440,7 +440,7 @@ function createAnthropicStreamProvider(events: unknown[]): AnthropicChatProvider
     clientFactory: () =>
       ({
         messages: {
-          create: vi.fn().mockResolvedValue(anthropicMockStream(events)),
+          create: mock().mockResolvedValue(anthropicMockStream(events)),
         },
       }) as never,
   });
@@ -454,7 +454,7 @@ function createAnthropicNonStreamProvider(response: unknown): AnthropicChatProvi
     clientFactory: () =>
       ({
         messages: {
-          create: vi.fn().mockResolvedValue(response),
+          create: mock().mockResolvedValue(response),
         },
       }) as never,
   });
@@ -620,8 +620,8 @@ function createGoogleGenAIProvider(response: unknown, stream: boolean): GoogleGe
     clientFactory: () =>
       ({
         models: {
-          generateContentStream: vi.fn().mockResolvedValue(response),
-          generateContent: vi.fn().mockResolvedValue(response),
+          generateContentStream: mock().mockResolvedValue(response),
+          generateContent: mock().mockResolvedValue(response),
         },
       }) as never,
   });

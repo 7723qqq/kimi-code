@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 
 // test/store.test.ts
-import { test } from 'vitest';
+import { test } from 'bun:test';
 
 import { Store } from '../src/store.js';
 

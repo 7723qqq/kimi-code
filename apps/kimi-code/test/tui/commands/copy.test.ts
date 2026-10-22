@@ -1,12 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
 
 import { findLastAssistantText, handleCopyCommand } from '#/tui/commands/copy';
 import type { SlashCommandHost } from '#/tui/commands/dispatch';
 import { findBuiltInSlashCommand, resolveSlashCommandAvailability } from '#/tui/commands/index';
 import type { TranscriptEntry } from '#/tui/types';
 
-const mocks = vi.hoisted(() => ({
-  copyTextToClipboard: vi.fn(),
+const mocks = (() => ({
+  copyTextToClipboard: mock(),
   t: (key: string, params?: Record<string, string | number>) => {
     const translations: Record<string, string> = {
       'tui.statusMessages.copyNative': `Copied to clipboard (${String(params?.['count'] ?? '?')} characters).`,
@@ -16,15 +16,15 @@ const mocks = vi.hoisted(() => ({
     };
     return translations[key] ?? key;
   },
-}));
+}))();
 
-vi.mock('#/utils/clipboard/clipboard-text', () => ({
+void mock.module('#/utils/clipboard/clipboard-text', () => ({
   copyTextToClipboard: mocks.copyTextToClipboard,
 }));
 
-vi.mock('#/i18n', () => ({
+void mock.module('#/i18n', () => ({
   t: mocks.t,
-  setLocale: vi.fn(),
+  setLocale: mock(),
   getLocale: () => 'en',
 }));
 
@@ -46,11 +46,11 @@ function assistantEntry(content: string): TranscriptEntry {
 function makeHost(entries: TranscriptEntry[]) {
   const host = {
     state: { transcriptEntries: entries },
-    showStatus: vi.fn(),
-    showError: vi.fn(),
+    showStatus: mock(),
+    showError: mock(),
   } as unknown as SlashCommandHost & {
-    showStatus: ReturnType<typeof vi.fn>;
-    showError: ReturnType<typeof vi.fn>;
+    showStatus: Mock<(...args: any[]) => any>;
+    showError: Mock<(...args: any[]) => any>;
   };
   return host;
 }
@@ -109,7 +109,7 @@ describe('findLastAssistantText', () => {
 
 describe('handleCopyCommand', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    mock.clearAllMocks();
     mocks.copyTextToClipboard.mockResolvedValue('native');
   });
 

@@ -4,8 +4,9 @@
  * probe (`/api/v1/debug` is the only RPC surface; there is no v2 fallback).
  */
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
+import { setGlobal, restoreGlobals } from '../../test/_helpers/bunTest';
 import type { Event, IChannel } from './channel';
 import { probeDebugSurface } from './channels';
 import { createInspectClient } from './client';
@@ -30,7 +31,7 @@ function fakeFetch(envelope: unknown) {
 }
 
 afterEach(() => {
-  vi.unstubAllGlobals();
+  restoreGlobals();
 });
 
 describe('ProxyChannel.call', () => {
@@ -125,7 +126,7 @@ describe('ProxyChannel.listen', () => {
 describe('business snapshots', () => {
   it('uses explicit workspace, session association, and agent binding routes', async () => {
     const calls: string[] = [];
-    vi.stubGlobal('fetch', async (url: string | URL) => {
+    setGlobal('fetch', async (url: string | URL) => {
       const value = String(url);
       calls.push(value);
       if (value.endsWith('/workspace/w%201/snapshot')) {
@@ -161,7 +162,7 @@ describe('business snapshots', () => {
 describe('probeDebugSurface', () => {
   function stubProbeFetch(impl: (url: string, init?: RequestInit) => unknown) {
     const calls: { url: string; init?: RequestInit }[] = [];
-    vi.stubGlobal('fetch', async (url: string | URL, init?: RequestInit) => {
+    setGlobal('fetch', async (url: string | URL, init?: RequestInit) => {
       calls.push({ url: String(url), init });
       return impl(String(url), init);
     });
@@ -183,7 +184,7 @@ describe('probeDebugSurface', () => {
   });
 
   it('throws an unreachable-server error when fetch itself fails', async () => {
-    vi.stubGlobal('fetch', async () => {
+    setGlobal('fetch', async () => {
       throw new Error('ECONNREFUSED');
     });
     await expect(probeDebugSurface({ baseUrl: 'http://h:7' })).rejects.toThrow(/cannot reach/);

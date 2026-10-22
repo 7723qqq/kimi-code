@@ -1,11 +1,11 @@
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
 
 import { createKimiHarness } from '@moonshot-ai/kimi-code-sdk';
 
 import { smokeIdentityFromEnv } from './runtime-smoke-helpers';
+import { setTimeout as delay } from 'node:timers/promises';
 
 async function main(): Promise<void> {
   const homeDir = await mkdtemp(join(tmpdir(), 'kimi-harness-list-home-'));

@@ -3,7 +3,7 @@ import { RequestError } from '@agentclientprotocol/sdk';
 import type { Interaction } from '@moonshot-ai/agent-core-v2';
 import type { ToolInputDisplay } from '@moonshot-ai/agent-core-v2/contract';
 import type { SessionHandle } from '@moonshot-ai/klient';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock, spyOn } from 'bun:test';
 
 import type { AcpClient } from '../src/acp-client';
 import { AcpInteractionBridge } from '../src/interaction-bridge';
@@ -422,9 +422,9 @@ describe('AcpInteractionBridge', () => {
 
   it('re-dispatches a pending interaction after a transient respond failure', async () => {
     const session = makeFakeSession();
-    const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
+    const warn = spyOn(log, 'warn').mockImplementation(() => {});
     let respondCalls = 0;
-    const respond = vi.fn((id: string, response: unknown) => {
+    const respond = mock((id: string, response: unknown) => {
       respondCalls += 1;
       if (respondCalls <= 2) {
         return Promise.reject(new Error('interaction approval-1 is already resolved'));
@@ -463,8 +463,8 @@ describe('AcpInteractionBridge', () => {
 
   it('stops re-dispatching and warns once after repeated dispatch failures', async () => {
     const session = makeFakeSession();
-    const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
-    const respond = vi.fn(() =>
+    const warn = spyOn(log, 'warn').mockImplementation(() => {});
+    const respond = mock(() =>
       Promise.reject(new Error('interaction approval-1 is already resolved')),
     );
     (session.handle.interactions as { respond: unknown }).respond = respond;

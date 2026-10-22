@@ -392,7 +392,9 @@ export class BashTool implements IBashTool {
       | 'foreground_detached'
       | 'foreground_detached_by_user' = 'background_started',
   ): ExecutableToolResult {
-    const status = this.tasks.getTask(taskId)?.status ?? 'running';
+    const current = this.tasks.getTask(taskId);
+    const status = current?.status ?? 'running';
+    const outputPath = current?.outputPath;
     const detachedByUser =
       scenario === 'foreground_detached_by_user' ? 'detached_by_user: true\n' : '';
     const metadata =
@@ -400,6 +402,7 @@ export class BashTool implements IBashTool {
       `pid: ${String(proc.pid)}\n` +
       `description: ${description}\n` +
       `status: ${status}\n` +
+      (outputPath === undefined ? '' : `output_path: ${outputPath}\n`) +
       detachedByUser +
       `automatic_notification: true\n` +
       this.nextStepLines(scenario) +

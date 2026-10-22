@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock, type Mock } from 'bun:test';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { handleSwarmCommand } from '#/tui/commands/index';
 import type { SlashCommandHost } from '#/tui/commands/dispatch';
@@ -30,11 +31,11 @@ function makeHost(
 ) {
   let engineMode = overrides.swarmMode ?? false;
   const session = {
-    setPermission: vi.fn(async () => {}),
-    setSwarmMode: vi.fn(async (enabled: boolean) => {
+    setPermission: mock(async () => {}),
+    setSwarmMode: mock(async (enabled: boolean) => {
       if (!overrides.engineRefuses) engineMode = enabled;
     }),
-    getStatus: vi.fn(async () => ({ swarmMode: engineMode })),
+    getStatus: mock(async () => ({ swarmMode: engineMode })),
   };
   const hasSession = overrides.hasSession ?? true;
   const host = {
@@ -45,20 +46,20 @@ function makeHost(
         swarmMode: overrides.swarmMode ?? false,
       },
       theme: currentTheme,
-      transcriptContainer: { addChild: vi.fn() },
-      ui: { requestRender: vi.fn() },
+      transcriptContainer: { addChild: mock() },
+      ui: { requestRender: mock() },
     },
     session: hasSession ? session : undefined,
     requireSession: () => session,
-    setAppState: vi.fn((patch: Record<string, unknown>) => Object.assign(host.state.appState, patch)),
-    showError: vi.fn(),
-    showNotice: vi.fn(),
-    showStatus: vi.fn(),
-    appendTranscriptEntry: vi.fn(),
-    mountEditorReplacement: vi.fn(),
-    restoreEditor: vi.fn(),
-    restoreInputText: vi.fn(),
-    sendNormalUserInput: vi.fn(),
+    setAppState: mock((patch: Record<string, unknown>) => Object.assign(host.state.appState, patch)),
+    showError: mock(),
+    showNotice: mock(),
+    showStatus: mock(),
+    appendTranscriptEntry: mock(),
+    mountEditorReplacement: mock(),
+    restoreEditor: mock(),
+    restoreInputText: mock(),
+    sendNormalUserInput: mock(),
   } as unknown as SlashCommandHost;
   return { host, session };
 }
@@ -69,12 +70,12 @@ interface TestPicker {
 }
 
 function mountedPicker(host: SlashCommandHost): TestPicker {
-  const mock = host.mountEditorReplacement as ReturnType<typeof vi.fn>;
+  const mock = host.mountEditorReplacement as Mock<(...args: any[]) => any>;
   return mock.mock.calls[0]?.[0] as TestPicker;
 }
 
-function markerAddChild(host: SlashCommandHost): ReturnType<typeof vi.fn> {
-  return host.appendTranscriptEntry as ReturnType<typeof vi.fn>;
+function markerAddChild(host: SlashCommandHost): Mock<(...args: any[]) => any> {
+  return host.appendTranscriptEntry as Mock<(...args: any[]) => any>;
 }
 
 function expectSwarmMarker(host: SlashCommandHost, text: string): void {
@@ -130,7 +131,7 @@ describe('handleSwarmCommand', () => {
 
     expect(session.setSwarmMode).not.toHaveBeenCalled();
     expect(markerAddChild(host)).not.toHaveBeenCalled();
-    expect(host.mountEditorReplacement).toHaveBeenCalledOnce();
+    expect(host.mountEditorReplacement).toHaveBeenCalledTimes(1);
     expect(session.setPermission).not.toHaveBeenCalled();
     expect(host.sendNormalUserInput).not.toHaveBeenCalled();
     const text = stripAnsi(mountedPicker(host).render(80).join('\n'));
@@ -140,7 +141,7 @@ describe('handleSwarmCommand', () => {
     picker.handleInput(UP);
     picker.handleInput(ENTER);
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(session.setSwarmMode).toHaveBeenCalledWith(true, 'manual');
     });
     expect(session.setPermission).toHaveBeenCalledWith('auto');
@@ -224,7 +225,7 @@ describe('handleSwarmCommand', () => {
 
     expect(session.setSwarmMode).not.toHaveBeenCalled();
     expect(markerAddChild(host)).not.toHaveBeenCalled();
-    expect(host.mountEditorReplacement).toHaveBeenCalledOnce();
+    expect(host.mountEditorReplacement).toHaveBeenCalledTimes(1);
     expect(session.setPermission).not.toHaveBeenCalled();
     expect(host.sendNormalUserInput).not.toHaveBeenCalled();
     const text = stripAnsi(mountedPicker(host).render(80).join('\n'));
@@ -239,7 +240,7 @@ describe('handleSwarmCommand', () => {
     await handleSwarmCommand(host, 'Ship feature X');
     mountedPicker(host).handleInput(ENTER);
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(host.sendNormalUserInput).toHaveBeenCalledWith('Ship feature X');
     });
     expect(session.setPermission).not.toHaveBeenCalled();
@@ -265,7 +266,7 @@ describe('handleSwarmCommand', () => {
     picker.handleInput(UP);
     picker.handleInput(ENTER);
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(host.sendNormalUserInput).toHaveBeenCalledWith('Ship feature X');
     });
     expect(session.setPermission).toHaveBeenCalledWith('auto');
@@ -280,7 +281,7 @@ describe('handleSwarmCommand', () => {
     const picker = mountedPicker(host);
     picker.handleInput(ENTER);
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(host.sendNormalUserInput).toHaveBeenCalledWith('Ship feature X');
     });
     expect(session.setPermission).not.toHaveBeenCalled();
@@ -300,7 +301,7 @@ describe('handleSwarmCommand', () => {
     picker.handleInput(UP);
     picker.handleInput(ENTER);
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(host.sendNormalUserInput).toHaveBeenCalledWith('Ship feature X');
     });
     expect(session.setPermission).toHaveBeenCalledWith('yolo');
@@ -338,7 +339,7 @@ describe('handleSwarmCommand', () => {
     picker.handleInput(UP);
     picker.handleInput(ENTER);
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(host.showError).toHaveBeenCalledWith(
         expect.stringContaining('Failed to set permission mode'),
       );
@@ -358,7 +359,7 @@ describe('handleSwarmCommand', () => {
     picker.handleInput(UP);
     picker.handleInput(ENTER);
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(host.showError).toHaveBeenCalledWith(
         expect.stringContaining('Failed to enable swarm mode'),
       );

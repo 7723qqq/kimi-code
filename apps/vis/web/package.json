@@ -18,7 +18,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "test": "vitest run",
+    "test": "bun ../../../scripts/run-package-tests.mjs --root=test",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -37,7 +37,6 @@
     "tailwindcss": "^4.1.4",
     "typescript": "6.0.2",
     "vite": "^6.4.3",
-    "vite-plugin-singlefile": "^2.3.3",
-    "vitest": "4.1.10"
+    "vite-plugin-singlefile": "^2.3.3"
   }
 }

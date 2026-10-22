@@ -11,10 +11,10 @@
  * transcript grows.
  *
  * Run:
- *   cd apps/kimi-code && bunx vitest bench test/tui/render-memo.bench.ts
+ *   cd apps/kimi-code && bun test/tui/render-memo.bench.ts
  */
 
-import { bench, describe } from 'vitest';
+import { bench, describe, reportBenchResults } from './bench-harness';
 
 import type { Component } from '@moonshot-ai/pi-tui';
 
@@ -113,3 +113,5 @@ describe('render memo — via GutterContainer', () => {
     gutter.render(WIDTH);
   });
 });
+
+reportBenchResults();

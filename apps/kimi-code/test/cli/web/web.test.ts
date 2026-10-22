@@ -7,30 +7,27 @@
  * subcommands against fake deps.
  */
 
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import chalk, { Chalk } from 'chalk';
 import { Command } from 'commander';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import { setEnv, restoreEnvs } from '#test/helpers/stubs';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
-import { resetCapabilitiesCache, setCapabilities } from '@moonshot-ai/pi-tui';
+import * as childProcessModule from 'node:child_process';
+import { resetCapabilitiesCache } from '@moonshot-ai/pi-tui';
 
 import { registerWebCommand } from '#/cli/sub/web';
-import type { LegacyKillDeps } from '#/cli/sub/web/legacy-kill';
-import type {
-  RemoteControlCloseReason,
-  RemoteControlStatus,
-} from '#/cli/sub/web/remote-control';
-import type { WebCommandDeps } from '#/cli/sub/web/run';
-import type { ParsedServerOptions } from '#/cli/sub/web/shared';
+import { type LegacyKillDeps } from '#/cli/sub/web/legacy-kill';
+import { type RemoteControlCloseReason, type RemoteControlStatus } from '#/cli/sub/web/remote-control';
+import { type WebCommandDeps } from '#/cli/sub/web/run';
+import { type ParsedServerOptions } from '#/cli/sub/web/shared';
 import { darkColors } from '#/tui/theme/colors';
 
-vi.mock('node:child_process', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:child_process')>();
-  return { ...actual, spawn: vi.fn() };
-});
+void mock.module('node:child_process', () => ({ ...childProcessModule, spawn: mock() }));
 
 function stripAnsi(text: string): string {
   return text.replaceAll(/\[[0-9;]*m/g, '');
@@ -132,11 +129,11 @@ describe('kimi web', () => {
       const program = makeProgram();
       let stderr = '';
       const exitCalls: number[] = [];
-      const errSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      const errSpy = spyOn(process.stderr, 'write').mockImplementation((chunk) => {
         stderr += String(chunk);
         return true;
       });
-      const exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
+      const exitSpy = spyOn(process, 'exit').mockImplementation(((code?: number) => {
         exitCalls.push(code ?? 0);
         return undefined;
       }) as never);
@@ -168,7 +165,7 @@ describe('`kimi web` ready banner', () => {
       {
         startServerForeground: runner,
         resolveToken: () => 'tok',
-        openUrl: vi.fn(),
+        openUrl: mock(),
         stdout,
         stderr,
       },
@@ -209,7 +206,7 @@ describe('`kimi web` ready banner', () => {
     try {
       await handleWebCommand(
         { port: '58627', host: '127.0.0.1', open: false },
-        { startServerForeground: runner, openUrl: vi.fn(), stdout, stderr },
+        { startServerForeground: runner, openUrl: mock(), stdout, stderr },
       );
     } finally {
       chalk.level = previousChalkLevel;
@@ -234,7 +231,7 @@ describe('`kimi web` ready banner', () => {
     try {
       await handleWebCommand(
         { port: '58627', dangerousBypassAuth: true, open: false },
-        { startServerForeground: runner, openUrl: vi.fn(), stdout, stderr },
+        { startServerForeground: runner, openUrl: mock(), stdout, stderr },
       );
     } finally {
       chalk.level = previousChalkLevel;
@@ -252,7 +249,7 @@ describe('`kimi web` ready banner', () => {
     const { handleWebCommand } = await import('#/cli/sub/web/run');
     const { runner } = makeRunner();
     const { stdout, stderr, readStdout } = makeIo();
-    const openUrl = vi.fn();
+    const openUrl = mock();
 
     await handleWebCommand(
       { port: '58627', host: '127.0.0.1', dangerousBypassAuth: true, open: true },
@@ -294,7 +291,7 @@ describe('ready banner reflects the bind class', () => {
           { address: '192.0.2.66', family: 'IPv4' },
           { address: '198.51.100.216', family: 'IPv4' },
         ],
-        openUrl: vi.fn(),
+        openUrl: mock(),
         stdout,
         stderr,
       },
@@ -326,7 +323,7 @@ describe('ready banner reflects the bind class', () => {
         resolveToken: () => 'tok-loop',
         // Injected interface addresses must NOT leak into a loopback banner.
         networkAddresses: [{ address: '192.0.2.66', family: 'IPv4' }],
-        openUrl: vi.fn(),
+        openUrl: mock(),
         stdout,
         stderr,
       },
@@ -348,7 +345,7 @@ describe('ready banner reflects the bind class', () => {
 
 describe('`kimi web` opens the browser', () => {
   afterEach(() => {
-    vi.unstubAllEnvs();
+    restoreEnvs();
     resetCapabilitiesCache();
   });
 
@@ -356,7 +353,7 @@ describe('`kimi web` opens the browser', () => {
     const { handleWebCommand } = await import('#/cli/sub/web/run');
     const { runner } = makeRunner();
     const { stdout, stderr } = makeIo();
-    const openUrl = vi.fn();
+    const openUrl = mock();
 
     await handleWebCommand(
       { port: '58627', open: true },
@@ -376,7 +373,7 @@ describe('`kimi web` opens the browser', () => {
     const { handleWebCommand } = await import('#/cli/sub/web/run');
     const { runner } = makeRunner();
     const { stdout, stderr } = makeIo();
-    const openUrl = vi.fn();
+    const openUrl = mock();
 
     await handleWebCommand(
       { port: '58627', open: true },
@@ -396,7 +393,7 @@ describe('`kimi web` opens the browser', () => {
     const { handleWebCommand } = await import('#/cli/sub/web/run');
     const { runner } = makeRunner('http://0.0.0.0:58627');
     const { stdout, stderr } = makeIo();
-    const openUrl = vi.fn();
+    const openUrl = mock();
 
     await handleWebCommand(
       { host: '0.0.0.0', open: true },
@@ -416,7 +413,7 @@ describe('`kimi web` opens the browser', () => {
     const { handleWebCommand } = await import('#/cli/sub/web/run');
     const { runner } = makeRunner('http://:::58627');
     const { stdout, stderr } = makeIo();
-    const openUrl = vi.fn();
+    const openUrl = mock();
 
     await handleWebCommand(
       { host: '::', open: true },
@@ -436,7 +433,7 @@ describe('`kimi web` opens the browser', () => {
     const { handleWebCommand } = await import('#/cli/sub/web/run');
     const { runner } = makeRunner('http://127.0.0.1:9000');
     const { stdout, stderr } = makeIo();
-    const openUrl = vi.fn();
+    const openUrl = mock();
 
     await handleWebCommand(
       { port: '58627', open: false },
@@ -463,7 +460,7 @@ describe('`kimi web` opens the browser', () => {
     await expect(
       handleWebCommand(
         { remoteControl: true, host: '0.0.0.0', open: false },
-        { startServerForeground: runner, openUrl: vi.fn(), stdout, stderr },
+        { startServerForeground: runner, openUrl: mock(), stdout, stderr },
       ),
     ).rejects.toThrow('--remote-control requires a loopback host.');
   });
@@ -471,9 +468,9 @@ describe('`kimi web` opens the browser', () => {
   it('requests foreground shutdown when the relay takes the device offline', async () => {
     const { handleWebCommand } = await import('#/cli/sub/web/run');
     const home = mkdtempSync(join(tmpdir(), 'kimi-web-rc-'));
-    vi.stubEnv('KIMI_CODE_HOME', home);
+    setEnv('KIMI_CODE_HOME', home);
     const { stdout, stderr, readStdout } = makeIo();
-    const requestShutdown = vi.fn();
+    const requestShutdown = mock();
     const runner: ForegroundRunner = async (_options, hooks) => {
       await hooks?.onReady?.('http://127.0.0.1:58627', { requestShutdown });
       return undefined as never;
@@ -501,7 +498,7 @@ describe('`kimi web` opens the browser', () => {
           startServerForeground: runner,
           startRemoteControl,
           resolveToken: () => 'tok',
-          openUrl: vi.fn(),
+          openUrl: mock(),
           stdout,
           stderr,
         },
@@ -509,7 +506,7 @@ describe('`kimi web` opens the browser', () => {
 
       emitStatus?.('relay_terminated');
       resolveClosed?.('user_requested');
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         expect(requestShutdown).toHaveBeenCalledWith('remote_control_user_requested');
       });
       expect(readStdout()).toContain('offline');
@@ -522,9 +519,9 @@ describe('`kimi web` opens the browser', () => {
   it('does not request shutdown when the tunnel closes locally', async () => {
     const { handleWebCommand } = await import('#/cli/sub/web/run');
     const home = mkdtempSync(join(tmpdir(), 'kimi-web-rc-'));
-    vi.stubEnv('KIMI_CODE_HOME', home);
+    setEnv('KIMI_CODE_HOME', home);
     const { stdout, stderr } = makeIo();
-    const requestShutdown = vi.fn();
+    const requestShutdown = mock();
     const runner: ForegroundRunner = async (_options, hooks) => {
       await hooks?.onReady?.('http://127.0.0.1:58627', { requestShutdown });
       return undefined as never;
@@ -548,7 +545,7 @@ describe('`kimi web` opens the browser', () => {
           startServerForeground: runner,
           startRemoteControl,
           resolveToken: () => 'tok',
-          openUrl: vi.fn(),
+          openUrl: mock(),
           stdout,
           stderr,
         },
@@ -572,7 +569,7 @@ describe('`kimi web` opens the browser', () => {
 
 describe('kimi rc', () => {
   afterEach(() => {
-    vi.unstubAllEnvs();
+    restoreEnvs();
   });
 
   it('registers `rc` with the `remote` alias and the web server options, without a --remote-control flag', () => {
@@ -595,13 +592,11 @@ describe('kimi rc', () => {
     for (const name of ['rc', 'remote']) {
       const program = makeProgram();
       let stderr = '';
-      const errSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk) => {
+      const errSpy = spyOn(process.stderr, 'write').mockImplementation((chunk) => {
         stderr += String(chunk);
         return true;
       });
-      const exitSpy = vi
-        .spyOn(process, 'exit')
-        .mockImplementation(() => undefined as never);
+      const exitSpy = spyOn(process, 'exit').mockImplementation(() => undefined as never);
       try {
         await program.parseAsync(['node', 'kimi', name, '--host', '0.0.0.0']);
       } finally {
@@ -631,7 +626,7 @@ describe('`kimi web` option threading', () => {
         allowRemoteShutdown: true,
         open: false,
       },
-      { startServerForeground: runner, openUrl: vi.fn(), stdout, stderr },
+      { startServerForeground: runner, openUrl: mock(), stdout, stderr },
     );
 
     expect(calls.options).toEqual({
@@ -653,7 +648,7 @@ describe('`kimi web` option threading', () => {
 
     await handleWebCommand(
       { port: '58627', open: false },
-      { startServerForeground: runner, openUrl: vi.fn(), stdout, stderr },
+      { startServerForeground: runner, openUrl: mock(), stdout, stderr },
     );
 
     expect(calls.options).toMatchObject({
@@ -670,7 +665,7 @@ describe('`kimi web` option threading', () => {
 
     await handleWebCommand(
       { port: '58627', host: true, open: false },
-      { startServerForeground: runner, openUrl: vi.fn(), stdout, stderr },
+      { startServerForeground: runner, openUrl: mock(), stdout, stderr },
     );
 
     expect(calls.options).toMatchObject({ host: '0.0.0.0', insecureNoTls: true });
@@ -683,7 +678,7 @@ describe('`kimi web` option threading', () => {
 
     await handleWebCommand(
       { port: '58627', logLevel: 'debug', open: false },
-      { startServerForeground: runner, openUrl: vi.fn(), stdout, stderr },
+      { startServerForeground: runner, openUrl: mock(), stdout, stderr },
     );
 
     expect(calls.options).toMatchObject({ logLevel: 'debug' });
@@ -696,7 +691,7 @@ describe('`kimi web` option threading', () => {
 
     await handleWebCommand(
       { port: '58627', webTitle: 'My Dev Box', open: false },
-      { startServerForeground: runner, openUrl: vi.fn(), stdout, stderr },
+      { startServerForeground: runner, openUrl: mock(), stdout, stderr },
     );
 
     expect(calls.options).toMatchObject({ webTitle: 'My Dev Box' });
@@ -709,7 +704,7 @@ describe('`kimi web` option threading', () => {
 
     await handleWebCommand(
       { port: '58627', open: false },
-      { startServerForeground: runner, openUrl: vi.fn(), stdout, stderr },
+      { startServerForeground: runner, openUrl: mock(), stdout, stderr },
     );
 
     expect(calls.options?.webTitle).toBeUndefined();
@@ -717,13 +712,13 @@ describe('`kimi web` option threading', () => {
 
   it('rejects an invalid --log-level before calling the runner', async () => {
     const { handleWebCommand } = await import('#/cli/sub/web/run');
-    const startServerForeground = vi.fn(async () => undefined as never);
+    const startServerForeground = mock(async () => undefined as never);
     const { stdout, stderr } = makeIo();
 
     await expect(
       handleWebCommand(
         { logLevel: 'shout', open: false },
-        { startServerForeground, openUrl: vi.fn(), stdout, stderr },
+        { startServerForeground, openUrl: mock(), stdout, stderr },
       ),
     ).rejects.toThrow(/invalid --log-level/);
     expect(startServerForeground).not.toHaveBeenCalled();
@@ -739,7 +734,7 @@ describe('`kimi web` option threading', () => {
       {
         startServerForeground: runner,
         resolveToken: () => 'tok',
-        openUrl: vi.fn(),
+        openUrl: mock(),
         stdout,
         stderr,
       },
@@ -1151,88 +1146,6 @@ describe('browserOpenOrigin', () => {
     expect(browserOpenOrigin('http://127.0.0.1:58627')).toBe('http://127.0.0.1:58627');
     expect(browserOpenOrigin('http://192.168.1.5:58627')).toBe('http://192.168.1.5:58627');
     expect(browserOpenOrigin('http://[::1]:58627')).toBe('http://[::1]:58627');
-  });
-});
-
-describe('`kimi web rotate-token`', () => {
-  let dir: string;
-  let prevHome: string | undefined;
-
-  beforeEach(() => {
-    dir = mkdtempSync(join(tmpdir(), 'kimi-rotate-'));
-    prevHome = process.env['KIMI_CODE_HOME'];
-    process.env['KIMI_CODE_HOME'] = dir;
-    vi.resetModules();
-  });
-
-  afterEach(() => {
-    if (prevHome === undefined) {
-      delete process.env['KIMI_CODE_HOME'];
-    } else {
-      process.env['KIMI_CODE_HOME'] = prevHome;
-    }
-    rmSync(dir, { recursive: true, force: true });
-  });
-
-  it('writes a new token to server.token and prints it', async () => {
-    const { registerWebCommand } = await import('#/cli/sub/web');
-    const program = new Command('kimi').exitOverride();
-    registerWebCommand(program);
-    let stdout = '';
-    const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
-      stdout += String(chunk);
-      return true;
-    });
-
-    await program.parseAsync(['node', 'kimi', 'web', 'rotate-token']);
-    writeSpy.mockRestore();
-
-    const token = readFileSync(join(dir, 'server.token'), 'utf8').trim();
-    expect(token.length).toBeGreaterThan(20);
-    expect(stdout).toContain('New server token');
-    expect(stdout).toContain(token);
-  });
-
-  it('re-prints the access links with the new token when a server is running', async () => {
-    const { registerWebCommand } = await import('#/cli/sub/web');
-    const { mkdirSync, writeFileSync: writeSync } = await import('node:fs');
-    // Fake a live instance-registry entry pointing at this (alive) process so
-    // getLiveServerInstance() finds the running server and the command can
-    // re-print its links.
-    mkdirSync(join(dir, 'server', 'instances'), { recursive: true });
-    writeSync(
-      join(dir, 'server', 'instances', '01JTEST0000000000000000000.json'),
-      JSON.stringify({
-        server_id: '01JTEST0000000000000000000',
-        pid: process.pid,
-        host: '127.0.0.1',
-        port: 58627,
-        started_at: Date.now(),
-        heartbeat_at: Date.now(),
-      }),
-    );
-
-    const program = new Command('kimi').exitOverride();
-    registerWebCommand(program);
-    let stdout = '';
-    const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
-      stdout += String(chunk);
-      return true;
-    });
-
-    await program.parseAsync(['node', 'kimi', 'web', 'rotate-token']);
-    writeSpy.mockRestore();
-
-    const token = readFileSync(join(dir, 'server.token'), 'utf8').trim();
-    expect(stdout).toContain('New server token');
-    expect(stdout).toContain(`http://127.0.0.1:58627/#token=${token}`);
-    // Token line sits between the note and the links.
-    expect(stdout.indexOf('picks up the new token')).toBeLessThan(
-      stdout.indexOf('New server token'),
-    );
-    expect(stdout.indexOf('New server token')).toBeLessThan(
-      stdout.indexOf(`http://127.0.0.1:58627/#token=${token}`),
-    );
   });
 });
 

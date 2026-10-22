@@ -1,23 +1,15 @@
-import { mkdtempSync, existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, existsSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'bun:test';
+import { mkdirSync } from 'node:fs';
 
 import { parseDaemonFileUrl, type PromptPart } from '@moonshot-ai/kimi-code-sdk';
 
 import { KIMI_CODE_HOME_ENV } from '#/constant/app';
 import { ImageAttachmentStore } from '#/tui/utils/image-attachment-store';
-import {
-  extractMediaAttachments,
-  makeExtractionResendable,
-  omitExpiredVideoFileRefs,
-  pendingMediaIngestions,
-  persistOriginalImageSync,
-  refreshExpiringImageFileRefs,
-  resolveOriginalCaptions,
-  rewriteMediaPlaceholders,
-} from '#/tui/utils/image-placeholder';
+import { extractMediaAttachments, omitExpiredVideoFileRefs, resolveOriginalCaptions, rewriteMediaPlaceholders } from '#/tui/utils/image-placeholder';
 import { getCacheDir } from '#/utils/paths';
 
 function storeWith(
@@ -85,7 +77,7 @@ describe('omitExpiredVideoFileRefs', () => {
       { type: 'image_url', imageUrl: { url: 'data:image/png;base64,AQ==' } },
     ];
     expect(omitExpiredVideoFileRefs(parts, [expired, live])).toEqual([
-      parts[0], parts[2], parts[3], parts[4],
+      parts[0]!, parts[2]!, parts[3]!, parts[4]!,
     ]);
     expect(omitExpiredVideoFileRefs(parts, [])).toEqual(parts);
   });
@@ -498,7 +490,10 @@ describe('extractMediaAttachments: bare image paths', () => {
 
   it('leaves a Windows path with no backing file as literal text', async () => {
     const store = new ImageAttachmentStore();
-    const text = String.raw`看 D:\微信聊天数据\temp\a7d0eaaa.png 这张图`;
+    // A plain template with escaped backslashes: Bun's transpiler escapes
+    // non-ASCII characters inside template literals, which `String.raw` would
+    // then keep as literal `\uXXXX` text.
+    const text = `看 D:\\微信聊天数据\\temp\\a7d0eaaa.png 这张图`;
     const r = await extractMediaAttachments(text, store);
     expect(r.hasMedia).toBe(false);
     expect(r.parts).toEqual([]);

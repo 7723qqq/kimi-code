@@ -1,6 +1,6 @@
 import type { TUI } from '@moonshot-ai/pi-tui';
 import { visibleWidth } from '@moonshot-ai/pi-tui';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock, spyOn } from 'bun:test';
 
 import { ReadGroupComponent } from '#/tui/components/messages/read-group';
 import { ToolCallComponent } from '#/tui/components/messages/tool-call';
@@ -93,13 +93,14 @@ describe('ReadGroupComponent header on a narrow terminal', () => {
 
 describe('ReadGroupComponent flush', () => {
   it('reads each card once and requests a single render per rebuild', () => {
-    const ui = { requestRender: vi.fn() } as unknown as TUI;
+    const requestRender = mock();
+    const ui = { requestRender } as unknown as TUI;
     const group = new ReadGroupComponent(ui);
     const call = readCall('r1', 'src/alpha-component.ts', 3);
     group.attach('r1', call);
 
-    const snapshots = vi.spyOn(call, 'getReadSnapshot');
-    vi.mocked(ui.requestRender).mockClear();
+    const snapshots = spyOn(call, 'getReadSnapshot');
+    requestRender.mockClear();
 
     group.setExpanded(true);
 

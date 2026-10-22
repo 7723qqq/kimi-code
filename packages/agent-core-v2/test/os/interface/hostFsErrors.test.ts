@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { HostFsError, toHostFsError } from '#/os/interface/hostFsErrors';
 
@@ -22,7 +22,7 @@ describe('toHostFsError', () => {
     ['ENOTEMPTY', 'os.fs.not_empty'],
     ['EIO', 'os.fs.unknown'],
     ['ESOMETHINGELSE', 'os.fs.unknown'],
-  ])('maps errno %s to %s', (errno, code) => {
+  ] as const)('maps errno %s to %s', (errno, code) => {
     const error = toHostFsError(errnoError(errno), CTX);
     expect(error).toBeInstanceOf(HostFsError);
     expect(error.code).toBe(code);

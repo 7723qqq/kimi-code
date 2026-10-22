@@ -4,15 +4,15 @@ import type {
   AutocompleteSuggestions,
   TUI,
 } from '@moonshot-ai/pi-tui';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock, spyOn } from 'bun:test';
 
 import { CustomEditor } from '#/tui/components/editor/custom-editor';
 import { FileMentionProvider } from '#/tui/components/editor/file-mention-provider';
 
 function makeEditor(): CustomEditor {
   const tui = {
-    requestRender: vi.fn(),
-    render: vi.fn(() => []),
+    requestRender: mock(),
+    render: mock(() => []),
     terminal: { rows: 40, cols: 120 },
   } as unknown as TUI;
   return new CustomEditor(tui);
@@ -28,8 +28,8 @@ async function flushAutocomplete(): Promise<void> {
 
 function providerReturning(items: AutocompleteItem[]): AutocompleteProvider {
   return {
-    getSuggestions: vi.fn(async () => ({ items, prefix: '/' })),
-    applyCompletion: vi.fn((lines, cursorLine, cursorCol) => ({ lines, cursorLine, cursorCol })),
+    getSuggestions: mock(async () => ({ items, prefix: '/' })),
+    applyCompletion: mock((lines, cursorLine, cursorCol) => ({ lines, cursorLine, cursorCol })),
   };
 }
 
@@ -39,12 +39,12 @@ function providerRecordingForce(items: AutocompleteItem[]): {
 } {
   const calls: Array<{ force: boolean | undefined; text: string }> = [];
   const provider: AutocompleteProvider = {
-    getSuggestions: vi.fn(async (lines, cursorLine, cursorCol, options) => {
+    getSuggestions: mock(async (lines, cursorLine, cursorCol, options) => {
       const text = (lines[cursorLine] ?? '').slice(0, cursorCol);
       calls.push({ force: options?.force, text });
       return { items, prefix: text };
     }),
-    applyCompletion: vi.fn((lines, cursorLine, cursorCol) => ({ lines, cursorLine, cursorCol })),
+    applyCompletion: mock((lines, cursorLine, cursorCol) => ({ lines, cursorLine, cursorCol })),
   };
   return { provider, calls };
 }
@@ -52,7 +52,7 @@ function providerRecordingForce(items: AutocompleteItem[]): {
 describe('CustomEditor autocomplete Escape handling', () => {
   it('escape closes a visible slash command menu without firing app-level escape', async () => {
     const editor = makeEditor();
-    const onEscape = vi.fn();
+    const onEscape = mock();
     editor.onEscape = onEscape;
     editor.setAutocompleteProvider(providerReturning([{ value: 'help', label: 'help' }]));
 
@@ -69,10 +69,10 @@ describe('CustomEditor autocomplete Escape handling', () => {
 
   it('escape cancels an in-flight slash command menu request', async () => {
     const editor = makeEditor();
-    const onEscape = vi.fn();
+    const onEscape = mock();
     let resolveSuggestions: (items: AutocompleteItem[]) => void = () => {};
     const provider: AutocompleteProvider = {
-      getSuggestions: vi.fn(
+      getSuggestions: mock(
         () =>
           new Promise<AutocompleteSuggestions | null>((resolve) => {
             resolveSuggestions = (items) => {
@@ -80,7 +80,7 @@ describe('CustomEditor autocomplete Escape handling', () => {
             };
           }),
       ),
-      applyCompletion: vi.fn((lines, cursorLine, cursorCol) => ({ lines, cursorLine, cursorCol })),
+      applyCompletion: mock((lines, cursorLine, cursorCol) => ({ lines, cursorLine, cursorCol })),
     };
     editor.onEscape = onEscape;
     editor.setAutocompleteProvider(provider);
@@ -99,23 +99,23 @@ describe('CustomEditor autocomplete Escape handling', () => {
 describe('CustomEditor onNonEscapeInput', () => {
   it('fires for a printable key and not for a lone Escape', () => {
     const editor = makeEditor();
-    const onNonEscapeInput = vi.fn();
+    const onNonEscapeInput = mock();
     editor.onNonEscapeInput = onNonEscapeInput;
 
     editor.handleInput('a');
-    expect(onNonEscapeInput).toHaveBeenCalledOnce();
+    expect(onNonEscapeInput).toHaveBeenCalledTimes(1);
 
     editor.handleInput('\u001B');
-    expect(onNonEscapeInput).toHaveBeenCalledOnce();
+    expect(onNonEscapeInput).toHaveBeenCalledTimes(1);
   });
 
   it('fires for control keys so they break a pending double-Esc', () => {
     const editor = makeEditor();
-    const onNonEscapeInput = vi.fn();
+    const onNonEscapeInput = mock();
     editor.onNonEscapeInput = onNonEscapeInput;
 
     editor.handleInput('\u0003');
-    expect(onNonEscapeInput).toHaveBeenCalledOnce();
+    expect(onNonEscapeInput).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -259,7 +259,7 @@ describe('CustomEditor @ mention completion refresh', () => {
   it('reopens the next directory level after tab-accepting an @ directory', async () => {
     const editor = makeEditor();
     const provider: AutocompleteProvider = {
-      getSuggestions: vi.fn(
+      getSuggestions: mock(
         async (
           lines: string[],
           cursorLine: number,
@@ -275,7 +275,7 @@ describe('CustomEditor @ mention completion refresh', () => {
           return { items: [], prefix: '' };
         },
       ),
-      applyCompletion: vi.fn(
+      applyCompletion: mock(
         (
           lines: string[],
           cursorLine: number,
@@ -434,11 +434,11 @@ describe('CustomEditor slash menu description wrapping', () => {
     const editor = makeEditor();
     const description = 'path '.repeat(60).trim();
     const provider: AutocompleteProvider = {
-      getSuggestions: vi.fn(async () => ({
+      getSuggestions: mock(async () => ({
         items: [{ value: '@src/file.ts', label: 'file.ts', description }],
         prefix: '@f',
       })),
-      applyCompletion: vi.fn((lines, cursorLine, cursorCol) => ({
+      applyCompletion: mock((lines, cursorLine, cursorCol) => ({
         lines,
         cursorLine,
         cursorCol,
@@ -528,7 +528,7 @@ describe('CustomEditor paste marker expansion', () => {
 
   it('handles Ctrl+V expansion when cursor is on marker', () => {
     const editor = makeEditor();
-    editor.onPasteImage = vi.fn(async () => false);
+    editor.onPasteImage = mock(async () => false);
     const longText = 'line\n'.repeat(15).trimEnd();
     simulateLargePaste(editor, longText);
 
@@ -593,9 +593,9 @@ describe('CustomEditor paste marker expansion', () => {
 
   it('falls back to the text paste path when the image paste handler rejects', async () => {
     const editor = makeEditor();
-    const onTextPaste = vi.fn();
+    const onTextPaste = mock();
     editor.onTextPaste = onTextPaste;
-    editor.onPasteImage = vi.fn(async () => {
+    editor.onPasteImage = mock(async () => {
       throw new Error('clipboard backend broken');
     });
 
@@ -612,7 +612,7 @@ describe('CustomEditor paste marker expansion', () => {
         setImmediate(resolve);
       });
 
-      expect(onTextPaste).toHaveBeenCalledOnce();
+      expect(onTextPaste).toHaveBeenCalledTimes(1);
       expect(rejections).toHaveLength(0);
     } finally {
       process.off('unhandledRejection', onRejection);
@@ -623,25 +623,25 @@ describe('CustomEditor paste marker expansion', () => {
 describe('CustomEditor shortcut telemetry hooks', () => {
   it('reports undo shortcuts before delegating to the base editor', () => {
     const editor = makeEditor();
-    const onUndo = vi.fn();
+    const onUndo = mock();
     editor.onUndo = onUndo;
 
     editor.handleInput('a');
     editor.handleInput('\u001F');
 
-    expect(onUndo).toHaveBeenCalledOnce();
+    expect(onUndo).toHaveBeenCalledTimes(1);
   });
 
   it('invokes onOptimizePrompt on Ctrl+P without changing the draft', () => {
     const editor = makeEditor();
-    const onOptimizePrompt = vi.fn();
+    const onOptimizePrompt = mock();
     editor.onOptimizePrompt = onOptimizePrompt;
     editor.setText('fix the parser');
     const cursor = editor.getCursor();
 
     editor.handleInput('\u0010');
 
-    expect(onOptimizePrompt).toHaveBeenCalledOnce();
+    expect(onOptimizePrompt).toHaveBeenCalledTimes(1);
     expect(editor.getText()).toBe('fix the parser');
     expect(editor.getCursor()).toEqual(cursor);
   });
@@ -698,8 +698,8 @@ describe('CustomEditor shortcut telemetry hooks', () => {
     // inline input (an approval's rejection reason) receives the key here and
     // the editor leaves the draft alone.
     const editor = makeEditor();
-    const onStatusSurfaceRawInput = vi.fn().mockReturnValue(true);
-    const onStatusSurfaceKey = vi.fn().mockReturnValue(true);
+    const onStatusSurfaceRawInput = mock().mockReturnValue(true);
+    const onStatusSurfaceKey = mock().mockReturnValue(true);
     editor.onStatusSurfaceRawInput = onStatusSurfaceRawInput;
     editor.onStatusSurfaceKey = onStatusSurfaceKey;
 
@@ -721,7 +721,7 @@ describe('CustomEditor shortcut telemetry hooks', () => {
 
   it('routes Ctrl+E through the raw channel, which has no normalized key', () => {
     const editor = makeEditor();
-    const onStatusSurfaceRawInput = vi.fn().mockReturnValue(true);
+    const onStatusSurfaceRawInput = mock().mockReturnValue(true);
     editor.onStatusSurfaceRawInput = onStatusSurfaceRawInput;
 
     editor.handleInput('\u0005');
@@ -731,8 +731,8 @@ describe('CustomEditor shortcut telemetry hooks', () => {
 
   it('leaves the key to the editor when the raw channel rejects it', () => {
     const editor = makeEditor();
-    editor.onStatusSurfaceRawInput = vi.fn().mockReturnValue(false);
-    const onStatusSurfaceKey = vi.fn().mockReturnValue(true);
+    editor.onStatusSurfaceRawInput = mock().mockReturnValue(false);
+    const onStatusSurfaceKey = mock().mockReturnValue(true);
     editor.onStatusSurfaceKey = onStatusSurfaceKey;
 
     editor.handleInput('r');
@@ -743,7 +743,7 @@ describe('CustomEditor shortcut telemetry hooks', () => {
 
   it('routes Ctrl+T to the status strip as a fold toggle', () => {
     const editor = makeEditor();
-    const onStatusSurfaceKey = vi.fn().mockReturnValue(true);
+    const onStatusSurfaceKey = mock().mockReturnValue(true);
     editor.onStatusSurfaceKey = onStatusSurfaceKey;
 
     editor.handleInput('\u0014');
@@ -755,7 +755,7 @@ describe('CustomEditor shortcut telemetry hooks', () => {
     'toggles Updates focus on %j without changing the draft',
     (key) => {
       const editor = makeEditor();
-      const onStatusSurfaceKey = vi.fn().mockReturnValue(true);
+      const onStatusSurfaceKey = mock().mockReturnValue(true);
       editor.onStatusSurfaceKey = onStatusSurfaceKey;
       editor.setText('draft\nsecond line');
       const cursor = editor.getCursor();
@@ -775,7 +775,7 @@ describe('CustomEditor shortcut telemetry hooks', () => {
     ['\r', 'enter'],
   ] as const)('routes %j to the focused region as %s', (key, panelKey) => {
     const editor = makeEditor();
-    const onStatusSurfaceKey = vi.fn().mockReturnValue(true);
+    const onStatusSurfaceKey = mock().mockReturnValue(true);
     editor.onStatusSurfaceKey = onStatusSurfaceKey;
     editor.setText('draft');
     editor.handleInput(key);
@@ -789,7 +789,7 @@ describe('CustomEditor shortcut telemetry hooks', () => {
     ['9', 'digit9'],
   ] as const)('routes the %s key to the focused region as %s', (key, panelKey) => {
     const editor = makeEditor();
-    const onStatusSurfaceKey = vi.fn().mockReturnValue(true);
+    const onStatusSurfaceKey = mock().mockReturnValue(true);
     editor.onStatusSurfaceKey = onStatusSurfaceKey;
     editor.setText('draft');
     editor.handleInput(key);
@@ -799,7 +799,7 @@ describe('CustomEditor shortcut telemetry hooks', () => {
 
   it('routes a Kitty-encoded digit the same way as a bare one', () => {
     const editor = makeEditor();
-    const onStatusSurfaceKey = vi.fn().mockReturnValue(true);
+    const onStatusSurfaceKey = mock().mockReturnValue(true);
     editor.onStatusSurfaceKey = onStatusSurfaceKey;
     editor.setText('draft');
     // Kitty's disambiguate flag sends `1` as CSI-u.
@@ -832,16 +832,16 @@ describe('CustomEditor shortcut telemetry hooks', () => {
     'leaves %j to autocomplete even when the Updates panel is focused',
     (key) => {
       const editor = makeEditor();
-      const onStatusSurfaceKey = vi.fn();
+      const onStatusSurfaceKey = mock();
       editor.onStatusSurfaceKey = onStatusSurfaceKey;
       const internals = editor as unknown as { cancelAutocompleteActivity: () => void };
-      const cancelAutocomplete = vi.spyOn(internals, 'cancelAutocompleteActivity');
+      const cancelAutocomplete = spyOn(internals, 'cancelAutocompleteActivity');
       cancelAutocomplete.mockImplementation(() => {});
-      vi.spyOn(editor, 'hasAutocompleteActivity').mockReturnValue(true);
+      spyOn(editor, 'hasAutocompleteActivity').mockReturnValue(true);
       editor.setText('/rev');
       editor.handleInput(key);
       expect(onStatusSurfaceKey).not.toHaveBeenCalled();
-      if (key === '\u001B') expect(cancelAutocomplete).toHaveBeenCalledOnce();
+      if (key === '\u001B') expect(cancelAutocomplete).toHaveBeenCalledTimes(1);
     },
   );
 
@@ -851,7 +851,7 @@ describe('CustomEditor shortcut telemetry hooks', () => {
     ['9', 'digit9'],
   ] as const)('routes the %s key to the focused region as %s', (key, panelKey) => {
     const editor = makeEditor();
-    const onStatusSurfaceKey = vi.fn().mockReturnValue(true);
+    const onStatusSurfaceKey = mock().mockReturnValue(true);
     editor.onStatusSurfaceKey = onStatusSurfaceKey;
     editor.setText('draft');
     editor.handleInput(key);
@@ -1025,7 +1025,7 @@ describe('CustomEditor bash mode file completion', () => {
 describe('CustomEditor drag & drop image path', () => {
   it('attaches a quoted image path and consumes the input', () => {
     const editor = makeEditor();
-    const onPasteImagePath = vi.fn(() => true);
+    const onPasteImagePath = mock(() => true);
     editor.onPasteImagePath = onPasteImagePath;
 
     editor.handleInput('"C:\\Users\\me\\img.png"');
@@ -1036,7 +1036,7 @@ describe('CustomEditor drag & drop image path', () => {
 
   it('attaches a bare image path without quotes', () => {
     const editor = makeEditor();
-    const onPasteImagePath = vi.fn(() => true);
+    const onPasteImagePath = mock(() => true);
     editor.onPasteImagePath = onPasteImagePath;
 
     editor.handleInput('C:\\Users\\me\\img.png');
@@ -1046,7 +1046,7 @@ describe('CustomEditor drag & drop image path', () => {
 
   it('attaches a POSIX image path', () => {
     const editor = makeEditor();
-    const onPasteImagePath = vi.fn(() => true);
+    const onPasteImagePath = mock(() => true);
     editor.onPasteImagePath = onPasteImagePath;
 
     editor.handleInput('/home/user/img.png');
@@ -1055,7 +1055,7 @@ describe('CustomEditor drag & drop image path', () => {
 
   it('leaves non-image input as plain text', () => {
     const editor = makeEditor();
-    const onPasteImagePath = vi.fn(() => true);
+    const onPasteImagePath = mock(() => true);
     editor.onPasteImagePath = onPasteImagePath;
 
     editor.handleInput('hello world');
@@ -1065,7 +1065,7 @@ describe('CustomEditor drag & drop image path', () => {
 
   it('leaves a non-image extension as plain text', () => {
     const editor = makeEditor();
-    const onPasteImagePath = vi.fn(() => true);
+    const onPasteImagePath = mock(() => true);
     editor.onPasteImagePath = onPasteImagePath;
 
     editor.handleInput('C:\\Users\\me\\notes.txt');
@@ -1075,7 +1075,7 @@ describe('CustomEditor drag & drop image path', () => {
 
   it('leaves an unquoted path with spaces as plain text', () => {
     const editor = makeEditor();
-    const onPasteImagePath = vi.fn(() => true);
+    const onPasteImagePath = mock(() => true);
     editor.onPasteImagePath = onPasteImagePath;
 
     editor.handleInput('C:\\Users\\me\\My Image.png');
@@ -1085,7 +1085,7 @@ describe('CustomEditor drag & drop image path', () => {
 
   it('falls through to text insertion when the handler rejects the path', () => {
     const editor = makeEditor();
-    const onPasteImagePath = vi.fn(() => false);
+    const onPasteImagePath = mock(() => false);
     editor.onPasteImagePath = onPasteImagePath;
 
     editor.handleInput('C:\\Users\\me\\img.png');

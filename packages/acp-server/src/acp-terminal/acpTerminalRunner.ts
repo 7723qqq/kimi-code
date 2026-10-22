@@ -22,6 +22,21 @@ import { AcpHostFileSystem, IAcpConnection, type IAcpTerminalHandle } from '../a
 
 const OUTPUT_BYTE_LIMIT = 4 * 1024 * 1024;
 const OUTPUT_POLL_MS = 250;
+
+export interface AcpTerminalTimerHandle {
+  unref?(): void;
+}
+
+export interface AcpTerminalTimers {
+  setInterval(callback: () => void, intervalMs: number): AcpTerminalTimerHandle;
+  clearInterval(handle: AcpTerminalTimerHandle): void;
+}
+
+export const ACP_TERMINAL_TIMERS: AcpTerminalTimers = {
+  setInterval: (callback, intervalMs) => setInterval(callback, intervalMs),
+  clearInterval: (handle) => clearInterval(handle as ReturnType<typeof setInterval>),
+};
+
 /**
  * Pushed onto the tool's `stdout` (and therefore into the model's tool result)
  * when the client's terminal buffer no longer shares a prefix with what we
@@ -57,6 +72,7 @@ class AcpProcessService implements IHostProcessService {
     private readonly cwd: string,
     private readonly connection: IAcpConnection,
     private readonly local: IHostProcessService,
+    private readonly timers: AcpTerminalTimers,
   ) {}
 
   async spawn(
@@ -81,7 +97,7 @@ class AcpProcessService implements IHostProcessService {
       shellCommand: args[1] ?? '',
       terminalId: handle.id,
     });
-    return new AcpTerminalProcess(handle);
+    return new AcpTerminalProcess(handle, this.timers);
   }
 }
 
@@ -100,11 +116,14 @@ class AcpTerminalProcess implements IHostProcess {
    * most once so a long-running command cannot flood the tool result.
    */
   private truncatedNotified = false;
-  private readonly pollTimer: ReturnType<typeof setInterval>;
+  private readonly pollTimer: AcpTerminalTimerHandle;
   private readonly waitPromise: Promise<number>;
   private released = false;
 
-  constructor(private readonly handle: IAcpTerminalHandle) {
+  constructor(
+    private readonly handle: IAcpTerminalHandle,
+    private readonly timers: AcpTerminalTimers,
+  ) {
     this.stdin = new Writable({
       write(_chunk, _encoding, callback) {
         callback();
@@ -117,7 +136,7 @@ class AcpTerminalProcess implements IHostProcess {
     const waitPromise = this.run();
     waitPromise.catch(() => {});
     this.waitPromise = waitPromise;
-    this.pollTimer = setInterval(() => {
+    this.pollTimer = this.timers.setInterval(() => {
       void this.pump();
     }, OUTPUT_POLL_MS);
     this.pollTimer.unref?.();
@@ -190,7 +209,7 @@ class AcpTerminalProcess implements IHostProcess {
   }
 
   private stopPolling(): void {
-    clearInterval(this.pollTimer);
+    this.timers.clearInterval(this.pollTimer);
   }
 }
 
@@ -216,6 +235,7 @@ class AcpSessionRuntime implements Runtime {
     connection: IAcpConnection,
     environment: IHostEnvironment,
     local: IHostProcessService,
+    timers: AcpTerminalTimers,
   ) {
     this.identity = {
       workspaceId,
@@ -243,7 +263,7 @@ class AcpSessionRuntime implements Runtime {
       dirname: (p: string) => path.dirname(p),
     };
     this.fs = new AcpHostFileSystem({ sessionId } as unknown as ISessionContext, connection);
-    this.process = new AcpProcessService(sessionId, cwd, connection, local);
+    this.process = new AcpProcessService(sessionId, cwd, connection, local, timers);
   }
 
   dispose(): void {}
@@ -258,6 +278,7 @@ class AcpWorkspaceRuntimeAttachment implements RuntimeProviderAttachment {
     private readonly connection: IAcpConnection,
     private readonly environment: IHostEnvironment,
     private readonly local: IHostProcessService,
+    private readonly timers: AcpTerminalTimers,
   ) {}
 
   bindSession(sessionId: string, cwd: string): string {
@@ -271,6 +292,7 @@ class AcpWorkspaceRuntimeAttachment implements RuntimeProviderAttachment {
         this.connection,
         this.environment,
         this.local,
+        this.timers,
       ),
     );
     this.sessions.set(sessionId, registration);
@@ -300,6 +322,7 @@ export class AcpRuntimeProviderFactory implements RuntimeProviderFactory {
     private readonly connection: IAcpConnection,
     private readonly environment: IHostEnvironment,
     private readonly local: IHostProcessService,
+    private readonly timers: AcpTerminalTimers = ACP_TERMINAL_TIMERS,
   ) {}
 
   static runtimeId(sessionId: string): string {
@@ -316,6 +339,7 @@ export class AcpRuntimeProviderFactory implements RuntimeProviderFactory {
       this.connection,
       this.environment,
       this.local,
+      this.timers,
     );
     this.attachments.set(workspace.id, attachment);
     return {

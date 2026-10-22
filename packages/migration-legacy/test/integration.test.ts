@@ -1,9 +1,11 @@
 import { mkdir, mkdtemp, writeFile, readFile, rm, chmod } from 'node:fs/promises';
+
+const POSIX_PERMS = process.platform !== 'win32';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { detectMigration, runMigration } from '../src/index.js';
 import { migrationErrorsLogFile } from '../src/paths.js';
@@ -274,7 +276,7 @@ describe('runMigration (end-to-end on multi-workdir fixture)', () => {
     }
   });
 
-  it('records an unreadable plan file as a step failure without aborting the run', async () => {
+  it.skipIf(!POSIX_PERMS)('records an unreadable plan file as a step failure without aborting the run', async () => {
     const src = await mkdtemp(join(tmpdir(), 'plans-e2e-src-'));
     const plansSource = await mkdtemp(join(tmpdir(), 'plans-e2e-source-'));
     const broken = join(plansSource, 'broken.md');
@@ -303,7 +305,7 @@ describe('runMigration (end-to-end on multi-workdir fixture)', () => {
         await readFile(join(tgt, 'migration-report.json'), 'utf-8'),
       ) as MigrationReport;
       expect(persisted.summary.plans.failures).toEqual([
-        { sourcePath: broken, reason: report.summary.plans.failures[0]?.reason },
+        { sourcePath: broken, reason: report.summary.plans.failures[0]!.reason },
       ]);
 
       const log = await readFile(migrationErrorsLogFile(tgt), 'utf-8');

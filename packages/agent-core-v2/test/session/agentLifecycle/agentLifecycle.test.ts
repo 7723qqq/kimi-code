@@ -1,11 +1,12 @@
-import type { OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { type OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { ScopeUnits, type Fiber } from '#/_base/di/fiber';
 import { IInstantiationService } from '#/_base/di/instantiation';
 import { InstantiationService } from '#/_base/di/instantiationService';
-import { Disposable, DisposableStore } from '#/_base/di/lifecycle';
+import { DisposableStore } from '#/_base/di/lifecycle';
 import { type ISessionScopeHandle } from '#/_base/di/scope';
 import { TestInstantiationService } from '#/_base/di/test';
 import { BugIndicatingError } from '#/_base/errors/errors';
@@ -16,25 +17,19 @@ import { ILogService } from '#/_base/log/log';
 import { IAgentAgentsMdReminderService } from '#/agent/agentsMdReminder/agentsMdReminder';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { INHERITED_IN_FLIGHT_TOOL_OUTPUT } from '#/agent/contextMemory/openToolExchange';
-import type { ContextMessage } from '#/agent/contextMemory/types';
+import { type ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
 import '#/agent/permissionMode/permissionModeService';
-import {
-  cancelInteractionsForTurn,
-  detachInteractionAgent,
-} from '#/agent/interaction/interactionWiring';
+import { cancelInteractionsForTurn, detachInteractionAgent } from '#/agent/interaction/interactionWiring';
 import { IAgentLoopService } from '#/agent/loop/loop';
-import type { MachineEngine, MachineEngineAttachBundle } from '#/agent/loop/machine/engine';
+import { type MachineEngine, type MachineEngineAttachBundle } from '#/agent/loop/machine/engine';
 import { TurnStarted } from '#/agent/loop/turnEvents';
 import { IAgentMcpService } from '#/agent/mcp/mcp';
 import { ISessionMediaStore } from '#/agent/media/sessionMediaStore';
 import { SessionMediaStoreService } from '#/agent/media/sessionMediaStoreService';
 import '#/agent/contextMemory/contextMemoryService';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import {
-  permissionModeConfiguredKey,
-  permissionModeKey,
-} from '#/agent/permissionMode/permissionModeOps';
+import { permissionModeConfiguredKey, permissionModeKey } from '#/agent/permissionMode/permissionModeOps';
 import { IAgentPluginService } from '#/agent/plugin/agentPlugin';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { ProfileBind } from '#/agent/profile/profileOps';
@@ -80,6 +75,7 @@ import { McpOAuthService } from '#/mcpCore/oauth/service';
 import { IHostClock } from '#/os/interface/hostClock';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { BlobStoreService } from '#/persistence/backends/node-fs/blobStoreService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
@@ -107,12 +103,9 @@ import { IEventDispatcher } from '#/state/eventDispatcher';
 import '#/agent/toolActivation/toolActivationService';
 import { createWireMetadataRecord, type WireRecord } from '#/wire/record';
 import { IWireService } from '#/wire/wire';
-import {
-  IRuntimeResolver,
-  IWorkspaceInstanceManager,
-} from '#/workspace/workspaceInstance/workspaceInstanceManager';
-import type { AgentEventStore } from '#human/agent/slices';
-import type { ToolCall } from '#human/llm/message';
+import { IRuntimeResolver, IWorkspaceInstanceManager } from '#/workspace/workspaceInstance/workspaceInstanceManager';
+import { type AgentEventStore } from '#human/agent/slices';
+import { type ToolCall } from '#human/llm/message';
 
 import { stubAgentContext } from '../../agent/agentContext/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
@@ -248,22 +241,122 @@ function recordingAppendLog(initial: readonly WireRecord[] = []): {
   };
 }
 
+interface FakeHostTimerHandle extends IHostTimerHandle {
+  readonly id: number;
+}
+
+interface FakeHostClock extends IHostClock {
+  set(nowMs: number): void;
+}
+
+interface FakeHostTimers extends IHostTimers {
+  advanceAsync(byMs: number): Promise<void>;
+  readonly outstanding: number;
+  readonly scheduledDelays: readonly number[];
+}
+
+interface FakeHostTime {
+  readonly clock: FakeHostClock;
+  readonly timers: FakeHostTimers;
+}
+
+async function flushHostTimerWork(): Promise<void> {
+  for (let round = 0; round < 4; round += 1) {
+    await Promise.resolve();
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+  }
+}
+
+function createFakeHostTime(startMs = 0): FakeHostTime {
+  let nowMs = startMs;
+  let nextId = 1;
+  const scheduledDelays: number[] = [];
+  const scheduled: Array<{
+    readonly id: number;
+    readonly due: number;
+    readonly callback: () => void;
+    cleared: boolean;
+    fired: boolean;
+  }> = [];
+
+  const schedule = (callback: () => void, delayMs: number): FakeHostTimerHandle => {
+    const entry = {
+      id: nextId++,
+      due: nowMs + Math.max(delayMs, 0),
+      callback,
+      cleared: false,
+      fired: false,
+    };
+    scheduled.push(entry);
+    scheduledDelays.push(delayMs);
+    return { id: entry.id };
+  };
+
+  const clock: FakeHostClock = {
+    _serviceBrand: undefined,
+    now: () => new Date(nowMs),
+    timeZone: () => 'UTC',
+    set: (value) => {
+      nowMs = value;
+    },
+  };
+
+  const timers: FakeHostTimers = {
+    _serviceBrand: undefined,
+    setClampedTimeout: (callback, timeoutMs) =>
+      schedule(callback, Math.min(timeoutMs, 2_147_483_647)),
+    setTimeout: (callback, timeoutMs) => schedule(callback, timeoutMs),
+    clearTimeout: (handle) => {
+      const entry = scheduled.find((candidate) => candidate.id === (handle as { id?: number }).id);
+      if (entry !== undefined) entry.cleared = true;
+    },
+    advanceAsync: async (byMs) => {
+      await flushHostTimerWork();
+      const limit = nowMs + byMs;
+      for (;;) {
+        const next = scheduled
+          .filter((entry) => !entry.fired && !entry.cleared && entry.due <= limit)
+          .toSorted((left, right) => left.due - right.due || left.id - right.id)[0];
+        if (next === undefined) break;
+        nowMs = next.due;
+        next.fired = true;
+        next.callback();
+        await flushHostTimerWork();
+      }
+      nowMs = limit;
+      await flushHostTimerWork();
+    },
+    get outstanding() {
+      return scheduled.filter((entry) => !entry.cleared).length;
+    },
+    get scheduledDelays() {
+      return scheduledDelays;
+    },
+  };
+
+  return { clock, timers };
+}
+
 describe('AgentLifecycleService', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
-  let registerAgent: ReturnType<typeof vi.fn<ISessionMetadata['registerAgent']>>;
+  let registerAgent: ReturnType<typeof mock<ISessionMetadata['registerAgent']>>;
   let atomicDocs: Map<string, unknown>;
-  let permissionModeSetMode: ReturnType<typeof vi.fn>;
-  let stopAllOnExit: ReturnType<typeof vi.fn>;
-  let suppressAllTerminalNotifications: ReturnType<typeof vi.fn>;
+  let permissionModeSetMode: ReturnType<typeof mock>;
+  let stopAllOnExit: ReturnType<typeof mock>;
+  let suppressAllTerminalNotifications: ReturnType<typeof mock>;
   let loopActiveTurnId: number | undefined;
   let loopPendingPromptIds: string[];
-  let loopCancel: ReturnType<typeof vi.fn<IAgentLoopService['cancel']>>;
-  let loopSettled: ReturnType<typeof vi.fn<IAgentLoopService['settled']>>;
+  let loopCancel: ReturnType<typeof mock<IAgentLoopService['cancel']>>;
+  let loopSettled: ReturnType<typeof mock<IAgentLoopService['settled']>>;
   let beforeExecuteListeners: number;
   let didExecuteHookIds: string[];
+  let time: FakeHostTime;
 
   beforeEach(() => {
+    time = createFakeHostTime(Date.now());
     _clearAgentToolContributionsForTests();
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
@@ -276,7 +369,7 @@ describe('AgentLifecycleService', () => {
     ix.stub(IFileSystemStorageService, new InMemoryStorageService());
     ix.stub(IBlobStore, new BlobStoreService(new InMemoryStorageService()));
     ix.set(ISessionMediaStore, new SyncDescriptor(SessionMediaStoreService));
-    registerAgent = vi.fn<ISessionMetadata['registerAgent']>().mockResolvedValue(undefined);
+    registerAgent = mock<ISessionMetadata['registerAgent']>().mockResolvedValue(undefined);
     atomicDocs = new Map();
     ix.stub(ISessionContext, {
       _serviceBrand: undefined,
@@ -383,7 +476,7 @@ describe('AgentLifecycleService', () => {
     } as unknown as IAgentToolExecutorService);
     loopActiveTurnId = undefined;
     loopPendingPromptIds = [];
-    loopCancel = vi.fn<IAgentLoopService['cancel']>((target) => {
+    loopCancel = mock<IAgentLoopService['cancel']>((target) => {
       if (target?.promptId !== undefined) {
         loopPendingPromptIds = loopPendingPromptIds.filter((id) => id !== target.promptId);
         return true;
@@ -393,7 +486,7 @@ describe('AgentLifecycleService', () => {
       }
       return true;
     });
-    loopSettled = vi.fn<IAgentLoopService['settled']>(async () => {
+    loopSettled = mock<IAgentLoopService['settled']>(async () => {
       if (loopActiveTurnId !== undefined || loopPendingPromptIds.length > 0) {
         throw new Error('Agent loop did not settle');
       }
@@ -421,7 +514,7 @@ describe('AgentLifecycleService', () => {
       }),
       cancel: loopCancel,
       settled: loopSettled,
-      tryAcquireQuiescence: vi.fn(() => ({ dispose: vi.fn() })),
+      tryAcquireQuiescence: mock(() => ({ dispose: mock() })),
       buildAttachBundle: () => stubAttachBundle(),
       attachEngine: () => stubAttachEngine(),
     } as unknown as IAgentLoopService);
@@ -436,7 +529,8 @@ describe('AgentLifecycleService', () => {
     } as unknown as ITelemetryService);
     ix.stub(IHostEnvironment, { _serviceBrand: undefined } as IHostEnvironment);
     ix.stub(IHostFileSystem, { _serviceBrand: undefined } as IHostFileSystem);
-    ix.stub(IHostClock, { _serviceBrand: undefined } as IHostClock);
+    ix.stub(IHostClock, time.clock);
+    ix.stub(IHostTimers, time.timers);
     ix.stub(IModelCatalog, { _serviceBrand: undefined } as IModelCatalog);
     ix.stub(ISessionTokenCountingService, {
       estimateText: () => 0,
@@ -486,7 +580,7 @@ describe('AgentLifecycleService', () => {
       disabledTools: [],
       onDidChange: Event.None as Event<void>,
     } satisfies ISessionToolPolicyGate);
-    permissionModeSetMode = vi.fn();
+    permissionModeSetMode = mock();
     ix.stub(IAgentPermissionModeService, {
       _serviceBrand: undefined,
       mode: 'manual',
@@ -514,8 +608,8 @@ describe('AgentLifecycleService', () => {
       }),
       isBaselineServer: () => true,
     } satisfies ISessionMcpHandle);
-    stopAllOnExit = vi.fn(async () => []);
-    suppressAllTerminalNotifications = vi.fn(async () => {});
+    stopAllOnExit = mock(async () => []);
+    suppressAllTerminalNotifications = mock(async () => {});
     ix.stub(IAgentTaskService, {
       _serviceBrand: undefined,
       stopAllOnExit,
@@ -540,7 +634,7 @@ describe('AgentLifecycleService', () => {
   });
   afterEach(() => {
     disposables.dispose();
-    vi.restoreAllMocks();
+    mock.restore();
   });
 
   function contributeTodoService(): void {
@@ -581,7 +675,7 @@ describe('AgentLifecycleService', () => {
     expect((dispatcher as unknown as { wire: IWireService }).wire).toBe(
       handle.accessor.get(IWireService),
     );
-    const flush = vi.spyOn(dispatcher, 'flush');
+    const flush = spyOn(dispatcher, 'flush');
     await svc.remove(svc.get('main')!);
     expect(flush).toHaveBeenCalled();
   });
@@ -760,7 +854,7 @@ describe('AgentLifecycleService', () => {
 
     expect(stopAllOnExit).toHaveBeenCalledWith('Session closed');
     expect(loopSettled).toHaveBeenCalled();
-    expect(suppressAllTerminalNotifications).toHaveBeenCalledOnce();
+    expect(suppressAllTerminalNotifications).toHaveBeenCalledTimes(1);
     expect(suppressAllTerminalNotifications.mock.invocationCallOrder[0]).toBeLessThan(
       loopSettled.mock.invocationCallOrder[0]!,
     );
@@ -783,7 +877,7 @@ describe('AgentLifecycleService', () => {
     expect(closed).toEqual(['main']);
 
     await svc.remove(main);
-    expect(stopAllOnExit).toHaveBeenCalledOnce();
+    expect(stopAllOnExit).toHaveBeenCalledTimes(1);
   });
 
   it('remove waits for prompt intake to drain before disposing the agent scope', async () => {
@@ -820,16 +914,13 @@ describe('AgentLifecycleService', () => {
     const disposed: string[] = [];
     disposables.add(svc.onDidClose((agent) => disposed.push(agent.agentId)));
     loopSettled.mockImplementation(() => new Promise<void>(() => {}));
-    vi.useFakeTimers();
-    try {
-      const removal = svc.remove(main);
-      await vi.advanceTimersByTimeAsync(3_000);
+    const removal = svc.remove(main);
+    await time.timers.advanceAsync(3_000);
 
-      expect(disposed).toEqual(['main']);
-      await removal;
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(time.timers.scheduledDelays).toEqual([3_000]);
+    expect(time.timers.outstanding).toBe(0);
+    expect(disposed).toEqual(['main']);
+    await removal;
   });
 
   it('remove cancels queued turns before waiting for the active turn to settle', async () => {
@@ -845,7 +936,7 @@ describe('AgentLifecycleService', () => {
       { promptId: 'q3' },
       undefined,
     ]);
-    expect(loopSettled).toHaveBeenCalledOnce();
+    expect(loopSettled).toHaveBeenCalledTimes(1);
   });
 
   it('remove waits for an active full compaction to reject after aborting it', async () => {
@@ -1138,8 +1229,8 @@ describe('AgentLifecycleService', () => {
       created = true;
       return agent;
     });
-    await vi.waitFor(() => {
-      expect(registerAgent).toHaveBeenCalledOnce();
+    await waitForAssertion(() => {
+      expect(registerAgent).toHaveBeenCalledTimes(1);
     });
 
     expect(created).toBe(false);

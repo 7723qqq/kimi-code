@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 
 import { type IDisposable } from '#/_base/di/lifecycle';
 import {
@@ -71,7 +71,7 @@ describe('AgentConversationUndoService', () => {
     let persisted = false;
     const wire = ctx.get(IWireService);
     const originalFlush = wire.flush.bind(wire);
-    const flush = vi.spyOn(wire, 'flush').mockImplementation(async () => {
+    const flush = spyOn(wire, 'flush').mockImplementation(async () => {
       await originalFlush();
       if (restored) persisted = true;
     });
@@ -189,11 +189,15 @@ describe('AgentConversationUndoService', () => {
     const history = ctx.context.get();
     const compaction = ctx.get(IAgentFullCompactionService);
     const abortController = new AbortController();
-    const active = vi.spyOn(compaction, 'compacting', 'get').mockReturnValue({
-      abortController,
-      promise: new Promise<never>(() => {}),
-      trigger: 'manual',
-      tokenCount: 2,
+    const original = Object.getOwnPropertyDescriptor(compaction, 'compacting');
+    Object.defineProperty(compaction, 'compacting', {
+      configurable: true,
+      get: () => ({
+        abortController,
+        promise: new Promise<never>(() => {}),
+        trigger: 'manual',
+        tokenCount: 2,
+      }),
     });
 
     try {
@@ -204,7 +208,11 @@ describe('AgentConversationUndoService', () => {
       expect(abortController.signal.aborted).toBe(false);
       expect(ctx.context.get()).toBe(history);
     } finally {
-      active.mockRestore();
+      if (original === undefined) {
+        Reflect.deleteProperty(compaction, 'compacting');
+      } else {
+        Object.defineProperty(compaction, 'compacting', original);
+      }
     }
   });
 
@@ -458,11 +466,11 @@ describe('AgentConversationUndoService', () => {
     await setup();
     const wire = ctx.get(IWireService);
     const order: string[] = [];
-    const flush = vi.spyOn(wire, 'flush');
-    const originalFlush = flush.getMockImplementation();
+    const originalFlush = wire.flush.bind(wire);
+    const flush = spyOn(wire, 'flush');
     flush.mockImplementation(async () => {
       order.push('flush');
-      await originalFlush?.();
+      await originalFlush();
     });
     const participants = ctx.get(IAgentConversationUndoParticipantRegistry);
     participants.register({
@@ -486,10 +494,10 @@ describe('AgentConversationUndoService', () => {
     }
   });
 
-  it.each([
+  it.each<[number, string[]]>([
     [1, []],
     [3, ['state']],
-  ] as const)(
+  ])(
     'rejects the undo when wire flush %i fails',
     async (failureCall, expectedReconciled) => {
       await setup();
@@ -497,13 +505,13 @@ describe('AgentConversationUndoService', () => {
       const originalFlush = wire.flush.bind(wire);
       let flushCalls = 0;
       const storageError = new Error('storage unavailable');
-      const flush = vi.spyOn(wire, 'flush').mockImplementation(async () => {
+      const flush = spyOn(wire, 'flush').mockImplementation(async () => {
         flushCalls += 1;
         if (flushCalls === failureCall) throw storageError;
         await originalFlush();
       });
       const originalAppend = wire.appendRecord.bind(wire);
-      const appendRecord = vi.spyOn(wire, 'appendRecord');
+      const appendRecord = spyOn(wire, 'appendRecord');
       if (failureCall === 1) {
         appendRecord.mockImplementation((record, dehydrate) => {
           if (
@@ -646,7 +654,7 @@ describe('AgentConversationUndoService', () => {
     ctx.appendTurnExchange('u1', 'a1');
     ctx.appendTurnExchange('u2', 'a2');
     ctx.appendTurnExchange('u3', 'a3');
-    const list = vi.spyOn(ctx.get(IAgentLoopService), 'snapshot').mockReturnValue({
+    const list = spyOn(ctx.get(IAgentLoopService), 'snapshot').mockReturnValue({
       state: 'idle',
       activeTurnId: undefined,
       activePromptId: undefined,
@@ -687,7 +695,7 @@ describe('AgentConversationUndoService', () => {
     await setup();
     ctx.appendTurnExchange('u1', 'a1');
     ctx.appendTurnExchange('u2', 'a2');
-    const update = vi.spyOn(ctx.get(ISessionMetadata), 'update').mockRejectedValueOnce(
+    const update = spyOn(ctx.get(ISessionMetadata), 'update').mockRejectedValueOnce(
       new Error('metadata write failed'),
     );
     const undone: number[] = [];
@@ -760,9 +768,9 @@ describe('AgentConversationUndoService', () => {
     setUnexpectedErrorHandler((error) => unexpected.push(error));
     try {
       const dispatcher = ctx.dispatcher;
-      const box: { todos: readonly TodoItem[] } = { todos: [] };
-      const folded: TodoItem[][] = [];
-      const participant: DurableAgentRuntimeParticipant<{ todos: readonly TodoItem[] }> = {
+      const box: { todos: readonly TodoDraft[] } = { todos: [] };
+      const folded: TodoDraft[][] = [];
+      const participant: DurableAgentRuntimeParticipant<{ todos: readonly TodoDraft[] }> = {
         id: 'runtime.test.rerun-late',
         events: [ToolsUpdateStore],
         undoable: true,
@@ -787,7 +795,7 @@ describe('AgentConversationUndoService', () => {
       let lateAttach: Promise<IDisposable> | undefined;
       let liveDispatch: Promise<void> | undefined;
       const originalRestore = dispatcher.restore.bind(dispatcher);
-      const restoreSpy = vi.spyOn(dispatcher, 'restore').mockImplementation(async () => {
+      const restoreSpy = spyOn(dispatcher, 'restore').mockImplementation(async () => {
         const restored = originalRestore();
         lateAttach = dispatcher.attachLate(participant);
         liveDispatch = dispatcher.dispatch(update('live'));
@@ -827,7 +835,7 @@ describe('AgentConversationUndoService', () => {
     const originalFlush = wire.flush.bind(wire);
     const failure = new Error('transient storage failure');
     let flushCalls = 0;
-    const flush = vi.spyOn(wire, 'flush').mockImplementation(async () => {
+    const flush = spyOn(wire, 'flush').mockImplementation(async () => {
       flushCalls += 1;
       if (flushCalls === 2) throw failure;
       await originalFlush();
@@ -999,10 +1007,12 @@ function messageText(message: ContextMessage): string {
     .join('')}`;
 }
 
+type TodoDraft = Pick<TodoItem, 'title' | 'status'>;
+
 function legacyWireFold(records: readonly WireRecord[]): {
-  readonly context: readonly string[];
-  readonly todo: readonly string[];
-  readonly skippedUnknownTypes: readonly string[];
+  context: string[];
+  todo: string[];
+  skippedUnknownTypes: string[];
 } {
   const transcript: ContextMessage[] = [];
   const todoCheckpoints: string[][] = [];

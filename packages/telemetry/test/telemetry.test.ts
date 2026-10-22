@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
 
 import {
   flushTelemetrySync,
@@ -23,7 +23,11 @@ import {
 } from '../src/client';
 import { installCrashHandlersForClient, setCrashPhase, uninstallCrashHandlers } from '../src/crash';
 import { EventSink } from '../src/sink';
-import { SystemMetricsCollector } from '../src/systemMetrics';
+import {
+  SystemMetricsCollector,
+  type SystemMetricsTimerHandle,
+  type SystemMetricsTimers,
+} from '../src/systemMetrics';
 import {
   AsyncTransport,
   DISK_EVENT_MAX_AGE_MS,
@@ -43,16 +47,92 @@ import type {
 } from '../src/types';
 
 const tempDirs: string[] = [];
+const realFetch = globalThis.fetch;
+
+function stubFetch(impl: typeof fetch): void {
+  globalThis.fetch = impl;
+}
+
+async function waitFor(probe: () => void, timeout = 2_000, interval = 10): Promise<void> {
+  const deadline = Date.now() + timeout;
+  for (;;) {
+    try {
+      probe();
+      return;
+    } catch (error) {
+      if (Date.now() >= deadline) throw error;
+    }
+    await new Promise((resolve) => setTimeout(resolve, interval));
+  }
+}
+
+interface ScheduledTimer {
+  due: number;
+  readonly callback: () => void;
+  readonly intervalMs: number | undefined;
+  cancelled: boolean;
+  unref(): void;
+}
+
+// Drives the collector's own timer source instead of the process timers: the
+// sampler is the only clock in this package, so advancing this one advances
+// exactly the warmup/interval behaviour under test.
+function createFakeTimers(): SystemMetricsTimers & { advance: (byMs: number) => void } {
+  let nowMs = 0;
+  const timers: ScheduledTimer[] = [];
+
+  const schedule = (callback: () => void, delayMs: number, intervalMs?: number): ScheduledTimer => {
+    const timer: ScheduledTimer = {
+      due: nowMs + delayMs,
+      callback,
+      intervalMs,
+      cancelled: false,
+      unref: () => {},
+    };
+    timers.push(timer);
+    return timer;
+  };
+
+  const cancel = (handle: SystemMetricsTimerHandle): void => {
+    (handle as ScheduledTimer).cancelled = true;
+  };
+
+  return {
+    setTimeout: (callback, delayMs) => schedule(callback, delayMs),
+    clearTimeout: cancel,
+    setInterval: (callback, intervalMs) => schedule(callback, intervalMs, intervalMs),
+    clearInterval: cancel,
+    advance: (byMs) => {
+      const limit = nowMs + byMs;
+      for (;;) {
+        let next: ScheduledTimer | undefined;
+        for (const timer of timers) {
+          if (timer.cancelled || timer.due > limit) continue;
+          if (next === undefined || timer.due < next.due) next = timer;
+        }
+        if (next === undefined) break;
+        nowMs = next.due;
+        if (next.intervalMs === undefined) {
+          next.cancelled = true;
+        } else {
+          next.due += next.intervalMs;
+        }
+        next.callback();
+      }
+      nowMs = limit;
+    },
+  };
+}
 
 afterEach(() => {
   uninstallCrashHandlers();
   setCrashPhase('startup');
   resetDefaultTelemetryClientForTests();
-  vi.useRealTimers();
   for (const dir of tempDirs.splice(0)) {
     rmSync(dir, { recursive: true, force: true });
   }
-  vi.restoreAllMocks();
+  globalThis.fetch = realFetch;
+  mock.restore();
 });
 
 async function tempHome(): Promise<string> {
@@ -196,7 +276,7 @@ describe('TelemetryClient', () => {
     const client = new TelemetryClient();
     const transport = new RecordingTransport();
     client.attachSink(makeSink(transport));
-    const onUnexpectedError = vi.fn();
+    const onUnexpectedError = mock();
     client.setUnexpectedErrorHandler(onUnexpectedError);
 
     const properties = {
@@ -223,7 +303,7 @@ describe('TelemetryClient', () => {
     (properties as Record<string, unknown>)['keep'] = 2;
     (properties as Record<string, unknown>)['added'] = 'later';
 
-    const onUnexpectedError = vi.fn();
+    const onUnexpectedError = mock();
     client.setUnexpectedErrorHandler(onUnexpectedError);
     const transport = new RecordingTransport();
     client.attachSink(makeSink(transport));
@@ -235,7 +315,7 @@ describe('TelemetryClient', () => {
   });
 
   it('contains exceptions thrown by the unexpected error handler', async () => {
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const consoleError = spyOn(console, 'error').mockImplementation(() => {});
     const client = new TelemetryClient();
     const transport = new RecordingTransport();
     client.attachSink(makeSink(transport));
@@ -254,8 +334,8 @@ describe('TelemetryClient', () => {
 
   it('stops the previous system metrics collector when replacing it', () => {
     const client = new TelemetryClient();
-    const first = { stop: vi.fn() };
-    const second = { stop: vi.fn() };
+    const first = { stop: mock() };
+    const second = { stop: mock() };
 
     client.setSystemMetricsCollector(first);
     client.setSystemMetricsCollector(second);
@@ -358,7 +438,7 @@ describe('TelemetryClient', () => {
 
 describe('SystemMetricsCollector', () => {
   it('emits a numeric system_metrics sample after the warmup delay', () => {
-    vi.useFakeTimers();
+    const timers = createFakeTimers();
     const tracked: Array<{
       event: string;
       properties: Record<string, number | string | boolean | undefined | null>;
@@ -375,13 +455,14 @@ describe('SystemMetricsCollector', () => {
       client,
       intervalMs: 30_000,
       warmupSampleMs: 1_500,
+      timers,
     });
 
     collector.start();
-    vi.advanceTimersByTime(1_499);
+    timers.advance(1_499);
     expect(tracked).toHaveLength(0);
 
-    vi.advanceTimersByTime(1);
+    timers.advance(1);
     collector.stop();
 
     expect(tracked).toHaveLength(1);
@@ -405,8 +486,8 @@ describe('SystemMetricsCollector', () => {
   });
 
   it('omits constrained_memory_bytes when it is not a safe non-negative integer', () => {
-    vi.useFakeTimers();
-    vi.spyOn(process, 'constrainedMemory').mockReturnValue(2 ** 64);
+    const timers = createFakeTimers();
+    spyOn(process, 'constrainedMemory').mockReturnValue(2 ** 64);
     const tracked: Array<{
       event: string;
       properties: Record<string, number | string | boolean | undefined | null>;
@@ -423,10 +504,11 @@ describe('SystemMetricsCollector', () => {
       client,
       intervalMs: 30_000,
       warmupSampleMs: 1_500,
+      timers,
     });
 
     collector.start();
-    vi.advanceTimersByTime(1_500);
+    timers.advance(1_500);
     collector.stop();
 
     expect(tracked).toHaveLength(1);
@@ -438,8 +520,8 @@ describe('SystemMetricsCollector', () => {
   });
 
   it('reports constrained_memory_bytes when it is a safe non-negative integer', () => {
-    vi.useFakeTimers();
-    vi.spyOn(process, 'constrainedMemory').mockReturnValue(8 * 1024 ** 3);
+    const timers = createFakeTimers();
+    spyOn(process, 'constrainedMemory').mockReturnValue(8 * 1024 ** 3);
     const tracked: Array<{
       event: string;
       properties: Record<string, number | string | boolean | undefined | null>;
@@ -456,10 +538,11 @@ describe('SystemMetricsCollector', () => {
       client,
       intervalMs: 30_000,
       warmupSampleMs: 1_500,
+      timers,
     });
 
     collector.start();
-    vi.advanceTimersByTime(1_500);
+    timers.advance(1_500);
     collector.stop();
 
     expect(tracked).toHaveLength(1);
@@ -469,7 +552,7 @@ describe('SystemMetricsCollector', () => {
   });
 
   it('does not duplicate interval sampling when started twice', () => {
-    vi.useFakeTimers();
+    const timers = createFakeTimers();
     const tracked: string[] = [];
     const client = {
       track(event: string): void {
@@ -480,11 +563,12 @@ describe('SystemMetricsCollector', () => {
       client,
       intervalMs: 30_000,
       warmupSampleMs: null,
+      timers,
     });
 
     collector.start();
     collector.start();
-    vi.advanceTimersByTime(30_000);
+    timers.advance(30_000);
     collector.stop();
 
     expect(tracked).toEqual(['system_metrics']);
@@ -674,7 +758,7 @@ describe('server prefix application', () => {
 
     expect(applyServerPrefix(prefixed)).toBe(prefixed);
     expect(applyServerPrefix(emptyName as unknown as EnrichedTelemetryEvent)).toBe(emptyName);
-    expect(applyServerPrefix(missingName as unknown as EnrichedTelemetryEvent)).toBe(missingName);
+    expect(applyServerPrefix(missingName as unknown as EnrichedTelemetryEvent)).toBe(missingName as unknown as EnrichedTelemetryEvent);
     expect(applyServerPrefix(numberName)).toBe(numberName);
   });
 });
@@ -685,7 +769,7 @@ describe('AsyncTransport', () => {
   });
 
   it('sends the outbound payload with bearer token when available', async () => {
-    const fetchImpl = vi.fn(async () => new Response('', { status: 200 }));
+    const fetchImpl = mock(async () => new Response('', { status: 200 }));
     const transport = new AsyncTransport({
       homeDir: await tempHome(),
       deviceId: 'dev',
@@ -705,7 +789,7 @@ describe('AsyncTransport', () => {
   });
 
   it('resolves a function endpoint per send, so an in-process switch needs no rebuild', async () => {
-    const fetchImpl = vi.fn(
+    const fetchImpl = mock(
       async (_url: string | URL, _init?: RequestInit) => new Response('', { status: 200 }),
     );
     let endpoint: string | undefined = 'https://cn.test/events';
@@ -732,8 +816,7 @@ describe('AsyncTransport', () => {
   });
 
   it('retries anonymously on 401 with a token', async () => {
-    const fetchImpl = vi
-      .fn()
+    const fetchImpl = mock()
       .mockResolvedValueOnce(new Response('', { status: 401 }))
       .mockResolvedValueOnce(new Response('', { status: 200 }));
     const transport = new AsyncTransport({
@@ -755,8 +838,7 @@ describe('AsyncTransport', () => {
 
   it('spools to disk when the anonymous 401 retry gets a transient response', async () => {
     const homeDir = await tempHome();
-    const fetchImpl = vi
-      .fn()
+    const fetchImpl = mock()
       .mockResolvedValueOnce(new Response('', { status: 401 }))
       .mockResolvedValueOnce(new Response('', { status: 500 }));
     const transport = new AsyncTransport({
@@ -781,8 +863,7 @@ describe('AsyncTransport', () => {
 
   it('drops events when the anonymous 401 retry gets a non-retryable 4xx', async () => {
     const homeDir = await tempHome();
-    const fetchImpl = vi
-      .fn()
+    const fetchImpl = mock()
       .mockResolvedValueOnce(new Response('', { status: 401 }))
       .mockResolvedValueOnce(new Response('', { status: 403 }));
     const transport = new AsyncTransport({
@@ -805,7 +886,7 @@ describe('AsyncTransport', () => {
 
   it('spools transient failures to disk after retries exhaust', async () => {
     const homeDir = await tempHome();
-    const fetchImpl = vi.fn(async () => new Response('', { status: 429 }));
+    const fetchImpl = mock(async () => new Response('', { status: 429 }));
     const transport = new AsyncTransport({
       homeDir,
       deviceId: 'dev',
@@ -823,7 +904,7 @@ describe('AsyncTransport', () => {
 
   it('drops non-retryable 4xx responses without disk fallback', async () => {
     const homeDir = await tempHome();
-    const fetchImpl = vi.fn(async () => new Response('', { status: 422 }));
+    const fetchImpl = mock(async () => new Response('', { status: 422 }));
     const transport = new AsyncTransport({
       homeDir,
       deviceId: 'dev',
@@ -843,7 +924,7 @@ describe('AsyncTransport', () => {
     mkdirSync(telemetryDir, { recursive: true });
     const file = join(telemetryDir, 'failed_retry.jsonl');
     writeFileSync(file, `${JSON.stringify(sampleEvent('from_disk'))}\n`);
-    const fetchImpl = vi.fn(async () => new Response('', { status: 200 }));
+    const fetchImpl = mock(async () => new Response('', { status: 200 }));
     const transport = new AsyncTransport({
       homeDir,
       deviceId: 'dev',
@@ -872,7 +953,7 @@ describe('AsyncTransport', () => {
       homeDir,
       deviceId: 'dev',
       endpoint: 'https://mock.test/events',
-      fetchImpl: vi.fn(async () => new Response('', { status: 200 })) as unknown as typeof fetch,
+      fetchImpl: mock(async () => new Response('', { status: 200 })) as unknown as typeof fetch,
       now: () => now + DISK_EVENT_MAX_AGE_MS + 1,
     });
 
@@ -888,7 +969,7 @@ describe('AsyncTransport', () => {
       homeDir,
       deviceId: 'dev',
       endpoint: 'https://mock.test/events',
-      fetchImpl: vi.fn(async () => {
+      fetchImpl: mock(async () => {
         throw new TransientTelemetryError('nope');
       }) as unknown as typeof fetch,
       retryBackoffsMs: [10_000],
@@ -911,7 +992,7 @@ describe('AsyncTransport', () => {
       homeDir,
       deviceId: 'dev',
       endpoint: 'https://mock.test/events',
-      fetchImpl: vi.fn(async () => new Response('', { status: 429 })) as unknown as typeof fetch,
+      fetchImpl: mock(async () => new Response('', { status: 429 })) as unknown as typeof fetch,
       retryBackoffsMs: [10_000],
       sleep: async () => {
         controller.abort();
@@ -936,7 +1017,7 @@ describe('AsyncTransport', () => {
       homeDir,
       deviceId: 'dev',
       endpoint: 'https://mock.test/events',
-      fetchImpl: vi.fn(async () => new Response('', { status: 200 })) as unknown as typeof fetch,
+      fetchImpl: mock(async () => new Response('', { status: 200 })) as unknown as typeof fetch,
     });
 
     await expect(transport.send([sampleEvent('pre_aborted')], controller.signal)).rejects.toThrow(
@@ -955,7 +1036,7 @@ describe('AsyncTransport', () => {
       homeDir: brokenHome,
       deviceId: 'dev',
       endpoint: 'https://mock.test/events',
-      fetchImpl: vi.fn(async () => new Response('', { status: 200 })) as unknown as typeof fetch,
+      fetchImpl: mock(async () => new Response('', { status: 200 })) as unknown as typeof fetch,
     });
     const failure = await broken.send([sampleEvent('unsaved')], controller.signal).then(
       () => null,
@@ -971,7 +1052,7 @@ describe('AsyncTransport', () => {
       homeDir,
       deviceId: 'dev',
       endpoint: 'https://mock.test/events',
-      fetchImpl: vi.fn(async () => {
+      fetchImpl: mock(async () => {
         throw new DOMException('The operation was aborted.', 'AbortError');
       }) as unknown as typeof fetch,
       retryBackoffsMs: [],
@@ -994,7 +1075,7 @@ describe('AsyncTransport', () => {
       homeDir,
       deviceId: 'dev',
       endpoint: 'https://mock.test/events',
-      fetchImpl: vi.fn(async () => new Response('', { status: 500 })) as unknown as typeof fetch,
+      fetchImpl: mock(async () => new Response('', { status: 500 })) as unknown as typeof fetch,
       retryBackoffsMs: [],
     });
 
@@ -1014,7 +1095,7 @@ describe('AsyncTransport', () => {
 
   it('does not create a disk file for an empty batch or a schema violation', async () => {
     const homeDir = await tempHome();
-    const fetchImpl = vi.fn(async () => new Response('', { status: 200 }));
+    const fetchImpl = mock(async () => new Response('', { status: 200 }));
     const transport = new AsyncTransport({
       homeDir,
       deviceId: 'dev',
@@ -1044,8 +1125,8 @@ describe('telemetry bootstrap', () => {
   });
 
   it('disables the singleton without attaching a sink when opted out', async () => {
-    const fetchImpl = vi.fn(async () => new Response('', { status: 200 }));
-    vi.stubGlobal('fetch', fetchImpl);
+    const fetchImpl = mock(async () => new Response('', { status: 200 }));
+    stubFetch(fetchImpl);
     const saved = process.env['KIMI_DISABLE_TELEMETRY'];
     try {
       process.env['KIMI_DISABLE_TELEMETRY'] = 'true';
@@ -1071,8 +1152,8 @@ describe('telemetry bootstrap', () => {
     mkdirSync(telemetryDir, { recursive: true });
     const spool = join(telemetryDir, 'failed_retry.jsonl');
     writeFileSync(spool, `${JSON.stringify(sampleEvent('from_disk'))}\n`);
-    const fetchImpl = vi.fn(async () => new Response('', { status: 200 }));
-    vi.stubGlobal('fetch', fetchImpl);
+    const fetchImpl = mock(async () => new Response('', { status: 200 }));
+    stubFetch(fetchImpl);
 
     initializeTelemetry({
       homeDir,
@@ -1089,8 +1170,8 @@ describe('telemetry bootstrap', () => {
   });
 
   it('drops events queued before initialization when bootstrap starts paused', async () => {
-    const fetchImpl = vi.fn(async () => new Response('', { status: 200 }));
-    vi.stubGlobal('fetch', fetchImpl);
+    const fetchImpl = mock(async () => new Response('', { status: 200 }));
+    stubFetch(fetchImpl);
 
     track('queued_before_init');
     initializeTelemetry({
@@ -1106,8 +1187,8 @@ describe('telemetry bootstrap', () => {
   });
 
   it('resumes intake after a paused start without re-initialization', async () => {
-    const fetchImpl = vi.fn(async () => new Response('', { status: 200 }));
-    vi.stubGlobal('fetch', fetchImpl);
+    const fetchImpl = mock(async () => new Response('', { status: 200 }));
+    stubFetch(fetchImpl);
 
     initializeTelemetry({
       homeDir: await tempHome(),
@@ -1134,8 +1215,8 @@ describe('telemetry bootstrap', () => {
     mkdirSync(telemetryDir, { recursive: true });
     const spool = join(telemetryDir, 'failed_default.jsonl');
     writeFileSync(spool, `${JSON.stringify(sampleEvent('from_disk'))}\n`);
-    const fetchImpl = vi.fn(async () => new Response('', { status: 200 }));
-    vi.stubGlobal('fetch', fetchImpl);
+    const fetchImpl = mock(async () => new Response('', { status: 200 }));
+    stubFetch(fetchImpl);
 
     initializeTelemetry({
       homeDir,
@@ -1144,7 +1225,7 @@ describe('telemetry bootstrap', () => {
       version: '1.2.3',
       endpoint: 'https://mock.test/events',
     });
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(fetchImpl).toHaveBeenCalledTimes(1);
     });
     await shutdownTelemetry();
@@ -1153,8 +1234,8 @@ describe('telemetry bootstrap', () => {
   });
 
   it('queues singleton track calls before initialization, then flushes after bootstrap', async () => {
-    const fetchImpl = vi.fn(async () => new Response('', { status: 200 }));
-    vi.stubGlobal('fetch', fetchImpl);
+    const fetchImpl = mock(async () => new Response('', { status: 200 }));
+    stubFetch(fetchImpl);
 
     track('before_init');
     initializeTelemetry({
@@ -1180,8 +1261,8 @@ describe('telemetry bootstrap', () => {
   });
 
   it('forwards a caller-provided endpoint to the transport', async () => {
-    const fetchImpl = vi.fn(async (_input: unknown) => new Response('', { status: 200 }));
-    vi.stubGlobal('fetch', fetchImpl);
+    const fetchImpl = mock(async (_input: unknown) => new Response('', { status: 200 }));
+    stubFetch(fetchImpl);
 
     initializeTelemetry({
       homeDir: await tempHome(),
@@ -1198,9 +1279,9 @@ describe('telemetry bootstrap', () => {
   });
 
   it('wires onUnexpectedError to property sanitization on the singleton', async () => {
-    const fetchImpl = vi.fn(async () => new Response('', { status: 200 }));
-    vi.stubGlobal('fetch', fetchImpl);
-    const onUnexpectedError = vi.fn();
+    const fetchImpl = mock(async () => new Response('', { status: 200 }));
+    stubFetch(fetchImpl);
+    const onUnexpectedError = mock();
 
     initializeTelemetry({
       homeDir: await tempHome(),
@@ -1217,8 +1298,8 @@ describe('telemetry bootstrap', () => {
   });
 
   it('reconciles the singleton sink model for subsequently tracked events', async () => {
-    const fetchImpl = vi.fn(async () => new Response('', { status: 200 }));
-    vi.stubGlobal('fetch', fetchImpl);
+    const fetchImpl = mock(async () => new Response('', { status: 200 }));
+    stubFetch(fetchImpl);
 
     initializeTelemetry({
       homeDir: await tempHome(),
@@ -1268,15 +1349,15 @@ describe('telemetry bootstrap', () => {
   it('spools a shutdown-aborted batch exactly once', async () => {
     const homeDir = await tempHome();
     // An in-flight POST that only settles when the shutdown timeout aborts it.
-    const fetchImpl = vi.fn(
-      (_url: string | URL, init?: RequestInit) =>
+    const fetchImpl = mock(
+      (_url: string | URL | Request, init?: RequestInit) =>
         new Promise<Response>((_resolve, reject) => {
           init?.signal?.addEventListener('abort', () => {
             reject(new DOMException('The operation was aborted.', 'AbortError'));
           });
         }),
     );
-    vi.stubGlobal('fetch', fetchImpl);
+    stubFetch(fetchImpl);
 
     initializeTelemetry({
       homeDir,
@@ -1298,8 +1379,8 @@ describe('telemetry bootstrap', () => {
 
   it('spools a batch once when shutdown aborts during retry backoff', async () => {
     const homeDir = await tempHome();
-    const fetchImpl = vi.fn(async () => new Response('', { status: 429 }));
-    vi.stubGlobal('fetch', fetchImpl);
+    const fetchImpl = mock(async () => new Response('', { status: 429 }));
+    stubFetch(fetchImpl);
 
     initializeTelemetry({
       homeDir,
@@ -1320,7 +1401,7 @@ describe('telemetry bootstrap', () => {
   });
 
   it('writes system metrics with the singleton session context', async () => {
-    vi.useFakeTimers();
+    const timers = createFakeTimers();
     const homeDir = await tempHome();
     initializeTelemetry({
       homeDir,
@@ -1328,9 +1409,10 @@ describe('telemetry bootstrap', () => {
       sessionId: 'ses',
       appName: 'kimi-code-cli',
       version: '1.2.3',
+      systemMetricsTimers: timers,
     });
 
-    vi.advanceTimersByTime(1_500);
+    timers.advance(1_500);
     flushTelemetrySync();
 
     const telemetryDir = join(homeDir, 'telemetry');
@@ -1685,39 +1767,21 @@ function requestInitFrom(
 
 const NOT_CAUGHT = Symbol('not-caught');
 
-// Emitting 'unhandledRejection' at a sole crash-handler listener makes it
-// rethrow the reason: Node propagates that throw synchronously out of
-// process.emit, while Bun defers it and delivers the reason asynchronously
-// through uncaughtException. Own the uncaughtException channel briefly so the
-// rethrow is captured here instead of escaping into the vitest worker.
+// The sole-listener rethrow is the product contract: with no other rejection
+// listener installed, `installCrashHandlers` throws the reason out of its own
+// listener so the runtime still crashes. Call that listener directly — neither
+// runner routes a throw from `process.emit('unhandledRejection')` back to the
+// emitter's caller, and asserting the routing instead of the throw tests the
+// runtime, not the handler.
 async function emitRejectionAndCatch(reason: unknown): Promise<unknown> {
-  const uncaughtListeners = process.listeners('uncaughtException');
-  process.removeAllListeners('uncaughtException');
-  let caught: unknown = NOT_CAUGHT;
-  const catcher = (error: unknown): void => {
-    caught = error;
-  };
-  process.on('uncaughtException', catcher);
+  const listeners = process.listeners('unhandledRejection');
+  expect(listeners).toHaveLength(1);
   try {
-    try {
-      (process.emit as (event: string, ...args: unknown[]) => boolean)(
-        'unhandledRejection',
-        reason,
-        Promise.resolve(),
-      );
-    } catch (error) {
-      caught = error;
-    }
-    for (let waited = 0; caught === NOT_CAUGHT && waited < 2000; waited += 5) {
-      await new Promise((resolve) => setTimeout(resolve, 5));
-    }
-  } finally {
-    process.off('uncaughtException', catcher);
-    for (const listener of uncaughtListeners) {
-      process.on('uncaughtException', listener as (...args: unknown[]) => void);
-    }
+    (listeners[0] as (r: unknown, p: Promise<unknown>) => void)(reason, Promise.resolve());
+  } catch (error) {
+    return error;
   }
-  return caught;
+  return NOT_CAUGHT;
 }
 
 function emitCrash(

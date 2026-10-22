@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
+import { setGlobal, restoreGlobals } from '../../../../test/helpers/stubs';
 
 import { UNKNOWN_CAPABILITY } from '#/llm/capability';
 import { createUserMessage, type Message } from '#/llm/message';
@@ -81,14 +82,14 @@ describe('default client headers timeout', () => {
     );
     for (const key of [LLM_HEADERS_TIMEOUT_ENV, ...proxyEnvKeys]) delete process.env[key];
     let currentSse = openAISse;
-    const fetchStub = vi.fn(
+    const fetchStub = mock(
       async () =>
         new Response(currentSse, {
           status: 200,
           headers: { 'content-type': 'text/event-stream' },
         }),
     );
-    vi.stubGlobal('fetch', fetchStub);
+    setGlobal('fetch', fetchStub);
     try {
       const protocols = [
         { create: () => createOpenAIRequester(), sse: openAISse },
@@ -152,7 +153,7 @@ describe('default client headers timeout', () => {
       expect(fetchStub.mock.calls[calls - 1]?.[1]).not.toHaveProperty('dispatcher');
       delete process.env['HTTP_PROXY'];
     } finally {
-      vi.unstubAllGlobals();
+      restoreGlobals();
       for (const [key, value] of Object.entries(savedEnv)) {
         if (value === undefined) delete process.env[key];
         else process.env[key] = value;

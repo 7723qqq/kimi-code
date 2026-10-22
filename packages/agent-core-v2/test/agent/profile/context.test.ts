@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, normalize } from 'pathe';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
@@ -12,6 +12,8 @@ import {
   loadAgentsMdDetailed,
   prepareSystemPromptContext,
 } from '#/agent/profile/context';
+
+import { SYMLINKS } from '../../_support/symlinkSupport';
 
 function createFs(): IHostFileSystem {
   return new HostFileSystem();
@@ -81,7 +83,7 @@ describe('loadAgentsMd user-level discovery', () => {
 });
 
 describe('loadAgentsMd symlinked files', () => {
-  it('follows symlinks when loading user-level and project-level AGENTS.md', async () => {
+  it.skipIf(!SYMLINKS)('follows symlinks when loading user-level and project-level AGENTS.md', async () => {
     const targetDir = await mkdtemp(join(tmpdir(), 'kimi-agents-target-'));
     extraDirs.push(targetDir);
     const brandTarget = join(targetDir, 'brand-AGENTS.md');
@@ -101,7 +103,7 @@ describe('loadAgentsMd symlinked files', () => {
 });
 
 describe('loadAgentsMd unreadable paths', () => {
-  it('warns when an instruction file exists but is a dangling symlink', async () => {
+  it.skipIf(!SYMLINKS)('warns when an instruction file exists but is a dangling symlink', async () => {
     const brandHome = await mkdtemp(join(tmpdir(), 'kimi-agents-brand-'));
     extraDirs.push(brandHome);
     await symlink(join(workDir, 'missing-target.md'), join(workDir, 'AGENTS.md'));
@@ -232,7 +234,7 @@ describe('prepareSystemPromptContext additional directories', () => {
 
     const agentsMd = result.agentsMd ?? '';
 
-    expect(result.cwdListing).toBeTypeOf('string');
+    expect(typeof result.cwdListing).toBe('string');
     expect(result.additionalDirsInfo).toContain(`### ${extraDir}`);
     expect(result.additionalDirsInfo).toContain('extra-file.txt');
     expect(agentsMd).toContain('repo project instructions');

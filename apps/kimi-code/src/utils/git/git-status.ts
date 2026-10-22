@@ -37,8 +37,31 @@ export interface GitStatusCache {
   getStatus(): GitStatus | null;
 }
 
+export interface GitStatusDeps {
+  readonly now: () => number;
+  readonly resolveCommand: (command: string, cwd: string) => string | undefined;
+  readonly spawnSync: (
+    command: string,
+    args: readonly string[],
+    options: { readonly encoding: 'utf8'; readonly timeout: number; readonly maxBuffer?: number },
+  ) => { readonly status: number | null; readonly stdout: string };
+  readonly execFile: (
+    command: string,
+    args: readonly string[],
+    options: {
+      readonly cwd: string;
+      readonly encoding: 'utf8';
+      readonly env: NodeJS.ProcessEnv;
+      readonly timeout: number;
+      readonly maxBuffer: number;
+    },
+    callback: (error: Error | null, stdout: string) => void,
+  ) => void;
+}
+
 export interface GitStatusCacheOptions {
   readonly onChange?: () => void;
+  readonly deps?: Partial<GitStatusDeps>;
 }
 
 interface BranchState {
@@ -65,13 +88,34 @@ interface PullRequestState {
 
 const AHEAD_BEHIND_RE = /\[(?:ahead (\d+))?(?:, )?(?:behind (\d+))?\]/;
 
+const DEFAULT_DEPS: GitStatusDeps = {
+  now: () => Date.now(),
+  resolveCommand: resolveCommandPath,
+  spawnSync: (command, args, options) => spawnSync(command, args, options),
+  execFile: (command, args, options, callback) => {
+    execFile(command, args, options, (error, stdout) => {
+      callback(error, stdout);
+    });
+  },
+};
+
+function resolveDeps(overrides: Partial<GitStatusDeps> | undefined): GitStatusDeps {
+  return {
+    now: overrides?.now ?? DEFAULT_DEPS.now,
+    resolveCommand: overrides?.resolveCommand ?? DEFAULT_DEPS.resolveCommand,
+    spawnSync: overrides?.spawnSync ?? DEFAULT_DEPS.spawnSync,
+    execFile: overrides?.execFile ?? DEFAULT_DEPS.execFile,
+  };
+}
+
 export function createGitStatusCache(
   workDir: string,
   options: GitStatusCacheOptions = {},
 ): GitStatusCache {
+  const d = resolveDeps(options.deps);
   // Resolve through PATH to an absolute path — a bare name would let cmd.exe
   // pick up a `git.exe` planted in the workspace.
-  const git = resolveCommandPath('git', workDir);
+  const git = d.resolveCommand('git', workDir);
   let repoDetected = false;
   let isRepo = false;
   let branch: BranchState = { value: null, fetchedAt: 0 };
@@ -97,18 +141,18 @@ export function createGitStatusCache(
       if (repoDetected && !isRepo) return null;
       if (!repoDetected) {
         repoDetected = true;
-        isRepo = detectGitRepo(git, workDir);
+        isRepo = detectGitRepo(d, git, workDir);
       }
       if (!isRepo) return null;
 
-      const now = Date.now();
+      const now = d.now();
       if (now - branch.fetchedAt >= BRANCH_TTL_MS) {
-        branch = { value: readBranch(git, workDir), fetchedAt: now };
+        branch = { value: readBranch(d, git, workDir), fetchedAt: now };
       }
       if (branch.value === null) return null;
 
       if (now - status.fetchedAt >= STATUS_TTL_MS) {
-        status = { ...readStatus(git, workDir), fetchedAt: now };
+        status = { ...readStatus(d, git, workDir), fetchedAt: now };
       }
       refreshPullRequestIfNeeded(branch.value, now);
 
@@ -138,7 +182,7 @@ export function createGitStatusCache(
       requestId,
     };
 
-    void readPullRequest(workDir).then((value) => {
+    void readPullRequest(d, workDir).then((value) => {
       if (pullRequest.requestId !== requestId) return;
 
       const previous = pullRequest.branch === branchName ? pullRequest.value : null;
@@ -146,7 +190,7 @@ export function createGitStatusCache(
       pullRequest = {
         value,
         branch: branchName,
-        fetchedAt: Date.now(),
+        fetchedAt: d.now(),
         pendingBranch: null,
         requestId,
       };
@@ -155,9 +199,9 @@ export function createGitStatusCache(
   }
 }
 
-function detectGitRepo(git: string, workDir: string): boolean {
+function detectGitRepo(d: GitStatusDeps, git: string, workDir: string): boolean {
   try {
-    const result = spawnSync(git, ['-C', workDir, 'rev-parse', '--is-inside-work-tree'], {
+    const result = d.spawnSync(git, ['-C', workDir, 'rev-parse', '--is-inside-work-tree'], {
       encoding: 'utf8',
       timeout: SPAWN_TIMEOUT_MS,
     });
@@ -167,9 +211,9 @@ function detectGitRepo(git: string, workDir: string): boolean {
   }
 }
 
-function readBranch(git: string, workDir: string): string | null {
+function readBranch(d: GitStatusDeps, git: string, workDir: string): string | null {
   try {
-    const result = spawnSync(git, ['-C', workDir, 'branch', '--show-current'], {
+    const result = d.spawnSync(git, ['-C', workDir, 'branch', '--show-current'], {
       encoding: 'utf8',
       timeout: SPAWN_TIMEOUT_MS,
     });
@@ -182,6 +226,7 @@ function readBranch(git: string, workDir: string): string | null {
 }
 
 function readStatus(
+  d: GitStatusDeps,
   git: string,
   workDir: string,
 ): {
@@ -192,7 +237,7 @@ function readStatus(
   diffDeleted: number;
 } {
   try {
-    const result = spawnSync(git, ['-C', workDir, 'status', '--porcelain', '-b'], {
+    const result = d.spawnSync(git, ['-C', workDir, 'status', '--porcelain', '-b'], {
       encoding: 'utf8',
       timeout: SPAWN_TIMEOUT_MS,
       maxBuffer: 4 * 1024 * 1024,
@@ -215,7 +260,7 @@ function readStatus(
         dirty = true;
       }
     }
-    const diff = dirty ? readDiffStats(git, workDir) : { added: 0, deleted: 0 };
+    const diff = dirty ? readDiffStats(d, git, workDir) : { added: 0, deleted: 0 };
     return {
       dirty,
       ahead,
@@ -228,9 +273,13 @@ function readStatus(
   }
 }
 
-function readDiffStats(git: string, workDir: string): { added: number; deleted: number } {
+function readDiffStats(
+  d: GitStatusDeps,
+  git: string,
+  workDir: string,
+): { added: number; deleted: number } {
   try {
-    const result = spawnSync(git, ['-C', workDir, 'diff', '--numstat', 'HEAD', '--'], {
+    const result = d.spawnSync(git, ['-C', workDir, 'diff', '--numstat', 'HEAD', '--'], {
       encoding: 'utf8',
       timeout: SPAWN_TIMEOUT_MS,
       maxBuffer: 4 * 1024 * 1024,
@@ -257,17 +306,17 @@ function parseDiffNumstatCount(value: string | undefined): number {
   return Number.isFinite(n) && n > 0 ? n : 0;
 }
 
-function readPullRequest(workDir: string): Promise<PullRequestInfo | null> {
+function readPullRequest(d: GitStatusDeps, workDir: string): Promise<PullRequestInfo | null> {
   return new Promise((resolve) => {
     // Resolve gh through PATH as well — this runs with cwd = workDir, where a
     // planted `gh.exe` would otherwise be picked up by cmd.exe on Windows.
-    const gh = resolveCommandPath('gh', workDir);
+    const gh = d.resolveCommand('gh', workDir);
     if (gh === undefined) {
       resolve(null);
       return;
     }
     try {
-      execFile(
+      d.execFile(
         gh,
         ['pr', 'view', '--json', 'number,url'],
         {

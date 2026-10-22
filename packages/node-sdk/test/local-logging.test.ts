@@ -1,8 +1,9 @@
+import { createRequire } from 'node:module';
 import { readFile, mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 
 import { createKimiHarness, flushDiagnosticLogs, log } from '#/index';
 import { __resetRootLoggerForTest, getRootLogger, RotatingFileSink } from '#/logging/index';
@@ -14,12 +15,17 @@ import { TEST_IDENTITY } from './test-identity';
 // sink tests simulate a mid-batch disk failure (ENOSPC/EIO) without touching
 // the fs layer the harness tests in this file depend on. `attempts` counts
 // every append, which is the file-level work one drain performs.
-const sinkFault = vi.hoisted(() => ({ failOn: undefined as string | undefined, attempts: 0 }));
+const sinkFault: { failOn: string | undefined; attempts: number } = {
+  failOn: undefined,
+  attempts: 0,
+};
 
 const SINK_FAULT_MARKER = '@@sink-fault@@';
 
-vi.mock('node:fs/promises', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:fs/promises')>();
+// Bun calls the factory with no arguments and a module cannot import the
+// specifier it is replacing, so the real namespace comes from `createRequire`.
+void mock.module('node:fs/promises', () => {
+  const actual = createRequire(import.meta.url)('node:fs/promises') as typeof import('node:fs/promises');
   return {
     ...actual,
     open: async (...args: Parameters<typeof actual.open>) => {
@@ -216,8 +222,8 @@ describe('RotatingFileSink — partial drain recovery', () => {
   const SINK_MAX_BYTES = 64;
   const SINK_FILES = 5;
 
-  function makeSink(path: string): RotatingFileSink {
-    return new RotatingFileSink({ path, maxBytes: SINK_MAX_BYTES, files: SINK_FILES });
+  function makeSink(path: string, now?: () => number): RotatingFileSink {
+    return new RotatingFileSink({ path, maxBytes: SINK_MAX_BYTES, files: SINK_FILES, now });
   }
 
   // Rotation moves `kimi-code.log` to `.1`, `.2`, …; a line's fate can only be
@@ -240,7 +246,8 @@ describe('RotatingFileSink — partial drain recovery', () => {
 
   // The drain waits on fs work that hops through the threadpool; under the Bun
   // runtime `setImmediate` does not join those callbacks, so wait on real
-  // timers (these tests fake `Date` only, so `setTimeout` still elapses).
+  // timers. The retry clock is injected into the sink, never faked here, so
+  // `setTimeout` still elapses.
   async function settle(): Promise<void> {
     await new Promise<void>((resolve) => setTimeout(resolve, 20));
   }
@@ -253,7 +260,6 @@ describe('RotatingFileSink — partial drain recovery', () => {
   afterEach(() => {
     sinkFault.failOn = undefined;
     sinkFault.attempts = 0;
-    vi.useRealTimers();
   });
 
   it('does not rewrite a chunk that already reached the file when a later chunk fails', async () => {
@@ -293,7 +299,7 @@ describe('RotatingFileSink — partial drain recovery', () => {
     sink.enqueue(`doomed-b-${SINK_FAULT_MARKER}\n`);
 
     const stderrChunks: string[] = [];
-    const writeSpy = vi.spyOn(process.stderr, 'write').mockImplementation((chunk: unknown) => {
+    const writeSpy = spyOn(process.stderr, 'write').mockImplementation((chunk: unknown) => {
       stderrChunks.push(String(chunk));
       return true;
     });
@@ -312,15 +318,13 @@ describe('RotatingFileSink — partial drain recovery', () => {
   it('rate-limits automatic retries of a permanently failing sink, but never an explicit flush', async () => {
     const homeDir = await makeTempDir('kimi-log-sink-');
     const logPath = join(homeDir, 'logs', 'kimi-code.log');
-    const sink = makeSink(logPath);
-    const now = Date.now();
+    // A clock the test drives: the retry deadline set by the first failure
+    // stays in the future until the test advances it, so this measures the
+    // gate, not the scheduler, while real timers keep `settle` working.
+    let clock = Date.now();
+    const sink = makeSink(logPath, () => clock);
+    const now = clock;
     sinkFault.failOn = SINK_FAULT_MARKER;
-
-    // Frozen clock: the retry deadline set by the first failure stays in the
-    // future for the whole test, so this measures the gate, not the scheduler.
-    // Only `Date` is faked, leaving real timers for `settle`.
-    vi.useFakeTimers({ toFake: ['Date'] });
-    vi.setSystemTime(now);
 
     // A synchronous burst — every `enqueue` queues its own drain microtask.
     // Ungated this is one append attempt per line; the burst itself may cost a
@@ -346,7 +350,7 @@ describe('RotatingFileSink — partial drain recovery', () => {
     expect(sinkFault.attempts).toBe(afterBurst + 1);
 
     // Past the deadline the sink retries on its own again, without a flush.
-    vi.setSystemTime(now + 60_000);
+    clock = now + 60_000;
     sink.enqueue(`after-deadline-${SINK_FAULT_MARKER}\n`);
     await settle();
     expect(sinkFault.attempts).toBe(afterBurst + 2);

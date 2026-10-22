@@ -314,6 +314,23 @@ export async function assertLocalBaseBranch(repoRoot: string, base: string): Pro
   }
 }
 
+const RENAME_RETRY_CODES = new Set(['EPERM', 'EACCES', 'EBUSY']);
+
+async function renameWithRetry(from: string, to: string): Promise<void> {
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await rename(from, to);
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === undefined || !RENAME_RETRY_CODES.has(code) || attempt >= 20) throw error;
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 5 * attempt);
+      });
+    }
+  }
+}
+
 export class TowerStore {
   private readonly stateLockTimeoutMs: number;
   private readonly stateLockPollMs: number;
@@ -714,7 +731,7 @@ export class TowerStore {
     const tmp = `${file}.tmp-${String(process.pid)}-${randomUUID()}`;
     try {
       await writeFile(tmp, `${JSON.stringify(state, null, 2)}\n`, 'utf8');
-      await rename(tmp, file);
+      await renameWithRetry(tmp, file);
     } catch (error) {
       await rm(tmp, { force: true });
       throw error;

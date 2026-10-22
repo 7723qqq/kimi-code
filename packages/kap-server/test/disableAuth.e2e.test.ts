@@ -2,7 +2,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
+import { removeTempHome } from './helpers/tempHome';
 import { WebSocket, type RawData } from 'ws';
 
 import { type RunningServer, startServer } from '../src/start';
@@ -64,7 +65,7 @@ describe('server-v2 disableAuth (--dangerous-bypass-auth)', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
+      await removeTempHome(home);
       home = undefined;
     }
   });

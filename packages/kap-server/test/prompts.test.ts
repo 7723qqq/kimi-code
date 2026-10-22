@@ -1,3 +1,5 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import {
   chmod,
   mkdir,
@@ -13,7 +15,7 @@ import {
 } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, sep } from 'node:path';
 import { deflateSync } from 'node:zlib';
 
 import {
@@ -39,7 +41,6 @@ import {
   closeSessionById,
   getLiveSessionById,
 } from '@moonshot-ai/agent-core-v2';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   projectPromptSnapshot,
@@ -50,6 +51,7 @@ import {
 import { type RunningServer, startServer } from '../src/start';
 import { authHeaders } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
+import { waitForAssertion, waitUntil } from './helpers/waitFor';
 
 interface Envelope<T> {
   code: number;
@@ -161,7 +163,7 @@ function pngChunk(type: string, data: Buffer): Buffer {
   return Buffer.concat([length, typeBytes, data, crc]);
 }
 
-function solidPng(width: number, height: number): Buffer {
+function solidPng(width: number, height: number): Buffer<ArrayBuffer> {
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(width, 0);
   ihdr.writeUInt32BE(height, 4);
@@ -203,8 +205,24 @@ function pngDimensions(bytes: Buffer): { width: number; height: number } {
 }
 
 async function readFileEventually(path: string): Promise<Buffer> {
-  return vi.waitFor(() => readFile(path));
+  return waitUntil(() => readFile(path));
 }
+
+function probeFileSymlinks(): boolean {
+  const dir = mkdtempSync(join(tmpdir(), 'kimi-prompts-symlink-probe-'));
+  try {
+    const target = join(dir, 'target');
+    writeFileSync(target, '');
+    symlinkSync(target, join(dir, 'link'));
+    return true;
+  } catch {
+    return false;
+  } finally {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 });
+  }
+}
+
+const SUPPORTS_FILE_SYMLINKS = probeFileSymlinks();
 
 function sessionMediaDir(server: RunningServer, sessionId: string): string {
   const session = getLiveSessionById(server.core.accessor, sessionId);
@@ -395,7 +413,7 @@ describe('server-v2 /api/v1 prompts', () => {
     });
     expect(submitted.body.code).toBe(0);
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(ended).toHaveLength(1);
     });
     subscription.dispose();
@@ -457,7 +475,7 @@ describe('server-v2 /api/v1 prompts', () => {
     });
     expect(submitted.body.code).toBe(0);
 
-    await vi.waitFor(
+    await waitForAssertion(
       () => {
         expect(ended).toHaveLength(1);
       },
@@ -579,14 +597,14 @@ describe('server-v2 /api/v1 prompts', () => {
         },
       },
     };
-    const listing = vi
-      .spyOn(loop, 'snapshot')
-      .mockReturnValue({ ...loop.snapshot(), activePromptId: 'active-skill', queue: [] });
-    const lookup = vi
-      .spyOn(loop, 'promptHandle')
-      .mockImplementation(
-        (promptId) => (promptId === 'active-skill' ? handle : undefined) as never,
-      );
+    const listing = spyOn(loop, 'snapshot').mockReturnValue({
+      ...loop.snapshot(),
+      activePromptId: 'active-skill',
+      queue: [],
+    });
+    const lookup = spyOn(loop, 'promptHandle').mockImplementation(
+      (promptId) => (promptId === 'active-skill' ? handle : undefined) as never,
+    );
     try {
       const result = await call<{ prompts: unknown[] }>(
         'GET',
@@ -614,7 +632,7 @@ describe('server-v2 /api/v1 prompts', () => {
     const metadata = [{ display_text: 'Save button', kimi_code_composer: { version: 1 } }];
     const loop = agent.accessor.get(IAgentLoopService);
     const origin = { kind: 'user', clientMetadata: metadata };
-    const listing = vi.spyOn(loop, 'snapshot').mockReturnValue({
+    const listing = spyOn(loop, 'snapshot').mockReturnValue({
       ...loop.snapshot(),
       queue: [
         {
@@ -844,11 +862,11 @@ describe('server-v2 /api/v1 prompts', () => {
         }) => void,
       ) {
         handlers.push(handler);
-        return { dispose: vi.fn() };
+        return { dispose: mock() };
       },
     };
 
-    const discard = vi.fn();
+    const discard = mock();
     const tracker = watchPromptSettlements(events as never);
     tracker.settle('msg_1', discard);
     handlers[0]!({ type: 'prompt.completed', promptId: 'msg_other' });
@@ -857,13 +875,13 @@ describe('server-v2 /api/v1 prompts', () => {
     handlers[0]!({ type: 'prompt.completed', promptId: 'msg_1' });
     expect(discard).toHaveBeenCalledTimes(1);
 
-    const blockedDiscard = vi.fn();
+    const blockedDiscard = mock();
     const blockedTracker = watchPromptSettlements(events as never);
     handlers[1]!({ type: 'prompt.completed', promptId: 'msg_blocked' });
     blockedTracker.settle('msg_blocked', blockedDiscard);
     expect(blockedDiscard).toHaveBeenCalledTimes(1);
 
-    const steered = vi.fn();
+    const steered = mock();
     const steeredTracker = watchPromptSettlements(events as never);
     steeredTracker.settle('msg_3', steered);
     handlers[2]!({ type: 'prompt.steered', promptIds: ['msg_3'], activePromptId: 'msg_parent' });
@@ -873,13 +891,13 @@ describe('server-v2 /api/v1 prompts', () => {
     handlers[2]!({ type: 'prompt.completed', promptId: 'msg_parent' });
     expect(steered).toHaveBeenCalledTimes(1);
 
-    const aborted = vi.fn();
+    const aborted = mock();
     const abortedTracker = watchPromptSettlements(events as never);
     abortedTracker.settle('msg_4', aborted);
     handlers[3]!({ type: 'prompt.aborted', promptId: 'msg_4' });
     expect(aborted).toHaveBeenCalledTimes(1);
 
-    const rejected = vi.fn();
+    const rejected = mock();
     const rejectedTracker = watchPromptSettlements(events as never);
     rejectedTracker.settle('msg_5', rejected);
     rejectedTracker.dispose();
@@ -1008,7 +1026,7 @@ describe('server-v2 /api/v1 prompts', () => {
     expect(caption.text).toContain('3600x1800');
     const pathMatch = /saved at "([^"]+)"/.exec(caption.text);
     expect(pathMatch).not.toBeNull();
-    expect(pathMatch![1]!).toContain('/media-originals/');
+    expect(pathMatch![1]!.split(sep).join('/')).toContain('/media-originals/');
     expect(await readFile(pathMatch![1]!)).toEqual(bigPng);
 
     const image = content[1] as { type: string; source: { kind: string; file_id: string } };
@@ -1028,7 +1046,7 @@ describe('server-v2 /api/v1 prompts', () => {
     expect(original.meta.size).toBe(bigPng.length);
 
     const files = server!.core.accessor.get(IFileService);
-    await vi.waitFor(async () => {
+    await waitForAssertion(async () => {
       const result = await files.get(finalFileId).catch((error: unknown) => error);
       expect(result).toMatchObject({ code: 'file.not_found' });
     });
@@ -1092,7 +1110,7 @@ describe('server-v2 /api/v1 prompts', () => {
       );
       expect(aborted.body.code).toBe(0);
       expect((await handle!.completion).state).toBe('cancelled');
-      await vi.waitFor(async () => {
+      await waitForAssertion(async () => {
         expect(await transientPresent()).toBe(false);
       });
     } finally {
@@ -1115,13 +1133,13 @@ describe('server-v2 /api/v1 prompts', () => {
     const originalSave = files.save.bind(files);
     let secondGets = 0;
     let compressedFileId: string | undefined;
-    const getSpy = vi.spyOn(files, 'get').mockImplementation(async (fileId) => {
+    const getSpy = spyOn(files, 'get').mockImplementation(async (fileId) => {
       if (fileId === second.id && ++secondGets === 2) {
         throw new Error('injected second-part failure');
       }
       return originalGet(fileId);
     });
-    const saveSpy = vi.spyOn(files, 'save').mockImplementation(async (...args) => {
+    const saveSpy = spyOn(files, 'save').mockImplementation(async (...args) => {
       const saved = await originalSave(...args);
       compressedFileId = saved.id;
       return saved;
@@ -1197,7 +1215,7 @@ describe('server-v2 /api/v1 prompts', () => {
 
     const session = getLiveSessionById(server!.core.accessor, id);
     const main = session!.accessor.get(IAgentLifecycleService).handleOf('main')!;
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       const replayedMessage = main.accessor
         .get(IAgentContextMemoryService)
         .get()
@@ -1238,7 +1256,7 @@ describe('server-v2 /api/v1 prompts', () => {
 
       const session = getLiveSessionById(server!.core.accessor, id);
       const main = session!.accessor.get(IAgentLifecycleService).handleOf('main')!;
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         const message = main.accessor
           .get(IAgentContextMemoryService)
           .get()
@@ -1282,7 +1300,7 @@ describe('server-v2 /api/v1 prompts', () => {
     if (caption?.type !== 'text') throw new Error('expected compression caption');
     const pathMatch = /saved at "([^"]+)"/.exec(caption.text);
     expect(pathMatch).not.toBeNull();
-    expect(pathMatch![1]!).toContain('/media-originals/');
+    expect(pathMatch![1]!.split(sep).join('/')).toContain('/media-originals/');
     expect((await realpath(pathMatch![1]!)).startsWith(await realpath(home as string))).toBe(true);
     expect(await readFile(pathMatch![1]!)).toEqual(bigPng);
 
@@ -1296,7 +1314,7 @@ describe('server-v2 /api/v1 prompts', () => {
     });
   });
 
-  function avifBytes(): Buffer {
+  function avifBytes(): Buffer<ArrayBuffer> {
     const buf = Buffer.alloc(24);
     buf.writeUInt32BE(24, 0);
     buf.write('ftyp', 4, 'latin1');
@@ -1552,7 +1570,7 @@ describe('server-v2 /api/v1 prompts', () => {
     expect(notice?.text).toContain(`${pdfBytes.length} bytes`);
     expect(notice?.text).toContain('call the Read tool on this path to send the PDF');
     const attachedPath = pdfAttachedPathFrom(notice?.text ?? '');
-    expect(attachedPath).toContain('/attachments/');
+    expect(attachedPath.split(sep).join('/')).toContain('/attachments/');
     expect(attachedPath.endsWith(`${uploaded.id}-report.pdf`)).toBe(true);
     expect((await realpath(attachedPath)).startsWith(await realpath(home as string))).toBe(true);
     expect(await readFile(attachedPath)).toEqual(pdfBytes);
@@ -1579,7 +1597,7 @@ describe('server-v2 /api/v1 prompts', () => {
     expect(notice?.text).toContain('"vector.svg"');
     expect(notice?.text).toContain('image/svg+xml');
     const attachedPath = attachedPathFrom(notice?.text ?? '');
-    expect(attachedPath).toContain('/attachments/');
+    expect(attachedPath.split(sep).join('/')).toContain('/attachments/');
     expect(attachedPath.endsWith(`${uploaded.id}-vector.svg`)).toBe(true);
     expect(await readFile(attachedPath)).toEqual(svgBytes);
   });
@@ -1612,7 +1630,7 @@ describe('server-v2 /api/v1 prompts', () => {
     expect(notice?.text).toContain('"scan.avif"');
     expect(notice?.text).toContain('image/avif');
     const attachedPath = attachedPathFrom(notice?.text ?? '');
-    expect(attachedPath).toContain('/attachments/');
+    expect(attachedPath.split(sep).join('/')).toContain('/attachments/');
     expect(attachedPath.endsWith('-scan.avif')).toBe(true);
     expect(await readFile(attachedPath)).toEqual(data);
   });
@@ -1639,7 +1657,7 @@ describe('server-v2 /api/v1 prompts', () => {
     const content = submitted.body.data.content as Array<{ type: string; text?: string }>;
     expect(content).toHaveLength(1);
     const attachedPath = attachedPathFrom(content[0]?.text ?? '');
-    expect(dirname(attachedPath).endsWith('/attachments')).toBe(true);
+    expect(dirname(attachedPath).split(sep).join('/').endsWith('/attachments')).toBe(true);
     expect((await realpath(attachedPath)).startsWith(await realpath(home as string))).toBe(true);
     expect(await readFile(attachedPath)).toEqual(scriptBytes);
   });
@@ -1674,7 +1692,7 @@ describe('server-v2 /api/v1 prompts', () => {
       await expect(readdir(attachmentsDir)).rejects.toMatchObject({ code: 'ENOENT' });
 
       const main = session!.accessor.get(IAgentLifecycleService).handleOf('main')!;
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         const memory = main.accessor.get(IAgentContextMemoryService).get();
         const promptMessage = memory.find((entry) => entry.origin?.kind === 'user');
         expect(promptMessage?.origin).toEqual({
@@ -1723,7 +1741,7 @@ describe('server-v2 /api/v1 prompts', () => {
     expect(body.code).toBe(40407);
   });
 
-  it('rejects a symlink pointing at a sensitive file', async () => {
+  it.skipIf(!SUPPORTS_FILE_SYMLINKS)('rejects a symlink pointing at a sensitive file', async () => {
     const id = await createSession(home as string);
     await createMainAgent(id);
     const secretPath = join(home as string, '.env');

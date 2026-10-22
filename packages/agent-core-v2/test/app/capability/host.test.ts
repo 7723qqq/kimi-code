@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { downloadToFile, runCommand } from '#/app/capability/host';
 import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';

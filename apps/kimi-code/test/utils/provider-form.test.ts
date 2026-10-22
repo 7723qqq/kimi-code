@@ -1,22 +1,8 @@
-import type { KimiConfig } from '@moonshot-ai/kimi-code-sdk';
-import { describe, expect, it } from 'vitest';
+import { type KimiConfig } from '@moonshot-ai/kimi-code-sdk';
+import { describe, expect, it } from 'bun:test';
+import { CAPABILITY_NAMES } from '#/utils/provider-form';
 
-import {
-  CAPABILITY_NAMES,
-  EMPTY_EFFORT_LADDER,
-  PROVIDER_WIRE_TYPES,
-  badKeyValueEntry,
-  buildAddPatch,
-  defaultModelRow,
-  formatEffortList,
-  formatKeyValueList,
-  normalizeBaseUrlForType,
-  parseKeyValueList,
-  planEditWrite,
-  validateProviderForm,
-  type ProviderFormModelRow,
-  type ProviderFormValue,
-} from '#/utils/provider-form';
+import { EMPTY_EFFORT_LADDER, PROVIDER_WIRE_TYPES, badKeyValueEntry, buildAddPatch, defaultModelRow, formatEffortList, formatKeyValueList, normalizeBaseUrlForType, parseKeyValueList, planEditWrite, validateProviderForm, type ProviderFormModelRow, type ProviderFormValue } from '#/utils/provider-form';
 
 function modelRow(overrides: Partial<ProviderFormModelRow> = {}): ProviderFormModelRow {
   return { model: 'gpt-4.1', maxContextSize: '128000', displayName: '', ...overrides };
@@ -582,12 +568,12 @@ describe('planEditWrite', () => {
     // id the removal cascaded away.
     expect(Object.keys(sections.providers).toSorted()).toEqual(['new', 'other']);
     expect(sections.providers['other']).toEqual(current.providers['other']);
-    expect(sections.providers['new']).toEqual(patch.providers?.['new']);
+    expect(sections.providers['new']).toEqual(patch.providers?.['new'] as typeof sections.providers['new']);
     expect('old' in sections.providers).toBe(false);
 
     expect(Object.keys(sections.models).toSorted()).toEqual(['new/claude', 'other/gpt']);
     expect(sections.models['other/gpt']).toEqual(current.models?.['other/gpt']);
-    expect(sections.models['new/claude']).toEqual(patch.models?.['new/claude']);
+    expect(sections.models['new/claude']).toEqual(patch.models?.['new/claude'] as typeof sections.models['new/claude']);
 
     expect(sections.defaultModel).toBe(patch.defaultModel);
     expect(sections.defaultProvider).toBe(patch.defaultProvider);
@@ -1013,8 +999,8 @@ describe('the fields the manual form grew', () => {
     // A host that replaces sections wholesale writes these records instead of
     // merging the patch, so every new field has to be present or the two write
     // shapes would disagree about what the file ends up saying.
-    expect(sections.providers['new']).toEqual(patch.providers?.['new']);
-    expect(sections.models['new/claude']).toEqual(patch.models?.['new/claude']);
+    expect(sections.providers['new']).toEqual(patch.providers?.['new'] as typeof sections.providers['new']);
+    expect(sections.models['new/claude']).toEqual(patch.models?.['new/claude'] as typeof sections.models['new/claude']);
     expect(sections.providers['new']).toMatchObject({
       defaultModel: 'new/claude',
       customHeaders: { 'x-tenant': 'acme', 'x-tier': 'gold' },

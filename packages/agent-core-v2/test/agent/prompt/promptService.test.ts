@@ -1,6 +1,6 @@
 import { Readable } from 'node:stream';
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
 
 import { IEventBus } from '#/app/event/eventBus';
 import { IFileService } from '#/app/file/fileService';
@@ -53,7 +53,7 @@ function bundledMessage(skillName: string, user: string, extra: readonly Content
 
 function daemonIntake() {
   return {
-    get: vi.fn(async () => ({
+    get: mock(async () => ({
       meta: {
         id: 'file_1',
         size: 3,
@@ -63,7 +63,7 @@ function daemonIntake() {
       },
       stream: () => Readable.from([new Uint8Array([1, 2, 3])]),
     })),
-    materialize: vi.fn(async (): Promise<string | undefined> => undefined),
+    materialize: mock(async (): Promise<string | undefined> => undefined),
   };
 }
 
@@ -576,7 +576,7 @@ describe('prompt queue', () => {
     setup();
     const hold = holdNextStep();
     ctx.mockNextResponse({ type: 'text', text: 'seen' });
-    vi.spyOn(ctx.get(IAgentProfileService), 'getModelProviderType').mockReturnValue(undefined);
+    spyOn(ctx.get(IAgentProfileService), 'getModelProviderType').mockReturnValue(undefined);
     const avifUrl = `data:image/avif;base64,${Buffer.from([1, 2, 3]).toString('base64')}`;
 
     await enqueue(loop, {
@@ -632,7 +632,7 @@ describe('prompt queue', () => {
     const hold = holdNextStep();
     ctx.mockNextResponse({ type: 'text', text: 'active' });
     ctx.mockNextResponse({ type: 'text', text: 'merged' });
-    vi.spyOn(ctx.get(IAgentProfileService), 'getModelProviderType').mockReturnValue(undefined);
+    spyOn(ctx.get(IAgentProfileService), 'getModelProviderType').mockReturnValue(undefined);
 
     await enqueue(loop, { message: message('active') });
     await hold.started;
@@ -954,11 +954,13 @@ describe('prompt queue', () => {
     await expect(loop.steer(['a', 'missing'])).rejects.toMatchObject({ code: 'prompt.not_found' });
     expect(pendingIds(loop)).toEqual(['a', 'b']);
 
+    const holdA = holdNextStep();
     hold.release();
     await expect(a.launched).resolves.toBeDefined();
     expect((await a.launched)?.id).toBe(1);
     expect(loop.snapshot().activePromptId).toBe('a');
     expect(pendingIds(loop)).toEqual(['b']);
+    holdA.release();
     await loop.settled();
   });
 });

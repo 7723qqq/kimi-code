@@ -4,7 +4,7 @@ import { basename, dirname, join } from 'node:path';
 
 import type { ToolCall } from '#human/llm/message';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
@@ -56,7 +56,7 @@ describe('AgentPermissionPolicyService chain', () => {
   let hostArgs: HostArgs;
   let dangerousCommandGuardEnabled: boolean;
   let guardianEnabled: boolean;
-  let guardianReview: ReturnType<typeof vi.fn>;
+  let guardianReview: ReturnType<typeof mock>;
 
   beforeEach(() => {
     disposables = new DisposableStore();
@@ -67,7 +67,7 @@ describe('AgentPermissionPolicyService chain', () => {
     hostArgs = { requestHeaders: {}, nonInteractive: false };
     dangerousCommandGuardEnabled = true;
     guardianEnabled = false;
-    guardianReview = vi.fn(() => ({
+    guardianReview = mock(() => ({
       verdict: 'allow' as const,
       riskLevel: 'low',
       userAuthorization: 'explicit',

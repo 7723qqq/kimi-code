@@ -1,8 +1,9 @@
 import { visibleWidth, type TUI } from '@moonshot-ai/pi-tui';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import { ThinkingComponent } from '#/tui/components/messages/thinking';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
+import { createFakeClock } from '../../../helpers/fake-clock';
 
 function strip(text: string): string {
   return text.replaceAll(/\u001B\[[0-9;]*m/g, '');
@@ -49,23 +50,26 @@ describe('ThinkingComponent', () => {
   });
 
   it('animates the live spinner and stops on finalize', () => {
-    vi.useFakeTimers();
-    const requestRender = vi.fn();
-    const component = new ThinkingComponent('step', true, 'live', {
-      requestRender,
-    } as unknown as TUI);
+    const clock = createFakeClock();
+    const requestRender = mock();
+    const component = new ThinkingComponent(
+      'step',
+      true,
+      'live',
+      { requestRender } as unknown as TUI,
+      clock,
+    );
 
     expect(strip(component.render(80).join('\n'))).toContain('⠋ thinking…');
 
-    vi.advanceTimersByTime(80);
+    clock.advance(80);
     expect(requestRender).toHaveBeenCalled();
     expect(strip(component.render(80).join('\n'))).toContain('⠙ thinking…');
 
     component.finalize();
     requestRender.mockClear();
-    vi.advanceTimersByTime(160);
+    clock.advance(160);
     expect(requestRender).not.toHaveBeenCalled();
-    vi.useRealTimers();
   });
 
   it('finalizes in place into a collapsed preview', () => {

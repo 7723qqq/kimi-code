@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, spyOn } from 'bun:test';
 
 import type { ILogService } from '#/_base/log/log';
 import { type LogPayload } from '#/_base/log/log';
@@ -46,12 +46,15 @@ interface BridgeFixture {
   readonly bridge: KosongConfigService;
 }
 
-async function createBridge(sections: Record<string, unknown> = {}): Promise<BridgeFixture> {
+async function createBridge(
+  sections: Record<string, unknown> = {},
+  retrySleep?: (delayMs: number) => Promise<void>,
+): Promise<BridgeFixture> {
   const config = new StubConfigService(sections);
   const providers = new ProviderService();
   const models = new ModelService();
   const log = stubLogService();
-  const bridge = new KosongConfigService(config, providers, models, log);
+  const bridge = new KosongConfigService(config, providers, models, log, retrySleep);
   await bridge.ready;
   return { config, providers, models, log, bridge };
 }
@@ -98,7 +101,7 @@ describe('KosongConfigService kosong → config persistence', () => {
   it('persists provider set/delete through config.replace with the whole section', async () => {
     const { config, providers, bridge } = await createBridge(seededSections);
     try {
-      const replaceSpy = vi.spyOn(config, 'replace');
+      const replaceSpy = spyOn(config, 'replace');
 
       await providers.set('openai', { type: 'openai', apiKey: 'sk-o' });
       await flush();
@@ -170,11 +173,17 @@ describe('KosongConfigService awaited-mutation semantics', () => {
   });
 
   it('retries a failed persist instead of surfacing it to the caller', async () => {
-    const { config, providers, log, bridge } = await createBridge(seededSections);
+    const slept: number[] = [];
+    const { config, providers, log, bridge } = await createBridge(
+      seededSections,
+      async (delayMs) => {
+        slept.push(delayMs);
+      },
+    );
     try {
       let failuresLeft = 1;
       const original = config.replace.bind(config);
-      vi.spyOn(config, 'replace').mockImplementation(async (domain: string, value: unknown) => {
+      spyOn(config, 'replace').mockImplementation(async (domain: string, value: unknown) => {
         if (domain === PROVIDERS_SECTION && failuresLeft > 0) {
           failuresLeft -= 1;
           throw new Error('disk busy');
@@ -182,15 +191,9 @@ describe('KosongConfigService awaited-mutation semantics', () => {
         return original(domain, value);
       });
 
-      vi.useFakeTimers();
-      try {
-        const pending = providers.set('openai', { type: 'openai' });
-        await vi.advanceTimersByTimeAsync(1000);
-        await pending;
-      } finally {
-        vi.useRealTimers();
-      }
+      await providers.set('openai', { type: 'openai' });
 
+      expect(slept).toHaveLength(1);
       expect(config.get<Record<string, ProviderConfig>>(PROVIDERS_SECTION)).toEqual({
         kimi: KIMI_PROVIDER,
         openai: { type: 'openai' },
@@ -202,19 +205,19 @@ describe('KosongConfigService awaited-mutation semantics', () => {
   });
 
   it('logs and resolves after the retry budget is spent, and the chain stays alive', async () => {
-    const { config, providers, log, bridge } = await createBridge(seededSections);
+    const slept: number[] = [];
+    const { config, providers, log, bridge } = await createBridge(
+      seededSections,
+      async (delayMs) => {
+        slept.push(delayMs);
+      },
+    );
     try {
-      const replaceSpy = vi.spyOn(config, 'replace').mockRejectedValue(new Error('disk gone'));
+      const replaceSpy = spyOn(config, 'replace').mockRejectedValue(new Error('disk gone'));
 
-      vi.useFakeTimers();
-      try {
-        const pending = providers.set('openai', { type: 'openai' });
-        await vi.advanceTimersByTimeAsync(2500);
-        await pending;
-      } finally {
-        vi.useRealTimers();
-      }
+      await providers.set('openai', { type: 'openai' });
 
+      expect(slept).toHaveLength(2);
       expect(providers.get('openai')).toEqual({ type: 'openai' });
       expect(config.get<Record<string, ProviderConfig>>(PROVIDERS_SECTION)).toEqual({
         kimi: KIMI_PROVIDER,
@@ -224,6 +227,7 @@ describe('KosongConfigService awaited-mutation semantics', () => {
 
       replaceSpy.mockRestore();
       await providers.set('mistral', { type: 'mistral' });
+      expect(slept).toHaveLength(2);
       expect(config.get<Record<string, ProviderConfig>>(PROVIDERS_SECTION)).toEqual({
         kimi: KIMI_PROVIDER,
         openai: { type: 'openai' },
@@ -263,7 +267,7 @@ describe('KosongConfigService loop termination', () => {
   it('a kosong-originated persist does not echo back as a kosong change', async () => {
     const { config, providers, bridge } = await createBridge(seededSections);
     try {
-      const replaceSpy = vi.spyOn(config, 'replace');
+      const replaceSpy = spyOn(config, 'replace');
       const events: string[] = [];
       providers.onDidChangeProviders(() => events.push('providers'));
       providers.onDidChangeDefaultProvider(() => events.push('defaultProvider'));
@@ -287,7 +291,7 @@ describe('KosongConfigService loop termination', () => {
   it('a config-originated sync does not echo back as a config persist', async () => {
     const { config, providers, models, bridge } = await createBridge(seededSections);
     try {
-      const replaceSpy = vi.spyOn(config, 'replace');
+      const replaceSpy = spyOn(config, 'replace');
       replaceSpy.mockClear();
 
       await config.set(PROVIDERS_SECTION, { openai: { type: 'openai' } });
@@ -310,7 +314,7 @@ describe('KosongConfigService default-provider deletion', () => {
       providers: { kimi: KIMI_PROVIDER, openai: { type: 'openai' } },
     });
     try {
-      const replaceSpy = vi.spyOn(config, 'replace');
+      const replaceSpy = spyOn(config, 'replace');
 
       await providers.delete('kimi');
       await flush();
@@ -351,7 +355,7 @@ describe('KosongConfigService env-pinned default pointer', () => {
     await bridge.ready;
     try {
       expect(models.getDefaultModel()).toBe('env-model');
-      const replaceSpy = vi.spyOn(config, 'replace');
+      const replaceSpy = spyOn(config, 'replace');
 
       await models.setDefaultModel('k1');
       await flush();

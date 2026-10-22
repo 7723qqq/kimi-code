@@ -1,0 +1,2 @@
+[test]
+pathIgnorePatterns = ["test/e2e/**", "test/cluster/**", "test/bench-json.test.ts"]

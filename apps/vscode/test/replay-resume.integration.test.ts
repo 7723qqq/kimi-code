@@ -2,13 +2,12 @@
  * Scenario: persisted Node SDK sessions are reopened and rendered by the VS Code replay adapter.
  * Responsibilities: restored tool displays, tool results, and child-agent steps through the public resume state.
  * Wiring: Node SDK, core, storage, and HTTP provider adapter are real; only the remote provider is local.
- * Run: cd apps/vscode && bunx vitest run --config vitest.config.ts test/replay-resume.integration.test.ts
+ * Run: cd apps/vscode && bun test --isolate test/replay-resume.integration.test.ts
  */
 
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
 
 import {
   createKimiHarness,
@@ -16,13 +15,14 @@ import {
   type KimiHarness,
   type Session,
 } from '@moonshot-ai/kimi-code-sdk';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 import {
   createFakeProviderHarness,
   type FakeProviderHarness,
 } from '../../../packages/kosong/test/e2e/fake-provider-harness';
 import { replaySessionToWebviewEvents } from '../src/runtime/replay-adapter';
+import { setTimeout as delay } from 'node:timers/promises';
 
 const MODEL_ALIAS = 'vscode-replay-test';
 

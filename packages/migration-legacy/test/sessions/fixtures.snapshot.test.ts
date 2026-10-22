@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import { describe, expect, it, beforeEach, afterEach } from 'bun:test';
 
 import { migrateOneSession } from '../../src/sessions/migrate-one.js';
 

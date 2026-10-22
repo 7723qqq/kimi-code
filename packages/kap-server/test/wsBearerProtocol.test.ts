@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 import WebSocket from 'ws';
 
 import { WS_BEARER_PROTOCOL_PREFIX } from '../src/transport/ws/bearerProtocol';

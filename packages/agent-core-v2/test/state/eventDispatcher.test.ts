@@ -1,5 +1,5 @@
 /* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { z } from 'zod';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
@@ -713,7 +713,7 @@ describe('EventDispatcherService', () => {
     const isolated = new TestInstantiationService();
     const scope = makeAgentScopeContext({ agentId: 'main', agentScope: 'agents/main' });
     const space = scope.agentContext.space as AgentSpaceImpl;
-    const kill = vi.spyOn(space, '_kill');
+    const kill = spyOn(space, '_kill');
     isolated.set(IEventBus, new SyncDescriptor(EventBusService));
     isolated.set(IAgentBlobService, noopBlob);
     isolated.set(IWireService, stubWireJournal([]));

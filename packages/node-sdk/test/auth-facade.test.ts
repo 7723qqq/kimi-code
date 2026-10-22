@@ -2,23 +2,13 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import {
-  FileTokenStorage,
-  KIMI_CODE_OAUTH_KEY,
-  KIMI_CODE_PROVIDER_NAME,
-  KimiOAuthToolkit,
-  OAuthConnectionError,
-  OAuthError,
-  RetryableRefreshError,
-  resolveKimiCodeOAuthKey,
-  resolveKimiTokenStorageName,
-  type TokenInfo,
-} from '@moonshot-ai/kimi-code-oauth';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { FileTokenStorage, KIMI_CODE_OAUTH_KEY, KIMI_CODE_PROVIDER_NAME, KimiOAuthToolkit, OAuthConnectionError, OAuthError, RetryableRefreshError, resolveKimiCodeOAuthKey, resolveKimiTokenStorageName, type TokenInfo } from '@moonshot-ai/kimi-code-oauth';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 
-import { createKimiHarness, ErrorCodes, KimiError } from '#/index';
+import { createKimiHarness, ErrorCodes, type KimiHarness } from '#/index';
 
 import { TEST_IDENTITY } from './test-identity';
+import { setEnv, setGlobal, restoreEnvs, restoreGlobals } from './stubs';
 
 let homeDir: string;
 
@@ -48,9 +38,29 @@ beforeEach(async () => {
   homeDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-auth-'));
 });
 
+// Every harness owns a v2 engine with fs watchers and a wire flusher. Leaving
+// one open past its test lets a late watcher error land in whichever test is
+// awaiting, so close them before the home directory is removed.
+const openHarnesses: KimiHarness[] = [];
+
+function createHarness(options: Parameters<typeof createKimiHarness>[0]): KimiHarness {
+  const harness = createKimiHarness(options);
+  openHarnesses.push(harness);
+  return harness;
+}
+
 afterEach(async () => {
-  vi.unstubAllGlobals();
-  vi.unstubAllEnvs();
+  try {
+    for (const harness of openHarnesses.splice(0)) {
+      await harness.close();
+    }
+  } finally {
+    // Restore the replaced globals and environment even when closing a
+    // harness throws: a leaked `fetch` stub would silence the real network
+    // for every test that runs after this one in this file.
+    restoreGlobals();
+    restoreEnvs();
+  }
   // Retry like session-runtime-helpers.removeTempDir: the v2 engine's async
   // wire flush can recreate a file while the tree is being removed
   // (ENOTEMPTY/EBUSY under load).
@@ -76,13 +86,13 @@ describe('KimiHarness.auth', () => {
 
   it('exposes a cached access token without refreshing auth state', async () => {
     await new FileTokenStorage(join(homeDir, 'credentials')).save('kimi-code', freshToken());
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    const harness = createHarness({ homeDir, identity: TEST_IDENTITY });
 
     await expect(harness.auth.getCachedAccessToken()).resolves.toBe('oauth-access-token');
   });
 
   it('maps missing runtime OAuth tokens to login-required errors', async () => {
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    const harness = createHarness({ homeDir, identity: TEST_IDENTITY });
 
     await expect(
       harness.auth.resolveOAuthTokenProvider(KIMI_CODE_PROVIDER_NAME).getAccessToken(),
@@ -98,15 +108,14 @@ describe('KimiHarness.auth', () => {
     ];
 
     for (const tokenError of tokenErrors) {
-      const tokenProviderSpy = vi
-        .spyOn(KimiOAuthToolkit.prototype, 'tokenProvider')
+      const tokenProviderSpy = spyOn(KimiOAuthToolkit.prototype, 'tokenProvider')
         .mockReturnValue({
           async getAccessToken() {
             throw tokenError;
           },
         });
       try {
-        const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+        const harness = createHarness({ homeDir, identity: TEST_IDENTITY });
 
         const error = await harness.auth
           .resolveOAuthTokenProvider(KIMI_CODE_PROVIDER_NAME)
@@ -128,13 +137,13 @@ describe('KimiHarness.auth', () => {
 
   it('preserves non-retryable OAuth refresh failures', async () => {
     const oauthError = new OAuthError('bad client id');
-    const tokenProviderSpy = vi.spyOn(KimiOAuthToolkit.prototype, 'tokenProvider').mockReturnValue({
+    const tokenProviderSpy = spyOn(KimiOAuthToolkit.prototype, 'tokenProvider').mockReturnValue({
       async getAccessToken() {
         throw oauthError;
       },
     });
     try {
-      const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+      const harness = createHarness({ homeDir, identity: TEST_IDENTITY });
 
       await expect(
         harness.auth.resolveOAuthTokenProvider(KIMI_CODE_PROVIDER_NAME).getAccessToken(),
@@ -157,7 +166,7 @@ api_key = ""
 max_steps_per_turn = "abc"
 `,
     );
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    const harness = createHarness({ homeDir, identity: TEST_IDENTITY });
 
     // Token resolution is a read path: a broken section elsewhere in
     // config.toml must degrade, not break OAuth-backed sessions.
@@ -186,7 +195,7 @@ api_key = ""
 oauth = { storage = "file", key = "${oauthKey}", oauth_host = "https://auth.dev.example.test" }
 `,
     );
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    const harness = createHarness({ homeDir, identity: TEST_IDENTITY });
 
     await expect(harness.auth.getCachedAccessToken()).resolves.toBe('dev-access-token');
   });
@@ -210,7 +219,7 @@ api_key = ""
 oauth = { storage = "file", key = "${oauthKey}", oauth_host = "https://auth.dev.example.test" }
 `,
     );
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    const harness = createHarness({ homeDir, identity: TEST_IDENTITY });
 
     await expect(harness.auth.status()).resolves.toEqual({
       providers: [{ providerName: KIMI_CODE_PROVIDER_NAME, hasToken: true }],
@@ -219,7 +228,7 @@ oauth = { storage = "file", key = "${oauthKey}", oauth_host = "https://auth.dev.
 
   it('provisions SDK config using an existing Kimi OAuth token', async () => {
     await new FileTokenStorage(join(homeDir, 'credentials')).save('kimi-code', freshToken());
-    const fetchMock = vi.fn<FetchMock>(
+    const fetchMock = mock<FetchMock>(
       async (_input, _init) =>
         new Response(
           JSON.stringify({
@@ -237,9 +246,9 @@ oauth = { storage = "file", key = "${oauthKey}", oauth_host = "https://auth.dev.
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         ),
     );
-    vi.stubGlobal('fetch', fetchMock);
+    setGlobal('fetch', fetchMock);
 
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    const harness = createHarness({ homeDir, identity: TEST_IDENTITY });
     const result = await harness.auth.login();
     const config = await harness.getConfig({ reload: true });
 
@@ -299,7 +308,7 @@ api_key = ""
 oauth = { storage = "file", key = "${oauthKey}", oauth_host = "${oauthHost}" }
 `,
     );
-    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
+    const fetchMock = mock<FetchMock>(async (input, init) => {
       const url = fetchInputUrl(input);
       if (url === `${oauthHost}/api/oauth/token`) {
         if (typeof init?.body !== 'string') throw new TypeError('expected form body');
@@ -336,8 +345,8 @@ oauth = { storage = "file", key = "${oauthKey}", oauth_host = "${oauthHost}" }
       }
       throw new Error(`unexpected request: ${url}`);
     });
-    vi.stubGlobal('fetch', fetchMock);
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    setGlobal('fetch', fetchMock);
+    const harness = createHarness({ homeDir, identity: TEST_IDENTITY });
 
     await expect(harness.auth.login()).resolves.toMatchObject({
       providerName: KIMI_CODE_PROVIDER_NAME,
@@ -370,7 +379,7 @@ oauth = { storage = "file", key = "${oauthKey}", oauth_host = "${oauthHost}" }
       refreshToken: 'global-refresh-token',
       expiresAt: 1,
     });
-    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
+    const fetchMock = mock<FetchMock>(async (input, init) => {
       const url = fetchInputUrl(input);
       if (url === `${oauthHost}/api/oauth/token`) {
         if (typeof init?.body !== 'string') throw new TypeError('expected form body');
@@ -401,8 +410,8 @@ oauth = { storage = "file", key = "${oauthKey}", oauth_host = "${oauthHost}" }
       }
       throw new Error(`unexpected request: ${url}`);
     });
-    vi.stubGlobal('fetch', fetchMock);
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    setGlobal('fetch', fetchMock);
+    const harness = createHarness({ homeDir, identity: TEST_IDENTITY });
 
     await expect(harness.auth.login(undefined, { region: 'global' })).resolves.toMatchObject({
       providerName: KIMI_CODE_PROVIDER_NAME,
@@ -447,7 +456,7 @@ oauth = { storage = "file", key = "${globalKey}", oauth_host = "${globalOauthHos
       refreshToken: 'cn-refresh-token',
       expiresAt: 1,
     });
-    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
+    const fetchMock = mock<FetchMock>(async (input, init) => {
       const url = fetchInputUrl(input);
       if (url === 'https://auth.kimi.com/api/oauth/token') {
         if (typeof init?.body !== 'string') throw new TypeError('expected form body');
@@ -474,8 +483,8 @@ oauth = { storage = "file", key = "${globalKey}", oauth_host = "${globalOauthHos
       }
       throw new Error(`unexpected request: ${url}`);
     });
-    vi.stubGlobal('fetch', fetchMock);
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    setGlobal('fetch', fetchMock);
+    const harness = createHarness({ homeDir, identity: TEST_IDENTITY });
 
     await expect(harness.auth.login(undefined, { region: 'mainland-cn' })).resolves.toMatchObject({
       providerName: KIMI_CODE_PROVIDER_NAME,
@@ -512,7 +521,7 @@ api_key = ""
 oauth = { storage = "file", key = "oauth/kimi-code" }
 `,
     );
-    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
+    const fetchMock = mock<FetchMock>(async (input, init) => {
       expect(fetchInputUrl(input)).toBe(`${baseUrl}/models`);
       expect(new Headers(init?.headers).get('authorization')).toBe('Bearer scoped-access-token');
       return new Response(
@@ -528,8 +537,8 @@ oauth = { storage = "file", key = "oauth/kimi-code" }
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     });
-    vi.stubGlobal('fetch', fetchMock);
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    setGlobal('fetch', fetchMock);
+    const harness = createHarness({ homeDir, identity: TEST_IDENTITY });
 
     await expect(harness.auth.login()).resolves.toMatchObject({
       providerName: KIMI_CODE_PROVIDER_NAME,
@@ -570,9 +579,9 @@ api_key = ""
 oauth = { storage = "file", key = "${configuredOauthKey}", oauth_host = "https://auth.kimi.com" }
 `,
     );
-    vi.stubEnv('KIMI_CODE_BASE_URL', envBaseUrl);
-    vi.stubEnv('KIMI_CODE_OAUTH_HOST', envOauthHost);
-    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
+    setEnv('KIMI_CODE_BASE_URL', envBaseUrl);
+    setEnv('KIMI_CODE_OAUTH_HOST', envOauthHost);
+    const fetchMock = mock<FetchMock>(async (input, init) => {
       expect(fetchInputUrl(input)).toBe(`${envBaseUrl}/models`);
       expect(new Headers(init?.headers).get('authorization')).toBe('Bearer env-access-token');
       return new Response(
@@ -588,8 +597,8 @@ oauth = { storage = "file", key = "${configuredOauthKey}", oauth_host = "https:/
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     });
-    vi.stubGlobal('fetch', fetchMock);
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    setGlobal('fetch', fetchMock);
+    const harness = createHarness({ homeDir, identity: TEST_IDENTITY });
 
     await expect(harness.auth.login()).resolves.toMatchObject({
       providerName: KIMI_CODE_PROVIDER_NAME,
@@ -621,9 +630,9 @@ provider = "managed:kimi-code"
 model = "kimi-for-coding"
 `,
     );
-    vi.stubGlobal(
+    setGlobal(
       'fetch',
-      vi.fn(
+      mock(
         async () =>
           new Response(
             JSON.stringify({
@@ -644,7 +653,7 @@ model = "kimi-for-coding"
 
     // A broken config must not prevent startup: the invalid model alias is
     // dropped, the rest of the config survives, and a warning is reported.
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    const harness = createHarness({ homeDir, identity: TEST_IDENTITY });
     const config = await harness.getConfig();
     // v2's config service keeps the entry (validation is deferred to model
     // resolution, where the missing max_context_size fails loudly), while
@@ -691,7 +700,7 @@ oauth = { storage = "file", key = "oauth/kimi-code" }
 `,
     );
 
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    const harness = createHarness({ homeDir, identity: TEST_IDENTITY });
 
     await expect(harness.auth.logout()).resolves.toMatchObject({
       providerName: KIMI_CODE_PROVIDER_NAME,
@@ -742,7 +751,7 @@ model = "kimi-for-coding"
 max_context_size = 262144
 `,
     );
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    const harness = createHarness({ homeDir, identity: TEST_IDENTITY });
 
     await expect(harness.auth.logout()).resolves.toMatchObject({
       providerName: KIMI_CODE_PROVIDER_NAME,
@@ -782,7 +791,7 @@ model = "kimi-for-coding"
 max_context_size = 262144
 `,
     );
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    const harness = createHarness({ homeDir, identity: TEST_IDENTITY });
 
     await expect(harness.auth.logout()).resolves.toMatchObject({
       providerName: KIMI_CODE_PROVIDER_NAME,
@@ -797,7 +806,7 @@ max_context_size = 262144
 
   it('gets managed usage without host identity and sends only auth headers', async () => {
     await new FileTokenStorage(join(homeDir, 'credentials')).save('kimi-code', freshToken());
-    const fetchMock = vi.fn<FetchMock>(
+    const fetchMock = mock<FetchMock>(
       async (_input, _init) =>
         new Response(
           JSON.stringify({
@@ -806,9 +815,9 @@ max_context_size = 262144
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         ),
     );
-    vi.stubGlobal('fetch', fetchMock);
+    setGlobal('fetch', fetchMock);
 
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    const harness = createHarness({ homeDir, identity: TEST_IDENTITY });
     const result = await harness.auth.getManagedUsage();
 
     expect(result).toMatchObject({
@@ -844,7 +853,7 @@ api_key = ""
 oauth = { storage = "file", key = "${oauthKey}", oauth_host = "https://auth.dev.example.test" }
 `,
     );
-    const fetchMock = vi.fn<FetchMock>(async (input) => {
+    const fetchMock = mock<FetchMock>(async (input) => {
       const url = fetchInputUrl(input);
       if (url.endsWith('/usages')) {
         return new Response(JSON.stringify({ usages: { limit_7d: { used_ratio: 0.2 } } }), {
@@ -857,8 +866,8 @@ oauth = { storage = "file", key = "${oauthKey}", oauth_host = "https://auth.dev.
         headers: { 'Content-Type': 'application/json' },
       });
     });
-    vi.stubGlobal('fetch', fetchMock);
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    setGlobal('fetch', fetchMock);
+    const harness = createHarness({ homeDir, identity: TEST_IDENTITY });
 
     await expect(harness.auth.getManagedUsage()).resolves.toMatchObject({
       kind: 'ok',
@@ -910,9 +919,9 @@ api_key = ""
 oauth = { storage = "file", key = "${configuredOauthKey}", oauth_host = "https://auth.kimi.com" }
 `,
     );
-    vi.stubEnv('KIMI_CODE_BASE_URL', envBaseUrl);
-    vi.stubEnv('KIMI_CODE_OAUTH_HOST', envOauthHost);
-    const fetchMock = vi.fn<FetchMock>(async (input) => {
+    setEnv('KIMI_CODE_BASE_URL', envBaseUrl);
+    setEnv('KIMI_CODE_OAUTH_HOST', envOauthHost);
+    const fetchMock = mock<FetchMock>(async (input) => {
       const url = fetchInputUrl(input);
       if (url.endsWith('/usages')) {
         return new Response(JSON.stringify({ usages: { limit_7d: { used_ratio: 0.3 } } }), {
@@ -925,8 +934,8 @@ oauth = { storage = "file", key = "${configuredOauthKey}", oauth_host = "https:/
         headers: { 'Content-Type': 'application/json' },
       });
     });
-    vi.stubGlobal('fetch', fetchMock);
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    setGlobal('fetch', fetchMock);
+    const harness = createHarness({ homeDir, identity: TEST_IDENTITY });
 
     await expect(harness.auth.status()).resolves.toEqual({
       providers: [{ providerName: KIMI_CODE_PROVIDER_NAME, hasToken: true }],
@@ -967,16 +976,16 @@ oauth = { storage = "file", key = "${configuredOauthKey}", oauth_host = "https:/
 
   it('submitFeedback maps camelCase input to snake_case body and posts with bearer auth', async () => {
     await new FileTokenStorage(join(homeDir, 'credentials')).save('kimi-code', freshToken());
-    const fetchMock = vi.fn<FetchMock>(
+    const fetchMock = mock<FetchMock>(
       async () =>
         new Response(JSON.stringify({ feedback_id: 3 }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         }),
     );
-    vi.stubGlobal('fetch', fetchMock);
+    setGlobal('fetch', fetchMock);
 
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    const harness = createHarness({ homeDir, identity: TEST_IDENTITY });
     const result = await harness.auth.submitFeedback({
       content: 'great tool',
       sessionId: 'sess-42',
@@ -1011,7 +1020,7 @@ oauth = { storage = "file", key = "${configuredOauthKey}", oauth_host = "https:/
 
   it('createFeedbackUploadUrl maps SDK input and returns camelCase upload parts', async () => {
     await new FileTokenStorage(join(homeDir, 'credentials')).save('kimi-code', freshToken());
-    const fetchMock = vi.fn<FetchMock>(
+    const fetchMock = mock<FetchMock>(
       async () =>
         new Response(
           JSON.stringify({
@@ -1030,9 +1039,9 @@ oauth = { storage = "file", key = "${configuredOauthKey}", oauth_host = "https:/
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         ),
     );
-    vi.stubGlobal('fetch', fetchMock);
+    setGlobal('fetch', fetchMock);
 
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    const harness = createHarness({ homeDir, identity: TEST_IDENTITY });
     const result = await harness.auth.createFeedbackUploadUrl({
       feedbackId: 3,
       filename: 'session.zip',
@@ -1067,9 +1076,9 @@ oauth = { storage = "file", key = "${configuredOauthKey}", oauth_host = "https:/
 
   it('submitFeedback surfaces HTTP errors without throwing', async () => {
     await new FileTokenStorage(join(homeDir, 'credentials')).save('kimi-code', freshToken());
-    vi.stubGlobal(
+    setGlobal(
       'fetch',
-      vi.fn<FetchMock>(
+      mock<FetchMock>(
         async () =>
           new Response(JSON.stringify({ message: 'feedback API rejected the request' }), {
             status: 401,
@@ -1078,7 +1087,7 @@ oauth = { storage = "file", key = "${configuredOauthKey}", oauth_host = "https:/
       ),
     );
 
-    const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    const harness = createHarness({ homeDir, identity: TEST_IDENTITY });
     const result = await harness.auth.submitFeedback({
       content: 'x',
       sessionId: 's',

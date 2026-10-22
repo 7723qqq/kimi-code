@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { parseImageMeta } from '#/utils/image/image-mime';
 

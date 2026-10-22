@@ -491,6 +491,16 @@ async function confirmInstallTrust(
 const CAPABILITY_POLL_INTERVAL_MS = 700;
 const CAPABILITY_POLL_ATTEMPTS = 260; // ~3 minutes of runtime setup budget
 
+/** Delay between capability status polls; injectable so tests need no real wait. */
+export interface CapabilityPollOptions {
+  readonly sleep?: (ms: number) => Promise<void>;
+}
+
+const delayPollInterval = (ms: number): Promise<void> =>
+  new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+
 /** Client-injected v2 entries install their runtime and plugin together.
  * Trust keys on the parser-proof `builtIn` flag — the `capability:<id>`
  * source string stays purely diagnostic. */
@@ -511,13 +521,13 @@ function isCapabilityPluginId(id: string): boolean {
 async function pollCapabilityInstall(
   host: SlashCommandHost,
   id: string,
+  options: CapabilityPollOptions = {},
 ): Promise<CapabilityStatus | undefined> {
+  const sleep = options.sleep ?? delayPollInterval;
   const api = await resolveCapabilityApi(host);
   let previousProgress = '';
   for (let attempt = 0; attempt < CAPABILITY_POLL_ATTEMPTS; attempt += 1) {
-    await new Promise((resolve) => {
-      setTimeout(resolve, CAPABILITY_POLL_INTERVAL_MS);
-    });
+    await sleep(CAPABILITY_POLL_INTERVAL_MS);
     const status = await api.getCapability(id);
     if (!status.install.running) return status;
     const progress = `${status.install.step ?? ''}:${status.install.percent ?? ''}`;
@@ -545,6 +555,7 @@ async function installCapabilityFromPanel(
   host: SlashCommandHost,
   panel: PluginsPanelComponent,
   entry: PluginMarketplaceEntry,
+  options: CapabilityPollOptions = {},
 ): Promise<void> {
   const label = entry.displayName;
   // Capability entries are official by construction; the trust prompt is
@@ -578,7 +589,7 @@ async function installCapabilityFromPanel(
   }
   let result: CapabilityStatus | undefined;
   try {
-    result = await pollCapabilityInstall(host, entry.id);
+    result = await pollCapabilityInstall(host, entry.id, options);
   } catch (error) {
     log.warn('capability install polling failed', { capabilityId: entry.id, error });
     result = undefined;

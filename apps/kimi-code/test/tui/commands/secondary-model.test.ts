@@ -3,10 +3,11 @@
  * Responsibilities: picker filtering, persistence of `[secondary_model] default_model`
  * (keeping existing pool descriptions), and error paths.
  * Wiring: real command and selector with the SDK/session boundaries stubbed by a small host rig.
- * Run: cd apps/kimi-code && bunx vitest run test/tui/commands/secondary-model.test.ts
+ * Run: cd apps/kimi-code && bun test --isolate test/tui/commands/secondary-model.test.ts
  */
 import type { ModelAlias } from '@moonshot-ai/kimi-code-sdk';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock, type Mock } from 'bun:test';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import type { SlashCommandHost } from '#/tui/commands';
 import { handleSecondaryModelCommand } from '#/tui/commands/config';
@@ -51,37 +52,37 @@ function makeHost(options?: {
       transcriptEntries: [],
     },
     authFlow: {
-      refreshOAuthProviderModels: vi.fn(async () => undefined),
+      refreshOAuthProviderModels: mock(async () => undefined),
     },
     harness: {
-      getConfig: vi.fn(async () => ({
+      getConfig: mock(async () => ({
         providers: {},
         secondaryModel: options?.secondaryModel,
       })),
-      setConfig: vi.fn(async () => ({})),
+      setConfig: mock(async () => ({})),
     },
-    setAppState: vi.fn((patch) => Object.assign(appState, patch)),
-    mountEditorReplacement: vi.fn(),
-    restoreEditor: vi.fn(),
-    showStatus: vi.fn(),
-    showError: vi.fn(),
-    showNotice: vi.fn(),
-    track: vi.fn(),
+    setAppState: mock((patch) => Object.assign(appState, patch)),
+    mountEditorReplacement: mock(),
+    restoreEditor: mock(),
+    showStatus: mock(),
+    showError: mock(),
+    showNotice: mock(),
+    track: mock(),
   } as unknown as SlashCommandHost & {
     harness: {
-      getConfig: ReturnType<typeof vi.fn>;
-      setConfig: ReturnType<typeof vi.fn>;
+      getConfig: Mock<(...args: any[]) => any>;
+      setConfig: Mock<(...args: any[]) => any>;
     };
-    mountEditorReplacement: ReturnType<typeof vi.fn>;
-    showStatus: ReturnType<typeof vi.fn>;
-    showError: ReturnType<typeof vi.fn>;
-    showNotice: ReturnType<typeof vi.fn>;
+    mountEditorReplacement: Mock<(...args: any[]) => any>;
+    showStatus: Mock<(...args: any[]) => any>;
+    showError: Mock<(...args: any[]) => any>;
+    showNotice: Mock<(...args: any[]) => any>;
   };
   return { host };
 }
 
-function mountedPicker(host: { mountEditorReplacement: ReturnType<typeof vi.fn> }): PickerOptions {
-  expect(host.mountEditorReplacement).toHaveBeenCalledOnce();
+function mountedPicker(host: { mountEditorReplacement: Mock<(...args: any[]) => any> }): PickerOptions {
+  expect(host.mountEditorReplacement).toHaveBeenCalledTimes(1);
   const component = host.mountEditorReplacement.mock.calls[0]![0];
   expect(component).toBeInstanceOf(TabbedModelSelectorComponent);
   return (component as unknown as { opts: PickerOptions }).opts;
@@ -108,7 +109,7 @@ describe('handleSecondaryModelCommand', () => {
     await handleSecondaryModelCommand(host, '');
     mountedPicker(host).onSelect({ alias: 'k2' });
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(host.showStatus).toHaveBeenCalled();
     });
     expect(host.harness.setConfig).toHaveBeenCalledWith({
@@ -128,7 +129,7 @@ describe('handleSecondaryModelCommand', () => {
     await handleSecondaryModelCommand(host, '');
     mountedPicker(host).onSelect({ alias: 'k2' });
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(host.showStatus).toHaveBeenCalled();
     });
     expect(host.harness.setConfig).toHaveBeenCalledWith({
@@ -150,7 +151,7 @@ describe('handleSecondaryModelCommand', () => {
     await handleSecondaryModelCommand(host, '');
     mountedPicker(host).onSelect({ alias: 'k2' });
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(host.showStatus).toHaveBeenCalled();
     });
     expect(host.harness.setConfig).toHaveBeenCalledWith({
@@ -225,7 +226,7 @@ describe('handleSecondaryModelCommand', () => {
     await handleSecondaryModelCommand(host, '');
     mountedPicker(host).onSelect({ alias: 'k2' });
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(host.showError).toHaveBeenCalled();
     });
     expect(host.showError.mock.calls[0]![0]).toContain('disk full');

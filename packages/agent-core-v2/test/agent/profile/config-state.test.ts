@@ -1,5 +1,6 @@
 import { emptyUsage } from '#human/llm/usage';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { setEnv, restoreEnvs } from '#test/helpers/stubs';
 
 import { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
 import { IAgentProfileService } from '#/agent/profile/profile';
@@ -594,7 +595,7 @@ describe('ConfigState.provider applies global KIMI_MODEL_* request config', () =
     } finally {
       await ctx?.dispose();
       ctx = undefined;
-      vi.unstubAllEnvs();
+      restoreEnvs();
     }
   });
 
@@ -618,7 +619,7 @@ describe('ConfigState.provider applies global KIMI_MODEL_* request config', () =
   }
 
   it('injects KIMI_MODEL_TEMPERATURE into the per-turn sampling intent (the compaction request also uses)', async () => {
-    vi.stubEnv('KIMI_MODEL_TEMPERATURE', '0.3');
+    setEnv('KIMI_MODEL_TEMPERATURE', '0.3');
     createAgentWithEnv();
 
     profile.update({ modelAlias: 'kimi-code' });
@@ -630,7 +631,7 @@ describe('ConfigState.provider applies global KIMI_MODEL_* request config', () =
   });
 
   it('injects KIMI_MODEL_THINKING_KEEP into the per-turn thinking intent when thinking is on (so compaction keeps it)', async () => {
-    vi.stubEnv('KIMI_MODEL_THINKING_KEEP', 'all');
+    setEnv('KIMI_MODEL_THINKING_KEEP', 'all');
     createAgentWithEnv();
 
     profile.update({ modelAlias: 'kimi-code', thinkingLevel: 'high' });
@@ -640,7 +641,7 @@ describe('ConfigState.provider applies global KIMI_MODEL_* request config', () =
   });
 
   it('does NOT inject thinking.keep into the per-turn intent when thinking is off', async () => {
-    vi.stubEnv('KIMI_MODEL_THINKING_KEEP', 'all');
+    setEnv('KIMI_MODEL_THINKING_KEEP', 'all');
     createAgentWithEnv();
 
     profile.update({ modelAlias: 'kimi-code', thinkingLevel: 'off' });
@@ -651,7 +652,7 @@ describe('ConfigState.provider applies global KIMI_MODEL_* request config', () =
   });
 
   it('injects forced effort through the Anthropic protocol for a Kimi provider', async () => {
-    vi.stubEnv('KIMI_MODEL_THINKING_EFFORT', 'max');
+    setEnv('KIMI_MODEL_THINKING_EFFORT', 'max');
     createAgentWithEnv();
 
     profile.update({ modelAlias: 'kimi-code-anthropic', thinkingLevel: 'high' });

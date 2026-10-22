@@ -3,11 +3,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { createKimiHarness, type KimiHarness } from '@moonshot-ai/kimi-code-sdk';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { readE2EFlags } from '#test/helpers/e2e-flags';
 
 import { createKimiCodeHostIdentity } from '#/cli/version';
 
-const ENABLED = process.env['KIMI_E2E'] === '1';
+const ENABLED = readE2EFlags(process.env).e2e;
 
 let homeDir: string;
 let workDir: string;

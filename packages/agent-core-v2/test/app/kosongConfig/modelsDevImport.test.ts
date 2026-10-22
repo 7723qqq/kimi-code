@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 
 import { createScopedTestHost } from '#/_base/di/test';
 import type { Error2 } from '#/_base/errors/errors';
@@ -164,7 +164,7 @@ function createHost(
   return { config, imports: host.app.accessor.get(IModelsDevImportService) };
 }
 
-async function expectError2(promise: Promise<unknown>, code: string): Promise<Error2> {
+async function expectError2(promise: Promise<unknown>, code: Error2['code']): Promise<Error2> {
   const err = await promise.then(
     () => {
       throw new Error(`expected the call to throw ${code}`);
@@ -370,7 +370,7 @@ describe('IModelsDevImportService', () => {
     });
     const original = config.replace.bind(config);
     const modelsWrites: Array<Record<string, unknown>> = [];
-    vi.spyOn(config, 'replace').mockImplementation((domain: string, value: unknown) => {
+    spyOn(config, 'replace').mockImplementation((domain: string, value: unknown) => {
       if (domain !== MODELS_SECTION) return original(domain, value);
       modelsWrites.push(value as Record<string, unknown>);
       const submitted = value as Record<string, unknown>;
@@ -499,8 +499,8 @@ describe('IModelsDevImportService', () => {
         'acme-old/gpt-y': { provider: 'acme-old', model: 'gpt-y', maxContextSize: 128000 },
       },
     });
-    const replaceSections = vi.spyOn(config, 'replaceSections');
-    const replace = vi.spyOn(config, 'replace');
+    const replaceSections = spyOn(config, 'replaceSections');
+    const replace = spyOn(config, 'replace');
 
     const result = await imports.importCustomRegistry({ url: REGISTRY_URL, apiKey: 'tok-2' });
     expect(replaceSections).toHaveBeenCalledTimes(1);

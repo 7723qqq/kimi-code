@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { IAgentContextMemoryService, IAgentProfileService } from '#/index';
 import { TurnEnded } from '#/agent/loop/turnOps';

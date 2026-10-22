@@ -1,13 +1,81 @@
 import { lookup } from 'node:dns/promises';
 
 import { Agent } from '#/_base/utils/undici-npm';
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { setEnv, restoreEnvs } from '#test/helpers/stubs';
+import { waitUntil } from '#test/helpers/waitFor';
 
 import { LocalFetchURLProvider } from '#/app/web/providers/local-fetch-url';
+import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
 
-vi.mock('node:dns/promises', () => ({ lookup: vi.fn() }));
+void mock.module('node:dns/promises', () => ({ lookup: mock() }));
 
-const lookupMock = lookup as unknown as Mock;
+const lookupMock = lookup as unknown as ReturnType<typeof mock>;
+
+interface FakeHostTimerHandle extends IHostTimerHandle {
+  readonly id: number;
+}
+
+interface TrackedHostTimers extends IHostTimers {
+  advanceAsync(byMs: number): Promise<void>;
+  readonly outstanding: number;
+}
+
+async function flushTimersWork(): Promise<void> {
+  for (let round = 0; round < 4; round += 1) {
+    await Promise.resolve();
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+  }
+}
+
+function createTrackedHostTimers(): TrackedHostTimers {
+  let nowMs = 0;
+  let nextId = 1;
+  const scheduled: Array<{
+    readonly id: number;
+    readonly due: number;
+    readonly callback: () => void;
+    cleared: boolean;
+  }> = [];
+
+  const schedule = (callback: () => void, delayMs: number): FakeHostTimerHandle => {
+    const entry = { id: nextId++, due: nowMs + Math.max(delayMs, 0), callback, cleared: false };
+    scheduled.push(entry);
+    return { id: entry.id };
+  };
+
+  return {
+    _serviceBrand: undefined,
+    setClampedTimeout: (callback, timeoutMs) =>
+      schedule(callback, Math.min(timeoutMs, 2_147_483_647)),
+    setTimeout: (callback, timeoutMs) => schedule(callback, timeoutMs),
+    clearTimeout: (handle) => {
+      const id = (handle as { id?: number }).id;
+      const entry = scheduled.find((candidate) => candidate.id === id);
+      if (entry !== undefined) entry.cleared = true;
+    },
+    advanceAsync: async (byMs) => {
+      await flushTimersWork();
+      const limit = nowMs + byMs;
+      for (;;) {
+        const next = scheduled
+          .filter((entry) => !entry.cleared && entry.due <= limit)
+          .toSorted((left, right) => left.due - right.due || left.id - right.id)[0];
+        if (next === undefined) break;
+        nowMs = next.due;
+        next.callback();
+        await flushTimersWork();
+      }
+      nowMs = limit;
+      await flushTimersWork();
+    },
+    get outstanding() {
+      return scheduled.filter((entry) => !entry.cleared).length;
+    },
+  };
+}
 
 function asUndiciAgent(dispatcher: RequestInit['dispatcher']): Agent {
   return dispatcher as unknown as Agent;
@@ -17,12 +85,12 @@ beforeEach(() => {
   lookupMock.mockReset();
   lookupMock.mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
   for (const key of ['http_proxy', 'HTTP_PROXY', 'https_proxy', 'HTTPS_PROXY', 'all_proxy', 'ALL_PROXY']) {
-    vi.stubEnv(key, '');
+    setEnv(key, '');
   }
 });
 
 afterEach(() => {
-  vi.unstubAllEnvs();
+  restoreEnvs();
 });
 
 function htmlResponse(body: string, contentType: string): Response {
@@ -34,7 +102,7 @@ function htmlResponse(body: string, contentType: string): Response {
 
 describe('LocalFetchURLProvider SSRF guard', () => {
   it('rejects a loopback IPv4 literal without fetching or resolving DNS', async () => {
-    const fetchImpl = vi.fn<typeof fetch>();
+    const fetchImpl = mock<typeof fetch>();
     const provider = new LocalFetchURLProvider({ fetchImpl });
 
     await expect(provider.fetch('http://127.0.0.1:1337/')).rejects.toThrow(
@@ -45,7 +113,7 @@ describe('LocalFetchURLProvider SSRF guard', () => {
   });
 
   it('rejects an IPv4-mapped IPv6 literal', async () => {
-    const fetchImpl = vi.fn<typeof fetch>();
+    const fetchImpl = mock<typeof fetch>();
     const provider = new LocalFetchURLProvider({ fetchImpl });
 
     await expect(provider.fetch('http://[::ffff:127.0.0.1]/')).rejects.toThrow(
@@ -55,7 +123,7 @@ describe('LocalFetchURLProvider SSRF guard', () => {
   });
 
   it('rejects localhost and *.localhost aliases', async () => {
-    const fetchImpl = vi.fn<typeof fetch>();
+    const fetchImpl = mock<typeof fetch>();
     const provider = new LocalFetchURLProvider({ fetchImpl });
 
     await expect(provider.fetch('http://localhost:1337/')).rejects.toThrow(
@@ -72,7 +140,7 @@ describe('LocalFetchURLProvider SSRF guard', () => {
       { address: '::1', family: 6 },
       { address: '127.0.0.1', family: 4 },
     ]);
-    const fetchImpl = vi.fn<typeof fetch>();
+    const fetchImpl = mock<typeof fetch>();
     const provider = new LocalFetchURLProvider({ fetchImpl });
 
     await expect(provider.fetch('http://localtest.me/')).rejects.toThrow(
@@ -83,7 +151,7 @@ describe('LocalFetchURLProvider SSRF guard', () => {
 
   it('rejects a hostname that resolves to an IPv4-mapped IPv6 address', async () => {
     lookupMock.mockResolvedValue([{ address: '::ffff:169.254.169.254', family: 6 }]);
-    const fetchImpl = vi.fn<typeof fetch>();
+    const fetchImpl = mock<typeof fetch>();
     const provider = new LocalFetchURLProvider({ fetchImpl });
 
     await expect(provider.fetch('http://sneaky.example.com/')).rejects.toThrow(
@@ -94,7 +162,7 @@ describe('LocalFetchURLProvider SSRF guard', () => {
 
   it('fails closed when DNS resolution fails', async () => {
     lookupMock.mockRejectedValue(new Error('getaddrinfo ENOTFOUND b0rked.example'));
-    const fetchImpl = vi.fn<typeof fetch>();
+    const fetchImpl = mock<typeof fetch>();
     const provider = new LocalFetchURLProvider({ fetchImpl });
 
     await expect(provider.fetch('http://b0rked.example/')).rejects.toThrow('Cannot resolve host');
@@ -102,7 +170,7 @@ describe('LocalFetchURLProvider SSRF guard', () => {
   });
 
   it('rejects non-http(s) schemes before any network access', async () => {
-    const fetchImpl = vi.fn<typeof fetch>();
+    const fetchImpl = mock<typeof fetch>();
     const provider = new LocalFetchURLProvider({ fetchImpl });
 
     await expect(provider.fetch('file:///etc/passwd')).rejects.toThrow('Unsupported URL scheme');
@@ -110,7 +178,7 @@ describe('LocalFetchURLProvider SSRF guard', () => {
   });
 
   it('fetches public hosts normally', async () => {
-    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(htmlResponse('ok', 'text/plain'));
+    const fetchImpl = mock<typeof fetch>().mockResolvedValue(htmlResponse('ok', 'text/plain'));
     const provider = new LocalFetchURLProvider({ fetchImpl });
 
     const result = await provider.fetch('https://example.com/');
@@ -121,7 +189,7 @@ describe('LocalFetchURLProvider SSRF guard', () => {
   });
 
   it('skips all checks when allowPrivateAddresses is set', async () => {
-    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(htmlResponse('local', 'text/plain'));
+    const fetchImpl = mock<typeof fetch>().mockResolvedValue(htmlResponse('local', 'text/plain'));
     const provider = new LocalFetchURLProvider({ fetchImpl, allowPrivateAddresses: true });
 
     const result = await provider.fetch('http://127.0.0.1:1337/');
@@ -134,8 +202,7 @@ describe('LocalFetchURLProvider SSRF guard', () => {
 
 describe('LocalFetchURLProvider redirects', () => {
   it('follows a redirect after re-validating the target, fetching manually', async () => {
-    const fetchImpl = vi
-      .fn<typeof fetch>()
+    const fetchImpl = mock<typeof fetch>()
       .mockResolvedValueOnce(
         new Response(null, {
           status: 302,
@@ -155,8 +222,7 @@ describe('LocalFetchURLProvider redirects', () => {
   });
 
   it('resolves relative redirect targets against the current URL', async () => {
-    const fetchImpl = vi
-      .fn<typeof fetch>()
+    const fetchImpl = mock<typeof fetch>()
       .mockResolvedValueOnce(new Response(null, { status: 301, headers: { location: '/final' } }))
       .mockResolvedValueOnce(htmlResponse('ok', 'text/plain'));
     const provider = new LocalFetchURLProvider({ fetchImpl });
@@ -168,7 +234,7 @@ describe('LocalFetchURLProvider redirects', () => {
   });
 
   it('refuses a redirect to a private IP literal', async () => {
-    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValueOnce(
+    const fetchImpl = mock<typeof fetch>().mockResolvedValueOnce(
       new Response(null, {
         status: 302,
         headers: { location: 'http://169.254.169.254/latest/meta-data' },
@@ -188,7 +254,7 @@ describe('LocalFetchURLProvider redirects', () => {
         ? [{ address: '10.0.0.7', family: 4 }]
         : [{ address: '93.184.216.34', family: 4 }],
     );
-    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValueOnce(
+    const fetchImpl = mock<typeof fetch>().mockResolvedValueOnce(
       new Response(null, {
         status: 302,
         headers: { location: 'https://internal.example.com/' },
@@ -203,7 +269,7 @@ describe('LocalFetchURLProvider redirects', () => {
   });
 
   it('gives up after too many redirects', async () => {
-    const fetchImpl = vi.fn<typeof fetch>().mockImplementation(
+    const fetchImpl = mock<typeof fetch>().mockImplementation(
       async () => new Response(null, { status: 302, headers: { location: '/loop' } }),
     );
     const provider = new LocalFetchURLProvider({ fetchImpl });
@@ -215,8 +281,7 @@ describe('LocalFetchURLProvider redirects', () => {
   });
 
   it('treats a redirect response without a Location header as final', async () => {
-    const fetchImpl = vi
-      .fn<typeof fetch>()
+    const fetchImpl = mock<typeof fetch>()
       .mockResolvedValueOnce(
         new Response('odd', { status: 302, headers: { 'content-type': 'text/plain' } }),
       );
@@ -231,7 +296,7 @@ describe('LocalFetchURLProvider redirects', () => {
 
 describe('LocalFetchURLProvider connection pinning', () => {
   it('pins a public-host fetch to the addresses validated by the safety check', async () => {
-    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(htmlResponse('ok', 'text/plain'));
+    const fetchImpl = mock<typeof fetch>().mockResolvedValue(htmlResponse('ok', 'text/plain'));
     const provider = new LocalFetchURLProvider({ fetchImpl });
 
     const result = await provider.fetch('https://example.com/');
@@ -245,8 +310,7 @@ describe('LocalFetchURLProvider connection pinning', () => {
   });
 
   it('pins every redirect hop to its own validated addresses and closes both Agents', async () => {
-    const fetchImpl = vi
-      .fn<typeof fetch>()
+    const fetchImpl = mock<typeof fetch>()
       .mockResolvedValueOnce(new Response(null, { status: 302, headers: { location: '/next' } }))
       .mockResolvedValueOnce(htmlResponse('done', 'text/plain'));
     const provider = new LocalFetchURLProvider({ fetchImpl });
@@ -264,7 +328,7 @@ describe('LocalFetchURLProvider connection pinning', () => {
   });
 
   it('passes no dispatcher for an IP literal', async () => {
-    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(htmlResponse('ok', 'text/plain'));
+    const fetchImpl = mock<typeof fetch>().mockResolvedValue(htmlResponse('ok', 'text/plain'));
     const provider = new LocalFetchURLProvider({ fetchImpl });
 
     await provider.fetch('http://93.184.216.34/');
@@ -273,7 +337,7 @@ describe('LocalFetchURLProvider connection pinning', () => {
   });
 
   it('passes no dispatcher when allowPrivateAddresses is set', async () => {
-    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(htmlResponse('ok', 'text/plain'));
+    const fetchImpl = mock<typeof fetch>().mockResolvedValue(htmlResponse('ok', 'text/plain'));
     const provider = new LocalFetchURLProvider({ fetchImpl, allowPrivateAddresses: true });
 
     await provider.fetch('https://example.com/');
@@ -282,8 +346,8 @@ describe('LocalFetchURLProvider connection pinning', () => {
   });
 
   it('passes no dispatcher when an HTTP proxy is configured', async () => {
-    vi.stubEnv('http_proxy', 'http://proxy.example:8080');
-    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(htmlResponse('ok', 'text/plain'));
+    setEnv('http_proxy', 'http://proxy.example:8080');
+    const fetchImpl = mock<typeof fetch>().mockResolvedValue(htmlResponse('ok', 'text/plain'));
     const provider = new LocalFetchURLProvider({ fetchImpl });
 
     await provider.fetch('https://example.com/');
@@ -292,9 +356,9 @@ describe('LocalFetchURLProvider connection pinning', () => {
   });
 
   it('skips the local DNS safety lookup when the global proxy carries the request', async () => {
-    vi.stubEnv('http_proxy', 'http://proxy.example:8080');
+    setEnv('http_proxy', 'http://proxy.example:8080');
     lookupMock.mockRejectedValue(new Error('getaddrinfo ENOTFOUND github.com'));
-    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(htmlResponse('ok', 'text/plain'));
+    const fetchImpl = mock<typeof fetch>().mockResolvedValue(htmlResponse('ok', 'text/plain'));
     const provider = new LocalFetchURLProvider({ fetchImpl });
 
     const result = await provider.fetch('https://github.com/');
@@ -306,8 +370,8 @@ describe('LocalFetchURLProvider connection pinning', () => {
   });
 
   it('still refuses private IP literals while the proxy carries the request', async () => {
-    vi.stubEnv('http_proxy', 'http://proxy.example:8080');
-    const fetchImpl = vi.fn<typeof fetch>();
+    setEnv('http_proxy', 'http://proxy.example:8080');
+    const fetchImpl = mock<typeof fetch>();
     const provider = new LocalFetchURLProvider({ fetchImpl });
 
     await expect(provider.fetch('http://127.0.0.1:1337/')).rejects.toThrow(
@@ -317,9 +381,9 @@ describe('LocalFetchURLProvider connection pinning', () => {
   });
 
   it('still pins when the request bypasses the proxy via NO_PROXY wildcard', async () => {
-    vi.stubEnv('http_proxy', 'http://proxy.example:8080');
-    vi.stubEnv('no_proxy', '*');
-    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(htmlResponse('ok', 'text/plain'));
+    setEnv('http_proxy', 'http://proxy.example:8080');
+    setEnv('no_proxy', '*');
+    const fetchImpl = mock<typeof fetch>().mockResolvedValue(htmlResponse('ok', 'text/plain'));
     const provider = new LocalFetchURLProvider({ fetchImpl });
 
     await provider.fetch('https://example.com/');
@@ -328,9 +392,9 @@ describe('LocalFetchURLProvider connection pinning', () => {
   });
 
   it('still pins when NO_PROXY exempts the target host specifically', async () => {
-    vi.stubEnv('http_proxy', 'http://proxy.example:8080');
-    vi.stubEnv('no_proxy', 'example.com');
-    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(htmlResponse('ok', 'text/plain'));
+    setEnv('http_proxy', 'http://proxy.example:8080');
+    setEnv('no_proxy', 'example.com');
+    const fetchImpl = mock<typeof fetch>().mockResolvedValue(htmlResponse('ok', 'text/plain'));
     const provider = new LocalFetchURLProvider({ fetchImpl });
 
     await provider.fetch('https://example.com/');
@@ -339,7 +403,7 @@ describe('LocalFetchURLProvider connection pinning', () => {
   });
 
   it('rejects oversized responses by content-length and still closes the pinned Agent', async () => {
-    const fetchImpl = vi.fn<typeof fetch>().mockResolvedValue(
+    const fetchImpl = mock<typeof fetch>().mockResolvedValue(
       new Response('short', {
         status: 200,
         headers: {
@@ -364,12 +428,12 @@ describe('LocalFetchURLProvider timeouts and streaming caps', () => {
     lookupMock.mockReset();
     lookupMock.mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
     for (const key of ['http_proxy', 'HTTP_PROXY', 'https_proxy', 'HTTPS_PROXY', 'all_proxy', 'ALL_PROXY']) {
-      vi.stubEnv(key, '');
+      setEnv(key, '');
     }
   });
 
   afterEach(() => {
-    vi.unstubAllEnvs();
+    restoreEnvs();
   });
 
   function hungResponse(): (url: unknown, init?: RequestInit) => Promise<Response> {
@@ -383,32 +447,34 @@ describe('LocalFetchURLProvider timeouts and streaming caps', () => {
   }
 
   it('reports a timed-out error when the server hangs past the shared deadline', async () => {
-    vi.useFakeTimers();
-    try {
-      const fetchImpl = vi.fn<typeof fetch>(hungResponse());
-      const provider = new LocalFetchURLProvider({ fetchImpl, timeoutMs: 1000 });
-      const pending = expect(provider.fetch('https://example.com/')).rejects.toThrow(
-        /timed out after 1000ms/,
-      );
-      await vi.advanceTimersByTimeAsync(1000);
-      await pending;
-      expect(vi.getTimerCount()).toBe(0);
-    } finally {
-      vi.useRealTimers();
-    }
+    const timers = createTrackedHostTimers();
+    const fetchImpl = mock<typeof fetch>(hungResponse());
+    const provider = new LocalFetchURLProvider({ fetchImpl, timeoutMs: 1000, timers });
+    const settled = provider.fetch('https://example.com/').then(
+      () => undefined,
+      (reason: unknown) => reason,
+    );
+    await timers.advanceAsync(1000);
+    const error = await settled;
+    expect((error as Error).message).toContain('timed out after 1000ms');
+    expect(timers.outstanding).toBe(0);
   });
 
   it('propagates a caller abort during a hang instead of reporting a timeout', async () => {
     const caller = new AbortController();
-    const fetchImpl = vi.fn<typeof fetch>(hungResponse());
+    const fetchImpl = mock<typeof fetch>(hungResponse());
     const provider = new LocalFetchURLProvider({ fetchImpl, timeoutMs: 60_000 });
 
-    const pending = expect(
-      provider.fetch('https://example.com/', { signal: caller.signal }),
-    ).rejects.toThrow('The operation was aborted.');
-    await vi.waitUntil(() => fetchImpl.mock.calls.length > 0);
+    const settled = provider
+      .fetch('https://example.com/', { signal: caller.signal })
+      .then(
+        () => undefined,
+        (reason: unknown) => reason,
+      );
+    await waitUntil(() => fetchImpl.mock.calls.length > 0);
     caller.abort();
-    await pending;
+    const error = await settled;
+    expect((error as Error).message).toContain('The operation was aborted.');
   });
 
   it('rejects an oversized chunked response while streaming, before buffering it', async () => {
@@ -423,8 +489,7 @@ describe('LocalFetchURLProvider timeouts and streaming caps', () => {
         }
       },
     });
-    const fetchImpl = vi
-      .fn<typeof fetch>()
+    const fetchImpl = mock<typeof fetch>()
       .mockResolvedValue(
         new Response(stream, { status: 200, headers: { 'content-type': 'text/plain' } }),
       );

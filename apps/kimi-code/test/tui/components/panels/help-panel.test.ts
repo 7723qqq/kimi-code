@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import type { KimiSlashCommand } from '#/tui/commands/index';
 import { HelpPanelComponent } from '#/tui/components/dialogs/help-panel';
@@ -54,7 +54,7 @@ describe('HelpPanelComponent', () => {
   });
 
   it('Escape fires onClose', () => {
-    const onClose = vi.fn();
+    const onClose = mock();
     const panel = new HelpPanelComponent({
       commands: [],
       onClose,
@@ -64,7 +64,7 @@ describe('HelpPanelComponent', () => {
   });
 
   it('q / Enter also close the panel', () => {
-    const onClose = vi.fn();
+    const onClose = mock();
     const panel = new HelpPanelComponent({
       commands: [],
       onClose,

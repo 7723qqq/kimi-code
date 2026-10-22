@@ -24,7 +24,8 @@ import {
   type FsPullRequest,
   IGitService,
 } from '@moonshot-ai/agent-core-v2/app/git/git';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { removeTempHome } from './helpers/tempHome';
 
 import { mapActivityStatus, registerV2SessionsRoutes } from '../src/routes/v2/sessions';
 import { type RunningServer, startServer } from '../src/start';
@@ -40,6 +41,7 @@ interface SessionWireV2 {
     created_at: number;
     updated_at: number;
     archived: boolean;
+    archived_at: number | null;
   };
   activity: {
     status: 'running' | 'approval' | 'question' | 'failed' | 'idle';
@@ -200,7 +202,7 @@ describe('server /api/v2/sessions', () => {
     }
     if (home !== undefined) {
       await new Promise((resolve) => setTimeout(resolve, 25));
-      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
+      await removeTempHome(home);
       home = undefined;
     }
   });
@@ -390,14 +392,14 @@ describe('server /api/v2/sessions', () => {
   it('projects items to {id, archived} with fields=id,archived (relaxed page_size ceiling)', async () => {
     const page = await getData('?fields=id,archived&page_size=10000');
     expect(page.total).toBe(3);
-    expect(page.items).toEqual([
+    expect(page.items as unknown as { id: string; archived: boolean }[]).toEqual([
       { id: 's1', archived: false },
       { id: 's2', archived: false },
       { id: 's3', archived: false },
     ]);
 
     const all = await getData('?fields=id,archived&meta.archived=all&sort=meta.updated_at_asc');
-    expect(all.items).toEqual([
+    expect(all.items as unknown as { id: string; archived: boolean }[]).toEqual([
       { id: 's4', archived: true },
       { id: 's3', archived: false },
       { id: 's2', archived: false },
@@ -419,7 +421,7 @@ describe('server /api/v2/sessions', () => {
 
   it('paginates the ids projection with an opaque cursor', async () => {
     const page1 = await getData('?fields=id,archived&page_size=2');
-    expect(page1.items).toEqual([
+    expect(page1.items as unknown as { id: string; archived: boolean }[]).toEqual([
       { id: 's1', archived: false },
       { id: 's2', archived: false },
     ]);
@@ -428,7 +430,9 @@ describe('server /api/v2/sessions', () => {
     const page2 = await getData(
       `?fields=id,archived&page_size=2&page_token=${page1.next_page_token}`,
     );
-    expect(page2.items).toEqual([{ id: 's3', archived: false }]);
+    expect(page2.items as unknown as { id: string; archived: boolean }[]).toEqual([
+      { id: 's3', archived: false },
+    ]);
     expect(page2.has_more).toBe(false);
   });
 
@@ -965,7 +969,7 @@ describe('server /api/v2/sessions batch archive/restore', () => {
   });
 
   afterEach(() => {
-    vi.restoreAllMocks();
+    mock.restore();
   });
 
   afterAll(async () => {
@@ -975,7 +979,7 @@ describe('server /api/v2/sessions batch archive/restore', () => {
     }
     if (home !== undefined) {
       await new Promise((resolve) => setTimeout(resolve, 25));
-      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
+      await removeTempHome(home);
       home = undefined;
     }
   });

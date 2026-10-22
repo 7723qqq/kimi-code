@@ -27,16 +27,32 @@ import type { ChildProcess } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { afterEach, test, vi } from 'vitest';
+import { afterEach, test } from 'bun:test';
 
+import { ClusterDb } from '../../src/cluster/index.js';
 import { rmrf, tmpDir } from '../e2e/helpers/tmp.js';
 
 const REGISTRY = 'cluster.indexes.json';
 const seq: string[] = [];
 
+// The tracing layers below patch properties on the real node:fs/promises
+// exports object: every minidb module default-imports that one object, so the
+// wrapper is reached without re-importing the cluster sources (Bun has no
+// vi.resetModules, and mock.module cannot be undone). The afterEach restores
+// every patched property.
+const restores: (() => void)[] = [];
+
+function patch(owner: object, key: string, value: unknown): void {
+  const target = owner as unknown as Record<string, unknown>;
+  const original = target[key];
+  target[key] = value;
+  restores.push(() => {
+    target[key] = original;
+  });
+}
+
 afterEach(() => {
-  vi.doUnmock('node:fs/promises');
-  vi.resetModules();
+  while (restores.length > 0) restores.pop()!();
   seq.length = 0;
 });
 
@@ -47,11 +63,15 @@ afterEach(() => {
 function recordRealFs(clusterDir: string): void {
   const registryFile = path.join(clusterDir, REGISTRY);
   const tmpPrefix = `${registryFile}.tmp-`;
-  const mocked = {
-    ...fs,
-    open: (async (p: string, flags?: string, mode?: number) => {
+  const realOpen = fs.open;
+  const realRename = fs.rename;
+  const realRm = fs.rm;
+  patch(
+    fs,
+    'open',
+    (async (p: string, flags?: string, mode?: number) => {
       const s = String(p);
-      const real = await fs.open(p, flags as never, mode as never);
+      const real = await realOpen(p, flags as never, mode as never);
       if (s === clusterDir && flags === 'r') {
         return {
           sync: async () => {
@@ -80,16 +100,23 @@ function recordRealFs(clusterDir: string): void {
       }
       return real;
     }) as typeof fs.open,
-    rename: (async (src: string, dst: string) => {
+  );
+  patch(
+    fs,
+    'rename',
+    (async (src: string, dst: string) => {
       if (String(dst) === registryFile) seq.push(`rename:${String(src)}->${String(dst)}`);
-      await fs.rename(src, dst);
+      await realRename(src, dst);
     }) as typeof fs.rename,
-    rm: (async (p: string, opts?: { force?: boolean }) => {
+  );
+  patch(
+    fs,
+    'rm',
+    (async (p: string, opts?: { force?: boolean }) => {
       if (String(p).startsWith(tmpPrefix)) seq.push(`rm:${String(p)}`);
-      await fs.rm(p, opts);
+      await realRm(p, opts as never);
     }) as typeof fs.rm,
-  };
-  vi.doMock('node:fs/promises', () => ({ ...mocked, default: mocked }));
+  );
 }
 
 /** Record the same syscalls, but make the registry tmp's write FAIL after
@@ -102,11 +129,15 @@ function recordRealFsWithFailingTmpWrite(clusterDir: string): void {
   const registryFile = path.join(clusterDir, REGISTRY);
   const tmpPrefix = `${registryFile}.tmp-`;
   const partial = JSON.stringify({ indexes: [{ name: 'byCity' }] }).slice(0, 12);
-  const mocked = {
-    ...fs,
-    open: (async (p: string, flags?: string, mode?: number) => {
+  const realOpen = fs.open;
+  const realWriteFile = fs.writeFile;
+  const realRm = fs.rm;
+  patch(
+    fs,
+    'open',
+    (async (p: string, flags?: string, mode?: number) => {
       const s = String(p);
-      const real = await fs.open(p, flags as never, mode as never);
+      const real = await realOpen(p, flags as never, mode as never);
       if (s.startsWith(tmpPrefix)) {
         seq.push(`open:${s}`);
         return {
@@ -128,20 +159,27 @@ function recordRealFsWithFailingTmpWrite(clusterDir: string): void {
       }
       return real;
     }) as typeof fs.open,
-    writeFile: (async (p: string, data: unknown, enc?: unknown) => {
+  );
+  patch(
+    fs,
+    'writeFile',
+    (async (p: string, data: unknown, enc?: unknown) => {
       if (String(p).startsWith(tmpPrefix)) {
         seq.push(`writeFile-unsynced-throws:${String(p)}`);
-        await fs.writeFile(p, partial, enc as never);
+        await realWriteFile(p, partial, enc as never);
         throw new Error('simulated crash mid registry write (unsynced tmp)');
       }
-      await fs.writeFile(p, data as never, enc as never);
+      await realWriteFile(p, data as never, enc as never);
     }) as typeof fs.writeFile,
-    rm: (async (p: string, opts?: { force?: boolean }) => {
+  );
+  patch(
+    fs,
+    'rm',
+    (async (p: string, opts?: { force?: boolean }) => {
       if (String(p).startsWith(tmpPrefix)) seq.push(`rm:${String(p)}`);
-      await fs.rm(p, opts);
+      await realRm(p, opts as never);
     }) as typeof fs.rm,
-  };
-  vi.doMock('node:fs/promises', () => ({ ...mocked, default: mocked }));
+  );
 }
 
 function registryTemps(entries: string[]): string[] {
@@ -152,7 +190,6 @@ test('createIndex fsyncs the registry tmp before the rename and fsyncs the dir l
   const dir = await tmpDir('minidb-cluster-registry-');
   recordRealFs(dir);
   try {
-    const { ClusterDb } = await import('../../src/cluster/index.js');
     const db = await ClusterDb.open<{ city: string }>({
       dir,
       shardCount: 4,
@@ -203,7 +240,6 @@ test('a registry write that fails mid-way leaves no tmp behind', async () => {
   const dir = await tmpDir('minidb-cluster-registry-');
   recordRealFsWithFailingTmpWrite(dir);
   try {
-    const { ClusterDb } = await import('../../src/cluster/index.js');
     const db = await ClusterDb.open({ dir, shardCount: 4, valueCodec: 'json' });
     await assert.rejects(
       () => db.createIndex('byCity', { field: 'city' }),
@@ -249,7 +285,6 @@ test('open sweeps a dead owner’s stranded registry tmp and leaves a live owner
     await fs.writeFile(peerTmp, '{"indexes":');
     await fs.writeFile(deadTmp, '{"indexes":');
 
-    const { ClusterDb } = await import('../../src/cluster/index.js');
     const db = await ClusterDb.open({ dir, shardCount: 4, valueCodec: 'json' });
     assert.deepEqual(
       registryTemps(await fs.readdir(dir)),

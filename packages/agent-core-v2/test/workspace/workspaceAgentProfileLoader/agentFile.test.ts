@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { AgentFileParseError, parseAgentFileText } from '#/workspace/workspaceAgentProfileLoader/internal/agentFile';
 import { agentProfileFromFile } from '#/workspace/workspaceAgentProfileLoader/internal/agentProfileFromFile';

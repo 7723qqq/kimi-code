@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import {
   createShellPathBridge,
@@ -29,7 +29,7 @@ interface StubOpts {
 
 function stubDeps(opts: StubOpts = {}) {
   const existing = new Set(opts.existingPaths ?? []);
-  const execFileSync = vi.fn(
+  const execFileSync = mock(
     opts.execFileSync ??
       ((file: string, args: readonly string[]): string => {
         const result = opts.execFileResults?.[[file, ...args].join(' ')];

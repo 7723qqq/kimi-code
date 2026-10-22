@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { errorInfo, isErrorCode } from '#/_base/errors/codes';
 import { Error2 } from '#/_base/errors/errors';
@@ -69,7 +69,7 @@ describe('translateProviderError — classification', () => {
   });
 
   it('maps status errors to their codes at birth and preserves wire details', () => {
-    const cases: ReadonlyArray<[APIStatusError, string]> = [
+    const cases: ReadonlyArray<[APIStatusError, Error2['code']]> = [
       [new APIStatusError(429, 'too many requests'), 'provider.rate_limit'],
       [new APIStatusError(529, 'overloaded'), 'provider.overloaded'],
       [new APIProviderOverloadedError(503, 'overloaded'), 'provider.overloaded'],

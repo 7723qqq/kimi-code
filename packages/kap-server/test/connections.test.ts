@@ -2,7 +2,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { removeTempHome } from './helpers/tempHome';
 import { WebSocket } from 'ws';
 
 import { connectionsListResponseSchema } from '../src/protocol/rest-connection';
@@ -42,7 +43,7 @@ describe('server-v2 GET /api/v1/connections', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
+      await removeTempHome(home);
       home = undefined;
     }
   });

@@ -41,12 +41,12 @@ function padEndVisible(text: string, width: number): string {
   return text + ' '.repeat(Math.max(0, width - visibleWidth(text)));
 }
 
-function usageRowResetHint(row: QuotaUsageRow): string | undefined {
+function usageRowResetHint(row: QuotaUsageRow, nowMs: number): string | undefined {
   const resetAt = row.resetAt;
   if (resetAt === undefined) return undefined;
   const parsed = Date.parse(resetAt);
   if (!Number.isFinite(parsed)) return undefined;
-  const diffSec = Math.floor((parsed - Date.now()) / 1000);
+  const diffSec = Math.floor((parsed - nowMs) / 1000);
   if (diffSec <= 0) return t('tui.messages.usagePanel.reset');
   return t('tui.messages.usagePanel.resetsIn', { duration: formatDuration(diffSec) });
 }
@@ -73,11 +73,15 @@ export interface UsageReportOptions {
   readonly maxContextTokens: number;
   readonly managedUsage?: ManagedUsageReport;
   readonly managedUsageError?: string;
+  /** Wall clock in epoch ms for the reset hints; defaults to `Date.now()`. */
+  readonly nowMs?: number;
 }
 
 export interface ManagedUsageReportLineOptions {
   readonly managedUsage?: ManagedUsageReport;
   readonly managedUsageError?: string;
+  /** Wall clock in epoch ms for the reset hints; defaults to `Date.now()`. */
+  readonly nowMs?: number;
 }
 
 function usageNumber(value: unknown): number {
@@ -135,6 +139,7 @@ function buildManagedUsageSection(
   value: Colorize,
   muted: Colorize,
   errorStyle: Colorize,
+  nowMs: number,
 ): string[] {
   if (error !== undefined)
     return [
@@ -164,7 +169,7 @@ function buildManagedUsageSection(
     const pct = pctOf(row);
     const barColoured = currentTheme.fg(severityColor(ratioSeverity(ratioUsed)), bar);
     const label = padEndVisible(labels[i]!, labelWidth);
-    const resetHint = usageRowResetHint(row);
+    const resetHint = usageRowResetHint(row, nowMs);
     const resetStr = resetHint !== undefined ? `  ${muted(resetHint)}` : '';
     out.push(
       `  ${muted(label)}  ${barColoured}  ${value(padEndVisible(pct, pctWidth))}${resetStr}`,
@@ -283,6 +288,7 @@ export function buildManagedUsageReportLines(options: ManagedUsageReportLineOpti
     value,
     muted,
     errorStyle,
+    options.nowMs ?? Date.now(),
   );
 }
 
@@ -323,6 +329,7 @@ export function buildUsageReportLines(options: UsageReportOptions): string[] {
   const managedSection = buildManagedUsageReportLines({
     managedUsage: options.managedUsage,
     managedUsageError: options.managedUsageError,
+    nowMs: options.nowMs,
   });
   if (managedSection.length > 0) {
     lines.push('');

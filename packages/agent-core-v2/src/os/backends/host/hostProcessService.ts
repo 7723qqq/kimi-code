@@ -6,6 +6,7 @@ import type { Readable, Writable } from 'node:stream';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { BufferedReadable } from '#/_base/execEnv/bufferedReadable';
 import { LifecycleScope } from '#/app/scopes';
+import { HostTimersService } from '#/os/backends/host/hostTimersService';
 import {
   HostProcessError,
   HostProcessErrorCode,
@@ -13,6 +14,7 @@ import {
   type HostProcessOptions,
   type IHostProcess,
 } from '#/os/interface/hostProcess';
+import { type IHostTimerHandle, type IHostTimers } from '#/os/interface/hostTimers';
 
 const isWindows: boolean = process.platform === 'win32';
 const TASKKILL_TIMEOUT_MS = 5_000;
@@ -138,11 +140,12 @@ class HostProcess implements IHostProcess {
   readonly pid: number;
 
   private readonly _child: ChildProcess;
+  private readonly _timers: IHostTimers;
   private _exitCode: number | null = null;
   private readonly _exitPromise: Promise<number>;
   private _disposed = false;
 
-  constructor(child: ChildProcess, mergeStderr: boolean) {
+  constructor(child: ChildProcess, mergeStderr: boolean, timers: IHostTimers) {
     if (child.stdin === null || child.stdout === null) {
       throw new HostProcessError(
         HostProcessErrorCode.SpawnFailed,
@@ -157,6 +160,7 @@ class HostProcess implements IHostProcess {
     }
 
     this._child = child;
+    this._timers = timers;
     this.stdin = child.stdin;
     this.stdout = new BufferedReadable(child.stdout);
     this.stderr = mergeStderr ? this.stdout : new BufferedReadable(child.stderr as Readable);
@@ -192,7 +196,7 @@ class HostProcess implements IHostProcess {
         stdio: 'ignore',
         windowsHide: true,
       });
-      let timeout: ReturnType<typeof setTimeout> | undefined;
+      let timeout: IHostTimerHandle | undefined;
       const exited = await Promise.race([
         new Promise<true>((resolve) => {
           const done = (): void => {
@@ -202,13 +206,13 @@ class HostProcess implements IHostProcess {
           killer.once('close', done);
         }),
         new Promise<false>((resolve) => {
-          timeout = setTimeout(() => {
+          timeout = this._timers.setTimeout(() => {
             resolve(false);
           }, TASKKILL_TIMEOUT_MS);
           timeout.unref?.();
         }),
       ]);
-      clearTimeout(timeout);
+      if (timeout !== undefined) this._timers.clearTimeout(timeout);
       if (!exited) {
         killer.unref();
         killer.kill();
@@ -252,6 +256,12 @@ class HostProcess implements IHostProcess {
 export class HostProcessService implements IHostProcessService {
   declare readonly _serviceBrand: undefined;
 
+  readonly timers: IHostTimers;
+
+  constructor(timers?: IHostTimers) {
+    this.timers = timers ?? new HostTimersService();
+  }
+
   async spawn(
     command: string,
     args: readonly string[] = [],
@@ -273,7 +283,7 @@ export class HostProcessService implements IHostProcessService {
         },
       );
     }
-    return new HostProcess(child, options.mergeStderr ?? false);
+    return new HostProcess(child, options.mergeStderr ?? false, this.timers);
   }
 }
 

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { createAgentMachine } from '#/agent/machine';
 import { agentSlices, type AgentEventStore } from '#/agent/slices';

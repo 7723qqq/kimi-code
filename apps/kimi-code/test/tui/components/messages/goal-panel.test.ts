@@ -1,6 +1,6 @@
 import { visibleWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 
 import { setLocale } from '#/i18n';
 import { formatGoalElapsed } from '#/tui/components/messages/goal-format';

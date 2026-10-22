@@ -1,9 +1,9 @@
 import { visibleWidth } from '@moonshot-ai/pi-tui';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, mock } from 'bun:test';
 
 import { SessionPickerComponent } from '#/tui/components/dialogs/session-picker';
 
-vi.mock('#/i18n', () => ({
+void mock.module('#/i18n', () => ({
   t: (key: string, params?: Record<string, string>) => {
     const translations: Record<string, string> = {
       'tui.migration.badgeImported': '[imported]',
@@ -46,7 +46,7 @@ vi.mock('#/i18n', () => ({
     }
     return value;
   },
-  setLocale: vi.fn(),
+  setLocale: mock(),
   getLocale: () => 'en',
 }));
 
@@ -63,18 +63,18 @@ const ESC = String.fromCodePoint(27);
 
 describe('SessionPickerComponent', () => {
   afterEach(() => {
-    vi.restoreAllMocks();
+    mock.restore();
   });
 
   it('forwards Ctrl-C and Ctrl-D to optional host shortcuts', () => {
-    const onCtrlC = vi.fn();
-    const onCtrlD = vi.fn();
+    const onCtrlC = mock();
+    const onCtrlD = mock();
     const component = new SessionPickerComponent({
       sessions: [],
       loading: false,
       currentSessionId: '',
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
+      onSelect: mock(),
+      onCancel: mock(),
       onCtrlC,
       onCtrlD,
     });
@@ -82,15 +82,15 @@ describe('SessionPickerComponent', () => {
     component.handleInput('\u0003');
     component.handleInput('\u0004');
 
-    expect(onCtrlC).toHaveBeenCalledOnce();
-    expect(onCtrlD).toHaveBeenCalledOnce();
+    expect(onCtrlC).toHaveBeenCalledTimes(1);
+    expect(onCtrlD).toHaveBeenCalledTimes(1);
   });
 
   it('renders millisecond updated_at timestamps as relative times', () => {
     const now = new Date('2026-05-11T12:00:00.000Z').getTime();
-    vi.spyOn(Date, 'now').mockReturnValue(now);
 
     const component = new SessionPickerComponent({
+      now: () => now,
       sessions: [
         {
           id: 'ses_minutes',
@@ -107,8 +107,8 @@ describe('SessionPickerComponent', () => {
       ],
       loading: false,
       currentSessionId: 'ses_other',
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
+      onSelect: mock(),
+      onCancel: mock(),
     });
 
     const output = renderPlain(component);
@@ -120,9 +120,9 @@ describe('SessionPickerComponent', () => {
 
   it('renders title, full session id, work_dir, and last_prompt for each session', () => {
     const now = new Date('2026-05-11T12:00:00.000Z').getTime();
-    vi.spyOn(Date, 'now').mockReturnValue(now);
 
     const component = new SessionPickerComponent({
+      now: () => now,
       sessions: [
         {
           id: 'ses_01HXYABCDEFGHIJK',
@@ -134,8 +134,8 @@ describe('SessionPickerComponent', () => {
       ],
       loading: false,
       currentSessionId: 'ses_other',
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
+      onSelect: mock(),
+      onCancel: mock(),
     });
 
     const output = renderPlain(component);
@@ -150,9 +150,9 @@ describe('SessionPickerComponent', () => {
 
   it('omits the last-prompt row when last_prompt is missing', () => {
     const now = new Date('2026-05-11T12:00:00.000Z').getTime();
-    vi.spyOn(Date, 'now').mockReturnValue(now);
 
     const component = new SessionPickerComponent({
+      now: () => now,
       sessions: [
         {
           id: 'ses_no_prompt',
@@ -163,8 +163,8 @@ describe('SessionPickerComponent', () => {
       ],
       loading: false,
       currentSessionId: 'ses_other',
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
+      onSelect: mock(),
+      onCancel: mock(),
     });
 
     const output = renderPlain(component);
@@ -174,10 +174,10 @@ describe('SessionPickerComponent', () => {
 
   it('truncates overly long last_prompt content', () => {
     const now = new Date('2026-05-11T12:00:00.000Z').getTime();
-    vi.spyOn(Date, 'now').mockReturnValue(now);
 
     const longPrompt = 'a'.repeat(500);
     const component = new SessionPickerComponent({
+      now: () => now,
       sessions: [
         {
           id: 'ses_long',
@@ -189,8 +189,8 @@ describe('SessionPickerComponent', () => {
       ],
       loading: false,
       currentSessionId: 'ses_other',
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
+      onSelect: mock(),
+      onCancel: mock(),
     });
 
     const lines = component.render(60).map((line) => stripAnsi(line));
@@ -203,9 +203,9 @@ describe('SessionPickerComponent', () => {
 
   it('marks the current session with a "← current" badge', () => {
     const now = new Date('2026-05-11T12:00:00.000Z').getTime();
-    vi.spyOn(Date, 'now').mockReturnValue(now);
 
     const component = new SessionPickerComponent({
+      now: () => now,
       sessions: [
         {
           id: 'ses_current',
@@ -222,8 +222,8 @@ describe('SessionPickerComponent', () => {
       ],
       loading: false,
       currentSessionId: 'ses_current',
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
+      onSelect: mock(),
+      onCancel: mock(),
     });
 
     const lines = component.render(120).map((line) => stripAnsi(line));
@@ -235,9 +235,9 @@ describe('SessionPickerComponent', () => {
 
   it('places the relative time on the same line as the title, not right-aligned', () => {
     const now = new Date('2026-05-11T12:00:00.000Z').getTime();
-    vi.spyOn(Date, 'now').mockReturnValue(now);
 
     const component = new SessionPickerComponent({
+      now: () => now,
       sessions: [
         {
           id: 'ses_inline_time',
@@ -248,8 +248,8 @@ describe('SessionPickerComponent', () => {
       ],
       loading: false,
       currentSessionId: 'ses_other',
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
+      onSelect: mock(),
+      onCancel: mock(),
     });
 
     const lines = component.render(120).map((line) => stripAnsi(line));
@@ -263,9 +263,9 @@ describe('SessionPickerComponent', () => {
 
   it('prepends [imported] badge before the title for sessions migrated from kimi-cli', () => {
     const now = new Date('2026-05-11T12:00:00.000Z').getTime();
-    vi.spyOn(Date, 'now').mockReturnValue(now);
 
     const component = new SessionPickerComponent({
+      now: () => now,
       sessions: [
         {
           id: 'ses_imported',
@@ -283,8 +283,8 @@ describe('SessionPickerComponent', () => {
       ],
       loading: false,
       currentSessionId: 'ses_other',
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
+      onSelect: mock(),
+      onCancel: mock(),
     });
 
     const lines = component.render(120).map((line) => stripAnsi(line));
@@ -296,9 +296,9 @@ describe('SessionPickerComponent', () => {
 
   it('keeps every rendered line within the terminal width even for CJK content', () => {
     const now = new Date('2026-05-11T12:00:00.000Z').getTime();
-    vi.spyOn(Date, 'now').mockReturnValue(now);
 
     const component = new SessionPickerComponent({
+      now: () => now,
       sessions: [
         {
           id: 'ses_cjk_long_session_id_value',
@@ -311,8 +311,8 @@ describe('SessionPickerComponent', () => {
       ],
       loading: false,
       currentSessionId: 'ses_cjk_long_session_id_value',
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
+      onSelect: mock(),
+      onCancel: mock(),
     });
 
     for (const width of [40, 80, 120, 238]) {
@@ -329,10 +329,10 @@ describe('SessionPickerComponent', () => {
   // very narrow terminals.
   it('never renders a line wider than the terminal, even on tiny widths (#240)', () => {
     const now = new Date('2026-05-11T12:00:00.000Z').getTime();
-    vi.spyOn(Date, 'now').mockReturnValue(now);
 
     const id = 'ses_fbe574f3-572d-487f-9fa0-d09694f599d4';
     const component = new SessionPickerComponent({
+      now: () => now,
       sessions: [
         {
           id,
@@ -345,8 +345,8 @@ describe('SessionPickerComponent', () => {
       ],
       loading: false,
       currentSessionId: id,
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
+      onSelect: mock(),
+      onCancel: mock(),
     });
 
     for (let width = 10; width <= 60; width++) {
@@ -361,7 +361,7 @@ describe('SessionPickerComponent', () => {
   });
 
   it('calls onToggleScope with the selected session id when Ctrl+A is pressed', () => {
-    const onToggleScope = vi.fn();
+    const onToggleScope = mock();
     const component = new SessionPickerComponent({
       sessions: [
         {
@@ -380,33 +380,33 @@ describe('SessionPickerComponent', () => {
       loading: false,
       currentSessionId: '',
       scope: 'cwd',
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
+      onSelect: mock(),
+      onCancel: mock(),
       onToggleScope,
     });
 
     component.handleInput('\u001B[B');
     component.handleInput('\u0001');
 
-    expect(onToggleScope).toHaveBeenCalledOnce();
+    expect(onToggleScope).toHaveBeenCalledTimes(1);
     expect(onToggleScope).toHaveBeenCalledWith('ses_b');
   });
 
   it('calls onToggleScope with the current session id when Ctrl+A is pressed with no sessions', () => {
-    const onToggleScope = vi.fn();
+    const onToggleScope = mock();
     const component = new SessionPickerComponent({
       sessions: [],
       loading: false,
       currentSessionId: 'ses_current',
       scope: 'cwd',
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
+      onSelect: mock(),
+      onCancel: mock(),
       onToggleScope,
     });
 
     component.handleInput('\u0001');
 
-    expect(onToggleScope).toHaveBeenCalledOnce();
+    expect(onToggleScope).toHaveBeenCalledTimes(1);
     expect(onToggleScope).toHaveBeenCalledWith('ses_current');
   });
 
@@ -416,9 +416,9 @@ describe('SessionPickerComponent', () => {
       loading: false,
       currentSessionId: 'ses_current',
       scope: 'cwd',
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
-      onToggleScope: vi.fn(),
+      onSelect: mock(),
+      onCancel: mock(),
+      onToggleScope: mock(),
     });
 
     const output = renderPlain(component);
@@ -440,9 +440,9 @@ describe('SessionPickerComponent', () => {
       loading: false,
       currentSessionId: '',
       scope: 'all',
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
-      onToggleScope: vi.fn(),
+      onSelect: mock(),
+      onCancel: mock(),
+      onToggleScope: mock(),
     });
 
     const output = renderPlain(component);
@@ -452,7 +452,7 @@ describe('SessionPickerComponent', () => {
   });
 
   it('selects the full session row on Enter', () => {
-    const onSelect = vi.fn();
+    const onSelect = mock();
     const session = {
       id: 'ses_row',
       title: 'Row session',
@@ -465,19 +465,19 @@ describe('SessionPickerComponent', () => {
       currentSessionId: '',
       scope: 'cwd',
       onSelect,
-      onCancel: vi.fn(),
+      onCancel: mock(),
     });
 
     component.handleInput('\r');
 
-    expect(onSelect).toHaveBeenCalledOnce();
+    expect(onSelect).toHaveBeenCalledTimes(1);
     expect(onSelect).toHaveBeenCalledWith(session);
   });
 
   it('loads the next 50 sessions after moving past the loaded page', () => {
     const now = new Date('2026-05-11T12:00:00.000Z').getTime();
-    vi.spyOn(Date, 'now').mockReturnValue(now);
     const component = new SessionPickerComponent({
+      now: () => now,
       sessions: Array.from({ length: 120 }, (_, index) => ({
         id: `ses_${String(index).padStart(4, '0')}`,
         title: `Session ${String(index).padStart(4, '0')}`,
@@ -489,8 +489,8 @@ describe('SessionPickerComponent', () => {
       scope: 'all',
       pageSize: 50,
       maxVisibleSessions: 4,
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
+      onSelect: mock(),
+      onCancel: mock(),
     });
 
     for (let i = 0; i < 50; i++) {
@@ -517,8 +517,8 @@ describe('SessionPickerComponent', () => {
       initialSelectedSessionId: 'ses_0070',
       pageSize: 50,
       maxVisibleSessions: 4,
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
+      onSelect: mock(),
+      onCancel: mock(),
     });
 
     const output = renderPlain(component);
@@ -539,8 +539,8 @@ describe('SessionPickerComponent', () => {
       ],
       loading: false,
       currentSessionId: '',
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
+      onSelect: mock(),
+      onCancel: mock(),
     });
 
     const output = renderPlain(component);
@@ -582,8 +582,8 @@ describe('SessionPickerComponent', () => {
       ],
       loading: false,
       currentSessionId: '',
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
+      onSelect: mock(),
+      onCancel: mock(),
     });
 
     component.handleInput('n');
@@ -602,7 +602,7 @@ describe('SessionPickerComponent', () => {
   });
 
   it('clears the query on Backspace and cancels on Esc only after the query is empty', () => {
-    const onCancel = vi.fn();
+    const onCancel = mock();
     const component = new SessionPickerComponent({
       sessions: [
         {
@@ -620,7 +620,7 @@ describe('SessionPickerComponent', () => {
       ],
       loading: false,
       currentSessionId: '',
-      onSelect: vi.fn(),
+      onSelect: mock(),
       onCancel,
     });
 
@@ -639,11 +639,11 @@ describe('SessionPickerComponent', () => {
     expect(onCancel).not.toHaveBeenCalled();
 
     component.handleInput(ESC);
-    expect(onCancel).toHaveBeenCalledOnce();
+    expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
   it('selects the filtered session row on Enter', () => {
-    const onSelect = vi.fn();
+    const onSelect = mock();
     const target = {
       id: 'ses_gamma',
       title: 'Gamma session',
@@ -669,7 +669,7 @@ describe('SessionPickerComponent', () => {
       loading: false,
       currentSessionId: '',
       onSelect,
-      onCancel: vi.fn(),
+      onCancel: mock(),
     });
 
     component.handleInput('g');
@@ -677,14 +677,14 @@ describe('SessionPickerComponent', () => {
     component.handleInput('m');
     component.handleInput('\r');
 
-    expect(onSelect).toHaveBeenCalledOnce();
+    expect(onSelect).toHaveBeenCalledTimes(1);
     expect(onSelect).toHaveBeenCalledWith(target);
   });
 
   it('loads the next 50 matching sessions after moving past the filtered page', () => {
     const now = new Date('2026-05-11T12:00:00.000Z').getTime();
-    vi.spyOn(Date, 'now').mockReturnValue(now);
     const component = new SessionPickerComponent({
+      now: () => now,
       sessions: [
         ...Array.from({ length: 80 }, (_, index) => ({
           id: `ses_needle_${String(index).padStart(4, '0')}`,
@@ -703,8 +703,8 @@ describe('SessionPickerComponent', () => {
       currentSessionId: '',
       pageSize: 50,
       maxVisibleSessions: 4,
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
+      onSelect: mock(),
+      onCancel: mock(),
     });
 
     component.handleInput('n');
@@ -724,7 +724,7 @@ describe('SessionPickerComponent', () => {
   });
 
   it('calls onToggleScope with the selected filtered session id when Ctrl+A is pressed', () => {
-    const onToggleScope = vi.fn();
+    const onToggleScope = mock();
     const component = new SessionPickerComponent({
       sessions: [
         {
@@ -743,8 +743,8 @@ describe('SessionPickerComponent', () => {
       loading: false,
       currentSessionId: '',
       scope: 'cwd',
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
+      onSelect: mock(),
+      onCancel: mock(),
       onToggleScope,
     });
 
@@ -754,12 +754,12 @@ describe('SessionPickerComponent', () => {
     component.handleInput('a');
     component.handleInput('\u0001');
 
-    expect(onToggleScope).toHaveBeenCalledOnce();
+    expect(onToggleScope).toHaveBeenCalledTimes(1);
     expect(onToggleScope).toHaveBeenCalledWith('ses_beta');
   });
 
   it('fires onLoadMore when the cursor reaches the last fetched row', () => {
-    const onLoadMore = vi.fn();
+    const onLoadMore = mock();
     const component = new SessionPickerComponent({
       sessions: [
         { id: 'ses_a', title: 'Alpha', work_dir: '/tmp/project', updated_at: 1 },
@@ -768,18 +768,18 @@ describe('SessionPickerComponent', () => {
       loading: false,
       currentSessionId: '',
       hasMore: true,
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
+      onSelect: mock(),
+      onCancel: mock(),
       onLoadMore,
     });
 
     component.handleInput('\u001B[B');
 
-    expect(onLoadMore).toHaveBeenCalledOnce();
+    expect(onLoadMore).toHaveBeenCalledTimes(1);
   });
 
   it('does not fire onLoadMore while a page fetch is in flight', () => {
-    const onLoadMore = vi.fn();
+    const onLoadMore = mock();
     const component = new SessionPickerComponent({
       sessions: [
         { id: 'ses_a', title: 'Alpha', work_dir: '/tmp/project', updated_at: 1 },
@@ -789,8 +789,8 @@ describe('SessionPickerComponent', () => {
       currentSessionId: '',
       hasMore: true,
       loadingMore: true,
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
+      onSelect: mock(),
+      onCancel: mock(),
       onLoadMore,
     });
 
@@ -804,8 +804,8 @@ describe('SessionPickerComponent', () => {
       sessions: [{ id: 'ses_alpha', title: 'Alpha session', work_dir: '/tmp/p', updated_at: 1 }],
       loading: false,
       currentSessionId: '',
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
+      onSelect: mock(),
+      onCancel: mock(),
     });
 
     component.handleInput('g');
@@ -822,7 +822,7 @@ describe('SessionPickerComponent', () => {
   });
 
   it('appendSessions keeps the selected row', () => {
-    const onSelect = vi.fn();
+    const onSelect = mock();
     const beta = { id: 'ses_beta', title: 'Beta session', work_dir: '/tmp/p', updated_at: 2 };
     const component = new SessionPickerComponent({
       sessions: [
@@ -832,7 +832,7 @@ describe('SessionPickerComponent', () => {
       loading: false,
       currentSessionId: '',
       onSelect,
-      onCancel: vi.fn(),
+      onCancel: mock(),
     });
 
     component.handleInput('\u001B[B');
@@ -841,36 +841,36 @@ describe('SessionPickerComponent', () => {
     ]);
     component.handleInput('\r');
 
-    expect(onSelect).toHaveBeenCalledOnce();
+    expect(onSelect).toHaveBeenCalledTimes(1);
     expect(onSelect).toHaveBeenCalledWith(beta);
   });
 
   it('fires onSearchDrain only when the query becomes active with unfetched pages', () => {
-    const onSearchDrain = vi.fn();
+    const onSearchDrain = mock();
     const component = new SessionPickerComponent({
       sessions: [{ id: 'ses_alpha', title: 'Alpha session', work_dir: '/tmp/p', updated_at: 1 }],
       loading: false,
       currentSessionId: '',
       hasMore: true,
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
+      onSelect: mock(),
+      onCancel: mock(),
       onSearchDrain,
     });
 
     component.handleInput('a');
     component.handleInput('l');
 
-    expect(onSearchDrain).toHaveBeenCalledOnce();
+    expect(onSearchDrain).toHaveBeenCalledTimes(1);
   });
 
   it('does not fire onSearchDrain when every page is already fetched', () => {
-    const onSearchDrain = vi.fn();
+    const onSearchDrain = mock();
     const component = new SessionPickerComponent({
       sessions: [{ id: 'ses_alpha', title: 'Alpha session', work_dir: '/tmp/p', updated_at: 1 }],
       loading: false,
       currentSessionId: '',
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
+      onSelect: mock(),
+      onCancel: mock(),
       onSearchDrain,
     });
 
@@ -888,8 +888,8 @@ describe('SessionPickerComponent', () => {
       loading: false,
       currentSessionId: '',
       hasMore: true,
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
+      onSelect: mock(),
+      onCancel: mock(),
     });
 
     expect(renderPlain(component)).toContain('· scroll for more');
@@ -909,8 +909,8 @@ describe('SessionPickerComponent', () => {
       loading: false,
       currentSessionId: '',
       hasMore: true,
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
+      onSelect: mock(),
+      onCancel: mock(),
     });
 
     component.handleInput('a');
@@ -945,13 +945,13 @@ describe('SessionPickerComponent', () => {
     const beta = { id: 'ses_beta', title: 'Beta session', work_dir: '/tmp/p', updated_at: 1 };
 
     it('arms an inline delete confirmation on Ctrl+X for the selected row', () => {
-      const onDeleteRequest = vi.fn(async () => {});
+      const onDeleteRequest = mock(async () => {});
       const component = new SessionPickerComponent({
         sessions: [alpha, beta],
         loading: false,
         currentSessionId: '',
-        onSelect: vi.fn(),
-        onCancel: vi.fn(),
+        onSelect: mock(),
+        onCancel: mock(),
         onDeleteRequest,
       });
 
@@ -966,8 +966,8 @@ describe('SessionPickerComponent', () => {
         sessions: [alpha],
         loading: false,
         currentSessionId: '',
-        onSelect: vi.fn(),
-        onCancel: vi.fn(),
+        onSelect: mock(),
+        onCancel: mock(),
       });
       noHandler.handleInput(CTRL_X);
       expect(renderPlain(noHandler)).not.toContain('Delete session');
@@ -976,9 +976,9 @@ describe('SessionPickerComponent', () => {
         sessions: [],
         loading: false,
         currentSessionId: '',
-        onSelect: vi.fn(),
-        onCancel: vi.fn(),
-        onDeleteRequest: vi.fn(async () => {}),
+        onSelect: mock(),
+        onCancel: mock(),
+        onDeleteRequest: mock(async () => {}),
       });
       noRows.handleInput(CTRL_X);
       expect(renderPlain(noRows)).not.toContain('Delete session');
@@ -986,20 +986,20 @@ describe('SessionPickerComponent', () => {
 
     it('confirms on y, shows a deleting state, and clears it after success', async () => {
       const { promise, resolve } = deferred();
-      const onDeleteRequest = vi.fn(() => promise);
+      const onDeleteRequest = mock(() => promise);
       const component = new SessionPickerComponent({
         sessions: [alpha, beta],
         loading: false,
         currentSessionId: '',
-        onSelect: vi.fn(),
-        onCancel: vi.fn(),
+        onSelect: mock(),
+        onCancel: mock(),
         onDeleteRequest,
       });
 
       component.handleInput(CTRL_X);
       component.handleInput('y');
 
-      expect(onDeleteRequest).toHaveBeenCalledOnce();
+      expect(onDeleteRequest).toHaveBeenCalledTimes(1);
       expect(onDeleteRequest).toHaveBeenCalledWith(alpha);
       expect(renderPlain(component)).toContain('Deleting session "Alpha session"…');
 
@@ -1012,13 +1012,13 @@ describe('SessionPickerComponent', () => {
     });
 
     it('cancels on n and on Esc without calling onDeleteRequest or onCancel', () => {
-      const onDeleteRequest = vi.fn(async () => {});
-      const onCancel = vi.fn();
+      const onDeleteRequest = mock(async () => {});
+      const onCancel = mock();
       const component = new SessionPickerComponent({
         sessions: [alpha, beta],
         loading: false,
         currentSessionId: '',
-        onSelect: vi.fn(),
+        onSelect: mock(),
         onCancel,
         onDeleteRequest,
       });
@@ -1036,14 +1036,14 @@ describe('SessionPickerComponent', () => {
     });
 
     it('ignores all other keys while the confirmation is armed', () => {
-      const onDeleteRequest = vi.fn(async () => {});
-      const onSelect = vi.fn();
+      const onDeleteRequest = mock(async () => {});
+      const onSelect = mock();
       const component = new SessionPickerComponent({
         sessions: [alpha, beta],
         loading: false,
         currentSessionId: '',
         onSelect,
-        onCancel: vi.fn(),
+        onCancel: mock(),
         onDeleteRequest,
       });
 
@@ -1060,13 +1060,13 @@ describe('SessionPickerComponent', () => {
 
     it('ignores keys while a delete is in flight', async () => {
       const { promise, resolve } = deferred();
-      const onDeleteRequest = vi.fn(() => promise);
+      const onDeleteRequest = mock(() => promise);
       const component = new SessionPickerComponent({
         sessions: [alpha, beta],
         loading: false,
         currentSessionId: '',
-        onSelect: vi.fn(),
-        onCancel: vi.fn(),
+        onSelect: mock(),
+        onCancel: mock(),
         onDeleteRequest,
       });
 
@@ -1077,7 +1077,7 @@ describe('SessionPickerComponent', () => {
       component.handleInput('\r');
       component.handleInput(ESC);
 
-      expect(onDeleteRequest).toHaveBeenCalledOnce();
+      expect(onDeleteRequest).toHaveBeenCalledTimes(1);
 
       resolve();
       await flushMicrotasks();
@@ -1085,13 +1085,13 @@ describe('SessionPickerComponent', () => {
 
     it('returns to the list when the delete fails', async () => {
       const { promise, reject } = deferred();
-      const onDeleteRequest = vi.fn(() => promise);
+      const onDeleteRequest = mock(() => promise);
       const component = new SessionPickerComponent({
         sessions: [alpha, beta],
         loading: false,
         currentSessionId: '',
-        onSelect: vi.fn(),
-        onCancel: vi.fn(),
+        onSelect: mock(),
+        onCancel: mock(),
         onDeleteRequest,
       });
 
@@ -1103,7 +1103,7 @@ describe('SessionPickerComponent', () => {
       const output = renderPlain(component);
       expect(output).not.toContain('Deleting session');
       expect(output).not.toContain('Delete session');
-      expect(onDeleteRequest).toHaveBeenCalledOnce();
+      expect(onDeleteRequest).toHaveBeenCalledTimes(1);
     });
 
     it('adds Ctrl+X delete to the hint when deletion is available', () => {
@@ -1111,9 +1111,9 @@ describe('SessionPickerComponent', () => {
         sessions: [alpha],
         loading: false,
         currentSessionId: '',
-        onSelect: vi.fn(),
-        onCancel: vi.fn(),
-        onDeleteRequest: vi.fn(async () => {}),
+        onSelect: mock(),
+        onCancel: mock(),
+        onDeleteRequest: mock(async () => {}),
       });
 
       expect(renderPlain(component)).toContain('Ctrl+X delete');
@@ -1121,25 +1121,25 @@ describe('SessionPickerComponent', () => {
 
     it('ignores input while a selection is in flight', async () => {
       const { promise, resolve } = deferred();
-      const onSelect = vi.fn(() => promise);
-      const onDeleteRequest = vi.fn(async () => {});
+      const onSelect = mock(() => promise);
+      const onDeleteRequest = mock(async () => {});
       const component = new SessionPickerComponent({
         sessions: [alpha, beta],
         loading: false,
         currentSessionId: '',
         onSelect,
-        onCancel: vi.fn(),
+        onCancel: mock(),
         onDeleteRequest,
       });
 
       component.handleInput('\r');
-      expect(onSelect).toHaveBeenCalledOnce();
+      expect(onSelect).toHaveBeenCalledTimes(1);
 
       component.handleInput(CTRL_X);
       expect(renderPlain(component)).not.toContain('Delete session');
       component.handleInput('y');
       component.handleInput('\r');
-      expect(onSelect).toHaveBeenCalledOnce();
+      expect(onSelect).toHaveBeenCalledTimes(1);
       expect(onDeleteRequest).not.toHaveBeenCalled();
 
       resolve();
@@ -1151,18 +1151,18 @@ describe('SessionPickerComponent', () => {
 
     it('unlocks input when the selection fails', async () => {
       const { promise, reject } = deferred();
-      const onSelect = vi.fn(() => promise);
+      const onSelect = mock(() => promise);
       const component = new SessionPickerComponent({
         sessions: [alpha, beta],
         loading: false,
         currentSessionId: '',
         onSelect,
-        onCancel: vi.fn(),
-        onDeleteRequest: vi.fn(async () => {}),
+        onCancel: mock(),
+        onDeleteRequest: mock(async () => {}),
       });
 
       component.handleInput('\r');
-      expect(onSelect).toHaveBeenCalledOnce();
+      expect(onSelect).toHaveBeenCalledTimes(1);
 
       reject(new Error('boom'));
       await flushMicrotasks();
@@ -1176,9 +1176,9 @@ describe('SessionPickerComponent', () => {
         sessions: [alpha, beta],
         loading: false,
         currentSessionId: '',
-        onSelect: vi.fn(),
-        onCancel: vi.fn(),
-        onDeleteRequest: vi.fn(async () => {}),
+        onSelect: mock(),
+        onCancel: mock(),
+        onDeleteRequest: mock(async () => {}),
       });
       component.handleInput(CTRL_X);
 
@@ -1200,9 +1200,9 @@ describe('SessionPickerComponent', () => {
         sessions: [longTitled],
         loading: false,
         currentSessionId: '',
-        onSelect: vi.fn(),
-        onCancel: vi.fn(),
-        onDeleteRequest: vi.fn(async () => {}),
+        onSelect: mock(),
+        onCancel: mock(),
+        onDeleteRequest: mock(async () => {}),
       });
 
       component.handleInput(CTRL_X);

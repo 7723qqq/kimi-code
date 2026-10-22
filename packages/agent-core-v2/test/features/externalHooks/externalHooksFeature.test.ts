@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'bun:test';
 
 import { type CollectionToken, type CollectionView } from '#/_base/di/collection';
 import { ScopeUnits } from '#/_base/di/fiber';

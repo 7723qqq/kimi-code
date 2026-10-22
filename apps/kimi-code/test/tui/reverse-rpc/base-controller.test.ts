@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import { ReverseRpcController } from '#/tui/reverse-rpc/base-controller';
 
@@ -11,8 +11,8 @@ class TestController extends ReverseRpcController<string, string> {
 describe('ReverseRpcController', () => {
   it('shows a payload, resolves the pending promise on respond, and hides the panel', async () => {
     const controller = new TestController();
-    const showPanel = vi.fn();
-    const hidePanel = vi.fn();
+    const showPanel = mock();
+    const hidePanel = mock();
     controller.setUIHooks({ showPanel, hidePanel });
 
     const pending = controller.show('payload');
@@ -23,13 +23,13 @@ describe('ReverseRpcController', () => {
 
     await expect(pending).resolves.toBe('approved');
     expect(controller.hasPending()).toBe(false);
-    expect(hidePanel).toHaveBeenCalledOnce();
+    expect(hidePanel).toHaveBeenCalledTimes(1);
   });
 
   it('queues concurrent show() requests and presents them one at a time', async () => {
     const controller = new TestController();
-    const showPanel = vi.fn();
-    const hidePanel = vi.fn();
+    const showPanel = mock();
+    const hidePanel = mock();
     controller.setUIHooks({ showPanel, hidePanel });
 
     const first = controller.show('first');
@@ -77,8 +77,8 @@ describe('ReverseRpcController', () => {
       }
     }
     const controller = new AutoController();
-    const showPanel = vi.fn();
-    const hidePanel = vi.fn();
+    const showPanel = mock();
+    const hidePanel = mock();
     controller.setUIHooks({ showPanel, hidePanel });
 
     const first = controller.show({ action: 'run', id: 'a' });
@@ -103,8 +103,8 @@ describe('ReverseRpcController', () => {
 
   it('cancelAll cancels the current request and every queued request', async () => {
     const controller = new TestController();
-    const hidePanel = vi.fn();
-    controller.setUIHooks({ showPanel: vi.fn(), hidePanel });
+    const hidePanel = mock();
+    controller.setUIHooks({ showPanel: mock(), hidePanel });
 
     const first = controller.show('first');
     const second = controller.show('second');

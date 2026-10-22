@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import chalk from 'chalk';
 
 import { darkColors } from '#/tui/theme/colors';

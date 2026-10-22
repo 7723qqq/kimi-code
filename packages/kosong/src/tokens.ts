@@ -42,7 +42,7 @@ function tsEstimateTokens(text: string): number {
  * Estimate tokens for JSON-serialized content. The multiplier compensates
  * for the heuristic's under-counting of JSON's dense punctuation.
  */
-function estimateTokensForJson(text: string): number {
+export function estimateTokensForJson(text: string): number {
   return Math.ceil(tsEstimateTokens(text) * JSON_TOKEN_MULTIPLIER);
 }
 

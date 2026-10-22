@@ -1,5 +1,5 @@
 import { Container, Text, VStack } from '@moonshot-ai/pi-tui';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock, type Mock } from 'bun:test';
 
 import {
   StatusSurfaceComponent,
@@ -33,7 +33,7 @@ function makeRegion(rows = 40) {
   // Responses travel through the panel (the dialog host wires its callback to
   // the approval controller), so the spy on the panel's response callback is
   // what observes an answer.
-  const onRespond = vi.fn();
+  const onRespond = mock();
   const surface = new StatusSurfaceComponent({ terminalRows: () => rows });
   // `setRegion` installs the change signal, so the region needs no wiring of
   // its own — registering it is enough for a later `show` to be noticed.
@@ -45,7 +45,7 @@ function makeRegion(rows = 40) {
 function showPayload(
   region: ApprovalRegion,
   data: ApprovalPanelData,
-  onResponse = vi.fn(),
+  onResponse = mock(),
 ): ApprovalPanelComponent {
   const panel = new ApprovalPanelComponent({ data }, onResponse);
   region.show(data, panel);
@@ -54,7 +54,7 @@ function showPayload(
 
 /** Build a region whose panel records answers into `onRespond`. */
 function makeRegionWithPanel(rows = 40) {
-  const onRespond = vi.fn();
+  const onRespond = mock();
   const surface = new StatusSurfaceComponent({ terminalRows: () => rows });
   const region = new ApprovalRegion();
   surface.setRegion(region);
@@ -73,7 +73,7 @@ describe('ApprovalRegion', () => {
 
   it('takes the keyboard as soon as a request arrives', () => {
     const { region, surface } = makeRegion();
-    showPayload(region, payload(), vi.fn());
+    showPayload(region, payload(), mock());
     expect(surface.focusedRegion()).toBe('approval');
   });
 
@@ -265,7 +265,7 @@ describe('ApprovalRegion', () => {
   });
 
   it('routes a numeric answer through the panel so feedback choices still prompt', () => {
-    const onRespond = vi.fn();
+    const onRespond = mock();
     const surface = new StatusSurfaceComponent({ terminalRows: () => 40 });
     const region = new ApprovalRegion();
     surface.setRegion(region);
@@ -441,10 +441,10 @@ describe('ApprovalRegion', () => {
     function makeFeedbackRegion(): {
       region: ApprovalRegion;
       surface: StatusSurfaceComponent;
-      onRespond: ReturnType<typeof vi.fn>;
+      onRespond: Mock<(...args: any[]) => any>;
       panel: ApprovalPanelComponent;
     } {
-      const onRespond = vi.fn();
+      const onRespond = mock();
       const surface = new StatusSurfaceComponent({ terminalRows: () => 40 });
       const region = new ApprovalRegion();
       surface.setRegion(region);
@@ -461,7 +461,7 @@ describe('ApprovalRegion', () => {
 
     function makeFeedbackRegionWithSurface(): {
       surface: StatusSurfaceComponent;
-      onRespond: ReturnType<typeof vi.fn>;
+      onRespond: Mock<(...args: any[]) => any>;
     } {
       const { surface, onRespond } = makeFeedbackRegion();
       return { surface, onRespond };
@@ -513,7 +513,7 @@ describe('ApprovalRegion', () => {
     });
 
     it('consumes Ctrl+E and opens the preview for a previewable block', () => {
-      const onOpenPreview = vi.fn();
+      const onOpenPreview = mock();
       const surface = new StatusSurfaceComponent({ terminalRows: () => 40 });
       const region = new ApprovalRegion();
       surface.setRegion(region);
@@ -522,7 +522,7 @@ describe('ApprovalRegion', () => {
           { type: 'diff', path: 'a.ts', old_text: 'a\n', new_text: 'b\n', is_summary: false },
         ],
       });
-      const panel = new ApprovalPanelComponent({ data }, vi.fn(), undefined, onOpenPreview);
+      const panel = new ApprovalPanelComponent({ data }, mock(), undefined, onOpenPreview);
       region.show(data, panel);
 
       expect(surface.focusedRegion()).toBe('approval');
@@ -535,10 +535,10 @@ describe('ApprovalRegion', () => {
       const second = new StatusSurfaceComponent({ terminalRows: () => 40 });
       const secondRegion = new ApprovalRegion();
       second.setRegion(secondRegion);
-      const noPreview = vi.fn();
+      const noPreview = mock();
       secondRegion.show(
         payload(),
-        new ApprovalPanelComponent({ data: payload() }, vi.fn(), undefined, noPreview),
+        new ApprovalPanelComponent({ data: payload() }, mock(), undefined, noPreview),
       );
       expect(second.handleRawInput('\u0005')).toBe(true);
       expect(noPreview).not.toHaveBeenCalled();
@@ -549,8 +549,8 @@ describe('ApprovalRegion', () => {
       // keys arrive, and `StatusSurfaceKey` cannot carry them.
       const { CustomEditor } = await import('#/tui/components/editor/custom-editor');
       const tui = {
-        requestRender: vi.fn(),
-        render: vi.fn(() => []),
+        requestRender: mock(),
+        render: mock(() => []),
         terminal: { rows: 40, cols: 120 },
       } as unknown as import('@moonshot-ai/pi-tui').TUI;
       const editor = new CustomEditor(tui);
@@ -573,7 +573,7 @@ describe('ApprovalRegion', () => {
     });
 
     it('does not consume Ctrl+E when the approval lost focus', () => {
-      const onOpenPreview = vi.fn();
+      const onOpenPreview = mock();
       const surface = new StatusSurfaceComponent({ terminalRows: () => 40 });
       const region = new ApprovalRegion();
       surface.setRegion(region);
@@ -582,7 +582,7 @@ describe('ApprovalRegion', () => {
           { type: 'diff', path: 'a.ts', old_text: 'a\n', new_text: 'b\n', is_summary: false },
         ],
       });
-      const panel = new ApprovalPanelComponent({ data }, vi.fn(), undefined, onOpenPreview);
+      const panel = new ApprovalPanelComponent({ data }, mock(), undefined, onOpenPreview);
       region.show(data, panel);
       surface.focusRegion(null);
 

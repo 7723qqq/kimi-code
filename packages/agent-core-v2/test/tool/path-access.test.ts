@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import type { ShellPathBridge } from '#/_base/execEnv/shellPathBridge';
 import {
@@ -180,7 +180,7 @@ describe('extendWorkspaceWithSkillRoots', () => {
 
   it('does not dedupe a root that is a parent of the workspace dir (parent dirs are not filtered)', () => {
     const result = extendWorkspaceWithSkillRoots(
-      { workspaceDir: '/repo/sub', additionalDirs: [] },
+      { workspaceDir: '/repo/sub', additionalDirs: [] as string[] },
       ['/repo'],
     );
     expect(result.additionalDirs).toEqual(['/repo']);

@@ -33,9 +33,17 @@ export function readRetryAfterMs(error: unknown): number | null {
   return typeof value === 'number' && value > 0 ? value : null;
 }
 
-export async function sleepForRetry(delayMs: number, signal?: AbortSignal): Promise<void> {
+export interface RetrySleepTimers {
+  setTimeout(callback: () => void, timeoutMs: number): unknown;
+}
+
+export async function sleepForRetry(
+  delayMs: number,
+  signal?: AbortSignal,
+  timers?: RetrySleepTimers,
+): Promise<void> {
   signal?.throwIfAborted();
-  const sleepPromise = sleep(delayMs);
+  const sleepPromise = sleep(delayMs, timers);
   if (signal === undefined) {
     await sleepPromise;
     return;
@@ -51,9 +59,13 @@ export function retryErrorFields(error: unknown): RetryErrorFields {
   };
 }
 
-function sleep(delayMs: number): Promise<void> {
+function sleep(delayMs: number, timers?: RetrySleepTimers): Promise<void> {
   return new Promise((resolve) => {
-    setTimeout(resolve, delayMs);
+    if (timers === undefined) {
+      setTimeout(resolve, delayMs);
+      return;
+    }
+    timers.setTimeout(resolve, delayMs);
   });
 }
 

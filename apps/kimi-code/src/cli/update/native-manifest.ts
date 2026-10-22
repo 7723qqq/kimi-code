@@ -13,6 +13,7 @@ import { valid } from 'semver';
 import { z } from 'zod';
 
 import { kimiCodeCdnBinariesBase } from '#/constant/app';
+import { SYSTEM_RENDER_CLOCK, type RenderClock } from '#/tui/utils/render-clock';
 
 const MANIFEST_FETCH_TIMEOUT_MS = 10_000;
 
@@ -69,17 +70,19 @@ export function nativeBinaryUrl(version: string, filename: string): string {
  *
  * `version` goes into the URL, so it must be a valid semver (it always is:
  * upstream sources are the CDN `latest.json` / the `upgrade` command).
- * `fetchImpl` is injectable for tests.
+ * `fetchImpl` and `clock` are injectable for tests; they default to the global
+ * `fetch` and the system clock.
  */
 export async function fetchNativeReleaseManifest(
   version: string,
   fetchImpl: typeof fetch = fetch,
+  clock: RenderClock = SYSTEM_RENDER_CLOCK,
 ): Promise<NativeReleaseManifest> {
   if (valid(version) === null) {
     throw new Error(`invalid semver for native manifest lookup: ${JSON.stringify(version)}`);
   }
   const controller = new AbortController();
-  const timeout = setTimeout(() => {
+  const timeout = clock.setTimeout(() => {
     controller.abort();
   }, MANIFEST_FETCH_TIMEOUT_MS);
   // The timeout must stay armed until the BODY is fully consumed: a CDN or
@@ -99,7 +102,7 @@ export async function fetchNativeReleaseManifest(
     }
     return manifest;
   } finally {
-    clearTimeout(timeout);
+    clock.clearTimeout(timeout);
   }
 }
 

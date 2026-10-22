@@ -1,7 +1,8 @@
 import { PassThrough, Readable, type Writable } from 'node:stream';
 
 import { createControlledPromise } from '@antfu/utils';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock, spyOn } from 'bun:test';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import {
   IAgentTaskService,
@@ -407,7 +408,7 @@ describe('TaskListTool', () => {
   it('does not wait when listing a running task', async () => {
     const tasks = new FakeTaskService();
     tasks.add(processTask({ taskId: 'bash-running2', description: 'running task' }));
-    const wait = vi.spyOn(tasks, 'wait');
+    const wait = spyOn(tasks, 'wait');
 
     const result = await executeTool(
       new TaskListTool(tasks),
@@ -876,7 +877,7 @@ describe('WaitForTool', () => {
       processTask({ taskId: 'bash-done0003', status: 'completed', endedAt: 1_700_000_001_000, exitCode: 0 }),
       outputSnapshot('DONE\n'),
     );
-    const onUpdate = vi.fn();
+    const onUpdate = mock();
 
     await executeTool(new WaitForTool(tasks, recordingTelemetry([]), stubFlag(true), stubGoal(), agentScope()), {
       ...context('wait_done_at_once', { timeout: 10, task_id: taskId }),
@@ -1099,7 +1100,7 @@ describe('WaitForTool', () => {
   it('routes the composed progress update through onUpdate on a manual tick', () => {
     const tasks = new FakeTaskService();
     tasks.add(processTask({ taskId: 'bash-prog002' }));
-    const onUpdate = vi.fn();
+    const onUpdate = mock();
 
     const progress = startWaitProgress({ timeout: 600 }, tasks, onUpdate, Date.now() - 30_000);
     progress.tick();
@@ -1119,14 +1120,14 @@ describe('WaitForTool (harness)', () => {
   function immediateProcess(exitCode: number, stdoutText = ''): IHostProcess {
     return {
       _serviceBrand: undefined,
-      stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
+      stdin: { write: mock(), end: mock() } as unknown as Writable,
       stdout: Readable.from(stdoutText ? [stdoutText] : []),
       stderr: Readable.from([]),
       pid: 10000 + exitCode,
       exitCode,
-      wait: vi.fn().mockResolvedValue(exitCode) as IHostProcess['wait'],
-      kill: vi.fn().mockResolvedValue(undefined) as IHostProcess['kill'],
-      dispose: vi.fn().mockResolvedValue(undefined) as IHostProcess['dispose'],
+      wait: mock().mockResolvedValue(exitCode) as IHostProcess['wait'],
+      kill: mock().mockResolvedValue(undefined) as IHostProcess['kill'],
+      dispose: mock().mockResolvedValue(undefined) as IHostProcess['dispose'],
     };
   }
 
@@ -1142,17 +1143,17 @@ describe('WaitForTool (harness)', () => {
     });
     const proc = {
       _serviceBrand: undefined,
-      stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
+      stdin: { write: mock(), end: mock() } as unknown as Writable,
       stdout,
       stderr: Readable.from([]),
       pid: 10099,
       exitCode: null,
-      wait: vi.fn(() => waitPromise) as IHostProcess['wait'],
-      kill: vi.fn(async () => {
+      wait: mock(() => waitPromise) as IHostProcess['wait'],
+      kill: mock(async () => {
         stdout.destroy();
         resolveWait(143);
       }) as IHostProcess['kill'],
-      dispose: vi.fn().mockResolvedValue(undefined) as IHostProcess['dispose'],
+      dispose: mock().mockResolvedValue(undefined) as IHostProcess['dispose'],
     } as IHostProcess;
     return {
       proc,
@@ -1195,7 +1196,7 @@ describe('WaitForTool (harness)', () => {
       await waiting;
       await ctx.rpc.steer({ input: [{ type: 'text', text: 'Handle this new request first.' }] });
 
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         expect(ctx.llmCalls).toHaveLength(2);
       }, { timeout: 1_000 });
       const history = ctx.llmCalls[1]!.history;
@@ -1314,7 +1315,7 @@ describe('WaitForTool (harness)', () => {
       if (order === 'steer-first') slow.resolveWait(0);
       await steered;
       await waitForTerminal(tasks, taskId);
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         const deliveries = ctx.context.get().filter((message) =>
           (message.origin?.kind === 'task' && message.origin.taskId === taskId) ||
           (message.toolCallId === 'racing-wait' && message.content.some((part) =>

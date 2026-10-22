@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 import { writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { buildSessionFixture } from '../fixtures/build';

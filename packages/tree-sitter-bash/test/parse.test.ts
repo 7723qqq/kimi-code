@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { Aborted, ParseBudget } from '#/budget';
 import type { SyntaxNode } from '#/node';

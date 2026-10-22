@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import {
   createInstallPromptChoices,

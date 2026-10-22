@@ -4,20 +4,20 @@
  * Host cannot discover the developer's real legacy Kimi home.
  * Wiring: real smoke orchestration and filesystem; @vscode/test-electron is the
  * external process/download boundary.
- * Run: cd apps/vscode && bunx vitest run --config vitest.config.ts test/extension-host-smoke.test.ts
+ * Run: cd apps/vscode && bun test --isolate test/extension-host-smoke.test.ts
  */
 import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
-const vscodeTest = vi.hoisted(() => ({
-  runTests: vi.fn(),
-  runVSCodeCommand: vi.fn(),
-}));
+const vscodeTest = {
+  runTests: mock(),
+  runVSCodeCommand: mock(),
+};
 
-vi.mock('@vscode/test-electron', () => vscodeTest);
+void mock.module('@vscode/test-electron', () => vscodeTest);
 
 const { runExtensionHostSmoke } = await import('../scripts/extension-host-smoke.mjs');
 const tempDirs: string[] = [];
@@ -37,7 +37,7 @@ beforeEach(() => {
 });
 
 afterEach(async () => {
-  vi.clearAllMocks();
+  mock.clearAllMocks();
   await Promise.all(tempDirs.splice(0).map((dir) => rm(dir, { recursive: true, force: true })));
 });
 

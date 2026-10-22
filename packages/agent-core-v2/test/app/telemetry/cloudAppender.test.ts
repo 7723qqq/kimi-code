@@ -2,17 +2,14 @@ import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { stubBootstrap, stubClientIdentity } from '../bootstrap/stubs';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
-import {
-  resetUnexpectedErrorHandler,
-  setUnexpectedErrorHandler,
-} from '#/_base/errors/unexpectedError';
+import { resetUnexpectedErrorHandler, setUnexpectedErrorHandler } from '#/_base/errors/unexpectedError';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { CloudAppender, type CloudAppenderOptions } from '#/app/telemetry/cloudAppender';
 import { DISK_EVENT_MAX_AGE_MS } from '#/app/telemetry/cloudTransport';
-
-import { stubBootstrap, stubClientIdentity } from '../bootstrap/stubs';
 
 interface CapturedRequest {
   readonly url: string;
@@ -428,7 +425,7 @@ describe('CloudAppender', () => {
 
     try {
       appender.startPeriodicFlush();
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         expect(readdirSync(telemetryDir).filter((f) => f.startsWith('failed_'))).toHaveLength(1);
       });
     } finally {
@@ -491,7 +488,6 @@ describe('CloudAppender', () => {
     const base = Date.now();
     writeFileSync(join(telemetryDir, `failed_${base}_corrupt.jsonl`), 'not json\n');
     writeFileSync(join(telemetryDir, `failed_${base - 1000}_valid.jsonl`), '{}\n');
-
 
     const appender = new CloudAppender(
       baseOptions({

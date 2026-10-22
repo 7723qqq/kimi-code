@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
 
 import {
   ErrorCodes,
@@ -10,12 +10,12 @@ import {
 import { log } from '#/logging/logger';
 
 afterEach(() => {
-  vi.restoreAllMocks();
+  mock.restore();
 });
 
 describe('fromKimiErrorPayload', () => {
   it('round-trips a declared code without warning', () => {
-    const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
+    const warn = spyOn(log, 'warn').mockImplementation(() => {});
     const payload: KimiErrorPayload = {
       code: ErrorCodes.SESSION_NOT_FOUND,
       message: 'no such session',
@@ -38,7 +38,7 @@ describe('fromKimiErrorPayload', () => {
   });
 
   it('restates an undeclared wire code as internal instead of crashing on re-serialize', () => {
-    const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
+    const warn = spyOn(log, 'warn').mockImplementation(() => {});
     const payload = {
       code: 'some.future_code',
       message: 'x',

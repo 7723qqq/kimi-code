@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 const sourceRoot = join(import.meta.dirname, '../../src');
 const kapSourceRoot = join(import.meta.dirname, '../../../kap-server/src');

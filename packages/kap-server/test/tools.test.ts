@@ -10,7 +10,7 @@ import {
   IModelCatalog,
   type ExecutableTool,
 } from '@moonshot-ai/agent-core-v2';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 
 import { listMcpServersResponseSchema, listToolsResponseSchema } from '../src/protocol/rest-tool';
 import { type RunningServer, startServer } from '../src/start';

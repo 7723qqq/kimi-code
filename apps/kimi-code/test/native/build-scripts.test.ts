@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { SEA_EXEC_ARGV, seaCodeCacheEnabled } from '../../scripts/native/sea-options.mjs';
 

@@ -5,7 +5,7 @@ import path from 'node:path';
 
 // Verifies the SSD-pressure instrumentation on db.stats: WAL bytes written,
 // fsync count, snapshot bytes written, and compaction count.
-import { test } from 'vitest';
+import { test } from 'bun:test';
 
 import { MiniDb } from '../src/index.js';
 

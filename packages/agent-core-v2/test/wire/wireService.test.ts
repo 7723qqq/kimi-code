@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
@@ -267,7 +267,7 @@ describe('WireService readJournal', () => {
     const stub = wireOverLog(stubLog, 'legacy-plan', { telemetry });
 
     expect(await collect(stub.readJournal())).toEqual([
-      seeded[0],
+      seeded[0]!,
       { type: 'wire.test.before', value: 1, time: 2 },
       {
         type: 'plan.revision',
@@ -291,7 +291,7 @@ describe('WireService readJournal', () => {
       },
     ]);
     expect(await readRecords(stubLog, SCOPE, 'legacy-plan')).toEqual([
-      seeded[0],
+      seeded[0]!,
       { type: 'wire.test.before', value: 1, time: 2 },
       {
         type: 'plan.revision',
@@ -1252,8 +1252,8 @@ describe('WireService readRestoreChains', () => {
     for (const record of chains.restorable) {
       expect(chains.journal).toContain(record);
     }
-    expect(await collect(stub.readJournal())).toEqual(chains.journal);
-    expect(await collect(stub.readRestorable())).toEqual(chains.restorable);
+    expect(await collect(stub.readJournal())).toEqual([...chains.journal]);
+    expect(await collect(stub.readRestorable())).toEqual([...chains.restorable]);
     expect(stub.journalRef.branch).toBe('b1');
   });
 

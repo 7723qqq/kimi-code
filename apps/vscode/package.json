@@ -253,7 +253,7 @@
     "build": "bun run build:extension && bun run build:webview",
     "build:webview": "vite build --config webview-ui/vite.config.ts",
     "build:extension": "tsdown --config tsdown.config.ts",
-    "test": "vitest run --config vitest.config.ts",
+    "test": "bun ../../scripts/run-package-tests.mjs --root=test",
     "test:extension-host": "bun scripts/extension-host-smoke.mjs",
     "package:platform": "bun scripts/vsix-package.mjs",
     "package:verify": "bun scripts/vsix-verify.mjs",
@@ -266,6 +266,7 @@
     "@testing-library/react": "^16.3.3",
     "@testing-library/user-event": "^14.6.6",
     "@types/diff": "^8.0.0",
+    "@types/jsdom": "^30.0.0",
     "@types/katex": "^0.16.8",
     "@types/node": "^22.15.3",
     "@types/react": "^19.1.2",
@@ -282,8 +283,7 @@
     "ovsx": "1.0.2",
     "tailwindcss": "^4.1.4",
     "vite": "^6.4.3",
-    "vite-plugin-css-injected-by-js": "^3.5.2",
-    "vitest": "4.1.10"
+    "vite-plugin-css-injected-by-js": "^3.5.2"
   },
   "dependencies": {
     "@base-ui/react": "^1.0.0",

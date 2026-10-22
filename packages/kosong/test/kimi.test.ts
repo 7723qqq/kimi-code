@@ -1,6 +1,6 @@
 import { APIError as AnthropicAPIError } from '@anthropic-ai/sdk';
 import { APIError as OpenAIAPIError } from 'openai';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import { APIProviderQuotaExhaustedError, isRetryableGenerateError } from '#/errors';
 import { generate } from '#/generate';
@@ -75,8 +75,7 @@ async function captureRequestBody(
 ): Promise<Record<string, unknown>> {
   let capturedBody: Record<string, unknown> | undefined;
 
-  (provider as any)._client.chat.completions.create = vi
-    .fn()
+  (provider as any)._client.chat.completions.create = mock()
     .mockImplementation((params: unknown) => {
       capturedBody = params as Record<string, unknown>;
       return mockCreateResult(makeChatCompletionResponse('kimi-k2'));
@@ -98,7 +97,7 @@ async function captureKimiMessages(
   configure?: (provider: KimiChatProvider) => KimiChatProvider,
 ): Promise<Array<Record<string, unknown>>> {
   let captured: Record<string, unknown> | undefined;
-  const create = vi.fn().mockImplementation((params: unknown) => {
+  const create = mock().mockImplementation((params: unknown) => {
     captured = params as Record<string, unknown>;
     return mockCreateResult(makeChatCompletionResponse('kimi-k2'));
   });
@@ -1100,8 +1099,7 @@ describe('KimiChatProvider', () => {
       const client = {
         chat: {
           completions: {
-            create: vi
-              .fn()
+            create: mock()
               .mockImplementation(() => mockCreateResult(makeChatCompletionResponse('kimi-k2'))),
           },
         },
@@ -1123,7 +1121,7 @@ describe('KimiChatProvider', () => {
       }
 
       expect(auths).toEqual([{ apiKey: 'request-token' }]);
-      expect(client.chat.completions.create).toHaveBeenCalledOnce();
+      expect(client.chat.completions.create).toHaveBeenCalledTimes(1);
     });
 
     it('withThinking returns a new instance', () => {
@@ -1184,7 +1182,7 @@ describe('KimiChatProvider', () => {
   describe('non-stream response parsing', () => {
     it('yields text content from non-stream response', async () => {
       const provider = createProvider();
-      (provider as any)._client.chat.completions.create = vi.fn().mockImplementation(() =>
+      (provider as any)._client.chat.completions.create = mock().mockImplementation(() =>
         mockCreateResult({
           id: 'chatcmpl-123',
           choices: [{ message: { role: 'assistant', content: 'Hello world' } }],
@@ -1215,7 +1213,7 @@ describe('KimiChatProvider', () => {
 
     it('yields reasoning_content as ThinkPart', async () => {
       const provider = createProvider();
-      (provider as any)._client.chat.completions.create = vi.fn().mockImplementation(() =>
+      (provider as any)._client.chat.completions.create = mock().mockImplementation(() =>
         mockCreateResult({
           id: 'chatcmpl-123',
           choices: [
@@ -1250,7 +1248,7 @@ describe('KimiChatProvider', () => {
 
     it('yields an empty ThinkPart when reasoning_content is explicitly empty', async () => {
       const provider = createProvider();
-      (provider as any)._client.chat.completions.create = vi.fn().mockImplementation(() =>
+      (provider as any)._client.chat.completions.create = mock().mockImplementation(() =>
         mockCreateResult({
           id: 'chatcmpl-empty-reasoning',
           choices: [
@@ -1289,7 +1287,7 @@ describe('KimiChatProvider', () => {
 
     it('yields reasoning as ThinkPart (vLLM wire field)', async () => {
       const provider = createProvider();
-      (provider as any)._client.chat.completions.create = vi.fn().mockImplementation(() =>
+      (provider as any)._client.chat.completions.create = mock().mockImplementation(() =>
         mockCreateResult({
           id: 'chatcmpl-123',
           choices: [
@@ -1317,7 +1315,7 @@ describe('KimiChatProvider', () => {
 
     it('prefers reasoning_content when both fields are present', async () => {
       const provider = createProvider();
-      (provider as any)._client.chat.completions.create = vi.fn().mockImplementation(() =>
+      (provider as any)._client.chat.completions.create = mock().mockImplementation(() =>
         mockCreateResult({
           id: 'chatcmpl-123',
           choices: [
@@ -1347,7 +1345,7 @@ describe('KimiChatProvider', () => {
       // Current vLLM emits a compatibility `reasoning_content: null` alongside
       // the real `reasoning` string; the null must fall through.
       const provider = createProvider();
-      (provider as any)._client.chat.completions.create = vi.fn().mockImplementation(() =>
+      (provider as any)._client.chat.completions.create = mock().mockImplementation(() =>
         mockCreateResult({
           id: 'chatcmpl-123',
           choices: [
@@ -1389,8 +1387,7 @@ describe('KimiChatProvider', () => {
     it('echoes thinking under reasoning after a non-stream response used that field', async () => {
       const provider = createProvider();
       const captured: Array<Record<string, unknown>> = [];
-      (provider as any)._client.chat.completions.create = vi
-        .fn()
+      (provider as any)._client.chat.completions.create = mock()
         .mockImplementation((params: unknown) => {
           captured.push(params as Record<string, unknown>);
           return mockCreateResult({
@@ -1413,8 +1410,7 @@ describe('KimiChatProvider', () => {
     it('detects the dialect from streaming deltas and echoes it on the next request', async () => {
       const provider = createProvider(true);
       const captured: Array<Record<string, unknown>> = [];
-      (provider as any)._client.chat.completions.create = vi
-        .fn()
+      (provider as any)._client.chat.completions.create = mock()
         .mockImplementation((params: unknown) => {
           captured.push(params as Record<string, unknown>);
           async function* chunks(): AsyncIterable<Record<string, unknown>> {
@@ -1445,8 +1441,7 @@ describe('KimiChatProvider', () => {
     it('defaults to reasoning_content before any detection', async () => {
       const provider = createProvider();
       let captured: Record<string, unknown> | undefined;
-      (provider as any)._client.chat.completions.create = vi
-        .fn()
+      (provider as any)._client.chat.completions.create = mock()
         .mockImplementation((params: unknown) => {
           captured = params as Record<string, unknown>;
           return mockCreateResult(makeChatCompletionResponse('kimi-k2'));
@@ -1462,8 +1457,7 @@ describe('KimiChatProvider', () => {
     it('dialect detected on a per-step clone steers the original provider', async () => {
       const original = createProvider();
       const captured: Array<Record<string, unknown>> = [];
-      (original as any)._client.chat.completions.create = vi
-        .fn()
+      (original as any)._client.chat.completions.create = mock()
         .mockImplementation((params: unknown) => {
           captured.push(params as Record<string, unknown>);
           return mockCreateResult({
@@ -1489,8 +1483,7 @@ describe('KimiChatProvider', () => {
   describe('trace id capture', () => {
     it('reads x-trace-id from a non-stream response', async () => {
       const provider = createProvider();
-      (provider as any)._client.chat.completions.create = vi
-        .fn()
+      (provider as any)._client.chat.completions.create = mock()
         .mockImplementation(() =>
           mockCreateResult(makeChatCompletionResponse('kimi-k2'), 'trace-abc'),
         );
@@ -1509,8 +1502,7 @@ describe('KimiChatProvider', () => {
           choices: [{ index: 0, delta: { content: 'hi' }, finish_reason: 'stop' }],
         };
       }
-      (provider as any)._client.chat.completions.create = vi
-        .fn()
+      (provider as any)._client.chat.completions.create = mock()
         .mockImplementation(() => mockCreateResult(chunks(), 'trace-stream'));
 
       const stream = await provider.generate('', [], []);
@@ -1522,8 +1514,7 @@ describe('KimiChatProvider', () => {
 
     it('reports null when the response carries no x-trace-id header', async () => {
       const provider = createProvider();
-      (provider as any)._client.chat.completions.create = vi
-        .fn()
+      (provider as any)._client.chat.completions.create = mock()
         .mockImplementation(() => mockCreateResult(makeChatCompletionResponse('kimi-k2')));
 
       const stream = await provider.generate('', [], []);
@@ -1534,8 +1525,7 @@ describe('KimiChatProvider', () => {
 
     it('generate() carries traceId onto the result and fires onTraceId once headers arrive', async () => {
       const provider = createProvider();
-      (provider as any)._client.chat.completions.create = vi
-        .fn()
+      (provider as any)._client.chat.completions.create = mock()
         .mockImplementation(() =>
           mockCreateResult(makeChatCompletionResponse('kimi-k2'), 'trace-gen'),
         );
@@ -1598,8 +1588,7 @@ describe('KimiChatProvider', () => {
       ];
       (
         provider as unknown as { _client: { chat: { completions: { create: unknown } } } }
-      )._client.chat.completions.create = vi
-        .fn()
+      )._client.chat.completions.create = mock()
         .mockImplementation(() => mockCreateResult(mockStream(chunks)));
 
       const stream = await provider.generate('', [], []);
@@ -1622,8 +1611,7 @@ describe('KimiChatProvider', () => {
 
       (
         provider as unknown as { _client: { chat: { completions: { create: unknown } } } }
-      )._client.chat.completions.create = vi
-        .fn()
+      )._client.chat.completions.create = mock()
         .mockImplementation(() => mockCreateResult(mockStream(chunks)));
 
       const result = await generate(
@@ -1656,8 +1644,7 @@ describe('KimiChatProvider', () => {
 
       (
         provider as unknown as { _client: { chat: { completions: { create: unknown } } } }
-      )._client.chat.completions.create = vi
-        .fn()
+      )._client.chat.completions.create = mock()
         .mockImplementation(() => mockCreateResult(mockStream(chunks)));
 
       const events: string[] = [];
@@ -1715,8 +1702,7 @@ describe('KimiChatProvider', () => {
 
       (
         provider as unknown as { _client: { chat: { completions: { create: unknown } } } }
-      )._client.chat.completions.create = vi
-        .fn()
+      )._client.chat.completions.create = mock()
         .mockImplementation(() => mockCreateResult(mockStream(chunks)));
 
       const result = await generate(
@@ -1792,8 +1778,7 @@ describe('KimiChatProvider', () => {
 
       (
         provider as unknown as { _client: { chat: { completions: { create: unknown } } } }
-      )._client.chat.completions.create = vi
-        .fn()
+      )._client.chat.completions.create = mock()
         .mockImplementation(() => mockCreateResult(mockStream([singleChunk])));
 
       // generate() uses the reducer which expects a ToolCall header before
@@ -1809,7 +1794,7 @@ describe('KimiChatProvider', () => {
 
     it('non-stream response with tool_calls yields ToolCall parts', async () => {
       const provider = createProvider(false);
-      (provider as any)._client.chat.completions.create = vi.fn().mockImplementation(() =>
+      (provider as any)._client.chat.completions.create = mock().mockImplementation(() =>
         mockCreateResult({
           id: 'chatcmpl-nonstream',
           choices: [
@@ -1850,7 +1835,7 @@ describe('KimiChatProvider', () => {
 
     it('non-stream response generates UUID when tool_call has no id', async () => {
       const provider = createProvider(false);
-      (provider as any)._client.chat.completions.create = vi.fn().mockImplementation(() =>
+      (provider as any)._client.chat.completions.create = mock().mockImplementation(() =>
         mockCreateResult({
           id: 'chatcmpl-uuid',
           choices: [

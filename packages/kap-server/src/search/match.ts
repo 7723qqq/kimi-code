@@ -52,6 +52,7 @@ export interface MatchedRow {
 export interface MatchBudget {
   readonly deadlineAt: number;
   textCharsLeft: number;
+  readonly now: () => number;
 }
 
 function cmpKey(a: string, b: string): number {
@@ -144,7 +145,7 @@ export function matchDocs(
   const rows: MatchedRow[] = [];
   let i = 0;
   for (const { key, value: doc, score } of docs) {
-    if ((i++ & (DEADLINE_CHECK_STRIDE - 1)) === 0 && Date.now() > budget.deadlineAt) {
+    if ((i++ & (DEADLINE_CHECK_STRIDE - 1)) === 0 && budget.now() > budget.deadlineAt) {
       return { rows, incomplete: 'deadline' };
     }
     if (doc === undefined || (doc.kind !== 'message' && doc.kind !== 'title')) continue;

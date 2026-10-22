@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 import { parse as parseToml } from 'smol-toml';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
@@ -102,7 +102,7 @@ describe('config.toml writeback preservation', () => {
 
   it('skips the write entirely when the staged result is byte-identical', async () => {
     const { config, disposables, storage, readText } = await setup('[image]\nmax_edge_px = 1500\n');
-    const writeSpy = vi.spyOn(storage, 'write');
+    const writeSpy = spyOn(storage, 'write');
 
     await config.set(IMAGE_SECTION, { maxEdgePx: 2000 });
     const afterFirst = await readText();

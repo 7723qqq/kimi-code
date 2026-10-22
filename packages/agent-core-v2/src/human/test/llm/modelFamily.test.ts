@@ -1,9 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import {
   familyAdaptationPrefixes,
   imagePricingForModel,
-  normalizeModelName,
   promptShapeForModel,
   reasoningEffortForModel,
   resolveModelFamily,
@@ -34,7 +33,6 @@ describe('resolveModelFamily', () => {
     const lower = resolveModelFamily('deepseek-flash');
     const upper = resolveModelFamily('DEEPSEEK-FLASH');
     expect(upper).toBe(lower);
-    expect(normalizeModelName('DeepSeek-Flash')).toBe('deepseek-flash');
   });
 
   it('does not match unrelated, embedded, or empty names', () => {
@@ -42,6 +40,35 @@ describe('resolveModelFamily', () => {
     expect(resolveModelFamily('claude-3.5-sonnet')).toBeUndefined();
     expect(resolveModelFamily('')).toBeUndefined();
     expect(resolveModelFamily('my-deepseek-clone')).toBeUndefined();
+  });
+});
+
+describe('resolveModelFamily segment boundaries', () => {
+  const MATCHING = [
+    'deepseek',
+    'deepseek-v4.1',
+    'x/deepseek',
+    'foo/deepseek',
+    'vendor/deepseek-proxy/foo',
+  ];
+
+  const NOT_MATCHING = [
+    'my-deepseek-clone',
+    'deepseek-community/llama-3',
+    'deepseekai/llama',
+    'foo/deepseek-clone',
+  ];
+
+  it('matches a family at the model segment or at a gateway segment', () => {
+    for (const name of MATCHING) {
+      expect(resolveModelFamily(name)?.id).toBe('deepseek');
+    }
+  });
+
+  it('does not match a vendor segment, a glued suffix, or a clone variant', () => {
+    for (const name of NOT_MATCHING) {
+      expect(resolveModelFamily(name)).toBeUndefined();
+    }
   });
 });
 

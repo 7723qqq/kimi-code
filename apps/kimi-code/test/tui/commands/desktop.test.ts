@@ -1,28 +1,22 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock, spyOn } from 'bun:test';
 
 import type { KimiRegionProfile } from '@moonshot-ai/kimi-code-oauth';
 
 import { handleDesktopCommand } from '#/tui/commands/desktop';
 import type { SlashCommandHost } from '#/tui/commands/dispatch';
+import * as openUrlModule from '#/utils/open-url';
+import * as regionModule from '#/utils/region';
 
-const mocks = vi.hoisted(() => ({
-  openUrl: vi.fn(),
-  currentKimiProfile: vi.fn(() => ({ siteBase: 'https://example.com' }) as unknown as KimiRegionProfile),
-}));
-
-vi.mock('#/utils/open-url', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('#/utils/open-url')>();
-  return { ...actual, openUrl: mocks.openUrl };
-});
-
-vi.mock('#/utils/region', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('#/utils/region')>();
-  return { ...actual, currentKimiProfile: mocks.currentKimiProfile };
-});
+const mocks = {
+  openUrl: spyOn(openUrlModule, 'openUrl').mockImplementation(() => {}),
+  currentKimiProfile: spyOn(regionModule, 'currentKimiProfile').mockImplementation(
+    () => ({ siteBase: 'https://example.com' }) as unknown as KimiRegionProfile,
+  ),
+};
 
 describe('handleDesktopCommand', () => {
   it('shows the region-derived desktop app page URL and opens it in the browser', async () => {
-    const host = { showStatus: vi.fn() } as unknown as SlashCommandHost;
+    const host = { showStatus: mock() } as unknown as SlashCommandHost;
 
     await handleDesktopCommand(host);
 

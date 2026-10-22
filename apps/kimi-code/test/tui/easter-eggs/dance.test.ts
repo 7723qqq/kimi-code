@@ -1,5 +1,5 @@
 import chalk from 'chalk';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
 
 import {
   DANCE_FLOW_MS,
@@ -10,6 +10,7 @@ import {
   rainbowText,
   setRainbowDance,
   tryHandleDanceCommand,
+  type DanceTimers,
 } from '#/tui/easter-eggs/dance';
 import type { SlashCommandHost } from '#/tui/commands/dispatch';
 import { darkColors } from '#/tui/theme/colors';
@@ -21,103 +22,194 @@ function truecolorCodes(text: string): string[] {
   return [...text.matchAll(TRUECOLOR_PATTERN)].map((m) => `${m[1]},${m[2]},${m[3]}`);
 }
 
-describe('RainbowDance', () => {
-  afterEach(() => {
-    vi.useRealTimers();
-  });
+interface DanceTimerDriver {
+  readonly timers: DanceTimers;
+  advance(ms: number): void;
+  pending(): number[];
+}
 
+function createTimerDriver(): DanceTimerDriver {
+  interface Entry {
+    readonly id: number;
+    readonly fn: () => void;
+    readonly ms: number;
+    readonly repeat: boolean;
+    due: number;
+    cleared: boolean;
+  }
+  const entries: Entry[] = [];
+  let now = 0;
+  let nextId = 0;
+
+  const schedule = (fn: () => void, ms: number, repeat: boolean): number => {
+    nextId += 1;
+    entries.push({ id: nextId, fn, ms, repeat, due: now + ms, cleared: false });
+    return nextId;
+  };
+  const cancel = (handle: unknown): void => {
+    const entry = entries.find((candidate) => candidate.id === handle);
+    if (entry !== undefined) entry.cleared = true;
+  };
+  const nextDue = (limit: number): Entry | undefined => {
+    let next: Entry | undefined;
+    for (const entry of entries) {
+      if (entry.cleared || entry.due > limit) continue;
+      if (next === undefined || entry.due < next.due) next = entry;
+    }
+    return next;
+  };
+
+  return {
+    timers: {
+      setInterval: (fn, ms) => schedule(fn, ms, true),
+      clearInterval: cancel,
+      setTimeout: (fn, ms) => schedule(fn, ms, false),
+      clearTimeout: cancel,
+    },
+    advance: (byMs) => {
+      const limit = now + byMs;
+      let guard = 0;
+      for (;;) {
+        const entry = nextDue(limit);
+        if (entry === undefined) break;
+        guard += 1;
+        if (guard > 10_000) throw new Error('timer driver fired more than 10000 timers');
+        now = entry.due;
+        if (entry.repeat) entry.due += entry.ms;
+        else entry.cleared = true;
+        entry.fn();
+      }
+      now = limit;
+      for (let index = entries.length - 1; index >= 0; index -= 1) {
+        if (entries[index]?.cleared === true) entries.splice(index, 1);
+      }
+    },
+    pending: () => entries.filter((entry) => !entry.cleared).map((entry) => entry.ms),
+  };
+}
+
+interface DanceHarness {
+  readonly dance: RainbowDance;
+  readonly requestRender: Mock<(...args: any[]) => any>;
+  readonly driver: DanceTimerDriver;
+}
+
+function createDance(): DanceHarness {
+  const requestRender = mock();
+  const driver = createTimerDriver();
+  return { dance: new RainbowDance(requestRender, driver.timers), requestRender, driver };
+}
+
+describe('RainbowDance', () => {
   it('starts uncolored — the banner keeps its default look', () => {
-    const dance = new RainbowDance(vi.fn());
+    const { dance, driver } = createDance();
 
     expect(dance.colored).toBe(false);
     expect(dance.phase).toBe(0);
+    expect(driver.pending()).toEqual([]);
   });
 
   it('flows while dancing and requests renders', () => {
-    vi.useFakeTimers();
-    const requestRender = vi.fn();
-    const dance = new RainbowDance(requestRender);
+    const { dance, requestRender, driver } = createDance();
 
     dance.start({ hold: false });
     expect(dance.colored).toBe(true);
 
     const before = dance.phase;
-    vi.advanceTimersByTime(DANCE_FRAME_MS);
-    expect(dance.phase).not.toBe(before);
-    expect(requestRender).toHaveBeenCalled();
+    driver.advance(DANCE_FRAME_MS);
+    expect(dance.phase).toBe(before + 1);
+    expect(requestRender).toHaveBeenCalledTimes(2);
   });
 
   it('fades back to default after the flow when not holding', () => {
-    vi.useFakeTimers();
-    const dance = new RainbowDance(vi.fn());
+    const { dance, driver } = createDance();
 
     dance.start({ hold: false });
-    vi.advanceTimersByTime(DANCE_FLOW_MS + DANCE_FRAME_MS);
+    driver.advance(DANCE_FLOW_MS + DANCE_FRAME_MS);
 
     expect(dance.colored).toBe(false);
     expect(dance.phase).toBe(0);
+    expect(driver.pending()).toEqual([]);
   });
 
   it('freezes into a static rainbow after the flow when holding', () => {
-    vi.useFakeTimers();
-    const dance = new RainbowDance(vi.fn());
+    const { dance, driver } = createDance();
 
     dance.start({ hold: true });
-    vi.advanceTimersByTime(DANCE_FLOW_MS + DANCE_FRAME_MS);
+    driver.advance(DANCE_FLOW_MS + DANCE_FRAME_MS);
 
     expect(dance.colored).toBe(true);
     const frozen = dance.phase;
-    vi.advanceTimersByTime(DANCE_FRAME_MS * 10);
+    expect(frozen).toBeGreaterThan(0);
+
+    driver.advance(DANCE_FRAME_MS * 10);
     expect(dance.phase).toBe(frozen);
+    expect(driver.pending()).toEqual([]);
   });
 
   it('stops on demand back to the default colors and clears its timers', () => {
-    vi.useFakeTimers();
-    const requestRender = vi.fn();
-    const dance = new RainbowDance(requestRender);
+    const { dance, requestRender, driver } = createDance();
 
     dance.start({ hold: true });
-    vi.advanceTimersByTime(DANCE_FRAME_MS * 3);
-    expect(dance.phase).toBeGreaterThan(0);
+    driver.advance(DANCE_FRAME_MS * 3);
+    expect(dance.phase).toBe(3);
 
     requestRender.mockClear();
     dance.stop();
     expect(dance.colored).toBe(false);
     expect(dance.phase).toBe(0);
-    expect(requestRender).toHaveBeenCalled();
+    expect(requestRender).toHaveBeenCalledTimes(1);
+    expect(driver.pending()).toEqual([]);
 
     requestRender.mockClear();
-    vi.advanceTimersByTime(DANCE_FRAME_MS * 5);
+    driver.advance(DANCE_FRAME_MS * 5);
     expect(requestRender).not.toHaveBeenCalled();
   });
 
   it('dispose clears timers silently, without a final render', () => {
-    vi.useFakeTimers();
-    const requestRender = vi.fn();
-    const dance = new RainbowDance(requestRender);
+    const { dance, requestRender, driver } = createDance();
 
     dance.start({ hold: false });
-    vi.advanceTimersByTime(DANCE_FRAME_MS * 2);
+    driver.advance(DANCE_FRAME_MS * 2);
     requestRender.mockClear();
 
     dance.dispose();
     expect(requestRender).not.toHaveBeenCalled();
+    expect(driver.pending()).toEqual([]);
 
-    vi.advanceTimersByTime(DANCE_FLOW_MS + DANCE_FRAME_MS * 10);
+    driver.advance(DANCE_FLOW_MS + DANCE_FRAME_MS * 10);
     expect(requestRender).not.toHaveBeenCalled();
   });
 
+  it('restarting replaces the previous timers instead of stacking frames', () => {
+    const { dance, driver } = createDance();
+
+    dance.start({ hold: false });
+    dance.start({ hold: false });
+    expect(driver.pending()).toEqual([DANCE_FRAME_MS, DANCE_FLOW_MS]);
+
+    driver.advance(DANCE_FRAME_MS);
+    expect(dance.phase).toBe(1);
+  });
+
   it('advances the phase by one per frame while flowing', () => {
-    vi.useFakeTimers();
-    const dance = new RainbowDance(vi.fn());
+    const { dance, driver } = createDance();
 
     dance.start({ hold: true });
-    vi.advanceTimersByTime(DANCE_FRAME_MS * 5);
+    driver.advance(DANCE_FRAME_MS * 5);
     expect(dance.phase).toBe(5);
 
     // Monotonic — the dance state itself has no palette-length cycle.
-    vi.advanceTimersByTime(DANCE_FRAME_MS * 5);
+    driver.advance(DANCE_FRAME_MS * 5);
     expect(dance.phase).toBe(10);
+  });
+
+  it('takes its timers from the default argument, so the shipped wiring still works', () => {
+    const dance = new RainbowDance(mock());
+
+    dance.start({ hold: false });
+    expect(dance.colored).toBe(true);
+    dance.dispose();
   });
 });
 
@@ -159,27 +251,29 @@ describe('rainbowText', () => {
 describe('installRainbowDance', () => {
   afterEach(() => {
     setRainbowDance(undefined);
-    vi.useRealTimers();
   });
 
   it('returns a disposer that clears timers and uninstalls the controller', () => {
-    vi.useFakeTimers();
-    const requestRender = vi.fn();
-    const dispose = installRainbowDance(requestRender);
+    const requestRender = mock();
+    const driver = createTimerDriver();
+    const dispose = installRainbowDance(requestRender, driver.timers);
     const host = {
-      showStatus: vi.fn(),
+      showStatus: mock(),
       state: { theme: { palette: darkColors } },
     } as unknown as SlashCommandHost;
 
     tryHandleDanceCommand(host, { name: 'dance', args: 'on' });
-    vi.advanceTimersByTime(DANCE_FRAME_MS * 2);
+    driver.advance(DANCE_FRAME_MS * 2);
     expect(requestRender).toHaveBeenCalled();
 
     requestRender.mockClear();
     dispose();
 
+    expect(requestRender).not.toHaveBeenCalled();
     expect(getRainbowDanceView()).toBeUndefined();
-    vi.advanceTimersByTime(DANCE_FLOW_MS + DANCE_FRAME_MS * 10);
+    expect(driver.pending()).toEqual([]);
+
+    driver.advance(DANCE_FLOW_MS + DANCE_FRAME_MS * 10);
     expect(requestRender).not.toHaveBeenCalled();
   });
 });

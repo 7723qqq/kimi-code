@@ -2,11 +2,11 @@
  * Scenario: runtime validation at Klient wire-contract boundaries.
  *
  * Exercises the session-creation and plugin-manifest schemas directly with no
- * external collaborators. Run with `cd packages/klient && bunx vitest run
+ * external collaborators. Run with `cd packages/klient && bun test
  * test/contract.test.ts`.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { promptPayloadSchema } from '../src/contract/agent/schemas.js';
 import { mcpServerAuthFlowHandleSchema } from '../src/contract/global/mcpManagement.js';

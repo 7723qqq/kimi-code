@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import type { TUIState } from '#/tui/kimi-tui';
 import {
@@ -33,16 +33,16 @@ describe('terminal focus tracking', () => {
 
   it('enables focus reporting and removes the listener on dispose', () => {
     const listeners: Array<(data: string) => { consume: true } | undefined> = [];
-    const removeInputListener = vi.fn();
+    const removeInputListener = mock();
     const state = {
       terminalState: {
         focused: false,
       },
       terminal: {
-        write: vi.fn(),
+        write: mock(),
       },
       ui: {
-        addInputListener: vi.fn((listener) => {
+        addInputListener: mock((listener) => {
           listeners.push(listener);
           return removeInputListener;
         }),
@@ -60,17 +60,17 @@ describe('terminal focus tracking', () => {
 
     dispose();
 
-    expect(removeInputListener).toHaveBeenCalledOnce();
+    expect(removeInputListener).toHaveBeenCalledTimes(1);
     expect(state.terminal.write).toHaveBeenCalledWith(DISABLE_TERMINAL_FOCUS_REPORTING);
     expect(state.terminalState.focused).toBe(true);
   });
 
   it('dispose is idempotent (calling twice does not double-remove)', () => {
-    const removeInputListener = vi.fn();
+    const removeInputListener = mock();
     const state = {
       terminalState: { focused: false },
-      terminal: { write: vi.fn() },
-      ui: { addInputListener: vi.fn(() => removeInputListener) },
+      terminal: { write: mock() },
+      ui: { addInputListener: mock(() => removeInputListener) },
     } as unknown as TUIState;
 
     const dispose = installTerminalFocusTracking(state);

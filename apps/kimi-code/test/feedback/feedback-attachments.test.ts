@@ -13,24 +13,26 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import { setGlobal, restoreGlobals } from '#test/helpers/stubs';
 
 import { submitFeedbackWithAttachments } from '#/feedback/feedback-attachments';
 import { getFeedbackStatusCodebaseTruncated } from '#/tui/constant/feedback';
 import type { SlashCommandHost } from '#/tui/commands/dispatch';
 
-vi.mock('../../src/feedback/codebase', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../src/feedback/codebase')>();
-  return {
-    ...actual,
-    scanCodebase: (root: string, options: { signal?: AbortSignal } = {}) =>
-      actual.scanCodebase(root, { ...options, limits: { maxFiles: 2 } }),
-  };
-});
+import * as feedbackCodebase from '../../src/feedback/codebase';
+
+// Spy on the real scanner instead of replacing the module: packaging and
+// uploading still run for real, only the scan's file-count cap is tightened.
+const originalScanCodebase = feedbackCodebase.scanCodebase;
+spyOn(feedbackCodebase, 'scanCodebase').mockImplementation(
+  (root: string, options: { signal?: AbortSignal } = {}) =>
+    originalScanCodebase(root, { ...options, limits: { maxFiles: 2 } }),
+);
 
 afterEach(() => {
-  vi.unstubAllGlobals();
-  vi.clearAllMocks();
+  restoreGlobals();
+  mock.clearAllMocks();
 });
 
 /** A host whose session export and codebase packaging run for real; only the
@@ -45,19 +47,19 @@ function makeHost(workDir: string): SlashCommandHost {
       },
     },
     harness: {
-      listSessions: vi.fn(async () => [
+      listSessions: mock(async () => [
         {
           id: 'ses_truncation',
           sessionDir: workDir,
           workDir,
         },
       ]),
-      exportSession: vi.fn(async ({ outputPath }: { outputPath: string }) => {
+      exportSession: mock(async ({ outputPath }: { outputPath: string }) => {
         await writeFile(outputPath, 'session-bytes');
         return { zipPath: outputPath };
       }),
       auth: {
-        createFeedbackUploadUrl: vi.fn(
+        createFeedbackUploadUrl: mock(
           async (input: { filename: string; size: number; sha256: string }) => ({
             kind: 'ok',
             uploadId: 1,
@@ -71,14 +73,14 @@ function makeHost(workDir: string): SlashCommandHost {
             ],
           }),
         ),
-        completeFeedbackUpload: vi.fn(async () => ({ kind: 'ok' })),
+        completeFeedbackUpload: mock(async () => ({ kind: 'ok' })),
       },
     },
   } as unknown as SlashCommandHost;
 
-  vi.stubGlobal(
+  setGlobal(
     'fetch',
-    vi.fn(async (_url: string, init: RequestInit) => {
+    mock(async (_url: string, init: RequestInit) => {
       // Drain the part body so the archive's file handles are released.
       await new Response(init.body as ReadableStream).arrayBuffer();
       return new Response('', { status: 200, headers: { ETag: '"etag-1"' } });

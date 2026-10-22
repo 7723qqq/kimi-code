@@ -1,9 +1,11 @@
 import { existsSync } from 'node:fs';
+
+const POSIX_PERMS = process.platform !== 'win32';
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, chmod } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { migrateSkillsStep } from '../../src/steps/skills.js';
 
@@ -129,7 +131,7 @@ describe('migrateSkillsStep', () => {
     expect(entries.some((e) => e.endsWith('.tmp'))).toBe(false);
   });
 
-  it('records a per-entry failure instead of aborting when one entry is unreadable', async () => {
+  it.skipIf(!POSIX_PERMS)('records a per-entry failure instead of aborting when one entry is unreadable', async () => {
     await mkdir(join(src, 'skills', 'broken'), { recursive: true });
     await writeFile(join(src, 'skills', 'broken', 'SKILL.md'), 'x');
     await writeFile(join(src, 'skills', 'good.md'), 'GOOD');

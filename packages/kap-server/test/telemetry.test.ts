@@ -2,22 +2,14 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import {
-  bootstrap,
-  type ITelemetryAppender,
-  ITelemetryService,
-  IOAuthToolkit,
-  logSeed,
-  resolveConfigPath,
-  resolveLoggingConfig,
-  type Scope,
-  type ScopeSeed,
-  TelemetryService,
-} from '@moonshot-ai/agent-core-v2';
+import { bootstrap, type ITelemetryAppender, ITelemetryService, IOAuthToolkit, resolveConfigPath, resolveLoggingConfig, type Scope, type ScopeSeed, TelemetryService } from '@moonshot-ai/agent-core-v2';
 import { readKimiDeviceId } from '@moonshot-ai/kimi-code-oauth';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { logSeed } from '@moonshot-ai/agent-core-v2';
+import { removeTempHome } from './helpers/tempHome';
 
 import { initializeServerTelemetry, shutdownServerTelemetry } from '../src/services/telemetry';
+import { setGlobal, restoreGlobals } from './helpers/stubs';
 
 describe('server telemetry', () => {
   let home: string | undefined;
@@ -28,11 +20,11 @@ describe('server telemetry', () => {
   });
 
   afterEach(async () => {
-    vi.unstubAllGlobals();
+    restoreGlobals();
     core?.dispose();
     core = undefined;
     if (home !== undefined) {
-      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
+      await removeTempHome(home);
       home = undefined;
     }
   });
@@ -75,8 +67,8 @@ describe('server telemetry', () => {
   });
 
   it('keeps host delivery independent of the server-owned cloud appender lifecycle', async () => {
-    const cloudFetch = vi.fn(async () => new Response(null, { status: 204 }));
-    vi.stubGlobal('fetch', cloudFetch);
+    const cloudFetch = mock(async () => new Response(null, { status: 204 }));
+    setGlobal('fetch', cloudFetch);
     const hostEvents: string[] = [];
     const hostAppender: ITelemetryAppender = {
       track: (record) => hostEvents.push(record.event),
@@ -95,7 +87,7 @@ describe('server telemetry', () => {
     service.track2('session_ended', { reason: 'archive' });
     await service.flush();
 
-    expect(cloudFetch).toHaveBeenCalledOnce();
+    expect(cloudFetch).toHaveBeenCalledTimes(1);
     expect(hostEvents).toEqual(['session_ended', 'session_ended']);
   });
 

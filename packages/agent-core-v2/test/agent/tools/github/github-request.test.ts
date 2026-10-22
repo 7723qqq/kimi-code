@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, mock } from 'bun:test';
+import { setEnv, restoreEnvs } from '#test/helpers/stubs';
 
 import {
   GITHUB_DEFAULT_BASE_URL,
@@ -16,12 +17,12 @@ function jsonResponse(body: unknown, status = 200, headers: Record<string, strin
 }
 
 afterEach(() => {
-  vi.unstubAllEnvs();
+  restoreEnvs();
 });
 
 describe('githubRequest', () => {
   it('sends the caller-supplied token as a bearer header', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ id: 1 }));
+    const fetchImpl = mock().mockResolvedValue(jsonResponse({ id: 1 }));
 
     const res = await githubRequest('GET', '/user', { token: TOKEN }, { fetchImpl });
 
@@ -39,9 +40,9 @@ describe('githubRequest', () => {
   });
 
   it('never reads the environment for credentials', async () => {
-    const fetchImpl = vi.fn();
-    vi.stubEnv('GITHUB_TOKEN', 'ghp_from_env');
-    vi.stubEnv('GH_TOKEN', 'ghp_from_env_alt');
+    const fetchImpl = mock();
+    setEnv('GITHUB_TOKEN', 'ghp_from_env');
+    setEnv('GH_TOKEN', 'ghp_from_env_alt');
 
     const res = await githubRequest('GET', '/user', {}, { fetchImpl });
 
@@ -50,8 +51,8 @@ describe('githubRequest', () => {
   });
 
   it('never reads the environment for the base URL', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}));
-    vi.stubEnv('GITHUB_API_URL', 'https://from-env.example.com/api/v3');
+    const fetchImpl = mock().mockResolvedValue(jsonResponse({}));
+    setEnv('GITHUB_API_URL', 'https://from-env.example.com/api/v3');
 
     await githubRequest('GET', '/user', { token: TOKEN }, { fetchImpl });
 
@@ -60,7 +61,7 @@ describe('githubRequest', () => {
   });
 
   it('returns the no-token error without calling fetch', async () => {
-    const fetchImpl = vi.fn();
+    const fetchImpl = mock();
 
     const res = await githubRequest('GET', '/user', {}, { fetchImpl });
 
@@ -75,7 +76,7 @@ describe('githubRequest', () => {
   });
 
   it('treats an empty token as unset', async () => {
-    const fetchImpl = vi.fn();
+    const fetchImpl = mock();
 
     const res = await githubRequest('GET', '/user', { token: '' }, { fetchImpl });
 
@@ -84,7 +85,7 @@ describe('githubRequest', () => {
   });
 
   it('honors an explicit base URL and trims its trailing slash', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}));
+    const fetchImpl = mock().mockResolvedValue(jsonResponse({}));
 
     await githubRequest(
       'GET',
@@ -98,7 +99,7 @@ describe('githubRequest', () => {
   });
 
   it('builds the query string from scalars and drops null/undefined', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse([]));
+    const fetchImpl = mock().mockResolvedValue(jsonResponse([]));
 
     await githubRequest(
       'GET',
@@ -117,7 +118,7 @@ describe('githubRequest', () => {
   });
 
   it('serializes a JSON body with the content-type header', async () => {
-    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}));
+    const fetchImpl = mock().mockResolvedValue(jsonResponse({}));
 
     await githubRequest(
       'POST',
@@ -132,8 +133,7 @@ describe('githubRequest', () => {
   });
 
   it('normalizes non-2xx responses to GitHub API error with the raw body', async () => {
-    const fetchImpl = vi
-      .fn()
+    const fetchImpl = mock()
       .mockResolvedValue(
         jsonResponse({ message: 'Not Found' }, 404, { 'x-ratelimit-remaining': '4998' }),
       );
@@ -150,8 +150,7 @@ describe('githubRequest', () => {
   });
 
   it('parses the rate-limit header on success', async () => {
-    const fetchImpl = vi
-      .fn()
+    const fetchImpl = mock()
       .mockResolvedValue(
         jsonResponse({ full_name: 'o/r' }, 200, { 'x-ratelimit-remaining': '1234' }),
       );
@@ -162,7 +161,7 @@ describe('githubRequest', () => {
   });
 
   it('maps transport failures to network errors', async () => {
-    const fetchImpl = vi.fn().mockRejectedValue(new Error('ECONNREFUSED'));
+    const fetchImpl = mock().mockRejectedValue(new Error('ECONNREFUSED'));
 
     const res = await githubRequest('GET', '/user', { token: TOKEN }, { fetchImpl });
 
@@ -171,7 +170,7 @@ describe('githubRequest', () => {
 
   it('re-throws when the caller signal is aborted', async () => {
     const controller = new AbortController();
-    const fetchImpl = vi.fn().mockRejectedValue(new DOMException('aborted', 'AbortError'));
+    const fetchImpl = mock().mockRejectedValue(new DOMException('aborted', 'AbortError'));
     controller.abort();
 
     await expect(

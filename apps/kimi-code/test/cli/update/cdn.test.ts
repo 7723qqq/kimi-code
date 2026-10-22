@@ -1,10 +1,23 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
+
+import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
 
 import { fetchLatestFromCdn, fetchLatestVersionFromCdn } from '#/cli/update/cdn';
 import { kimiCodeCdnLatestJsonUrl, kimiCodeCdnLatestUrl } from '#/constant/app';
 
+/** Let the promise chains behind a settled clock tick run. */
+async function settle(): Promise<void> {
+  for (let i = 0; i < 4; i += 1) await Promise.resolve();
+}
+
+async function advanceAsync(clock: FakeClock, byMs: number): Promise<void> {
+  await settle();
+  clock.advance(byMs);
+  await settle();
+}
+
 function mockFetchOk(body: string): typeof fetch {
-  return vi.fn(async () => ({
+  return mock(async () => ({
     ok: true,
     status: 200,
     text: async () => body,
@@ -12,7 +25,7 @@ function mockFetchOk(body: string): typeof fetch {
 }
 
 function mockFetchStatus(status: number): typeof fetch {
-  return vi.fn(async () => ({
+  return mock(async () => ({
     ok: status >= 200 && status < 300,
     status,
     text: async () => '',
@@ -23,7 +36,7 @@ type Route = { readonly status?: number; readonly body?: string } | Error;
 
 /** URL-routed fetch mock: unrouted URLs return 404. */
 function mockRoutedFetch(routes: Record<string, Route>): typeof fetch {
-  return vi.fn(async (input: string | URL) => {
+  return mock(async (input: string | URL) => {
     const route = routes[String(input)];
     if (route === undefined) {
       return { ok: false, status: 404, text: async () => '' };
@@ -74,7 +87,7 @@ describe('fetchLatestVersionFromCdn', () => {
   });
 
   it('propagates the underlying fetch error', async () => {
-    const f = vi.fn(async () => {
+    const f = mock(async () => {
       throw new Error('network down');
     }) as unknown as typeof fetch;
     await expect(fetchLatestVersionFromCdn(f)).rejects.toThrow(/network down/);
@@ -182,80 +195,77 @@ describe('fetchLatestFromCdn', () => {
   });
 
   it('falls back to plain /latest when latest.json hangs past the request timeout', async () => {
-    vi.useFakeTimers();
-    try {
-      const f = vi.fn(async (input: string | URL, init?: RequestInit) => {
-        if (String(input) === kimiCodeCdnLatestJsonUrl()) {
-          return new Promise<Response>((_resolve, reject) => {
-            init?.signal?.addEventListener('abort', () => {
-              reject(new Error('aborted'));
-            }, { once: true });
-          });
-        }
-        if (String(input) === kimiCodeCdnLatestUrl()) {
-          return { ok: true, status: 200, text: async () => '1.9.0\n' };
-        }
-        return { ok: false, status: 404, text: async () => '' };
-      }) as unknown as typeof fetch;
+    const clock = createFakeClock();
+    const f = mock(async (input: string | URL, init?: RequestInit) => {
+      if (String(input) === kimiCodeCdnLatestJsonUrl()) {
+        return new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            reject(new Error('aborted'));
+          }, { once: true });
+        });
+      }
+      if (String(input) === kimiCodeCdnLatestUrl()) {
+        return { ok: true, status: 200, text: async () => '1.9.0\n' };
+      }
+      return { ok: false, status: 404, text: async () => '' };
+    }) as unknown as typeof fetch;
 
-      const result = fetchLatestFromCdn(f);
-      await vi.advanceTimersByTimeAsync(3_000);
+    const result = fetchLatestFromCdn(f, undefined, clock);
+    await advanceAsync(clock, 3_000);
 
-      await expect(result).resolves.toEqual({
-        latest: '1.9.0',
-        manifest: null,
-      });
-    } finally {
-      vi.useRealTimers();
-    }
+    await expect(result).resolves.toEqual({
+      latest: '1.9.0',
+      manifest: null,
+    });
   });
 
   it('rejects when plain /latest also hangs past the request timeout', async () => {
-    vi.useFakeTimers();
-    try {
-      const f = vi.fn(async (_input: string | URL, init?: RequestInit) => {
-        return new Promise<Response>((_resolve, reject) => {
-          init?.signal?.addEventListener('abort', () => {
-            reject(new Error('aborted'));
-          }, { once: true });
-        });
-      }) as unknown as typeof fetch;
+    const clock = createFakeClock();
+    const f = mock(async (_input: string | URL, init?: RequestInit) => {
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          reject(new Error('aborted'));
+        }, { once: true });
+      });
+    }) as unknown as typeof fetch;
 
-      const result = fetchLatestFromCdn(f);
-      const expectation = expect(result).rejects.toThrow(/aborted/);
-      await vi.advanceTimersByTimeAsync(6_000);
+    const result = fetchLatestFromCdn(f, undefined, clock);
+    // Keep the rejection handled while the faked clock runs: Bun's
+    // `expect(promise).rejects` blocks until the promise settles, so the
+    // assertion itself can only run once the timeouts have fired.
+    void result.catch(() => {});
+    await advanceAsync(clock, 6_000);
+    // The first request aborted, so the /latest fallback armed its own timeout.
+    await advanceAsync(clock, 3_000);
 
-      await expectation;
-    } finally {
-      vi.useRealTimers();
-    }
+    await expect(result).rejects.toThrow(/aborted/);
   });
 
   it('honors a custom request timeout instead of the background budget', async () => {
-    vi.useFakeTimers();
-    try {
-      const f = vi.fn(async (_input: string | URL, init?: RequestInit) => {
-        return new Promise<Response>((_resolve, reject) => {
-          init?.signal?.addEventListener('abort', () => {
-            reject(new Error('aborted'));
-          }, { once: true });
-        });
-      }) as unknown as typeof fetch;
-
-      const result = fetchLatestFromCdn(f, 10_000);
-      let rejected = false;
-      void result.catch(() => {
-        rejected = true;
+    const clock = createFakeClock();
+    const f = mock(async (_input: string | URL, init?: RequestInit) => {
+      return new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => {
+          reject(new Error('aborted'));
+        }, { once: true });
       });
-      const expectation = expect(result).rejects.toThrow(/aborted/);
-      await vi.advanceTimersByTimeAsync(6_000);
-      expect(rejected).toBe(false);
-      await vi.advanceTimersByTimeAsync(14_000);
+    }) as unknown as typeof fetch;
 
-      await expectation;
-      expect(rejected).toBe(true);
-    } finally {
-      vi.useRealTimers();
-    }
+    const result = fetchLatestFromCdn(f, 10_000, clock);
+    let rejected = false;
+    void result.catch(() => {
+      rejected = true;
+    });
+    await advanceAsync(clock, 6_000);
+    expect(rejected).toBe(false);
+    await advanceAsync(clock, 14_000);
+    // The first request aborted at its custom timeout, so the /latest
+    // fallback armed its own 10s budget after the clock had moved on.
+    await advanceAsync(clock, 10_000);
+
+    // Bun's `expect(promise).rejects` blocks until the promise settles, so the
+    // assertion only happens once the faked clock has produced the rejection.
+    await expect(result).rejects.toThrow(/aborted/);
+    expect(rejected).toBe(true);
   });
 });

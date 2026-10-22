@@ -49,6 +49,7 @@ const DROPPED_DOMAIN_EVENT_TYPES: ReadonlySet<string> = new Set([
 const RENAMED_DOMAIN_EVENT_TYPES: Readonly<Record<string, string>> = {
   'task.started': 'background.task.started',
   'task.terminated': 'background.task.terminated',
+  'task.output': 'background.task.output',
 };
 
 /**

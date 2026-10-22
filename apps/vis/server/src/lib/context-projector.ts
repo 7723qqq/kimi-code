@@ -265,8 +265,9 @@ export function projectContext(
         contextTokens = rec.tokenCount;
         break;
       case 'context.replace_tool_result': {
-        // Fork-only durable record (Rust engine prediction fast-path): the
-        // precise result overwrites the recorded prediction content.
+        // Legacy fork-only durable record (written by the retired native engine's
+        // prediction fast-path): the precise result overwrites the recorded
+        // prediction content.
         //
         // `result`/`result.output` shape is asserted by the type only — the
         // wire-reader parses whatever JSON is on disk, so an imported or

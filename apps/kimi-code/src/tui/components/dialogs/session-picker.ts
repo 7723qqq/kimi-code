@@ -29,11 +29,11 @@ export interface SessionRow {
 
 const ELLIPSIS = '…';
 
-function formatRelativeTime(ts: number): string {
+function formatRelativeTime(ts: number, nowMs: number): string {
   // SessionSummary timestamps come from filesystem stat `*timeMs`,
   // so they use the same millisecond unit as `Date.now()`.
   if (!Number.isFinite(ts) || ts <= 0) return '';
-  const diffSec = Math.floor(Math.max(0, Date.now() - ts) / 1000);
+  const diffSec = Math.floor(Math.max(0, nowMs - ts) / 1000);
   if (diffSec < 60) return t('tui.dialogs.sessionPicker.justNow');
   const minutes = Math.floor(diffSec / 60);
   if (minutes < 60) return t('tui.dialogs.sessionPicker.minutesAgo', { minutes: String(minutes) });
@@ -123,8 +123,11 @@ export class SessionPickerComponent extends Container implements Focusable {
     onSearchDrain?: () => void;
     /** Fired after the user confirms deletion with `y`; the picker clears its delete state once the request settles. */
     onDeleteRequest?: (session: SessionRow) => Promise<void>;
+    /** Wall clock used for the relative "updated" times; defaults to `Date.now`. */
+    now?: () => number;
   }) {
     super();
+    this.now = opts.now ?? Date.now;
     this.sessions = opts.sessions;
     this.loading = opts.loading;
     this.currentSessionId = opts.currentSessionId;
@@ -158,6 +161,7 @@ export class SessionPickerComponent extends Container implements Focusable {
   private readonly onLoadMore?: () => void;
   private readonly onSearchDrain?: () => void;
   private readonly onDeleteRequest?: (session: SessionRow) => Promise<void>;
+  private readonly now: () => number;
 
   /** Appends a freshly fetched page, keeping the cursor and active query. */
   appendSessions(rows: SessionRow[]): void {
@@ -502,7 +506,7 @@ export class SessionPickerComponent extends Container implements Focusable {
     const titleStyle = (text: string) =>
       isSelected ? currentTheme.boldFg(titleColor, text) : currentTheme.fg(titleColor, text);
 
-    const time = formatRelativeTime(session.updated_at);
+    const time = formatRelativeTime(session.updated_at, this.now());
     const badge = isCurrent ? getCurrentMark() : '';
     const rawTitle = (session.title ?? session.id).trim() || session.id;
     const titleSource = formatSessionLabel({ title: rawTitle, metadata: session.metadata });

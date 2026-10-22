@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, mock } from 'bun:test';
+import { setGlobal, restoreGlobals } from '#test/helpers/stubs';
 
 import { removeStaleFeedbackUploads } from '../../../src/feedback/archive';
 import { packageCodebase, scanCodebase } from '../../../src/feedback/codebase';
@@ -14,8 +15,7 @@ import { uploadArchive } from '../../../src/feedback/upload';
 const execFileAsync = promisify(execFile);
 
 afterEach(() => {
-  vi.unstubAllGlobals();
-  vi.useRealTimers();
+  restoreGlobals();
 });
 
 describe('uploadArchive', () => {
@@ -24,16 +24,16 @@ describe('uploadArchive', () => {
     const archivePath = join(workRoot, 'repo.zip');
     await writeFile(archivePath, 'hello');
 
-    const fetchMock = vi.fn(
+    const fetchMock = mock(
       async () => new Response('', { status: 200, headers: { ETag: '"etag-1"' } }),
     );
-    vi.stubGlobal('fetch', fetchMock);
+    setGlobal('fetch', fetchMock);
     const api = {
-      createUploadUrl: vi.fn(async () => ({
+      createUploadUrl: mock(async () => ({
         uploadId: 28,
         parts: [{ partNumber: 1, url: 'https://example.test/part1', method: 'PUT', size: 5 }],
       })),
-      completeUpload: vi.fn(async () => {}),
+      completeUpload: mock(async () => {}),
     };
 
     try {
@@ -56,7 +56,7 @@ describe('uploadArchive', () => {
         size: 5,
         sha256: 'hash',
       });
-      expect(fetchMock).toHaveBeenCalledOnce();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
       const [url, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
       expect(url).toBe('https://example.test/part1');
       expect(init.method).toBe('PUT');
@@ -79,16 +79,16 @@ describe('uploadArchive', () => {
     const archivePath = join(workRoot, 'repo.zip');
     await writeFile(archivePath, 'hello');
 
-    const fetchMock = vi.fn(
+    const fetchMock = mock(
       async () => new Response('', { status: 200, headers: { ETag: '"etag-1"' } }),
     );
-    vi.stubGlobal('fetch', fetchMock);
+    setGlobal('fetch', fetchMock);
     const api = {
-      createUploadUrl: vi.fn(async () => ({
+      createUploadUrl: mock(async () => ({
         uploadId: 28,
         parts: [{ partNumber: 1, url: 'https://example.test/part1', method: 'POST', size: 5 }],
       })),
-      completeUpload: vi.fn(async () => {}),
+      completeUpload: mock(async () => {}),
     };
 
     try {
@@ -118,7 +118,7 @@ describe('uploadArchive', () => {
     const archivePath = join(workRoot, 'repo.zip');
     await writeFile(archivePath, 'hello');
 
-    const fetchMock = vi.fn((_url: string, init?: RequestInit) =>
+    const fetchMock = mock((_url: string, init?: RequestInit) =>
       new Promise<Response>((_resolve, reject) => {
         const signal = init?.signal;
         if (signal?.aborted) {
@@ -134,16 +134,17 @@ describe('uploadArchive', () => {
         );
       }),
     );
-    vi.stubGlobal('fetch', fetchMock);
+    setGlobal('fetch', fetchMock);
     const api = {
-      createUploadUrl: vi.fn(async () => ({
+      createUploadUrl: mock(async () => ({
         uploadId: 28,
         parts: [{ partNumber: 1, url: 'https://example.test/part1', method: 'PUT', size: 5 }],
       })),
-      completeUpload: vi.fn(async () => {}),
+      completeUpload: mock(async () => {}),
     };
 
-    vi.useFakeTimers();
+    // Real timers: the 25 ms part timeout only fires once the upload has actually
+    // reached the fetch call, which no fixed fake-timer advance can guarantee.
     try {
       const upload = uploadArchive(
         api,
@@ -157,12 +158,9 @@ describe('uploadArchive', () => {
         3,
         { filename: 'repo.zip', timeoutMs: 25, maxRetries: 0 },
       );
-      const expectation = expect(upload).rejects.toThrow(/timed out/);
-      await vi.advanceTimersByTimeAsync(25);
-      await expectation;
+      await expect(upload).rejects.toThrow(/timed out/);
       expect(api.completeUpload).not.toHaveBeenCalled();
     } finally {
-      vi.useRealTimers();
       await rm(workRoot, { recursive: true, force: true });
     }
   });
@@ -173,23 +171,24 @@ describe('uploadArchive', () => {
     await writeFile(archivePath, 'hello');
 
     let attempt = 0;
-    const fetchMock = vi.fn(async () => {
+    const fetchMock = mock(async () => {
       attempt += 1;
       if (attempt === 1) return new Response('server error', { status: 500 });
       return new Response('', { status: 200, headers: { ETag: '"etag-1"' } });
     });
-    vi.stubGlobal('fetch', fetchMock);
+    setGlobal('fetch', fetchMock);
     const api = {
-      createUploadUrl: vi.fn(async () => ({
+      createUploadUrl: mock(async () => ({
         uploadId: 28,
         parts: [{ partNumber: 1, url: 'https://example.test/part1', method: 'PUT', size: 5 }],
       })),
-      completeUpload: vi.fn(async () => {}),
+      completeUpload: mock(async () => {}),
     };
 
-    vi.useFakeTimers();
+    // Real timers: the retry backoff (RETRY_BASE_DELAY_MS) only starts after the
+    // first part PUT settles, so the wait has to be observed, not pre-advanced.
     try {
-      const upload = uploadArchive(
+      await uploadArchive(
         api,
         {
           path: archivePath,
@@ -201,15 +200,12 @@ describe('uploadArchive', () => {
         3,
         { filename: 'repo.zip', timeoutMs: 10_000 },
       );
-      await vi.advanceTimersByTimeAsync(1_000);
-      await upload;
       expect(fetchMock).toHaveBeenCalledTimes(2);
       expect(api.completeUpload).toHaveBeenCalledWith({
         uploadId: 28,
         parts: [{ partNumber: 1, etag: '"etag-1"' }],
       });
     } finally {
-      vi.useRealTimers();
       await rm(workRoot, { recursive: true, force: true });
     }
   });

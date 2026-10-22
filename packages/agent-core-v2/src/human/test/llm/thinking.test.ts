@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { classifyKimiQuotaError } from '#/llm-kimi/errors';
 import { kimiConnection, kimiOpenAITrait } from '#/llm-kimi/trait';
@@ -188,10 +188,7 @@ describe('kimiOpenAITrait thinking', () => {
   });
 
   it('is not affected by the deepseek full-echo rule, which keys off the request shape', () => {
-    // The kimi path is driven by `preserveThinking` from its own trait, while
-    // the deepseek rule is driven by the presence of tools plus the family
-    // entry. A kimi model must not match the deepseek family entry, so the two
-    // mechanisms cannot overlap on this provider.
+
     expect(fullReasoningEchoRequired(model.model, true)).toBe(false);
     expect(fullReasoningEchoRequired('kimi-k3-1', true)).toBe(false);
     expect(thinkingHistoryForModel('kimi-k3-1')).toBeUndefined();
@@ -204,11 +201,7 @@ describe('kimiOpenAITrait thinking', () => {
       ...kimiOpenAI,
       clientFactory: client.clientFactory,
     });
-    // A real kimi model id, not the generic fixture: the assertion is that this
-    // name does not resolve to the deepseek family, so it has to be the kind of
-    // name the provider actually serves. Tools are present, which is exactly the
-    // condition that triggers the deepseek echo rule; the kimi trait must still
-    // own its thinking kwargs and keep its own sampling parameters.
+
     await requester.generate(
       {
         model: { ...model, model: 'kimi-k3-1' },

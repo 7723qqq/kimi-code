@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import type { Message } from '#/message';
 import { AnthropicChatProvider } from '#/providers/anthropic';
@@ -60,7 +60,7 @@ async function anthropicWireRoles(history: Message[]): Promise<string[]> {
   });
   let captured: Record<string, unknown> | undefined;
   (provider as unknown as { _client: { messages: { create: unknown } } })._client.messages.create =
-    vi.fn().mockImplementation((params: Record<string, unknown>) => {
+    mock().mockImplementation((params: Record<string, unknown>) => {
       captured = params;
       return Promise.resolve({
         id: 'msg_test',
@@ -97,12 +97,11 @@ async function googleWireRoles(history: Message[]): Promise<string[]> {
   }
   const models = (provider as unknown as { _client: { models: Record<string, unknown> } })._client
     .models;
-  models['generateContent'] = vi.fn().mockImplementation((params: Record<string, unknown>) => {
+  models['generateContent'] = mock().mockImplementation((params: Record<string, unknown>) => {
     captured = params;
     return Promise.resolve(response);
   });
-  models['generateContentStream'] = vi
-    .fn()
+  models['generateContentStream'] = mock()
     .mockImplementation((params: Record<string, unknown>) => {
       captured = params;
       return Promise.resolve(stream());

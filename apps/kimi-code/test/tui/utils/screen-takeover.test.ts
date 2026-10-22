@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import type { Component, Terminal } from '@moonshot-ai/pi-tui';
 import { Text, TuiAltScreen, TuiMainScreen } from '@moonshot-ai/pi-tui';

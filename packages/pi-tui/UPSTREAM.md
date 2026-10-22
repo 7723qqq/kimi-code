@@ -234,3 +234,9 @@ Each card: **decision** and **why not in the app**. Status is `keep` or `absorbe
 **Decision:** `Loader` unrefs its animation interval, and `Loader.dispose()` stops the animation — `CancellableLoader` inherits it and no longer carries its own duplicate. A repaint loop that runs every 80 ms is not a reason for a host process to stay alive, and a component that can be spliced out of the tree needs an explicit stop edge rather than relying on the owner dropping its last reference. The constructor still arms the animation: both in-repo users (`chat-simple`, and `CancellableLoader`'s documented example) rely on construction arming and never call `start()`.
 
 **Why not in the app:** The interval, the frame counter and the repaint call are the component's internals; the host only sees `dispose()`.
+
+### input-reassembly-timers-are-injectable — keep
+
+**Decision:** `StdinBuffer` and `ProcessTerminal` accept an optional timer source (default: the process timers) covering the escape-sequence reassembly window and the Kitty negotiation buffer flush. A host that owns a scheduler can then drive both, so a partial sequence resolves on that scheduler's clock instead of the process clock; nothing on the default path changes.
+
+**Why not in the app:** Both waits happen before any host callback runs — a partial sequence has not become a key yet, and the negotiation buffer is released inside the terminal's own input path.

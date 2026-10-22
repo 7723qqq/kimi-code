@@ -44,7 +44,8 @@
       "./src/generated/vis-web-asset.ts",
       "./src/generated/vis-web-asset.d.ts"
     ],
-    "#/*": "./src/*.ts"
+    "#/*": "./src/*.ts",
+    "#test/*": "./test/*.ts"
   },
   "publishConfig": {
     "access": "public",
@@ -71,10 +72,11 @@
     "dev:prod": "bun dist/main.mjs",
     "clean": "bun -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })\"",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "cd ../.. && bun run build:packages && bun --bun run vitest run",
-    "e2e": "cd ../.. && bun run build:packages && KIMI_E2E=1 bun --bun run vitest run test/e2e",
-    "e2e:real": "cd ../.. && bun run build:packages && KIMI_E2E_REAL=1 bun --bun run vitest run test/e2e/real-llm-smoke.e2e.test.ts",
-    "postinstall": "bun scripts/postinstall.mjs"
+    "test": "bun ../../scripts/run-package-tests.mjs --root=test",
+    "e2e": "KIMI_E2E=1 bun test --isolate --timeout 30000 --path-ignore-patterns='**/node_modules/**' ./test/e2e",
+    "e2e:real": "KIMI_E2E_REAL=1 bun test --isolate --timeout 30000 --path-ignore-patterns='**/node_modules/**' ./test/e2e/real-llm-smoke.e2e.test.ts",
+    "postinstall": "bun scripts/postinstall.mjs",
+    "test:bench": "bun test/tui/render-memo.bench.ts && bun test/tui/tui-frame.bench.ts"
   },
   "dependencies": {
     "qrcode": "^1.5.4",

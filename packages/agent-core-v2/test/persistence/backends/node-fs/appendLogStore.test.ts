@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { expectRejection } from '#test/helpers/assertions';
 import {
   resetUnexpectedErrorHandler,
   setUnexpectedErrorHandler,
@@ -427,11 +428,11 @@ describe('AppendLogStore', () => {
     record.append<Rec>(SCOPE, KEY, { n: 2 });
     await appendStarted;
 
-    const rewriteRejected = expect(record.rewrite<Rec>(SCOPE, KEY, [{ n: 9 }])).rejects.toBe(
+        releaseAppend();
+
+    await expect(record.rewrite<Rec>(SCOPE, KEY, [{ n: 9 }])).rejects.toBe(
       failure,
     );
-    releaseAppend();
-    await rewriteRejected;
 
     await expect(record.flush()).rejects.toBe(failure);
     expect(appendAttempts).toBe(1);
@@ -458,11 +459,11 @@ describe('AppendLogStore', () => {
     record.append<Rec>(SCOPE, KEY, { n: 2 });
     await appendStarted;
 
-    const invalid = expect(record.rewrite<unknown>(SCOPE, KEY, [{ n: 9n }])).rejects.toBeInstanceOf(
+        releaseAppend();
+
+    await expect(record.rewrite<unknown>(SCOPE, KEY, [{ n: 9n }])).rejects.toBeInstanceOf(
       TypeError,
     );
-    releaseAppend();
-    await invalid;
     await record.flush();
 
     expect(appendAttempts).toBe(1);
@@ -499,9 +500,9 @@ describe('AppendLogStore', () => {
     record.append<Rec>(SCOPE, KEY, { n: 2 });
     await appendStarted;
 
-    const failedRewrite = expect(record.rewrite<Rec>(SCOPE, KEY, [{ n: 9 }])).rejects.toBe(failure);
-    releaseAppend();
-    await failedRewrite;
+        releaseAppend();
+
+    await expect(record.rewrite<Rec>(SCOPE, KEY, [{ n: 9 }])).rejects.toBe(failure);
     await expect(record.flush()).rejects.toBe(failure);
     await expect(collect<Rec>(SCOPE, KEY)).rejects.toBe(failure);
     await expect(record.close()).rejects.toBe(failure);
@@ -666,7 +667,7 @@ describe('AppendLogStore', () => {
     const raw = `${JSON.stringify({ n: 1 })}\nGARBAGE\n${JSON.stringify({ n: 3 })}\n`;
     await storage.append(SCOPE, KEY, enc.encode(raw));
 
-    await expect(collect<Rec>(SCOPE, KEY)).rejects.toSatisfy((error: unknown) => {
+    await expectRejection(collect<Rec>(SCOPE, KEY), (error: unknown) => {
       expect(error).toBeInstanceOf(AppendLogCorruptedError);
       const corrupted = error as AppendLogCorruptedError;
       expect(corrupted.code).toBe('storage.corrupted');
@@ -751,14 +752,14 @@ describe('AppendLogStore', () => {
     localIx.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
     const log = localIx.get(IAppendLogStore);
 
-    const first: Array<{ type: string }> = [];
+    const first: Array<{ type: string; protocol_version?: string }> = [];
     for await (const r of log.read<{ type: string }>(SCOPE, KEY)) {
       first.push(r);
       break;
     }
     expect(first).toEqual([{ type: 'metadata', protocol_version: '1.4' }]);
 
-    const out: Array<{ type: string; s?: string }> = [];
+    const out: Array<{ type: string; s?: string; protocol_version?: string }> = [];
     for await (const r of log.read<{ type: string; s?: string }>(SCOPE, KEY)) out.push(r);
     expect(out).toEqual([
       { type: 'metadata', protocol_version: '1.4' },

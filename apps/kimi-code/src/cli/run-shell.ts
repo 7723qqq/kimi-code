@@ -36,11 +36,24 @@ import type { CLIOptions } from './options';
 import { createCliTelemetryBootstrap, initializeCliTelemetry } from './telemetry';
 import { createKimiCodeHostIdentity } from './version';
 
+/** The `node:child_process` surface the shell startup touches `stty` through. */
+export interface RunShellChildProcess {
+  readonly execFileSync: typeof execFileSync;
+  readonly spawnSync: typeof spawnSync;
+}
+
+const SYSTEM_CHILD_PROCESS: RunShellChildProcess = { execFileSync, spawnSync };
+
 export async function runShell(
   opts: CLIOptions,
   version: string,
-  runOptions: { readonly migrateOnly?: boolean; readonly startupWarnings?: readonly string[] } = {},
+  runOptions: {
+    readonly migrateOnly?: boolean;
+    readonly startupWarnings?: readonly string[];
+    readonly childProcess?: RunShellChildProcess;
+  } = {},
 ): Promise<void> {
+  const childProcess = runOptions.childProcess ?? SYSTEM_CHILD_PROCESS;
   const startedAt = Date.now();
   const configStartedAt = startedAt;
   let tuiConfig: TuiConfig;
@@ -192,12 +205,12 @@ export async function runShell(
     try {
       // stty operates on the terminal behind stdin, so stdin must be the TTY —
       // piping /dev/null (ignore) makes stty fail with "not a tty".
-      const saved = execFileSync(sttyPath, ['-g'], {
+      const saved = childProcess.execFileSync(sttyPath, ['-g'], {
         encoding: 'utf8',
         stdio: ['inherit', 'pipe', 'ignore'],
       });
       savedStty = saved.trim();
-      execFileSync(sttyPath, ['-ixon'], { stdio: ['inherit', 'ignore', 'ignore'] });
+      childProcess.execFileSync(sttyPath, ['-ixon'], { stdio: ['inherit', 'ignore', 'ignore'] });
     } catch {
       /* ignore */
     }
@@ -206,7 +219,7 @@ export async function runShell(
     if (sttyPath === undefined || savedStty === undefined) return;
     const args = savedStty.split(/\s+/).filter((arg) => arg.length > 0);
     if (args.length === 0) return;
-    spawnSync(sttyPath, args, { stdio: ['inherit', 'ignore', 'ignore'] });
+    childProcess.spawnSync(sttyPath, args, { stdio: ['inherit', 'ignore', 'ignore'] });
   };
 
   // If we crash without going through KimiTUI.stop(), the terminal is left in

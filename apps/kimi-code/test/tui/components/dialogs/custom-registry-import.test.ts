@@ -1,11 +1,7 @@
 import { visibleWidth } from '@moonshot-ai/pi-tui';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock, type Mock } from 'bun:test';
 
-import {
-  CustomRegistryImportDialogComponent,
-  type CustomRegistryImportResult,
-} from '#/tui/components/dialogs/custom-registry-import';
-import { darkColors } from '#/tui/theme/colors';
+import { CustomRegistryImportDialogComponent, type CustomRegistryImportResult } from '#/tui/components/dialogs/custom-registry-import';
 
 const ANSI = /\[[0-9;]*m/g;
 const strip = (s: string): string => s.replaceAll(ANSI, '');
@@ -19,9 +15,9 @@ function plain(component: CustomRegistryImportDialogComponent, width = 80): stri
 
 function makeDialog(defaultUrl = 'https://example.com/api.json'): {
   dialog: CustomRegistryImportDialogComponent;
-  onDone: ReturnType<typeof vi.fn>;
+  onDone: Mock<(...args: any[]) => any>;
 } {
-  const onDone = vi.fn();
+  const onDone = mock();
   const dialog = new CustomRegistryImportDialogComponent(
     onDone as unknown as (r: CustomRegistryImportResult) => void,
     defaultUrl,

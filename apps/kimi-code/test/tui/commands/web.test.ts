@@ -1,7 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, mock, spyOn, type Mock } from 'bun:test';
 
 import { setCapabilities } from '@moonshot-ai/pi-tui';
 
+import * as remoteControlModule from '#/cli/sub/web/remote-control';
+import * as webRunModule from '#/cli/sub/web/run';
+import * as webSharedModule from '#/cli/sub/web/shared';
 import { findBuiltInSlashCommand, resolveSlashCommandAvailability } from '#/tui/commands/index';
 import type { SlashCommandHost } from '#/tui/commands/dispatch';
 import {
@@ -9,43 +12,23 @@ import {
   handleWebCommand,
   webSessionUrl,
 } from '#/tui/commands/web';
+import * as openUrlModule from '#/utils/open-url';
+import * as pathsModule from '#/utils/paths';
 import { renderTerminalQr } from '#/utils/remote-control-qr';
 
-const mocks = vi.hoisted(() => ({
-  startServerForeground: vi.fn(),
-  startRemoteControl: vi.fn(),
-  tryResolveServerToken: vi.fn(),
-  getDataDir: vi.fn(() => '/tmp/kimi-home'),
-  openUrl: vi.fn(),
-}));
-
-vi.mock('#/cli/sub/web/remote-control', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('#/cli/sub/web/remote-control')>();
-  return { ...actual, startRemoteControl: mocks.startRemoteControl };
-});
-
-vi.mock('#/cli/sub/web/run', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('#/cli/sub/web/run')>();
-  return { ...actual, startServerForeground: mocks.startServerForeground };
-});
-
-vi.mock('#/cli/sub/web/shared', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('#/cli/sub/web/shared')>();
-  return {
-    ...actual,
-    tryResolveServerToken: mocks.tryResolveServerToken,
-  };
-});
-
-vi.mock('#/utils/open-url', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('#/utils/open-url')>();
-  return { ...actual, openUrl: mocks.openUrl };
-});
-
-vi.mock('#/utils/paths', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('#/utils/paths')>();
-  return { ...actual, getDataDir: mocks.getDataDir };
-});
+const mocks = {
+  startServerForeground: spyOn(webRunModule, 'startServerForeground').mockImplementation(
+    (async () => undefined) as never,
+  ),
+  startRemoteControl: spyOn(remoteControlModule, 'startRemoteControl').mockImplementation(
+    (() => Promise.resolve(undefined)) as never,
+  ),
+  tryResolveServerToken: spyOn(webSharedModule, 'tryResolveServerToken').mockImplementation(
+    () => undefined,
+  ),
+  getDataDir: spyOn(pathsModule, 'getDataDir').mockImplementation(() => '/tmp/kimi-home'),
+  openUrl: spyOn(openUrlModule, 'openUrl').mockImplementation(() => {}),
+};
 
 const indentedQr = (url: string): string =>
   renderTerminalQr(url).trimEnd().replaceAll(/^/gm, '    ');
@@ -53,23 +36,23 @@ const indentedQr = (url: string): string =>
 function makeHost() {
   const host = {
     session: { id: 'ses-1' },
-    showStatus: vi.fn(),
-    showError: vi.fn(),
-    mountEditorReplacement: vi.fn(),
-    restoreEditor: vi.fn(),
-    setExitOpenUrl: vi.fn(),
-    setExitForegroundTask: vi.fn(),
-    stop: vi.fn(async () => {}),
-    waitForLazyCreation: vi.fn(async () => {}),
+    showStatus: mock(),
+    showError: mock(),
+    mountEditorReplacement: mock(),
+    restoreEditor: mock(),
+    setExitOpenUrl: mock(),
+    setExitForegroundTask: mock(),
+    stop: mock(async () => {}),
+    waitForLazyCreation: mock(async () => {}),
   } as unknown as SlashCommandHost & {
-    showStatus: ReturnType<typeof vi.fn>;
-    showError: ReturnType<typeof vi.fn>;
-    mountEditorReplacement: ReturnType<typeof vi.fn>;
-    restoreEditor: ReturnType<typeof vi.fn>;
-    setExitOpenUrl: ReturnType<typeof vi.fn>;
-    setExitForegroundTask: ReturnType<typeof vi.fn>;
-    stop: ReturnType<typeof vi.fn>;
-    waitForLazyCreation: ReturnType<typeof vi.fn>;
+    showStatus: Mock<(...args: any[]) => any>;
+    showError: Mock<(...args: any[]) => any>;
+    mountEditorReplacement: Mock<(...args: any[]) => any>;
+    restoreEditor: Mock<(...args: any[]) => any>;
+    setExitOpenUrl: Mock<(...args: any[]) => any>;
+    setExitForegroundTask: Mock<(...args: any[]) => any>;
+    stop: Mock<(...args: any[]) => any>;
+    waitForLazyCreation: Mock<(...args: any[]) => any>;
   };
   return host;
 }
@@ -91,7 +74,7 @@ describe('web slash command', () => {
 
 describe('handleWebCommand', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
+    mock.clearAllMocks();
     mocks.getDataDir.mockReturnValue('/tmp/kimi-home');
   });
 
@@ -101,7 +84,7 @@ describe('handleWebCommand', () => {
 
     await handleWebCommand(host);
 
-    expect(host.showError).toHaveBeenCalledOnce();
+    expect(host.showError).toHaveBeenCalledTimes(1);
     expect(host.setExitForegroundTask).not.toHaveBeenCalled();
     expect(host.stop).not.toHaveBeenCalled();
   });
@@ -111,29 +94,32 @@ describe('handleWebCommand', () => {
 
     await handleWebCommand(host);
 
-    expect(host.setExitForegroundTask).toHaveBeenCalledOnce();
-    expect(host.stop).toHaveBeenCalledOnce();
+    expect(host.setExitForegroundTask).toHaveBeenCalledTimes(1);
+    expect(host.stop).toHaveBeenCalledTimes(1);
     expect(host.mountEditorReplacement).not.toHaveBeenCalled();
     expect(mocks.openUrl).not.toHaveBeenCalled();
   });
 
   it('starts the new server on takeover, printing the banner and opening the deep link', async () => {
     mocks.tryResolveServerToken.mockReturnValue('tok-1');
-    const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const writeSpy = mock((_chunk: string) => true);
+    const io = {
+      stdout: { write: writeSpy } as unknown as Pick<NodeJS.WriteStream, 'write'>,
+    };
     mocks.startServerForeground.mockImplementation(
-      async (_options: unknown, hooks: { onReady?: (origin: string) => void }) => {
-        hooks.onReady?.('http://127.0.0.1:58627');
-      },
+      (async (_options: unknown, hooks?: { onReady?: (origin: string) => void }) => {
+        hooks?.onReady?.('http://127.0.0.1:58627');
+      }) as never,
     );
     const host = makeHost();
 
-    await handleWebCommand(host);
+    await handleWebCommand(host, io);
     const task = host.setExitForegroundTask.mock.calls[0]![0] as (
       exitCode: number,
     ) => Promise<void>;
     await task(0);
 
-    expect(mocks.startServerForeground).toHaveBeenCalledOnce();
+    expect(mocks.startServerForeground).toHaveBeenCalledTimes(1);
     expect(mocks.openUrl).toHaveBeenCalledWith(
       'http://127.0.0.1:58627/sessions/ses-1#token=tok-1',
     );
@@ -141,13 +127,12 @@ describe('handleWebCommand', () => {
     expect(written).toContain('Kimi server ready');
     expect(written).toContain('Ctrl+C');
     expect(written).toContain('/sessions/ses-1');
-    writeSpy.mockRestore();
   });
 });
 
 describe('handleRemoteControlCommand', () => {
   it('stays in the TUI with a readable error when another instance holds Remote Control', async () => {
-    vi.clearAllMocks();
+    mock.clearAllMocks();
     const { mkdtempSync, mkdirSync, rmSync, writeFileSync } = await import('node:fs');
     const { tmpdir } = await import('node:os');
     const { join } = await import('node:path');
@@ -184,7 +169,7 @@ describe('handleRemoteControlCommand', () => {
   });
 
   it('starts the tunnel and saves a token-free session QR code', async () => {
-    vi.clearAllMocks();
+    mock.clearAllMocks();
     setCapabilities({ images: null, trueColor: true, hyperlinks: false });
     const { mkdtempSync, readFileSync, rmSync } = await import('node:fs');
     const { tmpdir } = await import('node:os');
@@ -199,7 +184,7 @@ describe('handleRemoteControlCommand', () => {
     const pngPath = join(dataDir, 'rc-qrcode.png');
     mocks.getDataDir.mockReturnValue(dataDir);
     mocks.tryResolveServerToken.mockReturnValue('local-server-token');
-    const close = vi.fn(async () => {});
+    const close = mock(async () => {});
     mocks.startRemoteControl.mockResolvedValue({
       deviceId: 'device-1',
       deviceName: 'example-device',
@@ -209,22 +194,25 @@ describe('handleRemoteControlCommand', () => {
       close,
     });
     mocks.startServerForeground.mockImplementation(
-      async (
+      (async (
         _options: unknown,
-        hooks: {
+        hooks?: {
           onReady?: (origin: string) => void | Promise<void>;
           onShutdown?: (reason: string) => void | Promise<void>;
         },
       ) => {
-        await hooks.onReady?.('http://127.0.0.1:58627');
-        await hooks.onShutdown?.('SIGINT');
-      },
+        await hooks?.onReady?.('http://127.0.0.1:58627');
+        await hooks?.onShutdown?.('SIGINT');
+      }) as never,
     );
-    const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const writeSpy = mock((_chunk: string) => true);
+    const io = {
+      stdout: { write: writeSpy } as unknown as Pick<NodeJS.WriteStream, 'write'>,
+    };
     const host = makeHost();
 
     try {
-      await handleRemoteControlCommand(host);
+      await handleRemoteControlCommand(host, io);
       const task = host.setExitForegroundTask.mock.calls[0]![0] as () => Promise<void>;
       await task();
 
@@ -243,22 +231,27 @@ describe('handleRemoteControlCommand', () => {
       expect(isAbsolute(pngPath)).toBe(true);
       expect(written).toContain(`QR code PNG: ${pngPath}`);
       const png = readFileSync(pngPath);
-      expect(png.subarray(0, 8)).toEqual(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
-      expect(png).toEqual(await QRCode.toBuffer(sessionUrl));
+      const pngSignature = Buffer.from([
+        137, 80, 78, 71, 13, 10, 26, 10,
+      ]) as unknown as Buffer<ArrayBuffer>;
+      expect(png.subarray(0, 8)).toEqual(pngSignature);
+      const expectedSessionQr = (await QRCode.toBuffer(sessionUrl)) as unknown as Buffer<
+        ArrayBuffer
+      >;
+      expect(png).toEqual(expectedSessionQr);
       expect(written).toContain(
         'Local UI: http://127.0.0.1:58627/#token=local-server-token',
       );
       expect(written).not.toContain(`${entryUrl}#token=`);
       expect(written).not.toContain(`${sessionUrl}#token=`);
-      expect(close).toHaveBeenCalledOnce();
+      expect(close).toHaveBeenCalledTimes(1);
     } finally {
-      writeSpy.mockRestore();
       rmSync(tempRoot, { recursive: true, force: true });
     }
   });
 
   it('opens the device entry URL without a session instead of creating one', async () => {
-    vi.clearAllMocks();
+    mock.clearAllMocks();
     setCapabilities({ images: null, trueColor: true, hyperlinks: false });
     const { mkdtempSync, readFileSync, rmSync } = await import('node:fs');
     const { tmpdir } = await import('node:os');
@@ -270,7 +263,7 @@ describe('handleRemoteControlCommand', () => {
       'https://code-rc.kimi.com/devices/device-1/?rc=1&from=kimi_code_cli';
     mocks.getDataDir.mockReturnValue(dataDir);
     mocks.tryResolveServerToken.mockReturnValue('local-server-token');
-    const close = vi.fn(async () => {});
+    const close = mock(async () => {});
     mocks.startRemoteControl.mockResolvedValue({
       deviceId: 'device-1',
       deviceName: 'example-device',
@@ -280,28 +273,31 @@ describe('handleRemoteControlCommand', () => {
       close,
     });
     mocks.startServerForeground.mockImplementation(
-      async (
+      (async (
         _options: unknown,
-        hooks: {
+        hooks?: {
           onReady?: (origin: string) => void | Promise<void>;
           onShutdown?: (reason: string) => void | Promise<void>;
         },
       ) => {
-        await hooks.onReady?.('http://127.0.0.1:58627');
-        await hooks.onShutdown?.('SIGINT');
-      },
+        await hooks?.onReady?.('http://127.0.0.1:58627');
+        await hooks?.onShutdown?.('SIGINT');
+      }) as never,
     );
-    const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const writeSpy = mock((_chunk: string) => true);
+    const io = {
+      stdout: { write: writeSpy } as unknown as Pick<NodeJS.WriteStream, 'write'>,
+    };
     const host = makeHost();
     host.session = undefined;
 
     try {
-      await handleRemoteControlCommand(host);
+      await handleRemoteControlCommand(host, io);
 
-      expect(host.waitForLazyCreation).toHaveBeenCalledOnce();
+      expect(host.waitForLazyCreation).toHaveBeenCalledTimes(1);
       expect(host.showError).not.toHaveBeenCalled();
-      expect(host.setExitForegroundTask).toHaveBeenCalledOnce();
-      expect(host.stop).toHaveBeenCalledOnce();
+      expect(host.setExitForegroundTask).toHaveBeenCalledTimes(1);
+      expect(host.stop).toHaveBeenCalledTimes(1);
 
       const task = host.setExitForegroundTask.mock.calls[0]![0] as () => Promise<void>;
       await task();
@@ -310,12 +306,10 @@ describe('handleRemoteControlCommand', () => {
       const written = writeSpy.mock.calls.map((call) => String(call[0])).join('');
       expect(written).toContain(indentedQr(entryUrl));
       expect(written).not.toContain('/sessions/');
-      expect(readFileSync(join(dataDir, 'rc-qrcode.png'))).toEqual(
-        await QRCode.toBuffer(entryUrl),
-      );
-      expect(close).toHaveBeenCalledOnce();
+      const expectedQrPng = (await QRCode.toBuffer(entryUrl)) as unknown as Buffer<ArrayBuffer>;
+      expect(readFileSync(join(dataDir, 'rc-qrcode.png'))).toEqual(expectedQrPng);
+      expect(close).toHaveBeenCalledTimes(1);
     } finally {
-      writeSpy.mockRestore();
       rmSync(tempRoot, { recursive: true, force: true });
     }
   });

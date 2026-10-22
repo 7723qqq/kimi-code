@@ -1,68 +1,91 @@
-/* eslint-disable import/first -- vi.mock setup must run before the imports it stubs out. */
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
-const mocks = vi.hoisted(() => ({
-  spawnSync: vi.fn(),
-  execFile: vi.fn(),
-  resolveCommandPath: vi.fn(),
-}));
+import { createGitStatusCache, formatGitBadge, type GitStatusDeps } from '#/utils/git/git-status';
 
-vi.mock('node:child_process', () => ({
-  execFile: mocks.execFile,
-  spawnSync: mocks.spawnSync,
-}));
+const START_MS = Date.parse('2026-04-24T00:00:00Z');
+const REPO_DIR = '/tmp/repo';
 
-vi.mock('#/utils/process/resolve-command', () => ({
-  resolveCommandPath: mocks.resolveCommandPath,
-}));
+interface CommandCall {
+  readonly command: string;
+  readonly args: readonly string[];
+}
 
-import { createGitStatusCache, formatGitBadge } from '#/utils/git/git-status';
+interface SpawnResponse {
+  readonly status: number;
+  readonly stdout: string;
+}
 
-beforeEach(() => {
-  mocks.resolveCommandPath.mockImplementation((command: string) => `/usr/bin/${command}`);
-});
+type SpawnResponder = (args: readonly string[]) => SpawnResponse;
+type ExecResponder = (callback: (error: Error | null, stdout: string) => void) => void;
 
-afterEach(() => {
-  vi.useRealTimers();
-  vi.clearAllMocks();
-});
+interface FakeGit {
+  readonly deps: Partial<GitStatusDeps>;
+  readonly spawnCalls: CommandCall[];
+  readonly execCalls: CommandCall[];
+  setNow(nowMs: number): void;
+}
+
+interface FakeGitOptions {
+  readonly spawn: SpawnResponder;
+  readonly execFile?: ExecResponder;
+  readonly resolveCommand?: (command: string, cwd: string) => string | undefined;
+}
+
+function createFakeGit(options: FakeGitOptions): FakeGit {
+  let nowMs = START_MS;
+  const spawnCalls: CommandCall[] = [];
+  const execCalls: CommandCall[] = [];
+  const { execFile } = options;
+  const deps: Partial<GitStatusDeps> = {
+    now: () => nowMs,
+    resolveCommand: options.resolveCommand ?? ((command) => `/usr/bin/${command}`),
+    spawnSync: (command, args) => {
+      spawnCalls.push({ command, args });
+      return options.spawn(args);
+    },
+    execFile: (command, args, _options, callback) => {
+      execCalls.push({ command, args });
+      if (execFile === undefined) {
+        callback(new Error('no pull request'), '');
+        return;
+      }
+      execFile(callback);
+    },
+  };
+  return {
+    deps,
+    spawnCalls,
+    execCalls,
+    setNow: (value) => {
+      nowMs = value;
+    },
+  };
+}
+
+function respondGit(responses: {
+  readonly branch: string;
+  readonly status: string;
+  readonly diff: string;
+}): SpawnResponder {
+  return (args) => {
+    if (args.includes('rev-parse')) return { status: 0, stdout: 'true\n' };
+    if (args.includes('branch')) return { status: 0, stdout: responses.branch };
+    if (args.includes('status')) return { status: 0, stdout: responses.status };
+    if (args.includes('diff')) return { status: 0, stdout: responses.diff };
+    return { status: 1, stdout: '' };
+  };
+}
 
 describe('git status cache', () => {
   it('caches branch and status reads until their TTL expires', async () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-04-24T00:00:00Z'));
-    mocks.execFile.mockImplementation(
-      (
-        _cmd: string,
-        _args: string[],
-        _options: unknown,
-        callback: (error: Error | null, stdout: string, stderr: string) => void,
-      ) => {
-        callback(new Error('no pull request'), '', '');
-      },
-    );
-    mocks.spawnSync.mockImplementation((_cmd: string, args: string[]) => {
-      if (args.includes('rev-parse')) {
-        return { status: 0, stdout: 'true\n' };
-      }
-      if (args.includes('branch')) {
-        return { status: 0, stdout: 'main\n' };
-      }
-      if (args.includes('status')) {
-        return {
-          status: 0,
-          stdout: '## main...origin/main [ahead 2, behind 1]\n M src/app.ts\n',
-        };
-      }
-      if (args.includes('diff')) {
-        return { status: 0, stdout: '4\t1\tsrc/app.ts\n' };
-      }
-      return { status: 1, stdout: '' };
+    const git = createFakeGit({
+      spawn: respondGit({
+        branch: 'main\n',
+        status: '## main...origin/main [ahead 2, behind 1]\n M src/app.ts\n',
+        diff: '4\t1\tsrc/app.ts\n',
+      }),
     });
-
-    const cache = createGitStatusCache('/tmp/repo');
-
-    expect(cache.getStatus()).toEqual({
+    const expected = {
       branch: 'main',
       dirty: true,
       ahead: 2,
@@ -70,67 +93,42 @@ describe('git status cache', () => {
       diffAdded: 4,
       diffDeleted: 1,
       pullRequest: null,
-    });
-    expect(cache.getStatus()).toEqual({
-      branch: 'main',
-      dirty: true,
-      ahead: 2,
-      behind: 1,
-      diffAdded: 4,
-      diffDeleted: 1,
-      pullRequest: null,
-    });
-    expect(mocks.spawnSync).toHaveBeenCalledTimes(4);
-    expect(mocks.execFile).toHaveBeenCalledTimes(1);
+    };
+
+    const cache = createGitStatusCache(REPO_DIR, { deps: git.deps });
+
+    expect(cache.getStatus()).toEqual(expected);
+    expect(cache.getStatus()).toEqual(expected);
+    expect(git.spawnCalls).toHaveLength(4);
+    expect(git.execCalls).toHaveLength(1);
 
     await Promise.resolve();
 
-    vi.setSystemTime(new Date('2026-04-24T00:00:06Z'));
+    git.setNow(START_MS + 6_000);
     cache.getStatus();
-    expect(mocks.spawnSync).toHaveBeenCalledTimes(5);
-    expect(mocks.execFile).toHaveBeenCalledTimes(1);
+    expect(git.spawnCalls).toHaveLength(5);
+    expect(git.execCalls).toHaveLength(1);
 
-    vi.setSystemTime(new Date('2026-04-24T00:00:16Z'));
+    git.setNow(START_MS + 16_000);
     cache.getStatus();
-    expect(mocks.spawnSync).toHaveBeenCalledTimes(8);
-    expect(mocks.execFile).toHaveBeenCalledTimes(1);
+    expect(git.spawnCalls).toHaveLength(8);
+    expect(git.execCalls).toHaveLength(1);
   });
 
   it('reads uncommitted diff line counts and current pull request metadata', async () => {
-    const onChange = vi.fn();
-    mocks.execFile.mockImplementation(
-      (
-        _cmd: string,
-        _args: string[],
-        _options: unknown,
-        callback: (error: Error | null, stdout: string, stderr: string) => void,
-      ) => {
-        callback(null, '{"number":12,"url":"https://github.com/acme/repo/pull/12"}\n', '');
+    const onChange = mock();
+    const git = createFakeGit({
+      spawn: respondGit({
+        branch: 'feature/footer\n',
+        status: '## feature/footer...origin/feature/footer\n M src/app.ts\n',
+        diff: '10\t3\tsrc/app.ts\n-\t-\timage.png\n0\t5\tdeleted.ts\n',
+      }),
+      execFile: (callback) => {
+        callback(null, '{"number":12,"url":"https://github.com/acme/repo/pull/12"}\n');
       },
-    );
-    mocks.spawnSync.mockImplementation((_cmd: string, args: string[]) => {
-      if (args.includes('rev-parse')) {
-        return { status: 0, stdout: 'true\n' };
-      }
-      if (args.includes('branch')) {
-        return { status: 0, stdout: 'feature/footer\n' };
-      }
-      if (args.includes('status')) {
-        return {
-          status: 0,
-          stdout: '## feature/footer...origin/feature/footer\n M src/app.ts\n',
-        };
-      }
-      if (args.includes('diff')) {
-        return {
-          status: 0,
-          stdout: '10\t3\tsrc/app.ts\n-\t-\timage.png\n0\t5\tdeleted.ts\n',
-        };
-      }
-      return { status: 1, stdout: '' };
     });
 
-    const cache = createGitStatusCache('/tmp/repo', { onChange });
+    const cache = createGitStatusCache(REPO_DIR, { onChange, deps: git.deps });
     expect(cache.getStatus()).toEqual({
       branch: 'feature/footer',
       dirty: true,
@@ -159,33 +157,18 @@ describe('git status cache', () => {
   });
 
   it('keeps footer git status working when gh pull-request lookup throws synchronously', async () => {
-    const onChange = vi.fn();
-    mocks.execFile.mockImplementation(() => {
-      const error = Object.assign(new Error('spawn ENOTDIR'), { code: 'ENOTDIR' });
-      throw error;
+    const onChange = mock();
+    const git = createFakeGit({
+      spawn: respondGit({
+        branch: 'main\n',
+        status: '## main...origin/main\n M src/app.ts\n',
+        diff: '2\t1\tsrc/app.ts\n',
+      }),
+      execFile: () => {
+        throw Object.assign(new Error('spawn ENOTDIR'), { code: 'ENOTDIR' });
+      },
     });
-    mocks.spawnSync.mockImplementation((_cmd: string, args: string[]) => {
-      if (args.includes('rev-parse')) {
-        return { status: 0, stdout: 'true\n' };
-      }
-      if (args.includes('branch')) {
-        return { status: 0, stdout: 'main\n' };
-      }
-      if (args.includes('status')) {
-        return {
-          status: 0,
-          stdout: '## main...origin/main\n M src/app.ts\n',
-        };
-      }
-      if (args.includes('diff')) {
-        return { status: 0, stdout: '2\t1\tsrc/app.ts\n' };
-      }
-      return { status: 1, stdout: '' };
-    });
-
-    const cache = createGitStatusCache('/tmp/repo', { onChange });
-
-    expect(cache.getStatus()).toEqual({
+    const expected = {
       branch: 'main',
       dirty: true,
       ahead: 0,
@@ -193,66 +176,61 @@ describe('git status cache', () => {
       diffAdded: 2,
       diffDeleted: 1,
       pullRequest: null,
-    });
+    };
+
+    const cache = createGitStatusCache(REPO_DIR, { onChange, deps: git.deps });
+
+    expect(cache.getStatus()).toEqual(expected);
 
     await Promise.resolve();
 
     expect(onChange).not.toHaveBeenCalled();
-    expect(cache.getStatus()).toEqual({
-      branch: 'main',
-      dirty: true,
-      ahead: 0,
-      behind: 0,
-      diffAdded: 2,
-      diffDeleted: 1,
-      pullRequest: null,
-    });
+    expect(cache.getStatus()).toEqual(expected);
   });
 
   it('returns null without spawning when git cannot be resolved to a safe path', () => {
-    mocks.resolveCommandPath.mockReturnValue(undefined);
-    expect(createGitStatusCache('/tmp/repo').getStatus()).toBeNull();
-    expect(mocks.spawnSync).not.toHaveBeenCalled();
-    expect(mocks.execFile).not.toHaveBeenCalled();
+    const git = createFakeGit({
+      spawn: () => ({ status: 1, stdout: '' }),
+      resolveCommand: () => undefined,
+    });
+
+    expect(createGitStatusCache(REPO_DIR, { deps: git.deps }).getStatus()).toBeNull();
+    expect(git.spawnCalls).toHaveLength(0);
+    expect(git.execCalls).toHaveLength(0);
   });
 
   it('spawns git and gh through their resolved absolute paths', async () => {
-    mocks.execFile.mockImplementation(
-      (
-        _cmd: string,
-        _args: string[],
-        _options: unknown,
-        callback: (error: Error | null, stdout: string, stderr: string) => void,
-      ) => {
-        callback(new Error('no pull request'), '', '');
+    const resolveCalls: { command: string; cwd: string }[] = [];
+    const git = createFakeGit({
+      spawn: respondGit({ branch: 'main\n', status: '## main...origin/main\n', diff: '' }),
+      resolveCommand: (command, cwd) => {
+        resolveCalls.push({ command, cwd });
+        return `/usr/bin/${command}`;
       },
-    );
-    mocks.spawnSync.mockImplementation((_cmd: string, args: string[]) => {
-      if (args.includes('rev-parse')) return { status: 0, stdout: 'true\n' };
-      if (args.includes('branch')) return { status: 0, stdout: 'main\n' };
-      if (args.includes('status')) return { status: 0, stdout: '## main...origin/main\n' };
-      return { status: 1, stdout: '' };
     });
 
-    const cache = createGitStatusCache('/tmp/repo');
+    const cache = createGitStatusCache(REPO_DIR, { deps: git.deps });
     expect(cache.getStatus()).not.toBeNull();
     await Promise.resolve();
 
-    expect(mocks.resolveCommandPath).toHaveBeenCalledWith('git', '/tmp/repo');
-    for (const call of mocks.spawnSync.mock.calls) {
-      expect(call[0]).toBe('/usr/bin/git');
-    }
-    expect(mocks.execFile).toHaveBeenCalledWith(
-      '/usr/bin/gh',
-      expect.any(Array),
-      expect.anything(),
-      expect.any(Function),
-    );
+    expect(resolveCalls).toEqual([
+      { command: 'git', cwd: REPO_DIR },
+      { command: 'gh', cwd: REPO_DIR },
+    ]);
+    expect(git.spawnCalls.map((call) => call.command)).toEqual([
+      '/usr/bin/git',
+      '/usr/bin/git',
+      '/usr/bin/git',
+    ]);
+    expect(git.execCalls).toEqual([
+      { command: '/usr/bin/gh', args: ['pr', 'view', '--json', 'number,url'] },
+    ]);
   });
 
   it('returns null when the working directory is not a git repo and formats badges', () => {
-    mocks.spawnSync.mockReturnValue({ status: 1, stdout: '' });
-    expect(createGitStatusCache('/tmp/not-a-repo').getStatus()).toBeNull();
+    const git = createFakeGit({ spawn: () => ({ status: 1, stdout: '' }) });
+
+    expect(createGitStatusCache('/tmp/not-a-repo', { deps: git.deps }).getStatus()).toBeNull();
     expect(
       formatGitBadge({
         branch: 'main',
@@ -278,15 +256,14 @@ describe('git status cache', () => {
   });
 
   it('skips git on later renders once the directory is known to be a non-repo', () => {
-    mocks.spawnSync.mockReturnValue({ status: 1, stdout: '' });
-    const cache = createGitStatusCache('/tmp/not-a-repo');
+    const git = createFakeGit({ spawn: () => ({ status: 1, stdout: '' }) });
+    const cache = createGitStatusCache('/tmp/not-a-repo', { deps: git.deps });
 
     expect(cache.getStatus()).toBeNull();
-    const probeCalls = mocks.spawnSync.mock.calls.length;
-    expect(probeCalls).toBe(1);
+    expect(git.spawnCalls).toHaveLength(1);
 
     expect(cache.getStatus()).toBeNull();
-    expect(mocks.spawnSync.mock.calls.length).toBe(probeCalls);
+    expect(git.spawnCalls).toHaveLength(1);
   });
 
   it('formats pull request badges as terminal hyperlinks when requested', () => {

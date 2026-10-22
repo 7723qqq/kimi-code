@@ -1,24 +1,21 @@
 import { setLocale } from '@moonshot-ai/kimi-i18n';
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import { DiscussionContext } from '#/agent/team/context';
 import { TeamCoordinator } from '#/agent/team/coordinator';
 import { StructuredDebateCoordinator } from '#/agent/team/debate-coordinator';
-import type { TokenUsage } from '#human/llm/usage';
-import type {
-  PersistentSubagentHost,
-  PersistentSubagentSpawnOptions,
-} from '#/session/subagent/persistentSubagent';
+import { type TokenUsage } from '#human/llm/usage';
+import { type PersistentSubagentHost, type PersistentSubagentSpawnOptions } from '#/session/subagent/persistentSubagent';
 
 interface StubHostState {
   readonly host: PersistentSubagentHost;
   readonly spawned: PersistentSubagentSpawnOptions[];
   readonly turns: Array<{ readonly agentId: string; readonly prompt: string }>;
   readonly destroyed: string[];
-  readonly spawnPersistent: Mock;
-  readonly runDiscussionTurn: Mock;
-  readonly getPersistentUsage: Mock;
-  readonly destroyPersistent: Mock;
+  readonly spawnPersistent: ReturnType<typeof mock>;
+  readonly runDiscussionTurn: ReturnType<typeof mock>;
+  readonly getPersistentUsage: ReturnType<typeof mock>;
+  readonly destroyPersistent: ReturnType<typeof mock>;
 }
 
 function createStubHost(
@@ -35,11 +32,11 @@ function createStubHost(
   let nextId = 0;
   let turnIndex = 0;
 
-  const spawnPersistent = vi.fn(async (spawnOptions: PersistentSubagentSpawnOptions) => {
+  const spawnPersistent = mock(async (spawnOptions: PersistentSubagentSpawnOptions) => {
     spawned.push(spawnOptions);
     return `agent-${String(nextId++)}`;
   });
-  const runDiscussionTurn = vi.fn(async (agentId: string, prompt: string) => {
+  const runDiscussionTurn = mock(async (agentId: string, prompt: string) => {
     const index = turnIndex++;
     turns.push({ agentId, prompt });
     options.onTurn?.(index);
@@ -47,8 +44,8 @@ function createStubHost(
     if (error !== undefined) throw error;
     return options.replies?.[index] ?? `Speech ${String(index)} from ${agentId}`;
   });
-  const getPersistentUsage = vi.fn((agentId: string) => options.usages?.[agentId]);
-  const destroyPersistent = vi.fn(async (agentId: string) => {
+  const getPersistentUsage = mock((agentId: string) => options.usages?.[agentId]);
+  const destroyPersistent = mock(async (agentId: string) => {
     destroyed.push(agentId);
   });
 
@@ -148,7 +145,7 @@ describe('TeamCoordinator', () => {
     controller = new AbortController();
   });
   afterEach(() => {
-    vi.restoreAllMocks();
+    mock.restore();
   });
 
   it('runs round-robin rounds, aggregates usage, and destroys all participants', async () => {
@@ -340,7 +337,7 @@ describe('StructuredDebateCoordinator', () => {
     controller = new AbortController();
   });
   afterEach(() => {
-    vi.restoreAllMocks();
+    mock.restore();
   });
 
   it('runs opening / free-debate / closing phases and counts position changes', async () => {

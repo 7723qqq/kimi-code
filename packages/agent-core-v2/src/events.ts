@@ -22,6 +22,7 @@ import type {
   PromptSubmittedEvent,
 } from '#/agent/prompt/promptEvents';
 import type {
+  BackgroundTaskOutputEvent,
   BackgroundTaskStartedEvent,
   BackgroundTaskTerminatedEvent,
   TaskStartedEvent,
@@ -126,6 +127,7 @@ export type AgentEvent =
   | TaskTerminatedEvent
   | BackgroundTaskStartedEvent
   | BackgroundTaskTerminatedEvent
+  | BackgroundTaskOutputEvent
   | CronFiredEvent
   | PromptSubmittedEvent
   | PromptCompletedEvent

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
@@ -56,15 +56,15 @@ describe('AgentPermissionGate', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
   let mode: PermissionMode;
-  let rules: readonly PermissionRule[];
+  let rules: PermissionRule[];
   let policyResult: PermissionPolicyEvaluation | undefined;
   let records: TelemetryRecord[];
   let executorEvents: ToolExecutorEventStubs;
   let resolvePermissionResolution: ReturnType<
-    typeof vi.fn<IAgentToolApprovalService['resolvePermissionResolution']>
+    typeof mock<IAgentToolApprovalService['resolvePermissionResolution']>
   >;
   let requestToolApproval: ReturnType<
-    typeof vi.fn<IAgentToolApprovalService['requestToolApproval']>
+    typeof mock<IAgentToolApprovalService['requestToolApproval']>
   >;
 
   beforeEach(() => {
@@ -74,8 +74,8 @@ describe('AgentPermissionGate', () => {
     policyResult = undefined;
     records = [];
     executorEvents = stubToolExecutorEvents();
-    resolvePermissionResolution = vi.fn(async () => undefined);
-    requestToolApproval = vi.fn(async () => undefined);
+    resolvePermissionResolution = mock(async () => undefined);
+    requestToolApproval = mock(async () => undefined);
     const toolApproval: IAgentToolApprovalService = {
       _serviceBrand: undefined,
       resolvePermissionResolution,
@@ -173,7 +173,7 @@ describe('AgentPermissionGate', () => {
     policyResult = { policyName: 'p', result: { kind: 'deny', message: 'nope' } };
     resolvePermissionResolution.mockResolvedValue(blocked);
     make();
-    const later = vi.fn();
+    const later = mock();
     executorEvents.executor.onBeforeExecuteTool(later);
 
     const decision = await executorEvents.fireBeforeExecute(makeContext('bash'));

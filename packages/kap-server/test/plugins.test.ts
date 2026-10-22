@@ -1,14 +1,17 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { removeTempHome } from './helpers/tempHome';
 import { WebSocket } from 'ws';
 
 import { type RunningServer, startServer } from '../src/start';
 import { authHeaders, bearerToken } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
+import { setEnv, setGlobal, restoreEnvs, restoreGlobals } from './helpers/stubs';
+import { waitForAssertion } from './helpers/waitFor';
 
 interface Envelope<T> {
   code: number;
@@ -105,9 +108,9 @@ describe('server-v2 /api/v1 plugins', () => {
 
   beforeEach(async () => {
     const realFetch = globalThis.fetch;
-    vi.stubGlobal(
+    setGlobal(
       'fetch',
-      vi.fn(async (url: string | URL, init?: RequestInit) => {
+      mock(async (url: string | URL, init?: RequestInit) => {
         if (url === CATALOG_URL) {
           return new Response(JSON.stringify(CATALOG), { status: 200 });
         }
@@ -126,8 +129,8 @@ describe('server-v2 /api/v1 plugins', () => {
   });
 
   afterEach(async () => {
-    vi.unstubAllGlobals();
-    vi.unstubAllEnvs();
+    restoreGlobals();
+    restoreEnvs();
     if (custom) {
       await server?.close();
       server = undefined;
@@ -144,7 +147,7 @@ describe('server-v2 /api/v1 plugins', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await rm(home, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 } as never);
+      await removeTempHome(home);
       home = undefined;
     }
   });
@@ -239,12 +242,12 @@ describe('server-v2 /api/v1 plugins', () => {
 
       const source = await makePluginDir('demo-plugin', '1.0.0');
       await call('POST', '/api/v1/plugins', { source });
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         expect(types).toContain('event.plugin.changed');
       });
 
       await call('POST', '/api/v1/plugins/demo-plugin:remove');
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         expect(types.filter((t) => t === 'event.plugin.changed').length).toBeGreaterThanOrEqual(2);
       });
     } finally {
@@ -335,9 +338,9 @@ describe('server-v2 /api/v1 plugins', () => {
 
   it('rejects a catalog whose entry has no usable source', async () => {
     const realFetch = globalThis.fetch;
-    vi.stubGlobal(
+    setGlobal(
       'fetch',
-      vi.fn(async (url: string | URL, init?: RequestInit) => {
+      mock(async (url: string | URL, init?: RequestInit) => {
         if (url === CATALOG_URL) {
           return new Response(JSON.stringify({ plugins: [{ id: 'bad', source: '   ' }] }), {
             status: 200,
@@ -353,9 +356,9 @@ describe('server-v2 /api/v1 plugins', () => {
 
   it('rejects a catalog with an unsupported entry type', async () => {
     const realFetch = globalThis.fetch;
-    vi.stubGlobal(
+    setGlobal(
       'fetch',
-      vi.fn(async (url: string | URL, init?: RequestInit) => {
+      mock(async (url: string | URL, init?: RequestInit) => {
         if (url === CATALOG_URL) {
           return new Response(
             JSON.stringify({
@@ -374,8 +377,8 @@ describe('server-v2 /api/v1 plugins', () => {
 
   it('treats the dev marketplace server as the default catalog', async () => {
     await server?.close();
-    vi.stubEnv('KIMI_CODE_PLUGIN_MARKETPLACE_URL', CATALOG_URL);
-    vi.stubEnv('KIMI_CODE_PLUGIN_MARKETPLACE_FROM_DEV_SERVER', '1');
+    setEnv('KIMI_CODE_PLUGIN_MARKETPLACE_URL', CATALOG_URL);
+    setEnv('KIMI_CODE_PLUGIN_MARKETPLACE_FROM_DEV_SERVER', '1');
     server = await startServer({
       hostIdentity: TEST_HOST_IDENTITY,
       host: '127.0.0.1',
@@ -429,9 +432,9 @@ describe('server-v2 /api/v1 plugins', () => {
 
   it('maps an unreachable marketplace to 50001', async () => {
     const realFetch = globalThis.fetch;
-    vi.stubGlobal(
+    setGlobal(
       'fetch',
-      vi.fn(async (url: string | URL, init?: RequestInit) => {
+      mock(async (url: string | URL, init?: RequestInit) => {
         if (url === CATALOG_URL) {
           throw new Error('network down');
         }
@@ -468,10 +471,9 @@ describe('server-v2 /api/v1 plugins', () => {
     base = `http://127.0.0.1:${server.port}`;
     custom = true;
 
-    const { body } = await call<{ entries: { id: string; source: string }[] }>(
-      'GET',
-      '/api/v1/plugins/marketplace',
-    );
+    const { body } = await call<{
+      entries: { id: string; tier: string; displayName: string; source: string }[];
+    }>('GET', '/api/v1/plugins/marketplace');
     expect(body.code).toBe(0);
     expect(body.data.entries).toEqual([
       {
@@ -492,9 +494,9 @@ describe('server-v2 /api/v1 plugins', () => {
   it('falls back to the source-checkout catalog when the remote is unreachable', async () => {
     await server?.close();
     const realFetch = globalThis.fetch;
-    vi.stubGlobal(
+    setGlobal(
       'fetch',
-      vi.fn(async (url: string | URL, init?: RequestInit) => {
+      mock(async (url: string | URL, init?: RequestInit) => {
         if (typeof url === 'string' && url.includes('/releases/latest')) {
           return new Response(null, { status: 404 });
         }
@@ -504,7 +506,7 @@ describe('server-v2 /api/v1 plugins', () => {
         return realFetch(url as never, init);
       }),
     );
-    vi.stubEnv('KIMI_CODE_PLUGIN_MARKETPLACE_URL', undefined as unknown as string);
+    setEnv('KIMI_CODE_PLUGIN_MARKETPLACE_URL', undefined as unknown as string);
     server = await startServer({
       hostIdentity: TEST_HOST_IDENTITY,
       host: '127.0.0.1',
@@ -580,8 +582,9 @@ describe('server-v2 /api/v1 plugins', () => {
     base = `http://127.0.0.1:${server.port}`;
     custom = true;
 
-    const { body } = await call<{ entries: { id: string; source: string }[] }>(
-      'GET',
+    const { body } = await call<{
+      entries: { id: string; tier: string; displayName: string; source: string }[];
+    }>('GET',
       '/api/v1/plugins/marketplace',
     );
     expect(

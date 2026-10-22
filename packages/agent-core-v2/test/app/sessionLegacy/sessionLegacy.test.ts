@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import type { ServiceIdentifier, ServicesAccessor } from '#/_base/di/instantiation';

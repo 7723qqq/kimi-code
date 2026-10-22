@@ -87,6 +87,7 @@ export type {
 export type { CompactionResult } from '@moonshot-ai/agent-core-v2/agent/fullCompaction/types';
 
 export type {
+  BackgroundTaskOutputEvent,
   BackgroundTaskStartedEvent,
   BackgroundTaskTerminatedEvent,
 } from '@moonshot-ai/agent-core-v2/contract';

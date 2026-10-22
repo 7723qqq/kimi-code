@@ -4,7 +4,7 @@ import { mkdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 import { z } from 'zod';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
@@ -18,19 +18,13 @@ import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageSe
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { IAgentStateService } from '#/agent/state/agentState';
-import { IEventDispatcher } from '#/state/eventDispatcher';
+
 import { defineState } from '#/state/state';
 import { WIRE_PROTOCOL_VERSION } from '#/wire/migration/migration';
 import { humanEventType } from '#/wire/human';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
 
-import {
-  attachTodoService,
-  registerTestAgentWire,
-  registerTestEventDispatcher,
-  restoreTestEventDispatcher,
-  testWireScope,
-} from './stubs';
+import { attachTodoService, registerTestAgentWire, registerTestEventDispatcher, restoreTestEventDispatcher, testWireScope } from './stubs';
 
 const SCOPE = 'wire';
 const KEY = 'round-trip';

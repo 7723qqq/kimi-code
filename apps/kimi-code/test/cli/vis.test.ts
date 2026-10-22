@@ -7,7 +7,7 @@
  * never started.
  */
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import { handleVis, parsePortOption, type VisDeps } from '#/cli/sub/vis';
 
@@ -20,7 +20,7 @@ function makeDeps(over: Partial<VisDeps> = {}): {
   const out: string[] = [];
   const deps: VisDeps = {
     getHomeDir: () => '/home/k',
-    startVisServer: vi.fn(async (o) => ({
+    startVisServer: mock(async (o) => ({
       port: 41234,
       host: '127.0.0.1',
       url: 'http://127.0.0.1:41234/',
@@ -38,7 +38,7 @@ function makeDeps(over: Partial<VisDeps> = {}): {
       },
     },
     stderr: { write: () => true },
-    exit: vi.fn() as unknown as VisDeps['exit'],
+    exit: mock() as unknown as VisDeps['exit'],
     ...over,
   };
   return { deps, opened, out };
@@ -76,9 +76,9 @@ describe('handleVis', () => {
   });
 
   it('closes the server after shutdown', async () => {
-    const close = vi.fn(async () => {});
+    const close = mock(async () => {});
     const { deps } = makeDeps({
-      startVisServer: vi.fn(async () => ({
+      startVisServer: mock(async () => ({
         port: 41234,
         host: '127.0.0.1',
         url: 'http://127.0.0.1:41234/',
@@ -86,7 +86,7 @@ describe('handleVis', () => {
       })) as unknown as VisDeps['startVisServer'],
     });
     await handleVis(deps, { open: false });
-    expect(close).toHaveBeenCalledOnce();
+    expect(close).toHaveBeenCalledTimes(1);
   });
 
   it('rejects an unparsable or out-of-range --port instead of silently auto-picking', () => {
@@ -104,7 +104,7 @@ describe('handleVis', () => {
   it('reports a clean error and exits when the server fails to start', async () => {
     const errored: string[] = [];
     const { deps, opened } = makeDeps({
-      startVisServer: vi.fn(async () => {
+      startVisServer: mock(async () => {
         throw new Error('listen EADDRINUSE: address already in use 127.0.0.1:4321');
       }) as unknown as VisDeps['startVisServer'],
       stderr: {
@@ -113,7 +113,7 @@ describe('handleVis', () => {
           return true;
         },
       },
-      waitForShutdown: vi.fn(async () => {}),
+      waitForShutdown: mock(async () => {}),
     });
     await handleVis(deps, { open: true, port: 4321 });
     expect(errored.join('')).toContain('Failed to start kimi vis');

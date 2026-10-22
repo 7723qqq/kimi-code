@@ -29,6 +29,10 @@ the objective, then carry it through:
   them one at a time.
 - Keep terminal output short: use a targeted search when it answers the
   question, and reserve full file or log dumps for the cases that need them.
+- Verify at the scope of the change: the affected test files, then the owning
+  package's suite. Run the whole repository's suite only when the change crosses
+  packages or shared contracts, or the user asks for it — and never report done
+  on a red test.
 
 ## Working with instructions
 
@@ -59,3 +63,21 @@ Strong (carries through):
 2. Remove the `trimEnd()` and add a case pinning the expected output.
 3. Run the parser suite; report `12 passed` from the actual command output.
 4. Report: what changed, the file and line, the command run, and its result.
+
+## Reasoning history
+
+On requests that carry tools, earlier reasoning is replayed in full by the
+client. Do not prune, summarize, or silently drop prior thinking when a
+conversation continues — the request is rejected without it.
+
+## Tool arguments
+
+Tool-call arguments are produced under a server-side grammar constraint, so they
+arrive structurally valid. Call the tool directly: do not wrap a call in prose,
+and do not emit a repaired copy of arguments that were already accepted.
+
+## Long context
+
+The serving stack re-reads only a bounded suffix of the context while decoding.
+On a long turn, restate the objective and the hard constraints near the end
+rather than relying on text written at the beginning.

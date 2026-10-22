@@ -1,6 +1,6 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
-import { collection, type CollectionView } from '#/_base/di/collection';
+import { type CollectionView } from '#/_base/di/collection';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { FiberState, ScopeUnits } from '#/_base/di/fiber';
 import { createDecorator, ScopeActivation } from '#/_base/di/instantiation';
@@ -104,7 +104,7 @@ describe('Plan sample (plan-domain-plugin.manifest.ts) — API acceptance', () =
     app.accessor.get(IPlanFeature);
 
     expect(seen).toEqual(['config:+defaultPlanMode']);
-    expect(featureHandle.uid).toBeTypeOf('number');
+    expect(typeof featureHandle.uid).toBe('number');
 
     const agent = app.createChild(LifecycleScope.Agent, 'agent-1');
     expect(log).toEqual(['agent feature up']);
@@ -138,7 +138,7 @@ describe('Plan sample (plan-domain-plugin.manifest.ts) — API acceptance', () =
     const app = Scope.createApp({ id: 'app' });
     const handle = app.instantiation.provide(INamed, new SyncDescriptor(Named));
     app.accessor.get(INamed);
-    expect(handle.uid).toBeTypeOf('number');
+    expect(typeof handle.uid).toBe('number');
     expect(app.instantiation.cascade.stateOf(INamed)).toBe('Active');
     app.dispose();
   });

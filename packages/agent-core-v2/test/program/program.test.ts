@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import { Program } from '#/program/program';
 import type { ProgramSessionControllerInput } from '#/program/programDependencies';
@@ -50,7 +50,7 @@ function setup(readiness = new Map<string, Promise<void>>(), order: string[] = [
       createSessionController: (input: ProgramSessionControllerInput) => ({ dispose: input.onDispose }) as never,
     } as never,
   );
-  const create = vi.fn(() => {
+  const create = mock(() => {
     const lease = registry.acquire(program.binding, ['fs', 'process']);
     const id = lease.runtime.identity.generation;
     const behavior = {
@@ -180,10 +180,10 @@ describe('Program', () => {
     await program.ready;
     await Promise.resolve();
 
-    expect(program.skills).toBe(generation.skills);
-    expect(program.instructions).toBe(generation.instructions);
-    expect(program.mcpConfig).toBe(generation.mcpConfig);
-    expect(program.mcp).toBe(generation.mcp);
+    expect<unknown>(program.skills).toBe(generation.skills);
+    expect<unknown>(program.instructions).toBe(generation.instructions);
+    expect<unknown>(program.mcpConfig).toBe(generation.mcpConfig);
+    expect<unknown>(program.mcp).toBe(generation.mcp);
     expect(program.snapshot()).toMatchObject({
       workspaceId: 'workspace',
       binding: { workspaceId: 'workspace', runtimeId: 'local' },

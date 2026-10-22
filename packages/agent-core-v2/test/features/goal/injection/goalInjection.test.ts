@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { waitForAssertion } from '#test/helpers/waitFor';
 import type { ToolCall } from '#human/llm/message';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
@@ -323,7 +324,7 @@ describe('GoalInjection integration', () => {
       await toolCallEvents;
       await ctx.untilTurnEnd();
 
-      await vi.waitFor(async () => {
+      await waitForAssertion(async () => {
         expect(await flushedGoalReminderRecords(ctx, persistence)).toHaveLength(2);
       });
 

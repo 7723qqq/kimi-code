@@ -7,7 +7,7 @@ import {
   getTextBuildWorkerRuntimeState,
   resetTextBuildWorkerRuntime,
 } from '@moonshot-ai/minidb/worker-runtime';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { getBunEmbeddedAssetSource } from '#/native/bun-assets';
 import { installMinidbTextBuildWorker } from '#/native/minidb-worker';

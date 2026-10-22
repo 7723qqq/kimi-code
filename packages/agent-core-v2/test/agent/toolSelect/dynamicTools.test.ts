@@ -1,15 +1,8 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
+import { collectLoadedDynamicToolNames } from '#/agent/toolSelect/dynamicTools';
 
-import {
-  collectLoadedDynamicToolNames,
-  foldAnnouncedToolNames,
-  isDynamicToolSchemaMessage,
-  isLoadableToolsAnnouncement,
-  LOADABLE_TOOLS_VARIANT,
-  renderLoadableToolsAnnouncement,
-  stripDynamicToolContext,
-} from '#/agent/toolSelect/dynamicTools';
-import type { ContextMessage } from '#/agent/contextMemory/types';
+import { foldAnnouncedToolNames, isDynamicToolSchemaMessage, isLoadableToolsAnnouncement, LOADABLE_TOOLS_VARIANT, renderLoadableToolsAnnouncement, stripDynamicToolContext } from '#/agent/toolSelect/dynamicTools';
+import { type ContextMessage } from '#/agent/contextMemory/types';
 
 function announcement(added: readonly string[], removed: readonly string[]): ContextMessage {
   const text = `<system-reminder>\n${renderLoadableToolsAnnouncement(added, removed).trim()}\n</system-reminder>`;

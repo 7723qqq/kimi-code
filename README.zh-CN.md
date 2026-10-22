@@ -142,7 +142,7 @@ bun run dev:local:watch
 bun run typecheck     # TypeScript 检查（会先构建 packages）
 bun run lint          # 运行 oxlint
 bun run build         # 构建所有 workspace 包
-bun run test          # 运行测试（用 `bun --bun run test` 让测试跑在 Bun 上）
+bun run test          # 运行测试（用 `bun run test` 让测试跑在 Bun 上）
 ```
 
 完整命令参考见 [DEVELOP.md](DEVELOP.md)，完整贡献流程见 [CONTRIBUTING.md](CONTRIBUTING.md)。

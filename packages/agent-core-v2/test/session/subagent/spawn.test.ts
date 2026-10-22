@@ -1,27 +1,25 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { UNKNOWN_CAPABILITY } from '#/llm-adapter/contract/capability';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { Event } from '#/_base/event';
 import { LifecycleScope } from '#/app/scopes';
-import type { IAgentScopeHandle } from '#/_base/di/scope';
+import { type IAgentScopeHandle } from '#/_base/di/scope';
 import { IConfigService } from '#/app/config/config';
 import { IFlagService } from '#/app/flag/flag';
 import { ILogService } from '#/_base/log/log';
-import {
-  normalizeAgentProfile,
-  type AgentProfile,
-} from '#/app/agentProfileCatalog/agentProfileCatalog';
+import { normalizeAgentProfile, type AgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import { IAgentProfileService, type ProfileData } from '#/agent/profile/profile';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentUserToolService } from '#/agent/userTool/userTool';
 import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import { Error2, ErrorCodes, isError2 } from '#/errors';
-import { UNKNOWN_CAPABILITY } from '#/llm-adapter/contract/capability';
+
 import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
-import type { RuntimeLease } from '#/runtime/runtime';
+import { type RuntimeLease } from '#/runtime/runtime';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
@@ -29,13 +27,7 @@ import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { SECONDARY_MODEL_SECTION } from '#/session/subagent/configSection';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
 import { SessionSubagentService } from '#/session/subagent/subagentService';
-import {
-  FORK_CONTEXT_NOTICE,
-  type SpawnedSubagent,
-  type SpawnSubagentOptions,
-  type SubagentSpawnPlan,
-  type SubagentSpawnPlanInput,
-} from '#/session/subagent/spawn';
+import { FORK_CONTEXT_NOTICE, type SpawnedSubagent, type SpawnSubagentOptions, type SubagentSpawnPlan, type SubagentSpawnPlanInput } from '#/session/subagent/spawn';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
 
 import { stubLog } from '../../_base/log/stubs';
@@ -54,23 +46,23 @@ describe('SessionSubagentService planSpawn and spawn', () => {
   let modelMeta: Map<string, Partial<Model>>;
   let caller: IAgentScopeHandle;
   let createdHandles: Map<string, IAgentScopeHandle>;
-  let createAgent: ReturnType<typeof vi.fn>;
-  let forkAgent: ReturnType<typeof vi.fn>;
-  let acquireRuntime: ReturnType<typeof vi.fn>;
-  let callerPermissionMode: { mode: string; setMode: ReturnType<typeof vi.fn> };
-  let createdPermissionMode: { mode: string; setMode: ReturnType<typeof vi.fn> };
+  let createAgent: ReturnType<typeof mock>;
+  let forkAgent: ReturnType<typeof mock>;
+  let acquireRuntime: ReturnType<typeof mock>;
+  let callerPermissionMode: { mode: string; setMode: ReturnType<typeof mock> };
+  let createdPermissionMode: { mode: string; setMode: ReturnType<typeof mock> };
   let callerUserTools: IAgentUserToolService;
   let createdUserTools: IAgentUserToolService;
-  let createdReminder: { notify: ReturnType<typeof vi.fn> };
+  let createdReminder: { notify: ReturnType<typeof mock> };
   let lease: RuntimeLease;
 
   function userToolsStub(): IAgentUserToolService {
     return {
       _serviceBrand: undefined,
       list: () => [],
-      inheritUserTools: vi.fn(),
-      register: vi.fn(),
-      unregister: vi.fn(),
+      inheritUserTools: mock(),
+      register: mock(),
+      unregister: mock(),
     } as unknown as IAgentUserToolService;
   }
 
@@ -126,17 +118,17 @@ describe('SessionSubagentService planSpawn and spawn', () => {
     ];
     modelIds = new Set(['main-model']);
     modelMeta = new Map();
-    callerPermissionMode = { mode: 'auto', setMode: vi.fn() };
-    createdPermissionMode = { mode: 'manual', setMode: vi.fn() };
+    callerPermissionMode = { mode: 'auto', setMode: mock() };
+    createdPermissionMode = { mode: 'manual', setMode: mock() };
     callerUserTools = userToolsStub();
     createdUserTools = userToolsStub();
-    createdReminder = { notify: vi.fn() };
+    createdReminder = { notify: mock() };
     lease = {
       runtime: new FakeRuntime({ workspaceId: 'w1', runtimeId: 'acp:s1', generation: 'g1' }),
       track: (resource) => resource,
-      dispose: vi.fn(),
+      dispose: mock(),
     };
-    acquireRuntime = vi.fn(() => lease);
+    acquireRuntime = mock(() => lease);
     caller = {
       id: CALLER_ID,
       kind: LifecycleScope.Agent,
@@ -165,12 +157,12 @@ describe('SessionSubagentService planSpawn and spawn', () => {
       dispose: () => {},
     };
     createdHandles = new Map();
-    createAgent = vi.fn(async (input: { readonly agentId?: string } = {}) => {
+    createAgent = mock(async (input: { readonly agentId?: string } = {}) => {
       const agentId = input.agentId ?? 'agent-child';
       createdHandles.set(agentId, createdHandle(agentId));
       return stubAgentContext(agentId, 1);
     });
-    forkAgent = vi.fn(async () => {
+    forkAgent = mock(async () => {
       createdHandles.set('agent-fork', createdHandle('agent-fork'));
       return stubAgentContext('agent-fork', 1);
     });

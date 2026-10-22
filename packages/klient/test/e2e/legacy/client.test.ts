@@ -19,7 +19,7 @@ import type { Session } from '@moonshot-ai/kap-server/protocol/session';
  *   4. `waitForFrame` times out cleanly (no zombie waiters).
  *   5. Created session is observable via `getSession`.
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 import { DaemonClient, EnvelopeError } from '../harness/index.js';
 import { fetchWithReport } from '../harness/report.js';

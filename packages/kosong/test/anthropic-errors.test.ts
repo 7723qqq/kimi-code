@@ -7,7 +7,7 @@ import {
   AuthenticationError as AnthropicAuthenticationError,
   RateLimitError as AnthropicRateLimitError,
 } from '@anthropic-ai/sdk';
-import { describe, it, expect, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import {
   APIConnectionError,
@@ -258,7 +258,7 @@ describe('non-stream error propagation', () => {
   it('APIConnectionTimeoutError during generate is converted', async () => {
     const provider = createNonStreamProvider();
     const sdkError = new AnthropicTimeoutError({ message: 'stream timed out' });
-    (provider as any)._client.messages.create = vi.fn().mockRejectedValue(sdkError);
+    (provider as any)._client.messages.create = mock().mockRejectedValue(sdkError);
 
     await expect(
       provider.generate(
@@ -272,7 +272,7 @@ describe('non-stream error propagation', () => {
   it('APIConnectionError during generate is converted', async () => {
     const provider = createNonStreamProvider();
     const sdkError = new AnthropicConnectionError({ message: 'connection reset' });
-    (provider as any)._client.messages.create = vi.fn().mockRejectedValue(sdkError);
+    (provider as any)._client.messages.create = mock().mockRejectedValue(sdkError);
 
     await expect(
       provider.generate(
@@ -291,7 +291,7 @@ describe('non-stream error propagation', () => {
       'internal error',
       new Headers(),
     );
-    (provider as any)._client.messages.create = vi.fn().mockRejectedValue(sdkError);
+    (provider as any)._client.messages.create = mock().mockRejectedValue(sdkError);
 
     await expect(
       provider.generate(
@@ -310,7 +310,7 @@ describe('non-stream error propagation', () => {
       'too many requests',
       new Headers(),
     );
-    (provider as any)._client.messages.create = vi.fn().mockRejectedValue(sdkError);
+    (provider as any)._client.messages.create = mock().mockRejectedValue(sdkError);
 
     try {
       await provider.generate(
@@ -333,7 +333,7 @@ describe('non-stream error propagation', () => {
       'invalid',
       new Headers(),
     );
-    (provider as any)._client.messages.create = vi.fn().mockRejectedValue(sdkError);
+    (provider as any)._client.messages.create = mock().mockRejectedValue(sdkError);
 
     try {
       await provider.generate(
@@ -373,8 +373,7 @@ describe('stream error propagation', () => {
   it('APIConnectionTimeoutError during stream iteration is converted', async () => {
     const provider = createStreamProvider();
     const sdkError = new AnthropicTimeoutError({ message: 'stream timed out' });
-    (provider as any)._client.messages.create = vi
-      .fn()
+    (provider as any)._client.messages.create = mock()
       .mockResolvedValue(makeErrorStream(sdkError)) as never;
 
     const result = await provider.generate(
@@ -395,8 +394,7 @@ describe('stream error propagation', () => {
   it('APIConnectionError during stream iteration is converted', async () => {
     const provider = createStreamProvider();
     const sdkError = new AnthropicConnectionError({ message: 'connection reset' });
-    (provider as any)._client.messages.create = vi
-      .fn()
+    (provider as any)._client.messages.create = mock()
       .mockResolvedValue(makeErrorStream(sdkError)) as never;
 
     const result = await provider.generate(
@@ -421,8 +419,7 @@ describe('stream error propagation', () => {
       'internal error',
       new Headers(),
     );
-    (provider as any)._client.messages.create = vi
-      .fn()
+    (provider as any)._client.messages.create = mock()
       .mockResolvedValue(makeErrorStream(sdkError)) as never;
 
     const result = await provider.generate(
@@ -447,8 +444,7 @@ describe('stream error propagation', () => {
       'too many requests',
       new Headers(),
     );
-    (provider as any)._client.messages.create = vi
-      .fn()
+    (provider as any)._client.messages.create = mock()
       .mockResolvedValue(makeErrorStream(sdkError)) as never;
 
     const result = await provider.generate(
@@ -475,8 +471,7 @@ describe('stream error propagation', () => {
       'invalid',
       new Headers(),
     );
-    (provider as any)._client.messages.create = vi
-      .fn()
+    (provider as any)._client.messages.create = mock()
       .mockResolvedValue(makeErrorStream(sdkError)) as never;
 
     const result = await provider.generate(
@@ -501,8 +496,7 @@ describe('stream error propagation', () => {
     // must surface a retryable APIConnectionError so the loop retries instead of
     // failing the turn outright.
     const provider = createStreamProvider();
-    (provider as any)._client.messages.create = vi
-      .fn()
+    (provider as any)._client.messages.create = mock()
       .mockResolvedValue(makeErrorStream(new TypeError('terminated'))) as never;
 
     const result = await provider.generate(
@@ -569,7 +563,7 @@ describe('convertAnthropicError: quota-exhausted 429 via the convertError hook',
       stream: false,
       convertError: classifyKimiQuotaError,
     });
-    (provider as any)._client.messages.create = vi.fn().mockRejectedValue(quota429());
+    (provider as any)._client.messages.create = mock().mockRejectedValue(quota429());
 
     await expect(
       provider.generate(

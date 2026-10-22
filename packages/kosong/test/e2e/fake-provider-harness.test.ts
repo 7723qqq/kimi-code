@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { createFakeProviderHarness, readSseData } from './fake-provider-harness';
 
@@ -61,11 +61,12 @@ describe('e2e: fake provider harness', () => {
 
       const adapter = new ToyJsonAdapter(harness.baseUrl);
       const result = await adapter.request('hello');
-      expect(result).toEqual({
+      const expectedJson = {
         id: 'json-1',
         ok: true,
         echo: { prompt: 'hello' },
-      });
+      } as unknown as { echo: unknown };
+      expect(result).toEqual(expectedJson);
 
       expect(harness.requests).toHaveLength(1);
       expect(harness.requests[0]!.pathname).toBe('/json');

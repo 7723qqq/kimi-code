@@ -50,7 +50,7 @@ export function getLocale(): Locale {
   return currentLocale;
 }
 
-export type Engine = 'rust' | 'js';
+export type Engine = 'js';
 
 /**
  * Returns the translation engine in use. Always `'js'`: lookups run in-process

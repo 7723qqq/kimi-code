@@ -5,7 +5,7 @@ import path from 'node:path';
 
 // Drives the query engine through the real db.query() path to cover the
 // operators and path handling that the higher-level tests do not exercise.
-import { test } from 'vitest';
+import { test } from 'bun:test';
 
 import { MiniDb } from '../src/index.js';
 

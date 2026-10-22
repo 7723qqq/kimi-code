@@ -1,5 +1,5 @@
 import assert from "node:assert";
-import { describe, it } from "node:test";
+import { describe, it } from "bun:test";
 import { AltScreenSearchComponent } from "../src/alt-screen-search.ts";
 import { Editor, type EditorTheme } from "../src/components/editor.ts";
 import { Input } from "../src/components/input.ts";

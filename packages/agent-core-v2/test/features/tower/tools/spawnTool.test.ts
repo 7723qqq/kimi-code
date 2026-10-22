@@ -4,19 +4,21 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { promisify } from 'node:util';
 
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn, type Mock } from 'bun:test';
+import { UNKNOWN_CAPABILITY } from '#/llm-adapter/contract/capability';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import type { PermissionMode } from '#/agent/permissionPolicy/types';
-import type { AgentContext } from '#/agent/agentContext/agentContext';
+import { type PermissionMode } from '#/agent/permissionPolicy/types';
+import { type AgentContext } from '#/agent/agentContext/agentContext';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentTaskService } from '#/agent/task/task';
 import { STATE_FILE, TowerProtocolError, TowerStore } from '#/features/tower/protocol/index';
-import type { TowerState } from '#/features/tower/protocol/index';
+import { type TowerState } from '#/features/tower/protocol/index';
 import { IAgentTowerService } from '#/features/tower/tower';
 import { ITowerRateLimitService } from '#/features/tower/towerRateLimit';
 import { SubagentTask } from '#/agent/tools/agent/subagent-task';
@@ -26,21 +28,14 @@ import { TOWER_MODE_USER_ENABLED_ONLY } from '#/features/tower/tools/support';
 import { IConfigService } from '#/app/config/config';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
-import { UNKNOWN_CAPABILITY } from '#/llm-adapter/contract/capability';
+
 import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import {
-  DEFAULT_SUBAGENT_TIMEOUT_MS,
-  SECONDARY_MODEL_SECTION,
-  SUBAGENT_SECTION,
-} from '#/session/subagent/configSection';
-import {
-  ISessionSubagentService,
-  type AgentRunHandle,
-} from '#/session/subagent/subagent';
-import type { AgentTaskInfo } from '#/agent/task/types';
-import type { ExecutableToolResult } from '#/tool/toolContract';
+import { DEFAULT_SUBAGENT_TIMEOUT_MS, SECONDARY_MODEL_SECTION, SUBAGENT_SECTION } from '#/session/subagent/configSection';
+import { ISessionSubagentService, type AgentRunHandle } from '#/session/subagent/subagent';
+import { type AgentTaskInfo } from '#/agent/task/types';
+import { type ExecutableToolResult } from '#/tool/toolContract';
 
 import { executeTool } from '../../../tools/fixtures/execute-tool';
 import { stubAgentContext } from '../../../agent/agentContext/stubs';
@@ -107,16 +102,16 @@ describe('TowerSpawnTool', () => {
     towerActive = true;
     branchLeaseError = undefined;
     gate = { ok: true };
-    release = vi.fn();
+    release = mock();
     completion = deferred();
     secondaryModel = undefined;
     subagentTimeoutMs = undefined;
     thinkingEnabled = undefined;
     modelMeta = {};
-    createdSetMode = vi.fn();
+    createdSetMode = mock();
     createdThinkingEffort = 'off';
-    createAgent = vi.fn(async () => stubAgentContext('agent-7', 1));
-    runAgent = vi.fn(
+    createAgent = mock(async () => stubAgentContext('agent-7', 1));
+    runAgent = mock(
       async (agent: AgentContext) =>
         ({
           agentId: agent.agentId,
@@ -124,7 +119,7 @@ describe('TowerSpawnTool', () => {
           completion: completion.promise,
         }) as unknown as AgentRunHandle,
     );
-    registerTask = vi.fn(() => 'task-1');
+    registerTask = mock(() => 'task-1');
     taskInfoLookup = () => undefined;
 
     disposables = new DisposableStore();
@@ -301,9 +296,8 @@ describe('TowerSpawnTool', () => {
   });
 
   it('aborts the worker and records the death when roster registration fails', async () => {
-    const markSpy = vi.spyOn(TowerStore.prototype, 'markAgentDied');
-    const registerSpy = vi
-      .spyOn(TowerStore.prototype, 'registerAgent')
+    const markSpy = spyOn(TowerStore.prototype, 'markAgentDied');
+    const registerSpy = spyOn(TowerStore.prototype, 'registerAgent')
       .mockRejectedValue(new Error('state lock timed out after 10000ms'));
     try {
       const result = await execute(WORKER_ARGS).catch((error: unknown) => ({
@@ -326,7 +320,7 @@ describe('TowerSpawnTool', () => {
         'session-spawn-test',
       );
       completion.reject(new Error('aborted by the spawn failure'));
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         expect(release).toHaveBeenCalledTimes(1);
       });
 
@@ -342,8 +336,7 @@ describe('TowerSpawnTool', () => {
   });
 
   it('aborts the worker when the roster bookkeeping fails after registration', async () => {
-    const updateSpy = vi
-      .spyOn(TowerStore.prototype, 'updateMission')
+    const updateSpy = spyOn(TowerStore.prototype, 'updateMission')
       .mockRejectedValue(new Error('ENOSPC: no space left on device'));
     try {
       const result = await execute(WORKER_ARGS).catch((error: unknown) => ({
@@ -357,7 +350,7 @@ describe('TowerSpawnTool', () => {
       const spawnedSignal = runAgent.mock.calls[0]?.[2]?.signal as AbortSignal;
       expect(spawnedSignal.aborted).toBe(true);
       completion.reject(new Error('aborted by the spawn failure'));
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         expect(release).toHaveBeenCalledTimes(1);
       });
 
@@ -414,8 +407,7 @@ describe('TowerSpawnTool', () => {
   });
 
   it('aborts the launched run when post-registration setup fails', async () => {
-    const forced = vi
-      .spyOn(TowerStore.prototype, 'updateMission')
+    const forced = spyOn(TowerStore.prototype, 'updateMission')
       .mockRejectedValueOnce(new TowerProtocolError('forced post-launch failure'));
     try {
       const result = await execute(WORKER_ARGS);
@@ -476,7 +468,7 @@ describe('TowerSpawnTool', () => {
 
     expect(release).not.toHaveBeenCalled();
     completion.resolve({ summary: 'worker done' });
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(release).toHaveBeenCalledTimes(1);
     });
   });
@@ -794,7 +786,9 @@ describe('TowerSpawnTool', () => {
     expect(result.isError).toBeUndefined();
     expect(result.output).toContain('base snapshot:');
     const worktreeAbs = join(repo, '.tower/worktrees/wt-1');
-    expect(await readFile(join(worktreeAbs, 'wip.ts'), 'utf8')).toBe('export const wip = 1;\n');
+    expect((await readFile(join(worktreeAbs, 'wip.ts'), 'utf8')).replaceAll(/\r?\n/g, '\n')).toBe(
+      'export const wip = 1;\n',
+    );
     expect(runAgent).toHaveBeenCalledWith(
       expect.objectContaining({ agentId: 'agent-7' }),
       { kind: 'prompt', prompt: expect.stringContaining('snapshot commit') },

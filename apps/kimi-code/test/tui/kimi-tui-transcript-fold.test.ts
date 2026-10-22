@@ -1,15 +1,12 @@
-import type { Event } from '@moonshot-ai/kimi-code-sdk';
-import { describe, expect, it, vi } from 'vitest';
+import { type Event } from '@moonshot-ai/kimi-code-sdk';
+import { describe, expect, it, mock } from 'bun:test';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { AssistantMessageComponent } from '#/tui/components/messages/assistant-message';
 import { StepSummaryComponent } from '#/tui/components/messages/step-summary';
-import { ThinkingComponent } from '#/tui/components/messages/thinking';
+
 import { ToolCallComponent } from '#/tui/components/messages/tool-call';
-import {
-  TRANSCRIPT_KEEP_RECENT_ASSISTANT,
-  TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED,
-  TRANSCRIPT_KEEP_RECENT_STEPS,
-} from '#/tui/utils/transcript-window';
+import { TRANSCRIPT_KEEP_RECENT_ASSISTANT, TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED, TRANSCRIPT_KEEP_RECENT_STEPS } from '#/tui/utils/transcript-window';
 
 import { makeDriver, stripSgr, type MessageDriver } from './kimi-tui-message-flow-helpers';
 
@@ -24,7 +21,7 @@ describe('transcript step and assistant folding', () => {
           turnId: 1,
           delta: `msg-${i} `,
         } as Event,
-        vi.fn(),
+        mock(),
       );
       driver.sessionEventHandler.handleEvent(
         {
@@ -36,7 +33,7 @@ describe('transcript step and assistant folding', () => {
           name: 'Bash',
           args: { command: 'ls' },
         } as Event,
-        vi.fn(),
+        mock(),
       );
       driver.sessionEventHandler.handleEvent(
         {
@@ -48,7 +45,7 @@ describe('transcript step and assistant folding', () => {
           output: 'ok',
           isError: undefined,
         } as Event,
-        vi.fn(),
+        mock(),
       );
     }
   }
@@ -56,7 +53,7 @@ describe('transcript step and assistant folding', () => {
   it('folds the oldest assistant messages and steps beyond their per-turn caps', async () => {
     const { driver, session } = await makeDriver();
     driver.handleUserInput('fold me');
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(session.prompt).toHaveBeenCalled();
     });
 
@@ -97,7 +94,7 @@ describe('transcript step and assistant folding', () => {
   it('folds a completed turn down to its conclusion tail on turn end', async () => {
     const { driver, session } = await makeDriver();
     driver.handleUserInput('round one');
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(session.prompt).toHaveBeenCalled();
     });
     const cycles = 10;
@@ -116,7 +113,7 @@ describe('transcript step and assistant folding', () => {
         turnId: 1,
         reason: 'completed',
       } as Event,
-      vi.fn(),
+      mock(),
     );
 
     children = driver.state.transcriptContainer.children;
@@ -149,7 +146,7 @@ describe('footer ctrl+o hint', () => {
         name: 'Bash',
         args: { command: 'pnpm test' },
       } as Event,
-      vi.fn(),
+      mock(),
     );
     driver.sessionEventHandler.handleEvent(
       {
@@ -161,7 +158,7 @@ describe('footer ctrl+o hint', () => {
         output,
         isError: undefined,
       } as Event,
-      vi.fn(),
+      mock(),
     );
   }
 

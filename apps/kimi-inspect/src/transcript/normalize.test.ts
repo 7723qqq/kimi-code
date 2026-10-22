@@ -8,7 +8,7 @@
  */
 
 import { transcriptMetaSchema, transcriptOperationSchema } from '@moonshot-ai/transcript';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { toModelMeta, toModelOperation } from './normalize';
 
@@ -67,6 +67,8 @@ describe('transcript wire → model narrowing', () => {
       offset: 0,
       text: 'hi',
     });
-    expect(toModelOperation(append)).toBe(append);
+    // `parse()` returns the whole wire union (whose goal statuses are wider than
+    // the model's), so Bun's `toBe` overloads cannot infer a shared type.
+    expect(toModelOperation(append) as unknown).toBe(append);
   });
 });

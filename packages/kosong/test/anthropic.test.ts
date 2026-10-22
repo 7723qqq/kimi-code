@@ -1,5 +1,5 @@
-import type { MessageParam } from '@anthropic-ai/sdk/resources/messages/messages.js';
-import { describe, it, expect, vi } from 'vitest';
+import type { ContentBlockParam, MessageParam } from '@anthropic-ai/sdk/resources/messages/messages.js';
+import { describe, expect, it, mock } from 'bun:test';
 
 /**
  * Scenario: Anthropic request serialization and response streaming across native and compatible models.
@@ -138,8 +138,10 @@ describe('injectCacheControlOnLastBlock', () => {
     injectCacheControlOnLastBlock(messages);
     // Neither the history (index 1) nor the tail (index 3) target block is
     // cacheable, so no breakpoint is injected anywhere.
-    expect(messages[1]?.content).toEqual([{ type: 'notCacheable', text: 'b' }]);
-    expect(messages[3]?.content).toEqual([{ type: 'notCacheable', text: 'd' }]);
+    const skippedHistory = [{ type: 'notCacheable', text: 'b' }] as unknown as ContentBlockParam[];
+    const skippedTail = [{ type: 'notCacheable', text: 'd' }] as unknown as ContentBlockParam[];
+    expect(messages[1]?.content).toEqual(skippedHistory);
+    expect(messages[3]?.content).toEqual(skippedTail);
   });
 
   it('handles non-array string content without crashing', () => {
@@ -247,8 +249,7 @@ async function captureRequestBody(
   let capturedParams: Record<string, unknown> | undefined;
   let capturedOptions: Record<string, unknown> | undefined;
 
-  (provider as any)._client.messages.create = vi
-    .fn()
+  (provider as any)._client.messages.create = mock()
     .mockImplementation((params: unknown, options?: unknown) => {
       capturedParams = params as Record<string, unknown>;
       capturedOptions = options as Record<string, unknown> | undefined;
@@ -296,7 +297,7 @@ async function collectParts(
 async function collectAnthropicStreamParts(
   events: readonly Record<string, unknown>[],
 ): Promise<StreamedMessagePart[]> {
-  const create = vi.fn().mockResolvedValue(mockStream(events));
+  const create = mock().mockResolvedValue(mockStream(events));
   const provider = new AnthropicChatProvider({
     model: 'kimi-for-coding',
     apiKey: '',
@@ -319,7 +320,7 @@ async function captureAnthropicMessages(
   configure?: (provider: AnthropicChatProvider) => AnthropicChatProvider,
 ): Promise<Array<{ role: string; content: unknown[] }>> {
   let captured: Record<string, unknown> | undefined;
-  const create = vi.fn().mockImplementation((params: unknown) => {
+  const create = mock().mockImplementation((params: unknown) => {
     captured = params as Record<string, unknown>;
     return Promise.resolve(makeAnthropicResponse(model));
   });
@@ -387,14 +388,13 @@ async function captureBetaRequestBody(
   let capturedParams: Record<string, unknown> | undefined;
   let capturedOptions: Record<string, unknown> | undefined;
 
-  (provider as any)._client.beta.messages.create = vi
-    .fn()
+  (provider as any)._client.beta.messages.create = mock()
     .mockImplementation((params: unknown, options?: unknown) => {
       capturedParams = params as Record<string, unknown>;
       capturedOptions = options as Record<string, unknown> | undefined;
       return Promise.resolve(makeAnthropicResponse());
     });
-  const standardCreate = vi.fn();
+  const standardCreate = mock();
   (provider as any)._client.messages.create = standardCreate;
 
   const stream = await provider.generate(systemPrompt, tools, history);
@@ -510,8 +510,7 @@ describe('withThinkingKeep (context_management)', () => {
   ): Promise<Record<string, unknown>> {
     let capturedParams: Record<string, unknown> | undefined;
     let capturedOptions: Record<string, unknown> | undefined;
-    (provider as any)._client.beta.messages.create = vi
-      .fn()
+    (provider as any)._client.beta.messages.create = mock()
       .mockImplementation((params: unknown, options?: unknown) => {
         capturedParams = params as Record<string, unknown>;
         capturedOptions = options as Record<string, unknown> | undefined;
@@ -2911,7 +2910,7 @@ describe('AnthropicChatProvider', () => {
   describe('non-stream response parsing', () => {
     it('yields text content from non-stream response', async () => {
       const provider = createProvider();
-      (provider as any)._client.messages.create = vi.fn().mockResolvedValue({
+      (provider as any)._client.messages.create = mock().mockResolvedValue({
         id: 'msg_123',
         content: [{ type: 'text', text: 'Hello world' }],
         usage: { input_tokens: 10, output_tokens: 5 },
@@ -2940,7 +2939,7 @@ describe('AnthropicChatProvider', () => {
 
     it('yields thinking and tool_use from non-stream response', async () => {
       const provider = createProvider();
-      (provider as any)._client.messages.create = vi.fn().mockResolvedValue({
+      (provider as any)._client.messages.create = mock().mockResolvedValue({
         id: 'msg_456',
         content: [
           { type: 'thinking', thinking: 'Let me think...', signature: 'sig_abc' },
@@ -2998,7 +2997,7 @@ describe('AnthropicChatProvider', () => {
         { type: 'message_stop' },
       ]);
 
-      (provider as any)._client.messages.create = vi.fn().mockResolvedValue(stream) as never;
+      (provider as any)._client.messages.create = mock().mockResolvedValue(stream) as never;
 
       const result = await provider.generate(
         '',
@@ -3059,7 +3058,7 @@ describe('AnthropicChatProvider', () => {
         { type: 'message_stop' },
       ]);
 
-      (provider as any)._client.messages.create = vi.fn().mockResolvedValue(stream) as never;
+      (provider as any)._client.messages.create = mock().mockResolvedValue(stream) as never;
 
       const result = await provider.generate(
         '',
@@ -3142,7 +3141,7 @@ describe('AnthropicChatProvider', () => {
         { type: 'message_stop' },
       ]);
 
-      (provider as any)._client.messages.create = vi.fn().mockResolvedValue(stream) as never;
+      (provider as any)._client.messages.create = mock().mockResolvedValue(stream) as never;
 
       const result = await provider.generate(
         '',
@@ -3217,7 +3216,7 @@ describe('AnthropicChatProvider', () => {
         { type: 'message_stop' },
       ]);
 
-      (provider as any)._client.messages.create = vi.fn().mockResolvedValue(stream) as never;
+      (provider as any)._client.messages.create = mock().mockResolvedValue(stream) as never;
 
       const result = await provider.generate(
         '',
@@ -3303,7 +3302,7 @@ describe('AnthropicChatProvider', () => {
         { type: 'message_stop' },
       ]);
 
-      (provider as any)._client.messages.create = vi.fn().mockResolvedValue(stream) as never;
+      (provider as any)._client.messages.create = mock().mockResolvedValue(stream) as never;
 
       const { message } = await generate(
         provider,
@@ -3340,7 +3339,7 @@ describe('AnthropicChatProvider', () => {
         },
       };
 
-      (provider as any)._client.messages.create = vi.fn().mockResolvedValue(errorStream) as never;
+      (provider as any)._client.messages.create = mock().mockResolvedValue(errorStream) as never;
 
       const result = await provider.generate(
         '',
@@ -3380,7 +3379,7 @@ describe('AnthropicChatProvider', () => {
         { type: 'message_stop' },
       ]);
 
-      (provider as any)._client.messages.create = vi.fn().mockResolvedValue(stream) as never;
+      (provider as any)._client.messages.create = mock().mockResolvedValue(stream) as never;
 
       const result = await provider.generate(
         '',
@@ -3416,7 +3415,7 @@ describe('AnthropicChatProvider', () => {
         { type: 'message_stop' },
       ]);
 
-      (provider as any)._client.messages.create = vi.fn().mockResolvedValue(stream) as never;
+      (provider as any)._client.messages.create = mock().mockResolvedValue(stream) as never;
 
       const result = await provider.generate(
         '',
@@ -3452,7 +3451,7 @@ describe('AnthropicChatProvider', () => {
         { type: 'message_stop' },
       ]);
 
-      const createFn = vi.fn().mockResolvedValue(stream);
+      const createFn = mock().mockResolvedValue(stream);
       (provider as any)._client.messages.create = createFn as never;
 
       const result = await provider.generate(
@@ -3468,7 +3467,7 @@ describe('AnthropicChatProvider', () => {
 
     it('stream: false calls messages.create', async () => {
       const provider = createProvider(); // stream: false
-      const createFn = vi.fn().mockResolvedValue(makeAnthropicResponse());
+      const createFn = mock().mockResolvedValue(makeAnthropicResponse());
       (provider as any)._client.messages.create = createFn as never;
 
       const result = await provider.generate(
@@ -3698,8 +3697,9 @@ describe('AnthropicChatProvider constructor max_tokens', () => {
     ];
     const body = await captureRequestBody(provider, '', [], history);
 
+    const bodyMaxTokens = body['max_tokens'] as number;
     expect(provider.maxCompletionTokens).toBeDefined();
-    expect(provider.maxCompletionTokens).toBe(body['max_tokens']);
+    expect(provider.maxCompletionTokens).toBe(bodyMaxTokens);
   });
 
   it('withMaxCompletionTokens lowers the inferred model default cap', async () => {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { parseCronExpression } from '#/features/cron/internal/cron-expr';
 import {
@@ -128,7 +128,7 @@ describe('oneShotJitteredNextCronRunMs', () => {
     );
 
     for (const value of calls) {
-      expect(value).toBe(calls[0]);
+      expect(value).toBe(calls[0]!);
     }
   });
 

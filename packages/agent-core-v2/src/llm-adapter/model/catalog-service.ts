@@ -295,7 +295,7 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
   ): Promise<ProviderCredentialState> {
     const declared = declaredProviderCredential(provider, providerId);
     return {
-      hasApiKey: hasConfiguredApiKey(provider),
+      hasApiKey: hasConfiguredApiKey(provider, providerId),
       hasOAuthToken: await this.hasCachedToken(providerId, provider),
       hasCredentialConflict: declared.kind === 'conflict',
     };
@@ -368,6 +368,7 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
       protocol,
       wireName,
       providerType,
+      providerName,
     );
     const capabilities = resolveModelCapabilities(
       model.capabilities,
@@ -431,7 +432,7 @@ export class ModelCatalog extends Disposable implements IModelCatalog {
       return {
         providerConfig,
         providerName: providerId,
-        resolvedBaseUrl: resolveEndpointBaseUrl(model, providerConfig),
+        resolvedBaseUrl: resolveEndpointBaseUrl(model, providerConfig, providerId),
       };
     }
 
@@ -644,13 +645,13 @@ function locationFromVertexAIBaseUrl(baseUrl: string | undefined): string | unde
   }
 }
 
-function hasConfiguredApiKey(provider: CatalogProviderInfo): boolean {
+function hasConfiguredApiKey(provider: CatalogProviderInfo, providerId?: string): boolean {
   if (nonEmpty(provider.apiKey) !== undefined) return true;
   const apiKeyEnv = nonEmpty(provider.apiKeyEnv);
   if (apiKeyEnv !== undefined) return nonEmpty(process.env[apiKeyEnv]) !== undefined;
   if (provider.type === undefined) return false;
   const endpointType = provider.type === 'vertexai' ? 'google-genai' : provider.type;
-  return resolveProviderEndpoint(endpointType, provider.env ?? {}).apiKey !== undefined;
+  return resolveProviderEndpoint(endpointType, provider.env ?? {}, providerId).apiKey !== undefined;
 }
 
 registerScopedService(

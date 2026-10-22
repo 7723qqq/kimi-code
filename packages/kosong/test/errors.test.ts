@@ -15,7 +15,7 @@ import {
   isToolExchangeAdjacencyError,
   normalizeAPIStatusError,
 } from '#/errors';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 describe('ChatProviderError', () => {
   it('is an instance of Error', () => {

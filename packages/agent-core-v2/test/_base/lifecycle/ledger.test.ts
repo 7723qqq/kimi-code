@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, mock } from 'bun:test';
 
 import {
   resetUnexpectedErrorHandler,
@@ -385,7 +385,7 @@ describe('Ledger', () => {
 
   describe('idempotency', () => {
     it('teardown is idempotent: disposers run exactly once', async () => {
-      const spy = vi.fn();
+      const spy = mock();
       const ledger = new Ledger('test');
       ledger.register(spy, 'spy');
       void ledger.teardown();
@@ -396,7 +396,7 @@ describe('Ledger', () => {
 
     it('a concurrent teardown joins the in-flight one', async () => {
       const gate = deferred();
-      const spy = vi.fn(async () => {
+      const spy = mock(async () => {
         await gate.promise;
       });
       const ledger = new Ledger('test');
@@ -410,7 +410,7 @@ describe('Ledger', () => {
     });
 
     it('entry.dispose is idempotent and removes the entry from the book', () => {
-      const spy = vi.fn();
+      const spy = mock();
       const ledger = new Ledger('test');
       const entry = ledger.register(spy, 'spy');
       void entry.dispose();
@@ -421,7 +421,7 @@ describe('Ledger', () => {
     });
 
     it('entry.release removes the entry without running its disposer', () => {
-      const spy = vi.fn();
+      const spy = mock();
       const ledger = new Ledger('test');
       const entry = ledger.register(spy, 'spy');
       entry.release();

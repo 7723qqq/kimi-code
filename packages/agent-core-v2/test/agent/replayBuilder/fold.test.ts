@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { foldWireRecords } from '#/agent/replayBuilder/fold';
 import type { AgentReplayRecord } from '#/agent/replayBuilder/types';

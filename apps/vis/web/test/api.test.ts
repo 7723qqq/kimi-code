@@ -1,31 +1,32 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, mock } from 'bun:test';
 
 import { api } from '../src/api';
+import { setGlobal, restoreGlobals } from './_helpers/bunTest';
 
 describe('vis web api auth token handling', () => {
   afterEach(() => {
-    vi.unstubAllGlobals();
+    restoreGlobals();
   });
 
   it('scrubs token parameters from the browser URL after persisting the token', async () => {
-    const setItem = vi.fn();
-    const getItem = vi.fn();
-    const replaceState = vi.fn();
+    const setItem = mock();
+    const getItem = mock();
+    const replaceState = mock();
     const location = new URL('http://localhost:3001/?foo=bar&token=secret#token=secret&tab=wire');
 
-    vi.stubGlobal('window', {
+    setGlobal('window', {
       history: { replaceState },
       localStorage: { getItem, setItem },
       location,
     });
-    const fetchMock = vi.fn(
+    const fetchMock = mock(
       async () =>
         new Response('[]', {
           headers: { 'content-type': 'application/json' },
           status: 200,
         }),
     );
-    vi.stubGlobal('fetch', fetchMock);
+    setGlobal('fetch', fetchMock);
 
     await api.listSessions();
 

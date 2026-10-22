@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { buildConfigManifest, MANIFEST_PATH } from '../../../scripts/gen-config-manifest.mts';
 

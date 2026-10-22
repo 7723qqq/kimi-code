@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
+import { setEnv, setGlobal, restoreEnvs, restoreGlobals } from '#test/helpers/stubs';
 
 import { OAuthConnectionError, OAuthUnauthorizedError } from '@moonshot-ai/kimi-code-oauth';
 
@@ -157,14 +158,14 @@ describe('SessionTitleService', () => {
     providers = { 'managed:kimi-code': MANAGED_PROVIDER };
     metadata = new FakeSessionMetadata();
     events = new FakeEventService();
-    fetchMock = vi.fn<(url: string, init?: RequestInit) => Promise<Response>>(
+    fetchMock = mock<(url: string, init?: RequestInit) => Promise<Response>>(
       async () =>
         new Response(JSON.stringify({ title: '生成的标题' }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         }),
     );
-    vi.stubGlobal('fetch', fetchMock);
+    setGlobal('fetch', fetchMock);
 
     disposables = new DisposableStore();
     ix = createServices(disposables, {
@@ -225,8 +226,8 @@ describe('SessionTitleService', () => {
 
   afterEach(() => {
     disposables.dispose();
-    vi.unstubAllGlobals();
-    vi.unstubAllEnvs();
+    restoreGlobals();
+    restoreEnvs();
   });
 
   it('replaces the easy title with the generated one', async () => {
@@ -541,7 +542,7 @@ describe('SessionTitleService', () => {
   });
 
   it('includes environment custom headers', async () => {
-    vi.stubEnv('KIMI_CODE_CUSTOM_HEADERS', 'X-Proxy-Header: from-env\n');
+    setEnv('KIMI_CODE_CUSTOM_HEADERS', 'X-Proxy-Header: from-env\n');
     titlePrompts = ['hello'];
 
     await ix.get(ISessionTitleService).generateTitle();
@@ -553,8 +554,8 @@ describe('SessionTitleService', () => {
   });
 
   it('pairs the environment endpoint with its credential slot when it overrides persisted config', async () => {
-    vi.stubEnv('KIMI_CODE_BASE_URL', 'https://api.env.example.test/coding/v1');
-    vi.stubEnv('KIMI_CODE_OAUTH_HOST', 'https://auth.env.example.test');
+    setEnv('KIMI_CODE_BASE_URL', 'https://api.env.example.test/coding/v1');
+    setEnv('KIMI_CODE_OAUTH_HOST', 'https://auth.env.example.test');
     titlePrompts = ['hello'];
 
     await ix.get(ISessionTitleService).generateTitle();

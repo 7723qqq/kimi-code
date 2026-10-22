@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { expectRejection } from '#test/helpers/assertions';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
@@ -88,7 +89,7 @@ describe('JsonAtomicDocumentStore', () => {
 
   it('throws storage.decode_failed when the stored bytes are not valid JSON', async () => {
     await storage.append('session', 'bad.json', new TextEncoder().encode('{ not json'));
-    await expect(config.get('session', 'bad.json')).rejects.toSatisfy((error: unknown) => {
+    await expectRejection(config.get('session', 'bad.json'), (error: unknown) => {
       expect(error).toMatchObject({
         code: 'storage.decode_failed',
         details: { scope: 'session', key: 'bad.json', format: 'json' },

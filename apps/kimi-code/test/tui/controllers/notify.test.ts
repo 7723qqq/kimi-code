@@ -6,9 +6,10 @@ import {
   TuiAltScreen,
   VStack,
   ScrollView,
+  type Component,
   type Terminal,
 } from '@moonshot-ai/pi-tui';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, spyOn } from 'bun:test';
 
 import { NotifyPanelComponent } from '#/tui/components/chrome/notify-panel';
 import { StatusSurfaceComponent } from '#/tui/components/chrome/status-surface/index';
@@ -61,7 +62,7 @@ function makeHarness(enabled = true, fullscreen = false) {
   // controller a real one holding this region.
   const statusSurface = new StatusSurfaceComponent({ terminalRows: () => 40 });
   statusSurface.setRegion(updatesRegion);
-  const requestRender = vi.spyOn(ui, 'requestRender').mockImplementation(() => {});
+  const requestRender = spyOn(ui, 'requestRender').mockImplementation(() => {});
   const root = new VStack();
   root.addChild(transcript, { basis: 0, grow: 1, shrink: 1, minSize: 1 });
   root.addChild(notifyPanelContainer);
@@ -656,8 +657,8 @@ describe('NotifyController', () => {
         expect(h.ui.getFocusedComponent()).toBe(h.editor);
         expect(h.editor.getText()).toBe('unsent draft');
         expect(h.editor.getCursor()).toEqual(editorCursor);
-        if (h.ui instanceof TuiAltScreen) expect(h.ui.getLayoutRoot()).toBe(root);
-        else expect(h.ui.children).toEqual(root);
+        if (h.ui instanceof TuiAltScreen) expect(h.ui.getLayoutRoot()).toBe(root as Component | undefined);
+        else expect(h.ui.children).toEqual(root as Component[]);
         h.input('\u001B');
         expect(h.rendered()).toContain('ctrl+n');
         expect(h.rendered()).toContain('update two');

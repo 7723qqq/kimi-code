@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { parseConfigString } from '../src/config/index';
 import { configToTomlData } from '../src/config/toml';

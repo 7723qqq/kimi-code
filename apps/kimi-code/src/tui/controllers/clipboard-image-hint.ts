@@ -5,6 +5,7 @@ import { clipboardHasImage } from '#/utils/clipboard/clipboard-has-image';
 
 import type { FooterComponent } from '../components/chrome/footer';
 import { FOCUS_DEBOUNCE_MS, HINT_DISPLAY_MS } from '../constant/clipboard-image-hint';
+import { SYSTEM_RENDER_CLOCK, type RenderClock, type RenderTimerHandle } from '../utils/render-clock';
 import { TERMINAL_FOCUS_IN, TERMINAL_FOCUS_OUT } from '../utils/terminal-focus';
 
 export interface ClipboardImageHintHost {
@@ -14,15 +15,22 @@ export interface ClipboardImageHintHost {
   requestRender(): void;
 }
 
-function getPasteImageShortcut(): string {
-  return process.platform === 'win32' ? 'Alt+V' : 'Ctrl+V';
+export interface ClipboardImageHintDeps {
+  readonly clock?: Pick<RenderClock, 'setTimeout' | 'clearTimeout'>;
+  readonly platform?: NodeJS.Platform;
+}
+
+function getPasteImageShortcut(platform: NodeJS.Platform): string {
+  return platform === 'win32' ? 'Alt+V' : 'Ctrl+V';
 }
 
 export class ClipboardImageHintController {
   private readonly host: ClipboardImageHintHost;
+  private readonly clock: Pick<RenderClock, 'setTimeout' | 'clearTimeout'>;
+  private readonly platform: NodeJS.Platform;
   private disposeInputListener: (() => void) | undefined;
-  private debounceTimer: ReturnType<typeof setTimeout> | undefined;
-  private clearHintTimer: ReturnType<typeof setTimeout> | undefined;
+  private debounceTimer: RenderTimerHandle | undefined;
+  private clearHintTimer: RenderTimerHandle | undefined;
   private lastHintText: string | undefined;
   private checkGeneration = 0;
   private focused = true;
@@ -37,8 +45,10 @@ export class ClipboardImageHintController {
   // re-arms it, so the next genuinely new image notifies again.
   private armed = true;
 
-  constructor(host: ClipboardImageHintHost) {
+  constructor(host: ClipboardImageHintHost, deps: ClipboardImageHintDeps = {}) {
     this.host = host;
+    this.clock = deps.clock ?? SYSTEM_RENDER_CLOCK;
+    this.platform = deps.platform ?? process.platform;
   }
 
   start(): void {
@@ -77,19 +87,22 @@ export class ClipboardImageHintController {
     this.clearDebounceTimer();
     this.checkGeneration += 1;
     const generation = this.checkGeneration;
-    this.debounceTimer = setTimeout(() => void this.runCheck(generation), FOCUS_DEBOUNCE_MS);
+    this.debounceTimer = this.clock.setTimeout(
+      () => void this.runCheck(generation),
+      FOCUS_DEBOUNCE_MS,
+    );
   }
 
   private clearDebounceTimer(): void {
     if (this.debounceTimer !== undefined) {
-      clearTimeout(this.debounceTimer);
+      this.clock.clearTimeout(this.debounceTimer);
       this.debounceTimer = undefined;
     }
   }
 
   private clearClearHintTimer(): void {
     if (this.clearHintTimer !== undefined) {
-      clearTimeout(this.clearHintTimer);
+      this.clock.clearTimeout(this.clearHintTimer);
       this.clearHintTimer = undefined;
     }
   }
@@ -154,14 +167,16 @@ export class ClipboardImageHintController {
     // Same image we already notified about — stay quiet until it changes.
     if (!this.armed) return;
 
-    const hintText = t('tui.messages.clipboardImageHint', { shortcut: getPasteImageShortcut() });
+    const hintText = t('tui.messages.clipboardImageHint', {
+      shortcut: getPasteImageShortcut(this.platform),
+    });
     this.clearClearHintTimer();
     this.lastHintText = hintText;
     this.armed = false;
     this.host.footer.setTransientHint(hintText);
     this.host.requestRender();
 
-    this.clearHintTimer = setTimeout(() => {
+    this.clearHintTimer = this.clock.setTimeout(() => {
       this.clearOwnedHint();
     }, HINT_DISPLAY_MS);
   }

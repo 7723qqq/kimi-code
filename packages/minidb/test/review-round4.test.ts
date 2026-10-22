@@ -9,7 +9,7 @@ import path from 'node:path';
 //   C) Range index must not duplicate a key for repeated array elements.
 //   D) Equality index must match objects regardless of property order.
 //   E) Index query methods must exclude expired keys (no ghost entries).
-import { test } from 'vitest';
+import { test } from 'bun:test';
 
 import { MiniDb } from '../src/index.js';
 

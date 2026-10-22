@@ -1,10 +1,10 @@
 import { once } from 'node:events';
 import { PassThrough } from 'node:stream';
-import { setTimeout as delay } from 'node:timers/promises';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { BufferedReadable } from '#/_base/execEnv/bufferedReadable';
+import { setTimeout as delay } from 'node:timers/promises';
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T> {
   return Promise.race([
@@ -37,12 +37,12 @@ describe('BufferedReadable (host process copy)', () => {
     const consume = (async () => {
       for await (const _chunk of buffered) {
         peakBuffered = Math.max(peakBuffered, buffered.readableLength);
-        await delay(200);
+        await delay(20);
       }
       resolved = true;
     })();
 
-    await delay(1500);
+    await delay(150);
     const sampled = buffered.readableLength;
     const atCeiling = sampled >= 8 * 1024 * 1024;
 
@@ -50,7 +50,7 @@ describe('BufferedReadable (host process copy)', () => {
     expect(atCeiling).toBe(false);
     expect(peakBuffered).toBeLessThanOrEqual(2 * 1024 * 1024 + chunk.length);
 
-    await withTimeout(Promise.all([produce, consume]), 30_000);
+    await withTimeout(Promise.all([produce, consume]), 5_000);
   });
 
   it('stops prefetching at the buffer ceiling when nobody reads at all', async () => {
@@ -63,7 +63,7 @@ describe('BufferedReadable (host process copy)', () => {
       source.write(chunk);
     }
 
-    await delay(1500);
+    await delay(150);
 
     expect(buffered.readableLength).toBeLessThanOrEqual(8 * 1024 * 1024 + chunk.length);
 

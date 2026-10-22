@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import type { IAgentTodoService } from '#/features/todo/todoService';
 import type { TodoItem } from '#/features/todo/todoItem';
@@ -197,7 +197,7 @@ describe('tryConvertPlanToTodos', () => {
   it('does not throw when the todo runtime rejects (caller can ignore)', async () => {
     const service = {
       get: () => [],
-      replace: vi.fn(async () => {
+      replace: mock(async () => {
         throw new Error('boom');
       }),
       clear: async () => {},

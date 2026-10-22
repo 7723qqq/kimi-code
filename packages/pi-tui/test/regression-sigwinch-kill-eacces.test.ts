@@ -1,5 +1,5 @@
 import assert from "node:assert";
-import { after, describe, it } from "node:test";
+import { afterAll, describe, it } from "bun:test";
 import { refreshTerminalDimensions } from "../src/terminal.ts";
 
 describe("refreshTerminalDimensions", () => {
@@ -55,7 +55,7 @@ describe("refreshTerminalDimensions", () => {
 		});
 	});
 
-	after(() => {
+	afterAll(() => {
 		process.kill = originalKill;
 		Object.defineProperty(process, "platform", { value: originalPlatform });
 	});

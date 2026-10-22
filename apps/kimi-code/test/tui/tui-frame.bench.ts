@@ -10,12 +10,12 @@
  * pegged CPU in long sessions.
  *
  * Run:
- *   cd apps/kimi-code && bunx vitest bench test/tui/tui-frame.bench.ts
+ *   cd apps/kimi-code && bun test/tui/tui-frame.bench.ts
  */
 
 import type { Component, Terminal } from '@moonshot-ai/pi-tui';
 import { TuiMainScreen } from '@moonshot-ai/pi-tui';
-import { bench, describe } from 'vitest';
+import { bench, describe, reportBenchResults } from './bench-harness';
 
 const WIDTH = 120;
 const HEIGHT = 40;
@@ -99,3 +99,5 @@ describe('TUI steady-state frame', () => {
     renderFrame();
   });
 });
+
+reportBenchResults();

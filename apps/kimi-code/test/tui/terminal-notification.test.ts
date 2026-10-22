@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import type { TUIState } from '#/tui/kimi-tui';
 import {
@@ -34,14 +34,14 @@ function makeNotificationState(
       insideTmux: args.insideTmux ?? false,
     },
     terminal: {
-      write: vi.fn(),
+      write: mock(),
     },
   } as unknown as TUIState;
 }
 
 describe('terminal notification helpers', () => {
   it('emits OSC 9 only when the terminal supports it', () => {
-    const terminal = { write: vi.fn() };
+    const terminal = { write: mock() };
 
     emitTerminalNotification(
       terminal,
@@ -54,7 +54,7 @@ describe('terminal notification helpers', () => {
   });
 
   it('falls back to a bare BEL when the terminal does not support OSC 9', () => {
-    const terminal = { write: vi.fn() };
+    const terminal = { write: mock() };
 
     emitTerminalNotification(
       terminal,
@@ -67,7 +67,7 @@ describe('terminal notification helpers', () => {
   });
 
   it('wraps OSC 9 in a tmux DCS passthrough when running inside tmux', () => {
-    const terminal = { write: vi.fn() };
+    const terminal = { write: mock() };
 
     emitTerminalNotification(
       terminal,
@@ -80,7 +80,7 @@ describe('terminal notification helpers', () => {
   });
 
   it('skips the tmux wrap when falling back to BEL', () => {
-    const terminal = { write: vi.fn() };
+    const terminal = { write: mock() };
 
     emitTerminalNotification(
       terminal,
@@ -92,7 +92,7 @@ describe('terminal notification helpers', () => {
   });
 
   it('emits nothing when the formatted message is empty', () => {
-    const terminal = { write: vi.fn() };
+    const terminal = { write: mock() };
 
     emitTerminalNotification(
       terminal,

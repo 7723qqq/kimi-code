@@ -9,6 +9,7 @@ import { isBlockedIpAddress } from '#/_base/utils/private-address';
 import { isProxyConfigured, makeNoProxyMatcher, resolveNoProxy } from '#/_base/utils/proxy';
 import { Agent, fetch as undiciFetch, type Dispatcher } from '#/_base/utils/undici-npm';
 import { Error2, ErrorCodes } from '#/errors';
+import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
 
 import { HttpFetchError, type UrlFetcher, type UrlFetchResult } from '../tools/fetch-url-types';
 
@@ -35,6 +36,15 @@ const MAX_REDIRECT_HOPS = 10;
 
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 
+const SYSTEM_HOST_TIMERS: IHostTimers = {
+  _serviceBrand: undefined,
+  setClampedTimeout: (callback, timeoutMs) => globalThis.setTimeout(callback, timeoutMs),
+  setTimeout: (callback, timeoutMs) => globalThis.setTimeout(callback, timeoutMs),
+  clearTimeout: (handle) => {
+    globalThis.clearTimeout(handle as ReturnType<typeof globalThis.setTimeout>);
+  },
+};
+
 export interface LocalFetchURLProviderOptions {
   userAgent?: string;
   fetchImpl?: typeof fetch;
@@ -42,6 +52,8 @@ export interface LocalFetchURLProviderOptions {
   allowPrivateAddresses?: boolean;
 
   timeoutMs?: number;
+
+  timers?: IHostTimers;
 }
 
 export class LocalFetchURLProvider implements UrlFetcher {
@@ -50,6 +62,7 @@ export class LocalFetchURLProvider implements UrlFetcher {
   private readonly maxBytes: number;
   private readonly allowPrivateAddresses: boolean;
   private readonly timeoutMs: number;
+  private readonly timers: IHostTimers;
 
   constructor(options: LocalFetchURLProviderOptions = {}) {
     this.userAgent = options.userAgent ?? DEFAULT_USER_AGENT;
@@ -57,6 +70,7 @@ export class LocalFetchURLProvider implements UrlFetcher {
     this.maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
     this.allowPrivateAddresses = options.allowPrivateAddresses ?? false;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    this.timers = options.timers ?? SYSTEM_HOST_TIMERS;
   }
 
   async fetch(
@@ -143,7 +157,7 @@ export class LocalFetchURLProvider implements UrlFetcher {
     const remaining = deadline - Date.now();
     if (remaining <= 0) throw fetchTimeoutError(url, this.timeoutMs);
     const controller = new AbortController();
-    const timer = setTimeout(() => {
+    const timer: IHostTimerHandle = this.timers.setTimeout(() => {
       controller.abort();
     }, remaining);
     try {
@@ -162,7 +176,7 @@ export class LocalFetchURLProvider implements UrlFetcher {
       }
       throw error;
     } finally {
-      clearTimeout(timer);
+      this.timers.clearTimeout(timer);
     }
   }
 

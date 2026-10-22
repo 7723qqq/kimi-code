@@ -1,8 +1,10 @@
 import type { TUI } from '@moonshot-ai/pi-tui';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock, spyOn, type Mock } from 'bun:test';
 
 import { AgentGroupComponent } from '#/tui/components/messages/agent-group';
 import { ToolCallComponent } from '#/tui/components/messages/tool-call';
+
+import { createFakeClock, type FakeClock } from '../../../helpers/fake-clock';
 
 const ESC = String.fromCodePoint(0x1b);
 const BEL = String.fromCodePoint(0x07);
@@ -16,8 +18,12 @@ function strip(text: string): string {
 function stubTui(): TUI {
   return {
     terminal: { rows: 40 },
-    requestRender: vi.fn(),
+    requestRender: mock(),
   } as unknown as TUI;
+}
+
+function requestRenderSpy(ui: TUI): Mock<TUI['requestRender']> {
+  return ui.requestRender as Mock<TUI['requestRender']>;
 }
 
 function renderText(component: AgentGroupComponent, width = 120): string {
@@ -29,6 +35,7 @@ function createAgent(
   description: string,
   agentName: string,
   ui: TUI,
+  clock: FakeClock,
 ): ToolCallComponent {
   const component = new ToolCallComponent(
     {
@@ -38,6 +45,8 @@ function createAgent(
     },
     undefined,
     ui,
+    undefined,
+    clock,
   );
   component.onSubagentSpawned({
     agentId: `sub_${id}`,
@@ -56,17 +65,12 @@ function startAgent(component: ToolCallComponent, id: string, agentName: string)
 }
 
 describe('AgentGroupComponent', () => {
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
   it('shows explicit active breakdown, row state, and waiting fallback', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(0);
+    const clock = createFakeClock();
     const ui = stubTui();
-    const group = new AgentGroupComponent(ui);
-    const running = createAgent('call_agent_1', 'inspect project', 'explore', ui);
-    const waiting = createAgent('call_agent_2', 'write tests', 'coder', ui);
+    const group = new AgentGroupComponent(ui, clock);
+    const running = createAgent('call_agent_1', 'inspect project', 'explore', ui, clock);
+    const waiting = createAgent('call_agent_2', 'write tests', 'coder', ui, clock);
 
     startAgent(running, 'call_agent_1', 'explore');
     running.appendSubToolCall({
@@ -92,11 +96,10 @@ describe('AgentGroupComponent', () => {
   });
 
   it('shows the bound model in the row stats once reported', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(0);
+    const clock = createFakeClock();
     const ui = stubTui();
-    const group = new AgentGroupComponent(ui);
-    const running = createAgent('call_agent_1', 'inspect project', 'explore', ui);
+    const group = new AgentGroupComponent(ui, clock);
+    const running = createAgent('call_agent_1', 'inspect project', 'explore', ui, clock);
     startAgent(running, 'call_agent_1', 'explore');
 
     group.attach('call_agent_1', running);
@@ -104,7 +107,7 @@ describe('AgentGroupComponent', () => {
 
     running.updateSubagentMetrics({ modelDisplay: 'Kimi K2.5' });
     // Non-phase updates are throttled; flush the pending refresh.
-    vi.runOnlyPendingTimers();
+    clock.advance(200);
     expect(renderText(group)).toContain('explore · inspect project · Kimi K2.5 · 0 tools');
 
     group.dispose();
@@ -112,12 +115,11 @@ describe('AgentGroupComponent', () => {
   });
 
   it('shows the Ctrl+B hint while agents are running and hides it once all are backgrounded', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(0);
+    const clock = createFakeClock();
     const ui = stubTui();
-    const group = new AgentGroupComponent(ui);
-    const a = createAgent('call_agent_1', 'inspect project', 'explore', ui);
-    const b = createAgent('call_agent_2', 'write tests', 'coder', ui);
+    const group = new AgentGroupComponent(ui, clock);
+    const a = createAgent('call_agent_1', 'inspect project', 'explore', ui, clock);
+    const b = createAgent('call_agent_2', 'write tests', 'coder', ui, clock);
     startAgent(a, 'call_agent_1', 'explore');
     startAgent(b, 'call_agent_2', 'coder');
     group.attach('call_agent_1', a);
@@ -137,12 +139,11 @@ describe('AgentGroupComponent', () => {
   });
 
   it('uses still-working fallback for running agents without recent activity', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(0);
+    const clock = createFakeClock();
     const ui = stubTui();
-    const group = new AgentGroupComponent(ui);
-    const running = createAgent('call_agent_1', 'inspect project', 'explore', ui);
-    const waiting = createAgent('call_agent_2', 'write tests', 'coder', ui);
+    const group = new AgentGroupComponent(ui, clock);
+    const running = createAgent('call_agent_1', 'inspect project', 'explore', ui, clock);
+    const waiting = createAgent('call_agent_2', 'write tests', 'coder', ui, clock);
 
     startAgent(running, 'call_agent_1', 'explore');
     group.attach('call_agent_1', running);
@@ -159,21 +160,20 @@ describe('AgentGroupComponent', () => {
   });
 
   it('refreshes grouped elapsed time from child subagent timers', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(0);
+    const clock = createFakeClock();
     const ui = stubTui();
-    const group = new AgentGroupComponent(ui);
-    const running = createAgent('call_agent_1', 'inspect project', 'explore', ui);
-    const waiting = createAgent('call_agent_2', 'write tests', 'coder', ui);
+    const group = new AgentGroupComponent(ui, clock);
+    const running = createAgent('call_agent_1', 'inspect project', 'explore', ui, clock);
+    const waiting = createAgent('call_agent_2', 'write tests', 'coder', ui, clock);
 
     startAgent(running, 'call_agent_1', 'explore');
     group.attach('call_agent_1', running);
     group.attach('call_agent_2', waiting);
 
     expect(renderText(group)).toContain('Running 2 agents (1 running, 1 waiting) · 0s');
-    vi.mocked(ui.requestRender).mockClear();
+    requestRenderSpy(ui).mockClear();
 
-    vi.advanceTimersByTime(1_200);
+    clock.advance(1_200);
 
     expect(ui.requestRender).toHaveBeenCalled();
     expect(renderText(group)).toContain('Running 2 agents (1 running, 1 waiting) · 1s');
@@ -185,19 +185,18 @@ describe('AgentGroupComponent', () => {
   });
 
   it('keeps terminal rows explicit while mixed agents are still running', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(0);
+    const clock = createFakeClock();
     const ui = stubTui();
-    const group = new AgentGroupComponent(ui);
-    const done = createAgent('call_agent_1', 'inspect project', 'explore', ui);
-    const running = createAgent('call_agent_2', 'write tests', 'coder', ui);
+    const group = new AgentGroupComponent(ui, clock);
+    const done = createAgent('call_agent_1', 'inspect project', 'explore', ui, clock);
+    const running = createAgent('call_agent_2', 'write tests', 'coder', ui, clock);
 
     startAgent(done, 'call_agent_1', 'explore');
     startAgent(running, 'call_agent_2', 'coder');
     group.attach('call_agent_1', done);
     group.attach('call_agent_2', running);
 
-    vi.setSystemTime(12_000);
+    clock.set(12_000);
     done.onSubagentCompleted({ resultSummary: 'done' });
 
     const mixed = renderText(group);
@@ -205,7 +204,7 @@ describe('AgentGroupComponent', () => {
     expect(mixed).toContain('explore · inspect project · 0 tools · 12s · ✓ Completed');
     expect(mixed).toContain('coder · write tests · 0 tools · 12s · Running');
 
-    vi.setSystemTime(15_000);
+    clock.set(15_000);
     running.onSubagentFailed({ error: 'review failed' });
 
     const terminal = renderText(group);
@@ -220,12 +219,11 @@ describe('AgentGroupComponent', () => {
   });
 
   it('renders a detached foreground subagent as backgrounded in the group, even after its ToolResult lands', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(0);
+    const clock = createFakeClock();
     const ui = stubTui();
-    const group = new AgentGroupComponent(ui);
-    const a = createAgent('call_agent_1', 'inspect project', 'explore', ui);
-    const b = createAgent('call_agent_2', 'write tests', 'coder', ui);
+    const group = new AgentGroupComponent(ui, clock);
+    const a = createAgent('call_agent_1', 'inspect project', 'explore', ui, clock);
+    const b = createAgent('call_agent_2', 'write tests', 'coder', ui, clock);
     startAgent(a, 'call_agent_1', 'explore');
     startAgent(b, 'call_agent_2', 'coder');
     group.attach('call_agent_1', a);
@@ -252,47 +250,46 @@ describe('AgentGroupComponent', () => {
   });
 
   it('stops the timers of cards borrowed by a disposed group', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(0);
+    const clock = createFakeClock();
     const ui = stubTui();
-    const group = new AgentGroupComponent(ui);
-    const running = createAgent('call_agent_1', 'inspect project', 'explore', ui);
+    const group = new AgentGroupComponent(ui, clock);
+    const running = createAgent('call_agent_1', 'inspect project', 'explore', ui, clock);
     startAgent(running, 'call_agent_1', 'explore');
     group.attach('call_agent_1', running);
 
     // The borrowed card drives its own 80ms elapsed-spinner timer.
-    vi.advanceTimersByTime(240);
-    expect(vi.mocked(ui.requestRender).mock.calls.length).toBeGreaterThanOrEqual(3);
+    clock.advance(240);
+    expect(requestRenderSpy(ui).mock.calls.length).toBeGreaterThanOrEqual(3);
 
     group.dispose();
     group.dispose();
-    vi.mocked(ui.requestRender).mockClear();
+    requestRenderSpy(ui).mockClear();
 
-    vi.advanceTimersByTime(2_000);
+    clock.advance(2_000);
     expect(ui.requestRender).not.toHaveBeenCalled();
+    expect(clock.activeTimers).toBe(0);
 
     running.dispose();
   });
 
   it('rebuilds the group body once per flush', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(0);
+    const clock = createFakeClock();
     const ui = stubTui();
-    const group = new AgentGroupComponent(ui);
-    const done = createAgent('call_agent_1', 'inspect project', 'explore', ui);
+    const group = new AgentGroupComponent(ui, clock);
+    const done = createAgent('call_agent_1', 'inspect project', 'explore', ui, clock);
     startAgent(done, 'call_agent_1', 'explore');
     group.attach('call_agent_1', done);
-    vi.setSystemTime(5_000);
+    clock.set(5_000);
     done.onSubagentCompleted({ resultSummary: 'done' });
 
-    const phases = vi.spyOn(done, 'getSubagentPhase');
-    const snapshots = vi.spyOn(done, 'getSubagentSnapshot');
+    const phases = spyOn(done, 'getSubagentPhase');
+    const snapshots = spyOn(done, 'getSubagentSnapshot');
 
     // A non-phase change is throttled into one flush: one phase-only read for
     // the transition check, one full snapshot for the rebuild it triggers.
     done.updateSubagentMetrics({ modelDisplay: 'Kimi K2.5' });
-    vi.mocked(ui.requestRender).mockClear();
-    vi.runOnlyPendingTimers();
+    requestRenderSpy(ui).mockClear();
+    clock.advance(200);
 
     expect(phases).toHaveBeenCalledTimes(1);
     expect(snapshots).toHaveBeenCalledTimes(1);
@@ -303,12 +300,11 @@ describe('AgentGroupComponent', () => {
   });
 
   it('does not report an all-backgrounded group as finished', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(0);
+    const clock = createFakeClock();
     const ui = stubTui();
-    const group = new AgentGroupComponent(ui);
-    const a = createAgent('call_agent_1', 'inspect project', 'explore', ui);
-    const b = createAgent('call_agent_2', 'write tests', 'coder', ui);
+    const group = new AgentGroupComponent(ui, clock);
+    const a = createAgent('call_agent_1', 'inspect project', 'explore', ui, clock);
+    const b = createAgent('call_agent_2', 'write tests', 'coder', ui, clock);
     startAgent(a, 'call_agent_1', 'explore');
     startAgent(b, 'call_agent_2', 'coder');
     group.attach('call_agent_1', a);

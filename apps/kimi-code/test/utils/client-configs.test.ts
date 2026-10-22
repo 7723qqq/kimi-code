@@ -2,7 +2,8 @@ import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { setEnv, restoreEnvs } from '#test/helpers/stubs';
 
 import {
   fetchClientConfig,
@@ -21,7 +22,7 @@ const configSchema = z.object({
 const CONFIG = {
   version: 1,
   config: { k3: { min_tokens_to_hint: 200000, cache_duration: 600 } },
-};
+} as const;
 
 const ENVELOPE = { name: 'estimated_cache_duration', config: CONFIG };
 
@@ -38,7 +39,7 @@ afterEach(() => {
 
 describe('fetchClientConfig', () => {
   it('POSTs the config name and unwraps the envelope', async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
 
     const result = await fetchClientConfig('estimated_cache_duration', configSchema, {
       fetchImpl: fetchImpl as typeof fetch,
@@ -55,7 +56,7 @@ describe('fetchClientConfig', () => {
   });
 
   it('sends the bearer token when provided, anonymous otherwise', async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
 
     await fetchClientConfig('estimated_cache_duration', configSchema, {
       fetchImpl: fetchImpl as typeof fetch,
@@ -80,7 +81,7 @@ describe('fetchClientConfig', () => {
   });
 
   it('returns undefined on non-OK responses', async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse('no', 503));
+    const fetchImpl = mock(async () => jsonResponse('no', 503));
 
     await expect(
       fetchClientConfig('estimated_cache_duration', configSchema, {
@@ -90,7 +91,7 @@ describe('fetchClientConfig', () => {
   });
 
   it('returns undefined when the payload fails the caller schema', async () => {
-    const fetchImpl = vi.fn(async () =>
+    const fetchImpl = mock(async () =>
       jsonResponse({ name: 'estimated_cache_duration', config: { version: 2, config: {} } }),
     );
 
@@ -102,7 +103,7 @@ describe('fetchClientConfig', () => {
   });
 
   it('returns undefined when the envelope name does not match', async () => {
-    const fetchImpl = vi.fn(async () =>
+    const fetchImpl = mock(async () =>
       jsonResponse({ name: 'some_other_config', config: CONFIG }),
     );
 
@@ -114,7 +115,7 @@ describe('fetchClientConfig', () => {
   });
 
   it('returns undefined when fetch throws', async () => {
-    const fetchImpl = vi.fn(async () => {
+    const fetchImpl = mock(async () => {
       throw new Error('offline');
     });
 
@@ -126,7 +127,7 @@ describe('fetchClientConfig', () => {
   });
 
   it('POSTs to a custom path when provided', async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
 
     const result = await fetchClientConfig('estimated_cache_duration', configSchema, {
       fetchImpl: fetchImpl as typeof fetch,
@@ -146,7 +147,7 @@ describe('fetchClientConfig', () => {
 
 describe('getClientConfig', () => {
   it('serves the in-process cache within a day', async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
     const first = await getClientConfig('estimated_cache_duration', configSchema, {
@@ -166,7 +167,7 @@ describe('getClientConfig', () => {
   });
 
   it('refetches when the cache is older than a day', async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
     await getClientConfig('estimated_cache_duration', configSchema, {
@@ -186,7 +187,7 @@ describe('getClientConfig', () => {
 
   it('caches each config name independently', async () => {
     const other = { name: 'other_config', config: CONFIG };
-    const fetchImpl = vi.fn(async (url: unknown, init?: { body?: string }) =>
+    const fetchImpl = mock(async (url: unknown, init?: { body?: string }) =>
       jsonResponse(init?.body?.includes('other') ? other : ENVELOPE),
     );
     const now = Date.now();
@@ -207,7 +208,7 @@ describe('getClientConfig', () => {
   });
 
   it('resolves to undefined when the refetch fails', async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse('no', 500));
+    const fetchImpl = mock(async () => jsonResponse('no', 500));
 
     await expect(
       getClientConfig('estimated_cache_duration', configSchema, {
@@ -218,7 +219,7 @@ describe('getClientConfig', () => {
   });
 
   it('partitions the cache by path', async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
     await getClientConfig('estimated_cache_duration', configSchema, {
@@ -238,7 +239,7 @@ describe('getClientConfig', () => {
   });
 
   it('peeks a custom-path entry only when the path matches', async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
     await getClientConfig('estimated_cache_duration', configSchema, {
       fetchImpl: fetchImpl as typeof fetch,
@@ -254,7 +255,7 @@ describe('getClientConfig', () => {
 
 describe('peekClientConfig', () => {
   it('returns the cached config only while fresh', async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
     await getClientConfig('estimated_cache_duration', configSchema, {
       fetchImpl: fetchImpl as typeof fetch,
@@ -289,7 +290,7 @@ describe('getClientConfig disk cache', () => {
   it('serves a fresh disk entry without network and warms the in-process cache', async () => {
     const now = Date.now();
     await writeFile(file, JSON.stringify({ version: 1, fetchedAt: now, config: CONFIG }));
-    const fetchImpl = vi.fn(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
 
     const result = await getClientConfig('estimated_cache_duration', configSchema, {
       fetchImpl: fetchImpl as typeof fetch,
@@ -305,7 +306,7 @@ describe('getClientConfig disk cache', () => {
 
   it('serves the disk entry after the in-process cache is dropped (restart)', async () => {
     const now = Date.now();
-    const fetchImpl = vi.fn(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
     await getClientConfig('estimated_cache_duration', configSchema, {
       fetchImpl: fetchImpl as typeof fetch,
       now,
@@ -313,7 +314,7 @@ describe('getClientConfig disk cache', () => {
     });
 
     resetClientConfigCache();
-    const offline = vi.fn(async (): Promise<Response> => {
+    const offline = mock(async (): Promise<Response> => {
       throw new Error('offline');
     });
     const result = await getClientConfig('estimated_cache_duration', configSchema, {
@@ -332,7 +333,7 @@ describe('getClientConfig disk cache', () => {
       file,
       JSON.stringify({ version: 1, fetchedAt: now - 23 * 60 * 60 * 1000, config: CONFIG }),
     );
-    const fetchImpl = vi.fn(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
 
     // 23h old on disk: still fresh.
     await getClientConfig('estimated_cache_duration', configSchema, {
@@ -350,7 +351,7 @@ describe('getClientConfig disk cache', () => {
       file,
       JSON.stringify({ version: 1, fetchedAt: now - 25 * 60 * 60 * 1000, config: CONFIG }),
     );
-    const fetchImpl = vi.fn(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
 
     const result = await getClientConfig('estimated_cache_duration', configSchema, {
       fetchImpl: fetchImpl as typeof fetch,
@@ -366,7 +367,7 @@ describe('getClientConfig disk cache', () => {
 
   it('treats a malformed cache file as missing', async () => {
     await writeFile(file, 'not json');
-    const fetchImpl = vi.fn(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
 
     const result = await getClientConfig('estimated_cache_duration', configSchema, {
       fetchImpl: fetchImpl as typeof fetch,
@@ -382,7 +383,7 @@ describe('getClientConfig disk cache', () => {
       file,
       JSON.stringify({ version: 1, fetchedAt: Date.now(), config: { version: 2 } }),
     );
-    const fetchImpl = vi.fn(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
 
     const result = await getClientConfig('estimated_cache_duration', configSchema, {
       fetchImpl: fetchImpl as typeof fetch,
@@ -397,7 +398,7 @@ describe('getClientConfig disk cache', () => {
     // The parent path is a regular file, so mkdir for the cache file fails.
     const blocker = join(dir, 'blocker');
     await writeFile(blocker, 'x');
-    const fetchImpl = vi.fn(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
 
     const result = await getClientConfig('estimated_cache_duration', configSchema, {
       fetchImpl: fetchImpl as typeof fetch,
@@ -409,9 +410,9 @@ describe('getClientConfig disk cache', () => {
 
   it('writes paths that sanitize alike to distinct cache files', async () => {
     const home = await mkdtemp(join(tmpdir(), 'client-configs-home-'));
-    vi.stubEnv('KIMI_CODE_HOME', home);
+    setEnv('KIMI_CODE_HOME', home);
     try {
-      const fetchImpl = vi.fn(async () => jsonResponse(ENVELOPE));
+      const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
       const now = Date.now();
 
       await getClientConfig('estimated_cache_duration', configSchema, {
@@ -428,7 +429,7 @@ describe('getClientConfig disk cache', () => {
       const files = await readdir(join(home, 'cache', 'client-configs'));
       expect(files.length).toBe(2);
     } finally {
-      vi.unstubAllEnvs();
+      restoreEnvs();
       await rm(home, { recursive: true, force: true });
     }
   });
@@ -436,17 +437,17 @@ describe('getClientConfig disk cache', () => {
 
 describe('region awareness', () => {
   beforeEach(() => {
-    vi.stubEnv('KIMI_CODE_OAUTH_HOST', 'https://auth.kimi.ai');
+    setEnv('KIMI_CODE_OAUTH_HOST', 'https://auth.kimi.ai');
     refreshKimiRegion();
   });
 
   afterEach(() => {
-    vi.unstubAllEnvs();
+    restoreEnvs();
     refreshKimiRegion();
   });
 
   it('fetches from the active region profile and partitions the cache by region', async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
 
     const data = await getClientConfig('estimated_cache_duration', configSchema, {
       fetchImpl: fetchImpl as typeof fetch,
@@ -461,14 +462,14 @@ describe('region awareness', () => {
     expect(peekClientConfig('estimated_cache_duration', configSchema)).toEqual(CONFIG);
 
     // A region switch must not serve the other deployment's cached entry.
-    vi.stubEnv('KIMI_CODE_OAUTH_HOST', 'https://auth.kimi.com');
+    setEnv('KIMI_CODE_OAUTH_HOST', 'https://auth.kimi.com');
     refreshKimiRegion();
     expect(peekClientConfig('estimated_cache_duration', configSchema)).toBeUndefined();
   });
 
   it('keeps honoring the KIMI_CODE_BASE_URL override ahead of the profile', async () => {
-    vi.stubEnv('KIMI_CODE_BASE_URL', 'https://env-api.example.com');
-    const fetchImpl = vi.fn(async () => jsonResponse(ENVELOPE));
+    setEnv('KIMI_CODE_BASE_URL', 'https://env-api.example.com');
+    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
 
     await fetchClientConfig('estimated_cache_duration', configSchema, {
       fetchImpl: fetchImpl as typeof fetch,

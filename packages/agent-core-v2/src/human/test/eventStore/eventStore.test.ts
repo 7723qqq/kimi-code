@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { z } from 'zod';
 
 import { storeActor } from '#/eventStore/actor';
@@ -8,8 +8,8 @@ import { journalFromBranch } from '#/eventStore/journal';
 import { createSlice } from '#/eventStore/slice';
 import { MemoryBackend } from '#/store/backend/memory';
 import { TreeStore } from '#/store/store';
-import type { Tree } from '#/store/tree';
-import { createActor, waitFor } from '#/xstate2';
+import { Tree } from '#/store/tree';
+import { createActor } from '#/xstate2';
 
 const counterAdded = defineEvent({
   type: 'test.counter_added',

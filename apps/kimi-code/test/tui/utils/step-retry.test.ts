@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { RETRY_DETAIL_MAX_CHARS } from '#/tui/constant/rendering';
 import type { StepRetryState } from '#/tui/types';

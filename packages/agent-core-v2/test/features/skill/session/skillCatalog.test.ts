@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'bun:test';
 
 import { createScopedTestHost, stubPair } from '#/_base/di/test';
 import { LifecycleScope } from '#/app/scopes';

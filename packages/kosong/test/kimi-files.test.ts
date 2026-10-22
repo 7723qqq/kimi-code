@@ -3,7 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 
 import { APIError as OpenAIAPIError } from 'openai';
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import { APIProviderQuotaExhaustedError, isRetryableGenerateError } from '#/errors';
 import { KimiChatProvider } from '#/providers/kimi';
@@ -51,7 +51,7 @@ describe('KimiFiles', () => {
       fs.writeFileSync(videoPath, Buffer.from([0, 1, 2, 3, 4]));
 
       let captured: unknown;
-      const mockCreate = vi.fn().mockImplementation((params: unknown) => {
+      const mockCreate = mock().mockImplementation((params: unknown) => {
         captured = params;
         return Promise.resolve({
           id: 'file_abc123',
@@ -66,7 +66,7 @@ describe('KimiFiles', () => {
 
       const part = await provider.files.uploadVideo(videoPath);
 
-      expect(mockCreate).toHaveBeenCalledOnce();
+      expect(mockCreate).toHaveBeenCalledTimes(1);
       const call = captured as { file: File; purpose: string };
       expect(call.purpose).toBe('video');
       expect(call.file).toBeInstanceOf(File);
@@ -87,7 +87,7 @@ describe('KimiFiles', () => {
       const notVideo = path.join(tmpDir, 'note.txt');
       fs.writeFileSync(notVideo, 'hello');
 
-      const mockCreate = vi.fn();
+      const mockCreate = mock();
       provider.files['_client']!.files.create = mockCreate as never;
 
       await expect(provider.files.uploadVideo(notVideo)).rejects.toThrow(/video/i);
@@ -99,7 +99,7 @@ describe('KimiFiles', () => {
       const noExt = path.join(tmpDir, 'mystery');
       fs.writeFileSync(noExt, 'hello');
 
-      const mockCreate = vi.fn();
+      const mockCreate = mock();
       provider.files['_client']!.files.create = mockCreate as never;
 
       await expect(provider.files.uploadVideo(noExt)).rejects.toThrow(/video/i);
@@ -116,7 +116,7 @@ describe('KimiFiles', () => {
       fs.writeFileSync(videoPath, Buffer.from([0, 1, 2, 3]));
 
       let captured: unknown;
-      provider.files['_client']!.files.create = vi.fn().mockImplementation((params: unknown) => {
+      provider.files['_client']!.files.create = mock().mockImplementation((params: unknown) => {
         captured = params;
         return Promise.resolve({
           id: 'file_ext_ok',
@@ -140,7 +140,7 @@ describe('KimiFiles', () => {
       const auths: unknown[] = [];
       const client = {
         files: {
-          create: vi.fn().mockResolvedValue({ id: 'file_auth' }),
+          create: mock().mockResolvedValue({ id: 'file_auth' }),
         },
       };
       const files = new KimiFiles({
@@ -157,7 +157,7 @@ describe('KimiFiles', () => {
       );
 
       expect(auths).toEqual([{ apiKey: 'request-token' }]);
-      expect(client.files.create).toHaveBeenCalledOnce();
+      expect(client.files.create).toHaveBeenCalledTimes(1);
     });
 
     it('uploads raw bytes and returns a VideoURLPart', async () => {
@@ -165,7 +165,7 @@ describe('KimiFiles', () => {
       const bytes = Buffer.from([10, 20, 30, 40]);
 
       let captured: unknown;
-      provider.files['_client']!.files.create = vi.fn().mockImplementation((params: unknown) => {
+      provider.files['_client']!.files.create = mock().mockImplementation((params: unknown) => {
         captured = params;
         return Promise.resolve({
           id: 'file_buf_456',
@@ -215,7 +215,7 @@ describe('KimiFiles', () => {
       const files = new KimiFiles({
         baseUrl: 'https://api.example/v1',
         clientFactory: () =>
-          ({ files: { create: vi.fn().mockRejectedValue(quotaError) } }) as never,
+          ({ files: { create: mock().mockRejectedValue(quotaError) } }) as never,
       });
 
       const caught = await files

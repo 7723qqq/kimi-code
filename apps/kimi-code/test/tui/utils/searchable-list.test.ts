@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { SearchableList, type SearchableListOptions } from '#/tui/utils/searchable-list';
 

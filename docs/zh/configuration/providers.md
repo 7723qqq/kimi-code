@@ -17,6 +17,8 @@ Kimi Code CLI 支持同时接入多家模型供应商服务，模型在供应商
 
 所有供应商默认以流式方式与模型交互。thinking、视觉、工具调用等能力按模型名前缀自动匹配，通常不需要手动声明。
 
+`deepseek` 不是独立的 `type`，而是 CLI 已知的一个 provider id，注册在 `openai` 协议之上。详见 [`deepseek`](#deepseek)。
+
 **凭证优先级**：`api_key` 或 `api_key_env`（互斥替代项，只能设置其中一个）> `[providers.<name>.env]` 子表键（两者都不存在时才读）> 全部缺失时启动报错。除显式声明的 `api_key_env` 外，CLI 不会从 shell 环境变量自动取凭证，详见[配置覆盖：供应商凭证](./overrides.md#供应商凭证)。
 
 ## `/provider` — 交互式供应商管理
@@ -200,6 +202,28 @@ type = "openai"
 base_url = "https://api.openai.com/v1"
 api_key = "sk-xxxxx"
 ```
+
+## `deepseek`
+
+DeepSeek 自有端点的一等 provider。它走 OpenAI Chat Completions 协议（所以 `type` 仍是 `openai`），但以自己的 id 注册后，CLI 才能把它认作 DeepSeek 模型家族：家族输出上限、推理回放规则、被忽略的采样参数，以及家族提示词。不写这一节时这些行为仍按模型名生效，只是端点没有声明默认值，`base_url` 必须自己填。
+
+- 默认 `base_url`：`https://api.deepseek.com`
+- 凭证键名：`DEEPSEEK_API_KEY`、`DEEPSEEK_BASE_URL`
+- 定义选取：由 provider 的 **id** `deepseek` 选中这一节，`type` 仍写 `openai`。不写 `base_url` 时依次回落到 env 子表里的 `DEEPSEEK_BASE_URL` 与上面声明的默认值。
+- 家族识别：模型 id 中任一段以 `deepseek` 或 `xopdeepseek` 开头（最长前缀优先），也包括 `deepseek/deepseek-v4` 和 `vendor/deepseek-proxy/foo` 这类带供应商前缀与网关形态的写法
+
+```toml
+[providers.deepseek]
+type = "openai"
+base_url = "https://api.deepseek.com"
+api_key = "sk-xxxxx"
+
+[models.deepseek-v4.1-flash]
+provider = "deepseek"
+model = "deepseek-v4.1-flash"
+```
+
+该家族的请求在你未显式指定时也会带上输出上限（非思考 8192、思考 65536、`max` 档 131072），这样端点自己的默认值偏低时不会静默截断回答。要覆盖就在模型别名上设 `max_output_size`。
 
 ## `openai_responses`
 

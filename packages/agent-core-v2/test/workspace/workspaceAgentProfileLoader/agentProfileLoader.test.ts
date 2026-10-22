@@ -2,31 +2,27 @@ import { mkdtemp, mkdir, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 import { join } from 'pathe';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, spyOn } from 'bun:test';
+import { stubBootstrap } from '../../app/bootstrap/stubs';
+import * as watchNamespace from '#human/utils/watch';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { AsyncEmitter, Emitter, Event } from '#/_base/event';
 import { SyncDescriptor } from '#/_base/di/descriptors';
-import type { ServiceIdentifier } from '#/_base/di/instantiation';
+import { type ServiceIdentifier } from '#/_base/di/instantiation';
 import { InstantiationService } from '#/_base/di/instantiationService';
 import { ServiceCollection } from '#/_base/di/serviceCollection';
 import { ILogService } from '#/_base/log/log';
 import { EXTRA_AGENT_DIRS_SECTION } from '#/workspace/workspaceAgentProfileLoader/configSection';
 import { UserAgentProfileLoaderService } from '#/workspace/workspaceAgentProfileLoader/userAgentProfileLoaderService';
-import type { PluginAgentRoot, PluginReloadEvent } from '#/app/plugin/types';
-import {
-  DEFAULT_AGENT_PROFILE_NAME,
-  normalizeAgentProfile,
-  type AgentProfile,
-} from '#/app/agentProfileCatalog/agentProfileCatalog';
+import { type PluginAgentRoot, type PluginReloadEvent } from '#/app/plugin/types';
+import { DEFAULT_AGENT_PROFILE_NAME, normalizeAgentProfile, type AgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import { IAgentProfileRegistry } from '#/app/agentProfileCatalog/agentProfileRegistry';
 import { AgentProfileRegistryService } from '#/app/agentProfileCatalog/agentProfileRegistryService';
 import { IBuiltinAgentProfileLoader } from '#/app/agentProfileCatalog/builtinAgentProfileLoader';
 import { BuiltinAgentProfileLoaderService } from '#/app/agentProfileCatalog/builtinAgentProfileLoaderService';
 import { AGENT_PROFILE_SOURCE_PRIORITY } from '#/app/agentProfileCatalog/agentProfileContribution';
-import {
-  _clearAgentProfileContributionsForTests,
-  registerAgentProfile,
-} from '#/app/agentProfileCatalog/contribution';
+import { _clearAgentProfileContributionsForTests, registerAgentProfile } from '#/app/agentProfileCatalog/contribution';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { IPluginService } from '#/app/plugin/plugin';
@@ -35,7 +31,7 @@ import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { SessionAgentProfileCatalogService } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalogService';
-import type { ISessionAgentProfileCatalogSeed } from '#/session/sessionAgentProfileCatalog/agentProfileCatalogSeed';
+import { ISessionAgentProfileCatalogSeed } from '#/session/sessionAgentProfileCatalog/agentProfileCatalogSeed';
 import { ExplicitAgentProfileLoaderService } from '#/workspace/workspaceAgentProfileLoader/explicitAgentProfileLoaderService';
 import { ExtraAgentProfileLoaderService } from '#/workspace/workspaceAgentProfileLoader/extraAgentProfileLoaderService';
 import { WorkspaceAgentProfileLoaderService } from '#/workspace/workspaceAgentProfileLoader/workspaceAgentProfileLoaderService';
@@ -46,33 +42,32 @@ import { IWorkspaceAgentProfileLoader } from '#/workspace/workspaceAgentProfileL
 import { IExtraAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/extraAgentProfileLoader';
 import { IExplicitAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/explicitAgentProfileLoader';
 
-import { stubBootstrap } from '../../app/bootstrap/stubs';
 
-const watchMockState = vi.hoisted(() => ({ mode: 'inert' as 'inert' | 'real' }));
 
-vi.mock('#human/utils/watch', async (importOriginal) => {
-  const original = await importOriginal<typeof import('#human/utils/watch')>();
-  const watch = (path: string, options?: Parameters<typeof original.watch>[1]) => {
-    if (watchMockState.mode === 'real') return original.watch(path, options);
-    return {
-      ready: Promise.resolve(),
-      onDidChange: () => ({ dispose: () => {} }),
-      dispose: () => {},
-    };
-  };
+const watchMockState = (() => ({ mode: 'inert' as 'inert' | 'real' }))();
+
+const watchModule = watchNamespace;
+const originalWatch = watchModule.watch;
+const originalWatchCandidates = watchModule.watchCandidates;
+
+const watch = (path: string, options?: Parameters<typeof originalWatch>[1]) => {
+  if (watchMockState.mode === 'real') return originalWatch(path, options);
   return {
-    ...original,
-    watch,
-    watchCandidates: (
-      root: string,
-      candidates: readonly string[],
-      options?: Parameters<typeof original.watch>[1],
-    ) =>
-      watchMockState.mode === 'real'
-        ? original.watchCandidates(root, candidates, options)
-        : watch(root, options),
+    ready: Promise.resolve(),
+    onDidChange: () => ({ dispose: () => {} }),
+    dispose: () => {},
   };
-});
+};
+
+spyOn(watchModule, 'watch').mockImplementation(watch as typeof originalWatch);
+spyOn(watchModule, 'watchCandidates').mockImplementation(((
+  root: string,
+  candidates: readonly string[],
+  options?: Parameters<typeof originalWatch>[1],
+) =>
+  watchMockState.mode === 'real'
+    ? originalWatchCandidates(root, candidates, options)
+    : watch(root, options)) as typeof watchModule.watchCandidates);
 
 function configStub(): IConfigService & {
   setExtraAgentDirs(dirs: readonly string[]): void;
@@ -676,7 +671,7 @@ describe('agent profile loaders + session catalog', () => {
           .catch((error) =>
             stack.warnings.push(`agent profile loader "explicit" reload failed: ${String(error)}`),
           );
-        await vi.waitFor(() => {
+        await waitForAssertion(() => {
           expect(stack.warnings.some((w) => w.includes('reload failed'))).toBe(true);
         });
 
@@ -782,7 +777,9 @@ describe('agent profile loaders + session catalog', () => {
         );
 
         await expect(Promise.race([refreshed, timedOut])).resolves.toBe('workspace');
-        expect(stack.catalog.get('watched-agent')?.description).toBe('from watch');
+        await waitForAssertion(() => {
+          expect(stack.catalog.get('watched-agent')?.description).toBe('from watch');
+        }, { timeout: 5000 });
       });
     });
   }, 15000);

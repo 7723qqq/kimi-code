@@ -1,7 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import { refreshProviderModels } from '../src/refreshProviderModels';
 import type { ManagedKimiConfigShape, RefreshProviderHost } from '../src';
+import { setGlobal, restoreGlobals } from './stubs';
 
 function hostFor(config: ManagedKimiConfigShape): {
   host: RefreshProviderHost;
@@ -54,9 +55,9 @@ describe('refreshProviderModels bucket reporting', () => {
       models: {},
     } as unknown as ManagedKimiConfigShape);
 
-    vi.stubGlobal(
+    setGlobal(
       'fetch',
-      vi.fn(async () => new Response(JSON.stringify({ data: [] }), { status: 200 })),
+      mock(async () => new Response(JSON.stringify({ data: [] }), { status: 200 })),
     );
     try {
       const result = await refreshProviderModels(host, {});
@@ -66,7 +67,7 @@ describe('refreshProviderModels bucket reporting', () => {
       expect(result.failed[0]?.reason).toContain('no models');
       expect(saved).toEqual([]);
     } finally {
-      vi.unstubAllGlobals();
+      restoreGlobals();
     }
   });
 
@@ -82,9 +83,9 @@ describe('refreshProviderModels bucket reporting', () => {
       models: {},
     } as unknown as ManagedKimiConfigShape);
 
-    vi.stubGlobal(
+    setGlobal(
       'fetch',
-      vi.fn(async () => new Response(JSON.stringify({ data: [] }), { status: 200 })),
+      mock(async () => new Response(JSON.stringify({ data: [] }), { status: 200 })),
     );
     try {
       const result = await refreshProviderModels(host, { providerId: 'managed:kimi-code' });
@@ -94,7 +95,7 @@ describe('refreshProviderModels bucket reporting', () => {
         JSON.stringify(result.failed),
       ).toBe(true);
     } finally {
-      vi.unstubAllGlobals();
+      restoreGlobals();
     }
   });
 
@@ -110,9 +111,9 @@ describe('refreshProviderModels bucket reporting', () => {
       models: {},
     } as unknown as ManagedKimiConfigShape);
 
-    vi.stubGlobal(
+    setGlobal(
       'fetch',
-      vi.fn(async () => new Response(JSON.stringify({ data: [] }), { status: 200 })),
+      mock(async () => new Response(JSON.stringify({ data: [] }), { status: 200 })),
     );
     try {
       const result = await refreshProviderModels(host, { scope: 'oauth' });
@@ -122,7 +123,7 @@ describe('refreshProviderModels bucket reporting', () => {
         JSON.stringify(result.failed),
       ).toBe(true);
     } finally {
-      vi.unstubAllGlobals();
+      restoreGlobals();
     }
   });
 });
@@ -155,7 +156,7 @@ describe('refreshProviderModels open-platform fetch deadline', () => {
         );
       });
     }
-    vi.stubGlobal('fetch', vi.fn(hungFetch));
+    setGlobal('fetch', mock(hungFetch));
     try {
       const startedAt = Date.now();
       const result = await refreshProviderModels(host, { timeoutMs: 50 });
@@ -168,7 +169,7 @@ describe('refreshProviderModels open-platform fetch deadline', () => {
       expect(result.failed[0]?.reason).toMatch(/abort|timed out/i);
       expect(saved).toEqual([]);
     } finally {
-      vi.unstubAllGlobals();
+      restoreGlobals();
     }
   });
 
@@ -185,9 +186,9 @@ describe('refreshProviderModels open-platform fetch deadline', () => {
     } as unknown as ManagedKimiConfigShape);
 
     const controller = new AbortController();
-    vi.stubGlobal(
+    setGlobal(
       'fetch',
-      vi.fn(
+      mock(
         (_url: string, init?: RequestInit) =>
           new Promise<Response>((_resolve, reject) => {
             init?.signal?.addEventListener(
@@ -213,7 +214,7 @@ describe('refreshProviderModels open-platform fetch deadline', () => {
       expect(result.failed[0]?.reason).toContain('abort');
       expect(saved).toEqual([]);
     } finally {
-      vi.unstubAllGlobals();
+      restoreGlobals();
     }
   });
 });

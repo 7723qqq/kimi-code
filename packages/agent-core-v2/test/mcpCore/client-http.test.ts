@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 import { ErrorCodes, Error2 } from '#/errors';
 import { buildMcpHttpHeaders, HttpMcpClient, isTerminalTransportError } from '#/mcpCore/client-http';

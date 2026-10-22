@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
@@ -336,8 +336,8 @@ describe('AgentCacheProbeService', () => {
   function stubProbeDeps(
     forkedFrom: string | undefined,
     requests: ProbeRequests = {},
-  ): ReturnType<typeof vi.fn> {
-    const track2 = vi.fn();
+  ): ReturnType<typeof mock> {
+    const track2 = mock();
     ix.stub(ITelemetryService, {
       _serviceBrand: undefined,
       track2,

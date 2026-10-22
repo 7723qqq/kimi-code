@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join, posix } from 'node:path';
 
 import { Immer } from 'immer';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { popConstructionFrame, pushConstructionFrame } from '#/_base/di/fiber';

@@ -49,7 +49,12 @@ export interface IProtocolAdapterRegistry {
 
   resolveProviderBaseId(protocol: Protocol, providerType?: string): ProtocolBaseId;
 
-  resolveCapability(protocol: Protocol, modelName: string, providerType?: string): ModelCapability;
+  resolveCapability(
+    protocol: Protocol,
+    modelName: string,
+    providerType?: string,
+    providerId?: string,
+  ): ModelCapability;
 
   resolve(model: Model): ResolvedLlmModel;
 }

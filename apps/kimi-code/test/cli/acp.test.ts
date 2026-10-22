@@ -9,16 +9,24 @@
  */
 
 import { Command } from 'commander';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import type { Mock } from 'bun:test';
+import { restoreEnvs } from '#test/helpers/stubs';
 
-vi.mock('@moonshot-ai/acp-server', () => ({
-  runAcpServer: vi.fn(async () => undefined),
+import * as sdkModule from '@moonshot-ai/kimi-code-sdk';
+
+void mock.module('@moonshot-ai/acp-server', () => ({
+  runAcpServer: mock(async () => undefined),
 }));
 
 import { runAcpServer } from '@moonshot-ai/acp-server';
 
 import { registerAcpCommand } from '#/cli/sub/acp';
 import { getDataDir } from '#/utils/paths';
+
+// `mock.module` swaps the implementation at runtime, but the imported binding
+// keeps its real signature, so the assertions below need the mock surface.
+const runAcpServerMock = runAcpServer as unknown as Mock<typeof runAcpServer>;
 
 class ExitCalled extends Error {
   constructor(public code: number | string | null | undefined) {
@@ -27,21 +35,21 @@ class ExitCalled extends Error {
 }
 
 describe('kimi acp', () => {
-  let exitSpy: ReturnType<typeof vi.spyOn>;
-  let stderrSpy: ReturnType<typeof vi.spyOn>;
+  let exitSpy: ReturnType<typeof spyOn>;
+  let stderrSpy: ReturnType<typeof spyOn>;
 
   beforeEach(() => {
-    vi.mocked(runAcpServer).mockClear();
-    exitSpy = vi.spyOn(process, 'exit').mockImplementation(((code?: number | string | null) => {
+    runAcpServerMock.mockClear();
+    exitSpy = spyOn(process, 'exit').mockImplementation(((code?: number | string | null) => {
       throw new ExitCalled(code);
     }) as never);
-    stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    stderrSpy = spyOn(process.stderr, 'write').mockImplementation(() => true);
   });
 
   afterEach(() => {
     exitSpy.mockRestore();
     stderrSpy.mockRestore();
-    vi.unstubAllEnvs();
+    restoreEnvs();
   });
 
   it('registers an `acp` subcommand on the program', () => {
@@ -59,8 +67,8 @@ describe('kimi acp', () => {
 
     await expect(program.parseAsync(['node', 'kimi', 'acp'])).rejects.toThrow(ExitCalled);
 
-    expect(runAcpServer).toHaveBeenCalledTimes(1);
-    const optsArg = vi.mocked(runAcpServer).mock.calls[0]?.[0];
+    expect(runAcpServerMock).toHaveBeenCalledTimes(1);
+    const optsArg = runAcpServerMock.mock.calls[0]?.[0];
     expect(optsArg).toEqual(
       expect.objectContaining({
         homeDir: getDataDir(),
@@ -79,7 +87,7 @@ describe('kimi acp', () => {
 
       await expect(program.parseAsync(['node', 'kimi', 'acp'])).rejects.toThrow(ExitCalled);
 
-      const optsArg = vi.mocked(runAcpServer).mock.calls[0]?.[0];
+      const optsArg = runAcpServerMock.mock.calls[0]?.[0];
       expect(optsArg).toEqual(
         expect.objectContaining({
           homeDir: '/tmp/kimi-debug',
@@ -104,7 +112,7 @@ describe('kimi acp', () => {
 
       await expect(program.parseAsync(['node', 'kimi', 'acp'])).rejects.toThrow(ExitCalled);
 
-      const optsArg = vi.mocked(runAcpServer).mock.calls[0]?.[0] as {
+      const optsArg = runAcpServerMock.mock.calls[0]?.[0] as {
         terminalAuthEnv?: unknown;
       };
       expect(optsArg.terminalAuthEnv).toBeUndefined();
@@ -116,7 +124,7 @@ describe('kimi acp', () => {
   });
 
   it('advertises process.execPath on a native install and argv[1] on a script install', async () => {
-    const detectSpy = vi.spyOn(
+    const detectSpy = spyOn(
       await import('#/cli/update/source'),
       'detectNativeInstall',
     );
@@ -125,19 +133,19 @@ describe('kimi acp', () => {
     const nativeProgram = new Command('kimi').exitOverride();
     registerAcpCommand(nativeProgram);
     await expect(nativeProgram.parseAsync(['node', 'kimi', 'acp'])).rejects.toThrow(ExitCalled);
-    const nativeOpts = vi.mocked(runAcpServer).mock.calls[0]?.[0] as {
+    const nativeOpts = runAcpServerMock.mock.calls[0]?.[0] as {
       terminalAuthLegacyCommand?: string;
     };
     // A single-file build's argv[1] is a /$bunfs virtual path that no client
     // can spawn; execPath is the real binary.
     expect(nativeOpts.terminalAuthLegacyCommand).toBe(process.execPath);
 
-    vi.mocked(runAcpServer).mockClear();
+    runAcpServerMock.mockClear();
     detectSpy.mockReturnValue({ native: false });
     const scriptProgram = new Command('kimi').exitOverride();
     registerAcpCommand(scriptProgram);
     await expect(scriptProgram.parseAsync(['node', 'kimi', 'acp'])).rejects.toThrow(ExitCalled);
-    const scriptOpts = vi.mocked(runAcpServer).mock.calls[0]?.[0] as {
+    const scriptOpts = runAcpServerMock.mock.calls[0]?.[0] as {
       terminalAuthLegacyCommand?: string;
     };
     // A global script install's bin IS the script, so pointing at execPath
@@ -149,34 +157,28 @@ describe('kimi acp', () => {
   it('exits without starting the ACP server when --login is passed', async () => {
     // Stub the SDK harness so runLoginFlow doesn't hit a real OAuth endpoint:
     // harness.auth.login resolves immediately and triggers exit 0.
-    const loginStub = vi.fn(async () => ({ providerName: 'kimi-code' }));
-    vi.doMock(import('@moonshot-ai/kimi-code-sdk'), async (importOriginal) => {
-      const actual = await importOriginal();
-      return {
-        ...actual,
-        // The login flow boots the v2-backed SDK harness (`createKimiHarness`).
-        createKimiHarness: () =>
-          ({
-            auth: { login: loginStub },
-          }) as unknown as ReturnType<typeof actual.createKimiHarness>,
-      };
-    });
-    vi.resetModules();
-    const { registerAcpCommand: freshRegister } = await import('#/cli/sub/acp');
+    const loginStub = mock(async () => ({ providerName: 'kimi-code' }));
+    void mock.module('@moonshot-ai/kimi-code-sdk', () => ({
+      ...sdkModule,
+      // The login flow boots the v2-backed SDK harness (`createKimiHarness`).
+      createKimiHarness: () =>
+        ({
+          auth: { login: loginStub },
+        }) as unknown as ReturnType<typeof sdkModule.createKimiHarness>,
+    }));
     try {
       const program = new Command('kimi').exitOverride();
-      freshRegister(program);
+      registerAcpCommand(program);
 
       await expect(program.parseAsync(['node', 'kimi', 'acp', '--login'])).rejects.toThrow(
         ExitCalled,
       );
 
       expect(loginStub).toHaveBeenCalledTimes(1);
-      expect(runAcpServer).not.toHaveBeenCalled();
+      expect(runAcpServerMock).not.toHaveBeenCalled();
       expect(exitSpy).toHaveBeenCalledWith(0);
     } finally {
-      vi.doUnmock('@moonshot-ai/kimi-code-sdk');
-      vi.resetModules();
+      mock.restore();
     }
   });
 });

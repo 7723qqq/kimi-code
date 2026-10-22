@@ -1,5 +1,5 @@
 import chalk from 'chalk';
-import { describe, it, expect, beforeAll } from 'vitest';
+import { beforeAll, describe, expect, it } from 'bun:test';
 
 import { highlightFirstSlashToken, highlightInlineSkillTokens } from '#/tui/components/editor/custom-editor';
 

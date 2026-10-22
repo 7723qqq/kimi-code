@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
@@ -23,16 +23,16 @@ import { stubAgentContext } from '../../agent/agentContext/stubs';
 describe('SessionBtwService', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
-  let fork: ReturnType<typeof vi.fn>;
-  let appendReminder: ReturnType<typeof vi.fn>;
-  let formatDenyMessage: ReturnType<typeof vi.fn>;
+  let fork: ReturnType<typeof mock>;
+  let appendReminder: ReturnType<typeof mock>;
+  let formatDenyMessage: ReturnType<typeof mock>;
   let executorEvents: ToolExecutorEventStubs;
 
   beforeEach(() => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
-    appendReminder = vi.fn(() => 'reminder-id');
-    formatDenyMessage = vi.fn((message: string) => `${message} [worker guidance]`);
+    appendReminder = mock(() => 'reminder-id');
+    formatDenyMessage = mock((message: string) => `${message} [worker guidance]`);
     executorEvents = stubToolExecutorEvents();
 
     const child = {
@@ -62,7 +62,7 @@ describe('SessionBtwService', () => {
         },
       },
     };
-    fork = vi.fn(async () => stubAgentContext('agent-btw-1', 2));
+    fork = mock(async () => stubAgentContext('agent-btw-1', 2));
     ix.stub(IAgentLifecycleService, {
       _serviceBrand: undefined,
       fork,

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import { EffortSelectorComponent } from '#/tui/components/dialogs/effort-selector';
 
@@ -17,8 +17,8 @@ describe('EffortSelectorComponent', () => {
     const picker = new EffortSelectorComponent({
       efforts: ['off', 'low', 'high', 'max'],
       currentValue: 'high',
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
+      onSelect: mock(),
+      onCancel: mock(),
     });
     const out = text(picker);
     // All efforts are rendered on a single row.
@@ -33,24 +33,24 @@ describe('EffortSelectorComponent', () => {
   });
 
   it('invokes onSelect with the chosen effort on Enter', () => {
-    const onSelect = vi.fn();
+    const onSelect = mock();
     const picker = new EffortSelectorComponent({
       efforts: ['off', 'low', 'high', 'max'],
       currentValue: 'high',
       onSelect,
-      onCancel: vi.fn(),
+      onCancel: mock(),
     });
     picker.handleInput('\r');
     expect(onSelect).toHaveBeenCalledWith('high');
   });
 
   it('moves the active segment with Left/Right and stops at the edges', () => {
-    const onSelect = vi.fn();
+    const onSelect = mock();
     const picker = new EffortSelectorComponent({
       efforts: ['off', 'low', 'high', 'max'],
       currentValue: 'high',
       onSelect,
-      onCancel: vi.fn(),
+      onCancel: mock(),
     });
 
     // index 2 (high) -> 3 (max).
@@ -77,14 +77,14 @@ describe('EffortSelectorComponent', () => {
   });
 
   it('invokes onSessionOnlySelect on Alt+S instead of onSelect', () => {
-    const onSelect = vi.fn();
-    const onSessionOnlySelect = vi.fn();
+    const onSelect = mock();
+    const onSessionOnlySelect = mock();
     const picker = new EffortSelectorComponent({
       efforts: ['off', 'low', 'high', 'max'],
       currentValue: 'high',
       onSelect,
       onSessionOnlySelect,
-      onCancel: vi.fn(),
+      onCancel: mock(),
     });
     picker.handleInput(`${ESC}s`);
     expect(onSessionOnlySelect).toHaveBeenCalledWith('high');
@@ -92,11 +92,11 @@ describe('EffortSelectorComponent', () => {
   });
 
   it('cancels on Escape', () => {
-    const onCancel = vi.fn();
+    const onCancel = mock();
     const picker = new EffortSelectorComponent({
       efforts: ['off', 'low', 'high', 'max'],
       currentValue: 'high',
-      onSelect: vi.fn(),
+      onSelect: mock(),
       onCancel,
     });
     picker.handleInput(ESC);
@@ -108,8 +108,8 @@ describe('EffortSelectorComponent', () => {
       efforts: ['off', 'low', 'high', 'max'],
       currentValue: 'high',
       warning: 'Switching may increase token usage.',
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
+      onSelect: mock(),
+      onCancel: mock(),
     });
     const lines = picker.render(120).map(strip);
     const hintIdx = lines.findIndex((l) => l.includes('←→ switch'));
@@ -121,8 +121,8 @@ describe('EffortSelectorComponent', () => {
     const picker = new EffortSelectorComponent({
       efforts: ['off', 'low', 'high', 'max'],
       currentValue: 'high',
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
+      onSelect: mock(),
+      onCancel: mock(),
     });
     const lines = picker.render(120).map(strip);
     const hintIdx = lines.findIndex((l) => l.includes('←→ switch'));
@@ -137,8 +137,8 @@ describe('EffortSelectorComponent', () => {
       efforts: ['off', 'low', 'high', 'max'],
       currentValue: 'high',
       warning,
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
+      onSelect: mock(),
+      onCancel: mock(),
     });
     const lines = picker.render(40).map(strip);
     const hintIdx = lines.findIndex((l) => l.includes('←→ switch'));

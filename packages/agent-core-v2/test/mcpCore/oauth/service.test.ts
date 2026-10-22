@@ -2,7 +2,8 @@ import { createServer as createHttpServer, type Server as HttpServer } from 'nod
 import type { AddressInfo as HttpAddress } from 'node:net';
 
 import type { OAuthClientInformationFull } from '@modelcontextprotocol/sdk/shared/auth.js';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, mock, spyOn } from 'bun:test';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import type { ILogger as Logger } from '#/_base/log/log';
 import * as callbackServerModule from '#/mcpCore/oauth/callback-server';
@@ -628,7 +629,7 @@ describe('McpOAuthService single-flight refresh', () => {
       token_type: 'Bearer',
     });
 
-    const fetchSpy = vi.spyOn(provider, 'createOAuthFetch');
+    const fetchSpy = spyOn(provider, 'createOAuthFetch');
     await fixture.service.refresh(SERVER_NAME, SERVER_URL);
     expect(fetchSpy).toHaveBeenCalled();
     expect(authServer.counts.refresh).toBe(1);
@@ -739,18 +740,17 @@ describe('McpOAuthService interactive flow serialization', () => {
 
     const callbackServer: callbackServerModule.CallbackServer = {
       redirectUri: 'http://127.0.0.1:45679/callback',
-      waitForCode: vi.fn(),
-      close: vi.fn(async () => undefined),
+      waitForCode: mock(),
+      close: mock(async () => undefined),
     };
-    const startSpy = vi
-      .spyOn(callbackServerModule, 'startCallbackServer')
+    const startSpy = spyOn(callbackServerModule, 'startCallbackServer')
       .mockResolvedValue(callbackServer);
     cleanups.push(() => startSpy.mockRestore());
 
     await expect(
       fixture.service.beginAuthorization(SERVER_NAME, SERVER_URL),
     ).rejects.toThrow(/failed to start OAuth flow/);
-    expect(callbackServer.close).toHaveBeenCalledOnce();
+    expect(callbackServer.close).toHaveBeenCalledTimes(1);
   });
 
   it('joins a concurrent flow for the same credential instead of resetting PKCE state', async () => {
@@ -878,7 +878,7 @@ describe('McpOAuthService interactive flow serialization', () => {
       releaseWrite();
     });
     const provider = await readyProvider(fixture);
-    const resetFlow = vi.spyOn(provider, 'resetFlow');
+    const resetFlow = spyOn(provider, 'resetFlow');
 
     const refresh = fixture.service.refresh(SERVER_NAME, SERVER_URL);
     await writeStarted;
@@ -1118,8 +1118,7 @@ describe('McpOAuthService proactive refresh scheduling', () => {
     const fixture = makeFixture();
     cleanups.push(() => fixture.service.dispose());
     const maxTimerDelayMs = 0x7fffffff;
-    const refreshSpy = vi
-      .spyOn(fixture.service, 'refresh')
+    const refreshSpy = spyOn(fixture.service, 'refresh')
       .mockRejectedValue(new Error('refresh unavailable in test'));
 
     await fixture.service.getProvider(SERVER_NAME, SERVER_URL).saveTokens({
@@ -1146,7 +1145,7 @@ describe('McpOAuthService proactive refresh scheduling', () => {
   it('does not proactively refresh an already-expired grant', async () => {
     const fixture = makeFixture();
     cleanups.push(() => fixture.service.dispose());
-    const refreshSpy = vi.spyOn(fixture.service, 'refresh');
+    const refreshSpy = spyOn(fixture.service, 'refresh');
 
     await fixture.service.getProvider(SERVER_NAME, SERVER_URL).saveTokens({
       access_token: 'a',
@@ -1162,7 +1161,7 @@ describe('McpOAuthService proactive refresh scheduling', () => {
   it('does not schedule an expiring grant without a refresh token', async () => {
     const fixture = makeFixture();
     cleanups.push(() => fixture.service.dispose());
-    const refreshSpy = vi.spyOn(fixture.service, 'refresh');
+    const refreshSpy = spyOn(fixture.service, 'refresh');
 
     await fixture.service.getProvider(SERVER_NAME, SERVER_URL).saveTokens({
       access_token: 'a',
@@ -1275,7 +1274,7 @@ describe('McpOAuthService shutdown', () => {
       token_type: 'Bearer',
       expires_in: 3600,
     });
-    const refreshSpy = vi.spyOn(fixture.service, 'refresh');
+    const refreshSpy = spyOn(fixture.service, 'refresh');
 
     await fixture.service.shutdown();
     await fixture.scheduler.advanceBy(3600_000);
@@ -1387,23 +1386,21 @@ describe('McpOAuthService shutdown', () => {
 
     const callbackServer: callbackServerModule.CallbackServer = {
       redirectUri: 'http://127.0.0.1:45679/callback',
-      waitForCode: vi.fn(),
-      close: vi.fn(async () => undefined),
+      waitForCode: mock(),
+      close: mock(async () => undefined),
     };
-    const startSpy = vi
-      .spyOn(callbackServerModule, 'startCallbackServer')
+    const startSpy = spyOn(callbackServerModule, 'startCallbackServer')
       .mockResolvedValue(callbackServer);
     cleanups.push(() => startSpy.mockRestore());
 
     const begin = fixture.service.beginAuthorization(SERVER_NAME, hanging.url);
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(hanging.counts.requests).toBeGreaterThan(0);
     });
 
-    const beginRejected = expect(begin).rejects.toThrow(/failed to start OAuth flow/);
-    await fixture.service.shutdown();
+        await fixture.service.shutdown();
 
-    await beginRejected;
+    await expect(begin).rejects.toThrow(/failed to start OAuth flow/);
     expect(callbackServer.close).toHaveBeenCalled();
   }, 15000);
 

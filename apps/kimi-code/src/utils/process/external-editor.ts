@@ -15,6 +15,10 @@ import { join } from 'node:path';
 
 import { quoteShellArg } from '#/utils/shell-quote';
 
+export interface EditInExternalEditorDeps {
+  readonly spawn?: typeof spawn;
+}
+
 export function resolveEditorCommand(configured?: string | null): string | undefined {
   const candidates = [configured, process.env['VISUAL'], process.env['EDITOR']];
   for (const c of candidates) {
@@ -36,14 +40,16 @@ export function resolveEditorCommand(configured?: string | null): string | undef
 export async function editInExternalEditor(
   initialText: string,
   command: string,
+  deps: EditInExternalEditorDeps = {},
 ): Promise<string | undefined> {
+  const spawnChild = deps.spawn ?? spawn;
   const dir = await mkdtemp(join(tmpdir(), 'kimi-edit-'));
   const file = join(dir, 'prompt.md');
   await writeFile(file, initialText, 'utf-8');
   try {
     const shellCmd = `${command} ${quoteShellArg(file)}`;
     const code = await new Promise<number>((resolve, reject) => {
-      const child = spawn(shellCmd, {
+      const child = spawnChild(shellCmd, {
         stdio: 'inherit',
         shell: true,
       });

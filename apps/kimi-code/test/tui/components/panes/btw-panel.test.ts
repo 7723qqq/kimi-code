@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { BtwPanelComponent } from '#/tui/components/panes/btw-panel';
 import { createMarkdownTheme } from '#/tui/theme/pi-tui-theme';

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock, type Mock } from 'bun:test';
 
 import { handleUndoCommand } from '#/tui/commands/undo';
 import type { SlashCommandHost } from '#/tui/commands/dispatch';
@@ -15,14 +15,14 @@ function entry(partial: Partial<TranscriptEntry> & Pick<TranscriptEntry, 'kind' 
 
 function hostWith(entries: TranscriptEntry[]): SlashCommandHost {
   return {
-    session: { undoHistory: vi.fn(async () => {}) },
+    session: { undoHistory: mock(async () => {}) },
     state: {
       transcriptEntries: entries,
-      transcriptContainer: { children: [], addChild: vi.fn() },
-      ui: { requestRender: vi.fn() },
+      transcriptContainer: { children: [], addChild: mock() },
+      ui: { requestRender: mock() },
       appState: { streamingPhase: 'idle' },
     },
-    showError: vi.fn(),
+    showError: mock(),
   } as unknown as SlashCommandHost;
 }
 
@@ -105,9 +105,9 @@ describe('/undo todo panel refresh', () => {
   function hostWithTodos(
     entries: TranscriptEntry[],
     session: Record<string, unknown>,
-  ): { host: SlashCommandHost; setTodoList: ReturnType<typeof vi.fn> } {
+  ): { host: SlashCommandHost; setTodoList: Mock<(...args: any[]) => any> } {
     const host = hostWith(entries);
-    const setTodoList = vi.fn();
+    const setTodoList = mock();
     (host as { streamingUI?: unknown }).streamingUI = { setTodoList };
     (host as { session?: unknown }).session = session;
     return { host, setTodoList };
@@ -118,9 +118,9 @@ describe('/undo todo panel refresh', () => {
       entry({ kind: 'user', content: 'question' }),
       entry({ kind: 'assistant', content: 'answer' }),
     ];
-    const getTodos = vi.fn(async () => [{ title: 'kept', status: 'pending' }]);
+    const getTodos = mock(async () => [{ title: 'kept', status: 'pending' }]);
     const { host, setTodoList } = hostWithTodos(entries, {
-      undoHistory: vi.fn(async () => {}),
+      undoHistory: mock(async () => {}),
       getTodos,
     });
 
@@ -140,8 +140,8 @@ describe('/undo todo panel refresh', () => {
       entry({ kind: 'assistant', content: 'answer' }),
     ];
     const { host, setTodoList } = hostWithTodos(entries, {
-      undoHistory: vi.fn(async () => {}),
-      getTodos: vi.fn(async () => {
+      undoHistory: mock(async () => {}),
+      getTodos: mock(async () => {
         throw new Error('getTodos is only available on the agent-core-v2 engine.');
       }),
     });
@@ -157,8 +157,8 @@ describe('/undo todo panel refresh', () => {
       entry({ kind: 'assistant', content: 'answer' }),
     ];
     const { host, setTodoList } = hostWithTodos(entries, {
-      undoHistory: vi.fn(async () => {}),
-      getTodos: vi.fn(async () => [{ title: 'finished', status: 'done' }]),
+      undoHistory: mock(async () => {}),
+      getTodos: mock(async () => [{ title: 'finished', status: 'done' }]),
     });
 
     await handleUndoCommand(host, '1');

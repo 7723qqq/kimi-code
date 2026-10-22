@@ -5,7 +5,8 @@ import { join, sep } from 'node:path';
 import { IModelCatalog, IWorkspaceInstanceManager } from '@moonshot-ai/agent-core-v2';
 import { HostFileSystem } from '@moonshot-ai/agent-core-v2/os/backends/host/hostFsService';
 import { FakeRuntime } from '@moonshot-ai/agent-core-v2/runtime/fakeRuntime';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+import { removeTempHome } from './helpers/tempHome';
 
 import { ErrorCode } from '../src/protocol/error-codes';
 import { type RunningServer, startServer } from '../src/start';
@@ -29,6 +30,15 @@ interface FsEntryWire {
   modified_at: string;
   etag?: string;
   mime?: string;
+}
+
+async function linkDirectory(target: string, path: string): Promise<void> {
+  try {
+    await symlink(target, path, 'dir');
+  } catch (error) {
+    if (process.platform !== 'win32') throw error;
+    await symlink(target, path, 'junction');
+  }
 }
 
 describe('server-v2 /api/v1 fs routes', () => {
@@ -56,7 +66,7 @@ describe('server-v2 /api/v1 fs routes', () => {
 
   afterEach(async () => {
     if (work !== undefined) {
-      await rm(work, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+      await removeTempHome(work);
       work = undefined;
     }
   });
@@ -67,7 +77,7 @@ describe('server-v2 /api/v1 fs routes', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+      await removeTempHome(home);
       home = undefined;
     }
   });
@@ -450,7 +460,7 @@ describe('server-v2 /api/v1 fs routes', () => {
     const outside = await mkdtemp(join(tmpdir(), 'kimi-server-v2-fs-outside-'));
     try {
       await writeFile(join(outside, 'secret.txt'), 'top-secret');
-      await symlink(outside, join(work!, 'docs'), 'dir');
+      await linkDirectory(outside, join(work!, 'docs'));
       const id = await createSession();
 
       const body = await postFs<null>(id, 'read', { path: 'docs/secret.txt' });
@@ -471,7 +481,7 @@ describe('server-v2 /api/v1 fs routes', () => {
 
   it('serves fs actions when the session cwd itself goes through a symlink', async () => {
     const link = join(tmpdir(), `kimi-server-v2-fs-cwd-link-${process.pid}`);
-    await symlink(work!, link, 'dir');
+    await linkDirectory(work!, link);
     try {
       const res = await fetch(`${base}/api/v1/sessions`, {
         method: 'POST',
@@ -776,7 +786,7 @@ describe('server-v2 /api/v1 fs routes', () => {
       });
       expect(shared.data.items.map((i) => i.path)).toContain('shared-name.ts');
     } finally {
-      await rm(extra, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+      await removeTempHome(extra);
     }
   });
 
@@ -794,7 +804,7 @@ describe('server-v2 /api/v1 fs routes', () => {
       expect(paths).toContain('top-work.ts');
       expect(paths).toContain(join(extra, 'top-extra.ts').split(sep).join('/'));
     } finally {
-      await rm(extra, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+      await removeTempHome(extra);
     }
   });
 
@@ -839,7 +849,7 @@ describe('server-v2 /api/v1 fs routes', () => {
       expect(body.data.items).toHaveLength(2);
       expect(body.data.truncated).toBe(true);
     } finally {
-      await rm(extra, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+      await removeTempHome(extra);
     }
   });
 
@@ -862,7 +872,7 @@ describe('server-v2 /api/v1 fs routes', () => {
       expect(ignored.code).toBe(0);
       expect(ignored.data.items.map((i) => i.path)).toContain('ignored-extra.ts');
     } finally {
-      await rm(extra, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+      await removeTempHome(extra);
     }
   });
 

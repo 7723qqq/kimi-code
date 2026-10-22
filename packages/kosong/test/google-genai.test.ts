@@ -1,6 +1,6 @@
 import { getEventListeners } from 'node:events';
 
-import { describe, it, expect, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import {
   APIConnectionError,
@@ -64,12 +64,12 @@ async function captureRequestBody(
     yield makeGenerateContentResponse();
   }
 
-  mockModels['generateContentStream'] = vi.fn().mockImplementation((params: unknown) => {
+  mockModels['generateContentStream'] = mock().mockImplementation((params: unknown) => {
     capturedBody = params as Record<string, unknown>;
     return Promise.resolve(mockStream());
   });
 
-  mockModels['generateContent'] = vi.fn().mockImplementation((params: unknown) => {
+  mockModels['generateContent'] = mock().mockImplementation((params: unknown) => {
     capturedBody = params as Record<string, unknown>;
     return Promise.resolve(makeGenerateContentResponse());
   });
@@ -1142,8 +1142,7 @@ describe('GoogleGenAIChatProvider', () => {
   describe('response parsing (non-stream)', () => {
     it('yields text from non-stream response', async () => {
       const provider = createProvider({ stream: false });
-      ((provider as any)._client.models as Record<string, unknown>)['generateContent'] = vi
-        .fn()
+      ((provider as any)._client.models as Record<string, unknown>)['generateContent'] = mock()
         .mockResolvedValue(makeGenerateContentResponse());
 
       const stream = await provider.generate(
@@ -1165,8 +1164,7 @@ describe('GoogleGenAIChatProvider', () => {
 
     it('yields an empty ThinkPart from an explicitly empty thought part', async () => {
       const provider = createProvider({ stream: false });
-      ((provider as any)._client.models as Record<string, unknown>)['generateContent'] = vi
-        .fn()
+      ((provider as any)._client.models as Record<string, unknown>)['generateContent'] = mock()
         .mockResolvedValue({
           candidates: [
             {
@@ -1215,8 +1213,8 @@ describe('GoogleGenAIChatProvider', () => {
         yield makeGenerateContentResponse();
       }
 
-      const streamFn = vi.fn().mockImplementation(() => Promise.resolve(mockStream()));
-      const nonStreamFn = vi.fn();
+      const streamFn = mock().mockImplementation(() => Promise.resolve(mockStream()));
+      const nonStreamFn = mock();
 
       mockModels['generateContentStream'] = streamFn;
       mockModels['generateContent'] = nonStreamFn;
@@ -1228,7 +1226,7 @@ describe('GoogleGenAIChatProvider', () => {
       );
       await collectParts(result);
 
-      expect(streamFn).toHaveBeenCalledOnce();
+      expect(streamFn).toHaveBeenCalledTimes(1);
       expect(nonStreamFn).not.toHaveBeenCalled();
     });
 
@@ -1236,8 +1234,8 @@ describe('GoogleGenAIChatProvider', () => {
       const provider = createProvider({ stream: false });
       const mockModels = (provider as any)._client.models as Record<string, unknown>;
 
-      const streamFn = vi.fn();
-      const nonStreamFn = vi.fn().mockResolvedValue(makeGenerateContentResponse());
+      const streamFn = mock();
+      const nonStreamFn = mock().mockResolvedValue(makeGenerateContentResponse());
 
       mockModels['generateContentStream'] = streamFn;
       mockModels['generateContent'] = nonStreamFn;
@@ -1249,7 +1247,7 @@ describe('GoogleGenAIChatProvider', () => {
       );
       await collectParts(result);
 
-      expect(nonStreamFn).toHaveBeenCalledOnce();
+      expect(nonStreamFn).toHaveBeenCalledTimes(1);
       expect(streamFn).not.toHaveBeenCalled();
     });
 
@@ -1512,8 +1510,7 @@ describe('GoogleGenAIChatProvider', () => {
         };
       }
 
-      mockModels['generateContentStream'] = vi
-        .fn()
+      mockModels['generateContentStream'] = mock()
         .mockImplementation(() => Promise.resolve(mockStream()));
 
       const result = await provider.generate(
@@ -1650,7 +1647,7 @@ describe('GoogleGenAIChatProvider', () => {
 
       // If the provider forwards to the SDK at all despite a pre-aborted
       // signal, this spy will flag the regression.
-      const streamFn = vi.fn();
+      const streamFn = mock();
       mockModels['generateContentStream'] = streamFn;
 
       const controller = new AbortController();
@@ -1674,7 +1671,7 @@ describe('GoogleGenAIChatProvider', () => {
         ._client.models;
       const controller = new AbortController();
 
-      mockModels['generateContentStream'] = vi.fn().mockImplementation(
+      mockModels['generateContentStream'] = mock().mockImplementation(
         () =>
           new Promise<AsyncGenerator>(() => {
             // Intentionally never resolves: reproduces the "stuck before first
@@ -1722,8 +1719,7 @@ describe('GoogleGenAIChatProvider', () => {
         yield { candidates: [{ content: { parts: [{ text: 'chunk-2' }] } }] };
       }
 
-      mockModels['generateContentStream'] = vi
-        .fn()
+      mockModels['generateContentStream'] = mock()
         .mockImplementation(() => Promise.resolve(mockStream()));
 
       const result = await provider.generate(
@@ -1755,7 +1751,7 @@ describe('GoogleGenAIChatProvider', () => {
       const provider = createProvider({ stream: false });
       const mockModels = (provider as any)._client.models as Record<string, unknown>;
 
-      mockModels['generateContent'] = vi.fn().mockResolvedValue({
+      mockModels['generateContent'] = mock().mockResolvedValue({
         candidates: [{ content: { parts: [{ text: 'done' }] } }],
         usageMetadata: { promptTokenCount: 1, candidatesTokenCount: 1 },
       });
@@ -1792,8 +1788,7 @@ describe('GoogleGenAIChatProvider', () => {
       async function* mockStream() {
         yield { candidates: [{ content: { parts: [{ text: 'ok' }] } }] };
       }
-      mockModels['generateContentStream'] = vi
-        .fn()
+      mockModels['generateContentStream'] = mock()
         .mockImplementation(() => Promise.resolve(mockStream()));
 
       // A session-level signal is handed to every `generate()` of the turn: the

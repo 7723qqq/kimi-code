@@ -1,11 +1,12 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import {
   PromptOptimizerController,
   type PromptOptimizerHost,
 } from '#/tui/controllers/prompt-optimizer';
 
-vi.mock('#/i18n', () => ({
+void mock.module('#/i18n', () => ({
   t: (key: string, params?: Record<string, string | number>): string => {
     const translations: Record<string, string> = {
       'tui.dialogs.promptOptimize.failed': 'Could not rewrite the prompt: {{error}}',
@@ -30,14 +31,14 @@ vi.mock('#/i18n', () => ({
 interface Harness {
   readonly controller: PromptOptimizerController;
   readonly host: PromptOptimizerHost;
-  readonly editor: { getText: ReturnType<typeof vi.fn>; setText: ReturnType<typeof vi.fn> };
-  readonly optimizePrompt: ReturnType<typeof vi.fn>;
-  readonly showError: ReturnType<typeof vi.fn>;
-  readonly track: ReturnType<typeof vi.fn>;
-  readonly mount: ReturnType<typeof vi.fn>;
-  readonly restoreEditor: ReturnType<typeof vi.fn>;
-  readonly setEditorOptimizing: ReturnType<typeof vi.fn>;
-  readonly session: { getContext: ReturnType<typeof vi.fn> };
+  readonly editor: { getText: Mock<(...args: any[]) => any>; setText: Mock<(...args: any[]) => any> };
+  readonly optimizePrompt: Mock<(...args: any[]) => any>;
+  readonly showError: Mock<(...args: any[]) => any>;
+  readonly track: Mock<(...args: any[]) => any>;
+  readonly mount: Mock<(...args: any[]) => any>;
+  readonly restoreEditor: Mock<(...args: any[]) => any>;
+  readonly setEditorOptimizing: Mock<(...args: any[]) => any>;
+  readonly session: { getContext: Mock<(...args: any[]) => any> };
   lastPanel(): {
     handleInput(data: string): void;
   };
@@ -46,18 +47,18 @@ interface Harness {
 
 function createHarness(draft = 'fix the parser'): Harness {
   const editor = {
-    getText: vi.fn(() => draft),
-    setText: vi.fn(),
+    getText: mock(() => draft),
+    setText: mock(),
   };
-  const optimizePrompt = vi.fn(async () => 'Rewrite the parser to reject trailing input.');
-  const showError = vi.fn();
-  const track = vi.fn();
-  const mount = vi.fn();
-  const restoreEditor = vi.fn();
-  const setEditorOptimizing = vi.fn();
+  const optimizePrompt = mock(async () => 'Rewrite the parser to reject trailing input.');
+  const showError = mock();
+  const track = mock();
+  const mount = mock();
+  const restoreEditor = mock();
+  const setEditorOptimizing = mock();
   const session = {
     optimizePrompt,
-    getContext: vi.fn(async () => ({ history: [], tokenCount: 0 })),
+    getContext: mock(async () => ({ history: [], tokenCount: 0 })),
   };
 
   let panel: { handleInput(data: string): void } | undefined;
@@ -69,7 +70,7 @@ function createHarness(draft = 'fix the parser'): Harness {
       terminal: { rows: 40, columns: 80 },
     },
     session,
-    ensureSession: vi.fn(async () => session),
+    ensureSession: mock(async () => session),
     showError,
     track,
     mountEditorReplacement: (
@@ -112,12 +113,12 @@ const ESC = '\u001B';
 const ENTER = '\r';
 
 describe('PromptOptimizerController', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => mock.clearAllMocks());
 
   it('asks the model and mounts a confirmation panel instead of editing in place', async () => {
     const h = createHarness();
     const pending = h.controller.optimize();
-    await vi.waitFor(() => expect(h.mount).toHaveBeenCalledOnce());
+    await waitForAssertion(() => expect(h.mount).toHaveBeenCalledTimes(1));
 
     expect(h.optimizePrompt).toHaveBeenCalledWith('fix the parser', { recentTurns: undefined });
     expect(h.editor.setText).not.toHaveBeenCalled();
@@ -136,7 +137,7 @@ describe('PromptOptimizerController', () => {
       tokenCount: 0,
     });
     const pending = h.controller.optimize();
-    await vi.waitFor(() => expect(h.mount).toHaveBeenCalledOnce());
+    await waitForAssertion(() => expect(h.mount).toHaveBeenCalledTimes(1));
 
     expect(h.optimizePrompt).toHaveBeenCalledWith('fix the parser', {
       recentTurns: ['first ask', 'second ask'],
@@ -148,7 +149,7 @@ describe('PromptOptimizerController', () => {
   it('applies the rewrite only after the user accepts', async () => {
     const h = createHarness();
     const pending = h.controller.optimize();
-    await vi.waitFor(() => expect(h.mount).toHaveBeenCalledOnce());
+    await waitForAssertion(() => expect(h.mount).toHaveBeenCalledTimes(1));
 
     h.lastPanel().handleInput(ENTER);
     await pending;
@@ -164,7 +165,7 @@ describe('PromptOptimizerController', () => {
   it('keeps the original draft when the user discards', async () => {
     const h = createHarness();
     const pending = h.controller.optimize();
-    await vi.waitFor(() => expect(h.mount).toHaveBeenCalledOnce());
+    await waitForAssertion(() => expect(h.mount).toHaveBeenCalledTimes(1));
 
     h.lastPanel().handleInput(ESC);
     await pending;
@@ -186,14 +187,14 @@ describe('PromptOptimizerController', () => {
     h.optimizePrompt.mockReturnValueOnce(gate);
 
     const pending = h.controller.optimize();
-    await vi.waitFor(() => expect(h.optimizePrompt).toHaveBeenCalledOnce());
+    await waitForAssertion(() => expect(h.optimizePrompt).toHaveBeenCalledTimes(1));
 
     expect(h.setEditorOptimizing).toHaveBeenCalledWith(true);
     // Not cleared while the request is still outstanding.
     expect(h.setEditorOptimizing).toHaveBeenCalledTimes(1);
 
     release('Rewrite the parser to reject trailing input.');
-    await vi.waitFor(() => expect(h.mount).toHaveBeenCalledOnce());
+    await waitForAssertion(() => expect(h.mount).toHaveBeenCalledTimes(1));
     expect(h.setEditorOptimizing).toHaveBeenLastCalledWith(false);
 
     h.lastPanel().handleInput(ESC);
@@ -227,8 +228,8 @@ describe('PromptOptimizerController', () => {
     h.session.getContext.mockReturnValueOnce(slowContext);
 
     const pending = h.controller.optimize();
-    await vi.waitFor(() => expect(h.setEditorOptimizing).toHaveBeenCalledWith(true));
-    await vi.waitFor(() => expect(h.mount).toHaveBeenCalledOnce());
+    await waitForAssertion(() => expect(h.setEditorOptimizing).toHaveBeenCalledWith(true));
+    await waitForAssertion(() => expect(h.mount).toHaveBeenCalledTimes(1));
     h.lastPanel().handleInput(ESC);
     await pending;
   });
@@ -267,7 +268,7 @@ describe('PromptOptimizerController', () => {
   it('settles the rewrite and clears busy when another panel displaces the panel', async () => {
     const h = createHarness();
     const pending = h.controller.optimize();
-    await vi.waitFor(() => expect(h.mount).toHaveBeenCalledOnce());
+    await waitForAssertion(() => expect(h.mount).toHaveBeenCalledTimes(1));
 
     h.displace();
     await pending;
@@ -284,7 +285,7 @@ describe('PromptOptimizerController', () => {
     // silently no-oping until the process exits.
     h.optimizePrompt.mockResolvedValueOnce('Rewrite the parser differently.');
     const next = h.controller.optimize();
-    await vi.waitFor(() => expect(h.optimizePrompt).toHaveBeenCalledTimes(2));
+    await waitForAssertion(() => expect(h.optimizePrompt).toHaveBeenCalledTimes(2));
     h.lastPanel().handleInput(ESC);
     await next;
   });
@@ -298,7 +299,7 @@ describe('PromptOptimizerController', () => {
     h.optimizePrompt.mockReturnValueOnce(gate);
 
     const pending = h.controller.optimize();
-    await vi.waitFor(() => expect(h.setEditorOptimizing).toHaveBeenCalledWith(true));
+    await waitForAssertion(() => expect(h.setEditorOptimizing).toHaveBeenCalledWith(true));
 
     await h.controller.optimize();
 
@@ -307,7 +308,7 @@ describe('PromptOptimizerController', () => {
     expect(h.track).toHaveBeenCalledWith('prompt_optimize_busy');
 
     release('Rewrite the parser to reject trailing input.');
-    await vi.waitFor(() => expect(h.mount).toHaveBeenCalledOnce());
+    await waitForAssertion(() => expect(h.mount).toHaveBeenCalledTimes(1));
     h.lastPanel().handleInput(ESC);
     await pending;
   });

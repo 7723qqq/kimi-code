@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
@@ -64,20 +64,20 @@ function makeTool(
   } = {},
 ): {
   readonly tool: IAskUserQuestionTool;
-  readonly request: ReturnType<typeof vi.fn>;
-  readonly telemetryTrack: ReturnType<typeof vi.fn>;
-  readonly registerTask: ReturnType<typeof vi.fn>;
-  readonly getTask: ReturnType<typeof vi.fn>;
+  readonly request: ReturnType<typeof mock>;
+  readonly telemetryTrack: ReturnType<typeof mock>;
+  readonly registerTask: ReturnType<typeof mock>;
+  readonly getTask: ReturnType<typeof mock>;
   readonly lastRegisteredTask: () => QuestionBackgroundTask | undefined;
 } {
-  const request = vi.fn(options.request ?? (async () => ({ Postgres: true }) as QuestionResult));
-  const telemetryTrack = vi.fn();
+  const request = mock(options.request ?? (async () => ({ Postgres: true }) as QuestionResult));
+  const telemetryTrack = mock();
   let lastTask: QuestionBackgroundTask | undefined;
-  const registerTask = vi.fn((task: QuestionBackgroundTask) => {
+  const registerTask = mock((task: QuestionBackgroundTask) => {
     lastTask = task;
     return 'q_test_task_id';
   });
-  const getTask = vi.fn(
+  const getTask = mock(
     (id: string): QuestionTaskInfo | undefined =>
       id === 'q_test_task_id'
         ? {
@@ -235,7 +235,7 @@ describe('AskUserQuestionTool', () => {
       signal,
     });
     expect(result.isError).toBe(false);
-    expect(request).toHaveBeenCalledOnce();
+    expect(request).toHaveBeenCalledTimes(1);
   });
 
   it('exposes background mode when all task controls are active', () => {
@@ -296,7 +296,7 @@ describe('AskUserQuestionTool', () => {
       isError: false,
       output: JSON.stringify({ answers: { Postgres: true } }),
     });
-    expect(request).toHaveBeenCalledOnce();
+    expect(request).toHaveBeenCalledTimes(1);
   });
 
   it('preserves foreground dismissal when background mode is unavailable', async () => {
@@ -543,7 +543,7 @@ describe('AskUserQuestionTool', () => {
           'next_step: Continue your work; the answer arrives automatically in a later message. Use TaskStop only to cancel the question.',
         ].join('\n'),
       );
-      expect(registerTask).toHaveBeenCalledOnce();
+      expect(registerTask).toHaveBeenCalledTimes(1);
       expect(registerTask.mock.calls[0]![1]).toMatchObject({ detached: true });
       expect(getTask).toHaveBeenCalledWith('q_test_task_id');
       expect(request).not.toHaveBeenCalled();
@@ -579,7 +579,7 @@ describe('AskUserQuestionTool', () => {
       const { sink } = makeSink();
       await lastRegisteredTask()!.start(sink);
 
-      expect(request).toHaveBeenCalledOnce();
+      expect(request).toHaveBeenCalledTimes(1);
       expect(request.mock.calls[0]![0]).toMatchObject({ turnId: 4, toolCallId: 'call_bg_detached' });
       expect(request.mock.calls[0]![1]).toMatchObject({ detached: true });
 

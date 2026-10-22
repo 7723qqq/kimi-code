@@ -1,21 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock, spyOn } from 'bun:test';
 
 import { applySurveyPreferenceChoice } from '#/tui/commands/config';
+import * as tuiConfig from '#/tui/config';
 import { darkColors } from '#/tui/theme/colors';
 
-const mocks = vi.hoisted(() => ({
-  saveTuiConfig: vi.fn(),
-}));
-
-vi.mock('../../../src/tui/config', async () => {
-  const actual = await vi.importActual<typeof import('../../../src/tui/config.js')>(
-    '../../../src/tui/config.js',
-  );
-  return {
-    ...actual,
-    saveTuiConfig: mocks.saveTuiConfig,
-  };
-});
+const mocks = {
+  saveTuiConfig: spyOn(tuiConfig, 'saveTuiConfig').mockImplementation(async () => {}),
+};
 
 function makeHost(disableFeedbackSurvey: boolean) {
   return {
@@ -29,8 +20,8 @@ function makeHost(disableFeedbackSurvey: boolean) {
       },
       theme: { palette: darkColors },
     },
-    setAppState: vi.fn(),
-    showStatus: vi.fn(),
+    setAppState: mock(),
+    showStatus: mock(),
   };
 }
 

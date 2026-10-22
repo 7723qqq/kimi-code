@@ -1,9 +1,11 @@
 import { KIMI_CODE_PROVIDER_NAME } from '@moonshot-ai/kimi-code-oauth';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import { expectRejection } from '#test/helpers/assertions';
+import { setEnv, setGlobal, restoreEnvs, restoreGlobals } from '#test/helpers/stubs';
 
 import { createScopedTestHost } from '#/_base/di/test';
 import { isError2 } from '#/_base/errors/errors';
-import { ILogService, type LogPayload } from '#/_base/log/log';
+import { ILogService } from '#/_base/log/log';
 import { IOAuthService } from '#/app/auth/auth';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
@@ -16,15 +18,9 @@ import { MODEL_CATALOG_SECTION } from '#/app/kosongConfig/configSection';
 import { IKosongConfigService } from '#/app/kosongConfig/kosongConfig';
 import '#/app/kosongConfig/kosongConfigService';
 import '#/llm-adapter/model/errors';
-import {
-  IModelService,
-  type ModelRecord,
-} from '#/llm-adapter/model/model';
+import { IModelService, type ModelRecord } from '#/llm-adapter/model/model';
 import '#/llm-adapter/model/model-service';
-import {
-  IProviderService,
-  type ProviderConfig,
-} from '#/llm-adapter/provider/provider';
+import { IProviderService, type ProviderConfig } from '#/llm-adapter/provider/provider';
 import '#/llm-adapter/provider/provider-service';
 
 import { StubConfigService, stubOAuthService, stubTokenProvider } from '../../stubs';
@@ -102,8 +98,8 @@ async function createHost(
 }
 
 afterEach(() => {
-  vi.unstubAllGlobals();
-  vi.unstubAllEnvs();
+  restoreGlobals();
+  restoreEnvs();
 });
 
 const staticProviders: Record<string, ProviderConfig> = {
@@ -122,8 +118,8 @@ const staticSections: Record<string, unknown> = {
 
 describe('refreshProviderModels modelSource short-circuit', () => {
   it('answers scoped refreshes of static providers with unchanged and no I/O', async () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
+    const fetchMock = mock();
+    setGlobal('fetch', fetchMock);
     const { host, discovery } = await createHost(staticSections);
     try {
       const result = await discovery.refreshProviderModels({ providerId: 'static-p' });
@@ -146,7 +142,7 @@ describe('refreshProviderModels modelSource short-circuit', () => {
   });
 
   it('hides static entries from the orchestrator and merges them back verbatim', async () => {
-    const fetchMock = vi.fn(
+    const fetchMock = mock(
       async () =>
         new Response(
           JSON.stringify({
@@ -161,7 +157,7 @@ describe('refreshProviderModels modelSource short-circuit', () => {
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         ),
     );
-    vi.stubGlobal('fetch', fetchMock);
+    setGlobal('fetch', fetchMock);
 
     const { host, config, discovery, events, providers, models } = await createHost({
       providers: {
@@ -203,9 +199,7 @@ describe('refreshProviderModels modelSource short-circuit', () => {
   it('throws provider.not_found for an unknown scoped provider', async () => {
     const { host, discovery } = await createHost(staticSections);
     try {
-      await expect(discovery.refreshProviderModels({ providerId: 'missing' })).rejects.toSatisfy(
-        (error) => isError2(error) && error.code === 'provider.not_found',
-      );
+      await expectRejection(discovery.refreshProviderModels({ providerId: 'missing' }), (error) => isError2(error) && error.code === 'provider.not_found');
     } finally {
       host.dispose();
     }
@@ -230,7 +224,7 @@ describe('refreshProviderModels write behavior', () => {
     try {
       let inFlight = 0;
       let maxInFlight = 0;
-      const fetchMock = vi.fn().mockImplementation(async () => {
+      const fetchMock = mock().mockImplementation(async () => {
         inFlight++;
         maxInFlight = Math.max(maxInFlight, inFlight);
         await new Promise((resolve) => setTimeout(resolve, 20));
@@ -249,7 +243,7 @@ describe('refreshProviderModels write behavior', () => {
           }),
         };
       });
-      vi.stubGlobal('fetch', fetchMock);
+      setGlobal('fetch', fetchMock);
 
       await Promise.all([
         discovery.refreshProviderModels({ scope: 'all' }),
@@ -264,7 +258,7 @@ describe('refreshProviderModels write behavior', () => {
   });
 
   it('sends the host User-Agent on custom-registry fetches', async () => {
-    const fetchMock = vi.fn(
+    const fetchMock = mock(
       async () =>
         new Response(
           JSON.stringify({
@@ -279,7 +273,7 @@ describe('refreshProviderModels write behavior', () => {
           { headers: { 'Content-Type': 'application/json' } },
         ),
     );
-    vi.stubGlobal('fetch', fetchMock);
+    setGlobal('fetch', fetchMock);
 
     const { host, discovery } = await createHost({
       providers: {
@@ -311,8 +305,8 @@ describe('refreshProviderModels write behavior', () => {
 
   it('refreshes a hand-configured API-key provider at the managed endpoint', async () => {
     const baseUrl = 'https://api.managed.example.test/coding/v1';
-    vi.stubEnv('KIMI_CODE_BASE_URL', baseUrl);
-    const fetchMock = vi.fn(
+    setEnv('KIMI_CODE_BASE_URL', baseUrl);
+    const fetchMock = mock(
       async () =>
         new Response(
           JSON.stringify({
@@ -329,7 +323,7 @@ describe('refreshProviderModels write behavior', () => {
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         ),
     );
-    vi.stubGlobal('fetch', fetchMock);
+    setGlobal('fetch', fetchMock);
 
     const { host, config, discovery, events, providers, models } = await createHost({
       providers: {
@@ -377,8 +371,8 @@ describe('refreshProviderModels write behavior', () => {
 
   it('clears a stale defaultModel whose alias upstream dropped', async () => {
     const baseUrl = 'https://api.managed.example.test/coding/v1';
-    vi.stubEnv('KIMI_CODE_BASE_URL', baseUrl);
-    const fetchMock = vi.fn(
+    setEnv('KIMI_CODE_BASE_URL', baseUrl);
+    const fetchMock = mock(
       async () =>
         new Response(
           JSON.stringify({
@@ -387,7 +381,7 @@ describe('refreshProviderModels write behavior', () => {
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         ),
     );
-    vi.stubGlobal('fetch', fetchMock);
+    setGlobal('fetch', fetchMock);
 
     const { host, config, discovery, models } = await createHost({
       providers: {
@@ -423,8 +417,8 @@ describe('refreshProviderModels write behavior', () => {
 
   it('leaves the subagent model pool untouched when a refresh drops its default alias', async () => {
     const baseUrl = 'https://api.managed.example.test/coding/v1';
-    vi.stubEnv('KIMI_CODE_BASE_URL', baseUrl);
-    const fetchMock = vi.fn(
+    setEnv('KIMI_CODE_BASE_URL', baseUrl);
+    const fetchMock = mock(
       async () =>
         new Response(
           JSON.stringify({
@@ -433,7 +427,7 @@ describe('refreshProviderModels write behavior', () => {
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         ),
     );
-    vi.stubGlobal('fetch', fetchMock);
+    setGlobal('fetch', fetchMock);
 
     const { host, config, discovery } = await createHost({
       providers: {
@@ -464,8 +458,8 @@ describe('refreshProviderModels write behavior', () => {
 
   it('leaves the whole pool untouched even when a refresh drops a non-default entry', async () => {
     const baseUrl = 'https://api.managed.example.test/coding/v1';
-    vi.stubEnv('KIMI_CODE_BASE_URL', baseUrl);
-    const fetchMock = vi.fn(
+    setEnv('KIMI_CODE_BASE_URL', baseUrl);
+    const fetchMock = mock(
       async () =>
         new Response(
           JSON.stringify({
@@ -474,7 +468,7 @@ describe('refreshProviderModels write behavior', () => {
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         ),
     );
-    vi.stubGlobal('fetch', fetchMock);
+    setGlobal('fetch', fetchMock);
 
     const { host, config, discovery } = await createHost({
       providers: {
@@ -506,7 +500,7 @@ describe('refreshProviderModels write behavior', () => {
   });
 
   it('never exposes a halfway-removed catalog: the registries stay untouched until the single atomic write', async () => {
-    const fetchMock = vi.fn(
+    const fetchMock = mock(
       async () =>
         new Response(
           JSON.stringify({
@@ -521,7 +515,7 @@ describe('refreshProviderModels write behavior', () => {
           { headers: { 'Content-Type': 'application/json' } },
         ),
     );
-    vi.stubGlobal('fetch', fetchMock);
+    setGlobal('fetch', fetchMock);
 
     const { host, config, discovery, providers, models } = await createHost({
       providers: {
@@ -543,19 +537,21 @@ describe('refreshProviderModels write behavior', () => {
     try {
       let seenDuringWrite: { providers: readonly string[]; models: readonly string[] } | undefined;
       const originalReplaceSections = config.replaceSections.bind(config);
-      vi.spyOn(config, 'replaceSections').mockImplementation(async (sections) => {
-        seenDuringWrite = {
-          providers: Object.keys(providers.list()),
-          models: Object.keys(models.list()),
-        };
-        await originalReplaceSections(sections);
-      });
+      const replaceSections = spyOn(config, 'replaceSections').mockImplementation(
+        async (sections) => {
+          seenDuringWrite = {
+            providers: Object.keys(providers.list()),
+            models: Object.keys(models.list()),
+          };
+          await originalReplaceSections(sections);
+        },
+      );
 
       const result = await discovery.refreshProviderModels({ scope: 'all' });
 
       expect(result.failed).toEqual([]);
       expect(seenDuringWrite).toEqual({ providers: ['acme'], models: ['acme/m1'] });
-      expect(vi.mocked(config.replaceSections).mock.calls.length).toBe(1);
+      expect(replaceSections.mock.calls.length).toBe(1);
       expect(providers.list()['acme']).toBeDefined();
       expect(models.list()['acme/m2']).toBeDefined();
       expect(models.list()['acme/m1']).toBeUndefined();
@@ -568,7 +564,7 @@ describe('refreshProviderModels write behavior', () => {
 
 describe('refreshProviderModels api_key_env credentials', () => {
   it('fails an open-platform provider with conflicting api_key_env and oauth, without affecting others', async () => {
-    const fetchMock = vi.fn(async (input: unknown) => {
+    const fetchMock = mock(async (input: unknown) => {
       if (String(input).endsWith('api.json')) {
         return new Response(
           JSON.stringify({
@@ -590,7 +586,7 @@ describe('refreshProviderModels api_key_env credentials', () => {
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     });
-    vi.stubGlobal('fetch', fetchMock);
+    setGlobal('fetch', fetchMock);
     const { host, discovery, models } = await createHost({
       providers: {
         'moonshot-cn': {
@@ -621,15 +617,15 @@ describe('refreshProviderModels api_key_env credentials', () => {
   });
 
   it('refreshes an open-platform provider through api_key_env without persisting the secret', async () => {
-    vi.stubEnv('KIMI_TEST_OPEN_PLATFORM_KEY', 'sk-open-platform');
-    const fetchMock = vi.fn(
+    setEnv('KIMI_TEST_OPEN_PLATFORM_KEY', 'sk-open-platform');
+    const fetchMock = mock(
       async () =>
         new Response(
           JSON.stringify({ data: [{ id: 'kimi-k2', context_length: 262144 }] }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         ),
     );
-    vi.stubGlobal('fetch', fetchMock);
+    setGlobal('fetch', fetchMock);
     const { host, discovery, providers } = await createHost({
       providers: {
         'moonshot-cn': { type: 'kimi', apiKeyEnv: 'KIMI_TEST_OPEN_PLATFORM_KEY' },
@@ -676,9 +672,9 @@ describe('refreshProviderModels defaultModel self-heal', () => {
   };
 
   function stubManagedCatalogFetch(): void {
-    vi.stubGlobal(
+    setGlobal(
       'fetch',
-      vi.fn(
+      mock(
         async () =>
           new Response(
             JSON.stringify({
@@ -707,7 +703,7 @@ describe('refreshProviderModels defaultModel self-heal', () => {
       stubOAuthService(stubTokenProvider(['access-token'])),
     );
     try {
-      const replaceSections = vi.spyOn(config, 'replaceSections');
+      const replaceSections = spyOn(config, 'replaceSections');
       const result = await discovery.refreshProviderModels({ scope: 'all' });
 
       expect(result.failed).toEqual([]);
@@ -752,9 +748,9 @@ describe('refreshProviderModels defaultModel self-heal', () => {
       stubOAuthService(stubTokenProvider(['access-token'])),
     );
     try {
-      vi.stubGlobal(
+      setGlobal(
         'fetch',
-        vi.fn(
+        mock(
           async () => {
             await config.set('defaultModel', 'kimi-code/kimi-k3');
             return new Response(
@@ -779,7 +775,7 @@ describe('refreshProviderModels defaultModel self-heal', () => {
           },
         ),
       );
-      const replaceSections = vi.spyOn(config, 'replaceSections');
+      const replaceSections = spyOn(config, 'replaceSections');
       const result = await discovery.refreshProviderModels({ scope: 'all' });
 
       expect(result).toEqual({
@@ -807,7 +803,7 @@ describe('refreshProviderModels defaultModel self-heal', () => {
       stubOAuthService(stubTokenProvider(['access-token'])),
     );
     try {
-      const replaceSections = vi.spyOn(config, 'replaceSections');
+      const replaceSections = spyOn(config, 'replaceSections');
       const result = await discovery.refreshProviderModels({ scope: 'all' });
 
       expect(result).toEqual({
@@ -835,7 +831,7 @@ describe('refreshProviderModels defaultModel self-heal', () => {
       stubOAuthService(stubTokenProvider(['access-token'])),
     );
     try {
-      const replaceSections = vi.spyOn(config, 'replaceSections');
+      const replaceSections = spyOn(config, 'replaceSections');
       const result = await discovery.refreshProviderModels({ scope: 'all' });
 
       expect(result).toEqual({

@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, mock } from 'bun:test';
+import { setEnv, restoreEnvs } from '../../../../test/helpers/stubs';
 
 import { classifyKimiQuotaError } from '#/llm-kimi/errors';
 import { KimiFiles, kimiFilesBaseUrl } from '#/llm-kimi/files';
@@ -413,7 +414,7 @@ describe('media', () => {
   });
 
   it('uploads a video ref once and serves later requests from the cache', async () => {
-    const uploadVideo = vi.fn(async () => uploadedPart);
+    const uploadVideo = mock(async () => uploadedPart);
     const provider = createProvider({
       id: 'test-media',
       protocols: { openai: { base: openAIBase } },
@@ -441,7 +442,7 @@ describe('media', () => {
     const provider = createProvider({
       id: 'test-media',
       protocols: { openai: { base: openAIBase } },
-      media: { uploadVideo: vi.fn() },
+      media: { uploadVideo: mock() },
     });
     const resolver = createMediaRefResolver({
       providers: [provider],
@@ -485,12 +486,12 @@ describe('media', () => {
 
 describe('endpoint', () => {
   afterEach(() => {
-    vi.unstubAllEnvs();
+    restoreEnvs();
   });
 
   it('injects the endpoint from env and connection defaults at request time', async () => {
-    vi.stubEnv(KIMI_BASE_URL_ENV, '');
-    vi.stubEnv(KIMI_API_KEY_ENV, 'env-key');
+    setEnv(KIMI_BASE_URL_ENV, '');
+    setEnv(KIMI_API_KEY_ENV, 'env-key');
     const seen: LlmModel[] = [];
     const client = createClientStub((captured, request) => {
       seen.push(request.model);
@@ -516,7 +517,7 @@ describe('endpoint', () => {
       { messages },
       { signal },
     );
-    vi.stubEnv(KIMI_BASE_URL_ENV, 'https://example.test/v9');
+    setEnv(KIMI_BASE_URL_ENV, 'https://example.test/v9');
     await requester.generate(
       { model: kimiProvider.resolveModel('kimi-k3') },
       { messages },
@@ -584,7 +585,7 @@ describe('endpoint', () => {
 
 describe('protocol variant flags', () => {
   afterEach(() => {
-    vi.unstubAllEnvs();
+    restoreEnvs();
   });
 
   it('uses the anthropic beta api when the model opts in', async () => {
@@ -601,8 +602,8 @@ describe('protocol variant flags', () => {
   });
 
   it('switches google env names when the model opts into vertex', async () => {
-    vi.stubEnv('GOOGLE_API_KEY', 'gemini-key');
-    vi.stubEnv('VERTEXAI_API_KEY', 'vertex-key');
+    setEnv('GOOGLE_API_KEY', 'gemini-key');
+    setEnv('VERTEXAI_API_KEY', 'vertex-key');
     const chunks = [
       {
         responseId: 'gemini-resp-1',

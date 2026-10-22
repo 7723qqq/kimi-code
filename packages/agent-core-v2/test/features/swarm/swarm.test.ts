@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
 import { makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 
 import { type IAgentScopeHandle } from '#/_base/di/scope';
@@ -124,30 +124,30 @@ function hookContext(toolCalls: ToolCall[]): ResolvedToolExecutionHookContext {
 }
 
 function mockSwarmHost({
-  run = vi.fn().mockResolvedValue([]),
-  getSwarmItem = vi.fn().mockResolvedValue(undefined),
+  run = mock().mockResolvedValue([]),
+  getSwarmItem = mock().mockResolvedValue(undefined),
 }: {
   readonly run?: (...args: any[]) => any;
   readonly getSwarmItem?: (...args: any[]) => any;
 } = {}) {
   return {
-    swarmService: { _serviceBrand: undefined, getSwarmItem, run, cancel: vi.fn() },
+    swarmService: { _serviceBrand: undefined, getSwarmItem, run, cancel: mock() },
     callerAgentId: 'main',
   };
 }
 
 function mockSwarmMode() {
-  return { _serviceBrand: undefined, isActive: false, enter: vi.fn(), exit: vi.fn() };
+  return { _serviceBrand: undefined, isActive: false, enter: mock(), exit: mock() };
 }
 
 function mockModeMutex(swarmMode: ReturnType<typeof mockSwarmMode>) {
   return {
     _serviceBrand: undefined,
     activeMode: () => null,
-    switchTo: vi.fn(async () => {
+    switchTo: mock(async () => {
       swarmMode.enter('tool');
     }),
-    leave: vi.fn(async () => {
+    leave: mock(async () => {
       swarmMode.exit();
     }),
   };
@@ -362,9 +362,9 @@ describe('AgentSwarmService', () => {
     executorEvents = stubToolExecutorEvents();
     permissionGateRan = false;
     ix.stub(IAgentToolExecutorService, executorEvents.executor);
-    formatDenyMessage = vi.fn((message: string) => message);
+    formatDenyMessage = mock((message: string) => message);
     ix.stub(IAgentToolApprovalService, { formatDenyMessage });
-    telemetryTrack2 = vi.fn();
+    telemetryTrack2 = mock();
     ix.stub(ITelemetryService, { track2: telemetryTrack2 });
     registerTestAgentWire(ix, testWireScope('wire', 'swarm-test'), {
       log: ix.get(IAppendLogStore),
@@ -691,7 +691,7 @@ describe('swarm context reconciliation', () => {
 describe('AgentSwarmTool', () => {
   it('applies one subagent_type across templated subagents', async () => {
     const host = mockSwarmHost({
-      run: vi.fn().mockResolvedValue([
+      run: mock().mockResolvedValue([
         {
           task: {
             kind: 'spawn',
@@ -946,7 +946,7 @@ describe('AgentSwarmTool', () => {
   });
 
   it('resumes mapped agents before spawning item subagents', async () => {
-    const run = vi.fn(
+    const run = mock(
       async <T>({
         tasks,
       }: {
@@ -964,7 +964,7 @@ describe('AgentSwarmTool', () => {
       'agent-old-1': 'src/old-a.ts',
       'agent-old-2': 'src/old-b.ts',
     };
-    const getSwarmItem = vi.fn(
+    const getSwarmItem = mock(
       async ({ agentId }: { readonly agentId: string }) => persistedItems[agentId],
     );
     const host = mockSwarmHost({ run, getSwarmItem });
@@ -1073,7 +1073,7 @@ describe('AgentSwarmTool', () => {
   });
 
   it('allows a single resumed subagent without item subagents', async () => {
-    const run = vi.fn(
+    const run = mock(
       async <T>({
         tasks,
       }: {
@@ -1087,7 +1087,7 @@ describe('AgentSwarmTool', () => {
         }));
       },
     );
-    const getSwarmItem = vi.fn(async () => 'src/old-a.ts');
+    const getSwarmItem = mock(async () => 'src/old-a.ts');
     const host = mockSwarmHost({ run, getSwarmItem });
     const tool = new AgentSwarmTool(host.swarmService, makeAgentScopeContext({ agentId: host.callerAgentId, agentScope: '' }), mockSwarmMode(), mockModeMutex(mockSwarmMode()), stubConfig(), stubFlag(true), realSubagents(stubSwarmCatalog(), stubConfig(), stubCallerProfile()), stubCallerProfile());
     const input = {
@@ -1137,7 +1137,7 @@ describe('AgentSwarmTool', () => {
 
   it('reports failed subagents inside the XML result without failing the tool', async () => {
     const host = mockSwarmHost({
-      run: vi.fn().mockImplementation(async ({ tasks }) => [
+      run: mock().mockImplementation(async ({ tasks }) => [
         {
           task: tasks[0],
           agentId: 'agent-coder-1',
@@ -1297,7 +1297,7 @@ describe('AgentSwarmTool', () => {
 
   it('omits resume hint when incomplete subagents have no agent ids', async () => {
     const host = mockSwarmHost({
-      run: vi.fn().mockImplementation(async ({ tasks }) => [
+      run: mock().mockImplementation(async ({ tasks }) => [
         {
           task: tasks[0],
           status: 'failed',
@@ -1334,7 +1334,7 @@ describe('AgentSwarmTool', () => {
 
   it('reports partial aborted subagents inside the XML result', async () => {
     const host = mockSwarmHost({
-      run: vi.fn().mockImplementation(async ({ tasks }) => [
+      run: mock().mockImplementation(async ({ tasks }) => [
         {
           task: tasks[0],
           agentId: 'agent-coder-1',

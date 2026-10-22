@@ -50,6 +50,10 @@ export interface LlmCredentialProvider {
   invalidate?(): void;
 }
 
+export interface DeterminismRequestOptions {
+  readonly seed?: number;
+}
+
 export interface LlmRequestConfig {
   readonly model: LlmModel;
   readonly credentialProvider?: LlmCredentialProvider;
@@ -60,6 +64,7 @@ export interface LlmRequestConfig {
   readonly responseFormat?: ResponseFormat;
   readonly maxCompletionTokens?: number;
   readonly maxContextTokens?: number;
+  readonly determinism?: DeterminismRequestOptions;
   readonly extraParams?: ExtraParams;
   readonly toolMessageConversion?: ToolMessageConversion;
 }

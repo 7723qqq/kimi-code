@@ -1,12 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { GoalClear, GoalCreate, GoalUpdate } from '#/features/goal/goalOps';
 import { migrateV1_3ToV1_4 } from '#/wire/migration/migration';
 import { runMigration } from './utils';
+import { renderSnapshot } from '../../harness/snapshots';
 
 describe('1.3 to 1.4', () => {
   it('rewrites legacy goal audit records to replayable goal state records', () => {
-    expect(
+    expect(renderSnapshot(
       runMigration(migrateV1_3ToV1_4, [
         {
           type: 'metadata',
@@ -64,14 +65,14 @@ describe('1.3 to 1.4', () => {
           time: 60,
         },
       ]),
-    ).toMatchInlineSnapshot(`
-      [wire] metadata      { "protocol_version": "1.4", "created_at": "<time>" }
+    )).toMatchInlineSnapshot(`
+      "[wire] metadata      { "protocol_version": "1.4", "created_at": "<time>" }
       [wire] goal.create   { "goalId": "goal-1", "objective": "ship the feature", "completionCriterion": "tests pass", "time": "<time>" }
       [wire] goal.update   { "goalId": "goal-1", "tokensUsed": 5, "wallClockMs": 0, "time": "<time>" }
       [wire] goal.update   { "goalId": "goal-1", "turnsUsed": 1, "time": "<time>" }
       [wire] goal.update   { "goalId": "goal-1", "status": "paused", "reason": "Paused after session resume", "turnsUsed": 1, "tokensUsed": 5, "wallClockMs": 0, "actor": "runtime", "time": "<time>" }
       [wire] goal.clear    { "goalId": "goal-1", "time": "<time>" }
-      [wire] forked        { "time": "<time>" }
+      [wire] forked        { "time": "<time>" }"
     `);
   });
 

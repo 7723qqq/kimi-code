@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import type { IAgentModeMutexService, ExclusiveReviewMode } from '#/agent/modeMutex/modeMutex';
 import { IAgentPlanService, type PlanData } from '#/features/plan/plan';
@@ -25,16 +25,16 @@ function specData(): SpecData {
 
 function mutex(): {
   readonly service: IAgentModeMutexService;
-  readonly switchTo: ReturnType<typeof vi.fn>;
-  readonly leave: ReturnType<typeof vi.fn>;
+  readonly switchTo: ReturnType<typeof mock>;
+  readonly leave: ReturnType<typeof mock>;
   active: ExclusiveReviewMode | null;
 } {
   const holder = {
     active: null as ExclusiveReviewMode | null,
-    switchTo: vi.fn(async (target: ExclusiveReviewMode) => {
+    switchTo: mock(async (target: ExclusiveReviewMode) => {
       holder.active = target;
     }),
-    leave: vi.fn(async () => {
+    leave: mock(async () => {
       holder.active = null;
     }),
   };
@@ -60,12 +60,12 @@ function mutex(): {
 function specService(status: SpecData | null): IAgentSpecService {
   return {
     _serviceBrand: undefined,
-    enter: vi.fn(async () => {}),
-    cancel: vi.fn(),
-    exit: vi.fn(),
-    clear: vi.fn(async () => {}),
-    recordRevision: vi.fn(async () => {}),
-    status: vi.fn(async () => status),
+    enter: mock(async () => {}),
+    cancel: mock(),
+    exit: mock(),
+    clear: mock(async () => {}),
+    recordRevision: mock(async () => {}),
+    status: mock(async () => status),
     activeSpecDir: () => null,
   };
 }
@@ -73,12 +73,12 @@ function specService(status: SpecData | null): IAgentSpecService {
 function planService(status: PlanData): IAgentPlanService {
   return {
     _serviceBrand: undefined,
-    enter: vi.fn(async () => {}),
-    cancel: vi.fn(),
-    clear: vi.fn(async () => {}),
-    exit: vi.fn(),
-    recordRevision: vi.fn(async () => {}),
-    status: vi.fn(async () => status),
+    enter: mock(async () => {}),
+    cancel: mock(),
+    clear: mock(async () => {}),
+    exit: mock(),
+    recordRevision: mock(async () => {}),
+    status: mock(async () => status),
   };
 }
 

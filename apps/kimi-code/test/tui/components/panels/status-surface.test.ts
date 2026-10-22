@@ -1,6 +1,6 @@
 import type { TuiMouseEvent } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import {
   StatusSurfaceComponent,
@@ -626,7 +626,7 @@ describe('StatusSurfaceComponent', () => {
   });
 
   it('invokes the render callback when a fold changes state', () => {
-    const onRequestRender = vi.fn();
+    const onRequestRender = mock();
     const surface = new StatusSurfaceComponent({
       terminalRows: () => 24,
       onRequestRender,

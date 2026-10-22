@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import type { LlmModel } from '#/llm/model';
 import type { CatalogModelDefinition } from '#/llm/provider-catalog';

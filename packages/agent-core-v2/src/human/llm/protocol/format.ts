@@ -10,16 +10,26 @@ export type FormatRequestInput = LlmRequestConfig & {
   readonly usedContextTokens?: number;
 };
 
+export function resolveContextWindowTokens(input: FormatRequestInput): number | undefined {
+  const explicit = input.maxContextTokens;
+  const window = explicit !== undefined && explicit > 0 ? explicit : input.model.maxContextSize;
+  return window !== undefined && window > 0 ? window : undefined;
+}
+
+export function remainingContextTokens(input: FormatRequestInput): number | undefined {
+  const window = resolveContextWindowTokens(input);
+  if (window === undefined || input.usedContextTokens === undefined) return undefined;
+  return window - input.usedContextTokens;
+}
+
 export function resolveMaxCompletionCap(input: FormatRequestInput): number | undefined {
-  const { maxCompletionTokens, usedContextTokens, maxContextTokens } = input;
+  const { maxCompletionTokens } = input;
   if (maxCompletionTokens === undefined || maxCompletionTokens <= 0) {
     return undefined;
   }
-  let cap = maxCompletionTokens;
-  if (usedContextTokens !== undefined && maxContextTokens !== undefined && maxContextTokens > 0) {
-    cap = Math.min(cap, maxContextTokens - usedContextTokens);
-  }
-  return Math.max(1, cap);
+  const remaining = remainingContextTokens(input);
+  if (remaining === undefined) return maxCompletionTokens;
+  return remaining > 0 ? Math.min(maxCompletionTokens, remaining) : undefined;
 }
 
 export interface StreamParseSink {

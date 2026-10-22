@@ -1,5 +1,6 @@
 import { visibleWidth } from '@moonshot-ai/pi-tui';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock, spyOn } from 'bun:test';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import {
   GoalQueueEditDialogComponent,
@@ -38,8 +39,8 @@ describe('GoalQueueManagerComponent', () => {
   it('renders the upcoming goals and the management hint', () => {
     const manager = new GoalQueueManagerComponent({
       goals: [goal('g1', 'Ship queued goal')],
-      onAction: vi.fn(),
-      onCancel: vi.fn(),
+      onAction: mock(),
+      onCancel: mock(),
     });
 
     const out = text(manager);
@@ -51,14 +52,14 @@ describe('GoalQueueManagerComponent', () => {
   it('uses Space to enter move mode and reorders with Up/Down', async () => {
     const first = goal('g1', 'First queued goal');
     const second = goal('g2', 'Second queued goal');
-    const onAction = vi.fn(async (action: GoalQueueManagerAction) => {
+    const onAction = mock(async (action: GoalQueueManagerAction) => {
       expect(action).toEqual({ kind: 'move', goalId: 'g2', direction: 'up' });
       return snapshot([second, first]);
     });
     const manager = new GoalQueueManagerComponent({
       goals: [first, second],
       onAction,
-      onCancel: vi.fn(),
+      onCancel: mock(),
     });
 
     manager.handleInput(DOWN);
@@ -66,8 +67,8 @@ describe('GoalQueueManagerComponent', () => {
     expect(text(manager)).toContain('↑↓ reorder · Space done · E edit · D delete · Esc cancel');
     manager.handleInput(UP);
 
-    await vi.waitFor(() => {
-      expect(onAction).toHaveBeenCalledOnce();
+    await waitForAssertion(() => {
+      expect(onAction).toHaveBeenCalledTimes(1);
     });
     const out = text(manager);
     expect(out.indexOf('Second queued goal')).toBeLessThan(out.indexOf('First queued goal'));
@@ -76,20 +77,20 @@ describe('GoalQueueManagerComponent', () => {
   it('deletes the selected goal and keeps the list open', async () => {
     const first = goal('g1', 'First queued goal');
     const second = goal('g2', 'Second queued goal');
-    const onAction = vi.fn(async (action: GoalQueueManagerAction) => {
+    const onAction = mock(async (action: GoalQueueManagerAction) => {
       expect(action).toEqual({ kind: 'delete', goalId: 'g1' });
       return snapshot([second]);
     });
     const manager = new GoalQueueManagerComponent({
       goals: [first, second],
       onAction,
-      onCancel: vi.fn(),
+      onCancel: mock(),
     });
 
     manager.handleInput('d');
 
-    await vi.waitFor(() => {
-      expect(onAction).toHaveBeenCalledOnce();
+    await waitForAssertion(() => {
+      expect(onAction).toHaveBeenCalledTimes(1);
     });
     const out = text(manager);
     expect(out).not.toContain('First queued goal');
@@ -100,7 +101,7 @@ describe('GoalQueueManagerComponent', () => {
     const first = goal('g1', 'First queued goal');
     const second = goal('g2', 'Second queued goal');
     let resolveAction: (value: GoalQueueSnapshot) => void;
-    const onAction = vi.fn(
+    const onAction = mock(
       () =>
         new Promise<GoalQueueSnapshot>((resolve) => {
           resolveAction = resolve;
@@ -109,24 +110,24 @@ describe('GoalQueueManagerComponent', () => {
     const manager = new GoalQueueManagerComponent({
       goals: [first, second],
       onAction,
-      onCancel: vi.fn(),
+      onCancel: mock(),
     });
-    const invalidate = vi.spyOn(manager, 'invalidate');
+    const invalidate = spyOn(manager, 'invalidate');
 
     manager.handleInput('d');
     resolveAction!(snapshot([second]));
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(invalidate).toHaveBeenCalled();
     });
   });
 
   it('emits an edit action for the selected goal', () => {
-    const onAction = vi.fn();
+    const onAction = mock();
     const manager = new GoalQueueManagerComponent({
       goals: [goal('g1', 'First queued goal')],
       onAction,
-      onCancel: vi.fn(),
+      onCancel: mock(),
     });
 
     manager.handleInput('e');
@@ -135,23 +136,23 @@ describe('GoalQueueManagerComponent', () => {
   });
 
   it('cancels with Esc', () => {
-    const onCancel = vi.fn();
+    const onCancel = mock();
     const manager = new GoalQueueManagerComponent({
       goals: [],
-      onAction: vi.fn(),
+      onAction: mock(),
       onCancel,
     });
 
     manager.handleInput(ESC);
 
-    expect(onCancel).toHaveBeenCalledOnce();
+    expect(onCancel).toHaveBeenCalledTimes(1);
   });
 
   it('never renders a line wider than the terminal', () => {
     const manager = new GoalQueueManagerComponent({
       goals: [goal('g1', 'A very long queued goal objective that should be truncated cleanly')],
-      onAction: vi.fn(),
-      onCancel: vi.fn(),
+      onAction: mock(),
+      onCancel: mock(),
     });
 
     for (const width of [24, 40, 80]) {
@@ -164,8 +165,8 @@ describe('GoalQueueManagerComponent', () => {
   it('renders multiline objectives as a single selectable row', () => {
     const manager = new GoalQueueManagerComponent({
       goals: [goal('g1', 'First line\nSecond line')],
-      onAction: vi.fn(),
-      onCancel: vi.fn(),
+      onAction: mock(),
+      onCancel: mock(),
     });
 
     const lines = manager.render(100).map(strip);
@@ -177,7 +178,7 @@ describe('GoalQueueManagerComponent', () => {
 
 describe('GoalQueueEditDialogComponent', () => {
   it('submits the edited objective', () => {
-    const onDone = vi.fn();
+    const onDone = mock();
     const dialog = new GoalQueueEditDialogComponent({
       goal: goal('g1', 'Ship queued goal'),
       onDone,
@@ -194,7 +195,7 @@ describe('GoalQueueEditDialogComponent', () => {
   });
 
   it('supports multiline objective edits', () => {
-    const onDone = vi.fn();
+    const onDone = mock();
     const dialog = new GoalQueueEditDialogComponent({
       goal: goal('g1', 'Ship queued goal'),
       onDone,
@@ -212,7 +213,7 @@ describe('GoalQueueEditDialogComponent', () => {
   });
 
   it('sanitizes bracketed paste while preserving newlines', () => {
-    const onDone = vi.fn();
+    const onDone = mock();
     const dialog = new GoalQueueEditDialogComponent({
       goal: goal('g1', 'Ship queued goal'),
       onDone,
@@ -233,7 +234,7 @@ describe('GoalQueueEditDialogComponent', () => {
   it('renders multiline edits inside the dialog width', () => {
     const dialog = new GoalQueueEditDialogComponent({
       goal: goal('g1', 'First line\nSecond line'),
-      onDone: vi.fn(),
+      onDone: mock(),
     });
 
     const out = text(dialog, 36);
@@ -248,7 +249,7 @@ describe('GoalQueueEditDialogComponent', () => {
   it('keeps the edit dialog within narrow widths', () => {
     const dialog = new GoalQueueEditDialogComponent({
       goal: goal('g1', 'A very long queued objective for width testing'),
-      onDone: vi.fn(),
+      onDone: mock(),
     });
 
     for (const width of [24, 20, 10]) {
@@ -259,7 +260,7 @@ describe('GoalQueueEditDialogComponent', () => {
   });
 
   it('keeps accepting input after save returns control to the mounted dialog', () => {
-    const onDone = vi.fn();
+    const onDone = mock();
     const dialog = new GoalQueueEditDialogComponent({
       goal: goal('g1', 'Ship queued goal'),
       onDone,
@@ -272,7 +273,7 @@ describe('GoalQueueEditDialogComponent', () => {
   });
 
   it('shows an empty objective hint instead of submitting', () => {
-    const onDone = vi.fn();
+    const onDone = mock();
     const dialog = new GoalQueueEditDialogComponent({
       goal: goal('g1', ''),
       onDone,

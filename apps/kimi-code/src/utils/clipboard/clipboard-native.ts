@@ -14,6 +14,8 @@ import { loadNativePackage } from '#/native/native-require';
 
 declare const __KIMI_CODE_NATIVE_BUNDLE__: boolean | undefined;
 
+const nodeRequire = createRequire(import.meta.url);
+
 export interface ClipboardModule {
   availableFormats?(): string[];
   hasText?(): boolean;
@@ -23,30 +25,53 @@ export interface ClipboardModule {
   getImageBinary(): Promise<Array<number>>;
 }
 
-const nodeRequire = createRequire(import.meta.url);
-const isNativeBundle =
-  typeof __KIMI_CODE_NATIVE_BUNDLE__ === 'boolean' && __KIMI_CODE_NATIVE_BUNDLE__;
+export interface ClipboardNativeDeps {
+  readonly platform: NodeJS.Platform;
+  readonly env: NodeJS.ProcessEnv;
+  readonly isNativeBundle: boolean;
+  readonly loadNativePackage: (packageName: string) => ClipboardModule | null;
+  readonly requirePackage: (packageName: string) => unknown;
+}
 
-// The native module uses X11/Wayland on Linux; if no display is
-// available, skip the load attempt so headless environments don't pay
-// the binding cost just to fail later.
-const hasDisplay =
-  process.platform !== 'linux' || Boolean(process.env['DISPLAY'] ?? process.env['WAYLAND_DISPLAY']);
+export function createClipboardNativeDeps(
+  overrides: Partial<ClipboardNativeDeps> = {},
+): ClipboardNativeDeps {
+  return {
+    platform: process.platform,
+    env: process.env,
+    isNativeBundle: typeof __KIMI_CODE_NATIVE_BUNDLE__ === 'boolean' && __KIMI_CODE_NATIVE_BUNDLE__,
+    loadNativePackage: (packageName) => loadNativePackage<ClipboardModule>(packageName),
+    requirePackage: (packageName) => nodeRequire(packageName) as unknown,
+    ...overrides,
+  };
+}
 
-const clipboard: ClipboardModule | null = (() => {
-  if (process.env['TERMUX_VERSION'] !== undefined || !hasDisplay) return null;
+/**
+ * Load the optional native binding. Returns null on Termux, on Linux without a
+ * display (the binding would only fail later), or when no module can be
+ * resolved.
+ */
+export function loadClipboardModule(
+  overrides: Partial<ClipboardNativeDeps> = {},
+): ClipboardModule | null {
+  const deps = createClipboardNativeDeps(overrides);
+  if (deps.env['TERMUX_VERSION'] !== undefined) return null;
+  if (deps.platform === 'linux') {
+    const display = deps.env['DISPLAY'] ?? deps.env['WAYLAND_DISPLAY'];
+    if (!display) return null;
+  }
   try {
-    const bundledClipboard = loadNativePackage<ClipboardModule>('@mariozechner/clipboard');
+    const bundledClipboard = deps.loadNativePackage('@mariozechner/clipboard');
     if (bundledClipboard !== null) return bundledClipboard;
   } catch {
     return null;
   }
-  if (isNativeBundle) return null;
+  if (deps.isNativeBundle) return null;
   try {
-    return nodeRequire('@mariozechner/clipboard') as ClipboardModule;
+    return deps.requirePackage('@mariozechner/clipboard') as ClipboardModule;
   } catch {
     return null;
   }
-})();
+}
 
-export { clipboard };
+export const clipboard: ClipboardModule | null = loadClipboardModule();

@@ -24,6 +24,12 @@ const LOCK_PUBLISH_GRACE_MS = 60_000;
 export interface UpdateInstallLockRequest {
   readonly version: string;
   readonly now?: Date;
+  /**
+   * Liveness probe for a recorded holder pid. Defaults to
+   * `process.kill(pid, 0)`, which is injectable so a test can model a dead or
+   * live holder without spawning a real process.
+   */
+  readonly isProcessAlive?: (pid: number) => boolean;
 }
 
 export interface UpdateInstallLockHandle {
@@ -88,7 +94,11 @@ async function inspectLockFile(filePath: string): Promise<LockInspection | null>
  * can pin the lock until that process exits — a delayed update, never a
  * corrupt one.)
  */
-function isStaleLock(inspection: LockInspection, now: Date): boolean {
+function isStaleLock(
+  inspection: LockInspection,
+  now: Date,
+  probe: (pid: number) => boolean,
+): boolean {
   let parsed: unknown;
   try {
     parsed = JSON.parse(inspection.content);
@@ -100,7 +110,7 @@ function isStaleLock(inspection: LockInspection, now: Date): boolean {
   if (typeof lock.startedAt !== 'string') return true;
   const startedAt = Date.parse(lock.startedAt);
   if (!Number.isFinite(startedAt)) return true;
-  if (typeof lock.pid === 'number' && !isProcessAlive(lock.pid)) return true;
+  if (typeof lock.pid === 'number' && !probe(lock.pid)) return true;
   if (now.getTime() - startedAt <= UPDATE_INSTALL_LOCK_STALE_MS) return false;
   return typeof lock.pid !== 'number';
 }
@@ -150,6 +160,7 @@ export async function tryAcquireUpdateInstallLock(
   filePath: string = getUpdateInstallLockFile(),
 ): Promise<UpdateInstallLockHandle | null> {
   await mkdir(dirname(filePath), { recursive: true });
+  const probe = request.isProcessAlive ?? isProcessAlive;
   try {
     return await createLockFile(filePath, request);
   } catch (error) {
@@ -158,7 +169,7 @@ export async function tryAcquireUpdateInstallLock(
 
   // A lock file exists. Inspect it once to decide whether it is stale.
   const inspected = await inspectLockFile(filePath);
-  if (inspected !== null && !isStaleLock(inspected, request.now ?? new Date())) {
+  if (inspected !== null && !isStaleLock(inspected, request.now ?? new Date(), probe)) {
     return null;
   }
   if (inspected === null) {
@@ -179,7 +190,7 @@ export async function tryAcquireUpdateInstallLock(
   if (!(await acquireTakeoverLock(takeoverPath))) return null;
   try {
     const current = await inspectLockFile(filePath);
-    if (current !== null && !isStaleLock(current, request.now ?? new Date())) {
+    if (current !== null && !isStaleLock(current, request.now ?? new Date(), probe)) {
       // A fresh lock appeared while we waited for the takeover section.
       return null;
     }

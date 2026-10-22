@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { SkillSummary } from '@moonshot-ai/agent-core-v2';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 import { ACP_BUILTIN_SLASH_COMMANDS } from '../src/builtin-commands';
 import { buildAcpSkillSlashCommands } from '../src/slash';

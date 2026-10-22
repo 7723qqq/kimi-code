@@ -4,7 +4,7 @@ import type { Message, StreamedMessagePart, ToolCall } from '#/message';
 import type { ChatProvider, StreamedMessage, ThinkingEffort } from '#/provider';
 import type { Tool } from '#/tool';
 import type { TokenUsage } from '#/usage';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 function createMockStream(
   parts: StreamedMessagePart[],
   opts?: {
@@ -48,7 +48,7 @@ function createMockProvider(stream: StreamedMessage): ChatProvider {
 }
 describe('generate()', () => {
   it('omits trace metadata when the provider does not expose it', async () => {
-    const onTraceId = vi.fn();
+    const onTraceId = mock();
     const result = await generate(
       createMockProvider(createMockStream([{ type: 'text', text: 'ok' }])),
       '',
@@ -821,7 +821,7 @@ describe('generate()', () => {
 
   it('aborting in the last onMessagePart callback throws AbortError and skips onToolCall', async () => {
     const controller = new AbortController();
-    const onToolCall = vi.fn<(toolCall: ToolCall) => Promise<void>>();
+    const onToolCall = mock<(toolCall: ToolCall) => Promise<void>>();
 
     const stream = createMockStream([
       {
@@ -857,7 +857,7 @@ describe('generate()', () => {
 
   it('post-await abort cancels the acquired stream before throwing AbortError', async () => {
     const controller = new AbortController();
-    const cancel = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+    const cancel = mock<() => Promise<void>>().mockResolvedValue(undefined);
 
     const stream: StreamedMessage & { cancel(): Promise<void> } = {
       cancel,

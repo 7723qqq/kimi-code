@@ -10,6 +10,7 @@ import {
 } from '#/constant/app';
 import { t } from '#/i18n';
 import { loadTuiConfig } from '#/tui/config';
+import { SYSTEM_RENDER_CLOCK, type RenderClock } from '#/tui/utils/render-clock';
 import { resolveCommandPath } from '#/utils/process/resolve-command';
 
 import { readUpdateCache } from './cache';
@@ -54,6 +55,10 @@ export interface RunUpdatePreflightOptions {
   readonly isTTY?: boolean;
   readonly track?: (event: string, properties?: TelemetryProperties) => void;
   readonly logger?: UpdateLogger;
+  /** Spawn implementation for install children; defaults to `node:child_process`. */
+  readonly spawn?: typeof spawn;
+  /** Clock for the user-visible refresh budget; defaults to the system clock. */
+  readonly clock?: RenderClock;
 }
 
 const AUTO_INSTALL_FAILURE_PROMPT_THRESHOLD = 2;
@@ -61,6 +66,14 @@ const AUTO_INSTALL_ACTIVE_TTL_MS = 6 * 60 * 60 * 1000;
 const USER_VISIBLE_UPDATE_REFRESH_TIMEOUT_MS = 1_000;
 
 type UpdateLogger = Pick<Logger, 'info' | 'warn'>;
+
+/** Everything the internal update paths need beyond their explicit arguments. */
+interface PreflightDeps {
+  readonly spawn: typeof spawn;
+  readonly clock: RenderClock;
+  readonly track: RunUpdatePreflightOptions['track'];
+  readonly logger: UpdateLogger;
+}
 
 function withCmdSuffix(base: string, platform: NodeJS.Platform): string {
   return platform === 'win32' ? `${base}.cmd` : base;
@@ -322,8 +335,7 @@ function refreshAndMaybeInstallInBackground(
   isInteractive: boolean,
   installState: UpdateInstallState,
   platform: NodeJS.Platform,
-  track: RunUpdatePreflightOptions['track'],
-  logger: UpdateLogger,
+  deps: PreflightDeps,
 ): void {
   void (async () => {
     const refreshed = await refreshUpdateCache();
@@ -352,8 +364,7 @@ function refreshAndMaybeInstallInBackground(
       target,
       source,
       platform,
-      track,
-      logger,
+      deps,
       rolloutTelemetryFor(deviceId, target.version, refreshed.manifest, bypassRollout),
     );
   })().catch(() => {});
@@ -370,8 +381,9 @@ async function refreshUserVisibleUpdateTarget(
   bypassRollout: boolean,
   fallbackTarget: UpdateTarget,
   fallbackManifest: UpdateManifest | null,
+  clock: RenderClock,
 ): Promise<UserVisibleUpdateTarget> {
-  let timeout: ReturnType<typeof setTimeout> | undefined;
+  let timeout: ReturnType<RenderClock['setTimeout']> | undefined;
   const fallback: UserVisibleUpdateTarget = {
     target: fallbackTarget,
     manifest: fallbackManifest,
@@ -401,7 +413,7 @@ async function refreshUserVisibleUpdateTarget(
       })
       .catch(() => fallback);
     const timeoutFallback = new Promise<UserVisibleUpdateTarget>((resolve) => {
-      timeout = setTimeout(() => {
+      timeout = clock.setTimeout(() => {
         resolve(fallback);
       }, USER_VISIBLE_UPDATE_REFRESH_TIMEOUT_MS);
     });
@@ -410,7 +422,7 @@ async function refreshUserVisibleUpdateTarget(
     return fallback;
   } finally {
     if (timeout !== undefined) {
-      clearTimeout(timeout);
+      clock.clearTimeout(timeout);
     }
   }
 }
@@ -473,17 +485,16 @@ async function showPendingBackgroundInstallNotice(
   state: UpdateInstallState,
   currentVersion: string,
   stdout: { write(chunk: string): boolean },
-  track: RunUpdatePreflightOptions['track'],
-  logger: UpdateLogger,
+  deps: PreflightDeps,
 ): Promise<UpdateInstallState> {
   const success = state.lastSuccess;
   if (success !== null && success.notifiedAt === null && success.version === currentVersion) {
     stdout.write(renderBackgroundInstallSuccessNotice(success.version));
-    trackUpdateEvent(track, 'update_success_notice_shown', {
+    trackUpdateEvent(deps.track, 'update_success_notice_shown', {
       version: success.version,
       inferred_from_active: false,
     });
-    logUpdateInfo(logger, 'background update success notice shown', {
+    logUpdateInfo(deps.logger, 'background update success notice shown', {
       version: success.version,
       inferredFromActive: false,
     });
@@ -508,11 +519,11 @@ async function showPendingBackgroundInstallNotice(
 
   const notifiedAt = nowIso();
   stdout.write(renderBackgroundInstallSuccessNotice(active.version));
-  trackUpdateEvent(track, 'update_success_notice_shown', {
+  trackUpdateEvent(deps.track, 'update_success_notice_shown', {
     version: active.version,
     inferred_from_active: true,
   });
-  logUpdateInfo(logger, 'background update success notice shown', {
+  logUpdateInfo(deps.logger, 'background update success notice shown', {
     version: active.version,
     inferredFromActive: true,
   });
@@ -634,6 +645,7 @@ export async function installUpdate(
   source: InstallSource,
   version: string,
   platform: NodeJS.Platform,
+  spawnImpl: typeof spawn = spawn,
 ): Promise<void> {
   // installUpdate only runs after an explicit user choice (the `upgrade`
   // command or the interactive prompt) — mark the stage as manual.
@@ -649,7 +661,7 @@ export async function installUpdate(
     // a shell, so run through the shell on win32. The version is a validated
     // semver and the package name is a constant, so args are shell-safe. The
     // native self-spawn is an .exe and needs no shell.
-    const child = spawn(spawnTarget.resolvedCmd, [...spawnTarget.args], {
+    const child = spawnImpl(spawnTarget.resolvedCmd, [...spawnTarget.args], {
       stdio: 'inherit',
       shell: spawnTarget.shell ? true : undefined,
     });
@@ -671,8 +683,7 @@ async function startBackgroundInstall(
   target: UpdateTarget,
   source: InstallSource,
   platform: NodeJS.Platform,
-  track: RunUpdatePreflightOptions['track'],
-  logger: UpdateLogger,
+  deps: PreflightDeps,
   rolloutTelemetry: RolloutTelemetry,
 ): Promise<void> {
   // The native self-spawned downloader holds the install lock itself for the
@@ -703,13 +714,13 @@ async function startBackgroundInstall(
       },
     };
     await writeUpdateInstallState(startedState);
-    trackUpdateEvent(track, 'update_background_install_started', {
+    trackUpdateEvent(deps.track, 'update_background_install_started', {
       current_version: currentVersion,
       target_version: target.version,
       source,
       ...rolloutTelemetry,
     });
-    logUpdateInfo(logger, 'background update install started', {
+    logUpdateInfo(deps.logger, 'background update install started', {
       currentVersion,
       targetVersion: target.version,
       source,
@@ -745,22 +756,22 @@ async function startBackgroundInstall(
           };
       void writeUpdateInstallState(nextState).catch(() => {});
       if (succeeded) {
-        trackUpdateEvent(track, 'update_background_install_succeeded', {
+        trackUpdateEvent(deps.track, 'update_background_install_succeeded', {
           target_version: target.version,
           source,
         });
-        logUpdateInfo(logger, 'background update install succeeded', {
+        logUpdateInfo(deps.logger, 'background update install succeeded', {
           targetVersion: target.version,
           source,
         });
         return;
       }
-      trackUpdateEvent(track, 'update_background_install_failed', {
+      trackUpdateEvent(deps.track, 'update_background_install_failed', {
         target_version: target.version,
         source,
         attempts,
       });
-      logUpdateWarn(logger, 'background update install failed', {
+      logUpdateWarn(deps.logger, 'background update install failed', {
         targetVersion: target.version,
         source,
         attempts,
@@ -774,7 +785,7 @@ async function startBackgroundInstall(
       finish(false);
       return;
     }
-    const child = spawn(spawnTarget.resolvedCmd, [...spawnTarget.args], {
+    const child = deps.spawn(spawnTarget.resolvedCmd, [...spawnTarget.args], {
       detached: true,
       stdio: 'ignore',
       shell: spawnTarget.shell ? true : undefined,
@@ -801,12 +812,13 @@ async function tryStartAutomaticBackgroundInstall(
   target: UpdateTarget,
   source: InstallSource,
   platform: NodeJS.Platform,
-  track: RunUpdatePreflightOptions['track'],
-  logger: UpdateLogger,
+  deps: PreflightDeps,
   rolloutTelemetry: RolloutTelemetry,
 ): Promise<boolean> {
   const sourceCanAutoInstall = canAutoInstall(source, platform);
-  const autoInstallUpdates = sourceCanAutoInstall ? await shouldAutoInstallUpdates(logger) : false;
+  const autoInstallUpdates = sourceCanAutoInstall
+    ? await shouldAutoInstallUpdates(deps.logger)
+    : false;
   if (!autoInstallUpdates || !sourceCanAutoInstall) return false;
   if (failureAttemptsFor(installState, target) >= AUTO_INSTALL_FAILURE_PROMPT_THRESHOLD) {
     return false;
@@ -818,8 +830,7 @@ async function tryStartAutomaticBackgroundInstall(
       target,
       source,
       platform,
-      track,
-      logger,
+      deps,
       rolloutTelemetry,
     ).catch(() => {});
   }
@@ -849,6 +860,13 @@ export async function runUpdatePreflight(
     return 'continue';
   }
 
+  const deps: PreflightDeps = {
+    spawn: options.spawn ?? spawn,
+    clock: options.clock ?? SYSTEM_RENDER_CLOCK,
+    track: options.track,
+    logger,
+  };
+
   try {
     const isInteractive = options.isTTY ?? (process.stdin.isTTY && process.stdout.isTTY);
     const deviceId = resolveUpdateDeviceId();
@@ -859,8 +877,7 @@ export async function runUpdatePreflight(
         installState,
         currentVersion,
         stdout,
-        options.track,
-        logger,
+        deps,
       );
     }
 
@@ -890,8 +907,7 @@ export async function runUpdatePreflight(
         isInteractive,
         installState,
         platform,
-        options.track,
-        logger,
+        deps,
       );
       return 'continue';
     }
@@ -913,8 +929,7 @@ export async function runUpdatePreflight(
         target,
         source,
         platform,
-        options.track,
-        logger,
+        deps,
         rolloutTelemetryFor(deviceId, target.version, cachedManifest, bypassRollout),
       )
     ) {
@@ -928,6 +943,7 @@ export async function runUpdatePreflight(
       bypassRollout,
       target,
       cachedManifest,
+      deps.clock,
     );
     const userVisibleTarget = userVisibleUpdate.target;
     if (userVisibleTarget === null) return 'continue';
@@ -944,8 +960,7 @@ export async function runUpdatePreflight(
         userVisibleTarget,
         source,
         platform,
-        options.track,
-        logger,
+        deps,
         userVisibleRollout,
       )
     ) {
@@ -954,7 +969,7 @@ export async function runUpdatePreflight(
 
     const installCommand = installCommandFor(source, userVisibleTarget.version, platform);
     trackUpdatePrompted(
-      options.track,
+      deps.track,
       currentVersion,
       userVisibleTarget,
       source,
@@ -973,7 +988,7 @@ export async function runUpdatePreflight(
     if (choice === 'skip') return 'continue';
 
     try {
-      await installUpdate(source, userVisibleTarget.version, platform);
+      await installUpdate(source, userVisibleTarget.version, platform, deps.spawn);
       stdout.write(renderInstallSuccessMessage(userVisibleTarget));
       return 'exit';
     } catch (error) {

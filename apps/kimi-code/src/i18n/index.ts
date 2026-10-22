@@ -2,11 +2,10 @@
  * kimi-code i18n — pure in-process translation.
  *
  * Lookups run directly against the bundled `en`/`zh` message trees with
- * `@moonshot-ai/i18n-shared`'s `translate` — the semantic mirror of the Rust
- * `translation.rs` engine (dot-key resolve -> fallback locale -> the key
- * itself, then `{{param}}` interpolation).
+ * `@moonshot-ai/i18n-shared`'s `translate` (dot-key resolve -> fallback
+ * locale -> the key itself, then `{{param}}` interpolation).
  *
- * Translation used to round-trip through the Rust napi module with the whole
+ * Translation used to round-trip through the retired native module with the whole
  * locale JSON (about 130 KB, twice) on every `t()` call — ~290 µs per call
  * versus ~0.05 µs for an in-process lookup. The message trees already live in
  * JS, so the bridge added only main-thread cost on exactly the render-heavy
@@ -32,7 +31,7 @@ import zh from './locales/zh';
 export type { Locale };
 export type TranslationKey = SharedTranslationKey<typeof en>;
 /** Kept for API compatibility — translation is in-process, so always `'js'`. */
-export type Engine = 'rust' | 'js';
+export type Engine = 'js';
 
 const messages = { en, zh } as const;
 

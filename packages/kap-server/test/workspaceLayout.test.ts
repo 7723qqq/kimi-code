@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { IAgentLifecycleService, getLiveSessionById } from '@moonshot-ai/agent-core-v2';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 
 import { type RunningServer, startServer } from '../src/start';
 import { authHeaders } from './helpers/auth';
@@ -85,7 +85,7 @@ describe('local/local on-disk layout (byte compatibility)', () => {
       .map(
         (line) => JSON.parse(line) as { sessionId: string; sessionDir: string; workDir: string },
       );
-    expect(indexLines).toEqual([{ sessionId, sessionDir: sessionDirPosix, workDir }]);
+    expect(indexLines).toEqual([{ sessionId, sessionDir: sessionDirPosix!, workDir: workDir! }]);
 
     const metaRaw = JSON.parse(await readFile(join(sessionDir, 'state.json'), 'utf8')) as {
       id: string;

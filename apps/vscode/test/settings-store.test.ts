@@ -2,32 +2,50 @@
  * Scenario: Webview state crosses the VS Code bridge during settings changes, MCP edits, and chat failures.
  * Responsibilities: model metadata and selections remain provider-aware; MCP edits stay lossless; chat errors recover visibly.
  * Wiring: the real Zustand store and MCP bridge; settings saves, toast, and the VS Code messaging API are the only replaced boundaries.
- * Run: bunx vitest run --config apps/vscode/vitest.config.ts test/settings-store.test.ts
+ * Run: cd apps/vscode && bun test --isolate test/settings-store.test.ts
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import './webview/setup';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
+import { waitFor } from './helpers';
 import { MCP_SECRET_MASK } from "../shared/legacy-sdk";
 
-const boundary = vi.hoisted(() => ({
-  saveConfig: vi.fn(),
-  streamChat: vi.fn(),
-  abortChat: vi.fn(),
-  trackFiles: vi.fn(),
-  toastError: vi.fn(),
-  toastWarning: vi.fn(),
-}));
+// Bun runs these factories while the stores are imported, i.e. before this
+// module's body; a hoisted function keeps one shared boundary instance.
+function createBoundary() {
+  return {
+    saveConfig: mock(),
+    streamChat: mock(),
+    abortChat: mock(),
+    trackFiles: mock(),
+    toastError: mock(),
+    toastWarning: mock(),
+  };
+}
 
-vi.mock("@/services", () => ({
-  bridge: {
-    saveConfig: boundary.saveConfig,
-    streamChat: boundary.streamChat,
-    abortChat: boundary.abortChat,
-    trackFiles: boundary.trackFiles,
-  },
-}));
-vi.mock("@/components/ui/sonner", () => ({
-  toast: { error: boundary.toastError, warning: boundary.toastWarning },
-}));
+type Boundary = ReturnType<typeof createBoundary>;
+
+function boundaryHost(): Boundary {
+  const holder = boundaryHost as typeof boundaryHost & { current?: Boundary };
+  holder.current ??= createBoundary();
+  return holder.current;
+}
+
+void mock.module("@/services", () => {
+  const boundary = boundaryHost();
+  return {
+    bridge: {
+      saveConfig: boundary.saveConfig,
+      streamChat: boundary.streamChat,
+      abortChat: boundary.abortChat,
+      trackFiles: boundary.trackFiles,
+    },
+  };
+});
+void mock.module("@/components/ui/sonner", () => {
+  const boundary = boundaryHost();
+  return { toast: { error: boundary.toastError, warning: boundary.toastWarning } };
+});
 
 import {
   getMediaFallbackModel,
@@ -37,6 +55,8 @@ import {
   useSettingsStore,
 } from "../webview-ui/src/stores/settings.store";
 import { useChatStore } from "../webview-ui/src/stores/chat.store";
+
+const boundary = boundaryHost();
 
 const MODELS = [
   { id: "plain", name: "Plain", provider: "managed:kimi-code", capabilities: [] },
@@ -79,7 +99,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  vi.unstubAllGlobals();
+  mock.restore();
 });
 
 describe("Webview model settings persistence", () => {
@@ -113,7 +133,7 @@ describe("Webview model settings persistence", () => {
     });
 
     rejectSave(new Error("config.toml is read-only"));
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(useSettingsStore.getState()).toMatchObject({
         currentModel: "plain",
         thinkingEffort: "off",
@@ -200,25 +220,21 @@ describe("Webview model metadata", () => {
 describe("Webview MCP update bridge", () => {
   it("sends a lossless structured MCP edit request to the extension host", async () => {
     const posted: unknown[] = [];
-    let receiveMessage: ((event: { data: unknown }) => void) | undefined;
-    vi.stubGlobal("document", {
-      body: { getAttribute: () => "mcp-test-view" },
-    });
-    vi.stubGlobal("window", {
-      addEventListener: (_type: string, listener: (event: { data: unknown }) => void) => {
-        receiveMessage = listener;
-      },
-    });
-    vi.stubGlobal("acquireVsCodeApi", () => ({
+    // The module-level bridge holds whatever `acquireVsCodeApi` existed when the
+    // stores were first imported, so the protocol is exercised on a fresh
+    // instance driven by this test's host instead.
+    document.body.setAttribute("data-webviewid", "mcp-test-view");
+    const { Bridge } = await import("../webview-ui/src/services/bridge");
+    const bridge = new Bridge(() => ({
       postMessage: (message: { id: string }) => {
         posted.push(message);
-        queueMicrotask(() => receiveMessage?.({ data: { id: message.id, result: [] } }));
+        queueMicrotask(() => {
+          window.dispatchEvent(new window.MessageEvent("message", { data: { id: message.id, result: [] } }));
+        });
       },
       getState: () => undefined,
       setState: () => undefined,
     }));
-    vi.resetModules();
-    const { bridge } = await import("../webview-ui/src/services/bridge");
 
     await bridge.updateMCPServer("old-name", {
       name: "new-name",
@@ -482,7 +498,7 @@ describe("Webview thinking effort parity with the TUI", () => {
     expect(useSettingsStore.getState().defaultThinkingEffort).toBe("max");
 
     rejectSave(new Error("config.toml is read-only"));
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(useSettingsStore.getState().defaultThinkingEffort).toBe("medium");
     });
   });
@@ -566,7 +582,7 @@ describe("Webview mid-turn warnings", () => {
     // The genuine terminal still completes the turn and flushes the queue.
     useChatStore.getState().processEvent({ type: "stream_complete", result: { status: "finished" } });
     expect(useChatStore.getState().isStreaming).toBe(false);
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(boundary.streamChat).toHaveBeenCalledTimes(2);
     });
   });

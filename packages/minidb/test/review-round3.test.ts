@@ -6,7 +6,7 @@ import path from 'node:path';
 // Regression tests for the third deep-review round:
 //   A) Non-ASCII (multi-byte UTF-8) string keys must work on every surface.
 //   B) readOnly open must never mutate the database files (no WAL truncation).
-import { test } from 'vitest';
+import { test } from 'bun:test';
 
 import { MiniDb } from '../src/index.js';
 

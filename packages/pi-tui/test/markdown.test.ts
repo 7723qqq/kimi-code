@@ -1,5 +1,5 @@
 import assert from "node:assert";
-import { afterEach, describe, it } from "node:test";
+import { afterEach, describe, it } from "bun:test";
 import type { Terminal as XtermTerminalType } from "@xterm/headless";
 import { Chalk } from "chalk";
 import { Markdown, type MarkdownTheme } from "../src/components/markdown.ts";

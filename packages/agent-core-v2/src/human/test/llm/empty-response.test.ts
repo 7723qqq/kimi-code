@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { UNKNOWN_CAPABILITY } from '#/llm/capability';
 import { emptyResponseError } from '#/llm/empty-response';

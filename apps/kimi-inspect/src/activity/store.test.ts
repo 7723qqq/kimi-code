@@ -1,5 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
+import { waitFor } from '../../test/_helpers/bunTest';
 import type { WsLike, WsLikeCtor } from '../channel/wsLike';
 import { SessionActivityHub, SessionActivityStore, type SessionWorkFacts } from './store';
 
@@ -53,7 +54,7 @@ function makeFakeWsCtor(): { ctor: WsLikeCtor; instances: FakeWs[] } {
 }
 
 function seedFetch(items: Record<string, unknown>[]): typeof fetch {
-  return vi.fn(async () => ({
+  return mock(async () => ({
     json: async () => ({ code: 0, data: { items, has_more: false } }),
   })) as unknown as typeof fetch;
 }
@@ -61,7 +62,7 @@ function seedFetch(items: Record<string, unknown>[]): typeof fetch {
 describe('SessionActivityStore', () => {
   it('applies work facts and notifies with a version bump', () => {
     const store = new SessionActivityStore();
-    const listener = vi.fn();
+    const listener = mock();
     store.subscribe(listener);
 
     store.applyWorkChanged('s1', facts({ busy: true, mainTurnActive: true }));
@@ -73,7 +74,7 @@ describe('SessionActivityStore', () => {
 
   it('ignores identical facts (no bump, no notify)', () => {
     const store = new SessionActivityStore();
-    const listener = vi.fn();
+    const listener = mock();
     store.applyWorkChanged('s1', facts({ busy: true }));
     store.subscribe(listener);
 
@@ -108,7 +109,7 @@ describe('SessionActivityHub', () => {
     });
 
     instances[0]!.emit('open');
-    await vi.waitFor(() => expect(hub.store.get('s1')).toBeDefined());
+    await waitFor(() => expect(hub.store.get('s1')).toBeDefined());
 
     expect(hub.store.get('s1')).toEqual(facts({ busy: true, mainTurnActive: true }));
     expect(hub.store.get('s2')?.pendingInteraction).toBe('approval');
@@ -126,28 +127,28 @@ describe('SessionActivityHub', () => {
     const cases: Array<[string, typeof fetch, string]> = [
       [
         'non-zero envelope code',
-        vi.fn(async () => ({
+        mock(async () => ({
           json: async () => ({ code: 50001, msg: 'boom', data: {} }),
         })) as unknown as typeof fetch,
         'envelope',
       ],
       [
         'missing items array',
-        vi.fn(async () => ({
+        mock(async () => ({
           json: async () => ({ code: 0, data: {} }),
         })) as unknown as typeof fetch,
         'no-items',
       ],
       [
         'transport rejection',
-        vi.fn(async () => {
+        mock(async () => {
           throw new Error('ECONNREFUSED');
         }) as unknown as typeof fetch,
         'transport',
       ],
       [
         'non-json body',
-        vi.fn(async () => ({
+        mock(async () => ({
           json: async () => {
             throw new SyntaxError('Unexpected token < in JSON');
           },
@@ -158,7 +159,7 @@ describe('SessionActivityHub', () => {
 
     for (const [label, fetchImpl, expectedKind] of cases) {
       const { ctor, instances } = makeFakeWsCtor();
-      const onSeedError = vi.fn();
+      const onSeedError = mock();
       const hub = new SessionActivityHub({
         url: 'http://127.0.0.1:58627',
         onListChanged: () => {},
@@ -167,7 +168,7 @@ describe('SessionActivityHub', () => {
         fetchImpl,
       });
       instances[0]!.emit('open');
-      await vi.waitFor(() => expect(onSeedError).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(onSeedError).toHaveBeenCalledTimes(1));
       expect(onSeedError.mock.calls[0]?.[0], label).toMatchObject({ kind: expectedKind });
       hub.close();
     }
@@ -175,7 +176,7 @@ describe('SessionActivityHub', () => {
 
   it('does not report a seed error on a healthy baseline', async () => {
     const { ctor, instances } = makeFakeWsCtor();
-    const onSeedError = vi.fn();
+    const onSeedError = mock();
     const hub = new SessionActivityHub({
       url: 'http://127.0.0.1:58627',
       onListChanged: () => {},
@@ -184,7 +185,7 @@ describe('SessionActivityHub', () => {
       fetchImpl: seedFetch([{ id: 's1', busy: false, main_turn_active: false }]),
     });
     instances[0]!.emit('open');
-    await vi.waitFor(() => expect(hub.store.get('s1')).toBeDefined());
+    await waitFor(() => expect(hub.store.get('s1')).toBeDefined());
     expect(onSeedError).not.toHaveBeenCalled();
     hub.close();
   });
@@ -219,7 +220,7 @@ describe('SessionActivityHub', () => {
 
   it('forwards created and meta updates as list-level signals', () => {
     const { ctor, instances } = makeFakeWsCtor();
-    const onListChanged = vi.fn();
+    const onListChanged = mock();
     const hub = new SessionActivityHub({
       url: 'http://127.0.0.1:58627',
       onListChanged,
@@ -240,7 +241,7 @@ describe('SessionActivityHub', () => {
 
   it('forwards archived and workspace frames as list-level signals and drops archived facts', () => {
     const { ctor, instances } = makeFakeWsCtor();
-    const onListChanged = vi.fn();
+    const onListChanged = mock();
     const hub = new SessionActivityHub({
       url: 'http://127.0.0.1:58627',
       onListChanged,

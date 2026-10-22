@@ -1,37 +1,24 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
-import type { ToolCall } from '#human/llm/message';
-import {
-  compileToolArgsValidator,
-  validateToolArgs,
-} from '#/tool/args-validator';
+import { type ToolCall } from '#human/llm/message';
+import { compileToolArgsValidator, validateToolArgs } from '#/tool/args-validator';
 import { USER_PROMPT_ORIGIN } from '#/agent/contextMemory/types';
 import { IAgentGoalService } from '#/features/goal/goalService';
-import { CreateGoalTool } from '#/features/goal/tools/create-goal/createGoalTool';
-import { GetGoalTool } from '#/features/goal/tools/get-goal/getGoalTool';
+
 import { SetGoalBudgetTool } from '#/features/goal/tools/set-goal-budget/setGoalBudgetTool';
 import { UpdateGoalToolInputSchema } from '#/features/goal/tools/update-goal/update-goal';
 import { UpdateGoalTool } from '#/features/goal/tools/update-goal/updateGoalTool';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
-import {
-  IAgentToolExecutorService,
-  type ToolExecutionResult,
-} from '#/agent/toolExecutor/toolExecutor';
+import { IAgentToolExecutorService, type ToolExecutionResult } from '#/agent/toolExecutor/toolExecutor';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IEventBus } from '#/app/event/eventBus';
 import { TurnStarted } from '#/agent/loop/turnEvents';
 
-import {
-  agentService,
-  createTestAgent,
-  permissionModeServices,
-  type TestAgentContext,
-} from '../../../harness';
+import { agentService, createTestAgent, permissionModeServices, type TestAgentContext } from '../../../harness';
 import { stubLoopWithHooks } from '../../../agent/loop/stubs';
 import { stubAgentSwarm } from '../stubs';
-import { stubAgentContext } from '../../../agent/agentContext/stubs';
 
 const signal = new AbortController().signal;
 

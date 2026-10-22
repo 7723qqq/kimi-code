@@ -1,5 +1,5 @@
 import { visibleWidth } from '@moonshot-ai/pi-tui';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 import { setLocale, t } from '#/i18n';
 import { buildMcpStatusReportLines } from '#/tui/components/messages/mcp-status-panel';

@@ -17,7 +17,7 @@ import {
   normalizeAPIStatusError,
   parseRetryAfterMs,
 } from '#/llm-adapter/contract/errors';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 describe('ChatProviderError', () => {
   it('is an instance of Error', () => {

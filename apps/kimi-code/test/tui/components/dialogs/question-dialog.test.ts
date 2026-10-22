@@ -1,6 +1,6 @@
 import { CURSOR_MARKER } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'bun:test';
 
 import { QuestionDialogComponent } from '#/tui/components/dialogs/question-dialog';
 import type { PendingQuestion } from '#/tui/reverse-rpc/types';

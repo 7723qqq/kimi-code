@@ -5,7 +5,8 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, mock } from 'bun:test';
+import { setEnv, setGlobal, restoreEnvs, restoreGlobals } from '#test/helpers/stubs';
 
 import { PluginManager } from '#/app/plugin/manager';
 
@@ -23,7 +24,7 @@ const zipIt = hasZipBinary ? it : it.skip;
 
 async function isolatedTmpdir(): Promise<string> {
   const dir = await mkdtemp(path.join(tmpdir(), 'kimi-isolated-tmp-'));
-  vi.stubEnv('TMPDIR', dir);
+  setEnv('TMPDIR', dir);
   return dir;
 }
 
@@ -138,9 +139,9 @@ interface MockGithubFetchOptions {
 
 function mockGithubFetch(options: MockGithubFetchOptions): void {
   const commitSha = '1111111111111111111111111111111111111111';
-  vi.stubGlobal(
+  setGlobal(
     'fetch',
-    vi.fn(async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+    mock(async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       if (/^https:\/\/github\.com\/[^/]+\/[^/]+\/releases\/latest$/.test(url)) {
         options.onReleaseLookup?.();
@@ -166,8 +167,8 @@ function mockGithubFetch(options: MockGithubFetchOptions): void {
 
 describe('PluginManager consumption plane', () => {
   afterEach(() => {
-    vi.unstubAllGlobals();
-    vi.unstubAllEnvs();
+    restoreGlobals();
+    restoreEnvs();
   });
 
   it('pluginSkillRoots() returns only enabled plugins skills paths', async () => {
@@ -759,9 +760,9 @@ describe('PluginManager consumption plane', () => {
     const commitSha = '1111111111111111111111111111111111111111';
 
     let codeloadPath = '';
-    vi.stubGlobal(
+    setGlobal(
       'fetch',
-      vi.fn(async (input: Parameters<typeof fetch>[0]) => {
+      mock(async (input: Parameters<typeof fetch>[0]) => {
         const url =
           typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
         if (url.endsWith('/commits/v5.1.0.atom')) {
@@ -798,9 +799,9 @@ describe('PluginManager consumption plane', () => {
     const commitSha = '1111111111111111111111111111111111111111';
 
     let codeloadPath = '';
-    vi.stubGlobal(
+    setGlobal(
       'fetch',
-      vi.fn(async (input: Parameters<typeof fetch>[0]) => {
+      mock(async (input: Parameters<typeof fetch>[0]) => {
         const url =
           typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
         if (url.endsWith('/commits/v5.1.0.atom')) {

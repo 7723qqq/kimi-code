@@ -1,7 +1,20 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
+import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
+import { setGlobal, restoreGlobals } from '#test/helpers/stubs';
 
 import { refreshUpdateCache } from '#/cli/update/refresh';
 import type { UpdateManifest } from '#/cli/update/types';
+
+/** Let the promise chains behind a settled clock tick run. */
+async function settle(): Promise<void> {
+  for (let i = 0; i < 4; i += 1) await Promise.resolve();
+}
+
+async function advanceAsync(clock: FakeClock, byMs: number): Promise<void> {
+  await settle();
+  clock.advance(byMs);
+  await settle();
+}
 
 const MANIFEST: UpdateManifest = {
   version: '0.5.0',
@@ -15,7 +28,7 @@ const MANIFEST: UpdateManifest = {
 
 describe('refreshUpdateCache', () => {
   it('writes a fresh cache carrying the manifest on successful fetch', async () => {
-    const writeCache = vi.fn(async () => {});
+    const writeCache = mock(async () => {});
     const result = await refreshUpdateCache({
       fetchLatest: async () => ({ latest: '0.5.0', manifest: MANIFEST }),
       writeCache,
@@ -32,7 +45,7 @@ describe('refreshUpdateCache', () => {
   });
 
   it('writes a null manifest when the fetch fell back to plain text', async () => {
-    const writeCache = vi.fn(async () => {});
+    const writeCache = mock(async () => {});
     const result = await refreshUpdateCache({
       fetchLatest: async () => ({ latest: '0.5.0', manifest: null }),
       writeCache,
@@ -49,7 +62,7 @@ describe('refreshUpdateCache', () => {
   });
 
   it('propagates fetch errors and skips writeCache so the cache is preserved', async () => {
-    const writeCache = vi.fn(async () => {});
+    const writeCache = mock(async () => {});
     await expect(
       refreshUpdateCache({
         fetchLatest: async () => {
@@ -64,10 +77,10 @@ describe('refreshUpdateCache', () => {
   });
 
   it('threads timeoutMs into the default CDN fetch', async () => {
-    vi.useFakeTimers();
-    vi.stubGlobal(
+    const clock = createFakeClock();
+    setGlobal(
       'fetch',
-      vi.fn(async (_input: string | URL, init?: RequestInit) => {
+      mock(async (_input: string | URL, init?: RequestInit) => {
         return new Promise<Response>((_resolve, reject) => {
           init?.signal?.addEventListener('abort', () => {
             reject(new Error('aborted'));
@@ -78,22 +91,32 @@ describe('refreshUpdateCache', () => {
     try {
       const result = refreshUpdateCache({
         timeoutMs: 10_000,
+        clock,
         writeCache: async () => {},
       });
       let rejected = false;
       void result.catch(() => {
         rejected = true;
       });
-      const expectation = expect(result).rejects.toThrow(/aborted/);
-      await vi.advanceTimersByTimeAsync(6_000);
+      // Bun's `expect(promise).rejects` blocks until the promise settles, so the
+      // rejection has to happen before the assertion is created.
+      await advanceAsync(clock, 6_000);
       expect(rejected).toBe(false);
-      await vi.advanceTimersByTimeAsync(14_000);
+      // The CDN path retries with the plain-text endpoint after the JSON fetch aborts.
+      // Each attempt arms its own timeout only after the previous one settles, so the
+      // clock has to be advanced in windows that let that continuation run.
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        await advanceAsync(clock, 10_000);
+      }
 
-      await expectation;
+      const error = await result.then(
+        () => undefined,
+        (reason: Error) => reason,
+      );
+      expect(error?.message).toContain('aborted');
       expect(rejected).toBe(true);
     } finally {
-      vi.useRealTimers();
-      vi.unstubAllGlobals();
+      restoreGlobals();
     }
   });
 });

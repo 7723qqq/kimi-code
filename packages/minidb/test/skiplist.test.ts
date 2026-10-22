@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 
 // test/skiplist.test.ts
-import { test } from 'vitest';
+import { test } from 'bun:test';
 
-import { SkipList, cmpNumber, cmpString } from '../src/skiplist.js';
+import { SkipList, cmpString } from '../src/skiplist.js';
 
 test('numeric: insert keeps order by (key, val)', () => {
   const sl = new SkipList(); // numeric key, string val tie-break

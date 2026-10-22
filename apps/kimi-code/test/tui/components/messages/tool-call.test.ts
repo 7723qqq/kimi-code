@@ -1,21 +1,23 @@
+import { extractKeyArgument } from '#/tui/components/messages/tool-call';
+import { createFakeClock } from '../../../helpers/fake-clock';
+import { captureProcessWrite } from '../../../helpers/process';
 import { visibleWidth, type TUI } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
-import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { SUBAGENT_TOOL_OUTPUT_MAX_CHARS } from '../../../../src/tui/constant/rendering';
+import { MAX_SUB_TOOL_ACTIVITIES } from '../../../../src/tui/constant/rendering';
+import { MAX_SUBAGENT_STREAM_TEXT_CHARS } from '../../../../src/tui/constant/rendering';
 
 import { setLocale } from '#/i18n';
 import { setExperimentalFeatures } from '#/tui/commands/experimental-flags';
-import { extractKeyArgument, ToolCallComponent } from '#/tui/components/messages/tool-call';
-import {
-  MAX_SUBAGENT_STREAM_TEXT_CHARS,
-  MAX_SUB_TOOL_ACTIVITIES,
-  SUBAGENT_TOOL_OUTPUT_MAX_CHARS,
-} from '#/tui/constant/rendering';
+import { ToolCallComponent } from '#/tui/components/messages/tool-call';
+
 import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { darkColors } from '#/tui/theme/colors';
 
-import { captureProcessWrite } from '../../../helpers/process';
 
-vi.mock('#/i18n', () => {
+
+void mock.module('#/i18n', () => {
   let locale = 'en';
   // Overrides a test flips the mock to zh for: switching the locale is how a
   // test proves a string comes from `t()` rather than from a literal.
@@ -194,7 +196,6 @@ function hasUnpairedSurrogate(text: string): boolean {
 
 describe('ToolCallComponent', () => {
   afterEach(() => {
-    vi.useRealTimers();
     setExperimentalFeatures([]);
     setLocale('en');
   });
@@ -221,18 +222,20 @@ describe('ToolCallComponent', () => {
 
   describe('detach hint for long-running foreground Bash/Agent', () => {
     it('shows the Ctrl+B hint after 10s for a running Bash call', () => {
-      vi.useFakeTimers();
+      const clock = createFakeClock();
       const component = new ToolCallComponent(
         { id: 'call_bash_long', name: 'Bash', args: { command: 'sleep 30' } },
         undefined,
         stubTui(30),
+        undefined,
+        clock,
       );
 
       expect(strip(component.render(100).join('\n'))).not.toContain(
         'Press Ctrl+B to run in background',
       );
 
-      vi.advanceTimersByTime(10_000);
+      clock.advance(10_000);
       expect(strip(component.render(100).join('\n'))).toContain(
         'Press Ctrl+B to run in background',
       );
@@ -241,11 +244,13 @@ describe('ToolCallComponent', () => {
     });
 
     it('shows the hint immediately for a running Agent call', () => {
-      vi.useFakeTimers();
+      const clock = createFakeClock();
       const component = new ToolCallComponent(
         { id: 'call_agent_long', name: 'Agent', args: { description: 'explore' } },
         undefined,
         stubTui(30),
+        undefined,
+        clock,
       );
 
       // No timer advancement — Agents advertise Ctrl+B immediately.
@@ -257,14 +262,16 @@ describe('ToolCallComponent', () => {
     });
 
     it('does not show the hint for non-detachable tools', () => {
-      vi.useFakeTimers();
+      const clock = createFakeClock();
       const component = new ToolCallComponent(
         { id: 'call_read_long', name: 'Read', args: { path: 'foo.ts' } },
         undefined,
         stubTui(30),
+        undefined,
+        clock,
       );
 
-      vi.advanceTimersByTime(15_000);
+      clock.advance(15_000);
       expect(strip(component.render(100).join('\n'))).not.toContain(
         'Press Ctrl+B to run in background',
       );
@@ -273,16 +280,18 @@ describe('ToolCallComponent', () => {
     });
 
     it('does not show the hint when the result lands before 10s', () => {
-      vi.useFakeTimers();
+      const clock = createFakeClock();
       const component = new ToolCallComponent(
         { id: 'call_bash_short', name: 'Bash', args: { command: 'echo hi' } },
         undefined,
         stubTui(30),
+        undefined,
+        clock,
       );
 
-      vi.advanceTimersByTime(5_000);
+      clock.advance(5_000);
       component.setResult({ tool_call_id: 'call_bash_short', output: 'hi', is_error: false });
-      vi.advanceTimersByTime(10_000);
+      clock.advance(10_000);
 
       expect(strip(component.render(100).join('\n'))).not.toContain(
         'Press Ctrl+B to run in background',
@@ -628,7 +637,7 @@ describe('ToolCallComponent', () => {
 
   describe('collapsed header width', () => {
     it('truncates a long Bash header to the terminal width instead of wrapping', () => {
-      const command = `pnpm exec vitest run ${'test/very/long/path/'.repeat(6)}spec.test.ts --reporter=verbose`;
+      const command = `bun test ${'test/very/long/path/'.repeat(6)}spec.test.ts --reporter=verbose`;
       const component = new ToolCallComponent(
         { id: 'call_bash_narrow', name: 'Bash', args: { command } },
         { tool_call_id: 'call_bash_narrow', output: 'ok', is_error: false },
@@ -1434,8 +1443,7 @@ describe('ToolCallComponent', () => {
   });
 
   it('renders a single foreground subagent without the generic Agent tool header', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(10_000);
+    const clock = createFakeClock(10_000);
     const component = new ToolCallComponent(
       {
         id: 'call_agent',
@@ -1443,6 +1451,9 @@ describe('ToolCallComponent', () => {
         args: { description: 'explore project xxx' },
       },
       undefined,
+      undefined,
+      undefined,
+      clock,
     );
 
     component.onSubagentSpawned({
@@ -1456,7 +1467,7 @@ describe('ToolCallComponent', () => {
     expect(out).not.toContain('Using Agent');
     expect(out).not.toContain('Used Agent');
 
-    vi.setSystemTime(20_000);
+    clock.set(20_000);
     component.appendSubagentText('think1\nthink2\nthink3', 'thinking');
     component.appendSubagentText('answer1\nanswer2\nanswer3', 'text');
     component.appendSubToolCall({
@@ -1478,14 +1489,14 @@ describe('ToolCallComponent', () => {
     expect(out).toContain('answer3');
     expect(out).toContain('│ answer3');
 
-    vi.setSystemTime(22_000);
+    clock.set(22_000);
     component.onSubagentCompleted({ resultSummary: 'summary fallback' });
     component.setResult({
       tool_call_id: 'call_agent',
       output: 'parent duplicate result',
       is_error: false,
     });
-    vi.setSystemTime(30_000);
+    clock.set(30_000);
 
     out = strip(component.render(120).join('\n'));
     expect(out).toContain('Explore Agent Completed (explore project xxx) · 1 tool · 12s');
@@ -1497,8 +1508,7 @@ describe('ToolCallComponent', () => {
   });
 
   it('shows the bound model in the subagent header and group snapshot once reported', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(10_000);
+    const clock = createFakeClock(10_000);
     const component = new ToolCallComponent(
       {
         id: 'call_agent_model',
@@ -1506,6 +1516,9 @@ describe('ToolCallComponent', () => {
         args: { description: 'explore project' },
       },
       undefined,
+      undefined,
+      undefined,
+      clock,
     );
     component.onSubagentSpawned({
       agentId: 'sub_model_1',
@@ -1525,8 +1538,7 @@ describe('ToolCallComponent', () => {
   });
 
   it('shows Backgrounded after a foreground subagent is detached, even after setResult', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(0);
+    const clock = createFakeClock();
     const component = new ToolCallComponent(
       {
         id: 'call_agent_detach',
@@ -1535,6 +1547,8 @@ describe('ToolCallComponent', () => {
       },
       undefined,
       stubTui(30),
+      undefined,
+      clock,
     );
     component.onSubagentSpawned({
       agentId: 'sub_detach_1',
@@ -1569,8 +1583,7 @@ describe('ToolCallComponent', () => {
   });
 
   it('summarizes subagent tools as a count plus the current tool', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(0);
+    const clock = createFakeClock();
     const component = new ToolCallComponent(
       {
         id: 'call_agent_tools',
@@ -1578,6 +1591,9 @@ describe('ToolCallComponent', () => {
         args: { description: 'inspect tools' },
       },
       undefined,
+      undefined,
+      undefined,
+      clock,
     );
     component.onSubagentSpawned({
       agentId: 'sub_tools',
@@ -1609,8 +1625,7 @@ describe('ToolCallComponent', () => {
   });
 
   it('keeps the subagent tool summary pinned to the most recent tool', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(0);
+    const clock = createFakeClock();
     const component = new ToolCallComponent(
       {
         id: 'call_agent_stable_tools',
@@ -1618,6 +1633,9 @@ describe('ToolCallComponent', () => {
         args: { description: 'inspect tools' },
       },
       undefined,
+      undefined,
+      undefined,
+      clock,
     );
     component.onSubagentSpawned({
       agentId: 'sub_tools',
@@ -1654,8 +1672,7 @@ describe('ToolCallComponent', () => {
   });
 
   it('wraps the single subagent active window with a hanging gutter', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(0);
+    const clock = createFakeClock();
     const component = new ToolCallComponent(
       {
         id: 'call_agent_wrapped_text',
@@ -1663,6 +1680,9 @@ describe('ToolCallComponent', () => {
         args: { description: 'inspect wrapping' },
       },
       undefined,
+      undefined,
+      undefined,
+      clock,
     );
     component.onSubagentSpawned({
       agentId: 'sub_wrapped',
@@ -1683,8 +1703,7 @@ describe('ToolCallComponent', () => {
   });
 
   it('scrolls single subagent thinking to the last two display rows', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(0);
+    const clock = createFakeClock();
     const component = new ToolCallComponent(
       {
         id: 'call_agent_scroll',
@@ -1692,6 +1711,9 @@ describe('ToolCallComponent', () => {
         args: { description: 'long think' },
       },
       undefined,
+      undefined,
+      undefined,
+      clock,
     );
     component.onSubagentSpawned({
       agentId: 'sub_scroll',
@@ -1711,8 +1733,7 @@ describe('ToolCallComponent', () => {
   });
 
   it('shows a two-row tail of an ongoing subagent Bash output', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(0);
+    const clock = createFakeClock();
     const component = new ToolCallComponent(
       {
         id: 'call_agent_bash_out',
@@ -1720,6 +1741,9 @@ describe('ToolCallComponent', () => {
         args: { description: 'run bash' },
       },
       undefined,
+      undefined,
+      undefined,
+      clock,
     );
     component.onSubagentSpawned({
       agentId: 'sub_bash',
@@ -1751,8 +1775,7 @@ describe('ToolCallComponent', () => {
   });
 
   it('shows live output for generic subagent tools but not for recognized ones', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(0);
+    const clock = createFakeClock();
     const component = new ToolCallComponent(
       {
         id: 'call_agent_mixed',
@@ -1760,6 +1783,9 @@ describe('ToolCallComponent', () => {
         args: { description: 'mixed tools' },
       },
       undefined,
+      undefined,
+      undefined,
+      clock,
     );
     component.onSubagentSpawned({
       agentId: 'sub_mixed',
@@ -1797,8 +1823,7 @@ describe('ToolCallComponent', () => {
   });
 
   it('renders failed single subagents with the dedicated header and error text', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(1000);
+    const clock = createFakeClock(1000);
     const component = new ToolCallComponent(
       {
         id: 'call_agent_failed',
@@ -1806,6 +1831,9 @@ describe('ToolCallComponent', () => {
         args: { description: 'check failure' },
       },
       undefined,
+      undefined,
+      undefined,
+      clock,
     );
     component.onSubagentSpawned({
       agentId: 'sub_failed',
@@ -1813,7 +1841,7 @@ describe('ToolCallComponent', () => {
       runInBackground: false,
     });
 
-    vi.setSystemTime(4000);
+    clock.set(4000);
     component.onSubagentFailed({ error: 'subagent exceeded max_steps' });
 
     const out = strip(component.render(120).join('\n'));
@@ -1824,8 +1852,7 @@ describe('ToolCallComponent', () => {
   });
 
   it('keeps the same card height between running and done', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(0);
+    const clock = createFakeClock();
     const component = new ToolCallComponent(
       {
         id: 'call_agent_height',
@@ -1833,6 +1860,9 @@ describe('ToolCallComponent', () => {
         args: { description: 'height stable' },
       },
       undefined,
+      undefined,
+      undefined,
+      clock,
     );
     component.onSubagentSpawned({
       agentId: 'sub_height',
@@ -2122,8 +2152,7 @@ describe('ToolCallComponent', () => {
   });
 
   it('renders a stable Edit progress placeholder during the streaming delta window', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(4000);
+    const clock = createFakeClock(4000);
     const oldLines: string[] = [];
     const newLines: string[] = [];
     for (let i = 1; i <= 20; i++) {
@@ -2146,6 +2175,9 @@ describe('ToolCallComponent', () => {
         streamingStartedAtMs: 0,
       },
       undefined,
+      undefined,
+      undefined,
+      clock,
     );
 
     const out = strip(component.render(100).join('\n'));
@@ -2293,9 +2325,8 @@ describe('ToolCallComponent', () => {
   });
 
   it('refreshes and stops the Edit streaming progress timer', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(0);
-    const ui = { requestRender: vi.fn() };
+    const clock = createFakeClock();
+    const ui = { requestRender: mock() };
     const component = new ToolCallComponent(
       {
         id: 'call_edit_timer',
@@ -2306,10 +2337,12 @@ describe('ToolCallComponent', () => {
       },
       undefined,
       ui as never,
+      undefined,
+      clock,
     );
 
     expect(strip(component.render(100).join('\n'))).toContain('0s elapsed');
-    vi.advanceTimersByTime(1000);
+    clock.advance(1000);
     expect(ui.requestRender).toHaveBeenCalled();
     expect(strip(component.render(100).join('\n'))).toContain('1s elapsed');
 
@@ -2319,7 +2352,7 @@ describe('ToolCallComponent', () => {
       output: 'Replaced 1 occurrence in foo.ts',
       is_error: false,
     });
-    vi.advanceTimersByTime(1000);
+    clock.advance(1000);
     expect(ui.requestRender).not.toHaveBeenCalled();
 
     const componentToDispose = new ToolCallComponent(
@@ -2332,10 +2365,12 @@ describe('ToolCallComponent', () => {
       },
       undefined,
       ui as never,
+      undefined,
+      clock,
     );
     ui.requestRender.mockClear();
     componentToDispose.dispose();
-    vi.advanceTimersByTime(1000);
+    clock.advance(1000);
     expect(ui.requestRender).not.toHaveBeenCalled();
   });
 

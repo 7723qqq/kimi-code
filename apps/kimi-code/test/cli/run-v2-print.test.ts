@@ -1,5 +1,5 @@
 import { PRINT_WAIT_CEILING_S_DEFAULT } from '@moonshot-ai/agent-core-v2';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import {
   applyPrintBackgroundPolicy,
@@ -41,8 +41,8 @@ function scriptedTurnEndings(entries: ScriptedEntry[]): PrintTurnEndings {
 
 describe('applyPrintBackgroundPolicy', () => {
   it('exit returns immediately without draining or waiting', async () => {
-    const drain = vi.fn(async () => {});
-    const countPending = vi.fn(() => 1);
+    const drain = mock(async () => {});
+    const countPending = mock(() => 1);
     await applyPrintBackgroundPolicy({
       mode: 'exit',
       ceilingS: 60,
@@ -59,7 +59,7 @@ describe('applyPrintBackgroundPolicy', () => {
   });
 
   it('drain drains once and returns', async () => {
-    const drain = vi.fn(async () => {});
+    const drain = mock(async () => {});
     await applyPrintBackgroundPolicy({
       mode: 'drain',
       ceilingS: 60,
@@ -76,7 +76,7 @@ describe('applyPrintBackgroundPolicy', () => {
 
   it('steer returns once background tasks are quiescent', async () => {
     let pending = 1;
-    const warn = vi.fn();
+    const warn = mock();
     await applyPrintBackgroundPolicy({
       mode: 'steer',
       ceilingS: 60,
@@ -103,7 +103,7 @@ describe('applyPrintBackgroundPolicy', () => {
   });
 
   it('steer finishes with a warning when max turns is reached', async () => {
-    const warn = vi.fn();
+    const warn = mock();
     await applyPrintBackgroundPolicy({
       mode: 'steer',
       ceilingS: 60,
@@ -121,7 +121,7 @@ describe('applyPrintBackgroundPolicy', () => {
 
   it('steer finishes with a warning when the ceiling is reached', async () => {
     let now = 0;
-    const warn = vi.fn();
+    const warn = mock();
     await applyPrintBackgroundPolicy({
       mode: 'steer',
       ceilingS: 10,
@@ -145,7 +145,7 @@ describe('applyPrintBackgroundPolicy', () => {
   });
 
   it('steer returns when the wait times out with tasks still pending', async () => {
-    const warn = vi.fn();
+    const warn = mock();
     await applyPrintBackgroundPolicy({
       mode: 'steer',
       ceilingS: 60,
@@ -189,7 +189,7 @@ describe('applyPrintBackgroundPolicy', () => {
   it('waits for goal continuation turns before applying the mode', async () => {
     let active = true;
     let consumed = 0;
-    const drain = vi.fn(async () => {});
+    const drain = mock(async () => {});
     await applyPrintBackgroundPolicy({
       mode: 'drain',
       ceilingS: 60,
@@ -223,7 +223,7 @@ describe('applyPrintBackgroundPolicy', () => {
 
   it('warns and returns when the goal wait hits the ceiling', async () => {
     let now = 0;
-    const warn = vi.fn();
+    const warn = mock();
     await applyPrintBackgroundPolicy({
       mode: 'exit',
       ceilingS: 10,
@@ -248,7 +248,7 @@ describe('applyPrintBackgroundPolicy', () => {
 
   it('exits the goal wait promptly when the goal settles without a turn ending', async () => {
     let active = true;
-    const warn = vi.fn();
+    const warn = mock();
     await applyPrintBackgroundPolicy({
       mode: 'exit',
       ceilingS: 3600,
@@ -274,8 +274,8 @@ describe('applyPrintBackgroundPolicy', () => {
   it('keeps an exit-mode run alive until a pending cron fire steered a turn', async () => {
     let nextFire: number | null = 60_000;
     let fireTurnEnded = false;
-    const cronNextFireAt = vi.fn(() => nextFire);
-    const countPending = vi.fn(() => 0);
+    const cronNextFireAt = mock(() => nextFire);
+    const countPending = mock(() => 0);
     await applyPrintBackgroundPolicy({
       mode: 'exit',
       ceilingS: 3600,
@@ -334,7 +334,7 @@ describe('applyPrintBackgroundPolicy', () => {
 
   it('keeps waiting while a recurring cron advances its next fire time', async () => {
     let nextFire: number | null = 10_000;
-    const cronNextFireAt = vi.fn(() => nextFire);
+    const cronNextFireAt = mock(() => nextFire);
     await applyPrintBackgroundPolicy({
       mode: 'exit',
       ceilingS: 3600,
@@ -367,13 +367,13 @@ describe('applyPrintBackgroundPolicy', () => {
 
   it('re-reads the cron schedule when the fire wait times out without a turn', async () => {
     let nextFire: number | null = 10_000;
-    const cronNextFireAt = vi.fn(() => {
+    const cronNextFireAt = mock(() => {
       const value = nextFire;
       // The task was removed between the first query and the re-check.
       nextFire = null;
       return value;
     });
-    const warn = vi.fn();
+    const warn = mock();
     await applyPrintBackgroundPolicy({
       mode: 'exit',
       ceilingS: 3600,
@@ -392,7 +392,7 @@ describe('applyPrintBackgroundPolicy', () => {
   });
 
   it('warns and stops cron waiting when the next fire time is stuck in the past', async () => {
-    const warn = vi.fn();
+    const warn = mock();
     await applyPrintBackgroundPolicy({
       mode: 'exit',
       ceilingS: 3600,
@@ -416,7 +416,7 @@ describe('applyPrintBackgroundPolicy', () => {
     // rather than return (and let teardown cancel the turn mid-flight).
     let active = true;
     let consumed = 0;
-    const warn = vi.fn();
+    const warn = mock();
     await applyPrintBackgroundPolicy({
       mode: 'steer',
       ceilingS: 3600,
@@ -442,7 +442,7 @@ describe('applyPrintBackgroundPolicy', () => {
     // the turn ends. That is a held fire, not a wedged tick.
     let active = true;
     let nextFire: number | null = 500;
-    const warn = vi.fn();
+    const warn = mock();
     const turnEndings: PrintTurnEndings = {
       next: async (remainingMs) => {
         // The running turn outlives short grace waits; only a patient wait
@@ -505,7 +505,7 @@ describe('applyPrintBackgroundPolicy', () => {
     let consumed = 0;
     let nextFire: number | null = 60_000;
     let cronFirstCallAtConsumed = -1;
-    const cronNextFireAt = vi.fn(() => {
+    const cronNextFireAt = mock(() => {
       if (cronFirstCallAtConsumed === -1) cronFirstCallAtConsumed = consumed;
       return nextFire;
     });

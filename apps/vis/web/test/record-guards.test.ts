@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { MISSING_APPROVAL_RESULT, readApprovalResult } from '../src/lib/recordGuards';
 

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 import { IEventBus } from '#/app/event/eventBus';
 import { IPluginService } from '#/app/plugin/plugin';

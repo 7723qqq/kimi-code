@@ -1,23 +1,23 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
-import type { ServiceIdentifier, ServicesAccessor } from '#/_base/di/instantiation';
-import { Disposable, DisposableStore } from '#/_base/di/lifecycle';
+import { type ServiceIdentifier, type ServicesAccessor } from '#/_base/di/instantiation';
+import { DisposableStore } from '#/_base/di/lifecycle';
 import { LifecycleScope } from '#/app/scopes';
 import { type IAgentScopeHandle, type ISessionScopeHandle } from '#/_base/di/scope';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
-import type { AgentContext } from '#/agent/agentContext/agentContext';
-import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
+
+import { type ContextMessage, type PromptOrigin } from '#/agent/contextMemory/types';
 import { IRestGateway } from '#/app/gateway/gateway';
 import { RestGateway } from '#/app/gateway/gatewayService';
 import { stubAgentContext } from '../../agent/agentContext/stubs';
 import { ILogService } from '#/_base/log/log';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
-import type { SessionMeta } from '#/session/sessionMetadata/sessionMetadata';
+import { type SessionMeta } from '#/session/sessionMetadata/sessionMetadata';
 import { IAgentLoopService } from '#/agent/loop/loop';
-import type { UserEntry } from '#human/agent/turn';
+import { type UserEntry } from '#human/agent/turn';
 import { stubLog } from '../../_base/log/stubs';
 import { stubLoopWithHooks, type StubLoop } from '../../agent/loop/stubs';
 

@@ -10,7 +10,7 @@ import { mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import {
   DeviceCodeTimeoutError,
@@ -71,7 +71,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  vi.restoreAllMocks();
+  mock.restore();
 });
 
 // ── ensureFresh ───────────────────────────────────────────────────────
@@ -80,7 +80,7 @@ describe('OAuthManager.ensureFresh', () => {
   it('returns stored access_token when not close to expiry', async () => {
     const storage = new InMemoryStorage();
     await storage.save('kimi-code', makeToken({ expiresAt: currentNow + 7200 }));
-    const refreshImpl = vi.fn();
+    const refreshImpl = mock();
     const mgr = new OAuthManager({
       config,
       storage,
@@ -101,7 +101,7 @@ describe('OAuthManager.ensureFresh', () => {
       refreshToken: 'rt-new',
       expiresAt: currentNow + 3600,
     });
-    const refreshImpl = vi.fn().mockResolvedValue(refreshed);
+    const refreshImpl = mock().mockResolvedValue(refreshed);
     const mgr = new OAuthManager({ config, storage, now, refreshTokenImpl: refreshImpl });
     const access = await mgr.ensureFresh();
     expect(refreshImpl).toHaveBeenCalledWith(config, 'rt-1');
@@ -112,7 +112,7 @@ describe('OAuthManager.ensureFresh', () => {
   it('force=true always refreshes', async () => {
     const storage = new InMemoryStorage();
     await storage.save('kimi-code', makeToken({ expiresAt: currentNow + 7200 }));
-    const refreshImpl = vi.fn().mockResolvedValue(makeToken({ accessToken: 'forced' }));
+    const refreshImpl = mock().mockResolvedValue(makeToken({ accessToken: 'forced' }));
     const mgr = new OAuthManager({ config, storage, now, refreshTokenImpl: refreshImpl });
     const access = await mgr.ensureFresh({ force: true });
     expect(refreshImpl).toHaveBeenCalled();
@@ -130,7 +130,7 @@ describe('OAuthManager.ensureFresh', () => {
         expiresIn: 3600,
       }),
     );
-    const refreshImpl = vi.fn().mockResolvedValue(
+    const refreshImpl = mock().mockResolvedValue(
       makeToken({
         accessToken: 'forced-fresh',
         refreshToken: 'rt-forced',
@@ -153,7 +153,7 @@ describe('OAuthManager.ensureFresh', () => {
         expiresAt: currentNow + 100,
       }),
     );
-    const refreshImpl = vi.fn();
+    const refreshImpl = mock();
     const mgr = new OAuthManager({ config, storage, now, refreshTokenImpl: refreshImpl });
 
     const originalLoad = storage.load.bind(storage);
@@ -182,7 +182,7 @@ describe('OAuthManager.ensureFresh', () => {
     const storage = new InMemoryStorage();
     await storage.save('kimi-code', makeToken({ expiresAt: currentNow + 200 }));
     let refreshCount = 0;
-    const refreshImpl = vi.fn().mockImplementation(async () => {
+    const refreshImpl = mock().mockImplementation(async () => {
       refreshCount += 1;
       return makeToken({ accessToken: `at-${refreshCount}` });
     });
@@ -202,7 +202,7 @@ describe('OAuthManager.ensureFresh', () => {
     const storage = new InMemoryStorage();
     await storage.save('kimi-code', makeToken({ expiresAt: currentNow + 7200 }));
     let refreshCount = 0;
-    const refreshImpl = vi.fn().mockImplementation(async () => {
+    const refreshImpl = mock().mockImplementation(async () => {
       refreshCount += 1;
       return makeToken({ accessToken: `forced-${refreshCount}`, refreshToken: 'rt-new' });
     });
@@ -226,7 +226,7 @@ describe('OAuthManager.ensureFresh', () => {
     const storage = new InMemoryStorage();
     await storage.save('kimi-code', makeToken({ expiresAt: currentNow + 7200 }));
     let refreshCount = 0;
-    const refreshImpl = vi.fn().mockImplementation(async () => {
+    const refreshImpl = mock().mockImplementation(async () => {
       refreshCount += 1;
       return makeToken({ accessToken: `forced-${refreshCount}` });
     });
@@ -245,7 +245,7 @@ describe('OAuthManager.ensureFresh', () => {
     const storage = new InMemoryStorage();
     await storage.save('kimi-code', makeToken({ expiresAt: currentNow + 7200 }));
     let refreshCount = 0;
-    const refreshImpl = vi.fn().mockImplementation(async () => {
+    const refreshImpl = mock().mockImplementation(async () => {
       refreshCount += 1;
       return makeToken({ accessToken: `forced-${refreshCount}` });
     });
@@ -271,7 +271,7 @@ describe('OAuthManager.ensureFresh', () => {
     const storage = new InMemoryStorage();
     await storage.save('kimi-code', makeToken({ expiresAt: currentNow + 7200 }));
     let refreshCount = 0;
-    const refreshImpl = vi.fn().mockImplementation(async () => {
+    const refreshImpl = mock().mockImplementation(async () => {
       refreshCount += 1;
       return makeToken({ accessToken: `forced-${refreshCount}` });
     });
@@ -299,8 +299,7 @@ describe('OAuthManager.ensureFresh', () => {
     // bleed into the force caller's outcome.
     const storage = new InMemoryStorage();
     await storage.save('kimi-code', makeToken({ expiresAt: currentNow + 200 }));
-    const refreshImpl = vi
-      .fn()
+    const refreshImpl = mock()
       .mockRejectedValueOnce(new Error('network unreachable'))
       .mockResolvedValueOnce(makeToken({ accessToken: 'forced-recovery' }));
     const mgr = new OAuthManager({
@@ -340,7 +339,7 @@ describe('OAuthManager.ensureFresh', () => {
         expiresAt: currentNow + 100,
       }),
     );
-    const refreshImpl = vi.fn().mockRejectedValue(new OAuthUnauthorizedError('invalid_grant'));
+    const refreshImpl = mock().mockRejectedValue(new OAuthUnauthorizedError('invalid_grant'));
     const mgr = new OAuthManager({ config, storage, now, refreshTokenImpl: refreshImpl });
     await expect(mgr.ensureFresh()).rejects.toBeInstanceOf(OAuthUnauthorizedError);
     const retained = await storage.load('kimi-code');
@@ -362,7 +361,7 @@ describe('OAuthManager.ensureFresh', () => {
     // Simulate: our refresh attempt fails 401 because rt-old was rotated by
     // another process; the new token is already in storage.
     let refreshAttempts = 0;
-    const refreshImpl = vi.fn().mockImplementation(async (_cfg, rt: string) => {
+    const refreshImpl = mock().mockImplementation(async (_cfg, rt: string) => {
       refreshAttempts += 1;
       if (rt === 'rt-old') {
         // Race: while we were calling refresh, another process rotated.
@@ -404,8 +403,7 @@ describe('OAuthManager.ensureFresh', () => {
       'kimi-code',
       makeToken({ expiresAt: currentNow + 7200, refreshToken: 'rt-revoked' }),
     );
-    const refreshImpl = vi
-      .fn()
+    const refreshImpl = mock()
       .mockRejectedValue(new OAuthUnauthorizedError('refresh_token revoked'));
     const mgr = new OAuthManager({
       config,
@@ -428,7 +426,7 @@ describe('OAuthManager.ensureFresh', () => {
     // the caller owns the try/catch policy, not ensureFresh.
     const storage = new InMemoryStorage();
     await storage.save('kimi-code', makeToken({ expiresAt: currentNow + 7200 }));
-    const refreshImpl = vi.fn().mockRejectedValue(new Error('ECONNRESET: network unreachable'));
+    const refreshImpl = mock().mockRejectedValue(new Error('ECONNRESET: network unreachable'));
     const mgr = new OAuthManager({
       config,
       storage,
@@ -452,7 +450,7 @@ describe('OAuthManager.ensureFresh', () => {
         expiresAt: currentNow + 100,
       }),
     );
-    const refreshImpl = vi.fn(); // should NOT be called — latest is fresh
+    const refreshImpl = mock(); // should NOT be called — latest is fresh
     const mgr = new OAuthManager({ config, storage, now, refreshTokenImpl: refreshImpl });
 
     // Second load call returns an externally-rotated token that's fresh.
@@ -501,7 +499,7 @@ describe('OAuthManager.ensureFresh — logout during a locked refresh', () => {
       return originalLoad(name);
     };
 
-    const refreshImpl = vi.fn().mockResolvedValue(makeToken({ accessToken: 'resurrected' }));
+    const refreshImpl = mock().mockResolvedValue(makeToken({ accessToken: 'resurrected' }));
     const mgr = new OAuthManager({ config, storage, now, refreshTokenImpl: refreshImpl });
 
     await expect(mgr.ensureFresh({ force: true })).rejects.toThrow(
@@ -524,7 +522,7 @@ describe('OAuthManager.ensureFresh — rejected refresh token retention', () => 
         expiresAt: currentNow + 100,
       }),
     );
-    const refreshImpl = vi.fn().mockRejectedValue(new OAuthUnauthorizedError('invalid_grant'));
+    const refreshImpl = mock().mockRejectedValue(new OAuthUnauthorizedError('invalid_grant'));
     const mgr = new OAuthManager({
       config,
       storage,
@@ -572,8 +570,7 @@ describe('OAuthManager.ensureFresh — rejected refresh token retention', () => 
         expiresAt: 0,
       }),
     );
-    const refreshImpl = vi
-      .fn()
+    const refreshImpl = mock()
       .mockResolvedValue(makeToken({ accessToken: 'at-should-not-refresh' }));
     const mgr = new OAuthManager({
       config,
@@ -603,7 +600,7 @@ describe('OAuthManager.ensureFresh — rejected refresh token retention', () => 
         expiresAt: currentNow + 100,
       }),
     );
-    const refreshImpl = vi.fn().mockRejectedValue(new OAuthUnauthorizedError('invalid_grant'));
+    const refreshImpl = mock().mockRejectedValue(new OAuthUnauthorizedError('invalid_grant'));
     const mgr = new OAuthManager({
       config,
       storage,
@@ -637,13 +634,13 @@ describe('OAuthManager.login', () => {
 
   it('drives device flow to success and persists token', async () => {
     const storage = new InMemoryStorage();
-    const requestImpl = vi.fn().mockResolvedValue(okAuth());
+    const requestImpl = mock().mockResolvedValue(okAuth());
     const pollResponses: DevicePollResult[] = [
       { kind: 'pending', errorCode: 'authorization_pending', description: '' },
       { kind: 'pending', errorCode: 'authorization_pending', description: '' },
       { kind: 'success', token: makeToken({ accessToken: 'at-login' }) },
     ];
-    const pollImpl = vi.fn().mockImplementation(async () => pollResponses.shift()!);
+    const pollImpl = mock().mockImplementation(async () => pollResponses.shift()!);
 
     const mgr = new OAuthManager({
       config,
@@ -654,7 +651,7 @@ describe('OAuthManager.login', () => {
       sleep: async () => {},
     });
 
-    const onDeviceCode = vi.fn();
+    const onDeviceCode = mock();
     const result = await mgr.login({ onDeviceCode });
     expect(result.accessToken).toBe('at-login');
     expect(await storage.load('kimi-code')).toBeDefined();
@@ -664,7 +661,7 @@ describe('OAuthManager.login', () => {
   it('awaits async onDeviceCode before polling', async () => {
     const storage = new InMemoryStorage();
     let deviceCodeDelivered = false;
-    const pollImpl = vi.fn().mockImplementation(async (): Promise<DevicePollResult> => {
+    const pollImpl = mock().mockImplementation(async (): Promise<DevicePollResult> => {
       expect(deviceCodeDelivered).toBe(true);
       return { kind: 'success', token: makeToken({ accessToken: 'at-login' }) };
     });
@@ -673,7 +670,7 @@ describe('OAuthManager.login', () => {
       config,
       storage,
       now,
-      requestDeviceImpl: vi.fn().mockResolvedValue(okAuth()),
+      requestDeviceImpl: mock().mockResolvedValue(okAuth()),
       pollDeviceImpl: pollImpl,
       sleep: async () => {},
     });
@@ -690,14 +687,14 @@ describe('OAuthManager.login', () => {
 
   it('throws DeviceCodeTimeoutError when local 15-min budget exceeds', async () => {
     const storage = new InMemoryStorage();
-    const requestImpl = vi.fn().mockResolvedValue(okAuth());
-    const pollImpl = vi.fn().mockResolvedValue({
+    const requestImpl = mock().mockResolvedValue(okAuth());
+    const pollImpl = mock().mockResolvedValue({
       kind: 'pending' as const,
       errorCode: 'authorization_pending',
       description: '',
     });
     // sleep mock also advances `currentNow` to simulate wall clock
-    const sleep = vi.fn().mockImplementation(async (ms: number) => {
+    const sleep = mock().mockImplementation(async (ms: number) => {
       currentNow += Math.ceil(ms / 1000);
     });
 
@@ -717,7 +714,7 @@ describe('OAuthManager.login', () => {
 
   it('throws on denied', async () => {
     const storage = new InMemoryStorage();
-    const pollImpl = vi.fn().mockResolvedValue({
+    const pollImpl = mock().mockResolvedValue({
       kind: 'denied' as const,
       description: 'user rejected',
     });
@@ -725,7 +722,7 @@ describe('OAuthManager.login', () => {
       config,
       storage,
       now,
-      requestDeviceImpl: vi.fn().mockResolvedValue(okAuth()),
+      requestDeviceImpl: mock().mockResolvedValue(okAuth()),
       pollDeviceImpl: pollImpl,
       sleep: async () => {},
     });
@@ -735,12 +732,12 @@ describe('OAuthManager.login', () => {
 
   it('restarts device flow when server reports expired_token', async () => {
     const storage = new InMemoryStorage();
-    const requestImpl = vi.fn().mockResolvedValue(okAuth());
+    const requestImpl = mock().mockResolvedValue(okAuth());
     const pollResponses: DevicePollResult[] = [
       { kind: 'expired' },
       { kind: 'success', token: makeToken() },
     ];
-    const pollImpl = vi.fn().mockImplementation(async () => pollResponses.shift()!);
+    const pollImpl = mock().mockImplementation(async () => pollResponses.shift()!);
     const mgr = new OAuthManager({
       config,
       storage,
@@ -756,20 +753,20 @@ describe('OAuthManager.login', () => {
 
   it('respects AbortSignal during polling', async () => {
     const storage = new InMemoryStorage();
-    const pollImpl = vi.fn().mockResolvedValue({
+    const pollImpl = mock().mockResolvedValue({
       kind: 'pending' as const,
       errorCode: 'authorization_pending',
       description: '',
     });
     const ac = new AbortController();
-    const sleep = vi.fn().mockImplementation(async () => {
+    const sleep = mock().mockImplementation(async () => {
       ac.abort();
     });
     const mgr = new OAuthManager({
       config,
       storage,
       now,
-      requestDeviceImpl: vi.fn().mockResolvedValue({
+      requestDeviceImpl: mock().mockResolvedValue({
         userCode: 'U',
         deviceCode: 'D',
         verificationUri: '',
@@ -870,7 +867,7 @@ describe('OAuthManager + FileTokenStorage integration', () => {
 
   it('login persists token to disk; ensureFresh reads it back', async () => {
     const storage = new FileTokenStorage(dir);
-    const refreshImpl = vi.fn().mockResolvedValue(makeToken({ accessToken: 'refreshed' }));
+    const refreshImpl = mock().mockResolvedValue(makeToken({ accessToken: 'refreshed' }));
     const mgr = new OAuthManager({
       config,
       storage,
@@ -921,7 +918,7 @@ describe('OAuthManager + FileTokenStorage integration', () => {
       'kimi-code',
       makeToken({ refreshToken: 'rt-original', expiresAt: currentNow + 100 }),
     );
-    const refreshImpl = vi.fn().mockResolvedValue(
+    const refreshImpl = mock().mockResolvedValue(
       makeToken({
         accessToken: 'rotated-access',
         refreshToken: 'rotated-refresh',

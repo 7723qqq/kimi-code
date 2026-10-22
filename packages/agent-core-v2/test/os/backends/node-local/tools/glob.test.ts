@@ -3,9 +3,18 @@ import os from 'node:os';
 import path from 'node:path';
 import { Readable, type Writable } from 'node:stream';
 
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  mock,
+  spyOn,
+} from 'bun:test';
 
-import { ensureRgPath, type RgProbe } from '#/os/backends/host/tools/rgLocator';
+import { type RgProbe, type RgResolution } from '#/os/backends/host/tools/rgLocator';
 import { PathSecurityError, type PathClass } from '#/tool/path-access';
 import { noopTelemetryService } from '#/app/telemetry/telemetry';
 import type { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
@@ -28,17 +37,84 @@ import { probeHostEnvironmentFromNode } from '#/_base/execEnv/environmentProbe';
 import type { ITelemetryService, TelemetryProperties } from '#/app/telemetry/telemetry';
 import type { ExecutableToolContext, ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
 
-vi.mock('#/os/backends/host/tools/rgLocator', () => ({
-  ensureRgPath: vi.fn(async (): Promise<{ path: string; source: string }> => ({
-    path: 'rg',
-    source: 'system-path',
-  })),
-  rgUnavailableMessage: (cause: unknown) =>
-    `rg unavailable: ${cause instanceof Error ? cause.message : String(cause)}`,
+import * as rgLocator from '#/os/backends/host/tools/rgLocator';
+import type { RgHostProcessService } from '#/os/backends/host/tools/runRg';
+import type { IHostTimerHandle, IHostTimers } from '#/os/interface/hostTimers';
+
+const realEnsureRgPath = rgLocator.ensureRgPath;
+const ensureRgPath = spyOn(rgLocator, 'ensureRgPath').mockImplementation(async () => ({
+  path: 'rg',
+  source: 'system-path',
 }));
+spyOn(rgLocator, 'rgUnavailableMessage').mockImplementation(
+  (cause: unknown) => `rg unavailable: ${cause instanceof Error ? cause.message : String(cause)}`,
+);
 
 const signal = new AbortController().signal;
 const workspace = stubWorkspaceContext('/workspace', ['/extra']);
+
+interface FakeTimerHandle extends IHostTimerHandle {
+  readonly id: number;
+}
+
+interface FakeTimers extends IHostTimers {
+  advance(byMs: number): void;
+  readonly pending: number;
+}
+
+function createFakeTimers(): FakeTimers {
+  let nowMs = 0;
+  let nextId = 1;
+  const scheduled: Array<{
+    readonly id: number;
+    readonly due: number;
+    readonly callback: () => void;
+    cancelled: boolean;
+  }> = [];
+
+  const schedule = (callback: () => void, timeoutMs: number): FakeTimerHandle => {
+    const timer = { id: nextId, due: nowMs + timeoutMs, callback, cancelled: false };
+    nextId += 1;
+    scheduled.push(timer);
+    return { id: timer.id, unref: () => {} };
+  };
+
+  return {
+    _serviceBrand: undefined,
+    setClampedTimeout: (callback, timeoutMs) => schedule(callback, timeoutMs),
+    setTimeout: (callback, timeoutMs) => schedule(callback, timeoutMs),
+    clearTimeout: (handle) => {
+      const id = (handle as FakeTimerHandle).id;
+      const timer = scheduled.find((candidate) => candidate.id === id);
+      if (timer !== undefined) timer.cancelled = true;
+    },
+    advance: (byMs) => {
+      const limit = nowMs + byMs;
+      for (;;) {
+        const next = scheduled
+          .filter((timer) => !timer.cancelled && timer.due <= limit)
+          .toSorted((a, b) => a.due - b.due || a.id - b.id)[0];
+        if (next === undefined) break;
+        next.cancelled = true;
+        nowMs = next.due;
+        next.callback();
+      }
+      nowMs = limit;
+    },
+    get pending() {
+      return scheduled.filter((timer) => !timer.cancelled).length;
+    },
+  };
+}
+
+async function flushAsyncWork(): Promise<void> {
+  for (let i = 0; i < 4; i += 1) {
+    await Promise.resolve();
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+  }
+}
 
 function dirStat(): HostFileStat {
   return { isFile: false, isDirectory: true, size: 0 };
@@ -48,9 +124,9 @@ function fileStat(): HostFileStat {
   return { isFile: true, isDirectory: false, size: 0 };
 }
 
-function createTestFs(opts: { stat?: ReturnType<typeof vi.fn>; readdir?: ReturnType<typeof vi.fn> } = {}) {
-  const stat = opts.stat ?? vi.fn(async (): Promise<HostFileStat> => dirStat());
-  const readdir = opts.readdir ?? vi.fn(async (): Promise<readonly string[]> => []);
+function createTestFs(opts: { stat?: ReturnType<typeof mock>; readdir?: ReturnType<typeof mock> } = {}) {
+  const stat = opts.stat ?? mock(async (): Promise<HostFileStat> => dirStat());
+  const readdir = opts.readdir ?? mock(async (): Promise<readonly string[]> => []);
   const fs = { stat, readdir } as unknown as IHostFileSystem;
   return { fs, stat, readdir };
 }
@@ -60,14 +136,14 @@ function fakeProcess(stdout: string, stderr = '', exitCode = 0): IHostProcess {
   const stderrStream = Readable.from([Buffer.from(stderr)]);
   return {
     _serviceBrand: undefined,
-    stdin: { end: vi.fn(), write: vi.fn() } as unknown as Writable,
+    stdin: { end: mock(), write: mock() } as unknown as Writable,
     stdout: stdoutStream,
     stderr: stderrStream,
     pid: 123,
     exitCode,
-    wait: vi.fn().mockResolvedValue(exitCode) as IHostProcess['wait'],
-    kill: vi.fn(async () => {}) as IHostProcess['kill'],
-    dispose: vi.fn(() => {
+    wait: mock().mockResolvedValue(exitCode) as IHostProcess['wait'],
+    kill: mock(async () => {}) as IHostProcess['kill'],
+    dispose: mock(() => {
       stdoutStream.destroy();
       stderrStream.destroy();
     }) as IHostProcess['dispose'],
@@ -75,7 +151,7 @@ function fakeProcess(stdout: string, stderr = '', exitCode = 0): IHostProcess {
 }
 
 function execReturning(stdout: string, stderr = '', exitCode = 0) {
-  return vi.fn().mockResolvedValue(fakeProcess(stdout, stderr, exitCode));
+  return mock().mockResolvedValue(fakeProcess(stdout, stderr, exitCode));
 }
 
 function createTestEnv(opts: { home?: string; pathClass?: PathClass } = {}): IHostEnvironment {
@@ -92,8 +168,11 @@ function createTestEnv(opts: { home?: string; pathClass?: PathClass } = {}): IHo
   };
 }
 
-function createTestProcessService(spawn: ReturnType<typeof vi.fn>): IHostProcessService {
-  return { _serviceBrand: undefined, spawn } as unknown as IHostProcessService;
+function createTestProcessService(
+  spawn: ReturnType<typeof mock>,
+  timers?: IHostTimers,
+): RgHostProcessService {
+  return { _serviceBrand: undefined, spawn, timers } as unknown as RgHostProcessService;
 }
 
 function createRuntime(
@@ -139,7 +218,7 @@ function createRealRgProbe(processService: IHostProcessService): RgProbe {
   };
 }
 
-function withCwdOf(exec: ReturnType<typeof vi.fn>): { toHaveBeenCalledWith: (dir: string) => void; toHaveBeenCalled: () => void; not: { toHaveBeenCalled: () => void; toHaveBeenCalledWith: (dir: string) => void } } {
+function withCwdOf(exec: ReturnType<typeof mock>): { toHaveBeenCalledWith: (dir: string) => void; toHaveBeenCalled: () => void; not: { toHaveBeenCalled: () => void; toHaveBeenCalledWith: (dir: string) => void } } {
   const cwds = () =>
     (
       exec.mock.calls as unknown as ReadonlyArray<
@@ -158,7 +237,7 @@ function withCwdOf(exec: ReturnType<typeof vi.fn>): { toHaveBeenCalledWith: (dir
   };
 }
 
-function execArgs(exec: ReturnType<typeof vi.fn>): string[] {
+function execArgs(exec: ReturnType<typeof mock>): string[] {
   return (exec.mock.calls[0] as ReadonlyArray<unknown>)[1] as string[];
 }
 
@@ -221,15 +300,16 @@ function makeTool(
   opts: {
     home?: string;
     pathClass?: PathClass;
-    exec?: ReturnType<typeof vi.fn>;
-    stat?: ReturnType<typeof vi.fn>;
-    readdir?: ReturnType<typeof vi.fn>;
+    exec?: ReturnType<typeof mock>;
+    stat?: ReturnType<typeof mock>;
+    readdir?: ReturnType<typeof mock>;
     telemetry?: ITelemetryService;
+    timers?: IHostTimers;
   } = {},
-): { tool: GlobTool; exec: ReturnType<typeof vi.fn>; withCwd: ReturnType<typeof withCwdOf> } {
+): { tool: GlobTool; exec: ReturnType<typeof mock>; withCwd: ReturnType<typeof withCwdOf> } {
   const exec = opts.exec ?? execReturning('');
   const { fs } = createTestFs({ stat: opts.stat, readdir: opts.readdir });
-  const processService = createTestProcessService(exec);
+  const processService = createTestProcessService(exec, opts.timers);
   const env = createTestEnv({ home: opts.home, pathClass: opts.pathClass });
   const tool = new GlobTool(
     createRuntime(fs, env, processService),
@@ -445,7 +525,7 @@ describe('GlobTool', () => {
     else expect(result.output).toContain('No more matches at offset=3');
   });
 
-  it.each([
+  it.each<{ head_limit: number; expected: string[] }>([
     { head_limit: 1, expected: ['b.ts'] },
     { head_limit: 0, expected: ['b.ts', 'c.ts'] },
   ])('applies head_limit=$head_limit and offset after sensitive filtering', async ({ head_limit, expected }) => {
@@ -471,35 +551,35 @@ describe('GlobTool', () => {
   });
 
   it('keeps the timeout warning when the requested page has no collected matches', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
-    try {
-      let finish!: (code: number) => void;
-      const completion = new Promise<number>((resolve) => { finish = resolve; });
-      const proc = fakeProcess('/workspace/a.ts\n');
-      const { tool } = makeTool(workspace, {
-        exec: vi.fn().mockResolvedValue({
-          ...proc,
-          exitCode: null,
-          wait: () => completion,
-          kill: async () => { finish(143); },
-        }),
-      });
-      const pending = execute(tool, GlobInputSchema.parse({ pattern: '*.ts', offset: 1 }));
-      await vi.advanceTimersByTimeAsync(20_000);
-      const result = await pending;
-      expect(result.output).toContain('Glob timed out');
-      expect(result.output).toContain('No more matches at offset=1 in the collected partial result set');
-      expect(result.output).not.toContain('No matches found');
-    } finally {
-      vi.useRealTimers();
-    }
+    const timers = createFakeTimers();
+    let finish!: (code: number) => void;
+    const completion = new Promise<number>((resolve) => { finish = resolve; });
+    const proc = fakeProcess('/workspace/a.ts\n');
+    const { tool } = makeTool(workspace, {
+      timers,
+      exec: mock().mockResolvedValue({
+        ...proc,
+        exitCode: null,
+        wait: () => completion,
+        kill: async () => { finish(143); },
+      }),
+    });
+    const pending = execute(tool, GlobInputSchema.parse({ pattern: '*.ts', offset: 1 }));
+    await flushAsyncWork();
+    expect(timers.pending).toBe(1);
+    timers.advance(20_000);
+    await flushAsyncWork();
+    const result = await pending;
+    expect(result.output).toContain('Glob timed out');
+    expect(result.output).toContain('No more matches at offset=1 in the collected partial result set');
+    expect(result.output).not.toContain('No matches found');
   });
 
   it.each([0, 60_000])('keeps expanded paths within spill retention and continues with head_limit=%s', async (head_limit) => {
     const root = `/${'r'.repeat(180)}`;
     const names = Array.from({ length: 60_000 }, (_, i) => `file-${String(i).padStart(6, '0')}.ts`);
     const stdout = names.map((name) => `./${name}`).join('\n') + '\n';
-    const { tool } = makeTool(workspace, { exec: vi.fn(async () => fakeProcess(stdout)) });
+    const { tool } = makeTool(workspace, { exec: mock(async () => fakeProcess(stdout)) });
     const first = toolContentString(await execute(tool, { pattern: '*.ts', path: root, head_limit }));
     expect(first.length).toBeLessThanOrEqual(10_000_000);
     expect(first).toContain('Character limit reached; only complete paths are returned.');
@@ -527,7 +607,7 @@ describe('GlobTool', () => {
   });
 
   it('surfaces the raw spawn error when rg cannot be spawned', async () => {
-    const exec = vi.fn().mockRejectedValue(new Error('spawn rg ENOENT'));
+    const exec = mock().mockRejectedValue(new Error('spawn rg ENOENT'));
     const { tool } = makeTool(workspace, { exec });
 
     const result = await execute(tool, { pattern: '*.ts' });
@@ -538,8 +618,7 @@ describe('GlobTool', () => {
   });
 
   it('retries once single-threaded when rg fails with EAGAIN (os error 11)', async () => {
-    const exec = vi
-      .fn()
+    const exec = mock()
       .mockResolvedValueOnce(
         fakeProcess('', 'rg: thread pool: Resource temporarily unavailable (os error 11)', 2),
       )
@@ -557,11 +636,11 @@ describe('GlobTool', () => {
   });
 
   it('surfaces an actionable error and tracks telemetry when rg is unavailable', async () => {
-    vi.mocked(ensureRgPath).mockRejectedValueOnce(
+    ensureRgPath.mockRejectedValueOnce(
       new Error('ripgrep (rg) is not available on PATH'),
     );
     const events: Array<{ event: string; properties: Record<string, unknown> }> = [];
-    const exec = vi.fn();
+    const exec = mock();
     const { tool } = makeTool(workspace, { exec, telemetry: telemetryStub(events) });
 
     const result = await execute(tool, { pattern: '*.ts' });
@@ -576,7 +655,7 @@ describe('GlobTool', () => {
   });
 
   it('tracks when glob uses a non-system ripgrep fallback', async () => {
-    vi.mocked(ensureRgPath).mockResolvedValueOnce({
+    ensureRgPath.mockResolvedValueOnce({
       path: '/mock/rg',
       source: 'share-bin-downloaded',
     });
@@ -624,7 +703,7 @@ describe('GlobTool', () => {
     });
 
     it('rejects a relative path that escapes both workspace and additionalDirs', async () => {
-      const exec = vi.fn();
+      const exec = mock();
       const { tool, withCwd } = makeTool(
         stubWorkspaceContext('/workspace/project', ['/skills']),
         { exec },
@@ -726,10 +805,10 @@ describe('GlobTool', () => {
   });
 
   it('reports "does not exist" when the search directory is missing', async () => {
-    const stat = vi.fn(async (): Promise<HostFileStat> => {
+    const stat = mock(async (): Promise<HostFileStat> => {
       throw Object.assign(new Error('ENOENT: no such file or directory'), { code: 'ENOENT' });
     });
-    const exec = vi.fn();
+    const exec = mock();
     const { tool, withCwd } = makeTool(workspace, { exec, stat });
 
     const result = await execute(tool, { pattern: '*.py', path: '/workspace/nonexistent' });
@@ -741,8 +820,8 @@ describe('GlobTool', () => {
   });
 
   it('reports "is not a directory" when the search target is a file', async () => {
-    const stat = vi.fn(async (): Promise<HostFileStat> => fileStat());
-    const exec = vi.fn();
+    const stat = mock(async (): Promise<HostFileStat> => fileStat());
+    const exec = mock();
     const { tool, withCwd } = makeTool(workspace, { exec, stat });
 
     const result = await execute(tool, { pattern: '*.py', path: '/workspace/file.txt' });
@@ -754,10 +833,10 @@ describe('GlobTool', () => {
   });
 
   it('surfaces non-ENOENT stat failures before spawning rg', async () => {
-    const stat = vi.fn(async (): Promise<HostFileStat> => {
+    const stat = mock(async (): Promise<HostFileStat> => {
       throw Object.assign(new Error('EACCES: permission denied'), { code: 'EACCES' });
     });
-    const exec = vi.fn();
+    const exec = mock();
     const { tool, withCwd } = makeTool(workspace, { exec, stat });
 
     const result = await execute(tool, { pattern: '*.py', path: '/workspace/locked' });
@@ -897,31 +976,36 @@ describe('splitCompletePaths', () => {
   });
 });
 
-describe('GlobTool integration (real ripgrep)', () => {
+const HEAVY = process.env['KIMI_TEST_HEAVY'] === '1';
+const realRgResolution = await (async (): Promise<RgResolution | undefined> => {
+  if (!HEAVY) return undefined;
+  try {
+    return await realEnsureRgPath(createRealRgProbe(new HostProcessService()), {
+      allowCachedFallback: false,
+    });
+  } catch {
+    return undefined;
+  }
+})();
+
+if (HEAVY && realRgResolution === undefined) {
+  throw new Error(
+    'KIMI_TEST_HEAVY=1 but no real ripgrep binary could be resolved: these cases exist to drive the real rg, so skipping them here would hide the only signal they carry',
+  );
+}
+
+describe.skipIf(realRgResolution === undefined)('GlobTool integration (real ripgrep)', () => {
 
   let tmpDir: string | undefined;
   let realEnv: IHostEnvironment;
   let realProcessService: IHostProcessService;
   let realFs: IHostFileSystem;
-  let runRealRg = false;
 
-  beforeAll(async () => {
-    try {
-      const actual = await vi.importActual<typeof import('#/os/backends/host/tools/rgLocator')>(
-        '#/os/backends/host/tools/rgLocator',
-      );
-      const probeProcessService = new HostProcessService();
-      const resolution = await actual.ensureRgPath(createRealRgProbe(probeProcessService), {
-        allowCachedFallback: false,
-      });
-      vi.mocked(ensureRgPath).mockResolvedValue(resolution);
-      runRealRg = true;
-    } catch {
-    }
+  beforeAll(() => {
+    ensureRgPath.mockResolvedValue(realRgResolution!);
   });
 
-  beforeEach(async (testCtx) => {
-    if (!runRealRg) testCtx.skip();
+  beforeEach(async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), 'glob-rg-'));
     const info = await probeHostEnvironmentFromNode();
     realEnv = {

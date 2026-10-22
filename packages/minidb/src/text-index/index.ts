@@ -90,6 +90,10 @@ export class TextIndex {
    *  built-in NAMED tokenizer injected as functions (the registry's ngram
    *  pair, marked via TextIndexOptions.builtinTokenizer) is not custom. */
   private readonly customTokenizer: boolean;
+  /** The rebuild target of a NON-override build (null for a memory base).
+   *  Immutable: a build with a `postingsPath` override writes into a caller
+   *  directory that is renamed away afterwards, so adopting that path here
+   *  would point every later plain rebuild at a vanished file. */
   private readonly path: string | null;
   private readonly cacheTerms: number;
   private readonly cacheBytesCap: number;
@@ -308,8 +312,11 @@ export class TextIndex {
    * batches its I/O, so a large rebuild never hard-blocks the host process
    * for many seconds the way the old fully-synchronous build did.
    */
-  async build(entries: Iterable<{ key: string; value: unknown }>): Promise<void> {
-    await feedBuild(this.beginBuild(), entries);
+  async build(
+    entries: Iterable<{ key: string; value: unknown }>,
+    opts: { postingsPath?: string } = {},
+  ): Promise<void> {
+    await feedBuild(this.beginBuild(opts), entries);
   }
 
   /**
@@ -408,9 +415,14 @@ export class TextIndex {
       }
       // The rename happened — the old postings are replaced on disk, so from
       // here the swap commits to the new index. A failed reopen (EMFILE & co.)
-      // is not special-cased: readBase treats a null pf as an empty base, so
-      // reads degrade to delta-only until the next build instead of reading
-      // through a stale dictionary.
+      // propagates with the dictionary still describing the REPLACED file; the
+      // null-handle guard in readBaseBounded turns that into TextIndexBuilding-
+      // Error, so reads fail loudly until the next build instead of quietly
+      // serving the delta alone. `this.path` is deliberately NOT touched here:
+      // with an override it names the generation's tmp directory, which the
+      // publish rename takes away (repointPostings moves the live HANDLE), and
+      // adopting it would aim every later non-override rebuild at a vanished
+      // path.
       const newPf = PostingsFile.open(targetPath);
       this.postings = dict;
       oldPf?.close();
@@ -662,10 +674,22 @@ export class TextIndex {
     }
 
     const entry = this.postings.get(term);
+    const pf = this.pf;
+    if (pf === null) {
+      // No open handle over a non-empty dictionary: a base EXISTS and is
+      // momentarily unreadable (the Windows beforeRename close, whose reopen
+      // window spans the EPERM rename retries, or a reopen that failed after
+      // the rename). Reading it as an empty base would silently drop every
+      // base hit, so raise the typed "building" signal instead. A disk index
+      // whose first build has not committed yet has an empty dictionary and
+      // keeps serving its delta alone.
+      if (this.postings.size > 0) throw new TextIndexBuildingError(this.indexName);
+      return { map: EMPTY_MAP, capped: false };
+    }
     if (entry !== undefined && maxEntries !== undefined && entry.df > maxEntries) {
       // Over budget before decoding even starts: cap the decode itself and
       // skip the cache (a partial list must never be cached as complete).
-      const arr = this.pf ? this.pf.read(entry, maxEntries) : [];
+      const arr = pf.read(entry, maxEntries);
       const m = new Map<number, number>();
       for (const [id, f] of arr) m.set(id, f);
       return { map: m, capped: true };
@@ -673,12 +697,9 @@ export class TextIndex {
 
     let arr = this.cacheGet(term);
     if (!arr) {
-      arr = entry && this.pf ? this.pf.read(entry) : [];
-      // A null pf (publish/reopen window, failed reopen) reads an EMPTY base:
-      // never cache that as the term's postings — it would poison every later
-      // query until the next base commit. Negative caching for genuinely
-      // absent terms (entry === undefined) stays.
-      if (entry === undefined || this.pf !== null) this.cachePut(term, arr);
+      arr = entry ? pf.read(entry) : [];
+      // Negative caching for genuinely absent terms stays.
+      this.cachePut(term, arr);
     }
     const m = new Map<number, number>();
     for (const [id, f] of arr) m.set(id, f);
@@ -704,6 +725,12 @@ export class TextIndex {
 
     for (let attempt = 0; ; attempt++) {
       const epoch = this.baseEpoch;
+      const pf = this.pf;
+      if (pf === null) {
+        // See the synchronous twin: an unreadable base is NOT an empty one.
+        if (this.postings.size > 0) throw new TextIndexBuildingError(this.indexName);
+        return { map: EMPTY_MAP, capped: false };
+      }
       const entry = this.postings.get(term);
       let result: { map: ReadonlyMap<number, number>; capped: boolean };
       let cacheable: [number, number][] | null = null;
@@ -711,17 +738,15 @@ export class TextIndex {
         if (entry !== undefined && maxEntries !== undefined && entry.df > maxEntries) {
           // Over budget before decoding even starts: cap the decode itself
           // and skip the cache (a partial list is never cached as complete).
-          const arr = this.pf ? await this.pf.readAsync(entry, maxEntries) : [];
+          const arr = await pf.readAsync(entry, maxEntries);
           const m = new Map<number, number>();
           for (const [id, f] of arr) m.set(id, f);
           result = { map: m, capped: true };
         } else {
           let arr = this.cacheGet(term);
           if (!arr) {
-            arr = entry && this.pf ? await this.pf.readAsync(entry) : [];
-            // A null pf reads an empty base — never cache that (see the
-            // synchronous twin); negative caching for absent terms stays.
-            cacheable = entry === undefined || this.pf !== null ? arr : null;
+            arr = entry ? await pf.readAsync(entry) : [];
+            cacheable = arr; // negative caching for absent terms included
           }
           const m = new Map<number, number>();
           for (const [id, f] of arr) m.set(id, f);
@@ -984,8 +1009,8 @@ export class TextIndex {
    *  generation directory (same file, final name). On Windows an open handle
    *  would have blocked the directory rename, so the caller closes before the
    *  rename and reopens here; POSIX just updates the path (the fd stays valid
-   *  across the rename). A reopen failure degrades reads to delta-only until
-   *  the next build, exactly like commitBuild's reopen failure. */
+   *  across the rename). A reopen failure leaves the base unreadable, which
+   *  readBaseBounded's null-handle guard turns into TextIndexBuildingError. */
   repointPostings(newPath: string): boolean {
     return repointPostingsImpl(this, newPath);
   }

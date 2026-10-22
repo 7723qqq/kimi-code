@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import { Emitter, Event } from '#/_base/event';
 import type { ISessionScopeHandle } from '#/_base/di/scope';
@@ -470,7 +470,7 @@ describe('SessionManager', () => {
     (first.service as { create: unknown }).create = async () => {
       throw new Error('boom');
     };
-    const disposeFirst = vi.fn();
+    const disposeFirst = mock();
     (first.service as { dispose: unknown }).dispose = disposeFirst;
     let generation = 'generation-1';
     const workspace = {
@@ -514,10 +514,10 @@ describe('SessionManager controller retirement', () => {
   function liveProgram(drainTimeoutMs: number): {
     readonly registry: RuntimeRegistry;
     readonly program: Program;
-    readonly controllers: { readonly service: SessionLifecycleService; readonly dispose: ReturnType<typeof vi.fn> }[];
+    readonly controllers: { readonly service: SessionLifecycleService; readonly dispose: ReturnType<typeof mock> }[];
   } {
     const registry = new RuntimeRegistry('workspace', drainTimeoutMs);
-    const controllers: { readonly service: SessionLifecycleService; readonly dispose: ReturnType<typeof vi.fn> }[] = [];
+    const controllers: { readonly service: SessionLifecycleService; readonly dispose: ReturnType<typeof mock> }[] = [];
     let nextSession = 0;
     const program = new Program(
       'workspace',
@@ -543,7 +543,7 @@ describe('SessionManager controller retirement', () => {
           const didClose = new Emitter<SessionClosedEvent>();
           const didArchive = new Emitter<SessionArchivedEvent>();
           const live = new Map<string, ISessionScopeHandle>();
-          const dispose = vi.fn(() => {
+          const dispose = mock(() => {
             input.onDispose();
             didCreate.dispose();
             didClose.dispose();
@@ -588,7 +588,7 @@ describe('SessionManager controller retirement', () => {
         },
       } as never,
     );
-    const createGeneration = vi.fn(() => {
+    const createGeneration = mock(() => {
       const lease = registry.acquire(program.binding, ['fs', 'process']);
       const id = lease.runtime.identity.generation;
       const behavior = {

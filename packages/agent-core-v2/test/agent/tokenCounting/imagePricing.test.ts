@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { imagePricingForModel } from '#/llm-adapter/contract/modelFamily';

@@ -1,8 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { IAgentLoopService } from '#/agent/loop/loop';
 
-import { permissionModeServices, type TestAgentContext } from '../../harness';
+import { type TestAgentContext } from '../../harness';
 import { createLoopTestAgent, nextTurnMessage, submitTurn } from './helpers';
 
 function rpcEvents(ctx: TestAgentContext, event: string): Array<Record<string, unknown>> {

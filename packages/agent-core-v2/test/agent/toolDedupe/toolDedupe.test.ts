@@ -1,4 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { IHostProcessService } from '#/os/interface/hostProcess';
+import { type Turn } from '#/agent/loop/loop';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { createTestAgent, execEnvServices, telemetryServices } from '../../harness';
+import { createFakeProcessRunner } from '../../tools/fixtures/fake-exec';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
@@ -8,20 +13,16 @@ import { type ToolCall } from '#human/llm/message';
 import { emptyUsage } from '#human/llm/usage';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import type { IHostProcessService } from '#/os/interface/hostProcess';
+
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentLoopService, type Turn } from '#/agent/loop/loop';
-import { IAgentProfileService } from '#/agent/profile/profile';
+import { IAgentLoopService } from '#/agent/loop/loop';
+
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
-import type { ExecutableTool, ExecutableToolContext, ExecutableToolResult, ToolExecution, ToolResult } from '#/tool/toolContract';
-import type { ToolDidExecuteContext, ResolvedToolExecutionHookContext, BeforeExecuteDecision } from '#/agent/toolExecutor/toolHooks';
+import { type ExecutableTool, type ExecutableToolContext, type ExecutableToolResult, type ToolExecution, type ToolResult } from '#/tool/toolContract';
+import { type ToolDidExecuteContext, type ResolvedToolExecutionHookContext, type BeforeExecuteDecision } from '#/agent/toolExecutor/toolHooks';
 import { IAgentToolDedupeService, type ToolDedupeResult } from '#/agent/toolDedupe/toolDedupe';
-import {
-  AgentToolDedupeService,
-  REPEAT_BREAKER_ENV,
-  __testing as toolDedupeTesting,
-} from '#/agent/toolDedupe/toolDedupeService';
+import { AgentToolDedupeService, REPEAT_BREAKER_ENV, __testing as toolDedupeTesting } from '#/agent/toolDedupe/toolDedupeService';
 import { IAgentToolExecutorService, type ToolExecutionResult } from '#/agent/toolExecutor/toolExecutor';
 import { AgentToolExecutorService } from '#/agent/toolExecutor/toolExecutorService';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
@@ -33,8 +34,7 @@ import { stubLoopWithHooks, type StubLoop } from '../loop/stubs';
 import { stubToolExecutorEvents } from '../toolExecutor/stubs';
 import { registerToolResultTruncationServices } from '../toolResultTruncation/stubs';
 import { registerTestAgentWireServices } from '../../wire/stubs';
-import { createTestAgent, execEnvServices, telemetryServices } from '../../harness';
-import { createFakeProcessRunner } from '../../tools/fixtures/fake-exec';
+
 import { stubAgentContext } from '../agentContext/stubs';
 
 const { REMINDER_TEXT_1, REMINDER_TEXT_3, makeReminderText2 } = toolDedupeTesting;
@@ -68,10 +68,18 @@ interface Harness {
 
 function createHarness(
   telemetry: ITelemetryService = recordingTelemetry(telemetryEvents),
-  options: { readonly executorEvents?: boolean; readonly env?: Record<string, string> } = {},
+  options: {
+    readonly executorEvents?: boolean;
+    readonly env?: Record<string, string>;
+    readonly repeatBreaker?: boolean;
+  } = {},
 ): Harness {
   const loop = stubLoopWithHooks();
   const events = options.executorEvents === true ? stubToolExecutorEvents() : undefined;
+  const env: Record<string, string> = { ...options.env };
+  if (options.repeatBreaker !== false && env[REPEAT_BREAKER_ENV] === undefined) {
+    env[REPEAT_BREAKER_ENV] = '1';
+  }
   const ix = createServices(disposables, {
     additionalServices: (reg) => {
       registerTestAgentWireServices(reg, 'wire/tool-dedupe');
@@ -94,7 +102,7 @@ function createHarness(
         agentContext: stubAgentContext('main', 0),
         scope: (sub?: string): string => (sub ? `agents/main/${sub}` : 'agents/main'),
       } satisfies IAgentScopeContext);
-      reg.defineInstance(IBootstrapService, stubBootstrap(homedir, options.env));
+      reg.defineInstance(IBootstrapService, stubBootstrap(homedir, env));
       reg.defineInstance(IAgentLoopService, loop);
       reg.defineInstance(IAgentStateService, new AgentStateService());
       reg.define(IAgentToolRegistryService, AgentToolRegistryService);
@@ -683,6 +691,23 @@ describe('AgentToolDedupeService', () => {
       });
     }
 
+    function unsetHarness(): Harness {
+      return createHarness(recordingTelemetry(telemetryEvents), { repeatBreaker: false });
+    }
+
+    it('stays off by default when KIMI_CODE_REPEAT_BREAKER is unset', async () => {
+      const h = unsetHarness();
+      h.registry.register(new EchoTool('Read'));
+      let last: ToolResult | undefined;
+      for (let i = 0; i < 14; i += 1) {
+        const [result] = await runStep(h, 1, i + 1, [toolCall(`c${String(i)}`, 'Read', { p: 1 })]);
+        last = result!.result;
+      }
+      expect(last!.output as string).not.toContain('<system-reminder>');
+      expect(last!.stopTurn).toBeFalsy();
+      expect(h.loop.queue.hasPendingRequests()).toBe(false);
+    });
+
     it('injects no reminders and never force-stops when KIMI_CODE_REPEAT_BREAKER is 0', async () => {
       const h = disabledHarness();
       h.registry.register(new EchoTool('Read'));
@@ -1154,14 +1179,22 @@ describe('AgentToolDedupeService', () => {
       maxStepsPerTurn?: number,
     ): {
       readonly ctx: ReturnType<typeof createTestAgent>;
-      readonly exec: ReturnType<typeof vi.fn>;
+      readonly exec: ReturnType<typeof mock>;
     } {
-      const exec = vi.fn<IHostProcessService['spawn']>().mockRejectedValue(new Error('Bash should not execute'));
-      const ctx = createTestAgent(
-        telemetryServices(recordingTelemetry(records)),
-        execEnvServices({ processRunner: createFakeProcessRunner({ spawn: exec as unknown as IHostProcessService['spawn'] }) }),
-        { initialConfig: { providers: {}, loopControl: { maxStepsPerTurn } } },
-      );
+      const exec = mock<IHostProcessService['spawn']>().mockRejectedValue(new Error('Bash should not execute'));
+      const previousRepeatBreaker = process.env[REPEAT_BREAKER_ENV];
+      process.env[REPEAT_BREAKER_ENV] = '1';
+      let ctx: ReturnType<typeof createTestAgent>;
+      try {
+        ctx = createTestAgent(
+          telemetryServices(recordingTelemetry(records)),
+          execEnvServices({ processRunner: createFakeProcessRunner({ spawn: exec as unknown as IHostProcessService['spawn'] }) }),
+          { initialConfig: { providers: {}, loopControl: { maxStepsPerTurn } } },
+        );
+      } finally {
+        if (previousRepeatBreaker === undefined) delete process.env[REPEAT_BREAKER_ENV];
+        else process.env[REPEAT_BREAKER_ENV] = previousRepeatBreaker;
+      }
       ctx.get(IAgentProfileService).update({ activeToolNames: ['Bash'] });
       records.length = 0;
       return { ctx, exec };

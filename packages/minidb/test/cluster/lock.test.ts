@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { test } from 'vitest';
+import { test } from 'bun:test';
 
 import { ClusterDb, wipeCluster } from '../../src/cluster/index.js';
 import { ShardLockPool } from '../../src/cluster/lock-pool.js';

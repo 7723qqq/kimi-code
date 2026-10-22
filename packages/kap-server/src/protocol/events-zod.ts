@@ -510,6 +510,7 @@ export const taskInfoBaseSchema = z.object({
   stopReason: z.string().optional(),
   terminalNotificationSuppressed: z.boolean().optional(),
   timeoutMs: z.number().optional(),
+  outputPath: z.string().optional(),
 });
 
 export const processTaskInfoSchema = taskInfoBaseSchema.extend({
@@ -1077,6 +1078,14 @@ export const backgroundTaskTerminatedEventSchema = z.object({
   info: taskInfoSchema,
 });
 
+export const backgroundTaskOutputEventSchema = z.object({
+  type: z.literal('background.task.output'),
+  agentId: z.string(),
+  taskId: z.string(),
+  chunk: z.string(),
+  outputSizeBytes: z.number(),
+});
+
 export const cronFiredEventSchema = z.object({
   type: z.literal('cron.fired'),
   origin: cronJobOriginSchema,
@@ -1199,6 +1208,7 @@ export const agentEventSchema = z.discriminatedUnion('type', [
   taskTerminatedEventSchema,
   backgroundTaskStartedEventSchema,
   backgroundTaskTerminatedEventSchema,
+  backgroundTaskOutputEventSchema,
   cronFiredEventSchema,
   promptSubmittedEventSchema,
   promptCompletedEventSchema,

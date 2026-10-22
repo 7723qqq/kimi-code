@@ -1,10 +1,12 @@
 import { createControlledPromise } from '@antfu/utils';
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
+import { setEnv, restoreEnvs } from '#test/helpers/stubs';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { ScopeUnits, type Fiber } from '#/_base/di/fiber';
 import { DisposableStore } from '#/_base/di/lifecycle';
-import type { IAgentScopeHandle } from '#/_base/di/scope';
+import { type IAgentScopeHandle } from '#/_base/di/scope';
 import { TestInstantiationService } from '#/_base/di/test';
 import { userCancellationReason } from '#/_base/utils/abort';
 import '#/agent/profile/profileService';
@@ -12,21 +14,18 @@ import { Emitter, Event } from '#/_base/event';
 import { Ledger } from '#/_base/lifecycle/ledger';
 import '#/agent/permissionMode/permissionModeService';
 import { ILogService } from '#/_base/log/log';
-import type { AgentContext } from '#/agent/agentContext/agentContext';
+import { type AgentContext } from '#/agent/agentContext/agentContext';
 import '#/agent/contextMemory/contextMemoryService';
 import { IAgentAgentsMdReminderService } from '#/agent/agentsMdReminder/agentsMdReminder';
 import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
 import { IAgentLoopService, type LoopSnapshot } from '#/agent/loop/loop';
-import type { MachineEngine, MachineEngineAttachBundle } from '#/agent/loop/machine/engine';
+import { type MachineEngine, type MachineEngineAttachBundle } from '#/agent/loop/machine/engine';
 import { ISessionMediaStore } from '#/agent/media/sessionMediaStore';
 import { SessionMediaStoreService } from '#/agent/media/sessionMediaStoreService';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import {
-  permissionModeConfiguredKey,
-  permissionModeKey,
-} from '#/agent/permissionMode/permissionModeOps';
+import { permissionModeConfiguredKey, permissionModeKey } from '#/agent/permissionMode/permissionModeOps';
 import { IAgentPluginService } from '#/agent/plugin/agentPlugin';
-import { IAgentProfileService } from '#/agent/profile/profile';
+
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
 import { IAgentTaskService } from '#/agent/task/task';
@@ -57,6 +56,7 @@ import { McpOAuthService } from '#/mcpCore/oauth/service';
 import { IHostClock } from '#/os/interface/hostClock';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { IHostTimers } from '#/os/interface/hostTimers';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { BlobStoreService } from '#/persistence/backends/node-fs/blobStoreService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
@@ -77,30 +77,15 @@ import '#/agent/toolActivation/toolActivationService';
 import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionToolPolicyGate';
 import { ISessionStateService } from '#/session/state/sessionState';
 import { SessionStateService } from '#/session/state/sessionStateService';
-import {
-  SubagentCancelled,
-  SubagentCompleted,
-  SubagentStarted,
-} from '#/session/subagent/mirrorAgentRun';
-import {
-  DEFAULT_SUBAGENT_SCOPE_CACHE_SIZE,
-  DEFAULT_SUBAGENT_SCOPE_EVICT_TIMEOUT_MS,
-  ISessionSubagentScopeCacheService,
-  resolveSubagentScopeCacheSize,
-  resolveSubagentScopeEvictTimeoutMs,
-  SUBAGENT_SCOPE_CACHE_SIZE_ENV,
-  SUBAGENT_SCOPE_EVICT_TIMEOUT_ENV,
-} from '#/session/subagent/subagentScopeCache';
+import { SubagentCancelled, SubagentCompleted, SubagentStarted } from '#/session/subagent/mirrorAgentRun';
+import { DEFAULT_SUBAGENT_SCOPE_CACHE_SIZE, DEFAULT_SUBAGENT_SCOPE_EVICT_TIMEOUT_MS, ISessionSubagentScopeCacheService, resolveSubagentScopeCacheSize, resolveSubagentScopeEvictTimeoutMs, SUBAGENT_SCOPE_CACHE_SIZE_ENV, SUBAGENT_SCOPE_EVICT_TIMEOUT_ENV } from '#/session/subagent/subagentScopeCache';
 import { SessionSubagentScopeCacheService } from '#/session/subagent/subagentScopeCacheService';
 import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
-import {
-  IRuntimeResolver,
-  IWorkspaceInstanceManager,
-} from '#/workspace/workspaceInstance/workspaceInstanceManager';
-import type { AgentEventStore } from '#human/agent/slices';
+import { IRuntimeResolver, IWorkspaceInstanceManager } from '#/workspace/workspaceInstance/workspaceInstanceManager';
+import { type AgentEventStore } from '#human/agent/slices';
 
 import { stubAgentContext } from '../../agent/agentContext/stubs';
 
@@ -230,8 +215,8 @@ interface SessionActorView {
 function recordingAppendLog(initial: readonly WireRecord[] = []): {
   readonly appended: WireRecord[];
   readonly store: IAppendLogStore;
-  readonly flushAll: ReturnType<typeof vi.fn>;
-  readonly flushLog: ReturnType<typeof vi.fn>;
+  readonly flushAll: ReturnType<typeof mock>;
+  readonly flushLog: ReturnType<typeof mock>;
   rewritten?: readonly WireRecord[];
 } {
   const records = [...initial];
@@ -256,8 +241,8 @@ function recordingAppendLog(initial: readonly WireRecord[] = []): {
       records.splice(0, records.length, ...persisted);
       return Promise.resolve();
     },
-    flush: vi.fn(() => Promise.resolve()),
-    flushLog: vi.fn((_scope: string, _key: string) => Promise.resolve()),
+    flush: mock(() => Promise.resolve()),
+    flushLog: mock((_scope: string, _key: string) => Promise.resolve()),
     close: () => Promise.resolve(),
     acquire: () => ({ dispose: () => {} }),
     drainRetirements: () => Promise.resolve(),
@@ -268,8 +253,8 @@ function recordingAppendLog(initial: readonly WireRecord[] = []): {
       return state.rewritten;
     },
     store,
-    flushAll: store.flush as ReturnType<typeof vi.fn>,
-    flushLog: store.flushLog as ReturnType<typeof vi.fn>,
+    flushAll: store.flush as ReturnType<typeof mock>,
+    flushLog: store.flushLog as ReturnType<typeof mock>,
   };
 }
 
@@ -475,7 +460,14 @@ describe('SessionSubagentScopeCacheService', () => {
     } as unknown as ITelemetryService);
     ix.stub(IHostEnvironment, { _serviceBrand: undefined } as IHostEnvironment);
     ix.stub(IHostFileSystem, { _serviceBrand: undefined } as IHostFileSystem);
-    ix.stub(IHostClock, { _serviceBrand: undefined } as IHostClock);
+    ix.stub(IHostClock, { _serviceBrand: undefined, now: () => new Date(), timeZone: () => 'UTC' });
+    ix.stub(IHostTimers, {
+      _serviceBrand: undefined,
+      setClampedTimeout: (callback: () => void, timeoutMs: number) =>
+        setTimeout(callback, Math.min(timeoutMs, 2_147_483_647)),
+      setTimeout: (callback: () => void, timeoutMs: number) => setTimeout(callback, timeoutMs),
+      clearTimeout: (handle: ReturnType<typeof setTimeout>) => clearTimeout(handle),
+    });
     ix.stub(IModelCatalog, { _serviceBrand: undefined } as IModelCatalog);
     ix.stub(ISessionTokenCountingService, {
       estimateText: () => 0,
@@ -578,12 +570,12 @@ describe('SessionSubagentScopeCacheService', () => {
 
   afterEach(() => {
     disposables.dispose();
-    vi.unstubAllEnvs();
-    vi.restoreAllMocks();
+    restoreEnvs();
+    mock.restore();
   });
 
   function cacheService(capacity: string): ISessionSubagentScopeCacheService {
-    vi.stubEnv(SUBAGENT_SCOPE_CACHE_SIZE_ENV, capacity);
+    setEnv(SUBAGENT_SCOPE_CACHE_SIZE_ENV, capacity);
     ix.set(ISessionSubagentScopeCacheService, new SyncDescriptor(SessionSubagentScopeCacheService));
     return ix.get(ISessionSubagentScopeCacheService);
   }
@@ -618,7 +610,7 @@ describe('SessionSubagentScopeCacheService', () => {
     expect(svc.handleOf('agent-1')).toBeDefined();
 
     completed('agent-3');
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(svc.handleOf('agent-1')).toBeUndefined();
     });
     expect(svc.get('agent-1')).toBeUndefined();
@@ -671,7 +663,7 @@ describe('SessionSubagentScopeCacheService', () => {
 
     cancelled('agent-1');
     completed('agent-2');
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(svc.handleOf('agent-1')).toBeUndefined();
     });
     expect(svc.handleOf('agent-2')).toBeDefined();
@@ -694,7 +686,7 @@ describe('SessionSubagentScopeCacheService', () => {
     expect(svc.handleOf('agent-2')).toBeDefined();
 
     completed('agent-3');
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(svc.handleOf('agent-2')).toBeUndefined();
     });
     expect(svc.handleOf('agent-1')).toBeDefined();
@@ -713,7 +705,7 @@ describe('SessionSubagentScopeCacheService', () => {
     );
     cancelled('agent-1');
     completed('agent-2');
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(svc.handleOf('agent-1')).toBeUndefined();
     });
     expect(svc.handleOf('agent-2')).toBeDefined();
@@ -744,7 +736,7 @@ describe('SessionSubagentScopeCacheService', () => {
 
     completed('agent-1');
     completed('agent-2');
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(svc.handleOf('agent-1')).toBeUndefined();
     });
 
@@ -754,7 +746,7 @@ describe('SessionSubagentScopeCacheService', () => {
   });
 
   it('rebuild waits out an in-flight eviction remove and recreates the scope', async () => {
-    vi.stubEnv(SUBAGENT_SCOPE_EVICT_TIMEOUT_ENV, '50');
+    setEnv(SUBAGENT_SCOPE_EVICT_TIMEOUT_ENV, '50');
     cacheService('1');
     const stopAll = createControlledPromise<never[]>();
     let stopAllCalls = 0;
@@ -770,7 +762,7 @@ describe('SessionSubagentScopeCacheService', () => {
 
     completed('agent-1');
     completed('agent-2');
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(svc.handleOf('agent-2')).toBeUndefined();
     });
 
@@ -783,7 +775,7 @@ describe('SessionSubagentScopeCacheService', () => {
   });
 
   it('rebuild gives up waiting once the configured eviction timeout elapses', async () => {
-    vi.stubEnv(SUBAGENT_SCOPE_EVICT_TIMEOUT_ENV, '50');
+    setEnv(SUBAGENT_SCOPE_EVICT_TIMEOUT_ENV, '50');
     cacheService('1');
     const stopAll = createControlledPromise<never[]>();
     let stopAllCalls = 0;
@@ -799,7 +791,7 @@ describe('SessionSubagentScopeCacheService', () => {
 
     completed('agent-1');
     completed('agent-2');
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(svc.handleOf('agent-2')).toBeUndefined();
     });
 
@@ -811,7 +803,7 @@ describe('SessionSubagentScopeCacheService', () => {
   });
 
   it('rebuild stops waiting when the caller aborts while the previous scope is still closing', async () => {
-    vi.stubEnv(SUBAGENT_SCOPE_EVICT_TIMEOUT_ENV, '2000');
+    setEnv(SUBAGENT_SCOPE_EVICT_TIMEOUT_ENV, '2000');
     cacheService('1');
     const stopAll = createControlledPromise<never[]>();
     let stopAllCalls = 0;
@@ -827,7 +819,7 @@ describe('SessionSubagentScopeCacheService', () => {
 
     completed('agent-1');
     completed('agent-2');
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(svc.handleOf('agent-1')).toBeUndefined();
     });
 
@@ -837,7 +829,11 @@ describe('SessionSubagentScopeCacheService', () => {
     const reason = userCancellationReason();
     controller.abort(reason);
     stopAll.resolve([]);
-    await expect(rebuilt).rejects.toBe(reason);
+    const rejection = await rebuilt.then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(rejection).toBe(reason);
 
     await new Promise((resolve) => setTimeout(resolve, 150));
     expect(svc.handleOf('agent-1')).toBeUndefined();
@@ -851,7 +847,7 @@ describe('SessionSubagentScopeCacheService', () => {
 
     completed('agent-1');
     completed('agent-2');
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(svc.handleOf('agent-1')).toBeUndefined();
     });
 
@@ -873,7 +869,7 @@ describe('SessionSubagentScopeCacheService', () => {
 
     completed('agent-1');
     completed('agent-2');
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(svc.handleOf('agent-1')).toBeUndefined();
     });
 
@@ -905,7 +901,7 @@ describe('SessionSubagentScopeCacheService eviction guards', () => {
     didClose = disposables.add(new Emitter<AgentContext>());
     bus = disposables.add(new EventBusService());
     logs = recordingLog();
-    removeAgent = vi.fn(async (context: AgentContext) => {
+    removeAgent = mock(async (context: AgentContext) => {
       closingAgents.add(context.agentId);
       willClose.fire(context);
       handles.delete(context.agentId);
@@ -918,8 +914,8 @@ describe('SessionSubagentScopeCacheService eviction guards', () => {
       onDidCreateScope: Event.None,
       onWillClose: willClose.event,
       onDidClose: didClose.event,
-      create: vi.fn(),
-      fork: vi.fn(),
+      create: mock(),
+      fork: mock(),
       get: (agentId: string) =>
         handles.has(agentId) && !closingAgents.has(agentId) ? stubAgentContext(agentId) : undefined,
       handleOf: (agentId: string) =>
@@ -931,16 +927,16 @@ describe('SessionSubagentScopeCacheService eviction guards', () => {
     } as unknown as IAgentLifecycleService);
     ix.stub(ISessionEventBus, bus);
     ix.stub(ILogService, logs.log);
-    vi.stubEnv(SUBAGENT_SCOPE_CACHE_SIZE_ENV, '1');
+    setEnv(SUBAGENT_SCOPE_CACHE_SIZE_ENV, '1');
   });
 
   afterEach(() => {
     disposables.dispose();
-    vi.unstubAllEnvs();
+    restoreEnvs();
   });
 
   function startCache(env: Record<string, string> = {}): void {
-    for (const [key, value] of Object.entries(env)) vi.stubEnv(key, value);
+    for (const [key, value] of Object.entries(env)) setEnv(key, value);
     ix.set(ISessionSubagentScopeCacheService, new SyncDescriptor(SessionSubagentScopeCacheService));
     ix.get(ISessionSubagentScopeCacheService);
   }
@@ -994,15 +990,15 @@ describe('SessionSubagentScopeCacheService eviction guards', () => {
 
     bus.publish(new SubagentCompleted({ subagentId: 'agent-1', resultSummary: 'done' }));
     bus.publish(new SubagentCompleted({ subagentId: 'agent-2', resultSummary: 'done' }));
-    await vi.waitFor(() => {
-      expect(removeAgent).toHaveBeenCalledOnce();
+    await waitForAssertion(() => {
+      expect(removeAgent).toHaveBeenCalledTimes(1);
     });
     expect(removeAgent.mock.calls[0]![0]).toMatchObject({ agentId: 'agent-2' });
     expect(handles.has('agent-1')).toBe(true);
 
     handles.set('agent-3', idleHandle('agent-3'));
     bus.publish(new SubagentCompleted({ subagentId: 'agent-3', resultSummary: 'done' }));
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(removeAgent).toHaveBeenCalledTimes(2);
     });
     expect(removeAgent.mock.calls[1]![0]).toMatchObject({ agentId: 'agent-3' });
@@ -1035,15 +1031,15 @@ describe('SessionSubagentScopeCacheService eviction guards', () => {
 
     bus.publish(new SubagentCompleted({ subagentId: 'agent-1', resultSummary: 'done' }));
     bus.publish(new SubagentCompleted({ subagentId: 'agent-2', resultSummary: 'done' }));
-    await vi.waitFor(() => {
-      expect(removeAgent).toHaveBeenCalledOnce();
+    await waitForAssertion(() => {
+      expect(removeAgent).toHaveBeenCalledTimes(1);
     });
     expect(removeAgent.mock.calls[0]![0]).toMatchObject({ agentId: 'agent-2' });
 
     const completeAndEvict = async (agentId: string): Promise<void> => {
       handles.set(agentId, idleHandle(agentId));
       bus.publish(new SubagentCompleted({ subagentId: agentId, resultSummary: 'done' }));
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         expect(removeAgent.mock.calls.some((call) => call[0].agentId === agentId)).toBe(true);
       });
     };
@@ -1071,7 +1067,7 @@ describe('SessionSubagentScopeCacheService eviction guards', () => {
     agent1Busy = false;
     handles.set('agent-6', idleHandle('agent-6'));
     bus.publish(new SubagentCompleted({ subagentId: 'agent-6', resultSummary: 'done' }));
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(removeAgent.mock.calls.some((call) => call[0].agentId === 'agent-1')).toBe(true);
     });
     expect(handles.has('agent-1')).toBe(false);
@@ -1094,10 +1090,10 @@ describe('SessionSubagentScopeCacheService eviction guards', () => {
 
     bus.publish(new SubagentCompleted({ subagentId: 'agent-old', resultSummary: 'done' }));
     bus.publish(new SubagentCompleted({ subagentId: 'agent-new', resultSummary: 'done' }));
-    await vi.waitFor(() => {
-      expect(removeAgent).toHaveBeenCalledOnce();
+    await waitForAssertion(() => {
+      expect(removeAgent).toHaveBeenCalledTimes(1);
     });
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(
         logs.entries.some(
           (entry) => entry.level === 'warn' && entry.message.includes('eviction failed'),
@@ -1111,7 +1107,7 @@ describe('SessionSubagentScopeCacheService eviction guards', () => {
 
     handles.set('agent-later', idleHandle('agent-later'));
     bus.publish(new SubagentCompleted({ subagentId: 'agent-later', resultSummary: 'done' }));
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(removeAgent.mock.calls.some((call) => call[0].agentId === 'agent-new')).toBe(true);
     });
     expect(removeAgent.mock.calls.some((call) => call[0].agentId === 'agent-later')).toBe(false);
@@ -1139,7 +1135,7 @@ describe('SessionSubagentScopeCacheService eviction guards', () => {
 
     bus.publish(new SubagentCompleted({ subagentId: 'agent-1', resultSummary: 'done' }));
     bus.publish(new SubagentCompleted({ subagentId: 'agent-2', resultSummary: 'done' }));
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(removeAgent).toHaveBeenCalledTimes(2);
     });
     expect(removeAgent.mock.calls[0]![0]).toMatchObject({ agentId: 'agent-1' });
@@ -1155,14 +1151,14 @@ describe('SessionSubagentScopeCacheService eviction guards', () => {
 
     handles.set('agent-3', idleHandle('agent-3'));
     bus.publish(new SubagentCompleted({ subagentId: 'agent-3', resultSummary: 'done' }));
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(removeAgent).toHaveBeenCalledTimes(3);
     });
     expect(removeAgent.mock.calls[2]![0]).toMatchObject({ agentId: 'agent-3' });
 
     handles.set('agent-4', idleHandle('agent-4'));
     bus.publish(new SubagentCompleted({ subagentId: 'agent-4', resultSummary: 'done' }));
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(removeAgent).toHaveBeenCalledTimes(4);
     });
     expect(removeAgent.mock.calls[3]![0]).toMatchObject({ agentId: 'agent-4' });
@@ -1189,15 +1185,15 @@ describe('SessionSubagentScopeCacheService eviction guards', () => {
 
     bus.publish(new SubagentCompleted({ subagentId: 'agent-a', resultSummary: 'done' }));
     bus.publish(new SubagentCompleted({ subagentId: 'agent-b', resultSummary: 'done' }));
-    await vi.waitFor(() => {
-      expect(removeAgent).toHaveBeenCalledOnce();
+    await waitForAssertion(() => {
+      expect(removeAgent).toHaveBeenCalledTimes(1);
     });
     bus.publish(new SubagentCompleted({ subagentId: 'agent-c', resultSummary: 'done' }));
     bus.publish(new SubagentStarted({ subagentId: 'agent-b' }));
     bus.publish(new SubagentCompleted({ subagentId: 'agent-b', resultSummary: 'done again' }));
     firstRemoval.resolve();
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(removeAgent).toHaveBeenCalledTimes(2);
     });
     await new Promise((resolve) => setTimeout(resolve, 20));
@@ -1208,7 +1204,7 @@ describe('SessionSubagentScopeCacheService eviction guards', () => {
   it('keeps a retired scope resident while its wire flush fails and evicts it once the flush succeeds', async () => {
     startCache();
     let flushFailures = 1;
-    const flush = vi.fn(async () => {
+    const flush = mock(async () => {
       if (flushFailures > 0) {
         flushFailures -= 1;
         throw new Error('ENOSPC: no space left on device');
@@ -1226,16 +1222,16 @@ describe('SessionSubagentScopeCacheService eviction guards', () => {
 
     bus.publish(new SubagentCompleted({ subagentId: 'agent-1', resultSummary: 'done' }));
     bus.publish(new SubagentCompleted({ subagentId: 'agent-2', resultSummary: 'done' }));
-    await vi.waitFor(() => {
-      expect(removeAgent).toHaveBeenCalledOnce();
+    await waitForAssertion(() => {
+      expect(removeAgent).toHaveBeenCalledTimes(1);
     });
-    expect(flush).toHaveBeenCalledOnce();
+    expect(flush).toHaveBeenCalledTimes(1);
     expect(removeAgent.mock.calls[0]![0]).toMatchObject({ agentId: 'agent-2' });
     expect(handles.has('agent-1')).toBe(true);
 
     handles.set('agent-3', idleHandle('agent-3'));
     bus.publish(new SubagentCompleted({ subagentId: 'agent-3', resultSummary: 'done' }));
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(removeAgent).toHaveBeenCalledTimes(2);
     });
     expect(removeAgent.mock.calls[1]![0]).toMatchObject({ agentId: 'agent-1' });

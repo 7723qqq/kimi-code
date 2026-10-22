@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { StatusSurfaceComponent } from '#/tui/components/chrome/status-surface/index';
 import { UpdatesRegion } from '#/tui/components/chrome/status-surface/regions/updates-region';
 import { NotifyPanelComponent } from '#/tui/components/chrome/notify-panel';

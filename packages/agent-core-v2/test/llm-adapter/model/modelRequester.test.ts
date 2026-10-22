@@ -1,37 +1,16 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { isError2 } from '#/_base/errors/errors';
-import {
-  createOAuthCredentialProvider,
-  createStaticCredentialProvider,
-} from '#human/credentials/credentials';
-import type { ProviderMediaContribution } from '#human/llm/media/upload';
-import type { LlmModel } from '#human/llm/model';
-import type {
-  LlmRequestConfig,
-  LlmRequestContent,
-  LlmRequestControl,
-  LlmRequestEvent,
-  LlmRequester,
-} from '#human/llm/requester/requester';
-import {
-  APIEmptyResponseError,
-  APIStatusError,
-  ChatProviderError,
-  PROVIDER_API_ERROR_CODE,
-  PROVIDER_AUTH_ERROR_CODE,
-  isAbortError,
-} from '#/llm-adapter/contract/errors';
-import type { Message } from '#/llm-adapter/contract/message';
-import type { Model } from '#/llm-adapter/model/catalog';
-import type { ModelRequestEvent } from '#/llm-adapter/model/model-requester';
+import { createOAuthCredentialProvider, createStaticCredentialProvider } from '#human/credentials/credentials';
+import { type ProviderMediaContribution } from '#human/llm/media/upload';
+import { type LlmModel } from '#human/llm/model';
+import { type LlmRequestConfig, type LlmRequestContent, type LlmRequestControl, type LlmRequestEvent, type LlmRequester } from '#human/llm/requester/requester';
+import { APIEmptyResponseError, ChatProviderError, PROVIDER_API_ERROR_CODE, PROVIDER_AUTH_ERROR_CODE, isAbortError } from '#/llm-adapter/contract/errors';
+import { type Message } from '#/llm-adapter/contract/message';
+import { type Model } from '#/llm-adapter/model/catalog';
+import { type ModelRequestEvent } from '#/llm-adapter/model/model-requester';
 import { effectiveMaxCompletionTokens } from '#/llm-adapter/model/model-requester';
-import {
-  buildStreamTiming,
-  carriesOutputTokens,
-  ModelRequesterImpl,
-  type ModelLlmGateway,
-} from '#/llm-adapter/model/model-requester-impl';
+import { buildStreamTiming, carriesOutputTokens, ModelRequesterImpl, type ModelLlmGateway } from '#/llm-adapter/model/model-requester-impl';
 
 class FakeLlmRequester implements LlmRequester {
   readonly calls: Array<{

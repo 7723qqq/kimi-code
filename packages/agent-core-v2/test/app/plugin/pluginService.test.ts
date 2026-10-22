@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { KIMI_CODE_PROVIDER_NAME } from '@moonshot-ai/kimi-code-oauth';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn, type Mock } from 'bun:test';
+import { setGlobal, restoreGlobals } from '#test/helpers/stubs';
 
 import {
   ScopeActivation,
@@ -36,17 +37,8 @@ import { IProviderService, type ProviderConfig } from '#/llm-adapter/provider/pr
 import { stubBootstrap } from '../bootstrap/stubs';
 import { stubProviderService } from '../provider/stubs';
 
-vi.mock('#/app/plugin/store', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('#/app/plugin/store')>();
-  return {
-    ...actual,
-    readInstalled: vi.fn(actual.readInstalled),
-    writeInstalled: vi.fn(actual.writeInstalled),
-  };
-});
-
-const readInstalled = vi.mocked(pluginStore.readInstalled);
-const writeInstalled = vi.mocked(pluginStore.writeInstalled);
+let readInstalled: Mock<typeof pluginStore.readInstalled>;
+let writeInstalled: Mock<typeof pluginStore.writeInstalled>;
 
 function makeHost(
   homeDir: string,
@@ -160,13 +152,13 @@ describe('PluginService (plugin boundary)', () => {
       ScopeActivation.OnDemand,
       'plugin',
     );
-    readInstalled.mockClear();
-    writeInstalled.mockClear();
+    readInstalled = spyOn(pluginStore, 'readInstalled');
+    writeInstalled = spyOn(pluginStore, 'writeInstalled');
   });
 
   afterEach(async () => {
-    vi.unstubAllGlobals();
-    vi.restoreAllMocks();
+    restoreGlobals();
+    mock.restore();
     while (createdDirs.length > 0) {
       const dir = createdDirs.pop();
       if (dir !== undefined) await rm(dir, { recursive: true, force: true });
@@ -526,7 +518,7 @@ describe('PluginService (plugin boundary)', () => {
     try {
       const svc = host.app.accessor.get(IPluginService);
       await expect(svc.listPlugins()).resolves.toHaveLength(1);
-      vi.spyOn(console, 'error').mockImplementation(() => {});
+      spyOn(console, 'error').mockImplementation(() => {});
       svc.onDidReload((event) => {
         event.waitUntil(Promise.reject(new Error('workspace reconcile failed')));
       });
@@ -610,9 +602,9 @@ describe('PluginService (plugin boundary)', () => {
     await writeValidInstalledFile(home);
     const downloadStarted = deferred<void>();
     const downloadResponse = deferred<Response>();
-    vi.stubGlobal(
+    setGlobal(
       'fetch',
-      vi.fn(() => {
+      mock(() => {
         downloadStarted.resolve(undefined);
         return downloadResponse.promise;
       }) as typeof fetch,
@@ -676,9 +668,9 @@ describe('PluginService (plugin boundary)', () => {
     await writeInstalledFile(home, JSON.stringify(githubInstalledFile('github-demo', pluginRoot)));
     const lookupStarted = deferred<void>();
     const lookupResponse = deferred<Response>();
-    vi.stubGlobal(
+    setGlobal(
       'fetch',
-      vi.fn(() => {
+      mock(() => {
         lookupStarted.resolve(undefined);
         return lookupResponse.promise;
       }) as typeof fetch,

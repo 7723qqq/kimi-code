@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import { PathSecurityError } from '#/tool/path-access';
 import type { HostFileStat, IHostFileSystem } from '#/os/interface/hostFileSystem';
@@ -44,18 +44,18 @@ interface WriteFsOptions {
 }
 
 function createWriteFs(options: WriteFsOptions = {}) {
-  const readText = vi.fn(
+  const readText = mock(
     options.readText ??
       (async () => {
         throw Object.assign(new Error('ENOENT: no such file or directory'), { code: 'ENOENT' });
       }),
   );
-  const writeText = vi.fn(options.writeText ?? (async () => {}));
-  const appendText = vi.fn(options.appendText ?? (async () => {}));
-  const stat = vi.fn(
+  const writeText = mock(options.writeText ?? (async () => {}));
+  const appendText = mock(options.appendText ?? (async () => {}));
+  const stat = mock(
     options.stat ?? (async () => ({ isFile: false, isDirectory: true, size: 0 })),
   );
-  const mkdir = vi.fn(options.mkdir ?? (async () => {}));
+  const mkdir = mock(options.mkdir ?? (async () => {}));
   const fs = { cwd: '/', readText, writeText, appendText, stat, mkdir } as unknown as IHostFileSystem;
   return { fs, readText, writeText, appendText, stat, mkdir };
 }
@@ -256,7 +256,7 @@ describe('WriteTool', () => {
     const enoent = Object.assign(new Error('ENOENT: no such file or directory'), {
       code: 'ENOENT',
     });
-    const { tool, mkdir, writeText } = makeTool({ stat: vi.fn().mockRejectedValue(enoent) });
+    const { tool, mkdir, writeText } = makeTool({ stat: mock().mockRejectedValue(enoent) });
 
     const result = await execute(tool, { path: '/tmp/missing-dir/file.txt', content: 'data' });
 
@@ -270,8 +270,8 @@ describe('WriteTool', () => {
       code: 'ENOENT',
     });
     const { tool, writeText } = makeTool({
-      stat: vi.fn().mockRejectedValue(enoent),
-      mkdir: vi.fn().mockRejectedValue(new Error('permission denied')),
+      stat: mock().mockRejectedValue(enoent),
+      mkdir: mock().mockRejectedValue(new Error('permission denied')),
     });
 
     const result = await execute(tool, { path: '/tmp/missing-dir/file.txt', content: 'data' });
@@ -282,7 +282,7 @@ describe('WriteTool', () => {
 
   it('rejects writing when the parent path is not a directory', async () => {
     const { tool, writeText } = makeTool({
-      stat: vi.fn().mockResolvedValue({ isFile: true, isDirectory: false, size: 0 }),
+      stat: mock().mockResolvedValue({ isFile: true, isDirectory: false, size: 0 }),
     });
 
     const result = await execute(tool, { path: '/tmp/a-file/child.txt', content: 'data' });
@@ -294,7 +294,7 @@ describe('WriteTool', () => {
 
   it('writes when the parent directory exists', async () => {
     const { tool, writeText } = makeTool({
-      stat: vi.fn().mockResolvedValue({ isFile: false, isDirectory: true, size: 0 }),
+      stat: mock().mockResolvedValue({ isFile: false, isDirectory: true, size: 0 }),
     });
 
     const result = await execute(tool, { path: '/tmp/exists/file.txt', content: 'data' });
@@ -305,7 +305,7 @@ describe('WriteTool', () => {
 
   it('surfaces fs write failures as tool errors', async () => {
     const { tool } = makeTool({
-      writeText: vi.fn().mockRejectedValue(new Error('disk full')),
+      writeText: mock().mockRejectedValue(new Error('disk full')),
     });
 
     const result = await execute(tool, { path: '/some/file.txt', content: 'data' });
@@ -366,8 +366,7 @@ describe('WriteTool', () => {
 
   it('still reports parent-directory ENOENT surfaced by writeText itself', async () => {
     const { tool } = makeTool({
-      writeText: vi
-        .fn()
+      writeText: mock()
         .mockRejectedValue(
           Object.assign(new Error('ENOENT: no such file or directory'), { code: 'ENOENT' }),
         ),

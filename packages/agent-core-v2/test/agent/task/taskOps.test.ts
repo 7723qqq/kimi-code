@@ -1,13 +1,14 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentStateService } from '#/agent/state/agentState';
 import type { AgentTaskInfo } from '#/agent/task/task';
-import { taskKey, TaskStarted, TaskTerminated } from '#/agent/task/taskOps';
+import { taskKey, TaskOutput, TaskStarted, TaskTerminated } from '#/agent/task/taskOps';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
+import { EVENT2_REGISTRY } from '#/app/event/event2';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
@@ -150,6 +151,31 @@ describe('task ops (wire-backed)', () => {
         time: expect.any(Number),
       },
     ]);
+  });
+
+  it('task.output is an observable, non-durable event that never reaches the wire', async () => {
+    expect(TaskOutput.type).toBe('task.output');
+    expect(TaskOutput.observable).toBe(true);
+    expect(TaskOutput.durable).toBe(false);
+    expect(EVENT2_REGISTRY.has(TaskOutput.type)).toBe(false);
+
+    const published: string[] = [];
+    disposables.add(
+      eventBus.subscribe((e) => {
+        published.push(e.type);
+      }),
+    );
+    await dispatcher.dispatch(
+      new TaskOutput({
+        agentId: 'test-agent',
+        taskId: 't1',
+        chunk: 'hello\n',
+        outputSizeBytes: 6,
+      }),
+    );
+
+    expect(published).toEqual(['task.output']);
+    expect(await readRecords()).toEqual([]);
   });
 
   it('apply returns a new Map on change (the model is the restore seed)', async () => {

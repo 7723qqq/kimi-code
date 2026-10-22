@@ -1,0 +1,33 @@
+{
+  "endpoint": "https://ollama.com/v1",
+  "model": "deepseek-v4-pro",
+  "measuredAt": "2026-10-21",
+  "method": "usage.prompt_tokens of a single user message, minus a one-character baseline request (5 prompt_tokens) plus that one character back; text-only, chat-template overhead removed",
+  "baselinePromptTokens": 5,
+  "samples": [
+    {
+      "category": "cjk-prose",
+      "text": "请把解析器里丢掉尾部换行的问题修掉，并确认测试套件全部通过。",
+      "rawPromptTokens": 25,
+      "promptTokens": 21,
+      "expectedEstimate": 30,
+      "tolerance": 0.45
+    },
+    {
+      "category": "ascii-code",
+      "text": "export function trimEnd(value: string): string { return value.replace(/\\s+$/, ''); }",
+      "rawPromptTokens": 26,
+      "promptTokens": 22,
+      "expectedEstimate": 21,
+      "tolerance": 0.15
+    },
+    {
+      "category": "json-args",
+      "text": "{\"path\":\"src/parser.ts\",\"startLine\":10,\"endLine\":42,\"encoding\":\"utf-8\"}",
+      "rawPromptTokens": 28,
+      "promptTokens": 24,
+      "expectedEstimate": 18,
+      "tolerance": 0.3
+    }
+  ]
+}

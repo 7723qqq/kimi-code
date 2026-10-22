@@ -2,7 +2,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock, spyOn } from 'bun:test';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import {
   resetUnexpectedErrorHandler,
@@ -30,6 +31,7 @@ import {
   homeDirServices,
   testAgent,
 } from '../harness';
+import { renderSnapshot } from '../harness/snapshots';
 
 const MOCK_PROVIDER = {
   type: 'kimi',
@@ -199,8 +201,8 @@ describe('Agent resume', () => {
       await ctx.untilTurnEnd();
 
       expect(findRpcEvent(ctx.allEvents, 'error')).toBeUndefined();
-      expect(ctx.llmInputs()).toMatchInlineSnapshot(`
-        call 1:
+      expect(renderSnapshot(ctx.llmInputs())).toMatchInlineSnapshot(`
+        "call 1:
           system: <system-prompt>
           tools: Agent, AgentSwarm, AskUserQuestion, Bash, CreateGoal, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, EnterSpecMode, ExitPlanMode, ExitSpecMode, FetchURL, GetGoal, Glob, Grep, Read, SetGoalBudget, Skill, TaskList, TaskOutput, TaskStop, TodoList, UpdateGoal, WaitFor, WebSearch, Write
           messages:
@@ -208,7 +210,7 @@ describe('Agent resume', () => {
             assistant: []  calls call_open:Lookup { "query": "moon" }
             tool[call_open]: text "<system>ERROR: Tool execution failed.</system>\\nTool execution was interrupted before its result was recorded. Do not assume the tool completed successfully."
             user: text "Fresh prompt after resume"
-            user: text <date-reminder>
+            user: text <date-reminder>"
       `);
       await ctx.expectResumeMatches();
     } finally {
@@ -262,7 +264,7 @@ describe('Agent resume', () => {
       await ctx.rpc.prompt({ input: [{ type: 'text', text: 'hello' }] });
       await ctx.untilTurnEnd();
 
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         const types = persistence.appended.map((record) => record.type);
         expect(types).toContain('prompt.completed');
       });
@@ -273,10 +275,10 @@ describe('Agent resume', () => {
 
   it('replays persisted records without restarting turns, compactions, plan turns, or tools', async () => {
     const persistence = new RecordingAgentPersistence(resumeHistory() as unknown as WireRecord[]);
-    const execWithEnv = vi.fn().mockRejectedValue(new Error('Bash should not execute on resume'));
+    const execWithEnv = mock().mockRejectedValue(new Error('Bash should not execute on resume'));
     const ctx = testAgent(
       execEnvServices({
-        hostFs: createFakeHostFs({ readText: vi.fn().mockResolvedValue('') }),
+        hostFs: createFakeHostFs({ readText: mock().mockResolvedValue('') }),
         processRunner: createFakeProcessRunner({ spawn: execWithEnv }),
       }),
       { autoConfigure: false, persistence },
@@ -285,7 +287,7 @@ describe('Agent resume', () => {
     await ctx.restorePersisted();
     const plan = await ctx.get(IAgentPlanService).status();
     expect(plan?.path).toContain('resume-plan');
-    expect(ctx.newEvents()).toMatchInlineSnapshot(`[]`);
+    expect(renderSnapshot(ctx.newEvents())).toMatchInlineSnapshot(`"[]"`);
     expect(ctx.llmCalls).toHaveLength(0);
     expect(execWithEnv).not.toHaveBeenCalled();
     expect(persistence.appended).toEqual([]);
@@ -304,15 +306,15 @@ describe('Agent resume', () => {
     });
     expect(findRpcEvent(ctx.allEvents, 'error')).toBeUndefined();
     expect(execWithEnv).not.toHaveBeenCalled();
-    expect(ctx.llmInputs()).toMatchInlineSnapshot(`
-      call 1:
+    expect(renderSnapshot(ctx.llmInputs())).toMatchInlineSnapshot(`
+      "call 1:
         system: <system-prompt>
         tools: Bash
         messages:
           user: text "Historical compacted summary."
           user: text "Fresh prompt after resume"
           user: text <date-reminder>
-          user: text <plan-mode-reminder>
+          user: text <plan-mode-reminder>"
     `);
   });
 
@@ -549,8 +551,8 @@ describe('Agent resume', () => {
     });
     await ctx.untilTurnEnd();
 
-    expect(ctx.llmInputs()).toMatchInlineSnapshot(`
-      call 1:
+    expect(renderSnapshot(ctx.llmInputs())).toMatchInlineSnapshot(`
+      "call 1:
         system: <system-prompt>
         tools: Agent, AgentSwarm, AskUserQuestion, Bash, CreateGoal, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, EnterSpecMode, ExitPlanMode, ExitSpecMode, FetchURL, GetGoal, Glob, Grep, Read, SetGoalBudget, Skill, TaskList, TaskOutput, TaskStop, TodoList, UpdateGoal, WaitFor, WebSearch, Write
         messages:
@@ -560,7 +562,7 @@ describe('Agent resume', () => {
           tool[call_resume_skill]: text "skill loaded"
           user: text "<system-reminder>\\nresume skill body\\n</system-reminder>"
           user: text "Fresh prompt after deferred resume"
-          user: text <date-reminder>
+          user: text <date-reminder>"
     `);
     await ctx.expectResumeMatches();
   });
@@ -650,7 +652,7 @@ describe('Agent resume', () => {
         'agent-seen0000',
         'already delivered summary',
       );
-      const steer = vi.spyOn(ctx.get(IAgentLoopService), 'steer');
+      const steer = spyOn(ctx.get(IAgentLoopService), 'steer');
 
       await ctx.restorePersisted();
       expect(
@@ -739,7 +741,7 @@ describe('Agent resume', () => {
         status: 'completed',
       });
       await backgroundPersistence.appendTaskOutput('agent-new00000', 'newly delivered summary');
-      const steer = vi.spyOn(ctx.get(IAgentLoopService), 'steer');
+      const steer = spyOn(ctx.get(IAgentLoopService), 'steer');
 
       await ctx.restorePersisted();
 
@@ -848,7 +850,7 @@ describe('Agent resume', () => {
   });
 
   it('restores an envelope-less active goal without charging offline time', async () => {
-    const now = vi.spyOn(Date, 'now').mockReturnValue(6_000);
+    const now = spyOn(Date, 'now').mockReturnValue(6_000);
     const persistence = new RecordingAgentPersistence(
       [
         {
@@ -911,7 +913,7 @@ describe('Agent resume', () => {
   });
 
   it('restores persisted elapsed time from a 1.3 checkpoint without charging offline time', async () => {
-    const now = vi.spyOn(Date, 'now').mockReturnValue(6_000);
+    const now = spyOn(Date, 'now').mockReturnValue(6_000);
     const persistence = new RecordingAgentPersistence([
       {
         type: 'metadata',

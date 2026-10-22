@@ -1,10 +1,12 @@
+import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Writable } from 'node:stream';
 
 import { pino, type Logger } from 'pino';
-import { afterAll, beforeAll, assert, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { removeTempHome } from './helpers/tempHome';
 
 import { extractEnvelopeCode } from '../src/requestLogging';
 import { type RunningServer, startServer } from '../src/start';
@@ -57,7 +59,7 @@ describe('requestLogging', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
+      await removeTempHome(home);
       home = undefined;
     }
   });

@@ -201,13 +201,6 @@ export function systemPromptVars(
   };
 }
 
-/**
- * Placeholder names a template actually references.
- *
- * `renderPrompt` substitutes what it can and leaves everything else alone, so a
- * variable the template never mentions simply disappears. Comparing this set
- * against the values that were supplied is how that silent loss becomes visible.
- */
 export function promptVariableNames(template: string): ReadonlySet<string> {
   const names = new Set<string>();
   for (const match of template.matchAll(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g)) {
@@ -217,18 +210,6 @@ export function promptVariableNames(template: string): ReadonlySet<string> {
   return names;
 }
 
-/**
- * Pre-composed blocks and the supplied variables whose content they carry.
- *
- * `systemPromptVars` offers both a raw value (`skills`) and a composed block
- * (`skills_section`) built from it. A template that references the block has
- * delivered the content even though the raw variable is never named, so the raw
- * one must not be reported as dropped. The pairing is declared explicitly
- * rather than inferred from the names, so a new block has to state what it
- * carries. Blocks composed from a value that is not itself exposed as a
- * variable (`plugin_sections`, `model_adaptation_section`) have nothing to
- * declare and are absent.
- */
 const COMPOSED_VAR_SOURCES: Readonly<Record<string, readonly string[]>> = {
   additional_dirs_section: ['additional_dirs_info'],
   skills_section: ['skills'],

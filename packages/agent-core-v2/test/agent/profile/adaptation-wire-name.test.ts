@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { DEFAULT_AGENT_PROFILE_NAME } from '#/app/agentProfileCatalog/agentProfileCatalog';
@@ -66,10 +66,7 @@ describe('model adaptation lookup follows the wire name', () => {
   });
 
   it('injects nothing for a family with no curated guidance', async () => {
-    // gpt-4o is outside every registered family, so neither delivery channel
-    // owns it: the prompt path has no file to load and the reminder path never
-    // selects it. Asserting the empty case keeps a future family registration
-    // from silently starting to inject guidance for unrelated models.
+
     ctx = createTestAgent({
       autoConfigure: false,
       initialConfig: deepseekConfig('gpt-4o') as never,

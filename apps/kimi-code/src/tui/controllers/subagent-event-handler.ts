@@ -21,6 +21,7 @@ import type {
 import { formatBackgroundAgentTranscript } from '../utils/background-agent-status';
 import { argsRecord, serializeToolResultOutput } from '../utils/event-payload';
 import { formatHookResultPlain } from '../utils/hook-result-format';
+import type { RenderClock } from '../utils/render-clock';
 import { nextTranscriptId } from '../utils/transcript-id';
 import type { SessionEventHost } from './session-event-handler';
 import { SubagentActivityStore } from './subagent-activity-store';
@@ -40,6 +41,10 @@ export interface SubAgentEventHandlerDependencies {
   readonly backgroundTasks: ReadonlyMap<string, BackgroundTaskInfo>;
   readonly backgroundTaskTranscriptedTerminal: Set<string>;
   readonly syncBackgroundAgentBadge: () => void;
+  /** Time source for tool-call timestamps; defaults to `Date.now`. */
+  readonly now?: () => number;
+  /** Time/frame-timer source for swarm panels; defaults to the system clock. */
+  readonly clock?: RenderClock;
 }
 
 function renderedRowsAfterChild(
@@ -61,12 +66,14 @@ export class SubAgentEventHandler {
   private readonly agentSwarmProgressEntries = new Map<string, TranscriptEntry>();
   backgroundAgentMetadata: Map<string, BackgroundAgentMetadata> = new Map();
   /** Bounded per-agent activity fold feeding the background-agent detail view. */
-  readonly activityStore = new SubagentActivityStore();
+  readonly activityStore: SubagentActivityStore;
 
   constructor(
     private readonly host: SessionEventHost,
     private readonly deps: SubAgentEventHandlerDependencies,
-  ) {}
+  ) {
+    this.activityStore = new SubagentActivityStore(deps.now);
+  }
 
   resetRuntimeState(): void {
     this.subagentInfo.clear();
@@ -685,6 +692,7 @@ export class SubAgentEventHandler {
       requestRender: () => {
         this.requestRender();
       },
+      clock: this.deps.clock,
     });
     progress.updateArgs(args, options);
     this.agentSwarmProgress.set(toolCallId, progress);

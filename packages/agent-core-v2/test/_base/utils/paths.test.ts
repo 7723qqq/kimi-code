@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import nodePath, { win32 } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { canonicalWorkspaceRoot, findUpwardRoot, resolvePath, subtreeWatchFilter } from '#/_base/utils/paths';
 

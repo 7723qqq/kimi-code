@@ -4,6 +4,7 @@ import { BugIndicatingError } from '#/errors';
 import type { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import type { IFileSystemStorageService } from '#/persistence/interface/storage';
 
+import { alignToCharacterStart } from './textAlign';
 import type { AgentTaskInfo, AgentTaskStatus } from './types';
 
 const VALID_TASK_ID: RegExp = /^[a-z0-9]+(?:-[a-z0-9]+)*-[0-9a-z]{8}$/;
@@ -14,15 +15,9 @@ const TASKS_SCOPE = 'tasks';
 const OUTPUT_LOG_KEY = 'output.log';
 const JSON_SUFFIX = '.json';
 
+const OUTPUT_TAIL_ALIGN_BYTES = 4;
+
 const textEncoder = new TextEncoder();
-function alignToCharacterStart(buffer: Uint8Array, offset: number): number {
-  if (offset <= 0) return 0;
-  let index = offset;
-  while (index < buffer.byteLength && (buffer[index]! & 0b1100_0000) === 0b1000_0000) {
-    index += 1;
-  }
-  return index;
-}
 const textDecoder = new TextDecoder();
 
 type PersistedTask = AgentTaskInfo;
@@ -50,6 +45,11 @@ interface ListedTask {
 interface TaskOutputData {
   readonly root: AgentTaskPersistenceRoot;
   readonly data: Uint8Array;
+}
+
+interface TaskOutputLocation {
+  readonly root: AgentTaskPersistenceRoot;
+  readonly totalBytes: number;
 }
 
 function validateTaskId(taskId: string): void {
@@ -121,12 +121,12 @@ export class AgentTaskPersistence {
   }
 
   async taskOutputSizeBytes(taskId: string): Promise<number> {
-    const output = await this.readTaskOutputData(taskId);
-    return output?.data.byteLength ?? 0;
+    const location = await this.locateTaskOutput(taskId);
+    return location?.totalBytes ?? 0;
   }
 
   async taskOutputExists(taskId: string): Promise<boolean> {
-    return (await this.readTaskOutputData(taskId)) !== undefined;
+    return (await this.locateTaskOutput(taskId)) !== undefined;
   }
 
   async readTaskOutputBytes(taskId: string, offset: number, maxBytes: number): Promise<string> {
@@ -143,18 +143,72 @@ export class AgentTaskPersistence {
     taskId: string,
     maxPreviewBytes: number,
   ): Promise<AgentTaskStoredOutputSnapshot | undefined> {
-    const output = await this.readTaskOutputData(taskId);
-    if (output === undefined) return undefined;
+    const location = await this.locateTaskOutput(taskId);
+    if (location === undefined) return undefined;
     const previewLimit = Math.max(0, Math.trunc(maxPreviewBytes));
-    const previewBytes = Math.min(previewLimit, output.data.byteLength);
-    const previewOffset = alignToCharacterStart(output.data, output.data.byteLength - previewBytes);
+    const previewBytes = Math.min(previewLimit, location.totalBytes);
     return {
-      outputPath: this.taskOutputFileAt(taskId, output.root),
-      outputSizeBytes: output.data.byteLength,
+      outputPath: this.taskOutputFileAt(taskId, location.root),
+      outputSizeBytes: location.totalBytes,
       previewBytes,
-      truncated: previewOffset > 0,
-      preview: textDecoder.decode(output.data.subarray(previewOffset)),
+      truncated: previewBytes < location.totalBytes,
+      preview: await this.readTaskOutputTail(location, taskId, previewBytes),
     };
+  }
+
+  private async locateTaskOutput(taskId: string): Promise<TaskOutputLocation | undefined> {
+    const primaryRoot = this.primaryRoot();
+    const primarySize = await this.bytes.size(
+      this.taskOutputScope(taskId, primaryRoot),
+      OUTPUT_LOG_KEY,
+    );
+    if (primarySize !== undefined) return { root: primaryRoot, totalBytes: primarySize };
+    const fallbackRoot = this.fallbackRoot;
+    if (fallbackRoot === undefined) return undefined;
+    const fallbackSize = await this.bytes.size(
+      this.taskOutputScope(taskId, fallbackRoot),
+      OUTPUT_LOG_KEY,
+    );
+    return fallbackSize === undefined
+      ? undefined
+      : { root: fallbackRoot, totalBytes: fallbackSize };
+  }
+
+  private async readTaskOutputTail(
+    location: TaskOutputLocation,
+    taskId: string,
+    previewBytes: number,
+  ): Promise<string> {
+    if (previewBytes <= 0 || location.totalBytes <= 0) return '';
+    const from = location.totalBytes - previewBytes;
+    const start = Math.max(0, from - OUTPUT_TAIL_ALIGN_BYTES);
+    const window = await this.readOutputRange(taskId, location.root, start, location.totalBytes - 1);
+    if (window.byteLength === 0) return '';
+    const offset = alignToCharacterStart(window, from - start);
+    return textDecoder.decode(window.subarray(offset));
+  }
+
+  private async readOutputRange(
+    taskId: string,
+    root: AgentTaskPersistenceRoot,
+    start: number,
+    end: number,
+  ): Promise<Uint8Array> {
+    const scope = this.taskOutputScope(taskId, root);
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    for await (const chunk of this.bytes.readStream(scope, OUTPUT_LOG_KEY, { start, end })) {
+      chunks.push(chunk);
+      total += chunk.byteLength;
+    }
+    if (chunks.length === 1) return chunks[0]!;
+    const merged = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      merged.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    return merged;
   }
 
   async listTasks(): Promise<readonly PersistedTask[]> {

@@ -1,6 +1,6 @@
 import type { Message } from '#/llm-adapter/contract/message';
 import type { Tool as LLMTool } from '#/llm-adapter/contract/message';
-import { expect } from 'vitest';
+
 
 import { WIRE_PROTOCOL_VERSION } from '#/wire/migration/migration';
 
@@ -105,50 +105,42 @@ function hasSnapshotSymbol(val: unknown, symbol: symbol): boolean {
   );
 }
 
-expect.addSnapshotSerializer({
-  test(val) {
-    return hasSnapshotSymbol(val, IS_EVENT_ARRAY);
-  },
-  serialize(val) {
-    const events = val as Array<Record<string, unknown>>;
-    if (events.length === 0) return '[]';
+function serializeEvents(val: unknown) {
+  const events = val as Array<Record<string, unknown>>;
+  if (events.length === 0) return '[]';
 
-    const maxEventLength = Math.max(...events.map((event) => String(event['event']).length), 0) + 2;
-    return events
-      .map((v) => {
-        const prefix = v['type'] === '[rpc]' ? '[emit]' : '[wire]';
-        return `${prefix} ${String(v['event']).padEnd(maxEventLength, ' ')} ${stringifyCompact(v['args'])}`;
-      })
-      .join('\n');
-  },
-});
+  const maxEventLength = Math.max(...events.map((event) => String(event['event']).length), 0) + 2;
+  return events
+    .map((v) => {
+      const prefix = v['type'] === '[rpc]' ? '[emit]' : '[wire]';
+      return `${prefix} ${String(v['event']).padEnd(maxEventLength, ' ')} ${stringifyCompact(v['args'])}`;
+    })
+    .join('\n');
+}
 
-expect.addSnapshotSerializer({
-  test(val) {
-    return hasSnapshotSymbol(val, IS_GENERATE_INPUT_SNAPSHOT);
-  },
-  serialize(val) {
-    const snapshot = val as GenerateInputSnapshot;
-    return formatGenerateInput(snapshot.input, snapshot.previous);
-  },
-});
+function serializeGenerateInput(val: unknown) {
+  const snapshot = val as GenerateInputSnapshot;
+  return formatGenerateInput(snapshot.input, snapshot.previous);
+}
 
-expect.addSnapshotSerializer({
-  test(val) {
-    return hasSnapshotSymbol(val, IS_GENERATE_INPUTS_SNAPSHOT);
-  },
-  serialize(val) {
-    const snapshot = val as GenerateInputsSnapshot;
-    let previous = snapshot.previous;
-    return snapshot.inputs
-      .map((input, index) => {
-        const formatted = formatGenerateInput(input, previous);
-        previous = input;
-        return `call ${String(index + 1)}:\n${indentLines(formatted)}`;
-      })
-      .join('\n\n');
-  },
-});
+function serializeGenerateInputs(val: unknown) {
+  const snapshot = val as GenerateInputsSnapshot;
+  let previous = snapshot.previous;
+  return snapshot.inputs
+    .map((input, index) => {
+      const formatted = formatGenerateInput(input, previous);
+      previous = input;
+      return `call ${String(index + 1)}:\n${indentLines(formatted)}`;
+    })
+    .join('\n\n');
+}
+
+export function renderSnapshot(val: unknown): unknown {
+  if (hasSnapshotSymbol(val, IS_EVENT_ARRAY)) return serializeEvents(val);
+  if (hasSnapshotSymbol(val, IS_GENERATE_INPUT_SNAPSHOT)) return serializeGenerateInput(val);
+  if (hasSnapshotSymbol(val, IS_GENERATE_INPUTS_SNAPSHOT)) return serializeGenerateInputs(val);
+  return val;
+}
 
 function formatGenerateInput(input: GenerateCall, previous: GenerateCall | undefined): string {
   const lines: string[] = [];

@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, mock } from 'bun:test';
+import { setGlobal, restoreGlobals } from '#test/helpers/stubs';
 
 import { getAgentToolContributions } from '#/agent/toolRegistry/toolContribution';
 import { GITHUB_SECTION } from '#/agent/tools/github/configSection';
@@ -51,9 +52,9 @@ function makeTool(
   return new (makeGitHubToolCtor(spec))(config);
 }
 
-function mockFetch(response: Response): ReturnType<typeof vi.fn> {
-  const fetchImpl = vi.fn().mockResolvedValue(response);
-  vi.stubGlobal('fetch', fetchImpl);
+function mockFetch(response: Response): ReturnType<typeof mock> {
+  const fetchImpl = mock().mockResolvedValue(response);
+  setGlobal('fetch', fetchImpl);
   return fetchImpl;
 }
 
@@ -65,7 +66,7 @@ function jsonResponse(body: unknown, status = 200, headers: Record<string, strin
 }
 
 afterEach(() => {
-  vi.unstubAllGlobals();
+  restoreGlobals();
 });
 
 describe('GitHub tool table', () => {

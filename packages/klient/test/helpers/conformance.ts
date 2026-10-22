@@ -16,7 +16,7 @@ import {
   resetModelsDevUpstreamForTest,
   setModelsDevUpstreamForTest,
 } from '@moonshot-ai/agent-core-v2/app/kosongConfig/modelsDevUpstream';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 
 import type { Klient } from '../../src/index.js';
 import type { TestEngine } from './engine.js';

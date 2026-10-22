@@ -9,9 +9,9 @@ import {
   type ExportSessionDirectorySummary,
 } from '@moonshot-ai/agent-core-v2/app/sessionExport/sessionExportService';
 import { WIRE_PROTOCOL_VERSION } from '@moonshot-ai/agent-core-v2/wire/migration/migration';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
-import { createKimiHarness, type KimiError, resolveGlobalLogPath } from '#/index';
+import { createKimiHarness, type KimiError, type KimiHarness, resolveGlobalLogPath } from '#/index';
 
 import { recordingTelemetry, type TelemetryRecord } from './telemetry';
 import { TEST_IDENTITY } from './test-identity';
@@ -22,6 +22,10 @@ import { TEST_IDENTITY } from './test-identity';
 const toPosix = (p: string): string => p.replaceAll('\\', '/');
 
 const tempDirs: string[] = [];
+
+// Harnesses are closed before their temp directories are removed: a watcher
+// still tracking a deleted directory surfaces as an unhandled fs.watch error.
+const openHarnesses: KimiHarness[] = [];
 
 /**
  * Windows keeps file handles (antivirus, fs watchers, lazy minidb flush) alive
@@ -43,6 +47,9 @@ async function removeDirWithRetry(dir: string): Promise<void> {
 }
 
 afterEach(async () => {
+  for (const harness of openHarnesses.splice(0)) {
+    await harness.close();
+  }
   for (const dir of tempDirs.splice(0)) {
     await removeDirWithRetry(dir);
   }
@@ -318,6 +325,7 @@ describe('KimiHarness.exportSession', () => {
       homeDir,
       telemetry: recordingTelemetry(records),
     });
+    openHarnesses.push(harness);
 
     const session = await harness.createSession({
       id: 'ses_harness_export',
@@ -353,6 +361,7 @@ describe('KimiHarness.exportSession', () => {
   it('rejects missing session ids', async () => {
     const homeDir = await makeTempDir();
     const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+    openHarnesses.push(harness);
 
     const missingExport = harness.exportSession({ id: 'ses_missing', version: '1.0.0-test' });
     await expect(missingExport).rejects.toMatchObject({

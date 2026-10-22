@@ -82,6 +82,7 @@ export {
 } from './question';
 export { projectHistoryToSessionUpdates } from './replay';
 export { AcpRuntimeProviderFactory } from './acp-terminal';
+export type { AcpTerminalTimerHandle, AcpTerminalTimers } from './acp-terminal';
 export type {
   AcpTerminalCreatedEvent,
   AcpTerminalCreatedListener,

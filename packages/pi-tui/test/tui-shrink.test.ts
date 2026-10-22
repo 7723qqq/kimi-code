@@ -1,5 +1,5 @@
 import assert from "node:assert";
-import { describe, it } from "node:test";
+import { describe, it } from "bun:test";
 import type { Component, TUI } from "../src/tui.ts";
 import { TuiMainScreen } from "../src/tui-main-screen.ts";
 import { VirtualTerminal } from "./virtual-terminal.ts";

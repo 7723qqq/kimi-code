@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { injectCacheControlOnLastBlock as injectKosong } from '#/providers/anthropic-cache-breakpoints';
 
@@ -95,6 +95,6 @@ describe('anthropic cache breakpoints: kosong vs agent-core-v2', () => {
     const declared = /const CACHEABLE_TYPES = new Set\(\[([\s\S]*?)\]\)/.exec(formatSource);
     expect(declared, 'CACHEABLE_TYPES declaration found in the v2 format module').not.toBeNull();
     const v2Types = [...declared![1]!.matchAll(/'([^']+)'/g)].map((m) => m[1]);
-    expect([...kosongTypes].sort()).toEqual(v2Types.sort());
+    expect([...kosongTypes].sort()).toEqual(v2Types.filter((v): v is string => v !== undefined).sort());
   });
 });

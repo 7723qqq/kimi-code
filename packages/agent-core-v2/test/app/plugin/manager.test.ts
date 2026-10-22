@@ -3,7 +3,8 @@ import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { setGlobal, restoreGlobals } from '#test/helpers/stubs';
 
 import type { ILogger } from '#/_base/log/log';
 import { PluginManager } from '#/app/plugin/manager';
@@ -52,7 +53,7 @@ describe('PluginManager', () => {
   });
 
   afterEach(async () => {
-    vi.unstubAllGlobals();
+    restoreGlobals();
     await rm(home, { recursive: true, force: true });
     await rm(root, { recursive: true, force: true });
   });
@@ -149,7 +150,7 @@ describe('PluginManager', () => {
         'utf8',
       );
       const zip = await createZipFromDir(sourceRoot);
-      const fetchMock = vi.fn(async (input: Parameters<typeof fetch>[0]) => {
+      const fetchMock = mock(async (input: Parameters<typeof fetch>[0]) => {
         const url =
           typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
         if (url.endsWith('/commits/v1.atom')) {
@@ -159,7 +160,7 @@ describe('PluginManager', () => {
         }
         return new Response(zip);
       });
-      vi.stubGlobal('fetch', fetchMock as typeof fetch);
+      setGlobal('fetch', fetchMock as typeof fetch);
       const manager = new PluginManager({ kimiHomeDir: home });
 
       const record = await manager.install('https://github.com/owner/repo/tree/v1');
@@ -207,9 +208,9 @@ describe('PluginManager', () => {
       }),
       'utf8',
     );
-    vi.stubGlobal(
+    setGlobal(
       'fetch',
-      vi.fn().mockResolvedValue({
+      mock().mockResolvedValue({
         status: 302,
         ok: false,
         headers: new Headers({ location: 'https://github.com/owner/repo/releases/tag/v2' }),
@@ -254,10 +255,9 @@ describe('PluginManager', () => {
       }),
       'utf8',
     );
-    vi.stubGlobal(
+    setGlobal(
       'fetch',
-      vi
-        .fn()
+      mock()
         .mockResolvedValueOnce(
           new Response(
             '<entry><id>tag:github.com,2008:Grit::Commit/1111111111111111111111111111111111111111</id></entry>',
@@ -304,8 +304,8 @@ describe('PluginManager', () => {
       }),
       'utf8',
     );
-    const fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
+    const fetchMock = mock();
+    setGlobal('fetch', fetchMock);
     const manager = new PluginManager({ kimiHomeDir: home });
     await manager.load();
 
@@ -339,9 +339,9 @@ describe('PluginManager', () => {
       }),
       'utf8',
     );
-    vi.stubGlobal(
+    setGlobal(
       'fetch',
-      vi.fn(async (input: Parameters<typeof fetch>[0]) => {
+      mock(async (input: Parameters<typeof fetch>[0]) => {
         const url =
           typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
         if (url.includes('/offline/')) throw new Error('network offline');
@@ -351,13 +351,13 @@ describe('PluginManager', () => {
         });
       }) as typeof fetch,
     );
-    const warn = vi.fn();
+    const warn = mock();
     const log: ILogger = {
-      error: vi.fn(),
+      error: mock(),
       warn,
-      info: vi.fn(),
-      debug: vi.fn(),
-      child: vi.fn(),
+      info: mock(),
+      debug: mock(),
+      child: mock(),
     };
     const manager = new PluginManager({ kimiHomeDir: home, log });
     await manager.load();

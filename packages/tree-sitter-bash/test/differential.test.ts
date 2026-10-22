@@ -18,7 +18,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it } from 'bun:test';
 
 import { compareSource, diffDumps, ourDump, parseCorpusFile, parseFixtureFile, referenceDump } from './helpers/differential';
 import type { FixtureSample } from './helpers/differential';

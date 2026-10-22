@@ -8,7 +8,7 @@ import path from 'node:path';
 //   B) Observing an expired key via scan/query/dtRange must reap it from the
 //      derived indexes (dt / secondary), so they cannot leak ghost entries.
 //   C) A non-integer / non-finite TTL must not explode with a BigInt error.
-import { test } from 'vitest';
+import { test } from 'bun:test';
 
 import { MiniDb } from '../src/index.js';
 

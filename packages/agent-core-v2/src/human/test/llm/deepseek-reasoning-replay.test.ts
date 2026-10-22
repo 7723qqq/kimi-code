@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { UNKNOWN_CAPABILITY } from '#/llm/capability';
 import {
@@ -96,15 +96,6 @@ function wireMessages(body: Record<string, unknown>): readonly WireMessage[] {
   return (body['messages'] ?? []) as readonly WireMessage[];
 }
 
-/**
- * An assistant turn that carries reasoning plus a tool call — the exact shape
- * DeepSeek requires to be replayed whenever the request carries tools.
- *
- * `hidden` is the part that discriminates: a visible think part is replayed by
- * the pre-existing machinery on every protocol, while a `hidden` one is
- * suppressed unless the family asks for the full echo. Testing with the hidden
- * part is therefore the only way this file actually exercises the new path.
- */
 function assistantTurnWithHiddenReasoning(): Message {
   return createAssistantMessage([
     { type: 'think', think: 'visible thought' },
@@ -150,7 +141,7 @@ describe('deepseek reasoning replay on the wire', () => {
 
     const assistant = wireMessages(client.body()).find((m) => m.role === 'assistant');
     expect(assistant?.reasoning_content).toContain('visible thought');
-    // The hidden part is the one the family flag decides about.
+
     expect(assistant?.reasoning_content).toContain('hidden thought');
   });
 
@@ -164,16 +155,12 @@ describe('deepseek reasoning replay on the wire', () => {
     );
 
     const assistant = wireMessages(client.body()).find((m) => m.role === 'assistant');
-    // Without tools DeepSeek ignores prior reasoning, so there is no reason to
-    // pay for it on the wire.
+
     expect(assistant?.reasoning_content ?? '').not.toContain('hidden thought');
   });
 
   it('does not ask for the full echo outside the deepseek family', () => {
-    // A think part stamped with its own reasoning key is replayed by the
-    // pre-existing stamped branch on every protocol, so this asserts the knob
-    // that is new — the family-driven full echo — rather than the presence of
-    // the field, which non-deepseek models already had.
+
     expect(fullReasoningEchoRequired('gpt-4o', true)).toBe(false);
     expect(thinkingHistoryForModel('gpt-4o')).toBeUndefined();
     expect(ignoredSamplingParamsForModel('gpt-4o')).toEqual([]);
@@ -214,7 +201,7 @@ describe('sampling parameters on the wire', () => {
     expect(body['temperature']).toBeUndefined();
     expect(body['presence_penalty']).toBeUndefined();
     expect(body['frequency_penalty']).toBeUndefined();
-    // top_p is honoured by deepseek (clamped to 0.95–1.0), so it must survive.
+
     expect(body['top_p']).toBe(0.9);
   });
 

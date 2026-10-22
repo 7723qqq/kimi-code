@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'bun:test';
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import type { IDisposable } from '#/_base/di/lifecycle';

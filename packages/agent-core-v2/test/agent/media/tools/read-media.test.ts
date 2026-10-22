@@ -1,7 +1,8 @@
 import * as posixPath from 'node:path/posix';
 
 import { Jimp } from 'jimp';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, mock } from 'bun:test';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { sniffImageDimensions } from '#/agent/media/file-type';
 import {
@@ -143,7 +144,7 @@ interface FakeFile {
 function createTestFs(files: Record<string, FakeFile>): IHostFileSystem {
   const lookup = (path: string): FakeFile | undefined => files[path];
   return {
-    readBytes: vi.fn(async (path: string, n?: number) => {
+    readBytes: mock(async (path: string, n?: number) => {
       const data = lookup(path)?.data ?? Buffer.alloc(0);
       return n === undefined ? data : data.subarray(0, n);
     }),
@@ -151,7 +152,7 @@ function createTestFs(files: Record<string, FakeFile>): IHostFileSystem {
       const text = (lookup(path)?.data ?? Buffer.alloc(0)).toString('utf8');
       if (text.length > 0) yield `${text}\n`;
     },
-    stat: vi.fn(async (path: string) => {
+    stat: mock(async (path: string) => {
       const file = lookup(path);
       return {
         isFile: true,
@@ -461,8 +462,8 @@ describe('Read tool media reads', () => {
         'Use Bash or an available image-processing tool to create a smaller copy within both limits, ' +
         'then call Read on the smaller copy.',
     });
-    expect(vi.mocked(fs.readBytes)).toHaveBeenCalledOnce();
-    expect(vi.mocked(fs.readBytes)).toHaveBeenCalledWith('/workspace/huge.png', 512);
+    expect(fs.readBytes).toHaveBeenCalledTimes(1);
+    expect(fs.readBytes).toHaveBeenCalledWith('/workspace/huge.png', 512);
   });
 
   it('does not treat the decode allocation cap as a hard limit when the configured delivery budget accepts the file', async () => {
@@ -475,8 +476,8 @@ describe('Read tool media reads', () => {
     const result = await execute(tool, { path: '/workspace/large.png' });
 
     expect(result.isError).toBe(false);
-    expect(vi.mocked(fs.readBytes)).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(fs.readBytes)).toHaveBeenLastCalledWith('/workspace/large.png', undefined);
+    expect(fs.readBytes).toHaveBeenCalledTimes(2);
+    expect(fs.readBytes).toHaveBeenLastCalledWith('/workspace/large.png', undefined);
   });
 
   it('returns external preprocessing guidance before loading an oversized region source', async () => {
@@ -499,8 +500,8 @@ describe('Read tool media reads', () => {
         'Use Bash or an available image-processing tool to create a smaller copy or crop the needed ' +
         'region into a separate image, then call Read on the resulting file.',
     });
-    expect(vi.mocked(fs.readBytes)).toHaveBeenCalledOnce();
-    expect(vi.mocked(fs.readBytes)).toHaveBeenCalledWith('/workspace/huge.png', 512);
+    expect(fs.readBytes).toHaveBeenCalledTimes(1);
+    expect(fs.readBytes).toHaveBeenCalledWith('/workspace/huge.png', 512);
   });
 
   it('does not claim downsampling for an image sent untouched', async () => {
@@ -588,8 +589,8 @@ describe('Read tool media reads', () => {
         'per-image limit, so full_resolution cannot be honored. ' +
         'Use region to view a crop at full fidelity instead.',
     });
-    expect(vi.mocked(fs.readBytes)).toHaveBeenCalledOnce();
-    expect(vi.mocked(fs.readBytes)).toHaveBeenCalledWith('/workspace/huge.png', 512);
+    expect(fs.readBytes).toHaveBeenCalledTimes(1);
+    expect(fs.readBytes).toHaveBeenCalledWith('/workspace/huge.png', 512);
   });
 
   it('prioritizes external preprocessing guidance for full_resolution above the decode cap', async () => {
@@ -612,8 +613,8 @@ describe('Read tool media reads', () => {
         'Use Bash or an available image-processing tool to create a smaller copy or crop the needed ' +
         'region into a separate image, then call Read on the resulting file.',
     });
-    expect(vi.mocked(fs.readBytes)).toHaveBeenCalledOnce();
-    expect(vi.mocked(fs.readBytes)).toHaveBeenCalledWith('/workspace/huge.png', 512);
+    expect(fs.readBytes).toHaveBeenCalledTimes(1);
+    expect(fs.readBytes).toHaveBeenCalledWith('/workspace/huge.png', 512);
   });
 
   it('reports an EXIF-rotated original in the decoded coordinate space', async () => {
@@ -822,13 +823,13 @@ describe('Read tool media reads', () => {
       type: 'video_url' as const,
       videoUrl: { url: 'https://example.com/uploaded.mp4' },
     };
-    const videoUploader = vi.fn<VideoUploader>().mockResolvedValue(uploadResult);
+    const videoUploader = mock<VideoUploader>().mockResolvedValue(uploadResult);
     const result = await execute(
       makeTool({ '/workspace/clip.mp4': { data: mp4Buffer() } }, capabilities(), videoUploader),
       { path: '/workspace/clip.mp4' },
     );
     const parts = outputParts(result);
-    expect(videoUploader).toHaveBeenCalledOnce();
+    expect(videoUploader).toHaveBeenCalledTimes(1);
     expect(videoUploader).toHaveBeenCalledWith(
       expect.objectContaining({ mimeType: 'video/mp4', filename: 'clip.mp4' }),
       { signal: expect.any(AbortSignal) },
@@ -838,7 +839,7 @@ describe('Read tool media reads', () => {
 
   it('passes the execution abort signal to the video uploader', async () => {
     const controller = new AbortController();
-    const videoUploader = vi.fn<VideoUploader>((_input, options) =>
+    const videoUploader = mock<VideoUploader>((_input, options) =>
       new Promise((_resolve, reject) => {
         options?.signal?.addEventListener(
           'abort',
@@ -862,8 +863,8 @@ describe('Read tool media reads', () => {
       toolCallId: 'call_media',
       signal: controller.signal,
     });
-    await vi.waitFor(() => {
-      expect(videoUploader).toHaveBeenCalledOnce();
+    await waitForAssertion(() => {
+      expect(videoUploader).toHaveBeenCalledTimes(1);
     });
     controller.abort();
 
@@ -872,8 +873,7 @@ describe('Read tool media reads', () => {
   });
 
   it('falls back to an inline base64 video part when the upload fails', async () => {
-    const videoUploader = vi
-      .fn<VideoUploader>()
+    const videoUploader = mock<VideoUploader>()
       .mockRejectedValue(new Error('404 route not found'));
     const result = await execute(
       makeTool({ '/workspace/clip.mp4': { data: mp4Buffer() } }, capabilities(), videoUploader),
@@ -881,7 +881,7 @@ describe('Read tool media reads', () => {
     );
     expect(result.isError).not.toBe(true);
     const parts = outputParts(result);
-    expect(videoUploader).toHaveBeenCalledOnce();
+    expect(videoUploader).toHaveBeenCalledTimes(1);
     expect(parts[1]).toEqual({
       type: 'video_url',
       videoUrl: { url: `data:video/mp4;base64,${mp4Buffer().toString('base64')}` },
@@ -889,8 +889,7 @@ describe('Read tool media reads', () => {
   });
 
   it('surfaces auth rejections from the upload channel instead of falling back', async () => {
-    const videoUploader = vi
-      .fn<VideoUploader>()
+    const videoUploader = mock<VideoUploader>()
       .mockRejectedValue(Object.assign(new Error('401 Unauthorized'), { statusCode: 401 }));
     const result = await execute(
       makeTool({ '/workspace/clip.mp4': { data: mp4Buffer() } }, capabilities(), videoUploader),
@@ -901,8 +900,7 @@ describe('Read tool media reads', () => {
   });
 
   it('surfaces the by-design no-hook error instead of falling back to inline', async () => {
-    const videoUploader = vi
-      .fn<VideoUploader>()
+    const videoUploader = mock<VideoUploader>()
       .mockRejectedValue(
         new VideoUploadUnsupportedError(
           'Model "stub" (protocol=openai) does not support video upload',
@@ -917,8 +915,7 @@ describe('Read tool media reads', () => {
   });
 
   it('falls back to inline for a no-hook provider whose wire carries video', async () => {
-    const videoUploader = vi
-      .fn<VideoUploader>()
+    const videoUploader = mock<VideoUploader>()
       .mockRejectedValue(
         new VideoUploadUnsupportedError(
           'Model "gemini-stub" (protocol=google-genai) does not support video upload',
@@ -1026,7 +1023,7 @@ describe('MediaReadContextService', () => {
     const withUpload = createService({
       alias: 'vision-model',
       caps: capabilities(),
-      uploadVideo: vi.fn(),
+      uploadVideo: mock(),
     });
     expect(typeof withUpload.getMediaReadContext()?.videoUploader).toBe('function');
   });
@@ -1062,7 +1059,7 @@ describe('createVideoUploader', () => {
   });
 
   it('binds uploadVideo without telemetry', async () => {
-    const uploadVideo = vi.fn().mockResolvedValue(uploadResult);
+    const uploadVideo = mock().mockResolvedValue(uploadResult);
     const uploader = createVideoUploader(modelWith(uploadVideo));
     await expect(uploader!(input)).resolves.toEqual(uploadResult);
     expect(uploadVideo).toHaveBeenCalledWith(input, undefined);
@@ -1070,7 +1067,7 @@ describe('createVideoUploader', () => {
 
   it('reports video_upload telemetry on success', async () => {
     const records: TelemetryRecord[] = [];
-    const uploader = createVideoUploader(modelWith(vi.fn().mockResolvedValue(uploadResult)), {
+    const uploader = createVideoUploader(modelWith(mock().mockResolvedValue(uploadResult)), {
       client: recordingTelemetry(records),
       props: { model: 'example-model', protocol: 'kimi' },
     });
@@ -1090,7 +1087,7 @@ describe('createVideoUploader', () => {
   it('reports an error outcome with the error type and rethrows', async () => {
     const records: TelemetryRecord[] = [];
     const failure = new TypeError('upload exploded');
-    const uploader = createVideoUploader(modelWith(vi.fn().mockRejectedValue(failure)), {
+    const uploader = createVideoUploader(modelWith(mock().mockRejectedValue(failure)), {
       client: recordingTelemetry(records),
     });
     await expect(uploader!(input)).rejects.toBe(failure);
@@ -1111,7 +1108,7 @@ describe('createVideoUploader', () => {
         throw new Error('sink down');
       },
     } as ITelemetryService;
-    const uploader = createVideoUploader(modelWith(vi.fn().mockResolvedValue(uploadResult)), {
+    const uploader = createVideoUploader(modelWith(mock().mockResolvedValue(uploadResult)), {
       client: throwing,
     });
     await expect(uploader!(input)).resolves.toEqual(uploadResult);

@@ -7,7 +7,7 @@
  * fall back to MIN (the implementation short-circuits on `> 0`).
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { defaultRefreshThreshold } from '../src/oauth-manager';
 

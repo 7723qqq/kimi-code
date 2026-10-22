@@ -28,7 +28,8 @@
   "type": "module",
   "imports": {
     "#/*": "./src/*.ts",
-    "#human/*": "./src/human/*.ts"
+    "#human/*": "./src/human/*.ts",
+    "#test/*": "./test/*.ts"
   },
   "exports": {
     ".": {
@@ -46,7 +47,7 @@
   },
   "scripts": {
     "build": "tsdown",
-    "test": "vitest run",
+    "test": "bun ../../scripts/run-package-tests.mjs --root=test --root=src/human/test",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "gen:contract-types": "bun scripts/gen-contract-types.mjs",
     "gen:config-manifest": "bun scripts/gen-config-manifest.mts",
@@ -54,10 +55,13 @@
     "gen:state-manifest": "bun scripts/gen-state-manifest.mts",
     "lint:imports": "bun scripts/check-import-boundaries.mjs && bun scripts/check-deep-imports.mjs",
     "clean": "rm -rf dist",
-    "check:deep-imports": "bun scripts/check-deep-imports.mjs"
+    "check:deep-imports": "bun scripts/check-deep-imports.mjs",
+    "test:heavy": "bun test --isolate --timeout 30000 --path-ignore-patterns='**/node_modules/**'",
+    "test:bench": "bun test/agent/contextProjector/contextProjector.bench.ts"
   },
   "dependencies": {
     "@antfu/utils": "^9.3.0",
+    "@anthropic-ai/claude-agent-sdk": "^0.3.304",
     "@anthropic-ai/sdk": "^0.95.2",
     "@google/genai": "^1.49.0",
     "@jsquash/webp": "^1.5.0",

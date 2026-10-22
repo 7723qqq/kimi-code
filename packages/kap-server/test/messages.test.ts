@@ -11,7 +11,7 @@ import {
   type ContextMessage,
   type ScopeSeed,
 } from '@moonshot-ai/agent-core-v2';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 
 import { type RunningServer, startServer } from '../src/start';
 import { authHeaders } from './helpers/auth';
@@ -253,17 +253,17 @@ describe('server-v2 /api/v1/sessions/{sid}/messages', () => {
     expect(idsDesc).toHaveLength(3);
 
     const first = await getJson<PageWire>(`/api/v1/sessions/${id}/messages?page_size=1`);
-    expect(first.body.data.items.map((m) => m.id)).toEqual([idsDesc[0]]);
+    expect(first.body.data.items.map((m) => m.id)).toEqual([idsDesc[0]!]);
     expect(first.body.data.has_more).toBe(true);
 
     const older = await getJson<PageWire>(
       `/api/v1/sessions/${id}/messages?before_id=${idsDesc[0]}`,
     );
-    expect(older.body.data.items.map((m) => m.id)).toEqual([idsDesc[1], idsDesc[2]]);
+    expect(older.body.data.items.map((m) => m.id)).toEqual([idsDesc[1]!, idsDesc[2]!]);
     expect(older.body.data.has_more).toBe(false);
 
     const newer = await getJson<PageWire>(`/api/v1/sessions/${id}/messages?after_id=${idsDesc[2]}`);
-    expect(newer.body.data.items.map((m) => m.id)).toEqual([idsDesc[0], idsDesc[1]]);
+    expect(newer.body.data.items.map((m) => m.id)).toEqual([idsDesc[0]!, idsDesc[1]!]);
     expect(newer.body.data.has_more).toBe(false);
   });
 

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { encodeHeader, encodeLine, parseHeader, parseLine } from '#/store/internal/codec';
 import type { BranchHeader, EntryLine } from '#/store/types';

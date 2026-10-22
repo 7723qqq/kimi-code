@@ -1,5 +1,5 @@
 import { Error2, ErrorCodes } from '@moonshot-ai/agent-core-v2';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { installErrorHandler } from '../src/error-handler';
 import { ErrorCode } from '../src/protocol/error-codes';

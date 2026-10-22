@@ -1,22 +1,23 @@
-import { mkdtemp, readFile, rm, unlink } from 'node:fs/promises';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { ContentBlockSchema } from '@modelcontextprotocol/sdk/types.js';
 import { Jimp } from 'jimp';
-import { describe, expect, test } from 'vitest';
+import { describe, expect, test } from 'bun:test';
+import { unlink } from 'node:fs/promises';
 
 import { convertMCPContentBlock, mcpResultToExecutableOutput } from '#/agent/mcp/output';
 import { createMcpTool } from '#/agent/mcp/tools/mcp';
 import { sniffImageDimensions } from '#/agent/media/file-type';
 import { renderToolResultForModel } from '#/agent/contextMemory/toolResultRender';
-import type { ITelemetryService, TelemetryProperties } from '#/app/telemetry/telemetry';
-import type { ContentPart } from '#human/llm/message';
+import { ITelemetryService, type TelemetryProperties } from '#/app/telemetry/telemetry';
+import { type ContentPart } from '#human/llm/message';
 import { StdioMcpClient } from '#/mcpCore/client-stdio';
 import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
-import type { MCPClient, MCPContentBlock, MCPToolResult } from '#/mcpCore/types';
-import type { ToolExecution } from '#/tool/toolContract';
+import { type MCPClient, type MCPContentBlock, type MCPToolResult } from '#/mcpCore/types';
+import { type ToolExecution } from '#/tool/toolContract';
 
 function modelText(result: Awaited<ReturnType<typeof mcpResultToExecutableOutput>>): string {
   return renderToolResultForModel(result)
@@ -433,7 +434,7 @@ describe('mcpResultToExecutableOutput', () => {
   });
 
   test('keeps explanatory blocks when another text block contains the complete JSON', async () => {
-    const content = [
+    const content: { type: 'text'; text: string }[] = [
       { type: 'text', text: 'Found 1 row.' },
       { type: 'text', text: '{"rows":[1]}' },
       { type: 'text', text: 'More rows are available.' },

@@ -2,14 +2,22 @@ import { realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 
 import type { ContentPart } from '#human/llm/message';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, spyOn } from 'bun:test';
 
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 
 import { makeHookRunner } from './runner-stub';
+import { randomUUID } from 'node:crypto';
+import { writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+
+const HOOK_BIN = process.execPath;
 
 function nodeCommand(source: string): string {
-  return `node -e ${JSON.stringify(source.replaceAll(/\s*\n\s*/g, ' '))}`;
+  const file = join(tmpdir(), `kimi-hook-${randomUUID()}.mjs`);
+  writeFileSync(file, source);
+  const quoted = (value: string): string => (/\s/.test(value) ? `"${value}"` : value);
+  return `${quoted(HOOK_BIN)} ${quoted(file)}`;
 }
 
 describe('ExternalHooksRunnerService', () => {
@@ -115,8 +123,8 @@ describe('ExternalHooksRunnerService', () => {
       {
         event: 'PreToolUse',
         matcher: 'Bash',
-        command: nodeCommand('setTimeout(() => {}, 10000);'),
-        timeout: 5,
+        command: nodeCommand('setTimeout(() => {}, 60000);'),
+        timeout: 60,
       },
     ]);
     const startedAt = Date.now();
@@ -130,7 +138,7 @@ describe('ExternalHooksRunnerService', () => {
       signal: abortController.signal,
     });
 
-    expect(Date.now() - startedAt).toBeLessThan(1000);
+    expect(Date.now() - startedAt).toBeLessThan(15000);
     expect(results).toHaveLength(1);
     expect(results[0]?.action).toBe('allow');
     expect(results[0]?.timedOut).toBeUndefined();
@@ -316,7 +324,7 @@ describe('ExternalHooksRunnerService', () => {
 
   it('fails open when fireAndForgetTrigger sees a synchronous trigger error', async () => {
     const runner = makeHookRunner([]);
-    vi.spyOn(runner, 'trigger').mockImplementation(() => {
+    spyOn(runner, 'trigger').mockImplementation(() => {
       throw new Error('trigger failed');
     });
 

@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { detectMigration } from '../src/detect.js';
 import { oldMd5BucketName } from '../src/sessions/workdir-bucket.js';

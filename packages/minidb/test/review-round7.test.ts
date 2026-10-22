@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { test } from 'vitest';
+import { test } from 'bun:test';
 
 import { classifyStorageError, MiniDb } from '../src/index.js';
 import { rmrf, tmpDir } from './helpers.js';

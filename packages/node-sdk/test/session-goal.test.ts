@@ -1,17 +1,17 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import type { SDKRpcClientBase } from '#/rpc';
 import { Session } from '#/session';
 
 function makeSession() {
   const rpc = {
-    createGoal: vi.fn(async () => ({ goalId: 'g1' })),
-    getGoal: vi.fn(async () => ({ goal: null })),
-    pauseGoal: vi.fn(async () => ({ goalId: 'g1' })),
-    resumeGoal: vi.fn(async () => ({ goalId: 'g1' })),
-    cancelGoal: vi.fn(async () => ({ goalId: 'g1' })),
-    getCronTasks: vi.fn(async () => ({ tasks: [] })),
-    clearSessionHandlers: vi.fn(),
+    createGoal: mock(async () => ({ goalId: 'g1' })),
+    getGoal: mock(async () => ({ goal: null })),
+    pauseGoal: mock(async () => ({ goalId: 'g1' })),
+    resumeGoal: mock(async () => ({ goalId: 'g1' })),
+    cancelGoal: mock(async () => ({ goalId: 'g1' })),
+    getCronTasks: mock(async () => ({ tasks: [] })),
+    clearSessionHandlers: mock(),
   } as unknown as SDKRpcClientBase;
   const session = new Session({ id: 'ses_goal', workDir: '/tmp/work', rpc });
   return { session, rpc };

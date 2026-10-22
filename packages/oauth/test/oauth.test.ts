@@ -8,7 +8,7 @@
 
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import {
   OAuthConnectionError,
@@ -609,7 +609,7 @@ describe('refreshAccessToken', () => {
     // visible in the surfaced message, not just the generic "fetch failed".
     const rootCause = error.cause instanceof Error ? error.cause : undefined;
     expect(rootCause?.message).toBeTruthy();
-    expect(error.message).toContain(rootCause?.message);
+    expect(error.message).toContain(String(rootCause?.message));
   });
 
   it('sends grant_type=refresh_token + refresh_token', async () => {

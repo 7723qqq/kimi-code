@@ -3,20 +3,29 @@
  * Responsibilities: folder browsing reads the real directory, engine suggest failures fall back to the
  * workspace search, and image paths are resolved literally before any percent-decoding.
  * Wiring: real temporary files plus the public handler surface; VS Code host APIs and the engine harness are stubbed.
- * Run: cd apps/vscode && bunx vitest run --config vitest.config.ts test/file.handler.test.ts
+ * Run: cd apps/vscode && bun test --isolate test/file.handler.test.ts
  */
 import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
+
+import type { KimiHarness } from "@moonshot-ai/kimi-code-sdk";
+
+import { installVscode } from './vscode-host';
+import { SYMLINKS } from './helpers';
 
 import { Methods } from "../shared/bridge";
 import { fileHandlers } from "../src/handlers/file.handler";
 import type { HandlerContext } from "../src/handlers/types";
 import { FileManager } from "../src/managers/file.manager";
 
-const vscodeHost = vi.hoisted(() => {
+// Bun runs mock factories while the test file's imports are still being linked,
+// before this module's own top-level statements. The host object therefore lives
+// behind a hoisted function so the factory can reach the same instance the tests
+// use.
+function createVscodeHost() {
   function normalizeUriPath(value: string): string {
     const segments: string[] = [];
     for (const segment of value.replaceAll("\\", "/").split("/")) {
@@ -65,14 +74,18 @@ const vscodeHost = vi.hoisted(() => {
     Uri,
     RelativePattern,
     FileType: { Unknown: 0, File: 1, Directory: 2, SymbolicLink: 64 },
-    readDirectory: vi.fn(),
-    stat: vi.fn(),
-    readFile: vi.fn(),
-    findFiles: vi.fn(),
+    readDirectory: mock(),
+    stat: mock(),
+    readFile: mock(),
+    findFiles: mock(),
   };
-});
+}
 
-vi.mock("vscode", () => ({
+type VscodeHost = ReturnType<typeof createVscodeHost>;
+
+const vscodeHost: VscodeHost = createVscodeHost();
+
+installVscode({
   Uri: vscodeHost.Uri,
   RelativePattern: vscodeHost.RelativePattern,
   FileType: vscodeHost.FileType,
@@ -84,13 +97,13 @@ vi.mock("vscode", () => ({
     },
     findFiles: vscodeHost.findFiles,
     createFileSystemWatcher: () => ({
-      onDidChange: vi.fn(),
-      onDidCreate: vi.fn(),
-      onDidDelete: vi.fn(),
-      dispose: vi.fn(),
+      onDidChange: mock(),
+      onDidCreate: mock(),
+      onDidDelete: mock(),
+      dispose: mock(),
     }),
   },
-}));
+});
 
 let root: string;
 let workDir: string;
@@ -119,19 +132,19 @@ beforeEach(async () => {
     ]);
   });
   vscodeHost.findFiles.mockResolvedValue([]);
-  fileManager = new FileManager({} as never, vi.fn());
+  fileManager = new FileManager({} as never, mock());
 });
 
 afterEach(async () => {
   fileManager.dispose();
-  vi.clearAllMocks();
+  mock.clearAllMocks();
   await rm(root, { recursive: true, force: true });
 });
 
 describe("getProjectFiles (folder mode and engine suggest fallback)", () => {
   it("lists the direct children of the requested directory", async () => {
     const ctx = createContext();
-    const suggested = vi.mocked(ctx.harness.suggestFiles);
+    const suggested = ctx.harness.suggestFiles;
 
     const files = await fileHandlers[Methods.GetProjectFiles]!({ directory: "shots" }, ctx);
 
@@ -161,7 +174,7 @@ describe("getProjectFiles (folder mode and engine suggest fallback)", () => {
 
   it("falls back to the workspace search when the engine cannot suggest", async () => {
     const ctx = createContext();
-    vi.mocked(ctx.harness.suggestFiles).mockRejectedValue(new Error("engine down"));
+    ctx.harness.suggestFiles.mockRejectedValue(new Error("engine down"));
     vscodeHost.findFiles.mockResolvedValue([vscodeHost.Uri.file(join(workDir, "src.ts"))]);
 
     const files = await fileHandlers[Methods.GetProjectFiles]!({ query: "a" }, ctx);
@@ -172,7 +185,7 @@ describe("getProjectFiles (folder mode and engine suggest fallback)", () => {
 
   it("falls back to the workspace search on a v1 engine that cannot suggest", async () => {
     const ctx = createContext();
-    vi.mocked(ctx.harness.suggestFiles).mockResolvedValue(undefined);
+    ctx.harness.suggestFiles.mockResolvedValue(undefined);
     vscodeHost.findFiles.mockResolvedValue([vscodeHost.Uri.file(join(workDir, "src.ts"))]);
 
     const files = await fileHandlers[Methods.GetProjectFiles]!({ query: "a" }, ctx);
@@ -228,7 +241,7 @@ describe("getImageDataUri (literal-first path resolution)", () => {
     expect(dataUri).toBeNull();
   });
 
-  it("reads through a symlink whose target stays inside the workspace", async () => {
+  it.skipIf(!SYMLINKS)("reads through a symlink whose target stays inside the workspace", async () => {
     const ctx = createContext();
     await writeFile(join(workDir, "shots", "target.png"), Buffer.from([11]));
     await symlink(join(workDir, "shots", "target.png"), join(workDir, "shots", "alias.png"));
@@ -239,9 +252,12 @@ describe("getImageDataUri (literal-first path resolution)", () => {
   });
 });
 
-function createContext(): HandlerContext {
-  const harness = {
-    suggestFiles: vi.fn(async () => undefined),
+type SuggestFilesMock = Mock<KimiHarness["suggestFiles"]>;
+type TestContext = HandlerContext & { harness: { suggestFiles: SuggestFilesMock } };
+
+function createContext(): TestContext {
+  const harness: { suggestFiles: SuggestFilesMock } = {
+    suggestFiles: mock(async () => undefined),
   };
   return {
     webviewId: "view-1",
@@ -251,6 +267,6 @@ function createContext(): HandlerContext {
     requireWorkDirUri: () => workDirUri,
     fileManager,
     harness,
-    logError: vi.fn(),
-  } as unknown as HandlerContext;
+    logError: mock(),
+  } as unknown as TestContext;
 }

@@ -1,10 +1,10 @@
 import { readFile, rm, mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { setTimeout as delay } from 'node:timers/promises';
 
 import { join, normalize } from 'pathe';
 
 import type { Event } from '#/index';
+import { setTimeout as delay } from 'node:timers/promises';
 
 export interface AgentWirePayload {
   readonly type: string;
@@ -73,6 +73,53 @@ export function waitForSDKEvent(
       resolve(event);
     });
   });
+}
+
+export interface WaitUntilOptions<T> {
+  readonly timeout?: number;
+  readonly interval?: number;
+  readonly until?: (value: T) => boolean;
+}
+
+function describeThrown(thrown: unknown): string {
+  if (thrown instanceof Error) return thrown.message;
+  if (typeof thrown === 'string') return thrown;
+  return Object.prototype.toString.call(thrown);
+}
+
+/**
+ * Bun has no `expect.poll` / `vi.waitFor`, so state that settles asynchronously
+ * is polled here instead. Re-throws the last probe error on timeout so a broken
+ * probe is not mistaken for a slow one.
+ */
+export async function waitUntil<T>(
+  probe: () => T | Promise<T>,
+  options: WaitUntilOptions<T> = {},
+): Promise<T> {
+  const { timeout = 1_000, interval = 10, until = (value: T) => Boolean(value) } = options;
+  const deadline = Date.now() + timeout;
+  let lastValue: T | undefined;
+  let lastError: unknown;
+
+  for (;;) {
+    lastValue = undefined;
+    lastError = undefined;
+    try {
+      lastValue = await probe();
+      if (until(lastValue)) return lastValue;
+    } catch (error) {
+      lastError = error;
+    }
+    if (Date.now() >= deadline) break;
+    await delay(interval);
+  }
+
+  if (lastError !== undefined) {
+    throw new Error(`waitUntil timed out after ${timeout}ms: ${describeThrown(lastError)}`, {
+      cause: lastError,
+    });
+  }
+  throw new Error(`waitUntil timed out after ${timeout}ms: last value ${String(lastValue)}`);
 }
 
 async function readWireEvents(homeDir: string, sessionId: string): Promise<readonly unknown[]> {

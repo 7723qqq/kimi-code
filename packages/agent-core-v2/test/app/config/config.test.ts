@@ -1,6 +1,6 @@
 import type { ModelCapability } from '#/llm-adapter/contract/capability';
 import type { ToolCall } from '#human/llm/message';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 
 import { IAgentProfileService, type ResolvedAgentProfile } from '#/agent/profile/profile';
 import { normalizeAgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
@@ -14,7 +14,7 @@ import {
 } from '#/errors';
 import { WIRE_PROTOCOL_VERSION } from '#/wire/migration/migration';
 import { createTestAgent, type TestAgentContext } from '../../harness';
-import { DEFAULT_TEST_SYSTEM_PROMPT } from '../../harness/snapshots';
+import { DEFAULT_TEST_SYSTEM_PROMPT, renderSnapshot } from '../../harness/snapshots';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { createDecorator, type ProvideHandle } from '#/_base/di/instantiation';
@@ -191,6 +191,9 @@ describe('Agent config', () => {
       },
       nextCapability,
     );
+    await new Promise<void>((resolve) => {
+      setTimeout(resolve, 0);
+    });
     profile.update({
       systemPrompt: 'Changed profile prompt.',
       thinkingLevel: 'high',
@@ -215,10 +218,10 @@ describe('Agent config', () => {
       cwd: process.cwd(),
     });
 
-    expect(ctx.newEvents()).toMatchInlineSnapshot(`
-      [wire] config.update            { "agentId": "main", "profileName": "test-profile", "systemPrompt": "Profile system prompt.", "environmentDisclosure": { "cwd": "<cwd>" }, "agentsMdPaths": [], "disallowedTools": [], "time": "<time>" }
+    expect(renderSnapshot(ctx.newEvents())).toMatchInlineSnapshot(`
+      "[wire] config.update            { "agentId": "main", "profileName": "test-profile", "systemPrompt": "Profile system prompt.", "environmentDisclosure": { "cwd": "<cwd>" }, "agentsMdPaths": [], "disallowedTools": [], "time": "<time>" }
       [emit] agent.status.updated     { "time": "<time>", "agentId": "main", "model": "mock-model", "maxContextTokens": 1000000 }
-      [wire] tools.set_active_tools   { "agentId": "main", "names": [ "Read" ], "time": "<time>" }
+      [wire] tools.set_active_tools   { "agentId": "main", "names": [ "Read" ], "time": "<time>" }"
     `);
   });
 
@@ -319,8 +322,8 @@ describe('Agent config', () => {
     await ctx.rpc.prompt({
       input: [{ type: 'text', text: 'Look up before config changes' }],
     });
-    expect(await ctx.untilApproval(true)).toMatchInlineSnapshot(`
-      [emit] prompt.submitted                { "time": "<time>", "agentId": "main", "promptId": "<msg-1>", "userMessageId": "<msg-1>", "status": "running", "content": [ { "type": "text", "text": "Look up before config changes" } ], "createdAt": "<time>" }
+    expect(renderSnapshot(await ctx.untilApproval(true))).toMatchInlineSnapshot(`
+      "[emit] prompt.submitted                { "time": "<time>", "agentId": "main", "promptId": "<msg-1>", "userMessageId": "<msg-1>", "status": "running", "content": [ { "type": "text", "text": "Look up before config changes" } ], "createdAt": "<time>" }
       [wire] turn.prompt                     { "agentId": "main", "input": [ { "type": "text", "text": "Look up before config changes" } ], "origin": { "kind": "user" }, "promptId": "<msg-1>", "turnId": 0, "time": "<time>" }
       [emit] turn.started                    { "time": "<time>", "agentId": "main", "turnId": 0, "promptId": "<msg-1>", "origin": { "kind": "user" }, "prompt": "Look up before config changes" }
       [emit] context.spliced                 { "time": "<time>", "agentId": "main", "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Look up before config changes" } ], "id": "<msg-1>", "toolCalls": [], "origin": { "kind": "user" } } ] }
@@ -342,13 +345,13 @@ describe('Agent config', () => {
       [wire] context.append_loop_event       { "agentId": "main", "event": { "type": "content.part", "uuid": "<uuid-2>", "turnId": "0", "step": 1, "stepUuid": "<uuid-1>", "part": { "type": "text", "text": "I will look it up." } }, "time": "<time>" }
       [emit] permission.approval.requested   { "time": "<time>", "id": "<approval-1>", "sessionId": "test-session", "agentId": "main", "turnId": 0, "toolCallId": "call_lookup", "toolName": "Lookup", "action": "Approve Lookup", "display": { "kind": "generic", "summary": "Approve Lookup", "detail": { "query": "original" } }, "toolInput": { "query": "original" } }
       [wire] interaction.request             { "agentId": "main", "id": "<approval-1>", "kind": "approval", "toolCallId": "call_lookup", "request": { "id": "<approval-1>", "sessionId": "test-session", "agentId": "main", "turnId": 0, "toolCallId": "call_lookup", "toolName": "Lookup", "action": "Approve Lookup", "display": { "kind": "generic", "summary": "Approve Lookup", "detail": { "query": "original" } } }, "time": "<time>" }
-      [emit] requestApproval                 { "id": "<approval-1>", "turnId": 0, "toolCallId": "call_lookup", "toolName": "Lookup", "action": "Approve Lookup", "display": { "kind": "generic", "summary": "Approve Lookup", "detail": { "query": "original" } } }
+      [emit] requestApproval                 { "id": "<approval-1>", "turnId": 0, "toolCallId": "call_lookup", "toolName": "Lookup", "action": "Approve Lookup", "display": { "kind": "generic", "summary": "Approve Lookup", "detail": { "query": "original" } } }"
     `);
-    expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
-      system: <system-prompt>
+    expect(renderSnapshot(ctx.lastLlmInput())).toMatchInlineSnapshot(`
+      "system: <system-prompt>
       tools: Lookup
       messages:
-        user: text "Look up before config changes"
+        user: text "Look up before config changes""
     `);
 
     ctx.configureRuntimeModel({
@@ -366,8 +369,8 @@ describe('Agent config', () => {
     });
     ctx.mockNextResponse({ type: 'text', text: 'Still using the original turn config.' });
     await toolCallEvents;
-    expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
-      [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "tool.call", "uuid": "<uuid-3>", "turnId": "0", "step": 1, "stepUuid": "<uuid-1>", "toolCallId": "call_lookup", "name": "Lookup", "args": { "query": "original" } }, "time": "<time>" }
+    expect(renderSnapshot(await ctx.untilTurnEnd())).toMatchInlineSnapshot(`
+      "[wire] context.append_loop_event   { "agentId": "main", "event": { "type": "tool.call", "uuid": "<uuid-3>", "turnId": "0", "step": 1, "stepUuid": "<uuid-1>", "toolCallId": "call_lookup", "name": "Lookup", "args": { "query": "original" } }, "time": "<time>" }
       [wire] interaction.request         { "agentId": "main", "id": "<user_tool-2>", "kind": "user_tool", "toolCallId": "call_lookup", "request": { "turnId": 0, "toolCallId": "call_lookup", "name": "Lookup", "args": { "query": "original" } }, "time": "<time>" }
       [wire] interaction.resolved        { "agentId": "main", "id": "<user_tool-2>", "response": { "content": "original-result", "output": "original-result" }, "time": "<time>" }
       [emit] tool.result                 { "time": "<time>", "agentId": "main", "turnId": 0, "toolCallId": "call_lookup", "output": "original-result" }
@@ -393,22 +396,22 @@ describe('Agent config', () => {
       [wire] agent.message.appended      { "message": { "message": { "role": "assistant", "content": [ { "type": "text", "text": "Still using the original turn config." } ], "toolCalls": [] }, "meta": { "model": { "provider": "agent-loop", "model": "agent-loop" }, "source": "llm", "usage": { "inputOther": 89, "output": 13, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finish": { "finishReason": "completed", "rawFinishReason": "stop" }, "messageId": "mock-2" } }, "time": "<time>", "kind": "event" }
       [wire] agent.turn.ended            { "turnId": 0, "outcome": "done", "time": "<time>", "kind": "event" }
       [wire] turn.ended                  { "agentId": "main", "turnId": 0, "reason": "completed", "time": "<time>" }
-      [emit] turn.ended                  { "time": "<time>", "agentId": "main", "turnId": 0, "reason": "completed" }
+      [emit] turn.ended                  { "time": "<time>", "agentId": "main", "turnId": 0, "reason": "completed" }"
     `);
-    expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
-      tools: []
+    expect(renderSnapshot(ctx.lastLlmInput())).toMatchInlineSnapshot(`
+      "tools: []
       messages:
         <last>
         assistant: text "I will look it up."  calls call_lookup:Lookup { "query": "original" }
         tool[call_lookup]: text "original-result"
-        user: text <date-reminder>
+        user: text <date-reminder>"
     `);
 
     ctx.mockNextResponse({ type: 'text', text: 'Now the changed config is active.' });
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Start a fresh turn' }] });
 
-    expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
-      [wire] token_counting.turn_recorded   { "agentId": "main", "turnId": 0, "length": 5, "tokens": 102, "time": "<time>" }
+    expect(renderSnapshot(await ctx.untilTurnEnd())).toMatchInlineSnapshot(`
+      "[wire] token_counting.turn_recorded   { "agentId": "main", "turnId": 0, "length": 5, "tokens": 102, "time": "<time>" }
       [emit] agent.status.updated           { "time": "<time>", "agentId": "main", "contextTokens": 102 }
       [wire] prompt.completed               { "agentId": "main", "promptId": "<msg-1>", "finishedAt": "<time>", "reason": "completed", "time": "<time>" }
       [emit] prompt.completed               { "time": "<time>", "agentId": "main", "promptId": "<msg-1>", "finishedAt": "<time>", "reason": "completed" }
@@ -434,14 +437,14 @@ describe('Agent config', () => {
       [wire] agent.message.appended         { "message": { "message": { "role": "assistant", "content": [ { "type": "text", "text": "Now the changed config is active." } ], "toolCalls": [] }, "meta": { "model": { "provider": "agent-loop", "model": "agent-loop" }, "source": "llm", "usage": { "inputOther": 108, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finish": { "finishReason": "completed", "rawFinishReason": "stop" }, "messageId": "mock-3" } }, "time": "<time>", "kind": "event" }
       [wire] agent.turn.ended               { "turnId": 1, "outcome": "done", "time": "<time>", "kind": "event" }
       [wire] turn.ended                     { "agentId": "main", "turnId": 1, "reason": "completed", "time": "<time>" }
-      [emit] turn.ended                     { "time": "<time>", "agentId": "main", "turnId": 1, "reason": "completed" }
+      [emit] turn.ended                     { "time": "<time>", "agentId": "main", "turnId": 1, "reason": "completed" }"
     `);
-    expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
-      system: "Changed system prompt."
+    expect(renderSnapshot(ctx.lastLlmInput())).toMatchInlineSnapshot(`
+      "system: "Changed system prompt."
       messages:
         <last>
         assistant: text "Still using the original turn config."
-        user: text "Start a fresh turn"
+        user: text "Start a fresh turn""
     `);
   });
 });
@@ -482,7 +485,7 @@ describe('ConfigService env overlay (live)', () => {
     const config = ix.get(IConfigService);
     await config.ready;
 
-    const parse = vi.fn((value: unknown) => value as { value?: string });
+    const parse = mock((value: unknown) => value as { value?: string });
     ix.get(IConfigRegistry).registerSection('memoDemo', { parse }, {
       env: { value: 'MEMO_DEMO_ENV' },
     });
@@ -660,7 +663,7 @@ describe('ConfigService env overlay (live)', () => {
     ix.stub(ILogService, stubLog());
     ix.stub(IBootstrapService, stubBootstrap('/tmp/kimi-cfg', env));
     ix.stub(IFileSystemStorageService, new InMemoryStorageService());
-    ix.stub(IOAuthService, { status: vi.fn() } as unknown as IOAuthService);
+    ix.stub(IOAuthService, { status: mock() } as unknown as IOAuthService);
     ix.set(IAtomicTomlDocumentStore, new SyncDescriptor(TomlAtomicDocumentStore));
     ix.set(IConfigRegistry, new SyncDescriptor(ConfigRegistry));
     ix.set(IConfigService, new SyncDescriptor(ConfigService));
@@ -1203,7 +1206,7 @@ describe('loopControl config section', () => {
     await config.ready;
 
     expect(config.get<LoopControl>(LOOP_CONTROL_SECTION)).toEqual({ maxStepsPerTurn: 7 });
-    expect(config.inspect<LoopControl>(LOOP_CONTROL_SECTION).userValue).toEqual({
+    expect(config.inspect<Record<string, unknown>>(LOOP_CONTROL_SECTION).userValue).toEqual({
       maxStepsPerRun: 100,
     });
     expect(config.diagnostics()).toContainEqual({
@@ -1245,7 +1248,7 @@ describe('loopControl config section', () => {
     const onDisk = new TextDecoder().decode(await storage.read('', 'config.toml'));
     expect(onDisk).toContain('future_field = 1');
     expect(onDisk).not.toContain('max_steps_per_turn');
-    expect(config.inspect<LoopControl>(LOOP_CONTROL_SECTION).userValue).toEqual({
+    expect(config.inspect<Record<string, unknown>>(LOOP_CONTROL_SECTION).userValue).toEqual({
       futureField: 1,
     });
 
@@ -2822,8 +2825,8 @@ describe('ConfigService replaceSections', () => {
 
   it('applies every domain in one transition with a single disk write, clearing undefined domains', async () => {
     const { config, disposables, store } = await createSectionsConfig();
-    const setSpy = vi.spyOn(store, 'set');
-    const setTextSpy = vi.spyOn(store, 'setText');
+    const setSpy = spyOn(store, 'set');
+    const setTextSpy = spyOn(store, 'setText');
 
     await config.replaceSections({
       [PROVIDERS_SECTION]: { acme: { type: 'openai', apiKey: 'sk-acme-2' } },
@@ -2870,8 +2873,8 @@ describe('ConfigService replaceSections', () => {
       '',
     ].join('\n');
     const { config, disposables, store, storage } = await createSectionsConfig(toml);
-    const setSpy = vi.spyOn(store, 'set');
-    const setTextSpy = vi.spyOn(store, 'setText');
+    const setSpy = spyOn(store, 'set');
+    const setTextSpy = spyOn(store, 'setText');
 
     await config.replaceSections(
       {
@@ -2908,8 +2911,8 @@ describe('ConfigService replaceSections', () => {
 
   it('rejects an atomic replacement when a guarded user value changed on disk', async () => {
     const { config, disposables, store, storage } = await createSectionsConfig();
-    const setSpy = vi.spyOn(store, 'set');
-    const setTextSpy = vi.spyOn(store, 'setText');
+    const setSpy = spyOn(store, 'set');
+    const setTextSpy = spyOn(store, 'setText');
     const external = SEED_TOML.replace(
       'default_model = "acme/m1"',
       'default_model = "other/m1"',
@@ -2935,8 +2938,8 @@ describe('ConfigService replaceSections', () => {
 
   it('treats null as clear — the wire encoding JSON transports use for undefined', async () => {
     const { config, disposables, store } = await createSectionsConfig();
-    const setSpy = vi.spyOn(store, 'set');
-    const setTextSpy = vi.spyOn(store, 'setText');
+    const setSpy = spyOn(store, 'set');
+    const setTextSpy = spyOn(store, 'setText');
 
     await config.replaceSections({
       [DEFAULT_MODEL_SECTION]: null,
@@ -2995,7 +2998,7 @@ describe('ConfigService replaceSections', () => {
 
   it('supports the memory target without touching the persisted user layer', async () => {
     const { config, disposables, store } = await createSectionsConfig();
-    const setSpy = vi.spyOn(store, 'set');
+    const setSpy = spyOn(store, 'set');
 
     await config.replaceSections(
       { [THINKING_SECTION]: { enabled: false, effort: 'low' } },
@@ -3014,7 +3017,7 @@ describe('ConfigService replaceSections', () => {
 
   it('leaves the user layer untouched when a later domain fails validation', async () => {
     const { config, disposables, store } = await createSectionsConfig();
-    const setSpy = vi.spyOn(store, 'set');
+    const setSpy = spyOn(store, 'set');
 
     await expect(
       config.replaceSections({

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 import { Disposable, DisposableStore, type IDisposable } from '#/_base/di/lifecycle';
 import {

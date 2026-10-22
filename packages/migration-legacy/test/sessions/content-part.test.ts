@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { normalizeContentPart } from '../../src/sessions/content-part.js';
 

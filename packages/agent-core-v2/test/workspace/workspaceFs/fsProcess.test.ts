@@ -1,7 +1,7 @@
 import { listenerCount, type EventEmitter } from 'node:events';
 import { Readable, Writable } from 'node:stream';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { type IHostProcess, type IHostProcessService } from '#/os/interface/hostProcess';
 

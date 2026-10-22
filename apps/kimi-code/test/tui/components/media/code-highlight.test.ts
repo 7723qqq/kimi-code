@@ -2,7 +2,7 @@ import { createRequire } from 'node:module';
 import { dirname } from 'node:path';
 
 import chalk from 'chalk';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { highlightLines, langFromPath } from '#/tui/components/media/code-highlight';
 import { codeHighlightTheme } from '#/tui/theme/highlight-theme';

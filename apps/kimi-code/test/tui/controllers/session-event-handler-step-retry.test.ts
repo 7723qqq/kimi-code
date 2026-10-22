@@ -1,7 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import { SessionEventHandler } from '#/tui/controllers/session-event-handler';
 import { getBuiltInPalette } from '#/tui/theme';
+import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
 
 function makeHost() {
   const host = {
@@ -18,55 +19,55 @@ function makeHost() {
       queuedMessageDispatchPending: false,
       theme: { palette: getBuiltInPalette('dark') },
       toolOutputExpanded: false,
-      todoPanel: { getTodos: vi.fn(() => []) },
-      transcriptContainer: { addChild: vi.fn() },
-      ui: { requestRender: vi.fn() },
+      todoPanel: { getTodos: mock(() => []) },
+      transcriptContainer: { addChild: mock() },
+      ui: { requestRender: mock() },
     },
     session: { id: 's1' },
     aborted: false,
     sessionEventUnsubscribe: undefined,
     streamingUI: {
-      setTurnId: vi.fn(),
-      setStep: vi.fn(),
-      flushNow: vi.fn(),
-      resetToolUi: vi.fn(),
-      clearNotifyPanel: vi.fn(),
-      markNotifyPanelEnded: vi.fn(),
-      finalizeTurn: vi.fn(),
-      finalizeLiveTextBuffers: vi.fn(),
-      completeToolResult: vi.fn(),
+      setTurnId: mock(),
+      setStep: mock(),
+      flushNow: mock(),
+      resetToolUi: mock(),
+      clearNotifyPanel: mock(),
+      markNotifyPanelEnded: mock(),
+      finalizeTurn: mock(),
+      finalizeLiveTextBuffers: mock(),
+      completeToolResult: mock(),
     },
-    requireSession: vi.fn(),
-    setAppState: vi.fn((patch: Record<string, unknown>) =>
+    requireSession: mock(),
+    setAppState: mock((patch: Record<string, unknown>) =>
       Object.assign(host.state.appState, patch),
     ),
-    patchLivePane: vi.fn(),
-    resetLivePane: vi.fn(),
-    showError: vi.fn(),
-    showStatus: vi.fn(),
-    showNotice: vi.fn(),
-    track: vi.fn(),
-    recordSessionActivity: vi.fn(),
-    noteStepUsage: vi.fn(),
-    noteStepCacheStats: vi.fn(),
-    noteSessionTurnStarted: vi.fn(),
-    noteSessionStepCompleted: vi.fn(),
-    noteSessionToolCompleted: vi.fn(),
-    noteCompactionFinished: vi.fn(),
-    mountEditorReplacement: vi.fn(),
-    restoreEditor: vi.fn(),
-    restoreInputText: vi.fn(),
-    appendTranscriptEntry: vi.fn(),
-    sendNormalUserInput: vi.fn(),
-    sendQueuedMessage: vi.fn(),
-    shiftQueuedMessage: vi.fn(),
-    btwPanelController: { routeEvent: vi.fn(() => false) },
+    patchLivePane: mock(),
+    resetLivePane: mock(),
+    showError: mock(),
+    showStatus: mock(),
+    showNotice: mock(),
+    track: mock(),
+    recordSessionActivity: mock(),
+    noteStepUsage: mock(),
+    noteStepCacheStats: mock(),
+    noteSessionTurnStarted: mock(),
+    noteSessionStepCompleted: mock(),
+    noteSessionToolCompleted: mock(),
+    noteCompactionFinished: mock(),
+    mountEditorReplacement: mock(),
+    restoreEditor: mock(),
+    restoreInputText: mock(),
+    appendTranscriptEntry: mock(),
+    sendNormalUserInput: mock(),
+    sendQueuedMessage: mock(),
+    shiftQueuedMessage: mock(),
+    btwPanelController: { routeEvent: mock(() => false) },
     tasksBrowserController: {},
-    updateActivityPane: vi.fn(),
+    updateActivityPane: mock(),
     surveyController: {
-      notifyToolCallStarted: vi.fn(),
-      notifyToolCallEnded: vi.fn(),
-      notifySubagentSpawned: vi.fn(),
+      notifyToolCallStarted: mock(),
+      notifyToolCallEnded: mock(),
+      notifySubagentSpawned: mock(),
     },
   };
   return { host: host as any };
@@ -88,17 +89,14 @@ const retryingEvent = {
 } as const;
 
 describe('SessionEventHandler step retry state', () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-  afterEach(() => {
-    vi.useRealTimers();
-  });
+  function makeRetryHandler(host: any, clock: FakeClock = createFakeClock()) {
+    return { handler: new SessionEventHandler(host, undefined, clock), clock };
+  }
 
   it('stores the retry snapshot when a step starts retrying', () => {
     const { host } = makeHost();
-    const handler = new SessionEventHandler(host);
-    handler.handleEvent(retryingEvent as any, vi.fn());
+    const { handler } = makeRetryHandler(host);
+    handler.handleEvent(retryingEvent as any, mock());
     expect(host.state.appState.stepRetry).toEqual({
       nextAttempt: 2,
       maxAttempts: 10,
@@ -113,8 +111,8 @@ describe('SessionEventHandler step retry state', () => {
   it('drives the pane back to waiting so mid-stream retries render', () => {
     const { host } = makeHost();
     host.state.appState.streamingPhase = 'composing';
-    const handler = new SessionEventHandler(host);
-    handler.handleEvent(retryingEvent as any, vi.fn());
+    const { handler } = makeRetryHandler(host);
+    handler.handleEvent(retryingEvent as any, mock());
     expect(host.patchLivePane).toHaveBeenCalledWith({ mode: 'waiting' });
     expect(host.state.appState.streamingPhase).toBe('waiting');
   });
@@ -132,26 +130,26 @@ describe('SessionEventHandler step retry state', () => {
     ],
   ])('clears the retry snapshot on %s', (event, _label) => {
     const { host } = makeHost();
-    const handler = new SessionEventHandler(host);
-    handler.handleEvent(retryingEvent as any, vi.fn());
+    const { handler } = makeRetryHandler(host);
+    handler.handleEvent(retryingEvent as any, mock());
     expect(host.state.appState.stepRetry).not.toBeNull();
-    handler.handleEvent({ sessionId: 's1', agentId: 'main', ...event } as any, vi.fn());
+    handler.handleEvent({ sessionId: 's1', agentId: 'main', ...event } as any, mock());
     expect(host.state.appState.stepRetry).toBeNull();
   });
 
   it('flips to attempt phase once the backoff delay elapses', () => {
     const { host } = makeHost();
-    const handler = new SessionEventHandler(host);
-    handler.handleEvent(retryingEvent as any, vi.fn());
+    const { handler, clock } = makeRetryHandler(host);
+    handler.handleEvent(retryingEvent as any, mock());
     expect(host.state.appState.stepRetry).toMatchObject({ phase: 'backoff' });
-    vi.advanceTimersByTime(4000);
+    clock.advance(4000);
     expect(host.state.appState.stepRetry).toMatchObject({ nextAttempt: 2, phase: 'attempt' });
   });
 
   it('cancels the phase flip when the retry is cleared during the backoff', () => {
     const { host } = makeHost();
-    const handler = new SessionEventHandler(host);
-    handler.handleEvent(retryingEvent as any, vi.fn());
+    const { handler, clock } = makeRetryHandler(host);
+    handler.handleEvent(retryingEvent as any, mock());
     handler.handleEvent(
       {
         type: 'turn.step.interrupted',
@@ -161,43 +159,43 @@ describe('SessionEventHandler step retry state', () => {
         step: 1,
         reason: 'error',
       } as any,
-      vi.fn(),
+      mock(),
     );
-    vi.advanceTimersByTime(10_000);
+    clock.advance(10_000);
     expect(host.state.appState.stepRetry).toBeNull();
   });
 
   it('keeps the retry snapshot on turn.step.started (v2 re-emits it per attempt)', () => {
     const { host } = makeHost();
-    const handler = new SessionEventHandler(host);
-    handler.handleEvent(retryingEvent as any, vi.fn());
+    const { handler } = makeRetryHandler(host);
+    handler.handleEvent(retryingEvent as any, mock());
     handler.handleEvent(
       { type: 'turn.step.started', sessionId: 's1', agentId: 'main', turnId: 1, step: 1 } as any,
-      vi.fn(),
+      mock(),
     );
     expect(host.state.appState.stepRetry).toMatchObject({ nextAttempt: 2, phase: 'backoff' });
   });
 
   it('cancels the pending phase flip via clearStepRetryAttemptTimer (TUI shutdown path)', () => {
     const { host } = makeHost();
-    const handler = new SessionEventHandler(host);
-    handler.handleEvent(retryingEvent as any, vi.fn());
+    const { handler, clock } = makeRetryHandler(host);
+    handler.handleEvent(retryingEvent as any, mock());
     handler.clearStepRetryAttemptTimer();
-    vi.advanceTimersByTime(10_000);
+    clock.advance(10_000);
     expect(host.state.appState.stepRetry).toMatchObject({ phase: 'backoff' });
   });
 
   it('clears the retry snapshot when the session runtime resets', () => {
     const { host } = makeHost();
-    const handler = new SessionEventHandler(host);
-    handler.handleEvent(retryingEvent as any, vi.fn());
+    const { handler, clock } = makeRetryHandler(host);
+    handler.handleEvent(retryingEvent as any, mock());
     expect(host.state.appState.stepRetry).not.toBeNull();
 
     // Switching sessions mid-backoff must drop both the pending phase-flip
     // timer and the stale retry appState.
     handler.resetRuntimeState();
     expect(host.state.appState.stepRetry).toBeNull();
-    vi.advanceTimersByTime(10_000);
+    clock.advance(10_000);
     expect(host.state.appState.stepRetry).toBeNull();
   });
 });

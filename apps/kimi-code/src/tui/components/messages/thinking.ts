@@ -17,6 +17,11 @@ import {
 import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import { isRenderCacheEnabled } from '#/tui/utils/render-cache';
+import {
+  SYSTEM_RENDER_CLOCK,
+  type RenderClock,
+  type RenderTimerHandle,
+} from '#/tui/utils/render-clock';
 
 export type ThinkingRenderMode = 'live' | 'finalized';
 
@@ -28,7 +33,7 @@ export class ThinkingComponent implements Component {
   private previewHidesLines = false;
   private readonly ui: TUI | undefined;
   private spinnerFrame = 0;
-  private spinnerInterval: ReturnType<typeof setInterval> | undefined;
+  private spinnerInterval: RenderTimerHandle | undefined;
   // Hold a single Text instance so pi-tui's (text, width) → lines cache
   // actually survives across renders. Re-constructing per render destroys
   // the cache and forces full re-wrap on every frame, which dominates CPU
@@ -42,6 +47,7 @@ export class ThinkingComponent implements Component {
     showMarker: boolean = true,
     mode: ThinkingRenderMode = 'finalized',
     ui?: TUI,
+    private readonly clock: RenderClock = SYSTEM_RENDER_CLOCK,
   ) {
     this.text = text;
     this.showMarker = showMarker;
@@ -162,21 +168,20 @@ export class ThinkingComponent implements Component {
 
   private startSpinner(): void {
     if (this.ui === undefined || this.spinnerInterval !== undefined) return;
-    this.spinnerInterval = setInterval(() => {
+    this.spinnerInterval = this.clock.setInterval(() => {
       this.spinnerFrame = (this.spinnerFrame + 1) % BRAILLE_SPINNER_FRAMES.length;
       this.markRenderDirty();
       this.ui?.requestRender();
     }, BRAILLE_SPINNER_INTERVAL_MS);
     // Live thinking animates on a timer; it must not by itself keep the process
-    // alive once the turn ends.
-    if (typeof this.spinnerInterval === 'object' && 'unref' in this.spinnerInterval) {
-      this.spinnerInterval.unref();
-    }
+    // alive once the turn ends. Only a real timer handle can do that — an
+    // injected clock owns the liveness of its own handles.
+    if (this.clock === SYSTEM_RENDER_CLOCK) this.spinnerInterval.unref?.();
   }
 
   private stopSpinner(): void {
     if (this.spinnerInterval === undefined) return;
-    clearInterval(this.spinnerInterval);
+    this.clock.clearInterval(this.spinnerInterval);
     this.spinnerInterval = undefined;
   }
 }

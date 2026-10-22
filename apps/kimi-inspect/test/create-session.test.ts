@@ -8,7 +8,7 @@
  * Every failure mode must therefore come back as `{ ok: false, reason }`.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { createSession } from '../src/lib/createSession';
 

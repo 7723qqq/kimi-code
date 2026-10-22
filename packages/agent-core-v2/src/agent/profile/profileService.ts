@@ -465,14 +465,6 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     this.publishToolPatternWarnings(profile);
   }
 
-  /**
-   * Surface variables that were supplied but that the active template never
-   * referenced. The minimal DeepSeek prompt keeps only the persona and the
-   * working directory, so AGENTS.md content, skill listings and plugin sections
-   * that are present in the context would otherwise vanish without a trace.
-   * The reminder that tells the model to read those files is driven separately —
-   * see seedAgentsMdReminder — so this only has to make the loss observable.
-   */
   private warnAboutDroppedVars(rendered: SystemPromptRenderResult, profileName: string): void {
     const dropped = rendered.droppedVars;
     if (dropped === undefined || dropped.length === 0) return;
@@ -486,10 +478,6 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     rendered: SystemPromptRenderResult,
   ): void {
     const paths = context.agentsMdPaths ?? [];
-    // Under the minimal prompt shape the AGENTS.md body never reaches the system
-    // prompt, so marking those paths as already injected would suppress the
-    // reminder that points the model at them. Seed only what the template
-    // actually carried; anything else stays eligible for the discovery nudge.
     if (this.promptDroppedAgentsMd(rendered)) return;
     this.agentsMdReminder.seedInjected(paths, context.cwd ?? this.sessionContext.cwd);
   }
@@ -972,12 +960,6 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     const alias = this.modelAlias ?? pendingModelAlias;
     if (alias === undefined || alias === '') return '';
     const model = this.resolveModelForThinking(alias)?.name ?? alias;
-    // A family whose prompt shape is `minimal` has no
-    // `${model_adaptation_section}` placeholder, so its guidance is delivered by
-    // the per-agent reminder instead. Loading it here would put the text into a
-    // variable the template then discards, and the renderer would report that as
-    // a dropped variable. The two channels are complementary: exactly one of
-    // them owns a given family.
     if (adaptationDeliveredByReminder(model)) return '';
     try {
       const adaptation = await loadCuratedAdaptation(model, this.log);

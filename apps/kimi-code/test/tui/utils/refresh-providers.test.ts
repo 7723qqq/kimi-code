@@ -3,7 +3,8 @@ import {
   resolveKimiCodeOAuthKey,
   resolveKimiCodeOAuthRef,
 } from '@moonshot-ai/kimi-code-oauth';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, mock, type Mock } from 'bun:test';
+import { setEnv, setGlobal, restoreEnvs, restoreGlobals } from '#test/helpers/stubs';
 
 import { refreshAllProviderModels } from '../../../src/tui/utils/refresh-providers';
 import type { KimiConfig } from '@moonshot-ai/kimi-code-sdk';
@@ -21,11 +22,11 @@ function fetchInputUrl(input: Parameters<typeof fetch>[0]): string {
 
 function makeRefreshHost(initial: KimiConfig): {
   current: () => KimiConfig;
-  removeProvider: ReturnType<typeof vi.fn<(providerId: string) => Promise<KimiConfig>>>;
-  setConfig: ReturnType<typeof vi.fn<(patch: Partial<KimiConfig>) => Promise<KimiConfig>>>;
+  removeProvider: Mock<(providerId: string) => Promise<KimiConfig>>;
+  setConfig: Mock<(patch: Partial<KimiConfig>) => Promise<KimiConfig>>;
 } {
   let persisted = structuredClone(initial);
-  const removeProvider = vi.fn(async (providerId: string) => {
+  const removeProvider = mock(async (providerId: string) => {
     const providers = { ...persisted.providers };
     delete providers[providerId];
     const models = { ...persisted.models };
@@ -39,7 +40,7 @@ function makeRefreshHost(initial: KimiConfig): {
     if (defaultRemoved) persisted = { ...persisted, defaultModel: undefined };
     return structuredClone(persisted);
   });
-  const setConfig = vi.fn(async (patch: Partial<KimiConfig>) => {
+  const setConfig = mock(async (patch: Partial<KimiConfig>) => {
     persisted = { ...persisted, ...patch };
     return structuredClone(persisted);
   });
@@ -52,8 +53,8 @@ function makeRefreshHost(initial: KimiConfig): {
 
 describe('refreshAllProviderModels', () => {
   afterEach(() => {
-    vi.unstubAllEnvs();
-    vi.unstubAllGlobals();
+    restoreEnvs();
+    restoreGlobals();
   });
 
   it('refreshes managed Kimi Code against environment endpoints over persisted config', async () => {
@@ -89,13 +90,13 @@ describe('refreshAllProviderModels', () => {
       defaultModel: 'kimi-code/kimi-for-coding',
       telemetry: true,
     };
-    vi.stubEnv('KIMI_CODE_BASE_URL', envBaseUrl);
-    vi.stubEnv('KIMI_CODE_OAUTH_HOST', envOauthHost);
-    const resolveOAuthToken = vi.fn(async (_providerName, oauthRef) => {
+    setEnv('KIMI_CODE_BASE_URL', envBaseUrl);
+    setEnv('KIMI_CODE_OAUTH_HOST', envOauthHost);
+    const resolveOAuthToken = mock(async (_providerName, oauthRef) => {
       expect(oauthRef).toEqual(envOauthRef);
       return 'env-access-token';
     });
-    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
+    const fetchMock = mock<FetchMock>(async (input, init) => {
       expect(fetchInputUrl(input)).toBe(`${envBaseUrl}/models`);
       expect(new Headers(init?.headers).get('authorization')).toBe('Bearer env-access-token');
       return new Response(
@@ -111,12 +112,12 @@ describe('refreshAllProviderModels', () => {
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     });
-    vi.stubGlobal('fetch', fetchMock);
+    setGlobal('fetch', fetchMock);
 
     const result = await refreshAllProviderModels({
       getConfig: async () => config,
-      removeProvider: vi.fn(),
-      setConfig: vi.fn(),
+      removeProvider: mock(),
+      setConfig: mock(),
       resolveOAuthToken,
     });
 
@@ -167,8 +168,8 @@ describe('refreshAllProviderModels', () => {
       telemetry: true,
     };
     const host = makeRefreshHost(config);
-    const resolveOAuthToken = vi.fn(async () => 'oauth-access-token');
-    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
+    const resolveOAuthToken = mock(async () => 'oauth-access-token');
+    const fetchMock = mock<FetchMock>(async (input, init) => {
       expect(fetchInputUrl(input)).toBe(`${baseUrl}/models`);
       expect(new Headers(init?.headers).get('authorization')).toBe('Bearer oauth-access-token');
       return new Response(
@@ -185,7 +186,7 @@ describe('refreshAllProviderModels', () => {
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     });
-    vi.stubGlobal('fetch', fetchMock);
+    setGlobal('fetch', fetchMock);
 
     const result = await refreshAllProviderModels(
       {
@@ -263,7 +264,7 @@ describe('refreshAllProviderModels', () => {
       telemetry: true,
     } as unknown as KimiConfig);
 
-    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
+    const fetchMock = mock<FetchMock>(async (input, init) => {
       expect(fetchInputUrl(input)).toBe(registryUrl);
       expect(new Headers(init?.headers).get('authorization')).toBe('Bearer sk-test-token');
       return new Response(
@@ -304,13 +305,13 @@ describe('refreshAllProviderModels', () => {
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     });
-    vi.stubGlobal('fetch', fetchMock);
+    setGlobal('fetch', fetchMock);
 
     const result = await refreshAllProviderModels({
       getConfig: async () => host.current(),
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
-      resolveOAuthToken: vi.fn(),
+      resolveOAuthToken: mock(),
     });
 
     expect(result.failed).toEqual([]);
@@ -372,7 +373,7 @@ describe('refreshAllProviderModels', () => {
       telemetry: true,
     } as unknown as KimiConfig);
 
-    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
+    const fetchMock = mock<FetchMock>(async (input, init) => {
       expect(fetchInputUrl(input)).toBe(registryUrl);
       expect(new Headers(init?.headers).get('authorization')).toBe('Bearer sk-test-token');
       return new Response(
@@ -395,13 +396,13 @@ describe('refreshAllProviderModels', () => {
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     });
-    vi.stubGlobal('fetch', fetchMock);
+    setGlobal('fetch', fetchMock);
 
     const result = await refreshAllProviderModels({
       getConfig: async () => host.current(),
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
-      resolveOAuthToken: vi.fn(),
+      resolveOAuthToken: mock(),
     });
 
     expect(result.failed).toEqual([]);
@@ -480,7 +481,7 @@ describe('refreshAllProviderModels', () => {
       telemetry: true,
     } as unknown as KimiConfig);
 
-    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
+    const fetchMock = mock<FetchMock>(async (input, init) => {
       expect(fetchInputUrl(input)).toBe(registryUrl);
       expect(new Headers(init?.headers).get('authorization')).toBe('Bearer sk-test-token');
       return new Response(
@@ -496,13 +497,13 @@ describe('refreshAllProviderModels', () => {
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     });
-    vi.stubGlobal('fetch', fetchMock);
+    setGlobal('fetch', fetchMock);
 
     const result = await refreshAllProviderModels({
       getConfig: async () => host.current(),
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
-      resolveOAuthToken: vi.fn(),
+      resolveOAuthToken: mock(),
     });
 
     expect(result.failed).toEqual([]);
@@ -564,7 +565,7 @@ describe('refreshAllProviderModels', () => {
       telemetry: true,
     } as unknown as KimiConfig);
 
-    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
+    const fetchMock = mock<FetchMock>(async (input, init) => {
       expect(fetchInputUrl(input)).toBe(registryUrl);
       const authorization = new Headers(init?.headers).get('authorization');
       if (authorization === 'Bearer sk-old-token') {
@@ -594,13 +595,13 @@ describe('refreshAllProviderModels', () => {
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     });
-    vi.stubGlobal('fetch', fetchMock);
+    setGlobal('fetch', fetchMock);
 
     const result = await refreshAllProviderModels({
       getConfig: async () => host.current(),
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
-      resolveOAuthToken: vi.fn(),
+      resolveOAuthToken: mock(),
     });
 
     expect(result.failed).toEqual([]);
@@ -668,7 +669,7 @@ describe('refreshAllProviderModels', () => {
       telemetry: true,
     } as unknown as KimiConfig);
 
-    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
+    const fetchMock = mock<FetchMock>(async (input, init) => {
       expect(fetchInputUrl(input)).toBe(registryUrl);
       expect(new Headers(init?.headers).get('authorization')).toBe('Bearer sk-test-token');
       return new Response(
@@ -693,13 +694,13 @@ describe('refreshAllProviderModels', () => {
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     });
-    vi.stubGlobal('fetch', fetchMock);
+    setGlobal('fetch', fetchMock);
 
     const result = await refreshAllProviderModels({
       getConfig: async () => host.current(),
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
-      resolveOAuthToken: vi.fn(),
+      resolveOAuthToken: mock(),
     });
 
     expect(result.failed).toEqual([]);
@@ -734,7 +735,7 @@ describe('refreshAllProviderModels', () => {
       telemetry: true,
     } as unknown as KimiConfig);
 
-    const fetchMock = vi.fn<FetchMock>(
+    const fetchMock = mock<FetchMock>(
       async () =>
         new Response(
           JSON.stringify({
@@ -750,13 +751,13 @@ describe('refreshAllProviderModels', () => {
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         ),
     );
-    vi.stubGlobal('fetch', fetchMock);
+    setGlobal('fetch', fetchMock);
 
     const result = await refreshAllProviderModels({
       getConfig: async () => host.current(),
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
-      resolveOAuthToken: vi.fn(async () => 'oauth-access-token'),
+      resolveOAuthToken: mock(async () => 'oauth-access-token'),
     });
 
     expect(result.failed).toEqual([]);
@@ -773,7 +774,7 @@ describe('refreshAllProviderModels', () => {
 
   it('refreshes a hand-configured API-key provider pointing at the managed endpoint', async () => {
     const baseUrl = 'https://api.managed.example.test/coding/v1';
-    vi.stubEnv('KIMI_CODE_BASE_URL', baseUrl);
+    setEnv('KIMI_CODE_BASE_URL', baseUrl);
     const userAliasModel = {
       provider: 'my-kimi',
       model: 'kimi-for-coding',
@@ -809,7 +810,7 @@ describe('refreshAllProviderModels', () => {
       telemetry: true,
     } as unknown as KimiConfig);
 
-    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
+    const fetchMock = mock<FetchMock>(async (input, init) => {
       expect(fetchInputUrl(input)).toBe(`${baseUrl}/models`);
       expect(new Headers(init?.headers).get('authorization')).toBe('Bearer sk-distributed-key');
       return new Response(
@@ -827,13 +828,13 @@ describe('refreshAllProviderModels', () => {
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     });
-    vi.stubGlobal('fetch', fetchMock);
+    setGlobal('fetch', fetchMock);
 
     const result = await refreshAllProviderModels({
       getConfig: async () => host.current(),
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
-      resolveOAuthToken: vi.fn(),
+      resolveOAuthToken: mock(),
     });
 
     expect(result.failed).toEqual([]);
@@ -861,7 +862,7 @@ describe('refreshAllProviderModels', () => {
 
   it('resolves the API key from the provider env sub-table when api_key is empty', async () => {
     const baseUrl = 'https://api.managed.example.test/coding/v1';
-    vi.stubEnv('KIMI_CODE_BASE_URL', baseUrl);
+    setEnv('KIMI_CODE_BASE_URL', baseUrl);
     const host = makeRefreshHost({
       providers: {
         'my-kimi': {
@@ -882,7 +883,7 @@ describe('refreshAllProviderModels', () => {
       telemetry: true,
     } as unknown as KimiConfig);
 
-    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
+    const fetchMock = mock<FetchMock>(async (input, init) => {
       expect(fetchInputUrl(input)).toBe(`${baseUrl}/models`);
       expect(new Headers(init?.headers).get('authorization')).toBe('Bearer sk-env-key');
       return new Response(
@@ -892,13 +893,13 @@ describe('refreshAllProviderModels', () => {
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     });
-    vi.stubGlobal('fetch', fetchMock);
+    setGlobal('fetch', fetchMock);
 
     const result = await refreshAllProviderModels({
       getConfig: async () => host.current(),
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
-      resolveOAuthToken: vi.fn(),
+      resolveOAuthToken: mock(),
     });
 
     expect(result.failed).toEqual([]);
@@ -907,7 +908,7 @@ describe('refreshAllProviderModels', () => {
   });
 
   it('matches the managed endpoint even with a trailing slash on the configured baseUrl', async () => {
-    vi.stubEnv('KIMI_CODE_BASE_URL', 'https://api.managed.example.test/coding/v1');
+    setEnv('KIMI_CODE_BASE_URL', 'https://api.managed.example.test/coding/v1');
     const host = makeRefreshHost({
       providers: {
         'my-kimi': {
@@ -920,20 +921,20 @@ describe('refreshAllProviderModels', () => {
       telemetry: true,
     } as unknown as KimiConfig);
 
-    const fetchMock = vi.fn<FetchMock>(async (input) => {
+    const fetchMock = mock<FetchMock>(async (input) => {
       expect(fetchInputUrl(input)).toBe('https://api.managed.example.test/coding/v1/models');
       return new Response(
         JSON.stringify({ data: [{ id: 'kimi-for-coding', context_length: 262144 }] }),
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     });
-    vi.stubGlobal('fetch', fetchMock);
+    setGlobal('fetch', fetchMock);
 
     const result = await refreshAllProviderModels({
       getConfig: async () => host.current(),
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
-      resolveOAuthToken: vi.fn(),
+      resolveOAuthToken: mock(),
     });
 
     expect(result.failed).toEqual([]);
@@ -944,7 +945,7 @@ describe('refreshAllProviderModels', () => {
   });
 
   it('does not refresh API-key providers pointing at non-managed endpoints', async () => {
-    vi.stubEnv('KIMI_CODE_BASE_URL', 'https://api.managed.example.test/coding/v1');
+    setEnv('KIMI_CODE_BASE_URL', 'https://api.managed.example.test/coding/v1');
     const host = makeRefreshHost({
       providers: {
         gateway: {
@@ -962,14 +963,14 @@ describe('refreshAllProviderModels', () => {
       telemetry: true,
     } as unknown as KimiConfig);
 
-    const fetchMock = vi.fn<FetchMock>();
-    vi.stubGlobal('fetch', fetchMock);
+    const fetchMock = mock<FetchMock>();
+    setGlobal('fetch', fetchMock);
 
     const result = await refreshAllProviderModels({
       getConfig: async () => host.current(),
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
-      resolveOAuthToken: vi.fn(),
+      resolveOAuthToken: mock(),
     });
 
     expect(result).toEqual({ changed: [], unchanged: [], failed: [] });
@@ -978,7 +979,7 @@ describe('refreshAllProviderModels', () => {
 
   it('refreshes a hand-written managed:kimi-code provider that uses an API key instead of OAuth', async () => {
     const baseUrl = 'https://api.managed.example.test/coding/v1';
-    vi.stubEnv('KIMI_CODE_BASE_URL', baseUrl);
+    setEnv('KIMI_CODE_BASE_URL', baseUrl);
     const host = makeRefreshHost({
       providers: {
         [KIMI_CODE_PROVIDER_NAME]: {
@@ -1000,8 +1001,8 @@ describe('refreshAllProviderModels', () => {
       telemetry: true,
     } as unknown as KimiConfig);
 
-    const resolveOAuthToken = vi.fn(async () => 'oauth-access-token');
-    const fetchMock = vi.fn<FetchMock>(async (input, init) => {
+    const resolveOAuthToken = mock(async () => 'oauth-access-token');
+    const fetchMock = mock<FetchMock>(async (input, init) => {
       expect(fetchInputUrl(input)).toBe(`${baseUrl}/models`);
       expect(new Headers(init?.headers).get('authorization')).toBe('Bearer sk-distributed-key');
       return new Response(
@@ -1018,7 +1019,7 @@ describe('refreshAllProviderModels', () => {
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     });
-    vi.stubGlobal('fetch', fetchMock);
+    setGlobal('fetch', fetchMock);
 
     const result = await refreshAllProviderModels({
       getConfig: async () => host.current(),
@@ -1051,7 +1052,7 @@ describe('refreshAllProviderModels', () => {
 
   it('reports a failed refresh and keeps config when the managed endpoint rejects the API key', async () => {
     const baseUrl = 'https://api.managed.example.test/coding/v1';
-    vi.stubEnv('KIMI_CODE_BASE_URL', baseUrl);
+    setEnv('KIMI_CODE_BASE_URL', baseUrl);
     const host = makeRefreshHost({
       providers: {
         'my-kimi': {
@@ -1071,20 +1072,20 @@ describe('refreshAllProviderModels', () => {
       telemetry: true,
     } as unknown as KimiConfig);
 
-    const fetchMock = vi.fn<FetchMock>(
+    const fetchMock = mock<FetchMock>(
       async () =>
         new Response(JSON.stringify({ error: { message: 'invalid key' } }), {
           status: 401,
           headers: { 'Content-Type': 'application/json' },
         }),
     );
-    vi.stubGlobal('fetch', fetchMock);
+    setGlobal('fetch', fetchMock);
 
     const result = await refreshAllProviderModels({
       getConfig: async () => host.current(),
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
-      resolveOAuthToken: vi.fn(),
+      resolveOAuthToken: mock(),
     });
 
     expect(result.changed).toEqual([]);
@@ -1097,7 +1098,7 @@ describe('refreshAllProviderModels', () => {
 
   it('skips the API-key refresh when the managed endpoint returns no models', async () => {
     const baseUrl = 'https://api.managed.example.test/coding/v1';
-    vi.stubEnv('KIMI_CODE_BASE_URL', baseUrl);
+    setEnv('KIMI_CODE_BASE_URL', baseUrl);
     const host = makeRefreshHost({
       providers: {
         'my-kimi': {
@@ -1117,20 +1118,20 @@ describe('refreshAllProviderModels', () => {
       telemetry: true,
     } as unknown as KimiConfig);
 
-    const fetchMock = vi.fn<FetchMock>(
+    const fetchMock = mock<FetchMock>(
       async () =>
         new Response(JSON.stringify({ data: [] }), {
           status: 200,
           headers: { 'Content-Type': 'application/json' },
         }),
     );
-    vi.stubGlobal('fetch', fetchMock);
+    setGlobal('fetch', fetchMock);
 
     const result = await refreshAllProviderModels({
       getConfig: async () => host.current(),
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
-      resolveOAuthToken: vi.fn(),
+      resolveOAuthToken: mock(),
     });
 
     expect(result).toEqual({
@@ -1144,7 +1145,7 @@ describe('refreshAllProviderModels', () => {
 
   it('writes defaultProvider back when refreshing the provider it points at', async () => {
     const baseUrl = 'https://api.managed.example.test/coding/v1';
-    vi.stubEnv('KIMI_CODE_BASE_URL', baseUrl);
+    setEnv('KIMI_CODE_BASE_URL', baseUrl);
     const host = makeRefreshHost({
       providers: {
         'my-kimi': {
@@ -1166,7 +1167,7 @@ describe('refreshAllProviderModels', () => {
       telemetry: true,
     } as unknown as KimiConfig);
 
-    const fetchMock = vi.fn<FetchMock>(
+    const fetchMock = mock<FetchMock>(
       async () =>
         new Response(
           JSON.stringify({
@@ -1182,13 +1183,13 @@ describe('refreshAllProviderModels', () => {
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         ),
     );
-    vi.stubGlobal('fetch', fetchMock);
+    setGlobal('fetch', fetchMock);
 
     const result = await refreshAllProviderModels({
       getConfig: async () => host.current(),
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
-      resolveOAuthToken: vi.fn(),
+      resolveOAuthToken: mock(),
     });
 
     expect(result.failed).toEqual([]);
@@ -1204,7 +1205,7 @@ describe('refreshAllProviderModels', () => {
 
   it('leaves registry-sourced providers at the managed base URL to the registry branch', async () => {
     const baseUrl = 'https://api.managed.example.test/coding/v1';
-    vi.stubEnv('KIMI_CODE_BASE_URL', baseUrl);
+    setEnv('KIMI_CODE_BASE_URL', baseUrl);
     const registryUrl = 'https://registry.example.test/v1/models/api.json';
     const host = makeRefreshHost({
       providers: {
@@ -1227,7 +1228,7 @@ describe('refreshAllProviderModels', () => {
       telemetry: true,
     } as unknown as KimiConfig);
 
-    const fetchMock = vi.fn<FetchMock>(async (input) => {
+    const fetchMock = mock<FetchMock>(async (input) => {
       expect(fetchInputUrl(input)).toBe(registryUrl);
       return new Response(
         JSON.stringify({
@@ -1242,13 +1243,13 @@ describe('refreshAllProviderModels', () => {
         { status: 200, headers: { 'Content-Type': 'application/json' } },
       );
     });
-    vi.stubGlobal('fetch', fetchMock);
+    setGlobal('fetch', fetchMock);
 
     const result = await refreshAllProviderModels({
       getConfig: async () => host.current(),
       removeProvider: host.removeProvider,
       setConfig: host.setConfig,
-      resolveOAuthToken: vi.fn(),
+      resolveOAuthToken: mock(),
     });
 
     expect(result.failed).toEqual([]);

@@ -2,24 +2,17 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { sessionContextSeed } from '#/session/sessionContext/sessionContext';
 import { LifecycleScope } from '#/app/scopes';
-import {
-  ScopeActivation,
-  _clearScopedRegistryForTests,
-  registerScopedService,
-} from '#/_base/di/scope';
+import { ScopeActivation, _clearScopedRegistryForTests, registerScopedService } from '#/_base/di/scope';
 import { createScopedTestHost } from '#/_base/di/test';
-import type { FileLogWriter } from '#/_base/log/fileLog';
+import { FileLogWriter } from '#/_base/log/fileLog';
 import { ILogService } from '#/_base/log/log';
-import {
-  logSeed,
-  resolveLoggingConfig,
-  resolveSessionLogPath,
-} from '#/_base/log/logConfig';
+import { logSeed, resolveLoggingConfig, resolveSessionLogPath } from '#/_base/log/logConfig';
 import { AppLogService, drainLogCloses } from '#/_base/log/logService';
 import { SessionLogService } from '#/session/sessionLog/sessionLogService';
-import { makeSessionContext, sessionContextSeed } from '#/session/sessionContext/sessionContext';
+import { makeSessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionStateService } from '#/session/state/sessionState';
 import { SessionStateService } from '#/session/state/sessionStateService';
 import { IWorkspaceStateService } from '#/workspace/state/workspaceState';

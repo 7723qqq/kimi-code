@@ -26,6 +26,7 @@ import fsp from 'node:fs/promises';
 import path from 'node:path';
 
 import { crc32 } from './crc32.ts';
+import { renameReplace } from './rename-replace.ts';
 import { readAtAsync } from './value-reader.ts';
 
 const HEADER_LEN = 2 + 4 + 4; // termLen + df + payloadLen (term is variable)
@@ -158,6 +159,30 @@ export function decodeRecord(buf: Buffer): DecodedRecord {
 
 // ---- postings file --------------------------------------------------------
 
+/** Reclaim `<file>.<pid36><ts36>` siblings: files the retired EPERM fallback
+ *  rename left behind, one per failed replace. Nothing reads them — the
+ *  generation manifest and every loader key on the fixed name — so without
+ *  this sweep they accumulate for the lifetime of the directory. Best-effort,
+ *  scoped to this file's exact stem, and restricted to the 9–16 alnum chars a
+ *  pid36+ts36 pair can be (which also keeps `.tmp` and `.rebuild` out). */
+async function sweepRenamedAside(filePath: string): Promise<void> {
+  const dir = path.dirname(filePath);
+  const stem = path.basename(filePath);
+  const escaped = stem.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const renamedAside = new RegExp(`^${escaped}\\.[0-9a-z]{9,16}$`);
+  let names: string[];
+  try {
+    names = await fsp.readdir(dir);
+  } catch {
+    return;
+  }
+  await Promise.all(
+    names
+      .filter((n) => renamedAside.test(n))
+      .map((n) => fsp.rm(path.join(dir, n), { force: true }).catch(() => {})),
+  );
+}
+
 /** A pointer to one term's record in the postings file. */
 export interface PostingEntry {
   off: number;
@@ -249,6 +274,13 @@ export class PostingsFile {
    * extra read). The old file (if any) is replaced only after the new one is
    * fully durable, so a crash mid-build leaves the previous file intact.
    *
+   * The final name is ALWAYS `filePath`: a replace that the Windows retry
+   * window could not land PROPAGATES (the caller keeps its previous base and
+   * the next build retries) instead of being renamed aside. The generation
+   * manifest records this file by its fixed name and the loader verifies
+   * exactly that path, so any other name is a guaranteed ENOENT that discards
+   * the whole generation.
+   *
    * Async so a large rebuild does not starve the event loop: record writes are
    * coalesced into ~1 MiB writev batches (each batch await is a yield point).
    * The commit section is SYNCHRONOUS — `hooks.beforeRename` (e.g. closing the
@@ -261,8 +293,17 @@ export class PostingsFile {
       term: string;
       entries: ReadonlyMap<number, number> | readonly (readonly [number, number])[];
     }>,
-    hooks: { beforeRename?: () => void } = {},
-  ): Promise<{ dict: Map<string, PostingEntry>; bytes: number; crc32: number }> {
+    hooks: {
+      beforeRename?: () => void;
+      /** Replace-rename seam: the real Windows EPERM window spans ~2.5 s of
+       *  retries and cannot be forced deterministically in a test. */
+      rename?: (src: string, dst: string) => Promise<void>;
+    } = {},
+  ): Promise<{
+    dict: Map<string, PostingEntry>;
+    bytes: number;
+    crc32: number;
+  }> {
     const tmp = filePath + '.tmp';
     const dict = new Map<string, PostingEntry>();
     let off = 0;
@@ -303,7 +344,7 @@ export class PostingsFile {
       await fh.close();
     }
     hooks.beforeRename?.();
-    fs.renameSync(tmp, filePath);
+    await (hooks.rename ?? renameReplace)(tmp, filePath);
     // Best-effort directory fsync so the rename survives a crash.
     try {
       const dfd = fs.openSync(path.dirname(filePath), 'r');
@@ -315,6 +356,7 @@ export class PostingsFile {
     } catch {
       /* some platforms disallow fsync on a directory */
     }
+    await sweepRenamedAside(filePath);
     return { dict, bytes: off, crc32: crc >>> 0 };
   }
 }

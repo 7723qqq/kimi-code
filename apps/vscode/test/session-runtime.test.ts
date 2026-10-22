@@ -2,7 +2,7 @@
  * Scenario: one VS Code session runtime adapts the public Node SDK session for one or more Webviews.
  * Responsibilities: prompt conversion, event/terminal delivery, reverse RPC, cancellation, and baseline capture.
  * Wiring: SessionRuntime is real; a small in-memory Session implements only the public SDK boundary.
- * Run: bunx vitest run --config apps/vscode/vitest.config.ts apps/vscode/test/session-runtime.test.ts
+ * Run: cd apps/vscode && bun test --isolate test/session-runtime.test.ts
  */
 
 import type {
@@ -17,7 +17,7 @@ import type {
   Session,
   SessionSummary,
 } from "@moonshot-ai/kimi-code-sdk";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it } from 'bun:test';
 
 import { Events } from "../shared/bridge";
 import type { LegacyApprovalFlags } from "../src/runtime/legacy-approval";

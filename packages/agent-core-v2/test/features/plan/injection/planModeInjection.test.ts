@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import { createFakeHostFs } from '../../../tools/fixtures/fake-exec';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
@@ -60,9 +60,9 @@ describe('PlanModeService dynamic injection content', () => {
     readText = async () => '';
     ctx = createTestAgent(execEnvServices({
       hostFs: createFakeHostFs({
-        mkdir: vi.fn().mockResolvedValue(undefined),
+        mkdir: mock().mockResolvedValue(undefined),
         readText: (path: string) => readText(path),
-        writeText: vi.fn(async () => undefined),
+        writeText: mock(async () => undefined),
       }),
     }));
     context = ctx.get(IAgentContextMemoryService);
@@ -117,7 +117,7 @@ describe('PlanModeService dynamic injection content', () => {
   });
 
   it('injects a reentry reminder when restored plan mode already has plan content', async () => {
-    readText = vi.fn(async () => '# Existing Plan\n\n- Keep this context');
+    readText = mock(async () => '# Existing Plan\n\n- Keep this context');
     await ctx.dispatch({
       type: 'plan_mode.enter',
       id: 'restored-plan',
@@ -137,9 +137,9 @@ describe('PlanModeService dynamic injection cadence', () => {
   beforeEach(async () => {
     ctx = createTestAgent(execEnvServices({
       hostFs: createFakeHostFs({
-        mkdir: vi.fn().mockResolvedValue(undefined),
+        mkdir: mock().mockResolvedValue(undefined),
         readText: async () => '',
-        writeText: vi.fn(async () => undefined),
+        writeText: mock(async () => undefined),
       }),
     }));
     context = ctx.get(IAgentContextMemoryService);

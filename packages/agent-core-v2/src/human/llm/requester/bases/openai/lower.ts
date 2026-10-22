@@ -72,14 +72,6 @@ function convertToolMessageMediaText(message: Message): string {
 export interface OpenAILowerContext {
   readonly reasoningKey: string;
   readonly preserveThinking: boolean;
-  /**
-   * Replay the entire reasoning history, including parts marked `hidden`.
-   *
-   * DeepSeek requires this on every request that carries `tools`; omitting any
-   * part of the prior reasoning is rejected with HTTP 400. `preserveThinking`
-   * answers a different question (whether an assistant turn with no reasoning
-   * part should still emit the field), so the two are tracked separately.
-   */
   readonly echoFullReasoning: boolean;
   readonly toolMessageConversion: ToolMessageConversion | undefined;
 }

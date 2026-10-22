@@ -11,7 +11,7 @@ import {
   getLiveSessionById,
   resumeSessionById,
 } from '@moonshot-ai/agent-core-v2';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
 import { WebSocket, type RawData } from 'ws';
 
 import { type RunningServer, startServer } from '../src/start';
@@ -772,5 +772,5 @@ describe('transcript contract e2e', () => {
     expect(agentFrames).toHaveLength(2);
     expect(String(agentFrames[1].output)).toContain(`agent_id: ${childAgentId}`);
     expect(String(agentFrames[1].output)).toContain('the token is quartz-7731');
-  }, 60000);
-}, 90000);
+  }, 60_000);
+});

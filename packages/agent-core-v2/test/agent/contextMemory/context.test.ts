@@ -1,6 +1,6 @@
 import type { Message } from '#/llm-adapter/contract/message';
 import type { ToolCall } from '#human/llm/message';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { estimateTokens, estimateTokensForMessages } from '#/llm-adapter/contract/tokens';
 import { buildImageCompressionCaption } from '#/agent/media/image-compress';
@@ -24,6 +24,7 @@ import {
 } from '#/index';
 
 import { createTestAgent, type TestAgentContext } from '../../harness';
+import { renderSnapshot } from '../../harness/snapshots';
 
 describe('Agent context', () => {
   let ctx: TestAgentContext;
@@ -351,8 +352,8 @@ describe('Agent context', () => {
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'continue' }] });
 
     await ctx.untilTurnEnd();
-    expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
-      system: <system-prompt>
+    expect(renderSnapshot(ctx.lastLlmInput())).toMatchInlineSnapshot(`
+      "system: <system-prompt>
       tools: []
       messages:
         user: text "user before step 1"
@@ -360,7 +361,7 @@ describe('Agent context', () => {
         user: text "lookup something"
         assistant: text "I will call Lookup."  calls call_lookup:Lookup { "query": "moon" }
         tool[call_lookup]: text "lookup result"
-        user: text "continue"
+        user: text "continue""
     `);
   });
 
@@ -375,12 +376,12 @@ describe('Agent context', () => {
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Real user prompt' }] });
 
     await ctx.untilTurnEnd();
-    expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
-      system: <system-prompt>
+    expect(renderSnapshot(ctx.lastLlmInput())).toMatchInlineSnapshot(`
+      "system: <system-prompt>
       tools: []
       messages:
         user: text "<system-reminder>\\nRemember the host note.\\n</system-reminder>"
-        user: text "Real user prompt"
+        user: text "Real user prompt""
     `);
   });
 
@@ -465,11 +466,11 @@ describe('Agent context', () => {
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'fresh prompt' }] });
 
     await ctx.untilTurnEnd();
-    expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
-      system: <system-prompt>
+    expect(renderSnapshot(ctx.lastLlmInput())).toMatchInlineSnapshot(`
+      "system: <system-prompt>
       tools: []
       messages:
-        user: text "fresh prompt"
+        user: text "fresh prompt""
     `);
   });
 

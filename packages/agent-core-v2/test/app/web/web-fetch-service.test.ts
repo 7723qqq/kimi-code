@@ -1,12 +1,9 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { setGlobal, restoreGlobals } from '#test/helpers/stubs';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
-import {
-  buildAgentIdentitySnapshot,
-  IAgentIdentity,
-  type AgentIdentitySnapshot,
-} from '#/app/agentIdentity/agentIdentity';
+import { buildAgentIdentitySnapshot, IAgentIdentity, type AgentIdentitySnapshot } from '#/app/agentIdentity/agentIdentity';
 import { IOAuthService } from '#/app/auth/auth';
 import { SERVICES_SECTION, type ServicesConfig } from '#/app/auth/configSection';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
@@ -17,8 +14,6 @@ import { LocalFetchURLProvider } from '#/app/web/providers/local-fetch-url';
 import { MoonshotFetchURLProvider } from '#/app/web/providers/moonshot-fetch-url';
 import { IWebFetchService } from '#/app/web/web';
 import { WebFetchService } from '#/app/web/webService';
-
-import { stubAgentIdentity } from '../agentIdentity/stubs';
 
 const OAUTH_PROVIDER = 'managed:kimi-code';
 const NON_OAUTH_PROVIDER = 'openai-main';
@@ -33,14 +28,14 @@ describe('WebFetchService', () => {
   let providers: Record<string, ProviderConfig>;
   let servicesConfig: ServicesConfig | undefined;
   let identitySlug: string | undefined;
-  let resolveTokenProvider: ReturnType<typeof vi.fn>;
+  let resolveTokenProvider: ReturnType<typeof mock>;
 
   beforeEach(() => {
     disposables = new DisposableStore();
     providers = {};
     servicesConfig = undefined;
     identitySlug = undefined;
-    resolveTokenProvider = vi.fn().mockReturnValue({ getAccessToken: async () => 'access-token' });
+    resolveTokenProvider = mock().mockReturnValue({ getAccessToken: async () => 'access-token' });
     ix = createServices(disposables, {
       additionalServices: (reg) => {
         reg.definePartialInstance(IProviderService, {
@@ -72,7 +67,7 @@ describe('WebFetchService', () => {
 
   afterEach(() => {
     disposables.dispose();
-    vi.unstubAllGlobals();
+    restoreGlobals();
   });
 
   function fetcher(): ReturnType<IWebFetchService['getUrlFetcher']> {
@@ -185,8 +180,8 @@ describe('WebFetchService', () => {
         customHeaders: { 'X-Custom': 'yes' },
       },
     };
-    const fetchMock = vi.fn().mockResolvedValue(new Response('page body', { status: 200 }));
-    vi.stubGlobal('fetch', fetchMock);
+    const fetchMock = mock().mockResolvedValue(new Response('page body', { status: 200 }));
+    setGlobal('fetch', fetchMock);
 
     const result = await fetcher().fetch('https://example.com/page');
 
@@ -209,8 +204,8 @@ describe('WebFetchService', () => {
         customHeaders: { 'X-Config': '1' },
       },
     };
-    const fetchMock = vi.fn().mockResolvedValue(new Response('page body', { status: 200 }));
-    vi.stubGlobal('fetch', fetchMock);
+    const fetchMock = mock().mockResolvedValue(new Response('page body', { status: 200 }));
+    setGlobal('fetch', fetchMock);
 
     expect(fetcher()).toBeInstanceOf(MoonshotFetchURLProvider);
     expect(resolveTokenProvider).not.toHaveBeenCalled();
@@ -231,8 +226,8 @@ describe('WebFetchService', () => {
     servicesConfig = {
       moonshotFetch: { baseUrl: 'https://fetch.example.com/fetch', apiKey: 'fetch-key' },
     };
-    const fetchMock = vi.fn().mockResolvedValue(new Response('page body', { status: 200 }));
-    vi.stubGlobal('fetch', fetchMock);
+    const fetchMock = mock().mockResolvedValue(new Response('page body', { status: 200 }));
+    setGlobal('fetch', fetchMock);
 
     await fetcher().fetch('https://example.com/page');
 
@@ -248,8 +243,8 @@ describe('WebFetchService', () => {
       baseUrl: 'https://api.example.com/v1',
       oauth: { storage: 'file', key: 'oauth/kimi-code' },
     };
-    const fetchMock = vi.fn().mockResolvedValue(new Response('page body', { status: 200 }));
-    vi.stubGlobal('fetch', fetchMock);
+    const fetchMock = mock().mockResolvedValue(new Response('page body', { status: 200 }));
+    setGlobal('fetch', fetchMock);
 
     await fetcher().fetch('https://example.com/page');
 

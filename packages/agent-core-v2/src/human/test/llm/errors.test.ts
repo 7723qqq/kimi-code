@@ -4,7 +4,7 @@ import {
   APIError as RawOpenAISDKAPIError,
   OpenAIError as RawOpenAISDKError,
 } from 'openai';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import { classifyKimiQuotaError } from '#/llm-kimi/errors';
 import { kimiConnection, kimiOpenAITrait } from '#/llm-kimi/trait';
@@ -312,7 +312,7 @@ describe('requester error conversion', () => {
   });
 
   it('emits llm.failed.syntax for a local message syntax error without sending a request', async () => {
-    const clientFactory = vi.fn(() => ({}) as never);
+    const clientFactory = mock(() => ({}) as never);
     const requester = createGoogleGenAIRequester({ clientFactory });
     const events = await generateEvents(requester, [
       createAssistantMessage(

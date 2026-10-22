@@ -1,4 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { PROMPT_OPTIMIZER_TRUNCATION_MARKER } from '../../../src/features/promptOptimizer/promptOptimizer';
+import { PROMPT_OPTIMIZER_MAX_INPUT_LENGTH } from '../../../src/features/promptOptimizer/promptOptimizer';
+import { PROMPT_OPTIMIZER_MAX_OUTPUT_LENGTH } from '../../../src/features/promptOptimizer/promptOptimizer';
+import { PROMPT_OPTIMIZER_TOOL_DISABLED_MESSAGE } from '../../../src/features/promptOptimizer/promptOptimizer';
+import { PROMPT_OPTIMIZER_MAX_CONTEXT_LENGTH } from '../../../src/features/promptOptimizer/promptOptimizer';
+import { PROMPT_OPTIMIZER_MAX_CONTEXT_TURNS } from '../../../src/features/promptOptimizer/promptOptimizer';
+import { PROMPT_OPTIMIZER_PROFILE_NAME } from '../../../src/features/promptOptimizer/promptOptimizer';
+import { type ToolCall } from '#human/llm/message';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
@@ -8,42 +16,27 @@ import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IFlagService } from '#/app/flag/flag';
-import {
-  ISessionPromptOptimizerService,
-  PROMPT_OPTIMIZER_FLAG_ID,
-  PROMPT_OPTIMIZER_MAX_CONTEXT_LENGTH,
-  PROMPT_OPTIMIZER_MAX_CONTEXT_TURNS,
-  PROMPT_OPTIMIZER_MAX_INPUT_LENGTH,
-  PROMPT_OPTIMIZER_MAX_OUTPUT_LENGTH,
-  PROMPT_OPTIMIZER_PROFILE_NAME,
-  PROMPT_OPTIMIZER_SYSTEM_PROMPT,
-  PROMPT_OPTIMIZER_TOOL_DISABLED_MESSAGE,
-  PROMPT_OPTIMIZER_TRUNCATION_MARKER,
-} from '#/features/promptOptimizer/promptOptimizer';
+import { ISessionPromptOptimizerService, PROMPT_OPTIMIZER_FLAG_ID, PROMPT_OPTIMIZER_SYSTEM_PROMPT } from '#/features/promptOptimizer/promptOptimizer';
 import { SessionPromptOptimizerService } from '#/features/promptOptimizer/promptOptimizerService';
 import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
-import type { ToolCall } from '#human/llm/message';
 
 import { stubAgentContext } from '../../agent/agentContext/stubs';
-import {
-  stubToolExecutorEvents,
-  type ToolExecutorEventStubs,
-} from '../../agent/toolExecutor/stubs';
+import { stubToolExecutorEvents, type ToolExecutorEventStubs } from '../../agent/toolExecutor/stubs';
 
 const CONTEXT = { cwd: 'C:/work/demo' };
 
 describe('SessionPromptOptimizerService', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
-  let formatDenyMessage: ReturnType<typeof vi.fn>;
+  let formatDenyMessage: ReturnType<typeof mock>;
   let executorEvents: ToolExecutorEventStubs;
-  let run: ReturnType<typeof vi.fn<(agent: unknown, request: unknown) => Promise<unknown>>>;
-  let remove: ReturnType<typeof vi.fn>;
+  let run: ReturnType<typeof mock<(agent: unknown, request: unknown) => Promise<unknown>>>;
+  let remove: ReturnType<typeof mock>;
   let enabled: boolean;
 
   function stubRunSummary(summary: string): void {
-    run = vi.fn(async () => ({
+    run = mock(async () => ({
       agentId: 'agent-opt-1',
       turn: {},
       completion: Promise.resolve({ summary }),
@@ -53,9 +46,9 @@ describe('SessionPromptOptimizerService', () => {
   beforeEach(() => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
-    formatDenyMessage = vi.fn((message: string) => `${message} [worker guidance]`);
+    formatDenyMessage = mock((message: string) => `${message} [worker guidance]`);
     executorEvents = stubToolExecutorEvents();
-    remove = vi.fn(async () => {});
+    remove = mock(async () => {});
     enabled = true;
     stubRunSummary('Rewritten prompt.');
 
@@ -87,7 +80,7 @@ describe('SessionPromptOptimizerService', () => {
     };
     ix.stub(IAgentLifecycleService, {
       _serviceBrand: undefined,
-      fork: vi.fn(async () => stubAgentContext('agent-opt-1', 2)),
+      fork: mock(async () => stubAgentContext('agent-opt-1', 2)),
       remove,
       handleOf: (id: string) => {
         if (id === MAIN_AGENT_ID) return main;
@@ -101,10 +94,10 @@ describe('SessionPromptOptimizerService', () => {
     } as unknown as ISessionSubagentService);
     ix.stub(ILogService, {
       _serviceBrand: undefined,
-      warn: vi.fn(),
-      info: vi.fn(),
-      error: vi.fn(),
-      debug: vi.fn(),
+      warn: mock(),
+      info: mock(),
+      error: mock(),
+      debug: mock(),
     } as unknown as ILogService);
     ix.stub(IFlagService, {
       _serviceBrand: undefined,
@@ -168,7 +161,7 @@ describe('SessionPromptOptimizerService', () => {
     const svc = ix.get(ISessionPromptOptimizerService);
     await svc.optimize('fix the thing', CONTEXT);
 
-    const fork = ix.get(IAgentLifecycleService).fork as unknown as ReturnType<typeof vi.fn>;
+    const fork = ix.get(IAgentLifecycleService).fork as unknown as ReturnType<typeof mock>;
     const options = fork.mock.calls[0]?.[1] as { binding?: { profile?: string } };
     expect(options.binding?.profile).toBe(PROMPT_OPTIMIZER_PROFILE_NAME);
   });
@@ -177,7 +170,7 @@ describe('SessionPromptOptimizerService', () => {
     const svc = ix.get(ISessionPromptOptimizerService);
     await svc.optimize('fix the thing', CONTEXT);
 
-    const fork = ix.get(IAgentLifecycleService).fork as unknown as ReturnType<typeof vi.fn>;
+    const fork = ix.get(IAgentLifecycleService).fork as unknown as ReturnType<typeof mock>;
     const options = fork.mock.calls[0]?.[1] as { inheritedHistory?: { maxUserTurns?: number } };
     expect(options.inheritedHistory?.maxUserTurns).toBe(PROMPT_OPTIMIZER_MAX_CONTEXT_TURNS);
   });
@@ -190,7 +183,7 @@ describe('SessionPromptOptimizerService', () => {
     );
     await svc.optimize('fix the thing', { ...CONTEXT, recentTurns: turns });
 
-    const fork = ix.get(IAgentLifecycleService).fork as unknown as ReturnType<typeof vi.fn>;
+    const fork = ix.get(IAgentLifecycleService).fork as unknown as ReturnType<typeof mock>;
     const options = fork.mock.calls[0]?.[1] as { inheritedHistory?: { maxUserTurns?: number } };
     expect(options.inheritedHistory?.maxUserTurns).toBe(PROMPT_OPTIMIZER_MAX_CONTEXT_TURNS);
   });
@@ -199,7 +192,7 @@ describe('SessionPromptOptimizerService', () => {
     const svc = ix.get(ISessionPromptOptimizerService);
     await svc.optimize('fix the thing', { ...CONTEXT, recentTurns: ['a', 'b'] });
 
-    const fork = ix.get(IAgentLifecycleService).fork as unknown as ReturnType<typeof vi.fn>;
+    const fork = ix.get(IAgentLifecycleService).fork as unknown as ReturnType<typeof mock>;
     const options = fork.mock.calls[0]?.[1] as { inheritedHistory?: { maxUserTurns?: number } };
     expect(options.inheritedHistory?.maxUserTurns).toBe(2);
   });
@@ -208,7 +201,7 @@ describe('SessionPromptOptimizerService', () => {
     const svc = ix.get(ISessionPromptOptimizerService);
     await svc.optimize('fix the thing', CONTEXT);
 
-    const fork = ix.get(IAgentLifecycleService).fork as unknown as ReturnType<typeof vi.fn>;
+    const fork = ix.get(IAgentLifecycleService).fork as unknown as ReturnType<typeof mock>;
     const options = fork.mock.calls[0]?.[1] as { inheritedHistory?: { maxChars?: number } };
     expect(options.inheritedHistory?.maxChars).toBe(PROMPT_OPTIMIZER_MAX_CONTEXT_LENGTH);
   });
@@ -328,7 +321,7 @@ describe('SessionPromptOptimizerService', () => {
 
   it('logs when the throwaway agent cannot be removed', async () => {
     remove.mockRejectedValueOnce(new Error('remove exploded'));
-    const warn = vi.fn();
+    const warn = mock();
     ix.stub(ILogService, { _serviceBrand: undefined, warn } as unknown as ILogService);
     const svc = ix.get(ISessionPromptOptimizerService);
 
@@ -341,7 +334,7 @@ describe('SessionPromptOptimizerService', () => {
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
-    run = vi.fn(async () => ({
+    run = mock(async () => ({
       agentId: 'agent-opt-1',
       turn: {},
       completion: gate.then(() => ({ summary: 'Rewritten prompt.' })),
@@ -363,7 +356,7 @@ describe('SessionPromptOptimizerService', () => {
       release = resolve;
     });
     let calls = 0;
-    run = vi.fn(async () => {
+    run = mock(async () => {
       calls++;
       return {
         agentId: 'agent-opt-1',

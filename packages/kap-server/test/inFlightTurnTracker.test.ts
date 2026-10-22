@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import type { Event } from '../src/transport/ws/v1/events';
 import { InFlightTurnTracker } from '../src/transport/ws/v1/inFlightTurnTracker';

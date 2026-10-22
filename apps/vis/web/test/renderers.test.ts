@@ -2,7 +2,7 @@ import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { WIRE_RENDERERS } from '../src/components/wire/renderers';
 
@@ -53,8 +53,9 @@ const HISTORICAL_OR_HEADER_TYPES = new Set([
   'context.update_token_count',
   'staleGuard.recorded',
   'staleGuard.cleared',
-  // Fork-only record: the Rust engine's prediction fast-path writes it, but
-  // agent-core-v2 (and therefore the wire manifest) does not declare it.
+  // Legacy fork-only record: the retired native engine's prediction fast-path
+  // wrote it, but agent-core-v2 (and therefore the wire manifest) does not
+  // declare it.
   'context.replace_tool_result',
   // v2-dropped durable record: old wires still contain it, but the loop-side
   // prompt admission facility that declared it is gone from agent-core-v2.

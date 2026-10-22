@@ -2,38 +2,22 @@ import { existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
-import { Disposable, DisposableStore } from '#/_base/di/lifecycle';
-import type { ISessionScopeHandle } from '#/_base/di/scope';
-import {
-  createServices,
-  type ServiceRegistration,
-  type TestInstantiationService,
-} from '#/_base/di/test';
+import { DisposableStore } from '#/_base/di/lifecycle';
+import { type ISessionScopeHandle } from '#/_base/di/scope';
+import { createServices, type ServiceRegistration, type TestInstantiationService } from '#/_base/di/test';
 import { AsyncEmitter, Emitter, Event, type IWaitUntil } from '#/_base/event';
 import { emptyUsage } from '#human/llm/usage';
 import { buildContextCompactionShape } from '#/agent/contextMemory/compactionHandoff';
-import {
-  IAgentContextMemoryService,
-  type ContextCompactionInput,
-  type ContextCompactionResult,
-} from '#/agent/contextMemory/contextMemory';
-import type { ContextMessage } from '#/agent/contextMemory/types';
-import {
-  HookDefSchema,
-  HOOKS_SECTION,
-  hooksFromToml,
-  hooksToToml,
-} from '#/features/externalHooks/configSection';
+import { IAgentContextMemoryService, type ContextCompactionInput, type ContextCompactionResult } from '#/agent/contextMemory/contextMemory';
+import { type ContextMessage } from '#/agent/contextMemory/types';
+import { HookDefSchema, HOOKS_SECTION, hooksFromToml, hooksToToml } from '#/features/externalHooks/configSection';
 import { IAgentExternalHooksService } from '#/features/externalHooks/agent/agentExternalHooks';
 import { AgentExternalHooksService } from '#/features/externalHooks/agent/agentExternalHooksService';
 import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
-import {
-  IAgentScopeContext,
-  makeAgentScopeContext,
-} from '#/agent/scopeContext/scopeContext';
+import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentLoopService, type AfterStepContext } from '#/agent/loop/loop';
 import { TurnStarted } from '#/agent/loop/turnEvents';
 import { TurnEnded } from '#/agent/loop/turnOps';
@@ -41,15 +25,12 @@ import { IAgentPermissionGate } from '#/agent/permissionGate/permissionGate';
 import { PromptQueued } from '#/agent/prompt/promptEvents';
 import { IAgentTaskService } from '#/agent/task/task';
 import { TaskStarted } from '#/agent/task/taskOps';
-import {
-  PermissionApprovalRequested,
-  PermissionApprovalResolved,
-} from '#/agent/toolApproval/toolApprovalService';
+import { PermissionApprovalRequested, PermissionApprovalResolved } from '#/agent/toolApproval/toolApprovalService';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IExternalHooksRunnerService } from '#/features/externalHooks/app/externalHooksRunner';
 import { ExternalHooksRunnerService } from '#/features/externalHooks/app/externalHooksRunnerService';
 import { makeHookRunner } from './runner-stub';
-import type { AgentTaskInfo } from '#/agent/task/task';
+import { type AgentTaskInfo } from '#/agent/task/task';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
 import { IEventBus, ISessionEventBus } from '#/app/event/eventBus';
@@ -57,27 +38,17 @@ import { AgentEventBusView, EventBusService } from '#/app/event/eventBusService'
 import { IPluginService } from '#/app/plugin/plugin';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { IHostProcessService } from '#/os/interface/hostProcess';
+import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
 import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import {
-  type SessionCloseReason,
-  type SessionCreatedEvent,
-  type SessionCreateSource,
-  type SessionWillCloseEvent,
-} from '#/workspace/sessionLifecycle/sessionLifecycle';
+import { type SessionCloseReason, type SessionCreatedEvent, type SessionCreateSource, type SessionWillCloseEvent } from '#/workspace/sessionLifecycle/sessionLifecycle';
 import { createHooks, OrderedHookSlot } from '#/hooks';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { IEventDispatcher } from '#/state/eventDispatcher';
-import {
-  type AgentTaskHooks,
-  type AgentTaskStopHookContext,
-  ISessionSubagentService,
-} from '#/session/subagent/subagent';
+import { type AgentTaskHooks, type AgentTaskStopHookContext, ISessionSubagentService } from '#/session/subagent/subagent';
 import { ISessionExternalHooksService } from '#/features/externalHooks/session/sessionExternalHooks';
 import { SessionExternalHooksService } from '#/features/externalHooks/session/sessionExternalHooksService';
-import {
-  ISessionAgentProfileCatalog,
-} from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
+import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { IModelService } from '#/llm-adapter/model/model';
 
@@ -85,9 +56,88 @@ import { stubBootstrap } from '../../app/bootstrap/stubs';
 import { stubLoopWithHooks, stubToolExecutor } from '../../agent/loop/stubs';
 import { registerStateServices } from '../../state/stubs';
 import { registerTestAgentWireServices } from '../../wire/stubs';
+import { randomUUID } from 'node:crypto';
+import { writeFileSync } from 'node:fs';
+
+const HOOK_BIN = process.execPath;
+const quotedPath = (value: string): string => (/\s/.test(value) ? `"${value}"` : value);
+
+interface FakeHostTimerHandle extends IHostTimerHandle {
+  readonly id: number;
+}
+
+interface FakeHostTimers extends IHostTimers {
+  advance(byMs: number): void;
+  readonly pending: number;
+}
+
+function createFakeHostTimers(): FakeHostTimers {
+  let nowMs = 0;
+  let nextId = 1;
+  const scheduled: Array<{
+    readonly id: number;
+    due: number;
+    readonly callback: () => void;
+    cancelled: boolean;
+  }> = [];
+
+  const schedule = (callback: () => void, delayMs: number): FakeHostTimerHandle => {
+    const id = nextId;
+    nextId += 1;
+    scheduled.push({ id, due: nowMs + delayMs, callback, cancelled: false });
+    return { id, unref: () => {} };
+  };
+
+  return {
+    _serviceBrand: undefined,
+    setClampedTimeout: (callback, timeoutMs) => schedule(callback, timeoutMs),
+    setTimeout: (callback, timeoutMs) => schedule(callback, timeoutMs),
+    clearTimeout: (handle) => {
+      const id = (handle as FakeHostTimerHandle).id;
+      const timer = scheduled.find((candidate) => candidate.id === id);
+      if (timer !== undefined) timer.cancelled = true;
+    },
+    advance: (byMs) => {
+      const limit = nowMs + byMs;
+      let guard = 0;
+      for (;;) {
+        const next = scheduled
+          .filter((timer) => !timer.cancelled && timer.due <= limit)
+          .sort((left, right) => left.due - right.due || left.id - right.id)[0];
+        if (next === undefined) break;
+        guard += 1;
+        if (guard > 1_000) throw new Error('fake host timers advanced more than 1000 timers');
+        nowMs = next.due;
+        next.cancelled = true;
+        next.callback();
+      }
+      nowMs = limit;
+    },
+    get pending() {
+      return scheduled.filter((timer) => !timer.cancelled).length;
+    },
+  };
+}
+
+async function flushHostWork(): Promise<void> {
+  for (let index = 0; index < 4; index += 1) {
+    await Promise.resolve();
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+  }
+}
+
+async function advanceHostTime(timers: FakeHostTimers, byMs: number): Promise<void> {
+  await flushHostWork();
+  timers.advance(byMs);
+  await flushHostWork();
+}
 
 function nodeCommand(source: string): string {
-  return `node -e ${JSON.stringify(source.replaceAll(/\s*\n\s*/g, ' '))}`;
+  const file = join(tmpdir(), `kimi-hook-${randomUUID()}.cjs`);
+  writeFileSync(file, source);
+  return `${quotedPath(HOOK_BIN)} ${quotedPath(file)}`;
 }
 
 function stdinScript(body: string): string {
@@ -562,6 +612,7 @@ describe('IExternalHooksRunnerService integration', () => {
         strict: true,
         additionalServices: (reg) => {
           registerStateServices(reg);
+          reg.defineInstance(IHostTimers, createFakeHostTimers());
           reg.defineInstance(ISessionContext, {
             _serviceBrand: undefined,
             sessionId: 'session-1',
@@ -962,6 +1013,7 @@ describe('IExternalHooksRunnerService integration', () => {
             enabledHooks: async () => [],
             onDidReload: Event.None as IPluginService['onDidReload'],
           });
+          reg.defineInstance(IHostTimers, createFakeHostTimers());
           reg.defineInstance(IBootstrapService, stubBootstrap());
           reg.define(IHostProcessService, HostProcessService);
         },
@@ -1157,6 +1209,7 @@ describe('IExternalHooksRunnerService integration', () => {
             enabledHooks: async () => [],
             onDidReload: Event.None as IPluginService['onDidReload'],
           });
+          reg.defineInstance(IHostTimers, createFakeHostTimers());
           reg.defineInstance(IBootstrapService, stubBootstrap());
           reg.define(IHostProcessService, HostProcessService);
         },
@@ -1329,7 +1382,7 @@ describe('IExternalHooksRunnerService integration', () => {
   });
 
   it('fires SessionHeartbeat on the interval when the event is configured', async () => {
-    vi.useFakeTimers();
+    const timers = createFakeHostTimers();
     const disposables = new DisposableStore();
     let ix: TestInstantiationService | undefined;
     try {
@@ -1348,6 +1401,7 @@ describe('IExternalHooksRunnerService integration', () => {
         strict: true,
         additionalServices: (reg) => {
           registerStateServices(reg);
+          reg.defineInstance(IHostTimers, timers);
           reg.defineInstance(ISessionContext, stubSessionContext());
           reg.definePartialInstance(ISessionManager, stubSessionLifecycle().service);
           reg.defineInstance(ISessionMetadata, stubSessionMetadata());
@@ -1363,19 +1417,18 @@ describe('IExternalHooksRunnerService integration', () => {
       ix.set(ISessionExternalHooksService, new SyncDescriptor(SessionExternalHooksService));
       ix.get(ISessionExternalHooksService);
 
-      await vi.advanceTimersByTimeAsync(60_000);
+      await advanceHostTime(timers, 60_000);
       expect(fired).toEqual(['SessionHeartbeat']);
-      await vi.advanceTimersByTimeAsync(60_000);
+      await advanceHostTime(timers, 60_000);
       expect(fired).toEqual(['SessionHeartbeat', 'SessionHeartbeat']);
     } finally {
       ix?.dispose();
       disposables.dispose();
-      vi.useRealTimers();
     }
   });
 
   it('skips SessionHeartbeat ticks when no hook is registered for the event', async () => {
-    vi.useFakeTimers();
+    const timers = createFakeHostTimers();
     const disposables = new DisposableStore();
     let ix: TestInstantiationService | undefined;
     try {
@@ -1393,6 +1446,7 @@ describe('IExternalHooksRunnerService integration', () => {
         strict: true,
         additionalServices: (reg) => {
           registerStateServices(reg);
+          reg.defineInstance(IHostTimers, timers);
           reg.defineInstance(ISessionContext, stubSessionContext());
           reg.definePartialInstance(ISessionManager, stubSessionLifecycle().service);
           reg.defineInstance(ISessionMetadata, stubSessionMetadata());
@@ -1408,17 +1462,16 @@ describe('IExternalHooksRunnerService integration', () => {
       ix.set(ISessionExternalHooksService, new SyncDescriptor(SessionExternalHooksService));
       ix.get(ISessionExternalHooksService);
 
-      await vi.advanceTimersByTimeAsync(180_000);
+      await advanceHostTime(timers, 180_000);
       expect(fired).toEqual([]);
     } finally {
       ix?.dispose();
       disposables.dispose();
-      vi.useRealTimers();
     }
   });
 
   it('arms and disarms SessionHeartbeat when the hook index reloads', async () => {
-    vi.useFakeTimers();
+    const timers = createFakeHostTimers();
     const disposables = new DisposableStore();
     let ix: TestInstantiationService | undefined;
     try {
@@ -1440,6 +1493,7 @@ describe('IExternalHooksRunnerService integration', () => {
         strict: true,
         additionalServices: (reg) => {
           registerStateServices(reg);
+          reg.defineInstance(IHostTimers, timers);
           reg.defineInstance(ISessionContext, stubSessionContext());
           reg.definePartialInstance(ISessionManager, stubSessionLifecycle().service);
           reg.defineInstance(ISessionMetadata, stubSessionMetadata());
@@ -1455,22 +1509,21 @@ describe('IExternalHooksRunnerService integration', () => {
       ix.set(ISessionExternalHooksService, new SyncDescriptor(SessionExternalHooksService));
       ix.get(ISessionExternalHooksService);
 
-      await vi.advanceTimersByTimeAsync(120_000);
+      await advanceHostTime(timers, 120_000);
       expect(fired).toEqual([]);
 
       heartbeatEnabled = true;
       reloadEmitter.fire();
-      await vi.advanceTimersByTimeAsync(60_000);
+      await advanceHostTime(timers, 60_000);
       expect(fired).toEqual(['SessionHeartbeat']);
 
       heartbeatEnabled = false;
       reloadEmitter.fire();
-      await vi.advanceTimersByTimeAsync(120_000);
+      await advanceHostTime(timers, 120_000);
       expect(fired).toEqual(['SessionHeartbeat']);
     } finally {
       ix?.dispose();
       disposables.dispose();
-      vi.useRealTimers();
     }
   });
 });

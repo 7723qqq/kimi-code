@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import {
@@ -123,7 +123,11 @@ describe('Service — kernel construction protocol (L3)', () => {
     expect(captured).toBeDefined();
     expect(captured!.state).toBe(FiberState.Active);
     expect(typeof captured!.uid).toBe('number');
-    await expect(captured!).resolves.toMatchObject({ state: FiberState.Active });
+    const resolvedHandle = await (captured! as PromiseLike<{
+      readonly state: FiberState;
+      readonly uid: number;
+    }>);
+    expect(resolvedHandle.state).toBe(FiberState.Active);
     ix.dispose();
   });
 

@@ -1,6 +1,7 @@
+import { afterEach, describe, expect, it, mock } from 'bun:test';
+
 import { visibleWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
-import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   AgentSwarmProgressComponent,
@@ -19,6 +20,7 @@ import {
 } from '#/tui/constant/rendering';
 import { currentTheme, darkColors, lightColors } from '#/tui/theme';
 import { setRenderCacheEnabled } from '#/tui/utils/render-cache';
+import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
 
 const DEFAULT_DESCRIPTION = 'Review changed files';
 
@@ -33,7 +35,17 @@ function createComponent(
     description: options.description ?? DEFAULT_DESCRIPTION,
     requestRender: options.requestRender,
     availableGridHeight: options.availableGridHeight,
+    clock: options.clock,
   });
+}
+
+/** A component plus the fake clock driving its time and frame timer. */
+function createClockedComponent(options: Partial<AgentSwarmProgressOptions> = {}): {
+  readonly component: AgentSwarmProgressComponent;
+  readonly clock: FakeClock;
+} {
+  const clock = createFakeClock();
+  return { component: createComponent({ ...options, clock }), clock };
 }
 
 function renderText(component: AgentSwarmProgressComponent, width = 100): string {
@@ -83,7 +95,6 @@ function estimatorMemberHistory(
 }
 
 afterEach(() => {
-  vi.useRealTimers();
   currentTheme.setPalette(darkColors, 'dark');
 });
 
@@ -758,17 +769,16 @@ describe('AgentSwarmProgressComponent', () => {
   });
 
   it('renders boosted fractional progress ticks without leaking undefined cells', () => {
-    vi.useFakeTimers();
-    const component = createComponent();
+    const { component, clock } = createClockedComponent();
 
-    vi.setSystemTime(0);
+    clock.set(0);
     registerSubagents(component, 1);
     component.markStarted('agent-1');
     for (let index = 0; index < 10; index += 1) {
-      vi.setSystemTime(1_000 + index * 1_000);
+      clock.set(1_000 + index * 1_000);
       component.recordToolCall({ agentId: 'agent-1', toolCallId: `done-${index}` });
     }
-    vi.setSystemTime(40_000);
+    clock.set(40_000);
     component.markCompleted('agent-1');
 
     component.registerSubagent({
@@ -777,13 +787,13 @@ describe('AgentSwarmProgressComponent', () => {
     });
     component.markStarted('agent-2');
     for (let index = 0; index < 3; index += 1) {
-      vi.setSystemTime(45_000 + index * 5_000);
+      clock.set(45_000 + index * 5_000);
       component.recordToolCall({ agentId: 'agent-2', toolCallId: `running-${index}` });
     }
 
-    vi.setSystemTime(60_000);
+    clock.set(60_000);
     component.render(100);
-    vi.setSystemTime(61_000);
+    clock.set(61_000);
     const output = renderText(component);
 
     expect(output).toContain('002 [');
@@ -936,17 +946,15 @@ describe('AgentSwarmProgressComponent', () => {
 
 describe('AgentSwarmProgressComponent render caching', () => {
   function createTerminalComponent(): AgentSwarmProgressComponent {
-    vi.useFakeTimers();
-    vi.setSystemTime(0);
-    const component = createComponent();
+    const { component, clock } = createClockedComponent();
     registerSubagents(component, 2);
     startSubagents(component, 2);
-    vi.setSystemTime(1_000);
+    clock.set(1_000);
     component.markCompleted('agent-1', 'done one');
     component.markCompleted('agent-2', 'done two');
     component.markToolCallEnded();
     // Past the 360ms completion fill window, so the panel is fully static.
-    vi.setSystemTime(2_000);
+    clock.set(2_000);
     return component;
   }
 
@@ -977,16 +985,16 @@ describe('AgentSwarmProgressComponent render caching', () => {
   });
 
   it('re-renders when the available grid height changes', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(0);
     let gridHeight: number | undefined = 10;
-    const component = createComponent({ availableGridHeight: () => gridHeight });
+    const { component, clock } = createClockedComponent({
+      availableGridHeight: () => gridHeight,
+    });
     registerSubagents(component, 1);
     startSubagents(component, 1);
-    vi.setSystemTime(1_000);
+    clock.set(1_000);
     component.markCompleted('agent-1', 'done');
     component.markToolCallEnded();
-    vi.setSystemTime(2_000);
+    clock.set(2_000);
     const before = component.render(100);
 
     gridHeight = 1;
@@ -1045,8 +1053,7 @@ describe('AgentSwarmProgressComponent render caching', () => {
   });
 
   it('does not cache while a member is still running', () => {
-    vi.useFakeTimers();
-    const component = createComponent();
+    const { component } = createClockedComponent();
     registerSubagents(component, 1);
     startSubagents(component, 1);
 
@@ -1054,18 +1061,16 @@ describe('AgentSwarmProgressComponent render caching', () => {
   });
 
   it('does not cache during the completion fill window', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(0);
-    const component = createComponent();
+    const { component, clock } = createClockedComponent();
     registerSubagents(component, 1);
     startSubagents(component, 1);
-    vi.setSystemTime(1_000);
+    clock.set(1_000);
     component.markCompleted('agent-1', 'done');
     component.markToolCallEnded();
 
     expect(component.render(100)).not.toBe(component.render(100));
 
-    vi.setSystemTime(2_000);
+    clock.set(2_000);
     const settled = component.render(100);
     expect(component.render(100)).toBe(settled);
   });
@@ -1138,15 +1143,13 @@ describe('AgentSwarmProgressComponent terminal state memory', () => {
   });
 
   it('re-renders a member cell with its terminal label after completing', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(0);
-    const component = createComponent();
+    const { component, clock } = createClockedComponent();
     registerSubagents(component, 1);
     startSubagents(component, 1);
     component.appendModelDelta({ agentId: 'agent-1', delta: 'working on it' });
     expect(renderText(component)).toContain('working on it');
 
-    vi.setSystemTime(1_000);
+    clock.set(1_000);
     component.markCompleted('agent-1', 'done');
 
     const output = renderText(component);
@@ -1212,10 +1215,7 @@ describe('AgentSwarmProgressComponent terminal state memory', () => {
     const component = createComponent();
     registerSubagents(component, 1);
 
-    component.markCompleted(
-      'agent-1',
-      `\u001B[1m\u001B[31mx${'\u0301'.repeat(5_000)}\u001B[0m`,
-    );
+    component.markCompleted('agent-1', `\u001B[1m\u001B[31mx${'\u0301'.repeat(5_000)}\u001B[0m`);
 
     expect(rawCellLine(component)).toContain('\u001B[0m');
   });
@@ -1250,9 +1250,8 @@ describe('AgentSwarmProgressComponent terminal state memory', () => {
 
 describe('AgentSwarmProgressComponent frame timer', () => {
   it('batches model deltas onto the frame timer instead of rendering per delta', () => {
-    vi.useFakeTimers();
-    const requestRender = vi.fn();
-    const component = createComponent({ requestRender });
+    const requestRender = mock();
+    const { component, clock } = createClockedComponent({ requestRender });
     registerSubagents(component, 1);
     startSubagents(component, 1);
     requestRender.mockClear();
@@ -1263,83 +1262,78 @@ describe('AgentSwarmProgressComponent frame timer', () => {
 
     expect(requestRender).not.toHaveBeenCalled();
 
-    vi.advanceTimersByTime(80);
+    clock.advance(80);
     expect(requestRender).toHaveBeenCalledTimes(1);
   });
 
   it('starts the frame timer when a delta arrives for a queued member', () => {
-    vi.useFakeTimers();
-    const requestRender = vi.fn();
-    const component = createComponent({ requestRender });
+    const requestRender = mock();
+    const { component, clock } = createClockedComponent({ requestRender });
     registerSubagents(component, 1);
     requestRender.mockClear();
 
     component.appendModelDelta({ agentId: 'agent-1', delta: 'hello' });
 
     expect(requestRender).not.toHaveBeenCalled();
-    vi.advanceTimersByTime(80);
+    clock.advance(80);
     expect(requestRender).toHaveBeenCalledTimes(1);
   });
 
   it('keeps the frame timer alive while members are running', () => {
-    vi.useFakeTimers();
-    const requestRender = vi.fn();
-    const component = createComponent({ requestRender });
+    const requestRender = mock();
+    const { component, clock } = createClockedComponent({ requestRender });
     registerSubagents(component, 1);
     startSubagents(component, 1);
     requestRender.mockClear();
 
-    vi.advanceTimersByTime(80 * 3);
+    clock.advance(80 * 3);
 
     expect(requestRender.mock.calls.length).toBeGreaterThanOrEqual(3);
   });
 
   it('stops the frame timer after the completion fill animation ends', () => {
-    vi.useFakeTimers();
-    const requestRender = vi.fn();
-    const component = createComponent({ requestRender });
+    const requestRender = mock();
+    const { component, clock } = createClockedComponent({ requestRender });
     registerSubagents(component, 1);
     startSubagents(component, 1);
     requestRender.mockClear();
 
     component.markCompleted('agent-1', 'done');
-    vi.advanceTimersByTime(80 * 10);
+    clock.advance(80 * 10);
     const callsAfterSettled = requestRender.mock.calls.length;
     expect(callsAfterSettled).toBeGreaterThan(0);
 
-    vi.advanceTimersByTime(80 * 5);
+    clock.advance(80 * 5);
     expect(requestRender.mock.calls.length).toBe(callsAfterSettled);
   });
 
   it('stops the frame timer when the tool call ends with an unparsable result', () => {
-    vi.useFakeTimers();
-    const requestRender = vi.fn();
-    const component = createComponent({ requestRender });
+    const requestRender = mock();
+    const { component, clock } = createClockedComponent({ requestRender });
     registerSubagents(component, 1);
     startSubagents(component, 1);
     requestRender.mockClear();
 
     component.markToolCallEnded();
     expect(component.applyResult('Done')).toBe(false);
-    vi.advanceTimersByTime(80 * 10);
+    clock.advance(80 * 10);
     const callsAfterSettled = requestRender.mock.calls.length;
 
-    vi.advanceTimersByTime(80 * 5);
+    clock.advance(80 * 5);
     expect(requestRender.mock.calls.length).toBe(callsAfterSettled);
   });
 
   it('does not re-arm the frame timer after dispose', () => {
-    vi.useFakeTimers();
-    const requestRender = vi.fn();
-    const component = createComponent({ requestRender });
+    const requestRender = mock();
+    const { component, clock } = createClockedComponent({ requestRender });
     registerSubagents(component, 1);
     startSubagents(component, 1);
 
-    vi.advanceTimersByTime(80);
+    clock.advance(80);
     expect(requestRender).toHaveBeenCalled();
 
     component.dispose();
-    vi.advanceTimersByTime(80 * 4);
+    clock.advance(80 * 4);
     requestRender.mockClear();
 
     // Every mutator re-arms the animation through startAnimationIfNeeded(), so
@@ -1353,7 +1347,7 @@ describe('AgentSwarmProgressComponent frame timer', () => {
         '</agent_swarm_result>',
       ].join('\n'),
     );
-    vi.advanceTimersByTime(80 * 10);
+    clock.advance(80 * 10);
 
     expect(requestRender).not.toHaveBeenCalled();
   });

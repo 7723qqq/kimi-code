@@ -1,5 +1,5 @@
 import assert from "node:assert";
-import { describe, it } from "node:test";
+import { describe, it } from "bun:test";
 import { Input } from "../src/components/input.ts";
 import { stripTerminalSequences, visibleWidth } from "../src/utils.ts";
 

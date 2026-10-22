@@ -1,5 +1,5 @@
 import assert from "node:assert";
-import { describe, it } from "node:test";
+import { describe, it } from "bun:test";
 import { visibleWidth, wrapTextWithAnsi } from "../src/utils.ts";
 
 describe("regional indicator width regression", () => {

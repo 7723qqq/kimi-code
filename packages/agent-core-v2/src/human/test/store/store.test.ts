@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { MemoryBackend } from '#/store/backend/memory';
 import { TreeStore } from '#/store/store';

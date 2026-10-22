@@ -26,13 +26,17 @@ export class KosongConfigService extends Disposable implements IKosongConfigServ
 
   private persistChain: Promise<void> = Promise.resolve();
 
+  private readonly retrySleep: (delayMs: number) => Promise<void>;
+
   constructor(
     @IConfigService private readonly config: IConfigService,
     @IProviderService private readonly providers: IProviderService,
     @IModelService private readonly models: IModelService,
     @ILogService private readonly log: ILogService,
+    retrySleep: (delayMs: number) => Promise<void> = sleepForRetry,
   ) {
     super();
+    this.retrySleep = retrySleep;
     this.ready = this.initialize();
     void this.ready.catch((error) => {
       this.log.warn('kosong config bridge initialization failed', {
@@ -155,7 +159,7 @@ export class KosongConfigService extends Disposable implements IKosongConfigServ
       } catch (error) {
         const delay = delays[attempt];
         if (delay === undefined) throw error;
-        await sleepForRetry(delay);
+        await this.retrySleep(delay);
       }
     }
   }

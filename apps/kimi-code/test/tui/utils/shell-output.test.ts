@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { formatBashOutputForDisplay, sanitizeShellOutput } from '#/tui/utils/shell-output';
 

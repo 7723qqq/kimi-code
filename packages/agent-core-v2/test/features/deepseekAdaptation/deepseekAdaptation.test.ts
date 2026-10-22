@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 import type { ILogger } from '#/_base/log/log';
 import { ContextSpliced } from '#/agent/contextMemory/contextEvents';
@@ -56,9 +56,7 @@ describe('curated adaptation lookup', () => {
   });
 
   it('routes every deepseek wire name through the curated family file', async () => {
-    // The family prefix is the only key: every deepseek-shaped name resolves to
-    // the single curated file, so a new versioned or provider-qualified id does
-    // not need its own adaptation file to receive guidance.
+
     for (const wire of [
       'deepseek-v3',
       'deepseek-v4-pro',
@@ -201,16 +199,7 @@ describe('DeepSeek minimal adaptation injection', () => {
   });
 
   it('reports the variables the minimal shape cannot carry, but not the adaptation', async () => {
-    // Two halves of the same mechanism. The minimal template drops most of its
-    // context, so `applyProfile` must report those losses — that is what makes a
-    // silent drop visible. The adaptation is *not* among them: this family is
-    // served by the reminder channel, so the prompt path declines the file
-    // rather than load it into a variable the template then discards. Without
-    // that gate the guidance would be fetched, thrown away, and reported as
-    // dropped on every applyProfile.
-    //
-    // Only `applyProfile` warns (`bind` renders without reporting), and the
-    // logger is opt-in in the harness, so both have to be wired explicitly.
+
     const workDir = await mkdtemp(join(tmpdir(), 'ds-adapt-'));
     tempDirs.push(workDir);
     await writeFile(join(workDir, 'AGENTS.md'), 'PROJECT RULES', 'utf-8');
@@ -243,9 +232,9 @@ describe('DeepSeek minimal adaptation injection', () => {
     expect(profile.getSystemPrompt()).not.toContain('standing instructions for how to work');
 
     const dropped = warnings.filter((w) => w.message.includes('ignored supplied variables'));
-    // The loss is reported...
+
     expect(dropped.length, JSON.stringify(warnings)).toBeGreaterThan(0);
-    // ...and the adaptation is not among what was lost, because it never loaded.
+
     for (const warning of dropped) {
       expect(warning.message).not.toContain('model_adaptation_section');
     }
@@ -307,11 +296,7 @@ describe('DeepSeek adaptation delivery end to end', () => {
   }
 
   it('delivers the curated family guidance through the reminder channel', async () => {
-    // End to end: this family's prompt shape is `minimal`, so the system-prompt
-    // path cannot carry the guidance, and the reminder injection is the only
-    // route by which it reaches the model. Pinning the shipped text here means a
-    // change that silences the reminder fails loudly rather than quietly leaving
-    // the model without its family guidance.
+
     const text = await bootAndInject('deepseek-v4-pro');
 
     expect(text).toContain('# Model Adaptation: deepseek-v4-pro');
@@ -321,8 +306,7 @@ describe('DeepSeek adaptation delivery end to end', () => {
   });
 
   it('carries the same guidance for a versioned wire name', async () => {
-    // The family prefix is the only key, so a dated or differently-versioned id
-    // still receives guidance without an adaptation file of its own.
+
     const text = await bootAndInject('deepseek-v3');
 
     expect(text).toContain('# Model Adaptation: deepseek-v3');
@@ -339,7 +323,6 @@ describe('DeepSeek adaptation delivery end to end', () => {
     const profile = ctx.get(IAgentProfileService);
     await profile.bind({ profile: DEFAULT_AGENT_PROFILE_NAME, model: 'ds' });
 
-    // The adaptation reaches the model as a reminder, never as a prompt section.
     expect(profile.getSystemPrompt()).not.toContain('# Model Adaptation');
     expect(profile.getSystemPrompt()).toContain('helpful software engineer assistant');
   });

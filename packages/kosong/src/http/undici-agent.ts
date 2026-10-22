@@ -104,9 +104,13 @@ export function createSharedAgent(): Agent {
  */
 export function createSharedFetch(): typeof fetch {
   const agent = createSharedAgent();
-  return (input, init) =>
-    undiciFetch(input as Parameters<typeof undiciFetch>[0], {
-      ...(init as Parameters<typeof undiciFetch>[1]),
-      dispatcher: agent,
-    }) as unknown as ReturnType<typeof fetch>;
+  // `typeof fetch` under Bun's global types carries the Bun-only `preconnect`
+  // member; an undici-backed implementation serves the same call signature and
+  // is handed to SDKs that only ever call it.
+  const sharedFetch = (
+    input: Parameters<typeof undiciFetch>[0],
+    init?: Parameters<typeof undiciFetch>[1],
+  ): ReturnType<typeof fetch> =>
+    undiciFetch(input, { ...init, dispatcher: agent }) as unknown as ReturnType<typeof fetch>;
+  return sharedFetch as unknown as typeof fetch;
 }

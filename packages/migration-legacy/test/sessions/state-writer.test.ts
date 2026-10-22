@@ -8,7 +8,7 @@ import { join } from 'node:path';
  * Wiring: real state writer and filesystem; no collaborators are stubbed.
  * Run: bunx vitest run packages/migration-legacy/test/sessions/state-writer.test.ts
  */
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { writeSessionState } from '../../src/sessions/state-writer.js';
 

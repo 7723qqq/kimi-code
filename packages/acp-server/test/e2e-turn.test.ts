@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 
 import { getLiveSessionById, IAgentLifecycleService, IEventBus } from '@moonshot-ai/agent-core-v2';
 import { ToolProgress } from '@moonshot-ai/agent-core-v2/agent/toolExecutor/toolExecutorEvents';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 import { IAcpConnection } from '../src/acp-fs';
 import { mapPromptLaunchError } from '../src/session';
@@ -376,14 +376,14 @@ describe('acp-server real prompt turn (scripted LLM)', () => {
     const upgrade = updates.find(
       (u) => u?.sessionUpdate === 'tool_call_update' && u?.locations !== undefined,
     );
-    expect(upgrade?.locations?.[0]?.path).toBe(filePath);
+    expect(upgrade?.locations?.[0]?.path).toBe(filePath.replaceAll('\\', '/'));
 
     // …and the terminal tool_call_update re-attaches the same locations
     // (`tool.result` itself carries no args/display).
     const terminal = updates.find(
       (u) => u?.sessionUpdate === 'tool_call_update' && u?.status === 'completed',
     );
-    expect(terminal?.locations?.[0]?.path).toBe(filePath);
+    expect(terminal?.locations?.[0]?.path).toBe(filePath.replaceAll('\\', '/'));
   }, 30_000);
 
   it('dispatches a parked approval exactly once across a session/load handover', async () => {

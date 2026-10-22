@@ -1,28 +1,24 @@
 /**
- * TasksBrowserApp — full-screen alt-screen takeover for browsing
- * background tasks. Three-pane layout (left task list, right top
- * detail, right bottom preview output) framed by a header row and
- * footer key hint.
+ * TasksPanelComponent — the background-tasks panel.
  *
- * Mounted by `kimi-tui.ts` via container swap rather than `showOverlay`
- * — the main TUI's children are saved, cleared, and this component is
- * added as the sole child so it covers the entire screen. The
- * controller restores the children when the user exits.
+ * Two columns: the task list on the left, and on the right the detail of the
+ * selected task told as a narrative — what it is doing, where it runs and how
+ * far it got, how it ended, and what it printed. The noisy identifier fields
+ * (pid, agent id, effort, tool call) stay hidden behind the raw view.
  *
- * Data (tasks list, tail output) flows in via `setProps`; user actions
- * fire the `on*` callbacks back to the controller.
+ * The panel never reads the terminal size: the controller computes the height
+ * and hands it in, so the same component can own a full-screen takeover or
+ * sit inside a smaller region.
+ *
+ * Mounted by `controllers/tasks-browser.ts` — the controller swaps the main
+ * TUI children for this component and restores them when the user leaves.
  */
 
-import type {
-  BackgroundTaskInfo,
-  BackgroundTaskStatus,
-  ModelAlias,
-} from '@moonshot-ai/kimi-code-sdk';
+import type { BackgroundTaskInfo, ModelAlias } from '@moonshot-ai/kimi-code-sdk';
 import {
   Container,
   Key,
   matchesKey,
-  type Terminal,
   truncateToWidth,
   visibleWidth,
   type Focusable,
@@ -30,261 +26,172 @@ import {
 
 import { t } from '#/i18n';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
+import type { SubagentActivityRecord } from '#/tui/controllers/subagent-activity-store';
 import { currentTheme } from '#/tui/theme';
+import {
+  isActiveTaskStatus,
+  isTerminalTaskStatus,
+  taskDetailSections,
+  taskIdLine,
+  taskRawFields,
+  taskRowText,
+  taskStatusLabel,
+  taskStatusToken,
+  type TaskDetailContext,
+} from '#/tui/utils/background-task';
 import { printableChar } from '#/tui/utils/printable-key';
+import { SearchableList } from '#/tui/utils/searchable-list';
 import { sanitizeShellOutput } from '#/tui/utils/shell-output';
+import { renderTabStrip } from '#/tui/utils/tab-strip';
 
+import { AgentActivityViewer } from './agent-activity-viewer';
 import { modelDisplayName } from './model-selector';
 
 const ELLIPSIS = '…';
 
-export type TasksFilter = 'all' | 'active';
+/** Minimum dimensions before we just print a "too small" message. */
+const MIN_WIDTH = 48;
+const MIN_HEIGHT = 14;
 
-export interface TasksBrowserProps {
+/** Below this width the two columns stack instead of sitting side by side. */
+const NARROW_WIDTH = 88;
+
+/** Hard caps so a tiny / huge terminal still gets a sensible list column. */
+const LIST_COL_MIN = 28;
+const LIST_COL_MAX = 44;
+const LIST_COL_RATIO = 0.32;
+
+/** Chrome rows: top rule, title, hint, blank, tab strip, blank. */
+const CHROME_ROWS = 6;
+
+/** Rows a page-up / page-down moves the list cursor. */
+const LIST_PAGE_SIZE = 10;
+
+/** Indentation of the detail values under their section label. */
+const DETAIL_INDENT = '  ';
+
+export type TasksTab = 'all' | 'running' | 'finished';
+
+const TASKS_TABS: readonly TasksTab[] = ['all', 'running', 'finished'];
+
+export interface TasksPanelProps {
   readonly tasks: readonly BackgroundTaskInfo[];
-  readonly filter: TasksFilter;
+  readonly tab: TasksTab;
   readonly selectedTaskId: string | undefined;
-  readonly tailOutput: string | undefined;
-  readonly tailLoading: boolean;
+  /** Rows the panel may use. The controller owns the terminal geometry. */
+  readonly height: number;
+  /** Captured output of the selected task, straight from the engine. */
+  readonly output: string | undefined;
+  readonly outputLoading: boolean;
+  /** In-memory activity of the selected agent task, when this session holds one. */
+  readonly activity: SubagentActivityRecord | undefined;
+  /** Working directory the task ran in. */
+  readonly cwd: string | undefined;
   readonly flashMessage: string | undefined;
   /** Model catalog from the app config, used to resolve task model aliases
    *  to display names (same mapping as the other subagent surfaces). */
   readonly availableModels: Record<string, ModelAlias>;
   readonly onSelect: (taskId: string) => void;
-  readonly onToggleFilter: () => void;
+  readonly onTabChange: (tab: TasksTab) => void;
   readonly onRefresh: () => void;
   readonly onCancel: () => void;
-  /** Fired when the user confirms a stop request via the inline `y` prompt. */
-  readonly onStopConfirmed: (taskId: string) => void;
-  /** Fired when the user presses Enter or O on a selected task. */
-  readonly onOpenOutput: (taskId: string) => void;
+  /** Fired when the user confirms a stop with a second `S`. */
+  readonly onStop: (taskId: string) => void;
   /** Fired when stop is requested on a task that cannot be stopped. */
   readonly onStopIgnored?: (taskId: string, reason: 'terminal') => void;
 }
 
-function getStatusLabel(): Record<BackgroundTaskStatus, string> {
-  return {
-    running: t('tui.dialogs.tasksBrowser.statusRunning'),
-    completed: t('tui.dialogs.tasksBrowser.statusCompleted'),
-    failed: t('tui.dialogs.tasksBrowser.statusFailed'),
-    timed_out: t('tui.dialogs.tasksBrowser.statusTimedOut'),
-    killed: t('tui.dialogs.tasksBrowser.statusKilled'),
-    lost: t('tui.dialogs.tasksBrowser.statusLost'),
-  };
-}
+/** Which part of the panel the keyboard drives. */
+type PanelFocus = 'list' | 'output';
 
-/** Auto-cancel the inline stop confirmation after this many ms. */
-const STOP_CONFIRM_TIMEOUT_MS = 5_000;
-
-/** Minimum dimensions before we just print a "too small" message. */
-const MIN_WIDTH = 48;
-const MIN_HEIGHT = 10;
-
-/** Hard caps so a tiny / huge terminal still gets a sensible left-column width. */
-const LIST_COL_MIN = 28;
-const LIST_COL_MAX = 44;
-const LIST_COL_RATIO = 0.32;
-
-function statusColor(status: BackgroundTaskStatus): 'success' | 'textMuted' | 'error' {
-  switch (status) {
-    case 'running':
-      return 'success';
-    case 'completed':
-      return 'textMuted';
-    case 'failed':
-    case 'timed_out':
-    case 'killed':
-    case 'lost':
-      return 'error';
-  }
-}
-
-function isTerminal(status: BackgroundTaskStatus): boolean {
-  return (
-    status === 'completed' ||
-    status === 'failed' ||
-    status === 'timed_out' ||
-    status === 'killed' ||
-    status === 'lost'
-  );
-}
-
-function formatRelativeTime(ts: number | null | undefined): string {
-  if (ts === null || ts === undefined || !Number.isFinite(ts) || ts <= 0) return '';
-  const diffSec = Math.floor(Math.max(0, Date.now() - ts) / 1000);
-  if (diffSec < 60) return t('tui.dialogs.tasksBrowser.relativeTimeJustNow');
-  const minutes = Math.floor(diffSec / 60);
-  if (minutes < 60) return t('tui.dialogs.tasksBrowser.relativeTimeMins', { minutes });
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return t('tui.dialogs.tasksBrowser.relativeTimeHours', { hours });
-  const days = Math.floor(hours / 24);
-  return t('tui.dialogs.tasksBrowser.relativeTimeDays', { days });
-}
-
-function singleLine(text: string): string {
-  return text.replaceAll(/\s+/g, ' ').trim();
-}
-
-function padToWidth(line: string, width: number): string {
-  const w = visibleWidth(line);
-  if (w === width) return line;
-  if (w > width) return truncateToWidth(line, width, ELLIPSIS);
-  return line + ' '.repeat(width - w);
-}
-
-/** Fit `line` into exactly `width` columns, even after CJK-edge truncation. */
-function fitExactly(line: string, width: number): string {
-  let s = line;
-  if (visibleWidth(s) > width) s = truncateToWidth(s, width, ELLIPSIS);
-  return padToWidth(s, width);
-}
-
-function visibleTasks(
-  tasks: readonly BackgroundTaskInfo[],
-  filter: TasksFilter,
-): BackgroundTaskInfo[] {
-  // The /tasks panel is for background task management. Foreground tasks
-  // (detached === false) are shown in the main transcript instead, and only
-  // appear here after being detached via Ctrl+B. `detached !== false` keeps
-  // reconcile ghosts whose `detached` field may be undefined.
-  const backgroundOnly = tasks.filter((t) => t.detached !== false);
-  if (filter === 'all') return [...backgroundOnly];
-  return backgroundOnly.filter((t) => !isTerminal(t.status));
-}
-
-function compareTasks(a: BackgroundTaskInfo, b: BackgroundTaskInfo): number {
-  const aTerminal = isTerminal(a.status);
-  const bTerminal = isTerminal(b.status);
-  if (aTerminal !== bTerminal) return aTerminal ? 1 : -1;
-  if (!aTerminal) return a.startedAt - b.startedAt;
-  return (b.endedAt ?? b.startedAt) - (a.endedAt ?? a.startedAt);
-}
-
-interface StatusCounts {
-  running: number;
-  completed: number;
-  terminalFailed: number;
-}
-
-function countByStatus(tasks: readonly BackgroundTaskInfo[]): StatusCounts {
-  const counts: StatusCounts = { running: 0, completed: 0, terminalFailed: 0 };
-  for (const t of tasks) {
-    switch (t.status) {
-      case 'running':
-        counts.running += 1;
-        break;
-      case 'completed':
-        counts.completed += 1;
-        break;
-      case 'failed':
-      case 'timed_out':
-      case 'killed':
-      case 'lost':
-        counts.terminalFailed += 1;
-        break;
-    }
-  }
-  return counts;
-}
-
-export class TasksBrowserApp extends Container implements Focusable {
+export class TasksPanelComponent extends Container implements Focusable {
   focused = false;
 
-  private props: TasksBrowserProps;
-  private readonly terminal: Terminal;
-  private sortedVisible: BackgroundTaskInfo[];
-  private selectedIndex = 0;
+  private props: TasksPanelProps;
+  private list: SearchableList<BackgroundTaskInfo> | undefined;
   private listScroll = 0;
-  private pendingStopTaskId: string | undefined = undefined;
-  private pendingStopTimer: NodeJS.Timeout | undefined = undefined;
+  /** Last task id the panel reported, to tell its own selection apart. */
+  private emittedTaskId: string | undefined;
+  private readonly activityViewer: AgentActivityViewer;
+  private rawView = false;
+  private focus: PanelFocus = 'list';
+  private pendingStopTaskId: string | undefined;
+  private outputLines: string[] = [];
+  private outputScrollTop = 0;
+  private outputFollowTail = true;
+  /** Rows the output block had on its last render — the tail window size. */
+  private outputRows = 1;
+  /** Width of the detail column on the last render. */
+  private detailWidth = 80;
 
-  constructor(props: TasksBrowserProps, terminal: Terminal) {
+  constructor(props: TasksPanelProps) {
     super();
     this.props = props;
-    this.terminal = terminal;
-    this.sortedVisible = visibleTasks(props.tasks, props.filter).toSorted(compareTasks);
-    this.syncSelectionFromProps();
+    this.activityViewer = new AgentActivityViewer({
+      record: props.activity,
+      workspaceDir: props.cwd,
+      expanded: false,
+    });
+    this.syncOutput();
   }
 
-  setProps(next: TasksBrowserProps): void {
+  setProps(next: TasksPanelProps): void {
     this.props = next;
-    this.sortedVisible = visibleTasks(next.tasks, next.filter).toSorted(compareTasks);
-    this.syncSelectionFromProps();
-    if (this.pendingStopTaskId !== undefined) {
-      const task = next.tasks.find((t) => t.taskId === this.pendingStopTaskId);
-      if (task === undefined || isTerminal(task.status)) this.clearPendingStop();
-    }
+    this.activityViewer.setProps({
+      record: next.activity,
+      workspaceDir: next.cwd,
+      expanded: this.rawView,
+    });
+    this.syncOutput();
     this.invalidate();
   }
 
-  private syncSelectionFromProps(): void {
-    if (this.sortedVisible.length === 0) {
-      this.selectedIndex = 0;
-      this.listScroll = 0;
-      return;
-    }
-    if (this.props.selectedTaskId !== undefined) {
-      const idx = this.sortedVisible.findIndex((t) => t.taskId === this.props.selectedTaskId);
-      if (idx !== -1) {
-        this.selectedIndex = idx;
-        return;
-      }
-    }
-    if (this.selectedIndex >= this.sortedVisible.length) {
-      this.selectedIndex = this.sortedVisible.length - 1;
-    }
-  }
-
-  private clearPendingStop(): void {
-    this.pendingStopTaskId = undefined;
-    if (this.pendingStopTimer !== undefined) {
-      clearTimeout(this.pendingStopTimer);
-      this.pendingStopTimer = undefined;
-    }
-  }
-
-  private emitSelect(): void {
-    const task = this.sortedVisible[this.selectedIndex];
-    if (task) this.props.onSelect(task.taskId);
-  }
+  // ── input ──────────────────────────────────────────────────────────
 
   handleInput(data: string): void {
     const k = printableChar(data);
+    this.ensureList(this.visibleTasks());
 
+    // A pending stop is armed by the first `S`; any other key cancels it.
     if (this.pendingStopTaskId !== undefined) {
-      if (k === 'y' || k === 'Y') {
-        const taskId = this.pendingStopTaskId;
-        this.clearPendingStop();
-        this.props.onStopConfirmed(taskId);
+      const armed = this.pendingStopTaskId;
+      this.pendingStopTaskId = undefined;
+      if (k === 's' || k === 'S') {
+        this.props.onStop(armed);
         this.invalidate();
         return;
       }
-      this.clearPendingStop();
-      this.invalidate();
-      return;
     }
 
-    if (matchesKey(data, Key.escape) || k === 'q' || k === 'Q') {
-      this.clearPendingStop();
+    if (matchesKey(data, Key.escape)) {
+      if (this.focus === 'output') {
+        this.focus = 'list';
+        this.invalidate();
+        return;
+      }
       this.props.onCancel();
       return;
     }
-    if (matchesKey(data, Key.up) || k === 'k') {
-      if (this.sortedVisible.length === 0) return;
-      this.selectedIndex = Math.max(0, this.selectedIndex - 1);
-      this.emitSelect();
+    if (k === 'q' || k === 'Q') {
+      this.props.onCancel();
+      return;
+    }
+    if (matchesKey(data, Key.ctrl('o'))) {
+      this.rawView = !this.rawView;
+      this.activityViewer.setProps({
+        record: this.props.activity,
+        workspaceDir: this.props.cwd,
+        expanded: this.rawView,
+      });
       this.invalidate();
       return;
     }
-    if (matchesKey(data, Key.down) || k === 'j') {
-      if (this.sortedVisible.length === 0) return;
-      this.selectedIndex = Math.min(this.sortedVisible.length - 1, this.selectedIndex + 1);
-      this.emitSelect();
-      this.invalidate();
+    if (matchesKey(data, Key.tab)) {
+      this.cycleTab(1);
       return;
     }
-    if (matchesKey(data, Key.tab) || k === '\t') {
-      this.props.onToggleFilter();
+    if (matchesKey(data, Key.shift('tab'))) {
+      this.cycleTab(-1);
       return;
     }
     if (k === 'r' || k === 'R') {
@@ -292,430 +199,468 @@ export class TasksBrowserApp extends Container implements Focusable {
       return;
     }
     if (k === 's' || k === 'S') {
-      const task = this.sortedVisible[this.selectedIndex];
-      if (task === undefined) return;
-      if (isTerminal(task.status)) {
-        this.props.onStopIgnored?.(task.taskId, 'terminal');
-        return;
-      }
-      this.pendingStopTaskId = task.taskId;
-      this.pendingStopTimer = setTimeout(() => {
-        this.clearPendingStop();
-        this.invalidate();
-      }, STOP_CONFIRM_TIMEOUT_MS);
-      this.invalidate();
+      this.requestStop();
       return;
     }
     if (k === 'o' || k === 'O' || matchesKey(data, Key.enter)) {
-      const task = this.sortedVisible[this.selectedIndex];
-      if (task) this.props.onOpenOutput(task.taskId);
+      this.focus = this.focus === 'output' ? 'list' : 'output';
+      this.invalidate();
       return;
     }
+
+    if (this.focus === 'output') {
+      if (this.handleOutputScroll(data, k)) return;
+      return;
+    }
+
+    if (this.list?.handleKey(data) === true) {
+      this.emitSelect();
+      this.invalidate();
+    }
   }
 
-  /**
-   * Render the entire screen as `terminal.rows` lines of `width` cols.
-   * Layout: header(1) + body(rows-2) + footer(1).
-   */
-  override render(width: number): string[] {
-    const rows = Math.max(1, this.terminal.rows);
-    if (width < MIN_WIDTH || rows < MIN_HEIGHT) {
-      return this.renderTooSmall(width, rows);
+  private handleOutputScroll(data: string, k: string): boolean {
+    const page = Math.max(1, this.outputRows - 1);
+    if (matchesKey(data, Key.up) || k === 'k') {
+      this.scrollOutput(-1);
+      return true;
     }
-
-    const header = this.renderHeader(width);
-    const footer = this.renderFooter(width);
-    const bodyHeight = rows - 2;
-
-    const listWidth = Math.max(
-      LIST_COL_MIN,
-      Math.min(LIST_COL_MAX, Math.floor(width * LIST_COL_RATIO)),
-    );
-    const rightWidth = width - listWidth;
-
-    const listFrame = this.renderListFrame(listWidth, bodyHeight);
-    const rightFrames = this.renderRightStack(rightWidth, bodyHeight);
-
-    const lines: string[] = [header];
-    for (let i = 0; i < bodyHeight; i++) {
-      lines.push(
-        (listFrame[i] ?? ' '.repeat(listWidth)) + (rightFrames[i] ?? ' '.repeat(rightWidth)),
-      );
+    if (matchesKey(data, Key.down) || k === 'j') {
+      this.scrollOutput(1);
+      return true;
     }
-    lines.push(footer);
-    return lines;
+    if (matchesKey(data, Key.pageUp) || matchesKey(data, Key.ctrl('u'))) {
+      this.scrollOutput(-page);
+      return true;
+    }
+    if (matchesKey(data, Key.pageDown) || matchesKey(data, Key.ctrl('d'))) {
+      this.scrollOutput(page);
+      return true;
+    }
+    if (matchesKey(data, Key.home) || k === 'g') {
+      this.scrollOutputTo(0);
+      return true;
+    }
+    if (matchesKey(data, Key.end) || k === 'G') {
+      this.scrollOutputTo(Number.MAX_SAFE_INTEGER);
+      return true;
+    }
+    return false;
   }
 
-  // ── header / footer ──────────────────────────────────────────────────
-
-  private renderHeader(width: number): string {
-    const title = currentTheme.boldFg('primary', t('tui.dialogs.tasksBrowser.headerTitle'));
-    const filterText = currentTheme.fg(
-      'textMuted',
-      ` ${this.props.filter === 'all' ? t('tui.dialogs.tasksBrowser.filterAll') : t('tui.dialogs.tasksBrowser.filterActive')} `,
-    );
-    // Count only the tasks actually listed (background tasks after the
-    // foreground-task filter), so a foreground-only session doesn't read
-    // "1 running / 1 total" above an empty list.
-    const visible = visibleTasks(this.props.tasks, this.props.filter);
-    const counts = countByStatus(visible);
-    const countSegments: string[] = [];
-    if (counts.running > 0)
-      countSegments.push(
-        currentTheme.fg(
-          'success',
-          ` ${String(counts.running)} ${t('tui.dialogs.tasksBrowser.statusRunning')} `,
-        ),
-      );
-    if (counts.completed > 0)
-      countSegments.push(
-        currentTheme.fg(
-          'textDim',
-          ` ${String(counts.completed)} ${t('tui.dialogs.tasksBrowser.statusCompleted')} `,
-        ),
-      );
-    if (counts.terminalFailed > 0)
-      countSegments.push(
-        currentTheme.fg(
-          'error',
-          ` ${String(counts.terminalFailed)} ${t('tui.dialogs.tasksBrowser.statusInterrupted')} `,
-        ),
-      );
-    const totals = currentTheme.fg(
-      'textMuted',
-      ` ${String(visible.length)} ${t('tui.dialogs.tasksBrowser.statusTotal')} `,
-    );
-
-    const composed = title + filterText + countSegments.join('') + totals;
-    return fitExactly(composed, width);
+  private scrollOutput(delta: number): void {
+    this.scrollOutputTo(this.outputScrollTop + delta);
   }
 
-  private renderFooter(width: number): string {
-    const key = (text: string): string => currentTheme.boldFg('primary', text);
-    const dim = (text: string): string => currentTheme.fg('textMuted', text);
-
-    if (this.pendingStopTaskId !== undefined) {
-      const warn = (text: string): string => currentTheme.boldFg('warning', text);
-      const line =
-        ` ${warn(t('tui.dialogs.tasksBrowser.stopLabel'))} ${currentTheme.fg('text', this.pendingStopTaskId)}? ` +
-        `${key('Y')} ${dim(t('tui.dialogs.tasksBrowser.footerConfirm'))}  ${key('N')}${dim('/')}${key('esc')} ${dim(t('tui.dialogs.tasksBrowser.footerCancel'))} `;
-      return fitExactly(line, width);
-    }
-
-    const parts = [
-      ` ${key('↑↓')} ${dim(t('tui.dialogs.tasksBrowser.footerSelect'))}`,
-      `${key('Enter/O')} ${dim(t('tui.dialogs.tasksBrowser.footerOutput'))}`,
-      `${key('S')} ${dim(t('tui.dialogs.tasksBrowser.footerStop'))}`,
-      `${key('R')} ${dim(t('tui.dialogs.tasksBrowser.footerRefresh'))}`,
-      `${key('Tab')} ${dim(t('tui.dialogs.tasksBrowser.footerFilter'))}`,
-      `${key('Q/Esc')} ${dim(t('tui.dialogs.tasksBrowser.footerCancel'))} `,
-    ];
-    const left = parts.join('  ');
-    const flash = this.props.flashMessage;
-    if (flash !== undefined && flash.length > 0) {
-      const flashStyled = currentTheme.fg('warning', ` ${flash} `);
-      const total = visibleWidth(left) + visibleWidth(flashStyled);
-      if (total <= width) {
-        return left + ' '.repeat(width - total) + flashStyled;
-      }
-    }
-    return fitExactly(left, width);
+  private scrollOutputTo(target: number): void {
+    const max = this.maxOutputScroll();
+    this.outputScrollTop = Math.max(0, Math.min(target, max));
+    this.outputFollowTail = this.outputScrollTop >= max;
+    this.invalidate();
   }
 
-  // ── frame primitive ──────────────────────────────────────────────────
-
-  /**
-   * Render a framed box: `┌─ Title ─┐` top, `│ <content> │` sides, `└─┘`
-   * bottom. Result is exactly `width × height` cells. `content` is a
-   * pre-rendered array of inner-width-sized lines; extra rows are padded.
-   */
-  private renderFrame(
-    title: string,
-    content: readonly string[],
-    width: number,
-    height: number,
-  ): string[] {
-    if (height < 2 || width < 4) {
-      const out: string[] = [];
-      for (let i = 0; i < height; i++) out.push(' '.repeat(width));
-      return out;
+  private requestStop(): void {
+    const task = this.selectedTask();
+    if (task === undefined) return;
+    if (isTerminalTaskStatus(task.status)) {
+      this.props.onStopIgnored?.(task.taskId, 'terminal');
+      return;
     }
-    const innerWidth = width - 2;
-    const innerHeight = height - 2;
-
-    const titleStyled = currentTheme.boldFg('textStrong', title);
-    const titleWidth = visibleWidth(titleStyled);
-    const titleSegment = `─ ${titleStyled} `;
-    const titleSegmentWidth = visibleWidth(titleSegment);
-    const remainingDashes = Math.max(0, innerWidth - titleSegmentWidth);
-    const topMid =
-      titleWidth > 0 && titleSegmentWidth <= innerWidth
-        ? currentTheme.fg('primary', '─ ') +
-          titleStyled +
-          ' ' +
-          currentTheme.fg('primary', '─'.repeat(remainingDashes))
-        : currentTheme.fg('primary', '─'.repeat(innerWidth));
-    const top = currentTheme.fg('primary', '┌') + topMid + currentTheme.fg('primary', '┐');
-    const bottom = currentTheme.fg('primary', '└' + '─'.repeat(innerWidth) + '┘');
-
-    const lines: string[] = [top];
-    for (let i = 0; i < innerHeight; i++) {
-      const inner = content[i] ?? '';
-      lines.push(
-        currentTheme.fg('primary', '│') +
-          fitExactly(inner, innerWidth) +
-          currentTheme.fg('primary', '│'),
-      );
-    }
-    lines.push(bottom);
-    return lines;
+    this.pendingStopTaskId = task.taskId;
+    this.invalidate();
   }
 
-  // ── left: task list frame ────────────────────────────────────────────
-
-  private renderListFrame(width: number, height: number): string[] {
-    const title = t('tui.dialogs.tasksBrowser.tasksFrameTitle', { filter: this.props.filter });
-    const innerHeight = Math.max(0, height - 2);
-
-    if (this.sortedVisible.length === 0) {
-      const empty =
-        this.props.filter === 'active'
-          ? t('tui.dialogs.tasksBrowser.noActiveTasks')
-          : t('tui.dialogs.tasksBrowser.noBackgroundTasks');
-      const lines: string[] = [currentTheme.fg('textMuted', empty)];
-      while (lines.length < innerHeight) lines.push('');
-      return this.renderFrame(title, lines, width, height);
-    }
-
-    this.adjustScroll(innerHeight);
-
-    const innerWidth = width - 2;
-    const allLines: string[] = [];
-    for (const [index, task] of this.sortedVisible.entries()) {
-      allLines.push(this.renderListRow(task, index === this.selectedIndex, innerWidth));
-      const modelText = this.agentModelText(task);
-      if (modelText !== undefined) {
-        allLines.push(this.renderModelRow(modelText, innerWidth));
-      }
-    }
-    const lines = allLines.slice(this.listScroll, this.listScroll + innerHeight);
-    while (lines.length < innerHeight) lines.push('');
-
-    return this.renderFrame(title, lines, width, height);
+  private cycleTab(delta: number): void {
+    const index = TASKS_TABS.indexOf(this.props.tab);
+    const next = TASKS_TABS[(index + delta + TASKS_TABS.length) % TASKS_TABS.length];
+    if (next !== undefined) this.props.onTabChange(next);
   }
 
-  private renderListRow(task: BackgroundTaskInfo, selected: boolean, innerWidth: number): string {
-    const pointer = selected ? `${SELECT_POINTER} ` : '  ';
-    const pointerStyled = currentTheme.fg(selected ? 'primary' : 'textDim', pointer);
-
-    const idColor = selected
-      ? 'primary'
-      : task.kind === 'agent'
-        ? 'success'
-        : task.kind === 'question'
-          ? 'warning'
-          : 'accent';
-    const idText = selected
-      ? currentTheme.boldFg(idColor, task.taskId)
-      : currentTheme.fg(idColor, task.taskId);
-    const idPad = ' '.repeat(Math.max(0, 17 - task.taskId.length));
-
-    const status = getStatusLabel()[task.status];
-    const statusBadge = currentTheme.fg(statusColor(task.status), status);
-
-    const prefix = `${pointerStyled}${idText}${idPad} ${statusBadge}`;
-    const prefixWidth = visibleWidth(prefix);
-    const descBudget = Math.max(0, innerWidth - prefixWidth - 1);
-    if (descBudget < 4) return fitExactly(prefix, innerWidth);
-
-    const description =
-      singleLine(task.description) ||
-      (task.kind === 'process' ? singleLine(task.command) : '') ||
-      t('tui.dialogs.tasksBrowser.noDescription');
-    const desc = truncateToWidth(description, descBudget, ELLIPSIS);
-    return fitExactly(`${prefix} ${currentTheme.fg('text', desc)}`, innerWidth);
+  private emitSelect(): void {
+    const task = this.list?.selected();
+    if (task === undefined) return;
+    this.emittedTaskId = task.taskId;
+    this.props.onSelect(task.taskId);
   }
 
-  /** Secondary line under an agent task's row: the model it runs on, resolved
-   *  through the model catalog like the other subagent surfaces. */
-  private agentModelText(task: BackgroundTaskInfo): string | undefined {
+  // ── data ───────────────────────────────────────────────────────────
+
+  private visibleTasks(): BackgroundTaskInfo[] {
+    // The /tasks panel is for background task management. Foreground tasks
+    // (detached === false) are shown in the main transcript instead, and only
+    // appear here after being detached via Ctrl+B. `detached !== false` keeps
+    // reconcile ghosts whose `detached` field may be undefined.
+    const backgroundOnly = this.props.tasks.filter((task) => task.detached !== false);
+    switch (this.props.tab) {
+      case 'all':
+        return backgroundOnly;
+      case 'running':
+        return backgroundOnly.filter((task) => isActiveTaskStatus(task.status));
+      case 'finished':
+        return backgroundOnly.filter((task) => isTerminalTaskStatus(task.status));
+    }
+  }
+
+  private selectedTask(): BackgroundTaskInfo | undefined {
+    return this.list?.selected();
+  }
+
+  private syncOutput(): void {
+    const output = this.props.output;
+    if (output === undefined || output.length === 0) {
+      this.outputLines = [];
+      return;
+    }
+    this.outputLines = sanitizeShellOutput(output).split('\n');
+  }
+
+  private modelName(task: BackgroundTaskInfo): string | undefined {
     if (task.kind !== 'agent' || task.model === undefined) return undefined;
     const name = modelDisplayName(task.model, this.props.availableModels[task.model]);
     return name.length === 0 ? undefined : name;
   }
 
-  private renderModelRow(text: string, innerWidth: number): string {
-    const indent = '  ';
-    const clipped = truncateToWidth(text, Math.max(0, innerWidth - indent.length), ELLIPSIS);
-    return indent + currentTheme.fg('textMuted', clipped);
-  }
+  // ── render ─────────────────────────────────────────────────────────
 
-  // Agent tasks with a bound model take two lines (row + model line), so
-  // scrolling is tracked in rendered lines rather than task indices.
-  private taskLineStarts(): { starts: number[]; total: number } {
-    const starts: number[] = [];
-    let total = 0;
-    for (const task of this.sortedVisible) {
-      starts.push(total);
-      total += this.agentModelText(task) === undefined ? 1 : 2;
+  override render(width: number): string[] {
+    const height = Math.max(1, this.props.height);
+    if (width < MIN_WIDTH || height < MIN_HEIGHT) {
+      return this.renderTooSmall(width, height);
     }
-    return { starts, total };
+
+    const bodyHeight = Math.max(1, height - CHROME_ROWS - 1);
+    const out: string[] = [
+      currentTheme.fg('primary', '─'.repeat(width)),
+      ...this.renderChrome(width),
+      ...this.renderBody(width, bodyHeight),
+      currentTheme.fg('primary', '─'.repeat(width)),
+    ];
+    return out;
   }
 
-  private adjustScroll(visibleRows: number): void {
-    if (visibleRows <= 0) {
-      this.listScroll = 0;
+  private renderChrome(width: number): string[] {
+    const title = currentTheme.boldFg('primary', t('tui.dialogs.tasksBrowser.panelTitle'));
+    const tabs = renderTabStrip({
+      labels: [
+        t('tui.dialogs.tasksBrowser.tabAll'),
+        t('tui.dialogs.tasksBrowser.tabRunning'),
+        t('tui.dialogs.tasksBrowser.tabFinished'),
+      ],
+      activeIndex: Math.max(0, TASKS_TABS.indexOf(this.props.tab)),
+      width,
+      colors: currentTheme.palette,
+    });
+    return [title, this.renderHint(width), '', tabs, ''];
+  }
+
+  private renderHint(width: number): string {
+    const segments = [
+      `Tab ${t('tui.dialogs.tasksBrowser.hintFilter')}`,
+      `↑↓ ${t('tui.dialogs.tasksBrowser.hintNavigate')}`,
+      `Enter/O ${t('tui.dialogs.tasksBrowser.hintOutput')}`,
+      `S ${t('tui.dialogs.tasksBrowser.hintStop')}`,
+      `R ${t('tui.dialogs.tasksBrowser.hintRefresh')}`,
+      `Ctrl+O ${t('tui.dialogs.tasksBrowser.hintRaw')}`,
+      `Esc ${t('tui.dialogs.tasksBrowser.hintCancel')}`,
+    ];
+    // The first and the last segment always survive; the ones in between are
+    // dropped first when the terminal is too narrow for the whole line.
+    const kept = [...segments];
+    while (kept.length > 2 && visibleWidth(kept.join(' · ')) + 1 > width) {
+      kept.splice(kept.length - 2, 1);
+    }
+    const styled = currentTheme.fg('textMuted', ` ${kept.join(' · ')}`);
+    const flash = this.props.flashMessage;
+    if (flash !== undefined && flash.length > 0) {
+      const flashStyled = currentTheme.fg('warning', ` ${flash} `);
+      const used = visibleWidth(styled) + visibleWidth(flashStyled);
+      if (used <= width) return styled + ' '.repeat(width - used) + flashStyled;
+    }
+    return fitExactly(styled, width);
+  }
+
+  private renderBody(width: number, height: number): string[] {
+    if (width < NARROW_WIDTH) {
+      // Stacked: the list keeps at most 40% of the rows but never more than
+      // what the detail can spare, so the narrative still has room to breathe.
+      const listHeight = Math.max(
+        3,
+        Math.min(Math.floor(height * 0.4), Math.max(3, height - 6)),
+      );
+      const detailHeight = Math.max(1, height - listHeight);
+      this.detailWidth = width;
+      return [
+        ...this.renderList(width, listHeight),
+        ...this.renderDetail(width, detailHeight),
+      ];
+    }
+
+    const listWidth = Math.max(
+      LIST_COL_MIN,
+      Math.min(LIST_COL_MAX, Math.floor(width * LIST_COL_RATIO)),
+    );
+    const detailWidth = Math.max(1, width - listWidth - 1);
+    this.detailWidth = detailWidth;
+    const list = this.renderList(listWidth, height);
+    const detail = this.renderDetail(detailWidth, height);
+    const separator = currentTheme.fg('border', '│');
+    const out: string[] = [];
+    for (let i = 0; i < height; i++) {
+      out.push(
+        fitExactly(list[i] ?? '', listWidth) + separator + fitExactly(detail[i] ?? '', detailWidth),
+      );
+    }
+    return out;
+  }
+
+  // ── list column ────────────────────────────────────────────────────
+
+  private renderList(width: number, height: number): string[] {
+    const items = this.visibleTasks();
+    if (items.length === 0) {
+      const empty = currentTheme.fg('textMuted', this.emptyMessage());
+      const out: string[] = [empty];
+      while (out.length < height) out.push('');
+      return out;
+    }
+
+    this.ensureList(items);
+    const selectedIndex = this.list?.view().selectedIndex ?? 0;
+    this.adjustScroll(items.length, selectedIndex, height);
+
+    const rows = Math.max(1, height);
+    const more = items.length - (this.listScroll + rows);
+    const out: string[] = [];
+    for (let i = 0; i < rows; i++) {
+      const task = items[this.listScroll + i];
+      if (task === undefined) {
+        out.push('');
+        continue;
+      }
+      out.push(this.renderRow(task, this.listScroll + i === selectedIndex, width));
+    }
+    if (more > 0 && out.length > 0) {
+      out[out.length - 1] = fitExactly(
+        currentTheme.fg('textMuted', t('tui.dialogs.tasksBrowser.scrollMore', { count: more })),
+        width,
+      );
+    }
+    return out;
+  }
+
+  private emptyMessage(): string {
+    switch (this.props.tab) {
+      case 'running':
+        return t('tui.dialogs.tasksBrowser.noRunningTasks');
+      case 'finished':
+        return t('tui.dialogs.tasksBrowser.noFinishedTasks');
+      case 'all':
+        return t('tui.dialogs.tasksBrowser.noBackgroundTasks');
+    }
+  }
+
+  private ensureList(items: readonly BackgroundTaskInfo[]): void {
+    const current = this.list;
+    const currentIds = current === undefined ? '' : current.filtered().map((t) => t.taskId).join(',');
+    const nextIds = items.map((t) => t.taskId).join(',');
+    const selectedId = this.props.selectedTaskId;
+    const listSelectedId = current?.selected()?.taskId;
+    // A selection the panel itself reported is not an external change — only
+    // a selection the controller made on its own moves the cursor back.
+    const selectionMoved =
+      selectedId !== undefined &&
+      selectedId !== listSelectedId &&
+      selectedId !== this.emittedTaskId;
+    if (current !== undefined && currentIds === nextIds && !selectionMoved) {
       return;
     }
-    const { starts, total } = this.taskLineStarts();
-    const selectedStart = starts[this.selectedIndex] ?? 0;
-    const selectedEnd = (starts[this.selectedIndex + 1] ?? total) - 1;
-    if (selectedStart < this.listScroll) {
-      this.listScroll = selectedStart;
-    } else if (selectedEnd >= this.listScroll + visibleRows) {
-      this.listScroll = selectedEnd - visibleRows + 1;
+    const index = selectedId === undefined ? -1 : items.findIndex((t) => t.taskId === selectedId);
+    this.list = new SearchableList<BackgroundTaskInfo>({
+      items,
+      toSearchText: taskRowText,
+      searchable: false,
+      pageSize: LIST_PAGE_SIZE,
+      initialIndex: index >= 0 ? index : (current?.view().selectedIndex ?? 0),
+    });
+  }
+
+  private adjustScroll(total: number, selectedIndex: number, rows: number): void {
+    if (selectedIndex < this.listScroll) {
+      this.listScroll = selectedIndex;
+    } else if (selectedIndex >= this.listScroll + rows) {
+      this.listScroll = selectedIndex - rows + 1;
     }
-    const maxScroll = Math.max(0, total - visibleRows);
-    if (this.listScroll < 0) this.listScroll = 0;
-    if (this.listScroll > maxScroll) this.listScroll = maxScroll;
+    const maxScroll = Math.max(0, total - rows);
+    this.listScroll = Math.max(0, Math.min(this.listScroll, maxScroll));
   }
 
-  // ── right: detail + preview stack ────────────────────────────────────
-
-  private renderRightStack(width: number, height: number): string[] {
-    // Detail wants ~10 rows (or 40% of body, whichever is larger) — agent tasks
-    // carry Task ID / Status / Description / Agent ID / Agent type / Model /
-    // Effort / Time. Clamp it so the preview frame keeps its borders plus one
-    // content row even near the minimum terminal height.
-    const detailHeight = Math.min(
-      Math.max(10, Math.min(Math.floor(height * 0.4), height - 5)),
-      Math.max(3, height - 3),
-    );
-    const previewHeight = height - detailHeight;
-    return [
-      ...this.renderDetailFrame(width, detailHeight),
-      ...this.renderPreviewFrame(width, previewHeight),
-    ];
+  private renderRow(task: BackgroundTaskInfo, selected: boolean, width: number): string {
+    const pointer = selected ? `${SELECT_POINTER} ` : '  ';
+    const pointerStyled = currentTheme.fg(selected ? 'primary' : 'textDim', pointer);
+    const pending = this.pendingStopTaskId === task.taskId;
+    const statusText = pending
+      ? currentTheme.boldFg('warning', t('tui.dialogs.tasksBrowser.stopConfirmHint'))
+      : currentTheme.fg(taskStatusToken(task.status), taskStatusLabel(task.status));
+    const statusWidth = visibleWidth(statusText);
+    const budget = Math.max(0, width - visibleWidth(pointerStyled) - statusWidth - 1);
+    const clipped = truncateToWidth(taskRowText(task), budget, ELLIPSIS);
+    const name = selected
+      ? currentTheme.boldFg('primary', clipped)
+      : currentTheme.fg('text', clipped);
+    const gap = Math.max(1, width - visibleWidth(pointerStyled) - visibleWidth(clipped) - statusWidth);
+    return fitExactly(`${pointerStyled}${name}${' '.repeat(gap)}${statusText}`, width);
   }
 
-  private renderDetailFrame(width: number, height: number): string[] {
-    const innerHeight = Math.max(0, height - 2);
-    const task = this.sortedVisible[this.selectedIndex];
+  // ── detail column ──────────────────────────────────────────────────
+
+  private renderDetail(width: number, height: number): string[] {
+    const task = this.selectedTask();
     if (task === undefined) {
-      const empty = currentTheme.fg('textMuted', t('tui.dialogs.tasksBrowser.noTaskSelected'));
-      const lines: string[] = [empty];
-      while (lines.length < innerHeight) lines.push('');
-      return this.renderFrame(t('tui.dialogs.tasksBrowser.detailFrameTitle'), lines, width, height);
-    }
-
-    const label = (text: string): string => currentTheme.fg('textMuted', text.padEnd(14));
-    const value = (text: string): string => currentTheme.fg('text', text);
-
-    const lines: string[] = [
-      `${label(t('tui.dialogs.tasksBrowser.taskIdLabel'))}${value(task.taskId)}`,
-      `${label(t('tui.dialogs.tasksBrowser.statusLabel'))}${currentTheme.fg(statusColor(task.status), getStatusLabel()[task.status])}`,
-      `${label(t('tui.dialogs.tasksBrowser.descriptionLabel'))}${value(singleLine(task.description) || '—')}`,
-    ];
-    if (task.kind === 'process' && task.command && task.command !== task.description) {
-      lines.push(
-        `${label(t('tui.dialogs.tasksBrowser.commandLabel'))}${value(singleLine(task.command))}`,
-      );
-    }
-    if (task.kind === 'agent' && task.agentId !== undefined) {
-      lines.push(`${label(t('tui.dialogs.tasksBrowser.agentIdLabel'))}${value(task.agentId)}`);
-    }
-    if (task.kind === 'agent' && task.subagentType !== undefined) {
-      lines.push(
-        `${label(t('tui.dialogs.tasksBrowser.agentTypeLabel'))}${value(task.subagentType)}`,
-      );
-    }
-    if (task.kind === 'agent' && task.model !== undefined) {
-      const modelName = this.agentModelText(task) ?? task.model;
-      lines.push(`${label(t('tui.dialogs.tasksBrowser.modelLabel'))}${value(modelName)}`);
-    }
-    if (task.kind === 'agent' && task.thinkingEffort !== undefined) {
-      lines.push(
-        `${label(t('tui.dialogs.tasksBrowser.effortLabel'))}${value(task.thinkingEffort)}`,
-      );
-    }
-    if (task.kind === 'question') {
-      lines.push(
-        `${label(t('tui.dialogs.tasksBrowser.questionsLabel'))}${currentTheme.fg('textMuted', String(task.questionCount))}`,
-      );
-      if (task.toolCallId !== undefined) {
-        lines.push(
-          `${label(t('tui.dialogs.tasksBrowser.toolCallLabel'))}${currentTheme.fg('textMuted', task.toolCallId)}`,
-        );
-      }
-    }
-    const timing =
-      task.status === 'running'
-        ? `${t('tui.dialogs.tasksBrowser.timingRunning')}${formatRelativeTime(task.startedAt)}`
-        : task.endedAt !== null && task.endedAt !== undefined
-          ? `${t('tui.dialogs.tasksBrowser.timingFinished')}${formatRelativeTime(task.endedAt)}`
-          : '';
-    if (timing.length > 0)
-      lines.push(
-        `${label(t('tui.dialogs.tasksBrowser.timeLabel'))}${currentTheme.fg('textMuted', timing)}`,
-      );
-    if (task.kind === 'process' && task.pid > 0) {
-      lines.push(
-        `${label(t('tui.dialogs.tasksBrowser.pidLabel'))}${currentTheme.fg('textMuted', String(task.pid))}`,
-      );
-    }
-    if (task.kind === 'process' && task.exitCode !== null) {
-      lines.push(
-        `${label(t('tui.dialogs.tasksBrowser.exitCodeLabel'))}${currentTheme.fg('textMuted', String(task.exitCode))}`,
-      );
-    }
-    if (task.stopReason !== undefined && task.stopReason.length > 0) {
-      lines.push(
-        `${label(t('tui.dialogs.tasksBrowser.reasonLabel'))}${currentTheme.fg('textMuted', task.stopReason)}`,
-      );
-    }
-    while (lines.length < innerHeight) lines.push('');
-    return this.renderFrame(t('tui.dialogs.tasksBrowser.detailFrameTitle'), lines, width, height);
-  }
-
-  private renderPreviewFrame(width: number, height: number): string[] {
-    const innerHeight = Math.max(0, height - 2);
-    const task = this.sortedVisible[this.selectedIndex];
-    if (task === undefined) {
-      const lines: string[] = [
+      const out: string[] = [
         currentTheme.fg('textMuted', t('tui.dialogs.tasksBrowser.noTaskSelected')),
       ];
-      while (lines.length < innerHeight) lines.push('');
-      return this.renderFrame(
-        t('tui.dialogs.tasksBrowser.previewFrameTitle'),
-        lines,
-        width,
-        height,
-      );
+      while (out.length < height) out.push('');
+      return out;
     }
 
-    let body: string;
-    if (this.props.tailLoading) body = t('tui.dialogs.tasksBrowser.loadingTail');
-    else if (this.props.tailOutput === undefined || this.props.tailOutput.length === 0)
-      body = t('tui.dialogs.tasksBrowser.noOutputTail');
-    else body = sanitizeShellOutput(this.props.tailOutput);
+    const lines: string[] = [];
+    const context: TaskDetailContext = {
+      cwd: this.props.cwd,
+      outputBytes: this.outputBytes(),
+      modelName: this.modelName(task),
+    };
+    for (const section of taskDetailSections(task, context)) {
+      lines.push(section.label);
+      for (const line of section.lines) lines.push(indent(line));
+    }
+    if (this.rawView) {
+      const raw = taskRawFields(task);
+      if (raw.lines.length > 0) {
+        lines.push(raw.label);
+        for (const line of raw.lines) lines.push(indent(line));
+      }
+    }
+    const blocks = this.streamBlocks(task);
+    // The task id is demoted to the very last line of the detail, so one row
+    // is reserved for it before the streams claim the rest.
+    const remaining = Math.max(0, height - lines.length - 1);
+    const budgets = this.streamBudgets(blocks, remaining);
+    blocks.forEach((block, index) => {
+      const budget = budgets[index] ?? 0;
+      if (budget <= 0) return;
+      lines.push(
+        currentTheme.boldFg(
+          'textStrong',
+          t(
+            block === 'activity'
+              ? 'tui.dialogs.tasksBrowser.sectionActivity'
+              : 'tui.dialogs.tasksBrowser.sectionOutput',
+          ),
+        ),
+      );
+      if (budget <= 1) return;
+      lines.push(...this.blockContent(block, budget - 1));
+    });
+    lines.push(indent(taskIdLine(task)));
 
-    const rawLines = body.split('\n');
-    const tailLines = rawLines.slice(-innerHeight);
-    const styled = tailLines.map((line) => currentTheme.fg('textDim', line));
-    while (styled.length < innerHeight) styled.push('');
-    return this.renderFrame(t('tui.dialogs.tasksBrowser.previewFrameTitle'), styled, width, height);
+    while (lines.length < height) lines.push('');
+    return lines
+      .slice(0, height)
+      .map((line) => truncateToWidth(line, width, ELLIPSIS));
   }
 
-  // ── too-small fallback ──────────────────────────────────────────────
+  /** Which streams the detail shows, and in which order. */
+  private streamBlocks(task: BackgroundTaskInfo): readonly ('activity' | 'output')[] {
+    if (task.kind !== 'agent') return ['output'];
+    return isActiveTaskStatus(task.status) ? ['activity', 'output'] : ['output', 'activity'];
+  }
 
-  private renderTooSmall(width: number, rows: number): string[] {
-    const lines: string[] = [];
+  /**
+   * Split the rows left over between the streams. The output section is the
+   * one the user always expects to see, so it claims a label row before the
+   * activity section does.
+   */
+  private streamBudgets(
+    blocks: readonly ('activity' | 'output')[],
+    remaining: number,
+  ): number[] {
+    const budgets = blocks.map(() => 0);
+    if (blocks.length === 0 || remaining <= 0) return budgets;
+    const per = Math.floor(remaining / blocks.length);
+    let extra = remaining - per * blocks.length;
+    for (const index of budgets.keys()) {
+      budgets[index] = per;
+      if (extra > 0) {
+        budgets[index] = per + 1;
+        extra -= 1;
+      }
+    }
+    const outputIndex = blocks.indexOf('output');
+    if (outputIndex >= 0 && (budgets[outputIndex] ?? 0) === 0) {
+      budgets[outputIndex] = 1;
+      const donor = budgets.findIndex((budget, index) => index !== outputIndex && budget > 0);
+      if (donor >= 0) budgets[donor] = (budgets[donor] ?? 0) - 1;
+    }
+    return budgets;
+  }
+
+  private blockContent(block: 'activity' | 'output', rows: number): string[] {
+    if (block === 'activity') {
+      if (this.props.activity === undefined) {
+        return [
+          indent(currentTheme.fg('textMuted', t('tui.dialogs.tasksBrowser.activityUnavailable'))),
+        ];
+      }
+      return this.activityViewer
+        .renderLines(Math.max(1, this.detailWidth - DETAIL_INDENT.length), rows)
+        .map((line) => indent(line));
+    }
+    return this.outputContent(rows).map((line) => indent(line));
+  }
+
+  private outputContent(rows: number): string[] {
+    this.outputRows = Math.max(1, rows);
+    if (this.props.outputLoading) {
+      return [currentTheme.fg('textMuted', t('tui.dialogs.tasksBrowser.loadingOutput'))];
+    }
+    if (this.outputLines.length === 0) {
+      return [currentTheme.fg('textMuted', t('tui.dialogs.tasksBrowser.noOutputCaptured'))];
+    }
+    const max = this.maxOutputScroll();
+    if (this.outputFollowTail) this.outputScrollTop = max;
+    else this.outputScrollTop = Math.min(this.outputScrollTop, max);
+    const slice = this.outputLines.slice(this.outputScrollTop, this.outputScrollTop + rows);
+    return slice.map((line) => currentTheme.fg('textDim', line));
+  }
+
+  private maxOutputScroll(): number {
+    return Math.max(0, this.outputLines.length - this.outputRows);
+  }
+
+  private outputBytes(): number | undefined {
+    const output = this.props.output;
+    if (output === undefined || output.length === 0) return undefined;
+    return new TextEncoder().encode(output).length;
+  }
+
+  // ── fallback ───────────────────────────────────────────────────────
+
+  private renderTooSmall(width: number, height: number): string[] {
     const msg = currentTheme.fg(
       'error',
       t('tui.dialogs.tasksBrowser.tooSmall', { minWidth: MIN_WIDTH, minHeight: MIN_HEIGHT }),
     );
-    lines.push(fitExactly(msg, width));
-    for (let i = 1; i < rows; i++) lines.push(' '.repeat(width));
-    return lines;
+    const out: string[] = [fitExactly(msg, width)];
+    for (let i = 1; i < height; i++) out.push(' '.repeat(width));
+    return out;
   }
+}
+
+function indent(line: string): string {
+  return `${DETAIL_INDENT}${line}`;
+}
+
+function fitExactly(line: string, width: number): string {
+  const clipped = visibleWidth(line) > width ? truncateToWidth(line, width, ELLIPSIS) : line;
+  return clipped + ' '.repeat(Math.max(0, width - visibleWidth(clipped)));
 }

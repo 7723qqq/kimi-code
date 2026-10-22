@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import {
   normalizeAgentProfile,
@@ -337,8 +337,7 @@ describe('renderSystemPromptResult family prompt shape', () => {
 });
 
 describe('droppedVars', () => {
-  // A context rich enough that every variable a template might reference has a
-  // value. The distinction under test is which of them the template used.
+
   const richContext = {
     modelName: 'gpt-4o',
     productName: 'Kimi',
@@ -358,10 +357,7 @@ describe('droppedVars', () => {
   };
 
   it('reports nothing when the full template carries every supplied variable', () => {
-    // Regression: `skills`, `plugin_sections` and `additional_dirs_info` are
-    // composed into `*_section` blocks. Comparing raw key names against template
-    // placeholders alone reported them as dropped even though the content
-    // reached the prompt, which made every applyProfile log false warnings.
+
     const rendered = renderSystemPromptResult('', richContext, { skillActive: true });
 
     expect(rendered.droppedVars).toBeUndefined();
@@ -374,8 +370,6 @@ describe('droppedVars', () => {
       { skillActive: true },
     );
 
-    // With no reply-style value supplied there is nothing to lose, so the
-    // warning must stay silent — the check is about supplied values only.
     expect(rendered.droppedVars).toBeUndefined();
   });
 
@@ -386,8 +380,6 @@ describe('droppedVars', () => {
       { skillActive: true },
     );
 
-    // The minimal template keeps only the persona and the working directory, so
-    // the loss here is real and must still be reported.
     expect(rendered.droppedVars).toContain('agents_md');
     expect(rendered.droppedVars).toContain('skills_section');
     expect(rendered.droppedVars).toContain('plugin_sections');
@@ -398,11 +390,7 @@ describe('droppedVars', () => {
   });
 
   it('does not report a raw variable whose composed block is referenced', () => {
-    // The composed block carries the raw value, so naming only the block is a
-    // delivery, not a loss — for the built-in templates and for a user-supplied
-    // SYSTEM.md, which documents the raw names as the supported surface.
-    // A custom template naturally drops whatever else it does not name, so the
-    // assertion is about these two variables and not about the whole list.
+
     const rendered = renderPromptTemplateResult(
       'body ${skills_section} ${additional_dirs_section}',
       richContext,
@@ -423,9 +411,7 @@ describe('droppedVars', () => {
   });
 
   it('passes a user template that names the raw variables verbatim', () => {
-    // SYSTEM.md is documented to accept the raw names directly
-    // (docs/en/customization/agents.md), so a template using them is correct and
-    // must not have them reported as dropped.
+
     const rendered = renderPromptTemplateResult(
       'at ${cwd}\n\n${agents_md}\n\n${skills}\n\n${plugin_sections}',
       richContext,

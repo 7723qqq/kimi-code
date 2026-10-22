@@ -1,12 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import { clipboardHasImage } from '#/utils/clipboard/clipboard-has-image';
 import type { ClipboardModule } from '#/utils/clipboard/clipboard-native';
 
 function fakeClipboard(overrides: Partial<ClipboardModule>): ClipboardModule {
   return {
-    hasImage: vi.fn(() => false),
-    getImageBinary: vi.fn(async () => []),
+    hasImage: mock(() => false),
+    getImageBinary: mock(async () => []),
     ...overrides,
   };
 }
@@ -18,20 +18,20 @@ describe('clipboardHasImage', () => {
   });
 
   it('returns true when native clipboard reports an image on macOS', async () => {
-    const clip = fakeClipboard({ hasImage: vi.fn(() => true) });
+    const clip = fakeClipboard({ hasImage: mock(() => true) });
     const result = await clipboardHasImage({ platform: 'darwin', clipboard: clip });
     expect(result).toBe(true);
   });
 
   it('returns false on macOS when native clipboard reports no image', async () => {
-    const clip = fakeClipboard({ hasImage: vi.fn(() => false) });
+    const clip = fakeClipboard({ hasImage: mock(() => false) });
     const result = await clipboardHasImage({ platform: 'darwin', clipboard: clip });
     expect(result).toBe(false);
   });
 
   it('returns false on macOS when native clipboard throws', async () => {
     const clip = fakeClipboard({
-      hasImage: vi.fn(() => {
+      hasImage: mock(() => {
         throw new Error('native error');
       }),
     });
@@ -41,8 +41,8 @@ describe('clipboardHasImage', () => {
 
   it('returns false on macOS when clipboard contains a file-like native format', async () => {
     const clip = fakeClipboard({
-      hasImage: vi.fn(() => true),
-      availableFormats: vi.fn(() => ['public.file-url', 'public.png']),
+      hasImage: mock(() => true),
+      availableFormats: mock(() => ['public.file-url', 'public.png']),
     });
     const result = await clipboardHasImage({ platform: 'darwin', clipboard: clip });
     expect(result).toBe(false);
@@ -53,7 +53,7 @@ describe('clipboardHasImage', () => {
   // wl-paste / xclip on Wayland perturbs seat focus and re-triggers the
   // terminal focus event, creating a focus feedback loop (issue #1090).
   it('returns false on Linux without reading the clipboard', async () => {
-    const clip = fakeClipboard({ hasImage: vi.fn(() => true) });
+    const clip = fakeClipboard({ hasImage: mock(() => true) });
     const result = await clipboardHasImage({
       platform: 'linux',
       env: { WAYLAND_DISPLAY: 'wayland-1' },
@@ -64,13 +64,13 @@ describe('clipboardHasImage', () => {
   });
 
   it('returns true on Windows when native clipboard reports an image', async () => {
-    const clip = fakeClipboard({ hasImage: vi.fn(() => true) });
+    const clip = fakeClipboard({ hasImage: mock(() => true) });
     const result = await clipboardHasImage({ platform: 'win32', clipboard: clip });
     expect(result).toBe(true);
   });
 
   it('returns false on Windows when native clipboard reports no image', async () => {
-    const clip = fakeClipboard({ hasImage: vi.fn(() => false) });
+    const clip = fakeClipboard({ hasImage: mock(() => false) });
     const result = await clipboardHasImage({ platform: 'win32', clipboard: clip });
     expect(result).toBe(false);
   });

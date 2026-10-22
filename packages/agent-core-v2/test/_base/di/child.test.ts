@@ -1,4 +1,4 @@
-import { describe, expect, it, afterEach } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import {

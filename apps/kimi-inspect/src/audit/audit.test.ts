@@ -4,7 +4,7 @@
  */
 
 import { EMPTY_AGENT_STATE, type AgentState, type TranscriptTurn } from '@moonshot-ai/transcript';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { diffValue, type DiffNode } from './diff';
 import { serializeState } from './serialize';

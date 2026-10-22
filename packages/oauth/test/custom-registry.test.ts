@@ -1,18 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock, spyOn } from 'bun:test';
 
-import {
-  applyCustomRegistryEntries,
-  applyCustomRegistryProvider,
-  CUSTOM_REGISTRY_DEFAULT_CAPABILITIES,
-  CUSTOM_REGISTRY_DEFAULT_MAX_CONTEXT,
-  capabilitiesFromCustomEntry,
-  CustomRegistryApiError,
-  fetchCustomRegistry,
-  removeCustomRegistryProvider,
-  type CustomRegistryProviderEntry,
-  type CustomRegistrySource,
-  type ManagedKimiConfigShape,
-} from '../src/custom-registry';
+import { applyCustomRegistryEntries, applyCustomRegistryProvider, CUSTOM_REGISTRY_DEFAULT_CAPABILITIES, CUSTOM_REGISTRY_DEFAULT_MAX_CONTEXT, capabilitiesFromCustomEntry, CustomRegistryApiError, fetchCustomRegistry, removeCustomRegistryProvider, type CustomRegistryProviderEntry, type CustomRegistrySource, type ManagedKimiConfigShape } from '../src/custom-registry';
 
 function makeKokubResponseBody(): Record<string, CustomRegistryProviderEntry> {
   return {
@@ -62,7 +50,7 @@ const KOKUB_SOURCE: CustomRegistrySource = {
 
 describe('fetchCustomRegistry', () => {
   it('parses a kokub-shaped 200 response into three providers', async () => {
-    const fetchMock = vi.fn(async () => makeJsonResponse(makeKokubResponseBody()));
+    const fetchMock = mock(async () => makeJsonResponse(makeKokubResponseBody()));
 
     const result = await fetchCustomRegistry(KOKUB_SOURCE, {
       fetchImpl: fetchMock as unknown as typeof fetch,
@@ -96,7 +84,7 @@ describe('fetchCustomRegistry', () => {
       support_efforts: ['low', 'high', 'max'],
       default_effort: 'high',
     };
-    const fetchMock = vi.fn(async () => makeJsonResponse(body));
+    const fetchMock = mock(async () => makeJsonResponse(body));
 
     const result = await fetchCustomRegistry(KOKUB_SOURCE, {
       fetchImpl: fetchMock as unknown as typeof fetch,
@@ -111,7 +99,7 @@ describe('fetchCustomRegistry', () => {
   });
 
   it('omits the Authorization header when the apiKey is empty', async () => {
-    const fetchMock = vi.fn(async () => makeJsonResponse(makeKokubResponseBody()));
+    const fetchMock = mock(async () => makeJsonResponse(makeKokubResponseBody()));
 
     await fetchCustomRegistry(
       { kind: 'apiJson', url: KOKUB_SOURCE.url, apiKey: '' },
@@ -126,7 +114,7 @@ describe('fetchCustomRegistry', () => {
   });
 
   it('sends the given User-Agent, and none by default', async () => {
-    const fetchMock = vi.fn(async () => makeJsonResponse(makeKokubResponseBody()));
+    const fetchMock = mock(async () => makeJsonResponse(makeKokubResponseBody()));
 
     await fetchCustomRegistry(KOKUB_SOURCE, {
       fetchImpl: fetchMock as unknown as typeof fetch,
@@ -146,7 +134,7 @@ describe('fetchCustomRegistry', () => {
   });
 
   it('forwards an AbortSignal when provided', async () => {
-    const fetchMock = vi.fn(async () => makeJsonResponse(makeKokubResponseBody()));
+    const fetchMock = mock(async () => makeJsonResponse(makeKokubResponseBody()));
     const controller = new AbortController();
 
     await fetchCustomRegistry(KOKUB_SOURCE, {
@@ -163,7 +151,7 @@ describe('fetchCustomRegistry', () => {
   });
 
   it('applies a 15s timeout even without a caller signal', async () => {
-    const fetchMock = vi.fn(async () => makeJsonResponse(makeKokubResponseBody()));
+    const fetchMock = mock(async () => makeJsonResponse(makeKokubResponseBody()));
 
     await fetchCustomRegistry(KOKUB_SOURCE, {
       fetchImpl: fetchMock as unknown as typeof fetch,
@@ -174,7 +162,7 @@ describe('fetchCustomRegistry', () => {
   });
 
   it('rejects responses above the body size cap', async () => {
-    const fetchMock = vi.fn(
+    const fetchMock = mock(
       async () =>
         new Response(JSON.stringify(makeKokubResponseBody()), {
           status: 200,
@@ -193,7 +181,7 @@ describe('fetchCustomRegistry', () => {
   });
 
   it('throws CustomRegistryApiError with status on 401', async () => {
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = mock(async () =>
       makeJsonResponse({ error: { message: 'invalid bearer' } }, 401),
     );
 
@@ -207,7 +195,7 @@ describe('fetchCustomRegistry', () => {
   });
 
   it('throws when the payload is not an object', async () => {
-    const fetchMock = vi.fn(async () => makeJsonResponse(['not', 'an', 'object']));
+    const fetchMock = mock(async () => makeJsonResponse(['not', 'an', 'object']));
 
     await expect(
       fetchCustomRegistry(KOKUB_SOURCE, {
@@ -218,7 +206,7 @@ describe('fetchCustomRegistry', () => {
 
   it('skips invalid entries and keeps valid ones', async () => {
     const goodEntry = makeKokubResponseBody()['registry_chat-completions'];
-    const fetchMock = vi.fn(async () =>
+    const fetchMock = mock(async () =>
       makeJsonResponse({
         'broken-entry': { id: 'broken-entry', name: 'Broken' },
         'unknown-type': {
@@ -231,7 +219,7 @@ describe('fetchCustomRegistry', () => {
         'registry_chat-completions': goodEntry,
       }),
     );
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
 
     try {
       const result = await fetchCustomRegistry(KOKUB_SOURCE, {

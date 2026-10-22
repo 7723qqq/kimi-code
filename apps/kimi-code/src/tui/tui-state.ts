@@ -43,6 +43,7 @@ import {
   setMarkdownRenderLatex,
   setMarkdownRenderRequester,
 } from './utils/markdown-options';
+import { SYSTEM_RENDER_CLOCK, type RenderClock } from './utils/render-clock';
 import { createTerminalState, type TerminalState } from './utils/terminal-state';
 
 export interface TUIState {
@@ -84,6 +85,12 @@ export interface TUIState {
   livePane: LivePaneState;
   transcriptEntries: TranscriptEntry[];
   terminalState: TerminalState;
+  /**
+   * Timer source for every animated row this state owns. Hosts that need
+   * deterministic frames (tests, embeds driving their own scheduler) replace it;
+   * the default is the process clock.
+   */
+  renderClock: RenderClock;
   activitySpinner: { instance: MoonLoader; style: SpinnerStyle } | null;
   toolOutputExpanded: boolean;
   sessions: SessionRow[];
@@ -269,6 +276,7 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
     livePane: { ...INITIAL_LIVE_PANE },
     transcriptEntries: [],
     terminalState: createTerminalState(),
+    renderClock: SYSTEM_RENDER_CLOCK,
     activitySpinner: null,
     toolOutputExpanded: false,
     sessions: [],

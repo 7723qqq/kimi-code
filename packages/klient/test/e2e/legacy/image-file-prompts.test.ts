@@ -10,7 +10,7 @@ import { ErrorCode } from '@moonshot-ai/kap-server/protocol/error-codes';
  * Converted from the retired scenario `09-image-file-prompts.ts`. Skips when
  * no server is reachable at `KIMI_SERVER_URL`.
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { DaemonClient, EnvelopeError } from '../harness/index.js';
 import { fetchWithReport } from '../harness/report.js';

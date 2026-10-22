@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import type { KimiConfig, KimiConfigPatch, ModelAlias } from '@moonshot-ai/kimi-code-sdk';
 
@@ -43,10 +43,10 @@ function makeHarness(
   cloud: RecommendedEffortConfig | undefined,
   stateFile: string,
 ) {
-  const setConfig = vi.fn(async (_patch: KimiConfigPatch) => ({}) as KimiConfig);
-  const track = vi.fn();
-  const fetchConfig = vi.fn(async () => cloud);
-  const getConfig = vi.fn(async () => config);
+  const setConfig = mock(async (_patch: KimiConfigPatch) => ({}) as KimiConfig);
+  const track = mock();
+  const fetchConfig = mock(async () => cloud);
+  const getConfig = mock(async () => config);
   const run = () =>
     applyRecommendedEffort({
       fetchConfig,

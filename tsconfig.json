@@ -23,7 +23,8 @@
     "noEmit": true,
     "skipLibCheck": true,
 
-    "types": ["node"]
+    "typeRoots": ["./node_modules/@types", "./types"],
+    "types": ["node", "bun-test"]
   },
   "include": [
     "packages/*/src/**/*.ts",

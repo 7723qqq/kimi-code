@@ -2,7 +2,8 @@ import { mkdtemp, mkdir, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 import { join } from 'pathe';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { expectRejection } from '#test/helpers/assertions';
 
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 
@@ -65,7 +66,7 @@ describe('FileStorageService — error translation', () => {
   it.skipIf(isWin)('translates non-ENOENT failures into StorageError(io_failed)', async () => {
     const svc = new FileStorageService(dir);
     await mkdir(join(dir, 'scope', 'adir'), { recursive: true });
-    await expect(svc.read('scope', 'adir')).rejects.toSatisfy((error: unknown) => {
+    await expectRejection(svc.read('scope', 'adir'), (error: unknown) => {
       expect(error).toMatchObject({ code: 'storage.io_failed' });
       const io = error as { details?: Record<string, unknown>; cause?: unknown };
       expect(io.details).toMatchObject({

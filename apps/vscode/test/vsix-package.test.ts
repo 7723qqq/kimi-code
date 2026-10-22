@@ -4,14 +4,14 @@
  * dev state, manifest/resource hygiene, unresolved imports, and entry loading.
  * Wiring: real Node packaging/verifier CLIs and filesystem; VSIX directory
  * fixtures replace only the external Marketplace archive producer.
- * Run: cd apps/vscode && bunx vitest run --config vitest.config.ts test/vsix-package.test.ts
+ * Run: cd apps/vscode && bun test --isolate test/vsix-package.test.ts
  */
 import { spawnSync } from 'node:child_process';
 import { mkdtemp, mkdir, readFile, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 const appRoot = resolve(import.meta.dirname, '..');
 const packageScript = join(appRoot, 'scripts', 'vsix-package.mjs');

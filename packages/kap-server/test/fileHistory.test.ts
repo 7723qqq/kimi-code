@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 
 import { type RunningServer, startServer } from '../src/start';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
@@ -89,7 +89,9 @@ describe('file history routes', () => {
       url: `/api/v1/sessions/${sessionId}/file-history/changes?turn_id=1`,
     });
     expect(changes.statusCode).toBe(200);
-    expect((changes.json() as Envelope<{ changes: unknown[] }>).data).toEqual({
+    expect(
+      (changes.json() as Envelope<{ changes: unknown[]; recorded: boolean }>).data,
+    ).toEqual({
       changes: [],
       recorded: false,
     });

@@ -6,16 +6,17 @@
  * device flow already persisted the token), where Reload alone can never change
  * the on-disk state and the user would otherwise be stranded.
  * Wiring: resolveAppView is pure; the bridge and toast boundaries are mocked away.
- * Run: bunx vitest run --config apps/vscode/vitest.config.ts test/app-init.test.ts
+ * Run: cd apps/vscode && bun test --isolate test/app-init.test.ts
  */
-import { describe, expect, it, vi } from "vitest";
+import './webview/setup';
+import { describe, expect, it, mock } from 'bun:test';
 
-vi.mock("@/services", () => ({
+void mock.module("@/services", () => ({
   bridge: {},
   Events: {},
 }));
-vi.mock("@/components/ui/sonner", () => ({
-  toast: { error: vi.fn(), warning: vi.fn() },
+void mock.module("@/components/ui/sonner", () => ({
+  toast: { error: mock(), warning: mock() },
 }));
 
 import { resolveAppView, type AppStatus } from "../webview-ui/src/hooks/useAppInit";

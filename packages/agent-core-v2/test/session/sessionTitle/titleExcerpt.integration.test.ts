@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentTitlePromptSource } from '#/session/sessionTitle/agentTitlePromptSource';

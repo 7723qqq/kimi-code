@@ -1,5 +1,7 @@
 import type { GoalSnapshot } from '@moonshot-ai/kimi-code-sdk';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
+
+import { createFakeClock } from '#test/helpers/fake-clock';
 
 import { FooterComponent } from '#/tui/components/chrome/footer';
 import type { AppState } from '#/tui/types';
@@ -54,10 +56,6 @@ function goal(overrides: Partial<GoalSnapshot> = {}): GoalSnapshot {
 }
 
 describe('FooterComponent — goal badge', () => {
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
   it('omits the badge when there is no goal', () => {
     const footer = new FooterComponent(baseState({ goal: null }));
     expect(strip(footer.render(160)[0]!)).not.toContain('[goal');
@@ -75,23 +73,26 @@ describe('FooterComponent — goal badge', () => {
   });
 
   it('keeps counting elapsed time for an active goal between snapshots', () => {
-    vi.useFakeTimers();
-    vi.setSystemTime(0);
-
-    const footer = new FooterComponent(baseState({ goal: goal({ wallClockMs: 0, turnsUsed: 0 }) }));
+    const clock = createFakeClock(0);
+    const footer = new FooterComponent(
+      baseState({ goal: goal({ wallClockMs: 0, turnsUsed: 0 }) }),
+      () => {},
+      clock,
+    );
 
     expect(strip(footer.render(160)[0]!)).toContain('0s');
-    vi.setSystemTime(2_500);
+    clock.advance(2_500);
     expect(strip(footer.render(160)[0]!)).toContain('3s');
+    footer.dispose();
   });
 
   it('requests a repaint while an active goal timer is visible', () => {
-    vi.useFakeTimers();
-    const onRefresh = vi.fn();
+    const clock = createFakeClock();
+    const onRefresh = mock();
 
-    new FooterComponent(baseState({ goal: goal({ wallClockMs: 0 }) }), onRefresh);
+    new FooterComponent(baseState({ goal: goal({ wallClockMs: 0 }) }), onRefresh, clock);
 
-    vi.advanceTimersByTime(1_000);
+    clock.advance(1_000);
     expect(onRefresh).toHaveBeenCalledTimes(1);
   });
 

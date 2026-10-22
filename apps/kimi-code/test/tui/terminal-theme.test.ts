@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, mock } from "bun:test";
 
 import type { TUIState } from "#/tui/kimi-tui";
 import { darkColors, lightColors } from "#/tui/theme/colors";
@@ -29,8 +29,8 @@ describe("terminal theme tracking", () => {
   });
 
   it("consumes theme reports by querying the terminal background", () => {
-    const terminal = { write: vi.fn() };
-    const onTheme = vi.fn();
+    const terminal = { write: mock() };
+    const onTheme = mock();
 
     expect(handleTerminalThemeInput(TERMINAL_THEME_DARK, terminal, onTheme)).toEqual({
       consume: true,
@@ -45,8 +45,8 @@ describe("terminal theme tracking", () => {
   });
 
   it("strips terminal theme reports without dropping coalesced input", () => {
-    const terminal = { write: vi.fn() };
-    const onTheme = vi.fn();
+    const terminal = { write: mock() };
+    const onTheme = mock();
 
     expect(handleTerminalThemeInput(`a${TERMINAL_THEME_LIGHT}b`, terminal, onTheme)).toEqual({
       data: "ab",
@@ -57,8 +57,8 @@ describe("terminal theme tracking", () => {
   });
 
   it("consumes OSC 11 background reports and forwards resolved themes", () => {
-    const terminal = { write: vi.fn() };
-    const onTheme = vi.fn();
+    const terminal = { write: mock() };
+    const onTheme = mock();
 
     expect(handleTerminalThemeInput(DARK_OSC11_REPORT, terminal, onTheme)).toEqual({
       consume: true,
@@ -77,8 +77,8 @@ describe("terminal theme tracking", () => {
   });
 
   it("strips OSC 11 background reports without dropping coalesced input", () => {
-    const terminal = { write: vi.fn() };
-    const onTheme = vi.fn();
+    const terminal = { write: mock() };
+    const onTheme = mock();
 
     expect(handleTerminalThemeInput(`a${DARK_OSC11_REPORT}b`, terminal, onTheme)).toEqual({
       data: "ab",
@@ -89,8 +89,8 @@ describe("terminal theme tracking", () => {
   });
 
   it("accumulates fragmented OSC 11 background reports", () => {
-    const terminal = { write: vi.fn() };
-    const onTheme = vi.fn();
+    const terminal = { write: mock() };
+    const onTheme = mock();
     const inputState = createTerminalThemeInputState();
 
     expect(
@@ -106,8 +106,8 @@ describe("terminal theme tracking", () => {
   });
 
   it("forwards input that follows a fragmented OSC 11 background report", () => {
-    const terminal = { write: vi.fn() };
-    const onTheme = vi.fn();
+    const terminal = { write: mock() };
+    const onTheme = mock();
     const inputState = createTerminalThemeInputState();
 
     expect(
@@ -123,14 +123,14 @@ describe("terminal theme tracking", () => {
 
   it("enables reporting, queries current theme, and disables on dispose", () => {
     const listeners: InputListener[] = [];
-    const removeInputListener = vi.fn();
-    const onTheme = vi.fn();
+    const removeInputListener = mock();
+    const onTheme = mock();
     const state = {
       terminal: {
-        write: vi.fn(),
+        write: mock(),
       },
       ui: {
-        addInputListener: vi.fn((listener: InputListener) => {
+        addInputListener: mock((listener: InputListener) => {
           listeners.push(listener);
           return removeInputListener;
         }),
@@ -156,7 +156,7 @@ describe("terminal theme tracking", () => {
 
     dispose();
 
-    expect(removeInputListener).toHaveBeenCalledOnce();
+    expect(removeInputListener).toHaveBeenCalledTimes(1);
     expect(state.terminal.write).toHaveBeenCalledWith(DISABLE_TERMINAL_THEME_REPORTING);
   });
 });

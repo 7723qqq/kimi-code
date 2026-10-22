@@ -46,10 +46,11 @@
   "scripts": {
     "build": "tsdown",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "vitest run",
+    "test": "bun ../../scripts/run-package-tests.mjs --root=test --test-timeout=30000",
     "bench": "bun bench/bench.ts",
     "bench:cluster": "bun bench/cluster.ts",
     "bench:open": "bun bench/open-lifecycle.ts",
-    "clean": "bun -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })\""
+    "clean": "bun -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })\"",
+    "test:heavy": "bun test --isolate --timeout 30000 --path-ignore-patterns='**/node_modules/**'"
   }
 }

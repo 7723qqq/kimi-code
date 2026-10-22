@@ -1,6 +1,11 @@
 import type { Writable } from 'node:stream';
 
 import { HEADLESS_FORCE_EXIT_GRACE_MS, HEADLESS_STDIO_DRAIN_TIMEOUT_MS } from '#/constant/app';
+import {
+  SYSTEM_RENDER_CLOCK,
+  type RenderClock,
+  type RenderTimerHandle,
+} from '#/tui/utils/render-clock';
 
 /** Minimal process surface needed to force a headless run to terminate. */
 export interface ExitableProcess {
@@ -24,14 +29,17 @@ export interface ExitableProcess {
  * `process.exitCode` after scheduling (e.g. a goal turn mapping its terminal
  * status to a non-zero code).
  *
- * Returns the timer handle so callers/tests can `clearTimeout` it.
+ * Returns the timer handle so callers/tests can `clearTimeout` it. `clock` is
+ * injectable (it defaults to the system clock) so a test can drive the grace
+ * window without fake timers.
  */
 export function scheduleHeadlessForceExit(
   proc: ExitableProcess,
   getExitCode: () => number,
   graceMs: number = HEADLESS_FORCE_EXIT_GRACE_MS,
-): NodeJS.Timeout {
-  const timer = setTimeout(() => {
+  clock: RenderClock = SYSTEM_RENDER_CLOCK,
+): RenderTimerHandle {
+  const timer = clock.setTimeout(() => {
     proc.exit(getExitCode());
   }, graceMs);
   timer.unref?.();
@@ -63,16 +71,17 @@ function flushStream(stream: Writable): Promise<void> {
 export async function drainStdio(
   streams: readonly Writable[],
   timeoutMs: number = HEADLESS_STDIO_DRAIN_TIMEOUT_MS,
+  clock: RenderClock = SYSTEM_RENDER_CLOCK,
 ): Promise<void> {
-  let timer: NodeJS.Timeout | undefined;
+  let timer: RenderTimerHandle | undefined;
   const timeout = new Promise<void>((resolve) => {
-    timer = setTimeout(resolve, timeoutMs);
+    timer = clock.setTimeout(resolve, timeoutMs);
     timer.unref?.();
   });
   try {
     await Promise.race([Promise.all(streams.map(flushStream)).then(() => undefined), timeout]);
   } finally {
-    if (timer !== undefined) clearTimeout(timer);
+    if (timer !== undefined) clock.clearTimeout(timer);
   }
 }
 
@@ -89,8 +98,9 @@ export async function finalizeHeadlessRun(
   proc: ExitableProcess,
   streams: readonly Writable[],
   getExitCode: () => number,
-  options: { drainTimeoutMs?: number; graceMs?: number } = {},
+  options: { drainTimeoutMs?: number; graceMs?: number; clock?: RenderClock } = {},
 ): Promise<void> {
-  await drainStdio(streams, options.drainTimeoutMs ?? HEADLESS_STDIO_DRAIN_TIMEOUT_MS);
-  scheduleHeadlessForceExit(proc, getExitCode, options.graceMs);
+  const clock = options.clock ?? SYSTEM_RENDER_CLOCK;
+  await drainStdio(streams, options.drainTimeoutMs ?? HEADLESS_STDIO_DRAIN_TIMEOUT_MS, clock);
+  scheduleHeadlessForceExit(proc, getExitCode, options.graceMs, clock);
 }

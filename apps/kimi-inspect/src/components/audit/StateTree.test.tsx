@@ -9,7 +9,7 @@
 
 import { EMPTY_AGENT_STATE, type AgentState, type TranscriptTurn } from '@moonshot-ai/transcript';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { diffValue } from '../../audit/diff';
 import { serializeState } from '../../audit/serialize';

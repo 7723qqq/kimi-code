@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import type { ContentPart } from '#human/llm/message';
 import { SyncDescriptor } from '#/_base/di/descriptors';

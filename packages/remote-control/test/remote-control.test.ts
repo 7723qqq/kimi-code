@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import type { Duplex } from 'node:stream';
+import { Duplex } from 'node:stream';
 import { existsSync, chmodSync, mkdtempSync, rmSync } from 'node:fs';
 import { mkdir, chmod, readFile, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage } from 'node:http';
@@ -7,29 +7,13 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { gunzipSync } from 'node:zlib';
 
-import {
-  FileTokenStorage,
-  KIMI_CODE_PROVIDER_NAME,
-  resolveKimiCodeOAuthRef,
-  resolveKimiTokenStorageName,
-  type TokenInfo,
-} from '@moonshot-ai/kimi-code-oauth';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { FileTokenStorage, KIMI_CODE_PROVIDER_NAME, resolveKimiCodeOAuthRef, resolveKimiTokenStorageName, type TokenInfo } from '@moonshot-ai/kimi-code-oauth';
+import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
 
 import { remoteControlLockPath } from '../src/lock';
-import {
-  buildRemoteControlUrl,
-  filterForwardRequestHeaders,
-  parseRawHttpRequest,
-  REMOTE_CONTROL_ORIGIN_FIX_PATH,
-  REMOTE_CONTROL_ORIGIN_FIX_SCRIPT,
-  resolveRemoteControlRelayOrigin,
-  rewriteRemoteControlResponse,
-  startRemoteControl,
-  type RemoteControlHandle,
-} from '../src/remote-control';
-import { RemoteControlDeviceClient } from '../src/device-client';
+import { buildRemoteControlUrl, filterForwardRequestHeaders, parseRawHttpRequest, REMOTE_CONTROL_ORIGIN_FIX_PATH, REMOTE_CONTROL_ORIGIN_FIX_SCRIPT, resolveRemoteControlRelayOrigin, rewriteRemoteControlResponse, startRemoteControl, type RemoteControlHandle } from '../src/remote-control';
+import { RemoteControlDeviceClient, type RemoteControlDevice } from '../src/device-client';
 import { createRemoteControlManager } from '../src/manager';
 
 const CLIENT_VERSION = 'kimi-code/test';
@@ -43,10 +27,24 @@ const TOKEN: TokenInfo = {
   expiresIn: 0,
 };
 
+const envStubs: Array<[string, string | undefined]> = [];
+
+function setEnv(name: string, value: string): void {
+  envStubs.push([name, process.env[name]]);
+  process.env[name] = value;
+}
+
+function restoreEnvs(): void {
+  for (const [name, previous] of envStubs.splice(0).reverse()) {
+    if (previous === undefined) delete process.env[name];
+    else process.env[name] = previous;
+  }
+}
+
 const cleanups: Array<() => Promise<void> | void> = [];
 
 afterEach(async () => {
-  vi.unstubAllEnvs();
+  restoreEnvs();
   while (cleanups.length > 0) await cleanups.pop()!();
 });
 
@@ -94,7 +92,7 @@ describe('Remote Control URLs', () => {
   });
 
   it('builds device URLs from the relay origin env override', () => {
-    vi.stubEnv('KIMI_CODE_REMOTE_CONTROL_RELAY_URL', 'https://rc.example.test/coding-relay/');
+    setEnv('KIMI_CODE_REMOTE_CONTROL_RELAY_URL', 'https://rc.example.test/coding-relay/');
     expect(resolveRemoteControlRelayOrigin()).toBe('https://rc.example.test/coding-relay/');
     expect(
       buildRemoteControlUrl('device-1', undefined, resolveRemoteControlRelayOrigin(), 'kimi_code_cli'),
@@ -1147,7 +1145,7 @@ describe('Remote Control single-instance lock', () => {
 });
 
 describe('Remote Control device client', () => {
-  const device = {
+  const device: RemoteControlDevice = {
     device_id: 'device-1',
     alias: 'Workstation',
     status: 'online',
@@ -1786,7 +1784,7 @@ describe('Remote Control manager', () => {
     const relay = await startAuthRelay();
     const original = FileTokenStorage.prototype.load;
     let loads = 0;
-    vi.spyOn(FileTokenStorage.prototype, 'load').mockImplementation(function (
+    spyOn(FileTokenStorage.prototype, 'load').mockImplementation(function (
       this: FileTokenStorage,
       ...args: Parameters<FileTokenStorage['load']>
     ) {
@@ -1809,7 +1807,7 @@ describe('Remote Control manager', () => {
       ).rejects.toThrow('Remote Control requires a Kimi login');
       expect(existsSync(remoteControlLockPath(homeDir))).toBe(false);
     } finally {
-      vi.restoreAllMocks();
+      mock.restore();
     }
   });
 

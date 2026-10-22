@@ -4,7 +4,7 @@ import {
   APIConnectionTimeoutError as OpenAITimeoutError,
   APIUserAbortError as OpenAIUserAbortError,
 } from 'openai';
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import {
   APIConnectionError,
@@ -254,14 +254,14 @@ describe('OpenAI streaming error propagation', () => {
       new ReasoningKeyDialect(),
     );
 
-    await expect(async () => {
+    await expect((async () => {
       for await (const _ of msg) {
         void _;
       }
-    }).rejects.toThrow(APIConnectionError);
+    })()).rejects.toThrow(APIConnectionError);
 
     // Verify the message is preserved
-    await expect(async () => {
+    await expect((async () => {
       async function* failingStream2(): AsyncGenerator<never> {
         throw new OpenAIAPIError(undefined, undefined, 'Network connection lost.', undefined);
         yield undefined as never;
@@ -274,7 +274,7 @@ describe('OpenAI streaming error propagation', () => {
       for await (const _ of msg2) {
         void _;
       }
-    }).rejects.toThrow(/Network connection lost/);
+    })()).rejects.toThrow(/Network connection lost/);
   });
 });
 describe('convertOpenAIError: raw transport-layer stream errors', () => {

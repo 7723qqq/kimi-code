@@ -51,6 +51,12 @@ export async function createTestClient(opts: {
   extraSeeds?: RunAcpServerOptions['extraSeeds'];
   slashCommands?: RunAcpServerOptions['slashCommands'];
 }): Promise<TestClient> {
+  // The engine's chokidar watchers are disposed synchronously but closed
+  // asynchronously, so a teardown `rm(homeDir)` would race a live `fs.watch`.
+  // Bun turns that race into an uncaught EPERM; the supported switch keeps the
+  // watchers out of these ACP-surface tests (fs-watch behaviour is covered by
+  // agent-core-v2's `human/test/utils/watch.test.ts`).
+  process.env['KIMI_CODE_WATCH'] ??= '0';
   const toAgent = new PassThrough();
   const toClient = new PassThrough();
   const stream = ndJsonStream(Writable.toWeb(toClient), Readable.toWeb(toAgent));

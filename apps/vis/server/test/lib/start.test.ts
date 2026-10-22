@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 import { gzipSync } from 'node:zlib';
 import { startVisServer } from '../../src/start';
 

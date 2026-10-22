@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, mock, spyOn, type Mock } from 'bun:test';
 
 import type { GutterLayout } from '#/tui/components/chrome/gutter-container';
 import * as userMessages from '#/tui/components/messages/user-message';
@@ -11,7 +11,7 @@ function user(
   bullet?: string,
   turnId?: string,
 ): GutterLayout['children'][number] {
-  const component = { render: vi.fn(() => []), invalidate() {} };
+  const component = { render: mock(() => []), invalidate() {} };
   markTranscriptComponent(component, {
     id: 'user',
     kind: 'user',
@@ -24,14 +24,14 @@ function user(
 }
 
 function other(height: number): GutterLayout['children'][number] {
-  return { component: { render: vi.fn(() => []), invalidate() {} }, height };
+  return { component: { render: mock(() => []), invalidate() {} }, height };
 }
 
 function layout(children: GutterLayout['children'], contentWidth = 80): GutterLayout {
   return { children, contentWidth };
 }
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => mock.restore());
 
 describe('StickyUserMessageIndex', () => {
   it('has no candidate for empty content or at the start of a transcript', () => {
@@ -163,7 +163,7 @@ describe('StickyUserMessageIndex', () => {
   });
 
   it('measures only the candidate and reuses it across scrolling and unrelated height changes', () => {
-    const measure = vi.spyOn(userMessages, 'userMessageLineHeights');
+    const measure = spyOn(userMessages, 'userMessageLineHeights');
     const index = new StickyUserMessageIndex();
     const children = Array.from({ length: 500 }, (_, i) =>
       user('message ' + i + '\nmore', 3, undefined, String(i)),
@@ -175,7 +175,10 @@ describe('StickyUserMessageIndex', () => {
     for (const scrollTop of [2001, 2002, 2003]) index.getJudgment(body, scrollTop, false);
     expect(measure).toHaveBeenCalledTimes(1);
     expect(
-      children.every(({ component }) => vi.mocked(component.render).mock.calls.length === 0),
+      children.every(
+        ({ component }) =>
+          (component.render as Mock<(width: number) => string[]>).mock.calls.length === 0,
+      ),
     ).toBe(true);
 
     const resizedEntry = layout([{ ...children[0]!, height: 6 }, ...children.slice(1)]);

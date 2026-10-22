@@ -16,6 +16,11 @@ import { currentTheme } from '#/tui/theme';
 import type { ColorPalette } from '#/tui/theme/colors';
 import { gradientText } from '#/tui/theme/gradient-text';
 import { isRenderCacheEnabled } from '#/tui/utils/render-cache';
+import {
+  SYSTEM_RENDER_CLOCK,
+  type RenderClock,
+  type RenderTimerHandle,
+} from '#/tui/utils/render-clock';
 
 const TEXT_CELL_PREFERRED_WIDTH = 30;
 const CELL_GAP = '  ';
@@ -188,6 +193,8 @@ export interface AgentSwarmProgressOptions {
   readonly description: string;
   readonly requestRender?: () => void;
   readonly availableGridHeight?: () => number | undefined;
+  /** Time and frame-timer source; defaults to the system clock. */
+  readonly clock?: RenderClock;
 }
 
 function phaseLabel(phase: AgentSwarmPhase): string {
@@ -225,7 +232,8 @@ export class AgentSwarmProgressComponent implements Component {
   private toolCallActive = true;
   private promptTemplateText = '';
   private activitySpinnerText: (() => string) | undefined;
-  private timer: ReturnType<typeof setInterval> | undefined;
+  private timer: RenderTimerHandle | undefined;
+  private readonly clock: RenderClock;
   private renderVersion = 0;
   private renderCache: AgentSwarmRenderCache | undefined;
   private disposed = false;
@@ -234,6 +242,7 @@ export class AgentSwarmProgressComponent implements Component {
     this.description = options.description;
     this.requestRender = options.requestRender;
     this.availableGridHeight = options.availableGridHeight;
+    this.clock = options.clock ?? SYSTEM_RENDER_CLOCK;
     this.members = [];
   }
 
@@ -373,7 +382,7 @@ export class AgentSwarmProgressComponent implements Component {
   markStarted(agentId: string): void {
     const member = this.findMemberByAgentId(agentId);
     if (member === undefined) return;
-    const nowMs = Date.now();
+    const nowMs = this.clock.now();
     this.progressEstimator.markStarted(member.id, nowMs);
     member.ticks = Math.max(member.ticks, 1);
     this.promoteToRunning(member, nowMs);
@@ -387,7 +396,7 @@ export class AgentSwarmProgressComponent implements Component {
     const result = this.progressEstimator.recordToolCall({
       memberKey: member.id,
       toolCallId: input.toolCallId,
-      nowMs: Date.now(),
+      nowMs: this.clock.now(),
     });
     if (!result.accepted) return;
     member.ticks = result.rawTicks;
@@ -402,7 +411,7 @@ export class AgentSwarmProgressComponent implements Component {
     member.latestModelText = `${member.latestModelText}${input.delta}`.slice(
       -MAX_LATEST_MODEL_CHARS,
     );
-    this.promoteToRunning(member, Date.now(), true);
+    this.promoteToRunning(member, this.clock.now(), true);
     this.markDirty();
     this.startAnimationIfNeeded();
   }
@@ -410,7 +419,7 @@ export class AgentSwarmProgressComponent implements Component {
   markCompleted(agentId: string, completedText?: string): void {
     const member = this.findMemberByAgentId(agentId);
     if (member === undefined || member.phase === 'failed' || member.phase === 'cancelled') return;
-    const nowMs = Date.now();
+    const nowMs = this.clock.now();
     this.completeMember(member, nowMs, completedText);
     this.markDirty();
     this.startAnimationIfNeeded();
@@ -428,7 +437,7 @@ export class AgentSwarmProgressComponent implements Component {
     if (member === undefined || member.phase === 'completed' || member.phase === 'cancelled')
       return;
     this.assignMemberAgentId(member, input.agentId);
-    this.progressEstimator.markQueued(member.id, Date.now());
+    this.progressEstimator.markQueued(member.id, this.clock.now());
     member.phase = 'suspended';
     clearMemberState(member, ...TERMINAL_CLEAR_KEYS);
     this.markDirty();
@@ -438,7 +447,7 @@ export class AgentSwarmProgressComponent implements Component {
   markFailed(agentId: string, failureText?: string): void {
     const member = this.findMemberByAgentId(agentId);
     if (member === undefined) return;
-    const nowMs = Date.now();
+    const nowMs = this.clock.now();
     this.failMember(member, nowMs, failureText);
     this.markDirty();
     this.startAnimationIfNeeded();
@@ -447,7 +456,7 @@ export class AgentSwarmProgressComponent implements Component {
   markSwarmFailed(failureText?: string): void {
     this.failed = true;
     this.aborted = false;
-    const nowMs = Date.now();
+    const nowMs = this.clock.now();
     for (const member of this.members) {
       if (isTerminalPhase(member.phase)) continue;
       this.failMember(member, nowMs, failureText);
@@ -459,13 +468,13 @@ export class AgentSwarmProgressComponent implements Component {
   markCancelled(agentId: string): void {
     const member = this.findMemberByAgentId(agentId);
     if (member === undefined || isTerminalPhase(member.phase)) return;
-    this.cancelMember(member, Date.now());
+    this.cancelMember(member, this.clock.now());
     this.markDirty();
   }
 
   markActiveCancelled(): void {
     this.aborted = true;
-    const nowMs = Date.now();
+    const nowMs = this.clock.now();
     for (const member of this.members) {
       if (isTerminalPhase(member.phase)) continue;
       this.cancelMember(member, nowMs);
@@ -478,7 +487,7 @@ export class AgentSwarmProgressComponent implements Component {
     const statuses = parseAgentSwarmResultStatuses(output);
     if (statuses.length === 0) return false;
     this.aborted = false;
-    const nowMs = Date.now();
+    const nowMs = this.clock.now();
     for (const entry of statuses) {
       // `index` comes from model-generated tool output; a hallucinated huge
       // index must not allocate millions of member objects.
@@ -529,7 +538,7 @@ export class AgentSwarmProgressComponent implements Component {
         outerWidth,
       );
     } else {
-      const nowMs = Date.now();
+      const nowMs = this.clock.now();
       const snapshots = this.members.map((member): AgentSwarmSnapshot => ({
         phase: member.phase,
         ticks: member.ticks,
@@ -843,7 +852,7 @@ export class AgentSwarmProgressComponent implements Component {
       ...this.members,
       ...createMembers(count, this.inputComplete ? 'queued' : 'pending').slice(this.members.length),
     ];
-    const nowMs = Date.now();
+    const nowMs = this.clock.now();
     for (let index = previousLength; index < this.members.length; index += 1) {
       const member = this.members[index];
       if (member !== undefined) this.progressEstimator.ensureMember(member.id, nowMs);
@@ -864,26 +873,26 @@ export class AgentSwarmProgressComponent implements Component {
     if (this.disposed || this.requestRender === undefined || this.timer !== undefined) return;
     if (!this.hasAnimatedMembers()) return;
     const requestRender = this.requestRender;
-    this.timer = setInterval(() => {
+    this.timer = this.clock.setInterval(() => {
       requestRender();
       // The animation ending on its own must not mark the panel disposed: a
       // later mutation (a member completing inside the fill window, a
       // suspended member restarting) has to be able to re-arm the timer.
       if (!this.hasAnimatedMembers()) this.clearFrameTimer();
     }, FRAME_INTERVAL_MS);
-    if (typeof this.timer === 'object' && 'unref' in this.timer) {
-      this.timer.unref();
-    }
+    // Only the system clock's handles are real process timers; an injected
+    // clock owns its own liveness and may read `unref` as cancellation.
+    if (this.clock === SYSTEM_RENDER_CLOCK) this.timer.unref?.();
   }
 
   private clearFrameTimer(): void {
     if (this.timer === undefined) return;
-    clearInterval(this.timer);
+    this.clock.clearInterval(this.timer);
     this.timer = undefined;
   }
 
   private hasAnimatedMembers(): boolean {
-    const now = Date.now();
+    const now = this.clock.now();
     // Running cells and estimator catch-up only animate while the tool call
     // is live: no further progress arrives once it ends (an unparsable result
     // leaves members running), so ticking would repaint the tree forever.

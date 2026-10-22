@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import en from '#/i18n/locales/en';
 import zh from '#/i18n/locales/zh';

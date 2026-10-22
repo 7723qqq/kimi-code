@@ -94,6 +94,11 @@ import {
   type McpServerStatusSnapshot,
   selectMcpStartupStatusRows,
 } from '../utils/mcp-server-status';
+import {
+  SYSTEM_RENDER_CLOCK,
+  type RenderClock,
+  type RenderTimerHandle,
+} from '../utils/render-clock';
 import { nextTranscriptId } from '../utils/transcript-id';
 import type { BtwPanelController } from './btw-panel';
 import { NotifyController } from './notify';
@@ -160,9 +165,9 @@ export interface SessionEventHost {
 }
 
 /**
- * Estimate token count from text content. Matches the heuristic used by
- * the native token estimator in tokens.rs: ASCII chars ≈ 4/token,
- * non-ASCII (CJK, emoji) ≈ 1/token.
+ * Estimate token count from text content. Matches the heuristic the token
+ * estimator has always used: ASCII chars ≈ 4/token, non-ASCII (CJK,
+ * emoji) ≈ 1/token.
  */
 function estimateTokensFromText(text: string): number {
   let ascii = 0;
@@ -174,6 +179,8 @@ function estimateTokensFromText(text: string): number {
   return Math.ceil(ascii / 4 + nonAscii);
 }
 
+export type SessionEventTimers = Pick<RenderClock, 'setTimeout' | 'clearTimeout'>;
+
 export class SessionEventHandler {
   readonly notifications: NotifyController;
   readonly subAgentEventHandler: SubAgentEventHandler;
@@ -182,6 +189,7 @@ export class SessionEventHandler {
   constructor(
     private readonly host: SessionEventHost,
     pluginUpdateNotifier?: PluginUpdateNotifier,
+    private readonly timers: SessionEventTimers = SYSTEM_RENDER_CLOCK,
   ) {
     this.notifications = new NotifyController(host.state);
     this.subAgentEventHandler = new SubAgentEventHandler(host, {
@@ -209,8 +217,7 @@ export class SessionEventHandler {
   seenSkillActivationIds: Set<string> = new Set();
   renderedPluginCommandActivationIds: Set<string> = new Set();
   renderedMcpServerStatusKeys: Map<string, string> = new Map();
-  mcpServerStatusSpinners: Map<string, { spinner: MoonLoader; entry: TranscriptEntry }> =
-    new Map();
+  mcpServerStatusSpinners: Map<string, { spinner: MoonLoader; entry: TranscriptEntry }> = new Map();
   mcpServers: Map<string, McpServerStatusSnapshot> = new Map();
   private goalCompletionAwaitingClear = false;
   private goalCompletionTurnEnded = false;
@@ -223,8 +230,8 @@ export class SessionEventHandler {
   private pendingModelBlockedFallback: GoalChange | undefined;
   private queuedGoalPromotionPending = false;
   private queuedGoalPromotionInFlight = false;
-  private queuedGoalPromotionTimer: ReturnType<typeof setTimeout> | undefined;
-  private stepRetryAttemptTimer: ReturnType<typeof setTimeout> | undefined;
+  private queuedGoalPromotionTimer: RenderTimerHandle | undefined;
+  private stepRetryAttemptTimer: RenderTimerHandle | undefined;
 
   resetRuntimeState(): void {
     this.backgroundTasks.clear();
@@ -614,7 +621,7 @@ export class SessionEventHandler {
     // v2 re-emits `turn.step.started` for it — flip the phase on a timer so the
     // stale countdown drops on the legacy engine too.
     this.clearStepRetryAttemptTimer();
-    this.stepRetryAttemptTimer = setTimeout(() => {
+    this.stepRetryAttemptTimer = this.timers.setTimeout(() => {
       this.stepRetryAttemptTimer = undefined;
       const retry = this.host.state.appState.stepRetry;
       if (retry === null) return;
@@ -630,7 +637,7 @@ export class SessionEventHandler {
 
   clearStepRetryAttemptTimer(): void {
     if (this.stepRetryAttemptTimer !== undefined) {
-      clearTimeout(this.stepRetryAttemptTimer);
+      this.timers.clearTimeout(this.stepRetryAttemptTimer);
       this.stepRetryAttemptTimer = undefined;
     }
   }
@@ -1028,7 +1035,7 @@ export class SessionEventHandler {
     if (!this.queuedGoalPromotionPending || !this.goalCompletionTurnEnded) return;
     if (this.queuedGoalPromotionInFlight) return;
     if (this.queuedGoalPromotionTimer !== undefined) return;
-    this.queuedGoalPromotionTimer = setTimeout(() => {
+    this.queuedGoalPromotionTimer = this.timers.setTimeout(() => {
       this.queuedGoalPromotionTimer = undefined;
       if (!this.queuedGoalPromotionPending || !this.goalCompletionTurnEnded) return;
       if (this.queuedGoalPromotionInFlight) return;
@@ -1063,7 +1070,7 @@ export class SessionEventHandler {
 
   private clearQueuedGoalPromotionTimer(): void {
     if (this.queuedGoalPromotionTimer === undefined) return;
-    clearTimeout(this.queuedGoalPromotionTimer);
+    this.timers.clearTimeout(this.queuedGoalPromotionTimer);
     this.queuedGoalPromotionTimer = undefined;
   }
 
@@ -1403,7 +1410,7 @@ export class SessionEventHandler {
       });
       this.host.resetLivePane();
       if (next !== undefined) {
-        setTimeout(() => {
+        this.timers.setTimeout(() => {
           this.host.state.queuedMessageDispatchPending = false;
           sendQueued(next);
         }, 0);
@@ -1423,8 +1430,7 @@ export class SessionEventHandler {
     const previous = this.backgroundTasks.get(info.taskId);
     this.backgroundTasks.set(info.taskId, info);
 
-    const viewer = state.tasksBrowser?.viewer;
-    if (viewer !== undefined && viewer.taskId === info.taskId) {
+    if (state.tasksBrowser?.selectedTaskId === info.taskId) {
       void this.host.tasksBrowserController.refreshOutputViewer({ silent: true });
     }
 

@@ -22,6 +22,7 @@ import {
 } from '#/cli/update/native-stage';
 import { detectNativeInstall } from '#/cli/update/source';
 import { t } from '#/i18n';
+import { SYSTEM_RENDER_CLOCK, type RenderClock } from '#/tui/utils/render-clock';
 
 const LOCK_HELD_POLL_INTERVAL_MS = 2_000;
 
@@ -72,8 +73,9 @@ async function waitForStagedUpdate(
   version: string,
   exePath: string,
   manual: boolean,
+  clock: RenderClock,
 ): Promise<StagedUpdateWait> {
-  const deadline = Date.now() + STAGE_WAIT_MAX_MS;
+  const deadline = clock.now() + STAGE_WAIT_MAX_MS;
   // Identity of the generation whose payload the last hash verified. A stage
   // publishes its payload BEFORE the metadata pointing at it and a published
   // payload is never replaced, so a record with an unchanged identity still
@@ -120,9 +122,11 @@ async function waitForStagedUpdate(
       if (lock !== null) return { status: 'takeover', lock };
     }
     await new Promise((resolve) => {
-      setTimeout(resolve, LOCK_HELD_POLL_INTERVAL_MS);
+      clock.setTimeout(() => {
+        resolve(undefined);
+      }, LOCK_HELD_POLL_INTERVAL_MS);
     });
-    if (Date.now() >= deadline) {
+    if (clock.now() >= deadline) {
       // Out of time: hand the caller the same outcome a released lock
       // produces — a final acquire that reports the surviving holder as
       // `null` (its error path) instead of polling forever.
@@ -131,10 +135,17 @@ async function waitForStagedUpdate(
   }
 }
 
+export interface UpdateDownloadDeps {
+  /** Clock driving the wait-for-holder poll; defaults to the system clock. */
+  readonly clock?: RenderClock;
+}
+
 export async function runUpdateDownloadCommand(
   version: string,
   manual: boolean = false,
+  deps: UpdateDownloadDeps = {},
 ): Promise<number> {
+  const clock = deps.clock ?? SYSTEM_RENDER_CLOCK;
   const install = detectNativeInstall();
   if (!install.native) {
     process.stderr.write(t('tui.statusMessages.updateDownloadNativeOnly') + '\n');
@@ -148,7 +159,7 @@ export async function runUpdateDownloadCommand(
       // Another worker is already downloading this exact version: wait for it
       // and adopt its verified result instead of exiting on a maybe.
       out.write(t('tui.statusMessages.updateDownloadInProgress', { version }) + '\n');
-      const wait = await waitForStagedUpdate(version, process.execPath, manual);
+      const wait = await waitForStagedUpdate(version, process.execPath, manual, clock);
       if (wait.status === 'staged') {
         out.write(t('tui.statusMessages.updateDownloadStaged', { version }) + '\n');
         return 0;
@@ -215,11 +226,13 @@ function formatDownloadProgress(label: string, downloaded: number, total: number
  * Download progress renderer for the (foreground) downloader: a single
  * in-place line on a TTY (`\r` + clear-line, throttled to 10 fps, final frame
  * always rendered), or one line per 32 MB when piped to a file. The caller
- * owns the trailing newline.
+ * owns the trailing newline. `now` is injectable so the throttle is testable
+ * without a faked `Date`.
  */
 export function createDownloadProgress(
   out: NodeJS.WriteStream,
   label: string,
+  now: () => number = Date.now,
 ): (downloadedBytes: number, totalBytes: number | null) => void {
   const isTTY = out.isTTY;
   let lastFrameAt = 0;
@@ -228,9 +241,9 @@ export function createDownloadProgress(
   return (downloaded, total) => {
     const done = total !== null && downloaded >= total;
     if (isTTY) {
-      const now = Date.now();
-      if (!done && now - lastFrameAt < PROGRESS_FRAME_INTERVAL_MS) return;
-      lastFrameAt = now;
+      const current = now();
+      if (!done && current - lastFrameAt < PROGRESS_FRAME_INTERVAL_MS) return;
+      lastFrameAt = current;
       out.write(`\r\u001B[K${formatDownloadProgress(label, downloaded, total)}`);
       return;
     }

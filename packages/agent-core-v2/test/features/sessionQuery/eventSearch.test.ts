@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { SessionSearchCursor } from '#/features/sessionQuery/cursor';
 import { SessionEventIndex } from '#/features/sessionQuery/eventIndex';

@@ -1,25 +1,16 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-import { GutterContainer } from '#/tui/components/chrome/gutter-container';
-import {
-  SurveyController,
-  type SurveyControllerDeps,
-  type SurveyHost,
-} from '#/tui/controllers/survey-controller';
-import type { TranscriptEntry } from '#/tui/types';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn, type Mock } from 'bun:test';
 import { DEFAULT_SURVEY_POPUP_PAYLOAD } from '#/utils/survey-popup-config';
 
-const mocks = vi.hoisted(() => ({
-  getSurveyPopupConfig: vi.fn(() => Promise.resolve(undefined)),
-}));
+import { GutterContainer } from '#/tui/components/chrome/gutter-container';
+import { SurveyController, type SurveyControllerDeps, type SurveyHost } from '#/tui/controllers/survey-controller';
+import { type TranscriptEntry } from '#/tui/types';
+import * as surveyPopupConfigModule from '#/utils/survey-popup-config';
 
-vi.mock('#/utils/survey-popup-config', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('#/utils/survey-popup-config')>();
-  return {
-    ...actual,
-    getSurveyPopupConfig: mocks.getSurveyPopupConfig,
-  };
-});
+const mocks = {
+  getSurveyPopupConfig: spyOn(surveyPopupConfigModule, 'getSurveyPopupConfig').mockImplementation(
+    (() => Promise.resolve(undefined)) as never,
+  ),
+};
 
 const ESC = '\u001B';
 const CSI_LEFT = '\u001B[D';
@@ -68,7 +59,7 @@ interface Harness {
   readonly timers: TimerDriver;
   readonly clock: { mono: number; wall: number };
   elapse(ms: number): void;
-  readonly track: ReturnType<typeof vi.fn>;
+  readonly track: Mock<(...args: any[]) => any>;
   readonly editor: {
     inputMode: 'prompt' | 'bash';
     autocompleteActive: boolean;
@@ -88,7 +79,7 @@ interface Harness {
 function createHarness(deps: Partial<SurveyControllerDeps> = {}): Harness {
   const clock = { mono: 0, wall: 1_700_000_000_000 };
   const timers = createTimerDriver();
-  const track = vi.fn();
+  const track = mock();
   const writes: number[] = [];
   const container = new GutterContainer(1, 1);
   let editorText = '';
@@ -123,7 +114,7 @@ function createHarness(deps: Partial<SurveyControllerDeps> = {}): Harness {
       availableModels: {},
       availableProviders: {},
     },
-    ui: { requestRender: vi.fn() },
+    ui: { requestRender: mock() },
   };
   let randomCallCount = 0;
   let appearanceCounter = 0;
@@ -2384,7 +2375,7 @@ describe('SurveyController event payload', () => {
 
   it('refreshes and defers when the config cache has gone stale', async () => {
     let fresh = true;
-    const refreshConfig = vi.fn(() => {
+    const refreshConfig = mock(() => {
       fresh = true;
     });
     const harness = createHarness({ configFresh: () => fresh, refreshConfig });
@@ -2409,7 +2400,7 @@ describe('SurveyController event payload', () => {
   it('defers the evaluation that triggers a refresh so a stale policy cannot open the survey', async () => {
     let region = 'region-a';
     let config = { ...DEFAULT_SURVEY_POPUP_PAYLOAD, probability: 1 };
-    const refreshConfig = vi.fn(() => {
+    const refreshConfig = mock(() => {
       config = { ...config, probability: 0 };
     });
     const harness = createHarness({
@@ -2438,7 +2429,7 @@ describe('SurveyController event payload', () => {
   it('evaluates with the refreshed policy on the next turn after the deferred evaluation', async () => {
     let region = 'region-a';
     let config = { ...DEFAULT_SURVEY_POPUP_PAYLOAD, probability: 1, on_for_models: ['other-model'] };
-    const refreshConfig = vi.fn(() => {
+    const refreshConfig = mock(() => {
       config = { ...config, on_for_models: ['*'] };
     });
     const harness = createHarness({
@@ -2467,7 +2458,7 @@ describe('SurveyController event payload', () => {
 
   it('re-refreshes the cloud config when the region changes', async () => {
     let region = 'region-a';
-    const refreshConfig = vi.fn();
+    const refreshConfig = mock();
     const harness = createHarness({ refreshConfig, configRegion: () => region });
     await harness.flush();
     expect(refreshConfig).toHaveBeenCalledTimes(1);
@@ -2479,7 +2470,7 @@ describe('SurveyController event payload', () => {
   });
 
   it('re-refreshes the cloud config once the previous refresh is over an hour old', async () => {
-    const refreshConfig = vi.fn();
+    const refreshConfig = mock();
     const harness = createHarness({ refreshConfig });
     await harness.flush();
     expect(refreshConfig).toHaveBeenCalledTimes(1);
@@ -2507,7 +2498,7 @@ describe('SurveyController event payload', () => {
 
 describe('SurveyController cloud config refresh', () => {
   it('fires the injected refresh once at mount and not on session reset', async () => {
-    const refreshConfig = vi.fn();
+    const refreshConfig = mock();
     const harness = createHarness({ refreshConfig });
     await harness.flush();
     expect(refreshConfig).toHaveBeenCalledTimes(1);

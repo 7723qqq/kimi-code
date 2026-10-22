@@ -1,21 +1,11 @@
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { join } from 'node:path';
 
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
-import {
-  KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV,
-  kimiCodePluginMarketplaceUrl,
-} from '#/constant/app';
-import {
-  computeUpdateStatus,
-  loadPluginMarketplace,
-  withBuiltInEntries,
-  withMarketplaceLatestVersions,
-  type PluginMarketplaceEntry,
-} from '#/utils/plugin-marketplace';
+import { KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV, kimiCodePluginMarketplaceUrl } from '#/constant/app';
+import { computeUpdateStatus, loadPluginMarketplace, withBuiltInEntries, withMarketplaceLatestVersions, type PluginMarketplaceEntry } from '#/utils/plugin-marketplace';
 
 const REPO_ROOT = join(import.meta.dirname, '../../../..');
 
@@ -200,7 +190,7 @@ describe('loadPluginMarketplace', () => {
   });
 
   it('includes Superpowers in the repository marketplace fixture', async () => {
-    const fetchImpl = vi.fn(async (input: string | URL) => {
+    const fetchImpl = mock(async (input: string | URL) => {
       const url = String(input);
       if (url.endsWith('/releases/latest')) {
         return {
@@ -237,7 +227,7 @@ describe('loadPluginMarketplace', () => {
   });
 
   it('loads the default CDN marketplace with injectable fetch', async () => {
-    const fetchImpl = vi.fn(async () => ({
+    const fetchImpl = mock(async () => ({
       ok: true,
       status: 200,
       text: async () =>
@@ -274,7 +264,7 @@ describe('loadPluginMarketplace', () => {
   it('falls back to the source checkout marketplace when the default CDN cannot be fetched', async () => {
     const previous = process.env[KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV];
     delete process.env[KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV];
-    const fetchImpl = vi.fn(async () => {
+    const fetchImpl = mock(async () => {
       throw new Error('fetch failed');
     }) as unknown as typeof fetch;
 
@@ -299,7 +289,7 @@ describe('loadPluginMarketplace', () => {
   });
 
   it('does not use the source checkout fallback for explicit marketplace sources', async () => {
-    const fetchImpl = vi.fn(async () => {
+    const fetchImpl = mock(async () => {
       throw new Error('fetch failed');
     }) as unknown as typeof fetch;
 
@@ -311,7 +301,7 @@ describe('loadPluginMarketplace', () => {
   });
 
   it('keeps the built-in entries when the catalog is unreachable', async () => {
-    const fetchImpl = vi.fn(async () => {
+    const fetchImpl = mock(async () => {
       throw new Error('fetch failed');
     }) as unknown as typeof fetch;
 
@@ -397,7 +387,7 @@ describe('loadPluginMarketplace', () => {
     }
 
     function redirectFetch(location: string): typeof fetch {
-      return vi.fn(async () => ({
+      return mock(async () => ({
         status: 302,
         headers: new Headers({ location }),
       })) as unknown as typeof fetch;
@@ -420,7 +410,7 @@ describe('loadPluginMarketplace', () => {
     });
 
     it('leaves version undefined when the repo has no release', async () => {
-      const fetchImpl = vi.fn(async () => ({
+      const fetchImpl = mock(async () => ({
         status: 404,
         headers: new Headers(),
       })) as unknown as typeof fetch;
@@ -429,7 +419,7 @@ describe('loadPluginMarketplace', () => {
     });
 
     it('degrades gracefully when the latest lookup throws', async () => {
-      const fetchImpl = vi.fn(async () => {
+      const fetchImpl = mock(async () => {
         throw new Error('network down');
       }) as unknown as typeof fetch;
       const entry = await loadWithLatest('https://github.com/owner/repo', fetchImpl);
@@ -437,7 +427,7 @@ describe('loadPluginMarketplace', () => {
     });
 
     it('does not query latest when the source already pins a ref', async () => {
-      const fetchImpl = vi.fn(async () => {
+      const fetchImpl = mock(async () => {
         throw new Error('should not be called');
       }) as unknown as typeof fetch;
       const entry = await loadWithLatest(
@@ -449,7 +439,7 @@ describe('loadPluginMarketplace', () => {
     });
 
     it('keeps an explicit version without querying latest', async () => {
-      const fetchImpl = vi.fn(async () => {
+      const fetchImpl = mock(async () => {
         throw new Error('should not be called');
       }) as unknown as typeof fetch;
       const dir = await mkdtemp(join(tmpdir(), 'kimi-plugin-marketplace-'));
@@ -531,7 +521,7 @@ describe('loadPluginMarketplace', () => {
 
   it('loads an explicit remote marketplace with injectable fetch', async () => {
     const source = 'https://example.com/plugins/marketplace.json';
-    const fetchImpl = vi.fn(async () => ({
+    const fetchImpl = mock(async () => ({
       ok: true,
       status: 200,
       text: async () =>
@@ -610,7 +600,7 @@ describe('loadPluginMarketplace', () => {
     }
 
     it('skipLatestVersions returns the catalog without querying GitHub', async () => {
-      const fetchImpl = vi.fn(async () => {
+      const fetchImpl = mock(async () => {
         throw new Error('should not be called');
       }) as unknown as typeof fetch;
       const dir = await mkdtemp(join(tmpdir(), 'kimi-plugin-marketplace-'));
@@ -628,7 +618,7 @@ describe('loadPluginMarketplace', () => {
     });
 
     it('withMarketplaceLatestVersions fills versions from the latest release redirect', async () => {
-      const fetchImpl = vi.fn(async (input: unknown) => ({
+      const fetchImpl = mock(async (input: unknown) => ({
         ok: false,
         status: 302,
         headers: new Headers({
@@ -654,7 +644,7 @@ describe('loadPluginMarketplace', () => {
     });
 
     it('withMarketplaceLatestVersions degrades to a missing version when the lookup aborts', async () => {
-      const fetchImpl = vi.fn(async (_input: unknown, init?: { signal?: AbortSignal }) => {
+      const fetchImpl = mock(async (_input: unknown, init?: { signal?: AbortSignal }) => {
         // Simulate the lookup hitting the timeout: undici rejects with the
         // signal's reason once the AbortSignal fires.
         throw init?.signal?.aborted === true
@@ -679,7 +669,7 @@ describe('loadPluginMarketplace', () => {
       // Regression for the resolve-before-inject ordering: enriching the
       // built-in-masked marketplace cannot see the catalog entry's GitHub
       // source, so built-in rows would never get update badges.
-      const fetchImpl = vi.fn(async () => ({
+      const fetchImpl = mock(async () => ({
         ok: false,
         status: 302,
         headers: new Headers({

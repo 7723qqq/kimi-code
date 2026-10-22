@@ -1,5 +1,5 @@
 import { produce } from 'immer';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import {
   ContextAppendLoopEvent,

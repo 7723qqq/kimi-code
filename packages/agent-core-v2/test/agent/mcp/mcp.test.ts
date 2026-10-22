@@ -1,7 +1,7 @@
-import type { ContentPart, ToolDescription as KosongTool } from '#human/llm/message';
+import { type ContentPart, type ToolDescription as KosongTool } from '#human/llm/message';
 import { Jimp } from 'jimp';
 import { CallToolResultSchema, ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,11 +10,11 @@ import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { ILogService } from '#/_base/log/log';
-import { Event } from '#/_base/event';
+
 import { abortError } from '#/_base/utils/abort';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentMcpService } from '#/agent/mcp/mcp';
-import { mcpDiscoveryKey } from '#/agent/mcp/mcpDiscoveryOps';
+
 import { AgentMcpService } from '#/agent/mcp/mcpService';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentStateService } from '#/agent/state/agentState';
@@ -24,11 +24,11 @@ import { AgentToolExecutorService } from '#/agent/toolExecutor/toolExecutorServi
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
 import { IAgentToolResultTruncationService } from '#/agent/toolResultTruncation/toolResultTruncation';
-import type { Event2 } from '#/app/event/event2';
+import { Event2 } from '#/app/event/event2';
 import { IEventBus } from '#/app/event/eventBus';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import type { McpConnectionManager, McpServerEntry } from '#/mcpCore/connection-manager';
-import type { McpServerConfig } from '#/mcpCore/config-schema';
+import { McpConnectionManager, type McpServerEntry } from '#/mcpCore/connection-manager';
+import { type McpServerConfig } from '#/mcpCore/config-schema';
 import { renderToolResultForModel } from '#/agent/contextMemory/toolResultRender';
 import { ISessionMcpHandle } from '#/session/mcp/sessionMcpHandle';
 import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
@@ -36,21 +36,17 @@ import { ISessionMediaStore } from '#/agent/media/sessionMediaStore';
 import { SessionMediaStoreService } from '#/agent/media/sessionMediaStoreService';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { JsonAtomicDocumentStore } from '#/persistence/backends/node-fs/atomicDocumentStore';
-import type { McpOAuthService } from '#/mcpCore/oauth/service';
-import type { MCPClient, MCPToolDefinition } from '#/mcpCore/types';
-import type { IEventDispatcher } from '#/state/eventDispatcher';
-import type { WireRecord } from '#/wire/record';
-import type { IWireService } from '#/wire/wire';
+import { McpOAuthService } from '#/mcpCore/oauth/service';
+import { type MCPClient, type MCPToolDefinition } from '#/mcpCore/types';
+import { IEventDispatcher } from '#/state/eventDispatcher';
+import { type WireRecord } from '#/wire/record';
+import { IWireService } from '#/wire/wire';
 
 import { stubLog } from '../../_base/log/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import { createTestAgent, mcpServices, type TestAgentContext } from '../../harness';
 import { discoverTools, executeTool, fakeMcpClient } from '../../mcpCore/stubs';
-import {
-  recordingWireLog,
-  registerTestAgentWire,
-  registerTestEventDispatcher,
-} from '../../wire/stubs';
+import { recordingWireLog, registerTestAgentWire, registerTestEventDispatcher } from '../../wire/stubs';
 import { stubLoopWithHooks } from '../loop/stubs';
 import { stubToolResultTruncationService } from '../toolResultTruncation/stubs';
 

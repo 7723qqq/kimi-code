@@ -1,18 +1,17 @@
-import { inject } from 'vitest';
-
 export interface SharedServerContext {
   readonly base: string;
   readonly token: string;
 }
 
-declare module 'vitest' {
-  interface ProvidedContext {
-    readonly sharedServer: SharedServerContext;
-  }
+let current: SharedServerContext | undefined;
+
+export function setSharedServer(context: SharedServerContext): void {
+  current = context;
 }
 
 export function sharedServer(): SharedServerContext {
-  return inject('sharedServer');
+  if (current === undefined) throw new Error('the shared server is not running');
+  return current;
 }
 
 export function sharedAuthHeaders(extra: Record<string, string> = {}): Record<string, string> {

@@ -1,5 +1,5 @@
 import { t, setLocale } from '@moonshot-ai/kimi-i18n';
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
@@ -97,7 +97,7 @@ describe('AgentSwarmService —Agent tool veto in swarm mode', () => {
     executorEvents = stubToolExecutorEvents();
     permissionGateRan = false;
     ix.stub(IAgentToolExecutorService, executorEvents.executor);
-    formatDenyMessage = vi.fn((message: string) => message);
+    formatDenyMessage = mock((message: string) => message);
     ix.stub(IAgentToolApprovalService, { formatDenyMessage });
     registerTestAgentWire(ix, testWireScope('wire', 'swarm-agent-veto'), {
       log: ix.get(IAppendLogStore),
@@ -231,7 +231,7 @@ describe('AgentSwarmService —Agent tool veto in swarm mode', () => {
 
         swarm.exit();
         permissionGateRan = false;
-        vi.clearAllMocks();
+        mock.clearAllMocks();
       }
     });
 

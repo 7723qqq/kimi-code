@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import { CacheHintDialogComponent } from '#/tui/components/dialogs/cache-hint-dialog';
 
@@ -9,8 +9,8 @@ function strip(text: string): string {
 }
 
 function renderDialog(idleSeconds = (26 * 24 + 22) * 3600, totalTokens = 293000) {
-  const onSelect = vi.fn();
-  const onCancel = vi.fn();
+  const onSelect = mock();
+  const onCancel = mock();
   const dialog = new CacheHintDialogComponent({ idleSeconds, totalTokens, onSelect, onCancel });
   return { dialog, onSelect, onCancel, lines: dialog.render(120).map(strip) };
 }

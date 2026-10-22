@@ -1,5 +1,5 @@
 import type { ToolCall } from '#human/llm/message';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
 
 import type { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import type {
@@ -43,9 +43,9 @@ const options = [
 
 function recordingTelemetry(): {
   readonly telemetry: ITelemetryService;
-  readonly track2: ReturnType<typeof vi.fn>;
+  readonly track2: ReturnType<typeof mock>;
 } {
-  const track2 = vi.fn();
+  const track2 = mock();
   return {
     telemetry: {
       _serviceBrand: undefined,
@@ -96,15 +96,15 @@ function planService({
   readonly status?: PlanData;
   readonly enter?: IAgentPlanService['enter'];
   readonly exit?: IAgentPlanService['exit'];
-} = {}): IAgentPlanService {
+} = {}): IAgentPlanService & { readonly status: Mock<IAgentPlanService['status']> } {
   return {
     _serviceBrand: undefined,
-    enter: enter ?? vi.fn(async () => {}),
-    cancel: vi.fn(),
-    clear: vi.fn(async () => {}),
-    exit: exit ?? vi.fn(),
-    recordRevision: vi.fn(async () => {}),
-    status: vi.fn(async () => status),
+    enter: enter ?? mock(async () => {}),
+    cancel: mock(),
+    clear: mock(async () => {}),
+    exit: exit ?? mock(),
+    recordRevision: mock(async () => {}),
+    status: mock(async () => status),
   };
 }
 
@@ -147,9 +147,9 @@ describe('EnterPlanModeTool telemetry', () => {
   it('uses inline guidance when no plan file path is available', async () => {
     const planMode = planService({
       status: null,
-      enter: vi.fn(async () => {}),
+      enter: mock(async () => {}),
     });
-    vi.mocked(planMode.status).mockResolvedValue(null);
+    planMode.status.mockResolvedValue(null);
     const { telemetry } = recordingTelemetry();
 
     const result = await executeTool(new EnterPlanModeTool(planMode, mutexStub(planMode), telemetry), {
@@ -168,11 +168,11 @@ describe('EnterPlanModeTool telemetry', () => {
     let active = false;
     const planMode = planService({
       status: null,
-      enter: vi.fn(async () => {
+      enter: mock(async () => {
         active = true;
       }),
     });
-    vi.mocked(planMode.status).mockImplementation(async () => (active ? ACTIVE_PLAN : null));
+    planMode.status.mockImplementation(async () => (active ? ACTIVE_PLAN : null));
     const { telemetry } = recordingTelemetry();
 
     const result = await executeTool(new EnterPlanModeTool(planMode, mutexStub(planMode), telemetry), {
@@ -191,7 +191,7 @@ describe('EnterPlanModeTool telemetry', () => {
     const { telemetry } = recordingTelemetry();
     const planMode = planService({
       status: null,
-      enter: vi.fn(async () => {
+      enter: mock(async () => {
         throw new Error('cannot prepare plan directory');
       }),
     });
@@ -216,11 +216,11 @@ describe('EnterPlanModeTool telemetry', () => {
     let active = false;
     const planMode = planService({
       status: null,
-      enter: vi.fn(async () => {
+      enter: mock(async () => {
         active = true;
       }),
     });
-    vi.mocked(planMode.status).mockImplementation(async () => (active ? ACTIVE_PLAN : null));
+    planMode.status.mockImplementation(async () => (active ? ACTIVE_PLAN : null));
     const { telemetry, track2 } = recordingTelemetry();
 
     const result = await executeTool(new EnterPlanModeTool(planMode, mutexStub(planMode), telemetry), {
@@ -249,8 +249,8 @@ describe('AgentPlanService EnterPlanMode telemetry', () => {
         ctx = createTestAgent(
           execEnvServices({
             hostFs: createFakeHostFs({
-              mkdir: vi.fn().mockResolvedValue(undefined as never),
-              readText: vi.fn().mockResolvedValue(''),
+              mkdir: mock().mockResolvedValue(undefined as never),
+              readText: mock().mockResolvedValue(''),
             }),
           }),
           permissionModeServices(mode),
@@ -311,8 +311,8 @@ function todoService(): IAgentTodoService {
     _serviceBrand: undefined,
     onDidChange: () => ({ dispose: () => {} }),
     get: () => [],
-    replace: vi.fn(async () => {}),
-    clear: vi.fn(async () => {}),
+    replace: mock(async () => {}),
+    clear: mock(async () => {}),
   };
 }
 
@@ -407,7 +407,7 @@ describe('ExitPlanModeTool telemetry', () => {
   });
 
   it('tracks submitted without options and auto approval', async () => {
-    const exit = vi.fn();
+    const exit = mock();
     const { telemetry, track2 } = recordingTelemetry();
 
     const result = await executeTool(
@@ -453,7 +453,7 @@ describe('ExitPlanModeTool telemetry', () => {
   });
 
   it('does not track auto_approved when exitPlanMode fails', async () => {
-    const exit = vi.fn(() => {
+    const exit = mock(() => {
       throw new Error('state transition failure');
     });
     const { telemetry, track2 } = recordingTelemetry();

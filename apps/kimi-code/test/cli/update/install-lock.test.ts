@@ -1,32 +1,47 @@
-import { spawn } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
+import * as fsModule from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import { tryAcquireUpdateInstallLock } from '#/cli/update/install-lock';
 import { getUpdateInstallLockFile } from '#/utils/paths';
 
-const fsMocks = vi.hoisted(() => ({
+/**
+ * Injectable liveness probes. The pid recorded in a lock file is just a
+ * number to the lock module — `kill(pid, 0)` is the seam — so no real (or
+ * really dead) child process is needed to model a gone holder. Any pid other
+ * than `DEAD_HOLDER_PID` (notably this process's own) counts as alive, as it
+ * would with a real probe.
+ */
+const DEAD_HOLDER_PID = 424242;
+const LIVE_HOLDER_PID = 4242;
+const holderAlive = (pid: number): boolean => pid !== DEAD_HOLDER_PID;
+const everyoneAlive = (): boolean => true;
+
+const fsMocks = (() => ({
   /** When set, link() throws an error with this code (no hard-link support). */
   linkError: null as string | null,
-}));
+}))();
 
-vi.mock('node:fs/promises', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:fs/promises')>();
+// Captured before `mock.module` overwrites the namespace; the wrapper below
+// must delegate to the real implementation rather than recurse into itself.
+const realLink = fsModule.link;
+
+void mock.module('node:fs/promises', () => {
   return {
-    ...actual,
+    ...fsModule,
     link: async (
-      src: Parameters<typeof actual.link>[0],
-      dst: Parameters<typeof actual.link>[1],
+      src: Parameters<typeof realLink>[0],
+      dst: Parameters<typeof realLink>[1],
     ) => {
       if (fsMocks.linkError !== null) {
         throw Object.assign(new Error('link() is not supported (mocked)'), {
           code: fsMocks.linkError,
         });
       }
-      return actual.link(src, dst);
+      return realLink(src, dst);
     },
   };
 });
@@ -82,12 +97,12 @@ describe('update install lock', () => {
     // A dead holder's aged lock: every contender classifies it as stale and
     // tries to take it over. Compare-and-delete plus post-publish
     // verification must leave exactly one survivor.
-    const child = spawn(process.execPath, ['-e', ''], { stdio: 'ignore' });
-    await new Promise((resolve) => child.once('exit', resolve));
-    writeAgedLock(child.pid ?? -1);
+    writeAgedLock(DEAD_HOLDER_PID);
 
     const attempts = await Promise.all(
-      Array.from({ length: 20 }, () => tryAcquireUpdateInstallLock({ version: '0.5.0' })),
+      Array.from({ length: 20 }, () =>
+        tryAcquireUpdateInstallLock({ version: '0.5.0', isProcessAlive: holderAlive }),
+      ),
     );
     const winners = attempts.filter((handle) => handle !== null);
     expect(winners).toHaveLength(1);
@@ -148,11 +163,12 @@ describe('update install lock', () => {
 
   it('takes over a stale lock without hard-link support', async () => {
     fsMocks.linkError = 'ENOTSUP';
-    const child = spawn(process.execPath, ['-e', ''], { stdio: 'ignore' });
-    await new Promise((resolve) => child.once('exit', resolve));
-    writeAgedLock(child.pid ?? -1);
+    writeAgedLock(DEAD_HOLDER_PID);
 
-    const lock = await tryAcquireUpdateInstallLock({ version: '0.5.0' });
+    const lock = await tryAcquireUpdateInstallLock({
+      version: '0.5.0',
+      isProcessAlive: holderAlive,
+    });
 
     expect(lock).not.toBeNull();
     await lock?.release();
@@ -173,21 +189,24 @@ describe('update install lock', () => {
   }
 
   it('does not treat an aged lock as stale while its holder process is alive', async () => {
-    // The holder is this very test process — guaranteed alive. A long native
-    // download must survive past the 30-minute age threshold.
-    writeAgedLock(process.pid);
+    // A long native download must survive past the 30-minute age threshold.
+    writeAgedLock(LIVE_HOLDER_PID);
 
-    const lock = await tryAcquireUpdateInstallLock({ version: '0.5.0' });
+    const lock = await tryAcquireUpdateInstallLock({
+      version: '0.5.0',
+      isProcessAlive: everyoneAlive,
+    });
 
     expect(lock).toBeNull();
   });
 
   it('sweeps an aged lock whose holder process is gone', async () => {
-    const child = spawn(process.execPath, ['-e', ''], { stdio: 'ignore' });
-    await new Promise((resolve) => child.once('exit', resolve));
-    writeAgedLock(child.pid ?? -1);
+    writeAgedLock(DEAD_HOLDER_PID);
 
-    const lock = await tryAcquireUpdateInstallLock({ version: '0.5.0' });
+    const lock = await tryAcquireUpdateInstallLock({
+      version: '0.5.0',
+      isProcessAlive: holderAlive,
+    });
 
     expect(lock).not.toBeNull();
     await lock?.release();
@@ -196,21 +215,22 @@ describe('update install lock', () => {
   it('sweeps a young lock whose holder process is gone', async () => {
     // A killed holder skips its finally and never releases: the dead pid must
     // make the lock stale immediately, not after the 30-minute threshold.
-    const child = spawn(process.execPath, ['-e', ''], { stdio: 'ignore' });
-    await new Promise((resolve) => child.once('exit', resolve));
     const filePath = getUpdateInstallLockFile();
     mkdirSync(dirname(filePath), { recursive: true });
     writeFileSync(
       filePath,
       `${JSON.stringify({
         version: '0.5.0',
-        pid: child.pid ?? -1,
+        pid: DEAD_HOLDER_PID,
         startedAt: new Date().toISOString(),
       })}\n`,
       'utf-8',
     );
 
-    const lock = await tryAcquireUpdateInstallLock({ version: '0.5.0' });
+    const lock = await tryAcquireUpdateInstallLock({
+      version: '0.5.0',
+      isProcessAlive: holderAlive,
+    });
 
     expect(lock).not.toBeNull();
     await lock?.release();

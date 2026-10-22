@@ -34,7 +34,7 @@ import { join } from 'node:path';
 import { bootstrap, logSeed, resolveLoggingConfig } from '@moonshot-ai/agent-core-v2';
 import type { ContentPart } from '@moonshot-ai/agent-core-v2';
 import { IModelService } from '@moonshot-ai/agent-core-v2/llm-adapter/model/model';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 
 import type { KlientEvents } from '../../src/core/events/hub.js';
 import type { AgentHandle } from '../../src/core/klient.js';
@@ -934,7 +934,7 @@ describe('video blocks', () => {
     expect(ctx.payloads('prompt.completed')[0]?.['reason']).toBe('completed');
   }, 30_000);
 
-  it('kimi (composed): cancelling ReadMediaFile aborts the in-flight video upload', async () => {
+  it('kimi (composed): cancelling Read aborts the in-flight video upload', async () => {
     const ctx = await newCase(M_KIMI, 'kimi-video-upload-cancel');
     await writeFile(join(ctx.workDir, 'clip.mp4'), Buffer.from(MP4_FTYP_HEX, 'hex'));
 
@@ -942,7 +942,7 @@ describe('video blocks', () => {
       if (req.url === '/v1/files') return { kind: 'hang' };
       return {
         kind: 'sse',
-        lines: openAiToolCallSse('call_video_1', 'ReadMediaFile', '{"path":"clip.mp4"}'),
+        lines: openAiToolCallSse('call_video_1', 'Read', '{"path":"clip.mp4"}'),
       };
     });
     const promptAborted = onceEvent(ctx.agent.events, 'prompt.aborted', 10_000);

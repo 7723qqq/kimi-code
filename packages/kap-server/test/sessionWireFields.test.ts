@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { toWireSession, type SessionFacts, type SessionWireFields } from '../src/routes/sessions';
 

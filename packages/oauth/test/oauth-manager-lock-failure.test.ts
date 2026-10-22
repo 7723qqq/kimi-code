@@ -2,20 +2,26 @@ import { mkdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+
+import lockfile from 'proper-lockfile';
 
 import { OAuthError } from '../src/errors';
 import { OAuthManager } from '../src/oauth-manager';
 import type { TokenStorage } from '../src/storage';
 import type { OAuthFlowConfig, TokenInfo } from '../src/types';
 
-const lockMock = vi.hoisted(() => ({
-  lock: vi.fn(),
-}));
+// `mock.module` rewrites the registry for the whole `bun test` process and
+// cannot be undone, so every other file that reaches the POSIX lock path sees
+// this mock too. The real `lock` is captured before the rewrite (calling the
+// module from inside its own factory would recurse) and is the default path;
+// only this file's test swaps in a rejecting implementation.
+const realLock = lockfile.lock.bind(lockfile);
+let lockImpl: typeof realLock = realLock;
 
-vi.mock('proper-lockfile', () => ({
+void mock.module('proper-lockfile', () => ({
   default: {
-    lock: lockMock.lock,
+    lock: (target: string, options?: Parameters<typeof realLock>[1]) => lockImpl(target, options),
   },
 }));
 
@@ -66,12 +72,12 @@ describe('OAuthManager refresh lock failure', () => {
       `kimi-oauth-lock-failure-${Date.now()}-${Math.random().toString(36).slice(2)}`,
     );
     mkdirSync(dir, { recursive: true });
-    lockMock.lock.mockReset();
+    lockImpl = realLock;
   });
 
   afterEach(() => {
     rmSync(dir, { recursive: true, force: true });
-    vi.restoreAllMocks();
+    mock.restore();
   });
 
   it.skipIf(process.platform === 'win32')(
@@ -79,8 +85,10 @@ describe('OAuthManager refresh lock failure', () => {
     async () => {
       const storage = new InMemoryStorage();
       storage.token = makeToken();
-      lockMock.lock.mockRejectedValue(new Error('lock busy'));
-      const refreshImpl = vi.fn().mockResolvedValue(makeToken({ accessToken: 'at-new' }));
+      lockImpl = async () => {
+        throw new Error('lock busy');
+      };
+      const refreshImpl = mock().mockResolvedValue(makeToken({ accessToken: 'at-new' }));
 
       const mgr = new OAuthManager({
         config,

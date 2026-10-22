@@ -1,5 +1,5 @@
 import type { ExperimentalFeatureState } from '@moonshot-ai/kimi-code-sdk';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, mock, type Mock } from 'bun:test';
 
 import type { SlashCommandHost } from '#/tui/commands';
 import { applyExperimentalFeatureChanges } from '#/tui/commands/config';
@@ -9,7 +9,7 @@ import {
 } from '#/tui/commands/experimental-flags';
 import { darkColors } from '#/tui/theme/colors';
 
-vi.mock('#/i18n', () => ({
+void mock.module('#/i18n', () => ({
   t: (key: string) => {
     const translations: Record<string, string> = {
       'tui.messages.configNoExperimentalChanges': 'No experimental feature changes to apply.',
@@ -23,7 +23,7 @@ vi.mock('#/i18n', () => ({
     };
     return translations[key] ?? key;
   },
-  setLocale: vi.fn(),
+  setLocale: mock(),
   getLocale: () => 'en',
 }));
 
@@ -44,42 +44,42 @@ function feature(overrides: Partial<ExperimentalFeatureState> = {}): Experimenta
 function makeHost() {
   const session = {
     id: 'ses-experiments',
-    reloadSession: vi.fn(async () => ({})),
+    reloadSession: mock(async () => ({})),
   };
   const host = {
     state: {
       theme: { palette: darkColors },
-      ui: { requestRender: vi.fn() },
+      ui: { requestRender: mock() },
     },
     harness: {
-      setConfig: vi.fn(async () => ({ providers: {} })),
-      getExperimentalFeatures: vi.fn(async () => [
+      setConfig: mock(async () => ({ providers: {} })),
+      getExperimentalFeatures: mock(async () => [
         feature({ enabled: false, source: 'config', configValue: false }),
       ]),
-      reloadSession: vi.fn(async () => session),
+      reloadSession: mock(async () => session),
     },
     session,
-    refreshSlashCommandAutocomplete: vi.fn(),
-    reloadCurrentSessionView: vi.fn(async () => {}),
-    mountEditorReplacement: vi.fn(),
-    restoreEditor: vi.fn(),
-    showStatus: vi.fn(),
-    showError: vi.fn(),
-    showNotice: vi.fn(),
-    track: vi.fn(),
+    refreshSlashCommandAutocomplete: mock(),
+    reloadCurrentSessionView: mock(async () => {}),
+    mountEditorReplacement: mock(),
+    restoreEditor: mock(),
+    showStatus: mock(),
+    showError: mock(),
+    showNotice: mock(),
+    track: mock(),
   } as unknown as SlashCommandHost & {
     harness: {
-      setConfig: ReturnType<typeof vi.fn>;
-      getExperimentalFeatures: ReturnType<typeof vi.fn>;
-      reloadSession: ReturnType<typeof vi.fn>;
+      setConfig: Mock<(...args: any[]) => any>;
+      getExperimentalFeatures: Mock<(...args: any[]) => any>;
+      reloadSession: Mock<(...args: any[]) => any>;
     };
-    refreshSlashCommandAutocomplete: ReturnType<typeof vi.fn>;
-    reloadCurrentSessionView: ReturnType<typeof vi.fn>;
-    mountEditorReplacement: ReturnType<typeof vi.fn>;
-    restoreEditor: ReturnType<typeof vi.fn>;
-    showStatus: ReturnType<typeof vi.fn>;
-    showError: ReturnType<typeof vi.fn>;
-    track: ReturnType<typeof vi.fn>;
+    refreshSlashCommandAutocomplete: Mock<(...args: any[]) => any>;
+    reloadCurrentSessionView: Mock<(...args: any[]) => any>;
+    mountEditorReplacement: Mock<(...args: any[]) => any>;
+    restoreEditor: Mock<(...args: any[]) => any>;
+    showStatus: Mock<(...args: any[]) => any>;
+    showError: Mock<(...args: any[]) => any>;
+    track: Mock<(...args: any[]) => any>;
     session: typeof session;
   };
   return host;
@@ -98,7 +98,7 @@ describe('experimental feature command handlers', () => {
     expect(host.harness.setConfig).toHaveBeenCalledWith({
       experimental: { micro_compaction: false },
     });
-    expect(host.harness.getExperimentalFeatures).toHaveBeenCalledOnce();
+    expect(host.harness.getExperimentalFeatures).toHaveBeenCalledTimes(1);
     expect(isExperimentalFlagEnabled('micro_compaction')).toBe(false);
     expect(host.refreshSlashCommandAutocomplete).toHaveBeenCalled();
     expect(host.restoreEditor).toHaveBeenCalled();
@@ -131,7 +131,7 @@ describe('experimental feature command handlers', () => {
         experimental: { notify_user: enabled },
       });
       expect(isExperimentalFlagEnabled('notify_user')).toBe(enabled);
-      expect(host.refreshSlashCommandAutocomplete).toHaveBeenCalledOnce();
+      expect(host.refreshSlashCommandAutocomplete).toHaveBeenCalledTimes(1);
       expect(host.harness.reloadSession).not.toHaveBeenCalled();
       expect(host.reloadCurrentSessionView).not.toHaveBeenCalled();
       expect(host.showError).not.toHaveBeenCalled();
@@ -144,7 +144,7 @@ describe('experimental feature command handlers', () => {
       { id: 'notify_user', enabled: false },
       { id: 'micro_compaction', enabled: false },
     ]);
-    expect(host.harness.reloadSession).toHaveBeenCalledOnce();
+    expect(host.harness.reloadSession).toHaveBeenCalledTimes(1);
   });
 
   it('reports the post-apply enabled flag set in telemetry', async () => {

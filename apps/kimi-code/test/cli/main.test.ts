@@ -1,59 +1,61 @@
 import { ErrorCodes, KimiError } from '@moonshot-ai/kimi-code-sdk';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as sdkModule from '@moonshot-ai/kimi-code-sdk';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 
+import * as optionsModule from '#/cli/options';
 import { validateOptions } from '#/cli/options';
 import type { CLIOptions } from '#/cli/options';
-import type * as OptionsModule from '#/cli/options';
 import { runPrompt } from '#/cli/run-prompt';
 import { runShell } from '#/cli/run-shell';
 import { formatStartupError } from '#/cli/startup-error';
 import { runUpdatePreflight } from '#/cli/update/preflight';
+import * as versionModule from '#/cli/version';
 import { handleMainCommand, handleUpgradeCommand, main, workerInstallWarnings } from '#/main';
 import type { WorkerInstallDescriptor } from '#/main';
 
-const mocks = vi.hoisted(() => {
-  const parse = vi.fn();
+const mocks = (() => {
+  const parse = mock();
   return {
     parse,
-    createProgram: vi.fn(() => ({ parse })),
-    getVersion: vi.fn(() => '0.0.1-alpha.2'),
-    validateOptions: vi.fn(),
-    runUpdatePreflight: vi.fn(),
-    runShell: vi.fn(),
-    runPrompt: vi.fn(),
-    installCrashHandlers: vi.fn(),
-    track: vi.fn(),
-    setTelemetryContext: vi.fn(),
-    withTelemetryContext: vi.fn(),
-    shutdownTelemetry: vi.fn(),
-    createCliTelemetryBootstrap: vi.fn(() => ({
+    createProgram: mock(() => ({ parse })),
+    getVersion: mock(() => '0.0.1-alpha.2'),
+    validateOptions: mock(),
+    runUpdatePreflight: mock(),
+    runShell: mock(),
+    runPrompt: mock(),
+    installCrashHandlers: mock(),
+    track: mock(),
+    setTelemetryContext: mock(),
+    withTelemetryContext: mock(),
+    shutdownTelemetry: mock(),
+    createCliTelemetryBootstrap: mock(() => ({
       homeDir: '/tmp/kimi-home',
       deviceId: 'device-id',
       firstLaunch: false,
     })),
-    initializeCliTelemetry: vi.fn(),
-    handleUpgrade: vi.fn(),
-    flushDiagnosticLogs: vi.fn(),
-    finalizeHeadlessRun: vi.fn(),
+    initializeCliTelemetry: mock(),
+    handleUpgrade: mock(),
+    flushDiagnosticLogs: mock(),
+    finalizeHeadlessRun: mock(),
     log: {
-      info: vi.fn(),
-      warn: vi.fn(),
-      error: vi.fn(),
-      debug: vi.fn(),
+      info: mock(),
+      warn: mock(),
+      error: mock(),
+      debug: mock(),
     },
     harness: {
       homeDir: '/tmp/kimi-home',
-      ensureConfigFile: vi.fn(),
-      getConfig: vi.fn(),
-      close: vi.fn(),
-      track: vi.fn(),
+      ensureConfigFile: mock(),
+      getConfig: mock(),
+      close: mock(),
+      track: mock(),
     },
-    KimiHarness: vi.fn(),
-    createKimiHarness: vi.fn(),
+    KimiHarness: mock(),
+    createKimiHarness: mock(),
   };
-});
+})();
 
-vi.mock('@moonshot-ai/kimi-telemetry', () => ({
+void mock.module('@moonshot-ai/kimi-telemetry', () => ({
   installCrashHandlers: mocks.installCrashHandlers,
   track: mocks.track,
   setTelemetryContext: mocks.setTelemetryContext,
@@ -61,10 +63,7 @@ vi.mock('@moonshot-ai/kimi-telemetry', () => ({
   shutdownTelemetry: mocks.shutdownTelemetry,
 }));
 
-vi.mock('@moonshot-ai/kimi-code-sdk', async () => {
-  const actual = await vi.importActual<typeof import('@moonshot-ai/kimi-code-sdk')>(
-    '@moonshot-ai/kimi-code-sdk',
-  );
+void mock.module('@moonshot-ai/kimi-code-sdk', () => {
   class MockKimiHarness {
     readonly homeDir = mocks.harness.homeDir;
     readonly ensureConfigFile = mocks.harness.ensureConfigFile;
@@ -77,7 +76,7 @@ vi.mock('@moonshot-ai/kimi-code-sdk', async () => {
     }
   }
   return {
-    ...actual,
+    ...sdkModule,
     createKimiHarness: (...args: unknown[]) => {
       mocks.createKimiHarness(...args);
       return mocks.harness;
@@ -88,52 +87,50 @@ vi.mock('@moonshot-ai/kimi-code-sdk', async () => {
   };
 });
 
-vi.mock('#/cli/telemetry', () => ({
+void mock.module('#/cli/telemetry', () => ({
   createCliTelemetryBootstrap: mocks.createCliTelemetryBootstrap,
   initializeCliTelemetry: mocks.initializeCliTelemetry,
 }));
 
-vi.mock('#/cli/sub/upgrade', () => ({
+void mock.module('#/cli/sub/upgrade', () => ({
   handleUpgrade: mocks.handleUpgrade,
 }));
 
-vi.mock('#/cli/commands', () => ({
+void mock.module('#/cli/commands', () => ({
   createProgram: mocks.createProgram,
 }));
 
-vi.mock('#/cli/update/native-swap', () => ({
-  maybeRelaunchWithStagedNativeUpdate: vi.fn(() => Promise.resolve(false)),
+void mock.module('#/cli/update/native-swap', () => ({
+  maybeRelaunchWithStagedNativeUpdate: mock(() => Promise.resolve(false)),
 }));
 
-vi.mock('#/cli/version', async () => {
-  const actual = await vi.importActual<typeof import('#/cli/version')>('#/cli/version');
+void mock.module('#/cli/version', () => {
   return {
-    ...actual,
+    ...versionModule,
     getVersion: mocks.getVersion,
   };
 });
 
-vi.mock('#/cli/options', async () => {
-  const actual = await vi.importActual<typeof OptionsModule>('#/cli/options');
+void mock.module('#/cli/options', () => {
   return {
-    ...actual,
+    ...optionsModule,
     validateOptions: mocks.validateOptions,
   };
 });
 
-vi.mock('#/cli/update/preflight', () => ({
+void mock.module('#/cli/update/preflight', () => ({
   runUpdatePreflight: mocks.runUpdatePreflight,
 }));
 
-vi.mock('#/cli/run-shell', () => ({
+void mock.module('#/cli/run-shell', () => ({
   runShell: mocks.runShell,
 }));
 
-vi.mock('#/cli/run-prompt', () => ({
+void mock.module('#/cli/run-prompt', () => ({
   runPrompt: mocks.runPrompt,
 }));
 
-vi.mock('#/cli/headless-exit', () => ({
+void mock.module('#/cli/headless-exit', () => ({
   finalizeHeadlessRun: mocks.finalizeHeadlessRun,
 }));
 
@@ -186,7 +183,7 @@ async function waitForProgramCall(): Promise<unknown[]> {
 }
 
 async function runHandleMainCommand(opts: CLIOptions): Promise<number | null> {
-  const exitSpy = vi.spyOn(process, 'exit').mockImplementation((code?: string | number | null) => {
+  const exitSpy = spyOn(process, 'exit').mockImplementation((code?: string | number | null) => {
     throw new ExitCalled(Number(code ?? 0));
   });
   try {
@@ -203,7 +200,7 @@ async function runHandleMainCommand(opts: CLIOptions): Promise<number | null> {
 }
 
 async function runHandleUpgradeCommand(yes = false): Promise<number> {
-  const exitSpy = vi.spyOn(process, 'exit').mockImplementation((code?: string | number | null) => {
+  const exitSpy = spyOn(process, 'exit').mockImplementation((code?: string | number | null) => {
     throw new ExitCalled(Number(code ?? 0));
   });
   try {
@@ -221,11 +218,11 @@ async function runHandleUpgradeCommand(yes = false): Promise<number> {
 
 describe('main entry command handling', () => {
   afterEach(() => {
-    vi.clearAllMocks();
+    mock.clearAllMocks();
   });
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    mock.clearAllMocks();
     mocks.harness.ensureConfigFile.mockResolvedValue(undefined);
     mocks.harness.getConfig.mockResolvedValue({
       defaultModel: 'kimi-k2',
@@ -330,11 +327,11 @@ describe('main entry command handling', () => {
     mocks.runUpdatePreflight.mockResolvedValue('continue');
     mocks.runPrompt.mockRejectedValue(new Error('provider failed'));
     mocks.flushDiagnosticLogs.mockImplementation(() => new Promise(() => {}));
-    const exitSpy = vi
-      .spyOn(process, 'exit')
-      .mockImplementation((code?: string | number | null) => {
+    const exitSpy = spyOn(process, 'exit').mockImplementation(
+      (code?: string | number | null) => {
         throw new ExitCalled(Number(code ?? 0));
-      });
+      },
+    );
 
     try {
       main();

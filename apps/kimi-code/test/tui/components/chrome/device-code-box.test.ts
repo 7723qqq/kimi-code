@@ -1,8 +1,7 @@
 import { visibleWidth } from '@moonshot-ai/pi-tui';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { DeviceCodeBoxComponent } from '#/tui/components/chrome/device-code-box';
-import { darkColors } from '#/tui/theme/colors';
 
 function strip(text: string): string {
   return text.replaceAll(/\[[0-9;]*m/g, '');

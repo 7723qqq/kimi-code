@@ -4,7 +4,7 @@ import { join } from 'pathe';
 import { Readable } from 'node:stream';
 import { Jimp } from 'jimp';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
@@ -308,7 +308,7 @@ describe('SessionMediaStoreService', () => {
     const reason = new Error('attachment import canceled');
     const storage = ix.get(IFileSystemStorageService);
     const writeStream = storage.writeStream.bind(storage);
-    const writes = vi.spyOn(storage, 'writeStream').mockImplementation(async (scope, key, source, options) => {
+    const writes = spyOn(storage, 'writeStream').mockImplementation(async (scope, key, source, options) => {
       expect(options?.signal).toBe(controller.signal);
       controller.abort(reason);
       return writeStream(scope, key, source, options);

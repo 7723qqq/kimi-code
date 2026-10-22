@@ -3,7 +3,8 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, relative } from 'pathe';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { setEnv, restoreEnvs } from '#test/helpers/stubs';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
@@ -58,7 +59,7 @@ describe('McpRegistryService', () => {
 
   beforeEach(() => {
     home = mkdtempSync(join(tmpdir(), 'kimi-mcp-registry-home-'));
-    vi.stubEnv('KIMI_CODE_HOME', home);
+    setEnv('KIMI_CODE_HOME', home);
     disposables = new DisposableStore();
     tempDirs = [home];
     pluginEntries = [];
@@ -101,7 +102,7 @@ describe('McpRegistryService', () => {
 
   afterEach(async () => {
     disposables.dispose();
-    vi.unstubAllEnvs();
+    restoreEnvs();
     await Promise.all(tempDirs.map((dir) => rm(dir, { recursive: true, force: true })));
   });
 

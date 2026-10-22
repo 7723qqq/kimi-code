@@ -2,9 +2,10 @@ import { mkdtemp, mkdir, realpath, rm, symlink, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { parseManifest, PLUGIN_SYSTEM_PROMPT_MAX_BYTES } from '#/app/plugin/manifest';
+import { supportsSymlinks } from '#test/helpers/symlinks';
 
 describe('plugin manifest parser', () => {
   let dir: string;
@@ -269,7 +270,9 @@ describe('plugin manifest parser', () => {
     expect(absoluteResult.diagnostics.map((d) => d.message)).toEqual([
       `"systemPromptPath" path must start with "./" (got "${absolute}")`,
     ]);
+  });
 
+  it.skipIf(!supportsSymlinks())('rejects a systemPromptPath symlink that leaves the plugin root', async () => {
     const outsideDir = await mkdtemp(join(tmpdir(), 'plugin-outside-'));
     await writeFile(join(outsideDir, 'secret.md'), 'outside content', 'utf8');
     await symlink(join(outsideDir, 'secret.md'), join(dir, 'linked.md'));

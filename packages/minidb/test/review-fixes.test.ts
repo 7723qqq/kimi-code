@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 // Regression tests for the deep-review fixes.
-import { test } from 'vitest';
+import { test } from 'bun:test';
 
 import { MiniDb } from '../src/index.js';
 import { WAL } from '../src/wal.js';

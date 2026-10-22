@@ -8,7 +8,6 @@ import { Disposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { abortable, userCancellationReason } from '#/_base/utils/abort';
-import { setClampedTimeout } from '#/_base/utils/timer';
 import { escapeXml, escapeXmlAttr, escapeXmlTags } from '#/_base/utils/xml-escape';
 import { ContextAppendMessage, ContextSpliced } from '#/agent/contextMemory/contextEvents';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
@@ -34,6 +33,8 @@ import { LifecycleScope } from '#/app/scopes';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { Error2, ErrorCodes } from '#/errors';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
+import { IHostClock } from '#/os/interface/hostClock';
+import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
@@ -56,7 +57,15 @@ import {
   type IAgentTaskEntry,
   type RegisterAgentTaskOptions,
 } from './task';
-import { taskKey, TaskNotified, TaskStarted, TaskTerminated, TaskWaitDelivered } from './taskOps';
+import { alignToCharacterStart } from './textAlign';
+import {
+  taskKey,
+  TaskNotified,
+  TaskOutput,
+  TaskStarted,
+  TaskTerminated,
+  TaskWaitDelivered,
+} from './taskOps';
 import { TERMINAL_STATUSES, type AgentTaskInfoBase, type AgentTaskSettlement } from './types';
 import '#/agent/tools/task/task-output/taskOutputTool';
 import '#/agent/tools/task/task-stop/taskStopTool';
@@ -135,8 +144,10 @@ interface ManagedTask {
   pendingOutput: string[];
   pendingOutputBytes: number;
   outputPersistStarted: boolean;
+  outputFlushTimer?: ReturnType<typeof setTimeout>;
+  outputEventTimer?: ReturnType<typeof setTimeout>;
   persistenceError?: Error;
-  timeoutHandle?: ReturnType<typeof setTimeout>;
+  timeoutHandle?: IHostTimerHandle;
   timedOut: boolean;
   readonly waiters: Array<() => void>;
   handleSubscription?: { dispose(): void };
@@ -152,14 +163,9 @@ const TERMINAL_OUTPUT_TAIL_BYTES = 4 * 1024;
 
 const MAX_TASK_OUTPUT_BYTES = 16 * 1024 * 1024;
 
-function alignToCharacterStart(buffer: Uint8Array, offset: number): number {
-  if (offset <= 0) return 0;
-  let index = offset;
-  while (index < buffer.byteLength && (buffer[index]! & 0b1100_0000) === 0b1000_0000) {
-    index += 1;
-  }
-  return index;
-}
+const _OUTPUT_FLUSH_INTERVAL_MS = 100;
+
+const _OUTPUT_EVENT_INTERVAL_MS = 100;
 
 function outputLimitReason(): string {
   const mib = Math.floor(MAX_TASK_OUTPUT_BYTES / (1024 * 1024));
@@ -248,6 +254,8 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     @IFlagService flags: IFlagService,
     @IAgentToolRegistryService tools: IAgentToolRegistryService,
     @IAgentToolPolicyService policy: IAgentToolPolicyService,
+    @IHostClock private readonly clock: IHostClock,
+    @IHostTimers private readonly timers: IHostTimers,
   ) {
     super();
     this.states.contributeState(taskKey);
@@ -334,6 +342,10 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     this.states.set(taskActiveTaskReminderPendingKey, value);
   }
 
+  private nowMs(): number {
+    return this.clock.now().getTime();
+  }
+
   private async restoreAfterReplay(): Promise<void> {
     this.restoreGhostsFromWire();
     await this.loadFromDisk({ replace: false });
@@ -376,7 +388,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
       outputLimitTripped: false,
       status: 'running',
       options: entryOptions,
-      startedAt: Date.now(),
+      startedAt: this.nowMs(),
       endedAt: null,
       foregroundRelease: detached ? undefined : createForegroundRelease(),
       abortController: new AbortController(),
@@ -458,7 +470,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
         signal: detached ? undefined : options.signal,
         description: options.description,
       },
-      startedAt: Date.now(),
+      startedAt: this.nowMs(),
       endedAt: null,
       foregroundRelease: detached ? undefined : createForegroundRelease(),
       abortController: new AbortController(),
@@ -698,7 +710,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     if (timeoutMs === undefined) return;
     entry.options = { ...entry.options, timeoutMs };
     if (entry.timeoutHandle !== undefined) {
-      clearTimeout(entry.timeoutHandle);
+      this.timers.clearTimeout(entry.timeoutHandle);
       entry.timeoutHandle = undefined;
     }
     if (timeoutMs > 0) {
@@ -707,7 +719,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
   }
 
   private armManagerTimeout(entry: ManagedTask, timeoutMs: number): void {
-    entry.timeoutHandle = setClampedTimeout(() => {
+    entry.timeoutHandle = this.timers.setClampedTimeout(() => {
       entry.timeoutHandle = undefined;
       if (this.canAutoBackgroundOnTimeout(entry)) {
         this.detachEntry(entry, true);
@@ -718,7 +730,6 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
         finalStatus: 'timed_out',
       });
     }, timeoutMs);
-    entry.timeoutHandle.unref?.();
   }
 
   private canAutoBackgroundOnTimeout(entry: ManagedTask): boolean {
@@ -761,7 +772,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     }
 
     if (entry.timeoutHandle !== undefined) {
-      clearTimeout(entry.timeoutHandle);
+      this.timers.clearTimeout(entry.timeoutHandle);
       entry.timeoutHandle = undefined;
     }
     if (options.finalStatus === 'timed_out') {
@@ -775,20 +786,19 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     }
 
     const graceMs = resolveAgentTaskConfig(this.config)?.killGracePeriodMs ?? SIGTERM_GRACE_MS;
-    let graceTimer: ReturnType<typeof setTimeout> | undefined;
+    let graceTimer: IHostTimerHandle | undefined;
     const graceful = await Promise.race([
       entry.lifecyclePromise.then(
         () => true,
         () => true,
       ),
       new Promise<false>((resolve) => {
-        graceTimer = setTimeout(() => {
+        graceTimer = this.timers.setTimeout(() => {
           resolve(false);
         }, graceMs);
-        graceTimer.unref?.();
       }),
     ]);
-    if (graceTimer !== undefined) clearTimeout(graceTimer);
+    if (graceTimer !== undefined) this.timers.clearTimeout(graceTimer);
 
     if (TERMINAL_STATUSES.has(entry.status)) {
       await entry.persistWriteQueue;
@@ -842,7 +852,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
       for (const entry of this.tasks.values()) {
         if (TERMINAL_STATUSES.has(entry.status)) continue;
         if (entry.timeoutHandle !== undefined) {
-          clearTimeout(entry.timeoutHandle);
+          this.timers.clearTimeout(entry.timeoutHandle);
           entry.timeoutHandle = undefined;
         }
         if (entry.handle !== undefined) {
@@ -894,7 +904,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     }
 
     let waiter: (() => void) | undefined;
-    let timeout: ReturnType<typeof setTimeout> | undefined;
+    let timeout: IHostTimerHandle | undefined;
     try {
       const pending = Promise.race([
         new Promise<void>((resolve) => {
@@ -902,13 +912,12 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
           entry.waiters.push(resolve);
         }),
         new Promise<void>((resolve) => {
-          timeout = setClampedTimeout(resolve, timeoutMs);
-          timeout.unref?.();
+          timeout = this.timers.setClampedTimeout(resolve, timeoutMs);
         }),
       ]);
       await (signal === undefined ? pending : abortable(pending, signal));
     } finally {
-      if (timeout !== undefined) clearTimeout(timeout);
+      if (timeout !== undefined) this.timers.clearTimeout(timeout);
       if (waiter !== undefined) {
         const index = entry.waiters.indexOf(waiter);
         if (index !== -1) entry.waiters.splice(index, 1);
@@ -989,7 +998,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
       const updated: AgentTaskInfo = {
         ...info,
         status: 'lost',
-        endedAt: info.endedAt ?? Date.now(),
+        endedAt: info.endedAt ?? this.nowMs(),
       };
       this.ghosts.set(taskId, updated);
       await persistence.writeTask(updated);
@@ -1011,6 +1020,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     const chunkBytes = Buffer.byteLength(chunk, 'utf-8');
     entry.outputSizeBytes += chunkBytes;
     this.appendRetainedOutput(entry, chunk, chunkBytes);
+    this.publishTaskOutput(entry, chunk);
 
     if (
       !entry.outputLimitTripped &&
@@ -1032,6 +1042,19 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
       return;
     }
     this.appendTaskOutput(entry, chunk);
+  }
+
+  private publishTaskOutput(entry: ManagedTask, chunk: string): void {
+    if (chunk.length === 0) return;
+    if (!this.isDetached(entry)) return;
+    void this.dispatcher.dispatch(
+      new TaskOutput({
+        agentId: this.scopeContext.agentId,
+        taskId: entry.taskId,
+        chunk,
+        outputSizeBytes: entry.outputSizeBytes,
+      }),
+    );
   }
 
   private appendTaskOutput(entry: ManagedTask, chunk: string): void {
@@ -1110,7 +1133,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
   private async settleTask(entry: ManagedTask, settlement: AgentTaskSettlement): Promise<boolean> {
     if (TERMINAL_STATUSES.has(entry.status)) return false;
     entry.status = settlement.status;
-    entry.endedAt = Date.now();
+    entry.endedAt = this.nowMs();
     entry.stopReason =
       settlement.stopReason ?? (settlement.status === 'killed' ? entry.stopReason : undefined);
     entry.foregroundSignalCleanup?.();
@@ -1118,7 +1141,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     entry.handleSubscription?.dispose();
     entry.handleSubscription = undefined;
     if (entry.timeoutHandle !== undefined) {
-      clearTimeout(entry.timeoutHandle);
+      this.timers.clearTimeout(entry.timeoutHandle);
       entry.timeoutHandle = undefined;
     }
     const foregroundRelease = entry.foregroundRelease;
@@ -1334,7 +1357,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
     if (this.scheduledNotificationKeys.has(key)) return;
     if (this.deliveredNotificationKeys.has(key)) return;
     if (this.hasDeliveredNotification(key)) return;
-    this.fireNotificationHook(buildAgentTaskNotification(info));
+    this.fireNotificationHook(buildAgentTaskNotification(info, this.nowMs()));
   }
 
   private async restoreAgentTaskNotification(info: AgentTaskInfo): Promise<void> {
@@ -1381,7 +1404,7 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
       if (this.deliveredNotificationKeys.has(key)) return undefined;
       if (this.hasDeliveredNotification(key)) return undefined;
       this.scheduledNotificationKeys.add(key);
-      const notification = buildAgentTaskNotification(info, output);
+      const notification = buildAgentTaskNotification(info, this.nowMs(), output);
       const content = [
         {
           type: 'text',
@@ -1476,16 +1499,18 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
   }
 
   private toInfo(entry: ManagedTask): AgentTaskInfo {
+    const detached = this.isDetached(entry);
     const base: AgentTaskInfoBase = {
       taskId: entry.taskId,
       description: entry.task?.description ?? entry.options.description ?? '',
       status: entry.status,
-      detached: this.isDetached(entry) ? true : false,
+      detached: detached ? true : false,
       startedAt: entry.startedAt,
       endedAt: entry.endedAt,
       stopReason: entry.stopReason,
       terminalNotificationSuppressed: entry.terminalNotificationSuppressed,
       timeoutMs: entry.options.timeoutMs,
+      outputPath: detached ? this.persistence.taskOutputFile(entry.taskId) : undefined,
     };
     if (entry.toInfoFn) return entry.toInfoFn(base);
     return entry.task!.toInfo(base);
@@ -1636,7 +1661,7 @@ function taskOriginFromMessage(message: unknown): TaskNotificationOrigin | undef
   return isTaskOrigin(origin) ? origin : undefined;
 }
 
-function buildAgentTaskNotificationBody(info: AgentTaskInfo): string {
+function buildAgentTaskNotificationBody(info: AgentTaskInfo, nowMs: number): string {
   const baseLine =
     info.status === 'timed_out'
       ? `${info.description} timed out.`
@@ -1645,7 +1670,7 @@ function buildAgentTaskNotificationBody(info: AgentTaskInfo): string {
         : info.stopReason
           ? `${info.description} ${info.status === 'killed' ? 'was stopped' : info.status}. Reason: ${info.stopReason}`
           : `${info.description} ${info.status}.`;
-  const timed = `Wall time: ${formatTaskWallTime(info)}\n${baseLine}`;
+  const timed = `Wall time: ${formatTaskWallTime(info, nowMs)}\n${baseLine}`;
 
   if (info.kind !== 'agent') return timed;
   if (info.status === 'completed') return timed;
@@ -1665,6 +1690,7 @@ function buildAgentTaskNotificationBody(info: AgentTaskInfo): string {
 
 function buildAgentTaskNotification(
   info: AgentTaskInfo,
+  nowMs: number,
   output?: AgentTaskOutputSnapshot,
 ): AgentTaskNotification {
   const question = questionNotificationText(info, output);
@@ -1677,7 +1703,7 @@ function buildAgentTaskNotification(
     agent_id: info.kind === 'agent' ? info.agentId : undefined,
     title: question?.title ?? `Background ${info.kind} ${info.status}`,
     severity: info.status === 'completed' ? 'info' : 'warning',
-    body: question?.body ?? buildAgentTaskNotificationBody(info),
+    body: question?.body ?? buildAgentTaskNotificationBody(info, nowMs),
     children: agentTaskNotificationChildren(info, output),
   };
 }

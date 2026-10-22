@@ -9,7 +9,7 @@ import {
   towerArgumentCompletions,
   type KimiSlashCommand,
 } from '#/tui/commands/index';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 describe('parseSlashInput', () => {
   it('parses command names and trimmed args', () => {

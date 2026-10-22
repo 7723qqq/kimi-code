@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import type { IConfigService } from '#/app/config/config';
 import type { IProcess, ISessionProcessRunner } from '#/session/process/processRunner';

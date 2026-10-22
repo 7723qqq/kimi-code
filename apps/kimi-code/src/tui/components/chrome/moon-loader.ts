@@ -8,6 +8,11 @@ import {
   MOON_SPINNER_INTERVAL_MS,
 } from '#/tui/constant/rendering';
 import { currentTheme } from '#/tui/theme';
+import {
+  SYSTEM_RENDER_CLOCK,
+  type RenderClock,
+  type RenderTimerHandle,
+} from '#/tui/utils/render-clock';
 
 export type SpinnerStyle = 'moon' | 'braille';
 
@@ -27,10 +32,11 @@ export type SpinnerStyle = 'moon' | 'braille';
  */
 export class MoonLoader extends Text {
   private currentFrame = 0;
-  private intervalId: ReturnType<typeof setInterval> | null = null;
+  private intervalId: RenderTimerHandle | null = null;
   private ui: TUI;
   private frames: string[];
   private interval: number;
+  private readonly clock: RenderClock;
   private colorFn?: (s: string) => string;
   private label: string;
   private displayText = '';
@@ -48,11 +54,13 @@ export class MoonLoader extends Text {
     style: SpinnerStyle = 'moon',
     colorFn?: (s: string) => string,
     label: string = '',
+    clock: RenderClock = SYSTEM_RENDER_CLOCK,
   ) {
     super('', 1, 0);
     this.ui = ui;
     this.frames = style === 'moon' ? [...MOON_SPINNER_FRAMES] : [...BRAILLE_SPINNER_FRAMES];
     this.interval = style === 'moon' ? MOON_SPINNER_INTERVAL_MS : BRAILLE_SPINNER_INTERVAL_MS;
+    this.clock = clock;
     this.colorFn = colorFn;
     this.label = label;
     // No `start()` here: the owner starts the frames (see the class doc). Arming
@@ -70,18 +78,19 @@ export class MoonLoader extends Text {
   start(): void {
     if (this.intervalId !== null) return;
     this.updateDisplay();
-    this.intervalId = setInterval(() => {
+    this.intervalId = this.clock.setInterval(() => {
       this.currentFrame = (this.currentFrame + 1) % this.frames.length;
       this.updateDisplay();
     }, this.interval);
     // Mirror the footer's timers: an animation is never a reason for the process
-    // to stay alive.
-    this.intervalId.unref?.();
+    // to stay alive. Only the system clock's handles carry that meaning — an
+    // injected clock owns liveness itself and cancels on `unref`.
+    if (this.clock === SYSTEM_RENDER_CLOCK) this.intervalId.unref?.();
   }
 
   stop(): void {
     if (this.intervalId) {
-      clearInterval(this.intervalId);
+      this.clock.clearInterval(this.intervalId);
       this.intervalId = null;
     }
   }

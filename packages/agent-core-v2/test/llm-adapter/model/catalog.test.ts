@@ -1,4 +1,6 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { expectRejection } from '#test/helpers/assertions';
+import { setEnv, restoreEnvs } from '#test/helpers/stubs';
 
 import { createScopedTestHost, SILENT_TEST_LOGGER, stubPair } from '#/_base/di/test';
 import { isErrorCode } from '#/_base/errors/codes';
@@ -117,7 +119,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-  vi.unstubAllEnvs();
+  restoreEnvs();
   if (savedCustomHeaders === undefined) delete process.env['KIMI_CODE_CUSTOM_HEADERS'];
   else process.env['KIMI_CODE_CUSTOM_HEADERS'] = savedCustomHeaders;
 });
@@ -565,7 +567,7 @@ describe('Model assembly (pure data)', () => {
   });
 
   it('resolves api_key_env credentials from process.env on every request', async () => {
-    vi.stubEnv('KIMI_TEST_ACME_ENV_KEY', 'sk-first');
+    setEnv('KIMI_TEST_ACME_ENV_KEY', 'sk-first');
     const { host, catalog } = createHost({
       providers: {
         acme: { type: 'openai', apiKeyEnv: 'KIMI_TEST_ACME_ENV_KEY', baseUrl: 'https://acme.example.test/v1' },
@@ -575,7 +577,7 @@ describe('Model assembly (pure data)', () => {
     try {
       const model = catalog.get('m');
       expect(await model.credentialProvider?.resolve()).toEqual({ apiKey: 'sk-first' });
-      vi.stubEnv('KIMI_TEST_ACME_ENV_KEY', 'sk-rotated');
+      setEnv('KIMI_TEST_ACME_ENV_KEY', 'sk-rotated');
       expect(await model.credentialProvider?.resolve()).toEqual({ apiKey: 'sk-rotated' });
     } finally {
       host.dispose();
@@ -595,7 +597,7 @@ describe('Model assembly (pure data)', () => {
         expect.objectContaining({ code: ConfigErrors.codes.CONFIG_INVALID }),
       );
       expect(() => model.credentialProvider?.resolve()).toThrowError(/acme[\s\S]*KIMI_TEST_ACME_ENV_KEY/);
-      vi.stubEnv('KIMI_TEST_ACME_ENV_KEY', '   ');
+      setEnv('KIMI_TEST_ACME_ENV_KEY', '   ');
       expect(() => model.credentialProvider?.resolve()).toThrowError(
         expect.objectContaining({ code: ConfigErrors.codes.CONFIG_INVALID }),
       );
@@ -1185,9 +1187,7 @@ describe('ModelCatalog enumeration', () => {
         default_model: 'k2',
         models: ['k2', 'turbo'],
       });
-      await expect(catalog.getProvider('missing')).rejects.toSatisfy(
-        (error) => isError2(error) && error.code === 'provider.not_found',
-      );
+      await expectRejection(catalog.getProvider('missing'), (error) => isError2(error) && error.code === 'provider.not_found');
       expect(isErrorCode('provider.not_found')).toBe(true);
       expect(isErrorCode('model.not_found')).toBe(true);
     } finally {
@@ -1218,9 +1218,7 @@ describe('ModelCatalog setDefaultModel', () => {
   it('throws model.not_found for an unknown model', async () => {
     const { host, catalog } = createHost(catalogSections);
     try {
-      await expect(catalog.setDefaultModel('missing')).rejects.toSatisfy(
-        (error) => isError2(error) && error.code === 'model.not_found',
-      );
+      await expectRejection(catalog.setDefaultModel('missing'), (error) => isError2(error) && error.code === 'model.not_found');
     } finally {
       host.dispose();
     }

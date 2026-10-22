@@ -35,7 +35,7 @@ export function resolveMessage(data: MessageValue, key: string): string | undefi
  * Replace `{{name}}` placeholders in `template` with values from `params`.
  *
  * Unknown placeholders are left as-is (e.g. `{{missing}}` stays unchanged),
- * matching the Rust engine's behaviour.
+ * matching the Node.js factory's behaviour.
  */
 export function interpolate(template: string, params: Record<string, string | number>): string {
   INTERPOLATION_RE.lastIndex = 0;

@@ -3,7 +3,8 @@ import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 import { join } from 'pathe';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
@@ -37,7 +38,7 @@ import { stubLog } from '../../_base/log/stubs';
 
 const watchFires = new Map<string, Emitter<WatchChange>>();
 
-vi.mock('#human/utils/watch', () => {
+void mock.module('#human/utils/watch', () => {
   const watch = (path: string) => {
     let emitter = watchFires.get(path);
     if (emitter === undefined) {
@@ -81,7 +82,7 @@ describe('WorkspaceMcpConfigService', () => {
   });
 
   afterEach(async () => {
-    vi.restoreAllMocks();
+    mock.restore();
     disposables.dispose();
     await Promise.all([
       rm(cwd, { recursive: true, force: true }),
@@ -167,7 +168,7 @@ describe('WorkspaceMcpConfigService', () => {
     trusted = true;
     trustFlips.fire({ trusted: true });
 
-    await vi.waitFor(
+    await waitForAssertion(
       () => {
         expect(changes).toEqual([{ upsert: { fileOnly: stdioConfig('file') }, remove: [] }]);
       },
@@ -189,7 +190,7 @@ describe('WorkspaceMcpConfigService', () => {
     trusted = false;
     trustFlips.fire({ trusted: false });
 
-    await vi.waitFor(
+    await waitForAssertion(
       () => {
         expect(changes).toEqual([{ upsert: {}, remove: ['fileOnly'] }]);
       },
@@ -214,7 +215,7 @@ describe('WorkspaceMcpConfigService', () => {
     await writeProjectConfig({ beta: stdioConfig('beta') });
     watchFires.get(cwd)?.fire({ path: file, action: 'modified', kind: 'file' });
 
-    await vi.waitFor(
+    await waitForAssertion(
       () => {
         expect(changes).toEqual([{ upsert: { beta: stdioConfig('beta') }, remove: ['alpha'] }]);
       },
@@ -241,7 +242,7 @@ describe('WorkspaceMcpConfigService', () => {
       new AbortController().signal,
     );
 
-    await vi.waitFor(
+    await waitForAssertion(
       () => {
         expect(changes).toEqual([
           { upsert: { shared: stdioConfig('plugin-version') }, remove: [] },
@@ -266,7 +267,7 @@ describe('WorkspaceMcpConfigService', () => {
       new AbortController().signal,
     );
 
-    await vi.waitFor(
+    await waitForAssertion(
       () => {
         expect(changes).toEqual([{ upsert: { gamma: stdioConfig('gamma') }, remove: [] }]);
       },
@@ -300,7 +301,7 @@ describe('WorkspaceMcpConfigService', () => {
       new AbortController().signal,
     );
 
-    await vi.waitFor(
+    await waitForAssertion(
       () => {
         expect(changes).toEqual([{ upsert: {}, remove: ['alpha'] }]);
       },
@@ -337,7 +338,7 @@ describe('WorkspaceMcpConfigService', () => {
     );
     await storeWrites.fireAsync({}, new AbortController().signal);
 
-    await vi.waitFor(
+    await waitForAssertion(
       () => {
         expect(changes).toEqual([{ upsert: { added: stdioConfig('added') }, remove: [] }]);
       },

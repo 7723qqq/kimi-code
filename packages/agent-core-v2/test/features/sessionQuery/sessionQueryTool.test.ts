@@ -1,24 +1,15 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
-import type { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { SessionSearchCursor } from '#/features/sessionQuery/cursor';
-import type { SessionEventSearchHit, SessionSearchHit } from '#/features/sessionQuery/events';
-import type { ISessionQueryService } from '#/features/sessionQuery/sessionQueryService';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+
+import { type SessionEventSearchHit, type SessionSearchHit } from '#/features/sessionQuery/events';
+import { ISessionQueryService } from '#/features/sessionQuery/sessionQueryService';
 import { SessionQueryTool } from '#/features/sessionQuery/sessionQueryTool';
-import {
-  buildEventFilters,
-  buildSessionFilters,
-  normalizeQuery,
-  sessionSearchInputSchema,
-} from '#/features/sessionQuery/toolInput';
-import {
-  formatEventSearch,
-  formatSessionSearch,
-  formatSessionTrace,
-} from '#/features/sessionQuery/toolPresentation';
-import type { SessionLineageTrace, SessionRecord } from '#/features/sessionQuery/types';
-import type { ISessionContext } from '#/session/sessionContext/sessionContext';
-import type { ExecutableToolContext } from '#/tool/toolContract';
+import { buildEventFilters, buildSessionFilters, normalizeQuery, sessionSearchInputSchema } from '#/features/sessionQuery/toolInput';
+import { formatEventSearch, formatSessionSearch, formatSessionTrace } from '#/features/sessionQuery/toolPresentation';
+import { type SessionLineageTrace } from '#/features/sessionQuery/types';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { type ExecutableToolContext } from '#/tool/toolContract';
 
 function sessionContextStub(): ISessionContext {
   return {
@@ -145,7 +136,7 @@ describe('toolInput', () => {
 
 describe('SessionQueryTool session_search', () => {
   it('searches the workspace and renders hits', async () => {
-    const searchSessions = vi.fn(async () => ({
+    const searchSessions = mock(async () => ({
       items: [
         hit('sess-a'),
         hit('sess-b', {
@@ -192,7 +183,7 @@ describe('SessionQueryTool session_search', () => {
 
 describe('SessionQueryTool event_search', () => {
   it('searches the current session by default', async () => {
-    const searchEvents = vi.fn(async () => ({
+    const searchEvents = mock(async () => ({
       sessionId: 'sess-current',
       items: [
         {
@@ -217,7 +208,7 @@ describe('SessionQueryTool event_search', () => {
   });
 
   it('targets an explicit session id', async () => {
-    const searchEvents = vi.fn(async () => ({
+    const searchEvents = mock(async () => ({
       sessionId: 'sess-x',
       items: [],
       nextCursor: undefined,
@@ -239,7 +230,7 @@ describe('SessionQueryTool session_trace', () => {
       complete: true,
       root: hit('sess-root'),
     };
-    const traceLineage = vi.fn(async () => trace);
+    const traceLineage = mock(async () => trace);
     const tool = makeTool({ traceLineage });
     const result = await execute(tool, 'session_trace', {});
 

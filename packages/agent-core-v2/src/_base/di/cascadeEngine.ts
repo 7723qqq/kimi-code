@@ -539,7 +539,8 @@ export class CascadeEngine {
       return { waited: false, timedOut: false };
     }
     const waitMs = this._options.abortWaitMs ?? DEFAULT_ABORT_WAIT_MS;
-    return Promise.race([
+    let abortTimer: ReturnType<typeof setTimeout> | undefined;
+    const raced = Promise.race([
       Promise.resolve(out).then(
         () => ({ waited: true, timedOut: false }),
         (error: unknown) => {
@@ -548,11 +549,17 @@ export class CascadeEngine {
         },
       ),
       new Promise<{ waited: boolean; timedOut: boolean }>((resolve) => {
-        setTimeout(() => {
+        abortTimer = setTimeout(() => {
           resolve({ waited: true, timedOut: true });
         }, waitMs);
       }),
     ]);
+    return raced.finally(() => {
+      if (abortTimer !== undefined) {
+        clearTimeout(abortTimer);
+        abortTimer = undefined;
+      }
+    });
   }
 
   private _applyTransaction(

@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, mock } from 'bun:test';
 
 import {
   getRecommendedEffortConfig,
@@ -39,7 +39,7 @@ afterEach(async () => {
 
 describe('getRecommendedEffortConfig', () => {
   it('POSTs the recommended_effort name and returns the per-model entries', async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
 
     const result = await getRecommendedEffortConfig({
       fetchImpl: fetchImpl as typeof fetch,
@@ -57,7 +57,7 @@ describe('getRecommendedEffortConfig', () => {
   });
 
   it('ignores unknown entry fields so the contract can evolve', async () => {
-    const fetchImpl = vi.fn(async () =>
+    const fetchImpl = mock(async () =>
       jsonResponse({
         name: 'recommended_effort',
         config: {
@@ -79,7 +79,7 @@ describe('getRecommendedEffortConfig', () => {
   });
 
   it('drops only the invalid entries and keeps the valid ones', async () => {
-    const fetchImpl = vi.fn(async () =>
+    const fetchImpl = mock(async () =>
       jsonResponse({
         name: 'recommended_effort',
         config: {
@@ -104,7 +104,7 @@ describe('getRecommendedEffortConfig', () => {
   });
 
   it('returns undefined when the envelope name does not match', async () => {
-    const fetchImpl = vi.fn(async () =>
+    const fetchImpl = mock(async () =>
       jsonResponse({ name: 'survey_popup', config: CLOUD_CONFIG }),
     );
 
@@ -117,7 +117,7 @@ describe('getRecommendedEffortConfig', () => {
   });
 
   it('returns undefined when the payload is not an object', async () => {
-    const fetchImpl = vi.fn(async () =>
+    const fetchImpl = mock(async () =>
       jsonResponse({ name: 'recommended_effort', config: 'nope' }),
     );
 
@@ -130,21 +130,21 @@ describe('getRecommendedEffortConfig', () => {
   });
 
   it('returns undefined when the fetch fails or the response is not ok', async () => {
-    const failing = vi.fn(async () => {
+    const failing = mock(async () => {
       throw new Error('offline');
     });
     await expect(
       getRecommendedEffortConfig({ fetchImpl: failing as typeof fetch, cacheFile: null }),
     ).resolves.toBeUndefined();
 
-    const notOk = vi.fn(async () => jsonResponse('no', 503));
+    const notOk = mock(async () => jsonResponse('no', 503));
     await expect(
       getRecommendedEffortConfig({ fetchImpl: notOk as typeof fetch, cacheFile: null }),
     ).resolves.toBeUndefined();
   });
 
   it('serves the in-process cache within a day and refetches after it', async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
     await getRecommendedEffortConfig({ fetchImpl: fetchImpl as typeof fetch, now, cacheFile: null });
@@ -166,7 +166,7 @@ describe('getRecommendedEffortConfig', () => {
 
   it('persists the fetched config to the disk cache for the next process', async () => {
     const cacheFile = await makeCacheFile();
-    const fetchImpl = vi.fn(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
     await getRecommendedEffortConfig({ fetchImpl: fetchImpl as typeof fetch, now, cacheFile });
@@ -176,7 +176,7 @@ describe('getRecommendedEffortConfig', () => {
 
     resetRecommendedEffortConfigCache();
     const result = await getRecommendedEffortConfig({
-      fetchImpl: vi.fn(async () => {
+      fetchImpl: mock(async () => {
         throw new Error('must not fetch');
       }) as unknown as typeof fetch,
       now: now + 60_000,
@@ -187,14 +187,14 @@ describe('getRecommendedEffortConfig', () => {
 
   it('ignores a stale disk cache and returns undefined when the refetch fails', async () => {
     const cacheFile = await makeCacheFile();
-    const fetchImpl = vi.fn(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
     await getRecommendedEffortConfig({ fetchImpl: fetchImpl as typeof fetch, now, cacheFile });
     resetRecommendedEffortConfigCache();
 
     const result = await getRecommendedEffortConfig({
-      fetchImpl: vi.fn(async () => jsonResponse('no', 503)) as unknown as typeof fetch,
+      fetchImpl: mock(async () => jsonResponse('no', 503)) as unknown as typeof fetch,
       now: now + 25 * 60 * 60 * 1000,
       cacheFile,
     });
@@ -208,7 +208,7 @@ describe('peekRecommendedEffortConfig', () => {
   });
 
   it('sees the fetched config once the cache is warm', async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
     await getRecommendedEffortConfig({ fetchImpl: fetchImpl as typeof fetch, now, cacheFile: null });

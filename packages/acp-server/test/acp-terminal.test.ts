@@ -6,11 +6,15 @@ import type {
   Runtime,
   RuntimeProviderHost,
 } from '@moonshot-ai/agent-core-v2';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import type { IAcpConnection, IAcpTerminalHandle } from '../src/acp-fs/acpConnection';
 import { AcpHostFileSystem } from '../src/acp-fs/acpFsService';
-import { AcpRuntimeProviderFactory } from '../src/acp-terminal/acpTerminalRunner';
+import {
+  AcpRuntimeProviderFactory,
+  type AcpTerminalTimerHandle,
+  type AcpTerminalTimers,
+} from '../src/acp-terminal/acpTerminalRunner';
 
 function makeConnection(
   options: { terminalEnabled?: boolean; createTerminal?: () => IAcpTerminalHandle } = {},
@@ -65,7 +69,11 @@ function makeEnvironment(overrides: Partial<IHostEnvironment> = {}): IHostEnviro
 
 async function bindRuntime(
   environment: IHostEnvironment,
-  options: { connection?: IAcpConnection; local?: IHostProcessService } = {},
+  options: {
+    connection?: IAcpConnection;
+    local?: IHostProcessService;
+    timers?: AcpTerminalTimers;
+  } = {},
 ): Promise<Runtime> {
   const runtimes: Runtime[] = [];
   const host = {
@@ -78,12 +86,65 @@ async function bindRuntime(
     options.connection ?? makeConnection(),
     environment,
     options.local ?? makeLocalProcessService().local,
+    options.timers,
   );
   await factory.attach({ id: 'w1' } as never, host);
   factory.bindSession('w1', 's1', '/repo');
   const runtime = runtimes[0];
   if (runtime === undefined) throw new Error('runtime was not registered');
   return runtime;
+}
+
+interface FakeInterval {
+  due: number;
+  readonly intervalMs: number;
+  readonly callback: () => void;
+  cancelled: boolean;
+  unref(): void;
+}
+
+function createFakeTimers(): {
+  timers: AcpTerminalTimers;
+  advance(byMs: number): Promise<void>;
+} {
+  let nowMs = 0;
+  const intervals: FakeInterval[] = [];
+  return {
+    timers: {
+      setInterval: (callback, intervalMs) => {
+        const interval: FakeInterval = {
+          due: nowMs + intervalMs,
+          intervalMs,
+          callback,
+          cancelled: false,
+          unref: () => {},
+        };
+        intervals.push(interval);
+        return interval;
+      },
+      clearInterval: (handle: AcpTerminalTimerHandle): void => {
+        (handle as FakeInterval).cancelled = true;
+      },
+    },
+    advance: async (byMs) => {
+      const limit = nowMs + byMs;
+      for (;;) {
+        let next: FakeInterval | undefined;
+        for (const interval of intervals) {
+          if (interval.cancelled || interval.due > limit) continue;
+          if (next === undefined || interval.due < next.due) next = interval;
+        }
+        if (next === undefined) break;
+        nowMs = next.due;
+        next.due += next.intervalMs;
+        next.callback();
+        // One pump per tick is asynchronous; let its await settle before the
+        // next tick is delivered.
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+      nowMs = limit;
+    },
+  };
 }
 
 describe('AcpSessionRuntime', () => {
@@ -218,43 +279,39 @@ describe('AcpTerminalProcess truncated output', () => {
   }
 
   it('marks a truncated window once and rebases the delta instead of re-emitting it', async () => {
-    vi.useFakeTimers();
-    try {
-      const head = 'start-';
-      const tail = 'TAIL-after-truncation-31-bytes!';
-      expect(tail).toHaveLength(31);
-      // Frame 1: a normal prefix. Frame 2: the client's buffer hit its own
-      // 4 MiB limit and flagged it. Frame 3: the buffer rolled in place —
-      // same length, entirely different (shifted) content. Frame 4: growth
-      // resumes on the rolled-over window.
-      const handle = makeSequenceHandle([
-        { output: head, truncated: false },
-        { output: 'a'.repeat(FOUR_MIB), truncated: true },
-        { output: 'b'.repeat(FOUR_MIB), truncated: false },
-        { output: `${'b'.repeat(FOUR_MIB)}${tail}`, truncated: false },
-      ]);
-      const connection = makeConnection({ terminalEnabled: true, createTerminal: () => handle });
-      const runtime = await bindRuntime(makeEnvironment(), { connection });
+    const { timers, advance } = createFakeTimers();
+    const head = 'start-';
+    const tail = 'TAIL-after-truncation-31-bytes!';
+    expect(tail).toHaveLength(31);
+    // Frame 1: a normal prefix. Frame 2: the client's buffer hit its own
+    // 4 MiB limit and flagged it. Frame 3: the buffer rolled in place —
+    // same length, entirely different (shifted) content. Frame 4: growth
+    // resumes on the rolled-over window.
+    const handle = makeSequenceHandle([
+      { output: head, truncated: false },
+      { output: 'a'.repeat(FOUR_MIB), truncated: true },
+      { output: 'b'.repeat(FOUR_MIB), truncated: false },
+      { output: `${'b'.repeat(FOUR_MIB)}${tail}`, truncated: false },
+    ]);
+    const connection = makeConnection({ terminalEnabled: true, createTerminal: () => handle });
+    const runtime = await bindRuntime(makeEnvironment(), { connection, timers });
 
-      const proc = await runtime.process!.spawn('/bin/bash', ['-c', 'echo hi'], {
-        env: bashEnv,
-      });
-      const chunks: Buffer[] = [];
-      proc.stdout.on('data', (chunk: Buffer) => chunks.push(chunk));
+    const proc = await runtime.process!.spawn('/bin/bash', ['-c', 'echo hi'], {
+      env: bashEnv,
+    });
+    const chunks: Buffer[] = [];
+    proc.stdout.on('data', (chunk: Buffer) => chunks.push(chunk));
 
-      // One pump per poll tick.
-      for (let tick = 0; tick < 5; tick += 1) await vi.advanceTimersByTimeAsync(250);
+    // One pump per poll tick.
+    for (let tick = 0; tick < 5; tick += 1) await advance(250);
 
-      const stdout = Buffer.concat(chunks).toString('utf8');
-      // The rolled-over 4 MiB window is never re-emitted wholesale (under the
-      // old length-only comparison it arrived in full, shifted by the prefix
-      // already written).
-      expect(stdout).not.toContain('a'.repeat(1024));
-      // Exactly one marker, and the post-rebase delta follows it.
-      expect(stdout.split(NOTICE)).toHaveLength(2);
-      expect(stdout).toBe(`${head}${NOTICE}${tail}`);
-    } finally {
-      vi.useRealTimers();
-    }
+    const stdout = Buffer.concat(chunks).toString('utf8');
+    // The rolled-over 4 MiB window is never re-emitted wholesale (under the
+    // old length-only comparison it arrived in full, shifted by the prefix
+    // already written).
+    expect(stdout).not.toContain('a'.repeat(1024));
+    // Exactly one marker, and the post-rebase delta follows it.
+    expect(stdout.split(NOTICE)).toHaveLength(2);
+    expect(stdout).toBe(`${head}${NOTICE}${tail}`);
   });
 });

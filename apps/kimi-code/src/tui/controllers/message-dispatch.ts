@@ -410,13 +410,19 @@ export class MessageDispatchController {
     // Marking only happens once the submission was accepted: a rejected
     // bundle leaves no cards and must not leave a local undo anchor the
     // engine never recorded.
-    void request.then(() => {
-      for (const entry of this.host.state.transcriptEntries) {
-        if (entry.kind === 'skill_activation' && !knownEntryIds.has(entry.id)) {
-          entry.bundledWithPrompt = true;
+    // A rejected submission is handled by `trackDispatch` above; this
+    // fulfilment-only handler must not leave the derived promise as an
+    // unhandled rejection.
+    void request.then(
+      () => {
+        for (const entry of this.host.state.transcriptEntries) {
+          if (entry.kind === 'skill_activation' && !knownEntryIds.has(entry.id)) {
+            entry.bundledWithPrompt = true;
+          }
         }
-      }
-    });
+      },
+      () => {},
+    );
   }
 
   private handleSkillActivationError(session: Session, error: unknown): void {

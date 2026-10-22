@@ -15,7 +15,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { parse } from '#/parse';
 import type { ParseOptions, ParseResult } from '#/parse';

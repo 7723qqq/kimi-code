@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import type { Session } from '@moonshot-ai/kimi-code-sdk';
 
@@ -16,11 +16,11 @@ function makeHost(
 ) {
   let engineMode = overrides.towerMode ?? false;
   const session = {
-    setTowerMode: vi.fn(async (enabled: boolean) => {
+    setTowerMode: mock(async (enabled: boolean) => {
       if (!(overrides.refuseTowerEntry && enabled)) engineMode = enabled;
     }),
-    getStatus: vi.fn(async () => ({ towerMode: engineMode })),
-    getTowerStatus: vi.fn(async (): Promise<string> =>
+    getStatus: mock(async () => ({ towerMode: engineMode })),
+    getTowerStatus: mock(async (): Promise<string> =>
       engineMode ? 'Tower mode: ON\nTower is not initialized.' : 'Tower mode: OFF',
     ),
   };
@@ -33,7 +33,7 @@ function makeHost(
       },
     },
     session: hasSession ? session : undefined,
-    ensureSession: vi.fn(async () => {
+    ensureSession: mock(async () => {
       host.session = session as unknown as Session;
       return session as unknown as Session;
     }),
@@ -41,14 +41,14 @@ function makeHost(
       if (host.session === undefined) throw new Error('No active session');
       return host.session;
     },
-    setAppState: vi.fn((patch: Record<string, unknown>) => Object.assign(host.state.appState, patch)),
-    showError: vi.fn(),
-    showStatus: vi.fn(),
-    showNotice: vi.fn(),
-    sendNormalUserInput: vi.fn(),
-    mountEditorReplacement: vi.fn(),
-    restoreEditor: vi.fn(),
-    restoreInputText: vi.fn(),
+    setAppState: mock((patch: Record<string, unknown>) => Object.assign(host.state.appState, patch)),
+    showError: mock(),
+    showStatus: mock(),
+    showNotice: mock(),
+    sendNormalUserInput: mock(),
+    mountEditorReplacement: mock(),
+    restoreEditor: mock(),
+    restoreInputText: mock(),
   } as unknown as SlashCommandHost;
   return { host, session };
 }
@@ -59,7 +59,7 @@ describe('handleTowerCommand', () => {
 
     await handleTowerCommand(host, '');
 
-    expect(session.getTowerStatus).toHaveBeenCalledOnce();
+    expect(session.getTowerStatus).toHaveBeenCalledTimes(1);
     expect(host.showNotice).toHaveBeenCalledWith('Tower mode: OFF', undefined);
     expect(session.setTowerMode).not.toHaveBeenCalled();
     expect(host.ensureSession).not.toHaveBeenCalled();
@@ -74,7 +74,7 @@ describe('handleTowerCommand', () => {
 
     await handleTowerCommand(host, 'status');
 
-    expect(session.getTowerStatus).toHaveBeenCalledOnce();
+    expect(session.getTowerStatus).toHaveBeenCalledTimes(1);
     expect(host.showNotice).toHaveBeenCalledWith('Tower mode: ON', 'Tower is not initialized.');
     expect(host.showNotice).not.toHaveBeenCalledWith('Tower mode: OFF', undefined);
     expect(session.setTowerMode).not.toHaveBeenCalled();
@@ -115,8 +115,8 @@ describe('handleTowerCommand', () => {
 
     await handleTowerCommand(host, 'status');
 
-    expect(host.ensureSession).toHaveBeenCalledOnce();
-    expect(session.getTowerStatus).toHaveBeenCalledOnce();
+    expect(host.ensureSession).toHaveBeenCalledTimes(1);
+    expect(session.getTowerStatus).toHaveBeenCalledTimes(1);
     expect(host.showNotice).toHaveBeenCalledWith('Tower mode: OFF', undefined);
     expect(host.sendNormalUserInput).not.toHaveBeenCalled();
   });
@@ -281,7 +281,7 @@ describe('handleTowerCommand', () => {
 
   it('returns quietly when lazy session creation fails', async () => {
     const { host, session } = makeHost({ hasSession: false });
-    host.ensureSession = vi.fn(async () => undefined);
+    host.ensureSession = mock(async () => undefined);
 
     await handleTowerCommand(host, 'on');
 

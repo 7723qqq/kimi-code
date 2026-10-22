@@ -1,13 +1,14 @@
+import './setup';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import type { ReactNode } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import { useFilePicker } from '@/components/inputarea/hooks/useFilePicker';
 import { useChatStore } from '@/stores';
 
-const getProjectFiles = vi.fn();
+const getProjectFiles = mock();
 
-vi.mock('@/services', () => ({
+void mock.module('@/services', () => ({
   bridge: {
     getProjectFiles: (...args: unknown[]) => getProjectFiles(...args),
   },
@@ -101,7 +102,7 @@ describe('media option', () => {
 describe('keyboard navigation', () => {
   const key = (result: { current: ReturnType<typeof useFilePicker> }, k: string) => {
     act(() => {
-      result.current.handleFileMenuKey({ key: k, preventDefault: vi.fn() } as unknown as React.KeyboardEvent);
+      result.current.handleFileMenuKey({ key: k, preventDefault: mock() } as unknown as React.KeyboardEvent);
     });
   };
 
@@ -133,7 +134,7 @@ describe('keyboard navigation', () => {
     // The fork keeps a "Browse folders" row, so Enter still has a target.
     let handled = false;
     act(() => {
-      handled = result.current.handleFileMenuKey({ key: 'Enter', preventDefault: vi.fn() } as unknown as React.KeyboardEvent);
+      handled = result.current.handleFileMenuKey({ key: 'Enter', preventDefault: mock() } as unknown as React.KeyboardEvent);
     });
     expect(handled).toBe(true);
     expect(result.current.filePickerMode).toBe('folder');
@@ -158,7 +159,7 @@ describe('keyboard navigation', () => {
   });
 
   it('calls onPickMedia when Enter selects the media option', async () => {
-    const onPickMedia = vi.fn();
+    const onPickMedia = mock();
     const { result } = renderHook(() => useFilePicker(at(''), noop, onPickMedia, noop), { wrapper: createWrapper() });
 
     expect(result.current.selectedIndex).toBe(0);
@@ -168,7 +169,7 @@ describe('keyboard navigation', () => {
 
   it('ignores confirmation while results are stale for the current query', async () => {
     getProjectFiles.mockResolvedValue([{ name: 'a.ts', path: 'src/a.ts', isDirectory: false }]);
-    const onInsertFile = vi.fn();
+    const onInsertFile = mock();
     const { result, rerender } = renderHook(({ token }) => useFilePicker(token, onInsertFile, noop, noop), {
       initialProps: { token: at('a') as Token },
       wrapper: createWrapper(),
@@ -198,7 +199,7 @@ describe('keyboard navigation', () => {
 
   it('calls onInsertFile when Enter selects a file', async () => {
     getProjectFiles.mockResolvedValue([{ name: 'a.ts', path: 'src/a.ts', isDirectory: false }]);
-    const onInsertFile = vi.fn();
+    const onInsertFile = mock();
     const { result } = renderHook(() => useFilePicker(at('a'), onInsertFile, noop, noop), { wrapper: createWrapper() });
     await waitFor(() => { expect(result.current.fileItems).toHaveLength(1); });
 
@@ -211,7 +212,7 @@ describe('keyboard navigation', () => {
 
   it('enters the directory when Enter selects one, instead of inserting it', async () => {
     getProjectFiles.mockResolvedValue([{ name: 'src', path: 'src', isDirectory: true }]);
-    const onInsertFile = vi.fn();
+    const onInsertFile = mock();
     const { result } = renderHook(() => useFilePicker(at('sr'), onInsertFile, noop, noop), { wrapper: createWrapper() });
     await waitFor(() => { expect(result.current.fileItems).toHaveLength(1); });
 

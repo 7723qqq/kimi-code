@@ -9,7 +9,7 @@ import path from 'node:path';
 // aliasing, batch unique swap/del+set, unique-on-existing-dups, batch key
 // length, TTL heap growth, size vs expiry, range-array, dtColumns, MSET
 // atomicity, openOrRebuild scope, open-failure cleanup).
-import { test } from 'vitest';
+import { test } from 'bun:test';
 
 import { encodeBatchOps, encodeFrame, TYPE_BATCH, TYPE_SET } from '../src/codec.js';
 import { MiniDb, UniqueViolationError } from '../src/index.js';

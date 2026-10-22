@@ -2,7 +2,7 @@ import { Readable } from 'node:stream';
 import type { Writable } from 'node:stream';
 
 import type { IHostProcess } from '#/os/interface/hostProcess';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import {
   IAgentTaskService,
@@ -48,7 +48,7 @@ function pendingProcess(): IHostProcess & { resolve(code: number): void } {
   let currentExitCode: number | null = null;
   return {
     _serviceBrand: undefined,
-    stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
+    stdin: { write: mock(), end: mock() } as unknown as Writable,
     stdout: Readable.from([]),
     stderr: Readable.from([]),
     pid: 54321,
@@ -56,8 +56,8 @@ function pendingProcess(): IHostProcess & { resolve(code: number): void } {
       return currentExitCode;
     },
     wait: () => waitPromise,
-    kill: vi.fn().mockResolvedValue(undefined) as IHostProcess['kill'],
-    dispose: vi.fn().mockResolvedValue(undefined) as IHostProcess['dispose'],
+    kill: mock().mockResolvedValue(undefined) as IHostProcess['kill'],
+    dispose: mock().mockResolvedValue(undefined) as IHostProcess['dispose'],
     resolve(code: number): void {
       currentExitCode = code;
       resolveWait(code);

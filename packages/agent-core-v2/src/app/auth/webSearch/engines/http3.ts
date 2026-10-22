@@ -1,7 +1,17 @@
 import { isProxyConfigured } from '#/_base/utils/proxy';
+import { IHostTimers } from '#/os/interface/hostTimers';
 
 const ORIGIN_STATE = new Map<string, 'unknown' | 'ok' | 'dead'>();
 const PROBING = new Set<string>();
+
+const SYSTEM_HOST_TIMERS: IHostTimers = {
+  _serviceBrand: undefined,
+  setClampedTimeout: (callback, timeoutMs) => globalThis.setTimeout(callback, timeoutMs),
+  setTimeout: (callback, timeoutMs) => globalThis.setTimeout(callback, timeoutMs),
+  clearTimeout: (handle) => {
+    globalThis.clearTimeout(handle as ReturnType<typeof globalThis.setTimeout>);
+  },
+};
 
 interface CapturedNoProxy {
   NO_PROXY: string | undefined;
@@ -100,11 +110,13 @@ export interface H3FetchInit {
   body?: string;
   signal?: AbortSignal;
   timeoutMs?: number;
+  timers?: IHostTimers;
 }
 
 export async function h3Fetch(url: string, init: H3FetchInit): Promise<Response> {
+  const timers = init.timers ?? SYSTEM_HOST_TIMERS;
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), init.timeoutMs);
+  const timer = timers.setTimeout(() => controller.abort(), init.timeoutMs ?? 0);
   const signals = init.signal ? [controller.signal, init.signal] : [controller.signal];
   let routedDirectly = false;
   if (isProxyConfigured(process.env)) {
@@ -121,7 +133,7 @@ export async function h3Fetch(url: string, init: H3FetchInit): Promise<Response>
     } as RequestInit;
     return await fetch(url, requestInit);
   } finally {
-    clearTimeout(timer);
+    timers.clearTimeout(timer);
     if (routedDirectly) popDirectHost(new URL(url).hostname.toLowerCase());
   }
 }

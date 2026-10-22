@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { PassThrough, Readable, Writable } from 'node:stream';
 
 import { ndJsonStream } from '@agentclientprotocol/sdk';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { runAcpServerWithStream } from '../src/start';
 import { CURRENT_VERSION, MIN_PROTOCOL_VERSION, negotiateVersion } from '../src/version';

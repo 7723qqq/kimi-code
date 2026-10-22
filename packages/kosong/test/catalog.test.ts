@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import {
   adaptBaseUrlForWire,
@@ -865,5 +865,20 @@ describe('catalogProviderModels', () => {
       },
     });
     expect(models).toHaveLength(0);
+  });
+});
+
+describe('known wire types are closed', () => {
+  it('rejects a wire type outside the known set', () => {
+    expect(resolveCatalogImport({ id: 'x', type: 'deepinfer' })).toEqual({
+      kind: 'invalid',
+      reason: 'unknown-explicit-type',
+    });
+  });
+
+  it('accepts every wire type the client actually implements', () => {
+    for (const wire of ['anthropic', 'openai', 'openai_responses', 'google-genai', 'vertexai']) {
+      expect(resolveCatalogImport({ id: 'x', type: wire }).kind).not.toBe('invalid');
+    }
   });
 });

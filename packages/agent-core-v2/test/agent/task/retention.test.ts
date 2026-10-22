@@ -5,7 +5,7 @@ import type { Writable } from 'node:stream';
 import { join } from 'pathe';
 
 import type { IHostProcess } from '#/os/interface/hostProcess';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import { IAgentTaskService, type AgentTask } from '#/agent/task/task';
 import { ProcessTask } from '#/agent/tools/os/bash/process-task';
@@ -57,14 +57,14 @@ function createRetentionFixture(homedir: string): RetentionFixture {
 function immediateProcess(exitCode: number, stdoutText = ''): IHostProcess {
   return {
     _serviceBrand: undefined,
-    stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
+    stdin: { write: mock(), end: mock() } as unknown as Writable,
     stdout: Readable.from(stdoutText ? [stdoutText] : []),
     stderr: Readable.from([]),
     pid: 50000 + exitCode,
     exitCode,
-    wait: vi.fn().mockResolvedValue(exitCode) as IHostProcess['wait'],
-    kill: vi.fn().mockResolvedValue(undefined) as IHostProcess['kill'],
-    dispose: vi.fn().mockResolvedValue(undefined) as IHostProcess['dispose'],
+    wait: mock().mockResolvedValue(exitCode) as IHostProcess['wait'],
+    kill: mock().mockResolvedValue(undefined) as IHostProcess['kill'],
+    dispose: mock().mockResolvedValue(undefined) as IHostProcess['dispose'],
   };
 }
 

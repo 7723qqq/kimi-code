@@ -1,5 +1,5 @@
 import type { ExperimentalFeatureState } from '@moonshot-ai/kimi-code-sdk';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import {
   ExperimentsSelectorComponent,
@@ -41,8 +41,8 @@ describe('ExperimentsSelectorComponent', () => {
       features: [
         feature({ enabled: true, source: 'config', configValue: true }),
       ],
-      onApply: vi.fn(),
-      onCancel: vi.fn(),
+      onApply: mock(),
+      onCancel: mock(),
     });
 
     const out = text(selector);
@@ -56,12 +56,12 @@ describe('ExperimentsSelectorComponent', () => {
   });
 
   it('drafts changes with Space and applies them with Enter', () => {
-    const onApply = vi.fn<(changes: readonly ExperimentalFeatureDraftChange[]) => void>();
+    const onApply = mock<(changes: readonly ExperimentalFeatureDraftChange[]) => void>();
     const first = feature();
     const selector = new ExperimentsSelectorComponent({
       features: [first],
       onApply,
-      onCancel: vi.fn(),
+      onCancel: mock(),
     });
 
     selector.handleInput(' ');
@@ -81,7 +81,7 @@ describe('ExperimentsSelectorComponent', () => {
   });
 
   it('does not draft changes for env-locked features', () => {
-    const onApply = vi.fn<(changes: readonly ExperimentalFeatureDraftChange[]) => void>();
+    const onApply = mock<(changes: readonly ExperimentalFeatureDraftChange[]) => void>();
     const selector = new ExperimentsSelectorComponent({
       features: [
         feature({
@@ -90,7 +90,7 @@ describe('ExperimentsSelectorComponent', () => {
         }),
       ],
       onApply,
-      onCancel: vi.fn(),
+      onCancel: mock(),
     });
 
     selector.handleInput(' ');
@@ -102,11 +102,11 @@ describe('ExperimentsSelectorComponent', () => {
   });
 
   it('treats a space as part of the query once searching has started', () => {
-    const onApply = vi.fn<(changes: readonly ExperimentalFeatureDraftChange[]) => void>();
+    const onApply = mock<(changes: readonly ExperimentalFeatureDraftChange[]) => void>();
     const selector = new ExperimentsSelectorComponent({
       features: [feature()],
       onApply,
-      onCancel: vi.fn(),
+      onCancel: mock(),
     });
 
     for (const char of 'web search') selector.handleInput(char);
@@ -125,8 +125,8 @@ describe('ExperimentsSelectorComponent', () => {
     // been typed yet, so the space cannot belong to a search.
     const selector = new ExperimentsSelectorComponent({
       features: [feature()],
-      onApply: vi.fn(),
-      onCancel: vi.fn(),
+      onApply: mock(),
+      onCancel: mock(),
     });
 
     selector.handleInput(' ');
@@ -135,10 +135,10 @@ describe('ExperimentsSelectorComponent', () => {
   });
 
   it('filters by typing and clears the query before cancelling', () => {
-    const onCancel = vi.fn();
+    const onCancel = mock();
     const selector = new ExperimentsSelectorComponent({
       features: [feature()],
-      onApply: vi.fn(),
+      onApply: mock(),
       onCancel,
     });
 
@@ -151,6 +151,6 @@ describe('ExperimentsSelectorComponent', () => {
     selector.handleInput(ESC);
     expect(onCancel).not.toHaveBeenCalled();
     selector.handleInput(ESC);
-    expect(onCancel).toHaveBeenCalledOnce();
+    expect(onCancel).toHaveBeenCalledTimes(1);
   });
 });

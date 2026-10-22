@@ -2,7 +2,8 @@ import { mkdir, mkdtemp, realpath, rm, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join, parse } from 'node:path';
 
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { removeTempHome } from './helpers/tempHome';
 
 import { type RunningServer, startServer } from '../src/start';
 import { authHeaders } from './helpers/auth';
@@ -59,7 +60,7 @@ describe('server-v2 /api/v1 fs folder picker', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
+      await removeTempHome(home);
       home = undefined;
     }
     if (instancesDir !== undefined) {

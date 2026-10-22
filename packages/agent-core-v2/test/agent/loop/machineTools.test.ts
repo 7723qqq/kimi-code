@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import type {
   IAgentToolExecutorService,
@@ -46,8 +46,8 @@ const toolInfos: ToolInfo[] = [
 describe('createMachineTools duplicate tool call ids', () => {
   it('runs one batch per unique id and settles the superseded pending entry', async () => {
     const { toolExecutor, batches } = createRecordingExecutor();
-    const onBatchError = vi.fn();
-    const onToolResult = vi.fn();
+    const onBatchError = mock();
+    const onToolResult = mock();
     const tools = createMachineTools({
       toolExecutor,
       toolInfos: () => toolInfos,
@@ -79,7 +79,7 @@ describe('createMachineTools duplicate tool call ids', () => {
 
   it('settles pending calls that the replaced expected set can no longer satisfy', async () => {
     const { toolExecutor, batches } = createRecordingExecutor();
-    const onBatchError = vi.fn();
+    const onBatchError = mock();
     const tools = createMachineTools({
       toolExecutor,
       toolInfos: () => toolInfos,
@@ -116,7 +116,7 @@ describe('createMachineTools duplicate tool call ids', () => {
         },
       }),
     } as unknown as IAgentToolExecutorService;
-    const onBatchError = vi.fn();
+    const onBatchError = mock();
     const tools = createMachineTools({
       toolExecutor,
       toolInfos: () => toolInfos,

@@ -9,16 +9,24 @@
 import { writeFile } from 'node:fs/promises';
 
 import { join } from 'pathe';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
-import { createKimiHarness } from '#/index';
+import { createKimiHarness, type KimiHarness } from '#/index';
 
 import { makeTempDir, removeTempDirs } from './session-runtime-helpers';
 import { TEST_IDENTITY } from './test-identity';
 
 const tempDirs: string[] = [];
 
+// The harness owns a v2 engine with fs watchers and a wire flusher; closing it
+// before the temp dirs go away keeps a late watcher error from landing in
+// whichever test is awaiting at that moment.
+const openHarnesses: KimiHarness[] = [];
+
 afterEach(async () => {
+  for (const harness of openHarnesses.splice(0)) {
+    await harness.close();
+  }
   await removeTempDirs(tempDirs);
 });
 
@@ -46,6 +54,7 @@ async function openSession(sessionId: string): Promise<{
     'utf-8',
   );
   const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+  openHarnesses.push(harness);
   const session = await harness.createSession({ id: sessionId, workDir });
   return { session, workDir };
 }

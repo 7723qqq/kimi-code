@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import type { ContentPart } from '#/llm/message';
 import { imagePricingForModel } from '#/llm/modelFamily';
@@ -216,11 +216,6 @@ describe('deepseek vision formula', () => {
   });
 
   it('keeps the fallback and the cap as independent knobs', () => {
-    // Both values are 1024 today. They mean different things — the fallback
-    // applies when dimensions are unknown, the cap bounds the grid solve — so a
-    // single endpoint change must not be able to move both. This pins the
-    // behaviour rather than the numbers: if either constant changes, the effect
-    // it has must stay confined to its own path.
     const changedFallback = { ...pricing, fallbackTokens: 4096 };
     expect(estimateTokensForContentPart({ type: 'image_url', imageUrl: { url: 'x' } }, changedFallback)).toBe(4096);
     expect(estimateTokensForContentPart(imagePart(200, 200), changedFallback)).toBe(169);
@@ -231,9 +226,6 @@ describe('deepseek vision formula', () => {
   });
 
   it('records the calibration error against the measured endpoint', () => {
-    // The figures in the family constant's doc comment came from a live endpoint
-    // and are known to be approximations. Pinning the deltas here means a future
-    // change to the formula has to acknowledge the measurement it contradicts.
     const measured: readonly (readonly [number, number, number])[] = [
       [200, 200, 185],
       [512, 512, 185],

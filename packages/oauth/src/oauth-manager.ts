@@ -157,8 +157,8 @@ export class OAuthManager {
         }));
     // The `KIMI_CODE_HOME` fallback MUST stay test-only so production
     // entry points can't silently run without a lock just because the
-    // env happens to be unset. vitest sets `NODE_ENV='test'` by default,
-    // so multi-process test workers still pick up the test home path.
+    // env happens to be unset. `bun test` sets `NODE_ENV='test'` and the
+    // multi-process workers inherit it, so they pick up the test home path.
     const envConfigDir =
       process.env['NODE_ENV'] === 'test' ? process.env['KIMI_CODE_HOME'] : undefined;
     this.configDir = options.configDir ?? envConfigDir;

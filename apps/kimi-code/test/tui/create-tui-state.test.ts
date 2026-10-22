@@ -1,5 +1,5 @@
 import { ScrollView, TuiAltScreen, TuiMainScreen, VStack } from '@moonshot-ai/pi-tui';
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { GutterContainer } from '#/tui/components/chrome/gutter-container';
 import { StickyUserMessageComponent } from '#/tui/components/messages/sticky-user-message';

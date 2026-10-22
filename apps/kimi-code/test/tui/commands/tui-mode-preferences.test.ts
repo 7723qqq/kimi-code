@@ -1,20 +1,11 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock, spyOn } from 'bun:test';
 
 import { applyTuiModeChoice } from '#/tui/commands/config';
+import * as tuiConfig from '#/tui/config';
 
-const mocks = vi.hoisted(() => ({
-  saveTuiConfig: vi.fn(),
-}));
-
-vi.mock('../../../src/tui/config', async () => {
-  const actual = await vi.importActual<typeof import('../../../src/tui/config.js')>(
-    '../../../src/tui/config.js',
-  );
-  return {
-    ...actual,
-    saveTuiConfig: mocks.saveTuiConfig,
-  };
-});
+const mocks = {
+  saveTuiConfig: spyOn(tuiConfig, 'saveTuiConfig').mockImplementation(async () => {}),
+};
 
 function makeHost(
   tuiMode: 'regular' | 'fullscreen',
@@ -31,9 +22,9 @@ function makeHost(
       },
       ui: { mode: runningMode },
     },
-    setAppState: vi.fn(),
-    showStatus: vi.fn(),
-    showNotice: vi.fn(),
+    setAppState: mock(),
+    showStatus: mock(),
+    showNotice: mock(),
   };
 }
 

@@ -8,40 +8,32 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import {
-  resetModelsDevUpstreamForTest,
-  setModelsDevUpstreamForTest,
-} from '@moonshot-ai/agent-core-v2/app/kosongConfig/modelsDevUpstream';
-import type { KimiConfig, KimiHarness } from '@moonshot-ai/kimi-code-sdk';
+import { resetModelsDevUpstreamForTest, setModelsDevUpstreamForTest } from '@moonshot-ai/agent-core-v2/app/kosongConfig/modelsDevUpstream';
+import { type KimiConfig, KimiHarness } from '@moonshot-ai/kimi-code-sdk';
+import * as sdkModule from '@moonshot-ai/kimi-code-sdk';
 import { Command } from 'commander';
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { buildAddPatch } from '#/utils/provider-form';
 
-import {
-  handleCatalogAdd,
-  handleCatalogList,
-  handleProviderAdd,
-  handleProviderCreate,
-  handleProviderList,
-  handleProviderRemove,
-  handleProviderUpdate,
-  registerProviderCommand,
-  type ProviderDeps,
-} from '#/cli/sub/provider';
+import { handleCatalogAdd, handleCatalogList, handleProviderAdd, handleProviderCreate, handleProviderList, handleProviderRemove, handleProviderUpdate, registerProviderCommand, type ProviderDeps } from '#/cli/sub/provider';
 import { t } from '#/i18n';
-import { buildAddPatch, planEditWrite, type ProviderFormValue } from '#/utils/provider-form';
+import { planEditWrite, type ProviderFormValue } from '#/utils/provider-form';
 
 // Spy on the SDK harness factory so the default-deps construction can be
 // asserted without booting a real engine. The real implementations stay in
 // place for everything else the handlers use.
-const harnessRouting = vi.hoisted(() => ({
-  kimiHarnessConstructor: vi.fn(),
+const harnessRouting = (() => ({
+  kimiHarnessConstructor: mock(),
   harness: undefined as unknown,
-}));
+}))();
 
-vi.mock('@moonshot-ai/kimi-code-sdk', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@moonshot-ai/kimi-code-sdk')>();
+// Captured before `mock.module` overwrites the namespace, so the registry tests
+// can boot a real harness while the handlers see the routing stub.
+const realCreateKimiHarness = sdkModule.createKimiHarness;
+
+void mock.module('@moonshot-ai/kimi-code-sdk', () => {
   return {
-    ...actual,
+    ...sdkModule,
     createKimiHarness: (...args: unknown[]) => {
       harnessRouting.kimiHarnessConstructor(...args);
       return harnessRouting.harness;
@@ -257,9 +249,7 @@ beforeEach(() => {
 const registryHarnesses: KimiHarness[] = [];
 
 async function makeRegistryHarness(initial: KimiConfig) {
-  const { createKimiHarness } = await vi.importActual<typeof import('@moonshot-ai/kimi-code-sdk')>(
-    '@moonshot-ai/kimi-code-sdk',
-  );
+  const createKimiHarness = realCreateKimiHarness;
   const homeDir = await mkdtemp(join(tmpdir(), 'registry-cli-'));
   const harness = createKimiHarness({
     homeDir,
@@ -277,11 +267,11 @@ afterEach(async () => {
   }
   resetModelsDevUpstreamForTest();
   globalThis.fetch = originalFetch;
-  vi.restoreAllMocks();
+  mock.restore();
 });
 
-function mockRegistryFetch(body: unknown = REGISTRY_BODY, status = 200): ReturnType<typeof vi.fn> {
-  const fetchMock = vi.fn(
+function mockRegistryFetch(body: unknown = REGISTRY_BODY, status = 200): ReturnType<typeof mock> {
+  const fetchMock = mock(
     async () =>
       new Response(JSON.stringify(body), {
         status,
@@ -1573,7 +1563,9 @@ describe('kimi provider create', () => {
 
     expect(exitCodes).toEqual([]);
     expect(setConfigCalls).toEqual([
-      { ...buildAddPatch(demoFormValue()), defaultModel: 'demo/gpt-4.1' },
+      // The patch is a partial config by construction; `toEqual` is typed
+      // against the recorder's element type.
+      { ...buildAddPatch(demoFormValue()), defaultModel: 'demo/gpt-4.1' } as unknown as Partial<KimiConfig>,
     ]);
     expect(current().defaultModel).toBe('demo/gpt-4.1');
   });
@@ -1803,7 +1795,9 @@ describe('kimi provider update', () => {
     expect(plan.patch.providers?.['demo2']?.apiKey).toBe('sk-x');
     expect(exitCodes).toEqual([]);
     expect(removeCalls).toEqual(['demo']);
-    expect(setConfigCalls).toEqual([plan.patch]);
+    // The planned patch is a partial config by construction; `toEqual` is typed
+    // against the recorder's element type.
+    expect(setConfigCalls).toEqual([plan.patch as unknown as Partial<KimiConfig>]);
     expect(current().providers['demo2']?.['apiKey']).toBe('sk-x');
     expect(current().models?.['demo2/gpt-4.1']).toBeDefined();
     expect(current().defaultProvider).toBe('demo2');

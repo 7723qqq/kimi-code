@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import {
   meetsBannerAudience,
@@ -152,10 +152,10 @@ describe('meetsBannerAudience', () => {
 
 describe('resolveBannerAudienceContext', () => {
   const fetcherReturning = (result: unknown): BannerUserInfoFetcher =>
-    vi.fn().mockResolvedValue(result) as unknown as BannerUserInfoFetcher;
+    mock().mockResolvedValue(result) as unknown as BannerUserInfoFetcher;
 
   it('returns anonymous without any request when there is no access token', async () => {
-    const fetchUserInfo = vi.fn();
+    const fetchUserInfo = mock();
     const ctx = await resolveBannerAudienceContext(undefined, { fetchUserInfo });
     expect(ctx).toEqual({ login: 'anonymous' });
     expect(fetchUserInfo).not.toHaveBeenCalled();
@@ -209,7 +209,7 @@ describe('resolveBannerAudienceContext', () => {
     const cases: BannerUserInfoFetcher[] = [
       fetcherReturning({ kind: 'error', status: 500, message: 'boom' }),
       fetcherReturning({ kind: 'error', message: 'timeout' }),
-      vi.fn().mockRejectedValue(new Error('network down')) as unknown as BannerUserInfoFetcher,
+      mock().mockRejectedValue(new Error('network down')) as unknown as BannerUserInfoFetcher,
     ];
     for (const fetchUserInfo of cases) {
       const ctx = await resolveBannerAudienceContext('token', { fetchUserInfo, baseUrl: 'https://example.com' });

@@ -4,7 +4,7 @@
  * mapping (business codes on 2xx, infra statuses on non-2xx).
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { fetchV2SessionGroups, fetchV2SessionsPage } from './api';
 

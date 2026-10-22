@@ -42,7 +42,7 @@ import {
   AgentEventBusView,
   EventBusService,
 } from '@moonshot-ai/agent-core-v2/app/event/eventBusService';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 
 import { sessionEventMessageSchema } from '../src/protocol/ws-control';
 import { kimiErrorCodeSchema } from '../src/protocol/events-zod';
@@ -57,6 +57,7 @@ import {
   SessionEventJournal,
   type EventEnvelope,
 } from '../src/transport/ws/v1/sessionEventJournal';
+import { waitForAssertion } from './helpers/waitFor';
 
 type FakeBusEvent = { type: string };
 
@@ -500,7 +501,7 @@ describe('SessionEventBroadcaster', () => {
     const gate = new Promise<void>((resolve) => {
       release = resolve;
     });
-    const opening = vi.spyOn(SessionEventJournal, 'open').mockImplementation(async () => {
+    const opening = spyOn(SessionEventJournal, 'open').mockImplementation(async () => {
       enter();
       await gate;
       return journal;
@@ -1173,8 +1174,8 @@ describe('SessionEventBroadcaster', () => {
       },
     });
 
-    await vi.waitFor(() => expect(s1View.envelopes).toHaveLength(1));
-    await vi.waitFor(() => expect(s2View.envelopes).toHaveLength(1));
+    await waitForAssertion(() => expect(s1View.envelopes).toHaveLength(1));
+    await waitForAssertion(() => expect(s2View.envelopes).toHaveLength(1));
 
     expect(s1View.envelopes[0]).toMatchObject({
       type: 'session.meta.updated',
@@ -1207,8 +1208,8 @@ describe('SessionEventBroadcaster', () => {
       payload: { agentId: 'main', sessionId: 's1', session },
     });
 
-    await vi.waitFor(() => expect(s1View.envelopes).toHaveLength(1));
-    await vi.waitFor(() => expect(s2View.envelopes).toHaveLength(1));
+    await waitForAssertion(() => expect(s1View.envelopes).toHaveLength(1));
+    await waitForAssertion(() => expect(s2View.envelopes).toHaveLength(1));
 
     expect(s1View.envelopes[0]).toMatchObject({
       type: 'event.session.created',
@@ -1234,7 +1235,7 @@ describe('SessionEventBroadcaster', () => {
       payload: { sessionId: 'cold-1', workspaceId: 'wd_cold' },
     });
 
-    await vi.waitFor(() => expect(globalView.envelopes).toHaveLength(1));
+    await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
     expect(globalView.envelopes[0]).toMatchObject({
       type: 'event.session.archived',
       session_id: '__global__',
@@ -1257,7 +1258,7 @@ describe('SessionEventBroadcaster', () => {
       payload: { sessionId: 'cold-1', workspaceId: 'wd_cold' },
     });
 
-    await vi.waitFor(() => expect(globalView.envelopes).toHaveLength(1));
+    await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
     expect(globalView.envelopes[0]).toMatchObject({
       type: 'event.session.deleted',
       session_id: '__global__',
@@ -1284,7 +1285,7 @@ describe('SessionEventBroadcaster', () => {
     };
     eventBus.emit({ type: 'event.workspace.created', payload: { workspace } });
 
-    await vi.waitFor(() => expect(globalView.envelopes).toHaveLength(1));
+    await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
     expect(globalView.envelopes[0]).toMatchObject({
       type: 'event.workspace.created',
       session_id: '__global__',
@@ -1307,7 +1308,7 @@ describe('SessionEventBroadcaster', () => {
       type: 'event.workspace.updated',
       payload: { workspace: { ...workspace, name: 'renamed' } },
     });
-    await vi.waitFor(() => expect(globalView.envelopes).toHaveLength(2));
+    await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(2));
     expect(globalView.envelopes[1]).toMatchObject({
       type: 'event.workspace.updated',
       payload: {
@@ -1327,7 +1328,7 @@ describe('SessionEventBroadcaster', () => {
       payload: { workspaceId: 'wd_a', root: '/repo/a' },
     });
 
-    await vi.waitFor(() => expect(globalView.envelopes).toHaveLength(1));
+    await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
     expect(globalView.envelopes[0]).toMatchObject({
       type: 'event.workspace.deleted',
       session_id: '__global__',
@@ -1341,7 +1342,7 @@ describe('SessionEventBroadcaster', () => {
     });
 
     const journalPath = join(dir, '__global__.jsonl');
-    await vi.waitFor(async () => {
+    await waitForAssertion(async () => {
       expect(await readFile(journalPath, 'utf8').catch(() => '')).toContain('wd_a');
     });
     const before = await readFile(journalPath, 'utf8');
@@ -1366,7 +1367,7 @@ describe('SessionEventBroadcaster', () => {
       payload: { scope: 'app', token: 'debugCascadeService', state: 'Active' },
     });
 
-    await vi.waitFor(() => expect(diView.envelopes).toHaveLength(1));
+    await waitForAssertion(() => expect(diView.envelopes).toHaveLength(1));
     expect(diView.envelopes[0]).toMatchObject({
       type: 'event.di.unit_changed',
       session_id: '__global__',
@@ -1413,7 +1414,7 @@ describe('SessionEventBroadcaster', () => {
         payload: { agentId: 'main', sessionId: 's1', session },
       });
 
-      await vi.waitFor(() => expect(globalView.envelopes).toHaveLength(1));
+      await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
       expect(globalView.envelopes[0]).toMatchObject({
         type: 'event.session.created',
         session_id: 's1',
@@ -1477,7 +1478,7 @@ describe('SessionEventBroadcaster', () => {
         payload: { agentId: 'main', sessionId: 's1', session: { id: 's1' } },
       });
 
-      await vi.waitFor(() => expect(both.envelopes).toHaveLength(1));
+      await waitForAssertion(() => expect(both.envelopes).toHaveLength(1));
       await bc.getCursor('s1');
       expect(both.envelopes).toHaveLength(1);
     });
@@ -1496,7 +1497,7 @@ describe('SessionEventBroadcaster', () => {
       ];
       eventBus.emit({ type: 'event.config.warning', payload: { warnings } });
 
-      await vi.waitFor(() => expect(globalView.envelopes).toHaveLength(1));
+      await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
       expect(globalView.envelopes[0]).toMatchObject({
         type: 'event.config.warning',
         session_id: '__global__',
@@ -1518,7 +1519,7 @@ describe('SessionEventBroadcaster', () => {
         },
       });
 
-      await vi.waitFor(() => expect(globalView.envelopes).toHaveLength(2));
+      await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(2));
       expect(globalView.envelopes[0]).toMatchObject({
         type: 'event.plugin.changed',
         session_id: '__global__',
@@ -1554,7 +1555,7 @@ describe('SessionEventBroadcaster', () => {
         payload: { capability_id: 'kimi-cu', install: { running: false } },
       });
 
-      await vi.waitFor(() => expect(globalView.envelopes).toHaveLength(1));
+      await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
       expect(globalView.envelopes[0]).toMatchObject({
         type: 'event.capability.changed',
         payload: { capability_id: 'kimi-cu', install: { running: false } },
@@ -1572,7 +1573,7 @@ describe('SessionEventBroadcaster', () => {
       const warnings = [{ message: 'something deprecated' }];
       eventBus.emit({ type: 'event.config.warning', payload: { warnings } });
 
-      await vi.waitFor(() => expect(globalView.envelopes).toHaveLength(1));
+      await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
       expect(globalView.envelopes[0]).toMatchObject({
         type: 'event.config.warning',
         payload: { warnings },
@@ -1589,7 +1590,7 @@ describe('SessionEventBroadcaster', () => {
         payload: { changedFields: ['defaultModel'], config },
       });
 
-      await vi.waitFor(() => expect(globalView.envelopes).toHaveLength(1));
+      await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
       expect(globalView.envelopes[0]).toMatchObject({
         type: 'event.config.changed',
         session_id: '__global__',
@@ -1612,7 +1613,7 @@ describe('SessionEventBroadcaster', () => {
         payload: { changedFields: ['mcp'], config },
       });
 
-      await vi.waitFor(() => expect(globalView.envelopes).toHaveLength(1));
+      await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
       expect(globalView.envelopes[0]).toMatchObject({
         type: 'event.config.changed',
         session_id: '__global__',
@@ -1648,7 +1649,7 @@ describe('SessionEventBroadcaster', () => {
         payload: { changedFields: ['models'], config: { models: {} } },
       });
 
-      await vi.waitFor(() => expect(globalView.envelopes).toHaveLength(1));
+      await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
       expect(globalView.envelopes[0]).toMatchObject({
         type: 'event.config.changed',
         payload: { changedFields: ['models'], config: { models: {} } },
@@ -1668,7 +1669,7 @@ describe('SessionEventBroadcaster', () => {
         payload: { changed, unchanged: ['openai-main'], failed },
       });
 
-      await vi.waitFor(() => expect(globalView.envelopes).toHaveLength(1));
+      await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
       expect(globalView.envelopes[0]).toMatchObject({
         type: 'event.model_catalog.changed',
         session_id: '__global__',
@@ -1740,7 +1741,7 @@ describe('SessionEventBroadcaster', () => {
         payload: { changed, unchanged: [], failed: [] },
       });
 
-      await vi.waitFor(() => expect(globalView.envelopes).toHaveLength(1));
+      await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
       expect(globalView.envelopes[0]).toMatchObject({
         type: 'event.model_catalog.changed',
         payload: { changed, unchanged: [], failed: [] },
@@ -2032,7 +2033,7 @@ describe('SessionEventBroadcaster', () => {
         answers: { q_0: 'opt_0_0' },
       },
     });
-    expect((envelopes[2]!.payload as { resolved_at?: string }).resolved_at).toBeTypeOf('string');
+    expect(typeof (envelopes[2]!.payload as { resolved_at?: string }).resolved_at).toBe('string');
     expect(envelopes[3]).toMatchObject({
       type: 'event.session.work_changed',
       seq: 4,
@@ -2064,7 +2065,7 @@ describe('SessionEventBroadcaster', () => {
     ]);
     expect(envelopes[0]!.payload).toMatchObject({ pending_interaction: 'question' });
     expect(envelopes[2]!.payload).toMatchObject({ question_id: 'q1' });
-    expect((envelopes[2]!.payload as { dismissed_at?: string }).dismissed_at).toBeTypeOf('string');
+    expect(typeof (envelopes[2]!.payload as { dismissed_at?: string }).dismissed_at).toBe('string');
     expect(envelopes[3]!.payload).toMatchObject({ pending_interaction: 'none' });
   });
 
@@ -2155,7 +2156,7 @@ describe('SessionEventBroadcaster', () => {
         scope: 'session',
       },
     });
-    expect((envelopes[2]!.payload as { resolved_at?: string }).resolved_at).toBeTypeOf('string');
+    expect(typeof (envelopes[2]!.payload as { resolved_at?: string }).resolved_at).toBe('string');
     expect(envelopes[3]).toMatchObject({
       type: 'event.session.work_changed',
       seq: 4,
@@ -2332,6 +2333,35 @@ describe('SessionEventBroadcaster', () => {
     expect(envelopes.map((e) => e.seq)).toEqual([1, 2, 3, 4, 5, 6]);
   });
 
+  it('fans out task.output as the volatile background.task.output alias', async () => {
+    const lc = new FakeLifecycle();
+    const main = lc.addAgent('main');
+    sessions.set('s1', lc);
+    const { target, envelopes } = collectingTarget();
+    await bc.subscribe('s1', target);
+
+    main.bus.emit(
+      agentEvent('task.output', {
+        agentId: 'main',
+        taskId: 't1',
+        chunk: 'hello\n',
+        outputSizeBytes: 6,
+      }),
+    );
+    await bc.getCursor('s1');
+
+    expect(envelopes.map((e) => e.type)).toEqual(['background.task.output']);
+    expect(envelopes[0]!.volatile).toBe(true);
+    expect(envelopes[0]!.payload).toMatchObject({
+      type: 'background.task.output',
+      agentId: 'main',
+      sessionId: 's1',
+      taskId: 't1',
+      chunk: 'hello\n',
+      outputSizeBytes: 6,
+    });
+  });
+
   it('delivers only the allowlisted agent events on live fan-out', async () => {
     const lc = new FakeLifecycle();
     const main = lc.addAgent('main');
@@ -2394,7 +2424,7 @@ describe('SessionEventBroadcaster', () => {
       },
     });
 
-    await vi.waitFor(() => expect(envelopes).toHaveLength(1));
+    await waitForAssertion(() => expect(envelopes).toHaveLength(1));
     expect(envelopes[0]!.type).toBe('session.meta.updated');
   });
 
@@ -2712,8 +2742,7 @@ describe('SessionEventBroadcaster', () => {
         releaseBackfill = resolve;
       });
       const original = service.ensureAgentHistory.bind(service);
-      const backfillSpy = vi
-        .spyOn(service, 'ensureAgentHistory')
+      const backfillSpy = spyOn(service, 'ensureAgentHistory')
         .mockImplementation(async (sessionId, agentId) => {
           if (agentId === 'sub-1') await gate;
           return original(sessionId, agentId);
@@ -2727,7 +2756,7 @@ describe('SessionEventBroadcaster', () => {
 
       const view = collectingTarget();
       const pending = bc.subscribe('s1', view.target, undefined, { 'sub-1': 'delta' });
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         expect(backfillSpy).toHaveBeenCalledWith('s1', 'sub-1');
       });
       bc.unsubscribe('s1', view.target);
@@ -2868,7 +2897,7 @@ describe('SessionEventBroadcaster', () => {
       };
       expect(payload.snapshot.items).toEqual([]);
       expect(payload.has_more_older).toBe(true);
-      expect(payload.seq).toBeTypeOf('number');
+      expect(typeof payload.seq).toBe('number');
       expect(payload.snapshot).toMatchObject({
         tasks: [],
         interactions: [],
@@ -2908,7 +2937,7 @@ describe('SessionEventBroadcaster', () => {
       const reset = transcriptEnvelopes(view.envelopes)[0]!;
       expect(reset.type).toBe('transcript.reset');
       const watermark = (reset.payload as { seq?: number }).seq;
-      expect(watermark).toBeTypeOf('number');
+      expect(typeof watermark).toBe('number');
 
       main.bus.emit(agentEvent('turn.started', { turnId: 1, origin: { kind: 'user' } }));
       main.bus.emit(agentEvent('turn.ended', { turnId: 1, reason: 'completed' }));
@@ -3006,7 +3035,7 @@ describe('SessionEventBroadcaster', () => {
       );
       expect(resets).toHaveLength(1);
       const watermark = (resets[0]!.payload as { seq?: number }).seq;
-      expect(watermark).toBeTypeOf('number');
+      expect(typeof watermark).toBe('number');
       expect(
         (
           transcriptEnvelopes(first.envelopes)

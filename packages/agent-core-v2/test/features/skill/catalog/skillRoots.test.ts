@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, realpath, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 import { join } from 'pathe';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { configuredRoots, projectRoots, userRoots } from '#/features/skill/catalog/skillRoots';
 

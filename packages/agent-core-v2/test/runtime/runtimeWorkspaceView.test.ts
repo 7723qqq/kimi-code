@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { FakeRuntime } from '#/runtime/fakeRuntime';
 import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';

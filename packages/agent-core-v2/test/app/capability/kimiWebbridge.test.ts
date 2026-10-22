@@ -4,7 +4,7 @@ import path from 'node:path';
 
 import { Readable, Writable } from 'node:stream';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import type { IPluginService } from '#/app/plugin/plugin';
 import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';

@@ -1,6 +1,7 @@
-import { join } from 'node:path';
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+
+import { describe, expect, it, mock } from 'bun:test';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { EffortSelectorComponent } from '#/tui/components/dialogs/effort-selector';
 import { TabbedModelSelectorComponent } from '#/tui/components/dialogs/tabbed-model-selector';
@@ -10,9 +11,9 @@ import { makeDriver, makeSession, renderTranscript } from './kimi-tui-message-fl
 describe('/model status displayName override', () => {
   it('shows the overridden display name in the switch status', async () => {
     const session = makeSession();
-    const setConfig = vi.fn(async () => ({ providers: {} }));
+    const setConfig = mock(async () => ({ providers: {} }));
     const { driver } = await makeDriver(session, {
-      getConfig: vi.fn(async () => ({
+      getConfig: mock(async () => ({
         models: {
           k2: {
             provider: 'managed:kimi-code',
@@ -38,12 +39,12 @@ describe('/model status displayName override', () => {
 
     driver.handleUserInput('/model turbo');
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(TabbedModelSelectorComponent);
     });
     (driver.state.editorContainer.children[0] as TabbedModelSelectorComponent).handleInput('\r');
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(setConfig).toHaveBeenCalledWith({
         defaultModel: 'turbo',
         thinking: { enabled: true },
@@ -59,7 +60,7 @@ describe('/effort support_efforts override', () => {
   it('warns and applies efforts hidden by an Anthropic support_efforts override', async () => {
     const session = makeSession();
     const { driver } = await makeDriver(session, {
-      getConfig: vi.fn(async () => ({
+      getConfig: mock(async () => ({
         providers: {
           compatible: { type: 'kimi', apiKey: 'test-key' },
         },
@@ -82,10 +83,10 @@ describe('/effort support_efforts override', () => {
 
     driver.handleUserInput('/effort max');
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(session.setThinking).toHaveBeenCalledWith('max');
     });
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(renderTranscript(driver)).toContain('Thinking set to max.');
     });
     const transcript = renderTranscript(driver).replaceAll(/\s+/g, ' ');
@@ -97,7 +98,7 @@ describe('/effort support_efforts override', () => {
 
   it('offers the latest Opus efforts for an unknown Claude-marked Anthropic-compatible model', async () => {
     const { driver } = await makeDriver(makeSession(), {
-      getConfig: vi.fn(async () => ({
+      getConfig: mock(async () => ({
         providers: {
           compatible: { type: 'anthropic', apiKey: 'test-key' },
         },
@@ -114,7 +115,7 @@ describe('/effort support_efforts override', () => {
 
     driver.handleUserInput('/effort');
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(EffortSelectorComponent);
     });
     const picker = driver.state.editorContainer.children[0] as EffortSelectorComponent;
@@ -123,7 +124,7 @@ describe('/effort support_efforts override', () => {
 
   it('offers no fallback efforts for a clearly non-Claude Anthropic-compatible model', async () => {
     const { driver } = await makeDriver(makeSession(), {
-      getConfig: vi.fn(async () => ({
+      getConfig: mock(async () => ({
         providers: {
           compatible: { type: 'anthropic', apiKey: 'test-key' },
         },
@@ -140,7 +141,7 @@ describe('/effort support_efforts override', () => {
 
     driver.handleUserInput('/effort');
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(EffortSelectorComponent);
     });
     const picker = driver.state.editorContainer.children[0] as EffortSelectorComponent;
@@ -149,7 +150,7 @@ describe('/effort support_efforts override', () => {
 
   it('offers no fallback efforts for an unknown model on a Kimi provider using the Anthropic protocol', async () => {
     const { driver } = await makeDriver(makeSession(), {
-      getConfig: vi.fn(async () => ({
+      getConfig: mock(async () => ({
         providers: {
           compatible: { type: 'kimi', apiKey: 'test-key' },
         },
@@ -167,7 +168,7 @@ describe('/effort support_efforts override', () => {
 
     driver.handleUserInput('/effort');
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(EffortSelectorComponent);
     });
     const picker = driver.state.editorContainer.children[0] as EffortSelectorComponent;
@@ -176,7 +177,7 @@ describe('/effort support_efforts override', () => {
 
   it('offers the latest Opus efforts for a flat providerless Claude-marked Anthropic model', async () => {
     const { driver } = await makeDriver(makeSession(), {
-      getConfig: vi.fn(async () => ({
+      getConfig: mock(async () => ({
         providers: {},
         models: {
           k2: {
@@ -192,7 +193,7 @@ describe('/effort support_efforts override', () => {
 
     driver.handleUserInput('/effort');
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(EffortSelectorComponent);
     });
     const picker = driver.state.editorContainer.children[0] as EffortSelectorComponent;
@@ -202,7 +203,7 @@ describe('/effort support_efforts override', () => {
   it('keeps rejecting efforts hidden by a Kimi support_efforts override', async () => {
     const session = makeSession();
     const { driver } = await makeDriver(session, {
-      getConfig: vi.fn(async () => ({
+      getConfig: mock(async () => ({
         providers: {
           kimi: { type: 'kimi', apiKey: 'test-key' },
         },
@@ -222,7 +223,7 @@ describe('/effort support_efforts override', () => {
 
     driver.handleUserInput('/effort max');
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(renderTranscript(driver)).toContain(
         'Unsupported thinking effort "max" for k2. Available: off, low, high',
       );

@@ -1,60 +1,47 @@
 import { Readable, type Writable } from 'node:stream';
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock, type Mock } from 'bun:test';
+import { SENSITIVE_DOT_VARIANT_SUFFIXES } from '#/tool/path-access';
 
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { Service } from '#/_base/di/service';
 import { createServices } from '#/_base/di/test';
-import type {
-  ExecutableTool,
-  ExecutableToolContext,
-  ExecutableToolResult,
-  ToolExecution,
-} from '#/tool/toolContract';
+import { type ExecutableTool, type ExecutableToolContext, type ExecutableToolResult, type ToolExecution } from '#/tool/toolContract';
 import { IAgentToolActivationService } from '#/agent/toolActivation/toolActivation';
 import { AgentToolActivationService } from '#/agent/toolActivation/toolActivationService';
 import { IAgentProfileService, type ProfileData } from '#/agent/profile/profile';
-import {
-  _clearAgentToolContributionsForTests,
-  AgentToolContribution,
-  getAgentToolContributions,
-  overrideAgentToolService,
-} from '#/agent/toolRegistry/toolContribution';
+import { _clearAgentToolContributionsForTests, AgentToolContribution, getAgentToolContributions, overrideAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { AgentToolRegistryService } from '#/agent/toolRegistry/toolRegistryService';
 import { IEventBus } from '#/app/event/eventBus';
 import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
-import type { PathClass } from '#/_base/execEnv/environmentProbe';
-import {
-  PathSecurityError,
-  SENSITIVE_DOT_VARIANT_SUFFIXES,
-  type WorkspaceConfig,
-} from '#/tool/path-access';
+import { type PathClass } from '#/_base/execEnv/environmentProbe';
+import { PathSecurityError, type WorkspaceConfig } from '#/tool/path-access';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem, type HostFileStat } from '#/os/interface/hostFileSystem';
 import { IHostProcessService, type IHostProcess } from '#/os/interface/hostProcess';
+import type { IHostTimerHandle, IHostTimers } from '#/os/interface/hostTimers';
 import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 import { ISessionToolPolicyGate } from '#/session/sessionToolPolicyGate/sessionToolPolicyGate';
 import { Event } from '#/_base/event';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import {
-  type GrepInput,
-  GrepInputSchema,
-  IGrepTool,
-} from '#/agent/tools/os/grep/grep';
+import { type GrepInput, GrepInputSchema, IGrepTool } from '#/agent/tools/os/grep/grep';
 import { GrepTool as ProductionGrepTool } from '#/agent/tools/os/grep/grepTool';
 import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
 import { ensureRgPath } from '#/os/backends/host/tools/rgLocator';
+import type { RgHostProcessService } from '#/os/backends/host/tools/runRg';
 import { stubWorkspaceContext } from '../../../../session/workspaceContext/stub-workspace-context';
 import { recordingTelemetry, type TelemetryRecord } from '../../../../app/telemetry/stubs';
 import { registerStateServices } from '../../../../state/stubs';
 
-vi.mock('#/os/backends/host/tools/rgLocator', () => ({
-  ensureRgPath: vi.fn(async () => ({ path: '/mock/rg', source: 'system-path' })),
+void mock.module('#/os/backends/host/tools/rgLocator', () => ({
+  ensureRgPath: mock(async () => ({ path: '/mock/rg', source: 'system-path' })),
   rgUnavailableMessage: (cause: unknown) =>
     `rg unavailable: ${cause instanceof Error ? cause.message : String(cause)}`,
 }));
+
+const ensureRgPathMock = ensureRgPath as Mock<typeof ensureRgPath>;
 
 const signal = new AbortController().signal;
 
@@ -115,6 +102,77 @@ interface FakeKaos {
   gethome(): string;
   stat(path: string): Promise<HostFileStat>;
   exec(...args: string[]): Promise<IHostProcess>;
+  timers?: IHostTimers;
+}
+
+interface FakeTimerHandle extends IHostTimerHandle {
+  readonly id: number;
+}
+
+interface FakeTimers extends IHostTimers {
+  advance(byMs: number): void;
+  readonly pending: number;
+}
+
+function createFakeTimers(): FakeTimers {
+  let nowMs = 0;
+  let nextId = 1;
+  const scheduled: Array<{
+    readonly id: number;
+    readonly due: number;
+    readonly callback: () => void;
+    cancelled: boolean;
+  }> = [];
+
+  const schedule = (callback: () => void, timeoutMs: number): FakeTimerHandle => {
+    const timer = { id: nextId, due: nowMs + timeoutMs, callback, cancelled: false };
+    nextId += 1;
+    scheduled.push(timer);
+    return { id: timer.id, unref: () => {} };
+  };
+
+  return {
+    _serviceBrand: undefined,
+    setClampedTimeout: (callback, timeoutMs) => schedule(callback, timeoutMs),
+    setTimeout: (callback, timeoutMs) => schedule(callback, timeoutMs),
+    clearTimeout: (handle) => {
+      const id = (handle as FakeTimerHandle).id;
+      const timer = scheduled.find((candidate) => candidate.id === id);
+      if (timer !== undefined) timer.cancelled = true;
+    },
+    advance: (byMs) => {
+      const limit = nowMs + byMs;
+      for (;;) {
+        const next = scheduled
+          .filter((timer) => !timer.cancelled && timer.due <= limit)
+          .toSorted((a, b) => a.due - b.due || a.id - b.id)[0];
+        if (next === undefined) break;
+        next.cancelled = true;
+        nowMs = next.due;
+        next.callback();
+      }
+      nowMs = limit;
+    },
+    get pending() {
+      return scheduled.filter((timer) => !timer.cancelled).length;
+    },
+  };
+}
+
+async function flushAsyncWork(): Promise<void> {
+  for (let i = 0; i < 4; i += 1) {
+    await Promise.resolve();
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+  }
+}
+
+async function advanceRgTimeout(timers: FakeTimers): Promise<void> {
+  await flushAsyncWork();
+  expect(timers.pending).toBe(1);
+  timers.advance(20_000);
+  await flushAsyncWork();
 }
 
 function notImplemented(method: string): never {
@@ -164,10 +222,11 @@ function createTestFs(kaos: FakeKaos): IHostFileSystem {
   };
 }
 
-function createTestProcessService(kaos: FakeKaos): IHostProcessService {
+function createTestProcessService(kaos: FakeKaos): RgHostProcessService {
   return {
     _serviceBrand: undefined,
     spawn: (command, args = []) => kaos.exec(command, ...args),
+    timers: kaos.timers,
   };
 }
 
@@ -209,14 +268,14 @@ function processWithOutput(stdout: string, stderr = '', exitCode = 0): IHostProc
   const stderrStream = Readable.from([stderr]);
   return {
     _serviceBrand: undefined,
-    stdin: { end: vi.fn(), write: vi.fn() } as unknown as Writable,
+    stdin: { end: mock(), write: mock() } as unknown as Writable,
     stdout: stdoutStream,
     stderr: stderrStream,
     pid: 123,
     exitCode,
-    wait: vi.fn().mockResolvedValue(exitCode),
-    kill: vi.fn(async () => {}),
-    dispose: vi.fn(() => {
+    wait: mock().mockResolvedValue(exitCode),
+    kill: mock(async () => {}),
+    dispose: mock(() => {
       stdoutStream.destroy();
       stderrStream.destroy();
     }),
@@ -243,19 +302,19 @@ function processThatExitsOnKill(stdout: string, stderr = '', exitCode = 143): IH
 
   return {
     _serviceBrand: undefined,
-    stdin: { end: vi.fn(), write: vi.fn() } as unknown as Writable,
+    stdin: { end: mock(), write: mock() } as unknown as Writable,
     stdout: stdoutStream,
     stderr: stderrStream,
     pid: 123,
     get exitCode() {
       return currentExitCode;
     },
-    wait: vi.fn(() => waitPromise),
-    kill: vi.fn(async () => {
+    wait: mock(() => waitPromise),
+    kill: mock(async () => {
       currentExitCode = exitCode;
       resolveWait(exitCode);
     }),
-    dispose: vi.fn(() => {
+    dispose: mock(() => {
       stdoutStream.destroy();
       stderrStream.destroy();
     }),
@@ -309,10 +368,6 @@ function toolContentString(result: ExecutableToolResult): string {
   }
   return c;
 }
-
-afterEach(() => {
-  vi.useRealTimers();
-});
 
 describe('GrepTool', () => {
   it('registers contribution metadata through the production DI path', async () => {
@@ -463,7 +518,7 @@ describe('GrepTool', () => {
   });
 
   it('searches only the current workspace when path is omitted', async () => {
-    const exec = vi.fn().mockResolvedValue(processWithOutput('/workspace/src/a.ts\n'));
+    const exec = mock().mockResolvedValue(processWithOutput('/workspace/src/a.ts\n'));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
     const result = await executeTool(tool, context({ pattern: 'hit' }));
@@ -481,7 +536,7 @@ describe('GrepTool', () => {
   });
 
   it('can search an additional directory when path is explicit', async () => {
-    const exec = vi.fn().mockResolvedValue(processWithOutput('/extra/pkg/b.ts\n'));
+    const exec = mock().mockResolvedValue(processWithOutput('/extra/pkg/b.ts\n'));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
     const result = await executeTool(tool, context({ pattern: 'hit', path: '/extra' }));
@@ -499,8 +554,7 @@ describe('GrepTool', () => {
   });
 
   it('keeps non-workspace grep result paths absolute in content and count modes', async () => {
-    const exec = vi
-      .fn()
+    const exec = mock()
       .mockResolvedValueOnce(processWithOutput('/extra/pkg/b.ts:10:hit\n'))
       .mockResolvedValueOnce(processWithOutput('/extra/pkg/b.ts:2\n'));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
@@ -519,7 +573,7 @@ describe('GrepTool', () => {
   });
 
   it('returns an explicit non-sensitive message when ripgrep finds no matches', async () => {
-    const exec = vi.fn().mockResolvedValue(processWithOutput('', '', 1));
+    const exec = mock().mockResolvedValue(processWithOutput('', '', 1));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
     const result = await executeTool(tool, context({ pattern: 'missing' }));
@@ -531,13 +585,13 @@ describe('GrepTool', () => {
     const stdout = ['/workspace/src/old.ts', '/workspace/.env', '/workspace/src/new.ts', ''].join(
       '\n',
     );
-    const stat = vi.fn(async (path: string) => {
+    const stat = mock(async (path: string) => {
       if (path === '/workspace/src/new.ts') return statResult(10);
       if (path === '/workspace/src/old.ts') return statResult(1);
       throw new Error(`unexpected stat: ${path}`);
     });
     const tool = new GrepTool(
-      createFakeKaos({ exec: vi.fn().mockResolvedValue(processWithOutput(stdout)), stat }),
+      createFakeKaos({ exec: mock().mockResolvedValue(processWithOutput(stdout)), stat }),
       { workspaceDir: '/workspace', additionalDirs: [] },
     );
 
@@ -559,7 +613,7 @@ describe('GrepTool', () => {
     const stdout = ['/workspace/src/a.ts', '/workspace/src/b.ts', '/workspace/src/c.ts', ''].join(
       '\n',
     );
-    const stat = vi.fn(async (path: string) => {
+    const stat = mock(async (path: string) => {
       if (path === '/workspace/src/a.ts') {
         return { ...statResult(1), mtimeMs: 1000 };
       }
@@ -572,7 +626,7 @@ describe('GrepTool', () => {
       throw new Error(`unexpected stat: ${path}`);
     });
     const tool = new GrepTool(
-      createFakeKaos({ exec: vi.fn().mockResolvedValue(processWithOutput(stdout)), stat }),
+      createFakeKaos({ exec: mock().mockResolvedValue(processWithOutput(stdout)), stat }),
       { workspaceDir: '/workspace', additionalDirs: [] },
     );
 
@@ -588,7 +642,7 @@ describe('GrepTool', () => {
     );
     let activeStats = 0;
     let maxActiveStats = 0;
-    const stat = vi.fn(async (path: string) => {
+    const stat = mock(async (path: string) => {
       activeStats += 1;
       maxActiveStats = Math.max(maxActiveStats, activeStats);
       await new Promise<void>((resolve) => {
@@ -600,7 +654,7 @@ describe('GrepTool', () => {
     });
     const tool = new GrepTool(
       createFakeKaos({
-        exec: vi.fn().mockResolvedValue(processWithOutput(`${filePaths.join('\n')}\n`)),
+        exec: mock().mockResolvedValue(processWithOutput(`${filePaths.join('\n')}\n`)),
         stat,
       }),
       { workspaceDir: '/workspace', additionalDirs: [] },
@@ -621,7 +675,7 @@ describe('GrepTool', () => {
       (_, index) => `/workspace/src/file-${String(index).padStart(2, '0')}.ts`,
     );
     const abortController = new AbortController();
-    const stat = vi.fn(async () => {
+    const stat = mock(async () => {
       abortController.abort();
       await new Promise<void>((resolve) => {
         setTimeout(resolve, 0);
@@ -630,7 +684,7 @@ describe('GrepTool', () => {
     });
     const tool = new GrepTool(
       createFakeKaos({
-        exec: vi.fn().mockResolvedValue(processWithOutput(`${filePaths.join('\n')}\n`)),
+        exec: mock().mockResolvedValue(processWithOutput(`${filePaths.join('\n')}\n`)),
         stat,
       }),
       { workspaceDir: '/workspace', additionalDirs: [] },
@@ -651,13 +705,13 @@ describe('GrepTool', () => {
       '/workspace/src/new.ts',
       '',
     ].join('\n');
-    const stat = vi.fn(async (path: string) => {
+    const stat = mock(async (path: string) => {
       if (path === '/workspace/src/new.ts') return statResult(10);
       if (path === '/workspace/src/old.ts') return statResult(1);
       throw new Error('stat failed');
     });
     const tool = new GrepTool(
-      createFakeKaos({ exec: vi.fn().mockResolvedValue(processWithOutput(stdout)), stat }),
+      createFakeKaos({ exec: mock().mockResolvedValue(processWithOutput(stdout)), stat }),
       { workspaceDir: '/workspace', additionalDirs: [] },
     );
 
@@ -669,7 +723,7 @@ describe('GrepTool', () => {
   });
 
   it('uses count-matches and ignores context flags outside content output mode', async () => {
-    const exec = vi.fn().mockResolvedValue(processWithOutput('/workspace/src/a.ts:2\n'));
+    const exec = mock().mockResolvedValue(processWithOutput('/workspace/src/a.ts:2\n'));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
     await executeTool(tool,
@@ -689,8 +743,7 @@ describe('GrepTool', () => {
   });
 
   it('retries EAGAIN ripgrep failures with a single-threaded search', async () => {
-    const exec = vi
-      .fn()
+    const exec = mock()
       .mockResolvedValueOnce(
         processWithOutput('', 'rg: failed to spawn worker: Resource temporarily unavailable\n', 2),
       )
@@ -717,7 +770,7 @@ describe('GrepTool', () => {
   });
 
   it('passes public ripgrep flags through argv', async () => {
-    const exec = vi.fn().mockResolvedValue(processWithOutput('/workspace/src/a.ts\n'));
+    const exec = mock().mockResolvedValue(processWithOutput('/workspace/src/a.ts\n'));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
     await executeTool(tool,
@@ -748,7 +801,7 @@ describe('GrepTool', () => {
   });
 
   it('gives -C precedence over before and after context in content mode', async () => {
-    const exec = vi.fn().mockResolvedValue(processWithOutput('/workspace/src/a.ts:2:hit\n'));
+    const exec = mock().mockResolvedValue(processWithOutput('/workspace/src/a.ts:2:hit\n'));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
     await executeTool(tool,
@@ -771,7 +824,7 @@ describe('GrepTool', () => {
 
   describe('column cap by output mode', () => {
     it('does not cap columns in content output mode so long matching lines are returned in full', async () => {
-      const exec = vi.fn().mockResolvedValue(processWithOutput('/workspace/src/a.ts:1:hit\n'));
+      const exec = mock().mockResolvedValue(processWithOutput('/workspace/src/a.ts:1:hit\n'));
       const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
       await executeTool(tool, context({ pattern: 'hit', output_mode: 'content' }));
@@ -781,7 +834,7 @@ describe('GrepTool', () => {
     });
 
     it('caps columns in files_with_matches output mode', async () => {
-      const exec = vi.fn().mockResolvedValue(processWithOutput('/workspace/src/a.ts\n'));
+      const exec = mock().mockResolvedValue(processWithOutput('/workspace/src/a.ts\n'));
       const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
       await executeTool(tool, context({ pattern: 'hit' }));
@@ -791,7 +844,7 @@ describe('GrepTool', () => {
     });
 
     it('caps columns in count_matches output mode', async () => {
-      const exec = vi.fn().mockResolvedValue(processWithOutput('/workspace/src/a.ts:2\n'));
+      const exec = mock().mockResolvedValue(processWithOutput('/workspace/src/a.ts:2\n'));
       const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
       await executeTool(tool, context({ pattern: 'hit', output_mode: 'count_matches' }));
@@ -802,7 +855,7 @@ describe('GrepTool', () => {
   });
 
   it('rejects relative path escapes before spawning ripgrep', async () => {
-    const exec = vi.fn();
+    const exec = mock();
     const tool = new GrepTool(createFakeKaos({ exec }), {
       workspaceDir: '/workspace/project',
       additionalDirs: [],
@@ -816,7 +869,7 @@ describe('GrepTool', () => {
   });
 
   it('appends sensitive prefilter globs after user glob filters', async () => {
-    const exec = vi.fn().mockResolvedValue(processWithOutput(nullRecord('/workspace/src/main.ts')));
+    const exec = mock().mockResolvedValue(processWithOutput(nullRecord('/workspace/src/main.ts')));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
     const result = await executeTool(tool, context({ pattern: 'hit', glob: '**/.env' }));
@@ -842,7 +895,7 @@ describe('GrepTool', () => {
       '/workspace/id_ecdsa.pub:1:ecdsa-sha2 hit',
       '',
     ].join('\n');
-    const exec = vi.fn().mockResolvedValue(processWithOutput(stdout));
+    const exec = mock().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
     const result = await executeTool(tool, context({ pattern: 'hit', output_mode: 'content' }));
@@ -863,7 +916,7 @@ describe('GrepTool', () => {
 
   it('filters sensitive files from content output and appends a warning', async () => {
     const stdout = ['/workspace/src/main.ts:10:hit', '/workspace/.env:1:SECRET=hit', ''].join('\n');
-    const exec = vi.fn().mockResolvedValue(processWithOutput(stdout));
+    const exec = mock().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
     const result = await executeTool(tool, context({ pattern: 'hit', output_mode: 'content' }));
@@ -890,7 +943,7 @@ describe('GrepTool', () => {
         nullRecord('/workspace/foo:10:/.aws/credentials', '1:SECRET=hit'),
         nullRecord('/workspace/src/main.ts', '1:hit'),
       ].join('\n') + '\n';
-    const exec = vi.fn().mockResolvedValue(processWithOutput(stdout));
+    const exec = mock().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
     const result = await executeTool(tool, context({ pattern: 'hit', output_mode: 'content' }));
@@ -910,7 +963,7 @@ describe('GrepTool', () => {
         nullRecord('/workspace/src/main.ts', '2:hit'),
         nullRecord('/workspace/src/main.ts', '3-after'),
       ].join('\n') + '\n';
-    const exec = vi.fn().mockResolvedValue(processWithOutput(stdout));
+    const exec = mock().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
     const result = await executeTool(tool, context({ pattern: 'hit', output_mode: 'content', '-C': 1 }));
@@ -922,7 +975,7 @@ describe('GrepTool', () => {
 
   it('uses a colon for null-delimited content display when line numbers are disabled', async () => {
     const stdout = `${nullRecord('/workspace/src/main.ts', '123-hello')}\n`;
-    const exec = vi.fn().mockResolvedValue(processWithOutput(stdout));
+    const exec = mock().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
     const result = await executeTool(tool,
@@ -938,7 +991,7 @@ describe('GrepTool', () => {
       '/workspace/src/main.ts-2-[a bracketed context payload]',
       '',
     ].join('\n');
-    const exec = vi.fn().mockResolvedValue(processWithOutput(stdout));
+    const exec = mock().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
     const result = await executeTool(tool, context({ pattern: 'hit', output_mode: 'content', '-C': 1 }));
@@ -971,7 +1024,7 @@ describe('GrepTool', () => {
       '/workspace/src/main.ts:1:hit',
       '',
     ].join('\n');
-    const exec = vi.fn().mockResolvedValue(processWithOutput(stdout));
+    const exec = mock().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
     const result = await executeTool(tool, context({ pattern: 'hit', output_mode: 'content', '-C': 1 }));
@@ -982,7 +1035,7 @@ describe('GrepTool', () => {
   });
 
   it('preserves content lines that look like workspace paths when no grep path prefix is present', async () => {
-    const exec = vi.fn().mockResolvedValue(processWithOutput('/workspace/not-a-path\n'));
+    const exec = mock().mockResolvedValue(processWithOutput('/workspace/not-a-path\n'));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
     const result = await executeTool(tool, context({ pattern: 'workspace', output_mode: 'content' }));
@@ -1006,7 +1059,7 @@ describe('GrepTool', () => {
       'C:\\workspace\\.env:1:SECRET=hit',
       '',
     ].join('\n');
-    const exec = vi.fn().mockResolvedValue(processWithOutput(stdout));
+    const exec = mock().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(createFakeKaos({ exec, pathClass: () => 'win32' }), {
       workspaceDir: 'C:\\workspace',
       additionalDirs: [],
@@ -1025,7 +1078,7 @@ describe('GrepTool', () => {
       'C:\\workspace\\.aws\\credentials:SECRET=hit',
       '',
     ].join('\n');
-    const exec = vi.fn().mockResolvedValue(processWithOutput(stdout));
+    const exec = mock().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(createFakeKaos({ exec, pathClass: () => 'win32' }), {
       workspaceDir: 'C:\\workspace',
       additionalDirs: [],
@@ -1057,7 +1110,7 @@ describe('GrepTool', () => {
         nullRecord('C:\\workspace\\foo-10-\\.aws\\credentials', '1:SECRET=hit'),
         nullRecord('C:\\workspace\\src\\main.ts', '1:hit'),
       ].join('\n') + '\n';
-    const exec = vi.fn().mockResolvedValue(processWithOutput(stdout));
+    const exec = mock().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(createFakeKaos({ exec, pathClass: () => 'win32' }), {
       workspaceDir: 'C:\\workspace',
       additionalDirs: [],
@@ -1081,7 +1134,7 @@ describe('GrepTool', () => {
       '/workspace/src/main.ts:after',
       '',
     ].join('\n');
-    const exec = vi.fn().mockResolvedValue(processWithOutput(stdout));
+    const exec = mock().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
     const result = await executeTool(tool,
@@ -1122,7 +1175,7 @@ describe('GrepTool', () => {
       'C:\\workspace\\src\\main.ts:after',
       '',
     ].join('\n');
-    const exec = vi.fn().mockResolvedValue(processWithOutput(stdout));
+    const exec = mock().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(createFakeKaos({ exec, pathClass: () => 'win32' }), {
       workspaceDir: 'C:\\workspace',
       additionalDirs: [],
@@ -1159,7 +1212,7 @@ describe('GrepTool', () => {
     const stdout = ['/workspace/.env:1:SECRET=hit', '/workspace/.aws/credentials:2:hit', ''].join(
       '\n',
     );
-    const exec = vi.fn().mockResolvedValue(processWithOutput(stdout));
+    const exec = mock().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(createFakeKaos({ exec }), {
       workspaceDir: '/workspace',
       additionalDirs: [],
@@ -1188,7 +1241,7 @@ describe('GrepTool', () => {
       '/workspace/credentials:1:hit',
       '',
     ].join('\n');
-    const exec = vi.fn().mockResolvedValue(processWithOutput(stdout));
+    const exec = mock().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(createFakeKaos({ exec }), {
       workspaceDir: '/workspace',
       additionalDirs: [],
@@ -1206,7 +1259,7 @@ describe('GrepTool', () => {
   it('applies offset and head_limit after rg output is collected', async () => {
     const stdout = ['a.ts:1:hit', 'b.ts:2:hit', 'c.ts:3:hit', 'd.ts:4:hit', ''].join('\n');
     const tool = new GrepTool(
-      createFakeKaos({ exec: vi.fn().mockResolvedValue(processWithOutput(stdout)) }),
+      createFakeKaos({ exec: mock().mockResolvedValue(processWithOutput(stdout)) }),
       { workspaceDir: '/workspace', additionalDirs: [] },
     );
 
@@ -1225,7 +1278,7 @@ describe('GrepTool', () => {
     const displayPaths = Array.from({ length: 251 }, (_, index) => `src/${String(index)}.ts`);
     const stdout = [...paths, ''].join('\n');
     const tool = new GrepTool(
-      createFakeKaos({ exec: vi.fn().mockResolvedValue(processWithOutput(stdout)) }),
+      createFakeKaos({ exec: mock().mockResolvedValue(processWithOutput(stdout)) }),
       { workspaceDir: '/workspace', additionalDirs: [] },
     );
 
@@ -1245,7 +1298,7 @@ describe('GrepTool', () => {
     const displayPaths = Array.from({ length: 251 }, (_, index) => `src/${String(index)}.ts`);
     const stdout = [...paths, ''].join('\n');
     const tool = new GrepTool(
-      createFakeKaos({ exec: vi.fn().mockResolvedValue(processWithOutput(stdout)) }),
+      createFakeKaos({ exec: mock().mockResolvedValue(processWithOutput(stdout)) }),
       { workspaceDir: '/workspace', additionalDirs: [] },
     );
 
@@ -1259,7 +1312,7 @@ describe('GrepTool', () => {
   it('parses null-delimited files_with_matches output', async () => {
     const stdout = nullRecord('/workspace/src/main.ts') + nullRecord('/workspace/.env');
     const tool = new GrepTool(
-      createFakeKaos({ exec: vi.fn().mockResolvedValue(processWithOutput(stdout)) }),
+      createFakeKaos({ exec: mock().mockResolvedValue(processWithOutput(stdout)) }),
       { workspaceDir: '/workspace', additionalDirs: [] },
     );
 
@@ -1271,13 +1324,13 @@ describe('GrepTool', () => {
   });
 
   it('returns an error when grep times out without partial output', async () => {
-    vi.useFakeTimers();
+    const timers = createFakeTimers();
     const proc = processThatExitsOnKill('');
-    const exec = vi.fn().mockResolvedValue(proc);
-    const tool = new GrepTool(createFakeKaos({ exec }), workspace);
+    const exec = mock().mockResolvedValue(proc);
+    const tool = new GrepTool(createFakeKaos({ exec, timers }), workspace);
 
     const resultPromise = executeTool(tool, context({ pattern: 'slow' }));
-    await vi.advanceTimersByTimeAsync(20_000);
+    await advanceRgTimeout(timers);
     const result = await resultPromise;
 
     expect(result).toEqual({
@@ -1288,13 +1341,13 @@ describe('GrepTool', () => {
   });
 
   it('returns partial grep output when timeout produced usable stdout', async () => {
-    vi.useFakeTimers();
+    const timers = createFakeTimers();
     const proc = processThatExitsOnKill('/workspace/src/a.ts\n');
-    const exec = vi.fn().mockResolvedValue(proc);
-    const tool = new GrepTool(createFakeKaos({ exec }), workspace);
+    const exec = mock().mockResolvedValue(proc);
+    const tool = new GrepTool(createFakeKaos({ exec, timers }), workspace);
 
     const resultPromise = executeTool(tool, context({ pattern: 'slow' }));
-    await vi.advanceTimersByTimeAsync(20_000);
+    await advanceRgTimeout(timers);
     const result = await resultPromise;
 
     expect(toolContentString(result)).toBe(
@@ -1304,13 +1357,13 @@ describe('GrepTool', () => {
   });
 
   it('drops incomplete trailing stdout records after timeout', async () => {
-    vi.useFakeTimers();
+    const timers = createFakeTimers();
     const proc = processThatExitsOnKill('/workspace/src/a.ts\n/workspace/src/partial.ts');
-    const exec = vi.fn().mockResolvedValue(proc);
-    const tool = new GrepTool(createFakeKaos({ exec }), workspace);
+    const exec = mock().mockResolvedValue(proc);
+    const tool = new GrepTool(createFakeKaos({ exec, timers }), workspace);
 
     const resultPromise = executeTool(tool, context({ pattern: 'slow' }));
-    await vi.advanceTimersByTimeAsync(20_000);
+    await advanceRgTimeout(timers);
     const result = await resultPromise;
 
     expect(toolContentString(result)).toBe(
@@ -1319,14 +1372,14 @@ describe('GrepTool', () => {
   });
 
   it('drops incomplete trailing null-delimited files_with_matches records after timeout', async () => {
-    vi.useFakeTimers();
+    const timers = createFakeTimers();
     const stdout = `${nullRecord('/workspace/src/a.ts')}/workspace/src/partial.ts`;
     const proc = processThatExitsOnKill(stdout);
-    const exec = vi.fn().mockResolvedValue(proc);
-    const tool = new GrepTool(createFakeKaos({ exec }), workspace);
+    const exec = mock().mockResolvedValue(proc);
+    const tool = new GrepTool(createFakeKaos({ exec, timers }), workspace);
 
     const resultPromise = executeTool(tool, context({ pattern: 'slow' }));
-    await vi.advanceTimersByTimeAsync(20_000);
+    await advanceRgTimeout(timers);
     const result = await resultPromise;
 
     expect(toolContentString(result)).toBe(
@@ -1335,17 +1388,17 @@ describe('GrepTool', () => {
   });
 
   it('drops incomplete trailing null-delimited content records after timeout', async () => {
-    vi.useFakeTimers();
+    const timers = createFakeTimers();
     const stdout = `${nullRecord('/workspace/src/a.ts', '1:hit')}\n${nullRecord(
       '/workspace/src/partial.ts',
       '2:hit',
     )}`;
     const proc = processThatExitsOnKill(stdout);
-    const exec = vi.fn().mockResolvedValue(proc);
-    const tool = new GrepTool(createFakeKaos({ exec }), workspace);
+    const exec = mock().mockResolvedValue(proc);
+    const tool = new GrepTool(createFakeKaos({ exec, timers }), workspace);
 
     const resultPromise = executeTool(tool, context({ pattern: 'slow', output_mode: 'content' }));
-    await vi.advanceTimersByTimeAsync(20_000);
+    await advanceRgTimeout(timers);
     const result = await resultPromise;
 
     expect(toolContentString(result)).toBe(
@@ -1354,7 +1407,7 @@ describe('GrepTool', () => {
   });
 
   it('keeps complete null-delimited context separators when timeout drops a trailing record', async () => {
-    vi.useFakeTimers();
+    const timers = createFakeTimers();
     const stdout = [
       nullRecord('/workspace/src/a.ts', '1:hit'),
       '--\r',
@@ -1365,11 +1418,11 @@ describe('GrepTool', () => {
     const proc = processThatExitsOnKill(
       `${stdout}\n${nullRecord('/workspace/src/partial.ts', '4:hit')}`,
     );
-    const exec = vi.fn().mockResolvedValue(proc);
-    const tool = new GrepTool(createFakeKaos({ exec }), workspace);
+    const exec = mock().mockResolvedValue(proc);
+    const tool = new GrepTool(createFakeKaos({ exec, timers }), workspace);
 
     const resultPromise = executeTool(tool, context({ pattern: 'slow', output_mode: 'content' }));
-    await vi.advanceTimersByTimeAsync(20_000);
+    await advanceRgTimeout(timers);
     const result = await resultPromise;
 
     expect(toolContentString(result)).toBe(
@@ -1391,7 +1444,7 @@ describe('GrepTool', () => {
     const partialLine = '/workspace/src/partial.ts:2:hit';
     const stdout = `${completeLine}\n${partialLine}${'x'.repeat(maxOutputBytes)}`;
     const tool = new GrepTool(
-      createFakeKaos({ exec: vi.fn().mockResolvedValue(processWithOutput(stdout)) }),
+      createFakeKaos({ exec: mock().mockResolvedValue(processWithOutput(stdout)) }),
       { workspaceDir: '/workspace', additionalDirs: [] },
     );
 
@@ -1409,7 +1462,7 @@ describe('GrepTool', () => {
     const line = (i: number) => `/workspace/src/f${String(i)}.ts:1:${'x'.repeat(11_000)}`;
     const stdout = `${Array.from({ length: 1000 }, (_, i) => line(i)).join('\n')}\n`;
     const tool = new GrepTool(
-      createFakeKaos({ exec: vi.fn().mockResolvedValue(processWithOutput(stdout)) }),
+      createFakeKaos({ exec: mock().mockResolvedValue(processWithOutput(stdout)) }),
       { workspaceDir: '/workspace', additionalDirs: [] },
     );
 
@@ -1427,7 +1480,7 @@ describe('GrepTool', () => {
   it('summarizes count output across all non-sensitive results', async () => {
     const stdout = ['/workspace/src/a.ts:3', '/workspace/src/b.ts:7', ''].join('\n');
     const tool = new GrepTool(
-      createFakeKaos({ exec: vi.fn().mockResolvedValue(processWithOutput(stdout)) }),
+      createFakeKaos({ exec: mock().mockResolvedValue(processWithOutput(stdout)) }),
       { workspaceDir: '/workspace', additionalDirs: [] },
     );
 
@@ -1443,7 +1496,7 @@ describe('GrepTool', () => {
       [nullRecord('/workspace/src/a.ts', '3'), nullRecord('/workspace/.env', '99')].join('\n') +
       '\n';
     const tool = new GrepTool(
-      createFakeKaos({ exec: vi.fn().mockResolvedValue(processWithOutput(stdout)) }),
+      createFakeKaos({ exec: mock().mockResolvedValue(processWithOutput(stdout)) }),
       { workspaceDir: '/workspace', additionalDirs: [] },
     );
 
@@ -1467,7 +1520,7 @@ describe('GrepTool', () => {
       '',
     ].join('\n');
     const tool = new GrepTool(
-      createFakeKaos({ exec: vi.fn().mockResolvedValue(processWithOutput(stdout)) }),
+      createFakeKaos({ exec: mock().mockResolvedValue(processWithOutput(stdout)) }),
       { workspaceDir: '/workspace', additionalDirs: [] },
     );
 
@@ -1491,7 +1544,7 @@ describe('GrepTool', () => {
     const stdout =
       Array.from({ length: fileCount }, (_, i) => `/workspace/f${String(i)}.txt:3`).join('\n') + '\n';
     const tool = new GrepTool(
-      createFakeKaos({ exec: vi.fn().mockResolvedValue(processWithOutput(stdout)) }),
+      createFakeKaos({ exec: mock().mockResolvedValue(processWithOutput(stdout)) }),
       { workspaceDir: '/workspace', additionalDirs: [] },
     );
 
@@ -1508,7 +1561,7 @@ describe('GrepTool', () => {
   it('does not add a zero count summary when every count result is sensitive', async () => {
     const stdout = ['/workspace/.env:3', '/workspace/.aws/credentials:7', ''].join('\n');
     const tool = new GrepTool(
-      createFakeKaos({ exec: vi.fn().mockResolvedValue(processWithOutput(stdout)) }),
+      createFakeKaos({ exec: mock().mockResolvedValue(processWithOutput(stdout)) }),
       { workspaceDir: '/workspace', additionalDirs: [] },
     );
 
@@ -1524,7 +1577,7 @@ describe('GrepTool', () => {
 
   it('forces filename in count_matches argv so single-file searches stay consistent', async () => {
     const stdout = `${nullRecord('/workspace/src/only.ts', '25850')}\n`;
-    const exec = vi.fn().mockResolvedValue(processWithOutput(stdout));
+    const exec = mock().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
     const result = await executeTool(tool,
@@ -1552,7 +1605,7 @@ describe('GrepTool', () => {
 
   it('surfaces ripgrep parse errors with stderr detail', async () => {
     const stderr = 'rg: regex parse error:\nerror: unclosed character class\n';
-    const exec = vi.fn().mockResolvedValue(processWithOutput('', stderr, 2));
+    const exec = mock().mockResolvedValue(processWithOutput('', stderr, 2));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
     const result = await executeTool(tool, context({ pattern: '[' }));
@@ -1564,7 +1617,7 @@ describe('GrepTool', () => {
   });
 
   it('surfaces ripgrep failures even when stderr is empty', async () => {
-    const exec = vi.fn().mockResolvedValue(processWithOutput('', '', 2));
+    const exec = mock().mockResolvedValue(processWithOutput('', '', 2));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
     const result = await executeTool(tool, context({ pattern: 'hit' }));
@@ -1575,7 +1628,7 @@ describe('GrepTool', () => {
   it('marks ripgrep stderr as truncated when error output exceeds the cap', async () => {
     const maxOutputBytes = 10 * 1024 * 1024;
     const stderr = `error: very large failure\n${'x'.repeat(maxOutputBytes)}`;
-    const exec = vi.fn().mockResolvedValue(processWithOutput('', stderr, 2));
+    const exec = mock().mockResolvedValue(processWithOutput('', stderr, 2));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
     const result = await executeTool(tool, context({ pattern: 'hit' }));
@@ -1586,8 +1639,8 @@ describe('GrepTool', () => {
   });
 
   it('returns a locator error when ripgrep cannot be resolved', async () => {
-    vi.mocked(ensureRgPath).mockRejectedValueOnce(new Error('download failed'));
-    const exec = vi.fn();
+    ensureRgPathMock.mockRejectedValueOnce(new Error('download failed'));
+    const exec = mock();
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
     const result = await executeTool(tool, context({ pattern: 'hit' }));
@@ -1597,12 +1650,12 @@ describe('GrepTool', () => {
   });
 
   it('tracks when grep uses a non-system ripgrep fallback', async () => {
-    vi.mocked(ensureRgPath).mockResolvedValueOnce({
+    ensureRgPathMock.mockResolvedValueOnce({
       path: '/mock/rg',
       source: 'share-bin-downloaded',
     });
     const records: TelemetryRecord[] = [];
-    const exec = vi.fn().mockResolvedValue(processWithOutput('/workspace/src/a.ts\n'));
+    const exec = mock().mockResolvedValue(processWithOutput('/workspace/src/a.ts\n'));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace, recordingTelemetry(records));
 
     const result = await executeTool(tool, context({ pattern: 'hit' }));
@@ -1618,7 +1671,7 @@ describe('GrepTool', () => {
 
   it('returns an install hint when spawning the resolved ripgrep path hits ENOENT', async () => {
     const error = Object.assign(new Error('spawn /mock/rg ENOENT'), { code: 'ENOENT' });
-    const exec = vi.fn().mockRejectedValue(error);
+    const exec = mock().mockRejectedValue(error);
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
     const result = await executeTool(tool, context({ pattern: 'hit' }));
@@ -1630,7 +1683,7 @@ describe('GrepTool', () => {
   });
 
   it('returns generic spawn errors from kaos.exec', async () => {
-    const exec = vi.fn().mockRejectedValue(new Error('permission denied'));
+    const exec = mock().mockRejectedValue(new Error('permission denied'));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
     const result = await executeTool(tool, context({ pattern: 'hit' }));
@@ -1640,8 +1693,8 @@ describe('GrepTool', () => {
 
   it('aborts while resolving the ripgrep path without spawning', async () => {
     const controller = new AbortController();
-    const exec = vi.fn();
-    vi.mocked(ensureRgPath).mockImplementationOnce((_probe, { signal: locatorSignal } = {}) => {
+    const exec = mock();
+    ensureRgPathMock.mockImplementationOnce((_probe, { signal: locatorSignal } = {}) => {
       expect(locatorSignal).toBe(controller.signal);
       return new Promise((_resolve, reject) => {
         const rejectAbort = (): void => {
@@ -1680,7 +1733,7 @@ describe('GrepTool', () => {
       '/workspace/src/a.ts:3:TestClass match',
       '',
     ].join('\n');
-    const exec = vi.fn().mockResolvedValue(processWithOutput(stdout));
+    const exec = mock().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
     const result = await executeTool(tool,
@@ -1711,7 +1764,7 @@ describe('GrepTool', () => {
       '/workspace/src/a.ts-5-post2',
       '',
     ].join('\n');
-    const exec = vi.fn().mockResolvedValue(processWithOutput(stdout));
+    const exec = mock().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
     const result = await executeTool(tool,
@@ -1740,7 +1793,7 @@ describe('GrepTool', () => {
       (_, i) => `/workspace/f${String(i)}.txt:3`,
     );
     const stdout = `${counts.join('\n')}\n`;
-    const exec = vi.fn().mockResolvedValue(processWithOutput(stdout));
+    const exec = mock().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(createFakeKaos({ exec }), {
       workspaceDir: '/workspace',
       additionalDirs: [],
@@ -1760,7 +1813,7 @@ describe('GrepTool', () => {
   it('truncates extremely long rg output with a byte-level safety cap message', async () => {
     const longLine = '/workspace/big.txt:1:' + 'x'.repeat(100);
     const stdout = `${Array.from({ length: 100_000 }, () => longLine).join('\n')}\n`;
-    const exec = vi.fn().mockResolvedValue(processWithOutput(stdout));
+    const exec = mock().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
     const result = await executeTool(tool,
@@ -1777,7 +1830,7 @@ describe('GrepTool', () => {
       "/workspace/multiline.py:3:    multiline docstring'''",
       '',
     ].join('\n');
-    const exec = vi.fn().mockResolvedValue(processWithOutput(stdout));
+    const exec = mock().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
     const result = await executeTool(tool,
@@ -1807,7 +1860,7 @@ describe('GrepTool', () => {
   it('reports a descriptive failure when the regex is unparseable', async () => {
     const stderr =
       'rg: regex parse error:\n    "[invalid"\n     ^\nerror: unclosed character class\n';
-    const exec = vi.fn().mockResolvedValue(processWithOutput('', stderr, 2));
+    const exec = mock().mockResolvedValue(processWithOutput('', stderr, 2));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
     const result = await executeTool(tool,
@@ -1819,8 +1872,7 @@ describe('GrepTool', () => {
   });
 
   it('returns content when searching a single file path', async () => {
-    const exec = vi
-      .fn()
+    const exec = mock()
       .mockResolvedValue(processWithOutput('/workspace/target.py:1:hello world\n'));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
@@ -1843,7 +1895,7 @@ describe('GrepTool', () => {
   });
 
   it('returns a clean no-match result when offset exceeds total entries', async () => {
-    const exec = vi.fn().mockResolvedValue(processWithOutput('/workspace/only.txt\n'));
+    const exec = mock().mockResolvedValue(processWithOutput('/workspace/only.txt\n'));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
     const result = await executeTool(tool,
@@ -1856,7 +1908,7 @@ describe('GrepTool', () => {
   });
 
   it('emits line numbers by default in content mode', async () => {
-    const exec = vi.fn().mockResolvedValue(processWithOutput('/workspace/a.txt:1:hello\n'));
+    const exec = mock().mockResolvedValue(processWithOutput('/workspace/a.txt:1:hello\n'));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
     await executeTool(tool, context({ pattern: 'hello', output_mode: 'content' }));
@@ -1866,7 +1918,7 @@ describe('GrepTool', () => {
   });
 
   it('drops the line-number column when "-n" is explicitly false', async () => {
-    const exec = vi.fn().mockResolvedValue(processWithOutput('/workspace/a.txt:hello\n'));
+    const exec = mock().mockResolvedValue(processWithOutput('/workspace/a.txt:hello\n'));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
     const result = await executeTool(tool,
@@ -1883,7 +1935,7 @@ describe('GrepTool', () => {
   });
 
   it('maps schema flags onto ripgrep equivalents and tilde-expands ~ in path', async () => {
-    const exec = vi.fn().mockResolvedValue(processWithOutput('/workspace/a.ts:1:hello\n'));
+    const exec = mock().mockResolvedValue(processWithOutput('/workspace/a.ts:1:hello\n'));
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
     await executeTool(tool,
@@ -1927,8 +1979,7 @@ describe('GrepTool', () => {
   });
 
   it('preserves the sensitive-filter warning when every match is sensitive', async () => {
-    const exec = vi
-      .fn()
+    const exec = mock()
       .mockResolvedValue(processWithOutput('/workspace/.env\n'));
     const tool = new GrepTool(createFakeKaos({ exec }), {
       workspaceDir: '/workspace',
@@ -1945,8 +1996,7 @@ describe('GrepTool', () => {
   });
 
   it('does not flag .env.example as sensitive', async () => {
-    const exec = vi
-      .fn()
+    const exec = mock()
       .mockResolvedValue(processWithOutput('/workspace/.env.example\n'));
     const tool = new GrepTool(createFakeKaos({ exec }), {
       workspaceDir: '/workspace',
@@ -1969,7 +2019,7 @@ describe('GrepTool', () => {
       '--',
       '',
     ].join('\n');
-    const exec = vi.fn().mockResolvedValue(processWithOutput(stdout));
+    const exec = mock().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(createFakeKaos({ exec }), {
       workspaceDir: '/workspace',
       additionalDirs: [],
@@ -1989,7 +2039,7 @@ describe('GrepTool', () => {
       '--',
       '',
     ].join('\n');
-    const exec = vi.fn().mockResolvedValue(processWithOutput(stdout));
+    const exec = mock().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(
       createFakeKaos({ exec, pathClass: () => 'win32' }),
       { workspaceDir: 'C:\\repo', additionalDirs: [] },
@@ -2004,7 +2054,7 @@ describe('GrepTool', () => {
 
   it('passes lines through unchanged when path is not under the workspace', async () => {
     const stdout = '/other/path/file.py:1:hit\n--\n';
-    const exec = vi.fn().mockResolvedValue(processWithOutput(stdout));
+    const exec = mock().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(createFakeKaos({ exec }), {
       workspaceDir: '/home/user/project',
       additionalDirs: [],
@@ -2018,11 +2068,11 @@ describe('GrepTool', () => {
 
   it('treats a trailing-slash workspace dir the same as one without', async () => {
     const withSep = new GrepTool(
-      createFakeKaos({ exec: vi.fn().mockResolvedValue(processWithOutput('/tmp/dir/file.py\n')) }),
+      createFakeKaos({ exec: mock().mockResolvedValue(processWithOutput('/tmp/dir/file.py\n')) }),
       { workspaceDir: '/tmp/dir/', additionalDirs: [] },
     );
     const noSep = new GrepTool(
-      createFakeKaos({ exec: vi.fn().mockResolvedValue(processWithOutput('/tmp/dir/file.py\n')) }),
+      createFakeKaos({ exec: mock().mockResolvedValue(processWithOutput('/tmp/dir/file.py\n')) }),
       { workspaceDir: '/tmp/dir', additionalDirs: [] },
     );
 
@@ -2041,7 +2091,7 @@ describe('GrepTool', () => {
 
   it('does not strip a workspace dir prefix when it would match a sibling name', async () => {
     const stdout = ['/tmp/abc/file.py', '/tmp/a/file.py', ''].join('\n');
-    const exec = vi.fn().mockResolvedValue(processWithOutput(stdout));
+    const exec = mock().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(createFakeKaos({ exec }), {
       workspaceDir: '/tmp/a',
       additionalDirs: [],
@@ -2057,8 +2107,7 @@ describe('GrepTool', () => {
   });
 
   it('relativizes a single-file absolute path against the workspace dir', async () => {
-    const exec = vi
-      .fn()
+    const exec = mock()
       .mockResolvedValue(processWithOutput('/workspace/target.py:1:foo\n'));
     const tool = new GrepTool(createFakeKaos({ exec }), {
       workspaceDir: '/workspace',
@@ -2085,7 +2134,7 @@ describe('GrepTool', () => {
       '/workspace/safe.txt:1:SECRET=ok',
       '',
     ].join('\n');
-    const exec = vi.fn().mockResolvedValue(processWithOutput(stdout));
+    const exec = mock().mockResolvedValue(processWithOutput(stdout));
     const tool = new GrepTool(createFakeKaos({ exec }), {
       workspaceDir: '/workspace',
       additionalDirs: [],
@@ -2105,7 +2154,7 @@ describe('GrepTool', () => {
   it('aborts and kills ripgrep after the process has spawned', async () => {
     const controller = new AbortController();
     const proc = processThatExitsOnKill('/workspace/src/a.ts\n');
-    const exec = vi.fn(async () => {
+    const exec = mock(async () => {
       controller.abort();
       return proc;
     });
@@ -2121,7 +2170,7 @@ describe('GrepTool', () => {
   it('returns an abort error without spawning when the signal is already aborted', async () => {
     const controller = new AbortController();
     controller.abort();
-    const exec = vi.fn();
+    const exec = mock();
     const tool = new GrepTool(createFakeKaos({ exec }), workspace);
 
     const result = await executeTool(tool, context({ pattern: 'hit' }, controller.signal));

@@ -1,4 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
+
+import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
 
 import {
   fetchNativeReleaseManifest,
@@ -10,12 +12,23 @@ import { kimiCodeCdnBinariesBase } from '#/constant/app';
 
 const VERSION = '0.7.0';
 
+/** Let the promise chains behind a settled clock tick run. */
+async function settle(): Promise<void> {
+  for (let i = 0; i < 4; i += 1) await Promise.resolve();
+}
+
+async function advanceAsync(clock: FakeClock, byMs: number): Promise<void> {
+  await settle();
+  clock.advance(byMs);
+  await settle();
+}
+
 function mockFetch(response: {
   readonly ok: boolean;
   readonly status: number;
   readonly body?: string;
 }): typeof fetch {
-  return vi.fn(async () => ({
+  return mock(async () => ({
     ok: response.ok,
     status: response.status,
     text: async () => response.body ?? '',
@@ -143,33 +156,31 @@ describe('fetchNativeReleaseManifest', () => {
   });
 
   it('propagates fetch errors', async () => {
-    const f = vi.fn(async () => {
+    const f = mock(async () => {
       throw new Error('network down');
     }) as unknown as typeof fetch;
     await expect(fetchNativeReleaseManifest(VERSION, f)).rejects.toThrow(/network down/);
   });
 
   it('rejects when the response body stalls past the request timeout', async () => {
-    vi.useFakeTimers();
-    try {
-      const f = vi.fn(async (_input: string | URL, init?: RequestInit) => ({
-        ok: true,
-        status: 200,
-        // Headers arrive, then the body stalls; only the timeout can end this.
-        text: async () =>
-          new Promise<string>((_, reject) => {
-            init?.signal?.addEventListener('abort', () => {
-              reject(new Error('aborted'));
-            }, { once: true });
-          }),
-      })) as unknown as typeof fetch;
-      const promise = fetchNativeReleaseManifest(VERSION, f);
-      const assertion = expect(promise).rejects.toThrow(/aborted/);
-      await vi.advanceTimersByTimeAsync(11_000);
-      await assertion;
-    } finally {
-      vi.useRealTimers();
-    }
+    const clock = createFakeClock();
+    const f = mock(async (_input: string | URL, init?: RequestInit) => ({
+      ok: true,
+      status: 200,
+      // Headers arrive, then the body stalls; only the timeout can end this.
+      text: async () =>
+        new Promise<string>((_, reject) => {
+          init?.signal?.addEventListener('abort', () => {
+            reject(new Error('aborted'));
+          }, { once: true });
+        }),
+    })) as unknown as typeof fetch;
+    const promise = fetchNativeReleaseManifest(VERSION, f, clock);
+    // Bun's `expect(promise).rejects` blocks until the promise settles, so the
+    // rejection has to happen before the assertion is created.
+    void promise.catch(() => {});
+    await advanceAsync(clock, 11_000);
+    await expect(promise).rejects.toThrow(/aborted/);
   });
 });
 

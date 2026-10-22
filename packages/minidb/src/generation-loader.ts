@@ -574,7 +574,9 @@ export class GenerationLoader<V> {
           }
           /* fall through to the staged rebuild */
         }
-        if (hosted === null) await ti.build(this.deps.textRecords());
+        const rebuildPostingsPath = path.join(genDir, `${textPostingsFile(def.name)}.rebuild`);
+        if (hosted === null)
+          await ti.build(this.deps.textRecords(), { postingsPath: rebuildPostingsPath });
         this.deps.lifecycle.time('textRebuildMs', performance.now() - tRebuild);
         this.deps.lifecycle.noteTextIndexSource(def.name, hosted ?? 'staged');
       }

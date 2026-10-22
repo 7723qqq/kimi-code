@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { Event, GoalSnapshot } from '@moonshot-ai/kimi-code-sdk';
-import { vi } from 'vitest';
+import { mock, spyOn } from 'bun:test';
 
 import type { FeedbackPromptResult } from '#/tui/commands/prompts';
 import type { SessionReplayRenderer } from '#/tui/controllers/session-replay';
@@ -105,15 +105,15 @@ export function makeSession(overrides: Record<string, unknown> = {}) {
     id: 'ses-1',
     model: 'k2',
     summary: { title: null },
-    prompt: vi.fn(async (_input: unknown) => {}),
-    compact: vi.fn(async () => {}),
-    steer: vi.fn(async () => {}),
-    init: vi.fn(async () => {}),
-    startBtw: vi.fn(async () => 'agent-btw'),
-    undoHistory: vi.fn(async () => {}),
-    cancel: vi.fn(async () => {}),
-    cancelCompaction: vi.fn(async () => {}),
-    getStatus: vi.fn(async () => ({
+    prompt: mock(async (_input: unknown) => {}),
+    compact: mock(async () => {}),
+    steer: mock(async () => {}),
+    init: mock(async () => {}),
+    startBtw: mock(async () => 'agent-btw'),
+    undoHistory: mock(async () => {}),
+    cancel: mock(async () => {}),
+    cancelCompaction: mock(async () => {}),
+    getStatus: mock(async () => ({
       model,
       thinkingEffort,
       permission: 'manual',
@@ -122,22 +122,22 @@ export function makeSession(overrides: Record<string, unknown> = {}) {
       maxContextTokens: 100,
       contextUsage: 0,
     })),
-    getGoal: vi.fn(async () => ({ goal: null })),
-    setApprovalHandler: vi.fn(),
-    setQuestionHandler: vi.fn(),
-    setModel: vi.fn(async (alias: string) => {
+    getGoal: mock(async () => ({ goal: null })),
+    setApprovalHandler: mock(),
+    setQuestionHandler: mock(),
+    setModel: mock(async (alias: string) => {
       model = alias;
     }),
-    setThinking: vi.fn(async (effort: string) => {
+    setThinking: mock(async (effort: string) => {
       thinkingEffort = effort;
     }),
-    setPermission: vi.fn(async () => {}),
-    setPlanMode: vi.fn(async () => {}),
-    setSwarmMode: vi.fn(async () => {}),
-    onEvent: vi.fn(() => vi.fn()),
-    listMcpServers: vi.fn(async () => []),
-    listSkills: vi.fn(async () => []),
-    getResumeState: vi.fn(() => ({
+    setPermission: mock(async () => {}),
+    setPlanMode: mock(async () => {}),
+    setSwarmMode: mock(async () => {}),
+    onEvent: mock(() => mock()),
+    listMcpServers: mock(async () => []),
+    listSkills: mock(async () => []),
+    getResumeState: mock(() => ({
       sessionMetadata: {},
       agents: {
         main: {
@@ -150,14 +150,17 @@ export function makeSession(overrides: Record<string, unknown> = {}) {
             maxContextTokens: 100,
             contextUsage: 0,
           },
+          // Real resume states carry the stored user-turn count; the survey
+          // telemetry reads it through `seedUserTurnCount`.
+          userTurnCount: 0,
           context: { history: [] },
           replay: [],
         },
       },
     })),
-    close: vi.fn(async () => {}),
-    listPlugins: vi.fn(async () => []),
-    installPlugin: vi.fn(async () => ({
+    close: mock(async () => {}),
+    listPlugins: mock(async () => []),
+    installPlugin: mock(async () => ({
       id: 'demo',
       displayName: 'Demo',
       version: '1.0.0',
@@ -169,14 +172,14 @@ export function makeSession(overrides: Record<string, unknown> = {}) {
       hasErrors: false,
       source: 'local-path',
     })),
-    setPluginEnabled: vi.fn(async () => {}),
-    setPluginMcpServerEnabled: vi.fn(async () => {}),
-    removePlugin: vi.fn(async () => {}),
-    reloadPlugins: vi.fn(async () => ({ added: [], removed: [], errors: [] })),
-    reloadSession: vi.fn(async () => ({})),
-    activateSkill: vi.fn(async () => {}),
-    promptWithSkills: vi.fn(async () => {}),
-    getPluginInfo: vi.fn(async (id: string) => ({
+    setPluginEnabled: mock(async () => {}),
+    setPluginMcpServerEnabled: mock(async () => {}),
+    removePlugin: mock(async () => {}),
+    reloadPlugins: mock(async () => ({ added: [], removed: [], errors: [] })),
+    reloadSession: mock(async () => ({})),
+    activateSkill: mock(async () => {}),
+    promptWithSkills: mock(async () => {}),
+    getPluginInfo: mock(async (id: string) => ({
       id,
       displayName: id,
       version: '1.0.0',
@@ -199,43 +202,43 @@ export function makeSession(overrides: Record<string, unknown> = {}) {
 export function makeHarness(session = makeSession(), overrides: Record<string, unknown> = {}) {
   const interactiveAgentScope = new AsyncLocalStorage<string>();
   const harness = {
-    getConfig: vi.fn(async () => ({
+    getConfig: mock(async () => ({
       models: {
         k2: { model: 'moonshot-v1', maxContextSize: 100 },
       },
     })),
-    setConfig: vi.fn(async () => ({ providers: {} })),
-    createSession: vi.fn(async () => session),
-    resumeSession: vi.fn(async () => session),
-    forkSession: vi.fn(async () => session),
-    reloadSession: vi.fn(async () => session),
-    listSessions: vi.fn(async () => []),
-    exportSession: vi.fn(async () => ({
+    setConfig: mock(async () => ({ providers: {} })),
+    createSession: mock(async () => session),
+    resumeSession: mock(async () => session),
+    forkSession: mock(async () => session),
+    reloadSession: mock(async () => session),
+    listSessions: mock(async () => []),
+    exportSession: mock(async () => ({
       zipPath: '/tmp/fake-session.zip',
       entries: ['manifest.json', 'state.json'],
       sessionDir: '/tmp/session-a',
       manifest: {},
     })),
-    deleteFile: vi.fn(async () => {}),
-    close: vi.fn(async () => {}),
-    track: vi.fn(),
-    trackWithContext: vi.fn(),
-    setTelemetryContext: vi.fn(),
+    deleteFile: mock(async () => {}),
+    close: mock(async () => {}),
+    track: mock(),
+    trackWithContext: mock(),
+    setTelemetryContext: mock(),
     get interactiveAgentId() {
       return interactiveAgentScope.getStore() ?? 'main';
     },
-    withInteractiveAgent: vi.fn((agentId: string, fn: () => unknown) => {
+    withInteractiveAgent: mock((agentId: string, fn: () => unknown) => {
       return interactiveAgentScope.run(agentId, fn);
     }),
-    getExperimentalFeatures: vi.fn(async () => []),
+    getExperimentalFeatures: mock(async () => []),
     auth: {
-      status: vi.fn(async () => ({
+      status: mock(async () => ({
         providers: [{ providerName: 'managed:kimi-code', hasToken: true }],
       })),
-      login: vi.fn(),
-      logout: vi.fn(),
-      getManagedUsage: vi.fn(),
-      submitFeedback: vi.fn(
+      login: mock(),
+      logout: mock(),
+      getManagedUsage: mock(),
+      submitFeedback: mock(
         async (): Promise<
           { kind: 'ok'; feedbackId: number } | { kind: 'error'; status?: number; message: string }
         > => ({
@@ -252,7 +255,7 @@ export function makeHarness(session = makeSession(), overrides: Record<string, u
       sessionId?: string;
     }) => Promise<unknown[]>;
     Object.assign(harness, {
-      listSessionsPage: vi.fn(async (input: { workDir?: string; sessionId?: string } = {}) => ({
+      listSessionsPage: mock(async (input: { workDir?: string; sessionId?: string } = {}) => ({
         items: await listSessions({ workDir: input.workDir, sessionId: input.sessionId }),
         nextCursor: undefined,
       })),
@@ -290,9 +293,9 @@ export async function makeDriver(
     harness as never,
     startupInput ?? makeStartupInput(),
   ) as unknown as MessageDriver;
-  vi.spyOn(driver.state.ui, 'requestRender').mockImplementation(() => {});
-  vi.spyOn(driver.state.terminal, 'setProgress').mockImplementation(() => {});
-  driver.persistInputHistory = vi.fn(async () => {});
+  spyOn(driver.state.ui, 'requestRender').mockImplementation(() => {});
+  spyOn(driver.state.terminal, 'setProgress').mockImplementation(() => {});
+  driver.persistInputHistory = mock(async () => {});
   await driver.init();
   if (startupInput === undefined) {
     await driver.setSession(session);

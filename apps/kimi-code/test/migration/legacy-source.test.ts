@@ -1,9 +1,12 @@
-import { describe, expect, it } from 'vitest';
-import { join } from 'node:path';
+import { describe, expect, it } from 'bun:test';
+import { join, resolve } from 'node:path';
 import { resolveLegacySourceHome, sameLegacyPath } from '#/migration/legacy-source';
 
-const HOME = '/home/user';
-const CWD = '/work/project';
+// Resolve the fixtures through `node:path` so the expectations hold on Windows
+// too: `resolveLegacySourceHome` returns resolved paths, and a posix literal like
+// `/data/kimi` is only absolute-with-a-drive after resolution there.
+const HOME = resolve('/home/user');
+const CWD = resolve('/work/project');
 
 describe('resolveLegacySourceHome', () => {
   it('defaults to ~/.kimi when KIMI_SHARE_DIR is unset', () => {
@@ -18,19 +21,19 @@ describe('resolveLegacySourceHome', () => {
 
   it('uses an absolute KIMI_SHARE_DIR verbatim', () => {
     const r = resolveLegacySourceHome({ KIMI_SHARE_DIR: '/data/kimi' }, HOME, CWD);
-    expect(r.sourceHome).toBe('/data/kimi');
+    expect(r.sourceHome).toBe(resolve('/data/kimi'));
     expect(r.origin).toBe('share-dir');
   });
 
   it('resolves a relative KIMI_SHARE_DIR against the process CWD (old-CLI rule)', () => {
     const r = resolveLegacySourceHome({ KIMI_SHARE_DIR: 'relative/kimi' }, HOME, CWD);
-    expect(r.sourceHome).toBe(join(CWD, 'relative', 'kimi'));
+    expect(r.sourceHome).toBe(resolve(CWD, 'relative', 'kimi'));
     expect(r.origin).toBe('share-dir');
   });
 
   it('does not expand ~ in KIMI_SHARE_DIR (old-CLI rule)', () => {
     const r = resolveLegacySourceHome({ KIMI_SHARE_DIR: '~/custom' }, HOME, CWD);
-    expect(r.sourceHome).toBe(join(CWD, '~/custom'));
+    expect(r.sourceHome).toBe(resolve(CWD, '~/custom'));
   });
 
   it('resolves skills from ~/.kimi when the share dir is redirected', () => {

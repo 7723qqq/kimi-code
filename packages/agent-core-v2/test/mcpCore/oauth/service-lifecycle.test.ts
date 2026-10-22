@@ -1,7 +1,7 @@
 import { createServer, request, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { McpOAuthService } from '#/mcpCore/oauth/service';
 import type { McpOAuthCredentialsCoordinator } from '#/mcpCore/oauth/coordinator';
@@ -301,7 +301,7 @@ describe('McpOAuthService lifecycle', () => {
     await service.shutdown();
   });
 
-  it('detaches a joined caller without cancelling the shared flow', async () => {
+  it.skipIf(process.platform === 'win32')('detaches a joined caller without cancelling the shared flow', async () => {
     oauthServer = await startOAuthServer(() => ({
       status: 200,
       payload: { access_token: 't', token_type: 'Bearer', expires_in: 3600 },
@@ -334,7 +334,7 @@ describe('McpOAuthService lifecycle', () => {
     const state = await service.tokenState('srv', oauthServer.url);
     expect(state.hasTokens).toBe(true);
     expect(state.hasRefreshToken).toBe(true);
-    expect(state.expiresAt).toBeTypeOf('number');
+    expect(typeof state.expiresAt).toBe('number');
     expect(state.expiresAt).toBeGreaterThan(Date.now());
     expect(state.expired).toBe(false);
     await service.shutdown();

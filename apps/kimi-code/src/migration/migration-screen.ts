@@ -29,6 +29,7 @@ import chalk from 'chalk';
 import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
 import type { ColorPalette } from '#/tui/theme/colors';
+import { SYSTEM_RENDER_CLOCK, type RenderClock, type RenderTimerHandle } from '#/tui/utils/render-clock';
 
 type Phase = 'ask1' | 'ask2' | 'progress' | 'result';
 
@@ -63,6 +64,8 @@ export interface MigrationScreenOptions {
    * invoking the command is itself the decision to migrate.
    */
   readonly skipDecisionStep?: boolean;
+  /** Timer source for the progress spinner; defaults to the system clock. */
+  readonly clock?: Pick<RenderClock, 'setInterval' | 'clearInterval'>;
 }
 
 /** What the screen reports back to the host when finished. */
@@ -94,7 +97,7 @@ export class MigrationScreenComponent extends Container implements Focusable {
     ['sessions', 'pending'],
   ]);
   private spinnerFrame = 0;
-  private spinnerTimer: ReturnType<typeof setInterval> | undefined;
+  private spinnerTimer: RenderTimerHandle | undefined;
   private report: MigrationReport | undefined;
   private migrationFailed = false;
   private migrationFailureReason: string | undefined;
@@ -149,17 +152,18 @@ export class MigrationScreenComponent extends Container implements Focusable {
   // phase: started on entering it, stopped the moment it ends.
   private startSpinner(): void {
     this.stopSpinner();
-    this.spinnerTimer = setInterval(() => {
+    const clock = this.opts.clock ?? SYSTEM_RENDER_CLOCK;
+    this.spinnerTimer = clock.setInterval(() => {
       this.spinnerFrame = (this.spinnerFrame + 1) % SPINNER_FRAMES.length;
       this.opts.requestRender?.();
     }, SPINNER_INTERVAL_MS);
     // A decorative timer must never keep the process alive on its own.
-    this.spinnerTimer.unref();
+    this.spinnerTimer.unref?.();
   }
 
   private stopSpinner(): void {
     if (this.spinnerTimer !== undefined) {
-      clearInterval(this.spinnerTimer);
+      (this.opts.clock ?? SYSTEM_RENDER_CLOCK).clearInterval(this.spinnerTimer);
       this.spinnerTimer = undefined;
     }
   }

@@ -1,11 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { migrateV1_4ToV1_5 } from '#/wire/migration/migration';
 import { runMigration } from './utils';
+import { renderSnapshot } from '../../harness/snapshots';
 
 describe('1.4 to 1.5 active wall-clock anchor migration', () => {
   it('backfills missing anchors from create and resume record timestamps', () => {
-    expect(
+    expect(renderSnapshot(
       runMigration(migrateV1_4ToV1_5, [
         {
           type: 'metadata',
@@ -30,16 +31,16 @@ describe('1.4 to 1.5 active wall-clock anchor migration', () => {
           time: 40,
         },
       ]),
-    ).toMatchInlineSnapshot(`
-      [wire] metadata      { "protocol_version": "<protocol-version>", "created_at": "<time>" }
+    )).toMatchInlineSnapshot(`
+      "[wire] metadata      { "protocol_version": "<protocol-version>", "created_at": "<time>" }
       [wire] goal.create   { "goalId": "goal-1", "objective": "ship the feature", "time": "<time>", "wallClockResumedAt": 10 }
       [wire] goal.update   { "status": "paused", "wallClockMs": 20, "time": "<time>" }
-      [wire] goal.update   { "status": "active", "time": "<time>", "wallClockResumedAt": 40 }
+      [wire] goal.update   { "status": "active", "time": "<time>", "wallClockResumedAt": 40 }"
     `);
   });
 
   it('preserves an existing active wall-clock anchor', () => {
-    expect(
+    expect(renderSnapshot(
       runMigration(migrateV1_4ToV1_5, [
         {
           type: 'goal.update',
@@ -48,11 +49,11 @@ describe('1.4 to 1.5 active wall-clock anchor migration', () => {
           time: 40,
         },
       ]),
-    ).toMatchInlineSnapshot(`[wire] goal.update   { "status": "active", "wallClockResumedAt": 35, "time": "<time>" }`);
+    )).toMatchInlineSnapshot(`"[wire] goal.update   { "status": "active", "wallClockResumedAt": 35, "time": "<time>" }"`);
   });
 
   it('advances a missing anchor from a wall-clock checkpoint timestamp', () => {
-    expect(
+    expect(renderSnapshot(
       runMigration(migrateV1_4ToV1_5, [
         {
           type: 'goal.update',
@@ -60,8 +61,8 @@ describe('1.4 to 1.5 active wall-clock anchor migration', () => {
           time: 4_000,
         },
       ]),
-    ).toMatchInlineSnapshot(
-      `[wire] goal.update   { "wallClockMs": 3000, "time": "<time>", "wallClockResumedAt": 4000 }`,
+    )).toMatchInlineSnapshot(
+      `"[wire] goal.update   { "wallClockMs": 3000, "time": "<time>", "wallClockResumedAt": 4000 }"`,
     );
   });
 });

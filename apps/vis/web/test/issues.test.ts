@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { computeIssues } from '../src/lib/issues';
 import type { WireEntry } from '../src/types';

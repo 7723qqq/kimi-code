@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import Fastify, { type FastifyInstance } from 'fastify';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { removeTempHome } from './helpers/tempHome';
 
 import {
   createHostCheck,
@@ -191,7 +192,7 @@ describe('startServer allowedHosts — env + option merge', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
+      await removeTempHome(home);
       home = undefined;
     }
   });

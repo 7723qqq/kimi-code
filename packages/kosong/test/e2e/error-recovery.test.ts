@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { APIConnectionError, APIStatusError, ChatProviderError } from '#/errors';
 import { generate } from '#/generate';

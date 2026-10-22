@@ -9,7 +9,7 @@
  * after the config refresh (which only reactivates from persisted values).
  * Wiring: real command handlers with the harness / authFlow boundaries stubbed
  * by a host rig over an in-memory config document.
- * Run: pnpm -C apps/kimi-code exec vitest run test/tui/commands/provider.test.ts
+ * Run: cd apps/kimi-code && bun test --isolate test/tui/commands/provider.test.ts
  */
 import {
   removeProviderFromConfig,
@@ -18,7 +18,8 @@ import {
   type ModelAlias,
 } from '@moonshot-ai/kimi-code-sdk';
 import type { Component, Focusable } from '@moonshot-ai/pi-tui';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock, type Mock } from 'bun:test';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { t } from '#/i18n';
 import type { SlashCommandHost } from '#/tui/commands';
@@ -52,24 +53,24 @@ function makeHost(
   };
   const host = {
     state: { appState },
-    waitForLazyCreation: vi.fn(async () => {}),
+    waitForLazyCreation: mock(async () => {}),
     harness: {
-      setConfig: vi.fn(async () => ({})),
+      setConfig: mock(async () => ({})),
     },
     authFlow: {
-      refreshConfigAfterLogin: vi.fn(async () => options.refreshReachedLiveSession === true),
-      activateModelAfterLogin: vi.fn(async () => options.activateReachedLiveSession === true),
+      refreshConfigAfterLogin: mock(async () => options.refreshReachedLiveSession === true),
+      activateModelAfterLogin: mock(async () => options.activateReachedLiveSession === true),
     },
-    track: vi.fn(),
-    showStatus: vi.fn(),
+    track: mock(),
+    showStatus: mock(),
   } as unknown as SlashCommandHost & {
-    harness: { setConfig: ReturnType<typeof vi.fn> };
+    harness: { setConfig: Mock<(...args: any[]) => any> };
     authFlow: {
-      refreshConfigAfterLogin: ReturnType<typeof vi.fn>;
-      activateModelAfterLogin: ReturnType<typeof vi.fn>;
+      refreshConfigAfterLogin: Mock<(...args: any[]) => any>;
+      activateModelAfterLogin: Mock<(...args: any[]) => any>;
     };
-    waitForLazyCreation: ReturnType<typeof vi.fn>;
-    track: ReturnType<typeof vi.fn>;
+    waitForLazyCreation: Mock<(...args: any[]) => any>;
+    track: Mock<(...args: any[]) => any>;
   };
   return { host };
 }
@@ -194,18 +195,18 @@ type Panel = Component & Focusable & { handleInput(data: string): void };
 /** The rig host with the stubbed boundaries kept mock-typed for assertions. */
 type RigHost = SlashCommandHost & {
   harness: {
-    getConfig: ReturnType<typeof vi.fn>;
-    setConfig: ReturnType<typeof vi.fn>;
-    removeProvider: ReturnType<typeof vi.fn>;
-    supportsAtomicSectionReplace: ReturnType<typeof vi.fn>;
-    replaceConfigSections: ReturnType<typeof vi.fn>;
-    importCustomRegistry: ReturnType<typeof vi.fn>;
+    getConfig: Mock<(...args: any[]) => any>;
+    setConfig: Mock<(...args: any[]) => any>;
+    removeProvider: Mock<(...args: any[]) => any>;
+    supportsAtomicSectionReplace: Mock<(...args: any[]) => any>;
+    replaceConfigSections: Mock<(...args: any[]) => any>;
+    importCustomRegistry: Mock<(...args: any[]) => any>;
   };
-  authFlow: { refreshConfigAfterLogin: ReturnType<typeof vi.fn> };
-  restoreEditor: ReturnType<typeof vi.fn>;
-  showError: ReturnType<typeof vi.fn>;
-  showStatus: ReturnType<typeof vi.fn>;
-  track: ReturnType<typeof vi.fn>;
+  authFlow: { refreshConfigAfterLogin: Mock<(...args: any[]) => any> };
+  restoreEditor: Mock<(...args: any[]) => any>;
+  showError: Mock<(...args: any[]) => any>;
+  showStatus: Mock<(...args: any[]) => any>;
+  track: Mock<(...args: any[]) => any>;
 };
 
 interface CommandRig {
@@ -261,21 +262,21 @@ function makeCommandRig(initial: KimiConfig, options: RigOptions = {}): CommandR
   const mounted: Panel[] = [];
   const atomicSections = options.atomicSections === true;
   const harness = {
-    getConfig: vi.fn(() => Promise.resolve(structuredClone(store))),
-    setConfig: vi.fn((patch: KimiConfigPatch) => {
+    getConfig: mock(() => Promise.resolve(structuredClone(store))),
+    setConfig: mock((patch: KimiConfigPatch) => {
       store = applyPatch(store, patch);
       return Promise.resolve(structuredClone(store));
     }),
-    removeProvider: vi.fn((providerId: string) => {
+    removeProvider: mock((providerId: string) => {
       store = removeProviderFromConfig(store, providerId);
       return Promise.resolve(structuredClone(store));
     }),
-    supportsAtomicSectionReplace: vi.fn(() => atomicSections),
-    replaceConfigSections: vi.fn((sections: Record<string, unknown>) => {
+    supportsAtomicSectionReplace: mock(() => atomicSections),
+    replaceConfigSections: mock((sections: Record<string, unknown>) => {
       store = applySections(store, sections);
       return Promise.resolve();
     }),
-    importCustomRegistry: vi.fn(() => Promise.resolve({ providers: [], credentialEnv: {} })),
+    importCustomRegistry: mock(() => Promise.resolve({ providers: [], credentialEnv: {} })),
   };
   const host = {
     state: {
@@ -289,14 +290,14 @@ function makeCommandRig(initial: KimiConfig, options: RigOptions = {}): CommandR
     cancelInFlight: undefined,
     deferUserMessages: false,
     harness,
-    authFlow: { refreshConfigAfterLogin: vi.fn(() => Promise.resolve(false)) },
-    mountEditorReplacement: vi.fn((panel: Panel) => {
+    authFlow: { refreshConfigAfterLogin: mock(() => Promise.resolve(false)) },
+    mountEditorReplacement: mock((panel: Panel) => {
       mounted.push(panel);
     }),
-    restoreEditor: vi.fn(),
-    showError: vi.fn(),
-    showStatus: vi.fn(),
-    track: vi.fn(),
+    restoreEditor: mock(),
+    showError: mock(),
+    showStatus: mock(),
+    track: mock(),
   } as unknown as RigHost;
   return { host, mounted, readConfig: () => structuredClone(store) };
 }
@@ -306,7 +307,7 @@ async function waitForPanel<T extends Panel>(
   rig: CommandRig,
   ctor: new (...args: never[]) => T,
 ): Promise<T> {
-  await vi.waitFor(() => {
+  await waitForAssertion(() => {
     if (!(rig.mounted.at(-1) instanceof ctor)) throw new Error(`no ${ctor.name} mounted yet`);
   });
   return rig.mounted.at(-1) as T;
@@ -522,7 +523,7 @@ describe('/provider add → manual', () => {
       context: '128000',
     });
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(rig.host.harness.setConfig).toHaveBeenCalledTimes(1);
     });
     const value: ProviderFormValue = {
@@ -571,7 +572,7 @@ describe('/provider add → manual', () => {
       context: '128000',
     });
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(rig.host.showError).toHaveBeenCalledWith(
         t('tui.statusMessages.providerFormFailed', { error: 'disk full' }),
       );
@@ -591,7 +592,7 @@ describe('/provider add → manual', () => {
       context: '128000',
     });
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(rig.host.showError).toHaveBeenCalledWith(
         t('tui.statusMessages.providerFormFailed', {
           error: `${t('tui.dialogs.providerForm.error.idTaken')} (demo)`,
@@ -623,7 +624,7 @@ describe('/provider add → custom registry (existing path)', () => {
     typeText(dialog, 'sk-reg');
     dialog.handleInput(ENTER); // submit
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(rig.host.harness.importCustomRegistry).toHaveBeenCalledWith({
         url: 'https://registry.test/api.json',
         apiKey: 'sk-reg',
@@ -678,7 +679,7 @@ describe('/provider edit (E)', () => {
     form.handleInput(TAB); // models → save
     form.handleInput(ENTER);
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(rig.host.harness.setConfig).toHaveBeenCalledTimes(1);
     });
     // Prefilling the row and committing it back must be a no-op: every value
@@ -718,7 +719,7 @@ describe('/provider edit (E)', () => {
     form.handleInput(TAB); // models → save
     form.handleInput(ENTER);
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(rig.host.harness.setConfig).toHaveBeenCalledTimes(1);
     });
     // Every field the record declared reached the form and came back unchanged:
@@ -749,7 +750,7 @@ describe('/provider edit (E)', () => {
     for (let i = 0; i < 9; i++) form.handleInput(TAB); // id → save
     form.handleInput(ENTER);
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(rig.host.harness.setConfig).toHaveBeenCalledTimes(1);
     });
     // capabilities / adaptiveThinking were declared and round-trip; the
@@ -807,7 +808,7 @@ describe('/provider edit (E)', () => {
     form.handleInput(TAB); // models → save
     form.handleInput(ENTER);
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(rig.host.harness.setConfig).toHaveBeenCalledTimes(1);
     });
     const patch = setConfigPatch(rig.host);
@@ -832,7 +833,7 @@ describe('/provider edit (E)', () => {
     for (let i = 0; i < 9; i++) form.handleInput(TAB); // id → save
     form.handleInput(ENTER);
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(rig.host.showError).toHaveBeenCalledWith(
         t('tui.statusMessages.providerFormFailed', {
           error: `${t('tui.dialogs.providerForm.error.idTaken')} (taken)`,

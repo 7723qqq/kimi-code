@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
@@ -29,16 +29,16 @@ import { registerTestAgentWire, testWireScope } from '../../wire/stubs';
 describe('AgentModeMutexService', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
-  let planEnter: ReturnType<typeof vi.fn>;
-  let planExit: ReturnType<typeof vi.fn>;
-  let specEnter: ReturnType<typeof vi.fn>;
-  let specExit: ReturnType<typeof vi.fn>;
-  let swarmEnter: ReturnType<typeof vi.fn>;
-  let swarmExit: ReturnType<typeof vi.fn>;
-  let towerEnter: ReturnType<typeof vi.fn>;
-  let towerExit: ReturnType<typeof vi.fn>;
-  let goalPause: ReturnType<typeof vi.fn>;
-  let dispatch: ReturnType<typeof vi.fn>;
+  let planEnter: ReturnType<typeof mock>;
+  let planExit: ReturnType<typeof mock>;
+  let specEnter: ReturnType<typeof mock>;
+  let specExit: ReturnType<typeof mock>;
+  let swarmEnter: ReturnType<typeof mock>;
+  let swarmExit: ReturnType<typeof mock>;
+  let towerEnter: ReturnType<typeof mock>;
+  let towerExit: ReturnType<typeof mock>;
+  let goalPause: ReturnType<typeof mock>;
+  let dispatch: ReturnType<typeof mock>;
   let swarmActive: boolean;
   let towerActive: boolean;
   let goalStatus: string | undefined;
@@ -59,32 +59,32 @@ describe('AgentModeMutexService', () => {
     swarmActive = false;
     towerActive = false;
     goalStatus = undefined;
-    goalPause = vi.fn();
-    dispatch = vi.fn();
+    goalPause = mock();
+    dispatch = mock();
 
-    planEnter = vi.fn(async () => {
+    planEnter = mock(async () => {
       state.set(planKey, { active: true, id: 'plan_1' });
     });
-    planExit = vi.fn(() => {
+    planExit = mock(() => {
       state.set(planKey, { active: false });
     });
-    specEnter = vi.fn(async () => {
+    specEnter = mock(async () => {
       state.set(specKey, { active: true, id: 'spec_1' });
     });
-    specExit = vi.fn(() => {
+    specExit = mock(() => {
       state.set(specKey, { active: false });
     });
-    swarmEnter = vi.fn(() => {
+    swarmEnter = mock(() => {
       swarmActive = true;
     });
-    swarmExit = vi.fn(() => {
+    swarmExit = mock(() => {
       swarmActive = false;
     });
-    towerEnter = vi.fn(async () => {
+    towerEnter = mock(async () => {
       towerActive = true;
       return { entered: true } as const;
     });
-    towerExit = vi.fn(async () => {
+    towerExit = mock(async () => {
       towerActive = false;
     });
 

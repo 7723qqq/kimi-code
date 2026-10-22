@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { closeDanglingToolCalls } from '../../src/sessions/close-tool-calls.js';
 import type { NormalizedMessage } from '../../src/sessions/translator.js';

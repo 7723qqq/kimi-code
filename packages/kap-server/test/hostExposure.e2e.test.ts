@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { Writable } from 'node:stream';
 
 import { pino, type Logger } from 'pino';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { type RunningServer, startServer } from '../src/start';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';

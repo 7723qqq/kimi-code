@@ -5,15 +5,37 @@ import os from 'node:os';
 import path from 'node:path';
 
 // test/recovery.test.ts
-import { afterEach, test, vi } from 'vitest';
+import { afterEach, test } from 'bun:test';
 
 import { HEADER_SIZE, CRC_SIZE, encodeFrame, TYPE_SET } from '../src/codec.js';
 import { MiniDb } from '../src/index.js';
+import { ValueReader } from '../src/value-reader.js';
+
+// Faults are injected by patching the real node:fs / node:fs/promises exports
+// object — every minidb module default-imports that same object, so a swap
+// reaches recovery/value-reader without re-importing anything (vitest did this
+// with doMock + resetModules, which Bun has no equivalent for). The afterEach
+// restores every patched property.
+const restores: (() => void)[] = [];
+
+function patch(owner: object, key: string, value: unknown): void {
+  const target = owner as unknown as Record<string, unknown>;
+  const original = target[key];
+  target[key] = value;
+  restores.push(() => {
+    target[key] = original;
+  });
+}
+
+/** Undo every patch installed since the last call: a test that needs the REAL
+ *  filesystem again mid-test (a clean reopen after the injected fault) calls
+ *  this explicitly. */
+function restorePatches(): void {
+  while (restores.length > 0) restores.pop()!();
+}
 
 afterEach(() => {
-  vi.doUnmock('node:fs');
-  vi.doUnmock('node:fs/promises');
-  vi.resetModules();
+  restorePatches();
 });
 
 async function tmpDir() {
@@ -484,16 +506,16 @@ test(
 // ---- generation pairing (stat-pairing; review #15) --------------------------
 //
 // Fault-injection tests for recover()'s snapshot/WAL generation pairing. The
-// injections run INSIDE mocked fs calls, which makes them deterministic: they
+// injections run INSIDE patched fs calls, which makes them deterministic: they
 // fire exactly at recover's forensic points (the post-scan path re-stat, the
-// ValueReader attach) — no sleeps, no races. The mocks affect only DYNAMIC
-// imports made after them (vi.resetModules), so the statically-imported
-// MiniDb above keeps the real fs for seeding and verification.
+// ValueReader attach) — no sleeps, no races. Each patch wraps the real
+// node:fs function the sources already hold, so seeding and verification keep
+// working, and the afterEach restores the real fs.
 
 type FsSyncModule = typeof import('node:fs');
 
-/** Mock node:fs so statSync/openSync on the db.wal path fire the given hook
- *  (with the call count) before delegating to the real module. Everything
+/** Patch node:fs so statSync/openSync on the db.wal path fire the given hook
+ *  (with the call count) before delegating to the real function. Everything
  *  else passes through untouched. */
 function mockFsSyncForWal(
   walPath: string,
@@ -502,21 +524,27 @@ function mockFsSyncForWal(
     onOpenSync?: (call: number, real: FsSyncModule) => void;
   },
 ): void {
+  const real = fsSync;
+  const realStatSync = fsSync.statSync;
+  const realOpenSync = fsSync.openSync;
   let statCalls = 0;
   let openCalls = 0;
-  vi.doMock('node:fs', async () => {
-    const real = await vi.importActual<FsSyncModule>('node:fs');
-    const statSync = ((p: unknown, ...args: unknown[]) => {
+  patch(
+    fsSync,
+    'statSync',
+    ((p: unknown, ...args: unknown[]) => {
       if (String(p) === walPath) hooks.onStatSync?.(++statCalls, real);
-      return (real.statSync as (...a: unknown[]) => unknown)(p, ...args);
-    }) as typeof real.statSync;
-    const openSync = ((p: unknown, ...args: unknown[]) => {
+      return (realStatSync as (...a: unknown[]) => unknown)(p, ...args);
+    }) as typeof fsSync.statSync,
+  );
+  patch(
+    fsSync,
+    'openSync',
+    ((p: unknown, ...args: unknown[]) => {
       if (String(p) === walPath) hooks.onOpenSync?.(++openCalls, real);
-      return (real.openSync as (...a: unknown[]) => unknown)(p, ...args);
-    }) as typeof real.openSync;
-    const mocked = { ...real, statSync, openSync };
-    return { ...mocked, default: mocked };
-  });
+      return (realOpenSync as (...a: unknown[]) => unknown)(p, ...args);
+    }) as typeof fsSync.openSync,
+  );
 }
 
 /** Atomically replace db.wal with an identical-content copy on a NEW inode —
@@ -528,9 +556,8 @@ function swapWalInodeSync(real: FsSyncModule, walPath: string): void {
 
 // The WAL inode swap is simulated with POSIX rename-over-open semantics,
 // which Windows cannot reproduce (an open WAL handle blocks rename/unlink).
-test(
+test.skipIf(process.platform === 'win32')(
   'generation pairing: a rotation-like WAL inode swap at the post-scan forensics is retried to a consistent read-only open',
-  { skip: process.platform === 'win32' },
   async () => {
     const dir = await tmpDir();
     try {
@@ -557,8 +584,7 @@ test(
           }
         },
       });
-      const { MiniDb: MockedMiniDb } = await import('../src/index.js');
-      const reader = await MockedMiniDb.open<string>({
+      const reader = await MiniDb.open<string>({
         dir,
         valueCodec: 'string',
         readOnly: true,
@@ -604,9 +630,8 @@ test('generation pairing: churn beyond the retry budget throws RECOVERY_GENERATI
         swaps++;
       },
     });
-    const { MiniDb: MockedMiniDb } = await import('../src/index.js');
     await assert.rejects(
-      MockedMiniDb.open<string>({
+      MiniDb.open<string>({
         dir,
         valueCodec: 'string',
         readOnly: true,
@@ -619,7 +644,9 @@ test('generation pairing: churn beyond the retry budget throws RECOVERY_GENERATI
     assert.equal(swaps, 5, 'one swap per pass: the initial attempt plus 4 retries');
 
     // No partial application state survived the failed open: the swaps
-    // preserved content, and a clean open recovers every key.
+    // preserved content, and a clean open recovers every key (with the real fs
+    // restored, so the WAL stays stable).
+    restorePatches();
     const db = await MiniDb.open<string>({ dir, valueCodec: 'string', readOnly: true });
     assert.equal(db.size, 50);
     assert.equal(db.get('k0'), 'v0');
@@ -657,8 +684,7 @@ test('generation pairing: append-only WAL growth between the forensic rounds doe
         }
       },
     });
-    const { MiniDb: MockedMiniDb } = await import('../src/index.js');
-    const reader = await MockedMiniDb.open<string>({
+    const reader = await MiniDb.open<string>({
       dir,
       valueCodec: 'string',
       readOnly: true,
@@ -707,8 +733,7 @@ test('generation pairing (disk mode): a ValueReader attach to the wrong inode re
         }
       },
     });
-    const { MiniDb: MockedMiniDb } = await import('../src/index.js');
-    const reader = await MockedMiniDb.open<string>({
+    const reader = await MiniDb.open<string>({
       dir,
       valueCodec: 'string',
       valueMode: 'disk',
@@ -758,8 +783,6 @@ test('generation pairing (disk mode): a failing ValueReader open() closes the pa
           throw Object.assign(new Error('injected wal open failure'), { code: 'EMFILE' });
       },
     });
-    const { MiniDb: MockedMiniDb } = await import('../src/index.js');
-    const { ValueReader } = await import('../src/value-reader.js');
     let closes = 0;
     const origClose = ValueReader.prototype.close;
     ValueReader.prototype.close = function (this: InstanceType<typeof ValueReader>): void {
@@ -768,7 +791,7 @@ test('generation pairing (disk mode): a failing ValueReader open() closes the pa
     };
     try {
       await assert.rejects(
-        MockedMiniDb.open<string>({
+        MiniDb.open<string>({
           dir,
           valueCodec: 'string',
           valueMode: 'disk',
@@ -786,7 +809,9 @@ test('generation pairing (disk mode): a failing ValueReader open() closes the pa
       'the partially attached ValueReader was closed instead of leaking its snapshot fd',
     );
 
-    // The injected failure was transient: a clean open recovers everything.
+    // The injected failure was transient: a clean open recovers everything
+    // (with the real node:fs restored, so no further openSync throws).
+    restorePatches();
     const db = await MiniDb.open<string>({
       dir,
       valueCodec: 'string',
@@ -837,21 +862,20 @@ test(
     let release!: () => void;
     const parkedPromise = new Promise<void>((r) => (parked = r));
     const gate = new Promise<void>((r) => (release = r));
+    const realRename = fs.rename;
     const rename = async (src: PathLike, dst: PathLike): Promise<void> => {
       if (armed && String(src).endsWith('db.wal.tmp') && String(dst).endsWith('db.wal')) {
         armed = false;
         parked();
         await gate;
       }
-      return fs.rename(src, dst);
+      return realRename(src, dst);
     };
-    const mocked = { ...fs, rename };
-    vi.doMock('node:fs/promises', () => ({ ...mocked, default: mocked }));
+    patch(fs, 'rename', rename as typeof fs.rename);
 
-    const { MiniDb: MockedMiniDb } = await import('../src/index.js');
     const dir = await tmpDir();
     try {
-      const writer = await MockedMiniDb.open<string>({
+      const writer = await MiniDb.open<string>({
         dir,
         valueCodec: 'string',
         fsyncPolicy: 'no',
@@ -867,7 +891,7 @@ test(
       // The reader opens in the mid-rotation window: new snapshot + old full
       // WAL is a complete, consistent pairing (the replay is idempotent), and
       // the stable window costs no retry.
-      const midReader = await MockedMiniDb.open<string>({
+      const midReader = await MiniDb.open<string>({
         dir,
         valueCodec: 'string',
         readOnly: true,
@@ -883,7 +907,7 @@ test(
       await compactPromise;
 
       // After the rotation, a fresh open recovers the new generation, complete.
-      const postReader = await MockedMiniDb.open<string>({
+      const postReader = await MiniDb.open<string>({
         dir,
         valueCodec: 'string',
         readOnly: true,

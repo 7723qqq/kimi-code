@@ -1,8 +1,10 @@
 import { mkdtemp, mkdir, writeFile, readFile, readdir, rm, chmod } from 'node:fs/promises';
+
+const POSIX_PERMS = process.platform !== 'win32';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { migrateUserHistoryStep } from '../../src/steps/user-history.js';
 import { migratePlansStep } from '../../src/steps/plans.js';
@@ -53,7 +55,7 @@ describe('migrateUserHistoryStep', () => {
     expect(r).toEqual({ copied: 0, skippedExisting: 0, failures: [] });
   });
 
-  it('records a per-entry failure instead of aborting when one file is unreadable', async () => {
+  it.skipIf(!POSIX_PERMS)('records a per-entry failure instead of aborting when one file is unreadable', async () => {
     await mkdir(join(src, 'user-history'), { recursive: true });
     const brokenPath = join(src, 'user-history', 'broken.jsonl');
     await writeFile(brokenPath, '{"content":"x"}\n');
@@ -73,7 +75,7 @@ describe('migrateUserHistoryStep', () => {
     }
   });
 
-  it('throws only when EVERY entry fails', async () => {
+  it.skipIf(!POSIX_PERMS)('throws only when EVERY entry fails', async () => {
     await mkdir(join(src, 'user-history'), { recursive: true });
     const a = join(src, 'user-history', 'aaa.jsonl');
     const b = join(src, 'user-history', 'bbb.jsonl');

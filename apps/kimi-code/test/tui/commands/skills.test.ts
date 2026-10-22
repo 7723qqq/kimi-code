@@ -1,5 +1,5 @@
 import type { SkillSummary } from '@moonshot-ai/kimi-code-sdk';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { buildSkillSlashCommands, isUserActivatableSkill } from '#/tui/commands/index';
 

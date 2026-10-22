@@ -1,19 +1,16 @@
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
-import {
-  resetUnexpectedErrorHandler,
-  setUnexpectedErrorHandler,
-} from '#/_base/errors/unexpectedError';
+import { resetUnexpectedErrorHandler, setUnexpectedErrorHandler } from '#/_base/errors/unexpectedError';
 import { ErrorCodes } from '#/errors';
-import type { LspProviderQuery } from '#/features/lsp/lsp';
-import { LspTransportClosedError } from '#/features/lsp/lspConnection';
+import { type LspProviderQuery } from '#/features/lsp/lsp';
+
 import { LspInstance } from '#/features/lsp/lspInstance';
 import { LspStdioProvider } from '#/features/lsp/lspStdioProvider';
-import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import type { IProcess, ISessionProcessRunner } from '#/session/process/processRunner';
+import { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { type IProcess, ISessionProcessRunner } from '#/session/process/processRunner';
 
 const FAKE_SERVER = fileURLToPath(new URL('./fixtures/fake-lsp-server.mjs', import.meta.url));
 

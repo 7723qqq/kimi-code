@@ -1,4 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, mock } from 'bun:test';
+import type { Mock as BunMock } from 'bun:test';
+import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
+import { setEnv, restoreEnvs } from '#test/helpers/stubs';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { DOUBLE_ESC_WINDOW_MS, getCtrlCHint } from '#/tui/constant/kimi-tui';
 import {
@@ -8,49 +12,59 @@ import {
   type EditorKeyboardHost,
 } from '#/tui/controllers/editor-keyboard';
 import { ImageAttachmentStore } from '#/tui/utils/image-attachment-store';
+import type { QueuedMessage } from '#/tui/types';
+
+type Mock<T extends (...args: any[]) => any = (...args: any[]) => any> = BunMock<T>;
+
+/** Injected timer source: the double-Esc / exit-confirm windows never touch real time. */
+let clock: FakeClock;
+
+beforeEach(() => {
+  clock = createFakeClock(0);
+});
 
 interface Harness {
   readonly host: EditorKeyboardHost;
   readonly editor: Record<string, ((...args: never[]) => unknown) | undefined>;
   readonly controller: EditorKeyboardController;
-  readonly openUndoSelector: ReturnType<typeof vi.fn>;
-  readonly cancelRunningShellCommand: ReturnType<typeof vi.fn>;
-  readonly cancelCompaction: ReturnType<typeof vi.fn>;
-  readonly btwCancelRunning: ReturnType<typeof vi.fn>;
-  readonly btwCloseOrCancel: ReturnType<typeof vi.fn>;
-  readonly footerHint: ReturnType<typeof vi.fn>;
-  readonly promptOptimizer: { readonly optimize: ReturnType<typeof vi.fn> };
-  readonly stop: ReturnType<typeof vi.fn>;
+  readonly openUndoSelector: Mock<(...args: any[]) => any>;
+  readonly cancelRunningShellCommand: Mock<(...args: any[]) => any>;
+  readonly cancelCompaction: Mock<(...args: any[]) => any>;
+  readonly btwCancelRunning: Mock<(...args: any[]) => any>;
+  readonly btwCloseOrCancel: Mock<(...args: any[]) => any>;
+  readonly footerHint: Mock<(...args: any[]) => any>;
+  readonly promptOptimizer: { readonly optimize: Mock<(...args: any[]) => any> };
+  readonly stop: Mock<(...args: any[]) => any>;
   readonly survey: {
-    readonly handlePreInput: ReturnType<typeof vi.fn<(data: string) => boolean>>;
-    readonly handleSubmit: ReturnType<typeof vi.fn<(text: string) => boolean>>;
-    readonly handleEditorChange: ReturnType<typeof vi.fn<(text: string) => void>>;
-    readonly notifyDisplaced: ReturnType<typeof vi.fn<() => void>>;
+    readonly handlePreInput: Mock<(data: string) => boolean>;
+    readonly handleSubmit: Mock<(text: string) => boolean>;
+    readonly handleEditorChange: Mock<(text: string) => void>;
+    readonly notifyDisplaced: Mock<() => void>;
   };
 }
 
 function createHarness(options: { streamingPhase?: string; isCompacting?: boolean } = {}): Harness {
   const editor: Record<string, ((...args: never[]) => unknown) | undefined> = {
-    setHistoryFilter: vi.fn() as unknown as (...args: never[]) => unknown,
-    setInputMode: vi.fn() as unknown as (...args: never[]) => unknown,
-    getText: vi.fn(() => '') as unknown as (...args: never[]) => unknown,
-    setText: vi.fn() as unknown as (...args: never[]) => unknown,
+    setHistoryFilter: mock() as unknown as (...args: never[]) => unknown,
+    setInputMode: mock() as unknown as (...args: never[]) => unknown,
+    getText: mock(() => '') as unknown as (...args: never[]) => unknown,
+    setText: mock() as unknown as (...args: never[]) => unknown,
   };
-  const openUndoSelector = vi.fn();
-  const cancelRunningShellCommand = vi.fn();
-  const cancelCompaction = vi.fn(async () => {});
-  const btwCancelRunning = vi.fn(() => false);
-  const btwCloseOrCancel = vi.fn(() => false);
-  const footerHint = vi.fn();
-  const stop = vi.fn();
+  const openUndoSelector = mock();
+  const cancelRunningShellCommand = mock();
+  const cancelCompaction = mock(async () => {});
+  const btwCancelRunning = mock(() => false);
+  const btwCloseOrCancel = mock(() => false);
+  const footerHint = mock();
+  const stop = mock();
   const survey = {
-    handlePreInput: vi.fn<(data: string) => boolean>(() => false),
-    handleSubmit: vi.fn<(text: string) => boolean>(() => false),
-    handleEditorChange: vi.fn<(text: string) => void>(() => {}),
-    notifyDisplaced: vi.fn<() => void>(() => {}),
+    handlePreInput: mock<(data: string) => boolean>(() => false),
+    handleSubmit: mock<(text: string) => boolean>(() => false),
+    handleEditorChange: mock<(text: string) => void>(() => {}),
+    notifyDisplaced: mock<() => void>(() => {}),
   };
-  const session = { cancel: vi.fn(async () => {}), cancelCompaction };
-  const promptOptimizer = { optimize: vi.fn(async () => {}) };
+  const session = { cancel: mock(async () => {}), cancelCompaction };
+  const promptOptimizer = { optimize: mock(async () => {}) };
 
   const host = {
     state: {
@@ -62,7 +76,7 @@ function createHarness(options: { streamingPhase?: string; isCompacting?: boolea
         editorCommand: null,
       },
       footer: { setTransientHint: footerHint },
-      ui: { requestRender: vi.fn() },
+      ui: { requestRender: mock() },
     },
     session,
     btwPanelController: { cancelRunning: btwCancelRunning, closeOrCancel: btwCloseOrCancel },
@@ -70,18 +84,19 @@ function createHarness(options: { streamingPhase?: string; isCompacting?: boolea
     promptOptimizer,
     openUndoSelector,
     cancelRunningShellCommand,
-    updateEditorBorderHighlight: vi.fn(),
-    updateGoalLengthWarning: vi.fn(),
-    handleUserInput: vi.fn(),
-    track: vi.fn(),
-    openExternalEditor: vi.fn(),
-    showError: vi.fn(),
+    updateEditorBorderHighlight: mock(),
+    updateGoalLengthWarning: mock(),
+    handleUserInput: mock(),
+    track: mock(),
+    openExternalEditor: mock(),
+    showError: mock(),
     stop,
   } as unknown as EditorKeyboardHost;
 
   const controller = new EditorKeyboardController(
     host,
     undefined as unknown as ImageAttachmentStore,
+    clock,
   );
   controller.install();
 
@@ -126,13 +141,6 @@ function pressNonEscape(editor: Harness['editor']): void {
 }
 
 describe('EditorKeyboardController double-Esc undo', () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
 
   it('opens the undo selector when Esc is pressed twice within the window while idle', () => {
     const { editor, openUndoSelector } = createHarness();
@@ -141,7 +149,7 @@ describe('EditorKeyboardController double-Esc undo', () => {
     expect(openUndoSelector).not.toHaveBeenCalled();
 
     pressEscape(editor);
-    expect(openUndoSelector).toHaveBeenCalledOnce();
+    expect(openUndoSelector).toHaveBeenCalledTimes(1);
   });
 
   it('does nothing for a single Esc while idle', () => {
@@ -156,7 +164,7 @@ describe('EditorKeyboardController double-Esc undo', () => {
     const { editor, openUndoSelector } = createHarness();
 
     pressEscape(editor);
-    vi.advanceTimersByTime(DOUBLE_ESC_WINDOW_MS + 1);
+    clock.advance(DOUBLE_ESC_WINDOW_MS + 1);
     pressEscape(editor);
 
     expect(openUndoSelector).not.toHaveBeenCalled();
@@ -182,7 +190,7 @@ describe('EditorKeyboardController double-Esc undo', () => {
 
     expect(openUndoSelector).not.toHaveBeenCalled();
     expect(cancelRunningShellCommand).toHaveBeenCalled();
-    const session = host.session as unknown as { cancel: ReturnType<typeof vi.fn> };
+    const session = host.session as unknown as { cancel: Mock<(...args: any[]) => any> };
     expect(session.cancel).toHaveBeenCalled();
   });
 });
@@ -194,7 +202,7 @@ describe('EditorKeyboardController btw panel priority', () => {
 
     pressEscape(editor);
 
-    expect(btwCloseOrCancel).toHaveBeenCalledOnce();
+    expect(btwCloseOrCancel).toHaveBeenCalledTimes(1);
     expect(cancelCompaction).not.toHaveBeenCalled();
   });
 
@@ -206,7 +214,7 @@ describe('EditorKeyboardController btw panel priority', () => {
     expect(cancelCompaction).not.toHaveBeenCalled();
 
     pressEscape(editor);
-    expect(cancelCompaction).toHaveBeenCalledOnce();
+    expect(cancelCompaction).toHaveBeenCalledTimes(1);
   });
 
   it('Esc cancels compaction directly when no btw panel is open', () => {
@@ -214,8 +222,8 @@ describe('EditorKeyboardController btw panel priority', () => {
 
     pressEscape(editor);
 
-    expect(btwCloseOrCancel).toHaveBeenCalledOnce();
-    expect(cancelCompaction).toHaveBeenCalledOnce();
+    expect(btwCloseOrCancel).toHaveBeenCalledTimes(1);
+    expect(cancelCompaction).toHaveBeenCalledTimes(1);
   });
 
   it('Ctrl+C cancels a running btw question first while compacting', () => {
@@ -224,7 +232,7 @@ describe('EditorKeyboardController btw panel priority', () => {
 
     pressCtrlC(editor);
 
-    expect(btwCancelRunning).toHaveBeenCalledOnce();
+    expect(btwCancelRunning).toHaveBeenCalledTimes(1);
     expect(cancelCompaction).not.toHaveBeenCalled();
   });
 
@@ -234,7 +242,7 @@ describe('EditorKeyboardController btw panel priority', () => {
 
     pressCtrlC(editor);
 
-    expect(btwCloseOrCancel).toHaveBeenCalledOnce();
+    expect(btwCloseOrCancel).toHaveBeenCalledTimes(1);
     expect(cancelCompaction).not.toHaveBeenCalled();
   });
 
@@ -245,9 +253,9 @@ describe('EditorKeyboardController btw panel priority', () => {
 
     pressCtrlC(editor);
 
-    expect(btwCancelRunning).toHaveBeenCalledOnce();
-    expect(btwCloseOrCancel).toHaveBeenCalledOnce();
-    expect(cancelCompaction).toHaveBeenCalledOnce();
+    expect(btwCancelRunning).toHaveBeenCalledTimes(1);
+    expect(btwCloseOrCancel).toHaveBeenCalledTimes(1);
+    expect(cancelCompaction).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -274,12 +282,11 @@ describe('EditorKeyboardController disposal', () => {
 
 describe('EditorKeyboardController shell history recall', () => {
   type Recall = (entry: string, direction: 1 | -1) => string | undefined;
-  type Mock = ReturnType<typeof vi.fn>;
 
   it('installs a filter that allows shell entries only in bash mode', () => {
     const { editor } = createHarness();
     const setHistoryFilter = editor['setHistoryFilter'] as unknown as Mock;
-    expect(setHistoryFilter).toHaveBeenCalledOnce();
+    expect(setHistoryFilter).toHaveBeenCalledTimes(1);
     const [filter] = setHistoryFilter.mock.calls[0] as [(entry: string) => boolean];
 
     (editor as unknown as { inputMode: string }).inputMode = 'prompt';
@@ -354,14 +361,14 @@ describe('EditorKeyboardController Shift-Tab plan/spec cycle', () => {
     options: { sessionless?: boolean; appState?: Record<string, unknown> } = {},
   ) {
     const editor: Record<string, ((...args: never[]) => unknown) | undefined> = {
-      setHistoryFilter: vi.fn() as unknown as (...args: never[]) => unknown,
+      setHistoryFilter: mock() as unknown as (...args: never[]) => unknown,
     };
-    const handlePlanToggle = vi.fn();
-    const handleExclusiveModeLeave = vi.fn();
-    const handleExclusiveModeSwitch = vi.fn();
-    const track = vi.fn();
-    const showError = vi.fn();
-    const ensureSession = vi.fn(async (): Promise<{ id: string } | undefined> => ({ id: 'ses-lazy' }));
+    const handlePlanToggle = mock();
+    const handleExclusiveModeLeave = mock();
+    const handleExclusiveModeSwitch = mock();
+    const track = mock();
+    const showError = mock();
+    const ensureSession = mock(async (): Promise<{ id: string } | undefined> => ({ id: 'ses-lazy' }));
     const host = {
       state: {
         editor,
@@ -375,20 +382,20 @@ describe('EditorKeyboardController Shift-Tab plan/spec cycle', () => {
           towerMode: false,
           ...options.appState,
         },
-        footer: { setTransientHint: vi.fn() },
-        ui: { requestRender: vi.fn() },
+        footer: { setTransientHint: mock() },
+        ui: { requestRender: mock() },
       },
-      session: options.sessionless ? undefined : { cancel: vi.fn(async () => {}) },
+      session: options.sessionless ? undefined : { cancel: mock(async () => {}) },
       ensureSession,
       handlePlanToggle,
       handleExclusiveModeLeave,
       handleExclusiveModeSwitch,
       track,
       showError,
-      btwPanelController: { cancelRunning: vi.fn(), closeOrCancel: vi.fn() },
+      btwPanelController: { cancelRunning: mock(), closeOrCancel: mock() },
     } as unknown as EditorKeyboardHost;
 
-    new EditorKeyboardController(host, undefined as unknown as ImageAttachmentStore).install();
+    new EditorKeyboardController(host, undefined as unknown as ImageAttachmentStore, clock).install();
     const onShiftTab = editor['onShiftTab'] as unknown as () => void;
     return {
       onShiftTab,
@@ -418,10 +425,10 @@ describe('EditorKeyboardController Shift-Tab plan/spec cycle', () => {
     onShiftTab();
     expect(handlePlanToggle).not.toHaveBeenCalled();
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(handlePlanToggle).toHaveBeenCalledWith(true);
     });
-    expect(ensureSession).toHaveBeenCalledOnce();
+    expect(ensureSession).toHaveBeenCalledTimes(1);
     expect(track).toHaveBeenCalledWith('shortcut_plan_toggle', { enabled: true });
   });
 
@@ -564,18 +571,18 @@ describe('Shift-Tab cycle derivation', () => {
 describe('EditorKeyboardController Ctrl-S steering', () => {
   function createCtrlSHarness(options: {
     editorText: string;
-    queued: Array<Record<string, unknown>>;
+    queued: QueuedMessage[];
     skillCommandMap?: Map<string, string>;
     pluginCommandMap?: Map<string, string>;
     steering?: boolean;
   }) {
-    const steerQueuedMessagesIntoRunningTurn = vi.fn();
-    const updateQueueDisplay = vi.fn();
-    const setText = vi.fn();
+    const steerQueuedMessagesIntoRunningTurn = mock();
+    const updateQueueDisplay = mock();
+    const setText = mock();
     const editor: Record<string, ((...args: never[]) => unknown) | undefined> = {
-      setHistoryFilter: vi.fn() as unknown as (...args: never[]) => unknown,
-      setInputMode: vi.fn() as unknown as (...args: never[]) => unknown,
-      getText: vi.fn(() => options.editorText) as unknown as (...args: never[]) => unknown,
+      setHistoryFilter: mock() as unknown as (...args: never[]) => unknown,
+      setInputMode: mock() as unknown as (...args: never[]) => unknown,
+      getText: mock(() => options.editorText) as unknown as (...args: never[]) => unknown,
       setText: setText as unknown as (...args: never[]) => unknown,
       inputMode: 'prompt' as unknown as (...args: never[]) => unknown,
     };
@@ -585,24 +592,24 @@ describe('EditorKeyboardController Ctrl-S steering', () => {
         activeDialog: null,
         queuedMessages: options.queued,
         appState: { streamingPhase: 'waiting', isCompacting: false, model: 'k2' },
-        footer: { setTransientHint: vi.fn() },
-        ui: { requestRender: vi.fn() },
+        footer: { setTransientHint: mock() },
+        ui: { requestRender: mock() },
       },
       session: { id: 's1' },
       skillCommandMap: options.skillCommandMap ?? new Map(),
       pluginCommandMap: options.pluginCommandMap ?? new Map(),
       steerQueuedMessagesIntoRunningTurn,
-      isSteeringQueuedMessages: vi.fn(() => options.steering ?? false),
+      isSteeringQueuedMessages: mock(() => options.steering ?? false),
       updateQueueDisplay,
-      validateMediaCapabilities: vi.fn(() => true),
-      showError: vi.fn(),
-      track: vi.fn(),
+      validateMediaCapabilities: mock(() => true),
+      showError: mock(),
+      track: mock(),
       btwPanelController: {
-        cancelRunning: vi.fn(() => false),
-        closeOrCancel: vi.fn(() => false),
+        cancelRunning: mock(() => false),
+        closeOrCancel: mock(() => false),
       },
     } as unknown as EditorKeyboardHost;
-    const controller = new EditorKeyboardController(host, new ImageAttachmentStore());
+    const controller = new EditorKeyboardController(host, new ImageAttachmentStore(), clock);
     controller.install();
     const onCtrlS = editor['onCtrlS'];
     if (onCtrlS === undefined) throw new Error('onCtrlS handler not installed');
@@ -617,7 +624,7 @@ describe('EditorKeyboardController Ctrl-S steering', () => {
   }
 
   it('leaves queued inputs owned by the coordinator until dispatch succeeds', () => {
-    const queued = [
+    const queued: QueuedMessage[] = [
       { text: 'earlier note', agentId: 'main' },
       {
         text: 'check /skill:review',
@@ -707,7 +714,7 @@ describe('EditorKeyboardController survey wiring', () => {
 
     pressEscape(editor);
     pressEscape(editor);
-    expect(openUndoSelector).toHaveBeenCalledOnce();
+    expect(openUndoSelector).toHaveBeenCalledTimes(1);
   });
 
   it('clears a pending exit when Escape arrives through the survey pre-input hook', () => {
@@ -764,8 +771,8 @@ describe('EditorKeyboardController survey wiring', () => {
   });
 
   it('displaces the survey when the external editor opens', () => {
-    vi.stubEnv('VISUAL', '');
-    vi.stubEnv('EDITOR', '');
+    setEnv('VISUAL', '');
+    setEnv('EDITOR', '');
     try {
       const { editor, survey } = createHarness();
       const onOpenExternalEditor = editor['onOpenExternalEditor'] as unknown as () => void;
@@ -774,7 +781,7 @@ describe('EditorKeyboardController survey wiring', () => {
 
       expect(survey.notifyDisplaced).toHaveBeenCalled();
     } finally {
-      vi.unstubAllEnvs();
+      restoreEnvs();
     }
   });
 });
@@ -786,7 +793,7 @@ describe('EditorKeyboardController Ctrl+P prompt optimization', () => {
 
     onOptimizePrompt();
 
-    expect(promptOptimizer.optimize).toHaveBeenCalledOnce();
+    expect(promptOptimizer.optimize).toHaveBeenCalledTimes(1);
     expect(host.track).toHaveBeenCalledWith('shortcut_optimize_prompt');
   });
 });

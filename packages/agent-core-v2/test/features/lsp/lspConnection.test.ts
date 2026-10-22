@@ -1,15 +1,11 @@
 import { PassThrough } from 'node:stream';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { MessageDecoder } from '#/features/lsp/framing';
-import {
-  LspConnection,
-  LspServerError,
-  LspTransportClosedError,
-} from '#/features/lsp/lspConnection';
-import type { LspMessage } from '#/features/lsp/protocol';
-import type { IProcess } from '#/session/process/processRunner';
+import { LspConnection, LspTransportClosedError } from '#/features/lsp/lspConnection';
+import { type LspMessage } from '#/features/lsp/protocol';
+import { type IProcess } from '#/session/process/processRunner';
 
 interface FakeProcessHarness {
   readonly process: IProcess;
@@ -164,9 +160,8 @@ describe('LspConnection malformed frames', () => {
       (detail) => protocolErrors.push(detail),
     );
     const promise = connection.request('textDocument/hover');
-    const rejection = expect(promise).rejects.toBeInstanceOf(LspTransportClosedError);
     harness.writeRaw('Content-Length: 4\r\n\r\nnope');
-    await rejection;
+    await expect(promise).rejects.toBeInstanceOf(LspTransportClosedError);
     expect(protocolErrors).toEqual(['frame is not valid JSON']);
     expect(lastRequest(harness)).toMatchObject({ method: 'textDocument/hover' });
   });
@@ -180,9 +175,8 @@ describe('LspConnection malformed frames', () => {
       (detail) => protocolErrors.push(detail),
     );
     const promise = connection.request('textDocument/hover');
-    const rejection = expect(promise).rejects.toBeInstanceOf(LspTransportClosedError);
     harness.writeRaw('Content-Length: 4\r\n\r\nnull');
-    await rejection;
+    await expect(promise).rejects.toBeInstanceOf(LspTransportClosedError);
     expect(protocolErrors).toEqual(['frame is not a JSON-RPC object']);
   });
 
@@ -195,10 +189,9 @@ describe('LspConnection malformed frames', () => {
       (detail) => protocolErrors.push(detail),
     );
     const promise = connection.request('textDocument/hover');
-    const rejection = expect(promise).rejects.toBeInstanceOf(LspTransportClosedError);
     const body = '{"jsonrpc":"2.0","method":"зл"}';
     harness.writeRaw(`Content-Length: ${body.length}\r\n\r\n${body}`);
-    await rejection;
+    await expect(promise).rejects.toBeInstanceOf(LspTransportClosedError);
     expect(protocolErrors).toEqual(['frame is not valid JSON']);
   });
 });

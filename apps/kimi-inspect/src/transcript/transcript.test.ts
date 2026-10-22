@@ -12,8 +12,9 @@ import {
   type TurnHeader,
   type TurnState,
 } from '@moonshot-ai/transcript';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
+import { waitFor } from '../../test/_helpers/bunTest';
 import type { WsLike } from '../channel/wsLike';
 import {
   fetchTranscriptAttachment,
@@ -66,7 +67,7 @@ describe('transcript attachments', () => {
   });
 
   it('fetches stored attachment bytes with bearer auth', async () => {
-    const fetchImpl = vi.fn(async () => new Response('media-bytes', { status: 200 }));
+    const fetchImpl = mock(async () => new Response('media-bytes', { status: 200 }));
 
     const blob = await fetchTranscriptAttachment({
       baseUrl: 'http://h:1',
@@ -175,7 +176,10 @@ class FakeWs implements WsLike {
   }
 }
 
-function makeWs(handlers: Partial<ConstructorParameters<typeof TranscriptWs>[0]['handlers']> = {}) {
+function makeWs(
+  handlers: Partial<ConstructorParameters<typeof TranscriptWs>[0]['handlers']> = {},
+  options: { reconnectDelayMs?: number } = {},
+) {
   const seen = {
     ops: [] as {
       agentId: string;
@@ -194,6 +198,7 @@ function makeWs(handlers: Partial<ConstructorParameters<typeof TranscriptWs>[0][
     sessionId: 's1',
     agentId: 'main',
     WebSocketImpl: FakeWs,
+    reconnectDelayMs: options.reconnectDelayMs,
     handlers: {
       onOps: (agentId, ops, meta) => {
         seen.ops.push({ agentId, ops, at: meta?.at, seq: meta?.seq });
@@ -531,7 +536,7 @@ describe('TranscriptWs', () => {
     ).toBeUndefined();
     watermark = 42;
     sock.emit('close');
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(FakeWs.instances.length).toBeGreaterThan(1);
     });
     const second = FakeWs.instances[1]!;
@@ -601,37 +606,33 @@ describe('TranscriptWs', () => {
     expect(seen.resyncs).toBe(1);
   });
 
-  it('re-subscribes after a drop and reports the reconnect only on the subscribe_v2 ack', () => {
-    vi.useFakeTimers();
-    try {
-      FakeWs.reset();
-      const { seen } = makeWs();
-      const first = FakeWs.instances[0]!;
-      first.open();
-      // Open alone does not reconcile: the server attaches the transcript
-      // stream only after processing subscribe_v2.
-      expect(seen.reconnects).toBe(0);
-      // Neither does the client_hello ack.
-      const helloId = (first.sentFrames()[0] as { id: string }).id;
-      first.serverFrame({ type: 'ack', id: helloId, code: 0, msg: 'success', payload: {} });
-      expect(seen.reconnects).toBe(0);
-      const subscribeV2Id = (first.sentFrames()[1] as { id: string }).id;
-      first.serverFrame({ type: 'ack', id: subscribeV2Id, code: 0, msg: 'success', payload: {} });
-      expect(seen.reconnects).toBe(1);
-      first.emit('close');
-      vi.advanceTimersByTime(600);
+  it('re-subscribes after a drop and reports the reconnect only on the subscribe_v2 ack', async () => {
+    FakeWs.reset();
+    const { seen } = makeWs({}, { reconnectDelayMs: 1 });
+    const first = FakeWs.instances[0]!;
+    first.open();
+    // Open alone does not reconcile: the server attaches the transcript
+    // stream only after processing subscribe_v2.
+    expect(seen.reconnects).toBe(0);
+    // Neither does the client_hello ack.
+    const helloId = (first.sentFrames()[0] as { id: string }).id;
+    first.serverFrame({ type: 'ack', id: helloId, code: 0, msg: 'success', payload: {} });
+    expect(seen.reconnects).toBe(0);
+    const subscribeV2Id = (first.sentFrames()[1] as { id: string }).id;
+    first.serverFrame({ type: 'ack', id: subscribeV2Id, code: 0, msg: 'success', payload: {} });
+    expect(seen.reconnects).toBe(1);
+    first.emit('close');
+    await waitFor(() => {
       expect(FakeWs.instances).toHaveLength(2);
-      const second = FakeWs.instances[1]!;
-      second.open();
-      expect(second.sentFrames()[0]).toMatchObject({ type: 'client_hello' });
-      expect(second.sentFrames()[1]).toMatchObject({ type: 'subscribe_v2' });
-      expect(seen.reconnects).toBe(1);
-      const subscribeV2Id2 = (second.sentFrames()[1] as { id: string }).id;
-      second.serverFrame({ type: 'ack', id: subscribeV2Id2, code: 0, msg: 'success', payload: {} });
-      expect(seen.reconnects).toBe(2);
-    } finally {
-      vi.useRealTimers();
-    }
+    });
+    const second = FakeWs.instances[1]!;
+    second.open();
+    expect(second.sentFrames()[0]).toMatchObject({ type: 'client_hello' });
+    expect(second.sentFrames()[1]).toMatchObject({ type: 'subscribe_v2' });
+    expect(seen.reconnects).toBe(1);
+    const subscribeV2Id2 = (second.sentFrames()[1] as { id: string }).id;
+    second.serverFrame({ type: 'ack', id: subscribeV2Id2, code: 0, msg: 'success', payload: {} });
+    expect(seen.reconnects).toBe(2);
   });
 
   it('reports a rejected subscribe_v2 ack instead of treating it as a reconnect', () => {
@@ -944,11 +945,11 @@ describe('createCoalescedRunner', () => {
     kick();
     expect(runs).toBe(1);
     gates[0]?.();
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(runs).toBe(2);
     });
     gates[1]?.();
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(gates.length).toBe(2);
     });
     // No third run: the two mid-run triggers were coalesced into one.
@@ -966,12 +967,12 @@ describe('createCoalescedRunner', () => {
     kick();
     kick();
     gates[0]?.();
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(runs).toBe(2);
     });
     kick();
     gates[1]?.();
-    await vi.waitFor(() => {
+    await waitFor(() => {
       expect(runs).toBe(3);
     });
     gates[2]?.();

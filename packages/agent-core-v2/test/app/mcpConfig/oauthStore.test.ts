@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { createMcpOAuthStore } from '#/app/mcpConfig/oauthStore';
 import type { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';

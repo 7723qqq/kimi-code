@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { TestInstantiationService } from '#/_base/di/test';
 import { IConfigService } from '#/app/config/config';

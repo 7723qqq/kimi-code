@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { ErrorCodes, KimiError } from '@moonshot-ai/kimi-code-sdk';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import {
   appendGoalQueueItem,
@@ -95,7 +95,7 @@ describe('goal queue store', () => {
 
     const snapshot = await removeGoalQueueItem(session(), { goalId: first.goals[0]!.id });
 
-    expect(snapshot.goals).toEqual([second.goals[1]]);
+    expect(snapshot.goals).toEqual([second.goals[1]!]);
   });
 
   it('restores a removed upcoming goal at the front without duplicating it', async () => {

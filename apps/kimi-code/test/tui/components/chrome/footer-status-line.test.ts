@@ -2,7 +2,8 @@ import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'bun:test';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { FooterComponent } from '#/tui/components/chrome/footer';
 import type { AppState } from '#/tui/types';
@@ -243,7 +244,7 @@ describe('FooterComponent status_line command', () => {
       // A cold node.exe spawn can exceed a fixed sleep on a loaded machine
       // (the suite runs many files in parallel); poll renders instead — each
       // render kicks a throttled rerun, so the line lands once a run succeeds.
-      await vi.waitFor(
+      await waitForAssertion(
         () => {
           expect(plain(footer.render(120)[0]!)).toContain('my-custom-status');
         },
@@ -281,7 +282,9 @@ describe('StatusLineCommandRunner', () => {
       const runner = new StatusLineCommandRunner(nodeCommand(`${scriptFile} ${outFile}`), () => {});
 
       runner.maybeRefresh({ ...payload, specMode: true, swarmMode: true, towerMode: true });
-      await new Promise((resolve) => setTimeout(resolve, 300));
+      await waitForAssertion(() => {
+        expect(() => JSON.parse(readFileSync(outFile, 'utf-8'))).not.toThrow();
+      }, { timeout: 5_000 });
 
       // A user's custom status line must be able to see every mode the footer
       // renders, not just plan.
@@ -340,12 +343,15 @@ describe('StatusLineCommandRunner', () => {
     };
     const footer = new FooterComponent(state);
     footer.render(120); // kicks the first run
-    await new Promise((resolve) => setTimeout(resolve, 450));
-    expect(plain(footer.render(120)[0]!)).toContain('aaa');
+    await waitForAssertion(() => {
+      expect(plain(footer.render(120)[0]!)).toContain('aaa');
+    }, { timeout: 5_000 });
 
     footer.setState({ ...state, statusLine: { items: null, command: 'echo bbb' } });
     footer.render(120); // kicks the replacement run
-    await new Promise((resolve) => setTimeout(resolve, 450));
+    await waitForAssertion(() => {
+      expect(plain(footer.render(120)[0]!)).toContain('bbb');
+    }, { timeout: 5_000 });
 
     const line1 = plain(footer.render(120)[0]!);
     expect(line1).toContain('bbb');

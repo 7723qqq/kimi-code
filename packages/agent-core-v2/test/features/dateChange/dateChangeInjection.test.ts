@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
@@ -230,7 +230,11 @@ describe('AgentDateChangeService', () => {
     const homeDir = await mkdtemp(join(tmpdir(), 'kimi-date-bind-home-'));
     try {
       await ctx.dispose();
-      ctx = createTestAgent(appService(IHostClock, clock), hostEnvironmentServices(homeDir));
+      ctx = createTestAgent(
+        { cwd: '/work' },
+        appService(IHostClock, clock),
+        hostEnvironmentServices(homeDir),
+      );
       context = ctx.get(IAgentContextMemoryService);
       loop = ctx.get(IAgentLoopService);
       profile = ctx.get(IAgentProfileService);

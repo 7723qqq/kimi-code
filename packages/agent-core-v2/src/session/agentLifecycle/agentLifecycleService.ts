@@ -60,6 +60,8 @@ import { setRootActorErrorReporter } from '#/human/xstate2';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IBlobStore } from '#/persistence/interface/blobStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { IHostClock } from '#/os/interface/hostClock';
+import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
 import { withSubagentProfile } from '#/session/agentLifecycle/subagentMetadata';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
@@ -127,6 +129,8 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     @IBlobStore private readonly blobStore: IBlobStore,
     @IFileSystemStorageService private readonly storage: IFileSystemStorageService,
     @ILogService private readonly logger: ILogService,
+    @IHostClock private readonly clock: IHostClock,
+    @IHostTimers private readonly timers: IHostTimers,
   ) {
     super();
     setRootActorErrorReporter((err) => {
@@ -592,26 +596,26 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     if (compaction !== null && !compaction.abortController.signal.aborted) {
       compaction.abortController.abort(reason);
     }
-    const promptIdleDeadline = Date.now() + REMOVE_PROMPT_QUIESCE_TIMEOUT_MS;
+    const promptIdleDeadline = this.clock.now().getTime() + REMOVE_PROMPT_QUIESCE_TIMEOUT_MS;
     let releaseQuiescence: (() => void) | undefined;
     for (;;) {
       for (const queueId of loop.snapshot().queue.map((item) => item.meta?.promptId)) {
         if (queueId !== undefined) loop.cancel({ promptId: queueId }, reason);
       }
       loop.cancel(undefined, reason);
-      let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+      let deadlineTimer: IHostTimerHandle | undefined;
       let settled: boolean;
       try {
         settled = await Promise.race([
           Promise.all([loop.settled(), compactionSettled]).then(() => true),
           new Promise<false>((resolve) => {
-            deadlineTimer = setTimeout(() => {
+            deadlineTimer = this.timers.setTimeout(() => {
               resolve(false);
-            }, promptIdleDeadline - Date.now());
+            }, promptIdleDeadline - this.clock.now().getTime());
           }),
         ]);
       } finally {
-        clearTimeout(deadlineTimer);
+        if (deadlineTimer !== undefined) this.timers.clearTimeout(deadlineTimer);
       }
       if (!settled) break;
       let idle = true;
@@ -632,8 +636,12 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
           break;
         }
       }
-      if (Date.now() >= promptIdleDeadline) break;
-      await new Promise((resolve) => setTimeout(resolve, REMOVE_PROMPT_QUIESCE_POLL_MS));
+      if (this.clock.now().getTime() >= promptIdleDeadline) break;
+      await new Promise((resolve) => {
+        this.timers.setTimeout(() => {
+          resolve(undefined);
+        }, REMOVE_PROMPT_QUIESCE_POLL_MS);
+      });
     }
     let stopError: Error | undefined;
     try {

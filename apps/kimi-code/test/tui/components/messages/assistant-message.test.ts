@@ -1,7 +1,8 @@
 import { visibleWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 import * as cliHighlight from 'cli-highlight';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock, type Mock } from 'bun:test';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { Markdown } from '#/tui/components/markdown/markdown';
 import { AssistantMessageComponent } from '#/tui/components/messages/assistant-message';
@@ -13,19 +14,16 @@ import { setMarkdownAltScreenActive, setMarkdownRenderLatex } from '#/tui/utils/
 
 import { captureProcessWrite } from '../../../helpers/process';
 
-vi.mock('cli-highlight', async () => {
-  const actual = await vi.importActual<typeof import('cli-highlight')>('cli-highlight');
-  return {
-    ...actual,
-    highlight: vi.fn(actual.highlight),
-  };
-});
-
-const clipboardMock = vi.hoisted(() => ({
-  copyTextToClipboard: vi.fn(),
+void mock.module('cli-highlight', () => ({
+  ...cliHighlight,
+  highlight: mock(cliHighlight.highlight),
 }));
 
-vi.mock('#/utils/clipboard/clipboard-text', () => clipboardMock);
+const clipboardMock = {
+  copyTextToClipboard: mock(),
+};
+
+void mock.module('#/utils/clipboard/clipboard-text', () => clipboardMock);
 
 function strip(text: string): string {
   return text.replaceAll(/\u001B\[[0-9;]*m/g, '').replaceAll(/\u001B\]133;[ABC]\u0007/g, '');
@@ -143,7 +141,7 @@ describe('AssistantMessageComponent', () => {
   });
 
   it('skips synchronous syntax highlighting in transient markdown themes', () => {
-    const highlightSpy = vi.mocked(cliHighlight.highlight);
+    const highlightSpy = cliHighlight.highlight as Mock<typeof cliHighlight.highlight>;
     highlightSpy.mockClear();
     const streamingTheme = createMarkdownTheme({ transient: true });
     const finalTheme = createMarkdownTheme();
@@ -236,7 +234,7 @@ describe('AssistantMessageComponent', () => {
       });
 
       expect(result?.handled).toBe(true);
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         expect(clipboardMock.copyTextToClipboard).toHaveBeenCalled();
       });
       const copied = String(clipboardMock.copyTextToClipboard.mock.calls[0]?.[0] ?? '');
@@ -275,7 +273,7 @@ describe('AssistantMessageComponent', () => {
       expect(component.render(80).join('\n')).not.toBe(before.join('\n'));
 
       component.handleMouse(mouse('release'));
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         expect(strip(component.render(80).join('\n'))).toContain('[Copied]');
       });
     } finally {

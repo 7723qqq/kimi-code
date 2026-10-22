@@ -1,6 +1,6 @@
 import { visibleWidth, type TuiMouseEvent, type TuiMouseEventType } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import { StickyUserMessageComponent } from '#/tui/components/messages/sticky-user-message';
 import { UserMessageComponent } from '#/tui/components/messages/user-message';
@@ -11,7 +11,7 @@ function stripAnsi(text: string): string {
 }
 
 function judgment(summary: string, targetY = 2) {
-  return { component: { render: vi.fn(() => []), invalidate() {} }, summary, targetY };
+  return { component: { render: mock(() => []), invalidate() {} }, summary, targetY };
 }
 
 function mouseEvent(type: TuiMouseEventType): TuiMouseEvent {
@@ -83,7 +83,7 @@ describe('StickyUserMessageComponent', () => {
   });
 
   it('uses the latest jump target even when the displayed summary is unchanged', () => {
-    const scrollTo = vi.fn();
+    const scrollTo = mock();
     const component = new StickyUserMessageComponent(scrollTo);
     const state = judgment('hello', 6);
     component.setJudgment(state);
@@ -96,7 +96,7 @@ describe('StickyUserMessageComponent', () => {
   });
 
   it('lets wheel input pass through and ignores clicks while hidden', () => {
-    const scrollTo = vi.fn();
+    const scrollTo = mock();
     const component = new StickyUserMessageComponent(scrollTo);
     expect(component.handleMouse(mouseEvent('click'))).toBeUndefined();
     component.setJudgment(judgment('hello'));

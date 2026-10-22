@@ -1,7 +1,7 @@
 import { createRequire } from 'node:module';
 
 import { Jimp, ResizeStrategy } from 'jimp';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 import {
   buildImageCompressionCaption,
@@ -696,12 +696,12 @@ describe('gateImageFormatParts', () => {
     ];
     const out = gateImageFormatParts(parts);
 
-    expect(out[0]).toEqual({ type: 'text', text: 'results' });
+    expect(out[0]!).toEqual({ type: 'text', text: 'results' });
     const notices = out.filter((p) => p.type === 'text').map((p) => (p as { text: string }).text);
     expect(notices.some((t) => t.includes('image/avif'))).toBe(true);
     expect(notices.some((t) => t.includes('image/bmp'))).toBe(true);
-    expect(out).toContainEqual(parts[3]);
-    expect(out).toContainEqual(parts[4]);
+    expect(out).toContainEqual(parts[3]!);
+    expect(out).toContainEqual(parts[4]!);
     expect(
       out.some(
         (p) => p.type === 'image_url' && !p.imageUrl.url.startsWith('data:image/png'),

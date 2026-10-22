@@ -12,20 +12,27 @@ const providerClientShimPath = path.join(dtsRoot, 'provider-clients.d.ts');
 const tscBinPath = packageBinPath('typescript', 'bin/tsc');
 const apiExtractorBinPath = packageBinPath('@microsoft/api-extractor', 'bin/api-extractor');
 
-const packageDirs = new Set(['agent-core-v2', 'klient', 'kosong', 'node-sdk', 'oauth']);
 const workspacePackages = new Map([
   ['@moonshot-ai/agent-core-v2', 'agent-core-v2'],
   ['@moonshot-ai/kimi-code-oauth', 'oauth'],
   ['@moonshot-ai/kimi-i18n', 'i18n'],
   ['@moonshot-ai/i18n-shared', 'i18n-shared'],
-  ['@moonshot-ai/kaos', 'kaos'],
   ['@moonshot-ai/klient', 'klient'],
   ['@moonshot-ai/kosong', 'kosong'],
 ]);
+const packageDirs = new Set([...workspacePackages.values(), 'node-sdk']);
+
+const workspaceSpecifierRe = new RegExp(
+  `(["'])(#\\/[^"']+|#human\\/[^"']+|(?:${[...workspacePackages.keys()]
+    .map((name) => name.replaceAll(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('|')})(?:\\/[^"']+)?)\\1`,
+  'g',
+);
 
 try {
   await rm(tempDir, { recursive: true, force: true });
   await run('tsc', tscBinPath, ['-p', 'tsconfig.dts.json']);
+  assertDeclarationsEmitted();
   await writeProviderClientShim();
   await rewriteWorkspaceSpecifiers();
   await run('api-extractor', apiExtractorBinPath, ['run', '--local']);
@@ -35,6 +42,17 @@ try {
 
 function packageBinPath(packageName, binPath) {
   return path.join(path.dirname(require.resolve(`${packageName}/package.json`)), binPath);
+}
+
+function assertDeclarationsEmitted() {
+  const missing = [...packageDirs].filter((dir) => !existsSync(path.join(dtsRoot, dir, 'src')));
+
+  if (missing.length > 0) {
+    const includes = missing.map((dir) => `"../${dir}/src/**/*.ts"`).join(', ');
+    throw new Error(
+      `tsc emitted no declarations for ${missing.join(', ')} — add ${includes} to the tsconfig.dts.json include list, and the package to workspacePackages if it is new`,
+    );
+  }
 }
 
 function run(command, binPath, args) {
@@ -108,7 +126,7 @@ async function rewriteWorkspaceSpecifiers() {
           `import { GoogleGenAI as GenAIClient } from '${providerClientSpecifier}';`,
         );
       const updated = providerClientText.replaceAll(
-        /(["'])(#\/[^"']+|@moonshot-ai\/(?:agent-core-v2|kimi-code-oauth|klient|kosong)(?:\/[^"']+)?)\1/g,
+        workspaceSpecifierRe,
         (_match, quote, specifier) => {
           const resolved = resolveSpecifier({
             currentFile: file,

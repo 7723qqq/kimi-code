@@ -6,6 +6,7 @@ import {
 import { ulid } from 'ulid';
 import type { RawData, WebSocket } from 'ws';
 
+import { SYSTEM_CLOCK, type Clock, type TimerHandle } from '../../../lib/clock';
 import {
   unsubscribeV2PayloadSchema,
   WS_PROTOCOL_VERSION,
@@ -56,6 +57,7 @@ export interface WsConnectionV1Options {
   readonly maxBatchSize?: number;
   readonly highWaterMarkBytes?: number;
   readonly heartbeatIntervalMs?: number;
+  readonly clock?: Clock;
 }
 
 export class WsConnectionV1 implements BroadcastTarget {
@@ -73,6 +75,7 @@ export class WsConnectionV1 implements BroadcastTarget {
   private readonly highWaterMarkBytes: number;
   private readonly heartbeatIntervalMs: number;
   private readonly logger?: JournalLogger;
+  private readonly clock: Clock;
 
   private closed = false;
   private gotClientHello = false;
@@ -80,16 +83,18 @@ export class WsConnectionV1 implements BroadcastTarget {
   private controlQueue: Promise<void> = Promise.resolve();
 
   private outbound: unknown[] = [];
-  private flushTimer?: ReturnType<typeof setTimeout>;
-  private backpressureRetryTimer?: ReturnType<typeof setTimeout>;
+  private flushTimer?: TimerHandle;
+  private backpressureRetryTimer?: TimerHandle;
   private backpressureSince?: number;
 
-  private heartbeatTimer?: ReturnType<typeof setInterval>;
-  private lastInboundAt = Date.now();
+  private heartbeatTimer?: TimerHandle;
+  private lastInboundAt: number;
 
   constructor(opts: WsConnectionV1Options) {
+    this.clock = opts.clock ?? SYSTEM_CLOCK;
+    this.lastInboundAt = this.clock.now();
     this.id = `conn_${ulid()}`;
-    this.connectedAt = new Date().toISOString();
+    this.connectedAt = new Date(this.clock.now()).toISOString();
     this.remoteAddress = opts.remoteAddress;
     this.userAgent = opts.userAgent;
     this.socket = opts.socket;
@@ -117,7 +122,7 @@ export class WsConnectionV1 implements BroadcastTarget {
         capabilities: { event_batching: false, compression: false },
       }),
     );
-    this.heartbeatTimer = setInterval(() => {
+    this.heartbeatTimer = this.clock.setInterval(() => {
       this.onHeartbeat();
     }, this.heartbeatIntervalMs);
     this.heartbeatTimer.unref?.();
@@ -145,7 +150,7 @@ export class WsConnectionV1 implements BroadcastTarget {
       return;
     }
     if (typeof frame?.type !== 'string') return;
-    this.lastInboundAt = Date.now();
+    this.lastInboundAt = this.clock.now();
 
     switch (frame.type) {
       case 'pong':
@@ -180,7 +185,7 @@ export class WsConnectionV1 implements BroadcastTarget {
   }
 
   private onHeartbeat(): void {
-    if (Date.now() - this.lastInboundAt >= this.heartbeatIntervalMs * HEARTBEAT_MISS_LIMIT) {
+    if (this.clock.now() - this.lastInboundAt >= this.heartbeatIntervalMs * HEARTBEAT_MISS_LIMIT) {
       this.close(1001, 'heartbeat timeout');
       return;
     }
@@ -429,7 +434,7 @@ export class WsConnectionV1 implements BroadcastTarget {
 
   private scheduleFlush(): void {
     if (this.flushTimer !== undefined) return;
-    this.flushTimer = setTimeout(() => {
+    this.flushTimer = this.clock.setTimeout(() => {
       this.flushTimer = undefined;
       this.flush();
     }, this.flushIntervalMs);
@@ -438,7 +443,7 @@ export class WsConnectionV1 implements BroadcastTarget {
 
   private flush(force = false): void {
     if (this.flushTimer !== undefined) {
-      clearTimeout(this.flushTimer);
+      this.clock.clearTimeout(this.flushTimer);
       this.flushTimer = undefined;
     }
     if (this.outbound.length === 0) return;
@@ -464,14 +469,14 @@ export class WsConnectionV1 implements BroadcastTarget {
   }
 
   private deferForBackpressure(): void {
-    const now = Date.now();
+    const now = this.clock.now();
     if (this.backpressureSince === undefined) this.backpressureSince = now;
     if (now - this.backpressureSince >= DEFAULT_BACKPRESSURE_MAX_DELAY_MS) {
       this.flush(true);
       return;
     }
     if (this.backpressureRetryTimer !== undefined) return;
-    this.backpressureRetryTimer = setTimeout(() => {
+    this.backpressureRetryTimer = this.clock.setTimeout(() => {
       this.backpressureRetryTimer = undefined;
       this.flush();
     }, DEFAULT_BACKPRESSURE_RETRY_MS);
@@ -489,9 +494,11 @@ export class WsConnectionV1 implements BroadcastTarget {
   private onClose(): void {
     if (this.closed) return;
     this.closed = true;
-    if (this.flushTimer !== undefined) clearTimeout(this.flushTimer);
-    if (this.backpressureRetryTimer !== undefined) clearTimeout(this.backpressureRetryTimer);
-    if (this.heartbeatTimer !== undefined) clearInterval(this.heartbeatTimer);
+    if (this.flushTimer !== undefined) this.clock.clearTimeout(this.flushTimer);
+    if (this.backpressureRetryTimer !== undefined) {
+      this.clock.clearTimeout(this.backpressureRetryTimer);
+    }
+    if (this.heartbeatTimer !== undefined) this.clock.clearInterval(this.heartbeatTimer);
     this.outbound = [];
     this.broadcaster.removeGlobalTarget(this);
     for (const sid of this.subscriptions.keys()) this.broadcaster.unsubscribe(sid, this);

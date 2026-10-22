@@ -16,7 +16,7 @@
  *
  * Both tests gate on `daemonReachable()` so CI without a server stays green.
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 import { DaemonClient } from '../harness/index.js';
 import { fetchWithReport } from '../harness/report.js';

@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 import type { CascadeEngine, CascadeHistoryEntry, UnitStateChange } from '#/_base/di/cascadeEngine';
 import { SyncDescriptor } from '#/_base/di/descriptors';
@@ -387,36 +387,31 @@ describe('cascade engine — mechanism matrix', () => {
   });
 
   it('9b. a fast abort hook wins the race against the abort timeout', async () => {
-    vi.useFakeTimers();
-    try {
-      const ix = makeContainer();
-      provideChain(ix);
-      let release!: () => void;
-      ix.cascade.configure({
-        abortWaitMs: 60_000,
-        onWillCascade: () =>
-          new Promise<void>((resolve) => {
-            release = resolve;
-          }),
-      });
+    const ix = makeContainer();
+    provideChain(ix);
+    let release!: () => void;
+    ix.cascade.configure({
+      abortWaitMs: 60_000,
+      onWillCascade: () =>
+        new Promise<void>((resolve) => {
+          release = resolve;
+        }),
+    });
 
-      const done = ix.cascade.submit({
-        action: 'unprovide',
-        token: IRoot,
-        reason: 'fast hook',
-      });
-      expect(ix.cascade.isInFlight(IRoot)).toBe(true);
-      release();
-      await done;
+    const done = ix.cascade.submit({
+      action: 'unprovide',
+      token: IRoot,
+      reason: 'fast hook',
+    });
+    expect(ix.cascade.isInFlight(IRoot)).toBe(true);
+    release();
+    await done;
 
-      const entry = ix.cascade.history().at(-1)!;
-      expect(entry.abortWaited).toBe(true);
-      expect(entry.abortTimedOut).toBe(false);
-      expect(ix.cascade.stateOf(IRoot)).toBeUndefined();
-      ix.dispose();
-    } finally {
-      vi.useRealTimers();
-    }
+    const entry = ix.cascade.history().at(-1)!;
+    expect(entry.abortWaited).toBe(true);
+    expect(entry.abortTimedOut).toBe(false);
+    expect(ix.cascade.stateOf(IRoot)).toBeUndefined();
+    ix.dispose();
   });
 
   it('10. a resolution hitting the in-flight subgraph suspends and completes after the transaction', async () => {
@@ -848,7 +843,7 @@ describe('cascade engine — introspection (debug surface)', () => {
 
     const child = parent.createChild(new ServiceCollection());
     expect(parent.children).toHaveLength(1);
-    expect(parent.children[0]).toBe(child);
+    expect(parent.children[0]).toBe(child as InstantiationService);
     expect((child as InstantiationService).cascadeTree).toBe(parent.cascadeTree);
 
     child.dispose();

@@ -12,7 +12,7 @@ human/llm/requester/bases/<protocol>   per-wire encoding and decoding
 llm-adapter          the v2 compatibility boundary
 ```
 
-- **`human/llm` is a pure kernel.** It never imports v2 domains (`app/`, `features/`, `state/`, `workspace/`, `_base/`, `llm-adapter`, …). This is enforced by `packages/agent-core-v2/scripts/check-import-boundaries.mjs`, which fails the build on a violation rather than leaving the rule to review. The kernel must stay loadable without the engine's DI container, assets, or configuration.
+- **`human/llm` is a pure kernel.** It never imports v2 domains (`app/`, `features/`, `state/`, `workspace/`, `_base/`, `llm-adapter`, …). This is enforced by `packages/agent-core-v2/scripts/check-import-boundaries.mjs`, which fails the build on a violation rather than leaving the rule to review. The kernel must stay loadable without the engine's DI container, assets, or configuration. The same rule is why the kernel declares its own log port in `human/log/log.ts` instead of reaching for `#/_base/log/log`: callers pass a logger in when they want the kernel to report something, and the kernel stays silent without one.
 - **The `kosong` package is the frozen legacy kernel.** Nothing in `agent-core-v2` may import it; provider and request code lives in `human/llm`, and the v2 compatibility boundary is `llm-adapter`. The boundary check rejects the import path outright.
 - **`#human/*` is the public kernel path.** Within the package, files outside `human/` reach into the kernel through `#human/...`; files inside it use `#/...` and that resolves inside the kernel root.
 
@@ -49,13 +49,22 @@ Choosing the right home for a new rule is most of the design work. Three questio
 Each entry may carry:
 
 - `promptShape` — selects which system-prompt template the profile catalog renders. `minimal` templates intentionally reference few variables; see the note on dropped variables below.
-- `imagePricing` — the vision token accounting constants. These are heuristics derived from live-endpoint calibration, not published formulas. Treat the numbers as estimates and keep `fallbackTokens` (dimensions unknown) independent of `tokenCap` (grid ceiling) even when they hold the same value.
+- `imagePricing` — the vision token accounting constants. These are heuristics derived from live-endpoint calibration, not published formulas. The measurements behind them (formula → live endpoint, and the deltas) are recorded in the changeset that shipped the formula; `scripts/measure-image-tokens.cjs` is the arbiter, so run it against a live endpoint and recalibrate both sides when they disagree. Treat the numbers as estimates and keep `fallbackTokens` (dimensions unknown) independent of `tokenCap` (grid ceiling) even when they hold the same value: an endpoint change to either must not move the other.
 - `reasoningEffort` — the effort value to send when the history already carries reasoning.
 - `thinkingHistory` — request-shape-driven reasoning rules: `fullEchoWithTools` for families that require the whole chain of thought whenever `tools` is present, and `ignoredWhileThinking` for sampling parameters the endpoint accepts but does not act on.
 
+Two of those rules are worth stating outright, because both are documented as hard requirements upstream rather than as preferences:
+
+- **Full reasoning replay.** DeepSeek requires `reasoning_content` to be passed back in full on every request that carries `tools`, including turns where no tool was called; a request that omits it fails with HTTP 400. Because the trigger is the request shape, the check lives in `fullReasoningEchoRequired(model, hasTools)` and is evaluated by the requester from `tools.length`, not from a trait hook.
+- **Silently ignored sampling parameters.** Thinking mode accepts `temperature`, `presence_penalty` and `frequency_penalty` without erroring and without acting on them. They are dropped at the last point where the request shape is still visible, and only the names the family itself declares are touched; every other key passes through untouched.
+
+The effort vocabulary is a many-to-one collapse rather than a set mismatch (`minimal`→low, `low`→low, `medium`→high, `high`→high, `xhigh`→high, `max`→max), so several requested values resolve to the same actual effort. Only the history default is consumed today.
+
+`maxOutputDefaults` carries the three output ceilings a family wants applied when the caller sets none (non-thinking, thinking, thinking at `max` effort). The requester applies it only as the last fallback — an explicit caller cap and a provider trait both win — and clamps it to the remaining context window.
+
 ## Usage accounting
 
-Usage parsing has one home per wire, and its rules are about what the fields mean, not about who sent them. `human/llm/requester/bases/openai/usage.ts` reads the DeepSeek cache split first, falls back to the OpenAI-shaped cached counts, and rejects a split whose parts cannot both be true.
+Usage parsing has one home per wire, and its rules are about what the fields mean, not about who sent them. `human/llm/requester/bases/openai/usage.ts` reads the DeepSeek cache split first (`prompt_cache_hit_tokens` / `prompt_cache_miss_tokens`), falls back to the OpenAI-shaped cached counts (`cached_tokens`, `prompt_tokens_details.cached_tokens`), and rejects a split whose parts cannot both be true: a hit+miss sum **greater** than `prompt_tokens` is self-contradictory and the OpenAI fields are used instead. A sum merely **less** than `prompt_tokens` is not an error — an endpoint may report only part of the split. A rejected `prompt_cache_miss_tokens` is kept on the parsed result so reporting can still show it after the field itself is cleared.
 
 The same rule also exists in `packages/kosong/src/providers/openai-common.ts`, because `kosong` is a separate frozen kernel and neither package may import the other. When changing the rule, change both. `packages/kosong/test/cache-field-parity.test.ts` feeds identical payloads to both implementations and fails if they disagree — it is the only thing keeping the two copies honest, so extend its case table when you extend the rule.
 
@@ -63,8 +72,10 @@ The same rule also exists in `packages/kosong/src/providers/openai-common.ts`, b
 
 `renderPrompt` substitutes the variables a template references and leaves everything else untouched, so a variable the active template never mentions disappears silently. The profile catalog compensates:
 
-- `renderSystemPromptResult` and `renderPromptTemplateResult` return `droppedVars`, listing supplied-but-unreferenced variables. Callers log them.
+- `renderSystemPromptResult` and `renderPromptTemplateResult` return `droppedVars`, listing supplied-but-unreferenced variables. Callers log them. The list is the only signal that content was lost: the renderer drops unknown variables by design because the same helper serves several templates.
 - The `minimal` prompt shape keeps only the persona and the working directory. Under it, AGENTS.md content, skill listings, plugin sections, and the model-adaptation section never reach the prompt. Anything that depends on that content being present must check `droppedVars` rather than assume delivery.
+- Because the AGENTS.md body never reaches a `minimal` system prompt, the injection bookkeeping must not mark those paths as already delivered: doing so would suppress the separate reminder that points the model at them. Seed only the paths the template actually carried; everything else stays eligible for that reminder.
+- Some templates reference a composed block (`skills_section`) instead of the raw variable it was built from (`skills`). A template that names the block has delivered the content even though the raw name never appears, so the raw variable must not be reported as dropped. The block→variable pairing is declared explicitly rather than inferred from names, and a block composed from something that is not itself a variable (`plugin_sections`, `model_adaptation_section`) has nothing to pair with.
 
 ## Model adaptations
 
@@ -72,12 +83,20 @@ The same rule also exists in `packages/kosong/src/providers/openai-common.ts`, b
 
 There is deliberately no second kind of adaptation file. A `measured/` directory existed and was removed with the mechanism that read it, because nothing in this repository writes such files: `scripts/prompt-optimizer probe` writes JSON into the gitignored `reports/` directory, and no code path targets `model-adaptations`. Every file that shipped there had hand-written numbers presented as probe output, for models that had already been retired or had never existed as wire ids. If a real producer is ever built, reintroduce the directory *together* with the code that writes it — a file without a producer is an unverifiable claim.
 
+Files are capped at 32 KiB. An oversized file is cut at a `##` section boundary rather than dropped, because these files are hand-written and split by `##`: cutting at a boundary keeps whole guidance sections, while dropping the file because its last paragraph ran long loses all of them. The beginning of the file is where the most important guidance sits, so when even the first section does not fit the cut falls back to a hard truncation at the limit and the caller still gets that beginning rather than nothing.
+
+The boundary scan tracks fenced code blocks. A `##` line inside a fence is quoted content, not a section boundary: these files quote example prompts in fences, and treating a quoted heading as a boundary could cut inside the block, leaving the fence unterminated and the remainder of the guidance framed as code. Fence spans are recorded as spans rather than open offsets so the hard cut can ask whether the limit falls inside *this* fence, including one that closes further down the file. A fence that opens at the very beginning leaves nothing to keep, so that case falls through to the plain cut rather than returning an empty string. Indented code blocks need no handling — their lines start with whitespace and cannot match a heading.
+
 The two delivery channels are complementary, and a family is served by exactly one:
 
 - **Reminder injection** — for families whose `promptShape` is `minimal`. Those templates have no `${model_adaptation_section}` placeholder, so the prompt path could only load the file and have the renderer report it as a dropped variable. `adaptationDeliveredByReminder` names this case, and `features/deepseekAdaptation` implements it.
 - **System-prompt section** — for any future family that carries curated guidance without the minimal shape.
 
 `loadCuratedAdaptation` and `hasCuratedAdaptation` gate on the family declaring `curatedAdaptation`, so an unregistered model is never given guidance.
+
+The reminder side caches the **in-flight load** per wire name rather than the settled value. The provider is async and the reminder service can ask for it during any step, so two callers can overlap before either write completes; caching the promise means the file is read once no matter how many callers race it. A resolved `undefined` is stored as a real entry, so a model without an adaptation does not re-read the directory on every step.
+
+The text is also derived from the **wire name**, which does not change mid-session, rather than re-derived from the conversation each step. Re-deriving cost a file read per step and re-injected at the end of the context repeatedly, which is where a cache prefix is most likely to be invalidated; the value only needs rebuilding once compaction has dropped it.
 
 ## Testing
 

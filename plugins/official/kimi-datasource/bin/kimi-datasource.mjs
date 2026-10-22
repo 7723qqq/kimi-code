@@ -11,19 +11,25 @@
 //
 // Business logic is kept self-contained so the plugin can run from a zipped
 // marketplace install without workspace package dependencies.
+//
+// Every ambient dependency (env, fetch, timers, stdio, exit, os, uuid) is
+// reachable through the host record built by createHost(), so the server can be
+// driven in-process; the defaults reproduce the plain node process exactly.
 
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { arch, homedir, hostname, release, type } from 'node:os';
 import path from 'node:path';
 import readline from 'node:readline';
+import { fileURLToPath } from 'node:url';
 
 const VERSION = '3.4.0';
 const DEFAULT_KIMI_CODE_OAUTH_HOST = 'https://auth.kimi.com';
 const DEFAULT_KIMI_CODE_BASE_URL = 'https://api.kimi.com/coding/v1';
-const API_URL = datasourceApiUrl();
 const REQUEST_TIMEOUT_MS = 30_000;
 const PROTOCOL_VERSION = '2025-06-18';
+
+const NODE_OS = { arch, homedir, hostname, release, type };
 
 const TOOLS = [
   {
@@ -128,7 +134,33 @@ const HANDLERS = {
   },
 };
 
-async function handleRequest(message) {
+// Build the ambient-dependency record the server runs against. Every override is
+// optional; an omitted entry keeps the plain node global.
+export function createHost(overrides = {}) {
+  return {
+    env: overrides.env ?? process.env,
+    fetch: overrides.fetch ?? ((input, init) => fetch(input, init)),
+    setTimeout: overrides.setTimeout ?? systemSetTimeout,
+    clearTimeout: overrides.clearTimeout ?? systemClearTimeout,
+    stdin: overrides.stdin ?? process.stdin,
+    stdout: overrides.stdout ?? process.stdout,
+    exit: overrides.exit ?? ((code) => process.exit(code)),
+    os: overrides.os ?? NODE_OS,
+    uuid: overrides.uuid ?? (() => randomUUID()),
+  };
+}
+
+function systemSetTimeout(callback, delayMs) {
+  return setTimeout(() => {
+    callback();
+  }, delayMs);
+}
+
+function systemClearTimeout(handle) {
+  clearTimeout(handle);
+}
+
+async function handleRequest(host, message) {
   const { method, id, params } = message;
   switch (method) {
     case 'initialize':
@@ -142,13 +174,13 @@ async function handleRequest(message) {
     case 'tools/list':
       return { tools: TOOLS };
     case 'tools/call':
-      return runTool(params);
+      return runTool(host, params);
     default:
       throw jsonRpcError(-32601, `Method not found: ${method}`, { id });
   }
 }
 
-async function runTool(params) {
+async function runTool(host, params) {
   const name = params?.name;
   const args = params?.arguments ?? {};
   const handler = HANDLERS[name];
@@ -161,7 +193,7 @@ async function runTool(params) {
   const trace = {};
   try {
     const built = handler.buildParams(args);
-    const response = await callKimiTool(handler.method, built, trace);
+    const response = await callKimiTool(host, handler.method, built, trace);
     const fileWarnings = await writeResponseFiles(response, expectedResponseFilePath(built));
     const text = extractText(response);
     const formatted = (handler.format?.(text, built) ?? text).trim();
@@ -261,25 +293,25 @@ function appendTrace(text, trace) {
   return `${text}\n\n[kimi-datasource] ${parts.join(' · ')}`;
 }
 
-function resolveKimiHome() {
-  const explicit = process.env.KIMI_CODE_HOME?.trim();
-  return explicit && explicit.length > 0 ? explicit : path.join(homedir(), '.kimi-code');
+function resolveKimiHome(host) {
+  const explicit = host.env.KIMI_CODE_HOME?.trim();
+  return explicit && explicit.length > 0 ? explicit : path.join(host.os.homedir(), '.kimi-code');
 }
 
-function datasourceApiUrl() {
-  const explicit = process.env.KIMI_DATASOURCE_API_URL?.trim();
+function datasourceApiUrl(host) {
+  const explicit = host.env.KIMI_DATASOURCE_API_URL?.trim();
   if (explicit !== undefined && explicit.length > 0) return explicit;
-  return `${kimiCodeBaseUrl()}/tools`;
+  return `${kimiCodeBaseUrl(host)}/tools`;
 }
 
-function kimiCodeBaseUrl() {
-  return (process.env.KIMI_CODE_BASE_URL ?? DEFAULT_KIMI_CODE_BASE_URL).replace(/\/+$/, '');
+function kimiCodeBaseUrl(host) {
+  return (host.env.KIMI_CODE_BASE_URL ?? DEFAULT_KIMI_CODE_BASE_URL).replace(/\/+$/, '');
 }
 
-function kimiCodeOAuthHost() {
+function kimiCodeOAuthHost(host) {
   return normalizeEndpoint(
-    process.env.KIMI_CODE_OAUTH_HOST ??
-      process.env.KIMI_OAUTH_HOST ??
+    host.env.KIMI_CODE_OAUTH_HOST ??
+      host.env.KIMI_OAUTH_HOST ??
       DEFAULT_KIMI_CODE_OAUTH_HOST,
   );
 }
@@ -288,9 +320,9 @@ function normalizeEndpoint(value) {
   return value.trim().replace(/\/+$/, '');
 }
 
-function resolveKimiCodeCredentialName() {
-  const oauthHost = kimiCodeOAuthHost();
-  const baseUrl = kimiCodeBaseUrl();
+function resolveKimiCodeCredentialName(host) {
+  const oauthHost = kimiCodeOAuthHost(host);
+  const baseUrl = kimiCodeBaseUrl(host);
   if (
     oauthHost === normalizeEndpoint(DEFAULT_KIMI_CODE_OAUTH_HOST) &&
     baseUrl === DEFAULT_KIMI_CODE_BASE_URL
@@ -306,12 +338,12 @@ function resolveKimiCodeCredentialName() {
   return `kimi-code-env-${digest}`;
 }
 
-async function loadAccessToken() {
-  const kimiHome = resolveKimiHome();
+async function loadAccessToken(host) {
+  const kimiHome = resolveKimiHome(host);
   const credentialsFile = path.join(
     kimiHome,
     'credentials',
-    `${resolveKimiCodeCredentialName()}.json`,
+    `${resolveKimiCodeCredentialName(host)}.json`,
   );
   let parsed;
   try {
@@ -338,20 +370,20 @@ async function loadAccessToken() {
   return { kimiHome, token };
 }
 
-async function callKimiTool(method, params, trace = {}) {
-  const { kimiHome, token: initialToken } = await loadAccessToken();
+async function callKimiTool(host, method, params, trace = {}) {
+  const { kimiHome, token: initialToken } = await loadAccessToken(host);
   let token = initialToken;
-  const toolCallId = randomUUID();
+  const toolCallId = host.uuid();
   trace.toolCallId = toolCallId;
   const controller = new AbortController();
-  const timeout = setTimeout(() => {
+  const timeout = host.setTimeout(() => {
     controller.abort();
   }, REQUEST_TIMEOUT_MS);
   try {
     const request = async (accessToken) => {
-      const response = await fetch(API_URL, {
+      const response = await host.fetch(datasourceApiUrl(host), {
         method: 'POST',
-        headers: await buildHeaders(kimiHome, accessToken, toolCallId),
+        headers: await buildHeaders(host, kimiHome, accessToken, toolCallId),
         body: JSON.stringify({ method, params }),
         signal: controller.signal,
       });
@@ -360,7 +392,7 @@ async function callKimiTool(method, params, trace = {}) {
 
     let { response, text } = await request(token);
     if (response.status === 401) {
-      const refreshed = await loadAccessToken();
+      const refreshed = await loadAccessToken(host);
       if (refreshed.token !== token) {
         token = refreshed.token;
         ({ response, text } = await request(token));
@@ -384,26 +416,26 @@ async function callKimiTool(method, params, trace = {}) {
     }
     throw error;
   } finally {
-    clearTimeout(timeout);
+    host.clearTimeout(timeout);
   }
 }
 
-async function buildHeaders(kimiHome, token, toolCallId) {
+async function buildHeaders(host, kimiHome, token, toolCallId) {
   return {
     Authorization: `Bearer ${token}`,
     'Content-Type': 'application/json',
     'X-Msh-Tool-Call-Id': toolCallId,
-    'X-Msh-Platform': asciiHeader(process.env.KIMI_MSH_PLATFORM ?? 'kimi-code-cli'),
-    'X-Msh-Version': asciiHeader(process.env.KIMI_MSH_VERSION ?? VERSION),
-    'X-Msh-Device-Name': asciiHeader(process.env.KIMI_MSH_DEVICE_NAME ?? hostname()),
-    'X-Msh-Device-Model': asciiHeader(process.env.KIMI_MSH_DEVICE_MODEL ?? deviceModel()),
-    'X-Msh-Os-Version': asciiHeader(process.env.KIMI_MSH_OS_VERSION ?? release()),
-    'X-Msh-Device-Id': asciiHeader(process.env.KIMI_MSH_DEVICE_ID ?? (await createDeviceId(kimiHome))),
+    'X-Msh-Platform': asciiHeader(host.env.KIMI_MSH_PLATFORM ?? 'kimi-code-cli'),
+    'X-Msh-Version': asciiHeader(host.env.KIMI_MSH_VERSION ?? VERSION),
+    'X-Msh-Device-Name': asciiHeader(host.env.KIMI_MSH_DEVICE_NAME ?? host.os.hostname()),
+    'X-Msh-Device-Model': asciiHeader(host.env.KIMI_MSH_DEVICE_MODEL ?? deviceModel(host)),
+    'X-Msh-Os-Version': asciiHeader(host.env.KIMI_MSH_OS_VERSION ?? host.os.release()),
+    'X-Msh-Device-Id': asciiHeader(host.env.KIMI_MSH_DEVICE_ID ?? (await createDeviceId(host, kimiHome))),
     'User-Agent': `kimi-datasource/${VERSION}`,
   };
 }
 
-async function createDeviceId(kimiHome) {
+async function createDeviceId(host, kimiHome) {
   const deviceIdPath = path.join(kimiHome, 'device_id');
   try {
     const existing = (await readFile(deviceIdPath, 'utf8')).trim();
@@ -412,7 +444,7 @@ async function createDeviceId(kimiHome) {
     // Fall through to create a best-effort local device id.
   }
 
-  const id = randomUUID();
+  const id = host.uuid();
   try {
     await mkdir(kimiHome, { recursive: true, mode: 0o700 });
     await writeFile(deviceIdPath, `${id}\n`, { encoding: 'utf8', mode: 0o600 });
@@ -422,10 +454,10 @@ async function createDeviceId(kimiHome) {
   return id;
 }
 
-function deviceModel() {
-  const os = type();
-  const osVersion = release();
-  const osArch = arch();
+function deviceModel(host) {
+  const os = host.os.type();
+  const osVersion = host.os.release();
+  const osArch = host.os.arch();
   if (os === 'Darwin') return `macOS ${osVersion} ${osArch}`;
   if (os === 'Windows_NT') return `Windows ${osVersion} ${osArch}`;
   return `${os} ${osVersion} ${osArch}`.trim();
@@ -502,19 +534,19 @@ function jsonRpcError(code, message, data) {
   return err;
 }
 
-function send(message) {
-  process.stdout.write(`${JSON.stringify(message)}\n`);
+function send(host, message) {
+  host.stdout.write(`${JSON.stringify(message)}\n`);
 }
 
-function sendResult(id, result) {
-  send({ jsonrpc: '2.0', id, result });
+function sendResult(host, id, result) {
+  send(host, { jsonrpc: '2.0', id, result });
 }
 
-function sendError(id, error) {
-  send({ jsonrpc: '2.0', id, error });
+function sendError(host, id, error) {
+  send(host, { jsonrpc: '2.0', id, error });
 }
 
-async function dispatch(message) {
+async function dispatch(host, message) {
   if (message?.jsonrpc !== '2.0') return;
   // Notifications carry no id and never expect a response.
   if (message.id === undefined || message.id === null) {
@@ -525,22 +557,22 @@ async function dispatch(message) {
   }
   const id = message.id;
   try {
-    const result = await handleRequest(message);
-    sendResult(id, result ?? {});
+    const result = await handleRequest(host, message);
+    sendResult(host, id, result ?? {});
   } catch (error) {
     if (error && typeof error === 'object' && error.jsonRpc !== undefined) {
-      sendError(id, error.jsonRpc);
+      sendError(host, id, error.jsonRpc);
       return;
     }
-    sendError(id, {
+    sendError(host, id, {
       code: -32603,
       message: error instanceof Error ? error.message : String(error),
     });
   }
 }
 
-function start() {
-  const rl = readline.createInterface({ input: process.stdin });
+export function start(host = createHost()) {
+  const rl = readline.createInterface({ input: host.stdin });
   rl.on('line', (line) => {
     const trimmed = line.trim();
     if (trimmed.length === 0) return;
@@ -548,17 +580,29 @@ function start() {
     try {
       message = JSON.parse(trimmed);
     } catch (error) {
-      sendError(null, {
+      sendError(host, null, {
         code: -32700,
         message: `Parse error: ${error instanceof Error ? error.message : String(error)}`,
       });
       return;
     }
-    void dispatch(message);
+    void dispatch(host, message);
   });
   rl.on('close', () => {
-    process.exit(0);
+    host.exit(0);
   });
+  return rl;
 }
 
-start();
+function invokedAsScript() {
+  const scriptPath = process.argv[1];
+  if (typeof scriptPath !== 'string' || scriptPath.length === 0) return false;
+  const entryPath = fileURLToPath(import.meta.url);
+  const invokedPath = path.resolve(scriptPath);
+  if (process.platform === 'win32') {
+    return entryPath.toLowerCase() === invokedPath.toLowerCase();
+  }
+  return entryPath === invokedPath;
+}
+
+if (invokedAsScript()) start();

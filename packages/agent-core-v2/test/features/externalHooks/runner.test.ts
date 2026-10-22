@@ -1,16 +1,24 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { buildHookSpawnOptions, runHook } from '#/features/externalHooks/internal/runHook';
 import { renderUserPromptHookResult } from '#/features/externalHooks/internal/userPrompt';
 import { HostProcessService } from '#/os/backends/host/hostProcessService';
+import { randomUUID } from 'node:crypto';
+import { writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 const hostProcess = new HostProcessService();
 
 const MAX_HOOK_OUTPUT_CHARS = 64 * 1024;
 const TRUNCATED_MARKER = '\n[hook output truncated]';
+const HOOK_BIN = process.execPath;
+const quotedPath = (value: string): string => (/\s/.test(value) ? `"${value}"` : value);
 
 function nodeCommand(source: string): string {
-  return `node -e ${JSON.stringify(source.replaceAll(/\s*\n\s*/g, ' '))}`;
+  const file = join(tmpdir(), `kimi-hook-${randomUUID()}.mjs`);
+  writeFileSync(file, source);
+  return `${quotedPath(HOOK_BIN)} ${quotedPath(file)}`;
 }
 
 describe('runHook process runner', () => {

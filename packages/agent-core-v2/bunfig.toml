@@ -1,0 +1,18 @@
+[test]
+preload = ["./test/setup.ts"]
+pathIgnorePatterns = [
+  "**/*.e2e.test.ts",
+  "test/e2e/**",
+  # Real git: every case drives `git init` / `worktree add` / `merge` / `rebase`
+  # subprocesses. Measured on one Windows machine at ~1.4 s of git spawn per
+  # case, 198 cases: 214 s. The heavy job runs it with KIMI_TEST_HEAVY=1.
+  "test/features/tower/store.test.ts",
+  "test/features/tower/towerService.test.ts",
+  "test/features/tower/tools/spawnTool.test.ts",
+  "test/features/tower/tools/towerTools.test.ts",
+  "test/app/git/gitService.test.ts",
+  # Real child processes and sockets: the cases spawn a runtime and wait out
+  # connection timeouts.
+  "test/mcpCore/connection-manager.test.ts",
+  "test/mcpCore/client-stdio.test.ts",
+]

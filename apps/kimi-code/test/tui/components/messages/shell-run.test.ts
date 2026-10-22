@@ -1,5 +1,5 @@
 import chalk from 'chalk';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 import { ShellRunComponent } from '#/tui/components/messages/shell-run';
 import { currentTheme, darkColors, lightColors } from '#/tui/theme';

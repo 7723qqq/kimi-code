@@ -52,6 +52,11 @@ function isInsideCwd(candidate: string, cwd: string, platform: NodeJS.Platform):
   return rel !== '' && !rel.startsWith('..') && !isAbsolute(rel);
 }
 
+export interface ResolveCommandDeps {
+  readonly platform: NodeJS.Platform;
+  readonly env: NodeJS.ProcessEnv;
+}
+
 /**
  * Resolve a bare command name to an absolute executable path by searching
  * PATH (PATHEXT-aware on Windows). Returns undefined when the command is not
@@ -61,9 +66,10 @@ function isInsideCwd(candidate: string, cwd: string, platform: NodeJS.Platform):
 export function resolveCommandPath(
   command: string,
   cwd: string = process.cwd(),
+  deps: Partial<ResolveCommandDeps> = {},
 ): string | undefined {
-  const platform = process.platform;
-  const env = process.env;
+  const platform = deps.platform ?? process.platform;
+  const env = deps.env ?? process.env;
   const extensions = pathExtensions(platform, env);
   const names = candidateNames(command, extensions);
   const pathValue = env['PATH'] ?? '';

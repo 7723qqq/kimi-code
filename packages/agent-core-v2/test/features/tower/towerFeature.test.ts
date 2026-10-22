@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 import { stringify as stringifyToml } from 'smol-toml';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { type CollectionToken, type CollectionView } from '#/_base/di/collection';
 import { SyncDescriptor } from '#/_base/di/descriptors';

@@ -155,7 +155,7 @@ export function decodeTextWithErrors(
   errors: TextDecodeErrors = 'strict',
   ignoreBOM: boolean = false,
 ): string {
-  let webLabel: string | undefined;
+  let webLabel: ConstructorParameters<typeof TextDecoder>[0] | undefined;
   switch (encoding) {
     case 'utf-8':
     case 'utf8':

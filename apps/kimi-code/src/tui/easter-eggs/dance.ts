@@ -85,6 +85,37 @@ export interface RainbowDanceController extends RainbowDanceView {
   dispose(): void;
 }
 
+/** The only scheduler the dance needs; injectable so tests need no fake globals. */
+export interface DanceTimers {
+  setInterval(callback: () => void, intervalMs: number): unknown;
+  clearInterval(handle: unknown): void;
+  setTimeout(callback: () => void, delayMs: number): unknown;
+  clearTimeout(handle: unknown): void;
+}
+
+/**
+ * Default timers: the real globals. The frame interval is unref'd so this
+ * decoration is never what holds the event loop open on its own (a handle
+ * without `unref` — e.g. a browser-style numeric id — is left alone).
+ */
+export const SYSTEM_DANCE_TIMERS: DanceTimers = {
+  setInterval: (callback, intervalMs) => {
+    const handle: unknown = setInterval(callback, intervalMs);
+    if (typeof handle === 'object' && handle !== null) {
+      const unref = (handle as { unref?: unknown }).unref;
+      if (typeof unref === 'function') (unref as () => void).call(handle);
+    }
+    return handle;
+  },
+  clearInterval: (handle) => {
+    clearInterval(handle as ReturnType<typeof setInterval>);
+  },
+  setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
+  clearTimeout: (handle) => {
+    clearTimeout(handle as ReturnType<typeof setTimeout>);
+  },
+};
+
 let currentDanceController: RainbowDanceController | undefined;
 let currentDanceView: RainbowDanceView | undefined;
 
@@ -93,9 +124,12 @@ export function setRainbowDance(dance: RainbowDanceController | undefined): void
   currentDanceView = dance;
 }
 
-export function installRainbowDance(requestRender: () => void): () => void {
+export function installRainbowDance(
+  requestRender: () => void,
+  timers: DanceTimers = SYSTEM_DANCE_TIMERS,
+): () => void {
   currentDanceController?.dispose();
-  const dance = new RainbowDance(requestRender);
+  const dance = new RainbowDance(requestRender, timers);
   setRainbowDance(dance);
   return () => {
     dance.dispose();
@@ -147,12 +181,14 @@ export function renderDanceFooterModel(modelLabel: string): string {
 export class RainbowDance implements RainbowDanceController {
   private currentPhase = 0;
   private isColored = false;
-  private frameTimer: ReturnType<typeof setInterval> | null = null;
-  private flowStopTimer: ReturnType<typeof setTimeout> | null = null;
+  private frameTimer: { readonly handle: unknown } | null = null;
+  private flowStopTimer: { readonly handle: unknown } | null = null;
   private readonly requestRender: () => void;
+  private readonly timers: DanceTimers;
 
-  constructor(requestRender: () => void) {
+  constructor(requestRender: () => void, timers: DanceTimers = SYSTEM_DANCE_TIMERS) {
     this.requestRender = requestRender;
+    this.timers = timers;
   }
 
   get colored(): boolean {
@@ -171,20 +207,19 @@ export class RainbowDance implements RainbowDanceController {
   start(opts: { hold: boolean }): void {
     this.clearTimers();
     this.isColored = true;
-    this.frameTimer = setInterval(() => {
-      // Phase just increments; rainbowText() takes it modulo the *current*
-      // palette length, so the dance never needs to know the palette size.
-      this.currentPhase += 1;
-      this.requestRender();
-    }, DANCE_FRAME_MS);
-    // The dance is decoration: it must never be the thing holding the event loop
-    // open on its own.
-    if (this.frameTimer !== null && typeof this.frameTimer === 'object' && 'unref' in this.frameTimer) {
-      this.frameTimer.unref();
-    }
-    this.flowStopTimer = setTimeout(() => {
-      this.settle(opts.hold);
-    }, DANCE_FLOW_MS);
+    this.frameTimer = {
+      handle: this.timers.setInterval(() => {
+        // Phase just increments; rainbowText() takes it modulo the *current*
+        // palette length, so the dance never needs to know the palette size.
+        this.currentPhase += 1;
+        this.requestRender();
+      }, DANCE_FRAME_MS),
+    };
+    this.flowStopTimer = {
+      handle: this.timers.setTimeout(() => {
+        this.settle(opts.hold);
+      }, DANCE_FLOW_MS),
+    };
     this.requestRender();
   }
 
@@ -216,11 +251,11 @@ export class RainbowDance implements RainbowDanceController {
 
   private clearTimers(): void {
     if (this.frameTimer !== null) {
-      clearInterval(this.frameTimer);
+      this.timers.clearInterval(this.frameTimer.handle);
       this.frameTimer = null;
     }
     if (this.flowStopTimer !== null) {
-      clearTimeout(this.flowStopTimer);
+      this.timers.clearTimeout(this.flowStopTimer.handle);
       this.flowStopTimer = null;
     }
   }

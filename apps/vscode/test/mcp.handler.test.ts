@@ -3,20 +3,22 @@
  * Responsibilities: project-layer config files are listed with the workspace cwd, and an unreadable or
  * malformed config file surfaces as a warning instead of silently dropping its servers.
  * Wiring: real temporary workspace files plus the public handler surface; the engine harness and VS Code APIs are stubbed.
- * Run: cd apps/vscode && bunx vitest run --config vitest.config.ts test/mcp.handler.test.ts
+ * Run: cd apps/vscode && bun test --isolate test/mcp.handler.test.ts
  */
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+
+import { installVscode } from './vscode-host';
 
 import { Methods } from "../shared/bridge";
 import type { MCPServerConfig, UpdateMCPServerRequest } from "../shared/legacy-sdk";
 import { mcpHandlers } from "../src/handlers/mcp.handler";
 import type { HandlerContext } from "../src/handlers/types";
 
-vi.mock("vscode", () => ({
+installVscode({
   Uri: { parse: (value: string) => ({ value }) },
   env: { openExternal: async () => true },
   ProgressLocation: { Notification: 15 },
@@ -25,7 +27,7 @@ vi.mock("vscode", () => ({
     showErrorMessage: async () => undefined,
     withProgress: async (_options: unknown, task: () => Promise<unknown>) => task(),
   },
-}));
+});
 
 const homeDir = "/tmp/kimi-mcp-handler-home";
 
@@ -39,7 +41,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  vi.clearAllMocks();
+  mock.clearAllMocks();
   await rm(root, { recursive: true, force: true });
 });
 
@@ -60,7 +62,9 @@ describe("getMCPServers (project-layer config warnings)", () => {
 
     expect(catalog.warnings).toHaveLength(1);
     expect(catalog.warnings![0]).toContain(".mcp.json");
-    expect(catalog.warnings![0]).toContain("not valid JSON");
+    // The parse detail comes from the runtime's JSON parser, so only the fact
+    // that the warning is about JSON is stable across engines.
+    expect(catalog.warnings![0]).toMatch(/JSON/i);
     expect(catalog.servers.map((server) => server.name).sort()).toEqual([
       "global-api",
       "project-api",
@@ -74,7 +78,9 @@ describe("getMCPServers (project-layer config warnings)", () => {
     const catalog = await getServers(ctx);
 
     expect(catalog.warnings).toEqual([expect.stringContaining(".mcp.json")]);
-    expect(catalog.warnings![0]).toContain("not valid JSON");
+    // The parse detail comes from the runtime's JSON parser, so only the fact
+    // that the warning is about JSON is stable across engines.
+    expect(catalog.warnings![0]).toMatch(/JSON/i);
   });
 
   it("reports which project config file could not be read", async () => {
@@ -161,20 +167,20 @@ function createContext(overrides: { workDir?: string | null } = {}): HandlerCont
   ];
   const harness = {
     homeDir,
-    listMcpServers: vi.fn(async () => [...globalServers]),
-    addMcpServer: vi.fn(async (server: MCPServerConfig) => {
+    listMcpServers: mock(async () => [...globalServers]),
+    addMcpServer: mock(async (server: MCPServerConfig) => {
       globalServers.push(server);
     }),
-    updateMcpServer: vi.fn(async () => undefined),
-    removeMcpServer: vi.fn(async () => undefined),
+    updateMcpServer: mock(async () => undefined),
+    removeMcpServer: mock(async () => undefined),
   };
   return {
     webviewId: "view-1",
     workDir: selectedWorkDir,
     workDirUri: selectedWorkDir === null ? null : { fsPath: selectedWorkDir },
     harness,
-    broadcast: vi.fn(),
-    logError: vi.fn(),
+    broadcast: mock(),
+    logError: mock(),
   } as unknown as HandlerContext;
 }
 

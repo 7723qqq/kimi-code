@@ -1,10 +1,11 @@
 import { createHash } from 'node:crypto';
 import { mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import * as fsModule from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { zstdCompressSync } from 'node:zlib';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import { nativeBinaryUrl, nativeManifestUrl } from '#/cli/update/native-manifest';
 import {
@@ -15,37 +16,40 @@ import {
 } from '#/cli/update/native-stage';
 import { getNativeStagedStateFile, getNativeStagingDir } from '#/utils/paths';
 
-const fsMocks = vi.hoisted(() => ({
+const fsMocks = (() => ({
   /** Records chmod/rename calls (path-based) so tests can assert ordering. */
   calls: [] as Array<{ readonly op: 'chmod' | 'rename'; readonly path: string; readonly dst?: string }>,
   /** When > 0, the next open() wraps its handle so the first write is short. */
   shortWriteBudget: 0,
-}));
+}))();
 
-vi.mock('node:fs/promises', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:fs/promises')>();
+// Captured before `mock.module` overwrites the namespace; the wrappers below
+// must delegate to the real implementations rather than recurse into themselves.
+const realFs = { chmod: fsModule.chmod, rename: fsModule.rename, open: fsModule.open };
+
+void mock.module('node:fs/promises', () => {
   return {
-    ...actual,
+    ...fsModule,
     chmod: async (
-      path: Parameters<typeof actual.chmod>[0],
-      mode: Parameters<typeof actual.chmod>[1],
+      path: Parameters<typeof realFs.chmod>[0],
+      mode: Parameters<typeof realFs.chmod>[1],
     ) => {
       fsMocks.calls.push({ op: 'chmod', path: String(path) });
-      return actual.chmod(path, mode);
+      return realFs.chmod(path, mode);
     },
     rename: async (
-      src: Parameters<typeof actual.rename>[0],
-      dst: Parameters<typeof actual.rename>[1],
+      src: Parameters<typeof realFs.rename>[0],
+      dst: Parameters<typeof realFs.rename>[1],
     ) => {
       fsMocks.calls.push({ op: 'rename', path: String(src), dst: String(dst) });
-      return actual.rename(src, dst);
+      return realFs.rename(src, dst);
     },
     open: async (
-      path: Parameters<typeof actual.open>[0],
-      flags: Parameters<typeof actual.open>[1],
-      mode: Parameters<typeof actual.open>[2],
+      path: Parameters<typeof realFs.open>[0],
+      flags: Parameters<typeof realFs.open>[1],
+      mode: Parameters<typeof realFs.open>[2],
     ) => {
-      const handle = await actual.open(path, flags, mode);
+      const handle = await realFs.open(path, flags, mode);
       if (fsMocks.shortWriteBudget <= 0) return handle;
       fsMocks.shortWriteBudget -= 1;
       let truncated = false;
@@ -122,7 +126,7 @@ function mockCdnFetch(options: MockCdnOptions): typeof fetch {
       },
     },
   });
-  return vi.fn(async (input: string | URL) => {
+  return mock(async (input: string | URL) => {
     const url = String(input);
     if (url === nativeManifestUrl(version)) {
       return { ok: true, status: 200, text: async () => manifestBody, body: null };
@@ -290,7 +294,7 @@ describe('stageNativeUpdate', () => {
   });
 
   it('refuses to stage when the release publishes no Bun builds', async () => {
-    const fetchImpl = vi.fn(async (input: string | URL) => {
+    const fetchImpl = mock(async (input: string | URL) => {
       if (String(input) === nativeManifestUrl(VERSION)) {
         return {
           ok: true,
@@ -365,7 +369,7 @@ describe('stageNativeUpdate', () => {
         'linux-x64': { filename: BINARY_FILENAME, checksum: 'a'.repeat(64) },
       },
     });
-    const fetchImpl = vi.fn(async (input: string | URL, init?: RequestInit) => {
+    const fetchImpl = mock(async (input: string | URL, init?: RequestInit) => {
       const url = String(input);
       if (url === nativeManifestUrl(VERSION)) {
         return { ok: true, status: 200, text: async () => manifestBody, body: null };
@@ -736,7 +740,7 @@ describe('stageNativeUpdate', () => {
     const stagingDir = getNativeStagingDir(exePath);
     const exeFileName = `kimi-${VERSION}`;
     const otherPayload = Buffer.from('other-worker-payload');
-    const fetchImpl = vi.fn(async (input: string | URL) => {
+    const fetchImpl = mock(async (input: string | URL) => {
       const url = String(input);
       if (url === nativeManifestUrl(VERSION)) {
         const manifestBody = JSON.stringify({
@@ -783,7 +787,7 @@ describe('stageNativeUpdate', () => {
   it('preserves the staged exe a live swap claim references when this attempt fails', async () => {
     const stagingDir = getNativeStagingDir(exePath);
     const exeFileName = `kimi-${VERSION}`;
-    const fetchImpl = vi.fn(async (input: string | URL) => {
+    const fetchImpl = mock(async (input: string | URL) => {
       const url = String(input);
       if (url === nativeManifestUrl(VERSION)) {
         const manifestBody = JSON.stringify({

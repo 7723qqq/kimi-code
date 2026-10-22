@@ -1,5 +1,6 @@
+import './setup';
 import { renderHook, waitFor } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { useDebouncedValue } from '@/hooks/useDebouncedValue';
 
 describe('useDebouncedValue', () => {

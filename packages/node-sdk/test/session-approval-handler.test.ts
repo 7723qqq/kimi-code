@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import type { ApprovalHandler, ApprovalRequest, ApprovalResponse } from '#/index';
 import { Session } from '#/index';
@@ -12,7 +12,7 @@ describe('Session approval handler', () => {
       workDir: '/tmp',
       rpc: rpc.asRpc(),
     });
-    const handler = vi.fn(async (request: ApprovalRequest) => {
+    const handler = mock(async (request: ApprovalRequest) => {
       expect(request).toMatchObject({
         toolCallId: 'tool_1',
         toolName: 'Bash',
@@ -140,7 +140,7 @@ describe('Session approval handler', () => {
       workDir: '/tmp',
       rpc: rpc.asRpc(),
     });
-    const handler = vi.fn(() => ({ decision: 'approved' as const }));
+    const handler = mock(() => ({ decision: 'approved' as const }));
     session.setApprovalHandler(handler);
 
     await expect(
@@ -181,7 +181,7 @@ function approvalRequest(input: ApprovalRequestInput): ApprovalRequest {
 
 class FakeSDKRpcClient {
   private readonly approvalHandlers = new Map<string, ApprovalHandler>();
-  readonly closeSession = vi.fn(async (_input: { readonly sessionId: string }) => {});
+  readonly closeSession = mock(async (_input: { readonly sessionId: string }) => {});
 
   asRpc(): SDKRpcClientBase {
     return this as unknown as SDKRpcClientBase;

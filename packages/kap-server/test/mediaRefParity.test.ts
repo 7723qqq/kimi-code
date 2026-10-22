@@ -10,7 +10,7 @@ import {
   parseDaemonFileRef as mirrorParse,
   type MediaRefPart,
 } from '@moonshot-ai/transcript';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 const URLS = [
   'kimi-file://f_1?path=%2Fcache%2Fshot.png',
@@ -49,8 +49,12 @@ describe('standalone media path tag matching parity', () => {
     it(JSON.stringify(text), () => {
       const engine = engineMatchTag(text);
       const mirror = mirrorMatchTag(text);
-      expect(mirror === undefined ? undefined : { kind: mirror.kind, path: mirror.path }).toEqual(
-        engine === undefined ? undefined : { kind: engine.kind, path: engine.path },
+      expect(
+        mirror === undefined
+          ? undefined
+          : { kind: mirror.kind as string, path: mirror.path },
+      ).toEqual(
+        engine === undefined ? undefined : { kind: engine.kind as string, path: engine.path },
       );
     });
   }

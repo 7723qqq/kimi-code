@@ -1,34 +1,48 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+
+import * as sdkModule from '@moonshot-ai/kimi-code-sdk';
+import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
 
 import { createDownloadProgress, runUpdateDownloadCommand } from '#/cli/sub/update-download';
 import type { NativeInstallDetection } from '#/cli/update/source';
 
-const mocks = vi.hoisted(() => ({
-  detectNativeInstall: vi.fn(
+/** Let the promise chains behind a settled clock tick run. */
+async function settle(): Promise<void> {
+  for (let i = 0; i < 4; i += 1) await Promise.resolve();
+}
+
+async function advanceAsync(clock: FakeClock, byMs: number): Promise<void> {
+  await settle();
+  clock.advance(byMs);
+  await settle();
+}
+
+const mocks = (() => ({
+  detectNativeInstall: mock(
     (): NativeInstallDetection => ({
       native: true,
       kind: 'sea',
     }),
   ),
-  tryAcquireUpdateInstallLock: vi.fn(),
-  readUpdateInstallLockVersion: vi.fn(),
-  stageNativeUpdate: vi.fn(),
-  readStagedNativeUpdate: vi.fn(),
-  promoteStagedUpdateToManual: vi.fn(async () => true),
-  hashFileSha256: vi.fn(),
-  stagedExePath: vi.fn(() => '/tmp/staged-exe'),
-}));
+  tryAcquireUpdateInstallLock: mock(),
+  readUpdateInstallLockVersion: mock(),
+  stageNativeUpdate: mock(),
+  readStagedNativeUpdate: mock(),
+  promoteStagedUpdateToManual: mock(async () => true),
+  hashFileSha256: mock(),
+  stagedExePath: mock(() => '/tmp/staged-exe'),
+}))();
 
-vi.mock('#/cli/update/source', () => ({
+void mock.module('#/cli/update/source', () => ({
   detectNativeInstall: mocks.detectNativeInstall,
 }));
 
-vi.mock('#/cli/update/install-lock', () => ({
+void mock.module('#/cli/update/install-lock', () => ({
   tryAcquireUpdateInstallLock: mocks.tryAcquireUpdateInstallLock,
   readUpdateInstallLockVersion: mocks.readUpdateInstallLockVersion,
 }));
 
-vi.mock('#/cli/update/native-stage', () => ({
+void mock.module('#/cli/update/native-stage', () => ({
   stageNativeUpdate: mocks.stageNativeUpdate,
   readStagedNativeUpdate: mocks.readStagedNativeUpdate,
   promoteStagedUpdateToManual: mocks.promoteStagedUpdateToManual,
@@ -36,13 +50,10 @@ vi.mock('#/cli/update/native-stage', () => ({
   stagedExePath: mocks.stagedExePath,
 }));
 
-vi.mock('@moonshot-ai/kimi-code-sdk', async () => {
-  const actual = await vi.importActual<typeof import('@moonshot-ai/kimi-code-sdk')>(
-    '@moonshot-ai/kimi-code-sdk',
-  );
+void mock.module('@moonshot-ai/kimi-code-sdk', () => {
   return {
-    ...actual,
-    log: { ...actual.log, warn: vi.fn() },
+    ...sdkModule,
+    log: { ...sdkModule.log, warn: mock() },
   };
 });
 
@@ -61,15 +72,14 @@ function fakeOut(isTTY: boolean): { readonly out: NodeJS.WriteStream; readonly c
 describe('createDownloadProgress', () => {
   it('renders a throttled in-place line on a TTY, with the final frame always shown', () => {
     const { out, chunks } = fakeOut(true);
-    const progress = createDownloadProgress(out, 'Downloading…');
+    let clockMs = 1_000;
+    const progress = createDownloadProgress(out, 'Downloading…', () => clockMs);
     const total = 100 * 1024 * 1024;
 
-    const nowSpy = vi.spyOn(Date, 'now');
-    nowSpy.mockReturnValue(1_000);
     progress(10 * 1024 * 1024, total);
-    nowSpy.mockReturnValue(1_050); // inside the 100 ms throttle window → skipped
+    clockMs = 1_050; // inside the 100 ms throttle window → skipped
     progress(20 * 1024 * 1024, total);
-    nowSpy.mockReturnValue(1_200);
+    clockMs = 1_200;
     progress(30 * 1024 * 1024, total);
     progress(total, total); // final frame is never throttled
 
@@ -78,7 +88,6 @@ describe('createDownloadProgress', () => {
       '\r\u001B[KDownloading… 30% (30/100 MB)',
       '\r\u001B[KDownloading… 100% (100/100 MB)',
     ]);
-    nowSpy.mockRestore();
   });
 
   it('prints the label up front and one line per 32 MB when piped', () => {
@@ -109,19 +118,18 @@ describe('runUpdateDownloadCommand', () => {
   const STAGED_HASH = 'a'.repeat(64);
 
   beforeEach(() => {
-    vi.clearAllMocks();
+    mock.clearAllMocks();
     mocks.detectNativeInstall.mockReturnValue({ native: true, kind: 'sea' });
     mocks.tryAcquireUpdateInstallLock.mockResolvedValue({
       filePath: '/tmp/install.lock',
-      release: vi.fn(async () => {}),
+      release: mock(async () => {}),
     });
     mocks.stageNativeUpdate.mockResolvedValue({ status: 'staged', staged: {} });
     mocks.hashFileSha256.mockResolvedValue(STAGED_HASH);
   });
 
   afterEach(() => {
-    vi.useRealTimers();
-    vi.restoreAllMocks();
+    mock.restore();
   });
 
   const stagedRecord = (overrides: Record<string, unknown> = {}) => ({
@@ -136,7 +144,7 @@ describe('runUpdateDownloadCommand', () => {
 
   it('refuses on non-native installs', async () => {
     mocks.detectNativeInstall.mockReturnValue({ native: false });
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const stderrSpy = spyOn(process.stderr, 'write').mockImplementation(() => true);
     await expect(runUpdateDownloadCommand('0.7.0')).resolves.toBe(1);
     expect(mocks.stageNativeUpdate).not.toHaveBeenCalled();
     expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('native build'));
@@ -147,7 +155,7 @@ describe('runUpdateDownloadCommand', () => {
     mocks.readUpdateInstallLockVersion.mockResolvedValue('0.7.0');
     // The other worker's staged update is verified on disk on the first poll.
     mocks.readStagedNativeUpdate.mockResolvedValue({ version: '0.7.0', sha256: STAGED_HASH });
-    const stdoutSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const stdoutSpy = spyOn(process.stdout, 'write').mockImplementation(() => true);
     await expect(runUpdateDownloadCommand('0.7.0')).resolves.toBe(0);
     expect(mocks.stageNativeUpdate).not.toHaveBeenCalled();
     expect(stdoutSpy).toHaveBeenCalledWith(expect.stringContaining('already in progress'));
@@ -159,7 +167,7 @@ describe('runUpdateDownloadCommand', () => {
     mocks.tryAcquireUpdateInstallLock.mockResolvedValue(null);
     mocks.readUpdateInstallLockVersion.mockResolvedValue('0.7.0');
     mocks.readStagedNativeUpdate.mockResolvedValue({ version: '0.7.0', sha256: STAGED_HASH });
-    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    spyOn(process.stdout, 'write').mockImplementation(() => true);
     await expect(runUpdateDownloadCommand('0.7.0', true)).resolves.toBe(0);
     expect(mocks.stageNativeUpdate).not.toHaveBeenCalled();
     expect(mocks.promoteStagedUpdateToManual).toHaveBeenCalledTimes(1);
@@ -175,7 +183,7 @@ describe('runUpdateDownloadCommand', () => {
     mocks.promoteStagedUpdateToManual
       .mockResolvedValueOnce(false)
       .mockResolvedValueOnce(true);
-    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    spyOn(process.stdout, 'write').mockImplementation(() => true);
     await expect(runUpdateDownloadCommand('0.7.0', true)).resolves.toBe(0);
     expect(mocks.stageNativeUpdate).not.toHaveBeenCalled();
     expect(mocks.promoteStagedUpdateToManual).toHaveBeenCalledTimes(2);
@@ -189,14 +197,14 @@ describe('runUpdateDownloadCommand', () => {
     // it — its metadata is only replaced when the repaired generation
     // publishes); second poll: the repaired generation verifies.
     mocks.hashFileSha256.mockResolvedValueOnce('corrupt').mockResolvedValue(STAGED_HASH);
-    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    spyOn(process.stdout, 'write').mockImplementation(() => true);
     await expect(runUpdateDownloadCommand('0.7.0')).resolves.toBe(0);
     expect(mocks.stageNativeUpdate).not.toHaveBeenCalled();
     expect(mocks.hashFileSha256).toHaveBeenCalledTimes(2);
   });
 
   it('takes over when the holder dies leaving a corrupt stage behind', async () => {
-    const release = vi.fn(async () => {});
+    const release = mock(async () => {});
     mocks.tryAcquireUpdateInstallLock
       .mockResolvedValueOnce(null) // initial acquire: held
       .mockResolvedValue({ filePath: '/tmp/install.lock', release }); // in-loop takeover
@@ -213,7 +221,7 @@ describe('runUpdateDownloadCommand', () => {
   });
 
   it('takes over when the same-version holder finishes without staging', async () => {
-    const release = vi.fn(async () => {});
+    const release = mock(async () => {});
     mocks.tryAcquireUpdateInstallLock
       .mockResolvedValueOnce(null) // held by the other worker…
       .mockResolvedValueOnce({ filePath: '/tmp/install.lock', release }); // …won inside the wait loop
@@ -230,7 +238,7 @@ describe('runUpdateDownloadCommand', () => {
     // The waiter polls every 2 s while the holder works, and each poll used to
     // re-read and re-hash the ~180 MB payload. Nothing about the generation
     // changes, so the verified verdict must be reused for the whole wait.
-    vi.useFakeTimers();
+    const clock = createFakeClock();
     mocks.tryAcquireUpdateInstallLock.mockResolvedValue(null);
     mocks.readUpdateInstallLockVersion.mockResolvedValue('0.7.0');
     mocks.readStagedNativeUpdate.mockResolvedValue(stagedRecord());
@@ -238,14 +246,20 @@ describe('runUpdateDownloadCommand', () => {
     // A concurrent swap claim/restore cycle keeps the manual promotion from
     // persisting, so the waiter polls on and on.
     mocks.promoteStagedUpdateToManual.mockResolvedValue(false);
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    const pending = runUpdateDownloadCommand('0.7.0', true);
-    await vi.advanceTimersByTimeAsync(2_000 * 5);
+    const stderrSpy = spyOn(process.stderr, 'write').mockImplementation(() => true);
+    spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const pending = runUpdateDownloadCommand('0.7.0', true, { clock });
+    // Each poll arms the next one only after it settles, so advance window by window.
+    for (let poll = 0; poll < 6; poll += 1) {
+      await advanceAsync(clock, 2_000);
+    }
     expect(mocks.readStagedNativeUpdate.mock.calls.length).toBeGreaterThan(4);
     expect(mocks.hashFileSha256).toHaveBeenCalledTimes(1);
     // The rest of the bounded wait still costs no further hashing.
-    await vi.advanceTimersByTimeAsync(7 * 60 * 60 * 1000);
+    for (let window = 0; window < 120; window += 1) {
+      await advanceAsync(clock, 4 * 60 * 1000);
+      if (mocks.readStagedNativeUpdate.mock.calls.length > 200) break;
+    }
     await expect(pending).resolves.toBe(1);
     expect(mocks.hashFileSha256).toHaveBeenCalledTimes(1);
     expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('already downloading'));
@@ -257,14 +271,14 @@ describe('runUpdateDownloadCommand', () => {
     // foreground `kimi upgrade`) would run forever. The expired wait falls
     // through to the caller's existing "another update is already
     // downloading" failure instead of a success that never happened.
-    vi.useFakeTimers();
+    const clock = createFakeClock();
     mocks.tryAcquireUpdateInstallLock.mockResolvedValue(null);
     mocks.readUpdateInstallLockVersion.mockResolvedValue('0.7.0');
     mocks.readStagedNativeUpdate.mockResolvedValue(null);
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-    vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
-    const pending = runUpdateDownloadCommand('0.7.0');
-    await vi.advanceTimersByTimeAsync(7 * 60 * 60 * 1000);
+    const stderrSpy = spyOn(process.stderr, 'write').mockImplementation(() => true);
+    spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const pending = runUpdateDownloadCommand('0.7.0', undefined, { clock });
+    await advanceAsync(clock, 7 * 60 * 60 * 1000);
     await expect(pending).resolves.toBe(1);
     expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('already downloading'));
     expect(mocks.stageNativeUpdate).not.toHaveBeenCalled();
@@ -273,14 +287,14 @@ describe('runUpdateDownloadCommand', () => {
   it('fails instead of a false success when the lock holder stages another version', async () => {
     mocks.tryAcquireUpdateInstallLock.mockResolvedValue(null);
     mocks.readUpdateInstallLockVersion.mockResolvedValue('0.8.0');
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const stderrSpy = spyOn(process.stderr, 'write').mockImplementation(() => true);
     await expect(runUpdateDownloadCommand('0.7.0')).resolves.toBe(1);
     expect(mocks.stageNativeUpdate).not.toHaveBeenCalled();
     expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('0.8.0'));
   });
 
   it('retries the acquire when the lock vanished between the two reads', async () => {
-    const release = vi.fn(async () => {});
+    const release = mock(async () => {});
     mocks.tryAcquireUpdateInstallLock
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({ filePath: '/tmp/install.lock', release });
@@ -293,7 +307,7 @@ describe('runUpdateDownloadCommand', () => {
   });
 
   it('stages against the running exe and releases the lock', async () => {
-    const release = vi.fn(async () => {});
+    const release = mock(async () => {});
     mocks.tryAcquireUpdateInstallLock.mockResolvedValue({ filePath: '/tmp/install.lock', release });
     await expect(runUpdateDownloadCommand('0.7.0')).resolves.toBe(0);
     expect(mocks.stageNativeUpdate).toHaveBeenCalledWith(
@@ -305,7 +319,7 @@ describe('runUpdateDownloadCommand', () => {
   it('marks the stage as manual when the download answers an explicit upgrade', async () => {
     mocks.tryAcquireUpdateInstallLock.mockResolvedValue({
       filePath: '/tmp/install.lock',
-      release: vi.fn(async () => {}),
+      release: mock(async () => {}),
     });
     await expect(runUpdateDownloadCommand('0.7.0', true)).resolves.toBe(0);
     expect(mocks.stageNativeUpdate).toHaveBeenCalledWith(
@@ -316,7 +330,7 @@ describe('runUpdateDownloadCommand', () => {
   it('passes the detected install kind as the staging engine', async () => {
     mocks.tryAcquireUpdateInstallLock.mockResolvedValue({
       filePath: '/tmp/install.lock',
-      release: vi.fn(async () => {}),
+      release: mock(async () => {}),
     });
 
     mocks.detectNativeInstall.mockReturnValue({ native: true, kind: 'bun' });
@@ -334,7 +348,7 @@ describe('runUpdateDownloadCommand', () => {
 
   it('reports staging failures with a non-zero exit code', async () => {
     mocks.stageNativeUpdate.mockRejectedValue(new Error('sha256 mismatch'));
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const stderrSpy = spyOn(process.stderr, 'write').mockImplementation(() => true);
     await expect(runUpdateDownloadCommand('0.7.0')).resolves.toBe(1);
     expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('sha256 mismatch'));
   });

@@ -1,5 +1,5 @@
 import assert from "node:assert";
-import { describe, it } from "node:test";
+import { describe, it } from "bun:test";
 import { HStack } from "../src/components/h-stack.ts";
 import { ScrollView } from "../src/components/scroll-view.ts";
 import { Text } from "../src/components/text.ts";

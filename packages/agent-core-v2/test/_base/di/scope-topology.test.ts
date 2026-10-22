@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { BugIndicatingError } from '#/_base/errors/errors';
 import { createAppScope, setScopeTopology } from '#/_base/di/scope';

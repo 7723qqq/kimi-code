@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import { OAuthUnauthorizedError } from '../src/errors';
 import {
@@ -209,8 +209,8 @@ describe('provisionManagedKimiCodeConfig', () => {
         },
       },
     };
-    const write = vi.fn();
-    const fetchMock = vi.fn(async () => makeModelsResponse());
+    const write = mock();
+    const fetchMock = mock(async () => makeModelsResponse());
 
     const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
@@ -288,10 +288,10 @@ describe('provisionManagedKimiCodeConfig', () => {
       baseUrl: 'https://api.dev.example.test/coding/v1',
       oauthKey,
       oauthHost: 'https://auth.dev.example.test',
-      fetchImpl: vi.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: mock(async () => makeModelsResponse()) as unknown as typeof fetch,
       adapter: {
         read: () => config,
-        write: vi.fn(),
+        write: mock(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -326,10 +326,10 @@ describe('provisionManagedKimiCodeConfig', () => {
     await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
       baseUrl,
-      fetchImpl: vi.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: mock(async () => makeModelsResponse()) as unknown as typeof fetch,
       adapter: {
         read: () => config,
-        write: vi.fn(),
+        write: mock(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -375,11 +375,11 @@ describe('provisionManagedKimiCodeConfig', () => {
 
     const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: vi.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: mock(async () => makeModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
-        write: vi.fn(),
+        write: mock(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -413,11 +413,11 @@ describe('provisionManagedKimiCodeConfig', () => {
 
     const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: vi.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: mock(async () => makeModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
-        write: vi.fn(),
+        write: mock(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -448,11 +448,11 @@ describe('provisionManagedKimiCodeConfig', () => {
 
     const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: vi.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: mock(async () => makeModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
-        write: vi.fn(),
+        write: mock(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -482,11 +482,11 @@ describe('provisionManagedKimiCodeConfig', () => {
 
     const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: vi.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: mock(async () => makeModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
-        write: vi.fn(),
+        write: mock(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -517,11 +517,11 @@ describe('provisionManagedKimiCodeConfig', () => {
 
     const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: vi.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: mock(async () => makeModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
-        write: vi.fn(),
+        write: mock(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -552,11 +552,11 @@ describe('provisionManagedKimiCodeConfig', () => {
 
     const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: vi.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: mock(async () => makeModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
-        write: vi.fn(),
+        write: mock(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -587,11 +587,11 @@ describe('provisionManagedKimiCodeConfig', () => {
 
     const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: vi.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: mock(async () => makeModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
-        write: vi.fn(),
+        write: mock(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -671,7 +671,7 @@ describe('provisionManagedKimiCodeConfig', () => {
   });
 
   it('rejects managed models that do not include a positive context_length', async () => {
-    const fetchImpl = vi.fn(
+    const fetchImpl = mock(
       async () =>
         new Response(
           JSON.stringify({
@@ -690,7 +690,7 @@ describe('provisionManagedKimiCodeConfig', () => {
   });
 
   it('surfaces API error messages from model listing failures', async () => {
-    const fetchImpl = vi.fn(
+    const fetchImpl = mock(
       async () =>
         new Response(JSON.stringify({ error: { message: 'quota exceeded' } }), {
           status: 429,
@@ -707,7 +707,7 @@ describe('provisionManagedKimiCodeConfig', () => {
   });
 
   it('classifies model listing 401 responses as OAuth unauthorized', async () => {
-    const fetchImpl = vi.fn(
+    const fetchImpl = mock(
       async () =>
         new Response(
           JSON.stringify({
@@ -729,7 +729,7 @@ describe('provisionManagedKimiCodeConfig', () => {
   });
 
   it('classifies membership-check 402 responses as OAuth unauthorized', async () => {
-    const fetchImpl = vi.fn(
+    const fetchImpl = mock(
       async () =>
         new Response(
           JSON.stringify({
@@ -879,7 +879,7 @@ describe('supports_thinking_type', () => {
   it('parses supports_thinking_type and supports_dynamic_tools from the models endpoint', async () => {
     const models = await fetchManagedKimiCodeModels({
       accessToken: 'oauth-access-token',
-      fetchImpl: vi.fn(async () => makeThinkingTypeModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: mock(async () => makeThinkingTypeModelsResponse()) as unknown as typeof fetch,
     });
 
     expect(models[0]?.supportsThinkingType).toBe('only');
@@ -892,13 +892,13 @@ describe('supports_thinking_type', () => {
   it('leaves supportsThinkingType undefined when the field is absent or invalid', async () => {
     const absent = await fetchManagedKimiCodeModels({
       accessToken: 'oauth-access-token',
-      fetchImpl: vi.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: mock(async () => makeModelsResponse()) as unknown as typeof fetch,
     });
     expect(absent[0]?.supportsThinkingType).toBeUndefined();
 
     const invalid = await fetchManagedKimiCodeModels({
       accessToken: 'oauth-access-token',
-      fetchImpl: vi.fn(
+      fetchImpl: mock(
         async () =>
           new Response(
             JSON.stringify({
@@ -923,10 +923,10 @@ describe('supports_thinking_type', () => {
 
     await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: vi.fn(async () => makeThinkingTypeModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: mock(async () => makeThinkingTypeModelsResponse()) as unknown as typeof fetch,
       adapter: {
         read: () => config,
-        write: vi.fn(),
+        write: mock(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -954,10 +954,10 @@ describe('supports_thinking_type', () => {
 
     const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: vi.fn(async () => makeThinkingTypeModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: mock(async () => makeThinkingTypeModelsResponse()) as unknown as typeof fetch,
       adapter: {
         read: () => config,
-        write: vi.fn(),
+        write: mock(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -989,11 +989,11 @@ describe('supports_thinking_type', () => {
 
     const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: vi.fn(async () => makeThinkingTypeModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: mock(async () => makeThinkingTypeModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
-        write: vi.fn(),
+        write: mock(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -1025,11 +1025,11 @@ describe('supports_thinking_type', () => {
 
     const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: vi.fn(async () => makeThinkingTypeModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: mock(async () => makeThinkingTypeModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
-        write: vi.fn(),
+        write: mock(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -1060,11 +1060,11 @@ describe('supports_thinking_type', () => {
 
     const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: vi.fn(async () => makeThinkingTypeModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: mock(async () => makeThinkingTypeModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
-        write: vi.fn(),
+        write: mock(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -1108,7 +1108,7 @@ describe('support_efforts / default_effort', () => {
   it('parses think_efforts from the models endpoint', async () => {
     const models = await fetchManagedKimiCodeModels({
       accessToken: 'oauth-access-token',
-      fetchImpl: vi.fn(async () => makeEffortModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: mock(async () => makeEffortModelsResponse()) as unknown as typeof fetch,
     });
 
     expect(models[0]?.supportEfforts).toEqual(['low', 'high', 'max']);
@@ -1178,10 +1178,10 @@ describe('support_efforts / default_effort', () => {
 
     await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: vi.fn(async () => makeEffortModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: mock(async () => makeEffortModelsResponse()) as unknown as typeof fetch,
       adapter: {
         read: () => config,
-        write: vi.fn(),
+        write: mock(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -1412,7 +1412,7 @@ const KIMI_BASE_URL = 'https://api.kimi.com/coding/v1';
 
 describe('managed protocol routing', () => {
   it('reads protocol from the /models response', async () => {
-    const fetchImpl = vi.fn(
+    const fetchImpl = mock(
       async () =>
         new Response(
           JSON.stringify({
@@ -1428,7 +1428,7 @@ describe('managed protocol routing', () => {
   });
 
   it('maps the server "response" protocol value to openai_responses', async () => {
-    const fetchImpl = vi.fn(
+    const fetchImpl = mock(
       async () =>
         new Response(
           JSON.stringify({
@@ -1523,17 +1523,17 @@ describe('managed protocol routing', () => {
 
 describe('fetchManagedKimiCodeModels transport guards', () => {
   it('passes a timeout signal on the models request', async () => {
-    const fetchImpl = vi.fn(async () => makeModelsResponse()) as unknown as typeof fetch;
+    const fetchImpl = mock(async () => makeModelsResponse()) as unknown as typeof fetch;
 
     await fetchManagedKimiCodeModels({ accessToken: 't', fetchImpl });
 
-    const init = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock
+    const init = (fetchImpl as unknown as ReturnType<typeof mock>).mock
       .calls[0]![1] as RequestInit;
     expect(init.signal).toBeInstanceOf(AbortSignal);
   });
 
   it('rejects responses advertised above the body size cap via content-length', async () => {
-    const fetchImpl = vi.fn(
+    const fetchImpl = mock(
       async () =>
         new Response(JSON.stringify({ data: [] }), {
           status: 200,
@@ -1556,7 +1556,7 @@ describe('fetchManagedKimiCodeModels transport guards', () => {
         controller.close();
       },
     });
-    const fetchImpl = vi.fn(
+    const fetchImpl = mock(
       async () =>
         new Response(body, {
           status: 200,

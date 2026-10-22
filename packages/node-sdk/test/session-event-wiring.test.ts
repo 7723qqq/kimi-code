@@ -16,7 +16,7 @@ import {
  * status event (mirrors kap-server's broadcaster bridge).
  * Run: pnpm exec vitest run test/session-event-wiring.test.ts
  */
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import type { Event } from '#/index';
 import { SessionEventWiring, type SessionEventSink } from '#/v2/session-wiring';

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock, type Mock } from 'bun:test';
 
 import { AuthFlowController, type AuthFlowHost } from '#/tui/controllers/auth-flow';
 
@@ -20,17 +20,17 @@ function makeHost(
     options.withSession === true
       ? {
           id: 'ses-live',
-          getStatus: vi.fn(async () => ({ model: options.boundModel ?? 'old-model' })),
-          setModel: vi.fn(async () => ({ model: 'k2', providerName: 'managed' })),
-          setThinking: vi.fn(async () => {}),
+          getStatus: mock(async () => ({ model: options.boundModel ?? 'old-model' })),
+          setModel: mock(async () => ({ model: 'k2', providerName: 'managed' })),
+          setThinking: mock(async () => {}),
         }
       : undefined;
   const host = {
     state: { appState },
     session,
     harness: {
-      createSession: vi.fn(async () => ({ id: 'ses-new', summary: { title: null } })),
-      getConfig: vi.fn(async () => ({
+      createSession: mock(async () => ({ id: 'ses-new', summary: { title: null } })),
+      getConfig: mock(async () => ({
         defaultModel: options.defaultModel,
         models: {
           k2: { provider: 'managed:kimi-code', model: 'kimi-k2', maxContextSize: 200_000 },
@@ -39,27 +39,27 @@ function makeHost(
       })),
     },
     options: { startup: {} },
-    setAppState: vi.fn((patch: Record<string, unknown>) => Object.assign(appState, patch)),
-    setStartupReady: vi.fn(),
-    resetSessionRuntime: vi.fn(),
-    setSession: vi.fn(async (next: unknown) => {
+    setAppState: mock((patch: Record<string, unknown>) => Object.assign(appState, patch)),
+    setStartupReady: mock(),
+    resetSessionRuntime: mock(),
+    setSession: mock(async (next: unknown) => {
       (host as { session: unknown }).session = next;
     }),
-    syncRuntimeState: vi.fn(async () => {}),
-    appendStartupNotice: vi.fn(),
-    hydrateLazyConfigDefaults: vi.fn(async () => {}),
-    sessionEventHandler: { startSubscription: vi.fn() },
-    fetchSessions: vi.fn(async () => {}),
-    updateTerminalTitle: vi.fn(),
-    refreshSkillCommands: vi.fn(async () => {}),
-    refreshPluginCommands: vi.fn(async () => {}),
+    syncRuntimeState: mock(async () => {}),
+    appendStartupNotice: mock(),
+    hydrateLazyConfigDefaults: mock(async () => {}),
+    sessionEventHandler: { startSubscription: mock() },
+    fetchSessions: mock(async () => {}),
+    updateTerminalTitle: mock(),
+    refreshSkillCommands: mock(async () => {}),
+    refreshPluginCommands: mock(async () => {}),
   } as unknown as AuthFlowHost & {
     session: unknown;
     harness: {
-      createSession: ReturnType<typeof vi.fn>;
-      getConfig: ReturnType<typeof vi.fn>;
+      createSession: Mock<(...args: any[]) => any>;
+      getConfig: Mock<(...args: any[]) => any>;
     };
-    setAppState: ReturnType<typeof vi.fn>;
+    setAppState: Mock<(...args: any[]) => any>;
   };
   return { host, appState, session };
 }

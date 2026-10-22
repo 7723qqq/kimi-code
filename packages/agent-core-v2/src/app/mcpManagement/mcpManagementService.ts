@@ -29,6 +29,7 @@ import {
 import { canonicalMcpOAuthResource } from '#/mcpCore/oauth/store';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostProcessService } from '#/os/interface/hostProcess';
+import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
 import { LocalRuntime } from '#/runtime/localRuntime';
 import { RuntimeRegistry } from '#/runtime/runtimeRegistry';
 import {
@@ -61,7 +62,7 @@ export class McpManagementService extends Disposable implements IMcpManagementSe
 
   private readonly authFlows = new Map<
     string,
-    { flow: BeginAuthorizationResult; idleTimer: NodeJS.Timeout }
+    { flow: BeginAuthorizationResult; idleTimer: IHostTimerHandle }
   >();
 
   constructor(
@@ -74,6 +75,7 @@ export class McpManagementService extends Disposable implements IMcpManagementSe
     @IWorkspaceInstanceManager private readonly workspaceInstances: IWorkspaceInstanceManager,
     @IHostEnvironment private readonly hostEnvironment: IHostEnvironment,
     @IHostProcessService private readonly hostProcess: IHostProcessService,
+    @IHostTimers private readonly timers: IHostTimers,
     @ILogService private readonly log: ILogService,
   ) {
     super();
@@ -283,12 +285,12 @@ export class McpManagementService extends Disposable implements IMcpManagementSe
     try {
       const flow = await this.oauth.beginAuthorization(server.runtimeName, config.url);
       const flowId = randomUUID();
-      const idleTimer = setTimeout(() => {
+      const idleTimer = this.timers.setTimeout(() => {
         const expired = this.authFlows.get(flowId);
         this.authFlows.delete(flowId);
         void expired?.flow.cancel();
       }, AUTH_FLOW_IDLE_TIMEOUT_MS);
-      idleTimer.unref();
+      idleTimer.unref?.();
       this.authFlows.set(flowId, { flow, idleTimer });
       return {
         status: 'authorization-required',
@@ -322,7 +324,7 @@ export class McpManagementService extends Disposable implements IMcpManagementSe
     if (active === undefined) {
       throw new Error2(ErrorCodes.REQUEST_INVALID, `Unknown MCP OAuth flow: ${handle.flowId}`);
     }
-    clearTimeout(active.idleTimer);
+    this.timers.clearTimeout(active.idleTimer);
     try {
       await active.flow.complete({
         signal: options?.signal,
@@ -336,14 +338,14 @@ export class McpManagementService extends Disposable implements IMcpManagementSe
   async cancelServerAuth(handle: Pick<McpServerAuthFlowHandle, 'flowId'>): Promise<void> {
     const active = this.authFlows.get(handle.flowId);
     if (active === undefined) return;
-    clearTimeout(active.idleTimer);
+    this.timers.clearTimeout(active.idleTimer);
     this.authFlows.delete(handle.flowId);
     await active.flow.cancel();
   }
 
   override dispose(): void {
     for (const active of this.authFlows.values()) {
-      clearTimeout(active.idleTimer);
+      this.timers.clearTimeout(active.idleTimer);
       void active.flow.cancel();
     }
     this.authFlows.clear();

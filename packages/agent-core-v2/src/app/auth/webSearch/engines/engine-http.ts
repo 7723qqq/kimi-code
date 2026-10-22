@@ -1,5 +1,6 @@
 import { isProxyConfigured, makeNoProxyMatcher, resolveNoProxy } from '#/_base/utils/proxy';
 import { ProxyAgent, type Dispatcher } from '#/_base/utils/undici-npm';
+import { IHostTimers } from '#/os/interface/hostTimers';
 
 import { undiciFetch } from './engine-undici';
 import { h3Fetch, h3OriginState, isBunRuntime, markH3Origin, scheduleH3Probe } from './http3';
@@ -10,6 +11,15 @@ const DEFAULT_USER_AGENT =
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 
+const SYSTEM_HOST_TIMERS: IHostTimers = {
+  _serviceBrand: undefined,
+  setClampedTimeout: (callback, timeoutMs) => globalThis.setTimeout(callback, timeoutMs),
+  setTimeout: (callback, timeoutMs) => globalThis.setTimeout(callback, timeoutMs),
+  clearTimeout: (handle) => {
+    globalThis.clearTimeout(handle as ReturnType<typeof globalThis.setTimeout>);
+  },
+};
+
 export interface EngineRequestOptions {
   headers?: Record<string, string>;
   timeoutMs?: number;
@@ -19,6 +29,8 @@ export interface EngineRequestOptions {
   signal?: AbortSignal;
 
   manualRedirect?: boolean;
+
+  timers?: IHostTimers;
 }
 
 export interface EngineHttpResponse {
@@ -75,6 +87,7 @@ async function bunH3EngineFetch(
     body: options.body,
     signal: options.signal,
     timeoutMs,
+    timers: options.timers,
   });
   return toEngineResponse(response);
 }
@@ -84,6 +97,7 @@ export async function engineFetch(
   options: EngineRequestOptions = {},
 ): Promise<EngineHttpResponse> {
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const timers = options.timers ?? SYSTEM_HOST_TIMERS;
   const origin = new URL(url).origin;
   const dispatcher = dispatcherFor(url);
 
@@ -97,7 +111,7 @@ export async function engineFetch(
   }
 
   const controller = new AbortController();
-  const timer = setTimeout(() => {
+  const timer = timers.setTimeout(() => {
     controller.abort();
   }, timeoutMs);
   const signal =
@@ -133,7 +147,7 @@ export async function engineFetch(
       scheduleH3Probe(origin, async () => {
         const probe = await bunH3EngineFetch(
           url,
-          { method: 'GET', headers: options.headers, timeoutMs: 3000 },
+          { method: 'GET', headers: options.headers, timeoutMs: 3000, timers: options.timers },
           3000,
         );
         return probe.ok;
@@ -149,7 +163,7 @@ export async function engineFetch(
       header: (name: string) => response.headers.get(name),
     };
   } finally {
-    clearTimeout(timer);
+    timers.clearTimeout(timer);
   }
 }
 

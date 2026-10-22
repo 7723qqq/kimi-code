@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { buildCompactionContinuationText } from '#/agent/contextMemory/compactionHandoff';
 import { foldV2WireRecords } from '#human/persist/v2/fold';

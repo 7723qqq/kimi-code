@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { ToolScheduler, type ToolCallTask } from '#/agent/toolExecutor/toolScheduler';
 import { ToolAccesses } from '#/tool/toolContract';

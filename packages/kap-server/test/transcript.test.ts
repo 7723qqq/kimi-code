@@ -17,11 +17,13 @@ import {
   type Event2,
   type ScopeSeed,
 } from '@moonshot-ai/agent-core-v2';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { removeTempHome } from './helpers/tempHome';
 
 import { type RunningServer, startServer } from '../src/start';
 import { authHeaders } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
+import { waitForAssertion } from './helpers/waitFor';
 
 interface Envelope<T> {
   code: number;
@@ -171,7 +173,7 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+      await removeTempHome(home);
       home = undefined;
     }
   });
@@ -269,7 +271,7 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
         output: 'a.txt',
       }),
     );
-    await vi.waitFor(async () => {
+    await waitForAssertion(async () => {
       const again = await getJson<TranscriptContract>(
         `/api/v1/sessions/${id}/transcript?agent_id=main`,
       );
@@ -825,7 +827,7 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
     bus.publish(serverEvent({ type: 'turn.step.completed', turnId: 0, step: 1 }));
     bus.publish(serverEvent({ type: 'turn.ended', turnId: 0, reason: 'completed' }));
 
-    await vi.waitFor(
+    await waitForAssertion(
       async () => {
         const { body } = await getJson<TranscriptContract>(
           `/api/v1/sessions/${id}/transcript?agent_id=main`,
@@ -924,7 +926,7 @@ describe('server-v2 /api/v1/sessions/{sid}/transcript', () => {
     const bound = await getJson<TranscriptContract>(
       `/api/v1/sessions/${id}/transcript?agent_id=main`,
     );
-    expect(bound.body.data.seq).toBeTypeOf('number');
+    expect(typeof bound.body.data.seq).toBe('number');
     const base = bound.body.data.seq!;
 
     const bus = mainAgentBus(id);

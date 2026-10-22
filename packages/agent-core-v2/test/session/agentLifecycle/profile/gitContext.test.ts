@@ -1,6 +1,6 @@
 import { Readable, type Writable } from 'node:stream';
 
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import {
   collectGitContext,
@@ -9,20 +9,95 @@ import {
 } from '#/session/agentLifecycle/profile/gitContext';
 import type { ILogger } from '#/_base/log/log';
 import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
+import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
+
+interface FakeHostTimerHandle extends IHostTimerHandle {
+  readonly id: number;
+}
+
+interface AdvancedHostTimers extends IHostTimers {
+  advanceAsync(byMs: number): Promise<void>;
+  readonly scheduledDelays: readonly number[];
+}
+
+async function flushTimerWork(): Promise<void> {
+  for (let round = 0; round < 4; round += 1) {
+    await Promise.resolve();
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+  }
+}
+
+function createAdvancedHostTimers(): AdvancedHostTimers {
+  let nowMs = 0;
+  let nextId = 1;
+  const scheduledDelays: number[] = [];
+  const scheduled: Array<{
+    readonly id: number;
+    readonly due: number;
+    readonly callback: () => void;
+    cleared: boolean;
+    fired: boolean;
+  }> = [];
+
+  const schedule = (callback: () => void, delayMs: number): FakeHostTimerHandle => {
+    const entry = {
+      id: nextId++,
+      due: nowMs + Math.max(delayMs, 0),
+      callback,
+      cleared: false,
+      fired: false,
+    };
+    scheduled.push(entry);
+    scheduledDelays.push(delayMs);
+    return { id: entry.id };
+  };
+
+  return {
+    _serviceBrand: undefined,
+    setClampedTimeout: (callback, timeoutMs) =>
+      schedule(callback, Math.min(timeoutMs, 2_147_483_647)),
+    setTimeout: (callback, timeoutMs) => schedule(callback, timeoutMs),
+    clearTimeout: (handle) => {
+      const entry = scheduled.find((candidate) => candidate.id === (handle as { id?: number }).id);
+      if (entry !== undefined) entry.cleared = true;
+    },
+    advanceAsync: async (byMs) => {
+      await flushTimerWork();
+      const limit = nowMs + byMs;
+      for (;;) {
+        const next = scheduled
+          .filter((entry) => !entry.fired && !entry.cleared && entry.due <= limit)
+          .toSorted((left, right) => left.due - right.due || left.id - right.id)[0];
+        if (next === undefined) break;
+        nowMs = next.due;
+        next.fired = true;
+        next.callback();
+        await flushTimerWork();
+      }
+      nowMs = limit;
+      await flushTimerWork();
+    },
+    get scheduledDelays() {
+      return scheduledDelays;
+    },
+  };
+}
 
 function processWith(stdout: string, exitCode: number, stderr = ''): IHostProcess {
   const stdoutStream = Readable.from([Buffer.from(stdout)]);
   const stderrStream = Readable.from([Buffer.from(stderr)]);
   return {
     _serviceBrand: undefined,
-    stdin: { end: vi.fn(), write: vi.fn() } as unknown as Writable,
+    stdin: { end: mock(), write: mock() } as unknown as Writable,
     stdout: stdoutStream,
     stderr: stderrStream,
     pid: 1,
     exitCode,
-    wait: vi.fn().mockResolvedValue(exitCode),
-    kill: vi.fn(async () => {}),
-    dispose: vi.fn(async () => {
+    wait: mock().mockResolvedValue(exitCode),
+    kill: mock(async () => {}),
+    dispose: mock(async () => {
       stdoutStream.destroy();
       stderrStream.destroy();
     }),
@@ -31,8 +106,8 @@ function processWith(stdout: string, exitCode: number, stderr = ''): IHostProces
 
 type GitScript = Record<string, { stdout?: string; exitCode?: number; stderr?: string }>;
 
-function gitRunner(script: GitScript): { process: IHostProcessService; spawn: ReturnType<typeof vi.fn> } {
-  const spawn = vi.fn(async (_command: string, args: readonly string[]) => {
+function gitRunner(script: GitScript): { process: IHostProcessService; spawn: ReturnType<typeof mock> } {
+  const spawn = mock(async (_command: string, args: readonly string[]) => {
     const key = args.slice(2).join(' ');
     const out = script[key];
     if (out === undefined) return processWith('', 1);
@@ -43,17 +118,17 @@ function gitRunner(script: GitScript): { process: IHostProcessService; spawn: Re
 
 function spyLogger(): {
   logger: ILogger;
-  debug: ReturnType<typeof vi.fn>;
-  warn: ReturnType<typeof vi.fn>;
+  debug: ReturnType<typeof mock>;
+  warn: ReturnType<typeof mock>;
 } {
-  const debug = vi.fn();
-  const warn = vi.fn();
+  const debug = mock();
+  const warn = mock();
   const logger: ILogger = {
-    error: vi.fn(),
+    error: mock(),
     warn,
-    info: vi.fn(),
+    info: mock(),
     debug,
-    child: vi.fn(),
+    child: mock(),
   };
   return { logger, debug, warn };
 }
@@ -118,7 +193,7 @@ describe('collectGitContext', () => {
   it('returns an empty string when git fails to spawn', async () => {
     const hostProcess = {
       _serviceBrand: undefined,
-      spawn: vi.fn(async (): Promise<IHostProcess> => {
+      spawn: mock(async (): Promise<IHostProcess> => {
         throw new Error('spawn failed');
       }),
     } as IHostProcessService;
@@ -235,42 +310,39 @@ describe('collectGitContext', () => {
   });
 
   it('treats a hanging git command as a failure (timeout)', async () => {
-    vi.useFakeTimers();
-    try {
-      const hostProcess = {
-        _serviceBrand: undefined,
-        spawn: vi.fn(async (): Promise<IHostProcess> => {
-          let release: (code: number) => void = () => {};
-          const exited = new Promise<number>((resolve) => {
-            release = resolve;
-          });
-          return {
-            _serviceBrand: undefined,
-            stdin: { end: vi.fn(), write: vi.fn() } as unknown as Writable,
-            stdout: Readable.from(['']),
-            stderr: Readable.from(['']),
-            pid: 1,
-            exitCode: null,
-            wait: vi.fn(() => exited),
-            kill: vi.fn(async () => {
-              release(137);
-            }),
-            dispose: vi.fn(),
-          };
-        }),
-      } as IHostProcessService;
-      const { logger, debug } = spyLogger();
+    const timers = createAdvancedHostTimers();
+    const hostProcess = {
+      _serviceBrand: undefined,
+      spawn: mock(async (): Promise<IHostProcess> => {
+        let release: (code: number) => void = () => {};
+        const exited = new Promise<number>((resolve) => {
+          release = resolve;
+        });
+        return {
+          _serviceBrand: undefined,
+          stdin: { end: mock(), write: mock() } as unknown as Writable,
+          stdout: Readable.from(['']),
+          stderr: Readable.from(['']),
+          pid: 1,
+          exitCode: null,
+          wait: mock(() => exited),
+          kill: mock(async () => {
+            release(137);
+          }),
+          dispose: mock(),
+        };
+      }),
+    } as IHostProcessService;
+    const { logger, debug } = spyLogger();
 
-      const promise = collectGitContext(hostProcess, '/repo', logger);
-      await vi.advanceTimersByTimeAsync(6_000);
-      await expect(promise).resolves.toBe('');
-      expect(debug).toHaveBeenCalledWith(
-        'git context command timed out',
-        expect.objectContaining({ command: 'git rev-parse --is-inside-work-tree' }),
-      );
-    } finally {
-      vi.useRealTimers();
-    }
+    const promise = collectGitContext(hostProcess, '/repo', logger, timers);
+    await timers.advanceAsync(6_000);
+    await expect(promise).resolves.toBe('');
+    expect(timers.scheduledDelays).toEqual([5_000]);
+    expect(debug).toHaveBeenCalledWith(
+      'git context command timed out',
+      expect.objectContaining({ command: 'git rev-parse --is-inside-work-tree' }),
+    );
   });
 });
 

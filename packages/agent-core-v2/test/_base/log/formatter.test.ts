@@ -1,15 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
+import { redactCtx } from '../../../src/_base/log/formatter';
+import { ENTRY_MAX_BYTES } from '../../../src/_base/log/formatter';
 
-import {
-  CTX_VALUE_MAX_CHARS,
-  ENTRY_MAX_BYTES,
-  MSG_MAX_CHARS,
-  STACK_MAX_BYTES,
-  extractError,
-  formatEntry,
-  redactCtx,
-} from '#/_base/log/formatter';
-import type { LogEntry } from '#/_base/log/log';
+import { CTX_VALUE_MAX_CHARS, MSG_MAX_CHARS, STACK_MAX_BYTES, extractError, formatEntry } from '#/_base/log/formatter';
+import { type LogEntry } from '#/_base/log/log';
 
 const FIXED_TIME = Date.UTC(2026, 4, 19, 10, 12, 30, 123);
 

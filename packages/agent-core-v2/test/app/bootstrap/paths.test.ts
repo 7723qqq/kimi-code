@@ -3,7 +3,7 @@ import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { join as patheJoin } from 'pathe';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 import { ensureKimiHome, resolveConfigPath, resolveKimiHome } from '#/app/bootstrap/bootstrap';
 

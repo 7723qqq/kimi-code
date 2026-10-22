@@ -9,7 +9,8 @@ import {
   IModelCatalog,
   type AgentTask,
 } from '@moonshot-ai/agent-core-v2';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { removeTempHome } from './helpers/tempHome';
 
 import { type RunningServer, startServer } from '../src/start';
 import { authHeaders } from './helpers/auth';
@@ -93,7 +94,7 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await rm(home, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 } as never);
+      await removeTempHome(home);
       home = undefined;
     }
   });
@@ -351,8 +352,8 @@ describe('server-v2 /api/v1/sessions/{sid}/tasks', () => {
     );
     expect(got.body.code).toBe(0);
     expect(got.body.data.output_bytes).toBeLessThanOrEqual(4096);
-    expect(Buffer.byteLength(got.body.data.output_preview ?? '', 'utf-8')).toBe(
-      got.body.data.output_bytes,
+    expect(got.body.data.output_bytes).toBe(
+      Buffer.byteLength(got.body.data.output_preview ?? '', 'utf-8'),
     );
   });
 

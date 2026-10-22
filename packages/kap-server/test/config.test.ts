@@ -12,7 +12,8 @@ import {
   type Event2,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
+import { removeTempHome } from './helpers/tempHome';
 import { WebSocket } from 'ws';
 
 import { ErrorCode } from '../src/protocol/error-codes';
@@ -25,7 +26,10 @@ import { registerConfigRoutes } from '../src/routes/config';
 import { startConfigChangedPublisher } from '../src/services/config/configChangedPublisher';
 import { type RunningServer, startServer } from '../src/start';
 import { authedFetch, bearerToken } from './helpers/auth';
+import { createFakeClock } from './helpers/fakeClock';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
+import { waitForAssertion } from './helpers/waitFor';
+import { setEnv, restoreEnvs } from './helpers/stubs';
 
 interface Envelope<T> {
   code: number;
@@ -57,7 +61,7 @@ describe('server-v2 /api/v1/config', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
+      await removeTempHome(home);
       home = undefined;
     }
   });
@@ -231,15 +235,15 @@ describe('server-v2 /api/v1/config', () => {
   it('GET reports has_api_key for an api_key_env provider only while the variable is set', async () => {
     await boot('[providers.acme]\ntype = "openai"\napi_key_env = "KIMI_TEST_CONFIG_ROUTE_KEY"\n');
     try {
-      vi.stubEnv('KIMI_TEST_CONFIG_ROUTE_KEY', 'sk-live');
+      setEnv('KIMI_TEST_CONFIG_ROUTE_KEY', 'sk-live');
       const live = await getConfig();
       expect(live.providers['acme']).toMatchObject({ has_api_key: true });
 
-      vi.stubEnv('KIMI_TEST_CONFIG_ROUTE_KEY', '');
+      setEnv('KIMI_TEST_CONFIG_ROUTE_KEY', '');
       const empty = await getConfig();
       expect(empty.providers['acme']).toMatchObject({ has_api_key: false });
     } finally {
-      vi.unstubAllEnvs();
+      restoreEnvs();
     }
   });
 
@@ -346,7 +350,7 @@ describe('server-v2 config changed WS notifications', () => {
 
     await patchConfig({ yolo: true });
 
-    await vi.waitFor(() => expect(frames.length).toBeGreaterThanOrEqual(1));
+    await waitForAssertion(() => expect(frames.length).toBeGreaterThanOrEqual(1));
     const last = frames.at(-1) as ConfigChangedFrame;
     expect(last.payload.changedFields).toEqual(['defaultPermissionMode']);
     expect(last.payload.config['default_permission_mode']).toBe('yolo');
@@ -362,7 +366,7 @@ describe('server-v2 config changed WS notifications', () => {
     await config.ready;
     await config.replace('defaultModel', 'k2');
 
-    await vi.waitFor(() => expect(frames.length).toBeGreaterThanOrEqual(1));
+    await waitForAssertion(() => expect(frames.length).toBeGreaterThanOrEqual(1));
     const last = frames.at(-1) as ConfigChangedFrame;
     expect(last.payload.changedFields).toEqual(['defaultModel']);
     expect(last.payload.config['default_model']).toBe('k2');
@@ -381,7 +385,7 @@ describe('server-v2 config changed WS notifications', () => {
     await config.ready;
     await config.reload();
 
-    await vi.waitFor(() => expect(frames.length).toBeGreaterThanOrEqual(1), { timeout: 10000 });
+    await waitForAssertion(() => expect(frames.length).toBeGreaterThanOrEqual(1), { timeout: 10000 });
     const last = frames.at(-1) as ConfigChangedFrame;
     expect(last.payload.changedFields).toContain('defaultPermissionMode');
     expect(last.payload.config['default_permission_mode']).toBe('yolo');
@@ -410,11 +414,8 @@ describe('server-v2 config changed WS notifications', () => {
 });
 
 describe('configChangedPublisher', () => {
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
   function setup() {
+    const clock = createFakeClock();
     const listeners = new Set<(event: ConfigSectionChangedEvent) => void>();
     let backing: Record<string, unknown> = {};
     const published: ConfigChanged[] = [];
@@ -442,13 +443,14 @@ describe('configChangedPublisher', () => {
         },
       },
     } as unknown as Scope;
-    const publisher = startConfigChangedPublisher(core);
+    const publisher = startConfigChangedPublisher(core, clock);
     const fire = (domain: string): void => {
       for (const listener of listeners) {
         listener({ domain, source: 'set', value: undefined, previousValue: undefined });
       }
     };
     return {
+      clock,
       publisher,
       published,
       fire,
@@ -460,32 +462,29 @@ describe('configChangedPublisher', () => {
   }
 
   it('merges section events inside one flush window into a single ConfigChanged', () => {
-    vi.useFakeTimers();
-    const { published, fire } = setup();
+    const { published, fire, clock } = setup();
 
     fire('defaultPermissionMode');
     fire('defaultModel');
-    vi.advanceTimersByTime(50);
+    clock.advance(50);
 
     expect(published).toHaveLength(1);
     expect(published[0]?.payload.changedFields).toEqual(['defaultModel', 'defaultPermissionMode']);
   });
 
   it('projects the full config snapshot at flush time', () => {
-    vi.useFakeTimers();
-    const { published, fire, setBacking } = setup();
+    const { published, fire, setBacking, clock } = setup();
 
     fire('defaultModel');
     setBacking({ defaultModel: 'k2', providers: {} });
-    vi.advanceTimersByTime(50);
+    clock.advance(50);
 
     expect(published).toHaveLength(1);
     expect(published[0]?.payload.config).toEqual({ default_model: 'k2', providers: {} });
   });
 
   it('redacts inline model credentials from the published config projection', () => {
-    vi.useFakeTimers();
-    const { published, fire, setBacking } = setup();
+    const { published, fire, setBacking, clock } = setup();
     setBacking({
       providers: {},
       models: {
@@ -499,7 +498,7 @@ describe('configChangedPublisher', () => {
     });
 
     fire('models');
-    vi.advanceTimersByTime(50);
+    clock.advance(50);
 
     expect(published).toHaveLength(1);
     const config = published[0]?.payload.config as Record<string, unknown>;
@@ -515,8 +514,7 @@ describe('configChangedPublisher', () => {
   });
 
   it('redacts inline service credentials from the published config projection', () => {
-    vi.useFakeTimers();
-    const { published, fire, setBacking } = setup();
+    const { published, fire, setBacking, clock } = setup();
     setBacking({
       providers: {},
       services: {
@@ -529,7 +527,7 @@ describe('configChangedPublisher', () => {
     });
 
     fire('services');
-    vi.advanceTimersByTime(50);
+    clock.advance(50);
 
     expect(published).toHaveLength(1);
     const config = published[0]?.payload.config as Record<string, unknown>;
@@ -544,27 +542,25 @@ describe('configChangedPublisher', () => {
   });
 
   it('always delivers a trailing event for late-arriving changes', () => {
-    vi.useFakeTimers();
-    const { published, fire } = setup();
+    const { published, fire, clock } = setup();
 
     fire('defaultPermissionMode');
-    vi.advanceTimersByTime(12);
+    clock.advance(12);
     fire('models');
-    vi.advanceTimersByTime(12);
+    clock.advance(12);
 
     expect(published).toHaveLength(2);
     expect(published[1]?.payload.changedFields).toEqual(['models']);
   });
 
   it('drops pending changes on close and never publishes afterwards', () => {
-    vi.useFakeTimers();
-    const { published, publisher, fire, isDisposed } = setup();
+    const { published, publisher, fire, isDisposed, clock } = setup();
 
     fire('defaultModel');
     publisher.close();
-    vi.advanceTimersByTime(50);
+    clock.advance(50);
     fire('models');
-    vi.advanceTimersByTime(50);
+    clock.advance(50);
 
     expect(published).toHaveLength(0);
     expect(isDisposed()).toBe(true);
@@ -704,12 +700,7 @@ describe('POST /config persistence failure reporting (a18/F2)', () => {
       expect(await readFile(tomlPath, 'utf-8')).toBe('this is = not = toml\n');
     } finally {
       await broken.close();
-      await rm(brokenHome, {
-        recursive: true,
-        force: true,
-        maxRetries: 5,
-        retryDelay: 50,
-      } as never);
+      await removeTempHome(brokenHome);
     }
   });
 });

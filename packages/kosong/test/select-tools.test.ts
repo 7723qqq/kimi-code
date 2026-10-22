@@ -10,7 +10,7 @@
  *   - the `dynamically_loaded_tools` capability bit (unknown/default-off semantics).
  */
 
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import { UNKNOWN_CAPABILITY, isUnknownCapability } from '#/capability';
 import { catalogModelToCapability } from '#/catalog';
@@ -71,8 +71,7 @@ async function captureRequestBody(
     stream: false,
   });
   let capturedBody: Record<string, unknown> | undefined;
-  (provider as any)._client.chat.completions.create = vi
-    .fn()
+  (provider as any)._client.chat.completions.create = mock()
     .mockImplementation((params: unknown) => {
       capturedBody = params as Record<string, unknown>;
       // The Kimi provider consumes `APIPromise.withResponse()` to read the
@@ -247,7 +246,7 @@ describe('providers without message-level tool declarations', () => {
   it('anthropic skips the message instead of emitting a <system></system> husk', async () => {
     const provider = new AnthropicChatProvider({ model: 'k25', apiKey: 'test-key', stream: false });
     let captured: Record<string, unknown> | undefined;
-    (provider as any)._client.messages.create = vi.fn().mockImplementation((params: unknown) => {
+    (provider as any)._client.messages.create = mock().mockImplementation((params: unknown) => {
       captured = params as Record<string, unknown>;
       return Promise.resolve({
         id: 'msg_test_123',
@@ -272,8 +271,7 @@ describe('providers without message-level tool declarations', () => {
       stream: false,
     });
     let captured: Record<string, unknown> | undefined;
-    (provider as any)._client.chat.completions.create = vi
-      .fn()
+    (provider as any)._client.chat.completions.create = mock()
       .mockImplementation((params: unknown) => {
         captured = params as Record<string, unknown>;
         return Promise.resolve({
@@ -305,8 +303,7 @@ describe('providers without message-level tool declarations', () => {
     const provider = new OpenAIResponsesChatProvider({ model: 'gpt-4.1', apiKey: 'test-key' });
     (provider as any)._stream = false;
     let captured: Record<string, unknown> | undefined;
-    ((provider as any)._client.responses as Record<string, unknown>)['create'] = vi
-      .fn()
+    ((provider as any)._client.responses as Record<string, unknown>)['create'] = mock()
       .mockImplementation((params: unknown) => {
         captured = params as Record<string, unknown>;
         return Promise.resolve({

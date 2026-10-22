@@ -37,7 +37,7 @@ For the full project map, see [DEVELOP.md](DEVELOP.md).
 
 ## Development Setup
 
-Prerequisites: Bun >= 1.4, Git. Node.js is no longer required for the Bun-based development workflow — the vitest suites run under the Bun runtime (`bun --bun run test`; plain `bun run test` keeps working under a local Node too). The Nix build path (`flake.nix`, `nix-build.yml`) still requires Node.js >= 24.15.0.
+Prerequisites: Bun >= 1.4, Git. Node.js is no longer required for the Bun-based development workflow — the test suites run on Bun's native `bun test` (`bun run test` runs every package, and no Node install is needed). The Nix build path (`flake.nix`, `nix-build.yml`) still requires Node.js >= 24.15.0.
 
 ```sh
 git clone https://github.com/7723qqq/kimi-code.git
@@ -58,7 +58,7 @@ modify/delete conflicts. One-time setup per clone:
 Useful scripts:
 
 - `bun run dev:local` — run the CLI in dev mode from a fresh bundle (incremental, ~2s). Add `:watch` (`bun run dev:local:watch`) to rebuild and re-run on every source change. Two other paths exist: `bun run dev:cli` delegates to `apps/kimi-code/scripts/dev.mjs` (starts a local plugin marketplace server, then runs the CLI) and is what `start-native.bat` uses; `dev:cli-only` is the one that executes `src/main.ts` directly and is broken under Bun 1.4.2, because Bun does not resolve the `#/*` subpath imports the packages rely on, so it aborts with `Cannot find module '#/kimi-harness'`.
-- `bun --bun run test` — run tests (vitest). **This is the canonical command and what CI runs** (`.github/workflows/ci.yml`). The `--bun` flag runs vitest on the Bun runtime rather than Node, and the two produce different results: `bunx vitest` has been observed to pass while `bun --bun run test` fails on the same code. Always use `bun --bun run test` when checking whether a suite is green.
+- `bun run test` — run tests with Bun's native `bun:test` runner. **This is the canonical command and what CI runs** (`.github/workflows/ci.yml`). It walks every package and runs that package's own `bun test --isolate`, so each package's `bunfig.toml` preload/ignores still apply. Inside one package, `bun test --isolate <paths>` is the narrowest scope.
 - `bun run typecheck` — TypeScript check (note: builds packages first). Covers `packages/*` plus the `kimi-code`, `kimi-inspect`, `vscode`, `vis/server` and `vis/web` apps. It does **not** cover `docs/` (VitePress content).
 - `bun run build:docs` — build the user documentation. VitePress fails on dead internal links, so run this after editing anything under `docs/`.
 - `bun run lint` — oxlint
@@ -148,7 +148,6 @@ Runtime integration notes:
 - Packaged builds resolve pi-tui's platform helper from the extracted asset cache at load time.
 - Built-in URL-fetch keeps SSRF guard semantics identical by defaulting to the bundled `undici` fetch (Bun's global fetch silently ignores its pinned-DNS dispatcher option).
 - Self-update is engine-aware: the native manifest carries a single Bun section, a Bun packaged binary downloads the release's matching Bun artifact, and refuses to fall back to any other engine's binary.
-- `/status` reports the packaging engine and native-tools implementation (`Runtime  bun · rust`).
 - Bun auto-loads `.env` files (the previous pnpm-era dev flow did not); run `bun --no-env-file` when you need the old behavior.
 
 To measure startup cost of a build, copy it aside (it writes to `dist-native/bin/<target>/kimi`) and run:
@@ -174,7 +173,7 @@ bun scripts/native/bench-native.mjs ./dist-native/bin/linux-x64/kimi --runs 20
 | `packages/i18n-shared` build fails with `UNRESOLVED_ENTRY` | Missing `src/index.ts` | Create `src/index.ts` re-exporting types, core, and detect modules |
 | `kimi.exe` from CDN shows English despite `locale=zh` | The CDN binary includes only the bundled locale; download date determines version | Build locally or wait for next CDN release |
 | Unexpected env vars appear under `bun run` | Bun auto-loads `.env` (the pnpm-era dev flow did not) | Remove or rename the file, or run `bun --no-env-file` |
-| Nix build fails with `hash mismatch in fixed-output derivation '...bun-deps...'` | `bun.lock` or a `Cargo.lock` changed, so the vendored-dependencies FOD output changed | Set `outputHash` in `flake.nix` to `lib.fakeSha256`, push, then paste the `got:` hash from the failure (the nix-build bot posts it on PRs) |
+| Nix build fails with `hash mismatch in fixed-output derivation '...bun-deps...'` | `bun.lock` changed, so the vendored-dependencies FOD output changed | Set `outputHash` in `flake.nix` to `lib.fakeSha256`, push, then paste the `got:` hash from the failure (the nix-build bot posts it on PRs) |
 
 ## Commit Convention
 
@@ -221,7 +220,7 @@ Every push to `main` runs the Release workflow, which installs dependencies, bui
 
 ## Pull Requests
 
-Every PR opens with the [PR template](.github/pull_request_template.md). PR titles must follow [Conventional Commits](#commit-convention); CI runs `bun run lint`, `bun run typecheck`, and `bun --bun run test` on every PR. Update user-facing docs in `docs/` when behavior changes — use the `gen-docs` skill when working with coding agents.
+Every PR opens with the [PR template](.github/pull_request_template.md). PR titles must follow [Conventional Commits](#commit-convention); CI runs `bun run lint`, `bun run typecheck`, and `bun run test` on every PR. Update user-facing docs in `docs/` when behavior changes — use the `gen-docs` skill when working with coding agents.
 
 ## Code Style
 

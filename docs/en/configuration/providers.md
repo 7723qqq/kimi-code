@@ -17,6 +17,8 @@ The `type` field in the `providers` table determines which protocol implementati
 
 All providers communicate with models in streaming mode by default. Capabilities such as thinking, vision, and tool use are matched automatically by model name prefix, so you typically do not need to declare them manually.
 
+`deepseek` is not a separate type: it is a provider id that the CLI already knows, registered over the `openai` protocol. See [`deepseek`](#deepseek).
+
 **Credential priority**: `api_key` or `api_key_env` (mutually exclusive alternatives — set exactly one) > `[providers.<name>.env]` sub-table key (only when neither is present) > if all are absent, startup fails with an error. Except for the explicitly declared `api_key_env`, the CLI does not fall back to shell environment variables for credentials. See [Config overrides: provider credentials](./overrides.md#provider-credentials).
 
 ## `/provider` — interactive provider management
@@ -200,6 +202,28 @@ type = "openai"
 base_url = "https://api.openai.com/v1"
 api_key = "sk-xxxxx"
 ```
+
+## `deepseek`
+
+A first-class provider for DeepSeek's own endpoint. It speaks the OpenAI Chat Completions protocol (so `type` is `openai`), but registering it under its own id gives the CLI the DeepSeek model family: the family output ceilings, the reasoning-replay rule, the ignored sampling parameters, and the family guidance. Without this entry those behaviours still apply by model name, but the endpoint has no declared default and you have to write `base_url` yourself.
+
+- Default `base_url`: `https://api.deepseek.com`
+- Credential key names: `DEEPSEEK_API_KEY`, `DEEPSEEK_BASE_URL`
+- Definition selection: the provider **id** `deepseek` selects this entry, so `type` stays `openai`. Omitting `base_url` falls back to `DEEPSEEK_BASE_URL` in the env table, then to the declared default.
+- Family detection: any model id whose segment starts with `deepseek` or `xopdeepseek` (longest prefix wins), including provider-qualified and gateway shapes such as `deepseek/deepseek-v4` and `vendor/deepseek-proxy/foo`
+
+```toml
+[providers.deepseek]
+type = "openai"
+base_url = "https://api.deepseek.com"
+api_key = "sk-xxxxx"
+
+[models.deepseek-v4.1-flash]
+provider = "deepseek"
+model = "deepseek-v4.1-flash"
+```
+
+Requests to this family carry an explicit output ceiling when you set none (8192, or 65536 with thinking, or 131072 at `max` effort), so an endpoint whose own default is lower cannot silently truncate the answer. Set `max_output_size` on the model alias to override it.
 
 ## `openai_responses`
 

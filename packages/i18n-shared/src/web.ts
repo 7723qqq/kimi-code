@@ -1,7 +1,7 @@
 /**
  * Browser i18n factory — pure JavaScript, no native dependencies.
  *
- * Uses the same logic as the Rust engine (mirrored in `core.ts`), so
+ * Uses the same logic as the Node.js factory (shared in `core.ts`), so
  * translations are identical across Node.js and browser environments.
  *
  * Includes:

@@ -24,7 +24,8 @@ import {
 import { MEDIA_STAGING_TTL_SECONDS } from '../constant/media';
 import type { StatusSurfaceKey } from '../components/chrome/status-surface/region';
 import type { TUIState } from '../tui-state';
-import type { PendingExit, QueuedMessage } from '../types';
+import type { QueuedMessage } from '../types';
+import { SYSTEM_RENDER_CLOCK, type RenderClock, type RenderTimerHandle } from '../utils/render-clock';
 import { formatErrorMessage } from '../utils/event-payload';
 import type {
   ImageAttachment,
@@ -95,14 +96,22 @@ export interface EditorKeyboardHost {
   updateActivityPane(): void;
 }
 
+interface PendingExitTimer {
+  readonly kind: 'ctrl-c' | 'ctrl-d';
+  readonly timer: RenderTimerHandle;
+}
+
+export type KeyboardClock = Pick<RenderClock, 'setTimeout' | 'clearTimeout'>;
+
 export class EditorKeyboardController {
-  private pendingExit: PendingExit | null = null;
-  private pendingUndoEsc: { readonly timer: ReturnType<typeof setTimeout> } | null = null;
+  private pendingExit: PendingExitTimer | null = null;
+  private pendingUndoEsc: { readonly timer: RenderTimerHandle } | null = null;
   private disposed = false;
 
   constructor(
     private readonly host: EditorKeyboardHost,
     private readonly imageStore: ImageAttachmentStore,
+    private readonly clock: KeyboardClock = SYSTEM_RENDER_CLOCK,
   ) {}
 
   install(): void {
@@ -519,7 +528,7 @@ export class EditorKeyboardController {
   }
   clearPendingExit(): void {
     if (!this.pendingExit) return;
-    clearTimeout(this.pendingExit.timer);
+    this.clock.clearTimeout(this.pendingExit.timer);
     this.host.state.footer.setTransientHint(null);
     this.pendingExit = null;
   }
@@ -532,7 +541,7 @@ export class EditorKeyboardController {
 
   private armPendingUndoEsc(): void {
     this.clearPendingUndoEsc();
-    const timer = setTimeout(() => {
+    const timer = this.clock.setTimeout(() => {
       if (this.pendingUndoEsc?.timer === timer) {
         this.pendingUndoEsc = null;
       }
@@ -542,7 +551,7 @@ export class EditorKeyboardController {
 
   private clearPendingUndoEsc(): void {
     if (!this.pendingUndoEsc) return;
-    clearTimeout(this.pendingUndoEsc.timer);
+    this.clock.clearTimeout(this.pendingUndoEsc.timer);
     this.pendingUndoEsc = null;
   }
 
@@ -550,7 +559,7 @@ export class EditorKeyboardController {
     this.clearPendingExit();
     this.host.state.footer.setTransientHint(hint);
 
-    const timer = setTimeout(() => {
+    const timer = this.clock.setTimeout(() => {
       if (this.pendingExit?.timer === timer) {
         this.clearPendingExit();
         this.host.state.ui.requestRender();

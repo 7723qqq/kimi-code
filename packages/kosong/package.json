@@ -88,6 +88,7 @@
   "scripts": {
     "build": "tsdown",
     "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "bun ../../scripts/run-package-tests.mjs --root=test",
     "clean": "bun -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })\""
   },
   "dependencies": {

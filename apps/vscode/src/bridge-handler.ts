@@ -1,6 +1,8 @@
 import * as path from "node:path";
 import * as vscode from "vscode";
 
+import type { createKimiHarness } from "@moonshot-ai/kimi-code-sdk";
+
 import {
   validateRpcMessage,
   type RpcMethod,
@@ -36,6 +38,7 @@ export class BridgeHandler {
     private readonly reloadWebview: ReloadWebviewFn,
     private readonly showLogs: ShowLogsFn,
     private readonly writeLog: (message: string) => void,
+    createHarness?: typeof createKimiHarness,
   ) {
     try {
       this.runtime = new KimiRuntime({
@@ -45,6 +48,7 @@ export class BridgeHandler {
           this.captureFileBaseline(session, filePath, webviewIds);
         },
         log: (message, error) => this.logRuntimeError(message, error),
+        createHarness,
       });
     } catch (error) {
       throw new Error(

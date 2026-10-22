@@ -74,7 +74,14 @@ type PendingRequest = {
 };
 
 const DEFAULT_READY_TIMEOUT_MS = 15_000;
-const DEFAULT_CLOSE_TIMEOUT_MS = 30_000;
+const DEFAULT_CLOSE_TIMEOUT_MS = 5_000;
+const RUNTIME_IS_BUN = typeof (globalThis as { Bun?: unknown }).Bun !== 'undefined';
+
+async function stopWorker(worker: Worker): Promise<void> {
+  try {
+    await Promise.resolve(worker.terminate() as unknown as Promise<void> | undefined);
+  } catch {}
+}
 const DEFAULT_MAX_OLD_SPACE_MB = 1024;
 const STABLE_SESSION_MS = 60_000;
 const BACKOFF_BASE_MS = 500;
@@ -173,7 +180,8 @@ export class SearchWorkerHost {
   async killWorkerForTest(): Promise<void> {
     const worker = this.worker;
     if (worker === null) return;
-    await worker.terminate();
+    await stopWorker(worker);
+    this.onExit(worker, 0);
     await this.waitForExit();
   }
 
@@ -186,7 +194,8 @@ export class SearchWorkerHost {
     if (worker === null) {
       throw new SearchWorkerError('crashed', 'search worker is not running');
     }
-    return this.sendRequest(worker, type, params) as Promise<SearchWorkerResultMap[T]>;
+    const pending = this.sendRequest(worker, type, params) as Promise<SearchWorkerResultMap[T]>;
+    return pending;
   }
 
   private sendRequest(
@@ -230,7 +239,7 @@ export class SearchWorkerHost {
     pending.reject(new SearchWorkerError('crashed', message));
     const worker = this.worker;
     if (worker !== null) {
-      void worker.terminate().catch(() => {});
+      void stopWorker(worker).then(() => this.onExit(worker, 0));
     }
   }
 
@@ -300,12 +309,14 @@ export class SearchWorkerHost {
       if (fsSync.statSync(source).isFile()) {
         return {
           url: source,
-          execArgv: [
-            '--experimental-transform-types',
-            '--disable-warning=ExperimentalWarning',
-            '--import',
-            new URL('./register-dev-hooks.mjs', import.meta.url).href,
-          ],
+          execArgv: RUNTIME_IS_BUN
+            ? []
+            : [
+                '--experimental-transform-types',
+                '--disable-warning=ExperimentalWarning',
+                '--import',
+                new URL('./register-dev-hooks.mjs', import.meta.url).href,
+              ],
         };
       }
     } catch {}
@@ -322,7 +333,14 @@ export class SearchWorkerHost {
   }
 
   private async doSpawn(): Promise<void> {
-    await this.reapPromise;
+    let reapTimer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      this.reapPromise ?? Promise.resolve(),
+      new Promise<void>((resolve) => {
+        reapTimer = setTimeout(resolve, 2_000);
+      }),
+    ]);
+    if (reapTimer !== undefined) clearTimeout(reapTimer);
     const entry = this.resolveEntry();
     const textBuild = getTextBuildWorkerRuntimeState();
     const data: SearchWorkerData = {
@@ -336,20 +354,30 @@ export class SearchWorkerHost {
     };
     let worker: Worker;
     try {
+      (globalThis as unknown as { setEnvironmentData?: (value: unknown) => void }).setEnvironmentData?.(
+        data,
+      );
+      const BunWorker = (
+        globalThis as unknown as {
+          Worker?: new (url: URL, options?: Record<string, unknown>) => Worker;
+        }
+      ).Worker;
       worker =
         this.options.workerFactory?.({
           url: entry.url,
           data,
           execArgv: entry.execArgv,
         }) ??
-        new Worker(entry.url, {
-          workerData: data,
-          execArgv: entry.execArgv,
-          resourceLimits: {
-            maxOldGenerationSizeMb: this.options.maxOldSpaceMb ?? DEFAULT_MAX_OLD_SPACE_MB,
-          },
-          name: 'kimi-search-worker',
-        });
+        (RUNTIME_IS_BUN && BunWorker !== undefined
+          ? new BunWorker(entry.url, {})
+          : new Worker(entry.url, {
+              workerData: data,
+              execArgv: entry.execArgv,
+              resourceLimits: {
+                maxOldGenerationSizeMb: this.options.maxOldSpaceMb ?? DEFAULT_MAX_OLD_SPACE_MB,
+              },
+              name: 'kimi-search-worker',
+            }));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       this.noteFailure(`spawn failed: ${message}`);
@@ -357,11 +385,14 @@ export class SearchWorkerHost {
     }
     worker.unref();
     this.attach(worker);
+    if (RUNTIME_IS_BUN) {
+      worker.postMessage({ v: SEARCH_WORKER_PROTOCOL_VERSION, type: 'init', params: data });
+    }
     try {
       await this.awaitReady(worker);
     } catch (error) {
       this.detach();
-      await worker.terminate().catch(() => {});
+      await stopWorker(worker);
       const message = error instanceof Error ? error.message : String(error);
       this.noteFailure(`handshake failed: ${message}`);
       throw new SearchWorkerError('spawn-failed', `search worker handshake failed: ${message}`);
@@ -379,9 +410,24 @@ export class SearchWorkerHost {
   }
 
   private attach(worker: Worker): void {
-    worker.on('message', (event: SearchWorkerEvent) => this.onMessage(worker, event));
-    worker.on('error', (error: Error) => this.onError(worker, error));
-    worker.on('exit', (code: number) => this.onExit(worker, code));
+    const nodeLike = worker as unknown as { on?: unknown };
+    if (typeof nodeLike.on === 'function') {
+      worker.on('message', (event: SearchWorkerEvent) => this.onMessage(worker, event));
+      worker.on('error', (error: Error) => this.onError(worker, error));
+      worker.on('exit', (code: number) => this.onExit(worker, code));
+      return;
+    }
+    const bunLike = worker as unknown as {
+      onmessage: ((event: { data: unknown }) => void) | null;
+      onerror: ((event: { error?: unknown }) => void) | null;
+      onclose: ((event: { code?: number }) => void) | null;
+    };
+    bunLike.onmessage = (event) => this.onMessage(worker, event.data as SearchWorkerEvent);
+    bunLike.onerror = (event) => {
+      const error = event.error;
+      this.onError(worker, error instanceof Error ? error : new Error(String(error)));
+    };
+    bunLike.onclose = (event) => this.onExit(worker, event.code ?? 0);
   }
 
   private detach(): void {
@@ -467,15 +513,18 @@ export class SearchWorkerHost {
   }
 
   private async reapLockFile(token: string | undefined): Promise<void> {
-    if (token === undefined) return;
     const lockPath = join(this.dir, 'db.lock');
     try {
       const raw = await readFile(lockPath, 'utf8');
       const parsed = JSON.parse(raw) as { pid?: unknown; token?: unknown };
-      if (parsed.pid === process.pid && parsed.token === token) {
-        await rm(lockPath, { force: true });
-        this.log.warn('global search: reaped the lock left by the dead worker', { dir: this.dir });
+      if (parsed.pid !== process.pid) return;
+      const held = parsed.token;
+      if (held !== undefined) {
+        if (typeof held !== 'string' || held !== token) return;
+        if (liveLockTokens.has(held)) return;
       }
+      await rm(lockPath, { force: true });
+      this.log.warn('global search: reaped the lock left by the dead worker', { dir: this.dir });
     } catch {}
   }
 
@@ -511,12 +560,42 @@ export class SearchWorkerHost {
         cleanup();
         reject(new Error(`worker exited before ready (code ${code})`));
       };
+      const useNodeEvents = typeof (worker as unknown as { on?: unknown }).on === 'function';
+      const bunLike = worker as unknown as {
+        onmessage: ((event: { data: unknown }) => void) | null;
+        onerror: ((event: { error?: unknown; message?: string }) => void) | null;
+        onclose: ((event: { code?: number }) => void) | null;
+      };
       const cleanup = (): void => {
         clearTimeout(timer);
+        if (!useNodeEvents) {
+          bunLike.onmessage = (event) => this.onMessage(worker, event.data as SearchWorkerEvent);
+          bunLike.onerror = (event) => {
+            const detail =
+              event.error instanceof Error
+                ? event.error.message
+                : (event.message ?? String(event.error));
+            this.onError(worker, new Error(detail));
+          };
+          bunLike.onclose = (event) => this.onExit(worker, event.code ?? 0);
+          return;
+        }
         worker.off('message', onMessage);
         worker.off('error', onError);
         worker.off('exit', onExit);
       };
+      if (!useNodeEvents) {
+        bunLike.onmessage = (event) => onMessage(event.data as SearchWorkerEvent);
+        bunLike.onerror = (event) => {
+          const detail =
+            event.error instanceof Error
+              ? event.error.message
+              : (event.message ?? String(event.error));
+          onError(new Error(`worker error: ${detail}`));
+        };
+        bunLike.onclose = (event) => onExit(event.code ?? 0);
+        return;
+      }
       worker.on('message', onMessage);
       worker.on('error', onError);
       worker.on('exit', onExit);
@@ -526,10 +605,16 @@ export class SearchWorkerHost {
   private waitForExit(): Promise<void> {
     if (this.worker === null) return Promise.resolve();
     return new Promise<void>((resolve) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const settle = () => {
+        if (timer !== undefined) clearTimeout(timer);
+        resolve();
+      };
+      timer = setTimeout(settle, 2_000);
       const previous = this.exitResolve;
       this.exitResolve = () => {
         previous?.();
-        resolve();
+        settle();
       };
     });
   }
@@ -582,7 +667,8 @@ export class SearchWorkerHost {
     await rm(lockPath, { force: true }).catch(() => {});
     const worker = this.worker;
     if (worker === null) return;
-    await worker.terminate().catch(() => {});
+    await stopWorker(worker);
+    this.onExit(worker, 0);
   }
 
   dispose(): Promise<void> {
@@ -594,7 +680,14 @@ export class SearchWorkerHost {
   private disposePromise: Promise<void> | null = null;
 
   private async doDispose(): Promise<void> {
-    await this.spawnPromise?.catch(() => {});
+    let spawnTimer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      this.spawnPromise?.catch(() => {}) ?? Promise.resolve(),
+      new Promise<void>((resolve) => {
+        spawnTimer = setTimeout(resolve, 2_000);
+      }),
+    ]);
+    if (spawnTimer !== undefined) clearTimeout(spawnTimer);
     const worker = this.worker;
     if (worker === null) return;
     const closeTimeoutMs = this.options.closeTimeoutMs ?? DEFAULT_CLOSE_TIMEOUT_MS;
@@ -606,7 +699,6 @@ export class SearchWorkerHost {
           timeout = setTimeout(() => {
             reject(new Error(`search worker close timed out after ${closeTimeoutMs}ms`));
           }, closeTimeoutMs);
-          timeout.unref?.();
         }),
       ]);
     } catch {
@@ -614,7 +706,13 @@ export class SearchWorkerHost {
       if (timeout !== null) clearTimeout(timeout);
     }
     if (this.worker !== null) {
-      await worker.terminate().catch(() => {});
+      await stopWorker(worker);
+      this.detach();
+      for (const pending of this.requests.values()) {
+        if (pending.watchdog !== undefined) clearTimeout(pending.watchdog);
+        pending.reject(new SearchWorkerError('disposed', 'search worker is disposed'));
+      }
+      this.requests.clear();
       await this.waitForExit();
     }
   }

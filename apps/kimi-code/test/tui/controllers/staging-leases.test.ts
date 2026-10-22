@@ -1,5 +1,5 @@
 import type { Event } from '@moonshot-ai/kimi-code-sdk';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock, type Mock } from 'bun:test';
 
 import {
   StagingLeaseTracker,
@@ -26,23 +26,21 @@ function turnEnded(turnId: number | string): TurnEndedEvent {
 
 function makeEffects(): {
   effects: StagingLeaseEffects;
-  takeFileIds: ReturnType<typeof vi.fn<(ids: readonly number[]) => readonly string[]>>;
-  releaseRetains: ReturnType<typeof vi.fn<(ids: readonly number[]) => void>>;
-  deleteFiles: ReturnType<
-    typeof vi.fn<(fileIds: readonly string[], paths: readonly string[]) => Promise<void>>
-  >;
-  warn: ReturnType<typeof vi.fn<(message: string) => void>>;
+  takeFileIds: Mock<(ids: readonly number[]) => readonly string[]>;
+  releaseRetains: Mock<(ids: readonly number[]) => void>;
+  deleteFiles: Mock<(fileIds: readonly string[], paths: readonly string[]) => Promise<void>>;
+  warn: Mock<(message: string) => void>;
   deleted: { fileIds: string[]; paths: string[] };
 } {
   const deleted = { fileIds: [] as string[], paths: [] as string[] };
-  const takeFileIds = vi.fn((ids: readonly number[]) => ids.map((id) => `file-${id}`));
-  const releaseRetains = vi.fn((ids: readonly number[]) => void ids);
-  const deleteFiles = vi.fn((fileIds: readonly string[], paths: readonly string[]) => {
+  const takeFileIds = mock((ids: readonly number[]) => ids.map((id) => `file-${id}`));
+  const releaseRetains = mock((ids: readonly number[]) => void ids);
+  const deleteFiles = mock((fileIds: readonly string[], paths: readonly string[]) => {
     deleted.fileIds.push(...fileIds);
     deleted.paths.push(...paths);
     return Promise.resolve();
   });
-  const warn = vi.fn((message: string) => void message);
+  const warn = mock((message: string) => void message);
   return {
     effects: { takeFileIds, releaseRetains, deleteFiles, warn },
     takeFileIds,
@@ -108,7 +106,7 @@ describe('StagingLeaseTracker', () => {
 
       tracker.handleTurnStarted(turnStarted(1, 'user'));
 
-      expect(warn).toHaveBeenCalledOnce();
+      expect(warn).toHaveBeenCalledTimes(1);
       expect(warn.mock.calls[0]![0]).toContain("'user'");
       expect(warn.mock.calls[0]![0]).toContain('1');
     });
@@ -146,7 +144,7 @@ describe('StagingLeaseTracker', () => {
 
       expect(first?.turnId).toBe('1');
       expect(second?.turnId).toBeUndefined();
-      expect(warn).toHaveBeenCalledOnce();
+      expect(warn).toHaveBeenCalledTimes(1);
     });
 
     it('does not exact-bind a released lease whose submission id is echoed again', () => {
@@ -325,7 +323,7 @@ describe('StagingLeaseTracker', () => {
     it('keeps the lease when the dispatch resolves', async () => {
       const { tracker, deleteFiles } = makeTracker();
       const lease = tracker.create([1], ['/cache/a'], origin);
-      const onError = vi.fn();
+      const onError = mock();
 
       tracker.trackDispatch(lease, Promise.resolve(), onError);
       await tracker.drain();
@@ -338,12 +336,12 @@ describe('StagingLeaseTracker', () => {
     it('releases an unclaimed lease exactly once when the dispatch rejects', async () => {
       const { tracker, deleted } = makeTracker();
       const lease = tracker.create([1], ['/cache/a'], origin);
-      const onError = vi.fn();
+      const onError = mock();
 
       tracker.trackDispatch(lease, Promise.reject(new Error('boom')), onError);
       await tracker.drain();
 
-      expect(onError).toHaveBeenCalledOnce();
+      expect(onError).toHaveBeenCalledTimes(1);
       expect(deleted.fileIds).toEqual(['file-1']);
       expect(deleted.paths).toEqual(['/cache/a']);
       // A later turn end must not delete again.
@@ -357,7 +355,7 @@ describe('StagingLeaseTracker', () => {
       const lease = tracker.create([1], ['/cache/a'], origin);
       tracker.bindToTurn(lease, '7');
 
-      tracker.trackDispatch(lease, Promise.reject(new Error('boom')), vi.fn());
+      tracker.trackDispatch(lease, Promise.reject(new Error('boom')), mock());
       await tracker.drain();
       expect(deleted.fileIds).toEqual([]);
 
@@ -387,7 +385,7 @@ describe('StagingLeaseTracker', () => {
       tracker.bindToTurn(lease, '7');
       const request = pending();
 
-      tracker.trackDispatch(lease, request.promise, vi.fn());
+      tracker.trackDispatch(lease, request.promise, mock());
       tracker.handleTurnEnded(turnEnded(7));
       expect(deleted.fileIds).toEqual([]);
 
@@ -418,7 +416,7 @@ describe('StagingLeaseTracker', () => {
       tracker.bindToTurn(lease, '7');
       const request = pending();
 
-      tracker.trackDispatch(lease, request.promise, vi.fn());
+      tracker.trackDispatch(lease, request.promise, mock());
       tracker.handleTurnEnded(turnEnded(7));
       request.reject(new Error('boom'));
       await tracker.drain();

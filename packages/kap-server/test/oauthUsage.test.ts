@@ -13,7 +13,8 @@ import {
   type ManagedUsageResult,
   type ManagedUserInfoResult,
 } from '@moonshot-ai/agent-core-v2/app/auth/oauthProtocol';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { removeTempHome } from './helpers/tempHome';
 
 import { type RunningServer, startServer } from '../src/start';
 import { authHeaders } from './helpers/auth';
@@ -41,7 +42,7 @@ describe('server-v2 GET /api/v1/oauth/usage', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
+      await removeTempHome(home);
       home = undefined;
     }
   });
@@ -92,7 +93,7 @@ describe('server-v2 GET /api/v1/oauth/usage', () => {
   }
 
   it('returns the ok quota payload in the camelCase domain shape', async () => {
-    const getManagedUsage = vi.fn(async () => ({
+    const getManagedUsage = mock(async () => ({
       kind: 'ok' as const,
       quota: {
         usages: {
@@ -133,7 +134,7 @@ describe('server-v2 GET /api/v1/oauth/usage', () => {
   });
 
   it('passes through the error payload and forwards the provider query', async () => {
-    const getManagedUsage = vi.fn(async (_provider?: string) => ({
+    const getManagedUsage = mock(async (_provider?: string) => ({
       kind: 'error' as const,
       message: 'Authorization failed.',
       status: 401,
@@ -164,7 +165,7 @@ describe('server-v2 GET /api/v1/oauth/userinfo', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
+      await removeTempHome(home);
       home = undefined;
     }
   });
@@ -217,7 +218,7 @@ describe('server-v2 GET /api/v1/oauth/userinfo', () => {
   }
 
   it('returns the ok profile payload in the camelCase domain shape', async () => {
-    const getManagedUserInfo = vi.fn(async () => ({
+    const getManagedUserInfo = mock(async () => ({
       kind: 'ok' as const,
       userInfo: {
         userId: 'u_123',
@@ -262,7 +263,7 @@ describe('server-v2 GET /api/v1/oauth/userinfo', () => {
   });
 
   it('passes through the error payload and forwards the provider query', async () => {
-    const getManagedUserInfo = vi.fn(async (_provider?: string) => ({
+    const getManagedUserInfo = mock(async (_provider?: string) => ({
       kind: 'error' as const,
       message: 'Authorization failed.',
       status: 401,

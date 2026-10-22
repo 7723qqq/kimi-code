@@ -25,14 +25,21 @@ export function buildClipboardOSC52(text: string, insideTmux = isInsideTmux()): 
   return `${ESC}Ptmux;${escaped}${ESC}${ST}`;
 }
 
+/** Where an OSC 52 sequence is written; defaults to `process.stdout`. */
+export interface Osc52Sink {
+  readonly isTTY?: boolean;
+  write(data: string): unknown;
+}
+
 /**
- * Write the OSC 52 sequence to stdout. Returns false when stdout is not a
- * terminal (the sequence would pollute piped output) or the write failed.
+ * Write the OSC 52 sequence to `sink` (stdout by default). Returns false when
+ * the sink is not a terminal (the sequence would pollute piped output) or the
+ * write failed.
  */
-export function writeClipboardOSC52(text: string): boolean {
-  if (!process.stdout.isTTY) return false;
+export function writeClipboardOSC52(text: string, sink: Osc52Sink = process.stdout): boolean {
+  if (!sink.isTTY) return false;
   try {
-    process.stdout.write(buildClipboardOSC52(text));
+    sink.write(buildClipboardOSC52(text));
     return true;
   } catch {
     return false;

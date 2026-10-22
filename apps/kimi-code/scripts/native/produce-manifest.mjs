@@ -69,9 +69,9 @@ async function sha256(path) {
   });
 }
 
-async function run(command, args) {
+async function run(command, args, options = {}) {
   try {
-    await execFileAsync(command, args);
+    await execFileAsync(command, args, options);
   } catch (error) {
     const detail = [error.stdout?.trim(), error.stderr?.trim(), error.message]
       .filter(Boolean)
@@ -148,7 +148,9 @@ for (const [target, entry] of Object.entries(bun)) {
     // -T0 uses every core: these binaries are ~150 MB, and -19 is the level
     // the published assets have always been built with.
     await run('zstd', ['-T0', '-19', '-q', '-f', '-o', resolve(inputDir, zstdName), exePath]);
-    await run('tar', ['-C', workDir, '-czf', resolve(inputDir, tarballName), exeName]);
+    // GNU tar reads `C:\...` as `host:path` and tries to reach a remote host, so the
+    // archive path is passed relative to the output directory instead of absolute.
+    await run('tar', ['-C', workDir, '-czf', tarballName, exeName], { cwd: inputDir });
 
     for (const name of [tarballName, zstdName]) {
       const digest = await sha256(resolve(inputDir, name));

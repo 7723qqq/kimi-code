@@ -1,17 +1,13 @@
 import { setLocale } from '@moonshot-ai/kimi-i18n';
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import { makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { getAgentToolContributions } from '#/agent/toolRegistry/toolContribution';
 import { IAgentTeamTool, TeamToolInputSchema } from '#/agent/tools/team/team';
 import { TeamTool } from '#/agent/tools/team/teamTool';
-import type { IAgentSwarmService } from '#/features/swarm/agent/swarm';
-import type {
-  IPersistentSubagentService,
-  PersistentSubagentHost,
-  PersistentSubagentSpawnOptions,
-} from '#/session/subagent/persistentSubagent';
-import type { ExecutableToolContext } from '#/tool/toolContract';
+import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
+import { IPersistentSubagentService, type PersistentSubagentHost, type PersistentSubagentSpawnOptions } from '#/session/subagent/persistentSubagent';
+import { type ExecutableToolContext } from '#/tool/toolContract';
 
 import { executeTool } from '../../../tools/fixtures/execute-tool';
 
@@ -21,9 +17,9 @@ type TestContext<Input> = ExecutableToolContext & { readonly args: Input };
 
 interface ToolStubs {
   readonly service: IPersistentSubagentService;
-  readonly bind: Mock;
+  readonly bind: ReturnType<typeof mock>;
   readonly swarmMode: IAgentSwarmService;
-  readonly enter: Mock;
+  readonly enter: ReturnType<typeof mock>;
   readonly spawned: PersistentSubagentSpawnOptions[];
   readonly turns: Array<{ readonly agentId: string; readonly prompt: string }>;
   readonly destroyed: string[];
@@ -51,9 +47,9 @@ function createToolStubs(replies: readonly string[] = []): ToolStubs {
       destroyed.push(agentId);
     },
   };
-  const bind = vi.fn(() => host);
-  const enter = vi.fn();
-  const exit = vi.fn();
+  const bind = mock(() => host);
+  const enter = mock();
+  const exit = mock();
 
   return {
     service: { _serviceBrand: undefined, bind },
@@ -120,7 +116,7 @@ describe('TeamTool', () => {
     setLocale('en');
   });
   afterEach(() => {
-    vi.restoreAllMocks();
+    mock.restore();
   });
 
   it('exposes the Team name and validates its input schema', () => {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { inputSubmitted, messageAppended, turnEnded, turnStarted } from '#/agent/events';
 import { createAgentMachine } from '#/agent/machine';

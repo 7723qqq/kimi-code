@@ -25,6 +25,12 @@ import { darkColors } from '../theme/colors';
 import { formatErrorMessage } from '../utils/event-payload';
 import type { SlashCommandHost } from './dispatch';
 
+export interface WebCommandIO {
+  readonly stdout?: Pick<NodeJS.WriteStream, 'write'>;
+  readonly stderr?: Pick<NodeJS.WriteStream, 'write'>;
+  readonly exit?: (code: number) => never | void;
+}
+
 /**
  * `/web` — hand the current session off to the browser.
  *
@@ -33,18 +39,27 @@ import type { SlashCommandHost } from './dispatch';
  * next free port alongside any running ones. The session deep link opens from
  * the ready hook once the server is actually listening.
  */
-export async function handleWebCommand(host: SlashCommandHost): Promise<void> {
+export async function handleWebCommand(
+  host: SlashCommandHost,
+  io: WebCommandIO = {},
+): Promise<void> {
   const session = host.session;
   if (session === undefined) {
     host.showError(getNoActiveSessionMessage());
     return;
   }
 
-  startNewServerAfterExit(host, session.id);
+  startNewServerAfterExit(host, session.id, io);
   await host.stop();
 }
 
-export async function handleRemoteControlCommand(host: SlashCommandHost): Promise<void> {
+export async function handleRemoteControlCommand(
+  host: SlashCommandHost,
+  io: WebCommandIO = {},
+): Promise<void> {
+  const stdout = io.stdout ?? process.stdout;
+  const stderr = io.stderr ?? process.stderr;
+  const exit = io.exit ?? ((code: number): never => process.exit(code));
   await host.waitForLazyCreation();
   const session = host.session;
 
@@ -68,7 +83,7 @@ export async function handleRemoteControlCommand(host: SlashCommandHost): Promis
           const pendingStatuses: string[] = [];
           const onStatus = (status: RemoteControlStatus): void => {
             const line = formatRemoteControlStatus(status);
-            if (outputReady) process.stdout.write(line);
+            if (outputReady) stdout.write(line);
             else pendingStatuses.push(line);
           };
           remoteControl = await startRemoteControl({
@@ -88,7 +103,7 @@ export async function handleRemoteControlCommand(host: SlashCommandHost): Promis
               }
             },
             (error) => {
-              process.stderr.write(
+              stderr.write(
                 `${t('cli.commandDescriptions.remoteControlLockReleaseFailed', {
                   error: formatErrorMessage(error),
                 })}\n`,
@@ -103,7 +118,7 @@ export async function handleRemoteControlCommand(host: SlashCommandHost): Promis
             CLI_MSH_PLATFORM,
           );
           const qrCode = await generateRemoteControlQr(url, dataDir);
-          process.stdout.write(
+          stdout.write(
             formatRemoteControlOutput({
               url,
               localOrigin: origin,
@@ -114,7 +129,7 @@ export async function handleRemoteControlCommand(host: SlashCommandHost): Promis
             }),
           );
           outputReady = true;
-          for (const line of pendingStatuses) process.stdout.write(line);
+          for (const line of pendingStatuses) stdout.write(line);
           openUrl(url);
         },
         onShutdown: async () => {
@@ -122,12 +137,12 @@ export async function handleRemoteControlCommand(host: SlashCommandHost): Promis
         },
       });
     } catch (error) {
-      process.stderr.write(
+      stderr.write(
         t('tui.statusMessages.failedToStartRemoteControl', {
           error: formatErrorMessage(error),
         }) + '\n',
       );
-      process.exit(1);
+      exit(1);
     }
   });
   await host.stop();
@@ -140,7 +155,14 @@ export async function handleRemoteControlCommand(host: SlashCommandHost): Promis
  * link opens from the ready hook once the server is actually listening. The
  * terminal shows the same ready banner as `kimi web` plus the deep link.
  */
-function startNewServerAfterExit(host: SlashCommandHost, sessionId: string): void {
+function startNewServerAfterExit(
+  host: SlashCommandHost,
+  sessionId: string,
+  io: WebCommandIO,
+): void {
+  const stdout = io.stdout ?? process.stdout;
+  const stderr = io.stderr ?? process.stderr;
+  const exit = io.exit ?? ((code: number): never => process.exit(code));
   host.setExitForegroundTask(async () => {
     const options = parseServerOptions({});
     try {
@@ -152,16 +174,16 @@ function startNewServerAfterExit(host: SlashCommandHost, sessionId: string): voi
           // gate.
           const token = tryResolveServerToken(getDataDir());
           const url = webSessionUrl(origin, sessionId, token);
-          process.stdout.write(formatReadyBanner(origin, options.host, { token }));
-          process.stdout.write(`\n  ${sessionLine(url)}\n`);
+          stdout.write(formatReadyBanner(origin, options.host, { token }));
+          stdout.write(`\n  ${sessionLine(url)}\n`);
           openUrl(url);
         },
       });
     } catch (error) {
-      process.stderr.write(
+      stderr.write(
         t('tui.statusMessages.failedToStartServer', { error: formatErrorMessage(error) }) + '\n',
       );
-      process.exit(1);
+      exit(1);
     }
   });
 }

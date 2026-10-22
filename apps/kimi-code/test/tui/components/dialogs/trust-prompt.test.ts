@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 import type { WorkspaceTrustInfo } from '@moonshot-ai/kimi-code-sdk';
 import { TrustPromptComponent } from '#/tui/components/dialogs/trust-prompt';
 
@@ -55,7 +55,7 @@ describe('TrustPromptComponent', () => {
       workDir,
       info: mixedInfo(),
       getAvailableRows: () => 23,
-      onSelect: vi.fn(),
+      onSelect: mock(),
     });
     const lines = render(prompt);
     const text = lines.join('\n');
@@ -83,14 +83,14 @@ describe('TrustPromptComponent', () => {
       expect(text).not.toContain(hidden);
   });
   it('distinguishes empty activation from unreadable configuration', () => {
-    const empty = new TrustPromptComponent({ workDir, info: info(), onSelect: vi.fn() });
+    const empty = new TrustPromptComponent({ workDir, info: info(), onSelect: mock() });
     expect(render(empty).join('\n')).toContain(
       'No project integrations or instructions to activate.',
     );
     const failed = new TrustPromptComponent({
       workDir,
       info: info({ warnings: ['Could not inspect MCP configuration.'] }),
-      onSelect: vi.fn(),
+      onSelect: mock(),
     });
     const text = render(failed).join('\n');
     expect(text).toContain('Could not inspect MCP configuration.');
@@ -114,7 +114,7 @@ describe('TrustPromptComponent', () => {
         additionalDirSources: [`${workDir}/.kimi-code/local.toml`],
       }),
       getAvailableRows: () => rows,
-      onSelect: vi.fn(),
+      onSelect: mock(),
     });
     const pages: string[] = [];
     for (let i = 0; i < 30; i += 1) {
@@ -133,9 +133,9 @@ describe('TrustPromptComponent', () => {
     expect(pages.join('\n')).not.toContain('/outside/directory-');
     expect(pages.join('\n')).not.toContain('more');
     prompt.handleInput('\u001B[D');
-    expect(render(prompt, 60).join('\n')).toBe(pages.at(-2));
+    expect(render(prompt, 60).join('\n')).toBe(pages.at(-2)!);
     prompt.handleInput('\u001B[6~');
-    expect(render(prompt, 60).join('\n')).toBe(pages.at(-1));
+    expect(render(prompt, 60).join('\n')).toBe(pages.at(-1)!);
     rows = 60;
     expect(render(prompt, 60).join('\n')).not.toContain('page');
   });
@@ -148,7 +148,7 @@ describe('TrustPromptComponent', () => {
         gatedAdditionalDirs: ['/outside/\u001B[2Jdirectory\u0007'],
         additionalDirSources: ['/outside/\u001B[2Jconfig\u0007'],
       }),
-      onSelect: vi.fn(),
+      onSelect: mock(),
     });
     const text = render(prompt).join('\n');
     expect(text).not.toContain('\u001B');
@@ -158,7 +158,7 @@ describe('TrustPromptComponent', () => {
   });
   it('pauses confirmation in a tiny terminal and restores it after resizing', () => {
     let rows = 4;
-    const onSelect = vi.fn();
+    const onSelect = mock();
     const prompt = new TrustPromptComponent({
       workDir,
       info: mixedInfo(),
@@ -183,7 +183,7 @@ describe('TrustPromptComponent', () => {
       { keys: ['\u001B[B', '\r'], expected: 'distrust' },
       { keys: ['\u001B'], expected: 'distrust' },
     ]) {
-      const onSelect = vi.fn();
+      const onSelect = mock();
       const prompt = new TrustPromptComponent({ workDir, info: info(), onSelect });
       render(prompt);
       for (const key of keys) prompt.handleInput(key);

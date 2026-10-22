@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
@@ -33,22 +34,22 @@ describe('SessionInitService', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
   let events: unknown[];
-  let appendReminder: ReturnType<typeof vi.fn>;
-  let seedInjected: ReturnType<typeof vi.fn>;
-  let flush: ReturnType<typeof vi.fn>;
-  let republishStatus: ReturnType<typeof vi.fn>;
-  let create: ReturnType<typeof vi.fn>;
-  let run: ReturnType<typeof vi.fn>;
+  let appendReminder: ReturnType<typeof mock>;
+  let seedInjected: ReturnType<typeof mock>;
+  let flush: ReturnType<typeof mock>;
+  let republishStatus: ReturnType<typeof mock>;
+  let create: ReturnType<typeof mock>;
+  let run: ReturnType<typeof mock>;
   let runCompletion: Promise<{ summary: string; usage?: undefined }>;
 
   beforeEach(() => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
     events = [];
-    appendReminder = vi.fn(() => 'reminder-id');
-    seedInjected = vi.fn();
-    flush = vi.fn(async () => {});
-    republishStatus = vi.fn(() => {
+    appendReminder = mock(() => 'reminder-id');
+    seedInjected = mock();
+    flush = mock(async () => {});
+    republishStatus = mock(() => {
       events.push({ type: 'agent.status.updated', model: 'mock-model' });
     });
     runCompletion = Promise.resolve({ summary: 'Explored and wrote AGENTS.md', usage: undefined });
@@ -57,12 +58,12 @@ describe('SessionInitService', () => {
     const lifecycle = {
       _serviceBrand: undefined,
       hooks: {
-        onWillStartAgentTask: { run: vi.fn(async () => {}) },
+        onWillStartAgentTask: { run: mock(async () => {}) },
       },
-      notifyAgentTaskStopped: vi.fn(),
-      handleOf: vi.fn((agentId: string) => handles[agentId]),
-      create: vi.fn(async () => stubAgentContext('agent-0', 1)),
-      run: vi.fn(async (agent: AgentContext) => ({
+      notifyAgentTaskStopped: mock(),
+      handleOf: mock((agentId: string) => handles[agentId]),
+      create: mock(async () => stubAgentContext('agent-0', 1)),
+      run: mock(async (agent: AgentContext) => ({
         agentId: agent.agentId,
         turn: {},
         completion: runCompletion,
@@ -71,12 +72,12 @@ describe('SessionInitService', () => {
     create = lifecycle.create;
     run = lifecycle.run;
 
-    const eventBus = { publish: vi.fn((event: unknown) => events.push(event)) };
-    const telemetry = { track: vi.fn(), track2: vi.fn() };
+    const eventBus = { publish: mock((event: unknown) => events.push(event)) };
+    const telemetry = { track: mock(), track2: mock() };
     const profile = {
       data: () => ({ modelAlias: 'mock-model', thinkingLevel: 'off' }),
     };
-    const permissionMode = { mode: 'auto', setMode: vi.fn() };
+    const permissionMode = { mode: 'auto', setMode: mock() };
 
     handles['main'] = {
       id: 'main',
@@ -127,13 +128,13 @@ describe('SessionInitService', () => {
     ix.stub(ISessionSubagentService, lifecycle as unknown as ISessionSubagentService);
     ix.stub(IHostFileSystem, {
       _serviceBrand: undefined,
-      stat: vi.fn(async (path: string): Promise<HostFileStat> => {
+      stat: mock(async (path: string): Promise<HostFileStat> => {
         if (path === GIT_DIR_PATH) return { isFile: false, isDirectory: true, size: 0 };
         if (path === AGENTS_MD_PATH)
           return { isFile: true, isDirectory: false, size: AGENTS_MD.length };
         throw new Error(`ENOENT: ${path}`);
       }),
-      readText: vi.fn(async (path: string) => {
+      readText: mock(async (path: string) => {
         if (path === AGENTS_MD_PATH) return AGENTS_MD;
         throw new Error(`ENOENT: ${path}`);
       }),
@@ -221,7 +222,7 @@ describe('SessionInitService', () => {
 
   it('throws AGENT_NOT_FOUND when the main agent is missing', async () => {
     const lifecycle = ix.get(IAgentLifecycleService) as unknown as {
-      handleOf: ReturnType<typeof vi.fn>;
+      handleOf: ReturnType<typeof mock>;
     };
     lifecycle.handleOf.mockReturnValue(undefined);
     const svc = ix.get(ISessionInitService);
@@ -242,7 +243,7 @@ describe('SessionInitService', () => {
     const svc = ix.get(ISessionInitService);
 
     const pending = svc.generateAgentsMd();
-    await vi.waitFor(() => expect(run).toHaveBeenCalled());
+    await waitForAssertion(() => expect(run).toHaveBeenCalled());
     svc.cancelInit();
 
     const error = await pending.catch((error) => error);

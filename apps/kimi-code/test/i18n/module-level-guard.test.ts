@@ -1,7 +1,7 @@
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, relative } from 'node:path';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 /**
  * Guard: forbid evaluating a translation (`t(...)` / `translateBatch(...)`) at
@@ -36,7 +36,7 @@ import { describe, expect, it } from 'vitest';
  * that either — wrap it in a getter.
  */
 
-const SRC_ROOT = join(__dirname, '..', '..', 'src');
+const SRC_ROOT = join(import.meta.dirname, '..', '..', 'src');
 
 // The i18n module itself defines `t` and legitimately references the message
 // tables at load time; exclude it from the scan.

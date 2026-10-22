@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import { ChoicePickerComponent, type ChoiceOption } from '#/tui/components/dialogs/choice-picker';
 import { EditorSelectorComponent } from '#/tui/components/dialogs/editor-selector';
@@ -7,7 +7,6 @@ import { SettingsSelectorComponent } from '#/tui/components/dialogs/settings-sel
 import { ThemeSelectorComponent } from '#/tui/components/dialogs/theme-selector';
 import { UpdatePreferenceSelectorComponent } from '#/tui/components/dialogs/update-preference-selector';
 import { currentTheme } from '#/tui/theme';
-import { darkColors } from '#/tui/theme/colors';
 
 const ANSI_SGR = /\[[0-9;]*m/g;
 
@@ -24,8 +23,8 @@ describe('ChoicePickerComponent', () => {
         { value: 'b', label: 'Beta' },
       ],
       searchable: true,
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
+      onSelect: mock(),
+      onCancel: mock(),
     });
     const lines = picker.render(120).map(strip);
 
@@ -61,8 +60,8 @@ describe('ChoicePickerComponent', () => {
         },
       ],
       currentValue: 'manual',
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
+      onSelect: mock(),
+      onCancel: mock(),
     });
 
     const out = picker.render(120).map(strip);
@@ -73,8 +72,8 @@ describe('ChoicePickerComponent', () => {
   });
 
   it('renders domain selector wrappers with their configured options', () => {
-    const onSelect = vi.fn();
-    const onCancel = vi.fn();
+    const onSelect = mock();
+    const onCancel = mock();
 
     const editor = new EditorSelectorComponent({
       currentValue: 'vim',
@@ -125,7 +124,7 @@ describe('ChoicePickerComponent', () => {
   });
 
   it('routes Space into the query for searchable lists instead of selecting', () => {
-    const onSelect = vi.fn();
+    const onSelect = mock();
     const picker = new ChoicePickerComponent({
       title: 'Select a provider',
       options: [
@@ -134,7 +133,7 @@ describe('ChoicePickerComponent', () => {
       ],
       searchable: true,
       onSelect,
-      onCancel: vi.fn(),
+      onCancel: mock(),
     });
 
     picker.handleInput(' ');
@@ -142,12 +141,12 @@ describe('ChoicePickerComponent', () => {
   });
 
   it('selects on Space when the list is not searchable', () => {
-    const onSelect = vi.fn();
+    const onSelect = mock();
     const picker = new ChoicePickerComponent({
       title: 'Pick one',
       options: [{ value: 'a', label: 'Alpha' }],
       onSelect,
-      onCancel: vi.fn(),
+      onCancel: mock(),
     });
 
     picker.handleInput(' ');
@@ -170,8 +169,8 @@ describe('ChoicePickerComponent', () => {
         title: 'Share diagnostic info?',
         options,
         currentValue,
-        onSelect: vi.fn(),
-        onCancel: vi.fn(),
+        onSelect: mock(),
+        onCancel: mock(),
       });
       return picker.render(120).find((line) => strip(line).includes('Include your codebase'));
     };

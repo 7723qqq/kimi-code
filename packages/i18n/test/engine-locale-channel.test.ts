@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 import { getLocale as getEngineLocale, t as engineT, setLocale as setEngineLocale } from '@moonshot-ai/kimi-i18n';
 

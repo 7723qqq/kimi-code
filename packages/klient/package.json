@@ -34,7 +34,7 @@
     "build": "tsdown",
     "typecheck": "tsc -p tsconfig.json --noEmit && bun run typecheck:examples",
     "typecheck:examples": "tsc -p tsconfig.examples.json --noEmit",
-    "test": "vitest run",
+    "test": "bun ../../scripts/run-package-tests.mjs --root=test",
     "smoke": "bun --import ../../build/register-raw-text-loader.mjs examples/smoke.ts",
     "smoke:boundary": "bun --import ../../build/register-raw-text-loader.mjs examples/model-requester-boundary.ts",
     "smoke:select-tools": "bun --import ../../build/register-raw-text-loader.mjs examples/kimi-select-tools.ts",

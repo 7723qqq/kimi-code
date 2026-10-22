@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'bun:test';
+import { waitForAssertion } from '../../../../test/helpers/waitFor';
 
 import { messageAppended, turnEnded } from '#/agent/events';
 import { createAgentMachine, type AgentInput } from '#/agent/machine';
@@ -287,7 +288,7 @@ describe('session machine concurrent agents', () => {
     submit(session, 'a', 'hello-a');
     submit(session, 'b', 'hello-b');
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(seen.toSorted()).toEqual(['hello-a', 'hello-b']);
     });
     expect(agentRef(session, 'a').getSnapshot().value).toEqual({ running: 'active' });
@@ -334,7 +335,7 @@ describe('session machine concurrent agents', () => {
     expect(restarted[0]?.ref).toBe(agentRef(session, 'a'));
 
     submit(session, 'a', 'again');
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(seen).toContain('again');
     });
     resolvers.get('again')?.();

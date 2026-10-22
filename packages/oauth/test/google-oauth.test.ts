@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 
 import {
   applyGoogleGeminiConfig,
@@ -15,6 +15,7 @@ import {
   OAuthUnauthorizedError,
 } from '../src';
 import type { ManagedKimiConfigShape } from '../src';
+import { setGlobal, restoreGlobals } from './stubs';
 
 describe('Google OAuth & Gemini Module', () => {
   let tmpDir: string;
@@ -22,7 +23,7 @@ describe('Google OAuth & Gemini Module', () => {
 
   beforeEach(() => {
     tmpDir = mkdtempSync(join(tmpdir(), 'google-oauth-test-'));
-    vi.spyOn(GoogleOAuthManager, 'detectAntigravityCredentials').mockReturnValue({
+    spyOn(GoogleOAuthManager, 'detectAntigravityCredentials').mockReturnValue({
       available: false,
     });
     manager = new GoogleOAuthManager({ credentialsDir: tmpDir });
@@ -30,7 +31,8 @@ describe('Google OAuth & Gemini Module', () => {
 
   afterEach(() => {
     rmSync(tmpDir, { recursive: true, force: true });
-    vi.restoreAllMocks();
+    mock.restore();
+    restoreGlobals();
   });
 
   it('saves and loads Google OAuth token info', async () => {
@@ -70,7 +72,7 @@ describe('Google OAuth & Gemini Module', () => {
     };
     await manager.saveToken(expiredToken);
 
-    const fetchMock = vi.fn().mockResolvedValue({
+    const fetchMock = mock().mockResolvedValue({
       ok: true,
       json: async () => ({
         access_token: 'new-refreshed-access-token',
@@ -78,7 +80,7 @@ describe('Google OAuth & Gemini Module', () => {
         token_type: 'Bearer',
       }),
     });
-    vi.stubGlobal('fetch', fetchMock);
+    setGlobal('fetch', fetchMock);
 
     const token = await manager.getValidAccessToken();
     expect(token).toBe('new-refreshed-access-token');
@@ -131,10 +133,10 @@ describe('Google OAuth & Gemini Module', () => {
       expiresIn: 60,
     });
 
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-    vi.stubGlobal(
+    spyOn(console, 'warn').mockImplementation(() => {});
+    setGlobal(
       'fetch',
-      vi.fn().mockResolvedValue({ ok: false, status: 400, text: async () => 'invalid_grant' }),
+      mock().mockResolvedValue({ ok: false, status: 400, text: async () => 'invalid_grant' }),
     );
 
     await expect(manager.getValidAccessToken()).rejects.toThrow(OAuthUnauthorizedError);
@@ -151,7 +153,7 @@ describe('Google OAuth & Gemini Module', () => {
       expiresIn: 60,
     });
 
-    const fetchMock = vi.fn().mockResolvedValue({
+    const fetchMock = mock().mockResolvedValue({
       ok: true,
       json: async () => ({
         access_token: 'refreshed-token',
@@ -159,7 +161,7 @@ describe('Google OAuth & Gemini Module', () => {
         expires_in: 7200,
       }),
     });
-    vi.stubGlobal('fetch', fetchMock);
+    setGlobal('fetch', fetchMock);
 
     const [a, b] = await Promise.all([
       manager.getValidAccessToken(),
@@ -191,15 +193,15 @@ describe('Google OAuth & Gemini Module', () => {
         expiry_date: Date.now() - 60_000,
       }),
     );
-    vi.spyOn(GoogleOAuthManager, 'detectAntigravityCredentials').mockReturnValue({
+    spyOn(GoogleOAuthManager, 'detectAntigravityCredentials').mockReturnValue({
       available: true,
       credsPath,
     });
 
-    vi.spyOn(console, 'warn').mockImplementation(() => {});
-    vi.stubGlobal(
+    spyOn(console, 'warn').mockImplementation(() => {});
+    setGlobal(
       'fetch',
-      vi.fn().mockResolvedValue({ ok: false, status: 400, text: async () => 'invalid_grant' }),
+      mock().mockResolvedValue({ ok: false, status: 400, text: async () => 'invalid_grant' }),
     );
 
     await expect(manager.getValidAccessToken()).rejects.toThrow(OAuthUnauthorizedError);
@@ -211,7 +213,7 @@ describe('Google OAuth & Gemini Module', () => {
 
   it('propagates the failure reason from importAntigravityCredentials', async () => {
     const missingPath = join(tmpDir, 'missing', 'oauth_creds.json');
-    vi.spyOn(GoogleOAuthManager, 'detectAntigravityCredentials').mockReturnValue({
+    spyOn(GoogleOAuthManager, 'detectAntigravityCredentials').mockReturnValue({
       available: true,
       credsPath: missingPath,
     });

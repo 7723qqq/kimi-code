@@ -8,38 +8,39 @@
  * per-step isolation, the failure names and the exit code.
  */
 
-import { EventEmitter } from 'node:events';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import * as kapServerModule from '@moonshot-ai/kap-server';
+import type { ForegroundIO } from '#/cli/sub/web/run';
 
-const mocks = vi.hoisted(() => ({
-  startServer: vi.fn(),
-  close: vi.fn(),
-  shutdownTelemetry: vi.fn(),
-  track: vi.fn(),
-  initializeServerTelemetry: vi.fn(),
-  createServerLogger: vi.fn(() => ({
-    info: vi.fn(),
-    warn: vi.fn(),
-    error: vi.fn(),
+const mocks = (() => ({
+  startServer: mock(),
+  close: mock(),
+  shutdownTelemetry: mock(),
+  track: mock(),
+  initializeServerTelemetry: mock(),
+  createServerLogger: mock(() => ({
+    info: mock(),
+    warn: mock(),
+    error: mock(),
   })),
-}));
+}))();
 
-vi.mock('@moonshot-ai/kap-server', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@moonshot-ai/kap-server')>();
+void mock.module('@moonshot-ai/kap-server', () => {
   return {
-    ...actual,
+    ...kapServerModule,
     startServer: mocks.startServer,
     createServerLogger: mocks.createServerLogger,
   };
 });
 
-vi.mock('@moonshot-ai/kimi-telemetry', () => ({
+void mock.module('@moonshot-ai/kimi-telemetry', () => ({
   track: mocks.track,
   shutdownTelemetry: mocks.shutdownTelemetry,
 }));
 
-vi.mock('#/cli/telemetry', () => ({
+void mock.module('#/cli/telemetry', () => ({
   initializeServerTelemetry: mocks.initializeServerTelemetry,
 }));
 
@@ -58,9 +59,33 @@ const parsedOptions = {
 } as unknown as ParsedServerOptions;
 
 let exitCodes: number[];
+let stderrWritten: string[];
+let foregroundIO: ForegroundIO;
+let signalHandlers: Map<NodeJS.Signals, () => void>;
 
 beforeEach(() => {
   exitCodes = [];
+  stderrWritten = [];
+  signalHandlers = new Map();
+  // A real `process.exit` never returns; the shutdown path relies on that, so
+  // record the code without unwinding (throwing here would surface as an
+  // unhandled rejection from the runner's fire-and-forget `void shutdown()`).
+  foregroundIO = {
+    process: {
+      once: (signal, listener) => {
+        signalHandlers.set(signal, listener);
+      },
+      exit: (code?: number) => {
+        exitCodes.push(Number(code ?? 0));
+      },
+    },
+    stderr: {
+      write(chunk: string | Uint8Array): boolean {
+        stderrWritten.push(String(chunk));
+        return true;
+      },
+    },
+  };
   mocks.close.mockResolvedValue(undefined);
   mocks.shutdownTelemetry.mockResolvedValue(undefined);
   mocks.startServer.mockResolvedValue({
@@ -68,45 +93,30 @@ beforeEach(() => {
     port: 4321,
     close: mocks.close,
   });
-  // A real `process.exit` never returns; the shutdown path relies on that, so
-  // record the code without unwinding (throwing here would surface as an
-  // unhandled rejection from the runner's fire-and-forget `void shutdown()`).
-  vi.spyOn(process, 'exit').mockImplementation(((code?: number) => {
-    exitCodes.push(Number(code ?? 0));
-    return undefined as never;
-  }) as never);
-  vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 });
 
 afterEach(() => {
-  for (const signal of ['SIGINT', 'SIGTERM'] as const) {
-    for (const listener of process.listeners(signal)) {
-      process.off(signal, listener);
-    }
-  }
-  vi.restoreAllMocks();
-  vi.clearAllMocks();
+  mock.restore();
+  mock.clearAllMocks();
 });
 
 /**
  * Drive the real foreground runner to its shutdown path: the SIGINT listener is
- * registered once the server is "listening", so emitting the signal is
- * equivalent to the user pressing Ctrl+C. `shutdown()` ends in `process.exit`,
- * which the spy turns into a throw inside the runner's own `void shutdown(...)`
- * chain — the runner's promise never settles, so wait on the observed exit.
+ * registered once the server is "listening", so firing it is equivalent to the
+ * user pressing Ctrl+C. `shutdown()` ends in the injected `exit`, which the fake
+ * only records — the runner's own `void shutdown(...)` chain never settles, so
+ * wait on the observed exit.
  */
 async function runToShutdown(
   hooks: Parameters<typeof startServerForeground>[1] = {},
 ): Promise<void> {
-  const pending = startServerForeground(parsedOptions, hooks);
+  const pending = startServerForeground(parsedOptions, hooks, foregroundIO);
   pending.catch(() => {});
-  await vi.waitFor(() => {
-    expect(process.listeners('SIGINT').length).toBeGreaterThan(0);
+  await waitForAssertion(() => {
+    expect(signalHandlers.has('SIGINT')).toBe(true);
   });
-  const handler = process.listeners('SIGINT').at(-1)!;
-  process.off('SIGINT', handler);
-  handler(new EventEmitter() as never);
-  await vi.waitFor(() => {
+  signalHandlers.get('SIGINT')!();
+  await waitForAssertion(() => {
     expect(exitCodes.length).toBeGreaterThan(0);
   });
 }
@@ -192,8 +202,8 @@ describe('startServerForeground shutdown', () => {
     await runToShutdown();
 
     expect(exitCodes).toEqual([0]);
-    expect(mocks.close).toHaveBeenCalledOnce();
-    expect(mocks.shutdownTelemetry).toHaveBeenCalledOnce();
+    expect(mocks.close).toHaveBeenCalledTimes(1);
+    expect(mocks.shutdownTelemetry).toHaveBeenCalledTimes(1);
   });
 
   it('exits 1 but still flushes telemetry when close fails', async () => {
@@ -201,7 +211,7 @@ describe('startServerForeground shutdown', () => {
     await runToShutdown();
 
     expect(exitCodes).toEqual([1]);
-    expect(mocks.shutdownTelemetry).toHaveBeenCalledOnce();
+    expect(mocks.shutdownTelemetry).toHaveBeenCalledTimes(1);
   });
 
   it('exits 1 and still closes the server when the shutdown hook fails', async () => {
@@ -215,16 +225,15 @@ describe('startServerForeground shutdown', () => {
 
     expect(seen).toEqual(['hook']);
     expect(exitCodes).toEqual([1]);
-    expect(mocks.close).toHaveBeenCalledOnce();
-    expect(mocks.shutdownTelemetry).toHaveBeenCalledOnce();
+    expect(mocks.close).toHaveBeenCalledTimes(1);
+    expect(mocks.shutdownTelemetry).toHaveBeenCalledTimes(1);
   });
 
   it('writes the failed step to stderr', async () => {
     mocks.close.mockRejectedValue(new Error('cannot release the lock'));
-    const stderr = vi.mocked(process.stderr.write);
 
     await runToShutdown();
 
-    expect(stderr.mock.calls.map(([chunk]) => String(chunk)).join('')).toContain('close');
+    expect(stderrWritten.join('')).toContain('close');
   });
 });

@@ -1,5 +1,5 @@
 import type { Event } from '@moonshot-ai/kimi-code-sdk';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import { SessionEventHandler } from '#/tui/controllers/session-event-handler';
 import type { ToolCallBlockData } from '#/tui/types';
@@ -7,51 +7,51 @@ import type { ToolCallBlockData } from '#/tui/types';
 function makeHarness() {
   const activeCalls = new Map<string, ToolCallBlockData>();
   const streamingUI = {
-    setTurnId: vi.fn(),
-    flushNow: vi.fn(),
-    getTurnContext: vi.fn(() => ({ turnId: 1, step: 0 })),
-    registerToolCall: vi.fn((call: ToolCallBlockData) => {
+    setTurnId: mock(),
+    flushNow: mock(),
+    getTurnContext: mock(() => ({ turnId: 1, step: 0 })),
+    registerToolCall: mock((call: ToolCallBlockData) => {
       activeCalls.set(call.id, call);
       return true;
     }),
-    completeToolResult: vi.fn((toolCallId: string) => {
+    completeToolResult: mock((toolCallId: string) => {
       const call = activeCalls.get(toolCallId);
       activeCalls.delete(toolCallId);
       return call;
     }),
-    setTodoList: vi.fn(),
+    setTodoList: mock(),
   };
   const todoRegion = {
-    setTodos: vi.fn(),
-    clear: vi.fn(),
+    setTodos: mock(),
+    clear: mock(),
   };
   const host = {
     state: {
       appState: { availableModels: {}, workDir: '/tmp/work', stepRetry: null },
-      ui: { requestRender: vi.fn() },
-      transcriptContainer: { addChild: vi.fn() },
+      ui: { requestRender: mock() },
+      transcriptContainer: { addChild: mock() },
       todoRegion,
     },
     session: undefined,
     streamingUI,
-    appendTranscriptEntry: vi.fn(),
-    patchLivePane: vi.fn(),
-    setAppState: vi.fn(),
-    btwPanelController: { routeEvent: vi.fn(() => false) },
+    appendTranscriptEntry: mock(),
+    patchLivePane: mock(),
+    setAppState: mock(),
+    btwPanelController: { routeEvent: mock(() => false) },
     surveyController: {
-      notifyToolCallStarted: vi.fn(),
-      notifyToolCallEnded: vi.fn(),
-      notifySubagentSpawned: vi.fn(),
+      notifyToolCallStarted: mock(),
+      notifyToolCallEnded: mock(),
+      notifySubagentSpawned: mock(),
     },
-    updateActivityPane: vi.fn(),
-    showStatus: vi.fn(),
-    noteSessionToolCompleted: vi.fn(),
-    noteSessionTurnStarted: vi.fn(),
-    noteSessionStepCompleted: vi.fn(),
-    noteStepUsage: vi.fn(),
-    noteStepCacheStats: vi.fn(),
-    noteCompactionFinished: vi.fn(),
-    recordSessionActivity: vi.fn(),
+    updateActivityPane: mock(),
+    showStatus: mock(),
+    noteSessionToolCompleted: mock(),
+    noteSessionTurnStarted: mock(),
+    noteSessionStepCompleted: mock(),
+    noteStepUsage: mock(),
+    noteStepCacheStats: mock(),
+    noteCompactionFinished: mock(),
+    recordSessionActivity: mock(),
   };
   const handler = new SessionEventHandler(host as never);
   return { handler, streamingUI, todoRegion };
@@ -104,8 +104,8 @@ describe('SessionEventHandler — todo panel feed', () => {
   it('ignores the TodoList tool arguments entirely', () => {
     const { handler, todoRegion } = makeHarness();
 
-    handler.handleEvent(todoCallStarted('tc-1', [item]), vi.fn());
-    handler.handleEvent(todoResult('tc-1'), vi.fn());
+    handler.handleEvent(todoCallStarted('tc-1', [item]), mock());
+    handler.handleEvent(todoResult('tc-1'), mock());
 
     // Reading the tool arguments is what used to clear the panel on a
     // read-only call (no `todos` key) and to hide a list the engine had
@@ -125,7 +125,7 @@ describe('SessionEventHandler — todo panel feed', () => {
       description: 'note',
     };
 
-    handler.handleEvent(todoUpdated([full]), vi.fn());
+    handler.handleEvent(todoUpdated([full]), mock());
 
     expect(todoRegion.setTodos).toHaveBeenCalledWith([full]);
   });
@@ -133,7 +133,7 @@ describe('SessionEventHandler — todo panel feed', () => {
   it('applies an empty list, which is how a clear arrives', () => {
     const { handler, todoRegion } = makeHarness();
 
-    handler.handleEvent(todoUpdated([]), vi.fn());
+    handler.handleEvent(todoUpdated([]), mock());
 
     expect(todoRegion.setTodos).toHaveBeenCalledWith([]);
   });
@@ -141,7 +141,7 @@ describe('SessionEventHandler — todo panel feed', () => {
   it('ignores another agent\'s list', () => {
     const { handler, todoRegion } = makeHarness();
 
-    handler.handleEvent(todoUpdated([item], 'agent-1'), vi.fn());
+    handler.handleEvent(todoUpdated([item], 'agent-1'), mock());
 
     expect(todoRegion.setTodos).not.toHaveBeenCalled();
   });

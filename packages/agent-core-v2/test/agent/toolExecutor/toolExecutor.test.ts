@@ -1,13 +1,13 @@
 import { readFileSync } from 'node:fs';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { PassThrough, Readable } from 'node:stream';
 import { Jimp } from 'jimp';
 
 import type { ToolCall } from '#human/llm/message';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
@@ -859,7 +859,7 @@ describe('onBeforeExecuteTool veto semantics', () => {
   it('applies the first veto and does not run later listeners', async () => {
     const tool = new TestTool('echo');
     registry.register(tool);
-    const later = vi.fn();
+    const later = mock();
     executor.onBeforeExecuteTool((event) => {
       event.veto({ output: 'first', isError: true });
     });
@@ -878,7 +878,7 @@ describe('onBeforeExecuteTool veto semantics', () => {
   it('lets an allow end adjudication before later listeners run', async () => {
     const tool = new TestTool('echo');
     registry.register(tool);
-    const later = vi.fn();
+    const later = mock();
     executor.onBeforeExecuteTool((event) => {
       event.allow();
     });
@@ -910,7 +910,7 @@ describe('onBeforeExecuteTool veto semantics', () => {
   it('never invokes waitUntil factories when an immediate veto decides the call', async () => {
     const tool = new TestTool('echo');
     registry.register(tool);
-    const askFactory = vi.fn(async () => undefined);
+    const askFactory = mock(async () => undefined);
     executor.onBeforeExecuteTool((event) => {
       event.waitUntil(askFactory);
     });
@@ -1013,7 +1013,7 @@ describe('onWillExecuteTool', () => {
   it('does not fire for a vetoed call', async () => {
     const tool = new TestTool('echo');
     registry.register(tool);
-    const willListener = vi.fn();
+    const willListener = mock();
     executor.onWillExecuteTool(willListener);
     executor.onBeforeExecuteTool((event) => {
       event.veto({ output: 'nope', isError: true });
@@ -1097,7 +1097,10 @@ describe('truncation pipeline', () => {
     globProcess = new HostProcessService();
     const runtime = Object.assign(new FakeRuntime(
       { workspaceId: 'workspace', runtimeId: 'local', generation: 'test' },
-      { capabilities: ['fs', 'process'] },
+      {
+        capabilities: ['fs', 'process'],
+        pathClass: process.platform === 'win32' ? 'win32' : 'posix',
+      },
     ), { fs: new HostFileSystem(), process: globProcess });
     const binding: IAgentRuntimeService = {
       _serviceBrand: undefined,
@@ -1163,8 +1166,8 @@ describe('truncation pipeline', () => {
     expect(rendered).toMatch(/\[elided: chars \[4096, \d+\)\]/);
 
     const outputPath = renderedOutputPath(rendered);
-    expect(outputPath).toContain(
-      join(homeDir, 'sessions/workspace/session/agents/main/tool-results/noisy-call_noisy-'),
+    expect(slashPath(outputPath)).toContain(
+      slashPath(join(homeDir, 'sessions/workspace/session/agents/main/tool-results/noisy-call_noisy-')),
     );
     expect(readFileSync(outputPath, 'utf8')).toBe(fullOutput);
   });
@@ -1199,10 +1202,11 @@ describe('truncation pipeline', () => {
 
   it('recovers an expanded Glob listing beyond spill retention using complete saved pages', async () => {
     const root = await mkdtemp(join(tmpdir(), 'r'.repeat(180)));
+    const rootSlash = slashPath(root);
     try {
       const names = Array.from({ length: 60_000 }, (_, i) => `file-${String(i).padStart(6, '0')}.ts`);
       const stdout = names.map((name) => `./${name}`).join('\n') + '\n';
-      vi.spyOn(globProcess, 'spawn').mockImplementation(async () => ({
+      spyOn(globProcess, 'spawn').mockImplementation(async () => ({
         _serviceBrand: undefined,
         pid: 123,
         exitCode: 0,
@@ -1232,7 +1236,7 @@ describe('truncation pipeline', () => {
           const [read] = await execute([toolCall(`read_large_${String(globPages)}_${String(reads++)}`, 'Read', args)]);
           expect(read?.isError).not.toBe(true);
           if (typeof read?.output !== 'string') throw new Error('expected Read output');
-          recovered.push(...read.output.replaceAll(/^\d+\t/gm, '').split('\n').filter((line) => line.startsWith(root + '/')));
+          recovered.push(...read.output.replaceAll(/^\d+\t/gm, '').split('\n').filter((line) => line.startsWith(`${rootSlash}/`)));
           const next = /Next Read: (\{[^\n]*\})/.exec(read.note ?? '')?.[1];
           args = next === undefined ? undefined : ReadInputSchema.parse(JSON.parse(next));
         }
@@ -1240,7 +1244,7 @@ describe('truncation pipeline', () => {
       } while (offset > 0 && globPages < 5);
       expect(offset).toBe(0);
       expect(globPages).toBe(2);
-      expect(recovered).toEqual(names.map((name) => `${root}/${name}`));
+      expect(recovered).toEqual(names.map((name) => `${rootSlash}/${name}`));
     } finally {
       await rm(root, { recursive: true, force: true });
     }
@@ -1250,7 +1254,7 @@ describe('truncation pipeline', () => {
     const bytes = Buffer.from('%PDF-1.4\nexample report\n%%EOF');
     const client = {
       async listTools() { return []; },
-      callTool: vi.fn(async () => ({
+      callTool: mock(async () => ({
         isError: false,
         content: [
           { type: 'text', text: 'x'.repeat(100_000) },
@@ -1320,9 +1324,9 @@ describe('truncation pipeline', () => {
 
   it('resolves attachment references for media reads and exposes binary paths for converters', async () => {
     const runtimeFs = mediaRuntime.inspect().fs!;
-    vi.spyOn(runtimeFs, 'stat').mockRejectedValue(new Error('client cannot access daemon storage'));
-    vi.spyOn(runtimeFs, 'readBytes').mockRejectedValue(new Error('client cannot access daemon storage'));
-    vi.spyOn(runtimeFs, 'readLines').mockImplementation(() => {
+    spyOn(runtimeFs, 'stat').mockRejectedValue(new Error('client cannot access daemon storage'));
+    spyOn(runtimeFs, 'readBytes').mockRejectedValue(new Error('client cannot access daemon storage'));
+    spyOn(runtimeFs, 'readLines').mockImplementation(() => {
       throw new Error('client cannot access daemon storage');
     });
     mediaReadContext = {
@@ -1366,7 +1370,7 @@ describe('truncation pipeline', () => {
 
   it('reads session text from its owner while workspace text still uses the runtime buffer', async () => {
     const runtimeFs = mediaRuntime.inspect().fs!;
-    const clientRead = vi.spyOn(runtimeFs, 'readLines').mockImplementation(async function* () {
+    const clientRead = spyOn(runtimeFs, 'readLines').mockImplementation(async function* () {
       yield 'unsaved client buffer\n';
     });
     const workspaceFile = join(homeDir, 'workspace.txt');
@@ -1402,7 +1406,7 @@ describe('truncation pipeline', () => {
     };
     const client = {
       async listTools() { return []; },
-      callTool: vi.fn(async () => ({
+      callTool: mock(async () => ({
         content: [{ type: 'text', text: 'Found 1200 rows.' }],
         isError: false,
         structuredContent,
@@ -1619,6 +1623,10 @@ function renderedOutputPath(output: string): string {
   const match = /^output_path: (.+)$/m.exec(output);
   if (match === null) throw new Error('expected tool output to include output_path');
   return match[1]!;
+}
+
+function slashPath(value: string): string {
+  return value.split(sep).join('/');
 }
 
 async function execute(

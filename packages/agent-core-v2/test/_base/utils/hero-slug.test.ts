@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { generateHeroSlug, HERO_NAMES } from '#/_base/utils/hero-slug';
 

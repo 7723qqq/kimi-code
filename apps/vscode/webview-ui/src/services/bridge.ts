@@ -28,7 +28,7 @@ interface PendingRequest {
 const DEFAULT_REQUEST_TIMEOUT_MS = 10 * 60 * 1000;
 const OAUTH_REQUEST_TIMEOUT_MS = 16 * 60 * 1000;
 
-interface VSCodeAPI {
+export interface VSCodeAPI {
   postMessage(message: unknown): void;
   getState(): unknown;
   setState(state: unknown): void;
@@ -36,18 +36,24 @@ interface VSCodeAPI {
 
 declare function acquireVsCodeApi(): VSCodeAPI;
 
-class Bridge {
+/**
+ * The Webview's only host dependency is `acquireVsCodeApi`, which the generated
+ * Webview HTML defines. Tests pass their own implementation instead of relying
+ * on the global; production keeps calling the global.
+ */
+export class Bridge {
   private vscode: VSCodeAPI;
   private pending = new Map<string, PendingRequest>();
   private eventHandlers = new Map<string, Set<(data: unknown) => void>>();
   private requestId = 0;
   private webviewId: string;
 
-  constructor() {
+  constructor(acquireApi?: () => VSCodeAPI) {
     this.webviewId = document.body.getAttribute('data-webviewid') || `unknown_${Date.now()}`;
 
-    if (typeof acquireVsCodeApi === 'function') {
-      this.vscode = acquireVsCodeApi();
+    const acquire = acquireApi ?? (typeof acquireVsCodeApi === 'function' ? acquireVsCodeApi : undefined);
+    if (acquire !== undefined) {
+      this.vscode = acquire();
     } else {
       console.warn('[Kimi Bridge] Running outside VS Code, using mock');
       this.vscode = {

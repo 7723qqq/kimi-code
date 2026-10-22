@@ -1,6 +1,6 @@
 import { visibleWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, mock, type Mock } from 'bun:test';
 
 import { t } from '#/i18n';
 import {
@@ -72,9 +72,9 @@ function footerOf(dialog: ProviderFormDialogComponent): string {
 
 function makeDialog(options: ProviderFormDialogOptions): {
   dialog: ProviderFormDialogComponent;
-  onDone: ReturnType<typeof vi.fn>;
+  onDone: Mock<(...args: any[]) => any>;
 } {
-  const onDone = vi.fn();
+  const onDone = mock();
   const dialog = new ProviderFormDialogComponent(
     onDone as unknown as (r: ProviderFormDialogResult) => void,
     options,
@@ -146,7 +146,7 @@ function replaceText(dialog: ProviderFormDialogComponent, current: string, next:
 }
 
 /** The single `ok` value the dialog submitted, or a failure when it did not. */
-function submittedValue(onDone: ReturnType<typeof vi.fn>): ProviderFormValue {
+function submittedValue(onDone: Mock<(...args: any[]) => any>): ProviderFormValue {
   expect(onDone).toHaveBeenCalled();
   const result = onDone.mock.calls.at(-1)?.[0] as ProviderFormDialogResult;
   expect(result.kind).toBe('ok');

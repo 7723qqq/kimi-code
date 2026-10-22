@@ -993,9 +993,14 @@ export class SessionEventBroadcaster {
         sessionId,
       }) as unknown as Event;
     } else {
-      wireEvent = Object.assign({}, event, { agentId, sessionId }) as unknown as Event;
+      const wireType = V1_EVENT_TYPE_ALIASES[event.type] ?? event.type;
+      wireEvent = Object.assign({}, event, {
+        type: wireType,
+        agentId,
+        sessionId,
+      }) as unknown as Event;
     }
-    const volatile = isVolatileSignal(event.type);
+    const volatile = isVolatileSignal(wireEvent.type);
     state.queue = state.queue
       .then(() => this.dispatch(state, wireEvent, volatile))
       .catch((error: unknown) => this.logDispatchDropped(state.sessionId, wireEvent.type, error));
@@ -1187,6 +1192,7 @@ const VOLATILE_SIGNAL_TYPES = [
   'shell.output',
   'shell.started',
   'shell.completed',
+  'background.task.output',
   'agent.status.updated',
 ] as const;
 
@@ -1195,6 +1201,10 @@ const volatileSignalTypeSet: ReadonlySet<string> = new Set(VOLATILE_SIGNAL_TYPES
 function isVolatileSignal(type: string): boolean {
   return volatileSignalTypeSet.has(type);
 }
+
+const V1_EVENT_TYPE_ALIASES: Readonly<Record<string, string>> = {
+  'task.output': 'background.task.output',
+};
 
 function legacyTaskEvent(
   event: Event2<any>,

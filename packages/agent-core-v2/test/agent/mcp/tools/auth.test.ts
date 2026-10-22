@@ -1,5 +1,5 @@
 import { MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE } from '#/agent/mcp/tools/auth';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { AlreadyAuthorizedError, type BeginAuthorizationResult, type McpOAuthService } from '#/mcpCore/oauth/service';
 import { createMcpAuthTool } from '#/agent/mcp/tools/auth';

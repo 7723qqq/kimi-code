@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { buildPluginSlashCommands, pluginCommandName } from '#/tui/commands/plugin-commands';
 

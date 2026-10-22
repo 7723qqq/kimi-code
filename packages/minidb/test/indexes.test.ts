@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 // test/indexes.test.ts
-import { test } from 'vitest';
+import { test } from 'bun:test';
 
 import { UniqueViolationError } from '../src/index-manager.js';
 import { MiniDb } from '../src/index.js';

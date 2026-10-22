@@ -21,6 +21,11 @@ import { Container, Spacer, Text } from '@moonshot-ai/pi-tui';
 import { t } from '#/i18n';
 import { STATUS_BULLET } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
+import {
+  SYSTEM_RENDER_CLOCK,
+  type RenderClock,
+  type RenderTimerHandle,
+} from '#/tui/utils/render-clock';
 
 import type { ToolCallComponent, ToolCallSubagentSnapshot } from './tool-call';
 
@@ -45,12 +50,15 @@ export class AgentGroupComponent extends Container {
   private readonly entries: AgentEntry[] = [];
   private readonly headerText: Text;
   private readonly bodyContainer: Container;
-  private throttleTimer: ReturnType<typeof setTimeout> | null = null;
+  private throttleTimer: RenderTimerHandle | null = null;
   private lastFlushPhases = new Map<string, ToolCallSubagentSnapshot['phase']>();
   private _invalidating = false;
   private disposed = false;
 
-  constructor(private readonly ui: TUI | undefined) {
+  constructor(
+    private readonly ui: TUI | undefined,
+    private readonly clock: RenderClock = SYSTEM_RENDER_CLOCK,
+  ) {
     super();
     this.addChild(new Spacer(1));
     this.headerText = new Text('', 0, 0);
@@ -98,7 +106,7 @@ export class AgentGroupComponent extends Container {
       return;
     }
     if (this.throttleTimer !== null) return;
-    this.throttleTimer = setTimeout(() => {
+    this.throttleTimer = this.clock.setTimeout(() => {
       this.throttleTimer = null;
       this.flushRender();
     }, THROTTLE_MS);
@@ -126,7 +134,7 @@ export class AgentGroupComponent extends Container {
 
   private flushRender(): void {
     if (this.throttleTimer !== null) {
-      clearTimeout(this.throttleTimer);
+      this.clock.clearTimeout(this.throttleTimer);
       this.throttleTimer = null;
     }
 
@@ -267,7 +275,7 @@ export class AgentGroupComponent extends Container {
     if (this.disposed) return;
     this.disposed = true;
     if (this.throttleTimer !== null) {
-      clearTimeout(this.throttleTimer);
+      this.clock.clearTimeout(this.throttleTimer);
       this.throttleTimer = null;
     }
     for (const e of this.entries) {

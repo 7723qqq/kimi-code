@@ -1,10 +1,10 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import { visibleWidth } from '@moonshot-ai/pi-tui';
 
 import { PromptOptimizePanelComponent } from '#/tui/components/dialogs/prompt-optimize-panel';
 
-vi.mock('#/i18n', () => ({
+void mock.module('#/i18n', () => ({
   t: (key: string, params?: Record<string, string | number>): string => {
     const translations: Record<string, string> = {
       'tui.dialogs.promptOptimize.title': 'Rewrite this prompt',
@@ -37,7 +37,7 @@ const END = '\u001B[F';
 const CTRL_O = '\u000F';
 
 function makePanel() {
-  const onSelect = vi.fn();
+  const onSelect = mock();
   const panel = new PromptOptimizePanelComponent({
     original: 'fix the parser',
     optimized: 'Rewrite the parser to reject trailing input.',
@@ -75,7 +75,7 @@ describe('PromptOptimizePanelComponent', () => {
   });
 
   it('scrolls with the vertical arrows instead of moving the selection', () => {
-    const onSelect = vi.fn();
+    const onSelect = mock();
     const original = Array.from({ length: 80 }, (_, i) => `old-${i}`).join('\n');
     const optimized = Array.from({ length: 80 }, (_, i) => `new-${i}`).join('\n');
     const panel = new PromptOptimizePanelComponent({
@@ -98,7 +98,7 @@ describe('PromptOptimizePanelComponent', () => {
   });
 
   it('pages with PageUp and PageDown and reports the visible window', () => {
-    const onSelect = vi.fn();
+    const onSelect = mock();
     const original = Array.from({ length: 80 }, (_, i) => `old-${i}`).join('\n');
     const optimized = Array.from({ length: 80 }, (_, i) => `new-${i}`).join('\n');
     const panel = new PromptOptimizePanelComponent({
@@ -118,7 +118,7 @@ describe('PromptOptimizePanelComponent', () => {
   });
 
   it('jumps to the ends with Home and End', () => {
-    const onSelect = vi.fn();
+    const onSelect = mock();
     const original = Array.from({ length: 80 }, (_, i) => `old-${i}`).join('\n');
     const optimized = Array.from({ length: 80 }, (_, i) => `new-${i}`).join('\n');
     const panel = new PromptOptimizePanelComponent({
@@ -138,7 +138,7 @@ describe('PromptOptimizePanelComponent', () => {
   });
 
   it('scrolls on a mouse wheel and consumes the event', () => {
-    const onSelect = vi.fn();
+    const onSelect = mock();
     const original = Array.from({ length: 80 }, (_, i) => `old-${i}`).join('\n');
     const optimized = Array.from({ length: 80 }, (_, i) => `new-${i}`).join('\n');
     const panel = new PromptOptimizePanelComponent({
@@ -203,7 +203,7 @@ describe('PromptOptimizePanelComponent', () => {
   });
 
   it('reveals the hidden changes on ctrl+o and collapses them again', () => {
-    const onSelect = vi.fn();
+    const onSelect = mock();
     const original = Array.from({ length: 60 }, (_, i) => `line-${i}`).join('\n');
     const optimized = Array.from({ length: 60 }, (_, i) => `changed-${i}`).join('\n');
     const panel = new PromptOptimizePanelComponent({ original, optimized, onSelect });
@@ -225,7 +225,7 @@ describe('PromptOptimizePanelComponent', () => {
   });
 
   it('folds a long line instead of truncating it', () => {
-    const onSelect = vi.fn();
+    const onSelect = mock();
     const long = `reject-${'x'.repeat(300)}-trailing`;
     const panel = new PromptOptimizePanelComponent({
       original: 'short',
@@ -249,7 +249,7 @@ describe('PromptOptimizePanelComponent', () => {
   });
 
   it('keeps folded rows within the requested width', () => {
-    const onSelect = vi.fn();
+    const onSelect = mock();
     const panel = new PromptOptimizePanelComponent({
       original: 'a'.repeat(200),
       optimized: `b${'c'.repeat(400)}d`.repeat(3),
@@ -264,7 +264,7 @@ describe('PromptOptimizePanelComponent', () => {
   });
 
   it('indents continuation rows so a wrapped line still reads as one entry', () => {
-    const onSelect = vi.fn();
+    const onSelect = mock();
     const panel = new PromptOptimizePanelComponent({
       original: 'short',
       optimized: 'z'.repeat(200),
@@ -288,7 +288,7 @@ describe('PromptOptimizePanelComponent', () => {
   });
 
   it('caps the folded row count so the choices stay reachable', () => {
-    const onSelect = vi.fn();
+    const onSelect = mock();
     // 24 diff lines, each long enough to fold many times at a narrow width.
     const original = Array.from({ length: 24 }, (_, i) => `old-${i}`).join('\n');
     const optimized = Array.from({ length: 24 }, (_, i) => 'y'.repeat(400)).join('\n');

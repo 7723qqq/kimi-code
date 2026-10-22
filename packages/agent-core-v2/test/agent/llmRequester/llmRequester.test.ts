@@ -2,7 +2,8 @@ import { APIConnectionError, APIStatusError } from '#/llm-adapter/contract/error
 import { TOOL_SELECT_FLAG_ENV } from '#/agent/toolSelect/flag';
 import type { StreamedMessagePart, ToolDescription as Tool } from '#human/llm/message';
 import { emptyUsage, inputTotal } from '#human/llm/usage';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { setEnv, restoreEnvs } from '#test/helpers/stubs';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import {
@@ -74,13 +75,13 @@ describe('LLMRequester service migration coverage', () => {
     ];
 
     beforeEach(() => {
-      vi.stubEnv(TOOL_SELECT_FLAG_ENV, '1');
+      setEnv(TOOL_SELECT_FLAG_ENV, '1');
       ctx = createTestAgent();
       llmRequester = ctx.get(IAgentLLMRequesterService);
     });
 
     afterEach(async () => {
-      vi.unstubAllEnvs();
+      restoreEnvs();
       try {
         await ctx.expectResumeMatches();
       } finally {
@@ -186,7 +187,7 @@ describe('LLMRequester service migration coverage', () => {
 
     it('records the env-forced Kimi effort used by the provider', async () => {
       await ctx.dispose();
-      vi.stubEnv('KIMI_MODEL_THINKING_EFFORT', 'max');
+      setEnv('KIMI_MODEL_THINKING_EFFORT', 'max');
       ctx = createTestAgent();
       llmRequester = ctx.get(IAgentLLMRequesterService);
       ctx.configure({

@@ -1,5 +1,6 @@
 
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'bun:test';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import type { ServiceIdentifier, ServicesAccessor } from '#/_base/di/instantiation';
 import type { ISessionScopeHandle } from '#/_base/di/scope';
@@ -270,7 +271,7 @@ describe('setSessionArchived', () => {
     releaseEarlierTransition();
     await earlierTransition;
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(archiveOutcome).toBe('updated');
     });
     await expect(resumed).resolves.toMatchObject({ id: 's1' });

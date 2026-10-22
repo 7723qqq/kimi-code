@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { promises as fsp } from 'node:fs';
 import os from 'node:os';
@@ -32,6 +33,7 @@ import {
 } from '#/app/workspace/workspacePersistence';
 import { IWorkspaceAliases } from '#/app/workspaceAliases/workspaceAliases';
 import { WorkspaceAliasesService } from '#/app/workspaceAliases/workspaceAliasesService';
+import { isWatchEnabled, setWatchEnabled } from '#human/utils/watch';
 import { stubBootstrap } from '../bootstrap/stubs';
 
 interface SessionIndexLine {
@@ -43,6 +45,7 @@ interface SessionIndexLine {
 describe('WorkspaceAliasesService (file-backed)', () => {
   let homeDir: string;
   let currentHost: ReturnType<typeof createScopedTestHost> | undefined;
+  let watchWasEnabled: boolean;
 
   beforeEach(async () => {
     _clearScopedRegistryForTests();
@@ -68,11 +71,14 @@ describe('WorkspaceAliasesService (file-backed)', () => {
       'workspaceAliases',
     );
     homeDir = await fsp.mkdtemp(join(os.tmpdir(), 'ws-aliases-'));
+    watchWasEnabled = isWatchEnabled();
+    setWatchEnabled(false);
   });
 
   afterEach(async () => {
     currentHost?.dispose();
     currentHost = undefined;
+    setWatchEnabled(watchWasEnabled);
     await fsp.rm(homeDir, { recursive: true, force: true });
   });
 
@@ -326,7 +332,7 @@ describe('WorkspaceAliasesService (file-backed)', () => {
     });
     const baseline = persistence.loads;
     const p1 = aliases.resolveAliasIds(typedId);
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(persistence.loads).toBe(baseline + 1);
     });
     await persistence.save({
@@ -389,7 +395,7 @@ describe('WorkspaceAliasesService (file-backed)', () => {
     });
     const baseline = storage.indexReads;
     const p = aliases.resolveAliasIds(typedId);
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(storage.indexReads).toBe(baseline + 1);
     });
     await persistence.save({
@@ -445,7 +451,7 @@ describe('WorkspaceAliasesService (file-backed)', () => {
       [typedId]: entry(typedRoot),
       [legacyId]: entry('c:\\users\\foo\\proj'),
     });
-    await vi.waitFor(
+    await waitForAssertion(
       async () => {
         expect((await aliases.resolveAliasIds(typedId)).toSorted()).toEqual(
           [legacyId, typedId].toSorted(),
@@ -458,7 +464,7 @@ describe('WorkspaceAliasesService (file-backed)', () => {
     await seedSessionIndex([
       { sessionId: 's1', sessionDir: 'sessions/a/s1', workDir: 'c:\\Users\\Foo\\Proj' },
     ]);
-    await vi.waitFor(
+    await waitForAssertion(
       async () => {
         expect((await aliases.resolveAliasIds(typedId)).toSorted()).toEqual(
           [indexOnlyId, legacyId, typedId].toSorted(),

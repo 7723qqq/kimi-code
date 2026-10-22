@@ -1,9 +1,11 @@
 import { existsSync } from 'node:fs';
-import { chmod, mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
+
+const POSIX_PERMS = process.platform !== 'win32';
+import { chmod, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { migratePlansStep } from '../../src/steps/plans.js';
 
@@ -39,7 +41,7 @@ describe('migratePlansStep', () => {
     expect(r).toEqual({ copied: 0, skippedExisting: 0, failures: [] });
   });
 
-  it('records a per-entry failure instead of aborting when one entry cannot be read', async () => {
+  it.skipIf(!POSIX_PERMS)('records a per-entry failure instead of aborting when one entry cannot be read', async () => {
     await writeFile(join(src, 'good.md'), 'GOOD');
     const broken = join(src, 'broken.md');
     await writeFile(broken, 'SECRET');

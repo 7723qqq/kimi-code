@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 // test/degrade.test.ts
-import { test } from 'vitest';
+import { test } from 'bun:test';
 
 import { encodeFrame, TYPE_SET, CorruptFrameError } from '../src/codec.js';
 import { MiniDb, classifyStorageError } from '../src/index.js';

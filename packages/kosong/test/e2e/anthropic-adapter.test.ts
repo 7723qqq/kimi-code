@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 /**
  * Scenario: exercise the Anthropic adapter over a real local HTTP connection.

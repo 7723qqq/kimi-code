@@ -121,6 +121,9 @@ export class SubagentActivityStore {
   /** Raw streaming-arguments buffer per in-flight tool call (from deltas). */
   private readonly streamingArgs = new Map<string, string>();
 
+  /** `now` is the injectable time source for call timestamps/durations. */
+  constructor(private readonly now: () => number = Date.now) {}
+
   ensureRecord(spawn: SubagentActivitySpawn): SubagentActivityRecord {
     const existing = this.records.get(spawn.agentId);
     if (existing !== undefined) {
@@ -194,7 +197,7 @@ export class SubagentActivityStore {
             name: event.name,
             args,
             status: 'running',
-            startedAt: Date.now(),
+            startedAt: this.now(),
           });
         } else {
           // Authoritative full args arrive with the start; replace the
@@ -224,7 +227,7 @@ export class SubagentActivityStore {
             name: event.name ?? '',
             args: {},
             status: 'running',
-            startedAt: Date.now(),
+            startedAt: this.now(),
           };
           this.currentStep(record).toolCalls.push(call);
         }
@@ -261,7 +264,7 @@ export class SubagentActivityStore {
           synthetic: event.synthetic,
         };
         call.status = event.isError === true ? 'error' : 'done';
-        call.durationMs = Date.now() - call.startedAt;
+        call.durationMs = this.now() - call.startedAt;
         call.liveOutputTail = undefined;
         this.streamingArgs.delete(this.streamKey(event.agentId, event.toolCallId));
         this.bump(record);

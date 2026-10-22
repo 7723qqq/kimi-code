@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import { GoalStartPermissionPromptComponent } from '#/tui/components/dialogs/goal-start-permission-prompt';
 import { SwarmStartPermissionPromptComponent } from '#/tui/components/dialogs/swarm-start-permission-prompt';
@@ -13,11 +13,11 @@ function stripAnsi(text: string): string {
 
 describe('start permission prompt initial highlight', () => {
   it('keeps Always Ask on Enter for a manual-mode goal', () => {
-    const onSelect = vi.fn<(choice: GoalStartPermissionChoice) => void>();
+    const onSelect = mock<(choice: GoalStartPermissionChoice) => void>();
     const component = new GoalStartPermissionPromptComponent({
       mode: 'manual',
       onSelect,
-      onCancel: vi.fn(),
+      onCancel: mock(),
     });
 
     component.handleInput(ENTER);
@@ -26,11 +26,11 @@ describe('start permission prompt initial highlight', () => {
   });
 
   it('keeps YOLO on Enter for a yolo-mode goal', () => {
-    const onSelect = vi.fn<(choice: GoalStartPermissionChoice) => void>();
+    const onSelect = mock<(choice: GoalStartPermissionChoice) => void>();
     const component = new GoalStartPermissionPromptComponent({
       mode: 'yolo',
       onSelect,
-      onCancel: vi.fn(),
+      onCancel: mock(),
     });
 
     component.handleInput(ENTER);
@@ -39,10 +39,10 @@ describe('start permission prompt initial highlight', () => {
   });
 
   it('keeps Always Ask on Enter for a swarm start', () => {
-    const onSelect = vi.fn<(choice: SwarmStartPermissionChoice) => void>();
+    const onSelect = mock<(choice: SwarmStartPermissionChoice) => void>();
     const component = new SwarmStartPermissionPromptComponent({
       onSelect,
-      onCancel: vi.fn(),
+      onCancel: mock(),
     });
 
     component.handleInput(ENTER);
@@ -53,8 +53,8 @@ describe('start permission prompt initial highlight', () => {
   it('renders the current mode as the highlighted first row', () => {
     const component = new GoalStartPermissionPromptComponent({
       mode: 'manual',
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
+      onSelect: mock(),
+      onCancel: mock(),
     });
 
     const rendered = stripAnsi(component.render(80).join('\n'));
@@ -69,11 +69,11 @@ describe('start permission prompt initial highlight', () => {
   });
 
   it('still reaches Never Ask after moving the cursor', () => {
-    const onSelect = vi.fn<(choice: GoalStartPermissionChoice) => void>();
+    const onSelect = mock<(choice: GoalStartPermissionChoice) => void>();
     const component = new GoalStartPermissionPromptComponent({
       mode: 'manual',
       onSelect,
-      onCancel: vi.fn(),
+      onCancel: mock(),
     });
 
     // Options are Never Ask / YOLO / Always Ask, so the highlight starts on

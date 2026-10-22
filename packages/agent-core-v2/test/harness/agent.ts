@@ -3,7 +3,7 @@ import { isAbsolute, relative, resolve } from 'node:path';
 import { Readable, type Writable } from 'node:stream';
 
 import { createControlledPromise } from '@antfu/utils';
-import { expect, vi } from 'vitest';
+import { expect, mock } from 'bun:test';
 
 import { toDisposable } from '#/_base/di/lifecycle';
 import type { IInstantiationService } from '#/_base/di/instantiation';
@@ -800,18 +800,18 @@ export function createCommandRunner(stdout: string, exitCode = 0): IHostProcessS
   function createProcess(): IHostProcess {
     return {
       _serviceBrand: undefined,
-      stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
+      stdin: { write: mock(), end: mock() } as unknown as Writable,
       stdout: Readable.from([stdout]),
       stderr: Readable.from(['']),
       pid: 42,
       exitCode,
-      wait: vi.fn().mockResolvedValue(exitCode),
-      kill: vi.fn().mockResolvedValue(undefined),
-      dispose: vi.fn(),
+      wait: mock().mockResolvedValue(exitCode),
+      kill: mock().mockResolvedValue(undefined),
+      dispose: mock(),
     };
   }
   return createFakeProcessRunner({
-    spawn: vi.fn().mockImplementation(async () => createProcess()),
+    spawn: mock().mockImplementation(async () => createProcess()),
   });
 }
 

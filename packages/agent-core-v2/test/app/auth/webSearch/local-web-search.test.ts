@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import { parseBingSearchResults } from '#/app/auth/webSearch/engines/bing/parser';
 import { parseDuckDuckGoResults } from '#/app/auth/webSearch/engines/duckduckgo/parser';
@@ -74,7 +74,7 @@ describe('LocalWebSearchProvider abort propagation', () => {
 
   it('rethrows immediately when the caller aborts, without trying remaining engines', async () => {
     const controller = new AbortController();
-    const fetchImpl = vi.fn(async () => {
+    const fetchImpl = mock(async () => {
       controller.abort();
       throw new Error('aborted mid-search');
     });
@@ -89,7 +89,7 @@ describe('LocalWebSearchProvider abort propagation', () => {
   it('rethrows an engine AbortError instead of falling through to other engines', async () => {
     const abortError = new Error('The operation was aborted.');
     abortError.name = 'AbortError';
-    const fetchImpl = vi.fn(async () => {
+    const fetchImpl = mock(async () => {
       throw abortError;
     });
     const provider = new LocalWebSearchProvider({ env: multiEngineEnv, fetchImpl });
@@ -99,7 +99,7 @@ describe('LocalWebSearchProvider abort propagation', () => {
   });
 
   it('still reports aggregate engine failures for non-abort errors', async () => {
-    const fetchImpl = vi.fn(async () => {
+    const fetchImpl = mock(async () => {
       throw new Error('rate limited');
     });
     const provider = new LocalWebSearchProvider({ env: multiEngineEnv, fetchImpl });

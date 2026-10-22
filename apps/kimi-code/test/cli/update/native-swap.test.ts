@@ -1,10 +1,13 @@
 import { createHash } from 'node:crypto';
 import { existsSync, writeFileSync } from 'node:fs';
 import { mkdtemp, mkdir, readdir, readFile, rename, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import * as fsModule from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { setEnv, restoreEnvs } from '#test/helpers/stubs';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { readUpdateInstallState } from '#/cli/update/install-state';
 import { readStagedNativeUpdate, stagedExeFileName } from '#/cli/update/native-stage';
@@ -15,36 +18,39 @@ import {
 import { KIMI_CODE_UPDATE_REEXEC_ENV } from '#/constant/app';
 import { getNativeStagedStateFile, getNativeStagingDir } from '#/utils/paths';
 
-const fsMocks = vi.hoisted(() => ({
+const fsMocks = (() => ({
   /** When set, renames matching the predicate fail with an injected error. */
   renameBlocker: null as null | ((src: string, dst: string) => boolean),
   /** When set, link() throws an error with this code (no hard-link support). */
   linkError: null as string | null,
-}));
+}))();
 
-vi.mock('node:fs/promises', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:fs/promises')>();
+// Captured before `mock.module` overwrites the namespace; the wrappers below
+// must delegate to the real implementations rather than recurse into themselves.
+const realFs = { rename: fsModule.rename, link: fsModule.link };
+
+void mock.module('node:fs/promises', () => {
   return {
-    ...actual,
+    ...fsModule,
     rename: async (
-      src: Parameters<typeof actual.rename>[0],
-      dst: Parameters<typeof actual.rename>[1],
+      src: Parameters<typeof realFs.rename>[0],
+      dst: Parameters<typeof realFs.rename>[1],
     ) => {
       if (fsMocks.renameBlocker?.(String(src), String(dst)) === true) {
         throw new Error('injected rename failure');
       }
-      return actual.rename(src, dst);
+      return realFs.rename(src, dst);
     },
     link: async (
-      src: Parameters<typeof actual.link>[0],
-      dst: Parameters<typeof actual.link>[1],
+      src: Parameters<typeof realFs.link>[0],
+      dst: Parameters<typeof realFs.link>[1],
     ) => {
       if (fsMocks.linkError !== null) {
         throw Object.assign(new Error('link() is not supported (mocked)'), {
           code: fsMocks.linkError,
         });
       }
-      return actual.link(src, dst);
+      return realFs.link(src, dst);
     },
   };
 });
@@ -76,7 +82,7 @@ function fakeChild(options: {
         stdoutListeners.push(cb);
       },
     },
-    kill: vi.fn(),
+    kill: mock(),
   };
   queueMicrotask(() => {
     if (options.error !== undefined) {
@@ -163,7 +169,7 @@ function makeDeps(
     env: { PATH: '/usr/bin' },
     currentVersion: CURRENT_VERSION,
     isNative: true,
-    exitImpl: vi.fn(),
+    exitImpl: mock(),
     ...overrides,
   };
 }
@@ -179,13 +185,13 @@ describe('maybeRelaunchWithStagedNativeUpdate', () => {
     exePath = join(workDir, 'bin', 'kimi');
     await mkdir(join(workDir, 'bin'), { recursive: true });
     await writeFile(exePath, 'old-binary');
-    vi.stubEnv('KIMI_CODE_HOME', homeDir);
+    setEnv('KIMI_CODE_HOME', homeDir);
     fsMocks.renameBlocker = null;
     fsMocks.linkError = null;
   });
 
   afterEach(async () => {
-    vi.unstubAllEnvs();
+    restoreEnvs();
     await rm(workDir, { recursive: true, force: true });
   });
 
@@ -252,7 +258,7 @@ describe('maybeRelaunchWithStagedNativeUpdate', () => {
   it('swaps in the staged exe, re-execs with the original argv and forwards the exit code', async () => {
     await seedStagedUpdate(exePath, STAGED_VERSION);
     const { calls, spawnImpl } = createSpawnMock({ reexecCode: 3 });
-    const exitImpl = vi.fn();
+    const exitImpl = mock();
     const relaunched = await maybeRelaunchWithStagedNativeUpdate(
       makeDeps(exePath, { spawnImpl, exitImpl }),
     );
@@ -278,7 +284,7 @@ describe('maybeRelaunchWithStagedNativeUpdate', () => {
   it('rolls back when the smoke check fails and records an install failure', async () => {
     await seedStagedUpdate(exePath, STAGED_VERSION);
     const { calls, spawnImpl } = createSpawnMock({ smokeCode: 1 });
-    const exitImpl = vi.fn();
+    const exitImpl = mock();
     const relaunched = await maybeRelaunchWithStagedNativeUpdate(
       makeDeps(exePath, { spawnImpl, exitImpl }),
     );
@@ -316,7 +322,7 @@ describe('maybeRelaunchWithStagedNativeUpdate', () => {
   it('continues startup with the old in-memory code when the re-exec spawn fails', async () => {
     await seedStagedUpdate(exePath, STAGED_VERSION);
     const { spawnImpl } = createSpawnMock({ reexecError: new Error('spawn EACCES') });
-    const exitImpl = vi.fn();
+    const exitImpl = mock();
     const relaunched = await maybeRelaunchWithStagedNativeUpdate(
       makeDeps(exePath, { spawnImpl, exitImpl }),
     );
@@ -330,7 +336,7 @@ describe('maybeRelaunchWithStagedNativeUpdate', () => {
   it('forwards a signal-derived nonzero exit code when the re-exec child is killed', async () => {
     await seedStagedUpdate(exePath, STAGED_VERSION);
     const { spawnImpl } = createSpawnMock({ reexecSignal: 'SIGKILL' });
-    const exitImpl = vi.fn();
+    const exitImpl = mock();
     const relaunched = await maybeRelaunchWithStagedNativeUpdate(
       makeDeps(exePath, { spawnImpl, exitImpl }),
     );
@@ -789,7 +795,7 @@ describe('maybeRelaunchWithStagedNativeUpdate', () => {
             stdoutListeners.push(cb);
           },
         },
-        kill: vi.fn(),
+        kill: mock(),
       };
       const emitSmokeSuccess = (): void => {
         for (const cb of stdoutListeners) cb(Buffer.from(`${STAGED_VERSION}\n`));
@@ -806,7 +812,7 @@ describe('maybeRelaunchWithStagedNativeUpdate', () => {
     // Wait until A holds the claim.
     const stagingDir = getNativeStagingDir(exePath);
     const claimPath = join(stagingDir, `staged.json.swap-${process.pid}`);
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(existsSync(claimPath)).toBe(true);
     });
     // The claim carries the claim time, not the staged file's old mtime.

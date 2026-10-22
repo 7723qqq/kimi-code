@@ -26,7 +26,7 @@
  * Live-server gated via the same `daemonReachable()` check as
  * `client.test.ts`; missing server → tests skip cleanly so CI stays green.
  */
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 import { WebSocket as WsWebSocket } from 'ws';
 
 import { DaemonClient, WsClient, type AnyFrame } from '../harness/index.js';
@@ -100,7 +100,7 @@ async function openSocketWithHello(opts: {
 
   const helloId = `hello-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   const payload: Record<string, unknown> = {
-    client_id: opts.clientId ?? `vitest-refresh-${process.pid}`,
+    client_id: opts.clientId ?? `klient-refresh-${process.pid}`,
     subscriptions: [opts.sid],
   };
   if (opts.lastSeq !== undefined) {

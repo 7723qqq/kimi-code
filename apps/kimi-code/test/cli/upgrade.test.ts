@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import { handleUpgrade } from '#/cli/sub/upgrade';
 import type { InstallPromptChoiceValue } from '#/cli/update/prompt';
@@ -46,26 +46,25 @@ function createDeps(overrides: {
 } = {}) {
   const installUpdate =
     overrides.installUpdate ??
-    vi.fn<(
+    mock<(
       source: InstallSource,
       version: string,
       platform: NodeJS.Platform,
     ) => Promise<void>>().mockResolvedValue(undefined);
 
   return {
-    refreshUpdateCache: vi
-      .fn()
+    refreshUpdateCache: mock()
       .mockResolvedValue(cacheWith(overrides.latest ?? '0.5.0', overrides.manifest ?? null)),
-    detectInstallSource: vi.fn().mockResolvedValue(overrides.source ?? 'npm-global'),
+    detectInstallSource: mock().mockResolvedValue(overrides.source ?? 'npm-global'),
     promptForInstallChoice:
-      overrides.promptForInstallChoice ?? vi.fn().mockResolvedValue('install'),
+      overrides.promptForInstallChoice ?? mock().mockResolvedValue('install'),
     installUpdate,
-    track: vi.fn(),
+    track: mock(),
     logger: {
-      info: vi.fn(),
-      warn: vi.fn(),
-      error: vi.fn(),
-      debug: vi.fn(),
+      info: mock(),
+      warn: mock(),
+      error: mock(),
+      debug: mock(),
     },
     platform: 'darwin' as NodeJS.Platform,
     isInteractive: overrides.isInteractive ?? true,
@@ -114,7 +113,7 @@ describe('handleUpgrade', () => {
     const deps = createDeps({
       latest: '0.5.0',
       source: 'npm-global',
-      promptForInstallChoice: vi.fn().mockResolvedValue('skip'),
+      promptForInstallChoice: mock().mockResolvedValue('skip'),
     });
 
     await expect(handleUpgrade('0.4.0', { ...deps, ...writable })).resolves.toBe(0);
@@ -191,7 +190,7 @@ describe('handleUpgrade', () => {
     const deps = createDeps({
       latest: '0.5.0',
       source: 'npm-global',
-      installUpdate: vi.fn().mockRejectedValue(new Error('npm exited with code 1')),
+      installUpdate: mock().mockRejectedValue(new Error('npm exited with code 1')),
     });
 
     await expect(handleUpgrade('0.4.0', { ...deps, ...writable })).resolves.toBe(1);
@@ -214,7 +213,7 @@ describe('handleUpgrade', () => {
     const { stderr, writable } = captureOutput();
     const deps = {
       ...createDeps(),
-      refreshUpdateCache: vi.fn().mockRejectedValue(new Error('cdn unavailable')),
+      refreshUpdateCache: mock().mockRejectedValue(new Error('cdn unavailable')),
     };
 
     await expect(handleUpgrade('0.4.0', { ...deps, ...writable })).resolves.toBe(1);

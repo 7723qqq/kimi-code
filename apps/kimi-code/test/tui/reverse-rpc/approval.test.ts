@@ -1,5 +1,5 @@
 import type { ApprovalRequest } from '@moonshot-ai/kimi-code-sdk';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, spyOn } from 'bun:test';
 
 import { ApprovalController } from '#/tui/reverse-rpc/approval/controller';
 import { createApprovalRequestHandler } from '#/tui/reverse-rpc/approval/handler';
@@ -105,7 +105,7 @@ describe('approval reverse-rpc', () => {
 
   it('adapts approval payloads through the handler and falls back on failure', async () => {
     const controller = new ApprovalController();
-    const show = vi.spyOn(controller, 'show').mockResolvedValue({
+    const show = spyOn(controller, 'show').mockResolvedValue({
       decision: 'approved',
       scope: 'session',
       feedback: 'looks good',

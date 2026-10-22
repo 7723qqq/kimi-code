@@ -243,7 +243,6 @@
                 ./bun.lock
                 ./bunfig.toml
                 ./tsconfig.json
-                ./vitest.config.ts
                 ./LICENSE
               ]
               ++ workspacePaths

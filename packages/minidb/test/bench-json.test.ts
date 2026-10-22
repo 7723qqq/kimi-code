@@ -9,7 +9,7 @@ import { promisify } from 'node:util';
 // Runs the real bench script in --quick mode and pins the machine-readable
 // JSON report's shape: later phases diff before/after numbers, so the field
 // names below are a stable contract.
-import { test } from 'vitest';
+import { test } from 'bun:test';
 
 const pkgDir = fileURLToPath(new URL('..', import.meta.url));
 

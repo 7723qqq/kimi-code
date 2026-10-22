@@ -7,6 +7,8 @@ import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { systemReminderContent } from '#/features/reminder/systemReminder';
 import type { ContextInjectionContext } from '#/features/reminder/types';
 
+import { resolveTailContract, TAIL_ANCHOR_INJECTION_VARIANT } from './tailAnchorInjection';
+
 export interface IDeepseekAdaptationService {
   readonly _serviceBrand: undefined;
 }
@@ -16,15 +18,6 @@ export const IDeepseekAdaptationService =
 
 export const DEEPSEEK_ADAPTATION_INJECTION_VARIANT = 'deepseek_adaptation';
 
-/**
- * Caches the in-flight load per wire name, not the settled value.
- *
- * The provider is async and the reminder service can ask for it during any step,
- * so two callers can overlap before either write completes; caching the promise
- * means the file is read once no matter how many callers race it. A resolved
- * `undefined` is a real entry, so a model with no adaptation does not re-read
- * the directory on every step.
- */
 export class PendingAdaptationCache<T> {
   private readonly entries = new Map<string, Promise<T | undefined>>();
 
@@ -61,18 +54,13 @@ export class DeepseekAdaptationService extends Service implements IDeepseekAdapt
         this.resolve(injection),
       ),
     );
+    this._register(
+      reminder.register(TAIL_ANCHOR_INJECTION_VARIANT, (injection) =>
+        resolveTailContract(injection, this.profile.getModelWireName()),
+      ),
+    );
   }
 
-  /**
-   * Resolves the family guidance for this model.
-   *
-   * The text is standing guidance for the whole session, so it is derived from
-   * the wire name — which does not change mid-session — rather than re-derived
-   * from the conversation on every step. Re-deriving cost a file read per step
-   * and put the injection point back at the end of the context repeatedly, which
-   * is where a cache prefix is most likely to be invalidated; the value only
-   * needs rebuilding once compaction has dropped it.
-   */
   private async resolve(injection: ContextInjectionContext): Promise<string | undefined> {
     const wire = this.profile.getModelWireName();
     if (wire === undefined) return undefined;

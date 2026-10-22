@@ -1,30 +1,23 @@
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
+import { recordingTelemetry } from '../../app/telemetry/stubs';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import type {
-  ApprovalResponse,
-  PermissionMode,
-  PermissionPolicyResolution,
-  PermissionPolicyResult,
-} from '#/agent/permissionPolicy/types';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { type ApprovalResponse, type PermissionMode, type PermissionPolicyResolution, type PermissionPolicyResult } from '#/agent/permissionPolicy/types';
+
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import type {
-  BeforeExecuteDecision,
-  ResolvedToolExecutionHookContext,
-} from '#/agent/toolExecutor/toolHooks';
-import { IEventBus } from '#/app/event/eventBus';
+import { type BeforeExecuteDecision, type ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
+
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { IAgentSpecService, SPEC_DIR_NAME, SPEC_REQUIRED_FILES } from '#/features/spec/spec';
 import { AgentSpecService } from '#/features/spec/specService';
-import type { ToolCall } from '#human/llm/message';
+import { type ToolCall } from '#human/llm/message';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IBlobStore } from '#/persistence/interface/blobStore';
 import { BlobStoreService } from '#/persistence/backends/node-fs/blobStoreService';
@@ -33,11 +26,8 @@ import { InMemoryStorageService } from '#/persistence/backends/memory/inMemorySt
 import { ToolAccesses } from '#/tool/toolContract';
 
 import { stubPermissionModeService } from '../../agent/permissionMode/stubs';
-import {
-  stubToolExecutorEvents,
-  type ToolExecutorEventStubs,
-} from '../../agent/toolExecutor/stubs';
-import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
+import { stubToolExecutorEvents, type ToolExecutorEventStubs } from '../../agent/toolExecutor/stubs';
+import { type TelemetryRecord } from '../../app/telemetry/stubs';
 import { createReminderStub } from '../reminder/stubs';
 import { createFakeHostFs } from '../../tools/fixtures/fake-exec';
 import { stubWorkspaceContext } from '../../session/workspaceContext/stub-workspace-context';
@@ -119,15 +109,15 @@ describe('AgentSpecService write guard', () => {
     records = [];
     requests = [];
     approvalResponse = { decision: 'approved' };
-    formatDenyMessage = vi.fn((message: string) => message);
+    formatDenyMessage = mock((message: string) => message);
     mode = 'manual';
     files = new Map();
     existing = new Set([WORK_DIR, `${WORK_DIR}/${SPEC_DIR_NAME}`]);
     resolveLinks = new Map();
-    readText = vi.fn(async (path: string) => files.get(path) ?? '');
+    readText = mock(async (path: string) => files.get(path) ?? '');
     removed = [];
-    mkdir = vi.fn().mockResolvedValue(undefined);
-    setContext = vi.fn();
+    mkdir = mock().mockResolvedValue(undefined);
+    setContext = mock();
     executorEvents = stubToolExecutorEvents();
 
     const toolApproval: IAgentToolApprovalService = {
@@ -152,15 +142,15 @@ describe('AgentSpecService write guard', () => {
           createFakeHostFs({
             mkdir,
             readText,
-            remove: vi.fn(async (path: string) => {
+            remove: mock(async (path: string) => {
               removed.push(path);
               files.delete(path);
               existing.delete(path);
             }),
-            writeText: vi.fn(async (path: string, content: string) => {
+            writeText: mock(async (path: string, content: string) => {
               files.set(path, content);
             }),
-            realpath: vi.fn(async (path: string) => {
+            realpath: mock(async (path: string) => {
               const target = resolveLinks.get(path);
               if (target !== undefined) {
                 if (target === null) throw new Error(`ENOENT: ${path}`);

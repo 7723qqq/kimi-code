@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { isMcpToolName } from '#/tool/toolContract';
 import { qualifyMcpToolName, sanitizeMcpNamePart } from '#/mcpCore/tool-naming';

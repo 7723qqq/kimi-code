@@ -4,12 +4,7 @@ import type { ProcessTerminal, TUI } from '@moonshot-ai/pi-tui';
 import { t } from '#/i18n';
 import type { Theme } from '#/tui/theme';
 
-import {
-  AgentActivityViewer,
-  formatSubagentActivityPreview,
-} from '../components/dialogs/agent-activity-viewer';
-import { TaskOutputViewer } from '../components/dialogs/task-output-viewer';
-import { TasksBrowserApp, type TasksFilter } from '../components/dialogs/tasks-browser';
+import { TasksPanelComponent, type TasksTab } from '../components/dialogs/tasks-browser';
 import type { CustomEditor } from '../components/editor/custom-editor';
 import type { AppState } from '../types';
 import {
@@ -18,7 +13,6 @@ import {
   type ScreenTakeover,
 } from '../utils/screen-takeover';
 import type { SessionEventHandler } from './session-event-handler';
-import type { SubagentActivityRecord } from './subagent-activity-store';
 
 export interface TasksBrowserHost {
   readonly state: {
@@ -37,28 +31,17 @@ export interface TasksBrowserHost {
 }
 
 export type TasksBrowserState = {
-  component: TasksBrowserApp;
+  component: TasksPanelComponent;
   takeover: ScreenTakeover;
-  filter: TasksFilter;
+  tab: TasksTab;
   selectedTaskId: string | undefined;
-  tailOutput: string | undefined;
-  tailLoading: boolean;
-  tailRequestId: number;
+  /** Captured output of the selected task, straight from the engine. */
+  output: string | undefined;
+  outputLoading: boolean;
+  outputRequestId: number;
   flashMessage: string | undefined;
   flashTimer: NodeJS.Timeout | undefined;
   pollTimer: NodeJS.Timeout | undefined;
-  viewer:
-    | {
-        component: TaskOutputViewer | AgentActivityViewer;
-        takeover: ScreenTakeover;
-        taskId: string;
-        output: string;
-        refreshId: number;
-        pollTimer: NodeJS.Timeout | undefined;
-        /** Last `agentId:version` fed to the activity viewer; polls skip when unchanged. */
-        lastRecordKey?: string;
-      }
-    | undefined;
 };
 
 export class TasksBrowserController {
@@ -89,21 +72,21 @@ export class TasksBrowserController {
     }
     if (state.tasksBrowser !== undefined) return;
 
-    const filter: TasksFilter = 'all';
-    const selectedTaskId = this.pickInitialSelection(tasks, filter);
-    const component = new TasksBrowserApp(
-      {
-        tasks,
-        filter,
-        selectedTaskId,
-        tailOutput: undefined,
-        tailLoading: false,
-        flashMessage: undefined,
-        availableModels: state.appState.availableModels,
-        ...this.buildCallbacks(),
-      },
-      state.terminal,
-    );
+    const tab: TasksTab = 'all';
+    const selectedTaskId = this.pickInitialSelection(tasks, tab);
+    const component = new TasksPanelComponent({
+      tasks,
+      tab,
+      selectedTaskId,
+      height: state.terminal.rows,
+      output: undefined,
+      outputLoading: false,
+      activity: undefined,
+      cwd: session.workDir,
+      flashMessage: undefined,
+      availableModels: state.appState.availableModels,
+      ...this.buildCallbacks(),
+    });
 
     const takeover = beginScreenTakeover(state.ui, component);
     state.ui.setFocus(component);
@@ -116,19 +99,18 @@ export class TasksBrowserController {
     this.host.setTasksBrowser({
       component,
       takeover,
-      filter,
+      tab,
       selectedTaskId,
-      tailOutput: undefined,
-      tailLoading: false,
-      tailRequestId: 0,
+      output: undefined,
+      outputLoading: false,
+      outputRequestId: 0,
       flashMessage: undefined,
       flashTimer: undefined,
       pollTimer,
-      viewer: undefined,
     });
 
     if (selectedTaskId !== undefined) {
-      this.loadTail(selectedTaskId);
+      void this.loadOutput(selectedTaskId);
     }
   }
 
@@ -136,7 +118,6 @@ export class TasksBrowserController {
     const { state } = this.host;
     const browser = state.tasksBrowser;
     if (browser === undefined) return;
-    if (browser.viewer !== undefined) this.closeOutputViewer();
     if (browser.pollTimer !== undefined) clearInterval(browser.pollTimer);
     if (browser.flashTimer !== undefined) clearTimeout(browser.flashTimer);
 
@@ -149,80 +130,42 @@ export class TasksBrowserController {
   repaint(): void {
     const browser = this.host.state.tasksBrowser;
     if (browser === undefined) return;
-    const tasks = [...this.host.backgroundTasks.values()];
-    this.pushProps(tasks);
+    this.pushProps([...this.host.backgroundTasks.values()]);
   }
 
+  /** Re-read the captured output of the selected task. */
   async refreshOutputViewer(opts: { silent?: boolean } = {}): Promise<void> {
-    const { state } = this.host;
-    const browser = state.tasksBrowser;
-    const viewer = browser?.viewer;
-    if (browser === undefined || viewer === undefined) return;
-    // The agent activity viewer refreshes from the local store, not the RPC.
-    if (viewer.component instanceof AgentActivityViewer) return;
-
-    const session = this.host.session;
-    if (session === undefined) return;
-
-    // A settled task's output cannot change further, so stop the poll instead of
-    // re-reading the whole log (up to MAX_TASK_OUTPUT_BYTES) once a second for as
-    // long as the viewer stays open. `pollTimer` is the only handle the controller
-    // keeps, so both the timer and the entry must be cleared here.
-    const taskInfo = this.host.backgroundTasks.get(viewer.taskId);
-    if (taskInfo !== undefined && taskInfo.status !== 'running') {
-      if (viewer.pollTimer !== undefined) clearInterval(viewer.pollTimer);
-      viewer.pollTimer = undefined;
-      return;
-    }
-
-    const myRefreshId = ++viewer.refreshId;
-    let output: string;
-    try {
-      output = await session.getBackgroundTaskOutput(viewer.taskId);
-    } catch (error) {
-      if (!opts.silent) {
-        const message = error instanceof Error ? error.message : String(error);
-        this.flash(t('tui.messages.tasksOutputRefreshFailed', { message }));
-      }
-      return;
-    }
-    const current = state.tasksBrowser?.viewer;
-    if (current === undefined || current !== viewer || current.refreshId !== myRefreshId) {
-      return;
-    }
-    if (output === viewer.output) return;
-    viewer.output = output;
-    const info = this.host.backgroundTasks.get(viewer.taskId);
-    viewer.component.setProps({
-      taskId: viewer.taskId,
-      info,
-      output,
-      onClose: () => {
-        this.closeOutputViewer();
-      },
-    });
-    state.ui.requestRender();
+    const browser = this.host.state.tasksBrowser;
+    if (browser === undefined || browser.selectedTaskId === undefined) return;
+    await this.loadOutput(browser.selectedTaskId, opts);
   }
 
   // ---------------------------------------------------------------------------
 
   private pickInitialSelection(
     tasks: readonly BackgroundTaskInfo[],
-    filter: TasksFilter,
+    tab: TasksTab,
   ): string | undefined {
-    const candidates =
-      filter === 'all'
-        ? tasks
-        : tasks.filter(
-            (t) =>
-              t.status !== 'completed' &&
-              t.status !== 'failed' &&
-              t.status !== 'timed_out' &&
-              t.status !== 'killed' &&
-              t.status !== 'lost',
-          );
+    const candidates = this.tasksForTab(tasks, tab);
     if (candidates.length === 0) return undefined;
     return candidates.find((t) => t.status === 'running')?.taskId ?? candidates[0]!.taskId;
+  }
+
+  private tasksForTab(
+    tasks: readonly BackgroundTaskInfo[],
+    tab: TasksTab,
+  ): readonly BackgroundTaskInfo[] {
+    const backgroundOnly = tasks.filter((t) => t.detached !== false);
+    if (tab === 'all') return backgroundOnly;
+    if (tab === 'running') return backgroundOnly.filter((t) => t.status === 'running');
+    return backgroundOnly.filter(
+      (t) =>
+        t.status === 'completed' ||
+        t.status === 'failed' ||
+        t.status === 'timed_out' ||
+        t.status === 'killed' ||
+        t.status === 'lost',
+    );
   }
 
   private async refresh(opts: { silent?: boolean } = {}): Promise<void> {
@@ -250,27 +193,13 @@ export class TasksBrowserController {
         return;
       }
       if (state.tasksBrowser !== browser) return;
-      this.syncAgentPreview();
       this.pushProps(tasks);
+      if (browser.selectedTaskId !== undefined) {
+        await this.loadOutput(browser.selectedTaskId, { silent: true });
+      }
     } finally {
       this.refreshing = false;
     }
-  }
-
-  /** Agent tasks capture output only on completion, so while one is selected
-   *  the Preview frame is fed from the in-memory activity store instead. */
-  private syncAgentPreview(): void {
-    const browser = this.host.state.tasksBrowser;
-    const selectedTaskId = browser?.selectedTaskId;
-    if (browser === undefined || selectedTaskId === undefined) return;
-    const info = this.host.backgroundTasks.get(selectedTaskId);
-    if (info?.kind !== 'agent' || info.agentId === undefined) return;
-    const record = this.host.sessionEventHandler.subAgentEventHandler.activityStore.get(
-      info.agentId,
-    );
-    if (record === undefined) return;
-    browser.tailOutput = formatSubagentActivityPreview(record);
-    browser.tailLoading = false;
   }
 
   private pushProps(tasks: readonly BackgroundTaskInfo[]): void {
@@ -278,10 +207,13 @@ export class TasksBrowserController {
     if (browser === undefined) return;
     browser.component.setProps({
       tasks,
-      filter: browser.filter,
+      tab: browser.tab,
       selectedTaskId: browser.selectedTaskId,
-      tailOutput: browser.tailOutput,
-      tailLoading: browser.tailLoading,
+      height: this.host.state.terminal.rows,
+      output: browser.output,
+      outputLoading: browser.outputLoading,
+      activity: this.activityFor(browser.selectedTaskId),
+      cwd: this.host.session?.workDir,
       flashMessage: browser.flashMessage,
       availableModels: this.host.state.appState.availableModels,
       ...this.buildCallbacks(),
@@ -289,21 +221,28 @@ export class TasksBrowserController {
     this.host.state.ui.requestRender();
   }
 
+  /** The in-memory activity of the selected agent task, when this session holds one. */
+  private activityFor(taskId: string | undefined) {
+    if (taskId === undefined) return undefined;
+    const info = this.host.backgroundTasks.get(taskId);
+    if (info?.kind !== 'agent' || info.agentId === undefined) return undefined;
+    return this.host.sessionEventHandler.subAgentEventHandler.activityStore.get(info.agentId);
+  }
+
   private buildCallbacks(): {
     onSelect: (taskId: string) => void;
-    onToggleFilter: () => void;
+    onTabChange: (tab: TasksTab) => void;
     onRefresh: () => void;
     onCancel: () => void;
-    onStopConfirmed: (taskId: string) => void;
-    onOpenOutput: (taskId: string) => void;
+    onStop: (taskId: string) => void;
     onStopIgnored: (taskId: string, reason: 'terminal') => void;
   } {
     return {
       onSelect: (taskId) => {
         this.handleSelect(taskId);
       },
-      onToggleFilter: () => {
-        this.handleToggleFilter();
+      onTabChange: (tab) => {
+        this.handleTabChange(tab);
       },
       onRefresh: () => {
         this.handleRefresh();
@@ -311,11 +250,8 @@ export class TasksBrowserController {
       onCancel: () => {
         this.close();
       },
-      onStopConfirmed: (taskId) => {
+      onStop: (taskId) => {
         void this.handleStop(taskId);
-      },
-      onOpenOutput: (taskId) => {
-        void this.handleOpenOutput(taskId);
       },
       onStopIgnored: (taskId, reason) => {
         if (reason === 'terminal') {
@@ -330,16 +266,16 @@ export class TasksBrowserController {
     if (browser === undefined) return;
     if (browser.selectedTaskId === taskId) return;
     browser.selectedTaskId = taskId;
-    browser.tailOutput = undefined;
-    browser.tailLoading = true;
+    browser.output = undefined;
+    browser.outputLoading = true;
     this.repaint();
-    this.loadTail(taskId);
+    void this.loadOutput(taskId);
   }
 
-  private handleToggleFilter(): void {
+  private handleTabChange(tab: TasksTab): void {
     const browser = this.host.state.tasksBrowser;
     if (browser === undefined) return;
-    browser.filter = browser.filter === 'all' ? 'active' : 'all';
+    browser.tab = tab;
     this.repaint();
   }
 
@@ -370,196 +306,48 @@ export class TasksBrowserController {
     }
   }
 
-  private async handleOpenOutput(taskId: string): Promise<void> {
-    const { state } = this.host;
-    const browser = state.tasksBrowser;
-    if (browser === undefined) return;
-    if (browser.viewer !== undefined) return;
-
-    // Agent tasks get the activity detail view when this process holds a
-    // record for the agent; otherwise (e.g. a `lost` task after resume) fall
-    // through to the captured-output viewer.
-    const info = this.host.backgroundTasks.get(taskId);
-    if (info !== undefined && info.kind === 'agent' && info.agentId !== undefined) {
-      const record = this.host.sessionEventHandler.subAgentEventHandler.activityStore.get(
-        info.agentId,
-      );
-      if (record !== undefined) {
-        this.openAgentActivityViewer(taskId, info, record);
-        return;
-      }
-    }
-
-    const session = this.host.session;
-    if (session === undefined) {
-      this.flash(t('tui.statusMessages.noActiveSession'));
-      return;
-    }
-
-    let output: string;
-    try {
-      output = await session.getBackgroundTaskOutput(taskId);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.flash(t('tui.messages.tasksCannotOpenOutput', { message }));
-      return;
-    }
-    const current = state.tasksBrowser;
-    // Re-validate after the await: a second concurrent open may have already
-    // attached a viewer while we were fetching, and overwriting it here would
-    // leak its poll timer and leave its UI children dangling.
-    if (current === undefined || current !== browser || current.viewer !== undefined) return;
-
-    const viewer = new TaskOutputViewer(
-      {
-        taskId,
-        info,
-        output,
-        onClose: () => {
-          this.closeOutputViewer();
-        },
-      },
-      state.terminal,
-    );
-
-    const takeover = beginScreenTakeover(state.ui, viewer);
-    state.ui.setFocus(viewer);
-    state.ui.requestRender(true);
-
-    const pollTimer = setInterval(() => {
-      void this.refreshOutputViewer({ silent: true });
-    }, 1000);
-
-    browser.viewer = {
-      component: viewer,
-      takeover,
-      taskId,
-      output,
-      refreshId: 0,
-      pollTimer,
-    };
-  }
-
-  private openAgentActivityViewer(
+  /**
+   * Load the captured output of a task. The engine's output log is the source
+   * of truth — it survives a session restart, unlike the in-memory activity
+   * of a subagent, so the panel can always show what a task printed.
+   */
+  private async loadOutput(
     taskId: string,
-    info: BackgroundTaskInfo,
-    record: SubagentActivityRecord,
-  ): void {
-    const { state } = this.host;
-    const browser = state.tasksBrowser;
-    if (browser === undefined || browser.viewer !== undefined) return;
-
-    const viewer = new AgentActivityViewer(
-      {
-        taskId,
-        info,
-        record,
-        workspaceDir: this.host.session?.workDir,
-        onClose: () => {
-          this.closeOutputViewer();
-        },
-      },
-      state.terminal,
-    );
-
-    const takeover = beginScreenTakeover(state.ui, viewer);
-    state.ui.setFocus(viewer);
-    state.ui.requestRender(true);
-
-    // The activity store is in-memory — refreshing is a local read, no RPC.
-    const pollTimer = setInterval(() => {
-      this.refreshAgentActivityViewer();
-    }, 1000);
-
-    browser.viewer = {
-      component: viewer,
-      takeover,
-      taskId,
-      output: '',
-      refreshId: 0,
-      pollTimer,
-    };
-  }
-
-  private refreshAgentActivityViewer(): void {
-    const { state } = this.host;
-    const viewer = state.tasksBrowser?.viewer;
-    if (viewer === undefined || !(viewer.component instanceof AgentActivityViewer)) return;
-
-    const info = this.host.backgroundTasks.get(viewer.taskId);
-    const agentId = info?.kind === 'agent' ? info.agentId : undefined;
-    const record =
-      agentId === undefined
-        ? undefined
-        : this.host.sessionEventHandler.subAgentEventHandler.activityStore.get(agentId);
-    // The viewer's body is cached against record.version — a per-second poll
-    // that re-delivers the same record must not force a repaint (rebuilding
-    // all body Markdown). `agentId` is part of the key so a different agent
-    // record with a coincidentally equal version still repaints.
-    const recordKey =
-      record === undefined ? undefined : `${record.agentId}:${String(record.version)}`;
-    if (recordKey === viewer.lastRecordKey) return;
-    viewer.lastRecordKey = recordKey;
-    viewer.component.setProps({
-      taskId: viewer.taskId,
-      info,
-      record,
-      workspaceDir: this.host.session?.workDir,
-      onClose: () => {
-        this.closeOutputViewer();
-      },
-    });
-    state.ui.requestRender();
-  }
-
-  private loadTail(taskId: string): void {
+    opts: { silent?: boolean } = {},
+  ): Promise<void> {
     const { state } = this.host;
     const browser = state.tasksBrowser;
     if (browser === undefined) return;
 
-    // Agent tasks capture output only on completion — serve the preview from
-    // the in-memory activity store instead of the RPC when a record exists.
-    const info = this.host.backgroundTasks.get(taskId);
-    if (info !== undefined && info.kind === 'agent' && info.agentId !== undefined) {
-      const record = this.host.sessionEventHandler.subAgentEventHandler.activityStore.get(
-        info.agentId,
-      );
-      if (record !== undefined) {
-        browser.tailOutput = formatSubagentActivityPreview(record, this.host.session?.workDir);
-        browser.tailLoading = false;
-        this.repaint();
-        return;
-      }
-    }
-
     const session = this.host.session;
     if (session === undefined) {
-      browser.tailLoading = false;
+      browser.outputLoading = false;
       this.repaint();
       return;
     }
 
-    const requestId = ++browser.tailRequestId;
-    void session
-      .getBackgroundTaskOutput(taskId, { tail: 4000 })
-      .then((output) => {
-        const current = state.tasksBrowser;
-        if (current === undefined) return;
-        if (current !== browser || current.tailRequestId !== requestId) return;
-        if (current.selectedTaskId !== taskId) return;
-        current.tailOutput = output;
-        current.tailLoading = false;
-        this.repaint();
-      })
-      .catch(() => {
-        const current = state.tasksBrowser;
-        if (current === undefined) return;
-        if (current !== browser || current.tailRequestId !== requestId) return;
-        if (current.selectedTaskId !== taskId) return;
-        current.tailOutput = '';
-        current.tailLoading = false;
-        this.repaint();
-      });
+    const requestId = ++browser.outputRequestId;
+    try {
+      const output = await session.getBackgroundTaskOutput(taskId, { tail: 4000 });
+      const current = state.tasksBrowser;
+      if (current === undefined || current !== browser) return;
+      if (current.outputRequestId !== requestId) return;
+      if (current.selectedTaskId !== taskId) return;
+      current.output = output;
+      current.outputLoading = false;
+    } catch (error) {
+      const current = state.tasksBrowser;
+      if (current === undefined || current !== browser) return;
+      if (current.outputRequestId !== requestId) return;
+      if (current.selectedTaskId !== taskId) return;
+      if (!opts.silent) {
+        const message = error instanceof Error ? error.message : String(error);
+        this.flash(t('tui.messages.tasksOutputRefreshFailed', { message }));
+      }
+      current.output = '';
+      current.outputLoading = false;
+    }
+    this.repaint();
   }
 
   private flash(message: string, durationMs = 2500): void {
@@ -575,16 +363,5 @@ export class TasksBrowserController {
       this.repaint();
     }, durationMs);
     this.repaint();
-  }
-
-  private closeOutputViewer(): void {
-    const browser = this.host.state.tasksBrowser;
-    if (browser === undefined || browser.viewer === undefined) return;
-    const viewer = browser.viewer;
-    clearInterval(viewer.pollTimer);
-    browser.viewer = undefined;
-    endScreenTakeover(this.host.state.ui, viewer.takeover);
-    this.host.state.ui.setFocus(browser.component);
-    this.host.state.ui.requestRender(true);
   }
 }

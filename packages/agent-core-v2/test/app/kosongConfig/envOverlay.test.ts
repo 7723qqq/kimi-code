@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { ENV_MODEL_PROVIDER_KEY } from '#/app/kosongConfig/configSection';
 import { ENV_MODEL_ALIAS_KEY, kimiModelEnvOverlay } from '#/app/kosongConfig/envOverlay';

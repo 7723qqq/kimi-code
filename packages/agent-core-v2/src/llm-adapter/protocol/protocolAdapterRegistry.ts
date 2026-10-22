@@ -1,7 +1,7 @@
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService, type ILogger } from '#/_base/log/log';
 import { LifecycleScope } from '#/app/scopes';
-import { KimiFiles, kimiFilesBaseUrl } from '#human/llm-kimi/files';
+import { KimiFiles, kimiFilesBaseUrl, type KimiFilesFetch } from '#human/llm-kimi/files';
 import type { ProviderMediaContribution } from '#human/llm/media/upload';
 import type { LlmModel } from '#human/llm/model';
 import type { ProtocolBase } from '#human/llm/protocol/base';
@@ -27,6 +27,7 @@ import {
   geminiConnection,
   getProviderDefinition,
   openAIConnection,
+  resolveProviderDefinition,
   vertexConnection,
 } from '../provider/provider-definition';
 import { IProtocolAdapterRegistry, type Protocol } from './protocol';
@@ -34,20 +35,29 @@ import { getProtocolBase, listProtocolBases, type ProtocolBaseId } from './proto
 
 const vertexGenAIBase = createGoogleGenAIBase({ vertexai: true });
 
-const kimiMedia: ProviderMediaContribution = {
-  uploadVideo: (video, { model, signal }) =>
-    new KimiFiles({
-      apiKey: model.apiKey,
-      baseUrl: kimiFilesBaseUrl(model),
-      defaultHeaders: model.defaultHeaders === undefined ? undefined : { ...model.defaultHeaders },
-    }).uploadVideo(video, { signal }),
-  uploadImage: (image, { model, signal }) =>
-    new KimiFiles({
-      apiKey: model.apiKey,
-      baseUrl: kimiFilesBaseUrl(model),
-      defaultHeaders: model.defaultHeaders === undefined ? undefined : { ...model.defaultHeaders },
-    }).uploadImage(image, { signal }),
-};
+const kimiMedia: ProviderMediaContribution = kimiMediaContribution();
+
+function kimiFiles(model: LlmModel, mediaFetch?: KimiFilesFetch): KimiFiles {
+  return new KimiFiles({
+    apiKey: model.apiKey,
+    baseUrl: kimiFilesBaseUrl(model),
+    defaultHeaders: model.defaultHeaders === undefined ? undefined : { ...model.defaultHeaders },
+    ...(mediaFetch === undefined ? {} : { fetch: mediaFetch }),
+  });
+}
+
+function kimiMediaContribution(mediaFetch?: KimiFilesFetch): ProviderMediaContribution {
+  return {
+    uploadVideo: (video, { model, signal }) =>
+      kimiFiles(model, mediaFetch).uploadVideo(video, { signal }),
+    uploadImage: (image, { model, signal }) =>
+      kimiFiles(model, mediaFetch).uploadImage(image, { signal }),
+  };
+}
+
+function mediaFor(mediaFetch?: KimiFilesFetch): ProviderMediaContribution {
+  return mediaFetch === undefined ? kimiMedia : kimiMediaContribution(mediaFetch);
+}
 
 interface AdapterRoute {
   readonly base: ProtocolBase<ProtocolTraitFor<Protocol>>;
@@ -63,12 +73,13 @@ function openAIReasoningTraitFor(model: Model): OpenAITrait | undefined {
   return reasoningKey === undefined ? undefined : { reasoningKey };
 }
 
-function routeFor(model: Model): AdapterRoute {
-  const definition =
-    model.providerType === undefined
-      ? undefined
-      : getProviderDefinition(model.providerType, model.protocol);
-  const routeMedia = definition?.modelSource === 'oauth-catalog' ? kimiMedia : undefined;
+function routeFor(model: Model, mediaFetch: KimiFilesFetch | undefined): AdapterRoute {
+  const definition = resolveProviderDefinition(
+    model.providerType,
+    model.providerName,
+    model.protocol,
+  );
+  const routeMedia = definition?.modelSource === 'oauth-catalog' ? mediaFor(mediaFetch) : undefined;
   const custom =
     definition !== undefined &&
     (definition.trait !== undefined ||
@@ -81,7 +92,7 @@ function routeFor(model: Model): AdapterRoute {
       return custom !== undefined
         ? {
             base: openAIBase,
-            trait: custom.trait,
+            trait: custom.trait ?? openAIReasoningTraitFor(model),
             connection: custom.connection,
             classifyError: custom.classifyError,
             providerId: 'openai',
@@ -141,7 +152,10 @@ function routeFor(model: Model): AdapterRoute {
 export class ProtocolAdapterRegistry implements IProtocolAdapterRegistry {
   declare readonly _serviceBrand: undefined;
 
-  constructor(@ILogService private readonly log?: ILogger) {}
+  constructor(
+    @ILogService private readonly log?: ILogger,
+    private readonly mediaFetch?: KimiFilesFetch,
+  ) {}
 
   supportedProtocols(): readonly Protocol[] {
     return listProtocolBases().map((base) => base.id);
@@ -160,15 +174,19 @@ export class ProtocolAdapterRegistry implements IProtocolAdapterRegistry {
     return definition?.baseProtocol ?? protocol;
   }
 
-  resolveCapability(protocol: Protocol, modelName: string, providerType?: string): ModelCapability {
-    const identity = this.resolveAdapterIdentity(protocol, providerType);
-    const definition =
-      providerType === undefined ? undefined : getProviderDefinition(providerType, protocol);
+  resolveCapability(
+    protocol: Protocol,
+    modelName: string,
+    providerType?: string,
+    providerId?: string,
+  ): ModelCapability {
+    const definition = resolveProviderDefinition(providerType, providerId, protocol);
     const hooked = definition?.capability?.(modelName);
     if (hooked !== undefined) {
       return toV2Capability(hooked);
     }
-    const baseCapability = getProtocolBase(identity.baseId)?.base.capability?.(modelName);
+    const baseId: ProtocolBaseId = definition?.baseProtocol ?? protocol;
+    const baseCapability = getProtocolBase(baseId)?.base.capability?.(modelName);
     if (baseCapability !== undefined) {
       return toV2Capability(baseCapability);
     }
@@ -176,7 +194,7 @@ export class ProtocolAdapterRegistry implements IProtocolAdapterRegistry {
   }
 
   resolve(model: Model): ResolvedLlmModel {
-    const route = routeFor(model);
+    const route = routeFor(model, this.mediaFetch);
     const requester = route.base.createRequester({
       connection: route.connection,
       trait: route.trait,

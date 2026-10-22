@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { describe, it, expect, afterEach } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 import { ZipFile } from 'yazl';
 
 import { importsRoute } from '../../src/routes/imports';

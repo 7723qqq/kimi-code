@@ -1,6 +1,6 @@
 import { rm } from 'node:fs/promises';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { RPCError } from '../src/core/errors.js';
 import { createMemoryDispatcher } from '../src/transports/memory/dispatcher.js';

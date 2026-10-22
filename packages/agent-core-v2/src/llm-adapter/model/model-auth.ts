@@ -49,7 +49,7 @@ export function resolveModelAuthMaterial(args: {
   const providerEndpoint =
     providerAuthType === undefined
       ? {}
-      : explainProviderEndpoint(providerAuthType, args.provider?.env ?? {});
+      : explainProviderEndpoint(providerAuthType, args.provider?.env ?? {}, args.providerName);
   const declared = declaredProviderCredential(args.provider ?? {}, args.providerName);
   if (declared.kind === 'conflict') {
     throw new Error2(CONFIG_INVALID_ERROR_CODE, declared.message);
@@ -166,6 +166,7 @@ export function resolveModelProtocol(
 export function resolveEndpointBaseUrl(
   model: ModelRecord,
   provider: ProviderConfig,
+  providerId?: string,
 ): string | undefined {
   const fromModel = nonEmpty(model.baseUrl);
   if (fromModel !== undefined) {
@@ -179,7 +180,9 @@ export function resolveEndpointBaseUrl(
   const endpointType =
     rawEndpointType === LEGACY_VERTEX_PROVIDER_TYPE ? 'google-genai' : rawEndpointType;
   const endpoint =
-    endpointType === undefined ? {} : explainProviderEndpoint(endpointType, provider.env ?? {});
+    endpointType === undefined
+      ? {}
+      : explainProviderEndpoint(endpointType, provider.env ?? {}, providerId);
   return nonEmpty(endpoint.baseUrl);
 }
 

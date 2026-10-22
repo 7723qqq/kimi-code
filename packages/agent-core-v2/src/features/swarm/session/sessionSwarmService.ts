@@ -7,6 +7,8 @@ import { agentContextOf } from '#/agent/scopeContext/scopeContext';
 import { Event2 } from '#/app/event/event2';
 import { Error2, ErrorCodes } from '#/errors';
 import { hasPinnedPermissionMode } from '#/features/tower/tower';
+import { IHostClock } from '#/os/interface/hostClock';
+import { IHostTimers } from '#/os/interface/hostTimers';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { createAgentAwaitingClose } from '#/session/agentLifecycle/createAwaitingClose';
 import {
@@ -72,6 +74,8 @@ export class SessionSwarmService implements ISessionSwarmService {
     @IAgentLifecycleService private readonly agentLifecycle: IAgentLifecycleService,
     @ISessionSubagentService private readonly subagents: ISessionSubagentService,
     @ISessionMetadata private readonly metadata: ISessionMetadata,
+    @IHostClock private readonly clock: IHostClock,
+    @IHostTimers private readonly timers: IHostTimers,
   ) {}
 
   async getSwarmItem(args: {
@@ -127,7 +131,11 @@ export class SessionSwarmService implements ISessionSwarmService {
       },
     };
     const maxConcurrency = resolveSwarmMaxConcurrency();
-    const promise = new AgentRunBatch(launcher, linkedTasks, { maxConcurrency }).run();
+    const promise = new AgentRunBatch(launcher, linkedTasks, {
+      maxConcurrency,
+      clock: this.clock,
+      timers: this.timers,
+    }).run();
     void promise
       .finally(() => {
         for (const unlink of unlinks) unlink();

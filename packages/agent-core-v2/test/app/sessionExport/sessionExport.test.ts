@@ -1,51 +1,27 @@
-import {
-  appendFile,
-  type FileHandle,
-  link,
-  lstat,
-  mkdir,
-  mkdtemp,
-  readFile,
-  readdir,
-  rename,
-  rm,
-  stat,
-  symlink,
-  unlink,
-  writeFile,
-} from 'node:fs/promises';
+import { appendFile, type FileHandle, link, lstat, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
+import * as fsPromises from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { Readable } from 'node:stream';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { basename, dirname, join, resolve } from 'pathe';
 import { open as openZip } from 'yauzl';
 
-import { Disposable, DisposableStore, type IDisposable } from '#/_base/di/lifecycle';
-import {
-  createServices,
-  type ServiceRegistration,
-  type TestInstantiationService,
-} from '#/_base/di/test';
+import { DisposableStore, type IDisposable } from '#/_base/di/lifecycle';
+import { createServices, type ServiceRegistration, type TestInstantiationService } from '#/_base/di/test';
 import { LifecycleScope } from '#/app/scopes';
 import { type IAgentScopeHandle, type ISessionScopeHandle } from '#/_base/di/scope';
-import type { ServiceIdentifier, ServicesAccessor } from '#/_base/di/instantiation';
+import { type ServiceIdentifier, type ServicesAccessor } from '#/_base/di/instantiation';
 import { ILogService, type ILogService as LogService } from '#/_base/log/log';
 import { IWireService } from '#/wire/wire';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { openZipSource, type ZipSource } from '#/app/sessionExport/file-source';
-import {
-  type ExportSessionManifest,
-  ISessionExportService,
-} from '#/app/sessionExport/sessionExport';
-import {
-  exportSessionDirectory,
-  SessionExportService,
-} from '#/app/sessionExport/sessionExportService';
+import { type ExportSessionManifest, ISessionExportService } from '#/app/sessionExport/sessionExport';
+import { exportSessionDirectory, SessionExportService } from '#/app/sessionExport/sessionExportService';
 import { writeExportZip } from '#/app/sessionExport/zip';
 import { ISessionIndex, type SessionSummary } from '#/app/sessionIndex/sessionIndex';
 import { ISessionManager, type UnguardedSessionLifecycle } from '#/app/sessionManager/sessionManager';
-import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
+
 import { IWorkspaceService } from '#/app/workspace/workspace';
 import { Error2 } from '#/errors';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
@@ -55,22 +31,18 @@ import { stubBootstrap } from '../bootstrap/stubs';
 import { stubLog } from '../../_base/log/stubs';
 import { stubAgentWire } from '../../wire/stubs';
 import { stubAgentContext } from '../../agent/agentContext/stubs';
+import { supportsSymlinks } from '#test/helpers/symlinks';
 
-const fsOpenHook = vi.hoisted(() => ({
+const fsOpenHook = (() => ({
   afterOpen: undefined as ((path: string, handle: FileHandle) => Promise<void>) | undefined,
-}));
+}))();
 
-vi.mock('node:fs/promises', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:fs/promises')>();
-  return {
-    ...actual,
-    open: async (...args: Parameters<typeof actual.open>) => {
-      const handle = await actual.open(...args);
-      await fsOpenHook.afterOpen?.(String(args[0]), handle);
-      return handle;
-    },
-  };
-});
+const actualFsOpen = fsPromises.open;
+spyOn(fsPromises, 'open').mockImplementation((async (...args: Parameters<typeof actualFsOpen>) => {
+  const handle = await actualFsOpen(...args);
+  await fsOpenHook.afterOpen?.(String(args[0]), handle);
+  return handle;
+}) as typeof actualFsOpen);
 
 const noopDisposable: IDisposable = { dispose: () => {} };
 const noopEvent = () => noopDisposable;
@@ -661,7 +633,9 @@ describe('sessionExport', () => {
     await expect(readdir(tmp)).resolves.toEqual([]);
   });
 
-  it('does not follow an output symlink swapped during compression', async () => {
+  it.skipIf(!supportsSymlinks())(
+    'does not follow an output symlink swapped during compression',
+    async () => {
     const tmp = await mkdtemp(join(tmpdir(), 'session-export-test-'));
     const statePath = join(tmp, 'state.json');
     const safeTarget = join(tmp, 'safe-output');
@@ -709,7 +683,8 @@ describe('sessionExport', () => {
     expect((await lstat(outputPath)).isSymbolicLink()).toBe(false);
     await expect(readZipEntry(outputPath, 'controlled.bin')).resolves.toEqual(payload);
     expect((await readdir(tmp)).toSorted()).toEqual(['export.zip', 'safe-output', 'state.json']);
-  });
+    },
+  );
 
   it('throws a coded error when the session is unknown', async () => {
     const tmp = await mkdtemp(join(tmpdir(), 'session-export-test-'));

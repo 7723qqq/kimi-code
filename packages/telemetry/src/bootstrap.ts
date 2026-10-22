@@ -1,6 +1,6 @@
 import { getDefaultTelemetryClient } from './client';
 import { EventSink } from './sink';
-import { SystemMetricsCollector } from './systemMetrics';
+import { SystemMetricsCollector, type SystemMetricsTimers } from './systemMetrics';
 import { AsyncTransport } from './transport';
 
 export const TELEMETRY_DISABLE_ENV = 'KIMI_DISABLE_TELEMETRY';
@@ -33,6 +33,11 @@ export interface TelemetryBootstrapOptions {
    * the send instead of falling back to another region's host.
    */
   readonly endpoint?: string | (() => string | undefined);
+  /**
+   * Timer source for the periodic system-metrics sampler. Defaults to the
+   * process timers; a host that owns its own scheduler passes one here.
+   */
+  readonly systemMetricsTimers?: SystemMetricsTimers;
 }
 
 export function isTelemetryDisabledByEnv(env: NodeJS.ProcessEnv = process.env): boolean {
@@ -83,7 +88,10 @@ export function initializeTelemetry(options: TelemetryBootstrapOptions): void {
   client.attachSink(sink);
   sink.startPeriodicFlush();
 
-  const systemMetricsCollector = new SystemMetricsCollector({ client });
+  const systemMetricsCollector = new SystemMetricsCollector({
+    client,
+    timers: options.systemMetricsTimers,
+  });
   client.setSystemMetricsCollector(systemMetricsCollector);
   systemMetricsCollector.start();
 

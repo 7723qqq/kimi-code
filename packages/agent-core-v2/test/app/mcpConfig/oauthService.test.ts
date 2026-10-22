@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
@@ -22,7 +22,7 @@ describe('App MCP OAuth bootstrap', () => {
   });
 
   afterEach(() => {
-    vi.restoreAllMocks();
+    mock.restore();
     disposables.dispose();
   });
 
@@ -32,7 +32,7 @@ describe('App MCP OAuth bootstrap', () => {
     const listed = new Promise<void>((resolve) => {
       signalList = resolve;
     });
-    const list = vi.fn(async (prefix?: string) => {
+    const list = mock(async (prefix?: string) => {
       signalList();
       return memory.list(prefix);
     });
@@ -62,7 +62,7 @@ describe('App MCP OAuth bootstrap', () => {
 
   it('does not start the proactive refresh sweep after shutdown before identity resolution', async () => {
     const memory = createMemoryMcpOAuthStore();
-    const list = vi.fn(memory.list);
+    const list = mock(memory.list);
     const identity = deferredAgentIdentityStub({ slug: 'test-agent' });
     const ix = createServices(disposables, {
       strict: true,
@@ -97,12 +97,12 @@ describe('App MCP OAuth bootstrap', () => {
     const listStarted = new Promise<void>((resolve) => {
       signalList = resolve;
     });
-    const list = vi.fn(async () => {
+    const list = mock(async () => {
       signalList();
       await listed;
       return ['credential-meta.json'];
     });
-    const read = vi.fn();
+    const read = mock();
     const identity = deferredAgentIdentityStub({ slug: 'test-agent' });
     const ix = createServices(disposables, {
       strict: true,

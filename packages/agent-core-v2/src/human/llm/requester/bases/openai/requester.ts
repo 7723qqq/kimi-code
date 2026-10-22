@@ -1,5 +1,9 @@
 import { toLlmSyntaxErrorMessage } from '#/llm/syntax-errors';
-import { encodeReasoningEffortFallback } from '#/llm/thinking';
+import {
+  encodeReasoningEffortFallback,
+  resolveThinkingEffortForModel,
+  type ThinkingEffort,
+} from '#/llm/thinking';
 import OpenAI from 'openai';
 import { assign, shake } from 'radashi';
 
@@ -8,11 +12,18 @@ import { headersToRecord } from '#/llm/errors';
 import { modelKey, type LlmModel } from '#/llm/model';
 import type { ProtocolBase, ProtocolRequesterOptions, TraitContext } from '#/llm/protocol/base';
 import { resolveModelConnection } from '#/llm/protocol/connection';
-import { resolveMaxCompletionCap, type FormatRequestInput } from '#/llm/protocol/format';
+import {
+  remainingContextTokens,
+  resolveMaxCompletionCap,
+  type FormatRequestInput,
+} from '#/llm/protocol/format';
 import { applyThinking } from '#/llm/protocol/thinking';
 import {
+  type FamilyMaxOutputDefaults,
   fullReasoningEchoRequired,
   ignoredSamplingParamsForModel,
+  maxOutputDefaultsForModel,
+  resolveModelFamily,
 } from '#/llm/modelFamily';
 import {
   mergeRequestHeaders,
@@ -79,6 +90,46 @@ export interface OpenAIRequestPreparationOptions {
   readonly reasoningKey?: string;
 }
 
+function outputTierForEffort(defaults: FamilyMaxOutputDefaults, effort: ThinkingEffort): number {
+  if (effort === 'off') return defaults.nonThinking;
+  if (effort === 'max') return defaults.thinkingMaxEffort;
+  return defaults.thinking;
+}
+
+function familyDefaultCap(input: FormatRequestInput, strict: boolean): number | undefined {
+  const defaults = maxOutputDefaultsForModel(input.model.model);
+  if (defaults === undefined) return undefined;
+  const effort = resolveThinkingEffortForModel(
+    input.thinking?.effort,
+    undefined,
+    input.model,
+    strict,
+  );
+  const tier = outputTierForEffort(defaults, effort);
+  const remaining = remainingContextTokens(input);
+  if (remaining === undefined) return tier;
+  return remaining > 0 ? Math.min(tier, remaining) : undefined;
+}
+
+function firstUserText(messages: FormatRequestInput['messages']): string {
+  for (const message of messages) {
+    if (message.role !== 'user') continue;
+    const text = message.content.map((part) => (part.type === 'text' ? part.text : '')).join('');
+    if (text.length > 0) return text;
+  }
+  return '';
+}
+
+function deriveDeterminismSeed(model: string, messages: FormatRequestInput['messages']): number {
+  const source = `${model}\u0000${firstUserText(messages)}`;
+  let hash = 2166136261;
+  for (let index = 0; index < source.length; index += 1) {
+    hash ^= source.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
+}
+
 export function prepareOpenAIRequest(
   input: FormatRequestInput,
   options?: OpenAIRequestPreparationOptions,
@@ -105,10 +156,11 @@ export function prepareOpenAIRequest(
   ) {
     kwargs = { ...kwargs, ...encodeOpenAIThinkHistoryKwargs(ctx.model.model) };
   }
-  // Families that demand the whole reasoning history whenever tools are present
-  // (DeepSeek rejects the request with HTTP 400 otherwise) get it regardless of
-  // what the trait reports, because the requirement is a property of the request
-  // shape rather than of any provider hook.
+  if (input.determinism !== undefined) {
+    const seed =
+      input.determinism.seed ?? deriveDeterminismSeed(ctx.model.model, input.messages);
+    kwargs = { ...kwargs, seed };
+  }
   const echoFullReasoning = fullReasoningEchoRequired(
     ctx.model.model,
     input.tools.length > 0,
@@ -117,10 +169,12 @@ export function prepareOpenAIRequest(
     kwargs = { ...kwargs, response_format: responseFormatToOpenAI(input.responseFormat) };
   }
   const requested = input.maxCompletionTokens;
-  const cap =
-    requested !== undefined && requested <= 0
-      ? undefined
-      : (resolveMaxCompletionCap(input) ?? trait?.completionTokensWhenUnset?.(input));
+  const sentinel = requested !== undefined && requested <= 0;
+  const cap = sentinel
+    ? undefined
+    : (resolveMaxCompletionCap(input) ??
+      trait?.completionTokensWhenUnset?.(input) ??
+      familyDefaultCap(input, trait?.strictThinkingValidation === true));
   if (cap !== undefined) {
     kwargs = {
       ...kwargs,
@@ -129,13 +183,14 @@ export function prepareOpenAIRequest(
     };
   }
   kwargs = shake(assign(kwargs, input.extraParams?.openai ?? {}));
-  // Applied after the caller's extra params merge: `samplingExtraParams` feeds
-  // temperature/top_p in through `extraParams.openai`, so filtering any earlier
-  // would let them straight back in.
   kwargs = stripIgnoredSamplingParams(
     kwargs,
     ignoredSamplingParamsForModel(ctx.model.model),
   );
+  if (input.tools.length > 0 && resolveModelFamily(ctx.model.model)?.id === 'deepseek') {
+    const { response_format: _preemptedByToolConstraint, ...rest } = kwargs;
+    kwargs = rest;
+  }
 
   const lowered = lowerOpenAIMessages(input, {
     reasoningKey: options?.reasoningKey ?? DEFAULT_REASONING_KEY,

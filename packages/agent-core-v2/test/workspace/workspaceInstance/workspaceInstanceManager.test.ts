@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import type { Workspace, IWorkspaceService } from '#/app/workspace/workspace';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
@@ -125,8 +125,8 @@ function manager(
   const workspaces: IWorkspaceService = {
     _serviceBrand: undefined,
     list: async () => values,
-    get: vi.fn(async (id: string) => byId.get(id)),
-    createOrTouch: vi.fn(async (root: string) => {
+    get: mock(async (id: string) => byId.get(id)),
+    createOrTouch: mock(async (root: string) => {
       const value = values.find((entry) => entry.root === root);
       if (value === undefined) throw new Error(`unknown root ${root}`);
       return value;

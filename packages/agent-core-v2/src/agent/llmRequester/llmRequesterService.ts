@@ -38,6 +38,7 @@ import { LifecycleScope } from '#/app/scopes';
 import type { ApiErrorEvent, LlmRequestProjectionFallbackEvent } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ErrorCodes, Error2, unwrapErrorCause } from '#/errors';
+import { IHostTimers } from '#/os/interface/hostTimers';
 import {
   APIContextOverflowError,
   APIRequestTooLargeError,
@@ -203,6 +204,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
     @IAgentStateService private readonly states: IAgentStateService,
     @IBootstrapService private readonly bootstrap: IBootstrapService,
+    @IHostTimers private readonly hostTimers?: IHostTimers,
     @IInstantiationService private readonly instantiation?: IInstantiationService,
   ) {
     this.states.contributeState(llmRequestTraceKey);
@@ -633,7 +635,7 @@ export class AgentLLMRequesterService implements IAgentLLMRequesterService {
           ...retryErrorFields(error),
         });
         onAttemptRetry?.();
-        await sleepForRetry(delayMs, signal);
+        await sleepForRetry(delayMs, signal, this.hostTimers);
       }
     }
   }

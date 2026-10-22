@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { type CollectionView } from '#/_base/di/collection';

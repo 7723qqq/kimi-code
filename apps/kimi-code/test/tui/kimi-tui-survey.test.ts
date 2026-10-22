@@ -1,358 +1,360 @@
 import { existsSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 
 import type { Event } from '@moonshot-ai/kimi-code-sdk';
 import type { TuiMouseEvent } from '@moonshot-ai/pi-tui';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
+
+import type { SurveyControllerDeps } from '#/tui/controllers/survey-controller';
+import type { KimiTUIStartupInput } from '#/tui/kimi-tui';
+import type { RenderTimerHandle } from '#/tui/utils/render-clock';
+import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import {
   emitTurn,
   makeDriver,
   makeSession,
+  makeStartupInput,
   makeTempHome,
   renderTranscript,
   stripSgr,
   type MessageDriver,
 } from './kimi-tui-message-flow-helpers';
 
+function surveyClockDeps(clock: FakeClock): SurveyControllerDeps {
+  return {
+    monotonicNow: () => clock.now(),
+    wallNow: () => clock.now(),
+    setTimer: (fn, ms) => clock.setTimeout(fn, ms),
+    clearTimer: (handle) => {
+      clock.clearTimeout(handle as RenderTimerHandle);
+    },
+    random: () => 0,
+  };
+}
+
+/**
+ * Drives the survey off an injected clock instead of the process timers.
+ * `makeDriver` skips its own session wiring whenever a startup input is passed,
+ * so the deps ride in on `surveyDeps` and the session steps follow here.
+ */
+async function makeSurveyDriver(): Promise<{
+  readonly driver: MessageDriver;
+  readonly harness: Awaited<ReturnType<typeof makeDriver>>['harness'];
+  readonly clock: FakeClock;
+}> {
+  const clock = createFakeClock();
+  const session = makeSession();
+  const startupInput: KimiTUIStartupInput = {
+    ...makeStartupInput(),
+    surveyDeps: surveyClockDeps(clock),
+  };
+  const { driver, harness } = await makeDriver(session, {}, startupInput);
+  await driver.setSession(session);
+  await driver.syncRuntimeState(session);
+  return { driver, harness, clock };
+}
+
+/** `cooldownReady` records the persisted last-shown read; it has no public accessor. */
+async function waitForCooldownReady(driver: MessageDriver): Promise<void> {
+  await waitForAssertion(() => {
+    expect((driver.surveyController as unknown as { cooldownReady: boolean }).cooldownReady).toBe(
+      true,
+    );
+  });
+}
+
 describe('KimiTUI session rating survey', () => {
   it('runs the end-to-end rating flow after five user turns', async () => {
-    vi.useFakeTimers();
     const homeDir = await makeTempHome();
     process.env['KIMI_CODE_HOME'] = homeDir;
-    vi.spyOn(Math, 'random').mockReturnValue(0);
-    try {
-      const { driver, harness } = await makeDriver();
-      vi.useRealTimers();
-      await vi.waitFor(() => {
-        expect(
-          (driver.surveyController as unknown as { cooldownReady: boolean }).cooldownReady,
-        ).toBe(true);
-      });
-      vi.useFakeTimers();
-      harness.track.mockClear();
+    const { driver, harness, clock } = await makeSurveyDriver();
+    await waitForCooldownReady(driver);
+    harness.track.mockClear();
 
-      for (let turn = 1; turn <= 4; turn++) emitTurn(driver, turn);
-      vi.advanceTimersByTime(600_000);
-      vi.advanceTimersByTime(2_000);
-      expect(driver.state.surveyContainer.children).toHaveLength(0);
+    for (let turn = 1; turn <= 4; turn++) emitTurn(driver, turn);
+    clock.advance(600_000);
+    clock.advance(2_000);
+    expect(driver.state.surveyContainer.children).toHaveLength(0);
 
-      emitTurn(driver, 5, () => {
-        driver.sessionEventHandler.handleEvent(
-          {
-            type: 'tool.call.started',
-            agentId: 'main',
-            sessionId: 'ses-1',
-            turnId: 5,
-            toolCallId: 'call_1',
-            name: 'Read',
-            args: { path: 'a.ts' },
-          } as Event,
-          () => {},
-        );
-        driver.sessionEventHandler.handleEvent(
-          {
-            type: 'agent.status.updated',
-            agentId: 'main',
-            sessionId: 'ses-1',
-            contextTokens: 4321,
-            usage: {
-              total: { inputOther: 100, output: 20, inputCacheRead: 30, inputCacheCreation: 10 },
-            },
-          } as Event,
-          () => {},
-        );
-      });
-      vi.advanceTimersByTime(2_000);
-      const docked = stripSgr(driver.state.surveyContainer.render(120).join('\n'));
-      expect(docked).toContain('How is Kimi doing this session? (optional)');
-      expect(docked).toContain('1: Bad  2: Fine  3: Good  0: Dismiss');
-      expect(harness.trackWithContext).toHaveBeenCalledTimes(1);
-      expect(harness.trackWithContext).toHaveBeenCalledWith(
-        'feedback_survey',
+    emitTurn(driver, 5, () => {
+      driver.sessionEventHandler.handleEvent(
         {
-          event_type: 'appeared',
-          appearance_id: expect.any(String),
-          appearance_index: 1,
-          response: undefined,
-          current_model: 'k2',
-          user_turn_count: 5,
-          cumulative_tokens: 160,
-          virtual_context_tokens: 4321,
-          tool_call_count: 1,
-          compaction_count: 0,
-          permission_mode: 'manual',
-          thinking_effort: 'off',
-          subagent_count: 0,
-          swarm_run_count: 0,
-          config_probability: 0.005,
-          config_on_for_models: '*',
-          config_min_time_before_feedback_ms: 600_000,
-          config_min_user_turns_before_feedback: 5,
-          config_min_time_between_feedback_ms: 3_600_000,
-          config_min_user_turns_between_feedback: 10,
-          config_min_time_between_global_feedback_ms: 100_000_000,
-          config_long_context_survey_threshold: 200_000,
-          config_long_context_probability: 0.2,
-          config_long_context_trigger_mode: 'virtual_context',
-        },
-        { sessionId: 'ses-1' },
+          type: 'tool.call.started',
+          agentId: 'main',
+          sessionId: 'ses-1',
+          turnId: 5,
+          toolCallId: 'call_1',
+          name: 'Read',
+          args: { path: 'a.ts' },
+        } as Event,
+        () => {},
       );
-      const appearanceId = (harness.trackWithContext.mock.calls[0]![1] as { appearance_id: string })
-        .appearance_id;
-
-      driver.state.editor.handleInput('1');
-      vi.advanceTimersByTime(400);
-      expect(harness.trackWithContext).toHaveBeenCalledTimes(1);
-
-      vi.advanceTimersByTime(600);
-      driver.state.editor.setText('');
-      driver.state.editor.handleInput('1');
-      vi.advanceTimersByTime(400);
-      expect(driver.state.editor.getText()).toBe('');
-      expect(stripSgr(driver.state.surveyContainer.render(120).join('\n'))).toContain(
-        'Feedback: Bad · [escape: undo]',
+      driver.sessionEventHandler.handleEvent(
+        {
+          type: 'agent.status.updated',
+          agentId: 'main',
+          sessionId: 'ses-1',
+          contextTokens: 4321,
+          usage: {
+            total: { inputOther: 100, output: 20, inputCacheRead: 30, inputCacheCreation: 10 },
+          },
+        } as Event,
+        () => {},
       );
-      expect(harness.trackWithContext).toHaveBeenCalledTimes(1);
+    });
+    clock.advance(2_000);
+    const docked = stripSgr(driver.state.surveyContainer.render(120).join('\n'));
+    expect(docked).toContain('How is Kimi doing this session? (optional)');
+    expect(docked).toContain('1: Bad  2: Fine  3: Good  0: Dismiss');
+    expect(harness.trackWithContext).toHaveBeenCalledTimes(1);
+    expect(harness.trackWithContext).toHaveBeenCalledWith(
+      'feedback_survey',
+      {
+        event_type: 'appeared',
+        appearance_id: expect.any(String),
+        appearance_index: 1,
+        response: undefined,
+        current_model: 'k2',
+        user_turn_count: 5,
+        cumulative_tokens: 160,
+        virtual_context_tokens: 4321,
+        tool_call_count: 1,
+        compaction_count: 0,
+        permission_mode: 'manual',
+        thinking_effort: 'off',
+        subagent_count: 0,
+        swarm_run_count: 0,
+        config_probability: 0.005,
+        config_on_for_models: '*',
+        config_min_time_before_feedback_ms: 600_000,
+        config_min_user_turns_before_feedback: 5,
+        config_min_time_between_feedback_ms: 3_600_000,
+        config_min_user_turns_between_feedback: 10,
+        config_min_time_between_global_feedback_ms: 100_000_000,
+        config_long_context_survey_threshold: 200_000,
+        config_long_context_probability: 0.2,
+        config_long_context_trigger_mode: 'virtual_context',
+      },
+      { sessionId: 'ses-1' },
+    );
+    const appearanceId = (harness.trackWithContext.mock.calls[0]![1] as { appearance_id: string })
+      .appearance_id;
 
-      driver.state.editor.handleInput('\u001B');
-      vi.advanceTimersByTime(3_000);
-      expect(harness.trackWithContext).toHaveBeenCalledTimes(1);
-      expect(stripSgr(driver.state.surveyContainer.render(120).join('\n'))).toContain(
-        'How is Kimi doing this session? (optional)',
-      );
+    driver.state.editor.handleInput('1');
+    clock.advance(400);
+    expect(harness.trackWithContext).toHaveBeenCalledTimes(1);
 
-      driver.state.editor.setText('');
-      driver.state.editor.handleInput('3');
-      vi.advanceTimersByTime(400);
-      vi.advanceTimersByTime(3_000);
-      const responded = harness.trackWithContext.mock.calls
-        .filter(
-          (call) =>
-            call[0] === 'feedback_survey' &&
-            (call[1] as { event_type?: string }).event_type === 'responded',
-        )
-        .map((call) => call[1] as { response?: string; appearance_id: string });
-      expect(responded.map((call) => call.response)).toEqual(['good']);
-      expect(responded.map((call) => call.appearance_id)).toEqual([appearanceId]);
+    clock.advance(600);
+    driver.state.editor.setText('');
+    driver.state.editor.handleInput('1');
+    clock.advance(400);
+    expect(driver.state.editor.getText()).toBe('');
+    expect(stripSgr(driver.state.surveyContainer.render(120).join('\n'))).toContain(
+      'Feedback: Bad · [escape: undo]',
+    );
+    expect(harness.trackWithContext).toHaveBeenCalledTimes(1);
 
-      expect(stripSgr(driver.state.surveyContainer.render(120).join('\n'))).toContain(
-        'Thanks for your feedback!',
-      );
-      vi.advanceTimersByTime(5_000);
-      expect(driver.state.surveyContainer.children).toHaveLength(0);
+    driver.state.editor.handleInput('\u001B');
+    clock.advance(3_000);
+    expect(harness.trackWithContext).toHaveBeenCalledTimes(1);
+    expect(stripSgr(driver.state.surveyContainer.render(120).join('\n'))).toContain(
+      'How is Kimi doing this session? (optional)',
+    );
 
-      vi.useRealTimers();
-      const stateFile = join(homeDir, 'feedback-survey-state.json');
-      await vi.waitFor(() => {
-        expect(existsSync(stateFile)).toBe(true);
-      });
-      const persisted = JSON.parse(await readFile(stateFile, 'utf-8')) as {
-        version: number;
-        last_shown_time: number;
-      };
-      expect(persisted.version).toBe(1);
-      expect(typeof persisted.last_shown_time).toBe('number');
-    } finally {
-      vi.useRealTimers();
-      vi.restoreAllMocks();
-    }
+    driver.state.editor.setText('');
+    driver.state.editor.handleInput('3');
+    clock.advance(400);
+    clock.advance(3_000);
+    const responded = harness.trackWithContext.mock.calls
+      .filter(
+        (call) =>
+          call[0] === 'feedback_survey' &&
+          (call[1] as { event_type?: string }).event_type === 'responded',
+      )
+      .map((call) => call[1] as { response?: string; appearance_id: string });
+    expect(responded.map((call) => call.response)).toEqual(['good']);
+    expect(responded.map((call) => call.appearance_id)).toEqual([appearanceId]);
+
+    expect(stripSgr(driver.state.surveyContainer.render(120).join('\n'))).toContain(
+      'Thanks for your feedback!',
+    );
+    clock.advance(5_000);
+    expect(driver.state.surveyContainer.children).toHaveLength(0);
+
+    const stateFile = join(homeDir, 'feedback-survey-state.json');
+    await waitForAssertion(() => {
+      expect(existsSync(stateFile)).toBe(true);
+    });
+    const persisted = JSON.parse(await readFile(stateFile, 'utf-8')) as {
+      version: number;
+      last_shown_time: number;
+    };
+    expect(persisted.version).toBe(1);
+    expect(typeof persisted.last_shown_time).toBe('number');
   });
 
   it('shows the long-context survey once the context window crosses the threshold', async () => {
-    vi.useFakeTimers();
     const homeDir = await makeTempHome();
     process.env['KIMI_CODE_HOME'] = homeDir;
-    vi.spyOn(Math, 'random').mockReturnValue(0);
-    try {
-      const { driver, harness } = await makeDriver();
-      vi.useRealTimers();
-      await vi.waitFor(() => {
-        expect(
-          (driver.surveyController as unknown as { cooldownReady: boolean }).cooldownReady,
-        ).toBe(true);
-      });
-      vi.useFakeTimers();
-      harness.track.mockClear();
+    const { driver, harness, clock } = await makeSurveyDriver();
+    await waitForCooldownReady(driver);
+    harness.track.mockClear();
 
-      emitTurn(driver, 1, () => {
-        driver.sessionEventHandler.handleEvent(
-          {
-            type: 'agent.status.updated',
-            agentId: 'main',
-            sessionId: 'ses-1',
-            contextTokens: 205_000,
-            usage: {
-              total: {
-                inputOther: 1_000,
-                output: 500,
-                inputCacheRead: 0,
-                inputCacheCreation: 0,
-              },
+    emitTurn(driver, 1, () => {
+      driver.sessionEventHandler.handleEvent(
+        {
+          type: 'agent.status.updated',
+          agentId: 'main',
+          sessionId: 'ses-1',
+          contextTokens: 205_000,
+          usage: {
+            total: {
+              inputOther: 1_000,
+              output: 500,
+              inputCacheRead: 0,
+              inputCacheCreation: 0,
             },
-          } as Event,
-          () => {},
-        );
-      });
-      vi.advanceTimersByTime(2_000);
-
-      expect(stripSgr(driver.state.surveyContainer.render(120).join('\n'))).toContain(
-        'How is Kimi doing this session? (optional)',
+          },
+        } as Event,
+        () => {},
       );
-      expect(harness.trackWithContext).toHaveBeenCalledTimes(1);
-      expect(harness.trackWithContext).toHaveBeenCalledWith(
-        'long_context_survey',
-        expect.objectContaining({
-          event_type: 'appeared',
-          appearance_index: 1,
-          user_turn_count: 1,
-          cumulative_tokens: 1500,
-          virtual_context_tokens: 205_000,
-          config_long_context_survey_threshold: 200_000,
-          config_long_context_probability: 0.2,
-          config_long_context_trigger_mode: 'virtual_context',
-        }),
-        { sessionId: 'ses-1' },
-      );
+    });
+    clock.advance(2_000);
 
-      vi.useRealTimers();
-      await new Promise<void>((resolve) => {
-        setImmediate(resolve);
-      });
-      expect(existsSync(join(homeDir, 'feedback-survey-state.json'))).toBe(false);
-    } finally {
-      vi.useRealTimers();
-      vi.restoreAllMocks();
-    }
+    expect(stripSgr(driver.state.surveyContainer.render(120).join('\n'))).toContain(
+      'How is Kimi doing this session? (optional)',
+    );
+    expect(harness.trackWithContext).toHaveBeenCalledTimes(1);
+    expect(harness.trackWithContext).toHaveBeenCalledWith(
+      'long_context_survey',
+      expect.objectContaining({
+        event_type: 'appeared',
+        appearance_index: 1,
+        user_turn_count: 1,
+        cumulative_tokens: 1500,
+        virtual_context_tokens: 205_000,
+        config_long_context_survey_threshold: 200_000,
+        config_long_context_probability: 0.2,
+        config_long_context_trigger_mode: 'virtual_context',
+      }),
+      { sessionId: 'ses-1' },
+    );
+
+    // Presenting any survey stamps the global last-shown time, the
+    // long-context one included.
+    const stateFile = join(homeDir, 'feedback-survey-state.json');
+    await waitForAssertion(() => {
+      expect(existsSync(stateFile)).toBe(true);
+    });
+    const persisted = JSON.parse(await readFile(stateFile, 'utf-8')) as {
+      version: number;
+      last_shown_time: number;
+    };
+    expect(persisted.version).toBe(1);
+    expect(typeof persisted.last_shown_time).toBe('number');
   });
 
   it('ignores non-user turns for the survey warmup', async () => {
-    vi.useFakeTimers();
     process.env['KIMI_CODE_HOME'] = await makeTempHome();
-    vi.spyOn(Math, 'random').mockReturnValue(0);
-    try {
-      const { driver } = await makeDriver();
-      vi.useRealTimers();
-      await vi.waitFor(() => {
-        expect(
-          (driver.surveyController as unknown as { cooldownReady: boolean }).cooldownReady,
-        ).toBe(true);
-      });
-      vi.useFakeTimers();
-      const emit = (event: Event) => {
-        driver.sessionEventHandler.handleEvent(event, () => {});
-      };
-      const cronOrigin = {
-        kind: 'cron_job',
-        jobId: 'job-42',
-        cron: '*/5 * * * *',
-        recurring: true,
-        coalescedCount: 1,
-        stale: false,
-      };
+    const { driver, clock } = await makeSurveyDriver();
+    await waitForCooldownReady(driver);
+    const emit = (event: Event) => {
+      driver.sessionEventHandler.handleEvent(event, () => {});
+    };
+    const cronOrigin = {
+      kind: 'cron_job',
+      jobId: 'job-42',
+      cron: '*/5 * * * *',
+      recurring: true,
+      coalescedCount: 1,
+      stale: false,
+    };
 
-      vi.advanceTimersByTime(600_000);
-      for (let turn = 1; turn <= 5; turn++) {
-        emit({ type: 'turn.started', agentId: 'main', turnId: turn, origin: cronOrigin } as Event);
-        emit({ type: 'turn.ended', agentId: 'main', turnId: turn, reason: 'completed' } as Event);
-      }
-      vi.advanceTimersByTime(2_000);
-      expect(driver.state.surveyContainer.children).toHaveLength(0);
-
-      for (let turn = 6; turn <= 10; turn++) emitTurn(driver, turn);
-      vi.advanceTimersByTime(2_000);
-      expect(driver.state.surveyContainer.children).not.toHaveLength(0);
-
-      vi.useRealTimers();
-      await vi.waitFor(() => {
-        expect(existsSync(join(process.env['KIMI_CODE_HOME']!, 'feedback-survey-state.json'))).toBe(
-          true,
-        );
-      });
-    } finally {
-      vi.useRealTimers();
-      vi.restoreAllMocks();
+    clock.advance(600_000);
+    for (let turn = 1; turn <= 5; turn++) {
+      emit({ type: 'turn.started', agentId: 'main', turnId: turn, origin: cronOrigin } as Event);
+      emit({ type: 'turn.ended', agentId: 'main', turnId: turn, reason: 'completed' } as Event);
     }
+    clock.advance(2_000);
+    expect(driver.state.surveyContainer.children).toHaveLength(0);
+
+    for (let turn = 6; turn <= 10; turn++) emitTurn(driver, turn);
+    clock.advance(2_000);
+    expect(driver.state.surveyContainer.children).not.toHaveLength(0);
+
+    await waitForAssertion(() => {
+      expect(existsSync(join(process.env['KIMI_CODE_HOME']!, 'feedback-survey-state.json'))).toBe(
+        true,
+      );
+    });
   });
 
   it('counts user-slash skill and plugin command turns toward the survey warmup', async () => {
-    vi.useFakeTimers();
     process.env['KIMI_CODE_HOME'] = await makeTempHome();
-    vi.spyOn(Math, 'random').mockReturnValue(0);
-    try {
-      const { driver } = await makeDriver();
-      vi.useRealTimers();
-      await vi.waitFor(() => {
-        expect(
-          (driver.surveyController as unknown as { cooldownReady: boolean }).cooldownReady,
-        ).toBe(true);
-      });
-      vi.useFakeTimers();
-      const emit = (event: Event) => {
-        driver.sessionEventHandler.handleEvent(event, () => {});
-      };
+    const { driver, clock } = await makeSurveyDriver();
+    await waitForCooldownReady(driver);
+    const emit = (event: Event) => {
+      driver.sessionEventHandler.handleEvent(event, () => {});
+    };
 
-      vi.advanceTimersByTime(600_000);
-      for (let turn = 1; turn <= 5; turn++) {
-        emit({
-          type: 'turn.started',
-          agentId: 'main',
-          turnId: turn,
-          origin: {
-            kind: 'skill_activation',
-            activationId: `a${turn}`,
-            skillName: 'review',
-            trigger: 'model-tool',
-          },
-        } as Event);
-        emit({ type: 'turn.ended', agentId: 'main', turnId: turn, reason: 'completed' } as Event);
-      }
-      vi.advanceTimersByTime(2_000);
-      expect(driver.state.surveyContainer.children).toHaveLength(0);
-
-      for (let turn = 6; turn <= 8; turn++) {
-        emit({
-          type: 'turn.started',
-          agentId: 'main',
-          turnId: turn,
-          origin: {
-            kind: 'skill_activation',
-            activationId: `a${turn}`,
-            skillName: 'review',
-            trigger: 'user-slash',
-          },
-        } as Event);
-        emit({ type: 'turn.ended', agentId: 'main', turnId: turn, reason: 'completed' } as Event);
-      }
-      for (let turn = 9; turn <= 10; turn++) {
-        emit({
-          type: 'turn.started',
-          agentId: 'main',
-          turnId: turn,
-          origin: {
-            kind: 'plugin_command',
-            activationId: `p${turn}`,
-            pluginId: 'fmt',
-            commandName: 'fmt',
-            trigger: 'user-slash',
-          },
-        } as Event);
-        emit({ type: 'turn.ended', agentId: 'main', turnId: turn, reason: 'completed' } as Event);
-      }
-      vi.advanceTimersByTime(2_000);
-      expect(driver.state.surveyContainer.children).not.toHaveLength(0);
-
-      vi.useRealTimers();
-      await vi.waitFor(() => {
-        expect(existsSync(join(process.env['KIMI_CODE_HOME']!, 'feedback-survey-state.json'))).toBe(
-          true,
-        );
-      });
-    } finally {
-      vi.useRealTimers();
-      vi.restoreAllMocks();
+    clock.advance(600_000);
+    for (let turn = 1; turn <= 5; turn++) {
+      emit({
+        type: 'turn.started',
+        agentId: 'main',
+        turnId: turn,
+        origin: {
+          kind: 'skill_activation',
+          activationId: `a${turn}`,
+          skillName: 'review',
+          trigger: 'model-tool',
+        },
+      } as Event);
+      emit({ type: 'turn.ended', agentId: 'main', turnId: turn, reason: 'completed' } as Event);
     }
+    clock.advance(2_000);
+    expect(driver.state.surveyContainer.children).toHaveLength(0);
+
+    for (let turn = 6; turn <= 8; turn++) {
+      emit({
+        type: 'turn.started',
+        agentId: 'main',
+        turnId: turn,
+        origin: {
+          kind: 'skill_activation',
+          activationId: `a${turn}`,
+          skillName: 'review',
+          trigger: 'user-slash',
+        },
+      } as Event);
+      emit({ type: 'turn.ended', agentId: 'main', turnId: turn, reason: 'completed' } as Event);
+    }
+    for (let turn = 9; turn <= 10; turn++) {
+      emit({
+        type: 'turn.started',
+        agentId: 'main',
+        turnId: turn,
+        origin: {
+          kind: 'plugin_command',
+          activationId: `p${turn}`,
+          pluginId: 'fmt',
+          commandName: 'fmt',
+          trigger: 'user-slash',
+        },
+      } as Event);
+      emit({ type: 'turn.ended', agentId: 'main', turnId: turn, reason: 'completed' } as Event);
+    }
+    clock.advance(2_000);
+    expect(driver.state.surveyContainer.children).not.toHaveLength(0);
+
+    await waitForAssertion(() => {
+      expect(existsSync(join(process.env['KIMI_CODE_HOME']!, 'feedback-survey-state.json'))).toBe(
+        true,
+      );
+    });
   });
 });
 
@@ -379,7 +381,7 @@ describe('transcript fold block clicks', () => {
         name: 'Bash',
         args: { command },
       } as Event,
-      vi.fn(),
+      mock(),
     );
     driver.sessionEventHandler.handleEvent(
       {
@@ -391,7 +393,7 @@ describe('transcript fold block clicks', () => {
         output,
         isError: undefined,
       } as Event,
-      vi.fn(),
+      mock(),
     );
   }
 
@@ -614,14 +616,14 @@ describe('transcript fold block clicks', () => {
   it('closes a wrapped ! card that was opened from its preview', async () => {
     const marker = 'shell-tail-marker';
     const stdout = `${'x'.repeat(4000)}${marker}`;
-    const runShellCommand = vi.fn(async () => ({ stdout, stderr: '', isError: false }));
+    const runShellCommand = mock(async () => ({ stdout, stderr: '', isError: false }));
     const session = makeSession({ runShellCommand });
     const { driver } = await makeDriver(session);
     driver.state.appState.inputMode = 'bash';
     driver.state.editor.inputMode = 'bash';
 
     driver.handleUserInput('echo-shell');
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       const transcript = stripSgr(renderTranscript(driver));
       expect(transcript).toContain('ctrl+o to expand');
       expect(transcript).not.toContain(marker);

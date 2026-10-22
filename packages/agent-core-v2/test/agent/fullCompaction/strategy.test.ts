@@ -1,11 +1,9 @@
 import { type Message } from '#/llm-adapter/contract/message';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
+import { DEFAULT_COMPACTION_CONFIG } from '#/agent/fullCompaction/strategy';
 
 import { estimateTokensForMessages } from '#/llm-adapter/contract/tokens';
-import {
-  DEFAULT_COMPACTION_CONFIG,
-  DefaultCompactionStrategy,
-} from '#/agent/fullCompaction/strategy';
+import { DefaultCompactionStrategy } from '#/agent/fullCompaction/strategy';
 
 describe('DefaultCompactionStrategy', () => {
   it('keeps an oversized trailing user message as recent', () => {
@@ -225,9 +223,6 @@ describe('DefaultCompactionStrategy', () => {
     expect(() => strategy.computeCompactCount(messages, 'auto')).not.toThrow();
     expect(strategy.computeCompactCount(messages, 'auto')).toBeGreaterThanOrEqual(0);
   });
-
-
-
 
 });
 

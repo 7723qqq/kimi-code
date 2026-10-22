@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import type { ContextMessage } from '#/agent/contextMemory/types';
@@ -64,9 +64,9 @@ describe('SpecModeInjection reminder variants', () => {
     ctx = createTestAgent(
       execEnvServices({
         hostFs: createFakeHostFs({
-          mkdir: vi.fn().mockResolvedValue(undefined),
+          mkdir: mock().mockResolvedValue(undefined),
           readText: (path: string) => readText(path),
-          writeText: vi.fn(async () => undefined),
+          writeText: mock(async () => undefined),
         }),
       }),
     );
@@ -124,9 +124,9 @@ describe('SpecModeInjection cadence', () => {
     ctx = createTestAgent(
       execEnvServices({
         hostFs: createFakeHostFs({
-          mkdir: vi.fn().mockResolvedValue(undefined),
+          mkdir: mock().mockResolvedValue(undefined),
           readText: (path: string) => readText(path),
-          writeText: vi.fn(async () => undefined),
+          writeText: mock(async () => undefined),
         }),
       }),
     );

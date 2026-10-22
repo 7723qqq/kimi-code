@@ -6,7 +6,7 @@
 
 import assert from 'node:assert/strict';
 
-import { expect, test } from 'vitest';
+import { expect, test } from 'bun:test';
 
 import { MiniDb } from '../../src/index.js';
 import { Model } from './helpers/model.js';

@@ -1,49 +1,46 @@
 import { Command } from 'commander';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import type { KimiRegionProfile } from '@moonshot-ai/kimi-code-oauth';
 
+import * as regionModule from '#/utils/region';
 import { registerInstallDesktopCommand } from '#/cli/sub/install-desktop';
 
-const mocks = vi.hoisted(() => ({
-  openUrl: vi.fn(),
-  currentKimiProfile: vi.fn(() => ({ siteBase: 'https://example.com' }) as unknown as KimiRegionProfile),
-}));
+const mocks = (() => ({
+  currentKimiProfile: mock(() => ({ siteBase: 'https://example.com' }) as unknown as KimiRegionProfile),
+}))();
 
-vi.mock('#/utils/open-url', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('#/utils/open-url')>();
-  return { ...actual, openUrl: mocks.openUrl };
-});
+void mock.module('#/utils/region', () => ({ ...regionModule, currentKimiProfile: mocks.currentKimiProfile }));
 
-vi.mock('#/utils/region', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('#/utils/region')>();
-  return { ...actual, currentKimiProfile: mocks.currentKimiProfile };
-});
+type Write = Pick<NodeJS.WriteStream, 'write'>;
+
+function createProgram() {
+  const written = mock(() => true);
+  const openUrl = mock();
+  const program = new Command('kimi');
+  registerInstallDesktopCommand(program, {
+    stdout: { write: written } as unknown as Write,
+    openUrl,
+  });
+  return { program, written, openUrl };
+}
 
 describe('kimi install-desktop', () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
   it('prints the region-derived desktop app page URL and opens it in the browser', async () => {
-    const program = new Command('kimi');
-    registerInstallDesktopCommand(program);
-    const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const { program, written, openUrl } = createProgram();
 
     await program.parseAsync(['node', 'kimi', 'install-desktop']);
 
-    expect(write).toHaveBeenCalledWith('https://example.com/code\n');
-    expect(mocks.openUrl).toHaveBeenCalledWith('https://example.com/code');
+    expect(written).toHaveBeenCalledWith('https://example.com/code\n');
+    expect(openUrl).toHaveBeenCalledWith('https://example.com/code');
   });
 
   it('keeps install-app working as a hidden alias', async () => {
-    const program = new Command('kimi');
-    registerInstallDesktopCommand(program);
-    const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    const { program, written, openUrl } = createProgram();
 
     await program.parseAsync(['node', 'kimi', 'install-app']);
 
-    expect(write).toHaveBeenCalledWith('https://example.com/code\n');
-    expect(mocks.openUrl).toHaveBeenCalledWith('https://example.com/code');
+    expect(written).toHaveBeenCalledWith('https://example.com/code\n');
+    expect(openUrl).toHaveBeenCalledWith('https://example.com/code');
   });
 });

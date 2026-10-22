@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Readable } from 'node:stream';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import {
@@ -262,7 +262,7 @@ function resolver(
 
 describe('AgentMediaResolverService video strategy', () => {
   it('uploads a kimi-file video once and reuses the cached reference on later steps', async () => {
-    const upload = vi.fn(async (): Promise<VideoURLPart> => msPart('prov-1'));
+    const upload = mock(async (): Promise<VideoURLPart> => msPart('prov-1'));
     const res = resolver(new Map([[FILE_ID, { name: 'clip.mp4', bytes: VIDEO_BYTES }]]));
     const req = requester({ uploadVideo: upload });
     const message = videoMessage(buildKimiFileUrl(FILE_ID));
@@ -279,7 +279,7 @@ describe('AgentMediaResolverService video strategy', () => {
   });
 
   it('degrades to the path tag when the current model cannot accept video, ignoring a memoized upload', async () => {
-    const upload = vi.fn(async (): Promise<VideoURLPart> => msPart('prov-1'));
+    const upload = mock(async (): Promise<VideoURLPart> => msPart('prov-1'));
     const canonical = await plantCanonical(FILE_ID, '.mp4', VIDEO_BYTES);
     const res = resolver(new Map([[FILE_ID, { name: 'clip.mp4', bytes: VIDEO_BYTES }]]), sessionDir);
     const message = videoMessage(buildKimiFileUrl(FILE_ID));
@@ -303,13 +303,13 @@ describe('AgentMediaResolverService video strategy', () => {
     const blobs = blobStore();
     const message = videoMessage(buildKimiFileUrl(FILE_ID));
 
-    const upload1 = vi.fn(async (): Promise<VideoURLPart> => msPart('prov-1'));
+    const upload1 = mock(async (): Promise<VideoURLPart> => msPart('prov-1'));
     await new AgentMediaResolverService(fileService(files), blobs, telemetry, new AgentStateService(), stubMediaStore(), stubDispatcher, stubScopeContext).resolve(
       [message],
       requester({ uploadVideo: upload1 }),
     );
 
-    const upload2 = vi.fn(async (): Promise<VideoURLPart> => msPart('prov-2'));
+    const upload2 = mock(async (): Promise<VideoURLPart> => msPart('prov-2'));
     const out = await new AgentMediaResolverService(fileService(files), blobs, telemetry, new AgentStateService(), stubMediaStore(), stubDispatcher, stubScopeContext).resolve(
       [message],
       requester({ uploadVideo: upload2 }),
@@ -353,7 +353,7 @@ describe('AgentMediaResolverService video strategy', () => {
       req: (upload) => requester({ uploadVideo: upload }),
     },
   ])('degrades when $name', async ({ files, fileId, req }) => {
-    const upload = vi.fn();
+    const upload = mock();
     const canonical =
       fileId === FILE_ID ? await plantCanonical(FILE_ID, '.mp4', VIDEO_BYTES) : undefined;
     const out = await resolver(files, sessionDir).resolve(
@@ -369,7 +369,7 @@ describe('AgentMediaResolverService video strategy', () => {
   });
 
   it('rethrows an auth failure so it can drive credential refresh', async () => {
-    const upload = vi.fn(async () => {
+    const upload = mock(async () => {
       throw Object.assign(new Error('unauthorized'), { statusCode: 401 });
     });
     const res = resolver(new Map([[FILE_ID, { name: 'clip.mp4', bytes: VIDEO_BYTES }]]));
@@ -388,7 +388,7 @@ describe('AgentMediaResolverService video strategy', () => {
         invalidations += 1;
       },
     };
-    const upload = vi.fn(async (): Promise<VideoURLPart> => msPart('prov-9'));
+    const upload = mock(async (): Promise<VideoURLPart> => msPart('prov-9'));
     upload.mockRejectedValueOnce(Object.assign(new Error('unauthorized'), { statusCode: 401 }));
     const res = resolver(new Map([[FILE_ID, { name: 'clip.mp4', bytes: VIDEO_BYTES }]]));
 
@@ -404,7 +404,7 @@ describe('AgentMediaResolverService video strategy', () => {
 
   it('rethrows a cancelled upload without memoizing the fallback', async () => {
     const controller = new AbortController();
-    const interrupted = vi.fn(async () => {
+    const interrupted = mock(async () => {
       controller.abort();
       throw new Error('socket closed');
     });
@@ -415,7 +415,7 @@ describe('AgentMediaResolverService video strategy', () => {
       res.resolve([message], requester({ uploadVideo: interrupted }), controller.signal),
     ).rejects.toThrow('socket closed');
 
-    const retry = vi.fn(async (): Promise<VideoURLPart> => msPart('prov-1'));
+    const retry = mock(async (): Promise<VideoURLPart> => msPart('prov-1'));
     const out = await res.resolve([message], requester({ uploadVideo: retry }));
     expect(firstPart(out)).toEqual(msPart('prov-1'));
     expect(retry).toHaveBeenCalledTimes(1);
@@ -423,7 +423,7 @@ describe('AgentMediaResolverService video strategy', () => {
 
   it('retries the upload on a later step after a transient failure instead of freezing the tag', async () => {
     let uploadCalls = 0;
-    const upload = vi.fn(async (): Promise<VideoURLPart> => {
+    const upload = mock(async (): Promise<VideoURLPart> => {
       uploadCalls += 1;
       if (uploadCalls === 1) throw new Error('files endpoint unavailable');
       return msPart('prov-1');
@@ -447,7 +447,7 @@ describe('AgentMediaResolverService video strategy', () => {
   it('emits an unavailable placeholder when a stale reference has no canonical copy', async () => {
     const out = await resolver(new Map()).resolve(
       [videoMessage(buildKimiFileUrl('missing'))],
-      requester({ uploadVideo: vi.fn() }),
+      requester({ uploadVideo: mock() }),
     );
 
     expect(firstPart(out)).toEqual({
@@ -457,7 +457,7 @@ describe('AgentMediaResolverService video strategy', () => {
   });
 
   it('re-uploads when the resolved account changes, reusing the upload while it stays the same', async () => {
-    const upload = vi.fn(async (): Promise<VideoURLPart> => msPart('prov-1'));
+    const upload = mock(async (): Promise<VideoURLPart> => msPart('prov-1'));
     const res = resolver(new Map([[FILE_ID, { name: 'clip.mp4', bytes: VIDEO_BYTES }]]));
     const message = videoMessage(buildKimiFileUrl(FILE_ID));
     const accountA = requester({ uploadVideo: upload, credentialProvider: createStaticCredentialProvider('key-a') });
@@ -474,7 +474,7 @@ describe('AgentMediaResolverService video strategy', () => {
   });
 
   it('reuses the cached upload across access-token rotation when the JWT subject is stable', async () => {
-    const upload = vi.fn(async (): Promise<VideoURLPart> => msPart('prov-1'));
+    const upload = mock(async (): Promise<VideoURLPart> => msPart('prov-1'));
     const res = resolver(new Map([[FILE_ID, { name: 'clip.mp4', bytes: VIDEO_BYTES }]]));
     const message = videoMessage(buildKimiFileUrl(FILE_ID));
     const base = {
@@ -497,7 +497,7 @@ describe('AgentMediaResolverService video strategy', () => {
   });
 
   it('re-uploads when the endpoint changes for the same account', async () => {
-    const upload = vi.fn(async (): Promise<VideoURLPart> => msPart('prov-1'));
+    const upload = mock(async (): Promise<VideoURLPart> => msPart('prov-1'));
     const res = resolver(new Map([[FILE_ID, { name: 'clip.mp4', bytes: VIDEO_BYTES }]]));
     const message = videoMessage(buildKimiFileUrl(FILE_ID));
     const endpointA = requester({
@@ -546,7 +546,7 @@ describe('AgentMediaResolverService canonical session bytes', () => {
       const mediaStore = stubMediaStore();
       mediaStore.read = async () => ({ data: bytes, name: fileName });
       const res = resolver(new Map(), undefined, mediaStore);
-      const upload = vi.fn(async (): Promise<VideoURLPart> => msPart('prov-1'));
+      const upload = mock(async (): Promise<VideoURLPart> => msPart('prov-1'));
 
       const out = await res.resolve([message], requester({ uploadVideo: upload }));
 
@@ -684,7 +684,7 @@ describe('AgentMediaResolverService image strategy', () => {
     const canonical = await plantCanonical(FILE_ID, '.bmp', BMP_BYTES);
     const res = resolver(files, sessionDir);
     const message = imageMessage(buildKimiFileUrl(FILE_ID));
-    const inline = {
+    const inline: ImageURLPart = {
       type: 'image_url',
       imageUrl: { url: `data:image/bmp;base64,${BMP_BYTES.toString('base64')}` },
     };
@@ -732,7 +732,7 @@ describe('AgentMediaResolverService image strategy', () => {
       stubScopeContext,
     );
     const message = imageMessage(buildKimiFileUrl(FILE_ID));
-    const expected = { type: 'image_url', imageUrl: { url: PNG_DATA_URL } };
+    const expected: ImageURLPart = { type: 'image_url', imageUrl: { url: PNG_DATA_URL } };
 
     const first = await res.resolve([message], requester({}));
     files.delete(FILE_ID);
@@ -845,7 +845,7 @@ describe('AgentMediaResolverService image strategy', () => {
 
 describe('AgentMediaResolverService image upload', () => {
   it('uploads an image once and serves later resolves from the cached reference', async () => {
-    const upload = vi.fn(async (): Promise<ImageURLPart> => msImagePart('img-1'));
+    const upload = mock(async (): Promise<ImageURLPart> => msImagePart('img-1'));
     const res = resolver(new Map([[FILE_ID, { name: 'pic.png', bytes: PNG_BYTES }]]));
     const req = requester({ uploadImage: upload });
     const message = imageMessage(buildKimiFileUrl(FILE_ID));
@@ -867,13 +867,13 @@ describe('AgentMediaResolverService image upload', () => {
     const blobs = blobStore();
     const message = imageMessage(buildKimiFileUrl(FILE_ID));
 
-    const upload1 = vi.fn(async (): Promise<ImageURLPart> => msImagePart('img-1'));
+    const upload1 = mock(async (): Promise<ImageURLPart> => msImagePart('img-1'));
     await new AgentMediaResolverService(fileService(files), blobs, telemetry, new AgentStateService(), stubMediaStore(), stubDispatcher, stubScopeContext).resolve(
       [message],
       requester({ uploadImage: upload1 }),
     );
 
-    const upload2 = vi.fn(async (): Promise<ImageURLPart> => msImagePart('img-2'));
+    const upload2 = mock(async (): Promise<ImageURLPart> => msImagePart('img-2'));
     const out = await new AgentMediaResolverService(fileService(files), blobs, telemetry, new AgentStateService(), stubMediaStore(), stubDispatcher, stubScopeContext).resolve(
       [message],
       requester({ uploadImage: upload2 }),
@@ -885,7 +885,7 @@ describe('AgentMediaResolverService image upload', () => {
   });
 
   it('falls back to the inline base64 part when the upload fails for a non-auth reason', async () => {
-    const upload = vi.fn(async (): Promise<ImageURLPart> => {
+    const upload = mock(async (): Promise<ImageURLPart> => {
       throw new Error('files endpoint unavailable');
     });
     const res = resolver(new Map([[FILE_ID, { name: 'pic.png', bytes: PNG_BYTES }]]));
@@ -900,7 +900,7 @@ describe('AgentMediaResolverService image upload', () => {
   });
 
   it('rethrows an auth failure so it can drive credential refresh', async () => {
-    const upload = vi.fn(async () => {
+    const upload = mock(async () => {
       throw Object.assign(new Error('unauthorized'), { statusCode: 401 });
     });
     const res = resolver(new Map([[FILE_ID, { name: 'pic.png', bytes: PNG_BYTES }]]));
@@ -911,7 +911,7 @@ describe('AgentMediaResolverService image upload', () => {
   });
 
   it('rethrows an auth failure exposed through the SDK status field', async () => {
-    const upload = vi.fn(async () => {
+    const upload = mock(async () => {
       throw Object.assign(new Error('unauthorized'), { status: 401 });
     });
     const res = resolver(new Map([[FILE_ID, { name: 'pic.png', bytes: PNG_BYTES }]]));
@@ -933,7 +933,7 @@ describe('AgentMediaResolverService image upload', () => {
   });
 
   it('re-uploads when the resolved account changes, reusing the upload while it stays the same', async () => {
-    const upload = vi.fn(async (): Promise<ImageURLPart> => msImagePart('img-1'));
+    const upload = mock(async (): Promise<ImageURLPart> => msImagePart('img-1'));
     const res = resolver(new Map([[FILE_ID, { name: 'pic.png', bytes: PNG_BYTES }]]));
     const message = imageMessage(buildKimiFileUrl(FILE_ID));
     const accountA = requester({ uploadImage: upload, credentialProvider: createStaticCredentialProvider('key-a') });
@@ -950,7 +950,7 @@ describe('AgentMediaResolverService image upload', () => {
   });
 
   it('re-uploads when the endpoint changes for the same account', async () => {
-    const upload = vi.fn(async (): Promise<ImageURLPart> => msImagePart('img-1'));
+    const upload = mock(async (): Promise<ImageURLPart> => msImagePart('img-1'));
     const res = resolver(new Map([[FILE_ID, { name: 'pic.png', bytes: PNG_BYTES }]]));
     const message = imageMessage(buildKimiFileUrl(FILE_ID));
     const endpointA = requester({
@@ -977,7 +977,7 @@ describe('AgentMediaResolverService image upload', () => {
   it('re-uploads when the protocol changes the effective files endpoint', async () => {
     const ids = ['openai-image', 'anthropic-image'];
     let nextId = 0;
-    const upload = vi.fn(async (): Promise<ImageURLPart> => msImagePart(ids[nextId++]!));
+    const upload = mock(async (): Promise<ImageURLPart> => msImagePart(ids[nextId++]!));
     const res = resolver(new Map([[FILE_ID, { name: 'pic.png', bytes: PNG_BYTES }]]));
     const message = imageMessage(buildKimiFileUrl(FILE_ID));
     const openai = requester({
@@ -1003,7 +1003,7 @@ describe('AgentMediaResolverService image upload', () => {
   it('re-uploads when the effective authorization changes', async () => {
     const ids = ['account-a-image', 'account-b-image'];
     let nextId = 0;
-    const upload = vi.fn(async (): Promise<ImageURLPart> => msImagePart(ids[nextId++]!));
+    const upload = mock(async (): Promise<ImageURLPart> => msImagePart(ids[nextId++]!));
     const res = resolver(new Map([[FILE_ID, { name: 'pic.png', bytes: PNG_BYTES }]]));
     const message = imageMessage(buildKimiFileUrl(FILE_ID));
     const accountA = requester({
@@ -1027,7 +1027,7 @@ describe('AgentMediaResolverService image upload', () => {
   });
 
   it('stops probing the upload endpoint after the requester declares image upload unsupported', async () => {
-    const upload = vi.fn(async (): Promise<ImageURLPart> => {
+    const upload = mock(async (): Promise<ImageURLPart> => {
       throw new ImageUploadUnsupportedError('no image upload');
     });
     const res = resolver(new Map([[FILE_ID, { name: 'pic.png', bytes: PNG_BYTES }]]));
@@ -1229,7 +1229,8 @@ describe('AgentMediaResolverService request media budget', () => {
       requester({}),
     );
 
-    expect(second.slice(0, 3)).toEqual(first);
+    const head: readonly Message[] = second.slice(0, 3);
+    expect(head).toEqual(first);
     expect(second[3]!.content[0]).toEqual({
       type: 'image_url',
       imageUrl: { url: `data:image/png;base64,${files.get('f4')!.bytes.toString('base64')}` },
@@ -1262,7 +1263,7 @@ describe('AgentMediaResolverService request media budget', () => {
   });
 
   it('does not count uploaded references toward the budget', async () => {
-    const upload = vi.fn(async (): Promise<VideoURLPart> => msPart('prov-1'));
+    const upload = mock(async (): Promise<VideoURLPart> => msPart('prov-1'));
     const files = imageFiles([
       ['f1', SIX_MIB],
       ['f2', SIX_MIB],

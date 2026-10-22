@@ -2,7 +2,7 @@ import { access, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promise
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 import { buildPluginMarketplaceCdn } from '../../scripts/build-plugin-marketplace-cdn.mjs';
 

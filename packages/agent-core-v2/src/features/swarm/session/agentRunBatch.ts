@@ -4,6 +4,8 @@ import { isUserCancellation } from '#/_base/utils/abort';
 import { setClampedTimeout } from '#/_base/utils/timer';
 import { BugIndicatingError, Error2, ErrorCodes } from '#/errors';
 import { isProviderRateLimitError } from '#/llm-adapter/contract/errors';
+import type { IHostClock } from '#/os/interface/hostClock';
+import type { IHostTimers, IHostTimerHandle } from '#/os/interface/hostTimers';
 import type { SubagentSpawnPlan } from '#/session/subagent/spawn';
 import { type TokenUsage } from '#human/llm/usage';
 
@@ -46,6 +48,21 @@ const RATE_LIMIT_CAPACITY_RECOVERY_INTERVAL_MS = 3 * 60 * 1000;
 const RATE_LIMIT_SUSPENDED_REASON = 'Provider rate limit; subagent requeued for retry.';
 
 const AGENT_SWARM_MAX_CONCURRENCY_ENV = 'KIMI_CODE_AGENT_SWARM_MAX_CONCURRENCY';
+
+const SYSTEM_HOST_CLOCK: IHostClock = {
+  _serviceBrand: undefined,
+  now: () => new Date(),
+  timeZone: () => Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+};
+
+const SYSTEM_HOST_TIMERS: IHostTimers = {
+  _serviceBrand: undefined,
+  setClampedTimeout: (callback, timeoutMs) => setClampedTimeout(callback, timeoutMs),
+  setTimeout: (callback, timeoutMs) => globalThis.setTimeout(callback, timeoutMs),
+  clearTimeout: (handle) => {
+    globalThis.clearTimeout(handle as ReturnType<typeof globalThis.setTimeout>);
+  },
+};
 
 export type QueuedAgentRunTask<T = unknown> = SessionSwarmTask<T>;
 
@@ -102,6 +119,8 @@ type ActiveAttempt<T> = {
 
 export type AgentRunBatchOptions = {
   readonly maxConcurrency?: number;
+  readonly clock?: IHostClock;
+  readonly timers?: IHostTimers;
 };
 
 export class AgentRunBatch<T> {
@@ -113,9 +132,11 @@ export class AgentRunBatch<T> {
   private readonly batchSignal: AbortSignal | undefined;
   private readonly batchAbortListener: () => void;
   private readonly maxConcurrency: number | undefined;
+  private readonly clock: IHostClock;
+  private readonly timers: IHostTimers;
   private normalLaunchCount = 0;
-  private normalLaunchTimer: ReturnType<typeof setTimeout> | undefined;
-  private rateLimitLaunchTimer: ReturnType<typeof setTimeout> | undefined;
+  private normalLaunchTimer: IHostTimerHandle | undefined;
+  private rateLimitLaunchTimer: IHostTimerHandle | undefined;
   private resolve: ((results: Array<AgentRunResult<T>>) => void) | undefined;
   private reject: ((error: unknown) => void) | undefined;
   private finished = false;
@@ -135,6 +156,8 @@ export class AgentRunBatch<T> {
     options: AgentRunBatchOptions = {},
   ) {
     this.maxConcurrency = options.maxConcurrency;
+    this.clock = options.clock ?? SYSTEM_HOST_CLOCK;
+    this.timers = options.timers ?? SYSTEM_HOST_TIMERS;
     this.states = tasks.map((task, index) => ({
       index,
       task,
@@ -212,7 +235,7 @@ export class AgentRunBatch<T> {
       return;
     }
 
-    this.normalLaunchTimer = setTimeout(() => {
+    this.normalLaunchTimer = this.timers.setTimeout(() => {
       this.normalLaunchTimer = undefined;
       if (this.finished || this.rateLimitMode || this.pending.length === 0) return;
       if (this.isAtConcurrencyLimit()) return;
@@ -230,7 +253,7 @@ export class AgentRunBatch<T> {
     this.clearRateLimitTimer();
     if (this.pending.length === 0) return;
 
-    const now = Date.now();
+    const now = this.clock.now().getTime();
     this.recoverRateLimitCapacity(now);
     if (this.active.size >= this.rateLimitCapacity) {
       this.scheduleRateLimitWakeup(this.nextRateLimitCapacityRecoveryAt(), now);
@@ -361,7 +384,7 @@ export class AgentRunBatch<T> {
 
     if (this.rateLimitMode) {
       this.globalRetryIntervalMs = RATE_LIMIT_RETRY_BASE_MS;
-      this.nextRateLimitLaunchAt = Date.now() + this.globalRetryIntervalMs;
+      this.nextRateLimitLaunchAt = this.clock.now().getTime() + this.globalRetryIntervalMs;
       this.schedule();
     }
   }
@@ -420,7 +443,7 @@ export class AgentRunBatch<T> {
       reason: RATE_LIMIT_SUSPENDED_REASON,
     });
 
-    const now = Date.now();
+    const now = this.clock.now().getTime();
     this.lastRateLimitAt = now;
     state.retryCount += 1;
     const retryDelay = retry.createTimeout(Math.max(0, state.retryCount - 1), {
@@ -496,7 +519,7 @@ export class AgentRunBatch<T> {
 
   private scheduleRateLimitWakeup(wakeupAt: number, now: number): void {
     if (!Number.isFinite(wakeupAt) || wakeupAt <= now) return;
-    this.rateLimitLaunchTimer = setTimeout(() => {
+    this.rateLimitLaunchTimer = this.timers.setTimeout(() => {
       this.rateLimitLaunchTimer = undefined;
       this.schedule();
     }, wakeupAt - now);
@@ -604,12 +627,12 @@ export class AgentRunBatch<T> {
   }
 
   private clearNormalTimer(): void {
-    if (this.normalLaunchTimer !== undefined) clearTimeout(this.normalLaunchTimer);
+    if (this.normalLaunchTimer !== undefined) this.timers.clearTimeout(this.normalLaunchTimer);
     this.normalLaunchTimer = undefined;
   }
 
   private clearRateLimitTimer(): void {
-    if (this.rateLimitLaunchTimer !== undefined) clearTimeout(this.rateLimitLaunchTimer);
+    if (this.rateLimitLaunchTimer !== undefined) this.timers.clearTimeout(this.rateLimitLaunchTimer);
     this.rateLimitLaunchTimer = undefined;
   }
 
@@ -623,7 +646,7 @@ export class AgentRunBatch<T> {
     const timeout =
       task.timeout === undefined || task.timeout <= 0
         ? undefined
-        : setClampedTimeout(() => {
+        : this.timers.setClampedTimeout(() => {
             attempt.timedOut = true;
             attempt.controller.abort(new Error('Subagent timed out.'));
           }, task.timeout);
@@ -638,7 +661,7 @@ export class AgentRunBatch<T> {
     }
 
     return () => {
-      if (timeout !== undefined) clearTimeout(timeout);
+      if (timeout !== undefined) this.timers.clearTimeout(timeout);
       this.controller.signal.removeEventListener('abort', abortFromBatch);
       task.signal?.removeEventListener('abort', abortFromTask);
     };

@@ -4,13 +4,23 @@ import { kimiCodeOfficialInstallUrl } from '#/constant/app';
 import { t } from '#/i18n';
 import { openUrl } from '#/utils/open-url';
 
-function openDesktopAppPage(): void {
-  const url = kimiCodeOfficialInstallUrl();
-  process.stdout.write(`${url}\n`);
-  openUrl(url);
+export interface InstallDesktopDeps {
+  readonly stdout?: Pick<NodeJS.WriteStream, 'write'>;
+  readonly openUrl?: (url: string) => void;
 }
 
-export function registerInstallDesktopCommand(program: Command): void {
+export function registerInstallDesktopCommand(
+  program: Command,
+  deps: InstallDesktopDeps = {},
+): void {
+  const stdout = deps.stdout ?? process.stdout;
+  const open = deps.openUrl ?? openUrl;
+  const openDesktopAppPage = (): void => {
+    const url = kimiCodeOfficialInstallUrl();
+    stdout.write(`${url}\n`);
+    open(url);
+  };
+
   program
     .command('install-desktop')
     .description(t('cli.commandDescriptions.installDesktop'))

@@ -20,11 +20,12 @@
 // and the strict directory fsync is last.
 
 import assert from 'node:assert/strict';
-import type { PathLike } from 'node:fs';
+import { PathLike } from 'node:fs';
 import fs from 'node:fs/promises';
+const realFs: typeof fs = { ...fs };
 import path from 'node:path';
 
-import { afterEach, test, vi } from 'vitest';
+import { afterEach, test } from 'bun:test';
 
 import { rmrf, tmpDir } from './helpers.js';
 
@@ -40,9 +41,25 @@ function reset(): void {
   tmpEncodings = [];
 }
 
+// The tracing layers below swap individual functions on the real
+// node:fs/promises exports object (every minidb module default-imports that one
+// object), because a builtin replaced with mock.module cannot be undone:
+// mock.restore() leaves the replacement in place, so the next test would
+// inherit a module with no mkdtemp at all. Patching is reversible — this
+// afterEach restores every swapped function.
+const restores: (() => void)[] = [];
+
+function patch(owner: object, key: string, value: unknown): void {
+  const target = owner as unknown as Record<string, unknown>;
+  const original = target[key];
+  target[key] = value;
+  restores.push(() => {
+    target[key] = original;
+  });
+}
+
 afterEach(() => {
-  vi.doUnmock('node:fs/promises');
-  vi.resetModules();
+  while (restores.length > 0) restores.pop()!();
   reset();
 });
 
@@ -89,7 +106,12 @@ function mockRecordingFs(): void {
       );
     },
   };
-  vi.doMock('node:fs/promises', () => ({ ...exports, default: exports }));
+  // Swap the four functions writeFileAtomic can reach (plus the plain
+  // fs.writeFile the old implementation used) with the recorder.
+  patch(fs, 'open', exports.open);
+  patch(fs, 'rename', exports.rename);
+  patch(fs, 'rm', exports.rm);
+  patch(fs, 'writeFile', exports.writeFile);
 }
 
 /** The exact discipline writeFileAtomic must follow for one sidecar: the tmp
@@ -144,11 +166,11 @@ test('writeFileAtomic fsyncs the tmp content before renaming and fsyncs the dir 
 test('every definition sidecar write is fsynced before its rename (real filesystem)', async () => {
   const dir = await tmpDir('minidb-value-codec-fsync-');
   const mocked = {
-    ...fs,
+    ...realFs,
     open: (async (p: PathLike, flags?: string | number, mode?: string | number) => {
       const s = String(p);
       if (s === dir && flags === 'r') {
-        const h = await fs.open(s, flags, mode as never);
+        const h = await realFs.open(s, flags, mode as never);
         seq.push(`dopen:${s}`);
         return {
           sync: async () => {
@@ -158,7 +180,7 @@ test('every definition sidecar write is fsynced before its rename (real filesyst
           close: async () => h.close(),
         };
       }
-      const h = await fs.open(p, flags as string, mode as never);
+      const h = await realFs.open(p, flags as string, mode as never);
       if (!isSidecarPath(s)) return h;
       seq.push(`open:${s}`);
       return {
@@ -181,15 +203,17 @@ test('every definition sidecar write is fsynced before its rename (real filesyst
       const s = String(src);
       const d = String(dst);
       if (SIDECARS.includes(path.basename(d))) seq.push(`rename:${s}->${d}`);
-      await fs.rename(src, dst);
+      await realFs.rename(src, dst);
     }) as typeof fs.rename,
     rm: (async (p: PathLike, opts?: { force?: boolean }) => {
       const s = String(p);
       if (isSidecarPath(s)) seq.push(`rm:${s}`);
-      await fs.rm(p, opts);
+      await realFs.rm(p, opts);
     }) as typeof fs.rm,
   };
-  vi.doMock('node:fs/promises', () => ({ ...mocked, default: mocked }));
+  patch(fs, 'open', mocked.open);
+  patch(fs, 'rename', mocked.rename);
+  patch(fs, 'rm', mocked.rm);
 
   const { MiniDb } = await import('../src/index.js');
   try {
@@ -212,7 +236,7 @@ test('every definition sidecar write is fsynced before its rename (real filesyst
       const tmp = seq[openAt]!.slice('open:'.length);
       assertAtomicOrder(file, dir);
       const last = writes.findLast((w) => w.file === tmp)!;
-      const onDisk = await fs.readFile(path.join(dir, file), 'utf8');
+      const onDisk = await realFs.readFile(path.join(dir, file), 'utf8');
       assert.equal(onDisk, last.data, `${file} on disk must be exactly the fsynced payload`);
       assert.deepEqual(JSON.parse(onDisk), JSON.parse(last.data));
     }

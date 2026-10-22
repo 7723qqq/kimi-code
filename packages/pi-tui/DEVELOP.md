@@ -18,8 +18,8 @@ Skip step 3 and the change is not done. Do not rewrite a rendering strategy.
 
 ## Tests
 
-- This package's tests are written for `node:test`, not vitest; the root `vitest run` does not execute them — CI covers them through the dedicated `test-pi-tui` job in `.github/workflows/ci.yml`.
-- The `test` script goes through `scripts/test.mjs`, which dispatches on runtime: real Node spawns `node --test`, Bun (`bun --bun run test`) spawns `bun test` — Bun's `node --test` shim cannot arm the node:test harness. Both runtimes must stay green.
+- This package's tests are written for `bun:test`, not vitest; the root `vitest run` does not execute them — CI covers them through the dedicated `test-pi-tui` job in `.github/workflows/ci.yml`.
+- The `test` script runs `bun test --isolate`: one process per test file, because several suites mutate process-wide state (`process.platform`, `process.kill`, the native module cache).
 - Prefer adding new narrow-width tests to the existing test file of the corresponding component.
 
 ## Acceptance after syncing from upstream

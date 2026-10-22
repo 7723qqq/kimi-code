@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import {
   DEFAULT_SURVEY_POPUP_CONFIG,
@@ -15,6 +15,7 @@ import {
   type SessionArmGateInput,
   type SurveyEventEnvironmentFields,
   type SurveyGateInput,
+  type SurveyGateSkipReason,
   type SurveyMachineState,
 } from '#/tui/utils/survey-policy';
 
@@ -89,7 +90,7 @@ describe('evaluateSurveyGate (session arm)', () => {
     expect(evaluateSurveyGate(gate())).toEqual({ show: true, survey: 'session' });
   });
 
-  it.each<[Partial<SessionArmGateInput>, string]>([
+  it.each<[Partial<SessionArmGateInput>, SurveyGateSkipReason]>([
     [{ phase: 'open' }, 'survey-active'],
     [{ phase: 'pending' }, 'survey-active'],
     [{ phase: 'thanks' }, 'survey-active'],
@@ -212,7 +213,7 @@ describe('evaluateLongContextArm', () => {
     });
   });
 
-  it.each<[Partial<LongContextArmGateInput>, string]>([
+  it.each<[Partial<LongContextArmGateInput>, SurveyGateSkipReason]>([
     [{ mountRollConsumed: true }, 'mount-roll-consumed'],
     [{ mountSurveyShown: true }, 'mount-survey-shown'],
     [{ phase: 'open' }, 'survey-active'],
@@ -292,7 +293,7 @@ describe('evaluateLongContextArm', () => {
 
   describe('mount one-shot', () => {
     it('does not draw the dice below the threshold, so the roll stays unspent', () => {
-      const drawMountRoll = vi.fn(() => 0);
+      const drawMountRoll = mock(() => 0);
       expect(arm({ virtualContextTokens: 199_999, drawMountRoll })).toEqual({
         show: false,
         reason: 'below-threshold',
@@ -301,7 +302,7 @@ describe('evaluateLongContextArm', () => {
     });
 
     it('does not draw the dice inside the shared global cooldown, so the roll stays unspent', () => {
-      const drawMountRoll = vi.fn(() => 0);
+      const drawMountRoll = mock(() => 0);
       expect(arm({ msSinceGlobalLastShown: 1000, drawMountRoll })).toEqual({
         show: false,
         reason: 'global-cooldown',
@@ -318,7 +319,7 @@ describe('evaluateLongContextArm', () => {
     });
 
     it('does not draw the dice while transiently suppressed by an active prompt', () => {
-      const drawMountRoll = vi.fn(() => 0);
+      const drawMountRoll = mock(() => 0);
       expect(arm({ promptActive: true, drawMountRoll })).toEqual({
         show: false,
         reason: 'prompt-active',
@@ -343,7 +344,7 @@ describe('evaluateLongContextArm', () => {
     });
 
     it('never draws again once the roll is spent', () => {
-      const drawMountRoll = vi.fn(() => 0);
+      const drawMountRoll = mock(() => 0);
       expect(arm({ mountRollConsumed: true, drawMountRoll })).toEqual({
         show: false,
         reason: 'mount-roll-consumed',

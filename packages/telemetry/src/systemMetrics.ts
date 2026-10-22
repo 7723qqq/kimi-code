@@ -10,18 +10,38 @@ export interface SystemMetricsTrackClient {
   track(event: string, properties?: TelemetryProperties): void;
 }
 
+export interface SystemMetricsTimerHandle {
+  unref?(): void;
+}
+
+export interface SystemMetricsTimers {
+  setTimeout(callback: () => void, delayMs: number): SystemMetricsTimerHandle;
+  clearTimeout(handle: SystemMetricsTimerHandle): void;
+  setInterval(callback: () => void, intervalMs: number): SystemMetricsTimerHandle;
+  clearInterval(handle: SystemMetricsTimerHandle): void;
+}
+
+export const SYSTEM_METRICS_TIMERS: SystemMetricsTimers = {
+  setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
+  clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+  setInterval: (callback, intervalMs) => setInterval(callback, intervalMs),
+  clearInterval: (handle) => clearInterval(handle as ReturnType<typeof setInterval>),
+};
+
 export interface SystemMetricsCollectorOptions {
   readonly client: SystemMetricsTrackClient;
   readonly intervalMs?: number;
   readonly warmupSampleMs?: number | null;
+  readonly timers?: SystemMetricsTimers;
 }
 
 export class SystemMetricsCollector {
   private readonly client: SystemMetricsTrackClient;
   private readonly intervalMs: number;
   private readonly warmupSampleMs: number | null;
-  private intervalTimer: ReturnType<typeof setInterval> | null = null;
-  private warmupTimer: ReturnType<typeof setTimeout> | null = null;
+  private readonly timers: SystemMetricsTimers;
+  private intervalTimer: SystemMetricsTimerHandle | null = null;
+  private warmupTimer: SystemMetricsTimerHandle | null = null;
   private previousCpuUsage = process.cpuUsage();
   private previousHrtime = process.hrtime.bigint();
   private readonly processStartedAtSeconds = Math.floor(Date.now() / 1000 - process.uptime());
@@ -31,20 +51,21 @@ export class SystemMetricsCollector {
     this.intervalMs = options.intervalMs ?? DEFAULT_INTERVAL_MS;
     this.warmupSampleMs =
       options.warmupSampleMs === undefined ? DEFAULT_WARMUP_SAMPLE_MS : options.warmupSampleMs;
+    this.timers = options.timers ?? SYSTEM_METRICS_TIMERS;
   }
 
   start(): void {
     if (this.intervalTimer !== null) return;
 
     if (this.warmupSampleMs !== null && this.warmupSampleMs > 0) {
-      this.warmupTimer = setTimeout(() => {
+      this.warmupTimer = this.timers.setTimeout(() => {
         this.warmupTimer = null;
         this.sampleSafely();
       }, this.warmupSampleMs);
       this.warmupTimer.unref?.();
     }
 
-    this.intervalTimer = setInterval(() => {
+    this.intervalTimer = this.timers.setInterval(() => {
       this.sampleSafely();
     }, this.intervalMs);
     this.intervalTimer.unref?.();
@@ -52,11 +73,11 @@ export class SystemMetricsCollector {
 
   stop(): void {
     if (this.warmupTimer !== null) {
-      clearTimeout(this.warmupTimer);
+      this.timers.clearTimeout(this.warmupTimer);
       this.warmupTimer = null;
     }
     if (this.intervalTimer !== null) {
-      clearInterval(this.intervalTimer);
+      this.timers.clearInterval(this.intervalTimer);
       this.intervalTimer = null;
     }
   }

@@ -1,5 +1,5 @@
 import assert from "node:assert";
-import { describe, it, mock } from "node:test";
+import { describe, it, setSystemTime } from "bun:test";
 import { stripVTControlCharacters } from "node:util";
 import { type AutocompleteProvider, CombinedAutocompleteProvider } from "../src/autocomplete.ts";
 import { Editor, wordWrapLine } from "../src/components/editor.ts";
@@ -530,8 +530,7 @@ describe("Editor component", () => {
 			// burst regardless of host speed or scheduler jitter (the production
 			// heuristic uses an 8ms inter-char interval, which a slow CI runner can
 			// exceed between synchronous calls).
-			mock.timers.enable({ apis: ["Date"] });
-			mock.timers.setTime(1000);
+			setSystemTime(1000);
 			try {
 				const editor = new Editor(createTestTUI(), defaultEditorTheme);
 				let submitted = false;
@@ -552,7 +551,7 @@ describe("Editor component", () => {
 				assert.strictEqual(submitted, false);
 				assert.strictEqual(editor.getText(), "abcdefgh\n");
 			} finally {
-				mock.timers.reset();
+				setSystemTime();
 			}
 		});
 

@@ -5,11 +5,12 @@ import { join } from 'node:path';
 process.env['KIMI_CODE_SEARCH_WORKER'] = '1';
 
 import { ISessionIndex, type SessionSummary } from '@moonshot-ai/agent-core-v2';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 
 import { type RunningServer, startServer } from '../../src/start';
 import { authedFetch } from '../helpers/auth';
 import { TEST_HOST_IDENTITY } from '../helpers/hostIdentity';
+import { waitForAssertion } from '../helpers/waitFor';
 
 interface Envelope<T> {
   code: number;
@@ -277,15 +278,15 @@ describe('server-v2 session routes with the global search DB unavailable', () =>
       const id = created.data.id;
       const list = await getJson<{ items: { id: string }[] }>('/api/v1/sessions');
       expect(list.code).toBe(0);
-      await expect
-        .poll(
-          async () =>
+      await waitForAssertion(
+        async () =>
+          expect(
             (await getJson<{ items: { id: string }[] }>('/api/v1/sessions')).data.items.map(
               (item) => item.id,
             ),
-          { interval: 1_000 },
-        )
-        .toContain(id);
+          ).toContain(id),
+        { interval: 100, timeout: 20_000 },
+      );
       await server!.close();
       server = undefined;
 
@@ -313,13 +314,13 @@ describe('server-v2 session routes with the global search DB unavailable', () =>
       });
       expect(created.code).toBe(0);
 
-      await expect
-        .poll(
-          async () =>
+      await waitForAssertion(
+        async () =>
+          expect(
             (await postJson<SearchPageWire>('/api/v1/search', { query: 'anything' })).code,
-          { timeout: 10_000, interval: 100 },
-        )
-        .toBe(50001);
+          ).toBe(50001),
+        { interval: 100, timeout: 10_000 },
+      );
       const search = await postJson<SearchPageWire>('/api/v1/search', { query: 'anything' });
       expect(search.code).toBe(50001);
       expect(search.msg).toContain('search index failed to open');

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 
 import { TOOLS_SECTION } from '#/agent/toolPolicy/configSection';
 import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
@@ -21,7 +21,7 @@ describe('AgentToolPolicyService', () => {
   it('follows changes to the global tools policy without re-reading the tools section per check', async () => {
     const policy = ctx.get(IAgentToolPolicyService);
     const config = ctx.get(IConfigService);
-    const get = vi.spyOn(config, 'get');
+    const get = spyOn(config, 'get');
     const toolsSectionReads = (): number =>
       get.mock.calls.filter(([domain]) => domain === TOOLS_SECTION).length;
 

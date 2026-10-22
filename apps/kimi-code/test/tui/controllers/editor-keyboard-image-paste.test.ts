@@ -18,7 +18,8 @@ import { join } from 'node:path';
 
 import { ImageLimits, IMAGE_BYTE_BUDGET, type KimiHarness } from '@moonshot-ai/kimi-code-sdk';
 import { Jimp } from 'jimp';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import {
   EditorKeyboardController,
@@ -28,18 +29,20 @@ import { ImageAttachmentStore } from '#/tui/utils/image-attachment-store';
 import { extractMediaAttachments, resolveOriginalCaptions } from '#/tui/utils/image-placeholder';
 import { parseImageMeta } from '#/utils/image/image-mime';
 
-// vitest hoists vi.mock/vi.hoisted above the imports above, so the mock still
-// applies to the editor-keyboard module that pulls in readClipboardMedia.
-const { readClipboardMedia } = vi.hoisted(() => ({ readClipboardMedia: vi.fn() }));
+// The module under test pulls in `readClipboardMedia` at import time, so the
+// swap happens on the real namespace captured here.
+import * as clipboardImageModule from '#/utils/clipboard/clipboard-image';
 
-vi.mock('#/utils/clipboard/clipboard-image', async (importActual) => {
-  const actual = await importActual<typeof import('#/utils/clipboard/clipboard-image')>();
-  return { ...actual, readClipboardMedia };
-});
+const { readClipboardMedia } = (() => ({ readClipboardMedia: mock() }))();
+
+void mock.module('#/utils/clipboard/clipboard-image', () => ({
+  ...clipboardImageModule,
+  readClipboardMedia,
+}));
 
 interface PasteHarness {
   readonly store: ImageAttachmentStore;
-  readonly track: ReturnType<typeof vi.fn>;
+  readonly track: Mock<(...args: any[]) => any>;
   readonly controller: EditorKeyboardController;
   readonly editor: Record<string, ((...args: never[]) => unknown) | undefined>;
   /** Invoke the paste handler, then wait for the background ingestion to settle. */
@@ -59,28 +62,28 @@ function createPasteHarness(
   } = {},
 ): PasteHarness {
   const editor: Record<string, ((...args: never[]) => unknown) | undefined> = {
-    setHistoryFilter: vi.fn() as unknown as (...args: never[]) => unknown,
-    insertTextAtCursor: vi.fn() as unknown as (...args: never[]) => unknown,
+    setHistoryFilter: mock() as unknown as (...args: never[]) => unknown,
+    insertTextAtCursor: mock() as unknown as (...args: never[]) => unknown,
   };
   const store = new ImageAttachmentStore();
-  const track = vi.fn();
+  const track = mock();
   const host = {
     state: {
       editor,
       activeDialog: null,
       appState: { streamingPhase: 'idle', isCompacting: false },
-      footer: { setTransientHint: vi.fn() },
-      ui: { requestRender: vi.fn() },
+      footer: { setTransientHint: mock() },
+      ui: { requestRender: mock() },
     },
     session:
       options.sessionDir === undefined
         ? undefined
         : { summary: { sessionDir: options.sessionDir } },
-    btwPanelController: { closeOrCancel: vi.fn(() => false) },
+    btwPanelController: { closeOrCancel: mock(() => false) },
     track,
-    showError: vi.fn(),
-    openUndoSelector: vi.fn(),
-    cancelRunningShellCommand: vi.fn(),
+    showError: mock(),
+    openUndoSelector: mock(),
+    cancelRunningShellCommand: mock(),
   } as unknown as EditorKeyboardHost;
   if (options.imageLimits !== undefined || options.uploadFile !== undefined) {
     (host as unknown as { harness: KimiHarness }).harness = {
@@ -116,13 +119,13 @@ function createPasteHarness(
   };
 }
 
-async function solidPng(width: number, height: number): Promise<Uint8Array> {
+async function solidPng(width: number, height: number): Promise<Uint8Array<ArrayBuffer>> {
   return new Uint8Array(
     await new Jimp({ width, height, color: 0x3366ccff }).getBuffer('image/png'),
   );
 }
 
-async function solidJpeg(width: number, height: number): Promise<Uint8Array> {
+async function solidJpeg(width: number, height: number): Promise<Uint8Array<ArrayBuffer>> {
   return new Uint8Array(
     await new Jimp({ width, height, color: 0x3366ccff }).getBuffer('image/jpeg', { quality: 90 }),
   );
@@ -130,7 +133,7 @@ async function solidJpeg(width: number, height: number): Promise<Uint8Array> {
 
 /** Typed `uploadFile` stub so `mock.calls` keeps the (data, options) tuple. */
 function uploadFileMock(id: string) {
-  return vi.fn(
+  return mock(
     async (_data: Uint8Array, _opts: { name: string; mimeType?: string; expiresInSec?: number }) => ({
       id,
       expires_at: '2030-01-02T03:04:05.000Z',
@@ -401,7 +404,7 @@ describe('clipboard image paste compression', () => {
   it('keeps the paste on the inline fallback when the daemon upload fails (v2)', async () => {
     const small = await solidPng(80, 80);
     readClipboardMedia.mockResolvedValue({ kind: 'image', bytes: small, mimeType: 'image/png' });
-    const uploadFile = vi.fn(
+    const uploadFile = mock(
       async (
         _data: Uint8Array,
         _opts: { name: string; mimeType?: string; expiresInSec?: number },
@@ -423,7 +426,7 @@ describe('clipboard image paste compression', () => {
     const small = await solidPng(80, 80);
     readClipboardMedia.mockResolvedValue({ kind: 'image', bytes: small, mimeType: 'image/png' });
     let resolveUpload!: (meta: { id: string }) => void;
-    const uploadFile = vi.fn(
+    const uploadFile = mock(
       (
         _data: Uint8Array,
         _opts: { name: string; mimeType?: string; expiresInSec?: number },
@@ -564,7 +567,7 @@ describe('drag & drop image path attachment', () => {
 
       const harness = createPasteHarness();
       const editor = harness.editor as unknown as {
-        insertTextAtCursor: ReturnType<typeof vi.fn>;
+        insertTextAtCursor: Mock<(...args: any[]) => any>;
       };
       const handler = harness.editor['onPasteImagePath'] as (path: string) => boolean;
       if (handler === undefined) throw new Error('onPasteImagePath handler not installed');
@@ -680,7 +683,7 @@ describe('clipboard video paste upload', () => {
         sourcePath,
       });
       let resolveUpload!: (meta: { id: string }) => void;
-      const uploadFile = vi.fn(
+      const uploadFile = mock(
         (
           _data: Uint8Array,
           _opts: { name: string; mimeType?: string; expiresInSec?: number },
@@ -702,7 +705,7 @@ describe('clipboard video paste upload', () => {
 
       // The upload starts once the source file has been read in the
       // background; only then can it be resolved.
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         expect(uploadFile).toHaveBeenCalled();
       });
       resolveUpload({ id: 'file-vlate' });
@@ -721,7 +724,7 @@ describe('clipboard video paste upload', () => {
         filename: 'clip.mp4',
         sourcePath,
       });
-      const uploadFile = vi.fn(async (): Promise<{ id: string }> => {
+      const uploadFile = mock(async (): Promise<{ id: string }> => {
         throw new Error('daemon down');
       });
 

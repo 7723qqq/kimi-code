@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import type { PluginUpdateNotifier } from '#/tui/controllers/plugin-update-notifier';
 import {
@@ -11,17 +11,17 @@ const DATASOURCE_TOOL = 'mcp__plugin-kimi-datasource_data__call_data_source_tool
 
 function makeHost() {
   const streamingUI = {
-    setTurnId: vi.fn(),
-    flushNow: vi.fn(),
-    resetToolUi: vi.fn(),
-    clearNotifyPanel: vi.fn(),
-    markNotifyPanelEnded: vi.fn(),
-    setStep: vi.fn(),
-    finalizeTurn: vi.fn(),
-    getTurnContext: vi.fn(() => ({ turnId: 1, step: 0 })),
-    registerToolCall: vi.fn(),
-    completeToolResult: vi.fn(),
-    setTodoList: vi.fn(),
+    setTurnId: mock(),
+    flushNow: mock(),
+    resetToolUi: mock(),
+    clearNotifyPanel: mock(),
+    markNotifyPanelEnded: mock(),
+    setStep: mock(),
+    finalizeTurn: mock(),
+    getTurnContext: mock(() => ({ turnId: 1, step: 0 })),
+    registerToolCall: mock(),
+    completeToolResult: mock(),
+    setTodoList: mock(),
   };
   const host = {
     state: {
@@ -35,42 +35,42 @@ function makeHost() {
       queuedMessageDispatchPending: false,
       theme: { palette: getBuiltInPalette('dark') },
       toolOutputExpanded: false,
-      todoPanel: { getTodos: vi.fn(() => []) },
-      transcriptContainer: { addChild: vi.fn() },
-      ui: { requestRender: vi.fn() },
+      todoPanel: { getTodos: mock(() => []) },
+      transcriptContainer: { addChild: mock() },
+      ui: { requestRender: mock() },
     },
     session: {},
     aborted: false,
     sessionEventUnsubscribe: undefined,
     streamingUI,
-    requireSession: vi.fn(() => ({})),
-    setAppState: vi.fn(),
-    patchLivePane: vi.fn(),
-    resetLivePane: vi.fn(),
-    showError: vi.fn(),
-    showStatus: vi.fn(),
-    showNotice: vi.fn(),
-    updateActivityPane: vi.fn(),
-    track: vi.fn(),
-    recordSessionActivity: vi.fn(),
-    noteStepUsage: vi.fn(),
-    noteSessionTurnStarted: vi.fn(),
-    noteSessionStepCompleted: vi.fn(),
-    noteSessionToolCompleted: vi.fn(),
-    noteCompactionFinished: vi.fn(),
-    mountEditorReplacement: vi.fn(),
-    restoreEditor: vi.fn(),
-    restoreInputText: vi.fn(),
-    appendTranscriptEntry: vi.fn(),
-    sendNormalUserInput: vi.fn(),
-    sendQueuedMessage: vi.fn(),
-    shiftQueuedMessage: vi.fn(),
-    btwPanelController: { routeEvent: vi.fn(() => false) },
+    requireSession: mock(() => ({})),
+    setAppState: mock(),
+    patchLivePane: mock(),
+    resetLivePane: mock(),
+    showError: mock(),
+    showStatus: mock(),
+    showNotice: mock(),
+    updateActivityPane: mock(),
+    track: mock(),
+    recordSessionActivity: mock(),
+    noteStepUsage: mock(),
+    noteSessionTurnStarted: mock(),
+    noteSessionStepCompleted: mock(),
+    noteSessionToolCompleted: mock(),
+    noteCompactionFinished: mock(),
+    mountEditorReplacement: mock(),
+    restoreEditor: mock(),
+    restoreInputText: mock(),
+    appendTranscriptEntry: mock(),
+    sendNormalUserInput: mock(),
+    sendQueuedMessage: mock(),
+    shiftQueuedMessage: mock(),
+    btwPanelController: { routeEvent: mock(() => false) },
     tasksBrowserController: {},
     surveyController: {
-      notifyToolCallStarted: vi.fn(),
-      notifyToolCallEnded: vi.fn(),
-      notifySubagentSpawned: vi.fn(),
+      notifyToolCallStarted: mock(),
+      notifyToolCallEnded: mock(),
+      notifySubagentSpawned: mock(),
     },
   };
   return { host: host as unknown as SessionEventHost, streamingUI };
@@ -78,8 +78,8 @@ function makeHost() {
 
 function makeNotifier() {
   return {
-    handleMcpToolCompleted: vi.fn(),
-    handlePluginCommandCompleted: vi.fn(),
+    handleMcpToolCompleted: mock(),
+    handlePluginCommandCompleted: mock(),
   };
 }
 

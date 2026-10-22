@@ -1,6 +1,7 @@
 import assert from "node:assert";
-import { describe, it, mock } from "node:test";
+import { describe, it } from "bun:test";
 import { setKittyProtocolActive } from "../src/keys.ts";
+import type { StdinBufferTimerHandle, StdinBufferTimers } from "../src/stdin-buffer.ts";
 import {
 	normalizeAppleTerminalInput,
 	normalizeNativeShiftEnterInput,
@@ -127,8 +128,48 @@ describe("ProcessTerminal Kitty keyboard protocol negotiation", () => {
 		cleanup(): void;
 	};
 
-	function setupNegotiation(): NegotiationHarness {
-		const terminal = new ProcessTerminal();
+	// Same source as `createFakeClock` in apps/kimi-code, narrowed to the one
+	// timer this terminal needs: the escape-sequence reassembly window.
+	type FakeTimers = StdinBufferTimers & { advance(byMs: number): void };
+
+	interface ScheduledTimer {
+		due: number;
+		readonly callback: () => void;
+		cancelled: boolean;
+	}
+
+	function createFakeTimers(): FakeTimers {
+		let nowMs = 0;
+		const timers: ScheduledTimer[] = [];
+		return {
+			setTimeout: (callback, delayMs) => {
+				const timer: ScheduledTimer = { due: nowMs + delayMs, callback, cancelled: false };
+				timers.push(timer);
+				return timer;
+			},
+			clearTimeout: (handle: StdinBufferTimerHandle): void => {
+				(handle as ScheduledTimer).cancelled = true;
+			},
+			advance: (byMs) => {
+				const limit = nowMs + byMs;
+				for (;;) {
+					let next: ScheduledTimer | undefined;
+					for (const timer of timers) {
+						if (timer.cancelled || timer.due > limit) continue;
+						if (next === undefined || timer.due < next.due) next = timer;
+					}
+					if (next === undefined) break;
+					nowMs = next.due;
+					next.cancelled = true;
+					next.callback();
+				}
+				nowMs = limit;
+			},
+		};
+	}
+
+	function setupNegotiation(timers?: StdinBufferTimers): NegotiationHarness {
+		const terminal = new ProcessTerminal(timers);
 		const writes: string[] = [];
 		let input: string | undefined;
 		let dataHandler: ((data: string) => void) | undefined;
@@ -249,11 +290,11 @@ describe("ProcessTerminal Kitty keyboard protocol negotiation", () => {
 	});
 
 	it("tracks split Kitty confirmation", () => {
-		mock.timers.enable({ apis: ["setTimeout"] });
-		const harness = setupNegotiation();
+		const timers = createFakeTimers();
+		const harness = setupNegotiation(timers);
 		try {
 			harness.send("\x1b[?7");
-			mock.timers.tick(10);
+			timers.advance(10);
 
 			assert.equal(harness.getInput(), undefined);
 
@@ -263,25 +304,23 @@ describe("ProcessTerminal Kitty keyboard protocol negotiation", () => {
 			assert.equal(harness.writes.includes("\x1b[>4;2m"), false);
 		} finally {
 			harness.cleanup();
-			mock.timers.reset();
 		}
 	});
 
 	it("replays buffered CSI-prefix input when it is not a Kitty response", () => {
-		mock.timers.enable({ apis: ["setTimeout"] });
-		const harness = setupNegotiation();
+		const timers = createFakeTimers();
+		const harness = setupNegotiation(timers);
 		try {
 			harness.send("\x1b[");
-			mock.timers.tick(50); // StdinBuffer sequence timeout, not the lone-ESC timeout
+			timers.advance(50); // StdinBuffer sequence timeout, not the lone-ESC timeout
 
 			assert.equal(harness.getInput(), undefined);
 
-			mock.timers.tick(150);
+			timers.advance(150);
 
 			assert.equal(harness.getInput(), "\x1b[");
 		} finally {
 			harness.cleanup();
-			mock.timers.reset();
 		}
 	});
 });

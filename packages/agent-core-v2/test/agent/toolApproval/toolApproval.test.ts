@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
@@ -149,8 +149,8 @@ describe('AgentToolApprovalService', () => {
 
   function useBroker(
     request: (approval: ApprovalRequest) => Promise<ApprovalResponse>,
-  ): ReturnType<typeof vi.fn<(approval: ApprovalRequest) => Promise<ApprovalResponse>>> {
-    const requestSpy = vi.fn(request);
+  ): ReturnType<typeof mock<(approval: ApprovalRequest) => Promise<ApprovalResponse>>> {
+    const requestSpy = mock(request);
     const seen = new Set<string>();
     disposables.add(
       toDisposable(
@@ -173,11 +173,11 @@ describe('AgentToolApprovalService', () => {
   }
 
   function subscribeApprovalEvents(): {
-    readonly requested: ReturnType<typeof vi.fn>;
-    readonly resolved: ReturnType<typeof vi.fn>;
+    readonly requested: ReturnType<typeof mock>;
+    readonly resolved: ReturnType<typeof mock>;
   } {
-    const requested = vi.fn();
-    const resolved = vi.fn();
+    const requested = mock();
+    const resolved = mock();
     disposables.add(eventBus.subscribe(PermissionApprovalRequested, requested));
     disposables.add(eventBus.subscribe(PermissionApprovalResolved, resolved));
     return { requested, resolved };
@@ -527,9 +527,13 @@ describe('AgentToolApprovalService', () => {
         ask(),
         'exit-plan-mode-review-ask',
       );
-      const expectation = expect(promise).rejects.toThrow('approval transport closed');
+      const settled = promise.then(
+        () => undefined,
+        (reason: unknown) => reason,
+      );
       controller.abort(error);
-      await expectation;
+      const rejection = await settled;
+      expect((rejection as Error).message).toBe('approval transport closed');
 
       expect(records).toContainEqual({
         event: 'permission_approval_result',
@@ -576,9 +580,12 @@ describe('AgentToolApprovalService', () => {
         ask(),
         'fallback-ask',
       );
-      const expectation = expect(promise).rejects.toBeInstanceOf(UserCancellationError);
+      const settled = promise.then(
+        () => undefined,
+        (reason: unknown) => reason,
+      );
       controller.abort(new UserCancellationError());
-      await expectation;
+      expect(await settled).toBeInstanceOf(UserCancellationError);
 
       expect(events.requested).toHaveBeenCalledTimes(1);
       expect(events.resolved).not.toHaveBeenCalled();

@@ -30,10 +30,13 @@ interface RotatingFileSinkOptions {
   readonly path: string;
   readonly maxBytes: number;
   readonly files: number;
+  /** Clock behind the retry deadline and the stderr notice rate limit. */
+  readonly now?: () => number;
 }
 
 export class RotatingFileSink implements Sink {
   private readonly queue = new AsyncSerialQueue();
+  private readonly now: () => number;
   private pending: string[] = [];
   private dropped = 0;
   private closed = false;
@@ -43,7 +46,9 @@ export class RotatingFileSink implements Sink {
   private currentBytes = -1;
   private directorySynced = false;
 
-  constructor(private readonly options: RotatingFileSinkOptions) {}
+  constructor(private readonly options: RotatingFileSinkOptions) {
+    this.now = options.now ?? Date.now;
+  }
 
   enqueue(line: string): void {
     if (this.closed) return;
@@ -112,7 +117,7 @@ export class RotatingFileSink implements Sink {
   // attempt.
 
   private suppressAutoDrain(): boolean {
-    return Date.now() < this.nextAttemptAt;
+    return this.now() < this.nextAttemptAt;
   }
 
   private async drain(): Promise<boolean> {
@@ -158,7 +163,7 @@ export class RotatingFileSink implements Sink {
       this.backoffMs === 0 ? RETRY_BACKOFF_MIN_MS : this.backoffMs * 2,
       RETRY_BACKOFF_MAX_MS,
     );
-    this.nextAttemptAt = Date.now() + this.backoffMs;
+    this.nextAttemptAt = this.now() + this.backoffMs;
   }
 
   private restorePending(lines: readonly string[]): void {
@@ -278,7 +283,7 @@ export class RotatingFileSink implements Sink {
   }
 
   private noteFailure(error: unknown): void {
-    const now = Date.now();
+    const now = this.now();
     if (now - this.lastStderrNotice < STDERR_NOTICE_INTERVAL_MS) return;
     this.lastStderrNotice = now;
     const code = (error as NodeJS.ErrnoException)?.code ?? 'UNKNOWN';

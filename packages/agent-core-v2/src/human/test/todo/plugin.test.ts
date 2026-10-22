@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { turnStarted } from '#/agent/events';
 import type { AgentEmitted } from '#/agent/machine';

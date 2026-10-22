@@ -1,3 +1,5 @@
+import { SYSTEM_CLOCK, type Clock } from '../lib/clock';
+
 export const AUTH_RATE_LIMIT_CODE = 42901;
 export const AUTH_RATE_LIMIT_MSG = 'Too many failed auth attempts';
 
@@ -6,6 +8,7 @@ export interface AuthFailureLimiterOptions {
   readonly windowMs?: number;
   readonly banMs?: number;
   readonly logger?: { warn(obj: unknown, msg: string): void };
+  readonly clock?: Clock;
 }
 
 export interface AuthFailureLimiter {
@@ -28,10 +31,11 @@ export function createAuthFailureLimiter(opts?: AuthFailureLimiterOptions): Auth
   const maxFailures = opts?.maxFailures ?? DEFAULT_MAX_FAILURES;
   const windowMs = opts?.windowMs ?? DEFAULT_WINDOW_MS;
   const banMs = opts?.banMs ?? DEFAULT_BAN_MS;
+  const clock = opts?.clock ?? SYSTEM_CLOCK;
   const entries = new Map<string, Entry>();
 
-  const sweep = setInterval(() => {
-    const now = Date.now();
+  const sweep = clock.setInterval(() => {
+    const now = clock.now();
     for (const [ip, entry] of entries) {
       const banned = entry.bannedUntil > now;
       const windowLive = now - entry.windowStart <= windowMs;
@@ -46,7 +50,7 @@ export function createAuthFailureLimiter(opts?: AuthFailureLimiterOptions): Auth
 
   return {
     recordFailure(ip: string): void {
-      const now = Date.now();
+      const now = clock.now();
       let entry = entries.get(ip);
       if (entry === undefined || now - entry.windowStart > windowMs) {
         entry = { count: 0, windowStart: now, bannedUntil: 0 };
@@ -67,10 +71,10 @@ export function createAuthFailureLimiter(opts?: AuthFailureLimiterOptions): Auth
     isBanned(ip: string): boolean {
       const entry = entries.get(ip);
       if (entry === undefined) return false;
-      return entry.bannedUntil > Date.now();
+      return entry.bannedUntil > clock.now();
     },
     dispose(): void {
-      clearInterval(sweep);
+      clock.clearInterval(sweep);
       entries.clear();
     },
   };

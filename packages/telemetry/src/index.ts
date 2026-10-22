@@ -57,5 +57,7 @@ export type { CrashPhase } from './crash';
 
 export { normalizeRemote } from './remote';
 
+export type { SystemMetricsTimerHandle, SystemMetricsTimers } from './systemMetrics';
+
 export type { TelemetryPrimitive, TelemetryProperties } from './types';
 export type { TelemetryClient, TelemetryContextIds } from './client';

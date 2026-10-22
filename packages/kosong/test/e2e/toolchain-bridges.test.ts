@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { z } from 'zod';
 
 import { createToolMessage, extractText } from '#/message';
@@ -165,7 +165,7 @@ describe('e2e: kosong toolchain bridges', () => {
 
     const schema = derefJsonSchema(rawSchema);
     expect(schema).not.toHaveProperty('$defs');
-    expect(schema).toMatchObject({
+    expect(structuredClone(schema)).toMatchObject({
       type: 'object',
       properties: expect.objectContaining({
         shipping: expect.objectContaining({
@@ -212,7 +212,7 @@ describe('e2e: kosong toolchain bridges', () => {
     const { first, second, toolResults } = await runTwoStepLoop(toolset, provider);
 
     expect(first.toolCalls).toHaveLength(1);
-    expect(receivedArgs).toEqual({
+    expect(receivedArgs as Record<string, unknown> | null).toEqual({
       shipping: { city: 'Hangzhou', zip: '310000' },
       billing: { city: 'Shenzhen', zip: '518000' },
     });

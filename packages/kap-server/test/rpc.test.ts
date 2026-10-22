@@ -30,7 +30,8 @@ import type {
   WorkspaceInstanceSnapshot,
 } from '@moonshot-ai/agent-core-v2';
 import { FakeRuntime } from '@moonshot-ai/agent-core-v2/runtime/fakeRuntime';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { removeTempHome } from './helpers/tempHome';
 
 import { type RunningServer, startServer } from '../src/start';
 import { authHeaders } from './helpers/auth';
@@ -88,7 +89,7 @@ describe('server-v2 /api/v1/debug RPC', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await rm(home, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 } as never);
+      await removeTempHome(home);
       home = undefined;
     }
   });
@@ -274,7 +275,7 @@ describe('server-v2 /api/v1/debug RPC', () => {
     expect(association.body.data).toEqual({
       sessionId,
       workspaceId,
-      cwd: home,
+      cwd: home as string,
     });
 
     const binding = await call<AgentRuntimeBindingSnapshot>(
@@ -782,7 +783,7 @@ describe('server-v2 /api/v1/debug RPC auth', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await rm(home, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 } as never);
+      await removeTempHome(home);
       home = undefined;
     }
   });
@@ -852,7 +853,7 @@ describe('server-v2 /api/v1/debug RPC (dev-only, whitelist-free)', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await rm(home, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 } as never);
+      await removeTempHome(home);
       home = undefined;
     }
   });

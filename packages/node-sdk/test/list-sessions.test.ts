@@ -2,7 +2,6 @@ import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { setTimeout as delay } from 'node:timers/promises';
 
 import {
   drainQueryStoreDisposals,
@@ -10,16 +9,19 @@ import {
   ISessionIndex,
   ISessionIndexMirror,
 } from '@moonshot-ai/agent-core-v2';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 import { createKimiHarness, SDKRpcClientV2 } from '#/index';
 import type { KimiError } from '#/index';
 
 import { TEST_IDENTITY } from './test-identity';
+import { setEnv, restoreEnvs } from './stubs';
+import { setTimeout as delay } from 'node:timers/promises';
 
 const tempDirs: string[] = [];
 
 afterEach(async () => {
+  restoreEnvs();
   for (const dir of tempDirs.splice(0)) {
     await removeTempDir(dir);
   }
@@ -152,8 +154,8 @@ describe('KimiHarness.listSessions', () => {
 
 describe('SDKRpcClientV2.listSessionsPage', () => {
   it('pages through the listing with keyset cursors (read model off)', async () => {
-    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
-    vi.stubEnv('KIMI_CODE_PERSISTENCE_MINIDB_READMODEL', '0');
+    setEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
+    setEnv('KIMI_CODE_PERSISTENCE_MINIDB_READMODEL', '0');
     const homeDir = await makeTempDir();
     const workDir = await makeTempDir();
     const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
@@ -185,13 +187,13 @@ describe('SDKRpcClientV2.listSessionsPage', () => {
       expect(pagedIds).toEqual(full.map((item) => item.id));
     } finally {
       await client.close();
-      vi.unstubAllEnvs();
+      restoreEnvs();
     }
   });
 
   it('answers an empty terminal page for an unknown cursor', async () => {
-    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
-    vi.stubEnv('KIMI_CODE_PERSISTENCE_MINIDB_READMODEL', '0');
+    setEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
+    setEnv('KIMI_CODE_PERSISTENCE_MINIDB_READMODEL', '0');
     const homeDir = await makeTempDir();
     const workDir = await makeTempDir();
     const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
@@ -206,13 +208,13 @@ describe('SDKRpcClientV2.listSessionsPage', () => {
       });
     } finally {
       await client.close();
-      vi.unstubAllEnvs();
+      restoreEnvs();
     }
   });
 
   it('drains follow-up pages when the mapping drops entries (read model on)', async () => {
-    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
-    vi.stubEnv('KIMI_CODE_PERSISTENCE_MINIDB_READMODEL', '1');
+    setEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
+    setEnv('KIMI_CODE_PERSISTENCE_MINIDB_READMODEL', '1');
     const homeDir = await makeTempDir();
     const workDir = await makeTempDir();
     const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
@@ -253,7 +255,7 @@ describe('SDKRpcClientV2.listSessionsPage', () => {
       // the shared afterEach removes the temp home.
       await drainSessionIndexMirror();
       await drainQueryStoreDisposals();
-      vi.unstubAllEnvs();
+      restoreEnvs();
     }
   });
 });
@@ -266,8 +268,8 @@ describe('SDKRpcClientV2 search-index separation', () => {
   // preparing.
 
   it('listSessions / resumeSession never open the global search index (read model off)', async () => {
-    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
-    vi.stubEnv('KIMI_CODE_PERSISTENCE_MINIDB_READMODEL', '0');
+    setEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
+    setEnv('KIMI_CODE_PERSISTENCE_MINIDB_READMODEL', '0');
     const homeDir = await makeTempDir();
     const workDir = await makeTempDir();
     const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
@@ -286,13 +288,13 @@ describe('SDKRpcClientV2 search-index separation', () => {
       expect(existsSync(join(homeDir, 'cache', 'query-store'))).toBe(false);
     } finally {
       await client.close();
-      vi.unstubAllEnvs();
+      restoreEnvs();
     }
   });
 
   it('listSessions / resumeSession never open the global search index (read model on)', async () => {
-    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
-    vi.stubEnv('KIMI_CODE_PERSISTENCE_MINIDB_READMODEL', '1');
+    setEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
+    setEnv('KIMI_CODE_PERSISTENCE_MINIDB_READMODEL', '1');
     const homeDir = await makeTempDir();
     const workDir = await makeTempDir();
     const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
@@ -324,7 +326,7 @@ describe('SDKRpcClientV2 search-index separation', () => {
       // the shared afterEach removes the temp home.
       await drainSessionIndexMirror();
       await drainQueryStoreDisposals();
-      vi.unstubAllEnvs();
+      restoreEnvs();
     }
   });
 });

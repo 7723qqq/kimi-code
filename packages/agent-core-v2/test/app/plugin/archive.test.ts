@@ -3,7 +3,8 @@ import { mkdtemp, mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { setGlobal, restoreGlobals } from '#test/helpers/stubs';
 
 import { downloadZip, extractZip } from '#/app/plugin/archive';
 
@@ -17,7 +18,7 @@ describe('plugin archive extraction', () => {
   });
 
   afterEach(async () => {
-    vi.unstubAllGlobals();
+    restoreGlobals();
     await rm(dir, { recursive: true, force: true });
   });
 
@@ -38,9 +39,9 @@ describe('plugin archive extraction', () => {
   });
 
   it('refuses zip downloads advertised above the cap via content-length', async () => {
-    vi.stubGlobal(
+    setGlobal(
       'fetch',
-      vi.fn(
+      mock(
         async () =>
           new Response('x', {
             status: 200,

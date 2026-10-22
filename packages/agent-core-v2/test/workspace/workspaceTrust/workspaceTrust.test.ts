@@ -3,7 +3,7 @@ import { rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { encodeWorkDirKey } from '#/_base/utils/workdir-slug';
 import { DisposableStore } from '#/_base/di/lifecycle';

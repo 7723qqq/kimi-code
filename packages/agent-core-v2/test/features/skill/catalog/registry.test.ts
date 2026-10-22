@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { InMemorySkillCatalog } from '#/features/skill/catalog/registry';
 import type { SkillDefinition, SkillSource } from '#/features/skill/catalog/types';

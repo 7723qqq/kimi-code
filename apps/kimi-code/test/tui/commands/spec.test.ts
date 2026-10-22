@@ -1,8 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
-import type { Session } from '@moonshot-ai/kimi-code-sdk';
-
-import type { SlashCommandHost } from '#/tui/commands/dispatch';
+import { type SlashCommandHost } from '#/tui/commands/dispatch';
 import { handleSpecCommand } from '#/tui/commands/index';
 
 function makeHost(
@@ -17,11 +15,11 @@ function makeHost(
 ) {
   let engineMode = overrides.specMode ?? false;
   const session = {
-    setSpecMode: vi.fn(async (enabled: boolean) => {
+    setSpecMode: mock(async (enabled: boolean) => {
       if (!overrides.engineRefuses) engineMode = enabled;
     }),
-    getSpec: vi.fn(async () => (engineMode ? { dir: '/ws/specs/spec-1' } : null)),
-    getStatus: vi.fn(async () => {
+    getSpec: mock(async () => (engineMode ? { dir: '/ws/specs/spec-1' } : null)),
+    getStatus: mock(async () => {
       if (overrides.statusReadFails) throw new Error('status unavailable');
       return { specMode: engineMode };
     }),
@@ -35,11 +33,11 @@ function makeHost(
       },
     },
     session: hasSession ? session : undefined,
-    setAppState: vi.fn((patch: Record<string, unknown>) => Object.assign(host.state.appState, patch)),
-    showError: vi.fn(),
-    showNotice: vi.fn(),
-    showStatus: vi.fn(),
-    sendNormalUserInput: vi.fn(),
+    setAppState: mock((patch: Record<string, unknown>) => Object.assign(host.state.appState, patch)),
+    showError: mock(),
+    showNotice: mock(),
+    showStatus: mock(),
+    sendNormalUserInput: mock(),
   } as unknown as SlashCommandHost;
   return { host, session };
 }

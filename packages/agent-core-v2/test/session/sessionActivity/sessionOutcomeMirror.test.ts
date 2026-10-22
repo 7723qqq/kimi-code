@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { LifecycleScope } from '#/app/scopes';

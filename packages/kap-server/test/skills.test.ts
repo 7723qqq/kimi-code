@@ -1,13 +1,15 @@
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 
 import {
   IAgentLifecycleService,
   closeSessionById,
   getLiveSessionById,
 } from '@moonshot-ai/agent-core-v2';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { removeTempHome } from './helpers/tempHome';
+import { waitForAssertion } from './helpers/waitFor';
 
 import { activateSkillResultSchema, listSkillsResponseSchema } from '../src/protocol/rest-skill';
 import { type RunningServer, startServer } from '../src/start';
@@ -29,6 +31,19 @@ interface SkillWire {
   type?: string;
   disable_model_invocation?: boolean;
   scopes?: string[];
+}
+
+interface TranscriptAttachmentWire {
+  attachmentId: string;
+  mediaType: string;
+  name?: string;
+  size?: number;
+  source?: unknown;
+}
+
+interface TranscriptWire {
+  items: { kind: string; attachmentIds?: string[] }[];
+  attachments: TranscriptAttachmentWire[];
 }
 
 describe('server-v2 /api/v1 skills', () => {
@@ -54,7 +69,7 @@ describe('server-v2 /api/v1 skills', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await rm(home, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 } as never);
+      await removeTempHome(home);
       home = undefined;
     }
   });
@@ -268,10 +283,27 @@ describe('server-v2 /api/v1 skills', () => {
         ],
       });
       expect(result.body.code).toBe(0);
-      const messages = await getJson<{
-        items: { role: string; content: { type: string; text?: string }[] }[];
-      }>(`/api/v1/sessions/${id}/messages`);
-      const input = messages.body.data.items.find(
+      let messages: { items: { role: string; content: { type: string; text?: string }[] }[] } = {
+        items: [],
+      };
+      await waitForAssertion(
+        async () => {
+          const polled = await getJson<{
+            items: { role: string; content: { type: string; text?: string }[] }[];
+          }>(`/api/v1/sessions/${id}/messages`);
+          expect(polled.body.code).toBe(0);
+          messages = polled.body.data;
+          expect(
+            messages.items.some(
+              (message) =>
+                message.role === 'user' &&
+                message.content.some((part) => part.text?.includes('User activated the skill')),
+            ),
+          ).toBe(true);
+        },
+        { timeout: 20000 },
+      );
+      const input = messages.items.find(
         (message) =>
           message.role === 'user' &&
           message.content.some((part) => part.text?.includes('User activated the skill')),
@@ -381,7 +413,7 @@ describe('server-v2 /api/v1 skills', () => {
         notice?.text ?? '',
       )?.[1];
       expect(attachedPath).toBeDefined();
-      expect(attachedPath).toContain('/attachments/');
+      expect(attachedPath!.split(sep).join('/')).toContain('/attachments/');
       expect(await readFile(attachedPath!)).toEqual(noteBytes);
     });
 
@@ -435,17 +467,19 @@ describe('server-v2 /api/v1 skills', () => {
         text: `Attached file "note.txt" (application/octet-stream, ${noteBytes.length} bytes): ${sourcePath} — open it with the Read tool`,
       });
 
-      const transcript = await getJson<{
-        items: Array<{ kind: string; attachmentIds?: string[] }>;
-        attachments: Array<{
-          attachmentId: string;
-          mediaType: string;
-          name?: string;
-          size?: number;
-          source?: unknown;
-        }>;
-      }>(`/api/v1/sessions/${id}/transcript?agent_id=main`);
-      const transcriptAttachments = transcript.body.data.attachments;
+      let transcript: TranscriptWire = { items: [], attachments: [] };
+      await waitForAssertion(
+        async () => {
+          const polled = await getJson<TranscriptWire>(
+            `/api/v1/sessions/${id}/transcript?agent_id=main`,
+          );
+          expect(polled.body.code).toBe(0);
+          transcript = polled.body.data;
+          expect(transcript.attachments).toHaveLength(1);
+        },
+        { timeout: 20000 },
+      );
+      const transcriptAttachments = transcript.attachments;
       expect(transcriptAttachments).toHaveLength(1);
       expect(transcriptAttachments[0]).toMatchObject({
         mediaType: 'application/octet-stream',
@@ -453,7 +487,7 @@ describe('server-v2 /api/v1 skills', () => {
         size: noteBytes.length,
       });
       expect(transcriptAttachments[0]).not.toHaveProperty('source');
-      const turn = transcript.body.data.items.find((item) => item.kind === 'turn');
+      const turn = transcript.items.find((item) => item.kind === 'turn');
       expect(turn?.attachmentIds).toEqual([transcriptAttachments[0]!.attachmentId]);
     });
 

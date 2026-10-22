@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import type { KimiConfig } from '#/index';
 
@@ -38,7 +38,7 @@ describe('fetchCatalog', () => {
     const catalog = {
       anthropic: { id: 'anthropic', models: { x: { id: 'x', limit: { context: 1000 } } } },
     };
-    const fetchMock = vi.fn(async () => catalogResponse(catalog));
+    const fetchMock = mock(async () => catalogResponse(catalog));
     const result = await fetchCatalog('https://x/api.json', {
       fetchImpl: fetchMock as unknown as typeof fetch,
     });
@@ -46,21 +46,21 @@ describe('fetchCatalog', () => {
   });
 
   it('throws CatalogFetchError on HTTP error', async () => {
-    const fetchMock = vi.fn(async () => catalogResponse('no', 500));
+    const fetchMock = mock(async () => catalogResponse('no', 500));
     await expect(
       fetchCatalog('https://x', { fetchImpl: fetchMock as unknown as typeof fetch }),
     ).rejects.toBeInstanceOf(CatalogFetchError);
   });
 
   it('throws on a non-object payload', async () => {
-    const fetchMock = vi.fn(async () => catalogResponse([1, 2]));
+    const fetchMock = mock(async () => catalogResponse([1, 2]));
     await expect(
       fetchCatalog('https://x', { fetchImpl: fetchMock as unknown as typeof fetch }),
     ).rejects.toThrow(/Unexpected catalog response/);
   });
 
   it('sends the given User-Agent, and none by default', async () => {
-    const fetchMock = vi.fn(async () => catalogResponse({}));
+    const fetchMock = mock(async () => catalogResponse({}));
 
     await fetchCatalog('https://x/api.json', {
       fetchImpl: fetchMock as unknown as typeof fetch,

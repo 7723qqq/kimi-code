@@ -177,13 +177,14 @@
       "files": [
         "**/*.test.ts",
         "**/*.test.tsx",
+        "**/*.test.mjs",
         "**/*.spec.ts",
         "**/*.spec.tsx",
         "**/test/**/*.ts",
         "**/test/**/*.tsx"
       ],
       "plugins": [
-        "vitest"
+        "jest"
       ],
       "rules": {
         "typescript/no-explicit-any": "off",
@@ -195,11 +196,9 @@
         "eslint/no-console": "off",
         "eslint/no-promise-executor-return": "off",
         "typescript/no-unsafe-member-access": "off",
-        "vitest/require-mock-type-parameters": "off",
         "eslint/no-shadow": "off",
         "unicorn/prefer-event-target": "off",
         "jest/no-disabled-tests": "off",
-        "vitest/no-disabled-tests": "off",
         "eslint/no-control-regex": "off",
         "eslint/no-unused-vars": "off",
         "eslint/no-unsafe-optional-chaining": "off",
@@ -216,14 +215,24 @@
         "import/no-cycle": "off",
         "typescript/no-meaningless-void-operator": "off",
         "typescript/require-array-sort-compare": "off",
-        "vitest/expect-expect": "error",
-        "vitest/no-conditional-tests": "error",
-        "vitest/no-focused-tests": "error",
-        "vitest/no-identical-title": "error",
-        "vitest/valid-expect": "off",
-        "vitest/valid-describe-callback": "error",
-        "vitest/no-standalone-expect": "error",
-        "vitest/warn-todo": "off"
+        "jest/expect-expect": "error",
+        // The tests' idiom is a narrowing guard (`if (turn?.kind !== 'turn') throw`)
+        // plus a runtime capability probe (symlinks, real rg, platform). Rewriting
+        // those into per-branch cases would delete the guard, not the hazard. The
+        // hazard this rule targets — an `expect` that only runs on one branch — is
+        // covered by `jest/no-conditional-expect` below.
+        "jest/no-conditional-in-test": "off",
+        "jest/no-focused-tests": "error",
+        "jest/valid-title": "error",
+
+        "jest/valid-describe-callback": "error",
+        "jest/no-standalone-expect": "error",
+        "jest/no-conditional-expect": "error",
+        // bun-types declares the `expect(...).resolves/rejects` matchers as `void`
+        // while they return a promise at runtime, so every awaited
+        // `await expect(x).rejects.toThrow()` reads as awaiting a non-thenable.
+        // Dropping the `await` would let the assertion race the test.
+        "typescript/await-thenable": "off"
       }
     }
   ],

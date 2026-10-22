@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { createFailoverWebSearchProvider } from '#/app/auth/webSearch/webSearchService';
 import type { WebSearchProvider } from '#/agent/tools/web-search/web-search';

@@ -171,17 +171,6 @@ export interface OpenAIRequestParts {
   readonly kwargs: Readonly<Record<string, unknown>>;
 }
 
-/**
- * Drop sampling parameters the family silently ignores while thinking is on.
- *
- * DeepSeek documents (https://api-docs.deepseek.com/guides/thinking_mode) that
- * thinking mode "does not support the temperature, presence_penalty, or
- * frequency_penalty parameters" and that setting them "will not trigger an
- * error but will also have no effect". Forwarding them would let a user believe
- * a knob is applied when it is not, so they are removed at the last point where
- * the request shape is still visible. Only names the family itself declares are
- * touched — every other key in `kwargs` passes through untouched.
- */
 export function stripIgnoredSamplingParams(
   kwargs: Record<string, unknown>,
   ignored: readonly string[],

@@ -1,5 +1,5 @@
 import { visibleWidth } from '@moonshot-ai/pi-tui';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 import { setLocale } from '#/i18n';
 import { buildUsageReportLines, UsagePanelComponent } from '#/tui/components/messages/usage-panel';
@@ -16,47 +16,43 @@ function strip(text: string): string {
 
 describe('UsagePanelComponent', () => {
   it('formats session, context, and managed usage sections', () => {
-    // Freeze the clock so the resetAt fixture is an exact hour out — with a
-    // live clock the elapsed milliseconds floor the diff down to 59m.
-    vi.useFakeTimers();
-    vi.setSystemTime(new Date('2026-07-28T00:00:00Z'));
-    try {
-      const lines = buildUsageReportLines({
-        sessionUsage: {
-          byModel: {
-            kimi: {
-              inputOther: 1000,
-              inputCacheRead: 500,
-              inputCacheCreation: 500,
-              output: 250,
-            },
+    // Inject the wall clock so the resetAt fixture is an exact hour out — with
+    // a live clock the elapsed milliseconds floor the diff down to 59m.
+    const nowMs = Date.parse('2026-07-28T00:00:00Z');
+    const lines = buildUsageReportLines({
+      sessionUsage: {
+        byModel: {
+          kimi: {
+            inputOther: 1000,
+            inputCacheRead: 500,
+            inputCacheCreation: 500,
+            output: 250,
           },
         },
-        contextUsage: 0.25,
-        contextTokens: 2500,
-        maxContextTokens: 10000,
-        managedUsage: {
-          rows: [
-            {
-              name: 'daily',
-              usedRatio: 0.2,
-              resetAt: new Date(Date.now() + 3600_000).toISOString(),
-            },
-          ],
-        },
-      }).map(strip);
+      },
+      contextUsage: 0.25,
+      contextTokens: 2500,
+      maxContextTokens: 10000,
+      nowMs,
+      managedUsage: {
+        rows: [
+          {
+            name: 'daily',
+            usedRatio: 0.2,
+            resetAt: new Date(nowMs + 3600_000).toISOString(),
+          },
+        ],
+      },
+    }).map(strip);
 
-      expect(lines).toContain('Session usage');
-      expect(lines).toContain('  kimi  input 2k  output 250  total 2.2k');
-      expect(lines).toContain('Context window');
-      expect(lines.join('\n')).toContain('25%');
-      expect(lines).toContain('Plan usage');
-      expect(lines.join('\n')).toContain('daily');
-      expect(lines.join('\n')).toContain('20% used');
-      expect(lines.join('\n')).toContain('resets in 1h');
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(lines).toContain('Session usage');
+    expect(lines).toContain('  kimi  input 2k  output 250  total 2.2k');
+    expect(lines).toContain('Context window');
+    expect(lines.join('\n')).toContain('25%');
+    expect(lines).toContain('Plan usage');
+    expect(lines.join('\n')).toContain('daily');
+    expect(lines.join('\n')).toContain('20% used');
+    expect(lines.join('\n')).toContain('resets in 1h');
   });
 
   it('renders plan usage rows with their names and the monthly breakdown line', () => {
@@ -85,17 +81,19 @@ describe('UsagePanelComponent', () => {
   });
 
   it('shows "reset" when the reset timestamp is already in the past', () => {
+    const nowMs = Date.parse('2026-07-28T00:00:00Z');
     const lines = buildUsageReportLines({
       sessionUsage: { byModel: {} },
       contextUsage: 0,
       contextTokens: 0,
       maxContextTokens: 0,
+      nowMs,
       managedUsage: {
         rows: [
           {
             name: 'daily',
             usedRatio: 0.1,
-            resetAt: new Date(Date.now() - 60_000).toISOString(),
+            resetAt: new Date(nowMs - 60_000).toISOString(),
           },
         ],
       },

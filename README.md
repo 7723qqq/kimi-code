@@ -139,7 +139,7 @@ bun run dev:local:watch
 bun run build         # build all workspace packages
 bun run typecheck     # TypeScript check (builds packages first)
 bun run lint          # oxlint --type-aware
-bun run test          # run tests (use `bun --bun run test` to run them under Bun)
+bun run test          # run tests (use `bun run test` to run them under Bun)
 ```
 
 See [DEVELOP.md](DEVELOP.md) for the full command reference and [CONTRIBUTING.md](CONTRIBUTING.md) for the contribution guide.

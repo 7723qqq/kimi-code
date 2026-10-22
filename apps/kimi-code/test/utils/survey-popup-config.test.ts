@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, mock } from 'bun:test';
 
 import {
   DEFAULT_SURVEY_POPUP_CONFIG,
@@ -14,7 +14,7 @@ import {
   type SurveyPopupPayload,
 } from '#/utils/survey-popup-config';
 
-const CLOUD_CONFIG = {
+const CLOUD_CONFIG: Omit<SurveyPopupPayload, 'model_overrides'> = {
   probability: 0.5,
   on_for_models: ['k3', 'k2'],
   min_time_before_feedback_ms: 60_000,
@@ -68,7 +68,7 @@ describe('DEFAULT_SURVEY_POPUP_CONFIG', () => {
 
 describe('getSurveyPopupConfig', () => {
   it('POSTs the survey_popup name and returns the cloud config over the defaults', async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
 
     const result = await getSurveyPopupConfig({
       fetchImpl: fetchImpl as typeof fetch,
@@ -86,7 +86,7 @@ describe('getSurveyPopupConfig', () => {
   });
 
   it('fills fields the cloud payload omits from the built-in defaults', async () => {
-    const fetchImpl = vi.fn(async () =>
+    const fetchImpl = mock(async () =>
       jsonResponse({ name: 'survey_popup', config: { probability: 0.5 } }),
     );
 
@@ -99,7 +99,7 @@ describe('getSurveyPopupConfig', () => {
   });
 
   it('drops only the invalid field and keeps the rest', async () => {
-    const fetchImpl = vi.fn(async () =>
+    const fetchImpl = mock(async () =>
       jsonResponse({
         name: 'survey_popup',
         config: {
@@ -126,7 +126,7 @@ describe('getSurveyPopupConfig', () => {
   });
 
   it('drops negative pacing values and fractional turn counts back to defaults', async () => {
-    const fetchImpl = vi.fn(async () =>
+    const fetchImpl = mock(async () =>
       jsonResponse({
         name: 'survey_popup',
         config: {
@@ -148,7 +148,7 @@ describe('getSurveyPopupConfig', () => {
   });
 
   it('accepts zero pacing values as the documented no-limit semantics', async () => {
-    const fetchImpl = vi.fn(async () =>
+    const fetchImpl = mock(async () =>
       jsonResponse({
         name: 'survey_popup',
         config: {
@@ -177,7 +177,7 @@ describe('getSurveyPopupConfig', () => {
   });
 
   it('drops out-of-range probabilities back to the built-in defaults', async () => {
-    const fetchImpl = vi.fn(async () =>
+    const fetchImpl = mock(async () =>
       jsonResponse({
         name: 'survey_popup',
         config: { probability: 2, long_context_probability: -0.5 },
@@ -196,7 +196,7 @@ describe('getSurveyPopupConfig', () => {
   });
 
   it('drops a non-numeric long-context threshold back to the built-in default', async () => {
-    const fetchImpl = vi.fn(async () =>
+    const fetchImpl = mock(async () =>
       jsonResponse({ name: 'survey_popup', config: { long_context_survey_threshold: 'never' } }),
     );
 
@@ -211,7 +211,7 @@ describe('getSurveyPopupConfig', () => {
   });
 
   it('keeps a non-positive threshold so the policy layer can close the long-context arm', async () => {
-    const fetchImpl = vi.fn(async () =>
+    const fetchImpl = mock(async () =>
       jsonResponse({ name: 'survey_popup', config: { long_context_survey_threshold: 0 } }),
     );
 
@@ -224,7 +224,7 @@ describe('getSurveyPopupConfig', () => {
   });
 
   it('falls back to the defaults when the payload is not an object', async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse({ name: 'survey_popup', config: 'nope' }));
+    const fetchImpl = mock(async () => jsonResponse({ name: 'survey_popup', config: 'nope' }));
 
     const result = await getSurveyPopupConfig({
       fetchImpl: fetchImpl as typeof fetch,
@@ -235,7 +235,7 @@ describe('getSurveyPopupConfig', () => {
   });
 
   it('falls back to the defaults when the fetch fails', async () => {
-    const fetchImpl = vi.fn(async () => {
+    const fetchImpl = mock(async () => {
       throw new Error('offline');
     });
 
@@ -248,7 +248,7 @@ describe('getSurveyPopupConfig', () => {
   });
 
   it('serves the in-process cache within a day and refetches after it', async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
     await getSurveyPopupConfig({ fetchImpl: fetchImpl as typeof fetch, now, cacheFile: null });
@@ -270,7 +270,7 @@ describe('getSurveyPopupConfig', () => {
 
   it('persists the fetched config to the disk cache for the next process', async () => {
     const cacheFile = await makeCacheFile();
-    const fetchImpl = vi.fn(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
     await getSurveyPopupConfig({ fetchImpl: fetchImpl as typeof fetch, now, cacheFile });
@@ -280,7 +280,7 @@ describe('getSurveyPopupConfig', () => {
 
     resetSurveyPopupConfigCache();
     const result = await getSurveyPopupConfig({
-      fetchImpl: vi.fn(async () => {
+      fetchImpl: mock(async () => {
         throw new Error('must not fetch');
       }) as unknown as typeof fetch,
       now: now + 60_000,
@@ -291,14 +291,14 @@ describe('getSurveyPopupConfig', () => {
 
   it('ignores a stale disk cache and falls back to the defaults when the refetch fails', async () => {
     const cacheFile = await makeCacheFile();
-    const fetchImpl = vi.fn(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
     await getSurveyPopupConfig({ fetchImpl: fetchImpl as typeof fetch, now, cacheFile });
     resetSurveyPopupConfigCache();
 
     const result = await getSurveyPopupConfig({
-      fetchImpl: vi.fn(async () => jsonResponse('no', 503)) as unknown as typeof fetch,
+      fetchImpl: mock(async () => jsonResponse('no', 503)) as unknown as typeof fetch,
       now: now + 25 * 60 * 60 * 1000,
       cacheFile,
     });
@@ -312,7 +312,7 @@ describe('peekSurveyPopupConfig', () => {
   });
 
   it('sees the fetched config once the cache is warm', async () => {
-    const fetchImpl = vi.fn(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
     await getSurveyPopupConfig({ fetchImpl: fetchImpl as typeof fetch, now, cacheFile: null });
@@ -324,7 +324,7 @@ describe('peekSurveyPopupConfig', () => {
 
 describe('model_overrides parsing', () => {
   it('parses override entries keyed by model id', async () => {
-    const fetchImpl = vi.fn(async () =>
+    const fetchImpl = mock(async () =>
       jsonResponse({
         name: 'survey_popup',
         config: {
@@ -345,7 +345,7 @@ describe('model_overrides parsing', () => {
   });
 
   it('drops an entire override entry when any of its fields is invalid', async () => {
-    const fetchImpl = vi.fn(async () =>
+    const fetchImpl = mock(async () =>
       jsonResponse({
         name: 'survey_popup',
         config: {
@@ -364,7 +364,7 @@ describe('model_overrides parsing', () => {
   });
 
   it('keeps sibling entries when one entry is invalid', async () => {
-    const fetchImpl = vi.fn(async () =>
+    const fetchImpl = mock(async () =>
       jsonResponse({
         name: 'survey_popup',
         config: {
@@ -386,7 +386,7 @@ describe('model_overrides parsing', () => {
   });
 
   it('strips unknown keys inside an override entry', async () => {
-    const fetchImpl = vi.fn(async () =>
+    const fetchImpl = mock(async () =>
       jsonResponse({
         name: 'survey_popup',
         config: {
@@ -405,7 +405,7 @@ describe('model_overrides parsing', () => {
   });
 
   it('drops non-object entries and treats a non-object table as empty', async () => {
-    const fetchImpl = vi.fn(async () =>
+    const fetchImpl = mock(async () =>
       jsonResponse({
         name: 'survey_popup',
         config: { ...CLOUD_CONFIG, model_overrides: { k3: 42, 'other-model': { probability: 0.5 } } },
@@ -419,7 +419,7 @@ describe('model_overrides parsing', () => {
     expect(result.model_overrides).toEqual({ 'other-model': { probability: 0.5 } });
 
     resetSurveyPopupConfigCache();
-    const stringTable = vi.fn(async () =>
+    const stringTable = mock(async () =>
       jsonResponse({ name: 'survey_popup', config: { ...CLOUD_CONFIG, model_overrides: 'yes' } }),
     );
     const fallback = await getSurveyPopupConfig({

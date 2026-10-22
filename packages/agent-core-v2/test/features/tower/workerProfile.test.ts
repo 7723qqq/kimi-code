@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { getAgentProfileContributions } from '#/app/agentProfileCatalog/contribution';
 import { TOWER_WORKER_PROFILE_DEF } from '#/features/tower/workerProfile';

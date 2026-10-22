@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { Error2, ErrorCodes } from '#/errors';
 import type { ILspService } from '#/features/lsp/lsp';

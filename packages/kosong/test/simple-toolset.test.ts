@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import type { ToolCall } from '#/message';
 
@@ -214,7 +214,7 @@ describe('SimpleToolset', () => {
     const tc = makeToolCall('1', 'tool', null);
     await toolset.handle(tc);
 
-    expect(receivedArgs).toEqual({});
+    expect(receivedArgs as JsonValue).toEqual({});
   });
 
   it('remove() throws for non-existent tool', () => {

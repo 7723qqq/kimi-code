@@ -1,11 +1,14 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import * as posixPath from 'node:path/posix';
+import * as win32Path from 'node:path/win32';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'pathe';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { Emitter, Event } from '#/_base/event';
 import { HostFileSystem } from '#/os/backends/host/hostFsService';
+import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IAgentProfileService, type ResolvedAgentProfile } from '#/agent/profile/profile';
 import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import type { Runtime, RuntimeCapability, RuntimeStatus } from '#/runtime/runtime';
@@ -29,12 +32,14 @@ import {
   appService,
   createTestAgent,
   execEnvServices,
-  hostEnvironmentServices,
   sessionService,
   type TestAgentContext,
   type TestAgentOptions,
   type TestAgentServiceOverride,
 } from '../../harness';
+
+const HOST_PATH = process.platform === 'win32' ? win32Path : posixPath;
+const HOST_PATH_CLASS: 'posix' | 'win32' = process.platform === 'win32' ? 'win32' : 'posix';
 
 const profile: ResolvedAgentProfile = normalizeAgentProfile({
   name: 'agents-profile',
@@ -84,8 +89,8 @@ describe('AgentProfileService.applyProfile', () => {
   let workDir: string;
 
   beforeEach(async () => {
-    homeDir = await mkdtemp(join(tmpdir(), 'kimi-apply-home-'));
-    workDir = await mkdtemp(join(tmpdir(), 'kimi-apply-work-'));
+    homeDir = HOST_PATH.resolve(await mkdtemp(join(tmpdir(), 'kimi-apply-home-')));
+    workDir = HOST_PATH.resolve(await mkdtemp(join(tmpdir(), 'kimi-apply-work-')));
   });
 
   afterEach(async () => {
@@ -100,7 +105,7 @@ describe('AgentProfileService.applyProfile', () => {
     const fs = new HostFileSystem();
     ctx = createTestAgent(
       execEnvServices({ hostFs: fs }),
-      hostEnvironmentServices(homeDir),
+      hostEnvironment(homeDir),
       { cwd: workDir },
       ...extra,
     );
@@ -201,7 +206,7 @@ describe('AgentProfileService.applyProfile', () => {
     await svc.applyProfile(exactProfile);
 
     const prompt = svc.data().systemPrompt;
-    expect(prompt).toContain(`cwd:${workDir}`);
+    expect(prompt).toContain(`cwd:${resolve(workDir)}`);
     expect(prompt).toContain('ls:\nextra:');
   });
 
@@ -485,6 +490,20 @@ describe('AgentProfileService.applyProfile', () => {
     change.dispose();
   });
 });
+
+function hostEnvironment(homeDir: string): TestAgentServiceOverride {
+  return appService(IHostEnvironment, {
+    _serviceBrand: undefined,
+    osKind: 'Linux',
+    osArch: 'x64',
+    osVersion: 'test',
+    shellName: 'bash',
+    shellPath: '/bin/bash',
+    pathClass: HOST_PATH_CLASS,
+    homeDir,
+    ready: Promise.resolve(),
+  } satisfies IHostEnvironment);
+}
 
 function skillCatalogWithChange(
   change: Emitter<string>,

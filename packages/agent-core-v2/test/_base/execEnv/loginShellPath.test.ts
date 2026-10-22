@@ -2,7 +2,7 @@ import { chmod, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import {
   applyLoginShellPath,
@@ -178,7 +178,6 @@ describe.skipIf(process.platform === 'win32')('applyLoginShellPathFromNode', () 
     await chmod(stubShell, 0o755);
     process.env['SHELL'] = stubShell;
 
-    vi.resetModules();
     const { applyLoginShellPathFromNode } = await import('#/_base/execEnv/loginShellPath');
     await applyLoginShellPathFromNode();
 

@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { waitForAssertion } from '#test/helpers/waitFor';
 import { createControlledPromise } from '@antfu/utils';
 
 import { InMemorySkillCatalog } from '#/features/skill/catalog/registry';
@@ -210,16 +211,15 @@ describe('SkillTool', () => {
       skillName: 'commit',
       trigger: 'model-tool',
     });
-    expect(result.delivery?.message.content[0]).toMatchObject({
+    const content = result.delivery?.message.content[0];
+    const skillText = content?.type === 'text' ? content.text : '';
+    expect(content).toMatchObject({
       type: 'text',
       text: expect.stringContaining(
         '<skill-loaded name="commit" trigger="model-tool" source="user" dir="/skills/commit" args="src/app.ts">',
       ),
     });
-    expect(result.delivery?.message.content[0]).toMatchObject({
-      type: 'text',
-      text: expect.stringContaining('ARGUMENTS: src/app.ts'),
-    });
+    expect(skillText).toContain('ARGUMENTS: src/app.ts');
   });
 
   it('honors initialQueryDepth as an alias for queryDepth', async () => {
@@ -298,7 +298,7 @@ describe('AgentSkillService busy delivery (harness)', () => {
     ctx = createTestAgent(skillServices(catalog), { generate, persistence });
 
     const promptPromise = ctx.rpc.prompt({ input: [{ type: 'text', text: 'start' }] });
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(generateCalls).toBe(1);
     });
 

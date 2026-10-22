@@ -1,5 +1,5 @@
 import { visibleWidth } from '@moonshot-ai/pi-tui';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { ApiKeyInputDialogComponent } from '#/tui/components/dialogs/api-key-input-dialog';
 

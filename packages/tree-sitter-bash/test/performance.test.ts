@@ -4,7 +4,7 @@
 // timing assertions beyond the documented abort path), meant to catch
 // accidental quadratic complexity in future changes.
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { parse } from '#/parse';
 

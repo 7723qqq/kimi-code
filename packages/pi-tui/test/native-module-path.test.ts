@@ -1,6 +1,6 @@
 import assert from "node:assert";
 import { dirname, join, resolve } from "node:path";
-import { describe, it } from "node:test";
+import { describe, it } from "bun:test";
 import { pathToFileURL } from "node:url";
 import { getNativeModuleCandidates } from "../src/native-module-path.ts";
 

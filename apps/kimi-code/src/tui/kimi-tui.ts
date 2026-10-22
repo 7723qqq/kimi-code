@@ -111,7 +111,7 @@ import { SessionEventHandler } from './controllers/session-event-handler';
 import { SessionReplayRenderer } from './controllers/session-replay';
 import { StagingLeaseTracker } from './controllers/staging-leases';
 import { StreamingUIController } from './controllers/streaming-ui';
-import { SurveyController } from './controllers/survey-controller';
+import { SurveyController, type SurveyControllerDeps } from './controllers/survey-controller';
 import { TasksBrowserController } from './controllers/tasks-browser';
 import { TranscriptRendererController } from './controllers/transcript-renderer';
 import { installRainbowDance } from './easter-eggs/dance';
@@ -191,6 +191,8 @@ export interface KimiTUIStartupInput {
   /** When true, run only the migration screen, then exit (the `kimi migrate` command). */
   readonly migrateOnly?: boolean;
   readonly telemetryDisabled?: boolean;
+  /** Replaces the survey controller's injected dependencies (an embedder, a test harness). */
+  readonly surveyDeps?: SurveyControllerDeps;
 }
 
 type TurnStartedEvent = Extract<Event, { type: 'turn.started' }>;
@@ -463,6 +465,7 @@ export class KimiTUI {
     this.surveyController = new SurveyController(this, {
       accessToken: () => this.harness.auth.getCachedAccessToken(),
       telemetryDisabled: () => isTelemetryDisabledByEnv() || this.telemetryDisabled,
+      ...startupInput.surveyDeps,
     });
     this.promptOptimizer = new PromptOptimizerController(this);
     this.editorKeyboard = new EditorKeyboardController(this, this.imageStore);

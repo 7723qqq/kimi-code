@@ -1,5 +1,5 @@
 /* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { z } from 'zod';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
@@ -7,7 +7,7 @@ import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { IAgentBlobService } from '#/agent/blob/agentBlobService';
 import { IAgentStateService } from '#/agent/state/agentState';
-import type { ContentPart } from '#human/llm/message';
+import { type ContentPart } from '#human/llm/message';
 import { Event2 } from '#/app/event/event2';
 import { IEventBus } from '#/app/event/eventBus';
 import { EventBusService } from '#/app/event/eventBusService';
@@ -17,18 +17,12 @@ import { InMemoryStorageService } from '#/persistence/backends/memory/inMemorySt
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { IEventDispatcher } from '#/state/eventDispatcher';
-import { EventDispatcherService } from '#/state/eventDispatcherService';
+
 import { defineState } from '#/state/state';
 import { WIRE_PROTOCOL_VERSION } from '#/wire/migration/migration';
 import { AGENT_WIRE_RECORD_KEY, type WireRecord } from '#/wire/record';
 
-import {
-  recordingWireLog,
-  registerTestAgentWire,
-  registerTestEventDispatcher,
-  testWireScope,
-  noopLogger,
-} from './stubs';
+import { recordingWireLog, registerTestAgentWire, registerTestEventDispatcher, testWireScope, noopLogger } from './stubs';
 
 const SCOPE = 'wire';
 const KEY = 'store-event-test';

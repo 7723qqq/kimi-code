@@ -1,27 +1,34 @@
 import type { ModelAlias } from '@moonshot-ai/kimi-code-sdk';
 import chalk from 'chalk';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  mock,
+  spyOn,
+  type Mock,
+} from 'bun:test';
+import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { FooterComponent } from '#/tui/components/chrome/footer';
 import { setRainbowDance, type RainbowDanceController } from '#/tui/easter-eggs/dance';
 import { currentTheme, darkColors, lightColors } from '#/tui/theme';
 import type { AppState } from '#/tui/types';
 import { createEmptySessionStats } from '#/tui/utils/session-stats';
+import * as gitStatusModule from '#/utils/git/git-status';
 
-const gitStatusMocks = vi.hoisted(() => ({
-  createGitStatusCache: vi.fn(),
-}));
-
-vi.mock('#/utils/git/git-status', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('#/utils/git/git-status')>();
-  return { ...actual, createGitStatusCache: gitStatusMocks.createGitStatusCache };
-});
+const gitStatusMocks = {
+  createGitStatusCache: spyOn(gitStatusModule, 'createGitStatusCache'),
+};
 
 beforeEach(() => {
   gitStatusMocks.createGitStatusCache.mockClear();
-  gitStatusMocks.createGitStatusCache.mockImplementation(() => ({
-    getStatus: vi.fn(() => null),
-  }));
+  gitStatusMocks.createGitStatusCache.mockImplementation((() => ({
+    getStatus: mock(() => null),
+  })) as never);
 });
 
 const TRUECOLOR_PATTERN = /\[38;2;(\d+);(\d+);(\d+)m/g;
@@ -396,11 +403,16 @@ describe('FooterComponent ctrl+o hint with a status_line command', () => {
   it('moves the hint to line 2 when a command owns line 1', async () => {
     const footer = new FooterComponent({
       ...appState,
-      statusLine: { items: null, command: 'printf "my-custom-status"' },
+      statusLine: { items: null, command: 'echo my-custom-status' },
     });
     footer.setExpandHintProvider(() => 'expand');
     footer.render(120);
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await waitForAssertion(
+      () => {
+        expect(footer.render(120)[0] ?? '').toContain('my-custom-status');
+      },
+      { timeout: 5_000, interval: 100 },
+    );
 
     const [line1, line2] = footer.render(120).map((line) => line.replaceAll(/\[[0-9;]*m/g, ''));
     expect(line1).toContain('my-custom-status');
@@ -452,30 +464,30 @@ describe('FooterComponent thinking pulse', () => {
     streamingPhase: 'thinking',
   };
 
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-
   afterEach(() => {
-    vi.useRealTimers();
     chalk.level = previousChalkLevel;
   });
 
-  function armPulse(): { footer: FooterComponent; onRefresh: ReturnType<typeof vi.fn> } {
-    const onRefresh = vi.fn();
-    const footer = new FooterComponent(thinkingState, onRefresh);
+  function armPulse(): {
+    footer: FooterComponent;
+    onRefresh: Mock<(...args: any[]) => any>;
+    clock: FakeClock;
+  } {
+    const clock = createFakeClock();
+    const onRefresh = mock();
+    const footer = new FooterComponent(thinkingState, onRefresh, clock);
     // A fresh footer arms no pulse timer: the gate lives on setState.
     footer.setState(thinkingState);
-    return { footer, onRefresh };
+    return { footer, onRefresh, clock };
   }
 
   it('skips the repaint while the pulse renders the same badge text', () => {
     // Colour level 0 (NO_COLOR, a dumb terminal, piped output): chalk returns the
     // bare suffix, so every phase produces the identical string.
     chalk.level = 0;
-    const { footer, onRefresh } = armPulse();
+    const { footer, onRefresh, clock } = armPulse();
 
-    vi.advanceTimersByTime(PULSE_INTERVAL_MS * PULSE_STEPS_PER_CYCLE);
+    clock.advance(PULSE_INTERVAL_MS * PULSE_STEPS_PER_CYCLE);
 
     // One repaint — the first tick, which has nothing to compare against — and
     // then none, instead of one full TUI repaint per tick.
@@ -485,9 +497,9 @@ describe('FooterComponent thinking pulse', () => {
 
   it('still repaints on every step while the ramp changes colour', () => {
     chalk.level = 3;
-    const { footer, onRefresh } = armPulse();
+    const { footer, onRefresh, clock } = armPulse();
 
-    vi.advanceTimersByTime(PULSE_INTERVAL_MS * PULSE_STEPS_PER_CYCLE);
+    clock.advance(PULSE_INTERVAL_MS * PULSE_STEPS_PER_CYCLE);
 
     // The palette's text and textDim are far enough apart that each of the 8
     // phases rounds to a different colour, so the guard never fires here: the
@@ -498,15 +510,15 @@ describe('FooterComponent thinking pulse', () => {
 
   it('clears the pulse timer when the gate goes false', () => {
     chalk.level = 3;
-    const { footer, onRefresh } = armPulse();
-    vi.advanceTimersByTime(PULSE_INTERVAL_MS);
+    const { footer, onRefresh, clock } = armPulse();
+    clock.advance(PULSE_INTERVAL_MS);
     expect(onRefresh).toHaveBeenCalledTimes(1);
 
     footer.setState({ ...thinkingState, streamingPhase: 'idle' });
 
     // Cleared, not merely neutered: no interval is left on the clock.
-    expect(vi.getTimerCount()).toBe(0);
-    vi.advanceTimersByTime(PULSE_INTERVAL_MS * 5);
+    expect(clock.activeTimers).toBe(0);
+    clock.advance(PULSE_INTERVAL_MS * 5);
     expect(onRefresh).toHaveBeenCalledTimes(1);
     footer.dispose();
   });

@@ -1,7 +1,7 @@
 import { pathToFileURL } from 'node:url';
 
 import { visibleWidth } from '@moonshot-ai/pi-tui';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { PlanBoxComponent } from '#/tui/components/messages/plan-box';
 import { darkColors } from '#/tui/theme/colors';

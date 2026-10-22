@@ -1,4 +1,4 @@
-import { vi } from 'vitest';
+import { spyOn } from 'bun:test';
 
 export class ExitCalled extends Error {
   constructor(public readonly code: number) {
@@ -7,7 +7,7 @@ export class ExitCalled extends Error {
 }
 
 export function mockProcessExit() {
-  return vi.spyOn(process, 'exit').mockImplementation(((code?: string | number | null) => {
+  return spyOn(process, 'exit').mockImplementation(((code?: string | number | null) => {
     throw new ExitCalled(Number(code ?? 0));
   }) as never);
 }
@@ -19,7 +19,7 @@ export function captureProcessWrite(stream: 'stdout' | 'stderr'): {
 } {
   const chunks: string[] = [];
   const target = process[stream];
-  const spy = vi.spyOn(target, 'write').mockImplementation(((chunk: string | Uint8Array) => {
+  const spy = spyOn(target, 'write').mockImplementation(((chunk: string | Uint8Array) => {
     chunks.push(typeof chunk === 'string' ? chunk : Buffer.from(chunk).toString('utf8'));
     return true;
   }) as never);

@@ -13,7 +13,7 @@ import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { afterEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, describe, expect, spyOn, test } from 'bun:test';
 
 import { CompoundIndexManager } from '../src/compound-index.js';
 import { crc32 } from '../src/crc32.js';
@@ -1357,12 +1357,14 @@ describe('generation fault matrix', () => {
     cleanups.push(() => {
       (fh as { writev: unknown }).writev = origWritev;
     });
-    const flushCalls = vi.spyOn(WAL.prototype, 'flush');
+    const flushCalls = spyOn(WAL.prototype, 'flush');
     cleanups.push(() => flushCalls.mockRestore());
 
     const ghostSet = db.set('ghost', { kind: 't1', score: 1, ts: 2, text: 'ghost doc' });
+    ghostSet.catch(() => {});
     await entered.promise; // the batch is in flight; the commit is still pending
     const build = db.rebuildGeneration();
+    build.catch(() => {});
     // The seal's flush chains onto the in-flight batch — the build is now
     // stuck at the seal (pre-fix it flushed only for worker text builds and
     // would publish without settling the frame below the checkpoint).
@@ -1553,7 +1555,7 @@ describe('open lifecycle status (phase timings + state machine)', () => {
     // Hard proof that no full-corpus tokenization runs on the attach path:
     // the staged builder (the only in-open corpus tokenizer besides the
     // bounded rebuild) must not be entered at all.
-    const buildSpy = vi.spyOn(TextIndex.prototype, 'build');
+    const buildSpy = spyOn(TextIndex.prototype, 'build');
     try {
       db = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json' });
       expect(buildSpy).not.toHaveBeenCalled();

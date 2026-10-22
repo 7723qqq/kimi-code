@@ -3,7 +3,8 @@ import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 
 import { Command } from 'commander';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { restoreEnvs } from '#test/helpers/stubs';
 
 import { handleDoctor, registerDoctorCommand, type DoctorDeps } from '#/cli/sub/doctor';
 
@@ -15,7 +16,7 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
-  vi.unstubAllEnvs();
+  restoreEnvs();
   await rm(dir, { recursive: true, force: true });
 });
 

@@ -91,6 +91,6 @@ you are almost certainly looking for the v2 domain instead.
 
 ## Tests
 
-`human/test/` is included by `vitest.config.ts` (`src/human/test/**/*.test.ts`) even though
+`human/test/` is discovered by `bun test` (`src/human/test/**/*.test.ts`) even though
 `tsconfig.json` excludes it from typechecking. Colocating a test beside the kernel module is
 the convention here; note that `check-no-comments.mjs` applies — no comments of any kind.

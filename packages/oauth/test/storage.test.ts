@@ -9,7 +9,7 @@ import { chmodSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { FileTokenStorage } from '../src/storage';
 import type { TokenInfo } from '../src/types';

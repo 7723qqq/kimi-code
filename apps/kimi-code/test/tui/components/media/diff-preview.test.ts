@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import {
   computeDiffLines,
@@ -6,7 +6,7 @@ import {
   renderDiffLinesClustered,
 } from '#/tui/components/media/diff-preview';
 
-vi.mock('#/i18n', () => ({
+void mock.module('#/i18n', () => ({
   t: (key: string, params?: Record<string, string | number>): string => {
     const translations: Record<string, string> = {
       'tui.diffPreview.moreChangesHidden': '{{n}} more changes hidden',
@@ -21,7 +21,7 @@ vi.mock('#/i18n', () => ({
     }
     return result;
   },
-  setLocale: vi.fn(),
+  setLocale: mock(),
   getLocale: () => 'en',
 }));
 

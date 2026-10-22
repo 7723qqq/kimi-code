@@ -13,7 +13,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import { Worker } from 'node:worker_threads';
 
-import { afterEach, describe, expect, test, vi } from 'vitest';
+import { afterEach, describe, expect, spyOn, test } from 'bun:test';
 
 import { MiniDb } from '../src/index.js';
 import { WorkerSlots, MaintenanceCancelledError, defaultWorkerSlots } from '../src/maintenance.js';
@@ -569,7 +569,13 @@ describe('MiniDb worker build integration', () => {
       settled = true;
     });
     // Ordinary traffic during the build: reads, writes, and searches keep
-    // working off the OLD base + live delta.
+    // working off the OLD base + live delta. The ONE window that must NOT
+    // serve is the win32 publish critical section: a directory cannot be
+    // renamed with open files inside it on Windows, so generation-builder
+    // closes every live base between the publish rename and the repoint and
+    // flags it pending. A search landing exactly there has to raise the typed
+    // building signal instead of reading an empty base — never an empty or
+    // partial result. Everywhere else (and on POSIX throughout) it serves.
     let ops = 0;
     while (!settled && ops < 400) {
       await db.set(`c${ops}`, {
@@ -578,7 +584,12 @@ describe('MiniDb worker build integration', () => {
         text: `concurrent write ${ops} 并发`,
       });
       expect(db.get('k42')).toMatchObject({ score: 42 });
-      expect(db.search('ft', 'hello').length).toBeGreaterThan(0);
+      try {
+        expect(db.search('ft', 'hello').length).toBeGreaterThan(0);
+      } catch (error) {
+        if (process.platform !== 'win32') throw error;
+        expect((error as { code?: string }).code).toBe('TEXT_INDEX_BUILDING');
+      }
       ops++;
     }
     await buildP;
@@ -1009,17 +1020,16 @@ describe('bounded open-time rebuild (generation loader)', () => {
 
 describe('single-file deployment (worker entry absent)', () => {
   test('bounded builds still run — hosted inline, never the unbounded staged path', async () => {
-    vi.doMock('../src/worker/text-build.js', async (importOriginal) => {
-      const orig = await importOriginal<typeof import('../src/worker/text-build.js')>();
-      return { ...orig, textBuildWorkerAvailable: () => false };
-    });
-    vi.resetModules();
+    // A single-file deployment ships no worker entry, so the availability probe
+    // answers false. Spy on the real module namespace (Bun has no
+    // importActual): every importer reads the export live.
+    const textBuild = await import('../src/worker/text-build.js');
+    const unavailable = spyOn(textBuild, 'textBuildWorkerAvailable').mockImplementation(() => false);
     try {
-      const { MiniDb: SeaMiniDb } = await import('../src/index.js');
       const dir = await openTmp('sea-inline');
       // Open EMPTY first (see the deterministic-stats note above).
-      const db = await SeaMiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json' });
-      await seedDataOnly(db as unknown as MiniDb<Record<string, unknown>>, 5000);
+      const db = await MiniDb.open<Record<string, unknown>>({ dir, valueCodec: 'json' });
+      await seedDataOnly(db, 5000);
 
       await db.createTextIndex('ft', { fields: ['text'] });
       await db.createTextIndex('tri', { fields: ['text'], tokenizer: 'ngram' });
@@ -1039,8 +1049,7 @@ describe('single-file deployment (worker entry absent)', () => {
       expect(db.search('tri', 'hello world').length).toBeGreaterThan(0);
       await db.close();
     } finally {
-      vi.doUnmock('../src/worker/text-build.js');
-      vi.resetModules();
+      unavailable.mockRestore();
     }
   }, 120000);
 });

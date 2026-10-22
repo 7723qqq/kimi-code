@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 
 import type { ToolCall } from '#human/llm/message';
 import { dirname, join } from 'pathe';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentLoopService } from '#/agent/loop/loop';
@@ -24,6 +24,7 @@ import {
   execEnvServices,
   type TestAgentContext,
 } from '../../harness';
+import { renderSnapshot } from '../../harness/snapshots';
 
 interface PlanFakes {
   readonly fs: IHostFileSystem;
@@ -32,8 +33,8 @@ interface PlanFakes {
 
 function createPlanFakes(overrides: Partial<IHostFileSystem> = {}): PlanFakes {
   const fs = createFakeHostFs({
-    mkdir: vi.fn().mockResolvedValue(undefined),
-    readText: vi.fn().mockResolvedValue(''),
+    mkdir: mock().mockResolvedValue(undefined),
+    readText: mock().mockResolvedValue(''),
     ...overrides,
   });
   const runner = createFakeProcessRunner();
@@ -52,12 +53,12 @@ function createPlanFileFakes(
   overrides: Partial<IHostFileSystem> = {},
 ): {
   readonly files: Map<string, string>;
-  readonly readText: ReturnType<typeof vi.fn>;
-  readonly writeText: ReturnType<typeof vi.fn>;
+  readonly readText: ReturnType<typeof mock>;
+  readonly writeText: ReturnType<typeof mock>;
   readonly fakes: PlanFakes;
 } {
-  const readText = vi.fn(async (path: string) => files.get(path) ?? '');
-  const writeText = vi.fn(async (path: string, content: string) => {
+  const readText = mock(async (path: string) => files.get(path) ?? '');
+  const writeText = mock(async (path: string, content: string) => {
     files.set(path, content);
   });
   return {
@@ -169,8 +170,8 @@ describe('Plan service', () => {
     });
 
     it('enters plan mode without starting a model turn and prepares the plan directory', async () => {
-      const mkdir = vi.fn().mockResolvedValue(undefined);
-      const writeText = vi.fn().mockResolvedValue(0);
+      const mkdir = mock().mockResolvedValue(undefined);
+      const writeText = mock().mockResolvedValue(0);
       useFakes(createPlanFakes({ mkdir, writeText }));
 
       await ctx.rpc.enterPlan({});
@@ -187,7 +188,7 @@ describe('Plan service', () => {
 
     it('derives the plan path from the agent homedir on enter and restore', async () => {
       useFakes(createPlanFakes({
-        writeText: vi.fn(async (_path: string, _content: string): Promise<void> => {}),
+        writeText: mock(async (_path: string, _content: string): Promise<void> => {}),
       }));
       await plan.enter('stable-plan');
 
@@ -490,7 +491,7 @@ describe('Plan service', () => {
     });
 
     it('does not execute later tool calls in the same batch after plan rejection', async () => {
-      const exec = vi.fn(() => {
+      const exec = mock(() => {
         throw new Error('Bash should not execute after plan rejection');
       });
       const { files, fakes: baseFakes } = createPlanFileFakes(undefined);
@@ -613,8 +614,8 @@ describe('Plan service', () => {
       'runs %s on the active plan file without approval in manual mode',
       async (toolName) => {
         const files = new Map<string, string>();
-        const readText = vi.fn(async (path: string) => files.get(path) ?? '');
-        const writeText = vi.fn(async (path: string, content: string): Promise<void> => {
+        const readText = mock(async (path: string) => files.get(path) ?? '');
+        const writeText = mock(async (path: string, content: string): Promise<void> => {
           files.set(path, content);
         });
         useFakes(createPlanFakes({ readText, writeText }));
@@ -653,7 +654,7 @@ describe('Plan service', () => {
 
     it('short-circuits active plan file writes ahead of explicit deny rules', async () => {
       const files = new Map<string, string>();
-      const writeText = vi.fn(async (path: string, content: string): Promise<void> => {
+      const writeText = mock(async (path: string, content: string): Promise<void> => {
         files.set(path, content);
       });
       useFakes(createPlanFakes({ writeText }));
@@ -707,8 +708,8 @@ describe('Plan service', () => {
       ctx.mockNextResponse({ type: 'text', text: 'The safe command printed plan-safe.' });
       await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Inspect without mutating files' }] });
 
-      expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
-        [wire] permission.set_mode         { "agentId": "main", "mode": "yolo", "time": "<time>" }
+      expect(renderSnapshot(await ctx.untilTurnEnd())).toMatchInlineSnapshot(`
+        "[wire] permission.set_mode         { "agentId": "main", "mode": "yolo", "time": "<time>" }
         [emit] agent.status.updated        { "time": "<time>", "agentId": "main", "permission": "yolo" }
         [wire] plan_mode.enter             { "agentId": "main", "id": "test-plan", "time": "<time>" }
         [emit] agent.status.updated        { "time": "<time>", "agentId": "main", "planMode": true }
@@ -757,7 +758,7 @@ describe('Plan service', () => {
         [wire] agent.message.appended      { "message": { "message": { "role": "assistant", "content": [ { "type": "text", "text": "The safe command printed plan-safe." } ], "toolCalls": [] }, "meta": { "model": { "provider": "agent-loop", "model": "agent-loop" }, "source": "llm", "usage": { "inputOther": 598, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finish": { "finishReason": "completed", "rawFinishReason": "stop" }, "messageId": "mock-2" } }, "time": "<time>", "kind": "event" }
         [wire] agent.turn.ended            { "turnId": 0, "outcome": "done", "time": "<time>", "kind": "event" }
         [wire] turn.ended                  { "agentId": "main", "turnId": 0, "reason": "completed", "time": "<time>" }
-        [emit] turn.ended                  { "time": "<time>", "agentId": "main", "turnId": 0, "reason": "completed" }
+        [emit] turn.ended                  { "time": "<time>", "agentId": "main", "turnId": 0, "reason": "completed" }"
       `);
 
       expect(ctx.llmCalls).toHaveLength(2);
@@ -786,8 +787,8 @@ describe('Plan service', () => {
       ctx.mockNextResponse({ type: 'text', text: 'The command completed.' });
       await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Remove forbidden.txt' }] });
 
-      expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
-        [wire] permission.set_mode         { "agentId": "main", "mode": "yolo", "time": "<time>" }
+      expect(renderSnapshot(await ctx.untilTurnEnd())).toMatchInlineSnapshot(`
+        "[wire] permission.set_mode         { "agentId": "main", "mode": "yolo", "time": "<time>" }
         [emit] agent.status.updated        { "time": "<time>", "agentId": "main", "permission": "yolo" }
         [wire] plan_mode.enter             { "agentId": "main", "id": "test-plan", "time": "<time>" }
         [emit] agent.status.updated        { "time": "<time>", "agentId": "main", "planMode": true }
@@ -836,7 +837,7 @@ describe('Plan service', () => {
         [wire] agent.message.appended      { "message": { "message": { "role": "assistant", "content": [ { "type": "text", "text": "The command completed." } ], "toolCalls": [] }, "meta": { "model": { "provider": "agent-loop", "model": "agent-loop" }, "source": "llm", "usage": { "inputOther": 594, "output": 9, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finish": { "finishReason": "completed", "rawFinishReason": "stop" }, "messageId": "mock-2" } }, "time": "<time>", "kind": "event" }
         [wire] agent.turn.ended            { "turnId": 0, "outcome": "done", "time": "<time>", "kind": "event" }
         [wire] turn.ended                  { "agentId": "main", "turnId": 0, "reason": "completed", "time": "<time>" }
-        [emit] turn.ended                  { "time": "<time>", "agentId": "main", "turnId": 0, "reason": "completed" }
+        [emit] turn.ended                  { "time": "<time>", "agentId": "main", "turnId": 0, "reason": "completed" }"
       `);
       expect(toolResultText(context.get())).toContain('removed');
     });
@@ -864,7 +865,7 @@ describe('Plan service', () => {
 
     it('emits a reentry reminder when restored plan mode already has plan content', async () => {
       useFakes(createPlanFakes({
-        readText: vi.fn(async () => '# Existing Plan\n\n- Keep this context'),
+        readText: mock(async () => '# Existing Plan\n\n- Keep this context'),
       }));
       await ctx.dispatch({
         type: 'plan_mode.enter',

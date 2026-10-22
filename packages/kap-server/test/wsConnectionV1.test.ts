@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import type { WebSocket } from 'ws';
 
 import type { IConnectionRegistry } from '../src/transport/ws/connectionRegistry';
@@ -8,6 +8,8 @@ import {
   WsConnectionV1,
   coalesceFrames,
 } from '../src/transport/ws/v1/wsConnectionV1';
+import { createFakeClock, type FakeClock } from './helpers/fakeClock';
+import { waitForAssertion } from './helpers/waitFor';
 
 class FakeSocket {
   readonly OPEN = 1;
@@ -262,7 +264,7 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
         transcript_since: { main: 7, '*': 3 },
       }),
     );
-    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    await waitForAssertion(() => expect(calls).toHaveLength(1));
 
     expect(calls[0]).toMatchObject({
       sessionId: 's1',
@@ -273,7 +275,7 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
       agentFilter: undefined,
       transcriptGrades: { '*': 'delta' },
     });
-    await vi.waitFor(() =>
+    await waitForAssertion(() =>
       expect(socket.sent.some((f) => JSON.parse(f).type === 'ack')).toBe(true),
     );
     const ack = socket.sent.map((f) => JSON.parse(f)).find((f) => f.type === 'ack');
@@ -295,7 +297,7 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
         transcript_since: { s1: { main: 7 } },
       }),
     );
-    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    await waitForAssertion(() => expect(calls).toHaveLength(1));
     expect(calls[0]).toMatchObject({ sessionId: 's1', grades: undefined });
     expect(calls[0]!.opts?.transcriptSince).toBeUndefined();
     expect(conn.subscriptions.get('s1')).toEqual({
@@ -310,7 +312,7 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
         transcript: { s2: { '*': 'delta' } },
       }),
     );
-    await vi.waitFor(() => expect(calls).toHaveLength(2));
+    await waitForAssertion(() => expect(calls).toHaveLength(2));
     expect(calls[1]).toMatchObject({ sessionId: 's2', grades: undefined });
     expect(conn.subscriptions.get('s2')).toEqual({
       agentFilter: undefined,
@@ -328,7 +330,7 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
     const conn = makeConn(socket, { broadcaster });
 
     socket.emit('message', controlFrame('subscribe', { session_ids: ['s1'] }));
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(
         (socket.frames() as Array<{ type: string }>).some(
           (frame) => frame.type === 'resync_required',
@@ -389,7 +391,7 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
         transcript: { main: 'everything' },
       }),
     );
-    await vi.waitFor(() =>
+    await waitForAssertion(() =>
       expect(socket.sent.some((f) => JSON.parse(f).type === 'ack')).toBe(true),
     );
 
@@ -409,13 +411,13 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
       'message',
       controlFrame('subscribe', { session_ids: ['s1'], agent_filter: { s1: ['main'] } }),
     );
-    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    await waitForAssertion(() => expect(calls).toHaveLength(1));
 
     socket.emit(
       'message',
       controlFrame('subscribe_v2', { session_id: 's1', transcript: { main: 'block' } }),
     );
-    await vi.waitFor(() => expect(calls).toHaveLength(2));
+    await waitForAssertion(() => expect(calls).toHaveLength(2));
 
     expect(calls[1]).toMatchObject({ sessionId: 's1', grades: { main: 'block' } });
     expect(calls[1]!.filter).toEqual(new Set(['main']));
@@ -478,7 +480,7 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
       'message',
       controlFrame('subscribe_v2', { session_id: 's1', transcript: { '*': 'delta' } }),
     );
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       const types = socket.frames().map((f) => (f as { type: string }).type);
       expect(types).toContain('transcript.reset');
     });
@@ -491,7 +493,7 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
         cursors: { s1: { seq: 2, epoch: 'e1' } },
       }),
     );
-    await vi.waitFor(() => expect(seenGrades).toEqual({ '*': 'delta' }));
+    await waitForAssertion(() => expect(seenGrades).toEqual({ '*': 'delta' }));
     expect(conn.subscriptions.get('s1')?.transcriptGrades).toEqual({ '*': 'delta' });
 
     const types = socket.frames().map((f) => (f as { type: string }).type);
@@ -516,7 +518,7 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
       'message',
       controlFrame('subscribe_v2', { session_id: 'gone', transcript: { '*': 'delta' } }),
     );
-    await vi.waitFor(() =>
+    await waitForAssertion(() =>
       expect(socket.sent.some((f) => JSON.parse(f).type === 'ack')).toBe(true),
     );
 
@@ -535,12 +537,12 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
       'message',
       controlFrame('subscribe', { session_ids: ['s1'], agent_filter: { s1: ['main'] } }),
     );
-    await vi.waitFor(() => expect(calls).toHaveLength(1));
+    await waitForAssertion(() => expect(calls).toHaveLength(1));
     socket.emit(
       'message',
       controlFrame('subscribe_v2', { session_id: 's1', transcript: { '*': 'delta' } }),
     );
-    await vi.waitFor(() =>
+    await waitForAssertion(() =>
       expect(conn.subscriptions.get('s1')?.transcriptGrades).toEqual({ '*': 'delta' }),
     );
 
@@ -548,7 +550,7 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
       'message',
       controlFrame('unsubscribe_v2', { session_id: 's1', agent_ids: ['main'] }),
     );
-    await vi.waitFor(() => expect(detaches).toHaveLength(1));
+    await waitForAssertion(() => expect(detaches).toHaveLength(1));
 
     expect(detaches[0]).toEqual({ sessionId: 's1', agentIds: ['main'] });
     expect(conn.subscriptions.get('s1')).toEqual({
@@ -569,12 +571,12 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
       'message',
       controlFrame('subscribe_v2', { session_id: 's1', transcript: { '*': 'delta' } }),
     );
-    await vi.waitFor(() =>
+    await waitForAssertion(() =>
       expect(conn.subscriptions.get('s1')?.transcriptGrades).toEqual({ '*': 'delta' }),
     );
 
     socket.emit('message', controlFrame('unsubscribe_v2', { session_id: 's1' }));
-    await vi.waitFor(() => expect(detaches).toHaveLength(1));
+    await waitForAssertion(() => expect(detaches).toHaveLength(1));
 
     expect(detaches[0]).toEqual({ sessionId: 's1', agentIds: undefined });
     expect(conn.subscriptions.get('s1')).toEqual({
@@ -590,7 +592,7 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
     const conn = makeConn(socket, { broadcaster });
 
     socket.emit('message', controlFrame('unsubscribe_v2', { session_id: 's1' }));
-    await vi.waitFor(() =>
+    await waitForAssertion(() =>
       expect(socket.sent.some((f) => JSON.parse(f).type === 'ack')).toBe(true),
     );
 
@@ -608,7 +610,7 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
 
     socket.emit('message', controlFrame('unsubscribe_v2', { agent_ids: ['main'] }));
     socket.emit('message', controlFrame('unsubscribe_v2', { session_id: 's1', agent_ids: [] }));
-    await vi.waitFor(() =>
+    await waitForAssertion(() =>
       expect(socket.sent.filter((f) => JSON.parse(f).type === 'ack')).toHaveLength(2),
     );
 
@@ -631,7 +633,7 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
       'message',
       controlFrame('subscribe_v2', { session_id: 's1', transcript: { '*': 'delta' } }),
     );
-    await vi.waitFor(() => expect(calls).toHaveLength(2));
+    await waitForAssertion(() => expect(calls).toHaveLength(2));
 
     expect(conn.subscriptions.get('s1')).toEqual({
       agentFilter: new Set(['main']),
@@ -650,13 +652,13 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
       controlFrame('subscribe_v2', { session_id: 's1', transcript: { '*': 'delta' } }),
     );
     socket.emit('message', controlFrame('unsubscribe_v2', { session_id: 's1' }));
-    await vi.waitFor(() => expect(conn.subscriptions.get('s1')?.transcriptGrades).toBeUndefined());
+    await waitForAssertion(() => expect(conn.subscriptions.get('s1')?.transcriptGrades).toBeUndefined());
 
     socket.emit(
       'message',
       controlFrame('subscribe_v2', { session_id: 's1', transcript: { main: 'turn' } }),
     );
-    await vi.waitFor(() => expect(calls).toHaveLength(2));
+    await waitForAssertion(() => expect(calls).toHaveLength(2));
 
     expect(calls[1]).toMatchObject({ sessionId: 's1', grades: { main: 'turn' } });
     expect(conn.subscriptions.get('s1')?.transcriptGrades).toEqual({ main: 'turn' });
@@ -665,31 +667,29 @@ describe('WsConnectionV1 transcript subscriptions (subscribe_v2)', () => {
 });
 
 describe('WsConnectionV1 outbound buffer', () => {
+  let clock: FakeClock;
   beforeEach(() => {
-    vi.useFakeTimers();
-  });
-  afterEach(() => {
-    vi.useRealTimers();
+    clock = createFakeClock();
   });
 
   it('sends server_hello immediately', () => {
     const socket = new FakeSocket();
-    const conn = makeConn(socket, { flushIntervalMs: 16 });
+    const conn = makeConn(socket, { clock, flushIntervalMs: 16 });
     expect(socket.frames().map((f) => (f as { type: string }).type)).toEqual(['server_hello']);
     conn.close();
   });
 
   it('buffers subscribe_v2 transcript frames without merging them', async () => {
     const socket = new FakeSocket();
-    const conn = makeConn(socket, { flushIntervalMs: 16 });
+    const conn = makeConn(socket, { clock, flushIntervalMs: 16 });
     socket.sent = [];
 
     conn.send(durable('transcript.reset', 's1', 7));
     conn.send(durable('transcript.ops', 's1', 8));
     expect(socket.sent).toHaveLength(0);
-    await vi.advanceTimersByTimeAsync(15);
+    await clock.advanceAsync(15);
     expect(socket.sent).toHaveLength(0);
-    await vi.advanceTimersByTimeAsync(1);
+    await clock.advanceAsync(1);
 
     const frames = socket.frames() as Array<{ type: string; seq: number }>;
     expect(frames.map((frame) => frame.type)).toEqual(['transcript.reset', 'transcript.ops']);
@@ -699,14 +699,14 @@ describe('WsConnectionV1 outbound buffer', () => {
 
   it('coalesces adjacent subscribed deltas into one socket.send', async () => {
     const socket = new FakeSocket();
-    const conn = makeConn(socket, { flushIntervalMs: 16 });
+    const conn = makeConn(socket, { clock, flushIntervalMs: 16 });
     socket.sent = [];
 
     conn.send(delta('s1', 'main', 1, 'Hello', 0));
     conn.send(delta('s1', 'main', 1, ' ', 5));
     conn.send(delta('s1', 'main', 1, 'world', 6));
     expect(socket.sent).toHaveLength(0);
-    await vi.advanceTimersByTimeAsync(16);
+    await clock.advanceAsync(16);
 
     const frames = socket.frames();
     expect(frames).toHaveLength(1);
@@ -719,7 +719,7 @@ describe('WsConnectionV1 outbound buffer', () => {
 
   it('sends public events immediately and preserves FIFO with subscribed events', async () => {
     const socket = new FakeSocket();
-    const conn = makeConn(socket, { flushIntervalMs: 16 });
+    const conn = makeConn(socket, { clock, flushIntervalMs: 16 });
     socket.sent = [];
 
     conn.send(delta('s1', 'main', 1, 'before', 0));
@@ -730,14 +730,14 @@ describe('WsConnectionV1 outbound buffer', () => {
       'assistant.delta',
       'event.session.work_changed',
     ]);
-    await vi.advanceTimersByTimeAsync(16);
+    await clock.advanceAsync(16);
     expect(socket.sent).toHaveLength(2);
     conn.close();
   });
 
   it('flushes immediately once the subscribed batch reaches maxBatchSize', () => {
     const socket = new FakeSocket();
-    const conn = makeConn(socket, { flushIntervalMs: 1000, maxBatchSize: 3 });
+    const conn = makeConn(socket, { clock, flushIntervalMs: 1000, maxBatchSize: 3 });
     socket.sent = [];
 
     conn.send(delta('s1', 'main', 1, 'a', 0));
@@ -753,6 +753,7 @@ describe('WsConnectionV1 outbound buffer', () => {
   it('defers flushing while the peer is above the watermark, then coalesces on drain', async () => {
     const socket = new FakeSocket();
     const conn = makeConn(socket, {
+      clock,
       flushIntervalMs: 16,
       highWaterMarkBytes: 100,
     });
@@ -760,15 +761,15 @@ describe('WsConnectionV1 outbound buffer', () => {
 
     socket.bufferedAmount = 200;
     conn.send(delta('s1', 'main', 1, 'Hello', 0));
-    await vi.advanceTimersByTimeAsync(16);
+    await clock.advanceAsync(16);
     expect(socket.sent).toHaveLength(0);
 
     conn.send(delta('s1', 'main', 1, ' world', 5));
-    await vi.advanceTimersByTimeAsync(5);
+    await clock.advanceAsync(5);
     expect(socket.sent).toHaveLength(0);
 
     socket.bufferedAmount = 0;
-    await vi.advanceTimersByTimeAsync(5);
+    await clock.advanceAsync(5);
     const frames = socket.frames();
     expect(frames).toHaveLength(1);
     expect((frames[0] as { payload: { delta: string } }).payload.delta).toBe('Hello world');
@@ -777,7 +778,7 @@ describe('WsConnectionV1 outbound buffer', () => {
 
   it('force-flushes buffered subscription frames on close', () => {
     const socket = new FakeSocket();
-    const conn = makeConn(socket, { flushIntervalMs: 1000 });
+    const conn = makeConn(socket, { clock, flushIntervalMs: 1000 });
     socket.sent = [];
 
     conn.send(delta('s1', 'main', 1, 'tail', 0));
@@ -791,22 +792,20 @@ describe('WsConnectionV1 outbound buffer', () => {
 
   it('drops buffered frames when the socket is already closed at flush time', async () => {
     const socket = new FakeSocket();
-    const conn = makeConn(socket, { flushIntervalMs: 16 });
+    const conn = makeConn(socket, { clock, flushIntervalMs: 16 });
     socket.sent = [];
 
     socket.readyState = socket.CLOSED;
     conn.send(delta('s1', 'main', 1, 'lost', 0));
-    await vi.advanceTimersByTimeAsync(16);
+    await clock.advanceAsync(16);
     expect(socket.sent).toHaveLength(0);
   });
 });
 
 describe('WsConnectionV1 heartbeat', () => {
+  let clock: FakeClock;
   beforeEach(() => {
-    vi.useFakeTimers();
-  });
-  afterEach(() => {
-    vi.useRealTimers();
+    clock = createFakeClock();
   });
 
   function sentTypes(socket: FakeSocket): string[] {
@@ -819,7 +818,7 @@ describe('WsConnectionV1 heartbeat', () => {
 
   it('advertises the heartbeat interval in server_hello', () => {
     const socket = new FakeSocket();
-    const conn = makeConn(socket, { heartbeatIntervalMs: 10 });
+    const conn = makeConn(socket, { clock, heartbeatIntervalMs: 10 });
     const hello = socket.frames()[0] as { type: string; payload: { heartbeat_ms?: number } };
     expect(hello.type).toBe('server_hello');
     expect(hello.payload.heartbeat_ms).toBe(10);
@@ -828,7 +827,7 @@ describe('WsConnectionV1 heartbeat', () => {
 
   it('defaults to a 10s heartbeat interval', () => {
     const socket = new FakeSocket();
-    const conn = makeConn(socket);
+    const conn = makeConn(socket, { clock });
     const hello = socket.frames()[0] as { payload: { heartbeat_ms?: number } };
     expect(hello.payload.heartbeat_ms).toBe(10_000);
     conn.close();
@@ -836,11 +835,11 @@ describe('WsConnectionV1 heartbeat', () => {
 
   it('sends a ping every interval while the peer keeps answering', () => {
     const socket = new FakeSocket();
-    const conn = makeConn(socket, { heartbeatIntervalMs: 10 });
+    const conn = makeConn(socket, { clock, heartbeatIntervalMs: 10 });
     socket.sent = [];
 
     for (let i = 0; i < 3; i++) {
-      vi.advanceTimersByTime(10);
+      clock.advance(10);
       expect(sentTypes(socket)).toHaveLength(i + 1);
       socket.emit('message', JSON.stringify({ type: 'pong', payload: { nonce: 'n' } }));
     }
@@ -855,48 +854,48 @@ describe('WsConnectionV1 heartbeat', () => {
 
   it('reaps the connection after two silent cycles', () => {
     const socket = new FakeSocket();
-    const conn = makeConn(socket, { heartbeatIntervalMs: 10 });
+    const conn = makeConn(socket, { clock, heartbeatIntervalMs: 10 });
     socket.sent = [];
 
-    vi.advanceTimersByTime(10);
+    clock.advance(10);
     expect(sentTypes(socket)).toEqual(['ping']);
     expect(socket.closeCalls).toHaveLength(0);
 
-    vi.advanceTimersByTime(10);
+    clock.advance(10);
     expect(socket.closeCalls).toEqual([{ code: 1001, reason: 'heartbeat timeout' }]);
     expect(sentTypes(socket)).toEqual(['ping']);
 
-    vi.advanceTimersByTime(100);
+    clock.advance(100);
     expect(sentTypes(socket)).toEqual(['ping']);
     expect(socket.closeCalls).toHaveLength(1);
   });
 
   it('treats any inbound frame — not just pong — as proof of life', () => {
     const socket = new FakeSocket();
-    const conn = makeConn(socket, { heartbeatIntervalMs: 10 });
+    const conn = makeConn(socket, { clock, heartbeatIntervalMs: 10 });
     socket.sent = [];
 
-    vi.advanceTimersByTime(15);
+    clock.advance(15);
     socket.emit('message', JSON.stringify({ type: 'some_future_frame', payload: {} }));
 
-    vi.advanceTimersByTime(20);
+    clock.advance(20);
     expect(sentTypes(socket)).toEqual(['ping', 'ping', 'ping']);
     expect(socket.closeCalls).toHaveLength(0);
 
-    vi.advanceTimersByTime(5);
+    clock.advance(5);
     expect(socket.closeCalls).toEqual([{ code: 1001, reason: 'heartbeat timeout' }]);
   });
 
   it('stops heartbeating once the socket closes on its own', () => {
     const socket = new FakeSocket();
-    makeConn(socket, { heartbeatIntervalMs: 10 });
+    makeConn(socket, { clock, heartbeatIntervalMs: 10 });
     socket.sent = [];
 
-    vi.advanceTimersByTime(10);
+    clock.advance(10);
     expect(sentTypes(socket)).toEqual(['ping']);
 
     socket.terminate();
-    vi.advanceTimersByTime(100);
+    clock.advance(100);
     expect(sentTypes(socket)).toEqual(['ping']);
     expect(socket.closeCalls).toHaveLength(0);
   });
@@ -966,7 +965,7 @@ describe('WsConnectionV1 global target registration', () => {
         payload: { client_id: 'kimi-inspect' },
       }),
     );
-    await vi.waitFor(() => expect(diOptIns).toEqual([conn]));
+    await waitForAssertion(() => expect(diOptIns).toEqual([conn]));
     conn.close();
   });
 });

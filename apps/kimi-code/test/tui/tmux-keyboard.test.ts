@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import {
   detectTmuxKeyboardWarning,
@@ -8,7 +8,7 @@ import {
 } from '#/tui/utils/tmux-keyboard';
 
 function optionReader(values: Record<string, string | undefined>): TmuxOptionReader {
-  return vi.fn(async (option: string) => values[option]);
+  return mock(async (option: string) => values[option]);
 }
 
 describe('tmux keyboard setup detection', () => {
@@ -76,7 +76,7 @@ describe('tmux keyboard setup detection', () => {
   });
 
   it('handles readOption rejection gracefully', async () => {
-    const readOption = vi.fn(async () => {
+    const readOption = mock(async () => {
       throw new Error('tmux disconnected');
     });
     await expect(

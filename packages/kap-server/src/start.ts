@@ -593,11 +593,10 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     return reply.type('application/json').send(openApiDocument);
   });
 
-  if (opts.webAssetsDir !== undefined) {
-    await registerWebAssetRoutes(app, opts.webAssetsDir);
-  }
-
   try {
+    if (opts.webAssetsDir !== undefined) {
+      await registerWebAssetRoutes(app, opts.webAssetsDir);
+    }
     await listenWithPortRetry({
       listen: (h, p) => app.listen({ host: h, port: p }),
       host,

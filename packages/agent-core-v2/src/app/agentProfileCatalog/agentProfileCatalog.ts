@@ -45,13 +45,6 @@ export interface EnvironmentDisclosureSnapshot {
 export interface SystemPromptRenderResult {
   readonly text: string;
   readonly environment: EnvironmentDisclosureSnapshot;
-  /**
-   * Variables whose value was supplied but which the chosen template never
-   * referenced. The renderer drops unknown variables silently by design (the
-   * same helper renders several templates), so callers that assemble a full
-   * system prompt surface the list as a warning instead of losing the content
-   * without a trace. Absent when nothing was dropped.
-   */
   readonly droppedVars?: readonly string[];
 }
 

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import type { WireRecord } from '#/wire/record';
 import { activeChain, parseTree, type WireLine, type WireTree } from '#/wire/tree/tree';

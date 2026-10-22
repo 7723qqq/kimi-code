@@ -39,7 +39,7 @@ export {
   readKimiDeviceId,
   replaceUserAgentProduct,
 } from './identity';
-export type { KimiHostIdentity, KimiIdentityOptions } from './identity';
+export type { KimiHostIdentity, KimiHostProbe, KimiIdentityOptions } from './identity';
 
 export { KIMI_CODE_FLOW_CONFIG } from './constants';
 

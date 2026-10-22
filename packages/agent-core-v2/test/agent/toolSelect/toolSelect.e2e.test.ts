@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { setEnv, restoreEnvs } from '#test/helpers/stubs';
 
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { IAgentConversationUndoService } from '#/agent/undo/undo';
@@ -90,7 +91,7 @@ describe('progressive tool disclosure end-to-end', () => {
   let registration: { dispose(): void } | undefined;
 
   beforeEach(async () => {
-    vi.stubEnv(TOOL_SELECT_FLAG_ENV, '1');
+    setEnv(TOOL_SELECT_FLAG_ENV, '1');
     ctx = createTestAgent();
     ctx.get(IAgentToolSelectService);
     ctx.get(IAgentToolSelectAnnouncementsService);
@@ -107,7 +108,7 @@ describe('progressive tool disclosure end-to-end', () => {
 
   afterEach(async () => {
     registration?.dispose();
-    vi.unstubAllEnvs();
+    restoreEnvs();
     await ctx.dispose();
   });
 

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, spyOn } from 'bun:test';
 
 import { derefJsonSchema, normalizeKimiToolSchema } from '#/providers/kimi-schema';
 
@@ -378,7 +378,7 @@ describe('normalizeKimiToolSchema', () => {
     // generates schemas where String-backed Swift enums incorrectly carry
     // type: 'object' alongside string enum values. We overwrite the contradictory
     // type and strip object/array structure keys that are no longer relevant.
-    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warnSpy = spyOn(console, 'warn').mockImplementation(() => {});
     const schema = {
       type: 'object',
       properties: {

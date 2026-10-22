@@ -2,10 +2,20 @@ import type { Readable } from 'node:stream';
 
 import type { ILogger } from '#/_base/log/log';
 import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
+import type { IHostTimerHandle, IHostTimers } from '#/os/interface/hostTimers';
 
 const GIT_TIMEOUT_MS = 5_000;
 const MAX_DIRTY_FILES = 20;
 const MAX_COMMIT_LINE_LENGTH = 200;
+
+const SYSTEM_HOST_TIMERS: IHostTimers = {
+  _serviceBrand: undefined,
+  setClampedTimeout: (callback, timeoutMs) => globalThis.setTimeout(callback, timeoutMs),
+  setTimeout: (callback, timeoutMs) => globalThis.setTimeout(callback, timeoutMs),
+  clearTimeout: (handle) => {
+    globalThis.clearTimeout(handle as ReturnType<typeof globalThis.setTimeout>);
+  },
+};
 
 const ALLOWED_HOSTS = [
   'github.com',
@@ -31,9 +41,10 @@ export async function collectGitContext(
   process: IHostProcessService,
   cwd: string,
   log?: ILogger,
+  timers?: IHostTimers,
 ): Promise<string> {
   const revParseArgs = ['rev-parse', '--is-inside-work-tree'] as const;
-  const revParse = await runGit(process, cwd, revParseArgs);
+  const revParse = await runGit(process, cwd, revParseArgs, timers);
   if (!revParse.ok) {
     if (revParse.kind === 'command-failed' && isNotARepo(revParse.stderr)) {
       return `<git-context status="unavailable" reason="not-a-repo"/>`;
@@ -49,7 +60,10 @@ export async function collectGitContext(
     ['log', '-3', '--format=%h %s'],
   ] as const;
   const [remote, branch, status, gitLog] = (await Promise.all(
-    commandArgs.map(async (args) => ({ args, result: await runGit(process, cwd, args) })),
+    commandArgs.map(async (args) => ({
+      args,
+      result: await runGit(process, cwd, args, timers),
+    })),
   )) as unknown as [TaggedGitResult, TaggedGitResult, TaggedGitResult, TaggedGitResult];
 
   for (const { args, result } of [remote, branch, status, gitLog]) {
@@ -169,7 +183,9 @@ async function runGit(
   process: IHostProcessService,
   cwd: string,
   args: readonly string[],
+  timers?: IHostTimers,
 ): Promise<GitResult> {
+  const hostTimers = timers ?? SYSTEM_HOST_TIMERS;
   let proc: IHostProcess | undefined;
   try {
     proc = await process.spawn('git', ['-C', cwd, ...args], { cwd });
@@ -183,11 +199,11 @@ async function runGit(
 
   const work = Promise.all([collectStream(proc.stdout), collectStream(proc.stderr), proc.wait()]);
   work.catch(() => {});
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  let timer: IHostTimerHandle | undefined;
   let timedOut = false;
   try {
     const timeout = new Promise<never>((_resolve, reject) => {
-      timer = setTimeout(() => {
+      timer = hostTimers.setTimeout(() => {
         timedOut = true;
         reject(new Error(`git ${args.join(' ')} timed out`));
       }, GIT_TIMEOUT_MS);
@@ -205,7 +221,7 @@ async function runGit(
     if (timedOut) return { ok: false, kind: 'timeout' };
     return { ok: false, kind: 'command-failed' };
   } finally {
-    if (timer !== undefined) clearTimeout(timer);
+    if (timer !== undefined) hostTimers.clearTimeout(timer);
     if (proc !== undefined) await disposeProcess(proc);
   }
 }

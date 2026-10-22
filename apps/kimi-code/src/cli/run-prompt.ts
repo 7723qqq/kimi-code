@@ -13,8 +13,11 @@
 import os from 'node:os';
 
 import { t } from '#/i18n';
+import { SYSTEM_RENDER_CLOCK, type RenderClock, type RenderTimerHandle } from '#/tui/utils/render-clock';
 
 import type { CLIOptions } from './options';
+
+export type PromptClock = Pick<RenderClock, 'setTimeout' | 'clearTimeout'>;
 
 /**
  * Await `promise`, but stop waiting after `timeoutMs`.
@@ -34,14 +37,18 @@ import type { CLIOptions } from './options';
  * alive until it fires, then gives the rejection a chance to surface. A wedged
  * cleanup is still bounded by `timeoutMs`, so this can't hang the run forever.
  */
-export async function raceWithTimeout(promise: Promise<void>, timeoutMs: number): Promise<void> {
+export async function raceWithTimeout(
+  promise: Promise<void>,
+  timeoutMs: number,
+  clock: PromptClock = SYSTEM_RENDER_CLOCK,
+): Promise<void> {
   // A non-positive timeout would make the timer fire immediately and silently
   // skip waiting entirely — reject clearly-invalid values instead.
   if (timeoutMs < 0) {
     throw new RangeError(`raceWithTimeout: timeoutMs must be >= 0, got ${timeoutMs}`);
   }
   let timedOut = false;
-  let timer: ReturnType<typeof setTimeout> | undefined;
+  let timer: RenderTimerHandle | undefined;
   // Attach the catch eagerly (synchronously) so `promise` is always consumed and
   // a late rejection can never become an unhandled rejection. Before the timeout
   // wins, the handler rethrows so a real cleanup failure still propagates.
@@ -50,7 +57,7 @@ export async function raceWithTimeout(promise: Promise<void>, timeoutMs: number)
     throw error;
   });
   const timedOutSignal = new Promise<void>((resolve) => {
-    timer = setTimeout(() => {
+    timer = clock.setTimeout(() => {
       timedOut = true;
       resolve();
     }, timeoutMs);
@@ -58,7 +65,7 @@ export async function raceWithTimeout(promise: Promise<void>, timeoutMs: number)
   try {
     await Promise.race([guarded, timedOutSignal]);
   } finally {
-    if (timer !== undefined) clearTimeout(timer);
+    if (timer !== undefined) clock.clearTimeout(timer);
   }
 }
 

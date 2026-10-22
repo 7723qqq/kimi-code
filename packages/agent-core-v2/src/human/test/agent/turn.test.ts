@@ -1,25 +1,17 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
-import {
-  createTurnMachine,
-  createUserEntry,
-  type CreateTurnMachineOptions,
-  type TurnEvent,
-  type TurnInput,
-  type TurnLlmEvent,
-  type TurnOutput,
-} from '#/agent/turn';
+import { createTurnMachine, createUserEntry, type CreateTurnMachineOptions, type TurnEvent, type TurnInput, type TurnLlmEvent, type TurnOutput } from '#/agent/turn';
 import { credentialsRecovery } from '#/credentials/credentials';
 import { UNKNOWN_CAPABILITY } from '#/llm/capability';
-import type { LlmErrorMessage } from '#/llm/errors';
+import { LlmErrorMessage } from '#/llm/errors';
 import { createMediaDegradeRecovery } from '#/llm/media/degrade';
-import type { ContentPart, Message, UserMessage } from '#/llm/message';
-import type { LlmModel } from '#/llm/model';
+import { ContentPart, Message, UserMessage } from '#/llm/message';
+import { LlmModel } from '#/llm/model';
 import { createRequestActor, type LlmEvent } from '#/llm/requester/actor';
-import type { LlmRecovery } from '#/llm/requester/recovery';
-import type { LlmCredentialProvider, LlmRequester } from '#/llm/requester/requester';
-import type { LlmRetryOptions } from '#/llm/requester/retry';
-import { assign, createActor, emit, setup } from '#/xstate2';
+
+import { LlmCredentialProvider, LlmRequester } from '#/llm/requester/requester';
+
+import { assign, createActor, emit, setup, SimulatedClock } from '#/xstate2';
 
 const model: LlmModel = { provider: 'test', model: 'test-model', capability: UNKNOWN_CAPABILITY };
 
@@ -121,8 +113,10 @@ function startTurnActor(
   const recovering: RecoveringEvent[] = [];
   const sent: SentEvent[] = [];
   const failed: unknown[] = [];
+  const clock = new SimulatedClock();
   const actor = createActor(harness, {
     input: { request: { model }, history: [], ...turnInput },
+    clock,
   });
   actor.on('llm.retrying', (event) => retrying.push(event));
   actor.on('llm.recovering', (event) => recovering.push(event));
@@ -130,7 +124,7 @@ function startTurnActor(
   actor.on('llm.failed.syntax', (event) => failed.push(event.error));
   actor.on('llm.failed.remote', (event) => failed.push(event.error));
   actor.start();
-  return { actor, retrying, recovering, sent, failed };
+  return { actor, clock, retrying, recovering, sent, failed };
 }
 
 function startRequestActor(requester: LlmRequester, signal: AbortSignal) {
@@ -165,14 +159,23 @@ function startRequestActor(requester: LlmRequester, signal: AbortSignal) {
     },
   });
   const failed: unknown[] = [];
-  const actor = createActor(harness, { input: { signal } });
+  const actor = createActor(harness, { input: { signal }, clock: new SimulatedClock() });
   actor.on('llm.failed.remote', (event) => failed.push(event));
   actor.start();
   return { failed };
 }
 
+async function flushPendingWork(): Promise<void> {
+  for (let index = 0; index < 4; index += 1) {
+    await Promise.resolve();
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+  }
+}
+
 async function flush(): Promise<void> {
-  await vi.advanceTimersByTimeAsync(0);
+  await flushPendingWork();
 }
 
 async function drain(): Promise<void> {
@@ -181,15 +184,13 @@ async function drain(): Promise<void> {
   }
 }
 
+async function advance(clock: SimulatedClock, byMs: number): Promise<void> {
+  await flushPendingWork();
+  clock.increment(byMs);
+  await flushPendingWork();
+}
+
 describe('turn machine llm retry', () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
   it('retries retryable errors and succeeds', async () => {
     const { requester, calls } = createStubRequester([
       'empty',
@@ -199,7 +200,7 @@ describe('turn machine llm retry', () => {
       { kind: 'provider', message: 'Error: upstream error, status_code=429: too many requests' },
       'ok',
     ]);
-    const { actor, retrying, failed } = startTurnActor(requester, {
+    const { actor, clock, retrying, failed } = startTurnActor(requester, {
       retry: { maxAttemptsPerStep: 6 },
     });
 
@@ -214,7 +215,7 @@ describe('turn machine llm retry', () => {
     expect(retrying[0]?.errorMessage).toContain('empty response (no content, no tool calls)');
     expect(retrying[0]?.errorMessage).toContain('Provider: test, model: test-model');
 
-    await vi.advanceTimersByTimeAsync((retrying[0] as RetryingEvent).delayMs + 1);
+    await advance(clock, (retrying[0] as RetryingEvent).delayMs + 1);
     await flush();
     expect(retrying).toHaveLength(2);
     expect(retrying[1]).toMatchObject({
@@ -225,7 +226,7 @@ describe('turn machine llm retry', () => {
     });
     expect(retrying[1]?.errorMessage).toContain('only thinking content');
 
-    await vi.advanceTimersByTimeAsync((retrying[1] as RetryingEvent).delayMs + 1);
+    await advance(clock, (retrying[1] as RetryingEvent).delayMs + 1);
     await flush();
     expect(retrying).toHaveLength(3);
     expect(retrying[2]).toMatchObject({
@@ -236,7 +237,7 @@ describe('turn machine llm retry', () => {
       errorName: 'status',
     });
 
-    await vi.advanceTimersByTimeAsync((retrying[2] as RetryingEvent).delayMs + 1);
+    await advance(clock, (retrying[2] as RetryingEvent).delayMs + 1);
     await flush();
     expect(retrying).toHaveLength(4);
     expect(retrying[3]).toMatchObject({
@@ -246,7 +247,7 @@ describe('turn machine llm retry', () => {
       statusCode: 500,
     });
 
-    await vi.advanceTimersByTimeAsync((retrying[3] as RetryingEvent).delayMs + 1);
+    await advance(clock, (retrying[3] as RetryingEvent).delayMs + 1);
     await flush();
     expect(retrying).toHaveLength(5);
     expect(retrying[4]).toMatchObject({
@@ -256,7 +257,7 @@ describe('turn machine llm retry', () => {
       errorName: 'provider',
     });
 
-    await vi.advanceTimersByTimeAsync((retrying[4] as RetryingEvent).delayMs + 1);
+    await advance(clock, (retrying[4] as RetryingEvent).delayMs + 1);
     await flush();
     expect(actor.getSnapshot().context.turnOutput).toMatchObject({ type: 'done' });
     expect(calls()).toBe(6);
@@ -269,14 +270,14 @@ describe('turn machine llm retry', () => {
       statusError(503, 'unavailable'),
       statusError(503, 'unavailable'),
     ]);
-    const { actor, retrying, failed } = startTurnActor(requester, {
+    const { actor, clock, retrying, failed } = startTurnActor(requester, {
       retry: { maxAttemptsPerStep: 3 },
     });
 
     await flush();
-    await vi.advanceTimersByTimeAsync((retrying[0] as RetryingEvent).delayMs + 1);
+    await advance(clock, (retrying[0] as RetryingEvent).delayMs + 1);
     await flush();
-    await vi.advanceTimersByTimeAsync((retrying[1] as RetryingEvent).delayMs + 1);
+    await advance(clock, (retrying[1] as RetryingEvent).delayMs + 1);
     await flush();
 
     expect(retrying).toHaveLength(2);
@@ -332,13 +333,13 @@ describe('turn machine llm retry', () => {
 
   it('retries a non-retryable error when infiniteRetry is on', async () => {
     const { requester, calls } = createStubRequester([statusError(400, 'bad request'), 'ok']);
-    const { actor, retrying } = startTurnActor(requester, { retry: { infiniteRetry: true } });
+    const { actor, clock, retrying } = startTurnActor(requester, { retry: { infiniteRetry: true } });
 
     await flush();
     expect(retrying).toHaveLength(1);
     expect(retrying[0]).toMatchObject({ failedAttempt: 1, nextAttempt: 2, maxAttempts: 10 });
 
-    await vi.advanceTimersByTimeAsync((retrying[0] as RetryingEvent).delayMs + 1);
+    await advance(clock, (retrying[0] as RetryingEvent).delayMs + 1);
     await flush();
     expect(actor.getSnapshot().context.turnOutput).toMatchObject({ type: 'done' });
     expect(calls()).toBe(2);
@@ -480,14 +481,6 @@ function mediaHistory(messages: readonly UserMessage[]): Partial<TurnInput> {
 }
 
 describe('turn machine media recovery', () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
   it('degrades then strips media across request_too_large failures before failing', async () => {
     const messages = [mediaMessage('a', 2), mediaMessage('b', 1), mediaMessage('c', 1)];
     const { requester, calls, seen } = createCapturingRequester([
@@ -574,14 +567,6 @@ describe('turn machine media recovery', () => {
 });
 
 describe('turn machine credential recovery', () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-
-  afterEach(() => {
-    vi.useRealTimers();
-  });
-
   function createCredentials(onInvalidate: () => void): {
     provider: LlmCredentialProvider;
     tokens: readonly string[];

@@ -90,11 +90,6 @@ async function loadFrom(
     const trimmed = text.trim();
     if (trimmed.length === 0) return undefined;
     if (trimmed.length > MAX_ADAPTATION_BYTES) {
-      // Truncate at a section boundary rather than dropping the file. These
-      // files are hand-written and split by `##`, so cutting at one keeps whole
-      // guidance sections instead of discarding all of them; silently losing the
-      // entire adaptation because the last paragraph ran long is the worse
-      // failure of the two.
       const truncated = truncateAtSection(trimmed, MAX_ADAPTATION_BYTES);
       log?.warn(
         `model adaptation ${match} exceeds ${MAX_ADAPTATION_BYTES} bytes; truncated to ${truncated.length}`,
@@ -108,20 +103,6 @@ async function loadFrom(
   }
 }
 
-/**
- * Keep as many leading `##` sections as fit in `limit`.
- *
- * Falls back to a hard cut only when even the first section does not fit, so a
- * caller always gets the beginning of the file — which is where the most
- * important guidance sits in practice — rather than nothing.
- *
- * A `##` line inside a fenced code block is content, not a section boundary:
- * these files quote example prompts in fences, and treating a quoted heading as
- * a boundary could cut inside the block, leaving the fence unterminated and the
- * remainder of the guidance framed as code. Fences are tracked so only real
- * headings split the file. Indented code blocks need no handling — their lines
- * start with whitespace and cannot match a heading at all.
- */
 export function truncateAtSection(text: string, limit: number): string {
   if (text.length <= limit) return text;
   const boundaries: number[] = [];
@@ -139,9 +120,6 @@ export function truncateAtSection(text: string, limit: number): string {
         openFenceAt = offset;
       } else if (marker[0] === fence) {
         fence = undefined;
-        // Record the span, not just the open offset: the cut has to be able to
-        // ask "does the limit fall inside *this* fence", including one that
-        // closes further down the file.
         fenceSpans.push({ start: openFenceAt, end: offset + line.length });
         openFenceAt = -1;
       }
@@ -160,10 +138,6 @@ export function truncateAtSection(text: string, limit: number): string {
   }
   if (cut > 0) return text.slice(0, cut).trimEnd();
 
-  // Hard cut. If the limit lands inside a fence the result would swallow
-  // everything after it as code, so start the cut at the fence opening instead.
-  // A fence that opens at the very beginning leaves nothing to keep, so that
-  // case falls through to the plain cut rather than returning an empty string.
   const enclosing = fenceSpans.find(
     (span) => span.start > 0 && span.start < limit && limit < span.end,
   );
@@ -183,20 +157,10 @@ export function renderCuratedAdaptation(model: string, adaptation: string): stri
   ].join('\n');
 }
 
-/** True when the family ships hand-authored guidance at all. */
 export function hasCuratedAdaptation(name: string): boolean {
   return resolveModelFamily(name)?.curatedAdaptation === true;
 }
 
-/**
- * True when the family's guidance is delivered by the per-agent reminder rather
- * than as a system-prompt section.
- *
- * A `minimal` prompt shape has no `${model_adaptation_section}` placeholder, so
- * the prompt path could only load the file and then have the template discard
- * it — which is also why the two channels are defined as complementary: a family
- * is served by exactly one of them.
- */
 export function adaptationDeliveredByReminder(name: string): boolean {
   return hasCuratedAdaptation(name) && promptShapeForModel(name) === 'minimal';
 }

@@ -1,8 +1,9 @@
 import { mkdtempSync } from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
+import { resolve as resolveNativePath, sep } from 'node:path';
 import { join } from 'pathe';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 import { ErrorCodes, Error2 } from '#/errors';
 import { loadMcpServers, resolveMcpJsonPaths } from '#/app/mcpConfig/configLoader';
@@ -219,7 +220,7 @@ describe('loadMcpServers', () => {
     expect(servers['absolute']).toEqual({
       transport: 'stdio',
       command: 'node',
-      cwd: '/tmp/mcp-workdir',
+      cwd: resolveNativePath(repoRoot, '/tmp/mcp-workdir').split(sep).join('/'),
     });
     expect(servers['remote']).toEqual({
       transport: 'http',

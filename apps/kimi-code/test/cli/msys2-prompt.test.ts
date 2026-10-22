@@ -3,7 +3,7 @@ import { access, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import {
   createMsys2PromptDeps,
@@ -145,7 +145,7 @@ describe('installMsys2', () => {
   });
 
   it('installs via winget and verifies the bash path', async () => {
-    const runCommand = vi.fn(async () => 0);
+    const runCommand = mock(async () => 0);
     const deps = makeDeps({
       resolveCommand: (cmd) => (cmd === 'winget' ? 'C:\\winget\\winget.exe' : undefined),
       runCommand,
@@ -184,7 +184,7 @@ describe('setUserShellPath', () => {
   });
 
   it('runs setx with the shell path and reports success', () => {
-    const runCommandSync = vi.fn(() => 0);
+    const runCommandSync = mock(() => 0);
     const deps = makeDeps({
       resolveCommand: (cmd) => (cmd === 'setx' ? 'C:\\Windows\\System32\\setx.exe' : undefined),
       runCommandSync,

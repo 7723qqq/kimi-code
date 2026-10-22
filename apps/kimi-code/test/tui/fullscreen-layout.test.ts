@@ -15,7 +15,7 @@ import {
  * shrink distribution with no minSize, so a tall transcript crushed it and
  * the editor's bottom border row was clipped off screen.
  */
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock, spyOn } from 'bun:test';
 
 import { GutterContainer } from '#/tui/components/chrome/gutter-container';
 import { MoonLoader } from '#/tui/components/chrome/moon-loader';
@@ -165,7 +165,7 @@ describe('fullscreen layout', () => {
 
     alt.scrollToBottom();
     await vt.waitForRender();
-    const write = vi.spyOn(vt, 'write');
+    const write = spyOn(vt, 'write');
     vt.sendInput('\u001B[102;6u');
     vt.sendInput('four');
     await vt.waitForRender();
@@ -208,7 +208,7 @@ describe('fullscreen layout', () => {
     vt.sendInput(`\u001B[<32;${CHROME_GUTTER + 5};3M`);
     vt.sendInput(`\u001B[<0;${CHROME_GUTTER + 5};3m`);
     await vt.waitForRender();
-    const write = vi.spyOn(vt, 'write');
+    const write = spyOn(vt, 'write');
     const copiedAlpha = `\u001B]52;c;${Buffer.from('alpha').toString('base64')}\u0007`;
     await alt.copyActiveSelectionToClipboard();
     expect(write).toHaveBeenCalledWith(copiedAlpha);
@@ -241,7 +241,7 @@ describe('fullscreen layout', () => {
     state.transcriptContainer.addChild(new Text('body\n'.repeat(40), 0, 0));
     const alt = state.ui as TuiAltScreen;
     alt.renderNow();
-    const write = vi.spyOn(vt, 'write');
+    const write = spyOn(vt, 'write');
     vt.sendInput('\u001B[102;6u');
     vt.sendInput('needle');
     await vt.waitForRender();
@@ -289,7 +289,7 @@ describe('fullscreen layout', () => {
     state.transcriptContainer.addChild(new Text('body\n'.repeat(40), 0, 0));
     const alt = state.ui as TuiAltScreen;
     alt.renderNow();
-    const measure = vi.spyOn(userMessages, 'userMessageLineHeights');
+    const measure = spyOn(userMessages, 'userMessageLineHeights');
     try {
       vt.resize(60, HEIGHT);
       await vt.waitForRender();
@@ -311,7 +311,7 @@ describe('fullscreen layout', () => {
     const { state, vt } = await mountFullscreen();
     const alt = state.ui as TuiAltScreen;
     const takeover = beginScreenTakeover(alt, new Text('temporary viewer', 0, 0));
-    const render = vi.spyOn(state.transcriptContainer, 'render');
+    const render = spyOn(state.transcriptContainer, 'render');
     state.transcriptContainer.addChild(new Text('body\n'.repeat(40), 0, 0));
     alt.renderNow();
     await vt.flush();
@@ -346,7 +346,7 @@ describe('fullscreen layout', () => {
     const dispose = alt.addLayoutEffect(() =>
       passes.push({ top: scroll.scrollTop, height: scroll.viewportHeight }),
     );
-    const write = vi.spyOn(vt, 'write');
+    const write = spyOn(vt, 'write');
     alt.renderNow();
     await vt.flush();
     expect(write.mock.calls.filter(([data]) => data.includes('\u001B[?2026h'))).toHaveLength(1);
@@ -849,7 +849,7 @@ describe('fullscreen layout', () => {
       { title: 'todo one', status: 'pending' },
       { title: 'todo two', status: 'in_progress' },
     ]);
-    const onRespond = vi.fn();
+    const onRespond = mock();
     const data = {
       id: 'req-1',
       tool_call_id: 'tc-1',

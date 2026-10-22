@@ -5,11 +5,13 @@ import { join } from 'node:path';
 import { IConfigService } from '@moonshot-ai/agent-core-v2';
 import { IFeatureManager } from '@moonshot-ai/agent-core-v2/app/feature/featureManager';
 import { getFeatureRecipes } from '@moonshot-ai/agent-core-v2/features/featureRegistry';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+import { removeTempHome } from './helpers/tempHome';
 
 import { type RunningServer, startServer } from '../src/start';
 import { authedFetch } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
+import { setEnv, restoreEnvs } from './helpers/stubs';
 
 interface MetaBody {
   code: number;
@@ -32,12 +34,12 @@ describe('/api/v1/meta experimental_flags', () => {
   });
 
   beforeEach(() => {
-    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
-    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_TOOL_SELECT', undefined);
+    setEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '0');
+    setEnv('KIMI_CODE_EXPERIMENTAL_TOOL_SELECT', undefined);
   });
 
   afterEach(async () => {
-    vi.unstubAllEnvs();
+    restoreEnvs();
   });
 
   afterAll(async () => {
@@ -46,7 +48,7 @@ describe('/api/v1/meta experimental_flags', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      await removeTempHome(home);
       home = undefined;
     }
   });
@@ -79,7 +81,7 @@ describe('/api/v1/meta experimental_flags', () => {
   });
 
   it('reflects a flag enabled via its KIMI_CODE_EXPERIMENTAL_* env var', async () => {
-    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_TOOL_SELECT', '1');
+    setEnv('KIMI_CODE_EXPERIMENTAL_TOOL_SELECT', '1');
     const base = await boot();
     const flags = await getMetaFlags(base);
     expect(flags['tool_select']).toBe(true);
@@ -100,7 +102,7 @@ describe('/api/v1/meta experimental_flags', () => {
   });
 
   it('keeps an env-forced flag on when the config section disables it', async () => {
-    vi.stubEnv('KIMI_CODE_EXPERIMENTAL_TOOL_SELECT', '1');
+    setEnv('KIMI_CODE_EXPERIMENTAL_TOOL_SELECT', '1');
     const base = await boot();
 
     const res = await authedFetch(server as RunningServer, base, '/api/v1/config', {
@@ -124,7 +126,7 @@ describe('/api/v1/meta web_title', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      await removeTempHome(home);
       home = undefined;
     }
   });
@@ -187,7 +189,7 @@ describe('/api/v1/meta features', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      await removeTempHome(home);
       home = undefined;
     }
   });
@@ -209,7 +211,7 @@ describe('/api/v1/meta features', () => {
     const base = await boot();
     const features = await getMetaFeatures(base);
     const expected = getFeatureRecipes()
-      .map((recipe) => recipe.name)
+      .flatMap((recipe) => (recipe.name === undefined ? [] : [recipe.name]))
       .sort();
     expect(features.map((feature) => feature.name).sort()).toEqual(expected);
     for (const feature of features) {

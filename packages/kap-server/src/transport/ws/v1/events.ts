@@ -178,6 +178,7 @@ export interface TaskInfoBase {
   readonly stopReason?: string;
   readonly terminalNotificationSuppressed?: boolean;
   readonly timeoutMs?: number;
+  readonly outputPath?: string;
 }
 
 export interface ProcessTaskInfo extends TaskInfoBase {

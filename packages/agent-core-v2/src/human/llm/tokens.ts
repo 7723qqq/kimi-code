@@ -12,15 +12,6 @@ const messageTokenEstimateCache = new WeakMap<EstimableMessage, number>();
 
 export const MEDIA_TOKEN_ESTIMATE = 2000;
 
-/**
- * Estimate image tokens for a family's vision accounting.
- *
- * This is a heuristic derived from the family constants, calibrated against a
- * live endpoint — not a reproduction of a published spec, and therefore not
- * exact. The families that use it do not publish a formula. `fallbackTokens`
- * (used when dimensions are unknown) and `tokenCap` (the grid ceiling) are
- * independent knobs: see the pricing tests that pin them separately.
- */
 export function imageTokensFor(
   pricing: ImageTokenPricing,
   dimensions?: { readonly width: number; readonly height: number },

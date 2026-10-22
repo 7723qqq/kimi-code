@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { mcpOAuthStoreKey } from '@moonshot-ai/agent-core-v2/mcpCore/oauth/store';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 import { createKimiHarness, KimiHarness, SDKRpcClientBase } from '#/index';
 

@@ -2,7 +2,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
 
 import { log } from '#/logging/logger';
 import { limitAgentReplayByTurns, type AgentReplayRecord } from '#/replay';
@@ -12,7 +12,7 @@ import { v2MetaToSessionMeta } from '#/v2/session-mapper';
 const tempDirs: string[] = [];
 
 afterEach(async () => {
-  vi.restoreAllMocks();
+  mock.restore();
   for (const dir of tempDirs.splice(0)) {
     await rm(dir, { recursive: true, force: true });
   }
@@ -194,7 +194,7 @@ describe('foldAgentWireReplay corruption handling', () => {
       ].join('\n') + '\n',
       'utf-8',
     );
-    const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
+    const warn = spyOn(log, 'warn').mockImplementation(() => {});
 
     const folded = await foldAgentWireReplay(wirePath);
 
@@ -217,7 +217,7 @@ describe('foldAgentWireReplay corruption handling', () => {
         '{"type":"permission.set_mode","mode":"yo',
       'utf-8',
     );
-    const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
+    const warn = spyOn(log, 'warn').mockImplementation(() => {});
 
     const folded = await foldAgentWireReplay(wirePath);
 
@@ -236,7 +236,7 @@ describe('foldAgentWireReplay corruption handling', () => {
       ].join('\n') + '\n',
       'utf-8',
     );
-    const warn = vi.spyOn(log, 'warn').mockImplementation(() => {});
+    const warn = spyOn(log, 'warn').mockImplementation(() => {});
 
     await expect(foldAgentWireReplay(wirePath)).resolves.toEqual({
       replay: [],

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import type { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import type { PermissionMode } from '#/agent/permissionPolicy/types';
@@ -27,8 +27,8 @@ function todoService(): IAgentTodoService {
     _serviceBrand: undefined,
     onDidChange: () => ({ dispose: () => {} }),
     get: () => [],
-    replace: vi.fn(async () => {}),
-    clear: vi.fn(async () => {}),
+    replace: mock(async () => {}),
+    clear: mock(async () => {}),
   };
 }
 
@@ -42,7 +42,7 @@ function planService(): IAgentPlanService {
     enter: async () => {},
     cancel: () => {},
     clear: async () => {},
-    exit: vi.fn(),
+    exit: mock(),
     recordRevision: async () => {},
     status: async () =>
       ({
@@ -56,7 +56,7 @@ function planService(): IAgentPlanService {
 function recordingTelemetry(): ITelemetryService {
   return {
     _serviceBrand: undefined,
-    track2: vi.fn(),
+    track2: mock(),
     withContext: () => recordingTelemetry(),
     setContext: () => {},
     getContext: () => ({}),
@@ -171,7 +171,7 @@ describe('ExitPlanMode options schema', () => {
 
 describe('ExitPlanMode option output', () => {
   it('treats a single option as plain plan approval', async () => {
-    const exit = vi.fn();
+    const exit = mock();
     const telemetry = recordingTelemetry();
 
     const result = await executeTool(
@@ -248,7 +248,7 @@ describe('ExitPlanMode option output', () => {
   });
 
   it('records a revision once per submission when the review display resolves', async () => {
-    const recordRevision = vi.fn(async () => {});
+    const recordRevision = mock(async () => {});
     const service: IAgentPlanService = { ...planService(), recordRevision };
 
     const result = await executeTool(
@@ -266,7 +266,7 @@ describe('ExitPlanMode option output', () => {
   });
 
   it('still submits when revision recording fails', async () => {
-    const recordRevision = vi.fn(async () => {
+    const recordRevision = mock(async () => {
       throw new Error('disk full');
     });
     const service: IAgentPlanService = { ...planService(), recordRevision };
@@ -289,7 +289,7 @@ describe('ExitPlanMode option output', () => {
   });
 
   it('skips revision recording when the plan content is empty', async () => {
-    const recordRevision = vi.fn(async () => {});
+    const recordRevision = mock(async () => {});
     const service: IAgentPlanService = {
       ...planService(),
       recordRevision,
@@ -312,7 +312,7 @@ describe('ExitPlanMode option output', () => {
   });
 
   it('seeds the todo list from the approved plan on exit', async () => {
-    const replace = vi.fn<(todos: readonly TodoItem[]) => Promise<void>>(async () => {});
+    const replace = mock<(todos: readonly TodoItem[]) => Promise<void>>(async () => {});
     const structuredPlan = [
       '## Implement feature',
       '- Read current module',
@@ -352,7 +352,7 @@ describe('ExitPlanMode option output', () => {
   });
 
   it('does not overwrite an existing todo list when exiting plan mode', async () => {
-    const replace = vi.fn(async () => {});
+    const replace = mock(async () => {});
     const service: IAgentPlanService = {
       ...planService(),
       status: () =>

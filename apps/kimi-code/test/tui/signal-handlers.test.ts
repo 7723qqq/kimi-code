@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn, type Mock } from 'bun:test';
 
 import { KimiTUI, type KimiTUIStartupInput, type TUIState } from '#/tui/kimi-tui';
 
@@ -41,24 +41,24 @@ function makeStartupInput(): KimiTUIStartupInput {
 
 function makeHarness() {
   return {
-    getConfig: vi.fn(async () => ({})),
-    createSession: vi.fn(),
-    resumeSession: vi.fn(),
-    listSessions: vi.fn(async () => []),
-    close: vi.fn(async () => {}),
-    track: vi.fn(),
-    setTelemetryContext: vi.fn(),
-    getWorkspaceTrustInfo: vi.fn(async () => ({
+    getConfig: mock(async () => ({})),
+    createSession: mock(),
+    resumeSession: mock(),
+    listSessions: mock(async () => []),
+    close: mock(async () => {}),
+    track: mock(),
+    setTelemetryContext: mock(),
+    getWorkspaceTrustInfo: mock(async () => ({
       trusted: true,
       gatedMcpServers: [],
       gatedAdditionalDirs: [], additionalDirSources: [], warnings: [],
       instructionSources: { agentsMdPaths: [], skills: [], agentProfiles: [], paths: [] },
     })),
     auth: {
-      status: vi.fn(async () => ({ providers: [] })),
-      login: vi.fn(),
-      logout: vi.fn(),
-      getManagedUsage: vi.fn(),
+      status: mock(async () => ({ providers: [] })),
+      login: mock(),
+      logout: mock(),
+      getManagedUsage: mock(),
     },
   };
 }
@@ -71,7 +71,7 @@ function makeDriver(): { driver: SignalDriver; tui: KimiTUI } {
 
 // Capture handlers via process.prependListener spy so we can invoke them
 // directly without going through `process.emit`. Routing through emit also
-// fires unrelated listeners that vitest installs on its worker process, and
+// fires unrelated listeners the test runner installs on its worker process, and
 // those listeners exit the worker.
 interface CapturedHandlers {
   signalHandlers: Map<NodeJS.Signals, (...args: unknown[]) => void>;
@@ -84,7 +84,7 @@ function captureHandlers(driver: SignalDriver): CapturedHandlers {
   const signalHandlers = new Map<NodeJS.Signals, (...args: unknown[]) => void>();
   // The Node typings give `process.prependListener` a long list of overloads
   // (one per signal). We bypass that by typing the spy through `unknown`.
-  const prependSpy = vi.spyOn(process, 'prependListener');
+  const prependSpy = spyOn(process, 'prependListener');
   (prependSpy as unknown as { mockImplementation: (fn: unknown) => unknown }).mockImplementation(
     (event: string | symbol, listener: (...args: unknown[]) => void): NodeJS.Process => {
       if (event === 'SIGTERM' || event === 'SIGHUP') {
@@ -96,7 +96,7 @@ function captureHandlers(driver: SignalDriver): CapturedHandlers {
 
   let stdoutErrorHandler: ((error: Error) => void) | undefined;
   let stderrErrorHandler: ((error: Error) => void) | undefined;
-  const stdoutOnSpy = vi.spyOn(process.stdout, 'on');
+  const stdoutOnSpy = spyOn(process.stdout, 'on');
   (stdoutOnSpy as unknown as { mockImplementation: (fn: unknown) => unknown }).mockImplementation(
     (event: string | symbol, listener: (...args: unknown[]) => void) => {
       if (event === 'error') {
@@ -105,7 +105,7 @@ function captureHandlers(driver: SignalDriver): CapturedHandlers {
       return process.stdout;
     },
   );
-  const stderrOnSpy = vi.spyOn(process.stderr, 'on');
+  const stderrOnSpy = spyOn(process.stderr, 'on');
   (stderrOnSpy as unknown as { mockImplementation: (fn: unknown) => unknown }).mockImplementation(
     (event: string | symbol, listener: (...args: unknown[]) => void) => {
       if (event === 'error') {
@@ -134,12 +134,11 @@ function captureHandlers(driver: SignalDriver): CapturedHandlers {
 }
 
 describe('KimiTUI signal handlers', () => {
-  let exitSpy: ReturnType<typeof vi.spyOn>;
+  let exitSpy: Mock<(...args: any[]) => any>;
   let platformDescriptor: PropertyDescriptor | undefined;
 
   beforeEach(() => {
-    exitSpy = vi
-      .spyOn(process, 'exit')
+    exitSpy = spyOn(process, 'exit')
       .mockImplementation((() => undefined) as unknown as typeof process.exit);
     platformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform');
   });
@@ -180,7 +179,7 @@ describe('KimiTUI signal handlers', () => {
   it('SIGHUP handler calls emergencyTerminalExit (process.exit(129)) without going through stop()', () => {
     Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
     const { driver, tui } = makeDriver();
-    const stopSpy = vi.spyOn(tui, 'stop').mockResolvedValue(undefined);
+    const stopSpy = spyOn(tui, 'stop').mockResolvedValue(undefined);
     const captured = captureHandlers(driver);
 
     const sighup = captured.signalHandlers.get('SIGHUP');
@@ -198,7 +197,7 @@ describe('KimiTUI signal handlers', () => {
   it('SIGTERM handler falls back to emergency exit (code 143) when stop() rejects', async () => {
     Object.defineProperty(process, 'platform', { value: 'darwin', configurable: true });
     const { driver, tui } = makeDriver();
-    const stopSpy = vi.spyOn(tui, 'stop').mockRejectedValue(new Error('cleanup boom'));
+    const stopSpy = spyOn(tui, 'stop').mockRejectedValue(new Error('cleanup boom'));
     const captured = captureHandlers(driver);
 
     const sigterm = captured.signalHandlers.get('SIGTERM');
@@ -227,7 +226,7 @@ describe('KimiTUI signal handlers', () => {
     // `stop()` resolving without exiting models the defensive fallback path
     // where `onExit` was not wired up. The handler must still exit 143 so
     // supervisors see signal termination.
-    const stopSpy = vi.spyOn(tui, 'stop').mockResolvedValue(undefined);
+    const stopSpy = spyOn(tui, 'stop').mockResolvedValue(undefined);
     const captured = captureHandlers(driver);
 
     const sigterm = captured.signalHandlers.get('SIGTERM');
@@ -299,7 +298,7 @@ describe('KimiTUI signal handlers', () => {
   it('stop() unregisters previously-installed signal handlers', async () => {
     const { driver, tui } = makeDriver();
     // Suppress real stop work for this test — focus on the cleanup contract.
-    vi.spyOn(tui, 'stop').mockImplementation(async () => {
+    spyOn(tui, 'stop').mockImplementation(async () => {
       (tui as unknown as SignalDriver).unregisterSignalHandlers();
     });
     const beforeSigterm = process.listenerCount('SIGTERM');
@@ -313,23 +312,22 @@ describe('KimiTUI signal handlers', () => {
   it('stop() drains terminal input before stopping the UI and exiting', async () => {
     const { driver, tui } = makeDriver();
     const events: string[] = [];
-    const drainInput = vi
-      .spyOn(driver.state.terminal, 'drainInput')
+    const drainInput = spyOn(driver.state.terminal, 'drainInput')
       .mockImplementation(async () => {
         events.push('drain');
       });
-    const uiStop = vi.spyOn(driver.state.ui, 'stop').mockImplementation(() => {
+    const uiStop = spyOn(driver.state.ui, 'stop').mockImplementation(() => {
       events.push('ui.stop');
     });
-    tui.onExit = vi.fn(async () => {
+    tui.onExit = mock(async () => {
       events.push('exit');
     });
 
     await tui.stop();
 
-    expect(drainInput).toHaveBeenCalledOnce();
-    expect(uiStop).toHaveBeenCalledOnce();
-    expect(tui.onExit).toHaveBeenCalledOnce();
+    expect(drainInput).toHaveBeenCalledTimes(1);
+    expect(uiStop).toHaveBeenCalledTimes(1);
+    expect(tui.onExit).toHaveBeenCalledTimes(1);
     expect(events).toEqual(['drain', 'ui.stop', 'exit']);
   });
 
@@ -338,13 +336,13 @@ describe('KimiTUI signal handlers', () => {
     // Force the very first awaited call inside start() to reject. We don't
     // care which method blows up — only that the failure surfaces and any
     // listeners we installed up front get cleaned up before the throw escapes.
-    vi.spyOn(
+    spyOn(
       tui as unknown as { initMainTui(): Promise<boolean> },
       'initMainTui',
     ).mockRejectedValue(new Error('init boom'));
     // Stub state.ui.stop so the failure-path cleanup does not touch the real
     // event loop.
-    vi.spyOn(
+    spyOn(
       (tui as unknown as { state: { ui: { stop(): void } } }).state.ui,
       'stop',
     ).mockImplementation(() => {});

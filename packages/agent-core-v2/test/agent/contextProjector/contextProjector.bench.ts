@@ -1,4 +1,5 @@
-import { bench, describe } from 'vitest';
+import { describe } from 'bun:test';
+import { bench, reportBenchResults } from '../../_support/bench';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
@@ -221,3 +222,5 @@ describe(`adjacent user-prompt merging (${MERGE_HEAVY.length} messages x 500 cha
     projector.project(MERGE_HEAVY);
   }, OPTIONS);
 });
+
+reportBenchResults();

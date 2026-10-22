@@ -2,7 +2,7 @@ import assert from "node:assert";
 import { mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, it } from "node:test";
+import { describe, it } from "bun:test";
 import type { Terminal as XtermTerminalType } from "@xterm/headless";
 import { Image } from "../src/components/image.ts";
 import { Text } from "../src/components/text.ts";

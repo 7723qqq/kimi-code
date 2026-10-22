@@ -1,39 +1,27 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { DisposableStore, toDisposable, type IDisposable } from '#/_base/di/lifecycle';
 import { createServices, type ServiceRegistration, type TestInstantiationService } from '#/_base/di/test';
 import { OrderedHookSlot } from '#/hooks';
 import { IEventBus } from '#/app/event/eventBus';
-import type { Event2, Event2Class } from '#/app/event/event2';
+import { Event2, type Event2Class } from '#/app/event/event2';
 import { IFlagService } from '#/app/flag/flag';
-import type { ModelCapability } from '#/llm-adapter/contract/capability';
-import type { ToolCall } from '#human/llm/message';
+import { type ModelCapability } from '#/llm-adapter/contract/capability';
+import { type ToolCall } from '#human/llm/message';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
 import { ContextSpliced } from '#/agent/contextMemory/contextEvents';
-import type { UndoCut } from '#/agent/contextMemory/contextOps';
-import type { ContextMessage } from '#/agent/contextMemory/types';
-import type { LoopRecordedEvent } from '#/agent/contextMemory/loopEventFold';
+import { type UndoCut } from '#/agent/contextMemory/contextOps';
+import { type ContextMessage } from '#/agent/contextMemory/types';
+import { type LoopRecordedEvent } from '#/agent/contextMemory/loopEventFold';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { createReminderHarness } from '../../features/reminder/stubs';
 import { CompactionCompleted } from '#/agent/fullCompaction/compactionOps';
-import {
-  IAgentLoopService,
-  type AfterStepContext,
-  type BeforeStepContext,
-  type LoopNotifyHandle,
-  type LoopSnapshot,
-  type PromptSubmitContext,
-  type Turn,
-} from '#/agent/loop/loop';
+import { IAgentLoopService, type AfterStepContext, type BeforeStepContext, type LoopNotifyHandle, type LoopSnapshot, type PromptSubmitContext } from '#/agent/loop/loop';
 import { TurnStarted } from '#/agent/loop/turnEvents';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import type {
-  ExecutableTool,
-  ToolDisclosure,
-  ToolExecution,
-} from '#/tool/toolContract';
+import { type ExecutableTool, type ToolDisclosure, type ToolExecution } from '#/tool/toolContract';
 import { IAgentToolExecutorService, type ToolExecutionResult } from '#/agent/toolExecutor/toolExecutor';
 import { AgentToolExecutorService } from '#/agent/toolExecutor/toolExecutorService';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';

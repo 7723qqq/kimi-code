@@ -1,6 +1,6 @@
-// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+// Bun Snapshot v1, https://bun.sh/docs/test/snapshots
 
-exports[`API surface snapshot > matches the documented v2 route table and meta endpoints 1`] = `
+exports[`API surface snapshot matches the documented v2 route table and meta endpoints 1`] = `
 {
   "meta": [
     [

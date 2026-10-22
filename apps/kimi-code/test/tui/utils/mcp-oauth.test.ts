@@ -1,5 +1,5 @@
 import { MCP_OAUTH_AUTHORIZATION_URL_TOOL_UPDATE, type Event } from '@moonshot-ai/kimi-code-sdk';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 type ToolUpdate = Extract<Event, { type: 'tool.progress' }>['update'];
 
@@ -47,7 +47,7 @@ describe('parseMcpOAuthAuthorizationUrlUpdate', () => {
 
 describe('McpOAuthAuthorizationUrlOpener', () => {
   it('opens authorization URLs from structured tool progress updates', () => {
-    const openUrl = vi.fn<OpenUrl>();
+    const openUrl = mock<OpenUrl>();
     const opener = new McpOAuthAuthorizationUrlOpener(openUrl);
 
     opener.handleToolProgress({
@@ -60,7 +60,7 @@ describe('McpOAuthAuthorizationUrlOpener', () => {
   });
 
   it('opens each authorization URL once per tool call', () => {
-    const openUrl = vi.fn<OpenUrl>();
+    const openUrl = mock<OpenUrl>();
     const opener = new McpOAuthAuthorizationUrlOpener(openUrl);
     const update = authorizationUrlUpdate('https://linear.example/oauth?state=abc');
 
@@ -74,7 +74,7 @@ describe('McpOAuthAuthorizationUrlOpener', () => {
   });
 
   it('ignores progress updates that do not contain an MCP OAuth authorization URL', () => {
-    const openUrl = vi.fn<OpenUrl>();
+    const openUrl = mock<OpenUrl>();
     const opener = new McpOAuthAuthorizationUrlOpener(openUrl);
 
     opener.handleToolProgress({

@@ -30,6 +30,11 @@ export interface KimiRuntimeOptions {
   readonly log: (message: string, error?: unknown) => void;
   readonly homeDir?: string;
   readonly harness?: KimiHarness;
+  /**
+   * The SDK factory the runtime builds its harness with. Tests pass their own;
+   * production leaves it undefined and uses the SDK's `createKimiHarness`.
+   */
+  readonly createHarness?: typeof createKimiHarness;
 }
 
 export interface OpenSessionOptions {
@@ -59,7 +64,7 @@ export class KimiRuntime {
     this.log = options.log;
     this.harness =
       options.harness ??
-      createKimiHarness({
+      (options.createHarness ?? createKimiHarness)({
         homeDir: options.homeDir,
         identity: {
           productName: "kimi-code-vscode",

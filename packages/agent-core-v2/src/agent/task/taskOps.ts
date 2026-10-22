@@ -59,6 +59,19 @@ export class TaskNotified extends AgentEvent2<AgentTaskNotificationContext> {
 }
 export interface TaskNotified extends AgentTaskNotificationContext {}
 
+export interface TaskOutputPayload {
+  readonly agentId: string;
+  readonly taskId: string;
+  readonly chunk?: string;
+  readonly outputSizeBytes: number;
+}
+
+export class TaskOutput extends AgentEvent2<TaskOutputPayload> {
+  static override readonly type = 'task.output';
+  static override readonly observable = true;
+}
+export interface TaskOutput extends TaskOutputPayload {}
+
 const taskWaitDeliveredSchema = z.object({
   agentId: z.string(),
   keys: z.array(z.string()),

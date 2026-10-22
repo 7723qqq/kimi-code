@@ -3,7 +3,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { afterEach, beforeEach, describe, it, test } from "node:test";
+import { afterEach, beforeEach, describe, it, test } from "bun:test";
 import { CombinedAutocompleteProvider } from "../src/autocomplete.ts";
 
 const resolveFdPath = (): string | null => {
@@ -38,6 +38,22 @@ const setupFolder = (baseDir: string, structure: FolderStructure = {}): void => 
 
 const fdPath = resolveFdPath();
 const isFdInstalled = Boolean(fdPath);
+
+// Windows only grants SeCreateSymbolicLinkPrivilege to elevated processes and
+// to machines with Developer Mode enabled; the symlink tests cannot be set up
+// without it, so probe instead of assuming.
+const canCreateSymlinks = (() => {
+	const probeDir = mkdtempSync(join(tmpdir(), "pi-symlink-probe-"));
+	try {
+		writeFileSync(join(probeDir, "target.txt"), "");
+		symlinkSync(join(probeDir, "target.txt"), join(probeDir, "link.txt"));
+		return true;
+	} catch {
+		return false;
+	} finally {
+		rmSync(probeDir, { recursive: true, force: true });
+	}
+})();
 
 const requireFdPath = (): string => {
 	if (!fdPath) {
@@ -114,7 +130,7 @@ describe("CombinedAutocompleteProvider", () => {
 		});
 	});
 
-	describe("fd @ file suggestions", { skip: !isFdInstalled }, () => {
+	describe.skipIf(!isFdInstalled)("fd @ file suggestions", () => {
 		let rootDir = "";
 		let baseDir = "";
 		let outsideDir = "";
@@ -417,7 +433,7 @@ describe("CombinedAutocompleteProvider", () => {
 			assert.ok(!values.some((value) => value === "@.git" || value.startsWith("@.git/")));
 		});
 
-		test("follows symlinked directories for fuzzy @ search", async () => {
+		test.skipIf(!canCreateSymlinks)("follows symlinked directories for fuzzy @ search", async () => {
 			setupFolder(baseDir, {
 				files: {
 					"dir/some_file.txt": "real",
@@ -439,7 +455,7 @@ describe("CombinedAutocompleteProvider", () => {
 			assert.ok(values.includes("@symlinked_dir/some_file.txt"));
 		});
 
-		test("returns symlinked directories when matching their name", async () => {
+		test.skipIf(!canCreateSymlinks)("returns symlinked directories when matching their name", async () => {
 			setupFolder(outsideDir, {
 				files: {
 					"nested/file.txt": "symlinked",
@@ -455,7 +471,7 @@ describe("CombinedAutocompleteProvider", () => {
 			assert.ok(values.includes("@symlinked_dir/"));
 		});
 
-		test("returns symlinked files without requiring type l", async () => {
+		test.skipIf(!canCreateSymlinks)("returns symlinked files without requiring type l", async () => {
 			setupFolder(baseDir, {
 				files: {
 					"original.txt": "content",

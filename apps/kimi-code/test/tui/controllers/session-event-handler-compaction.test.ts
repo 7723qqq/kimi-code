@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import { SessionEventHandler } from '#/tui/controllers/session-event-handler';
 import { getBuiltInPalette } from '#/tui/theme';
@@ -17,51 +17,51 @@ function makeHost() {
       queuedMessageDispatchPending: false,
       theme: { palette: getBuiltInPalette('dark') },
       toolOutputExpanded: false,
-      todoPanel: { getTodos: vi.fn(() => []) },
-      transcriptContainer: { addChild: vi.fn() },
-      ui: { requestRender: vi.fn() },
+      todoPanel: { getTodos: mock(() => []) },
+      transcriptContainer: { addChild: mock() },
+      ui: { requestRender: mock() },
     },
     session: { id: 's1' },
     aborted: false,
     sessionEventUnsubscribe: undefined,
     streamingUI: {
-      setTurnId: vi.fn(),
-      flushNow: vi.fn(),
-      resetToolUi: vi.fn(),
-      clearNotifyPanel: vi.fn(),
-      markNotifyPanelEnded: vi.fn(),
-      finalizeTurn: vi.fn(),
-      hasActiveTurn: vi.fn(() => false),
-      hasThinkingDraft: vi.fn(() => false),
-      flushThinkingToTranscript: vi.fn(),
-      appendAssistantDelta: vi.fn(),
-      scheduleFlush: vi.fn(),
-      beginCompaction: vi.fn(),
-      endCompaction: vi.fn(),
-      cancelCompaction: vi.fn(),
+      setTurnId: mock(),
+      flushNow: mock(),
+      resetToolUi: mock(),
+      clearNotifyPanel: mock(),
+      markNotifyPanelEnded: mock(),
+      finalizeTurn: mock(),
+      hasActiveTurn: mock(() => false),
+      hasThinkingDraft: mock(() => false),
+      flushThinkingToTranscript: mock(),
+      appendAssistantDelta: mock(),
+      scheduleFlush: mock(),
+      beginCompaction: mock(),
+      endCompaction: mock(),
+      cancelCompaction: mock(),
     },
-    requireSession: vi.fn(),
-    setAppState: vi.fn((patch: Record<string, unknown>) =>
+    requireSession: mock(),
+    setAppState: mock((patch: Record<string, unknown>) =>
       Object.assign(host.state.appState, patch),
     ),
-    patchLivePane: vi.fn(),
-    resetLivePane: vi.fn(),
-    showError: vi.fn(),
-    showStatus: vi.fn(),
-    showNotice: vi.fn(),
-    track: vi.fn(),
-    recordSessionActivity: vi.fn(),
-    noteStepUsage: vi.fn(),
-    noteCompactionFinished: vi.fn(),
-    mountEditorReplacement: vi.fn(),
-    restoreEditor: vi.fn(),
-    restoreInputText: vi.fn(),
-    appendTranscriptEntry: vi.fn(),
-    sendNormalUserInput: vi.fn(),
-    sendQueuedMessage: vi.fn(),
-    shiftQueuedMessage: vi.fn(),
-    btwPanelController: { routeEvent: vi.fn(() => false) },
-    surveyController: { notifyCompactionFinished: vi.fn() },
+    patchLivePane: mock(),
+    resetLivePane: mock(),
+    showError: mock(),
+    showStatus: mock(),
+    showNotice: mock(),
+    track: mock(),
+    recordSessionActivity: mock(),
+    noteStepUsage: mock(),
+    noteCompactionFinished: mock(),
+    mountEditorReplacement: mock(),
+    restoreEditor: mock(),
+    restoreInputText: mock(),
+    appendTranscriptEntry: mock(),
+    sendNormalUserInput: mock(),
+    sendQueuedMessage: mock(),
+    shiftQueuedMessage: mock(),
+    btwPanelController: { routeEvent: mock(() => false) },
+    surveyController: { notifyCompactionFinished: mock() },
     tasksBrowserController: {},
   };
   return { host: host as any };
@@ -84,15 +84,15 @@ describe('SessionEventHandler compaction cache bookkeeping', () => {
   it('records activity and resets the cache-break baseline after a completed compaction', () => {
     const { host } = makeHost();
     const handler = new SessionEventHandler(host);
-    handler.handleEvent(compactionCompleted, vi.fn());
-    expect(host.recordSessionActivity).toHaveBeenCalledOnce();
-    expect(host.noteCompactionFinished).toHaveBeenCalledOnce();
+    handler.handleEvent(compactionCompleted, mock());
+    expect(host.recordSessionActivity).toHaveBeenCalledTimes(1);
+    expect(host.noteCompactionFinished).toHaveBeenCalledTimes(1);
   });
 
   it('keeps both baselines after a cancelled compaction (context was not cut)', () => {
     const { host } = makeHost();
     const handler = new SessionEventHandler(host);
-    handler.handleEvent(compactionCancelled, vi.fn());
+    handler.handleEvent(compactionCancelled, mock());
     expect(host.noteCompactionFinished).not.toHaveBeenCalled();
     expect(host.recordSessionActivity).not.toHaveBeenCalled();
   });

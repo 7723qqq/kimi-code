@@ -78,6 +78,16 @@ export interface ForegroundControls {
   requestShutdown(reason: string): void;
 }
 
+export interface ForegroundProcess {
+  once(signal: NodeJS.Signals, listener: () => void): unknown;
+  exit(code?: number): never | void;
+}
+
+export interface ForegroundIO {
+  readonly process?: ForegroundProcess;
+  readonly stderr?: Pick<NodeJS.WriteStream, 'write'>;
+}
+
 export interface StartForegroundHooks {
   /** Fires once the server is listening, before the foreground runner blocks. */
   onReady?: (origin: string, controls?: ForegroundControls) => void | Promise<void>;
@@ -341,8 +351,9 @@ function formatDangerNoticeLines(): string[] {
 export async function startServerForeground(
   options: ParsedServerOptions,
   hooks: StartForegroundHooks = {},
+  io: ForegroundIO = {},
 ): Promise<never> {
-  return runServerInProcess(options, hooks);
+  return runServerInProcess(options, hooks, io);
 }
 
 /**
@@ -352,7 +363,10 @@ export async function startServerForeground(
 async function runServerInProcess(
   options: ParsedServerOptions,
   hooks: StartForegroundHooks,
+  io: ForegroundIO,
 ): Promise<never> {
+  const foregroundProcess = io.process ?? process;
+  const stderr = io.stderr ?? process.stderr;
   const version = getVersion();
   // Registers the telemetry provider for `track` / `shutdownTelemetry`; the
   // client itself is not passed into kap-server.
@@ -391,11 +405,11 @@ async function runServerInProcess(
     // errors) and make the exit code carry it for scripts.
     for (const name of failures) {
       running?.logger.error({ reason, step: name }, 'server shutdown step failed');
-      process.stderr.write(
+      stderr.write(
         t('tui.statusMessages.serverShutdownStepFailed', { step: name }) + '\n',
       );
     }
-    process.exit(shutdownExitCode(failures));
+    foregroundProcess.exit(shutdownExitCode(failures));
   }
 
   // kap-server (the DI × Scope engine server) is the only server flavor. Its
@@ -445,10 +459,10 @@ async function runServerInProcess(
 
   track('server_started', { daemon: false });
 
-  process.once('SIGINT', () => {
+  foregroundProcess.once('SIGINT', () => {
     void shutdown('SIGINT');
   });
-  process.once('SIGTERM', () => {
+  foregroundProcess.once('SIGTERM', () => {
     void shutdown('SIGTERM');
   });
 

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import { OAuthTokenTransaction } from '../src/oauth-token-transaction';
 
@@ -21,7 +21,7 @@ describe('OAuthTokenTransaction', () => {
       () => stored,
       (value) => (stored = value),
     );
-    const tokenEndpoint = vi.fn<typeof fetch>(async () => json(tokens('access-1', 'refresh-1')));
+    const tokenEndpoint = mock<typeof fetch>(async () => json(tokens('access-1', 'refresh-1')));
 
     const [firstResult, secondResult] = await Promise.all([
       sdkRefresh(first, tokenEndpoint, 'refresh-0'),
@@ -81,7 +81,7 @@ describe('OAuthTokenTransaction', () => {
       () => stored,
       (value) => (stored = value),
     );
-    const tokenEndpoint = vi.fn<typeof fetch>();
+    const tokenEndpoint = mock<typeof fetch>();
 
     const response = await stale.createFetch(tokenEndpoint)(
       'https://issuer.example.test/token',
@@ -186,7 +186,7 @@ describe('OAuthTokenTransaction', () => {
       },
       { normalize: stripDurableStamp },
     );
-    const tokenEndpoint = vi.fn<typeof fetch>();
+    const tokenEndpoint = mock<typeof fetch>();
 
     const response = await subject.createFetch(tokenEndpoint)(
       'https://issuer.example.test/token',
@@ -222,7 +222,7 @@ describe('OAuthTokenTransaction', () => {
       },
     );
 
-    const response = await subject.createFetch(vi.fn<typeof fetch>())(
+    const response = await subject.createFetch(mock<typeof fetch>())(
       'https://issuer.example.test/token',
       refreshRequest('refresh-0'),
     );

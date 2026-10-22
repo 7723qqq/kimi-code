@@ -308,12 +308,18 @@ function configuredOAuthRef(
   });
 }
 
-export function kimiCodeEnvBaseUrl(env: ManagedKimiEnv = process.env): string | undefined {
-  return env.KIMI_CODE_BASE_URL;
+export function kimiCodeEnvBaseUrl(
+  env: ManagedKimiEnv | NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  const bag = env as ManagedKimiEnv;
+  return bag.KIMI_CODE_BASE_URL;
 }
 
-export function kimiCodeEnvOAuthHost(env: ManagedKimiEnv = process.env): string | undefined {
-  return env.KIMI_CODE_OAUTH_HOST ?? env.KIMI_OAUTH_HOST;
+export function kimiCodeEnvOAuthHost(
+  env: ManagedKimiEnv | NodeJS.ProcessEnv = process.env,
+): string | undefined {
+  const bag = env as ManagedKimiEnv;
+  return bag.KIMI_CODE_OAUTH_HOST ?? bag.KIMI_OAUTH_HOST;
 }
 
 // Base URLs that share the default `oauth/kimi-code` credential slot.

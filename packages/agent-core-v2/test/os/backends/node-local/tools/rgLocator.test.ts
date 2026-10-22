@@ -12,7 +12,8 @@ import { tmpdir } from 'node:os';
 
 import { join } from 'pathe';
 import { extract as extractTar } from 'tar';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
+import { waitForAssertion } from '#test/helpers/waitFor';
 import { ZipFile } from 'yazl';
 
 import {
@@ -25,17 +26,17 @@ import {
   type RgProbe,
 } from '#/os/backends/host/tools/rgLocator';
 
-vi.mock('tar', () => ({ extract: vi.fn() }));
+void mock.module('tar', () => ({ extract: mock() }));
 
 function probeWith(
   resolveExitCode: (args: readonly string[]) => number,
-): RgProbe & { exec: ReturnType<typeof vi.fn> } {
+): RgProbe & { exec: ReturnType<typeof mock> } {
   return {
-    exec: vi.fn(async (args: readonly string[]) => ({ exitCode: resolveExitCode(args) })),
+    exec: mock(async (args: readonly string[]) => ({ exitCode: resolveExitCode(args) })),
   };
 }
 
-function noRgProbe(): RgProbe & { exec: ReturnType<typeof vi.fn> } {
+function noRgProbe(): RgProbe & { exec: ReturnType<typeof mock> } {
   return probeWith(() => -1);
 }
 
@@ -256,11 +257,11 @@ describe('ensureRgPath download branch', () => {
     } else {
       process.env['PATH'] = savedPath;
     }
-    vi.restoreAllMocks();
+    mock.restore();
   });
 
   it('does not bootstrap when allowCachedFallback is false', async () => {
-    const fetchMock = vi.fn();
+    const fetchMock = mock();
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     await expect(ensureRgPath(noRgProbe(), { shareDir: fakeShare })).rejects.toThrow(/on PATH/);
@@ -268,7 +269,7 @@ describe('ensureRgPath download branch', () => {
   });
 
   it('surfaces a network error when fetch rejects', async () => {
-    globalThis.fetch = vi.fn().mockRejectedValue(new Error('network unreachable')) as typeof fetch;
+    globalThis.fetch = mock().mockRejectedValue(new Error('network unreachable')) as typeof fetch;
 
     await expect(
       ensureRgPath(noRgProbe(), { shareDir: fakeShare, allowCachedFallback: true }),
@@ -278,7 +279,7 @@ describe('ensureRgPath download branch', () => {
   it('does not start bootstrap work when the caller is already aborted', async () => {
     const controller = new AbortController();
     controller.abort();
-    const fetchMock = vi.fn();
+    const fetchMock = mock();
     globalThis.fetch = fetchMock as unknown as typeof fetch;
 
     await expect(
@@ -292,7 +293,7 @@ describe('ensureRgPath download branch', () => {
   });
 
   it('does not run probe subprocesses while lookup misses', async () => {
-    globalThis.fetch = vi.fn().mockRejectedValue(new Error('network unreachable')) as typeof fetch;
+    globalThis.fetch = mock().mockRejectedValue(new Error('network unreachable')) as typeof fetch;
     const probe = noRgProbe();
 
     await expect(
@@ -310,7 +311,7 @@ describe('ensureRgPath download branch', () => {
       readonly statusText: string;
       readonly body: null;
     }>();
-    globalThis.fetch = vi.fn(() => fetchResponse.promise) as unknown as typeof fetch;
+    globalThis.fetch = mock(() => fetchResponse.promise) as unknown as typeof fetch;
 
     const resultPromise = ensureRgPath(noRgProbe(), {
       shareDir: fakeShare,
@@ -318,7 +319,7 @@ describe('ensureRgPath download branch', () => {
       allowCachedFallback: true,
     });
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(globalThis.fetch).toHaveBeenCalledTimes(1);
     });
     controller.abort();
@@ -331,7 +332,7 @@ describe('ensureRgPath download branch', () => {
   });
 
   it('surfaces HTTP failure (non-2xx response) with status + statusText', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
+    globalThis.fetch = mock().mockResolvedValue({
       ok: false,
       status: 404,
       statusText: 'Not Found',
@@ -345,7 +346,7 @@ describe('ensureRgPath download branch', () => {
 
   it('fetches ripgrep over HTTPS', async () => {
     const body = bodyFromBuffer(Buffer.from('not a real archive', 'utf8'));
-    const fetchMock = vi.fn().mockResolvedValue({
+    const fetchMock = mock().mockResolvedValue({
       ok: true,
       status: 200,
       statusText: 'OK',
@@ -366,7 +367,7 @@ describe('ensureRgPath download branch', () => {
     process.env['KIMI_CODE_OAUTH_HOST'] = 'https://auth.kimi.ai';
     try {
       const body = bodyFromBuffer(Buffer.from('not a real archive', 'utf8'));
-      const fetchMock = vi.fn().mockResolvedValue({
+      const fetchMock = mock().mockResolvedValue({
         ok: true,
         status: 200,
         statusText: 'OK',
@@ -395,7 +396,7 @@ describe('ensureRgPath download branch', () => {
     process.env['KIMI_CODE_HOME'] = fakeShare;
     try {
       const body = bodyFromBuffer(Buffer.from('not a real archive', 'utf8'));
-      const fetchMock = vi.fn().mockResolvedValue({
+      const fetchMock = mock().mockResolvedValue({
         ok: true,
         status: 200,
         statusText: 'OK',
@@ -420,10 +421,10 @@ describe('ensureRgPath download branch', () => {
   });
 
   it('rejects archives that do not match the pinned SHA-256 before extraction', async () => {
-    const tarMock = vi.mocked(extractTar);
+    const tarMock = extractTar as unknown as Mock<typeof extractTar>;
     tarMock.mockClear();
     const body = bodyFromBuffer(Buffer.from('tampered archive', 'utf8'));
-    globalThis.fetch = vi.fn().mockResolvedValue({
+    globalThis.fetch = mock().mockResolvedValue({
       ok: true,
       status: 200,
       statusText: 'OK',
@@ -502,7 +503,7 @@ describe('ensureRgPath Windows download branch', () => {
     }
     Object.defineProperty(process, 'arch', { value: savedArch });
     Object.defineProperty(process, 'platform', { value: savedPlatform });
-    vi.restoreAllMocks();
+    mock.restore();
   });
 
   it('fetches the .zip URL (not .tar.gz) on Windows target', async () => {
@@ -512,7 +513,7 @@ describe('ensureRgPath Windows download branch', () => {
         content: Buffer.from('MZfake-pe-bytes', 'utf8'),
       },
     ]);
-    const fetchMock = vi.fn().mockResolvedValue({
+    const fetchMock = mock().mockResolvedValue({
       ok: true,
       status: 200,
       statusText: 'OK',
@@ -602,7 +603,7 @@ describe('ensureRgPath Windows download branch', () => {
   });
 
   it('surfaces HTTP failure on Windows with status + statusText', async () => {
-    globalThis.fetch = vi.fn().mockResolvedValue({
+    globalThis.fetch = mock().mockResolvedValue({
       ok: false,
       status: 502,
       statusText: 'Bad Gateway',

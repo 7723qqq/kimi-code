@@ -4,16 +4,24 @@
  * Wiring: real temporary workspace/global-storage/legacy files; no stubbed collaborators.
  * Run: cd apps/vscode && bun run test -- baseline.manager.test.ts
  */
-import fs, { existsSync, writeFileSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
 import { chmod, lstat, mkdir, mkdtemp, open, readdir, readFile, rm, stat, symlink, unlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
-// Spy on `node:fs` so the UNC path tests can treat an unreachable network
-// share as a missing file without hitting the real (slow, UNKNOWN) stat error.
-vi.mock('node:fs', { spy: true });
+import { realNodeFs, realStatSync, statSyncMock } from './real-node-fs';
+import { SYMLINKS } from './helpers';
+
+// An unreachable UNC share reports EUNKNOWN on Windows rather than ENOENT, and
+// `statSync` cannot be spied on through a module namespace. Only that export is
+// replaced; every other `node:fs` export keeps its real implementation so the
+// rest of the process is unaffected.
+void mock.module('node:fs', () => ({
+  ...realNodeFs,
+  statSync: statSyncMock,
+}));
 
 import { BaselineManager, type BaselineSession } from '../src/managers/baseline.manager';
 
@@ -31,6 +39,8 @@ beforeEach(async () => {
 });
 
 afterEach(async () => {
+  statSyncMock.mockReset();
+  statSyncMock.mockImplementation(realStatSync);
   await rm(root, { recursive: true, force: true });
 });
 
@@ -147,7 +157,9 @@ describe('file baselines (capture, compare, keep, and undo)', () => {
     await expect(readFile(filePath, 'utf-8')).resolves.toBe('first\r\nsecond\r\n');
   });
 
-  it('restores the original content and keeps the file mode when undo runs', async () => {
+  // Windows has no POSIX permission bits: `chmod` is a no-op beyond the
+  // read-only flag, so there is no mode to preserve.
+  it.skipIf(process.platform === 'win32')('restores the original content and keeps the file mode when undo runs', async () => {
     const session = createSession();
     const filePath = join(workDir, 'script.sh');
     await writeFile(filePath, '#!/bin/sh\necho original\n', 'utf-8');
@@ -159,7 +171,7 @@ describe('file baselines (capture, compare, keep, and undo)', () => {
     expect((await stat(filePath)).mode & 0o777).toBe(0o600);
   });
 
-  it('restores the snapshotted file behind an in-workspace symlink', async () => {
+  it.skipIf(!SYMLINKS)('restores the snapshotted file behind an in-workspace symlink', async () => {
     const session = createSession();
     const target = join(workDir, 'target.txt');
     const link = join(workDir, 'link.txt');
@@ -199,7 +211,9 @@ describe('file baselines (capture, compare, keep, and undo)', () => {
     await expect(readFile(filePath, 'utf-8')).resolves.toBe('original\n');
   });
 
-  it('replaces the restored file instead of truncating it in place', async () => {
+  // Replacing a file while another handle holds it open is POSIX behaviour;
+  // Windows refuses the rename with EPERM.
+  it.skipIf(process.platform === 'win32')('replaces the restored file instead of truncating it in place', async () => {
     const session = createSession();
     const filePath = join(workDir, 'app.ts');
     await writeFile(filePath, 'original content\n', 'utf-8');
@@ -426,10 +440,9 @@ describe('baseline boundaries (errors, cleanup, and platform paths)', () => {
       id: 'ses-unc',
       workDir: '\\\\Server\\Share\\Workspace',
     };
-    // The share does not exist on any host. Windows surfaces that as a
-    // `UNKNOWN` stat error (after a slow network timeout) instead of ENOENT,
-    // so treat the unreachable UNC path as a missing file explicitly.
-    vi.mocked(fs.statSync).mockImplementationOnce(() => {
+    // An unreachable UNC share reports EUNKNOWN on Windows instead of ENOENT;
+    // the manager only treats the file as new when the stat reports ENOENT.
+    statSyncMock.mockImplementationOnce(() => {
       throw Object.assign(new Error('ENOENT: no such file or directory, stat'), {
         code: 'ENOENT',
       });

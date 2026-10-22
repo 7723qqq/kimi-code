@@ -9,7 +9,7 @@ import path from 'node:path';
 // Fault-injection-only branches (writev short-write, fsync failure, >64MB
 // RESP payload, cross-user EPERM, process-exit hook) are intentionally not
 // covered here — see the coverage summary in the commit message.
-import { expect, test } from 'vitest';
+import { expect, test } from 'bun:test';
 
 import { encodeFrame, decodeBatchOps, TYPE_SET } from '../src/codec.js';
 import { MiniDb } from '../src/index.js';

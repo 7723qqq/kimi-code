@@ -1,17 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
-import {
-  applyOpenPlatformConfig,
-  capabilitiesForModel,
-  fetchOpenPlatformModels,
-  filterModelsByPrefix,
-  getOpenPlatformById,
-  isOpenPlatformId,
-  OPEN_PLATFORMS,
-  OpenPlatformApiError,
-  removeOpenPlatformConfig,
-  type ManagedKimiConfigShape,
-} from '../src/open-platform';
+import { applyOpenPlatformConfig, capabilitiesForModel, fetchOpenPlatformModels, filterModelsByPrefix, getOpenPlatformById, isOpenPlatformId, OpenPlatformApiError, removeOpenPlatformConfig, type ManagedKimiConfigShape } from '../src/open-platform';
 
 function makeModelsResponse(): Response {
   return new Response(
@@ -70,7 +59,7 @@ describe('OPEN_PLATFORMS', () => {
 
 describe('fetchOpenPlatformModels', () => {
   it('lists and parses models from the platform endpoint', async () => {
-    const fetchMock = vi.fn(async () => makeModelsResponse());
+    const fetchMock = mock(async () => makeModelsResponse());
     const platform = getOpenPlatformById('moonshot-cn')!;
 
     const models = await fetchOpenPlatformModels(
@@ -103,7 +92,7 @@ describe('fetchOpenPlatformModels', () => {
   });
 
   it('parses capabilities array when present in model item', async () => {
-    const fetchMock = vi.fn(
+    const fetchMock = mock(
       async () =>
         new Response(
           JSON.stringify({
@@ -138,7 +127,7 @@ describe('fetchOpenPlatformModels', () => {
   });
 
   it('surfaces API error messages and status on HTTP error', async () => {
-    const fetchMock = vi.fn(
+    const fetchMock = mock(
       async () =>
         new Response(JSON.stringify({ error: { message: 'invalid API key' } }), { status: 401 }),
     );
@@ -156,7 +145,7 @@ describe('fetchOpenPlatformModels', () => {
   });
 
   it('throws on unexpected response shape', async () => {
-    const fetchMock = vi.fn(async () => new Response(JSON.stringify({}), { status: 200 }));
+    const fetchMock = mock(async () => new Response(JSON.stringify({}), { status: 200 }));
     const platform = getOpenPlatformById('moonshot-cn')!;
 
     await expect(
@@ -226,7 +215,7 @@ describe('filterModelsByPrefix', () => {
 
 describe('fetchOpenPlatformModels supports_thinking_type', () => {
   it('parses supports_thinking_type from the models endpoint', async () => {
-    const fetchMock = vi.fn(
+    const fetchMock = mock(
       async () =>
         new Response(
           JSON.stringify({

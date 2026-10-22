@@ -1,7 +1,7 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, expectTypeOf, it, vi } from 'vitest';
+import { afterEach, describe, expect, expectTypeOf, it, mock } from 'bun:test';
 
 import {
   createKimiHarness,
@@ -14,6 +14,7 @@ import type { SDKRpcClientBase } from '#/rpc';
 
 import { makeTempDir, removeTempDirs, waitForSDKEvent } from './session-runtime-helpers';
 import { TEST_IDENTITY } from './test-identity';
+import { setEnv, restoreEnvs } from './stubs';
 
 const { Session } = await import('#/index');
 
@@ -40,7 +41,7 @@ function scrubConfigEnv(): () => void {
 
 afterEach(async () => {
   await removeTempDirs(tempDirs);
-  vi.unstubAllEnvs();
+  restoreEnvs();
 });
 
 describe('Session skills', () => {
@@ -194,8 +195,8 @@ describe('Session skills', () => {
     const homeDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-home-');
     const processHome = await makeTempDir(tempDirs, 'kimi-sdk-skills-process-home-');
     const workDir = await makeTempDir(tempDirs, 'kimi-sdk-skills-work-');
-    vi.stubEnv('HOME', processHome);
-    vi.stubEnv('KIMI_CODE_HOME', homeDir);
+    setEnv('HOME', processHome);
+    setEnv('KIMI_CODE_HOME', homeDir);
     await writeLegacyUserSkill(processHome, 'sdk-real-home-only', 'SDK real home skill');
     await writeBrandUserSkill(homeDir, 'sdk-sandbox-only', 'SDK sandbox skill');
     const harness = createKimiHarness({ identity: TEST_IDENTITY });
@@ -212,7 +213,7 @@ describe('Session skills', () => {
   });
 
   it('forwards the steerIfActive option and the skill args to the RPC input', async () => {
-    const promptWithSkills = vi.fn(async () => {});
+    const promptWithSkills = mock(async () => {});
     const session = new Session({
       id: 'ses_skill_steer_option',
       workDir: '/tmp/work',
@@ -249,10 +250,10 @@ describe('Session skills', () => {
   });
 
   it('rejects empty names before calling RPC and rejects after close', async () => {
-    const activateSkill = vi.fn(async () => {});
-    const closeSession = vi.fn(async (_input: { readonly sessionId: string }) => {});
-    const clearSessionHandlers = vi.fn();
-    const listSkills = vi.fn(async () => []);
+    const activateSkill = mock(async () => {});
+    const closeSession = mock(async (_input: { readonly sessionId: string }) => {});
+    const clearSessionHandlers = mock();
+    const listSkills = mock(async () => []);
     const session = new Session({
       id: 'ses_skill_validation',
       workDir: '/tmp/work',
@@ -284,12 +285,12 @@ describe('Session skills', () => {
   });
 
   it('finalizes local close state when the core close RPC fails', async () => {
-    const closeSession = vi.fn(async (_input: { readonly sessionId: string }) => {
+    const closeSession = mock(async (_input: { readonly sessionId: string }) => {
       throw new Error('flush failed');
     });
-    const clearSessionHandlers = vi.fn();
-    const listSkills = vi.fn(async () => []);
-    const activateSkill = vi.fn(async () => {});
+    const clearSessionHandlers = mock();
+    const listSkills = mock(async () => []);
+    const activateSkill = mock(async () => {});
     const session = new Session({
       id: 'ses_close_failed',
       workDir: '/tmp/work',

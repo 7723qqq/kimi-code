@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 import chalk from 'chalk';
 import type { CapabilityStatus, PluginSummary } from '@moonshot-ai/kimi-code-sdk';
 
@@ -86,8 +86,8 @@ function makePanel(opts: {
   pluginHint?: { id: string; text: string };
 }) {
   const installed = opts.installed ?? [];
-  const onSelect = vi.fn<(s: PluginsPanelSelection) => void>();
-  const onRequestMarketplace = vi.fn();
+  const onSelect = mock<(s: PluginsPanelSelection) => void>();
+  const onRequestMarketplace = mock();
   const panel = new PluginsPanelComponent({
     installed,
     installedIds: new Set(installed.map((p) => p.id)),
@@ -97,7 +97,7 @@ function makePanel(opts: {
     selectedId: opts.selectedId,
     pluginHint: opts.pluginHint,
     onSelect,
-    onCancel: vi.fn(),
+    onCancel: mock(),
     onRequestMarketplace,
   });
   return { panel, onSelect, onRequestMarketplace };
@@ -955,7 +955,7 @@ describe('plugins selector dialogs', () => {
       onSelect: (selection) => {
         selections.push(selection);
       },
-      onCancel: vi.fn(),
+      onCancel: mock(),
     });
 
     const raw = renderRaw(picker);

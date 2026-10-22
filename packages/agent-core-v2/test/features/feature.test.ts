@@ -1,19 +1,11 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'bun:test';
 import { z } from 'zod';
 
-import {
-  type CollectionToken,
-  type CollectionView,
-} from '#/_base/di/collection';
+import { type CollectionToken, type CollectionView } from '#/_base/di/collection';
 import { ScopeUnits } from '#/_base/di/fiber';
 import { createDecorator, ScopeActivation } from '#/_base/di/instantiation';
 import { type InstantiationService } from '#/_base/di/instantiationService';
-import {
-  _clearScopedRegistryForTests,
-  getScopedServiceDescriptors,
-  registerScopedService,
-  type Scope,
-} from '#/_base/di/scope';
+import { _clearScopedRegistryForTests, registerScopedService, type Scope } from '#/_base/di/scope';
 import { Service } from '#/_base/di/service';
 import { createScopedTestHost } from '#/_base/di/test';
 import { AgentProfileContribution } from '#/app/agentProfileCatalog/agentProfileContribution';
@@ -25,18 +17,9 @@ import { AgentToolContribution } from '#/agent/toolRegistry/toolContribution';
 import { Feature } from '#/features/feature';
 import { IFeatureAssemblyService } from '#/features/featureAssembly';
 import { FeatureAssemblyService } from '#/features/featureAssemblyService';
-import {
-  AgentModel,
-  AgentModelContribution,
-  defineAgentModel,
-  SessionModelContribution,
-  type SessionModelDefinition,
-} from '#/state/agentModel';
-import {
-  _clearFeatureRecipesForTests,
-  registerFeature,
-} from '#/features/featureRegistry';
-import type { AgentTool, ToolExecution } from '#/tool/toolContract';
+import { AgentModel, AgentModelContribution, defineAgentModel, SessionModelContribution, type SessionModelDefinition } from '#/state/agentModel';
+import { _clearFeatureRecipesForTests, registerFeature } from '#/features/featureRegistry';
+import { type AgentTool, type ToolExecution } from '#/tool/toolContract';
 
 interface IGreeter {
   readonly _serviceBrand: undefined;

@@ -1,6 +1,6 @@
 import { Readable, type Writable } from 'node:stream';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
@@ -21,8 +21,11 @@ import {
 } from '#/agent/task/task';
 import { renderNotificationXml } from '#/agent/task/notificationXml';
 import { AgentTaskService, taskNotificationDeliveryKey } from '#/agent/task/taskService';
+import { TaskOutput } from '#/agent/task/taskOps';
 import { ProcessTask } from '#/agent/tools/os/bash/process-task';
 import type { IHostProcess } from '#/os/interface/hostProcess';
+import { IHostClock } from '#/os/interface/hostClock';
+import { IHostTimers } from '#/os/interface/hostTimers';
 import { IConfigRegistry, IConfigService } from '#/app/config/config';
 import { IFlagService } from '#/app/flag/flag';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
@@ -138,6 +141,13 @@ describe('AgentTaskService', () => {
     });
     ix.stub(IFlagService, stubFlag());
     ix.stub(IAgentToolPolicyService, { isToolActive: () => false });
+    ix.stub(IHostClock, { now: () => new Date() });
+    ix.stub(IHostTimers, {
+      setClampedTimeout: (callback: () => void, timeoutMs: number) =>
+        setTimeout(callback, Math.min(timeoutMs, 2_147_483_647)),
+      setTimeout: (callback: () => void, timeoutMs: number) => setTimeout(callback, timeoutMs),
+      clearTimeout: (handle: ReturnType<typeof setTimeout>) => clearTimeout(handle),
+    });
     ix.stub(IAgentLoopService, stubLoopWithHooks());
     ix.stub(IConfigRegistry, { registerSection: () => {} });
     ix.stub(IConfigService, {
@@ -170,6 +180,7 @@ describe('AgentTaskService', () => {
     ix.stub(IFileSystemStorageService, {
       read: async () => undefined,
       readStream: async function* () {},
+      size: async () => undefined,
       write: async () => {},
       writeStream: async () => {},
       append: async () => {},
@@ -258,6 +269,43 @@ describe('AgentTaskService', () => {
     expect(terminated?.['outputTail']).toBe('x'.repeat(4 * 1024));
   });
 
+  it('task.output publishes the incremental output chunk with the cumulative byte count', async () => {
+    const { records } = capturingWire();
+    const svc = ix.get(IAgentTaskService);
+    const outputs: TaskOutput[] = [];
+    disposables.add(
+      eventBus.subscribe(TaskOutput, (event) => {
+        outputs.push(event);
+      }),
+    );
+    const taskId = svc.registerTask(outputtingTask('line one\n'));
+
+    await svc.wait(taskId, 1000);
+
+    expect(outputs).toHaveLength(1);
+    expect(outputs[0]).toMatchObject({
+      taskId,
+      chunk: 'line one\n',
+      outputSizeBytes: 9,
+    });
+    expect(records.filter((record) => record['type'] === 'task.output')).toEqual([]);
+  });
+
+  it('task.output is not published for foreground tasks', async () => {
+    const svc = ix.get(IAgentTaskService);
+    const outputs: TaskOutput[] = [];
+    disposables.add(
+      eventBus.subscribe(TaskOutput, (event) => {
+        outputs.push(event);
+      }),
+    );
+    const taskId = svc.registerTask(outputtingTask('foreground line\n'), { detached: false });
+
+    await svc.wait(taskId, 1000);
+
+    expect(outputs).toEqual([]);
+  });
+
   it('task.terminated dispatch omits outputTail when the task produced no output', async () => {
     const { records } = capturingWire();
     const svc = ix.get(IAgentTaskService);
@@ -289,11 +337,12 @@ describe('AgentTaskService', () => {
     let armOnRead = false;
     let svc!: IAgentTaskService;
     ix.stub(IFileSystemStorageService, {
-      read: async () => {
+      read: async () => undefined,
+      readStream: async function* () {},
+      size: async () => {
         if (armOnRead) await svc.suppressAllTerminalNotifications();
         return undefined;
       },
-      readStream: async function* () {},
       write: async () => {},
       writeStream: async () => {},
       append: async () => {},
@@ -631,21 +680,21 @@ describe('AgentTaskService', () => {
     const wait = new Promise<number>((resolve) => {
       resolveWait = resolve;
     });
-    const kill = vi.fn(async (signal: NodeJS.Signals) => {
+    const kill = mock(async (signal: NodeJS.Signals) => {
       if (signal !== 'SIGKILL') return;
       stdout.push(null);
       stderr.push(null);
       resolveWait(137);
     });
     const proc = {
-      stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
+      stdin: { write: mock(), end: mock() } as unknown as Writable,
       stdout,
       stderr,
       pid: 4244,
       exitCode: null,
       wait: () => wait,
       kill,
-      dispose: vi.fn().mockResolvedValue(undefined),
+      dispose: mock().mockResolvedValue(undefined),
     } as unknown as IHostProcess;
     const svc = ix.get(IAgentTaskService);
     svc.registerTask(new ProcessTask(proc, 'ignore-term', 'long-running process'));
@@ -662,7 +711,7 @@ describe('AgentTaskService', () => {
     stubTaskConfig({ keepAliveOnExit: true });
     const svc = ix.get(IAgentTaskService);
     let aborted = false;
-    const forceStop = vi.fn(async () => {});
+    const forceStop = mock(async () => {});
     svc.registerTask({
       ...abortObservingTask(() => (aborted = true)),
       forceStop,
@@ -677,7 +726,7 @@ describe('AgentTaskService', () => {
 
   it('scope disposal leaves a process running when keepAliveOnExit is set, and its late settle stays silent after deactivation', async () => {
     const { records } = capturingWire();
-    const track2 = vi.fn();
+    const track2 = mock();
     ix.stub(ITelemetryService, { track2 });
     stubTaskConfig({ keepAliveOnExit: true });
     const stdout = new Readable({ read() {} });
@@ -687,14 +736,14 @@ describe('AgentTaskService', () => {
       resolveWait = resolve;
     });
     const proc = {
-      stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
+      stdin: { write: mock(), end: mock() } as unknown as Writable,
       stdout,
       stderr,
       pid: 4245,
       exitCode: null,
       wait: () => wait,
-      kill: vi.fn().mockResolvedValue(undefined),
-      dispose: vi.fn().mockResolvedValue(undefined),
+      kill: mock().mockResolvedValue(undefined),
+      dispose: mock().mockResolvedValue(undefined),
     } as unknown as IHostProcess;
     const svc = ix.get(IAgentTaskService);
     const taskId = svc.registerTask(new ProcessTask(proc, 'keep-running', 'long-running process'));
@@ -767,6 +816,13 @@ describe('AgentTaskService', () => {
     ix.stub(IFlagService, stubFlag());
     ix.stub(IAgentToolRegistryService, { resolve: () => undefined });
     ix.stub(IAgentToolPolicyService, { isToolActive: () => false });
+    ix.stub(IHostClock, { now: () => new Date() });
+    ix.stub(IHostTimers, {
+      setClampedTimeout: (callback: () => void, timeoutMs: number) =>
+        setTimeout(callback, Math.min(timeoutMs, 2_147_483_647)),
+      setTimeout: (callback: () => void, timeoutMs: number) => setTimeout(callback, timeoutMs),
+      clearTimeout: (handle: ReturnType<typeof setTimeout>) => clearTimeout(handle),
+    });
     ix.stub(ILogService, stubLog());
     ix.stub(IAgentConversationUndoParticipantRegistry, {
       register: () => toDisposable(() => {}),
@@ -825,6 +881,13 @@ describe('AgentTaskService', () => {
     ix.stub(IFlagService, stubFlag());
     ix.stub(IAgentToolRegistryService, { resolve: () => undefined });
     ix.stub(IAgentToolPolicyService, { isToolActive: () => false });
+    ix.stub(IHostClock, { now: () => new Date() });
+    ix.stub(IHostTimers, {
+      setClampedTimeout: (callback: () => void, timeoutMs: number) =>
+        setTimeout(callback, Math.min(timeoutMs, 2_147_483_647)),
+      setTimeout: (callback: () => void, timeoutMs: number) => setTimeout(callback, timeoutMs),
+      clearTimeout: (handle: ReturnType<typeof setTimeout>) => clearTimeout(handle),
+    });
     ix.stub(ILogService, stubLog());
     ix.stub(IAgentConversationUndoParticipantRegistry, {
       register: () => toDisposable(() => {}),
@@ -1083,7 +1146,7 @@ describe('AgentTaskService', () => {
 
   function streamingProcess(chunks: string[]): {
     proc: IHostProcess;
-    kill: ReturnType<typeof vi.fn>;
+    kill: ReturnType<typeof mock>;
   } {
     const stdout = Readable.from(chunks);
     const stderr = Readable.from([]);
@@ -1094,26 +1157,26 @@ describe('AgentTaskService', () => {
     stdout.on('end', () => {
       resolveWait(0);
     });
-    const kill = vi.fn(async (signal: string) => {
+    const kill = mock(async (signal: string) => {
       stdout.destroy();
       resolveWait(signal === 'SIGKILL' ? 137 : 143);
     });
     const proc = {
-      stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
+      stdin: { write: mock(), end: mock() } as unknown as Writable,
       stdout,
       stderr,
       pid: 4242,
       exitCode: null,
       wait: () => waitP,
       kill,
-      dispose: vi.fn().mockResolvedValue(undefined),
+      dispose: mock().mockResolvedValue(undefined),
     } as unknown as IHostProcess;
     return { proc, kill };
   }
 
   function sigtermIgnoringProcess(chunks: string[]): {
     proc: IHostProcess;
-    kill: ReturnType<typeof vi.fn>;
+    kill: ReturnType<typeof mock>;
   } {
     const stdout = Readable.from(chunks);
     const stderr = Readable.from([]);
@@ -1124,21 +1187,21 @@ describe('AgentTaskService', () => {
     stdout.on('end', () => {
       resolveWait(0);
     });
-    const kill = vi.fn(async (signal: string) => {
+    const kill = mock(async (signal: string) => {
       if (signal === 'SIGKILL') {
         stdout.destroy();
         resolveWait(137);
       }
     });
     const proc = {
-      stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
+      stdin: { write: mock(), end: mock() } as unknown as Writable,
       stdout,
       stderr,
       pid: 4243,
       exitCode: null,
       wait: () => waitP,
       kill,
-      dispose: vi.fn().mockResolvedValue(undefined),
+      dispose: mock().mockResolvedValue(undefined),
     } as unknown as IHostProcess;
     return { proc, kill };
   }
@@ -1186,6 +1249,7 @@ describe('AgentTaskService', () => {
     ix.stub(IFileSystemStorageService, {
       read: async () => undefined,
       readStream: async function* () {},
+      size: async () => undefined,
       write: async () => {},
       writeStream: async () => {},
       append: async (_scope: string, _key: string, chunk: Uint8Array) => {
@@ -1205,7 +1269,7 @@ describe('AgentTaskService', () => {
     const { proc, kill } = streamingProcess(chunks);
 
     let forwardedChars = 0;
-    const onOutput = vi.fn((_kind: 'stdout' | 'stderr', text: string) => {
+    const onOutput = mock((_kind: 'stdout' | 'stderr', text: string) => {
       forwardedChars += text.length;
     });
 

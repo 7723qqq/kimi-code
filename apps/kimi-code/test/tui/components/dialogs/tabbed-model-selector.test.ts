@@ -1,6 +1,6 @@
 import type { ModelAlias } from '@moonshot-ai/kimi-code-sdk';
 import chalk from 'chalk';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, mock, type Mock } from 'bun:test';
 
 import { TabbedModelSelectorComponent } from '#/tui/components/dialogs/tabbed-model-selector';
 import { currentTheme } from '#/tui/theme';
@@ -26,9 +26,9 @@ function model(displayName: string, provider: string): ModelAlias {
 
 function make(): {
   component: TabbedModelSelectorComponent;
-  onSelect: ReturnType<typeof vi.fn>;
+  onSelect: Mock<(...args: any[]) => any>;
 } {
-  const onSelect = vi.fn();
+  const onSelect = mock();
   const component = new TabbedModelSelectorComponent({
     models: {
       k2: model('Kimi K2', 'managed:kimi-code'),
@@ -37,7 +37,7 @@ function make(): {
     currentValue: 'k2',
     currentThinkingEffort: 'off',
     onSelect,
-    onCancel: vi.fn(),
+    onCancel: mock(),
   });
   component.focused = true;
   return { component, onSelect };
@@ -142,8 +142,8 @@ describe('TabbedModelSelectorComponent', () => {
       currentValue: 'k2',
       currentThinkingEffort: 'off',
       title: ' Choose a model for this task',
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
+      onSelect: mock(),
+      onCancel: mock(),
     });
     const out = strip(titled.render(120).join('\n'));
     expect(out).toContain('Choose a model for this task');
@@ -159,8 +159,8 @@ describe('TabbedModelSelectorComponent', () => {
       currentValue: 'k2',
       currentThinkingEffort: 'off',
       warning: 'Switching may increase token usage.',
-      onSelect: vi.fn(),
-      onCancel: vi.fn(),
+      onSelect: mock(),
+      onCancel: mock(),
     });
     const lines = component.render(120).map(strip);
     const hintIdx = lines.findIndex((l) => l.includes('navigate') && l.includes('Esc cancel'));

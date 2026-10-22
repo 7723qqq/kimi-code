@@ -1,7 +1,13 @@
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { Readable, type Writable } from 'node:stream';
+import { join, sep } from 'node:path';
+import { Readable, Writable } from 'node:stream';
+import { type IHostProcess } from '#/os/interface/hostProcess';
+import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
+import { rmSync } from 'node:fs';
+
+
+
 import { createControlledPromise } from '@antfu/utils';
 import { LifecycleScope } from '#/app/scopes';
 import { type IAgentScopeHandle } from '#/_base/di/scope';
@@ -10,10 +16,14 @@ import { ILogService } from '#/_base/log/log';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import { userCancellationReason } from '#/_base/utils/abort';
 import { createHooks } from '#/hooks';
-import type { ToolCall } from '#human/llm/message';
-import type { TokenUsage } from '#human/llm/usage';
+import { type ToolCall } from '#human/llm/message';
+
 import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import { homeDirServices } from '../harness/agent';
+import { noopTelemetryService } from '#/app/telemetry/telemetry';
+import { setEnv, restoreEnvs } from '#test/helpers/stubs';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { IAgentTaskService } from '#/agent/task/task';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
@@ -29,56 +39,31 @@ import { agentContextOf, IAgentScopeContext } from '#/agent/scopeContext/scopeCo
 import { createActor } from '#human/xstate2';
 import { createAgentMachine } from '#human/agent/machine';
 import { IAgentUserToolService, type UserToolRegistration } from '#/agent/userTool/userTool';
-import {
-  AgentSwarmToolInputSchema,
-  type AgentSwarmToolInput,
-} from '#/features/swarm/tools/agent-swarm/agent-swarm';
-import {
-  SubagentToolInputSchema,
-  type SubagentToolInput,
-} from '#/agent/tools/agent/agent';
-import {
-  FORK_EXPERIMENTAL_UNAVAILABLE,
-  FORK_WITH_MODEL_UNAVAILABLE,
-  FORK_WITH_RESUME_UNAVAILABLE,
-  FORK_WITH_TYPE_UNAVAILABLE,
-} from '#/session/subagent/spawn';
+import { AgentSwarmToolInputSchema, type AgentSwarmToolInput } from '#/features/swarm/tools/agent-swarm/agent-swarm';
+import { SubagentToolInputSchema, type SubagentToolInput } from '#/agent/tools/agent/agent';
+import { FORK_EXPERIMENTAL_UNAVAILABLE, FORK_WITH_MODEL_UNAVAILABLE, FORK_WITH_RESUME_UNAVAILABLE, FORK_WITH_TYPE_UNAVAILABLE } from '#/session/subagent/spawn';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
-import { DEFAULT_SUBAGENT_TIMEOUT_MS, SECONDARY_MODEL_SECTION, SUBAGENT_SECTION } from '#/session/subagent/configSection';
+import { DEFAULT_SUBAGENT_TIMEOUT_MS, SECONDARY_MODEL_SECTION } from '#/session/subagent/configSection';
 import { SUBAGENT_FORK_FLAG_ID } from '#/session/subagent/flag';
 import { Error2, ErrorCodes } from '#/errors';
 import { SUBAGENT_SCOPE_EVICT_TIMEOUT_ENV } from '#/session/subagent/subagentScopeCache';
-import type { AgentTaskSettlement } from '#/agent/task/types';
+import { type AgentTaskSettlement } from '#/agent/task/types';
 import { SubagentTask } from '#/agent/tools/agent/subagent-task';
 import { runAgentTurn } from '#/session/subagent/runAgentTurn';
 import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/subagent/mirrorAgentRun';
-import type { AgentContext } from '#/agent/agentContext/agentContext';
-import {
-  IAgentLifecycleService,
-  type AgentScopeCreatedEvent,
-} from '#/session/agentLifecycle/agentLifecycle';
-import {
-  type AgentRunCompletion,
-  type AgentRunHandle,
-  type AgentRunRequest,
-  type AgentTaskStopHookContext,
-  ISessionSubagentService,
-  type RunAgentOptions,
-} from '#/session/subagent/subagent';
+import { type AgentContext } from '#/agent/agentContext/agentContext';
+import { IAgentLifecycleService, type AgentScopeCreatedEvent } from '#/session/agentLifecycle/agentLifecycle';
+import { type AgentRunCompletion, type AgentRunHandle, type AgentRunRequest, type AgentTaskStopHookContext, ISessionSubagentService, type RunAgentOptions } from '#/session/subagent/subagent';
 import { IEventBus } from '#/app/event/eventBus';
-import type { Event2 } from '#/app/event/event2';
+import { Event2 } from '#/app/event/event2';
 import { IConfigService } from '#/app/config/config';
 import { IFlagService } from '#/app/flag/flag';
 import { normalizeAgentProfile, type AgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
-import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ISessionMetadata, type AgentMeta } from '#/session/sessionMetadata/sessionMetadata';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
-import type {
-  ISessionSwarmService,
-  SessionSwarmRunArgs,
-  SessionSwarmRunResult,
-} from '#/features/swarm/session/sessionSwarm';
-import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
+import { ISessionSwarmService, type SessionSwarmRunArgs, type SessionSwarmRunResult } from '#/features/swarm/session/sessionSwarm';
+import { IHostProcessService } from '#/os/interface/hostProcess';
 import { IWireService } from '#/wire/wire';
 import { IAgentStateService } from '#/agent/state/agentState';
 import { AgentStateService } from '#/agent/state/agentStateService';
@@ -86,27 +71,85 @@ import { IEventDispatcher } from '#/state/eventDispatcher';
 import { createFakeProcessRunner } from '../tools/fixtures/fake-exec';
 import { StubConfigService } from '../stubs';
 import { stubFlag } from '../app/flag/stubs';
-import {
-  agentService,
-  appService,
-  configServices,
-  createCommandRunner,
-  createTestAgent,
-  execEnvServices,
-  externalHookServices,
-  homeDirServices,
-  modelProviderServices,
-  sessionService,
-  swarmServices,
-  type TestAgentContext,
-  type TestAgentOptions,
-  type TestAgentServiceOverride,
-} from '../harness';
+import { agentService, appService, configServices, createCommandRunner, createTestAgent, execEnvServices, externalHookServices, modelProviderServices, sessionService, swarmServices, type TestAgentContext, type TestAgentOptions, type TestAgentServiceOverride } from '../harness';
 import { executeTool } from '../tools/fixtures/execute-tool';
 import { stubAgentContext } from '../agent/agentContext/stubs';
 import { TOWER_WORKER_PROFILE } from '#/features/tower/tower';
+import { renderSnapshot } from '../harness/snapshots';
 
 const signal = new AbortController().signal;
+
+interface FakeHostTimerHandle extends IHostTimerHandle {
+  readonly id: number;
+}
+
+interface FakeHostTimers extends IHostTimers {
+  advance(byMs: number): void;
+  readonly pending: number;
+}
+
+function createFakeHostTimers(): FakeHostTimers {
+  let nowMs = 0;
+  let nextId = 1;
+  const scheduled: Array<{
+    readonly id: number;
+    due: number;
+    readonly callback: () => void;
+    cancelled: boolean;
+  }> = [];
+
+  const schedule = (callback: () => void, delayMs: number): FakeHostTimerHandle => {
+    const id = nextId;
+    nextId += 1;
+    scheduled.push({ id, due: nowMs + delayMs, callback, cancelled: false });
+    return { id, unref: () => {} };
+  };
+
+  return {
+    _serviceBrand: undefined,
+    setClampedTimeout: (callback, timeoutMs) => schedule(callback, timeoutMs),
+    setTimeout: (callback, timeoutMs) => schedule(callback, timeoutMs),
+    clearTimeout: (handle) => {
+      const id = (handle as FakeHostTimerHandle).id;
+      const timer = scheduled.find((candidate) => candidate.id === id);
+      if (timer !== undefined) timer.cancelled = true;
+    },
+    advance: (byMs) => {
+      const limit = nowMs + byMs;
+      let guard = 0;
+      for (;;) {
+        const next = scheduled
+          .filter((timer) => !timer.cancelled && timer.due <= limit)
+          .sort((left, right) => left.due - right.due || left.id - right.id)[0];
+        if (next === undefined) break;
+        guard += 1;
+        if (guard > 1_000) throw new Error('fake host timers advanced more than 1000 timers');
+        nowMs = next.due;
+        next.cancelled = true;
+        next.callback();
+      }
+      nowMs = limit;
+    },
+    get pending() {
+      return scheduled.filter((timer) => !timer.cancelled).length;
+    },
+  };
+}
+
+async function flushHostWork(): Promise<void> {
+  for (let index = 0; index < 4; index += 1) {
+    await Promise.resolve();
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+  }
+}
+
+async function advanceHostTime(timers: FakeHostTimers, byMs: number): Promise<void> {
+  await flushHostWork();
+  timers.advance(byMs);
+  await flushHostWork();
+}
 
 function forkFlags(enabled = true): TestAgentServiceOverride {
   return appService(
@@ -181,7 +224,7 @@ function captureLogs(): {
 
 function hookSlot<T>() {
   return {
-    run: vi.fn(async (_input: T) => {}),
+    run: mock(async (_input: T) => {}),
     register: () => ({ dispose: () => {} }),
     delete: () => false,
   };
@@ -224,10 +267,10 @@ interface AgentLifecycleStubOptions {
 }
 
 interface AgentLifecycleStub extends IAgentLifecycleService, ISessionSubagentService {
-  readonly create: ReturnType<typeof vi.fn<IAgentLifecycleService['create']>>;
-  readonly fork: ReturnType<typeof vi.fn<IAgentLifecycleService['fork']>>;
-  readonly run: ReturnType<typeof vi.fn<ISessionSubagentService['run']>>;
-  readonly get: ReturnType<typeof vi.fn<IAgentLifecycleService['get']>>;
+  readonly create: ReturnType<typeof mock<IAgentLifecycleService['create']>>;
+  readonly fork: ReturnType<typeof mock<IAgentLifecycleService['fork']>>;
+  readonly run: ReturnType<typeof mock<ISessionSubagentService['run']>>;
+  readonly get: ReturnType<typeof mock<IAgentLifecycleService['get']>>;
   readonly publishedEvents: Event2[];
   addHandle(
     agentId: string,
@@ -381,7 +424,7 @@ function createAgentLifecycleStub(options: AgentLifecycleStubOptions = {}): Agen
     onDidCreateScope: Event.None as KimiEvent<AgentScopeCreatedEvent>,
     onWillClose: Event.None as KimiEvent<AgentContext>,
     onDidClose: Event.None as KimiEvent<AgentContext>,
-    create: vi.fn(async (input = {}) => {
+    create: mock(async (input = {}) => {
       if (options.createError !== undefined) throw options.createError;
       const agentId =
         input.agentId ??
@@ -393,14 +436,14 @@ function createAgentLifecycleStub(options: AgentLifecycleStubOptions = {}): Agen
       handles.set(agentId, handle(agentId));
       return contextFor(agentId);
     }),
-    notifyAgentTaskStopped: vi.fn(),
-    planSpawn: vi.fn(async () => {
+    notifyAgentTaskStopped: mock(),
+    planSpawn: mock(async () => {
       throw new Error('unexpected planSpawn');
     }),
-    spawn: vi.fn(async () => {
+    spawn: mock(async () => {
       throw new Error('unexpected spawn');
     }),
-    fork: vi.fn(async (source, input = {}) => {
+    fork: mock(async (source, input = {}) => {
       if (options.createError !== undefined) throw options.createError;
       const agentId =
         input.agentId ??
@@ -412,7 +455,7 @@ function createAgentLifecycleStub(options: AgentLifecycleStubOptions = {}): Agen
       handles.set(agentId, createdHandle);
       return contextFor(agentId);
     }),
-    run: vi.fn(async (agent, request, runOptions): Promise<AgentRunHandle> => {
+    run: mock(async (agent, request, runOptions): Promise<AgentRunHandle> => {
       const completion =
         options.runCompletion?.(agent.agentId, request, runOptions) ??
         Promise.resolve({ summary: 'child result' });
@@ -422,10 +465,10 @@ function createAgentLifecycleStub(options: AgentLifecycleStubOptions = {}): Agen
         completion,
       };
     }),
-    get: vi.fn((agentId: string) => contextsByAgentId.get(agentId)),
-    handleOf: vi.fn((agentId: string) => handles.get(agentId)),
-    list: vi.fn(() => [...handles.keys()].map((agentId) => contextFor(agentId))),
-    adopt: vi.fn((adopted) => {
+    get: mock((agentId: string) => contextsByAgentId.get(agentId)),
+    handleOf: mock((agentId: string) => handles.get(agentId)),
+    list: mock(() => [...handles.keys()].map((agentId) => contextFor(agentId))),
+    adopt: mock((adopted) => {
       const adoptedHandle = adopted as IAgentScopeHandle;
       handles.set(adoptedHandle.id, adoptedHandle);
       const loop = adoptedHandle.accessor.get(IAgentLoopService);
@@ -447,8 +490,8 @@ function createAgentLifecycleStub(options: AgentLifecycleStubOptions = {}): Agen
       loop.attachEngine(ref, bundle);
       return agentContextOf(adoptedHandle);
     }),
-    broadcastPermissionMode: vi.fn(),
-    remove: vi.fn(async (agent) => {
+    broadcastPermissionMode: mock(),
+    remove: mock(async (agent) => {
       handles.delete(agent.agentId);
     }),
     addHandle: (agentId, profileName, services, context) => {
@@ -470,7 +513,7 @@ function createAgentLifecycleStub(options: AgentLifecycleStubOptions = {}): Agen
 
 function wireRealSubagentService(ctx: TestAgentContext, lifecycle: AgentLifecycleStub): void {
   const subagents = ctx.get(ISessionSubagentService);
-  vi.spyOn(subagents, 'run').mockImplementation(lifecycle.run);
+  spyOn(subagents, 'run').mockImplementation(lifecycle.run);
   lifecycle.addHandle(
     'main',
     'agent',
@@ -670,7 +713,7 @@ describe('Agent tool description', () => {
 
   afterEach(async () => {
     await ctx.dispose();
-    vi.unstubAllEnvs();
+    restoreEnvs();
   });
 
   function agentDescription(): string {
@@ -1229,7 +1272,6 @@ describe('Agent tool execution contract', () => {
   let ctx: TestAgentContext | undefined;
 
   afterEach(async () => {
-    vi.useRealTimers();
     await ctx?.dispose();
     ctx = undefined;
   });
@@ -1397,7 +1439,7 @@ describe('Agent tool execution contract', () => {
   it('does not create a subagent when process disappears after tool activation', async () => {
     const lifecycle = createAgentLifecycleStub();
     const context = createAgentToolContext(lifecycle);
-    vi.spyOn(context.get(IAgentRuntimeService), 'acquire').mockImplementation(() => {
+    spyOn(context.get(IAgentRuntimeService), 'acquire').mockImplementation(() => {
       throw new Error('process capability is no longer available');
     });
 
@@ -1870,7 +1912,7 @@ describe('Agent tool execution contract', () => {
     expect(lifecycle.fork).toHaveBeenCalledWith(expect.objectContaining({ agentId: 'main' }), {
       labels: expect.objectContaining({ parentAgentId: 'main' }),
     });
-    expect(lifecycle.run).toHaveBeenCalledOnce();
+    expect(lifecycle.run).toHaveBeenCalledTimes(1);
     const [runAgent, runRequest] = lifecycle.run.mock.calls[0]!;
     expect(runAgent).toMatchObject({ agentId: 'agent-child' });
     const runPrompt = runRequest.kind === 'prompt' ? runRequest.prompt : '';
@@ -2280,10 +2322,10 @@ describe('Agent tool execution contract', () => {
     let agentStateService: AgentStateService | undefined;
     const eventBus = {
       _serviceBrand: undefined,
-      publish: vi.fn((event: Event2) => {
+      publish: mock((event: Event2) => {
         events.push(event);
       }),
-      subscribe: vi.fn(() => noopDisposable()),
+      subscribe: mock(() => noopDisposable()),
     } as IEventBus;
     lifecycle.addHandle(
       'agent-child',
@@ -2389,16 +2431,16 @@ describe('Agent tool execution contract', () => {
     const parentUserTools = {
       _serviceBrand: undefined,
       list: () => [lookupTool],
-      inheritUserTools: vi.fn(),
-      register: vi.fn(),
-      unregister: vi.fn(),
+      inheritUserTools: mock(),
+      register: mock(),
+      unregister: mock(),
     } as unknown as IAgentUserToolService;
     const childUserTools = {
       _serviceBrand: undefined,
       list: () => [],
-      inheritUserTools: vi.fn(),
-      register: vi.fn(),
-      unregister: vi.fn(),
+      inheritUserTools: mock(),
+      register: mock(),
+      unregister: mock(),
     } as unknown as IAgentUserToolService;
     const lifecycle = createAgentLifecycleStub({
       createAgentIds: ['agent-child'],
@@ -2514,7 +2556,7 @@ describe('Agent tool execution contract', () => {
     const readGate = createControlledPromise<typeof snapshot>();
     let armGate = false;
     let gatedReadStarted = false;
-    metadata.read = vi.fn(async () => {
+    metadata.read = mock(async () => {
       if (!armGate) return snapshot;
       gatedReadStarted = true;
       return readGate;
@@ -2531,7 +2573,7 @@ describe('Agent tool execution contract', () => {
       description: 'Continue work',
       resume: 'agent-existing',
     });
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(gatedReadStarted).toBe(true);
     });
     await lifecycle.remove(stubAgentContext('agent-existing', 1));
@@ -2549,7 +2591,7 @@ describe('Agent tool execution contract', () => {
   });
 
   it('stops rebuilding an evicted resume target once the caller aborts', async () => {
-    vi.stubEnv(SUBAGENT_SCOPE_EVICT_TIMEOUT_ENV, '1000');
+    setEnv(SUBAGENT_SCOPE_EVICT_TIMEOUT_ENV, '1000');
     try {
       const lifecycle = createAgentLifecycleStub({
         createError: new Error2(ErrorCodes.AGENT_ALREADY_EXISTS, 'still closing'),
@@ -2565,7 +2607,7 @@ describe('Agent tool execution contract', () => {
         { prompt: 'Continue', description: 'Continue work', resume: 'agent-existing' },
         controller.signal,
       );
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         expect(lifecycle.create).toHaveBeenCalled();
       });
       controller.abort(userCancellationReason());
@@ -2577,7 +2619,7 @@ describe('Agent tool execution contract', () => {
       expect(Date.now() - abortedAt).toBeLessThan(500);
       expect(lifecycle.create.mock.calls.length).toBe(createCallsAtAbort);
     } finally {
-      vi.unstubAllEnvs();
+      restoreEnvs();
     }
   });
 
@@ -2627,7 +2669,7 @@ describe('Agent tool execution contract', () => {
   });
 
   it('syncs a rebuilt subagent to the caller permission mode before resuming it', async () => {
-    const setMode = vi.fn();
+    const setMode = mock();
     const lifecycle = createAgentLifecycleStub({
       runCompletion: async () => ({ summary: 'resumed after restart' }),
       handleServices: new Map<string, ReadonlyMap<unknown, unknown>>([
@@ -2663,7 +2705,7 @@ describe('Agent tool execution contract', () => {
   });
 
   it('keeps a rebuilt tower worker on its pinned permission mode', async () => {
-    const setMode = vi.fn();
+    const setMode = mock();
     const lifecycle = createAgentLifecycleStub({
       runCompletion: async () => ({ summary: 'worker resumed' }),
       handleServices: new Map<string, ReadonlyMap<unknown, unknown>>([
@@ -2709,7 +2751,7 @@ describe('Agent tool execution contract', () => {
 
     expect(result).toEqual({ output: expect.stringContaining(`actual_subagent_type: ${TOWER_WORKER_PROFILE}`) });
     expect(setMode).not.toHaveBeenCalled();
-    expect(lifecycle.run).toHaveBeenCalledOnce();
+    expect(lifecycle.run).toHaveBeenCalledTimes(1);
   });
 
   it('rejects direct resume of a non-subagent', async () => {
@@ -2803,8 +2845,8 @@ describe('Agent tool execution contract', () => {
     const targetProfile = {
       _serviceBrand: undefined,
       data: () => ({ profileName: 'explore', modelAlias: 'stale-model' }),
-      update: vi.fn(),
-      republishStatus: vi.fn(),
+      update: mock(),
+      republishStatus: mock(),
       getEffectiveThinkingLevel: () => 'medium',
       isToolActive: () => false,
     } as unknown as IAgentProfileService;
@@ -3109,7 +3151,7 @@ describe('Agent tool execution contract', () => {
       prompt: 'Investigate',
       description: 'Find cause',
     });
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(tasks.list(false)).toHaveLength(1);
     });
     const task = tasks.list(false)[0]!;
@@ -3149,7 +3191,7 @@ describe('Agent tool execution contract', () => {
       prompt: 'Investigate',
       description: 'Find cause',
     });
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(tasks.list(false)).toHaveLength(1);
     });
     const task = tasks.list(false)[0]!;
@@ -3254,7 +3296,7 @@ describe('Agent tool execution contract', () => {
       { prompt: 'Investigate', description: 'Find cause' },
       controller.signal,
     );
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(context.get(IAgentTaskService).list(false)).toHaveLength(1);
     });
     controller.abort(userCancellationReason());
@@ -3284,7 +3326,7 @@ describe('Agent tool execution contract', () => {
       prompt: 'Investigate',
       description: 'Find cause',
     });
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(context.get(IAgentTaskService).list(false)).toHaveLength(1);
     });
     const [task] = context.get(IAgentTaskService).list(false);
@@ -3301,7 +3343,7 @@ describe('Agent tool execution contract', () => {
   });
 
   it('returns the spawned agent id when a foreground subagent times out', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const timers = createFakeHostTimers();
     const lifecycle = createAgentLifecycleStub({
       createAgentIds: ['agent-child'],
       runCompletion: (_agentId, _request, options) =>
@@ -3315,16 +3357,16 @@ describe('Agent tool execution contract', () => {
           );
         }),
     });
-    const context = createAgentToolContext(lifecycle);
+    const context = createAgentToolContext(lifecycle, appService(IHostTimers, timers));
 
     const resultPromise = executeAgentTool(context, {
       prompt: 'Investigate',
       description: 'Find cause',
     });
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(context.get(IAgentTaskService).list(false)).toHaveLength(1);
     });
-    await vi.advanceTimersByTimeAsync(DEFAULT_SUBAGENT_TIMEOUT_MS);
+    await advanceHostTime(timers, DEFAULT_SUBAGENT_TIMEOUT_MS);
     const result = await resultPromise;
 
     expect(result).toMatchObject({ isError: true });
@@ -3339,7 +3381,7 @@ describe('Agent tool execution contract', () => {
   });
 
   it('honours the configured subagent timeout over the default', async () => {
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] });
+    const timers = createFakeHostTimers();
     const lifecycle = createAgentLifecycleStub({
       createAgentIds: ['agent-child'],
       runCompletion: (_agentId, _request, options) =>
@@ -3353,18 +3395,20 @@ describe('Agent tool execution contract', () => {
           );
         }),
     });
-    const context = createAgentToolContext(lifecycle, {
-      initialConfig: { subagent: { timeoutMs: 1000 } },
-    });
+    const context = createAgentToolContext(
+      lifecycle,
+      appService(IHostTimers, timers),
+      { initialConfig: { subagent: { timeoutMs: 1000 } } },
+    );
 
     const resultPromise = executeAgentTool(context, {
       prompt: 'Investigate',
       description: 'Find cause',
     });
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(context.get(IAgentTaskService).list(false)).toHaveLength(1);
     });
-    await vi.advanceTimersByTimeAsync(1000);
+    await advanceHostTime(timers, 1000);
     const result = await resultPromise;
 
     expect(result).toMatchObject({ isError: true });
@@ -3515,7 +3559,7 @@ describe('AgentSwarm tool execution contract', () => {
   });
 
   it('runs item-based swarms through the session swarm service and renders XML results', async () => {
-    const runSwarm = vi.fn(
+    const runSwarm = mock(
       async (
         args: SessionSwarmRunArgs<unknown>,
       ): Promise<readonly SessionSwarmRunResult<unknown>[]> => {
@@ -3591,7 +3635,7 @@ describe('AgentSwarm tool execution contract', () => {
   });
 
   it('threads the pool default model into spawn task plans', async () => {
-    const runSwarm = vi.fn(
+    const runSwarm = mock(
       async (
         args: SessionSwarmRunArgs,
       ): Promise<readonly SessionSwarmRunResult[]> => {
@@ -3651,7 +3695,7 @@ describe('AgentSwarm tool execution contract', () => {
   });
 
   it('threads the caller model into spawn task plans when the tool call opts into "primary"', async () => {
-    const runSwarm = vi.fn(
+    const runSwarm = mock(
       async (
         args: SessionSwarmRunArgs,
       ): Promise<readonly SessionSwarmRunResult[]> => {
@@ -3716,10 +3760,10 @@ describe('AgentSwarm tool execution contract', () => {
       'agent-old-1': 'src/old-a.ts',
       'agent-old-2': 'src/old-b.ts',
     };
-    const getSwarmItem = vi.fn(
+    const getSwarmItem = mock(
       async ({ agentId }: { readonly agentId: string }) => persistedItems[agentId],
     );
-    const runSwarm = vi.fn(
+    const runSwarm = mock(
       async (
         args: SessionSwarmRunArgs<unknown>,
       ): Promise<readonly SessionSwarmRunResult<unknown>[]> => {
@@ -3839,7 +3883,7 @@ describe('AgentSwarm tool execution contract', () => {
   });
 
   it('reports failed subagents inside the XML result without failing the tool', async () => {
-    const runSwarm = vi.fn(
+    const runSwarm = mock(
       async (
         args: SessionSwarmRunArgs<unknown>,
       ): Promise<readonly SessionSwarmRunResult<unknown>[]> => [
@@ -3888,7 +3932,7 @@ describe('AgentSwarm tool execution contract', () => {
   });
 
   it('omits the resume hint when incomplete subagents have no agent ids', async () => {
-    const runSwarm = vi.fn(
+    const runSwarm = mock(
       async (
         args: SessionSwarmRunArgs<unknown>,
       ): Promise<readonly SessionSwarmRunResult<unknown>[]> => [
@@ -3935,7 +3979,7 @@ describe('AgentSwarm tool execution contract', () => {
   });
 
   it('renders a handoff stop reason on a completed subagent and offers a resume hint', async () => {
-    const runSwarm = vi.fn(
+    const runSwarm = mock(
       async (
         args: SessionSwarmRunArgs<unknown>,
       ): Promise<readonly SessionSwarmRunResult<unknown>[]> => [
@@ -3985,7 +4029,7 @@ describe('AgentSwarm tool execution contract', () => {
   });
 
   it('reports partial aborted subagents inside the XML result', async () => {
-    const runSwarm = vi.fn(
+    const runSwarm = mock(
       async (
         args: SessionSwarmRunArgs<unknown>,
       ): Promise<readonly SessionSwarmRunResult<unknown>[]> => [
@@ -4106,18 +4150,21 @@ describe('Agent tools', () => {
   });
 
   describe('PreToolUse blocking', () => {
-    let exec: ReturnType<typeof vi.fn>;
+    let exec: ReturnType<typeof mock>;
     let triggered: Array<[string, string, number]>;
 
     beforeEach(() => {
-      exec = vi.fn<IHostProcessService['spawn']>().mockRejectedValue(new Error('Bash should not execute'));
+      exec = mock<IHostProcessService['spawn']>().mockRejectedValue(new Error('Bash should not execute'));
       triggered = [];
       const hookEngine = makeHookRunner(
         [
           {
             event: 'PreToolUse',
             matcher: 'Bash',
-            command: "echo 'blocked by PreToolUse' >&2; exit 2",
+            command:
+              process.platform === 'win32'
+                ? 'echo blocked by PreToolUse 1>&2 & exit 2'
+                : "echo 'blocked by PreToolUse' >&2; exit 2",
           },
           {
             event: 'PostToolUseFailure',
@@ -4207,7 +4254,7 @@ describe('Agent tools', () => {
 
       await ctx.untilTurnEnd();
 
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         expect(resolved).toEqual([
           ['PreToolUse', 'Bash', 'allow'],
           ['PostToolUse', 'Bash', 'allow'],
@@ -4257,7 +4304,7 @@ describe('Agent tools', () => {
 
       await ctx.untilTurnEnd();
 
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         expect(resolved).toEqual([['PostToolUseFailure', 'Bash', 'allow']]);
       });
     });
@@ -4403,7 +4450,7 @@ describe('Agent tools', () => {
       ctx.mockNextResponse({ type: 'text', text: 'The lookup failed.' });
       await ctx.untilTurnEnd();
 
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         expect(resolved).toEqual([['PostToolUseFailure', 'Lookup', 'allow']]);
       });
     });
@@ -4421,11 +4468,11 @@ describe('Agent tools', () => {
       await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Which tools are active?' }] });
 
       await ctx.untilTurnEnd();
-      expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
-      system: <system-prompt>
+      expect(renderSnapshot(ctx.lastLlmInput())).toMatchInlineSnapshot(`
+      "system: <system-prompt>
       tools: Bash, Write
       messages:
-        user: text "Which tools are active?"
+        user: text "Which tools are active?""
     `);
     });
   });
@@ -4505,13 +4552,13 @@ describe('Agent tools', () => {
       await ctx.restorePersisted();
       ctx.mockNextResponse({ type: 'text', text: 'I will look it up.' }, lookupCall);
       await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Look up moon' }] });
-      expect(
+      expect(renderSnapshot(
         await ctx.untilToolCall({
           content: 'moon-result',
           output: 'moon-result',
         }),
-      ).toMatchInlineSnapshot(`
-        [wire] permission.set_mode         { "agentId": "main", "mode": "auto", "time": "<time>" }
+      )).toMatchInlineSnapshot(`
+        "[wire] permission.set_mode         { "agentId": "main", "mode": "auto", "time": "<time>" }
         [emit] agent.status.updated        { "time": "<time>", "agentId": "main", "permission": "auto" }
         [wire] tools.register_user_tool    { "name": "Lookup", "description": "Look up a short test value.", "parameters": { "type": "object", "properties": { "query": { "type": "string" } }, "required": [ "query" ], "additionalProperties": false }, "agentId": "main", "time": "<time>" }
         [emit] prompt.submitted            { "time": "<time>", "agentId": "main", "promptId": "<msg-1>", "userMessageId": "<msg-1>", "status": "running", "content": [ { "type": "text", "text": "Look up moon" } ], "createdAt": "<time>" }
@@ -4537,19 +4584,19 @@ describe('Agent tools', () => {
         [wire] token_counting.measured     { "agentId": "main", "length": 3, "tokens": 149, "time": "<time>" }
         [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "content.part", "uuid": "<uuid-2>", "turnId": "0", "step": 1, "stepUuid": "<uuid-1>", "part": { "type": "text", "text": "I will look it up." } }, "time": "<time>" }
         [emit] tool.call.started           { "time": "<time>", "agentId": "main", "turnId": 0, "toolCallId": "call_lookup", "name": "Lookup", "args": { "query": "moon" } }
-        [emit] toolCall                    { "turnId": 0, "toolCallId": "call_lookup", "args": { "query": "moon" } }
+        [emit] toolCall                    { "turnId": 0, "toolCallId": "call_lookup", "args": { "query": "moon" } }"
       `);
-      expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
-        system: <system-prompt>
+      expect(renderSnapshot(ctx.lastLlmInput())).toMatchInlineSnapshot(`
+        "system: <system-prompt>
         tools: Agent, AgentSwarm, AskUserQuestion, Bash, CreateGoal, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, EnterSpecMode, ExitPlanMode, ExitSpecMode, FetchURL, GetGoal, Glob, Grep, Lookup, Read, SetGoalBudget, Skill, TaskList, TaskOutput, TaskStop, TodoList, UpdateGoal, WaitFor, WebSearch, Write
         messages:
           user: text "Look up moon"
-          user: text <auto-mode-enter-reminder>
+          user: text <auto-mode-enter-reminder>"
       `);
 
       ctx.mockNextResponse({ type: 'text', text: 'The lookup result is moon-result.' });
-      expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
-        [wire] context.append_loop_event   { "agentId": "main", "event": { "type": "tool.call", "uuid": "<uuid-3>", "turnId": "0", "step": 1, "stepUuid": "<uuid-1>", "toolCallId": "call_lookup", "name": "Lookup", "args": { "query": "moon" } }, "time": "<time>" }
+      expect(renderSnapshot(await ctx.untilTurnEnd())).toMatchInlineSnapshot(`
+        "[wire] context.append_loop_event   { "agentId": "main", "event": { "type": "tool.call", "uuid": "<uuid-3>", "turnId": "0", "step": 1, "stepUuid": "<uuid-1>", "toolCallId": "call_lookup", "name": "Lookup", "args": { "query": "moon" } }, "time": "<time>" }
         [wire] interaction.request         { "agentId": "main", "id": "<user_tool-1>", "kind": "user_tool", "toolCallId": "call_lookup", "request": { "turnId": 0, "toolCallId": "call_lookup", "name": "Lookup", "args": { "query": "moon" } }, "time": "<time>" }
         [wire] interaction.resolved        { "agentId": "main", "id": "<user_tool-1>", "response": { "content": "moon-result", "output": "moon-result" }, "time": "<time>" }
         [emit] tool.result                 { "time": "<time>", "agentId": "main", "turnId": 0, "toolCallId": "call_lookup", "output": "moon-result" }
@@ -4572,20 +4619,20 @@ describe('Agent tools', () => {
         [wire] agent.message.appended      { "message": { "message": { "role": "assistant", "content": [ { "type": "text", "text": "The lookup result is moon-result." } ], "toolCalls": [] }, "meta": { "model": { "provider": "agent-loop", "model": "agent-loop" }, "source": "llm", "usage": { "inputOther": 153, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finish": { "finishReason": "completed", "rawFinishReason": "stop" }, "messageId": "mock-2" } }, "time": "<time>", "kind": "event" }
         [wire] agent.turn.ended            { "turnId": 0, "outcome": "done", "time": "<time>", "kind": "event" }
         [wire] turn.ended                  { "agentId": "main", "turnId": 0, "reason": "completed", "time": "<time>" }
-        [emit] turn.ended                  { "time": "<time>", "agentId": "main", "turnId": 0, "reason": "completed" }
+        [emit] turn.ended                  { "time": "<time>", "agentId": "main", "turnId": 0, "reason": "completed" }"
       `);
-      expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
-        messages:
+      expect(renderSnapshot(ctx.lastLlmInput())).toMatchInlineSnapshot(`
+        "messages:
           <last>
           assistant: text "I will look it up."  calls call_lookup:Lookup { "query": "moon" }
-          tool[call_lookup]: text "moon-result"
+          tool[call_lookup]: text "moon-result""
       `);
       await ctx.rpc.unregisterTool({ name: 'Lookup' });
       ctx.mockNextResponse({ type: 'text', text: 'No lookup tool is available.' });
       await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Can you still use Lookup?' }] });
 
-      expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
-        [wire] token_counting.turn_recorded   { "agentId": "main", "turnId": 0, "length": 5, "tokens": 165, "time": "<time>" }
+      expect(renderSnapshot(await ctx.untilTurnEnd())).toMatchInlineSnapshot(`
+        "[wire] token_counting.turn_recorded   { "agentId": "main", "turnId": 0, "length": 5, "tokens": 165, "time": "<time>" }
         [emit] agent.status.updated           { "time": "<time>", "agentId": "main", "contextTokens": 165 }
         [wire] tools.unregister_user_tool     { "agentId": "main", "name": "Lookup", "time": "<time>" }
         [wire] prompt.completed               { "agentId": "main", "promptId": "<msg-1>", "finishedAt": "<time>", "reason": "completed", "time": "<time>" }
@@ -4613,14 +4660,14 @@ describe('Agent tools', () => {
         [wire] agent.message.appended         { "message": { "message": { "role": "assistant", "content": [ { "type": "text", "text": "No lookup tool is available." } ], "toolCalls": [] }, "meta": { "model": { "provider": "agent-loop", "model": "agent-loop" }, "source": "llm", "usage": { "inputOther": 173, "output": 10, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finish": { "finishReason": "completed", "rawFinishReason": "stop" }, "messageId": "mock-3" } }, "time": "<time>", "kind": "event" }
         [wire] agent.turn.ended               { "turnId": 1, "outcome": "done", "time": "<time>", "kind": "event" }
         [wire] turn.ended                     { "agentId": "main", "turnId": 1, "reason": "completed", "time": "<time>" }
-        [emit] turn.ended                     { "time": "<time>", "agentId": "main", "turnId": 1, "reason": "completed" }
+        [emit] turn.ended                     { "time": "<time>", "agentId": "main", "turnId": 1, "reason": "completed" }"
       `);
-      expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
-        tools: Agent, AgentSwarm, AskUserQuestion, Bash, CreateGoal, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, EnterSpecMode, ExitPlanMode, ExitSpecMode, FetchURL, GetGoal, Glob, Grep, Read, SetGoalBudget, Skill, TaskList, TaskOutput, TaskStop, TodoList, UpdateGoal, WaitFor, WebSearch, Write
+      expect(renderSnapshot(ctx.lastLlmInput())).toMatchInlineSnapshot(`
+        "tools: Agent, AgentSwarm, AskUserQuestion, Bash, CreateGoal, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, EnterSpecMode, ExitPlanMode, ExitSpecMode, FetchURL, GetGoal, Glob, Grep, Read, SetGoalBudget, Skill, TaskList, TaskOutput, TaskStop, TodoList, UpdateGoal, WaitFor, WebSearch, Write
         messages:
           <last>
           assistant: text "The lookup result is moon-result."
-          user: text "Can you still use Lookup?"
+          user: text "Can you still use Lookup?""
       `);
     });
 
@@ -4664,7 +4711,9 @@ describe('Agent tools', () => {
 
       const outputPath = renderedOutputPath(toolMessage);
       expect(outputPath).toContain(
-        join(homeDir, 'sessions/test-workspace/test-session/agents/main/tool-results/Lookup-call_lookup-'),
+        join(homeDir, 'sessions/test-workspace/test-session/agents/main/tool-results/Lookup-call_lookup-')
+          .split(sep)
+          .join('/'),
       );
       expect(readFileSync(outputPath, 'utf8')).toBe(fullOutput);
     });
@@ -4691,18 +4740,18 @@ function createFailingCommandRunner(stdout: string): IHostProcessService {
   function createProcess(): IHostProcess {
     return {
       _serviceBrand: undefined,
-      stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
+      stdin: { write: mock(), end: mock() } as unknown as Writable,
       stdout: Readable.from([stdout]),
       stderr: Readable.from(['']),
       pid: 42,
       exitCode: 2,
-      wait: vi.fn().mockResolvedValue(2) as IHostProcess['wait'],
-      kill: vi.fn().mockResolvedValue(undefined) as IHostProcess['kill'],
-      dispose: vi.fn().mockResolvedValue(undefined) as IHostProcess['dispose'],
+      wait: mock().mockResolvedValue(2) as IHostProcess['wait'],
+      kill: mock().mockResolvedValue(undefined) as IHostProcess['kill'],
+      dispose: mock().mockResolvedValue(undefined) as IHostProcess['dispose'],
     };
   }
   return createFakeProcessRunner({
-    spawn: vi.fn().mockImplementation(async () => createProcess()),
+    spawn: mock().mockImplementation(async () => createProcess()),
   });
 }
 

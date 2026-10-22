@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { IAgentTodoService } from '#/features/todo/todoService';
 import { TODO_LIST_TOOL_NAME, type TodoItem } from '#/features/todo/todoItem';

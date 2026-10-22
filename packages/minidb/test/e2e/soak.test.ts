@@ -7,7 +7,7 @@
 
 import assert from 'node:assert/strict';
 
-import { test } from 'vitest';
+import { test } from 'bun:test';
 
 import { MiniDb } from '../../src/index.js';
 import { Model } from './helpers/model.js';
@@ -16,7 +16,7 @@ import { tmpDir, rmrf } from './helpers/tmp.js';
 
 const SOAK = Number(process.env.SOAK || 0);
 
-test('soak: sustained random ops do not leak memory or corrupt', { skip: !SOAK }, async () => {
+test.skipIf(!SOAK)('soak: sustained random ops do not leak memory or corrupt', async () => {
   const dir = await tmpDir();
   let db = await MiniDb.open({
     dir,

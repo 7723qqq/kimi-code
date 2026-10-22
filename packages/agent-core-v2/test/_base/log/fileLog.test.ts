@@ -2,7 +2,7 @@ import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 
 import { FileLogWriter, PENDING_MAX, RotatingFileWriter } from '#/_base/log/fileLog';
 import type { LogEntry } from '#/_base/log/log';
@@ -92,7 +92,7 @@ describe('RotatingFileWriter', () => {
   });
 
   it('does not throw when fs write fails; emits stderr notice', async () => {
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const stderrSpy = spyOn(process.stderr, 'write').mockImplementation(() => true);
     const badWriter = new RotatingFileWriter({
       path: '\0/invalid/path',
       maxBytes: 1024,
@@ -107,7 +107,7 @@ describe('RotatingFileWriter', () => {
   });
 
   it('keeps restored pending bounded after repeated write failures', async () => {
-    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const stderrSpy = spyOn(process.stderr, 'write').mockImplementation(() => true);
     const badWriter = new RotatingFileWriter({
       path: '\0/invalid/path',
       maxBytes: 1024,

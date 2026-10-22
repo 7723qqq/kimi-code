@@ -12,7 +12,7 @@ import type {
   Session,
   ToolCall,
 } from '@moonshot-ai/kimi-code-sdk';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock, spyOn } from 'bun:test';
 
 import { AgentGroupComponent } from '#/tui/components/messages/agent-group';
 import { AssistantMessageComponent } from '#/tui/components/messages/assistant-message';
@@ -29,7 +29,7 @@ import {
   TRANSCRIPT_KEEP_RECENT_STEPS,
 } from '#/tui/utils/transcript-window';
 
-vi.mock('#/utils/open-url', () => ({ openUrl: vi.fn() }));
+void mock.module('#/utils/open-url', () => ({ openUrl: mock() }));
 
 type GoalReplayRecord = Extract<AgentReplayRecord, { type: 'goal_updated' }>;
 
@@ -193,7 +193,7 @@ function makeSession(
     id: 'ses-replay',
     model: 'k2',
     summary: { title: null },
-    getStatus: vi.fn(async () => ({
+    getStatus: mock(async () => ({
       model: 'k2',
       thinkingEffort: 'off',
       permission: 'manual',
@@ -202,53 +202,53 @@ function makeSession(
       maxContextTokens: 100,
       contextUsage: 0,
     })),
-    getGoal: vi.fn(async () => ({ goal: null })),
-    setApprovalHandler: vi.fn(),
-    setQuestionHandler: vi.fn(),
-    setModel: vi.fn(async () => {}),
-    setThinking: vi.fn(async () => {}),
-    setPermission: vi.fn(async () => {}),
-    setPlanMode: vi.fn(async () => {}),
-    onEvent: vi.fn(() => vi.fn()),
-    listMcpServers: vi.fn(async () => []),
-    listSkills: vi.fn(async () => []),
-    getResumeState: vi.fn(() => ({
+    getGoal: mock(async () => ({ goal: null })),
+    setApprovalHandler: mock(),
+    setQuestionHandler: mock(),
+    setModel: mock(async () => {}),
+    setThinking: mock(async () => {}),
+    setPermission: mock(async () => {}),
+    setPlanMode: mock(async () => {}),
+    onEvent: mock(() => mock()),
+    listMcpServers: mock(async () => []),
+    listSkills: mock(async () => []),
+    getResumeState: mock(() => ({
       sessionMetadata: {},
       agents: { main: agent },
     })),
-    close: vi.fn(async () => {}),
+    close: mock(async () => {}),
   } as unknown as Session;
 }
 
 function makeHarness(initialSession: Session) {
   const interactiveAgentScope = new AsyncLocalStorage<string>();
   return {
-    getConfig: vi.fn(async () => ({
+    getConfig: mock(async () => ({
       models: {
         k2: { model: 'moonshot-v1', maxContextSize: 100 },
       },
     })),
-    setConfig: vi.fn(async () => ({ providers: {} })),
-    createSession: vi.fn(async () => initialSession),
-    resumeSession: vi.fn(async () => initialSession),
-    forkSession: vi.fn(async () => initialSession),
-    listSessions: vi.fn(async () => []),
-    close: vi.fn(async () => {}),
-    track: vi.fn(),
-    setTelemetryContext: vi.fn(),
-    getExperimentalFeatures: vi.fn(async () => []),
+    setConfig: mock(async () => ({ providers: {} })),
+    createSession: mock(async () => initialSession),
+    resumeSession: mock(async () => initialSession),
+    forkSession: mock(async () => initialSession),
+    listSessions: mock(async () => []),
+    close: mock(async () => {}),
+    track: mock(),
+    setTelemetryContext: mock(),
+    getExperimentalFeatures: mock(async () => []),
     get interactiveAgentId() {
       return interactiveAgentScope.getStore() ?? 'main';
     },
-    withInteractiveAgent: vi.fn((agentId: string, fn: () => unknown) => {
+    withInteractiveAgent: mock((agentId: string, fn: () => unknown) => {
       return interactiveAgentScope.run(agentId, fn);
     }),
     auth: {
-      status: vi.fn(),
-      login: vi.fn(),
-      logout: vi.fn(),
-      getManagedUsage: vi.fn(),
-      submitFeedback: vi.fn(async () => ({ kind: 'ok', feedbackId: 3 })),
+      status: mock(),
+      login: mock(),
+      logout: mock(),
+      getManagedUsage: mock(),
+      submitFeedback: mock(async () => ({ kind: 'ok', feedbackId: 3 })),
     },
   };
 }
@@ -258,8 +258,8 @@ async function makeDriver(initialSession: Session): Promise<ReplayDriver> {
     makeHarness(initialSession) as never,
     makeStartupInput(),
   ) as unknown as ReplayDriver;
-  vi.spyOn(driver.state.ui, 'requestRender').mockImplementation(() => {});
-  vi.spyOn(driver.state.terminal, 'setProgress').mockImplementation(() => {});
+  spyOn(driver.state.ui, 'requestRender').mockImplementation(() => {});
+  spyOn(driver.state.terminal, 'setProgress').mockImplementation(() => {});
   await driver.init();
   return driver;
 }
@@ -919,8 +919,7 @@ describe('KimiTUI resume message replay', () => {
       timeoutMs: 1000,
     };
     const driver = await replayIntoDriver([], { background: [info] });
-    const applyTerminalStatus = vi
-      .spyOn(driver.streamingUI, 'applyBackgroundTaskTerminalStatus')
+    const applyTerminalStatus = spyOn(driver.streamingUI, 'applyBackgroundTaskTerminalStatus')
       .mockReturnValue(true);
 
     driver.sessionEventHandler.handleEvent(

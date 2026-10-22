@@ -173,7 +173,11 @@ export function checkSource(source, absFile) {
           continue;
         }
       }
-      if (targetAbs !== undefined && !isInside(HUMAN_ROOT, targetAbs)) {
+      if (
+        targetAbs !== undefined &&
+        !isInside(HUMAN_ROOT, targetAbs) &&
+        !(TEST_DIR_RE.test(onSlashes(absFile)) && isInside(TEST_ROOT, targetAbs))
+      ) {
         violations.push({
           file: absFile,
           line,

@@ -5,7 +5,7 @@ import path from 'node:path';
 
 // Covers the secondary-index paths not exercised by indexes.test.ts: drop,
 // error branches, unique range indexes, and findRange options.
-import { test } from 'vitest';
+import { test } from 'bun:test';
 
 import { MiniDb, UniqueViolationError } from '../src/index.js';
 

@@ -2,36 +2,39 @@
  * Scenario: untrusted Webview RPC messages cross into the VS Code extension host.
  * Responsibilities: validate requests, preserve public model metadata, omit private paths, and recover visibly from persisted state errors.
  * Wiring: the real BridgeHandler and handlers; VS Code and the public Node SDK harness boundary are replaced.
- * Run: cd apps/vscode && bunx vitest run --config vitest.config.ts test/bridge-handler.test.ts
+ * Run: cd apps/vscode && bun test --isolate test/bridge-handler.test.ts
  */
 import { mkdir, mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
+import { waitFor } from './helpers';
+import { installVscode } from './vscode-host';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn, type Mock } from 'bun:test';
 import type * as vscode from "vscode";
+import type { KimiHarness } from "@moonshot-ai/kimi-code-sdk";
 
 import { Methods } from "../shared/bridge";
 import { BridgeHandler } from "../src/bridge-handler";
 
-const host = vi.hoisted(() => {
+const host = (() => {
   const watcher = {
-    onDidChange: vi.fn(),
-    onDidCreate: vi.fn(),
-    onDidDelete: vi.fn(),
-    dispose: vi.fn(),
+    onDidChange: mock(),
+    onDidCreate: mock(),
+    onDidDelete: mock(),
+    dispose: mock(),
   };
   const harness = {
     homeDir: "/tmp/kimi-code-test-home",
-    close: vi.fn(async () => undefined),
-    getConfig: vi.fn(),
-    setConfig: vi.fn(async () => undefined),
-    listSessions: vi.fn(async () => []),
-    resumeSession: vi.fn(),
-    forkSession: vi.fn(),
-    deleteSession: vi.fn(async () => undefined),
+    close: mock(async () => undefined),
+    getConfig: mock(),
+    setConfig: mock(async () => undefined),
+    listSessions: mock(async () => []),
+    resumeSession: mock(),
+    forkSession: mock(),
+    deleteSession: mock(async () => undefined),
   };
-  const showWarningMessage = vi.fn(async () => undefined as string | undefined);
+  const showWarningMessage = mock(async () => undefined as string | undefined);
 
   class Uri {
     readonly scheme = "file";
@@ -55,13 +58,13 @@ const host = vi.hoisted(() => {
     Uri,
     watcher,
     harness,
-    createKimiHarness: vi.fn(() => harness),
+    createKimiHarness: mock((): KimiHarness => harness as unknown as KimiHarness),
     showWarningMessage,
     workspaceFolders: [] as Array<{ uri: Uri }>,
   };
-});
+})();
 
-vi.mock("vscode", () => ({
+installVscode({
   Uri: host.Uri,
   workspace: {
     get workspaceFolders() {
@@ -72,60 +75,54 @@ vi.mock("vscode", () => ({
     textDocuments: [],
   },
   window: { showWarningMessage: host.showWarningMessage },
-}));
-
-vi.mock("@moonshot-ai/kimi-code-sdk", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@moonshot-ai/kimi-code-sdk")>();
-  return {
-    ...original,
-    createKimiHarness: () => host.createKimiHarness(),
-  };
 });
 
 let bridge: BridgeHandler;
 let root: string;
 let showLogs: Mock<() => void>;
 let writeLog: Mock<(message: string) => void>;
-let workspaceState: { get: ReturnType<typeof vi.fn>; update: ReturnType<typeof vi.fn> };
+let workspaceState: { get: ReturnType<typeof mock>; update: ReturnType<typeof mock> };
 
 beforeEach(async () => {
   root = await mkdtemp(join(tmpdir(), "kimi-vscode-bridge-"));
   host.workspaceFolders.splice(0, host.workspaceFolders.length, { uri: new host.Uri(root) });
-  showLogs = vi.fn();
-  writeLog = vi.fn();
+  showLogs = mock();
+  writeLog = mock();
   host.harness.resumeSession.mockReset();
   host.harness.getConfig.mockReset();
   host.harness.getConfig.mockResolvedValue({ models: {} });
-  host.createKimiHarness.mockImplementation(() => host.harness);
+  host.createKimiHarness.mockImplementation(() => host.harness as unknown as KimiHarness);
   host.showWarningMessage.mockReset();
   host.showWarningMessage.mockResolvedValue(undefined);
-  workspaceState = { get: vi.fn((_key, fallback) => fallback), update: vi.fn() };
+  workspaceState = { get: mock((_key, fallback) => fallback), update: mock() };
   bridge = new BridgeHandler(
-    vi.fn(),
+    mock(),
     workspaceState as unknown as vscode.Memento,
     join(root, "global-storage"),
-    vi.fn(),
+    mock(),
     showLogs,
     writeLog,
+    host.createKimiHarness,
   );
 });
 
 afterEach(async () => {
   await bridge.dispose();
-  vi.clearAllMocks();
-  vi.unstubAllEnvs();
+  mock.clearAllMocks();
+  mock.restore();
   await rm(root, { recursive: true, force: true });
 });
 
 describe("Engine startup", () => {
   function constructBridge(): void {
     new BridgeHandler(
-      vi.fn(),
+      mock(),
       workspaceState as unknown as vscode.Memento,
       join(root, "global-storage-2"),
-      vi.fn(),
+      mock(),
       showLogs,
       writeLog,
+      host.createKimiHarness,
     );
   }
 
@@ -165,13 +162,13 @@ describe("Webview RPC boundary (validates requests before host dispatch)", () =>
   });
 
   it("cancels the view's runtime when aborting a chat", async () => {
-    const cancel = vi.fn(async () => undefined);
-    vi.spyOn(bridge.runtime, "getSessionForView").mockReturnValue({ cancel } as never);
+    const cancel = mock(async () => undefined);
+    spyOn(bridge.runtime, "getSessionForView").mockReturnValue({ cancel } as never);
 
     const result = await bridge.handle({ id: "rpc-1", method: Methods.AbortChat }, "view-1");
 
     expect(result).toEqual({ id: "rpc-1", result: { aborted: true } });
-    expect(cancel).toHaveBeenCalledOnce();
+    expect(cancel).toHaveBeenCalledTimes(1);
   });
 
   it.each(["missingMethod", "toString", "constructor", "__proto__"])(
@@ -214,7 +211,7 @@ describe("Webview RPC boundary (validates requests before host dispatch)", () =>
     const result = await bridge.handle({ id: "rpc-1", method: Methods.ShowLogs }, "view-1");
 
     expect(result).toEqual({ id: "rpc-1", result: { ok: true } });
-    expect(showLogs).toHaveBeenCalledOnce();
+    expect(showLogs).toHaveBeenCalledTimes(1);
   });
 
   it("keeps provider identity when configured models share a display name", async () => {
@@ -344,7 +341,7 @@ describe("Webview RPC boundary (validates requests before host dispatch)", () =>
       updatedAt: 124,
     };
     host.harness.listSessions.mockResolvedValueOnce([source] as never);
-    host.harness.forkSession.mockResolvedValueOnce({ summary: target, close: vi.fn() });
+    host.harness.forkSession.mockResolvedValueOnce({ summary: target, close: mock() });
 
     const result = await bridge.handle(
       {
@@ -372,12 +369,12 @@ describe("Webview RPC boundary (validates requests before host dispatch)", () =>
       sessionDir: "/private/kimi/sessions/session-2",
       updatedAt: 124,
     };
-    const runExclusiveAfterCancelling = vi.fn(async <T>(action: () => Promise<T>) => action());
-    vi.spyOn(bridge.runtime, "getSession").mockReturnValue({
+    const runExclusiveAfterCancelling = mock(async <T>(action: () => Promise<T>) => action());
+    spyOn(bridge.runtime, "getSession").mockReturnValue({
       runExclusiveAfterCancelling,
     } as never);
     host.harness.listSessions.mockResolvedValueOnce([source] as never);
-    host.harness.forkSession.mockResolvedValueOnce({ summary: target, close: vi.fn() });
+    host.harness.forkSession.mockResolvedValueOnce({ summary: target, close: mock() });
 
     const result = await bridge.handle(
       {
@@ -389,20 +386,20 @@ describe("Webview RPC boundary (validates requests before host dispatch)", () =>
     );
 
     expect(result).toEqual({ id: "rpc-1", result: { sessionId: "session-2" } });
-    expect(runExclusiveAfterCancelling).toHaveBeenCalledOnce();
-    expect(host.harness.forkSession).toHaveBeenCalledOnce();
+    expect(runExclusiveAfterCancelling).toHaveBeenCalledTimes(1);
+    expect(host.harness.forkSession).toHaveBeenCalledTimes(1);
   });
 
   it("closes and removes a fork when its baseline cannot be materialized", async () => {
     const source = { id: "session-1", workDir: root, updatedAt: 123 };
     const target = { id: "session-2", workDir: root, updatedAt: 124 };
-    const close = vi.fn(async () => undefined);
+    const close = mock(async () => undefined);
     host.harness.listSessions.mockResolvedValueOnce([source] as never);
     host.harness.forkSession.mockResolvedValueOnce({ summary: target, close });
-    vi.spyOn(bridge.baselineManager, "materializeToFork").mockRejectedValueOnce(
+    spyOn(bridge.baselineManager, "materializeToFork").mockRejectedValueOnce(
       new Error("baseline unavailable"),
     );
-    const deleteBaseline = vi.spyOn(bridge.baselineManager, "deleteSession");
+    const deleteBaseline = spyOn(bridge.baselineManager, "deleteSession");
 
     const result = await bridge.handle(
       {
@@ -414,7 +411,7 @@ describe("Webview RPC boundary (validates requests before host dispatch)", () =>
     );
 
     expect(result).toEqual({ id: "rpc-1", error: "baseline unavailable" });
-    expect(close).toHaveBeenCalledOnce();
+    expect(close).toHaveBeenCalledTimes(1);
     expect(host.harness.deleteSession).toHaveBeenCalledWith("session-2");
     expect(deleteBaseline).toHaveBeenCalledWith("session-2");
   });
@@ -456,7 +453,7 @@ describe("Webview RPC boundary (validates requests before host dispatch)", () =>
     expect(writeLog).toHaveBeenCalledWith(
       expect.stringMatching(/Unable to restore session file changes.*Unable to read baseline snapshot/),
     );
-    await vi.waitFor(() => expect(showLogs).toHaveBeenCalledOnce());
+    await waitFor(() => expect(showLogs).toHaveBeenCalledTimes(1));
   });
 
   it("returns a readable error when persisted session state is corrupt without wedging the bridge", async () => {
@@ -642,7 +639,7 @@ describe("Webview config saves (thinking effort persistence parity with the TUI)
 });
 
 function createResumedSession(id: string, workDir: string) {
-  const close = vi.fn(async () => undefined);
+  const close = mock(async () => undefined);
   const summary = {
     id,
     workDir,

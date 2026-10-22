@@ -13,7 +13,8 @@ import {
   type ModelCatalogConfig,
   type ScopeSeed,
 } from '@moonshot-ai/agent-core-v2';
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, it, mock } from 'bun:test';
+import { removeTempHome } from './helpers/tempHome';
 
 import { type RunningServer, startServer } from '../src/start';
 import { authHeaders } from './helpers/auth';
@@ -94,7 +95,7 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
       active = undefined;
     }
     if (home !== undefined) {
-      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
+      await removeTempHome(home);
       home = undefined;
     }
     delete process.env['KIMI_CODE_MODEL_CATALOG_REFRESH_ON_START'];
@@ -174,7 +175,7 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
   });
 
   it('lists models without refreshing providers', async () => {
-    const refreshProviderModels = vi.fn(async () => ({
+    const refreshProviderModels = mock(async () => ({
       changed: [],
       unchanged: [],
       failed: [],
@@ -359,7 +360,7 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
   }
 
   it('refreshes OAuth provider models through POST /providers:refresh_oauth', async () => {
-    const refreshOAuthProviderModels = vi.fn(async () => ({
+    const refreshOAuthProviderModels = mock(async () => ({
       changed: [
         { provider_id: 'managed:kimi-code', provider_name: 'Kimi Code', added: 1, removed: 0 },
       ],
@@ -388,7 +389,7 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
   });
 
   it('refreshes all provider models through POST /providers:refresh', async () => {
-    const refreshProviderModels = vi.fn(async () => ({
+    const refreshProviderModels = mock(async () => ({
       changed: [
         { provider_id: 'managed:kimi-code', provider_name: 'Kimi Code', added: 2, removed: 1 },
       ],
@@ -407,7 +408,7 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
   });
 
   it('refreshes a single provider through POST /providers/{id}:refresh', async () => {
-    const refreshProviderModels = vi.fn(async () => ({
+    const refreshProviderModels = mock(async () => ({
       changed: [],
       unchanged: [],
       failed: [],
@@ -424,7 +425,7 @@ describe('server-v2 /api/v1 model/provider catalog', () => {
   });
 
   it('rejects unsupported provider actions with 40001', async () => {
-    const refreshProviderModels = vi.fn(async () => ({
+    const refreshProviderModels = mock(async () => ({
       changed: [],
       unchanged: [],
       failed: [],

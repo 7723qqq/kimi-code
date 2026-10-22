@@ -17,6 +17,7 @@ import {
   estimateTokensForContentParts,
   estimateTokensForMessages,
 } from '#/llm-adapter/contract/tokens';
+import { IHostClock } from '#/os/interface/hostClock';
 import { ISessionTokenCountingService } from '#/session/tokenCounting/sessionTokenCounting';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 
@@ -58,6 +59,7 @@ export class AgentMicroCompactionService
     @IEventDispatcher private readonly dispatcher: IEventDispatcher,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IEventBus private readonly eventBus: IEventBus,
+    @IHostClock private readonly clock: IHostClock,
   ) {
     super();
     this.agentState.contributeState(microCompactionKey);
@@ -69,7 +71,7 @@ export class AgentMicroCompactionService
     );
     this._register(
       this.loop.hooks.onDidFinishStep.register('micro-compaction', async (_ctx, next) => {
-        this.lastAssistantAt = Date.now();
+        this.lastAssistantAt = this.clock.now().getTime();
         await next();
       }),
     );
@@ -95,7 +97,8 @@ export class AgentMicroCompactionService
 
     const config = this.config;
     const history = this.context.get();
-    const cacheAgeMs = this.lastAssistantAt === null ? null : Date.now() - this.lastAssistantAt;
+    const cacheAgeMs =
+      this.lastAssistantAt === null ? null : this.clock.now().getTime() - this.lastAssistantAt;
     const cacheMissed = cacheAgeMs !== null && cacheAgeMs >= config.cacheMissedThresholdMs;
     if (!cacheMissed) return;
 

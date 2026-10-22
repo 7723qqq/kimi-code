@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
@@ -58,7 +58,7 @@ describe('SessionMetadata', () => {
 
   afterEach(() => {
     disposables.dispose();
-    vi.restoreAllMocks();
+    mock.restore();
   });
 
   it('creates an initial document on first read', async () => {
@@ -418,7 +418,7 @@ describe('SessionMetadata', () => {
     [{ titleKind: 'generated' as const }, 'generated'],
     [{ customTitle: 'legacy title' }, 'custom'],
     [{}, 'replaceable'],
-  ])('normalizes title state %j to titleKind %s', async (fields, expectedKind) => {
+  ] as const)('normalizes title state %j to titleKind %s', async (fields, expectedKind) => {
     const store = ix.get(IAtomicDocumentStore);
     const title = 'customTitle' in fields ? undefined : 'some title';
     await store.set(META_SCOPE, 'state.json', {
@@ -454,7 +454,7 @@ describe('SessionMetadata', () => {
 
     const first = ix.get(ISessionMetadata);
     await first.ready;
-    const setSpy = vi.spyOn(store, 'set');
+    const setSpy = spyOn(store, 'set');
     const fresh = createFreshMetadata(ix);
     await fresh.ready;
 
@@ -476,7 +476,7 @@ describe('SessionMetadata', () => {
       releaseWrite = resolve;
     });
     let shouldBlock = true;
-    vi.spyOn(store, 'set').mockImplementation(async (scope, key, value) => {
+    spyOn(store, 'set').mockImplementation(async (scope, key, value) => {
       if (shouldBlock) {
         shouldBlock = false;
         markWriteStarted?.();

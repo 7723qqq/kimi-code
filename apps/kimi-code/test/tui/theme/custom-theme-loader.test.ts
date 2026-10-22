@@ -2,7 +2,7 @@ import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 
 import { darkColors, getColorPalette, lightColors, Theme } from '#/tui/theme';
 import {
@@ -47,7 +47,7 @@ describe('custom theme loader', () => {
   });
 
   it('filters invalid hex values without writing to the terminal', async () => {
-    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const warn = spyOn(console, 'warn').mockImplementation(() => {});
     try {
       writeTheme('mixed', {
         name: 'mixed',

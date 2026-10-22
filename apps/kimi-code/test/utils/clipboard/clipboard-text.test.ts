@@ -1,105 +1,125 @@
-import { spawnSync } from 'node:child_process';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
-import { clipboard } from '#/utils/clipboard/clipboard-native';
-import { buildClipboardOSC52 } from '#/utils/clipboard/clipboard-osc52';
-import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
-
-vi.mock('node:child_process', () => ({
-  spawnSync: vi.fn(),
-}));
-
-vi.mock('#/utils/clipboard/clipboard-native', () => ({
-  clipboard: {
-    setText: vi.fn(),
-  },
-}));
-
-const clipboardMock = clipboard as unknown as { setText: ReturnType<typeof vi.fn> };
-const spawnSyncMock = vi.mocked(spawnSync);
-
-const originalIsTTYDescriptor = Object.getOwnPropertyDescriptor(process.stdout, 'isTTY');
-
-function restoreIsTTY(): void {
-  if (originalIsTTYDescriptor !== undefined) {
-    Object.defineProperty(process.stdout, 'isTTY', originalIsTTYDescriptor);
-  }
-}
-
-function stubStdoutTTY(isTTY: boolean): void {
-  Object.defineProperty(process.stdout, 'isTTY', {
-    configurable: true,
-    writable: true,
-    value: isTTY,
-  });
-}
+import type { ClipboardModule } from '#/utils/clipboard/clipboard-native';
+import { buildClipboardOSC52, writeClipboardOSC52 } from '#/utils/clipboard/clipboard-osc52';
+import {
+  copyTextToClipboard,
+  type ClipboardWriteOptions,
+  type CopyTextDeps,
+} from '#/utils/clipboard/clipboard-text';
 
 function base64(text: string): string {
   return Buffer.from(text, 'utf8').toString('base64');
 }
 
-afterEach(() => {
-  restoreIsTTY();
-  vi.restoreAllMocks();
-  vi.unstubAllEnvs();
-  vi.clearAllMocks();
-});
+function fakeClipboard(overrides: Partial<ClipboardModule> = {}): ClipboardModule {
+  return {
+    hasImage: () => false,
+    getImageBinary: async () => [],
+    ...overrides,
+  };
+}
 
-beforeEach(() => {
-  spawnSyncMock.mockImplementation(() => {
-    throw new Error('platform clipboard fallback should not run');
-  });
-});
+function failingRun(): { status: number; stderr: string } {
+  return { status: 1, stderr: 'missing' };
+}
 
 describe('copyTextToClipboard', () => {
   it('copies text with the native clipboard when available', async () => {
-    clipboardMock.setText.mockResolvedValue(undefined);
+    const copied: string[] = [];
+    const deps: Partial<CopyTextDeps> = {
+      clipboard: fakeClipboard({
+        setText: async (text) => {
+          copied.push(text);
+        },
+      }),
+      osc52: () => false,
+      run: failingRun,
+    };
 
-    await expect(copyTextToClipboard('cd "/tmp/proj-b"')).resolves.toBe('native');
-    expect(clipboardMock.setText).toHaveBeenCalledWith('cd "/tmp/proj-b"');
+    await expect(copyTextToClipboard('cd "/tmp/proj-b"', deps)).resolves.toBe('native');
+    expect(copied).toEqual(['cd "/tmp/proj-b"']);
   });
 
   it('keeps native clipboard method context when copying text', async () => {
-    clipboardMock.setText.mockImplementation(function (this: unknown, text: string): void {
-      expect(this).toBe(clipboardMock);
-      expect(text).toBe('cd "/tmp/proj-b"');
-    });
+    const clip: ClipboardModule & { seen?: string } = {
+      hasImage: () => false,
+      getImageBinary: () => Promise.resolve([]),
+      setText(text: string): Promise<void> {
+        this.seen = text;
+        return Promise.resolve();
+      },
+    };
 
-    await expect(copyTextToClipboard('cd "/tmp/proj-b"')).resolves.toBe('native');
+    await expect(
+      copyTextToClipboard('cd "/tmp/proj-b"', { clipboard: clip, osc52: () => false }),
+    ).resolves.toBe('native');
+    expect(clip.seen).toBe('cd "/tmp/proj-b"');
   });
 
   it('throws an Error when all platform clipboard commands fail', async () => {
-    stubStdoutTTY(false);
-    clipboardMock.setText = undefined as unknown as ReturnType<typeof vi.fn>;
-    spawnSyncMock.mockReturnValue({ status: 1, stderr: 'missing' } as ReturnType<typeof spawnSync>);
+    const deps: Partial<CopyTextDeps> = {
+      clipboard: null,
+      platform: 'linux',
+      osc52: () => false,
+      run: failingRun,
+    };
 
-    await expect(copyTextToClipboard('cd "/tmp/proj-b"')).rejects.toBeInstanceOf(Error);
-    await expect(copyTextToClipboard('cd "/tmp/proj-b"')).rejects.toThrow(
+    await expect(copyTextToClipboard('cd "/tmp/proj-b"', deps)).rejects.toBeInstanceOf(Error);
+    await expect(copyTextToClipboard('cd "/tmp/proj-b"', deps)).rejects.toThrow(
       /(?:clip\.exe|pbcopy|wl-copy|xclip) exited with code 1: missing/,
     );
   });
 
   it('bounds the platform write helper with a finite timeout', async () => {
-    stubStdoutTTY(false);
-    clipboardMock.setText = undefined as unknown as ReturnType<typeof vi.fn>;
-    spawnSyncMock.mockImplementation((command: string) =>
-      command === 'xclip'
-        ? ({ status: 0, stderr: '' } as ReturnType<typeof spawnSync>)
-        : ({ status: 1, stderr: 'missing' } as ReturnType<typeof spawnSync>),
-    );
+    const calls: { command: string; options: ClipboardWriteOptions }[] = [];
+    const deps: Partial<CopyTextDeps> = {
+      clipboard: null,
+      platform: 'linux',
+      osc52: () => false,
+      run: (command, _args, options) => {
+        calls.push({ command, options });
+        return command === 'xclip' ? { status: 0, stderr: '' } : failingRun();
+      },
+    };
 
-    await copyTextToClipboard('cd "/tmp/proj-b"');
+    await copyTextToClipboard('cd "/tmp/proj-b"', deps);
 
     // Both candidates must carry the bound: with no `timeout` the parent waits
     // for the child's stdout to close, and a daemonizing `wl-copy`/`xclip`
     // keeps that pipe open forever (the CLI hangs silently).
-    expect(spawnSyncMock.mock.calls.map((call) => call[0])).toEqual(['wl-copy', 'xclip']);
-    for (const call of spawnSyncMock.mock.calls) {
-      const options = call[2] as { timeout?: number } | undefined;
-      expect(typeof options?.timeout).toBe('number');
-      expect(options?.timeout).toBeGreaterThan(0);
+    expect(calls.map((call) => call.command)).toEqual(['wl-copy', 'xclip']);
+    for (const call of calls) {
+      expect(typeof call.options.timeoutMs).toBe('number');
+      expect(call.options.timeoutMs).toBeGreaterThan(0);
+      expect(call.options.input).toBe('cd "/tmp/proj-b"');
     }
   });
+});
+
+describe('copyTextToClipboard platform commands', () => {
+  const cases = [
+    { platform: 'darwin', command: 'pbcopy' },
+    { platform: 'win32', command: 'clip.exe' },
+    { platform: 'linux', command: 'wl-copy' },
+  ] as const;
+
+  for (const { platform, command } of cases) {
+    it(`uses ${command} on ${platform}`, async () => {
+      const seen: string[] = [];
+      await copyTextToClipboard('payload', {
+        clipboard: null,
+        platform,
+        osc52: () => false,
+        run: (name) => {
+          seen.push(name);
+          return { status: 0, stderr: '' };
+        },
+      });
+
+      expect(seen).toEqual([command]);
+    });
+  }
 });
 
 describe('buildClipboardOSC52', () => {
@@ -114,26 +134,82 @@ describe('buildClipboardOSC52', () => {
   });
 });
 
-describe('OSC 52 fallback in copyTextToClipboard', () => {
-  it('resolves via OSC 52 when native clipboards fail on a terminal', async () => {
-    stubStdoutTTY(true);
-    clipboardMock.setText = undefined as unknown as ReturnType<typeof vi.fn>;
-    spawnSyncMock.mockReturnValue({ status: 1, stderr: 'missing' } as ReturnType<typeof spawnSync>);
-    const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+describe('writeClipboardOSC52', () => {
+  it('writes the sequence to a terminal sink', () => {
+    const chunks: string[] = [];
 
-    await expect(copyTextToClipboard('hello world')).resolves.toBe('osc52');
+    const written = writeClipboardOSC52('hi', {
+      isTTY: true,
+      write: (chunk) => {
+        chunks.push(chunk);
+        return true;
+      },
+    });
 
-    const written = writeSpy.mock.calls.map(([chunk]) => String(chunk)).join('');
-    expect(written).toContain(`]52;c;${base64('hello world')}`);
+    expect(written).toBe(true);
+    expect(chunks.join('')).toContain(`]52;c;${base64('hi')}`);
   });
 
-  it('does not write escape sequences when stdout is not a terminal', async () => {
-    stubStdoutTTY(false);
-    clipboardMock.setText = vi.fn().mockResolvedValue(undefined);
-    const writeSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+  it('does not write escape sequences to a non-terminal sink', () => {
+    let writes = 0;
 
-    await copyTextToClipboard('hello');
+    const written = writeClipboardOSC52('hi', {
+      isTTY: false,
+      write: () => {
+        writes += 1;
+        return true;
+      },
+    });
 
-    expect(writeSpy).not.toHaveBeenCalled();
+    expect(written).toBe(false);
+    expect(writes).toBe(0);
+  });
+
+  it('reports a failed write as not emitted', () => {
+    const written = writeClipboardOSC52('hi', {
+      isTTY: true,
+      write: () => {
+        throw new Error('EPIPE');
+      },
+    });
+
+    expect(written).toBe(false);
+  });
+});
+
+describe('OSC 52 fallback in copyTextToClipboard', () => {
+  it('resolves via OSC 52 when native clipboards fail on a terminal', async () => {
+    const emitted: string[] = [];
+
+    const method = await copyTextToClipboard('hello world', {
+      clipboard: null,
+      platform: 'linux',
+      run: failingRun,
+      osc52: (text) => {
+        emitted.push(text);
+        return true;
+      },
+    });
+
+    expect(method).toBe('osc52');
+    expect(emitted).toEqual(['hello world']);
+  });
+
+  it('emits OSC 52 before trying the native clipboard', async () => {
+    const events: string[] = [];
+
+    await copyTextToClipboard('hello', {
+      clipboard: fakeClipboard({
+        setText: async () => {
+          events.push('native');
+        },
+      }),
+      osc52: () => {
+        events.push('osc52');
+        return true;
+      },
+    });
+
+    expect(events).toEqual(['osc52', 'native']);
   });
 });

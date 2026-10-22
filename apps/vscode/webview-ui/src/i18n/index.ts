@@ -1,8 +1,8 @@
 /**
  * VS Code webview i18n — backed by the shared pure-JS engine.
  *
- * Uses `createI18nWeb` from `@moonshot-ai/i18n-shared/web`, which mirrors the
- * Rust engine's logic exactly. Includes:
+ * Uses `createI18nWeb` from `@moonshot-ai/i18n-shared/web`, which applies the
+ * same lookup semantics as the CLI. Includes:
  * - `navigator.language` auto-detection
  * - `localStorage` persistence for locale preference
  * - Type-safe `TranslationKey` derived from the English locale data

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import { Session, type QuestionHandler, type QuestionRequest, type QuestionResult } from '#/index';
 import type { SDKRpcClientBase } from '#/rpc';
@@ -11,7 +11,7 @@ describe('Session question handler', () => {
       workDir: '/tmp',
       rpc: rpc.asRpc(),
     });
-    const handler = vi.fn(async (request: QuestionRequest) => {
+    const handler = mock(async (request: QuestionRequest) => {
       expect(request).toMatchObject({
         questions: [
           {
@@ -85,7 +85,7 @@ describe('Session question handler', () => {
       workDir: '/tmp',
       rpc: rpc.asRpc(),
     });
-    const handler = vi.fn(() => ({ 'Continue?': 'yes' }));
+    const handler = mock(() => ({ 'Continue?': 'yes' }));
     session.setQuestionHandler(handler);
 
     await expect(
@@ -114,7 +114,7 @@ function questionRequest(question: string): QuestionRequest {
 
 class FakeSDKRpcClient {
   private readonly questionHandlers = new Map<string, QuestionHandler>();
-  readonly closeSession = vi.fn(async (_input: { readonly sessionId: string }) => {});
+  readonly closeSession = mock(async (_input: { readonly sessionId: string }) => {});
 
   asRpc(): SDKRpcClientBase {
     return this as unknown as SDKRpcClientBase;

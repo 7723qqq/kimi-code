@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import type { IAgentScopeHandle } from '#/_base/di/scope';
 import { LifecycleScope } from '#/app/scopes';

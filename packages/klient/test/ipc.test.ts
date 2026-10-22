@@ -4,13 +4,27 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { IEventService, IMcpManagementService } from '@moonshot-ai/agent-core-v2';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, spyOn } from 'bun:test';
 
 import { createKlient, serveKlientIpc, type KlientIpcHost } from '../src/transports/ipc/index.js';
 import { IpcChannel } from '../src/transports/ipc/channel.js';
 import { NdjsonDecoder } from '../src/transports/ipc/codec.js';
 import { defineKlientConformance } from './helpers/conformance.js';
 import { makeEngine, type TestEngine } from './helpers/engine.js';
+
+async function waitFor(assert: () => void, options?: { timeout?: number }): Promise<void> {
+  const deadline = Date.now() + (options?.timeout ?? 1000);
+  for (;;) {
+    try {
+      assert();
+      return;
+    } catch (error) {
+      if (Date.now() > deadline) throw error;
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+}
+
 
 // Windows cannot listen on Unix-socket paths at all (Node throws EACCES),
 // so the whole socket-behavior suite is POSIX-only.
@@ -73,7 +87,7 @@ describe.skipIf(process.platform === 'win32')('ipc transport specifics', () => {
 
   it('generates a token when none is supplied and rejects token-less clients', async () => {
     const socketPath = await setup();
-    expect(host?.token).toBeTypeOf('string');
+    expect(typeof host?.token).toBe('string');
     expect(host?.token.length).toBeGreaterThan(0);
 
     // A client without the token must be refused even though the host did
@@ -119,11 +133,9 @@ describe.skipIf(process.platform === 'win32')('ipc transport specifics', () => {
     // A slow engine-side wait: without the facade's per-call deadline the
     // channel's default would kill the long poll mid-flight.
     const management = app.accessor.get(IMcpManagementService);
-    const completeSpy = vi
-      .spyOn(management, 'completeServerAuth')
+    const completeSpy = spyOn(management, 'completeServerAuth')
       .mockImplementation(() => new Promise<void>((resolve) => setTimeout(resolve, 200)));
-    const cancelSpy = vi
-      .spyOn(management, 'cancelServerAuth')
+    const cancelSpy = spyOn(management, 'cancelServerAuth')
       .mockImplementation(() => new Promise<void>((resolve) => setTimeout(resolve, 200)));
     const klient = createKlient({ socketPath, token: host!.token, callTimeoutMs: 25 });
     try {
@@ -147,8 +159,7 @@ describe.skipIf(process.platform === 'win32')('ipc transport specifics', () => {
   it('completeAuth clamps a near-max timeoutMs instead of overflowing the call timer', async () => {
     const socketPath = await setup();
     const management = app.accessor.get(IMcpManagementService);
-    const completeSpy = vi
-      .spyOn(management, 'completeServerAuth')
+    const completeSpy = spyOn(management, 'completeServerAuth')
       .mockImplementation(() => new Promise<void>((resolve) => setTimeout(resolve, 50)));
     const klient = createKlient({ socketPath, token: host!.token, callTimeoutMs: 25 });
     try {
@@ -313,7 +324,7 @@ describe.skipIf(process.platform === 'win32')('ipc transport specifics', () => {
 
       // Wait for `listen_result` so the dispatcher subscription exists before
       // the burst starts.
-      await vi.waitFor(
+      await waitFor(
         () => {
           expect(received.some((line) => JSON.parse(line).type === 'listen_result')).toBe(true);
         },
@@ -347,7 +358,7 @@ describe.skipIf(process.platform === 'win32')('ipc transport specifics', () => {
       expect(hostSocket!.writableLength).toBeLessThanOrEqual(4 * hwm);
 
       client.resume();
-      await vi.waitFor(() => expect(countEvents()).toBe(total), { timeout: 10_000 });
+      await waitFor(() => expect(countEvents()).toBe(total), { timeout: 10_000 });
 
       const parsed = received
         .map((line) => JSON.parse(line) as { type: string; data?: { seq?: number } })

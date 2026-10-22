@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { mergeLegacyMetadata } from '../../src/sessions/source.js';
 
 describe('mergeLegacyMetadata', () => {

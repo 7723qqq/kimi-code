@@ -6,7 +6,7 @@ import {
   Service,
   createAppScope,
 } from '@moonshot-ai/agent-core-v2';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { describeAllChannels, resolveAnyScopedServiceId } from '../src/transport/channelRegistry';
 

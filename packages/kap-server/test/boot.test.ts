@@ -14,7 +14,8 @@ import {
   noopTelemetryService,
 } from '@moonshot-ai/agent-core-v2';
 import { pino } from 'pino';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import { removeTempHome } from './helpers/tempHome';
 
 import { listLiveServerInstances } from '../src/instanceRegistry';
 import { listenWithPortRetry, type RunningServer, startServer } from '../src/start';
@@ -31,7 +32,7 @@ describe('server-v2 boot', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
+      await removeTempHome(home);
       home = undefined;
     }
   });
@@ -179,7 +180,7 @@ describe('server-v2 boot', () => {
   it('does not shut down a host-injected telemetry service when server telemetry is disabled', async () => {
     home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-host-telemetry-'));
     await writeFile(join(home, 'config.toml'), 'telemetry = false\n', 'utf8');
-    const shutdown = vi.fn(async () => {});
+    const shutdown = mock(async () => {});
 
     server = await startServer({
       hostIdentity: TEST_HOST_IDENTITY,
@@ -200,7 +201,7 @@ describe('server-v2 boot', () => {
     home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-telemetry-failure-'));
     const storage = new InMemoryStorageService();
     const write = storage.write.bind(storage);
-    vi.spyOn(storage, 'write').mockImplementation(async (scope, key, data, options) => {
+    spyOn(storage, 'write').mockImplementation(async (scope, key, data, options) => {
       if (scope === 'telemetry') throw new Error('telemetry storage unavailable');
       await write(scope, key, data, options);
     });
@@ -444,7 +445,7 @@ describe('server-v2 boot — port retry', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
+      await removeTempHome(home);
       home = undefined;
     }
   });

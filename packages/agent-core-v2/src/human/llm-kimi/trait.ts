@@ -73,7 +73,8 @@ export function kimiUnsetCompletionTokens(input: {
   const window = input.model.maxContextSize;
   if (window === undefined || window <= 0 || input.usedContextTokens === undefined)
     return undefined;
-  return Math.max(1, window - input.usedContextTokens);
+  const remaining = window - input.usedContextTokens;
+  return remaining > 0 ? remaining : undefined;
 }
 
 export const kimiResponsesTrait: OpenAIResponsesTrait = {

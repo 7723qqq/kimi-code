@@ -1,5 +1,5 @@
 // apps/vis/server/test/lib/session-store.test.ts
-import { describe, it, expect, afterEach } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 import { buildSessionFixture } from '../fixtures/build';
 import { isSafeAgentId, listSessions, readSessionDetail } from '../../src/lib/session-store';
 

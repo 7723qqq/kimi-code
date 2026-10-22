@@ -2,7 +2,7 @@
  * Scenario: KimiHarness session creation and resume transport behavior.
  * Responsibilities: SDK options reach the in-process core and session identity remains stable.
  * Wiring: the real SDK/core are used; model/network boundaries are configured but never called.
- * Run: cd packages/node-sdk && bunx vitest run test/create-session-transport.test.ts
+ * Run: cd packages/node-sdk && bun test test/create-session-transport.test.ts
  */
 
 import { existsSync } from 'node:fs';
@@ -10,16 +10,16 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 
 import { join } from 'pathe';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, setDefaultTimeout } from 'bun:test';
 
 // Each test boots a full v2 engine (DI container, fs watchers, minidb); on
-// Windows cold starts routinely exceed vitest's 5s default.
-vi.setConfig({ testTimeout: 30_000 });
+// Windows cold starts routinely exceed bun test's 5s default.
+setDefaultTimeout(30_000);
 
 import { createKimiHarness, KimiHarness } from '#/index';
-import type { KimiError } from '#/index';
+import { KimiError } from '#/index';
 import { SDKRpcClientBase } from '#/rpc';
-import type { ResumeSessionInput, ResumedSessionSummary } from '#/types';
+import type { ResumedSessionSummary } from '#/types';
 
 import { waitForAgentWireEvent } from './session-runtime-helpers';
 import { recordingTelemetry, type TelemetryRecord } from './telemetry';

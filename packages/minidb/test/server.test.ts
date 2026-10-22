@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 // test/server.test.ts
-import { test } from 'vitest';
+import { test } from 'bun:test';
 
 import { startServer } from '../src/server.js';
 

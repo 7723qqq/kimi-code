@@ -8,7 +8,8 @@
  * `installPromptTerminationCleanup`, model resolution, signal exit codes).
  */
 
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { createFakeClock } from '#test/helpers/fake-clock';
 
 import { runPrompt } from '#/cli/run-prompt';
 import {
@@ -19,11 +20,11 @@ import {
   raceWithTimeout,
 } from '#/cli/run-prompt';
 
-const mocks = vi.hoisted(() => ({
-  runV2Print: vi.fn(async () => {}),
-}));
+const mocks = (() => ({
+  runV2Print: mock(async () => {}),
+}))();
 
-vi.mock('../../src/cli/v2/run-v2-print', () => ({
+void mock.module('../../src/cli/v2/run-v2-print', () => ({
   runV2Print: mocks.runV2Print,
 }));
 
@@ -51,7 +52,7 @@ describe('runPrompt', () => {
   });
 
   afterEach(() => {
-    vi.clearAllMocks();
+    mock.clearAllMocks();
   });
 
   it('dispatches to the native v2 runner with the CLI options', async () => {
@@ -64,12 +65,12 @@ describe('runPrompt', () => {
   });
 
   it('forwards the injected stdout/stderr/process io to the v2 runner', async () => {
-    const stdout = { write: vi.fn(() => true) };
-    const stderr = { write: vi.fn(() => true) };
+    const stdout = { write: mock(() => true) };
+    const stderr = { write: mock(() => true) };
     const processMock = {
-      once: vi.fn(),
-      off: vi.fn(),
-      exit: vi.fn(),
+      once: mock(),
+      off: mock(),
+      exit: mock(),
     };
 
     await runPrompt(opts(), '1.2.3-test', { stdout, stderr, process: processMock });
@@ -114,22 +115,22 @@ describe('installPromptTerminationCleanup', () => {
   function fakeProcess() {
     const listeners = new Map<NodeJS.Signals, () => Promise<void> | void>();
     return {
-      once: vi.fn((signal: NodeJS.Signals, listener: () => Promise<void> | void) => {
+      once: mock((signal: NodeJS.Signals, listener: () => Promise<void> | void) => {
         listeners.set(signal, listener);
       }),
-      off: vi.fn((signal: NodeJS.Signals, listener: () => Promise<void> | void) => {
+      off: mock((signal: NodeJS.Signals, listener: () => Promise<void> | void) => {
         if (listeners.get(signal) === listener) {
           listeners.delete(signal);
         }
       }),
-      exit: vi.fn(),
+      exit: mock(),
       listener: (signal: NodeJS.Signals) => listeners.get(signal),
     };
   }
 
   it('registers SIGINT/SIGTERM/SIGHUP handlers that clean up then exit', async () => {
     const processMock = fakeProcess();
-    const cleanup = vi.fn(async () => {});
+    const cleanup = mock(async () => {});
 
     installPromptTerminationCleanup(processMock, cleanup);
 
@@ -146,7 +147,7 @@ describe('installPromptTerminationCleanup', () => {
   it('deduplicates concurrent signals into one cleanup and exit', async () => {
     const processMock = fakeProcess();
     let releaseCleanup!: () => void;
-    const cleanup = vi.fn(
+    const cleanup = mock(
       () =>
         new Promise<void>((resolve) => {
           releaseCleanup = resolve;
@@ -168,7 +169,7 @@ describe('installPromptTerminationCleanup', () => {
   it('removes the handlers when the returned disposer runs', () => {
     const processMock = fakeProcess();
 
-    const dispose = installPromptTerminationCleanup(processMock, vi.fn());
+    const dispose = installPromptTerminationCleanup(processMock, mock());
     dispose();
 
     expect(processMock.listener('SIGINT')).toBeUndefined();
@@ -198,29 +199,35 @@ describe('raceWithTimeout', () => {
   });
 
   it('resolves when the timeout wins and swallows the late rejection', async () => {
-    vi.useFakeTimers();
-    try {
-      let settled = false;
-      const done = raceWithTimeout(
-        new Promise<void>((_, reject) => {
-          const timer = setTimeout(() => reject(new Error('late rejection')), 2000);
-          timer.unref?.();
-        }),
-        1000,
-      ).then(() => {
-        settled = true;
-      });
+    const clock = createFakeClock(0);
+    let settled = false;
+    const done = raceWithTimeout(
+      new Promise<void>((_, reject) => {
+        clock.setTimeout(() => reject(new Error('late rejection')), 2000);
+      }),
+      1000,
+      clock,
+    ).then(() => {
+      settled = true;
+    });
 
-      await vi.advanceTimersByTimeAsync(1000);
-      await done;
-      expect(settled).toBe(true);
+    clock.advance(1000);
+    await done;
+    expect(settled).toBe(true);
 
-      // The late rejection must not surface as an unhandled rejection.
-      await vi.advanceTimersByTimeAsync(2000);
-      await Promise.resolve();
-      expect(settled).toBe(true);
-    } finally {
-      vi.useRealTimers();
-    }
+    // The late rejection must not surface as an unhandled rejection.
+    clock.advance(2000);
+    await Promise.resolve();
+    expect(settled).toBe(true);
+  });
+
+  it('propagates a fast rejection without waiting for the timeout', async () => {
+    const clock = createFakeClock(0);
+
+    await expect(
+      raceWithTimeout(Promise.reject(new Error('close failed')), 1000, clock),
+    ).rejects.toThrow('close failed');
+
+    expect(clock.activeTimers).toBe(0);
   });
 });

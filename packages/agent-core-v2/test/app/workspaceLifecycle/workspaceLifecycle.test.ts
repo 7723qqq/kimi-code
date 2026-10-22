@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import {
   ScopeActivation,
@@ -30,11 +30,11 @@ import { recordingTelemetry, type TelemetryRecord } from '../telemetry/stubs';
 
 interface FakeController {
   readonly id: string;
-  resume: ReturnType<typeof vi.fn>;
-  get: ReturnType<typeof vi.fn>;
-  close: ReturnType<typeof vi.fn>;
-  onDidCloseSession: ReturnType<typeof vi.fn>;
-  dispose: ReturnType<typeof vi.fn>;
+  resume: ReturnType<typeof mock>;
+  get: ReturnType<typeof mock>;
+  close: ReturnType<typeof mock>;
+  onDidCloseSession: ReturnType<typeof mock>;
+  dispose: ReturnType<typeof mock>;
 }
 
 function fakeInstance(id: string, root: string, controller: FakeController): WorkspaceInstance {
@@ -51,14 +51,14 @@ function controllerStub(id: string): FakeController {
   const closeListeners = new Set<(event: unknown) => void>();
   return {
     id,
-    resume: vi.fn(async (sessionId: string) => ({ id: sessionId })),
-    get: vi.fn(),
-    close: vi.fn(async () => {}),
-    onDidCloseSession: vi.fn((listener: (event: unknown) => void) => {
+    resume: mock(async (sessionId: string) => ({ id: sessionId })),
+    get: mock(),
+    close: mock(async () => {}),
+    onDidCloseSession: mock((listener: (event: unknown) => void) => {
       closeListeners.add(listener);
       return { dispose: () => closeListeners.delete(listener) };
     }),
-    dispose: vi.fn(() => {}),
+    dispose: mock(() => {}),
   };
 }
 
@@ -70,7 +70,7 @@ function managerStub(
   const changeListeners = new Set<
     (change: { workspaceId: string; instance?: WorkspaceInstance }) => void
   >();
-  const getOrCreate = vi.fn(async (ref: WorkspaceInstanceRef) => {
+  const getOrCreate = mock(async (ref: WorkspaceInstanceRef) => {
     const found = (() => {
       if ('workspaceId' in ref && ref.workspaceId !== undefined) {
         const byId = instances.get(ref.workspaceId);
@@ -202,7 +202,7 @@ describe('WorkspaceLifecycleService', () => {
     expect(manager.getOrCreate).toHaveBeenCalledWith({ workspaceId: 'wd_proj' });
     expect(handler.id).toBe('wd_proj');
     expect(lifecycle.handlers.list().map((h) => h.id)).toEqual(['wd_proj']);
-    expect(handler).toBe(lifecycle.handlers.list()[0]);
+    expect(handler).toBe(lifecycle.handlers.list()[0]!);
   });
 
   it('handlerFor by root delegates the root lookup to the manager', async () => {
@@ -279,7 +279,7 @@ describe('WorkspaceLifecycleService', () => {
     const second = handler.accessor.get(ISessionLifecycleService);
 
     expect(first).toBe(second);
-    expect(first).toBe(controller);
+    expect(first).toBe(controller as unknown as ISessionLifecycleService);
   });
 
   it('handle accessor rejects unknown service ids', async () => {
@@ -313,7 +313,7 @@ describe('WorkspaceLifecycleService', () => {
 
   describe('sessionLookup', () => {
     it('resumeSessionById routes to the session manager', async () => {
-      const resume = vi.fn(async () => ({ id: 's1' }));
+      const resume = mock(async () => ({ id: 's1' }));
       build({
         extra: [
           stubPair(ISessionManager, {

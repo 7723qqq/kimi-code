@@ -2,7 +2,7 @@
  * Scenario: the VS Code host owns one Kimi harness and routes Webviews to shared SDK sessions.
  * Responsibilities: create/resume/switch, per-session settings, multi-view ownership, detach, and disposal.
  * Wiring: KimiRuntime and SessionRuntime are real; in-memory Session/KimiHarness fakes form the public SDK boundary.
- * Run: bunx vitest run --config apps/vscode/vitest.config.ts test/kimi-runtime.test.ts
+ * Run: cd apps/vscode && bun test --isolate test/kimi-runtime.test.ts
  */
 
 import type {
@@ -21,26 +21,31 @@ import type {
   ThinkingEffort,
 } from "@moonshot-ai/kimi-code-sdk";
 import { setTelemetryContext, track, withTelemetryContext } from "@moonshot-ai/kimi-telemetry";
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, mock } from 'bun:test';
 
 import { Events } from "../shared/bridge";
 import { KimiRuntime, type OpenSessionOptions } from "../src/runtime/kimi-runtime";
 
-const sdkFactories = vi.hoisted(() => {
-  const harness = { homeDir: "/tmp/kimi-runtime-home", close: vi.fn(async () => undefined) };
+// Bun runs this factory while `../src/runtime/kimi-runtime` is imported, i.e.
+// before the module body; a hoisted function keeps the shared harness reachable
+// from both the factory and the tests.
+function createSdkFactories() {
+  const harness = { homeDir: "/tmp/kimi-runtime-home", close: mock(async () => undefined) };
   return {
     harness,
-    createKimiHarness: vi.fn(() => harness),
+    createKimiHarness: mock((): KimiHarness => harness as unknown as KimiHarness),
   };
-});
+}
 
-vi.mock("@moonshot-ai/kimi-code-sdk", async (importOriginal) => {
-  const original = await importOriginal<typeof import("@moonshot-ai/kimi-code-sdk")>();
-  return {
-    ...original,
-    createKimiHarness: sdkFactories.createKimiHarness,
-  };
-});
+type SdkFactories = ReturnType<typeof createSdkFactories>;
+
+function sdk(): SdkFactories {
+  const holder = sdk as typeof sdk & { current?: SdkFactories };
+  holder.current ??= createSdkFactories();
+  return holder.current;
+}
+
+const sdkFactories = sdk();
 
 interface FakeSessionBoundary {
   readonly session: Session;
@@ -269,8 +274,9 @@ describe("Kimi runtime (owns shared SDK sessions for Webviews)", () => {
       broadcast: () => undefined,
       captureBaseline: () => undefined,
       log: () => undefined,
+      createHarness: sdk().createKimiHarness,
     });
-    expect(sdkFactories.createKimiHarness).toHaveBeenCalledOnce();
+    expect(sdkFactories.createKimiHarness).toHaveBeenCalledTimes(1);
     expect(sdkFactories.createKimiHarness).toHaveBeenCalledWith({
       homeDir: undefined,
       identity: {

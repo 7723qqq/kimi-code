@@ -797,7 +797,9 @@ async function restoreFileAtomic(targetPath: string, content: string): Promise<v
   try {
     await writeFile(temporaryPath, content, { encoding: 'utf-8', mode });
     await chmod(temporaryPath, mode);
-    const handle = await open(temporaryPath, 'r');
+    // Flushing is only permitted on a handle with write access on Windows,
+    // so the temp file is opened read-write even though only `sync` is called.
+    const handle = await open(temporaryPath, 'r+');
     try {
       await handle.sync();
     } finally {

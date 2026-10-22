@@ -2,10 +2,10 @@
  * Scenario: public Node SDK events are projected into the released VS Code Webview protocol.
  * Responsibilities: verify legacy shapes, routing state, and terminal metadata one event at a time.
  * Wiring: the pure adapter and real protocol types are used directly; there are no stubs.
- * Run: bunx vitest run --config apps/vscode/vitest.config.ts apps/vscode/test/event-adapter.test.ts
+ * Run: cd apps/vscode && bun test --isolate test/event-adapter.test.ts
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { isPreflightError } from '../shared/errors';
 import {

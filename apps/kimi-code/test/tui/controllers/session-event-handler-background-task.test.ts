@@ -1,5 +1,5 @@
 import type { Event } from '@moonshot-ai/kimi-code-sdk';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock, type Mock } from 'bun:test';
 
 import { SessionEventHandler } from '#/tui/controllers/session-event-handler';
 import {
@@ -10,20 +10,20 @@ import { getBuiltInPalette } from '#/tui/theme';
 
 function makeStreamingUIStub() {
   return {
-    getToolComponent: vi.fn(() => {}),
-    getActiveToolCall: vi.fn(() => {}),
-    onToolCallStart: vi.fn(),
-    getTurnContext: vi.fn(() => ({ turnId: 1, step: 0 })),
-    removeToolComponentIfInactive: vi.fn(),
-    applyBackgroundTaskTerminalStatus: vi.fn(),
-    markSubagentBackgrounded: vi.fn(),
-    setTurnId: vi.fn(),
-    flushNow: vi.fn(),
-    setTodoList: vi.fn(),
-    resetToolUi: vi.fn(),
-    clearNotifyPanel: vi.fn(),
-    markNotifyPanelEnded: vi.fn(),
-    finalizeTurn: vi.fn(),
+    getToolComponent: mock(() => {}),
+    getActiveToolCall: mock(() => {}),
+    onToolCallStart: mock(),
+    getTurnContext: mock(() => ({ turnId: 1, step: 0 })),
+    removeToolComponentIfInactive: mock(),
+    applyBackgroundTaskTerminalStatus: mock(),
+    markSubagentBackgrounded: mock(),
+    setTurnId: mock(),
+    flushNow: mock(),
+    setTodoList: mock(),
+    resetToolUi: mock(),
+    clearNotifyPanel: mock(),
+    markNotifyPanelEnded: mock(),
+    finalizeTurn: mock(),
   };
 }
 
@@ -33,18 +33,18 @@ function makeSubagentHandler() {
   const host = {
     state: {
       appState: { availableModels: {} },
-      ui: { requestRender: vi.fn() },
-      transcriptContainer: { addChild: vi.fn() },
+      ui: { requestRender: mock() },
+      transcriptContainer: { addChild: mock() },
     },
     streamingUI: makeStreamingUIStub(),
-    appendTranscriptEntry: vi.fn(),
-    btwPanelController: { routeEvent: vi.fn(() => false) },
-    updateActivityPane: vi.fn(),
+    appendTranscriptEntry: mock(),
+    btwPanelController: { routeEvent: mock(() => false) },
+    updateActivityPane: mock(),
   };
   const handler = new SubAgentEventHandler(host as never, {
     backgroundTasks,
     backgroundTaskTranscriptedTerminal: transcriptedTerminal,
-    syncBackgroundAgentBadge: vi.fn(),
+    syncBackgroundAgentBadge: mock(),
   });
   return { handler, backgroundTasks, host, transcriptedTerminal };
 }
@@ -99,11 +99,11 @@ describe('SubAgentEventHandler — background agent cancelled transcript', () =>
     const { handler, backgroundTasks, host, transcriptedTerminal } = makeSubagentHandler();
     backgroundTasks.set('task-a1', agentTask('a1'));
     handler.handleLifecycleEvent(spawnEvent('a1', true));
-    (host.appendTranscriptEntry as ReturnType<typeof vi.fn>).mockClear();
+    (host.appendTranscriptEntry as Mock<(...args: any[]) => any>).mockClear();
 
     handler.handleLifecycleEvent(cancelledEvent('a1'));
 
-    const appended = (host.appendTranscriptEntry as ReturnType<typeof vi.fn>).mock.calls.map(
+    const appended = (host.appendTranscriptEntry as Mock<(...args: any[]) => any>).mock.calls.map(
       ([entry]) => entry as { content: string },
     );
     expect(appended).toHaveLength(1);
@@ -122,7 +122,7 @@ describe('SubAgentEventHandler — background agent cancelled transcript', () =>
     backgroundTasks.set('task-a1', agentTask('a1'));
     transcriptedTerminal.add('task-a1');
     handler.handleLifecycleEvent(spawnEvent('a1', true));
-    (host.appendTranscriptEntry as ReturnType<typeof vi.fn>).mockClear();
+    (host.appendTranscriptEntry as Mock<(...args: any[]) => any>).mockClear();
 
     handler.handleLifecycleEvent(cancelledEvent('a1'));
 
@@ -132,8 +132,8 @@ describe('SubAgentEventHandler — background agent cancelled transcript', () =>
 
   it('delivers a terminal status to a non-swarm foreground tool card when a subagent is cancelled', () => {
     const { handler, host } = makeSubagentHandler();
-    const tc = { onSubagentSpawned: vi.fn(), onSubagentFailed: vi.fn() };
-    (host.streamingUI.getToolComponent as ReturnType<typeof vi.fn>).mockReturnValue(tc);
+    const tc = { onSubagentSpawned: mock(), onSubagentFailed: mock() };
+    (host.streamingUI.getToolComponent as Mock<(...args: any[]) => any>).mockReturnValue(tc);
     handler.handleLifecycleEvent(spawnEvent('a1', false));
 
     handler.handleLifecycleEvent(cancelledEvent('a1'));
@@ -194,36 +194,36 @@ function makeSessionEventHost() {
       queuedMessageDispatchPending: false,
       theme: { palette: getBuiltInPalette('dark') },
       toolOutputExpanded: false,
-      todoPanel: { getTodos: vi.fn(() => []) },
-      transcriptContainer: { addChild: vi.fn() },
+      todoPanel: { getTodos: mock(() => []) },
+      transcriptContainer: { addChild: mock() },
       tasksBrowser: undefined,
-      footer: { setBackgroundCounts: vi.fn() },
-      ui: { requestRender: vi.fn() },
+      footer: { setBackgroundCounts: mock() },
+      ui: { requestRender: mock() },
     },
     session: { id: 's1' },
     aborted: false,
     sessionEventUnsubscribe: undefined,
     streamingUI: makeStreamingUIStub(),
-    requireSession: vi.fn(),
-    setAppState: vi.fn(),
-    patchLivePane: vi.fn(),
-    resetLivePane: vi.fn(),
-    showError: vi.fn(),
-    showStatus: vi.fn(),
-    showNotice: vi.fn(),
-    track: vi.fn(),
-    recordSessionActivity: vi.fn(),
-    noteStepUsage: vi.fn(),
-    noteCompactionFinished: vi.fn(),
-    mountEditorReplacement: vi.fn(),
-    restoreEditor: vi.fn(),
-    restoreInputText: vi.fn(),
-    appendTranscriptEntry: vi.fn(),
-    sendNormalUserInput: vi.fn(),
-    sendQueuedMessage: vi.fn(),
-    shiftQueuedMessage: vi.fn(),
-    btwPanelController: { routeEvent: vi.fn(() => false) },
-    tasksBrowserController: { repaint: vi.fn(), refreshOutputViewer: vi.fn() },
+    requireSession: mock(),
+    setAppState: mock(),
+    patchLivePane: mock(),
+    resetLivePane: mock(),
+    showError: mock(),
+    showStatus: mock(),
+    showNotice: mock(),
+    track: mock(),
+    recordSessionActivity: mock(),
+    noteStepUsage: mock(),
+    noteCompactionFinished: mock(),
+    mountEditorReplacement: mock(),
+    restoreEditor: mock(),
+    restoreInputText: mock(),
+    appendTranscriptEntry: mock(),
+    sendNormalUserInput: mock(),
+    sendQueuedMessage: mock(),
+    shiftQueuedMessage: mock(),
+    btwPanelController: { routeEvent: mock(() => false) },
+    tasksBrowserController: { repaint: mock(), refreshOutputViewer: mock() },
   };
   return host as never;
 }
@@ -254,7 +254,7 @@ describe('SessionEventHandler — background.task.terminated', () => {
       parentToolCallId: 'tc-9',
     });
 
-    handler.handleEvent(terminatedEvent('agent-9', 'killed'), vi.fn());
+    handler.handleEvent(terminatedEvent('agent-9', 'killed'), mock());
 
     expect(handler.subAgentEventHandler.activityStore.get('agent-9')?.status).toBe('failed');
   });
@@ -265,7 +265,7 @@ describe('SessionEventHandler — background.task.terminated', () => {
     store.ensureRecord({ agentId: 'agent-8', agentName: 'explore', parentToolCallId: 'tc-8' });
     store.markCompleted('agent-8', 'final summary');
 
-    handler.handleEvent(terminatedEvent('agent-8', 'completed'), vi.fn());
+    handler.handleEvent(terminatedEvent('agent-8', 'completed'), mock());
 
     const record = store.get('agent-8');
     expect(record?.status).toBe('completed');
@@ -285,7 +285,7 @@ describe('SessionEventHandler — background.task.terminated', () => {
         turnId: 1,
         reason: 'cancelled',
       } as Event,
-      vi.fn(),
+      mock(),
     );
 
     expect(store.get('agent-7')).toBeUndefined();

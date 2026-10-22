@@ -9,10 +9,77 @@ export type RunCommand = (
   args: string[],
   options?: RunCommandOptions,
 ) => { stdout: Buffer; ok: boolean };
+
+/** Timer handle shape shared with `RenderTimerHandle` (`#/tui/utils/render-clock`). */
+export interface CommandTimerHandle {
+  unref?(): void;
+}
+
+/** Timer seam of `runCommandAsync`; structurally satisfied by `RenderClock` and
+ *  `createFakeClock()`, so a test can drive the timeout without wall-clock waits. */
+export interface CommandTimers {
+  now(): number;
+  setTimeout(callback: () => void, delayMs: number): CommandTimerHandle;
+  clearTimeout(handle: CommandTimerHandle): void;
+}
+
+export const SYSTEM_COMMAND_TIMERS: CommandTimers = {
+  now: () => Date.now(),
+  setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
+  clearTimeout: (handle) => {
+    clearTimeout(handle as ReturnType<typeof setTimeout>);
+  },
+};
+
+/** The slice of a spawned child `runCommandAsync` drives, so a test can supply
+ *  one without a real subprocess. */
+export interface CommandChild {
+  onStdoutData(listener: (chunk: Buffer) => void): void;
+  onError(listener: () => void): void;
+  onClose(listener: (code: number | null) => void): void;
+  kill(): void;
+}
+
+export interface CommandSpawnOptions {
+  readonly env?: NodeJS.ProcessEnv;
+}
+
+export type CommandSpawn = (
+  command: string,
+  args: string[],
+  options: CommandSpawnOptions,
+) => CommandChild;
+
+export const SYSTEM_COMMAND_SPAWN: CommandSpawn = (command, args, options) => {
+  const child = spawn(command, args, {
+    env: options.env,
+    stdio: ['ignore', 'pipe', 'ignore'],
+  });
+  return {
+    onStdoutData: (listener) => {
+      child.stdout?.on('data', listener);
+    },
+    onError: (listener) => {
+      child.on('error', listener);
+    },
+    onClose: (listener) => {
+      child.on('close', listener);
+    },
+    kill: () => {
+      child.kill();
+    },
+  };
+};
+
+export interface RunCommandAsyncOptions extends RunCommandOptions {
+  readonly timers?: CommandTimers;
+  readonly spawn?: CommandSpawn;
+}
+
 export type RunCommandAsync = (
   command: string,
   args: string[],
-  options?: RunCommandOptions,
+  options?: RunCommandAsyncOptions,
 ) => Promise<{ stdout: Buffer; ok: boolean }>;
 
 export const SUPPORTED_IMAGE_MIME_TYPES = [
@@ -69,16 +136,15 @@ export function runCommand(
 export function runCommandAsync(
   command: string,
   args: string[],
-  options?: RunCommandOptions,
+  options?: RunCommandAsyncOptions,
 ): Promise<{ stdout: Buffer; ok: boolean }> {
   const timeoutMs = options?.timeoutMs ?? DEFAULT_LIST_TIMEOUT_MS;
+  const timers = options?.timers ?? SYSTEM_COMMAND_TIMERS;
+  const spawnChild = options?.spawn ?? SYSTEM_COMMAND_SPAWN;
   return new Promise((resolve) => {
-    let child;
+    let child: CommandChild;
     try {
-      child = spawn(command, args, {
-        env: options?.env,
-        stdio: ['ignore', 'pipe', 'ignore'],
-      });
+      child = spawnChild(command, args, { env: options?.env });
     } catch {
       resolve({ ok: false, stdout: Buffer.alloc(0) });
       return;
@@ -87,23 +153,23 @@ export function runCommandAsync(
     const chunks: Buffer[] = [];
     let totalBytes = 0;
     let settled = false;
-    let timer: ReturnType<typeof setTimeout>;
+    let timer: CommandTimerHandle | undefined;
 
     // Marks the promise as settled and clears the timeout. Returns true only for
     // the first caller, so each event handler below resolves at most once.
     const claim = (): boolean => {
       if (settled) return false;
       settled = true;
-      clearTimeout(timer);
+      if (timer !== undefined) timers.clearTimeout(timer);
       return true;
     };
 
-    timer = setTimeout(() => {
+    timer = timers.setTimeout(() => {
       child.kill();
       if (claim()) resolve({ ok: false, stdout: Buffer.alloc(0) });
     }, timeoutMs);
 
-    child.stdout?.on('data', (chunk: Buffer) => {
+    child.onStdoutData((chunk: Buffer) => {
       totalBytes += chunk.length;
       if (totalBytes > DEFAULT_MAX_BUFFER_BYTES) {
         child.kill();
@@ -113,11 +179,11 @@ export function runCommandAsync(
       chunks.push(chunk);
     });
 
-    child.on('error', () => {
+    child.onError(() => {
       if (claim()) resolve({ ok: false, stdout: Buffer.alloc(0) });
     });
 
-    child.on('close', (code) => {
+    child.onClose((code) => {
       if (code !== 0) {
         if (claim()) resolve({ ok: false, stdout: Buffer.alloc(0) });
         return;

@@ -1,6 +1,7 @@
 import { PassThrough, Readable, type Writable } from 'node:stream';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import type { IDisposable } from '#/_base/di/lifecycle';
 import { isUserCancellation } from '#/_base/utils/abort';
@@ -476,7 +477,7 @@ describe('AgentGoalService', () => {
 
       expect(resumed.status).toBe('active');
       expect(repeated.status).toBe('active');
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         expect(endedTurnIds).toHaveLength(2);
       });
       expect(ctx.llmCalls).toHaveLength(3);
@@ -873,15 +874,15 @@ describe('AgentGoalService core workflow hooks', () => {
 
   async function startLiveContinuation(
     abortResult = true,
-  ): Promise<ReturnType<typeof vi.fn<() => boolean>>> {
-    const abort = vi.fn<() => boolean>(() => abortResult);
+  ): Promise<ReturnType<typeof mock<() => boolean>>> {
+    const abort = mock<() => boolean>(() => abortResult);
     const turn: StubTurn = {
       ...makeTurn(41),
       result: new Promise<never>(() => {}),
       cancel: () => abort(),
     };
-    vi.spyOn(loopService, 'submit').mockReturnValue({ id: 'p' });
-    vi.spyOn(loopService, 'promptHandle').mockReturnValue({
+    spyOn(loopService, 'submit').mockReturnValue({ id: 'p' });
+    spyOn(loopService, 'promptHandle').mockReturnValue({
       launched: Promise.resolve(turn),
       completion: new Promise(() => {}),
     } as unknown as PromptHandle);
@@ -934,7 +935,7 @@ describe('AgentGoalService core workflow hooks', () => {
       await goals.resumeGoal();
       endTurn(eventBus, turn);
 
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         expect(loopService.launches).toHaveLength(1);
       });
       expect(loopService.drainNextBatch(context)).toBeDefined();
@@ -975,7 +976,7 @@ describe('AgentGoalService core workflow hooks', () => {
 
     await goals.pauseGoal();
 
-    expect(abort).toHaveBeenCalledOnce();
+    expect(abort).toHaveBeenCalledTimes(1);
   });
 
   it('aborts a live continuation when the user cancels the goal', async () => {
@@ -983,7 +984,7 @@ describe('AgentGoalService core workflow hooks', () => {
 
     await goals.cancelGoal();
 
-    expect(abort).toHaveBeenCalledOnce();
+    expect(abort).toHaveBeenCalledTimes(1);
   });
 
   it('aborts a live continuation when the user replaces the goal', async () => {
@@ -991,7 +992,7 @@ describe('AgentGoalService core workflow hooks', () => {
 
     await goals.createGoal({ objective: 'new task', replace: true });
 
-    expect(abort).toHaveBeenCalledOnce();
+    expect(abort).toHaveBeenCalledTimes(1);
   });
 
   it('queues a continuation for a replacement goal created by its current goal turn', async () => {
@@ -1017,7 +1018,7 @@ describe('AgentGoalService core workflow hooks', () => {
 
     endTurn(eventBus, turn);
 
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(loopService.launches).toHaveLength(1);
     });
     expect(goals.getGoal().goal).toMatchObject({ objective: 'new task', status: 'active' });
@@ -1178,7 +1179,7 @@ describe('AgentGoalService core workflow hooks', () => {
       );
       await runGoalStep(loopService, oldUserTurn);
       endTurn(eventBus, oldUserTurn);
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         expect(loopService.launches).toHaveLength(1);
       });
 
@@ -1213,11 +1214,11 @@ describe('AgentGoalService core workflow hooks', () => {
 
   it('cancels a preserved continuation turn after its original receipt settles', async () => {
     const abort = await startLiveContinuation(false);
-    const cancel = vi.spyOn(loopService, 'cancel').mockReturnValue(true);
+    const cancel = spyOn(loopService, 'cancel').mockReturnValue(true);
     await goals.markBlocked({ reason: 'still need credentials' }, 'model');
     await goals.cancelGoal();
 
-    expect(abort).toHaveBeenCalledOnce();
+    expect(abort).toHaveBeenCalledTimes(1);
     expect(cancel).toHaveBeenCalledWith({ turnId: 41 }, expect.any(Error));
     expect(isUserCancellation(cancel.mock.calls[0]?.[1])).toBe(false);
   });
@@ -1323,13 +1324,13 @@ describe('AgentGoalService core workflow hooks', () => {
 
   it('starts a continuation after an opted paused resume waits for a cancelled turn', async () => {
     await startLiveContinuation();
-    const submit = vi.mocked(loopService.submit);
+    const submit = loopService.submit;
 
     await goals.pauseGoal();
     const resumed = await goals.resumeGoal({ continueIfPaused: true });
     endTurn(eventBus, makeTurn(41), { reason: 'cancelled' });
 
-    await vi.waitFor(() => expect(submit).toHaveBeenCalledTimes(2));
+    await waitForAssertion(() => expect(submit).toHaveBeenCalledTimes(2));
     expect(resumed.status).toBe('active');
     expect(goals.getGoal().goal?.status).toBe('active');
   });
@@ -1412,7 +1413,7 @@ describe('AgentGoalService core workflow hooks', () => {
     await runGoalStep(loopService, firstTurn);
     endTurn(eventBus, firstTurn);
 
-    await vi.waitFor(() => expect(loopService.launches).toHaveLength(1));
+    await waitForAssertion(() => expect(loopService.launches).toHaveLength(1));
     const continuation = makeTurn(loopService.launches[0]!);
     eventBus.publish(
       new TurnStarted({
@@ -1531,7 +1532,7 @@ describe('AgentGoalService core workflow hooks', () => {
     await goals.createGoal({ objective: 'finish the task' }, 'model');
     endTurn(eventBus, turn);
 
-    await vi.waitFor(() => expect(loopService.launches).toHaveLength(1));
+    await waitForAssertion(() => expect(loopService.launches).toHaveLength(1));
     expect(goals.getGoal().goal).toMatchObject({
       status: 'active',
       turnsUsed: 1,
@@ -1549,7 +1550,7 @@ describe('AgentGoalService core workflow hooks', () => {
     await goals.setBudgetLimits({ budgetLimits: { turnBudget: 1 } }, 'model');
     endTurn(eventBus, turn);
 
-    await vi.waitFor(() => expect(goals.getGoal().goal?.status).toBe('blocked'));
+    await waitForAssertion(() => expect(goals.getGoal().goal?.status).toBe('blocked'));
     expect(goals.getGoal().goal).toMatchObject({
       status: 'blocked',
       turnsUsed: 1,
@@ -1686,7 +1687,7 @@ describe('AgentGoalService core workflow hooks', () => {
 
   it('pauses the goal when the continuation launch fails', async () => {
     await goals.createGoal({ objective: 'finish the task' });
-    vi.spyOn(loopService, 'submit').mockImplementation(() => {
+    spyOn(loopService, 'submit').mockImplementation(() => {
       throw new Error('wire dispatch exploded');
     });
     const updates: GoalUpdated[] = [];
@@ -1699,7 +1700,7 @@ describe('AgentGoalService core workflow hooks', () => {
     await runGoalStep(loopService, turn);
     endTurn(eventBus, turn);
 
-    await vi.waitFor(() => expect(goals.getGoal().goal?.status).toBe('paused'));
+    await waitForAssertion(() => expect(goals.getGoal().goal?.status).toBe('paused'));
     expect(goals.getGoal().goal?.terminalReason).toBe(
       'Paused after goal continuation failure: wire dispatch exploded',
     );
@@ -1716,7 +1717,7 @@ describe('AgentGoalService core workflow hooks', () => {
     await runGoalStep(loopService, goalTurn);
     endTurn(eventBus, goalTurn);
 
-    await vi.waitFor(() => expect(loopService.launches).toHaveLength(1));
+    await waitForAssertion(() => expect(loopService.launches).toHaveLength(1));
     expect(goals.getGoal().goal?.status).toBe('active');
     expect(loopService.snapshot().hasPendingRequests).toBe(true);
   });
@@ -1942,7 +1943,7 @@ describe('AgentGoalService hard wall-clock deadline', () => {
       wireRecordPersistenceServices(persistence),
     );
     let restored: TestAgentContext | undefined;
-    const now = vi.spyOn(Date, 'now').mockReturnValue(1_000);
+    const now = spyOn(Date, 'now').mockReturnValue(1_000);
     try {
       ctx.configure();
       await ctx.restorePersisted();
@@ -2303,7 +2304,7 @@ describe('AgentGoalService mid-turn budget stop', () => {
         'Goal budget exhausted; tool calls are rejected. Write your final message.',
       );
       expect(JSON.stringify(history)).not.toContain('This step should never run.');
-      await vi.waitFor(() => expect(goals.getGoal().goal?.status).toBe('blocked'));
+      await waitForAssertion(() => expect(goals.getGoal().goal?.status).toBe('blocked'));
       expect(goals.getGoal().goal?.budget.turnBudget).toBe(1);
     } finally {
       await ctx.dispose();
@@ -2527,17 +2528,17 @@ describe('AgentGoalService WaitFor regression', () => {
       });
       const proc = {
         _serviceBrand: undefined,
-        stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
+        stdin: { write: mock(), end: mock() } as unknown as Writable,
         stdout,
         stderr: Readable.from([]),
         pid: 10098,
         exitCode: null,
-        wait: vi.fn(() => waitPromise) as IHostProcess['wait'],
-        kill: vi.fn(async () => {
+        wait: mock(() => waitPromise) as IHostProcess['wait'],
+        kill: mock(async () => {
           stdout.destroy();
           resolveWait(143);
         }) as IHostProcess['kill'],
-        dispose: vi.fn().mockResolvedValue(undefined) as IHostProcess['dispose'],
+        dispose: mock().mockResolvedValue(undefined) as IHostProcess['dispose'],
       } as IHostProcess;
       tasks.registerTask(new ProcessTask(proc, 'sleep 30', 'bg work'));
       await ctx.rpc.createGoal({ objective: 'finish bounded work' });
@@ -2565,7 +2566,7 @@ describe('AgentGoalService WaitFor regression', () => {
       ctx.mockNextResponse({ type: 'text', text: 'done' });
 
       await ctx.rpc.prompt({ input: [{ type: 'text', text: 'start work' }] });
-      await vi.waitFor(() => expect(ctx.llmCalls).toHaveLength(1));
+      await waitForAssertion(() => expect(ctx.llmCalls).toHaveLength(1));
       await new Promise((resolve) => setTimeout(resolve, 20));
 
       expect(continuationTurnIds).toEqual([]);
@@ -2573,8 +2574,8 @@ describe('AgentGoalService WaitFor regression', () => {
       stdout.end();
       resolveWait(0);
 
-      await vi.waitFor(() => expect(continuationTurnIds).toHaveLength(1));
-      await vi.waitFor(() => expect(ctx.llmCalls).toHaveLength(4));
+      await waitForAssertion(() => expect(continuationTurnIds).toHaveLength(1));
+      await waitForAssertion(() => expect(ctx.llmCalls).toHaveLength(4));
     } finally {
       await ctx.dispose();
     }
@@ -2594,20 +2595,20 @@ describe('AgentGoalService WaitFor background scenarios', () => {
     });
     const proc: IHostProcess = {
       _serviceBrand: undefined,
-      stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
+      stdin: { write: mock(), end: mock() } as unknown as Writable,
       stdout,
       stderr: Readable.from([]),
       pid: 10097,
       exitCode: null,
-      wait: vi.fn(() => waitPromise) as IHostProcess['wait'],
-      kill: vi.fn(async () => {
+      wait: mock(() => waitPromise) as IHostProcess['wait'],
+      kill: mock(async () => {
         stdout.destroy();
         resolveWait(143);
       }) as IHostProcess['kill'],
-      dispose: vi.fn().mockResolvedValue(undefined) as IHostProcess['dispose'],
+      dispose: mock().mockResolvedValue(undefined) as IHostProcess['dispose'],
     };
     return {
-      spawn: vi.fn(async () => proc),
+      spawn: mock(async () => proc),
       pushOutput: (text) => {
         stdout.write(text);
       },
@@ -2673,7 +2674,7 @@ describe('AgentGoalService WaitFor background scenarios', () => {
       ctx.mockNextResponse({ type: 'text', text: 'done' });
 
       await ctx.rpc.prompt({ input: [{ type: 'text', text: 'start work' }] });
-      await vi.waitFor(() => expect(ctx.llmCalls).toHaveLength(2));
+      await waitForAssertion(() => expect(ctx.llmCalls).toHaveLength(2));
       await new Promise((resolve) => setTimeout(resolve, 20));
 
       expect(continuationTurnIds).toEqual([]);
@@ -2681,7 +2682,7 @@ describe('AgentGoalService WaitFor background scenarios', () => {
       sh.pushOutput('BG-OUTPUT\n');
       sh.finish(0);
 
-      await vi.waitFor(() => expect(ctx.llmCalls).toHaveLength(4));
+      await waitForAssertion(() => expect(ctx.llmCalls).toHaveLength(4));
       expect(continuationTurnIds).toEqual([]);
       const history = JSON.stringify(ctx.llmCalls[2]?.history);
       expect(history).toContain('wait_status: completed');
@@ -2728,14 +2729,14 @@ describe('AgentGoalService WaitFor background scenarios', () => {
       ctx.mockNextResponse({ type: 'text', text: 'done' });
 
       await ctx.rpc.prompt({ input: [{ type: 'text', text: 'start work' }] });
-      await vi.waitFor(() => expect(ctx.llmCalls).toHaveLength(1));
+      await waitForAssertion(() => expect(ctx.llmCalls).toHaveLength(1));
       await new Promise((resolve) => setTimeout(resolve, 20));
 
       expect(continuationTurnIds).toEqual([]);
 
       settle({ result: 'SUBAGENT-FINDINGS: the test is order-dependent' });
 
-      await vi.waitFor(() => expect(ctx.llmCalls).toHaveLength(3));
+      await waitForAssertion(() => expect(ctx.llmCalls).toHaveLength(3));
       expect(continuationTurnIds).toEqual([]);
       const history = JSON.stringify(ctx.llmCalls[1]?.history);
       expect(history).toContain('wait_status: completed');
@@ -2791,7 +2792,7 @@ describe('AgentGoalService WaitFor background scenarios', () => {
       ctx.mockNextResponse({ type: 'text', text: 'done' });
 
       await ctx.rpc.prompt({ input: [{ type: 'text', text: 'start work' }] });
-      await vi.waitFor(() => expect(ctx.llmCalls).toHaveLength(3), { timeout: 5000 });
+      await waitForAssertion(() => expect(ctx.llmCalls).toHaveLength(3), { timeout: 5000 });
 
       expect(continuationTurnIds).toEqual([]);
       const timedOutHistory = JSON.stringify(ctx.llmCalls[2]?.history);
@@ -2801,7 +2802,7 @@ describe('AgentGoalService WaitFor background scenarios', () => {
       sh.pushOutput('BG-OUTPUT\n');
       sh.finish(0);
 
-      await vi.waitFor(() => expect(ctx.llmCalls).toHaveLength(5));
+      await waitForAssertion(() => expect(ctx.llmCalls).toHaveLength(5));
       expect(continuationTurnIds).toEqual([]);
       const completedHistory = JSON.stringify(ctx.llmCalls[3]?.history);
       expect(completedHistory).toContain('wait_status: completed');
@@ -2854,12 +2855,12 @@ describe('AgentGoalService WaitFor background scenarios', () => {
       ctx.mockNextResponse({ type: 'text', text: 'done' });
 
       await ctx.rpc.prompt({ input: [{ type: 'text', text: 'start work' }] });
-      await vi.waitFor(() => expect(ctx.llmCalls).toHaveLength(3));
+      await waitForAssertion(() => expect(ctx.llmCalls).toHaveLength(3));
 
       sh.pushOutput('BG-OUTPUT\n');
       sh.finish(0);
 
-      await vi.waitFor(() => expect(ctx.llmCalls).toHaveLength(13), { timeout: 5000 });
+      await waitForAssertion(() => expect(ctx.llmCalls).toHaveLength(13), { timeout: 5000 });
 
       expect(continuationTurnIds).toHaveLength(9);
       expect(endedReasons).toEqual(Array<string>(10).fill('completed'));
@@ -2891,7 +2892,7 @@ describe('AgentGoalService WaitFor flag', () => {
       ctx.mockNextResponse({ type: 'text', text: 'done' });
 
       await ctx.rpc.prompt({ input: [{ type: 'text', text: 'start work' }] });
-      await vi.waitFor(() => expect(ctx.llmCalls).toHaveLength(3));
+      await waitForAssertion(() => expect(ctx.llmCalls).toHaveLength(3));
 
       for (const call of ctx.llmCalls) {
         expect(call.tools.map((tool) => tool.name)).not.toContain('WaitFor');

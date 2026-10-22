@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentLoopService } from '#/agent/loop/loop';

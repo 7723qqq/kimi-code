@@ -1,16 +1,18 @@
+import { describe, expect, it, mock, type Mock } from 'bun:test';
+
 import type { Event } from '@moonshot-ai/kimi-code-sdk';
-import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import type { AgentSwarmProgressComponent } from '#/tui/components/messages/agent-swarm-progress';
 import {
   SubAgentEventHandler,
   type SubagentLifecycleEvent,
 } from '#/tui/controllers/subagent-event-handler';
+import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
 
-function makeSwarmHandler() {
-  const requestRender = vi.fn();
-  const transcriptContainer = { addChild: vi.fn() };
-  const dockChild = { render: vi.fn(() => ['dock line']) };
+function makeSwarmHandler(clock: FakeClock = createFakeClock()) {
+  const requestRender = mock();
+  const transcriptContainer = { addChild: mock() };
+  const dockChild = { render: mock(() => ['dock line']) };
   const host = {
     state: {
       appState: { availableModels: {} },
@@ -23,26 +25,28 @@ function makeSwarmHandler() {
       dockContainer: undefined,
     },
     streamingUI: {
-      getToolComponent: vi.fn(() => undefined),
-      getActiveToolCall: vi.fn(() => undefined),
-      onToolCallStart: vi.fn(),
-      getTurnContext: vi.fn(() => ({ turnId: 1, step: 0 })),
-      removeToolComponentIfInactive: vi.fn(),
-      finalizeLiveTextBuffers: vi.fn(),
+      getToolComponent: mock(() => undefined),
+      getActiveToolCall: mock(() => undefined),
+      onToolCallStart: mock(),
+      getTurnContext: mock(() => ({ turnId: 1, step: 0 })),
+      removeToolComponentIfInactive: mock(),
+      finalizeLiveTextBuffers: mock(),
     },
-    appendTranscriptEntry: vi.fn(),
-    btwPanelController: { routeEvent: vi.fn(() => false) },
-    updateActivityPane: vi.fn(),
+    appendTranscriptEntry: mock(),
+    btwPanelController: { routeEvent: mock(() => false) },
+    updateActivityPane: mock(),
   };
   const handler = new SubAgentEventHandler(host as never, {
     backgroundTasks: new Map(),
     backgroundTaskTranscriptedTerminal: new Set(),
-    syncBackgroundAgentBadge: vi.fn(),
+    syncBackgroundAgentBadge: mock(),
+    now: () => clock.now(),
+    clock,
   });
-  return { handler, host, requestRender, transcriptContainer, dockChild };
+  return { handler, host, requestRender, transcriptContainer, dockChild, clock };
 }
 
-function swarmComponentOf(host: { appendTranscriptEntry: ReturnType<typeof vi.fn> }) {
+function swarmComponentOf(host: { appendTranscriptEntry: Mock<(...args: any[]) => any> }) {
   return host.appendTranscriptEntry.mock.calls[0]?.[1] as AgentSwarmProgressComponent;
 }
 
@@ -85,13 +89,8 @@ function startSwarmWithChild(handler: SubAgentEventHandler): void {
   handler.handleLifecycleEvent(lifecycleEvent('subagent.started', 'child-1', 'tc-1'));
 }
 
-afterEach(() => {
-  vi.useRealTimers();
-});
-
 describe('SubAgentEventHandler — swarm render batching', () => {
   it('does not request a render for each child delta routed to a swarm', () => {
-    vi.useFakeTimers();
     const { handler, requestRender } = makeSwarmHandler();
     startSwarmWithChild(handler);
     requestRender.mockClear();
@@ -104,7 +103,6 @@ describe('SubAgentEventHandler — swarm render batching', () => {
   });
 
   it('still requests a render for swarm lifecycle transitions', () => {
-    vi.useFakeTimers();
     const { handler, requestRender } = makeSwarmHandler();
     handler.handleAgentSwarmToolCallStarted('tc-1', {
       description: 'Review changed files',
@@ -120,15 +118,14 @@ describe('SubAgentEventHandler — swarm render batching', () => {
   });
 
   it('drives swarm re-renders from the frame timer after deltas', () => {
-    vi.useFakeTimers();
-    const { handler, requestRender } = makeSwarmHandler();
+    const { handler, requestRender, clock } = makeSwarmHandler();
     startSwarmWithChild(handler);
     requestRender.mockClear();
 
     handler.routeChildAgentEvent(childEvent('assistant.delta', 'child-1'));
     expect(requestRender).not.toHaveBeenCalled();
 
-    vi.advanceTimersByTime(80);
+    clock.advance(80);
     expect(requestRender).toHaveBeenCalledTimes(1);
   });
 });

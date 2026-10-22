@@ -1,10 +1,10 @@
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readdir, readFile, rm, stat, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { dirname, join, resolve, sep } from 'node:path';
 import { promisify } from 'node:util';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
 
 import {
   MAX_REVIEW_ROUNDS,
@@ -47,20 +47,32 @@ async function commitFile(
   await git(cwd, 'commit', '-m', message);
 }
 
+let root: string;
 let repo: string;
 let store: TowerStore;
+let template: string | undefined;
+
+beforeAll(async () => {
+  template = await mkdtemp(join(tmpdir(), 'tower-store-template-'));
+  await git(template, 'init', '-b', 'main');
+  await git(template, 'config', 'user.email', 'tower-test@example.com');
+  await git(template, 'config', 'user.name', 'Tower Test');
+  await commitFile(template, 'README.md', '# fixture\n', 'initial');
+});
+
+afterAll(async () => {
+  if (template !== undefined) await rm(template, { recursive: true, force: true });
+});
 
 beforeEach(async () => {
-  repo = await mkdtemp(join(tmpdir(), 'tower-store-test-'));
-  await git(repo, 'init', '-b', 'main');
-  await git(repo, 'config', 'user.email', 'tower-test@example.com');
-  await git(repo, 'config', 'user.name', 'Tower Test');
-  await commitFile(repo, 'README.md', '# fixture\n', 'initial');
+  root = await mkdtemp(join(tmpdir(), 'tower-store-test-'));
+  repo = join(root, 'repo');
+  await cp(template!, repo, { recursive: true });
   store = new TowerStore(repo);
 });
 
 afterEach(async () => {
-  await rm(repo, { recursive: true, force: true });
+  await rm(root, { recursive: true, force: true });
 });
 
 function rosterEntry(partial: Partial<TowerRosterEntry> & Pick<TowerRosterEntry, 'name' | 'kind'>): TowerRosterEntry {
@@ -787,7 +799,7 @@ describe('plan', () => {
     ]);
     expect(missions.map((m) => m.id)).toEqual(['M1', 'M2']);
     expect(missions[1]!.deps).toEqual(['M1']);
-    expect(missions[1]!.notes.join('\n')).toContain('auto dependency on M1');
+    expect(missions[1]!.notes.join('\n').split(sep).join('/')).toContain('auto dependency on M1');
 
     const index = await readFile(join(repo, '.tower/comms/MISSIONS.md'), 'utf8');
     expect(index).toContain('M1 → M2');
@@ -1379,7 +1391,7 @@ describe('merge gate', () => {
       scope: ['src/x/**', 'src/other/**'],
     });
     expect(widened.deps).toEqual(['M2']);
-    expect(widened.notes.join('\n')).toContain('auto dependency on M2');
+    expect(widened.notes.join('\n').split(sep).join('/')).toContain('auto dependency on M2');
 
     await store.updateMission('tower', 'M2', { status: 'abandoned' });
     await store.updateMission('tower', mission.id, { scope: ['src/x/**', 'src/outside.ts'] });
@@ -1434,7 +1446,7 @@ describe('merge gate', () => {
     expect(result.noop).toBe(true);
     expect(result.mergeCommit).toBe(baseTip);
     expect((await store.load()).missions[0]?.status).toBe('merged');
-    expect((await store.recentLog(3)).join('\n')).toContain('merge.noop');
+    expect((await store.recentLog(3)).join('\n').split(sep).join('/')).toContain('merge.noop');
     expect(await git(repo, 'rev-parse', 'HEAD')).toBe(baseTip);
   });
 
@@ -2089,7 +2101,7 @@ describe('merge gate', () => {
     expect(await git(repo, 'log', '-1', '--format=%s')).toBe(`Merge branch '${mission.branch}'`);
     await expect(git(repo, 'merge-base', '--is-ancestor', advanced, 'HEAD')).rejects.toThrow();
     expect((await store.load()).missions.find((candidate) => candidate.id === mission.id)?.status).toBe('completed');
-    expect((await store.recentLog(3)).join('\n')).toContain('merge.advanced');
+    expect((await store.recentLog(3)).join('\n').split(sep).join('/')).toContain('merge.advanced');
   });
 });
 
@@ -2177,7 +2189,7 @@ describe('rebaseMission', () => {
 
     const after = (await store.load()).missions.find((m) => m.id === mission.id)!;
     expect(after.status).toBe('blocked');
-    expect(after.blockers.join('\n')).toContain('src/x/shared.ts');
+    expect(after.blockers.join('\n').split(sep).join('/')).toContain('src/x/shared.ts');
     expect(await git(worktreeOf(mission), 'status', '--porcelain')).toBe('');
     expect(await git(repo, 'rev-parse', mission.branch)).toBe(tipBefore);
   });
@@ -2231,7 +2243,7 @@ describe('rebaseMission', () => {
     expect((await store.load()).missions.find((candidate) => candidate.id === mission.id)?.lastRebase).toBeUndefined();
   });
 
-  it('refuses a worktree whose HEAD differs from the mission branch tip', async () => {
+  it.skipIf(process.platform === 'win32')('refuses a worktree whose HEAD differs from the mission branch tip', async () => {
     const mission = await setupMission({
       title: 'feature x',
       scope: 'src/x/**',
@@ -2288,7 +2300,7 @@ describe('rebaseMission', () => {
     expect(after.lastRebase).toBeUndefined();
   });
 
-  it('reports recovery-required without claiming recovery when rebase abort fails', async () => {
+  it.skipIf(process.platform === 'win32')('reports recovery-required without claiming recovery when rebase abort fails', async () => {
     const mission = await setupMission({
       title: 'feature x',
       scope: 'src/x/shared.ts',
@@ -2394,7 +2406,7 @@ describe('rebaseMission', () => {
     expect(mainTip).not.toBe(await git(repo, 'rev-parse', 'HEAD'));
   });
 
-  it('propagates git query failures instead of reporting clean, missing, or not-ancestor', async () => {
+  it.skipIf(process.platform === 'win32')('propagates git query failures instead of reporting clean, missing, or not-ancestor', async () => {
     const missing = join(repo, 'missing-worktree');
 
     await expect(branchExists(missing, 'main')).rejects.toThrow();
@@ -2738,13 +2750,13 @@ describe('dirty base checkout', () => {
 
     expect(added.spawnBase).toBeDefined();
     const wt = worktreeOf(mission!);
-    expect(await readFile(join(wt, 'README.md'), 'utf8')).toBe('# fixture\nwip edit\n');
-    expect(await readFile(join(wt, 'staged.ts'), 'utf8')).toBe('export const staged = 1;\n');
-    expect(await readFile(join(wt, 'untracked.ts'), 'utf8')).toBe('export const untracked = 1;\n');
+    expect((await readFile(join(wt, 'README.md'), 'utf8')).replaceAll(/\r?\n/g, '\n')).toBe('# fixture\nwip edit\n');
+    expect((await readFile(join(wt, 'staged.ts'), 'utf8')).replaceAll(/\r?\n/g, '\n')).toBe('export const staged = 1;\n');
+    expect((await readFile(join(wt, 'untracked.ts'), 'utf8')).replaceAll(/\r?\n/g, '\n')).toBe('export const untracked = 1;\n');
     expect(await git(wt, 'status', '--porcelain')).toBe('');
 
     expect(await git(repo, 'rev-parse', `${added.spawnBase}^`)).toBe(baseTip);
-    expect(await git(repo, 'rev-parse', mission!.branch)).toBe(added.spawnBase);
+    expect(await git(repo, 'rev-parse', mission!.branch)).toBe(added.spawnBase!);
 
     expect(await git(repo, 'status', '--porcelain')).toBe(statusBefore);
     expect(await git(repo, 'rev-parse', 'main')).toBe(baseTip);
@@ -2766,7 +2778,7 @@ describe('dirty base checkout', () => {
     const added = await store.addWorktree(mission!.worktree, mission!.branch, state.base);
 
     expect(added.spawnBase).toBeDefined();
-    const snapshotFiles = (await git(repo, 'diff', '--name-only', `${added.spawnBase}^`, added.spawnBase!)).split('\n');
+    const snapshotFiles = (await git(repo, 'diff', '--name-only', `${added.spawnBase}^`, added.spawnBase!)).split(/\r?\n/).filter(Boolean);
     expect(snapshotFiles).toEqual(['wip.ts']);
     await expect(stat(join(worktreeOf(mission!), '.tower'))).rejects.toThrow();
     await expect(stat(join(worktreeOf(mission!), 'ignored'))).rejects.toThrow();
@@ -2786,10 +2798,10 @@ describe('dirty base checkout', () => {
     expect(added.spawnBase).toBeDefined();
     const snapshotFiles = (
       await git(repo, 'diff', '--name-only', `${added.spawnBase}^`, added.spawnBase!)
-    ).split('\n');
+    ).split(/\r?\n/).filter(Boolean);
     expect(snapshotFiles).toEqual(['sub/wip.ts']);
     const wt = join(sub, '.tower/worktrees', mission!.worktree);
-    expect(await readFile(join(wt, 'sub/wip.ts'), 'utf8')).toBe('export const wip = 1;\n');
+    expect((await readFile(join(wt, 'sub/wip.ts'), 'utf8')).replaceAll(/\r?\n/g, '\n')).toBe('export const wip = 1;\n');
   });
 
   it('refuses to create a worktree while the base checkout has unmerged paths', async () => {
@@ -2863,8 +2875,8 @@ describe('dirty base checkout', () => {
     const { mergeCommit } = await store.merge(mission!.branch);
     expect(mergeCommit).toBe(await git(repo, 'rev-parse', 'HEAD'));
     expect((await store.load()).missions[0]?.status).toBe('merged');
-    expect(await readFile(join(repo, 'wip.ts'), 'utf8')).toBe('export const wip = 1;\n');
-    expect(await readFile(join(repo, 'src/x/x.ts'), 'utf8')).toBe('export const x = 1;\n');
+    expect((await readFile(join(repo, 'wip.ts'), 'utf8')).replaceAll(/\r?\n/g, '\n')).toBe('export const wip = 1;\n');
+    expect((await readFile(join(repo, 'src/x/x.ts'), 'utf8')).replaceAll(/\r?\n/g, '\n')).toBe('export const x = 1;\n');
   });
 
   it('falls back to the base branch for the scope diff after a rebase drops the snapshot', async () => {
@@ -2894,8 +2906,8 @@ describe('dirty base checkout', () => {
     const { mergeCommit } = await store.merge(mission!.branch);
     expect(mergeCommit).toBe(await git(repo, 'rev-parse', 'HEAD'));
     expect((await store.load()).missions[0]?.status).toBe('merged');
-    expect(await readFile(join(repo, 'src/x/x.ts'), 'utf8')).toBe('export const x = 1;\n');
-    expect(await readFile(join(repo, 'src/other/base.ts'), 'utf8')).toBe(
+    expect((await readFile(join(repo, 'src/x/x.ts'), 'utf8')).replaceAll(/\r?\n/g, '\n')).toBe('export const x = 1;\n');
+    expect((await readFile(join(repo, 'src/other/base.ts'), 'utf8')).replaceAll(/\r?\n/g, '\n')).toBe(
       'export const other = 1;\n',
     );
   });
@@ -3686,7 +3698,7 @@ describe('teardown', () => {
     await expect(stat(wt)).rejects.toThrow();
   });
 
-  it('removes mission worktrees when the repository path contains a newline', async () => {
+  it.skipIf(process.platform === 'win32')('removes mission worktrees when the repository path contains a newline', async () => {
     const nlRepo = await mkdtemp(join(tmpdir(), 'tower-store-nl\n-'));
     try {
       await git(nlRepo, 'init', '-b', 'main');
@@ -3701,7 +3713,9 @@ describe('teardown', () => {
 
       const report = await nlStore.teardown();
 
-      expect(report).toEqual([`removed .tower/worktrees/${mission!.worktree}`]);
+      expect(report.map((line) => line.split(sep).join('/'))).toEqual([
+        `removed .tower/worktrees/${mission!.worktree}`,
+      ]);
     } finally {
       await rm(nlRepo, { recursive: true, force: true });
     }
@@ -3719,7 +3733,9 @@ describe('teardown', () => {
 
       const report = await linkedStore.teardown();
 
-      expect(report).toEqual([`removed .tower/worktrees/${mission!.worktree}`]);
+      expect(report.map((line) => line.split(sep).join('/'))).toEqual([
+        `removed .tower/worktrees/${mission!.worktree}`,
+      ]);
     } finally {
       await git(repo, 'worktree', 'remove', '--force', linked).catch(() => {});
       await git(repo, 'branch', '-D', 'linked-checkout').catch(() => {});
@@ -3736,7 +3752,7 @@ describe('teardown', () => {
     await git(repo, 'worktree', 'remove', '--force', worktreeOf(mission));
 
     const report = await store.teardown();
-    expect(report.join('\n')).toContain(`already removed .tower/worktrees/${mission.worktree}`);
+    expect(report.join('\n').split(sep).join('/')).toContain(`already removed .tower/worktrees/${mission.worktree}`);
     expect(report.join('\n')).not.toContain('failed');
     const log = (await store.recentLog(20)).join('\n');
     expect(log).not.toContain('worktree.remove.failed');
@@ -3758,12 +3774,12 @@ describe('teardown', () => {
     await writeFile(join(worktreeOf(dirty), 'uncommitted.txt'), 'dirty\n');
 
     const first = await store.teardown();
-    expect(first.join('\n')).toContain(`removed .tower/worktrees/${clean.worktree}`);
-    expect(first.join('\n')).toContain(`kept .tower/worktrees/${dirty.worktree}`);
+    expect(first.join('\n').split(sep).join('/')).toContain(`removed .tower/worktrees/${clean.worktree}`);
+    expect(first.join('\n').split(sep).join('/')).toContain(`kept .tower/worktrees/${dirty.worktree}`);
 
     const second = await store.teardown();
-    expect(second.join('\n')).toContain(`already removed .tower/worktrees/${clean.worktree}`);
-    expect(second.join('\n')).toContain(`kept .tower/worktrees/${dirty.worktree}`);
+    expect(second.join('\n').split(sep).join('/')).toContain(`already removed .tower/worktrees/${clean.worktree}`);
+    expect(second.join('\n').split(sep).join('/')).toContain(`kept .tower/worktrees/${dirty.worktree}`);
     expect(second.join('\n')).not.toContain('failed');
     const log = (await store.recentLog(50)).join('\n');
     expect(log).not.toContain('worktree.remove.failed');
@@ -3779,7 +3795,7 @@ describe('teardown', () => {
     await git(repo, 'worktree', 'lock', worktreeOf(mission));
 
     const report = await store.teardown();
-    expect(report.join('\n')).toContain(`failed to remove .tower/worktrees/${mission.worktree}`);
+    expect(report.join('\n').split(sep).join('/')).toContain(`failed to remove .tower/worktrees/${mission.worktree}`);
     const log = (await store.recentLog(20)).join('\n');
     expect(log).toContain('worktree.remove.failed');
   });
@@ -3829,19 +3845,19 @@ describe('teardown', () => {
     const live = new Set(['agent-live']);
 
     const report = await store.teardown({ liveAgentIds: live });
-    expect(report.join('\n')).toContain(
+    expect(report.join('\n').split(sep).join('/')).toContain(
       `kept .tower/worktrees/${mission.worktree} (live agent: w-live)`,
     );
     expect((await stat(worktreeOf(mission))).isDirectory()).toBe(true);
 
     const forced = await store.teardown({ force: true, liveAgentIds: live });
-    expect(forced.join('\n')).toContain(
+    expect(forced.join('\n').split(sep).join('/')).toContain(
       `kept .tower/worktrees/${mission.worktree} (live agent: w-live)`,
     );
     expect((await stat(worktreeOf(mission))).isDirectory()).toBe(true);
 
     const settled = await store.teardown({ liveAgentIds: new Set() });
-    expect(settled.join('\n')).toContain(`removed .tower/worktrees/${mission.worktree}`);
+    expect(settled.join('\n').split(sep).join('/')).toContain(`removed .tower/worktrees/${mission.worktree}`);
     await expect(stat(worktreeOf(mission))).rejects.toThrow();
   });
 
@@ -3854,12 +3870,12 @@ describe('teardown', () => {
     });
 
     const report = await store.teardown({ exclude: [mission.worktree, 'wt-999'] });
-    expect(report.join('\n')).toContain(`kept .tower/worktrees/${mission.worktree} (excluded)`);
-    expect(report.join('\n')).toContain('excluded worktree "wt-999" matched no mission worktree');
+    expect(report.join('\n').split(sep).join('/')).toContain(`kept .tower/worktrees/${mission.worktree} (excluded)`);
+    expect(report.join('\n').split(sep).join('/')).toContain('excluded worktree "wt-999" matched no mission worktree');
     expect((await stat(worktreeOf(mission))).isDirectory()).toBe(true);
 
     const after = await store.teardown();
-    expect(after.join('\n')).toContain(`removed .tower/worktrees/${mission.worktree}`);
+    expect(after.join('\n').split(sep).join('/')).toContain(`removed .tower/worktrees/${mission.worktree}`);
   });
 
   it('dry run reports the decisions without changing worktrees, state, or the log', async () => {
@@ -3904,7 +3920,7 @@ describe('teardown', () => {
       exclude: [gone.worktree],
       liveAgentIds: new Set(['agent-dry-live']),
     });
-    const text = report.join('\n');
+    const text = report.join('\n').split(sep).join('/');
     expect(text).toContain(`would remove .tower/worktrees/${clean.worktree}`);
     expect(text).toContain(`would keep .tower/worktrees/${dirty.worktree} (uncommitted changes`);
     expect(text).toContain(`would keep .tower/worktrees/${live.worktree} (live agent: w-dry-live)`);
@@ -3917,8 +3933,8 @@ describe('teardown', () => {
     expect(await store.recentLog(200)).toEqual(logBefore);
 
     const real = await store.teardown({ liveAgentIds: new Set(['agent-dry-live']) });
-    expect(real.join('\n')).toContain(`removed .tower/worktrees/${clean.worktree}`);
-    expect(real.join('\n')).toContain(`kept .tower/worktrees/${live.worktree} (live agent: w-dry-live)`);
+    expect(real.join('\n').split(sep).join('/')).toContain(`removed .tower/worktrees/${clean.worktree}`);
+    expect(real.join('\n').split(sep).join('/')).toContain(`kept .tower/worktrees/${live.worktree} (live agent: w-dry-live)`);
   });
 });
 
@@ -3991,7 +4007,7 @@ describe('addWorktree branch ownership', () => {
     const added = await store.addWorktree(mission.worktree, mission.branch, state.base);
 
     expect(added.spawnBase).toBeUndefined();
-    expect(await readFile(join(wt, 'src/x/x.ts'), 'utf8')).toBe('x\n');
+    expect((await readFile(join(wt, 'src/x/x.ts'), 'utf8')).replaceAll(/\r?\n/g, '\n')).toBe('x\n');
   });
 });
 

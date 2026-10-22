@@ -1,9 +1,12 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { log } from '@moonshot-ai/kimi-code-sdk';
 import { resetCapabilitiesCache, setCapabilities, type Component } from '@moonshot-ai/pi-tui';
 
-import { __pluginsCommandInternals } from '#/tui/commands/plugins';
+import { __pluginsCommandInternals, type CapabilityPollOptions } from '#/tui/commands/plugins';
 import { NoticeMessageComponent } from '#/tui/components/messages/status-message';
+
+/** Capability polling needs no real delay: the loop is driven by the fake statuses. */
+const NO_WAIT: CapabilityPollOptions = { sleep: async () => {} };
 
 const {
   isCapabilityEntry,
@@ -24,7 +27,7 @@ function fakeHost(overrides: {
   const notices: { title: string; detail?: string }[] = [];
   const renders: number[] = [];
   const transcriptEntries: Component[] = [];
-  const installCapability = vi.fn(() => Promise.resolve());
+  const installCapability = mock(() => Promise.resolve());
   const getCapability =
     overrides.capabilityStatus ??
     (() => Promise.resolve({ state: 'ready', steps: [], install: { running: false } }));
@@ -103,9 +106,9 @@ function unwrappedVisibleText(entries: readonly Component[]): string {
 
 describe('plugins command capability surface', () => {
   beforeEach(() => {
-    vi.restoreAllMocks();
-    vi.spyOn(log, 'info').mockImplementation(() => undefined);
-    vi.spyOn(log, 'warn').mockImplementation(() => undefined);
+    mock.restore();
+    spyOn(log, 'info').mockImplementation(() => undefined);
+    spyOn(log, 'warn').mockImplementation(() => undefined);
   });
 
   afterEach(() => {
@@ -143,7 +146,7 @@ describe('plugins command capability surface', () => {
         return Promise.resolve({ install: { running: false } });
       },
     });
-    const result = await pollCapabilityInstall(host, 'kimi-cu');
+    const result = await pollCapabilityInstall(host, 'kimi-cu', NO_WAIT);
 
     expect(result?.install.running).toBe(false);
     expect(log.info).toHaveBeenCalledWith('capability install progress', {
@@ -200,6 +203,7 @@ describe('plugins command capability surface', () => {
       idle.host,
       fakePanel().panel,
       { id: 'kimi-cu', displayName: 'Kimi Computer Use', source: 'capability:kimi-cu' } as never,
+      NO_WAIT,
     );
     expect(idle.installCapability).toHaveBeenCalledWith('kimi-cu');
   });
@@ -222,6 +226,7 @@ describe('plugins command capability surface', () => {
       host,
       fakePanel().panel,
       { id: 'kimi-cu', displayName: 'Kimi Computer Use', source: 'capability:kimi-cu' } as never,
+      NO_WAIT,
     );
 
     // The service rejects duplicate starts (40922) — a healthy in-progress
@@ -243,6 +248,7 @@ describe('plugins command capability surface', () => {
         displayName: 'Kimi Browser Extension',
         source: 'capability:kimi-webbridge',
       } as never,
+      NO_WAIT,
     );
 
     expect(notices).toContainEqual({ title: 'Kimi Browser Extension is installed.', detail: undefined });
@@ -270,6 +276,7 @@ describe('plugins command capability surface', () => {
         displayName: 'Kimi Browser Extension',
         source: 'capability:kimi-webbridge',
       } as never,
+      NO_WAIT,
     );
 
     const rendered = transcriptEntries.flatMap((entry) => entry.render(100)).join('\n');
@@ -291,6 +298,7 @@ describe('plugins command capability surface', () => {
         displayName: 'Kimi Browser Extension',
         source: 'capability:kimi-webbridge',
       } as never,
+      NO_WAIT,
     );
 
     const lines = visibleLines(transcriptEntries, 180);
@@ -325,6 +333,7 @@ describe('plugins command capability surface', () => {
       host,
       fakePanel().panel,
       { id: 'kimi-cu', displayName: 'Kimi Computer Use', source: 'capability:kimi-cu' } as never,
+      NO_WAIT,
     );
 
     expect(statuses).toContain(
@@ -347,6 +356,7 @@ describe('plugins command capability surface', () => {
       host,
       fakePanel().panel,
       { id: 'kimi-cu', displayName: 'Kimi Computer Use', source: 'capability:kimi-cu' } as never,
+      NO_WAIT,
     );
 
     expect(statuses.some((s) => s.includes('Grant Accessibility and Screen Recording'))).toBe(true);

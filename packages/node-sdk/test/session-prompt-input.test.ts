@@ -1,11 +1,11 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import { SDKRpcClientBase } from '../src/rpc';
 import { Session } from '../src/session';
 
 describe('Session.prompt input normalization', () => {
   it('passes multimodal prompt parts through to the core RPC client', async () => {
-    const prompt = vi.fn(async () => {});
+    const prompt = mock(async () => {});
     const session = new Session({
       id: 'ses_multimodal_prompt',
       workDir: '/tmp/work',
@@ -26,7 +26,7 @@ describe('Session.prompt input normalization', () => {
   });
 
   it('forwards a caller-chosen promptId to the core RPC client', async () => {
-    const prompt = vi.fn(async () => {});
+    const prompt = mock(async () => {});
     const session = new Session({
       id: 'ses_prompt_id',
       workDir: '/tmp/work',
@@ -43,7 +43,7 @@ describe('Session.prompt input normalization', () => {
   });
 
   it('rejects an empty caller-chosen promptId before calling RPC', async () => {
-    const prompt = vi.fn(async () => {});
+    const prompt = mock(async () => {});
     const session = new Session({
       id: 'ses_prompt_id',
       workDir: '/tmp/work',
@@ -57,7 +57,7 @@ describe('Session.prompt input normalization', () => {
   });
 
   it('starts btw and returns the forked agent id', async () => {
-    const startBtw = vi.fn(async () => 'agent-btw');
+    const startBtw = mock(async () => 'agent-btw');
     const session = new Session({
       id: 'ses_btw_start',
       workDir: '/tmp/work',

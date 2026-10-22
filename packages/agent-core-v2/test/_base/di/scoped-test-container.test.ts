@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'bun:test';
 
 import { createDecorator } from '#/_base/di/instantiation';
 import { _clearScopedRegistryForTests, registerScopedService } from '#/_base/di/scope';

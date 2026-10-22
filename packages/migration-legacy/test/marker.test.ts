@@ -1,4 +1,4 @@
-import { mkdtemp, rm, readFile, writeFile, mkdir } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, mkdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -8,7 +8,7 @@ import { join } from 'node:path';
  * Wiring: real temporary filesystem; no stubbed collaborators.
  * Run: cd packages/migration-legacy && bun run test -- marker.test.ts
  */
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { runMigration, shouldSuppressMigration } from '../src/index.js';
 import { readMarker, writeMarker, appendMarkerRun, type MarkerData } from '../src/marker.js';

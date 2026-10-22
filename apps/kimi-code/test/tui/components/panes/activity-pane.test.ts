@@ -1,5 +1,5 @@
 import { Text, visibleWidth } from '@moonshot-ai/pi-tui';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { ActivityPaneComponent } from '#/tui/components/panes/activity-pane';
 

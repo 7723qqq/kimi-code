@@ -1,10 +1,10 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import { SurveyPreferenceSelectorComponent } from '#/tui/components/dialogs/survey-preference-selector';
 
-// The real `t` goes through the native Rust engine, which is not loaded in
-// tests, so it would hand back raw keys. Stub the strings this file asserts on.
-vi.mock('#/i18n', () => ({
+// The real `t` resolves against the bundled locale trees, which tests do not
+// load, so it would hand back raw keys. Stub the strings this file asserts on.
+void mock.module('#/i18n', () => ({
   t: (key: string) =>
     (
       {
@@ -16,7 +16,7 @@ vi.mock('#/i18n', () => ({
         'tui.dialogs.surveyPreferenceSelector.offDescription': 'Never show the rating prompt.',
       } as Record<string, string>
     )[key] ?? key,
-  setLocale: vi.fn(),
+  setLocale: mock(),
   getLocale: () => 'en',
 }));
 

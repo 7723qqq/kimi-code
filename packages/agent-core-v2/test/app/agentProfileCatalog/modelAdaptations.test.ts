@@ -1,8 +1,8 @@
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, parse, relative, sep } from 'node:path';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 import {
   adaptationDeliveredByReminder,
@@ -88,7 +88,6 @@ describe('loadModelAdaptation', () => {
 
   it('truncates an oversized file at a section boundary instead of dropping it', async () => {
     const warnings: string[] = [];
-    // Two sections that fit, then a third that pushes the file over the cap.
     const body = [
       '## First section',
       'A'.repeat(30 * 1024),
@@ -126,8 +125,6 @@ describe('truncateAtSection boundaries', () => {
   });
 
   it('cuts at the last real heading that fits', () => {
-    // `## A` is at 0 and `## B` at 106, `## C` at 212. A limit of 212 admits the
-    // first two and excludes the third.
     const text = ['## A', 'a'.repeat(100), '## B', 'b'.repeat(100), '## C', 'c'.repeat(2000)].join(
       '\n',
     );
@@ -147,10 +144,6 @@ describe('truncateAtSection boundaries', () => {
   });
 
   it('never cuts in the middle of a code fence', () => {
-    // The regression guard: a quoted `##` heading inside a fence must not be
-    // treated as a boundary, and the hard-cut fallback must not land inside the
-    // fence either — that would leave the marker unterminated and reframe the
-    // remaining guidance as code.
     const cases = [
       ['## Intro', 'i'.repeat(50), '```', '## Quoted', 'q'.repeat(50), '```', '## Real', 'r'.repeat(80)],
       ['## A', '```', 'code', '```', '## B', 'b'.repeat(100), '## C', 'c'.repeat(2000)],
@@ -170,8 +163,6 @@ describe('truncateAtSection boundaries', () => {
   });
 
   it('stops before the fence when the limit would land inside it', () => {
-    // `## Real` is at 129 and the fence spans 60..129, so a limit of 100 cannot
-    // take the second heading; the cut is pulled back to the fence opening.
     const text = [
       '## Intro',
       'i'.repeat(50),
@@ -190,8 +181,6 @@ describe('truncateAtSection boundaries', () => {
   });
 
   it('keeps a heading that follows a closed fence as a real boundary', () => {
-    // `## B` sits at 18, after the closed fence, and must still be usable as a
-    // cut point; the fence markers stay balanced in the result.
     const text = ['## A', '```', 'code', '```', '## B', 'b'.repeat(100), '## C', 'c'.repeat(2000)].join(
       '\n',
     );
@@ -241,27 +230,28 @@ function fenceCount(text: string): number {
   return text.split('\n').filter((line) => /^\s*(?:`{3,}|~{3,})/.test(line)).length;
 }
 
+function rootedSlash(value: string): string {
+  const root = parse(value).root;
+  return `/${relative(root, value).split(sep).join('/')}`;
+}
+
 describe('adaptation directory candidates', () => {
   it('searches upward from the packaged chunk directory', () => {
     const moduleDir = '/app/dist/chunks';
-    const candidates = adaptationDirectoryCandidates(moduleDir);
+    const candidates = adaptationDirectoryCandidates(moduleDir).map(rootedSlash);
     expect(candidates[0]).toBe('/app/dist/chunks/model-adaptations/curated');
     expect(candidates).toContain('/app/dist/model-adaptations/curated');
     expect(candidates).toContain('/app/model-adaptations/curated');
   });
 
   it('matches the directory the build copy step produces', () => {
-    // `tsdown.config.ts` copies `model-adaptations` (with its `curated/`
-    // subdirectory) into `dist/` and `dist/chunks/`. Loading searches upward from
-    // the module directory, so the first candidate has to be the sibling
-    // `model-adaptations/curated` that this copy leaves next to the chunks.
-    const candidates = adaptationDirectoryCandidates('/app/dist/chunks');
+    const candidates = adaptationDirectoryCandidates('/app/dist/chunks').map(rootedSlash);
     expect(candidates[0]).toBe('/app/dist/chunks/model-adaptations/curated');
   });
 
   it('keeps the source-layout candidates as a fallback', () => {
     const moduleDir = '/pkg/src/app/agentProfileCatalog';
-    const candidates = adaptationDirectoryCandidates(moduleDir);
+    const candidates = adaptationDirectoryCandidates(moduleDir).map(rootedSlash);
     expect(candidates).toContain('/pkg/src/app/agentProfileCatalog/model-adaptations/curated');
     expect(candidates).toContain(
       '/pkg/src/app/agentProfileCatalog/app/agentProfileCatalog/model-adaptations/curated',
@@ -357,8 +347,6 @@ describe('loadCuratedAdaptation', () => {
   });
 
   it('lets a versioned wire name fall back to the family file', async () => {
-    // The curated lookup matches on the family prefix rather than the model id,
-    // so a dated or versioned name resolves without an exact-name file.
     for (const name of ['deepseek-v4-pro', 'xopdeepseekv32', 'deepseek-flash']) {
       const text = await loadCuratedAdaptation(name, silent);
       expect(text, name).toContain('# Model Adaptation:');
@@ -375,8 +363,6 @@ describe('loadCuratedAdaptation', () => {
   });
 
   it('routes a minimal-shape family to the reminder channel instead', () => {
-    // The two delivery channels are complementary: a family is served by
-    // exactly one, and a minimal template has nowhere to put a prompt section.
     for (const name of ['deepseek-v4-pro', 'xopdeepseekv32']) {
       expect(adaptationDeliveredByReminder(name), name).toBe(true);
     }
@@ -398,10 +384,6 @@ describe('the shipped adaptations load', () => {
   });
 
   it('only curated files ship: there is no probe output to load', () => {
-    // The measured directory was removed with the mechanism that read it. If a
-    // file reappears there it has no producer — the probe writes JSON into the
-    // gitignored reports/ directory and nothing in the repository writes into
-    // model-adaptations — so a shipped file would be an unverifiable claim.
     const candidates = adaptationDirectoryCandidates();
     for (const dir of candidates) {
       expect(dir.endsWith('model-adaptations\\curated') || dir.endsWith('model-adaptations/curated')).toBe(true);
@@ -414,10 +396,6 @@ describe('the shipped adaptations load', () => {
   });
 
   it('the curated DeepSeek file states that it is not measured', async () => {
-    // Provenance claims are load-bearing: this file is injected by default, so a
-    // reader deciding whether to trust it needs the statement that no probe
-    // produced it. Asserting it stops a later edit from quietly dropping the
-    // disclaimer while keeping the guidance.
     const loaded = await loadModelAdaptation({ model: 'deepseek' });
     expect(loaded).toContain('Not measured');
     expect(loaded).toMatch(/no script generated this file/i);
@@ -426,8 +404,6 @@ describe('the shipped adaptations load', () => {
   it('the curated DeepSeek file leads with positive directives and shows an example', async () => {
     const loaded = await loadModelAdaptation({ model: 'deepseek' });
     expect(loaded).toContain('## Worked example');
-    // Negation non-compliance is the weakness this family's notes attribute to
-    // it, so the guidance must not be built on prohibitions.
     expect(loaded).not.toContain('Do not stop at a plan');
     expect(loaded).not.toContain('Do not quietly drop');
   });

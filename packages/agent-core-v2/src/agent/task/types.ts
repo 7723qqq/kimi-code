@@ -25,6 +25,7 @@ export interface AgentTaskInfoBase {
   readonly terminalNotificationSuppressed?: boolean;
   readonly resumeReminded?: boolean;
   readonly timeoutMs?: number;
+  readonly outputPath?: string;
 }
 
 export interface AgentTaskInfoByKind {}
@@ -61,6 +62,7 @@ export interface TaskInfoBase {
   readonly stopReason?: string;
   readonly terminalNotificationSuppressed?: boolean;
   readonly timeoutMs?: number;
+  readonly outputPath?: string;
 }
 
 export type TaskInfo = TaskInfoBase &
@@ -103,4 +105,11 @@ export interface BackgroundTaskStartedEvent {
 export interface BackgroundTaskTerminatedEvent {
   readonly type: 'background.task.terminated';
   readonly info: TaskInfo;
+}
+
+export interface BackgroundTaskOutputEvent {
+  readonly type: 'background.task.output';
+  readonly taskId: string;
+  readonly chunk: string;
+  readonly outputSizeBytes: number;
 }

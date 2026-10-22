@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import {
   resetUnexpectedErrorHandler,
@@ -70,7 +70,7 @@ describe('RuntimeRegistry', () => {
     expect(() => registry.acquire(
       { workspaceId: 'workspace', runtimeId: 'local' },
       ['terminal'],
-    )).toThrowError(expect.objectContaining<Partial<RuntimeError>>({ code: 'runtime.unavailable' }));
+    )).toThrowError(expect.objectContaining({ code: 'runtime.unavailable' }));
   });
 
   it('keeps the current generation when replacement preparation fails', async () => {
@@ -91,7 +91,7 @@ describe('RuntimeRegistry', () => {
     const first = runtime('one');
     const second = runtime('two');
     Object.assign(first, {
-      dispose: vi.fn(async () => {
+      dispose: mock(async () => {
         first.disposed = true;
         throw new Error('old runtime cleanup failed');
       }),
@@ -146,7 +146,7 @@ describe('RuntimeRegistry', () => {
     const registry = new RuntimeRegistry('workspace', 1);
     const first = runtime('one');
     const originalDispose = first.dispose.bind(first);
-    const dispose = vi.fn(originalDispose);
+    const dispose = mock(originalDispose);
     Object.assign(first, { dispose });
     const registration = registry.register(first);
     const lease = registry.acquire({ workspaceId: 'workspace', runtimeId: 'local' });

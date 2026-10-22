@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import en from '#/i18n/locales/en';
 import zh from '#/i18n/locales/zh';
@@ -7,7 +7,7 @@ import zh from '#/i18n/locales/zh';
  * Guard: every translation key defined in the English base (`en`) must also
  * exist in every other locale.
  *
- * Why: the Rust translation engine falls back to the English message whenever
+ * Why: the translation engine falls back to the English message whenever
  * a key is missing in the active locale. A missing `zh` key therefore renders
  * silently in English — the exact "part of the UI reverted to English" symptom
  * users report. TypeScript does not catch this today because `zh` is a free

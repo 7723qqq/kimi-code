@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 // test/batch.test.ts
-import { test } from 'vitest';
+import { test } from 'bun:test';
 
 import { MiniDb } from '../src/index.js';
 

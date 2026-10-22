@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import type { Message, StreamedMessagePart, ToolCall } from '#/message';
 import type { StreamedMessage } from '#/provider';

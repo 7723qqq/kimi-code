@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 
-import { test } from 'vitest';
+import { test } from 'bun:test';
 
 import { MiniDb } from '../src/index.js';
 import { rmrf, tmpDir } from './helpers.js';

@@ -3,7 +3,7 @@ import { readFile, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 import type { IConfigService } from '#/app/config/config';
 import { SpillLocator, type ISpillService } from '#/features/spill/spill';
@@ -165,6 +165,6 @@ describe('ISpillService brand', () => {
   it('is a decorator identifier usable for DI', () => {
     const service: ISpillService = spillService(undefined);
     expect(service).toBeDefined();
-    expect(SpillLocator('x')).toBe('x');
+    expect(SpillLocator('x')).toBe('x' as SpillLocator);
   });
 });

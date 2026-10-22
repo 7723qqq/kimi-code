@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import type { IConfigService } from '#/app/config/config';
 import type { ISessionProcessRunner } from '#/session/process/processRunner';

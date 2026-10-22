@@ -1,59 +1,80 @@
 import { getMaxListeners } from 'node:events';
-
 import { type ToolCall } from '#human/llm/message';
 import { emptyUsage } from '#human/llm/usage';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-
-import type { IDisposable } from '#/_base/di/lifecycle';
+import { type IDisposable } from '#/_base/di/lifecycle';
 import { Event } from '#/_base/event';
-import { IAgentProfileService } from '#/index';
 import { IAgentLLMRequesterService } from '#/agent/llmRequester/llmRequester';
-import type { ModelRequestTiming } from '#/llm-adapter/model/model-requester';
+import { type ModelRequestTiming } from '#/llm-adapter/model/model-requester';
 import { APIProviderRateLimitError } from '#/llm-adapter/contract/errors';
-import type { ContextMessage, PromptOrigin } from '#/agent/contextMemory/types';
-import type { LoopRecordedEvent } from '#/agent/contextMemory/loopEventFold';
+import { type ContextMessage, type PromptOrigin } from '#/agent/contextMemory/types';
+import { type LoopRecordedEvent } from '#/agent/contextMemory/loopEventFold';
 import { IAgentGoalService } from '#/features/goal/goalService';
 import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
-import { IAgentLoopService, type Turn } from '#/agent/loop/loop';
+import { type Turn } from '#/agent/loop/loop';
 import { createActor } from '#human/xstate2';
 import { createAgentMachine } from '#human/agent/machine';
 import { agentContextOf } from '#/agent/scopeContext/scopeContext';
-import type { AgentContext } from '#/agent/agentContext/agentContext';
-import {
-  IAgentLifecycleService,
-  type AgentScopeCreatedEvent,
-} from '#/session/agentLifecycle/agentLifecycle';
-import {
-  AssistantDelta,
-  ThinkingDelta,
-  TurnStarted,
-  TurnStepInterrupted,
-  TurnStepStarted,
-} from '#/agent/loop/turnEvents';
+import { type AgentContext } from '#/agent/agentContext/agentContext';
 import { TurnEnded } from '#/agent/loop/turnOps';
-import type { ExecutableTool } from '#/tool/toolContract';
+import { type ExecutableTool } from '#/tool/toolContract';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { IEventBus } from '#/app/event/eventBus';
 import { IPluginService } from '#/app/plugin/plugin';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { isUserCancellation, userCancellationReason } from '#/_base/utils/abort';
-
-import {
-  agentService,
-  appService,
-  createTestAgent,
-  InMemoryWireRecordPersistence,
-  permissionModeServices,
-  requesterFromGenerateFn,
-  sessionService,
-  wireRecordPersistenceServices,
-  type TestAgentContext,
-  type TestAgentOptions,
-} from '../../harness';
 import { stubPluginService } from '../../app/plugin/stubs';
-import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
+import { type TelemetryRecord, recordingTelemetry } from '../../app/telemetry/stubs';
 import { submitPromptTurn } from './stubs';
+
+
+
+
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { waitForAssertion } from '#test/helpers/waitFor';
+import { requesterFromGenerateFn } from '../../harness/index';
+import { type AgentScopeCreatedEvent } from '../../../src/session/agentLifecycle/agentLifecycle';
+import { TurnStepInterrupted } from '../../../src/agent/loop/turnEvents';
+import { agentService } from '../../harness/agent';
+import { TurnStepStarted } from '../../../src/agent/loop/turnEvents';
+import { ThinkingDelta } from '../../../src/agent/loop/turnEvents';
+import { AssistantDelta } from '../../../src/agent/loop/turnEvents';
+import { appService } from '../../harness/agent';
+import { IAgentLifecycleService } from '../../../src/session/agentLifecycle/agentLifecycle';
+import { sessionService } from '../../harness/agent';
+import { permissionModeServices } from '../../harness/agent';
+
+
+
+
+import { IAgentProfileService } from '#/index';
+
+
+
+
+
+
+
+import { IAgentLoopService } from '#/agent/loop/loop';
+
+
+
+
+
+import { TurnStarted } from '#/agent/loop/turnEvents';
+
+
+
+
+import { IEventBus } from '#/app/event/eventBus';
+
+
+
+
+import { createTestAgent, InMemoryWireRecordPersistence, wireRecordPersistenceServices, type TestAgentContext, type TestAgentOptions } from '../../harness';
+
+
+
+import { renderSnapshot } from '../../harness/snapshots';
 
 type GenerateFn = NonNullable<TestAgentOptions['generate']>;
 
@@ -88,8 +109,8 @@ describe('Agent loop', () => {
     );
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
 
-    expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
-      [wire] tools.set_active_tools      { "agentId": "main", "names": [], "time": "<time>" }
+    expect(renderSnapshot(await ctx.untilTurnEnd())).toMatchInlineSnapshot(`
+      "[wire] tools.set_active_tools      { "agentId": "main", "names": [], "time": "<time>" }
       [emit] prompt.submitted            { "time": "<time>", "agentId": "main", "promptId": "<msg-1>", "userMessageId": "<msg-1>", "status": "running", "content": [ { "type": "text", "text": "Hello" } ], "createdAt": "<time>" }
       [wire] turn.prompt                 { "agentId": "main", "input": [ { "type": "text", "text": "Hello" } ], "origin": { "kind": "user" }, "promptId": "<msg-1>", "turnId": 0, "time": "<time>" }
       [emit] turn.started                { "time": "<time>", "agentId": "main", "turnId": 0, "promptId": "<msg-1>", "origin": { "kind": "user" }, "prompt": "Hello" }
@@ -118,13 +139,13 @@ describe('Agent loop', () => {
       [wire] agent.message.appended      { "message": { "message": { "role": "assistant", "content": [ { "type": "think", "think": "<think-1>" }, { "type": "text", "text": "<text-1><text-2>" } ], "toolCalls": [] }, "meta": { "model": { "provider": "agent-loop", "model": "agent-loop" }, "source": "llm", "usage": { "inputOther": 3, "output": 10, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finish": { "finishReason": "completed", "rawFinishReason": "stop" }, "messageId": "mock-1" } }, "time": "<time>", "kind": "event" }
       [wire] agent.turn.ended            { "turnId": 0, "outcome": "done", "time": "<time>", "kind": "event" }
       [wire] turn.ended                  { "agentId": "main", "turnId": 0, "reason": "completed", "time": "<time>" }
-      [emit] turn.ended                  { "time": "<time>", "agentId": "main", "turnId": 0, "reason": "completed" }
+      [emit] turn.ended                  { "time": "<time>", "agentId": "main", "turnId": 0, "reason": "completed" }"
     `);
-    expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
-    system: <system-prompt>
+    expect(renderSnapshot(ctx.lastLlmInput())).toMatchInlineSnapshot(`
+    "system: <system-prompt>
     tools: []
     messages:
-      user: text "Hello"
+      user: text "Hello""
   `);
   });
 
@@ -183,8 +204,8 @@ describe('Agent loop', () => {
     });
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Hello' }] });
 
-    expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
-      [emit] prompt.submitted            { "time": "<time>", "agentId": "main", "promptId": "<msg-1>", "userMessageId": "<msg-1>", "status": "running", "content": [ { "type": "text", "text": "Hello" } ], "createdAt": "<time>" }
+    expect(renderSnapshot(await ctx.untilTurnEnd())).toMatchInlineSnapshot(`
+      "[emit] prompt.submitted            { "time": "<time>", "agentId": "main", "promptId": "<msg-1>", "userMessageId": "<msg-1>", "status": "running", "content": [ { "type": "text", "text": "Hello" } ], "createdAt": "<time>" }
       [wire] turn.prompt                 { "agentId": "main", "input": [ { "type": "text", "text": "Hello" } ], "origin": { "kind": "user" }, "promptId": "<msg-1>", "turnId": 0, "time": "<time>" }
       [emit] turn.started                { "time": "<time>", "agentId": "main", "turnId": 0, "promptId": "<msg-1>", "origin": { "kind": "user" }, "prompt": "Hello" }
       [emit] context.spliced             { "time": "<time>", "agentId": "main", "start": 0, "deleteCount": 0, "messages": [ { "role": "user", "content": [ { "type": "text", "text": "Hello" } ], "id": "<msg-1>", "toolCalls": [], "origin": { "kind": "user" } } ] }
@@ -208,7 +229,7 @@ describe('Agent loop', () => {
       [wire] agent.message.appended      { "message": { "message": { "role": "assistant", "content": [ { "type": "text", "text": "blocked" } ], "toolCalls": [] }, "meta": { "model": { "provider": "agent-loop", "model": "agent-loop" }, "source": "llm", "usage": { "inputOther": 3, "output": 5, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finish": { "finishReason": "filtered", "rawFinishReason": "filtered" }, "messageId": "mock-1" } }, "time": "<time>", "kind": "event" }
       [wire] agent.turn.ended            { "turnId": 0, "outcome": "done", "time": "<time>", "kind": "event" }
       [wire] turn.ended                  { "agentId": "main", "turnId": 0, "reason": "failed", "error": { "code": "provider.filtered", "message": "Provider safety policy blocked the response.", "name": "ProviderFilteredError", "details": { "finishReason": "filtered" }, "retryable": false }, "interruptReason": "filtered", "time": "<time>" }
-      [emit] turn.ended                  { "time": "<time>", "agentId": "main", "turnId": 0, "reason": "failed", "error": { "code": "provider.filtered", "message": "Provider safety policy blocked the response.", "name": "ProviderFilteredError", "details": { "finishReason": "filtered" }, "retryable": false }, "interruptReason": "filtered" }
+      [emit] turn.ended                  { "time": "<time>", "agentId": "main", "turnId": 0, "reason": "failed", "error": { "code": "provider.filtered", "message": "Provider safety policy blocked the response.", "name": "ProviderFilteredError", "details": { "finishReason": "filtered" }, "retryable": false }, "interruptReason": "filtered" }"
     `);
 
     const stepCompleted = ctx.allEvents.find(
@@ -487,8 +508,8 @@ describe('Agent loop', () => {
       input: [{ type: 'text', text: 'Look up moon' }],
     });
     ctx.mockNextResponse({ type: 'text', text: 'The lookup result is lookup-result.' });
-    expect(await ctx.untilApproval(true)).toMatchInlineSnapshot(`
-      [wire] tools.set_active_tools          { "agentId": "main", "names": [ "Lookup" ], "time": "<time>" }
+    expect(renderSnapshot(await ctx.untilApproval(true))).toMatchInlineSnapshot(`
+      "[wire] tools.set_active_tools          { "agentId": "main", "names": [ "Lookup" ], "time": "<time>" }
       [emit] prompt.submitted                { "time": "<time>", "agentId": "main", "promptId": "<msg-1>", "userMessageId": "<msg-1>", "status": "running", "content": [ { "type": "text", "text": "Look up moon" } ], "createdAt": "<time>" }
       [wire] turn.prompt                     { "agentId": "main", "input": [ { "type": "text", "text": "Look up moon" } ], "origin": { "kind": "user" }, "promptId": "<msg-1>", "turnId": 0, "time": "<time>" }
       [emit] turn.started                    { "time": "<time>", "agentId": "main", "turnId": 0, "promptId": "<msg-1>", "origin": { "kind": "user" }, "prompt": "Look up moon" }
@@ -511,17 +532,17 @@ describe('Agent loop', () => {
       [wire] context.append_loop_event       { "agentId": "main", "event": { "type": "content.part", "uuid": "<uuid-2>", "turnId": "0", "step": 1, "stepUuid": "<uuid-1>", "part": { "type": "text", "text": "I will look it up." } }, "time": "<time>" }
       [emit] permission.approval.requested   { "time": "<time>", "id": "<approval-1>", "sessionId": "test-session", "agentId": "main", "turnId": 0, "toolCallId": "call_lookup", "toolName": "Lookup", "action": "Approve Lookup", "display": { "kind": "generic", "summary": "Approve Lookup", "detail": { "query": "moon" } }, "toolInput": { "query": "moon" } }
       [wire] interaction.request             { "agentId": "main", "id": "<approval-1>", "kind": "approval", "toolCallId": "call_lookup", "request": { "id": "<approval-1>", "sessionId": "test-session", "agentId": "main", "turnId": 0, "toolCallId": "call_lookup", "toolName": "Lookup", "action": "Approve Lookup", "display": { "kind": "generic", "summary": "Approve Lookup", "detail": { "query": "moon" } } }, "time": "<time>" }
-      [emit] requestApproval                 { "id": "<approval-1>", "turnId": 0, "toolCallId": "call_lookup", "toolName": "Lookup", "action": "Approve Lookup", "display": { "kind": "generic", "summary": "Approve Lookup", "detail": { "query": "moon" } } }
+      [emit] requestApproval                 { "id": "<approval-1>", "turnId": 0, "toolCallId": "call_lookup", "toolName": "Lookup", "action": "Approve Lookup", "display": { "kind": "generic", "summary": "Approve Lookup", "detail": { "query": "moon" } } }"
     `);
-    expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
-    system: <system-prompt>
+    expect(renderSnapshot(ctx.lastLlmInput())).toMatchInlineSnapshot(`
+    "system: <system-prompt>
     tools: Lookup
     messages:
-      user: text "Look up moon"
+      user: text "Look up moon""
   `);
 
-    expect(await ctx.untilTurnEnd()).toMatchInlineSnapshot(`
-      [wire] interaction.resolved                { "agentId": "main", "id": "<approval-1>", "response": { "decision": "approved", "selectedLabel": "approve" }, "time": "<time>" }
+    expect(renderSnapshot(await ctx.untilTurnEnd())).toMatchInlineSnapshot(`
+      "[wire] interaction.resolved                { "agentId": "main", "id": "<approval-1>", "response": { "decision": "approved", "selectedLabel": "approve" }, "time": "<time>" }
       [emit] permission.approval.resolved        { "time": "<time>", "id": "<approval-1>", "sessionId": "test-session", "agentId": "main", "turnId": 0, "toolCallId": "call_lookup", "toolName": "Lookup", "action": "Approve Lookup", "display": { "kind": "generic", "summary": "Approve Lookup", "detail": { "query": "moon" } }, "toolInput": { "query": "moon" }, "decision": "approved", "selectedLabel": "approve" }
       [wire] permission.record_approval_result   { "turnId": 0, "toolCallId": "call_lookup", "toolName": "Lookup", "action": "Approve Lookup", "result": { "decision": "approved", "selectedLabel": "approve" }, "agentId": "main", "time": "<time>" }
       [emit] tool.call.started                   { "time": "<time>", "agentId": "main", "turnId": 0, "toolCallId": "call_lookup", "name": "Lookup", "args": { "query": "moon" } }
@@ -546,13 +567,13 @@ describe('Agent loop', () => {
       [wire] agent.message.appended              { "message": { "message": { "role": "assistant", "content": [ { "type": "text", "text": "The lookup result is lookup-result." } ], "toolCalls": [] }, "meta": { "model": { "provider": "agent-loop", "model": "agent-loop" }, "source": "llm", "usage": { "inputOther": 25, "output": 12, "inputCacheRead": 0, "inputCacheCreation": 0 }, "finish": { "finishReason": "completed", "rawFinishReason": "stop" }, "messageId": "mock-2" } }, "time": "<time>", "kind": "event" }
       [wire] agent.turn.ended                    { "turnId": 0, "outcome": "done", "time": "<time>", "kind": "event" }
       [wire] turn.ended                          { "agentId": "main", "turnId": 0, "reason": "completed", "time": "<time>" }
-      [emit] turn.ended                          { "time": "<time>", "agentId": "main", "turnId": 0, "reason": "completed" }
+      [emit] turn.ended                          { "time": "<time>", "agentId": "main", "turnId": 0, "reason": "completed" }"
     `);
-    expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
-      messages:
+    expect(renderSnapshot(ctx.lastLlmInput())).toMatchInlineSnapshot(`
+      "messages:
         <last>
         assistant: text "I will look it up."  calls call_lookup:Lookup { "query": "moon" }
-        tool[call_lookup]: text "lookup-result"
+        tool[call_lookup]: text "lookup-result""
     `);
   });
 
@@ -609,7 +630,7 @@ describe('Agent loop', () => {
 
       const { turn } = submitTurn(local.get(IAgentLoopService), 'use both tools');
       await slowStarted.promise;
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         expect(toolResults().some((event) => event.toolCallId === 'call-fast-1')).toBe(true);
       });
       slowGate.resolve();
@@ -1266,7 +1287,7 @@ describe('Agent loop', () => {
         toolCalls: [],
       },
     });
-    await vi.waitFor(() => {
+    await waitForAssertion(() => {
       expect(loop.promptHandle('seed-1')).toBeDefined();
     });
     await expect(loop.promptHandle('seed-1')!.completion).resolves.toMatchObject({
@@ -1962,12 +1983,12 @@ describe('interruption reminder', () => {
     await ctx.rpc.prompt({ input: [{ type: 'text', text: 'Next' }] });
     await ctx.untilTurnEnd();
 
-    expect(ctx.lastLlmInput()).toMatchInlineSnapshot(`
-      messages:
+    expect(renderSnapshot(ctx.lastLlmInput())).toMatchInlineSnapshot(`
+      "messages:
         <last>
         assistant: text "partial answer"
         user: text "<system-reminder>\\nThe previous turn was interrupted by the user before completion; any partial output shown above is incomplete. The user's next message continues the conversation.\\n</system-reminder>"
-        user: text "Next"
+        user: text "Next""
     `);
   });
 
@@ -2238,7 +2259,7 @@ describe('aborted step tool execution', () => {
       const slowToolStarted = registerAbortableWorkTool(ctx);
       const goals = ctx.get(IAgentGoalService);
       await goals.createGoal({ objective: 'finish the task' });
-      await goals.setBudgetLimits({ budgetLimits: { tokenBudget: 60 } });
+      await goals.setBudgetLimits({ budgetLimits: { tokenBudget: 167 } });
       ctx.get(IEventBus).publish(new TurnStarted({ agentId: 'main', turnId: 1, origin: { kind: 'user' } }));
 
       const loopService = ctx.get(IAgentLoopService);
@@ -2263,7 +2284,7 @@ describe('aborted step tool execution', () => {
       });
       expect(goals.getGoal().goal).toMatchObject({
         status: 'blocked',
-        tokensUsed: 61,
+        tokensUsed: 168,
         budget: { tokenBudgetReached: true },
       });
     } finally {

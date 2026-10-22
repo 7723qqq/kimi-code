@@ -8,7 +8,7 @@ import {
   IAgentLifecycleService,
   getLiveSessionById,
 } from '@moonshot-ai/agent-core-v2';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { WebSocket } from 'ws';
 
 import { type RunningServer, startServer } from '../src/start';

@@ -1,6 +1,6 @@
 import { readdir, realpath } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { dirname, isAbsolute, join } from 'node:path';
+import { dirname, isAbsolute, join, sep } from 'node:path';
 
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { LifecycleScope } from '#/app/scopes';
@@ -32,6 +32,7 @@ export class HostFolderBrowser implements IHostFolderBrowser {
     } catch (err) {
       throw mapFsError(err, target);
     }
+    if (/^[A-Za-z]:$/.test(realTarget)) realTarget = `${realTarget}${sep}`;
 
     let dirents;
     try {

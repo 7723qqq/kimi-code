@@ -1,34 +1,28 @@
 import { mkdtempSync } from 'node:fs';
 import { mkdir, rm, writeFile } from 'node:fs/promises';
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
-import type { AddressInfo as HttpAddress } from 'node:net';
+import { type AddressInfo as HttpAddress } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
-import type { OAuthClientInformationFull } from '@modelcontextprotocol/sdk/shared/auth.js';
-import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
+import { type OAuthClientInformationFull } from '@modelcontextprotocol/sdk/shared/auth.js';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn, type Mock } from 'bun:test';
+import { setEnv, restoreEnvs } from '#test/helpers/stubs';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
 import { ILogService } from '#/_base/log/log';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import {
-  IAgentIdentity,
-  type AgentIdentitySnapshot,
-} from '#/app/agentIdentity/agentIdentity';
+import { IAgentIdentity, type AgentIdentitySnapshot } from '#/app/agentIdentity/agentIdentity';
 import { IConfigService } from '#/app/config/config';
 import { IMcpConfigStore, McpConfigStore } from '#/app/mcpConfig/configStore';
 import { IMcpOAuthService } from '#/app/mcpConfig/oauthService';
-import {
-  IMcpManagementService,
-  type GlobalMcpServerConfig,
-  type McpServerLocator,
-} from '#/app/mcpManagement/mcpManagement';
+import { IMcpManagementService, type GlobalMcpServerConfig } from '#/app/mcpManagement/mcpManagement';
 import { McpManagementService } from '#/app/mcpManagement/mcpManagementService';
 import { IMcpRegistryService } from '#/app/mcpRegistry/mcpRegistry';
 import { McpRegistryService } from '#/app/mcpRegistry/mcpRegistryService';
 import { IPluginService } from '#/app/plugin/plugin';
-import type { PluginMcpServerEntry } from '#/app/plugin/types';
+import { type PluginMcpServerEntry } from '#/app/plugin/types';
 import { ErrorCodes, Error2 } from '#/errors';
 import { McpOAuthService, type McpOAuthEvent } from '#/mcpCore/oauth/service';
 import { HostFileSystem } from '#/os/backends/host/hostFsService';
@@ -36,26 +30,98 @@ import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IHostProcessService } from '#/os/interface/hostProcess';
+import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
-import type { WorkspaceInstance } from '#/workspace/workspaceInstance/workspaceInstance';
-import {
-  IRuntimeResolver,
-  IWorkspaceInstanceManager,
-} from '#/workspace/workspaceInstance/workspaceInstanceManager';
+import { WorkspaceInstance } from '#/workspace/workspaceInstance/workspaceInstance';
+import { IRuntimeResolver, IWorkspaceInstanceManager } from '#/workspace/workspaceInstance/workspaceInstanceManager';
 
 import { stubLog } from '../../_base/log/stubs';
-import {
-  createMemoryMcpOAuthStore,
-  startInProcessHttpMcpServer,
-  stdioFixture,
-} from '../../mcpCore/stubs';
+import { createMemoryMcpOAuthStore, startInProcessHttpMcpServer, stdioFixture } from '../../mcpCore/stubs';
 import { stubAgentIdentity } from '../agentIdentity/stubs';
 
 function stdioServer(name: string, command = 'npx'): GlobalMcpServerConfig {
   return { name, transport: 'stdio', command };
+}
+
+interface AdvancedHostTimers extends IHostTimers {
+  advanceAsync(byMs: number): Promise<void>;
+  readonly outstanding: number;
+  readonly scheduledDelays: readonly number[];
+}
+
+async function flushTimerWork(): Promise<void> {
+  for (let round = 0; round < 4; round += 1) {
+    await Promise.resolve();
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+  }
+}
+
+interface FakeHostTimerHandle extends IHostTimerHandle {
+  readonly id: number;
+}
+
+function createAdvancedHostTimers(): AdvancedHostTimers {
+  let nowMs = 0;
+  let nextId = 1;
+  const scheduledDelays: number[] = [];
+  const scheduled: Array<{
+    readonly id: number;
+    readonly due: number;
+    readonly callback: () => void;
+    cleared: boolean;
+    fired: boolean;
+  }> = [];
+
+  const schedule = (callback: () => void, delayMs: number): FakeHostTimerHandle => {
+    const entry = {
+      id: nextId++,
+      due: nowMs + Math.max(delayMs, 0),
+      callback,
+      cleared: false,
+      fired: false,
+    };
+    scheduled.push(entry);
+    scheduledDelays.push(delayMs);
+    return { id: entry.id };
+  };
+
+  return {
+    _serviceBrand: undefined,
+    setClampedTimeout: (callback, timeoutMs) =>
+      schedule(callback, Math.min(timeoutMs, 2_147_483_647)),
+    setTimeout: (callback, timeoutMs) => schedule(callback, timeoutMs),
+    clearTimeout: (handle) => {
+      const entry = scheduled.find((candidate) => candidate.id === (handle as { id?: number }).id);
+      if (entry !== undefined) entry.cleared = true;
+    },
+    advanceAsync: async (byMs) => {
+      await flushTimerWork();
+      const limit = nowMs + byMs;
+      for (;;) {
+        const next = scheduled
+          .filter((entry) => !entry.fired && !entry.cleared && entry.due <= limit)
+          .toSorted((left, right) => left.due - right.due || left.id - right.id)[0];
+        if (next === undefined) break;
+        nowMs = next.due;
+        next.fired = true;
+        next.callback();
+        await flushTimerWork();
+      }
+      nowMs = limit;
+      await flushTimerWork();
+    },
+    get outstanding() {
+      return scheduled.filter((entry) => !entry.cleared).length;
+    },
+    get scheduledDelays() {
+      return scheduledDelays;
+    },
+  };
 }
 
 const CONFIG_SCOPE = '';
@@ -80,10 +146,12 @@ describe('McpManagementService', () => {
   let getOrCreate: Mock<IWorkspaceInstanceManager['getOrCreate']>;
   let findContaining: Mock<IWorkspaceInstanceManager['findContaining']>;
   let management: IMcpManagementService;
+  let timers: AdvancedHostTimers;
 
   beforeEach(() => {
+    timers = createAdvancedHostTimers();
     home = mkdtempSync(join(tmpdir(), 'kimi-mcp-management-home-'));
-    vi.stubEnv('KIMI_CODE_HOME', home);
+    setEnv('KIMI_CODE_HOME', home);
     disposables = new DisposableStore();
     tempDirs = [home];
     httpServers = [];
@@ -95,10 +163,10 @@ describe('McpManagementService', () => {
     identitySnapshot = stubAgentIdentity({ slug: 'test-agent' }).current();
     identityReady = Promise.resolve(identitySnapshot);
     trusted = true;
-    getOrCreate = vi.fn<IWorkspaceInstanceManager['getOrCreate']>(async () =>
+    getOrCreate = mock<IWorkspaceInstanceManager['getOrCreate']>(async () =>
       ({ id: 'test-workspace' }) as unknown as WorkspaceInstance,
     );
-    findContaining = vi.fn<IWorkspaceInstanceManager['findContaining']>(() => undefined);
+    findContaining = mock<IWorkspaceInstanceManager['findContaining']>(() => undefined);
     const hostProcess = new HostProcessService();
     const runtime = Object.assign(
       new FakeRuntime(
@@ -160,6 +228,7 @@ describe('McpManagementService', () => {
         });
         reg.definePartialInstance(IWorkspaceInstanceManager, { findContaining, getOrCreate });
         reg.defineInstance(ILogService, stubLog());
+        reg.defineInstance(IHostTimers, timers);
         reg.define(IMcpManagementService, McpManagementService);
       },
     });
@@ -170,7 +239,7 @@ describe('McpManagementService', () => {
   afterEach(async () => {
     disposables.dispose();
     await oauth.dispose();
-    vi.unstubAllEnvs();
+    restoreEnvs();
     await Promise.all(httpServers.map((server) => server.close()));
     await Promise.all(tempDirs.map((dir) => rm(dir, { recursive: true, force: true })));
   });
@@ -1333,10 +1402,10 @@ describe('McpManagementService', () => {
         }),
         'utf8',
       );
-      const cancel = vi.fn(async () => undefined);
-      const begin = vi.spyOn(oauth, 'beginAuthorization').mockResolvedValue({
+      const cancel = mock(async () => undefined);
+      const begin = spyOn(oauth, 'beginAuthorization').mockResolvedValue({
         authorizationUrl: new URL('https://project.example.test/authorize'),
-        complete: vi.fn(async () => undefined),
+        complete: mock(async () => undefined),
         cancel,
       });
 
@@ -1368,7 +1437,7 @@ describe('McpManagementService', () => {
         }),
         'utf8',
       );
-      const invalidate = vi.spyOn(oauth, 'invalidate').mockResolvedValue(undefined);
+      const invalidate = spyOn(oauth, 'invalidate').mockResolvedValue(undefined);
 
       await management.resetServerAuth(
         { source: 'global', name: 'oauthable' },
@@ -1567,21 +1636,21 @@ describe('McpManagementService', () => {
         url: 'https://oauthable.example.test/mcp',
         auth: 'oauth',
       });
-      const cancel = vi.fn(async () => undefined);
-      const beginSpy = vi.spyOn(oauth, 'beginAuthorization').mockResolvedValue({
+      const cancel = mock(async () => undefined);
+      const beginSpy = spyOn(oauth, 'beginAuthorization').mockResolvedValue({
         authorizationUrl: new URL('https://oauthable.example.test/authorize'),
-        complete: vi.fn(async () => undefined),
+        complete: mock(async () => undefined),
         cancel,
       });
-      vi.useFakeTimers();
       try {
         const begun = await management.beginServerAuth({ source: 'global', name: 'oauthable' });
         if (begun.status !== 'authorization-required') {
           throw new Error(`expected authorization-required, got ${begun.status}`);
         }
 
-        await vi.advanceTimersByTimeAsync(15 * 60_000);
+        await timers.advanceAsync(15 * 60_000);
 
+        expect(timers.scheduledDelays).toEqual([15 * 60_000]);
         expect(cancel).toHaveBeenCalledTimes(1);
         await expect(
           management.completeServerAuth({ flowId: begun.flowId, timeoutMs: 1000 }),
@@ -1590,7 +1659,6 @@ describe('McpManagementService', () => {
           message: `Unknown MCP OAuth flow: ${begun.flowId}`,
         });
       } finally {
-        vi.useRealTimers();
         beginSpy.mockRestore();
       }
     });

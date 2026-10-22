@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, it, expect } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { loadInputHistory, appendInputHistory } from '#/utils/history/input-history';
 

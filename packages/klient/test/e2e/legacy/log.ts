@@ -1,27 +1,30 @@
-import { onTestFailed, onTestFinished } from 'vitest';
+import { afterEach } from 'bun:test';
 
 import { recordReportEvent, setActiveReportCase } from '../harness/report.js';
 
+const failedCases = new Set<string>();
+let currentCase: string | undefined;
+
+afterEach(() => {
+  const caseName = currentCase;
+  currentCase = undefined;
+  if (caseName === undefined || failedCases.has(caseName)) return;
+  recordReportEvent({ kind: 'test-result', caseName, state: 'passed' });
+});
+
+export function markCaseFailed(caseName: string, error: unknown): void {
+  failedCases.add(caseName);
+  recordReportEvent({
+    kind: 'test-result',
+    caseName,
+    state: 'failed',
+    error: errorForLog(error),
+  });
+}
+
 export function createCaseLogger(caseName: string): (label: string, value?: unknown) => void {
   setActiveReportCase(caseName);
-  let failed = false;
-  onTestFailed((error) => {
-    failed = true;
-    recordReportEvent({
-      kind: 'test-result',
-      caseName,
-      state: 'failed',
-      error: errorForLog(error),
-    });
-  });
-  onTestFinished(() => {
-    if (failed) return;
-    recordReportEvent({
-      kind: 'test-result',
-      caseName,
-      state: 'passed',
-    });
-  });
+  currentCase = caseName;
   return (label, value) => {
     recordReportEvent({ kind: 'log', caseName, label, value });
     const prefix = `[server-e2e] ${caseName} :: ${label}`;

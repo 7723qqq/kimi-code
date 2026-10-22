@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 
 // test/crc32.test.ts
-import { test } from 'vitest';
+import { test } from 'bun:test';
 
 import { crc32 } from '../src/crc32.js';
 

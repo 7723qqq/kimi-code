@@ -1,16 +1,19 @@
+import { createRequire } from 'node:module';
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import type * as KosongModule from '@moonshot-ai/kosong';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, mock } from 'bun:test';
 
-import { createKimiHarness, type KimiError, type Event } from '#/index';
+import { createKimiHarness, type Event } from '#/index';
 
 import { makeTempDir, removeTempDirs, waitForSDKEvent } from './session-runtime-helpers';
 import { TEST_IDENTITY } from './test-identity';
 
-vi.mock('@moonshot-ai/kosong', async (importOriginal) => {
-  const actual = await importOriginal<typeof KosongModule>();
+// Bun calls the factory with no arguments and a module cannot import the
+// specifier it is replacing, so the real namespace comes from `createRequire`.
+void mock.module('@moonshot-ai/kosong', () => {
+  const actual = createRequire(import.meta.url)('@moonshot-ai/kosong') as typeof KosongModule;
   return {
     ...actual,
     createProvider: () => ({

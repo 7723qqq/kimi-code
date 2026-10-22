@@ -7,7 +7,8 @@ import {
   authSummarySchema,
   type AuthSummary,
 } from '@moonshot-ai/agent-core-v2/app/authLegacy/authLegacy';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { removeTempHome } from './helpers/tempHome';
 
 import { type RunningServer, startServer } from '../src/start';
 import { authedFetch } from './helpers/auth';
@@ -43,7 +44,7 @@ describe('server-v2 GET /api/v1/auth', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
+      await removeTempHome(home);
       home = undefined;
     }
   });

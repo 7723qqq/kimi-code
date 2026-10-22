@@ -1,7 +1,7 @@
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
 import type { AddressInfo as HttpAddress } from 'node:net';
 
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 import {
   type CallbackServer,
@@ -84,11 +84,11 @@ describe('startCallbackServer', () => {
     const server = await startCallbackServer();
     trackServer(server);
     const pending = server.waitForCode({ timeoutMs: 10_000 });
-    const rejection = expect(pending).rejects.toBeInstanceOf(OAuthCallbackClosedError);
+    void pending.catch(() => {});
 
     await server.close();
 
-    await rejection;
+    await expect(pending).rejects.toBeInstanceOf(OAuthCallbackClosedError);
   });
 
   it('rejects a late waitForCode after close', async () => {
@@ -137,10 +137,9 @@ describe('McpOAuthService cancellation', () => {
 
     const flow = await service.beginAuthorization('example', 'https://mcp.example.test/rpc');
     const completion = flow.complete({ timeoutMs: 10_000 });
-    const rejection = expect(completion).rejects.toThrow('OAuth callback listener closed');
-
+    
     await flow.cancel();
 
-    await rejection;
+    await expect(completion).rejects.toThrow('OAuth callback listener closed');
   }, 15000);
 });

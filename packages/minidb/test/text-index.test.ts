@@ -3,16 +3,15 @@
 // Larger-than-RAM full-text index: postings codec, on-disk postings file, and
 // the TextIndex (delta + tombstones + disk-backed base + cache).
 
+import { test } from 'bun:test';
 import assert from 'node:assert/strict';
 import fssync from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
-import { test } from 'vitest';
-
 import { MiniDb } from '../src/index.js';
-import { TextIndex, tokenize } from '../src/text-index/index.js';
+import { TextIndex, TextIndexBuildingError, tokenize } from '../src/text-index/index.js';
 import {
   encodePostingList,
   decodePostingList,
@@ -25,6 +24,20 @@ import { barrier } from './helpers.js';
 
 async function tmpDir(): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), 'minidb-text-'));
+}
+
+/** A replace-rename that refuses ONE destination with EPERM but succeeds on
+ *  any other name — the exact shape the retired EPERM fallback exploited by
+ *  retrying onto a suffixed path. */
+function epermOn(fixedDst: string): (src: string, dst: string) => Promise<void> {
+  return (src, dst) => {
+    if (dst === fixedDst) {
+      const e = new Error('EPERM: operation not permitted, rename') as NodeJS.ErrnoException;
+      e.code = 'EPERM';
+      return Promise.reject(e);
+    }
+    return fs.rename(src, dst);
+  };
 }
 
 // ---- codec ---------------------------------------------------------------
@@ -482,6 +495,45 @@ test('MiniDb: compaction skips the postings rebuild when the index is clean [gen
     await db.close();
   } finally {
     PostingsFile.rebuild = orig;
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('MiniDb: a generation build leaves the non-override rebuild target intact [generation]', async () => {
+  const dir = await tmpDir();
+  try {
+    const db = await MiniDb.open({ dir, valueCodec: 'json', autoCompact: false });
+    await db.createTextIndex('bio', { fields: ['bio'] });
+    await db.set('a', { bio: 'hello alpha' });
+    // Generation build: its staged postings write is redirected into the
+    // generation's tmp directory, which the publish rename then takes away.
+    await db.compact();
+    const ti = (db as unknown as { text: Map<string, TextIndex> }).text.get('bio')!;
+    assert.ok(
+      ti.currentPostingsPath?.includes('generations'),
+      `expected the live base inside a generation, got ${ti.currentPostingsPath}`,
+    );
+
+    // A later NON-override rebuild (the legacy postings maintenance path) must
+    // still target the index's own root postings file — never the vanished
+    // generation tmp path, which would fail ENOENT for every rebuild.
+    await db.set('b', { bio: 'hello beta' });
+    const priv = db as unknown as { textRegistry: { rebuildTextPostings(): Promise<void> } };
+    await priv.textRegistry.rebuildTextPostings();
+
+    const rootPostings = path.join(dir, 'db.text-bio.postings');
+    assert.equal(ti.currentPostingsPath, rootPostings);
+    assert.equal(
+      fssync.existsSync(rootPostings),
+      true,
+      'postings landed in the expected directory',
+    );
+    assert.deepEqual(
+      db.search('bio', 'hello', { limit: 10 }).map((h) => h.key),
+      ['a', 'b'],
+    );
+    await db.close();
+  } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
@@ -1716,4 +1768,130 @@ test('TextIndexBuildingError while the base is pending (sync + async + query)', 
   assert.equal(ti.search('hello').length, 1);
   b.abort();
   assert.equal(ti.search('hello').length, 1);
+});
+
+test('a base read with no open handle raises TextIndexBuildingError instead of serving delta-only', async () => {
+  const dir = await tmpDir();
+  try {
+    const postingsPath = path.join(dir, 'p.postings');
+    const ti = new TextIndex({ name: 'guarded', postingsPath });
+    await ti.build([{ key: 'a', value: { text: 'hello alpha' } }]);
+    // The Windows beforeRename close (retried for up to ~2.5 s) and a failed
+    // reopen both leave the dictionary describing a file no handle reads —
+    // that is a momentarily unreadable base, NOT an empty one: reading it as
+    // empty silently drops the base's hits.
+    ti.pf!.close();
+    ti.pf = null;
+    assert.throws(() => ti.search('hello'), TextIndexBuildingError);
+    assert.throws(() => ti.searchBounded('hello'), /still building/);
+    await assert.rejects(ti.searchBoundedAsync('hello'), /still building/);
+
+    // A disk index whose FIRST build has not committed yet is genuinely
+    // baseless (createTextIndex relies on it): it keeps serving its delta.
+    const fresh = new TextIndex({ postingsPath: path.join(dir, 'q.postings') });
+    fresh.add('k', { text: 'hello world' });
+    assert.deepEqual(
+      fresh.search('hello').map((h) => h.key),
+      ['k'],
+    );
+
+    // The handle comes back: the base is served whole again.
+    ti.pf = PostingsFile.open(postingsPath);
+    assert.deepEqual(
+      ti.search('hello').map((h) => h.key),
+      ['a'],
+    );
+    ti.close();
+    fresh.close();
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('PostingsFile: a replace that cannot land (EPERM) throws instead of renaming aside', async () => {
+  const dir = await tmpDir();
+  const p = path.join(dir, 'x.postings');
+  try {
+    await PostingsFile.rebuild(p, [{ term: 'hello', entries: [[0, 1]] }]);
+    const before = await fs.readFile(p);
+    // The real EPERM window spans ~2.5 s of retries; the injected seam is the
+    // same call the retry would ultimately make, and it fails ONLY on the
+    // fixed name — so a fallback that renames aside would succeed and return.
+    await assert.rejects(
+      PostingsFile.rebuild(p, [{ term: 'bye', entries: [[0, 1]] }], {
+        rename: epermOn(p),
+      }),
+      /EPERM/,
+    );
+    // The previous file is byte-identical and no renamed-aside copy exists:
+    // the fixed name is the only one the generation manifest records and the
+    // loader verifies, so a second name would be a guaranteed ENOENT there.
+    assert.deepEqual(await fs.readFile(p), before);
+    assert.deepEqual((await fs.readdir(dir)).toSorted(), ['x.postings', 'x.postings.tmp']);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('TextIndex: a failed postings replace keeps the previous base and the retry lands', async () => {
+  const dir = await tmpDir();
+  const orig = PostingsFile.rebuild;
+  const eperm = (): NodeJS.ErrnoException => {
+    const e = new Error('EPERM: operation not permitted, rename') as NodeJS.ErrnoException;
+    e.code = 'EPERM';
+    return e;
+  };
+  try {
+    const ti = new TextIndex({ postingsPath: path.join(dir, 'p.postings') });
+    await ti.build([{ key: 'a', value: { text: 'hello alpha' } }]);
+    // Phase 1: every replace fails.
+    PostingsFile.rebuild = () => Promise.reject(eperm());
+
+    await assert.rejects(ti.build([{ key: 'b', value: { text: 'beta hello' } }]), /EPERM/);
+    // The commit never happened, so the previous base is still served whole
+    // (and the staged keys never leaked into the live view).
+    assert.deepEqual(
+      ti.search('hello').map((h) => h.key),
+      ['a'],
+    );
+    assert.equal(ti.search('beta').length, 0);
+
+    // Phase 2: the retry is a normal rebuild and lands.
+    PostingsFile.rebuild = orig;
+    await ti.build([
+      { key: 'a', value: { text: 'hello alpha' } },
+      { key: 'b', value: { text: 'beta hello' } },
+    ]);
+    assert.deepEqual(
+      ti.search('hello', { limit: 10 }).map((h) => h.key),
+      ['a', 'b'],
+    );
+    ti.close();
+  } finally {
+    PostingsFile.rebuild = orig;
+    await fs.rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('a postings rebuild reclaims renamed-aside files from the retired EPERM fallback', async () => {
+  const dir = await tmpDir();
+  const p = path.join(dir, 'x.postings');
+  try {
+    await PostingsFile.rebuild(p, [{ term: 'hello', entries: [[0, 1]] }]);
+    // One leftover per failed replace: `<file>.<pid36><ts36>`.
+    await fs.writeFile(`${p}.3k5x1ymfc8k2x9`, 'stale');
+    // Neither a shorter non-pid/ts suffix nor another index's leftovers are
+    // this rebuild's business.
+    await fs.writeFile(`${p}.rebuild`, 'not ours');
+    await fs.writeFile(path.join(dir, 'other.postings.3k5x1ymfc8k2x9'), 'other stem');
+
+    await PostingsFile.rebuild(p, [{ term: 'hello', entries: [[0, 2]] }]);
+    assert.deepEqual((await fs.readdir(dir)).toSorted(), [
+      'other.postings.3k5x1ymfc8k2x9',
+      'x.postings',
+      'x.postings.rebuild',
+    ]);
+  } finally {
+    await fs.rm(dir, { recursive: true, force: true });
+  }
 });

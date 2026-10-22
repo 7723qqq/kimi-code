@@ -2,6 +2,7 @@ import { valid } from 'semver';
 import { z } from 'zod';
 
 import { kimiCodeCdnLatestJsonUrl, kimiCodeCdnLatestUrl } from '#/constant/app';
+import { SYSTEM_RENDER_CLOCK, type RenderClock } from '#/tui/utils/render-clock';
 
 import type { UpdateManifest } from './types';
 
@@ -37,15 +38,16 @@ async function fetchWithTimeout(
   fetchImpl: typeof fetch,
   input: string,
   timeoutMs: number,
+  clock: RenderClock,
 ): Promise<Response> {
   const controller = new AbortController();
-  const timeout = setTimeout(() => {
+  const timeout = clock.setTimeout(() => {
     controller.abort();
   }, timeoutMs);
   try {
     return await fetchImpl(input, { signal: controller.signal });
   } finally {
-    clearTimeout(timeout);
+    clock.clearTimeout(timeout);
   }
 }
 
@@ -57,13 +59,15 @@ async function fetchWithTimeout(
  * error propagate so the existing cache stays intact instead of being
  * overwritten with a null `latest` on a transient blip.
  *
- * `fetchImpl` is injectable for tests; defaults to the global `fetch`.
+ * `fetchImpl` and `clock` are injectable for tests; they default to the global
+ * `fetch` and the system clock.
  */
 export async function fetchLatestVersionFromCdn(
   fetchImpl: typeof fetch = fetch,
   timeoutMs: number = CDN_FETCH_TIMEOUT_MS,
+  clock: RenderClock = SYSTEM_RENDER_CLOCK,
 ): Promise<string> {
-  const response = await fetchWithTimeout(fetchImpl, kimiCodeCdnLatestUrl(), timeoutMs);
+  const response = await fetchWithTimeout(fetchImpl, kimiCodeCdnLatestUrl(), timeoutMs, clock);
   if (!response.ok) {
     throw new Error(`CDN /latest returned HTTP ${response.status}`);
   }
@@ -77,8 +81,14 @@ export async function fetchLatestVersionFromCdn(
 async function fetchUpdateManifestFromCdn(
   fetchImpl: typeof fetch,
   timeoutMs: number,
+  clock: RenderClock,
 ): Promise<UpdateManifest> {
-  const response = await fetchWithTimeout(fetchImpl, kimiCodeCdnLatestJsonUrl(), timeoutMs);
+  const response = await fetchWithTimeout(
+    fetchImpl,
+    kimiCodeCdnLatestJsonUrl(),
+    timeoutMs,
+    clock,
+  );
   if (!response.ok) {
     throw new Error(`CDN /latest.json returned HTTP ${response.status}`);
   }
@@ -96,11 +106,12 @@ async function fetchUpdateManifestFromCdn(
 export async function fetchLatestFromCdn(
   fetchImpl: typeof fetch = fetch,
   timeoutMs: number = CDN_FETCH_TIMEOUT_MS,
+  clock: RenderClock = SYSTEM_RENDER_CLOCK,
 ): Promise<FetchLatestResult> {
-  const manifest = await fetchUpdateManifestFromCdn(fetchImpl, timeoutMs).catch(() => null);
+  const manifest = await fetchUpdateManifestFromCdn(fetchImpl, timeoutMs, clock).catch(() => null);
   if (manifest !== null) {
     return { latest: manifest.version, manifest };
   }
-  const latest = await fetchLatestVersionFromCdn(fetchImpl, timeoutMs);
+  const latest = await fetchLatestVersionFromCdn(fetchImpl, timeoutMs, clock);
   return { latest, manifest: null };
 }

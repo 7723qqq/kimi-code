@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import { PathSecurityError } from '#/tool/path-access';
 import { MEDIA_SNIFF_BYTES } from '#/agent/media/file-type';
@@ -119,12 +119,12 @@ function createReadTool(
 
 function createSpiedFs(content: string) {
   const bytes = Buffer.from(content, 'utf8');
-  const readBytes = vi.fn(async (_path: string, n?: number) =>
+  const readBytes = mock(async (_path: string, n?: number) =>
     n === undefined ? bytes : bytes.subarray(0, n),
   );
-  const readLines = vi.fn().mockImplementation(() => generateLines(content));
-  const readText = vi.fn(async () => content);
-  const stat = vi.fn(async () => ({ isFile: true, isDirectory: false, size: bytes.length }));
+  const readLines = mock().mockImplementation(() => generateLines(content));
+  const readText = mock(async () => content);
+  const stat = mock(async () => ({ isFile: true, isDirectory: false, size: bytes.length }));
   const fs = { cwd: '/', readBytes, readLines, readText, stat } as unknown as IHostFileSystem;
   return { fs, readBytes, readLines, readText, stat };
 }
@@ -142,21 +142,20 @@ interface FakeFile {
 
 function createSpiedMapFs(files: Record<string, FakeFile>) {
   const lookup = (path: string): FakeFile | undefined => files[path];
-  const readBytes = vi.fn(async (path: string, n?: number) => {
+  const readBytes = mock(async (path: string, n?: number) => {
     const data = lookup(path)?.bytes ?? Buffer.alloc(0);
     return n === undefined ? data : data.subarray(0, n);
   });
-  const readLines = vi
-    .fn()
+  const readLines = mock()
     .mockImplementation((path: string, options?: { errors?: 'strict' | 'replace' | 'ignore' }) => {
       const file = lookup(path);
       if (file?.readLines !== undefined) return file.readLines(path, options);
       return generateLines((file?.bytes ?? Buffer.alloc(0)).toString('utf8'));
     });
-  const readText = vi.fn(async (path: string) =>
+  const readText = mock(async (path: string) =>
     (lookup(path)?.bytes ?? Buffer.alloc(0)).toString('utf8'),
   );
-  const stat = vi.fn(async (path: string) => {
+  const stat = mock(async (path: string) => {
     const file = lookup(path);
     if (file === undefined) {
       throw Object.assign(new Error('ENOENT'), { code: 'ENOENT' });
@@ -1152,20 +1151,20 @@ describe('ReadTool', () => {
       Array.from({ length: 1_000 + 5 }, (_, i) => `line ${String(i + 1)}`).join('\n'),
       'utf8',
     );
-    const readText = vi.fn(async () => {
+    const readText = mock(async () => {
       throw new Error('full readText should not be called');
     });
     let consumed = 0;
-    const readLines = vi.fn().mockImplementation(async function* (): AsyncGenerator<string> {
+    const readLines = mock().mockImplementation(async function* (): AsyncGenerator<string> {
       for (let i = 1; i <= 1_000 + 5; i += 1) {
         consumed = i;
         yield `line ${String(i)}\n`;
       }
     });
-    const readBytes = vi.fn(async (_path: string, n?: number) =>
+    const readBytes = mock(async (_path: string, n?: number) =>
       n === undefined ? bytes : bytes.subarray(0, n),
     );
-    const stat = vi.fn(async () => ({ isFile: true, isDirectory: false, size: bytes.length }));
+    const stat = mock(async () => ({ isFile: true, isDirectory: false, size: bytes.length }));
     const fs = { cwd: '/', readBytes, readLines, readText, stat } as unknown as IHostFileSystem;
     const tool = createReadTool(fs, createTestEnv(), PERMISSIVE_WORKSPACE);
 

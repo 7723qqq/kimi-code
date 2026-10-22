@@ -2,40 +2,29 @@ import { randomUUID } from 'node:crypto';
 import { mkdtempSync, realpathSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
-import type { AddressInfo as HttpAddress } from 'node:net';
+import { type AddressInfo as HttpAddress } from 'node:net';
 import { tmpdir } from 'node:os';
-import { setTimeout as sleep } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import type { OAuthClientInformationFull, OAuthTokens } from '@modelcontextprotocol/client';
+import { type OAuthClientInformationFull, type OAuthTokens } from '@modelcontextprotocol/client';
 import { NodeStreamableHTTPServerTransport } from '@modelcontextprotocol/node';
 import { McpServer } from '@modelcontextprotocol/server';
 import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js';
 import { join } from 'pathe';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, spyOn } from 'bun:test';
 import { z } from 'zod';
 
 import { Error2 } from '#/errors';
 import { KIMI_MCP_CLIENT_NAME } from '#/mcpCore/client-shared';
 import { McpConnectionManager, type McpServerEntry } from '#/mcpCore/connection-manager';
-import type { StoredMcpOAuthTokens } from '#/mcpCore/oauth/provider';
+import { type StoredMcpOAuthTokens } from '#/mcpCore/oauth/provider';
 import { McpOAuthService } from '#/mcpCore/oauth/service';
 import { HostProcessService } from '#/os/backends/host/hostProcessService';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
 
-import {
-  closeServer,
-  crashAfterConnectFixture,
-  createMemoryMcpOAuthStore,
-  cwdStdioFixture,
-  hangingListStdioFixture,
-  slowStdioFixture,
-  slowToolStdioFixture,
-  startAnonymousDiscoveryHttpMcpServer,
-  stderrThenExitFixture,
-  stdioFixture,
-} from './stubs';
+import { closeServer, crashAfterConnectFixture, createMemoryMcpOAuthStore, cwdStdioFixture, hangingListStdioFixture, slowStdioFixture, slowToolStdioFixture, startAnonymousDiscoveryHttpMcpServer, stderrThenExitFixture, stdioFixture } from './stubs';
+import { setTimeout as delay } from 'node:timers/promises';
 
 function stdioConfig(args: string[] = [stdioFixture]) {
   return {
@@ -84,7 +73,7 @@ async function waitForStatus(
   const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     if (cm.get(name)?.status === status) return;
-    await sleep(50);
+    await delay(50);
   }
   throw new Error(
     `timed out waiting for "${name}" to reach ${status}; now ${cm.get(name)?.status}`,
@@ -326,7 +315,7 @@ describe('McpConnectionManager', () => {
     });
 
     try {
-      await sleep(50);
+      await delay(50);
       await cm.reconnect('slow');
       await connect;
 
@@ -341,7 +330,7 @@ describe('McpConnectionManager', () => {
       ]);
     } finally {
       await cm.shutdown();
-      await Promise.race([connect.catch(() => {}), sleep(1_000)]);
+      await Promise.race([connect.catch(() => {}), delay(1_000)]);
     }
   }, 7000);
 
@@ -443,12 +432,12 @@ describe('McpConnectionManager', () => {
       },
     });
 
-    await sleep(50);
+    await delay(50);
     await cm.shutdown();
 
     const result = await Promise.race([
       connectPromise.then(() => 'resolved' as const),
-      sleep(1_000).then(() => 'hung' as const),
+      delay(1_000).then(() => 'hung' as const),
     ]);
     expect(result).toBe('resolved');
     expect(cm.list()).toEqual([]);
@@ -487,7 +476,7 @@ describe('McpConnectionManager', () => {
     try {
       const result = await Promise.race([
         connectPromise.then(() => 'resolved' as const),
-        sleep(1_000).then(() => 'hung' as const),
+        delay(1_000).then(() => 'hung' as const),
       ]);
       expect(result).toBe('resolved');
 
@@ -496,7 +485,7 @@ describe('McpConnectionManager', () => {
       expect(entry?.error?.toLowerCase()).toContain('timed out');
     } finally {
       await cm.shutdown();
-      await Promise.race([connectPromise.catch(() => {}), sleep(1_000)]);
+      await Promise.race([connectPromise.catch(() => {}), delay(1_000)]);
     }
   }, 7000);
 
@@ -527,8 +516,8 @@ describe('McpConnectionManager', () => {
   ])(
     'forwards the resolved default startup timeout above the SDK default over %s',
     async (_transport, config) => {
-      const connect = vi.spyOn(Client.prototype, 'connect').mockResolvedValue();
-      const listTools = vi.spyOn(Client.prototype, 'listTools').mockResolvedValue({ tools: [] });
+      const connect = spyOn(Client.prototype, 'connect').mockResolvedValue();
+      const listTools = spyOn(Client.prototype, 'listTools').mockResolvedValue({ tools: [] });
       const cm = createManager({
         resolveDefaultTimeouts: () => ({ startupTimeoutMs: 120_000 }),
       });
@@ -557,8 +546,8 @@ describe('McpConnectionManager', () => {
   ])(
     'forwards per-server startupTimeoutMs above the SDK default over %s',
     async (_transport, config) => {
-      const connect = vi.spyOn(Client.prototype, 'connect').mockResolvedValue();
-      const listTools = vi.spyOn(Client.prototype, 'listTools').mockResolvedValue({ tools: [] });
+      const connect = spyOn(Client.prototype, 'connect').mockResolvedValue();
+      const listTools = spyOn(Client.prototype, 'listTools').mockResolvedValue({ tools: [] });
       const cm = createManager({
         resolveDefaultTimeouts: () => ({ startupTimeoutMs: 120_000 }),
       });
@@ -803,7 +792,8 @@ describe('McpConnectionManager', () => {
         status: 'needs-auth',
         error: expect.stringContaining('run /mcp-config login notion'),
       });
-      expect(entry?.error).not.toContain('redirectUrl must be set');
+      expect(entry).toMatchObject({ status: 'needs-auth' });
+      expect(JSON.stringify(entry)).not.toContain('redirectUrl must be set');
     } finally {
       await cm.shutdown();
       await closeServer(server);
@@ -891,7 +881,7 @@ describe('McpConnectionManager', () => {
       await cm.connectAll({ alpha: stdioConfig() });
       expect(cm.get('alpha')?.status).toBe('connected');
       await cm.shutdown();
-      await sleep(100);
+      await delay(100);
       expect(seen.filter((s) => s.name === 'alpha').map((s) => s.status)).toEqual([
         'pending',
         'connected',
@@ -940,7 +930,7 @@ describe('McpConnectionManager', () => {
 
       for (let i = 0; i < 50; i++) {
         if (cm.get('remote')?.status === 'failed') break;
-        await sleep(25);
+        await delay(25);
       }
       const entry = cm.get('remote');
       expect(entry?.status).toBe('failed');

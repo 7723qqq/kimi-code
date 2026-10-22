@@ -1,13 +1,16 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 
 import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { removeTempHome } from './helpers/tempHome';
 
 import { type RunningServer, startServer } from '../src/start';
 import { authHeaders } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
+import { setEnv, restoreEnvs } from './helpers/stubs';
+import { waitForAssertion } from './helpers/waitFor';
 
 interface Envelope<T> {
   code: number;
@@ -61,7 +64,7 @@ describe('server-v2 /api/v1/workspaces', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
+      await removeTempHome(home);
       home = undefined;
     }
   });
@@ -246,7 +249,7 @@ describe('server-v2 /api/v1/workspaces', () => {
     await seedBucket(lowerId, 's-lower', { archived: true, updatedAt: 2 });
     await postJson<void>('/api/v1/debug/sessionIndex/reconcileNow', {});
 
-    await vi.waitFor(async () => {
+    await waitForAssertion(async () => {
       const { body } = await getJson<ListWire>('/api/v1/workspaces');
       expect(body.code).toBe(0);
       const unions = body.data.items.filter((w) => [typedId, lowerId].includes(w.id));
@@ -268,12 +271,12 @@ describe('server-v2 /api/v1/workspaces', () => {
     expect(status).toBe(200);
     expect(body.code).toBe(0);
     expect(body.data.persisted).toBe(true);
-    expect(body.data.additional_dirs).toContain(extra);
-    expect(body.data.project_root).toBe(root);
-    expect(body.data.config_path).toBe(join(root, '.kimi-code', 'local.toml'));
+    expect(body.data.additional_dirs).toContain(extra.split(sep).join('/'));
+    expect(body.data.project_root).toBe(root.split(sep).join('/'));
+    expect(body.data.config_path).toBe(join(root, '.kimi-code', 'local.toml').split(sep).join('/'));
     const toml = await readFile(body.data.config_path, 'utf8');
     expect(toml).toContain('additional_dir');
-    expect(toml).toContain(extra);
+    expect(toml).toContain(extra.split(sep).join('/'));
   });
 
   it('adds a relative directory without persisting when persist is false', async () => {
@@ -289,7 +292,7 @@ describe('server-v2 /api/v1/workspaces', () => {
     });
     expect(body.code).toBe(0);
     expect(body.data.persisted).toBe(false);
-    expect(body.data.additional_dirs).toContain(extra);
+    expect(body.data.additional_dirs).toContain(extra.split(sep).join('/'));
     await expect(readFile(body.data.config_path, 'utf8')).rejects.toThrow();
     await rm(root, { recursive: true, force: true });
   });
@@ -333,7 +336,7 @@ describe('server-v2 /api/v1/workspaces', () => {
   });
 
   it('reports the effective trust state after untrust while KIMI_CODE_TRUST_WORKSPACE is set', async () => {
-    vi.stubEnv('KIMI_CODE_TRUST_WORKSPACE', '1');
+    setEnv('KIMI_CODE_TRUST_WORKSPACE', '1');
     const root = await mkdtemp(join(tmpdir(), 'kimi-server-v2-workspaces-trust-env-'));
     try {
       const created = await postJson<WorkspaceWire>('/api/v1/workspaces', { root });
@@ -348,7 +351,7 @@ describe('server-v2 /api/v1/workspaces', () => {
       expect(read.body.code).toBe(0);
       expect(read.body.data.trusted).toBe(true);
     } finally {
-      vi.unstubAllEnvs();
+      restoreEnvs();
       await rm(root, { recursive: true, force: true });
     }
   });

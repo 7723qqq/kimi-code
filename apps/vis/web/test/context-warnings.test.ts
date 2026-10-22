@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 // Audit a37/F3 + a37/F4 — the projector now reports malformed records it
 // skipped, and `/context` merges them into the response `warnings`. The spec's

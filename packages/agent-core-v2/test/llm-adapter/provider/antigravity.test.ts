@@ -1,28 +1,38 @@
-import { spawn } from 'node:child_process';
+
+import { spawnSync } from 'node:child_process';
+import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { chmod, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import * as nodeOs from 'node:os';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
-import type { Message, StreamedMessagePart } from '#human/llm/message';
-import {
-  AntigravityChatProvider,
-  AntigravityStreamedMessage,
-  buildAntigravityEnv,
-  buildAntigravityPrompt,
-  detectAntigravityBinary,
-  getAntigravityModelCapability,
-  mapModelToAntigravity,
-} from '#human/llm/requester/bases/antigravity/antigravity';
+import { type Message, type StreamedMessagePart } from '#human/llm/message';
+import { AntigravityChatProvider, AntigravityStreamedMessage, buildAntigravityEnv, buildAntigravityPrompt, detectAntigravityBinary, getAntigravityModelCapability, mapModelToAntigravity } from '#human/llm/requester/bases/antigravity/antigravity';
 import { createAntigravityRequester } from '#human/llm/requester/bases/antigravity/requester';
 
-const osState = vi.hoisted(() => ({ home: undefined as string | undefined }));
+const osState = (() => ({ home: undefined as string | undefined }))();
 
-vi.mock('node:os', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:os')>();
-  return { ...actual, homedir: () => osState.home ?? actual.homedir() };
-});
+void mock.module('node:os', () => ({
+  ...nodeOs,
+  homedir: () => osState.home ?? nodeOs.homedir(),
+}));
+
+const canSpawnFixtureCli = (() => {
+  const probeDir = mkdtempSync(join(tmpdir(), 'agy-probe-'));
+  try {
+    const probe = join(probeDir, 'agy');
+    writeFileSync(probe, '#!/usr/bin/env node\nprocess.exit(0);\n');
+    chmodSync(probe, 0o755);
+    const result = spawnSync(probe, [], { timeout: 10_000, stdio: 'ignore' });
+    return result.error === undefined && result.status === 0;
+  } catch {
+    return false;
+  } finally {
+    rmSync(probeDir, { recursive: true, force: true });
+  }
+})();
 
 describe('mapModelToAntigravity', () => {
   it('maps gemini-3.7-flash with default and custom effort', () => {
@@ -224,126 +234,146 @@ const assistantMessage = (text: string): Message => ({
 });
 
 describe('AntigravityChatProvider spawn behaviour', () => {
-  it('yields the result payload and then fails when the child exits non-zero', async () => {
-    const { home, binDir, restore } = await setupFakeHome();
-    try {
-      await writeFakeAgy(binDir, {
-        stdout:
-          '{"event":"init","conversation_id":"conv-partial"}\n' +
-          '{"event":"result","result":{"response":"PARTIAL"}}\n',
-        exitCode: 1,
-      });
-      const provider = new AntigravityChatProvider({ model: 'gemini-3.7-flash' });
-      const streamed = await provider.generate('', [], [userMessage('do it')]);
-      const parts: StreamedMessagePart[] = [];
-      let error: unknown;
+  it.skipIf(!canSpawnFixtureCli)(
+    'yields the result payload and then fails when the child exits non-zero',
+    async () => {
+      const { home, binDir, restore } = await setupFakeHome();
       try {
+        await writeFakeAgy(binDir, {
+          stdout:
+            '{"event":"init","conversation_id":"conv-partial"}\n' +
+            '{"event":"result","result":{"response":"PARTIAL"}}\n',
+          exitCode: 1,
+        });
+        const provider = new AntigravityChatProvider({ model: 'gemini-3.7-flash' });
+        const streamed = await provider.generate('', [], [userMessage('do it')]);
+        const parts: StreamedMessagePart[] = [];
+        let error: unknown;
+        try {
+          for await (const part of streamed) {
+            parts.push(part);
+          }
+        } catch (caught) {
+          error = caught;
+        }
+        expect(error).toBeInstanceOf(Error);
+        expect((error as Error).message).toContain('exited with code 1');
+        expect(parts).toEqual([{ type: 'text', text: 'PARTIAL' }]);
+        expect(streamed.finishReason).toBe('error');
+        expect(streamed.rawFinishReason).toBe('1');
+      } finally {
+        restore();
+        await rm(home, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.skipIf(!canSpawnFixtureCli)(
+    'completes without error when a result payload is followed by exit 0',
+    async () => {
+      const { home, binDir, restore } = await setupFakeHome();
+      try {
+        await writeFakeAgy(binDir, {
+          stdout:
+            '{"event":"init","conversation_id":"conv-ok"}\n' +
+            '{"event":"result","result":{"response":"COMPLETE"}}\n',
+          exitCode: 0,
+        });
+        const provider = new AntigravityChatProvider({ model: 'gemini-3.7-flash' });
+        const streamed = await provider.generate('', [], [userMessage('do it')]);
+        const parts: StreamedMessagePart[] = [];
         for await (const part of streamed) {
           parts.push(part);
         }
-      } catch (caught) {
-        error = caught;
+        expect(parts).toEqual([{ type: 'text', text: 'COMPLETE' }]);
+        expect(streamed.finishReason).toBe('completed');
+      } finally {
+        restore();
+        await rm(home, { recursive: true, force: true });
       }
-      expect(error).toBeInstanceOf(Error);
-      expect((error as Error).message).toContain('exited with code 1');
-      expect(parts).toEqual([{ type: 'text', text: 'PARTIAL' }]);
-      expect(streamed.finishReason).toBe('error');
-      expect(streamed.rawFinishReason).toBe('1');
-    } finally {
-      restore();
-      await rm(home, { recursive: true, force: true });
-    }
-  });
+    },
+  );
 
-  it('completes without error when a result payload is followed by exit 0', async () => {
-    const { home, binDir, restore } = await setupFakeHome();
-    try {
-      await writeFakeAgy(binDir, {
-        stdout:
-          '{"event":"init","conversation_id":"conv-ok"}\n' +
-          '{"event":"result","result":{"response":"COMPLETE"}}\n',
-        exitCode: 0,
-      });
-      const provider = new AntigravityChatProvider({ model: 'gemini-3.7-flash' });
-      const streamed = await provider.generate('', [], [userMessage('do it')]);
-      const parts: StreamedMessagePart[] = [];
-      for await (const part of streamed) {
-        parts.push(part);
-      }
-      expect(parts).toEqual([{ type: 'text', text: 'COMPLETE' }]);
-      expect(streamed.finishReason).toBe('completed');
-    } finally {
-      restore();
-      await rm(home, { recursive: true, force: true });
-    }
-  });
-
-  it('caps the buffered stderr tail instead of growing without bound', async () => {
-    const { home, binDir, restore } = await setupFakeHome();
-    try {
-      await writeFakeAgy(binDir, { stdout: '', exitCode: 1, stderrBytes: 160 * 1024 });
-      const provider = new AntigravityChatProvider({ model: 'gemini-3.7-flash' });
-      const streamed = await provider.generate('', [], [userMessage('do it')]);
-      let error: unknown;
+  it.skipIf(!canSpawnFixtureCli)(
+    'caps the buffered stderr tail instead of growing without bound',
+    async () => {
+      const { home, binDir, restore } = await setupFakeHome();
       try {
-        for await (const part of streamed) {
-          void part;
+        await writeFakeAgy(binDir, { stdout: '', exitCode: 1, stderrBytes: 160 * 1024 });
+        const provider = new AntigravityChatProvider({ model: 'gemini-3.7-flash' });
+        const streamed = await provider.generate('', [], [userMessage('do it')]);
+        let error: unknown;
+        try {
+          for await (const part of streamed) {
+            void part;
+          }
+        } catch (caught) {
+          error = caught;
         }
-      } catch (caught) {
-        error = caught;
+        expect(error).toBeInstanceOf(Error);
+        const message = (error as Error).message;
+        expect(message).toContain('exited with code 1');
+        const payload = message.slice(message.indexOf(': ') + 2);
+        expect(payload.length).toBeLessThanOrEqual(64 * 1024);
+        expect(payload.length).toBeGreaterThan(0);
+      } finally {
+        restore();
+        await rm(home, { recursive: true, force: true });
       }
-      expect(error).toBeInstanceOf(Error);
-      const message = (error as Error).message;
-      expect(message).toContain('exited with code 1');
-      const payload = message.slice(message.indexOf(': ') + 2);
-      expect(payload.length).toBeLessThanOrEqual(64 * 1024);
-      expect(payload.length).toBeGreaterThan(0);
-    } finally {
-      restore();
-      await rm(home, { recursive: true, force: true });
-    }
-  });
-  it('picks up transcript lines written while the child runs, including a partial line', async () => {
-    const { home, binDir, restore } = await setupFakeHome();
-    try {
-      await writeFakeAgy(binDir, {
-        stdout: '{"event":"init","conversation_id":"conv-live"}\n',
-        exitCode: 0,
-        delayMs: 2500,
-      });
-      const provider = new AntigravityChatProvider({ model: 'gemini-3.7-flash' });
-      const streamed = await provider.generate('', [], [userMessage('do it')]);
-      await writeTranscript(home, 'conv-live', []);
-      const transcriptPath = join(
-        home,
-        '.gemini',
-        'antigravity-cli',
-        'brain',
-        'conv-live',
-        '.system_generated',
-        'logs',
-        'transcript.jsonl',
-      );
-      const firstLine = JSON.stringify({ type: 'PLANNER_RESPONSE', thinking: 'reasoning' });
-      const secondLine = JSON.stringify({ type: 'PLANNER_RESPONSE', thinking: 'reasoning continues' });
-      await writeFile(transcriptPath, `${firstLine}\n${secondLine.slice(0, 24)}`);
-      const parts: StreamedMessagePart[] = [];
-      const consumer = (async () => {
-        for await (const part of streamed) parts.push(part);
-      })();
-      await new Promise((resolve) => setTimeout(resolve, 400));
-      expect(parts.some((part) => part.type === 'think' && part.think === 'reasoning')).toBe(true);
-      expect(parts.some((part) => part.type === 'think' && part.think.includes('continues'))).toBe(
-        false,
-      );
-      await writeFile(transcriptPath, `${firstLine}\n${secondLine}`);
-      await consumer;
-      expect(parts.some((part) => part.type === 'think' && part.think === ' continues')).toBe(true);
-    } finally {
-      restore();
-      await rm(home, { recursive: true, force: true });
-    }
-  });
+    },
+  );
+
+  it.skipIf(!canSpawnFixtureCli)(
+    'picks up transcript lines written while the child runs, including a partial line',
+    async () => {
+      const { home, binDir, restore } = await setupFakeHome();
+      try {
+        await writeFakeAgy(binDir, {
+          stdout: '{"event":"init","conversation_id":"conv-live"}\n',
+          exitCode: 0,
+          delayMs: 2500,
+        });
+        const provider = new AntigravityChatProvider({ model: 'gemini-3.7-flash' });
+        const streamed = await provider.generate('', [], [userMessage('do it')]);
+        await writeTranscript(home, 'conv-live', []);
+        const transcriptPath = join(
+          home,
+          '.gemini',
+          'antigravity-cli',
+          'brain',
+          'conv-live',
+          '.system_generated',
+          'logs',
+          'transcript.jsonl',
+        );
+        const firstLine = JSON.stringify({ type: 'PLANNER_RESPONSE', thinking: 'reasoning' });
+        const secondLine = JSON.stringify({
+          type: 'PLANNER_RESPONSE',
+          thinking: 'reasoning continues',
+        });
+        await writeFile(transcriptPath, `${firstLine}\n${secondLine.slice(0, 24)}`);
+        const parts: StreamedMessagePart[] = [];
+        const consumer = (async () => {
+          for await (const part of streamed) parts.push(part);
+        })();
+        await new Promise((resolve) => setTimeout(resolve, 400));
+        expect(parts.some((part) => part.type === 'think' && part.think === 'reasoning')).toBe(
+          true,
+        );
+        expect(
+          parts.some((part) => part.type === 'think' && part.think.includes('continues')),
+        ).toBe(false);
+        await writeFile(transcriptPath, `${firstLine}\n${secondLine}`);
+        await consumer;
+        expect(parts.some((part) => part.type === 'think' && part.think === ' continues')).toBe(
+          true,
+        );
+      } finally {
+        restore();
+        await rm(home, { recursive: true, force: true });
+      }
+    },
+  );
 });
 
 describe('createAntigravityRequester conversation continuity', () => {
@@ -366,39 +396,46 @@ describe('createAntigravityRequester conversation continuity', () => {
     );
   };
 
-  it('resumes the agy thread only when the history strictly extends the previous one', async () => {
-    const { home, binDir, restore } = await setupFakeHome();
-    const argvFile = join(home, 'argv.jsonl');
-    try {
-      await writeFakeAgy(binDir, {
-        stdout:
-          '{"event":"init","conversation_id":"conv-1"}\n' +
-          '{"event":"result","result":{"response":"OK"}}\n',
-        exitCode: 0,
-        argvFile,
-      });
-      const requester = createAntigravityRequester();
-      await generateOnce(requester, [userMessage('q1')]);
-      await generateOnce(requester, [userMessage('q1'), assistantMessage('a1'), userMessage('q2')]);
-      const third = [userMessage('fresh-1'), assistantMessage('fresh-a'), userMessage('fresh-2')];
-      await generateOnce(requester, third);
+  it.skipIf(!canSpawnFixtureCli)(
+    'resumes the agy thread only when the history strictly extends the previous one',
+    async () => {
+      const { home, binDir, restore } = await setupFakeHome();
+      const argvFile = join(home, 'argv.jsonl');
+      try {
+        await writeFakeAgy(binDir, {
+          stdout:
+            '{"event":"init","conversation_id":"conv-1"}\n' +
+            '{"event":"result","result":{"response":"OK"}}\n',
+          exitCode: 0,
+          argvFile,
+        });
+        const requester = createAntigravityRequester();
+        await generateOnce(requester, [userMessage('q1')]);
+        await generateOnce(requester, [
+          userMessage('q1'),
+          assistantMessage('a1'),
+          userMessage('q2'),
+        ]);
+        const third = [userMessage('fresh-1'), assistantMessage('fresh-a'), userMessage('fresh-2')];
+        await generateOnce(requester, third);
 
-      const argv = await readArgv(argvFile);
-      expect(argv).toHaveLength(3);
-      const [firstArgv, secondArgv, thirdArgv] = argv;
-      expect(firstArgv).not.toContain('--conversation');
-      expect(firstArgv?.[firstArgv.indexOf('-p') + 1]).toBe('q1');
-      expect(secondArgv?.slice(0, 2)).toEqual(['--conversation', 'conv-1']);
-      const secondPrompt = secondArgv?.[secondArgv.indexOf('-p') + 1] ?? '';
-      expect(secondPrompt).toBe('q2');
-      expect(secondPrompt).not.toContain('[User]:');
-      expect(thirdArgv).not.toContain('--conversation');
-      expect(thirdArgv?.[thirdArgv.indexOf('-p') + 1]).toContain('[User]:');
-    } finally {
-      restore();
-      await rm(home, { recursive: true, force: true });
-    }
-  });
+        const argv = await readArgv(argvFile);
+        expect(argv).toHaveLength(3);
+        const [firstArgv, secondArgv, thirdArgv] = argv;
+        expect(firstArgv).not.toContain('--conversation');
+        expect(firstArgv?.[firstArgv.indexOf('-p') + 1]).toBe('q1');
+        expect(secondArgv?.slice(0, 2)).toEqual(['--conversation', 'conv-1']);
+        const secondPrompt = secondArgv?.[secondArgv.indexOf('-p') + 1] ?? '';
+        expect(secondPrompt).toBe('q2');
+        expect(secondPrompt).not.toContain('[User]:');
+        expect(thirdArgv).not.toContain('--conversation');
+        expect(thirdArgv?.[thirdArgv.indexOf('-p') + 1]).toContain('[User]:');
+      } finally {
+        restore();
+        await rm(home, { recursive: true, force: true });
+      }
+    },
+  );
 });
 
 describe('buildAntigravityPrompt thread decisions', () => {

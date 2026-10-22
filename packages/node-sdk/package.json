@@ -49,7 +49,8 @@
   "scripts": {
     "build": "tsdown && bun run build:dts",
     "build:dts": "bun scripts/build-dts.mjs",
-    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "typecheck": "tsc -p tsconfig.typecheck.json --noEmit",
+    "test": "KIMI_LOG_LEVEL=off bun ../../scripts/run-package-tests.mjs --root=test --test-timeout=15000",
     "clean": "rm -rf dist .tmp-api-extractor"
   },
   "dependencies": {

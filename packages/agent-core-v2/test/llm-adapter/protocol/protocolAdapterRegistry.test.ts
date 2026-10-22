@@ -1,4 +1,4 @@
-import { beforeEach, afterEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { isUnknownCapability } from '#/llm-adapter/contract/capability';
 import { thinkingMetadataOf } from '#human/llm/thinking';
@@ -94,9 +94,14 @@ describe('supportedProtocols', () => {
   it('lists the wire protocols (plus the fork antigravity base) and contains neither kimi nor vertexai', () => {
     const protocols = registry.supportedProtocols();
     expect(protocols).toHaveLength(5);
-    expect([...protocols].toSorted()).toEqual(
-      ['anthropic', 'antigravity', 'google-genai', 'openai', 'openai_responses'].toSorted(),
-    );
+    const expected = [
+      'anthropic',
+      'antigravity',
+      'google-genai',
+      'openai',
+      'openai_responses',
+    ] as const;
+    expect([...protocols].toSorted()).toEqual([...expected].toSorted());
     expect(protocols).not.toContain('kimi');
     expect(protocols).not.toContain('vertexai');
   });

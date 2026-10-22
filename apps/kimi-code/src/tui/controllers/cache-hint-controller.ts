@@ -86,6 +86,20 @@ interface CacheBreakBaseline {
   readonly time: number;
 }
 
+/** Injectable time source and wait primitive for the idle/resume timing rules. */
+export interface CacheHintClock {
+  now(): number;
+  sleep(delayMs: number): Promise<void>;
+}
+
+const SYSTEM_CACHE_HINT_CLOCK: CacheHintClock = {
+  now: () => Date.now(),
+  sleep: (delayMs) =>
+    new Promise((resolve) => {
+      setTimeout(resolve, delayMs);
+    }),
+};
+
 export class CacheHintController {
   /** Latest in-process LLM round-trip time (turn begin / turn end). */
   private lastActivityAt: number | undefined;
@@ -112,7 +126,10 @@ export class CacheHintController {
   /** Completed steps since the last cache-break status notice. */
   private stepsSinceBreakNotice = Number.POSITIVE_INFINITY;
 
-  constructor(private readonly host: CacheHintHost) {}
+  constructor(
+    private readonly host: CacheHintHost,
+    private readonly clock: CacheHintClock = SYSTEM_CACHE_HINT_CLOCK,
+  ) {}
 
   /**
    * Cache-break detection (client-side, main loop): feed each completed
@@ -142,7 +159,7 @@ export class CacheHintController {
     }
     const model = this.host.state.appState.model;
     const effort = this.host.state.appState.thinkingEffort;
-    const now = Date.now();
+    const now = this.clock.now();
     const prev = this.breakBaseline;
     this.breakBaseline = { model, effort, usage, time: now };
     this.stepsSinceBreakNotice += 1;
@@ -212,7 +229,7 @@ export class CacheHintController {
   }
 
   recordActivity(): void {
-    this.lastActivityAt = Date.now();
+    this.lastActivityAt = this.clock.now();
   }
 
   /**
@@ -280,7 +297,7 @@ export class CacheHintController {
     lastActiveAt = Math.max(lastActiveAt, this.lastActivityAt ?? 0);
     this.lastActivityAt = lastActiveAt;
     const decision = evaluateCacheHint({
-      now: Date.now(),
+      now: this.clock.now(),
       lastActiveAt,
       totalTokens: main?.context.tokenCount,
       modelId: this.upstreamModelId(),
@@ -323,7 +340,7 @@ export class CacheHintController {
     if (this.upstreamModelId() === undefined) return false;
     // Coarse floor: configured cache durations are 10min+, so anything
     // fresher than a minute can never hint.
-    if (Date.now() - this.lastActivityAt < 60_000) return false;
+    if (this.clock.now() - this.lastActivityAt < 60_000) return false;
     const stash: StashedSubmit = {
       text,
       extraction,
@@ -333,7 +350,7 @@ export class CacheHintController {
     const cached = peekCacheHintConfig();
     if (cached !== undefined) {
       const decision = evaluateCacheHint({
-        now: Date.now(),
+        now: this.clock.now(),
         lastActiveAt: this.lastActivityAt,
         totalTokens: host.state.appState.contextTokens,
         modelId: this.upstreamModelId(),
@@ -394,7 +411,7 @@ export class CacheHintController {
     }
     if (config !== undefined) {
       const decision = evaluateCacheHint({
-        now: Date.now(),
+        now: this.clock.now(),
         lastActiveAt: this.lastActivityAt ?? 0,
         totalTokens: host.state.appState.contextTokens,
         modelId: this.upstreamModelId(),
@@ -605,12 +622,10 @@ export class CacheHintController {
 
   /** Bounded wait for the engine to flip `isCompacting` after a compact RPC. */
   private async waitForCompactionStart(timeoutMs = 3000): Promise<boolean> {
-    const deadline = Date.now() + timeoutMs;
-    while (Date.now() < deadline) {
+    const deadline = this.clock.now() + timeoutMs;
+    while (this.clock.now() < deadline) {
       if (this.host.state.appState.isCompacting) return true;
-      await new Promise((resolve) => {
-        setTimeout(resolve, 25);
-      });
+      await this.clock.sleep(25);
     }
     return false;
   }

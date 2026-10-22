@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 // test/db.test.ts
-import { test } from 'vitest';
+import { test } from 'bun:test';
 
 import { encodeFrame, TYPE_SET } from '../src/codec.js';
 import { MiniDb } from '../src/index.js';

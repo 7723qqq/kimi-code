@@ -1,4 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { waitUntil } from '#test/helpers/waitFor';
 
 import { IEventBus } from '#/app/event/eventBus';
 import { KeyedResourceLeasePool } from '#/_base/lifecycle/keyedResource';
@@ -246,7 +247,7 @@ describe('AgentTodoService', () => {
 
     ctx.get(IFeatureManager).provideUnit(TodoFeature);
 
-    const revived = await vi.waitFor(() => {
+    const revived = await waitUntil(() => {
       const service = ctx.get(IAgentTodoService);
       expect(service.get()).toEqual([todoItem('T1', 'kept', 'in_progress')]);
       return service;

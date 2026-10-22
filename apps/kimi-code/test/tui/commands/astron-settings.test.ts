@@ -1,11 +1,11 @@
 import type { Component, Focusable } from '@moonshot-ai/pi-tui';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock, type Mock } from 'bun:test';
 
 import type { SlashCommandHost } from '#/tui/commands';
 import { saveAstronSettings, showAstronSettingsPanel } from '#/tui/commands/config';
 import { darkColors } from '#/tui/theme/colors';
 
-vi.mock('#/i18n', () => ({
+void mock.module('#/i18n', () => ({
   t: (key: string) => {
     const translations: Record<string, string> = {
       'tui.dialogs.astronSettings.title': 'Astron provider settings',
@@ -19,7 +19,7 @@ vi.mock('#/i18n', () => ({
     };
     return translations[key] ?? key;
   },
-  setLocale: vi.fn(),
+  setLocale: mock(),
   getLocale: () => 'en',
 }));
 
@@ -51,25 +51,25 @@ function makeHost(config: Record<string, unknown> = {}) {
       appState: {},
     },
     harness: {
-      getConfig: vi.fn(async () => config),
-      setConfig: vi.fn(async () => ({ providers: {} })),
+      getConfig: mock(async () => config),
+      setConfig: mock(async () => ({ providers: {} })),
     },
-    mountEditorReplacement: vi.fn((panel: Panel) => {
+    mountEditorReplacement: mock((panel: Panel) => {
       mounted.push(panel);
     }),
-    restoreEditor: vi.fn(),
-    showStatus: vi.fn(),
-    showError: vi.fn(),
-    track: vi.fn(),
+    restoreEditor: mock(),
+    showStatus: mock(),
+    showError: mock(),
+    track: mock(),
   } as unknown as SlashCommandHost & {
     harness: {
-      getConfig: ReturnType<typeof vi.fn>;
-      setConfig: ReturnType<typeof vi.fn>;
+      getConfig: Mock<(...args: any[]) => any>;
+      setConfig: Mock<(...args: any[]) => any>;
     };
-    mountEditorReplacement: ReturnType<typeof vi.fn>;
-    restoreEditor: ReturnType<typeof vi.fn>;
-    showStatus: ReturnType<typeof vi.fn>;
-    showError: ReturnType<typeof vi.fn>;
+    mountEditorReplacement: Mock<(...args: any[]) => any>;
+    restoreEditor: Mock<(...args: any[]) => any>;
+    showStatus: Mock<(...args: any[]) => any>;
+    showError: Mock<(...args: any[]) => any>;
   };
   return { host, mounted };
 }
@@ -119,11 +119,11 @@ describe('saveAstronSettings', () => {
   });
 
   it('writes the reloaded document it was handed, not a cached one', async () => {
-    const getConfig = vi.fn(async () => ({
+    const getConfig = mock(async () => ({
       providers: { astron: PROVIDERS.astron },
       models: {},
     }));
-    const setConfig = vi.fn(async () => ({ providers: {} }));
+    const setConfig = mock(async () => ({ providers: {} }));
     const { host } = makeHost();
     host.harness.getConfig = getConfig as never;
     host.harness.setConfig = setConfig as never;

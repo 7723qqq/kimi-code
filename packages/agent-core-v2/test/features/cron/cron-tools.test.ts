@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import type { CronJobOrigin } from '#/agent/contextMemory/types';
 
@@ -29,6 +29,7 @@ import { CronDeleteTool } from '#/features/cron/tools/cron-delete/cronDeleteTool
 import type { CronListInput } from '#/features/cron/tools/cron-list/cron-list';
 import { CronListTool } from '#/features/cron/tools/cron-list/cronListTool';
 import { makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { renderSnapshot } from '../../harness/snapshots';
 
 const WALL_ANCHOR = 1_700_000_000_000;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -229,7 +230,7 @@ describe('CronCreateTool', () => {
     expect(task.id).toMatch(/^[0-9a-f]{8}$/);
     expect(harness.scheduled).toEqual([task]);
     expect(harness.scheduledAgentIds).toEqual(['main']);
-    expect(scrubCronOutput(out)).toMatchInlineSnapshot(`
+    expect(renderSnapshot(scrubCronOutput(out))).toMatchInlineSnapshot(`
       "id: <id>
       cron: */5 * * * *
       humanSchedule: every 5 minutes
@@ -490,7 +491,7 @@ describe('CronListTool', () => {
     const harness = createToolHarness();
     const tool = new CronListTool(harness.cron, scopeContext);
 
-    expect(assertSuccess(await runTool<CronListInput>(tool, {}))).toMatchInlineSnapshot(`
+    expect(renderSnapshot(assertSuccess(await runTool<CronListInput>(tool, {})))).toMatchInlineSnapshot(`
       "cron_jobs: 0
       No cron jobs scheduled."
     `);
@@ -503,7 +504,7 @@ describe('CronListTool', () => {
 
     const output = assertSuccess(await runTool<CronListInput>(tool, {}));
 
-    expect(scrubCronOutput(output)).toMatchInlineSnapshot(`
+    expect(renderSnapshot(scrubCronOutput(output))).toMatchInlineSnapshot(`
       "cron_jobs: 1
       id: <id>
       cron: */5 * * * *
@@ -540,7 +541,7 @@ describe('CronListTool', () => {
 
     const output = assertSuccess(await runTool<CronListInput>(tool, {}));
 
-    expect(scrubCronOutput(output)).toMatchInlineSnapshot(`
+    expect(renderSnapshot(scrubCronOutput(output))).toMatchInlineSnapshot(`
       "cron_jobs: 2
       id: <id>
       cron: */5 * * * *
@@ -569,7 +570,7 @@ describe('CronListTool', () => {
 
     const output = assertSuccess(await runTool<CronListInput>(tool, {}));
 
-    expect(scrubCronOutput(output)).toMatchInlineSnapshot(`
+    expect(renderSnapshot(scrubCronOutput(output))).toMatchInlineSnapshot(`
       "cron_jobs: 1
       id: <id>
       cron: */5 * * * *
@@ -610,7 +611,7 @@ describe('CronListTool', () => {
 
     const output = assertSuccess(await runTool<CronListInput>(tool, {}));
 
-    expect(scrubCronOutput(output)).toMatchInlineSnapshot(`
+    expect(renderSnapshot(scrubCronOutput(output))).toMatchInlineSnapshot(`
       "cron_jobs: 1
       id: <id>
       cron: garbage

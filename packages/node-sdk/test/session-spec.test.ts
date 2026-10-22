@@ -6,22 +6,30 @@
  * SpecData or AppState objects are deliberately not used here, because that
  * is exactly the gap this suite closes.
  * Wiring: a real harness-backed session writes real files into the workspace.
- * Run: bunx vitest run packages/node-sdk/test/session-spec.test.ts
+ * Run: cd packages/node-sdk && bun test test/session-spec.test.ts
  */
 
 import { writeFile } from 'node:fs/promises';
 
 import { join } from 'pathe';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
-import { createKimiHarness } from '#/index';
+import { createKimiHarness, type KimiHarness } from '#/index';
 
 import { makeTempDir, removeTempDirs } from './session-runtime-helpers';
 import { TEST_IDENTITY } from './test-identity';
 
 const tempDirs: string[] = [];
 
+// Every harness owns a v2 engine with fs watchers and a wire flusher. Closing
+// it before the temp dirs go away keeps a late watcher error from landing in
+// whichever test is awaiting at that moment.
+const openHarnesses: KimiHarness[] = [];
+
 afterEach(async () => {
+  for (const harness of openHarnesses.splice(0)) {
+    await harness.close();
+  }
   await removeTempDirs(tempDirs);
 });
 
@@ -53,6 +61,7 @@ async function openSession(sessionId: string): Promise<{
   const workDir = await makeTempDir(tempDirs, 'kimi-sdk-spec-work-');
   await writeTestConfig(homeDir);
   const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
+  openHarnesses.push(harness);
   const session = await harness.createSession({ id: sessionId, workDir });
   return { session, workDir };
 }

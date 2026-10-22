@@ -41,10 +41,11 @@
     "lint:fix": "oxlint --type-aware --fix",
     "lint:pkg": "(cd apps/kimi-code && publint) && (cd apps/kimi-code && npm_config_cache=${TMPDIR:-/tmp}/kimi-code-npm-cache attw --pack . --profile node16)",
     "sherif": "sherif -i @agentclientprotocol/sdk -r packages-without-package-json",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "test:coverage": "vitest run --coverage",
-    "test:minidb": "cd packages/minidb && bun --bun run vitest run",
+    "test": "bun scripts/run-tests.mjs",
+    "test:watch": "bun scripts/run-tests.mjs --watch",
+    "test:coverage": "bun scripts/run-tests.mjs --coverage --coverage-reporter=lcov",
+    "test:minidb": "cd packages/minidb && bun run test",
+    "test:heavy": "bun scripts/run-test-heavy.mjs",
     "build:docs": "cd docs && bun run build",
     "clean": "bun run --workspaces clean",
     "check:locale-keys": "bun scripts/check-locale-keys.mjs",
@@ -71,15 +72,18 @@
     "check:deep-imports": "bun packages/agent-core-v2/scripts/check-deep-imports.mjs",
     "check:boundaries": "cd packages/agent-core-v2 && bun run lint:imports",
     "check:catalog-versions": "bun tools/review/check-catalog-versions.mjs",
-    "gen:manifests": "cd packages/agent-core-v2 && bun run gen:config-manifest && bun run gen:wire-manifest && bun run gen:state-manifest"
+    "gen:manifests": "cd packages/agent-core-v2 && bun run gen:config-manifest && bun run gen:wire-manifest && bun run gen:state-manifest",
+    "test:bench": "bun scripts/run-tests.mjs --script=test:bench",
+    "scan:residue": "bun scripts/scan-test-residue.mjs",
+    "verify": "bun scripts/verify-packages.mjs"
   },
   "devDependencies": {
     "@arethetypeswrong/cli": "0.18.2",
     "@changesets/changelog-github": "0.7.0",
     "@changesets/cli": "2.30.0",
     "@microsoft/api-extractor": "7.58.7",
+    "@types/bun": "^1.4.3",
     "@types/node": "^22.15.3",
-    "@vitest/coverage-v8": "4.1.10",
     "lint-staged": "16.4.0",
     "oxfmt": "^0.63.0",
     "oxlint": "1.59.0",
@@ -91,8 +95,7 @@
     "tsdown": "0.22.0",
     "tsx": "^4.21.0",
     "typescript": "6.0.2",
-    "vite": "^6.4.3",
-    "vitest": "4.1.10"
+    "vite": "^6.4.3"
   },
   "overrides": {
     "@babel/core": ">=7.29.6",

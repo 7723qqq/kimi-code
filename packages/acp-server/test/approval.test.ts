@@ -1,7 +1,7 @@
 import type { PermissionOption, RequestPermissionResponse } from '@agentclientprotocol/sdk';
 import type { SessionApprovalRequest } from '@moonshot-ai/agent-core-v2';
 import type { ToolInputDisplay } from '@moonshot-ai/agent-core-v2/contract';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import {
   APPROVE_ALWAYS_OPTION_ID,

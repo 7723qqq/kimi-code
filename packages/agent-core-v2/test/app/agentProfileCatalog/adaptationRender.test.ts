@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { renderPromptTemplateResult, systemPromptVars } from '#/app/agentProfileCatalog/profile-shared';
 
@@ -17,8 +17,7 @@ describe('model_adaptation_section in the prompt vars', () => {
     const section = vars['model_adaptation_section'] ?? '';
     expect(section).toContain('# Model Adaptation: deepseek');
     expect(section).toContain('Body.');
-    // The framing must describe hand-authored family guidance. It used to credit
-    // a probe that no longer produces anything this section can carry.
+
     expect(section).toMatch(/standing guidance for the model family/);
     expect(section).not.toMatch(/produced by `scripts\/prompt-optimizer probe`/);
     expect(section).toMatch(/instructions above win/);

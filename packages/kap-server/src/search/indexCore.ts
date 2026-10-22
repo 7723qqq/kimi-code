@@ -11,6 +11,7 @@ import {
   type BatchInputOp,
 } from '@moonshot-ai/minidb';
 
+import { SYSTEM_CLOCK, type Clock, type TimerHandle } from '../lib/clock.ts';
 import { GlobalSearchError, type GlobalSearchIncomplete } from './contract.ts';
 import {
   MAX_DOC_TEXT_CHARS,
@@ -82,9 +83,15 @@ function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+const statFn: { current: typeof fs.stat } = { current: fs.stat };
+
+export function setSearchStatOverride(next?: typeof fs.stat): void {
+  statFn.current = next ?? fs.stat;
+}
+
 async function sessionDirectoryIdentity(dir: string): Promise<string | undefined> {
   try {
-    const info = await fs.stat(dir, { bigint: true });
+    const info = await statFn.current(dir, { bigint: true });
     if (!info.isDirectory() || info.ino <= 0n || info.birthtimeNs <= 0n) return undefined;
     return `${info.dev}:${info.ino}:${info.birthtimeNs}`;
   } catch (error) {
@@ -146,6 +153,7 @@ async function queryDirectoryIdentity(
   dir: string,
   deadlineAt: number,
   deadline: Promise<null>,
+  now: () => number,
 ): Promise<string | undefined | null> {
   while (querySourceChecks.running) {
     let wake!: () => void;
@@ -161,7 +169,7 @@ async function queryDirectoryIdentity(
       querySourceChecks.waiters.delete(wake);
     }
   }
-  if (Date.now() >= deadlineAt) return null;
+  if (now() >= deadlineAt) return null;
   querySourceChecks.running = true;
   const identity = sessionDirectoryIdentity(dir);
   const release = () => {
@@ -267,6 +275,7 @@ export interface SearchCoreOptions {
   readonly log: SearchCoreLog;
   readonly bootSalt: string;
   readonly onLockToken?: (token: string) => void;
+  readonly clock?: Clock;
 }
 
 export interface SyncSessionInput {
@@ -371,8 +380,11 @@ export class SearchIndexCore {
   syncRoundMs = SYNC_ROUND_TIME_BUDGET_MS;
   syncSkipCooldownMs = SESSION_SYNC_SKIP_COOLDOWN_MS;
   syncSessionCap = SYNC_SESSION_CAP_DEFAULT;
+  clock: Clock = SYSTEM_CLOCK;
 
-  constructor(private readonly options: SearchCoreOptions) {}
+  constructor(private readonly options: SearchCoreOptions) {
+    this.clock = options.clock ?? SYSTEM_CLOCK;
+  }
 
   get lockTokenView(): string | undefined {
     return this.lockToken;
@@ -443,7 +455,11 @@ export class SearchIndexCore {
           try {
             await next.createTextIndex(name, options);
           } catch (error) {
-            if (!(error instanceof Error && error.message.includes('already exists'))) throw error;
+            if (error instanceof Error && error.message.includes('already exists')) continue;
+            const code = (error as NodeJS.ErrnoException).code;
+            const cause = (error as { cause?: { code?: string } }).cause?.code;
+            if (code === 'EPERM' || cause === 'EPERM' || String(error).includes('EPERM')) continue;
+            throw error;
           }
         }
       }
@@ -512,7 +528,15 @@ export class SearchIndexCore {
 
   async close(): Promise<void> {
     this.disposed = true;
-    await this.ops.close();
+    let drainTimer: ReturnType<typeof setTimeout> | undefined;
+    await Promise.race([
+      this.ops.close(),
+      new Promise<void>((resolve) => {
+        drainTimer = setTimeout(resolve, 2_000);
+        drainTimer.unref?.();
+      }),
+    ]);
+    if (drainTimer !== undefined) clearTimeout(drainTimer);
     await this.openPromise?.catch(() => {});
     const db = this.db;
     this.db = null;
@@ -749,7 +773,10 @@ export class SearchIndexCore {
   private async syncSession(
     db: MiniDb<SearchDoc>,
     summary: SyncSessionInput,
-    budget: SyncRoundBudget,
+    budget: SyncRoundBudget = {
+      bytesLeft: SYNC_ROUND_BYTE_BUDGET,
+      deadline: Date.now() + SYNC_ROUND_TIME_BUDGET_MS,
+    },
   ): Promise<SessionSyncResult | undefined> {
     const metaKey = SESSION_META_PREFIX + summary.id;
     const previous = db.get(metaKey);
@@ -1220,8 +1247,9 @@ export class SearchIndexCore {
     }
 
     const budget: MatchBudget = {
-      deadlineAt: Date.now() + budgets.queryDeadlineMs,
+      deadlineAt: this.clock.now() + budgets.queryDeadlineMs,
       textCharsLeft: budgets.queryTextBudgetChars,
+      now: () => this.clock.now(),
     };
     const boundary = page.kind === 'keyset' ? page.boundary : undefined;
     const matched = matchDocs(q, candidates, boundary, budget);
@@ -1231,7 +1259,7 @@ export class SearchIndexCore {
     for (const row of matched.rows) {
       const id = row.value.sessionId;
       if (sources.has(id)) continue;
-      if (Date.now() > budget.deadlineAt) {
+      if (this.clock.now() > budget.deadlineAt) {
         incomplete ??= 'deadline';
         break;
       }
@@ -1240,14 +1268,17 @@ export class SearchIndexCore {
     }
     const identities = new Map<string, string | undefined>();
     const visible: MatchedRow[] = [];
-    let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
+    let deadlineTimer: TimerHandle | undefined;
     const deadline = new Promise<null>((resolve) => {
-      deadlineTimer = setTimeout(() => resolve(null), Math.max(0, budget.deadlineAt - Date.now()));
+      deadlineTimer = this.clock.setTimeout(
+        () => resolve(null),
+        Math.max(0, budget.deadlineAt - this.clock.now()),
+      );
       deadlineTimer.unref?.();
     });
     try {
       for (const row of matched.rows) {
-        if (Date.now() > budget.deadlineAt) {
+        if (this.clock.now() > budget.deadlineAt) {
           incomplete ??= 'deadline';
           break;
         }
@@ -1262,8 +1293,13 @@ export class SearchIndexCore {
         }
         if (!identities.has(meta.dir)) {
           try {
-            const identity = await queryDirectoryIdentity(meta.dir, budget.deadlineAt, deadline);
-            if (identity === null || Date.now() > budget.deadlineAt) {
+            const identity = await queryDirectoryIdentity(
+              meta.dir,
+              budget.deadlineAt,
+              deadline,
+              () => this.clock.now(),
+            );
+            if (identity === null || this.clock.now() > budget.deadlineAt) {
               incomplete ??= 'deadline';
               break;
             }
@@ -1282,7 +1318,7 @@ export class SearchIndexCore {
         }
       }
     } finally {
-      if (deadlineTimer !== undefined) clearTimeout(deadlineTimer);
+      if (deadlineTimer !== undefined) this.clock.clearTimeout(deadlineTimer);
     }
     const { pageRows, hasMore } = paginateRows(q, page, visible);
     return {

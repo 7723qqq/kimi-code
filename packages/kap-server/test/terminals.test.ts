@@ -11,7 +11,8 @@ import {
   type TerminalSpawnOptions,
 } from '@moonshot-ai/agent-core-v2';
 import type { Terminal } from '@moonshot-ai/agent-core-v2';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'bun:test';
+import { removeTempHome } from './helpers/tempHome';
 
 import { ErrorCode } from '../src/protocol/error-codes';
 import { type RunningServer, startServer } from '../src/start';
@@ -136,7 +137,7 @@ describe('server-v2 /api/v1/sessions/{sid}/terminals', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
+      await removeTempHome(home);
       home = undefined;
     }
   });

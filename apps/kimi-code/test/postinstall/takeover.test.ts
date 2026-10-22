@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { chmod, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -69,7 +69,9 @@ async function makeLegacyShim(dirName: string): Promise<{ dir: string; shim: str
   return { dir, shim };
 }
 
-describe.runIf(POSIX)('shim takeover (POSIX fixtures)', () => {
+const describePosix = POSIX ? describe : describe.skip;
+
+describePosix('shim takeover (POSIX fixtures)', () => {
   it('renames a single legacy shim to kimi-legacy and verifies the takeover', async () => {
     const env = await makeEnv();
     const legacy = await makeLegacyShim('uvbin');

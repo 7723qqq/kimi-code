@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 
 import { type CollectionView } from '#/_base/di/collection';
 import { SyncDescriptor } from '#/_base/di/descriptors';
@@ -366,10 +366,15 @@ describe('subagent task reminders and fork request parity', () => {
   }
 
   function contributedToolNames(): string[] {
-    return ctx
-      .get(IInstantiationService)
-      .createInstance<ToolContributions>(new SyncDescriptor(ToolContributions))
-      .view.items.map((contribution) => contribution.options.name);
+    const instantiation = ctx.get(IInstantiationService);
+    const contributions = instantiation.createInstance<ToolContributions>(
+      new SyncDescriptor(ToolContributions),
+    );
+    return instantiation.invokeFunction((accessor) =>
+      contributions.view.items
+        .filter((contribution) => contribution.options.when?.(accessor) ?? true)
+        .map((contribution) => contribution.options.name),
+    );
   }
 
   function expectMainForkParity(): void {
@@ -498,7 +503,7 @@ describe('subagent task reminders and fork request parity', () => {
       await runPrompt(restored);
 
       expect(taskReminders(ctx.llmCalls[0]!.history)).toHaveLength(1);
-      expect(restored.accessor.get(IAgentContextMemoryService).get().slice(0, history.length)).toEqual(history);
+      expect(restored.accessor.get(IAgentContextMemoryService).get().slice(0, history.length)).toEqual([...history]);
     },
   );
 
@@ -578,7 +583,7 @@ describe('subagent task reminders and fork request parity', () => {
   it('does not evaluate unrelated tool descriptions when checking WaitFor availability', async () => {
     createMainForkCtx();
     const child = await createDirectChild();
-    const list = vi.spyOn(child.accessor.get(IAgentToolRegistryService), 'list');
+    const list = spyOn(child.accessor.get(IAgentToolRegistryService), 'list');
 
     await child.accessor.get(IAgentReminderService).reconcileWhenIdle('subagent_background_task');
 

@@ -1,6 +1,6 @@
 import { rm } from 'node:fs/promises';
 
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
 import type { EventSourceRef, IDisposable, KlientChannel, ScopeRef } from '../src/core/channel.js';
 import { createKlientFromChannel } from '../src/core/klient.js';
@@ -29,7 +29,7 @@ const tick = (ms = 0): Promise<void> => new Promise((resolve) => setTimeout(reso
 /** Records subscriptions so a test can prove `close()` still tears them down. */
 class RecordingChannel implements KlientChannel {
   readonly subscriptions: Array<{ scope: ScopeRef; source: EventSourceRef }> = [];
-  readonly disposed = vi.fn();
+  readonly disposed = mock();
 
   call(): Promise<unknown> {
     return Promise.resolve(undefined);

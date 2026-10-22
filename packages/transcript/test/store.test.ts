@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import type { ThinkingFrame, ToolCallFrame } from '#/model/frame';
 import type { TranscriptInteraction } from '#/model/interaction';
@@ -925,7 +925,7 @@ describe('TranscriptStore', () => {
     store.onRosterChange((agents) => rosters.push(agents.length));
     store.ensureAgent('main', { agentId: 'main', type: 'main' });
     expect(rosters).toEqual([]);
-    expect(store.ensureAgent('main')).toBe(store.getAgent('main'));
+    expect(store.ensureAgent('main')).toBe(store.getAgent('main')!);
   });
 
   it('describeAgent replaces the descriptor and skips identical ones', () => {

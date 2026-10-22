@@ -19,10 +19,13 @@ export interface KimiUploadOptions {
   signal?: AbortSignal;
 }
 
+export type KimiFilesFetch = typeof globalThis.fetch;
+
 export interface KimiFilesOptions {
   apiKey?: string;
   baseUrl: string;
   defaultHeaders?: Record<string, string>;
+  fetch?: KimiFilesFetch;
 }
 
 export class KimiFiles {
@@ -36,6 +39,7 @@ export class KimiFiles {
             apiKey: options.apiKey,
             baseURL: options.baseUrl,
             defaultHeaders: options.defaultHeaders,
+            ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
           });
   }
 

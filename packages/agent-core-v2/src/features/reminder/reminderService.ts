@@ -15,6 +15,7 @@ import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentLoopService, type BeforeStepContext } from '#/agent/loop/loop';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IEventBus } from '#/app/event/eventBus';
+import { estimateTokensForMessages } from '#/llm-adapter/contract/tokens';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 
 import { wrapSystemReminder } from './systemReminder';
@@ -89,6 +90,7 @@ function providerContext(
     lastDisclosure:
       lastInjection?.origin?.kind === 'injection' ? lastInjection.origin.disclosure : undefined,
     isNewTurn,
+    estimatedTokens: estimateTokensForMessages(history),
   };
 }
 

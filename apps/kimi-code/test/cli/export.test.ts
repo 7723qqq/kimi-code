@@ -10,8 +10,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { createKimiDeviceId as createKimiDeviceIdFn } from '@moonshot-ai/kimi-code-oauth';
+import * as oauthModule from '@moonshot-ai/kimi-code-oauth';
+import * as sdkModule from '@moonshot-ai/kimi-code-sdk';
 import { Command } from 'commander';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { setEnv, restoreEnvs } from '#test/helpers/stubs';
 
 import { handleExport, registerExportCommand } from '#/cli/sub/export';
 import { refreshKimiRegion } from '#/utils/region';
@@ -27,30 +30,29 @@ let tmp: string;
 
 type CreateKimiDeviceId = typeof createKimiDeviceIdFn;
 
-const mocks = vi.hoisted(() => ({
-  kimiHarnessConstructor: vi.fn(),
-  harnessEnsureConfigFile: vi.fn(),
-  harnessGetConfig: vi.fn(async () => ({
+const mocks = (() => ({
+  kimiHarnessConstructor: mock(),
+  harnessEnsureConfigFile: mock(),
+  harnessGetConfig: mock(async () => ({
     providers: {},
     defaultModel: 'k2',
     telemetry: true,
   })),
-  harnessGetCachedAccessToken: vi.fn(),
-  harnessExportSession: vi.fn(),
-  harnessClose: vi.fn(async () => {}),
-  harnessTrack: vi.fn(),
-  createKimiDeviceId: vi.fn<CreateKimiDeviceId>(() => 'device-1'),
-  initializeTelemetry: vi.fn(),
-  shutdownTelemetry: vi.fn(),
-  telemetryTrack: vi.fn(),
-  setTelemetryContext: vi.fn(),
-  withTelemetryContext: vi.fn(),
-  resolveKimiHome: vi.fn((homeDir?: string) => homeDir ?? '/tmp/kimi-export-home'),
+  harnessGetCachedAccessToken: mock(),
+  harnessExportSession: mock(),
+  harnessClose: mock(async () => {}),
+  harnessTrack: mock(),
+  createKimiDeviceId: mock<CreateKimiDeviceId>(() => 'device-1'),
+  initializeTelemetry: mock(),
+  shutdownTelemetry: mock(),
+  telemetryTrack: mock(),
+  setTelemetryContext: mock(),
+  withTelemetryContext: mock(),
+  resolveKimiHome: mock((homeDir?: string) => homeDir ?? '/tmp/kimi-export-home'),
   harnessCreatesDeviceIdOnConstruction: false,
-}));
+}))();
 
-vi.mock('@moonshot-ai/kimi-code-sdk', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('@moonshot-ai/kimi-code-sdk')>();
+void mock.module('@moonshot-ai/kimi-code-sdk', () => {
   const createFakeHarness = (options: { readonly homeDir?: string } | undefined) => {
     const homeDir = options?.homeDir ?? '/tmp/kimi-export-home';
     if (mocks.harnessCreatesDeviceIdOnConstruction) {
@@ -69,7 +71,7 @@ vi.mock('@moonshot-ai/kimi-code-sdk', async (importOriginal) => {
     };
   };
   return {
-    ...actual,
+    ...sdkModule,
     resolveKimiHome: mocks.resolveKimiHome,
     createKimiHarness: (...args: unknown[]) => {
       mocks.kimiHarnessConstructor(...args);
@@ -78,18 +80,15 @@ vi.mock('@moonshot-ai/kimi-code-sdk', async (importOriginal) => {
   };
 });
 
-vi.mock('@moonshot-ai/kimi-code-oauth', async () => {
-  const actual = await vi.importActual<typeof import('@moonshot-ai/kimi-code-oauth')>(
-    '@moonshot-ai/kimi-code-oauth',
-  );
+void mock.module('@moonshot-ai/kimi-code-oauth', () => {
   return {
-    ...actual,
+    ...oauthModule,
     createKimiDeviceId: mocks.createKimiDeviceId,
     KIMI_CODE_PROVIDER_NAME: 'kimi-code',
   };
 });
 
-vi.mock('@moonshot-ai/kimi-telemetry', () => ({
+void mock.module('@moonshot-ai/kimi-telemetry', () => ({
   initializeTelemetry: mocks.initializeTelemetry,
   shutdownTelemetry: mocks.shutdownTelemetry,
   track: mocks.telemetryTrack,
@@ -100,16 +99,16 @@ vi.mock('@moonshot-ai/kimi-telemetry', () => ({
 beforeEach(() => {
   // Pin region to cn: the telemetry endpoint assertion must not follow the
   // dev machine's own login/marker state.
-  vi.stubEnv('KIMI_CODE_OAUTH_HOST', 'https://auth.kimi.com');
+  setEnv('KIMI_CODE_OAUTH_HOST', 'https://auth.kimi.com');
   refreshKimiRegion();
   tmp = mkdtempSync(join(tmpdir(), 'kimi-export-'));
 });
 
 afterEach(() => {
-  vi.unstubAllEnvs();
+  restoreEnvs();
   refreshKimiRegion();
   rmSync(tmp, { recursive: true, force: true });
-  vi.clearAllMocks();
+  mock.clearAllMocks();
   mocks.harnessGetConfig.mockResolvedValue({
     providers: {},
     defaultModel: 'k2',
@@ -409,8 +408,8 @@ describe('kimi export', () => {
         },
       }),
     );
-    expect(mocks.harnessEnsureConfigFile).toHaveBeenCalledOnce();
-    expect(mocks.harnessGetConfig).toHaveBeenCalledOnce();
+    expect(mocks.harnessEnsureConfigFile).toHaveBeenCalledTimes(1);
+    expect(mocks.harnessGetConfig).toHaveBeenCalledTimes(1);
     expect(mocks.createKimiDeviceId).toHaveBeenCalledWith(
       '/tmp/kimi-export-home',
       expect.objectContaining({ onFirstLaunch: expect.any(Function) }),

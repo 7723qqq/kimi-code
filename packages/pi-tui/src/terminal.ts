@@ -4,7 +4,12 @@ import * as path from 'node:path';
 import { setKittyProtocolActive } from './keys.ts';
 import { isNativeModifierPressed } from './native-modifiers.ts';
 import { getNativePlatformHelper } from './native-platform.ts';
-import { StdinBuffer } from './stdin-buffer.ts';
+import {
+  StdinBuffer,
+  SYSTEM_STDIN_BUFFER_TIMERS,
+  type StdinBufferTimerHandle,
+  type StdinBufferTimers,
+} from './stdin-buffer.ts';
 import { sanitizeTitleParameter } from './terminal-sanitize.ts';
 
 const TERMINAL_PROGRESS_KEEPALIVE_MS = 1000;
@@ -149,10 +154,11 @@ export class ProcessTerminal implements Terminal {
   private _modifyOtherKeysActive = false;
   private keyboardProtocolPushed = false;
   private keyboardProtocolNegotiationBuffer = '';
-  private keyboardProtocolBufferFlushTimer?: ReturnType<typeof setTimeout>;
+  private keyboardProtocolBufferFlushTimer?: StdinBufferTimerHandle;
   private stdinBuffer?: StdinBuffer;
   private stdinDataHandler?: (data: string) => void;
   private progressInterval?: ReturnType<typeof setInterval>;
+  private readonly timers: StdinBufferTimers;
   private writeLogPath = (() => {
     const env = process.env['PI_TUI_WRITE_LOG'] || '';
     if (!env) return '';
@@ -167,6 +173,14 @@ export class ProcessTerminal implements Terminal {
     }
     return env;
   })();
+
+  /**
+   * @param timers - Timer source for the escape-sequence reassembly window and
+   * the Kitty negotiation buffer (default: the process timers).
+   */
+  constructor(timers: StdinBufferTimers = SYSTEM_STDIN_BUFFER_TIMERS) {
+    this.timers = timers;
+  }
 
   get kittyProtocolActive(): boolean {
     return this._kittyProtocolActive;
@@ -218,7 +232,10 @@ export class ProcessTerminal implements Terminal {
    * to handle the case where the response arrives split across multiple events.
    */
   private setupStdinBuffer(): void {
-    this.stdinBuffer = new StdinBuffer({ escapeTimeout: resolveEscapeTimeoutMs() });
+    this.stdinBuffer = new StdinBuffer({
+      escapeTimeout: resolveEscapeTimeoutMs(),
+      timers: this.timers,
+    });
 
     // Forward individual sequences to the input handler
     this.stdinBuffer.on('data', (sequence) => {
@@ -337,7 +354,7 @@ export class ProcessTerminal implements Terminal {
 
   private scheduleKeyboardProtocolNegotiationBufferFlush(): void {
     if (!this.keyboardProtocolNegotiationBuffer || this.keyboardProtocolBufferFlushTimer) return;
-    this.keyboardProtocolBufferFlushTimer = setTimeout(() => {
+    this.keyboardProtocolBufferFlushTimer = this.timers.setTimeout(() => {
       this.keyboardProtocolBufferFlushTimer = undefined;
       this.flushKeyboardProtocolNegotiationBufferAsInput();
     }, KEYBOARD_PROTOCOL_RESPONSE_FRAGMENT_TIMEOUT_MS);
@@ -345,7 +362,7 @@ export class ProcessTerminal implements Terminal {
 
   private clearKeyboardProtocolNegotiationBufferFlushTimer(): void {
     if (!this.keyboardProtocolBufferFlushTimer) return;
-    clearTimeout(this.keyboardProtocolBufferFlushTimer);
+    this.timers.clearTimeout(this.keyboardProtocolBufferFlushTimer);
     this.keyboardProtocolBufferFlushTimer = undefined;
   }
 

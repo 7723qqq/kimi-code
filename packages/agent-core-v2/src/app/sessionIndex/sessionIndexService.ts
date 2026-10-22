@@ -693,9 +693,11 @@ export class FileSessionIndex extends Disposable implements ISessionIndex {
   private workspaceIdFromSessionDir(sessionDir: string): string | undefined {
     const root = this.storage.pathFor(this.sessionsScope, '');
     if (root === undefined) return undefined;
-    const prefix = root.endsWith('/') ? root : `${root}/`;
-    if (!sessionDir.startsWith(prefix)) return undefined;
-    const rest = sessionDir.slice(prefix.length);
+    const rootSlash = root.replaceAll('\\', '/');
+    const prefix = rootSlash.endsWith('/') ? rootSlash : `${rootSlash}/`;
+    const dirSlash = sessionDir.replaceAll('\\', '/');
+    if (!dirSlash.startsWith(prefix)) return undefined;
+    const rest = dirSlash.slice(prefix.length);
     const slash = rest.indexOf('/');
     if (slash <= 0) return undefined;
     return rest.slice(0, slash);

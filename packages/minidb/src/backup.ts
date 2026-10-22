@@ -128,26 +128,14 @@ async function copyBackupAtomic(deps: BackupDeps, destDir: string): Promise<void
     for (const name of files) if (await copyIfExists(deps.dir(), name, tmp)) copied.push(name);
     // Fsync every copied file BEFORE the manifest: the manifest is the
     // commit marker, so a durable manifest must imply durable payloads.
-    for (const name of copied) {
-      const h = await fs.open(path.join(tmp, name), 'r');
-      try {
-        await h.sync();
-      } finally {
-        await h.close();
-      }
-    }
+    for (const name of copied) await fsyncCopiedFile(path.join(tmp, name));
     const manifest = path.join(tmp, 'backup.manifest.json');
     await fs.writeFile(
       manifest,
       JSON.stringify({ version: 1, createdAt: Date.now(), files: copied }, null, 2),
       'utf8',
     );
-    const mh = await fs.open(manifest, 'r');
-    try {
-      await mh.sync();
-    } finally {
-      await mh.close();
-    }
+    await fsyncCopiedFile(manifest);
     await fsyncDir(tmp, { strict: true, stats: deps.stats });
     // Swap into place: move an existing previous backup aside, rename the
     // temp dir over the destination, restore the aside on failure.
@@ -176,6 +164,20 @@ async function copyBackupAtomic(deps: BackupDeps, destDir: string): Promise<void
 async function persistentFiles(dir: string): Promise<string[]> {
   const names = await fs.readdir(dir);
   return names.filter(isPersistentFile);
+}
+
+/** Fsync one copied backup file. The handle is opened WRITABLE on purpose:
+ *  Windows refuses fsync on a read-only handle (`EPERM: operation not
+ *  permitted, fsync`), and the manifest's durability promise below ("a durable
+ *  manifest must imply durable payloads") needs the payload fsync to actually
+ *  happen on every platform rather than be degraded away. */
+async function fsyncCopiedFile(file: string): Promise<void> {
+  const h = await fs.open(file, 'r+');
+  try {
+    await h.sync();
+  } finally {
+    await h.close();
+  }
 }
 
 async function copyIfExists(dir: string, name: string, destDir: string): Promise<boolean> {

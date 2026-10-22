@@ -4,11 +4,11 @@
  * Responsibilities: every display kind produces a non-empty description, and
  * the block projection stays total — an unmapped kind must never crash the host.
  * Wiring: the pure mapping functions are used directly; there are no stubs.
- * Run: bunx vitest run --config apps/vscode/vitest.config.ts apps/vscode/test/tool-display.test.ts
+ * Run: cd apps/vscode && bun test --isolate test/tool-display.test.ts
  */
 
 import type { ToolInputDisplay } from '@moonshot-ai/kimi-code-sdk';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { describeToolDisplay, toLegacyDisplay } from '../src/runtime/tool-display';
 

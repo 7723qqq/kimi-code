@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import type { StreamParseSink } from '#/llm/protocol/format';
 import { anthropicFormat } from '#/llm/requester/bases/anthropic/format';

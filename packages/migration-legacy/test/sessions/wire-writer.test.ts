@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { describe, expect, it, beforeEach, afterEach } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { writeMainAgentWire } from '../../src/sessions/wire-writer.js';
 
@@ -168,7 +168,9 @@ describe('writeMainAgentWire', () => {
   it('creates agents/main directory tree if missing', async () => {
     await writeMainAgentWire(dir, { createdAtMs: 1, messages: [] });
     const path = join(dir, 'agents', 'main', 'wire.jsonl');
-    await expect(readFile(path, 'utf-8')).resolves.not.toThrow();
+    const wire = await readFile(path, 'utf-8');
+    expect(wire).toContain('"protocol_version":"1.0"');
+    expect(wire).toContain('"created_at":1');
   });
 
   it('atomically replaces an existing wire.jsonl and leaves no temp files', async () => {

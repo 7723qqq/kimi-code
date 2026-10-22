@@ -7,7 +7,7 @@
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 
-import { test } from 'vitest';
+import { test } from 'bun:test';
 
 import { ClusterDb } from '../../src/cluster/index.js';
 import { tmpDir } from '../e2e/helpers/tmp.js';

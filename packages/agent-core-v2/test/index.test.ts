@@ -1,28 +1,11 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
-import {
-  WIRE_PROTOCOL_VERSION,
-  EVENT2_REGISTRY,
-  IAgentContextMemoryService,
-  IAgentGoalService,
-  type ContextMessage,
-  type WireRecord,
-} from '#/index';
-import {
-  InMemoryWireRecordPersistence,
-  createTestAgent,
-  testAgent,
-  type TestAgentContext,
-} from './harness';
+import { WIRE_PROTOCOL_VERSION, EVENT2_REGISTRY, IAgentContextMemoryService, IAgentGoalService, type ContextMessage, type WireRecord } from '#/index';
+import { InMemoryWireRecordPersistence, createTestAgent, type TestAgentContext } from './harness';
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import {
-  ContextAppendMessage,
-  ContextApplyCompaction,
-  ContextClear,
-  ContextUndo,
-} from '#/agent/contextMemory/contextEvents';
+import { ContextAppendMessage, ContextApplyCompaction, ContextClear, ContextUndo } from '#/agent/contextMemory/contextEvents';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
@@ -32,7 +15,7 @@ import { TurnStepInterrupted } from '#/agent/loop/turnEvents';
 import { TurnStepRetrying } from '#/agent/loop/turnEvents';
 import { ToolsUpdateStore } from '#/features/todo/todoOps';
 import { IEventDispatcher } from '#/state/eventDispatcher';
-import type { Event2Class } from '#/app/event/event2';
+import { type Event2Class } from '#/app/event/event2';
 import { AGENT_WIRE_RECORD_KEY } from '#/wire/record';
 import { attachTodoService, registerTestAgentWire, registerTestEventDispatcher, restoreTestEventDispatcher } from './wire/stubs';
 import { BUILTIN_REPLAYABLE_STATE_KEYS } from './state/builtinReplayableKeys';
@@ -612,7 +595,6 @@ describe('AgentRecords persistence metadata', () => {
   });
 });
 
-
 class RecordingInMemoryWireRecordPersistence extends InMemoryWireRecordPersistence {
   readonly rewrites: WireRecord[][] = [];
 
@@ -621,7 +603,6 @@ class RecordingInMemoryWireRecordPersistence extends InMemoryWireRecordPersisten
     super.rewrite(records);
   }
 }
-
 
 function userMessage(text: string): ContextMessage {
   return {

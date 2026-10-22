@@ -10,12 +10,13 @@ import {
   IWorkspaceInstanceManager,
 } from '@moonshot-ai/agent-core-v2';
 import type { SessionSummary } from '@moonshot-ai/klient';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 import { filterSessionSummariesByCwd } from '../src/server';
 import { createTestClient, type TestClient } from './_helpers/acpClient';
 import { writeFakeModelConfig } from './_helpers/fakeModelConfig';
 import { createScriptedProvider } from './_helpers/scriptedProvider';
+import { waitUntil } from './_helpers/waitUntil';
 
 /** Real stdio MCP fixture server from the agent-core-v2 test suite. */
 const STDIO_MCP_FIXTURE = fileURLToPath(
@@ -317,7 +318,9 @@ describe('acp-server session lifecycle', () => {
       .getOrCreate({ root: homeDir! });
     const dirs = workspace.program.dirs;
     await dirs.ready;
-    expect(dirs.additionalDirs).toContain(extraDir);
+    expect(dirs.additionalDirs.map((d) => d.replaceAll('\\', '/'))).toContain(
+      extraDir.replaceAll('\\', '/'),
+    );
   }, 30_000);
 
   it('a title change pushes session_info_update', async () => {
@@ -350,11 +353,12 @@ describe('acp-server session lifecycle', () => {
 
     // Provider hydration from config.toml is async (kosongConfig initialize
     // → providerService.loadAll); wait until summarize sees the fake token.
-    await expect
-      .poll(async () => (await c.server.klient.global.auth.summarize()).some((s) => s.loggedIn), {
-        timeout: 10_000,
-      })
-      .toBe(true);
+    expect(
+      await waitUntil(
+        async () => (await c.server.klient.global.auth.summarize()).some((s) => s.loggedIn),
+        { timeout: 10_000 },
+      ),
+    ).toBe(true);
 
     // Logged in (fake token present): the gate lets session/new through.
     const created = (await c.send('session/new', { cwd: homeDir, mcpServers: [] })) as {
@@ -366,11 +370,12 @@ describe('acp-server session lifecycle', () => {
     expect(toolkit.hasToken()).toBe(false);
 
     // Logged out: the summarize-driven gate rejects with auth_required.
-    await expect
-      .poll(async () => (await c.server.klient.global.auth.summarize()).some((s) => s.loggedIn), {
-        timeout: 10_000,
-      })
-      .toBe(false);
+    expect(
+      await waitUntil(
+        async () => (await c.server.klient.global.auth.summarize()).some((s) => s.loggedIn),
+        { timeout: 10_000, until: (loggedIn) => loggedIn === false },
+      ),
+    ).toBe(false);
     await expect(c.send('session/new', { cwd: homeDir, mcpServers: [] })).rejects.toThrow(
       /[Aa]uthentication required/,
     );

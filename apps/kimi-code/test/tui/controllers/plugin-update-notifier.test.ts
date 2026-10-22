@@ -2,7 +2,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import type { PluginSummary } from '@moonshot-ai/kimi-code-sdk';
 
@@ -63,13 +63,13 @@ interface HarnessOptions {
 
 function makeHarness(options: HarnessOptions = {}) {
   const session: PluginUpdateNotifierSession = {
-    listMcpServers: vi.fn(async () =>
+    listMcpServers: mock(async () =>
       (options.mcpServers ?? ['plugin-kimi-datasource:data']).map((name) => ({ name })),
     ),
-    listPlugins: vi.fn(async () => options.installed ?? [makePluginSummary()]),
+    listPlugins: mock(async () => options.installed ?? [makePluginSummary()]),
   };
-  const notify = vi.fn();
-  const loadMarketplace = vi.fn(
+  const notify = mock();
+  const loadMarketplace = mock(
     options.loadMarketplace ?? (async () => options.marketplace ?? makeMarketplace()),
   );
   return { session, notify, loadMarketplace };
@@ -249,7 +249,7 @@ describe('PluginUpdateNotifier', () => {
   it('refreshes the memoized MCP server map when a lookup misses', async () => {
     const harness = makeHarness({ mcpServers: [] });
     let servers: readonly string[] = [];
-    harness.session.listMcpServers = vi.fn(async () => servers.map((name) => ({ name })));
+    harness.session.listMcpServers = mock(async () => servers.map((name) => ({ name })));
     const notifier = makeNotifier(harness);
 
     // The plugin's MCP server is not registered yet (the plugin gets

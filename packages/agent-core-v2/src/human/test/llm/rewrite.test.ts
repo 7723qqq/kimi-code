@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { applyPatterns, type Pattern, type Rewrite } from '#/llm/protocol/rewrite';
 

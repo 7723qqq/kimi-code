@@ -3,7 +3,7 @@
  * serialization, envelope unwrapping, and hit parsing.
  */
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { fetchSearchPage } from './api';
 

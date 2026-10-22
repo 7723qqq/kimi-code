@@ -2,7 +2,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { waitForAssertion } from '#test/helpers/waitFor';
 import { LifecycleScope } from '#/app/scopes';
 import { type IAgentScopeHandle } from '#/_base/di/scope';
 import type { LlmRequester } from '#human/llm/requester/requester';
@@ -74,7 +75,7 @@ describe('task notification → main agent (real Agent instance)', () => {
       ));
       await background.wait(taskId);
 
-      await vi.waitFor(
+      await waitForAssertion(
         () => {
           expect(notifiedCount(ctx)).toBe(1);
         },
@@ -109,7 +110,7 @@ describe('task notification → main agent (real Agent instance)', () => {
 
       await promptPromise;
       await ctx.untilTurnEnd();
-      await vi.waitFor(
+      await waitForAssertion(
         () => {
           expect(notifiedCount(ctx)).toBe(1);
         },
@@ -161,14 +162,14 @@ describe('task notification → main agent (real Agent instance)', () => {
         await background.wait(id);
       }
 
-      await vi.waitFor(
+      await waitForAssertion(
         () => {
           expect(notifiedCount(ctx)).toBe(3);
         },
         { timeout: 2000 },
       );
       await turnEnd;
-      await vi.waitFor(
+      await waitForAssertion(
         () => {
           expect(loop.snapshot().state).toBe('idle');
           expect(loop.snapshot().hasPendingRequests).toBe(false);
@@ -204,7 +205,7 @@ describe('task notification → main agent (real Agent instance)', () => {
         'race-after-turn',
       ));
       await background.wait(taskId);
-      await vi.waitFor(
+      await waitForAssertion(
         () => {
           expect(notifiedCount(ctx)).toBe(1);
         },
@@ -294,7 +295,7 @@ describe('task notification → main agent (real Agent instance)', () => {
         expect(info?.status).toBe('killed');
         expect(childLoop.snapshot().state).toBe('idle');
 
-        await vi.waitFor(
+        await waitForAssertion(
           () => {
             expect(main.llmCalls.length).toBeGreaterThanOrEqual(1);
           },
@@ -372,7 +373,7 @@ describe('task notification → main agent (real Agent instance)', () => {
 
       expect(background.getTask('agent-prev0000')?.status).toBe('lost');
 
-      await vi.waitFor(() => {
+      await waitForAssertion(() => {
         const flatContext = JSON.stringify(ctx.contextData());
         expect(flatContext).toContain('task_resume_termination');
         expect(flatContext).toContain('<system-reminder>');

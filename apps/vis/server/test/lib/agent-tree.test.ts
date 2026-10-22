@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 import { buildAgentTree, compareAgentIds } from '../../src/lib/agent-tree';
 import type { AgentInfo } from '../../src/lib/agent-record-types';
 

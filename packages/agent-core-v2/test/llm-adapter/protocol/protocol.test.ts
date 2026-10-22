@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import {
   IProtocolAdapterRegistry,
@@ -8,7 +8,7 @@ import {
 
 describe('ProtocolSchema', () => {
   it('accepts the four real wire protocols', () => {
-    for (const protocol of ['anthropic', 'openai', 'openai_responses', 'google-genai']) {
+    for (const protocol of ['anthropic', 'openai', 'openai_responses', 'google-genai'] as const) {
       expect(ProtocolSchema.parse(protocol)).toBe(protocol);
     }
   });

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import type { CacheHintConfig } from '#/utils/cache-hint-config';
 import { evaluateCacheHint, formatIdleDuration } from '#/tui/utils/cache-hint';

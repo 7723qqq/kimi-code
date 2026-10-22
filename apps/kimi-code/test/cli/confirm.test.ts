@@ -7,7 +7,7 @@
 
 import { Readable, Writable } from 'node:stream';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { handleExport, type ExportDeps } from '#/cli/sub/export';
 import { promptYesNo } from '#/cli/sub/confirm';

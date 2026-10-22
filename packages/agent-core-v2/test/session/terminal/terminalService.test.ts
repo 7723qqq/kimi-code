@@ -1,26 +1,18 @@
 import { resolve } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
-import { DisposableStore, toDisposable } from '#/_base/di/lifecycle';
+import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import { Emitter } from '#/_base/event';
 import { ErrorCodes } from '#/errors';
 import { ISessionContext, makeSessionContext } from '#/session/sessionContext/sessionContext';
-import {
-  type TerminalAttachSink,
-  type TerminalFrame,
-  type TerminalProcess,
-  type TerminalSpawnOptions,
-  IHostTerminalService,
-} from '#/os/interface/terminal';
+import { type TerminalAttachSink, type TerminalFrame, type TerminalProcess, type TerminalSpawnOptions, IHostTerminalService } from '#/os/interface/terminal';
 import { HostTerminalService } from '#/os/backends/host/hostTerminalService';
-import {
-  ISessionTerminalService,
-  SessionTerminalService,
-} from '#/session/terminal/terminalService';
+import { ISessionTerminalService, SessionTerminalService } from '#/session/terminal/terminalService';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-import type { RuntimeLease } from '#/runtime/runtime';
+import { type RuntimeLease } from '#/runtime/runtime';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
 import { IRuntimeResolver, type IRuntimeResolver as RuntimeResolver } from '#/workspace/workspaceInstance/workspaceInstanceManager';
 
@@ -337,9 +329,9 @@ interface FakeBunSpawnOptions {
 }
 
 interface FakeBunTerminalHandle {
-  write: ReturnType<typeof vi.fn<(data: string | Uint8Array) => void>>;
-  resize: ReturnType<typeof vi.fn<(cols: number, rows: number) => void>>;
-  close: ReturnType<typeof vi.fn<() => void>>;
+  write: ReturnType<typeof mock<(data: string | Uint8Array) => void>>;
+  resize: ReturnType<typeof mock<(cols: number, rows: number) => void>>;
+  close: ReturnType<typeof mock<() => void>>;
 }
 
 describe('HostTerminalService', () => {
@@ -358,9 +350,9 @@ describe('HostTerminalService', () => {
 
   it('routes to bun.spawn when Bun.Terminal is available and streams UTF-8 across chunks', async () => {
     const handle: FakeBunTerminalHandle = {
-      write: vi.fn((_data: string | Uint8Array) => {}),
-      resize: vi.fn((_cols: number, _rows: number) => {}),
-      close: vi.fn(() => {}),
+      write: mock((_data: string | Uint8Array) => {}),
+      resize: mock((_cols: number, _rows: number) => {}),
+      close: mock(() => {}),
     };
     let fireData: ((data: Uint8Array) => void) | undefined;
     let spawnOptions: FakeBunSpawnOptions | undefined;
@@ -369,7 +361,7 @@ describe('HostTerminalService', () => {
       spawn: (_command: readonly string[], options: FakeBunSpawnOptions) => {
         spawnOptions = options;
         fireData = (data) => options.terminal.data(handle, data);
-        return { terminal: handle, exited: new Promise<null>(() => {}), kill: vi.fn(() => {}) };
+        return { terminal: handle, exited: new Promise<null>(() => {}), kill: mock(() => {}) };
       },
     };
 
@@ -398,9 +390,9 @@ describe('HostTerminalService', () => {
 
   it('flushes a trailing truncated sequence before the exit event', async () => {
     const handle: FakeBunTerminalHandle = {
-      write: vi.fn((_data: string | Uint8Array) => {}),
-      resize: vi.fn((_cols: number, _rows: number) => {}),
-      close: vi.fn(() => {}),
+      write: mock((_data: string | Uint8Array) => {}),
+      resize: mock((_cols: number, _rows: number) => {}),
+      close: mock(() => {}),
     };
     let fireData: ((data: Uint8Array) => void) | undefined;
     let resolveExit: ((code: number | null) => void) | undefined;
@@ -427,7 +419,7 @@ describe('HostTerminalService', () => {
     fireData!(new TextEncoder().encode('é').slice(0, 1));
     proc.kill();
 
-    await vi.waitFor(() => expect(events.at(-1)?.kind).toBe('exit'));
+    await waitForAssertion(() => expect(events.at(-1)?.kind).toBe('exit'));
     expect(events).toEqual([
       { kind: 'data', text: '\uFFFD' },
       { kind: 'exit' },

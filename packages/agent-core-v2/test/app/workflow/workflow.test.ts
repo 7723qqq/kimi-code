@@ -1,6 +1,6 @@
 import { tmpdir } from 'node:os';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import type { ILogService } from '#/_base/log/log';
 import { WorkflowTool, WorkflowToolInputSchema } from '#/app/workflow/tools/workflow';
@@ -656,7 +656,7 @@ describe('workflow sandbox primitives', () => {
       }
     };
 
-    const result = await execHook('node -e "process.exit(42)"');
+    const result = await execHook(`"${process.execPath}" -e "process.exit(42)"`);
     expect(result.exitCode).toBe(42);
   });
 
@@ -688,7 +688,7 @@ describe('workflow sandbox primitives', () => {
       }
     };
 
-    const result = await execHook('node -e "console.log(\'hello world\')"');
+    const result = await execHook(`"${process.execPath}" -e "console.log('hello world')"`);
     expect(result.exitCode).toBe(0);
     expect(result.stdout.trim()).toBe('hello world');
   });

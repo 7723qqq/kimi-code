@@ -52,12 +52,6 @@ graphify-out/
 # Workbuddy session scratch (agent working memory)
 .workbuddy/
 
-# napi-rs build leftovers
-packages/kimi-native-tools/.*.tmp.*
-packages/kimi-native-tools/.*.rollback.tmp
-packages/kimi-native-tools/.napi-rs-swp-bak-*
-packages/.kimi-*-napi-stage-*/
-
 # Debug session bundles dumped at the repo root
 /kimi-debug-ses_*.zip
 

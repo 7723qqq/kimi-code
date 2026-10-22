@@ -1,16 +1,12 @@
-import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, mock } from 'bun:test';
 
-import {
-  classifyByPathHeuristic,
-  classifyInstallSource,
-  detectInstallSource,
-  detectNativeInstall,
-  type BunRuntimeView,
-} from '#/cli/update/source';
+import { classifyByPathHeuristic, classifyInstallSource, detectInstallSource, detectNativeInstall, type BunRuntimeView } from '#/cli/update/source';
 import { resolveCommandPath } from '#/utils/process/resolve-command';
 
-vi.mock('#/utils/process/resolve-command', () => ({
-  resolveCommandPath: vi.fn(),
+const resolveCommandPathMock = mock();
+
+void mock.module('#/utils/process/resolve-command', () => ({
+  resolveCommandPath: resolveCommandPathMock,
 }));
 
 describe('classifyByPathHeuristic', () => {
@@ -169,7 +165,7 @@ describe('detectInstallSource', () => {
     // The default prefix lookup spawns npm; when it can only be found inside
     // the current directory (or not at all), detection must degrade to
     // 'unsupported' rather than run a planted binary.
-    vi.mocked(resolveCommandPath).mockReturnValue(undefined);
+    resolveCommandPathMock.mockReturnValue(undefined);
     await expect(
       detectInstallSource({
         getPackageRoot: () => '/Users/me/dev/@moonshot-ai/kimi-code',
@@ -177,7 +173,7 @@ describe('detectInstallSource', () => {
         platform: 'darwin',
       }),
     ).resolves.toBe('unsupported');
-    expect(resolveCommandPath).toHaveBeenCalledWith('npm');
+    expect(resolveCommandPathMock).toHaveBeenCalledWith('npm');
   });
 });
 

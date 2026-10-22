@@ -1,11 +1,23 @@
 import type { Readable } from 'node:stream';
 
 import { BugIndicatingError } from '#/errors';
+import { HostTimersService } from '#/os/backends/host/hostTimersService';
 import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
+import type { IHostTimers } from '#/os/interface/hostTimers';
 
 export const DEFAULT_TIMEOUT_MS = 20_000;
 export const SIGTERM_GRACE_MS = 5_000;
 export const MAX_OUTPUT_BYTES = 10 * 1024 * 1024;
+
+export interface RgHostProcessService extends IHostProcessService {
+  readonly timers?: IHostTimers;
+}
+
+const SYSTEM_TIMERS: IHostTimers = new HostTimersService();
+
+function timersOf(processService: IHostProcessService): IHostTimers {
+  return (processService as RgHostProcessService).timers ?? SYSTEM_TIMERS;
+}
 
 export interface RunRgResult {
   readonly kind: 'result';
@@ -35,6 +47,8 @@ export async function runRgOnce(
     return { kind: 'aborted' };
   }
 
+  const timers = timersOf(processService);
+
   const [command, ...args] = rgArgs;
   if (command === undefined) {
     throw new BugIndicatingError('runRgOnce: rgArgs must not be empty');
@@ -62,7 +76,7 @@ export async function runRgOnce(
     const raced = await Promise.race([
       exited,
       new Promise<false>((resolve) => {
-        setTimeout(() => {
+        timers.setTimeout(() => {
           resolve(false);
         }, SIGTERM_GRACE_MS);
       }),
@@ -82,7 +96,7 @@ export async function runRgOnce(
   signal.addEventListener('abort', onAbort);
   if (signal.aborted) onAbort();
 
-  const timeoutHandle = setTimeout(() => {
+  const timeoutHandle = timers.setTimeout(() => {
     timedOut = true;
     void killProc();
   }, DEFAULT_TIMEOUT_MS);
@@ -110,7 +124,7 @@ export async function runRgOnce(
       throw error;
     }
   } finally {
-    clearTimeout(timeoutHandle);
+    timers.clearTimeout(timeoutHandle);
     signal.removeEventListener('abort', onAbort);
     disposeProcess(proc);
   }

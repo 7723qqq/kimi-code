@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createRequire, Module } from "node:module";
-import { test } from "node:test";
+import { mock, test } from "bun:test";
 import { fileURLToPath } from "node:url";
 import { getNativeClipboard, getNativePlatformHelper } from "../src/native-platform.ts";
 
@@ -27,9 +27,8 @@ test("Linux ARM64 prebuild supports 64 KB system pages", () => {
 });
 
 // Opt in on a Windows test desktop: this replaces the system clipboard contents.
-test(
+test.skipIf(process.platform !== "win32" || process.env.PI_TEST_NATIVE_CLIPBOARD !== "1")(
 	"writes Windows clipboard text through the native helper without command fallbacks",
-	{ skip: process.platform !== "win32" || process.env.PI_TEST_NATIVE_CLIPBOARD !== "1" },
 	async () => {
 		const clipboard = getNativeClipboard();
 		assert.ok(clipboard?.setText);
@@ -41,9 +40,8 @@ test(
 	},
 );
 
-test(
+test.skipIf(!["darwin", "win32"].includes(process.platform) || !["arm64", "x64"].includes(process.arch))(
 	"uses the native platform helper directly as the clipboard API",
-	{ skip: !["darwin", "win32"].includes(process.platform) || !["arm64", "x64"].includes(process.arch) },
 	() => {
 		const clipboard = getNativeClipboard();
 		assert.ok(clipboard);
@@ -55,46 +53,50 @@ test(
 	},
 );
 
-test("Linux loads X11 lazily and rechecks DISPLAY", { skip: !["arm64", "x64"].includes(process.arch) }, async (t) => {
-	const require = createRequire(import.meta.url);
-	const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
-	const display = process.env.DISPLAY;
-	const waylandDisplay = process.env.WAYLAND_DISPLAY;
-	const modulePath = fileURLToPath(
-		new URL(`../native/linux/prebuilds/linux-${process.arch}/linux-platform-x11.node`, import.meta.url),
-	);
-	const previous = require.cache[modulePath];
-	t.after(() => {
-		Object.defineProperty(process, "platform", platform);
-		if (display === undefined) delete process.env.DISPLAY;
-		else process.env.DISPLAY = display;
-		if (waylandDisplay === undefined) delete process.env.WAYLAND_DISPLAY;
-		else process.env.WAYLAND_DISPLAY = waylandDisplay;
-		if (previous) require.cache[modulePath] = previous;
-		else delete require.cache[modulePath];
-	});
-	Object.defineProperty(process, "platform", { value: "linux" });
-	delete process.env.DISPLAY;
-	process.env.WAYLAND_DISPLAY = "wayland-0";
-	assert.equal(getNativeClipboard(), undefined); // Wayland paste uses wl-paste.
-	let available = false;
-	const helper = {
-		getText: t.mock.fn(async () => (available ? "X11" : undefined)),
-		getImage: t.mock.fn(async () => null),
-	};
-	const module = new Module(modulePath);
-	module.exports = helper;
-	require.cache[modulePath] = module;
-	process.env.DISPLAY = ":0";
-	const clipboard = getNativeClipboard()!;
-	assert.equal(clipboard, helper);
-	assert.equal(helper.getText.mock.callCount(), 0);
-	assert.equal(await clipboard.getText(), undefined);
-	available = true;
-	assert.equal(await clipboard.getText(), "X11");
-	assert.equal(await clipboard.getImage(), null);
-	delete process.env.DISPLAY;
-	assert.equal(getNativeClipboard(), undefined);
-	process.env.DISPLAY = ":1";
-	assert.equal(getNativeClipboard(), clipboard);
-});
+test.skipIf(!["arm64", "x64"].includes(process.arch))(
+	"Linux loads X11 lazily and rechecks DISPLAY",
+	async () => {
+		const require = createRequire(import.meta.url);
+		const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+		const display = process.env.DISPLAY;
+		const waylandDisplay = process.env.WAYLAND_DISPLAY;
+		const modulePath = fileURLToPath(
+			new URL(`../native/linux/prebuilds/linux-${process.arch}/linux-platform-x11.node`, import.meta.url),
+		);
+		const previous = require.cache[modulePath];
+		try {
+			Object.defineProperty(process, "platform", { value: "linux" });
+			delete process.env.DISPLAY;
+			process.env.WAYLAND_DISPLAY = "wayland-0";
+			assert.equal(getNativeClipboard(), undefined); // Wayland paste uses wl-paste.
+			let available = false;
+			const helper = {
+				getText: mock(async () => (available ? "X11" : undefined)),
+				getImage: mock(async () => null),
+			};
+			const module = new Module(modulePath);
+			module.exports = helper;
+			require.cache[modulePath] = module;
+			process.env.DISPLAY = ":0";
+			const clipboard = getNativeClipboard()!;
+			assert.equal(clipboard, helper);
+			assert.equal(helper.getText.mock.calls.length, 0);
+			assert.equal(await clipboard.getText(), undefined);
+			available = true;
+			assert.equal(await clipboard.getText(), "X11");
+			assert.equal(await clipboard.getImage(), null);
+			delete process.env.DISPLAY;
+			assert.equal(getNativeClipboard(), undefined);
+			process.env.DISPLAY = ":1";
+			assert.equal(getNativeClipboard(), clipboard);
+		} finally {
+			Object.defineProperty(process, "platform", platform);
+			if (display === undefined) delete process.env.DISPLAY;
+			else process.env.DISPLAY = display;
+			if (waylandDisplay === undefined) delete process.env.WAYLAND_DISPLAY;
+			else process.env.WAYLAND_DISPLAY = waylandDisplay;
+			if (previous) require.cache[modulePath] = previous;
+			else delete require.cache[modulePath];
+		}
+	},
+);

@@ -1,9 +1,9 @@
-import { describe, it, expect } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
-import en from '../src/i18n-locales/en';
-import zh from '../src/i18n-locales/zh';
 import enRuntimeTree from '../../i18n/src/locales/en';
 import zhRuntimeTree from '../../i18n/src/locales/zh';
+import en from '../src/i18n-locales/en';
+import zh from '../src/i18n-locales/zh';
 
 type MessageValue = string | { [key: string]: MessageValue };
 

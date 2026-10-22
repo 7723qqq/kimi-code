@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { modelsFromToml, modelsToToml } from '#/app/kosongConfig/configSection';
 import { type ModelRecord } from '#/llm-adapter/model/model';

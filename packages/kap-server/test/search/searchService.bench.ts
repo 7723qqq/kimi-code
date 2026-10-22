@@ -11,7 +11,7 @@ import type {
   SessionSummary,
 } from '@moonshot-ai/agent-core-v2';
 import { DATABASE_SECTION } from '@moonshot-ai/agent-core-v2';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { GlobalSearchService, drainGlobalSearchDisposals } from '../../src/search/searchService';
 

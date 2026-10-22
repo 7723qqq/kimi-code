@@ -6,7 +6,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { createServer, type Socket } from "node:net";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { after, before, describe, it, type TestContext } from "node:test";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, it, setDefaultTimeout } from "bun:test";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 
@@ -20,6 +20,16 @@ const dependenciesAvailable =
 		stdio: "ignore",
 	}).status === 0;
 
+setDefaultTimeout(60000);
+
+type Cleanup = () => void | Promise<void>;
+
+let cleanups: Cleanup[] = [];
+
+function deferCleanup(cleanup: Cleanup): void {
+	cleanups.push(cleanup);
+}
+
 interface ReaderResult {
 	ok: boolean;
 	value?: string | null;
@@ -30,13 +40,12 @@ interface ReaderResult {
 }
 
 async function startServer(
-	t: TestContext,
 	command: string,
 	args: string[],
 	env: NodeJS.ProcessEnv,
 ): Promise<{ child: ChildProcessWithoutNullStreams; ready: string }> {
 	const child = spawn(command, args, { env, stdio: "pipe" });
-	t.after(async () => {
+	deferCleanup(async () => {
 		if (child.exitCode === null && child.signalCode === null) {
 			const exited = once(child, "exit");
 			child.kill("SIGKILL");
@@ -68,12 +77,21 @@ async function readClipboard(method: string, env: NodeJS.ProcessEnv): Promise<Re
 	return JSON.parse(stdout) as ReaderResult;
 }
 
-describe("native Linux clipboard", { skip: !dependenciesAvailable, timeout: 60000 }, () => {
+describe.skipIf(!dependenciesAvailable)("native Linux clipboard", () => {
 	let directory: string;
 
-	async function startX11(t: TestContext) {
+	beforeEach(() => {
+		cleanups = [];
+	});
+
+	afterEach(async () => {
+		const pending = cleanups.reverse();
+		cleanups = [];
+		for (const cleanup of pending) await cleanup();
+	});
+
+	async function startX11() {
 		const { child, ready } = await startServer(
-			t,
 			"Xvfb",
 			["-displayfd", "1", "-screen", "0", "640x480x24", "-nolisten", "tcp"],
 			process.env,
@@ -81,7 +99,7 @@ describe("native Linux clipboard", { skip: !dependenciesAvailable, timeout: 6000
 		return { child, env: { ...process.env, DISPLAY: `:${ready}` } };
 	}
 
-	before(() => {
+	beforeAll(() => {
 		directory = mkdtempSync(join(tmpdir(), "pi-clipboard-test-"));
 		const flags = ["-std=c11", "-D_POSIX_C_SOURCE=200809L", "-Wall", "-Wextra", "-Werror", "-pthread"];
 		execFileSync("cc", [
@@ -106,7 +124,7 @@ describe("native Linux clipboard", { skip: !dependenciesAvailable, timeout: 6000
 		]);
 	});
 
-	after(() => {
+	afterAll(() => {
 		if (directory) rmSync(directory, { recursive: true, force: true });
 	});
 
@@ -126,7 +144,7 @@ describe("native Linux clipboard", { skip: !dependenciesAvailable, timeout: 6000
 	}
 
 	for (const method of ["getText", "getImage"]) {
-		it(`keeps JS responsive during stalled X11 connection setup: ${method}`, async (t) => {
+		it(`keeps JS responsive during stalled X11 connection setup: ${method}`, async () => {
 			const sockets = new Set<Socket>();
 			let connections = 0;
 			const server = createServer((socket) => {
@@ -135,10 +153,10 @@ describe("native Linux clipboard", { skip: !dependenciesAvailable, timeout: 6000
 				socket.on("data", () => {}); // Accept setup bytes without replying.
 				// libxcb owns setup blocking; release it after checking the JS timer.
 				const timer = setTimeout(() => socket.destroy(), 300);
-				t.after(() => clearTimeout(timer));
+				deferCleanup(() => clearTimeout(timer));
 				socket.on("close", () => sockets.delete(socket));
 			});
-			t.after(async () => {
+			deferCleanup(async () => {
 				for (const socket of sockets) socket.destroy();
 				await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
 			});
@@ -156,8 +174,8 @@ describe("native Linux clipboard", { skip: !dependenciesAvailable, timeout: 6000
 		});
 	}
 
-	it("decodes X11 STRING as Latin-1", async (t) => {
-		const { env } = await startX11(t);
+	it("decodes X11 STRING as Latin-1", async () => {
+		const { env } = await startX11();
 		execFileSync("xclip", ["-selection", "clipboard", "-in", "-t", "STRING"], {
 			env,
 			input: Buffer.from("café £ÿ", "latin1"),
@@ -169,16 +187,16 @@ describe("native Linux clipboard", { skip: !dependenciesAvailable, timeout: 6000
 		assert.equal(result.value, "café £ÿ");
 	});
 
-	it("reads UTF8_STRING when X11 TARGETS is refused", async (t) => {
-		const { env } = await startX11(t);
-		await startServer(t, join(directory, "x11-test"), ["direct-text"], env);
+	it("reads UTF8_STRING when X11 TARGETS is refused", async () => {
+		const { env } = await startX11();
+		await startServer(join(directory, "x11-test"), ["direct-text"], env);
 		const result = await readClipboard("getText", env);
 		assert.equal(result.ok, true, result.error);
 		assert.equal(result.value, "café 日本語");
 	});
 
-	it("returns null for empty X11 clipboards and text-only selections", async (t) => {
-		const { env } = await startX11(t);
+	it("returns null for empty X11 clipboards and text-only selections", async () => {
+		const { env } = await startX11();
 		assert.deepEqual(await readClipboard("getText", env), { ok: true, value: null });
 		assert.deepEqual(await readClipboard("getImage", env), { ok: true, value: null });
 		execFileSync("xclip", ["-selection", "clipboard", "-in", "-t", "UTF8_STRING"], {
@@ -190,8 +208,8 @@ describe("native Linux clipboard", { skip: !dependenciesAvailable, timeout: 6000
 		assert.deepEqual(await readClipboard("getImage", env), { ok: true, value: null });
 	});
 
-	it("preserves X11 Unicode and incremental text/image transfers", async (t) => {
-		const { env } = await startX11(t);
+	it("preserves X11 Unicode and incremental text/image transfers", async () => {
+		const { env } = await startX11();
 		for (const [target, method, bytes] of [
 			["UTF8_STRING", "getText", Buffer.from("café 日本語")],
 			["UTF8_STRING", "getText", Buffer.alloc(4 * 1024 * 1024, 120)],
@@ -211,9 +229,9 @@ describe("native Linux clipboard", { skip: !dependenciesAvailable, timeout: 6000
 	});
 
 	for (const mode of ["disconnect", "timeout"]) {
-		it(`reports X11 transfer ${mode} as an exception, not an unavailable display`, async (t) => {
-			const { child, env } = await startX11(t);
-			const owner = await startServer(t, join(directory, "x11-test"), ["idle"], env);
+		it(`reports X11 transfer ${mode} as an exception, not an unavailable display`, async () => {
+			const { child, env } = await startX11();
+			const owner = await startServer(join(directory, "x11-test"), ["idle"], env);
 			const requested = once(owner.child.stdout, "data");
 			const started = performance.now();
 			const result = readClipboard("getText", env);
@@ -227,16 +245,16 @@ describe("native Linux clipboard", { skip: !dependenciesAvailable, timeout: 6000
 	}
 
 	for (const content of ["text", "image"]) {
-		it(`frees partially received X11 ${content} after invalid metadata`, async (t) => {
-			const { env } = await startX11(t);
-			await startServer(t, join(directory, "x11-test"), ["invalid"], env);
+		it(`frees partially received X11 ${content} after invalid metadata`, async () => {
+			const { env } = await startX11();
+			await startServer(join(directory, "x11-test"), ["invalid"], env);
 			const { stdout } = await exec(join(directory, "x11-test"), [content], { env, timeout: 6000 });
 			assert.equal(stdout.trim(), "clean");
 		});
 
-		it(`times out stalled X11 ${content} after a partial transfer without blocking JS`, async (t) => {
-			const { env } = await startX11(t);
-			await startServer(t, join(directory, "x11-test"), ["partial"], env);
+		it(`times out stalled X11 ${content} after a partial transfer without blocking JS`, async () => {
+			const { env } = await startX11();
+			await startServer(join(directory, "x11-test"), ["partial"], env);
 			const started = performance.now();
 			const result = await readClipboard(content === "text" ? "getText" : "getImage", env);
 			assert.equal(result.ok, false);

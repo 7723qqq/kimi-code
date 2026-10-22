@@ -267,6 +267,26 @@ export type StdinBufferOptions = {
    * (default: 10ms). Increase for high-latency Alt+key input (SSH).
    */
   escapeTimeout?: number;
+  /**
+   * Timer source for the reassembly window (default: the process timers). A
+   * host that owns its own scheduler passes one here so a partial sequence is
+   * released on that scheduler's clock instead of the process clock.
+   */
+  timers?: StdinBufferTimers;
+};
+
+export interface StdinBufferTimerHandle {
+  unref?(): void;
+}
+
+export interface StdinBufferTimers {
+  setTimeout(callback: () => void, delayMs: number): StdinBufferTimerHandle;
+  clearTimeout(handle: StdinBufferTimerHandle): void;
+}
+
+export const SYSTEM_STDIN_BUFFER_TIMERS: StdinBufferTimers = {
+  setTimeout: (callback, delayMs) => setTimeout(callback, delayMs),
+  clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
 };
 
 export type StdinBufferEventMap = {
@@ -280,9 +300,10 @@ export type StdinBufferEventMap = {
  */
 export class StdinBuffer extends EventEmitter<StdinBufferEventMap> {
   private buffer: string = '';
-  private timeout: ReturnType<typeof setTimeout> | null = null;
+  private timeout: StdinBufferTimerHandle | null = null;
   private readonly timeoutMs: number;
   private readonly escapeTimeoutMs: number;
+  private readonly timers: StdinBufferTimers;
   private pasteMode: boolean = false;
   private pasteBuffer: string = '';
   private pendingKittyPrintableCodepoint: number | undefined;
@@ -291,12 +312,13 @@ export class StdinBuffer extends EventEmitter<StdinBufferEventMap> {
     super();
     this.timeoutMs = options.timeout ?? DEFAULT_SEQUENCE_TIMEOUT_MS;
     this.escapeTimeoutMs = options.escapeTimeout ?? DEFAULT_ESCAPE_TIMEOUT_MS;
+    this.timers = options.timers ?? SYSTEM_STDIN_BUFFER_TIMERS;
   }
 
   public process(data: string | Buffer): void {
     // Clear any pending timeout
     if (this.timeout) {
-      clearTimeout(this.timeout);
+      this.timers.clearTimeout(this.timeout);
       this.timeout = null;
     }
 
@@ -386,7 +408,7 @@ export class StdinBuffer extends EventEmitter<StdinBufferEventMap> {
 
     if (this.buffer.length > 0) {
       const timeoutMs = this.buffer === ESC ? this.escapeTimeoutMs : this.timeoutMs;
-      this.timeout = setTimeout(() => {
+      this.timeout = this.timers.setTimeout(() => {
         const flushed = this.flush();
 
         for (const sequence of flushed) {
@@ -409,7 +431,7 @@ export class StdinBuffer extends EventEmitter<StdinBufferEventMap> {
 
   flush(): string[] {
     if (this.timeout) {
-      clearTimeout(this.timeout);
+      this.timers.clearTimeout(this.timeout);
       this.timeout = null;
     }
 
@@ -425,7 +447,7 @@ export class StdinBuffer extends EventEmitter<StdinBufferEventMap> {
 
   clear(): void {
     if (this.timeout) {
-      clearTimeout(this.timeout);
+      this.timers.clearTimeout(this.timeout);
       this.timeout = null;
     }
     this.buffer = '';

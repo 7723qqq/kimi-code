@@ -1,17 +1,23 @@
+import { createRequire } from 'node:module';
+
 import type * as KosongModule from '@moonshot-ai/kosong';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import { createKimiHarness, type KimiError } from '#/index';
 
-import { makeTempDir, removeTempDirs, waitForAgentWireEvent } from './session-runtime-helpers';
+import { makeTempDir, removeTempDirs } from './session-runtime-helpers';
 import { TEST_IDENTITY } from './test-identity';
 
-const fakeProviderState = vi.hoisted(() => ({
+// Read by the fake provider's `generate`, which is why it lives at module scope
+// instead of inside the mock factory.
+const fakeProviderState = {
   responseText: 'steer response',
-}));
+};
 
-vi.mock('@moonshot-ai/kosong', async (importOriginal) => {
-  const actual = await importOriginal<typeof KosongModule>();
+// Bun calls the factory with no arguments and a module cannot import the
+// specifier it is replacing, so the real namespace comes from `createRequire`.
+void mock.module('@moonshot-ai/kosong', () => {
+  const actual = createRequire(import.meta.url)('@moonshot-ai/kosong') as typeof KosongModule;
   return {
     ...actual,
     createProvider: () => ({

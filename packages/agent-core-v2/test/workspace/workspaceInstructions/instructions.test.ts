@@ -3,7 +3,7 @@ import { rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
@@ -27,7 +27,7 @@ import { registerStateServices } from '../../state/stubs';
 
 const watchFires = new Map<string, Emitter<WatchChange>>();
 
-vi.mock('#human/utils/watch', () => {
+void mock.module('#human/utils/watch', () => {
   const watch = (path: string) => {
     let emitter = watchFires.get(path);
     if (emitter === undefined) {

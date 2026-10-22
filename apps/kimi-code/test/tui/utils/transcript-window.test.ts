@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it } from 'bun:test';
 
 import type { TranscriptEntry } from '#/tui/types';
 import { expandCutoffIndex, groupTurns, readEnvInt, turnsToTrim } from '#/tui/utils/transcript-window';

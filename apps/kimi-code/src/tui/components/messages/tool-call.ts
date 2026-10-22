@@ -39,6 +39,11 @@ import { decodeMcpToolName } from '#/tui/utils/mcp-tool-name';
 import { notifyResultState } from '#/tui/utils/notify-result';
 import { isRenderCacheEnabled } from '#/tui/utils/render-cache';
 import {
+  SYSTEM_RENDER_CLOCK,
+  type RenderClock,
+  type RenderTimerHandle,
+} from '#/tui/utils/render-clock';
+import {
   formatByteSize,
   formatElapsed,
   formatSubagentContextTokens,
@@ -647,8 +652,8 @@ export class ToolCallComponent extends Container {
   private subagentEffort: string | undefined;
   private subagentResultSummary: string | undefined;
   private subagentError: string | undefined;
-  private streamingProgressTimer: ReturnType<typeof setInterval> | undefined;
-  private subagentElapsedTimer: ReturnType<typeof setInterval> | undefined;
+  private streamingProgressTimer: RenderTimerHandle | undefined;
+  private subagentElapsedTimer: RenderTimerHandle | undefined;
   private subagentStartedAtMs: number | undefined;
   private subagentEndedAtMs: number | undefined;
   private subagentSpinnerFrame = 0;
@@ -670,7 +675,7 @@ export class ToolCallComponent extends Container {
    * Advertises `Ctrl+B` on a foreground Bash/Agent card that has been running
    * for {@link DETACH_HINT_DELAY_MS}. Cleared when the result lands.
    */
-  private detachHintTimer: ReturnType<typeof setTimeout> | undefined;
+  private detachHintTimer: RenderTimerHandle | undefined;
   private detachHintVisible = false;
 
   /**
@@ -688,6 +693,7 @@ export class ToolCallComponent extends Container {
     result: ToolResultBlockData | undefined,
     ui?: TUI,
     private readonly workspaceDir?: string,
+    private readonly clock: RenderClock = SYSTEM_RENDER_CLOCK,
   ) {
     super();
     this.toolCall = toolCall;
@@ -1286,7 +1292,7 @@ export class ToolCallComponent extends Container {
       return;
     }
     if (this.ui === undefined || this.streamingProgressTimer !== undefined) return;
-    this.streamingProgressTimer = setInterval(() => {
+    this.streamingProgressTimer = this.clock.setInterval(() => {
       if (!this.isStreamingEditPreview()) {
         this.stopStreamingProgressTimer();
         return;
@@ -1296,15 +1302,24 @@ export class ToolCallComponent extends Container {
     }, STREAMING_PROGRESS_INTERVAL_MS);
     // Same shape as the swarm-progress frame timer and the footer loaders: a
     // preview animation must never be the reason the event loop stays open.
-    if (typeof this.streamingProgressTimer === 'object' && 'unref' in this.streamingProgressTimer) {
-      this.streamingProgressTimer.unref();
-    }
+    this.unrefTimer(this.streamingProgressTimer);
   }
 
   private stopStreamingProgressTimer(): void {
     if (this.streamingProgressTimer === undefined) return;
-    clearInterval(this.streamingProgressTimer);
+    this.clock.clearInterval(this.streamingProgressTimer);
     this.streamingProgressTimer = undefined;
+  }
+
+  /**
+   * `unref` is a property of a real timer handle: only the system clock's
+   * timers can hold the event loop open. An injected clock owns the liveness
+   * of its own handles, so it is left alone — the fake clock, for one, reads
+   * `unref()` as cancellation, which would kill the animation it drives.
+   */
+  private unrefTimer(handle: RenderTimerHandle): void {
+    if (this.clock !== SYSTEM_RENDER_CLOCK) return;
+    handle.unref?.();
   }
 
   /** Only foreground Bash/Agent calls can be detached via Ctrl+B. */
@@ -1326,7 +1341,7 @@ export class ToolCallComponent extends Container {
       return;
     }
     if (this.detachHintTimer !== undefined) return;
-    this.detachHintTimer = setTimeout(() => {
+    this.detachHintTimer = this.clock.setTimeout(() => {
       this.detachHintTimer = undefined;
       if (this.result !== undefined) return;
       this.detachHintVisible = true;
@@ -1337,7 +1352,7 @@ export class ToolCallComponent extends Container {
 
   private stopDetachHintTimer(): void {
     if (this.detachHintTimer === undefined) return;
-    clearTimeout(this.detachHintTimer);
+    this.clock.clearTimeout(this.detachHintTimer);
     this.detachHintTimer = undefined;
   }
 
@@ -1358,7 +1373,7 @@ export class ToolCallComponent extends Container {
       return;
     }
     if (this.ui === undefined || this.subagentElapsedTimer !== undefined) return;
-    this.subagentElapsedTimer = setInterval(() => {
+    this.subagentElapsedTimer = this.clock.setInterval(() => {
       const latestPhase = this.getDerivedSubagentPhase();
       if (latestPhase !== 'queued' && latestPhase !== 'spawning' && latestPhase !== 'running') {
         this.stopSubagentElapsedTimer();
@@ -1373,14 +1388,12 @@ export class ToolCallComponent extends Container {
       this.ui?.requestRender();
     }, BRAILLE_SPINNER_INTERVAL_MS);
     // Matches the swarm-progress frame timer and the footer loaders.
-    if (typeof this.subagentElapsedTimer === 'object' && 'unref' in this.subagentElapsedTimer) {
-      this.subagentElapsedTimer.unref();
-    }
+    this.unrefTimer(this.subagentElapsedTimer);
   }
 
   private stopSubagentElapsedTimer(): void {
     if (this.subagentElapsedTimer === undefined) return;
-    clearInterval(this.subagentElapsedTimer);
+    this.clock.clearInterval(this.subagentElapsedTimer);
     this.subagentElapsedTimer = undefined;
   }
 
@@ -1390,7 +1403,7 @@ export class ToolCallComponent extends Container {
       this.subagentStartedAtMs !== undefined &&
       this.subagentEndedAtMs === undefined
     ) {
-      this.subagentEndedAtMs = Date.now();
+      this.subagentEndedAtMs = this.clock.now();
     }
   }
 
@@ -1408,7 +1421,7 @@ export class ToolCallComponent extends Container {
     this.subagentAgentId = meta.agentId;
     this.subagentAgentName = meta.agentName;
     this.subagentPhase = meta.runInBackground ? 'backgrounded' : 'queued';
-    this.subagentStartedAtMs = Date.now();
+    this.subagentStartedAtMs = this.clock.now();
     this.subagentEndedAtMs = undefined;
     this.syncSubagentElapsedTimer();
     this.headerText.setText(this.buildHeader());
@@ -1448,7 +1461,7 @@ export class ToolCallComponent extends Container {
     resultSummary: string;
   }): void {
     this.subagentPhase = 'done';
-    this.subagentEndedAtMs ??= Date.now();
+    this.subagentEndedAtMs ??= this.clock.now();
     if (payload.contextTokens !== undefined && payload.contextTokens > 0) {
       this.subagentContextTokens = payload.contextTokens;
     }
@@ -1493,7 +1506,7 @@ export class ToolCallComponent extends Container {
   /** Handles SDK `subagent.failed`. */
   onSubagentFailed(payload: { error: string }): void {
     this.subagentPhase = 'failed';
-    this.subagentEndedAtMs ??= Date.now();
+    this.subagentEndedAtMs ??= this.clock.now();
     this.subagentError = payload.error;
     this.syncSubagentElapsedTimer();
     this.headerText.setText(this.buildHeader());
@@ -1542,7 +1555,7 @@ export class ToolCallComponent extends Container {
     }
     if (phaseUnchanged && !errorChanged) return;
     this.backgroundTaskTerminalPhase = phase;
-    this.subagentEndedAtMs ??= Date.now();
+    this.subagentEndedAtMs ??= this.clock.now();
     this.syncSubagentElapsedTimer();
     this.headerText.setText(this.buildHeader());
     this.rebuildContent();
@@ -2219,7 +2232,7 @@ export class ToolCallComponent extends Container {
 
   private getSubagentElapsedSeconds(): number | undefined {
     if (this.subagentStartedAtMs === undefined) return undefined;
-    const end = this.subagentEndedAtMs ?? Date.now();
+    const end = this.subagentEndedAtMs ?? this.clock.now();
     return Math.max(0, Math.floor((end - this.subagentStartedAtMs) / 1000));
   }
 
@@ -2500,7 +2513,9 @@ export class ToolCallComponent extends Container {
       const bytes = Buffer.byteLength(previewText, 'utf8');
       const startedAtMs = this.toolCall.streamingStartedAtMs;
       const elapsedSeconds =
-        startedAtMs === undefined ? 0 : Math.max(0, Math.floor((Date.now() - startedAtMs) / 1000));
+        startedAtMs === undefined
+          ? 0
+          : Math.max(0, Math.floor((this.clock.now() - startedAtMs) / 1000));
       const target =
         filePath.length > 0 ? t('tui.messages.toolCall.preparingChangesTarget', { filePath }) : '';
       const progress = t('tui.messages.toolCall.preparingChanges', {

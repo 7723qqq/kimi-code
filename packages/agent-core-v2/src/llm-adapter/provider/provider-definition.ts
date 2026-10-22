@@ -7,6 +7,7 @@ import {
   kimiResponsesTrait,
   KIMI_DEFAULT_BASE_URL,
 } from '#human/llm-kimi/trait';
+import { resolveModelFamily } from '#human/llm/modelFamily';
 import type { ModelCapability as HumanModelCapability } from '#human/llm/capability';
 import type { ProtocolEndpoint, ProviderConnection } from '#human/llm/protocol/connection';
 import type { ProtocolTraitFor } from '#human/llm/provider/definition';
@@ -97,6 +98,26 @@ export function hasProviderDefinition(id: string): boolean {
   return providerDefinitions.has(id);
 }
 
+export function resolveProviderDefinition(
+  providerType: string | undefined,
+  providerId?: string,
+  protocol?: Protocol,
+): ProviderDefinition | undefined {
+  const byId =
+    providerId === undefined || providerId === providerType
+      ? undefined
+      : getProviderDefinition(providerId, protocol);
+  if (byId !== undefined) return byId;
+  return providerType === undefined ? undefined : getProviderDefinition(providerType, protocol);
+}
+
+export function registerProviderDefinitionIfAbsent<N extends Protocol>(
+  definition: ProviderDefinition<N>,
+): void {
+  if (getProviderDefinition(definition.id, definition.baseProtocol) !== undefined) return;
+  registerProviderDefinition(definition);
+}
+
 export function isOAuthCatalogVendor(id: string | undefined): boolean {
   if (id === undefined) return false;
   return getProviderDefinitions(id).some(
@@ -124,8 +145,9 @@ export interface ExplainedProviderEndpoint {
 export function explainProviderEndpoint(
   providerType: string,
   env: Readonly<Record<string, string | undefined>> = process.env,
+  providerId?: string,
 ): ExplainedProviderEndpoint {
-  const definition = getProviderDefinition(providerType);
+  const definition = resolveProviderDefinition(providerType, providerId);
   if (definition === undefined) return {};
   const endpoint =
     normalizeEndpointDeclaration(definition.endpoint) ?? aggregateEndpoints(definition.endpoints);
@@ -147,8 +169,9 @@ export function explainProviderEndpoint(
 export function resolveProviderEndpoint(
   providerType: string,
   env: Readonly<Record<string, string | undefined>> = process.env,
+  providerId?: string,
 ): ResolvedProviderEndpoint {
-  const { apiKey, baseUrl } = explainProviderEndpoint(providerType, env);
+  const { apiKey, baseUrl } = explainProviderEndpoint(providerType, env, providerId);
   return {
     ...(apiKey !== undefined ? { apiKey } : undefined),
     ...(baseUrl !== undefined ? { baseUrl } : undefined),
@@ -254,3 +277,34 @@ registerProviderDefinition({
   hostHeaders: 'full',
   modelSource: 'oauth-catalog',
 });
+
+export const deepseekEndpoint: ProtocolEndpoint = {
+  apiKeyEnv: 'DEEPSEEK_API_KEY',
+  baseUrlEnv: 'DEEPSEEK_BASE_URL',
+  defaultBaseUrl: 'https://api.deepseek.com',
+};
+
+export const deepseekConnection: ProviderConnection = {
+  endpoint: () => deepseekEndpoint,
+};
+
+function deepseekCapability(modelName: string): HumanModelCapability | undefined {
+  if (resolveModelFamily(modelName)?.id !== 'deepseek') return undefined;
+  return {
+    image_in: true,
+    video_in: false,
+    audio_in: false,
+    thinking: true,
+    tool_use: true,
+    pdf_in: false,
+  };
+}
+
+registerProviderDefinitionIfAbsent({
+  id: 'deepseek',
+  baseProtocol: 'openai',
+  connection: deepseekConnection,
+  endpoint: deepseekEndpoint,
+  capability: deepseekCapability,
+});
+

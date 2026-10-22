@@ -5,7 +5,8 @@ import type { Writable } from 'node:stream';
 import { join } from 'pathe';
 
 import type { IHostProcess } from '#/os/interface/hostProcess';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { IAgentTaskService } from '#/agent/task/task';
 import { IAgentLoopService } from '#/agent/loop/loop';
@@ -29,14 +30,14 @@ const tick = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 5
 function immediateProcess(exitCode: number, stdoutText = ''): IHostProcess {
   return {
     _serviceBrand: undefined,
-    stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
+    stdin: { write: mock(), end: mock() } as unknown as Writable,
     stdout: Readable.from(stdoutText ? [stdoutText] : []),
     stderr: Readable.from([]),
     pid: 60000 + exitCode,
     exitCode,
-    wait: vi.fn().mockResolvedValue(exitCode) as IHostProcess['wait'],
-    kill: vi.fn().mockResolvedValue(undefined) as IHostProcess['kill'],
-    dispose: vi.fn().mockResolvedValue(undefined) as IHostProcess['dispose'],
+    wait: mock().mockResolvedValue(exitCode) as IHostProcess['wait'],
+    kill: mock().mockResolvedValue(undefined) as IHostProcess['kill'],
+    dispose: mock().mockResolvedValue(undefined) as IHostProcess['dispose'],
   };
 }
 
@@ -52,14 +53,14 @@ function controllableProcess(): {
   });
   const proc: IHostProcess = {
     _serviceBrand: undefined,
-    stdin: { write: vi.fn(), end: vi.fn() } as unknown as Writable,
+    stdin: { write: mock(), end: mock() } as unknown as Writable,
     stdout,
     stderr: Readable.from([]),
     pid: 61000,
     exitCode: null,
-    wait: vi.fn(() => waitPromise) as IHostProcess['wait'],
-    kill: vi.fn().mockResolvedValue(undefined) as IHostProcess['kill'],
-    dispose: vi.fn().mockResolvedValue(undefined) as IHostProcess['dispose'],
+    wait: mock(() => waitPromise) as IHostProcess['wait'],
+    kill: mock().mockResolvedValue(undefined) as IHostProcess['kill'],
+    dispose: mock().mockResolvedValue(undefined) as IHostProcess['dispose'],
   };
   return {
     proc,
@@ -97,11 +98,11 @@ async function drainPendingNotifications(
     );
   if (!expectsNotification) return;
   ctx.mockNextResponse({ type: 'text', text: 'notification drain ack' });
-  await vi.waitFor(() => {
+  await waitForAssertion(() => {
     const delivered = ctx.allEvents.filter((e) => e.event === 'task.notified').length;
     expect(delivered).toBeGreaterThanOrEqual(1);
   });
-  await vi.waitFor(() => {
+  await waitForAssertion(() => {
     const loop = ctx.get(IAgentLoopService);
     expect(loop.snapshot().state).toBe('idle');
     expect(loop.snapshot().hasPendingRequests).toBe(false);

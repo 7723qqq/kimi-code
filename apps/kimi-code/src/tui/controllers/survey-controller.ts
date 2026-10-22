@@ -115,7 +115,7 @@ export interface SurveyControllerDeps {
   readonly writeGlobalLastShown?: (wallTime: number) => void;
 }
 
-const defaultDeps = {
+export const SURVEY_DEFAULT_DEPS = {
   monotonicNow: () => performance.now(),
   wallNow: () => Date.now(),
   random: () => Math.random(),
@@ -219,7 +219,7 @@ export class SurveyController {
     this.toolCallFamilies.clear();
     const generation = this.generation;
     this.cooldownReady = false;
-    void (this.deps.readGlobalLastShown ?? defaultDeps.readGlobalLastShown)()
+    void (this.deps.readGlobalLastShown ?? SURVEY_DEFAULT_DEPS.readGlobalLastShown)()
       .then((lastShown) => {
         if (this.generation !== generation) return;
         if (lastShown !== undefined) {
@@ -456,7 +456,7 @@ export class SurveyController {
 
   private currentConfig(): SurveyPopupConfig {
     return resolveSurveyPopupConfig(
-      (this.deps.config ?? defaultDeps.config)(),
+      (this.deps.config ?? SURVEY_DEFAULT_DEPS.config)(),
       resolveKfcModelId(this.host.state.appState),
     );
   }
@@ -465,8 +465,8 @@ export class SurveyController {
     if (this.machine.phase !== 'closed') return;
     if (!this.configReady) return;
     if (!this.cooldownReady) return;
-    const region = (this.deps.configRegion ?? defaultDeps.configRegion)();
-    const cacheCold = !(this.deps.configFresh ?? defaultDeps.configFresh)();
+    const region = (this.deps.configRegion ?? SURVEY_DEFAULT_DEPS.configRegion)();
+    const cacheCold = !(this.deps.configFresh ?? SURVEY_DEFAULT_DEPS.configFresh)();
     if (
       cacheCold &&
       this.now() - this.coldRefreshAttemptedAt >= SURVEY_CONFIG_REFRESH_INTERVAL_MS
@@ -501,12 +501,12 @@ export class SurveyController {
       editorBashActive: this.host.state.editor.inputMode === 'bash',
       editorAutocompleteActive: this.host.state.editor.hasAutocompleteActivity(),
       externalEditorActive: this.host.state.externalEditorRunning,
-      terminalWidth: (this.deps.terminalWidth ?? defaultDeps.terminalWidth)() - 2 * CHROME_GUTTER,
-      terminalHeight: (this.deps.terminalHeight ?? defaultDeps.terminalHeight)(),
+      terminalWidth: (this.deps.terminalWidth ?? SURVEY_DEFAULT_DEPS.terminalWidth)() - 2 * CHROME_GUTTER,
+      terminalHeight: (this.deps.terminalHeight ?? SURVEY_DEFAULT_DEPS.terminalHeight)(),
       feedbackSurveyDisabled:
         this.deps.feedbackSurveyDisabled?.() ??
         this.host.state.appState.disableFeedbackSurvey === true,
-      telemetryDisabled: (this.deps.telemetryDisabled ?? defaultDeps.telemetryDisabled)(),
+      telemetryDisabled: (this.deps.telemetryDisabled ?? SURVEY_DEFAULT_DEPS.telemetryDisabled)(),
       kfcModelId: resolveKfcModelId(appState),
       lastUserMessageStartsOrderedList: this.lastUserMessageStartsOrderedList(),
     };
@@ -536,7 +536,7 @@ export class SurveyController {
           this.globalLastShownAt === undefined
             ? undefined
             : this.wallNow() - this.globalLastShownAt,
-        drawMountRoll: () => (this.deps.random ?? defaultDeps.random)(),
+        drawMountRoll: () => (this.deps.random ?? SURVEY_DEFAULT_DEPS.random)(),
       },
     };
   }
@@ -567,7 +567,7 @@ export class SurveyController {
     if (this.stickySample?.turnCount !== this.userTurnsSinceMount) {
       this.stickySample = {
         turnCount: this.userTurnsSinceMount,
-        value: (this.deps.random ?? defaultDeps.random)(),
+        value: (this.deps.random ?? SURVEY_DEFAULT_DEPS.random)(),
       };
     }
     return this.stickySample.value;
@@ -577,7 +577,7 @@ export class SurveyController {
     this.appearanceCount += 1;
     const appearance: SurveyAppearance = {
       survey,
-      appearanceId: (this.deps.appearanceId ?? defaultDeps.appearanceId)(),
+      appearanceId: (this.deps.appearanceId ?? SURVEY_DEFAULT_DEPS.appearanceId)(),
       appearanceIndex: this.appearanceCount,
     };
     const shownAt = this.now();
@@ -594,7 +594,7 @@ export class SurveyController {
     if (survey === 'long_context') this.longContextShownThisMount = true;
     this.globalLastShownAt = this.wallNow();
     try {
-      (this.deps.writeGlobalLastShown ?? defaultDeps.writeGlobalLastShown)(this.globalLastShownAt);
+      (this.deps.writeGlobalLastShown ?? SURVEY_DEFAULT_DEPS.writeGlobalLastShown)(this.globalLastShownAt);
     } catch {}
   }
 
@@ -752,7 +752,7 @@ export class SurveyController {
 
   private refreshConfig(): boolean {
     this.configRefreshedAt = this.now();
-    this.configRegion = (this.deps.configRegion ?? defaultDeps.configRegion)();
+    this.configRegion = (this.deps.configRegion ?? SURVEY_DEFAULT_DEPS.configRegion)();
     const markReady = () => {
       this.configReady = true;
     };
@@ -780,16 +780,16 @@ export class SurveyController {
 
   private tooNarrow(): boolean {
     return (
-      (this.deps.terminalWidth ?? defaultDeps.terminalWidth)() - 2 * CHROME_GUTTER <
+      (this.deps.terminalWidth ?? SURVEY_DEFAULT_DEPS.terminalWidth)() - 2 * CHROME_GUTTER <
       SURVEY_MIN_OPTIONS_WIDTH
     );
   }
 
   private tooShort(): boolean {
     return (
-      (this.deps.terminalHeight ?? defaultDeps.terminalHeight)() <
+      (this.deps.terminalHeight ?? SURVEY_DEFAULT_DEPS.terminalHeight)() <
       surveyMinTotalHeight(
-        (this.deps.terminalWidth ?? defaultDeps.terminalWidth)() - 2 * CHROME_GUTTER,
+        (this.deps.terminalWidth ?? SURVEY_DEFAULT_DEPS.terminalWidth)() - 2 * CHROME_GUTTER,
       )
     );
   }
@@ -799,19 +799,19 @@ export class SurveyController {
   }
 
   private now(): number {
-    return (this.deps.monotonicNow ?? defaultDeps.monotonicNow)();
+    return (this.deps.monotonicNow ?? SURVEY_DEFAULT_DEPS.monotonicNow)();
   }
 
   private wallNow(): number {
-    return (this.deps.wallNow ?? defaultDeps.wallNow)();
+    return (this.deps.wallNow ?? SURVEY_DEFAULT_DEPS.wallNow)();
   }
 
   private setT(fn: () => void, ms: number): unknown {
-    return (this.deps.setTimer ?? defaultDeps.setTimer)(fn, ms);
+    return (this.deps.setTimer ?? SURVEY_DEFAULT_DEPS.setTimer)(fn, ms);
   }
 
   private clearT(handle: unknown): void {
-    (this.deps.clearTimer ?? defaultDeps.clearTimer)(handle);
+    (this.deps.clearTimer ?? SURVEY_DEFAULT_DEPS.clearTimer)(handle);
   }
 
   private clearIdleTimer(): void {

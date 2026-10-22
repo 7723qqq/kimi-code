@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { LifecycleScope } from '#/app/scopes';
 import {
   ScopeActivation,
@@ -124,7 +124,7 @@ describe('levelEnabled', () => {
 
 describe('ConsoleLogWriter', () => {
   it('redacts secret-shaped ctx through the formatter', () => {
-    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    const spy = spyOn(console, 'log').mockImplementation(() => {});
     try {
       const writer = new ConsoleLogWriter();
       const entry: LogEntry = {
