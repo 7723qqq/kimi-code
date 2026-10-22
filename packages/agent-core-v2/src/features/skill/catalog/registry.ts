@@ -4,6 +4,7 @@ import type {
   SkillCatalog,
   SkillDefinition,
   SkillMetadata,
+  SkillPluginContext,
   SkillSource,
   SkippedSkill,
 } from './types';
@@ -32,6 +33,11 @@ export class InMemorySkillCatalog implements SkillCatalog {
   }
 
   register(skill: SkillDefinition, options: { readonly replace?: boolean } = {}): void {
+    const plugin = skill.plugin;
+    if (plugin !== undefined) {
+      this.registerPluginSkill(skill, plugin, options);
+      return;
+    }
     const key = normalizeSkillName(skill.name);
     const existing = this.byName.get(key);
     if (
@@ -41,7 +47,6 @@ export class InMemorySkillCatalog implements SkillCatalog {
     ) {
       this.byName.set(key, skill);
     }
-    this.indexPluginSkill(skill, options);
   }
 
   recordSkipped(skills: readonly SkippedSkill[]): void {
@@ -120,14 +125,21 @@ export class InMemorySkillCatalog implements SkillCatalog {
     return lines.length === 1 ? '' : lines.join('\n');
   }
 
-  private indexPluginSkill(
+  private registerPluginSkill(
     skill: SkillDefinition,
-    options: { readonly replace?: boolean } = {},
+    plugin: SkillPluginContext,
+    options: { readonly replace?: boolean },
   ): void {
-    if (skill.plugin === undefined) return;
-    const key = pluginSkillKey(skill.plugin.id, skill.name);
-    if (options.replace === true || !this.byPluginAndName.has(key)) {
-      this.byPluginAndName.set(key, skill);
+    const prefix = `${plugin.id}:`;
+    const bareName = skill.name.startsWith(prefix) ? skill.name.slice(prefix.length) : skill.name;
+    const pluginKey = pluginSkillKey(plugin.id, bareName);
+    if (options.replace === true || !this.byPluginAndName.has(pluginKey)) {
+      this.byPluginAndName.set(pluginKey, { ...skill, name: bareName });
+    }
+    const qualifiedName = `${prefix}${bareName}`;
+    const qualifiedKey = normalizeSkillName(qualifiedName);
+    if (options.replace === true || !this.byName.has(qualifiedKey)) {
+      this.byName.set(qualifiedKey, { ...skill, name: qualifiedName });
     }
   }
 }
