@@ -31,6 +31,7 @@ import { ErrorCodes, Error2 } from '#/errors';
 import { ISessionNotify } from '#/features/notify/sessionNotify';
 import { NOTIFY_USER_TOOL_NAME } from '#/features/notify/tools/notify-user/notify-user';
 import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
+import { TODO_LIST_TOOL_NAME } from '#/features/todo/todoItem';
 import { UNKNOWN_CAPABILITY, type ModelCapability } from '#/llm-adapter/contract/capability';
 import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
 import { type ModelRequestParams, type SamplingOptions } from '#/llm-adapter/model/model-requester';
@@ -942,6 +943,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
       replyStyleGuide: this.bootstrap.args.replyStyleGuide,
       notifyUserActive:
         this.notify.enabled && this.isToolActiveForProfile(profile, NOTIFY_USER_TOOL_NAME),
+      todoListActive: this.isToolActiveForProfile(profile, TODO_LIST_TOOL_NAME),
     };
   }
 

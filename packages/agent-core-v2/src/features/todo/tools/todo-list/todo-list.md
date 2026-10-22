@@ -1,12 +1,10 @@
-Use this tool to maintain a structured TODO list as you work through a multi-step task. Use it proactively and often when progress tracking helps the current work. This is especially useful in long-running investigations and implementation tasks with several tool calls; in plan mode, write the plan to the plan file rather than tracking it here.
+Use this tool to maintain a structured TODO list as you work through a multi-step task. Use it proactively and often when progress tracking helps the current work. The list is shown to the user as a live progress panel, so keep it in step with what you have actually done. This is especially useful in long-running investigations and implementation tasks with several tool calls; in plan mode, write the plan to the plan file rather than tracking it here.
 
 **When to use:**
 - Multi-step tasks that span several tool calls
 - Tracking investigation progress across a large codebase search
 - Planning a sequence of edits before making them
 - After receiving new multi-step instructions, capture the requirements as todos
-- Before starting a tracked task, mark exactly one item as `in_progress`
-- Immediately after finishing a tracked task, mark it `done`; do not batch completions at the end
 
 **When NOT to use:**
 - Single-shot answers that complete in one or two tool calls
@@ -33,8 +31,12 @@ Use this tool to maintain a structured TODO list as you work through a multi-ste
 - A partial list replaces the list: items you leave out are removed, `id` values you invent are new items. Add or remove items only when the structure itself changes (add/remove items, re-tier milestones).
 
 **Avoid churn:**
-- Do not re-call this tool when nothing meaningful has changed since the last call — update the list only after real progress.
+- Mark a task `done` as soon as it is finished, before you start the next one. Do not batch completions at the end.
+- Before you write your final message, make sure the list matches what you actually did.
+- An update can go in the same response as your next tool call; it does not need a step of its own.
+- Do not re-send an unchanged list, and do not re-call this tool when nothing meaningful has changed since the last call — update the list only after real progress.
 - When unsure of the current state, call query mode first (omit `todos`) to check the list before deciding what to update.
+- While work is underway, keep exactly one task `in_progress`.
 - If no available tool can move any task forward, tell the user where you are stuck instead of repeatedly re-ordering the same todos.
 
 **How to use:**
@@ -43,3 +45,6 @@ Use this tool to maintain a structured TODO list as you work through a multi-ste
 - Call with `todos: []` to clear the list.
 - Keep titles short and actionable (e.g. "Read session-control.ts", "Add planMode flag to TurnManager").
 - Update statuses as you make progress.
+- Only mark a task `done` when it is fully accomplished.
+- Never mark a task `done` if tests are failing, implementation is partial, unresolved errors remain, or required files/dependencies could not be found.
+- If you encounter a blocker, keep the blocked task `in_progress` or add a new pending task describing what must be resolved.
