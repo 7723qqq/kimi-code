@@ -40,6 +40,7 @@ describe('TUI config', () => {
     expect(text).toContain('theme = "auto"');
     expect(text).toContain('cache_expiry_hint = true');
     expect(text).toContain('disable_feedback_survey = false');
+    expect(text).toContain('auto_session_title = true');
     expect(text).toContain('command = ""');
     expect(text).toContain('[upgrade]');
     expect(text).toContain('auto_install = true');
@@ -71,6 +72,7 @@ auto_install = false
       locale: 'en',
       cacheExpiryHint: true,
       disableFeedbackSurvey: false,
+      autoSessionTitle: true,
       editorCommand: 'code --wait',
       notifications: { enabled: false, condition: 'always' },
       upgrade: { autoInstall: false },
@@ -130,6 +132,16 @@ disable_feedback_survey = true
     ]);
   });
 
+  it('defaults auto_session_title to true and parses false', () => {
+    expect(parseTuiConfig('').autoSessionTitle).toBe(true);
+
+    const config = parseTuiConfig(`
+auto_session_title = false
+`);
+
+    expect(config.autoSessionTitle).toBe(false);
+  });
+
   it('normalizes an empty editor command to auto-detect', () => {
     const config = parseTuiConfig(`
 [editor]
@@ -144,6 +156,7 @@ command = "   "
       locale: 'en',
       cacheExpiryHint: true,
       disableFeedbackSurvey: false,
+      autoSessionTitle: true,
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },
@@ -196,6 +209,7 @@ command = "   "
       locale: 'en',
       cacheExpiryHint: true,
       disableFeedbackSurvey: false,
+      autoSessionTitle: true,
       editorCommand: 'vim',
       notifications: { enabled: false, condition: 'always' },
       upgrade: { autoInstall: false },
@@ -212,6 +226,16 @@ command = "   "
 
     expect(readFileSync(filePath, 'utf-8')).toContain('disable_feedback_survey = true');
     expect((await loadTuiConfig(filePath)).disableFeedbackSurvey).toBe(true);
+  });
+
+  it('round-trips an auto_session_title opt-out', async () => {
+    await saveTuiConfig(
+      { ...DEFAULT_TUI_CONFIG, autoSessionTitle: false },
+      filePath,
+    );
+
+    expect(readFileSync(filePath, 'utf-8')).toContain('auto_session_title = false');
+    expect((await loadTuiConfig(filePath)).autoSessionTitle).toBe(false);
   });
 
   it('escapes special characters in a custom theme name so the TOML round-trips', async () => {

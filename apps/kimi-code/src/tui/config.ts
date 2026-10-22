@@ -78,6 +78,7 @@ export const TuiConfigFileSchema = z.object({
   locale: z.enum(['en', 'zh']).optional(),
   cache_expiry_hint: z.boolean().optional(),
   disable_feedback_survey: z.boolean().optional(),
+  auto_session_title: z.boolean().optional(),
   editor: z
     .object({
       command: z.string().optional(),
@@ -122,6 +123,9 @@ export const TuiConfigSchema = z.object({
    * fixtures from before this field existed still typecheck. */
   cacheExpiryHint: z.boolean().optional(),
   disableFeedbackSurvey: z.boolean().optional(),
+  /** Present in every normalized config; optional only so hand-built test
+   * fixtures from before this field existed still typecheck. */
+  autoSessionTitle: z.boolean().optional(),
   editorCommand: z.string().nullable(),
   notifications: NotificationsConfigSchema,
   upgrade: UpgradePreferencesSchema,
@@ -155,6 +159,7 @@ export const DEFAULT_TUI_CONFIG: TuiConfig = TuiConfigSchema.parse({
   locale: 'en',
   cacheExpiryHint: true,
   disableFeedbackSurvey: false,
+  autoSessionTitle: true,
   editorCommand: null,
   notifications: DEFAULT_NOTIFICATIONS_CONFIG,
   upgrade: DEFAULT_UPGRADE_PREFERENCES,
@@ -291,6 +296,7 @@ export function normalizeTuiConfig(
     cacheExpiryHint: config.cache_expiry_hint ?? DEFAULT_TUI_CONFIG.cacheExpiryHint,
     disableFeedbackSurvey:
       config.disable_feedback_survey ?? DEFAULT_TUI_CONFIG.disableFeedbackSurvey,
+    autoSessionTitle: config.auto_session_title ?? DEFAULT_TUI_CONFIG.autoSessionTitle,
     editorCommand: command === undefined || command.length === 0 ? null : command,
     notifications: {
       enabled: config.notifications?.enabled ?? DEFAULT_NOTIFICATIONS_CONFIG.enabled,
@@ -358,6 +364,7 @@ disable_paste_burst = ${String(config.disablePasteBurst)} # true disables non-br
 locale = "${config.locale}" # "en" | "zh"
 cache_expiry_hint = ${String(config.cacheExpiryHint !== false)} # false disables the "cache expired" dialog on resume / idle submit
 disable_feedback_survey = ${String(config.disableFeedbackSurvey === true)} # true hides the occasional session rating prompt
+auto_session_title = ${String(config.autoSessionTitle !== false)} # false stops the TUI from auto-generating a session title after the first turn
 
 [editor]
 command = "${escapeTomlBasicString(config.editorCommand ?? '')}" # Empty uses $VISUAL / $EDITOR

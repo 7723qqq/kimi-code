@@ -86,6 +86,7 @@ import {
   getLlmNotSetMessage,
   getNoActiveSessionMessage,
   MAIN_AGENT_ID,
+  MAX_AUTO_TITLE_ATTEMPTS,
   PRODUCT_NAME,
   SESSION_LIST_PAGE_SIZE,
   getSessionlessStartupNotice,
@@ -269,6 +270,7 @@ function createInitialAppState(input: KimiTUIStartupInput): AppState {
     renderLatex: input.tuiConfig.renderLatex,
     cacheExpiryHint: input.tuiConfig.cacheExpiryHint,
     disableFeedbackSurvey: input.tuiConfig.disableFeedbackSurvey,
+    autoSessionTitle: input.tuiConfig.autoSessionTitle,
     notifications: input.tuiConfig.notifications,
     upgrade: input.tuiConfig.upgrade,
     statusLine: input.tuiConfig.statusLine,
@@ -310,6 +312,7 @@ export class KimiTUI {
   readonly cacheHint = new CacheHintController(this);
   /** Staged prompt media lifecycle (daemon uploads + cache copies) — see StagingLeaseTracker. */
   private readonly staging: StagingLeaseTracker;
+  private readonly autoTitleAttempts = new Map<string, { attempts: number; done: boolean }>();
   private readonly approvalController = new ApprovalController();
   private readonly questionController = new QuestionController();
   private readonly reverseRpcDisposers: Array<() => void> = [];
@@ -1585,6 +1588,34 @@ export class KimiTUI {
     this.staging.handleTurnEnded(event);
     this.surveyController.notifyTurnEnded(event.traceId);
     this.state.footer.refreshGitStatus();
+    if (event.reason === 'completed') void this.maybeAutoGenerateSessionTitle();
+  }
+
+  private async maybeAutoGenerateSessionTitle(): Promise<void> {
+    const sessionId = this.state.appState.sessionId;
+    if (sessionId.length === 0) return;
+    if (this.state.appState.autoSessionTitle === false) return;
+    const record = this.autoTitleAttempts.get(sessionId);
+    if (record !== undefined && (record.done || record.attempts >= MAX_AUTO_TITLE_ATTEMPTS)) {
+      return;
+    }
+    try {
+      const config = await this.harness.getConfig();
+      if (config.autoSessionTitle === false) return;
+      this.autoTitleAttempts.set(sessionId, {
+        attempts: (record?.attempts ?? 0) + 1,
+        done: false,
+      });
+      const title = await this.harness.generateSessionTitle({
+        id: sessionId,
+        source: 'first_turn',
+      });
+      if (title !== undefined) {
+        this.autoTitleAttempts.set(sessionId, { attempts: 0, done: true });
+      }
+    } catch {
+      /* title generation is best-effort; the session keeps its current title */
+    }
   }
 
   releaseStagingMedia(mediaAttachmentIds: readonly number[]): void {
