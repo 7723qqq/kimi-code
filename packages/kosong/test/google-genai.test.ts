@@ -999,6 +999,13 @@ describe('GoogleGenAIChatProvider', () => {
       });
     });
 
+    it('gemini-4 model rejects effort off (thinking cannot be disabled)', () => {
+      const provider = createProvider({ model: 'gemini-4-argon' });
+      expect(() => provider.withThinking('off')).toThrow(
+        'thinking effort "off" is not supported for gemini-4 models: thinking cannot be disabled; use low/medium/high',
+      );
+    });
+
     it('thinking effort off for non-gemini-3 disables thinking', async () => {
       const provider = createProvider({ model: 'gemini-2.5-flash' }).withThinking('off');
       const history: Message[] = [
@@ -1077,6 +1084,23 @@ describe('GoogleGenAIChatProvider', () => {
     it('thinkingEffort reflects budget for non-gemini-3', () => {
       const provider = createProvider().withThinking('high');
       expect(provider.thinkingEffort).toBe('high');
+    });
+
+    it('thinkingEffort round-trips effort off for gemini-3', () => {
+      const provider = createProvider({ model: 'gemini-3-pro-preview' }).withThinking('off');
+      expect(provider.thinkingEffort).toBe('off');
+    });
+
+    it('thinkingEffort reflects level for gemini-4', () => {
+      const provider = createProvider({ model: 'gemini-4-argon' }).withThinking('low');
+      expect(provider.thinkingEffort).toBe('low');
+    });
+
+    it('thinkingEffort preserves low for explicit LOW kwargs on gemini-3', () => {
+      const provider = createProvider({ model: 'gemini-3-pro-preview' }).withGenerationKwargs({
+        thinkingConfig: { thinkingLevel: 'LOW', includeThoughts: false },
+      });
+      expect(provider.thinkingEffort).toBe('low');
     });
 
     it('withThinking returns a new instance', () => {
