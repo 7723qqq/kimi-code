@@ -4490,12 +4490,12 @@ describe('FullCompaction pre-shrink', () => {
       provider: CATALOGUED_PROVIDER,
       modelCapabilities: PRE_SHRINK_CAPABILITIES,
     });
-    loaded.get(IAgentProfileService).update({ systemPrompt: 'y'.repeat(16_000) });
+    loaded.get(IAgentProfileService).update({ systemPrompt: 'y'.repeat(8_000) });
     const registration = loaded.get(IAgentToolRegistryService).register(
       mcpTool('mcp__srv__preshrink', {
         type: 'object',
         properties: {
-          payload: { type: 'string', description: 'x'.repeat(16_000) },
+          payload: { type: 'string', description: 'x'.repeat(8_000) },
         },
       }),
       { source: 'mcp' },
