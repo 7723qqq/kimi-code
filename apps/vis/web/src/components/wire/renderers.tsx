@@ -349,6 +349,43 @@ export const WIRE_RENDERERS: RendererMap = {
     headline: () => ({ main: <Dim>{t('wireRenderer.sessionForked')}</Dim> }),
   },
 
+  'changeNotifier.snapshot': {
+    tone: 'meta',
+    label: 'notify',
+    headline: (r) => {
+      const parts: string[] = [];
+      if (r.agentsMdFiles !== null && r.agentsMdFiles !== undefined) {
+        parts.push(t('wireRenderer.changeNotifierAgentsMdFiles', { count: Object.keys(r.agentsMdFiles).length }));
+      }
+      if (r.skillsHash !== null && r.skillsHash !== undefined) {
+        parts.push(t('wireRenderer.changeNotifierSkills'));
+      }
+      if (r.subagentNames !== null && r.subagentNames !== undefined) {
+        parts.push(
+          t('wireRenderer.changeNotifierSubagentProfiles', { count: r.subagentNames.length }),
+        );
+      }
+      if (r.modelPool !== null && r.modelPool !== undefined) {
+        parts.push(
+          t('wireRenderer.changeNotifierPoolModels', {
+            count: Object.keys(r.modelPool.models).length,
+          }),
+        );
+      }
+      return {
+        main: (
+          <span className="truncate text-fg-0">
+            {parts.length === 0 ? (
+              <Dim>{t('wireRenderer.changeNotifierEmptyBeliefs')}</Dim>
+            ) : (
+              parts.join(' · ')
+            )}
+          </span>
+        ),
+      };
+    },
+  },
+
   'config.update': {
     tone: 'config',
     label: 'config',

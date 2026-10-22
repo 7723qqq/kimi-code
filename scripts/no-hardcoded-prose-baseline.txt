@@ -32,7 +32,6 @@ apps/kimi-code/src/tui/components/messages/tool-call.ts  6  f6434feaf85b
 apps/kimi-code/src/tui/components/messages/tool-renderers/chip.ts  1  aba3835c3afb
 apps/kimi-code/src/tui/components/messages/tool-renderers/types.ts  1  0b5f14947eb7
 apps/kimi-code/src/tui/components/messages/tool-renderers/wait-for.ts  4  55f39bd2ed45
-apps/kimi-code/src/tui/controllers/btw-panel.ts  1  2a097993df1d
 apps/kimi-code/src/tui/controllers/cache-hint-controller.ts  2  109575cc94a1
 apps/kimi-code/src/tui/controllers/session-event-handler.ts  2  63af443acbc9
 apps/kimi-code/src/tui/controllers/session-replay.ts  2  dc2520277b86
@@ -46,7 +45,6 @@ apps/kimi-code/src/tui/utils/cache-hint.ts  2  95ba4a0abdb6
 apps/kimi-code/src/tui/utils/export-markdown.ts  3  67162b5a6928
 apps/kimi-code/src/tui/utils/image-placeholder.ts  1  28909da11603
 apps/kimi-code/src/tui/utils/input-latency.ts  2  d04f2ea61d60
-apps/kimi-code/src/tui/utils/message-replay.ts  2  9a3d5c0ea16a
 apps/kimi-code/src/tui/utils/tool-call-format.ts  1  bbd63c7ab007
 apps/kimi-inspect/src/App.tsx  1  a6694da6baa5
 apps/kimi-inspect/src/activity/ws.ts  1  0a69a40f396c

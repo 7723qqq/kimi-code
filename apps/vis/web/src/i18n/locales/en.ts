@@ -328,6 +328,11 @@ export default {
   },
   wireRenderer: {
     sessionForked: 'session forked',
+    changeNotifierAgentsMdFiles: '{{count}} agents.md',
+    changeNotifierSkills: 'skills',
+    changeNotifierSubagentProfiles: '{{count}} profiles',
+    changeNotifierPoolModels: '{{count}} pool models',
+    changeNotifierEmptyBeliefs: '(empty beliefs)',
     contextCleared: 'context cleared',
     compactionComplete: 'compaction complete',
     cancelled: 'cancelled',

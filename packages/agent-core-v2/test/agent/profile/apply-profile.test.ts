@@ -2,14 +2,15 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import * as posixPath from 'node:path/posix';
 import * as win32Path from 'node:path/win32';
-import { basename, dirname, isAbsolute, join, relative, resolve } from 'pathe';
+import { basename, dirname, isAbsolute, join, normalize, relative, resolve } from 'pathe';
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import { Emitter, Event } from '#/_base/event';
 import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IAgentProfileService, type ResolvedAgentProfile } from '#/agent/profile/profile';
+import { IAgentChangeNotifierService } from '#/agent/changeNotifier/changeNotifier';
 import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import type { Runtime, RuntimeCapability, RuntimeStatus } from '#/runtime/runtime';
 import { normalizeAgentProfile } from '#/app/agentProfileCatalog/agentProfileCatalog';
@@ -149,6 +150,29 @@ describe('AgentProfileService.applyProfile', () => {
     expect(svc.data().systemPrompt).toContain('project instructions');
     expect(svc.data().systemPrompt).toContain(`<!-- From: ${join(workDir, 'AGENTS.md')} -->`);
     expect(svc.getAgentsMdWarning()).toBeUndefined();
+  });
+
+  it('seeds change-notifier beliefs from the applied profile context', async () => {
+    const seedBeliefs = mock<IAgentChangeNotifierService['seedBeliefs']>();
+    await writeFile(join(workDir, 'AGENTS.md'), 'project instructions', 'utf-8');
+    const { profile: svc } = buildContext(
+      agentService(IAgentChangeNotifierService, {
+        _serviceBrand: undefined,
+        notifyAgentsMdChanges: async () => {},
+        notifySkillChanges: async () => {},
+        notifySubagentChanges: async () => {},
+        seedBeliefs,
+        mute: () => {},
+        unmute: () => {},
+      }),
+    );
+
+    await svc.applyProfile(profile);
+
+    expect(seedBeliefs).toHaveBeenCalledTimes(1);
+    const seed = seedBeliefs.mock.calls[0]?.[0];
+    expect((seed?.agentsMdPaths ?? []).map(normalize)).toEqual([normalize(join(workDir, 'AGENTS.md'))]);
+    expect(seed?.agentsMd).toContain('project instructions');
   });
 
   it('renders the complete runtime context exactly', async () => {

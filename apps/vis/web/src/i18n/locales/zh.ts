@@ -328,6 +328,11 @@ export default {
   },
   wireRenderer: {
     sessionForked: '会话已分叉',
+    changeNotifierAgentsMdFiles: '{{count}} 个 AGENTS.md',
+    changeNotifierSkills: '技能',
+    changeNotifierSubagentProfiles: '{{count}} 个子代理',
+    changeNotifierPoolModels: '{{count}} 个模型池条目',
+    changeNotifierEmptyBeliefs: '（无基线）',
     contextCleared: '上下文已清除',
     compactionComplete: '压缩完成',
     cancelled: '已取消',

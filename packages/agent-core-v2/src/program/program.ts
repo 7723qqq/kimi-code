@@ -181,6 +181,9 @@ export class Program {
   get agentProfiles(): IWorkspaceAgentProfileLoader {
     return this.requireGeneration().agentProfiles;
   }
+  get userAgentProfiles(): IUserAgentProfileLoader {
+    return this.requireGeneration().userAgentProfiles;
+  }
   get sessionControllerGeneration(): string {
     return this.requireGeneration().id;
   }

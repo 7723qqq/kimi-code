@@ -868,7 +868,7 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
       },
     });
     const models = await getJson<{
-      items: Array<{ model: string; upgrade?: { model: string } }>;
+      items: Array<{ model: string; upgrade?: { model: string; migration_markdown?: string } }>;
     }>('/api/v1/models');
     expect(models.body.data.items.find((item) => item.model === 'my-openai/gpt-4o')?.upgrade).toEqual({
       model: 'my-openai/gpt-4.1',
@@ -897,7 +897,7 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
       },
     });
     const models = await getJson<{
-      items: Array<{ model: string; upgrade?: { model: string } }>;
+      items: Array<{ model: string; upgrade?: { model: string; migration_markdown?: string } }>;
     }>('/api/v1/models');
     expect(models.body.data.items.find((item) => item.model === 'my-openai/gpt-4o')?.upgrade).toEqual({
       model: 'my-openai/gpt-4.1',
