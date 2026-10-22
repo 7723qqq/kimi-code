@@ -152,7 +152,7 @@ export function encodeGoogleGenAIThinking(
   model: string,
   effort: ThinkingEffort,
 ): Record<string, unknown> {
-  if (model.includes('gemini-3')) {
+  if (model.includes('gemini-3') || model.includes('gemini-4')) {
     switch (effort) {
       case 'off':
         return { includeThoughts: false, thinkingLevel: 'MINIMAL' };
