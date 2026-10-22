@@ -34,6 +34,9 @@ import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMo
 import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import { ToolAccesses, type ExecutableTool } from '#/tool/toolContract';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { IAgentToolActivationService } from '#/agent/toolActivation/toolActivation';
+import { IWebSearchProviderService } from '#/app/auth/webSearch/webSearch';
+import { ISessionNotify } from '#/features/notify/sessionNotify';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { agentContextOf, IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { createActor } from '#human/xstate2';
@@ -937,8 +940,97 @@ describe('Agent tool description', () => {
     const description = agentDescription();
 
     expect(description).toContain('- restricted: Restricted agent\n  Tools: Read');
-    expect(description).toContain('- allow-all-except: Allow all except one\n  Tools: all except Bash');
+    const allowAllExceptTools = description
+      .split('\n')
+      .find((line) => line.startsWith('  Tools:') && line.includes('TaskList'));
+    expect(allowAllExceptTools).toBeDefined();
+    expect(allowAllExceptTools).not.toContain('Bash');
     expect(description).not.toContain('Tools: Bash, Read, mcp__github__*');
+  });
+
+  it('omits WebSearch from every subagent when no search provider is configured', () => {
+    ctx = createTestAgent(
+      appService(IWebSearchProviderService, {
+        _serviceBrand: undefined,
+        hasWebSearchProvider: () => false,
+        getWebSearchProvider: () => undefined,
+      }),
+    );
+
+    expect(agentDescription()).not.toContain('WebSearch');
+    expect(agentDescription()).toContain('FetchURL');
+  });
+
+  it('keeps an unavailable contribution registered but omits it from descriptions', async () => {
+    let available = true;
+    ctx = createTestAgent(
+      appService(IWebSearchProviderService, {
+        _serviceBrand: undefined,
+        hasWebSearchProvider: () => available,
+        getWebSearchProvider: () => undefined,
+      }),
+    );
+    expect(agentDescription()).toContain('WebSearch');
+    expect(ctx.get(IAgentToolRegistryService).resolve('WebSearch')).toBeDefined();
+
+    available = false;
+    await ctx.get(IAgentToolActivationService).activate();
+    expect(ctx.get(IAgentToolRegistryService).resolve('WebSearch')).toBeDefined();
+    expect(agentDescription()).not.toContain('WebSearch');
+  });
+
+  it('preserves a user tool overriding an unavailable built-in contribution', async () => {
+    ctx = createTestAgent(
+      appService(IWebSearchProviderService, {
+        _serviceBrand: undefined,
+        hasWebSearchProvider: () => false,
+        getWebSearchProvider: () => undefined,
+      }),
+    );
+    ctx.get(IAgentUserToolService).register({
+      name: 'WebSearch',
+      description: 'Search with a user-provided service.',
+      parameters: { type: 'object', properties: {} },
+    });
+
+    await ctx.get(IAgentToolActivationService).activate();
+
+    expect(ctx.get(IAgentToolRegistryService).listReferences()).toContainEqual({
+      name: 'WebSearch',
+      source: 'user',
+    });
+    expect(agentDescription()).toContain('WebSearch');
+  });
+
+  it('filters descriptions by the inherited runtime capabilities without churning the registry', async () => {
+    ctx = createTestAgent();
+    const runtime = ctx.get(IAgentRuntimeService);
+    const isAvailable = spyOn(runtime, 'isAvailable');
+    isAvailable.mockImplementation((required = []) => !required.includes('fs'));
+
+    for (const name of ['Edit', 'Write', 'Glob', 'Grep']) {
+      expect(agentDescription()).not.toMatch(new RegExp(`Tools:.*\\b${name}\\b`));
+    }
+    expect(agentDescription()).toMatch(/Tools:.*\bBash\b/);
+    await ctx.get(IAgentToolActivationService).activate();
+    expect(ctx.get(IAgentToolRegistryService).resolve('Edit')).toBeDefined();
+    expect(ctx.get(IAgentToolRegistryService).resolve('Bash')).toBeDefined();
+
+    isAvailable.mockReturnValue(true);
+    expect(agentDescription()).toMatch(/Tools:.*\bEdit\b/);
+  });
+
+  it.each([false, true])('uses the NotifyUser contribution condition when enabled=%s', (enabled) => {
+    ctx = createTestAgent(
+      sessionService(ISessionNotify, {
+        _serviceBrand: undefined,
+        ready: Promise.resolve(),
+        enabled,
+      }),
+    );
+
+    expect(agentDescription().includes('NotifyUser')).toBe(enabled);
+    expect(ctx.get(IAgentToolRegistryService).resolve('NotifyUser') !== undefined).toBe(enabled);
   });
 
   it('lists only subagent types allowed by the caller profile', () => {
