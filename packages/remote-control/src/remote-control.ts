@@ -1,5 +1,7 @@
+import { createHash } from 'node:crypto';
 import { hostname, platform } from 'node:os';
 import { join } from 'node:path';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { request as httpRequest, validateHeaderName, validateHeaderValue } from 'node:http';
 
 import {
@@ -42,16 +44,6 @@ const MAX_PENDING_HTTP_REQUESTS = 64;
 const MAX_ACTIVE_STREAMS = 64;
 const HTTP_REQUEST_TIMEOUT_MS = 30_000;
 const REGISTER_TIMEOUT_MS = 10_000;
-function aborted(signal: AbortSignal): Promise<void> {
-  return new Promise((resolve) => {
-    if (signal.aborted) {
-      resolve();
-      return;
-    }
-    signal.addEventListener('abort', () => resolve(), { once: true });
-  });
-}
-
 const MAX_RECONNECT_DELAY_MS = 30_000;
 const RELAY_PING_INTERVAL_MS = 30_000;
 const RELAY_SILENCE_TIMEOUT_MS = 300_000;
@@ -310,7 +302,7 @@ function isGzipCompressibleType(contentType: string): boolean {
 }
 
 function rewrittenResponseETag(body: Buffer): string {
-  return `W/"${new Bun.CryptoHasher('sha256').update(body).digest('hex')}"`;
+  return `W/"${createHash('sha256').update(body).digest('hex')}"`;
 }
 
 function requestMatchesETag(
@@ -773,7 +765,9 @@ class RemoteControlClient {
     const controller = new AbortController();
     this.reconnectAbort = controller;
     try {
-      await Promise.race([Bun.sleep(ms), aborted(controller.signal)]);
+      await sleep(ms, undefined, { signal: controller.signal });
+    } catch (error) {
+      if (!(error instanceof Error) || error.name !== 'AbortError') throw error;
     } finally {
       if (this.reconnectAbort === controller) this.reconnectAbort = undefined;
     }
