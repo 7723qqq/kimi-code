@@ -1,5 +1,4 @@
 import { afterAll, afterEach } from 'bun:test';
-import { cleanup } from '@testing-library/react';
 import { JSDOM } from 'jsdom';
 
 // Bun has no `environment` option, so a suite that needs a document imports this module
@@ -53,7 +52,13 @@ function installDom(): void {
 
 installDom();
 
-afterEach(() => {
+// React DOM and `@testing-library/dom` read `document` when first evaluated. A suite that
+// drives input events has to load them itself, after this module has installed the globals
+// (a static import here would be evaluated first, before `installDom()` runs) — loaded early,
+// React takes its legacy IE event path, `attachEvent` on jsdom elements, and `onChange` never
+// fires. This module therefore only reaches into it from the hooks below.
+afterEach(async () => {
+  const { cleanup } = await import('@testing-library/react');
   cleanup();
 });
 

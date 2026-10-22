@@ -127,7 +127,7 @@ Spec 模式要求三份文档，任何一份缺失或为空时 `ExitSpecMode` �
 
 **`Team`** 召集多个 Agent 进行圆桌讨论（`mode` 为 `discussion`，默认）或结构化辩论（`mode` 为 `debate`），适合需要多视角分析、交叉评审或达成共识的场景。传入 `topic`（讨论话题）与 `participants` 数组——每项含 `profileName`（Agent profile，默认 `coder`）、`roleDescription`（角色描述）与辩论专用的 `assignedStance`（立场）。`maxRounds` 控制轮数；`summaryPrompt` 可选，提供时生成总结或共识报告；`enableVoting` 可为辩论启用投票。每个参与者都能看到完整讨论记录并轮流发言，结果包含完整记录、总结与 token 用量。`Team` 与 `AgentSwarm` 一样属于排他工具——一次模型响应中必须单独调用。在 `manual` 权限模式下，未处于 swarm mode 时调用 `Team` 会触发审批；swarm mode 已开启时自动放行。也可以使用 `/team <topic> with <role1>,<role2>` 命令直接发起。
 
-**`AskUserQuestion`** 以结构化多选题的形式向用户提问，适用于需要消歧或选择方案的场景。`questions` 参数接受 1–4 道题，每道题需提供 `question`（以 `?` 结尾）、`options`（2–4 个选项，每项含 `label` 和 `description`）以及可选的 `header`（最多 12 字符）和 `multi_select`（默认 false）。系统自动附加"其他"选项。`background` 为 true 时启动后台问题任务并立即返回任务 ID；问题在本轮结束后仍保持待答，用户作答后答案会以通知形式直接送回 Agent。宿主未实现交互式提问能力时返回失败提示，Agent 应改为在文本回复中直接提问。
+**`AskUserQuestion`** 以结构化多选题的形式向用户提问，适用于需要消歧或选择方案的场景。`questions` 参数接受 1–4 道题，每道题需提供 `question`（以 `?` 结尾）、`options`（2–4 个选项，每项含 `label` 和 `description`）以及可选的 `header`（最多 12 字符）和 `multi_select`（默认 false）。系统自动附加"其他"选项。在 Kimi Code for VS Code 中，包含多道题的提问支持 Back 导航，并在题目之间切换时保留已选择或自定义的答案。`background` 为 true 时启动后台问题任务并立即返回任务 ID；问题在本轮结束后仍保持待答，用户作答后答案会以通知形式直接送回 Agent。宿主未实现交互式提问能力时返回失败提示，Agent 应改为在文本回复中直接提问。
 
 **`NotifyUser`** 让 main agent 和 subagent 在不结束本轮的情况下发布进展更新。每条更新包含 `title`（可选，一行简短标题，在空间有限的地方单独显示）和 `message`（用轻量 Markdown 写的详细内容）。只有工具成功返回并确认已展示后，更新才会显示；失败、中断或被关闭开关抑制的调用不会显示，对话中的工具调用记录会保留实际展示结果。重要发现仍须写入最终回复或 subagent 的最终汇报。
 
