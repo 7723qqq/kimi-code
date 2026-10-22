@@ -79,6 +79,7 @@
     "test:bench": "bun test/tui/render-memo.bench.ts && bun test/tui/tui-frame.bench.ts"
   },
   "dependencies": {
+    "chokidar": "^4.0.3",
     "qrcode": "^1.5.4",
     "ws": "catalog:"
   },

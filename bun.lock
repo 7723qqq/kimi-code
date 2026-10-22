@@ -32,6 +32,7 @@
         "kimi": "dist/main.mjs",
       },
       "dependencies": {
+        "chokidar": "^4.0.3",
         "qrcode": "^1.5.4",
         "ws": "catalog:",
       },

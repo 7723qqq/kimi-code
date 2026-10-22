@@ -28,6 +28,8 @@ beforeEach(() => {
   gitStatusMocks.createGitStatusCache.mockClear();
   gitStatusMocks.createGitStatusCache.mockImplementation((() => ({
     getStatus: mock(() => null),
+    refresh: mock(() => {}),
+    dispose: mock(() => {}),
   })) as never);
 });
 
@@ -96,6 +98,21 @@ const appState: AppState = {
 };
 
 describe('FooterComponent', () => {
+  it('asks the git cache to refresh and disposes it with the footer', () => {
+    const refresh = mock(() => {});
+    const dispose = mock(() => {});
+    gitStatusMocks.createGitStatusCache.mockImplementation((() => ({
+      getStatus: () => null,
+      refresh,
+      dispose,
+    })) as never);
+    const footer = new FooterComponent(appState);
+    footer.refreshGitStatus();
+    expect(refresh).toHaveBeenCalledTimes(1);
+    footer.dispose();
+    expect(dispose).toHaveBeenCalledTimes(1);
+  });
+
   const previousChalkLevel = chalk.level;
 
   beforeEach(() => {
