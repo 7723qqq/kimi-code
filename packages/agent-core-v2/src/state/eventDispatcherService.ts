@@ -54,7 +54,8 @@ import {
   type FoldedEventStateRegistry,
 } from './stateContribution';
 
-const MAX_DRAIN = 100;
+const MAX_DRAIN = 1_000;
+const MAX_DRAIN_PER_TYPE = 100;
 
 const replayImmer = new Immer({ autoFreeze: false });
 
@@ -72,7 +73,7 @@ export class CycleError extends StateError {
   ) {
     super(
       StateErrors.codes.STATE_CYCLE,
-      `Event dispatch cascade exceeded MAX_DRAIN (${depth}); possible event cycle`,
+      `Event dispatch cascade exceeded MAX_DRAIN (depth ${depth}, per-type ${MAX_DRAIN_PER_TYPE}); possible event cycle`,
       { details: { depth, eventTypes: eventTypes.slice(0, 20) } },
     );
     this.name = 'CycleError';
@@ -196,6 +197,7 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
   private disposed = false;
   private queue: QueuedEvent[] = [];
   private drainDepth = 0;
+  private drainCounts = new Map<string, number>();
   private didRunRestoreHooks = false;
   private lateAttachments: Array<{
     readonly participant: DurableAgentRuntimeParticipant;
@@ -358,6 +360,7 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
         this.queue.length = 0;
         this.dispatching = false;
         this.drainDepth = 0;
+        this.drainCounts.clear();
       }
     }
     if (replayFailure !== undefined) throw replayFailure.error;
@@ -550,23 +553,27 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
       this.queue.length = 0;
       this.dispatching = false;
       this.drainDepth = 0;
+      this.drainCounts.clear();
     }
   }
 
   private drainQueue(): void {
     while (this.queue.length > 0) {
-      if (++this.drainDepth > MAX_DRAIN) {
+      const next = this.queue[0]!;
+      const seenForType = (this.drainCounts.get(next.event.type) ?? 0) + 1;
+      this.drainCounts.set(next.event.type, seenForType);
+      if (++this.drainDepth > MAX_DRAIN || seenForType > MAX_DRAIN_PER_TYPE) {
         throw new CycleError(
           this.drainDepth,
           this.queue.map((entry) => entry.event.type),
         );
       }
-      const entry = this.queue.shift()!;
+      this.queue.shift();
       try {
-        this.runDispatch(entry.event);
-        entry.resolve();
+        this.runDispatch(next.event);
+        next.resolve();
       } catch (error) {
-        entry.reject(error);
+        next.reject(error);
         throw error;
       }
     }
@@ -760,6 +767,7 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
         this.queue.length = 0;
         this.dispatching = false;
         this.drainDepth = 0;
+        this.drainCounts.clear();
       }
     }
   }

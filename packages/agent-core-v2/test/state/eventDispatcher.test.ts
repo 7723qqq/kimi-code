@@ -339,6 +339,39 @@ describe('EventDispatcherService', () => {
     });
   });
 
+  it('drains a long finite cascade past the old total cap without reporting a cycle', async () => {
+    class ChainStepA extends Event2<Record<string, never>> {
+      static override readonly type = 'state.test.chain.a';
+      static override readonly observable = true;
+    }
+    class ChainStepB extends Event2<Record<string, never>> {
+      static override readonly type = 'state.test.chain.b';
+      static override readonly observable = true;
+    }
+    class ChainStepC extends Event2<Record<string, never>> {
+      static override readonly type = 'state.test.chain.c';
+      static override readonly observable = true;
+    }
+    let remaining = 150;
+    const next = (): Event2<Record<string, never>> => {
+      remaining -= 1;
+      if (remaining <= 0) return new ChainStepA({});
+      const phase = remaining % 3;
+      if (phase === 0) return new ChainStepB({});
+      if (phase === 1) return new ChainStepC({});
+      return new ChainStepA({});
+    };
+    const follow = (): void => {
+      if (remaining <= 0) return;
+      void dispatcher.dispatch(next());
+    };
+    disposables.add(bus.subscribe(ChainStepA, follow));
+    disposables.add(bus.subscribe(ChainStepB, follow));
+    disposables.add(bus.subscribe(ChainStepC, follow));
+
+    await expect(dispatcher.dispatch(new ChainStepA({}))).resolves.toBeUndefined();
+  });
+
   it('rolls back to replay-time snapshot checkpoints on unpaired undo records and gates live undo', async () => {
     await dispatcher.dispatch(new ItemAdd({ item: 'a' }));
     await dispatcher.dispatch(new AnchorEvent({}));
