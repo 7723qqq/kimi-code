@@ -579,6 +579,10 @@ export class Editor implements Component, Focusable {
     return currentVisualLine === visualLines.length - 1;
   }
 
+  private isOnLastLogicalLine(): boolean {
+    return this.state.cursorLine === this.state.lines.length - 1;
+  }
+
   private navigateHistory(direction: 1 | -1): void {
     this.lastAction = null;
     if (this.history.length === 0) return;
@@ -1136,7 +1140,7 @@ export class Editor implements Component, Focusable {
       return;
     }
     if (kb.matches(data, 'tui.editor.cursorDown')) {
-      if (this.historyIndex > -1 && this.isOnLastVisualLine()) {
+      if (this.historyIndex > -1 && this.isOnLastLogicalLine()) {
         this.navigateHistory(1);
       } else if (this.isOnLastVisualLine()) {
         // Already at bottom - jump to end of line

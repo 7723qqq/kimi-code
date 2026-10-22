@@ -40,4 +40,18 @@ describe("Editor prompt history keybindings", () => {
 		assert.strictEqual(editor.getText(), "draft");
 		assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 3 });
 	});
+
+	it("leaves a wrapped single-line entry on Down", () => {
+		const editor = new Editor(new TuiMainScreen(new VirtualTerminal()), defaultEditorTheme);
+		const long = "one long single line prompt that wraps at twenty";
+		editor.addToHistory(long);
+		editor.render(20);
+
+		editor.handleInput("\x1b[A");
+		assert.strictEqual(editor.getText(), long);
+		assert.deepStrictEqual(editor.getCursor(), { line: 0, col: 0 });
+
+		editor.handleInput("\x1b[B");
+		assert.strictEqual(editor.getText(), "");
+	});
 });
