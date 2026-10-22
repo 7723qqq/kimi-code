@@ -33,6 +33,7 @@ import { NOTIFY_USER_TOOL_NAME } from '#/features/notify/tools/notify-user/notif
 import { ISessionSkillCatalog } from '#/features/skill/session/skillCatalog';
 import { TODO_LIST_TOOL_NAME } from '#/features/todo/todoItem';
 import { UNKNOWN_CAPABILITY, type ModelCapability } from '#/llm-adapter/contract/capability';
+import { IProtocolAdapterRegistry } from '#/llm-adapter/protocol/protocol';
 import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
 import { type ModelRequestParams, type SamplingOptions } from '#/llm-adapter/model/model-requester';
 import { type ModelOverrides } from '#/llm-adapter/model/model.types';
@@ -46,7 +47,7 @@ import {
   requiresStrictThinkingValidation,
   type ThinkingConfig,
 } from '#/llm-adapter/model/thinking';
-import { IProtocolAdapterRegistry } from '#/llm-adapter/protocol/protocol';
+import { IProviderDiscoveryService } from '#/app/kosongConfig/discovery';
 import { RuntimeWorkspaceView } from '#/runtime/runtimeWorkspaceView';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
@@ -184,6 +185,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     @IPluginService private readonly plugins: IPluginService,
     @IAgentIdentity private readonly identity: IAgentIdentity,
     @IAgentAgentsMdReminderService private readonly agentsMdReminder: IAgentAgentsMdReminderService,
+    @IProviderDiscoveryService private readonly discovery: IProviderDiscoveryService,
   ) {
     super();
     this.states.contributeState(profileKey);
@@ -197,6 +199,11 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     this.configure({});
     this._register(
       this.dispatcher.hooks.onDidRestore.register('profile', async (_ctx, next) => {
+        const replacement =
+          this.modelAlias === undefined
+            ? undefined
+            : this.discovery.retiredModelReplacement(this.modelAlias);
+        if (replacement !== undefined) await this.setModel(replacement).catch(() => {});
         this.syncTelemetryModelContext(this.modelAlias);
         if (this.scopeContext.agentId === MAIN_AGENT_ID && this.profileName !== undefined) {
           await this.catalog.ready;
@@ -217,6 +224,11 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
         if (domain === TOOLS_SECTION) {
           this.publishToolPatternWarnings();
         }
+      }),
+    );
+    this._register(
+      this.discovery.onDidRetireModel(({ from, to }) => {
+        if (this.modelAlias === from) void this.setModel(to).catch(() => {});
       }),
     );
   }

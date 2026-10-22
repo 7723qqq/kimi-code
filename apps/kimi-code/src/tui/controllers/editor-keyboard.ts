@@ -37,6 +37,7 @@ import { resolveUserInput } from '../commands/resolve';
 import type { BtwPanelController } from './btw-panel';
 import type { PromptOptimizerController } from './prompt-optimizer';
 import type { SurveyController } from './survey-controller';
+import type { ModelMigrationController } from './model-migration';
 
 export interface EditorKeyboardHost {
   state: TUIState;
@@ -53,6 +54,7 @@ export interface EditorKeyboardHost {
   readonly btwPanelController: BtwPanelController;
   readonly surveyController: SurveyController;
   readonly promptOptimizer: PromptOptimizerController;
+  readonly modelMigration?: ModelMigrationController;
   readonly skillCommandMap: Map<string, string>;
   readonly pluginCommandMap: Map<string, string>;
   steerQueuedMessagesIntoRunningTurn(manual?: boolean): void;
@@ -140,6 +142,7 @@ export class EditorKeyboardController {
       if (this.pendingExit) this.clearPendingExit();
       host.surveyController.handleEditorChange(text);
       host.updateEditorBorderHighlight(text);
+      if (text.length === 0) host.modelMigration?.retry();
       // Expanding paste markers costs a full-text pass, and only `/goal`
       // input can trip the objective length limit — so skip the expansion
       // for ordinary prompts. Submitted text is trimmed before dispatch, so

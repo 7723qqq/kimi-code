@@ -43,6 +43,7 @@ import { EventBusService } from '#/app/event/eventBusService';
 import { IFlagService } from '#/app/flag/flag';
 import { createMcpOAuthStore } from '#/app/mcpConfig/oauthStore';
 import { IPluginService } from '#/app/plugin/plugin';
+import { IProviderDiscoveryService } from '#/app/kosongConfig/discovery';
 import { LifecycleScope } from '#/app/scopes';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { ISessionNotify } from '#/features/notify/sessionNotify';
@@ -88,6 +89,7 @@ import { IRuntimeResolver, IWorkspaceInstanceManager } from '#/workspace/workspa
 import { type AgentEventStore } from '#human/agent/slices';
 
 import { stubAgentContext } from '../../agent/agentContext/stubs';
+import { stubProviderDiscovery } from '../../stubs';
 
 const noopLog = {
   _serviceBrand: undefined,
@@ -386,6 +388,7 @@ describe('SessionSubagentScopeCacheService', () => {
       additionalDirs: [],
     } as unknown as ISessionWorkspaceContext);
     ix.stub(IPluginService, pluginServiceStub);
+    ix.stub(IProviderDiscoveryService, stubProviderDiscovery());
     ix.stub(IConfigService, {
       ready: Promise.resolve(),
       get: (() => undefined) as IConfigService['get'],

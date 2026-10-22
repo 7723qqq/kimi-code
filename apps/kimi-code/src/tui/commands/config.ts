@@ -1,12 +1,10 @@
 import {
-  effectiveModelAlias,
   PRIMARY_SUBAGENT_MODEL_CHOICE,
   SECONDARY_DERIVED_MODEL_ALIAS,
   type ExperimentalFeatureState,
   type ModelAlias,
   type PermissionMode,
   type Session,
-  type ThinkingEffort,
 } from '@moonshot-ai/kimi-code-sdk';
 
 import type { Locale } from '#/i18n';
@@ -50,26 +48,17 @@ import {
 import { getNoActiveSessionMessage, getTuiModeRestartNotice } from '../constant/kimi-tui';
 import { formatErrorMessage } from '../utils/event-payload';
 import { setMarkdownMermaidMode, type MermaidRenderMode } from '../utils/markdown-options';
+import {
+  effectiveModelForHost,
+  hasConversationHistory,
+  performModelSwitch,
+} from '../utils/model-switch';
 import { permissionModeDescription, permissionModeDisplayName } from '../utils/permission-mode';
-import { thinkingEffortToConfig } from '../utils/thinking-config';
-import type { SlashCommandHost } from './dispatch';
 import { setExperimentalFeatures } from './experimental-flags';
+import type { SlashCommandHost } from './dispatch';
 import { showUsage } from './info';
 import { promptApiKey } from './prompts';
 
-// ---------------------------------------------------------------------------
-// Plan / Config commands
-// ---------------------------------------------------------------------------
-
-const MODEL_PICKER_REFRESH_TIMEOUT_MS = 2_000;
-
-/** True once the conversation has at least one user message: a switch from
- * then on resends the accumulated context, losing the cache. Shell-command
- * echoes are also 'user' transcript entries but carry an empty `bullet`, so
- * they're excluded. */
-function hasConversationHistory(host: SlashCommandHost): boolean {
-  return host.state.transcriptEntries.some((entry) => entry.kind === 'user' && entry.bullet !== '');
-}
 
 /**
  * The picker warning shown when switching would resend context. With a
@@ -84,6 +73,12 @@ function cachedSwitchWarning(host: SlashCommandHost, fallback: string): string {
     tokens: formatTokenCount(lossTokens),
   });
 }
+
+// ---------------------------------------------------------------------------
+// Plan / Config commands
+// ---------------------------------------------------------------------------
+
+const MODEL_PICKER_REFRESH_TIMEOUT_MS = 2_000;
 
 export function currentTuiConfig(host: Pick<SlashCommandHost, 'state'>): TuiConfig {
   return {
@@ -102,14 +97,6 @@ export function currentTuiConfig(host: Pick<SlashCommandHost, 'state'>): TuiConf
     statusLine: host.state.appState.statusLine ?? DEFAULT_TUI_CONFIG.statusLine,
     markdown: host.state.appState.markdown ?? DEFAULT_MARKDOWN_CONFIG,
   };
-}
-
-export function effectiveModelForHost(host: SlashCommandHost, model: ModelAlias): ModelAlias {
-  const providerType = host.state.appState.availableProviders[model.provider]?.type;
-  // Flat models (no named provider, e.g. inline base_url served by a v2
-  // backend) have no provider entry to look up; their own protocol declaration
-  // plays the provider-identity role, mirroring the resolver.
-  return effectiveModelAlias(model, providerType ?? model.protocol);
 }
 
 export async function handlePlanCommand(host: SlashCommandHost, args: string): Promise<void> {
@@ -344,7 +331,7 @@ export async function handleEffortCommand(host: SlashCommandHost, args: string):
       effective.supportEfforts?.join(', ') ?? t('tui.messages.configNoneDeclared');
     host.showStatus(t('tui.messages.configUnknownEffort', { arg, alias, knownEfforts }), 'warning');
   }
-  await performModelSwitch(host, alias, arg, true);
+  await performModelSwitch(host, alias, arg, 'model');
 }
 
 function showEffortPicker(
@@ -364,11 +351,11 @@ function showEffortPicker(
         : undefined,
       onSelect: (effort) => {
         host.restoreEditor();
-        void performModelSwitch(host, alias, effort, true);
+        void performModelSwitch(host, alias, effort, 'model');
       },
       onSessionOnlySelect: (effort) => {
         host.restoreEditor();
-        void performModelSwitch(host, alias, effort, false);
+        void performModelSwitch(host, alias, effort, 'session');
       },
       onCancel: () => {
         host.restoreEditor();
@@ -505,159 +492,17 @@ export function showModelPicker(
         : undefined,
       onSelect: ({ alias, thinking }) => {
         host.restoreEditor();
-        void performModelSwitch(host, alias, thinking, true);
+        void performModelSwitch(host, alias, thinking, 'model');
       },
       onSessionOnlySelect: ({ alias, thinking }) => {
         host.restoreEditor();
-        void performModelSwitch(host, alias, thinking, false);
+        void performModelSwitch(host, alias, thinking, 'session');
       },
       onCancel: () => {
         host.restoreEditor();
       },
     }),
   );
-}
-
-async function performModelSwitch(
-  host: SlashCommandHost,
-  alias: string,
-  effort: ThinkingEffort,
-  persist: boolean,
-): Promise<void> {
-  let session = host.session;
-  if (session === undefined) {
-    // A first prompt may still be inside lazy creation: wait it out so the
-    // switch lands on the new session instead of being overwritten by its
-    // assembly.
-    await host.waitForLazyCreation();
-    session = host.session;
-  }
-  if (host.state.appState.streamingPhase !== 'idle') {
-    host.showError(t('tui.messages.configCannotSwitchWhileStreaming'));
-    return;
-  }
-
-  const prevModel = host.state.appState.model;
-  const prevEffort = host.state.appState.thinkingEffort;
-  const modelChanged = alias !== prevModel;
-  const effortChanged = effort !== prevEffort;
-  const runtimeChanged = modelChanged || effortChanged;
-  let effectiveAlias = alias;
-  let effectiveEffort = effort;
-
-  try {
-    if (session === undefined && runtimeChanged) {
-      await host.authFlow.activateModelAfterLogin(alias, effort);
-    } else if (session !== undefined) {
-      if (alias !== prevModel) {
-        await session.setModel(alias);
-      }
-      if (effort !== prevEffort) {
-        await session.setThinking(effort);
-      }
-      const status = await session.getStatus();
-      effectiveAlias = status.model ?? alias;
-      effectiveEffort = status.thinkingEffort;
-    }
-  } catch (error) {
-    const msg = formatErrorMessage(error);
-    host.showError(t('tui.statusMessages.switchModelFailed', { msg }));
-    return;
-  }
-
-  if (session === undefined) {
-    effectiveAlias = host.state.appState.model;
-    effectiveEffort = host.state.appState.thinkingEffort;
-  }
-  const effectiveModelChanged = effectiveAlias !== prevModel;
-  const effectiveEffortChanged = effectiveEffort !== prevEffort;
-  const displayName = modelDisplayName(
-    effectiveAlias,
-    host.state.appState.availableModels[effectiveAlias],
-  );
-  host.setAppState({ model: effectiveAlias, thinkingEffort: effectiveEffort });
-  if (session === undefined && runtimeChanged) {
-    if (effectiveModelChanged) {
-      host.track('model_switch', { model: effectiveAlias });
-    }
-    if (effectiveEffortChanged) {
-      host.track('thinking_toggle', {
-        enabled: effectiveEffort !== 'off',
-        effort: effectiveEffort,
-        from: prevEffort,
-      });
-    }
-  }
-
-  let persisted = false;
-  if (persist) {
-    try {
-      persisted = await persistModelSelection(
-        host,
-        effectiveAlias,
-        effectiveEffort,
-        effectiveEffortChanged,
-      );
-    } catch (error) {
-      const msg = formatErrorMessage(error);
-      host.showError(t('tui.messages.configModelSwitchedSaveFailed', { name: displayName, msg }));
-      return;
-    }
-  }
-
-  let status: string;
-  if (effectiveModelChanged) {
-    status = persist
-      ? t('tui.messages.configModelSwitched', { name: displayName, effort: effectiveEffort })
-      : t('tui.messages.configModelSwitchedSession', {
-          name: displayName,
-          effort: effectiveEffort,
-        });
-  } else if (effectiveEffortChanged) {
-    status = persist
-      ? t('tui.messages.configThinkingSet', { effort: effectiveEffort })
-      : t('tui.messages.configThinkingSetSession', { effort: effectiveEffort });
-  } else if (persist && persisted) {
-    status = t('tui.messages.configModelSavedDefault', {
-      name: displayName,
-      effort: effectiveEffort,
-    });
-  } else {
-    status = t('tui.messages.configModelAlreadyUsing', {
-      name: displayName,
-      effort: effectiveEffort,
-    });
-  }
-  host.showStatus(status, 'success');
-}
-
-async function persistModelSelection(
-  host: SlashCommandHost,
-  alias: string,
-  effort: ThinkingEffort,
-  effortChanged: boolean,
-): Promise<boolean> {
-  const config = await host.harness.getConfig({ reload: true });
-  const model = host.state.appState.availableModels[alias];
-  const full = thinkingEffortToConfig(
-    effort,
-    model === undefined ? undefined : effectiveModelForHost(host, model),
-  );
-  // Re-confirming the effort shown when the picker opened is not an explicit
-  // choice — persist the model but leave the stored effort preference alone.
-  const patch = effortChanged ? full : { enabled: full.enabled };
-  if (
-    config.defaultModel === alias &&
-    config.thinking?.enabled === patch.enabled &&
-    (!effortChanged || config.thinking?.effort === patch.effort)
-  ) {
-    return false;
-  }
-  await host.harness.setConfig({
-    defaultModel: alias,
-    thinking: patch,
-  });
-  return true;
 }
 
 // ---------------------------------------------------------------------------

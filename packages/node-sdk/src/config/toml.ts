@@ -407,6 +407,9 @@ function transformModelData(data: Record<string, unknown>): Record<string, unkno
   if (isPlainObject(out['overrides'])) {
     out['overrides'] = transformPlainObject(out['overrides']);
   }
+  if (isPlainObject(out['upgrade'])) {
+    out['upgrade'] = transformPlainObject(out['upgrade']);
+  }
   return out;
 }
 
@@ -617,6 +620,7 @@ const PROVIDER_CREDENTIAL_FIELDS = ['apiKey', 'oauth', 'apiKeyEnv'] as const;
 
 function modelToToml(model: ModelAlias, rawModel: unknown): Record<string, unknown> {
   const out = cloneRecord(rawModel);
+  if (!Object.hasOwn(model, 'upgrade')) delete out['upgrade'];
   for (const [key, value] of Object.entries(model)) {
     if (key === 'capabilities' && Array.isArray(value)) {
       const onDisk = Array.isArray(out['capabilities']) ? out['capabilities'] : [];
@@ -631,6 +635,8 @@ function modelToToml(model: ModelAlias, rawModel: unknown): Record<string, unkno
     } else if (key === 'overrides' && isPlainObject(value)) {
       const rawOverrides = isPlainObject(rawModel) ? rawModel['overrides'] : undefined;
       out['overrides'] = modelOverridesToToml(value, rawOverrides);
+    } else if (key === 'upgrade') {
+      out['upgrade'] = isPlainObject(value) ? modelOverridesToToml(value, undefined) : undefined;
     } else {
       setDefined(out, camelToSnake(key), value);
     }

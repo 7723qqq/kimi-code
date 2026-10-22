@@ -43,7 +43,7 @@ function makeHost() {
     setExitOpenUrl: mock(),
     setExitForegroundTask: mock(),
     stop: mock(async () => {}),
-    waitForLazyCreation: mock(async () => {}),
+    waitForSessionAssembly: mock(async () => {}),
   } as unknown as SlashCommandHost & {
     showStatus: Mock<(...args: any[]) => any>;
     showError: Mock<(...args: any[]) => any>;
@@ -52,7 +52,7 @@ function makeHost() {
     setExitOpenUrl: Mock<(...args: any[]) => any>;
     setExitForegroundTask: Mock<(...args: any[]) => any>;
     stop: Mock<(...args: any[]) => any>;
-    waitForLazyCreation: Mock<(...args: any[]) => any>;
+    waitForSessionAssembly: Mock<(...args: any[]) => any>;
   };
   return host;
 }
@@ -294,7 +294,8 @@ describe('handleRemoteControlCommand', () => {
     try {
       await handleRemoteControlCommand(host, io);
 
-      expect(host.waitForLazyCreation).toHaveBeenCalledTimes(1);
+      expect(host.waitForSessionAssembly).toHaveBeenCalledTimes(1);
+      expect(host.waitForSessionAssembly).toHaveBeenCalledTimes(1);
       expect(host.showError).not.toHaveBeenCalled();
       expect(host.setExitForegroundTask).toHaveBeenCalledTimes(1);
       expect(host.stop).toHaveBeenCalledTimes(1);

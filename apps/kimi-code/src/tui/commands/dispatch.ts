@@ -162,8 +162,10 @@ export interface SlashCommandHost {
    * fails.
    */
   ensureSession(): Promise<Session | undefined>;
-  /** Await the in-flight lazy session creation, if any (v2); no-op otherwise. */
-  waitForLazyCreation(): Promise<void>;
+  /** Await in-flight session assembly — lazy creation or a `/new` replacement — if any; no-op otherwise. */
+  waitForSessionAssembly(): Promise<void>;
+  /** True while a `/new` replacement is assembling; idle checks must treat it as busy. */
+  readonly sessionReplacementInFlight: boolean;
   switchToSession(session: Session, message: string): Promise<void>;
   reloadCurrentSessionView(session: Session, message: string): Promise<void>;
   beginSessionRequest(): void;
@@ -403,7 +405,7 @@ async function handleBuiltInSlashCommand(
     case 'new': {
       // A first-use lazy creation may still be in flight: wait it out so /new
       // never races a second createSession against the pending prompt.
-      await host.waitForLazyCreation();
+      await host.waitForSessionAssembly();
       // The waited-out prompt may have started a turn meanwhile; /new is
       // idle-only, so re-run the busy gate resolved before the await.
       const busyReason = slashCommandBusyReason({

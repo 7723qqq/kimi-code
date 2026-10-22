@@ -1,83 +1,25 @@
 import { isInstantiationServiceDisposedError } from '@moonshot-ai/agent-core-v2';
 import { rm } from 'node:fs/promises';
-
-import type {
-  ApprovalResponse,
-  Event2,
-  IAgentScopeHandle,
-  IDisposable,
-  Interaction,
-  InteractionKind,
-  ISessionScopeHandle,
-  Scope,
-  SessionActivityState,
-  Workspace,
-} from '@moonshot-ai/agent-core-v2';
-import {
-  IAgentLifecycleService,
-  IAgentLoopService,
-  IEventBus,
-  IEventService,
-  INTERACTION_TAG_SESSION_ID,
-  ISessionActivityView,
-  ISessionIndex,
-  ISessionManager,
-  MAIN_AGENT_ID,
-  followSessionLifecycles,
-  getLiveSessionById,
-  interactions,
-  toDisposable,
-} from '@moonshot-ai/agent-core-v2';
-import {
-  detachGrades,
-  filterOpsForGrade,
-  gradeFor,
-  needsResetOnTransition,
-  redactSnapshotForGrade,
-  type AgentTranscript,
-  type TranscriptGrade,
-  type TranscriptGradeSpec,
-  type TranscriptOperation,
-  type TranscriptOpsEvent,
-  type TranscriptResetEvent,
-  type TranscriptStore,
-} from '@moonshot-ai/transcript';
-
-import {
-  configChangedEventSchema,
-  modelCatalogChangedEventSchema,
-} from '../../../protocol/events-zod';
-import { toWireQuestion } from '../../../protocol/question-wire';
-import type { InFlightTurn, SnapshotSubagent } from '../../../protocol/rest-snapshot';
+import type { ApprovalResponse, Event2, IAgentScopeHandle, IDisposable, Interaction, InteractionKind, ISessionScopeHandle, Scope, SessionActivityState, Workspace } from '@moonshot-ai/agent-core-v2';
+import { IAgentLifecycleService, IAgentLoopService, IEventBus, IEventService, INTERACTION_TAG_SESSION_ID, ISessionActivityView, ISessionIndex, ISessionManager, MAIN_AGENT_ID, followSessionLifecycles, getLiveSessionById, interactions, toDisposable } from '@moonshot-ai/agent-core-v2';
+import type { ConfigWarningItem, DiUnitChangedEvent, ModelCatalogRefreshChange, ModelCatalogRefreshFailure, ModelCatalogRetiredDefault, SessionCreatedEvent, SessionMetaUpdatedEvent, Event } from './events';
+import { isVolatileEventType } from './events';
 import type { SessionCursor } from '../../../protocol/ws-control';
+import { configChangedEventSchema, modelCatalogChangedEventSchema } from '../../../protocol/events-zod';
+import type { InFlightTurn, SnapshotSubagent } from '../../../protocol/rest-snapshot';
+import { detachGrades, filterOpsForGrade, gradeFor, needsResetOnTransition, redactSnapshotForGrade, type AgentTranscript, type TranscriptGrade, type TranscriptGradeSpec, type TranscriptOperation, type TranscriptOpsEvent, type TranscriptResetEvent, type TranscriptStore } from '@moonshot-ai/transcript';
+import { toWireQuestion } from '../../../protocol/question-wire';
 import { interactionAgentId, toWireApproval } from '../../../routes/approvals';
 import { toWireWorkspace } from '../../../routes/workspaces';
-import {
-  legacyApprovalsOf,
-  LegacyActivityTracker,
-  phaseFromDomainEvent,
-} from '../../../services/legacyStatus/legacyActivity';
+import { legacyApprovalsOf, LegacyActivityTracker, phaseFromDomainEvent } from '../../../services/legacyStatus/legacyActivity';
 import { readLegacyStatus } from '../../../services/legacyStatus/legacyStatus';
 import { projectPromptContentParts } from '../../../services/messages/messageProjection';
 import type { TranscriptService } from '../../../services/transcript/transcriptService';
-import type {
-  ConfigWarningItem,
-  DiUnitChangedEvent,
-  ModelCatalogRefreshChange,
-  ModelCatalogRefreshFailure,
-  SessionCreatedEvent,
-  SessionMetaUpdatedEvent,
-  Event,
-} from './events';
-import { isVolatileEventType } from './events';
 import { InFlightTurnTracker } from './inFlightTurnTracker';
-import {
-  type EventEnvelope,
-  type JournalLogger,
-  SessionEventJournal,
-  sessionJournalPath,
-} from './sessionEventJournal';
+import { type EventEnvelope, type JournalLogger, SessionEventJournal, sessionJournalPath } from './sessionEventJournal';
 import { SubagentRosterTracker } from './subagentRosterTracker';
+
+
 
 export type ResyncReason = 'buffer_overflow' | 'session_recreated' | 'epoch_changed';
 
@@ -871,6 +813,7 @@ export class SessionEventBroadcaster {
         changed: payload.changed,
         unchanged: payload.unchanged,
         failed: payload.failed,
+        retired_default: payload.retired_default,
         agentId: 'main',
         sessionId: GLOBAL_SESSION_ID,
       } as Event).catch((error: unknown) =>
@@ -1640,6 +1583,7 @@ function modelCatalogChangedPayload(payload: unknown):
       changed: ModelCatalogRefreshChange[];
       unchanged: string[];
       failed: ModelCatalogRefreshFailure[];
+      retired_default?: ModelCatalogRetiredDefault;
     }
   | undefined {
   const parsed = modelCatalogChangedPayloadSchema.safeParse(payload);

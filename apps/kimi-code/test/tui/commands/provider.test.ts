@@ -53,7 +53,7 @@ function makeHost(
   };
   const host = {
     state: { appState },
-    waitForLazyCreation: mock(async () => {}),
+    waitForSessionAssembly: mock(async () => {}),
     harness: {
       setConfig: mock(async () => ({})),
     },
@@ -69,7 +69,7 @@ function makeHost(
       refreshConfigAfterLogin: Mock<(...args: any[]) => any>;
       activateModelAfterLogin: Mock<(...args: any[]) => any>;
     };
-    waitForLazyCreation: Mock<(...args: any[]) => any>;
+    waitForSessionAssembly: Mock<(...args: any[]) => any>;
     track: Mock<(...args: any[]) => any>;
   };
   return { host };
@@ -165,8 +165,8 @@ describe('setDefaultModel', () => {
 
     await setDefaultModel(host, 'opus', 'high');
 
-    expect(host.waitForLazyCreation).toHaveBeenCalled();
-    expect(host.waitForLazyCreation.mock.invocationCallOrder[0]!).toBeLessThan(
+    expect(host.waitForSessionAssembly).toHaveBeenCalled();
+    expect(host.waitForSessionAssembly.mock.invocationCallOrder[0]!).toBeLessThan(
       host.harness.setConfig.mock.invocationCallOrder[0]!,
     );
   });
@@ -297,6 +297,7 @@ function makeCommandRig(initial: KimiConfig, options: RigOptions = {}): CommandR
     restoreEditor: mock(),
     showError: mock(),
     showStatus: mock(),
+    waitForSessionAssembly: mock(async () => {}),
     track: mock(),
   } as unknown as RigHost;
   return { host, mounted, readConfig: () => structuredClone(store) };
@@ -1038,5 +1039,5 @@ describe('/provider edit (E)', () => {
     const form = await waitForPanel(rig, ProviderFormDialogComponent);
     expect(plain(form)).toContain('beta');
     expect(plain(form)).toContain('https://reg.test/anthropic');
-  });
+});
 });

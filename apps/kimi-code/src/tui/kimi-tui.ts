@@ -1,42 +1,14 @@
 import { writeFileSync } from 'node:fs';
 import { unlink } from 'node:fs/promises';
 import { join } from 'node:path';
-
 import type { DeviceAuthorization } from '@moonshot-ai/kimi-code-oauth';
-import { effectiveModelAlias, log } from '@moonshot-ai/kimi-code-sdk';
-import type {
-  BackgroundTaskInfo,
-  CreateSessionOptions,
-  Event,
-  KimiHarness,
-  PermissionMode,
-  PluginCommandDef,
-  Session,
-  SkillSummary,
-  TokenUsage,
-  WorkspaceTrustInfo,
-} from '@moonshot-ai/kimi-code-sdk';
+import { log } from '@moonshot-ai/kimi-code-sdk';
+import type { BackgroundTaskInfo, CreateSessionOptions, Event, KimiHarness, PermissionMode, PluginCommandDef, Session, SkillSummary, TokenUsage, WorkspaceTrustInfo, } from '@moonshot-ai/kimi-code-sdk';
 import { isTelemetryDisabledByEnv } from '@moonshot-ai/kimi-telemetry';
 import type { MigrationPlan } from '@moonshot-ai/migration-legacy';
-import {
-  type Component,
-  type Focusable,
-  Key,
-  matchesKey,
-  Spacer,
-  TuiAltScreen,
-  TuiMainScreen,
-  type TuiMouseEventResult,
-} from '@moonshot-ai/pi-tui';
+import { type Component, type Focusable, Key, matchesKey, Spacer, TuiAltScreen, TuiMainScreen, type TuiMouseEventResult, } from '@moonshot-ai/pi-tui';
 import { resolve } from 'pathe';
-
-import {
-  createMsys2PromptDeps,
-  installMsys2,
-  markPrompted,
-  setUserShellPath,
-  shouldPromptMsys2,
-} from '#/cli/msys2-prompt';
+import { createMsys2PromptDeps, installMsys2, markPrompted, setUserShellPath, shouldPromptMsys2, } from '#/cli/msys2-prompt';
 import type { CLIOptions } from '#/cli/options';
 import { getLocale, t } from '#/i18n';
 import { MigrationScreenComponent, type MigrationScreenResult } from '#/migration/index';
@@ -50,48 +22,25 @@ import { getRecommendedEffortConfig } from '#/utils/recommended-effort-config';
 import { quoteShellArg } from '#/utils/shell-quote';
 import { startupTrace } from '#/utils/startup-trace';
 import { restoreTerminalModes } from '#/utils/terminal-restore';
-
 import { resolveBannerAudienceContext, type BannerAudienceContext } from './banner/audience';
 import { BannerProvider } from './banner/banner-provider';
 import { readBannerDisplayState, writeBannerDisplayState } from './banner/state';
-import {
-  BUILTIN_SLASH_COMMANDS,
-  buildPluginSlashCommands,
-  buildSkillSlashCommands,
-  goalObjectiveLengthWarning,
-  isExperimentalFlagEnabled,
-  setExperimentalFeatures,
-  sortSlashCommands,
-  type KimiSlashCommand,
-  type SkillListSession,
-} from './commands';
+import { BUILTIN_SLASH_COMMANDS, buildPluginSlashCommands, buildSkillSlashCommands, goalObjectiveLengthWarning, isExperimentalFlagEnabled, setExperimentalFeatures, sortSlashCommands, type KimiSlashCommand, type SkillListSession, } from './commands';
 import * as slashCommands from './commands/dispatch';
 import { BannerComponent } from './components/chrome/banner';
 import { DeviceCodeBoxComponent } from './components/chrome/device-code-box';
 import { GutterContainer } from './components/chrome/gutter-container';
 import { MoonLoader } from './components/chrome/moon-loader';
 import { WelcomeComponent } from './components/chrome/welcome';
-import { defaultThinkingEffortFor } from './components/dialogs/model-selector';
+import { } from './components/dialogs/model-selector';
 import { Msys2PromptComponent, type Msys2PromptChoice } from './components/dialogs/msys2-prompt';
 import { type SessionRow } from './components/dialogs/session-picker';
 import { TrustPromptComponent, type TrustPromptChoice } from './components/dialogs/trust-prompt';
-import {
-  FileMentionProvider,
-  type SlashAutocompleteCommand,
-} from './components/editor/file-mention-provider';
+import { FileMentionProvider, type SlashAutocompleteCommand, } from './components/editor/file-mention-provider';
 import { ShellRunComponent } from './components/messages/shell-run';
 import { QueuePaneComponent } from './components/panes/queue-pane';
 import type { TuiConfig } from './config';
-import {
-  getLlmNotSetMessage,
-  getNoActiveSessionMessage,
-  MAIN_AGENT_ID,
-  MAX_AUTO_TITLE_ATTEMPTS,
-  PRODUCT_NAME,
-  SESSION_LIST_PAGE_SIZE,
-  getSessionlessStartupNotice,
-  getShuttingDownHint,
-} from './constant/kimi-tui';
+import { getLlmNotSetMessage, getNoActiveSessionMessage, MAIN_AGENT_ID, MAX_AUTO_TITLE_ATTEMPTS, PRODUCT_NAME, SESSION_LIST_PAGE_SIZE, getSessionlessStartupNotice, getShuttingDownHint, } from './constant/kimi-tui';
 import { CHROME_GUTTER } from './constant/rendering';
 import { MAX_TERMINAL_TITLE_LENGTH } from './constant/terminal';
 import { ActivityPaneController } from './controllers/activity-pane';
@@ -100,11 +49,7 @@ import { BtwPanelController } from './controllers/btw-panel';
 import { CacheHintController } from './controllers/cache-hint-controller';
 import { ClipboardImageHintController } from './controllers/clipboard-image-hint';
 import { DialogHostController } from './controllers/dialog-host';
-import {
-  EditorKeyboardController,
-  type ActiveExclusiveMode,
-  type ReviewCycleMode,
-} from './controllers/editor-keyboard';
+import { EditorKeyboardController, type ActiveExclusiveMode, type ReviewCycleMode, } from './controllers/editor-keyboard';
 import { MessageDispatchController } from './controllers/message-dispatch';
 import { PromptOptimizerController } from './controllers/prompt-optimizer';
 import type { StatusSurfaceKey } from './components/chrome/status-surface/region';
@@ -124,27 +69,8 @@ import { createQuestionAskHandler } from './reverse-rpc/question/handler';
 import { currentTheme, getColorPalette, getBuiltInPalette, isBuiltInTheme } from './theme';
 import type { ColorToken, ResolvedTheme, ThemeName } from './theme';
 import { createTUIState, type TUIState } from './tui-state';
-import {
-  INITIAL_LIVE_PANE,
-  sumTokenUsage,
-  type AppState,
-  type InlineSkillActivation,
-  type PreparedSkillActivations,
-  type KimiTUIOptions,
-  type LivePaneState,
-  type LoginProgressSpinnerHandle,
-  type QueuedMessage,
-  type SteerInputItem,
-  type TranscriptEntry,
-  type TUIStartupOptions,
-  type TUIStartupState,
-} from './types';
-import {
-  countedByExpandHint,
-  hasHiddenContent,
-  isExpandable,
-  isExpandedComponent,
-} from './utils/component-capabilities';
+import { INITIAL_LIVE_PANE, sumTokenUsage, type AppState, type InlineSkillActivation, type PreparedSkillActivations, type KimiTUIOptions, type LivePaneState, type LoginProgressSpinnerHandle, type QueuedMessage, type SteerInputItem, type TranscriptEntry, type TUIStartupOptions, type TUIStartupState, } from './types';
+import { countedByExpandHint, hasHiddenContent, isExpandable, isExpandedComponent, } from './utils/component-capabilities';
 import { isDeadTerminalError } from './utils/dead-terminal';
 import { formatErrorMessage } from './utils/event-payload';
 import { pickForegroundTasks } from './utils/foreground-task';
@@ -154,21 +80,28 @@ import { installInputLatencyProbe } from './utils/input-latency';
 import { REPLAY_TURN_LIMIT } from './utils/message-replay';
 import { hasPatchChanges } from './utils/object-patch';
 import { sessionRowsForPicker } from './utils/session-picker-rows';
-import {
-  accumulateStepCompleted,
-  accumulateToolDuration,
-  bumpTurnCount,
-  createEmptySessionStats,
-} from './utils/session-stats';
+import { accumulateStepCompleted, accumulateToolDuration, bumpTurnCount, createEmptySessionStats, } from './utils/session-stats';
 import { formatBashOutputForDisplay } from './utils/shell-output';
 import { combineStartupNotice, isOAuthLoginRequiredError } from './utils/startup';
 import { installTerminalFocusTracking } from './utils/terminal-focus';
 import { installTerminalThemeTracking } from './utils/terminal-theme';
-import { thinkingEffortFromConfig } from './utils/thinking-config';
+import { } from './utils/thinking-config';
 import { detectTmuxKeyboardWarning } from './utils/tmux-keyboard';
 import { TokenSpeedSampler } from './utils/token-speed';
 import { nextTranscriptId } from './utils/transcript-id';
 import { expandCutoffIndex, TRANSCRIPT_EXPAND_TURNS } from './utils/transcript-window';
+import { } from './components/chrome/working-tips';
+import {  } from './components/dialogs/approval-panel';
+import { } from './components/dialogs/approval-preview';
+import { } from './components/dialogs/compaction';
+import { } from './components/dialogs/help-panel';
+import { } from './components/dialogs/question-dialog';
+import { } from './components/dialogs/session-picker';
+import { ModelMigrationController } from './controllers/model-migration';
+import { lazyModelSelection } from './utils/model-switch';
+
+
+
 
 export type { TUIState } from './tui-state';
 export { createTUIState } from './tui-state';
@@ -309,6 +242,8 @@ export class KimiTUI {
   state: TUIState;
   /** In-flight lazy session creation (v2 engine), shared by concurrent first-use triggers. */
   private ensureSessionPromise: Promise<Session | undefined> | null = null;
+  /** In-flight `/new` session replacement, shared by concurrent `/new` triggers. */
+  private newSessionPromise: Promise<void> | null = null;
   readonly cacheHint = new CacheHintController(this);
   /** Staged prompt media lifecycle (daemon uploads + cache copies) — see StagingLeaseTracker. */
   private readonly staging: StagingLeaseTracker;
@@ -365,6 +300,8 @@ export class KimiTUI {
   readonly transcriptRenderer: TranscriptRendererController;
   readonly dialogController: DialogHostController;
   readonly activityPaneController: ActivityPaneController;
+  readonly modelMigration: ModelMigrationController;
+  private editorReplacementOnDisplaced: (() => void) | undefined;
 
   /** Timer that auto-clears the one-shot "moved to background" footer hint. */
   private detachHintClearTimer: ReturnType<typeof setTimeout> | undefined;
@@ -405,8 +342,8 @@ export class KimiTUI {
       },
       deleteFiles: async (fileIds, paths) => {
         await Promise.all([
-          ...fileIds.map((fileId) => this.harness.deleteFile(fileId).catch(() => undefined)),
-          ...paths.map((path) => unlink(path).catch(() => undefined)),
+          ...fileIds.map((fileId) => this.harness.deleteFile(fileId).catch(() => {})),
+          ...paths.map((path) => unlink(path).catch(() => {})),
         ]);
       },
       warn: (message) => {
@@ -471,6 +408,7 @@ export class KimiTUI {
       ...startupInput.surveyDeps,
     });
     this.promptOptimizer = new PromptOptimizerController(this);
+    this.modelMigration = new ModelMigrationController(this);
     this.editorKeyboard = new EditorKeyboardController(this, this.imageStore);
     this.editorKeyboard.install();
     this.messageDispatch = new MessageDispatchController(this, this.staging, this.imageStore);
@@ -817,7 +755,7 @@ export class KimiTUI {
             c.added > 1
               ? 'tui.statusMessages.providerModelsAdded_other'
               : 'tui.statusMessages.providerModelsAdded_one',
-            { provider: c.providerName, count: c.added },
+            { provider: c.provider_name, count: c.added },
           ),
         );
       }
@@ -829,6 +767,9 @@ export class KimiTUI {
           }),
           'warning',
         );
+      }
+      if (result.retired_default !== undefined) {
+        await this.modelMigration.retire(result.retired_default);
       }
     } catch {
       // Best-effort: startup must not crash on background refresh failures.
@@ -847,6 +788,9 @@ export class KimiTUI {
     void this.showConfigWarningsIfAny();
     if (this.state.startupState === 'picker') {
       void this.dialogController.bootstrapFromPicker();
+      void this.backgroundRefreshPromise?.then(() => {
+        this.modelMigration.request();
+      });
       return;
     }
     if (shouldReplayHistory) {
@@ -874,6 +818,9 @@ export class KimiTUI {
     }
     void this.refreshSkillCommands(this.session);
     void this.refreshPluginCommands(this.session);
+    void this.backgroundRefreshPromise?.then(() => {
+      this.modelMigration.request();
+    });
   }
 
   private async showSessionWarnings(session: Session): Promise<void> {
@@ -1028,7 +975,7 @@ export class KimiTUI {
     // input-listener level so it works no matter which component holds focus
     // (a dialog may have replaced the editor).
     const removeForceExitListener = this.state.ui.addInputListener((data) => {
-      if (!matchesKey(data, Key.ctrl('c'))) return undefined;
+      if (!matchesKey(data, Key.ctrl('c'))) return;
       this.forceExitDuringShutdown();
       return { consume: true };
     });
@@ -1656,6 +1603,7 @@ export class KimiTUI {
 
   setExternalEditorRunning(running: boolean): void {
     this.state.externalEditorRunning = running;
+    if (!running) this.modelMigration.retry();
   }
 
   setTasksBrowser(value: TUIState['tasksBrowser']): void {
@@ -1714,6 +1662,7 @@ export class KimiTUI {
       this.sessionEventHandler.retryQueuedGoalPromotion();
     }
     if (additionalDirsChanged) this.setupAutocomplete();
+    this.modelMigration.retry();
     this.state.ui.requestRender();
   }
 
@@ -1758,21 +1707,10 @@ export class KimiTUI {
   async hydrateLazyConfigDefaults(): Promise<void> {
     const { startup } = this.options;
     const config = await this.harness.getConfig({ reload: true });
-    const patch: Partial<AppState> = {};
-    const startupModel = startup.model ?? config.defaultModel;
-    if (startupModel !== undefined) {
-      patch.model = startupModel;
-      const selected = config.models?.[startupModel];
-      if (selected?.maxContextSize !== undefined) {
-        patch.maxContextTokens = selected.maxContextSize;
-      }
-    } else {
-      // The default disappeared from config (edited externally): clear the
-      // previously hydrated value instead of passing a stale explicit model
-      // to the first lazy-created session.
-      patch.model = '';
-      patch.maxContextTokens = 0;
-    }
+    const patch: Partial<AppState> = lazyModelSelection(
+      config,
+      startup.model ?? config.defaultModel,
+    );
     // CLI --auto/--yolo/--plan win over config defaults; the flags are
     // re-applied by applyStartupPermissionAndPlanToAppState at startup.
     if (!startup.auto && !startup.yolo) {
@@ -1786,20 +1724,6 @@ export class KimiTUI {
     patch.configDefaultPlanMode = config.defaultPlanMode === true;
     if (!startup.plan) {
       patch.planMode = config.defaultPlanMode === true;
-    }
-    const effort = thinkingEffortFromConfig(config.thinking);
-    if (effort !== undefined) {
-      patch.thinkingEffort = effort;
-    } else if (startupModel !== undefined) {
-      // No concrete effort configured: mirror the engine, which resolves the
-      // model's default effort at createSession time.
-      const raw = config.models?.[startupModel];
-      if (raw !== undefined) {
-        const providerType = config.providers?.[raw.provider]?.type;
-        patch.thinkingEffort = defaultThinkingEffortFor(
-          effectiveModelAlias(raw, providerType ?? raw.protocol),
-        );
-      }
     }
     if (startup.agentProfile !== undefined || startup.agentFiles !== undefined) {
       patch.agentProfile = startup.agentProfile;
@@ -1881,9 +1805,15 @@ export class KimiTUI {
     return this.ensureSessionPromise;
   }
 
-  /** Await the in-flight lazy session creation, if any (v2); no-op otherwise. */
-  async waitForLazyCreation(): Promise<void> {
+  /** Await in-flight session assembly — lazy creation or a `/new` replacement — if any; no-op otherwise. */
+  async waitForSessionAssembly(): Promise<void> {
     await this.ensureSessionPromise;
+    await this.newSessionPromise;
+  }
+
+  /** True while a `/new` replacement is assembling; idle checks must treat it as busy. */
+  get sessionReplacementInFlight(): boolean {
+    return this.newSessionPromise !== null;
   }
 
   private async lazyCreateSession(): Promise<Session | undefined> {
@@ -2195,7 +2125,7 @@ export class KimiTUI {
     // A first-use lazy creation may still be in flight: wait it out so the
     // checks below see settled state — the pending prompt would otherwise
     // replace the resumed session when creation completes.
-    await this.waitForLazyCreation();
+    await this.waitForSessionAssembly();
     if (targetSessionId === this.state.appState.sessionId) {
       this.showStatus(t('tui.statusMessages.alreadyOnSession'));
       return true;
@@ -2308,7 +2238,19 @@ export class KimiTUI {
       this.showError(t('tui.statusMessages.cannotStartNewWhileReplaying'));
       return;
     }
+    // Track the replacement like `ensureSession` tracks lazy creation: a
+    // second `/new` shares the in-flight assembly instead of racing a second
+    // createSession, and idle checks (the model-migration prompt) treat the
+    // switch as busy until it has fully settled.
+    if (this.newSessionPromise !== null) return this.newSessionPromise;
+    this.newSessionPromise = this.assembleNewSession().finally(() => {
+      this.newSessionPromise = null;
+      this.modelMigration.retry();
+    });
+    return this.newSessionPromise;
+  }
 
+  private async assembleNewSession(): Promise<void> {
     let session: Session;
     try {
       session = await this.createSessionFromCurrentState();
@@ -3116,7 +3058,7 @@ export class KimiTUI {
     // that is about to lock itself for the delete.
     this.dialogController.invalidateSessionPickerRequests();
     try {
-      await this.waitForLazyCreation();
+      await this.waitForSessionAssembly();
       if (session.id === this.state.appState.sessionId && this.session !== undefined) {
         await this.deleteCurrentSessionFromPicker(session);
         return;

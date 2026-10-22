@@ -58,6 +58,12 @@ export const ProviderConfigSchema = z.object({
 
 export type ProviderConfig = z.infer<typeof ProviderConfigSchema>;
 
+const ModelUpgradeSchema = z.object({
+  model: z.string().min(1),
+  migrationMarkdown: z.string(),
+  retirementAt: z.string().optional(),
+});
+
 const ModelAliasBaseSchema = z.object({
   provider: z.string(),
   model: z.string(),
@@ -94,6 +100,7 @@ const ModelAliasBaseSchema = z.object({
   // it when a gateway provider serves this model over a different endpoint
   // than the provider default.
   baseUrl: z.string().optional(),
+  upgrade: ModelUpgradeSchema.optional(),
 });
 
 export const ModelAliasOverrideSchema = ModelAliasBaseSchema.omit({
@@ -102,6 +109,7 @@ export const ModelAliasOverrideSchema = ModelAliasBaseSchema.omit({
   protocol: true,
   betaApi: true,
   baseUrl: true,
+  upgrade: true,
 }).partial();
 
 export type ModelAliasOverrides = z.infer<typeof ModelAliasOverrideSchema>;

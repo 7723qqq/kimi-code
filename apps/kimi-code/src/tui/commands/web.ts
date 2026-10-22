@@ -60,7 +60,7 @@ export async function handleRemoteControlCommand(
   const stdout = io.stdout ?? process.stdout;
   const stderr = io.stderr ?? process.stderr;
   const exit = io.exit ?? ((code: number): never => process.exit(code));
-  await host.waitForLazyCreation();
+  await host.waitForSessionAssembly();
   const session = host.session;
 
   const holder = await inspectRemoteControlLock(getDataDir());

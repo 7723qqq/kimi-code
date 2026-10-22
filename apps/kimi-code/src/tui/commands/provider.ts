@@ -44,7 +44,7 @@ import {
 import { TabbedModelSelectorComponent } from '../components/dialogs/tabbed-model-selector';
 import { formatErrorMessage } from '../utils/event-payload';
 import { thinkingEffortToConfig } from '../utils/thinking-config';
-import { effectiveModelForHost } from './config';
+import { effectiveModelForHost } from '../utils/model-switch';
 import type { SlashCommandHost } from './dispatch';
 import { promptApiKey, promptBaseUrl, promptCatalogProviderSelection } from './prompts';
 
@@ -330,7 +330,7 @@ export async function setDefaultModel(
     // A first prompt may still be inside lazy creation: wait it out so the
     // pick lands on the new session instead of racing its assembly (same
     // coordination as the /model path).
-    await host.waitForLazyCreation();
+    await host.waitForSessionAssembly();
   }
   await host.harness.setConfig({
     defaultModel: alias,

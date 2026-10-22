@@ -6,11 +6,13 @@
  * naming; unknown bus event types are not forwarded.
  */
 
-import type { ConfigChangedEvent } from '@moonshot-ai/agent-core-v2';
-import type { ModelsChangedEvent } from '@moonshot-ai/agent-core-v2';
-import type { ProvidersChangedEvent } from '@moonshot-ai/agent-core-v2';
-import type { ReloadSummary } from '@moonshot-ai/agent-core-v2';
-import type { IOAuthService } from '@moonshot-ai/agent-core-v2';
+import type {
+  ConfigChangedEvent,
+  IProviderDiscoveryService,
+  ModelsChangedEvent,
+  ProvidersChangedEvent,
+  ReloadSummary,
+} from '@moonshot-ai/agent-core-v2';
 import { z } from 'zod';
 
 import { stringDeltaSchema } from '../helpers.js';
@@ -33,9 +35,9 @@ export interface SessionMetaUpdatedPayload {
   };
 }
 
-/** Payload of `event.model_catalog.changed` — same shape as an OAuth refresh result. */
+/** Payload of `event.model_catalog.changed` — same shape as a provider-discovery refresh result. */
 export type CatalogChangedPayload = Awaited<
-  ReturnType<IOAuthService['refreshOAuthProviderModels']>
+  ReturnType<IProviderDiscoveryService['refreshProviderModels']>
 >;
 
 /** Public event name → payload type. Keys must stay in sync with `globalEvents`. */
@@ -87,6 +89,13 @@ export const catalogChangedSchema = z.object({
   ),
   unchanged: z.array(z.string()),
   failed: z.array(z.object({ provider: z.string(), reason: z.string() })),
+  retired_default: z
+    .object({
+      from: z.string(),
+      to: z.string(),
+      from_display_name: z.string(),
+    })
+    .optional(),
 });
 
 /** Public event name → source binding + payload schema. */

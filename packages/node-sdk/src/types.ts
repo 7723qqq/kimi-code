@@ -15,6 +15,10 @@ export type JsonValue = JsonPrimitive | JsonValue[] | { readonly [key: string]: 
 export type JsonObject = { readonly [key: string]: JsonValue };
 
 export type { ImportCustomRegistryOptions, ImportCustomRegistryResult } from '@moonshot-ai/klient';
+export type {
+  RefreshProviderModelsOptions,
+  RefreshProviderModelsResponse,
+} from '@moonshot-ai/klient';
 
 export type Unsubscribe = () => void;
 

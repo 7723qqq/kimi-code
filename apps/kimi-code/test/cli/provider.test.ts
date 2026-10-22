@@ -52,8 +52,8 @@ interface FakeHarness {
   getConfig: () => Promise<KimiConfig>;
   setConfig: (patch: Partial<KimiConfig>) => Promise<KimiConfig>;
   removeProvider: (providerId: string) => Promise<KimiConfig>;
-  supportsAtomicSectionReplace: () => boolean;
-  replaceConfigSections: (sections: Record<string, unknown>) => Promise<void>;
+  supportsAtomicSectionReplace?: () => boolean;
+  replaceConfigSections?: (sections: Record<string, unknown>) => Promise<void>;
   close: () => Promise<void>;
 }
 

@@ -107,7 +107,9 @@ import { IRuntimeResolver, IWorkspaceInstanceManager } from '#/workspace/workspa
 import { type AgentEventStore } from '#human/agent/slices';
 import { type ToolCall } from '#human/llm/message';
 
+import { IProviderDiscoveryService } from '#/app/kosongConfig/discovery';
 import { stubAgentContext } from '../../agent/agentContext/stubs';
+import { stubProviderDiscovery } from '../../stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 
 const noopLog = {
@@ -423,6 +425,7 @@ describe('AgentLifecycleService', () => {
       additionalDirs: [],
     } as unknown as ISessionWorkspaceContext);
     ix.stub(IPluginService, pluginServiceStub);
+    ix.stub(IProviderDiscoveryService, stubProviderDiscovery());
     ix.stub(IConfigService, {
       ready: Promise.resolve(),
       get: (() => undefined) as IConfigService['get'],
