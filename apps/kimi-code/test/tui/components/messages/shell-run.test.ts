@@ -210,6 +210,18 @@ describe('ShellRunComponent hasHiddenContent', () => {
     short.render(100);
     expect(short.hasHiddenContent()).toBe(false);
   });
+
+  it('does not advertise ctrl+o when only one row would hide', () => {
+    const c = create();
+    c.finish(Array.from({ length: 11 }, (_, i) => `row ${String(i + 1)}`).join('\n'), '', false);
+    c.render(100);
+    expect(c.hasHiddenContent()).toBe(false);
+
+    const foldable = create();
+    foldable.finish(Array.from({ length: 12 }, (_, i) => `row ${String(i + 1)}`).join('\n'), '', false);
+    foldable.render(100);
+    expect(foldable.hasHiddenContent()).toBe(true);
+  });
 });
 
 describe('ShellRunComponent hasHiddenContent when finished while expanded', () => {
@@ -248,14 +260,14 @@ describe('ShellRunComponent line-count caching', () => {
 
   it('keeps the preview cap boundary the same across repeated probes and a rebuild', () => {
     const atCap = create();
-    // 10 physical lines is the collapsed cap (SHELL_OUTPUT_PREVIEW_LINES).
-    atCap.finish(rows(10), '', false);
+    // 11 physical lines hides one row, which the hint row replaces.
+    atCap.finish(rows(11), '', false);
     atCap.render(80);
     expect(atCap.hasHiddenContent()).toBe(false);
     expect(atCap.hasHiddenContent()).toBe(false);
 
     const overCap = create();
-    overCap.finish(rows(11), '', false);
+    overCap.finish(rows(12), '', false);
     overCap.render(80);
     expect(overCap.hasHiddenContent()).toBe(true);
     // The cached count survives the rebuild a theme switch triggers.
