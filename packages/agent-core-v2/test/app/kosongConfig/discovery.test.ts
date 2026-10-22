@@ -235,8 +235,8 @@ describe('refreshProviderModels write behavior', () => {
             data: [
               {
                 id: 'kimi-k2',
-                context_length: 131072,
-                supports_reasoning: true,
+                limit: { context: 131072 },
+                reasoning: { type: 'both' },
                 display_name: 'Kimi K2',
               },
             ],
@@ -313,11 +313,11 @@ describe('refreshProviderModels write behavior', () => {
             data: [
               {
                 id: 'kimi-k2',
-                context_length: 262144,
-                supports_reasoning: true,
+                limit: { context: 262144 },
+                reasoning: { type: 'both' },
                 display_name: 'Fresh K2',
               },
-              { id: 'kimi-k2.5', context_length: 131072 },
+              { id: 'kimi-k2.5', limit: { context: 131072 } },
             ],
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
@@ -376,7 +376,7 @@ describe('refreshProviderModels write behavior', () => {
       async () =>
         new Response(
           JSON.stringify({
-            data: [{ id: 'kimi-k3', context_length: 1048576, supports_reasoning: true }],
+            data: [{ id: 'kimi-k3', limit: { context: 1048576 }, reasoning: { type: 'both' } }],
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         ),
@@ -422,7 +422,7 @@ describe('refreshProviderModels write behavior', () => {
       async () =>
         new Response(
           JSON.stringify({
-            data: [{ id: 'kimi-k3', context_length: 1048576, supports_reasoning: true }],
+            data: [{ id: 'kimi-k3', limit: { context: 1048576 }, reasoning: { type: 'both' } }],
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         ),
@@ -463,7 +463,7 @@ describe('refreshProviderModels write behavior', () => {
       async () =>
         new Response(
           JSON.stringify({
-            data: [{ id: 'kimi-k3', context_length: 1048576, supports_reasoning: true }],
+            data: [{ id: 'kimi-k3', limit: { context: 1048576 }, reasoning: { type: 'both' } }],
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         ),
@@ -681,8 +681,8 @@ describe('refreshProviderModels defaultModel self-heal', () => {
               data: [
                 {
                   id: 'kimi-k2',
-                  context_length: 131072,
-                  supports_reasoning: true,
+                  limit: { context: 131072 },
+                  reasoning: { type: 'both' },
                   display_name: 'Kimi K2',
                 },
               ],
@@ -758,14 +758,14 @@ describe('refreshProviderModels defaultModel self-heal', () => {
                 data: [
                   {
                     id: 'kimi-k2',
-                    context_length: 131072,
-                    supports_reasoning: true,
+                    limit: { context: 131072 },
+                    reasoning: { type: 'both' },
                     display_name: 'Kimi K2',
                   },
                   {
                     id: 'kimi-k3',
-                    context_length: 131072,
-                    supports_reasoning: true,
+                    limit: { context: 131072 },
+                    reasoning: { type: 'both' },
                     display_name: 'Kimi K3',
                   },
                 ],
