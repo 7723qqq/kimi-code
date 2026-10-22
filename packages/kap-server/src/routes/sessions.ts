@@ -24,6 +24,7 @@ import {
   SessionCreated,
   IWorkspaceAliases,
   ISessionManager,
+  IDefaultWorkspace,
   IWorkspaceInstanceManager,
   IWorkspaceService,
   closeSessionById,
@@ -35,6 +36,7 @@ import {
   isError2,
   Error2,
   type ContextMessage,
+  type DefaultWorkspaceUnavailableError,
   type IAgentScopeHandle,
   type ISessionScopeHandle,
   type Scope,
@@ -48,6 +50,7 @@ import { errEnvelope, okEnvelope } from '../envelope';
 import { t } from '../i18n';
 import { requestLog } from '../lib/requestLog';
 import { defineRoute } from '../middleware/defineRoute';
+import { defaultWorkspaceUnavailableDataSchema } from '../protocol/default-workspace';
 import { ErrorCode } from '../protocol/error-codes';
 import { pageResponseSchema } from '../protocol/pagination';
 import { booleanQueryParam } from '../protocol/query-params';
@@ -196,15 +199,34 @@ export function registerSessionsRoutes(
         [ErrorCode.VALIDATION_FAILED]: { detailsSchema },
         [ErrorCode.WORKSPACE_NOT_FOUND]: {},
         [ErrorCode.FS_PATH_NOT_FOUND]: {},
+        [ErrorCode.DEFAULT_WORKSPACE_UNAVAILABLE]: {
+          dataSchema: defaultWorkspaceUnavailableDataSchema,
+        },
       },
-      description: 'Create a new session',
+      description:
+        'Create a new session. default_workspace=true places it in the default workspace (the configured custom location, or KimiCode/Default under the Documents folder) and cannot be combined with workspace_id or metadata.',
       tags: ['sessions'],
     },
     async (req, reply) => {
       const body = req.body;
       const callerCwd = typeof body.metadata?.cwd === 'string' ? body.metadata.cwd : undefined;
       const workspaceId = body.workspace_id;
-      if (workspaceId === undefined && callerCwd === undefined) {
+      const useDefault = body.default_workspace === true;
+      if (useDefault && (workspaceId !== undefined || body.metadata !== undefined)) {
+        reply.send(
+          buildValidationEnvelope(
+            [
+              {
+                path: 'default_workspace',
+                message: 'default_workspace cannot be combined with workspace_id or metadata',
+              },
+            ],
+            req.id,
+          ),
+        );
+        return;
+      }
+      if (!useDefault && workspaceId === undefined && callerCwd === undefined) {
         reply.send(
           buildValidationEnvelope(
             [{ path: 'metadata.cwd', message: 'either workspace_id or metadata.cwd is required' }],
@@ -215,7 +237,7 @@ export function registerSessionsRoutes(
       }
 
       const registry = core.accessor.get(IWorkspaceService);
-      let workDir: string;
+      let workDir: string | undefined;
       if (workspaceId !== undefined) {
         const workspace = await registry.get(workspaceId);
         if (workspace === undefined) {
@@ -244,10 +266,11 @@ export function registerSessionsRoutes(
         }
         workDir = workspace.root;
       } else {
-        workDir = callerCwd as string;
+        workDir = callerCwd;
       }
 
       try {
+        workDir ??= await core.accessor.get(IDefaultWorkspace).ensure();
         const touched = await registry.createOrTouch(workDir);
         const handle = await core.accessor.get(ISessionManager).create({
           workspaceId: touched.id,
@@ -1332,6 +1355,16 @@ function sendMappedError(
   const log = requestLog(req);
   if (isError2(err)) {
     switch (err.code) {
+      case ErrorCodes.DEFAULT_WORKSPACE_UNAVAILABLE: {
+        const { path, reason } = (err as DefaultWorkspaceUnavailableError).details;
+        reply.send({
+          code: ErrorCode.DEFAULT_WORKSPACE_UNAVAILABLE,
+          msg: err.message,
+          data: { path: path ?? null, reason },
+          request_id: requestId,
+        });
+        return;
+      }
       case 'session.not_found':
       case 'agent.not_found':
         reply.send(errEnvelope(ErrorCode.SESSION_NOT_FOUND, err.message, requestId, err.stack));

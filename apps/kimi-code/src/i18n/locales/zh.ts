@@ -2,6 +2,9 @@ import type { LocaleMessages } from './types';
 
 export default {
   errorCodes: {
+    // default_workspace.unavailable
+    defaultWorkspaceUnavailable: '无法使用默认工作区文件夹',
+    defaultWorkspaceUnavailableAction: '请在 [default_workspace] 的 path 配置中为未关联项目的对话另选一个目录。',
     // agent.already_exists
     agentAlreadyExists: '智能体 "{{agentId}}" 已存在',
     // goal.already_exists

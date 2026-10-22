@@ -3,6 +3,7 @@ import { isAbsolute, join, normalize, resolve } from 'node:path';
 import type { IWorkspaceTrust } from '@moonshot-ai/agent-core-v2';
 import {
   IBootstrapService,
+  IDefaultWorkspace,
   IHostFileSystem,
   IWorkspaceInstanceManager,
   IWorkspaceService,
@@ -398,11 +399,15 @@ async function resolveTrust(
 }
 
 export async function toWireWorkspace(core: Scope, ws: Workspace): Promise<WorkspaceWire> {
-  const sessionCount = await core.accessor.get(IWorkspaceSessions).count(ws.id);
+  const [sessionCount, isDefault] = await Promise.all([
+    core.accessor.get(IWorkspaceSessions).count(ws.id),
+    core.accessor.get(IDefaultWorkspace).isDefault(ws.root),
+  ]);
   return {
     id: ws.id,
     root: ws.root,
     name: ws.name,
+    is_default: isDefault,
     created_at: new Date(ws.createdAt).toISOString(),
     last_opened_at: new Date(ws.lastOpenedAt).toISOString(),
     session_count: sessionCount,

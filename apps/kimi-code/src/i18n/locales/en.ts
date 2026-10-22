@@ -1,5 +1,9 @@
 export default {
   errorCodes: {
+    // default_workspace.unavailable
+    defaultWorkspaceUnavailable: 'Cannot use the default workspace folder',
+    defaultWorkspaceUnavailableAction:
+      'Pick another folder for chats without a project in the [default_workspace] path setting.',
     // agent.already_exists
     agentAlreadyExists: 'Agent "{{agentId}}" already exists',
     // goal.already_exists

@@ -106,6 +106,13 @@ describe('HostProcessService', () => {
     disposables.dispose();
   });
 
+  it('terminates a process that outlives its timeout', async () => {
+    const svc = ix.get(IHostProcessService);
+    const proc = await svc.spawn('node', ['-e', 'setTimeout(() => {}, 30000)'], { timeout: 200 });
+    const code = await proc.wait();
+    expect(code).not.toBe(0);
+  });
+
   it('spawns a process and captures stdout + exit code', async () => {
     const svc = ix.get(IHostProcessService);
     const proc = await svc.spawn('node', ['-e', 'process.stdout.write("ok")']);

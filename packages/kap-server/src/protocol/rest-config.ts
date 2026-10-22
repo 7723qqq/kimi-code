@@ -33,6 +33,7 @@ export const configResponseSchema = z
     experimental: z.record(z.string(), z.boolean()).optional(),
     telemetry: z.boolean().optional(),
     disable_feedback_survey: z.boolean().optional(),
+  default_workspace: z.unknown().optional(),
     raw: z.record(z.string(), z.unknown()).optional(),
   })
   .passthrough();
@@ -77,6 +78,7 @@ export const patchConfigRequestSchema = z.object({
   experimental: z.record(z.string(), z.boolean()).optional(),
   telemetry: z.boolean().optional(),
   disable_feedback_survey: z.boolean().optional(),
+  default_workspace: z.unknown().optional(),
 })
   .strict();
 export type PatchConfigRequest = z.infer<typeof patchConfigRequestSchema>;

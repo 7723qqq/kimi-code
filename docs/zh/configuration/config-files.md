@@ -515,6 +515,22 @@ max_chars = 500000
 
 `enabled` 可被环境变量 `KIMI_CODE_WATCH` 覆盖，优先级高于配置文件。
 
+## `default_workspace`
+
+`default_workspace` 设置未选择工作区时对话存放的位置，例如桌面端不选项目直接新建的对话。未设置时为 `<文稿目录>/KimiCode/Default`。
+
+| 字段 | 类型 | 默认值 | 说明 |
+| --- | --- | --- | --- |
+| `path` | `string` | — | 绝对路径，或以 `~/` 表示的主目录下路径。首次使用时创建 |
+
+```toml
+[default_workspace]
+path = "~/Projects/Chats"
+```
+
+更改位置不会移动已有对话，原目录保留为普通工作区。
+
+<!--
 ## `llm_requester`
 
 `llm_requester` 限制单次 LLM 请求体的大小。当组装出的请求超出预算时，会在发送前裁剪较早的内容。

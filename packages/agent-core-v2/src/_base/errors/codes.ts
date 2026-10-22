@@ -1,6 +1,8 @@
 export interface ErrorInfo {
+  readonly title?: string;
   readonly retryable: boolean;
   readonly public: boolean;
+  readonly action?: string;
 }
 
 export interface ErrorDomain {
