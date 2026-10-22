@@ -57,13 +57,13 @@ async function makeSurveyDriver(): Promise<{
   return { driver, harness, clock };
 }
 
-/** `cooldownReady` records the persisted last-shown read; it has no public accessor. */
-async function waitForCooldownReady(driver: MessageDriver): Promise<void> {
-  await waitForAssertion(() => {
-    expect((driver.surveyController as unknown as { cooldownReady: boolean }).cooldownReady).toBe(
-      true,
-    );
-  });
+/**
+ * The rating mount now reads the persisted cooldown synchronously at mount time
+ * (product `mountSessionRating`), so there is no async readiness flag to poll;
+ * yield once so callers keep their original ordering.
+ */
+async function waitForCooldownReady(_driver: MessageDriver): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 describe('KimiTUI session rating survey', () => {

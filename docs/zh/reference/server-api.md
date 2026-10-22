@@ -380,6 +380,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 | `task` | object | 任务运行时配置 |
 | `database` | object | 持久化后端配置 |
 | `watch` | object | 文件监听 / 热加载配置 |
+| `disable_feedback_survey` | boolean | 是否关闭会话评分提示 |
 | `raw` | object | 原始解析的 `config.toml` 内容，包含未建模字段 |
 
 #### `POST /api/v1/config`
@@ -429,6 +430,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 | `database` | body | object | 持久化后端配置 |
 | `watch` | body | object | 文件监听 / 热加载配置 |
 | `auto_session_title` | body | boolean | 是否允许客户端自动生成会话标题 |
+| `disable_feedback_survey` | body | boolean | 是否关闭会话评分提示 |
 
 上表的每个键都会被逐一枚举：未知的顶层键会以 `40001` 拒绝，而不是被静默丢弃，因此拼错的域名会被报出来，而不是返回成功。`GET /api/v1/config` 返回的每个域名（`raw` 除外）都能通过本端点写回。
 

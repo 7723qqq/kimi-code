@@ -380,6 +380,7 @@ On success, `data` is the config object; its fields mirror the top-level domains
 | `task` | object | Task runtime configuration |
 | `database` | object | Persistence backend configuration |
 | `watch` | object | File-watch / hot-reload configuration |
+| `disable_feedback_survey` | boolean | Whether the session rating prompt is turned off |
 | `raw` | object | Raw parsed `config.toml` content, unmodeled fields included |
 
 #### `POST /api/v1/config`
@@ -431,6 +432,7 @@ The body is a partial config object — any subset of the response domains above
 | `database` | body | object | Persistence backend configuration |
 | `watch` | body | object | File-watch / hot-reload configuration |
 | `auto_session_title` | body | boolean | Whether clients may automatically generate session titles |
+| `disable_feedback_survey` | body | boolean | Whether the session rating prompt is turned off |
 
 Every key above is enumerated: an unknown top-level key is rejected with `40001` rather than silently dropped, so a misspelled domain is reported instead of reporting success. Every domain `GET /api/v1/config` returns can be written back through this endpoint except `raw`.
 

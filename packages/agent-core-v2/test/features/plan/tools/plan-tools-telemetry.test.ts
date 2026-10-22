@@ -49,6 +49,7 @@ function recordingTelemetry(): {
   return {
     telemetry: {
       _serviceBrand: undefined,
+      track: mock(),
       track2,
       withContext: () => recordingTelemetry().telemetry,
       setContext: () => {},

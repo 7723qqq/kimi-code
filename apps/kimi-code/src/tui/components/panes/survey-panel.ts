@@ -1,22 +1,22 @@
+import type { RatingResponse } from '@moonshot-ai/kimi-code-product/session-rating';
 import type { Component } from '@moonshot-ai/pi-tui';
 import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
-
 import {
   SURVEY_MIN_OPTIONS_WIDTH,
   SURVEY_OPTION_GAP,
   surveyOptionLabels,
   surveyQuestion,
 } from '../../constant/survey';
+
 import { currentTheme } from '../../theme';
-import type { SurveyResponse } from '../../utils/survey-policy';
 
 export type SurveyPanelPhase = 'open' | 'pending' | 'thanks';
 
 export interface SurveyPanelView {
   phase: SurveyPanelPhase;
-  response?: Exclude<SurveyResponse, 'dismissed'>;
+  response?: RatingResponse;
   hoverIndex?: number;
 }
 
@@ -24,13 +24,11 @@ const DOT = '●';
 const DOT_PREFIX_WIDTH = 2;
 const OPTION_INDENT = '  ';
 
-function responseLabels(): Record<Exclude<SurveyResponse, 'dismissed'>, string> {
-  return {
-    bad: t('tui.messages.surveyResponseBad'),
-    fine: t('tui.messages.surveyResponseFine'),
-    good: t('tui.messages.surveyResponseGood'),
-  };
-}
+const RESPONSE_LABELS: Record<RatingResponse, string> = {
+  bad: 'Bad',
+  fine: 'Fine',
+  good: 'Good',
+};
 
 export class SurveyPanelComponent implements Component {
   constructor(private readonly view: SurveyPanelView) {}
@@ -43,17 +41,12 @@ export class SurveyPanelComponent implements Component {
       case 'open':
         return this.renderOpen(width);
       case 'pending': {
-        const label = this.view.response === undefined ? '' : responseLabels()[this.view.response];
-        return this.renderStatusLine(
-          width,
-          currentTheme.fg('textDim', t('tui.messages.surveyFeedbackStatus', { label })),
-        );
+        const label =
+          this.view.response === undefined ? '' : RESPONSE_LABELS[this.view.response];
+        return this.renderStatusLine(width, currentTheme.fg('textDim', `Feedback: ${label} · [escape: undo]`));
       }
       case 'thanks':
-        return this.renderStatusLine(
-          width,
-          currentTheme.fg('success', t('tui.messages.surveyThanks')),
-        );
+        return this.renderStatusLine(width, currentTheme.fg('success', t('tui.messages.surveyThanks')));
     }
   }
 
@@ -68,7 +61,10 @@ export class SurveyPanelComponent implements Component {
       return [...title, optionsLine];
     }
     if (width >= SURVEY_MIN_OPTIONS_WIDTH) {
-      return [...title, ...this.styledOptionsPerLine().map((option) => OPTION_INDENT + option)];
+      return [
+        ...title,
+        ...this.styledOptionsPerLine().map((option) => OPTION_INDENT + option),
+      ];
     }
     return title;
   }

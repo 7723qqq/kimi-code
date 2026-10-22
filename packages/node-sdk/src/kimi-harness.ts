@@ -1,8 +1,8 @@
 import { ErrorCodes, KimiError } from '#/errors';
-import type { KimiAuthFacade } from '#/auth';
 import type { ExperimentalFeatureState } from '#/flag';
 import type { ImageLimits } from '#/image';
-import type { SDKRpcClientBase } from '#/rpc';
+import type { KimiAuthFacade } from '#/auth';
+import type { ConfigSectionChange, SDKRpcClientBase } from '#/rpc';
 import { capabilityRpc, Session } from '#/session';
 import { withTelemetryContext } from '#/telemetry';
 import type {
@@ -47,6 +47,7 @@ import type {
   TelemetryContextPatch,
   TelemetryProperties,
   TestMcpServerOptions,
+  Unsubscribe,
   UploadFileOptions,
   WorkspaceTrustInfo,
 } from '#/types';
@@ -444,6 +445,10 @@ export class KimiHarness {
   /** Warnings from the most recent config.toml load; empty when the config is fully valid. */
   async getConfigDiagnostics(): Promise<ConfigDiagnostics> {
     return this.rpc.getConfigDiagnostics();
+  }
+
+  onConfigSectionChanged(listener: (change: ConfigSectionChange) => void): Unsubscribe {
+    return this.rpc.onConfigSectionChanged(listener);
   }
 
   async getExperimentalFeatures(): Promise<readonly ExperimentalFeatureState[]> {

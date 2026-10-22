@@ -7,12 +7,13 @@
  */
 
 import type {
-  ConfigChangedEvent,
+  ConfigSectionChangedEvent,
   IProviderDiscoveryService,
   ModelsChangedEvent,
   ProvidersChangedEvent,
   ReloadSummary,
 } from '@moonshot-ai/agent-core-v2';
+import type { ConfigChangedEvent } from '@moonshot-ai/agent-core-v2/app/config/config';
 import { z } from 'zod';
 
 import { stringDeltaSchema } from '../helpers.js';
@@ -43,7 +44,7 @@ export type CatalogChangedPayload = Awaited<
 /** Public event name → payload type. Keys must stay in sync with `globalEvents`. */
 export interface KlientEventPayloads {
   'config.changed': ConfigChangedEvent;
-  'config.sectionChanged': ConfigChangedEvent;
+  'config.sectionChanged': ConfigSectionChangedEvent;
   'kosong.providers.changed': ProvidersChangedEvent;
   'kosong.models.changed': ModelsChangedEvent;
   'plugins.reloaded': ReloadSummary;

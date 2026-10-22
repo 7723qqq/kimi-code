@@ -74,6 +74,7 @@ import {
   type ServerTelemetry,
   shutdownServerTelemetry,
 } from './services/telemetry';
+import { createServerSessionRating } from './services/sessionRating';
 import { TranscriptService } from './services/transcript/transcriptService';
 import { extractWsBearerToken } from './transport/ws/bearerProtocol';
 import { registerWsDebug, WS_DEBUG_PATH } from './transport/ws/debug/registerWsDebug';
@@ -321,6 +322,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     configChangedPublisher.close();
     await remoteControlManager.close();
     await app.close();
+    sessionRating.dispose();
     configWarningSubscription.dispose();
     pluginChangeSubscription.dispose();
     capabilityInstallSubscription.dispose();
@@ -358,6 +360,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
 
   const connectionRegistry = new ConnectionRegistry();
   const transcriptService = new TranscriptService({ homeDir, core, logger });
+  const sessionRating = createServerSessionRating(core, { debugEndpoints, logger });
   core.accessor.get(IGlobalSearchService).setLiveTranscriptSource(transcriptService);
   const broadcaster = new SessionEventBroadcaster({
     eventsDir: join(homeDir, 'server', 'events'),
@@ -479,6 +482,7 @@ export async function startServer(opts: ServerStartOptions): Promise<RunningServ
     connectionRegistry,
     broadcaster,
     transcriptService,
+    sessionRating,
     dangerousBypassAuth: opts.disableAuth === true,
     webTitle: opts.webTitle,
   });

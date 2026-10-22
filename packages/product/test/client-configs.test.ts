@@ -3,26 +3,31 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { setEnv, restoreEnvs } from '#test/helpers/stubs';
 
-import {
-  fetchClientConfig,
-  getClientConfig,
-  peekClientConfig,
-  resetClientConfigCache,
-} from '#/utils/client-configs';
-import { refreshKimiRegion } from '#/utils/region';
+import type { KimiRegion } from '@moonshot-ai/kimi-code-oauth';
 import { z } from 'zod';
+
+import { ClientConfigClient } from '#/client-configs/node/client-configs';
+
+let region: KimiRegion = 'mainland-cn';
+let baseUrlOverride: string | undefined;
+let cacheDir: string | undefined;
+
+const client = new ClientConfigClient({
+  region: () => region,
+  baseUrlOverride: () => baseUrlOverride,
+  cacheDir: () => cacheDir,
+});
 
 const configSchema = z.object({
   version: z.literal(1),
   config: z.record(z.string(), z.object({ min_tokens_to_hint: z.number(), cache_duration: z.number() })),
 });
 
-const CONFIG = {
+const CONFIG: z.infer<typeof configSchema> = {
   version: 1,
   config: { k3: { min_tokens_to_hint: 200000, cache_duration: 600 } },
-} as const;
+};
 
 const ENVELOPE = { name: 'estimated_cache_duration', config: CONFIG };
 
@@ -34,14 +39,17 @@ function jsonResponse(body: unknown, status = 200): Response {
 }
 
 afterEach(() => {
-  resetClientConfigCache();
+  client.reset();
+  region = 'mainland-cn';
+  baseUrlOverride = undefined;
+  cacheDir = undefined;
 });
 
 describe('fetchClientConfig', () => {
   it('POSTs the config name and unwraps the envelope', async () => {
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
 
-    const result = await fetchClientConfig('estimated_cache_duration', configSchema, {
+    const result = await client.fetch('estimated_cache_duration', configSchema, {
       fetchImpl: fetchImpl as typeof fetch,
     });
 
@@ -58,7 +66,7 @@ describe('fetchClientConfig', () => {
   it('sends the bearer token when provided, anonymous otherwise', async () => {
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
 
-    await fetchClientConfig('estimated_cache_duration', configSchema, {
+    await client.fetch('estimated_cache_duration', configSchema, {
       fetchImpl: fetchImpl as typeof fetch,
       accessToken: 'tok',
     });
@@ -69,7 +77,7 @@ describe('fetchClientConfig', () => {
       }),
     );
 
-    await fetchClientConfig('estimated_cache_duration', configSchema, {
+    await client.fetch('estimated_cache_duration', configSchema, {
       fetchImpl: fetchImpl as typeof fetch,
     });
     expect(fetchImpl).toHaveBeenLastCalledWith(
@@ -84,7 +92,7 @@ describe('fetchClientConfig', () => {
     const fetchImpl = mock(async () => jsonResponse('no', 503));
 
     await expect(
-      fetchClientConfig('estimated_cache_duration', configSchema, {
+      client.fetch('estimated_cache_duration', configSchema, {
         fetchImpl: fetchImpl as typeof fetch,
       }),
     ).resolves.toBeUndefined();
@@ -96,7 +104,7 @@ describe('fetchClientConfig', () => {
     );
 
     await expect(
-      fetchClientConfig('estimated_cache_duration', configSchema, {
+      client.fetch('estimated_cache_duration', configSchema, {
         fetchImpl: fetchImpl as typeof fetch,
       }),
     ).resolves.toBeUndefined();
@@ -108,7 +116,7 @@ describe('fetchClientConfig', () => {
     );
 
     await expect(
-      fetchClientConfig('estimated_cache_duration', configSchema, {
+      client.fetch('estimated_cache_duration', configSchema, {
         fetchImpl: fetchImpl as typeof fetch,
       }),
     ).resolves.toBeUndefined();
@@ -120,7 +128,7 @@ describe('fetchClientConfig', () => {
     });
 
     await expect(
-      fetchClientConfig('estimated_cache_duration', configSchema, {
+      client.fetch('estimated_cache_duration', configSchema, {
         fetchImpl: fetchImpl as typeof fetch,
       }),
     ).resolves.toBeUndefined();
@@ -129,7 +137,7 @@ describe('fetchClientConfig', () => {
   it('POSTs to a custom path when provided', async () => {
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
 
-    const result = await fetchClientConfig('estimated_cache_duration', configSchema, {
+    const result = await client.fetch('estimated_cache_duration', configSchema, {
       fetchImpl: fetchImpl as typeof fetch,
       path: '/resource_configs',
     });
@@ -150,12 +158,12 @@ describe('getClientConfig', () => {
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
-    const first = await getClientConfig('estimated_cache_duration', configSchema, {
+    const first = await client.get('estimated_cache_duration', configSchema, {
       fetchImpl: fetchImpl as typeof fetch,
       now,
       cacheFile: null,
     });
-    const second = await getClientConfig('estimated_cache_duration', configSchema, {
+    const second = await client.get('estimated_cache_duration', configSchema, {
       fetchImpl: fetchImpl as typeof fetch,
       now: now + 60_000,
       cacheFile: null,
@@ -170,12 +178,12 @@ describe('getClientConfig', () => {
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
-    await getClientConfig('estimated_cache_duration', configSchema, {
+    await client.get('estimated_cache_duration', configSchema, {
       fetchImpl: fetchImpl as typeof fetch,
       now,
       cacheFile: null,
     });
-    const result = await getClientConfig('estimated_cache_duration', configSchema, {
+    const result = await client.get('estimated_cache_duration', configSchema, {
       fetchImpl: fetchImpl as typeof fetch,
       now: now + 25 * 60 * 60 * 1000,
       cacheFile: null,
@@ -192,12 +200,12 @@ describe('getClientConfig', () => {
     );
     const now = Date.now();
 
-    await getClientConfig('estimated_cache_duration', configSchema, {
+    await client.get('estimated_cache_duration', configSchema, {
       fetchImpl: fetchImpl as typeof fetch,
       now,
       cacheFile: null,
     });
-    const second = await getClientConfig('other_config', configSchema, {
+    const second = await client.get('other_config', configSchema, {
       fetchImpl: fetchImpl as typeof fetch,
       now,
       cacheFile: null,
@@ -211,7 +219,7 @@ describe('getClientConfig', () => {
     const fetchImpl = mock(async () => jsonResponse('no', 500));
 
     await expect(
-      getClientConfig('estimated_cache_duration', configSchema, {
+      client.get('estimated_cache_duration', configSchema, {
         fetchImpl: fetchImpl as typeof fetch,
         cacheFile: null,
       }),
@@ -222,12 +230,12 @@ describe('getClientConfig', () => {
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
-    await getClientConfig('estimated_cache_duration', configSchema, {
+    await client.get('estimated_cache_duration', configSchema, {
       fetchImpl: fetchImpl as typeof fetch,
       now,
       cacheFile: null,
     });
-    const second = await getClientConfig('estimated_cache_duration', configSchema, {
+    const second = await client.get('estimated_cache_duration', configSchema, {
       fetchImpl: fetchImpl as typeof fetch,
       now,
       cacheFile: null,
@@ -241,15 +249,15 @@ describe('getClientConfig', () => {
   it('peeks a custom-path entry only when the path matches', async () => {
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
-    await getClientConfig('estimated_cache_duration', configSchema, {
+    await client.get('estimated_cache_duration', configSchema, {
       fetchImpl: fetchImpl as typeof fetch,
       now,
       cacheFile: null,
       path: '/resource_configs',
     });
 
-    expect(peekClientConfig('estimated_cache_duration', configSchema, now, '/resource_configs')).toEqual(CONFIG);
-    expect(peekClientConfig('estimated_cache_duration', configSchema, now)).toBeUndefined();
+    expect(client.peek('estimated_cache_duration', configSchema, now, '/resource_configs')).toEqual(CONFIG);
+    expect(client.peek('estimated_cache_duration', configSchema, now)).toBeUndefined();
   });
 });
 
@@ -257,20 +265,20 @@ describe('peekClientConfig', () => {
   it('returns the cached config only while fresh', async () => {
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
-    await getClientConfig('estimated_cache_duration', configSchema, {
+    await client.get('estimated_cache_duration', configSchema, {
       fetchImpl: fetchImpl as typeof fetch,
       now,
       cacheFile: null,
     });
 
-    expect(peekClientConfig('estimated_cache_duration', configSchema, now + 60_000)).toEqual(CONFIG);
+    expect(client.peek('estimated_cache_duration', configSchema, now + 60_000)).toEqual(CONFIG);
     expect(
-      peekClientConfig('estimated_cache_duration', configSchema, now + 25 * 60 * 60 * 1000),
+      client.peek('estimated_cache_duration', configSchema, now + 25 * 60 * 60 * 1000),
     ).toBeUndefined();
   });
 
   it('returns undefined for a config that was never fetched', () => {
-    expect(peekClientConfig('estimated_cache_duration', configSchema)).toBeUndefined();
+    expect(client.peek('estimated_cache_duration', configSchema)).toBeUndefined();
   });
 });
 
@@ -292,7 +300,7 @@ describe('getClientConfig disk cache', () => {
     await writeFile(file, JSON.stringify({ version: 1, fetchedAt: now, config: CONFIG }));
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
 
-    const result = await getClientConfig('estimated_cache_duration', configSchema, {
+    const result = await client.get('estimated_cache_duration', configSchema, {
       fetchImpl: fetchImpl as typeof fetch,
       now: now + 60_000,
       cacheFile: file,
@@ -300,24 +308,23 @@ describe('getClientConfig disk cache', () => {
 
     expect(result).toEqual(CONFIG);
     expect(fetchImpl).not.toHaveBeenCalled();
-    // The in-process layer was warmed with the original fetch time.
-    expect(peekClientConfig('estimated_cache_duration', configSchema, now + 60_000)).toEqual(CONFIG);
+    expect(client.peek('estimated_cache_duration', configSchema, now + 60_000)).toEqual(CONFIG);
   });
 
   it('serves the disk entry after the in-process cache is dropped (restart)', async () => {
     const now = Date.now();
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
-    await getClientConfig('estimated_cache_duration', configSchema, {
+    await client.get('estimated_cache_duration', configSchema, {
       fetchImpl: fetchImpl as typeof fetch,
       now,
       cacheFile: file,
     });
 
-    resetClientConfigCache();
+    client.reset();
     const offline = mock(async (): Promise<Response> => {
       throw new Error('offline');
     });
-    const result = await getClientConfig('estimated_cache_duration', configSchema, {
+    const result = await client.get('estimated_cache_duration', configSchema, {
       fetchImpl: offline as typeof fetch,
       now: now + 60_000,
       cacheFile: file,
@@ -334,15 +341,12 @@ describe('getClientConfig disk cache', () => {
       JSON.stringify({ version: 1, fetchedAt: now - 23 * 60 * 60 * 1000, config: CONFIG }),
     );
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
-
-    // 23h old on disk: still fresh.
-    await getClientConfig('estimated_cache_duration', configSchema, {
+    await client.get('estimated_cache_duration', configSchema, {
       fetchImpl: fetchImpl as typeof fetch,
       now,
       cacheFile: file,
     });
-    // 2h later (25h since the actual fetch): the warmed entry must be stale.
-    expect(peekClientConfig('estimated_cache_duration', configSchema, now + 2 * 60 * 60 * 1000)).toBeUndefined();
+    expect(client.peek('estimated_cache_duration', configSchema, now + 2 * 60 * 60 * 1000)).toBeUndefined();
   });
 
   it('refetches and rewrites the file when the disk entry is stale', async () => {
@@ -353,7 +357,7 @@ describe('getClientConfig disk cache', () => {
     );
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
 
-    const result = await getClientConfig('estimated_cache_duration', configSchema, {
+    const result = await client.get('estimated_cache_duration', configSchema, {
       fetchImpl: fetchImpl as typeof fetch,
       now,
       cacheFile: file,
@@ -369,7 +373,7 @@ describe('getClientConfig disk cache', () => {
     await writeFile(file, 'not json');
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
 
-    const result = await getClientConfig('estimated_cache_duration', configSchema, {
+    const result = await client.get('estimated_cache_duration', configSchema, {
       fetchImpl: fetchImpl as typeof fetch,
       cacheFile: file,
     });
@@ -385,7 +389,7 @@ describe('getClientConfig disk cache', () => {
     );
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
 
-    const result = await getClientConfig('estimated_cache_duration', configSchema, {
+    const result = await client.get('estimated_cache_duration', configSchema, {
       fetchImpl: fetchImpl as typeof fetch,
       cacheFile: file,
     });
@@ -395,12 +399,11 @@ describe('getClientConfig disk cache', () => {
   });
 
   it('still resolves when the cache file cannot be written', async () => {
-    // The parent path is a regular file, so mkdir for the cache file fails.
     const blocker = join(dir, 'blocker');
     await writeFile(blocker, 'x');
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
 
-    const result = await getClientConfig('estimated_cache_duration', configSchema, {
+    const result = await client.get('estimated_cache_duration', configSchema, {
       fetchImpl: fetchImpl as typeof fetch,
       cacheFile: join(blocker, 'nested', 'config.json'),
     });
@@ -410,17 +413,17 @@ describe('getClientConfig disk cache', () => {
 
   it('writes paths that sanitize alike to distinct cache files', async () => {
     const home = await mkdtemp(join(tmpdir(), 'client-configs-home-'));
-    setEnv('KIMI_CODE_HOME', home);
+    cacheDir = join(home, 'cache', 'client-configs');
     try {
       const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
       const now = Date.now();
 
-      await getClientConfig('estimated_cache_duration', configSchema, {
+      await client.get('estimated_cache_duration', configSchema, {
         fetchImpl: fetchImpl as typeof fetch,
         now,
         path: '/client_configs',
       });
-      await getClientConfig('estimated_cache_duration', configSchema, {
+      await client.get('estimated_cache_duration', configSchema, {
         fetchImpl: fetchImpl as typeof fetch,
         now,
         path: '/client:configs',
@@ -429,7 +432,6 @@ describe('getClientConfig disk cache', () => {
       const files = await readdir(join(home, 'cache', 'client-configs'));
       expect(files.length).toBe(2);
     } finally {
-      restoreEnvs();
       await rm(home, { recursive: true, force: true });
     }
   });
@@ -437,19 +439,13 @@ describe('getClientConfig disk cache', () => {
 
 describe('region awareness', () => {
   beforeEach(() => {
-    setEnv('KIMI_CODE_OAUTH_HOST', 'https://auth.kimi.ai');
-    refreshKimiRegion();
-  });
-
-  afterEach(() => {
-    restoreEnvs();
-    refreshKimiRegion();
+    region = 'global';
   });
 
   it('fetches from the active region profile and partitions the cache by region', async () => {
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
 
-    const data = await getClientConfig('estimated_cache_duration', configSchema, {
+    const data = await client.get('estimated_cache_duration', configSchema, {
       fetchImpl: fetchImpl as typeof fetch,
       cacheFile: null,
     });
@@ -459,19 +455,16 @@ describe('region awareness', () => {
       expect.stringContaining('https://api.kimi.ai/coding/v1/client_configs'),
       expect.anything(),
     );
-    expect(peekClientConfig('estimated_cache_duration', configSchema)).toEqual(CONFIG);
-
-    // A region switch must not serve the other deployment's cached entry.
-    setEnv('KIMI_CODE_OAUTH_HOST', 'https://auth.kimi.com');
-    refreshKimiRegion();
-    expect(peekClientConfig('estimated_cache_duration', configSchema)).toBeUndefined();
+    expect(client.peek('estimated_cache_duration', configSchema)).toEqual(CONFIG);
+    region = 'mainland-cn';
+    expect(client.peek('estimated_cache_duration', configSchema)).toBeUndefined();
   });
 
   it('keeps honoring the KIMI_CODE_BASE_URL override ahead of the profile', async () => {
-    setEnv('KIMI_CODE_BASE_URL', 'https://env-api.example.com');
+    baseUrlOverride = 'https://env-api.example.com';
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
 
-    await fetchClientConfig('estimated_cache_duration', configSchema, {
+    await client.fetch('estimated_cache_duration', configSchema, {
       fetchImpl: fetchImpl as typeof fetch,
     });
 

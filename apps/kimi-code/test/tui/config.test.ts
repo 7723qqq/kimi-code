@@ -3,14 +3,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { setEnv, restoreEnvs } from '#test/helpers/stubs';
+
+import { restoreEnvs, setEnv } from '#test/helpers/stubs';
 
 import {
   DEFAULT_TUI_CONFIG,
   getInvalidTuiConfigMessage,
   loadTuiConfig,
   parseTuiConfig,
-  renderTuiConfig,
+  removeLegacySurveySetting,
   saveTuiConfig,
   TuiConfigParseError,
 } from '#/tui/config';
@@ -39,7 +40,7 @@ describe('TUI config', () => {
     expect(text).toContain('Client preferences for kimi-code.');
     expect(text).toContain('theme = "auto"');
     expect(text).toContain('cache_expiry_hint = true');
-    expect(text).toContain('disable_feedback_survey = false');
+    expect(text).not.toContain('disable_feedback_survey');
     expect(text).toContain('auto_session_title = true');
     expect(text).toContain('command = ""');
     expect(text).toContain('[upgrade]');
@@ -65,13 +66,13 @@ auto_install = false
 `);
 
     expect(config).toEqual({
+      locale: 'en',
+      disableFeedbackSurvey: undefined,
       theme: 'light',
       tuiMode: 'regular',
       renderLatex: true,
       disablePasteBurst: false,
-      locale: 'en',
       cacheExpiryHint: true,
-      disableFeedbackSurvey: false,
       autoSessionTitle: true,
       editorCommand: 'code --wait',
       notifications: { enabled: false, condition: 'always' },
@@ -109,27 +110,14 @@ cache_expiry_hint = false
     expect(config.cacheExpiryHint).toBe(false);
   });
 
-  it('defaults disable_feedback_survey to false and parses true', () => {
-    expect(parseTuiConfig('').disableFeedbackSurvey).toBe(false);
+  it('keeps a legacy disable_feedback_survey value only when the file sets it', () => {
+    expect(parseTuiConfig('').disableFeedbackSurvey).toBeUndefined();
 
     const config = parseTuiConfig(`
 disable_feedback_survey = true
 `);
 
     expect(config.disableFeedbackSurvey).toBe(true);
-  });
-
-  it('ignores a hand-written [astron] section instead of round-tripping it', () => {
-    const warnings: string[] = [];
-    const config = parseTuiConfig('[astron]\ntemperature = 0.5\n', (message) =>
-      warnings.push(message),
-    );
-
-    expect('astron' in config).toBe(false);
-    expect(renderTuiConfig(config)).not.toContain('[astron]');
-    expect(warnings).toEqual([
-      '[tui.toml] [astron] is ignored; the Astron panel writes [providers.astron] in config.toml',
-    ]);
   });
 
   it('defaults auto_session_title to true and parses false', () => {
@@ -149,13 +137,13 @@ command = "   "
 `);
 
     expect(config).toEqual({
+      locale: 'en',
+      disableFeedbackSurvey: undefined,
       theme: 'auto',
       tuiMode: 'regular',
       renderLatex: true,
       disablePasteBurst: false,
-      locale: 'en',
       cacheExpiryHint: true,
-      disableFeedbackSurvey: false,
       autoSessionTitle: true,
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
@@ -190,8 +178,8 @@ command = "   "
     await saveTuiConfig(
       {
         theme: 'light',
+        locale: DEFAULT_TUI_CONFIG.locale,
         disablePasteBurst: false,
-        locale: 'en',
         cacheExpiryHint: true,
         editorCommand: 'vim',
         notifications: { enabled: false, condition: 'always' },
@@ -202,13 +190,13 @@ command = "   "
     );
 
     expect(await loadTuiConfig(filePath)).toEqual({
+      locale: 'en',
+      disableFeedbackSurvey: undefined,
       theme: 'light',
       tuiMode: 'regular',
       renderLatex: true,
       disablePasteBurst: false,
-      locale: 'en',
       cacheExpiryHint: true,
-      disableFeedbackSurvey: false,
       autoSessionTitle: true,
       editorCommand: 'vim',
       notifications: { enabled: false, condition: 'always' },
@@ -218,14 +206,80 @@ command = "   "
     });
   });
 
-  it('round-trips a disable_feedback_survey opt-out', async () => {
-    await saveTuiConfig(
-      { ...DEFAULT_TUI_CONFIG, disableFeedbackSurvey: true },
-      filePath,
-    );
+  it('preserves the legacy opt-out when an unrelated preference is saved', async () => {
+    writeFileSync(filePath, 'disable_feedback_survey = true\nauto_session_title = false\n');
+    const previous = await loadTuiConfig(filePath);
+    await saveTuiConfig({ ...previous, disableFeedbackSurvey: undefined, theme: 'light' }, filePath);
 
-    expect(readFileSync(filePath, 'utf-8')).toContain('disable_feedback_survey = true');
-    expect((await loadTuiConfig(filePath)).disableFeedbackSurvey).toBe(true);
+    expect(await loadTuiConfig(filePath)).toMatchObject({
+      theme: 'light', disableFeedbackSurvey: true, autoSessionTitle: false,
+    });
+  });
+
+  it.each([
+    { source: '[[[', legacy: undefined },
+    { source: 'render_latex = "false"\ndisable_feedback_survey = true', legacy: true },
+    { source: 'theme = 42\ndisable_feedback_survey = false', legacy: false },
+    { source: 'disable_feedback_survey = "true"', legacy: undefined },
+  ])('saves valid preferences after falling back from $source', async ({ source, legacy }) => {
+    writeFileSync(filePath, source);
+    await expect(loadTuiConfig(filePath)).rejects.toBeInstanceOf(TuiConfigParseError);
+    await saveTuiConfig({ ...DEFAULT_TUI_CONFIG, theme: 'light' }, filePath);
+    const saved = await loadTuiConfig(filePath);
+    expect(saved.theme).toBe('light');
+    expect(saved.disableFeedbackSurvey).toBe(legacy);
+  });
+
+  it('removes only the migrated survey setting and can repeat the cleanup', async () => {
+    writeFileSync(filePath, 'disable_feedback_survey = true\nauto_session_title = false\ntheme = "light"\n[custom]\nvalue = 42\n');
+    await removeLegacySurveySetting(filePath);
+    const cleaned = readFileSync(filePath, 'utf-8');
+    expect(cleaned).not.toContain('disable_feedback_survey');
+    expect(cleaned).toContain('value = 42');
+    expect(await loadTuiConfig(filePath)).toMatchObject({ theme: 'light', autoSessionTitle: false });
+    await removeLegacySurveySetting(filePath);
+    expect(readFileSync(filePath, 'utf-8')).toBe(cleaned);
+    await saveTuiConfig({ ...DEFAULT_TUI_CONFIG, theme: 'dark' }, filePath);
+    expect(readFileSync(filePath, 'utf-8')).not.toContain('disable_feedback_survey');
+  });
+
+  it('removes the survey setting line without disturbing comments or tables', async () => {
+    writeFileSync(filePath, [
+      '# ~/.kimi-code/tui.toml',
+      '# Client preferences for kimi-code.',
+      'theme = "dark" # "auto" | "dark" | "light"',
+      '# my own note',
+      'disable_feedback_survey = true',
+      '# disable_feedback_survey = false',
+      '',
+      '[custom]',
+      'disable_feedback_survey = true',
+      'value = 42',
+      '',
+    ].join('\n'));
+
+    await removeLegacySurveySetting(filePath);
+
+    expect(readFileSync(filePath, 'utf-8')).toBe([
+      '# ~/.kimi-code/tui.toml',
+      '# Client preferences for kimi-code.',
+      'theme = "dark" # "auto" | "dark" | "light"',
+      '# my own note',
+      '# disable_feedback_survey = false',
+      '',
+      '[custom]',
+      'disable_feedback_survey = true',
+      'value = 42',
+      '',
+    ].join('\n'));
+  });
+
+  it('removes a quoted spelling of the survey setting key', async () => {
+    writeFileSync(filePath, '"disable_feedback_survey" = true\ntheme = "dark"\n');
+
+    await removeLegacySurveySetting(filePath);
+
+    expect(readFileSync(filePath, 'utf-8')).toBe('theme = "dark"\n');
   });
 
   it('round-trips an auto_session_title opt-out', async () => {
@@ -243,8 +297,8 @@ command = "   "
     await saveTuiConfig(
       {
         theme,
-        disablePasteBurst: DEFAULT_TUI_CONFIG.disablePasteBurst,
         locale: DEFAULT_TUI_CONFIG.locale,
+        disablePasteBurst: DEFAULT_TUI_CONFIG.disablePasteBurst,
         cacheExpiryHint: DEFAULT_TUI_CONFIG.cacheExpiryHint,
         editorCommand: null,
         notifications: DEFAULT_TUI_CONFIG.notifications,

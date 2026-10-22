@@ -56,6 +56,7 @@ function planService(): IAgentPlanService {
 function recordingTelemetry(): ITelemetryService {
   return {
     _serviceBrand: undefined,
+    track: mock(),
     track2: mock(),
     withContext: () => recordingTelemetry(),
     setContext: () => {},

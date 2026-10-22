@@ -23,7 +23,6 @@ import { kimiCodePluginMarketplaceUrl } from '#/constant/app';
 import { handleFeedbackCommand } from '#/tui/commands/info';
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
 import { openUrl } from '#/utils/open-url';
-import { readSurveyLastShownTime } from '#/utils/survey-state-store';
 import { createFeedbackArchivePath } from '../../src/feedback/archive';
 import * as feedbackArchiveModule from '../../src/feedback/archive';
 import { packageCodebase, scanCodebase } from '../../src/feedback/codebase';
@@ -11900,7 +11899,7 @@ describe('KimiTUI session rating survey', () => {
           emitTurn(driver, 1);
           await driver.reloadCurrentSessionView(session as unknown as Session, 'Reloaded session.');
         }
-        await readSurveyLastShownTime();
+        await new Promise((resolve) => setTimeout(resolve, 0));
         const clock = installGlobalClock();
         try {
           harness.trackWithContext.mockClear();
@@ -11944,7 +11943,7 @@ describe('KimiTUI session rating survey', () => {
         } else {
           await driver.createNewSession();
         }
-        await readSurveyLastShownTime();
+        await new Promise((resolve) => setTimeout(resolve, 0));
         const clock = installGlobalClock();
         try {
           harness.trackWithContext.mockClear();
@@ -11976,9 +11975,7 @@ describe('KimiTUI session rating survey', () => {
     spyOn(Math, 'random').mockReturnValue(0);
     try {
       const { driver, harness } = await makeDriver();
-      await waitForAssertion(() => {
-        expect((driver.surveyController as unknown as { cooldownReady: boolean }).cooldownReady).toBe(true);
-      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
       const clock = installGlobalClock();
       harness.track.mockClear();
 
@@ -12116,9 +12113,7 @@ describe('KimiTUI session rating survey', () => {
     spyOn(Math, 'random').mockReturnValue(0);
     try {
       const { driver, harness } = await makeDriver();
-      await waitForAssertion(() => {
-        expect((driver.surveyController as unknown as { cooldownReady: boolean }).cooldownReady).toBe(true);
-      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
       const clock = installGlobalClock();
       harness.track.mockClear();
 
@@ -12184,9 +12179,7 @@ describe('KimiTUI session rating survey', () => {
     spyOn(Math, 'random').mockReturnValue(0);
     try {
       const { driver } = await makeDriver();
-      await waitForAssertion(() => {
-        expect((driver.surveyController as unknown as { cooldownReady: boolean }).cooldownReady).toBe(true);
-      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
       const clock = installGlobalClock();
       const emit = (event: Event) => {
         driver.sessionEventHandler.handleEvent(event, () => {});
@@ -12229,9 +12222,7 @@ describe('KimiTUI session rating survey', () => {
     spyOn(Math, 'random').mockReturnValue(0);
     try {
       const { driver } = await makeDriver();
-      await waitForAssertion(() => {
-        expect((driver.surveyController as unknown as { cooldownReady: boolean }).cooldownReady).toBe(true);
-      });
+      await new Promise((resolve) => setTimeout(resolve, 0));
       const clock = installGlobalClock();
       const emit = (event: Event) => {
         driver.sessionEventHandler.handleEvent(event, () => {});

@@ -231,6 +231,7 @@ export function makeHarness(session = makeSession(), overrides: Record<string, u
       return interactiveAgentScope.run(agentId, fn);
     }),
     getExperimentalFeatures: mock(async () => []),
+    onConfigSectionChanged: mock(() => () => {}),
     auth: {
       status: mock(async () => ({
         providers: [{ providerName: 'managed:kimi-code', hasToken: true }],

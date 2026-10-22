@@ -27,7 +27,7 @@
     },
     "apps/kimi-code": {
       "name": "@moonshot-ai/kimi-code",
-      "version": "2.2.0",
+      "version": "2.3.0",
       "bin": {
         "kimi": "dist/main.mjs",
       },
@@ -42,6 +42,7 @@
         "@moonshot-ai/i18n-shared": "workspace:^",
         "@moonshot-ai/kap-server": "workspace:^",
         "@moonshot-ai/kimi-code-oauth": "workspace:^",
+        "@moonshot-ai/kimi-code-product": "workspace:^",
         "@moonshot-ai/kimi-code-sdk": "workspace:^",
         "@moonshot-ai/kimi-telemetry": "workspace:^",
         "@moonshot-ai/migration-legacy": "workspace:^",
@@ -137,7 +138,7 @@
     },
     "apps/vscode": {
       "name": "kimi-code",
-      "version": "0.8.2",
+      "version": "0.8.3",
       "dependencies": {
         "@base-ui/react": "^1.0.0",
         "@fontsource-variable/inter": "5.2.8",
@@ -221,7 +222,7 @@
     },
     "packages/agent-core-v2": {
       "name": "@moonshot-ai/agent-core-v2",
-      "version": "0.5.0",
+      "version": "0.5.1",
       "dependencies": {
         "@antfu/utils": "^9.3.0",
         "@anthropic-ai/claude-agent-sdk": "^0.3.304",
@@ -285,12 +286,13 @@
     },
     "packages/kap-server": {
       "name": "@moonshot-ai/kap-server",
-      "version": "0.2.4",
+      "version": "0.2.5",
       "dependencies": {
         "@fastify/multipart": "^10.0.0",
         "@fastify/swagger": "^9.7.0",
         "@moonshot-ai/agent-core-v2": "workspace:^",
         "@moonshot-ai/kimi-code-oauth": "workspace:^",
+        "@moonshot-ai/kimi-code-product": "workspace:^",
         "@moonshot-ai/kimi-i18n": "workspace:^",
         "@moonshot-ai/minidb": "workspace:*",
         "@moonshot-ai/remote-control": "workspace:^",
@@ -358,7 +360,7 @@
     },
     "packages/node-sdk": {
       "name": "@moonshot-ai/kimi-code-sdk",
-      "version": "0.21.0",
+      "version": "0.21.1",
       "dependencies": {
         "@antfu/utils": "^9.3.0",
         "smol-toml": "catalog:",
@@ -368,6 +370,7 @@
       "devDependencies": {
         "@moonshot-ai/agent-core-v2": "workspace:^",
         "@moonshot-ai/kimi-code-oauth": "workspace:^",
+        "@moonshot-ai/kimi-code-product": "workspace:^",
         "@moonshot-ai/kimi-i18n": "workspace:^",
         "@moonshot-ai/klient": "workspace:^",
         "@moonshot-ai/kosong": "workspace:^",
@@ -377,7 +380,7 @@
     },
     "packages/oauth": {
       "name": "@moonshot-ai/kimi-code-oauth",
-      "version": "0.4.0",
+      "version": "0.5.0",
       "dependencies": {
         "@moonshot-ai/kosong": "workspace:*",
         "proper-lockfile": "^4.1.2",
@@ -399,9 +402,18 @@
         "chalk": "^5.4.1",
       },
     },
+    "packages/product": {
+      "name": "@moonshot-ai/kimi-code-product",
+      "version": "0.0.1",
+      "dependencies": {
+        "@moonshot-ai/agent-core-v2": "workspace:^",
+        "@moonshot-ai/kimi-code-oauth": "workspace:^",
+        "zod": "catalog:",
+      },
+    },
     "packages/remote-control": {
       "name": "@moonshot-ai/remote-control",
-      "version": "0.0.1",
+      "version": "0.0.2",
       "dependencies": {
         "@moonshot-ai/agent-core-v2": "workspace:^",
         "@moonshot-ai/kimi-code-oauth": "workspace:^",
@@ -982,6 +994,8 @@
     "@moonshot-ai/kimi-code": ["@moonshot-ai/kimi-code@workspace:apps/kimi-code"],
 
     "@moonshot-ai/kimi-code-oauth": ["@moonshot-ai/kimi-code-oauth@workspace:packages/oauth"],
+
+    "@moonshot-ai/kimi-code-product": ["@moonshot-ai/kimi-code-product@workspace:packages/product"],
 
     "@moonshot-ai/kimi-code-sdk": ["@moonshot-ai/kimi-code-sdk@workspace:packages/node-sdk"],
 

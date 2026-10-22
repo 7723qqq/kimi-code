@@ -41,6 +41,9 @@ export async function handleReloadCommand(host: SlashCommandHost): Promise<void>
   }
   host.refreshSlashCommandAutocomplete();
   applyRuntimeConfig(host, config);
+  host.setAppState({
+    disableFeedbackSurvey: config.disableFeedbackSurvey ?? tuiConfig.disableFeedbackSurvey,
+  });
   await applyReloadedTuiConfig(host, tuiConfig);
 
   if (session === undefined) {
@@ -71,7 +74,6 @@ export async function applyReloadedTuiConfig(
     disablePasteBurst: config.disablePasteBurst,
     renderLatex: config.renderLatex,
     cacheExpiryHint: config.cacheExpiryHint,
-    disableFeedbackSurvey: config.disableFeedbackSurvey,
     autoSessionTitle: config.autoSessionTitle,
     notifications: config.notifications,
     upgrade: config.upgrade,

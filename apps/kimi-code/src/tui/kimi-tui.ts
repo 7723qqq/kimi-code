@@ -3,7 +3,7 @@ import { unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { DeviceAuthorization } from '@moonshot-ai/kimi-code-oauth';
 import { log } from '@moonshot-ai/kimi-code-sdk';
-import type { BackgroundTaskInfo, CreateSessionOptions, Event, KimiHarness, PermissionMode, PluginCommandDef, Session, SkillSummary, TokenUsage, WorkspaceTrustInfo, } from '@moonshot-ai/kimi-code-sdk';
+import type { BackgroundTaskInfo, CreateSessionOptions, Event, KimiHarness, PermissionMode, PluginCommandDef, Session, SkillSummary, TokenUsage, Unsubscribe, WorkspaceTrustInfo, } from '@moonshot-ai/kimi-code-sdk';
 import { isTelemetryDisabledByEnv } from '@moonshot-ai/kimi-telemetry';
 import type { MigrationPlan } from '@moonshot-ai/migration-legacy';
 import { type Component, type Focusable, Key, matchesKey, Spacer, TuiAltScreen, TuiMainScreen, type TuiMouseEventResult, } from '@moonshot-ai/pi-tui';
@@ -19,6 +19,7 @@ import { getInputHistoryFile } from '#/utils/paths';
 import { detectFdPath, ensureFdPath } from '#/utils/process/fd-detect';
 import { applyRecommendedEffort } from '#/utils/recommended-effort';
 import { getRecommendedEffortConfig } from '#/utils/recommended-effort-config';
+import { migrateLegacySurveySetting } from '#/utils/survey-setting';
 import { quoteShellArg } from '#/utils/shell-quote';
 import { startupTrace } from '#/utils/startup-trace';
 import { restoreTerminalModes } from '#/utils/terminal-restore';
@@ -39,7 +40,7 @@ import { TrustPromptComponent, type TrustPromptChoice } from './components/dialo
 import { FileMentionProvider, type SlashAutocompleteCommand, } from './components/editor/file-mention-provider';
 import { ShellRunComponent } from './components/messages/shell-run';
 import { QueuePaneComponent } from './components/panes/queue-pane';
-import type { TuiConfig } from './config';
+import { removeLegacySurveySetting, type TuiConfig } from './config';
 import { getLlmNotSetMessage, getNoActiveSessionMessage, MAIN_AGENT_ID, MAX_AUTO_TITLE_ATTEMPTS, PRODUCT_NAME, SESSION_LIST_PAGE_SIZE, getSessionlessStartupNotice, getShuttingDownHint, } from './constant/kimi-tui';
 import { CHROME_GUTTER } from './constant/rendering';
 import { MAX_TERMINAL_TITLE_LENGTH } from './constant/terminal';
@@ -220,21 +221,6 @@ function createInitialAppState(input: KimiTUIStartupInput): AppState {
 /** How long the one-shot "moved to background" footer hint stays visible. */
 const DETACH_HINT_DISPLAY_MS = 4_000;
 
-function isUserSubmittedTurnOrigin(origin: TurnStartedEvent['origin'] | undefined): boolean {
-  if (origin === undefined) return false;
-  switch (origin.kind) {
-    case 'user':
-      return true;
-    case 'skill_activation':
-    case 'plugin_command':
-      return origin.trigger === 'user-slash';
-    case 'shell_command':
-      return origin.phase === 'input';
-    default:
-      return false;
-  }
-}
-
 export class KimiTUI {
   readonly harness: KimiHarness;
   readonly options: KimiTUIOptions;
@@ -251,6 +237,7 @@ export class KimiTUI {
   private readonly approvalController = new ApprovalController();
   private readonly questionController = new QuestionController();
   private readonly reverseRpcDisposers: Array<() => void> = [];
+  private surveySettingSubscription: Unsubscribe | undefined;
   private skillCommands: readonly KimiSlashCommand[] = [];
   readonly skillCommandMap = new Map<string, string>();
   private pluginCommands: readonly KimiSlashCommand[] = [];
@@ -396,6 +383,13 @@ export class KimiTUI {
         },
       }),
     );
+    this.surveySettingSubscription =
+      typeof this.harness.onConfigSectionChanged === 'function'
+        ? this.harness.onConfigSectionChanged((change) => {
+            if (change.domain !== 'disableFeedbackSurvey') return;
+            this.setAppState({ disableFeedbackSurvey: change.value === true ? true : undefined });
+          })
+        : undefined;
     this.streamingUI = new StreamingUIController(this);
     this.authFlow = new AuthFlowController(this);
     this.btwPanelController = new BtwPanelController(this, this.imageStore, this.staging);
@@ -776,12 +770,35 @@ export class KimiTUI {
     }
   }
 
+  private async migrateLegacySurveySetting(): Promise<void> {
+    const legacyValue = this.state.appState.disableFeedbackSurvey;
+    try {
+      const outcome = await migrateLegacySurveySetting({
+        legacyValue,
+        getConfig: () => this.harness.getConfig(),
+        setConfig: (patch) => this.harness.setConfig(patch),
+        dropLegacy: removeLegacySurveySetting,
+        warn: (message) => {
+          this.showStatus(message, 'warning');
+        },
+      });
+      this.setAppState({ disableFeedbackSurvey: outcome.value });
+      if (outcome.action === undefined) return;
+      this.track('survey_setting_migration', {
+        legacy: legacyValue,
+        configured: outcome.configured ?? 'absent',
+        action: outcome.action,
+      });
+    } catch {}
+  }
+
   private async finishStartup(shouldReplayHistory: boolean): Promise<void> {
     if (this.startupNotice !== undefined) {
       this.showStatus(this.startupNotice);
       this.startupNotice = undefined;
     }
     void this.showTmuxKeyboardWarningIfNeeded();
+    void this.migrateLegacySurveySetting();
     // Config diagnostics (deprecated keys/env vars, invalid sections) in
     // warning yellow at boot; `run-prompt`/`run-v2-print` print them to
     // stderr for non-interactive runs.
@@ -1001,6 +1018,8 @@ export class KimiTUI {
     this.transcriptRenderer.disposeTranscriptChildren();
     this.editorKeyboard.dispose();
     this.surveyController.dispose();
+    this.surveySettingSubscription?.();
+    this.surveySettingSubscription = undefined;
     this.state.footer.dispose();
     for (const dispose of this.reverseRpcDisposers) {
       dispose();
@@ -1528,7 +1547,7 @@ export class KimiTUI {
 
   handleTurnStarted(event: TurnStartedEvent): void {
     this.staging.handleTurnStarted(event);
-    this.surveyController.notifyTurnStarted(isUserSubmittedTurnOrigin(event.origin));
+    this.surveyController.notifyTurnStarted(event.origin);
   }
 
   handleTurnEnded(event: TurnEndedEvent): void {

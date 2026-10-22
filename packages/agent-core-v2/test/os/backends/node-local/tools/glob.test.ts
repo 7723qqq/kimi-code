@@ -246,6 +246,9 @@ function telemetryStub(
 ): ITelemetryService {
   return {
     _serviceBrand: undefined,
+    track: (event, properties) => {
+      events.push({ event, properties: properties ?? {} });
+    },
     track2: (event, properties) => {
       events.push({ event, properties: (properties as TelemetryProperties | undefined) ?? {} });
     },
