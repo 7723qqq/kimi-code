@@ -134,6 +134,7 @@ import { AuthFlowController } from './controllers/auth-flow';
 import { createMsys2PromptDeps, installMsys2, markPrompted, setUserShellPath, shouldPromptMsys2 } from '#/cli/msys2-prompt';
 import { ActivityPaneController } from './controllers/activity-pane';
 import { DialogHostController } from './controllers/dialog-host';
+import { MessageDispatchController } from './controllers/message-dispatch';
 import { Msys2PromptComponent, type Msys2PromptChoice } from './components/dialogs/msys2-prompt';
 import { type ActiveExclusiveMode, type ReviewCycleMode } from './controllers/editor-keyboard';
 import type { StatusSurfaceKey } from './components/chrome/status-surface/region';
@@ -375,6 +376,7 @@ export class KimiTUI {
   private readonly tokenSpeed = new TokenSpeedSampler();
   readonly activityPaneController: ActivityPaneController;
   readonly dialogController: DialogHostController;
+  readonly messageDispatch: MessageDispatchController;
   promptOptimizer!: PromptOptimizerController;
   private transcriptRenderer!: TranscriptRendererController;
 
@@ -386,7 +388,7 @@ export class KimiTUI {
   private ensureSessionPromise: Promise<Session | undefined> | null = null;
   /** In-flight `/new` session replacement, shared by concurrent `/new` triggers. */
   private newSessionPromise: Promise<void> | null = null;
-  private readonly cacheHint = new CacheHintController(this);
+  readonly cacheHint = new CacheHintController(this);
   /** Staged prompt media lifecycle (daemon uploads + cache copies) — see StagingLeaseTracker. */
   private readonly staging: StagingLeaseTracker;
   private readonly steeringQueuedMessages = new Set<QueuedMessage>();
@@ -559,6 +561,7 @@ export class KimiTUI {
     this.btwPanelController = new BtwPanelController(this, this.imageStore, this.staging);
     this.sessionEventHandler = new SessionEventHandler(this);
     this.sessionReplay = new SessionReplayRenderer(this);
+    this.messageDispatch = new MessageDispatchController(this, this.staging, this.imageStore);
     this.activityPaneController = new ActivityPaneController(this);
     this.dialogController = new DialogHostController(
       this,
@@ -1388,7 +1391,7 @@ export class KimiTUI {
     slashCommands.dispatchInput(this, text);
   }
 
-  private async runShellCommandFromInput(command: string): Promise<void> {
+  async runShellCommandFromInput(command: string): Promise<void> {
     let session = this.session;
     if (session === undefined) {
       session = await this.ensureSession();
@@ -1616,77 +1619,7 @@ export class KimiTUI {
     activations: readonly InlineSkillActivation[],
     preExtracted?: ExtractionResult,
   ): Promise<void> {
-    if (this.btwPanelController.sendUserInput(text, activations)) return;
-    if (this.state.appState.model.trim().length === 0) {
-      this.showError(getLlmNotSetMessage());
-      return;
-    }
-    const originatingSession = this.session;
-    const mediaGeneration = this.imageStore.generation;
-    let extraction: ExtractionResult;
-    if (preExtracted === undefined) {
-      const ingestionWait = pendingMediaIngestions(
-        text,
-        this.imageStore,
-        MEDIA_INGESTION_SUBMIT_WAIT_MS,
-      );
-      if (ingestionWait !== undefined) await ingestionWait;
-      if (
-        (originatingSession !== undefined && this.session !== originatingSession) ||
-        this.imageStore.generation !== mediaGeneration
-      ) {
-        this.showError('Session changed while preparing media attachment; skill prompt not sent.');
-        return;
-      }
-    }
-    try {
-      extraction = preExtracted ?? (await extractMediaAttachments(text, this.imageStore));
-      if (
-        preExtracted?.mediaGeneration !== undefined &&
-        preExtracted.mediaGeneration !== this.imageStore.generation
-      ) {
-        extraction = { ...preExtracted, imageAttachmentIds: [], videoAttachmentIds: [] };
-      }
-    } catch (error) {
-      this.showError(`Failed to prepare media attachment: ${formatErrorMessage(error)}`);
-      return;
-    }
-    if (!this.validateMediaCapabilities(extraction)) {
-      this.staging.releaseMedia([
-        ...extraction.imageAttachmentIds, ...extraction.videoAttachmentIds,
-      ], []);
-      return;
-    }
-    if (this.cacheHint.maybeInterceptOnSubmit(text, extraction, activations)) return;
-    let session = this.session;
-    if (session === undefined) {
-      session = await this.ensureSession();
-      if (session === undefined) {
-        this.staging.releaseMedia([
-          ...extraction.imageAttachmentIds, ...extraction.videoAttachmentIds,
-        ], []);
-        return;
-      }
-    }
-    if (
-      this.deferUserMessages ||
-      this.steeringQueuedMessages.size > 0 ||
-      this.state.appState.streamingPhase !== 'idle' ||
-      this.state.appState.isCompacting
-    ) {
-      this.enqueueMessage(text, {
-        parts: extraction.hasMedia ? extraction.parts : undefined,
-        imageAttachmentIds: extraction.imageAttachmentIds,
-        videoAttachmentIds: extraction.videoAttachmentIds,
-        mediaSnapshots: extraction.mediaSnapshots,
-        inlineSkillActivations: activations,
-      });
-      this.updateQueueDisplay();
-      this.state.ui.requestRender();
-      return;
-    }
-    this.beginSessionRequest();
-    this.runInlineSkillActivations(session, text, activations, extraction);
+    return this.messageDispatch.sendInlineSkillUserInput(text, activations, preExtracted);
   }
 
   prepareSkillActivations(
