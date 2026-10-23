@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
+import { expectRejection } from '#test/helpers/assertions';
 import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { mkdtempSync, rmSync, appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
@@ -10,7 +11,10 @@ import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { AppendLogCorruptedError, IAppendLogStore, type AppendLogTruncation } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
+import {
+  AppendLogStore,
+  drainAppendLogRetirements,
+} from '#/persistence/backends/node-fs/appendLogStore';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 
@@ -59,7 +63,10 @@ describe('AppendLogStore', () => {
     record = ix.get(IAppendLogStore);
   });
 
-  afterEach(() => disposables.dispose());
+  afterEach(async () => {
+    disposables.dispose();
+    await drainAppendLogRetirements().catch(() => undefined);
+  });
 
   async function collect<R>(scope: string, key: string): Promise<readonly R[]> {
     const out: R[] = [];
@@ -393,11 +400,9 @@ describe('AppendLogStore', () => {
     record.append<Rec>(SCOPE, KEY, { n: 2 });
     await appendStarted;
 
-    const rewriteRejected = expect(
-      record.rewrite<Rec>(SCOPE, KEY, [{ n: 9 }]),
-    ).rejects.toBe(failure);
+    const rewriteRejected = record.rewrite<Rec>(SCOPE, KEY, [{ n: 9 }]);
     releaseAppend();
-    await rewriteRejected;
+    await expect(rewriteRejected).rejects.toBe(failure);
 
     await expect(record.flush()).rejects.toBe(failure);
     expect(appendAttempts).toBe(1);
@@ -424,11 +429,9 @@ describe('AppendLogStore', () => {
     record.append<Rec>(SCOPE, KEY, { n: 2 });
     await appendStarted;
 
-    const invalid = expect(
-      record.rewrite<unknown>(SCOPE, KEY, [{ n: 9n }]),
-    ).rejects.toBeInstanceOf(TypeError);
+    const invalid = record.rewrite<unknown>(SCOPE, KEY, [{ n: 9n }]);
     releaseAppend();
-    await invalid;
+    await expect(invalid).rejects.toBeInstanceOf(TypeError);
     await record.flush();
 
     expect(appendAttempts).toBe(1);
@@ -465,11 +468,9 @@ describe('AppendLogStore', () => {
     record.append<Rec>(SCOPE, KEY, { n: 2 });
     await appendStarted;
 
-    const failedRewrite = expect(
-      record.rewrite<Rec>(SCOPE, KEY, [{ n: 9 }]),
-    ).rejects.toBe(failure);
+    const failedRewrite = record.rewrite<Rec>(SCOPE, KEY, [{ n: 9 }]);
     releaseAppend();
-    await failedRewrite;
+    await expect(failedRewrite).rejects.toBe(failure);
     await expect(record.flush()).rejects.toBe(failure);
     await expect(collect<Rec>(SCOPE, KEY)).rejects.toBe(failure);
     await expect(record.close()).rejects.toBe(failure);
@@ -632,7 +633,7 @@ describe('AppendLogStore', () => {
     const raw = `${JSON.stringify({ n: 1 })}\nGARBAGE\n${JSON.stringify({ n: 3 })}\n`;
     await storage.append(SCOPE, KEY, enc.encode(raw));
 
-    await expect(collect<Rec>(SCOPE, KEY)).rejects.toSatisfy((error: unknown) => {
+    await expectRejection(collect<Rec>(SCOPE, KEY), (error: unknown) => {
       expect(error).toBeInstanceOf(AppendLogCorruptedError);
       const corrupted = error as AppendLogCorruptedError;
       expect(corrupted.code).toBe('storage.corrupted');

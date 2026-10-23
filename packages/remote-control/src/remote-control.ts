@@ -38,6 +38,35 @@ const HTTP_FRAGMENT_OVERHEAD_BYTES = 1024;
 const MAX_SINGLE_FRAME_RESPONSE_BYTES = 10 * 1024 * 1024;
 const RESPONSE_CHUNK_BYTES = 5 * 1024 * 1024;
 const HTTP_TUNNEL_CAPABILITIES = 'request_chunk,response_chunk,abort';
+
+export interface HttpTunnelLimits {
+  readonly maxRequestBytes: number;
+  readonly maxRetainedBytes: number;
+  readonly maxSingleFrameResponseBytes: number;
+  readonly responseChunkBytes: number;
+}
+
+const DEFAULT_HTTP_TUNNEL_LIMITS: HttpTunnelLimits = {
+  maxRequestBytes: MAX_HTTP_REQUEST_BYTES,
+  maxRetainedBytes: MAX_RETAINED_HTTP_BYTES,
+  maxSingleFrameResponseBytes: MAX_SINGLE_FRAME_RESPONSE_BYTES,
+  responseChunkBytes: RESPONSE_CHUNK_BYTES,
+};
+
+function validateHttpTunnelLimits(limits: HttpTunnelLimits): void {
+  if (!Number.isSafeInteger(limits.responseChunkBytes) || limits.responseChunkBytes <= 0) {
+    throw new Error('HTTP tunnel responseChunkBytes must be a positive safe integer');
+  }
+  for (const [name, value] of [
+    ['maxRequestBytes', limits.maxRequestBytes],
+    ['maxRetainedBytes', limits.maxRetainedBytes],
+    ['maxSingleFrameResponseBytes', limits.maxSingleFrameResponseBytes],
+  ] as const) {
+    if (!Number.isSafeInteger(value) || value < 0) {
+      throw new Error(`HTTP tunnel ${name} must be a non-negative safe integer`);
+    }
+  }
+}
 const MAX_HTTP_RESPONSE_BYTES = 32 * 1024 * 1024;
 const MAX_HTTP_REQUEST_FRAMES = (10 * 1024 * 1024) / HTTP_FRAGMENT_OVERHEAD_BYTES;
 const MAX_PENDING_HTTP_REQUESTS = 64;
@@ -138,6 +167,7 @@ export interface RemoteControlOptions {
   readonly pingIntervalMs?: number;
   readonly silenceTimeoutMs?: number;
   readonly maxHttpResponseBytes?: number;
+  readonly httpTunnelLimits?: Partial<HttpTunnelLimits>;
   readonly signal?: AbortSignal;
 }
 
@@ -324,6 +354,7 @@ function requestMatchesETag(
 export async function startRemoteControl(
   options: RemoteControlOptions,
 ): Promise<RemoteControlHandle> {
+  validateHttpTunnelLimits({ ...DEFAULT_HTTP_TUNNEL_LIMITS, ...options.httpTunnelLimits });
   const localServerToken =
     typeof options.localServerToken === 'function'
       ? options.localServerToken
@@ -406,6 +437,7 @@ class RemoteControlClient {
   private readonly pendingSockets = new Set<WebSocket>();
   private management: WebSocket | undefined;
   private reconnectAbort: AbortController | undefined;
+  private stopSignal: AbortController | undefined;
   private http: WebSocket | undefined;
   private httpTunnel: HttpTunnel | undefined;
   private reconnectAttempt = 0;
@@ -413,6 +445,7 @@ class RemoteControlClient {
   private readonly pingIntervalMs: number;
   private readonly silenceTimeoutMs: number;
   private readonly maxHttpResponseBytes: number;
+  private readonly httpTunnelLimits: HttpTunnelLimits;
   private stopped = false;
   private userRequested = false;
   private connected = false;
@@ -440,6 +473,8 @@ class RemoteControlClient {
     this.pingIntervalMs = options.pingIntervalMs ?? RELAY_PING_INTERVAL_MS;
     this.silenceTimeoutMs = options.silenceTimeoutMs ?? RELAY_SILENCE_TIMEOUT_MS;
     this.maxHttpResponseBytes = options.maxHttpResponseBytes ?? MAX_HTTP_RESPONSE_BYTES;
+    this.httpTunnelLimits = { ...DEFAULT_HTTP_TUNNEL_LIMITS, ...options.httpTunnelLimits };
+    validateHttpTunnelLimits(this.httpTunnelLimits);
   }
 
   async start(): Promise<void> {
@@ -463,6 +498,10 @@ class RemoteControlClient {
       return;
     }
     this.stopped = true;
+    // Wake the reconnect cycle before tearing the sockets down: it parks on a
+    // socket-end race that may never settle once the peer is already gone, and
+    // `closed` (and this method) would then wait forever.
+    this.stopSignal?.abort();
     if (!this.connected) this.rejectInitial(new Error('Remote Control closed before ready.'));
     if (this.management?.readyState === WebSocket.OPEN) {
       this.management.send(
@@ -553,6 +592,7 @@ class RemoteControlClient {
           this.maxHttpResponseBytes,
         ),
       this.stderr,
+      this.httpTunnelLimits,
     );
     this.httpTunnel = tunnel;
     this.watchSocket(http, 'http');
@@ -572,7 +612,12 @@ class RemoteControlClient {
       this.initialReject = undefined;
     }
 
-    await Promise.race([managementEnd, waitForSocketEnd(http)]);
+    this.stopSignal = new AbortController();
+    const stopped = new Promise<void>((resolve) => {
+      this.stopSignal!.signal.addEventListener('abort', () => resolve(), { once: true });
+    });
+    await Promise.race([managementEnd, waitForSocketEnd(http), stopped]);
+    this.stopSignal = undefined;
     if (!this.stopped) throw new Error('relay connection closed');
   }
 
@@ -643,6 +688,9 @@ class RemoteControlClient {
         this.userRequested = true;
       }
       if (reason === 'server_shutting_down') this.reconnectImmediately = true;
+      // The cycle is parked on a socket-end race; closing the sockets does not
+      // settle it when the peer is already gone, so wake it explicitly.
+      if (this.stopped) this.stopSignal?.abort();
       this.closeCycle();
     }
   }
@@ -784,7 +832,10 @@ export class HttpTunnel {
     private readonly socket: WebSocket,
     private readonly forwardLocal: LocalHttpForward,
     private readonly stderr: Pick<NodeJS.WriteStream, 'write'>,
-  ) {}
+    private readonly limits: HttpTunnelLimits = DEFAULT_HTTP_TUNNEL_LIMITS,
+  ) {
+    validateHttpTunnelLimits(this.limits);
+  }
 
   handleMessage(data: RawData): void {
     if (this.socket.readyState !== WebSocket.OPEN) return;
@@ -812,9 +863,9 @@ export class HttpTunnel {
         throw new SyntaxError('invalid HTTP tunnel request message');
       }
       const minDecodedBytes = Math.floor(bodyBase64.length / 4) * 3 - 2;
-      if (transfer.size + minDecodedBytes > MAX_HTTP_REQUEST_BYTES) {
+      if (transfer.size + minDecodedBytes > this.limits.maxRequestBytes) {
         throw new SyntaxError(
-          `HTTP tunnel request exceeds ${MAX_HTTP_REQUEST_BYTES / 1024 / 1024} MiB`,
+          `HTTP tunnel request exceeds ${this.limits.maxRequestBytes / 1024 / 1024} MiB`,
         );
       }
       if (transfer.messages >= MAX_HTTP_REQUEST_FRAMES) {
@@ -823,14 +874,14 @@ export class HttpTunnel {
         );
       }
       const chunk = decodeBase64(bodyBase64);
-      if (transfer.size + chunk.length > MAX_HTTP_REQUEST_BYTES) {
+      if (transfer.size + chunk.length > this.limits.maxRequestBytes) {
         throw new SyntaxError(
-          `HTTP tunnel request exceeds ${MAX_HTTP_REQUEST_BYTES / 1024 / 1024} MiB`,
+          `HTTP tunnel request exceeds ${this.limits.maxRequestBytes / 1024 / 1024} MiB`,
         );
       }
       if (!this.tryRetain(transfer, transfer.retained + chunk.length + HTTP_FRAGMENT_OVERHEAD_BYTES)) {
         throw new SyntaxError(
-          `HTTP tunnel retained bytes exceed ${MAX_RETAINED_HTTP_BYTES / 1024 / 1024} MiB`,
+          `HTTP tunnel retained bytes exceed ${this.limits.maxRetainedBytes / 1024 / 1024} MiB`,
         );
       }
       chunks.push(chunk);
@@ -898,7 +949,7 @@ export class HttpTunnel {
     if (transfer.controller.signal.aborted) return;
     transfer.chunks = undefined;
     this.retain(transfer, byteLength(response));
-    transfer.frames = responseFrames(transfer.id, response);
+    transfer.frames = responseFrames(transfer.id, response, this.limits);
     this.ready.add(transfer);
     void this.pump();
   }
@@ -928,7 +979,7 @@ export class HttpTunnel {
   private tryRetain(transfer: HttpTransfer, bytes: number): boolean {
     if (transfer.controller.signal.aborted) return false;
     const total = this.retainedBytes - transfer.retained + bytes;
-    if (bytes > transfer.retained && total > MAX_RETAINED_HTTP_BYTES) return false;
+    if (bytes > transfer.retained && total > this.limits.maxRetainedBytes) return false;
     this.retain(transfer, bytes);
     return true;
   }
@@ -949,7 +1000,11 @@ export class HttpTunnel {
   }
 }
 
-function responseFrames(requestId: string, response: readonly Buffer[]): (() => string)[] {
+function responseFrames(
+  requestId: string,
+  response: readonly Buffer[],
+  limits: HttpTunnelLimits,
+): (() => string)[] {
   const length = byteLength(response);
   const frame =
     (type: string, isLast: boolean, start: number, end: number) =>
@@ -960,11 +1015,11 @@ function responseFrames(requestId: string, response: readonly Buffer[]): (() => 
         is_last: isLast,
         body_base64: Buffer.concat(sliceChunks(response, start, end)).toString('base64'),
       });
-  if (length <= MAX_SINGLE_FRAME_RESPONSE_BYTES) return [frame('response', true, 0, length)];
+  if (length <= limits.maxSingleFrameResponseBytes) return [frame('response', true, 0, length)];
   const frames: (() => string)[] = [];
-  for (let offset = 0; offset <= length; offset += RESPONSE_CHUNK_BYTES) {
-    const end = Math.min(offset + RESPONSE_CHUNK_BYTES, length);
-    frames.push(frame('response_chunk', end - offset < RESPONSE_CHUNK_BYTES, offset, end));
+  for (let offset = 0; offset <= length; offset += limits.responseChunkBytes) {
+    const end = Math.min(offset + limits.responseChunkBytes, length);
+    frames.push(frame('response_chunk', end - offset < limits.responseChunkBytes, offset, end));
   }
   return frames;
 }
@@ -1026,7 +1081,9 @@ function connectWebSocketAttempt(
       });
     }
     let settled = false;
+    let handshakeTimer: ReturnType<typeof setTimeout> | undefined;
     const cleanup = (): void => {
+      if (handshakeTimer !== undefined) clearTimeout(handshakeTimer);
       socket.off('open', onOpen);
       socket.off('error', onError);
       socket.off('close', onClose);
@@ -1045,6 +1102,14 @@ function connectWebSocketAttempt(
     const onClose = (code: number, reason: Buffer) => {
       finish(new Error(`WebSocket closed during handshake (${code} ${reason.toString()})`));
     };
+    // `ws`'s own handshakeTimeout relies on a Node timer that Bun does not
+    // drive, and Bun's WebSocket has no handshake timeout of its own, so a
+    // relay that never answers would leave this promise pending forever and
+    // park the whole reconnect loop. Own the deadline here.
+    handshakeTimer = setTimeout(() => {
+      finish(new Error('WebSocket handshake timed out'));
+      socket.terminate();
+    }, REGISTER_TIMEOUT_MS);
     socket.once('open', onOpen);
     socket.once('error', onError);
     socket.once('close', onClose);
@@ -1085,6 +1150,10 @@ function waitForRelayMessage(socket: WebSocket, timeoutMs: number): Promise<Rela
 
 function waitForSocketEnd(socket: WebSocket): Promise<void> {
   return new Promise((resolve) => {
+    if (socket.readyState === WebSocket.CLOSED) {
+      resolve();
+      return;
+    }
     socket.once('close', () => resolve());
     socket.once('error', () => resolve());
   });
