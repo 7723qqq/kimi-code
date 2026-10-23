@@ -353,6 +353,7 @@ merge_all_available_skills = true
 #   hooks: custom fromToml · custom toToml · stripEnv
 #   env:
 #     dangerous_command_guard <- KIMI_CODE_DANGEROUS_COMMAND_GUARD (custom parse)
+#     full_suite_test_guard <- KIMI_CODE_FULL_SUITE_TEST_GUARD (custom parse)
 # ##########################################################################
 
 [permission]
@@ -362,6 +363,7 @@ merge_all_available_skills = true
   # pattern: string
   # reason: string
 # dangerous_command_guard: boolean
+# full_suite_test_guard: boolean
 
 # ##########################################################################
 # providers

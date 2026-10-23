@@ -207,6 +207,7 @@ kimi
 | `KIMI_CRON_CLOCK` | 替换调度器的墙钟；`system`（默认）用真实时钟，`file:<path>` 从文件首行读取 Unix 毫秒时间戳 | `system` 或 `file:<path>`；其他值回退系统时钟 |
 | `KIMI_CRON_POLL_INTERVAL_MS` | 调度器轮询间隔（毫秒，默认 `1000`）；`null` 或 `0` 关闭轮询 | 非负整数或 `null`；非法值被忽略 |
 | `KIMI_CODE_DANGEROUS_COMMAND_GUARD` | 开关内置危险命令策略，优先级高于 `config.toml` 的 `[permission] dangerous_command_guard`（默认 `true`） | `true` 或 `false`；其他值被忽略 |
+| `KIMI_CODE_FULL_SUITE_TEST_GUARD` | 开关“跑全量测试前需审批”策略，优先级高于 `config.toml` 的 `[permission] full_suite_test_guard`（默认 `true`） | `true` 或 `false`；其他值被忽略 |
 | `KIMI_CODE_SEARCH_SYNC_SESSION_CAP` | 单次同步写入搜索索引的会话数上限，优先级高于 `config.toml` 的 `[database] search_sync_session_cap`（默认 `500`） | 整数；非法值被忽略 |
 | `KIMI_CODE_SEARCH_SYNC_DEBOUNCE_MS` | 待处理的搜索索引同步开始前的防抖时间（毫秒），优先级高于 `config.toml` 的 `[database] search_sync_debounce_ms`（默认 `2000`） | 整数；非法值被忽略 |
 | `KIMI_LLM_REQUEST_BYTE_BUDGET` | 单次 LLM 请求体的字节预算，优先级高于 `config.toml` 的 `[llm_requester] request_byte_budget`（默认 `33554432`，即 32 MB） | 正整数；非法值被忽略 |

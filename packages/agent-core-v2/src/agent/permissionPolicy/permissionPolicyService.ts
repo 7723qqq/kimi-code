@@ -6,6 +6,7 @@ import { AutoModeAskUserQuestionDenyPermissionPolicyService } from '#/agent/perm
 import { DangerousCommandAskPermissionPolicyService } from '#/agent/permissionPolicy/policies/dangerous-command-ask';
 import { DefaultToolApprovePermissionPolicyService } from '#/agent/permissionPolicy/policies/default-tool-approve';
 import { FallbackAskPermissionPolicyService } from '#/agent/permissionPolicy/policies/fallback-ask';
+import { FullSuiteTestAskPermissionPolicyService } from '#/agent/permissionPolicy/policies/full-suite-test-ask';
 import { GitControlPathAccessAskPermissionPolicyService } from '#/agent/permissionPolicy/policies/git-control-path-access-ask';
 import { GitCwdWriteApprovePermissionPolicyService } from '#/agent/permissionPolicy/policies/git-cwd-write-approve';
 import { GuardianReviewPermissionPolicyService } from '#/agent/permissionPolicy/policies/guardian-review';
@@ -37,7 +38,10 @@ export class AgentPermissionPolicyService extends Service implements IAgentPermi
       this.instantiation.createInstance(UserConfiguredDenyPermissionPolicyService),
       ...(bootstrap.args.nonInteractive
         ? []
-        : [this.instantiation.createInstance(DangerousCommandAskPermissionPolicyService)]),
+        : [
+            this.instantiation.createInstance(DangerousCommandAskPermissionPolicyService),
+            this.instantiation.createInstance(FullSuiteTestAskPermissionPolicyService),
+          ]),
       this.instantiation.createInstance(AutoModeApprovePermissionPolicyService),
       this.instantiation.createInstance(SessionApprovalHistoryPermissionPolicyService),
       this.instantiation.createInstance(UserConfiguredAskPermissionPolicyService),

@@ -38,13 +38,15 @@ export const PermissionRuleSchema = z.object({
 export const PermissionConfigSchema = z.object({
   rules: z.array(PermissionRuleSchema).optional(),
   dangerousCommandGuard: z.boolean().optional(),
+  fullSuiteTestGuard: z.boolean().optional(),
 });
 
 export type PermissionConfig = z.infer<typeof PermissionConfigSchema>;
 
 export const DANGEROUS_COMMAND_GUARD_ENV = 'KIMI_CODE_DANGEROUS_COMMAND_GUARD';
+export const FULL_SUITE_TEST_GUARD_ENV = 'KIMI_CODE_FULL_SUITE_TEST_GUARD';
 
-function parseDangerousCommandGuardEnv(raw: string): boolean | undefined {
+function parseGuardEnv(raw: string): boolean | undefined {
   if (raw === 'true') return true;
   if (raw === 'false') return false;
   return undefined;
@@ -55,7 +57,11 @@ export const permissionEnvBindings: EnvBindings<PermissionConfig> = envBindings(
   {
     dangerousCommandGuard: {
       env: DANGEROUS_COMMAND_GUARD_ENV,
-      parse: parseDangerousCommandGuardEnv,
+      parse: parseGuardEnv,
+    },
+    fullSuiteTestGuard: {
+      env: FULL_SUITE_TEST_GUARD_ENV,
+      parse: parseGuardEnv,
     },
   },
 );
@@ -66,6 +72,10 @@ export function isDangerousCommandGuardEnabled(config: IConfigService): boolean 
   return (
     config.get<PermissionConfig | undefined>(PERMISSION_SECTION)?.dangerousCommandGuard ?? true
   );
+}
+
+export function isFullSuiteTestGuardEnabled(config: IConfigService): boolean {
+  return config.get<PermissionConfig | undefined>(PERMISSION_SECTION)?.fullSuiteTestGuard ?? true;
 }
 
 function isValidPermissionPattern(pattern: string): boolean {
@@ -89,6 +99,9 @@ export const permissionFromToml = (rawSnake: unknown): unknown => {
   if (rules.length > 0) out['rules'] = rules;
   if (raw['dangerousCommandGuard'] !== undefined) {
     out['dangerousCommandGuard'] = raw['dangerousCommandGuard'];
+  }
+  if (raw['fullSuiteTestGuard'] !== undefined) {
+    out['fullSuiteTestGuard'] = raw['fullSuiteTestGuard'];
   }
   return out;
 };

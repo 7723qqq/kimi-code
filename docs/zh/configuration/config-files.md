@@ -595,6 +595,8 @@ token 是在工具激活时读取的，不是只在启动时读一次：在这�
 
 也可以在 `[permission]` 下设置 `dangerous_command_guard = false` 完全关闭所有内置 guard 确认策略：危险命令、敏感文件（如 `.env`、`id_rsa`）访问、git 控制路径访问在 "Always Ask" 和 "Ask When Needed" 模式下不再触发审批（"Never Ask" 模式本就不启用这些策略），默认 `true`。环境变量 `KIMI_CODE_DANGEROUS_COMMAND_GUARD=false` 会覆盖文件设置。全部内置 guard 关闭后，"Ask When Needed" 模式下只有你自己配置的 `ask` 规则仍会要求确认；"Always Ask" 模式下未被自动放行的工具照旧逐个询问。`Read`/`Write`/`Edit` 对秘密文件的硬阻断保持不变。此开关只适用于已经在 Agent 之外统一命令限权的环境。
 
+另有独立的 `full_suite_test_guard`：默认开启时，从工作区根跑全量测试的 `Bash` 调用在 "Always Ask" 和 "Ask When Needed" 模式下会先请求审批，覆盖 `bun run test`、`test:watch`、`test:coverage`、`test:heavy`、不带路径的 `bun test`，以及 `scripts/run-tests.mjs` / `scripts/run-test-heavy.mjs`；限定到单个包或单个路径的运行（`cd packages/minidb && bun run test`、`bun test test/tui`、`bun run test:minidb`）不受限制，"Never Ask" 模式下该策略不生效。在 `[permission]` 下设置 `full_suite_test_guard = false` 或环境变量 `KIMI_CODE_FULL_SUITE_TEST_GUARD=false` 可关闭。
+
 | 字段 | 类型 | 必填 | 说明 |
 | --- | --- | --- | --- |
 | `decision` | `string` | 是 | 匹配后的处置：`allow`（直接放行）、`deny`（直接拒绝）、`ask`（每次询问） |
