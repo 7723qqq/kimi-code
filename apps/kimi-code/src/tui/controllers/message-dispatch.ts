@@ -28,6 +28,8 @@ import {
   rewriteMediaPlaceholders,
 } from '../utils/image-placeholder';
 import type { ExtractionResult } from '../utils/image-placeholder';
+import { isSessionOccupiedError } from '../utils/session-lock-errors';
+import type { SessionOccupancyPrompt } from './session-occupancy';
 import { combineSteerInput } from '../utils/steer-input';
 import { nextTranscriptId } from '../utils/transcript-id';
 import type { BtwPanelController } from './btw-panel';
@@ -80,6 +82,8 @@ export interface MessageDispatchHost {
   setAppState(patch: Partial<AppState>): void;
   runShellCommandFromInput(command: string): Promise<void>;
   track(event: string, properties?: Parameters<KimiHarness['track']>[1]): void;
+  showSessionOccupancyPrompt(prompt: SessionOccupancyPrompt): void;
+  restoreInputText(text: string): void;
 }
 
 function nonEmptyIds(ids: readonly number[] | undefined): readonly number[] | undefined {
@@ -97,6 +101,7 @@ export class MessageDispatchController {
   private readonly staging: StagingLeaseTracker;
   private readonly imageStore: ImageAttachmentStore;
   private readonly steeringQueuedMessages = new Set<QueuedMessage>();
+  private readonly pendingPromptEntries = new Set<TranscriptEntry>();
 
   constructor(
     host: MessageDispatchHost,
@@ -1111,6 +1116,38 @@ export class MessageDispatchController {
         onSettled(false);
       }
     });
+  }
+
+  trackPendingEntries(
+    entries: readonly TranscriptEntry[],
+    request: Promise<void>,
+  ): Promise<void> {
+    for (const entry of entries) this.pendingPromptEntries.add(entry);
+    const settle = (): void => {
+      for (const entry of entries) this.pendingPromptEntries.delete(entry);
+    };
+    void request.then(settle, settle);
+    return request;
+  }
+
+  hasPendingPromptEntry(entry: TranscriptEntry): boolean {
+    return this.pendingPromptEntries.has(entry);
+  }
+
+  handlePromptConflict(args: {
+    session: Session;
+    error: unknown;
+    entries?: readonly TranscriptEntry[];
+    retry: () => void;
+    restore: () => void;
+  }): boolean {
+    const { session, error, entries, retry, restore } = args;
+    if (this.host.session?.id !== session.id || !isSessionOccupiedError(error)) return false;
+    if (entries !== undefined) this.host.removeTranscriptEntries(entries);
+    this.host.setAppState({ streamingPhase: 'idle' });
+    this.host.resetLivePane();
+    this.host.showSessionOccupancyPrompt({ error, retry, restore });
+    return true;
   }
 
   private removeTranscriptEntries(entries: readonly TranscriptEntry[]): void {

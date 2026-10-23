@@ -127,7 +127,7 @@ import { Msys2PromptComponent, type Msys2PromptChoice } from './components/dialo
 import { type ActiveExclusiveMode, type ReviewCycleMode } from './controllers/editor-keyboard';
 import type { StatusSurfaceKey } from './components/chrome/status-surface/region';
 import { PromptOptimizerController } from './controllers/prompt-optimizer';
-import { showSessionOccupancyPrompt } from './controllers/session-occupancy';
+import { showSessionOccupancyPrompt, type SessionOccupancyPrompt } from './controllers/session-occupancy';
 import { TranscriptRendererController } from './controllers/transcript-renderer';
 import { accumulateStepCompleted, accumulateToolDuration, bumpTurnCount, createEmptySessionStats } from './utils/session-stats';
 import { TokenSpeedSampler } from './utils/token-speed';
@@ -194,7 +194,6 @@ import { startupTrace } from '#/utils/startup-trace';
 import { REPLAY_TURN_LIMIT } from './utils/message-replay';
 import { hasPatchChanges } from './utils/object-patch';
 import { sessionRowsForPicker } from './utils/session-picker-rows';
-import { isSessionOccupiedError } from './utils/session-lock-errors';
 import { CLI_MSH_PLATFORM } from '#/constant/app';
 import { formatBashOutputForDisplay } from './utils/shell-output';
 import { lazyModelSelection } from './utils/model-switch';
@@ -367,7 +366,6 @@ export class KimiTUI {
   /** Staged prompt media lifecycle (daemon uploads + cache copies) — see StagingLeaseTracker. */
   private readonly staging: StagingLeaseTracker;
   private readonly steeringQueuedMessages = new Set<QueuedMessage>();
-  private readonly pendingPromptEntries = new Set<TranscriptEntry>();
   private readonly autoTitleAttempts = new Map<string, { attempts: number; done: boolean }>();
   private readonly approvalController = new ApprovalController();
   private readonly questionController = new QuestionController();
@@ -1683,9 +1681,9 @@ export class KimiTUI {
         extraction.imageAttachmentIds.length > 0 ? extraction.imageAttachmentIds : undefined,
     };
     this.appendTranscriptEntry(entry);
-    const request = this.trackPendingEntries([entry], session.promptWithSkills(input, prepared.skills));
+    const request = this.messageDispatch.trackPendingEntries([entry], session.promptWithSkills(input, prepared.skills));
     this.staging.trackDispatch(stagingLease, request, (error) => {
-      const recovered = this.handlePromptConflict({
+      const recovered = this.messageDispatch.handlePromptConflict({
         session,
         error,
         entries: [entry],
@@ -2044,9 +2042,9 @@ export class KimiTUI {
     // turn, or launches a turn of its own if the loop just ended.
     if (goalActive) {
       if (runningTurnId !== undefined) this.staging.bindToTurn(stagingLease, runningTurnId);
-      const request = this.trackPendingEntries([entry], session.steer(sdkInput));
+      const request = this.messageDispatch.trackPendingEntries([entry], session.steer(sdkInput));
       this.staging.trackDispatch(stagingLease, request, (error) => {
-        const recovered = this.handlePromptConflict({
+        const recovered = this.messageDispatch.handlePromptConflict({
           session,
           error,
           entries: [entry],
@@ -2061,12 +2059,12 @@ export class KimiTUI {
       });
       return;
     }
-    const request = this.trackPendingEntries(
+    const request = this.messageDispatch.trackPendingEntries(
       [entry],
       session.prompt(sdkInput, { promptId: submissionId }),
     );
     this.staging.trackDispatch(stagingLease, request, (error) => {
-      const recovered = this.handlePromptConflict({
+      const recovered = this.messageDispatch.handlePromptConflict({
         session,
         error,
         entries: [entry],
@@ -2081,35 +2079,22 @@ export class KimiTUI {
     });
   }
 
-  private trackPendingEntries(
-    entries: readonly TranscriptEntry[],
-    request: Promise<void>,
-  ): Promise<void> {
-    for (const entry of entries) this.pendingPromptEntries.add(entry);
-    const settle = (): void => {
-      for (const entry of entries) this.pendingPromptEntries.delete(entry);
-    };
-    void request.then(settle, settle);
-    return request;
+  // The SDK reloads a stale session and retries the rejected call once this
+  // resolves; the request stays in flight meanwhile, so input submitted during
+  // the reload queues against the reloaded session.
+  private async refreshAfterStaleReload(session: Session): Promise<void> {
+    if (this.session !== session) return;
+    const pending = this.state.transcriptEntries.filter((entry) =>
+      this.messageDispatch.hasPendingPromptEntry(entry),
+    );
+    await this.reloadCurrentSessionView(session, 'Loaded updates from another client.', {
+      replayHistory: true,
+    });
+    for (const entry of pending) this.appendTranscriptEntry(entry);
+    this.track('session_stale_reload');
   }
 
-  private handlePromptConflict(args: {
-    session: Session;
-    error: unknown;
-    entries?: readonly TranscriptEntry[];
-    retry: () => void;
-    restore: () => void;
-  }): boolean {
-    const { session, error, entries, retry, restore } = args;
-    if (this.session?.id !== session.id || !isSessionOccupiedError(error)) return false;
-    if (entries !== undefined) this.removeTranscriptEntries(entries);
-    this.setAppState({ streamingPhase: 'idle' });
-    this.resetLivePane();
-    this.showSessionOccupied(error, retry, restore);
-    return true;
-  }
-
-  private showSessionOccupied(error: unknown, retry: () => void, restore: () => void): void {
+  showSessionOccupancyPrompt(prompt: SessionOccupancyPrompt): void {
     showSessionOccupancyPrompt(
       {
         track: (event, properties) => {
@@ -2122,24 +2107,9 @@ export class KimiTUI {
           this.restoreEditor();
         },
       },
-      { error, retry, restore },
+      prompt,
       CLI_MSH_PLATFORM,
     );
-  }
-
-  // The SDK reloads a stale session and retries the rejected call once this
-  // resolves; the request stays in flight meanwhile, so input submitted during
-  // the reload queues against the reloaded session.
-  private async refreshAfterStaleReload(session: Session): Promise<void> {
-    if (this.session !== session) return;
-    const pending = this.state.transcriptEntries.filter((entry) =>
-      this.pendingPromptEntries.has(entry),
-    );
-    await this.reloadCurrentSessionView(session, 'Loaded updates from another client.', {
-      replayHistory: true,
-    });
-    for (const entry of pending) this.appendTranscriptEntry(entry);
-    this.track('session_stale_reload');
   }
 
   activatePluginCommand(
@@ -2169,7 +2139,7 @@ export class KimiTUI {
       stagingLease,
       session.activatePluginCommand(pluginId, commandName, rewrite.text),
       (error) => {
-        const recovered = this.handlePromptConflict({
+        const recovered = this.messageDispatch.handlePromptConflict({
           session,
           error,
           retry: () => this.activatePluginCommand(session, pluginId, commandName, args),
@@ -2407,7 +2377,7 @@ export class KimiTUI {
     // the submission's own turn.started claims them; a merged steer simply
     // retires its media at session close instead.
     if (currentTurnId !== undefined && prepared === undefined) this.staging.bindToTurn(stagingLease, currentTurnId);
-    const request = this.trackPendingEntries(
+    const request = this.messageDispatch.trackPendingEntries(
       steeredEntries,
       prepared === undefined
         ? session.steer(combineSteerInput(resolvedInput))
@@ -2428,7 +2398,7 @@ export class KimiTUI {
         onSettled?.(false);
         return;
       }
-      const recovered = this.handlePromptConflict({
+      const recovered = this.messageDispatch.handlePromptConflict({
         session,
         error,
         entries: prepared === undefined && !manual ? steeredEntries : undefined,
