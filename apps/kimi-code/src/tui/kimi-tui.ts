@@ -73,7 +73,6 @@ import { DeviceCodeBoxComponent } from './components/chrome/device-code-box';
 import { GutterContainer } from './components/chrome/gutter-container';
 import { MoonLoader, type SpinnerStyle } from './components/chrome/moon-loader';
 import { WelcomeComponent } from './components/chrome/welcome';
-import { ChoicePickerComponent } from './components/dialogs/choice-picker';
 import { CompactionComponent } from './components/dialogs/compaction';
 import type { SessionRow } from './components/dialogs/session-picker';
 import { TrustPromptComponent, type TrustPromptChoice } from './components/dialogs/trust-prompt';
@@ -128,6 +127,7 @@ import { Msys2PromptComponent, type Msys2PromptChoice } from './components/dialo
 import { type ActiveExclusiveMode, type ReviewCycleMode } from './controllers/editor-keyboard';
 import type { StatusSurfaceKey } from './components/chrome/status-surface/region';
 import { PromptOptimizerController } from './controllers/prompt-optimizer';
+import { showSessionOccupancyPrompt } from './controllers/session-occupancy';
 import { TranscriptRendererController } from './controllers/transcript-renderer';
 import { accumulateStepCompleted, accumulateToolDuration, bumpTurnCount, createEmptySessionStats } from './utils/session-stats';
 import { TokenSpeedSampler } from './utils/token-speed';
@@ -194,7 +194,7 @@ import { startupTrace } from '#/utils/startup-trace';
 import { REPLAY_TURN_LIMIT } from './utils/message-replay';
 import { hasPatchChanges } from './utils/object-patch';
 import { sessionRowsForPicker } from './utils/session-picker-rows';
-import { isSessionOccupiedError, occupiedHolderClientId } from './utils/session-lock-errors';
+import { isSessionOccupiedError } from './utils/session-lock-errors';
 import { CLI_MSH_PLATFORM } from '#/constant/app';
 import { formatBashOutputForDisplay } from './utils/shell-output';
 import { lazyModelSelection } from './utils/model-switch';
@@ -2110,36 +2110,20 @@ export class KimiTUI {
   }
 
   private showSessionOccupied(error: unknown, retry: () => void, restore: () => void): void {
-    const holderClient = occupiedHolderClientId(error);
-    this.track('occupied_prompt_shown', {
-      holder_client: holderClient,
-      opener_client: CLI_MSH_PLATFORM,
-    });
-    const cancel = (): void => {
-      this.track('occupied_choice', { choice: 'cancel', holder_client: holderClient });
-      restore();
-    };
-    this.mountEditorReplacement(
-      new ChoicePickerComponent({
-        title: 'Session in use',
-        notice: formatErrorMessage(error),
-        noticeTone: 'warning',
-        options: [
-          { value: 'retry', label: 'Retry', description: 'send again now' },
-          { value: 'cancel', label: 'Cancel', description: 'get your message back' },
-        ],
-        spaceSelect: false,
-        onSelect: (action) => {
-          if (action !== 'retry') {
-            cancel();
-            return;
-          }
-          this.track('occupied_choice', { choice: 'retry', holder_client: holderClient });
-          this.restoreEditor();
-          retry();
+    showSessionOccupancyPrompt(
+      {
+        track: (event, properties) => {
+          this.track(event, properties);
         },
-        onCancel: cancel,
-      }),
+        mountEditorReplacement: (panel) => {
+          this.mountEditorReplacement(panel);
+        },
+        restoreEditor: () => {
+          this.restoreEditor();
+        },
+      },
+      { error, retry, restore },
+      CLI_MSH_PLATFORM,
     );
   }
 
