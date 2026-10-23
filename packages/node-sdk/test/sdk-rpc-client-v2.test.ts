@@ -19,7 +19,7 @@ import {
   resolveKimiCodeOAuthRef,
   resolveKimiTokenStorageName,
 } from '@moonshot-ai/kimi-code-oauth';
-import { afterEach, describe, expect, it, spyOn } from 'bun:test';
+import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
 
 import {
   buildDaemonFileUrl,
@@ -351,12 +351,12 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
       const main = getLiveSessionById(client.engineAccessor, 'ses_lock')!
         .accessor.get(IAgentLifecycleService)
         .handleOf('main')!;
-      const submitSpy = vi.spyOn(main.accessor.get(IAgentPromptChannel), 'submit');
-      const steerSpy = vi.spyOn(main.accessor.get(IAgentPromptChannel), 'submitSteer');
-      const skillsSpy = vi.spyOn(main.accessor.get(IAgentSkillService), 'promptWithSkills');
-      const beginSpy = vi.spyOn(main.accessor.get(IAgentFullCompactionService), 'begin');
-      const undoSpy = vi.spyOn(main.accessor.get(IAgentConversationUndoService), 'undo');
-      const activateSpy = vi.spyOn(main.accessor.get(IAgentPluginCommandService), 'activate');
+      const submitSpy = spyOn(main.accessor.get(IAgentPromptChannel), 'submit');
+      const steerSpy = spyOn(main.accessor.get(IAgentPromptChannel), 'submitSteer');
+      const skillsSpy = spyOn(main.accessor.get(IAgentSkillService), 'promptWithSkills');
+      const beginSpy = spyOn(main.accessor.get(IAgentFullCompactionService), 'begin');
+      const undoSpy = spyOn(main.accessor.get(IAgentConversationUndoService), 'undo');
+      const activateSpy = spyOn(main.accessor.get(IAgentPluginCommandService), 'activate');
 
       const lockCause = new Error('lock held');
       const occupied = new Error2('session.occupied', 'held by another client', {
@@ -461,11 +461,11 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
     const stale = () => new Error2('session.stale', 'modified by another client');
     try {
       await client.createSession({ id: 'ses_stale', workDir });
-      const handler = vi.fn(async (_summary: unknown) => {});
+      const handler = mock(async (_summary: unknown) => {});
       client.setStaleReloadHandler('ses_stale', handler);
 
       const before = getLiveSessionById(client.engineAccessor, 'ses_stale');
-      vi.spyOn((await mainOf()).accessor.get(IAgentConversationUndoService), 'undo')
+      spyOn((await mainOf()).accessor.get(IAgentConversationUndoService), 'undo')
         .mockRejectedValueOnce(stale());
       await expect(client.undoHistory({ sessionId: 'ses_stale', count: 1 })).rejects.toMatchObject({
         code: 'session.stale',
@@ -474,8 +474,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
       expect(handler.mock.calls[0]?.[0]).toMatchObject({ id: 'ses_stale' });
       expect(getLiveSessionById(client.engineAccessor, 'ses_stale')).not.toBe(before);
 
-      const begin = vi
-        .spyOn((await mainOf()).accessor.get(IAgentFullCompactionService), 'begin')
+      const begin = spyOn((await mainOf()).accessor.get(IAgentFullCompactionService), 'begin')
         .mockImplementationOnce(() => {
           throw stale();
         });
