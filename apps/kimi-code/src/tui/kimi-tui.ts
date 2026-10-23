@@ -1513,7 +1513,16 @@ export class KimiTUI {
       // A cache-hint-swallowed resend passes its pre-dialog extraction back
       // in: the image store may already be cleared (e.g. after "Start a new
       // session"), so re-extracting from the text would lose the media.
-      extraction = preExtracted ?? (await extractMediaAttachments(text, this.imageStore));
+      // Bare image paths attach during extraction; their paste-time
+      // ingestion (compression/daemon upload) is awaited inside it. A
+      // media-free text extracts synchronously, so the submit path only
+      // yields when a path actually has to be read.
+      const extracted =
+        preExtracted ??
+        extractMediaAttachments(text, this.imageStore, (attachment, bytes, mime, width, height) =>
+          this.editorKeyboard.prepareImageAttachment(attachment, bytes, mime, width, height),
+        );
+      extraction = extracted instanceof Promise ? await extracted : extracted;
       if (preExtracted !== undefined) {
         const parts = refreshExpiringImageFileRefs(
           extraction.parts,
@@ -2991,6 +3000,7 @@ export class KimiTUI {
   resetSessionRuntime(options?: { readonly keepQueuedMessages?: boolean }): void {
     this.aborted = false;
     this.cacheHint.resetRuntime();
+    this.resetTokenSpeed();
     this.surveyController.reset();
     this.streamingUI.discardPending();
     if (options?.keepQueuedMessages !== true) this.clearQueuedMessages();
@@ -4158,9 +4168,11 @@ export class KimiTUI {
     this.cacheHint.resetCacheBreakBaseline();
   }
 
-  /** /undo cut the context — the next step's cache drop is expected. */
+  /** /undo cut the context — the next step's cache drop is expected, and the
+   *  speed readout restarts rather than blending the pre-undo rate in. */
   noteContextCut(): void {
     this.cacheHint.resetCacheBreakBaseline();
+    this.resetTokenSpeed();
   }
 
   private async runMigrationScreen(plan: MigrationPlan): Promise<MigrationScreenResult> {
