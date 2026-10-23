@@ -32,10 +32,16 @@ describe('deepseek curated adaptation', () => {
     expect(await loadCuratedAdaptation('gpt-4o')).toBeUndefined();
   });
 
-  it('says the same three things in the minimal system prompt', () => {
-    expect(minimalPrompt).toContain('Replay earlier reasoning in full');
-    expect(minimalPrompt).toContain('exactly as given');
-    expect(minimalPrompt).toContain('restate the objective and the hard constraints');
+  it('delegates the v4.1 operating notes to the reminder instead of restating them', async () => {
+    const adaptation = (await loadCuratedAdaptation('deepseek-v4.1-flash')) ?? '';
+
+    expect(adaptation).toContain('## Reasoning history');
+    expect(adaptation).toContain('## Tool arguments');
+    expect(adaptation).toContain('## Long context');
+
+    expect(minimalPrompt).toContain('${behavior_contract}');
+    expect(minimalPrompt).not.toContain('Replay earlier reasoning in full');
+    expect(minimalPrompt).not.toContain('## Reasoning history');
   });
 
   it('keeps the minimal prompt free of the variables the shape drops', () => {

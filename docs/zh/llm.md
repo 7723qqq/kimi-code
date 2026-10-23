@@ -76,6 +76,8 @@ effort 词表是多对一收敛而不是集合不匹配（`minimal`→low、`low
 - `minimal` prompt 形态只保留人格与工作目录。在该形态下，AGENTS.md 内容、技能列表、插件段与 model-adaptation 段根本不会进入提示词。任何依赖这些内容在场的逻辑都必须检查 `droppedVars`，而不是假定已投递。
 - 正因为 AGENTS.md 正文进不了 `minimal` 系统提示词，注入记账就不能把这些路径标记为"已投递"：那会压掉另一条指向它们的 reminder。只把模板真正承载过的路径记为已投递，其余保持可被该 reminder 命中。
 - 有些模板引用的是组合块（`skills_section`）而不是它构建自的原始变量（`skills`）。模板点名了块，就说明内容已投递，即便原始名字从未出现，因此不得把原始变量报为丢弃。块到变量的配对是显式声明的，而不是从名字推断；由本身并非变量的东西组合出的块（`plugin_sections`、`model_adaptation_section`）没有可配对的对象。
+- `valueDelivery` 为每个未被 profile 承载的非空变量给出分类：由独立通道投递的内容（model adaptation）标为 `reminder`；profile 有意不携带的内容（AGENTS.md、技能、插件、附加目录）标为 `intentionally_omitted` 并附原因。因此一次成功渲染不存在未分类的非空变量；未解析的 `${name}` 会产生 `warnings` 条目，而不是算作已投递。
+- `contractDelivery` 按 profile 报告 `behaviorContract.ts` 的六条核心行为契约：full 形态六条都在 system prompt 中；minimal 形态在模板里承载两条，其余四条交给 adaptation reminder，若该家族没有 reminder 通道则标记为 `intentionally_omitted`。
 
 ## 模型适配
 
@@ -93,6 +95,8 @@ effort 词表是多对一收敛而不是集合不匹配（`minimal`→low、`low
 - **系统提示词段落** —— 用于将来任何带手写指引但不是 minimal 形态的家族。
 
 `loadCuratedAdaptation` 与 `hasCuratedAdaptation` 以家族是否声明 `curatedAdaptation` 为门，因此未注册的模型永远不会被塞指引。
+
+reminder 是组合出来的而不是直接复制的：`renderCuratedAdaptation` 先写入 minimal 形态委派出去的四条核心契约，再声明这些指引是手写而非实测所得，最后把 curated 正文接在 `## Working rules delegated by the minimal prompt` 段之后。因此 minimal 形态的会话拿到的六条契约与 full 形态一致，只是分散在两条通道上，而不是在两处各写一遍。
 
 reminder 侧按 wire name 缓存的是**进行中的加载**，而不是已落定的值。provider 是异步的，reminder 服务可能在任何一步询问，因此两个调用方可能在任一写入完成前重叠；缓存 promise 意味着无论多少调用方竞争，文件只读一次。解析出的 `undefined` 会被当作真实条目保存，这样没有适配的模型不会每步重读目录。
 

@@ -7,9 +7,13 @@ import {
   type AgentProfile,
   type AgentProfileContext,
   type EnvironmentDisclosureSnapshot,
+  type PromptRenderWarning,
+  type PromptValueDelivery,
   type SystemPromptRenderResult,
 } from './agentProfileCatalog';
+import { behaviorContractProjectionFor } from './behaviorContract';
 import { BUILTIN_AGENT_PROFILE_SOURCE_ID } from './builtinAgentProfileLoader';
+import { adaptationDeliveredByReminder } from './modelAdaptations';
 import SYSTEM_MINIMAL_TEMPLATE from './system.minimal.md?raw';
 import SYSTEM_PROMPT_TEMPLATE from './system.md?raw';
 
@@ -236,6 +240,78 @@ function droppedVariables(
   return dropped.length === 0 ? undefined : dropped;
 }
 
+const REMINDER_VALUE_SOURCES: Readonly<
+  Record<string, { readonly sourceId: string; readonly reason: string }>
+> = {
+  model_adaptation_section: {
+    sourceId: 'model-adaptations/curated/deepseek.md',
+    reason: 'delivered with the model-adaptation reminder for the minimal profile',
+  },
+};
+
+const MINIMAL_OMITTED_REASONS: Readonly<Record<string, string>> = {
+  agents_md: 'project instructions are read on demand through the instructions reminder',
+  skills: 'skills are listed on demand through the Skill tool',
+  skills_section: 'skills are listed on demand through the Skill tool',
+  plugin_sections: 'plugin instructions are not carried by the minimal profile',
+  additional_dirs_info: 'additional directories are not listed in the minimal profile',
+  additional_dirs_section: 'additional directories are not listed in the minimal profile',
+  cwd_listing: 'the minimal profile carries no directory listing',
+  reply_style_guide: 'the minimal profile keeps only its short reply rule',
+  todo_list_guidance: 'the minimal profile does not carry the TodoList reminder text',
+  windows_notes: 'operating-system notes are not carried by the minimal profile',
+  runtime_notes: 'runtime notes are not carried by the minimal profile',
+};
+
+function carriedVariableNames(referenced: ReadonlySet<string>): ReadonlySet<string> {
+  const carried = new Set<string>();
+  for (const [block, sources] of Object.entries(COMPOSED_VAR_SOURCES)) {
+    if (!referenced.has(block)) continue;
+    for (const source of sources) carried.add(source);
+  }
+  return carried;
+}
+
+function valueDeliveryFor(
+  shape: 'full' | 'minimal',
+  template: string,
+  vars: Record<string, string>,
+  reminderAvailable: boolean,
+): readonly PromptValueDelivery[] {
+  const referenced = promptVariableNames(template);
+  const carried = carriedVariableNames(referenced);
+  const out: PromptValueDelivery[] = [];
+  for (const [name, value] of Object.entries(vars)) {
+    if (value.length === 0) continue;
+    if (referenced.has(name) || carried.has(name)) {
+      out.push({ name, channel: 'system', sourceId: 'system-prompt' });
+      continue;
+    }
+    const reminder = REMINDER_VALUE_SOURCES[name];
+    if (shape === 'minimal' && reminder !== undefined && reminderAvailable) {
+      out.push({ name, channel: 'reminder', sourceId: reminder.sourceId, reason: reminder.reason });
+      continue;
+    }
+    out.push({
+      name,
+      channel: 'intentionally_omitted',
+      sourceId: 'system-prompt',
+      reason:
+        (shape === 'minimal' ? MINIMAL_OMITTED_REASONS[name] : undefined) ??
+        `not carried by the ${shape} profile`,
+    });
+  }
+  return out;
+}
+
+export function unresolvedPromptVariables(text: string): readonly PromptRenderWarning[] {
+  return [...promptVariableNames(text)].sort().map((name) => ({
+    code: 'unresolved_variable' as const,
+    name,
+    message: `unresolved template variable \${${name}}`,
+  }));
+}
+
 export function renderPromptTemplateResult(
   template: string,
   context: AgentProfileContext,
@@ -249,13 +325,20 @@ export function renderPromptTemplateResult(
     vars['base_prompt'] = baseResult.text;
   }
   const dropped = droppedVariables(template, vars);
+  const text = renderPrompt(template, vars);
+  const warnings = unresolvedPromptVariables(text);
   return {
-    text: renderPrompt(template, vars),
+    text,
     environment: mergeEnvironmentDisclosure(
       environmentForTemplate(context),
       baseResult?.environment,
     ),
     ...(dropped === undefined ? {} : { droppedVars: dropped }),
+    ...(baseResult?.contractDelivery === undefined
+      ? {}
+      : { contractDelivery: baseResult.contractDelivery }),
+    ...(baseResult?.valueDelivery === undefined ? {} : { valueDelivery: baseResult.valueDelivery }),
+    ...(warnings.length === 0 ? {} : { warnings }),
   };
 }
 
@@ -264,19 +347,31 @@ export function renderSystemPromptResult(
   context: AgentProfileContext,
   options: { readonly skillActive: boolean },
 ): SystemPromptRenderResult {
-  const template =
-    promptShapeForModel(context.modelName) === 'minimal'
-      ? SYSTEM_MINIMAL_TEMPLATE
-      : SYSTEM_PROMPT_TEMPLATE;
+  const shape = promptShapeForModel(context.modelName) === 'minimal' ? 'minimal' : 'full';
+  const template = shape === 'minimal' ? SYSTEM_MINIMAL_TEMPLATE : SYSTEM_PROMPT_TEMPLATE;
+  const reminderSource =
+    shape === 'minimal' && adaptationDeliveredByReminder(context.modelName ?? '')
+      ? REMINDER_VALUE_SOURCES['model_adaptation_section']
+      : undefined;
+  const projection = behaviorContractProjectionFor(
+    shape,
+    reminderSource === undefined ? {} : { reminderSourceId: reminderSource.sourceId },
+  );
   const vars: Record<string, string> = {
     ...systemPromptVars(context, options),
     role_additional: roleAdditional,
+    behavior_contract: projection.text,
   };
   const dropped = droppedVariables(template, vars);
+  const text = renderPrompt(template, vars);
+  const warnings = unresolvedPromptVariables(text);
   return {
-    text: renderPrompt(template, vars),
+    text,
     environment: environmentForTemplate(context),
     ...(dropped === undefined ? {} : { droppedVars: dropped }),
+    contractDelivery: projection.delivered,
+    valueDelivery: valueDeliveryFor(shape, template, vars, reminderSource !== undefined),
+    ...(warnings.length === 0 ? {} : { warnings }),
   };
 }
 

@@ -7,7 +7,15 @@
 
 import { avg } from '../format';
 import { estimateTokens } from '../prompt-parser';
-import type { BenchmarkCase, BenchmarkResult, BenchmarkScores, PromptVariant } from '../types';
+import { redactSecrets } from '../redact';
+import type {
+  ApiErrorCategory,
+  ApiErrorRecord,
+  BenchmarkCase,
+  BenchmarkResult,
+  BenchmarkScores,
+  PromptVariant,
+} from '../types';
 import { runAllEvaluators, type EvalContext } from './evaluators';
 
 export interface RunnerConfig {
@@ -186,6 +194,225 @@ export async function runSuite(
   }
 
   return results;
+}
+
+// ─── Production-rendered inputs ─────────────────────────────────────────────
+
+/**
+ * A prompt the production renderer produced, ready to send.
+ *
+ * `reminder` is separate from `system` because it is not part of the system
+ * message: the runtime delivers it as an authoritative directive ahead of the
+ * user's turn, and the report has to say where it went.
+ */
+export interface RenderedInput {
+  name: string;
+  system: string;
+  reminder?: string;
+  profile?: string;
+  sourceHash?: string;
+  fixtureSummary?: Record<string, unknown>;
+  contractDelivery?: readonly { id: string; channel: string }[];
+  tokens?: { system: number; reminder: number };
+}
+
+/** The harness's authoritative directive wrapper, as the runtime writes it. */
+export function reminderPrelude(reminder: string): string {
+  return `<system-reminder>\n${reminder}\n</system-reminder>`;
+}
+
+/**
+ * The user messages for one case, with the reminder in the position the runtime
+ * puts it: a leading user-role message, not a second system message.
+ */
+export function renderedMessages(
+  benchCase: Pick<BenchmarkCase, 'userMessages'>,
+  input: Pick<RenderedInput, 'reminder'>,
+): string[] {
+  const reminder = input.reminder ?? '';
+  return reminder.length === 0
+    ? [...benchCase.userMessages]
+    : [reminderPrelude(reminder), ...benchCase.userMessages];
+}
+
+/**
+ * An answer that arrived but cannot be scored.
+ *
+ * Distinct from a provider fault on purpose: only this one is evidence about the
+ * model, and a caller that detects an unusable answer raises it instead of
+ * throwing a bare Error that would read as a transport failure.
+ */
+export class ModelFailureError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'ModelFailureError';
+  }
+}
+
+/** Messages that identify a transport/provider fault rather than a bad answer. */
+const PROVIDER_FAILURE_SIGNATURES: readonly RegExp[] = [
+  /^API \d{3}\b/m,
+  /Anthropic API \d{3}\b/,
+  /provider-side fault/i,
+  /No choices in API response/i,
+  /carried no usable content/i,
+  /failed after \d+ attempts/i,
+  /No API key found/i,
+  /\b(?:ECONNRESET|ECONNREFUSED|ETIMEDOUT|ENOTFOUND|EAI_AGAIN|EPIPE)\b/,
+  /socket hang up|fetch failed|network error|rate limit/i,
+];
+
+/** Messages that identify an unusable answer rather than a failed call. */
+const MODEL_FAILURE_SIGNATURES: readonly RegExp[] = [
+  /model failure/i,
+  /empty (?:model )?(?:answer|response)/i,
+  /unparseable (?:answer|response|tool call)/i,
+];
+
+/**
+ * Sort a call failure into the two categories the report distinguishes.
+ *
+ * `ModelFailureError` and a message that names an unusable answer are model
+ * failures; a recognised transport signature is a provider failure. An
+ * unrecognised throw is also a provider failure: claiming the model misbehaved
+ * on no evidence is worse than recording that the call never completed.
+ */
+export function classifyCallFailure(error: unknown): ApiErrorCategory {
+  if (error instanceof ModelFailureError) return 'model_failure';
+  const message = error instanceof Error ? error.message : String(error);
+  if (PROVIDER_FAILURE_SIGNATURES.some((signature) => signature.test(message))) {
+    return 'provider_failure';
+  }
+  if (MODEL_FAILURE_SIGNATURES.some((signature) => signature.test(message))) {
+    return 'model_failure';
+  }
+  return 'provider_failure';
+}
+
+function deliveryCounts(
+  delivery: readonly { readonly id: string; readonly channel: string }[] | undefined,
+): { system: number; reminder: number } | undefined {
+  if (delivery === undefined) return undefined;
+  let system = 0;
+  let reminder = 0;
+  for (const entry of delivery) {
+    if (entry.channel === 'system') system += 1;
+    else if (entry.channel === 'reminder') reminder += 1;
+  }
+  return { system, reminder };
+}
+
+/**
+ * Run one case against a rendered prompt.
+ *
+ * Everything the report needs about the prompt travels with the result — profile,
+ * source hash, fixture summary, delivery counts and token split — so a case can
+ * never be attributed to an unstated prompt.
+ */
+export async function runRenderedCase(
+  benchCase: BenchmarkCase,
+  input: RenderedInput,
+  caller: LLMCaller,
+  config: RunnerConfig,
+): Promise<BenchmarkResult> {
+  const start = Date.now();
+  const response = await callWithRetry(
+    caller,
+    input.system,
+    renderedMessages(benchCase, input),
+    config,
+    benchCase.availableTools,
+    `case "${benchCase.id}"`,
+  );
+  const latencyMs = Date.now() - start;
+
+  const evalCtx: EvalContext = {
+    output: response.content,
+    toolCalls: response.toolCalls,
+    tokenUsage: response.usage,
+  };
+  const { ruleCompliance, violations } = runAllEvaluators(benchCase.evaluators, evalCtx);
+  const delivery = deliveryCounts(input.contractDelivery);
+
+  return {
+    taskId: benchCase.id,
+    promptVersion: input.name,
+    model: config.model,
+    scores: {
+      taskSuccess: violations.length === 0,
+      ruleCompliance,
+      tokenEfficiency:
+        response.usage.input + (response.usage.cacheRead ?? 0) + response.usage.output,
+      toolAccuracy: computeToolAccuracy(benchCase, response.toolCalls),
+      outputConciseness: computeConciseness(response.content),
+    },
+    violations,
+    latencyMs,
+    tokenUsage: response.usage,
+    rawOutput: response.content,
+    ...(input.profile === undefined ? {} : { profile: input.profile }),
+    ...(input.sourceHash === undefined ? {} : { sourceHash: input.sourceHash }),
+    ...(input.fixtureSummary === undefined ? {} : { fixtureSummary: input.fixtureSummary }),
+    ...(delivery === undefined ? {} : { delivery }),
+    ...(input.tokens === undefined ? {} : { tokens: input.tokens }),
+    ...(input.reminder === undefined || input.reminder.length === 0
+      ? {}
+      : { reminderRole: 'user-prelude' as const }),
+  };
+}
+
+export interface RenderedSuiteRun {
+  results: BenchmarkResult[];
+  /**
+   * Cases that produced no result because the call failed. They are not scored:
+   * a case that never ran says nothing about the prompt, and scoring it as a
+   * violation would report a provider fault as a model failure.
+   */
+  apiErrors: ApiErrorRecord[];
+}
+
+/**
+ * Run every case against one rendered prompt, tolerating individual failures.
+ *
+ * The raw-template suite aborts on the first failed call, which is fine for a
+ * pruning experiment. A real evaluation is the opposite: one dropped response
+ * must not throw away the other cases, and the report has to say which call
+ * failed and in which category.
+ */
+export async function runRenderedSuite(
+  cases: readonly BenchmarkCase[],
+  input: RenderedInput,
+  caller: LLMCaller,
+  config: RunnerConfig,
+): Promise<RenderedSuiteRun> {
+  const results: BenchmarkResult[] = [];
+  const apiErrors: ApiErrorRecord[] = [];
+  const queue = [...cases];
+  const workers = Math.max(1, Math.min(Math.floor(config.concurrency) || 1, queue.length));
+
+  const runWorker = async (): Promise<void> => {
+    for (;;) {
+      const benchCase = queue.shift();
+      if (benchCase === undefined) return;
+      try {
+        results.push(await runRenderedCase(benchCase, input, caller, config));
+      } catch (error: unknown) {
+        const message = error instanceof Error ? error.message : String(error);
+        apiErrors.push({
+          caseId: benchCase.id,
+          category: classifyCallFailure(error),
+          message: redactSecrets(message).slice(0, 300),
+        });
+      }
+    }
+  };
+
+  await Promise.all(Array.from({ length: workers }, runWorker));
+
+  const order = new Map(cases.map((benchCase, index) => [benchCase.id, index]));
+  results.sort((a, b) => (order.get(a.taskId) ?? 0) - (order.get(b.taskId) ?? 0));
+  apiErrors.sort((a, b) => (order.get(a.caseId) ?? 0) - (order.get(b.caseId) ?? 0));
+  return { results, apiErrors };
 }
 
 /**

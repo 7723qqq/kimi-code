@@ -12,7 +12,12 @@ function section(heading: string, content = `# ${heading}\n\nThe ${heading} rule
 }
 
 const COVERED = 'Coding';
-const UNCOVERED = 'Delivering work';
+/**
+ * A heading no case references, so the pruner has nothing to measure it with.
+ * Re-pick it if a case starts covering this one — the `toHaveLength(0)`
+ * assertion below is what makes that visible instead of silent.
+ */
+const UNCOVERED = 'Skills';
 
 /**
  * A caller whose score depends on the system prompt: it answers well when

@@ -8,6 +8,8 @@ import {
   resolveModelFamily,
 } from '#/llm-adapter/contract/modelFamily';
 
+import { renderDelegatedBehaviorContract } from './behaviorContract';
+
 const ADAPTATIONS_DIR_TAIL = 'agentProfileCatalog/model-adaptations/curated';
 
 const MAX_ADAPTATION_BYTES = 32 * 1024;
@@ -145,13 +147,21 @@ export function truncateAtSection(text: string, limit: number): string {
   return text.slice(0, safeLimit).trimEnd();
 }
 
+export const DEEPSEEK_ADAPTATION_SOURCE_ID =
+  'packages/agent-core-v2/src/app/agentProfileCatalog/model-adaptations/curated/deepseek.md';
+
 export function renderCuratedAdaptation(model: string, adaptation: string): string {
   return [
     `# Model Adaptation: ${model}`,
     '',
-    'Curated guidance for this model family, taken from the vendor of that family.',
-    'These are standing instructions for how to work, not measured tendencies.',
+    'Curated guidance for this model family, authored for this repository and hand-written.',
+    'These are standing instructions for how to work, not measured tendencies and not model probes.',
+    'They carry the working rules the minimal system prompt delegates to this reminder.',
     'Where they conflict with the instructions above, the instructions above win.',
+    '',
+    '## Working rules delegated by the minimal prompt',
+    '',
+    renderDelegatedBehaviorContract(),
     '',
     stripGeneratedHeader(adaptation),
   ].join('\n');

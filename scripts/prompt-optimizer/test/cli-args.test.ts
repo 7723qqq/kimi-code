@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'bun:test';
 
 import { CliArgError, DEFAULT_REPS, parseArgs } from '../src/cli-args';
+import { AUTHORIZED_ACTUAL_GLOBAL_PATH, PROMPT_PROFILES } from '../src/rendered-prompt';
 
 describe('parseArgs accepts known flags', () => {
   test('reads the command and flags', () => {
@@ -59,5 +60,51 @@ describe('parseArgs rejects what it does not understand', () => {
 
   test('a value flag followed by another flag throws', () => {
     expect(() => parseArgs(['bench', '--model', '--dry-run'])).toThrow(/--model requires a value/);
+  });
+});
+
+describe('parseArgs selects the rendered profile', () => {
+  test('defaults to the full profile', () => {
+    expect(parseArgs(['bench']).profile).toBe('full');
+  });
+
+  test('accepts every production profile', () => {
+    for (const profile of PROMPT_PROFILES) {
+      expect(parseArgs(['bench', '--profile', profile]).profile).toBe(profile);
+    }
+  });
+
+  test('an unknown profile throws and lists the legal values', () => {
+    expect(() => parseArgs(['bench', '--profile', 'deepseek'])).toThrow(CliArgError);
+    expect(() => parseArgs(['bench', '--profile', 'deepseek'])).toThrow(
+      /full, minimal, deepseek-adapted/,
+    );
+    expect(() => parseArgs(['bench', '--profile', 'deepseek'])).toThrow(/--profile "deepseek"/);
+  });
+
+  test('--profile without a value throws rather than falling back to full', () => {
+    expect(() => parseArgs(['bench', '--profile'])).toThrow(/--profile requires a value/);
+  });
+});
+
+describe('parseArgs reads the actual-global opt-in', () => {
+  test('parses the authorized path as a value flag', () => {
+    expect(parseArgs(['bench', '--actual-global', AUTHORIZED_ACTUAL_GLOBAL_PATH]).actualGlobal).toBe(
+      AUTHORIZED_ACTUAL_GLOBAL_PATH,
+    );
+  });
+
+  test('is absent unless asked for', () => {
+    expect(parseArgs(['bench']).actualGlobal).toBeUndefined();
+  });
+
+  test('requires a value', () => {
+    expect(() => parseArgs(['bench', '--actual-global'])).toThrow(
+      /--actual-global requires a value/,
+    );
+  });
+
+  test('parsing does not validate the path — that decision belongs to the renderer', () => {
+    expect(parseArgs(['bench', '--actual-global', '/tmp/anything']).actualGlobal).toBe('/tmp/anything');
   });
 });

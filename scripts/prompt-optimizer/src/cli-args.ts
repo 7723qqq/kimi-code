@@ -4,6 +4,13 @@
  * Kept out of `cli.ts` so it can be exercised without spawning a process.
  */
 
+import {
+  DEFAULT_PROMPT_PROFILE,
+  PROMPT_PROFILES,
+  isPromptProfile,
+  type PromptProfile,
+} from './rendered-prompt';
+
 export interface CliArgs {
   readonly command?: string;
   readonly model?: string;
@@ -12,12 +19,28 @@ export interface CliArgs {
   readonly compare?: string;
   /** Repeatable: `--variant base --variant prune:Coding`. */
   readonly variants: readonly string[];
+  /** Which production profile `bench` renders. */
+  readonly profile: PromptProfile;
+  /**
+   * Opt-in read of the one authorized global instruction file. Its content is
+   * sent to the provider and never persisted.
+   */
+  readonly actualGlobal?: string;
 }
 
 export const DEFAULT_REPS = 3;
 
 /** Flags that take a value. */
-const VALUE_FLAGS = ['model', 'reps', 'compare', 'variant', 'experiment', 'out'] as const;
+const VALUE_FLAGS = [
+  'model',
+  'reps',
+  'compare',
+  'variant',
+  'experiment',
+  'out',
+  'profile',
+  'actual-global',
+] as const;
 /** Flags that do not. */
 const BOOLEAN_FLAGS = ['dry-run', 'help'] as const;
 
@@ -34,7 +57,20 @@ export class CliArgError extends Error {
 }
 
 function usageLine(): string {
-  return `Supported flags: ${KNOWN_FLAGS.join(', ')}`;
+  return `Supported flags: ${KNOWN_FLAGS.join(', ')}\nProfiles: ${PROMPT_PROFILES.join(', ')}`;
+}
+
+/**
+ * The profile to render. An unknown value is an error rather than a fallback:
+ * silently benchmarking `full` while the report claims another profile would
+ * make the report wrong, not just the run.
+ */
+function parseProfile(raw: string | undefined): PromptProfile {
+  if (raw === undefined) return DEFAULT_PROMPT_PROFILE;
+  if (isPromptProfile(raw)) return raw;
+  throw new CliArgError(
+    `--profile "${raw}" is not a known profile. Valid values: ${PROMPT_PROFILES.join(', ')}.`,
+  );
 }
 
 /**
@@ -98,5 +134,7 @@ export function parseArgs(argv: readonly string[]): CliArgs {
     dryRun: argv.includes('--dry-run'),
     compare: firstValue(argv, 'compare'),
     variants: values(argv, 'variant'),
+    profile: parseProfile(firstValue(argv, 'profile')),
+    actualGlobal: firstValue(argv, 'actual-global'),
   };
 }

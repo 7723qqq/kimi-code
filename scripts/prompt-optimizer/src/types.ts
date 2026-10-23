@@ -23,6 +23,15 @@ export interface BenchmarkCase {
   availableTools?: import('./benchmark/runner').ToolDefinition[];
   /** Optional: mock tool responses for deterministic testing */
   mockResponses?: MockToolResponse[];
+  /**
+   * Core behavior contract ids this case exercises.
+   *
+   * The ids are owned by
+   * `packages/agent-core-v2/src/app/agentProfileCatalog/behaviorContract.ts`;
+   * the optimizer keeps them as strings so a case set can be checked against the
+   * contract at test time rather than drifting from a local copy of the list.
+   */
+  contractIds?: readonly string[];
 }
 
 export type BenchmarkCategory =
@@ -72,6 +81,18 @@ export interface BenchmarkResult {
   latencyMs: number;
   tokenUsage: { input: number; output: number };
   rawOutput?: string;
+  /** Production profile this case ran against, when the input was rendered. */
+  profile?: string;
+  /** Hash of the exact system+reminder text, so two runs are comparable. */
+  sourceHash?: string;
+  /** Content-free fixture summary: presence, sizes and counts only. */
+  fixtureSummary?: Record<string, unknown>;
+  /** How many core contracts each channel carried for this run. */
+  delivery?: { system: number; reminder: number };
+  /** Estimated tokens of the rendered parts, separate from what the provider billed. */
+  tokens?: { system: number; reminder: number };
+  /** Where the adaptation reminder was sent: a user-role prelude before the case. */
+  reminderRole?: 'user-prelude';
 }
 
 export interface BenchmarkScores {
@@ -88,6 +109,62 @@ export interface BenchmarkScores {
   toolAccuracy: number;
   /** 0-1, output conciseness score */
   outputConciseness: number;
+}
+
+// ─── Evaluation Report Types ────────────────────────────────────────────────
+
+/** How many core contracts one channel carried. */
+export interface ContractCoverageRecord {
+  system: number;
+  reminder: number;
+  omitted: number;
+}
+
+/**
+ * `provider_failure` is a transport/provider fault (HTTP error, dropped body,
+ * retries exhausted); `model_failure` is an answer that arrived but could not be
+ * used. They are recorded apart because only the second says anything about the
+ * model's behaviour.
+ */
+export type ApiErrorCategory = 'model_failure' | 'provider_failure';
+
+export interface ApiErrorRecord {
+  caseId: string;
+  category: ApiErrorCategory;
+  /** Already redacted: no key material and no prompt body. */
+  message: string;
+}
+
+/**
+ * `unavailable` is the only honest verdict for anything that did not measure the
+ * prompt: a dry run, a render with warnings, a missing key, a provider fault.
+ */
+export type EffectivenessVerdict = 'available' | 'unavailable';
+
+export interface ReportCaseResult {
+  id: string;
+  contractIds: readonly string[];
+  passed: boolean;
+  scores: BenchmarkScores;
+  violations: readonly string[];
+  tokens: { system: number; reminder: number };
+  /** Redacted, truncated model output, under the existing report policy. */
+  rawOutput?: string;
+}
+
+export interface EvaluationReport {
+  schemaVersion: number;
+  model: string;
+  profile: string;
+  sourceHash: string;
+  fixtureSummary: Record<string, unknown>;
+  contractCoverage: Record<string, ContractCoverageRecord>;
+  cases: ReportCaseResult[];
+  totals: { systemTokens: number; reminderTokens: number };
+  apiErrors: ApiErrorRecord[];
+  dryRun: boolean;
+  effectivenessVerdict: EffectivenessVerdict;
+  effectivenessBlockers: string[];
 }
 
 // ─── Prompt Variant Types ───────────────────────────────────────────────────

@@ -2,6 +2,8 @@ import type { ILogger } from '#/_base/log/log';
 import type { JsRuntimeInfo } from '#/os/interface/hostEnvironment';
 import type { IHostProcessService } from '#/os/interface/hostProcess';
 
+import type { ContractDelivery } from './behaviorContract';
+
 export const DEFAULT_AGENT_PROFILE_NAME = 'agent';
 
 export interface AgentProfilePromptPrefixContext {
@@ -43,10 +45,28 @@ export interface EnvironmentDisclosureSnapshot {
   readonly cwd: string;
 }
 
+export type PromptValueChannel = 'system' | 'reminder' | 'intentionally_omitted';
+
+export interface PromptValueDelivery {
+  readonly name: string;
+  readonly channel: PromptValueChannel;
+  readonly sourceId: string;
+  readonly reason?: string;
+}
+
+export interface PromptRenderWarning {
+  readonly code: 'unresolved_variable';
+  readonly name: string;
+  readonly message: string;
+}
+
 export interface SystemPromptRenderResult {
   readonly text: string;
   readonly environment: EnvironmentDisclosureSnapshot;
   readonly droppedVars?: readonly string[];
+  readonly contractDelivery?: readonly ContractDelivery[];
+  readonly valueDelivery?: readonly PromptValueDelivery[];
+  readonly warnings?: readonly PromptRenderWarning[];
 }
 
 export interface AgentProfile {

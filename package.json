@@ -56,6 +56,7 @@
     "check:no-hardcoded-prose:counts": "bun scripts/check-no-hardcoded-prose.mjs --print-counts",
     "check:no-comments": "bun scripts/check-no-comments.mjs",
     "check:no-comments:counts": "bun scripts/check-no-comments.mjs --print-counts",
+    "check:prompt-ownership": "bun scripts/check-prompt-ownership.mjs",
     "check:nix-workspace": "bun scripts/check-nix-workspace.mjs",
     "check:service-naming": "bun scripts/check-service-naming.mjs",
     "scan:hardcoded": "bun scripts/scan-hardcoded-v2.mjs",

@@ -76,6 +76,8 @@ The same rule also exists in `packages/kosong/src/providers/openai-common.ts`, b
 - The `minimal` prompt shape keeps only the persona and the working directory. Under it, AGENTS.md content, skill listings, plugin sections, and the model-adaptation section never reach the prompt. Anything that depends on that content being present must check `droppedVars` rather than assume delivery.
 - Because the AGENTS.md body never reaches a `minimal` system prompt, the injection bookkeeping must not mark those paths as already delivered: doing so would suppress the separate reminder that points the model at them. Seed only the paths the template actually carried; everything else stays eligible for that reminder.
 - Some templates reference a composed block (`skills_section`) instead of the raw variable it was built from (`skills`). A template that names the block has delivered the content even though the raw name never appears, so the raw variable must not be reported as dropped. The block→variable pairing is declared explicitly rather than inferred from names, and a block composed from something that is not itself a variable (`plugin_sections`, `model_adaptation_section`) has nothing to pair with.
+- `valueDelivery` classifies every non-empty variable the profile did not carry: `reminder` for content a separate channel delivers (the model adaptation), and `intentionally_omitted` with a reason for content the profile leaves out on purpose (AGENTS.md, skills, plugins, additional directories). A successful render therefore has no unclassified non-empty variable, and an unresolved `${name}` produces a `warnings` entry instead of counting as delivered.
+- `contractDelivery` reports the six core behavior rules from `behaviorContract.ts` per profile: the full shape delivers all six in the system prompt; the minimal shape delivers two in the template and hands the other four to the adaptation reminder, or marks them `intentionally_omitted` when the family has no reminder channel.
 
 ## Model adaptations
 
@@ -93,6 +95,8 @@ The two delivery channels are complementary, and a family is served by exactly o
 - **System-prompt section** — for any future family that carries curated guidance without the minimal shape.
 
 `loadCuratedAdaptation` and `hasCuratedAdaptation` gate on the family declaring `curatedAdaptation`, so an unregistered model is never given guidance.
+
+The reminder is composed rather than copied: `renderCuratedAdaptation` prepends the four core contract clauses the minimal shape delegates, states that the guidance is hand-written rather than measured, and then appends the curated body under a `## Working rules delegated by the minimal prompt` section. A minimal-shape session therefore receives the same six-rule contract as a full one, split across the two channels instead of duplicated in both.
 
 The reminder side caches the **in-flight load** per wire name rather than the settled value. The provider is async and the reminder service can ask for it during any step, so two callers can overlap before either write completes; caching the promise means the file is read once no matter how many callers race it. A resolved `undefined` is stored as a real entry, so a model without an adaptation does not re-read the directory on every step.
 

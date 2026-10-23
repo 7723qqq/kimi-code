@@ -12,6 +12,12 @@ import {
   registerAgentProfile,
 } from '#/app/agentProfileCatalog/contribution';
 import {
+  BEHAVIOR_CONTRACT_CLAUSES,
+  CORE_BEHAVIOR_CONTRACT_IDS,
+  MINIMAL_CONTRACT_HANDOFF,
+  MINIMAL_CORE_CONTRACT_IDS,
+} from '#/app/agentProfileCatalog/behaviorContract';
+import {
   DEFAULT_REPLY_STYLE_GUIDE,
   NOTIFY_USER_GUIDANCE,
   renderAgentProfilePrompt,
@@ -709,5 +715,147 @@ describe('renderAgentProfilePrompt', () => {
     });
     const rendered = renderAgentProfilePrompt(profile, { notifyUserActive: true });
     expect(rendered.text.split(NOTIFY_USER_GUIDANCE)).toHaveLength(2);
+  });
+});
+
+describe('behavior contract delivery', () => {
+  const deepseekName = 'deepseek-v4.1-flash';
+
+  it('delivers every core contract id in the full system text', () => {
+    const result = renderSystemPromptResult(
+      'ROLE',
+      { cwd: '/work', agentsMd: 'AGENTS' },
+      { skillActive: true },
+    );
+
+    expect(result.contractDelivery?.map((entry) => entry.id)).toEqual([
+      ...CORE_BEHAVIOR_CONTRACT_IDS,
+    ]);
+    for (const entry of result.contractDelivery ?? []) {
+      expect(entry.channel, entry.id).toBe('system');
+      expect(entry.sourceId, entry.id).toBe('behavior-contract');
+    }
+    for (const clause of BEHAVIOR_CONTRACT_CLAUSES) {
+      expect(result.text, clause.id).toContain(clause.anchor);
+    }
+  });
+
+  it('declares the minimal core in the system text and hands the rest to the reminder', () => {
+    const result = renderSystemPromptResult(
+      '',
+      { cwd: '/work', modelName: deepseekName },
+      { skillActive: true },
+    );
+
+    const delivery = new Map((result.contractDelivery ?? []).map((entry) => [entry.id, entry]));
+    for (const id of MINIMAL_CORE_CONTRACT_IDS) {
+      expect(delivery.get(id)?.channel, id).toBe('system');
+    }
+    for (const id of CORE_BEHAVIOR_CONTRACT_IDS) {
+      if ((MINIMAL_CORE_CONTRACT_IDS as readonly string[]).includes(id)) continue;
+      expect(delivery.get(id)?.channel, id).toBe('reminder');
+      expect(delivery.get(id)?.sourceId, id).toContain('deepseek');
+    }
+    expect(result.text).toContain(MINIMAL_CONTRACT_HANDOFF);
+    expect(result.text).not.toContain('Weigh reversibility and blast radius');
+  });
+
+  it('classifies every non-empty minimal-profile value instead of dropping it silently', () => {
+    const result = renderSystemPromptResult(
+      '',
+      {
+        modelName: deepseekName,
+        cwd: '/work',
+        cwdListing: 'LISTING',
+        agentsMd: 'PROJECT RULES',
+        skills: 'SKILLS',
+        pluginSections: 'PLUGINS',
+        additionalDirsInfo: '/extra',
+        modelAdaptation: 'ADAPTATION',
+      },
+      { skillActive: true },
+    );
+
+    const channels = new Map((result.valueDelivery ?? []).map((entry) => [entry.name, entry]));
+    expect(channels.get('agents_md')?.channel).toBe('intentionally_omitted');
+    expect(channels.get('skills')?.channel).toBe('intentionally_omitted');
+    expect(channels.get('plugin_sections')?.channel).toBe('intentionally_omitted');
+    expect(channels.get('additional_dirs_info')?.channel).toBe('intentionally_omitted');
+    expect(channels.get('model_adaptation_section')?.channel).toBe('reminder');
+
+    for (const entry of result.valueDelivery ?? []) {
+      if (entry.channel === 'system') continue;
+      expect(entry.reason?.length ?? 0, entry.name).toBeGreaterThan(0);
+    }
+  });
+
+  it('reports an unresolved placeholder as a warning instead of a clean render', () => {
+    const result = renderPromptTemplateResult(
+      'known=${cwd} unknown=${mystery}',
+      { cwd: '/work' },
+      { skillActive: true },
+    );
+
+    expect(result.text).toContain('${mystery}');
+    expect(result.warnings).toEqual([
+      {
+        code: 'unresolved_variable',
+        name: 'mystery',
+        message: expect.stringContaining('mystery'),
+      },
+    ]);
+  });
+
+  it('keeps a fully resolved render warning-free', () => {
+    const result = renderSystemPromptResult(
+      'ROLE',
+      { cwd: '/work', agentsMd: 'AGENTS' },
+      { skillActive: true },
+    );
+
+    expect(result.warnings ?? []).toEqual([]);
+  });
+});
+
+describe('full and minimal contract parity', () => {
+  it('frames project and plugin instructions as reference data in the full prompt', () => {
+    const text = renderSystemPromptResult(
+      '',
+      { cwd: '/work', agentsMd: 'PROJECT RULES', pluginSections: 'PLUGIN RULES' },
+      { skillActive: true },
+    ).text;
+
+    expect(text).toContain('project-supplied reference data');
+    expect(text).toContain('plugin-supplied reference data');
+    expect(text).toContain('PROJECT RULES');
+    expect(text).toContain('PLUGIN RULES');
+  });
+
+  it('keeps the shared contract as the only statement of a rule', () => {
+    const text = renderSystemPromptResult('', { cwd: '/work' }, { skillActive: true }).text;
+
+    for (const sentence of [
+      'When a dedicated tool fits the job, use it before raw shell',
+      'Weigh reversibility and blast radius before acting',
+      'Treat an execution-shaped request as a mandate to act',
+    ]) {
+      expect(text.split(sentence), sentence).toHaveLength(2);
+    }
+  });
+
+  it('keeps the full sections out of the minimal prompt and hands the rest to the reminder', () => {
+    const result = renderSystemPromptResult(
+      '',
+      { cwd: '/work', agentsMd: 'PROJECT RULES', modelName: 'deepseek-v4-pro' },
+      { skillActive: true },
+    );
+
+    expect(result.text).not.toContain('# Project information');
+    expect(result.text).not.toContain('PROJECT RULES');
+    expect(result.text).toContain(MINIMAL_CONTRACT_HANDOFF);
+
+    const channels = new Map((result.valueDelivery ?? []).map((entry) => [entry.name, entry]));
+    expect(channels.get('agents_md')?.channel).toBe('intentionally_omitted');
+    expect(channels.get('agents_md')?.reason).toContain('read on demand');
   });
 });

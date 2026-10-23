@@ -4,9 +4,13 @@
 
 **What lives where:**
 
-- [`DEVELOP.md`](DEVELOP.md) — the project's own reference: structure, packages, commands, CI, toolchain, and the `specs/` convention. **Read it when you need to know how something works.**
+- [`DEVELOP.md`](DEVELOP.md) — the project's single source of truth: structure, packages, commands, CI, toolchain, the `specs/` convention, and the prompt/tool ownership map. **Read it when you need to know how something works.**
 - [`CONVENTIONS.md`](CONVENTIONS.md) — the rules a change must obey: coding style, i18n classification, testing rules, workflow requirements, code-review rules. **Read it before writing code.**
 - [`CONTRIBUTING.md`](CONTRIBUTING.md) — contribution policy and PR process.
+
+**What is injected versus read on demand.** Only this file is injected into a session automatically, as `${agents_md}`. `DEVELOP.md`, `CONVENTIONS.md`, and `CONTRIBUTING.md` are **not** injected: the agent reads them on demand, and no rule here may assume otherwise. When these files disagree, `DEVELOP.md` owns project facts, `CONVENTIONS.md` owns change rules, and this file owns only the entry pointer and the hard constraints below.
+
+The six core behavior rules that every session receives are owned by one module, not by this file: [`behaviorContract.ts`](packages/agent-core-v2/src/app/agentProfileCatalog/behaviorContract.ts). Do not restate them here; a minimal-profile session receives them through `system.minimal.md` plus the model-adaptation reminder.
 
 If you need depth, go read one of those instead of expanding this file. Keep only what every single task needs.
 
@@ -20,7 +24,7 @@ These are the ones that silently break the build or ship a regression if ignored
 - **`packages/agent-core-v2`, `packages/kap-server`, and `packages/transcript` are comment-free zones.** No comments of any kind, no JSDoc, not even on exported symbols. The only exception is load-bearing lint directives (`oxlint-disable` / `eslint-disable`); `@ts-expect-error` and friends stay banned. `bun run check:no-comments` is a **standalone gate** — a green `bun run lint` does not mean this passed.
 - **Never localize a value that code compares.** If a branch keys off a string, that string is protocol data: export a constant and compare that. `tools/review`'s `text-as-protocol` check fails the build otherwise.
 - **Prompt text is behavior.** Editing or deleting a sentence under `packages/agent-core-v2/src/**/*.md` changes what every user receives. That is a behavior change, not a comment cleanup.
-- **`system.minimal.md` is the whole prompt a minimal-shape session receives.** A family declaring `promptShape: 'minimal'` (DeepSeek) drops this file, the skill and plugin sections, and the model-adaptation section. A rule such a session must obey therefore has to land in `system.minimal.md` as the operative copy, with the curated adaptation under `model-adaptations/curated/` as the reminder-delivered channel; writing it here does not deliver it.
+- **`system.minimal.md` is the entry prompt a minimal-shape session receives, not the whole ruleset.** A family declaring `promptShape: 'minimal'` (DeepSeek) gets the short persona/environment core plus the two core contract clauses; the remaining core rules are declared as delegated and delivered through the model-adaptation reminder (`model-adaptations/curated/`). A new rule for such a session must therefore land in the shared contract module and be carried by one of those two channels — writing it only here does not deliver it.
 - **Do not bump versions.** This fork follows upstream versions; `bun run version` / `bun run publish` are not to be run here.
 - **`specs/<id>/` is a requirements contract, not a description of current state.** Version numbers, package names, and commands inside a spec may be long expired. Read a spec to learn what was wanted and why; read the *code* to learn what is true. Do not edit a shipped spec to make it current.
 - **Before committing**, run `git status` and remove throwaway scratch: handoff documents, UI mockups, anything under `.tmp/`.

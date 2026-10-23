@@ -13,6 +13,10 @@ import { IAgentLoopService } from '#/agent/loop/loop';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { DEFAULT_AGENT_PROFILE_NAME } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import {
+  BEHAVIOR_CONTRACT_CLAUSES,
+  MINIMAL_CORE_CONTRACT_IDS,
+} from '#/app/agentProfileCatalog/behaviorContract';
+import {
   adaptationDeliveredByReminder,
   hasCuratedAdaptation,
   loadCuratedAdaptation,
@@ -325,5 +329,26 @@ describe('DeepSeek adaptation delivery end to end', () => {
 
     expect(profile.getSystemPrompt()).not.toContain('# Model Adaptation');
     expect(profile.getSystemPrompt()).toContain('helpful software engineer assistant');
+  });
+});
+
+describe('adaptation content owns the delegated contract', () => {
+  it('carries every core contract the minimal prompt delegates', async () => {
+    const text = (await loadCuratedAdaptation('deepseek-v4-pro', log)) ?? '';
+
+    for (const clause of BEHAVIOR_CONTRACT_CLAUSES) {
+      if (MINIMAL_CORE_CONTRACT_IDS.includes(clause.id)) {
+        expect(text, clause.id).not.toContain(clause.anchor);
+        continue;
+      }
+      expect(text, clause.id).toContain(clause.anchor);
+    }
+  });
+
+  it('states that its guidance is hand-written and not measured', async () => {
+    const text = (await loadCuratedAdaptation('deepseek-v4-pro', log)) ?? '';
+
+    expect(text).toContain('hand-written');
+    expect(text).toContain('not measured');
   });
 });

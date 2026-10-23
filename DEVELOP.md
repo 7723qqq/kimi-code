@@ -27,6 +27,22 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 
 ---
 
+## Instruction Ownership and Precedence
+
+Three project files carry agent guidance, and each owns one job. Only the first is injected into a session automatically.
+
+| File | Injected automatically | Owns |
+| --- | --- | --- |
+| `AGENTS.md` | Yes, as `${agents_md}` | The entry pointer and the hard constraints every task needs. Keep it short — every line is a per-turn cost. |
+| `DEVELOP.md` (this file) | No — read on demand | Project facts: structure, packages, commands, gates, ownership maps, and the `specs/` convention. |
+| `CONVENTIONS.md` | No — read on demand | The rules a change must obey: style, i18n, testing, workflow, review. |
+
+Precedence when they disagree: `DEVELOP.md` and `CONVENTIONS.md` describe the same repository and must not contradict each other; when a document is stale, the code wins and the document is fixed in the same change. A subdirectory `DEVELOP.md` narrows this file for its subtree; it cannot widen permissions or override the runtime system prompt.
+
+User-level global instructions (`~/.kimi-code/AGENTS.md`) and a local `SYSTEM.md` override are separate surfaces: they belong to the user, are never committed here, and are not part of any repository fixture. The runtime composition is the authority for both — `packages/agent-core-v2/src/app/agentProfileCatalog/behaviorContract.ts` owns the six core behavior rules, and `profile-shared.ts` decides what each profile receives in the system prompt, in a reminder, or intentionally omits.
+
+---
+
 ## Technology Stack
 
 ### Languages & Runtimes
@@ -474,6 +490,54 @@ child process belongs in the heavy set rather than in the default run. The CI
 - Test files co-locate with source or in a `test/` directory under each package/app.
 - Patterns: `*.test.ts`, `*.test.tsx`, `*.spec.ts`, `*.spec.tsx`, `test/**/*.ts`
 - E2E tests live in `apps/kimi-code/test/e2e/` and require `KIMI_E2E=1` env.
+
+---
+
+## Prompt Assets and the Prompt Optimizer
+
+### Ownership
+
+A prompt rule has exactly one owner; templates and project files reference it instead of restating it.
+
+| Concern | Owner |
+| --- | --- |
+| The six core behavior rules (`authority_and_untrusted_content`, `act_and_verify`, `tools_and_repository_context`, `safety_and_scope`, `failure_and_partial_progress`, `communication`) | `packages/agent-core-v2/src/app/agentProfileCatalog/behaviorContract.ts` |
+| Full-profile expression (all six clauses plus runtime sections) | `packages/agent-core-v2/src/app/agentProfileCatalog/system.md` |
+| Minimal-profile expression (persona, cwd, the two core clauses, a stable handoff marker) | `packages/agent-core-v2/src/app/agentProfileCatalog/system.minimal.md` |
+| Profile selection, delivery metadata (`system` / `reminder` / `intentionally_omitted`), unresolved-variable warnings | `packages/agent-core-v2/src/app/agentProfileCatalog/profile-shared.ts` |
+| DeepSeek reminder content (delegated clauses, curated body, provenance) | `packages/agent-core-v2/src/app/agentProfileCatalog/model-adaptations/curated/deepseek.md` through `modelAdaptations.ts` |
+| Delivery lifecycle (family gate, cache, one reminder per live context, post-compaction reinjection) | `packages/agent-core-v2/src/features/deepseekAdaptation/deepseekAdaptationService.ts` |
+| Project instruction entry (injected) versus on-demand project docs | `AGENTS.md` versus `DEVELOP.md` / `CONVENTIONS.md` |
+
+`bun run check:prompt-ownership` fails when `AGENTS.md` stops linking `DEVELOP.md`, claims the latter is injected, or a core contract id disappears from the module.
+
+### Offline render check
+
+The renderer is pure: it takes an explicit fixture, starts no DI runtime, and reads no user home file.
+
+```sh
+cd scripts/prompt-optimizer
+bun src/render-fixture.ts --profile full --model kimi-k3-1
+bun src/render-fixture.ts --profile deepseek-adapted --model deepseek-v4-pro
+```
+
+Both print the profile, the source hash, the contract channels, the token counts and any renderer warning; the DeepSeek profile also prints the reminder size and the contract ids it carries. A non-empty `warnings` list means a `${...}` placeholder survived rendering — fix the fixture or the template, do not treat it as a successful render.
+
+### Optimizer
+
+```sh
+cd scripts/prompt-optimizer
+bun test                                                    # Offline unit tests, no network
+bun src/cli.ts bench --dry-run --profile full --model kimi-k3-1
+bun src/cli.ts bench --profile deepseek-adapted --model deepseek-v4-pro   # Real call, needs credentials
+```
+
+- The default benchmark input is the **production-rendered** profile, not `system.md`'s raw template. `--compare` with prune variants is the only raw-template experiment, and it is labelled as such.
+- `--profile` must match the model: `full` for a full-shape family, `deepseek-adapted` for a minimal-shape family with a curated adaptation. A mismatch is a named error, never a silent template fallback.
+- `--dry-run`, renderer warnings, missing credentials and provider failures all produce `effectivenessVerdict: "unavailable"` in the report. Only a completed real run may report an effect.
+- Sending the user's own global instructions is opt-in: `--actual-global C:/Users/Administrator/.kimi-code/AGENTS.md` accepts that one path and fails closed for any other. The content is sent only to the configured provider, never written to reports, logs, or the repository.
+
+Personal global prompt changes (`~/.kimi-code/AGENTS.md`) are local to the machine: they are never committed, never copied into a fixture, and never part of a report.
 
 ---
 
