@@ -2,6 +2,9 @@ import type { LocaleMessages } from './types';
 
 export default {
   errorCodes: {
+    // ── errorCodes: generated skeleton ───────────────────────────────────────────
+    sessionOccupied: '该会话正在另一个客户端中打开，请先在那里关闭，或等待它释放会话。',
+    sessionStale: '该会话在另一个客户端中被更新，已重新加载后再试。',
     // agent.already_exists
     agentAlreadyExists: '智能体 "{{agentId}}" 已存在',
     // goal.already_exists

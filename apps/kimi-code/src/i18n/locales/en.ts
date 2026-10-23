@@ -1,5 +1,9 @@
 export default {
   errorCodes: {
+    // ── errorCodes: generated skeleton ───────────────────────────────────────────
+    sessionOccupied:
+      'This session is open in another client. Close it there, or wait for it to release the session.',
+    sessionStale: 'This session changed in another client, so it was reloaded before retrying.',
     // agent.already_exists
     agentAlreadyExists: 'Agent "{{agentId}}" already exists',
     // goal.already_exists

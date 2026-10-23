@@ -119,6 +119,30 @@ export async function closeSessionById(
   await accessor.get(ISessionManager).close(sessionId);
 }
 
+export interface StaleReloadOptions {
+  readonly retry?: boolean;
+  readonly onReloaded?: (session: ISessionScopeHandle) => Promise<void>;
+}
+
+export async function reloadOnStale<T>(
+  accessor: ServicesAccessor,
+  sessionId: string,
+  run: () => Promise<T>,
+  options?: StaleReloadOptions,
+): Promise<T> {
+  try {
+    return await run();
+  } catch (error) {
+    if (!isError2(error) || error.code !== ErrorCodes.SESSION_STALE) throw error;
+    await closeSessionById(accessor, sessionId);
+    const session = await resumeSessionById(accessor, sessionId);
+    if (session === undefined) throw error;
+    await options?.onReloaded?.(session);
+    if (options?.retry === false) throw error;
+  }
+  return run();
+}
+
 type SessionLifecycleEvents = Required<
   Pick<SessionManager, 'onDidCloseSession' | 'onDidArchiveSession'>
 >;

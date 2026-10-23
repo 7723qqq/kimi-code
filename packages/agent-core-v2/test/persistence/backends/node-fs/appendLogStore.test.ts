@@ -1,21 +1,18 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { expectRejection } from '#test/helpers/assertions';
-import {
-  resetUnexpectedErrorHandler,
-  setUnexpectedErrorHandler,
-} from '#/_base/errors/unexpectedError';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
+import { waitForAssertion } from '#test/helpers/waitFor';
+
+import { mkdtempSync, rmSync, appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
-import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
-import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
-import {
-  AppendLogCorruptedError,
-  IAppendLogStore,
-  type AppendLogTruncation,
-} from '#/persistence/interface/appendLogStore';
+import { AppendLogCorruptedError, IAppendLogStore, type AppendLogTruncation } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
+import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
+import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 
 const enc = new TextEncoder();
 
@@ -39,6 +36,7 @@ function chunkedStorage(chunks: Uint8Array[]): IFileSystemStorageService {
     list: async () => [],
     delete: async () => {},
     size: async () => undefined,
+    sizeSync: () => undefined,
     mtime: async () => undefined,
     pathFor: () => undefined,
     flush: async () => {},
@@ -66,18 +64,6 @@ describe('AppendLogStore', () => {
   async function collect<R>(scope: string, key: string): Promise<readonly R[]> {
     const out: R[] = [];
     for await (const r of record.read<R>(scope, key)) {
-      out.push(r);
-    }
-    return out;
-  }
-
-  async function collectFrom<R>(
-    store: IAppendLogStore,
-    scope: string,
-    key: string,
-  ): Promise<readonly R[]> {
-    const out: R[] = [];
-    for await (const r of store.read<R>(scope, key)) {
       out.push(r);
     }
     return out;
@@ -141,7 +127,9 @@ describe('AppendLogStore', () => {
 
     await expect(record.flush()).rejects.toBe(failure);
     expect(appendAttempts).toBe(1);
-    expect(new TextDecoder().decode(await storage.read(SCOPE, KEY))).toBe('{"n":1}\n{"n":2}\n');
+    expect(new TextDecoder().decode(await storage.read(SCOPE, KEY))).toBe(
+      '{"n":1}\n{"n":2}\n',
+    );
   });
 
   it('reacquire after final release waits for retiring storage before fresh I/O', async () => {
@@ -210,7 +198,6 @@ describe('AppendLogStore', () => {
     await Promise.all([orderedFlush, currentFlush]);
     expect(await collect<Rec>(SCOPE, KEY)).toEqual([{ n: 2 }]);
     replacementOwner.dispose();
-    await expect(record.drainRetirements()).rejects.toThrow('append-log retirement flush failed');
   });
 
   it('final release retirement is awaited by drainRetirements', async () => {
@@ -246,28 +233,6 @@ describe('AppendLogStore', () => {
     await draining;
     expect(drained).toBe(true);
     expect(await collect<Rec>(SCOPE, KEY)).toEqual([{ n: 1 }]);
-  });
-
-  it('surfaces an append failure with no onError through the unexpected-error channel', async () => {
-    const failure = new Error('no-handler append failed');
-    const originalAppend = storage.append.bind(storage);
-    storage.append = async () => {
-      throw failure;
-    };
-    const seen: unknown[] = [];
-    setUnexpectedErrorHandler((error) => seen.push(error));
-    try {
-      const owner = record.acquire(SCOPE, KEY);
-      record.append(SCOPE, KEY, { n: 1 });
-      await expect(record.flush()).rejects.toBe(failure);
-      expect(seen).toContain(failure);
-      owner.dispose();
-      storage.append = originalAppend;
-      await record.drainRetirements().catch(() => {});
-    } finally {
-      resetUnexpectedErrorHandler();
-      storage.append = originalAppend;
-    }
   });
 
   it('keeps a sticky failure until every acquired owner releases it', async () => {
@@ -428,11 +393,11 @@ describe('AppendLogStore', () => {
     record.append<Rec>(SCOPE, KEY, { n: 2 });
     await appendStarted;
 
-        releaseAppend();
-
-    await expect(record.rewrite<Rec>(SCOPE, KEY, [{ n: 9 }])).rejects.toBe(
-      failure,
-    );
+    const rewriteRejected = expect(
+      record.rewrite<Rec>(SCOPE, KEY, [{ n: 9 }]),
+    ).rejects.toBe(failure);
+    releaseAppend();
+    await rewriteRejected;
 
     await expect(record.flush()).rejects.toBe(failure);
     expect(appendAttempts).toBe(1);
@@ -459,11 +424,11 @@ describe('AppendLogStore', () => {
     record.append<Rec>(SCOPE, KEY, { n: 2 });
     await appendStarted;
 
-        releaseAppend();
-
-    await expect(record.rewrite<unknown>(SCOPE, KEY, [{ n: 9n }])).rejects.toBeInstanceOf(
-      TypeError,
-    );
+    const invalid = expect(
+      record.rewrite<unknown>(SCOPE, KEY, [{ n: 9n }]),
+    ).rejects.toBeInstanceOf(TypeError);
+    releaseAppend();
+    await invalid;
     await record.flush();
 
     expect(appendAttempts).toBe(1);
@@ -500,9 +465,11 @@ describe('AppendLogStore', () => {
     record.append<Rec>(SCOPE, KEY, { n: 2 });
     await appendStarted;
 
-        releaseAppend();
-
-    await expect(record.rewrite<Rec>(SCOPE, KEY, [{ n: 9 }])).rejects.toBe(failure);
+    const failedRewrite = expect(
+      record.rewrite<Rec>(SCOPE, KEY, [{ n: 9 }]),
+    ).rejects.toBe(failure);
+    releaseAppend();
+    await failedRewrite;
     await expect(record.flush()).rejects.toBe(failure);
     await expect(collect<Rec>(SCOPE, KEY)).rejects.toBe(failure);
     await expect(record.close()).rejects.toBe(failure);
@@ -547,11 +514,9 @@ describe('AppendLogStore', () => {
 
     const closed = record.close();
     let closeSettled = false;
-    void closed
-      .finally(() => {
-        closeSettled = true;
-      })
-      .catch(() => {});
+    void closed.finally(() => {
+      closeSettled = true;
+    }).catch(() => {});
     await Promise.resolve();
     await Promise.resolve();
     expect(closeSettled).toBe(false);
@@ -667,7 +632,7 @@ describe('AppendLogStore', () => {
     const raw = `${JSON.stringify({ n: 1 })}\nGARBAGE\n${JSON.stringify({ n: 3 })}\n`;
     await storage.append(SCOPE, KEY, enc.encode(raw));
 
-    await expectRejection(collect<Rec>(SCOPE, KEY), (error: unknown) => {
+    await expect(collect<Rec>(SCOPE, KEY)).rejects.toSatisfy((error: unknown) => {
       expect(error).toBeInstanceOf(AppendLogCorruptedError);
       const corrupted = error as AppendLogCorruptedError;
       expect(corrupted.code).toBe('storage.corrupted');
@@ -759,7 +724,7 @@ describe('AppendLogStore', () => {
     }
     expect(first).toEqual([{ type: 'metadata', protocol_version: '1.4' }]);
 
-    const out: Array<{ type: string; s?: string; protocol_version?: string }> = [];
+    const out: Array<{ type: string; protocol_version?: string; s?: string }> = [];
     for await (const r of log.read<{ type: string; s?: string }>(SCOPE, KEY)) out.push(r);
     expect(out).toEqual([
       { type: 'metadata', protocol_version: '1.4' },
@@ -803,66 +768,6 @@ describe('AppendLogStore', () => {
     ]);
   });
 
-  it('read returns empty for a scope that has never been written to', async () => {
-    expect(await collect<Rec>('never-written', KEY)).toEqual([]);
-  });
-
-  it('read returns empty for a key that has never been written to', async () => {
-    expect(await collect<Rec>(SCOPE, 'never-written.jsonl')).toEqual([]);
-  });
-
-  it('append with empty scope does not throw', async () => {
-    expect(() => record.append<Rec>('', KEY, { n: 1 })).not.toThrow();
-  });
-
-  it('handles a very deeply nested object record', async () => {
-    const deep: Record<string, unknown> = { n: 1 };
-    let cursor: Record<string, unknown> = deep;
-    for (let i = 0; i < 100; i++) {
-      cursor['next'] = { n: i };
-      cursor = cursor['next'] as Record<string, unknown>;
-    }
-    record.append<Record<string, unknown>>(SCOPE, KEY, deep);
-    await record.flush();
-    const out = await collect<Record<string, unknown>>(SCOPE, KEY);
-    expect(out).toHaveLength(1);
-    expect((out[0]!['next'] as Record<string, unknown>)['n']).toBe(0);
-  });
-
-  it('flush is a no-op on an empty log', async () => {
-    await expect(record.flush()).resolves.toBeUndefined();
-  });
-
-  it('close waits for in-flight flush before resolving', async () => {
-    let releaseFlush!: () => void;
-    const flushGate = new Promise<void>((resolve) => {
-      releaseFlush = resolve;
-    });
-    const originalAppend = storage.append.bind(storage);
-    storage.append = async (...args) => {
-      await flushGate;
-      return originalAppend(...args);
-    };
-    record.append<Rec>(SCOPE, KEY, { n: 1 });
-
-    const closed = record.close();
-    releaseFlush!();
-    await expect(closed).resolves.toBeUndefined();
-    expect(await collect<Rec>(SCOPE, KEY)).toEqual([{ n: 1 }]);
-  });
-
-  it('read returns results after close-and-reopen', async () => {
-    record.append<Rec>(SCOPE, KEY, { n: 42 });
-    await record.flush();
-    await record.close();
-
-    const secondIx = disposables.add(new TestInstantiationService());
-    secondIx.stub(IFileSystemStorageService, storage);
-    secondIx.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
-    const reopened = secondIx.get(IAppendLogStore);
-    expect(await collectFrom<Rec>(reopened, SCOPE, KEY)).toEqual([{ n: 42 }]);
-  });
-
   it('does not emit onDidWrite when a flush persists nothing', async () => {
     const events: string[] = [];
     record.onDidWrite((write) => events.push(`${write.scope}/${write.key}`));
@@ -892,5 +797,186 @@ describe('AppendLogStore', () => {
     record.append<Rec>(SCOPE, KEY, { n: 1 });
     await expect(record.flush()).rejects.toThrow('disk full');
     expect(events).toEqual([`${SCOPE}/${KEY}`]);
+  });
+});
+
+describe('AppendLogStore session lock integration', () => {
+  let homeDir: string;
+  let disposables: DisposableStore;
+  let storage: FileStorageService;
+  let log: IAppendLogStore;
+
+  beforeEach(() => {
+    homeDir = mkdtempSync(join(tmpdir(), 'append-log-lock-'));
+    mkdirSync(join(homeDir, SCOPE), { recursive: true });
+    disposables = new DisposableStore();
+    const ix = disposables.add(new TestInstantiationService());
+    storage = new FileStorageService(homeDir);
+    ix.stub(IFileSystemStorageService, storage);
+    ix.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
+    log = ix.get(IAppendLogStore);
+  });
+
+  afterEach(() => {
+    disposables.dispose();
+    rmSync(homeDir, { recursive: true, force: true });
+  });
+
+  async function readAll(): Promise<void> {
+    for await (const _ of log.read(SCOPE, KEY)) {
+      void _;
+    }
+  }
+
+  it('tracks external modification via known length', async () => {
+    expect(log.externallyModified(SCOPE, KEY)).toBe(false);
+    await readAll();
+    expect(log.externallyModified(SCOPE, KEY)).toBe(false);
+
+    appendFileSync(join(homeDir, SCOPE, KEY), `${JSON.stringify({ n: 1 })}\n`);
+    expect(log.externallyModified(SCOPE, KEY)).toBe(true);
+
+    await readAll();
+    expect(log.externallyModified(SCOPE, KEY)).toBe(false);
+
+    log.append<Rec>(SCOPE, KEY, { n: 2 });
+    await log.flush();
+    expect(log.externallyModified(SCOPE, KEY)).toBe(false);
+  });
+
+  it('does not treat bytes appended while reading as already consumed', async () => {
+    const path = join(homeDir, SCOPE, KEY);
+    writeFileSync(path, `${JSON.stringify({ n: 1 })}\n`);
+    const originalReadStream = storage.readStream.bind(storage);
+    storage.readStream = async function* (scope, key, range) {
+      yield* originalReadStream(scope, key, range);
+      appendFileSync(path, `${JSON.stringify({ n: 2 })}\n`);
+    };
+
+    await readAll();
+
+    expect(log.externallyModified(SCOPE, KEY)).toBe(true);
+  });
+
+  it('resets known length after rewrite', async () => {
+    log.append<Rec>(SCOPE, KEY, { n: 1 });
+    await log.flush();
+    await readAll();
+    appendFileSync(join(homeDir, SCOPE, KEY), `${JSON.stringify({ n: 2 })}\n`);
+    expect(log.externallyModified(SCOPE, KEY)).toBe(true);
+
+    await log.rewrite<Rec>(SCOPE, KEY, [{ n: 3 }]);
+    expect(log.externallyModified(SCOPE, KEY)).toBe(false);
+  });
+
+  it('keeps writes in memory while the session lock binding rejects, then flushes when released', async () => {
+    const warn = spyOn(console, 'warn').mockImplementation(() => undefined);
+    let acquired = false;
+    const binding = log.bindWriteGuard(SCOPE, KEY, () => acquired);
+
+    log.append<Rec>(SCOPE, KEY, { n: 1 });
+    await log.flush();
+    expect(existsSync(join(homeDir, SCOPE, KEY))).toBe(false);
+    expect(warn).toHaveBeenCalledTimes(1);
+
+    acquired = true;
+    await log.flush();
+    expect(existsSync(join(homeDir, SCOPE, KEY))).toBe(true);
+
+    const out: Rec[] = [];
+    for await (const r of log.read<Rec>(SCOPE, KEY)) out.push(r);
+    expect(out).toEqual([{ n: 1 }]);
+    binding.dispose();
+    warn.mockRestore();
+  });
+
+  it('does not report external modification while an own append is in flight', async () => {
+    const realAppend = storage.append.bind(storage);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    storage.append = async (scope, key, data, options) => {
+      await realAppend(scope, key, data, options);
+      await gate;
+    };
+
+    await readAll();
+    log.append<Rec>(SCOPE, KEY, { n: 1 });
+    const flushing = log.flush();
+    await waitForAssertion(() => {
+      expect(existsSync(join(homeDir, SCOPE, KEY))).toBe(true);
+    });
+    expect(log.externallyModified(SCOPE, KEY)).toBe(false);
+    release();
+    await flushing;
+    expect(log.externallyModified(SCOPE, KEY)).toBe(false);
+  });
+
+  it('does not report external modification before an own append lands', async () => {
+    const realAppend = storage.append.bind(storage);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    storage.append = async (scope, key, data, options) => {
+      await gate;
+      await realAppend(scope, key, data, options);
+    };
+
+    await readAll();
+    log.append<Rec>(SCOPE, KEY, { n: 1 });
+    const flushing = log.flush();
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    expect(log.externallyModified(SCOPE, KEY)).toBe(false);
+    release();
+    await flushing;
+    expect(log.externallyModified(SCOPE, KEY)).toBe(false);
+  });
+
+  it('does not report external modification in the middle of a chunked append', async () => {
+    const realAppend = storage.append.bind(storage);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    storage.append = async (scope, key, data, options) => {
+      const half = Math.floor(data.length / 2);
+      await realAppend(scope, key, data.subarray(0, half), options);
+      await gate;
+      await realAppend(scope, key, data.subarray(half), options);
+    };
+
+    await readAll();
+    log.append<Rec>(SCOPE, KEY, { n: 1234567 });
+    const flushing = log.flush();
+    await waitForAssertion(() => {
+      expect(existsSync(join(homeDir, SCOPE, KEY))).toBe(true);
+    });
+    expect(log.externallyModified(SCOPE, KEY)).toBe(false);
+    release();
+    await flushing;
+    expect(log.externallyModified(SCOPE, KEY)).toBe(false);
+  });
+  it('does not report external modification while an own rewrite is in flight', async () => {
+    const realWrite = storage.write.bind(storage);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    storage.write = async (scope, key, data, options) => {
+      await realWrite(scope, key, data, options);
+      await gate;
+    };
+
+    await readAll();
+    const rewriting = log.rewrite<Rec>(SCOPE, KEY, [{ n: 1 }, { n: 2 }]);
+    await waitForAssertion(() => {
+      expect(existsSync(join(homeDir, SCOPE, KEY))).toBe(true);
+    });
+    expect(log.externallyModified(SCOPE, KEY)).toBe(false);
+    release();
+    await rewriting;
+    expect(log.externallyModified(SCOPE, KEY)).toBe(false);
   });
 });

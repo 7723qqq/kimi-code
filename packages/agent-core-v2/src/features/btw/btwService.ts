@@ -7,6 +7,7 @@ import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 
 import {
+  BTW_AGENT_LABEL,
   BTW_READONLY_TOOLS,
   ISessionBtwService,
   SIDE_QUESTION_SYSTEM_REMINDER,
@@ -25,6 +26,7 @@ export class SessionBtwService implements ISessionBtwService {
     }
     const childContext = await this.agentLifecycle.fork(
       main.accessor.get(IAgentScopeContext).agentContext,
+      { labels: { [BTW_AGENT_LABEL]: 'true' } },
     );
     const child = this.agentLifecycle.handleOf(childContext.agentId)!;
     child.accessor

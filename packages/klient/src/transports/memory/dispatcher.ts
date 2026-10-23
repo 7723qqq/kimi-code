@@ -22,6 +22,7 @@ import type { IAgentScopeHandle } from '@moonshot-ai/agent-core-v2';
 import type { SkillActivationOrigin } from '@moonshot-ai/agent-core-v2';
 import type { FileMeta, GetResult, SaveOptions } from '@moonshot-ai/agent-core-v2';
 import { IAgentLoopService } from '@moonshot-ai/agent-core-v2/agent/loop/loop';
+import { getOrRestoreAgent } from '@moonshot-ai/agent-core-v2/session/agentLifecycle/getOrRestoreAgent';
 import { agentContextOf } from '@moonshot-ai/agent-core-v2/agent/scopeContext/scopeContext';
 import { IEventBus } from '@moonshot-ai/agent-core-v2/app/event/eventBus';
 import { FileErrors } from '@moonshot-ai/agent-core-v2/app/file/fileService';
@@ -340,7 +341,7 @@ export function createMemoryDispatcher(root: ScopeLike): MemoryDispatcher {
       }
       return { kind: 'agent', like: handle };
     }
-    const agent = session.accessor.get(IAgentLifecycleService).handleOf(scope.agentId);
+    const agent = await getOrRestoreAgent(session, scope.agentId);
     if (agent === undefined) {
       throw new RPCError(NOT_FOUND, `agent not found: ${scope.agentId}`);
     }

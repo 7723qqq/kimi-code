@@ -41,6 +41,7 @@ import { IConfigService } from '#/app/config/config';
 import { IFileService } from '#/app/file/fileService';
 import { IPluginService } from '#/app/plugin/plugin';
 import { LifecycleScope } from '#/app/scopes';
+import { ISessionRunGate } from '#/session/sessionActivity/sessionRunGate';
 import type {
   TurnEndedEvent as TurnEndedTelemetryEvent,
   TurnInterruptedEvent,
@@ -188,6 +189,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
     @IInstantiationService private readonly instantiation: IInstantiationService,
     @IAgentProfileService private readonly profile: IAgentProfileService,
     @IPluginService private readonly plugins: IPluginService,
+    @ISessionRunGate private readonly runGate: ISessionRunGate,
   ) {
     super();
     this.promptEvents = new PromptEventPublisher(this.dispatcher, {
@@ -334,6 +336,7 @@ export class AgentLoopService extends Disposable implements IAgentLoopService {
 
   submit(input: UserEntry, options?: LoopSubmitOptions): LoopSubmitResult {
     if (this.disposing) throw abortError('Agent loop disposed');
+    this.runGate.begin();
     const meta = input.meta;
     const id = meta?.promptId ?? newMessageId();
     const origin = (meta?.origin as PromptOrigin | undefined) ?? { kind: 'user' };

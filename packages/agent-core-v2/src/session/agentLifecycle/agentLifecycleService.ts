@@ -58,13 +58,14 @@ import { hasPinnedPermissionMode } from '#/features/tower/tower';
 import { interactions } from '#/human/interaction/facade';
 import { setRootActorErrorReporter } from '#/human/xstate2';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
+import { ISessionLockService } from '#/persistence/interface/sessionLock';
 import { IBlobStore } from '#/persistence/interface/blobStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 import { IHostClock } from '#/os/interface/hostClock';
 import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
 import { withSubagentProfile } from '#/session/agentLifecycle/subagentMetadata';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
+import { ISessionMetadata, type AgentMeta } from '#/session/sessionMetadata/sessionMetadata';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 import { IWireService } from '#/wire/wire';
 import { WireService } from '#/wire/wireService';
@@ -126,6 +127,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @ISessionEventBus bus: ISessionEventBus,
     @IAppendLogStore private readonly appendLogStore: IAppendLogStore,
+    @ISessionLockService private readonly sessionLocks: ISessionLockService,
     @IBlobStore private readonly blobStore: IBlobStore,
     @IFileSystemStorageService private readonly storage: IFileSystemStorageService,
     @ILogService private readonly logger: ILogService,
@@ -283,6 +285,8 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
         this.storage,
         this.logger,
         telemetryBinding.telemetry,
+        this.sessionLocks,
+        this.ctx,
       );
       wireView = wire;
       const handle = createScopedChildHandle(this.instantiation, LifecycleScope.Agent, agentId, {
@@ -333,7 +337,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       stage = 'seal';
       await handle.accessor.get(IWireService).seal();
       stage = 'register';
-      await this.sessionMetadata.registerAgent(agentId, {
+      const meta: AgentMeta = {
         homedir: agentHomedir,
         type: agentId === 'main' ? 'main' : 'sub',
         parentAgentId: agentId === 'main' ? undefined : 'main',
@@ -342,10 +346,11 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
           opts.labels,
           agentId === 'main' ? undefined : opts.binding?.profile,
         ),
-      });
+      };
+      await this.sessionMetadata.registerAgent(agentId, meta);
       this.onDidCreateEmitter.fire(agent);
       didCreate = true;
-      this.onDidCreateScopeEmitter.fire({ context: agent, handle });
+      this.onDidCreateScopeEmitter.fire({ context: agent, handle, meta });
       stage = 'restore';
       await handle.accessor.get(IEventDispatcher).restore();
       attachInteractionAgent(agentId, this.ctx.sessionId, handle.accessor.get(IEventDispatcher));

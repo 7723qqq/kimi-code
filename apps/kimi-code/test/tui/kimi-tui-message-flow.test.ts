@@ -27,6 +27,7 @@ import { createFeedbackArchivePath } from '../../src/feedback/archive';
 import * as feedbackArchiveModule from '../../src/feedback/archive';
 import { packageCodebase, scanCodebase } from '../../src/feedback/codebase';
 import * as feedbackCodebaseModule from '../../src/feedback/codebase';
+import { ErrorCodes, KimiError } from '@moonshot-ai/kimi-code-sdk';
 import { uploadArchive } from '../../src/feedback/upload';
 import * as feedbackUploadModule from '../../src/feedback/upload';
 import { promptFeedbackAttachment, promptFeedbackInput, runModelSelector, type FeedbackPromptResult } from '#/tui/commands/prompts';
@@ -1105,6 +1106,97 @@ describe('KimiTUI message flow', () => {
     expect(driver.state.transcriptEntries.filter((entry) => entry.kind === 'user')).toMatchObject([
       { content: 'please /skill:review', skillNames: ['review'] },
     ]);
+  });
+
+  it('refreshes the view through the stale-reload handler while the prompt stays in flight (v2 engine)', async () => {
+    let staleReload!: () => Promise<void>;
+    let releasePrompt!: () => void;
+    const session = makeSession({
+      id: 'ses-1',
+      setStaleReloadHandler: mock((handler: () => Promise<void>) => {
+        staleReload = handler;
+      }),
+      prompt: mock(
+        () =>
+          new Promise<void>((resolve) => {
+            releasePrompt = resolve;
+          }),
+      ),
+    });
+    const { driver, harness } = await makeDriver(session, { reloadSession: mock() });
+
+    driver.handleUserInput('original message');
+    await waitForAssertion(() => {
+      expect(session.prompt).toHaveBeenCalledTimes(1);
+    });
+    driver.handleUserInput('queued while reloading');
+    driver.state.editor.setText('typed during reload');
+
+    await staleReload();
+
+    expect(driver.state.appState.streamingPhase).not.toBe('idle');
+    expect(driver.state.transcriptEntries.filter((entry) => entry.kind === 'user')).toMatchObject([
+      { content: 'original message' },
+    ]);
+    expect(driver.state.queuedMessages).toMatchObject([{ text: 'queued while reloading' }]);
+    expect(driver.state.editor.getText()).toBe('typed during reload');
+    expect(harness.reloadSession).not.toHaveBeenCalled();
+    expect(session.close).not.toHaveBeenCalled();
+    expect(session.prompt).toHaveBeenCalledTimes(1);
+    releasePrompt();
+  });
+
+  it('asks to rerun /undo after the SDK reloaded a stale session (v2 engine)', async () => {
+    const session = makeSession({
+      id: 'ses-1',
+      undoHistory: mock(async () => {
+        throw new KimiError(ErrorCodes.SESSION_STALE, 'stale');
+      }),
+    });
+    const { driver, harness } = await makeDriver(session, { reloadSession: mock() });
+
+    driver.handleUserInput('hello');
+    driver.state.appState.streamingPhase = 'idle';
+    driver.handleUserInput('/undo');
+    await confirmUndoSelection(driver);
+
+    await waitForAssertion(() => {
+      expect(stripSgr(renderTranscript(driver))).toContain('run /undo again');
+    });
+    expect(harness.reloadSession).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['two words', '/plug:cmd two words'],
+    ['', '/plug:cmd'],
+  ])('shows a wrapped occupied notice and restores the plugin command after cancellation', async (args, expected) => {
+    const message =
+      'This session is in use by another Kimi Code process. Stop the session in that process or exit it, then try again.';
+    const session = makeSession({
+      activatePluginCommand: mock(async () => {
+        throw new KimiError(ErrorCodes.SESSION_OCCUPIED, message);
+      }),
+    });
+    const { driver } = await makeDriver(session);
+
+    (
+      driver as unknown as {
+        activatePluginCommand(s: unknown, pluginId: string, command: string, value: string): void;
+      }
+    ).activatePluginCommand(session, 'plug', 'cmd', args);
+    await waitForAssertion(() => {
+      expect(driver.state.editorReplacementMounted).toBe(true);
+    });
+    const picker = driver.state.editorContainer.children[0] as {
+      handleInput(data: string): void;
+      render(width: number): string[];
+    };
+    const output = stripSgr(picker.render(40).join(' ')).replaceAll(/\s+/g, ' ');
+    expect(output).toContain('Session in use');
+    expect(output).toContain(message);
+    picker.handleInput('\u001B');
+
+    expect(driver.state.editor.getText()).toBe(expected);
   });
 
   it('renders a bundled replay submission as a single turn', async () => {

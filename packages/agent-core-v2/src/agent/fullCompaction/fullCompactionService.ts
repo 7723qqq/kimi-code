@@ -60,7 +60,7 @@ import type { WireLineRange } from '#/wire/record';
 import { IWireService } from '#/wire/wire';
 import type { ToolDescription as Tool } from '#human/llm/message';
 import { inputTotal, type TokenUsage } from '#human/llm/usage';
-
+import { ISessionRunGate } from '#/session/sessionActivity/sessionRunGate';
 import { renderCompactionInstruction } from './compactionInstruction';
 import {
   CompactionBlocked,
@@ -165,6 +165,7 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
     @IAgentStateService private readonly states: IAgentStateService,
     @IWireService private readonly wire: IWireService,
     @IHostTimers private readonly timers: IHostTimers,
+    @ISessionRunGate private readonly runGate: ISessionRunGate,
   ) {
     super();
     this.states.contributeState(fullCompactionKey);
@@ -344,6 +345,9 @@ export class AgentFullCompactionService extends Service implements IAgentFullCom
   begin(input: FullCompactionInput): boolean {
     if (this._compacting) return false;
     const data: CompactionBeginData = { source: input.source, instruction: input.instruction };
+    if (data.source === 'manual') {
+      this.runGate.begin();
+    }
     if (!this.reserveCompactionSlot(data.source)) return false;
 
     const tokenCount = this.validateCompactionStart(data.source);
