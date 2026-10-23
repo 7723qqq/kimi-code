@@ -73,20 +73,9 @@ import { DeviceCodeBoxComponent } from './components/chrome/device-code-box';
 import { GutterContainer } from './components/chrome/gutter-container';
 import { MoonLoader, type SpinnerStyle } from './components/chrome/moon-loader';
 import { WelcomeComponent } from './components/chrome/welcome';
-import { pickRandomWorkingTip } from './components/chrome/working-tips';
-import {
-  ApprovalPanelComponent,
-  type ApprovalPanelResponse,
-} from './components/dialogs/approval-panel';
-import {
-  ApprovalPreviewViewer,
-  type ApprovalPreviewBlock,
-} from './components/dialogs/approval-preview';
 import { ChoicePickerComponent } from './components/dialogs/choice-picker';
 import { CompactionComponent } from './components/dialogs/compaction';
-import { HelpPanelComponent } from './components/dialogs/help-panel';
-import { QuestionDialogComponent } from './components/dialogs/question-dialog';
-import { SessionPickerComponent, type SessionRow } from './components/dialogs/session-picker';
+import type { SessionRow } from './components/dialogs/session-picker';
 import { TrustPromptComponent, type TrustPromptChoice } from './components/dialogs/trust-prompt';
 import {
   FileMentionProvider,
@@ -114,7 +103,7 @@ import {
   ReplayTurnBoundaryComponent,
   UserMessageComponent,
 } from './components/messages/user-message';
-import { ActivityPaneComponent, type ActivityPaneMode } from './components/panes/activity-pane';
+import { type ActivityPaneMode } from './components/panes/activity-pane';
 import { QueuePaneComponent } from './components/panes/queue-pane';
 import { removeLegacySurveySetting, type TuiConfig } from './config';
 import {
@@ -154,7 +143,6 @@ import { StreamingUIController } from './controllers/streaming-ui';
 import { SurveyController, type SurveyControllerDeps } from './controllers/survey-controller';
 import { TasksBrowserController } from './controllers/tasks-browser';
 import { installRainbowDance } from './easter-eggs/dance';
-import { adaptPanelResponse } from './reverse-rpc/approval/adapter';
 import { ApprovalController } from './reverse-rpc/approval/controller';
 import { createApprovalRequestHandler } from './reverse-rpc/approval/handler';
 import { registerReverseRPCHandlers } from './reverse-rpc/index';
@@ -175,7 +163,6 @@ import {
   type LoginProgressSpinnerHandle,
   type QueuedMessage,
   type SteerInputItem,
-  type StepRetryState,
   type TranscriptEntry,
   type TUIStartupOptions,
   type TUIStartupState,
@@ -206,16 +193,13 @@ import { combineSteerInput } from './utils/steer-input';
 import { startupTrace } from '#/utils/startup-trace';
 import { REPLAY_TURN_LIMIT } from './utils/message-replay';
 import { hasPatchChanges } from './utils/object-patch';
-import { beginScreenTakeover, endScreenTakeover, type ScreenTakeover } from './utils/screen-takeover';
 import { sessionRowsForPicker } from './utils/session-picker-rows';
 import { isSessionOccupiedError, occupiedHolderClientId } from './utils/session-lock-errors';
 import { CLI_MSH_PLATFORM } from '#/constant/app';
-import { formatStepRetryDetail, formatStepRetryLabel } from './utils/step-retry';
 import { formatBashOutputForDisplay } from './utils/shell-output';
 import { lazyModelSelection } from './utils/model-switch';
 import { combineStartupNotice, isOAuthLoginRequiredError } from './utils/startup';
 import { installTerminalFocusTracking } from './utils/terminal-focus';
-import { notifyTerminalOnce } from './utils/terminal-notification';
 import { installTerminalThemeTracking } from './utils/terminal-theme';
 import { detectTmuxKeyboardWarning } from './utils/tmux-keyboard';
 import {
@@ -265,15 +249,6 @@ export interface KimiTUIStartupInput {
 type EffectiveActivityPaneMode = ActivityPaneMode | 'idle' | 'session';
 type LoadingTipKind = 'moon' | 'braille';
 
-function loadingTipKind(mode: EffectiveActivityPaneMode): LoadingTipKind | undefined {
-  if (mode === 'waiting' || mode === 'tool') return 'moon';
-  if (mode === 'composing' || mode === 'thinking') return 'braille';
-  return undefined;
-}
-
-function waitingSpinnerLabel(retry: StepRetryState | null): string {
-  return retry === null ? '' : formatStepRetryLabel(retry);
-}
 
 function sameStringArrays(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((value, index) => value === b[index]);
@@ -449,21 +424,6 @@ export class KimiTUI {
   /** Timer that auto-clears the one-shot "moved to background" footer hint. */
   private detachHintClearTimer: ReturnType<typeof setTimeout> | undefined;
 
-  // The currently-mounted approval panel, if any. Kept so the full-screen
-  // preview viewer can restore focus to the exact same instance (and its
-  // selection / feedback state) when it closes.
-  private activeApprovalPanel: ApprovalPanelComponent | undefined;
-  // Active full-screen approval preview. While set, the previous screen is
-  // stashed in `takeover` (root children in regular mode, the layout root in
-  // fullscreen); closing restores it.
-  private approvalPreview:
-    | {
-        component: ApprovalPreviewViewer;
-        takeover: ScreenTakeover;
-        panel: ApprovalPanelComponent;
-      }
-    | undefined;
-
   public onExit?: (exitCode?: number) => Promise<void>;
 
   /** URL opened in the browser just before exit (e.g. by `/web`); printed by onExit. */
@@ -572,7 +532,7 @@ export class KimiTUI {
     this.transcriptRenderer = new TranscriptRendererController(this, this.imageStore, this.staging);
     this.tasksBrowserController = new TasksBrowserController(this);
     this.surveyController = new SurveyController(this, {
-      accessToken: () => this.harness.auth?.getCachedAccessToken?.(),
+      accessToken: this.cachedAccessTokenReader(),
       telemetryDisabled: () => isTelemetryDisabledByEnv() || this.telemetryDisabled,
       ...startupInput.surveyDeps,
     });
@@ -580,6 +540,15 @@ export class KimiTUI {
     this.editorKeyboard = new EditorKeyboardController(this, this.imageStore);
     this.editorKeyboard.install();
     this.buildLayout();
+  }
+
+  private cachedAccessTokenReader(): (() => Promise<string | undefined>) | undefined {
+    const auth = this.harness.auth as
+      | { getCachedAccessToken?: () => Promise<string | undefined> }
+      | undefined;
+    const read = auth?.getCachedAccessToken;
+    if (read === undefined) return undefined;
+    return () => read.call(auth);
   }
 
   // =========================================================================
@@ -711,15 +680,14 @@ export class KimiTUI {
       startupTrace('trustPrompt:begin');
       const trustPromptStartedLoop = await this.maybeRunWorkspaceTrustPrompt();
       startupTrace('trustPrompt:end');
-      const trustPromptAndMsys2Loop =
-        (await this.maybeRunMsys2Prompt(trustPromptStartedLoop));
+      const msys2PromptStartedLoop = await this.maybeRunMsys2Prompt(trustPromptStartedLoop);
 
       if (this.migrationPlan !== null) {
         // Migration needs the event loop running first (pi-tui component).
         // When the trust prompt already started it, starting it again would
         // re-run pi-tui's terminal.start() — stacking a second Kitty
         // keyboard-protocol push and duplicate stdin listeners.
-        if (!trustPromptStartedLoop) this.startEventLoop();
+        if (!trustPromptStartedLoop && !msys2PromptStartedLoop) this.startEventLoop();
         try {
           const migrationResult = await this.runMigrationScreen(this.migrationPlan);
           if (this.migrateOnly) {
@@ -749,7 +717,7 @@ export class KimiTUI {
       // again would re-run pi-tui's terminal.start() — stacking a second
       // Kitty keyboard-protocol push (leaking CSI-u mode past exit) and
       // duplicate stdin listeners.
-      if (!trustPromptStartedLoop) this.startEventLoop();
+      if (!trustPromptStartedLoop && !msys2PromptStartedLoop) this.startEventLoop();
       startupTrace('eventLoop:started');
       try {
         this.startBackgroundFdAutocomplete();
@@ -2938,9 +2906,9 @@ export class KimiTUI {
 
   /**
    * Pulls the next keyset page into the session picker (scroll-bottom paging).
-   * A scope switch or picker close bumps `sessionPickerScopeRequestToken`,
-   * which makes an in-flight append discard its result. Returns whether a page
-   * was appended — callers draining pages stop on the first `false`.
+   * A scope switch or picker close bumps the dialog controller's picker request
+   * token, which makes an in-flight append discard its result. Returns whether a
+   * page was appended — callers draining pages stop on the first `false`.
    * Scroll triggers pass no argument and are dropped while a fetch is running;
    * the search drain passes `waitForInFlight` to join the running fetch and
    * continue with the next page, so a query typed mid-fetch still ends up
@@ -2953,9 +2921,9 @@ export class KimiTUI {
     }
     const cursor = this.state.sessionsNextCursor;
     if (cursor === undefined) return false;
-    const requestToken = this.sessionPickerScopeRequestToken;
+    const requestToken = this.dialogController.sessionPickerRequestToken;
     this.state.sessionsLoadingMore = true;
-    this.sessionPickerComponent?.setPaging(true, true);
+    this.dialogController.setSessionPickerPaging(true, true);
     this.state.ui.requestRender();
     const run = this.appendNextSessionPage(cursor, requestToken);
     this.sessionsPageFetchInFlight = run;
@@ -2973,7 +2941,7 @@ export class KimiTUI {
         limit: SESSION_LIST_PAGE_SIZE,
         before: cursor,
       });
-      if (requestToken !== this.sessionPickerScopeRequestToken) return false;
+      if (requestToken !== this.dialogController.sessionPickerRequestToken) return false;
       this.state.sessionsNextCursor = page.nextCursor;
       const rows = sessionRowsForPicker(
         page.items,
@@ -2981,16 +2949,19 @@ export class KimiTUI {
         this.hasSessionContent(),
       );
       this.state.sessions = [...this.state.sessions, ...rows];
-      this.sessionPickerComponent?.appendSessions(rows);
-      this.sessionPickerComponent?.setPaging(page.nextCursor !== undefined, false);
+      this.dialogController.appendSessionPickerRows(rows);
+      this.dialogController.setSessionPickerPaging(page.nextCursor !== undefined, false);
       return true;
     } catch (error) {
       log.warn('failed to fetch more sessions for picker', { error: String(error) });
       return false;
     } finally {
-      if (requestToken === this.sessionPickerScopeRequestToken) {
+      if (requestToken === this.dialogController.sessionPickerRequestToken) {
         this.state.sessionsLoadingMore = false;
-        this.sessionPickerComponent?.setPaging(this.state.sessionsNextCursor !== undefined, false);
+        this.dialogController.setSessionPickerPaging(
+          this.state.sessionsNextCursor !== undefined,
+          false,
+        );
         this.state.ui.requestRender();
       }
     }
@@ -3002,10 +2973,10 @@ export class KimiTUI {
    * superseded fetch stops the drain (the next fresh query re-triggers it).
    */
   async drainSessionsForSearch(): Promise<void> {
-    const requestToken = this.sessionPickerScopeRequestToken;
+    const requestToken = this.dialogController.sessionPickerRequestToken;
     while (
       this.state.sessionsNextCursor !== undefined &&
-      requestToken === this.sessionPickerScopeRequestToken
+      requestToken === this.dialogController.sessionPickerRequestToken
     ) {
       if (!(await this.fetchMoreSessions(true))) return;
     }
@@ -4159,37 +4130,17 @@ export class KimiTUI {
   // =========================================================================
 
   mountEditorReplacement(panel: Component & Focusable, onDisplaced?: () => void): void {
-    const previousOnDisplaced = this.editorReplacementOnDisplaced;
-    this.editorReplacementOnDisplaced = onDisplaced;
     this.surveyController.notifyDisplaced();
-    this.state.editorReplacementMounted = true;
-    this.state.editorContainer.clear();
-    this.state.editorContainer.addChild(panel);
-    this.state.ui.setFocus(panel);
-    this.state.ui.requestRender();
-    previousOnDisplaced?.();
+    this.dialogController.mountEditorReplacement(panel, onDisplaced);
   }
 
   restoreEditor(): void {
-    const onDisplaced = this.editorReplacementOnDisplaced;
-    this.editorReplacementOnDisplaced = undefined;
-    this.state.editorReplacementMounted = false;
-    this.state.editorContainer.clear();
-    this.state.editorContainer.addChild(this.state.editor);
-    this.state.ui.setFocus(this.state.editor);
-    onDisplaced?.();
+    this.dialogController.restoreEditor();
     this.modelMigration.retry();
-    // Differential render only: closing a tall panel leaves the editor a few
-    // rows above the bottom (blank tail) until the next append, but avoids a
-    // destructive full redraw on every dialog close.
-    this.state.ui.requestRender();
   }
 
   restoreInputText(text: string): void {
-    this.restoreEditor();
-    this.state.editor.setText(text);
-    this.updateEditorBorderHighlight(text);
-    this.state.ui.requestRender();
+    this.dialogController.restoreInputText(text);
   }
 
   /** Latest in-process LLM round-trip; feeds the idle cache-hint scenario. */
@@ -4301,103 +4252,27 @@ export class KimiTUI {
   }
 
   showHelpPanel(): void {
-    this.state.activeDialog = 'help';
-    this.mountEditorReplacement(
-      new HelpPanelComponent({
-        commands: this.getSlashCommands(),
-        onClose: () => {
-          this.hideHelpPanel();
-        },
-      }),
-    );
+    this.dialogController.showHelpPanel();
   }
 
-  private hideHelpPanel(): void {
-    this.state.activeDialog = null;
-    this.restoreEditor();
-  }
-
-  private sessionPickerOptions: {
-    readonly applyStartupModes: boolean;
-    readonly closeOnCancel: boolean;
-    readonly forwardEditorExit: boolean;
-  } = {
-    applyStartupModes: false,
-    closeOnCancel: false,
-    forwardEditorExit: false,
-  };
-  private sessionPickerScopeRequestToken = 0;
-  private sessionPickerComponent: SessionPickerComponent | undefined;
   private sessionsPageFetchInFlight: Promise<boolean> | undefined;
 
-  async showSessionPicker(): Promise<void> {
-    await this.openSessionPicker({
-      applyStartupModes: false,
-      closeOnCancel: false,
-      forwardEditorExit: false,
-    });
+  showSessionPicker(): Promise<void> {
+    return this.dialogController.showSessionPicker();
   }
 
-  private async bootstrapFromPicker(): Promise<void> {
-    await this.openSessionPicker({
-      applyStartupModes: true,
-      closeOnCancel: true,
-      forwardEditorExit: true,
-    });
-  }
-
-  async openSessionPicker(options: {
-    readonly applyStartupModes: boolean;
-    readonly closeOnCancel: boolean;
-    readonly forwardEditorExit: boolean;
-  }): Promise<void> {
-    this.sessionPickerOptions = options;
-    await this.fetchSessions('cwd');
-    this.remountSessionPicker();
-  }
-
-  async toggleSessionPickerScope(selectedSessionId: string): Promise<void> {
-    const requestToken = ++this.sessionPickerScopeRequestToken;
-    const nextScope = this.state.sessionsScope === 'cwd' ? 'all' : 'cwd';
-    await this.fetchSessions(nextScope);
-    if (requestToken !== this.sessionPickerScopeRequestToken) return;
-    if (this.state.activeDialog !== 'session-picker') return;
-    this.remountSessionPicker(selectedSessionId);
-  }
-
-  remountSessionPicker(initialSelectedSessionId?: string): void {
-    this.mountSessionPicker({
-      initialSelectedSessionId,
-      applyStartupModes: this.sessionPickerOptions.applyStartupModes,
-      onCancel: () => {
-        this.hideSessionPicker();
-        if (this.sessionPickerOptions.closeOnCancel) void this.stop();
-      },
-      onCtrlC: this.sessionPickerOptions.forwardEditorExit
-        ? () => {
-            this.state.editor.onCtrlC?.();
-          }
-        : undefined,
-      onCtrlD: this.sessionPickerOptions.forwardEditorExit
-        ? () => {
-            this.state.editor.onCtrlD?.();
-          }
-        : undefined,
-    });
+  private bootstrapFromPicker(): Promise<void> {
+    return this.dialogController.bootstrapFromPicker();
   }
 
   hideSessionPicker(): void {
-    this.sessionPickerScopeRequestToken += 1;
-    this.sessionPickerComponent = undefined;
-    this.editorKeyboard.clearPendingExit();
-    this.state.activeDialog = null;
-    this.restoreEditor();
+    this.dialogController.hideSessionPicker();
   }
 
   async deleteSessionFromPicker(session: SessionRow): Promise<void> {
     // Invalidate any pending scope-toggle remount: it would replace the picker
     // that is about to lock itself for the delete.
-    this.sessionPickerScopeRequestToken += 1;
+    this.dialogController.invalidateSessionPickerRequests();
     try {
       await this.waitForSessionAssembly();
       if (session.id === this.state.appState.sessionId && this.session !== undefined) {
@@ -4408,11 +4283,11 @@ export class KimiTUI {
       // fetchSessions swallows refetch errors, so drop the row locally first —
       // a failed refetch must not resurrect it in the remounted list.
       this.state.sessions = this.state.sessions.filter((row) => row.id !== session.id);
-      const requestToken = ++this.sessionPickerScopeRequestToken;
+      const requestToken = this.dialogController.sessionPickerRequestToken;
       await this.fetchSessions(this.state.sessionsScope);
-      if (requestToken !== this.sessionPickerScopeRequestToken) return;
+      if (requestToken !== this.dialogController.sessionPickerRequestToken) return;
       if (this.state.activeDialog !== 'session-picker') return;
-      this.remountSessionPicker();
+      this.dialogController.remountSessionPicker();
       this.showStatus('Session deleted.');
     } catch (error) {
       this.showError(`Failed to delete session ${session.id}: ${formatErrorMessage(error)}`);
@@ -4460,157 +4335,20 @@ export class KimiTUI {
     void slashCommands.handleUndoCommand(this, '');
   }
 
-  private mountSessionPicker(options: {
-    readonly onCancel: () => void;
-    readonly onCtrlC?: () => void;
-    readonly onCtrlD?: () => void;
-    readonly initialSelectedSessionId?: string;
-    // CLI mode flags (--auto/--yolo/--plan) target the session picked at
-    // startup (bare --session); later /sessions switches keep the picked
-    // session's own persisted modes.
-    readonly applyStartupModes?: boolean;
-  }): void {
-    this.state.activeDialog = 'session-picker';
-    const picker = new SessionPickerComponent({
-      sessions: this.state.sessions,
-      loading: this.state.loadingSessions,
-      currentSessionId: this.state.appState.sessionId,
-      scope: this.state.sessionsScope,
-      initialSelectedSessionId: options.initialSelectedSessionId,
-      pageSize: SESSION_LIST_PAGE_SIZE,
-      hasMore: this.state.sessionsNextCursor !== undefined,
-      loadingMore: this.state.sessionsLoadingMore,
-      onLoadMore: () => {
-        void this.fetchMoreSessions();
-      },
-      onSearchDrain: () => {
-        void this.drainSessionsForSearch();
-      },
-      onSelect: (session: SessionRow) =>
-        this.handleSessionPickerSelect(session, options.applyStartupModes === true).catch(
-          (error) => {
-            this.showError(`Failed to apply startup flags: ${formatErrorMessage(error)}`);
-          },
-        ),
-      onCancel: options.onCancel,
-      onCtrlC: options.onCtrlC,
-      onCtrlD: options.onCtrlD,
-      onToggleScope: (selectedSessionId: string) => {
-        void this.toggleSessionPickerScope(selectedSessionId);
-      },
-      onDeleteRequest: (session: SessionRow) => this.deleteSessionFromPicker(session),
-    });
-    this.sessionPickerComponent = picker;
-    this.mountEditorReplacement(picker);
-  }
-
-  async handleSessionPickerSelect(
-    session: SessionRow,
-    applyStartupModes: boolean,
-  ): Promise<void> {
-    // Invalidate any pending scope-toggle remount: it would replace the picker
-    // and drop the selection lock.
-    this.sessionPickerScopeRequestToken += 1;
-    if (resolve(session.work_dir) !== resolve(this.state.appState.workDir)) {
-      await this.showResumeOtherWorkDirHint(session);
-      if (applyStartupModes) await this.stop(0);
-      return;
-    }
-
-    const switched = await this.resumeSession(session.id);
-    if (!switched) return;
-    if (applyStartupModes) {
-      await this.applyStartupModesToResumedSession(this.requireSession());
-      this.applyStartupPermissionAndPlanToAppState();
-    }
-    this.hideSessionPicker();
-  }
-
   private showApprovalPanel(payload: ApprovalPanelData): void {
-    this.patchLivePane({ pendingApproval: { data: payload } });
-    notifyTerminalOnce(this.state, `approval:${payload.id}`, {
-      title: 'Kimi Code approval required',
-      body: payload.tool_name,
-    });
-    const panel = new ApprovalPanelComponent(
-      { data: payload },
-      (response: ApprovalPanelResponse) => {
-        this.approvalController.respond(adaptPanelResponse(response));
-      },
-      () => {
-        this.toggleToolOutputExpansion();
-      },
-      (block) => {
-        this.openApprovalPreview(panel, block);
-      },
-    );
-    this.activeApprovalPanel = panel;
-    this.mountEditorReplacement(panel);
+    this.dialogController.showApprovalPanel(payload);
   }
 
   private hideApprovalPanel(): void {
-    // If the full-screen preview is open, fold it back first so the saved-
-    // children stack stays consistent with what mountEditorReplacement set up.
-    if (this.approvalPreview !== undefined) this.closeApprovalPreview();
-    this.activeApprovalPanel = undefined;
-    this.patchLivePane({ pendingApproval: null });
-    this.restoreEditor();
-  }
-
-  // Mounts the full-screen approval preview viewer on top of the current
-  // approval panel. Uses the same nested-takeover pattern as
-  // openTaskOutputViewer: beginScreenTakeover swaps the viewer in (root
-  // children in regular mode, layout root in fullscreen) and closing restores
-  // it. The approval panel instance is
-  // kept around in `activeApprovalPanel` so its selection state survives.
-  private openApprovalPreview(panel: ApprovalPanelComponent, block: ApprovalPreviewBlock): void {
-    if (this.approvalPreview !== undefined) return;
-    const viewer = new ApprovalPreviewViewer(
-      {
-        block,
-        onClose: () => {
-          this.closeApprovalPreview();
-        },
-      },
-      this.state.terminal,
-    );
-    const takeover = beginScreenTakeover(this.state.ui, viewer);
-    this.state.ui.setFocus(viewer);
-    this.state.ui.requestRender(true);
-    this.approvalPreview = { component: viewer, takeover, panel };
-  }
-
-  private closeApprovalPreview(): void {
-    const preview = this.approvalPreview;
-    if (preview === undefined) return;
-    this.approvalPreview = undefined;
-    endScreenTakeover(this.state.ui, preview.takeover);
-    this.state.ui.setFocus(preview.panel);
-    this.state.ui.requestRender(true);
+    this.dialogController.hideApprovalPanel();
   }
 
   private showQuestionDialog(payload: QuestionPanelData): void {
-    this.patchLivePane({ pendingQuestion: { data: payload } });
-    notifyTerminalOnce(this.state, `question:${payload.id}`, {
-      title: 'Kimi Code needs your answer',
-      body: payload.questions[0]?.question,
-    });
-    const dialog = new QuestionDialogComponent(
-      { data: payload },
-      (response) => {
-        this.questionController.respond(response);
-      },
-      6,
-      () => {
-        this.toggleToolOutputExpansion();
-      },
-    );
-    this.mountEditorReplacement(dialog);
+    this.dialogController.showQuestionDialog(payload);
   }
 
   private hideQuestionDialog(): void {
-    this.patchLivePane({ pendingQuestion: null });
-    this.restoreEditor();
+    this.dialogController.hideQuestionDialog();
   }
 
   noteStepCacheStats(
