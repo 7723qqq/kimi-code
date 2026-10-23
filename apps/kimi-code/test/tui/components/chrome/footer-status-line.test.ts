@@ -15,6 +15,8 @@ import {
   type StatusLinePayload,
 } from '#/tui/utils/status-line-command';
 
+const RERUN_INTERVAL_MS = 50;
+
 const baseState: AppState = {
   version: '1.2.3',
   workDir: '/tmp/project',
@@ -149,6 +151,12 @@ describe('FooterComponent status_line items', () => {
   });
 });
 
+const mkTempDir = (prefix: string): string => {
+  const dir = join(tmpdir(), `${prefix}-${process.pid}-${Math.random().toString(36).slice(2)}`);
+  mkdirSync(dir, { recursive: true });
+  return dir;
+};
+
 const nodeCommand = (args: string) =>
   process.platform === 'win32'
     ? `""${process.execPath}" ${args}"`
@@ -180,15 +188,36 @@ describe('runStatusLineCommand', () => {
   });
 
   it('returns null on a nonzero exit', async () => {
-    expect(await runStatusLineCommand('exit 3', payload)).toBeNull();
+    const dir = mkTempDir('sl-nonzero');
+    try {
+      const scriptFile = join(dir, 'exit.mjs');
+      writeFileSync(scriptFile, 'process.exit(3);\n');
+      expect(await runStatusLineCommand(nodeCommand(scriptFile), payload)).toBeNull();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('returns null on empty output', async () => {
-    expect(await runStatusLineCommand('true', payload)).toBeNull();
+    const dir = mkTempDir('sl-empty');
+    try {
+      const scriptFile = join(dir, 'empty.mjs');
+      writeFileSync(scriptFile, '\n');
+      expect(await runStatusLineCommand(nodeCommand(scriptFile), payload)).toBeNull();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('returns null when the command overruns the timeout', async () => {
-    expect(await runStatusLineCommand('sleep 2', payload, 100)).toBeNull();
+    const dir = mkTempDir('sl-slow');
+    try {
+      const scriptFile = join(dir, 'slow.mjs');
+      writeFileSync(scriptFile, 'setTimeout(() => {}, 60_000);\n');
+      expect(await runStatusLineCommand(nodeCommand(scriptFile), payload, 100)).toBeNull();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('trims the line and ignores later lines', async () => {
@@ -248,7 +277,7 @@ describe('FooterComponent status_line command', () => {
         () => {
           expect(plain(footer.render(120)[0]!)).toContain('my-custom-status');
         },
-        { timeout: 5_000, interval: 100 },
+        { timeout: 2_000, interval: 25 },
       );
     } finally {
       rmSync(dir, { recursive: true, force: true });
@@ -297,13 +326,21 @@ describe('StatusLineCommandRunner', () => {
   });
 
   it('caches the last good line and coalesces refreshes in the same interval', async () => {
-    const runner = new StatusLineCommandRunner('echo x', () => {});
+    const dir = mkTempDir('sl-coalesce');
+    try {
+      const scriptFile = join(dir, 'echo.mjs');
+      writeFileSync(scriptFile, "process.stdout.write('x');\n");
+      const runner = new StatusLineCommandRunner(nodeCommand(scriptFile), () => {});
 
-    runner.maybeRefresh(payload);
-    runner.maybeRefresh(payload);
-    await new Promise((resolve) => setTimeout(resolve, 200));
-
-    expect(runner.current()).toBe('x');
+      runner.maybeRefresh(payload);
+      runner.maybeRefresh(payload);
+      await waitForAssertion(() => {
+        expect(runner.current()).toBe('x');
+      });
+      runner.dispose();
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('runs a deferred refresh after the throttle interval instead of dropping it', async () => {
@@ -320,16 +357,17 @@ describe('StatusLineCommandRunner', () => {
       const runner = new StatusLineCommandRunner(
         nodeCommand(`${scriptFile} ${counterFile}`),
         () => {},
+        RERUN_INTERVAL_MS,
       );
 
       runner.maybeRefresh(payload);
-      await new Promise((resolve) => setTimeout(resolve, 250));
+      await waitForAssertion(() => {
+        expect(readFileSync(counterFile, 'utf-8').trim()).toBe('1');
+      });
       runner.maybeRefresh(payload); // throttled: must defer, not drop
-      await new Promise((resolve) => setTimeout(resolve, 250));
-      expect(readFileSync(counterFile, 'utf-8').trim()).toBe('1');
-
-      await new Promise((resolve) => setTimeout(resolve, 800));
-      expect(readFileSync(counterFile, 'utf-8').trim()).toBe('2');
+      await waitForAssertion(() => {
+        expect(readFileSync(counterFile, 'utf-8').trim()).toBe('2');
+      });
       runner.dispose();
     } finally {
       rmSync(dir, { recursive: true, force: true });

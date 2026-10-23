@@ -142,6 +142,7 @@ export class StatusLineCommandRunner {
   constructor(
     readonly command: string,
     private readonly onUpdate: () => void,
+    private readonly rerunIntervalMs: number = STATUS_LINE_RERUN_INTERVAL_MS,
   ) {}
 
   current(): string | null {
@@ -150,7 +151,7 @@ export class StatusLineCommandRunner {
 
   maybeRefresh(payload: StatusLinePayload): void {
     const now = Date.now();
-    if (this.inFlight || now - this.lastRunAt < STATUS_LINE_RERUN_INTERVAL_MS) {
+    if (this.inFlight || now - this.lastRunAt < this.rerunIntervalMs) {
       // Don't drop the update: land it as soon as the current gap expires,
       // so a final state change is never lost to throttling.
       this.pendingPayload = payload;
@@ -170,7 +171,7 @@ export class StatusLineCommandRunner {
 
   private scheduleTrailing(now: number): void {
     if (this.trailingTimer !== null) return;
-    const waitMs = Math.max(0, STATUS_LINE_RERUN_INTERVAL_MS - (now - this.lastRunAt));
+    const waitMs = Math.max(0, this.rerunIntervalMs - (now - this.lastRunAt));
     this.trailingTimer = setTimeout(() => {
       this.trailingTimer = null;
       const pending = this.pendingPayload;

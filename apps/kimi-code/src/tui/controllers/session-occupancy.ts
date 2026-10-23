@@ -19,9 +19,9 @@ export interface SessionOccupancyPrompt {
   readonly restore: () => void;
 }
 
-export const OCCUPIED_PROMPT_TITLE = 'Session in use';
+const OCCUPIED_PROMPT_TITLE = 'Session in use';
 
-export const OCCUPIED_PROMPT_OPTIONS = [
+const OCCUPIED_PROMPT_OPTIONS = [
   { value: 'retry', label: 'Retry', description: 'send again now' },
   { value: 'cancel', label: 'Cancel', description: 'get your message back' },
 ] as const;
