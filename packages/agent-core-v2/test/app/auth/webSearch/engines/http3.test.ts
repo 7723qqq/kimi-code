@@ -1,8 +1,6 @@
-import type { FetchLike } from '#/_base/utils/fetchLike';
 import { afterEach, beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
-import { setEnv, setGlobal, restoreEnvs, restoreGlobals } from '#test/helpers/stubs';
-import { waitForAssertion } from '#test/helpers/waitFor';
 
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import { engineFetch } from '#/app/auth/webSearch/engines/engine-http';
 import { undiciFetch } from '#/app/auth/webSearch/engines/engine-undici';
 import {
@@ -13,6 +11,8 @@ import {
   resetH3States,
 } from '#/app/auth/webSearch/engines/http3';
 import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
+import { setEnv, setGlobal, restoreEnvs, restoreGlobals } from '#test/helpers/stubs';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 void mock.module('#/app/auth/webSearch/engines/engine-undici', () => ({
   undiciFetch: mock(),
@@ -102,7 +102,9 @@ describe('engineFetch http3 adaptation', () => {
     const r = await engineFetch(URL_);
     expect(r.status).toBe(200);
     expect(undiciFetchMock).not.toHaveBeenCalled();
-    const init = (fetch as unknown as Mock<FetchLike>).mock.calls[0]?.[1] as RequestInit | undefined;
+    const init = (fetch as unknown as Mock<FetchLike>).mock.calls[0]?.[1] as
+      | RequestInit
+      | undefined;
     expect((init as { protocol?: string })?.protocol).toBe('http3');
   });
 
@@ -216,7 +218,10 @@ describe('h3Fetch direct routing behind a proxy', () => {
   it('restores a pre-existing NO_PROXY verbatim afterwards', async () => {
     setEnv('HTTPS_PROXY', 'http://proxy.example:8080');
     setEnv('NO_PROXY', 'internal.example,*.corp.example');
-    setGlobal('fetch', mock(async () => new Response('ok', { status: 200 })));
+    setGlobal(
+      'fetch',
+      mock(async () => new Response('ok', { status: 200 })),
+    );
 
     await h3Fetch('https://h3.test/', { timeoutMs: 1000 });
 

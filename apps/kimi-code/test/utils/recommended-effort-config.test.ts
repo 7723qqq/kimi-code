@@ -1,8 +1,7 @@
+import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { afterEach, describe, expect, it, mock } from 'bun:test';
 
 import {
   getRecommendedEffortConfig,
@@ -134,7 +133,10 @@ describe('getRecommendedEffortConfig', () => {
       throw new Error('offline');
     });
     await expect(
-      getRecommendedEffortConfig({ fetchImpl: failing as unknown as typeof fetch, cacheFile: null }),
+      getRecommendedEffortConfig({
+        fetchImpl: failing as unknown as typeof fetch,
+        cacheFile: null,
+      }),
     ).resolves.toBeUndefined();
 
     const notOk = mock(async () => jsonResponse('no', 503));
@@ -147,7 +149,11 @@ describe('getRecommendedEffortConfig', () => {
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
-    await getRecommendedEffortConfig({ fetchImpl: fetchImpl as unknown as typeof fetch, now, cacheFile: null });
+    await getRecommendedEffortConfig({
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      now,
+      cacheFile: null,
+    });
     const cached = await getRecommendedEffortConfig({
       fetchImpl: fetchImpl as unknown as typeof fetch,
       now: now + 60_000,
@@ -169,7 +175,11 @@ describe('getRecommendedEffortConfig', () => {
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
-    await getRecommendedEffortConfig({ fetchImpl: fetchImpl as unknown as typeof fetch, now, cacheFile });
+    await getRecommendedEffortConfig({
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      now,
+      cacheFile,
+    });
 
     const persisted = JSON.parse(await readFile(cacheFile, 'utf-8')) as { config: unknown };
     expect(persisted.config).toEqual(CLOUD_CONFIG);
@@ -190,7 +200,11 @@ describe('getRecommendedEffortConfig', () => {
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
-    await getRecommendedEffortConfig({ fetchImpl: fetchImpl as unknown as typeof fetch, now, cacheFile });
+    await getRecommendedEffortConfig({
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      now,
+      cacheFile,
+    });
     resetRecommendedEffortConfigCache();
 
     const result = await getRecommendedEffortConfig({
@@ -211,7 +225,11 @@ describe('peekRecommendedEffortConfig', () => {
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
-    await getRecommendedEffortConfig({ fetchImpl: fetchImpl as unknown as typeof fetch, now, cacheFile: null });
+    await getRecommendedEffortConfig({
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      now,
+      cacheFile: null,
+    });
 
     expect(peekRecommendedEffortConfig(now + 60_000)).toEqual(CLOUD_CONFIG);
     expect(peekRecommendedEffortConfig(now + 25 * 60 * 60 * 1000)).toBeUndefined();

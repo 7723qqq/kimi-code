@@ -1,13 +1,12 @@
-import type { FetchLike } from '#/_base/utils/fetchLike';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { lookup } from 'node:dns/promises';
 
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import { Agent } from '#/_base/utils/undici-npm';
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { setEnv, restoreEnvs } from '#test/helpers/stubs';
-import { waitUntil } from '#test/helpers/waitFor';
-
 import { LocalFetchURLProvider } from '#/app/web/providers/local-fetch-url';
 import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
+import { setEnv, restoreEnvs } from '#test/helpers/stubs';
+import { waitUntil } from '#test/helpers/waitFor';
 
 void mock.module('node:dns/promises', () => ({ lookup: mock() }));
 
@@ -85,7 +84,14 @@ function asUndiciAgent(dispatcher: RequestInit['dispatcher']): Agent {
 beforeEach(() => {
   lookupMock.mockReset();
   lookupMock.mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
-  for (const key of ['http_proxy', 'HTTP_PROXY', 'https_proxy', 'HTTPS_PROXY', 'all_proxy', 'ALL_PROXY']) {
+  for (const key of [
+    'http_proxy',
+    'HTTP_PROXY',
+    'https_proxy',
+    'HTTPS_PROXY',
+    'all_proxy',
+    'ALL_PROXY',
+  ]) {
     setEnv(key, '');
   }
 });
@@ -275,17 +281,14 @@ describe('LocalFetchURLProvider redirects', () => {
     );
     const provider = new LocalFetchURLProvider({ fetchImpl });
 
-    await expect(provider.fetch('https://example.com/loop')).rejects.toThrow(
-      'Too many redirects',
-    );
+    await expect(provider.fetch('https://example.com/loop')).rejects.toThrow('Too many redirects');
     expect(fetchImpl).toHaveBeenCalledTimes(11);
   });
 
   it('treats a redirect response without a Location header as final', async () => {
-    const fetchImpl = mock<FetchLike>()
-      .mockResolvedValueOnce(
-        new Response('odd', { status: 302, headers: { 'content-type': 'text/plain' } }),
-      );
+    const fetchImpl = mock<FetchLike>().mockResolvedValueOnce(
+      new Response('odd', { status: 302, headers: { 'content-type': 'text/plain' } }),
+    );
     const provider = new LocalFetchURLProvider({ fetchImpl });
 
     const result = await provider.fetch('https://example.com/odd');
@@ -428,7 +431,14 @@ describe('LocalFetchURLProvider timeouts and streaming caps', () => {
   beforeEach(() => {
     lookupMock.mockReset();
     lookupMock.mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
-    for (const key of ['http_proxy', 'HTTP_PROXY', 'https_proxy', 'HTTPS_PROXY', 'all_proxy', 'ALL_PROXY']) {
+    for (const key of [
+      'http_proxy',
+      'HTTP_PROXY',
+      'https_proxy',
+      'HTTPS_PROXY',
+      'all_proxy',
+      'ALL_PROXY',
+    ]) {
       setEnv(key, '');
     }
   });
@@ -441,9 +451,7 @@ describe('LocalFetchURLProvider timeouts and streaming caps', () => {
     return (_url, init) =>
       new Promise((_resolve, reject) => {
         const signal = init?.signal as AbortSignal | undefined;
-        signal?.addEventListener('abort', () =>
-          reject(new Error('The operation was aborted.')),
-        );
+        signal?.addEventListener('abort', () => reject(new Error('The operation was aborted.')));
       }) as Promise<Response>;
   }
 
@@ -466,12 +474,10 @@ describe('LocalFetchURLProvider timeouts and streaming caps', () => {
     const fetchImpl = mock<FetchLike>(hungResponse());
     const provider = new LocalFetchURLProvider({ fetchImpl, timeoutMs: 60_000 });
 
-    const settled = provider
-      .fetch('https://example.com/', { signal: caller.signal })
-      .then(
-        () => undefined,
-        (reason: unknown) => reason,
-      );
+    const settled = provider.fetch('https://example.com/', { signal: caller.signal }).then(
+      () => undefined,
+      (reason: unknown) => reason,
+    );
     await waitUntil(() => fetchImpl.mock.calls.length > 0);
     caller.abort();
     const error = await settled;
@@ -490,10 +496,9 @@ describe('LocalFetchURLProvider timeouts and streaming caps', () => {
         }
       },
     });
-    const fetchImpl = mock<FetchLike>()
-      .mockResolvedValue(
-        new Response(stream, { status: 200, headers: { 'content-type': 'text/plain' } }),
-      );
+    const fetchImpl = mock<FetchLike>().mockResolvedValue(
+      new Response(stream, { status: 200, headers: { 'content-type': 'text/plain' } }),
+    );
     const provider = new LocalFetchURLProvider({ fetchImpl, maxBytes: 1000 });
 
     await expect(provider.fetch('https://example.com/chunked')).rejects.toThrow(

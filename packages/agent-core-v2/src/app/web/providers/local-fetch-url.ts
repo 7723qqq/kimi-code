@@ -1,4 +1,3 @@
-import type { FetchLike } from '#/_base/utils/fetchLike';
 import { lookup as callbackLookup, type LookupAddress, type LookupOptions } from 'node:dns';
 import { lookup } from 'node:dns/promises';
 import { isIP, type LookupFunction } from 'node:net';
@@ -6,6 +5,7 @@ import { isIP, type LookupFunction } from 'node:net';
 import { Readability } from '@mozilla/readability';
 import { parseHTML as rawParseHTML } from 'linkedom';
 
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import { isBlockedIpAddress } from '#/_base/utils/private-address';
 import { isProxyConfigured, makeNoProxyMatcher, resolveNoProxy } from '#/_base/utils/proxy';
 import { Agent, fetch as undiciFetch, type Dispatcher } from '#/_base/utils/undici-npm';

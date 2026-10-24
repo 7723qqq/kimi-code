@@ -1,7 +1,5 @@
 import { describe, expect, it, mock } from 'bun:test';
 
-import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
-
 import {
   fetchNativeReleaseManifest,
   nativeBinaryUrl,
@@ -9,6 +7,7 @@ import {
   selectBunPlatformEntry,
 } from '#/cli/update/native-manifest';
 import { kimiCodeCdnBinariesBase } from '#/constant/app';
+import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
 
 const VERSION = '0.7.0';
 
@@ -68,7 +67,10 @@ describe('fetchNativeReleaseManifest', () => {
       platforms: {},
       futureField: { nested: true },
     });
-    const manifest = await fetchNativeReleaseManifest(VERSION, mockFetch({ ok: true, status: 200, body }));
+    const manifest = await fetchNativeReleaseManifest(
+      VERSION,
+      mockFetch({ ok: true, status: 200, body }),
+    );
     expect(manifest.version).toBe(VERSION);
   });
 
@@ -83,7 +85,10 @@ describe('fetchNativeReleaseManifest', () => {
         },
       },
     });
-    const manifest = await fetchNativeReleaseManifest(VERSION, mockFetch({ ok: true, status: 200, body }));
+    const manifest = await fetchNativeReleaseManifest(
+      VERSION,
+      mockFetch({ ok: true, status: 200, body }),
+    );
     expect(manifest.platforms?.['linux-x64']?.compressed).toEqual({
       filename: 'kimi-code-linux-x64.zst',
       checksum: 'b'.repeat(64),
@@ -101,7 +106,10 @@ describe('fetchNativeReleaseManifest', () => {
         },
       },
     });
-    const manifest = await fetchNativeReleaseManifest(VERSION, mockFetch({ ok: true, status: 200, body }));
+    const manifest = await fetchNativeReleaseManifest(
+      VERSION,
+      mockFetch({ ok: true, status: 200, body }),
+    );
     expect(manifest.platforms?.['linux-x64']).toEqual({
       filename: 'kimi-code-linux-x64',
       checksum: 'a'.repeat(64),
@@ -170,9 +178,13 @@ describe('fetchNativeReleaseManifest', () => {
       // Headers arrive, then the body stalls; only the timeout can end this.
       text: async () =>
         new Promise<string>((_, reject) => {
-          init?.signal?.addEventListener('abort', () => {
-            reject(new Error('aborted'));
-          }, { once: true });
+          init?.signal?.addEventListener(
+            'abort',
+            () => {
+              reject(new Error('aborted'));
+            },
+            { once: true },
+          );
         }),
     })) as unknown as unknown as typeof fetch;
     const promise = fetchNativeReleaseManifest(VERSION, f, clock);
@@ -193,21 +205,19 @@ describe('selectBunPlatformEntry', () => {
   };
 
   it('returns the entry matching platform-arch', () => {
-    expect(selectBunPlatformEntry(manifest, 'win32', 'x64')).toEqual(
-      manifest.bun['win32-x64'],
-    );
+    expect(selectBunPlatformEntry(manifest, 'win32', 'x64')).toEqual(manifest.bun['win32-x64']);
   });
 
   it('throws when the platform is missing', () => {
-    expect(() => selectBunPlatformEntry(manifest, 'linux', 'arm64')).toThrow(
-      /linux-arm64/,
-    );
+    expect(() => selectBunPlatformEntry(manifest, 'linux', 'arm64')).toThrow(/linux-arm64/);
   });
 });
 
 describe('url helpers', () => {
   it('builds the manifest and binary URLs from the binaries base', () => {
-    expect(nativeManifestUrl(VERSION)).toBe(`${kimiCodeCdnBinariesBase()}/${VERSION}/manifest.json`);
+    expect(nativeManifestUrl(VERSION)).toBe(
+      `${kimiCodeCdnBinariesBase()}/${VERSION}/manifest.json`,
+    );
     expect(nativeBinaryUrl(VERSION, 'kimi-code-win32-x64.zip')).toBe(
       `${kimiCodeCdnBinariesBase()}/${VERSION}/kimi-code-win32-x64.zip`,
     );

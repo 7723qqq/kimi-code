@@ -164,7 +164,11 @@ describe('refreshConfigAfterLogin with a matching cloud rule', () => {
     host.harness.getConfig = mock(async () => ({
       defaultModel: 'k2',
       models: {
-        'old-model': { provider: 'managed:kimi-code', model: 'upstream-old', maxContextSize: 200_000 },
+        'old-model': {
+          provider: 'managed:kimi-code',
+          model: 'upstream-old',
+          maxContextSize: 200_000,
+        },
         k2: { provider: 'managed:kimi-code', model: 'upstream-new', maxContextSize: 200_000 },
       },
       providers: {},

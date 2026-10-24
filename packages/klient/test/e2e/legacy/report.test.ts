@@ -1,9 +1,9 @@
+import { afterEach, describe, expect, it } from 'bun:test';
 import { EventEmitter } from 'node:events';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it } from 'bun:test';
 import type { WebSocket as WsWebSocket } from 'ws';
 
 import { DaemonClient } from '../harness/client.js';

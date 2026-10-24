@@ -1,11 +1,10 @@
-import type { FetchLike } from '#/_base/utils/fetchLike';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { PassThrough, Writable } from 'node:stream';
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import { downloadToFile, runCommand } from '#/app/capability/host';
 import type { IHostProcess, IHostProcessService } from '#/os/interface/hostProcess';
 

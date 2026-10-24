@@ -1,7 +1,7 @@
-import type { FetchLike } from '#/_base/utils/fetchLike';
 import { z } from 'zod';
 
 import { createDecorator } from '#/_base/di/instantiation';
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
 import { IConfigService } from '#/app/config/config';
 import { toInputJsonSchema } from '#/tool/input-schema';

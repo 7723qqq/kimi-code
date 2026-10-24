@@ -1,14 +1,13 @@
-import type { FetchLike } from '#/_base/utils/fetchLike';
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { setGlobal, restoreGlobals } from '#test/helpers/stubs';
-
 import type { ILogger } from '#/_base/log/log';
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import { PluginManager } from '#/app/plugin/manager';
+import { setGlobal, restoreGlobals } from '#test/helpers/stubs';
 
 import { createZipFromDir } from './zip-helper';
 
@@ -97,9 +96,7 @@ describe('PluginManager', () => {
       const record = await manager.install(sourceRoot);
 
       expect(record.id).toBe('other');
-      expect(record.root).toContain(
-        await realpath(join(home, 'plugins', 'managed', 'other')),
-      );
+      expect(record.root).toContain(await realpath(join(home, 'plugins', 'managed', 'other')));
       expect(manager.get('other')?.manifest?.name).toBe('other');
     } finally {
       await rm(sourceRoot, { recursive: true, force: true });

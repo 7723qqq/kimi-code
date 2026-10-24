@@ -1,9 +1,9 @@
-import type { FetchLike } from '#/_base/utils/fetchLike';
 import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 
 import { createScopedTestHost } from '#/_base/di/test';
 import type { Error2 } from '#/_base/errors/errors';
 import { isError2 } from '#/_base/errors/errors';
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import { DEFAULT_IDENTITY_SLUG, IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IConfigService } from '#/app/config/config';
@@ -200,7 +200,11 @@ describe('IModelsDevImportService', () => {
     expect(openai?.models).toEqual([
       expect.objectContaining({ id: 'gpt-4.1', max_context_size: 1047576 }),
     ]);
-    expect(byId.get('gateway')).toMatchObject({ needs_base_url: true, wire_type: 'openai', base_url: null });
+    expect(byId.get('gateway')).toMatchObject({
+      needs_base_url: true,
+      wire_type: 'openai',
+      base_url: null,
+    });
     expect(byId.get('google-vertex')).toMatchObject({
       wire_type: 'google-genai',
       base_url: 'https://us-central1-aiplatform.googleapis.com/v1',

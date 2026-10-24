@@ -1,22 +1,30 @@
-import { asGlobalFetch } from '#test/helpers/stubs';
-import type { FetchLike } from '#/_base/utils/fetchLike';
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  mock,
+  spyOn,
+  type Mock,
+} from 'bun:test';
 import { mkdtempSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
 import type { AddressInfo as HttpAddress } from 'node:net';
 import { tmpdir } from 'node:os';
 
-import { join } from 'pathe';
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, mock, spyOn, type Mock } from 'bun:test';
-import { waitForAssertion } from '#test/helpers/waitFor';
-
 import type { OAuthClientInformationFull } from '@modelcontextprotocol/sdk/shared/auth.js';
+import { join } from 'pathe';
 
 import type { ServiceIdentifier } from '#/_base/di/instantiation';
 import { Disposable, DisposableStore } from '#/_base/di/lifecycle';
 import { createServices } from '#/_base/di/test';
 import { AsyncEmitter, Emitter } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import { IMcpOAuthService } from '#/app/mcpConfig/oauthService';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
@@ -46,6 +54,8 @@ import {
   type McpServersChangeEvent,
   type McpTunables,
 } from '#/workspace/workspaceMcpConfig/workspaceMcpConfig';
+import { asGlobalFetch } from '#test/helpers/stubs';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { stubLog } from '../../_base/log/stubs';
 import { registerAgentIdentityStub } from '../../app/agentIdentity/stubs';
@@ -58,16 +68,15 @@ import {
 
 const realFetch = globalThis.fetch;
 beforeAll(() => {
-  globalThis.fetch = asGlobalFetch(async (
-    input: Parameters<FetchLike>[0],
-    init?: Parameters<FetchLike>[1],
-  ) => {
-    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-    if (url.startsWith('https://mcp.example.test')) {
-      throw new TypeError(`blocked external request to ${url}`);
-    }
-    return realFetch(input, init);
-  });
+  globalThis.fetch = asGlobalFetch(
+    async (input: Parameters<FetchLike>[0], init?: Parameters<FetchLike>[1]) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      if (url.startsWith('https://mcp.example.test')) {
+        throw new TypeError(`blocked external request to ${url}`);
+      }
+      return realFetch(input, init);
+    },
+  );
 });
 
 afterAll(() => {
@@ -165,8 +174,9 @@ describe('WorkspaceMcpService', () => {
 
   it('connects the config snapshot in the initial load', async () => {
     current = { alpha: stdioServer(), beta: stdioServer() };
-    const connectAll = spyOn(McpConnectionManager.prototype, 'connectAll')
-      .mockResolvedValue(undefined);
+    const connectAll = spyOn(McpConnectionManager.prototype, 'connectAll').mockResolvedValue(
+      undefined,
+    );
 
     const service = createService();
     manager = service.connectionManager();
@@ -218,10 +228,12 @@ describe('WorkspaceMcpService', () => {
           settleConnectAll = resolve;
         }),
     );
-    const connect = spyOn(McpConnectionManager.prototype, 'connect')
-      .mockResolvedValue(undefined as never);
-    const markRemoved = spyOn(McpConnectionManager.prototype, 'markRemoved')
-      .mockResolvedValue(true as never);
+    const connect = spyOn(McpConnectionManager.prototype, 'connect').mockResolvedValue(
+      undefined as never,
+    );
+    const markRemoved = spyOn(McpConnectionManager.prototype, 'markRemoved').mockResolvedValue(
+      true as never,
+    );
 
     const service = createService();
     manager = service.connectionManager();
@@ -510,8 +522,7 @@ describe('WorkspaceMcpService', () => {
         toolCount: 0,
       });
       spyOn(McpConnectionManager.prototype, 'getRemoteServerUrl').mockReturnValue(url);
-      return spyOn(McpConnectionManager.prototype, 'reconnectAndJoin')
-        .mockResolvedValue(undefined);
+      return spyOn(McpConnectionManager.prototype, 'reconnectAndJoin').mockResolvedValue(undefined);
     }
 
     async function startRefreshFailingServer(): Promise<{
@@ -620,15 +631,15 @@ describe('WorkspaceMcpService', () => {
       manager = service.connectionManager();
       await service.ready;
       mockManagerEntry('pending');
-      const reconnectAfterCurrent = spyOn(McpConnectionManager.prototype, 'reconnectAfterCurrent')
-        .mockResolvedValue(undefined);
+      const reconnectAfterCurrent = spyOn(
+        McpConnectionManager.prototype,
+        'reconnectAfterCurrent',
+      ).mockResolvedValue(undefined);
       let notifyStatus: ((entry: McpServerEntry) => void) | undefined;
-      spyOn(McpConnectionManager.prototype, 'onStatusChange').mockImplementation(
-        (listener) => {
-          notifyStatus = listener;
-          return () => undefined;
-        },
-      );
+      spyOn(McpConnectionManager.prototype, 'onStatusChange').mockImplementation((listener) => {
+        notifyStatus = listener;
+        return () => undefined;
+      });
 
       await oauthService
         .getProvider('notion', SERVER_URL)
@@ -660,8 +671,10 @@ describe('WorkspaceMcpService', () => {
         });
       spyOn(McpConnectionManager.prototype, 'getRemoteServerUrl').mockReturnValue(SERVER_URL);
       spyOn(McpConnectionManager.prototype, 'onStatusChange').mockReturnValue(() => undefined);
-      const reconnectAfterCurrent = spyOn(McpConnectionManager.prototype, 'reconnectAfterCurrent')
-        .mockResolvedValue(undefined);
+      const reconnectAfterCurrent = spyOn(
+        McpConnectionManager.prototype,
+        'reconnectAfterCurrent',
+      ).mockResolvedValue(undefined);
 
       await oauthService
         .getProvider('notion', SERVER_URL)

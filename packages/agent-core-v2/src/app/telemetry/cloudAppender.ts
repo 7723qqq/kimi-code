@@ -1,9 +1,9 @@
-import type { FetchLike } from '#/_base/utils/fetchLike';
 import { randomUUID } from 'node:crypto';
 import { release } from 'node:os';
 
 import type { ServicesAccessor } from '#/_base/di/instantiation';
 import { onUnexpectedError } from '#/_base/errors/unexpectedError';
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
 

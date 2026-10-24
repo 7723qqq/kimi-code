@@ -1,5 +1,6 @@
-import { DEFAULT_CATALOG_URL, CatalogFetchError } from '@moonshot-ai/kimi-code-sdk';
 import { describe, expect, it, mock } from 'bun:test';
+
+import { DEFAULT_CATALOG_URL, CatalogFetchError } from '@moonshot-ai/kimi-code-sdk';
 
 import { fetchCatalogOrBuiltIn } from '#/utils/catalog-fetch';
 

@@ -1,11 +1,10 @@
-import type { FetchLike } from '#/_base/utils/fetchLike';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { Readable, Writable } from 'node:stream';
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import type { CapabilityEntryContext } from '#/app/capability/entries/context';
 import {
   createKimiCuEntry,

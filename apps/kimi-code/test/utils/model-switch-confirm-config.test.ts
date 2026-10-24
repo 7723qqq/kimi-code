@@ -34,7 +34,9 @@ describe('refreshModelSwitchConfirmConfig', () => {
   it('POSTs the model_switch_confirm name, returns the parsed config, and warms peek', async () => {
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
 
-    const result = await refreshModelSwitchConfirmConfig({ fetchImpl: fetchImpl as unknown as typeof fetch });
+    const result = await refreshModelSwitchConfirmConfig({
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
 
     expect(result).toEqual(CLOUD_CONFIG);
     expect(peekModelSwitchConfirmConfig()).toEqual(CLOUD_CONFIG);
@@ -65,7 +67,9 @@ describe('refreshModelSwitchConfirmConfig', () => {
       }),
     );
 
-    const result = await refreshModelSwitchConfirmConfig({ fetchImpl: fetchImpl as unknown as typeof fetch });
+    const result = await refreshModelSwitchConfirmConfig({
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
 
     expect(result).toEqual({
       enable: true,
@@ -93,7 +97,9 @@ describe('refreshModelSwitchConfirmConfig', () => {
       }),
     );
 
-    const result = await refreshModelSwitchConfirmConfig({ fetchImpl: fetchImpl as unknown as typeof fetch });
+    const result = await refreshModelSwitchConfirmConfig({
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
 
     expect(result).toEqual({
       enable: true,
@@ -112,23 +118,33 @@ describe('refreshModelSwitchConfirmConfig', () => {
       }),
     );
 
-    const result = await refreshModelSwitchConfirmConfig({ fetchImpl: fetchImpl as unknown as typeof fetch });
+    const result = await refreshModelSwitchConfirmConfig({
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
 
     expect(result).toEqual({ enable: false, rules: [{ from: 'a', to: 'b' }] });
   });
 
   it('falls back to the disabled default when the payload is not an object', async () => {
-    const fetchImpl = mock(async () => jsonResponse({ name: 'model_switch_confirm', config: 'nope' }));
+    const fetchImpl = mock(async () =>
+      jsonResponse({ name: 'model_switch_confirm', config: 'nope' }),
+    );
 
-    const result = await refreshModelSwitchConfirmConfig({ fetchImpl: fetchImpl as unknown as typeof fetch });
+    const result = await refreshModelSwitchConfirmConfig({
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
 
     expect(result).toEqual({ enable: false, rules: [] });
   });
 
   it('returns undefined when the envelope name does not match', async () => {
-    const fetchImpl = mock(async () => jsonResponse({ name: 'survey_popup', config: CLOUD_CONFIG }));
+    const fetchImpl = mock(async () =>
+      jsonResponse({ name: 'survey_popup', config: CLOUD_CONFIG }),
+    );
 
-    const result = await refreshModelSwitchConfirmConfig({ fetchImpl: fetchImpl as unknown as typeof fetch });
+    const result = await refreshModelSwitchConfirmConfig({
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
 
     expect(result).toBeUndefined();
     expect(peekModelSwitchConfirmConfig()).toBeUndefined();
@@ -182,7 +198,9 @@ describe('rule hint parsing', () => {
       }),
     );
 
-    const result = await refreshModelSwitchConfirmConfig({ fetchImpl: fetchImpl as unknown as typeof fetch });
+    const result = await refreshModelSwitchConfirmConfig({
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
 
     expect(result?.rules).toEqual([
       {
@@ -208,7 +226,9 @@ describe('rule hint parsing', () => {
       }),
     );
 
-    const result = await refreshModelSwitchConfirmConfig({ fetchImpl: fetchImpl as unknown as typeof fetch });
+    const result = await refreshModelSwitchConfirmConfig({
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
 
     expect(result?.rules).toEqual([{ from: 'e', to: 'f' }]);
   });

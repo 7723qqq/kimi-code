@@ -1,3 +1,4 @@
+import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
 /**
  * Scenario: v2 wiring — the harness talks to the in-process agent-core-v2
  * engine (klient memory transport) instead of the v1 KimiCore RPC pair.
@@ -9,34 +10,20 @@
  * Run: cd packages/node-sdk && bun test test/sdk-rpc-client-v2.test.ts
  */
 import { execFile } from 'node:child_process';
-import { mkdir, mkdtemp, readdir, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import {
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  realpath,
+  rm,
+  symlink,
+  writeFile,
+} from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 
-import {
-  FileTokenStorage,
-  resolveKimiCodeOAuthRef,
-  resolveKimiTokenStorageName,
-} from '@moonshot-ai/kimi-code-oauth';
-import { afterEach, describe, expect, it, mock, spyOn } from 'bun:test';
-
-import {
-  buildDaemonFileUrl,
-  createKimiHarness,
-  ErrorCodes,
-  isDaemonFileUrl,
-  isKimiError,
-  KimiHarness,
-  limitAgentReplayByTurns,
-  SDKRpcClientBase,
-  SDKRpcClientV2,
-  Session,
-  toKimiErrorPayload,
-  type Event,
-  type KimiConfig,
-} from '#/index';
-import { foldAgentWireReplay } from '#/v2/resume-replay';
 import {
   drainQueryStoreDisposals,
   drainSessionIndexMirror,
@@ -66,20 +53,40 @@ import {
   MAIN_AGENT_ID,
   OsProcessErrors,
 } from '@moonshot-ai/agent-core-v2';
-
-import { McpOAuthService as McpOAuthServiceV2 } from '@moonshot-ai/agent-core-v2/mcpCore/oauth/service';
-import { TowerStore } from '@moonshot-ai/agent-core-v2/features/tower/protocol/store';
 import type { ScopeSeed } from '@moonshot-ai/agent-core-v2/_base/di/scope';
-
-import { TEST_IDENTITY } from './test-identity';
 import {
   resetModelsDevUpstreamForTest,
   setModelsDevUpstreamForTest,
 } from '@moonshot-ai/agent-core-v2/app/kosongConfig/modelsDevUpstream';
+import { TowerStore } from '@moonshot-ai/agent-core-v2/features/tower/protocol/store';
+import { McpOAuthService as McpOAuthServiceV2 } from '@moonshot-ai/agent-core-v2/mcpCore/oauth/service';
+import {
+  FileTokenStorage,
+  resolveKimiCodeOAuthRef,
+  resolveKimiTokenStorageName,
+} from '@moonshot-ai/kimi-code-oauth';
+
+import {
+  buildDaemonFileUrl,
+  createKimiHarness,
+  ErrorCodes,
+  isDaemonFileUrl,
+  isKimiError,
+  KimiHarness,
+  limitAgentReplayByTurns,
+  SDKRpcClientBase,
+  SDKRpcClientV2,
+  Session,
+  toKimiErrorPayload,
+  type Event,
+  type KimiConfig,
+} from '#/index';
+import { foldAgentWireReplay } from '#/v2/resume-replay';
 
 import { waitUntil } from './session-runtime-helpers';
 import { restoreEnvs, restoreGlobals, setEnv, setGlobal } from './stubs';
 import { recordingTelemetry, type TelemetryRecord } from './telemetry';
+import { TEST_IDENTITY } from './test-identity';
 
 /**
  * Seeds a host-environment service whose `ready` rejects with the Git Bash
@@ -439,9 +446,9 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
       // Non-Error2 failures (DI resolution bugs, aborts) pass through untouched.
       const plain = new Error('not an engine error');
       undoSpy.mockRejectedValueOnce(plain);
-      expect(
-        await captureRejection(client.undoHistory({ sessionId: 'ses_lock', count: 1 })),
-      ).toBe(plain);
+      expect(await captureRejection(client.undoHistory({ sessionId: 'ses_lock', count: 1 }))).toBe(
+        plain,
+      );
     } finally {
       await client.close();
     }
@@ -465,8 +472,10 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
       client.setStaleReloadHandler('ses_stale', handler);
 
       const before = getLiveSessionById(client.engineAccessor, 'ses_stale');
-      spyOn((await mainOf()).accessor.get(IAgentConversationUndoService), 'undo')
-        .mockRejectedValueOnce(stale());
+      spyOn(
+        (await mainOf()).accessor.get(IAgentConversationUndoService),
+        'undo',
+      ).mockRejectedValueOnce(stale());
       await expect(client.undoHistory({ sessionId: 'ses_stale', count: 1 })).rejects.toMatchObject({
         code: 'session.stale',
       });
@@ -474,10 +483,12 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
       expect(handler.mock.calls[0]?.[0]).toMatchObject({ id: 'ses_stale' });
       expect(getLiveSessionById(client.engineAccessor, 'ses_stale')).not.toBe(before);
 
-      const begin = spyOn((await mainOf()).accessor.get(IAgentFullCompactionService), 'begin')
-        .mockImplementationOnce(() => {
-          throw stale();
-        });
+      const begin = spyOn(
+        (await mainOf()).accessor.get(IAgentFullCompactionService),
+        'begin',
+      ).mockImplementationOnce(() => {
+        throw stale();
+      });
       await expect(client.compact({ sessionId: 'ses_stale' })).rejects.toMatchObject({
         code: 'compaction.unable',
       });
@@ -502,10 +513,11 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
       releaseShutdown = resolve;
     });
     const baseShutdown = McpOAuthServiceV2.prototype.shutdown;
-    const shutdownSpy = spyOn(McpOAuthServiceV2.prototype, 'shutdown')
-      .mockImplementation(function (this: McpOAuthServiceV2) {
+    const shutdownSpy = spyOn(McpOAuthServiceV2.prototype, 'shutdown').mockImplementation(
+      function (this: McpOAuthServiceV2) {
         return baseShutdown.call(this).then(() => gate);
-      });
+      },
+    );
     try {
       let closed = false;
       const closePromise = client.close().then(() => {
@@ -683,8 +695,9 @@ key = "${titleOAuthRef.key}"
 `,
       'utf-8',
     );
-    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(
-      (async (input: string | URL | Request) => {
+    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((async (
+      input: string | URL | Request,
+    ) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       if (url === 'https://api.example.test/coding/v1/tools') {
         return new Response(JSON.stringify({ title: 'Generated title' }), {
@@ -693,8 +706,7 @@ key = "${titleOAuthRef.key}"
         });
       }
       throw new Error(`Unexpected fetch: ${url}`);
-      }) as unknown as typeof fetch,
-    );
+    }) as unknown as typeof fetch);
     const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {
@@ -795,16 +807,16 @@ key = "${titleOAuthRef.key}"
     const fetchResponse = new Promise<Response>((resolve) => {
       resolveFetch = resolve;
     });
-    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(
-      (async (input: string | URL | Request) => {
+    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation((async (
+      input: string | URL | Request,
+    ) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       if (url === 'https://api.example.test/coding/v1/tools') {
         markFetchStarted();
         return fetchResponse;
       }
       throw new Error(`Unexpected fetch: ${url}`);
-      }) as unknown as typeof fetch,
-    );
+    }) as unknown as typeof fetch);
     const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
 
     try {
@@ -1333,7 +1345,11 @@ key = "${titleOAuthRef.key}"
           acme: {
             type: 'openai',
             apiKey: 'sk-acme',
-            source: { kind: 'apiJson', url: 'https://registry.example.test/api.json', apiKey: 'sk-registry' },
+            source: {
+              kind: 'apiJson',
+              url: 'https://registry.example.test/api.json',
+              apiKey: 'sk-registry',
+            },
           },
         },
         models: {
@@ -1809,7 +1825,9 @@ key = "${titleOAuthRef.key}"
       expect(headline).toBe('Tower status — ON');
       const body = bodyLines.join('\n');
       expect(body).toContain('Base: main (mode: branch) · You are: tower');
-      expect(body).toContain('Missions:\n  M1 Build engine — planned · owner — · feat/build-engine');
+      expect(body).toContain(
+        'Missions:\n  M1 Build engine — planned · owner — · feat/build-engine',
+      );
       expect(body).toContain('Roster:\n  (none)');
       expect(body).toContain('Review gate:\n  M1 feat/build-engine — BLOCKED: not-completed');
       expect(body).toContain('Inbox: 0 message(s)');
@@ -1954,135 +1972,144 @@ describe('SDKRpcClientV2 workspace trust', () => {
     }
   });
 
-  it.skipIf(!SYMLINKS)('reports failed configuration and instruction sources while retaining readable instructions', async () => {
-    const { harness } = await makeHarness();
-    const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-work-'));
-    tempDirs.push(workDir);
-    await writeFile(join(workDir, '.mcp.json'), '{not json', 'utf-8');
-    await writeFile(join(workDir, 'AGENTS.md'), '# Project instructions\n', 'utf-8');
-    await mkdir(join(workDir, '.kimi-code'));
-    await symlink(join(workDir, 'missing.md'), join(workDir, '.kimi-code', 'AGENTS.md'));
-    try {
-      const info = await harness.getWorkspaceTrustInfo(workDir);
-      expect(info).toEqual({
-        trusted: false,
-        gatedMcpServers: [],
-        gatedAdditionalDirs: [],
-        additionalDirSources: [],
-        warnings: expect.arrayContaining([
-          'Could not inspect MCP configuration.',
-          expect.stringContaining(join(workDir, '.kimi-code', 'AGENTS.md')),
-        ]),
-        instructionSources: {
-          agentsMdPaths: [await realpath(join(workDir, 'AGENTS.md'))],
-          skills: [],
-          agentProfiles: [],
-          paths: [await realpath(join(workDir, 'AGENTS.md'))],
-        },
-      });
-    } finally {
-      await harness.close();
-    }
-  });
+  it.skipIf(!SYMLINKS)(
+    'reports failed configuration and instruction sources while retaining readable instructions',
+    async () => {
+      const { harness } = await makeHarness();
+      const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-work-'));
+      tempDirs.push(workDir);
+      await writeFile(join(workDir, '.mcp.json'), '{not json', 'utf-8');
+      await writeFile(join(workDir, 'AGENTS.md'), '# Project instructions\n', 'utf-8');
+      await mkdir(join(workDir, '.kimi-code'));
+      await symlink(join(workDir, 'missing.md'), join(workDir, '.kimi-code', 'AGENTS.md'));
+      try {
+        const info = await harness.getWorkspaceTrustInfo(workDir);
+        expect(info).toEqual({
+          trusted: false,
+          gatedMcpServers: [],
+          gatedAdditionalDirs: [],
+          additionalDirSources: [],
+          warnings: expect.arrayContaining([
+            'Could not inspect MCP configuration.',
+            expect.stringContaining(join(workDir, '.kimi-code', 'AGENTS.md')),
+          ]),
+          instructionSources: {
+            agentsMdPaths: [await realpath(join(workDir, 'AGENTS.md'))],
+            skills: [],
+            agentProfiles: [],
+            paths: [await realpath(join(workDir, 'AGENTS.md'))],
+          },
+        });
+      } finally {
+        await harness.close();
+      }
+    },
+  );
 
-  it.skipIf(!SYMLINKS)('discloses additional directories and instruction sources of an untrusted workspace', async () => {
-    const { harness } = await makeHarness();
-    const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-work-'));
-    const outsideDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-outside-'));
-    tempDirs.push(workDir, outsideDir);
-    const insideDir = join(workDir, 'sub');
-    await mkdir(insideDir, { recursive: true });
-    await mkdir(join(workDir, '..cache'));
-    // linked-dir lexically sits inside the project but points outside it, so
-    // trusting would grant access to the target; inner-link points back into
-    // the project and grants nothing new.
-    await symlink(outsideDir, join(workDir, 'linked-dir'), 'dir');
-    await symlink(insideDir, join(workDir, 'inner-link'), 'dir');
-    await mkdir(join(workDir, '.kimi-code'), { recursive: true });
-    await writeFile(
-      join(workDir, '.kimi-code', 'local.toml'),
-      `[workspace]\nadditional_dir = [${JSON.stringify(outsideDir)}, ".", "sub", "..cache", "linked-dir", "inner-link"]\n`,
-      'utf-8',
-    );
-    await writeFile(join(outsideDir, 'AGENTS.md'), '# Demo\n', 'utf-8');
-    await symlink(join(outsideDir, 'AGENTS.md'), join(workDir, 'AGENTS.md'), 'file');
-    const outsideSkills = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-skills-'));
-    tempDirs.push(outsideSkills);
-    await mkdir(join(outsideSkills, 'demo-skill'), { recursive: true });
-    await writeFile(
-      join(outsideSkills, 'demo-skill', 'SKILL.md'),
-      '---\nname: demo-skill\ndescription: Demo skill\n---\n\nDo demo things.\n',
-      'utf-8',
-    );
-    await symlink(outsideSkills, join(workDir, '.kimi-code', 'skills'), 'dir');
-    await mkdir(join(workDir, '.kimi-code', 'agents'), { recursive: true });
-    await writeFile(
-      join(workDir, '.kimi-code', 'agents', 'demo-agent.md'),
-      '---\nname: demo-agent\ndescription: Demo agent\n---\n\nYou are demo-agent.\n',
-      'utf-8',
-    );
-    await writeFile(
-      join(workDir, '.kimi-code', 'agents', 'clash-agent.md'),
-      '---\nname: agent\ndescription: Clashes with the builtin default without override\n---\n\nYou are not loaded.\n',
-      'utf-8',
-    );
-    try {
-      const info = await harness.getWorkspaceTrustInfo(workDir);
-      expect(info.trusted).toBe(false);
-      expect(info.gatedAdditionalDirs).toEqual([
-        await realpath(outsideDir),
-        // The symlinked .kimi-code/skills grants access to its real target.
-        await realpath(outsideSkills),
-      ]);
-      // The project AGENTS.md is a symlink escaping the project, so its real
-      // target is disclosed instead of the lexical link path.
-      expect(info.instructionSources.agentsMdPaths).toEqual([
-        await realpath(join(outsideDir, 'AGENTS.md')),
-      ]);
-      expect(info.additionalDirSources).toEqual([
-        await realpath(join(workDir, '.kimi-code', 'local.toml')),
-        await realpath(outsideSkills),
-      ]);
-      expect(info.instructionSources.paths).toEqual([
-        await realpath(join(outsideDir, 'AGENTS.md')),
-        `${await realpath(outsideSkills)}/`,
-        `${await realpath(join(workDir, '.kimi-code', 'agents'))}/`,
-      ]);
-      expect(info.warnings).toEqual([]);
-      expect(info.instructionSources.skills).toEqual(['demo-skill']);
-      // The agent file clashing with the builtin default without override is
-      // suppressed by the session catalog, so it is not part of the disclosure.
-      expect(info.instructionSources.agentProfiles).toEqual(['demo-agent']);
-    } finally {
-      await harness.close();
-    }
-  });
+  it.skipIf(!SYMLINKS)(
+    'discloses additional directories and instruction sources of an untrusted workspace',
+    async () => {
+      const { harness } = await makeHarness();
+      const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-work-'));
+      const outsideDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-outside-'));
+      tempDirs.push(workDir, outsideDir);
+      const insideDir = join(workDir, 'sub');
+      await mkdir(insideDir, { recursive: true });
+      await mkdir(join(workDir, '..cache'));
+      // linked-dir lexically sits inside the project but points outside it, so
+      // trusting would grant access to the target; inner-link points back into
+      // the project and grants nothing new.
+      await symlink(outsideDir, join(workDir, 'linked-dir'), 'dir');
+      await symlink(insideDir, join(workDir, 'inner-link'), 'dir');
+      await mkdir(join(workDir, '.kimi-code'), { recursive: true });
+      await writeFile(
+        join(workDir, '.kimi-code', 'local.toml'),
+        `[workspace]\nadditional_dir = [${JSON.stringify(outsideDir)}, ".", "sub", "..cache", "linked-dir", "inner-link"]\n`,
+        'utf-8',
+      );
+      await writeFile(join(outsideDir, 'AGENTS.md'), '# Demo\n', 'utf-8');
+      await symlink(join(outsideDir, 'AGENTS.md'), join(workDir, 'AGENTS.md'), 'file');
+      const outsideSkills = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-skills-'));
+      tempDirs.push(outsideSkills);
+      await mkdir(join(outsideSkills, 'demo-skill'), { recursive: true });
+      await writeFile(
+        join(outsideSkills, 'demo-skill', 'SKILL.md'),
+        '---\nname: demo-skill\ndescription: Demo skill\n---\n\nDo demo things.\n',
+        'utf-8',
+      );
+      await symlink(outsideSkills, join(workDir, '.kimi-code', 'skills'), 'dir');
+      await mkdir(join(workDir, '.kimi-code', 'agents'), { recursive: true });
+      await writeFile(
+        join(workDir, '.kimi-code', 'agents', 'demo-agent.md'),
+        '---\nname: demo-agent\ndescription: Demo agent\n---\n\nYou are demo-agent.\n',
+        'utf-8',
+      );
+      await writeFile(
+        join(workDir, '.kimi-code', 'agents', 'clash-agent.md'),
+        '---\nname: agent\ndescription: Clashes with the builtin default without override\n---\n\nYou are not loaded.\n',
+        'utf-8',
+      );
+      try {
+        const info = await harness.getWorkspaceTrustInfo(workDir);
+        expect(info.trusted).toBe(false);
+        expect(info.gatedAdditionalDirs).toEqual([
+          await realpath(outsideDir),
+          // The symlinked .kimi-code/skills grants access to its real target.
+          await realpath(outsideSkills),
+        ]);
+        // The project AGENTS.md is a symlink escaping the project, so its real
+        // target is disclosed instead of the lexical link path.
+        expect(info.instructionSources.agentsMdPaths).toEqual([
+          await realpath(join(outsideDir, 'AGENTS.md')),
+        ]);
+        expect(info.additionalDirSources).toEqual([
+          await realpath(join(workDir, '.kimi-code', 'local.toml')),
+          await realpath(outsideSkills),
+        ]);
+        expect(info.instructionSources.paths).toEqual([
+          await realpath(join(outsideDir, 'AGENTS.md')),
+          `${await realpath(outsideSkills)}/`,
+          `${await realpath(join(workDir, '.kimi-code', 'agents'))}/`,
+        ]);
+        expect(info.warnings).toEqual([]);
+        expect(info.instructionSources.skills).toEqual(['demo-skill']);
+        // The agent file clashing with the builtin default without override is
+        // suppressed by the session catalog, so it is not part of the disclosure.
+        expect(info.instructionSources.agentProfiles).toEqual(['demo-agent']);
+      } finally {
+        await harness.close();
+      }
+    },
+  );
 
-  it.skipIf(!SYMLINKS)('points to the scanned agent directory for an effective workspace profile', async () => {
-    const { harness } = await makeHarness();
-    const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-work-'));
-    const outsideDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-agent-source-'));
-    tempDirs.push(workDir, outsideDir);
-    await mkdir(join(workDir, '.kimi-code', 'agents'), { recursive: true });
-    await writeFile(
-      join(outsideDir, 'override-agent.md'),
-      '---\nname: agent\noverride: true\ndescription: Replaces the builtin default\n---\n\nYou are the override.\n',
-      'utf-8',
-    );
-    await symlink(
-      join(outsideDir, 'override-agent.md'),
-      join(workDir, '.kimi-code', 'agents', 'override-agent.md'),
-    );
-    try {
-      const info = await harness.getWorkspaceTrustInfo(workDir);
-      expect(info.instructionSources.agentProfiles).toEqual(['agent']);
-      expect(info.instructionSources.paths).toEqual([
-        `${await realpath(join(workDir, '.kimi-code', 'agents'))}/`,
-      ]);
-    } finally {
-      await harness.close();
-    }
-  });
+  it.skipIf(!SYMLINKS)(
+    'points to the scanned agent directory for an effective workspace profile',
+    async () => {
+      const { harness } = await makeHarness();
+      const workDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-work-'));
+      const outsideDir = await mkdtemp(join(tmpdir(), 'kimi-sdk-v2-agent-source-'));
+      tempDirs.push(workDir, outsideDir);
+      await mkdir(join(workDir, '.kimi-code', 'agents'), { recursive: true });
+      await writeFile(
+        join(outsideDir, 'override-agent.md'),
+        '---\nname: agent\noverride: true\ndescription: Replaces the builtin default\n---\n\nYou are the override.\n',
+        'utf-8',
+      );
+      await symlink(
+        join(outsideDir, 'override-agent.md'),
+        join(workDir, '.kimi-code', 'agents', 'override-agent.md'),
+      );
+      try {
+        const info = await harness.getWorkspaceTrustInfo(workDir);
+        expect(info.instructionSources.agentProfiles).toEqual(['agent']);
+        expect(info.instructionSources.paths).toEqual([
+          `${await realpath(join(workDir, '.kimi-code', 'agents'))}/`,
+        ]);
+      } finally {
+        await harness.close();
+      }
+    },
+  );
 
   it('trustWorkspace flips the state and persists the marker in the kimi home', async () => {
     const { harness, homeDir } = await makeHarness();
@@ -2330,7 +2357,12 @@ describe('foldAgentWireReplay turn limiting', () => {
     ];
     const wirePath = await writeWire([
       { type: 'metadata', protocol_version: '1.5', created_at: 1 },
-      ...origins.map((origin, turnId) => ({ type: 'turn.prompt', agentId: 'main', origin, turnId })),
+      ...origins.map((origin, turnId) => ({
+        type: 'turn.prompt',
+        agentId: 'main',
+        origin,
+        turnId,
+      })),
       { type: 'turn.steer', agentId: 'main', origin: { kind: 'user' }, turnId: 0 },
       { type: 'turn.queued', agentId: 'main', origin: { kind: 'user' } },
     ]);
@@ -2356,48 +2388,53 @@ describe('foldAgentWireReplay turn limiting', () => {
         ...journal,
       ]);
       for (const limit of [undefined, 0, 1]) {
-        expect(await foldAgentWireReplay(wirePath, limit)).toHaveProperty('userTurnCount', undefined);
+        expect(await foldAgentWireReplay(wirePath, limit)).toHaveProperty(
+          'userTurnCount',
+          undefined,
+        );
       }
     }
   });
 
-  it.each([null, { kind: 'skill_activation' }, { kind: 'plugin_command' }, { kind: 'shell_command' }])(
-    'preserves replay when a turn prompt has an invalid origin %j',
-    async (origin) => {
-      const wirePath = await writeWire([
-        { type: 'metadata', protocol_version: '1.5', created_at: 1 },
-        { type: 'turn.prompt', agentId: 'main', origin, turnId: 0, time: 2 },
-        appendUser('kept question', 3, { kind: 'user' }),
-        ...stepRecords('kept', 4),
-      ]);
+  it.each([
+    null,
+    { kind: 'skill_activation' },
+    { kind: 'plugin_command' },
+    { kind: 'shell_command' },
+  ])('preserves replay when a turn prompt has an invalid origin %j', async (origin) => {
+    const wirePath = await writeWire([
+      { type: 'metadata', protocol_version: '1.5', created_at: 1 },
+      { type: 'turn.prompt', agentId: 'main', origin, turnId: 0, time: 2 },
+      appendUser('kept question', 3, { kind: 'user' }),
+      ...stepRecords('kept', 4),
+    ]);
 
-      for (const limit of [undefined, 1]) {
-        const folded = await foldAgentWireReplay(wirePath, limit);
-        expect(folded.replay).toEqual([
-          {
-            type: 'message',
-            time: 3,
-            message: {
-              role: 'user',
-              content: [{ type: 'text', text: 'kept question' }],
-              toolCalls: [],
-              origin: { kind: 'user' },
-            },
+    for (const limit of [undefined, 1]) {
+      const folded = await foldAgentWireReplay(wirePath, limit);
+      expect(folded.replay).toEqual([
+        {
+          type: 'message',
+          time: 3,
+          message: {
+            role: 'user',
+            content: [{ type: 'text', text: 'kept question' }],
+            toolCalls: [],
+            origin: { kind: 'user' },
           },
-          {
-            type: 'message',
-            time: 4,
-            message: {
-              role: 'assistant',
-              content: [{ type: 'text', text: 'answer kept' }],
-              toolCalls: [],
-            },
+        },
+        {
+          type: 'message',
+          time: 4,
+          message: {
+            role: 'assistant',
+            content: [{ type: 'text', text: 'answer kept' }],
+            toolCalls: [],
           },
-        ]);
-        expect(folded.userTurnCount).toBeUndefined();
-      }
-    },
-  );
+        },
+      ]);
+      expect(folded.userTurnCount).toBeUndefined();
+    }
+  });
 
   it('does not treat standalone shell commands as missing user turns', async () => {
     const wirePath = await writeWire([
@@ -2428,7 +2465,7 @@ describe('foldAgentWireReplay turn limiting', () => {
     ]);
     await writeFile(
       wirePath,
-      await readFile(wirePath, 'utf-8') + '{"type":"turn.prompt","origin":{"kind":"user"}',
+      (await readFile(wirePath, 'utf-8')) + '{"type":"turn.prompt","origin":{"kind":"user"}',
       'utf-8',
     );
 
@@ -2483,8 +2520,16 @@ describe('foldAgentWireReplay turn limiting', () => {
       wirePath,
       (await readFile(wirePath, 'utf-8')) +
         '{"time":10,"type":"turn.prompt","origin":null\n' +
-        JSON.stringify({ type: 'turn.prompt', agentId: 'main', origin: { kind: 'user' }, turnId: 1, time: 11 }) + '\n' +
-        JSON.stringify(appendUser('last question', 12, { kind: 'user' })) + '\n',
+        JSON.stringify({
+          type: 'turn.prompt',
+          agentId: 'main',
+          origin: { kind: 'user' },
+          turnId: 1,
+          time: 11,
+        }) +
+        '\n' +
+        JSON.stringify(appendUser('last question', 12, { kind: 'user' })) +
+        '\n',
       'utf-8',
     );
 
@@ -2914,7 +2959,6 @@ describe('SDKRpcClientV2 engine telemetry', () => {
     }
   });
 });
-
 
 async function writeSkill(dir: string, name: string): Promise<void> {
   await mkdir(dir, { recursive: true });

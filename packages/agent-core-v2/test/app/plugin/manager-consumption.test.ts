@@ -1,15 +1,14 @@
-/* oxlint-disable eslint-plugin-jest/no-standalone-expect -- zipIt is a conditional alias of `it` */
-import type { FetchLike } from '#/_base/utils/fetchLike';
+import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
-import { afterEach, describe, expect, it, mock } from 'bun:test';
-import { setEnv, setGlobal, restoreEnvs, restoreGlobals } from '#test/helpers/stubs';
-
+/* oxlint-disable eslint-plugin-jest/no-standalone-expect -- zipIt is a conditional alias of `it` */
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import { PluginManager } from '#/app/plugin/manager';
+import { setEnv, setGlobal, restoreEnvs, restoreGlobals } from '#test/helpers/stubs';
 
 import { stubSkill } from '../../features/skill/catalog/stubs';
 
@@ -351,26 +350,29 @@ describe('PluginManager consumption plane', () => {
     await rm(isolated, { recursive: true, force: true });
   });
 
-  zipIt('removes the zip temp dir and reports the original source when a zip plugin has no manifest', async () => {
-    const home = await makeKimiHome();
-    const sourceRoot = await mkdtemp(path.join(tmpdir(), 'plugin-no-manifest-'));
-    await writeFile(path.join(sourceRoot, 'README.md'), 'no manifest here', 'utf8');
-    const isolated = await isolatedTmpdir();
-    const url = await serveOnce(await zipDir(sourceRoot));
-    const manager = new PluginManager({ kimiHomeDir: home });
-    await manager.load();
+  zipIt(
+    'removes the zip temp dir and reports the original source when a zip plugin has no manifest',
+    async () => {
+      const home = await makeKimiHome();
+      const sourceRoot = await mkdtemp(path.join(tmpdir(), 'plugin-no-manifest-'));
+      await writeFile(path.join(sourceRoot, 'README.md'), 'no manifest here', 'utf8');
+      const isolated = await isolatedTmpdir();
+      const url = await serveOnce(await zipDir(sourceRoot));
+      const manager = new PluginManager({ kimiHomeDir: home });
+      await manager.load();
 
-    let message = '';
-    await manager.install(url).catch((error: Error) => {
-      message = error.message;
-    });
+      let message = '';
+      await manager.install(url).catch((error: Error) => {
+        message = error.message;
+      });
 
-    expect(message).toContain(url);
-    expect(message).not.toContain('kimi-plugin-zip');
-    expect(await zipTempLeftovers(isolated)).toEqual([]);
-    await rm(sourceRoot, { recursive: true, force: true });
-    await rm(isolated, { recursive: true, force: true });
-  });
+      expect(message).toContain(url);
+      expect(message).not.toContain('kimi-plugin-zip');
+      expect(await zipTempLeftovers(isolated)).toEqual([]);
+      await rm(sourceRoot, { recursive: true, force: true });
+      await rm(isolated, { recursive: true, force: true });
+    },
+  );
 
   zipIt('reports the GitHub URL when a GitHub plugin tarball has no manifest', async () => {
     const home = await makeKimiHome();
@@ -860,43 +862,46 @@ describe('PluginManager consumption plane', () => {
     expect((record as { marketplace?: unknown }).marketplace).toBeUndefined();
   });
 
-  zipIt('install() from github URL overwrites an existing zip-url install (CDN migration)', async () => {
-    const home = await makeKimiHome();
+  zipIt(
+    'install() from github URL overwrites an existing zip-url install (CDN migration)',
+    async () => {
+      const home = await makeKimiHome();
 
-    const cdnSource = await mkdtemp(path.join(tmpdir(), 'plugin-cdn-'));
-    await writeFile(
-      path.join(cdnSource, 'kimi.plugin.json'),
-      JSON.stringify({ name: 'superpowers', version: '5.0.0' }),
-      'utf8',
-    );
-    const cdnUrl = await serveOnce(await zipDir(cdnSource));
+      const cdnSource = await mkdtemp(path.join(tmpdir(), 'plugin-cdn-'));
+      await writeFile(
+        path.join(cdnSource, 'kimi.plugin.json'),
+        JSON.stringify({ name: 'superpowers', version: '5.0.0' }),
+        'utf8',
+      );
+      const cdnUrl = await serveOnce(await zipDir(cdnSource));
 
-    const manager = new PluginManager({ kimiHomeDir: home });
-    await manager.load();
-    const first = await manager.install(cdnUrl);
-    expect(first.source).toBe('zip-url');
-    await manager.setEnabled('superpowers', false);
+      const manager = new PluginManager({ kimiHomeDir: home });
+      await manager.load();
+      const first = await manager.install(cdnUrl);
+      expect(first.source).toBe('zip-url');
+      await manager.setEnabled('superpowers', false);
 
-    const ghSource = await mkdtemp(path.join(tmpdir(), 'plugin-gh-migrate-'));
-    await writeFile(
-      path.join(ghSource, 'kimi.plugin.json'),
-      JSON.stringify({ name: 'superpowers', version: '5.1.0' }),
-      'utf8',
-    );
-    mockGithubFetch({ releaseTag: 'v5.1.0', tarball: await zipDir(ghSource) });
+      const ghSource = await mkdtemp(path.join(tmpdir(), 'plugin-gh-migrate-'));
+      await writeFile(
+        path.join(ghSource, 'kimi.plugin.json'),
+        JSON.stringify({ name: 'superpowers', version: '5.1.0' }),
+        'utf8',
+      );
+      mockGithubFetch({ releaseTag: 'v5.1.0', tarball: await zipDir(ghSource) });
 
-    const updated = await manager.install('https://github.com/wbxl2000/superpowers');
-    expect(updated.source).toBe('github');
-    expect(updated.manifest?.version).toBe('5.1.0');
-    expect(updated.enabled).toBe(false);
-    expect(updated.installedAt).toBe(first.installedAt);
-    expect(updated.originalSource).toBe('https://github.com/wbxl2000/superpowers');
-    expect(updated.github?.ref).toEqual({ kind: 'tag', value: 'v5.1.0' });
-    expect(manager.list()).toHaveLength(1);
+      const updated = await manager.install('https://github.com/wbxl2000/superpowers');
+      expect(updated.source).toBe('github');
+      expect(updated.manifest?.version).toBe('5.1.0');
+      expect(updated.enabled).toBe(false);
+      expect(updated.installedAt).toBe(first.installedAt);
+      expect(updated.originalSource).toBe('https://github.com/wbxl2000/superpowers');
+      expect(updated.github?.ref).toEqual({ kind: 'tag', value: 'v5.1.0' });
+      expect(manager.list()).toHaveLength(1);
 
-    await rm(cdnSource, { recursive: true, force: true });
-    await rm(ghSource, { recursive: true, force: true });
-  });
+      await rm(cdnSource, { recursive: true, force: true });
+      await rm(ghSource, { recursive: true, force: true });
+    },
+  );
 
   it('enabledMcpServers() runs stdio node plugins via the bundled Electron Node under an Electron host', async () => {
     const home = await makeKimiHome();

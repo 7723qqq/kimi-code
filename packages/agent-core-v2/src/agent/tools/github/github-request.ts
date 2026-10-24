@@ -1,5 +1,5 @@
-import type { FetchLike } from '#/_base/utils/fetchLike';
 import { createDeadlineAbortSignal } from '#/_base/utils/abort';
+import type { FetchLike } from '#/_base/utils/fetchLike';
 
 export const GITHUB_DEFAULT_BASE_URL = 'https://api.github.com';
 export const GITHUB_API_VERSION = '2022-11-28';

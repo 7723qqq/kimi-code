@@ -1,6 +1,6 @@
-import type { FetchLike } from '#/_base/utils/fetchLike';
 import { CoreErrors } from '#/_base/errors/codes';
 import { BugIndicatingError, Error2 } from '#/_base/errors/errors';
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import type { ModelCapability } from '#/llm-adapter/contract/capability';
 import type { ModelRecord } from '#/llm-adapter/model/model';
 

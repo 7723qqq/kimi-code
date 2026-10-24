@@ -2,7 +2,6 @@ import { afterEach, describe, expect, it, jest, mock } from 'bun:test';
 
 import type { Session } from '@moonshot-ai/kimi-code-sdk';
 
-import { waitForAssertion } from '#test/helpers/waitFor';
 import { compactForModelSwitch, confirmThenPerformModelSwitch } from '#/tui/commands/config';
 import type { SlashCommandHost } from '#/tui/commands/dispatch';
 import {
@@ -10,6 +9,7 @@ import {
   resetModelSwitchConfirmConfigCache,
   type ModelSwitchAction,
 } from '#/utils/model-switch-confirm-config';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 type TestEvent = { type: string; code?: string };
 
@@ -114,7 +114,9 @@ describe('compactForModelSwitch', () => {
     await Promise.resolve();
 
     await expect(pending).resolves.toBe(false);
-    expect(host.showError).toHaveBeenCalledWith('Timed out waiting for compaction — model unchanged.');
+    expect(host.showError).toHaveBeenCalledWith(
+      'Timed out waiting for compaction — model unchanged.',
+    );
   });
 });
 
@@ -162,7 +164,15 @@ function makeSwitchHost() {
     showStatus: mock(),
     track: mock(),
   } as unknown as SlashCommandHost;
-  return { host, session, appState, mountEditorReplacement, restoreEditor, createNewSession, activateModelAfterLogin };
+  return {
+    host,
+    session,
+    appState,
+    mountEditorReplacement,
+    restoreEditor,
+    createNewSession,
+    activateModelAfterLogin,
+  };
 }
 
 function mountedDialog(mountEditorReplacement: ReturnType<typeof mock>): MountedDialog {

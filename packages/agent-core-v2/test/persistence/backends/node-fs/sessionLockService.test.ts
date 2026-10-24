@@ -1,16 +1,16 @@
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import fs, { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
-
 import { isError2 } from '#/_base/errors/errors';
 import type { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import type { SessionLockHolder } from '#/persistence/interface/sessionLock';
 import {
   SESSION_LOCK_ENV,
   SessionLockService,
 } from '#/persistence/backends/node-fs/sessionLockService';
+import type { SessionLockHolder } from '#/persistence/interface/sessionLock';
+
 import { noopLogger } from '../../../wire/stubs';
 
 const execFileSyncMock = mock(() => '');

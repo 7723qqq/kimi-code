@@ -1,10 +1,10 @@
-
-import type { FetchLike } from '#/_base/utils/fetchLike';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { gt, valid } from 'semver';
+
+import type { FetchLike } from '#/_base/utils/fetchLike';
 
 export const KIMI_CODE_PLUGIN_MARKETPLACE_URL =
   'https://code.kimi.com/kimi-code/plugins/marketplace.json';
@@ -168,7 +168,9 @@ async function readMarketplaceText(
   fetchImpl: FetchLike,
 ): Promise<string> {
   if (location.kind === 'local') {
-    return (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(location.resolved).text();
+    return (
+      globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }
+    ).Bun.file(location.resolved).text();
   }
   const response = await fetchImpl(location.resolved);
   if (!response.ok) {

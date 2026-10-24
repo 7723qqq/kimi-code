@@ -1,9 +1,9 @@
-import type { FetchLike } from '#/_base/utils/fetchLike';
 import { randomBytes } from 'node:crypto';
 
 import { kimiRegionProfile, resolveKimiRegion } from '@moonshot-ai/kimi-code-oauth';
 
 import { isAbortError } from '#/_base/utils/abort';
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import type { IFileSystemStorageService } from '#/persistence/interface/storage';
 
 export type CloudPrimitive = boolean | number | string | undefined | null;

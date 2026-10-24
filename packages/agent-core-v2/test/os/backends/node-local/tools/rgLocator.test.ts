@@ -1,5 +1,4 @@
-import { asGlobalFetch } from '#test/helpers/stubs';
-import type { FetchLike } from '#/_base/utils/fetchLike';
+import { afterEach, beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
 import { createHash } from 'node:crypto';
 import {
   chmodSync,
@@ -14,10 +13,9 @@ import { tmpdir } from 'node:os';
 
 import { join } from 'pathe';
 import { extract as extractTar } from 'tar';
-import { afterEach, beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
-import { waitForAssertion } from '#test/helpers/waitFor';
 import { ZipFile } from 'yazl';
 
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import {
   detectTarget,
   ensureRgPath,
@@ -27,6 +25,8 @@ import {
   verifyArchiveChecksum,
   type RgProbe,
 } from '#/os/backends/host/tools/rgLocator';
+import { asGlobalFetch } from '#test/helpers/stubs';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 void mock.module('tar', () => ({ extract: mock() }));
 
@@ -334,12 +334,14 @@ describe('ensureRgPath download branch', () => {
   });
 
   it('surfaces HTTP failure (non-2xx response) with status + statusText', async () => {
-    globalThis.fetch = asGlobalFetch(mock().mockResolvedValue({
-      ok: false,
-      status: 404,
-      statusText: 'Not Found',
-      body: null,
-    }));
+    globalThis.fetch = asGlobalFetch(
+      mock().mockResolvedValue({
+        ok: false,
+        status: 404,
+        statusText: 'Not Found',
+        body: null,
+      }),
+    );
 
     await expect(
       ensureRgPath(noRgProbe(), { shareDir: fakeShare, allowCachedFallback: true }),
@@ -426,12 +428,14 @@ describe('ensureRgPath download branch', () => {
     const tarMock = extractTar as unknown as Mock<typeof extractTar>;
     tarMock.mockClear();
     const body = bodyFromBuffer(Buffer.from('tampered archive', 'utf8'));
-    globalThis.fetch = asGlobalFetch(mock().mockResolvedValue({
-      ok: true,
-      status: 200,
-      statusText: 'OK',
-      body,
-    }));
+    globalThis.fetch = asGlobalFetch(
+      mock().mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        body,
+      }),
+    );
 
     await expect(
       ensureRgPath(noRgProbe(), { shareDir: fakeShare, allowCachedFallback: true }),
@@ -605,12 +609,14 @@ describe('ensureRgPath Windows download branch', () => {
   });
 
   it('surfaces HTTP failure on Windows with status + statusText', async () => {
-    globalThis.fetch = asGlobalFetch(mock().mockResolvedValue({
-      ok: false,
-      status: 502,
-      statusText: 'Bad Gateway',
-      body: null,
-    }));
+    globalThis.fetch = asGlobalFetch(
+      mock().mockResolvedValue({
+        ok: false,
+        status: 502,
+        statusText: 'Bad Gateway',
+        body: null,
+      }),
+    );
 
     await expect(
       ensureRgPath(noRgProbe(), { shareDir: fakeShare, allowCachedFallback: true }),

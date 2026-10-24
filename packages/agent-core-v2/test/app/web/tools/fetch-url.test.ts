@@ -1,22 +1,29 @@
-import type { FetchLike } from '#/_base/utils/fetchLike';
+import { beforeEach, describe, expect, it, mock } from 'bun:test';
 import { lookup } from 'node:dns/promises';
 
-import { beforeEach, describe, expect, it, mock } from 'bun:test';
-import { waitUntil } from '#test/helpers/waitFor';
-
-import { type ExecutableToolContext, type ExecutableToolResult, type ToolExecution } from '#/tool/toolContract';
-import { LocalFetchURLProvider } from '#/app/web/providers/local-fetch-url';
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import { FetchURLTool } from '#/agent/tools/fetch-url/fetchUrlTool';
+import { LocalFetchURLProvider } from '#/app/web/providers/local-fetch-url';
 import { type UrlFetcher, type UrlFetchResult } from '#/app/web/tools/fetch-url-types';
+import {
+  type ExecutableToolContext,
+  type ExecutableToolResult,
+  type ToolExecution,
+} from '#/tool/toolContract';
+import { waitUntil } from '#test/helpers/waitFor';
 
 void mock.module('node:dns/promises', () => ({ lookup: mock() }));
 
 beforeEach(() => {
   (lookup as unknown as ReturnType<typeof mock>).mockReset();
-  (lookup as unknown as ReturnType<typeof mock>).mockResolvedValue([{ address: '93.184.216.34', family: 4 }]);
+  (lookup as unknown as ReturnType<typeof mock>).mockResolvedValue([
+    { address: '93.184.216.34', family: 4 },
+  ]);
 });
 
-function isPromiseLike(value: ToolExecution | Promise<ToolExecution>): value is Promise<ToolExecution> {
+function isPromiseLike(
+  value: ToolExecution | Promise<ToolExecution>,
+): value is Promise<ToolExecution> {
   return typeof (value as Promise<ToolExecution>).then === 'function';
 }
 
@@ -41,8 +48,10 @@ function abortError(): Error {
 describe('FetchURLTool abort signal', () => {
   it('forwards ctx.signal to the fetcher', async () => {
     const controller = new AbortController();
-    const fetch = mock<UrlFetcher['fetch']>()
-      .mockResolvedValue({ content: 'hello', kind: 'passthrough' } satisfies UrlFetchResult);
+    const fetch = mock<UrlFetcher['fetch']>().mockResolvedValue({
+      content: 'hello',
+      kind: 'passthrough',
+    } satisfies UrlFetchResult);
     const tool = new FetchURLTool({
       _serviceBrand: undefined,
       getUrlFetcher: () => ({ fetch }),
@@ -111,8 +120,10 @@ describe('FetchURLTool abort signal', () => {
 
 describe('FetchURLTool output note', () => {
   async function runKind(kind: UrlFetchResult['kind']): Promise<string> {
-    const fetch = mock<UrlFetcher['fetch']>()
-      .mockResolvedValue({ content: 'BODY', kind } satisfies UrlFetchResult);
+    const fetch = mock<UrlFetcher['fetch']>().mockResolvedValue({
+      content: 'BODY',
+      kind,
+    } satisfies UrlFetchResult);
     const tool = new FetchURLTool({
       _serviceBrand: undefined,
       getUrlFetcher: () => ({ fetch }),
@@ -142,8 +153,10 @@ describe('FetchURLTool output note', () => {
 
 describe('FetchURLTool backend resolution', () => {
   it('resolves the fetcher per invocation, never at construction', async () => {
-    const fetch = mock<UrlFetcher['fetch']>()
-      .mockResolvedValue({ content: 'hello', kind: 'passthrough' } satisfies UrlFetchResult);
+    const fetch = mock<UrlFetcher['fetch']>().mockResolvedValue({
+      content: 'hello',
+      kind: 'passthrough',
+    } satisfies UrlFetchResult);
     const getUrlFetcher = mock(() => ({ fetch }));
     const tool = new FetchURLTool({ _serviceBrand: undefined, getUrlFetcher });
 

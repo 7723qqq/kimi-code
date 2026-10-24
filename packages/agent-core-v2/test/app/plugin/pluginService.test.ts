@@ -1,11 +1,9 @@
-import type { FetchLike } from '#/_base/utils/fetchLike';
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn, type Mock } from 'bun:test';
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 import { KIMI_CODE_PROVIDER_NAME } from '@moonshot-ai/kimi-code-oauth';
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn, type Mock } from 'bun:test';
-import { setGlobal, restoreGlobals } from '#test/helpers/stubs';
 
 import {
   ScopeActivation,
@@ -19,6 +17,7 @@ import {
   type ScopedTestHost,
 } from '#/_base/di/test';
 import { ILogService } from '#/_base/log/log';
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IPluginService } from '#/app/plugin/plugin';
 import { PluginService } from '#/app/plugin/pluginService';
@@ -34,6 +33,7 @@ import {
 import { TelemetryService } from '#/app/telemetry/telemetryService';
 import { ISkillDiscovery } from '#/features/skill/catalog/skillDiscovery';
 import { IProviderService, type ProviderConfig } from '#/llm-adapter/provider/provider';
+import { setGlobal, restoreGlobals } from '#test/helpers/stubs';
 
 import { stubBootstrap } from '../bootstrap/stubs';
 import { stubProviderService } from '../provider/stubs';
@@ -453,10 +453,12 @@ describe('PluginService (plugin boundary)', () => {
       await listenerCalled.promise;
       await svc.setPluginEnabled({ id: 'sequencing-demo', enabled: true });
       expect(mutationSettled).toBe(false);
-      expect(events.map((record) => [
-        record.properties['enabled'],
-        record.properties['enabled_plugins'],
-      ])).toEqual([
+      expect(
+        events.map((record) => [
+          record.properties['enabled'],
+          record.properties['enabled_plugins'],
+        ]),
+      ).toEqual([
         [false, ''],
         [true, 'sequencing-demo'],
       ]);

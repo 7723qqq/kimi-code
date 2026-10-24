@@ -1,13 +1,11 @@
-import { asGlobalFetch } from '#test/helpers/stubs';
-import type { FetchLike } from '#/_base/utils/fetchLike';
+import { afterAll, afterEach, beforeAll, describe, expect, it, mock, spyOn } from 'bun:test';
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
 import type { AddressInfo as HttpAddress } from 'node:net';
 
 import type { OAuthClientInformationFull } from '@modelcontextprotocol/sdk/shared/auth.js';
-import { afterAll, afterEach, beforeAll, describe, expect, it, mock, spyOn } from 'bun:test';
-import { waitForAssertion } from '#test/helpers/waitFor';
 
 import type { ILogger as Logger } from '#/_base/log/log';
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import * as callbackServerModule from '#/mcpCore/oauth/callback-server';
 import {
   META_SUFFIX,
@@ -21,6 +19,8 @@ import {
   type McpOAuthEvent,
 } from '#/mcpCore/oauth/service';
 import { mcpOAuthStoreKey, type McpOAuthStore } from '#/mcpCore/oauth/store';
+import { asGlobalFetch } from '#test/helpers/stubs';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 import { createMemoryMcpOAuthStore, ManualMcpOAuthScheduler } from '../stubs';
 
@@ -58,16 +58,15 @@ afterEach(async () => {
 
 const realFetch = globalThis.fetch;
 beforeAll(() => {
-  globalThis.fetch = asGlobalFetch(async (
-    input: Parameters<FetchLike>[0],
-    init?: Parameters<FetchLike>[1],
-  ) => {
-    const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
-    if (url.startsWith('https://mcp.example.test')) {
-      throw new TypeError(`blocked external request to ${url}`);
-    }
-    return realFetch(input, init);
-  });
+  globalThis.fetch = asGlobalFetch(
+    async (input: Parameters<FetchLike>[0], init?: Parameters<FetchLike>[1]) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      if (url.startsWith('https://mcp.example.test')) {
+        throw new TypeError(`blocked external request to ${url}`);
+      }
+      return realFetch(input, init);
+    },
+  );
 });
 
 afterAll(() => {
@@ -108,7 +107,9 @@ async function startFakeAuthServer(
       if (req.url === '/register') {
         counts.register += 1;
         const metadata = JSON.parse(body) as Record<string, unknown>;
-        registerScopes.push(typeof metadata['scope'] === 'string' ? (metadata['scope'] as string) : undefined);
+        registerScopes.push(
+          typeof metadata['scope'] === 'string' ? (metadata['scope'] as string) : undefined,
+        );
         res.writeHead(201, { 'content-type': 'application/json' });
         res.end(JSON.stringify({ ...metadata, client_id: `test-client-${counts.register}` }));
         return;
@@ -150,7 +151,10 @@ async function startFakeAuthServer(
   return { url: `http://127.0.0.1:${port}`, counts, registerScopes };
 }
 
-async function startHangingServer(): Promise<{ readonly url: string; readonly counts: { requests: number } }> {
+async function startHangingServer(): Promise<{
+  readonly url: string;
+  readonly counts: { requests: number };
+}> {
   const counts = { requests: 0 };
   const httpServer: HttpServer = createHttpServer(() => {
     counts.requests += 1;
@@ -745,13 +749,14 @@ describe('McpOAuthService interactive flow serialization', () => {
       waitForCode: mock(),
       close: mock(async () => undefined),
     };
-    const startSpy = spyOn(callbackServerModule, 'startCallbackServer')
-      .mockResolvedValue(callbackServer);
+    const startSpy = spyOn(callbackServerModule, 'startCallbackServer').mockResolvedValue(
+      callbackServer,
+    );
     cleanups.push(() => startSpy.mockRestore());
 
-    await expect(
-      fixture.service.beginAuthorization(SERVER_NAME, SERVER_URL),
-    ).rejects.toThrow(/failed to start OAuth flow/);
+    await expect(fixture.service.beginAuthorization(SERVER_NAME, SERVER_URL)).rejects.toThrow(
+      /failed to start OAuth flow/,
+    );
     expect(callbackServer.close).toHaveBeenCalledTimes(1);
   });
 
@@ -964,7 +969,9 @@ describe('McpOAuthService interactive flow serialization', () => {
       refresh_token: 'stale-refresh-token',
       token_type: 'Bearer',
     });
-    const tokensSavedBefore = fixture.events.filter((event) => event.type === 'tokens-saved').length;
+    const tokensSavedBefore = fixture.events.filter(
+      (event) => event.type === 'tokens-saved',
+    ).length;
 
     await expect(
       fixture.service.beginAuthorization(SERVER_NAME, SERVER_URL),
@@ -1120,8 +1127,9 @@ describe('McpOAuthService proactive refresh scheduling', () => {
     const fixture = makeFixture();
     cleanups.push(() => fixture.service.dispose());
     const maxTimerDelayMs = 0x7fffffff;
-    const refreshSpy = spyOn(fixture.service, 'refresh')
-      .mockRejectedValue(new Error('refresh unavailable in test'));
+    const refreshSpy = spyOn(fixture.service, 'refresh').mockRejectedValue(
+      new Error('refresh unavailable in test'),
+    );
 
     await fixture.service.getProvider(SERVER_NAME, SERVER_URL).saveTokens({
       access_token: 'a',
@@ -1338,14 +1346,8 @@ describe('McpOAuthService shutdown', () => {
   }, 15000);
 
   it('drains an SDK save continuation that starts after shutdown began', async () => {
-    const {
-      fixture,
-      provider,
-      tokenUrl,
-      armMetaGate,
-      metaWriteStarted,
-      releaseMetaWrite,
-    } = await metaGatedGrantFixture();
+    const { fixture, provider, tokenUrl, armMetaGate, metaWriteStarted, releaseMetaWrite } =
+      await metaGatedGrantFixture();
     cleanups.push(() => {
       releaseMetaWrite();
     });
@@ -1391,8 +1393,9 @@ describe('McpOAuthService shutdown', () => {
       waitForCode: mock(),
       close: mock(async () => undefined),
     };
-    const startSpy = spyOn(callbackServerModule, 'startCallbackServer')
-      .mockResolvedValue(callbackServer);
+    const startSpy = spyOn(callbackServerModule, 'startCallbackServer').mockResolvedValue(
+      callbackServer,
+    );
     cleanups.push(() => startSpy.mockRestore());
 
     const begin = fixture.service.beginAuthorization(SERVER_NAME, hanging.url);
@@ -1400,7 +1403,7 @@ describe('McpOAuthService shutdown', () => {
       expect(hanging.counts.requests).toBeGreaterThan(0);
     });
 
-        await fixture.service.shutdown();
+    await fixture.service.shutdown();
 
     await expect(begin).rejects.toThrow(/failed to start OAuth flow/);
     expect(callbackServer.close).toHaveBeenCalled();

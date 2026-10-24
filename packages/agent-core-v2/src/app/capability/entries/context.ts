@@ -1,6 +1,6 @@
-import type { FetchLike } from '#/_base/utils/fetchLike';
 import type { KimiRegion } from '@moonshot-ai/kimi-code-oauth';
 
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import type { IPluginService } from '#/app/plugin/plugin';
 import type { IHostProcessService } from '#/os/interface/hostProcess';
 

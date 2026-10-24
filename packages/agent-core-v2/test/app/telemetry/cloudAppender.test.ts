@@ -1,16 +1,19 @@
-import type { FetchLike } from '#/_base/utils/fetchLike';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { stubBootstrap, stubClientIdentity } from '../bootstrap/stubs';
-import { waitForAssertion } from '#test/helpers/waitFor';
-
-import { resetUnexpectedErrorHandler, setUnexpectedErrorHandler } from '#/_base/errors/unexpectedError';
-import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
+import {
+  resetUnexpectedErrorHandler,
+  setUnexpectedErrorHandler,
+} from '#/_base/errors/unexpectedError';
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import { CloudAppender, type CloudAppenderOptions } from '#/app/telemetry/cloudAppender';
 import { DISK_EVENT_MAX_AGE_MS } from '#/app/telemetry/cloudTransport';
+import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
+import { waitForAssertion } from '#test/helpers/waitFor';
+
+import { stubBootstrap, stubClientIdentity } from '../bootstrap/stubs';
 
 interface CapturedRequest {
   readonly url: string;
@@ -44,7 +47,10 @@ function statusResponse(status: number): Response {
 }
 
 function baseOptions(
-  overrides: Partial<CloudAppenderOptions> & { homeDir?: string; bootstrapEnv?: NodeJS.ProcessEnv } = {},
+  overrides: Partial<CloudAppenderOptions> & {
+    homeDir?: string;
+    bootstrapEnv?: NodeJS.ProcessEnv;
+  } = {},
 ): CloudAppenderOptions {
   const { homeDir: dir = '', storage, bootstrapEnv, ...rest } = overrides;
   return {

@@ -1,11 +1,16 @@
+import { describe, expect, it, mock } from 'bun:test';
 import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { describe, expect, it, mock } from 'bun:test';
-
 import { KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV, kimiCodePluginMarketplaceUrl } from '#/constant/app';
-import { computeUpdateStatus, loadPluginMarketplace, withBuiltInEntries, withMarketplaceLatestVersions, type PluginMarketplaceEntry } from '#/utils/plugin-marketplace';
+import {
+  computeUpdateStatus,
+  loadPluginMarketplace,
+  withBuiltInEntries,
+  withMarketplaceLatestVersions,
+  type PluginMarketplaceEntry,
+} from '#/utils/plugin-marketplace';
 
 const REPO_ROOT = join(import.meta.dirname, '../../../..');
 
@@ -293,11 +298,13 @@ describe('loadPluginMarketplace', () => {
       throw new Error('fetch failed');
     }) as unknown as unknown as typeof fetch;
 
-    await expect(loadPluginMarketplace({
-      workDir: '/tmp/work',
-      source: kimiCodePluginMarketplaceUrl(),
-      fetchImpl,
-    })).rejects.toThrow(/fetch failed/);
+    await expect(
+      loadPluginMarketplace({
+        workDir: '/tmp/work',
+        source: kimiCodePluginMarketplaceUrl(),
+        fetchImpl,
+      }),
+    ).rejects.toThrow(/fetch failed/);
   });
 
   it('keeps the built-in entries when the catalog is unreachable', async () => {
@@ -360,7 +367,9 @@ describe('loadPluginMarketplace', () => {
     });
 
     it('does not derive a version from a non-GitHub URL', async () => {
-      const entry = await loadEntry('https://code.kimi.com/kimi-code/plugins/curated/superpowers.zip');
+      const entry = await loadEntry(
+        'https://code.kimi.com/kimi-code/plugins/curated/superpowers.zip',
+      );
       expect(entry.version).toBeUndefined();
     });
 
@@ -590,9 +599,7 @@ describe('loadPluginMarketplace', () => {
       await writeFile(
         file,
         JSON.stringify({
-          plugins: [
-            { id: 'demo', displayName: 'Demo', source: 'https://github.com/owner/repo' },
-          ],
+          plugins: [{ id: 'demo', displayName: 'Demo', source: 'https://github.com/owner/repo' }],
         }),
         'utf8',
       );
@@ -706,5 +713,4 @@ describe('loadPluginMarketplace', () => {
       );
     });
   });
-
 });

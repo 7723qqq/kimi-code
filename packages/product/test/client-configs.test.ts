@@ -1,8 +1,7 @@
+import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 
 import type { KimiRegion } from '@moonshot-ai/kimi-code-oauth';
 import { z } from 'zod';
@@ -21,7 +20,10 @@ const client = new ClientConfigClient({
 
 const configSchema = z.object({
   version: z.literal(1),
-  config: z.record(z.string(), z.object({ min_tokens_to_hint: z.number(), cache_duration: z.number() })),
+  config: z.record(
+    z.string(),
+    z.object({ min_tokens_to_hint: z.number(), cache_duration: z.number() }),
+  ),
 });
 
 const CONFIG: z.infer<typeof configSchema> = {
@@ -111,9 +113,7 @@ describe('fetchClientConfig', () => {
   });
 
   it('returns undefined when the envelope name does not match', async () => {
-    const fetchImpl = mock(async () =>
-      jsonResponse({ name: 'some_other_config', config: CONFIG }),
-    );
+    const fetchImpl = mock(async () => jsonResponse({ name: 'some_other_config', config: CONFIG }));
 
     await expect(
       client.fetch('estimated_cache_duration', configSchema, {
@@ -256,7 +256,9 @@ describe('getClientConfig', () => {
       path: '/resource_configs',
     });
 
-    expect(client.peek('estimated_cache_duration', configSchema, now, '/resource_configs')).toEqual(CONFIG);
+    expect(client.peek('estimated_cache_duration', configSchema, now, '/resource_configs')).toEqual(
+      CONFIG,
+    );
     expect(client.peek('estimated_cache_duration', configSchema, now)).toBeUndefined();
   });
 });
@@ -346,7 +348,9 @@ describe('getClientConfig disk cache', () => {
       now,
       cacheFile: file,
     });
-    expect(client.peek('estimated_cache_duration', configSchema, now + 2 * 60 * 60 * 1000)).toBeUndefined();
+    expect(
+      client.peek('estimated_cache_duration', configSchema, now + 2 * 60 * 60 * 1000),
+    ).toBeUndefined();
   });
 
   it('refetches and rewrites the file when the disk entry is stale', async () => {
