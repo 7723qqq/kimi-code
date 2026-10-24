@@ -68,9 +68,16 @@ afterEach(() => {
   cleanup();
 });
 
-afterAll(() => {
+afterAll(async () => {
   if (!installed) return;
   const target = globalThis as Record<string, unknown>;
+  // React's scheduler can still hold a `performWorkUntilDeadline` callback when the
+  // last test ends, and that callback reads `window.event`. Tearing the globals down
+  // underneath it raises `ReferenceError: window is not defined` after every test has
+  // already passed, so let the queue drain first.
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, 0);
+  });
   for (const key of installed.keys) {
     if (installed.replaced.has(key)) target[key] = installed.replaced.get(key);
     else delete target[key];
