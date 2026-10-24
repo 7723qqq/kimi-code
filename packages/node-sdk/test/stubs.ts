@@ -1,5 +1,5 @@
 /**
- * Test doubles for the Node SDK suite, built on Bun 1.4 primitives.
+ * Test doubles for the Node SDK suite, built on Bun primitives.
  *
  * A replaced global is restored from its property descriptor, so the
  * original value comes back exactly as it was — including accessor

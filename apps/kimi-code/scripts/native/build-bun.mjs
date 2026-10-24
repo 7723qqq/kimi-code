@@ -151,8 +151,9 @@ async function buildBunNative() {
   mkdirSync(dirname(outfile), { recursive: true });
   // Bytecode is opt-in: measured no startup gain on this pipeline, and it
   // adds size plus a lock to the exact Bun version that built the artifact.
-  // Re-verified on Bun 1.4.2 (the measurement below) with --format=esm (bare --bytecode would force
-  // CommonJS output): 803 -> 802 ms --version median, +55% binary size.
+  // The measurement below was taken on Bun 1.4.2 (not re-measured on the 1.4.4
+  // floor) with --format=esm (bare --bytecode would force CommonJS output):
+  // 803 -> 802 ms --version median, +55% binary size.
   // Startup here is bound by runtime init, not module compilation.
   const useBytecode = process.env.KIMI_CODE_BUN_ENABLE_BYTECODE === '1';
   console.log(`==> bun build --compile --target=${bunTarget}${useBytecode ? ' --bytecode' : ''}`);

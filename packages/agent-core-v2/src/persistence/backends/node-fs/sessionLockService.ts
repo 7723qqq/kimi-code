@@ -1,4 +1,3 @@
-import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -43,11 +42,12 @@ function pidAlive(pid: number): boolean {
   }
   if (process.platform === 'win32') return true;
   try {
-    const stat = execFileSync('ps', ['-p', String(pid), '-o', 'stat='], {
-      encoding: 'utf8',
+    const result = Bun.spawnSync(['ps', '-p', String(pid), '-o', 'stat='], {
+      stdout: 'pipe',
       timeout: 1000,
     });
-    return !stat.trim().startsWith('Z');
+    if (result.exitCode !== 0) throw new Error(`ps exited ${String(result.exitCode)}`);
+    return !result.stdout.toString().trim().startsWith('Z');
   } catch {
     return true;
   }

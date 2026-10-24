@@ -18,9 +18,7 @@ function crashWriter(dir: string, shardCount: number): Promise<void> {
   return new Promise((resolve) => {
     const child = spawn(
       process.execPath,
-      // Bun executes .ts workers natively; Node needs the tsx loader hook.
       [
-        ...(typeof Bun !== 'undefined' ? [] : ['--import', 'tsx']),
         WORKER,
         'crash',
         dir,
@@ -95,7 +93,6 @@ test(
       const holder = spawn(
         process.execPath,
         [
-          ...(typeof Bun !== 'undefined' ? [] : ['--import', 'tsx']),
           WORKER,
           'hold',
           dir,

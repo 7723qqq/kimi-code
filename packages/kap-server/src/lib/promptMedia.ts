@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { createReadStream, createWriteStream, type Stats } from 'node:fs';
 import { mkdir, readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { basename, extname, isAbsolute, join } from 'node:path';
@@ -228,7 +227,7 @@ export async function resolvePromptMediaFiles(
           const name = part.name ?? `image.${imageExtensionForMime(effectiveMime)}`;
           const persisted = await persistAttachmentBytes(
             bytes,
-            `${createHash('sha256').update(bytes).digest('hex').slice(0, 32)}-${sanitizeAttachmentName(name)}`,
+            `${new Bun.CryptoHasher('sha256').update(bytes).digest('hex').slice(0, 32)}-${sanitizeAttachmentName(name)}`,
             await resolveAttachmentsDir(),
           );
           content.push({

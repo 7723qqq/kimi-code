@@ -48,8 +48,7 @@ export function runWorker(
   return new Promise((resolve, reject) => {
     const child = spawn(
       process.execPath,
-      // Bun executes .ts workers natively; Node needs the tsx loader hook.
-      [...(typeof Bun !== 'undefined' ? [] : ['--import', 'tsx']), WORKER, ...args],
+      [WORKER, ...args],
       { stdio: ['ignore', 'pipe', 'pipe'] },
     );
     let stdout = '';

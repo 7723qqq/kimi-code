@@ -13,7 +13,6 @@
  * Failed decodes are not cached, so a later attempt can retry.
  */
 
-import { createHash } from 'node:crypto';
 
 export interface DecodedImagePixels {
   readonly pixels: Uint8Array;
@@ -55,7 +54,7 @@ export function decodeImagePixels(base64: string): Promise<DecodedImagePixels | 
 }
 
 function cacheKey(base64: string): string {
-  const hash = createHash('sha256').update(base64).digest('hex').slice(0, 16);
+  const hash = new Bun.CryptoHasher('sha256').update(base64).digest('hex').slice(0, 16);
   return `${base64.length}:${hash}`;
 }
 

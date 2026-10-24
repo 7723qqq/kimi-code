@@ -8,7 +8,6 @@
  * Exit code: 0 if all keys match, 1 if any mismatch is found.
  */
 
-import { register } from 'node:module';
 import { resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 
@@ -68,19 +67,7 @@ function collectLeafKeys(obj, prefix = '') {
   return keys.toSorted((a, b) => a.localeCompare(b));
 }
 
-// ── Dynamic TS loader ────────────────────────────────────────────────────────
-
-try {
-  await import('tsx/esm');
-} catch {
-  // tsx might not be installed in CI; try registering manually
-  try {
-    register('tsx/esm', pathToFileURL(import.meta.url));
-  } catch {
-    // No fallback: this script only runs under Bun, which transpiles the
-    // locale .ts files on import.
-  }
-}
+// ── Dynamic locale loader ────────────────────────────────────────────────────
 
 async function loadModule(p) {
   const fullPath = resolve(ROOT, p);

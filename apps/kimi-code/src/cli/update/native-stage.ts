@@ -8,7 +8,6 @@
  * binary is byte-exact what the release pipeline produced.
  */
 
-import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import {
   chmod,
@@ -192,7 +191,7 @@ export async function promoteStagedUpdateToManual(
 /** Stream a file's sha256 as hex; null when the file cannot be read. */
 export async function hashFileSha256(filePath: string): Promise<string | null> {
   try {
-    const hash = createHash('sha256');
+    const hash = new Bun.CryptoHasher('sha256');
     for await (const chunk of createReadStream(filePath)) {
       hash.update(chunk as Buffer);
     }
@@ -354,7 +353,7 @@ async function downloadAndHash(
   const contentLength = response.headers.get('content-length');
   const total =
     contentLength !== null && /^\d+$/.test(contentLength) ? Number(contentLength) : null;
-  const hash = createHash('sha256');
+  const hash = new Bun.CryptoHasher('sha256');
   let size = 0;
   const file = await open(partPath, 'w');
   try {
@@ -397,7 +396,7 @@ async function decompressAndHash(
   destPath: string,
   expectedSha256: string,
 ): Promise<number> {
-  const hash = createHash('sha256');
+  const hash = new Bun.CryptoHasher('sha256');
   let size = 0;
   const file = await open(destPath, 'w');
   try {

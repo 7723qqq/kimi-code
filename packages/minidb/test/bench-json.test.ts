@@ -21,7 +21,6 @@ test('bench --quick emits a JSON report with a stable schema', async () => {
       process.execPath,
       // Bun executes .ts benches natively; Node needs the tsx loader hook.
       [
-        ...(typeof Bun !== 'undefined' ? [] : ['--import', 'tsx']),
         path.join(pkgDir, 'bench', 'bench.ts'),
         '--quick',
         '--json',
@@ -129,7 +128,6 @@ test('open-lifecycle bench --quick emits the phase-1 baseline report', async () 
     await promisify(execFile)(
       process.execPath,
       [
-        ...(typeof Bun !== 'undefined' ? [] : ['--import', 'tsx']),
         path.join(pkgDir, 'bench', 'open-lifecycle.ts'),
         '--quick',
         '--json',

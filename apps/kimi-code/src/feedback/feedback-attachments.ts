@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { appendFile, mkdir, rm, stat } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -151,8 +150,8 @@ export async function archiveFromExportedSession(zipPath: string): Promise<Feedb
       `Failed to upload archive: size ${archiveStat.size} exceeds maximum allowed size ${MAX_ARCHIVE_SIZE}.`,
     );
   }
-  const sha256 = createHash('sha256');
-  const fingerprint = createHash('sha256');
+  const sha256 = new Bun.CryptoHasher('sha256');
+  const fingerprint = new Bun.CryptoHasher('sha256');
   for await (const chunk of createReadStream(zipPath)) {
     sha256.update(chunk as Buffer);
     fingerprint.update(chunk as Buffer);

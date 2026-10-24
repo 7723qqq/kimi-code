@@ -1,5 +1,4 @@
 import { spawnSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import {
   chmodSync,
   createWriteStream,
@@ -188,7 +187,7 @@ async function downloadFd(deps: FdDetectDeps): Promise<string | null> {
 }
 
 function verifyArchive(path: string, expectedSha256: string): void {
-  const actualSha256 = createHash('sha256').update(readFileSync(path)).digest('hex');
+  const actualSha256 = new Bun.CryptoHasher('sha256').update(readFileSync(path)).digest('hex');
   if (actualSha256 !== expectedSha256) {
     throw new Error(`fd archive checksum mismatch: ${actualSha256} !== ${expectedSha256}`);
   }

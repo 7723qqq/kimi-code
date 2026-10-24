@@ -5,7 +5,6 @@
  * files are owned by Core/SDK and intentionally do not live behind this module.
  */
 
-import { createHash } from 'node:crypto';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 
@@ -142,6 +141,6 @@ export function getModelMigrationStateFile(): string {
  * Layout: `<dataDir>/user-history/<md5(cwd)>.jsonl`.
  */
 export function getInputHistoryFile(workDir: string): string {
-  const hash = createHash('md5').update(workDir, 'utf-8').digest('hex');
+  const hash = new Bun.CryptoHasher('md5').update(workDir, 'utf-8').digest('hex');
   return join(getDataDir(), KIMI_CODE_INPUT_HISTORY_DIR_NAME, `${hash}.jsonl`);
 }

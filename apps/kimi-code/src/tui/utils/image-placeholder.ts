@@ -46,7 +46,7 @@
  *     too; without an ingester the raw bytes attach as-is.
  */
 
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import {
   copyFileSync,
   mkdirSync,
@@ -823,7 +823,7 @@ export function persistOriginalImageSync(
   if (bytes.length === 0) return null;
   try {
     const targetDir = dir ?? originalImageTempDir();
-    const hash = createHash('sha256').update(bytes).digest('hex').slice(0, 32);
+    const hash = new Bun.CryptoHasher('sha256').update(bytes).digest('hex').slice(0, 32);
     const target = join(targetDir, `${hash}.${imageExtensionForMime(mime)}`);
     mkdirSync(targetDir, { recursive: true });
     const existing = statSync(target, { throwIfNoEntry: false });

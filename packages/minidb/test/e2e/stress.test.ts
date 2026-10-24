@@ -231,7 +231,6 @@ test(
         process.execPath,
         // Bun executes .ts racers natively; Node needs the tsx loader hook.
         [
-          ...(typeof Bun !== 'undefined' ? [] : ['--import', 'tsx']),
           RACER,
           lockPath,
           dir,

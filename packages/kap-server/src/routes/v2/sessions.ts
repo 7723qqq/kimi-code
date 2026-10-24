@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 
 import {
   ISessionIndex,
@@ -339,7 +338,7 @@ function queryFingerprint(query: NormalizedQuery): string {
     query.pageSize,
     query.projection,
   ];
-  return createHash('sha256').update(JSON.stringify(canonical)).digest('base64url').slice(0, 16);
+  return new Bun.CryptoHasher('sha256').update(JSON.stringify(canonical)).digest('base64url').slice(0, 16);
 }
 
 function encodePageToken(fingerprint: string, key: number, id: string): string {

@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 
 import { normalizeLiteral } from '@moonshot-ai/minidb';
 
@@ -205,7 +204,7 @@ export function tokenFingerprint(q: NormalizedQuery, source: GlobalSearchSource)
     q.sort,
     source,
   ]);
-  return createHash('sha256').update(basis).digest('base64url').slice(0, 16);
+  return new Bun.CryptoHasher('sha256').update(basis).digest('base64url').slice(0, 16);
 }
 
 const PAGE_TOKEN_VERSION = 2;

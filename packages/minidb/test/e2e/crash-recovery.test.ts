@@ -25,7 +25,6 @@ function crashWriter(dir: string, compactEvery: number, runMs: number): Promise<
       process.execPath,
       // Bun executes .ts writers natively; Node needs the tsx loader hook.
       [
-        ...(typeof Bun !== 'undefined' ? [] : ['--import', 'tsx']),
         WRITER,
         dir,
         String(compactEvery),

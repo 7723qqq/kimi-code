@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { appendFile, mkdir, stat, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
@@ -22,7 +22,7 @@ export const MAX_ROLLOUT_DELAY_SECONDS = 86_400;
  * so each release reshuffles which devices land in the early batches.
  */
 export function rolloutBucket(deviceId: string, version: string): number {
-  const digest = createHash('sha256').update(`${deviceId}:${version}`, 'utf-8').digest();
+  const digest = new Bun.CryptoHasher('sha256').update(`${deviceId}:${version}`, 'utf-8').digest();
   return digest.readUInt32BE(0) % 100;
 }
 

@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { createWriteStream } from 'node:fs';
 import { mkdir, rm, stat } from 'node:fs/promises';
 import { dirname } from 'node:path';
@@ -43,7 +42,7 @@ async function packageEntries(
   await mkdir(dirname(archivePath), { recursive: true });
 
   const zip = new ZipFile();
-  const hash = createHash('sha256');
+  const hash = new Bun.CryptoHasher('sha256');
   const output = createWriteStream(archivePath);
 
   try {
@@ -87,7 +86,7 @@ async function packageEntries(
 }
 
 function fingerprintEntries(entries: readonly PackageEntry[]): string {
-  const hash = createHash('sha256');
+  const hash = new Bun.CryptoHasher('sha256');
   for (const entry of entries) {
     hash.update(entry.archivePath);
     hash.update('\0');

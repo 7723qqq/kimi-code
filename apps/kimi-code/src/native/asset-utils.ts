@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 
@@ -18,7 +17,7 @@ export function toBuffer(value: ArrayBuffer | ArrayBufferView | Buffer | string)
 }
 
 export function sha256(bytes: Buffer | Uint8Array | string): string {
-  return createHash('sha256').update(bytes).digest('hex');
+  return new Bun.CryptoHasher('sha256').update(bytes).digest('hex');
 }
 
 export function sanitizeSegment(value: string): string {

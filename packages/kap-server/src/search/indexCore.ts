@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import fs from 'node:fs/promises';
 import { join, relative } from 'node:path';
 
@@ -45,7 +44,7 @@ const SESSION_META_PREFIX = '\0meta\\session\\';
 const STATS_KEY = '\0meta\\stats';
 
 function hashPath(filePath: string): string {
-  return createHash('sha256').update(filePath).digest('hex').slice(0, 32);
+  return new Bun.CryptoHasher('sha256').update(filePath).digest('hex').slice(0, 32);
 }
 
 function fileMetaKey(sessionId: string, filePath: string): string {
