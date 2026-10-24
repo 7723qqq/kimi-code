@@ -1,5 +1,3 @@
-import { Jimp } from 'jimp';
-
 import { sniffImageDimensions, sniffMediaFromMagic } from '#/agent/media/file-type';
 
 import { AttachmentErrors, AttachmentError } from './errors';
@@ -38,7 +36,7 @@ export async function detectImage(data: Uint8Array, maxPixels?: number): Promise
     );
   }
   try {
-    await Jimp.fromBuffer(Buffer.from(data));
+    await new Bun.Image(data).bytes();
   } catch (error) {
     throw new AttachmentError(
       AttachmentErrors.codes.ATTACHMENT_INVALID_IMAGE,
