@@ -57,6 +57,9 @@ function fitExactly(line: string, width: number): string {
 
 export class ApprovalPreviewViewer extends Container implements Focusable {
   focused = false;
+  // A full-screen reader taken over as the layout root: it pages its own body.
+  readonly ownsViewportKeys = true;
+  readonly ownsViewportSearchKey = true;
 
   private readonly props: ApprovalPreviewViewerProps;
   private readonly terminal: Terminal;

@@ -143,6 +143,13 @@ interface CustomEditorOptions {
 }
 
 export class CustomEditor extends Editor {
+  /**
+   * The prompt keeps Home/End for cursor movement and routes PageUp/PageDown
+   * to the status strip, so the fullscreen renderer must not take those keys
+   * for transcript scrolling. `ownsViewportSearchKey` stays unset on purpose:
+   * Ctrl-Shift-F must still open transcript search from the editor.
+   */
+  readonly ownsViewportKeys = true;
   public onEscape?: () => void;
   /**
    * Fired for every input that is not a lone Escape. Used to disarm a pending

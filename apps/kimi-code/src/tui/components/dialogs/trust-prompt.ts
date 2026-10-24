@@ -31,6 +31,9 @@ function getOptions(): readonly { value: TrustPromptChoice; label: string }[] {
 
 export class TrustPromptComponent implements Component, Focusable {
   focused = false;
+  // Pages its own disclosure text with PageUp/PageDown and Home/End.
+  readonly ownsViewportKeys = true;
+  readonly ownsViewportSearchKey = true;
   private selectedIndex = 0;
   private disclosureIndex = 0;
   private disclosurePageSize = 1;

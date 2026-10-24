@@ -11,7 +11,8 @@ export interface StackEntryOptions {
   grow?: number;
   shrink?: number;
   minSize?: number;
-  maxSize?: number;
+  /** Row/column ceiling; a function is re-read on every layout pass. */
+  maxSize?: number | (() => number);
   visible?: (viewport: LayoutViewport) => boolean;
 }
 
@@ -60,7 +61,12 @@ export abstract class Stack extends Container {
       ...(options.minSize === undefined ? {} : { minSize: normalizeSize(options.minSize, 0) }),
       ...(options.maxSize === undefined
         ? {}
-        : { maxSize: normalizeSize(options.maxSize, Number.MAX_SAFE_INTEGER) }),
+        : {
+            maxSize:
+              typeof options.maxSize === 'function'
+                ? options.maxSize
+                : normalizeSize(options.maxSize, Number.MAX_SAFE_INTEGER),
+          }),
       ...(options.visible === undefined ? {} : { visible: options.visible }),
     });
   }
@@ -93,9 +99,15 @@ export function visibleStackEntries(
   return entries.filter((entry) => entry.visible?.(viewport) ?? true);
 }
 
+function resolveMaxSize(entry: StackLayoutEntry): number {
+  const value = entry.maxSize;
+  const resolved = typeof value === 'function' ? value() : value;
+  return Math.max(0, Math.floor(resolved ?? Number.MAX_SAFE_INTEGER));
+}
+
 function clampSize(size: number, entry: StackLayoutEntry): number {
   const min = Math.max(0, Math.floor(entry.minSize ?? 0));
-  const max = Math.max(min, Math.floor(entry.maxSize ?? Number.MAX_SAFE_INTEGER));
+  const max = Math.max(min, resolveMaxSize(entry));
   return Math.max(min, Math.min(max, Math.max(0, Math.floor(size))));
 }
 
@@ -111,9 +123,7 @@ function distribute(
       .map((entry, index) => ({ entry, index }))
       .filter(({ entry, index }) => {
         if (mode === 'grow') {
-          return (
-            (entry.grow ?? 0) > 0 && sizes[index]! < (entry.maxSize ?? Number.MAX_SAFE_INTEGER)
-          );
+          return (entry.grow ?? 0) > 0 && sizes[index]! < resolveMaxSize(entry);
         }
         return (entry.shrink ?? 1) > 0 && sizes[index]! > (entry.minSize ?? 0);
       });
@@ -132,9 +142,7 @@ function distribute(
         mode === 'grow' ? (entry.grow ?? 0) : (entry.shrink ?? 1) * Math.max(1, sizes[index]!);
       const proposed = Math.max(1, Math.floor((remaining * weight) / totalWeight));
       const capacity =
-        mode === 'grow'
-          ? (entry.maxSize ?? Number.MAX_SAFE_INTEGER) - sizes[index]!
-          : sizes[index]! - (entry.minSize ?? 0);
+        mode === 'grow' ? resolveMaxSize(entry) - sizes[index]! : sizes[index]! - (entry.minSize ?? 0);
       const delta = Math.min(remaining, proposed, capacity);
       if (delta <= 0) continue;
       sizes[index] = sizes[index]! + (mode === 'grow' ? delta : -delta);

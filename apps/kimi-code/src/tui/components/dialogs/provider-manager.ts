@@ -222,6 +222,9 @@ function buildRows(opts: ProviderManagerOptions): readonly Row[] {
 
 export class ProviderManagerComponent extends Container implements Focusable {
   focused = false;
+  // Pages the provider rows itself with arrow columns and PageUp/PageDown.
+  readonly ownsViewportKeys = true;
+  readonly ownsViewportSearchKey = true;
   private opts: ProviderManagerOptions;
   private rows: readonly Row[];
   private selectedIndex: number;

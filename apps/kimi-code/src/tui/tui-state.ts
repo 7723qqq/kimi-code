@@ -10,6 +10,7 @@ import {
 import { t } from '#/i18n';
 import { TranscriptView } from '#/tui/components/messages/transcript-view';
 import { clipboard } from '#/utils/clipboard/clipboard-native';
+import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
 import { openUrl } from '#/utils/open-url';
 
 import { FooterComponent } from './components/chrome/footer';
@@ -166,6 +167,16 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
           // Clickable pill centered on the transcript's last row while it is
           // scrolled away from the end.
           scrollToEndIndicator: () => currentTheme.fg('primary', t('tui.labels.jumpToBottom')),
+          // A bare OSC 52 write reports success even where the terminal drops
+          // it, so route selection copies through the same verified path
+          // /copy uses and only claim success for native delivery.
+          copySelection: async (text) => {
+            try {
+              return (await copyTextToClipboard(text)) === 'native';
+            } catch {
+              return false;
+            }
+          },
         })
       : new TuiMainScreen(terminal);
 
@@ -251,7 +262,9 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
     dockContainer.addChild(backgroundTasksMiniContainer, {
       shrink: 1,
       minSize: 0,
-      maxSize: Math.floor(terminal.rows * 0.5),
+      // Half the terminal, re-read on every layout pass: the ceiling has to
+      // follow a resize, unlike the constant panel caps above.
+      maxSize: () => Math.floor(terminal.rows * 0.5),
     });
     dockContainer.addChild(editorContainer, { shrink: 1, minSize: 3 });
     const root = new VStack();

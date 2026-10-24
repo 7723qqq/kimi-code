@@ -337,6 +337,21 @@ describe('KimiTUI startup', () => {
     expect(driver.state.dockContainer?.children).toHaveLength(8);
   });
 
+  it('mounts the status surface as a root child in regular mode', async () => {
+    const harness = makeHarness(makeSession());
+    const driver = makeDriver(harness, makeStartupInput({}));
+
+    await expect(driver.init()).resolves.toBe(false);
+
+    // The todo list, the updates and a pending approval are all regions of one
+    // component; nothing else holds them. Mounting the two legacy containers
+    // instead left the whole strip unrendered while approvals still took
+    // focus and blocked submission.
+    expect(driver.state.ui.children).toContain(driver.state.statusSurfaceContainer);
+    expect(driver.state.ui.children).not.toContain(driver.state.todoPanelContainer);
+    expect(driver.state.ui.children).not.toContain(driver.state.notifyPanelContainer);
+  });
+
   it('shows a session-less notice on v2 startup', async () => {
     const harness = makeHarness(makeSession());
     const driver = makeDriver(harness, { ...makeStartupInput() });

@@ -20,6 +20,7 @@ import { describe, expect, it, mock, spyOn } from 'bun:test';
 import { GutterContainer } from '#/tui/components/chrome/gutter-container';
 import { MoonLoader } from '#/tui/components/chrome/moon-loader';
 import { ApprovalPanelComponent } from '#/tui/components/dialogs/approval-panel';
+import { HelpPanelComponent } from '#/tui/components/dialogs/help-panel';
 import { AssistantMessageComponent } from '#/tui/components/messages/assistant-message';
 import { StatusMessageComponent } from '#/tui/components/messages/status-message';
 import { UserMessageComponent } from '#/tui/components/messages/user-message';
@@ -208,22 +209,32 @@ describe('fullscreen layout', () => {
     vt.sendInput(`\u001B[<32;${CHROME_GUTTER + 5};3M`);
     vt.sendInput(`\u001B[<0;${CHROME_GUTTER + 5};3m`);
     await vt.waitForRender();
-    const write = spyOn(vt, 'write');
-    const copiedAlpha = `\u001B]52;c;${Buffer.from('alpha').toString('base64')}\u0007`;
+    // Selection copy goes through the app's verified clipboard path, so the
+    // text it receives — not an OSC 52 write — is what proves the selection
+    // survived the pill toggling.
+    const copySelection = (
+      alt as unknown as { copySelection?: (text: string) => Promise<boolean> }
+    ).copySelection;
+    expect(copySelection).toBeDefined();
+    const copied: string[] = [];
+    (alt as unknown as { copySelection: (text: string) => Promise<boolean> }).copySelection = async (
+      text,
+    ) => {
+      copied.push(text);
+      return true;
+    };
     await alt.copyActiveSelectionToClipboard();
-    expect(write).toHaveBeenCalledWith(copiedAlpha);
-    write.mockClear();
+    expect(copied).toEqual(['alpha']);
     alt.scrollBy(1);
     await vt.waitForRender();
     expect(pillLines(state)).toHaveLength(1);
     await alt.copyActiveSelectionToClipboard();
-    expect(write).toHaveBeenCalledWith(copiedAlpha);
-    write.mockClear();
+    expect(copied).toEqual(['alpha', 'alpha']);
     alt.scrollBy(-1);
     await vt.waitForRender();
     expect(pillLines(state)).toEqual([]);
     await alt.copyActiveSelectionToClipboard();
-    expect(write).toHaveBeenCalledWith(copiedAlpha);
+    expect(copied).toEqual(['alpha', 'alpha', 'alpha']);
     alt.stop();
   });
 
@@ -894,6 +905,103 @@ describe('fullscreen layout', () => {
     expect(vt.getViewport().map((line) => stripAnsi(line)).some((l) => l.includes('todo one'))).toBe(
       true,
     );
+    alt.stop();
+  });
+
+  it('keeps Home and End on the prompt while the transcript scrolls', async () => {
+    const { state, vt } = await mountFullscreen();
+    const alt = state.ui as TuiAltScreen;
+    // Enough transcript that the primary ScrollView can scroll; before this,
+    // the renderer consumed Home/End as soon as that was true.
+    state.transcriptContainer.addChild(
+      new Text(Array.from({ length: 200 }, (_, index) => `line ${index}`).join('\n'), 0, 0),
+    );
+    alt.renderNow();
+    await vt.waitForRender();
+
+    state.editor.setText('hello world');
+    alt.setFocus(state.editor);
+    alt.renderNow();
+    await vt.waitForRender();
+    expect(alt.viewportTop).toBeGreaterThan(0);
+
+    vt.sendInput('\u001B[F');
+    await vt.waitForRender();
+    vt.sendInput('\u001B[H');
+    await vt.waitForRender();
+
+    // The viewport did not jump to the transcript's top or bottom: the keys
+    // reached the editor, which still holds the text and the focus.
+    expect(alt.getFocusedComponent()).toBe(state.editor);
+    expect(state.editor.getText()).toBe('hello world');
+    expect(alt.viewportTop).toBeGreaterThan(0);
+
+    alt.stop();
+  });
+
+  it('keeps Ctrl-Shift-F opening transcript search from the prompt', async () => {
+    const { state, vt } = await mountFullscreen();
+    const alt = state.ui as TuiAltScreen;
+    state.editor.setText('needle');
+    alt.setFocus(state.editor);
+    alt.renderNow();
+    await vt.waitForRender();
+
+    vt.sendInput('\u001B[102;6u');
+    await vt.waitForRender();
+
+    expect(
+      vt
+        .getViewport()
+        .map((line) => stripAnsi(line))
+        .some((line) => line.includes('Find in transcript')),
+    ).toBe(true);
+
+    alt.stop();
+  });
+
+  it('keeps PageDown on a dialog docked in the editor slot', async () => {
+    const { state, vt } = await mountFullscreen();
+    const alt = state.ui as TuiAltScreen;
+    state.transcriptContainer.addChild(
+      new Text(Array.from({ length: 200 }, (_, index) => `line ${index}`).join('\n'), 0, 0),
+    );
+    let closed = false;
+    // Enough rows that paging the panel is visible in the viewport.
+    const commands = Array.from({ length: 60 }, (_, index) => ({
+      name: `cmd${index}`,
+      aliases: [],
+      description: `description ${index}`,
+    }));
+    const panel = new HelpPanelComponent({
+      commands,
+      onClose: () => {
+        closed = true;
+      },
+    });
+    state.editorContainer.clear();
+    state.editorContainer.addChild(panel);
+    alt.setFocus(panel);
+    alt.renderNow();
+    await vt.waitForRender();
+
+    // Park the transcript away from its end so a viewport-consumed PageDown
+    // would move it. With follow-end active both branches look identical.
+    alt.scrollBy(-40);
+    await vt.waitForRender();
+    const transcriptTop = alt.viewportTop;
+    expect(transcriptTop).toBeGreaterThan(0);
+    const panelBefore = vt.getViewport().map(stripAnsi).join('\n');
+
+    vt.sendInput('\u001B[6~');
+    await vt.waitForRender();
+
+    // The key went to the panel: the transcript stayed put and the panel's own
+    // body scrolled instead.
+    expect(alt.viewportTop).toBe(transcriptTop);
+    expect(closed).toBe(false);
+    expect(vt.getViewport().map(stripAnsi).join('\n')).not.toBe(panelBefore);
+
     alt.stop();
   });
 });

@@ -712,6 +712,22 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
     return this.isOverlayFocused() && this.activeSearch?.overlay?.isFocused() !== true;
   }
 
+  /**
+   * A focused component that scrolls itself keeps the unmodified viewport
+   * navigation keys. Without this the renderer, which runs as an input listener
+   * ahead of the focused component, took Home/End/PageUp/PageDown away from a
+   * docked dialog or a full-screen reader as soon as the transcript was long
+   * enough to scroll.
+   */
+  private focusedComponentOwnsViewportKeys(): boolean {
+    return this.getFocusedComponent()?.ownsViewportKeys === true;
+  }
+
+  /** Same idea for the search hotkey, declared separately (see {@link Component}). */
+  private focusedComponentOwnsSearchKey(): boolean {
+    return this.getFocusedComponent()?.ownsViewportSearchKey === true;
+  }
+
   private clearComponentMouseGesture(): void {
     this.mouseCapture = undefined;
     this.mousePressTarget = undefined;
@@ -779,6 +795,9 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
     // fall through to the focused component instead of consuming them.
     const primaryScrollable = this.getPrimaryScrollView().canScroll;
     if (keybindings.matches(data, 'tui.altScreen.search')) {
+      // A full-screen reader that declared the search hotkey for itself keeps
+      // it instead of having transcript search open on top and steal focus.
+      if (this.focusedComponentOwnsSearchKey()) return undefined;
       if (!isRelease) this.toggleSearch();
       return { consume: true };
     }
@@ -797,7 +816,13 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
       }
     }
     if (this.shouldDeferViewportInputToOverlay()) return undefined;
-    if (primaryScrollable && keybindings.matches(data, 'tui.altScreen.pageUp')) {
+    // Hand the plain navigation keys back to a focused component that scrolls
+    // itself. Placed after the search keys so a search opened over it still
+    // answers its own navigation. The modified prompt jumps below stay with the
+    // viewport: they belong to the fullscreen reader, and no docked component
+    // binds them.
+    const focusedOwnsNavigation = this.focusedComponentOwnsViewportKeys();
+    if (!focusedOwnsNavigation && primaryScrollable && keybindings.matches(data, 'tui.altScreen.pageUp')) {
       if (!isRelease) {
         this.scrollBy(
           -Math.max(1, this.getPrimaryScrollView().viewportHeight - PAGE_SCROLL_OVERLAP),
@@ -805,7 +830,7 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
       }
       return { consume: true };
     }
-    if (primaryScrollable && keybindings.matches(data, 'tui.altScreen.pageDown')) {
+    if (!focusedOwnsNavigation && primaryScrollable && keybindings.matches(data, 'tui.altScreen.pageDown')) {
       if (!isRelease) {
         this.scrollBy(
           Math.max(1, this.getPrimaryScrollView().viewportHeight - PAGE_SCROLL_OVERLAP),
@@ -813,21 +838,21 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
       }
       return { consume: true };
     }
-    if (primaryScrollable && keybindings.matches(data, 'tui.altScreen.halfPageUp')) {
+    if (!focusedOwnsNavigation && primaryScrollable && keybindings.matches(data, 'tui.altScreen.halfPageUp')) {
       if (!isRelease)
         this.scrollBy(-Math.max(1, Math.floor(this.getPrimaryScrollView().viewportHeight / 2)));
       return { consume: true };
     }
-    if (primaryScrollable && keybindings.matches(data, 'tui.altScreen.halfPageDown')) {
+    if (!focusedOwnsNavigation && primaryScrollable && keybindings.matches(data, 'tui.altScreen.halfPageDown')) {
       if (!isRelease)
         this.scrollBy(Math.max(1, Math.floor(this.getPrimaryScrollView().viewportHeight / 2)));
       return { consume: true };
     }
-    if (primaryScrollable && keybindings.matches(data, 'tui.altScreen.lineUp')) {
+    if (!focusedOwnsNavigation && primaryScrollable && keybindings.matches(data, 'tui.altScreen.lineUp')) {
       if (!isRelease) this.scrollBy(-1);
       return { consume: true };
     }
-    if (primaryScrollable && keybindings.matches(data, 'tui.altScreen.lineDown')) {
+    if (!focusedOwnsNavigation && primaryScrollable && keybindings.matches(data, 'tui.altScreen.lineDown')) {
       if (!isRelease) this.scrollBy(1);
       return { consume: true };
     }
@@ -839,11 +864,11 @@ export class TuiAltScreen extends TuiBase implements ViewportTUI {
       if (!isRelease) this.scrollToPrompt(1);
       return { consume: true };
     }
-    if (primaryScrollable && keybindings.matches(data, 'tui.altScreen.top')) {
+    if (!focusedOwnsNavigation && primaryScrollable && keybindings.matches(data, 'tui.altScreen.top')) {
       if (!isRelease) this.scrollToTop();
       return { consume: true };
     }
-    if (primaryScrollable && keybindings.matches(data, 'tui.altScreen.bottom')) {
+    if (!focusedOwnsNavigation && primaryScrollable && keybindings.matches(data, 'tui.altScreen.bottom')) {
       if (!isRelease) this.scrollToBottom();
       return { consume: true };
     }

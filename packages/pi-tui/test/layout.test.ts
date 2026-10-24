@@ -396,4 +396,28 @@ describe("viewport layout", () => {
 		assert.deepStrictEqual(frame.lines.length, 1);
 		assert.deepStrictEqual(visibleLines(frame.lines), [""]);
 	});
+
+	it("re-reads a function maxSize on every layout pass", () => {
+		const body = { render: () => Array.from({ length: 10 }, (_, i) => `row ${i}`), invalidate: () => {} };
+		let cap = 3;
+		const stack = new VStack([
+			{ component: new Text("top", 0, 0), basis: 1, shrink: 0 },
+			{ component: body, basis: 0, grow: 1, maxSize: () => cap },
+		]);
+
+		const first = renderLayoutFrame(stack, 10, 10, () => {});
+		assert.deepStrictEqual(
+			first.root.children.map((child) => child.rect.height),
+			[1, 3],
+		);
+
+		cap = 6;
+		const second = renderLayoutFrame(stack, 10, 10, () => {});
+		// The ceiling is read again, so the body grows past the value the first
+		// pass captured instead of staying clamped at 3.
+		assert.deepStrictEqual(
+			second.root.children.map((child) => child.rect.height),
+			[1, 6],
+		);
+	});
 });

@@ -998,6 +998,134 @@ describe("TuiAltScreen", () => {
 		tui.stop();
 	});
 
+	it("lets a focused component that owns viewport keys keep them while the transcript scrolls", async () => {
+		const terminal = new VirtualTerminal(20, 10);
+		const tui = new TuiAltScreen(terminal);
+		// Long enough that the primary scroll view can scroll: previously the
+		// renderer consumed Home/End/PageUp/PageDown before the docked dialog
+		// ever saw them.
+		const transcript = new ScrollView(new Text(Array.from({ length: 100 }, (_, index) => `line ${index + 1}`).join("\n"), 0, 0), {
+			follow: "end",
+			primary: true,
+		});
+		const pagerInputs: string[] = [];
+		const pager = {
+			ownsViewportKeys: true,
+			render: () => ["pager"],
+			invalidate: () => {},
+			handleInput: (data: string) => pagerInputs.push(data),
+		};
+		tui.setLayoutRoot(
+			new VStack([
+				{ component: transcript, basis: 0, grow: 1, minSize: 1 },
+				{ component: pager, basis: 1, shrink: 0 },
+			]),
+		);
+		tui.setFocus(pager);
+		tui.start();
+		await terminal.waitForRender();
+		const topBefore = tui.viewportTop;
+
+		const inputs = ["\x1b[5~", "\x1b[6~", "\x1b[H", "\x1b[F"];
+		for (const input of inputs) terminal.sendInput(input);
+		await terminal.waitForRender();
+
+		assert.deepStrictEqual(pagerInputs, inputs);
+		assert.strictEqual(tui.viewportTop, topBefore);
+
+		tui.stop();
+	});
+
+	it("keeps scrolling the viewport for a focused component that does not own the keys", async () => {
+		const terminal = new VirtualTerminal(20, 10);
+		const tui = new TuiAltScreen(terminal);
+		const transcript = new ScrollView(new Text(Array.from({ length: 100 }, (_, index) => `line ${index + 1}`).join("\n"), 0, 0), {
+			follow: "end",
+			primary: true,
+		});
+		const pillInputs: string[] = [];
+		const pill = {
+			render: () => ["pill"],
+			invalidate: () => {},
+			handleInput: (data: string) => pillInputs.push(data),
+		};
+		tui.setLayoutRoot(
+			new VStack([
+				{ component: transcript, basis: 0, grow: 1, minSize: 1 },
+				{ component: pill, basis: 1, shrink: 0 },
+			]),
+		);
+		tui.setFocus(pill);
+		tui.start();
+		await terminal.waitForRender();
+		const topBefore = tui.viewportTop;
+
+		terminal.sendInput("\x1b[5~");
+		await terminal.waitForRender();
+
+		assert.deepStrictEqual(pillInputs, []);
+		assert.ok(tui.viewportTop < topBefore);
+
+		tui.stop();
+	});
+
+	it("lets a focused reader keep the search hotkey and still opens it elsewhere", async () => {
+		const terminal = new VirtualTerminal(40, 12);
+		const tui = new TuiAltScreen(terminal);
+		const transcript = new ScrollView(new Text("needle", 0, 0), { follow: "end", primary: true });
+		const readerInputs: string[] = [];
+		const reader = {
+			ownsViewportKeys: true,
+			ownsViewportSearchKey: true,
+			render: () => ["reader"],
+			invalidate: () => {},
+			handleInput: (data: string) => readerInputs.push(data),
+		};
+		tui.setLayoutRoot(
+			new VStack([
+				{ component: transcript, basis: 0, grow: 1, minSize: 1 },
+				{ component: reader, basis: 1, shrink: 0 },
+			]),
+		);
+		tui.setFocus(reader);
+		tui.start();
+		await terminal.waitForRender();
+
+		terminal.sendInput("\x1b[102;6u");
+		await terminal.waitForRender();
+		assert.ok(!terminal.getViewport().some((line) => line.includes("Find in transcript")));
+		assert.deepStrictEqual(readerInputs, ["\x1b[102;6u"]);
+
+		tui.stop();
+	});
+
+	it("still opens transcript search from a component that only owns the navigation keys", async () => {
+		const terminal = new VirtualTerminal(40, 12);
+		const tui = new TuiAltScreen(terminal);
+		const transcript = new ScrollView(new Text("needle", 0, 0), { follow: "end", primary: true });
+		const editor = {
+			ownsViewportKeys: true,
+			render: () => ["editor"],
+			invalidate: () => {},
+			handleInput: () => {},
+		};
+		tui.setLayoutRoot(
+			new VStack([
+				{ component: transcript, basis: 0, grow: 1, minSize: 1 },
+				{ component: editor, basis: 1, shrink: 0 },
+			]),
+		);
+		tui.setFocus(editor);
+		tui.start();
+		await terminal.waitForRender();
+
+		terminal.sendInput("\x1b[102;6u");
+		await terminal.waitForRender();
+		assert.ok(terminal.getViewport().some((line) => line.includes("Find in transcript")));
+
+		tui.stop();
+	});
+
 	it("lets focus reports reach app-level input listeners", async () => {
 		const terminal = new VirtualTerminal(20, 10);
 		const tui = new TuiAltScreen(terminal);

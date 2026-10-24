@@ -152,6 +152,26 @@ export interface Component {
   wantsKeyRelease?: boolean;
 
   /**
+   * If true, the host must not consume unmodified viewport navigation keys
+   * (page up/down, home, end, line and prompt jumps) that this component
+   * handles itself while it holds focus.
+   *
+   * The alternate-screen renderer registers itself as an input listener, so it
+   * normally sees those keys before the focused component. A component with its
+   * own scrolling — a dialog mounted in the dock, a full-screen reader taken
+   * over the layout root — declares this to keep them.
+   */
+  ownsViewportKeys?: boolean;
+
+  /**
+   * If true, the host must not consume the viewport's search hotkey while this
+   * component holds focus. Declared separately from {@link ownsViewportKeys}
+   * because an editor keeps its own cursor keys but still expects the hotkey to
+   * open transcript search.
+   */
+  ownsViewportSearchKey?: boolean;
+
+  /**
    * Invalidate any cached rendering state.
    * Called when theme changes or when component needs to re-render from scratch.
    */

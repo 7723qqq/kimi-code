@@ -59,6 +59,9 @@ export interface HelpPanelOptions {
 
 export class HelpPanelComponent extends Container implements Focusable {
   focused = false;
+  // The panel scrolls itself with PageUp/PageDown over its own rendered view.
+  readonly ownsViewportKeys = true;
+  readonly ownsViewportSearchKey = true;
   private readonly opts: HelpPanelOptions;
   private scrollTop = 0;
 

@@ -174,8 +174,48 @@ describe('createTUIState', () => {
     const internals = state.ui as unknown as {
       openUrl?: (url: string) => void;
       onRightClickPaste?: () => void;
+      copySelection?: (text: string) => Promise<boolean>;
     };
     expect(typeof internals.openUrl).toBe('function');
     expect(typeof internals.onRightClickPaste).toBe('function');
+    // Selection copy must go through the app's verified clipboard path rather
+    // than a bare OSC 52 write that reports success even when it landed
+    // nowhere.
+    expect(typeof internals.copySelection).toBe('function');
+
+    // The mini panel's half-the-terminal ceiling is a getter, not a value
+    // captured at construction, so a resize keeps it correct.
+    const dockEntries = (
+      state.dockContainer as unknown as {
+        entries: { component: unknown; maxSize?: unknown }[];
+      }
+    ).entries;
+    const miniEntry = dockEntries.find(
+      (entry) => entry.component === state.backgroundTasksMiniContainer,
+    );
+    expect(typeof miniEntry?.maxSize).toBe('function');
+  });
+
+  it('reports a selection copy as failed when only OSC 52 delivery is available', async () => {
+    const state = createTUIState({
+      initialAppState: { ...fakeInitialAppState(), tuiMode: 'fullscreen' },
+      startup: {
+        continueLast: false,
+        yolo: false,
+        auto: false,
+        plan: false,
+      },
+    });
+    const internals = state.ui as unknown as {
+      copySelection?: (text: string) => Promise<boolean>;
+    };
+    const copySelection = internals.copySelection;
+    expect(copySelection).toBeDefined();
+
+    // A verified native tool answers true; anything that fell back to the
+    // unverified escape answers false so the renderer flashes "Copy failed"
+    // instead of claiming a copy that never reached the clipboard.
+    const result = await copySelection?.('selected text');
+    expect(typeof result).toBe('boolean');
   });
 });

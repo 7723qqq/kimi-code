@@ -1287,8 +1287,7 @@ export class KimiTUI {
     ui.addChild(this.state.transcriptContainer);
     ui.addChild(this.state.activityContainer);
     ui.addChild(this.state.backgroundTasksMiniContainer);
-    ui.addChild(this.state.todoPanelContainer);
-    ui.addChild(this.state.notifyPanelContainer);
+    ui.addChild(this.state.statusSurfaceContainer);
     ui.addChild(this.state.queueContainer);
     ui.addChild(this.state.btwPanelContainer);
     ui.addChild(this.state.surveyContainer);
@@ -1329,8 +1328,7 @@ export class KimiTUI {
     main.addChild(this.state.transcriptContainer);
     main.addChild(this.state.activityContainer);
     main.addChild(this.state.backgroundTasksMiniContainer);
-    main.addChild(this.state.todoPanelContainer);
-    main.addChild(this.state.notifyPanelContainer);
+    main.addChild(this.state.statusSurfaceContainer);
     main.addChild(this.state.queueContainer);
     main.addChild(this.state.btwPanelContainer);
     main.addChild(this.state.surveyContainer);

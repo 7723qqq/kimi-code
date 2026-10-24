@@ -13,7 +13,11 @@ export interface StackLayoutEntry {
   grow?: number;
   shrink?: number;
   minSize?: number;
-  maxSize?: number;
+  /**
+   * Row/column ceiling. A function is re-read on every layout pass, which is how
+   * a ceiling derived from the terminal size stays correct across a resize.
+   */
+  maxSize?: number | (() => number);
   visible?: (viewport: LayoutViewport) => boolean;
 }
 

@@ -106,6 +106,10 @@ type PanelFocus = 'list' | 'output';
 
 export class TasksPanelComponent extends Container implements Focusable {
   focused = false;
+  // Mounted as a layout-root takeover in fullscreen: the list and the output
+  // pane page with their own keys.
+  readonly ownsViewportKeys = true;
+  readonly ownsViewportSearchKey = true;
 
   private props: TasksPanelProps;
   private list: SearchableList<BackgroundTaskInfo> | undefined;
