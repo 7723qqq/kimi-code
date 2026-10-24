@@ -1,4 +1,4 @@
-The current goal is budget-limited (its budget was exhausted). The goal is not automatically continuing.
+The current goal is blocked (its budget was exhausted). The goal is not automatically continuing.
 
 <goal>
 <objective>${objective}</objective>

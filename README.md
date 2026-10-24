@@ -66,7 +66,7 @@ bun run dev:local:watch     # same, rebuilding and re-running on every change
 
 On Windows you can also double-click `start-native.bat`, which launches the CLI.
 
-> ⚠️ **Avoid `dev:cli-only`.** That script executes `src/main.ts` directly, and Bun 1.4.2 does not resolve the `package.json` `imports` wildcard `"#/*": "./src/*.ts"`, so the first `#/` import aborts with `Cannot find module '#/kimi-harness'`. Node resolves those wildcards correctly, but `main.ts` hard-exits on a non-Bun runtime — so neither runtime can run the source path directly. Use `dev:cli` (delegates to `scripts/dev.mjs`) or `dev:local` (bundles first, so tsdown inlines every `#/` specifier).
+> 💡 `dev:cli-only` runs `src/main.ts` directly and works on Bun 1.4.4, which resolves the `package.json` `imports` wildcard `"#/*": "./src/*.ts"`. Earlier Bun versions did not, so the script aborted with `Cannot find module '#/kimi-harness'`; use `dev:cli` (delegates to `scripts/dev.mjs`) or `dev:local` (bundles first) if you hit that.
 
 ## Quick Start
 

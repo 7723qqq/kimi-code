@@ -153,7 +153,7 @@ export async function migrateV2Session(dir: string): Promise<V2MigrationResult> 
   const statePath = join(dir, 'state.json');
   let rawMeta: unknown;
   try {
-    rawMeta = JSON.parse(await readFile(statePath, 'utf8'));
+    rawMeta = JSON.parse(await (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(statePath).text());
   } catch (error) {
     throw new V2MigrationError(
       'invalid-state-json',

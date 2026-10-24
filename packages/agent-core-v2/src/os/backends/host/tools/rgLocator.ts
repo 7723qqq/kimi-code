@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { createWriteStream, existsSync } from 'node:fs';
 import { chmod, copyFile, mkdir, mkdtemp, readFile, rename, rm, stat } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
@@ -268,7 +267,7 @@ export async function verifyArchiveChecksum(
   archiveName: string,
   expectedSha256: string,
 ): Promise<void> {
-  const actualSha256 = createHash('sha256')
+  const actualSha256 = new (globalThis as unknown as { Bun: { CryptoHasher: new (algo: string) => any } }).Bun.CryptoHasher('sha256')
     .update(await readFile(archivePath))
     .digest('hex');
   if (actualSha256 !== expectedSha256) {

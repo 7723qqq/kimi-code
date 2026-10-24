@@ -140,7 +140,7 @@ hook 的 stdout 与 stderr 各自上限为 64 KiB，超出部分会被丢弃并�
 [[hooks]]
 event = "PreToolUse"
 matcher = "Bash"
-command = "node ~/.kimi-code/hooks/block-dangerous-bash.mjs"
+command = "bun ~/.kimi-code/hooks/block-dangerous-bash.mjs"
 timeout = 5
 ```
 

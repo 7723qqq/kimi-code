@@ -5,7 +5,7 @@ import { describe, expect, it, mock } from 'bun:test';
  * Scenario: Anthropic request serialization and response streaming across native and compatible models.
  * Responsibilities: preserve provider wire contracts, thinking semantics, tool calls, and request options.
  * Wiring: real Anthropic adapter with only the remote SDK client boundary replaced by mocks.
- * Run: bunx vitest run packages/kosong/test/anthropic.test.ts
+ * Run: bun test packages/kosong/test/anthropic.test.ts
  */
 import { ChatProviderError } from '#/errors';
 import type { ContentPart, Message, StreamedMessagePart, ToolCall } from '#/message';

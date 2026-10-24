@@ -55,8 +55,8 @@ bun install
 
 常用脚本：
 
-- `bun run dev:local` — 从全新 bundle 以开发模式运行 CLI（增量，约 2 秒）。加 `:watch`（`bun run dev:local:watch`）可在源码变化时自动重建并重跑。另外两条路径：`bun run dev:cli` 转到 `apps/kimi-code/scripts/dev.mjs`（先起本地插件市场服务，再运行 CLI），`start-native.bat` 走的就是这条；真正直接执行 `src/main.ts` 的是 `dev:cli-only`，它在 Bun 1.4.2 下是坏的 —— Bun 不解析各包依赖的 `#/*` 子路径导入，会在启动时报 `Cannot find module '#/kimi-harness'`。
-- `bun run test` — 运行测试（vitest）
+- `bun run dev:local` — 从全新 bundle 以开发模式运行 CLI（增量，约 2 秒）。加 `:watch`（`bun run dev:local:watch`）可在源码变化时自动重建并重跑。另外两条路径：`bun run dev:cli` 转到 `apps/kimi-code/scripts/dev.mjs`（先起本地插件市场服务，再运行 CLI），`start-native.bat` 走的就是这条；真正直接执行 `src/main.ts` 的是 `dev:cli-only`，它在 Bun 1.4.4 下可用 —— 该版本能解析各包依赖的 `#/*` 子路径导入；更早的 Bun 版本会在启动时报 `Cannot find module '#/kimi-harness'`。
+- `bun run test` — 运行测试（bun）
 - `bun run test` — 用 Bun 原生 `bun:test` 跑测试。**这是规范命令，也是 CI 使用的命令**（`.github/workflows/ci.yml`）。它会遍历每个包并在包内执行该包自己的 `bun test --isolate`，因此各包 `bunfig.toml` 的 preload / ignore 仍然生效。只跑某个包时，在该包内用 `bun test --isolate <路径>` 是范围最小的做法。
 - `bun run typecheck` — TypeScript 检查（注意：会先构建各包）。覆盖 `packages/*` 与 `kimi-code`、`kimi-inspect`、`vscode`、`vis/server`、`vis/web` 五个 app；**不覆盖** `docs/`（VitePress 内容）。
 - `bun run build:docs` — 构建用户文档。VitePress 遇到失效的内部链接会直接失败，因此改动 `docs/` 下任何内容后请运行它。

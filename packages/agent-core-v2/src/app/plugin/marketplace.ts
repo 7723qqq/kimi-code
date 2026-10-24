@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -167,7 +167,7 @@ async function readMarketplaceText(
   fetchImpl: typeof fetch,
 ): Promise<string> {
   if (location.kind === 'local') {
-    return readFile(location.resolved, 'utf8');
+    return (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(location.resolved).text();
   }
   const response = await fetchImpl(location.resolved);
   if (!response.ok) {

@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { isDeepStrictEqual } from 'node:util';
 
@@ -342,7 +341,7 @@ async function saveAttachment(
 ): Promise<SavedAttachment> {
   signal?.throwIfAborted();
   const mime = mimeType.split(';')[0]!.trim().toLowerCase();
-  const hash = createHash('sha256').update(mime).update('\0').update(bytes).digest('hex');
+  const hash = new (globalThis as unknown as { Bun: { CryptoHasher: new (algo: string) => any } }).Bun.CryptoHasher('sha256').update(mime).update('\0').update(bytes).digest('hex');
   const ext =
     mime === 'application/pdf'
       ? '.pdf'

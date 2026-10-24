@@ -11,7 +11,7 @@ This repository maintains bilingual user documentation under `docs/`. `docs/en/`
 
 Use this skill to update the corresponding documentation whenever the codebase has changes that affect product behavior or user experience.
 
-For a **full pre-release audit** of all pages (detecting hallucinations and coverage gaps), use the `audit-docs` skill instead.
+For a **full pre-release audit** of all pages (detecting hallucinations and coverage gaps), review the docs manually; there is no `audit-docs` skill in this repository.
 
 ## Prerequisites
 
@@ -19,7 +19,7 @@ This skill depends on the following being in place. If any are missing, stop and
 
 - `docs/` directory with `docs/zh/`, `docs/en/`, and `docs/.vitepress/config.ts` set up (VitePress site).
 - `docs/DEVELOP.md` style guide — defines source-of-truth rules, terminology table, typography, and writing style.
-- `docs/scripts/sync-changelog.mjs` — auto-syncs root `CHANGELOG.md` to `docs/en/release-notes/changelog.md`.
+- (No `docs/scripts/sync-changelog.mjs` exists in this repository; changelog sync is performed manually or via the `sync-changelog` skill.)
 - `translate-docs` skill in `.agents/skills/` — handles bilingual synchronization.
 
 ## Workflow
@@ -46,7 +46,8 @@ This skill depends on the following being in place. If any are missing, stop and
    Run:
 
    ```bash
-   node docs/scripts/sync-changelog.mjs
+   # No docs/scripts/sync-changelog.mjs exists in this repository;
+   # use the sync-changelog skill or update docs/en/release-notes/changelog.md manually.
    ```
 
    This updates `docs/en/release-notes/changelog.md` from the root `CHANGELOG.md`. Never edit the docs changelog by hand.

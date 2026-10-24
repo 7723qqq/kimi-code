@@ -1,4 +1,4 @@
-import { execFile as nodeExecFile } from 'node:child_process';
+
 import { constants as fsConstants } from 'node:fs';
 import { access } from 'node:fs/promises';
 import * as nodeOs from 'node:os';
@@ -356,18 +356,19 @@ export async function execFileText(
   args: readonly string[],
   timeoutMs: number,
 ): Promise<string | undefined> {
-  return new Promise((resolve) => {
-    nodeExecFile(
-      file,
-      [...args],
-      { encoding: 'utf8', timeout: timeoutMs, windowsHide: true },
-      (error, stdout) => {
-        if (error !== null) {
-          resolve(undefined);
-          return;
-        }
-        resolve(stdout);
-      },
-    );
-  });
+  try {
+    const BunRuntime = (globalThis as unknown as { Bun: { spawn: (cmd: string[], opts: Record<string, unknown>) => { stdout: ReadableStream; exited: Promise<number> } } }).Bun;
+    const proc = BunRuntime.spawn([file, ...args], {
+      stdout: 'pipe',
+      stderr: 'ignore',
+      timeout: timeoutMs,
+      windowsHide: true,
+    });
+    const stdout = await new Response(proc.stdout).text();
+    const code = await proc.exited;
+    if (code !== 0) return undefined;
+    return stdout;
+  } catch {
+    return undefined;
+  }
 }

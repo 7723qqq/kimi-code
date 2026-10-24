@@ -1,6 +1,5 @@
-import { createHash } from 'node:crypto';
 import { constants, createReadStream } from 'node:fs';
-import { access, mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { access, mkdtemp, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -54,7 +53,7 @@ async function verifyDownloadedChecksum(
     return;
   }
   try {
-    const expected = (await readFile(checksumPath, 'utf8')).trim().split(/\s+/)[0];
+    const expected = (await (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(checksumPath).text()).trim().split(/\s+/)[0];
     if (expected === undefined || !/^[0-9a-f]{64}$/i.test(expected)) {
       return;
     }
@@ -68,7 +67,7 @@ async function verifyDownloadedChecksum(
 }
 
 async function sha256File(filePath: string): Promise<string> {
-  const hash = createHash('sha256');
+  const hash = new (globalThis as unknown as { Bun: { CryptoHasher: new (algo: string) => any } }).Bun.CryptoHasher('sha256');
   for await (const chunk of createReadStream(filePath)) {
     hash.update(chunk);
   }
@@ -146,7 +145,7 @@ export function windowsPowerShell7Path(
 
 export async function readAppBundleVersion(infoPlistPath: string): Promise<string | undefined> {
   try {
-    const xml = await readFile(infoPlistPath, 'utf-8');
+    const xml = await (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(infoPlistPath).text();
     const match = /<key>CFBundleShortVersionString<\/key>\s*<string>([^<]+)<\/string>/.exec(xml);
     return match?.[1];
   } catch {
@@ -309,7 +308,7 @@ function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
 
   async function legacyMcpFile(): Promise<LegacyMcpFile | undefined> {
     try {
-      return parseLegacyMcpFile(await readFile(userMcpConfigPath, 'utf8'), appBin);
+      return parseLegacyMcpFile(await (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(userMcpConfigPath).text(), appBin);
     } catch {
       return undefined;
     }
@@ -329,7 +328,7 @@ function createMacKimiCuEntry(ctx: CapabilityEntryContext): CapabilityEntry {
         flag: 'wx',
         mode,
       });
-      if ((await readFile(userMcpConfigPath, 'utf8')) !== legacy.raw) return false;
+      if ((await (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(userMcpConfigPath).text()) !== legacy.raw) return false;
       await rename(tempPath, userMcpConfigPath);
     } finally {
       await rm(tempPath, { force: true }).catch(() => undefined);

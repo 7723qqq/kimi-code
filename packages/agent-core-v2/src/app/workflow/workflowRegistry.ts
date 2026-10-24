@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+
 
 import { join } from 'pathe';
 
@@ -52,7 +52,7 @@ export async function resolveUserWorkflow(
   if (!/^[A-Za-z0-9._-]+$/.test(name)) return undefined;
   const filePath = join(homeDir, 'workflows', `${name}.js`);
   try {
-    const script = await readFile(filePath, 'utf-8');
+    const script = await (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(filePath).text();
     const meta = parseMeta(script);
     if (meta === undefined) return undefined;
     return { meta, script };

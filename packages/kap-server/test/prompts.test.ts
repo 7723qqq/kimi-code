@@ -2029,7 +2029,7 @@ describe('server-v2 /api/v1 prompts', () => {
     expect(contextHasUserText(main!, 'side question')).toBe(false);
   });
 
-  it('returns 40401 when agent_id names an unknown agent', async () => {
+  it('returns 40421 when agent_id names an unknown agent', async () => {
     const id = await createSession(home as string);
     await createMainAgent(id);
 
@@ -2037,7 +2037,7 @@ describe('server-v2 /api/v1 prompts', () => {
       content: [{ type: 'text', text: 'hello' }],
       agent_id: 'agent_does_not_exist',
     });
-    expect(body.code).toBe(40401);
+    expect(body.code).toBe(40421);
   });
 
   it('rebuilds a forked agent named by agent_id after a session reload', async () => {

@@ -146,6 +146,7 @@ describe('createTUIState', () => {
       state.queueContainer,
       state.btwPanelContainer,
       state.surveyContainer,
+      state.backgroundTasksMiniContainer,
       state.editorContainer,
     ]);
 

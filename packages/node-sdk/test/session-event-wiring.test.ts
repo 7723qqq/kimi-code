@@ -14,7 +14,7 @@ import {
  * slices and the model slice rides only the bind-time emission, so the
  * wiring merges a consistent usage + context + model snapshot into every
  * status event (mirrors kap-server's broadcaster bridge).
- * Run: pnpm exec vitest run test/session-event-wiring.test.ts
+ * Run: bun test test/session-event-wiring.test.ts
  */
 import { describe, expect, it } from 'bun:test';
 

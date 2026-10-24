@@ -12,7 +12,7 @@
 import { homedir } from 'node:os';
 
 import { effectiveModelAlias } from '@moonshot-ai/kimi-code-sdk';
-import type { Component } from '@moonshot-ai/pi-tui';
+import type { Component, TuiMouseEvent, TuiMouseEventResult } from '@moonshot-ai/pi-tui';
 import { truncateToWidth, visibleWidth } from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 
@@ -408,6 +408,8 @@ export class FooterComponent implements Component {
    */
   private backgroundBashTaskCount = 0;
   private backgroundAgentCount = 0;
+  private backgroundBadgeRange: { start: number; end: number } | null = null;
+  private onBackgroundBadgeClick: (() => void) | undefined;
 
   /**
    * `clock` defaults to the system clock, which keeps timers, the goal elapsed
@@ -506,11 +508,26 @@ export class FooterComponent implements Component {
     this.backgroundAgentCount = Math.max(0, counts.agentTasks);
   }
 
+  setBackgroundBadgeClickHandler(handler: (() => void) | undefined): void {
+    this.onBackgroundBadgeClick = handler;
+  }
+
   refreshGitStatus(): void {
     this.gitCache.refresh();
   }
 
   invalidate(): void {}
+
+  handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+    if (event.type !== 'click' || event.button !== 'left') return undefined;
+    const range = this.backgroundBadgeRange;
+    if (range === null || this.onBackgroundBadgeClick === undefined) return undefined;
+    if (event.x >= range.start && event.x < range.end) {
+      this.onBackgroundBadgeClick();
+      return { handled: true };
+    }
+    return undefined;
+  }
 
   render(width: number): string[] {
     const colors = currentTheme.palette;
@@ -537,6 +554,24 @@ export class FooterComponent implements Component {
           if (!withTips && slot === 'tips') continue;
           const pieces = slots[slot as keyof typeof slots];
           if (pieces !== undefined) left.push(...pieces);
+        }
+        const taskPieces = slots['tasks'];
+        if (taskPieces !== undefined && taskPieces.length > 0) {
+          const firstIndex = left.indexOf(taskPieces[0]!);
+          if (firstIndex >= 0) {
+            let start = 0;
+            for (let i = 0; i < firstIndex; i++) start += visibleWidth(left[i]!) + 2;
+            let end = start;
+            for (let i = 0; i < taskPieces.length; i++) {
+              if (i > 0) end += 2;
+              end += visibleWidth(taskPieces[i]!);
+            }
+            this.backgroundBadgeRange = { start, end };
+          } else {
+            this.backgroundBadgeRange = null;
+          }
+        } else {
+          this.backgroundBadgeRange = null;
         }
         return left.join('  ');
       };

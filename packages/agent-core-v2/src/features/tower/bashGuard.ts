@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+
 import { homedir } from 'node:os';
 import { isAbsolute, join, relative, resolve, sep } from 'node:path';
 
@@ -11,7 +11,7 @@ export const TOWER_BASH_GUARD_PARSE_OPTIONS = { timeoutMs: 500, maxNodes: 10_000
 export type TowerBashGuardParse = (source: string) => BashParseResult;
 
 export async function towerWorkspaceOwned(stateFile: string): Promise<boolean> {
-  return readFile(stateFile, 'utf8').then(
+  return (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(stateFile).text().then(
     (raw) => {
       const sessionId = (JSON.parse(raw) as { sessionId?: unknown }).sessionId;
       return typeof sessionId === 'string' && sessionId.length > 0;

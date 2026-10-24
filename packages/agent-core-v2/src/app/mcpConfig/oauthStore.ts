@@ -1,8 +1,6 @@
-import { execFile } from 'node:child_process';
-import { createCipheriv, createDecipheriv, createHash, randomBytes } from 'node:crypto';
+import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { hostname, userInfo } from 'node:os';
-import { promisify } from 'node:util';
 
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
@@ -10,7 +8,7 @@ import { LifecycleScope } from '#/app/scopes';
 import type { McpOAuthStore } from '#/mcpCore/oauth/store';
 import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 
-const execFileAsync = promisify(execFile);
+
 
 export interface IMcpOAuthStore extends McpOAuthStore {
   readonly _serviceBrand: undefined;
@@ -28,11 +26,12 @@ let machineIdPromise: Promise<string | null> | undefined;
 async function loadMachineId(): Promise<string | undefined> {
   try {
     if (process.platform === 'win32') {
-      const { stdout } = await execFileAsync(
-        'reg.exe',
-        ['query', 'HKLM\\SOFTWARE\\Microsoft\\Cryptography', '/v', 'MachineGuid'],
-        { encoding: 'utf8', timeout: 3000, windowsHide: true },
+      const BunRuntime = (globalThis as unknown as { Bun: { spawnSync: (cmd: string[], opts: Record<string, unknown>) => { stdout: Buffer; exitCode: number } } }).Bun;
+      const result = BunRuntime.spawnSync(
+        ['reg.exe', 'query', 'HKLM\\SOFTWARE\\Microsoft\\Cryptography', '/v', 'MachineGuid'],
+        { stdout: 'pipe', stderr: 'ignore', timeout: 3000, windowsHide: true },
       );
+      const stdout = result.stdout.toString('utf8');
       return /MachineGuid\s+REG_SZ\s+([0-9a-fA-F-]+)/.exec(stdout)?.[1];
     }
     for (const p of ['/etc/machine-id', '/var/lib/dbus/machine-id']) {
@@ -42,10 +41,13 @@ async function loadMachineId(): Promise<string | undefined> {
       } catch {}
     }
     if (process.platform === 'darwin') {
-      const { stdout } = await execFileAsync('ioreg', ['-rd1', '-c', 'IOPlatformExpertDevice'], {
-        encoding: 'utf8',
+      const BunRuntime = (globalThis as unknown as { Bun: { spawnSync: (cmd: string[], opts: Record<string, unknown>) => { stdout: Buffer; exitCode: number } } }).Bun;
+      const result = BunRuntime.spawnSync(['ioreg', '-rd1', '-c', 'IOPlatformExpertDevice'], {
+        stdout: 'pipe',
+        stderr: 'ignore',
         timeout: 3000,
       });
+      const stdout = result.stdout.toString('utf8');
       return /"IOPlatformUUID"\s*=\s*"([^"]+)"/.exec(stdout)?.[1];
     }
   } catch {}
@@ -69,7 +71,7 @@ async function deriveKey(): Promise<Buffer> {
   }
   const machineId = await hostMachineId();
   const raw = `${hostname()}:${machineId ?? 'no-machine-id'}:${username}:kimi-code-mcp-oauth-v1`;
-  return createHash('sha256').update(raw).digest();
+  return new (globalThis as unknown as { Bun: { CryptoHasher: new (algo: string) => any } }).Bun.CryptoHasher('sha256').update(raw).digest();
 }
 
 interface EncryptedBlob {

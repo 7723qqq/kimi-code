@@ -51,7 +51,7 @@
       # derivation shape as nixpkgs' bun package, with the version and source
       # swapped. Hashes are the official sha256 digests published on the
       # GitHub release (SRI form).
-      bunVersion = "1.4.2";
+      bunVersion = "1.4.4";
       bunSources = {
         "aarch64-darwin" = {
           url = "bun-darwin-aarch64.zip";

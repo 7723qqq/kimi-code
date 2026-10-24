@@ -118,7 +118,7 @@ describe('Session plan, compact, usage, and resume APIs', () => {
 
       await expect(session.compact({ instruction: 'Keep important facts.' })).rejects.toMatchObject(
         {
-          name: 'Error2',
+          name: 'KimiError',
           code: 'compaction.unable',
         },
       );

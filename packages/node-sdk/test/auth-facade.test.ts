@@ -235,10 +235,9 @@ oauth = { storage = "file", key = "${oauthKey}", oauth_host = "https://auth.dev.
             data: [
               {
                 id: 'kimi-for-coding',
-                context_length: 262144,
-                supports_reasoning: true,
-                supports_image_in: true,
-                supports_video_in: true,
+                limit: { context: 262144 },
+                reasoning: { type: 'both' },
+                modalities: { input: ['image', 'video'] },
                 display_name: 'Kimi for Coding',
               },
             ],
@@ -335,8 +334,8 @@ oauth = { storage = "file", key = "${oauthKey}", oauth_host = "${oauthHost}" }
             data: [
               {
                 id: 'kimi-for-coding',
-                context_length: 262144,
-                supports_reasoning: true,
+                limit: { context: 262144 },
+                reasoning: { type: 'both' },
               },
             ],
           }),
@@ -403,7 +402,7 @@ oauth = { storage = "file", key = "${oauthKey}", oauth_host = "${oauthHost}" }
         );
         return new Response(
           JSON.stringify({
-            data: [{ id: 'kimi-for-coding', context_length: 262144, supports_reasoning: true }],
+            data: [{ id: 'kimi-for-coding', limit: { context: 262144 }, reasoning: { type: 'both' } }],
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         );
@@ -476,7 +475,7 @@ oauth = { storage = "file", key = "${globalKey}", oauth_host = "${globalOauthHos
       if (url === 'https://api.kimi.com/coding/v1/models') {
         return new Response(
           JSON.stringify({
-            data: [{ id: 'kimi-for-coding', context_length: 262144, supports_reasoning: true }],
+            data: [{ id: 'kimi-for-coding', limit: { context: 262144 }, reasoning: { type: 'both' } }],
           }),
           { status: 200, headers: { 'Content-Type': 'application/json' } },
         );
@@ -529,8 +528,8 @@ oauth = { storage = "file", key = "oauth/kimi-code" }
           data: [
             {
               id: 'kimi-for-coding',
-              context_length: 262144,
-              supports_reasoning: true,
+              limit: { context: 262144 },
+              reasoning: { type: 'both' },
             },
           ],
         }),
@@ -589,8 +588,8 @@ oauth = { storage = "file", key = "${configuredOauthKey}", oauth_host = "https:/
           data: [
             {
               id: 'kimi-for-coding',
-              context_length: 262144,
-              supports_reasoning: true,
+              limit: { context: 262144 },
+              reasoning: { type: 'both' },
             },
           ],
         }),
@@ -639,10 +638,9 @@ model = "kimi-for-coding"
               data: [
                 {
                   id: 'kimi-for-coding',
-                  context_length: 262144,
-                  supports_reasoning: true,
-                  supports_image_in: true,
-                  supports_video_in: true,
+                  limit: { context: 262144 },
+                  reasoning: { type: 'both' },
+                  modalities: { input: ['image', 'video'] },
                 },
               ],
             }),

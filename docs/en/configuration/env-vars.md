@@ -26,7 +26,7 @@ For the complete data directory structure, see [Data locations](./data-locations
 
 ### `KIMI_DISABLE_TELEMETRY`
 
-Set to `1` to turn off anonymous telemetry reporting (also accepts `true`, `yes`, `y`, case-insensitive):
+Set to `1` to turn off anonymous telemetry reporting (also accepts `true`, `t`, `yes`, `y`, case-insensitive):
 
 ```sh
 export KIMI_DISABLE_TELEMETRY=1

@@ -1,4 +1,3 @@
-import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
@@ -79,5 +78,5 @@ export class TowerMissionTool implements ITowerMissionTool {
 }
 
 async function renderMission(store: TowerStore, mission: TowerMission): Promise<string> {
-  return readFile(store.abs(join(MISSIONS_DIR, missionFileName(mission.id, mission.slug))), 'utf8');
+  return (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(store.abs(join(MISSIONS_DIR, missionFileName(mission.id, mission.slug)))).text();
 }

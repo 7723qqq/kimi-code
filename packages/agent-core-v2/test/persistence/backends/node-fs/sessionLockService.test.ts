@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from 'no
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 
 import { isError2 } from '#/_base/errors/errors';
 import type { IBootstrapService } from '#/app/bootstrap/bootstrap';
@@ -136,8 +136,8 @@ describe('SessionLockService', () => {
   });
 
   it('releases held locks when the process exit hook fires', () => {
-    const onSpy = vi.spyOn(process, 'on');
-    const offSpy = vi.spyOn(process, 'off');
+    const onSpy = spyOn(process, 'on');
+    const offSpy = spyOn(process, 'off');
     try {
       serviceA.hold(SID);
       serviceA.hold('other');

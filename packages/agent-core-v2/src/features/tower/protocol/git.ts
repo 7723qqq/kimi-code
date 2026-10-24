@@ -1,4 +1,3 @@
-import { execFile } from 'node:child_process';
 import { realpath } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 
@@ -24,31 +23,30 @@ export async function git(
   args: readonly string[],
   options: GitOptions = {},
 ): Promise<string> {
-  return new Promise((resolve, reject) => {
-    execFile(
-      'git',
-      [...args],
-      {
-        cwd,
-        timeout: GIT_TIMEOUT_MS,
-        maxBuffer: 16 * 1024 * 1024,
-        env: options.env === undefined ? process.env : { ...process.env, ...options.env },
-      },
-      (error, stdout, stderr) => {
-        if (error !== null) {
-          reject(
-            new GitError(
-              args,
-              stderr || error.message,
-              typeof error.code === 'number' ? error.code : undefined,
-            ),
-          );
-          return;
-        }
-        resolve(stdout.trimEnd());
-      },
-    );
+  const BunRuntime = (globalThis as unknown as {
+    Bun: {
+      spawn: (
+        cmd: string[],
+        opts: Record<string, unknown>,
+      ) => { stdout: ReadableStream; stderr: ReadableStream; exited: Promise<number> };
+    };
+  }).Bun;
+  const proc = BunRuntime.spawn(['git', ...args], {
+    cwd,
+    stdout: 'pipe',
+    stderr: 'pipe',
+    timeout: GIT_TIMEOUT_MS,
+    env: options.env === undefined ? process.env : { ...process.env, ...options.env },
   });
+  const [stdout, stderr, code] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ]);
+  if (code !== 0) {
+    throw new GitError(args, stderr || `exit ${code}`, code);
+  }
+  return stdout.trimEnd();
 }
 
 export async function tryGit(cwd: string, args: readonly string[]): Promise<string | null> {

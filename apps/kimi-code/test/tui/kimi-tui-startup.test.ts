@@ -331,9 +331,10 @@ describe('KimiTUI startup', () => {
     await expect(driver.init()).resolves.toBe(false);
     (driver as unknown as { mountFooter(): void }).mountFooter();
 
-    // Dock = 6 chrome rows + footer wrap, below the transcript viewport. The
-    // todo list and the updates share one row, so they count once here.
-    expect(driver.state.dockContainer?.children).toHaveLength(7);
+    // Dock = 7 chrome rows + footer wrap, below the transcript viewport. The
+    // todo list and the updates share one row, so they count once here. The
+    // background-tasks mini panel is docked here (empty until opened).
+    expect(driver.state.dockContainer?.children).toHaveLength(8);
   });
 
   it('shows a session-less notice on v2 startup', async () => {

@@ -1,6 +1,6 @@
 /* oxlint-disable typescript-eslint/no-unsafe-declaration-merging, eslint-plugin-import/namespace -- Event2 class+payload-interface declaration merging is the sanctioned event-declaration idiom. */
 import { randomUUID } from 'node:crypto';
-import { createHash } from 'node:crypto';
+
 
 import { createDecorator } from '#/_base/di/instantiation';
 import { Disposable } from '#/_base/di/lifecycle';
@@ -54,7 +54,7 @@ interface CheckpointGroup {
 }
 
 function sha256Bytes(bytes: Uint8Array): string {
-  return createHash('sha256').update(bytes).digest('hex');
+  return new (globalThis as unknown as { Bun: { CryptoHasher: new (algo: string) => any } }).Bun.CryptoHasher('sha256').update(bytes).digest('hex');
 }
 
 export class AgentCheckpointService extends Disposable implements IAgentCheckpointService {

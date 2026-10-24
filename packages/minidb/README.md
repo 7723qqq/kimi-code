@@ -400,7 +400,7 @@ bun run bench:cluster   # bench/cluster.ts — spawns real writer/reader process
 
 ## Testing
 
-Three layers of tests (unit under `test/`, stability suite under `test/e2e/`, sharding suite under `test/cluster/`), run with **vitest**:
+Three layers of tests (unit under `test/`, stability suite under `test/e2e/`, sharding suite under `test/cluster/`), run with **bun test**:
 
 ```bash
 bun run test   # runs every suite

@@ -301,7 +301,7 @@ describe('McpOAuthService lifecycle', () => {
     await service.shutdown();
   });
 
-  it.skipIf(process.platform === 'win32')('detaches a joined caller without cancelling the shared flow', async () => {
+  it('detaches a joined caller without cancelling the shared flow', async () => {
     oauthServer = await startOAuthServer(() => ({
       status: 200,
       payload: { access_token: 't', token_type: 'Bearer', expires_in: 3600 },

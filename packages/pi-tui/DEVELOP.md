@@ -18,7 +18,7 @@ Skip step 3 and the change is not done. Do not rewrite a rendering strategy.
 
 ## Tests
 
-- This package's tests are written for `bun:test`, not vitest; the root `vitest run` does not execute them — CI covers them through the dedicated `test-pi-tui` job in `.github/workflows/ci.yml`.
+- This package's tests are written for `bun:test`; the root `bun run test` executes them via `scripts/run-tests.mjs` — CI covers them through the `test` job in `.github/workflows/ci.yml`.
 - The `test` script runs `bun test --isolate`: one process per test file, because several suites mutate process-wide state (`process.platform`, `process.kill`, the native module cache).
 - Prefer adding new narrow-width tests to the existing test file of the corresponding component.
 

@@ -45,7 +45,7 @@ llm/
 │   │                     （messageResolvers、abort 作用域、事件 sendBack），由 turn invoke
 │   ├── retry.ts / recovery.ts   重试/恢复策略纯函数（由 turn machine 驱动；propose 为纯函数）
 │   ├── empty-response.ts emptyResponseError：空响应判定纯函数，由 turn 在 llm.done 时转为 llm.failed.remote
-│   └── bases/            四个协议基座：openai / openai-responses / anthropic / google-genai
+│   └── bases/            五个协议基座：openai / openai-responses / anthropic / google-genai / antigravity
 │                         各自含 contract / format / lower / patterns / capability / extra-params / trait / requester
 │                         （公开接缝：contract / trait / requester；format / lower / patterns 保持内部）
 │

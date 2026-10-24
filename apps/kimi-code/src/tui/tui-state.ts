@@ -27,6 +27,7 @@ import { CustomEditor } from './components/editor/custom-editor';
 import { DEFAULT_MARKDOWN_CONFIG, DEFAULT_TUI_CONFIG } from './config';
 import { CHROME_GUTTER } from './constant/rendering';
 import type { TasksBrowserState } from './controllers/tasks-browser';
+import type { BackgroundTasksMiniState } from './controllers/background-tasks-mini';
 import { currentTheme, type Theme } from './theme';
 import {
   INITIAL_LIVE_PANE,
@@ -51,6 +52,11 @@ export interface TUIState {
   terminal: ProcessTerminal;
   transcriptContainer: GutterContainer;
   activityContainer: Container;
+  /**
+   * Docked host for the background-tasks mini panel (the bottom-half peek).
+   * Empty when the mini panel is closed.
+   */
+  backgroundTasksMiniContainer: Container;
   /**
    * The single strip above the editor. It supersedes the old side-by-side
    * `panelsRow` plus the separate approval panel that used to replace the
@@ -115,6 +121,7 @@ export interface TUIState {
    */
   editorReplacementMounted: boolean;
   tasksBrowser: TasksBrowserState | undefined;
+  tasksBrowserMini: BackgroundTasksMiniState | undefined;
   externalEditorRunning: boolean;
   queuedMessages: QueuedMessage[];
   /**
@@ -168,6 +175,7 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
 
   const transcriptContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const activityContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
+  const backgroundTasksMiniContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const todoPanelContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const todoPanel = new TodoPanelComponent({ terminalRows: () => terminal.rows });
   const notifyPanelContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
@@ -239,6 +247,11 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
     dockContainer.addChild(queueContainer, { shrink: 1, minSize: 0, maxSize: 8 });
     dockContainer.addChild(btwPanelContainer, { shrink: 1, minSize: 0, maxSize: 18 });
     dockContainer.addChild(surveyContainer, { shrink: 1, minSize: 0, maxSize: 5 });
+    dockContainer.addChild(backgroundTasksMiniContainer, {
+      shrink: 1,
+      minSize: 0,
+      maxSize: Math.floor(terminal.rows * 0.5),
+    });
     dockContainer.addChild(editorContainer, { shrink: 1, minSize: 3 });
     const root = new VStack();
     root.addChild(transcriptView, { basis: 0, grow: 1, shrink: 1, minSize: 1 });
@@ -254,6 +267,7 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
     terminal,
     transcriptContainer,
     activityContainer,
+    backgroundTasksMiniContainer,
     statusSurface,
     statusSurfaceContainer,
     todoPanelContainer,
@@ -287,6 +301,7 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
     activeDialog: null,
     editorReplacementMounted: false,
     tasksBrowser: undefined,
+    tasksBrowserMini: undefined,
     externalEditorRunning: false,
     queuedMessages: [],
     queuedMessageDispatchPending: false,

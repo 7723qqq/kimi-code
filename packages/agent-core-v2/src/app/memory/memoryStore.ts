@@ -214,8 +214,7 @@ export class MemoryStore extends Disposable implements IMemoryStore {
 }
 
 async function readFile(path: string): Promise<string> {
-  const { readFile: fsReadFile } = await import('node:fs/promises');
-  return fsReadFile(path, 'utf-8');
+  return (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(path).text();
 }
 
 registerScopedService(

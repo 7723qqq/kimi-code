@@ -17,6 +17,8 @@ const DIFF_MAX_BYTES = 1_048_576;
 const PR_SPAWN_TIMEOUT_MS = 5_000;
 const PULL_REQUEST_TTL_MS = 60_000;
 
+const NULL_DEVICE = process.platform === 'win32' ? 'NUL' : '/dev/null';
+
 export class GitService implements IGitService {
   declare readonly _serviceBrand: undefined;
 
@@ -99,7 +101,7 @@ export class GitService implements IGitService {
     if (untracked || !hasHead) {
       const res = await this.runCommand(
         'git',
-        ['diff', '--no-color', '--no-index', '--', '/dev/null', relPath],
+        ['diff', '--no-color', '--no-index', '--', NULL_DEVICE, relPath],
         cwd,
       );
       if (res.exitCode !== 0 && res.exitCode !== 1) {

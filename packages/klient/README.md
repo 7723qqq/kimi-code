@@ -90,7 +90,7 @@ folded in here):
   and their client harness (skip unless `KIMI_SERVER_URL` is set; the v1
   surface has no in-memory equivalent, so these stay live-server-only).
 
-The docker e2e runner (`bun run docker:e2e` from packages/klient) runs this whole vitest suite inside
+The docker e2e runner (`bun run docker:e2e` from packages/klient) runs this whole Bun test suite inside
 a container against a container-local server. See `DEVELOP.md` for the testing
 rules.
 

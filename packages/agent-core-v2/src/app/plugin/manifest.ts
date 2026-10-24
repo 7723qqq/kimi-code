@@ -1,4 +1,4 @@
-import { readdir, readFile, realpath, stat } from 'node:fs/promises';
+import { readdir, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 import { HookDefSchema, type HookDefConfig } from '#/features/externalHooks/configSection';
@@ -84,7 +84,7 @@ export async function parseManifest(pluginRoot: string): Promise<ParsedManifestR
 
   let raw: unknown;
   try {
-    raw = JSON.parse(await readFile(manifestPath, 'utf8'));
+    raw = JSON.parse(await (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(manifestPath).text());
   } catch (error) {
     return {
       manifestKind,
@@ -398,7 +398,7 @@ async function readSystemPrompt(
           });
         } else {
           try {
-            const content = (await readFile(resolved, 'utf8')).replace(/^\uFEFF/, '').trim();
+            const content = ((await (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(resolved).text())).replace(/^\uFEFF/, '').trim();
             if (content.length > 0) parts.push(content);
           } catch (error) {
             diagnostics.push({

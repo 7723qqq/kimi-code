@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
+import { mkdir, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { Error2, ErrorCodes } from '#/errors';
@@ -30,7 +30,7 @@ export async function readInstalled(kimiHomeDir: string): Promise<InstalledFile>
   const filePath = path.join(kimiHomeDir, INSTALLED_REL);
   let text: string;
   try {
-    text = await readFile(filePath, 'utf8');
+    text = await (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(filePath).text();
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return EMPTY;
     throw error;

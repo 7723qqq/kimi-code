@@ -56,9 +56,15 @@ installDom();
 // drives input events has to load them itself, after this module has installed the globals
 // (a static import here would be evaluated first, before `installDom()` runs) — loaded early,
 // React takes its legacy IE event path, `attachEvent` on jsdom elements, and `onChange` never
-// fires. This module therefore only reaches into it from the hooks below.
-afterEach(async () => {
-  const { cleanup } = await import('@testing-library/react');
+// fires. The load therefore waits for `installDom()` through a top-level await.
+//
+// It must also happen at module scope rather than from the `afterEach` hook below: the
+// library registers a `beforeAll` while it is being evaluated, and Bun rejects a
+// `beforeAll` registered inside a test body. Loading it here registers that hook in the
+// file scope, where it belongs.
+const { cleanup } = await import('@testing-library/react');
+
+afterEach(() => {
   cleanup();
 });
 

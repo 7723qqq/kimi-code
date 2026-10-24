@@ -201,7 +201,7 @@ function buildWithMingw(target) {
 }
 
 if (process.argv.includes("--help") || process.argv.includes("-h")) {
-	console.log(`Usage: node packages/pi-tui/native/win32/build.mjs
+	console.log(`Usage: bun packages/pi-tui/native/win32/build.mjs
 
 Builds win32-x64 and win32-arm64 native prebuilds.
 

@@ -1,4 +1,3 @@
-import assert from 'node:assert/strict';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -74,7 +73,7 @@ describe('requestLogging', () => {
     const completed = parseEntries(lines).filter((entry) => entry['msg'] === 'request completed');
     expect(completed.length).toBeGreaterThanOrEqual(1);
     const entry = completed[completed.length - 1];
-    assert(entry !== undefined);
+    if (entry === undefined) throw new Error('expected at least one completed request entry');
 
     expect(entry['code']).toBe(0);
     expect(entry).not.toHaveProperty('statusCode');

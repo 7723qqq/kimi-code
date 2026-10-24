@@ -13,6 +13,7 @@ import {
   type ScreenTakeover,
 } from '../utils/screen-takeover';
 import type { SessionEventHandler } from './session-event-handler';
+import type { SubagentActivityRecord } from './subagent-activity-store';
 
 export interface TasksBrowserHost {
   readonly state: {
@@ -39,6 +40,7 @@ export type TasksBrowserState = {
   output: string | undefined;
   outputLoading: boolean;
   outputRequestId: number;
+  activity: SubagentActivityRecord | undefined;
   flashMessage: string | undefined;
   flashTimer: NodeJS.Timeout | undefined;
   pollTimer: NodeJS.Timeout | undefined;
@@ -74,6 +76,8 @@ export class TasksBrowserController {
 
     const tab: TasksTab = 'all';
     const selectedTaskId = this.pickInitialSelection(tasks, tab);
+    const initialActivity =
+      selectedTaskId === undefined ? undefined : this.activityFor(selectedTaskId);
     const component = new TasksPanelComponent({
       tasks,
       tab,
@@ -81,7 +85,7 @@ export class TasksBrowserController {
       height: state.terminal.rows,
       output: undefined,
       outputLoading: false,
-      activity: undefined,
+      activity: initialActivity,
       cwd: session.workDir,
       flashMessage: undefined,
       availableModels: state.appState.availableModels,
@@ -104,6 +108,7 @@ export class TasksBrowserController {
       output: undefined,
       outputLoading: false,
       outputRequestId: 0,
+      activity: initialActivity,
       flashMessage: undefined,
       flashTimer: undefined,
       pollTimer,
@@ -193,8 +198,9 @@ export class TasksBrowserController {
         return;
       }
       if (state.tasksBrowser !== browser) return;
+      browser.activity = this.activityFor(browser.selectedTaskId);
       this.pushProps(tasks);
-      if (browser.selectedTaskId !== undefined) {
+      if (browser.selectedTaskId !== undefined && !browser.outputLoading) {
         await this.loadOutput(browser.selectedTaskId, { silent: true });
       }
     } finally {
@@ -212,7 +218,7 @@ export class TasksBrowserController {
       height: this.host.state.terminal.rows,
       output: browser.output,
       outputLoading: browser.outputLoading,
-      activity: this.activityFor(browser.selectedTaskId),
+      activity: browser.activity,
       cwd: this.host.session?.workDir,
       flashMessage: browser.flashMessage,
       availableModels: this.host.state.appState.availableModels,
@@ -268,6 +274,7 @@ export class TasksBrowserController {
     browser.selectedTaskId = taskId;
     browser.output = undefined;
     browser.outputLoading = true;
+    browser.activity = this.activityFor(taskId);
     this.repaint();
     void this.loadOutput(taskId);
   }
@@ -327,14 +334,28 @@ export class TasksBrowserController {
     }
 
     const requestId = ++browser.outputRequestId;
+    // Silent polls (the 1s refresh) must not flash a loading spinner — it
+    // flickers the panel every second even when nothing changed. Only the
+    // user-initiated reads (select / manual refresh) show loading.
+    if (!opts.silent) {
+      browser.outputLoading = true;
+      this.repaint();
+    }
     try {
       const output = await session.getBackgroundTaskOutput(taskId, { tail: 4000 });
       const current = state.tasksBrowser;
       if (current === undefined || current !== browser) return;
       if (current.outputRequestId !== requestId) return;
       if (current.selectedTaskId !== taskId) return;
+      if (current.output === output) {
+        current.outputLoading = false;
+        // Clear any spinner the non-silent path may have shown.
+        if (!opts.silent) this.repaint();
+        return;
+      }
       current.output = output;
       current.outputLoading = false;
+      this.repaint();
     } catch (error) {
       const current = state.tasksBrowser;
       if (current === undefined || current !== browser) return;
@@ -346,8 +367,8 @@ export class TasksBrowserController {
       }
       current.output = '';
       current.outputLoading = false;
+      if (!opts.silent) this.repaint();
     }
-    this.repaint();
   }
 
   private flash(message: string, durationMs = 2500): void {

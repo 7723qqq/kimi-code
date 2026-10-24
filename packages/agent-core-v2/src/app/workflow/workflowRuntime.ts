@@ -1,6 +1,4 @@
-import { exec as execCallback } from 'node:child_process';
-import { readFile, writeFile, readdir, stat } from 'node:fs/promises';
-import { promisify } from 'node:util';
+import { writeFile, readdir, stat } from 'node:fs/promises';
 
 import { t } from '@moonshot-ai/kimi-i18n';
 import { join, resolve, isAbsolute } from 'pathe';
@@ -108,7 +106,7 @@ export async function executeWorkflow(opts: WorkflowRunOptions): Promise<unknown
 
   const readFileHook = async (path: string): Promise<string> => {
     const resolved = resolveInWorkspace(workspaceRoot, path);
-    return readFile(resolved, 'utf-8');
+    return (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(resolved).text();
   };
 
   const writeFileHook = async (path: string, content: string): Promise<void> => {
@@ -136,36 +134,35 @@ export async function executeWorkflow(opts: WorkflowRunOptions): Promise<unknown
     }
   };
 
-  const execAsync = promisify(execCallback);
-
   const execHook = async (
     command: string,
     opts?: { readonly timeoutMs?: number; readonly cwd?: string },
   ): Promise<{ readonly stdout: string; readonly stderr: string; readonly exitCode: number }> => {
     const cwd = opts?.cwd ? resolveInWorkspace(workspaceRoot, opts.cwd) : workspaceRoot;
+    const BunRuntime = (globalThis as unknown as {
+      Bun: {
+        spawn: (
+          cmd: string[],
+          opts: Record<string, unknown>,
+        ) => { stdout: ReadableStream; stderr: ReadableStream; exited: Promise<number> };
+      };
+    }).Bun;
     try {
-      const result = await execAsync(command, {
+      const cmd = process.platform === 'win32' ? ['cmd.exe', '/d', '/s', '/c', command] : ['sh', '-c', command];
+      const proc = BunRuntime.spawn(cmd, {
         cwd,
+        stdout: 'pipe',
+        stderr: 'pipe',
         timeout: opts?.timeoutMs ?? 30_000,
-        maxBuffer: 1024 * 1024,
         windowsHide: true,
       });
-      return { stdout: result.stdout ?? '', stderr: result.stderr ?? '', exitCode: 0 };
+      const [stdout, stderr, code] = await Promise.all([
+        new Response(proc.stdout).text(),
+        new Response(proc.stderr).text(),
+        proc.exited,
+      ]);
+      return { stdout: stdout ?? '', stderr: stderr ?? '', exitCode: code ?? 0 };
     } catch (error: unknown) {
-      if (
-        error &&
-        typeof error === 'object' &&
-        'code' in error &&
-        'stdout' in error &&
-        'stderr' in error
-      ) {
-        const cmdErr = error as { code: number | string; stdout: string; stderr: string };
-        return {
-          stdout: cmdErr.stdout ?? '',
-          stderr: cmdErr.stderr ?? '',
-          exitCode: typeof cmdErr.code === 'number' ? cmdErr.code : 1,
-        };
-      }
       return { stdout: '', stderr: String(error), exitCode: 1 };
     }
   };

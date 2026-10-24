@@ -1,6 +1,5 @@
-import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
-import { open, mkdir, readFile } from 'node:fs/promises';
+import { open, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
 import { AttachmentErrors, AttachmentError } from './errors';
@@ -9,7 +8,7 @@ import { AttachmentId, type ImageAttachmentRef } from './types';
 const ID_PATTERN = /^sha256:([a-f0-9]{64})$/;
 
 export function digest(data: Uint8Array): string {
-  return `sha256:${createHash('sha256').update(data).digest('hex')}`;
+  return `sha256:${new (globalThis as unknown as { Bun: { CryptoHasher: new (algo: string) => any } }).Bun.CryptoHasher('sha256').update(data).digest('hex')}`;
 }
 
 export function displayName(value: string | undefined): string | undefined {
@@ -71,5 +70,5 @@ export async function saveObject(root: string, data: Uint8Array): Promise<Attach
 
 export async function readObject(root: string, attachmentId: AttachmentId): Promise<Uint8Array> {
   const sha = requireSha256(attachmentId);
-  return new Uint8Array(await readFile(objectPath(root, sha)));
+  return new Uint8Array(await (globalThis as unknown as { Bun: { file: (path: string) => { arrayBuffer: () => Promise<ArrayBuffer> } } }).Bun.file(objectPath(root, sha)).arrayBuffer());
 }

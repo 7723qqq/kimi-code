@@ -45,7 +45,7 @@ llm/
 │   │                     (messageResolvers, abort scope, event sendBack); invoked by the turn
 │   ├── retry.ts / recovery.ts   pure retry/recovery policy functions (driven by the turn machine; propose is pure)
 │   ├── empty-response.ts emptyResponseError: pure empty-response judgment; the turn raises it as llm.failed.remote at llm.done
-│   └── bases/            four protocol bases: openai / openai-responses / anthropic / google-genai
+│   └── bases/            five protocol bases: openai / openai-responses / anthropic / google-genai / antigravity
 │                         each with contract / format / lower / patterns / capability / extra-params / trait / requester
 │                         (public seam: contract / trait / requester; format / lower / patterns stay internal)
 │
@@ -74,4 +74,4 @@ Request lifecycle: `generate` receives (config, content, control) → the caller
 - Hoisting system messages out of their position on egress — system messages stay in place in history and are converted in place.
 - llm emitting a `{message, meta}` Context object — meta belongs to the turn domain; llm only emits events.
 - Implementing the accumulator once in llm and once in the turn — the accumulator is held only by the turn and fed by the event stream.
-- Unlimited fallback for beta features — protocols are split into `anthropic` / `anthropic_beta`; unspecified means unsent, misconfiguration means an error; a provider that needs beta features must use the `anthropic_beta` protocol explicitly.
+- Unlimited fallback for beta features — beta features are configured via provider extra-params; there is no separate `anthropic_beta` protocol.

@@ -31,7 +31,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
         with:
-          bun-version: 1.4.2
+          bun-version: 1.4.4
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -51,7 +51,7 @@ jobs:
           prev=""
           if [ -n "${BEFORE_SHA}" ] && [ -n "${BEFORE_SHA//0/}" ]; then
             if git show "${BEFORE_SHA}:${pkg}" > /tmp/prev-vscode-pkg.json 2> /dev/null; then
-              prev="$(node -p "require('/tmp/prev-vscode-pkg.json').version")"
+              prev="$(bun -p "require('/tmp/prev-vscode-pkg.json').version")"
             fi
           else
             echo "push event has no usable before SHA ('${BEFORE_SHA}') — treating as a version change"
@@ -83,8 +83,8 @@ jobs:
             echo "ovsx_published=false" >> "$GITHUB_OUTPUT"
           fi
 
-          if pnpm --filter kimi-code exec vsce show moonshot-ai.kimi-code --json \
-              | node -e "const v=process.argv[1];const want=process.argv[2].split(' ');let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d);const got=new Set((j.versions||[]).filter(x=>x.version===v).map(x=>x.targetPlatform||''));const missing=want.filter(p=>!got.has(p));if(missing.length){console.error('VS Marketplace missing platform(s): '+missing.join(' '));process.exit(1)}process.exit(0)})" "${version}" "${platforms}"; then
+          if bunx vsce show moonshot-ai.kimi-code --json \
+              | bun -e "const v=process.argv[1];const want=process.argv[2].split(' ');let d='';process.stdin.on('data',c=>d+=c).on('end',()=>{const j=JSON.parse(d);const got=new Set((j.versions||[]).filter(x=>x.version===v).map(x=>x.targetPlatform||''));const missing=want.filter(p=>!got.has(p));if(missing.length){console.error('VS Marketplace missing platform(s): '+missing.join(' '));process.exit(1)}process.exit(0)})" "${version}" "${platforms}"; then
             echo "${version} is fully on VS Marketplace (all 6 platforms) — publish:vsix will be skipped"
             echo "vsix_published=true" >> "$GITHUB_OUTPUT"
           else
@@ -109,11 +109,11 @@ jobs:
 
       - name: Package all platform VSIX
         if: steps.gate.outputs.should_publish == 'true'
-        run: pnpm --filter kimi-code run package:platform
+        run: cd apps/vscode && bun run package:platform
 
       - name: Verify VSIX packages
         if: steps.gate.outputs.should_publish == 'true'
-        run: pnpm --filter kimi-code run package:verify
+        run: cd apps/vscode && bun run package:verify
 
       - name: Upload VSIX artifacts
         if: steps.gate.outputs.should_publish == 'true'
@@ -132,16 +132,16 @@ jobs:
       - name: Extension host smoke test
         if: steps.gate.outputs.should_publish == 'true'
         # 1.100.0 即 package.json engines.vscode 下限，与 0.7.3 手动发版的冒烟口径一致
-        run: xvfb-run -a pnpm --filter kimi-code run test:extension-host -- --version 1.100.0
+        run: xvfb-run -a sh -c 'cd apps/vscode && bun run test:extension-host -- --version 1.100.0'
 
       - name: Publish to VS Marketplace
         if: steps.gate.outputs.should_publish == 'true' && steps.gate.outputs.vsix_published != 'true'
         env:
           VSCE_PAT: ${{ secrets.VSCE_PAT }}
-        run: pnpm --filter kimi-code run publish:vsix
+        run: cd apps/vscode && bun run publish:vsix
 
       - name: Publish to Open VSX
         if: steps.gate.outputs.should_publish == 'true' && steps.gate.outputs.ovsx_published != 'true'
         env:
           OVSX_PAT: ${{ secrets.OVSX_PAT }}
-        run: pnpm --filter kimi-code run publish:ovsx
+        run: cd apps/vscode && bun run publish:ovsx

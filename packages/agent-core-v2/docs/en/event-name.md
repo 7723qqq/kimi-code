@@ -24,7 +24,7 @@ Boundary example: `llm.streaming.finish` carries completion metadata that feeds 
 - **States**: nouns, adjectives, or gerunds — `idle`, `running`, `active`, `thinking`, `acting`, `draining`, `preparing`, `executing`, `finishing`, `succeeded`, `failed`, `aborted`.
 - **Named actions**: verb phrases — `forwardToParent`, `spawnTurnTools`, `abortTurnTools`.
 - **Named guards**: adjectives, past participles, or boolean phrases — `isLoggedIn`-style.
-- **Invoked actors**: noun phrases — `requestActor`, `executeActor`, `preparingActor`, `finishingActor`, `cronEffects`.
+- **Invoked actors**: noun phrases — `llmActor`, `executeActor`, `preparingActor`, `finishingActor`, `cronEffects`.
 
 ## Consistency
 

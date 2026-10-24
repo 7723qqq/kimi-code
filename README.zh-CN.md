@@ -68,7 +68,7 @@ bun run dev:local:watch     # 同上，每次源码变更都重建并重跑
 
 Windows 上也可以直接双击 `start-native.bat`，它会启动 CLI。
 
-> ⚠️ **避免使用 `dev:cli-only`。** 该脚本直接执行 `src/main.ts`，而 Bun 1.4.2 不解析 `package.json` 里的 `imports` 通配符 `"#/*": "./src/*.ts"`，第一个 `#/` 导入就会以 `Cannot find module '#/kimi-harness'` 中止。Node 能正确解析这些通配符，但 `main.ts` 在非 Bun 运行时下会硬退出 —— 所以两种运行时都跑不了源码路径。请用 `dev:cli`（转到 `scripts/dev.mjs`）或 `dev:local`（先打包，tsdown 会把每个 `#/` 说明符内联）。
+> 💡 `dev:cli-only` 直接执行 `src/main.ts`，在 Bun 1.4.4 下可用 —— 该版本能解析 `package.json` 里的 `imports` 通配符 `"#/*": "./src/*.ts"`。更早的 Bun 版本不能，会以 `Cannot find module '#/kimi-harness'` 中止；若遇到该报错，请改用 `dev:cli`（转到 `scripts/dev.mjs`）或 `dev:local`（先打包，tsdown 会把每个 `#/` 说明符内联）。
 
 ## 快速开始
 

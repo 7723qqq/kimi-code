@@ -1,4 +1,4 @@
-#!/usr/bin/env node
+#!/usr/bin/env bun
 /**
  * Measure how a real OpenAI-compatible vision endpoint prices images, and
  * compare it with the DeepSeek vision formula implemented in

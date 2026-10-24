@@ -1486,6 +1486,11 @@ export default {
         statusKilled: '已终止',
         statusLost: '已丢失',
         panelTitle: '任务',
+        backgroundTasksMini: {
+          amplify: '放大',
+        },
+        detailTitle: '任务详情',
+        hintBack: '返回',
         tabAll: '全部',
         tabRunning: '进行中',
         tabFinished: '已结束',

@@ -142,6 +142,7 @@ import { StagingLeaseTracker, type StagingLease } from './controllers/staging-le
 import { StreamingUIController } from './controllers/streaming-ui';
 import { SurveyController, type SurveyControllerDeps } from './controllers/survey-controller';
 import { TasksBrowserController } from './controllers/tasks-browser';
+import { BackgroundTasksMiniController } from './controllers/background-tasks-mini';
 import { installRainbowDance } from './easter-eggs/dance';
 import { ApprovalController } from './reverse-rpc/approval/controller';
 import { createApprovalRequestHandler } from './reverse-rpc/approval/handler';
@@ -414,6 +415,7 @@ export class KimiTUI {
   readonly sessionEventHandler: SessionEventHandler;
   readonly sessionReplay: SessionReplayRenderer;
   readonly tasksBrowserController: TasksBrowserController;
+  readonly backgroundTasksMiniController: BackgroundTasksMiniController;
   readonly surveyController: SurveyController;
   readonly editorKeyboard: EditorKeyboardController;
   readonly modelMigration: ModelMigrationController;
@@ -529,6 +531,14 @@ export class KimiTUI {
     this.promptOptimizer = new PromptOptimizerController(this);
     this.transcriptRenderer = new TranscriptRendererController(this, this.imageStore, this.staging);
     this.tasksBrowserController = new TasksBrowserController(this);
+    this.backgroundTasksMiniController = new BackgroundTasksMiniController(this);
+    this.state.footer.setBackgroundBadgeClickHandler(() => {
+      if (this.state.tasksBrowserMini !== undefined) {
+        this.backgroundTasksMiniController.close();
+      } else {
+        void this.backgroundTasksMiniController.show();
+      }
+    });
     this.surveyController = new SurveyController(this, {
       accessToken: this.cachedAccessTokenReader(),
       telemetryDisabled: () => isTelemetryDisabledByEnv() || this.telemetryDisabled,
@@ -1255,6 +1265,7 @@ export class KimiTUI {
     ui.clear();
     ui.addChild(this.state.transcriptContainer);
     ui.addChild(this.state.activityContainer);
+    ui.addChild(this.state.backgroundTasksMiniContainer);
     ui.addChild(this.state.todoPanelContainer);
     ui.addChild(this.state.notifyPanelContainer);
     ui.addChild(this.state.queueContainer);
@@ -1296,6 +1307,7 @@ export class KimiTUI {
     const main = new TuiMainScreen(ui.terminal);
     main.addChild(this.state.transcriptContainer);
     main.addChild(this.state.activityContainer);
+    main.addChild(this.state.backgroundTasksMiniContainer);
     main.addChild(this.state.todoPanelContainer);
     main.addChild(this.state.notifyPanelContainer);
     main.addChild(this.state.queueContainer);
@@ -2476,6 +2488,10 @@ export class KimiTUI {
     this.state.tasksBrowser = value;
   }
 
+  setTasksBrowserMini(value: TUIState['tasksBrowserMini']): void {
+    this.state.tasksBrowserMini = value;
+  }
+
   appendStartupNotice(extra: string): void {
     this.startupNotice = combineStartupNotice(this.startupNotice, extra);
   }
@@ -2963,6 +2979,7 @@ export class KimiTUI {
     this.streamingUI.resetToolUi();
     this.sessionEventHandler.resetRuntimeState();
     this.tasksBrowserController.close();
+    this.backgroundTasksMiniController.close();
     this.btwPanelController.clear();
     this.state.footer.setBackgroundCounts({ bashTasks: 0, agentTasks: 0 });
     this.streamingUI.setTodoList([]);

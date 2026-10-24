@@ -148,10 +148,7 @@ test('RESP: INFO and COMPACT', async () => {
   }
 });
 
-// Bun 1.4.2 segfaults (panic: Segmentation fault at address 0x0) when this test
-// closes the connection on Windows; the file passes everywhere else. Re-enable
-// once the Bun bug is fixed.
-test.skipIf(process.platform === 'win32')('RESP: QUIT closes the connection', async () => {
+test('RESP: QUIT closes the connection', async () => {
   const dir = await tmpDir();
   const srv = await startServer({ dir, port: 0, fsyncPolicy: 'no' });
   try {

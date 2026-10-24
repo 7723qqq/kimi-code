@@ -1,4 +1,4 @@
-import { createHash } from 'node:crypto';
+
 
 import { IInstantiationService } from '#/_base/di/instantiation';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
@@ -1145,7 +1145,7 @@ function projectionField(fields: AgentLLMRequestLogFields): LlmRequestProjection
 }
 
 function fingerprint(content: string): string {
-  return createHash('sha256').update(content).digest('hex');
+  return new (globalThis as unknown as { Bun: { CryptoHasher: new (algo: string) => any } }).Bun.CryptoHasher('sha256').update(content).digest('hex');
 }
 
 function apiStatusCode(error: unknown): number | undefined {

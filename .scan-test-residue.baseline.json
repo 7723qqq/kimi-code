@@ -1,0 +1,13 @@
+{
+  "node-assert": {
+    "apps/vscode/test/extension-host/index.cjs": "Runs inside a real VS Code Extension Host as extensionTestsPath, not under bun test; bun:test is not resolvable in that process, so expect cannot replace Node assert there. The bun-side coverage of the same smoke is apps/vscode/test/extension-host-smoke.test.ts, which is Bun-native."
+  },
+  "handwritten-vitest-shim": {
+    "packages/minidb/test/cluster/registry-durability.test.ts": "Comment only. The code spies on the real node:fs/promises exports with Bun spyOn; the note records why fs patching replaces vitest's doMock+resetModules, which Bun has no equivalent for. No stand-in API is defined.",
+    "packages/minidb/test/compaction-fault.test.ts": "Comment only. The code uses Bun spyOn on the live ESM namespace; the note explains that Bun has no importActual, so the real binding is captured before spying. No stand-in API is defined.",
+    "packages/minidb/test/recovery.test.ts": "Comment only. The code patches the real node:fs exports and restores them in afterEach; the note records that vitest did this with doMock+resetModules, which Bun has no equivalent for. No stand-in API is defined.",
+    "packages/minidb/test/worker-build.test.ts": "Comment only. The code uses Bun spyOn on the live ESM namespace; the note explains that Bun has no importActual. No stand-in API is defined.",
+    "packages/node-sdk/test/session-runtime-helpers.ts": "Real polling helper. Bun 1.4.4 has no expect.poll and no vi.waitFor, so an async-settling probe needs a poll loop. This duplicates packages/agent-core-v2/test/helpers/waitFor.ts, but that helper is package-private to agent-core-v2; deduplicating it needs a shared test-helper package, which is a separate change.",
+    "apps/vscode/test/webview/setup.ts": "Real capability gap. Bun has no test environment option, so a webview suite that needs a document imports this module to build a jsdom window and tear it down per file. A bunfig preload cannot be used because the extension tests must not see a document."
+  }
+}

@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 
 import { join } from 'pathe';
 
@@ -27,7 +26,7 @@ export interface MemorySearchResult {
 }
 
 export function projectIdFromCwd(cwd: string): string {
-  return createHash('sha256').update(cwd).digest('hex').slice(0, 12);
+  return new (globalThis as unknown as { Bun: { CryptoHasher: new (algo: string) => any } }).Bun.CryptoHasher('sha256').update(cwd).digest('hex').slice(0, 12);
 }
 
 export function memoryDir(homeDir: string): string {

@@ -1,5 +1,4 @@
-import { test } from 'bun:test';
-import assert from 'node:assert/strict';
+import { expect, test } from 'bun:test';
 
 import triggerRelease from './release-trigger.mjs';
 
@@ -66,8 +65,8 @@ function run(overrides = {}, envOverrides = {}) {
 await test('merged version PR waits for its push CI, not newer or PR runs', async () => {
   const { result, output, calls } = run();
   await result;
-  assert.equal(output(), 'publish=true\n');
-  assert.deepEqual(calls.at(-1), [
+  expect(output()).toBe('publish=true\n');
+  expect(calls.at(-1)).toEqual([
     'run',
     'watch',
     '7',
@@ -91,16 +90,16 @@ await test('ordinary pushes, unmerged PRs, other branches and forks do not publi
   ]) {
     const { result, output, calls } = run({ pulls });
     await result;
-    assert.equal(output(), 'publish=false\n');
-    assert.equal(calls.length, 1);
+    expect(output()).toBe('publish=false\n');
+    expect(calls.length).toBe(1);
   }
 });
 
 await test('failed or cancelled CI and API failures never authorize publishing', async () => {
   for (const state of [{ watchStatus: 1 }, { watchStatus: 2 }, { apiError: true }]) {
     const { result, output } = run(state);
-    await assert.rejects(result);
-    assert.equal(output(), '');
+    await expect(result).rejects.toThrow();
+    expect(output()).toBe('');
   }
 });
 
@@ -111,20 +110,20 @@ await test('manual runs, main and invalid SHA cannot authorize publishing', asyn
     { GITHUB_SHA: 'abc' },
   ]) {
     const { result, output, calls } = run({}, envOverrides);
-    await assert.rejects(result);
-    assert.equal(calls.length, 0);
-    assert.equal(output(), '');
+    await expect(result).rejects.toThrow();
+    expect(calls.length).toBe(0);
+    expect(output()).toBe('');
   }
 });
 
 await test('polls until the push CI run appears and fails once the attempts run out', async () => {
   const found = run({ emptyRunPolls: 2 });
   await found.result;
-  assert.deepEqual(found.sleeps, [10_000, 10_000]);
-  assert.equal(found.output(), 'publish=true\n');
+  expect(found.sleeps).toEqual([10_000, 10_000]);
+  expect(found.output()).toBe('publish=true\n');
 
   const missing = run({ emptyRunPolls: 18 });
-  await assert.rejects(missing.result, /No push CI run found/);
-  assert.equal(missing.sleeps.length, 18);
-  assert.equal(missing.output(), '');
+  await expect(missing.result).rejects.toThrow(/No push CI run found/);
+  expect(missing.sleeps.length).toBe(18);
+  expect(missing.output()).toBe('');
 });

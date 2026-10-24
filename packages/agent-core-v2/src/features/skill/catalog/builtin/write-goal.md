@@ -27,7 +27,7 @@ A prose menu is a defect, not a style choice: it is slower for the user, easy to
 
 ## What makes a goal good
 
-The strongest goals share one shape: they define **proof, not effort**. "Keep improving the code" describes effort and never ends. "Done when `npm test` exits 0 and no file outside `src/auth` changed" describes proof and is checkable. Aim for a contract with these parts:
+The strongest goals share one shape: they define **proof, not effort**. "Keep improving the code" describes effort and never ends. "Done when `bun test` exits 0 and no file outside `src/auth` changed" describes proof and is checkable. Aim for a contract with these parts:
 
 1. **End state** — the condition that must become true. Name the finish line concretely: a passing suite, an empty queue, a search that returns zero matches, a deployed artifact.
 2. **Proof** — the observable evidence that the end state holds. Prefer things the agent can run and you can inspect afterward: a command's exit code, a test count, a `grep`/`rg` with no hits, a file that now exists, a metric over a threshold.
@@ -73,9 +73,9 @@ Not every goal needs every line, and none of them is a turn cap — the goal sto
 ## Weak to strong
 
 - Weak: `Find all bugs in this codebase.` — no finish line, no proof, no stop. The agent may block at once or run far past what you wanted.
-  Strong: `Fix every test in test/auth that currently fails, rerun npm test until it exits 0, change no file outside test/ or src/auth, and report anything you cannot fix with its location and why.`
+  Strong: `Fix every test in test/auth that currently fails, rerun bun test until it exits 0, change no file outside test/ or src/auth, and report anything you cannot fix with its location and why.`
 - Weak: `Optimize the project.` — no scope, no measure.
-  Strong: `Migrate the payment module to the new API, make npm test -- payment exit 0, keep the diff limited to payment-related files, and stop and ask before touching shared infrastructure.`
+  Strong: `Migrate the payment module to the new API, make bun test -- payment exit 0, keep the diff limited to payment-related files, and stop and ask before touching shared infrastructure.`
 - Weak: `Make it faster.`
   Strong: `Make renderFrame at least 3x faster measured by the bench/render benchmark; if you cannot reach 3x after several attempts, report the best result and why.`
 

@@ -29,10 +29,10 @@ When NOT to use:
 
 Once you are in plan mode, a reminder walks you through the workflow (explore → design → write the plan file → `ExitPlanMode`) and enforces read-only access. For non-trivial tasks where you are unsure of the codebase structure or relevant code paths, use `Agent(subagent_type="explore")` to investigate first when the `Agent` tool is available.
 
-**Plan file structure.** Write the plan as phases and steps — the structure is what makes the plan seedable, so this is for the user reading and approving it *and* for the todo list built from it:
+**Plan file structure.** Write the plan as phases and steps — the structure is what makes the plan readable and actionable, but note that the todo list is NOT seeded automatically; you must call TodoList yourself after approval:
 
 - Each phase is a `## <phase name>` or `### <phase name>` heading.
 - Under each phase, list concrete steps as `- <step text>` or `1. <step text>`.
 - Mark steps you have already completed `- [x] <text>`, pending ones `- [ ] <text>` or a bare `- <text>`.
 
-After plan mode exits you build the todo list yourself: call TodoList to capture the next concrete steps before starting to execute. If the plan was approved through ExitPlanMode, its phases and steps are seeded into the todo list automatically — read the list first and continue from the seeded items instead of re-creating them.
+After plan mode exits you build the todo list yourself: call TodoList to capture the next concrete steps before starting to execute. The plan is not seeded into the todo list automatically, so always call TodoList yourself.

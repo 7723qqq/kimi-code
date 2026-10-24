@@ -472,7 +472,7 @@ A plugin can declare hook rules in its manifest that run on lifecycle events whi
     {
       "event": "PreToolUse",
       "matcher": "Bash",
-      "command": "node ./hooks/check-bash.mjs",
+      "command": "bun ./hooks/check-bash.mjs",
       "timeout": 5
     }
   ]

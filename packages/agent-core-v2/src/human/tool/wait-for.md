@@ -12,5 +12,5 @@ Guidelines:
 - When no background tasks are running, WaitFor returns immediately without waiting.
 - When the wait ends because a task finished, the result also lists other tasks that finished during the wait window, so failures surface with context.
 - Waiting has no side effects on the waited tasks: WaitFor never stops a task, and interrupting the wait (for example, a user interruption) leaves every task running.
-- A finished task's result is delivered exactly once: tasks reported by WaitFor do not also produce an automatic completion notification.
+- WaitFor reaps completed background tasks; completion notifications may still be delivered by the runtime.
 - You can only wait for background tasks started by this agent; task IDs belonging to other agents are unknown here.

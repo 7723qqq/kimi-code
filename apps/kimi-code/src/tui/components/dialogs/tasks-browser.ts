@@ -114,6 +114,7 @@ export class TasksPanelComponent extends Container implements Focusable {
   private emittedTaskId: string | undefined;
   private readonly activityViewer: AgentActivityViewer;
   private rawView = false;
+  private detailOpen = false;
   private focus: PanelFocus = 'list';
   private pendingStopTaskId: string | undefined;
   private outputLines: string[] = [];
@@ -164,6 +165,11 @@ export class TasksPanelComponent extends Container implements Focusable {
     }
 
     if (matchesKey(data, Key.escape)) {
+      if (this.detailOpen) {
+        this.detailOpen = false;
+        this.invalidate();
+        return;
+      }
       if (this.focus === 'output') {
         this.focus = 'list';
         this.invalidate();
@@ -173,6 +179,11 @@ export class TasksPanelComponent extends Container implements Focusable {
       return;
     }
     if (k === 'q' || k === 'Q') {
+      if (this.detailOpen) {
+        this.detailOpen = false;
+        this.invalidate();
+        return;
+      }
       this.props.onCancel();
       return;
     }
@@ -203,6 +214,12 @@ export class TasksPanelComponent extends Container implements Focusable {
       return;
     }
     if (k === 'o' || k === 'O' || matchesKey(data, Key.enter)) {
+      if (!this.detailOpen) {
+        this.detailOpen = true;
+        this.focus = 'list';
+        this.invalidate();
+        return;
+      }
       this.focus = this.focus === 'output' ? 'list' : 'output';
       this.invalidate();
       return;
@@ -271,6 +288,7 @@ export class TasksPanelComponent extends Container implements Focusable {
   }
 
   private cycleTab(delta: number): void {
+    this.detailOpen = false;
     const index = TASKS_TABS.indexOf(this.props.tab);
     const next = TASKS_TABS[(index + delta + TASKS_TABS.length) % TASKS_TABS.length];
     if (next !== undefined) this.props.onTabChange(next);
@@ -329,6 +347,20 @@ export class TasksPanelComponent extends Container implements Focusable {
     }
 
     const bodyHeight = Math.max(1, height - CHROME_ROWS - 1);
+    if (this.detailOpen) {
+      const task = this.selectedTask();
+      const detailLines = task === undefined
+        ? [currentTheme.fg('textMuted', t('tui.dialogs.tasksBrowser.noTaskSelected'))]
+        : this.renderDetail(width, bodyHeight);
+      const out: string[] = [
+        currentTheme.fg('primary', '─'.repeat(width)),
+        ...this.renderDetailChrome(width),
+        ...detailLines,
+        currentTheme.fg('primary', '─'.repeat(width)),
+      ];
+      while (out.length < height) out.push('');
+      return out.slice(0, height);
+    }
     const out: string[] = [
       currentTheme.fg('primary', '─'.repeat(width)),
       ...this.renderChrome(width),
@@ -336,6 +368,12 @@ export class TasksPanelComponent extends Container implements Focusable {
       currentTheme.fg('primary', '─'.repeat(width)),
     ];
     return out;
+  }
+
+  private renderDetailChrome(_width: number): string[] {
+    const title = currentTheme.boldFg('primary', t('tui.dialogs.tasksBrowser.detailTitle'));
+    const hint = currentTheme.fg('textMuted', ` Esc ${t('tui.dialogs.tasksBrowser.hintBack')} · Ctrl+O ${t('tui.dialogs.tasksBrowser.hintRaw')}`);
+    return [title, hint, ''];
   }
 
   private renderChrome(width: number): string[] {
@@ -418,7 +456,7 @@ export class TasksPanelComponent extends Container implements Focusable {
   private renderList(width: number, height: number): string[] {
     const items = this.visibleTasks();
     if (items.length === 0) {
-      const empty = currentTheme.fg('textMuted', this.emptyMessage());
+      const empty = currentTheme.fg('textMuted', `○ ${this.emptyMessage()}`);
       const out: string[] = [empty];
       while (out.length < height) out.push('');
       return out;
@@ -498,9 +536,16 @@ export class TasksPanelComponent extends Container implements Focusable {
     const pointer = selected ? `${SELECT_POINTER} ` : '  ';
     const pointerStyled = currentTheme.fg(selected ? 'primary' : 'textDim', pointer);
     const pending = this.pendingStopTaskId === task.taskId;
+    const statusIcon = pending
+      ? '⏸'
+      : task.status === 'completed'
+        ? '✓'
+        : task.status === 'failed' || task.status === 'timed_out' || task.status === 'killed' || task.status === 'lost'
+          ? '✗'
+          : '●';
     const statusText = pending
-      ? currentTheme.boldFg('warning', t('tui.dialogs.tasksBrowser.stopConfirmHint'))
-      : currentTheme.fg(taskStatusToken(task.status), taskStatusLabel(task.status));
+      ? currentTheme.boldFg('warning', `${statusIcon} ${t('tui.dialogs.tasksBrowser.stopConfirmHint')}`)
+      : `${currentTheme.fg(taskStatusToken(task.status), statusIcon)} ${currentTheme.fg(taskStatusToken(task.status), taskStatusLabel(task.status))}`;
     const statusWidth = visibleWidth(statusText);
     const budget = Math.max(0, width - visibleWidth(pointerStyled) - statusWidth - 1);
     const clipped = truncateToWidth(taskRowText(task), budget, ELLIPSIS);

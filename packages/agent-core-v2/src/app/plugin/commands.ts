@@ -1,4 +1,4 @@
-import { readFile } from 'node:fs/promises';
+
 import path from 'node:path';
 
 import { parseFrontmatter } from '#/_base/text/frontmatter';
@@ -36,7 +36,7 @@ export async function loadPluginCommand(input: {
   readonly fallbackName?: string;
 }): Promise<PluginCommandDef | undefined> {
   try {
-    const text = await readFile(input.commandPath, 'utf8');
+    const text = await (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(input.commandPath).text();
     return parseCommandText({
       text,
       commandPath: input.commandPath,

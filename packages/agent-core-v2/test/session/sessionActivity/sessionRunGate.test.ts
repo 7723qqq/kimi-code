@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, appendFileSync, mkdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
@@ -59,6 +59,22 @@ function activityStub(disposables: DisposableStore) {
       emitter.fire({ state, cause: busy ? 'turn_started' : 'turn_ended' });
     },
   };
+}
+
+const realSetImmediate = setImmediate;
+
+async function flushMicrotasks(): Promise<void> {
+  for (let i = 0; i < 8; i += 1) {
+    await Promise.resolve();
+    await new Promise<void>((resolve) => {
+      realSetImmediate(resolve);
+    });
+  }
+}
+
+async function advanceFakeTime(by: number): Promise<void> {
+  jest.advanceTimersByTime(by);
+  await flushMicrotasks();
 }
 
 describe('SessionRunGateService', () => {
@@ -203,19 +219,19 @@ describe('SessionRunGateService', () => {
   });
 
   it('releases a directly held lock only after the session becomes idle', async () => {
-    vi.useFakeTimers();
+    jest.useFakeTimers();
     try {
       gate();
       serviceA.hold(SID);
-      await vi.advanceTimersByTimeAsync(3_000);
+      await advanceFakeTime(3_000);
       expect(serviceA.held(SID)).toBe(true);
       activity.setBusy(false);
-      await vi.advanceTimersByTimeAsync(2_999);
+      await advanceFakeTime(2_999);
       expect(serviceA.held(SID)).toBe(true);
-      await vi.advanceTimersByTimeAsync(1);
+      await advanceFakeTime(1);
       expect(serviceA.held(SID)).toBe(false);
     } finally {
-      vi.useRealTimers();
+      jest.useRealTimers();
     }
   });
 });

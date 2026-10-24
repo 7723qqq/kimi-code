@@ -140,7 +140,7 @@ The following hook checks the command content before the Agent calls the `Bash` 
 [[hooks]]
 event = "PreToolUse"
 matcher = "Bash"
-command = "node ~/.kimi-code/hooks/block-dangerous-bash.mjs"
+command = "bun ~/.kimi-code/hooks/block-dangerous-bash.mjs"
 timeout = 5
 ```
 

@@ -1,4 +1,4 @@
-import { readFile, readdir } from 'node:fs/promises';
+import { readdir } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
 import type { ILogger } from '#/_base/log/log';
@@ -88,7 +88,7 @@ async function loadFrom(
   if (match === undefined) return undefined;
 
   try {
-    const text = await readFile(join(dir, match), 'utf-8');
+    const text = await (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(join(dir, match)).text();
     const trimmed = text.trim();
     if (trimmed.length === 0) return undefined;
     if (trimmed.length > MAX_ADAPTATION_BYTES) {

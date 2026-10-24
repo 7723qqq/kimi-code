@@ -55,7 +55,7 @@ export class HostFileSystem implements IHostFileSystem {
   ): Promise<string> {
     try {
       if (options === undefined) {
-        return await readFile(path, 'utf8');
+        return await (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(path).text();
       }
       const encoding = options.encoding ?? 'utf-8';
       const errors = options.errors ?? 'strict';

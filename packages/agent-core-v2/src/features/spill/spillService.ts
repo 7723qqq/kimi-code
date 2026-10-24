@@ -1,4 +1,4 @@
-import { readFile, realpath } from 'node:fs/promises';
+import { realpath } from 'node:fs/promises';
 
 import { t } from '@moonshot-ai/kimi-i18n';
 
@@ -51,7 +51,7 @@ export class SpillService extends Service implements ISpillService {
     }
     if (!isWithinRoot(resolvedLocator, resolvedRoot)) return null;
     try {
-      return await readFile(resolvedLocator, 'utf8');
+      return await (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(resolvedLocator).text();
     } catch {
       return null;
     }

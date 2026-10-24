@@ -473,7 +473,7 @@ plugin 可以在其 manifest 中声明 hook 规则，在 plugin 启用期间于�
     {
       "event": "PreToolUse",
       "matcher": "Bash",
-      "command": "node ./hooks/check-bash.mjs",
+      "command": "bun ./hooks/check-bash.mjs",
       "timeout": 5
     }
   ]

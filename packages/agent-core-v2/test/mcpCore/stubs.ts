@@ -242,8 +242,7 @@ export async function startAnonymousDiscoveryHttpMcpServer(opts?: {
       }
       res.writeHead(401, {
         'content-type': 'application/json',
-        'www-authenticate':
-          'Bearer realm="mcp", resource_metadata="http://x/.well-known/oauth-protected-resource"',
+        'www-authenticate': 'Bearer realm="mcp"',
       });
       res.end(JSON.stringify({ error: 'unauthorized' }));
     });

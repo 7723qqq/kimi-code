@@ -1,5 +1,5 @@
-import { spawn } from 'node:child_process';
 import { closeSync, existsSync, openSync, readSync, statSync } from 'node:fs';
+import { Readable } from 'node:stream';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
@@ -277,13 +277,43 @@ export class AntigravityChatProvider {
 
     options?.onRequestSent?.();
 
-    let child: ReturnType<typeof spawn>;
+    const BunRuntime = (globalThis as unknown as {
+      Bun: {
+        spawn: (
+          cmd: string[],
+          opts: Record<string, unknown>,
+        ) => { stdout: ReadableStream; stderr: ReadableStream; pid: number; kill: (sig?: string) => void; exited: Promise<number> };
+      };
+    }).Bun;
+    let child: {
+      stdout: Readable;
+      stderr: Readable;
+      pid: number;
+      kill: (sig?: string) => void;
+      on: (event: string, cb: (...args: any[]) => void) => void;
+    };
     try {
-      child = spawn(this.binaryPath, args, {
+      const bunChild = BunRuntime.spawn([this.binaryPath, ...args], {
         cwd: tmpdir(),
         env: buildAntigravityEnv(),
-        stdio: ['pipe', 'pipe', 'pipe'],
+        stdout: 'pipe',
+        stderr: 'pipe',
       });
+      const stdout = Readable.fromWeb(bunChild.stdout);
+      const stderr = Readable.fromWeb(bunChild.stderr);
+      child = {
+        stdout,
+        stderr,
+        pid: bunChild.pid,
+        kill: (sig?: string) => bunChild.kill(sig),
+        on: (event: string, cb: (...args: any[]) => void) => {
+          if (event === 'error') {
+            bunChild.exited.catch(cb);
+          } else if (event === 'exit') {
+            bunChild.exited.then((code) => cb(code)).catch(() => {});
+          }
+        },
+      };
     } catch (error) {
       throw new Error(`Failed to spawn Antigravity client (${this.binaryPath}): ${String(error)}`, {
         cause: error,

@@ -24,7 +24,7 @@ agent-core-v2 各 XState 状态机中状态、事件、action、guard、被 invo
 - **状态**：名词、形容词或动名词 —— `idle`、`running`、`active`、`thinking`、`acting`、`draining`、`preparing`、`executing`、`finishing`、`succeeded`、`failed`、`aborted`。
 - **命名 action**：动词短语 —— `forwardToParent`、`spawnTurnTools`、`abortTurnTools`。
 - **命名 guard**：形容词、过去分词或布尔短语 —— `isLoggedIn` 风格。
-- **被 invoke 的 actor**：名词短语 —— `requestActor`、`executeActor`、`preparingActor`、`finishingActor`、`cronEffects`。
+- **被 invoke 的 actor**：名词短语 —— `llmActor`、`executeActor`、`preparingActor`、`finishingActor`、`cronEffects`。
 
 ## 一致性
 

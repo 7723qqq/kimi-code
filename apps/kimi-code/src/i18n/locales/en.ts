@@ -1535,6 +1535,11 @@ export default {
         statusKilled: 'killed',
         statusLost: 'lost',
         panelTitle: 'Tasks',
+        backgroundTasksMini: {
+          amplify: 'amplify',
+        },
+        detailTitle: 'Task Detail',
+        hintBack: 'back',
         tabAll: 'All',
         tabRunning: 'Running',
         tabFinished: 'Finished',

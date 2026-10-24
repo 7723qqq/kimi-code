@@ -355,11 +355,8 @@ export function registerPromptsRoutes(app: PromptRouteHost, core: Scope): void {
           if (status.state === 'idle' && !status.paused && status.queue.length === 0) {
             await Promise.race([handle.launched, handle.completion]);
           }
-          const staging = preparedMedia;
-          void Promise.race([handle.launched, handle.completion]).then(
-            () => staging?.discard(),
-            () => staging?.discard(),
-          );
+          const settlement = watchPromptSettlements(resolved.events);
+          settlement.settle(id, () => preparedMedia?.discard());
           reply.send(okEnvelope(projectPromptHandle(handle), req.id));
         } catch (error) {
           if (!enqueued) await preparedMedia?.discard();

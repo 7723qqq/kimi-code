@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 
 import { dirname, join } from 'pathe';
 
@@ -206,7 +206,7 @@ export class AgentPlanService extends Service implements IAgentPlanService {
         id,
         version,
         key,
-        sha256: createHash('sha256').update(bytes).digest('hex'),
+        sha256: new (globalThis as unknown as { Bun: { CryptoHasher: new (algo: string) => any } }).Bun.CryptoHasher('sha256').update(bytes).digest('hex'),
         bytes: bytes.byteLength,
       }),
     );

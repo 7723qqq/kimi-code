@@ -1,10 +1,15 @@
+import type { IAgentScopeHandle } from '#/_base/di/scope';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { denyToolExecution } from '#/agent/toolExecutor/beforeToolExecuteEvent';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { ErrorCodes, Error2 } from '#/errors';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
-import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
+import {
+  IAgentLifecycleService,
+  MAIN_AGENT_ID,
+  type AgentScopeCreatedEvent,
+} from '#/session/agentLifecycle/agentLifecycle';
 
 import {
   BTW_AGENT_LABEL,
@@ -17,7 +22,12 @@ import {
 export class SessionBtwService implements ISessionBtwService {
   declare readonly _serviceBrand: undefined;
 
-  constructor(@IAgentLifecycleService private readonly agentLifecycle: IAgentLifecycleService) {}
+  constructor(@IAgentLifecycleService private readonly agentLifecycle: IAgentLifecycleService) {
+    this.agentLifecycle.onDidCreateScope(event => {
+      if (!this.isBtwScope(event)) return;
+      this.attachReadOnlyVeto(event.handle);
+    });
+  }
 
   async start(): Promise<string> {
     const main = this.agentLifecycle.handleOf(MAIN_AGENT_ID);
@@ -32,15 +42,23 @@ export class SessionBtwService implements ISessionBtwService {
     child.accessor
       .get(IAgentReminderService)
       .notify(SIDE_QUESTION_SYSTEM_REMINDER, { variant: 'btw' });
+    this.attachReadOnlyVeto(child);
+    return childContext.agentId;
+  }
+
+  private isBtwScope(event: AgentScopeCreatedEvent): boolean {
+    return event.meta?.labels?.[BTW_AGENT_LABEL] === 'true';
+  }
+
+  private attachReadOnlyVeto(handle: IAgentScopeHandle): void {
     const reason =
-      child.accessor
-        .get(IAgentToolApprovalService)
+      handle
+        .accessor.get(IAgentToolApprovalService)
         ?.formatDenyMessage(TOOL_CALL_DISABLED_MESSAGE) ?? TOOL_CALL_DISABLED_MESSAGE;
-    child.accessor.get(IAgentToolExecutorService)?.onBeforeExecuteTool((event) => {
+    handle.accessor.get(IAgentToolExecutorService)?.onBeforeExecuteTool((event) => {
       if (!BTW_READONLY_TOOLS.has(event.toolCall.name)) {
         event.veto(denyToolExecution(reason));
       }
     });
-    return childContext.agentId;
   }
 }

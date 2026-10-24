@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { mkdtempSync } from 'node:fs';
 import { mkdir, open } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -31,7 +31,7 @@ export function encodeSegment(raw: string): string {
 }
 
 export function sessionDir(root: string, sessionId: string): string {
-  const hash = createHash('sha256').update(sessionId).digest('hex').slice(0, 12);
+  const hash = new (globalThis as unknown as { Bun: { CryptoHasher: new (algo: string) => any } }).Bun.CryptoHasher('sha256').update(sessionId).digest('hex').slice(0, 12);
   return join(root, `session-${hash}`);
 }
 
