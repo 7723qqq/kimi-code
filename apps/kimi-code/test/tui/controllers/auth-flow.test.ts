@@ -1,6 +1,11 @@
-import { describe, expect, it, mock, type Mock } from 'bun:test';
+import { afterEach, describe, expect, it, mock, type Mock } from 'bun:test';
 
 import { AuthFlowController, type AuthFlowHost } from '#/tui/controllers/auth-flow';
+import {
+  refreshModelSwitchConfirmConfig,
+  resetModelSwitchConfirmConfigCache,
+} from '#/utils/model-switch-confirm-config';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 function makeHost(
   options: {
@@ -145,5 +150,87 @@ describe('refreshConfigAfterLogout', () => {
 
     expect(session!.setModel).toHaveBeenCalledWith('k2');
     expect(appState.model).toBe('k2');
+  });
+});
+
+describe('refreshConfigAfterLogin with a matching cloud rule', () => {
+  afterEach(() => {
+    resetModelSwitchConfirmConfigCache();
+  });
+
+  async function makeGateHost() {
+    const { host, session, appState } = makeHost({ withSession: true, defaultModel: 'k2' });
+    (appState as Record<string, unknown>)['streamingPhase'] = 'idle';
+    host.harness.getConfig = mock(async () => ({
+      defaultModel: 'k2',
+      models: {
+        'old-model': { provider: 'managed:kimi-code', model: 'upstream-old', maxContextSize: 200_000 },
+        k2: { provider: 'managed:kimi-code', model: 'upstream-new', maxContextSize: 200_000 },
+      },
+      providers: {},
+    }));
+    (host as unknown as { state: Record<string, unknown> }).state['transcriptEntries'] = [
+      { kind: 'user', bullet: 'hi' },
+    ];
+    const mountEditorReplacement = mock();
+    (host as unknown as Record<string, unknown>)['mountEditorReplacement'] = mountEditorReplacement;
+    (host as unknown as Record<string, unknown>)['restoreEditor'] = mock();
+    (host as unknown as Record<string, unknown>)['showStatus'] = mock();
+    (host as unknown as Record<string, unknown>)['showError'] = mock();
+    (host as unknown as Record<string, unknown>)['showNotice'] = mock();
+    (host as unknown as Record<string, unknown>)['track'] = mock();
+    await refreshModelSwitchConfirmConfig({
+      fetchImpl: mock(
+        async () =>
+          new Response(
+            JSON.stringify({
+              name: 'model_switch_confirm',
+              config: {
+                enable: true,
+                rules: [{ from: 'upstream-old', to: 'upstream-new' }],
+              },
+            }),
+          ),
+      ) as unknown as typeof fetch,
+    });
+    return { host, session, appState, mountEditorReplacement };
+  }
+
+  it('gates the activation through the confirmation dialog and skips setModel', async () => {
+    const { host, session, mountEditorReplacement } = await makeGateHost();
+
+    const result = await new AuthFlowController(host).refreshConfigAfterLogin();
+
+    expect(result).toBe('gated');
+    expect(session!.setModel).not.toHaveBeenCalled();
+    expect(mountEditorReplacement).toHaveBeenCalledTimes(1);
+  });
+
+  it('gates an alias introduced by this login that the stale catalog lacks', async () => {
+    const { host, session, appState, mountEditorReplacement } = await makeGateHost();
+    // The pre-refresh catalog knows nothing about k2 — only the freshly loaded
+    // config introduces it, so the match must run against the new catalog.
+    (appState as Record<string, unknown>)['availableModels'] = {
+      'old-model': { model: 'upstream-old', displayName: 'Old' },
+    };
+
+    const result = await new AuthFlowController(host).refreshConfigAfterLogin();
+
+    expect(result).toBe('gated');
+    expect(session!.setModel).not.toHaveBeenCalled();
+    expect(mountEditorReplacement).toHaveBeenCalledTimes(1);
+  });
+
+  it('forwards the caller picked effort to the gated dialog', async () => {
+    const { host, session, mountEditorReplacement } = await makeGateHost();
+
+    const result = await new AuthFlowController(host).refreshConfigAfterLogin('max');
+
+    expect(result).toBe('gated');
+    const dialog = mountEditorReplacement.mock.calls[0]?.[0] as unknown as {
+      opts: { onSelect: (action: string) => void };
+    };
+    dialog.opts.onSelect('continue');
+    await waitForAssertion(() => expect(session!.setThinking).toHaveBeenCalledWith('max'));
   });
 });

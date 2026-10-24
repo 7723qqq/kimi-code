@@ -112,6 +112,9 @@ export class DialogHostController {
   mountEditorReplacement(panel: Component & Focusable, onDisplaced?: () => void): void {
     const displaced = this.displacedCallback;
     this.displacedCallback = onDisplaced;
+    if (this.host.state.activeDialog === 'model-switch-confirm') {
+      this.host.state.activeDialog = null;
+    }
     this.host.state.editorReplacementMounted = true;
     // A `clear()`ed panel gets no dispose hook, so its pending decision would
     // be unreachable forever; tell the panel being evicted first.

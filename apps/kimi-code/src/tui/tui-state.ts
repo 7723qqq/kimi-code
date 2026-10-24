@@ -113,6 +113,7 @@ export interface TUIState {
     | 'msys2-prompt'
     | 'cache-hint'
     | 'prompt-optimize'
+    | 'model-switch-confirm'
     | null;
   /**
    * True while an editor-replacement panel (help, trust prompt, goal queue

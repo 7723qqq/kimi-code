@@ -170,6 +170,17 @@ describe('setDefaultModel', () => {
       host.harness.setConfig.mock.invocationCallOrder[0]!,
     );
   });
+
+  it('skips the follow-up activation and forwards the picked effort when the gate owns the switch', async () => {
+    const { host } = makeHost();
+    host.authFlow.refreshConfigAfterLogin = mock(async () => 'gated' as const);
+
+    await setDefaultModel(host, 'opus', 'xhigh');
+
+    expect(host.authFlow.refreshConfigAfterLogin).toHaveBeenCalledWith('xhigh');
+    expect(host.authFlow.activateModelAfterLogin).not.toHaveBeenCalled();
+    expect(host.track).not.toHaveBeenCalled();
+  });
 });
 
 // ---------------------------------------------------------------------------

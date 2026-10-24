@@ -44,9 +44,13 @@ export class QueuePaneComponent extends Container {
     this.terminalRows = options.terminalRows ?? (() => 0);
 
     if (options.messages.length > 0) {
-      // Bash commands (`! …`) are not steerable, so only advertise Ctrl-S when
-      // there is at least one plain-text item that steering would actually send.
-      const hasSteerable = options.messages.some((m) => m.mode !== 'bash');
+      // Bash commands (`! …`) are not steerable, and a queued /compact
+      // barriers everything behind it — only advertise Ctrl-S when an item
+      // ahead of the first /compact would actually steer.
+      const firstCompact = options.messages.findIndex((m) => m.mode === 'compact');
+      const steerableWindow =
+        firstCompact === -1 ? options.messages : options.messages.slice(0, firstCompact);
+      const hasSteerable = steerableWindow.some((m) => m.mode !== 'bash');
       const canSteer = options.canSteerImmediately && hasSteerable;
       this.hint =
         options.isCompacting && !options.isStreaming

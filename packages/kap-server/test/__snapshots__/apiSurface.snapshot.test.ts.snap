@@ -362,6 +362,10 @@ exports[`API surface snapshot matches the documented v2 route table and meta end
     ],
     [
       "POST",
+      "/api/v1/client_configs",
+    ],
+    [
+      "POST",
       "/api/v1/config",
     ],
     [

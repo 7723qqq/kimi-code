@@ -159,6 +159,8 @@ export interface SessionEventHost {
   sendQueuedMessage(session: Session, item: QueuedMessage): void;
   shiftQueuedMessage(): QueuedMessage | undefined;
   steerQueuedMessagesIntoRunningTurn(): void;
+  lastCompactionTrigger: CompactionStartedEvent['trigger'] | undefined;
+  autoCompactionSerial: number;
   handleTurnStarted?(event: TurnStartedEvent): void;
   handleTurnEnded?(event: TurnEndedEvent): void;
   readonly btwPanelController: BtwPanelController;
@@ -1368,6 +1370,7 @@ export class SessionEventHandler {
   }
 
   private handleCompactionBegin(event: CompactionStartedEvent): void {
+    this.host.lastCompactionTrigger = event.trigger;
     this.host.streamingUI.finalizeLiveTextBuffers('waiting');
     this.host.setAppState({
       isCompacting: true,
@@ -1381,6 +1384,9 @@ export class SessionEventHandler {
     event: CompactionCompletedEvent,
     sendQueued: (item: QueuedMessage) => void,
   ): void {
+    // Cancellations do not count: the context was not cut, so a queued
+    // /compact must still fire.
+    if (this.host.lastCompactionTrigger === 'auto') this.host.autoCompactionSerial += 1;
     this.host.streamingUI.endCompaction(
       event.result.tokensBefore,
       event.result.tokensAfter,

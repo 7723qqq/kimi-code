@@ -16,6 +16,7 @@ import { type SessionEventBroadcaster } from '../transport/ws/v1/sessionEventBro
 import { registerApprovalsRoutes } from './approvals';
 import { registerAuthRoute } from './auth';
 import { registerCapabilitiesRoutes } from './capabilities';
+import { registerClientConfigsRoutes } from './clientConfigs';
 import { registerConfigRoutes } from './config';
 import { registerConnectionsRoutes } from './connections';
 import { registerCronRoutes } from './cron';
@@ -127,6 +128,10 @@ export async function registerApiV1Routes(
       );
       registerCronRoutes(apiV1 as unknown as Parameters<typeof registerCronRoutes>[0], core);
       registerConfigRoutes(apiV1 as unknown as Parameters<typeof registerConfigRoutes>[0], core);
+      registerClientConfigsRoutes(
+        apiV1 as unknown as Parameters<typeof registerClientConfigsRoutes>[0],
+        core,
+      );
       registerModelCatalogRoutes(
         apiV1 as unknown as Parameters<typeof registerModelCatalogRoutes>[0],
         core,
