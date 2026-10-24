@@ -1,7 +1,3 @@
-import bcrypt from 'bcryptjs';
-
-const { compare, hash } = bcrypt;
-
 const BCRYPT_COST = 12;
 
 export async function resolvePasswordHash(
@@ -11,7 +7,7 @@ export async function resolvePasswordHash(
   if (!plaintext) {
     return undefined;
   }
-  return hash(plaintext, BCRYPT_COST);
+  return Bun.password.hash(plaintext, { algorithm: 'bcrypt', cost: BCRYPT_COST });
 }
 
 export async function verifyPassword(
@@ -21,5 +17,9 @@ export async function verifyPassword(
   if (passwordHash === undefined) {
     return false;
   }
-  return compare(candidate, passwordHash);
+  try {
+    return await Bun.password.verify(candidate, passwordHash);
+  } catch {
+    return false;
+  }
 }
