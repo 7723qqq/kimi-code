@@ -64,7 +64,7 @@ function truncateSection(text: string, maxChars: number): string {
 }
 
 async function reviewExcerpt(store: TowerStore, file: string): Promise<string> {
-  const { body } = parseFrontmatter(await (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(store.abs(file)).text());
+  const { body } = parseFrontmatter(await Bun.file(store.abs(file)).text());
   return truncateSection(body.trim(), REVIEW_EXCERPT_MAX_CHARS);
 }
 
@@ -468,7 +468,7 @@ export class TowerSpawnTool implements ITowerSpawnTool {
         ? `\n\n# Additional instructions from the tower\n${args.instructions.trim()}`
         : '';
     if (mission !== undefined) {
-      const missionText = await (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(store.abs(join(MISSIONS_DIR, missionFileName(mission.id, mission.slug)))).text();
+      const missionText = await Bun.file(store.abs(join(MISSIONS_DIR, missionFileName(mission.id, mission.slug)))).text();
       const worktreeAbs = store.abs(join(WORKTREES_DIR, mission.worktree));
       const workplace =
         `# Your workplace\n` +
@@ -523,7 +523,7 @@ export class TowerSpawnTool implements ITowerSpawnTool {
     const missionSection =
       targetMission !== undefined
         ? `# Mission under review — verify the diff against this intent, not only against code health\n\n${(
-            await (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(store.abs(join(MISSIONS_DIR, missionFileName(targetMission.id, targetMission.slug)))).text()
+            await Bun.file(store.abs(join(MISSIONS_DIR, missionFileName(targetMission.id, targetMission.slug)))).text()
           ).trim()}\n\n`
         : '';
     const reviewRequest = author !== undefined ? await findReviewRequest(store, author) : undefined;

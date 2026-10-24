@@ -51,7 +51,7 @@ export class SpillService extends Service implements ISpillService {
     }
     if (!isWithinRoot(resolvedLocator, resolvedRoot)) return null;
     try {
-      return await (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(resolvedLocator).text();
+      return await Bun.file(resolvedLocator).text();
     } catch {
       return null;
     }

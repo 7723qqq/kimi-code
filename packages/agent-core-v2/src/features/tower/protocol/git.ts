@@ -23,15 +23,7 @@ export async function git(
   args: readonly string[],
   options: GitOptions = {},
 ): Promise<string> {
-  const BunRuntime = (globalThis as unknown as {
-    Bun: {
-      spawn: (
-        cmd: string[],
-        opts: Record<string, unknown>,
-      ) => { stdout: ReadableStream; stderr: ReadableStream; exited: Promise<number> };
-    };
-  }).Bun;
-  const proc = BunRuntime.spawn(['git', ...args], {
+  const proc = Bun.spawn(['git', ...args], {
     cwd,
     stdout: 'pipe',
     stderr: 'pipe',

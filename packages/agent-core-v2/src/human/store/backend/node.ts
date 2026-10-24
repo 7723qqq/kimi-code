@@ -46,7 +46,7 @@ class NodeTreeBackend implements TreeBackend {
   }
 
   async read(tree: string, branch: string): Promise<string> {
-    return (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(this.path(tree, branch)).text();
+    return Bun.file(this.path(tree, branch)).text();
   }
 
   async append(tree: string, branch: string, data: string): Promise<void> {
@@ -92,7 +92,7 @@ class NodeBlobBackend implements BlobBackend {
   }
 
   async read(ref: string): Promise<string> {
-    return (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(this.path(ref)).text();
+    return Bun.file(this.path(ref)).text();
   }
 
   async write(ref: string, data: string): Promise<void> {

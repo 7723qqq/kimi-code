@@ -84,7 +84,7 @@ export async function parseManifest(pluginRoot: string): Promise<ParsedManifestR
 
   let raw: unknown;
   try {
-    raw = JSON.parse(await (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(manifestPath).text());
+    raw = JSON.parse(await Bun.file(manifestPath).text());
   } catch (error) {
     return {
       manifestKind,
@@ -398,7 +398,7 @@ async function readSystemPrompt(
           });
         } else {
           try {
-            const content = ((await (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(resolved).text())).replace(/^\uFEFF/, '').trim();
+            const content = ((await Bun.file(resolved).text())).replace(/^\uFEFF/, '').trim();
             if (content.length > 0) parts.push(content);
           } catch (error) {
             diagnostics.push({

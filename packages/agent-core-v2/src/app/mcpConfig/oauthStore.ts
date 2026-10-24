@@ -26,8 +26,7 @@ let machineIdPromise: Promise<string | null> | undefined;
 async function loadMachineId(): Promise<string | undefined> {
   try {
     if (process.platform === 'win32') {
-      const BunRuntime = (globalThis as unknown as { Bun: { spawnSync: (cmd: string[], opts: Record<string, unknown>) => { stdout: Buffer; exitCode: number } } }).Bun;
-      const result = BunRuntime.spawnSync(
+      const result = Bun.spawnSync(
         ['reg.exe', 'query', 'HKLM\\SOFTWARE\\Microsoft\\Cryptography', '/v', 'MachineGuid'],
         { stdout: 'pipe', stderr: 'ignore', timeout: 3000, windowsHide: true },
       );
@@ -41,8 +40,7 @@ async function loadMachineId(): Promise<string | undefined> {
       } catch {}
     }
     if (process.platform === 'darwin') {
-      const BunRuntime = (globalThis as unknown as { Bun: { spawnSync: (cmd: string[], opts: Record<string, unknown>) => { stdout: Buffer; exitCode: number } } }).Bun;
-      const result = BunRuntime.spawnSync(['ioreg', '-rd1', '-c', 'IOPlatformExpertDevice'], {
+      const result = Bun.spawnSync(['ioreg', '-rd1', '-c', 'IOPlatformExpertDevice'], {
         stdout: 'pipe',
         stderr: 'ignore',
         timeout: 3000,
@@ -71,7 +69,7 @@ async function deriveKey(): Promise<Buffer> {
   }
   const machineId = await hostMachineId();
   const raw = `${hostname()}:${machineId ?? 'no-machine-id'}:${username}:kimi-code-mcp-oauth-v1`;
-  return new (globalThis as unknown as { Bun: { CryptoHasher: new (algo: string) => any } }).Bun.CryptoHasher('sha256').update(raw).digest();
+  return new Bun.CryptoHasher('sha256').update(raw).digest();
 }
 
 interface EncryptedBlob {

@@ -118,7 +118,7 @@ async function releaseRemoteControlLock(lockPath: string, nonce: string): Promis
 async function readRemoteControlLock(lockPath: string): Promise<RemoteControlLockInfo | undefined> {
   let raw: string;
   try {
-    raw = await (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(lockPath).text();
+    raw = await Bun.file(lockPath).text();
   } catch {
     return undefined;
   }

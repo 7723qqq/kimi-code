@@ -328,7 +328,7 @@ export class AgentMcpService extends Service implements IAgentMcpService {
   ): void {
     const enabledNamesSnapshot = [...enabledNames].toSorted((a, b) => a.localeCompare(b));
     const work = (): void => {
-      const hash = new (globalThis as unknown as { Bun: { CryptoHasher: new (algo: string) => any } }).Bun.CryptoHasher('sha256')
+      const hash = new Bun.CryptoHasher('sha256')
         .update(JSON.stringify({ tools: rawTools, enabledNames: enabledNamesSnapshot, collisions }))
         .digest('hex');
       const key = `${serverName}\n${hash}`;

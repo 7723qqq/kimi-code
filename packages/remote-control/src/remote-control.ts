@@ -331,7 +331,7 @@ export function isGzipCompressibleType(contentType: string): boolean {
 }
 
 export function rewrittenResponseETag(body: Buffer): string {
-  return `W/"${new (globalThis as unknown as { Bun: { CryptoHasher: new (algo: string) => any } }).Bun.CryptoHasher('sha256').update(body).digest('hex')}"`;
+  return `W/"${new Bun.CryptoHasher('sha256').update(body).digest('hex')}"`;
 }
 
 export function requestMatchesETag(

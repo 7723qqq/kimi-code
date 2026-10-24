@@ -36,7 +36,7 @@ export async function loadPluginCommand(input: {
   readonly fallbackName?: string;
 }): Promise<PluginCommandDef | undefined> {
   try {
-    const text = await (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(input.commandPath).text();
+    const text = await Bun.file(input.commandPath).text();
     return parseCommandText({
       text,
       commandPath: input.commandPath,

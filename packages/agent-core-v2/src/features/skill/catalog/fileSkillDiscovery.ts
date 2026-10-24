@@ -162,7 +162,7 @@ async function parseAndRegister(input: {
   readonly subSkillParentName?: string;
 }): Promise<SkillDefinition | undefined> {
   try {
-    const text = await (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(input.skillMdPath).text();
+    const text = await Bun.file(input.skillMdPath).text();
     const parsed = parseSkillText({
       skillMdPath: input.skillMdPath,
       skillDirName: input.skillDirName,

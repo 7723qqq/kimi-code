@@ -17,7 +17,7 @@ export function encodeWorkDirKey(workDir: string): string {
   const normalized = workDir.replaceAll(/\\/g, '/').replace(/\/+$/, '');
   const base = normalized.split('/').pop() ?? normalized;
   const slug = slugifyWorkDirName(base);
-  const hash = new (globalThis as unknown as { Bun: { CryptoHasher: new (algo: string) => any } }).Bun.CryptoHasher('sha256').update(normalized).digest('hex').slice(0, HASH_LENGTH);
+  const hash = new Bun.CryptoHasher('sha256').update(normalized).digest('hex').slice(0, HASH_LENGTH);
   return `${WORKDIR_KEY_PREFIX}${slug}_${hash}`;
 }
 

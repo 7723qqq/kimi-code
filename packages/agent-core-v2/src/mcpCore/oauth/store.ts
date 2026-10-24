@@ -22,7 +22,7 @@ export function canonicalMcpOAuthResource(serverUrl: string | URL): string {
 export function mcpOAuthStoreKey(serverName: string, serverUrl: string | URL): string {
   const safeName = sanitizeStoreKey(serverName);
   const resource = canonicalMcpOAuthResource(serverUrl);
-  const digest = new (globalThis as unknown as { Bun: { CryptoHasher: new (algo: string) => any } }).Bun.CryptoHasher('sha256')
+  const digest = new Bun.CryptoHasher('sha256')
     .update(serverName)
     .update('\0')
     .update(resource)

@@ -56,7 +56,7 @@ function mediaStripKey(part: DegradableMediaPart): string {
   const cached = cache?.[part.type];
   if (cached !== undefined) return cached;
 
-  const key = new (globalThis as unknown as { Bun: { CryptoHasher: new (algo: string) => any } }).Bun.CryptoHasher('sha256')
+  const key = new Bun.CryptoHasher('sha256')
     .update(part.type)
     .update('\0')
     .update(container.id ?? '')

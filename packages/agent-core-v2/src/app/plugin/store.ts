@@ -30,7 +30,7 @@ export async function readInstalled(kimiHomeDir: string): Promise<InstalledFile>
   const filePath = path.join(kimiHomeDir, INSTALLED_REL);
   let text: string;
   try {
-    text = await (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(filePath).text();
+    text = await Bun.file(filePath).text();
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return EMPTY;
     throw error;

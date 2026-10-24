@@ -98,11 +98,11 @@ function makeKey(toolName: string, args: unknown): string {
 }
 
 function argsHash(args: unknown): string {
-  return new (globalThis as unknown as { Bun: { CryptoHasher: new (algo: string) => any } }).Bun.CryptoHasher('sha256').update(canonicalTelemetryArgs(args)).digest('hex').slice(0, 8);
+  return new Bun.CryptoHasher('sha256').update(canonicalTelemetryArgs(args)).digest('hex').slice(0, 8);
 }
 
 function callSignature(key: string): string {
-  return new (globalThis as unknown as { Bun: { CryptoHasher: new (algo: string) => any } }).Bun.CryptoHasher('sha256').update(key).digest('hex');
+  return new Bun.CryptoHasher('sha256').update(key).digest('hex');
 }
 
 interface CheckedToolCall {

@@ -122,7 +122,7 @@ export class AgentBlobServiceImpl implements IAgentBlobService {
   }
 
   private async writeBlob(mimeType: string, base64Payload: string): Promise<string> {
-    const hash = new (globalThis as unknown as { Bun: { CryptoHasher: new (algo: string) => any } }).Bun.CryptoHasher('sha256').update(base64Payload, 'utf8').digest('hex');
+    const hash = new Bun.CryptoHasher('sha256').update(base64Payload, 'utf8').digest('hex');
     const binary = Buffer.from(base64Payload, 'base64');
     await this.blobs.put(this.storageScope, hash, binary);
     this.cache.set(hash, binary);

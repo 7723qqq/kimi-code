@@ -88,7 +88,7 @@ async function loadFrom(
   if (match === undefined) return undefined;
 
   try {
-    const text = await (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(join(dir, match)).text();
+    const text = await Bun.file(join(dir, match)).text();
     const trimmed = text.trim();
     if (trimmed.length === 0) return undefined;
     if (trimmed.length > MAX_ADAPTATION_BYTES) {

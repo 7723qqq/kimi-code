@@ -106,7 +106,7 @@ export async function executeWorkflow(opts: WorkflowRunOptions): Promise<unknown
 
   const readFileHook = async (path: string): Promise<string> => {
     const resolved = resolveInWorkspace(workspaceRoot, path);
-    return (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(resolved).text();
+    return Bun.file(resolved).text();
   };
 
   const writeFileHook = async (path: string, content: string): Promise<void> => {
@@ -139,17 +139,9 @@ export async function executeWorkflow(opts: WorkflowRunOptions): Promise<unknown
     opts?: { readonly timeoutMs?: number; readonly cwd?: string },
   ): Promise<{ readonly stdout: string; readonly stderr: string; readonly exitCode: number }> => {
     const cwd = opts?.cwd ? resolveInWorkspace(workspaceRoot, opts.cwd) : workspaceRoot;
-    const BunRuntime = (globalThis as unknown as {
-      Bun: {
-        spawn: (
-          cmd: string[],
-          opts: Record<string, unknown>,
-        ) => { stdout: ReadableStream; stderr: ReadableStream; exited: Promise<number> };
-      };
-    }).Bun;
     try {
       const cmd = process.platform === 'win32' ? ['cmd.exe', '/d', '/s', '/c', command] : ['sh', '-c', command];
-      const proc = BunRuntime.spawn(cmd, {
+      const proc = Bun.spawn(cmd, {
         cwd,
         stdout: 'pipe',
         stderr: 'pipe',

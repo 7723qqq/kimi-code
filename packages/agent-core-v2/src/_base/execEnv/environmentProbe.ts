@@ -357,8 +357,7 @@ export async function execFileText(
   timeoutMs: number,
 ): Promise<string | undefined> {
   try {
-    const BunRuntime = (globalThis as unknown as { Bun: { spawn: (cmd: string[], opts: Record<string, unknown>) => { stdout: ReadableStream; exited: Promise<number> } } }).Bun;
-    const proc = BunRuntime.spawn([file, ...args], {
+    const proc = Bun.spawn([file, ...args], {
       stdout: 'pipe',
       stderr: 'ignore',
       timeout: timeoutMs,

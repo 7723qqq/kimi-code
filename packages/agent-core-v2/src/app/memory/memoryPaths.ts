@@ -26,7 +26,7 @@ export interface MemorySearchResult {
 }
 
 export function projectIdFromCwd(cwd: string): string {
-  return new (globalThis as unknown as { Bun: { CryptoHasher: new (algo: string) => any } }).Bun.CryptoHasher('sha256').update(cwd).digest('hex').slice(0, 12);
+  return new Bun.CryptoHasher('sha256').update(cwd).digest('hex').slice(0, 12);
 }
 
 export function memoryDir(homeDir: string): string {

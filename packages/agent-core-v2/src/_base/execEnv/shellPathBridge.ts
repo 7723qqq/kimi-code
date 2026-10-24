@@ -138,8 +138,7 @@ export function getShellPathBridge(env: ShellPathBridgeEnv): ShellPathBridge {
   if (cached !== undefined) return cached;
   const bridge = createShellPathBridge(env, {
     execFileSync: (file, args) => {
-      const BunRuntime = (globalThis as unknown as { Bun: { spawnSync: (cmd: string[], opts: Record<string, unknown>) => { stdout: Buffer; exitCode: number } } }).Bun;
-      const result = BunRuntime.spawnSync([file, ...args], {
+      const result = Bun.spawnSync([file, ...args], {
         stdout: 'pipe',
         stderr: 'ignore',
         timeout: CYGPATH_TIMEOUT_MS,

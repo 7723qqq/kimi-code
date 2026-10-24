@@ -31,7 +31,7 @@ export function encodeSegment(raw: string): string {
 }
 
 export function sessionDir(root: string, sessionId: string): string {
-  const hash = new (globalThis as unknown as { Bun: { CryptoHasher: new (algo: string) => any } }).Bun.CryptoHasher('sha256').update(sessionId).digest('hex').slice(0, 12);
+  const hash = new Bun.CryptoHasher('sha256').update(sessionId).digest('hex').slice(0, 12);
   return join(root, `session-${hash}`);
 }
 

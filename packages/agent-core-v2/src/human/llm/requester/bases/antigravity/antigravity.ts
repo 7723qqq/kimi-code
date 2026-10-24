@@ -277,14 +277,6 @@ export class AntigravityChatProvider {
 
     options?.onRequestSent?.();
 
-    const BunRuntime = (globalThis as unknown as {
-      Bun: {
-        spawn: (
-          cmd: string[],
-          opts: Record<string, unknown>,
-        ) => { stdout: ReadableStream; stderr: ReadableStream; pid: number; kill: (sig?: string) => void; exited: Promise<number> };
-      };
-    }).Bun;
     let child: {
       stdout: Readable;
       stderr: Readable;
@@ -293,7 +285,7 @@ export class AntigravityChatProvider {
       on: (event: string, cb: (...args: any[]) => void) => void;
     };
     try {
-      const bunChild = BunRuntime.spawn([this.binaryPath, ...args], {
+      const bunChild = Bun.spawn([this.binaryPath, ...args], {
         cwd: tmpdir(),
         env: buildAntigravityEnv(),
         stdout: 'pipe',
@@ -305,7 +297,7 @@ export class AntigravityChatProvider {
         stdout,
         stderr,
         pid: bunChild.pid,
-        kill: (sig?: string) => bunChild.kill(sig),
+        kill: (sig?: string) => bunChild.kill(sig === 'SIGKILL' ? 9 : 15),
         on: (event: string, cb: (...args: any[]) => void) => {
           if (event === 'error') {
             bunChild.exited.catch(cb);

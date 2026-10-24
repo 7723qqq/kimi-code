@@ -576,12 +576,12 @@ function maxVersion(checkpoints: readonly FileHistoryCheckpointRecord[], path: s
 }
 
 function blobKey(pathKey: string, version: number): string {
-  const hash = new (globalThis as unknown as { Bun: { CryptoHasher: new (algo: string) => any } }).Bun.CryptoHasher('sha256').update(pathKey, 'utf8').digest('hex');
+  const hash = new Bun.CryptoHasher('sha256').update(pathKey, 'utf8').digest('hex');
   return `${FILE_HISTORY_BLOB_PREFIX}/${hash}@v${String(version)}`;
 }
 
 function sha256(bytes: Uint8Array): string {
-  return new (globalThis as unknown as { Bun: { CryptoHasher: new (algo: string) => any } }).Bun.CryptoHasher('sha256').update(bytes).digest('hex');
+  return new Bun.CryptoHasher('sha256').update(bytes).digest('hex');
 }
 
 function decodeText(bytes: Uint8Array): string | undefined {

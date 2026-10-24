@@ -168,9 +168,7 @@ async function readMarketplaceText(
   fetchImpl: FetchLike,
 ): Promise<string> {
   if (location.kind === 'local') {
-    return (
-      globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }
-    ).Bun.file(location.resolved).text();
+    return Bun.file(location.resolved).text();
   }
   const response = await fetchImpl(location.resolved);
   if (!response.ok) {

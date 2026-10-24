@@ -335,7 +335,7 @@ export class AgentChangeNotifierService extends Disposable implements IAgentChan
 }
 
 function hashText(text: string): string {
-  return new (globalThis as unknown as { Bun: { CryptoHasher: new (algo: string) => any } }).Bun.CryptoHasher('sha256').update(text).digest('hex');
+  return new Bun.CryptoHasher('sha256').update(text).digest('hex');
 }
 
 function difference(left: readonly string[], right: readonly string[]): string[] {

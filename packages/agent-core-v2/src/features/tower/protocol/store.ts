@@ -351,7 +351,7 @@ export class TowerStore {
       if (Date.now() >= deadline) {
         let holder = '';
         try {
-          holder = ` — held by ${(await (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(lockPath).text()).trim()}`;
+          holder = ` — held by ${(await Bun.file(lockPath).text()).trim()}`;
         } catch {}
         throw new TowerProtocolError(
           `timed out after ${String(this.stateLockTimeoutMs)}ms waiting for the tower state lock "${lockPath}"${holder} — another tower process is writing state.json; if no tower process is alive, delete the stale lock file and retry`,
@@ -371,7 +371,7 @@ export class TowerStore {
   private async releaseStateLock(lockPath: string, token: string): Promise<void> {
     let content: string;
     try {
-      content = await (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(lockPath).text();
+      content = await Bun.file(lockPath).text();
     } catch {
       return;
     }
@@ -406,7 +406,7 @@ export class TowerStore {
 
   async isInitialized(): Promise<boolean> {
     try {
-      await (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(this.abs(STATE_FILE)).text();
+      await Bun.file(this.abs(STATE_FILE)).text();
       return true;
     } catch {
       return false;
@@ -608,7 +608,7 @@ export class TowerStore {
 
   async adopt(sessionId: string): Promise<readonly string[]> {
     try {
-      await (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(this.abs(STATE_FILE)).text();
+      await Bun.file(this.abs(STATE_FILE)).text();
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
       throw error;
@@ -636,7 +636,7 @@ export class TowerStore {
     await mkdir(dirname(excludePath), { recursive: true });
     let existing = '';
     try {
-      existing = await (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(excludePath).text();
+      existing = await Bun.file(excludePath).text();
     } catch {}
     if (existing.split(/\r?\n/).some((line) => line.trim() === '.tower/')) return;
     await appendFile(
@@ -649,7 +649,7 @@ export class TowerStore {
   async load(): Promise<TowerState> {
     let raw: string;
     try {
-      raw = await (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(this.abs(STATE_FILE)).text();
+      raw = await Bun.file(this.abs(STATE_FILE)).text();
     } catch {
       throw await this.stateMissingError();
     }
@@ -757,7 +757,7 @@ export class TowerStore {
   async recentLog(lines: number): Promise<readonly string[]> {
     let content = '';
     try {
-      content = await (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(this.abs(ACTIVITY_LOG)).text();
+      content = await Bun.file(this.abs(ACTIVITY_LOG)).text();
     } catch {
       return [];
     }
@@ -1555,7 +1555,7 @@ export class TowerStore {
       const rel = join(INBOX_DIR, file);
       let text: string;
       try {
-        text = await (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(this.abs(rel)).text();
+        text = await Bun.file(this.abs(rel)).text();
       } catch {
         continue;
       }
@@ -1813,7 +1813,7 @@ export class TowerStore {
       ) {
         continue;
       }
-      const { body } = parseFrontmatter(await (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(this.abs(candidate.file)).text());
+      const { body } = parseFrontmatter(await Bun.file(this.abs(candidate.file)).text());
       if (body !== expectedBody) continue;
       if (!(await this.hasActivityLogRef('review.write', candidate.file))) return candidate;
       const messages = await this.listInboxItems();
@@ -1959,7 +1959,7 @@ export class TowerStore {
   private async hasActivityLogRef(action: string, rel: string): Promise<boolean> {
     let content: string;
     try {
-      content = await (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(this.abs(ACTIVITY_LOG)).text();
+      content = await Bun.file(this.abs(ACTIVITY_LOG)).text();
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') return false;
       throw error;
@@ -1982,7 +1982,7 @@ export class TowerStore {
       const rel = join(REVIEWS_DIR, file);
       let text: string;
       try {
-        text = await (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(this.abs(rel)).text();
+        text = await Bun.file(this.abs(rel)).text();
       } catch {
         continue;
       }
@@ -2031,7 +2031,7 @@ export class TowerStore {
     for (const file of files.filter((f) => f.startsWith('review-') && f.endsWith('.md'))) {
       let text: string;
       try {
-        text = await (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(this.abs(join(REVIEWS_DIR, file))).text();
+        text = await Bun.file(this.abs(join(REVIEWS_DIR, file))).text();
       } catch {
         continue;
       }
@@ -2732,7 +2732,7 @@ function reviewDocumentBody(input: TowerReviewInput): string {
 
 async function readGitDir(cwd: string): Promise<string | null> {
   try {
-    const raw = await (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(join(cwd, '.git')).text();
+    const raw = await Bun.file(join(cwd, '.git')).text();
     const match = /^gitdir:\s*(.+)$/m.exec(raw.trim());
     if (match?.[1] !== undefined) return match[1];
     return null;

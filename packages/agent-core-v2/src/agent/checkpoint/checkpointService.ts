@@ -54,7 +54,7 @@ interface CheckpointGroup {
 }
 
 function sha256Bytes(bytes: Uint8Array): string {
-  return new (globalThis as unknown as { Bun: { CryptoHasher: new (algo: string) => any } }).Bun.CryptoHasher('sha256').update(bytes).digest('hex');
+  return new Bun.CryptoHasher('sha256').update(bytes).digest('hex');
 }
 
 export class AgentCheckpointService extends Disposable implements IAgentCheckpointService {
