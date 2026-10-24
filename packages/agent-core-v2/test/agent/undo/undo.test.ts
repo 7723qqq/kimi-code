@@ -1080,6 +1080,20 @@ describe('AgentConversationUndoService', () => {
     await ctx.restorePersisted();
     expect(ctx.context.get().map(messageText)).toEqual(['user:u1', 'assistant:a1']);
   });
+
+  it('recovers undo after a restore that failed twice', async () => {
+    await setup();
+    ctx.appendTurnExchange('u1', 'a1');
+    ctx.appendTurnExchange('u2', 'a2');
+    const undo = ctx.get(IAgentConversationUndoService);
+    const dispatcher = ctx.get(IEventDispatcher);
+
+    (dispatcher as unknown as { restorePhase: string }).restorePhase = 'failed';
+
+    const removed = await undo.undo(1);
+    expect(removed).toBe(1);
+    expect(dispatcher.restorePhase).toBe('ready');
+  });
 });
 
 function messageText(message: ContextMessage): string {

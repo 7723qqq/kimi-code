@@ -108,6 +108,14 @@ export class AgentConversationUndoService extends Service implements IAgentConve
       if (this.fullCompaction.compacting !== null) {
         throw this.busyError('compaction');
       }
+      if (this.dispatcher.restorePhase === 'restoring') {
+        throw new BugIndicatingError(
+          `Conversation undo requires a restored dispatcher (phase '${this.dispatcher.restorePhase}')`,
+        );
+      }
+      if (this.dispatcher.restorePhase === 'failed') {
+        await this.dispatcher.restore();
+      }
       if (this.dispatcher.restorePhase !== 'ready') {
         throw new BugIndicatingError(
           `Conversation undo requires a restored dispatcher (phase '${this.dispatcher.restorePhase}')`,
