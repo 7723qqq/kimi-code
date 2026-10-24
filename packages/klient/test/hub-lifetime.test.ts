@@ -1,11 +1,9 @@
-import { rm } from 'node:fs/promises';
-
 import { describe, expect, it, mock } from 'bun:test';
 
 import type { EventSourceRef, IDisposable, KlientChannel, ScopeRef } from '../src/core/channel.js';
 import { createKlientFromChannel } from '../src/core/klient.js';
 import { createKlient } from '../src/transports/memory/index.js';
-import { makeEngine } from './helpers/engine.js';
+import { cleanupEngine, makeEngine } from './helpers/engine.js';
 
 /**
  * A26/F3: an event hub used to be allocated and pinned in the klient's hub Set
@@ -89,8 +87,7 @@ describe('event hub lifetime', () => {
       expect(klient.__hubCountForTest?.()).toBe(2);
     } finally {
       await klient.close();
-      app.dispose();
-      await rm(homeDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 });
+      await cleanupEngine({ homeDir, app });
     }
   });
 
@@ -121,8 +118,7 @@ describe('event hub lifetime', () => {
       expect(klient.__hubCountForTest?.()).toBe(1);
     } finally {
       await klient.close();
-      app.dispose();
-      await rm(homeDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 });
+      await cleanupEngine({ homeDir, app });
     }
   });
 

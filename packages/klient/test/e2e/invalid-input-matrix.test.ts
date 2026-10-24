@@ -25,13 +25,18 @@
  * rather than a full cartesian product.
  */
 
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { bootstrap, logSeed, resolveLoggingConfig } from '@moonshot-ai/agent-core-v2';
+import {
+  bootstrap,
+  drainLogCloses,
+  logSeed,
+  resolveLoggingConfig,
+} from '@moonshot-ai/agent-core-v2';
 import type { ContentPart } from '@moonshot-ai/agent-core-v2';
 import { IModelService } from '@moonshot-ai/agent-core-v2/llm-adapter/model/model';
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
@@ -41,7 +46,7 @@ import type { AgentHandle } from '../../src/core/klient.js';
 import { KlientValidationError } from '../../src/core/validation.js';
 import type { Klient } from '../../src/index.js';
 import { createKlient as createMemoryKlient } from '../../src/transports/memory/index.js';
-import { TEST_CLIENT_IDENTITY } from '../helpers/engine.js';
+import { removeTempDir, TEST_CLIENT_IDENTITY } from '../helpers/engine.js';
 
 // The dual/http e2e suites (and their `helpers/dual.ts`) were dropped with the
 // http transport; the two wait primitives they exported are re-declared here.
@@ -416,8 +421,9 @@ afterAll(async () => {
   await new Promise<void>((resolve) => {
     server.close(() => resolve());
   });
-  await rm(homeDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 });
-  await rm(workRoot, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 });
+  await drainLogCloses();
+  await removeTempDir(homeDir);
+  await removeTempDir(workRoot);
 });
 
 // ---------------------------------------------------------------------------

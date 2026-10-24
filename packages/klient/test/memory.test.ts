@@ -1,12 +1,10 @@
-import { rm } from 'node:fs/promises';
-
 import { describe, expect, it } from 'bun:test';
 
 import { RPCError } from '../src/core/errors.js';
 import { createMemoryDispatcher } from '../src/transports/memory/dispatcher.js';
 import { createKlient } from '../src/transports/memory/index.js';
 import { defineKlientConformance } from './helpers/conformance.js';
-import { makeEngine } from './helpers/engine.js';
+import { cleanupEngine, makeEngine } from './helpers/engine.js';
 
 defineKlientConformance('memory', async () => {
   const { homeDir, app } = await makeEngine();
@@ -16,8 +14,7 @@ defineKlientConformance('memory', async () => {
     app,
     cleanup: async () => {
       await klient.close();
-      app.dispose();
-      await rm(homeDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 });
+      await cleanupEngine({ homeDir, app });
     },
   };
 });
@@ -34,8 +31,7 @@ describe('memory dispatcher specifics', () => {
       name: 'RPCError',
       code: 40001,
     });
-    app.dispose();
-    await rm(homeDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 });
+    await cleanupEngine({ homeDir, app });
   });
 
   it('reads non-function members as properties', async () => {
@@ -44,8 +40,7 @@ describe('memory dispatcher specifics', () => {
     await expect(dispatcher.call({}, 'bootstrapService', 'platform', [])).resolves.toBe(
       process.platform,
     );
-    app.dispose();
-    await rm(homeDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 });
+    await cleanupEngine({ homeDir, app });
   });
 
   // A26/F4: a `workspaceId` scope used to materialize the workspace instance
@@ -85,8 +80,7 @@ describe('memory dispatcher specifics', () => {
       const { IWorkspaceInstanceManager } = await import('@moonshot-ai/agent-core-v2');
       expect(app.accessor.get(IWorkspaceInstanceManager).get('ws_x')).toBeUndefined();
     } finally {
-      app.dispose();
-      await rm(homeDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 });
+      await cleanupEngine({ homeDir, app });
     }
   });
 
@@ -96,8 +90,7 @@ describe('memory dispatcher specifics', () => {
     await expect(
       dispatcher.call({ sessionId: 's1' }, 'sessionIndex', 'list', [{}]),
     ).rejects.toBeInstanceOf(RPCError);
-    app.dispose();
-    await rm(homeDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 });
+    await cleanupEngine({ homeDir, app });
   });
 
   it('delivers wire-cloned payloads (no live object identity)', async () => {
@@ -108,8 +101,7 @@ describe('memory dispatcher specifics', () => {
     (list as unknown[]).push({ id: 'polluted' });
     const again = await klient.global.workspaces.list();
     expect(again.some((w) => w.id === 'polluted')).toBe(false);
-    app.dispose();
-    await rm(homeDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 });
+    await cleanupEngine({ homeDir, app });
   });
 
   it('does not respond to interactions owned by another session', async () => {
@@ -167,8 +159,7 @@ describe('memory dispatcher specifics', () => {
       expect(pendingAfterOwn).toEqual([]);
     } finally {
       await klient.close();
-      app.dispose();
-      await rm(homeDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 });
+      await cleanupEngine({ homeDir, app });
     }
   });
 
@@ -186,8 +177,7 @@ describe('memory dispatcher specifics', () => {
       ).rejects.toMatchObject({ name: 'RPCError', code: 40404 });
     } finally {
       await klient.close();
-      app.dispose();
-      await rm(homeDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 });
+      await cleanupEngine({ homeDir, app });
     }
   });
 
@@ -229,8 +219,7 @@ describe('memory dispatcher specifics', () => {
       ).rejects.toMatchObject({ name: 'RPCError', code: 40902 });
     } finally {
       await klient.close();
-      app.dispose();
-      await rm(homeDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 });
+      await cleanupEngine({ homeDir, app });
     }
   });
 });

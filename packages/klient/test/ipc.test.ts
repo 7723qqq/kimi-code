@@ -10,7 +10,7 @@ import { createKlient, serveKlientIpc, type KlientIpcHost } from '../src/transpo
 import { IpcChannel } from '../src/transports/ipc/channel.js';
 import { NdjsonDecoder } from '../src/transports/ipc/codec.js';
 import { defineKlientConformance } from './helpers/conformance.js';
-import { makeEngine, type TestEngine } from './helpers/engine.js';
+import { cleanupEngine, makeEngine, type TestEngine } from './helpers/engine.js';
 
 async function waitFor(assert: () => void, options?: { timeout?: number }): Promise<void> {
   const deadline = Date.now() + (options?.timeout ?? 1000);
@@ -40,8 +40,7 @@ if (process.platform !== 'win32') {
       cleanup: async () => {
         await klient.close();
         await host.close();
-        app.dispose();
-        await rm(homeDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 });
+        await cleanupEngine({ homeDir, app });
       },
     };
   });
@@ -64,8 +63,7 @@ describe.skipIf(process.platform === 'win32')('ipc transport specifics', () => {
   async function teardown(): Promise<void> {
     await host?.close();
     host = undefined;
-    app.dispose();
-    await rm(homeDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 });
+    await cleanupEngine({ homeDir, app });
   }
 
   it('rejects calls when the socket path does not exist', async () => {
