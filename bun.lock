@@ -27,7 +27,7 @@
     },
     "apps/kimi-code": {
       "name": "@moonshot-ai/kimi-code",
-      "version": "2.3.0",
+      "version": "2.3.1",
       "bin": {
         "kimi": "dist/main.mjs",
       },
