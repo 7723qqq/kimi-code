@@ -47,13 +47,19 @@ const packageArg = flag('package');
 const PKG_DIR = packageArg === undefined ? process.cwd() : join(ROOT, packageArg);
 const shardArg = flag('shard');
 // `bun test` runs a package's files in one process, one after another. Upstream
-// ran this suite on vitest, which spreads the files over worker threads — one
-// per core. Without a matching degree of parallelism the migration would trade
-// vitest's speed for bun's serialization, so the default is the same: one file
-// per core, minus one so the machine stays responsive.
+// ran this suite on vitest, which spreads the files over worker threads, so a
+// purely serial runner would trade vitest's speed for bun's serialization. The
+// cap is 8 rather than one file per core: several suites bound their own waits
+// tightly enough that a wider fan-out loses the race and reports a failure the
+// code does not have. `lspInstance` gives an LSP server 100 ms to answer
+// `initialize`, and a spawned `node` misses that once a core-count fan-out
+// competes for the machine; `minidb`'s stress tests lose their timing
+// assumptions the same way. 8 keeps the wall-clock win without manufacturing
+// those failures, and it is already more than most machines have cores.
+const MAX_PARALLEL = 8;
 const defaultParallel = Math.max(
   1,
-  (os.availableParallelism?.() ?? os.cpus().length) - 1,
+  Math.min(MAX_PARALLEL, os.availableParallelism?.() ?? os.cpus().length),
 );
 const parallel = Number(flag('parallel') ?? defaultParallel);
 const includeHeavy = process.env['KIMI_TEST_HEAVY'] === '1' || args.includes('--include-heavy');
