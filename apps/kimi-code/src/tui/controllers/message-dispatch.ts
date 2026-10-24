@@ -1138,15 +1138,16 @@ export class MessageDispatchController {
     session: Session;
     error: unknown;
     entries?: readonly TranscriptEntry[];
+    retried?: boolean;
     retry: () => void;
     restore: () => void;
   }): boolean {
-    const { session, error, entries, retry, restore } = args;
+    const { session, error, entries, retried = false, retry, restore } = args;
     if (this.host.session?.id !== session.id || !isSessionOccupiedError(error)) return false;
     if (entries !== undefined) this.host.removeTranscriptEntries(entries);
     this.host.setAppState({ streamingPhase: 'idle' });
     this.host.resetLivePane();
-    this.host.showSessionOccupancyPrompt({ error, retry, restore });
+    this.host.showSessionOccupancyPrompt({ session, error, retried, retry, restore });
     return true;
   }
 

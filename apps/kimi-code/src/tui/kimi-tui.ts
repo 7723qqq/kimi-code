@@ -342,6 +342,7 @@ interface SendMessageOptions {
    * it — the queue item owns the raw ids and re-leases at dequeue.
    */
   readonly lease?: StagingLease;
+  readonly occupiedRetry?: boolean;
 }
 
 /** How long the one-shot "moved to background" footer hint stays visible. */
@@ -1653,6 +1654,7 @@ export class KimiTUI {
     text: string,
     activations: readonly InlineSkillActivation[],
     extraction: ExtractionResult,
+    occupiedRetry = false,
   ): void {
     let prepared: PreparedSkillActivations | undefined;
     let input: string | readonly PromptPart[];
@@ -1699,7 +1701,8 @@ export class KimiTUI {
         session,
         error,
         entries: [entry],
-        retry: () => this.runInlineSkillActivations(session, text, activations, extraction),
+        retried: occupiedRetry,
+        retry: () => this.runInlineSkillActivations(session, text, activations, extraction, true),
         restore: () => {
           this.staging.releaseRecalled([
             ...extraction.imageAttachmentIds,
@@ -1926,6 +1929,7 @@ export class KimiTUI {
         parts,
         imageAttachmentIds: item.imageAttachmentIds,
         videoAttachmentIds: item.videoAttachmentIds,
+        occupiedRetry: item.occupiedRetry,
       });
     });
   }
@@ -2039,7 +2043,10 @@ export class KimiTUI {
       );
     const submissionId = stagingLease?.submissionId;
     const resend = (): void => {
-      this.state.queuedMessages.unshift(this.toQueuedMessage(input, options));
+      this.state.queuedMessages.unshift({
+        ...this.toQueuedMessage(input, options),
+        occupiedRetry: true,
+      });
       this.updateQueueDisplay();
       this.drainQueueIfIdle();
     };
@@ -2060,6 +2067,7 @@ export class KimiTUI {
           session,
           error,
           entries: [entry],
+          retried: options?.occupiedRetry === true,
           retry: resend,
           restore: restoreInput,
         });
@@ -2080,6 +2088,7 @@ export class KimiTUI {
         session,
         error,
         entries: [entry],
+        retried: options?.occupiedRetry === true,
         retry: resend,
         restore: restoreInput,
       });
@@ -2112,6 +2121,9 @@ export class KimiTUI {
         track: (event, properties) => {
           this.track(event, properties);
         },
+        showError: (message) => {
+          this.showError(message);
+        },
         mountEditorReplacement: (panel) => {
           this.mountEditorReplacement(panel);
         },
@@ -2129,6 +2141,7 @@ export class KimiTUI {
     pluginId: string,
     commandName: string,
     args: string,
+    occupiedRetry = false,
   ): void {
     let rewrite: ReturnType<typeof rewriteMediaPlaceholders>;
     try {
@@ -2154,7 +2167,8 @@ export class KimiTUI {
         const recovered = this.messageDispatch.handlePromptConflict({
           session,
           error,
-          retry: () => this.activatePluginCommand(session, pluginId, commandName, args),
+          retried: occupiedRetry,
+          retry: () => this.activatePluginCommand(session, pluginId, commandName, args, true),
           restore: () => {
             this.staging.releaseRecalled(rewrite.imageAttachmentIds);
             this.restoreInputText(`/${pluginId}:${commandName}${args.length > 0 ? ` ${args}` : ''}`);
@@ -2318,6 +2332,7 @@ export class KimiTUI {
     input: readonly SteerInputItem[],
     onSettled?: (steered: boolean) => void,
     manual = false,
+    occupiedRetry = false,
   ): void {
     if (this.deferUserMessages || this.state.appState.isCompacting) {
       if (onSettled !== undefined) {
@@ -2414,7 +2429,8 @@ export class KimiTUI {
         session,
         error,
         entries: prepared === undefined && !manual ? steeredEntries : undefined,
-        retry: () => this.steerMessage(session, input, onSettled, manual),
+        retried: occupiedRetry,
+        retry: () => this.steerMessage(session, input, onSettled, manual, true),
         restore: () => {
           this.staging.releaseRecalled(mediaAttachmentIds);
           this.restoreInputText(input.map((item) => item.text).join('\n'));

@@ -207,6 +207,7 @@ describe('McpManagementService', () => {
         reg.defineInstance(IHostProcessService, hostProcess);
         reg.definePartialInstance(IAtomicDocumentStore, {
           get: async <T>() => (trusted ? ({} as T) : undefined),
+          list: async () => [],
         });
         reg.define(IMcpRegistryService, McpRegistryService);
         reg.defineInstance(IMcpOAuthService, oauth);

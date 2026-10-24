@@ -92,6 +92,7 @@ describe('McpRegistryService', () => {
             }
             return {} as T;
           },
+          list: async () => [],
         });
         reg.define(IMcpRegistryService, McpRegistryService);
       },

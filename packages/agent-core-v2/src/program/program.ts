@@ -330,6 +330,7 @@ export class Program {
         new WorkspaceDirsService(this.context, localConfig, this.dependencies.log, state),
       );
       const git = new WorkspaceGitService(this.context, this.dependencies.git);
+
       const fs = new WorkspaceFsService(
         this.context,
         dirs,
@@ -349,13 +350,7 @@ export class Program {
         ),
       );
       const trust = own(
-        new WorkspaceTrustService(
-          this.context,
-          this.dependencies.docs,
-          state,
-          this.dependencies.telemetry,
-          this.dependencies.bootstrap,
-        ),
+        new WorkspaceTrustService(this.context, this.dependencies.trustStore, state),
       );
       const mcpConfig = own(
         new WorkspaceMcpConfigService(
@@ -431,6 +426,7 @@ export class Program {
           this.dependencies.agentProfiles,
         ),
       );
+
       const skillDiscovery = new RuntimeSkillDiscovery(this.dependencies.log, runtime.fs!);
       const userSkills = this.dependencies.userSkills;
       const explicitSkills = new ExplicitFileSkillSource(

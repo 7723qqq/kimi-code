@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -6,6 +7,7 @@ import { join } from 'pathe';
 
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
+import { parseBooleanEnv } from '#/_base/utils/env';
 import { LifecycleScope } from '#/app/scopes';
 
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
@@ -17,6 +19,8 @@ import {
 } from '#/persistence/interface/sessionLock';
 
 const LOCK_FILE_VERSION = 1;
+
+export const SESSION_LOCK_ENV = 'KIMI_CODE_SESSION_LOCK';
 
 const UNREADABLE_HOLDER: SessionLockHolder = {
   version: 0,
@@ -34,9 +38,18 @@ type ClaimOutcome =
 function pidAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
-    return true;
   } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'EPERM';
+    if ((error as NodeJS.ErrnoException).code !== 'EPERM') return false;
+  }
+  if (process.platform === 'win32') return true;
+  try {
+    const stat = execFileSync('ps', ['-p', String(pid), '-o', 'stat='], {
+      encoding: 'utf8',
+      timeout: 1000,
+    });
+    return !stat.trim().startsWith('Z');
+  } catch {
+    return true;
   }
 }
 
@@ -44,6 +57,7 @@ export class SessionLockService extends SessionLockHolds {
   private readonly lockDir: string;
   private readonly hostname: string;
   private readonly clientIdentity: string;
+  private readonly disabled: boolean;
   private lockDirReady = false;
   private exitListener: (() => void) | undefined;
 
@@ -55,10 +69,12 @@ export class SessionLockService extends SessionLockHolds {
     this.lockDir = join(bootstrap.homeDir, 'locks', 'sessions');
     this.hostname = os.hostname();
     this.clientIdentity = bootstrap.clientIdentity.platform || bootstrap.clientIdentity.productName;
+    this.disabled = parseBooleanEnv(bootstrap.getEnv(SESSION_LOCK_ENV)) === false;
   }
 
   protected publish(sessionId: string): string {
     const token = `${process.pid}:${randomUUID()}`;
+    if (this.disabled) return token;
     let outcome: ClaimOutcome;
     try {
       outcome = this.claim(this.lockPath(sessionId), token);
@@ -82,6 +98,18 @@ export class SessionLockService extends SessionLockHolds {
       return;
     } finally {
       if (!this.holding) this.unwatchExit();
+    }
+  }
+
+  protected evict(sessionId: string): void {
+    const lockPath = this.lockPath(sessionId);
+    const holder = this.readHolder(lockPath);
+    if (holder === undefined) return;
+    this.log.warn('taking over session lock', { sessionId, holder });
+    try {
+      fs.unlinkSync(lockPath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
     }
   }
 

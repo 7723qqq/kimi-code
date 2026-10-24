@@ -1199,6 +1199,51 @@ describe('KimiTUI message flow', () => {
     expect(driver.state.editor.getText()).toBe(expected);
   });
 
+  it.each([
+    ['takes over the lock and resends', true],
+    ['gives the message back', false],
+  ] as const)('offers takeover once a retry is still occupied and %s', async (_label, takeOver) => {
+    const occupied = new KimiError(ErrorCodes.SESSION_OCCUPIED, 'in use');
+    const prompt = mock(async (_input: unknown) => {})
+      .mockRejectedValueOnce(occupied)
+      .mockRejectedValueOnce(occupied);
+    const takeOverLock = mock(async () => {});
+    const session = makeSession({ prompt, takeOverLock });
+    const { driver } = await makeDriver(session);
+    type Picker = { handleInput(data: string): void; render(width: number): string[] };
+    const picker = (): Picker => driver.state.editorContainer.children[0] as Picker;
+
+    driver.handleUserInput('hello');
+    await waitForAssertion(() => {
+      expect(stripSgr(picker().render(80).join(' '))).toContain('Session in use');
+    });
+    const first = stripSgr(picker().render(80).join(' '));
+    expect(first).not.toContain('Take over');
+    picker().handleInput('\r');
+
+    await waitForAssertion(() => {
+      expect(stripSgr(picker().render(80).join(' '))).toContain('Session still in use');
+    });
+    expect(stripSgr(picker().render(120).join(' '))).toContain(
+      'If another Kimi Code process is still running, taking over may mix up the history.',
+    );
+    if (takeOver) picker().handleInput('\u001B[B');
+    picker().handleInput('\r');
+
+    if (takeOver) {
+      await waitForAssertion(() => {
+        expect(prompt).toHaveBeenCalledTimes(3);
+      });
+      expect(takeOverLock).toHaveBeenCalledTimes(1);
+    } else {
+      await waitForAssertion(() => {
+        expect(driver.state.editor.getText()).toBe('hello');
+      });
+      expect(prompt).toHaveBeenCalledTimes(2);
+      expect(takeOverLock).not.toHaveBeenCalled();
+    }
+  });
+
   it('renders a bundled replay submission as a single turn', async () => {
     const session = makeSession({ id: 'ses-lazy' });
     const startupInput: KimiTUIStartupInput = {

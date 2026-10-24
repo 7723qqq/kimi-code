@@ -16,7 +16,6 @@ import type { IUserFileSkillSource } from '#/features/skill/catalog/userFileSkil
 import type { IWorkspaceSkillCatalog } from '#/features/skill/workspace/workspaceSkillCatalog';
 import type { McpOAuthService } from '#/mcpCore/oauth/service';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import type { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import type { SessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycleService';
 import type { IExplicitAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/explicitAgentProfileLoader';
 import type { IExtraAgentProfileLoader } from '#/workspace/workspaceAgentProfileLoader/extraAgentProfileLoader';
@@ -27,6 +26,7 @@ import type { IWorkspaceContext } from '#/workspace/workspaceContext/workspaceCo
 import type { IWorkspaceDirs } from '#/workspace/workspaceDirs/workspaceDirs';
 import type { IWorkspaceInstructionsService } from '#/workspace/workspaceInstructions/workspaceInstructions';
 import type { IWorkspaceMcpService } from '#/workspace/workspaceMcp/workspaceMcp';
+import type { IWorkspaceTrustStore } from '#/workspace/workspaceTrust/workspaceTrustStore';
 
 export interface ProgramSessionControllerInput {
   readonly context: IWorkspaceContext;
@@ -59,6 +59,6 @@ export interface ProgramDependencies {
   readonly builtinSkills: IBuiltinSkillSource;
   readonly userSkills: IUserFileSkillSource;
   readonly telemetry: ITelemetryService;
-  readonly docs: IAtomicDocumentStore;
+  readonly trustStore: IWorkspaceTrustStore;
   createSessionController(input: ProgramSessionControllerInput): SessionLifecycleService;
 }

@@ -466,6 +466,10 @@ exports[`API surface snapshot matches the documented v2 route table and meta end
     ],
     [
       "POST",
+      "/api/v1/sessions/{session_id}:takeover",
+    ],
+    [
+      "POST",
       "/api/v1/sessions/{session_id}/{tail}",
     ],
     [

@@ -41,6 +41,7 @@ import {
 } from '../protocol/rest-question';
 import {
   archiveSessionResponseSchema,
+  takeoverSessionResponseSchema,
   deleteSessionResponseSchema,
   getSessionResponseSchema,
 } from '../protocol/rest-session';
@@ -196,6 +197,10 @@ function patchSessionAction(paths: Record<string, unknown>): void {
   projectSessionAction(paths, pathItem, 'reload', 'runSessionReloadAction', {
     description: 'Session reload response',
     content: jsonContent(openApiDocumentEnvelopeJsonSchema(getSessionResponseSchema)),
+  });
+  projectSessionAction(paths, pathItem, 'takeover', 'runSessionTakeoverAction', {
+    description: 'Session lock takeover response',
+    content: jsonContent(openApiDocumentEnvelopeJsonSchema(takeoverSessionResponseSchema)),
   });
   delete paths[internalPath];
 }
