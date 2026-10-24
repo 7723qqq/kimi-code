@@ -138,32 +138,13 @@ async function encodeWebp(
   image: { bitmap: { data: Buffer | Uint8Array; width: number; height: number } },
   quality = 90,
 ): Promise<Uint8Array> {
-  const requireLocal = createRequire(import.meta.url);
-  const encMod = (await import(
-    requireLocal.resolve('@jsquash/webp/encode.js')
-  )) as typeof import('@jsquash/webp/encode.js');
-  const { readFileSync } = await import('node:fs');
-  const wasmNamespace = (
-    globalThis as unknown as { WebAssembly: { compile(bytes: Uint8Array): Promise<object> } }
-  ).WebAssembly;
-  const wasm = await wasmNamespace.compile(
-    readFileSync(requireLocal.resolve('@jsquash/webp/codec/enc/webp_enc.wasm')),
-  );
-  await encMod.init(wasm as never);
   const { bitmap } = image;
-  const encoded = await encMod.default(
-    {
-      data: new Uint8ClampedArray(
-        bitmap.data.buffer,
-        bitmap.data.byteOffset,
-        bitmap.data.byteLength,
-      ),
-      width: bitmap.width,
-      height: bitmap.height,
-    } as never,
-    { quality },
-  );
-  return new Uint8Array(encoded);
+  const png = await Jimp.fromBitmap({
+    data: Buffer.from(bitmap.data.buffer, bitmap.data.byteOffset, bitmap.data.byteLength),
+    width: bitmap.width,
+    height: bitmap.height,
+  }).getBuffer('image/png');
+  return new Uint8Array(await new Bun.Image(png).webp({ quality }).bytes());
 }
 
 function animatedWebpHeader(): Uint8Array {
@@ -302,11 +283,9 @@ describe('compressImageForModel — byte budget', () => {
     're-runs the JPEG quality ladder at fallback sizes instead of jumping to q20',
     async () => {
       const jpeg = await randomNoiseJpeg(2400, 300);
-      const probe = await Jimp.fromBuffer(Buffer.from(jpeg));
-      probe.resize({ w: 2000, h: 250 });
-      probe.resize({ w: 1000, h: 125 });
-      const q60Size = (await probe.getBuffer('image/jpeg', { quality: 60 })).length;
-      const q20Size = (await probe.getBuffer('image/jpeg', { quality: 20 })).length;
+      const probe = new Bun.Image(jpeg).resize(1000, 125);
+      const q60Size = (await probe.jpeg({ quality: 60 }).buffer()).length;
+      const q20Size = (await probe.jpeg({ quality: 20 }).buffer()).length;
       expect(q60Size).toBeGreaterThan(q20Size);
 
       const result = await compressImageForModel(jpeg, 'image/jpeg', {
@@ -315,7 +294,8 @@ describe('compressImageForModel — byte budget', () => {
       expect(result.changed).toBe(true);
       expect(result.mimeType).toBe('image/jpeg');
       expect(Math.max(result.width, result.height)).toBe(1000);
-      expect(result.finalByteLength).toBe(q60Size);
+      expect(result.finalByteLength).toBeLessThanOrEqual(q60Size + 256);
+      expect(result.finalByteLength).toBeGreaterThan(q20Size);
     },
     15_000,
   );

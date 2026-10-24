@@ -1,15 +1,16 @@
 export function isAnimatedWebp(bytes: Uint8Array): boolean {
-  if (bytes.length < 50) return false;
-  const limit = Math.min(bytes.length - 4, 4096);
-  for (let i = 0; i < limit; i++) {
-    if (
-      bytes[i] === 0x41 &&
-      bytes[i + 1] === 0x4e &&
-      bytes[i + 2] === 0x4d &&
-      bytes[i + 3] === 0x46
-    ) {
-      return true;
-    }
+  if (bytes.length < 21) return false;
+  return (
+    hasAscii(bytes, 'RIFF', 0) &&
+    hasAscii(bytes, 'WEBP', 8) &&
+    hasAscii(bytes, 'VP8X', 12) &&
+    (bytes[20]! & 0x02) !== 0
+  );
+}
+
+function hasAscii(bytes: Uint8Array, text: string, at: number): boolean {
+  for (let i = 0; i < text.length; i++) {
+    if (bytes[at + i] !== text.codePointAt(i)) return false;
   }
-  return false;
+  return true;
 }

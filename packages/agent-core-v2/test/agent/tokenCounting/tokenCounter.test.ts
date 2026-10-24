@@ -22,7 +22,6 @@ const EXPECTED_DEPENDENCIES = [
   '@anthropic-ai/claude-agent-sdk',
   '@anthropic-ai/sdk',
   '@google/genai',
-  '@jsquash/webp',
   '@modelcontextprotocol/sdk',
   '@moonshot-ai/kimi-code-oauth',
   '@moonshot-ai/kimi-i18n',

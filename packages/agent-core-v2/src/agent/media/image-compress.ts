@@ -15,7 +15,7 @@ import {
   resolveEffectiveImageMime,
   unsupportedImageMimeFromUrl,
 } from './image-format-policy';
-import { decodeWebp, isAnimatedWebp } from './webp-decode';
+import { isAnimatedWebp } from './webp-animated';
 
 export const MAX_IMAGE_EDGE_PX = 2000;
 
@@ -143,10 +143,13 @@ export async function compressImageForModel(
   if (bytes.length > maxDecodeBytes) return finish('passthrough_guard', passthrough());
 
   try {
-    const image = await decodeToJimp(bytes, normalizedMime);
+    const metadata = await new Bun.Image(bytes).metadata();
+    const image = mayHaveTransparency(bytes)
+      ? jimpEncoder(await decodeToJimp(bytes, normalizedMime))
+      : nativeEncoder(bytes, metadata.width, metadata.height);
     const preferLossless = normalizedMime !== 'image/jpeg';
-    const decodedWidth = image.width;
-    const decodedHeight = image.height;
+    const decodedWidth = metadata.width;
+    const decodedHeight = metadata.height;
 
     fitWithinEdge(image, maxEdge);
 
@@ -535,8 +538,9 @@ export async function cropImageForModel(
       });
     }
 
-    fitWithinEdge(image, maxEdge);
-    const encoded = await encodeWithinBudget(image, {
+    const encoder = jimpEncoder(image);
+    fitWithinEdge(encoder, maxEdge);
+    const encoded = await encodeWithinBudget(encoder, {
       preferLossless,
       byteBudget,
       fallbackEdges: FALLBACK_EDGES_PX,
@@ -627,20 +631,71 @@ interface EncodeOptions {
   readonly fallbackEdges: readonly number[];
 }
 
+function mayHaveTransparency(bytes: Uint8Array): boolean {
+  if (bytes.length >= 26 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
+    return bytes[25] !== 0x00 && bytes[25] !== 0x02;
+  }
+  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
+    return false;
+  }
+  return true;
+}
+
 async function decodeToJimp(bytes: Uint8Array, normalizedMime: string): Promise<JimpImage> {
   const { Jimp } = await import('jimp');
   if (normalizedMime === 'image/webp') {
-    const decoded = await decodeWebp(bytes);
-    return Jimp.fromBitmap({
-      data: Buffer.from(decoded.data.buffer, decoded.data.byteOffset, decoded.data.byteLength),
-      width: decoded.width,
-      height: decoded.height,
-    });
+    const png = await new Bun.Image(bytes).png().bytes();
+    return Jimp.fromBuffer(Buffer.from(png));
   }
   return Jimp.fromBuffer(Buffer.from(bytes));
 }
 
-async function encodeWithinBudget(image: JimpImage, opts: EncodeOptions): Promise<EncodedImage> {
+interface ResizeEncoder {
+  readonly width: number;
+  readonly height: number;
+  resizeTo(width: number, height: number): void;
+  encodeJpeg(quality: number): Promise<Buffer>;
+  encodePng(): Promise<Buffer>;
+}
+
+function nativeEncoder(source: Uint8Array, width: number, height: number): ResizeEncoder {
+  const handle = new Bun.Image(source);
+  let w = width;
+  let h = height;
+  return {
+    get width() {
+      return w;
+    },
+    get height() {
+      return h;
+    },
+    resizeTo(nextWidth: number, nextHeight: number) {
+      w = nextWidth;
+      h = nextHeight;
+      handle.resize(nextWidth, nextHeight);
+    },
+    encodeJpeg: (quality) => handle.jpeg({ quality }).buffer(),
+    encodePng: () => handle.png({ compressionLevel: 9 }).buffer(),
+  };
+}
+
+function jimpEncoder(image: JimpImage): ResizeEncoder {
+  return {
+    get width() {
+      return image.width;
+    },
+    get height() {
+      return image.height;
+    },
+    resizeTo(width: number, height: number) {
+      image.resize({ w: width, h: height });
+    },
+    encodeJpeg: (quality) => image.getBuffer('image/jpeg', { quality }),
+    encodePng: () => image.getBuffer('image/png', { deflateLevel: 9 }),
+  };
+}
+
+async function encodeWithinBudget(image: ResizeEncoder, opts: EncodeOptions): Promise<EncodedImage> {
   const { preferLossless, byteBudget, fallbackEdges } = opts;
   let smallest: EncodedImage | null = null;
 
@@ -654,7 +709,7 @@ async function encodeWithinBudget(image: JimpImage, opts: EncodeOptions): Promis
 
   const jpegLadder = async (): Promise<EncodedImage | null> => {
     for (const quality of JPEG_QUALITY_STEPS) {
-      const jpeg = await image.getBuffer('image/jpeg', { quality });
+      const jpeg = await image.encodeJpeg(quality);
       if (jpeg.length <= byteBudget) return consider(jpeg, 'image/jpeg');
       consider(jpeg, 'image/jpeg');
     }
@@ -662,14 +717,14 @@ async function encodeWithinBudget(image: JimpImage, opts: EncodeOptions): Promis
   };
 
   if (preferLossless) {
-    const png = await image.getBuffer('image/png', { deflateLevel: 9 });
+    const png = await image.encodePng();
     if (png.length <= byteBudget) return consider(png, 'image/png');
     consider(png, 'image/png');
 
     for (const edge of fallbackEdges) {
       if (edge < PNG_RESCALE_FLOOR_PX) break;
       if (!fitWithinEdge(image, edge)) continue;
-      const smallerPng = await image.getBuffer('image/png', { deflateLevel: 9 });
+      const smallerPng = await image.encodePng();
       if (smallerPng.length <= byteBudget) return consider(smallerPng, 'image/png');
       consider(smallerPng, 'image/png');
     }
@@ -696,14 +751,14 @@ async function encodeWithinBudget(image: JimpImage, opts: EncodeOptions): Promis
   return smallest!;
 }
 
-function fitWithinEdge(image: JimpImage, edge: number): boolean {
+function fitWithinEdge(image: ResizeEncoder, edge: number): boolean {
   const longest = Math.max(image.width, image.height);
   if (longest <= edge) return false;
   const factor = edge / longest;
-  image.resize({
-    w: Math.max(1, Math.round(image.width * factor)),
-    h: Math.max(1, Math.round(image.height * factor)),
-  });
+  image.resizeTo(
+    Math.max(1, Math.round(image.width * factor)),
+    Math.max(1, Math.round(image.height * factor)),
+  );
   return true;
 }
 
