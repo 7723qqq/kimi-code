@@ -33,7 +33,9 @@ describe('attachmentImage format coverage', () => {
   });
 
   it('rejects data that is not an image at all', async () => {
-    await expect(detectImage(Buffer.from('not an image'))).rejects.toThrow(/Unsupported or malformed/);
+    await expect(detectImage(Buffer.from('not an image'))).rejects.toThrow(
+      /Unsupported or malformed/,
+    );
   });
 
   it('rejects an image whose declared pixels exceed the limit', async () => {

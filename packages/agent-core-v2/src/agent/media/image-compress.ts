@@ -3,7 +3,7 @@ import type { ITelemetryService } from '#/app/telemetry/telemetry';
 import { DEFAULT_INLINE_IMAGE_BYTE_BUDGET } from '#human/llm/media/image-formats';
 import type { ContentPart } from '#human/llm/message';
 
-import { sniffImageDimensions } from './file-type';
+import { sniffImageDimensions, sniffMediaFromMagic } from './file-type';
 import {
   buildMalformedImageNotice,
   buildUnsupportedImageNotice,
@@ -632,11 +632,10 @@ interface EncodeOptions {
 }
 
 function mayHaveTransparency(bytes: Uint8Array): boolean {
-  if (bytes.length >= 26 && bytes[0] === 0x89 && bytes[1] === 0x50 && bytes[2] === 0x4e && bytes[3] === 0x47) {
+  const sniffed = sniffMediaFromMagic(bytes);
+  if (sniffed?.kind === 'image' && sniffed.mimeType === 'image/jpeg') return false;
+  if (sniffed?.kind === 'image' && sniffed.mimeType === 'image/png' && bytes.length >= 26) {
     return bytes[25] !== 0x00 && bytes[25] !== 0x02;
-  }
-  if (bytes.length >= 3 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff) {
-    return false;
   }
   return true;
 }
@@ -695,12 +694,20 @@ function jimpEncoder(image: JimpImage): ResizeEncoder {
   };
 }
 
-async function encodeWithinBudget(image: ResizeEncoder, opts: EncodeOptions): Promise<EncodedImage> {
+async function encodeWithinBudget(
+  encoder: ResizeEncoder,
+  opts: EncodeOptions,
+): Promise<EncodedImage> {
   const { preferLossless, byteBudget, fallbackEdges } = opts;
   let smallest: EncodedImage | null = null;
 
   const consider = (data: Buffer, mimeType: string): EncodedImage => {
-    const candidate: EncodedImage = { data, mimeType, width: image.width, height: image.height };
+    const candidate: EncodedImage = {
+      data,
+      mimeType,
+      width: encoder.width,
+      height: encoder.height,
+    };
     if (smallest === null || candidate.data.length < smallest.data.length) {
       smallest = candidate;
     }
@@ -709,7 +716,7 @@ async function encodeWithinBudget(image: ResizeEncoder, opts: EncodeOptions): Pr
 
   const jpegLadder = async (): Promise<EncodedImage | null> => {
     for (const quality of JPEG_QUALITY_STEPS) {
-      const jpeg = await image.encodeJpeg(quality);
+      const jpeg = await encoder.encodeJpeg(quality);
       if (jpeg.length <= byteBudget) return consider(jpeg, 'image/jpeg');
       consider(jpeg, 'image/jpeg');
     }
@@ -717,14 +724,14 @@ async function encodeWithinBudget(image: ResizeEncoder, opts: EncodeOptions): Pr
   };
 
   if (preferLossless) {
-    const png = await image.encodePng();
+    const png = await encoder.encodePng();
     if (png.length <= byteBudget) return consider(png, 'image/png');
     consider(png, 'image/png');
 
     for (const edge of fallbackEdges) {
       if (edge < PNG_RESCALE_FLOOR_PX) break;
-      if (!fitWithinEdge(image, edge)) continue;
-      const smallerPng = await image.encodePng();
+      if (!fitWithinEdge(encoder, edge)) continue;
+      const smallerPng = await encoder.encodePng();
       if (smallerPng.length <= byteBudget) return consider(smallerPng, 'image/png');
       consider(smallerPng, 'image/png');
     }
@@ -733,7 +740,7 @@ async function encodeWithinBudget(image: ResizeEncoder, opts: EncodeOptions): Pr
     if (atFloor !== null) return atFloor;
     for (const edge of fallbackEdges) {
       if (edge >= PNG_RESCALE_FLOOR_PX) continue;
-      if (!fitWithinEdge(image, edge)) continue;
+      if (!fitWithinEdge(encoder, edge)) continue;
       const atEdge = await jpegLadder();
       if (atEdge !== null) return atEdge;
     }
@@ -743,7 +750,7 @@ async function encodeWithinBudget(image: ResizeEncoder, opts: EncodeOptions): Pr
   const atFitted = await jpegLadder();
   if (atFitted !== null) return atFitted;
   for (const edge of fallbackEdges) {
-    if (!fitWithinEdge(image, edge)) continue;
+    if (!fitWithinEdge(encoder, edge)) continue;
     const atEdge = await jpegLadder();
     if (atEdge !== null) return atEdge;
   }
@@ -751,13 +758,13 @@ async function encodeWithinBudget(image: ResizeEncoder, opts: EncodeOptions): Pr
   return smallest!;
 }
 
-function fitWithinEdge(image: ResizeEncoder, edge: number): boolean {
-  const longest = Math.max(image.width, image.height);
+function fitWithinEdge(encoder: ResizeEncoder, edge: number): boolean {
+  const longest = Math.max(encoder.width, encoder.height);
   if (longest <= edge) return false;
   const factor = edge / longest;
-  image.resizeTo(
-    Math.max(1, Math.round(image.width * factor)),
-    Math.max(1, Math.round(image.height * factor)),
+  encoder.resizeTo(
+    Math.max(1, Math.round(encoder.width * factor)),
+    Math.max(1, Math.round(encoder.height * factor)),
   );
   return true;
 }

@@ -1,5 +1,3 @@
-import type { FetchLike } from '#/_base/utils/fetchLike';
-
 const savedEnvs = new Map<string, string | undefined>();
 const savedDescriptors = new Map<string, PropertyDescriptor | undefined>();
 

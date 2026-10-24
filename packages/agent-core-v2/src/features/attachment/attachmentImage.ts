@@ -19,7 +19,10 @@ const MEDIA_TYPES: Readonly<Record<string, ImageMediaType>> = {
 export function probeImage(data: Uint8Array): DetectedImage {
   const detected = sniff(data);
   if (detected === null) {
-    throw new AttachmentError(AttachmentErrors.codes.ATTACHMENT_INVALID_IMAGE, 'Unsupported or malformed image data.');
+    throw new AttachmentError(
+      AttachmentErrors.codes.ATTACHMENT_INVALID_IMAGE,
+      'Unsupported or malformed image data.',
+    );
   }
   return detected;
 }
@@ -27,7 +30,10 @@ export function probeImage(data: Uint8Array): DetectedImage {
 export async function detectImage(data: Uint8Array, maxPixels?: number): Promise<DetectedImage> {
   const detected = sniff(data);
   if (detected === null) {
-    throw new AttachmentError(AttachmentErrors.codes.ATTACHMENT_INVALID_IMAGE, 'Unsupported or malformed image data.');
+    throw new AttachmentError(
+      AttachmentErrors.codes.ATTACHMENT_INVALID_IMAGE,
+      'Unsupported or malformed image data.',
+    );
   }
   if (maxPixels !== undefined && detected.width * detected.height > maxPixels) {
     throw new AttachmentError(

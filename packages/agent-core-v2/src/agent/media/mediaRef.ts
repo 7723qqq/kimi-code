@@ -1,5 +1,3 @@
-import { join } from 'node:path';
-
 import type { MediaPathTagKind } from '#human/llm/media/pathTag';
 import type { ContentPart } from '#human/llm/message';
 
@@ -149,12 +147,6 @@ export function daemonFileRefFromPart(
     return ref === undefined ? undefined : { kind: 'video', ref };
   }
   return undefined;
-}
-
-export const SESSION_MEDIA_DIR = 'media';
-
-export function sessionMediaFilePath(sessionDir: string, fileId: string, ext: string): string {
-  return join(sessionDir, SESSION_MEDIA_DIR, `${fileId}${ext}`);
 }
 
 export {
