@@ -76,6 +76,7 @@
     "chokidar": "^4.0.3",
     "ignore": "^5.3.2",
     "immer": "^11.1.0",
+    "jimp": "catalog:",
     "js-yaml": "^4.1.1",
     "linkedom": "^0.18.12",
     "openai": "^6.34.0",
@@ -103,7 +104,6 @@
     "@types/tar": "^7.0.87",
     "@types/yauzl": "^2.10.3",
     "@types/yazl": "^2.4.6",
-    "jimp": "catalog:",
     "sinon": "^22.0.0",
     "ts-morph": "^28.0.0",
     "tsx": "catalog:"

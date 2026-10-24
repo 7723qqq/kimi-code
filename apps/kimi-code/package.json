@@ -80,6 +80,7 @@
   },
   "dependencies": {
     "chokidar": "^4.0.3",
+    "jimp": "catalog:",
     "qrcode": "^1.5.4",
     "ws": "catalog:"
   },
@@ -105,7 +106,6 @@
     "chalk": "^5.4.1",
     "cli-highlight": "^2.1.11",
     "commander": "^13.1.0",
-    "jimp": "catalog:",
     "lovely-mermaid": "0.3.3",
     "pathe": "catalog:",
     "semver": "^7.7.4",
