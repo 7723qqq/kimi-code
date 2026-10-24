@@ -125,7 +125,7 @@ metrics, with the commands above as the evidence.
 
 ## Testing Rules
 
-- **`bun:test`** for every TypeScript/JavaScript suite; Bun 1.4.2 is the runner and the runtime. There is no vitest dependency or config in the repository.
+- **`bun:test`** for every TypeScript/JavaScript suite; Bun 1.4.4 is the runner and the runtime. There is no vitest dependency or config in the repository.
 - Each package's `bunfig.toml` owns `[test] preload` and `pathIgnorePatterns`; heavy/e2e sets are opt-in through `--path-ignore-patterns`, which overrides the file.
 - Every package `test` script passes `--isolate`, so each test file starts from a fresh global and module registry and one file's `mock.module` cannot leak into the next.
 - **Coverage**: `bun test --coverage` (lcov reporter), per package.

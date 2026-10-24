@@ -37,7 +37,7 @@ Kimi Code 对 CLI/TUI 行为、agent 工作流和公开 API 已有自己的主�
 
 ## 开发环境
 
-前置要求：Bun >= 1.4、Git。Bun 开发流程不再需要 Node.js——测试套件由 Bun 的原生 `bun test` 执行（`bun run test` 逐包跑完整套件，不需要 Node）。Nix 构建路径（`flake.nix`、`nix-build.yml`）仍要求 Node.js >= 24.15.0。
+前置要求：Bun >= 1.4.4、Git。Bun 开发流程不再需要 Node.js——测试套件由 Bun 的原生 `bun test` 执行（`bun run test` 逐包跑完整套件，不需要 Node）。Nix 构建路径（`flake.nix`、`nix-build.yml`）仍要求 Node.js >= 24.15.0。
 
 ```sh
 git clone https://github.com/7723qqq/kimi-code.git

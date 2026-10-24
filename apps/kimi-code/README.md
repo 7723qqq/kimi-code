@@ -36,7 +36,7 @@ kimi --version
 
 ### Alternative: npm
 
-Any npm-compatible installer works, but the CLI itself runs on Bun — the published package declares `"bun": ">=1.4.0"` and exits with an error under a plain Node runtime:
+Any npm-compatible installer works, but the CLI itself runs on Bun — the published package declares `"bun": ">=1.4.4"` and exits with an error under a plain Node runtime:
 
 ```sh
 npm install -g @moonshot-ai/kimi-code

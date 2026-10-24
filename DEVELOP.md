@@ -51,8 +51,8 @@ User-level global instructions (`~/.kimi-code/AGENTS.md`) and a local `SYSTEM.md
 |-------|-----------|
 | Primary language | **TypeScript** 6.0.2 (strict mode) |
 | Module system | ESM (`"type": "module"` in every package) |
-| Dev runtime | **Bun** >= 1.4 — install, build, lint, typecheck, and the test suites (`bun run test`) all run through bun |
-| Published CLI runtime | **Bun** >= 1.4.0 (`engines` floor of the published package) |
+| Dev runtime | **Bun** >= 1.4.4 — install, build, lint, typecheck, and the test suites (`bun run test`) all run through bun |
+| Published CLI runtime | **Bun** >= 1.4.4 (`engines` floor of the published package) |
 | Web UI (peer) | **Vue 3** + **Vite** |
 | VS Code extension | **React 19** + **TailwindCSS 4** + **shadcn/ui** |
 
@@ -71,7 +71,7 @@ User-level global instructions (`~/.kimi-code/AGENTS.md`) and a local `SYSTEM.md
 |------|---------|
 | **oxlint** 1.59.0 | Linter — correctness (error), suspicious (warn), pedantic (warn), perf (warn) |
 | **oxfmt** | Formatter — 100 print width, single quotes, trailing commas, sorted imports |
-| **bun:test** (Bun 1.4.2) | Test runner and coverage (`bun test --coverage`, lcov) |
+| **bun:test** (Bun 1.4.4) | Test runner and coverage (`bun test --coverage`, lcov) |
 | **simple-git-hooks** | Pre-commit hooks (runs `lint-staged`) |
 | **lint-staged** | Lint staged files with `oxlint --quiet` + `oxlint --type-aware --quiet` |
 | **changesets** | Version management and changelog generation |
@@ -332,9 +332,9 @@ the `cwd` its script expects — `bun run` resolves relative to the package — 
 
 ## Environment Requirements
 
-- **Bun**: `>= 1.4` — required. Package manager, script runner, and dev-toolchain runtime (`bun.lock` is the lockfile, specified via `bunVersion` in `flake.nix`); build, lint, typecheck, locale checks, and the test suites (`bun run test`) all run through bun.
+- **Bun**: `>= 1.4.4` — required. Package manager, script runner, and dev-toolchain runtime (`bun.lock` is the lockfile, specified via `bunVersion` in `flake.nix`); build, lint, typecheck, locale checks, and the test suites (`bun run test`) all run through bun.
 - **Node.js**: not required for the Bun-based dev workflow — build, lint, typecheck, the native pipeline, and the test suites all run under Bun (pi-tui's bun:test suite included), and no CI job installs Node. The Nix build path is the exception: `flake.nix` pins `minNodeVersion = "24.15.0"` and fails evaluation below it, keeps `nodejs` in the derivation's `nativeBuildInputs` and the devShell, and runs `node apps/kimi-code/scripts/check-web-assets.mjs` as a build step, so `nix-build.yml` needs Node on every PR.
-- **Published package engines**: the published package declares `"bun": ">=1.4.0"` — the same floor the dev toolchain requires.
+- **Published package engines**: the published package declares `"bun": ">=1.4.4"` — the same floor the dev toolchain requires.
 - **Git for Windows** (Windows only): Optional; used as the POSIX shell fallback when PowerShell is unavailable. Set `KIMI_SHELL_PATH` to pin a specific shell.
 
 ---
@@ -440,7 +440,7 @@ The macOS and Windows signing steps degrade safely when their secrets are unset:
 
 ### Test Framework
 
-- **`bun:test`** for every TypeScript/JavaScript suite in the workspace, run through each package's own `bun test`. Bun 1.4.2 is both the runtime and the runner; the repository no longer contains a vitest dependency or config.
+- **`bun:test`** for every TypeScript/JavaScript suite in the workspace, run through each package's own `bun test`. Bun 1.4.4 is both the runtime and the runner; the repository no longer contains a vitest dependency or config.
 - Each package's `bunfig.toml` supplies `[test] preload` (setup modules) and `pathIgnorePatterns` (the heavy/e2e set). A CLI `--path-ignore-patterns` overrides the file, which is how the heavy scripts opt back in.
 - Every package `test` script passes `--isolate`: each test file gets a fresh global and module registry, which is what keeps `mock.module` registrations from leaking into the next file.
 - **`--timeout` is the only knob that reaches hooks.** Bun 1.4.2 applies `bunfig.toml`'s `[test] timeout` to test bodies only; a `beforeEach` that builds a real `git` fixture still dies at the built-in 5s. Every package script therefore passes a CLI `--timeout` (30s in `agent-core-v2`/`kimi-code`/`minidb`, 15s in `kap-server`). On a Windows host the first external spawn in a process also costs a one-off ~3s, which lands inside whichever hook spawns first.

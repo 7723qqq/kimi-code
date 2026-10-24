@@ -48,7 +48,7 @@ irm https://code.kimi.com/kimi-code/install.ps1 | iex
 
 ## Run This Fork From Source
 
-Requirements: **Bun >= 1.4** and **Git**. Node.js is not required — Bun is the package manager, runtime, and packaging engine here. The Nix build path (`flake.nix`) is the only thing that still needs Node.js >= 24.15.0.
+Requirements: **Bun >= 1.4.4** and **Git**. Node.js is not required — Bun is the package manager, runtime, and packaging engine here. The Nix build path (`flake.nix`) is the only thing that still needs Node.js >= 24.15.0.
 
 ```sh
 git clone https://github.com/7723qqq/kimi-code.git

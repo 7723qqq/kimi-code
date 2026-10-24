@@ -50,7 +50,7 @@ irm https://code.kimi.com/kimi-code/install.ps1 | iex
 
 ## 从源码运行本 fork
 
-环境要求：**Bun >= 1.4** 和 **Git**。不需要 Node.js —— 在这里 Bun 同时是包管理器、运行时和打包引擎。只有 Nix 构建路径（`flake.nix`）仍需要 Node.js >= 24.15.0。
+环境要求：**Bun >= 1.4.4** 和 **Git**。不需要 Node.js —— 在这里 Bun 同时是包管理器、运行时和打包引擎。只有 Nix 构建路径（`flake.nix`）仍需要 Node.js >= 24.15.0。
 
 ```sh
 git clone https://github.com/7723qqq/kimi-code.git

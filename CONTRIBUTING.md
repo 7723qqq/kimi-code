@@ -37,7 +37,7 @@ For the full project map, see [DEVELOP.md](DEVELOP.md).
 
 ## Development Setup
 
-Prerequisites: Bun >= 1.4, Git. Node.js is no longer required for the Bun-based development workflow — the test suites run on Bun's native `bun test` (`bun run test` runs every package, and no Node install is needed). The Nix build path (`flake.nix`, `nix-build.yml`) still requires Node.js >= 24.15.0.
+Prerequisites: Bun >= 1.4.4, Git. Node.js is no longer required for the Bun-based development workflow — the test suites run on Bun's native `bun test` (`bun run test` runs every package, and no Node install is needed). The Nix build path (`flake.nix`, `nix-build.yml`) still requires Node.js >= 24.15.0.
 
 ```sh
 git clone https://github.com/7723qqq/kimi-code.git

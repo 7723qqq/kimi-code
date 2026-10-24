@@ -40,7 +40,7 @@ The script automatically downloads the latest release, verifies the checksum, an
 
 ### Package manager installation
 
-Requires Bun 1.4.0 or later:
+Requires Bun 1.4.4 or later:
 
 ```sh
 bun --version

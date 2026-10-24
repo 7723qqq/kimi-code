@@ -84,7 +84,7 @@
     "@changesets/changelog-github": "0.7.0",
     "@changesets/cli": "2.30.0",
     "@microsoft/api-extractor": "7.58.7",
-    "@types/bun": "^1.4.3",
+    "@types/bun": "^1.4.4",
     "@types/node": "^22.15.3",
     "lint-staged": "16.4.0",
     "oxfmt": "^0.63.0",

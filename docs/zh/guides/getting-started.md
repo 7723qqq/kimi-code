@@ -40,7 +40,7 @@ irm https://code.kimi.com/kimi-code/install.ps1 | iex
 
 ### 包管理器安装
 
-需要 Bun 1.4.0 或更高版本：
+需要 Bun 1.4.4 或更高版本：
 
 ```sh
 bun --version
