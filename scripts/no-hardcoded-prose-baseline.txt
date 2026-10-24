@@ -38,7 +38,6 @@ apps/kimi-code/src/tui/controllers/session-replay.ts  2  dc2520277b86
 apps/kimi-code/src/tui/controllers/staging-leases.ts  1  cf04345e8938
 apps/kimi-code/src/tui/controllers/subagent-activity-store.ts  2  6663d7d6b33f
 apps/kimi-code/src/tui/goal-queue-store.ts  2  4164f16fd4bc
-apps/kimi-code/src/tui/kimi-tui.ts  12  7c70e40f2d3f
 apps/kimi-code/src/tui/reverse-rpc/approval/handler.ts  1  15b75d1ffcb6
 apps/kimi-code/src/tui/reverse-rpc/question/handler.ts  1  3cf4a1cc2e10
 apps/kimi-code/src/tui/utils/cache-hint.ts  2  95ba4a0abdb6

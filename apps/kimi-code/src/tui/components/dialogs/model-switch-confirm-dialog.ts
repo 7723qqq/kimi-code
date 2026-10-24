@@ -12,20 +12,12 @@
  * descriptions.
  */
 
-import {
-  Container,
-  matchesKey,
-  Key,
-  truncateToWidth,
-  visibleWidth,
-  type Focusable,
-} from '@moonshot-ai/pi-tui';
+import { Container, matchesKey, Key, truncateToWidth, visibleWidth, type Focusable } from '@moonshot-ai/pi-tui';
+import { t } from '#/i18n';
 import { SELECT_POINTER } from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import { SearchableList } from '#/tui/utils/searchable-list';
 import type { ModelSwitchAction } from '#/utils/model-switch-confirm-config';
-
-const TITLE = 'Switch model?';
 
 interface ModelSwitchOption {
   readonly value: ModelSwitchAction;
@@ -33,24 +25,36 @@ interface ModelSwitchOption {
   readonly description?: string;
 }
 
-const OPTIONS: readonly ModelSwitchOption[] = [
-  {
-    value: 'new',
-    label: 'Start a new session',
-    description: 'No extra cost · best for a new task',
-  },
-  {
-    value: 'compact',
-    label: 'Compact and continue',
-    description: 'Lower cost and better output quality when continuing this session',
-  },
-  {
-    value: 'continue',
-    label: 'Continue as-is',
-    description: 'Output quality may suffer · cache loss may increase token usage',
-  },
-  { value: 'cancel', label: 'Cancel', description: 'Stay on the current model' },
-];
+/**
+ * Labels resolve at call time rather than at module load: a `t()` captured in a
+ * module-level constant would pin the locale that happened to be active when
+ * the module was first imported, so switching language mid-session would leave
+ * this dialog untranslated.
+ */
+function modelSwitchOptions(): readonly ModelSwitchOption[] {
+  return [
+    {
+      value: 'new',
+      label: t('tui.dialogs.modelSwitchConfirm.newSessionLabel'),
+      description: t('tui.dialogs.modelSwitchConfirm.newSessionDescription'),
+    },
+    {
+      value: 'compact',
+      label: t('tui.dialogs.modelSwitchConfirm.compactLabel'),
+      description: t('tui.dialogs.modelSwitchConfirm.compactDescription'),
+    },
+    {
+      value: 'continue',
+      label: t('tui.dialogs.modelSwitchConfirm.continueLabel'),
+      description: t('tui.dialogs.modelSwitchConfirm.continueDescription'),
+    },
+    {
+      value: 'cancel',
+      label: t('tui.dialogs.modelSwitchConfirm.cancelLabel'),
+      description: t('tui.dialogs.modelSwitchConfirm.cancelDescription'),
+    },
+  ];
+}
 
 export interface ModelSwitchConfirmDialogOptions {
   /** Display name of the model in effect before the switch. */
@@ -73,7 +77,7 @@ export class ModelSwitchConfirmDialogComponent extends Container implements Focu
     super();
     this.opts = opts;
     this.list = new SearchableList({
-      items: OPTIONS,
+      items: modelSwitchOptions(),
       toSearchText: (o) => o.label,
       initialIndex: 0,
       searchable: false,
@@ -98,9 +102,9 @@ export class ModelSwitchConfirmDialogComponent extends Container implements Focu
     const modelSuffix = `${this.opts.fromModel} → ${this.opts.toModel}`;
     const lines: string[] = [
       currentTheme.fg('primary', '─'.repeat(width)),
-      currentTheme.boldFg('primary', ` ${TITLE}`) +
+      currentTheme.boldFg('primary', ` ${t('tui.dialogs.modelSwitchConfirm.title')}`) +
         currentTheme.fg('textMuted', `  ${modelSuffix}`),
-      currentTheme.fg('textMuted', ' ↑↓ navigate · Enter select · Esc cancel'),
+      currentTheme.fg('textMuted', ` ${t('tui.dialogs.modelSwitchConfirm.keyboardHint')}`),
       '',
     ];
     if (this.opts.hint !== undefined) {
@@ -109,7 +113,7 @@ export class ModelSwitchConfirmDialogComponent extends Container implements Focu
       }
     }
 
-    const maxLabelWidth = Math.max(...OPTIONS.map((o) => visibleWidth(o.label)));
+    const maxLabelWidth = Math.max(...view.items.map((o) => visibleWidth(o.label)));
     for (let i = view.page.start; i < view.page.end; i++) {
       const opt = view.items[i]!;
       const isSelected = i === view.selectedIndex;

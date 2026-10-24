@@ -1,5 +1,7 @@
 import type { KimiHarness, Session } from '@moonshot-ai/kimi-code-sdk';
 
+import { t } from '#/i18n';
+
 import { formatErrorMessage } from '../utils/event-payload';
 import { occupiedHolderClientId } from '../utils/session-lock-errors';
 
@@ -23,27 +25,50 @@ export interface SessionOccupancyPrompt {
   readonly restore: () => void;
 }
 
-const OCCUPIED_PROMPT_TITLE = 'Session in use';
+/**
+ * Copy resolves per call rather than at module load: a `t()` captured in a
+ * module constant would freeze the locale active at first import, so a
+ * mid-session language switch would leave these prompts untranslated.
+ */
+function occupiedPromptOptions(): readonly {
+  value: 'retry' | 'cancel';
+  label: string;
+  description: string;
+}[] {
+  return [
+    {
+      value: 'retry',
+      label: t('tui.sessionOccupancy.retryLabel'),
+      description: t('tui.sessionOccupancy.retryDescription'),
+    },
+    {
+      value: 'cancel',
+      label: t('tui.sessionOccupancy.cancelLabel'),
+      description: t('tui.sessionOccupancy.cancelDescription'),
+    },
+  ];
+}
 
-const OCCUPIED_PROMPT_OPTIONS = [
-  { value: 'retry', label: 'Retry', description: 'send again now' },
-  { value: 'cancel', label: 'Cancel', description: 'get your message back' },
-] as const;
-
-const TAKEOVER_PROMPT_TITLE = 'Session still in use';
-
-const TAKEOVER_PROMPT_OPTIONS = [
-  { value: 'cancel', label: 'Cancel', description: 'get your message back' },
-  {
-    value: 'takeover',
-    label: 'Take over',
-    tone: 'danger' as const,
-    description: 'send your message anyway',
-  },
-] as const;
-
-const TAKEOVER_NOTICE =
-  'If another Kimi Code process is still running, taking over may mix up the history.';
+function takeoverPromptOptions(): readonly {
+  value: 'takeover' | 'cancel';
+  label: string;
+  description: string;
+  tone?: 'danger';
+}[] {
+  return [
+    {
+      value: 'cancel',
+      label: t('tui.sessionOccupancy.cancelLabel'),
+      description: t('tui.sessionOccupancy.cancelDescription'),
+    },
+    {
+      value: 'takeover',
+      label: t('tui.sessionOccupancy.takeoverLabel'),
+      tone: 'danger',
+      description: t('tui.sessionOccupancy.takeoverDescription'),
+    },
+  ];
+}
 
 export function showSessionOccupancyPrompt(
   host: SessionOccupancyHost,
@@ -73,10 +98,10 @@ function showSessionOccupied(
   };
   host.mountEditorReplacement(
     new ChoicePickerComponent({
-      title: OCCUPIED_PROMPT_TITLE,
+      title: t('tui.sessionOccupancy.occupiedTitle'),
       notice: formatErrorMessage(error),
       noticeTone: 'warning',
-      options: OCCUPIED_PROMPT_OPTIONS.map((option) => ({ ...option })),
+      options: occupiedPromptOptions().map((option) => ({ ...option })),
       spaceSelect: false,
       onSelect: (action) => {
         if (action !== 'retry') {
@@ -108,10 +133,10 @@ function showSessionTakeover(
   };
   host.mountEditorReplacement(
     new ChoicePickerComponent({
-      title: TAKEOVER_PROMPT_TITLE,
-      notice: TAKEOVER_NOTICE,
+      title: t('tui.sessionOccupancy.takeoverTitle'),
+      notice: t('tui.sessionOccupancy.takeoverNotice'),
       noticeTone: 'warning',
-      options: TAKEOVER_PROMPT_OPTIONS.map((option) => ({ ...option })),
+      options: takeoverPromptOptions().map((option) => ({ ...option })),
       spaceSelect: false,
       onSelect: (action) => {
         if (action !== 'takeover') {
@@ -121,7 +146,11 @@ function showSessionTakeover(
         host.track('occupied_choice', { choice: 'takeover', holder_client: holderClient });
         host.restoreEditor();
         void session.takeOverLock().then(retry, (takeoverError: unknown) => {
-          host.showError(`Failed to take over the session: ${formatErrorMessage(takeoverError)}`);
+          host.showError(
+            t('tui.sessionOccupancy.takeoverFailed', {
+              error: formatErrorMessage(takeoverError),
+            }),
+          );
           restore();
         });
       },

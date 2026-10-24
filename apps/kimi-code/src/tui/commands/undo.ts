@@ -105,7 +105,7 @@ async function undoByCount(host: SlashCommandHost, count: number): Promise<boole
       return false;
     }
     if (isSessionStaleError(error)) {
-      host.showStatus('Loaded updates from another client. Review and run /undo again.', 'warning');
+      host.showStatus(t('tui.statusMessages.loadedUpdatesFromAnotherClientUndo'), 'warning');
       return false;
     }
     const message = formatErrorMessage(error);

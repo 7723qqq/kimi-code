@@ -630,17 +630,19 @@ export async function compactForModelSwitch(
     const outcome = await settled;
     if (outcome === 'completed' && host.session === session) return true;
     if (outcome === 'completed') {
-      host.showNotice('Model switch aborted — session changed.');
+      host.showNotice(t('tui.statusMessages.modelSwitchAbortedSessionChanged'));
     } else if (outcome === 'timeout') {
-      host.showError('Timed out waiting for compaction — model unchanged.');
+      host.showError(t('tui.statusMessages.modelSwitchCompactTimedOut'));
     } else if (outcome === 'cancelled') {
-      host.showNotice('Compaction cancelled — model unchanged.');
+      host.showNotice(t('tui.statusMessages.modelSwitchCompactionCancelled'));
     } else {
-      host.showNotice('Model switch aborted — model unchanged.');
+      host.showNotice(t('tui.statusMessages.modelSwitchAbortedModelUnchanged'));
     }
     return false;
   } catch (error) {
-    host.showError(`Failed to compact: ${formatErrorMessage(error)}. Model unchanged.`);
+    host.showError(
+      t('tui.statusMessages.modelSwitchCompactFailed', { error: formatErrorMessage(error) }),
+    );
     return false;
   } finally {
     clearTimeout(timer);

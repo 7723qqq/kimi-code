@@ -324,7 +324,7 @@ async function executeSlashCommand(
       if (intent.enqueue === true) {
         if (!host.enqueueCompactCommand(intent.args)) {
           host.track('input_command_invalid', { reason: 'duplicate-compact', command: intent.name });
-          host.showError('A /compact is already queued.');
+          host.showError(t('tui.statusMessages.compactAlreadyQueued'));
           host.restoreInputText(input);
           return;
         }
@@ -400,7 +400,7 @@ async function handleBuiltInSlashCommand(
       // awaited creation lands on a running turn.
       if (name === 'compact' && busyReason === 'streaming' && !host.state.appState.isCompacting) {
         if (!host.enqueueCompactCommand(args)) {
-          host.showError('A /compact is already queued.');
+          host.showError(t('tui.statusMessages.compactAlreadyQueued'));
           // Same restore as the adjacent blocked path, guarded the same way.
           if (canRestoreSubmittedInput(host)) host.restoreInputText(input);
         }
