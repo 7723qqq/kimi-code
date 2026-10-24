@@ -537,6 +537,8 @@ Both values must be positive integers. A call's `max_chars` overrides the defaul
 
 Both fields can be overridden by `KIMI_CODE_MODEL_CATALOG_REFRESH_INTERVAL_MS` and `KIMI_CODE_MODEL_CATALOG_REFRESH_ON_START`, which take higher priority than `config.toml`.
 
+-->
+
 ## `experimental`
 
 `experimental` stores persistent overrides for experimental-feature flags, keyed by flag id. Each entry is a boolean that turns the feature on or off for every session; the interactive entry point is the `/experiments` command, also reachable from `/settings`. A key that does not name a registered flag has no effect.

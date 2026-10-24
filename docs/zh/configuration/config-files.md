@@ -537,6 +537,8 @@ max_chars = 500000
 
 两个字段均可被 `KIMI_CODE_MODEL_CATALOG_REFRESH_INTERVAL_MS` 与 `KIMI_CODE_MODEL_CATALOG_REFRESH_ON_START` 覆盖，优先级高于 `config.toml`。
 
+-->
+
 ## `experimental`
 
 `experimental` 存放实验功能 flag 的持久化覆盖，以 flag id 为 key。每项是一个布尔值，对所有会话生效；交互式入口是 `/experiments` 命令（也可从 `/settings` 进入）。没有对应已注册 flag 的 key 不会生效。
