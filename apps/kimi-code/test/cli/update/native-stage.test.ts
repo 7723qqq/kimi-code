@@ -141,7 +141,7 @@ function mockCdnFetch(options: MockCdnOptions): typeof fetch {
       return binaryResponse(options.zstd.compressed);
     }
     return { ok: false, status: 404, text: async () => '', body: null };
-  }) as unknown as typeof fetch;
+  }) as unknown as unknown as typeof fetch;
 }
 
 function binaryResponse(payload: Buffer): unknown {
@@ -304,7 +304,7 @@ describe('stageNativeUpdate', () => {
         };
       }
       return { ok: false, status: 404, text: async () => '', body: null };
-    }) as unknown as typeof fetch;
+    }) as unknown as unknown as typeof fetch;
     await expect(
       stageNativeUpdate({
         version: VERSION,
@@ -394,7 +394,7 @@ describe('stageNativeUpdate', () => {
         };
       }
       return { ok: false, status: 404, text: async (): Promise<string> => '', body: null };
-    }) as unknown as typeof fetch;
+    }) as unknown as unknown as typeof fetch;
 
     // Real timers with a 50 ms test override — fake timers interact badly
     // with async-generator suspension, so the idle timeout is injectable.
@@ -771,7 +771,7 @@ describe('stageNativeUpdate', () => {
         return { ok: false, status: 503, text: async () => '', body: null };
       }
       return { ok: false, status: 404, text: async (): Promise<string> => '', body: null };
-    }) as unknown as typeof fetch;
+    }) as unknown as unknown as typeof fetch;
 
     await expect(
       stageNativeUpdate({ version: VERSION, exePath, platform: 'linux', arch: 'x64', fetchImpl }),
@@ -813,7 +813,7 @@ describe('stageNativeUpdate', () => {
         return { ok: false, status: 503, text: async () => '', body: null };
       }
       return { ok: false, status: 404, text: async (): Promise<string> => '', body: null };
-    }) as unknown as typeof fetch;
+    }) as unknown as unknown as typeof fetch;
 
     await expect(
       stageNativeUpdate({ version: VERSION, exePath, platform: 'linux', arch: 'x64', fetchImpl }),

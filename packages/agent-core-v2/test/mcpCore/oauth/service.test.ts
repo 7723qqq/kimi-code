@@ -1,3 +1,5 @@
+import { asGlobalFetch } from '#test/helpers/stubs';
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import { createServer as createHttpServer, type Server as HttpServer } from 'node:http';
 import type { AddressInfo as HttpAddress } from 'node:net';
 
@@ -56,16 +58,16 @@ afterEach(async () => {
 
 const realFetch = globalThis.fetch;
 beforeAll(() => {
-  globalThis.fetch = (async (
-    input: Parameters<typeof fetch>[0],
-    init?: Parameters<typeof fetch>[1],
+  globalThis.fetch = asGlobalFetch(async (
+    input: Parameters<FetchLike>[0],
+    init?: Parameters<FetchLike>[1],
   ) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     if (url.startsWith('https://mcp.example.test')) {
       throw new TypeError(`blocked external request to ${url}`);
     }
     return realFetch(input, init);
-  }) as typeof fetch;
+  });
 });
 
 afterAll(() => {

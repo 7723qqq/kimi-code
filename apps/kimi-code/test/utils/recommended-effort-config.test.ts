@@ -42,7 +42,7 @@ describe('getRecommendedEffortConfig', () => {
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
 
     const result = await getRecommendedEffortConfig({
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       cacheFile: null,
     });
 
@@ -71,7 +71,7 @@ describe('getRecommendedEffortConfig', () => {
     );
 
     const result = await getRecommendedEffortConfig({
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       cacheFile: null,
     });
 
@@ -96,7 +96,7 @@ describe('getRecommendedEffortConfig', () => {
     );
 
     const result = await getRecommendedEffortConfig({
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       cacheFile: null,
     });
 
@@ -109,7 +109,7 @@ describe('getRecommendedEffortConfig', () => {
     );
 
     const result = await getRecommendedEffortConfig({
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       cacheFile: null,
     });
 
@@ -122,7 +122,7 @@ describe('getRecommendedEffortConfig', () => {
     );
 
     const result = await getRecommendedEffortConfig({
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       cacheFile: null,
     });
 
@@ -134,12 +134,12 @@ describe('getRecommendedEffortConfig', () => {
       throw new Error('offline');
     });
     await expect(
-      getRecommendedEffortConfig({ fetchImpl: failing as typeof fetch, cacheFile: null }),
+      getRecommendedEffortConfig({ fetchImpl: failing as unknown as typeof fetch, cacheFile: null }),
     ).resolves.toBeUndefined();
 
     const notOk = mock(async () => jsonResponse('no', 503));
     await expect(
-      getRecommendedEffortConfig({ fetchImpl: notOk as typeof fetch, cacheFile: null }),
+      getRecommendedEffortConfig({ fetchImpl: notOk as unknown as typeof fetch, cacheFile: null }),
     ).resolves.toBeUndefined();
   });
 
@@ -147,9 +147,9 @@ describe('getRecommendedEffortConfig', () => {
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
-    await getRecommendedEffortConfig({ fetchImpl: fetchImpl as typeof fetch, now, cacheFile: null });
+    await getRecommendedEffortConfig({ fetchImpl: fetchImpl as unknown as typeof fetch, now, cacheFile: null });
     const cached = await getRecommendedEffortConfig({
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       now: now + 60_000,
       cacheFile: null,
     });
@@ -157,7 +157,7 @@ describe('getRecommendedEffortConfig', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
 
     await getRecommendedEffortConfig({
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       now: now + 25 * 60 * 60 * 1000,
       cacheFile: null,
     });
@@ -169,7 +169,7 @@ describe('getRecommendedEffortConfig', () => {
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
-    await getRecommendedEffortConfig({ fetchImpl: fetchImpl as typeof fetch, now, cacheFile });
+    await getRecommendedEffortConfig({ fetchImpl: fetchImpl as unknown as typeof fetch, now, cacheFile });
 
     const persisted = JSON.parse(await readFile(cacheFile, 'utf-8')) as { config: unknown };
     expect(persisted.config).toEqual(CLOUD_CONFIG);
@@ -178,7 +178,7 @@ describe('getRecommendedEffortConfig', () => {
     const result = await getRecommendedEffortConfig({
       fetchImpl: mock(async () => {
         throw new Error('must not fetch');
-      }) as unknown as typeof fetch,
+      }) as unknown as unknown as typeof fetch,
       now: now + 60_000,
       cacheFile,
     });
@@ -190,11 +190,11 @@ describe('getRecommendedEffortConfig', () => {
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
-    await getRecommendedEffortConfig({ fetchImpl: fetchImpl as typeof fetch, now, cacheFile });
+    await getRecommendedEffortConfig({ fetchImpl: fetchImpl as unknown as typeof fetch, now, cacheFile });
     resetRecommendedEffortConfigCache();
 
     const result = await getRecommendedEffortConfig({
-      fetchImpl: mock(async () => jsonResponse('no', 503)) as unknown as typeof fetch,
+      fetchImpl: mock(async () => jsonResponse('no', 503)) as unknown as unknown as typeof fetch,
       now: now + 25 * 60 * 60 * 1000,
       cacheFile,
     });
@@ -211,7 +211,7 @@ describe('peekRecommendedEffortConfig', () => {
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
-    await getRecommendedEffortConfig({ fetchImpl: fetchImpl as typeof fetch, now, cacheFile: null });
+    await getRecommendedEffortConfig({ fetchImpl: fetchImpl as unknown as typeof fetch, now, cacheFile: null });
 
     expect(peekRecommendedEffortConfig(now + 60_000)).toEqual(CLOUD_CONFIG);
     expect(peekRecommendedEffortConfig(now + 25 * 60 * 60 * 1000)).toBeUndefined();

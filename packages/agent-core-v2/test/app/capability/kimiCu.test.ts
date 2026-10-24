@@ -1,3 +1,4 @@
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import { chmod, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -376,7 +377,7 @@ describe('kimi-cu entry', () => {
           headers: { 'content-length': String(bytes.length) },
         }),
       );
-    }) as typeof fetch;
+    }) as FetchLike;
     const entry = createKimiCuEntry(
       makeCtx({
         platform: 'win32',
@@ -436,7 +437,7 @@ describe('kimi-cu entry', () => {
           headers: { 'content-length': String(bytes.length) },
         }),
       );
-    }) as typeof fetch;
+    }) as FetchLike;
     const entry = createKimiCuEntry(
       makeCtx({
         platform: 'win32',
@@ -493,7 +494,7 @@ describe('kimi-cu entry', () => {
             new Response("Write-Host 'official setup'", {
               headers: { 'content-length': '27' },
             }),
-          )) as typeof fetch,
+          )) as FetchLike,
       }),
     );
 
@@ -545,7 +546,7 @@ describe('kimi-cu entry', () => {
             new Response("Write-Host 'official setup'", {
               headers: { 'content-length': '27' },
             }),
-          )) as typeof fetch,
+          )) as FetchLike,
       }),
     );
 
@@ -588,7 +589,7 @@ describe('kimi-cu entry', () => {
         fetchImpl: (() => {
           downloads += 1;
           return Promise.reject(new Error('download should not start'));
-        }) as typeof fetch,
+        }) as FetchLike,
       }),
     );
 
@@ -636,7 +637,7 @@ describe('kimi-cu entry', () => {
             new Response("Write-Host 'official setup'", {
               headers: { 'content-length': '27' },
             }),
-          )) as typeof fetch,
+          )) as FetchLike,
       }),
     );
 
@@ -686,7 +687,7 @@ describe('kimi-cu entry', () => {
             new Response("Write-Host 'official setup'", {
               headers: { 'content-length': '27' },
             }),
-          )) as typeof fetch,
+          )) as FetchLike,
       }),
     );
 

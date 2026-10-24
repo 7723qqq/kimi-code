@@ -1,3 +1,4 @@
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import { randomUUID } from 'node:crypto';
 import { release } from 'node:os';
 
@@ -34,7 +35,7 @@ export interface CloudAppenderOptions {
   readonly endpoint?: string;
   readonly flushThreshold?: number;
   readonly flushIntervalMs?: number;
-  readonly fetchImpl?: typeof fetch;
+  readonly fetchImpl?: FetchLike;
   readonly retryBackoffsMs?: readonly number[];
   readonly requestTimeoutMs?: number;
   readonly maxDiskFiles?: number;

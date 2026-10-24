@@ -66,11 +66,11 @@ export async function withMarketplaceLatestVersions(
   marketplace: PluginMarketplace,
   fetchImpl: typeof fetch = fetch,
 ): Promise<PluginMarketplace> {
-  const timedFetch: typeof fetch = (input, init) =>
+  const timedFetch = ((input: string | URL | Request, init?: RequestInit) =>
     fetchImpl(input, {
       ...init,
       signal: AbortSignal.timeout(MARKETPLACE_VERSION_LOOKUP_TIMEOUT_MS),
-    });
+    })) as typeof fetch;
   return withLatestVersions(marketplace, timedFetch);
 }
 

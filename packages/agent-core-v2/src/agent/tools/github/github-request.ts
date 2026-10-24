@@ -1,3 +1,4 @@
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import { createDeadlineAbortSignal } from '#/_base/utils/abort';
 
 export const GITHUB_DEFAULT_BASE_URL = 'https://api.github.com';
@@ -19,7 +20,7 @@ export interface GitHubRequestOptions {
 }
 
 export interface GitHubRequestDeps {
-  readonly fetchImpl?: typeof fetch;
+  readonly fetchImpl?: FetchLike;
   readonly signal?: AbortSignal;
 }
 

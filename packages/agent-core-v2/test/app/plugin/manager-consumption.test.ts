@@ -1,4 +1,5 @@
 /* oxlint-disable eslint-plugin-jest/no-standalone-expect -- zipIt is a conditional alias of `it` */
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import { execFileSync } from 'node:child_process';
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -141,7 +142,7 @@ function mockGithubFetch(options: MockGithubFetchOptions): void {
   const commitSha = '1111111111111111111111111111111111111111';
   setGlobal(
     'fetch',
-    mock(async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+    mock(async (input: Parameters<FetchLike>[0], init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       if (/^https:\/\/github\.com\/[^/]+\/[^/]+\/releases\/latest$/.test(url)) {
         options.onReleaseLookup?.();
@@ -161,7 +162,7 @@ function mockGithubFetch(options: MockGithubFetchOptions): void {
         return new Response(options.tarball, { status: 200 });
       }
       throw new Error(`mockGithubFetch: unexpected url ${url}`);
-    }) as typeof fetch,
+    }) as FetchLike,
   );
 }
 
@@ -762,7 +763,7 @@ describe('PluginManager consumption plane', () => {
     let codeloadPath = '';
     setGlobal(
       'fetch',
-      mock(async (input: Parameters<typeof fetch>[0]) => {
+      mock(async (input: Parameters<FetchLike>[0]) => {
         const url =
           typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
         if (url.endsWith('/commits/v5.1.0.atom')) {
@@ -775,7 +776,7 @@ describe('PluginManager consumption plane', () => {
           return new Response(zipBuffer, { status: 200 });
         }
         throw new Error(`unexpected url ${url}`);
-      }) as typeof fetch,
+      }) as FetchLike,
     );
 
     const manager = new PluginManager({ kimiHomeDir: home });
@@ -801,7 +802,7 @@ describe('PluginManager consumption plane', () => {
     let codeloadPath = '';
     setGlobal(
       'fetch',
-      mock(async (input: Parameters<typeof fetch>[0]) => {
+      mock(async (input: Parameters<FetchLike>[0]) => {
         const url =
           typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
         if (url.endsWith('/commits/v5.1.0.atom')) {
@@ -814,7 +815,7 @@ describe('PluginManager consumption plane', () => {
           return new Response(zipBuffer, { status: 200 });
         }
         throw new Error(`unexpected url ${url}`);
-      }) as typeof fetch,
+      }) as FetchLike,
     );
 
     const manager = new PluginManager({ kimiHomeDir: home });

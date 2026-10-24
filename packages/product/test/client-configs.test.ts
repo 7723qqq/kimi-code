@@ -50,7 +50,7 @@ describe('fetchClientConfig', () => {
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
 
     const result = await client.fetch('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
     });
 
     expect(result).toEqual(CONFIG);
@@ -67,7 +67,7 @@ describe('fetchClientConfig', () => {
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
 
     await client.fetch('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       accessToken: 'tok',
     });
     expect(fetchImpl).toHaveBeenCalledWith(
@@ -78,7 +78,7 @@ describe('fetchClientConfig', () => {
     );
 
     await client.fetch('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
     });
     expect(fetchImpl).toHaveBeenLastCalledWith(
       expect.any(String),
@@ -93,7 +93,7 @@ describe('fetchClientConfig', () => {
 
     await expect(
       client.fetch('estimated_cache_duration', configSchema, {
-        fetchImpl: fetchImpl as typeof fetch,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
       }),
     ).resolves.toBeUndefined();
   });
@@ -105,7 +105,7 @@ describe('fetchClientConfig', () => {
 
     await expect(
       client.fetch('estimated_cache_duration', configSchema, {
-        fetchImpl: fetchImpl as typeof fetch,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
       }),
     ).resolves.toBeUndefined();
   });
@@ -117,7 +117,7 @@ describe('fetchClientConfig', () => {
 
     await expect(
       client.fetch('estimated_cache_duration', configSchema, {
-        fetchImpl: fetchImpl as typeof fetch,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
       }),
     ).resolves.toBeUndefined();
   });
@@ -129,7 +129,7 @@ describe('fetchClientConfig', () => {
 
     await expect(
       client.fetch('estimated_cache_duration', configSchema, {
-        fetchImpl: fetchImpl as typeof fetch,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
       }),
     ).resolves.toBeUndefined();
   });
@@ -138,7 +138,7 @@ describe('fetchClientConfig', () => {
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
 
     const result = await client.fetch('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       path: '/resource_configs',
     });
 
@@ -159,12 +159,12 @@ describe('getClientConfig', () => {
     const now = Date.now();
 
     const first = await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       now,
       cacheFile: null,
     });
     const second = await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       now: now + 60_000,
       cacheFile: null,
     });
@@ -179,12 +179,12 @@ describe('getClientConfig', () => {
     const now = Date.now();
 
     await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       now,
       cacheFile: null,
     });
     const result = await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       now: now + 25 * 60 * 60 * 1000,
       cacheFile: null,
     });
@@ -201,12 +201,12 @@ describe('getClientConfig', () => {
     const now = Date.now();
 
     await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       now,
       cacheFile: null,
     });
     const second = await client.get('other_config', configSchema, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       now,
       cacheFile: null,
     });
@@ -220,7 +220,7 @@ describe('getClientConfig', () => {
 
     await expect(
       client.get('estimated_cache_duration', configSchema, {
-        fetchImpl: fetchImpl as typeof fetch,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
         cacheFile: null,
       }),
     ).resolves.toBeUndefined();
@@ -231,12 +231,12 @@ describe('getClientConfig', () => {
     const now = Date.now();
 
     await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       now,
       cacheFile: null,
     });
     const second = await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       now,
       cacheFile: null,
       path: '/resource_configs',
@@ -250,7 +250,7 @@ describe('getClientConfig', () => {
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
     await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       now,
       cacheFile: null,
       path: '/resource_configs',
@@ -266,7 +266,7 @@ describe('peekClientConfig', () => {
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
     await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       now,
       cacheFile: null,
     });
@@ -301,7 +301,7 @@ describe('getClientConfig disk cache', () => {
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
 
     const result = await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       now: now + 60_000,
       cacheFile: file,
     });
@@ -315,7 +315,7 @@ describe('getClientConfig disk cache', () => {
     const now = Date.now();
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
     await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       now,
       cacheFile: file,
     });
@@ -325,7 +325,7 @@ describe('getClientConfig disk cache', () => {
       throw new Error('offline');
     });
     const result = await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: offline as typeof fetch,
+      fetchImpl: offline as unknown as typeof fetch,
       now: now + 60_000,
       cacheFile: file,
     });
@@ -342,7 +342,7 @@ describe('getClientConfig disk cache', () => {
     );
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
     await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       now,
       cacheFile: file,
     });
@@ -358,7 +358,7 @@ describe('getClientConfig disk cache', () => {
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
 
     const result = await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       now,
       cacheFile: file,
     });
@@ -374,7 +374,7 @@ describe('getClientConfig disk cache', () => {
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
 
     const result = await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       cacheFile: file,
     });
 
@@ -390,7 +390,7 @@ describe('getClientConfig disk cache', () => {
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
 
     const result = await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       cacheFile: file,
     });
 
@@ -404,7 +404,7 @@ describe('getClientConfig disk cache', () => {
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
 
     const result = await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       cacheFile: join(blocker, 'nested', 'config.json'),
     });
 
@@ -419,12 +419,12 @@ describe('getClientConfig disk cache', () => {
       const now = Date.now();
 
       await client.get('estimated_cache_duration', configSchema, {
-        fetchImpl: fetchImpl as typeof fetch,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
         now,
         path: '/client_configs',
       });
       await client.get('estimated_cache_duration', configSchema, {
-        fetchImpl: fetchImpl as typeof fetch,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
         now,
         path: '/client:configs',
       });
@@ -446,7 +446,7 @@ describe('region awareness', () => {
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
 
     const data = await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       cacheFile: null,
     });
 
@@ -465,7 +465,7 @@ describe('region awareness', () => {
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
 
     await client.fetch('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
     });
 
     expect(fetchImpl).toHaveBeenCalledWith(

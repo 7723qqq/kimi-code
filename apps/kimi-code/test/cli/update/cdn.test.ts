@@ -21,7 +21,7 @@ function mockFetchOk(body: string): typeof fetch {
     ok: true,
     status: 200,
     text: async () => body,
-  })) as unknown as typeof fetch;
+  })) as unknown as unknown as typeof fetch;
 }
 
 function mockFetchStatus(status: number): typeof fetch {
@@ -29,7 +29,7 @@ function mockFetchStatus(status: number): typeof fetch {
     ok: status >= 200 && status < 300,
     status,
     text: async () => '',
-  })) as unknown as typeof fetch;
+  })) as unknown as unknown as typeof fetch;
 }
 
 type Route = { readonly status?: number; readonly body?: string } | Error;
@@ -48,7 +48,7 @@ function mockRoutedFetch(routes: Record<string, Route>): typeof fetch {
       status,
       text: async () => route.body ?? '',
     };
-  }) as unknown as typeof fetch;
+  }) as unknown as unknown as typeof fetch;
 }
 
 const MANIFEST_BODY = JSON.stringify({
@@ -89,7 +89,7 @@ describe('fetchLatestVersionFromCdn', () => {
   it('propagates the underlying fetch error', async () => {
     const f = mock(async () => {
       throw new Error('network down');
-    }) as unknown as typeof fetch;
+    }) as unknown as unknown as typeof fetch;
     await expect(fetchLatestVersionFromCdn(f)).rejects.toThrow(/network down/);
   });
 });
@@ -208,7 +208,7 @@ describe('fetchLatestFromCdn', () => {
         return { ok: true, status: 200, text: async () => '1.9.0\n' };
       }
       return { ok: false, status: 404, text: async () => '' };
-    }) as unknown as typeof fetch;
+    }) as unknown as unknown as typeof fetch;
 
     const result = fetchLatestFromCdn(f, undefined, clock);
     await advanceAsync(clock, 3_000);
@@ -227,7 +227,7 @@ describe('fetchLatestFromCdn', () => {
           reject(new Error('aborted'));
         }, { once: true });
       });
-    }) as unknown as typeof fetch;
+    }) as unknown as unknown as typeof fetch;
 
     const result = fetchLatestFromCdn(f, undefined, clock);
     // Keep the rejection handled while the faked clock runs: Bun's
@@ -249,7 +249,7 @@ describe('fetchLatestFromCdn', () => {
           reject(new Error('aborted'));
         }, { once: true });
       });
-    }) as unknown as typeof fetch;
+    }) as unknown as unknown as typeof fetch;
 
     const result = fetchLatestFromCdn(f, 10_000, clock);
     let rejected = false;

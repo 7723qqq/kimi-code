@@ -1,3 +1,4 @@
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import { lookup } from 'node:dns/promises';
 
 import { beforeEach, describe, expect, it, mock } from 'bun:test';
@@ -157,7 +158,7 @@ describe('FetchURLTool backend resolution', () => {
 describe('LocalFetchURLProvider abort signal', () => {
   it('wires the caller signal into fetchImpl so aborts propagate', async () => {
     const controller = new AbortController();
-    const fetchImpl = mock<typeof fetch>().mockImplementation(
+    const fetchImpl = mock<FetchLike>().mockImplementation(
       (_url, init) =>
         new Promise<Response>((_resolve, reject) => {
           (init?.signal as AbortSignal | undefined)?.addEventListener('abort', () =>

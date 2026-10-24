@@ -683,7 +683,8 @@ key = "${titleOAuthRef.key}"
 `,
       'utf-8',
     );
-    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(
+      (async (input: string | URL | Request) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       if (url === 'https://api.example.test/coding/v1/tools') {
         return new Response(JSON.stringify({ title: 'Generated title' }), {
@@ -692,7 +693,8 @@ key = "${titleOAuthRef.key}"
         });
       }
       throw new Error(`Unexpected fetch: ${url}`);
-    });
+      }) as unknown as typeof fetch,
+    );
     const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {
@@ -793,14 +795,16 @@ key = "${titleOAuthRef.key}"
     const fetchResponse = new Promise<Response>((resolve) => {
       resolveFetch = resolve;
     });
-    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const fetchSpy = spyOn(globalThis, 'fetch').mockImplementation(
+      (async (input: string | URL | Request) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       if (url === 'https://api.example.test/coding/v1/tools') {
         markFetchStarted();
         return fetchResponse;
       }
       throw new Error(`Unexpected fetch: ${url}`);
-    });
+      }) as unknown as typeof fetch,
+    );
     const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
 
     try {

@@ -1,3 +1,4 @@
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import { lookup as callbackLookup, type LookupAddress, type LookupOptions } from 'node:dns';
 import { lookup } from 'node:dns/promises';
 import { isIP, type LookupFunction } from 'node:net';
@@ -47,7 +48,7 @@ const SYSTEM_HOST_TIMERS: IHostTimers = {
 
 export interface LocalFetchURLProviderOptions {
   userAgent?: string;
-  fetchImpl?: typeof fetch;
+  fetchImpl?: FetchLike;
   maxBytes?: number;
   allowPrivateAddresses?: boolean;
 
@@ -58,7 +59,7 @@ export interface LocalFetchURLProviderOptions {
 
 export class LocalFetchURLProvider implements UrlFetcher {
   private readonly userAgent: string;
-  private readonly fetchImpl: typeof fetch;
+  private readonly fetchImpl: FetchLike;
   private readonly maxBytes: number;
   private readonly allowPrivateAddresses: boolean;
   private readonly timeoutMs: number;
@@ -66,7 +67,7 @@ export class LocalFetchURLProvider implements UrlFetcher {
 
   constructor(options: LocalFetchURLProviderOptions = {}) {
     this.userAgent = options.userAgent ?? DEFAULT_USER_AGENT;
-    this.fetchImpl = options.fetchImpl ?? (undiciFetch as unknown as typeof fetch);
+    this.fetchImpl = options.fetchImpl ?? (undiciFetch as unknown as FetchLike);
     this.maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
     this.allowPrivateAddresses = options.allowPrivateAddresses ?? false;
     this.timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;

@@ -1,3 +1,4 @@
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { setGlobal, restoreGlobals } from '#test/helpers/stubs';
 
@@ -110,7 +111,7 @@ describe('resolveGithubSource', () => {
     const calls: string[] = [];
     setGlobal(
       'fetch',
-      mock(async (input: Parameters<typeof fetch>[0]) => {
+      mock(async (input: Parameters<FetchLike>[0]) => {
         const url =
           typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
         calls.push(url);
@@ -121,7 +122,7 @@ describe('resolveGithubSource', () => {
           });
         }
         throw new Error(`unexpected url: ${url}`);
-      }) as typeof fetch,
+      }) as FetchLike,
     );
 
     await resolveGithubSource({ kind: 'github', owner: 'obra', repo: 'superpowers' });

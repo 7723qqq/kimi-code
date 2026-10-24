@@ -1,5 +1,11 @@
+import type { FetchLike } from '#/_base/utils/fetchLike';
+
 const savedEnvs = new Map<string, string | undefined>();
 const savedDescriptors = new Map<string, PropertyDescriptor | undefined>();
+
+export function asGlobalFetch(stub: unknown): typeof fetch {
+  return stub as typeof fetch;
+}
 
 const globalHolder = globalThis as unknown as Record<string, unknown>;
 

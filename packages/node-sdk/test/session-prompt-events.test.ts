@@ -1,15 +1,14 @@
+import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-
-import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
+import { setTimeout as delay } from 'node:timers/promises';
 
 import { createKimiHarness, type Event, type KimiHarness } from '#/index';
 
-import { TEST_IDENTITY } from './test-identity';
 import { waitForAgentWireEvent } from './session-runtime-helpers';
 import { setEnv, restoreEnvs } from './stubs';
-import { setTimeout as delay } from 'node:timers/promises';
+import { TEST_IDENTITY } from './test-identity';
 
 const MODEL_URL = 'https://model.example.test/v1/chat/completions';
 
@@ -45,7 +44,10 @@ const tempDirs: string[] = [];
 beforeEach(() => {
   fakeProviderState.calls.length = 0;
   fakeProviderState.responseText = 'hello from fake provider';
-  fetchStub = spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+  fetchStub = spyOn(globalThis, 'fetch').mockImplementation((async (
+    input: string | URL | Request,
+    init?: RequestInit,
+  ) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
     if (url !== MODEL_URL) {
       throw new Error(`Unexpected fetch: ${url}`);
@@ -63,7 +65,7 @@ beforeEach(() => {
       status: 200,
       headers: { 'Content-Type': 'text/event-stream' },
     });
-  });
+  }) as unknown as typeof fetch);
 });
 
 afterEach(async () => {

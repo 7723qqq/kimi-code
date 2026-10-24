@@ -1,3 +1,4 @@
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import { ITelemetryService, noopTelemetryService } from '#/app/telemetry/telemetry';
 import { Error2, ErrorCodes, isError2 } from '#/errors';
 
@@ -14,7 +15,7 @@ export interface MoonshotFetchURLProviderOptions {
   defaultHeaders?: Record<string, string>;
   customHeaders?: Record<string, string>;
   localFallback: UrlFetcher;
-  fetchImpl?: typeof fetch;
+  fetchImpl?: FetchLike;
   telemetry?: ITelemetryService;
 }
 
@@ -25,7 +26,7 @@ export class MoonshotFetchURLProvider implements UrlFetcher {
   private readonly defaultHeaders: Record<string, string>;
   private readonly customHeaders: Record<string, string>;
   private readonly localFallback: UrlFetcher;
-  private readonly fetchImpl: typeof fetch;
+  private readonly fetchImpl: FetchLike;
   private readonly telemetry: ITelemetryService;
 
   constructor(options: MoonshotFetchURLProviderOptions) {

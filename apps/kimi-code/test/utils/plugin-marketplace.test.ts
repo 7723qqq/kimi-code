@@ -201,7 +201,7 @@ describe('loadPluginMarketplace', () => {
         } as Response;
       }
       return { status: 404, headers: new Headers() } as Response;
-    }) as unknown as typeof fetch;
+    }) as unknown as unknown as typeof fetch;
     const marketplace = await loadPluginMarketplace({
       workDir: REPO_ROOT,
       source: join(REPO_ROOT, 'plugins/marketplace.json'),
@@ -240,7 +240,7 @@ describe('loadPluginMarketplace', () => {
             },
           ],
         }),
-    })) as unknown as typeof fetch;
+    })) as unknown as unknown as typeof fetch;
 
     const marketplace = await loadPluginMarketplace({
       workDir: '/tmp/work',
@@ -266,7 +266,7 @@ describe('loadPluginMarketplace', () => {
     delete process.env[KIMI_CODE_PLUGIN_MARKETPLACE_URL_ENV];
     const fetchImpl = mock(async () => {
       throw new Error('fetch failed');
-    }) as unknown as typeof fetch;
+    }) as unknown as unknown as typeof fetch;
 
     try {
       const marketplace = await loadPluginMarketplace({ workDir: '/tmp/work', fetchImpl });
@@ -291,7 +291,7 @@ describe('loadPluginMarketplace', () => {
   it('does not use the source checkout fallback for explicit marketplace sources', async () => {
     const fetchImpl = mock(async () => {
       throw new Error('fetch failed');
-    }) as unknown as typeof fetch;
+    }) as unknown as unknown as typeof fetch;
 
     await expect(loadPluginMarketplace({
       workDir: '/tmp/work',
@@ -303,7 +303,7 @@ describe('loadPluginMarketplace', () => {
   it('keeps the built-in entries when the catalog is unreachable', async () => {
     const fetchImpl = mock(async () => {
       throw new Error('fetch failed');
-    }) as unknown as typeof fetch;
+    }) as unknown as unknown as typeof fetch;
 
     // Explicit source (no checkout fallback) + unreachable: the built-ins do
     // not come from the catalog, so they must survive the outage.
@@ -390,7 +390,7 @@ describe('loadPluginMarketplace', () => {
       return mock(async () => ({
         status: 302,
         headers: new Headers({ location }),
-      })) as unknown as typeof fetch;
+      })) as unknown as unknown as typeof fetch;
     }
 
     it('fills the version from /releases/latest for a bare repo URL', async () => {
@@ -413,7 +413,7 @@ describe('loadPluginMarketplace', () => {
       const fetchImpl = mock(async () => ({
         status: 404,
         headers: new Headers(),
-      })) as unknown as typeof fetch;
+      })) as unknown as unknown as typeof fetch;
       const entry = await loadWithLatest('https://github.com/owner/repo', fetchImpl);
       expect(entry.version).toBeUndefined();
     });
@@ -421,7 +421,7 @@ describe('loadPluginMarketplace', () => {
     it('degrades gracefully when the latest lookup throws', async () => {
       const fetchImpl = mock(async () => {
         throw new Error('network down');
-      }) as unknown as typeof fetch;
+      }) as unknown as unknown as typeof fetch;
       const entry = await loadWithLatest('https://github.com/owner/repo', fetchImpl);
       expect(entry.version).toBeUndefined();
     });
@@ -429,7 +429,7 @@ describe('loadPluginMarketplace', () => {
     it('does not query latest when the source already pins a ref', async () => {
       const fetchImpl = mock(async () => {
         throw new Error('should not be called');
-      }) as unknown as typeof fetch;
+      }) as unknown as unknown as typeof fetch;
       const entry = await loadWithLatest(
         'https://github.com/owner/repo/releases/tag/v6.0.3',
         fetchImpl,
@@ -441,7 +441,7 @@ describe('loadPluginMarketplace', () => {
     it('keeps an explicit version without querying latest', async () => {
       const fetchImpl = mock(async () => {
         throw new Error('should not be called');
-      }) as unknown as typeof fetch;
+      }) as unknown as unknown as typeof fetch;
       const dir = await mkdtemp(join(tmpdir(), 'kimi-plugin-marketplace-'));
       const file = join(dir, 'marketplace.json');
       await writeFile(
@@ -528,7 +528,7 @@ describe('loadPluginMarketplace', () => {
         JSON.stringify({
           plugins: [{ id: 'superpowers', name: 'Superpowers', url: 'superpowers.zip' }],
         }),
-    })) as unknown as typeof fetch;
+    })) as unknown as unknown as typeof fetch;
 
     const marketplace = await loadPluginMarketplace({ workDir: '/tmp/work', source, fetchImpl });
 
@@ -602,7 +602,7 @@ describe('loadPluginMarketplace', () => {
     it('skipLatestVersions returns the catalog without querying GitHub', async () => {
       const fetchImpl = mock(async () => {
         throw new Error('should not be called');
-      }) as unknown as typeof fetch;
+      }) as unknown as unknown as typeof fetch;
       const dir = await mkdtemp(join(tmpdir(), 'kimi-plugin-marketplace-'));
       const file = await writeCatalog(dir);
 
@@ -625,7 +625,7 @@ describe('loadPluginMarketplace', () => {
           location: 'https://github.com/owner/repo/releases/tag/v1.2.3',
         }),
         text: async () => '',
-      })) as unknown as typeof fetch;
+      })) as unknown as unknown as typeof fetch;
       const dir = await mkdtemp(join(tmpdir(), 'kimi-plugin-marketplace-'));
       const file = await writeCatalog(dir);
       const marketplace = await loadPluginMarketplace({
@@ -650,7 +650,7 @@ describe('loadPluginMarketplace', () => {
         throw init?.signal?.aborted === true
           ? init.signal.reason
           : new DOMException('This operation was aborted', 'AbortError');
-      }) as unknown as typeof fetch;
+      }) as unknown as unknown as typeof fetch;
       const dir = await mkdtemp(join(tmpdir(), 'kimi-plugin-marketplace-'));
       const file = await writeCatalog(dir);
       const marketplace = await loadPluginMarketplace({
@@ -676,7 +676,7 @@ describe('loadPluginMarketplace', () => {
           location: 'https://github.com/owner/repo/releases/tag/v2.0.0',
         }),
         text: async () => '',
-      })) as unknown as typeof fetch;
+      })) as unknown as unknown as typeof fetch;
       const dir = await mkdtemp(join(tmpdir(), 'kimi-plugin-marketplace-'));
       const file = join(dir, 'marketplace.json');
       await writeFile(

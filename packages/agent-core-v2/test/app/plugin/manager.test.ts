@@ -1,3 +1,4 @@
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import { mkdtemp, mkdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
@@ -150,7 +151,7 @@ describe('PluginManager', () => {
         'utf8',
       );
       const zip = await createZipFromDir(sourceRoot);
-      const fetchMock = mock(async (input: Parameters<typeof fetch>[0]) => {
+      const fetchMock = mock(async (input: Parameters<FetchLike>[0]) => {
         const url =
           typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
         if (url.endsWith('/commits/v1.atom')) {
@@ -160,7 +161,7 @@ describe('PluginManager', () => {
         }
         return new Response(zip);
       });
-      setGlobal('fetch', fetchMock as typeof fetch);
+      setGlobal('fetch', fetchMock as FetchLike);
       const manager = new PluginManager({ kimiHomeDir: home });
 
       const record = await manager.install('https://github.com/owner/repo/tree/v1');
@@ -341,7 +342,7 @@ describe('PluginManager', () => {
     );
     setGlobal(
       'fetch',
-      mock(async (input: Parameters<typeof fetch>[0]) => {
+      mock(async (input: Parameters<FetchLike>[0]) => {
         const url =
           typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
         if (url.includes('/offline/')) throw new Error('network offline');
@@ -349,7 +350,7 @@ describe('PluginManager', () => {
           status: 302,
           headers: { location: 'https://github.com/owner/good/releases/tag/v2' },
         });
-      }) as typeof fetch,
+      }) as FetchLike,
     );
     const warn = mock();
     const log: ILogger = {

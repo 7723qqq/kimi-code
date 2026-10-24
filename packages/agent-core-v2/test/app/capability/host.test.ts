@@ -1,3 +1,4 @@
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -69,14 +70,14 @@ describe('capability host downloadToFile', () => {
     await rm(root, { recursive: true, force: true });
   });
 
-  function fakeFetchWith(body: ReadableStream): typeof fetch {
+  function fakeFetchWith(body: ReadableStream): FetchLike {
     return (() =>
       Promise.resolve(
         new Response(body, {
           status: 200,
           headers: { 'content-length': '100' },
         }),
-      )) as unknown as typeof fetch;
+      )) as unknown as FetchLike;
   }
 
   it('aborts a response whose byte stream goes quiet', async () => {

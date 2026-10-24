@@ -81,7 +81,7 @@ describe('getSurveyPopupConfig', () => {
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       cacheFile: null,
     });
 
@@ -101,7 +101,7 @@ describe('getSurveyPopupConfig', () => {
     );
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       cacheFile: null,
     });
 
@@ -122,7 +122,7 @@ describe('getSurveyPopupConfig', () => {
     );
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       cacheFile: null,
     });
 
@@ -150,7 +150,7 @@ describe('getSurveyPopupConfig', () => {
     );
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       cacheFile: null,
     });
 
@@ -172,7 +172,7 @@ describe('getSurveyPopupConfig', () => {
     );
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       cacheFile: null,
     });
 
@@ -195,7 +195,7 @@ describe('getSurveyPopupConfig', () => {
     );
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       cacheFile: null,
     });
 
@@ -211,7 +211,7 @@ describe('getSurveyPopupConfig', () => {
     );
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       cacheFile: null,
     });
 
@@ -226,7 +226,7 @@ describe('getSurveyPopupConfig', () => {
     );
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       cacheFile: null,
     });
 
@@ -237,7 +237,7 @@ describe('getSurveyPopupConfig', () => {
     const fetchImpl = mock(async () => jsonResponse({ name: 'survey_popup', config: 'nope' }));
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       cacheFile: null,
     });
 
@@ -250,7 +250,7 @@ describe('getSurveyPopupConfig', () => {
     });
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       cacheFile: null,
     });
 
@@ -261,9 +261,9 @@ describe('getSurveyPopupConfig', () => {
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
-    await getSurveyPopupConfig(client, { fetchImpl: fetchImpl as typeof fetch, now, cacheFile: null });
+    await getSurveyPopupConfig(client, { fetchImpl: fetchImpl as unknown as typeof fetch, now, cacheFile: null });
     const cached = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       now: now + 60_000,
       cacheFile: null,
     });
@@ -271,7 +271,7 @@ describe('getSurveyPopupConfig', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
 
     await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       now: now + 25 * 60 * 60 * 1000,
       cacheFile: null,
     });
@@ -283,7 +283,7 @@ describe('getSurveyPopupConfig', () => {
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
-    await getSurveyPopupConfig(client, { fetchImpl: fetchImpl as typeof fetch, now, cacheFile });
+    await getSurveyPopupConfig(client, { fetchImpl: fetchImpl as unknown as typeof fetch, now, cacheFile });
 
     const persisted = JSON.parse(await readFile(cacheFile, 'utf-8')) as { config: unknown };
     expect(persisted.config).toEqual(CLOUD_CONFIG);
@@ -292,7 +292,7 @@ describe('getSurveyPopupConfig', () => {
     const result = await getSurveyPopupConfig(client, {
       fetchImpl: mock(async () => {
         throw new Error('must not fetch');
-      }) as unknown as typeof fetch,
+      }) as unknown as unknown as typeof fetch,
       now: now + 60_000,
       cacheFile,
     });
@@ -304,11 +304,11 @@ describe('getSurveyPopupConfig', () => {
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
-    await getSurveyPopupConfig(client, { fetchImpl: fetchImpl as typeof fetch, now, cacheFile });
+    await getSurveyPopupConfig(client, { fetchImpl: fetchImpl as unknown as typeof fetch, now, cacheFile });
     resetSurveyPopupConfigCache(client);
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: mock(async () => jsonResponse('no', 503)) as unknown as typeof fetch,
+      fetchImpl: mock(async () => jsonResponse('no', 503)) as unknown as unknown as typeof fetch,
       now: now + 25 * 60 * 60 * 1000,
       cacheFile,
     });
@@ -325,7 +325,7 @@ describe('peekSurveyPopupConfig', () => {
     const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
-    await getSurveyPopupConfig(client, { fetchImpl: fetchImpl as typeof fetch, now, cacheFile: null });
+    await getSurveyPopupConfig(client, { fetchImpl: fetchImpl as unknown as typeof fetch, now, cacheFile: null });
 
     expect(peekSurveyPopupConfig(client, now + 60_000)).toEqual({ ...CLOUD_CONFIG, model_overrides: {} });
     expect(peekSurveyPopupConfig(client, now + 25 * 60 * 60 * 1000)).toEqual(DEFAULT_SURVEY_POPUP_PAYLOAD);
@@ -345,7 +345,7 @@ describe('model_overrides parsing', () => {
     );
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       cacheFile: null,
     });
 
@@ -366,7 +366,7 @@ describe('model_overrides parsing', () => {
     );
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       cacheFile: null,
     });
 
@@ -388,7 +388,7 @@ describe('model_overrides parsing', () => {
     );
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       cacheFile: null,
     });
 
@@ -407,7 +407,7 @@ describe('model_overrides parsing', () => {
     );
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       cacheFile: null,
     });
 
@@ -423,7 +423,7 @@ describe('model_overrides parsing', () => {
     );
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
       cacheFile: null,
     });
     expect(result.model_overrides).toEqual({ 'other-model': { probability: 0.5 } });
@@ -433,7 +433,7 @@ describe('model_overrides parsing', () => {
       jsonResponse({ name: 'survey_popup', config: { ...CLOUD_CONFIG, model_overrides: 'yes' } }),
     );
     const fallback = await getSurveyPopupConfig(client, {
-      fetchImpl: stringTable as typeof fetch,
+      fetchImpl: stringTable as unknown as typeof fetch,
       cacheFile: null,
     });
     expect(fallback.model_overrides).toEqual({});

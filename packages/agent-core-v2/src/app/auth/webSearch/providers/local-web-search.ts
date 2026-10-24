@@ -1,3 +1,4 @@
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import type { WebSearchProvider, WebSearchResult } from '#/agent/tools/web-search/web-search';
 import { Error2, ErrorCodes } from '#/errors';
 
@@ -55,14 +56,14 @@ export function resolveResultLimit(env: Record<string, string | undefined> = pro
 }
 
 export interface LocalWebSearchProviderOptions {
-  fetchImpl?: typeof fetch;
+  fetchImpl?: FetchLike;
 
   engine?: string;
   env?: Record<string, string | undefined>;
 }
 
 export class LocalWebSearchProvider implements WebSearchProvider {
-  private readonly fetchImpl: typeof fetch;
+  private readonly fetchImpl: FetchLike;
   private readonly engines: readonly string[];
   private readonly limit: number;
 

@@ -1,3 +1,5 @@
+import { asGlobalFetch } from '#test/helpers/stubs';
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import { createHash } from 'node:crypto';
 import {
   chmodSync,
@@ -248,7 +250,7 @@ describe('ensureRgPath download branch', () => {
   afterEach(() => {
     rmSync(fakeShare, { recursive: true, force: true });
     if (savedFetch === undefined) {
-      delete (globalThis as unknown as { fetch?: typeof fetch }).fetch;
+      delete (globalThis as unknown as { fetch?: FetchLike }).fetch;
     } else {
       globalThis.fetch = savedFetch;
     }
@@ -262,14 +264,14 @@ describe('ensureRgPath download branch', () => {
 
   it('does not bootstrap when allowCachedFallback is false', async () => {
     const fetchMock = mock();
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    globalThis.fetch = asGlobalFetch(fetchMock);
 
     await expect(ensureRgPath(noRgProbe(), { shareDir: fakeShare })).rejects.toThrow(/on PATH/);
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
   it('surfaces a network error when fetch rejects', async () => {
-    globalThis.fetch = mock().mockRejectedValue(new Error('network unreachable')) as typeof fetch;
+    globalThis.fetch = asGlobalFetch(mock().mockRejectedValue(new Error('network unreachable')));
 
     await expect(
       ensureRgPath(noRgProbe(), { shareDir: fakeShare, allowCachedFallback: true }),
@@ -280,7 +282,7 @@ describe('ensureRgPath download branch', () => {
     const controller = new AbortController();
     controller.abort();
     const fetchMock = mock();
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    globalThis.fetch = asGlobalFetch(fetchMock);
 
     await expect(
       ensureRgPath(noRgProbe(), {
@@ -293,7 +295,7 @@ describe('ensureRgPath download branch', () => {
   });
 
   it('does not run probe subprocesses while lookup misses', async () => {
-    globalThis.fetch = mock().mockRejectedValue(new Error('network unreachable')) as typeof fetch;
+    globalThis.fetch = asGlobalFetch(mock().mockRejectedValue(new Error('network unreachable')));
     const probe = noRgProbe();
 
     await expect(
@@ -311,7 +313,7 @@ describe('ensureRgPath download branch', () => {
       readonly statusText: string;
       readonly body: null;
     }>();
-    globalThis.fetch = mock(() => fetchResponse.promise) as unknown as typeof fetch;
+    globalThis.fetch = asGlobalFetch(mock(() => fetchResponse.promise));
 
     const resultPromise = ensureRgPath(noRgProbe(), {
       shareDir: fakeShare,
@@ -332,12 +334,12 @@ describe('ensureRgPath download branch', () => {
   });
 
   it('surfaces HTTP failure (non-2xx response) with status + statusText', async () => {
-    globalThis.fetch = mock().mockResolvedValue({
+    globalThis.fetch = asGlobalFetch(mock().mockResolvedValue({
       ok: false,
       status: 404,
       statusText: 'Not Found',
       body: null,
-    }) as unknown as typeof fetch;
+    }));
 
     await expect(
       ensureRgPath(noRgProbe(), { shareDir: fakeShare, allowCachedFallback: true }),
@@ -352,7 +354,7 @@ describe('ensureRgPath download branch', () => {
       statusText: 'OK',
       body,
     });
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    globalThis.fetch = asGlobalFetch(fetchMock);
 
     await expect(
       ensureRgPath(noRgProbe(), { shareDir: fakeShare, allowCachedFallback: true }),
@@ -373,7 +375,7 @@ describe('ensureRgPath download branch', () => {
         statusText: 'OK',
         body,
       });
-      globalThis.fetch = fetchMock as unknown as typeof fetch;
+      globalThis.fetch = asGlobalFetch(fetchMock);
 
       await expect(
         ensureRgPath(noRgProbe(), { shareDir: fakeShare, allowCachedFallback: true }),
@@ -402,7 +404,7 @@ describe('ensureRgPath download branch', () => {
         statusText: 'OK',
         body,
       });
-      globalThis.fetch = fetchMock as unknown as typeof fetch;
+      globalThis.fetch = asGlobalFetch(fetchMock);
 
       await expect(
         ensureRgPath(noRgProbe(), { shareDir: fakeShare, allowCachedFallback: true }),
@@ -424,12 +426,12 @@ describe('ensureRgPath download branch', () => {
     const tarMock = extractTar as unknown as Mock<typeof extractTar>;
     tarMock.mockClear();
     const body = bodyFromBuffer(Buffer.from('tampered archive', 'utf8'));
-    globalThis.fetch = mock().mockResolvedValue({
+    globalThis.fetch = asGlobalFetch(mock().mockResolvedValue({
       ok: true,
       status: 200,
       statusText: 'OK',
       body,
-    }) as unknown as typeof fetch;
+    }));
 
     await expect(
       ensureRgPath(noRgProbe(), { shareDir: fakeShare, allowCachedFallback: true }),
@@ -492,7 +494,7 @@ describe('ensureRgPath Windows download branch', () => {
   afterEach(() => {
     rmSync(fakeShare, { recursive: true, force: true });
     if (savedFetch === undefined) {
-      delete (globalThis as unknown as { fetch?: typeof fetch }).fetch;
+      delete (globalThis as unknown as { fetch?: FetchLike }).fetch;
     } else {
       globalThis.fetch = savedFetch;
     }
@@ -519,7 +521,7 @@ describe('ensureRgPath Windows download branch', () => {
       statusText: 'OK',
       body: bodyFromBuffer(zipBuf),
     });
-    globalThis.fetch = fetchMock as unknown as typeof fetch;
+    globalThis.fetch = asGlobalFetch(fetchMock);
 
     await expect(
       ensureRgPath(noRgProbe(), { shareDir: fakeShare, allowCachedFallback: true }),
@@ -603,12 +605,12 @@ describe('ensureRgPath Windows download branch', () => {
   });
 
   it('surfaces HTTP failure on Windows with status + statusText', async () => {
-    globalThis.fetch = mock().mockResolvedValue({
+    globalThis.fetch = asGlobalFetch(mock().mockResolvedValue({
       ok: false,
       status: 502,
       statusText: 'Bad Gateway',
       body: null,
-    }) as unknown as typeof fetch;
+    }));
 
     await expect(
       ensureRgPath(noRgProbe(), { shareDir: fakeShare, allowCachedFallback: true }),

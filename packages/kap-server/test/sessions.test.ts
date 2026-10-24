@@ -1,3 +1,4 @@
+import { afterAll, afterEach, beforeAll, describe, expect, it, mock, spyOn } from 'bun:test';
 import { randomBytes } from 'node:crypto';
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -48,13 +49,12 @@ import {
 import { sessionWarningsResponseSchema } from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionProtocol';
 import { SessionMetaUpdated } from '@moonshot-ai/agent-core-v2/session/sessionMetadata/sessionMetaEvents';
 import type { AgentTranscriptSnapshot } from '@moonshot-ai/transcript';
-import { afterAll, afterEach, beforeAll, describe, expect, it, mock, spyOn } from 'bun:test';
-import { removeTempHome } from './helpers/tempHome';
 
 import { type RunningServer, startServer } from '../src/start';
 import { authHeaders } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
 import { restoreEnvs } from './helpers/stubs';
+import { removeTempHome } from './helpers/tempHome';
 import { waitForAssertion } from './helpers/waitFor';
 
 interface Envelope<T> {
@@ -690,7 +690,10 @@ describe('server-v2 /api/v1/sessions', () => {
 
     let toolsRequest: { method: string; params: { chat_content: string } } | undefined;
     const actualFetch = globalThis.fetch.bind(globalThis);
-    spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    spyOn(globalThis, 'fetch').mockImplementation((async (
+      input: string | URL | Request,
+      init?: RequestInit,
+    ) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       if (url === 'https://api.example.test/coding/v1/tools') {
         const body = init?.body;
@@ -704,7 +707,7 @@ describe('server-v2 /api/v1/sessions', () => {
         });
       }
       return actualFetch(input, init);
-    });
+    }) as unknown as typeof fetch);
 
     const created = await postJson<SessionWire>('/api/v1/sessions', {
       metadata: { cwd: home as string },
@@ -770,22 +773,27 @@ describe('server-v2 /api/v1/sessions', () => {
     const handle = getLiveSessionById((server as RunningServer).core.accessor, id)!;
     const occupied = new Error2(ErrorCodes.SESSION_OCCUPIED, 'occupied');
 
-    const setTitle = spyOn(handle.accessor.get(ISessionMetadata), 'setTitle')
-      .mockRejectedValue(occupied);
+    const setTitle = spyOn(handle.accessor.get(ISessionMetadata), 'setTitle').mockRejectedValue(
+      occupied,
+    );
     const profile = await postJson(`/api/v1/sessions/${id}/profile`, { title: 'occupied' });
     expect(profile.status).toBe(200);
     expect(profile.body.code).toBe(40931);
     setTitle.mockRestore();
 
-    const generateTitle = spyOn(handle.accessor.get(ISessionTitleService), 'generateTitle')
-      .mockRejectedValue(occupied);
+    const generateTitle = spyOn(
+      handle.accessor.get(ISessionTitleService),
+      'generateTitle',
+    ).mockRejectedValue(occupied);
     const generated = await postJson(`/api/v1/sessions/${id}/title/generate`);
     expect(generated.status).toBe(200);
     expect(generated.body.code).toBe(40931);
     generateTitle.mockRestore();
 
-    const createChild = spyOn((server as RunningServer).core.accessor.get(ISessionManager), 'createChild')
-      .mockRejectedValue(occupied);
+    const createChild = spyOn(
+      (server as RunningServer).core.accessor.get(ISessionManager),
+      'createChild',
+    ).mockRejectedValue(occupied);
     const child = await postJson(`/api/v1/sessions/${id}/children`, {});
     expect(child.status).toBe(200);
     expect(child.body.code).toBe(40931);
@@ -1336,8 +1344,9 @@ describe('server-v2 /api/v1/sessions', () => {
     if (session === undefined) throw new Error('expected live session');
     await session.accessor.get(IAgentLifecycleService).create({ agentId: MAIN_AGENT_ID });
     const agent = session.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID)!;
-    const undo = spyOn(agent.accessor.get(IAgentConversationUndoService), 'undo')
-      .mockRejectedValue(new Error2(ErrorCodes.SESSION_BUSY, 'session is busy'));
+    const undo = spyOn(agent.accessor.get(IAgentConversationUndoService), 'undo').mockRejectedValue(
+      new Error2(ErrorCodes.SESSION_BUSY, 'session is busy'),
+    );
 
     try {
       const response = await postJson<null>(`/api/v1/sessions/${created.body.data.id}:undo`, {
@@ -1357,9 +1366,7 @@ describe('server-v2 /api/v1/sessions', () => {
     const id = created.body.data.id;
     const session = getLiveSessionById((server as RunningServer).core.accessor, id);
     if (session === undefined) throw new Error('expected live session');
-    await session.accessor
-      .get(IAgentLifecycleService)
-      .create({ agentId: MAIN_AGENT_ID });
+    await session.accessor.get(IAgentLifecycleService).create({ agentId: MAIN_AGENT_ID });
     const agent = session.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID)!;
     const compactionService = agent.accessor.get(IAgentFullCompactionService);
     Object.defineProperty(compactionService, 'compacting', {

@@ -6614,7 +6614,7 @@ command = "vim"
     let uploadAborted = false;
     let uploadedFileBytes = 0;
     const fetchStub = spyOn(globalThis, 'fetch').mockImplementation(
-      async (input, init): Promise<Response> => {
+      (async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
         const url =
           typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
         const signal = init?.signal ?? (input instanceof Request ? input.signal : null);
@@ -6642,7 +6642,7 @@ command = "vim"
           });
         }
         throw new Error(`unexpected fetch: ${url}`);
-      },
+      }) as unknown as typeof fetch,
     );
     const baseUrl = 'http://stub.invalid/v1';
     await writeFile(

@@ -1,3 +1,4 @@
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import { mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -607,7 +608,7 @@ describe('PluginService (plugin boundary)', () => {
       mock(() => {
         downloadStarted.resolve(undefined);
         return downloadResponse.promise;
-      }) as typeof fetch,
+      }) as FetchLike,
     );
     const host = makeHost(home);
     try {
@@ -673,7 +674,7 @@ describe('PluginService (plugin boundary)', () => {
       mock(() => {
         lookupStarted.resolve(undefined);
         return lookupResponse.promise;
-      }) as typeof fetch,
+      }) as FetchLike,
     );
     const host = makeHost(home);
     try {

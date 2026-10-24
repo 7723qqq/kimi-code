@@ -1,4 +1,5 @@
 
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import { homedir } from 'node:os';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -47,7 +48,7 @@ export interface ReadPluginMarketplaceOptions {
   readonly workDir: string;
 
   readonly homeDir?: string;
-  readonly fetchImpl?: typeof fetch;
+  readonly fetchImpl?: FetchLike;
   readonly sourceCheckoutLocation?: () => Promise<MarketplaceLocation | undefined>;
 }
 
@@ -150,7 +151,7 @@ export function withBuiltInEntries(
 
 export async function withLatestVersions(
   marketplace: PluginMarketplace,
-  fetchImpl: typeof fetch,
+  fetchImpl: FetchLike,
 ): Promise<PluginMarketplace> {
   const plugins = await Promise.all(
     marketplace.plugins.map(async (entry) => {
@@ -164,7 +165,7 @@ export async function withLatestVersions(
 
 async function readMarketplaceText(
   location: MarketplaceLocation,
-  fetchImpl: typeof fetch,
+  fetchImpl: FetchLike,
 ): Promise<string> {
   if (location.kind === 'local') {
     return (globalThis as unknown as { Bun: { file: (path: string) => { text: () => Promise<string> } } }).Bun.file(location.resolved).text();
@@ -279,7 +280,7 @@ function deriveVersionFromGithubSource(source: string): string | undefined {
 
 async function resolveLatestGithubRelease(
   source: string,
-  fetchImpl: typeof fetch,
+  fetchImpl: FetchLike,
 ): Promise<string | undefined> {
   const repo = parseGithubRepo(source);
   if (repo === undefined) return undefined;
@@ -310,7 +311,7 @@ function parseGithubRepo(source: string): { owner: string; repo: string } | unde
 async function fetchLatestReleaseTag(
   owner: string,
   repo: string,
-  fetchImpl: typeof fetch,
+  fetchImpl: FetchLike,
 ): Promise<string | undefined> {
   const url = `https://github.com/${owner}/${repo}/releases/latest`;
   const resp = await fetchImpl(url, { redirect: 'manual' });

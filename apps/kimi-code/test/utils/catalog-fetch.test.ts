@@ -24,7 +24,7 @@ describe('fetchCatalogOrBuiltIn', () => {
     const fetchImpl = mock(async () => jsonResponse(network));
 
     const result = await fetchCatalogOrBuiltIn(DEFAULT_CATALOG_URL, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as unknown as unknown as typeof fetch,
       builtInJson: BUILT_IN,
     });
 
@@ -36,7 +36,7 @@ describe('fetchCatalogOrBuiltIn', () => {
     const fetchImpl = mock(async () => jsonResponse('no', 503));
 
     const result = await fetchCatalogOrBuiltIn(DEFAULT_CATALOG_URL, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as unknown as unknown as typeof fetch,
       builtInJson: BUILT_IN,
     });
 
@@ -49,7 +49,7 @@ describe('fetchCatalogOrBuiltIn', () => {
 
     await expect(
       fetchCatalogOrBuiltIn('https://example.test/private.json', {
-        fetchImpl: fetchImpl as unknown as typeof fetch,
+        fetchImpl: fetchImpl as unknown as unknown as typeof fetch,
         builtInJson: BUILT_IN,
       }),
     ).rejects.toBeInstanceOf(CatalogFetchError);
@@ -65,7 +65,7 @@ describe('fetchCatalogOrBuiltIn', () => {
     await expect(
       fetchCatalogOrBuiltIn(DEFAULT_CATALOG_URL, {
         signal: controller.signal,
-        fetchImpl: fetchImpl as unknown as typeof fetch,
+        fetchImpl: fetchImpl as unknown as unknown as typeof fetch,
         builtInJson: BUILT_IN,
       }),
     ).rejects.toThrow();
@@ -76,7 +76,7 @@ describe('fetchCatalogOrBuiltIn', () => {
 
     await expect(
       fetchCatalogOrBuiltIn(DEFAULT_CATALOG_URL, {
-        fetchImpl: fetchImpl as unknown as typeof fetch,
+        fetchImpl: fetchImpl as unknown as unknown as typeof fetch,
         builtInJson: '',
       }),
     ).rejects.toBeInstanceOf(CatalogFetchError);

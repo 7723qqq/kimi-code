@@ -1,3 +1,4 @@
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 
 import { createScopedTestHost } from '#/_base/di/test';
@@ -104,28 +105,28 @@ const REGISTRY_DOC = {
   },
 } as const;
 
-function fetchJson(doc: unknown): typeof fetch {
+function fetchJson(doc: unknown): FetchLike {
   return (async () =>
     new Response(JSON.stringify(doc), {
       status: 200,
       headers: { 'content-type': 'application/json' },
-    })) as unknown as typeof fetch;
+    })) as unknown as FetchLike;
 }
 
-function fetchJsonRecordingUserAgent(doc: unknown, seen: Array<string | null>): typeof fetch {
+function fetchJsonRecordingUserAgent(doc: unknown, seen: Array<string | null>): FetchLike {
   return (async (_input: unknown, init?: { headers?: Record<string, string> }) => {
     seen.push(new Headers(init?.headers).get('User-Agent'));
     return new Response(JSON.stringify(doc), {
       status: 200,
       headers: { 'content-type': 'application/json' },
     });
-  }) as unknown as typeof fetch;
+  }) as unknown as FetchLike;
 }
 
-function fetchFail(): typeof fetch {
+function fetchFail(): FetchLike {
   return (async () => {
     throw new Error('network down');
-  }) as unknown as typeof fetch;
+  }) as unknown as FetchLike;
 }
 
 function stubKosongConfig(): IKosongConfigService {

@@ -1,3 +1,4 @@
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import { randomBytes } from 'node:crypto';
 
 import { kimiRegionProfile, resolveKimiRegion } from '@moonshot-ai/kimi-code-oauth';
@@ -36,7 +37,7 @@ export interface CloudTransportOptions {
   readonly homeDir?: string;
   readonly readMarker?: boolean;
   readonly getAccessToken?: () => string | null | Promise<string | null>;
-  readonly fetchImpl?: typeof fetch;
+  readonly fetchImpl?: FetchLike;
   readonly retryBackoffsMs?: readonly number[];
   readonly requestTimeoutMs?: number;
   readonly maxDiskFiles?: number;
@@ -69,7 +70,7 @@ export class CloudTransport {
   private readonly deviceId: string;
   private readonly endpoint: string | undefined;
   private readonly getAccessToken: (() => string | null | Promise<string | null>) | null;
-  private readonly fetchImpl: typeof fetch;
+  private readonly fetchImpl: FetchLike;
   private readonly retryBackoffsMs: readonly number[];
   private readonly requestTimeoutMs: number;
   private readonly maxDiskFiles: number;
@@ -368,7 +369,7 @@ function handleStatus(status: number): void {
 }
 
 async function fetchWithTimeout(
-  fetchImpl: typeof fetch,
+  fetchImpl: FetchLike,
   url: string,
   init: RequestInit,
   timeoutMs: number,

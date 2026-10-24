@@ -32,7 +32,7 @@ function mockFetch(response: {
     ok: response.ok,
     status: response.status,
     text: async () => response.body ?? '',
-  })) as unknown as typeof fetch;
+  })) as unknown as unknown as typeof fetch;
 }
 
 const MANIFEST_BODY = JSON.stringify({
@@ -158,7 +158,7 @@ describe('fetchNativeReleaseManifest', () => {
   it('propagates fetch errors', async () => {
     const f = mock(async () => {
       throw new Error('network down');
-    }) as unknown as typeof fetch;
+    }) as unknown as unknown as typeof fetch;
     await expect(fetchNativeReleaseManifest(VERSION, f)).rejects.toThrow(/network down/);
   });
 
@@ -174,7 +174,7 @@ describe('fetchNativeReleaseManifest', () => {
             reject(new Error('aborted'));
           }, { once: true });
         }),
-    })) as unknown as typeof fetch;
+    })) as unknown as unknown as typeof fetch;
     const promise = fetchNativeReleaseManifest(VERSION, f, clock);
     // Bun's `expect(promise).rejects` blocks until the promise settles, so the
     // rejection has to happen before the assertion is created.

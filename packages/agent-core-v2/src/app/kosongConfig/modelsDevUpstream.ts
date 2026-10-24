@@ -1,3 +1,4 @@
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import { CoreErrors } from '#/_base/errors/codes';
 import { BugIndicatingError, Error2 } from '#/_base/errors/errors';
 import type { ModelCapability } from '#/llm-adapter/contract/capability';
@@ -35,11 +36,11 @@ interface ModelsDevCacheEntry {
 let cache: ModelsDevCacheEntry | undefined;
 let inFlight: Promise<ModelsDevCatalog> | undefined;
 let builtInMemo: ModelsDevCatalog | undefined | null = null;
-let fetchImpl: typeof fetch = fetch;
+let fetchImpl: FetchLike = fetch;
 let nowImpl: () => number = Date.now;
 
 export function setModelsDevUpstreamForTest(options: {
-  fetchImpl?: typeof fetch;
+  fetchImpl?: FetchLike;
   now?: () => number;
 }): void {
   if (options.fetchImpl !== undefined) fetchImpl = options.fetchImpl;
@@ -54,7 +55,7 @@ export function resetModelsDevUpstreamForTest(): void {
   nowImpl = Date.now;
 }
 
-export function upstreamFetch(): typeof fetch {
+export function upstreamFetch(): FetchLike {
   return fetchImpl;
 }
 

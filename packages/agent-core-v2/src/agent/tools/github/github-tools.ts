@@ -1,3 +1,4 @@
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import { z } from 'zod';
 
 import { createDecorator } from '#/_base/di/instantiation';
@@ -24,7 +25,7 @@ const page = z.number().int().min(1).optional().describe('Page number (1-based).
 
 export interface GitHubToolDeps {
   readonly config: IConfigService;
-  readonly fetchImpl: typeof fetch;
+  readonly fetchImpl: FetchLike;
 }
 
 export abstract class GitHubToolBase implements IGitHubTool {

@@ -1,3 +1,4 @@
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import { afterEach, beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
 import { setEnv, setGlobal, restoreEnvs, restoreGlobals } from '#test/helpers/stubs';
 import { waitForAssertion } from '#test/helpers/waitFor';
@@ -101,7 +102,7 @@ describe('engineFetch http3 adaptation', () => {
     const r = await engineFetch(URL_);
     expect(r.status).toBe(200);
     expect(undiciFetchMock).not.toHaveBeenCalled();
-    const init = (fetch as Mock<typeof fetch>).mock.calls[0]?.[1] as RequestInit | undefined;
+    const init = (fetch as unknown as Mock<FetchLike>).mock.calls[0]?.[1] as RequestInit | undefined;
     expect((init as { protocol?: string })?.protocol).toBe('http3');
   });
 
@@ -116,7 +117,7 @@ describe('engineFetch http3 adaptation', () => {
   it('falls back to undici and marks the origin dead when h3 fails', async () => {
     markH3Origin(ORIGIN, 'ok');
     undiciFetchMock.mockResolvedValue(undiciResponse() as never);
-    (fetch as Mock<typeof fetch>).mockRejectedValueOnce(new Error('quic handshake failed'));
+    (fetch as unknown as Mock<FetchLike>).mockRejectedValueOnce(new Error('quic handshake failed'));
 
     const first = await engineFetch(URL_);
     expect(first.status).toBe(200);

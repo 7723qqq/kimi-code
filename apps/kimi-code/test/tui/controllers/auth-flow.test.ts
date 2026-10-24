@@ -191,7 +191,7 @@ describe('refreshConfigAfterLogin with a matching cloud rule', () => {
               },
             }),
           ),
-      ) as unknown as typeof fetch,
+      ) as unknown as unknown as typeof fetch,
     });
     return { host, session, appState, mountEditorReplacement };
   }

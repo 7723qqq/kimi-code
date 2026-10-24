@@ -1,3 +1,4 @@
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import { mkdtemp, readFile, readdir, rm, mkdir, writeFile, access, chmod, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -105,7 +106,7 @@ function fakePlugins(installed: Array<{ id: string; enabled: boolean; state: str
 function fakeFetch(opts: {
   statusSequence?: Array<object | 'error'>;
   binary?: Uint8Array;
-}): { fetchImpl: typeof fetch } {
+}): { fetchImpl: FetchLike } {
   let statusCalls = 0;
   const fetchImpl = (async (url: string | URL): Promise<Response> => {
     const u = String(url);
@@ -123,7 +124,7 @@ function fakeFetch(opts: {
       });
     }
     throw new Error(`unexpected fetch: ${u}`);
-  }) as unknown as typeof fetch;
+  }) as unknown as FetchLike;
   return { fetchImpl };
 }
 

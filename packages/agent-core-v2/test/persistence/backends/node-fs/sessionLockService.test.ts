@@ -314,7 +314,9 @@ describe('SessionLockService', () => {
       serviceA.hold(SID);
       serviceA.hold('other');
       expect(existsSync(lockPath(homeDir, SID))).toBe(true);
-      const exitCalls = onSpy.mock.calls.filter(([event]) => event === 'exit');
+      const exitCalls = (onSpy.mock.calls as Array<[string, () => void]>).filter(
+        ([event]) => event === 'exit',
+      );
       expect(exitCalls).toHaveLength(1);
       const exitListener = exitCalls[0]?.[1] as () => void;
       exitListener();

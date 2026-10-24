@@ -24,7 +24,7 @@
     "skipLibCheck": true,
 
     "typeRoots": ["./node_modules/@types", "./types"],
-    "types": ["node", "bun-test"]
+    "types": ["node", "bun"]
   },
   "include": [
     "packages/*/src/**/*.ts",

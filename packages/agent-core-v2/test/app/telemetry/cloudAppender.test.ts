@@ -1,3 +1,4 @@
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -22,7 +23,7 @@ interface CapturedRequest {
 
 type Responder = (req: CapturedRequest) => Response | Promise<Response>;
 
-function makeFetch(responder: Responder): typeof fetch {
+function makeFetch(responder: Responder): FetchLike {
   return (async (input: unknown, init: unknown) => {
     const requestInit = init as { headers: Record<string, string>; body: string };
     const req: CapturedRequest = {
@@ -31,7 +32,7 @@ function makeFetch(responder: Responder): typeof fetch {
       body: JSON.parse(requestInit.body) as CapturedRequest['body'],
     };
     return responder(req);
-  }) as unknown as typeof fetch;
+  }) as unknown as FetchLike;
 }
 
 function okResponse(): Response {

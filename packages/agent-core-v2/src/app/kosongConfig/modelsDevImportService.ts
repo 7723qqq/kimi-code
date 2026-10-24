@@ -201,7 +201,7 @@ export class ModelsDevImportService implements IModelsDevImportService {
     let entries: Record<string, CustomRegistryProviderEntry>;
     try {
       entries = await fetchCustomRegistry(source, {
-        fetchImpl: upstreamFetch(),
+        fetchImpl: upstreamFetch() as unknown as typeof fetch,
         userAgent: await this.outboundUserAgent(),
         signal: AbortSignal.timeout(UPSTREAM_FETCH_TIMEOUT_MS),
       });

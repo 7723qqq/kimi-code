@@ -217,7 +217,7 @@ describe('server-e2e report', () => {
           },
         }),
         { status: 200, headers: { 'content-type': 'application/json' } },
-      )) as typeof fetch;
+      )) as unknown as typeof fetch;
     const client = new HttpClient({
       baseUrl: 'http://server.example.test',
       apiPrefix: '/api/v1',
@@ -344,7 +344,7 @@ describe('server-e2e report', () => {
           data: { server_id: 'daemon_1' },
         }),
         { status: 200, headers: { 'content-type': 'application/json' } },
-      )) as typeof fetch;
+      )) as unknown as typeof fetch;
 
     const response = await fetchWithReport(
       'http://server.example.test/api/v1/meta',
@@ -411,7 +411,7 @@ describe('server-e2e report', () => {
           },
         }),
         { status: 200, headers: { 'content-type': 'application/json' } },
-      )) as typeof fetch;
+      )) as unknown as typeof fetch;
     const client = new DaemonClient({
       baseUrl: 'http://server.example.test',
       fetchImpl,

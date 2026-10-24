@@ -1,13 +1,14 @@
+import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+
 import type { createKimiDeviceId as createKimiDeviceIdFn } from '@moonshot-ai/kimi-code-oauth';
 import * as oauthModule from '@moonshot-ai/kimi-code-oauth';
-import * as migrationModule from '../../src/migration/index';
 import * as sdkModule from '@moonshot-ai/kimi-code-sdk';
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
-import { setEnv, restoreEnvs } from '#test/helpers/stubs';
 
 import { runShell as runShellWith, type RunShellChildProcess } from '#/cli/run-shell';
 import { refreshKimiRegion } from '#/utils/region';
+import { setEnv, restoreEnvs } from '#test/helpers/stubs';
 
+import * as migrationModule from '../../src/migration/index';
 import { captureProcessWrite, ExitCalled, mockProcessExit } from '../helpers/process';
 
 type CreateKimiDeviceId = typeof createKimiDeviceIdFn;
@@ -775,9 +776,9 @@ describe('runShell', () => {
         '1.2.3-test',
       );
 
-      const handler = processOnSpy.mock.calls.find(
+      const handler = (processOnSpy.mock.calls as Array<[string, (error: unknown) => void]>).find(
         ([event]) => event === 'uncaughtException',
-      )?.[1] as ((error: unknown) => void) | undefined;
+      )?.[1];
       expect(handler).toBeDefined();
 
       // The async log sink cannot flush before process.exit() runs, so the
@@ -826,9 +827,9 @@ describe('runShell', () => {
         '1.2.3-test',
       );
 
-      const handler = processOnSpy.mock.calls.find(
+      const handler = (processOnSpy.mock.calls as Array<[string, (reason: unknown) => void]>).find(
         ([event]) => event === 'unhandledRejection',
-      )?.[1] as ((reason: unknown) => void) | undefined;
+      )?.[1];
       expect(handler).toBeDefined();
 
       expect(() => handler?.(new Error('boom'))).toThrow(ExitCalled);

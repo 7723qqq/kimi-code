@@ -1,3 +1,4 @@
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import type { WebSearchProvider, WebSearchResult } from '#/agent/tools/web-search/web-search';
 import { Error2, ErrorCodes } from '#/errors';
 
@@ -11,7 +12,7 @@ export interface MoonshotWebSearchProviderOptions {
   baseUrl: string;
   defaultHeaders?: Record<string, string>;
   customHeaders?: Record<string, string>;
-  fetchImpl?: typeof fetch;
+  fetchImpl?: FetchLike;
 }
 
 interface MoonshotSearchResult {
@@ -35,7 +36,7 @@ export class MoonshotWebSearchProvider implements WebSearchProvider {
   private readonly baseUrl: string;
   private readonly defaultHeaders: Record<string, string>;
   private readonly customHeaders: Record<string, string>;
-  private readonly fetchImpl: typeof fetch;
+  private readonly fetchImpl: FetchLike;
 
   constructor(options: MoonshotWebSearchProviderOptions) {
     this.tokenProvider = options.tokenProvider;

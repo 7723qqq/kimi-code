@@ -179,7 +179,7 @@ async function enableRule(): Promise<void> {
             config: { enable: true, rules: [{ from: 'upstream-old', to: 'upstream-new' }] },
           }),
         ),
-    ) as unknown as typeof fetch,
+    ) as unknown as unknown as typeof fetch,
   });
 }
 

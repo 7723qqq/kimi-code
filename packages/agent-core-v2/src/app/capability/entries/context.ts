@@ -1,3 +1,4 @@
+import type { FetchLike } from '#/_base/utils/fetchLike';
 import type { KimiRegion } from '@moonshot-ai/kimi-code-oauth';
 
 import type { IPluginService } from '#/app/plugin/plugin';
@@ -10,7 +11,7 @@ export interface CapabilityEntryContext {
   readonly userHomeDir: string;
   readonly plugins: IPluginService;
   readonly hostProcess: IHostProcessService;
-  readonly fetchImpl?: typeof fetch;
+  readonly fetchImpl?: FetchLike;
   readonly applicationsDir?: string;
   readonly webbridgeBaseUrl?: string;
   readonly detectProbeTimeoutMs?: number;
