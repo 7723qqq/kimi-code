@@ -21,6 +21,10 @@ import {
   ITelemetryService,
   MAIN_AGENT_ID,
   CompactionCompleted,
+  TurnStarted,
+  TurnEnded,
+  ToolCallStarted,
+  ToolResultEvent,
   SubagentSpawned,
   type AgentMeta,
   type IAgentScopeHandle,
@@ -28,12 +32,6 @@ import {
   type ISessionScopeHandle,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
-import { TurnStarted } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
-import { TurnEnded } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
-import {
-  ToolCallStarted,
-  ToolResultEvent,
-} from '@moonshot-ai/agent-core-v2/agent/toolExecutor/toolExecutorEvents';
 
 import { ClientConfigClient } from '#/client-configs/node/client-configs';
 import {

@@ -30,10 +30,10 @@ import {
   getLiveSessionById,
   resumeSessionById,
   sessionDirOf,
+  ISessionLockService,
   type ContextMessage,
   type ScopeSeed,
 } from '@moonshot-ai/agent-core-v2';
-import { ISessionLockService } from '@moonshot-ai/agent-core-v2/persistence/interface/sessionLock';
 import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
 import { renderToolResultForModel } from '@moonshot-ai/agent-core-v2/agent/contextMemory/toolResultRender';
 import { TurnStarted } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';

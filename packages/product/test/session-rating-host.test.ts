@@ -19,9 +19,10 @@ import {
   type IAgentScopeHandle,
   type ISessionScopeHandle,
   type Scope,
+  TurnStarted,
+  TurnEnded,
+  TurnPrompt,
 } from '@moonshot-ai/agent-core-v2';
-import { TurnStarted } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
-import { TurnEnded, TurnPrompt } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
 import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 
 import { SessionRatingHost } from '#/session-rating/node/index';
