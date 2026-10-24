@@ -177,8 +177,6 @@ describe('WorkspaceTrustService', () => {
     await service.ready;
     expect(service.isTrusted()).toBe(false);
 
-    // A record appears on disk without the service having observed it, so the
-    // in-memory flag is still false when `untrust()` runs.
     await writeWorkspaceTrust(backing, root, 1);
 
     await service.untrust();

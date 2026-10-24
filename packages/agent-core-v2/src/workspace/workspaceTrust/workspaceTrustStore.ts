@@ -88,10 +88,6 @@ class WorkspaceTrustEntry extends Disposable implements IWorkspaceTrustEntry {
   private mutate(trusted: boolean): Promise<void> {
     const mutation = this.mutationTail.catch(() => {}).then(async () => {
       await this.ready;
-      // The on-disk record is always written or removed, even when the flag
-      // already matches: an earlier failed read can leave the two disagreeing,
-      // and skipping the disk step would let a stale record re-trust the
-      // workspace on the next start.
       if (trusted) {
         await writeWorkspaceTrust(this.docs, this.root, Date.now());
       } else {
