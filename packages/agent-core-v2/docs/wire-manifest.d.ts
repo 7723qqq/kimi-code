@@ -24,7 +24,7 @@
 // cross-reducers), blobs (the folding states whose blob codec offloads inline
 // media to blob storage), owner (the source file declaring the class).
 
-// Index (73 record types)
+// Index (74 record types)
 //   changeNotifier.snapshot            changeNotifier.snapshot                                                                               src/agent/changeNotifier/changeNotifierOps.ts
 //   config.update                      profile                                                                                               src/agent/profile/profileOps.ts
 //   context.append_loop_event          contextMemory, turn                                                                                   src/agent/contextMemory/contextEvents.ts
@@ -44,8 +44,9 @@
 //   goal.clear                         (none)                                                                                                src/features/goal/goalOps.ts
 //   goal.create                        (none)                                                                                                src/features/goal/goalOps.ts
 //   goal.update                        (none)                                                                                                src/features/goal/goalOps.ts
-//   hello_world_mode.enter             helloWorld                                                                                            src/features/helloWorld/helloWorldOps.ts
-//   hello_world_mode.exit              contextMemory, helloWorld                                                                             src/features/helloWorld/helloWorldOps.ts
+//   hello_world_mode.enter             helloWorld, helloWorldRun                                                                             src/features/helloWorld/helloWorldOps.ts
+//   hello_world_mode.exit              contextMemory, helloWorld, helloWorldRun                                                              src/features/helloWorld/helloWorldOps.ts
+//   hello_world_run.updated            helloWorldRun                                                                                         src/features/helloWorld/helloWorldOps.ts
 //   interaction.request                (none)                                                                                                src/agent/interaction/interactionOps.ts
 //   interaction.resolved               (none)                                                                                                src/agent/interaction/interactionOps.ts
 //   interruptionReminder.recorded      interruptionReminder                                                                                  src/agent/interruptionReminder/interruptionReminderOps.ts
@@ -365,7 +366,7 @@ interface GoalUpdatePayload {
 }
 
 /**
- * states: helloWorld
+ * states: helloWorld, helloWorldRun
  * owner: src/features/helloWorld/helloWorldOps.ts
  */
 interface HelloWorldModeEnterPayload {
@@ -373,15 +374,35 @@ interface HelloWorldModeEnterPayload {
   agentId: string;
   /** HelloWorldModeTrigger */
   trigger: 'manual' | 'task' | 'tool';
+  task?: string;
 }
 
 /**
- * states: contextMemory, helloWorld · blobs: contextMemory
+ * states: contextMemory, helloWorld, helloWorldRun · blobs: contextMemory
  * owner: src/features/helloWorld/helloWorldOps.ts
  */
 interface HelloWorldModeExitPayload {
   _name: 'hello_world_mode.exit';
   agentId: string;
+}
+
+/**
+ * states: helloWorldRun
+ * owner: src/features/helloWorld/helloWorldOps.ts
+ */
+interface HelloWorldRunUpdatedPayload {
+  _name: 'hello_world_run.updated';
+  agentId: string;
+  /** HelloWorldStage */
+  stage: (typeof HELLO_WORLD_STAGES)[number];
+  task?: string;
+  items: {
+    id: HelloWorldRunItemId;
+    done: boolean;
+    evidence?: string;
+  }[];
+  /** HelloWorldRunItemId */
+  waivers: 'requirements-approved' | 'design-written' | 'tasks-complete' | 'tests-green' | 'review-done' | 'docs-updated' | 'changeset-ready'[];
 }
 
 /**
@@ -1091,6 +1112,7 @@ interface WirePayloadMap {
   "goal.update": GoalUpdatePayload;
   "hello_world_mode.enter": HelloWorldModeEnterPayload;
   "hello_world_mode.exit": HelloWorldModeExitPayload;
+  "hello_world_run.updated": HelloWorldRunUpdatedPayload;
   "interaction.request": InteractionRequestPayload;
   "interaction.resolved": InteractionResolvedPayload;
   "interruptionReminder.recorded": InterruptionReminderRecordedPayload;

@@ -1,7 +1,11 @@
 import { AsyncLocalStorage } from 'node:async_hooks';
 
 import type { SwarmModeTrigger } from '@moonshot-ai/agent-core-v2/features/swarm/agent/swarm';
-import type { HelloWorldModeTrigger } from '@moonshot-ai/agent-core-v2/features/helloWorld/agent/helloWorld';
+import type {
+  HelloWorldModeTrigger,
+  HelloWorldRunItemId,
+  HelloWorldStage,
+} from '@moonshot-ai/agent-core-v2/features/helloWorld/agent/helloWorld';
 
 import type { AgentContextData } from '#/context';
 import { ErrorCodes, KimiError, makeErrorPayload } from '#/errors';
@@ -150,8 +154,20 @@ export type SetSessionSwarmModeRpcInput =
   | (SessionIdRpcInput & { readonly enabled: false });
 
 export type SetSessionHelloWorldModeRpcInput =
-  | (SessionIdRpcInput & { readonly enabled: true; readonly trigger: HelloWorldModeTrigger })
+  | (SessionIdRpcInput & {
+      readonly enabled: true;
+      readonly trigger: HelloWorldModeTrigger;
+      readonly task?: string;
+    })
   | (SessionIdRpcInput & { readonly enabled: false });
+
+export interface SetSessionHelloWorldStageRpcInput extends SessionIdRpcInput {
+  readonly stage: HelloWorldStage | 'next';
+}
+
+export interface WaiveHelloWorldRunItemRpcInput extends SessionIdRpcInput {
+  readonly item: HelloWorldRunItemId;
+}
 
 export interface SetSessionTowerModeRpcInput extends SessionIdRpcInput {
   readonly enabled: boolean;
@@ -398,6 +414,10 @@ export abstract class SDKRpcClientBase {
   abstract setSwarmMode(input: SetSessionSwarmModeRpcInput): Promise<void>;
 
   abstract setHelloWorldMode(input: SetSessionHelloWorldModeRpcInput): Promise<void>;
+
+  abstract setHelloWorldStage(input: SetSessionHelloWorldStageRpcInput): Promise<void>;
+
+  abstract waiveHelloWorldRunItem(input: WaiveHelloWorldRunItemRpcInput): Promise<void>;
 
   abstract swarm(input: SessionPromptRpcInput): Promise<void>;
 

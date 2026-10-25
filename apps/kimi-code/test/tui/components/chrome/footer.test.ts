@@ -232,6 +232,42 @@ describe('FooterComponent', () => {
     expect(rendered).toContain('plan');
     expect(rendered).toContain('spec');
   });
+
+  it('shows the hello-world stage on the badge only while hello-world mode is on', () => {
+    const on = new FooterComponent({
+      ...appState,
+      helloWorldMode: true,
+      helloWorldStage: 'requirements',
+    });
+    expect(on.render(120).join('\n')).toContain('hello-world:requirements');
+
+    const off = new FooterComponent({
+      ...appState,
+      helloWorldMode: false,
+      helloWorldStage: 'requirements',
+    });
+    expect(off.render(120).join('\n')).not.toContain('hello-world');
+  });
+
+  it('falls back to a bare hello-world chip when the stage is unknown', () => {
+    const footer = new FooterComponent({ ...appState, helloWorldMode: true });
+
+    expect(footer.render(120).join('\n')).toContain('hello-world');
+    expect(footer.render(120).join('\n')).not.toContain('hello-world:');
+  });
+
+  it('carries the stage on the hello-world-plan badge', () => {
+    const footer = new FooterComponent({
+      ...appState,
+      planMode: true,
+      helloWorldMode: true,
+      helloWorldStage: 'design',
+    });
+
+    const rendered = footer.render(120).join('\n').replaceAll(/\u001B\[[0-9;]*m/g, '');
+    expect(rendered).toContain('plan');
+    expect(rendered).toContain('hello-world-plan:design');
+  });
 });
 
 describe('FooterComponent overrides', () => {

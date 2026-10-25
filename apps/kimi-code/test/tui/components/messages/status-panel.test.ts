@@ -259,6 +259,52 @@ describe('status panel report lines', () => {
     expect(lines.join('\n')).toContain('Hello-world mode  on');
   });
 
+  it('shows the run stage on the hello-world row when a run is active', () => {
+    const lines = buildStatusReportLines(
+      statusOptions({
+        helloWorldMode: true,
+        status: {
+          model: 'k2',
+          thinkingEffort: 'off',
+          permission: 'manual',
+          planMode: false,
+          helloWorldMode: true,
+          helloWorldRun: {
+            stage: 'requirements',
+            items: [{ id: 'requirements-approved', done: false }],
+            waivers: [],
+          },
+          contextTokens: 0,
+          maxContextTokens: 0,
+          contextUsage: 0,
+        },
+      }),
+    ).map(strip);
+
+    expect(lines.join('\n')).toContain('Hello-world mode  on · requirements');
+  });
+
+  it('keeps the hello-world row plain when no run stage is reported', () => {
+    const lines = buildStatusReportLines(
+      statusOptions({
+        helloWorldMode: true,
+        status: {
+          model: 'k2',
+          thinkingEffort: 'off',
+          permission: 'manual',
+          planMode: false,
+          helloWorldMode: true,
+          contextTokens: 0,
+          maxContextTokens: 0,
+          contextUsage: 0,
+        },
+      }),
+    ).map(strip);
+
+    expect(lines.join('\n')).toContain('Hello-world mode  on');
+    expect(lines.join('\n')).not.toContain('on ·');
+  });
+
   it('lets live status override the mode snapshot', () => {
     const lines = buildStatusReportLines({
       version: '1.2.3',

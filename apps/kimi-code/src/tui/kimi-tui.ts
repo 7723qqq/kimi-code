@@ -2919,6 +2919,7 @@ export class KimiTUI {
       planMode: status.planMode,
       swarmMode: status.swarmMode ?? false,
       helloWorldMode: status.helloWorldMode ?? false,
+      helloWorldStage: status.helloWorldRun?.stage,
       towerMode: status.towerMode ?? false,
       contextTokens: status.contextTokens,
       maxContextTokens: status.maxContextTokens,

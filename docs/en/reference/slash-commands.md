@@ -54,8 +54,13 @@ Some commands are only available in the idle state. Executing these commands whi
 | `/plan clear` | — | Clear the current plan | No |
 | `/swarm on\|off` | — | Turn swarm mode on or off without sending a prompt. | Yes |
 | `/swarm <task>` | — | Turn swarm mode on, then send `<task>` as a normal prompt. If the turn completes normally, swarm mode turns off automatically. In `manual` permission mode, Kimi Code asks whether to switch to Ask When Needed or Never Ask mode before starting. | No |
-| `/hello-world on\|off` | — | Turn hello-world mode on or off without sending a prompt. The mode is currently a placeholder that behaves exactly like swarm mode. | No |
-| `/hello-world <task>` | — | Turn hello-world mode on, then send `<task>` as a normal prompt. If the turn completes normally, hello-world mode turns off automatically. In `manual` permission mode, Kimi Code asks whether to switch to Ask When Needed or Never Ask mode before starting. | No |
+| `/hello-world` | — | Flip hello-world mode. The mode is a staged development run workflow with phase gates (requirements→design→implement→test→review→docs→deliver); its artifacts land in the four files under `specs/<id>/` | No |
+| `/hello-world on\|off` | — | Turn hello-world mode on or off without sending a prompt | No |
+| `/hello-world <task>` | — | Turn hello-world mode on and record `<task>`, then send `<task>` as a normal prompt. The run survives across turns and only ends at `/hello-world off`. In `manual` permission mode, Kimi Code asks whether to switch to Ask When Needed or Never Ask mode before starting | No |
+| `/hello-world status` | — | Show the run panel: stage, task, checklist items with evidence, and waivers | No |
+| `/hello-world next` | — | Manually advance to the next stage; does nothing on the last stage | No |
+| `/hello-world phase <stage>` | — | Jump to the given stage; stages only move forward | No |
+| `/hello-world skip <item>` | — | Waive one checklist item and record it (the item is marked `waived`) | No |
 | `/tower` or `/tower status` | — | Show the base, missions, roster, review gates, inbox, concurrency, and recent activity without starting a model turn | Yes |
 | `/tower on` | — | Turn Tower mode on without changing the recorded base or sending a prompt; first initialization defaults to the current local branch | Yes |
 | `/tower off` | — | Exit Tower mode without stopping running background agents or removing `.tower/` state | Yes |
@@ -64,6 +69,8 @@ Some commands are only available in the idle state. Executing these commands whi
 | `/goal [...]` | — | Start or manage an autonomous goal | See below |
 
 Plan, Spec, Swarm, hello-world, and Tower are mutually exclusive: enabling one of them leaves whichever conflicting mode was active. Plan and Swarm may run together, and so may Plan and hello-world. `Shift-Tab` cycles between Plan and Spec: with neither active it enters Plan, the next press switches to Spec, and the next press turns Spec off, repeating. It never enters or leaves Swarm, hello-world, or Tower — use `/swarm`, `/hello-world`, and `/tower` for those modes.
+
+For the stage gates, run artifacts, and evidence-based advancement rules of hello-world mode, see [hello-world dev workflow mode](../guides/hello-world.md).
 
 Tower is experimental. For enablement, workflow, safety, and cleanup boundaries, see [Tower multi-agent collaboration](../guides/tower.md).
 

@@ -436,6 +436,17 @@ export interface SessionStatus {
   readonly specStage?: SpecStage;
   readonly swarmMode?: boolean;
   readonly helloWorldMode?: boolean;
+  readonly helloWorldStage?: string;
+  readonly helloWorldRun?: {
+    readonly stage: string;
+    readonly task?: string;
+    readonly items: readonly {
+      readonly id: string;
+      readonly done: boolean;
+      readonly evidence?: string;
+    }[];
+    readonly waivers: readonly string[];
+  };
   readonly towerMode?: boolean;
   readonly contextTokens: number;
   readonly maxContextTokens: number;

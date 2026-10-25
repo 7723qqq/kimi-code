@@ -79,6 +79,7 @@ export interface ResumedAgentState {
   readonly plan: PlanData;
   readonly swarmMode?: boolean | undefined;
   readonly helloWorldMode?: boolean | undefined;
+  readonly helloWorldStage?: string | undefined;
   readonly usage: UsageStatus;
   readonly tools: readonly ToolInfo[];
   readonly toolStore?: Readonly<Record<string, unknown>>;

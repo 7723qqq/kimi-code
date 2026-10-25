@@ -249,6 +249,11 @@ export interface HelloWorldModeTransitionEvent {
   trigger: 'manual' | 'task' | 'tool';
 }
 
+export interface HelloWorldStageChangedEvent {
+  stage: string;
+  previous: string;
+}
+
 export interface ExternalHookResolvedEvent {
   event: string;
   action: 'allow' | 'block';
@@ -982,6 +987,14 @@ export const telemetryEventDefinitions = {
     comment: 'Hello-world mode is exited.',
     properties: {
       trigger: 'What originally triggered the hello-world mode being exited',
+    },
+  }),
+  hello_world_stage_changed: defineAgentTelemetryEvent<HelloWorldStageChangedEvent>({
+    owner: 'kimi-code',
+    comment: 'The hello-world run advances to a new stage.',
+    properties: {
+      stage: 'The stage the run advanced to',
+      previous: 'The stage the run was in before the change',
     },
   }),
   external_hook_resolved: defineTelemetryEvent<ExternalHookResolvedEvent>({

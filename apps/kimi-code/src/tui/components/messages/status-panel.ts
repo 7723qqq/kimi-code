@@ -78,6 +78,14 @@ function displayModelName(alias: string, models: Record<string, ModelAlias>): st
   return effective?.displayName ?? effective?.model ?? alias;
 }
 
+/** `on · <stage>` while a hello-world run reports a stage, plain `on`/`off` otherwise. */
+function helloWorldStatusValue(enabled: boolean | undefined, stage: string | undefined): string {
+  if (enabled !== true) return t('tui.messages.statusPanel.off');
+  return stage === undefined
+    ? t('tui.messages.statusPanel.on')
+    : t('tui.messages.statusPanel.onWithStage', { stage });
+}
+
 function formatModelStatus(options: StatusReportOptions): string {
   const model = options.status?.model ?? options.model;
   if (model.trim().length === 0) return t('tui.messages.statusPanel.modelNotSet');
@@ -142,7 +150,7 @@ export function buildStatusReportLines(options: StatusReportOptions): string[] {
     { label: t('tui.messages.statusPanel.swarmModeLabel'), value: onOff(swarmMode) },
     {
       label: t('tui.messages.statusPanel.helloWorldModeLabel'),
-      value: onOff(helloWorldMode),
+      value: helloWorldStatusValue(helloWorldMode, options.status?.helloWorldRun?.stage),
     },
   ];
   if (options.towerAvailable) {

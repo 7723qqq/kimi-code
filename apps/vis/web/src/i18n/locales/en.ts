@@ -338,6 +338,7 @@ export default {
     cancelled: 'cancelled',
     swarmExited: 'swarm mode exited',
     helloWorldExited: 'hello-world mode exited',
+    helloWorldRunStage: 'stage',
     towerEntered: 'tower mode entered',
     towerExited: 'tower mode exited',
     goalCleared: 'goal cleared',

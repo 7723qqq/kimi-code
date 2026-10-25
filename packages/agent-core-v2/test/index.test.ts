@@ -66,6 +66,7 @@ const V2_RECORD_TYPES: ReadonlySet<string> = new Set([
   'tower_mode.exit',
   'hello_world_mode.enter',
   'hello_world_mode.exit',
+  'hello_world_run.updated',
   'task.started',
   'task.terminated',
   'task.waitDelivered',

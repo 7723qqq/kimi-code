@@ -20,7 +20,7 @@ import { taskKey } from '#/agent/task/taskOps';
 import { taskNotificationDeliveryKey } from '#/agent/task/taskService';
 import { userToolKey } from '#/agent/userTool/userToolOps';
 import { fileHistoryKey } from '#/features/fileHistory/fileHistoryOps';
-import { helloWorldKey } from '#/features/helloWorld/helloWorldOps';
+import { helloWorldKey, helloWorldRunKey } from '#/features/helloWorld/helloWorldOps';
 import { planKey } from '#/features/plan/planOps';
 import { specKey } from '#/features/spec/specOps';
 import { swarmKey } from '#/features/swarm/swarmOps';
@@ -51,6 +51,7 @@ export const BUILTIN_REPLAYABLE_STATE_KEYS: readonly ReplayableStateKey<any>[] =
   specKey,
   swarmKey,
   helloWorldKey,
+  helloWorldRunKey,
   towerKey,
   towerOwnerKey,
 ];

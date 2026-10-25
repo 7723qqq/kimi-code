@@ -577,7 +577,15 @@ function applyMetaMerge(state: AgentState, meta: TranscriptMetaMerge): ApplyResu
           'hello-world':
             meta.modes['hello-world'] === null
               ? undefined
-              : (meta.modes['hello-world'] ?? state.meta.modes?.['hello-world']),
+              : meta.modes['hello-world'] === undefined
+                ? state.meta.modes?.['hello-world']
+                : {
+                    trigger:
+                      meta.modes['hello-world'].trigger ??
+                      state.meta.modes?.['hello-world']?.trigger,
+                    stage:
+                      meta.modes['hello-world'].stage ?? state.meta.modes?.['hello-world']?.stage,
+                  },
           tower:
             meta.modes.tower === null ? undefined : (meta.modes.tower ?? state.meta.modes?.tower),
         }

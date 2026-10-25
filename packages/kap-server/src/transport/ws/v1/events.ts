@@ -20,6 +20,7 @@ export interface AgentStatusUpdatedEvent {
   readonly specMode?: boolean;
   readonly swarmMode?: boolean;
   readonly helloWorldMode?: boolean;
+  readonly helloWorldStage?: string;
   readonly towerMode?: boolean;
   readonly permission?: PermissionMode;
   readonly usage?: UsageStatus;

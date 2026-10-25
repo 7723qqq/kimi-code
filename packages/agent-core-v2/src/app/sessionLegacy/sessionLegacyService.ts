@@ -91,6 +91,7 @@ export class SessionLegacyService implements ISessionLegacyService {
       plan_mode: planData !== null,
       swarm_mode: swarm.isActive,
       hello_world_mode: helloWorld.isActive,
+      hello_world_stage: helloWorld.run?.stage,
       tower_mode: tower.isActive,
       context_tokens: tokens,
       max_context_tokens: maxTokens > 0 ? maxTokens : undefined,

@@ -15,6 +15,7 @@ export const KNOWN_MARKERS = [
   'swarm.exit',
   'hello-world.enter',
   'hello-world.exit',
+  'hello-world.stage',
   'skill',
   'cron.fired',
   'notice',

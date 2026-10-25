@@ -730,10 +730,13 @@ export class FooterComponent implements Component {
       if (state.planMode) modes.push(chalk.hex(colors.primary).bold('plan'));
       if (state.swarmMode) modes.push(chalk.hex(colors.accent).bold('swarm'));
     }
+    const helloWorldStage = state.helloWorldStage;
+    const helloWorldLabel = `hello-world${helloWorldStage === undefined ? '' : `:${helloWorldStage}`}`;
+    const helloWorldPlanLabel = `hello-world-plan${helloWorldStage === undefined ? '' : `:${helloWorldStage}`}`;
     if (state.planMode && state.helloWorldMode && !state.swarmMode) {
-      modes.push(renderSwarmPlanBadge('hello-world-plan'));
+      modes.push(renderSwarmPlanBadge(helloWorldPlanLabel));
     } else if (state.helloWorldMode) {
-      modes.push(chalk.hex(colors.accent).bold('hello-world'));
+      modes.push(chalk.hex(colors.accent).bold(helloWorldLabel));
     }
     if (state.towerMode) modes.push(chalk.hex(colors.accent).bold('tower'));
     if (state.specMode) {

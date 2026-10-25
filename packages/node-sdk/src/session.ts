@@ -1,4 +1,9 @@
-import type { HelloWorldModeTrigger, SwarmModeTrigger } from '@moonshot-ai/agent-core-v2';
+import type {
+  HelloWorldModeTrigger,
+  HelloWorldRunItemId,
+  HelloWorldStage,
+  SwarmModeTrigger,
+} from '@moonshot-ai/agent-core-v2';
 
 import type { AgentContextData } from '#/context';
 import { ErrorCodes, KimiError, type KimiErrorCode } from '#/errors';
@@ -362,16 +367,26 @@ export class Session {
     }
   }
 
-  async setHelloWorldMode(enabled: boolean, trigger: HelloWorldModeTrigger): Promise<void> {
+  async setHelloWorldMode(enabled: boolean, trigger: HelloWorldModeTrigger, task?: string): Promise<void> {
     this.ensureOpen();
     if (typeof enabled !== 'boolean') {
       throw new KimiError(ErrorCodes.REQUEST_INVALID, 'Session hello-world mode must be a boolean');
     }
     if (enabled) {
-      await this.rpc.setHelloWorldMode({ sessionId: this.id, enabled: true, trigger });
+      await this.rpc.setHelloWorldMode({ sessionId: this.id, enabled: true, trigger, task });
     } else {
       await this.rpc.setHelloWorldMode({ sessionId: this.id, enabled: false });
     }
+  }
+
+  async setHelloWorldStage(stage: HelloWorldStage | 'next'): Promise<void> {
+    this.ensureOpen();
+    await this.rpc.setHelloWorldStage({ sessionId: this.id, stage });
+  }
+
+  async waiveHelloWorldItem(item: HelloWorldRunItemId): Promise<void> {
+    this.ensureOpen();
+    await this.rpc.waiveHelloWorldRunItem({ sessionId: this.id, item });
   }
 
   async setTowerMode(enabled: boolean, base?: string): Promise<void> {

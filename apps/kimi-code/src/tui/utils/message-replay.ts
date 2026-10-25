@@ -75,6 +75,7 @@ export function appStateFromResumeAgent(agent: ResumedAgentState): Partial<AppSt
     planMode: agent.plan !== null,
     swarmMode: agent.swarmMode ?? false,
     helloWorldMode: agent.helloWorldMode ?? false,
+    helloWorldStage: agent.helloWorldStage,
     permissionMode: agent.permission.mode,
   };
 }

@@ -2,4 +2,4 @@
 "@moonshot-ai/kimi-code": minor
 ---
 
-Add the hello-world mode and the `/hello-world` slash command: `/hello-world on|off` toggles the mode, `/hello-world <task>` runs one task in it; for now the mode behaves exactly like swarm mode.
+The hello-world mode is now a staged 7-phase development run workflow (requirements→design→implement→test→review→docs→deliver): `/hello-world on|off` toggles the mode, `/hello-world <task>` starts a run with its task, and `/hello-world status|next|phase|skip` inspect and drive the stage gates.

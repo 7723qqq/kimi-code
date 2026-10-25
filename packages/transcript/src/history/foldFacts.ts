@@ -277,6 +277,7 @@ export function foldWireRecordFacts(
   let planRevision: { readonly reviewPath?: string; readonly version?: number } | undefined;
   let swarmActive: boolean | undefined;
   let helloWorldActive: boolean | undefined;
+  let helloWorldStage: string | undefined;
   let towerActive: boolean | undefined;
 
   const appended: TranscriptItem[] = [];
@@ -521,12 +522,21 @@ export function foldWireRecordFacts(
       }
       case 'hello_world_mode.enter': {
         helloWorldActive = true;
+        helloWorldStage = 'requirements';
         pushMarker('hello-world.enter', record);
         break;
       }
       case 'hello_world_mode.exit': {
         helloWorldActive = false;
+        helloWorldStage = undefined;
         pushMarker('hello-world.exit', record);
+        break;
+      }
+      case 'hello_world_run.updated': {
+        const stage = record['stage'];
+        if (typeof stage !== 'string' || stage === helloWorldStage) break;
+        helloWorldStage = stage;
+        pushMarker('hello-world.stage', record);
         break;
       }
       case 'tower_mode.enter': {
@@ -843,6 +853,7 @@ export function foldWireRecordFacts(
     planActive !== undefined ||
     swarmActive !== undefined ||
     helloWorldActive !== undefined ||
+    helloWorldStage !== undefined ||
     towerActive !== undefined;
   const meta: TranscriptMeta = {
     ...base.meta,
@@ -858,11 +869,14 @@ export function foldWireRecordFacts(
                 : undefined,
           swarm: swarmActive === undefined ? base.meta.modes?.swarm : swarmActive ? {} : undefined,
           'hello-world':
-            helloWorldActive === undefined
-              ? base.meta.modes?.['hello-world']
-              : helloWorldActive
-                ? {}
-                : undefined,
+            helloWorldActive === false
+              ? undefined
+              : helloWorldActive === undefined && helloWorldStage === undefined
+                ? base.meta.modes?.['hello-world']
+                : {
+                    trigger: base.meta.modes?.['hello-world']?.trigger,
+                    stage: helloWorldStage,
+                  },
           tower: towerActive === undefined ? base.meta.modes?.tower : towerActive ? {} : undefined,
         }
       : base.meta.modes,

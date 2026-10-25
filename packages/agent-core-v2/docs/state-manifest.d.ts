@@ -27,7 +27,7 @@
 // references become '(circular)', and class instances collapse to a '(ClassName)'
 // marker — the wire shape of an entry is the JSON projection of the type here.
 //
-// Index (App: 0 keys · Workspace: 6 keys · Session: 9 keys · Agent: 78 keys)
+// Index (App: 0 keys · Workspace: 6 keys · Session: 9 keys · Agent: 79 keys)
 //   App
 //   Workspace
 //     workspaceDirs.ephemeralDirs          src/workspace/workspaceDirs/workspaceDirsService.ts
@@ -64,6 +64,7 @@
 //     fullCompaction.observedMaxContextTokensByModel  src/agent/fullCompaction/fullCompactionService.ts
 //     fullCompaction.wireRanges                       src/agent/fullCompaction/compactionOps.ts
 //     helloWorld                                      src/features/helloWorld/helloWorldOps.ts
+//     helloWorldRun                                   src/features/helloWorld/helloWorldOps.ts
 //     interruptionReminder                            src/agent/interruptionReminder/interruptionReminderOps.ts
 //     llm.requestTrace                                src/agent/llmRequester/llmRequestOps.ts
 //     llmRequester.emittedThinkingEffortWarnings      src/agent/llmRequester/llmRequesterService.ts
@@ -1373,6 +1374,17 @@ export interface AgentStateSnapshot {
   // src/features/helloWorld/helloWorldOps.ts
   // replayable · durable — folds: HelloWorldModeEnter, HelloWorldModeExit
   'helloWorld': 'tool' | 'task' | 'manual' | null;
+  // replayable · durable — folds: HelloWorldModeEnter, HelloWorldRunUpdated, HelloWorldModeExit
+  'helloWorldRun': /* HelloWorldRunState — packages/agent-core-v2/src/features/helloWorld/agent/helloWorld.ts */ {
+    readonly stage: 'requirements' | 'design' | 'implement' | 'test' | 'review' | 'docs' | 'deliver';
+    readonly task?: string;
+    readonly items: readonly /* HelloWorldRunItem — packages/agent-core-v2/src/features/helloWorld/agent/helloWorld.ts */ {
+      readonly id: /* HelloWorldRunItemId — packages/agent-core-v2/src/features/helloWorld/agent/helloWorld.ts */ 'requirements-approved' | 'design-written' | 'tasks-complete' | 'tests-green' | 'review-done' | 'docs-updated' | 'changeset-ready';
+      readonly done: boolean;
+      readonly evidence?: string;
+    }[];
+    readonly waivers: readonly (/* HelloWorldRunItemId — packages/agent-core-v2/src/features/helloWorld/agent/helloWorld.ts */ 'requirements-approved' | 'design-written' | 'tasks-complete' | 'tests-green' | 'review-done' | 'docs-updated' | 'changeset-ready')[];
+  } | null;
   // src/features/plan/injection/planModeInjection.ts
   'plan.wasActive': boolean;
   // src/features/plan/planOps.ts

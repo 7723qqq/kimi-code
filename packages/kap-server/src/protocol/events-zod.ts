@@ -640,6 +640,7 @@ export const agentStatusUpdatedEventSchema = z.object({
   specMode: z.boolean().optional(),
   swarmMode: z.boolean().optional(),
   helloWorldMode: z.boolean().optional(),
+  helloWorldStage: z.string().optional(),
   towerMode: z.boolean().optional(),
   permission: permissionModeSchema.optional(),
   usage: usageStatusSchema.optional(),

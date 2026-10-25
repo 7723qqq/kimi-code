@@ -1599,6 +1599,27 @@ describe('AgentTranscriptProjector', () => {
     expect(tx.getMeta().modes).toBeUndefined();
   });
 
+  it('mirrors the hello-world mode slice into meta.modes with its stage', () => {
+    const projector = new AgentTranscriptProjector('main', TEST_SESSION_ID);
+    const tx = new AgentTranscript('main');
+
+    tx.apply(
+      projector.map(
+        ev({ type: 'agent.status.updated', helloWorldMode: true, helloWorldStage: 'requirements' }),
+      ),
+    );
+    expect(tx.getMeta().modes).toEqual({ 'hello-world': { stage: 'requirements' } });
+
+    tx.apply(projector.map(ev({ type: 'agent.status.updated', helloWorldStage: 'design' })));
+    expect(tx.getMeta().modes).toEqual({ 'hello-world': { stage: 'design' } });
+
+    tx.apply(projector.map(ev({ type: 'agent.status.updated', usage: {} })));
+    expect(tx.getMeta().modes).toEqual({ 'hello-world': { stage: 'design' } });
+
+    tx.apply(projector.map(ev({ type: 'agent.status.updated', helloWorldMode: false })));
+    expect(tx.getMeta().modes).toBeUndefined();
+  });
+
   it('mirrors status slices into meta.agent (shallow-merged across slices)', () => {
     const projector = new AgentTranscriptProjector('main', TEST_SESSION_ID);
     const tx = new AgentTranscript('main');

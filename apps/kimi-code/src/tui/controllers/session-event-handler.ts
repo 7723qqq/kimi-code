@@ -53,6 +53,7 @@ import { buildGoalMarker } from '../components/messages/goal-markers';
 import { StatusMessageComponent } from '../components/messages/status-message';
 import {
   HelloWorldModeMarkerComponent,
+  HelloWorldStageMarkerComponent,
   type HelloWorldModeMarkerState,
 } from '../components/messages/hello-world-markers';
 import {
@@ -916,12 +917,18 @@ export class SessionEventHandler {
     if (event.specMode !== undefined) patch.specMode = event.specMode;
     if (event.swarmMode !== undefined) patch.swarmMode = event.swarmMode;
     if (event.helloWorldMode !== undefined) patch.helloWorldMode = event.helloWorldMode;
+    if (event.helloWorldStage !== undefined) patch.helloWorldStage = event.helloWorldStage;
     if (event.towerMode !== undefined) patch.towerMode = event.towerMode;
     if (event.specMode === false) {
       // Leaving spec mode invalidates the stage: the footer renders
       // `spec:${stage}` and a stale value would label the next spec with the
       // previous one's progress.
       patch.specStage = undefined;
+    }
+    if (event.helloWorldMode === false) {
+      // Same reasoning as the spec stage: a stale hello-world stage would
+      // relabel the next run with the previous one's progress.
+      patch.helloWorldStage = undefined;
     }
     if (event.permission !== undefined) {
       patch.permissionMode = event.permission;
@@ -931,7 +938,14 @@ export class SessionEventHandler {
     if (event.usage?.total !== undefined) {
       patch.cumulativeTokens = sumTokenUsage(event.usage.total);
     }
+    const previousHelloWorldStage = this.host.state.appState.helloWorldStage;
     if (Object.keys(patch).length > 0) this.host.setAppState(patch);
+    if (
+      event.helloWorldStage !== undefined &&
+      event.helloWorldStage !== previousHelloWorldStage
+    ) {
+      this.renderHelloWorldStageMarker(event.helloWorldStage);
+    }
     if (event.swarmMode === false) {
       this.host.state.swarmModeEntry = undefined;
       if (shouldRenderSwarmEnded) {
@@ -991,6 +1005,19 @@ export class SessionEventHandler {
         content: state,
       },
       new HelloWorldModeMarkerComponent(state),
+    );
+  }
+
+  private renderHelloWorldStageMarker(stage: string): void {
+    this.host.appendTranscriptEntry(
+      {
+        id: nextTranscriptId(),
+        kind: 'status',
+        turnId: undefined,
+        renderMode: 'plain',
+        content: stage,
+      },
+      new HelloWorldStageMarkerComponent(stage),
     );
   }
 

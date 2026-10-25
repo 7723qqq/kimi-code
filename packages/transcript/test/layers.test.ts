@@ -506,9 +506,16 @@ describe('contract schemas', () => {
     expect(Object.keys(modesMetaMergeSchema.shape).toSorted()).toEqual(
       Object.keys(mergeKeys).toSorted(),
     );
-    const modes = { plan: {}, spec: { dir: '/d' }, swarm: {}, tower: {} };
+    const modes = {
+      plan: {},
+      spec: { dir: '/d' },
+      swarm: {},
+      'hello-world': { trigger: 'task', stage: 'design' },
+      tower: {},
+    };
     expect(modesMetaSchema.parse(modes)).toEqual(modes);
     expect(modesMetaMergeSchema.parse(modes)).toEqual(modes);
+    expect(modesMetaMergeSchema.parse({ 'hello-world': null })).toEqual({ 'hello-world': null });
   });
 
   it('roundtrips every op kind', () => {
@@ -2697,6 +2704,89 @@ describe('foldWireRecordFacts (cold facts)', () => {
       base,
     );
     expect(exited.meta.modes).toEqual({});
+  });
+
+  it('folds hello_world_run.updated into the hello-world stage with hello-world.stage markers', () => {
+    const base = baseWithMarker();
+    const runUpdate = (
+      stage: string,
+      time: number,
+      done: boolean = false,
+    ): HistoryWireRecord => ({
+      type: 'hello_world_run.updated',
+      agentId: 'main',
+      stage,
+      task: 'ship it',
+      items: [{ id: 'tests-green', done }],
+      waivers: [],
+      time,
+    });
+    const markerNames = (snapshot: AgentTranscriptSnapshot): (string | false)[] =>
+      snapshot.items
+        .filter((item) => item.kind === 'marker')
+        .map((item) => item.kind === 'marker' && item.marker);
+
+    const folded = foldWireRecordFacts(
+      [
+        { type: 'hello_world_mode.enter', agentId: 'main', trigger: 'manual', time: 1000 },
+        runUpdate('requirements', 2000),
+        runUpdate('design', 3000),
+        runUpdate('design', 4000, true),
+      ],
+      base,
+    );
+    expect(folded.meta.modes).toEqual({ 'hello-world': { stage: 'design' } });
+    expect(markerNames(folded)).toEqual(['compaction', 'hello-world.enter', 'hello-world.stage']);
+    expect(
+      folded.items.find((item) => item.kind === 'marker' && item.marker === 'hello-world.stage'),
+    ).toMatchObject({ marker: 'hello-world.stage', payload: { stage: 'design' } });
+
+    const exited = foldWireRecordFacts(
+      [
+        { type: 'hello_world_mode.enter', agentId: 'main', trigger: 'task', time: 1000 },
+        runUpdate('design', 2000),
+        { type: 'hello_world_mode.exit', agentId: 'main', time: 3000 },
+      ],
+      base,
+    );
+    expect(exited.meta.modes).toEqual({});
+    expect(markerNames(exited)).toEqual([
+      'compaction',
+      'hello-world.enter',
+      'hello-world.stage',
+      'hello-world.exit',
+    ]);
+
+    const reentered = foldWireRecordFacts(
+      [
+        { type: 'hello_world_mode.enter', agentId: 'main', trigger: 'manual', time: 1000 },
+        runUpdate('deliver', 2000),
+        { type: 'hello_world_mode.exit', agentId: 'main', time: 3000 },
+        { type: 'hello_world_mode.enter', agentId: 'main', trigger: 'manual', time: 4000 },
+      ],
+      base,
+    );
+    expect(reentered.meta.modes).toEqual({ 'hello-world': { stage: 'requirements' } });
+    expect(markerNames(reentered)).toEqual([
+      'compaction',
+      'hello-world.enter',
+      'hello-world.stage',
+      'hello-world.exit',
+      'hello-world.enter',
+    ]);
+
+    const withTrigger: AgentTranscriptSnapshot = {
+      ...base,
+      meta: { ...base.meta, modes: { 'hello-world': { trigger: 'task' } } },
+    };
+    const kept = foldWireRecordFacts(
+      [
+        { type: 'hello_world_mode.enter', agentId: 'main', trigger: 'task', time: 1000 },
+        runUpdate('implement', 2000),
+      ],
+      withTrigger,
+    );
+    expect(kept.meta.modes).toEqual({ 'hello-world': { trigger: 'task', stage: 'implement' } });
   });
 
   it('folds plan.revision records into the plan badge and a timeline marker', () => {

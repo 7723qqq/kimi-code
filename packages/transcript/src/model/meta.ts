@@ -14,7 +14,7 @@ export interface ModesMeta {
   readonly plan?: { readonly reviewPath?: string; readonly version?: number };
   readonly spec?: { readonly dir?: string };
   readonly swarm?: { readonly trigger?: string };
-  readonly 'hello-world'?: { readonly trigger?: string };
+  readonly 'hello-world'?: { readonly trigger?: string; readonly stage?: string };
   readonly tower?: Record<string, never>;
 }
 
@@ -22,7 +22,7 @@ export interface ModesMetaMerge {
   readonly plan?: { readonly reviewPath?: string; readonly version?: number } | null;
   readonly spec?: { readonly dir?: string } | null;
   readonly swarm?: { readonly trigger?: string } | null;
-  readonly 'hello-world'?: { readonly trigger?: string } | null;
+  readonly 'hello-world'?: { readonly trigger?: string; readonly stage?: string } | null;
   readonly tower?: Record<string, never> | null;
 }
 

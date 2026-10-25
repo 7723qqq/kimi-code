@@ -43,6 +43,10 @@ function helloWorldArgCompletions(): readonly ArgCompletionSpec[] {
   return [
     { value: 'on', description: t('tui.messages.registryHelloWorldOn') },
     { value: 'off', description: t('tui.messages.registryHelloWorldOff') },
+    { value: 'status', description: t('tui.messages.registryHelloWorldStatus') },
+    { value: 'next', description: t('tui.messages.registryHelloWorldNext') },
+    { value: 'phase', description: t('tui.messages.registryHelloWorldPhase') },
+    { value: 'skip', description: t('tui.messages.registryHelloWorldSkip') },
   ];
 }
 
@@ -255,7 +259,7 @@ export const BUILTIN_SLASH_COMMANDS = [
       return t('tui.slashCommands.helloWorld');
     },
     priority: 100,
-    argumentHint: '[on|off] | <task>',
+    argumentHint: '[on|off] | <task> | status | next | phase <stage> | skip <item>',
     completeArgs: helloWorldArgumentCompletions,
     availability: 'idle-only',
   },

@@ -19,6 +19,13 @@ interface TestComponent {
   render(width: number): string[];
 }
 
+interface HelloWorldRunFixture {
+  stage: string;
+  task?: string;
+  items: { id: string; done: boolean; evidence?: string }[];
+  waivers: string[];
+}
+
 function makeHost(
   overrides: {
     model?: string;
@@ -27,6 +34,8 @@ function makeHost(
     helloWorldMode?: boolean;
     /** The engine refuses the switch, so status never reflects the request. */
     engineRefuses?: boolean;
+    /** Run snapshot returned by `getStatus`; absent means no active run. */
+    helloWorldRun?: HelloWorldRunFixture;
   } = {},
 ) {
   let engineMode = overrides.helloWorldMode ?? false;
@@ -35,7 +44,13 @@ function makeHost(
     setHelloWorldMode: mock(async (enabled: boolean) => {
       if (!overrides.engineRefuses) engineMode = enabled;
     }),
-    getStatus: mock(async () => ({ helloWorldMode: engineMode })),
+    setHelloWorldStage: mock(async () => {}),
+    waiveHelloWorldItem: mock(async () => {}),
+    getStatus: mock(async () => ({
+      helloWorldMode: engineMode,
+      helloWorldStage: overrides.helloWorldRun?.stage,
+      helloWorldRun: overrides.helloWorldRun,
+    })),
   };
   const hasSession = overrides.hasSession ?? true;
   const host = {
@@ -93,7 +108,7 @@ describe('handleHelloWorldCommand', () => {
     await handleHelloWorldCommand(host, 'Ship feature X');
 
     expect(session.setPermission).not.toHaveBeenCalled();
-    expect(session.setHelloWorldMode).toHaveBeenCalledWith(true, 'task');
+    expect(session.setHelloWorldMode).toHaveBeenCalledWith(true, 'task', 'Ship feature X');
     expect(host.state.helloWorldModeEntry).toBe('task');
     expectHelloWorldMarker(host, 'Hello-world activated');
     expect(host.mountEditorReplacement).not.toHaveBeenCalled();
@@ -116,7 +131,7 @@ describe('handleHelloWorldCommand', () => {
 
     await handleHelloWorldCommand(host, 'on');
 
-    expect(session.setHelloWorldMode).toHaveBeenCalledWith(true, 'manual');
+    expect(session.setHelloWorldMode).toHaveBeenCalledWith(true, 'manual', undefined);
     expect(host.setAppState).toHaveBeenCalledWith({ helloWorldMode: true });
     expect(host.state.helloWorldModeEntry).toBe('manual');
     expectHelloWorldMarker(host, 'Hello-world activated');
@@ -142,7 +157,7 @@ describe('handleHelloWorldCommand', () => {
     picker.handleInput(ENTER);
 
     await waitForAssertion(() => {
-      expect(session.setHelloWorldMode).toHaveBeenCalledWith(true, 'manual');
+      expect(session.setHelloWorldMode).toHaveBeenCalledWith(true, 'manual', undefined);
     });
     expect(session.setPermission).toHaveBeenCalledWith('auto');
     expect(session.setHelloWorldMode).toHaveBeenCalledTimes(1);
@@ -158,7 +173,7 @@ describe('handleHelloWorldCommand', () => {
 
     await handleHelloWorldCommand(host, '');
 
-    expect(session.setHelloWorldMode).toHaveBeenCalledWith(true, 'manual');
+    expect(session.setHelloWorldMode).toHaveBeenCalledWith(true, 'manual', undefined);
     expect(host.setAppState).toHaveBeenCalledWith({ helloWorldMode: true });
     expect(host.state.helloWorldModeEntry).toBe('manual');
     expectHelloWorldMarker(host, 'Hello-world activated');
@@ -184,7 +199,7 @@ describe('handleHelloWorldCommand', () => {
 
     await handleHelloWorldCommand(host, 'off');
 
-    expect(session.setHelloWorldMode).toHaveBeenCalledWith(false, 'manual');
+    expect(session.setHelloWorldMode).toHaveBeenCalledWith(false, 'manual', undefined);
     expect(host.setAppState).toHaveBeenCalledWith({ helloWorldMode: false });
     expect(host.state.helloWorldModeEntry).toBeUndefined();
     expectHelloWorldMarker(host, 'Hello-world deactivated');
@@ -197,7 +212,7 @@ describe('handleHelloWorldCommand', () => {
 
     await handleHelloWorldCommand(host, '');
 
-    expect(session.setHelloWorldMode).toHaveBeenCalledWith(false, 'manual');
+    expect(session.setHelloWorldMode).toHaveBeenCalledWith(false, 'manual', undefined);
     expect(host.setAppState).toHaveBeenCalledWith({ helloWorldMode: false });
     expect(host.state.helloWorldModeEntry).toBeUndefined();
     expectHelloWorldMarker(host, 'Hello-world deactivated');
@@ -244,7 +259,7 @@ describe('handleHelloWorldCommand', () => {
       expect(host.sendNormalUserInput).toHaveBeenCalledWith('Ship feature X');
     });
     expect(session.setPermission).not.toHaveBeenCalled();
-    expect(session.setHelloWorldMode).toHaveBeenCalledWith(true, 'task');
+    expect(session.setHelloWorldMode).toHaveBeenCalledWith(true, 'task', 'Ship feature X');
     expect(session.setHelloWorldMode).toHaveBeenCalledTimes(1);
     expect(host.setAppState).not.toHaveBeenCalledWith({ permissionMode: 'auto' });
     expect(host.setAppState).toHaveBeenCalledWith({ helloWorldMode: true });
@@ -281,7 +296,7 @@ describe('handleHelloWorldCommand', () => {
       expect(host.sendNormalUserInput).toHaveBeenCalledWith('Ship feature X');
     });
     expect(session.setPermission).toHaveBeenCalledWith('yolo');
-    expect(session.setHelloWorldMode).toHaveBeenCalledWith(true, 'task');
+    expect(session.setHelloWorldMode).toHaveBeenCalledWith(true, 'task', 'Ship feature X');
     expect(session.setHelloWorldMode).toHaveBeenCalledTimes(1);
     expect(host.setAppState).toHaveBeenCalledWith({ permissionMode: 'yolo' });
     expect(host.setAppState).toHaveBeenCalledWith({ helloWorldMode: true });
@@ -359,5 +374,159 @@ describe('handleHelloWorldCommand', () => {
       expect.stringContaining('Failed to disable hello-world mode'),
     );
     expect(host.state.appState.helloWorldMode).toBe(true);
+  });
+});
+
+const openRun: HelloWorldRunFixture = {
+  stage: 'design',
+  task: 'Ship feature X',
+  items: [
+    { id: 'requirements-approved', done: true, evidence: 'specs/foo/requirements.md' },
+    { id: 'design-written', done: false },
+    { id: 'tests-green', done: true, evidence: 'waived' },
+  ],
+  waivers: ['tests-green'],
+};
+
+const completeRun: HelloWorldRunFixture = {
+  ...openRun,
+  items: openRun.items.map((item) => ({ ...item, done: true })),
+};
+
+describe('handleHelloWorldCommand run subcommands', () => {
+  it('renders the run panel for status', async () => {
+    const { host } = makeHost({ model: '', helloWorldMode: true, helloWorldRun: openRun });
+
+    await handleHelloWorldCommand(host, 'status');
+
+    expect(host.showStatus).not.toHaveBeenCalled();
+    expect(host.showError).not.toHaveBeenCalled();
+    const components = markerAddChild(host).mock.calls.map(([, component]) => component as TestComponent);
+    const rendered = stripAnsi(components.at(-1)?.render(80).join('\n') ?? '');
+    expect(rendered).toContain('design');
+    expect(rendered).toContain('Ship feature X');
+    expect(rendered).toContain('requirements-approved');
+    expect(rendered).toContain('specs/foo/requirements.md');
+    expect(rendered).toContain('design-written');
+    expect(rendered).toContain('tests-green');
+    expect(rendered).toContain('waived');
+  });
+
+  it('reports when status has no active run', async () => {
+    const { host } = makeHost({ model: '' });
+
+    await handleHelloWorldCommand(host, 'status');
+
+    expect(host.showStatus).toHaveBeenCalledWith('No active hello-world run.');
+    expect(markerAddChild(host)).not.toHaveBeenCalled();
+  });
+
+  it('advances the run with next and syncs the stage into appState', async () => {
+    const { host, session } = makeHost({
+      model: '',
+      helloWorldMode: true,
+      helloWorldRun: openRun,
+    });
+
+    await handleHelloWorldCommand(host, 'next');
+
+    expect(session.setHelloWorldStage).toHaveBeenCalledWith('next');
+    expect(host.setAppState).toHaveBeenCalledWith({ helloWorldStage: 'design' });
+  });
+
+  it('sets a specific stage with phase and syncs the stage into appState', async () => {
+    const { host, session } = makeHost({
+      model: '',
+      helloWorldMode: true,
+      helloWorldRun: openRun,
+    });
+
+    await handleHelloWorldCommand(host, 'phase Test');
+
+    expect(session.setHelloWorldStage).toHaveBeenCalledWith('test');
+    expect(host.setAppState).toHaveBeenCalledWith({ helloWorldStage: 'design' });
+    expect(host.showError).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unknown stage name without calling the session', async () => {
+    const { host, session } = makeHost({ model: '', helloWorldMode: true });
+
+    await handleHelloWorldCommand(host, 'phase bogus');
+
+    expect(host.showError).toHaveBeenCalledWith(
+      expect.stringContaining('Unknown stage "bogus"'),
+    );
+    expect(session.setHelloWorldStage).not.toHaveBeenCalled();
+  });
+
+  it('shows the phase usage when the stage is missing', async () => {
+    const { host, session } = makeHost({ model: '', helloWorldMode: true });
+
+    await handleHelloWorldCommand(host, 'phase');
+
+    expect(host.showError).toHaveBeenCalledWith('Usage: /hello-world phase <stage>');
+    expect(session.setHelloWorldStage).not.toHaveBeenCalled();
+  });
+
+  it('waives a checklist item with skip and syncs the stage into appState', async () => {
+    const { host, session } = makeHost({
+      model: '',
+      helloWorldMode: true,
+      helloWorldRun: openRun,
+    });
+
+    await handleHelloWorldCommand(host, 'skip tests-green');
+
+    expect(session.waiveHelloWorldItem).toHaveBeenCalledWith('tests-green');
+    expect(host.setAppState).toHaveBeenCalledWith({ helloWorldStage: 'design' });
+    expect(host.showError).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unknown item name without calling the session', async () => {
+    const { host, session } = makeHost({ model: '', helloWorldMode: true });
+
+    await handleHelloWorldCommand(host, 'skip bogus');
+
+    expect(host.showError).toHaveBeenCalledWith(expect.stringContaining('Unknown item "bogus"'));
+    expect(session.waiveHelloWorldItem).not.toHaveBeenCalled();
+  });
+
+  it('shows the skip usage when the item is missing', async () => {
+    const { host, session } = makeHost({ model: '', helloWorldMode: true });
+
+    await handleHelloWorldCommand(host, 'skip');
+
+    expect(host.showError).toHaveBeenCalledWith('Usage: /hello-world skip <item>');
+    expect(session.waiveHelloWorldItem).not.toHaveBeenCalled();
+  });
+
+  it('warns about open items before turning the mode off', async () => {
+    const { host, session } = makeHost({
+      model: '',
+      helloWorldMode: true,
+      helloWorldRun: openRun,
+    });
+
+    await handleHelloWorldCommand(host, 'off');
+
+    expect(host.showStatus).toHaveBeenCalledWith(
+      'Hello-world open items: design-written',
+      'warning',
+    );
+    expect(session.setHelloWorldMode).toHaveBeenCalledWith(false, 'manual', undefined);
+    expect(host.state.helloWorldModeEntry).toBeUndefined();
+  });
+
+  it('does not warn on off when every run item is done', async () => {
+    const { host, session } = makeHost({
+      model: '',
+      helloWorldMode: true,
+      helloWorldRun: completeRun,
+    });
+
+    await handleHelloWorldCommand(host, 'off');
+
+    expect(host.showStatus).not.toHaveBeenCalled();
+    expect(session.setHelloWorldMode).toHaveBeenCalledWith(false, 'manual', undefined);
   });
 });

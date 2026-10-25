@@ -85,6 +85,7 @@ export const sessionStatusResponseSchema = z.object({
   plan_mode: z.boolean(),
   swarm_mode: z.boolean(),
   hello_world_mode: z.boolean().optional(),
+  hello_world_stage: z.string().optional(),
   tower_mode: z.boolean().optional(),
   context_tokens: z.number().int().nonnegative(),
   max_context_tokens: z.number().int().nonnegative().optional(),

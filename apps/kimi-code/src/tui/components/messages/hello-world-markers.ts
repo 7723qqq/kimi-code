@@ -22,6 +22,25 @@ export class HelloWorldModeMarkerComponent implements Component {
   }
 }
 
+/** Marks a hello-world run stage change; the stage id is protocol data, shown as-is. */
+export class HelloWorldStageMarkerComponent implements Component {
+  constructor(private readonly stage: string) {}
+
+  invalidate(): void {}
+
+  render(width: number): string[] {
+    const safeWidth = Math.max(0, width);
+    if (safeWidth <= 0) return [''];
+
+    const marker = currentTheme.boldFg('success', STATUS_BULLET);
+    const label = currentTheme.boldFg(
+      'success',
+      t('tui.messages.helloWorldMarkers.stage', { stage: this.stage }),
+    );
+    return ['', truncateToWidth(marker + label, safeWidth, '…')];
+  }
+}
+
 function helloWorldMarkerLabel(state: HelloWorldModeMarkerState): string {
   switch (state) {
     case 'active':

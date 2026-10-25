@@ -13,6 +13,7 @@ Compared to upstream, this fork adds:
 
 - **🌐 i18n / Multi-language support.** Complete Chinese-English bilingual support across TUI, CLI, and Web UI. All hardcoded English strings replaced with `t()` calls. Switch locale via the `/settings` dialog (aliased as `/config`), locale selector inside.
 - **🪟 Windows launchers.** `start-native.bat` launches the native CLI; `start-desktop.bat` builds/launches a locally vendored desktop shell when present.
+- **🧭 hello-world dev workflow mode.** `/hello-world` runs a staged 7-phase development workflow (requirements→design→implement→test→review→docs→deliver) with evidence-driven stage gates; run artifacts land in `specs/<id>/`.
 - **🥖 Bun as the sole packaging engine.** Release binaries are single-file builds via `bun build --compile`, produced by the CI six-platform matrix (linux/darwin/win32 × x64/arm64). The former default Node.js SEA pipeline has been retired: pi-tui helpers load from the packaged-asset cache, URL-fetch SSRF semantics are identical across runtimes (bundled undici), self-update is engine-aware and still recognizes legacy SEA installs, and `/status` shows a Runtime row.
 - Various other fixes and QoL improvements.
 

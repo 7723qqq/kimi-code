@@ -51,6 +51,8 @@ export interface AppState {
   inputMode: 'prompt' | 'bash';
   swarmMode: boolean;
   helloWorldMode: boolean;
+  /** Which hello-world run stage is in progress, mirrored from the session status. */
+  helloWorldStage?: string;
   towerMode: boolean;
   /** Live thinking effort of the active session (e.g. 'off', 'on', 'high');
    * mirrors the runtime. The single source of truth for the thinking state in

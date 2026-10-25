@@ -283,6 +283,8 @@ import {
   type SetSessionSpecModeRpcInput,
   type SetSessionSwarmModeRpcInput,
   type SetSessionHelloWorldModeRpcInput,
+  type SetSessionHelloWorldStageRpcInput,
+  type WaiveHelloWorldRunItemRpcInput,
   type SetSessionThinkingRpcInput,
   type SetSessionTowerModeRpcInput,
   type UpdateSessionMetadataRpcInput,
@@ -1296,6 +1298,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       plan: plan as ResumedAgentState['plan'],
       swarmMode: agent.accessor.get(IAgentSwarmService).isActive,
       helloWorldMode: agent.accessor.get(IAgentHelloWorldService).isActive,
+      helloWorldStage: agent.accessor.get(IAgentHelloWorldService).run?.stage,
       usage: usage as ResumedAgentState['usage'],
       tools: tools as ResumedAgentState['tools'],
       toolStore: folded.toolStore,
@@ -2081,6 +2084,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
     const contextUsage = maxContextTokens > 0 ? contextTokens / maxContextTokens : 0;
     const hasUsage =
       usage.byModel !== undefined || usage.total !== undefined || usage.currentTurn !== undefined;
+    const helloWorldRun = agent.accessor.get(IAgentHelloWorldService).run;
     return {
       model: profile.modelAlias,
       thinkingEffort: profile.thinkingLevel,
@@ -2090,6 +2094,8 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       specStage: spec?.stage,
       swarmMode: agent.accessor.get(IAgentSwarmService).isActive,
       helloWorldMode: agent.accessor.get(IAgentHelloWorldService).isActive,
+      helloWorldStage: helloWorldRun?.stage,
+      helloWorldRun: helloWorldRun ?? undefined,
       towerMode: agent.accessor.get(IAgentTowerService).isActive,
       contextTokens,
       maxContextTokens,
@@ -2439,19 +2445,38 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
   }
 
   /**
-   * Through the agent scope (`IAgentHelloWorldService.enter` / `.exit`) — the
-   * placeholder mode mirrors swarm mode exactly: enter is idempotent, exit pops
-   * the trailing reminder, `task` / `tool` triggers auto-exit on turn end.
+   * Through the agent scope (`IAgentHelloWorldService.enter` / `.exit`) — enter
+   * is idempotent and starts a dev run at stage `requirements`, exit ends the
+   * run and pops the trailing reminder. Trigger and task are preserved (the
+   * old `mutex.switchTo('hello-world')` path hard-coded `enter('manual')`), and
+   * conflicting modes are left explicitly first — the same shape `setTowerMode`
+   * uses, because dispatched mode-enter events are not observable and never
+   * reach `modeMutex`'s `evictConflictsOf` subscribers.
    */
   override async setHelloWorldMode(input: SetSessionHelloWorldModeRpcInput): Promise<void> {
     const agent = await this.agentScope(input.sessionId);
     const helloWorld = agent.accessor.get(IAgentHelloWorldService);
     const mutex = agent.accessor.get(IAgentModeMutexService);
     if (input.enabled) {
-      await mutex.switchTo('hello-world');
+      for (const conflicting of ['spec', 'swarm', 'tower'] as const) {
+        if (mutex.activeMode() === conflicting) await mutex.leave(conflicting);
+      }
+      helloWorld.enter(input.trigger, input.trigger === 'task' ? input.task : undefined);
     } else {
       helloWorld.exit();
     }
+    await agent.accessor.get(IAgentReminderService).reconcileWhenIdle('hello_world_mode');
+  }
+
+  override async setHelloWorldStage(input: SetSessionHelloWorldStageRpcInput): Promise<void> {
+    const agent = await this.agentScope(input.sessionId);
+    agent.accessor.get(IAgentHelloWorldService).advance(input.stage);
+    await agent.accessor.get(IAgentReminderService).reconcileWhenIdle('hello_world_mode');
+  }
+
+  override async waiveHelloWorldRunItem(input: WaiveHelloWorldRunItemRpcInput): Promise<void> {
+    const agent = await this.agentScope(input.sessionId);
+    agent.accessor.get(IAgentHelloWorldService).waive(input.item);
     await agent.accessor.get(IAgentReminderService).reconcileWhenIdle('hello_world_mode');
   }
 

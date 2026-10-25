@@ -57,12 +57,19 @@
 | `/effort` | `/thinking` | 切换思考模式 | 是 |
 | `/swarm on\|off` | — | 开启或关闭 swarm mode，但不发送提示词。 | 否 |
 | `/swarm <task>` | — | 先开启 swarm mode，再把 `<task>` 作为普通提示词发送。如果该轮次正常完成，swarm mode 会自动关闭。若当前是 `manual` 权限模式，启动前会提示是否切换到「必要时询问」或「完全自动」模式。 | 否 |
-| `/hello-world on\|off` | — | 开启或关闭 hello-world 模式，但不发送提示词。该模式当前是与 swarm mode 行为一致的占位实现。 | 否 |
-| `/hello-world <task>` | — | 先开启 hello-world 模式，再把 `<task>` 作为普通提示词发送。如果该轮次正常完成，hello-world 模式会自动关闭。若当前是 `manual` 权限模式，启动前会提示是否切换到「必要时询问」或「完全自动」模式。 | 否 |
+| `/hello-world` | — | 翻转 hello-world 模式。该模式是带阶段门禁的开发 run 模式（requirements→design→implement→test→review→docs→deliver），产物落 `specs/<id>/` 四件套 | 否 |
+| `/hello-world on\|off` | — | 开启或关闭 hello-world 模式，但不发送提示词 | 否 |
+| `/hello-world <task>` | — | 开启 hello-world 模式并记录 `<task>`，再把 `<task>` 作为普通提示词发送。run 跨轮次存活，直到 `/hello-world off` 才退出。若当前是 `manual` 权限模式，启动前会提示是否切换到「必要时询问」或「完全自动」模式 | 否 |
+| `/hello-world status` | — | 显示当前 run 面板：阶段、task、checklist 项与证据、豁免记录 | 否 |
+| `/hello-world next` | — | 手动推进到下一阶段；已在最后阶段时无操作 | 否 |
+| `/hello-world phase <stage>` | — | 手动切到指定阶段；阶段只进不退 | 否 |
+| `/hello-world skip <item>` | — | 豁免一项 checklist 并留痕（该项记为 `waived`） | 否 |
 | `/workflow <name> [<args>...]` | — | 运行或管理工作流（列表、状态、取消或按名称运行） | 是 |
 | `/goal [...]` | — | 开始或管理目标模式 | 见下文 |
 
 Plan、Spec、Swarm、hello-world、Tower 五种模式互斥：开启其中一种会退出当时处于开启状态的冲突模式。Plan 与 Swarm、Plan 与 hello-world 可以同时开启。`Shift-Tab` 在 Plan 与 Spec 之间循环：两者都未开启时进入 Plan，再按一次切到 Spec，再按一次关闭 Spec，如此往复。它不会进入或退出 Swarm、hello-world、Tower，这几个模式请使用 `/swarm`、`/hello-world`、`/tower`。
+
+hello-world 模式的阶段门禁、run 产物与证据推进规则见[hello-world 开发流程模式](../guides/hello-world.md)。
 
 ::: warning 注意
 `/yolo` 会跳过普通工具调用的审批确认，使用前请确保了解可能的风险。Plan 模式的退出审批不会被 `/yolo` 跳过；Plan 模式下的 `Bash` 也按 `/yolo` 的普通放行规则处理。

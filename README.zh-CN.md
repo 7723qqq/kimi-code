@@ -15,6 +15,7 @@
 
 - **🌐 i18n 国际化多语言支持**：TUI / CLI / Web UI 完整中英双语。所有硬编码英文替换为 `t()` 调用，通过 `/config` 对话框（语言选择器）切换语言。
 - **🪟 Windows 启动脚本**：`start-native.bat` 一键启动原生 CLI；`start-desktop.bat` 用于构建并启动本地 vendored 桌面壳（仅当 `apps/kimi-desktop` 存在时可用）。
+- **🧭 hello-world 开发流程模式**：`/hello-world` 以 7 阶段推进带证据门禁的开发 run（requirements→design→implement→test→review→docs→deliver），产物落 `specs/<id>/`。
 - **🥖 Bun 唯一打包引擎。** 发布二进制通过 `bun build --compile` 产出单文件构建，由 CI 六平台矩阵（linux/darwin/win32 × x64/arm64）生成。原默认的 Node.js SEA 流水线已退役：pi-tui helper 由打包资产缓存加载、URL-fetch SSRF 语义跨运行时一致（统一捆绑 undici）、自更新感知引擎且仍识别旧 SEA 安装、`/status` 显示 Runtime 行。
 - 其他多项修复和体验优化。
 
