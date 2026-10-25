@@ -84,9 +84,15 @@ pub const Baseline = struct {
 
     /// Look up `key`, marking the entry as used. Returns the entry's value,
     /// which is empty when the entry carries none.
+    ///
+    /// Path separators compare equal, because the ledger is written with `/`
+    /// while a directory walk on Windows hands back `\`. Comparing bytes left
+    /// every path-keyed entry unmatched there: the whole ledger read as stale
+    /// and every finding read as unlisted, so the accepted debt kept passing
+    /// only by accident. Symbol keys carry no separator and are unaffected.
     pub fn get(self: *Baseline, key: []const u8) ?[]const u8 {
         for (self.entries, 0..) |entry, i| {
-            if (!std.mem.eql(u8, entry.key, key)) continue;
+            if (!eqlIgnoringSeparators(entry.key, key)) continue;
             self.used[i] = true;
             return entry.value;
         }
@@ -112,6 +118,17 @@ pub const Baseline = struct {
 };
 
 const testing = std.testing;
+
+/// Byte equality with `\` and `/` treated as the same character.
+fn eqlIgnoringSeparators(a: []const u8, b: []const u8) bool {
+    if (a.len != b.len) return false;
+    for (a, b) |x, y| {
+        const left: u8 = if (x == '\\') '/' else x;
+        const right: u8 = if (y == '\\') '/' else y;
+        if (left != right) return false;
+    }
+    return true;
+}
 
 test "Baseline parses keys, values and comments" {
     const alloc = testing.allocator;
@@ -161,6 +178,24 @@ test "Baseline.get marks entries used and reportStale names the rest" {
 
     try testing.expectEqual(@as(usize, 1), rep.findings.items.len);
     try testing.expect(std.mem.indexOf(u8, rep.findings.items[0].message, "unused") != null);
+}
+
+// The ledger is written with `/` while a walk on Windows hands back `\`. A
+// byte comparison left every path-keyed entry unmatched there, so the accepted
+// debt reported as stale and each finding reported as unlisted.
+test "Baseline.get matches a path key across slash styles" {
+    const alloc = testing.allocator;
+    const text =
+        \\packages/agent-core-v2/src/app/git/gitParsers.ts  2
+        \\symbolName  1
+    ;
+    var baseline = try parseForTest(alloc, text);
+    defer baseline.deinit();
+
+    try testing.expect(baseline.get("packages/agent-core-v2/src/app/git/gitParsers.ts") != null);
+    try testing.expect(baseline.get("packages\\agent-core-v2\\src\\app\\git\\gitParsers.ts") != null);
+    try testing.expect(baseline.get("packages\\agent-core-v2\\src\\app\\git\\other.ts") == null);
+    try testing.expect(baseline.get("symbolName") != null);
 }
 
 /// Build a Baseline from literal text, bypassing the filesystem.
