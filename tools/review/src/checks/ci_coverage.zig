@@ -33,10 +33,27 @@ pub fn run(ctx: *check.Context) !void {
     const test_projects = try vitestProjects(ctx);
     defer freeStrings(ctx.alloc, test_projects);
 
+    const runner = try workspaceTestRunner(ctx, &root_pkg);
+    defer if (runner) |r| ctx.alloc.free(r);
+
     const workflows = try workflowText(ctx);
     defer ctx.alloc.free(workflows);
 
     const root_typecheck = root_pkg.script("typecheck") orelse "";
+
+    if (runner != null) {
+        try ctx.report.add(.{
+            .check = "ci-coverage",
+            .severity = .info,
+            .file = "package.json",
+            .message = "test coverage comes from one workspace-wide runner rather than per-package listings",
+            .evidence = try std.fmt.allocPrint(
+                ctx.alloc,
+                "{s} walks every workspace member and runs its own test script, so no member is listed here",
+                .{runner.?},
+            ),
+        });
+    }
 
     for (members) |member| {
         const pkg_path = try std.fs.path.join(ctx.alloc, &.{ member, "package.json" });
@@ -44,6 +61,7 @@ pub fn run(ctx: *check.Context) !void {
         defer member_pkg.deinit();
 
         if (member_pkg.hasScript("test") and
+            runner == null and
             !matchesAny(test_projects, member) and
             std.mem.indexOf(u8, workflows, member) == null)
         {
@@ -51,10 +69,10 @@ pub fn run(ctx: *check.Context) !void {
                 .check = "ci-coverage",
                 .severity = .err,
                 .file = pkg_path,
-                .message = "package declares a test script but no CI job or vitest project runs it",
+                .message = "package declares a test script but no CI job, workspace runner, or test project runs it",
                 .evidence = try std.fmt.allocPrint(
                     ctx.alloc,
-                    "{s} is absent from vitest.config.ts projects and from .github/workflows/",
+                    "{s} is absent from the root test runner, from vitest.config.ts projects, and from .github/workflows/",
                     .{member},
                 ),
             });
@@ -167,6 +185,49 @@ fn expandGlobs(ctx: *check.Context, globs: []const []const u8) ![]const []const 
         if (!skip) try out.append(ctx.alloc, try ctx.alloc.dupe(u8, member));
     }
     return out.toOwnedSlice(ctx.alloc);
+}
+
+/// The script the root `test` script delegates to, when it is a runner that
+/// walks the workspace and runs each member's own test script.
+///
+/// bun:test replaced vitest here, so the per-member project listing moved into
+/// one runner (`scripts/run-tests.mjs`) that discovers members from the
+/// workspace instead of from a config file. A member is covered by that shape
+/// of runner without being named anywhere, so a check that only read project
+/// listings would call every member uncovered — the state this repo sat in,
+/// where the gate reported 16 members whose suites all ran.
+///
+/// The shape is detected rather than assumed: the runner has to walk
+/// directories and read each one's package.json, which is what makes it
+/// discover members rather than run a fixed list. A script that does neither
+/// earns no coverage, so replacing the runner with a narrower one turns the
+/// per-member findings back on instead of hiding them.
+fn workspaceTestRunner(ctx: *check.Context, root_pkg: *const pkgjson.PackageJson) !?[]const u8 {
+    const command = root_pkg.script("test") orelse return null;
+
+    var candidate: ?[]const u8 = null;
+    var tokens = std.mem.splitScalar(u8, command, ' ');
+    while (tokens.next()) |raw| {
+        const token = std.mem.trim(u8, raw, " \t\r");
+        if (token.len == 0) continue;
+        if (!std.mem.endsWith(u8, token, ".mjs") and
+            !std.mem.endsWith(u8, token, ".js") and
+            !std.mem.endsWith(u8, token, ".mts") and
+            !std.mem.endsWith(u8, token, ".ts")) continue;
+        candidate = token;
+        break;
+    }
+    const path = candidate orelse return null;
+    if (std.mem.indexOfScalar(u8, path, '/') == null) return null;
+
+    const text = fsutil.readFileAllocOrNull(ctx.alloc, ctx.io, ctx.root_dir, path) orelse return null;
+    defer ctx.alloc.free(text);
+
+    const walks = std.mem.indexOf(u8, text, "readdirSync") != null;
+    const reads_manifests = std.mem.indexOf(u8, text, "package.json") != null;
+    if (!walks or !reads_manifests) return null;
+
+    return try ctx.alloc.dupe(u8, path);
 }
 
 /// The string literals inside `projects: [...]` in vitest.config.ts.
