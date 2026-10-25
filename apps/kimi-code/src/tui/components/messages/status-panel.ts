@@ -57,6 +57,7 @@ export interface StatusReportOptions {
   readonly towerMode: boolean;
   readonly specMode: boolean;
   readonly swarmMode: boolean;
+  readonly helloWorldMode: boolean;
   /** Whether the tower experiment is enabled on engine v2 — gates the Tower mode row. */
   readonly towerAvailable: boolean;
   readonly contextUsage: number;
@@ -122,6 +123,7 @@ export function buildStatusReportLines(options: StatusReportOptions): string[] {
   const towerMode = options.status?.towerMode ?? options.towerMode;
   const specMode = options.status?.specMode ?? options.specMode;
   const swarmMode = options.status?.swarmMode ?? options.swarmMode;
+  const helloWorldMode = options.status?.helloWorldMode ?? options.helloWorldMode;
   const sessionId =
     options.sessionId.trim().length > 0
       ? options.sessionId
@@ -138,6 +140,10 @@ export function buildStatusReportLines(options: StatusReportOptions): string[] {
     { label: t('tui.messages.statusPanel.planModeLabel'), value: onOff(planMode) },
     { label: t('tui.messages.statusPanel.specModeLabel'), value: onOff(specMode) },
     { label: t('tui.messages.statusPanel.swarmModeLabel'), value: onOff(swarmMode) },
+    {
+      label: t('tui.messages.statusPanel.helloWorldModeLabel'),
+      value: onOff(helloWorldMode),
+    },
   ];
   if (options.towerAvailable) {
     rows.push({

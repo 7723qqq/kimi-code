@@ -777,6 +777,7 @@ Each `agent_config` field is applied immediately to the main agent:
 | `permission_mode` | string | `manual` / `yolo` / `auto` |
 | `plan_mode` | boolean | Enter or exit Plan mode |
 | `swarm_mode` | boolean | Enter or exit swarm mode |
+| `hello_world_mode` | boolean | Enter or exit hello-world mode |
 | `goal_objective` | string | Create a goal with this objective |
 | `goal_control` | string | `pause` / `resume` / `cancel` the current goal |
 
@@ -922,7 +923,7 @@ Realtime status rollup of the main agent; reading it resumes the session if it i
 | --- | --- | --- | --- |
 | `session_id` | path | string | **Required.** Session id |
 
-On success, `data` is `{ busy, model?, thinking_level, permission, plan_mode, swarm_mode, tower_mode?, context_tokens, max_context_tokens?, context_usage? }`: `busy` reports an active turn, `model` / `thinking_level` / `permission` are the effective agent settings, `plan_mode` / `swarm_mode` / `tower_mode` are the mode flags, and `context_tokens` with `max_context_tokens` and `context_usage` (0–1) describe context-window consumption.
+On success, `data` is `{ busy, model?, thinking_level, permission, plan_mode, swarm_mode, hello_world_mode?, tower_mode?, context_tokens, max_context_tokens?, context_usage? }`: `busy` reports an active turn, `model` / `thinking_level` / `permission` are the effective agent settings, `plan_mode` / `swarm_mode` / `hello_world_mode` / `tower_mode` are the mode flags, and `context_tokens` with `max_context_tokens` and `context_usage` (0–1) describe context-window consumption.
 
 - `40401`: session not found
 

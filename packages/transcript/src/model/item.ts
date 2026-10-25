@@ -13,6 +13,8 @@ export const KNOWN_MARKERS = [
   'plan.revision',
   'swarm.enter',
   'swarm.exit',
+  'hello-world.enter',
+  'hello-world.exit',
   'skill',
   'cron.fired',
   'notice',

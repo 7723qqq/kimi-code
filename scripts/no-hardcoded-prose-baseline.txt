@@ -24,7 +24,6 @@ apps/kimi-code/src/cli/v2/validate-config.ts  2  d1e50b5f0421
 apps/kimi-code/src/cli/version.ts  1  34a22c6892eb
 apps/kimi-code/src/tui/commands/auth.ts  1  bb8655822004
 apps/kimi-code/src/tui/commands/plugins.ts  9  81007bf0a334
-apps/kimi-code/src/tui/commands/team.ts  4  ccf6000aba4f
 apps/kimi-code/src/tui/components/dialogs/api-key-input-dialog.ts  1  6001981f8a69
 apps/kimi-code/src/tui/components/dialogs/platform-selector.ts  2  b8f0fee1cfd9
 apps/kimi-code/src/tui/components/dialogs/plugins-selector.ts  7  39ca43d65326

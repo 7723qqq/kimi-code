@@ -276,6 +276,7 @@ export function foldWireRecordFacts(
   let planActive: boolean | undefined;
   let planRevision: { readonly reviewPath?: string; readonly version?: number } | undefined;
   let swarmActive: boolean | undefined;
+  let helloWorldActive: boolean | undefined;
   let towerActive: boolean | undefined;
 
   const appended: TranscriptItem[] = [];
@@ -516,6 +517,16 @@ export function foldWireRecordFacts(
       case 'swarm_mode.exit': {
         swarmActive = false;
         pushMarker('swarm.exit', record);
+        break;
+      }
+      case 'hello_world_mode.enter': {
+        helloWorldActive = true;
+        pushMarker('hello-world.enter', record);
+        break;
+      }
+      case 'hello_world_mode.exit': {
+        helloWorldActive = false;
+        pushMarker('hello-world.exit', record);
         break;
       }
       case 'tower_mode.enter': {
@@ -829,7 +840,10 @@ export function foldWireRecordFacts(
       : base.items;
 
   const modesTouched =
-    planActive !== undefined || swarmActive !== undefined || towerActive !== undefined;
+    planActive !== undefined ||
+    swarmActive !== undefined ||
+    helloWorldActive !== undefined ||
+    towerActive !== undefined;
   const meta: TranscriptMeta = {
     ...base.meta,
     goal: goalTouched ? goal : base.meta.goal,
@@ -843,6 +857,12 @@ export function foldWireRecordFacts(
                 ? (planRevision ?? {})
                 : undefined,
           swarm: swarmActive === undefined ? base.meta.modes?.swarm : swarmActive ? {} : undefined,
+          'hello-world':
+            helloWorldActive === undefined
+              ? base.meta.modes?.['hello-world']
+              : helloWorldActive
+                ? {}
+                : undefined,
           tower: towerActive === undefined ? base.meta.modes?.tower : towerActive ? {} : undefined,
         }
       : base.meta.modes,

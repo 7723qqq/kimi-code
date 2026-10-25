@@ -87,6 +87,7 @@ const appState: AppState = {
     specMode: false,
   inputMode: 'prompt',
   swarmMode: false,
+  helloWorldMode: false,
   towerMode: false,
   theme: 'dark',
   editorCommand: null,

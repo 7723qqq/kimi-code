@@ -12,7 +12,6 @@
 Compared to upstream, this fork adds:
 
 - **🌐 i18n / Multi-language support.** Complete Chinese-English bilingual support across TUI, CLI, and Web UI. All hardcoded English strings replaced with `t()` calls. Switch locale via the `/settings` dialog (aliased as `/config`), locale selector inside.
-- **🤖 Team.** Multi-agent discussion and collaboration tool — agents can debate, cross-review, and reach consensus before output.
 - **🪟 Windows launchers.** `start-native.bat` launches the native CLI; `start-desktop.bat` builds/launches a locally vendored desktop shell when present.
 - **🥖 Bun as the sole packaging engine.** Release binaries are single-file builds via `bun build --compile`, produced by the CI six-platform matrix (linux/darwin/win32 × x64/arm64). The former default Node.js SEA pipeline has been retired: pi-tui helpers load from the packaged-asset cache, URL-fetch SSRF semantics are identical across runtimes (bundled undici), self-update is engine-aware and still recognizes legacy SEA installs, and `/status` shows a Runtime row.
 - Various other fixes and QoL improvements.
@@ -25,7 +24,7 @@ Kimi Code CLI is an AI coding agent that runs in your terminal — it can read a
 
 ## Install
 
-> ⚠️ **This fork does not publish packages or installers.** The official script and npm packages below install **upstream MoonshotAI/kimi-code**, not this fork — they will not give you the i18n or Team features described above. To run this fork, build it from source (see below). The commands are kept here only to document what upstream's install path looks like.
+> ⚠️ **This fork does not publish packages or installers.** The official script and npm packages below install **upstream MoonshotAI/kimi-code**, not this fork — they will not give you the i18n features described above. To run this fork, build it from source (see below). The commands are kept here only to document what upstream's install path looks like.
 
 <details>
 <summary>Upstream install path (installs upstream, <em>not</em> this fork)</summary>

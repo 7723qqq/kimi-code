@@ -435,6 +435,7 @@ export interface SessionStatus {
   /** Which spec stage is in progress, when spec mode is active. */
   readonly specStage?: SpecStage;
   readonly swarmMode?: boolean;
+  readonly helloWorldMode?: boolean;
   readonly towerMode?: boolean;
   readonly contextTokens: number;
   readonly maxContextTokens: number;

@@ -24,7 +24,7 @@
 // cross-reducers), blobs (the folding states whose blob codec offloads inline
 // media to blob storage), owner (the source file declaring the class).
 
-// Index (71 record types)
+// Index (73 record types)
 //   changeNotifier.snapshot            changeNotifier.snapshot                                                                               src/agent/changeNotifier/changeNotifierOps.ts
 //   config.update                      profile                                                                                               src/agent/profile/profileOps.ts
 //   context.append_loop_event          contextMemory, turn                                                                                   src/agent/contextMemory/contextEvents.ts
@@ -44,6 +44,8 @@
 //   goal.clear                         (none)                                                                                                src/features/goal/goalOps.ts
 //   goal.create                        (none)                                                                                                src/features/goal/goalOps.ts
 //   goal.update                        (none)                                                                                                src/features/goal/goalOps.ts
+//   hello_world_mode.enter             helloWorld                                                                                            src/features/helloWorld/helloWorldOps.ts
+//   hello_world_mode.exit              contextMemory, helloWorld                                                                             src/features/helloWorld/helloWorldOps.ts
 //   interaction.request                (none)                                                                                                src/agent/interaction/interactionOps.ts
 //   interaction.resolved               (none)                                                                                                src/agent/interaction/interactionOps.ts
 //   interruptionReminder.recorded      interruptionReminder                                                                                  src/agent/interruptionReminder/interruptionReminderOps.ts
@@ -360,6 +362,26 @@ interface GoalUpdatePayload {
     wallClockBudgetMs?: number;
   };
   actor?: 'user' | 'model' | 'runtime' | 'system';
+}
+
+/**
+ * states: helloWorld
+ * owner: src/features/helloWorld/helloWorldOps.ts
+ */
+interface HelloWorldModeEnterPayload {
+  _name: 'hello_world_mode.enter';
+  agentId: string;
+  /** HelloWorldModeTrigger */
+  trigger: 'manual' | 'task' | 'tool';
+}
+
+/**
+ * states: contextMemory, helloWorld · blobs: contextMemory
+ * owner: src/features/helloWorld/helloWorldOps.ts
+ */
+interface HelloWorldModeExitPayload {
+  _name: 'hello_world_mode.exit';
+  agentId: string;
 }
 
 /**
@@ -1067,6 +1089,8 @@ interface WirePayloadMap {
   "goal.clear": GoalClearPayload;
   "goal.create": GoalCreatePayload;
   "goal.update": GoalUpdatePayload;
+  "hello_world_mode.enter": HelloWorldModeEnterPayload;
+  "hello_world_mode.exit": HelloWorldModeExitPayload;
   "interaction.request": InteractionRequestPayload;
   "interaction.resolved": InteractionResolvedPayload;
   "interruptionReminder.recorded": InterruptionReminderRecordedPayload;

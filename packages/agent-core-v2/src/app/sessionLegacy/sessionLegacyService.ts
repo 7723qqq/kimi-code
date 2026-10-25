@@ -16,6 +16,7 @@ import { getLiveSessionById, resumeSessionById } from '#/app/sessionManager/sess
 import { ErrorCodes, Error2 } from '#/errors';
 import { IAgentGoalService } from '#/features/goal/goalService';
 import type { GoalSnapshot } from '#/features/goal/types';
+import { IAgentHelloWorldService } from '#/features/helloWorld/agent/helloWorld';
 import { IAgentPlanService } from '#/features/plan/plan';
 import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
 import { IAgentTowerService } from '#/features/tower/tower';
@@ -70,6 +71,7 @@ export class SessionLegacyService implements ISessionLegacyService {
     const permission = agent.accessor.get(IAgentPermissionModeService);
     const plan = agent.accessor.get(IAgentPlanService);
     const swarm = agent.accessor.get(IAgentSwarmService);
+    const helloWorld = agent.accessor.get(IAgentHelloWorldService);
     const tower = agent.accessor.get(IAgentTowerService);
 
     const model = profile.getModel();
@@ -88,6 +90,7 @@ export class SessionLegacyService implements ISessionLegacyService {
       permission: permission.mode,
       plan_mode: planData !== null,
       swarm_mode: swarm.isActive,
+      hello_world_mode: helloWorld.isActive,
       tower_mode: tower.isActive,
       context_tokens: tokens,
       max_context_tokens: maxTokens > 0 ? maxTokens : undefined,

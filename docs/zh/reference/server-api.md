@@ -775,6 +775,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 | `permission_mode` | string | `manual` / `yolo` / `auto` |
 | `plan_mode` | boolean | 进入或退出 Plan 模式 |
 | `swarm_mode` | boolean | 进入或退出 swarm 模式 |
+| `hello_world_mode` | boolean | 进入或退出 hello-world 模式 |
 | `goal_objective` | string | 以该文本为内容创建一个目标 |
 | `goal_control` | string | `pause` / `resume` / `cancel` 当前目标 |
 
@@ -920,7 +921,7 @@ main agent 的实时状态汇总；读取它会在会话为冷态时将其恢复
 | --- | --- | --- | --- |
 | `session_id` | path | string | **必填。** 会话 id |
 
-成功时，`data` 为 `{ busy, model?, thinking_level, permission, plan_mode, swarm_mode, tower_mode?, context_tokens, max_context_tokens?, context_usage? }`：`busy` 表示是否有进行中的轮次，`model` / `thinking_level` / `permission` 为当前生效的 Agent 设置，`plan_mode` / `swarm_mode` / `tower_mode` 为模式标志，`context_tokens` 与 `max_context_tokens`、`context_usage`（0–1）描述上下文窗口的占用情况。
+成功时，`data` 为 `{ busy, model?, thinking_level, permission, plan_mode, swarm_mode, hello_world_mode?, tower_mode?, context_tokens, max_context_tokens?, context_usage? }`：`busy` 表示是否有进行中的轮次，`model` / `thinking_level` / `permission` 为当前生效的 Agent 设置，`plan_mode` / `swarm_mode` / `hello_world_mode` / `tower_mode` 为模式标志，`context_tokens` 与 `max_context_tokens`、`context_usage`（0–1）描述上下文窗口的占用情况。
 
 - `40401`：会话不存在
 

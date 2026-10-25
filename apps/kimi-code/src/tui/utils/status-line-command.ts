@@ -22,6 +22,7 @@ export interface StatusLinePayload {
   planMode: boolean;
   specMode: boolean;
   swarmMode: boolean;
+  helloWorldMode: boolean;
   towerMode: boolean;
   contextUsage: number;
   contextTokens: number;

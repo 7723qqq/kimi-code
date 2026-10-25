@@ -1377,6 +1377,7 @@ export class AgentTranscriptProjector {
     planMode?: boolean;
     specMode?: boolean;
     swarmMode?: boolean;
+    helloWorldMode?: boolean;
     towerMode?: boolean;
     model?: string;
     thinkingEffort?: string;
@@ -1391,6 +1392,7 @@ export class AgentTranscriptProjector {
       plan?: Record<string, never> | null;
       spec?: Record<string, never> | null;
       swarm?: Record<string, never> | null;
+      'hello-world'?: Record<string, never> | null;
       tower?: Record<string, never> | null;
     } = {};
     if (event.planMode === true) {
@@ -1404,12 +1406,15 @@ export class AgentTranscriptProjector {
     else if (event.specMode === false) modes.spec = null;
     if (event.swarmMode === true) modes.swarm = {};
     else if (event.swarmMode === false) modes.swarm = null;
+    if (event.helloWorldMode === true) modes['hello-world'] = {};
+    else if (event.helloWorldMode === false) modes['hello-world'] = null;
     if (event.towerMode === true) modes.tower = {};
     else if (event.towerMode === false) modes.tower = null;
     if (
       modes.plan !== undefined ||
       modes.spec !== undefined ||
       modes.swarm !== undefined ||
+      modes['hello-world'] !== undefined ||
       modes.tower !== undefined
     ) {
       ops.push({ op: 'meta.merge', meta: { modes } });

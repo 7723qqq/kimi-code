@@ -490,12 +490,14 @@ describe('contract schemas', () => {
       plan: true,
       spec: true,
       swarm: true,
+      'hello-world': true,
       tower: true,
     };
     const mergeKeys: Record<keyof ModesMetaMerge, true> = {
       plan: true,
       spec: true,
       swarm: true,
+      'hello-world': true,
       tower: true,
     };
     expect(Object.keys(modesMetaSchema.shape).toSorted()).toEqual(

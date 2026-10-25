@@ -692,6 +692,7 @@ export default {
       plan: 'Toggle plan mode',
       spec: 'Write a spec for the change before implementing it',
       swarm: 'Toggle swarm mode or run one task in swarm mode',
+      helloWorld: 'Toggle hello-world mode or run one task in hello-world mode',
       workflow: 'Run or manage workflows (list, status, cancel, or run by name)',
       workflowHelp: {
         usage: 'Usage:',
@@ -703,7 +704,6 @@ export default {
       },
       workflowStatusUsage: 'Usage: /workflow status <runId>',
       workflowCancelUsage: 'Usage: /workflow cancel <runId>',
-      team: 'Start a team discussion among multiple agents',
       secondaryModel: 'Configure the secondary model for subagents',
       model: 'Switch LLM model',
       effort: 'Switch thinking effort',
@@ -1366,6 +1366,22 @@ export default {
         optionManualDesc:
           'Keep approvals on. Kimi Code may stop and wait for you during the swarm task.',
       },
+      helloWorldStartPermissionPrompt: {
+        title: 'Start a hello-world task with approvals on?',
+        notice1:
+          'Always Ask mode asks you before Kimi Code runs commands, edits files, or takes other risky actions.',
+        notice2: 'Always Ask mode can block hello-world work while agents are running.',
+        notice3: 'You can go back without losing your command.',
+        optionAutoLabel: 'Switch to Never Ask and start',
+        optionAutoDesc:
+          'Best for hello-world tasks. Tools are approved automatically, and questions are skipped.',
+        optionYoloLabel: 'Switch to Ask When Needed and start',
+        optionYoloDesc:
+          'Tools and plan changes are approved automatically. Kimi Code may still ask you questions.',
+        optionManualLabel: 'Start in Always Ask',
+        optionManualDesc:
+          'Keep approvals on. Kimi Code may stop and wait for you during the hello-world task.',
+      },
       startPermissionPrompt: {
         navHint: '↑↓ navigate · Enter select · Esc cancel',
       },
@@ -1703,6 +1719,11 @@ export default {
       swarmModeAlreadyOn: 'Swarm mode is already on.',
       swarmModeAlreadyOff: 'Swarm mode is already off.',
       swarmModeNotEnabled: 'Swarm mode not enabled.',
+      // hello-world.ts
+      helloWorldTaskNotStarted: 'Hello-world task not started.',
+      helloWorldModeAlreadyOn: 'Hello-world mode is already on.',
+      helloWorldModeAlreadyOff: 'Hello-world mode is already off.',
+      helloWorldModeNotEnabled: 'Hello-world mode not enabled.',
       goalAlreadyActive:
         'A goal is already active. Use `/goal replace <objective>` to replace it, or `/goal status` to inspect it.',
       noGoalToPause: 'No goal to pause.',
@@ -2517,8 +2538,6 @@ export default {
         preparingChangesTarget: ' for {{filePath}}',
         truncatedMarker: '[...truncated]',
         agentSwarmLabel: 'Agent swarm: ',
-        teamLabel: 'Team: ',
-        teamSummary: 'Summary:',
         completedStatus: '{{count}} completed',
         failedStatus: '{{count}} failed',
         abortedStatus: '{{count}} aborted',
@@ -2634,6 +2653,7 @@ export default {
         planModeLabel: 'Plan mode',
         specModeLabel: 'Spec mode',
         swarmModeLabel: 'Swarm mode',
+        helloWorldModeLabel: 'Hello-world mode',
         sessionLabel: 'Session',
         titleLabel: 'Title',
         warningLabel: 'Warning',
@@ -2648,6 +2668,11 @@ export default {
         activated: 'Swarm activated',
         deactivated: 'Swarm deactivated',
         ended: 'Swarm ended',
+      },
+      helloWorldMarkers: {
+        activated: 'Hello-world activated',
+        deactivated: 'Hello-world deactivated',
+        ended: 'Hello-world ended',
       },
       thinking: {
         liveLabel: 'thinking…',
@@ -2766,8 +2791,6 @@ export default {
         'Cannot /{{name}} while compacting — wait for compaction to finish first.',
       // tui/commands/btw.ts
       btwStartFailed: 'Failed to start /btw: {{error}}',
-      // tui/commands/team.ts
-      teamSwarmEnableFailed: 'Failed to enable swarm mode: {{error}}',
       // tui/commands/info.ts
       infoMcpLoadFailed: 'Failed to load MCP servers: {{error}}',
       // tui/commands/session.ts
@@ -2786,6 +2809,12 @@ export default {
       swarmModeDidNotChange: 'the engine did not change swarm mode',
       swarmEnable: 'enable',
       swarmDisable: 'disable',
+      // tui/commands/hello-world.ts
+      helloWorldPermissionFailed: 'Failed to set permission mode: {{error}}',
+      helloWorldToggleFailed: 'Failed to {{action}} hello-world mode: {{error}}',
+      helloWorldModeDidNotChange: 'the engine did not change hello-world mode',
+      helloWorldEnable: 'enable',
+      helloWorldDisable: 'disable',
       // tui/controllers/btw-panel.ts
       btwSendFailed: 'Failed to send /btw prompt: {{error}}',
       btwCancelFailed: 'Failed to cancel /btw: {{error}}',
@@ -2913,6 +2942,8 @@ export default {
       registryGoalManage: 'Manage upcoming goals',
       registrySwarmOn: 'Turn swarm mode on',
       registrySwarmOff: 'Turn swarm mode off',
+      registryHelloWorldOn: 'Turn hello-world mode on',
+      registryHelloWorldOff: 'Turn hello-world mode off',
       registryAddDirShow: 'Show configured additional workspace directories',
       registryTowerStatus: 'Report tower status',
       registryTowerTeardown: 'Tear down the tower',
@@ -2920,10 +2951,6 @@ export default {
       registryTowerOff: 'Turn tower mode off',
       registryDesktop: 'Open the Kimi Code desktop app page in your browser',
       desktopOpenedInBrowser: '{{url}} — opened in your browser',
-      // tui/commands/team.ts
-      teamUsage: 'Usage: /team [--debate] <topic> with <role1>[:stance],<role2>[:stance],...',
-      teamNeedTopic: 'Please provide a discussion topic.',
-      teamNeedRoles: 'Please specify at least 2 roles for the discussion.',
       // tui/commands/workflow.ts
       workflowSearchExample: '/workflow deep-research "latest advances in RAG"',
       workflowListHint:

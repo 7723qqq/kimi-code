@@ -543,6 +543,7 @@ describe('Shift-Tab cycle derivation', () => {
       planMode: false,
       specMode: false,
       swarmMode: false,
+      helloWorldMode: false,
       towerMode: false,
       ...overrides,
     };
@@ -554,11 +555,13 @@ describe('Shift-Tab cycle derivation', () => {
     expect(nextReviewMode(reviewCycleState(state({ specMode: true }))!)).toBeNull();
   });
 
-  it('does not apply while swarm or tower is active', () => {
+  it('does not apply while swarm, hello-world or tower is active', () => {
     expect(reviewCycleState(state({ swarmMode: true }))).toBeNull();
+    expect(reviewCycleState(state({ helloWorldMode: true }))).toBeNull();
     expect(reviewCycleState(state({ towerMode: true }))).toBeNull();
-    // Even with plan or spec also set, swarm/tower keep the cycle out of play.
+    // Even with plan or spec also set, swarm/hello-world/tower keep the cycle out of play.
     expect(reviewCycleState(state({ swarmMode: true, specMode: true }))).toBeNull();
+    expect(reviewCycleState(state({ helloWorldMode: true, specMode: true }))).toBeNull();
     expect(reviewCycleState(state({ towerMode: true, planMode: true }))).toBeNull();
   });
 

@@ -257,7 +257,10 @@ function sameStringArrays(a: readonly string[], b: readonly string[]): boolean {
 }
 
 export function editorBorderHighlighted(
-  appState: Pick<AppState, 'planMode' | 'specMode' | 'swarmMode' | 'towerMode' | 'inputMode'>,
+  appState: Pick<
+    AppState,
+    'planMode' | 'specMode' | 'swarmMode' | 'helloWorldMode' | 'towerMode' | 'inputMode'
+  >,
   isBash: boolean,
   trimmedText: string,
 ): boolean {
@@ -265,6 +268,7 @@ export function editorBorderHighlighted(
     appState.planMode ||
     appState.specMode ||
     appState.swarmMode ||
+    appState.helloWorldMode ||
     appState.towerMode ||
     isBash ||
     trimmedText.startsWith('/')
@@ -291,6 +295,7 @@ function createInitialAppState(input: KimiTUIStartupInput): AppState {
     specMode: false,
     inputMode: 'prompt',
     swarmMode: false,
+    helloWorldMode: false,
     towerMode: false,
     thinkingEffort: 'off',
     contextUsage: 0,
@@ -2913,6 +2918,7 @@ export class KimiTUI {
       permissionMode: status.permission,
       planMode: status.planMode,
       swarmMode: status.swarmMode ?? false,
+      helloWorldMode: status.helloWorldMode ?? false,
       towerMode: status.towerMode ?? false,
       contextTokens: status.contextTokens,
       maxContextTokens: status.maxContextTokens,
@@ -2984,6 +2990,7 @@ export class KimiTUI {
     this.questionController.cancelAll(reason);
     this.session = undefined;
     this.state.swarmModeEntry = undefined;
+    this.state.helloWorldModeEntry = undefined;
     this.harness.setTelemetryContext({ sessionId: null });
     this.setAppState({ goal: null });
     return previous;
@@ -3124,6 +3131,7 @@ export class KimiTUI {
     this.streamingUI.discardPending();
     if (options?.keepQueuedMessages !== true) this.clearQueuedMessages();
     this.state.swarmModeEntry = undefined;
+    this.state.helloWorldModeEntry = undefined;
     this.streamingUI.resetToolCallState();
     this.streamingUI.resetToolUi();
     this.sessionEventHandler.resetRuntimeState();

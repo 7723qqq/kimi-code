@@ -27,7 +27,7 @@
 // references become '(circular)', and class instances collapse to a '(ClassName)'
 // marker — the wire shape of an entry is the JSON projection of the type here.
 //
-// Index (App: 0 keys · Workspace: 6 keys · Session: 9 keys · Agent: 77 keys)
+// Index (App: 0 keys · Workspace: 6 keys · Session: 9 keys · Agent: 78 keys)
 //   App
 //   Workspace
 //     workspaceDirs.ephemeralDirs          src/workspace/workspaceDirs/workspaceDirsService.ts
@@ -63,6 +63,7 @@
 //     fullCompaction.lastCompactedTokenCount          src/agent/fullCompaction/fullCompactionService.ts
 //     fullCompaction.observedMaxContextTokensByModel  src/agent/fullCompaction/fullCompactionService.ts
 //     fullCompaction.wireRanges                       src/agent/fullCompaction/compactionOps.ts
+//     helloWorld                                      src/features/helloWorld/helloWorldOps.ts
 //     interruptionReminder                            src/agent/interruptionReminder/interruptionReminderOps.ts
 //     llm.requestTrace                                src/agent/llmRequester/llmRequestOps.ts
 //     llmRequester.emittedThinkingEffortWarnings      src/agent/llmRequester/llmRequesterService.ts
@@ -1369,6 +1370,9 @@ export interface AgentStateSnapshot {
     }[];
     readonly tracked: readonly string[];
   };
+  // src/features/helloWorld/helloWorldOps.ts
+  // replayable · durable — folds: HelloWorldModeEnter, HelloWorldModeExit
+  'helloWorld': 'tool' | 'task' | 'manual' | null;
   // src/features/plan/injection/planModeInjection.ts
   'plan.wasActive': boolean;
   // src/features/plan/planOps.ts

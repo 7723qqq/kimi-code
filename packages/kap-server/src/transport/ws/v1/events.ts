@@ -19,6 +19,7 @@ export interface AgentStatusUpdatedEvent {
   readonly planMode?: boolean;
   readonly specMode?: boolean;
   readonly swarmMode?: boolean;
+  readonly helloWorldMode?: boolean;
   readonly towerMode?: boolean;
   readonly permission?: PermissionMode;
   readonly usage?: UsageStatus;

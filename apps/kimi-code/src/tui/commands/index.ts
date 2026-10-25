@@ -23,7 +23,7 @@ export {
   showSettingsSelector,
 } from './config';
 export { handleSwarmCommand } from './swarm';
-export { handleTeamCommand } from './team';
+export { handleHelloWorldCommand } from './hello-world';
 export { handleTowerCommand } from './tower';
 export { handleWorkflowCommand } from './workflow';
 export { handleFeedbackCommand, showMcpServers, showStatusReport, showUsage } from './info';

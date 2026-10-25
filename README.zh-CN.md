@@ -14,7 +14,6 @@
 相比上游，本 fork 新增：
 
 - **🌐 i18n 国际化多语言支持**：TUI / CLI / Web UI 完整中英双语。所有硬编码英文替换为 `t()` 调用，通过 `/config` 对话框（语言选择器）切换语言。
-- **🤖 Team 多 Agent 讨论**：多 Agent 讨论协作工具，Agent 之间可辩论、交叉审查并达成共识后输出。
 - **🪟 Windows 启动脚本**：`start-native.bat` 一键启动原生 CLI；`start-desktop.bat` 用于构建并启动本地 vendored 桌面壳（仅当 `apps/kimi-desktop` 存在时可用）。
 - **🥖 Bun 唯一打包引擎。** 发布二进制通过 `bun build --compile` 产出单文件构建，由 CI 六平台矩阵（linux/darwin/win32 × x64/arm64）生成。原默认的 Node.js SEA 流水线已退役：pi-tui helper 由打包资产缓存加载、URL-fetch SSRF 语义跨运行时一致（统一捆绑 undici）、自更新感知引擎且仍识别旧 SEA 安装、`/status` 显示 Runtime 行。
 - 其他多项修复和体验优化。
@@ -27,7 +26,7 @@ Kimi Code CLI 是一个运行在终端里的 AI 编程 agent，可以帮你读�
 
 ## 安装
 
-> ⚠️ **本 fork 不发布安装包与安装脚本。** 下面的官方脚本和 npm 包装到的是**上游 MoonshotAI/kimi-code**，不是本 fork —— 你拿不到上文列出的 i18n、Team 等特性。要运行本 fork，请从源码构建（见下文）。保留这些命令只是为了记录上游的安装方式。
+> ⚠️ **本 fork 不发布安装包与安装脚本。** 下面的官方脚本和 npm 包装到的是**上游 MoonshotAI/kimi-code**，不是本 fork —— 你拿不到上文列出的 i18n 等特性。要运行本 fork，请从源码构建（见下文）。保留这些命令只是为了记录上游的安装方式。
 
 <details>
 <summary>上游安装方式（装的是上游，<em>不是</em>本 fork）</summary>

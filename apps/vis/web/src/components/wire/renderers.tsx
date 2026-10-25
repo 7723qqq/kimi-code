@@ -1109,6 +1109,27 @@ export const WIRE_RENDERERS: RendererMap = {
     headline: () => ({ main: <Dim>{t('wireRenderer.swarmExited')}</Dim> }),
   },
 
+  'hello_world_mode.enter': {
+    tone: 'subagent',
+    label: 'hello-world↻',
+    headline: (r) => ({
+      main: (
+        <span className="flex items-center gap-2">
+          <Pill tone="subagent" variant="soft">
+            {t('wireRenderer.enter')}
+          </Pill>
+          <Mono>{r.trigger}</Mono>
+        </span>
+      ),
+    }),
+  },
+
+  'hello_world_mode.exit': {
+    tone: 'subagent',
+    label: 'hello-world✓',
+    headline: () => ({ main: <Dim>{t('wireRenderer.helloWorldExited')}</Dim> }),
+  },
+
   'tower_mode.enter': {
     tone: 'subagent',
     label: 'tower↻',

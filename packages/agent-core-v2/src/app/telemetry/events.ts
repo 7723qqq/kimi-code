@@ -245,6 +245,10 @@ export interface SwarmModeTransitionEvent {
   trigger: 'manual' | 'task' | 'tool';
 }
 
+export interface HelloWorldModeTransitionEvent {
+  trigger: 'manual' | 'task' | 'tool';
+}
+
 export interface ExternalHookResolvedEvent {
   event: string;
   action: 'allow' | 'block';
@@ -964,6 +968,20 @@ export const telemetryEventDefinitions = {
     comment: 'Swarm mode is exited.',
     properties: {
       trigger: 'What originally triggered the swarm mode being exited',
+    },
+  }),
+  hello_world_mode_entered: defineAgentTelemetryEvent<HelloWorldModeTransitionEvent>({
+    owner: 'kimi-code',
+    comment: 'Hello-world mode is entered.',
+    properties: {
+      trigger: 'What triggered hello-world mode',
+    },
+  }),
+  hello_world_mode_exited: defineAgentTelemetryEvent<HelloWorldModeTransitionEvent>({
+    owner: 'kimi-code',
+    comment: 'Hello-world mode is exited.',
+    properties: {
+      trigger: 'What originally triggered the hello-world mode being exited',
     },
   }),
   external_hook_resolved: defineTelemetryEvent<ExternalHookResolvedEvent>({

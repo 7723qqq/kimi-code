@@ -6,6 +6,8 @@ import { IEventBus } from '#/app/event/eventBus';
 import { LifecycleScope } from '#/app/scopes';
 import { GoalUpdated } from '#/features/goal/goalOps';
 import { IAgentGoalService } from '#/features/goal/goalService';
+import { IAgentHelloWorldService } from '#/features/helloWorld/agent/helloWorld';
+import { HelloWorldModeEnter } from '#/features/helloWorld/helloWorldOps';
 import { IAgentPlanService } from '#/features/plan/plan';
 import { PlanModeEnter, planKey } from '#/features/plan/planOps';
 import { IAgentSpecService } from '#/features/spec/spec';
@@ -19,10 +21,11 @@ import { IEventDispatcher } from '#/state/eventDispatcher';
 import { IAgentModeMutexService, type ExclusiveReviewMode } from './modeMutex';
 
 const CONFLICTS: Record<ExclusiveReviewMode, readonly ExclusiveReviewMode[]> = {
+  'hello-world': ['spec', 'swarm', 'tower'],
   plan: ['spec', 'tower'],
-  spec: ['plan', 'swarm', 'tower'],
-  swarm: ['spec', 'tower'],
-  tower: ['plan', 'spec', 'swarm'],
+  spec: ['hello-world', 'plan', 'swarm', 'tower'],
+  swarm: ['hello-world', 'spec', 'tower'],
+  tower: ['hello-world', 'plan', 'spec', 'swarm'],
 };
 
 export class AgentModeMutexService extends Disposable implements IAgentModeMutexService {
@@ -32,6 +35,7 @@ export class AgentModeMutexService extends Disposable implements IAgentModeMutex
     @IAgentPlanService private readonly plan: IAgentPlanService,
     @IAgentSpecService private readonly spec: IAgentSpecService,
     @IAgentSwarmService private readonly swarm: IAgentSwarmService,
+    @IAgentHelloWorldService private readonly helloWorld: IAgentHelloWorldService,
     @IAgentTowerService private readonly tower: IAgentTowerService,
     @IAgentGoalService private readonly goal: IAgentGoalService | undefined,
     @IAgentStateService private readonly agentState: IAgentStateService,
@@ -47,6 +51,11 @@ export class AgentModeMutexService extends Disposable implements IAgentModeMutex
     this._register(
       eventBus.subscribe(SwarmModeEnter, () => {
         this.evictConflictsOf('swarm');
+      }),
+    );
+    this._register(
+      eventBus.subscribe(HelloWorldModeEnter, () => {
+        this.evictConflictsOf('hello-world');
       }),
     );
     this._register(
@@ -82,6 +91,7 @@ export class AgentModeMutexService extends Disposable implements IAgentModeMutex
     if (this.agentState.get(planKey).active) return 'plan';
     if (this.agentState.get(specKey).active) return 'spec';
     if (this.swarm.isActive) return 'swarm';
+    if (this.helloWorld.isActive) return 'hello-world';
     if (this.tower.isActive) return 'tower';
     return null;
   }
@@ -109,6 +119,9 @@ export class AgentModeMutexService extends Disposable implements IAgentModeMutex
 
   async leave(target: ExclusiveReviewMode): Promise<void> {
     switch (target) {
+      case 'hello-world':
+        if (this.helloWorld.isActive) this.helloWorld.exit();
+        return;
       case 'plan':
         if (this.agentState.get(planKey).active) this.plan.exit();
         return;
@@ -126,6 +139,9 @@ export class AgentModeMutexService extends Disposable implements IAgentModeMutex
 
   private async enter(target: ExclusiveReviewMode): Promise<void> {
     switch (target) {
+      case 'hello-world':
+        if (!this.helloWorld.isActive) this.helloWorld.enter('manual');
+        return;
       case 'plan':
         if (!this.agentState.get(planKey).active) await this.plan.enter();
         return;
@@ -144,6 +160,9 @@ export class AgentModeMutexService extends Disposable implements IAgentModeMutex
   private evictConflictsOf(entered: ExclusiveReviewMode): void {
     for (const conflicting of CONFLICTS[entered]) {
       switch (conflicting) {
+        case 'hello-world':
+          if (this.helloWorld.isActive) this.helloWorld.exit();
+          break;
         case 'plan':
           if (this.agentState.get(planKey).active) this.plan.exit();
           break;
@@ -162,7 +181,10 @@ export class AgentModeMutexService extends Disposable implements IAgentModeMutex
 }
 
 function isAllowedPair(a: ExclusiveReviewMode, b: ExclusiveReviewMode): boolean {
-  return (a === 'plan' && b === 'swarm') || (a === 'swarm' && b === 'plan');
+  return (
+    (a === 'plan' && (b === 'swarm' || b === 'hello-world')) ||
+    ((a === 'swarm' || a === 'hello-world') && b === 'plan')
+  );
 }
 
 registerScopedService(

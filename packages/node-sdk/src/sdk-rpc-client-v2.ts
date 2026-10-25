@@ -163,6 +163,7 @@ import {
   IAgentReminderService,
   IAgentSkillService,
   IAgentSwarmService,
+  IAgentHelloWorldService,
   IAgentTaskService,
   ISessionTokenCountingService,
   IAgentToolPolicyService,
@@ -281,6 +282,7 @@ import {
   type SetSessionPlanModeRpcInput,
   type SetSessionSpecModeRpcInput,
   type SetSessionSwarmModeRpcInput,
+  type SetSessionHelloWorldModeRpcInput,
   type SetSessionThinkingRpcInput,
   type SetSessionTowerModeRpcInput,
   type UpdateSessionMetadataRpcInput,
@@ -1293,6 +1295,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       } as ResumedAgentState['permission'],
       plan: plan as ResumedAgentState['plan'],
       swarmMode: agent.accessor.get(IAgentSwarmService).isActive,
+      helloWorldMode: agent.accessor.get(IAgentHelloWorldService).isActive,
       usage: usage as ResumedAgentState['usage'],
       tools: tools as ResumedAgentState['tools'],
       toolStore: folded.toolStore,
@@ -2086,6 +2089,7 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       specMode: spec !== null,
       specStage: spec?.stage,
       swarmMode: agent.accessor.get(IAgentSwarmService).isActive,
+      helloWorldMode: agent.accessor.get(IAgentHelloWorldService).isActive,
       towerMode: agent.accessor.get(IAgentTowerService).isActive,
       contextTokens,
       maxContextTokens,
@@ -2432,6 +2436,23 @@ export class SDKRpcClientV2 extends SDKRpcClientBase {
       swarm.exit();
     }
     await agent.accessor.get(IAgentReminderService).reconcileWhenIdle('swarm_mode');
+  }
+
+  /**
+   * Through the agent scope (`IAgentHelloWorldService.enter` / `.exit`) — the
+   * placeholder mode mirrors swarm mode exactly: enter is idempotent, exit pops
+   * the trailing reminder, `task` / `tool` triggers auto-exit on turn end.
+   */
+  override async setHelloWorldMode(input: SetSessionHelloWorldModeRpcInput): Promise<void> {
+    const agent = await this.agentScope(input.sessionId);
+    const helloWorld = agent.accessor.get(IAgentHelloWorldService);
+    const mutex = agent.accessor.get(IAgentModeMutexService);
+    if (input.enabled) {
+      await mutex.switchTo('hello-world');
+    } else {
+      helloWorld.exit();
+    }
+    await agent.accessor.get(IAgentReminderService).reconcileWhenIdle('hello_world_mode');
   }
 
   /** v1's `swarm()` composition: enter with the one-shot `task` trigger, then prompt. */

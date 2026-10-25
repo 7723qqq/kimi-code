@@ -134,6 +134,7 @@ export interface TUIState {
    */
   queuedMessageDispatchPending: boolean;
   swarmModeEntry: 'manual' | 'task' | undefined;
+  helloWorldModeEntry: 'manual' | 'task' | undefined;
 }
 
 export function createTUIState(options: KimiTUIOptions): TUIState {
@@ -320,5 +321,6 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
     queuedMessages: [],
     queuedMessageDispatchPending: false,
     swarmModeEntry: undefined,
+    helloWorldModeEntry: undefined,
   };
 }

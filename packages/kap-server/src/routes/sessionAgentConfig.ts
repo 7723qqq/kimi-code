@@ -2,6 +2,7 @@ import {
   ErrorCodes,
   Error2,
   IAgentGoalService,
+  IAgentHelloWorldService,
   IAgentLifecycleService,
   IAgentPlanService,
   IAgentProfileService,
@@ -52,6 +53,13 @@ export async function applySessionAgentConfig(
     if (swarm.isActive !== agentConfig.swarm_mode) {
       if (agentConfig.swarm_mode) swarm.enter('manual');
       else swarm.exit();
+    }
+  }
+  if (agentConfig.hello_world_mode !== undefined) {
+    const helloWorld = agent.accessor.get(IAgentHelloWorldService);
+    if (helloWorld.isActive !== agentConfig.hello_world_mode) {
+      if (agentConfig.hello_world_mode) helloWorld.enter('manual');
+      else helloWorld.exit();
     }
   }
   if (agentConfig.tower_mode !== undefined) {

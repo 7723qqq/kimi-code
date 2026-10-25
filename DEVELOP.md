@@ -18,7 +18,6 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 ### Fork-specific additions vs upstream
 
 - **i18n / Multi-language support** — Complete Chinese-English bilingual support across TUI, CLI, and Web UI. All hardcoded English strings replaced with `t()` calls. Switch locale via the `/settings` dialog (aliased as `/config`), locale selector inside.
-- **Team** — Multi-agent discussion and collaboration tool; agents can debate, cross-review, and reach consensus before output.
 - **Windows launchers** — `start-native.bat` runs the CLI via `bun run dev:cli` (which delegates to `apps/kimi-code/scripts/dev.mjs`, starting the local plugin-marketplace server first); `start-desktop.bat` builds and launches a locally vendored desktop shell when `apps/kimi-desktop` is present (the shell source is not tracked in this fork).
 - **Bun toolchain & packaging** — Bun is both the package manager (hoisted workspace, `bun.lock`) and the sole native-binary packaging engine (`bun build --compile` via `apps/kimi-code/scripts/native/build-bun.mjs`); the former pnpm workspace setup and the Node SEA build chain were retired. Install, build, lint, typecheck, the native build pipeline, and the test suites (`bun run test`) all run on Bun, and no CI job installs Node; the Nix build path (`flake.nix`, `nix-build.yml`) still requires Node. Self-update remains engine-aware for legacy SEA installs.
 - **DeepSeek Harness capability fusion** — Selected capabilities ported from [deepseek-harness](https://github.com/deepseek-ai/deepseek-harness) (MIT): subagent delegation-depth accounting (`session/agentLifecycle/subagentMetadata.ts`), the eval-mode code-runtime worker (`features/codeRuntime/codeWorkerSource.ts`), and the session-query record types (`features/sessionQuery/types.ts`). Ported modules carry a source note in their header; capability selection and comparison notes live in the session report.
@@ -128,7 +127,7 @@ src/
 
 **CLI subcommands:** `acp`, `doctor`, `export`, `fork`, `install-desktop`, `login`, `migrate`, `provider`, `session`, `upgrade`, `vis`, `web` (plus the hidden `install-app`, `__update_download`, and `__plugin_run_node`)
 
-**TUI slash commands (46 built-in, see `src/tui/commands/registry.ts`):** `yolo`, `auto`, `permission`, `settings`, `plan`, `spec`, `swarm`, `team`, `workflow`, `tower`, `model`, `secondary-model`, `effort`, `provider`, `btw`, `help`, `new`, `sessions`, `tasks`, `mcp`, `plugins`, `add-dir`, `experiments`, `reload`, `reload-tui`, `compact`, `goal`, `init`, `fork`, `title`, `usage`, `status`, `feedback`, `undo`, `editor`, `theme`, `logout`, `login`, `export-md`, `export-debug-zip`, `copy`, `web`, `desktop`, `remote-control`, `exit`, `version`
+**TUI slash commands (46 built-in, see `src/tui/commands/registry.ts`):** `yolo`, `auto`, `permission`, `settings`, `plan`, `spec`, `swarm`, `hello-world`, `workflow`, `tower`, `model`, `secondary-model`, `effort`, `provider`, `btw`, `help`, `new`, `sessions`, `tasks`, `mcp`, `plugins`, `add-dir`, `experiments`, `reload`, `reload-tui`, `compact`, `goal`, `init`, `fork`, `title`, `usage`, `status`, `feedback`, `undo`, `editor`, `theme`, `logout`, `login`, `export-md`, `export-debug-zip`, `copy`, `web`, `desktop`, `remote-control`, `exit`, `version`
 
 **Build output:**
 | Output | Path |

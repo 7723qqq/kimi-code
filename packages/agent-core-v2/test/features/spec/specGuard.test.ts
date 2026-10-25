@@ -291,7 +291,7 @@ describe('AgentSpecService write guard', () => {
 
   it('rejects an access kind the guard cannot inspect', async () => {
     await enterSpec();
-    const decision = await run(hookContext('Team', { accesses: ToolAccesses.all() }));
+    const decision = await run(hookContext('AgentSwarm', { accesses: ToolAccesses.all() }));
     expect(decision?.veto?.isError).toBe(true);
     expect(decision?.veto?.output).toContain('spec directory');
   });

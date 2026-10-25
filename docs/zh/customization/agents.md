@@ -132,7 +132,7 @@ disallowedTools:
 目录中发现的非法文件会被跳过并告警，不影响其他文件。通过 `--agent-file` 显式传入的文件必须合法，否则 CLI 会报错并退出。
 
 ::: warning 注意
-`tools` 与 `disallowedTools` 不仅决定模型能"看到"哪些工具，还会在执行前再次强制检查。`subagents` 同样双重生效：`Agent` 工具的类型列表只包含允许委派的 subagent，`Agent`、`AgentSwarm` 与 `Team` 在实际派发前都会强制校验；唤回已有 subagent 不受此限制。权限规则仍是独立的控制层，用于决定哪些操作需要审批。
+`tools` 与 `disallowedTools` 不仅决定模型能"看到"哪些工具，还会在执行前再次强制检查。`subagents` 同样双重生效：`Agent` 工具的类型列表只包含允许委派的 subagent，`Agent` 与 `AgentSwarm` 在实际派发前都会强制校验；唤回已有 subagent 不受此限制。权限规则仍是独立的控制层，用于决定哪些操作需要审批。
 :::
 
 作为 subagent 委派的自定义 Agent 不会携带内置 subagent 的角色框架（"你的最后一条消息就是完整交付"）。如果编写的 Agent 用于委派，请在正文中说明：其最后一条消息应当是交付给调用方的完整、自包含的结果。

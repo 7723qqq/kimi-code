@@ -7,6 +7,7 @@ function state(overrides: Partial<Parameters<typeof editorBorderHighlighted>[0]>
     planMode: false,
     specMode: false,
     swarmMode: false,
+    helloWorldMode: false,
     towerMode: false,
     inputMode: 'prompt' as const,
     ...overrides,
@@ -24,6 +25,10 @@ describe('editorBorderHighlighted', () => {
 
   it('highlights in swarm mode', () => {
     expect(editorBorderHighlighted(state({ swarmMode: true }), false, '')).toBe(true);
+  });
+
+  it('highlights in hello-world mode', () => {
+    expect(editorBorderHighlighted(state({ helloWorldMode: true }), false, '')).toBe(true);
   });
 
   it('highlights in tower mode', () => {

@@ -12,6 +12,7 @@ import {
   makeAgentScopeContext,
 } from '#/agent/scopeContext/scopeContext';
 import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import { IAgentHelloWorldService } from '#/features/helloWorld/agent/helloWorld';
 import { IAgentPlanService } from '#/features/plan/plan';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentSwarmService } from '#/features/swarm/agent/swarm';
@@ -140,6 +141,7 @@ describe('Session legacy status (best-effort runtime state)', () => {
         [IAgentPermissionModeService, { mode: 'manual' }],
         [IAgentPlanService, { status: () => Promise.resolve(null) }],
         [IAgentSwarmService, { isActive: false }],
+        [IAgentHelloWorldService, { isActive: false }],
         [IAgentTowerService, { isActive: false }],
         [IAgentLoopService, { snapshot: () => ({ state: 'idle' }) }],
         [IAgentTaskService, { list: () => [] }],
@@ -201,6 +203,7 @@ describe('Session legacy status (best-effort runtime state)', () => {
         [IAgentPermissionModeService, { mode: 'manual' }],
         [IAgentPlanService, { status: () => Promise.resolve(null) }],
         [IAgentSwarmService, { isActive: false }],
+        [IAgentHelloWorldService, { isActive: false }],
         [IAgentTowerService, { isActive: false }],
         [IModelService, { getDefaultModel: () => undefined }],
         [IAgentLoopService, { snapshot: () => ({ state: 'idle' }) }],
@@ -263,6 +266,7 @@ describe('Session legacy status (best-effort runtime state)', () => {
         [IAgentPermissionModeService, { mode: 'manual' }],
         [IAgentPlanService, { status: () => Promise.resolve(null) }],
         [IAgentSwarmService, { isActive: false }],
+        [IAgentHelloWorldService, { isActive: false }],
         [IAgentTowerService, { isActive: false }],
         [IModelService, { getDefaultModel: () => 'default-model' }],
         [
@@ -350,6 +354,7 @@ describe('Session legacy status (best-effort runtime state)', () => {
         [IAgentPermissionModeService, { mode: 'manual' }],
         [IAgentPlanService, { status: () => Promise.resolve(null) }],
         [IAgentSwarmService, { isActive: false }],
+        [IAgentHelloWorldService, { isActive: false }],
         [IAgentTowerService, { isActive: false }],
         [IAgentLoopService, { snapshot: () => ({ state: 'idle' }) }],
         [IAgentTaskService, { list: () => [] }],

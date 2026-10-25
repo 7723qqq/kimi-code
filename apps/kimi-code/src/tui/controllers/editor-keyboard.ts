@@ -919,19 +919,20 @@ export type ActiveExclusiveMode = 'plan' | 'spec';
  * The Shift-Tab cycle's view of the session, or `null` when the cycle does not
  * apply.
  *
- * It returns `null` while swarm or tower is active: those modes are not on the
- * cycle, so a press must neither move away from them nor be interpreted as a
- * request to change plan or spec while they are running. The user leaves them
- * through `/swarm off` / `/tower off`, and the cycle resumes from whatever
- * plan/spec state is then in effect.
+ * It returns `null` while swarm, hello-world or tower is active: those modes are
+ * not on the cycle, so a press must neither move away from them nor be
+ * interpreted as a request to change plan or spec while they are running. The
+ * user leaves them through `/swarm off` / `/hello-world off` / `/tower off`, and
+ * the cycle resumes from whatever plan/spec state is then in effect.
  */
 export function reviewCycleState(appState: {
   readonly swarmMode: boolean;
+  readonly helloWorldMode: boolean;
   readonly towerMode: boolean;
   readonly planMode: boolean;
   readonly specMode: boolean;
 }): ReviewCycleState | null {
-  if (appState.swarmMode || appState.towerMode) return null;
+  if (appState.swarmMode || appState.helloWorldMode || appState.towerMode) return null;
   return { planMode: appState.planMode, specMode: appState.specMode };
 }
 

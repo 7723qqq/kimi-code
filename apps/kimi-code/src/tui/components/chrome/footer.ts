@@ -730,6 +730,11 @@ export class FooterComponent implements Component {
       if (state.planMode) modes.push(chalk.hex(colors.primary).bold('plan'));
       if (state.swarmMode) modes.push(chalk.hex(colors.accent).bold('swarm'));
     }
+    if (state.planMode && state.helloWorldMode && !state.swarmMode) {
+      modes.push(renderSwarmPlanBadge('hello-world-plan'));
+    } else if (state.helloWorldMode) {
+      modes.push(chalk.hex(colors.accent).bold('hello-world'));
+    }
     if (state.towerMode) modes.push(chalk.hex(colors.accent).bold('tower'));
     if (state.specMode) {
       const stage = state.specStage;
@@ -800,6 +805,7 @@ export class FooterComponent implements Component {
       planMode: state.planMode,
       specMode: state.specMode,
       swarmMode: state.swarmMode,
+      helloWorldMode: state.helloWorldMode,
       towerMode: state.towerMode,
       contextUsage: state.contextUsage,
       contextTokens: state.contextTokens,

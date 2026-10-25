@@ -1,6 +1,6 @@
 import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiation';
 
-export type ExclusiveReviewMode = 'plan' | 'spec' | 'swarm' | 'tower';
+export type ExclusiveReviewMode = 'hello-world' | 'plan' | 'spec' | 'swarm' | 'tower';
 
 export interface IAgentModeMutexService {
   readonly _serviceBrand: undefined;

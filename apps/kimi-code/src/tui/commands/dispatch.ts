@@ -40,6 +40,7 @@ import {
 import { handleCopyCommand } from './copy';
 import { handleDesktopCommand } from './desktop';
 import { handleGoalCommand } from './goal';
+import { handleHelloWorldCommand } from './hello-world';
 import { handleFeedbackCommand, showMcpServers, showStatusReport, showUsage } from './info';
 import { parseSlashInput } from './parse';
 import { handlePluginsCommand } from './plugins';
@@ -66,7 +67,6 @@ import {
 } from './session';
 import type { SkillListSession } from './skills';
 import { handleSwarmCommand } from './swarm';
-import { handleTeamCommand } from './team';
 import { handleTowerCommand } from './tower';
 import { handleUndoCommand } from './undo';
 import { handleRemoteControlCommand, handleWebCommand } from './web';
@@ -97,6 +97,7 @@ export {
   showSettingsSelector,
 } from './config';
 export { handleSwarmCommand } from './swarm';
+export { handleHelloWorldCommand } from './hello-world';
 export { handleTowerCommand } from './tower';
 export { handleFeedbackCommand, showMcpServers, showStatusReport, showUsage } from './info';
 export { handlePluginsCommand } from './plugins';
@@ -361,6 +362,7 @@ const SESSION_REQUIRING_COMMANDS: ReadonlySet<BuiltinSlashCommandName> = new Set
   'export-md',
   'fork',
   'goal',
+  'hello-world',
   'init',
   'plan',
   'swarm',
@@ -528,8 +530,8 @@ async function handleBuiltInSlashCommand(
     case 'swarm':
       await handleSwarmCommand(host, args);
       return;
-    case 'team':
-      await handleTeamCommand(host, args);
+    case 'hello-world':
+      await handleHelloWorldCommand(host, args);
       return;
     case 'tower':
       await handleTowerCommand(host, args);

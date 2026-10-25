@@ -112,6 +112,14 @@ export function popSwarmModeReminder(state: ContextMessage[]): ContextMessage[] 
   return resetFold(state.slice(0, -1)) as ContextMessage[];
 }
 
+export function popHelloWorldModeReminder(state: ContextMessage[]): ContextMessage[] {
+  const last = state.at(-1);
+  if (last?.origin?.kind !== 'injection' || last.origin.variant !== 'hello_world_mode') {
+    return state;
+  }
+  return resetFold(state.slice(0, -1)) as ContextMessage[];
+}
+
 interface UnknownRecord {
   readonly [key: string]: unknown;
 }

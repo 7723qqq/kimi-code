@@ -669,6 +669,7 @@ export default {
       plan: '切换计划模式',
       spec: '先为这次改动写一份规格文档，再开始实现',
       swarm: '切换 Swarm 模式或运行一个 swarm 任务',
+      helloWorld: '切换 hello-world 模式或运行一个 hello-world 任务',
       workflow: '运行或管理工作流（列表、状态、取消或按名称运行）',
       workflowHelp: {
         usage: '用法：',
@@ -680,7 +681,6 @@ export default {
       },
       workflowStatusUsage: '用法：/workflow status <运行ID>',
       workflowCancelUsage: '用法：/workflow cancel <运行ID>',
-      team: '启动多 Agent 团队讨论',
       secondaryModel: '为子代理配置辅助模型',
       model: '切换 LLM 模型',
       effort: '切换思考模式',
@@ -1324,6 +1324,18 @@ export default {
         optionManualLabel: '以「始终询问」模式启动',
         optionManualDesc: '保持审批开启。Kimi Code 在集群任务期间可能会暂停并等待你。',
       },
+      helloWorldStartPermissionPrompt: {
+        title: '以审批模式启动 hello-world 任务？',
+        notice1: '「始终询问」模式下，Kimi Code 运行命令、编辑文件或执行其他有风险操作前会询问你。',
+        notice2: '「始终询问」模式可能会在智能体运行时阻塞 hello-world 工作。',
+        notice3: '你可以返回而不丢失命令。',
+        optionAutoLabel: '切换到「完全自动」并启动',
+        optionAutoDesc: '最适合 hello-world 任务。工具自动审批，问题被跳过。',
+        optionYoloLabel: '切换到「必要时询问」并启动',
+        optionYoloDesc: '工具和计划变更自动审批。Kimi Code 仍可能向你提问。',
+        optionManualLabel: '以「始终询问」模式启动',
+        optionManualDesc: '保持审批开启。Kimi Code 在 hello-world 任务期间可能会暂停并等待你。',
+      },
       startPermissionPrompt: {
         navHint: '↑↓ 导航 · Enter 选择 · Esc 取消',
       },
@@ -1907,6 +1919,11 @@ export default {
       swarmModeAlreadyOn: 'Swarm 模式已开启。',
       swarmModeAlreadyOff: 'Swarm 模式已关闭。',
       swarmModeNotEnabled: 'Swarm 模式未启用。',
+      // hello-world.ts
+      helloWorldTaskNotStarted: 'hello-world 任务未启动。',
+      helloWorldModeAlreadyOn: 'hello-world 模式已开启。',
+      helloWorldModeAlreadyOff: 'hello-world 模式已关闭。',
+      helloWorldModeNotEnabled: 'hello-world 模式未启用。',
       // sub/web/run.ts
       serverReadyBanner: 'Kimi 服务器就绪',
       serverReadyLocalUi: '本机可访问本地 Web UI。',
@@ -2427,8 +2444,6 @@ export default {
         preparingChangesTarget: '：{{filePath}}',
         truncatedMarker: '[...已截断]',
         agentSwarmLabel: '智能体集群： ',
-        teamLabel: '团队： ',
-        teamSummary: '总结：',
         completedStatus: '{{count}} 已完成',
         failedStatus: '{{count}} 失败',
         abortedStatus: '{{count}} 已中止',
@@ -2544,6 +2559,7 @@ export default {
         planModeLabel: '计划模式',
         specModeLabel: '规格模式',
         swarmModeLabel: '集群模式',
+        helloWorldModeLabel: 'hello-world 模式',
         sessionLabel: '会话',
         titleLabel: '标题',
         warningLabel: '警告',
@@ -2558,6 +2574,11 @@ export default {
         activated: '集群已激活',
         deactivated: '集群已停用',
         ended: '集群已结束',
+      },
+      helloWorldMarkers: {
+        activated: 'hello-world 已激活',
+        deactivated: 'hello-world 已停用',
+        ended: 'hello-world 已结束',
       },
       thinking: {
         liveLabel: '思考中…',
@@ -2670,8 +2691,6 @@ export default {
       resolveCannotWhileCompacting: '压缩时无法使用 /{{name}}——请等待压缩完成。',
       // tui/commands/btw.ts
       btwStartFailed: '启动 /btw 失败：{{error}}',
-      // tui/commands/team.ts
-      teamSwarmEnableFailed: '启用集群模式失败：{{error}}',
       // tui/commands/info.ts
       infoMcpLoadFailed: '加载 MCP 服务器失败：{{error}}',
       // tui/commands/session.ts
@@ -2688,6 +2707,12 @@ export default {
       swarmModeDidNotChange: '引擎未更改集群模式',
       swarmEnable: '启用',
       swarmDisable: '禁用',
+      // tui/commands/hello-world.ts
+      helloWorldPermissionFailed: '设置权限模式失败：{{error}}',
+      helloWorldToggleFailed: '{{action}}hello-world 模式失败：{{error}}',
+      helloWorldModeDidNotChange: '引擎未更改 hello-world 模式',
+      helloWorldEnable: '启用',
+      helloWorldDisable: '禁用',
       // tui/controllers/btw-panel.ts
       btwSendFailed: '发送 /btw 提示失败：{{error}}',
       btwCancelFailed: '取消 /btw 失败：{{error}}',
@@ -2813,6 +2838,8 @@ export default {
       registryGoalManage: '管理待启动目标',
       registrySwarmOn: '开启集群模式',
       registrySwarmOff: '关闭集群模式',
+      registryHelloWorldOn: '开启 hello-world 模式',
+      registryHelloWorldOff: '关闭 hello-world 模式',
       registryAddDirShow: '显示已配置的额外工作目录',
       registryTowerStatus: '查看 tower 状态',
       registryTowerTeardown: '拆解 tower',
@@ -2820,10 +2847,6 @@ export default {
       registryTowerOff: '关闭 tower 模式',
       registryDesktop: '在浏览器中打开 Kimi Code 桌面版页面',
       desktopOpenedInBrowser: '{{url}} — 已在浏览器中打开',
-      // tui/commands/team.ts
-      teamUsage: '用法：/team [--debate] <话题> with <角色1>[:立场],<角色2>[:立场],...',
-      teamNeedTopic: '请提供讨论话题。',
-      teamNeedRoles: '请至少指定 2 个讨论角色。',
       // tui/commands/workflow.ts
       workflowSearchExample: '/workflow deep-research "RAG 最新进展"',
       workflowListHint:

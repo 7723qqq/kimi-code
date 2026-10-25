@@ -39,6 +39,13 @@ function swarmArgCompletions(): readonly ArgCompletionSpec[] {
   ];
 }
 
+function helloWorldArgCompletions(): readonly ArgCompletionSpec[] {
+  return [
+    { value: 'on', description: t('tui.messages.registryHelloWorldOn') },
+    { value: 'off', description: t('tui.messages.registryHelloWorldOff') },
+  ];
+}
+
 function towerArgCompletions(): readonly ArgCompletionSpec[] {
   return [
     { value: 'status', description: t('tui.messages.registryTowerStatus') },
@@ -69,6 +76,11 @@ export function goalArgumentCompletions(argumentPrefix: string): AutocompleteIte
 /** Argument autocompletion for the `/swarm` command (subcommands). */
 export function swarmArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
   return completeLeadingArg(swarmArgCompletions(), argumentPrefix);
+}
+
+/** Argument autocompletion for the `/hello-world` command (subcommands). */
+export function helloWorldArgumentCompletions(argumentPrefix: string): AutocompleteItem[] | null {
+  return completeLeadingArg(helloWorldArgCompletions(), argumentPrefix);
 }
 
 /** Argument autocompletion for the `/tower` command (subcommands). */
@@ -237,13 +249,14 @@ export const BUILTIN_SLASH_COMMANDS = [
     availability: 'idle-only',
   },
   {
-    name: 'team',
+    name: 'hello-world',
     aliases: [],
     get description() {
-      return t('tui.slashCommands.team');
+      return t('tui.slashCommands.helloWorld');
     },
-    priority: 95,
-    argumentHint: '<topic>',
+    priority: 100,
+    argumentHint: '[on|off] | <task>',
+    completeArgs: helloWorldArgumentCompletions,
     availability: 'idle-only',
   },
   {

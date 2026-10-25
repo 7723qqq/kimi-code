@@ -1,4 +1,4 @@
-import type { SwarmModeTrigger } from '@moonshot-ai/agent-core-v2';
+import type { HelloWorldModeTrigger, SwarmModeTrigger } from '@moonshot-ai/agent-core-v2';
 
 import type { AgentContextData } from '#/context';
 import { ErrorCodes, KimiError, type KimiErrorCode } from '#/errors';
@@ -359,6 +359,18 @@ export class Session {
       await this.rpc.setSwarmMode({ sessionId: this.id, enabled: true, trigger });
     } else {
       await this.rpc.setSwarmMode({ sessionId: this.id, enabled: false });
+    }
+  }
+
+  async setHelloWorldMode(enabled: boolean, trigger: HelloWorldModeTrigger): Promise<void> {
+    this.ensureOpen();
+    if (typeof enabled !== 'boolean') {
+      throw new KimiError(ErrorCodes.REQUEST_INVALID, 'Session hello-world mode must be a boolean');
+    }
+    if (enabled) {
+      await this.rpc.setHelloWorldMode({ sessionId: this.id, enabled: true, trigger });
+    } else {
+      await this.rpc.setHelloWorldMode({ sessionId: this.id, enabled: false });
     }
   }
 

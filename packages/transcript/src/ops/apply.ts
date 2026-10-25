@@ -574,6 +574,10 @@ function applyMetaMerge(state: AgentState, meta: TranscriptMetaMerge): ApplyResu
           spec: meta.modes.spec === null ? undefined : (meta.modes.spec ?? state.meta.modes?.spec),
           swarm:
             meta.modes.swarm === null ? undefined : (meta.modes.swarm ?? state.meta.modes?.swarm),
+          'hello-world':
+            meta.modes['hello-world'] === null
+              ? undefined
+              : (meta.modes['hello-world'] ?? state.meta.modes?.['hello-world']),
           tower:
             meta.modes.tower === null ? undefined : (meta.modes.tower ?? state.meta.modes?.tower),
         }
@@ -588,6 +592,7 @@ function applyMetaMerge(state: AgentState, meta: TranscriptMetaMerge): ApplyResu
       modes.plan === undefined &&
       modes.spec === undefined &&
       modes.swarm === undefined &&
+      modes['hello-world'] === undefined &&
       modes.tower === undefined
         ? undefined
         : modes,

@@ -14,6 +14,8 @@ import { EventBusService } from '#/app/event/eventBusService';
 import { GoalUpdated } from '#/features/goal/goalOps';
 import { IAgentGoalService } from '#/features/goal/goalService';
 import type { GoalSnapshot } from '#/features/goal/types';
+import { IAgentHelloWorldService } from '#/features/helloWorld/agent/helloWorld';
+import { HelloWorldModeEnter } from '#/features/helloWorld/helloWorldOps';
 import { IAgentPlanService } from '#/features/plan/plan';
 import { PlanModeEnter, planKey } from '#/features/plan/planOps';
 import { IAgentSpecService } from '#/features/spec/spec';
@@ -35,11 +37,14 @@ describe('AgentModeMutexService', () => {
   let specExit: ReturnType<typeof mock>;
   let swarmEnter: ReturnType<typeof mock>;
   let swarmExit: ReturnType<typeof mock>;
+  let helloWorldEnter: ReturnType<typeof mock>;
+  let helloWorldExit: ReturnType<typeof mock>;
   let towerEnter: ReturnType<typeof mock>;
   let towerExit: ReturnType<typeof mock>;
   let goalPause: ReturnType<typeof mock>;
   let dispatch: ReturnType<typeof mock>;
   let swarmActive: boolean;
+  let helloWorldActive: boolean;
   let towerActive: boolean;
   let goalStatus: string | undefined;
   let state: IAgentStateService;
@@ -57,6 +62,7 @@ describe('AgentModeMutexService', () => {
     state.contributeState(planKey);
     state.contributeState(specKey);
     swarmActive = false;
+    helloWorldActive = false;
     towerActive = false;
     goalStatus = undefined;
     goalPause = mock();
@@ -79,6 +85,12 @@ describe('AgentModeMutexService', () => {
     });
     swarmExit = mock(() => {
       swarmActive = false;
+    });
+    helloWorldEnter = mock(() => {
+      helloWorldActive = true;
+    });
+    helloWorldExit = mock(() => {
+      helloWorldActive = false;
     });
     towerEnter = mock(async () => {
       towerActive = true;
@@ -103,6 +115,13 @@ describe('AgentModeMutexService', () => {
         return swarmActive;
       },
     } as unknown as IAgentSwarmService);
+    ix.stub(IAgentHelloWorldService, {
+      enter: helloWorldEnter,
+      exit: helloWorldExit,
+      get isActive() {
+        return helloWorldActive;
+      },
+    } as unknown as IAgentHelloWorldService);
     ix.stub(IAgentTowerService, {
       enter: towerEnter,
       exit: towerExit,
@@ -122,7 +141,7 @@ describe('AgentModeMutexService', () => {
   afterEach(() => disposables.dispose());
 
   function publish(
-    event: PlanModeEnter | SwarmModeEnter | TowerModeEnter | GoalUpdated,
+    event: PlanModeEnter | SwarmModeEnter | HelloWorldModeEnter | TowerModeEnter | GoalUpdated,
   ): void {
     const agentContext = ix.get(IAgentScopeContext).agentContext;
     ix.get(IEventBus).publish(event, agentContext);
@@ -153,18 +172,45 @@ describe('AgentModeMutexService', () => {
       expect(towerExit).not.toHaveBeenCalled();
     });
 
-    it('tower mode entry exits an active plan mode and an active swarm mode', () => {
-      state.set(planKey, { active: true, id: 'plan_1' });
+    it('hello-world mode entry exits an active tower mode', () => {
+      towerActive = true;
+      publish(new HelloWorldModeEnter({ agentId: 'test-agent', trigger: 'manual' }));
+      expect(towerExit).toHaveBeenCalledTimes(1);
+      expect(towerExit).toHaveBeenCalledWith('mode-mutex');
+    });
+
+    it('hello-world mode entry leaves an inactive tower mode alone', () => {
+      publish(new HelloWorldModeEnter({ agentId: 'test-agent', trigger: 'manual' }));
+      expect(towerExit).not.toHaveBeenCalled();
+    });
+
+    it('swarm mode entry exits an active hello-world mode', () => {
+      helloWorldActive = true;
+      publish(new SwarmModeEnter({ agentId: 'test-agent', trigger: 'manual' }));
+      expect(helloWorldExit).toHaveBeenCalledTimes(1);
+    });
+
+    it('hello-world mode entry exits an active swarm mode', () => {
       swarmActive = true;
-      publish(new TowerModeEnter({ agentId: 'test-agent' }));
-      expect(planExit).toHaveBeenCalledTimes(1);
+      publish(new HelloWorldModeEnter({ agentId: 'test-agent', trigger: 'manual' }));
       expect(swarmExit).toHaveBeenCalledTimes(1);
     });
 
-    it('tower mode entry leaves inactive plan and swarm modes alone', () => {
+    it('tower mode entry exits an active plan mode, swarm mode and hello-world mode', () => {
+      state.set(planKey, { active: true, id: 'plan_1' });
+      swarmActive = true;
+      helloWorldActive = true;
+      publish(new TowerModeEnter({ agentId: 'test-agent' }));
+      expect(planExit).toHaveBeenCalledTimes(1);
+      expect(swarmExit).toHaveBeenCalledTimes(1);
+      expect(helloWorldExit).toHaveBeenCalledTimes(1);
+    });
+
+    it('tower mode entry leaves inactive plan, swarm and hello-world modes alone', () => {
       publish(new TowerModeEnter({ agentId: 'test-agent' }));
       expect(planExit).not.toHaveBeenCalled();
       expect(swarmExit).not.toHaveBeenCalled();
+      expect(helloWorldExit).not.toHaveBeenCalled();
     });
   });
 
@@ -239,6 +285,55 @@ describe('AgentModeMutexService', () => {
       await mutex.switchTo('spec');
       expect(swarmActive).toBe(false);
       expect(state.get(specKey).active).toBe(true);
+    });
+
+    it('leaves plan and hello-world both active — the allowed pair', async () => {
+      await mutex.switchTo('plan');
+      await mutex.switchTo('hello-world');
+      expect(state.get(planKey).active).toBe(true);
+      expect(helloWorldActive).toBe(true);
+    });
+
+    it('evicts spec when entering hello-world', async () => {
+      await mutex.switchTo('spec');
+      await mutex.switchTo('hello-world');
+      expect(state.get(specKey).active).toBe(false);
+      expect(helloWorldActive).toBe(true);
+    });
+
+    it('evicts hello-world when entering spec', async () => {
+      await mutex.switchTo('hello-world');
+      await mutex.switchTo('spec');
+      expect(helloWorldActive).toBe(false);
+      expect(state.get(specKey).active).toBe(true);
+    });
+
+    it('evicts swarm when entering hello-world', async () => {
+      await mutex.switchTo('swarm');
+      await mutex.switchTo('hello-world');
+      expect(swarmActive).toBe(false);
+      expect(helloWorldActive).toBe(true);
+    });
+
+    it('evicts hello-world when entering swarm', async () => {
+      await mutex.switchTo('hello-world');
+      await mutex.switchTo('swarm');
+      expect(helloWorldActive).toBe(false);
+      expect(swarmActive).toBe(true);
+    });
+
+    it('evicts tower when entering hello-world', async () => {
+      await mutex.switchTo('tower');
+      await mutex.switchTo('hello-world');
+      expect(towerActive).toBe(false);
+      expect(helloWorldActive).toBe(true);
+    });
+
+    it('evicts hello-world when entering tower', async () => {
+      await mutex.switchTo('hello-world');
+      await mutex.switchTo('tower');
+      expect(helloWorldActive).toBe(false);
+      expect(towerActive).toBe(true);
     });
   });
 

@@ -52,6 +52,10 @@ import { MoonLoader } from '../components/chrome/moon-loader';
 import { buildGoalMarker } from '../components/messages/goal-markers';
 import { StatusMessageComponent } from '../components/messages/status-message';
 import {
+  HelloWorldModeMarkerComponent,
+  type HelloWorldModeMarkerState,
+} from '../components/messages/hello-world-markers';
+import {
   SwarmModeMarkerComponent,
   type SwarmModeMarkerState,
 } from '../components/messages/swarm-markers';
@@ -795,7 +799,7 @@ export class SessionEventHandler {
       turnId,
     };
     streamingUI.registerToolCall(toolCall);
-    if (event.name === 'AgentSwarm' || event.name === 'Team') {
+    if (event.name === 'AgentSwarm') {
       this.subAgentEventHandler.handleAgentSwarmToolCallStarted(event.toolCallId, toolCall.args);
     }
     this.host.patchLivePane({
@@ -813,7 +817,6 @@ export class SessionEventHandler {
     if (
       preview !== undefined &&
       (preview.name === 'AgentSwarm' ||
-        preview.name === 'Team' ||
         this.subAgentEventHandler.hasAgentSwarmProgress(event.toolCallId))
     ) {
       this.subAgentEventHandler.handleAgentSwarmToolCallDelta(event.toolCallId, preview.args, {
@@ -886,6 +889,10 @@ export class SessionEventHandler {
       event.swarmMode === false &&
       this.host.state.appState.swarmMode &&
       this.host.state.swarmModeEntry === 'task';
+    const shouldRenderHelloWorldEnded =
+      event.helloWorldMode === false &&
+      this.host.state.appState.helloWorldMode &&
+      this.host.state.helloWorldModeEntry === 'task';
     const shouldRenderTowerGoalExit =
       event.towerMode === false &&
       this.host.state.appState.towerMode &&
@@ -908,6 +915,7 @@ export class SessionEventHandler {
     if (event.planMode !== undefined) patch.planMode = event.planMode;
     if (event.specMode !== undefined) patch.specMode = event.specMode;
     if (event.swarmMode !== undefined) patch.swarmMode = event.swarmMode;
+    if (event.helloWorldMode !== undefined) patch.helloWorldMode = event.helloWorldMode;
     if (event.towerMode !== undefined) patch.towerMode = event.towerMode;
     if (event.specMode === false) {
       // Leaving spec mode invalidates the stage: the footer renders
@@ -928,6 +936,12 @@ export class SessionEventHandler {
       this.host.state.swarmModeEntry = undefined;
       if (shouldRenderSwarmEnded) {
         this.renderSwarmModeMarker('ended');
+      }
+    }
+    if (event.helloWorldMode === false) {
+      this.host.state.helloWorldModeEntry = undefined;
+      if (shouldRenderHelloWorldEnded) {
+        this.renderHelloWorldModeMarker('ended');
       }
     }
     if (shouldRenderTowerGoalExit) {
@@ -964,6 +978,19 @@ export class SessionEventHandler {
         content: state,
       },
       new SwarmModeMarkerComponent(state),
+    );
+  }
+
+  private renderHelloWorldModeMarker(state: HelloWorldModeMarkerState): void {
+    this.host.appendTranscriptEntry(
+      {
+        id: nextTranscriptId(),
+        kind: 'status',
+        turnId: undefined,
+        renderMode: 'plain',
+        content: state,
+      },
+      new HelloWorldModeMarkerComponent(state),
     );
   }
 
