@@ -62,9 +62,18 @@ fn walkDir(
     }
 }
 
+/// Repository-relative paths are slash-separated everywhere these checks
+/// reason about them: the `paths.zig` classifiers match on `packages/`,
+/// `/src/` and `/test/`, the baseline ledgers are written with `/`, and the
+/// test fixtures use `/`. `std.fs.path.join` emits `packages\src\x.ts` on
+/// Windows, so every classifier returned false there and the lexer-based
+/// checks reported nothing at all while their ledgers reported as stale.
+///
+/// Joined with a forward slash so one platform cannot change what a check
+/// sees.
 fn joinPath(alloc: std.mem.Allocator, prefix: []const u8, name: []const u8) ![]const u8 {
     if (prefix.len == 0) return alloc.dupe(u8, name);
-    return std.fs.path.join(alloc, &.{ prefix, name });
+    return std.fmt.allocPrint(alloc, "{s}/{s}", .{ prefix, name });
 }
 
 /// List the immediate sub-directory names of `dir`, sorted. Used to expand
@@ -126,4 +135,29 @@ test "matchesSuffix filters by suffix" {
     try std.testing.expect(matchesSuffix("a.tsx", &suffixes));
     try std.testing.expect(!matchesSuffix("a.js", &suffixes));
     try std.testing.expect(!matchesSuffix("a.ts.bak", &suffixes));
+}
+
+// Every classifier in `paths.zig` matches on `packages/`, `/src/` and
+// `/test/`, and the baseline ledgers are written with `/`, so a joined path
+// must not acquire a platform separator. `std.fs.path.join` emitted
+// `packages\src\x.ts` on Windows and the lexer-based checks reported nothing
+// at all.
+test "joinPath is slash-separated regardless of platform" {
+    const alloc = std.testing.allocator;
+
+    const flat = try joinPath(alloc, "packages", "agent-core-v2");
+    defer alloc.free(flat);
+    try std.testing.expectEqualStrings("packages/agent-core-v2", flat);
+
+    const nested = try joinPath(alloc, flat, "src");
+    defer alloc.free(nested);
+    try std.testing.expectEqualStrings("packages/agent-core-v2/src", nested);
+
+    for ([_][]const u8{ flat, nested }) |path| {
+        try std.testing.expect(std.mem.indexOfScalar(u8, path, '\\') == null);
+    }
+
+    const root = try joinPath(alloc, "", "package.json");
+    defer alloc.free(root);
+    try std.testing.expectEqualStrings("package.json", root);
 }
