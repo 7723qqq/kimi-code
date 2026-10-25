@@ -23,6 +23,7 @@ const GIT_MAX_BUFFER = 4 * 1024 * 1024;
 
 const AHEAD_BEHIND_RE = /\[(?:ahead (\d+))?(?:, )?(?:behind (\d+))?\]/;
 const UNBORN_PREFIXES = ['No commits yet on ', 'Initial commit on '];
+const PORCELAIN_DETACHED_HEAD = 'HEAD (no branch)';
 
 export interface GitStatus {
   readonly branch: string;
@@ -463,7 +464,7 @@ function parsePorcelainHeader(
   const behind = Number.parseInt(aheadBehind?.[2] ?? '0', 10) || 0;
   const bracket = body.indexOf(' [');
   if (bracket >= 0) body = body.slice(0, bracket);
-  if (body === 'HEAD (no branch)') return { branch: null, ahead: 0, behind: 0 };
+  if (body === PORCELAIN_DETACHED_HEAD) return { branch: null, ahead: 0, behind: 0 };
   for (const prefix of UNBORN_PREFIXES) {
     if (body.startsWith(prefix)) {
       body = body.slice(prefix.length);
