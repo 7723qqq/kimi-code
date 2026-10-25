@@ -30,6 +30,42 @@ packages/agent-core-v2/src/agent/media/mediaToolsRegistrar.ts
 packages/agent-core-v2/src/agent/media/registerMediaTools.ts
 packages/agent-core-v2/src/agent/tools/read-media-file/readMediaFileTool.ts
 
+# WebP decodes through a Bun.Image PNG round trip instead of a WASM decoder,
+# so the jsquash bindings and their 179 KB of base64 are retired.
+packages/agent-core-v2/src/agent/media/webp-dec-wasm.ts
+packages/agent-core-v2/src/agent/media/webp-decode.ts
+
+# vitest -> bun:test across every package: each package's bunfig.toml preload
+# and scripts/run-tests.mjs replace the vitest project config.
+vitest.config.ts
+apps/kimi-code/vitest.config.ts
+apps/vis/server/vitest.config.ts
+apps/vis/web/vitest.config.ts
+apps/vscode/vitest.config.ts
+apps/vscode/vitest.projects.ts
+packages/acp-server/vitest.config.ts
+packages/agent-core-v2/vitest.config.ts
+packages/kap-server/vitest.config.ts
+packages/kap-server/vitest.bench.config.ts
+packages/kap-server/test/globalSetup.ts
+packages/klient/vitest.config.ts
+packages/klient/test/e2e/legacy/report/vitest-reporter.ts
+packages/kosong/vitest.config.ts
+packages/migration-legacy/vitest.config.ts
+packages/minidb/vitest.config.ts
+packages/node-sdk/vitest.config.ts
+packages/oauth/vitest.config.ts
+packages/pi-tui/vitest.config.ts
+packages/remote-control/vitest.config.ts
+packages/telemetry/vitest.config.ts
+packages/transcript/vitest.config.ts
+packages/tree-sitter-bash/vitest.config.ts
+
+# The task output viewer dialog was removed; its locale keys are still to be
+# retired separately.
+apps/kimi-code/src/tui/components/dialogs/task-output-viewer.ts
+apps/kimi-code/test/tui/task-output-viewer.test.ts
+
 # Moved to packages/agent-core-v2/src/os/backends/host/hostTerminalService.ts
 packages/agent-core-v2/src/os/backends/node-local/hostTerminalService.ts
 
