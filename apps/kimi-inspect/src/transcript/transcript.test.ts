@@ -74,7 +74,7 @@ describe('transcript attachments', () => {
       token: 'tok',
       sessionId: 's1',
       source: { kind: 'session_media', fileId: 'f_1' },
-      fetchImpl: fetchImpl as typeof fetch,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
     });
 
     expect(fetchImpl).toHaveBeenCalledWith(

@@ -68,6 +68,7 @@ export interface ContextProjection {
   planMode: { active: boolean; id?: string };
   goal: GoalSnapshot | null;
   swarm: { active: boolean; trigger?: string };
+  helloWorld: { active: boolean; trigger?: string; stage?: string };
   /** Records skipped because their payload did not match the expected shape
    *  (see the per-record guards below). Empty on a clean fold. */
   warnings: string[];
@@ -130,6 +131,7 @@ export function projectContext(
   let contextTokens = 0;
   let goal: GoalSnapshot | null = null;
   let swarm: { active: boolean; trigger?: string } = { active: false };
+  let helloWorld: { active: boolean; trigger?: string; stage?: string } = { active: false };
   let microCutoff = 0;
   let currentEntry: WireEntry | undefined;
   let openMessage: ProjectedMessage | undefined;
@@ -576,6 +578,15 @@ export function projectContext(
       case 'swarm_mode.exit':
         swarm = { active: false };
         break;
+      case 'hello_world_mode.enter':
+        helloWorld = { active: true, trigger: rec.trigger };
+        break;
+      case 'hello_world_mode.exit':
+        helloWorld = { active: false };
+        break;
+      case 'hello_world_run.updated':
+        helloWorld = { ...helloWorld, stage: rec.stage };
+        break;
       case 'tower_mode.enter':
       case 'tower_mode.exit':
         break;
@@ -688,6 +699,7 @@ export function projectContext(
     planMode: { active: planActive, id: planId },
     goal,
     swarm,
+    helloWorld,
     warnings,
   };
 }

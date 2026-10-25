@@ -320,7 +320,9 @@ function renderTsType(sketch: Sketch, indent: string): { doc?: string; lines: st
   if (Array.isArray(sketch)) {
     const inner = renderTsType(sketch[0], indent);
     const lines = [...inner.lines];
-    lines[lines.length - 1] += '[]';
+    const last = lines[lines.length - 1]!;
+    lines[lines.length - 1] =
+      lines.length === 1 && splitTopLevel(last, ['|']).length > 1 ? `(${last})[]` : `${last}[]`;
     return { doc: inner.doc, lines };
   }
   const doc = typeof sketch[TYPE_KEY] === 'string' ? sketch[TYPE_KEY] : undefined;
@@ -377,7 +379,9 @@ function renderPayloadDecl(
   if (Array.isArray(sketch)) {
     const inner = renderTsType(sketch[0], '  ');
     const lines = [...inner.lines];
-    lines[lines.length - 1] += '[]';
+    const last = lines[lines.length - 1]!;
+    lines[lines.length - 1] =
+      lines.length === 1 && splitTopLevel(last, ['|']).length > 1 ? `(${last})[]` : `${last}[]`;
     header.push(' */');
     if (lines.length === 1) {
       return [...header, `type ${name} = { ${nameField} } & (${lines[0]});`, ''];
@@ -741,6 +745,14 @@ function summarizeTsType(name: string, fromFile: string, budget: Budget): Sketch
   return undefined;
 }
 
+function appendArraySuffix(text: string): string {
+  const named = /^([A-Z][$\w]*) = ([\s\S]+)$/.exec(text);
+  if (named?.[1] !== undefined && named[2] !== undefined) {
+    return `${named[1]} = ${appendArraySuffix(named[2].trim())}`;
+  }
+  return splitTopLevel(text, ['|']).length > 1 ? `(${text})[]` : `${text}[]`;
+}
+
 function friendlyZodExpr(expr: string, ownerFile: string, depth = 0): Sketch {
   let text = expr.replaceAll(/\s+/g, ' ').replaceAll(/\s*\.\s*/g, '.').trim();
   let stripped = true;
@@ -774,7 +786,7 @@ function friendlyZodExpr(expr: string, ownerFile: string, depth = 0): Sketch {
   if (array?.[1] !== undefined) {
     const inner = friendlyZodExpr(array[1], ownerFile, depth + 1);
     if (typeof inner !== 'string') return [inner];
-    return `${inner}[]`;
+    return appendArraySuffix(inner);
   }
   const literal = /^z\.literal\((.+)\)$/.exec(text);
   if (literal?.[1] !== undefined) return friendlyZodExpr(literal[1], ownerFile, depth + 1);

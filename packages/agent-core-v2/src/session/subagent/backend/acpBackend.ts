@@ -82,7 +82,7 @@ export class AcpBackend implements ISubagentBackend {
           makeClient,
           ndJsonStream(
             NodeWritable.toWeb(process.stdin) as WritableStream<Uint8Array>,
-            NodeReadable.toWeb(process.stdout) as ReadableStream<Uint8Array>,
+            NodeReadable.toWeb(process.stdout) as unknown as ReadableStream<Uint8Array>,
           ),
         );
         try {

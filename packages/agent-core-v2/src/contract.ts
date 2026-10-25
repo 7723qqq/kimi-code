@@ -19,6 +19,7 @@ export * from '#/app/capability/types';
 export * from '#/app/config/toml';
 
 export * from '#/features/goal/types';
+export * from '#/features/helloWorld/helloWorldOps';
 export * from '#/features/skill/skill';
 export * from '#/features/skill/skillOps';
 export * from '#/features/swarm/swarmOps';

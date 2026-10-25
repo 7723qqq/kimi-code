@@ -291,8 +291,12 @@ export class AntigravityChatProvider {
         stdout: 'pipe',
         stderr: 'pipe',
       });
-      const stdout = Readable.fromWeb(bunChild.stdout);
-      const stderr = Readable.fromWeb(bunChild.stderr);
+      const stdout = Readable.fromWeb(
+        bunChild.stdout as unknown as Parameters<typeof Readable.fromWeb>[0],
+      );
+      const stderr = Readable.fromWeb(
+        bunChild.stderr as unknown as Parameters<typeof Readable.fromWeb>[0],
+      );
       child = {
         stdout,
         stderr,

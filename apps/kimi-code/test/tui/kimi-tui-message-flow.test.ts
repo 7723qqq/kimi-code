@@ -72,6 +72,7 @@ import {
   TRANSCRIPT_KEEP_RECENT_STEPS,
 } from '#/tui/utils/transcript-window';
 import * as cacheHintConfig from '#/utils/cache-hint-config';
+import { clientConfigs } from '#/utils/client-configs';
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
 import { openUrl } from '#/utils/open-url';
 import { readE2EFlags } from '#test/helpers/e2e-flags';
@@ -689,6 +690,7 @@ async function makeExportedSessionZip(content = 'session zip'): Promise<string> 
 
 afterEach(async () => {
   resetCapabilitiesCache();
+  clientConfigs.reset();
   for (const dir of tempDirs.splice(0)) {
     await rm(dir, { recursive: true, force: true });
   }
@@ -6948,6 +6950,7 @@ command = "vim"
 
   it('aborts an in-flight video upload and recovers through /clear', async () => {
     const homeDir = await makeTempHome();
+    process.env['KIMI_CODE_HOME'] = homeDir;
     const workDir = await mkdtemp(join(tmpdir(), 'kimi-code-tui-video-'));
     tempDirs.push(workDir);
     const clipBytes = Buffer.from('00000020667479706d703432000000006d70343269736f6d', 'hex');
@@ -7067,6 +7070,7 @@ capabilities = ["image_in", "video_in"]
     'aborts an in-flight video upload against a real HTTP server',
     async () => {
       const homeDir = await makeTempHome();
+      process.env['KIMI_CODE_HOME'] = homeDir;
       const workDir = await mkdtemp(join(tmpdir(), 'kimi-code-tui-video-'));
       tempDirs.push(workDir);
       await writeFile(

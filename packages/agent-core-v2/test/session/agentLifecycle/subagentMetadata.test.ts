@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
+import { ErrorCodes, isError2 } from '#/errors';
 import {
   assertSubagentDepthAllowed,
   MAX_SUBAGENT_DEPTH,
@@ -51,7 +52,27 @@ describe('subagent delegation depth', () => {
     expect(assertSubagentDepthAllowed(metaWith({ subagentDepth: '3' }))).toBe(4);
   });
 
+  it('raises the depth one generation at a time from a missing meta up to the cap', () => {
+    let meta: AgentMeta | undefined = undefined;
+    for (let generation = 1; generation <= MAX_SUBAGENT_DEPTH; generation += 1) {
+      const depth = assertSubagentDepthAllowed(meta);
+      expect(depth).toBe(generation);
+      meta = metaWith(subagentLabels('parent', { depth }));
+      expect(subagentDepthOf(meta)).toBe(generation);
+    }
+    expect(subagentDepthOf(meta)).toBe(MAX_SUBAGENT_DEPTH);
+  });
+
   it('throws SUBAGENT_DEPTH_EXCEEDED for a caller at the ceiling', () => {
+    let thrown: unknown;
+    try {
+      assertSubagentDepthAllowed(metaWith({ subagentDepth: String(MAX_SUBAGENT_DEPTH) }));
+    } catch (error) {
+      thrown = error;
+    }
+    expect(isError2(thrown)).toBe(true);
+    expect((thrown as { code: string }).code).toBe(ErrorCodes.SUBAGENT_DEPTH_EXCEEDED);
+    expect(String(thrown)).toMatch(/delegation depth exceeded/i);
     expect(() =>
       assertSubagentDepthAllowed(metaWith({ subagentDepth: String(MAX_SUBAGENT_DEPTH) })),
     ).toThrowError(/delegation depth exceeded/i);

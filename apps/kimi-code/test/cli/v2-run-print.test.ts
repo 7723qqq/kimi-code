@@ -445,7 +445,10 @@ describe('runV2Print', () => {
       expect(stderr.text()).toContain('was updated by another client; reloaded it');
       expect(stderr.text()).toContain('occupied');
     } finally {
-      process.exitCode = previousExitCode;
+      // Bun keeps the previous value when `process.exitCode` is assigned
+      // `undefined`; restoring the effective code (0) keeps the test process
+      // from exiting with the occupied code after every test passed.
+      process.exitCode = previousExitCode ?? 0;
     }
   });
 

@@ -402,7 +402,7 @@ interface HelloWorldRunUpdatedPayload {
     evidence?: string;
   }[];
   /** HelloWorldRunItemId */
-  waivers: 'requirements-approved' | 'design-written' | 'tasks-complete' | 'tests-green' | 'review-done' | 'docs-updated' | 'changeset-ready'[];
+  waivers: ('requirements-approved' | 'design-written' | 'tasks-complete' | 'tests-green' | 'review-done' | 'docs-updated' | 'changeset-ready')[];
 }
 
 /**

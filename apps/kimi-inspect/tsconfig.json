@@ -15,7 +15,7 @@
     // the workspace `node_modules` as well, and keep the inherited `bun-test`
     // so `bun:test` stays typed in the co-located suites.
     "typeRoots": ["../../node_modules/@types", "../../types", "../../node_modules"],
-    "types": ["node", "bun-test", "vite/client"],
+    "types": ["node", "bun", "bun-test", "vite/client"],
     "noEmit": true
   },
   "include": [

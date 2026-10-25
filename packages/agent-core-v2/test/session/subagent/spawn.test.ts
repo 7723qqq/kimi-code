@@ -21,9 +21,11 @@ import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
 import { type RuntimeLease } from '#/runtime/runtime';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { MAX_SUBAGENT_DEPTH } from '#/session/agentLifecycle/subagentMetadata';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { ISessionMetadata, type AgentMeta } from '#/session/sessionMetadata/sessionMetadata';
 import { SECONDARY_MODEL_SECTION } from '#/session/subagent/configSection';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
 import { SessionSubagentService } from '#/session/subagent/subagentService';
@@ -55,6 +57,7 @@ describe('SessionSubagentService planSpawn and spawn', () => {
   let createdUserTools: IAgentUserToolService;
   let createdReminder: { notify: ReturnType<typeof mock> };
   let lease: RuntimeLease;
+  let sessionAgents: Record<string, AgentMeta>;
 
   function userToolsStub(): IAgentUserToolService {
     return {
@@ -205,6 +208,19 @@ describe('SessionSubagentService planSpawn and spawn', () => {
       },
     } as unknown as IModelCatalog);
     ix.stub(ISessionContext, { _serviceBrand: undefined, cwd: '/repo' } as unknown as ISessionContext);
+    sessionAgents = {};
+    ix.stub(ISessionMetadata, {
+      _serviceBrand: undefined,
+      ready: Promise.resolve(),
+      onDidChangeMetadata: Event.None,
+      read: async () => ({
+        id: 'session-1',
+        createdAt: 0,
+        updatedAt: 0,
+        archived: false,
+        agents: sessionAgents,
+      }),
+    } as unknown as ISessionMetadata);
     ix.stub(ILogService, stubLog());
   });
 
@@ -502,14 +518,66 @@ describe('SessionSubagentService planSpawn and spawn', () => {
     expect(forkAgent).not.toHaveBeenCalled();
   });
 
-  it('creates the child with the task labels when the plan is not a fork', async () => {
+  it('creates the child with the task labels and the stamped depth when the plan is not a fork', async () => {
     const svc = service();
 
     await spawnNonForkChild(svc);
 
     expect(createAgent).toHaveBeenCalledWith(
-      expect.objectContaining({ labels: { parentAgentId: 'main' } }),
+      expect.objectContaining({ labels: { parentAgentId: 'main', subagentDepth: '1' } }),
     );
+  });
+
+  it('stamps the child depth one generation above the caller depth', async () => {
+    const svc = service();
+    sessionAgents[CALLER_ID] = { labels: { subagentDepth: '3' } };
+
+    await spawnNonForkChild(svc);
+
+    expect(createAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ labels: { parentAgentId: 'main', subagentDepth: '4' } }),
+    );
+  });
+
+  it('stamps depth one for a caller without session metadata', async () => {
+    const svc = service();
+
+    await spawnNonForkChild(svc);
+
+    expect(createAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ labels: { parentAgentId: 'main', subagentDepth: '1' } }),
+    );
+  });
+
+  it('rejects spawning from a caller at the maximum delegation depth', async () => {
+    const svc = service();
+    sessionAgents[CALLER_ID] = { labels: { subagentDepth: String(MAX_SUBAGENT_DEPTH) } };
+
+    const error = await spawnError(svc, {
+      callerAgentId: CALLER_ID,
+      plan: { profileName: 'coder', model: 'main-model', modelSource: 'inherited', fork: false },
+      prompt: 'One level too deep',
+    });
+
+    expect(error.code).toBe(ErrorCodes.SUBAGENT_DEPTH_EXCEEDED);
+    expect(createAgent).not.toHaveBeenCalled();
+    expect(forkAgent).not.toHaveBeenCalled();
+    expect(acquireRuntime).not.toHaveBeenCalled();
+  });
+
+  it('rejects forking from a caller at the maximum delegation depth', async () => {
+    const svc = service();
+    sessionAgents[CALLER_ID] = { labels: { subagentDepth: String(MAX_SUBAGENT_DEPTH) } };
+
+    const error = await spawnError(svc, {
+      callerAgentId: CALLER_ID,
+      plan: { profileName: 'orchestrator', model: 'main-model', modelSource: 'inherited', fork: true },
+      prompt: 'Fork too deep',
+    });
+
+    expect(error.code).toBe(ErrorCodes.SUBAGENT_DEPTH_EXCEEDED);
+    expect(forkAgent).not.toHaveBeenCalled();
+    expect(createAgent).not.toHaveBeenCalled();
   });
 
   it('creates the child on the acquired runtime lease', async () => {
@@ -559,14 +627,14 @@ describe('SessionSubagentService planSpawn and spawn', () => {
     expect(lease.dispose).toHaveBeenCalled();
   });
 
-  it('delegates to manager.fork with the caller labels when the plan is a fork', async () => {
+  it('delegates to manager.fork with the caller labels and the stamped depth when the plan is a fork', async () => {
     const svc = service();
 
     await spawnForkChild(svc);
 
     expect(forkAgent).toHaveBeenCalledWith(
       expect.objectContaining({ agentId: 'main' }),
-      { labels: { parentAgentId: 'main' } },
+      { labels: { parentAgentId: 'main', subagentDepth: '1' } },
     );
     expect(createAgent).not.toHaveBeenCalled();
   });
@@ -611,7 +679,7 @@ describe('SessionSubagentService planSpawn and spawn', () => {
     expect(acquireRuntime).not.toHaveBeenCalled();
     expect(forkAgent).toHaveBeenCalledWith(
       expect.objectContaining({ agentId: 'main' }),
-      { labels: { parentAgentId: 'main' } },
+      { labels: { parentAgentId: 'main', subagentDepth: '1' } },
     );
   });
 

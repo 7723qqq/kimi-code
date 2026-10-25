@@ -95,6 +95,11 @@ import type { ChangeNotifierSnapshotEvent } from '@moonshot-ai/agent-core-v2/age
 import type { PermissionSetMode } from '@moonshot-ai/agent-core-v2/agent/permissionMode/permissionModeOps';
 import type { PermissionRecordApprovalResult } from '@moonshot-ai/agent-core-v2/agent/permissionRules/permissionRulesOps';
 import type { RuntimeSetBinding } from '@moonshot-ai/agent-core-v2/agent/runtimeBinding/runtimeBindingOps';
+import type {
+  HelloWorldModeEnter,
+  HelloWorldModeExit,
+  HelloWorldRunUpdated,
+} from '@moonshot-ai/agent-core-v2/contract';
 import type { SwarmModeEnter, SwarmModeExit } from '@moonshot-ai/agent-core-v2/contract';
 import type { TowerModeEnter, TowerModeExit } from '@moonshot-ai/agent-core-v2/contract';
 import type { ToolsUpdateStore } from '@moonshot-ai/agent-core-v2/contract';
@@ -212,6 +217,9 @@ export type AgentRecord =
   | WireRecordOf<'goal.clear', GoalClear>
   | WireRecordOf<'goal.create', GoalCreate>
   | WireRecordOf<'goal.update', GoalUpdate>
+  | WireRecordOf<'hello_world_mode.enter', HelloWorldModeEnter>
+  | WireRecordOf<'hello_world_mode.exit', HelloWorldModeExit>
+  | WireRecordOf<'hello_world_run.updated', HelloWorldRunUpdated>
   | WireRecordOf<'interaction.request', InteractionRequestEvent>
   | WireRecordOf<'interaction.resolved', InteractionResolvedEvent>
   | WireRecordOf<'interruptionReminder.recorded', InterruptionReminderRecorded>

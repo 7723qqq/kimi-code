@@ -63,8 +63,6 @@ packages/agent-core-v2/src/agent/media/mediaResolverService.ts  1
 packages/agent-core-v2/src/agent/modeMutex/modeMutexService.ts  1
 packages/agent-core-v2/src/agent/profile/profileService.ts  1
 packages/agent-core-v2/src/agent/task/taskService.ts  3
-packages/agent-core-v2/src/agent/team/coordinator.ts  1
-packages/agent-core-v2/src/agent/team/debate-coordinator.ts  1
 packages/agent-core-v2/src/agent/toolExecutor/toolExecutorService.ts  1
 packages/agent-core-v2/src/agent/tools/os/bash/bashTool.ts  3
 packages/agent-core-v2/src/agent/tools/os/bash/process-task.ts  3

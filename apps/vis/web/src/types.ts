@@ -69,6 +69,7 @@ export interface ContextResponse {
   planMode: { active: boolean; id?: string };
   goal: import('../../server/src/lib/context-projector').GoalSnapshot | null;
   swarm: { active: boolean; trigger?: string };
+  helloWorld?: { active: boolean; trigger?: string; stage?: string };
   /** Wire-reader and blob-resolver caveats for this read (malformed records,
    *  parts left unresolved). Absent on a clean read. */
   warnings?: string[];

@@ -38,6 +38,7 @@ import {
   FORK_WITH_TYPE_UNAVAILABLE,
 } from '#/session/subagent/spawn';
 import { ISessionSubagentService } from '#/session/subagent/subagent';
+import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 import { SessionSubagentService } from '#/session/subagent/subagentService';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
@@ -277,6 +278,17 @@ function realSubagents(
     },
   } as unknown as IModelCatalog;
   const sessionContext = { _serviceBrand: undefined, cwd: '/repo' } as unknown as ISessionContext;
+  const sessionMetadata = {
+    _serviceBrand: undefined,
+    ready: Promise.resolve(),
+    onDidChangeMetadata: Event.None,
+    read: async () => ({
+      id: 'session-1',
+      createdAt: 0,
+      updatedAt: 0,
+      archived: false,
+    }),
+  } as unknown as ISessionMetadata;
   return new SessionSubagentService(
     agentLifecycle,
     catalog,
@@ -284,6 +296,7 @@ function realSubagents(
     modelCatalog,
     sessionContext,
     stubLog(),
+    sessionMetadata,
   );
 }
 

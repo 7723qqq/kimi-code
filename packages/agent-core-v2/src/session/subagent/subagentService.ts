@@ -24,7 +24,12 @@ import { createHooks } from '#/hooks';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
 import type { Runtime } from '#/runtime/runtime';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import {
+  assertSubagentDepthAllowed,
+  subagentLabels,
+} from '#/session/agentLifecycle/subagentMetadata';
 import { ISessionAgentProfileCatalog } from '#/session/sessionAgentProfileCatalog/sessionAgentProfileCatalog';
+import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
 
 import {
   resolveSubagentBinding,
@@ -68,6 +73,7 @@ export class SessionSubagentService extends Service implements ISessionSubagentS
     @IModelCatalog private readonly modelCatalog: IModelCatalog,
     @ISessionContext private readonly sessionContext: ISessionContext,
     @ILogService private readonly log: ILogService,
+    @ISessionMetadata private readonly sessionMetadata: ISessionMetadata,
   ) {
     super();
   }
@@ -147,6 +153,9 @@ export class SessionSubagentService extends Service implements ISessionSubagentS
 
   async spawn(opts: SpawnSubagentOptions): Promise<SpawnedSubagent> {
     const caller = this.requireCaller(opts.callerAgentId);
+    const parentMeta = (await this.sessionMetadata.read()).agents?.[opts.callerAgentId];
+    const depth = assertSubagentDepthAllowed(parentMeta);
+    const labels = { ...opts.labels, ...subagentLabels(opts.callerAgentId, { depth }) };
     const { plan } = opts;
     const lease = plan.fork
       ? undefined
@@ -156,7 +165,7 @@ export class SessionSubagentService extends Service implements ISessionSubagentS
       try {
         if (plan.fork) {
           const forked = await this.agentLifecycle.fork(agentContextOf(caller), {
-            labels: opts.labels,
+            labels,
           });
           created = this.agentLifecycle.handleOf(forked.agentId)!;
           created.accessor
@@ -169,7 +178,7 @@ export class SessionSubagentService extends Service implements ISessionSubagentS
               model: plan.model,
               thinking: plan.thinking,
             },
-            labels: opts.labels,
+            labels,
             runtimeId: lease!.runtime.identity.runtimeId,
           });
           created = this.agentLifecycle.handleOf(createdContext.agentId)!;
