@@ -1327,25 +1327,6 @@ export default {
       startPermissionPrompt: {
         navHint: '↑↓ 导航 · Enter 选择 · Esc 取消',
       },
-      taskOutputViewer: {
-        title: ' 任务输出 ',
-        noOutput: '[未捕获到输出]',
-        exitCode: '退出码 {{code}}',
-        status: {
-          running: '运行中',
-          completed: '已完成',
-          failed: '已失败',
-          timedOut: '已超时',
-          killed: '已终止',
-          lost: '已丢失',
-        },
-        footer: {
-          line: '行',
-          page: '页',
-          topBottom: '顶/底',
-          cancel: '取消',
-        },
-      },
       agentActivityViewer: {
         failed: '失败',
         result: '结果',

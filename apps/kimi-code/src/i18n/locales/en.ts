@@ -1369,25 +1369,6 @@ export default {
       startPermissionPrompt: {
         navHint: '↑↓ navigate · Enter select · Esc cancel',
       },
-      taskOutputViewer: {
-        title: ' Task output ',
-        noOutput: '[no output captured]',
-        exitCode: 'exit {{code}}',
-        status: {
-          running: 'running',
-          completed: 'completed',
-          failed: 'failed',
-          timedOut: 'timed out',
-          killed: 'killed',
-          lost: 'lost',
-        },
-        footer: {
-          line: 'line',
-          page: 'page',
-          topBottom: 'top/bot',
-          cancel: 'cancel',
-        },
-      },
       agentActivityViewer: {
         failed: 'Failed',
         result: 'Result',
