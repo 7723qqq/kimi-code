@@ -129,7 +129,12 @@ fn collectPackages(ctx: *check.Context, alloc: std.mem.Allocator) ![]const Packa
             const dirs = walk.listDirs(alloc, ctx.io, dir) catch continue;
             defer walk.freeFiles(alloc, dirs);
             for (dirs) |child| {
-                const rel = try std.fs.path.join(alloc, &.{ parent, child, "package.json" });
+                // Joined with a forward slash on purpose. `std.fs.path.join`
+                // would emit `packages\<dir>\package.json` on Windows, while
+                // the baseline keys, the `--filter` selectors and the test
+                // fixtures all write paths with `/`, so a backslash member
+                // matches nothing and every script reports as dead.
+                const rel = try std.fmt.allocPrint(alloc, "{s}/{s}/package.json", .{ parent, child });
                 try appendPackage(ctx, alloc, &out, rel);
             }
         } else |_| {}
@@ -322,7 +327,10 @@ fn invocationDirs(
         const dirs = walk.listDirs(alloc, ctx.io, dir) catch return out.toOwnedSlice(alloc);
         defer walk.freeFiles(alloc, dirs);
         for (dirs) |child| {
-            try out.append(alloc, try std.fs.path.join(alloc, &.{ parent, child }));
+            // Forward slash for the same reason as the package paths above:
+            // script paths are stored slash-separated and compared by the
+            // matched prefix, so a backslash member matches no script.
+            try out.append(alloc, try std.fmt.allocPrint(alloc, "{s}/{s}", .{ parent, child }));
         }
     } else |_| {}
 
