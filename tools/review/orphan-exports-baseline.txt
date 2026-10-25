@@ -93,8 +93,11 @@ snipLargeToolResults  packages/agent-core-v2/src/agent/fullCompaction/compaction
 stagedExeFileName  apps/kimi-code/src/cli/update/native-stage.ts
 stripSubagentBackendParameter  packages/agent-core-v2/src/session/subagent/backend/configSection.ts
 stubPair  packages/agent-core-v2/src/_base/di/test.ts
-tryNativeEscapeXml  packages/agent-core-v2/src/_base/native-tools.ts
-tryNativeListDirectory  packages/agent-core-v2/src/_base/native-tools.ts
-tryNativeRead  packages/agent-core-v2/src/_base/native-tools.ts
 usesTraitDrivenThinking  packages/agent-core-v2/src/llm-adapter/model/thinking.ts
 verifyFileIntegritySync  packages/minidb/src/gen-codec.ts
+editorBorderHighlighted  apps/kimi-code/src/tui/kimi-tui.ts
+resetModelSwitchConfirmConfigCache  apps/kimi-code/src/utils/model-switch-confirm-config.ts
+createTokenCounter  packages/agent-core-v2/src/agent/tokenCounting/tokenCounter.ts
+createSidecarTokenCounter  packages/agent-core-v2/src/agent/tokenCounting/tokenCounter.ts
+createHttpTokenCounter  packages/agent-core-v2/src/agent/tokenCounting/tokenCounter.ts
+setSearchStatOverride  packages/kap-server/src/search/indexCore.ts

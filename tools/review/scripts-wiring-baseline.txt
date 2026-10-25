@@ -36,7 +36,6 @@ apps/vscode/package.json:dev:extension
 apps/vscode/package.json:dev:webview
 apps/vscode/package.json:vscode:prepublish
 docs/package.json:preview
-packages/kap-server/package.json:test:bench
 packages/klient/package.json:docker:e2e
 packages/klient/package.json:smoke:boundary
 packages/klient/package.json:smoke:select-tools
