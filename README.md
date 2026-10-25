@@ -53,7 +53,7 @@ Requirements: **Bun >= 1.4.4** and **Git**. Node.js is not required — Bun is t
 ```sh
 git clone https://github.com/7723qqq/kimi-code.git
 cd kimi-code
-git switch norust          # norust is the working branch; origin/HEAD points at it
+git switch main            # main is the working branch; origin/HEAD points at it
 bun install
 ```
 

@@ -55,7 +55,7 @@ irm https://code.kimi.com/kimi-code/install.ps1 | iex
 ```sh
 git clone https://github.com/7723qqq/kimi-code.git
 cd kimi-code
-git switch norust          # norust 是工作分支，origin/HEAD 指向它
+git switch main            # main 是工作分支，origin/HEAD 指向它
 bun install
 ```
 

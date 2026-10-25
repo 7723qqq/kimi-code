@@ -50,5 +50,5 @@ Everything else — how to run the CLI, how tests are wired, what the gates chec
 This file, `DEVELOP.md`, and `CONVENTIONS.md` were split by responsibility on purpose: a reference document and an always-loaded rule set used to live in one file and drift together. Keep them separate.
 
 - **One owner per fact.** Update the file that owns it, and link from the others — never keep a second copy.
-- **Verify anything copied from `upstream/main` against this branch.** Upstream still describes pnpm, Node ≥24, and four `LifecycleScope` tiers; none of that is true here. `norust` is the working branch and `origin/HEAD` points at it.
+- **Verify anything copied from `upstream/main` against this branch.** Upstream still describes pnpm, Node ≥24, and four `LifecycleScope` tiers; none of that is true here. `main` is the working branch and `origin/HEAD` points at it.
 - `AGENTS.md` is held at this fork's version across upstream merges via `merge=ours` in `.gitattributes`. Re-apply that if the file ever comes back with pnpm in it.
