@@ -1,5 +1,13 @@
 # @moonshot-ai/kimi-code
 
+## 2.3.2.1
+
+### Patch Changes
+
+- Agent swarms now start only when you turn on swarm mode: the agent can no longer launch `AgentSwarm` by itself, so swarms are no longer available in `kimi -p` or ACP clients such as Zed.
+
+- Handle tasks directly by default instead of proactively launching subagents; request delegation explicitly in your message, AGENTS.md, a skill, or an enabled multi-agent mode.
+
 ## 2.3.1
 
 ### Patch Changes

@@ -52,7 +52,7 @@ Some commands are only available in the idle state. Executing these commands whi
 | `/auto` | — | Open the permission mode list with Never Ask preselected; press `Enter` to confirm. In this mode, Kimi never interrupts you; everything runs and is decided automatically | Yes |
 | `/plan [on\|off]` | — | Toggle Plan mode. Without arguments, flips the current state; explicitly passing `on`/`off` forces the setting. Simply toggling does not create an empty plan file | Yes |
 | `/plan clear` | — | Clear the current plan | No |
-| `/swarm on\|off` | — | Turn swarm mode on or off without sending a prompt. | Yes |
+| `/swarm on\|off` | — | Turn swarm mode on or off without sending a prompt. `AgentSwarm` only runs while swarm mode is on. | Yes |
 | `/swarm <task>` | — | Turn swarm mode on, then send `<task>` as a normal prompt. If the turn completes normally, swarm mode turns off automatically. In `manual` permission mode, Kimi Code asks whether to switch to Ask When Needed or Never Ask mode before starting. | No |
 | `/hello-world` | — | Flip hello-world mode. The mode is a staged development run workflow with phase gates (requirements→design→implement→test→review→docs→deliver); its artifacts land in the four files under `specs/<id>/` | No |
 | `/hello-world on\|off` | — | Turn hello-world mode on or off without sending a prompt | No |
