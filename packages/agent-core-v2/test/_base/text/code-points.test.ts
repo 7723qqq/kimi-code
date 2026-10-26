@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'bun:test';
 
 import { codePointBoundaryStart, sliceOnCodePointBoundary } from '#/_base/text/code-points';
 

@@ -22,6 +22,7 @@ import {
   type ModelRecord,
   type ModelsSection,
 } from '#/llm-adapter/model/model';
+import type { ModelOverrides } from '#/llm-adapter/model/model.types';
 import type { ThinkingConfig } from '#/llm-adapter/model/thinking';
 import type { OAuthRef, ProviderConfig, ProvidersSection } from '#/llm-adapter/provider/provider';
 import { ProtocolSchema } from '#/llm-adapter/protocol/protocol';
@@ -324,6 +325,23 @@ registerConfigSection(MODELS_SECTION, ModelsSectionSchema, {
   fromToml: modelsFromToml,
   toToml: modelsToToml,
   collectDiagnostics: collectMalformedModelEntries,
+});
+
+export const MODEL_OVERRIDES_SECTION = 'modelOverrides';
+
+export const ModelOverridesSchema = z.object({
+  temperature: z.number().optional(),
+  topP: z.number().optional(),
+  thinkingKeep: z.string().optional(),
+  maxCompletionTokens: z.number().int().min(1).optional(),
+});
+
+type _AssertModelOverrides = AssertExact<
+  Equal<z.infer<typeof ModelOverridesSchema>, ModelOverrides>
+>;
+
+registerConfigSection(MODEL_OVERRIDES_SECTION, ModelOverridesSchema, {
+  defaultValue: {},
 });
 
 export const THINKING_SECTION = 'thinking';
