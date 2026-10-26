@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 
 import type { createKimiDeviceId as createKimiDeviceIdFn } from '@moonshot-ai/kimi-code-oauth';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, jest, vi } from 'bun:test';
 import { setEnv, restoreEnvs } from '../helpers/stubs';
 
 import { runShell } from '#/cli/run-shell';
@@ -11,7 +11,7 @@ import { captureProcessWrite, ExitCalled, mockProcessExit } from '../helpers/pro
 
 type CreateKimiDeviceId = typeof createKimiDeviceIdFn;
 
-const mocks = {
+const mocks = (() => {
   type TuiConfigFallback = {
     theme: 'dark' | 'light' | 'auto';
     editorCommand: string | null;
@@ -67,7 +67,7 @@ const mocks = {
     resolveCommandPath: jest.fn(() => '/bin/stty' as string | undefined),
     TuiConfigParseError,
   };
-});
+})();
 
 jest.mock('@moonshot-ai/kimi-code-sdk', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@moonshot-ai/kimi-code-sdk')>();
@@ -724,7 +724,7 @@ describe('runShell', () => {
         '1.2.3-test',
       );
 
-      const handler = processOnSpy.mock.calls.find(
+      const handler = (processOnSpy.mock.calls as Array<[string, (error: unknown) => void]>).find(
         ([event]) => event === 'uncaughtException',
       )?.[1] as ((error: unknown) => void) | undefined;
       expect(handler).toBeDefined();
@@ -775,7 +775,7 @@ describe('runShell', () => {
         '1.2.3-test',
       );
 
-      const handler = processOnSpy.mock.calls.find(
+      const handler = (processOnSpy.mock.calls as Array<[string, (error: unknown) => void]>).find(
         ([event]) => event === 'unhandledRejection',
       )?.[1] as ((reason: unknown) => void) | undefined;
       expect(handler).toBeDefined();

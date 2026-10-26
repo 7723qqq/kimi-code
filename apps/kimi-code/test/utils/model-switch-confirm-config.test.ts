@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'bun:test';
+import { afterEach, describe, expect, it, jest, vi } from 'bun:test';
 
 import {
   matchModelSwitchRule,
@@ -34,7 +34,7 @@ describe('refreshModelSwitchConfirmConfig', () => {
   it('POSTs the model_switch_confirm name, returns the parsed config, and warms peek', async () => {
     const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
 
-    const result = await refreshModelSwitchConfirmConfig({ fetchImpl: fetchImpl as typeof fetch });
+    const result = await refreshModelSwitchConfirmConfig({ fetchImpl: fetchImpl as unknown as typeof fetch });
 
     expect(result).toEqual(CLOUD_CONFIG);
     expect(peekModelSwitchConfirmConfig()).toEqual(CLOUD_CONFIG);
@@ -65,7 +65,7 @@ describe('refreshModelSwitchConfirmConfig', () => {
       }),
     );
 
-    const result = await refreshModelSwitchConfirmConfig({ fetchImpl: fetchImpl as typeof fetch });
+    const result = await refreshModelSwitchConfirmConfig({ fetchImpl: fetchImpl as unknown as typeof fetch });
 
     expect(result).toEqual({
       enable: true,
@@ -93,7 +93,7 @@ describe('refreshModelSwitchConfirmConfig', () => {
       }),
     );
 
-    const result = await refreshModelSwitchConfirmConfig({ fetchImpl: fetchImpl as typeof fetch });
+    const result = await refreshModelSwitchConfirmConfig({ fetchImpl: fetchImpl as unknown as typeof fetch });
 
     expect(result).toEqual({
       enable: true,
@@ -112,7 +112,7 @@ describe('refreshModelSwitchConfirmConfig', () => {
       }),
     );
 
-    const result = await refreshModelSwitchConfirmConfig({ fetchImpl: fetchImpl as typeof fetch });
+    const result = await refreshModelSwitchConfirmConfig({ fetchImpl: fetchImpl as unknown as typeof fetch });
 
     expect(result).toEqual({ enable: false, rules: [{ from: 'a', to: 'b' }] });
   });
@@ -120,7 +120,7 @@ describe('refreshModelSwitchConfirmConfig', () => {
   it('falls back to the disabled default when the payload is not an object', async () => {
     const fetchImpl = jest.fn(async () => jsonResponse({ name: 'model_switch_confirm', config: 'nope' }));
 
-    const result = await refreshModelSwitchConfirmConfig({ fetchImpl: fetchImpl as typeof fetch });
+    const result = await refreshModelSwitchConfirmConfig({ fetchImpl: fetchImpl as unknown as typeof fetch });
 
     expect(result).toEqual({ enable: false, rules: [] });
   });
@@ -128,7 +128,7 @@ describe('refreshModelSwitchConfirmConfig', () => {
   it('returns undefined when the envelope name does not match', async () => {
     const fetchImpl = jest.fn(async () => jsonResponse({ name: 'survey_popup', config: CLOUD_CONFIG }));
 
-    const result = await refreshModelSwitchConfirmConfig({ fetchImpl: fetchImpl as typeof fetch });
+    const result = await refreshModelSwitchConfirmConfig({ fetchImpl: fetchImpl as unknown as typeof fetch });
 
     expect(result).toBeUndefined();
     expect(peekModelSwitchConfirmConfig()).toBeUndefined();
@@ -136,7 +136,7 @@ describe('refreshModelSwitchConfirmConfig', () => {
 
   it('returns undefined and clears the memory copy when the fetch fails or the response is not ok', async () => {
     await refreshModelSwitchConfirmConfig({
-      fetchImpl: jest.fn(async () => jsonResponse(ENVELOPE)) as typeof fetch,
+      fetchImpl: jest.fn(async () => jsonResponse(ENVELOPE)) as unknown as typeof fetch,
     });
     expect(peekModelSwitchConfirmConfig()).toEqual(CLOUD_CONFIG);
 
@@ -144,21 +144,21 @@ describe('refreshModelSwitchConfirmConfig', () => {
       throw new Error('offline');
     });
     await expect(
-      refreshModelSwitchConfirmConfig({ fetchImpl: failing as typeof fetch }),
+      refreshModelSwitchConfirmConfig({ fetchImpl: failing as unknown as typeof fetch }),
     ).resolves.toBeUndefined();
     expect(peekModelSwitchConfirmConfig()).toBeUndefined();
 
     const notOk = jest.fn(async () => jsonResponse('no', 503));
     await expect(
-      refreshModelSwitchConfirmConfig({ fetchImpl: notOk as typeof fetch }),
+      refreshModelSwitchConfirmConfig({ fetchImpl: notOk as unknown as typeof fetch }),
     ).resolves.toBeUndefined();
   });
 
   it('always refetches — there is no cache TTL', async () => {
     const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
 
-    await refreshModelSwitchConfirmConfig({ fetchImpl: fetchImpl as typeof fetch });
-    await refreshModelSwitchConfirmConfig({ fetchImpl: fetchImpl as typeof fetch });
+    await refreshModelSwitchConfirmConfig({ fetchImpl: fetchImpl as unknown as typeof fetch });
+    await refreshModelSwitchConfirmConfig({ fetchImpl: fetchImpl as unknown as typeof fetch });
 
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
@@ -182,7 +182,7 @@ describe('rule hint parsing', () => {
       }),
     );
 
-    const result = await refreshModelSwitchConfirmConfig({ fetchImpl: fetchImpl as typeof fetch });
+    const result = await refreshModelSwitchConfirmConfig({ fetchImpl: fetchImpl as unknown as typeof fetch });
 
     expect(result?.rules).toEqual([
       {
@@ -208,7 +208,7 @@ describe('rule hint parsing', () => {
       }),
     );
 
-    const result = await refreshModelSwitchConfirmConfig({ fetchImpl: fetchImpl as typeof fetch });
+    const result = await refreshModelSwitchConfirmConfig({ fetchImpl: fetchImpl as unknown as typeof fetch });
 
     expect(result?.rules).toEqual([{ from: 'e', to: 'f' }]);
   });

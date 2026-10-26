@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
-import { surveyUiVeto, type SurveyUiVetoInput } from '#/tui/utils/survey-policy';
+import { surveyUiVeto, type SurveyUiVetoInput, type SurveyUiVetoReason } from '#/tui/utils/survey-policy';
 
 function passing(overrides: Partial<SurveyUiVetoInput> = {}): SurveyUiVetoInput {
   return {
@@ -20,7 +20,7 @@ describe('surveyUiVeto', () => {
     expect(surveyUiVeto(passing())).toBeUndefined();
   });
 
-  it.each<[Partial<SurveyUiVetoInput>, string]>([
+  it.each<[Partial<SurveyUiVetoInput>, SurveyUiVetoReason]>([
     [{ lastUserMessageStartsOrderedList: true }, 'ordered-list-ambiguity'],
     [{ promptActive: true }, 'prompt-active'],
     [{ editorBashActive: true }, 'editor-bash-active'],

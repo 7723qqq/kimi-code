@@ -125,14 +125,14 @@ export function LogsTab({ sessionId }: LogsTabProps) {
           ) : null}
           <div style={{ height: virt.getTotalSize(), position: 'relative' }}>
             {virt.getVirtualItems().map((vi) => {
-              const line = filtered[jest.index];
+              const line = filtered[vi.index];
               if (!line) return null;
               return (
                 <div
-                  key={jest.key}
-                  data-index={jest.index}
+                  key={vi.key}
+                  data-index={vi.index}
                   ref={virt.measureElement}
-                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${jest.start}px)` }}
+                  style={{ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${vi.start}px)` }}
                 >
                   <LogRow line={line} />
                 </div>

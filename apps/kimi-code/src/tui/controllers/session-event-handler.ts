@@ -12,7 +12,7 @@ import type { Component, Focusable } from '@moonshot-ai/pi-tui';
 import { MAIN_AGENT_ID } from '#/tui/constant/kimi-tui';
 
 /** Narrowed event shapes consumed by the private handlers below. */
-type TodoUpdated = Extract<Event, { type: 'todo.updated' }>;
+type TodoUpdated = Extract<Event, { type: 'tools.update_store' }>;
 type StatusUpdatedEvent = Extract<Event, { type: 'agent.status.updated' }>;
 type TurnStartedEvent = Extract<Event, { type: 'turn.started' }>;
 type TurnEndedEvent = Extract<Event, { type: 'turn.ended' }>;
@@ -87,6 +87,7 @@ import { formatLocalizedError } from '../utils/error-display';
 import {
   argsRecord,
   formatErrorMessage,
+  normalizeTodoItems,
   serializeToolResultOutput,
   stringValue,
 } from '../utils/event-payload';
@@ -400,7 +401,7 @@ export class SessionEventHandler {
       case 'goal.updated':
         this.handleGoalUpdated(event);
         break;
-      case 'todo.updated':
+      case 'tools.update_store':
         this.handleTodoUpdated(event);
         break;
       case 'skill.activated':
@@ -980,7 +981,9 @@ export class SessionEventHandler {
    */
   private handleTodoUpdated(event: TodoUpdated): void {
     if (event.agentId !== MAIN_AGENT_ID) return;
-    this.host.state.todoRegion.setTodos(event.todos.map((todo) => ({ ...todo })));
+    if (event.key !== 'todo') return;
+    const todos = Array.isArray(event.value) ? normalizeTodoItems(event.value) : [];
+    this.host.state.todoRegion.setTodos(todos.map((todo) => ({ ...todo })));
     this.host.state.ui.requestRender();
   }
 

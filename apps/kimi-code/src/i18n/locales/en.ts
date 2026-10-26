@@ -2765,6 +2765,14 @@ export default {
       configAutoUpdateEnabled: 'enabled',
       configAutoUpdateDisabled: 'disabled',
       configNoExperimentalChanges: 'No experimental feature changes to apply.',
+      providerRefreshAllSpinning: 'Refreshing models for all providers…',
+      providerRefreshOneSpinning: 'Refreshing models for {{id}}…',
+      providerRefreshFailed: 'Refresh failed.',
+      providerRefreshFailedDetail: 'Failed to refresh models: {{error}}',
+      providerRefreshFinished: 'Refresh finished.',
+      providerRefreshMetadata: '{{name}}: model metadata updated.',
+      providerRefreshSkipped: 'Skipped refreshing {{provider}}: {{reason}}',
+      providerRefreshNoChanges: 'No model changes ({{count}} provider{{plural}} up to date).',
       configModelCachedWarning:
         'Note: Switching models invalidates the existing prompt cache. Use /new to avoid extra token costs.',
       configSwitchCachedWarningTokens:

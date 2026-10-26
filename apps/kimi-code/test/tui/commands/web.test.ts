@@ -1,8 +1,9 @@
-import { beforeEach, describe, expect, it, vi } from 'bun:test';
+import { beforeEach, describe, expect, it, jest, vi } from 'bun:test';
 
 import { setCapabilities } from '@moonshot-ai/pi-tui';
 
 import { findBuiltInSlashCommand, resolveSlashCommandAvailability } from '#/tui/commands/index';
+import { readAs } from '../../helpers/readAs';
 import type { SlashCommandHost } from '#/tui/commands/dispatch';
 import {
   handleRemoteControlCommand,
@@ -11,13 +12,13 @@ import {
 } from '#/tui/commands/web';
 import { renderTerminalQr } from '#/utils/remote-control-qr';
 
-const mocks = ({
+const mocks = (() => ({
   startServerForeground: jest.fn(),
   startRemoteControl: jest.fn(),
   tryResolveServerToken: jest.fn(),
   getDataDir: jest.fn(() => '/tmp/kimi-home'),
   openUrl: jest.fn(),
-}));
+}))();
 
 jest.mock('#/cli/sub/web/remote-control', async (importOriginal) => {
   const actual = await importOriginal<typeof import('#/cli/sub/web/remote-control')>();
@@ -244,7 +245,7 @@ describe('handleRemoteControlCommand', () => {
       expect(written).toContain(`QR code PNG: ${pngPath}`);
       const png = readFileSync(pngPath);
       expect(png.subarray(0, 8)).toEqual(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
-      expect(png).toEqual(await QRCode.toBuffer(sessionUrl));
+      expect(readAs<Buffer>(png)).toEqual(await QRCode.toBuffer(sessionUrl));
       expect(written).toContain(
         'Local UI: http://127.0.0.1:58627/#token=local-server-token',
       );
@@ -310,7 +311,7 @@ describe('handleRemoteControlCommand', () => {
       const written = writeSpy.mock.calls.map((call) => String(call[0])).join('');
       expect(written).toContain(indentedQr(entryUrl));
       expect(written).not.toContain('/sessions/');
-      expect(readFileSync(join(dataDir, 'rc-qrcode.png'))).toEqual(
+      expect(readAs<Buffer>(readFileSync(join(dataDir, 'rc-qrcode.png')))).toEqual(
         await QRCode.toBuffer(entryUrl),
       );
       expect(close).toHaveBeenCalledOnce();

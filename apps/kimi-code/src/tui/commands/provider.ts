@@ -10,6 +10,7 @@ import {
   SECONDARY_DERIVED_MODEL_ALIAS,
   type Catalog,
   type KimiConfig,
+  type RefreshProviderModelsResponse,
   type ThinkingEffort,
 } from '@moonshot-ai/kimi-code-sdk';
 
@@ -52,10 +53,81 @@ import { promptApiKey, promptBaseUrl, promptCatalogProviderSelection } from './p
 // /provider command
 // ---------------------------------------------------------------------------
 
-export async function handleProviderCommand(host: SlashCommandHost): Promise<void> {
+export async function handleProviderCommand(host: SlashCommandHost, rawArgs = ''): Promise<void> {
+  const args = rawArgs.trim().split(/\s+/).filter((part) => part.length > 0);
+  if (args[0] === 'refresh') {
+    if (args.length > 2) {
+      host.showError('Usage: /provider [refresh [providerId]]');
+      return;
+    }
+    await handleProviderRefresh(host, args[1]);
+    return;
+  }
+  if (args.length > 0) {
+    host.showError('Usage: /provider [refresh [providerId]]');
+    return;
+  }
   const options = buildProviderManagerOptions(host);
   const component = new ProviderManagerComponent(options);
   host.mountEditorReplacement(component);
+}
+
+async function handleProviderRefresh(
+  host: SlashCommandHost,
+  providerId: string | undefined,
+): Promise<void> {
+  const spinner = host.showProgressSpinner(
+    providerId === undefined
+      ? t('tui.messages.providerRefreshAllSpinning')
+      : t('tui.messages.providerRefreshOneSpinning', { id: providerId }),
+  );
+  let result: RefreshProviderModelsResponse;
+  try {
+    result = await host.authFlow.refreshProviderModels(
+      providerId === undefined ? undefined : { providerId },
+    );
+  } catch (error) {
+    spinner.stop({ ok: false, label: t('tui.messages.providerRefreshFailed') });
+    host.showError(t('tui.messages.providerRefreshFailedDetail', { error: formatErrorMessage(error) }));
+    return;
+  }
+  spinner.stop({ ok: true, label: t('tui.messages.providerRefreshFinished') });
+  reportProviderRefresh(host, result);
+  if (result.retired_default !== undefined) {
+    await host.modelMigration?.retire(result.retired_default);
+  }
+}
+
+function reportProviderRefresh(
+  host: SlashCommandHost,
+  result: RefreshProviderModelsResponse,
+): void {
+  for (const change of result.changed) {
+    if (change.added === 0 && change.removed === 0) {
+      // Metadata-only refresh: display name, capabilities, or upgrade info changed.
+      host.showStatus(t('tui.messages.providerRefreshMetadata', { name: change.provider_name }));
+      continue;
+    }
+    const parts: string[] = [];
+    if (change.added > 0) parts.push(`+${change.added}`);
+    if (change.removed > 0) parts.push(`-${change.removed}`);
+    // A removed alias can break agents bound to it on their next turn, so
+    // removals surface as a warning rather than a plain status.
+    const total = change.added + change.removed;
+    host.showStatus(
+      `${change.provider_name}: ${parts.join(' / ')} model${total === 1 ? '' : 's'}.`,
+      change.removed > 0 ? 'warning' : undefined,
+    );
+  }
+  for (const failure of result.failed) {
+    host.showStatus(t('tui.messages.providerRefreshSkipped', { provider: failure.provider, reason: failure.reason }), 'warning');
+  }
+  if (result.changed.length === 0 && result.failed.length === 0) {
+    const count = result.unchanged.length;
+    host.showStatus(
+      t('tui.messages.providerRefreshNoChanges', { count, plural: count === 1 ? '' : 's' }),
+    );
+  }
 }
 
 function buildProviderManagerOptions(host: SlashCommandHost): ProviderManagerOptions {

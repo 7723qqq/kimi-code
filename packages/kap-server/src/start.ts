@@ -47,6 +47,7 @@ import { createAuthHook } from './middleware/auth';
 import { createHostCheck, isHostCheckDisabled, parseAllowedHosts } from './middleware/hostnames';
 import { createOriginHook, isOriginAllowed, parseCorsOrigins } from './middleware/origin';
 import { createAuthFailureLimiter } from './middleware/rateLimit';
+import { SessionIdleReaper, resolveSessionIdleReclaimMs } from './services/sessionIdleReaper';
 import { createSecurityHeadersHook } from './middleware/securityHeaders';
 import { transformOpenApiDocument } from './openapi/transforms';
 import { createAsyncApiDocument } from './protocol/asyncapi';

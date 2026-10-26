@@ -46,7 +46,7 @@ import {
   type TuiMode,
 } from '../config';
 import type { ThemeName } from '#/tui/theme';
-import { currentTheme, isBuiltInTheme, lightColors, loadCustomThemeMerged } from '#/tui/theme';
+import { currentTheme, isBuiltInTheme, loadCustomThemeMerged } from '#/tui/theme';
 import {
   matchModelSwitchRule,
   peekModelSwitchConfirmConfig,

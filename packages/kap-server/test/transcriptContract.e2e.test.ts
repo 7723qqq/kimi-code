@@ -239,7 +239,9 @@ async function subscribeTranscript(server: RunningServer, sid: string): Promise<
 }
 
 
-describe('transcript contract e2e', () => {
+const describeWithTimeout = describe as unknown as (label: string, fn: () => void, timeout?: number) => void;
+
+describeWithTimeout('transcript contract e2e', () => {
   let home: string | undefined;
   let server: RunningServer | undefined;
   let llm: MockLlm | undefined;

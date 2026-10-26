@@ -22,9 +22,12 @@ import {
   type GoalSnapshot,
   type Session,
 } from '@moonshot-ai/kimi-code-sdk';
-import { afterEach, describe, expect, it, vi } from 'bun:test';
+import { afterEach, describe, expect, it, jest, vi } from 'bun:test';
 import { setGlobal } from '../helpers/stubs';
 import { waitUntil } from '../helpers/waitFor';
+import { mocked } from '../helpers/mocked';
+import { readAs } from '../helpers/readAs';
+import { runAllTimersAsync, runOnlyPendingTimersAsync } from '../helpers/timers';
 
 import { ApprovalPanelComponent } from '#/tui/components/dialogs/approval-panel';
 import { CacheHintDialogComponent } from '#/tui/components/dialogs/cache-hint-dialog';
@@ -204,6 +207,7 @@ function makeStartupInput(): KimiTUIStartupInput {
     tuiConfig: {
       theme: 'dark',
       disablePasteBurst: false,
+      locale: 'en',
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },
@@ -411,6 +415,10 @@ function makeActiveGoalSnapshot(): GoalSnapshot {
     status: 'active',
     turnsUsed: 3,
     tokensUsed: 100,
+    inputTokensUsed: 60,
+    outputTokensUsed: 40,
+    createdAt: 1000,
+    updatedAt: 2000,
     wallClockMs: 1000,
     budget: {
       tokenBudget: null,
@@ -423,6 +431,8 @@ function makeActiveGoalSnapshot(): GoalSnapshot {
       turnBudgetReached: false,
       wallClockBudgetReached: false,
       overBudget: false,
+      inputTokensUsed: 0,
+      outputTokensUsed: 0,
     },
   };
 }
@@ -2492,8 +2502,8 @@ command = "vim"
       providers: [{ providerName: 'managed:kimi-code', hasToken: false }],
     });
     const feedbackDriver = driver as unknown as FeedbackDriver;
-    (promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
-    (openUrl).mockClear();
+    mocked(promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
+    mocked(openUrl).mockClear();
 
     await handleFeedbackCommand(feedbackDriver as any);
 
@@ -2510,8 +2520,8 @@ command = "vim"
     const { driver, harness } = await makeDriver(makeSession());
     harness.auth.status.mockRejectedValueOnce(new Error('token storage unavailable'));
     const feedbackDriver = driver as unknown as FeedbackDriver;
-    (promptFeedbackInput).mockClear();
-    (openUrl).mockClear();
+    mocked(promptFeedbackInput).mockClear();
+    mocked(openUrl).mockClear();
 
     await handleFeedbackCommand(feedbackDriver as any);
 
@@ -2535,8 +2545,8 @@ command = "vim"
       },
     };
     const feedbackDriver = driver as unknown as FeedbackDriver;
-    (promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
-    (promptFeedbackAttachment).mockImplementation(async () => 'none');
+    mocked(promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
+    mocked(promptFeedbackAttachment).mockImplementation(async () => 'none');
     harness.auth.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 7 });
 
     await handleFeedbackCommand(feedbackDriver as any);
@@ -2549,8 +2559,8 @@ command = "vim"
   it('tracks successful feedback submissions only after the request succeeds', async () => {
     const { driver, harness } = await makeDriver(makeSession());
     const feedbackDriver = driver as unknown as FeedbackDriver;
-    (promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
-    (promptFeedbackAttachment).mockImplementation(async () => 'none');
+    mocked(promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
+    mocked(promptFeedbackAttachment).mockImplementation(async () => 'none');
     harness.auth.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 3 });
     harness.track.mockClear();
 
@@ -2572,8 +2582,8 @@ command = "vim"
   it('submits text feedback before preparing requested attachments', async () => {
     const { driver, harness } = await makeDriver(makeSession());
     const feedbackDriver = driver as unknown as FeedbackDriver;
-    (promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
-    (promptFeedbackAttachment).mockImplementation(async () => 'logs');
+    mocked(promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
+    mocked(promptFeedbackAttachment).mockImplementation(async () => 'logs');
     harness.auth.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 3 });
     harness.listSessions.mockResolvedValueOnce([{ id: 'ses-1', sessionDir: '/tmp/session-a' }] as never);
 
@@ -2625,18 +2635,18 @@ command = "vim"
   it('waits for the codebase upload to finish before returning', async () => {
     const { driver, harness } = await makeDriver(makeSession());
     const feedbackDriver = driver as unknown as FeedbackDriver;
-    (scanCodebase).mockReset();
+    mocked(scanCodebase).mockReset();
     harness.exportSession.mockReset();
-    (packageCodebase).mockReset();
-    (uploadArchive).mockReset();
-    (promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
-    (promptFeedbackAttachment).mockImplementation(async () => 'logs+codebase');
+    mocked(packageCodebase).mockReset();
+    mocked(uploadArchive).mockReset();
+    mocked(promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
+    mocked(promptFeedbackAttachment).mockImplementation(async () => 'logs+codebase');
     harness.auth.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 3 });
     harness.listSessions.mockResolvedValueOnce([
       { id: 'ses-1', sessionDir: '/tmp/session-a' },
     ] as never);
 
-    (scanCodebase).mockResolvedValueOnce({
+    mocked(scanCodebase).mockResolvedValueOnce({
       root: '/tmp/proj-a',
       files: [{ path: 'keep.ts', size: 4 }],
       fingerprint: 'fp-123',
@@ -2649,7 +2659,7 @@ command = "vim"
       sessionDir: '/tmp/session-a',
       manifest: {},
     });
-    (packageCodebase).mockResolvedValueOnce({
+    mocked(packageCodebase).mockResolvedValueOnce({
       path: '/tmp/fake-codebase.zip',
       size: 4,
       sha256: 'hash-123',
@@ -2661,7 +2671,7 @@ command = "vim"
     const codebaseUploadBlocked = new Promise<void>((resolve) => {
       resolveCodebaseUpload = resolve;
     });
-    (uploadArchive).mockImplementation((_api, archive) => {
+    mocked(uploadArchive).mockImplementation((_api, archive) => {
       if (archive.path === sessionZipPath) return Promise.resolve();
       return codebaseUploadBlocked;
     });
@@ -2699,16 +2709,16 @@ command = "vim"
   it('uploads session logs when codebase scanning fails but the session directory is available', async () => {
     const { driver, harness } = await makeDriver(makeSession());
     const feedbackDriver = driver as unknown as FeedbackDriver;
-    (scanCodebase).mockReset();
+    mocked(scanCodebase).mockReset();
     harness.exportSession.mockReset();
-    (packageCodebase).mockReset();
-    (uploadArchive).mockReset();
-    (promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
-    (promptFeedbackAttachment).mockImplementation(async () => 'logs+codebase');
+    mocked(packageCodebase).mockReset();
+    mocked(uploadArchive).mockReset();
+    mocked(promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
+    mocked(promptFeedbackAttachment).mockImplementation(async () => 'logs+codebase');
     harness.auth.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 3 });
     harness.listSessions.mockResolvedValueOnce([{ id: 'ses-1', sessionDir: '/tmp/session-a' }] as never);
     const sessionZipPath = await makeExportedSessionZip();
-    (scanCodebase).mockRejectedValueOnce(new Error('scan failed'));
+    mocked(scanCodebase).mockRejectedValueOnce(new Error('scan failed'));
     harness.exportSession.mockResolvedValueOnce({
       zipPath: sessionZipPath,
       entries: ['manifest.json', 'state.json'],
@@ -2736,12 +2746,12 @@ command = "vim"
   it('keeps archive-path creation failures as partial failures without the GitHub fallback', async () => {
     const { driver, harness } = await makeDriver(makeSession());
     const feedbackDriver = driver as unknown as FeedbackDriver;
-    (promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
-    (promptFeedbackAttachment).mockImplementation(async () => 'logs');
+    mocked(promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
+    mocked(promptFeedbackAttachment).mockImplementation(async () => 'logs');
     harness.auth.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 3 });
     harness.listSessions.mockResolvedValueOnce([{ id: 'ses-1', sessionDir: '/tmp/session-a' }] as never);
-    (createFeedbackArchivePath).mockRejectedValueOnce(new Error('cache dir not writable'));
-    (openUrl).mockClear();
+    mocked(createFeedbackArchivePath).mockRejectedValueOnce(new Error('cache dir not writable'));
+    mocked(openUrl).mockClear();
 
     await handleFeedbackCommand(feedbackDriver as any);
 
@@ -2755,17 +2765,17 @@ command = "vim"
   it('tells the user when feedback is sent but codebase packaging fails', async () => {
     const { driver, harness } = await makeDriver(makeSession());
     const feedbackDriver = driver as unknown as FeedbackDriver;
-    (scanCodebase).mockReset();
-    (packageCodebase).mockReset();
+    mocked(scanCodebase).mockReset();
+    mocked(packageCodebase).mockReset();
     harness.exportSession.mockReset();
-    (uploadArchive).mockReset();
-    (promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
-    (promptFeedbackAttachment).mockImplementation(async () => 'logs+codebase');
+    mocked(uploadArchive).mockReset();
+    mocked(promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
+    mocked(promptFeedbackAttachment).mockImplementation(async () => 'logs+codebase');
     harness.auth.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 3 });
     harness.listSessions.mockResolvedValueOnce([{ id: 'ses-1', sessionDir: '/tmp/session-a' }] as never);
     const sessionZipPath = await makeExportedSessionZip();
 
-    (scanCodebase).mockResolvedValueOnce({
+    mocked(scanCodebase).mockResolvedValueOnce({
       root: '/tmp/proj-a',
       files: [{ path: 'keep.ts', size: 4 }],
       fingerprint: 'fp-123',
@@ -2777,7 +2787,7 @@ command = "vim"
       sessionDir: '/tmp/session-a',
       manifest: {},
     });
-    (packageCodebase).mockRejectedValueOnce(new Error('zip failed'));
+    mocked(packageCodebase).mockRejectedValueOnce(new Error('zip failed'));
 
     await handleFeedbackCommand(feedbackDriver as any);
 
@@ -2797,24 +2807,24 @@ command = "vim"
   it('tells the user when the codebase upload fails', async () => {
     const { driver, harness } = await makeDriver(makeSession());
     const feedbackDriver = driver as unknown as FeedbackDriver;
-    (promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
-    (promptFeedbackAttachment).mockImplementation(async () => 'logs+codebase');
+    mocked(promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
+    mocked(promptFeedbackAttachment).mockImplementation(async () => 'logs+codebase');
     harness.auth.submitFeedback.mockResolvedValueOnce({ kind: 'ok', feedbackId: 3 });
 
-    (scanCodebase).mockResolvedValueOnce({
+    mocked(scanCodebase).mockResolvedValueOnce({
       root: '/tmp/proj-a',
       files: [{ path: 'keep.ts', size: 4 }],
       fingerprint: 'fp-123',
       usedGitIgnore: false,
     } as any);
-    (packageCodebase).mockResolvedValueOnce({
+    mocked(packageCodebase).mockResolvedValueOnce({
       path: '/tmp/fake-codebase.zip',
       size: 4,
       sha256: 'hash-123',
       fingerprint: 'fp-123',
       fileCount: 1,
     });
-    (uploadArchive).mockRejectedValueOnce(new Error('upload failed'));
+    mocked(uploadArchive).mockRejectedValueOnce(new Error('upload failed'));
 
     await handleFeedbackCommand(feedbackDriver as any);
 
@@ -2827,8 +2837,8 @@ command = "vim"
   it('shows feedback API error messages without replacing them with HTTP status text', async () => {
     const { driver, harness } = await makeDriver(makeSession());
     const feedbackDriver = driver as unknown as FeedbackDriver;
-    (promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
-    (promptFeedbackAttachment).mockImplementation(async () => 'none');
+    mocked(promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
+    mocked(promptFeedbackAttachment).mockImplementation(async () => 'none');
     harness.auth.submitFeedback.mockResolvedValueOnce({
       kind: 'error',
       status: 500,
@@ -2846,10 +2856,10 @@ command = "vim"
   it('falls back to GitHub Issues when the submission request rejects', async () => {
     const { driver, harness } = await makeDriver(makeSession());
     const feedbackDriver = driver as unknown as FeedbackDriver;
-    (promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
-    (promptFeedbackAttachment).mockImplementation(async () => 'none');
+    mocked(promptFeedbackInput).mockImplementation(async () => ({ value: 'useful feedback' }));
+    mocked(promptFeedbackAttachment).mockImplementation(async () => 'none');
     harness.auth.submitFeedback.mockRejectedValueOnce(new Error('socket hangup'));
-    (openUrl).mockClear();
+    mocked(openUrl).mockClear();
 
     await expect(handleFeedbackCommand(feedbackDriver as any)).rejects.toThrow('socket hangup');
 
@@ -2861,7 +2871,7 @@ command = "vim"
   it('does not track feedback when the dialog is cancelled', async () => {
     const { driver, harness } = await makeDriver(makeSession());
     const feedbackDriver = driver as unknown as FeedbackDriver;
-    (promptFeedbackInput).mockImplementation(async () => undefined);
+    mocked(promptFeedbackInput).mockImplementation(async () => undefined);
     harness.track.mockClear();
 
     await handleFeedbackCommand(feedbackDriver as any);
@@ -2935,7 +2945,7 @@ command = "vim"
     });
     const createSession = jest.fn(async () => failedSession);
     const { driver } = await makeDriver(initialSession, { createSession });
-    (failedSession.onEvent).mockClear();
+    failedSession.onEvent.mockClear();
 
     driver.handleUserInput('/new');
 
@@ -3328,7 +3338,7 @@ command = "vim"
 
   it('removes approval notices from undone turns', async () => {
     const { driver, session } = await makeDriver();
-    const approvalHandler = (session.setApprovalHandler).mock.calls[0]?.[0] as
+    const approvalHandler = mocked(session.setApprovalHandler).mock.calls[0]?.[0] as
       | ((request: ApprovalRequest) => Promise<ApprovalResponse>)
       | undefined;
     if (approvalHandler === undefined) throw new Error('expected approval handler');
@@ -3550,7 +3560,7 @@ command = "vim"
 
     driver.handleUserInput(`watch ${attachment.placeholder}`);
 
-    const parts = (session.prompt).mock.calls[0]?.[0] as
+    const parts = mocked(session.prompt).mock.calls[0]?.[0] as
       | Array<{
           type: string;
           text?: string;
@@ -3588,7 +3598,7 @@ command = "vim"
     expect(queued?.videoAttachmentIds).toEqual([attachment.id]);
 
     driver.sendQueuedMessage(session, queued!);
-    expect((session.prompt).mock.calls[0]?.[0]).toEqual(parts);
+    expect(mocked(session.prompt).mock.calls[0]?.[0]).toEqual(parts);
   });
 
   it('falls back to retained bytes when a queued image upload expires before dispatch', async () => {
@@ -3693,7 +3703,7 @@ command = "vim"
     const attachment = stagedImage(imageStore, 'file-dismissed');
     const text = `describe ${attachment.placeholder}`;
 
-    const extraction = extractMediaAttachments(text, imageStore);
+    const extraction = await extractMediaAttachments(text, imageStore);
     driver.recallStashedMedia(extraction);
 
     driver.handleUserInput(text);
@@ -3822,7 +3832,7 @@ command = "vim"
     const first = imageStore.addImage(new Uint8Array([1]), 'image/png', 1, 1, undefined, 'file-first');
     const second = imageStore.addImage(new Uint8Array([2]), 'image/png', 1, 1, undefined, 'file-second');
     const input = `/skill:review ${first.placeholder} ${second.placeholder}`;
-    const extraction = extractMediaAttachments(input, imageStore);
+    const extraction = await extractMediaAttachments(input, imageStore);
     imageStore.remove(first.id);
     driver.state.appState.streamingPhase = 'waiting';
     await (
@@ -4073,7 +4083,8 @@ command = "vim"
     }));
     emitTurn(driver, 1);
     await waitUntil(() => {
-      expect(harness.deleteFile).toHaveBeenCalledExactlyOnceWith('file-skill-video');
+      expect(harness.deleteFile).toHaveBeenCalledTimes(1);
+      expect(harness.deleteFile).toHaveBeenCalledWith('file-skill-video');
     });
   });
 
@@ -4319,7 +4330,8 @@ command = "vim"
       });
       emitTurn(driver, 1);
       await waitUntil(() => {
-        expect(harness.deleteFile).toHaveBeenCalledExactlyOnceWith('file-retry-video');
+        expect(harness.deleteFile).toHaveBeenCalledTimes(1);
+        expect(harness.deleteFile).toHaveBeenCalledWith('file-retry-video');
       });
       expect(attachment.fileId).toBeUndefined();
     },
@@ -4432,7 +4444,7 @@ command = "vim"
     expect(nextSession.prompt).toHaveBeenCalledOnce();
     rejectSkill(new Error('Old skill request cancelled'));
     await new Promise((resolve) => setImmediate(resolve));
-    expect(driver.state.appState.streamingPhase).toBe('waiting');
+    expect(readAs<TUIState['appState']['streamingPhase']>(driver.state.appState.streamingPhase)).toBe('waiting');
     expect(driver.state.queuedMessages).toEqual([]);
     expect(stripSgr(renderTranscript(driver))).not.toContain('Old skill request cancelled');
   });
@@ -4478,7 +4490,7 @@ command = "vim"
     driver.streamingUI.setTurnId('1');
     driver.handleUserInput('first');
     driver.handleUserInput('/skill:review delayed');
-    (session.steer).mockImplementation(async () => {
+    session.steer.mockImplementation(async () => {
       driver.state.appState.isCompacting = true;
     });
     driver.state.editor.onCtrlS?.();
@@ -4642,7 +4654,8 @@ command = "vim"
 
     emitTurn(driver, 2);
     await waitUntil(() => {
-      expect(harness.deleteFile).toHaveBeenCalledExactlyOnceWith('file-goal-skill');
+      expect(harness.deleteFile).toHaveBeenCalledTimes(1);
+      expect(harness.deleteFile).toHaveBeenCalledWith('file-goal-skill');
     });
   });
 
@@ -4665,7 +4678,7 @@ command = "vim"
     driver.handleUserInput('accepted prefix');
     driver.handleUserInput(text);
     driver.handleUserInput('later');
-    (session.steer).mockImplementation(async () => {
+    session.steer.mockImplementation(async () => {
       driver.sessionEventHandler.handleEvent(
         { type: 'turn.ended', agentId: 'main', turnId: 1, reason: 'completed' } as Event,
         () => {},
@@ -4677,7 +4690,7 @@ command = "vim"
     await waitUntil(() => {
       expect(stripSgr(renderTranscript(driver))).toContain('Failed to prepare media attachment');
     });
-    expect(driver.state.appState.streamingPhase).toBe('idle');
+    expect(readAs<TUIState['appState']['streamingPhase']>(driver.state.appState.streamingPhase)).toBe('idle');
     expect(driver.state.livePane.mode).toBe('idle');
     expect(driver.state.queuedMessages).toEqual([]);
     expect(session.steer).toHaveBeenCalledTimes(2);
@@ -4702,7 +4715,7 @@ command = "vim"
     driver.handleUserInput('accepted prefix');
     driver.handleUserInput(input);
     driver.handleUserInput('later');
-    (session.steer).mockImplementation(async () => {
+    session.steer.mockImplementation(async () => {
       driver.sessionEventHandler.handleEvent(
         { type: 'turn.ended', agentId: 'main', turnId: 1, reason: 'completed' } as Event,
         () => {},
@@ -4714,7 +4727,7 @@ command = "vim"
     await waitUntil(() => {
       expect(stripSgr(renderTranscript(driver))).toContain('Skill unavailable');
     });
-    expect(driver.state.appState.streamingPhase).toBe('idle');
+    expect(readAs<TUIState['appState']['streamingPhase']>(driver.state.appState.streamingPhase)).toBe('idle');
     expect(driver.state.livePane.mode).toBe('idle');
     expect(driver.state.queuedMessages).toEqual([]);
     expect(driver.state.transcriptEntries).toContainEqual(expect.objectContaining({
@@ -4833,7 +4846,7 @@ command = "vim"
     await waitUntil(() => {
       expect(session.promptWithSkills).toHaveBeenCalled();
     });
-    const [input, skills] = (session.promptWithSkills).mock.calls[0] as unknown as [
+    const [input, skills] = mocked(session.promptWithSkills).mock.calls[0] as unknown as [
       unknown,
       Array<{ name: string; args: string }>,
     ];
@@ -5553,7 +5566,7 @@ command = "vim"
     startWaitFor(driver);
 
     expect(session.steer).toHaveBeenCalledTimes(1);
-    const steered = JSON.stringify((session.steer).mock.calls[0]);
+    const steered = JSON.stringify(session.steer.mock.calls[0]);
     expect(steered).toContain('data:image/png;base64,qrs=');
     expect(steered).not.toContain('kimi-file://file-expired');
   });
@@ -5669,7 +5682,7 @@ command = "vim"
     await waitUntil(() => {
       expect(session.prompt).toHaveBeenCalledTimes(1);
     });
-    expect((session.prompt).mock.calls[0]?.[0]).toBe('later note');
+    expect(mocked(session.prompt).mock.calls[0]?.[0]).toBe('later note');
   });
 
   it('does not offer Ctrl-S in the queue pane while a queue steer is in flight', async () => {
@@ -5708,7 +5721,7 @@ command = "vim"
     await waitUntil(() => {
       expect(session.prompt).toHaveBeenCalledTimes(1);
     });
-    expect((session.prompt).mock.calls[0]?.[0]).toBe('earlier note');
+    expect(mocked(session.prompt).mock.calls[0]?.[0]).toBe('earlier note');
     expect(driver.state.queuedMessages).toEqual([{ text: 'later note', agentId: 'main' }]);
   });
 
@@ -5732,7 +5745,7 @@ command = "vim"
     await waitUntil(() => {
       expect(session.prompt).toHaveBeenCalledTimes(1);
     });
-    const parts = (session.prompt).mock.calls[0]?.[0] as Array<{ type: string; videoUrl?: { url: string } }>;
+    const parts = mocked(session.prompt).mock.calls[0]?.[0] as Array<{ type: string; videoUrl?: { url: string } }>;
     expect(parts).toContainEqual({ type: 'video_url', videoUrl: { url: 'kimi-file://file-v1' } });
     await (driver as unknown as { staging: { drain(): Promise<void> } }).staging.drain();
     expect(harness.deleteFile).not.toHaveBeenCalledWith('file-v1');
@@ -6226,11 +6239,11 @@ capabilities = ["image_in", "video_in"]
         } as Event,
         sendQueued,
       );
-      await jest.runAllTimersAsync();
+      await runAllTimersAsync();
 
       expect(sendQueued).toHaveBeenCalledWith({ text: 'next' });
       expect(driver.state.queuedMessages).toEqual([]);
-      expect(driver.state.appState.streamingPhase).toBe('idle');
+      expect(readAs<TUIState['appState']['streamingPhase']>(driver.state.appState.streamingPhase)).toBe('idle');
     } finally {
       jest.useRealTimers();
     }
@@ -6672,8 +6685,8 @@ capabilities = ["image_in", "video_in"]
 
     expect(handled).toBe(true);
     expect(driver.state.editor.getText()).toBe('ls');
-    expect(driver.state.editor.inputMode).toBe('bash');
-    expect(driver.state.appState.inputMode).toBe('bash');
+    expect(readAs<TUIState['editor']['inputMode']>(driver.state.editor.inputMode)).toBe('bash');
+    expect(readAs<TUIState['appState']['inputMode']>(driver.state.appState.inputMode)).toBe('bash');
     expect(driver.state.queuedMessages).toEqual([]);
   });
 
@@ -6688,8 +6701,8 @@ capabilities = ["image_in", "video_in"]
 
     expect(handled).toBe(true);
     expect(driver.state.editor.getText()).toBe('hello');
-    expect(driver.state.editor.inputMode).toBe('prompt');
-    expect(driver.state.appState.inputMode).toBe('prompt');
+    expect(readAs<TUIState['editor']['inputMode']>(driver.state.editor.inputMode)).toBe('prompt');
+    expect(readAs<TUIState['appState']['inputMode']>(driver.state.appState.inputMode)).toBe('prompt');
     expect(driver.state.queuedMessages).toEqual([]);
   });
 
@@ -7180,7 +7193,7 @@ capabilities = ["image_in", "video_in"]
     jest.useFakeTimers();
     try {
       const { driver } = await makeDriver();
-      (driver.state.ui.requestRender).mockClear();
+      mocked(driver.state.ui.requestRender).mockClear();
 
       driver.sessionEventHandler.handleEvent(
         {
@@ -7218,7 +7231,7 @@ capabilities = ["image_in", "video_in"]
       );
 
       expect(updateSpy).not.toHaveBeenCalled();
-      await jest.runOnlyPendingTimersAsync();
+      await runOnlyPendingTimersAsync();
 
       expect(updateSpy).toHaveBeenCalledTimes(1);
       expect(updateSpy).toHaveBeenLastCalledWith('abc', { transient: true });
@@ -7284,7 +7297,7 @@ capabilities = ["image_in", "video_in"]
       expect(driver.streamingUI.getToolComponent('call_bash')).toBeUndefined();
       expect(driver.streamingUI.hasActiveToolCall('call_bash')).toBe(false);
 
-      await jest.runOnlyPendingTimersAsync();
+      await runOnlyPendingTimersAsync();
 
       expect(driver.streamingUI.getToolComponent('call_bash')).toBeDefined();
       expect(driver.streamingUI.getActiveToolCall('call_bash')?.args).toMatchObject({
@@ -7366,7 +7379,7 @@ capabilities = ["image_in", "video_in"]
         } as Event,
         sendQueued,
       );
-      await jest.runAllTimersAsync();
+      await runAllTimersAsync();
 
       expect(driver.state.appState.isCompacting).toBe(false);
       expect(driver.state.appState.streamingPhase).toBe('idle');
@@ -7625,7 +7638,8 @@ capabilities = ["image_in", "video_in"]
       turnId: 1, reason: 'completed',
     } as Event, () => {});
     await waitUntil(() => {
-      expect(harness.deleteFile).toHaveBeenCalledExactlyOnceWith('file-btw-image');
+      expect(harness.deleteFile).toHaveBeenCalledTimes(1);
+      expect(harness.deleteFile).toHaveBeenCalledWith('file-btw-image');
     });
   });
 
@@ -7669,7 +7683,8 @@ capabilities = ["image_in", "video_in"]
       finishIngestion();
       await jest.advanceTimersByTime(0);
       if (outcome === 'ready') {
-        expect(session.promptWithSkills).toHaveBeenCalledExactlyOnceWith([
+        expect(session.promptWithSkills).toHaveBeenCalledTimes(1);
+        expect(session.promptWithSkills).toHaveBeenCalledWith([
           { type: 'text', text: '/skill:review inspect ' },
           { type: 'video_url', videoUrl: { url: 'kimi-file://file-btw-video' } },
         ], [{ name: 'review', args: expect.stringContaining('Attached video file:') }]);
@@ -7683,7 +7698,8 @@ capabilities = ["image_in", "video_in"]
           turnId: 1, reason: 'cancelled',
         } as Event, () => {});
         await jest.advanceTimersByTime(0);
-        expect(harness.deleteFile).toHaveBeenCalledExactlyOnceWith('file-btw-video');
+        expect(harness.deleteFile).toHaveBeenCalledTimes(1);
+        expect(harness.deleteFile).toHaveBeenCalledWith('file-btw-video');
       } else {
         expect(session.promptWithSkills).not.toHaveBeenCalled();
         expect(session.prompt).toHaveBeenCalledTimes(1);
@@ -7720,7 +7736,8 @@ capabilities = ["image_in", "video_in"]
       expect(driver.state.editor.getText()).toBe('');
     });
     await waitUntil(() => {
-      expect(harness.deleteFile).toHaveBeenCalledExactlyOnceWith('file-btw-retry');
+      expect(harness.deleteFile).toHaveBeenCalledTimes(1);
+      expect(harness.deleteFile).toHaveBeenCalledWith('file-btw-retry');
     });
     expect(driver.state.queuedMessages).toEqual([]);
     expect(session.promptWithSkills).toHaveBeenCalledOnce();
@@ -8124,7 +8141,7 @@ capabilities = ["image_in", "video_in"]
     expect(collapsedWithInput.join('\n')).not.toContain('↑↓ scroll');
     driver.state.editor.setText('');
 
-    const requestRender = (driver.state.ui.requestRender);
+    const requestRender = mocked(driver.state.ui.requestRender);
     requestRender.mockClear();
     for (let i = 0; i < 20; i++) {
       driver.state.editor.handleInput('\u001B[A');
@@ -8168,7 +8185,7 @@ capabilities = ["image_in", "video_in"]
     expect(panel.isRunning()).toBe(true);
     expect(driver.state.editor.focused).toBe(true);
 
-    const requestRender = (driver.state.ui.requestRender);
+    const requestRender = mocked(driver.state.ui.requestRender);
     requestRender.mockClear();
     driver.state.editor.onEscape?.();
 
@@ -8693,7 +8710,7 @@ capabilities = ["image_in", "video_in"]
       jest.fn(),
     );
 
-    expect(driver.state.appState.permissionMode).toBe('auto');
+    expect(readAs<TUIState['appState']['permissionMode']>(driver.state.appState.permissionMode)).toBe('auto');
 
     driver.sessionEventHandler.handleEvent(
       {
@@ -8705,7 +8722,7 @@ capabilities = ["image_in", "video_in"]
       jest.fn(),
     );
 
-    expect(driver.state.appState.permissionMode).toBe('yolo');
+    expect(readAs<TUIState['appState']['permissionMode']>(driver.state.appState.permissionMode)).toBe('yolo');
   });
 
   it('renders an ended marker when a one-shot /swarm task exits', async () => {
@@ -8979,7 +8996,7 @@ capabilities = ["image_in", "video_in"]
       expect(countOccurrences(transcript, 'non-duplicated plan work')).toBe(1);
     });
 
-    const approvalHandler = (session.setApprovalHandler).mock.calls[0]?.[0] as
+    const approvalHandler = mocked(session.setApprovalHandler).mock.calls[0]?.[0] as
       | ((request: ApprovalRequest) => Promise<ApprovalResponse>)
       | undefined;
     if (approvalHandler === undefined) throw new Error('expected approval handler');
@@ -9054,7 +9071,7 @@ capabilities = ["image_in", "video_in"]
       sendQueued,
     );
 
-    (driver.state.ui.requestRender).mockClear();
+    mocked(driver.state.ui.requestRender).mockClear();
     driver.sessionEventHandler.handleEvent(
       {
         type: 'tool.call.started',
@@ -9069,7 +9086,7 @@ capabilities = ["image_in", "video_in"]
     );
     // Swarm child events are batched onto the swarm's own frame timer instead
     // of rendering the whole tree per event.
-    expect(driver.state.ui.requestRender).not.toHaveBeenCalled();
+    expect(mocked(driver.state.ui.requestRender)).not.toHaveBeenCalled();
 
     driver.sessionEventHandler.handleEvent(
       {
@@ -9085,7 +9102,7 @@ capabilities = ["image_in", "video_in"]
     expect(transcript).toContain('01 [');
     expect(transcript).toContain('Reviewing src/a.ts');
 
-    (driver.state.ui.requestRender).mockClear();
+    mocked(driver.state.ui.requestRender).mockClear();
     driver.sessionEventHandler.handleEvent(
       {
         type: 'subagent.suspended',
@@ -9096,7 +9113,7 @@ capabilities = ["image_in", "video_in"]
       } as Event,
       sendQueued,
     );
-    expect(driver.state.ui.requestRender).toHaveBeenCalled();
+    expect(mocked(driver.state.ui.requestRender)).toHaveBeenCalled();
 
     transcript = stripSgr(renderTranscript(driver));
     expect(transcript).toContain('001 [');
@@ -9104,7 +9121,7 @@ capabilities = ["image_in", "video_in"]
     expect(transcript).not.toContain('Provider rate limit');
     expect(transcript).not.toContain('Failed');
 
-    (driver.state.ui.requestRender).mockClear();
+    mocked(driver.state.ui.requestRender).mockClear();
     driver.sessionEventHandler.handleEvent(
       {
         type: 'subagent.started',
@@ -9114,13 +9131,13 @@ capabilities = ["image_in", "video_in"]
       } as Event,
       sendQueued,
     );
-    expect(driver.state.ui.requestRender).toHaveBeenCalled();
+    expect(mocked(driver.state.ui.requestRender)).toHaveBeenCalled();
 
     transcript = stripSgr(renderTranscript(driver));
     expect(transcript).toContain('01 [');
     expect(transcript).not.toContain('Suspended');
 
-    (driver.state.ui.requestRender).mockClear();
+    mocked(driver.state.ui.requestRender).mockClear();
     driver.sessionEventHandler.handleEvent(
       {
         type: 'turn.ended',
@@ -9133,7 +9150,7 @@ capabilities = ["image_in", "video_in"]
     );
     // A child turn end changes no swarm state, so it stays on the batched
     // frame timer like the deltas above.
-    expect(driver.state.ui.requestRender).not.toHaveBeenCalled();
+    expect(mocked(driver.state.ui.requestRender)).not.toHaveBeenCalled();
 
     transcript = stripSgr(renderTranscript(driver));
     expect(transcript).toContain('Agent Swarm');
@@ -9656,7 +9673,7 @@ capabilities = ["image_in", "video_in"]
       expect(countOccurrences(transcript, 'keep this plan visible after reject')).toBe(1);
     });
 
-    const approvalHandler = (session.setApprovalHandler).mock.calls[0]?.[0] as
+    const approvalHandler = mocked(session.setApprovalHandler).mock.calls[0]?.[0] as
       | ((request: ApprovalRequest) => Promise<ApprovalResponse>)
       | undefined;
     if (approvalHandler === undefined) throw new Error('expected approval handler');
@@ -11040,7 +11057,7 @@ capabilities = ["image_in", "video_in"]
   });
 
   it('still prints the fork resume command when the clipboard copy fails', async () => {
-    (copyTextToClipboard).mockRejectedValueOnce(new Error('no clipboard'));
+    mocked(copyTextToClipboard).mockRejectedValueOnce(new Error('no clipboard'));
     const source = makeSession({ id: 'ses-source' });
     const forked = makeSession({ id: 'ses-fork' });
     const forkSession = jest.fn(async () => forked);
@@ -11059,7 +11076,7 @@ capabilities = ["image_in", "video_in"]
   });
 
   it('labels OSC 52 clipboard delivery as unverified after a fork', async () => {
-    (copyTextToClipboard).mockResolvedValueOnce('osc52');
+    mocked(copyTextToClipboard).mockResolvedValueOnce('osc52');
     const source = makeSession({ id: 'ses-source' });
     const forked = makeSession({ id: 'ses-fork' });
     const forkSession = jest.fn(async () => forked);
@@ -11187,7 +11204,7 @@ capabilities = ["image_in", "video_in"]
     );
     driver.streamingUI.flushNow();
 
-    expect(driver.state.appState.streamingPhase).toBe('thinking');
+    expect(readAs<TUIState['appState']['streamingPhase']>(driver.state.appState.streamingPhase)).toBe('thinking');
     expect(driver.streamingUI.hasActiveThinkingComponent()).toBe(true);
     expect(stripSgr(renderTranscript(driver))).toContain('actual reasoning');
   });

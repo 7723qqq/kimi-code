@@ -274,21 +274,21 @@ export function WireTab({ sessionId, initialAgentId = 'main' }: WireTabProps) {
               }}
             >
               {virt.getVirtualItems().map((vi) => {
-                const e = filtered[jest.index];
+                const e = filtered[vi.index];
                 if (!e) return null;
                 const pair = pairByLineNo.get(e.lineNo);
                 const highlighted = pair !== undefined && hoveredPairId === pair.toolCallId;
                 return (
                   <div
-                    key={jest.key}
-                    data-index={jest.index}
+                    key={vi.key}
+                    data-index={vi.index}
                     ref={virt.measureElement}
                     style={{
                       position: 'absolute',
                       top: 0,
                       left: 0,
                       width: '100%',
-                      transform: `translateY(${jest.start}px)`,
+                      transform: `translateY(${vi.start}px)`,
                     }}
                   >
                     <WireRow

@@ -1,5 +1,6 @@
-import { beforeEach, describe, expect, it, vi } from 'bun:test';
+import { beforeEach, describe, expect, it, jest, vi } from 'bun:test';
 import { waitUntil } from '../../helpers/waitFor';
+import { mocked } from '../../helpers/mocked';
 
 import {
   CacheHintController,
@@ -164,7 +165,7 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
     await flush();
     expect(getMock).toHaveBeenCalled();
     // Fetch resolved without a matching rule → the message is released.
-    expect(host.sendNormalUserInput).toHaveBeenCalledWith('hello', undefined);
+    expect(mocked(host.sendNormalUserInput)).toHaveBeenCalledWith('hello', undefined);
     expect(host.mountEditorReplacement).not.toHaveBeenCalled();
     jest.restoreAllMocks();
   });
@@ -186,7 +187,7 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
       activations,
       undefined,
     );
-    expect(host.sendNormalUserInput).not.toHaveBeenCalled();
+    expect(mocked(host.sendNormalUserInput)).not.toHaveBeenCalled();
   });
 
   it('fetches on a cold-cache submit and shows the dialog when a rule matches', async () => {
@@ -217,7 +218,7 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
     await flush();
     jest.restoreAllMocks();
 
-    expect(host.sendNormalUserInput).toHaveBeenCalledTimes(2);
+    expect(mocked(host.sendNormalUserInput)).toHaveBeenCalledTimes(2);
     expect(
       (host.sendNormalUserInput as ReturnType<typeof jest.fn>).mock.calls.map((c) => c[0]),
     ).toEqual(['hello', 'world']);
@@ -244,7 +245,7 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
     await flush();
 
     // Nothing was sent; both inputs are back in the editor, newline-joined.
-    expect(host.sendNormalUserInput).not.toHaveBeenCalled();
+    expect(mocked(host.sendNormalUserInput)).not.toHaveBeenCalled();
     expect(host.restoreInputText).toHaveBeenLastCalledWith('hello\nworld');
   });
 
@@ -271,7 +272,7 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
     // Nothing was sent; the draft is back in the editor and the stash's
     // retains go through recall — without this the retain count never
     // returns to zero and the upload can never be lease-deleted.
-    expect(host.sendNormalUserInput).not.toHaveBeenCalled();
+    expect(mocked(host.sendNormalUserInput)).not.toHaveBeenCalled();
     expect(host.restoreInputText).toHaveBeenCalledWith('describe [image #1 (1×1)]');
     expect(host.recallStashedMedia).toHaveBeenCalledWith(extraction);
   });
@@ -287,7 +288,7 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
     jest.restoreAllMocks();
 
     expect(host.restoreInputText).toHaveBeenCalledWith('hello');
-    expect(host.sendNormalUserInput).not.toHaveBeenCalled();
+    expect(mocked(host.sendNormalUserInput)).not.toHaveBeenCalled();
   });
 
   it('releases instead of mounting when a foreground operation started during the fetch', async () => {
@@ -303,7 +304,7 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
     jest.restoreAllMocks();
 
     expect(host.mountEditorReplacement).not.toHaveBeenCalled();
-    expect(host.sendNormalUserInput).toHaveBeenCalledWith('hello', undefined);
+    expect(mocked(host.sendNormalUserInput)).toHaveBeenCalledWith('hello', undefined);
   });
 
   it('intercepts and shows the dialog when all conditions hold', () => {
@@ -362,7 +363,7 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
     dialog.handleInput('\u001B[B'); // down → continue
     dialog.handleInput('\r');
     await flush();
-    expect(host.sendNormalUserInput).toHaveBeenCalledWith('hello', undefined);
+    expect(mocked(host.sendNormalUserInput)).toHaveBeenCalledWith('hello', undefined);
     expect(host.track).toHaveBeenCalledWith('cache_hint_action', {
       action: 'continue',
       scene: 'idle',
@@ -384,7 +385,7 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
     dialog.handleInput('\u001B');
     await flush();
     expect(host.restoreInputText).toHaveBeenCalledWith('hello');
-    expect(host.sendNormalUserInput).not.toHaveBeenCalled();
+    expect(mocked(host.sendNormalUserInput)).not.toHaveBeenCalled();
   });
 
   it('compacts then resends once compaction engages', async () => {
@@ -406,7 +407,7 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
       state.appState.isCompacting = true;
     }, 10);
     await waitUntil(() => {
-      expect(host.sendNormalUserInput).toHaveBeenCalledWith('hello', undefined);
+      expect(mocked(host.sendNormalUserInput)).toHaveBeenCalledWith('hello', undefined);
     });
     expect(compact).toHaveBeenCalledWith({});
   });
@@ -427,7 +428,7 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
     dialog.handleInput('\r');
     await flush();
     expect(host.createNewSession).toHaveBeenCalled();
-    expect(host.sendNormalUserInput).toHaveBeenCalledWith('hello', undefined);
+    expect(mocked(host.sendNormalUserInput)).toHaveBeenCalledWith('hello', undefined);
   });
 
   it('resends an uploaded image inline after starting a new session', async () => {
@@ -448,7 +449,7 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
     dialog.handleInput('\r');
     await flush();
 
-    const resend = (host.sendNormalUserInput).mock.calls[0]?.[1];
+    const resend = mocked(host.sendNormalUserInput).mock.calls[0]?.[1];
     expect(resend?.imageAttachmentIds).toEqual([]);
     expect(resend?.parts).toContainEqual({
       type: 'image_url',
@@ -509,7 +510,7 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
     await flush();
     expect(state.appState.sessionId).toBe('s1');
     expect(host.restoreInputText).toHaveBeenCalledWith('hello');
-    expect(host.sendNormalUserInput).not.toHaveBeenCalled();
+    expect(mocked(host.sendNormalUserInput)).not.toHaveBeenCalled();
   });
 });
 

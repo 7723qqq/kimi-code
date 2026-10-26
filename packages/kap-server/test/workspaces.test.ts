@@ -2,9 +2,9 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterAll, beforeAll, describe, expect, it, vi } from 'bun:test';
-import { setEnv, restoreEnvs } from 'helpers/stubs';
-import { waitUntil } from 'helpers/waitFor';
+import { afterAll, beforeAll, describe, expect, it, jest, vi } from 'bun:test';
+import { setEnv, restoreEnvs } from './helpers/stubs';
+import { waitUntil } from './helpers/waitFor';
 
 import { IAtomicDocumentStore, IWorkspaceInstanceManager } from '@moonshot-ai/agent-core-v2';
 import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';

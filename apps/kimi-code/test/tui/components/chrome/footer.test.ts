@@ -1,15 +1,16 @@
 import chalk from 'chalk';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, jest, vi } from 'bun:test';
 
 import { FooterComponent } from '#/tui/components/chrome/footer';
 import { setRainbowDance, type RainbowDanceController } from '#/tui/easter-eggs/dance';
 import { currentTheme, darkColors, lightColors } from '#/tui/theme';
 import type { ModelAlias } from '@moonshot-ai/kimi-code-sdk';
 import type { AppState } from '#/tui/types';
+import { createEmptySessionStats } from '#/tui/utils/session-stats';
 
-const gitStatusMocks = ({
+const gitStatusMocks = (() => ({
   createGitStatusCache: jest.fn(),
-}));
+}))();
 
 jest.mock('#/utils/git/git-status', async (importOriginal) => {
   const actual = await importOriginal<typeof import('#/utils/git/git-status')>();
@@ -60,16 +61,26 @@ const appState: AppState = {
   permissionMode: 'manual',
   thinkingEffort: 'off',
   contextUsage: 0,
+  cacheReadTokens: 0,
+  cacheMissTokens: 0,
+  cacheOtherTokens: 0,
+  tokenSpeed: 0,
+  tokenSpeedAverage: 0,
+  sessionStats: createEmptySessionStats(),
   contextTokens: 0,
   maxContextTokens: 0,
   isCompacting: false,
   isReplaying: false,
   streamingPhase: 'idle',
   streamingStartTime: 0,
+  outputTokens: 0,
+  locale: 'en',
   stepRetry: null,
   planMode: false,
+  specMode: false,
   inputMode: 'prompt',
   swarmMode: false,
+  helloWorldMode: false,
   towerMode: false,
   theme: 'dark',
   editorCommand: null,
@@ -132,13 +143,13 @@ describe('FooterComponent', () => {
     const footer = new FooterComponent(appState);
     const before = footer.render(120).join('\n');
 
-    currentTheme.setPalette(lightColors);
+    currentTheme.setPalette(lightColors, 'light');
     try {
       const after = footer.render(120).join('\n');
       // Reads currentTheme live, so a palette swap changes the emitted colours.
       expect(after).not.toBe(before);
     } finally {
-      currentTheme.setPalette(darkColors);
+      currentTheme.setPalette(darkColors, 'dark');
     }
   });
 

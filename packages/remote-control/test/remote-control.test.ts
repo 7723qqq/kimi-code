@@ -14,8 +14,8 @@ import {
   resolveKimiTokenStorageName,
   type TokenInfo,
 } from '@moonshot-ai/kimi-code-oauth';
-import { afterEach, describe, expect, it, vi } from 'bun:test';
-import { setEnv, restoreEnvs } from 'helpers/stubs';
+import { afterEach, describe, expect, it, jest } from 'bun:test';
+import { setEnv, restoreEnvs } from './helpers/stubs';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
 
 import {
@@ -29,7 +29,7 @@ import {
   type HttpTunnelLimits,
   type RemoteControlHandle,
 } from '../src/remote-control';
-import { RemoteControlDeviceClient } from '../src/device-client';
+import { RemoteControlDeviceClient, type RemoteControlDevice } from '../src/device-client';
 import { remoteControlLockPath } from '../src/lock';
 import { createRemoteControlManager } from '../src/manager';
 
@@ -1093,7 +1093,7 @@ describe('Remote Control single-instance lock', () => {
 });
 
 describe('Remote Control device client', () => {
-  const device = {
+  const device: RemoteControlDevice = {
     device_id: 'device-1',
     alias: 'Workstation',
     status: 'online',

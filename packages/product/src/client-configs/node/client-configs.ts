@@ -1,5 +1,7 @@
 import { join } from 'node:path';
 
+type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+
 import { KIMI_REGION_PROFILES, type KimiRegion } from '@moonshot-ai/kimi-code-oauth';
 import { z } from 'zod';
 
@@ -20,7 +22,7 @@ export interface ClientConfigEnvironment {
 export interface ClientConfigFetchOptions {
   readonly path?: string;
   readonly accessToken?: string;
-  readonly fetchImpl?: typeof fetch;
+  readonly fetchImpl?: FetchLike;
   readonly now?: number;
   readonly cacheFile?: string | null;
 }

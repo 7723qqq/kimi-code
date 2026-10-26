@@ -19,6 +19,7 @@ export class ToolsUpdateStore extends AgentEvent2<z.infer<typeof toolsUpdateStor
   static override readonly schema = toolsUpdateStoreSchema;
 }
 export interface ToolsUpdateStore {
+  readonly type: 'tools.update_store';
   readonly agentId: string;
   readonly key: string;
   readonly value: unknown;

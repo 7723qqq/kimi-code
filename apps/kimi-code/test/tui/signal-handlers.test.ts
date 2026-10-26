@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, jest, vi } from 'bun:test';
 
 import { KimiTUI, type KimiTUIStartupInput, type TUIState } from '#/tui/kimi-tui';
 
@@ -28,6 +28,7 @@ function makeStartupInput(): KimiTUIStartupInput {
     tuiConfig: {
       theme: 'dark',
       disablePasteBurst: false,
+      locale: 'en',
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },

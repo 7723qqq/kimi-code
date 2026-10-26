@@ -41,8 +41,8 @@ import {
   type SessionSummary,
   type SubagentModelPoolSnapshot,
 } from '@moonshot-ai/agent-core-v2';
-import { ISessionLockService } from '@moonshot-ai/agent-core-v2/persistence/interface/sessionLock';
-import { SessionMetaUpdated } from '@moonshot-ai/agent-core-v2/session/sessionMetadata/sessionMetaEvents';
+import { ISessionLockService } from '@moonshot-ai/agent-core-v2';
+import { SessionMetaUpdated } from '@moonshot-ai/agent-core-v2';
 import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';

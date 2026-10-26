@@ -12,7 +12,7 @@ import type {
   Session,
   ToolCall,
 } from '@moonshot-ai/kimi-code-sdk';
-import { describe, expect, it, vi } from 'bun:test';
+import { describe, expect, it, jest, vi } from 'bun:test';
 
 import { KimiTUI, type KimiTUIStartupInput, type TUIState } from '#/tui/kimi-tui';
 import type { SessionEventHandler } from '#/tui/controllers/session-event-handler';
@@ -65,6 +65,7 @@ function makeStartupInput(): KimiTUIStartupInput {
     tuiConfig: {
       theme: 'dark',
       disablePasteBurst: false,
+      locale: 'en',
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },
@@ -117,7 +118,11 @@ function goalSnapshot(overrides: Partial<GoalSnapshot> = {}): GoalSnapshot {
     status,
     turnsUsed: 0,
     tokensUsed: 0,
+    inputTokensUsed: 0,
+    outputTokensUsed: 0,
     wallClockMs: 0,
+    createdAt: 1000,
+    updatedAt: 2000,
     budget: {
       tokenBudget: null,
       turnBudget: null,
@@ -129,6 +134,8 @@ function goalSnapshot(overrides: Partial<GoalSnapshot> = {}): GoalSnapshot {
       turnBudgetReached: false,
       wallClockBudgetReached: false,
       overBudget: false,
+      inputTokensUsed: 0,
+      outputTokensUsed: 0,
     },
     ...overrides,
   };
@@ -1218,7 +1225,7 @@ describe('KimiTUI resume message replay', () => {
               { activationId: 'act-1', skillName: 'review' },
               { activationId: 'act-2', skillName: 'security' },
             ],
-          } as PromptOrigin,
+          } as unknown as PromptOrigin,
         },
       ),
     ]);
@@ -1247,7 +1254,7 @@ describe('KimiTUI resume message replay', () => {
           origin: {
             kind: 'user',
             skillActivations: [{ activationId: 'act-3', skillName: 'commit' }],
-          } as PromptOrigin,
+          } as unknown as PromptOrigin,
         },
       ),
     ]);
@@ -1279,7 +1286,7 @@ describe('KimiTUI resume message replay', () => {
             kind: 'user',
             inTurn: true,
             skillActivations: [{ activationId: 'act-steer', skillName: 'review' }],
-          } as PromptOrigin,
+          } as unknown as PromptOrigin,
         },
       ),
     ]);

@@ -1,5 +1,4 @@
 import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
-import { setEnv, restoreEnvs } from 'helpers/stubs';
 import { mkdtemp, readdir, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,7 +9,6 @@ import { createKimiHarness, type Event, type KimiHarness } from '#/index';
 import { waitForAgentWireEvent } from './session-runtime-helpers';
 import { setEnv, restoreEnvs } from './stubs';
 import { TEST_IDENTITY } from './test-identity';
-import { waitForAgentWireEvent } from './session-runtime-helpers';
 
 const MODEL_URL = 'https://model.example.test/v1/chat/completions';
 

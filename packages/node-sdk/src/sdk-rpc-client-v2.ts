@@ -128,14 +128,14 @@
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
-import type { ScopeSeed } from '@moonshot-ai/agent-core-v2/_base/di/scope';
-import { McpConnectionManager } from '@moonshot-ai/agent-core-v2/mcpCore/connection-manager';
-import { readTowerStatusSummary } from '@moonshot-ai/agent-core-v2/features/tower/tools/status/statusReader';
-import { loadMcpServers } from '@moonshot-ai/agent-core-v2/app/mcpConfig/configLoader';
-import { fsSuggestRequestSchema } from '@moonshot-ai/agent-core-v2/workspace/workspaceFs/fs';
-import { IAppendLogStore } from '@moonshot-ai/agent-core-v2/persistence/interface/appendLogStore';
-import { ISessionLockService } from '@moonshot-ai/agent-core-v2/persistence/interface/sessionLock';
+import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2';
+import type { ScopeSeed } from '@moonshot-ai/agent-core-v2';
+import { McpConnectionManager } from '@moonshot-ai/agent-core-v2';
+import { readTowerStatusSummary } from '@moonshot-ai/agent-core-v2';
+import { loadMcpServers } from '@moonshot-ai/agent-core-v2';
+import { fsSuggestRequestSchema } from '@moonshot-ai/agent-core-v2';
+import { IAppendLogStore } from '@moonshot-ai/agent-core-v2';
+import { ISessionLockService } from '@moonshot-ai/agent-core-v2';
 import {
   bootstrap,
   DEFAULT_AGENT_PROFILE_NAME,

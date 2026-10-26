@@ -3,14 +3,14 @@ import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promis
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { inflateRawSync } from 'node:zlib';
-import { ISessionMediaStore } from '@moonshot-ai/agent-core-v2/agent/media/sessionMediaStore';
-import { mcpResultToExecutableOutput } from '@moonshot-ai/agent-core-v2/agent/mcp/output';
-import { renderToolResultForModel } from '@moonshot-ai/agent-core-v2/agent/contextMemory/toolResultRender';
-import { IReadTool, ReadInputSchema, type ReadInput } from '@moonshot-ai/agent-core-v2/agent/tools/os/read/read';
+import { ISessionMediaStore } from '@moonshot-ai/agent-core-v2';
+import { mcpResultToExecutableOutput } from '@moonshot-ai/agent-core-v2';
+import { renderToolResultForModel } from '@moonshot-ai/agent-core-v2';
+import { IReadTool, ReadInputSchema, type ReadInput } from '@moonshot-ai/agent-core-v2';
 
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'bun:test';
-import { restoreEnvs } from 'helpers/stubs';
-import { waitUntil } from 'helpers/waitFor';
+import { afterAll, afterEach, beforeAll, describe, expect, it, jest, vi } from 'bun:test';
+import { restoreEnvs } from './helpers/stubs';
+import { waitForAssertion, waitUntil } from './helpers/waitFor';
 
 import {
   Error2,
@@ -41,13 +41,13 @@ import {
   type ContextMessage,
   type ScopeSeed,
 } from '@moonshot-ai/agent-core-v2';
-import { ISessionLockService } from '@moonshot-ai/agent-core-v2/persistence/interface/sessionLock';
-import { SessionMetaUpdated } from '@moonshot-ai/agent-core-v2/session/sessionMetadata/sessionMetaEvents';
-import { TurnSteer } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
+import { ISessionLockService } from '@moonshot-ai/agent-core-v2';
+import { SessionMetaUpdated } from '@moonshot-ai/agent-core-v2';
+import { TurnSteer } from '@moonshot-ai/agent-core-v2';
 import type { AgentTranscriptSnapshot } from '@moonshot-ai/transcript';
-import { TurnStarted } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
-import { sessionWarningsResponseSchema } from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionProtocol';
-import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
+import { TurnStarted } from '@moonshot-ai/agent-core-v2';
+import { sessionWarningsResponseSchema } from '@moonshot-ai/agent-core-v2';
+import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2';
 
 import { type RunningServer, startServer } from '../src/start';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
@@ -229,7 +229,9 @@ describe('server-v2 /api/v1/sessions', () => {
       webLogPath: 'logs/kimi-web.jsonl',
     });
     expect(manifest.desktopVersion).toBeUndefined();
-    await expect.poll(() => listExportTempDirs(id)).toEqual([]);
+    await waitForAssertion(async () => {
+      expect(await listExportTempDirs(id)).toEqual([]);
+    });
   });
 
   it('returns the JSON session-not-found envelope instead of a ZIP', async () => {
@@ -238,7 +240,9 @@ describe('server-v2 /api/v1/sessions', () => {
 
     expect(status).toBe(200);
     expect(body.code).toBe(40401);
-    await expect.poll(() => listExportTempDirs(id)).toEqual([]);
+    await waitForAssertion(async () => {
+      expect(await listExportTempDirs(id)).toEqual([]);
+    });
   });
 
   it('cleans up the temporary archive when the client cancels the download', async () => {
@@ -267,7 +271,9 @@ describe('server-v2 /api/v1/sessions', () => {
     expect(first?.done).toBe(false);
     await reader?.cancel();
 
-    await expect.poll(() => listExportTempDirs(id)).toEqual([]);
+    await waitForAssertion(async () => {
+      expect(await listExportTempDirs(id)).toEqual([]);
+    });
   });
 
   it('rejects a Web log larger than 256 KiB in UTF-8', async () => {
@@ -558,7 +564,7 @@ describe('server-v2 /api/v1/sessions', () => {
     const page3 = await getJson<PageWire>(
       `/api/v1/sessions?page_size=3&before_id=${encodeURIComponent(cursor2)}`,
     );
-    expect(page3.body.data.items.map((s) => s.id)).toEqual([ids[0]]);
+    expect(page3.body.data.items.map((s) => s.id)).toEqual([ids[0]!]);
     expect(page3.body.data.has_more).toBe(false);
 
     const seen = [
@@ -689,7 +695,7 @@ describe('server-v2 /api/v1/sessions', () => {
 
     let toolsRequest: { method: string; params: { chat_content: string } } | undefined;
     const actualFetch = globalThis.fetch.bind(globalThis);
-    jest.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+    jest.spyOn(globalThis, 'fetch').mockImplementation((async (input: string | Request | URL, init?: RequestInit) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       if (url === 'https://api.example.test/coding/v1/tools') {
         const body = init?.body;
@@ -703,7 +709,7 @@ describe('server-v2 /api/v1/sessions', () => {
         });
       }
       return actualFetch(input, init);
-    });
+    }) as unknown as typeof fetch);
 
     const created = await postJson<SessionWire>('/api/v1/sessions', {
       metadata: { cwd: home as string },
@@ -1354,9 +1360,13 @@ describe('server-v2 /api/v1/sessions', () => {
       .get(IAgentLifecycleService)
       .create({ agentId: MAIN_AGENT_ID });
     const agent = session.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID)!;
-    const compacting = vi
-      .spyOn(agent.accessor.get(IAgentFullCompactionService), 'compacting', 'get')
-      .mockReturnValue({} as never);
+    const compacting = (
+      vi.spyOn as unknown as (
+        target: object,
+        property: string,
+        accessType: 'get',
+      ) => { mockReturnValue(value: never): { mockRestore(): void } }
+    )(agent.accessor.get(IAgentFullCompactionService), 'compacting', 'get').mockReturnValue({} as never);
 
     try {
       const response = await postJson<null>(`/api/v1/sessions/${id}:reload`);
@@ -1514,8 +1524,8 @@ describe('server-v2 /api/v1/sessions', () => {
 
   it.each([
     { count: 1, code: 0, prompts: [] as string[], texts: [] as string[] },
-    { count: 2, code: 40911, prompts: ['original prompt'], texts: ['answer before steer', 'steered prompt', 'answer after steer', 'second steer', 'answer after second steer'] },
-    { count: 3, code: 40911, prompts: ['original prompt'], texts: ['answer before steer', 'steered prompt', 'answer after steer', 'second steer', 'answer after second steer'] },
+    { count: 2, code: 40911, prompts: ['original prompt'] as string[], texts: ['answer before steer', 'steered prompt', 'answer after steer', 'second steer', 'answer after second steer'] as string[] },
+    { count: 3, code: 40911, prompts: ['original prompt'] as string[], texts: ['answer before steer', 'steered prompt', 'answer after steer', 'second steer', 'answer after second steer'] as string[] },
   ])('keeps the correct messages when undoing $count anchors in a steered turn', async ({ count, code, prompts, texts }) => {
     const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd: home } });
     const id = created.body.data.id;

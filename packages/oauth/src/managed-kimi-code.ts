@@ -6,6 +6,8 @@ import { DEFAULT_KIMI_CODE_BASE_URL, kimiCodeBaseUrl } from './managed-usage';
 import { MANAGED_KIMI_MODEL_FIELDS, mergeRefreshedModelAlias } from './model-alias-merge';
 import { isRecord, MAX_HTTP_RESPONSE_BYTES, readResponseBodyWithLimit } from './utils';
 
+export type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+
 export const KIMI_CODE_PLATFORM_ID = 'kimi-code';
 export const KIMI_CODE_PROVIDER_NAME = 'managed:kimi-code';
 export const KIMI_CODE_OAUTH_KEY = 'oauth/kimi-code';
@@ -54,7 +56,7 @@ export interface ManagedKimiCodeProvisionResult {
 export interface FetchManagedKimiCodeModelsOptions {
   readonly accessToken: string;
   readonly baseUrl?: string | undefined;
-  readonly fetchImpl?: typeof fetch | undefined;
+  readonly fetchImpl?: FetchLike | undefined;
   readonly headers?: Record<string, string> | undefined;
   /**
    * What `accessToken` actually is; only affects auth-error wording. Defaults
@@ -215,7 +217,7 @@ export interface ProvisionManagedKimiCodeConfigOptions<TConfig> {
   readonly oauthKey?: string | undefined;
   readonly oauthHost?: string | undefined;
   readonly preserveDefaultModel?: boolean | undefined;
-  readonly fetchImpl?: typeof fetch | undefined;
+  readonly fetchImpl?: FetchLike | undefined;
   readonly headers?: Record<string, string> | undefined;
 }
 
@@ -564,7 +566,7 @@ export function parseThinkEfforts(value: unknown): {
 export async function fetchManagedKimiCodeModels(
   options: FetchManagedKimiCodeModelsOptions,
 ): Promise<ManagedKimiCodeModelInfo[]> {
-  const fetchImpl = options.fetchImpl ?? fetch;
+  const fetchImpl: FetchLike = options.fetchImpl ?? fetch;
   const baseUrl = defaultBaseUrl(options.baseUrl);
   const response = await fetchImpl(`${baseUrl}/models`, {
     headers: {

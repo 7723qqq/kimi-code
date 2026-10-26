@@ -88,11 +88,11 @@ apps/vscode/src/bridge-handler.ts  16  d95fed21c4f2
 apps/vscode/src/extension.ts  21  43ce085075c9
 apps/vscode/src/handlers/auth.handler.ts  4  f34c0e63dc14
 apps/vscode/src/handlers/chat.handler.ts  4  b221a4b52de5
-apps/vscode/src/handlers/config.handler.ts  9  c5c48792d73b
+apps/vscode/src/handlers/config.handler.ts  9  e36a57f6f0f1
 apps/vscode/src/handlers/file.handler.ts  4  c90305863864
 apps/vscode/src/handlers/mcp.handler.ts  1  948984637828
 apps/vscode/src/handlers/session.handler.ts  13  e7bd6cd7b9bf
-apps/vscode/src/handlers/slash-command.ts  30  234fcf366af7
+apps/vscode/src/handlers/slash-command.ts  30  7174eb6bdea4
 apps/vscode/src/managers/baseline.manager.ts  5  a98d2337a4d2
 apps/vscode/src/migration/legacy-migration.manager.ts  22  3fcdfee6cde3
 apps/vscode/src/runtime/kimi-runtime.ts  5  5d7ba47704c2

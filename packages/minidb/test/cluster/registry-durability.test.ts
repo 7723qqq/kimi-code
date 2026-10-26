@@ -27,7 +27,7 @@ import type { ChildProcess } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { afterEach, test } from 'bun:test';
+import { afterEach, jest, test } from 'bun:test';
 
 import { ClusterDb } from '../../src/cluster/index.js';
 import { rmrf, tmpDir } from '../e2e/helpers/tmp.js';

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'bun:test';
+import { describe, expect, it, jest, vi } from 'bun:test';
 
 import {
   applyManagedApiKeyProviderModels,

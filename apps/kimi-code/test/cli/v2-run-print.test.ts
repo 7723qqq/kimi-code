@@ -2,7 +2,7 @@ import { mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, jest, vi } from 'bun:test';
 import { setEnv, restoreEnvs } from '../helpers/stubs';
 
 import {
@@ -47,7 +47,7 @@ import { CLI_SHUTDOWN_TIMEOUT_MS, CLI_USER_AGENT_PRODUCT } from '#/constant/app'
 import { runV2Print } from '../../src/cli/v2/run-v2-print';
 import { resetKimiRegionCache } from '../../src/utils/region';
 
-const mocks = ({
+const mocks = (() => ({
   bootstrap: jest.fn(),
   ensureMainAgent: jest.fn(),
   loadMcpServersDetailed: jest.fn(async () => ({
@@ -67,7 +67,7 @@ const mocks = ({
   setTelemetryContext: jest.fn(),
   setTelemetryModel: jest.fn(),
   shutdownTelemetry: jest.fn(async () => {}),
-}));
+}))();
 
 jest.mock('@moonshot-ai/agent-core-v2', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@moonshot-ai/agent-core-v2')>();

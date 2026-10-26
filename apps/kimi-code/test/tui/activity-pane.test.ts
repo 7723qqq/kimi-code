@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'bun:test';
+import { describe, expect, it, jest, vi } from 'bun:test';
 
 import { AgentSwarmProgressComponent } from '#/tui/components/messages/agent-swarm-progress';
 import type { SessionEventHandler } from '#/tui/controllers/session-event-handler';
@@ -32,6 +32,7 @@ function makeStartupInput(): KimiTUIStartupInput {
     tuiConfig: {
       theme: 'dark',
       disablePasteBurst: false,
+      locale: 'en',
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },

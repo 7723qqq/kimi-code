@@ -42,8 +42,8 @@ import {
 } from '@moonshot-ai/agent-core-v2/app/event/eventBusService';
 import type { AgentActivitySnapshot } from '@moonshot-ai/agent-core-v2/agent/loop/loop';
 import type { AgentEvent } from '../src/transport/ws/v1/events';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
-import { waitUntil } from 'helpers/waitFor';
+import { afterEach, beforeEach, describe, expect, it, jest, vi } from 'bun:test';
+import { waitUntil } from './helpers/waitFor';
 
 import { sessionEventMessageSchema } from '../src/protocol/ws-control';
 import {

@@ -1,7 +1,7 @@
 import { stripVTControlCharacters } from 'node:util';
 
 import { visibleWidth } from '@moonshot-ai/pi-tui';
-import { describe, expect, it, vi } from 'bun:test';
+import { describe, expect, it, jest, vi } from 'bun:test';
 
 import { ChoicePickerComponent, type ChoiceOption } from '#/tui/components/dialogs/choice-picker';
 import { EditorSelectorComponent } from '#/tui/components/dialogs/editor-selector';

@@ -22,7 +22,7 @@ import {
 } from '@moonshot-ai/remote-control';
 import { IOAuthService, type ITelemetryService, type Scope } from '@moonshot-ai/agent-core-v2';
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'bun:test';
-import { setEnv, restoreEnvs } from 'helpers/stubs';
+import { setEnv, restoreEnvs } from './helpers/stubs';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
 
 import { ErrorCode } from '../src/protocol/error-codes';

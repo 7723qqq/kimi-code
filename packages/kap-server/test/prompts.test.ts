@@ -26,8 +26,8 @@ import {
   closeSessionById,
   getLiveSessionById,
 } from '@moonshot-ai/agent-core-v2';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'bun:test';
-import { waitUntil } from 'helpers/waitFor';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, jest, vi } from 'bun:test';
+import { waitUntil } from './helpers/waitFor';
 
 import { type RunningServer, startServer } from '../src/start';
 import { projectPromptSnapshot, watchPromptSettlements } from '../src/routes/prompts';
@@ -144,7 +144,7 @@ function pngChunk(type: string, data: Buffer): Buffer {
   return Buffer.concat([length, typeBytes, data, crc]);
 }
 
-function solidPng(width: number, height: number): Buffer {
+function solidPng(width: number, height: number): Buffer<ArrayBuffer> {
   const ihdr = Buffer.alloc(13);
   ihdr.writeUInt32BE(width, 0);
   ihdr.writeUInt32BE(height, 4);
@@ -1138,7 +1138,7 @@ describe('server-v2 /api/v1 prompts', () => {
     });
   });
 
-  function avifBytes(): Buffer {
+  function avifBytes(): Buffer<ArrayBuffer> {
     const buf = Buffer.alloc(24);
     buf.writeUInt32BE(24, 0);
     buf.write('ftyp', 4, 'latin1');

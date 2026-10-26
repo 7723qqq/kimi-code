@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'bun:test';
+import { beforeEach, describe, expect, it, jest, vi } from 'bun:test';
 import { QuestionDialog } from '@/components/QuestionDialog';
 import { useChatStore } from '@/stores';
 import type { QuestionItem } from 'shared/legacy-sdk';
@@ -372,7 +372,8 @@ describe('QuestionDialog', () => {
 
     fireEvent.click(optionButton('Three'));
     await waitFor(() => {
-      expect(respondQuestion).toHaveBeenCalledExactlyOnceWith({ 'New first': 'Three' });
+      expect(respondQuestion).toHaveBeenCalledTimes(1);
+      expect(respondQuestion).toHaveBeenCalledWith({ 'New first': 'Three' });
     });
   });
 });

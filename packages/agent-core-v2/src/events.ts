@@ -59,6 +59,7 @@ import type { HookResultEvent } from '#/features/externalHooks/agent/agentExtern
 import type { GoalUpdatedEvent } from '#/features/goal/goalOps';
 import type { SkillActivatedEvent } from '#/features/skill/skillOps';
 import type { SubagentSuspendedEvent } from '#/features/swarm/session/sessionSwarmService';
+import type { ToolsUpdateStore } from '#/features/todo/todoOps';
 import type { SessionMetaUpdatedEvent } from '#/session/sessionMetadata/sessionMetaEvents';
 import type {
   SubagentCancelledEvent,
@@ -130,6 +131,7 @@ export type AgentEvent =
   | PromptSubmittedEvent
   | PromptCompletedEvent
   | PromptAbortedEvent
-  | PromptSteeredEvent;
+  | PromptSteeredEvent
+  | ToolsUpdateStore;
 
 export type Event = AgentEvent & { agentId: string; sessionId: string };

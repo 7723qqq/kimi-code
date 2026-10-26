@@ -5,9 +5,9 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
-import { afterEach, describe, expect, it, vi } from 'bun:test';
-import { setGlobal } from 'helpers/stubs';
-import { waitUntil } from 'helpers/waitFor';
+import { afterEach, describe, expect, it, jest } from 'bun:test';
+import { setGlobal } from './helpers/stubs';
+import { waitUntil } from './helpers/waitFor';
 
 import {
   flushTelemetrySync,
@@ -686,8 +686,8 @@ describe('server prefix application', () => {
   it('passes already-prefixed and invalid event names through unchanged', () => {
     const prefixed = sampleEvent('kfc_started');
     const emptyName = sampleEvent('');
-    const missingName = { ...sampleEvent('missing') } as unknown as Record<string, unknown>;
-    delete missingName['event'];
+    const missingName = { ...sampleEvent('missing') } as unknown as EnrichedTelemetryEvent;
+    delete (missingName as unknown as Record<string, unknown>)['event'];
     const numberName = {
       ...sampleEvent('number'),
       event: 123,
@@ -695,7 +695,7 @@ describe('server prefix application', () => {
 
     expect(applyServerPrefix(prefixed)).toBe(prefixed);
     expect(applyServerPrefix(emptyName as unknown as EnrichedTelemetryEvent)).toBe(emptyName);
-    expect(applyServerPrefix(missingName as unknown as EnrichedTelemetryEvent)).toBe(missingName);
+    expect(applyServerPrefix(missingName)).toBe(missingName);
     expect(applyServerPrefix(numberName)).toBe(numberName);
   });
 });
@@ -764,7 +764,7 @@ describe('AsyncTransport', () => {
   });
 
   it('retries anonymously on 401 with a token', async () => {
-    const fetchImpl = vi
+    const fetchImpl = jest
       .fn()
       .mockResolvedValueOnce(new Response('', { status: 401 }))
       .mockResolvedValueOnce(new Response('', { status: 200 }));
@@ -787,7 +787,7 @@ describe('AsyncTransport', () => {
 
   it('spools to disk when the anonymous 401 retry gets a transient response', async () => {
     const homeDir = await tempHome();
-    const fetchImpl = vi
+    const fetchImpl = jest
       .fn()
       .mockResolvedValueOnce(new Response('', { status: 401 }))
       .mockResolvedValueOnce(new Response('', { status: 500 }));
@@ -813,7 +813,7 @@ describe('AsyncTransport', () => {
 
   it('drops events when the anonymous 401 retry gets a non-retryable 4xx', async () => {
     const homeDir = await tempHome();
-    const fetchImpl = vi
+    const fetchImpl = jest
       .fn()
       .mockResolvedValueOnce(new Response('', { status: 401 }))
       .mockResolvedValueOnce(new Response('', { status: 403 }));

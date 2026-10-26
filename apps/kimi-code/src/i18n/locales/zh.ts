@@ -2282,6 +2282,14 @@ export default {
       bunRuntimeRequired: '@moonshot-ai/kimi-code 需要 Bun >= 1.4。请前往 https://bun.sh 安装',
     },
     messages: {
+      providerRefreshAllSpinning: '正在刷新所有 provider 的模型列表…',
+      providerRefreshOneSpinning: '正在刷新 {{id}} 的模型列表…',
+      providerRefreshFailed: '刷新失败。',
+      providerRefreshFailedDetail: '刷新模型列表失败：{{error}}',
+      providerRefreshFinished: '刷新完成。',
+      providerRefreshMetadata: '{{name}}：模型元数据已更新。',
+      providerRefreshSkipped: '已跳过刷新 {{provider}}：{{reason}}',
+      providerRefreshNoChanges: '模型没有变化（{{count}} 个 provider{{plural}} 均为最新）。',
       agentGroup: {
         detachHint: '按 Ctrl+B 在后台运行',
         agentDefault: '智能体',

@@ -5,9 +5,10 @@ import { join } from 'node:path';
 import { log, type GoalSnapshot } from '@moonshot-ai/kimi-code-sdk';
 import type { MigrationPlan } from '@moonshot-ai/migration-legacy';
 import type { Component, Focusable } from '@moonshot-ai/pi-tui';
-import { describe, expect, it, vi } from 'bun:test';
+import { describe, expect, it, jest, vi } from 'bun:test';
 import { setEnv, restoreEnvs } from '../helpers/stubs';
 import { waitUntil } from '../helpers/waitFor';
+import { mocked } from '../helpers/mocked';
 
 import { BannerProvider } from '#/tui/banner/banner-provider';
 import { readBannerDisplayState } from '#/tui/banner/state';
@@ -19,7 +20,7 @@ import { WelcomeComponent } from '#/tui/components/chrome/welcome';
 import { KimiTUI, type KimiTUIStartupInput, type TUIState } from '#/tui/kimi-tui';
 import { maybeShowModelMigrationPrompt } from '#/tui/controllers/model-migration';
 import type { ApprovalPanelData, QuestionPanelData } from '#/tui/reverse-rpc/types';
-import { REPLAY_FETCH_TURN_LIMIT } from '#/tui/utils/message-replay';
+import { REPLAY_TURN_LIMIT } from '#/tui/utils/message-replay';
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
 import { quoteShellArg } from '#/utils/shell-quote';
 import {
@@ -37,7 +38,7 @@ jest.mock('#/tui/commands/prompts', async (importOriginal) => {
 jest.mock('#/utils/clipboard/clipboard-text', () => ({
   copyTextToClipboard: jest.fn(async () => {}),
 }));
-const modelMigrationState = ({ acknowledged: {} as Record<string, string> }));
+const modelMigrationState = (() => ({ acknowledged: {} as Record<string, string> }))();
 jest.mock('#/utils/model-migration-state', () => ({
   readModelMigrationAcknowledgements: jest.fn(async () => ({ ...modelMigrationState.acknowledged })),
   acknowledgeModelMigration: jest.fn(async (fromAlias: string, toModel: string) => {
@@ -45,7 +46,7 @@ jest.mock('#/utils/model-migration-state', () => ({
   }),
 }));
 
-const copyTextToClipboardMock = (copyTextToClipboard);
+const copyTextToClipboardMock = mocked(copyTextToClipboard);
 
 interface StartupDriver {
   state: TUIState;
@@ -109,6 +110,7 @@ function makeStartupInput(
     tuiConfig: {
       theme: 'dark',
       disablePasteBurst: false,
+      locale: 'en',
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },
@@ -157,7 +159,11 @@ function goalSnapshot(overrides: Partial<GoalSnapshot> = {}): GoalSnapshot {
     status: 'paused',
     turnsUsed: 2,
     tokensUsed: 100,
+    inputTokensUsed: 0,
+    outputTokensUsed: 0,
     wallClockMs: 1000,
+    createdAt: 1000,
+    updatedAt: 2000,
     budget: {
       tokenBudget: null,
       turnBudget: null,
@@ -169,6 +175,8 @@ function goalSnapshot(overrides: Partial<GoalSnapshot> = {}): GoalSnapshot {
       turnBudgetReached: false,
       wallClockBudgetReached: false,
       overBudget: false,
+      inputTokensUsed: 0,
+      outputTokensUsed: 0,
     },
     ...overrides,
   };
@@ -547,7 +555,7 @@ describe('KimiTUI startup', () => {
       planMode: false,
     });
 
-    (promptPlatformSelection).mockResolvedValue('kimi-code');
+    mocked(promptPlatformSelection).mockResolvedValue('kimi-code');
     await handleLoginCommand(driver as any);
 
     expect(harness.createSession).not.toHaveBeenCalled();
@@ -584,7 +592,7 @@ describe('KimiTUI startup', () => {
 
     await expect(driver.init()).resolves.toBe(false);
 
-    (promptPlatformSelection).mockResolvedValue('kimi-code');
+    mocked(promptPlatformSelection).mockResolvedValue('kimi-code');
     await handleLoginCommand(driver as any);
 
     expect(harness.createSession).not.toHaveBeenCalled();
@@ -625,7 +633,7 @@ describe('KimiTUI startup', () => {
 
     expect(harness.resumeSession).toHaveBeenCalledWith({
       id: 'ses-latest',
-      replayTurnLimit: REPLAY_FETCH_TURN_LIMIT,
+      replayTurnLimit: REPLAY_TURN_LIMIT,
     });
     expect(harness.createSession).not.toHaveBeenCalled();
     expect(driver.state.startupState).toBe('ready');
@@ -989,7 +997,7 @@ describe('KimiTUI startup', () => {
     expect(driver.state.startupState).toBe('picker');
     await (driver as unknown as { bootstrapFromPicker(): Promise<void> }).bootstrapFromPicker();
 
-    const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
+    const picker = driver.state.editorContainer.children[0] as Component & { handleInput(data: string): void };
     picker.handleInput('\r');
     await new Promise((resolve) => setImmediate(resolve));
 
@@ -1029,7 +1037,7 @@ describe('KimiTUI startup', () => {
     expect(driver.state.startupState).toBe('picker');
     await (driver as unknown as { bootstrapFromPicker(): Promise<void> }).bootstrapFromPicker();
 
-    const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
+    const picker = driver.state.editorContainer.children[0] as Component & { handleInput(data: string): void };
     picker.handleInput('\r');
     await new Promise((resolve) => setImmediate(resolve));
 
@@ -1059,7 +1067,7 @@ describe('KimiTUI startup', () => {
     await expect(driver.init()).resolves.toBe(false);
 
     await (driver as unknown as { showSessionPicker(): Promise<void> }).showSessionPicker();
-    const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
+    const picker = driver.state.editorContainer.children[0] as Component & { handleInput(data: string): void };
     picker.handleInput('\u0001');
     await new Promise((resolve) => setImmediate(resolve));
 
@@ -1137,7 +1145,7 @@ describe('KimiTUI startup', () => {
     await (driver as unknown as { showSessionPicker(): Promise<void> }).showSessionPicker();
     expect(mountSessionPicker).toHaveBeenCalledTimes(1);
 
-    const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
+    const picker = driver.state.editorContainer.children[0] as Component & { handleInput(data: string): void };
     picker.handleInput('\u0001');
     (driver as unknown as { hideSessionPicker(): void }).hideSessionPicker();
     resolveAllSessions?.([currentWorkDirSession, otherWorkDirSession]);
@@ -1173,7 +1181,7 @@ describe('KimiTUI startup', () => {
     expect(listSessionsPage).toHaveBeenCalledWith({ workDir: '/tmp/proj-a', limit: 50 });
     expect(driver.state.sessions).toHaveLength(50);
 
-    const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
+    const picker = driver.state.editorContainer.children[0] as Component & { handleInput(data: string): void };
     for (let i = 0; i < 49; i++) {
       picker.handleInput('\u001B[B');
     }
@@ -1198,7 +1206,7 @@ describe('KimiTUI startup', () => {
     await (driver as unknown as { showSessionPicker(): Promise<void> }).showSessionPicker();
     expect(driver.state.sessions).toHaveLength(50);
 
-    const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
+    const picker = driver.state.editorContainer.children[0] as Component & { handleInput(data: string): void };
     picker.handleInput('x');
     await waitUntil(() => {
       expect(driver.state.sessions).toHaveLength(51);
@@ -1237,7 +1245,7 @@ describe('KimiTUI startup', () => {
     await expect(driver.init()).resolves.toBe(false);
 
     await (driver as unknown as { showSessionPicker(): Promise<void> }).showSessionPicker();
-    const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
+    const picker = driver.state.editorContainer.children[0] as Component & { handleInput(data: string): void };
     for (let i = 0; i < 49; i++) {
       picker.handleInput('\u001B[B');
     }
@@ -1377,7 +1385,7 @@ describe('KimiTUI startup', () => {
       .mockReturnValue(true);
 
     await (driver as unknown as { showSessionPicker(): Promise<void> }).showSessionPicker();
-    const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
+    const picker = driver.state.editorContainer.children[0] as Component & { handleInput(data: string): void };
     picker.handleInput('\u0018');
     picker.handleInput('y');
 
@@ -1419,14 +1427,14 @@ describe('KimiTUI startup', () => {
       .mockReturnValue(true);
 
     await (driver as unknown as { showSessionPicker(): Promise<void> }).showSessionPicker();
-    const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
+    const picker = driver.state.editorContainer.children[0] as Component & { handleInput(data: string): void };
     picker.handleInput('\u0018');
     picker.handleInput('y');
 
     await waitUntil(() => {
       expect(harness.resumeSession).toHaveBeenCalledWith({
         id: 'ses-current',
-        replayTurnLimit: REPLAY_FETCH_TURN_LIMIT,
+        replayTurnLimit: REPLAY_TURN_LIMIT,
       });
     });
     await waitUntil(() => {
@@ -1463,14 +1471,14 @@ describe('KimiTUI startup', () => {
       .mockReturnValue(true);
 
     await (driver as unknown as { showSessionPicker(): Promise<void> }).showSessionPicker();
-    const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
+    const picker = driver.state.editorContainer.children[0] as Component & { handleInput(data: string): void };
     picker.handleInput('\u0018');
     picker.handleInput('y');
 
     await waitUntil(() => {
       expect(harness.resumeSession).toHaveBeenCalledWith({
         id: 'ses-current',
-        replayTurnLimit: REPLAY_FETCH_TURN_LIMIT,
+        replayTurnLimit: REPLAY_TURN_LIMIT,
       });
     });
     expect(deleteSession).not.toHaveBeenCalled();
@@ -1501,7 +1509,7 @@ describe('KimiTUI startup', () => {
     await expect(driver.init()).resolves.toBe(false);
 
     await (driver as unknown as { showSessionPicker(): Promise<void> }).showSessionPicker();
-    const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
+    const picker = driver.state.editorContainer.children[0] as Component & { handleInput(data: string): void };
     picker.handleInput('\u0018');
     picker.handleInput('y');
 
@@ -1532,7 +1540,7 @@ describe('KimiTUI startup', () => {
     await expect(driver.init()).resolves.toBe(false);
 
     await (driver as unknown as { showSessionPicker(): Promise<void> }).showSessionPicker();
-    const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
+    const picker = driver.state.editorContainer.children[0] as Component & { handleInput(data: string): void };
     picker.handleInput('\u0018');
     picker.handleInput('y');
 
@@ -1621,7 +1629,7 @@ describe('KimiTUI startup', () => {
     await (driver as unknown as { showSessionPicker(): Promise<void> }).showSessionPicker();
     expect(mountSessionPicker).toHaveBeenCalledTimes(1);
 
-    const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
+    const picker = driver.state.editorContainer.children[0] as Component & { handleInput(data: string): void };
     picker.handleInput('\u0001');
     picker.handleInput('\u0018');
     picker.handleInput('y');
@@ -1669,7 +1677,7 @@ describe('KimiTUI startup', () => {
     await (driver as unknown as { showSessionPicker(): Promise<void> }).showSessionPicker();
     expect(mountSessionPicker).toHaveBeenCalledTimes(1);
 
-    const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
+    const picker = driver.state.editorContainer.children[0] as Component & { handleInput(data: string): void };
     picker.handleInput('\u0001');
     picker.handleInput('\r');
     await waitUntil(() => {
@@ -1712,7 +1720,7 @@ describe('KimiTUI startup', () => {
     harness.createSession.mockRejectedValueOnce(new Error('create boom'));
 
     await (driver as unknown as { showSessionPicker(): Promise<void> }).showSessionPicker();
-    const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
+    const picker = driver.state.editorContainer.children[0] as Component & { handleInput(data: string): void };
     picker.handleInput('\u0018');
     picker.handleInput('y');
 
@@ -1756,7 +1764,7 @@ describe('KimiTUI startup', () => {
     harness.createSession.mockRejectedValueOnce(new Error('create boom'));
 
     await (driver as unknown as { showSessionPicker(): Promise<void> }).showSessionPicker();
-    const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
+    const picker = driver.state.editorContainer.children[0] as Component & { handleInput(data: string): void };
     picker.handleInput('\u0018');
     picker.handleInput('y');
 
@@ -1793,7 +1801,7 @@ describe('KimiTUI startup', () => {
     copyTextToClipboardMock.mockClear();
 
     await (driver as unknown as { showSessionPicker(): Promise<void> }).showSessionPicker();
-    const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
+    const picker = driver.state.editorContainer.children[0] as Component & { handleInput(data: string): void };
     picker.handleInput('\u001B[B');
     picker.handleInput('\r');
     await new Promise((resolve) => setImmediate(resolve));
@@ -1832,7 +1840,7 @@ describe('KimiTUI startup', () => {
     copyTextToClipboardMock.mockClear();
 
     await (driver as unknown as { showSessionPicker(): Promise<void> }).showSessionPicker();
-    const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
+    const picker = driver.state.editorContainer.children[0] as Component & { handleInput(data: string): void };
     picker.handleInput('\u001B[B');
     picker.handleInput('\r');
     await new Promise((resolve) => setImmediate(resolve));
@@ -1869,7 +1877,7 @@ describe('KimiTUI startup', () => {
     await expect((driver as unknown as MigrateExitDriver).initMainTui()).resolves.toBe(false);
     await (driver as unknown as { bootstrapFromPicker(): Promise<void> }).bootstrapFromPicker();
 
-    const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
+    const picker = driver.state.editorContainer.children[0] as Component & { handleInput(data: string): void };
     picker.handleInput('\u001B[B');
     picker.handleInput('\r');
     await new Promise((resolve) => setImmediate(resolve));
@@ -1905,7 +1913,7 @@ describe('KimiTUI startup', () => {
     await expect(driver.init()).resolves.toBe(false);
 
     await (driver as unknown as { showSessionPicker(): Promise<void> }).showSessionPicker();
-    const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
+    const picker = driver.state.editorContainer.children[0] as Component & { handleInput(data: string): void };
     picker.handleInput('\r');
     await new Promise((resolve) => setImmediate(resolve));
 
@@ -1934,7 +1942,7 @@ describe('KimiTUI startup', () => {
     await expect((driver as unknown as MigrateExitDriver).initMainTui()).resolves.toBe(false);
     await (driver as unknown as { bootstrapFromPicker(): Promise<void> }).bootstrapFromPicker();
 
-    const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
+    const picker = driver.state.editorContainer.children[0] as Component & { handleInput(data: string): void };
     picker.handleInput('\u0003');
     picker.handleInput('\r');
     await new Promise((resolve) => setImmediate(resolve));
@@ -2348,7 +2356,7 @@ describe('KimiTUI startup', () => {
     installMigrationModels(driver);
 
     const prompt = maybeShowModelMigrationPrompt(driver as any, {});
-    const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
+    const picker = driver.state.editorContainer.children[0] as Component & { handleInput(data: string): void };
     picker.handleInput('\u001B[B');
     picker.handleInput('\r');
     await prompt;
@@ -2512,7 +2520,7 @@ describe('KimiTUI startup', () => {
     installMigrationModels(driver);
 
     const prompt = maybeShowModelMigrationPrompt(driver as any, {});
-    const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
+    const picker = driver.state.editorContainer.children[0] as Component & { handleInput(data: string): void };
     picker.handleInput('\u001B');
     await prompt;
 
@@ -2698,7 +2706,7 @@ describe('KimiTUI startup', () => {
       planMode: true,
     });
 
-    (promptPlatformSelection).mockResolvedValue('kimi-code');
+    mocked(promptPlatformSelection).mockResolvedValue('kimi-code');
     await handleLoginCommand(driver as any);
 
     expect(createSession).not.toHaveBeenCalled();
@@ -2728,7 +2736,7 @@ describe('KimiTUI startup', () => {
     await driver.syncRuntimeState(session);
     expect(driver.state.appState.thinkingEffort).toBe('off');
 
-    (promptPlatformSelection).mockResolvedValue('kimi-code');
+    mocked(promptPlatformSelection).mockResolvedValue('kimi-code');
     await handleLoginCommand(driver as any);
 
     expect(session.setModel).toHaveBeenCalledWith('k2');
@@ -2762,7 +2770,7 @@ describe('KimiTUI startup', () => {
     await expect(driver.init()).resolves.toBe(false);
     harness.track.mockClear();
 
-    (promptPlatformSelection).mockResolvedValue('kimi-code');
+    mocked(promptPlatformSelection).mockResolvedValue('kimi-code');
     await handleLoginCommand(driver as any);
 
     expect(harness.auth.login).toHaveBeenCalledWith(
@@ -2800,7 +2808,7 @@ describe('KimiTUI startup', () => {
       await driver.setSession(session);
       await driver.syncRuntimeState(session);
 
-      (promptPlatformSelection).mockResolvedValue('kimi-code');
+      mocked(promptPlatformSelection).mockResolvedValue('kimi-code');
       await handleLoginCommand(driver as any);
 
       expect(harness.auth.login).toHaveBeenCalledWith(
@@ -2863,7 +2871,7 @@ describe('KimiTUI startup', () => {
     await driver.syncRuntimeState(session);
     harness.track.mockClear();
 
-    (promptLogoutProviderSelection).mockResolvedValue('managed:kimi-code');
+    mocked(promptLogoutProviderSelection).mockResolvedValue('managed:kimi-code');
     await handleLogoutCommand(driver as any);
 
     expect(harness.auth.logout).toHaveBeenCalledWith('managed:kimi-code');
@@ -2915,7 +2923,7 @@ describe('KimiTUI startup', () => {
     await expect(driver.init()).resolves.toBe(false);
     expect(driver.state.appState.model).toBe('k2');
 
-    (promptLogoutProviderSelection).mockResolvedValue('managed:kimi-code');
+    mocked(promptLogoutProviderSelection).mockResolvedValue('managed:kimi-code');
     await handleLogoutCommand(driver as any);
 
     expect(harness.createSession).not.toHaveBeenCalled();
@@ -2959,7 +2967,7 @@ describe('KimiTUI startup', () => {
     await driver.syncRuntimeState(session);
     harness.track.mockClear();
 
-    (promptLogoutProviderSelection).mockResolvedValue('openai');
+    mocked(promptLogoutProviderSelection).mockResolvedValue('openai');
     await handleLogoutCommand(driver as any);
 
     expect(removeProvider).toHaveBeenCalledWith('openai');
@@ -2994,7 +3002,7 @@ describe('KimiTUI startup', () => {
 
     await expect(driver.init()).resolves.toBe(false);
 
-    (promptLogoutProviderSelection).mockResolvedValue('managed:kimi-code');
+    mocked(promptLogoutProviderSelection).mockResolvedValue('managed:kimi-code');
     await handleLogoutCommand(driver as any);
 
     expect(harness.auth.logout).toHaveBeenCalledWith('managed:kimi-code');
@@ -3013,7 +3021,7 @@ describe('KimiTUI startup', () => {
 
     expect(harness.resumeSession).toHaveBeenCalledWith({
       id: 'ses-latest',
-      replayTurnLimit: REPLAY_FETCH_TURN_LIMIT,
+      replayTurnLimit: REPLAY_TURN_LIMIT,
     });
     expect(harness.createSession).not.toHaveBeenCalled();
     expect(driver.state.startupState).toBe('ready');
@@ -3033,7 +3041,7 @@ describe('KimiTUI startup', () => {
 
     expect(harness.resumeSession).toHaveBeenCalledWith({
       id: 'ses-target',
-      replayTurnLimit: REPLAY_FETCH_TURN_LIMIT,
+      replayTurnLimit: REPLAY_TURN_LIMIT,
     });
     expect(driver.state.startupState).toBe('ready');
     expect(driver.state.appState.sessionId).toBe('');
@@ -3443,7 +3451,7 @@ describe('KimiTUI startup', () => {
     });
     expect(harness.resumeSession).toHaveBeenCalledWith({
       id: 'ses-target',
-      replayTurnLimit: REPLAY_FETCH_TURN_LIMIT,
+      replayTurnLimit: REPLAY_TURN_LIMIT,
     });
     expect(driver.state.appState.sessionId).toBe('ses-target');
   });

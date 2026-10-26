@@ -1,7 +1,7 @@
 import type * as ChildProcess from 'node:child_process';
 import { EventEmitter } from 'node:events';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, jest, vi } from 'bun:test';
 import { setEnv, restoreEnvs } from '../../helpers/stubs';
 
 import { readUpdateCache } from '#/cli/update/cache';
@@ -26,7 +26,7 @@ import {
 import type { TuiConfig } from '#/tui/config';
 import { resetKimiRegionCache } from '#/utils/region';
 
-const mocks = ({
+const mocks = (() => ({
   readUpdateCache: jest.fn(),
   readUpdateInstallState: jest.fn(),
   writeUpdateInstallState: jest.fn(),
@@ -41,7 +41,7 @@ const mocks = ({
   // Identity by default: resolution is covered by resolve-command.test.ts;
   // here we only care which command string reaches spawn().
   resolveCommandPath: jest.fn((cmd: string) => cmd as string | undefined),
-}));
+}))();
 
 jest.mock('#/utils/process/resolve-command', () => ({
   resolveCommandPath: mocks.resolveCommandPath,
@@ -170,6 +170,7 @@ function tuiConfig(overrides: Partial<TuiConfig> = {}): TuiConfig {
   return {
     theme: 'auto',
     disablePasteBurst: false,
+    locale: 'en',
     editorCommand: null,
     notifications: { enabled: true, condition: 'unfocused' },
     upgrade: { autoInstall: true },

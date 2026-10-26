@@ -29,3 +29,35 @@ export async function waitForAssertion(
     });
   }
 }
+
+export async function waitUntil<T>(
+  probe: () => T | Promise<T>,
+  options: PollOptions & { readonly until?: (value: T) => boolean } = {},
+): Promise<T> {
+  const timeout = options.timeout ?? 2_000;
+  const interval = options.interval ?? 10;
+  const until = options.until ?? ((value: T) => Boolean(value));
+  const deadline = Date.now() + timeout;
+  let last: unknown;
+  let lastError: unknown;
+  let observed = false;
+  for (;;) {
+    try {
+      const value = await probe();
+      if (until(value)) return value;
+      last = value;
+      observed = true;
+      lastError = undefined;
+    } catch (error) {
+      lastError = error;
+      observed = false;
+    }
+    if (Date.now() >= deadline) {
+      if (observed) {
+        throw new Error(`waitUntil timed out after ${timeout}ms with ${String(last)}`);
+      }
+      throw lastError;
+    }
+    await new Promise((resolve) => setTimeout(resolve, interval));
+  }
+}

@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it, vi } from 'bun:test';
-import { setEnv, restoreEnvs, setGlobal, restoreGlobals } from 'helpers/stubs';
+import { afterEach, describe, expect, it, jest } from 'bun:test';
+import { setEnv, restoreEnvs, setGlobal, restoreGlobals } from './helpers/stubs';
 
 import {
   KIMI_CODE_PROVIDER_NAME,

@@ -1,9 +1,9 @@
 /* eslint-disable import/first -- jest.mock setup must run before the imports it stubs out. */
 import { join } from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, jest, vi } from 'bun:test';
 
-const mocks = ({
+const mocks = (() => ({
   execFile: jest.fn(),
   resolveCommandPath: jest.fn(),
   watchers: [] as Array<{
@@ -12,7 +12,7 @@ const mocks = ({
     close: ReturnType<typeof jest.fn>;
     emit: (event: string) => void;
   }>,
-}));
+}))();
 
 jest.mock('node:child_process', () => ({
   execFile: mocks.execFile,

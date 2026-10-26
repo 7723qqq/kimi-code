@@ -3,11 +3,11 @@
  * `kimi web` / `kimi server run` host wiring added in `cli/telemetry.ts`.
  */
 
-import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, jest, vi } from 'bun:test';
 import { setEnv, restoreEnvs } from '../helpers/stubs';
 import { resetKimiRegionCache } from '#/utils/region';
 
-const mocks = ({
+const mocks = (() => ({
   initializeTelemetry: jest.fn(),
   createKimiDeviceId: jest.fn(() => 'device-123'),
   resolveKimiHome: jest.fn(() => '/home/.kimi-code'),
@@ -22,7 +22,7 @@ const mocks = ({
     }),
   ),
   getCachedAccessToken: jest.fn(async () => 'tok'),
-}));
+}))();
 
 jest.mock('@moonshot-ai/kimi-telemetry', () => ({
   initializeTelemetry: mocks.initializeTelemetry,

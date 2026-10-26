@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from 'bun:test';
+import { describe, expect, it, jest } from 'bun:test';
+import type { SurveyGateSkipReason } from '#/session-rating/common/gates';
 
 import {
   buildSurveyEventProperties,
@@ -71,7 +72,7 @@ describe('evaluateSurveyGate (session arm)', () => {
     expect(evaluateSurveyGate(gate())).toEqual({ show: true, survey: 'session' });
   });
 
-  it.each<[Partial<SessionArmGateInput>, string]>([
+  it.each<[Partial<SessionArmGateInput>, SurveyGateSkipReason]>([
     [{ turnInProgress: true }, 'turn-in-progress'],
     [{ feedbackSurveyDisabled: true }, 'feature-disabled'],
     [{ telemetryDisabled: true }, 'telemetry-disabled'],
@@ -181,7 +182,7 @@ describe('evaluateLongContextArm', () => {
     });
   });
 
-  it.each<[Partial<LongContextArmGateInput>, string]>([
+  it.each<[Partial<LongContextArmGateInput>, SurveyGateSkipReason]>([
     [{ mountRollConsumed: true }, 'mount-roll-consumed'],
     [{ mountSurveyShown: true }, 'mount-survey-shown'],
     [{ turnInProgress: true }, 'turn-in-progress'],

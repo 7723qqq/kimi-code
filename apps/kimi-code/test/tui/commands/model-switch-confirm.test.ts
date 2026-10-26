@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'bun:test';
+import { afterEach, describe, expect, it, jest, vi } from 'bun:test';
 import { waitUntil } from '../../helpers/waitFor';
 
 import type { Session } from '@moonshot-ai/kimi-code-sdk';

@@ -1,4 +1,5 @@
 import { randomBytes } from 'node:crypto';
+import type { FetchLike } from '#/_base/utils/fetchLike';
 
 import type {
   OAuthClientProvider,
@@ -182,7 +183,7 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
     await this.tokenTransaction.save(tokens);
   }
 
-  createOAuthFetch(fetchFn: typeof fetch = globalThis.fetch): typeof fetch {
+  createOAuthFetch(fetchFn: FetchLike = globalThis.fetch): FetchLike {
     return this.tokenTransaction.createFetch(fetchFn);
   }
 
@@ -287,7 +288,7 @@ function registeredRedirectUri(info: OAuthClientInformationMixed | undefined): s
 
 export function createMcpOAuthFetch(
   provider: OAuthClientProvider | undefined,
-  fetchFn: typeof fetch | undefined,
-): typeof fetch | undefined {
+  fetchFn: FetchLike | undefined,
+): FetchLike | undefined {
   return provider instanceof McpOAuthClientProvider ? provider.createOAuthFetch(fetchFn) : fetchFn;
 }

@@ -19,9 +19,9 @@ import {
   resolveKimiCodeOAuthRef,
   resolveKimiTokenStorageName,
 } from '@moonshot-ai/kimi-code-oauth';
-import { afterEach, describe, expect, it, vi } from 'bun:test';
-import { setEnv, restoreEnvs, setGlobal, restoreGlobals } from 'helpers/stubs';
-import { waitUntil } from 'helpers/waitFor';
+import { afterEach, describe, expect, it, jest, mock } from 'bun:test';
+import { setEnv, restoreEnvs, setGlobal, restoreGlobals } from './helpers/stubs';
+import { waitUntil } from './helpers/waitFor';
 
 import {
   buildDaemonFileUrl,
@@ -77,12 +77,10 @@ import {
 } from '@moonshot-ai/agent-core-v2/app/kosongConfig/modelsDevUpstream';
 import { recordingTelemetry, type TelemetryRecord } from './telemetry';
 
-const hostEnvProbe = ({ failWithMissingShell: false }));
+const hostEnvProbe = { failWithMissingShell: false };
 
-jest.mock('@moonshot-ai/agent-core-v2/_base/execEnv/environmentProbe', async (importOriginal) => {
-  const actual = await importOriginal<
-    typeof import('@moonshot-ai/agent-core-v2/_base/execEnv/environmentProbe')
-  >();
+void mock.module('@moonshot-ai/agent-core-v2/_base/execEnv/environmentProbe', async () => {
+  const actual = await import('@moonshot-ai/agent-core-v2/_base/execEnv/environmentProbe');
   return {
     ...actual,
     probeHostEnvironmentFromNode: () =>
@@ -446,7 +444,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
       expect(handler.mock.calls[0]?.[0]).toMatchObject({ id: 'ses_stale' });
       expect(getLiveSessionById(client.engineAccessor, 'ses_stale')).not.toBe(before);
 
-      const begin = vi
+      const begin = jest
         .spyOn((await mainOf()).accessor.get(IAgentFullCompactionService), 'begin')
         .mockImplementationOnce(() => {
           throw stale();
@@ -475,7 +473,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
       releaseShutdown = resolve;
     });
     const baseShutdown = McpOAuthServiceV2.prototype.shutdown;
-    const shutdownSpy = vi
+    const shutdownSpy = jest
       .spyOn(McpOAuthServiceV2.prototype, 'shutdown')
       .mockImplementation(function (this: McpOAuthServiceV2) {
         return baseShutdown.call(this).then(() => gate);
@@ -655,7 +653,8 @@ key = "${titleOAuthRef.key}"
 `,
       'utf-8',
     );
-    const fetchSpy = jest.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const fetchSpy = jest.spyOn(globalThis, 'fetch');
+    void fetchSpy.mockImplementation((async (input: string | URL | Request) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       if (url === 'https://api.example.test/coding/v1/tools') {
         return new Response(JSON.stringify({ title: 'Generated title' }), {
@@ -664,7 +663,7 @@ key = "${titleOAuthRef.key}"
         });
       }
       throw new Error(`Unexpected fetch: ${url}`);
-    });
+      }) as unknown as typeof fetch);
     const harness = createKimiHarness({ homeDir, identity: TEST_IDENTITY });
 
     try {
@@ -765,14 +764,15 @@ key = "${titleOAuthRef.key}"
     const fetchResponse = new Promise<Response>((resolve) => {
       resolveFetch = resolve;
     });
-    const fetchSpy = jest.spyOn(globalThis, 'fetch').mockImplementation(async (input) => {
+    const fetchSpy = jest.spyOn(globalThis, 'fetch');
+    void fetchSpy.mockImplementation((async (input: string | URL | Request) => {
       const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
       if (url === 'https://api.example.test/coding/v1/tools') {
         markFetchStarted();
         return fetchResponse;
       }
       throw new Error(`Unexpected fetch: ${url}`);
-    });
+      }) as unknown as typeof fetch);
     const client = new SDKRpcClientV2({ homeDir, identity: TEST_IDENTITY });
 
     try {
@@ -833,14 +833,12 @@ key = "${titleOAuthRef.key}"
       // The resumed session is a fresh, fully usable scope — not the handle
       // the temporary path just tore down.
       await client.renameSession({ id: 'ses_title_race', title: 'Resumed title' });
-      await expect
-        .poll(
+      await waitUntil(
           async () =>
             (await client.listSessions({ workDir })).find((item) => item.id === 'ses_title_race')
               ?.title,
-          { interval: 50, timeout: 4000 },
-        )
-        .toBe('Resumed title');
+        { interval: 50, timeout: 4000, until: (v) => v === 'Resumed title' },
+      );
     } finally {
       await client.close();
       fetchSpy.mockRestore();
@@ -1609,8 +1607,8 @@ key = "${titleOAuthRef.key}"
       await manager.create({ agentId: 'main' });
       const todo = manager.handleOf('main')!.accessor.get(IAgentTodoService);
       await todo.replace([
-        { title: 'write tests', status: 'in_progress' },
-        { title: 'ship it', status: 'pending' },
+        { id: 't1', parentId: null, kind: 'task', title: 'write tests', status: 'in_progress' },
+        { id: 't2', parentId: null, kind: 'task', title: 'ship it', status: 'pending' },
       ]);
 
       expect(await client.getTodos({ sessionId: 'ses_todos' })).toEqual([

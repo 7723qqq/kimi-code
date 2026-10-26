@@ -1,5 +1,7 @@
 import { isDeepStrictEqual } from 'node:util';
 
+type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+
 const REQUEST_TIMEOUT_MS = 30_000;
 
 type GrantType = 'refresh_token' | 'authorization_code';
@@ -53,7 +55,7 @@ export class OAuthTokenTransaction<T extends object> {
 
   constructor(private readonly options: OAuthTokenTransactionOptions<T>) {}
 
-  createFetch(fetchFn: typeof fetch = globalThis.fetch): typeof fetch {
+  createFetch(fetchFn: FetchLike = globalThis.fetch): FetchLike {
     return (async (input, init) => {
       const params = init?.body instanceof URLSearchParams ? init.body : undefined;
       const grantType = params?.get('grant_type');
@@ -78,7 +80,7 @@ export class OAuthTokenTransaction<T extends object> {
       );
       this.options.track?.(operation);
       return request;
-    }) as typeof fetch;
+    }) as FetchLike;
   }
 
   async save(tokens: T): Promise<T | undefined> {
@@ -153,9 +155,9 @@ export class OAuthTokenTransaction<T extends object> {
   }
 
   private async runTokenRequest(
-    fetchFn: typeof fetch,
-    input: Parameters<typeof fetch>[0],
-    init: Parameters<typeof fetch>[1] | undefined,
+    fetchFn: FetchLike,
+    input: Parameters<FetchLike>[0],
+    init: Parameters<FetchLike>[1] | undefined,
     params: URLSearchParams,
     grantType: GrantType,
   ): Promise<Response> {

@@ -11,7 +11,7 @@ import { join } from 'node:path';
 
 import type { createKimiDeviceId as createKimiDeviceIdFn } from '@moonshot-ai/kimi-code-oauth';
 import { Command } from 'commander';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, jest, vi } from 'bun:test';
 import { setEnv, restoreEnvs } from '../helpers/stubs';
 
 import { handleExport, registerExportCommand } from '#/cli/sub/export';
@@ -28,7 +28,7 @@ let tmp: string;
 
 type CreateKimiDeviceId = typeof createKimiDeviceIdFn;
 
-const mocks = ({
+const mocks = (() => ({
   kimiHarnessConstructor: jest.fn(),
   harnessEnsureConfigFile: jest.fn(),
   harnessGetConfig: jest.fn(async () => ({
@@ -48,7 +48,7 @@ const mocks = ({
   withTelemetryContext: jest.fn(),
   resolveKimiHome: jest.fn((homeDir?: string) => homeDir ?? '/tmp/kimi-export-home'),
   harnessCreatesDeviceIdOnConstruction: false,
-}));
+}))();
 
 jest.mock('@moonshot-ai/kimi-code-sdk', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@moonshot-ai/kimi-code-sdk')>();
@@ -174,7 +174,7 @@ function makeDeps(overrides: Partial<ExportDeps> = {}): {
       exportInputs.push(input);
       return makeResult(input.id, input.outputPath ?? join(tmp, `${input.id}.zip`));
     },
-    confirmPreviousSession: async () => true,
+    confirmPreviousSession: async () => 'yes',
     getInstallSource: async () => 'npm-global',
     getShellEnv: () => ({ term: 'xterm-256color', shell: '/bin/zsh' }),
     version: '1.0.0-test',
@@ -294,7 +294,7 @@ describe('kimi export', () => {
       listSessions: async () => [previous],
       confirmPreviousSession: async (summary) => {
         summaries.push(summary);
-        return false;
+        return 'no';
       },
     });
 
@@ -343,7 +343,7 @@ describe('kimi export', () => {
     const previous = makeSummary('ses_global_log');
     const { deps, stdout, exitCodes, exportInputs } = makeDeps({
       listSessions: async () => [previous],
-      confirmPreviousSession: async () => true,
+      confirmPreviousSession: async () => 'yes',
     });
     const program = new Command('kimi');
     registerExportCommand(program, deps);

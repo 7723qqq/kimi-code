@@ -22,18 +22,18 @@ import {
   type CompactionResult,
   type TelemetryAppenderRecord,
 } from '@moonshot-ai/agent-core-v2';
-import { ContextAppendMessage } from '@moonshot-ai/agent-core-v2/agent/contextMemory/contextEvents';
-import { TurnStarted } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
-import { TurnEnded, TurnPrompt } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
+import { ContextAppendMessage } from '@moonshot-ai/agent-core-v2';
+import { TurnStarted } from '@moonshot-ai/agent-core-v2';
+import { TurnEnded, TurnPrompt } from '@moonshot-ai/agent-core-v2';
 import {
   ToolCallStarted,
   ToolResultEvent,
-} from '@moonshot-ai/agent-core-v2/agent/toolExecutor/toolExecutorEvents';
+} from '@moonshot-ai/agent-core-v2';
 import type { TranscriptItem } from '@moonshot-ai/transcript';
 import type { SessionRatingResult } from '../src/protocol/rest-session-rating';
 import { pino } from 'pino';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'bun:test';
-import { waitUntil } from 'helpers/waitFor';
+import { waitUntil } from './helpers/waitFor';
 
 import { type RunningServer, startServer } from '../src/start';
 import { ensureMainAgent } from '../src/transport/mainAgent';
