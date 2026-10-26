@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from 'node:crypto';
+import { randomBytes } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import { join } from 'node:path';
@@ -241,7 +241,7 @@ export class GoogleOAuthManager {
     } = {},
   ): Promise<GoogleLoginResult> {
     const codeVerifier = randomBytes(32).toString('base64url');
-    const codeChallenge = createHash('sha256').update(codeVerifier).digest('base64url');
+    const codeChallenge = new Bun.CryptoHasher('sha256').update(codeVerifier).digest('base64url');
     const state = randomBytes(16).toString('hex');
 
     return new Promise((resolve, reject) => {

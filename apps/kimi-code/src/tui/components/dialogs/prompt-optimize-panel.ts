@@ -44,8 +44,14 @@ const MAX_EXPANDED_DIFF_LINES = 200;
  * Ceiling on rendered rows after wrapping. A single long line can expand into
  * hundreds once folded, which would push the accept/discard choices off screen;
  * the cap keeps them reachable and is reported rather than silently applied.
+ *
+ * The expanded budget is deliberately larger than the collapsed one, so
+ * `Ctrl+O` always buys something even when the capped row count is what the
+ * last render was limited by — otherwise the key would look dead on a rewrite
+ * made of very long lines.
  */
 const MAX_WRAPPED_LINES = 400;
+const MAX_EXPANDED_WRAPPED_LINES = 1200;
 
 /** Default rows for the diff region when the host grants no explicit budget. */
 const DEFAULT_MAX_VISIBLE = 20;
@@ -227,14 +233,15 @@ export class PromptOptimizePanelComponent implements Component, Focusable {
     ];
     const diffRows: string[] = [];
     let wrapTruncated = false;
+    const wrappedBudget = this.expanded ? MAX_EXPANDED_WRAPPED_LINES : MAX_WRAPPED_LINES;
     for (const row of renderDiffLinesClustered(this.opts.original, this.opts.optimized, '', {
       contextLines: 2,
       maxLines: this.expanded ? MAX_EXPANDED_DIFF_LINES : MAX_DIFF_LINES,
       expandKeyHint: this.expanded ? 'ctrl+o' : undefined,
     })) {
       const wrapped = wrapRenderedRow(row, width, hangIndentFor(row));
-      if (diffRows.length + wrapped.length > MAX_WRAPPED_LINES) {
-        const room = MAX_WRAPPED_LINES - diffRows.length;
+      if (diffRows.length + wrapped.length > wrappedBudget) {
+        const room = wrappedBudget - diffRows.length;
         if (room > 0) diffRows.push(...wrapped.slice(0, room));
         wrapTruncated = true;
         break;
@@ -269,12 +276,10 @@ export class PromptOptimizePanelComponent implements Component, Focusable {
     }
 
     if (wrapTruncated) {
-      lines.push(
-        theme.fg(
-          'textMuted',
-          truncateToWidth(`     … ${t('tui.diffPreview.wrappedRowsTruncated')}`, width),
-        ),
-      );
+      const notice = this.expanded
+        ? t('tui.diffPreview.wrappedRowsTruncated')
+        : t('tui.dialogs.promptOptimize.wrappedRowsTruncatedExpandable', { expand: 'Ctrl+O' });
+      lines.push(theme.fg('textMuted', truncateToWidth(`     … ${notice}`, width)));
     }
     lines.push('');
     lines.push(this.choiceLine('accept', width));

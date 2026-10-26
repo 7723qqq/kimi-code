@@ -3,7 +3,7 @@
  * matrix runners' zip archives, written into the same input directory.
  *
  * Usage:
- *   node produce-manifest.mjs <input-dir> <release-tag>
+ *   bun produce-manifest.mjs <input-dir> <release-tag>
  *
  * Input dir must contain kimi-code-bun-<target>.zip.sha256 for every
  * supported target (produced by package.mjs across the 6 native-build matrix
@@ -27,17 +27,11 @@
  *   <input-dir>/manifest.json   ← consumed by src/cli/update/native-manifest.ts
  */
 
-import { execFile } from 'node:child_process';
-import { createHash } from 'node:crypto';
-import { createReadStream } from 'node:fs';
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
-import { promisify } from 'node:util';
 
 import { SUPPORTED_TARGETS } from './native-deps.mjs';
-
-const execFileAsync = promisify(execFile);
 
 const [, , inputDir, tag] = process.argv;
 if (!inputDir || !tag) {
@@ -49,9 +43,7 @@ if (!inputDir || !tag) {
 // missing one fails here rather than midway through the target loop, after
 // some archives have already been written.
 for (const tool of ['unzip', 'zstd', 'tar']) {
-  try {
-    await execFileAsync('sh', ['-c', `command -v ${tool}`]);
-  } catch {
+  if (Bun.which(tool) === null) {
     console.error(
       `produce-manifest.mjs requires \`${tool}\` on PATH (preinstalled on GitHub-hosted runners).`,
     );
@@ -60,18 +52,36 @@ for (const tool of ['unzip', 'zstd', 'tar']) {
 }
 
 async function sha256(path) {
-  return await new Promise((resolveHash, reject) => {
-    const hash = createHash('sha256');
-    const stream = createReadStream(path);
-    stream.on('error', reject);
-    stream.on('data', (chunk) => hash.update(chunk));
-    stream.on('end', () => resolveHash(hash.digest('hex')));
-  });
+  const hasher = new Bun.CryptoHasher('sha256');
+  const reader = Bun.file(path).stream().getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    hasher.update(value);
+  }
+  return hasher.digest('hex');
 }
 
 async function run(command, args, options = {}) {
   try {
-    await execFileAsync(command, args, options);
+    const proc = Bun.spawn({
+      cmd: [command, ...args],
+      stdout: 'pipe',
+      stderr: 'pipe',
+      maxBuffer: 1024 * 1024,
+      ...options,
+    });
+    const [stdout, stderr, code] = await Promise.all([
+      new Response(proc.stdout).text(),
+      new Response(proc.stderr).text(),
+      proc.exited,
+    ]);
+    if (code !== 0) {
+      throw Object.assign(new Error(`${command} ${args.join(' ')} exited with code ${code}`), {
+        stdout,
+        stderr,
+      });
+    }
   } catch (error) {
     const detail = [error.stdout?.trim(), error.stderr?.trim(), error.message]
       .filter(Boolean)
@@ -94,7 +104,7 @@ if (sumFiles.length === 0) {
 
 const bun = {};
 for (const sumFile of sumFiles.sort()) {
-  const text = await readFile(resolve(inputDir, sumFile), 'utf-8');
+  const text = await Bun.file(resolve(inputDir, sumFile)).text();
   const [checksum] = text.trim().split(/\s+/, 1);
   if (!checksum || !/^[a-f0-9]{64}$/.test(checksum)) {
     console.error(`Invalid checksum in ${sumFile}: ${checksum}`);
@@ -136,9 +146,7 @@ for (const [target, entry] of Object.entries(bun)) {
   try {
     await run('unzip', ['-o', zipPath, '-d', workDir]);
     const exePath = join(workDir, exeName);
-    try {
-      await stat(exePath);
-    } catch {
+    if (!(await Bun.file(exePath).exists())) {
       console.error(`${zipPath} does not contain ${exeName}`);
       process.exit(1);
     }
@@ -154,7 +162,9 @@ for (const [target, entry] of Object.entries(bun)) {
 
     for (const name of [tarballName, zstdName]) {
       const digest = await sha256(resolve(inputDir, name));
-      await writeFile(resolve(inputDir, `${name}.sha256`), `${digest}  ${name}\n`);
+      await Bun.write(resolve(inputDir, `${name}.sha256`), `${digest}  ${name}\n`, {
+        createPath: false,
+      });
     }
   } finally {
     await rm(workDir, { recursive: true, force: true });
@@ -164,6 +174,6 @@ for (const [target, entry] of Object.entries(bun)) {
 const manifest = { version, tag, bun };
 const manifestPath = resolve(inputDir, 'manifest.json');
 
-await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
+await Bun.write(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, { createPath: false });
 
 console.log(`Wrote ${manifestPath} (${Object.keys(bun).length} bun targets)`);

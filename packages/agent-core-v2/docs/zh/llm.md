@@ -74,4 +74,4 @@ llm/
 - 出站时把 system 消息 hoisting 出原位 —— system 消息留在历史原位转换。
 - llm 输出 `{message, meta}` 的 Context 对象 —— meta 归 turn 领域，llm 只发事件。
 - 在 llm 与 turn 各实现一次 accumulator —— accumulator 只由 turn 持有，随事件流喂入。
-- beta 特性无限兜底 —— 协议拆分为 `anthropic` / `anthropic_beta`，不传就不发，传错就报错；需要 beta 特性的 provider 必须显式使用 `anthropic_beta` 协议。
+- beta 特性无限兜底 —— beta 特性通过 provider 的 extra-params 配置；不存在单独的 `anthropic_beta` 协议。

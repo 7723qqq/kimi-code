@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
@@ -7,7 +6,7 @@ export function toPosixPath(path) {
 }
 
 export function sha256(bytes) {
-  return createHash('sha256').update(bytes).digest('hex');
+  return new Bun.CryptoHasher('sha256').update(bytes).digest('hex');
 }
 
 export async function listFiles(root) {

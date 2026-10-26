@@ -1,16 +1,12 @@
-import { execFile } from 'node:child_process';
-
 import { resolveCommandPath } from '#/utils/process/resolve-command';
 
 export interface OpenUrlDeps {
   readonly platform?: NodeJS.Platform;
   readonly resolveCommandPath?: (command: string) => string | undefined;
-  readonly execFile?: (
-    file: string,
-    args: string[],
-    options: { windowsHide: boolean },
-    callback: (error: Error | null) => void,
-  ) => unknown;
+  readonly spawn?: (
+    argv: string[],
+    options: { windowsHide: boolean; stdio: ['ignore', 'ignore', 'ignore'] },
+  ) => { readonly exited: Promise<number> };
 }
 
 export function openUrl(
@@ -20,7 +16,7 @@ export function openUrl(
 ): void {
   const platform = deps.platform ?? process.platform;
   const resolve = deps.resolveCommandPath ?? resolveCommandPath;
-  const run = deps.execFile ?? execFile;
+  const spawn = deps.spawn ?? ((argv, options) => Bun.spawn({ cmd: argv, ...options }));
   const command: [string, string[]] =
     platform === 'darwin'
       ? ['open', [url]]
@@ -35,7 +31,20 @@ export function openUrl(
     onError?.(new Error(`Cannot find ${command[0]}`));
     return;
   }
-  run(executable, command[1], { windowsHide: true }, (error) => {
-    if (error) onError?.(error);
-  });
+  try {
+    const child = spawn([executable, ...command[1]], {
+      windowsHide: true,
+      stdio: ['ignore', 'ignore', 'ignore'],
+    });
+    child.exited.then(
+      (code) => {
+        if (code !== 0) onError?.(new Error(`${command[0]} exited with code ${String(code)}`));
+      },
+      (error: unknown) => {
+        onError?.(error instanceof Error ? error : new Error(String(error)));
+      },
+    );
+  } catch (error) {
+    onError?.(error instanceof Error ? error : new Error(String(error)));
+  }
 }

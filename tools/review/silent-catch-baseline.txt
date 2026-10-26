@@ -27,7 +27,8 @@ apps/kimi-code/src/tui/kimi-tui.ts  18
 apps/kimi-code/src/tui/theme/detect.ts  1
 apps/kimi-code/src/tui/utils/event-payload.ts  1
 apps/kimi-code/src/tui/utils/image-placeholder.ts  3
-apps/kimi-code/src/tui/utils/status-line-command.ts  1
+apps/kimi-code/src/tui/utils/status-line-command.ts  2
+apps/kimi-code/src/utils/clipboard/clipboard-common.ts  1
 apps/kimi-code/src/utils/clipboard/clipboard-image.ts  1
 apps/kimi-code/src/utils/clipboard/clipboard-text.ts  1
 apps/kimi-code/src/utils/persistence.ts  2
@@ -100,7 +101,7 @@ packages/agent-core-v2/src/human/llm/requester/bases/google-genai/lower.ts  1
 packages/agent-core-v2/src/mcpCore/client-stdio.ts  1
 packages/agent-core-v2/src/mcpCore/connection-manager.ts  1
 packages/agent-core-v2/src/mcpCore/oauth/service.ts  1
-packages/agent-core-v2/src/os/backends/host/hostProcessService.ts  1
+packages/agent-core-v2/src/os/backends/host/hostProcessService.ts  2
 packages/agent-core-v2/src/os/backends/host/hostTerminalService.ts  1
 packages/agent-core-v2/src/os/backends/host/tools/runRg.ts  4
 packages/agent-core-v2/src/session/agentLifecycle/agentLifecycleService.ts  2

@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto';
-
 import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
 
 /**
@@ -21,5 +19,5 @@ export const computeWorkdirBucket = encodeWorkDirKey;
 
 /** Returns the md5 hex of the workdir path; used to reverse-look-up old buckets. */
 export function oldMd5BucketName(workdirPath: string): string {
-  return createHash('md5').update(workdirPath).digest('hex');
+  return new Bun.CryptoHasher('md5').update(workdirPath).digest('hex');
 }

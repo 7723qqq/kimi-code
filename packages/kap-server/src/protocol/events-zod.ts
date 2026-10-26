@@ -172,6 +172,7 @@ export const compactionSummaryOriginSchema = z.object({
 export const systemTriggerOriginSchema = z.object({
   kind: z.literal('system_trigger'),
   name: z.string(),
+  backgroundHelper: z.string().optional(),
 }) satisfies z.ZodType<SystemTriggerOrigin>;
 
 export const taskLifecycleStatusSchema = z.enum([
@@ -466,8 +467,10 @@ export const kimiErrorCodeSchema = z.enum([
   'prompt_optimizer.busy',
   'prompt_optimizer.disabled',
   'prompt_optimizer.empty_draft',
+  'prompt_optimizer.input_too_long',
   'prompt_optimizer.no_output',
   'prompt_optimizer.output_too_long',
+  'prompt_optimizer.timeout',
   'provider.oauth_managed',
   'session.tower_mode_invalid',
   'session_query.index_unavailable',

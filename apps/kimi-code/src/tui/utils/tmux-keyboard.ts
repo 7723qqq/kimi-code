@@ -1,5 +1,3 @@
-import { spawn } from 'node:child_process';
-
 import { t } from '#/i18n';
 
 const TMUX_QUERY_TIMEOUT_MS = 2000;
@@ -42,35 +40,28 @@ export async function detectTmuxKeyboardWarning(
   return undefined;
 }
 
-function readTmuxOptionFromProcess(option: string): Promise<string | undefined> {
-  return new Promise((resolve) => {
-    const proc = spawn('tmux', ['show', '-gv', option], {
-      stdio: ['ignore', 'pipe', 'ignore'],
+async function readTmuxOptionFromProcess(option: string): Promise<string | undefined> {
+  let proc;
+  try {
+    proc = Bun.spawn({
+      cmd: ['tmux', 'show', '-gv', option],
+      stdin: 'ignore',
+      stdout: 'pipe',
+      stderr: 'ignore',
     });
-    let stdout = '';
-    let settled = false;
-    let timer: NodeJS.Timeout;
+  } catch {
+    return undefined;
+  }
 
-    const finish = (value: string | undefined) => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      resolve(value);
-    };
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    proc.kill();
+  }, TMUX_QUERY_TIMEOUT_MS);
 
-    timer = setTimeout(() => {
-      proc.kill();
-      finish(undefined);
-    }, TMUX_QUERY_TIMEOUT_MS);
-
-    proc.stdout?.on('data', (data: Buffer) => {
-      stdout += data.toString('utf8');
-    });
-    proc.on('error', () => {
-      finish(undefined);
-    });
-    proc.on('close', (code) => {
-      finish(code === 0 ? stdout.trim() : undefined);
-    });
-  });
+  const code = await proc.exited;
+  clearTimeout(timer);
+  if (timedOut || code !== 0) return undefined;
+  const stdout = await new Response(proc.stdout).text();
+  return stdout.trim();
 }

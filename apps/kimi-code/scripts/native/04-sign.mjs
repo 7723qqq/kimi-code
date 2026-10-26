@@ -1,6 +1,3 @@
-import { createHash } from 'node:crypto';
-import { createReadStream } from 'node:fs';
-import { writeFile } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
 
 import { fail, run, tryRun } from './exec.mjs';
@@ -32,18 +29,21 @@ export function buildCodesignArgs({ identity, executable, entitlementsPath, keyc
 }
 
 export async function sha256(path) {
-  return await new Promise((resolveHash, reject) => {
-    const hash = createHash('sha256');
-    const stream = createReadStream(path);
-    stream.on('error', reject);
-    stream.on('data', (chunk) => hash.update(chunk));
-    stream.on('end', () => resolveHash(hash.digest('hex')));
-  });
+  const hasher = new Bun.CryptoHasher('sha256');
+  const reader = Bun.file(path).stream().getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    hasher.update(value);
+  }
+  return hasher.digest('hex');
 }
 
 async function writeChecksum(executable) {
   const digest = await sha256(executable);
-  await writeFile(`${executable}.sha256`, `${digest}  ${basename(executable)}\n`);
+  await Bun.write(`${executable}.sha256`, `${digest}  ${basename(executable)}\n`, {
+    createPath: false,
+  });
 }
 
 function azureSigningEnv() {

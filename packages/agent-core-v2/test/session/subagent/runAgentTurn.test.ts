@@ -127,4 +127,37 @@ describe('runAgentTurn', () => {
     const error = await rejection(run.completion);
     expect(isError2(error) && error.code).toBe(ErrorCodes.AGENT_MAX_TOKENS_EXCEEDED);
   });
+
+  it('stamps a plain subagent origin when no helper is named', async () => {
+    const { handle, prompts } = handleWith(
+      makeTurn({ type: 'completed', steps: 1, truncated: false }),
+      [assistant('ok')],
+    );
+    await runAgentTurn(handle, { kind: 'prompt', prompt: 'find it' }, { signal });
+
+    const submitted = prompts[0] as { meta: { origin: { kind: string; backgroundHelper?: string } } };
+    expect(submitted.meta.origin.kind).toBe('system_trigger');
+    expect(submitted.meta.origin.backgroundHelper).toBeUndefined();
+  });
+
+  it('carries the helper label on the turn origin when one is named', async () => {
+    const { handle, prompts } = handleWith(
+      makeTurn({ type: 'completed', steps: 1, truncated: false }),
+      [assistant('ok')],
+    );
+    await runAgentTurn(
+      handle,
+      { kind: 'prompt', prompt: 'find it', helper: 'prompt_optimizer' },
+      { signal },
+    );
+
+    const submitted = prompts[0] as {
+      meta: { origin: { kind: string; name: string; backgroundHelper?: string } };
+    };
+    expect(submitted.meta.origin).toMatchObject({
+      kind: 'system_trigger',
+      name: 'subagent',
+      backgroundHelper: 'prompt_optimizer',
+    });
+  });
 });

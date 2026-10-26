@@ -1,9 +1,7 @@
-import { EventEmitter } from 'node:events';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { PassThrough, type Readable } from 'node:stream';
-import * as childProcess from 'node:child_process';
+import { type Readable } from 'node:stream';
 
 import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import { expectRejection } from '#test/helpers/assertions';
@@ -245,19 +243,33 @@ describe('HostProcessService on Windows', () => {
     Object.defineProperty(process, 'platform', { value: 'win32' });
     spawnedCommands = [];
     taskkills = [];
-    spawnSpy = spyOn(childProcess, 'spawn').mockImplementation(((command: string, args: readonly string[]) => {
+    spawnSpy = spyOn(Bun, 'spawn').mockImplementation(((options: {
+      cmd: readonly string[];
+    }) => {
+      const [command, ...args] = options.cmd;
       spawnedCommands.push([command, ...args].join(' '));
-      const child = Object.assign(new EventEmitter(), {
+      const killed = mock(() => true);
+      const unref = mock();
+      const fake = {
         pid: 4242,
-        stdin: new PassThrough(),
-        stdout: new PassThrough(),
-        stderr: new PassThrough(),
-        kill: mock(() => true),
-        unref: mock(),
-      });
-      if (command === 'taskkill') taskkills.push(child);
-      else queueMicrotask(() => child.emit('spawn'));
-      return child;
+        stdin: { write: mock(), flush: mock(), end: mock() },
+        stdout: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.close();
+          },
+        }),
+        stderr: new ReadableStream<Uint8Array>({
+          start(controller) {
+            controller.close();
+          },
+        }),
+        exited: new Promise<number>(() => {}),
+        signalCode: null,
+        kill: killed,
+        unref,
+      };
+      if (command === 'taskkill') taskkills.push({ kill: killed, unref });
+      return fake;
     }) as never);
   });
 

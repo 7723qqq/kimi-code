@@ -642,6 +642,13 @@ export function registerSessionsRoutes(
         ...sessionConflictErrors,
         [ErrorCode.COMPACTION_UNABLE]: {},
         [ErrorCode.SESSION_UNDO_UNAVAILABLE]: {},
+        [ErrorCode.PROMPT_OPTIMIZER_BUSY]: {},
+        [ErrorCode.PROMPT_OPTIMIZER_DISABLED]: {},
+        [ErrorCode.PROMPT_OPTIMIZER_EMPTY_DRAFT]: {},
+        [ErrorCode.PROMPT_OPTIMIZER_INPUT_TOO_LONG]: {},
+        [ErrorCode.PROMPT_OPTIMIZER_NO_OUTPUT]: {},
+        [ErrorCode.PROMPT_OPTIMIZER_OUTPUT_TOO_LONG]: {},
+        [ErrorCode.PROMPT_OPTIMIZER_TIMEOUT]: {},
       },
       description: 'Run a session action',
       tags: ['sessions'],
@@ -914,6 +921,14 @@ interface SessionActionExtra {
   readonly reply: { readonly send: (payload: unknown) => unknown };
 }
 
+interface DisconnectObservableReply {
+  readonly raw?: {
+    readonly writableFinished?: boolean;
+    once(event: 'close', listener: () => void): unknown;
+    off(event: 'close', listener: () => void): unknown;
+  };
+}
+
 type SessionActionCtx<TBody = unknown> = SessionActionExtra & {
   readonly id: string;
   readonly body: TBody;
@@ -1034,13 +1049,28 @@ async function optimizePromptSessionAction(
     throw new Error2(ErrorCodes.SESSION_NOT_FOUND, `session ${id} does not exist`);
   }
   await ensureMainAgent(session);
-  const prompt = await session.accessor.get(ISessionPromptOptimizerService).optimize(body.text, {
-    cwd: session.accessor.get(ISessionContext).cwd,
-    recentTurns: body.recent_turns,
-    sessionKey: id,
-  });
-  requestLog(req)?.info({ session_id: id, action: 'optimize' }, 'session action completed');
-  reply.send(okEnvelope({ prompt }, req.id));
+  const abort = new AbortController();
+  const raw = (reply as unknown as DisconnectObservableReply).raw;
+  const onClose = (): void => {
+    if (raw?.writableFinished === true) return;
+    abort.abort();
+  };
+  raw?.once('close', onClose);
+  try {
+    const prompt = await session.accessor.get(ISessionPromptOptimizerService).optimize(
+      body.text,
+      {
+        cwd: session.accessor.get(ISessionContext).cwd,
+        recentTurns: body.recent_turns,
+        sessionKey: id,
+      },
+      abort.signal,
+    );
+    requestLog(req)?.info({ session_id: id, action: 'optimize' }, 'session action completed');
+    reply.send(okEnvelope({ prompt }, req.id));
+  } finally {
+    raw?.off('close', onClose);
+  }
 }
 
 async function restoreSessionAction(ctx: SessionActionCtx): Promise<void> {

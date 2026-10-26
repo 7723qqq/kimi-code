@@ -1,4 +1,7 @@
-import { isSubagentCancellationMessage } from '@moonshot-ai/agent-core-v2';
+import {
+  isSubagentCancellationMessage,
+  PROMPT_OPTIMIZER_AGENT_HELPER,
+} from '@moonshot-ai/agent-core-v2';
 import type { BackgroundTaskInfo, Event } from '@moonshot-ai/kimi-code-sdk';
 import type { Component } from '@moonshot-ai/pi-tui';
 
@@ -65,6 +68,13 @@ export class SubAgentEventHandler {
   private readonly agentSwarmProgress: Map<string, AgentSwarmProgressComponent> = new Map();
   /** History entry backing each swarm panel, so removal stays entry-driven. */
   private readonly agentSwarmProgressEntries = new Map<string, TranscriptEntry>();
+  /**
+   * Agents whose turn origin declared a background helper (the prompt
+   * optimizer). Learned from each child's own `turn.started`, which is the one
+   * event that carries the origin; cleared when the agent is disposed, since the
+   * optimizer's fork lives exactly as long as one rewrite.
+   */
+  private readonly backgroundHelperAgents = new Set<string>();
   backgroundAgentMetadata: Map<string, BackgroundAgentMetadata> = new Map();
   /** Bounded per-agent activity fold feeding the background-agent detail view. */
   readonly activityStore: SubagentActivityStore;
@@ -80,7 +90,27 @@ export class SubAgentEventHandler {
     this.subagentInfo.clear();
     this.backgroundAgentMetadata.clear();
     this.activityStore.clear();
+    this.backgroundHelperAgents.clear();
     this.clearAgentSwarmProgress();
+  }
+
+  /**
+   * Record that `agentId` is a background helper, from the one event that says
+   * so: its `turn.started` carries the origin the engine stamped. Only the
+   * helper rewrite claims membership; any other turn by the same id clears it,
+   * so a reused id cannot keep a stale label.
+   */
+  private noteBackgroundHelper(agentId: string, event: Event): void {
+    if (event.type !== 'turn.started') return;
+    if (event.origin?.kind === 'system_trigger' && event.origin.backgroundHelper === PROMPT_OPTIMIZER_AGENT_HELPER) {
+      this.backgroundHelperAgents.add(agentId);
+      return;
+    }
+    this.backgroundHelperAgents.delete(agentId);
+  }
+
+  private isPromptOptimizerAgent(agentId: string): boolean {
+    return this.backgroundHelperAgents.has(agentId);
   }
 
   routeChildAgentEvent(event: Event): boolean {
@@ -89,6 +119,8 @@ export class SubAgentEventHandler {
     const childAgentId = event.agentId;
     if (childAgentId === MAIN_AGENT_ID) return false;
 
+    this.noteBackgroundHelper(childAgentId, event);
+
     // Tee every child-agent event into the activity store before the routing
     // below swallows events: the BTW panel's routeEvent returns true for
     // every event it handles while the panel is mounted, and the paths
@@ -96,6 +128,11 @@ export class SubAgentEventHandler {
     // existed (run_in_background) — that data still feeds the background
     // detail view.
     this.activityStore.applyEvent(event);
+
+    if (this.isPromptOptimizerAgent(childAgentId)) {
+      this.host.promptOptimizerActivity.applyEvent(event);
+      return true;
+    }
 
     if (this.host.btwPanelController.routeEvent(event)) return true;
 

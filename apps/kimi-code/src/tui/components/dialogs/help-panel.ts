@@ -23,6 +23,13 @@ import { currentTheme } from '#/tui/theme';
 export interface KeyboardShortcut {
   readonly keys: string;
   readonly description: string;
+  /**
+   * False when the shortcut is bound but its feature is switched off. The panel
+   * renders the row dimmed with the reason, so the key is not advertised as
+   * working when pressing it only produces an error.
+   */
+  readonly enabled?: boolean;
+  readonly disabledReason?: string;
 }
 
 export interface HelpPanelCommand {
@@ -32,14 +39,24 @@ export interface HelpPanelCommand {
 }
 
 /** Static list — keep in sync with the global editor bindings. */
-export function getDefaultKeyboardShortcuts(): readonly KeyboardShortcut[] {
+export function getDefaultKeyboardShortcuts(options?: {
+  readonly promptOptimizerEnabled?: boolean;
+}): readonly KeyboardShortcut[] {
+  const optimizerEnabled = options?.promptOptimizerEnabled !== false;
   return [
     { keys: 'Shift-Tab', description: t('tui.dialogs.helpPanel.shortcuts.shiftTab') },
     { keys: 'Ctrl-G', description: t('tui.dialogs.helpPanel.shortcuts.ctrlG') },
     { keys: 'Ctrl-O', description: t('tui.dialogs.helpPanel.shortcuts.ctrlO') },
     { keys: 'Ctrl-T', description: t('tui.dialogs.helpPanel.shortcuts.ctrlT') },
     { keys: 'Ctrl-S', description: t('tui.dialogs.helpPanel.shortcuts.ctrlS') },
-    { keys: 'Ctrl-P', description: t('tui.dialogs.helpPanel.shortcuts.ctrlP') },
+    {
+      keys: 'Ctrl-P',
+      description: t('tui.dialogs.helpPanel.shortcuts.ctrlP'),
+      enabled: optimizerEnabled,
+      disabledReason: optimizerEnabled
+        ? undefined
+        : t('tui.dialogs.helpPanel.shortcuts.ctrlPDisabled'),
+    },
     { keys: 'Shift-Enter / Ctrl-J', description: t('tui.dialogs.helpPanel.shortcuts.shiftEnter') },
     { keys: 'Ctrl-C', description: t('tui.dialogs.helpPanel.shortcuts.ctrlC') },
     { keys: 'Ctrl-D', description: t('tui.dialogs.helpPanel.shortcuts.ctrlD') },
@@ -123,7 +140,13 @@ export class HelpPanelComponent extends Container implements Focusable {
       '',
       // Section: keyboard shortcuts
       `  ${currentTheme.bold(t('tui.dialogs.helpPanel.keyboardShortcuts'))}`,
-      ...shortcuts.map((s) => `    ${kbdColor(s.keys.padEnd(kbdWidth))}  ${dim(s.description)}`),
+      ...shortcuts.map((s) => {
+        if (s.enabled === false) {
+          const reason = s.disabledReason === undefined ? '' : ` (${s.disabledReason})`;
+          return `    ${muted(s.keys.padEnd(kbdWidth))}  ${muted(`${s.description}${reason}`)}`;
+        }
+        return `    ${kbdColor(s.keys.padEnd(kbdWidth))}  ${dim(s.description)}`;
+      }),
       '',
       // Section: slash commands
       `  ${currentTheme.bold(t('tui.dialogs.helpPanel.slashCommands'))}`,

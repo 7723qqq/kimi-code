@@ -162,8 +162,10 @@ export const ErrorCodes = {
   PROMPT_OPTIMIZER_BUSY: 'prompt_optimizer.busy',
   PROMPT_OPTIMIZER_DISABLED: 'prompt_optimizer.disabled',
   PROMPT_OPTIMIZER_EMPTY_DRAFT: 'prompt_optimizer.empty_draft',
+  PROMPT_OPTIMIZER_INPUT_TOO_LONG: 'prompt_optimizer.input_too_long',
   PROMPT_OPTIMIZER_NO_OUTPUT: 'prompt_optimizer.no_output',
   PROMPT_OPTIMIZER_OUTPUT_TOO_LONG: 'prompt_optimizer.output_too_long',
+  PROMPT_OPTIMIZER_TIMEOUT: 'prompt_optimizer.timeout',
   PROVIDER_NOT_FOUND: 'provider.not_found',
   PROVIDER_OAUTH_MANAGED: 'provider.oauth_managed',
   PROVIDER_OVERLOADED: 'provider.overloaded',
@@ -1000,6 +1002,12 @@ export const KIMI_ERROR_INFO = {
     public: true,
     action: 'Provide a prompt draft to optimize.',
   },
+  'prompt_optimizer.input_too_long': {
+    title: 'Prompt draft is too long',
+    retryable: false,
+    public: true,
+    action: 'Shorten the draft, then rewrite it again.',
+  },
   'prompt_optimizer.no_output': {
     title: 'Prompt optimizer returned no output',
     retryable: true,
@@ -1011,6 +1019,12 @@ export const KIMI_ERROR_INFO = {
     retryable: false,
     public: true,
     action: 'Retry, or shorten the draft so the rewrite fits the limit.',
+  },
+  'prompt_optimizer.timeout': {
+    title: 'Prompt rewrite timed out',
+    retryable: true,
+    public: true,
+    action: 'Try again; if it keeps timing out, shorten the draft.',
   },
   'provider.not_found': {
     title: 'Provider not found',

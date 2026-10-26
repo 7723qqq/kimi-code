@@ -1,4 +1,3 @@
-import { spawn, spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 
@@ -115,20 +114,29 @@ function isOpenInAppAvailable(appId: OpenInAppId, platform: NodeJS.Platform): bo
 
 function commandExists(command: string, platform: NodeJS.Platform): boolean {
   try {
-    if (platform === 'win32') {
-      const result = spawnSync('cmd', ['/c', 'where', command], {
-        stdio: 'ignore',
-      });
-      return result.status === 0;
-    }
-    const result = spawnSync('command', ['-v', command], {
-      stdio: 'ignore',
-      shell: true,
-    });
-    return result.status === 0;
+    const result =
+      platform === 'win32'
+        ? Bun.spawnSync({ cmd: ['cmd', '/c', 'where', command], stdio: ['ignore', 'ignore', 'ignore'] })
+        : Bun.spawnSync({
+            cmd: [shellForProbe(), ...shellCommandArgs(`command -v ${quoteShellArg(command, platform)}`)],
+            stdio: ['ignore', 'ignore', 'ignore'],
+          });
+    return result.exitCode === 0;
   } catch {
     return false;
   }
+}
+
+function shellForProbe(): string {
+  if (process.platform === 'win32') {
+    return process.env['COMSPEC'] ?? 'cmd.exe';
+  }
+  const configured = process.env['SHELL'];
+  return configured !== undefined && configured.length > 0 ? configured : '/bin/sh';
+}
+
+function shellCommandArgs(script: string): string[] {
+  return process.platform === 'win32' ? ['/c', script] : ['-c', script];
 }
 
 function openInVsCodeLike(
@@ -184,26 +192,20 @@ function openInMacApp(
 }
 
 export async function launchDetached(cmd: LaunchCommand): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    let settled = false;
-    const child = spawn(cmd.command, cmd.args, {
-      detached: true,
-      stdio: 'ignore',
-      shell: cmd.shell,
-      windowsVerbatimArguments: cmd.windowsVerbatimArguments,
-    });
-    child.once('error', (err) => {
-      if (settled) return;
-      settled = true;
-      reject(err);
-    });
-    child.once('spawn', () => {
-      if (settled) return;
-      settled = true;
-      child.unref();
-      resolve();
-    });
+  const shellWrapped = cmd.shell === true;
+  const joined = [cmd.command, ...cmd.args].join(' ');
+  const argv = shellWrapped
+    ? process.platform === 'win32'
+      ? [shellForProbe(), '/d', '/s', '/c', `"${joined}"`]
+      : [shellForProbe(), '-c', joined]
+    : [cmd.command, ...cmd.args];
+  const child = Bun.spawn({
+    cmd: argv,
+    detached: true,
+    stdio: ['ignore', 'ignore', 'ignore'],
+    windowsVerbatimArguments: shellWrapped ? true : cmd.windowsVerbatimArguments,
   });
+  child.unref();
 }
 
 function resolveEditorCommand(env: Record<string, string | undefined>): string | undefined {

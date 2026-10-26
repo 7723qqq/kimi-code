@@ -1,18 +1,13 @@
-import { spawnSync } from 'node:child_process';
 import {
   chmodSync,
-  createWriteStream,
   existsSync,
   mkdirSync,
-  readFileSync,
   readdirSync,
   renameSync,
   rmSync,
 } from 'node:fs';
 import { arch, platform } from 'node:os';
 import { join } from 'node:path';
-import { Readable } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
 
 import { kimiCodeCdnBase } from '#/constant/app';
 import { t } from '#/i18n';
@@ -63,12 +58,28 @@ export interface FdDetectDeps {
 export function createFdDetectDeps(overrides: Partial<FdDetectDeps> = {}): FdDetectDeps {
   return {
     spawnSync: (command, args, options) => {
-      const result = spawnSync(command, [...args], options);
-      return {
-        status: result.status,
-        error: result.error,
-        stderr: result.stderr ?? undefined,
-      };
+      try {
+        const result = Bun.spawnSync({
+          cmd: [command, ...args],
+          stdout: options.stdio === 'pipe' ? 'pipe' : 'ignore',
+          stderr: options.stdio === 'pipe' ? 'pipe' : 'ignore',
+        });
+        const stderrBytes = result.stderr;
+        return {
+          status: result.exitCode,
+          error: undefined,
+          stderr:
+            stderrBytes === undefined || stderrBytes.length === 0
+              ? undefined
+              : { toString: () => new TextDecoder().decode(stderrBytes) },
+        };
+      } catch (error) {
+        return {
+          status: null,
+          error: { message: error instanceof Error ? error.message : String(error) },
+          stderr: undefined,
+        };
+      }
     },
     resolveCommandPath: (command) => resolveCommandPath(command),
     platform: platform(),
@@ -168,7 +179,7 @@ async function downloadFd(deps: FdDetectDeps): Promise<string | null> {
   try {
     const downloadUrl = `${kimiCodeCdnBase()}/fd/${assetName}`;
     await downloadFile(deps, downloadUrl, archivePath);
-    verifyArchive(archivePath, expectedSha256);
+    await verifyArchive(archivePath, expectedSha256);
     extractArchive(deps, archivePath, extractDir, assetName);
 
     const binaryName = deps.platform === 'win32' ? 'fd.exe' : 'fd';
@@ -186,8 +197,8 @@ async function downloadFd(deps: FdDetectDeps): Promise<string | null> {
   }
 }
 
-function verifyArchive(path: string, expectedSha256: string): void {
-  const actualSha256 = new Bun.CryptoHasher('sha256').update(readFileSync(path)).digest('hex');
+async function verifyArchive(path: string, expectedSha256: string): Promise<void> {
+  const actualSha256 = new Bun.CryptoHasher('sha256').update(await Bun.file(path).bytes()).digest('hex');
   if (actualSha256 !== expectedSha256) {
     throw new Error(`fd archive checksum mismatch: ${actualSha256} !== ${expectedSha256}`);
   }
@@ -201,7 +212,7 @@ async function downloadFile(deps: FdDetectDeps, url: string, dest: string): Prom
   if (response.body === null) {
     throw new Error(t('tui.statusMessages.fdDownloadEmptyResponse'));
   }
-  await pipeline(Readable.fromWeb(response.body), createWriteStream(dest));
+  await Bun.write(dest, response.body);
 }
 
 function extractArchive(

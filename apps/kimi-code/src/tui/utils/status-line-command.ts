@@ -8,8 +8,6 @@
  * JSON in, first line out, 300ms ceiling.
  */
 
-import { spawn } from 'node:child_process';
-
 export const STATUS_LINE_COMMAND_TIMEOUT_MS = 300;
 export const STATUS_LINE_RERUN_INTERVAL_MS = 1_000;
 export const STATUS_LINE_MAX_CAPTURE_BYTES = 65_536;
@@ -36,95 +34,113 @@ export function runStatusLineCommand(
   payload: StatusLinePayload,
   timeoutMs: number = STATUS_LINE_COMMAND_TIMEOUT_MS,
 ): Promise<string | null> {
-  return new Promise((resolve) => {
-    let settled = false;
-    const finish = (value: string | null): void => {
-      if (settled) return;
-      settled = true;
-      resolve(value);
-    };
-
+  return (async () => {
     const isWin = process.platform === 'win32';
-    let child;
+    let proc;
     try {
-      child = spawn(
-        isWin ? (process.env['ComSpec'] ?? 'cmd.exe') : 'sh',
-        isWin ? ['/d', '/s', '/c', command] : ['-c', command],
-        {
-          stdio: ['pipe', 'pipe', 'ignore'],
-          env: { ...process.env, KIMI_CODE_STATUS_LINE: '1' },
-          // Own process group on POSIX so a timeout can drop the whole tree,
-          // not just the shell wrapper.
-          detached: !isWin,
-          // Pass the command string to cmd.exe verbatim: without this, Node
-          // re-quotes the arguments and a command whose executable path
-          // contains spaces (e.g. `"C:\Program Files\nodejs\node.exe" x.mjs`)
-          // is mangled before cmd.exe's own /s quoting rules apply.
-          windowsVerbatimArguments: isWin,
-        },
-      );
+      proc = Bun.spawn({
+        cmd: isWin
+          ? [process.env['ComSpec'] ?? 'cmd.exe', '/d', '/s', '/c', command]
+          : ['sh', '-c', command],
+        stdin: 'pipe',
+        stdout: 'pipe',
+        stderr: 'ignore',
+        env: { ...process.env, KIMI_CODE_STATUS_LINE: '1' },
+        // Own process group on POSIX so a timeout can drop the whole tree,
+        // not just the shell wrapper.
+        detached: !isWin,
+        windowsVerbatimArguments: isWin,
+      });
     } catch {
-      finish(null);
-      return;
+      return null;
     }
 
     const killTree = (): void => {
-      if (child.pid === undefined) return;
+      const pid = proc.pid;
+      if (pid === undefined) return;
       if (isWin) {
         try {
-          spawn('taskkill', ['/pid', String(child.pid), '/T', '/F'], { stdio: 'ignore' });
+          Bun.spawn({ cmd: ['taskkill', '/pid', String(pid), '/T', '/F'], stdio: ['ignore', 'ignore', 'ignore'] });
         } catch {
           // best effort
         }
       } else {
         try {
-          process.kill(-child.pid, 'SIGKILL');
+          process.kill(-pid, 'SIGKILL');
         } catch {
-          child.kill('SIGKILL');
+          proc.kill('SIGKILL');
         }
       }
     };
 
+    const decoder = new TextDecoder();
+    let stdout = '';
+    let timedOut = false;
+    let onTimeoutElapsed: () => void = () => {};
+    const timeoutElapsed = new Promise<null>((resolve) => {
+      onTimeoutElapsed = () => resolve(null);
+    });
     const timer = setTimeout(() => {
+      timedOut = true;
       killTree();
-      finish(null);
+      onTimeoutElapsed();
     }, timeoutMs);
     timer.unref?.();
 
-    let stdout = '';
-    child.stdout?.setEncoding('utf-8');
-    child.stdout?.on('data', (chunk: string) => {
-      if (stdout.includes('\n')) return; // first line is complete
-      stdout += chunk;
-      // Only the first line is ever used; stop accumulating past it (and cap
-      // a missing-newline stream) so a chatty command can't grow memory
-      // unboundedly before the timeout lands.
-      const cut = stdout.indexOf('\n');
-      if (cut >= 0) {
-        stdout = stdout.slice(0, cut + 1);
-      } else if (stdout.length > STATUS_LINE_MAX_CAPTURE_BYTES) {
-        stdout = stdout.slice(0, STATUS_LINE_MAX_CAPTURE_BYTES);
-      }
-    });
-    child.on('error', () => {
-      clearTimeout(timer);
-      finish(null);
-    });
-    child.on('close', (code) => {
-      clearTimeout(timer);
-      if (code !== 0) {
-        finish(null);
-        return;
-      }
-      const firstLine = (stdout.split('\n')[0] ?? '').trimEnd();
-      finish(firstLine.length > 0 ? firstLine : null);
-    });
+    // The command is expected to read stdin to EOF, so close it once written.
+    // A command that exits without reading it (`true`) makes the write fail;
+    // that is not an error, its exit code decides.
+    try {
+      // Bun's FileSink returns promises for write/flush; a command that exits
+      // without reading stdin (`true`) rejects them. Its exit code decides the
+      // outcome, so they are settled as ignored.
+      void proc.stdin.write(JSON.stringify(payload));
+      void proc.stdin.flush();
+      void proc.stdin.end();
+    } catch {
+      // The command closed stdin early; nothing more to send.
+    }
 
-    child.stdin?.on('error', () => {
-      // The command closed stdin early (e.g. `true`); nothing more to send.
-    });
-    child.stdin?.end(JSON.stringify(payload));
-  });
+    const reader = proc.stdout.getReader();
+    const captureDrain = (async () => {
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        if (value === undefined) continue;
+        stdout += decoder.decode(value, { stream: true });
+        // Only the first line is ever used; stop accumulating past it (and cap
+        // a missing-newline stream) so a chatty command cannot grow memory
+        // unboundedly before the timeout lands.
+        const cut = stdout.indexOf('\n');
+        if (cut >= 0) {
+          stdout = stdout.slice(0, cut + 1);
+          break;
+        }
+        if (stdout.length > STATUS_LINE_MAX_CAPTURE_BYTES) {
+          stdout = stdout.slice(0, STATUS_LINE_MAX_CAPTURE_BYTES);
+          break;
+        }
+      }
+    })().catch(() => undefined);
+
+    // The ceiling is hard: the timeout settles the race even if the kill
+    // never lands, so a stuck child cannot pin the runner past timeoutMs.
+    const code = await Promise.race([proc.exited.catch(() => null), timeoutElapsed]);
+    clearTimeout(timer);
+    if (timedOut) {
+      reader.cancel().catch(() => {});
+      return null;
+    }
+    if (code !== 0) {
+      reader.cancel().catch(() => {});
+      return null;
+    }
+    // Drain what is already buffered: the reader yields the remaining chunks
+    // without waiting on the closed stream.
+    await captureDrain;
+    const firstLine = (stdout.split('\n')[0] ?? '').trimEnd();
+    return firstLine.length > 0 ? firstLine : null;
+  })();
 }
 
 /**

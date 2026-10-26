@@ -2484,7 +2484,7 @@ describe('server-v2 /api/v1/sessions', () => {
       text: 'fix the parser',
     });
 
-    expect(body.code).toBe(50001);
+    expect(body.code).toBe(40934);
     expect(body.msg).toContain('prompt_optimizer');
   });
 

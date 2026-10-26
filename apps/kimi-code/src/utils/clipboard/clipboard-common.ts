@@ -1,4 +1,3 @@
-import { spawn, spawnSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
 
 import type { ClipboardModule } from './clipboard-native';
@@ -51,22 +50,45 @@ export type CommandSpawn = (
 ) => CommandChild;
 
 export const SYSTEM_COMMAND_SPAWN: CommandSpawn = (command, args, options) => {
-  const child = spawn(command, args, {
-    env: options.env,
-    stdio: ['ignore', 'pipe', 'ignore'],
-  });
+  let child: Bun.Subprocess<'ignore', 'pipe', 'ignore'>;
+  try {
+    child = Bun.spawn({
+      cmd: [command, ...args],
+      stdin: 'ignore',
+      stdout: 'pipe',
+      stderr: 'ignore',
+      ...(options.env === undefined ? {} : { env: options.env }),
+    });
+  } catch {
+    return {
+      onStdoutData: () => {},
+      onError: (listener) => queueMicrotask(() => listener()),
+      onClose: () => {},
+      kill: () => {},
+    };
+  }
   return {
     onStdoutData: (listener) => {
-      child.stdout?.on('data', listener);
+      const reader = child.stdout.getReader();
+      const pump = async (): Promise<void> => {
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) return;
+          if (value !== undefined) listener(Buffer.from(value));
+        }
+      };
+      void pump().catch(() => {});
     },
-    onError: (listener) => {
-      child.on('error', listener);
-    },
+    onError: () => {},
     onClose: (listener) => {
-      child.on('close', listener);
+      void child.exited.then((code) => listener(code)).catch(() => listener(null));
     },
     kill: () => {
-      child.kill();
+      try {
+        child.kill();
+      } catch {
+        // already gone
+      }
     },
   };
 };
@@ -114,16 +136,27 @@ export function runCommand(
   args: string[],
   options?: RunCommandOptions,
 ): { stdout: Buffer; ok: boolean } {
-  const result = spawnSync(command, args, {
-    timeout: options?.timeoutMs ?? DEFAULT_LIST_TIMEOUT_MS,
-    maxBuffer: DEFAULT_MAX_BUFFER_BYTES,
-    env: options?.env,
-  });
-  if (result.error !== undefined || result.status !== 0) {
+  try {
+    const result = Bun.spawnSync({
+      cmd: [command, ...args],
+      stdin: 'ignore',
+      stdout: 'pipe',
+      stderr: 'ignore',
+      timeout: options?.timeoutMs ?? DEFAULT_LIST_TIMEOUT_MS,
+      maxBuffer: DEFAULT_MAX_BUFFER_BYTES,
+      ...(options?.env === undefined ? {} : { env: options.env }),
+    });
+    if (result.exitCode !== 0) {
+      return { ok: false, stdout: Buffer.alloc(0) };
+    }
+    const stdout = Buffer.from(result.stdout);
+    if (stdout.length > DEFAULT_MAX_BUFFER_BYTES) {
+      return { ok: false, stdout: Buffer.alloc(0) };
+    }
+    return { ok: true, stdout };
+  } catch {
     return { ok: false, stdout: Buffer.alloc(0) };
   }
-  const stdout = Buffer.isBuffer(result.stdout) ? result.stdout : Buffer.from(result.stdout ?? '');
-  return { ok: true, stdout };
 }
 
 /**

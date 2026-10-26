@@ -235,6 +235,10 @@ export class ImageAttachmentStore {
     return this.byId.get(id);
   }
 
+  ids(): ReadonlySet<number> {
+    return new Set(this.byId.keys());
+  }
+
   /**
    * Drop every attachment and return the staged daemon file ids to delete.
    * Uploads with an outstanding retain are excluded: a stashed/queued draft

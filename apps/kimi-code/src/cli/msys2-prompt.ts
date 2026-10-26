@@ -8,7 +8,6 @@
  * deps so the same suite runs on any host OS.
  */
 
-import { spawn, spawnSync } from 'node:child_process';
 import { access, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
@@ -48,8 +47,19 @@ export function createMsys2PromptDeps(homeDir: string = resolveKimiHome()): Msys
     writeTextFile: (path: string, content: string) => writeFile(path, content, 'utf8'),
     resolveCommand: (command: string) => resolveCommandPath(command),
     runCommand: (cmd: string, args: readonly string[]) => runCommand(cmd, args),
-    runCommandSync: (cmd: string, args: readonly string[]) =>
-      spawnSync(cmd, [...args], { windowsHide: true }).status ?? undefined,
+    runCommandSync: (cmd: string, args: readonly string[]) => {
+      try {
+        return Bun.spawnSync({
+          cmd: [cmd, ...args],
+          stdin: 'ignore',
+          stdout: 'ignore',
+          stderr: 'ignore',
+          windowsHide: true,
+        }).exitCode;
+      } catch {
+        return undefined;
+      }
+    },
   };
 }
 
@@ -148,10 +158,17 @@ export function setUserShellPath(bashPath: string, deps: Msys2PromptDeps): boole
   return status === 0;
 }
 
-function runCommand(cmd: string, args: readonly string[]): Promise<number | undefined> {
-  return new Promise((resolve) => {
-    const child = spawn(cmd, [...args], { windowsHide: true, stdio: 'ignore' });
-    child.on('error', () => resolve(undefined));
-    child.on('close', (code) => resolve(code ?? undefined));
-  });
+async function runCommand(cmd: string, args: readonly string[]): Promise<number | undefined> {
+  try {
+    const proc = Bun.spawn({
+      cmd: [cmd, ...args],
+      stdin: 'ignore',
+      stdout: 'ignore',
+      stderr: 'ignore',
+      windowsHide: true,
+    });
+    return await proc.exited;
+  } catch {
+    return undefined;
+  }
 }

@@ -8,15 +8,17 @@
  *   $VISUAL > $EDITOR > undefined (caller handles "no editor" toast).
  */
 
-import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { quoteShellArg } from '#/utils/shell-quote';
 
 export interface EditInExternalEditorDeps {
-  readonly spawn?: typeof spawn;
+  readonly spawn?: (
+    argv: string[],
+    options: { stdio: ['inherit', 'inherit', 'inherit']; windowsVerbatimArguments: boolean },
+  ) => { readonly exited: Promise<number> };
 }
 
 export function resolveEditorCommand(configured?: string | null): string | undefined {
@@ -42,24 +44,27 @@ export async function editInExternalEditor(
   command: string,
   deps: EditInExternalEditorDeps = {},
 ): Promise<string | undefined> {
-  const spawnChild = deps.spawn ?? spawn;
+  const spawnChild =
+    deps.spawn ??
+    ((argv: string[],
+      options: { stdio: ['inherit', 'inherit', 'inherit']; windowsVerbatimArguments: boolean }) =>
+      Bun.spawn({ cmd: argv, ...options }));
   const dir = await mkdtemp(join(tmpdir(), 'kimi-edit-'));
   const file = join(dir, 'prompt.md');
-  await writeFile(file, initialText, 'utf-8');
+  await Bun.write(file, initialText, { createPath: false });
   try {
     const shellCmd = `${command} ${quoteShellArg(file)}`;
-    const code = await new Promise<number>((resolve, reject) => {
-      const child = spawnChild(shellCmd, {
-        stdio: 'inherit',
-        shell: true,
-      });
-      child.on('exit', (c) => {
-        resolve(c ?? 0);
-      });
-      child.on('error', reject);
-    });
+    const code = await (async () => {
+      const child = spawnChild(
+        process.platform === 'win32'
+          ? [process.env['COMSPEC'] ?? 'cmd.exe', '/d', '/s', '/c', `"${shellCmd}"`]
+          : [process.env['SHELL'] ?? '/bin/sh', '-c', shellCmd],
+        { stdio: ['inherit', 'inherit', 'inherit'], windowsVerbatimArguments: true },
+      );
+      return child.exited;
+    })();
     if (code !== 0) return undefined;
-    return await readFile(file, 'utf-8');
+    return await Bun.file(file).text();
   } finally {
     await rm(dir, { recursive: true, force: true }).catch(() => {
       // best-effort cleanup

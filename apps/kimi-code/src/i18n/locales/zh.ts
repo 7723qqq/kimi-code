@@ -235,12 +235,16 @@ export default {
     promptOptimizerDisabledAction: '请开启 prompt_optimizer 实验性开关后再使用。',
     promptOptimizerEmptyDraft: '提示词草稿为空',
     promptOptimizerEmptyDraftAction: '请提供要优化的提示词草稿。',
+    promptOptimizerInputTooLong: '提示词草稿过长',
+    promptOptimizerInputTooLongAction: '请缩短草稿后再重写。',
     promptOptimizerNoOutput: '提示词优化器未返回内容',
     promptOptimizerNoOutputAction: '请重试优化。',
     promptOptimizerBusy: '已有提示词重写正在进行',
     promptOptimizerBusyAction: '请等待当前重写完成后再开始新的重写。',
     promptOptimizerOutputTooLong: '提示词改写超出长度上限',
     promptOptimizerOutputTooLongAction: '重试，或缩短草稿使改写结果落在长度限制内。',
+    promptOptimizerTimeout: '提示词重写超时',
+    promptOptimizerTimeoutAction: '请重试；若持续超时，请缩短草稿。',
     // spec.*
     specModeInvalid: '规格模式无效',
     specModeInvalidAction: '请先退出规格模式再重新进入。',
@@ -1041,6 +1045,7 @@ export default {
           ctrlT: '展开 / 收起待办列表（截断时）',
           ctrlS: '干预——在流式输出中注入后续指令',
           ctrlP: '用 AI 重写输入框中的提示词',
+          ctrlPDisabled: '未启用',
           shiftEnter: '插入换行',
           ctrlC: '中断流式输出 / 清空输入',
           ctrlD: '退出（输入为空时）',
@@ -1583,6 +1588,10 @@ export default {
         noSession: '请先开始一个会话再重写提示词。',
         busy: '已有一次重写正在进行，请等它结束后再试。',
         displaced: '因其他面板打开，本次重写已丢弃。',
+        unchanged: '草稿已经说清楚了，无需重写。',
+        disabled: '提示词优化器未启用。请在 /settings 中开启 prompt_optimizer 实验项后再使用 Ctrl+P。',
+        attachmentDropped: '重写结果丢失了已附加的图片或视频，草稿保持不变。请重试，或移除附件后再重写。',
+        wrappedRowsTruncatedExpandable: '预览已截断——按 {{expand}} 可查看更多折行内容',
       },
       updatePreferenceSelector: {
         title: '自动更新',
@@ -2739,6 +2748,12 @@ export default {
       // tui/components/editor/custom-editor.ts
       shellModeLabel: '! Shell 模式',
       promptOptimizingLabel: '正在重写提示词…',
+      promptOptimizePhases: {
+        starting: '正在重写提示词…',
+        thinking: '正在读取你的草稿…',
+        tool: '正在查看 {{tool}}…',
+        writing: '正在写出重写结果…',
+      },
       // tui/controllers/tasks-browser.ts
       tasksLoadFailed: '加载任务失败：{{error}}',
       tasksOutputRefreshFailed: '输出刷新失败：{{message}}',

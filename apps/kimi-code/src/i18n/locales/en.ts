@@ -244,12 +244,16 @@ export default {
     promptOptimizerDisabledAction: 'Turn on the prompt_optimizer experimental flag to use it.',
     promptOptimizerEmptyDraft: 'Prompt draft is empty',
     promptOptimizerEmptyDraftAction: 'Provide a prompt draft to optimize.',
+    promptOptimizerInputTooLong: 'Prompt draft is too long',
+    promptOptimizerInputTooLongAction: 'Shorten the draft, then rewrite it again.',
     promptOptimizerNoOutput: 'Prompt optimizer returned no output',
     promptOptimizerNoOutputAction: 'Retry the optimization.',
     promptOptimizerBusy: 'A prompt rewrite is already in progress',
     promptOptimizerBusyAction: 'Wait for the current rewrite to finish before starting another.',
     promptOptimizerOutputTooLong: 'Prompt rewrite exceeded the length limit',
     promptOptimizerOutputTooLongAction: 'Retry, or shorten the draft so the rewrite fits the limit.',
+    promptOptimizerTimeout: 'Prompt rewrite timed out',
+    promptOptimizerTimeoutAction: 'Try again; if it keeps timing out, shorten the draft.',
     // spec.*
     specModeInvalid: 'Invalid spec mode',
     specModeInvalidAction: 'Exit spec mode before entering it again.',
@@ -1080,6 +1084,7 @@ export default {
           ctrlT: 'Expand / collapse the todo list (when truncated)',
           ctrlS: 'Steer — inject a follow-up during streaming',
           ctrlP: 'Rewrite the drafted prompt with AI',
+          ctrlPDisabled: 'off',
           shiftEnter: 'Insert newline',
           ctrlC: 'Interrupt stream / clear input',
           ctrlD: 'Exit (on empty input)',
@@ -1637,6 +1642,13 @@ export default {
         noSession: 'Start a session before rewriting a prompt.',
         busy: 'A rewrite is already in progress; try again once it finishes.',
         displaced: 'The rewrite was dismissed because another panel opened.',
+        unchanged: 'The draft already says this; nothing to rewrite.',
+        disabled:
+          'The prompt optimizer is off. Enable the prompt_optimizer experiment in /settings to use Ctrl+P.',
+        attachmentDropped:
+          'The rewrite dropped an attached image or video, so your draft was left unchanged. Retry, or remove the attachment and rewrite again.',
+        wrappedRowsTruncatedExpandable:
+          'preview truncated — {{expand}} shows more of the wrapped rows',
       },
       updatePreferenceSelector: {
         title: 'Automatic updates',
@@ -2841,6 +2853,12 @@ export default {
       // tui/components/editor/custom-editor.ts
       shellModeLabel: '! shell mode',
       promptOptimizingLabel: 'rewriting prompt…',
+      promptOptimizePhases: {
+        starting: 'rewriting prompt…',
+        thinking: 'reading your draft…',
+        tool: 'checking {{tool}}…',
+        writing: 'writing the rewrite…',
+      },
       // tui/controllers/tasks-browser.ts
       tasksLoadFailed: 'Failed to load tasks: {{error}}',
       tasksOutputRefreshFailed: 'Output refresh failed: {{message}}',

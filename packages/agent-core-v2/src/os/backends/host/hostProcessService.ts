@@ -1,7 +1,6 @@
-import { spawn, type ChildProcess, type SpawnOptions } from 'node:child_process';
 import { statSync } from 'node:fs';
 import { join } from 'node:path';
-import type { Readable, Writable } from 'node:stream';
+import { Readable, Writable } from 'node:stream';
 
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { BufferedReadable } from '#/_base/execEnv/bufferedReadable';
@@ -19,22 +18,24 @@ import { type IHostTimerHandle, type IHostTimers } from '#/os/interface/hostTime
 const isWindows: boolean = process.platform === 'win32';
 const TASKKILL_TIMEOUT_MS = 5_000;
 
-function buildSpawnOptions(options: HostProcessOptions): SpawnOptions {
+interface BunSpawnOptions {
+  readonly cwd?: string;
+  readonly env?: Record<string, string>;
+  readonly detached: boolean;
+  readonly windowsHide: boolean;
+  readonly windowsVerbatimArguments?: boolean;
+  readonly timeout?: number;
+}
+
+function buildSpawnOptions(options: HostProcessOptions): BunSpawnOptions {
   const detached = options.detached ?? !isWindows;
-  const spawnOptions: SpawnOptions = {
+  return {
     cwd: options.cwd,
     env: buildEnv(options.env),
-    stdio: options.mergeStderr ? ['pipe', 'pipe', 'pipe'] : ['pipe', 'pipe', 'pipe'],
     detached,
     windowsHide: options.windowsHide ?? true,
-    timeout: options.timeout,
+    ...(options.timeout === undefined ? {} : { timeout: options.timeout }),
   };
-
-  if (options.shell !== undefined) {
-    spawnOptions.shell = options.shell;
-  }
-
-  return spawnOptions;
 }
 
 function buildEnv(
@@ -49,15 +50,29 @@ function buildEnv(
 interface ResolvedSpawn {
   readonly command: string;
   readonly args: readonly string[];
-  readonly options: SpawnOptions;
+  readonly options: BunSpawnOptions;
 }
 
 function resolveWindowsSpawn(
   command: string,
   args: readonly string[],
-  options: SpawnOptions,
+  options: BunSpawnOptions,
+  shell: string | boolean | undefined,
 ): ResolvedSpawn {
-  if (!isWindows || options.shell !== undefined) {
+  if (shell !== undefined && shell !== false) {
+    const joined = [command, ...args].join(' ');
+    if (isWindows) {
+      const host = typeof shell === 'string' ? shell : (process.env['ComSpec'] ?? 'cmd.exe');
+      return {
+        command: host,
+        args: ['/d', '/s', '/c', `"${joined}"`],
+        options: { ...options, windowsVerbatimArguments: true },
+      };
+    }
+    const host = typeof shell === 'string' ? shell : '/bin/sh';
+    return { command: host, args: ['-c', joined], options };
+  }
+  if (!isWindows) {
     return { command, args, options };
   }
   const script = findWindowsScript(command, options.env);
@@ -117,19 +132,25 @@ function escapeCmdArg(arg: string): string {
   return `"${escaped}${trailing}"`;
 }
 
-function waitForSpawn(child: ChildProcess): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const onSpawn = (): void => {
-      child.off('error', onError);
-      resolve();
-    };
-    const onError = (err: Error): void => {
-      child.off('spawn', onSpawn);
-      reject(err);
-    };
-    child.once('spawn', onSpawn);
-    child.once('error', onError);
+function streamToReadable(stream: ReadableStream<Uint8Array>): Readable {
+  const readable = new Readable({ read() {} });
+  const reader = stream.getReader();
+  const pump = async (): Promise<void> => {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        readable.push(null);
+        return;
+      }
+      if (value !== undefined && !readable.push(Buffer.from(value))) {
+        await new Promise<void>((resolve) => readable.once('drain', resolve));
+      }
+    }
+  };
+  void pump().catch((error: unknown) => {
+    readable.destroy(error instanceof Error ? error : new Error(String(error)));
   });
+  return readable;
 }
 
 class HostProcess implements IHostProcess {
@@ -140,42 +161,57 @@ class HostProcess implements IHostProcess {
   readonly stderr: Readable;
   readonly pid: number;
 
-  private readonly _child: ChildProcess;
+  private readonly _proc: Bun.Subprocess<'pipe', 'pipe', 'pipe'>;
   private readonly _timers: IHostTimers;
   private _exitCode: number | null = null;
   private readonly _exitPromise: Promise<number>;
   private _disposed = false;
 
-  constructor(child: ChildProcess, mergeStderr: boolean, timers: IHostTimers) {
-    if (child.stdin === null || child.stdout === null) {
-      throw new HostProcessError(
-        HostProcessErrorCode.SpawnFailed,
-        'Process must be created with stdin/stdout pipes.',
-      );
-    }
-    if (!mergeStderr && child.stderr === null) {
-      throw new HostProcessError(
-        HostProcessErrorCode.SpawnFailed,
-        'Process must be created with stderr pipe unless mergeStderr is set.',
-      );
-    }
-
-    this._child = child;
+  constructor(
+    proc: Bun.Subprocess<'pipe', 'pipe', 'pipe'>,
+    mergeStderr: boolean,
+    timers: IHostTimers,
+  ) {
+    this._proc = proc;
     this._timers = timers;
-    this.stdin = child.stdin;
-    this.stdout = new BufferedReadable(child.stdout);
-    this.stderr = mergeStderr ? this.stdout : new BufferedReadable(child.stderr as Readable);
-    this.pid = child.pid ?? -1;
-
-    this._exitPromise = new Promise<number>((resolve, reject) => {
-      child.on('exit', (code: number | null) => {
-        this._exitCode = code ?? -1;
-        resolve(this._exitCode);
-      });
-      child.on('error', (error: Error) => {
-        reject(error);
-      });
+    this.stdin = new Writable({
+      write: (chunk: Buffer, _encoding, callback) => {
+        try {
+          void proc.stdin.write(chunk);
+          void proc.stdin.flush();
+          callback();
+        } catch (error) {
+          callback(error instanceof Error ? error : new Error(String(error)));
+        }
+      },
+      final: (callback) => {
+        const ended = proc.stdin.end() as number | Promise<unknown> | undefined;
+        if (typeof ended === 'number' || ended === undefined) {
+          callback();
+          return;
+        }
+        ended.then(
+          () => callback(),
+          (error: unknown) =>
+            callback(error instanceof Error ? error : new Error(String(error))),
+        );
+      },
     });
+    this.stdout = new BufferedReadable(streamToReadable(proc.stdout));
+    this.stderr = mergeStderr
+      ? this.stdout
+      : new BufferedReadable(streamToReadable(proc.stderr));
+    this.pid = proc.pid;
+
+    this._exitPromise = proc.exited.then(
+      (code) => {
+        this._exitCode = code;
+        return code;
+      },
+      (error: unknown) => {
+        throw error;
+      },
+    );
   }
 
   get exitCode(): number | null {
@@ -192,20 +228,21 @@ class HostProcess implements IHostProcess {
     }
 
     if (isWindows) {
-      const taskkillArgs = ['/T', '/F', '/PID', String(this.pid)];
-      const killer = spawn('taskkill', taskkillArgs, {
-        stdio: 'ignore',
-        windowsHide: true,
-      });
+      let killer: Bun.Subprocess<'ignore', 'ignore', 'ignore'>;
+      try {
+        killer = Bun.spawn({
+          cmd: ['taskkill', '/T', '/F', '/PID', String(this.pid)],
+          stdin: 'ignore',
+          stdout: 'ignore',
+          stderr: 'ignore',
+          windowsHide: true,
+        });
+      } catch {
+        return;
+      }
       let timeout: IHostTimerHandle | undefined;
       const exited = await Promise.race([
-        new Promise<true>((resolve) => {
-          const done = (): void => {
-            resolve(true);
-          };
-          killer.once('error', done);
-          killer.once('close', done);
-        }),
+        killer.exited.then(() => true),
         new Promise<false>((resolve) => {
           timeout = this._timers.setTimeout(() => {
             resolve(false);
@@ -215,8 +252,10 @@ class HostProcess implements IHostProcess {
       ]);
       if (timeout !== undefined) this._timers.clearTimeout(timeout);
       if (!exited) {
-        killer.unref();
-        killer.kill();
+        killer.unref?.();
+        try {
+          killer.kill();
+        } catch {}
       }
       return;
     }
@@ -228,7 +267,7 @@ class HostProcess implements IHostProcess {
       if (err.code === 'ESRCH') return;
       if (err.code === 'EPERM') {
         try {
-          this._child.kill(signal ?? 'SIGTERM');
+          this._proc.kill(signal ?? 'SIGTERM');
         } catch {}
         return;
       }
@@ -269,10 +308,16 @@ export class HostProcessService implements IHostProcessService {
     options: HostProcessOptions = {},
   ): Promise<IHostProcess> {
     const spawnOptions = buildSpawnOptions(options);
-    const resolved = resolveWindowsSpawn(command, args, spawnOptions);
-    const child = spawn(resolved.command, resolved.args as string[], resolved.options);
+    const resolved = resolveWindowsSpawn(command, args, spawnOptions, options.shell);
+    let proc: Bun.Subprocess<'pipe', 'pipe', 'pipe'>;
     try {
-      await waitForSpawn(child);
+      proc = Bun.spawn({
+        cmd: [resolved.command, ...resolved.args],
+        stdin: 'pipe',
+        stdout: 'pipe',
+        stderr: 'pipe',
+        ...resolved.options,
+      });
     } catch (error) {
       const err = error as NodeJS.ErrnoException;
       throw new HostProcessError(
@@ -284,7 +329,7 @@ export class HostProcessService implements IHostProcessService {
         },
       );
     }
-    return new HostProcess(child, options.mergeStderr ?? false, this.timers);
+    return new HostProcess(proc, options.mergeStderr ?? false, this.timers);
   }
 }
 

@@ -13,7 +13,7 @@ import {
   ApprovalPreviewViewer,
   type ApprovalPreviewBlock,
 } from '../components/dialogs/approval-preview';
-import { HelpPanelComponent } from '../components/dialogs/help-panel';
+import { getDefaultKeyboardShortcuts, HelpPanelComponent } from '../components/dialogs/help-panel';
 import { QuestionDialogComponent } from '../components/dialogs/question-dialog';
 import { SessionPickerComponent, type SessionRow } from '../components/dialogs/session-picker';
 import { SESSION_LIST_PAGE_SIZE } from '../constant/kimi-tui';
@@ -55,6 +55,7 @@ export interface DialogHost {
   patchLivePane(patch: Partial<LivePaneState>): void;
   toggleToolOutputExpansion(): void;
   updateEditorBorderHighlight(text: string): void;
+  promptOptimizerEnabled(): boolean;
 }
 
 /**
@@ -149,6 +150,9 @@ export class DialogHostController {
     this.mountEditorReplacement(
       new HelpPanelComponent({
         commands: this.host.getSlashCommands(),
+        shortcuts: getDefaultKeyboardShortcuts({
+          promptOptimizerEnabled: this.host.promptOptimizerEnabled(),
+        }),
         onClose: () => {
           this.hideHelpPanel();
         },

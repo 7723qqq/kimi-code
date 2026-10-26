@@ -20,6 +20,17 @@ export const AGENT_RUN_PROMPT_ORIGIN: PromptOrigin = {
   name: 'subagent',
 };
 
+export const PROMPT_OPTIMIZER_AGENT_ORIGIN: PromptOrigin = {
+  kind: 'system_trigger',
+  name: 'subagent',
+  backgroundHelper: 'prompt_optimizer',
+};
+
+function originForRequest(request: AgentRunRequest): PromptOrigin {
+  if (request.kind !== 'prompt') return { kind: 'retry' };
+  return request.helper === undefined ? AGENT_RUN_PROMPT_ORIGIN : PROMPT_OPTIMIZER_AGENT_ORIGIN;
+}
+
 const SUBAGENT_MAX_TOKENS_ERROR =
   'Subagent turn failed before completing its final summary: reason=max_tokens';
 
@@ -41,7 +52,7 @@ export async function runAgentTurn(
     request.kind === 'prompt'
       ? loop.submit({
           message: { role: 'user', content: [{ type: 'text', text: request.prompt }] },
-          meta: { origin: AGENT_RUN_PROMPT_ORIGIN, tracked: true },
+          meta: { origin: originForRequest(request), tracked: true },
         })
       : loop.submit({
           message: { role: 'user', content: [] },

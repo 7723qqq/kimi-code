@@ -13,7 +13,11 @@ import type {
 } from './spawn';
 
 export type AgentRunRequest =
-  | { readonly kind: 'prompt'; readonly prompt: string }
+  | {
+      readonly kind: 'prompt';
+      readonly prompt: string;
+      readonly helper?: string;
+    }
   | { readonly kind: 'retry'; readonly trigger?: string };
 
 export interface RunAgentOptions {

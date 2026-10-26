@@ -1,5 +1,3 @@
-import { spawnSync } from 'node:child_process';
-
 import { t } from '#/i18n';
 
 import { clipboard, type ClipboardModule } from './clipboard-native';
@@ -43,16 +41,29 @@ export function createCopyTextDeps(overrides: Partial<CopyTextDeps> = {}): CopyT
     clipboard,
     platform: process.platform,
     run: (command, args, options) => {
-      const result = spawnSync(command, [...args], {
-        encoding: 'utf8',
-        input: options.input,
-        timeout: options.timeoutMs,
-      });
-      return {
-        error: result.error,
-        status: result.status,
-        stderr: result.stderr ?? '',
-      };
+      try {
+        const result = Bun.spawnSync({
+          cmd: [command, ...args],
+          stdin:
+            options.input === undefined ? 'ignore' : Buffer.from(options.input, 'utf8'),
+          stdout: 'ignore',
+          stderr: 'pipe',
+          timeout: options.timeoutMs,
+        });
+        return {
+          error: result.exitedDueToTimeout
+            ? new Error(`${command} timed out after ${String(options.timeoutMs)}ms`)
+            : undefined,
+          status: result.exitCode,
+          stderr: result.stderr === undefined ? '' : new TextDecoder().decode(result.stderr),
+        };
+      } catch (error) {
+        return {
+          error: error instanceof Error ? error : new Error(String(error)),
+          status: null,
+          stderr: '',
+        };
+      }
     },
     osc52: (text) => writeClipboardOSC52(text),
     ...overrides,

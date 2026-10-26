@@ -1,5 +1,6 @@
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
+import { createDeadlineAbortSignal } from '#/_base/utils/abort';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { denyToolExecution } from '#/agent/toolExecutor/beforeToolExecuteEvent';
@@ -12,12 +13,18 @@ import { ISessionSubagentService } from '#/session/subagent/subagent';
 
 import {
   ISessionPromptOptimizerService,
+  PROMPT_OPTIMIZER_AGENT_HELPER,
+  PROMPT_OPTIMIZER_COMPRESS_INSTRUCTION,
+  PROMPT_OPTIMIZER_DRAFT_CLOSE,
+  PROMPT_OPTIMIZER_DRAFT_OPEN,
   PROMPT_OPTIMIZER_FLAG_ID,
   PROMPT_OPTIMIZER_MAX_CONTEXT_LENGTH,
   PROMPT_OPTIMIZER_MAX_CONTEXT_TURNS,
+  PROMPT_OPTIMIZER_MAX_CONTEXT_TURN_CHARS,
   PROMPT_OPTIMIZER_MAX_INPUT_LENGTH,
   PROMPT_OPTIMIZER_MAX_OUTPUT_LENGTH,
   PROMPT_OPTIMIZER_PROFILE_NAME,
+  PROMPT_OPTIMIZER_TIMEOUT_MS,
   PROMPT_OPTIMIZER_TOOLS,
   PROMPT_OPTIMIZER_TRUNCATION_MARKER,
   PROMPT_OPTIMIZER_TOOL_DISABLED_MESSAGE,
@@ -53,32 +60,49 @@ export class SessionPromptOptimizerService implements ISessionPromptOptimizerSer
     if (draft.length === 0) {
       throw new Error2(ErrorCodes.PROMPT_OPTIMIZER_EMPTY_DRAFT, 'There is no prompt to rewrite.');
     }
-    const key = context.sessionKey ?? '';
-    if (this.inFlight.has(key)) {
+    if (draft.length > PROMPT_OPTIMIZER_MAX_INPUT_LENGTH) {
       throw new Error2(
-        ErrorCodes.PROMPT_OPTIMIZER_BUSY,
-        'A prompt rewrite is already running for this session.',
+        ErrorCodes.PROMPT_OPTIMIZER_INPUT_TOO_LONG,
+        `The draft is ${String(draft.length)} characters, over the ${String(PROMPT_OPTIMIZER_MAX_INPUT_LENGTH)} limit. Shorten it and try again.`,
+        { details: { length: draft.length, limit: PROMPT_OPTIMIZER_MAX_INPUT_LENGTH } },
       );
     }
-    this.inFlight.add(key);
+    const key = context.sessionKey;
+    if (key !== undefined) {
+      if (this.inFlight.has(key)) {
+        throw new Error2(
+          ErrorCodes.PROMPT_OPTIMIZER_BUSY,
+          'A prompt rewrite is already running for this session.',
+        );
+      }
+      this.inFlight.add(key);
+    }
 
     const controller = new AbortController();
     const unlink = linkSignals(signal, controller);
+    const deadline = createDeadlineAbortSignal(
+      controller.signal,
+      context.timeoutMs ?? PROMPT_OPTIMIZER_TIMEOUT_MS,
+    );
     let childContext: Awaited<ReturnType<IAgentLifecycleService['fork']>> | undefined;
     try {
       const main = this.agentLifecycle.handleOf(MAIN_AGENT_ID);
       if (main === undefined) {
         throw new Error2(ErrorCodes.AGENT_NOT_FOUND, 'Main agent was not found');
       }
+      const explicitTurns = normalizedTurns(context.recentTurns);
       childContext = await this.agentLifecycle.fork(
         main.accessor.get(IAgentScopeContext).agentContext,
         {
           labels: OPTIMIZER_LABELS,
           binding: { profile: PROMPT_OPTIMIZER_PROFILE_NAME },
-          inheritedHistory: {
-            maxUserTurns: inheritedTurnLimit(context),
-            maxChars: PROMPT_OPTIMIZER_MAX_CONTEXT_LENGTH,
-          },
+          inheritedHistory:
+            explicitTurns === undefined
+              ? {
+                  maxUserTurns: inheritedTurnLimit(context),
+                  maxChars: PROMPT_OPTIMIZER_MAX_CONTEXT_LENGTH,
+                }
+              : { maxUserTurns: 0 },
         },
       );
       const child = this.agentLifecycle.handleOf(childContext.agentId);
@@ -96,26 +120,52 @@ export class SessionPromptOptimizerService implements ISessionPromptOptimizerSer
         event.veto(denyToolExecution(reason));
       });
 
-      const run = await this.subagents.run(
-        childContext,
-        { kind: 'prompt', prompt: buildOptimizerInput(draft, context) },
-        { signal: controller.signal },
-      );
-      const completion = await run.completion;
-      const rewritten = completion.summary.trim();
+      const agentContext = childContext;
+      const runOnce = async (prompt: string): Promise<string> => {
+        const run = await this.subagents.run(
+          agentContext,
+          { kind: 'prompt', prompt, helper: PROMPT_OPTIMIZER_AGENT_HELPER },
+          { signal: deadline.signal },
+        );
+        const completion = await run.completion;
+        return completion.summary.trim();
+      };
+
+      const prompt = buildOptimizerInput(draft, context, explicitTurns);
+      let rewritten = await runOnce(prompt);
       if (rewritten.length === 0) {
         throw new Error2(ErrorCodes.PROMPT_OPTIMIZER_NO_OUTPUT, 'The optimizer returned no text.');
       }
       if (rewritten.length > PROMPT_OPTIMIZER_MAX_OUTPUT_LENGTH) {
-        throw new Error2(
-          ErrorCodes.PROMPT_OPTIMIZER_OUTPUT_TOO_LONG,
-          `The rewrite is ${rewritten.length} characters, over the ${PROMPT_OPTIMIZER_MAX_OUTPUT_LENGTH} limit. Retry, or shorten the draft.`,
-        );
+        rewritten = await runOnce(`${prompt}\n\n${PROMPT_OPTIMIZER_COMPRESS_INSTRUCTION}`);
+        if (rewritten.length === 0) {
+          throw new Error2(
+            ErrorCodes.PROMPT_OPTIMIZER_NO_OUTPUT,
+            'The optimizer returned no text.',
+          );
+        }
+        if (rewritten.length > PROMPT_OPTIMIZER_MAX_OUTPUT_LENGTH) {
+          throw new Error2(
+            ErrorCodes.PROMPT_OPTIMIZER_OUTPUT_TOO_LONG,
+            `The rewrite is ${String(rewritten.length)} characters, over the ${String(PROMPT_OPTIMIZER_MAX_OUTPUT_LENGTH)} limit, after one retry. Shorten the draft.`,
+            { details: { length: rewritten.length, limit: PROMPT_OPTIMIZER_MAX_OUTPUT_LENGTH } },
+          );
+        }
       }
       return rewritten;
+    } catch (error) {
+      if (deadline.timedOut()) {
+        throw new Error2(
+          ErrorCodes.PROMPT_OPTIMIZER_TIMEOUT,
+          `The rewrite did not finish within ${String(context.timeoutMs ?? PROMPT_OPTIMIZER_TIMEOUT_MS)}ms.`,
+          { details: { timeoutMs: context.timeoutMs ?? PROMPT_OPTIMIZER_TIMEOUT_MS }, cause: error },
+        );
+      }
+      throw error;
     } finally {
+      deadline.clear();
       unlink();
-      this.inFlight.delete(key);
+      if (key !== undefined) this.inFlight.delete(key);
       if (childContext !== undefined) {
         await this.agentLifecycle.remove(childContext).catch((error: unknown) => {
           this.log.warn('promptOptimizer: failed to remove the throwaway agent', {
@@ -134,10 +184,40 @@ function inheritedTurnLimit(context: PromptOptimizerContext): number {
   return Math.max(0, Math.min(requested, PROMPT_OPTIMIZER_MAX_CONTEXT_TURNS));
 }
 
-function buildOptimizerInput(draft: string, context: PromptOptimizerContext): string {
+function normalizedTurns(
+  turns: readonly string[] | undefined,
+): readonly string[] | undefined {
+  if (turns === undefined) return undefined;
+  const kept = turns
+    .map((turn) => turn.trim())
+    .filter((turn) => turn.length > 0)
+    .slice(-PROMPT_OPTIMIZER_MAX_CONTEXT_TURNS)
+    .map((turn) => clamp(turn, PROMPT_OPTIMIZER_MAX_CONTEXT_TURN_CHARS));
+  return kept.length === 0 ? undefined : kept;
+}
+
+function buildOptimizerInput(
+  draft: string,
+  context: PromptOptimizerContext,
+  turns: readonly string[] | undefined,
+): string {
   const sections = [`Working directory: ${context.cwd}`];
-  sections.push(`Prompt to rewrite:\n${clamp(draft, PROMPT_OPTIMIZER_MAX_INPUT_LENGTH)}`);
+  if (turns !== undefined) {
+    const block = turns.map((turn) => `- ${turn}`).join('\n');
+    sections.push(
+      `Recent user turns, oldest first:\n${clamp(block, PROMPT_OPTIMIZER_MAX_CONTEXT_LENGTH)}`,
+    );
+  }
+  sections.push(
+    `${PROMPT_OPTIMIZER_DRAFT_OPEN}\n${fenceSafe(draft)}\n${PROMPT_OPTIMIZER_DRAFT_CLOSE}`,
+  );
   return sections.join('\n\n');
+}
+
+function fenceSafe(draft: string): string {
+  return draft
+    .replaceAll(PROMPT_OPTIMIZER_DRAFT_CLOSE, '&lt;/draft&gt;')
+    .replaceAll(PROMPT_OPTIMIZER_DRAFT_OPEN, '&lt;draft&gt;');
 }
 
 function clamp(text: string, max: number): string {

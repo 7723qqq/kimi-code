@@ -52,7 +52,7 @@ adapts the engine's `IFileService` streams in both directions.
   case-scoped details (requests, envelopes, WS handshakes, terminal frames,
   error envelopes) through the shared logger in `test/e2e/legacy/log.ts`,
   not ad hoc `console.log`.
-- Logs must stay visible for passing Vitest cases — write through stdout.
+- Logs must stay visible for passing Bun test cases — write through stdout.
 - When adding or changing an e2e case, update its observability at the same
   time; do not add a scenario solely to print data an existing case should
   already expose.
@@ -61,7 +61,7 @@ adapts the engine's `IFileService` streams in both directions.
 
 Run from `packages/klient`:
 
-- `bun run test` — all Vitest suites (unit +
+- `bun run test` — all Bun test suites (unit +
   conformance + e2e; live cases skip without their env).
 - `KIMI_SERVER_URL=http://127.0.0.1:58627 bun run test`
   — include the live legacy cases against a running server.

@@ -1,6 +1,5 @@
-import { createHash } from 'node:crypto';
-import { createReadStream, createWriteStream } from 'node:fs';
-import { mkdir, stat, writeFile } from 'node:fs/promises';
+import { createWriteStream } from 'node:fs';
+import { mkdir } from 'node:fs/promises';
 import { basename, resolve } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 
@@ -26,18 +25,17 @@ const artifactPath = resolve(artifactsDir, artifactName);
 const checksumPath = `${artifactPath}.sha256`;
 
 async function sha256(path) {
-  return await new Promise((resolveHash, reject) => {
-    const hash = createHash('sha256');
-    const stream = createReadStream(path);
-    stream.on('error', reject);
-    stream.on('data', (chunk) => hash.update(chunk));
-    stream.on('end', () => resolveHash(hash.digest('hex')));
-  });
+  const hasher = new Bun.CryptoHasher('sha256');
+  const reader = Bun.file(path).stream().getReader();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    hasher.update(value);
+  }
+  return hasher.digest('hex');
 }
 
-try {
-  await stat(sourceBinary);
-} catch {
+if (!(await Bun.file(sourceBinary).exists())) {
   fail(`Native executable not found at ${sourceBinary}. Run build:native:bun first.`);
 }
 
@@ -49,7 +47,7 @@ zip.end();
 await pipeline(zip.outputStream, createWriteStream(artifactPath));
 
 const digest = await sha256(artifactPath);
-await writeFile(checksumPath, `${digest}  ${basename(artifactPath)}\n`);
+await Bun.write(checksumPath, `${digest}  ${basename(artifactPath)}\n`, { createPath: false });
 
 console.log(`Wrote native artifact: ${artifactPath}`);
 console.log(`Wrote artifact checksum: ${checksumPath}`);

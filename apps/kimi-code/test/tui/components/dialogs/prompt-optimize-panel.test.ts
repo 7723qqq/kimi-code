@@ -307,4 +307,35 @@ describe('PromptOptimizePanelComponent', () => {
     panel.handleInput(CTRL_O);
     expect(onSelect).not.toHaveBeenCalled();
   });
+
+  it('keeps the whole panel inside the terminal budget the host grants', () => {
+    const onSelect = mock();
+    const original = Array.from({ length: 200 }, (_, i) => `line-${i}`).join('\n');
+    const optimized = Array.from({ length: 200 }, (_, i) => `changed-${i}`).join('\n');
+    for (const rows of [20, 30, 45]) {
+      const panel = new PromptOptimizePanelComponent({
+        original,
+        optimized,
+        onSelect,
+        maxVisible: Math.max(5, rows - 12),
+      });
+      expect(panel.render(80).length, `terminal rows ${rows}`).toBeLessThanOrEqual(rows);
+    }
+  });
+
+  it('lets ctrl+o reveal more even when the wrapped row cap was the limit', () => {
+    const onSelect = mock();
+    const long = Array.from({ length: 40 }, () => 'x'.repeat(2000)).join('\n');
+    const panel = new PromptOptimizePanelComponent({
+      original: 'short',
+      optimized: long,
+      onSelect,
+      maxVisible: 10,
+    });
+
+    expect(panel.render(80).join('')).toContain('wrappedRowsTruncatedExpandable');
+
+    panel.handleInput(CTRL_O);
+    expect(panel.render(80).join('')).not.toContain('wrappedRowsTruncatedExpandable');
+  });
 });

@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto';
-
 import { ChatProviderError } from '#/errors';
 import type { ProviderRequestAuth } from '#/provider';
 
@@ -94,7 +92,7 @@ export class AuthClientLRU<TClient> {
 
   private fingerprint(value: string): string {
     if (value.length === 0) return '0';
-    return createHash('sha256').update(value).digest('hex').slice(0, 16);
+    return new Bun.CryptoHasher('sha256').update(value).digest('hex').slice(0, 16);
   }
 }
 

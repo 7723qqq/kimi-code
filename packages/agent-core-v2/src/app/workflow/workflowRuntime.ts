@@ -140,13 +140,17 @@ export async function executeWorkflow(opts: WorkflowRunOptions): Promise<unknown
   ): Promise<{ readonly stdout: string; readonly stderr: string; readonly exitCode: number }> => {
     const cwd = opts?.cwd ? resolveInWorkspace(workspaceRoot, opts.cwd) : workspaceRoot;
     try {
-      const cmd = process.platform === 'win32' ? ['cmd.exe', '/d', '/s', '/c', command] : ['sh', '-c', command];
+      const cmd =
+        process.platform === 'win32'
+          ? ['cmd.exe', '/d', '/s', '/c', `"${command}"`]
+          : ['sh', '-c', command];
       const proc = Bun.spawn(cmd, {
         cwd,
         stdout: 'pipe',
         stderr: 'pipe',
         timeout: opts?.timeoutMs ?? 30_000,
         windowsHide: true,
+        windowsVerbatimArguments: true,
       });
       const [stdout, stderr, code] = await Promise.all([
         new Response(proc.stdout).text(),

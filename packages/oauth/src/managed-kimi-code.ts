@@ -1,5 +1,3 @@
-import { createHash } from 'node:crypto';
-
 import { readApiErrorMessage } from './api-error';
 import { DEFAULT_KIMI_CODE_OAUTH_HOST } from './constants';
 import { OAuthUnauthorizedError } from './errors';
@@ -339,7 +337,7 @@ export function resolveKimiCodeOAuthKey(options: {
     return KIMI_CODE_OAUTH_KEY;
   }
 
-  const digest = createHash('sha256')
+  const digest = new Bun.CryptoHasher('sha256')
     .update(JSON.stringify({ oauthHost, baseUrl }))
     .digest('hex')
     .slice(0, 16);

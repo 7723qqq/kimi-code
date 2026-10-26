@@ -35,6 +35,7 @@ function makeSwarmHandler(clock: FakeClock = createFakeClock()) {
     appendTranscriptEntry: mock(),
     btwPanelController: { routeEvent: mock(() => false) },
     updateActivityPane: mock(),
+    promptOptimizerActivity: { applyEvent: mock() },
   };
   const handler = new SubAgentEventHandler(host as never, {
     backgroundTasks: new Map(),
@@ -177,5 +178,87 @@ describe('SubAgentEventHandler — swarm grid height measurement', () => {
     expect(dockChild.render).toHaveBeenCalledTimes(2);
 
     handler.clearAgentSwarmProgress();
+  });
+});
+
+describe('prompt optimizer agent routing', () => {
+  it('feeds the optimizer row and never the main live pane', () => {
+    const h = makeSwarmHandler();
+    const applyEvent = mock();
+    (h.host as { promptOptimizerActivity: unknown }).promptOptimizerActivity = { applyEvent };
+
+    h.handler.routeChildAgentEvent({
+      type: 'turn.started',
+      agentId: 'agent-opt',
+      sessionId: 's1',
+      turnId: 1,
+      origin: { kind: 'system_trigger', name: 'subagent', backgroundHelper: 'prompt_optimizer' },
+    } as never);
+
+    const consumed = h.handler.routeChildAgentEvent({
+      type: 'tool.call.started',
+      agentId: 'agent-opt',
+      sessionId: 's1',
+      turnId: 1,
+      toolCallId: 'c1',
+      name: 'Read',
+      args: { path: 'a.ts' },
+    } as never);
+
+    expect(consumed).toBe(true);
+    expect(applyEvent).toHaveBeenCalledTimes(2);
+    // The main flow's own state was never consulted or written.
+    expect(h.host.updateActivityPane).not.toHaveBeenCalled();
+    expect(h.host.streamingUI.getToolComponent).not.toHaveBeenCalled();
+  });
+
+  it('does not treat an ordinary subagent run as the optimizer', () => {
+    const h = makeSwarmHandler();
+    const applyEvent = mock();
+    (h.host as { promptOptimizerActivity: unknown }).promptOptimizerActivity = { applyEvent };
+
+    h.handler.routeChildAgentEvent({
+      type: 'turn.started',
+      agentId: 'agent-sub',
+      sessionId: 's1',
+      turnId: 1,
+      origin: { kind: 'system_trigger', name: 'subagent' },
+    } as never);
+
+    expect(applyEvent).not.toHaveBeenCalled();
+  });
+
+  it('stops feeding the row once a different turn on the same id appears', () => {
+    const h = makeSwarmHandler();
+    const applyEvent = mock();
+    (h.host as { promptOptimizerActivity: unknown }).promptOptimizerActivity = { applyEvent };
+
+    h.handler.routeChildAgentEvent({
+      type: 'turn.started',
+      agentId: 'agent-reused',
+      sessionId: 's1',
+      turnId: 1,
+      origin: { kind: 'system_trigger', name: 'subagent', backgroundHelper: 'prompt_optimizer' },
+    } as never);
+    h.handler.routeChildAgentEvent({
+      type: 'turn.started',
+      agentId: 'agent-reused',
+      sessionId: 's1',
+      turnId: 2,
+      origin: { kind: 'user' },
+    } as never);
+    applyEvent.mockClear();
+
+    h.handler.routeChildAgentEvent({
+      type: 'tool.call.started',
+      agentId: 'agent-reused',
+      sessionId: 's1',
+      turnId: 2,
+      toolCallId: 'c1',
+      name: 'Read',
+      args: {},
+    } as never);
+
+    expect(applyEvent).not.toHaveBeenCalled();
   });
 });

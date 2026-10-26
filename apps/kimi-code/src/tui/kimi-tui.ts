@@ -129,6 +129,7 @@ import { Msys2PromptComponent, type Msys2PromptChoice } from './components/dialo
 import { type ActiveExclusiveMode, type ReviewCycleMode } from './controllers/editor-keyboard';
 import type { StatusSurfaceKey } from './components/chrome/status-surface/region';
 import { PromptOptimizerController } from './controllers/prompt-optimizer';
+import { PromptOptimizerActivityController } from './controllers/prompt-optimizer-activity';
 import { showSessionOccupancyPrompt, type SessionOccupancyPrompt } from './controllers/session-occupancy';
 import { TranscriptRendererController } from './controllers/transcript-renderer';
 import { accumulateStepCompleted, accumulateToolDuration, bumpTurnCount, createEmptySessionStats } from './utils/session-stats';
@@ -361,6 +362,7 @@ export class KimiTUI {
   readonly dialogController: DialogHostController;
   readonly messageDispatch: MessageDispatchController;
   promptOptimizer!: PromptOptimizerController;
+  promptOptimizerActivity!: PromptOptimizerActivityController;
   private transcriptRenderer!: TranscriptRendererController;
 
   readonly harness: KimiHarness;
@@ -540,6 +542,7 @@ export class KimiTUI {
       this.approvalController,
       this.questionController,
     );
+    this.promptOptimizerActivity = new PromptOptimizerActivityController(this);
     this.promptOptimizer = new PromptOptimizerController(this);
     this.transcriptRenderer = new TranscriptRendererController(this, this.imageStore, this.staging);
     this.tasksBrowserController = new TasksBrowserController(this);
@@ -3878,6 +3881,18 @@ export class KimiTUI {
 
   showError(message: string): void {
     this.showStatus(`Error: ${message}`, 'error');
+  }
+
+  showInfo(message: string): void {
+    this.showStatus(message);
+  }
+
+  mediaPlaceholderIds(): ReadonlySet<number> {
+    return this.imageStore.ids();
+  }
+
+  promptOptimizerEnabled(): boolean {
+    return isExperimentalFlagEnabled('prompt_optimizer');
   }
 
   showLoginProgressSpinner(label: string): LoginProgressSpinnerHandle {

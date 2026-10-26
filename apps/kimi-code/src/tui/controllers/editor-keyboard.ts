@@ -205,11 +205,17 @@ export class EditorKeyboardController {
     };
 
     editor.onOptimizePrompt = (): void => {
-      host.track('shortcut_optimize_prompt');
+      host.track('shortcut_optimize_prompt', {
+        flagEnabled: host.promptOptimizer.promptOptimizerEnabled(),
+      });
       void host.promptOptimizer.optimize();
     };
 
     editor.onCtrlC = () => {
+      if (host.promptOptimizer.cancelInFlight()) {
+        this.clearPendingExit();
+        return;
+      }
       if (host.cancelInFlight !== undefined) {
         const cancel = host.cancelInFlight;
         host.cancelInFlight = undefined;

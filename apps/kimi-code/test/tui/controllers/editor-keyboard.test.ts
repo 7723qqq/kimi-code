@@ -33,7 +33,11 @@ interface Harness {
   readonly btwCancelRunning: Mock<(...args: any[]) => any>;
   readonly btwCloseOrCancel: Mock<(...args: any[]) => any>;
   readonly footerHint: Mock<(...args: any[]) => any>;
-  readonly promptOptimizer: { readonly optimize: Mock<(...args: any[]) => any> };
+  readonly promptOptimizer: {
+    readonly optimize: Mock<(...args: any[]) => any>;
+    readonly promptOptimizerEnabled: Mock<(...args: any[]) => any>;
+    readonly cancelInFlight: Mock<(...args: any[]) => any>;
+  };
   readonly stop: Mock<(...args: any[]) => any>;
   readonly survey: {
     readonly handlePreInput: Mock<(data: string) => boolean>;
@@ -64,7 +68,11 @@ function createHarness(options: { streamingPhase?: string; isCompacting?: boolea
     notifyDisplaced: mock<() => void>(() => {}),
   };
   const session = { cancel: mock(async () => {}), cancelCompaction };
-  const promptOptimizer = { optimize: mock(async () => {}) };
+  const promptOptimizer = {
+    optimize: mock(async () => {}),
+    promptOptimizerEnabled: mock(() => true),
+    cancelInFlight: mock(() => false),
+  };
 
   const host = {
     state: {
@@ -797,6 +805,8 @@ describe('EditorKeyboardController Ctrl+P prompt optimization', () => {
     onOptimizePrompt();
 
     expect(promptOptimizer.optimize).toHaveBeenCalledTimes(1);
-    expect(host.track).toHaveBeenCalledWith('shortcut_optimize_prompt');
+    expect(host.track).toHaveBeenCalledWith('shortcut_optimize_prompt', {
+      flagEnabled: true,
+    });
   });
 });

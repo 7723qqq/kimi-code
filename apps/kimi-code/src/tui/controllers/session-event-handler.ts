@@ -129,6 +129,8 @@ export interface SessionEventHost {
   showStatus(msg: string, color?: ColorToken): void;
   showNotice(title: string, detail?: string): void;
   updateActivityPane(): void;
+  /** One-row live status above the input box for an in-flight Ctrl+P rewrite. */
+  readonly promptOptimizerActivity: import('./prompt-optimizer-activity').PromptOptimizerActivityController;
   track(event: string, props?: Record<string, unknown>): void;
   recordSessionActivity(): void;
   noteStepUsage(usage: TokenUsage | undefined): void;

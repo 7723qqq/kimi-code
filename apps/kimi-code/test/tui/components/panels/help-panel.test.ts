@@ -1,7 +1,10 @@
 import { describe, expect, it, mock } from 'bun:test';
 
 import type { KimiSlashCommand } from '#/tui/commands/index';
-import { HelpPanelComponent } from '#/tui/components/dialogs/help-panel';
+import {
+  getDefaultKeyboardShortcuts,
+  HelpPanelComponent,
+} from '#/tui/components/dialogs/help-panel';
 
 function cmd(name: string, description: string, aliases: string[] = []): KimiSlashCommand {
   return {
@@ -99,5 +102,24 @@ describe('HelpPanelComponent', () => {
     panel.handleInput('\u001B[A'); // ↑
     const out2 = strip(panel.render(80).join('\n'));
     expect(out2).toMatch(/showing 2-7 of/);
+  });
+
+  it('marks Ctrl-P as off rather than advertising a key that only errors', () => {
+    const enabled = new HelpPanelComponent({
+      commands: [cmd('exit', 'Exit')],
+      shortcuts: getDefaultKeyboardShortcuts({ promptOptimizerEnabled: true }),
+      onClose: () => {},
+    });
+    const onOut = strip(enabled.render(80).join(String.fromCodePoint(10)));
+    expect(onOut).toContain('Ctrl-P');
+    expect(onOut).not.toContain('Rewrite the drafted prompt with AI (off)');
+
+    const disabled = new HelpPanelComponent({
+      commands: [cmd('exit', 'Exit')],
+      shortcuts: getDefaultKeyboardShortcuts({ promptOptimizerEnabled: false }),
+      onClose: () => {},
+    });
+    const offOut = strip(disabled.render(80).join(String.fromCodePoint(10)));
+    expect(offOut).toContain('Rewrite the drafted prompt with AI (off)');
   });
 });
