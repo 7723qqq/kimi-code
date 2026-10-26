@@ -3,7 +3,6 @@ import type { Component } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
 
-import { currentWorkingTip } from '../components/chrome/working-tips';
 import { CompactionComponent } from '../components/dialogs/compaction';
 import { AgentGroupComponent } from '../components/messages/agent-group';
 import { AssistantMessageComponent } from '../components/messages/assistant-message';
@@ -85,8 +84,7 @@ export class StreamingUIController {
     null;
   private _activeThinkingComponent: ThinkingComponent | undefined = undefined;
   private _activeThinkingEntry: TranscriptEntry | undefined = undefined;
-  private _activeCompactionBlock: CompactionComponent | undefined = undefined;
-  private _activeCompactionEntry: TranscriptEntry | undefined = undefined;
+  private _activeCompaction: { instruction: string | undefined } | undefined = undefined;
   private _activeToolCalls = new Map<string, ToolCallBlockData>();
   /** Entry backing each in-flight tool card, so the history entry can carry the result. */
   private readonly _toolCallEntries = new Map<string, TranscriptEntry>();
@@ -452,7 +450,7 @@ export class StreamingUIController {
     this.pendingToolCallFlushIds.clear();
     this._toolCallEntries.clear();
     this._activeThinkingEntry = undefined;
-    this._activeCompactionEntry = undefined;
+    this._activeCompaction = undefined;
     this.host.state.ui.requestRender();
   }
 
@@ -481,11 +479,8 @@ export class StreamingUIController {
     this._pendingToolComponents.clear();
   }
 
-  disposeActiveCompactionBlock(): void {
-    if (this._activeCompactionBlock !== undefined) {
-      this._activeCompactionBlock.dispose();
-      this._activeCompactionBlock = undefined;
-    }
+  clearActiveCompaction(): void {
+    this._activeCompaction = undefined;
   }
 
   // ---------------------------------------------------------------------------
@@ -837,59 +832,57 @@ export class StreamingUIController {
   }
 
   beginCompaction(instruction?: string): void {
-    const { state } = this.host;
-    if (this._activeCompactionBlock !== undefined) {
-      this._activeCompactionBlock.markDone();
-      this._activeCompactionBlock = undefined;
-      this._activeCompactionEntry = undefined;
-    }
-    const block = new CompactionComponent(state.ui, instruction, currentWorkingTip()?.text);
-    const entry: TranscriptEntry = {
-      id: nextTranscriptId(),
-      kind: 'status',
-      turnId: this._currentTurnId,
-      renderMode: 'plain',
-      content: instruction ?? '',
-      compactionData: { instruction },
-    };
-    this._activeCompactionBlock = block;
-    this._activeCompactionEntry = entry;
-    if (state.toolOutputExpanded) {
-      block.setExpanded(true);
-    }
-    this.host.appendTranscriptEntry(entry, block);
+    if (this._activeCompaction !== undefined) this.endCompaction();
+    this._activeCompaction = { instruction };
+    this.host.state.ui.requestRender();
   }
 
   endCompaction(tokensBefore?: number, tokensAfter?: number, summary?: string): void {
-    const block = this._activeCompactionBlock;
-    if (block === undefined) return;
+    const compaction = this._activeCompaction;
+    if (compaction === undefined) return;
+    const block = new CompactionComponent(this.host.state.ui, compaction.instruction);
     block.markDone(tokensBefore, tokensAfter, summary);
-    if (this._activeCompactionEntry !== undefined) {
-      this._activeCompactionEntry.compactionData = {
-        instruction: this._activeCompactionEntry.compactionData?.instruction,
-        tokensBefore,
-        tokensAfter,
-        summary,
-      };
-    }
-    this._activeCompactionBlock = undefined;
-    this._activeCompactionEntry = undefined;
+    this._activeCompaction = undefined;
+    this.mountCompactionBlock(block, compaction.instruction, {
+      instruction: compaction.instruction,
+      tokensBefore,
+      tokensAfter,
+      summary,
+    });
     this.host.state.ui.requestRender();
   }
 
   cancelCompaction(): void {
-    const block = this._activeCompactionBlock;
-    if (block === undefined) return;
+    const compaction = this._activeCompaction;
+    if (compaction === undefined) return;
+    const block = new CompactionComponent(this.host.state.ui, compaction.instruction);
     block.markCanceled();
-    if (this._activeCompactionEntry !== undefined) {
-      this._activeCompactionEntry.compactionData = {
-        instruction: this._activeCompactionEntry.compactionData?.instruction,
-        result: 'cancelled',
-      };
-    }
-    this._activeCompactionBlock = undefined;
-    this._activeCompactionEntry = undefined;
+    this._activeCompaction = undefined;
+    this.mountCompactionBlock(block, compaction.instruction, {
+      instruction: compaction.instruction,
+      result: 'cancelled',
+    });
     this.host.state.ui.requestRender();
+  }
+
+  private mountCompactionBlock(
+    block: CompactionComponent,
+    instruction: string | undefined,
+    compactionData: NonNullable<TranscriptEntry['compactionData']>,
+  ): void {
+    const { state } = this.host;
+    if (state.toolOutputExpanded) block.setExpanded(true);
+    this.host.appendTranscriptEntry(
+      {
+        id: nextTranscriptId(),
+        kind: 'status',
+        turnId: this._currentTurnId,
+        renderMode: 'plain',
+        content: instruction ?? '',
+        compactionData,
+      },
+      block,
+    );
   }
 
   // ---------------------------------------------------------------------------

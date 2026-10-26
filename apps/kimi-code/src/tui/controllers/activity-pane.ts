@@ -1,5 +1,7 @@
 import { Spacer } from '@moonshot-ai/pi-tui';
 
+import { t } from '#/i18n';
+
 import { MoonLoader, type SpinnerStyle } from '../components/chrome/moon-loader';
 import { pickRandomWorkingTip } from '../components/chrome/working-tips';
 import { ActivityPaneComponent, type ActivityPaneMode } from '../components/panes/activity-pane';
@@ -14,7 +16,7 @@ type LoadingTipKind = 'moon' | 'braille';
 
 function loadingTipKind(mode: EffectiveActivityPaneMode): LoadingTipKind | undefined {
   if (mode === 'waiting' || mode === 'tool') return 'moon';
-  if (mode === 'composing' || mode === 'thinking') return 'braille';
+  if (mode === 'composing' || mode === 'thinking' || mode === 'compacting') return 'braille';
   return undefined;
 }
 
@@ -115,6 +117,22 @@ export class ActivityPaneController {
         state.activityContainer.addChild(
           new ActivityPaneComponent({
             mode: 'thinking',
+            spinner,
+            tip: this.currentLoadingTip?.tip,
+          }),
+        );
+        break;
+      }
+      case 'compacting': {
+        const spinner = this.ensureActivitySpinner(
+          'braille',
+          t('tui.dialogs.compaction.compacting'),
+          (s) => currentTheme.fg('primary', s),
+        );
+        this.syncAgentSwarmActivitySpinner(undefined);
+        state.activityContainer.addChild(
+          new ActivityPaneComponent({
+            mode: 'compacting',
             spinner,
             tip: this.currentLoadingTip?.tip,
           }),

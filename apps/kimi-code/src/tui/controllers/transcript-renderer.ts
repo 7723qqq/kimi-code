@@ -354,7 +354,7 @@ export class TranscriptRendererController {
   clearTranscriptAndRedraw(): void {
     this.host.streamingUI.discardPending();
     this.host.state.transcriptEntries = [];
-    this.host.streamingUI.disposeActiveCompactionBlock();
+    this.host.streamingUI.clearActiveCompaction();
     this.host.streamingUI.resetLiveText();
     this.host.streamingUI.resetToolUi();
     this.host.sessionEventHandler.stopAllMcpServerStatusSpinners();
