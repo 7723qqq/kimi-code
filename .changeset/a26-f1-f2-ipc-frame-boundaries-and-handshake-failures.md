@@ -1,9 +1,0 @@
----
-"@moonshot-ai/klient": patch
----
-
-Decode IPC frames byte-wise, and stop losing a failed handshake (a26/F1 + a26/F2 of the 2026-10-12 audit).
-
-`NdjsonDecoder` used to take a `string`, and both socket handlers fed it `chunk.toString('utf8')` — one decode per socket read. A multi-byte UTF-8 character split by a read boundary was therefore decoded as U+FFFD on both sides. NDJSON still parsed, so a >1 MiB Chinese title round-tripped as 420 013 characters instead of 420 000 with no error anywhere; every oversized IPC result or event (agent history, tool output, Chinese titles/deltas/prompts) was silently corrupted, and the shared dispatcher's "byte-identical data no matter whether the call crossed a socket" promise was broken. The decoder now buffers bytes and decodes only whole lines with a `TextDecoder`, so a half-received character stays in the byte tail until its remaining bytes arrive. `NdjsonDecoder` is not re-exported from any public entry, so the signature change is internal.
-
-Separately, `listen()` and `stream()` started their work off the handshake promise with `void this.ready.then(...)` and no rejection handler — the constructor's `this.ready.catch(() => {})` only covered the original promise, not the derived ones. A client pointed at a stale or dead socket path that only subscribed or only streamed got no data, no error, and an `unhandledRejection` that exits Bun with code 1; `listen`'s `onError` could never fire. `failAll` now routes through a new `failListens`, so `close()` and the socket `'close'` event report the failure to every pending listener, `listen()` and `stream().ensureStarted` handle the rejection (the stream fails its pending `next()` instead of leaving it pending forever — a stream has no default deadline), and the unlisten branch swallows the rejection since nothing reached the wire. This matches the memory transport, whose scope-resolution failures already go to `onError`.
