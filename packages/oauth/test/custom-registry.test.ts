@@ -266,7 +266,11 @@ describe('fetchCustomRegistry', () => {
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     const call = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
-    expect(call[1].signal).toBe(controller.signal);
+    const forwarded = call[1].signal;
+    expect(forwarded).toBeDefined();
+    expect(forwarded!.aborted).toBe(false);
+    controller.abort();
+    expect(forwarded!.aborted).toBe(true);
   });
 
   it('throws CustomRegistryApiError with status on 401', async () => {

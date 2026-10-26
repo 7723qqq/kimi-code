@@ -43,7 +43,7 @@ import {
 import type { AgentActivitySnapshot } from '@moonshot-ai/agent-core-v2/agent/loop/loop';
 import type { AgentEvent } from '../src/transport/ws/v1/events';
 import { afterEach, beforeEach, describe, expect, it, jest, vi } from 'bun:test';
-import { waitUntil } from './helpers/waitFor';
+import { waitForAssertion, waitUntil } from './helpers/waitFor';
 
 import { sessionEventMessageSchema } from '../src/protocol/ws-control';
 import {
@@ -1104,7 +1104,7 @@ describe('SessionEventBroadcaster', () => {
       type: 'event.session.archived',
       payload: { sessionId: 's1', workspaceId: 'wd' },
     });
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(first.envelopes.map((e) => e.type)).toContain('event.session.archived');
     });
     sessions.delete('s1');
@@ -1292,10 +1292,10 @@ describe('SessionEventBroadcaster', () => {
 
     bc.unsubscribe('s1', target);
     managerEvents.fireDidClose('s1');
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect((bc as unknown as { sessions: Map<string, unknown> }).sessions.has('s1')).toBe(false);
     });
-    await waitUntil(async () => {
+    await waitForAssertion(async () => {
       const contents = await readFile(join(dir, 's1.jsonl'), 'utf8');
       expect(contents).toContain(before.epoch);
       expect(contents).toContain(`"seq":${before.seq}`);
@@ -1331,8 +1331,8 @@ describe('SessionEventBroadcaster', () => {
       },
     });
 
-    await waitUntil(() => expect(s1View.envelopes).toHaveLength(1));
-    await waitUntil(() => expect(s2View.envelopes).toHaveLength(1));
+    await waitForAssertion(() => expect(s1View.envelopes).toHaveLength(1));
+    await waitForAssertion(() => expect(s2View.envelopes).toHaveLength(1));
 
     expect(s1View.envelopes[0]).toMatchObject({
       type: 'session.meta.updated',
@@ -1365,8 +1365,8 @@ describe('SessionEventBroadcaster', () => {
       payload: { agentId: 'main', sessionId: 's1', session },
     });
 
-    await waitUntil(() => expect(s1View.envelopes).toHaveLength(1));
-    await waitUntil(() => expect(s2View.envelopes).toHaveLength(1));
+    await waitForAssertion(() => expect(s1View.envelopes).toHaveLength(1));
+    await waitForAssertion(() => expect(s2View.envelopes).toHaveLength(1));
 
     expect(s1View.envelopes[0]).toMatchObject({
       type: 'event.session.created',
@@ -1392,7 +1392,7 @@ describe('SessionEventBroadcaster', () => {
       payload: { sessionId: 'cold-1', workspaceId: 'wd_cold' },
     });
 
-    await waitUntil(() => expect(globalView.envelopes).toHaveLength(1));
+    await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
     expect(globalView.envelopes[0]).toMatchObject({
       type: 'event.session.archived',
       session_id: '__global__',
@@ -1415,7 +1415,7 @@ describe('SessionEventBroadcaster', () => {
       payload: { sessionId: 'cold-1', workspaceId: 'wd_cold' },
     });
 
-    await waitUntil(() => expect(globalView.envelopes).toHaveLength(1));
+    await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
     expect(globalView.envelopes[0]).toMatchObject({
       type: 'event.session.deleted',
       session_id: '__global__',
@@ -1442,7 +1442,7 @@ describe('SessionEventBroadcaster', () => {
     };
     eventBus.emit({ type: 'event.workspace.created', payload: { workspace } });
 
-    await waitUntil(() => expect(globalView.envelopes).toHaveLength(1));
+    await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
     expect(globalView.envelopes[0]).toMatchObject({
       type: 'event.workspace.created',
       session_id: '__global__',
@@ -1465,7 +1465,7 @@ describe('SessionEventBroadcaster', () => {
       type: 'event.workspace.updated',
       payload: { workspace: { ...workspace, name: 'renamed' } },
     });
-    await waitUntil(() => expect(globalView.envelopes).toHaveLength(2));
+    await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(2));
     expect(globalView.envelopes[1]).toMatchObject({
       type: 'event.workspace.updated',
       payload: {
@@ -1485,7 +1485,7 @@ describe('SessionEventBroadcaster', () => {
       payload: { workspaceId: 'wd_a', root: '/repo/a' },
     });
 
-    await waitUntil(() => expect(globalView.envelopes).toHaveLength(1));
+    await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
     expect(globalView.envelopes[0]).toMatchObject({
       type: 'event.workspace.deleted',
       session_id: '__global__',
@@ -1499,7 +1499,7 @@ describe('SessionEventBroadcaster', () => {
     });
 
     const journalPath = join(dir, '__global__.jsonl');
-    await waitUntil(async () => {
+    await waitForAssertion(async () => {
       expect(await readFile(journalPath, 'utf8').catch(() => '')).toContain('wd_a');
     });
     const before = await readFile(journalPath, 'utf8');
@@ -1524,7 +1524,7 @@ describe('SessionEventBroadcaster', () => {
       payload: { scope: 'app', token: 'debugCascadeService', state: 'Active' },
     });
 
-    await waitUntil(() => expect(diView.envelopes).toHaveLength(1));
+    await waitForAssertion(() => expect(diView.envelopes).toHaveLength(1));
     expect(diView.envelopes[0]).toMatchObject({
       type: 'event.di.unit_changed',
       session_id: '__global__',
@@ -1571,7 +1571,7 @@ describe('SessionEventBroadcaster', () => {
         payload: { agentId: 'main', sessionId: 's1', session },
       });
 
-      await waitUntil(() => expect(globalView.envelopes).toHaveLength(1));
+      await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
       expect(globalView.envelopes[0]).toMatchObject({
         type: 'event.session.created',
         session_id: 's1',
@@ -1637,7 +1637,7 @@ describe('SessionEventBroadcaster', () => {
         payload: { agentId: 'main', sessionId: 's1', session: { id: 's1' } },
       });
 
-      await waitUntil(() => expect(both.envelopes).toHaveLength(1));
+      await waitForAssertion(() => expect(both.envelopes).toHaveLength(1));
       await bc.getCursor('s1');
       expect(both.envelopes).toHaveLength(1);
     });
@@ -1656,7 +1656,7 @@ describe('SessionEventBroadcaster', () => {
       ];
       eventBus.emit({ type: 'event.config.warning', payload: { warnings } });
 
-      await waitUntil(() => expect(globalView.envelopes).toHaveLength(1));
+      await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
       expect(globalView.envelopes[0]).toMatchObject({
         type: 'event.config.warning',
         session_id: '__global__',
@@ -1678,7 +1678,7 @@ describe('SessionEventBroadcaster', () => {
         },
       });
 
-      await waitUntil(() => expect(globalView.envelopes).toHaveLength(2));
+      await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(2));
       expect(globalView.envelopes[0]).toMatchObject({
         type: 'event.plugin.changed',
         session_id: '__global__',
@@ -1714,7 +1714,7 @@ describe('SessionEventBroadcaster', () => {
         payload: { capability_id: 'kimi-cu', install: { running: false } },
       });
 
-      await waitUntil(() => expect(globalView.envelopes).toHaveLength(1));
+      await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
       expect(globalView.envelopes[0]).toMatchObject({
         type: 'event.capability.changed',
         payload: { capability_id: 'kimi-cu', install: { running: false } },
@@ -1732,7 +1732,7 @@ describe('SessionEventBroadcaster', () => {
       const warnings = [{ message: 'something deprecated' }];
       eventBus.emit({ type: 'event.config.warning', payload: { warnings } });
 
-      await waitUntil(() => expect(globalView.envelopes).toHaveLength(1));
+      await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
       expect(globalView.envelopes[0]).toMatchObject({
         type: 'event.config.warning',
         payload: { warnings },
@@ -1749,7 +1749,7 @@ describe('SessionEventBroadcaster', () => {
         payload: { changedFields: ['defaultModel'], config },
       });
 
-      await waitUntil(() => expect(globalView.envelopes).toHaveLength(1));
+      await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
       expect(globalView.envelopes[0]).toMatchObject({
         type: 'event.config.changed',
         session_id: '__global__',
@@ -1768,7 +1768,7 @@ describe('SessionEventBroadcaster', () => {
         payload: { changedFields: ['mcp'], config },
       });
 
-      await waitUntil(() => expect(globalView.envelopes).toHaveLength(1));
+      await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
       expect(globalView.envelopes[0]).toMatchObject({
         type: 'event.config.changed',
         session_id: '__global__',
@@ -1804,7 +1804,7 @@ describe('SessionEventBroadcaster', () => {
         payload: { changedFields: ['models'], config: { models: {} } },
       });
 
-      await waitUntil(() => expect(globalView.envelopes).toHaveLength(1));
+      await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
       expect(globalView.envelopes[0]).toMatchObject({
         type: 'event.config.changed',
         payload: { changedFields: ['models'], config: { models: {} } },
@@ -1824,7 +1824,7 @@ describe('SessionEventBroadcaster', () => {
         payload: { changed, unchanged: ['openai-main'], failed },
       });
 
-      await waitUntil(() => expect(globalView.envelopes).toHaveLength(1));
+      await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
       expect(globalView.envelopes[0]).toMatchObject({
         type: 'event.model_catalog.changed',
         session_id: '__global__',
@@ -1848,7 +1848,7 @@ describe('SessionEventBroadcaster', () => {
         payload: { changed, unchanged: [], failed: [], retired_default: retiredDefault },
       });
 
-      await waitUntil(() => expect(globalView.envelopes).toHaveLength(1));
+      await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
       expect(globalView.envelopes[0]).toMatchObject({
         type: 'event.model_catalog.changed',
         session_id: '__global__',
@@ -1920,7 +1920,7 @@ describe('SessionEventBroadcaster', () => {
         payload: { changed, unchanged: [], failed: [] },
       });
 
-      await waitUntil(() => expect(globalView.envelopes).toHaveLength(1));
+      await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
       expect(globalView.envelopes[0]).toMatchObject({
         type: 'event.model_catalog.changed',
         payload: { changed, unchanged: [], failed: [] },
@@ -2539,7 +2539,7 @@ describe('SessionEventBroadcaster', () => {
       },
     });
 
-    await waitUntil(() => expect(envelopes).toHaveLength(1));
+    await waitForAssertion(() => expect(envelopes).toHaveLength(1));
     expect(envelopes[0]!.type).toBe('session.meta.updated');
   });
 
@@ -2866,7 +2866,7 @@ describe('SessionEventBroadcaster', () => {
 
       const view = collectingTarget();
       const pending = bc.subscribe('s1', view.target, undefined, { 'sub-1': 'delta' });
-      await waitUntil(() => {
+      await waitForAssertion(() => {
         expect(backfillSpy).toHaveBeenCalledWith('s1', 'sub-1');
       });
       bc.unsubscribe('s1', view.target);

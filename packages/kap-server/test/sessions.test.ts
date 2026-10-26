@@ -1,11 +1,11 @@
 import { randomBytes } from 'node:crypto';
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 import { inflateRawSync } from 'node:zlib';
 import { ISessionMediaStore } from '@moonshot-ai/agent-core-v2';
-import { mcpResultToExecutableOutput } from '@moonshot-ai/agent-core-v2';
-import { renderToolResultForModel } from '@moonshot-ai/agent-core-v2';
+import { mcpResultToExecutableOutput } from '@moonshot-ai/agent-core-v2/agent/mcp/output';
+import { renderToolResultForModel } from '@moonshot-ai/agent-core-v2/agent/contextMemory/toolResultRender';
 import { IReadTool, ReadInputSchema, type ReadInput } from '@moonshot-ai/agent-core-v2';
 
 import { afterAll, afterEach, beforeAll, describe, expect, it, jest, vi } from 'bun:test';
@@ -43,11 +43,11 @@ import {
 } from '@moonshot-ai/agent-core-v2';
 import { ISessionLockService } from '@moonshot-ai/agent-core-v2';
 import { SessionMetaUpdated } from '@moonshot-ai/agent-core-v2';
-import { TurnSteer } from '@moonshot-ai/agent-core-v2';
+import { TurnSteer } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
 import type { AgentTranscriptSnapshot } from '@moonshot-ai/transcript';
-import { TurnStarted } from '@moonshot-ai/agent-core-v2';
-import { sessionWarningsResponseSchema } from '@moonshot-ai/agent-core-v2';
-import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2';
+import { TurnStarted } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
+import { sessionWarningsResponseSchema } from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionProtocol';
+import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
 
 import { type RunningServer, startServer } from '../src/start';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
@@ -130,7 +130,7 @@ describe('server-v2 /api/v1/sessions', () => {
     }
     if (home !== undefined) {
       await new Promise((resolve) => setTimeout(resolve, 25));
-      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
+      await rm(home, { recursive: true, force: true, maxRetries: 25, retryDelay: 100 } as never).catch(() => undefined);
       home = undefined;
     }
   });
@@ -142,7 +142,7 @@ describe('server-v2 /api/v1/sessions', () => {
     }
     if (home !== undefined) {
       await new Promise((resolve) => setTimeout(resolve, 25));
-      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
+      await rm(home, { recursive: true, force: true, maxRetries: 25, retryDelay: 100 } as never).catch(() => undefined);
     }
     home = await mkdtemp(join(tmpdir(), 'kimi-server-v2-sessions-'));
     server = await startServer({
@@ -1234,7 +1234,7 @@ describe('server-v2 /api/v1/sessions', () => {
     const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd: home } });
     const id = created.body.data.id;
     const journalPath = join(home!, 'server', 'events', `${id}.jsonl`);
-    await waitUntil(async () => expect(await readFile(journalPath, 'utf8')).toContain('journal_header'));
+    await waitForAssertion(async () => expect(await readFile(journalPath, 'utf8')).toContain('journal_header'));
     await closeSessionById(server!.core.accessor, id);
     await rm(journalPath);
     await mkdir(journalPath);
@@ -1260,7 +1260,7 @@ describe('server-v2 /api/v1/sessions', () => {
     const created = await postJson<SessionWire>('/api/v1/sessions', { metadata: { cwd: home } });
     const id = created.body.data.id;
     const journalPath = join(home!, 'server', 'events', `${id}.jsonl`);
-    await waitUntil(async () => expect(await readFile(journalPath, 'utf8')).toContain('journal_header'));
+    await waitForAssertion(async () => expect(await readFile(journalPath, 'utf8')).toContain('journal_header'));
     const oldJournal = await readFile(journalPath, 'utf8');
     let enter!: () => void;
     let release!: () => void;
@@ -1288,7 +1288,7 @@ describe('server-v2 /api/v1/sessions', () => {
       server!.core.accessor.get(IEventService).publish(new SessionMetaUpdated({
         payload: { sessionId: id, agentId: 'main', patch: { title: 'Recreated session' } },
       }));
-      await waitUntil(async () => {
+      await waitForAssertion(async () => {
         const journal = await readFile(journalPath, 'utf8');
         expect(journal).toContain('journal_header');
         expect(JSON.parse(journal.split('\n')[0]!).epoch).not.toBe(JSON.parse(oldJournal.split('\n')[0]!).epoch);
@@ -1360,19 +1360,22 @@ describe('server-v2 /api/v1/sessions', () => {
       .get(IAgentLifecycleService)
       .create({ agentId: MAIN_AGENT_ID });
     const agent = session.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID)!;
-    const compacting = (
-      vi.spyOn as unknown as (
-        target: object,
-        property: string,
-        accessType: 'get',
-      ) => { mockReturnValue(value: never): { mockRestore(): void } }
-    )(agent.accessor.get(IAgentFullCompactionService), 'compacting', 'get').mockReturnValue({} as never);
+    const compactionService = agent.accessor.get(IAgentFullCompactionService);
+    const originalDescriptor = Object.getOwnPropertyDescriptor(compactionService, 'compacting');
+    Object.defineProperty(compactionService, 'compacting', {
+      configurable: true,
+      get: () => ({} as never),
+    });
 
     try {
       const response = await postJson<null>(`/api/v1/sessions/${id}:reload`);
       expect(response.body.code).toBe(40901);
     } finally {
-      compacting.mockRestore();
+      if (originalDescriptor === undefined) {
+        delete (compactionService as Record<string, unknown>)['compacting'];
+      } else {
+        Object.defineProperty(compactionService, 'compacting', originalDescriptor);
+      }
     }
   });
 
@@ -1811,7 +1814,9 @@ describe('server-v2 /api/v1/sessions', () => {
     for (const agentId of ['main', 'agent-0', 'agent-150', `agent-${subagentCount - 1}`]) {
       const entry = forkedState.agents[agentId];
       const source = agents[agentId]!;
-      expect(entry.homedir).toBe(join(forkedDir, 'agents', agentId));
+      expect(entry.homedir.split(sep).join('/')).toBe(
+        join(forkedDir, 'agents', agentId).split(sep).join('/'),
+      );
       expect(entry.type).toBe(source.type);
       expect(entry.parentAgentId ?? null).toBe(source.parentAgentId);
       expect(entry.labels).toEqual(
@@ -2396,7 +2401,7 @@ describe('server-v2 /api/v1/sessions status context window', () => {
     }
     if (home !== undefined) {
       await new Promise((resolve) => setTimeout(resolve, 25));
-      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
+      await rm(home, { recursive: true, force: true, maxRetries: 25, retryDelay: 100 } as never).catch(() => undefined);
       home = undefined;
     }
   });
@@ -2486,7 +2491,7 @@ describe('server-v2 /api/v1/sessions (minidb read model)', () => {
     }
     if (home !== undefined) {
       await new Promise((resolve) => setTimeout(resolve, 25));
-      await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 } as never);
+      await rm(home, { recursive: true, force: true, maxRetries: 25, retryDelay: 100 } as never).catch(() => undefined);
       home = undefined;
     }
   });
@@ -2526,7 +2531,7 @@ describe('server-v2 /api/v1/sessions (minidb read model)', () => {
     });
     const id = created.body.data.id;
 
-    await waitUntil(
+    await waitForAssertion(
       async () => {
         const listed = await getJson<PageWire>('/api/v1/sessions');
         expect(listed.body.data.items.some((s) => s.id === id)).toBe(true);

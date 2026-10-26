@@ -20,8 +20,8 @@ import {
   type ISessionScopeHandle,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
-import { TurnStarted } from '@moonshot-ai/agent-core-v2';
-import { TurnEnded, TurnPrompt } from '@moonshot-ai/agent-core-v2';
+import { TurnStarted } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
+import { TurnEnded, TurnPrompt } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
 import { afterEach, beforeEach, describe, expect, it, jest, vi } from 'bun:test';
 
 import { SessionRatingHost } from '#/session-rating/node/index';
@@ -57,7 +57,7 @@ afterEach(async () => {
   await drainSessionIndexMirror();
   await drainQueryStoreDisposals();
   jest.restoreAllMocks();
-  await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  await rm(home, { recursive: true, force: true, maxRetries: 25, retryDelay: 100 }).catch(() => undefined);
 });
 
 function startHost(): SessionRatingHost {

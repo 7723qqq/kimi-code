@@ -6,7 +6,7 @@ import { join } from 'pathe';
 
 import type { IHostProcess } from '#/os/interface/hostProcess';
 import { afterEach, describe, expect, it, jest } from 'bun:test';
-import { waitUntil } from '#test/helpers/waitFor';
+import { waitForAssertion, waitUntil } from '#test/helpers/waitFor';
 
 import {
   IAgentTaskService,
@@ -859,7 +859,7 @@ describe('AgentTaskService', () => {
 
     await waitForTerminal(manager, taskId);
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(dispose).toHaveBeenCalledTimes(1);
     });
   });

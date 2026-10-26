@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, jest, vi } from 'bun:test';
-import { waitUntil } from '../../helpers/waitFor';
+import { waitForAssertion, waitUntil } from '../../helpers/waitFor';
 
 import type { Session } from '@moonshot-ai/kimi-code-sdk';
 
@@ -193,7 +193,7 @@ describe('confirmThenPerformModelSwitch new-session action', () => {
     confirmThenPerformModelSwitch(host, 'new-alias', 'high', 'session');
 
     mountedDialog(mountEditorReplacement).opts.onSelect('new');
-    await waitUntil(() => expect(host.restoreEditor).toHaveBeenCalled());
+    await waitForAssertion(() => expect(host.restoreEditor).toHaveBeenCalled());
 
     expect(session.setModel).not.toHaveBeenCalled();
     expect(activateModelAfterLogin).not.toHaveBeenCalled();
@@ -220,7 +220,7 @@ describe('confirmThenPerformModelSwitch new-session action', () => {
     expect(restoreEditor).not.toHaveBeenCalled();
 
     releaseCreation();
-    await waitUntil(() => expect(restoreEditor).toHaveBeenCalled());
+    await waitForAssertion(() => expect(restoreEditor).toHaveBeenCalled());
     expect(session.setModel).not.toHaveBeenCalled();
     expect(appState.sessionId).toBe('ses-old');
   });
@@ -234,7 +234,7 @@ describe('confirmThenPerformModelSwitch new-session action', () => {
     confirmThenPerformModelSwitch(host, 'new-alias', 'high', 'session');
 
     mountedDialog(mountEditorReplacement).opts.onSelect('new');
-    await waitUntil(() => expect(host.restoreEditor).toHaveBeenCalled());
+    await waitForAssertion(() => expect(host.restoreEditor).toHaveBeenCalled());
 
     expect(session.setModel).toHaveBeenCalledWith('new-alias');
   });
@@ -269,8 +269,8 @@ describe('confirmThenPerformModelSwitch new-session action', () => {
     expect(restoreEditor).not.toHaveBeenCalled();
 
     releaseCreation();
-    await waitUntil(() => expect(restoreEditor).toHaveBeenCalled());
-  });
+    await waitForAssertion(() => expect(restoreEditor).toHaveBeenCalled());
+    });
 
   it('does not dismiss a panel that displaced the dialog when creation settles', async () => {
     const { host, mountEditorReplacement, restoreEditor } = makeSwitchHost();

@@ -101,3 +101,16 @@ packages/agent-core-v2/src/human/compaction/machine.ts
 packages/agent-core-v2/src/human/compaction/shape.ts
 packages/agent-core-v2/src/human/compaction/summarize.ts
 packages/agent-core-v2/src/human/test/compaction/controller.test.ts
+
+# The web bundle is synced from code-app and this fork keeps its own copy; the
+# hashed asset names differ from upstream's on every sync, so upstream's names
+# are always absent here. See apps/kimi-code/scripts/check-web-assets.mjs.
+apps/kimi-code/dist-web/assets/channel-CLLh9fFD.js
+apps/kimi-code/dist-web/assets/classDiagram-OUVF2IWQ-B90-0icA.js
+apps/kimi-code/dist-web/assets/classDiagram-v2-EOCWNBFH-B90-0icA.js
+apps/kimi-code/dist-web/assets/stateDiagram-v2-6OUMAXLB-BAKG7OO2.js
+apps/kimi-code/dist-web/assets/swimlanesDiagram-G3AALYLV-CjkdSqYs.js
+
+# The OS backends were split into os/backends/host in this fork; node-local only
+# holds what host does not replace.
+packages/agent-core-v2/src/os/backends/node-local/hostProcessService.ts

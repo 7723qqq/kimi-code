@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
-import { waitUntil } from '#test/helpers/waitFor';
+import { waitForAssertion, waitUntil } from '#test/helpers/waitFor';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
@@ -736,7 +736,7 @@ describe('SessionMetadata', () => {
     });
 
     const writing = meta.setTitle('held');
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(store.set).toHaveBeenCalled();
     });
     locks.release('s1');

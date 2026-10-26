@@ -664,7 +664,7 @@ describe('AgentTowerService', () => {
         }),
       );
 
-      await waitUntil(async () => {
+      await waitForAssertion(async () => {
         const state = await store.load();
         expect(state.roster.agents[0]?.deathStatus).toBe('failed');
       });
@@ -746,7 +746,7 @@ describe('AgentTowerService', () => {
           }),
         );
 
-        await waitUntil(() => expect(markSpy).toHaveBeenCalledTimes(1));
+        await waitForAssertion(() => expect(markSpy).toHaveBeenCalledTimes(1));
         expect(markSpy).toHaveBeenCalledWith('agent-stranger', 'failed', undefined, 'session-main');
         await deathSettled;
         const state = await store.load();
@@ -790,7 +790,7 @@ describe('AgentTowerService', () => {
 
       publishAsMain(ix, new SubagentStarted({ subagentId: 'agent-w1' }));
 
-      await waitUntil(async () => {
+      await waitForAssertion(async () => {
         const state = await store.load();
         expect(state.roster.agents[0]?.diedAt).toBeUndefined();
       });
@@ -938,7 +938,7 @@ describe('AgentTowerService', () => {
       );
       publishAsMain(ix, new SubagentStarted({ subagentId: 'agent-w2' }));
 
-      await waitUntil(() => {
+      await waitForAssertion(() => {
         expect(infos.filter((entry) => entry.msg.includes('skipping'))).toHaveLength(2);
       });
       const state = await store.load();
@@ -1608,7 +1608,7 @@ describe('AgentTowerService', () => {
         const tower = ix.get(IAgentTowerService);
         const entered = tower.enter();
 
-        await waitUntil(() => expect(ownerExit).toHaveBeenCalled());
+        await waitForAssertion(() => expect(ownerExit).toHaveBeenCalled());
         await new Promise((resolve) => setTimeout(resolve, 20));
         expect(adoptSpy).not.toHaveBeenCalled();
 
@@ -1744,7 +1744,7 @@ describe('AgentTowerService', () => {
       await tower.exit();
 
       expect(tower.isActive).toBe(false);
-      await waitUntil(async () => {
+      await waitForAssertion(async () => {
         expect((await store.load()).sessionId).toBeUndefined();
       });
       const log = await store.recentLog(5);
@@ -1785,7 +1785,7 @@ describe('AgentTowerService', () => {
       try {
         await tower.exit();
 
-        await waitUntil(() => expect(releaseSpy).toHaveBeenCalledWith('session-fork'));
+        await waitForAssertion(() => expect(releaseSpy).toHaveBeenCalledWith('session-fork'));
         await releaseSettled;
         expect(tower.isActive).toBe(false);
         expect((await store.load()).sessionId).toBe('session-third');
@@ -2182,7 +2182,7 @@ describe('AgentTowerService', () => {
         expect(restored.isActive).toBe(false);
         expect(restoredAdded).toEqual([]);
         expect(events).toContainEqual({ type: 'agent.status.updated', towerMode: false });
-        await waitUntil(() => expect(releaseSpy).toHaveBeenCalledWith('session-fork'));
+        await waitForAssertion(() => expect(releaseSpy).toHaveBeenCalledWith('session-fork'));
         await releaseSettled;
         expect((await new TowerStore(repo).load()).sessionId).toBe('session-original');
       } finally {
@@ -3257,7 +3257,7 @@ describe('AgentTowerService', () => {
         missionId: 'M1',
       });
       await flushWake();
-      await waitUntil(() => {
+      await waitForAssertion(() => {
         expect(loop.snapshot().hasPendingRequests).toBe(true);
       });
       const messages = drainWakeMessages();
@@ -3330,7 +3330,7 @@ describe('AgentTowerService', () => {
           missionId: 'M2',
         });
         await flushWake();
-        await waitUntil(() => {
+        await waitForAssertion(() => {
           expect(loop.snapshot().hasPendingRequests).toBe(true);
         });
         const messages = drainWakeMessages();
@@ -3383,7 +3383,7 @@ describe('AgentTowerService', () => {
           messageId: 'msg-old-flush',
           missionId: 'M1',
         });
-        await waitUntil(() => {
+        await waitForAssertion(() => {
           expect(gate).toHaveBeenCalled();
         });
 

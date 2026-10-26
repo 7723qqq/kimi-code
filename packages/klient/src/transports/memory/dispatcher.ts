@@ -32,14 +32,15 @@ import { MAIN_AGENT_ID } from '@moonshot-ai/agent-core-v2';
 import { ensureMainAgent } from '@moonshot-ai/agent-core-v2';
 import { getOrRestoreAgent } from '@moonshot-ai/agent-core-v2';
 import { agentContextOf } from '@moonshot-ai/agent-core-v2';
-import { IEventBus } from '@moonshot-ai/agent-core-v2';
-import { FileErrors } from '@moonshot-ai/agent-core-v2';
+import { IEventBus } from '@moonshot-ai/agent-core-v2/app/event/eventBus';
+import { FileErrors } from '@moonshot-ai/agent-core-v2/errors';
 import { ITelemetryService } from '@moonshot-ai/agent-core-v2';
 import type {
   PromptWithSkillsInput,
   SkillActivationInput,
 } from '@moonshot-ai/agent-core-v2';
-import { Error2, ErrorCodes } from '@moonshot-ai/agent-core-v2';
+import {Error2} from '@moonshot-ai/agent-core-v2';
+import { ErrorCodes } from '@moonshot-ai/agent-core-v2/errors';
 import type { SkillActivationOrigin } from '@moonshot-ai/agent-core-v2';
 import { IAgentSkillService } from '@moonshot-ai/agent-core-v2';
 import { interactions } from '@moonshot-ai/agent-core-v2';

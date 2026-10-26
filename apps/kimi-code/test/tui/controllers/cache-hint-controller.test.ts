@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, jest, vi } from 'bun:test';
-import { waitUntil } from '../../helpers/waitFor';
+import { waitForAssertion, waitUntil } from '../../helpers/waitFor';
 import { mocked } from '../../helpers/mocked';
 
 import {
@@ -197,7 +197,7 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
     controller.recordActivity();
     jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 1200_000);
     expect(controller.maybeInterceptOnSubmit('hello')).toBe(true);
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(host.mountEditorReplacement).toHaveBeenCalled();
     });
     expect(host.track).toHaveBeenCalledWith(
@@ -233,7 +233,7 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
 
     expect(controller.maybeInterceptOnSubmit('hello')).toBe(true);
     expect(controller.maybeInterceptOnSubmit('world')).toBe(true);
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(host.mountEditorReplacement).toHaveBeenCalled();
     });
     jest.restoreAllMocks();
@@ -258,7 +258,7 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
     const extraction = uploadedExtraction('file-1', 1);
 
     expect(controller.maybeInterceptOnSubmit('describe [image #1 (1×1)]', extraction)).toBe(true);
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(host.mountEditorReplacement).toHaveBeenCalled();
     });
     jest.restoreAllMocks();
@@ -406,7 +406,7 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
     setTimeout(() => {
       state.appState.isCompacting = true;
     }, 10);
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(mocked(host.sendNormalUserInput)).toHaveBeenCalledWith('hello', undefined);
     });
     expect(compact).toHaveBeenCalledWith({});
@@ -466,7 +466,7 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
 
     expect(controller.maybeInterceptOnSubmit('first', uploadedExtraction('file-1', 1))).toBe(true);
     expect(controller.maybeInterceptOnSubmit('second', uploadedExtraction('file-2', 2))).toBe(true);
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(host.mountEditorReplacement).toHaveBeenCalled();
     });
     jest.restoreAllMocks();
@@ -619,7 +619,7 @@ describe('CacheHintController scenario 1 (resume)', () => {
     host: CacheHintHost,
   ): Promise<void> {
     const pending = controller.maybeShowOnResume();
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(host.mountEditorReplacement).toHaveBeenCalled();
     });
     const dialog = (host.mountEditorReplacement as ReturnType<typeof jest.fn>).mock.calls[0]![0] as {

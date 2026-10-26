@@ -7,7 +7,7 @@ import type { MigrationPlan } from '@moonshot-ai/migration-legacy';
 import type { Component, Focusable } from '@moonshot-ai/pi-tui';
 import { describe, expect, it, jest, vi } from 'bun:test';
 import { setEnv, restoreEnvs } from '../helpers/stubs';
-import { waitUntil } from '../helpers/waitFor';
+import { waitForAssertion, waitUntil } from '../helpers/waitFor';
 import { mocked } from '../helpers/mocked';
 
 import { BannerProvider } from '#/tui/banner/banner-provider';
@@ -364,7 +364,7 @@ describe('KimiTUI startup', () => {
         driver as unknown as { finishStartup(shouldReplayHistory: boolean): Promise<void> }
       ).finishStartup(false);
 
-      await waitUntil(() => {
+      await waitForAssertion(() => {
         expect(harness.track).toHaveBeenCalledWith('survey_setting_migration', {
           legacy: true,
           configured: 'absent',
@@ -413,7 +413,7 @@ describe('KimiTUI startup', () => {
           driver as unknown as { finishStartup(shouldReplayHistory: boolean): Promise<void> }
         ).finishStartup(false);
 
-        await waitUntil(() => {
+        await waitForAssertion(() => {
           expect(harness.track).toHaveBeenCalledWith('survey_setting_migration', {
             legacy,
             configured: reportedConfigured,
@@ -441,7 +441,7 @@ describe('KimiTUI startup', () => {
       driver as unknown as { finishStartup(shouldReplayHistory: boolean): Promise<void> }
     ).finishStartup(false);
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(harness.getConfig).toHaveBeenCalled();
     });
     await new Promise((resolve) => setTimeout(resolve, 0));
@@ -1185,7 +1185,7 @@ describe('KimiTUI startup', () => {
     for (let i = 0; i < 49; i++) {
       picker.handleInput('\u001B[B');
     }
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.sessions).toHaveLength(51);
     });
 
@@ -1208,7 +1208,7 @@ describe('KimiTUI startup', () => {
 
     const picker = driver.state.editorContainer.children[0] as Component & { handleInput(data: string): void };
     picker.handleInput('x');
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.sessions).toHaveLength(51);
     });
 
@@ -1249,7 +1249,7 @@ describe('KimiTUI startup', () => {
     for (let i = 0; i < 49; i++) {
       picker.handleInput('\u001B[B');
     }
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(listSessionsPage).toHaveBeenCalledWith({
         workDir: '/tmp/proj-a',
         limit: 50,
@@ -1262,7 +1262,7 @@ describe('KimiTUI startup', () => {
       items: [{ id: 'ses-page2-0', workDir: '/tmp/proj-a', updatedAt: 1 }],
       nextCursor: 'ses-page2-0',
     });
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.sessions).toHaveLength(52);
     });
     expect(listSessionsPage).toHaveBeenLastCalledWith({
@@ -1344,10 +1344,10 @@ describe('KimiTUI startup', () => {
     expect(picker.render(160).join('\n')).toContain('Delete session "Session A"? [y/N]');
     picker.handleInput('y');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(deleteSession).toHaveBeenCalledWith('ses-a');
     });
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       const remounted = driver.state.editorContainer.children[0] as {
         render(width: number): string[];
       };
@@ -1391,13 +1391,13 @@ describe('KimiTUI startup', () => {
 
     // The picker (and its input lock) stays mounted until the replacement
     // session is ready; the editor must not accept input mid-flight.
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(deleteSession).toHaveBeenCalledWith('ses-current');
     });
     expect(driver.state.activeDialog).toBe('session-picker');
     resolveDelete();
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(harness.createSession).toHaveBeenCalledTimes(2);
     });
     expect(session.close).toHaveBeenCalled();
@@ -1431,13 +1431,13 @@ describe('KimiTUI startup', () => {
     picker.handleInput('\u0018');
     picker.handleInput('y');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(harness.resumeSession).toHaveBeenCalledWith({
         id: 'ses-current',
         replayTurnLimit: REPLAY_TURN_LIMIT,
       });
     });
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.appState.sessionId).toBe('ses-current');
     });
     const transcript = driver.state.transcriptContainer.render(160).join('\n');
@@ -1475,14 +1475,14 @@ describe('KimiTUI startup', () => {
     picker.handleInput('\u0018');
     picker.handleInput('y');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(harness.resumeSession).toHaveBeenCalledWith({
         id: 'ses-current',
         replayTurnLimit: REPLAY_TURN_LIMIT,
       });
     });
     expect(deleteSession).not.toHaveBeenCalled();
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.appState.sessionId).toBe('ses-current');
     });
     const transcript = driver.state.transcriptContainer.render(160).join('\n');
@@ -1513,10 +1513,10 @@ describe('KimiTUI startup', () => {
     picker.handleInput('\u0018');
     picker.handleInput('y');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(deleteSession).toHaveBeenCalledWith('ses-a');
     });
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       const remounted = driver.state.editorContainer.children[0] as {
         render(width: number): string[];
       };
@@ -1544,7 +1544,7 @@ describe('KimiTUI startup', () => {
     picker.handleInput('\u0018');
     picker.handleInput('y');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       const transcript = driver.state.transcriptContainer.render(160).join('\n');
       expect(transcript).toContain('Failed to delete session ses-a');
     });
@@ -1577,7 +1577,7 @@ describe('KimiTUI startup', () => {
       render(width: number): string[];
     };
     picker.handleInput('\r');
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(resumeSession).toHaveBeenCalled();
     });
 
@@ -1586,7 +1586,7 @@ describe('KimiTUI startup', () => {
     expect(deleteSession).not.toHaveBeenCalled();
 
     resolveResume(picked);
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.activeDialog).toBeNull();
     });
   });
@@ -1633,7 +1633,7 @@ describe('KimiTUI startup', () => {
     picker.handleInput('\u0001');
     picker.handleInput('\u0018');
     picker.handleInput('y');
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(deleteSession).toHaveBeenCalledWith('ses-a');
     });
 
@@ -1644,7 +1644,7 @@ describe('KimiTUI startup', () => {
     expect(driver.state.editorContainer.children[0]).toBe(picker);
 
     resolveDelete?.();
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(mountSessionPicker).toHaveBeenCalledTimes(2);
     });
   });
@@ -1680,7 +1680,7 @@ describe('KimiTUI startup', () => {
     const picker = driver.state.editorContainer.children[0] as Component & { handleInput(data: string): void };
     picker.handleInput('\u0001');
     picker.handleInput('\r');
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(resumeSession).toHaveBeenCalled();
     });
 
@@ -1691,7 +1691,7 @@ describe('KimiTUI startup', () => {
     expect(driver.state.editorContainer.children[0]).toBe(picker);
 
     resolveResume?.(picked);
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.activeDialog).toBeNull();
     });
   });
@@ -1724,7 +1724,7 @@ describe('KimiTUI startup', () => {
     picker.handleInput('\u0018');
     picker.handleInput('y');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       const transcript = driver.state.transcriptContainer.render(160).join('\n');
       expect(transcript).toContain('Failed to start a new session');
     });
@@ -1768,7 +1768,7 @@ describe('KimiTUI startup', () => {
     picker.handleInput('\u0018');
     picker.handleInput('y');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       const transcript = driver.state.transcriptContainer.render(160).join('\n');
       expect(transcript).toContain('Failed to delete session ses-current');
     });
@@ -3143,7 +3143,7 @@ describe('KimiTUI startup', () => {
     driver.onExit = onExit;
 
     const startPromise = driver.start();
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(mountSpy).toHaveBeenCalled();
     });
     mountSpy.mock.calls[0]![0].handleInput('\u001B[A');
@@ -3179,7 +3179,7 @@ describe('KimiTUI startup', () => {
     driver.onExit = onExit;
 
     const startPromise = driver.start();
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(mountSpy).toHaveBeenCalled();
     });
     mountSpy.mock.calls[0]![0].handleInput('\u001B[A');
@@ -3219,7 +3219,7 @@ describe('KimiTUI startup', () => {
     driver.onExit = onExit;
 
     const startPromise = driver.start();
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(mountSpy).toHaveBeenCalled();
     });
     mountSpy.mock.calls[0]![0].handleInput('\u001B[A');
@@ -3281,7 +3281,7 @@ describe('KimiTUI startup', () => {
 
     await driver.initMainTui();
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(
         driver.state.transcriptContainer.children.some((child) => child instanceof BannerComponent),
       ).toBe(true);
@@ -3324,13 +3324,13 @@ describe('KimiTUI startup', () => {
 
       await driver.initMainTui();
 
-      await waitUntil(() => {
+      await waitForAssertion(() => {
         expect(
           driver.state.transcriptContainer.children.some((child) => child instanceof BannerComponent),
         ).toBe(true);
       });
 
-      await waitUntil(
+      await waitForAssertion(
         async () => {
           const state = await readBannerDisplayState();
           expect(state.shown['once-banner']?.lastShownAt).toBeDefined();
@@ -3378,7 +3378,7 @@ describe('KimiTUI startup', () => {
 
       await driver.initMainTui();
 
-      await waitUntil(() => {
+      await waitForAssertion(() => {
         expect(
           driver.state.transcriptContainer.children.some((child) => child instanceof BannerComponent),
         ).toBe(true);
@@ -3423,7 +3423,7 @@ describe('KimiTUI startup', () => {
 
     await driver.initMainTui();
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(
         driver.state.transcriptContainer.children.some((child) => child instanceof BannerComponent),
       ).toBe(true);

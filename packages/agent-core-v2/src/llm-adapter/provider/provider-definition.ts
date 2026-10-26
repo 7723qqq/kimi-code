@@ -240,6 +240,12 @@ registerProviderDefinition({
 });
 
 registerProviderDefinition({
+  id: 'vertexai',
+  baseProtocol: 'google-genai',
+  endpoints: [vertexEndpoint],
+});
+
+registerProviderDefinition({
   id: 'google-genai',
   baseProtocol: 'google-genai',
   endpoints: [vertexEndpoint, geminiEndpoint],

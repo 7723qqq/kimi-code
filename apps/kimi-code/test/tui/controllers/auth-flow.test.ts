@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, jest, vi } from 'bun:test';
-import { waitUntil } from '../../helpers/waitFor';
+import { waitForAssertion, waitUntil } from '../../helpers/waitFor';
 
 import {
   AuthFlowController,
@@ -210,9 +210,8 @@ describe('refreshConfigAfterLogin with a matching cloud rule', () => {
       opts: { onSelect: (action: string) => void };
     };
     dialog.opts.onSelect('continue');
-    await waitUntil(() => expect(session!.setThinking).toHaveBeenCalledWith('max'));
+    await waitForAssertion(() => expect(session!.setThinking).toHaveBeenCalledWith('max'));
   });
-});
 
 describe('refreshProviderModels', () => {
   it('reloads app-state providers and models even when the engine reports no model change', async () => {
@@ -239,4 +238,5 @@ describe('refreshProviderModels', () => {
       availableProviders: expect.anything(),
     });
   });
+});
 });

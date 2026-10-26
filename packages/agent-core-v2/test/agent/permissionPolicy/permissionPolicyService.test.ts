@@ -24,6 +24,7 @@ import {
   type IAgentPermissionRulesService as PermissionRulesServiceContract,
   type PermissionRule,
 } from '#/agent/permissionRules/permissionRules';
+import { IAgentGuardianService } from '#/agent/guardian/guardianService';
 import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import { IConfigService } from '#/app/config/config';
@@ -119,6 +120,11 @@ describe('AgentPermissionPolicyService chain', () => {
         });
         reg.defineInstance(ITelemetryService, recordingTelemetry([]));
         reg.definePartialInstance(IGitService, { findWorkTree: async () => null });
+        reg.definePartialInstance(IAgentGuardianService, {
+          enabled: false,
+          circuitOpen: false,
+          review: async () => ({ verdict: 'allow' as const, riskLevel: 'low', userAuthorization: 'explicit', rationale: '' }),
+        });
         reg.define(IBashParserService, BashParserService);
         reg.define(IAgentPermissionPolicyService, AgentPermissionPolicyService);
       },
@@ -551,6 +557,11 @@ describe('AgentPermissionPolicyService git cwd write approval', () => {
         reg.defineInstance(ITelemetryService, recordingTelemetry([]));
         reg.definePartialInstance(IGitService, {
           findWorkTree: (cwd: string) => findGitWorkTree(hostFs, cwd),
+        });
+        reg.definePartialInstance(IAgentGuardianService, {
+          enabled: false,
+          circuitOpen: false,
+          review: async () => ({ verdict: 'allow' as const, riskLevel: 'low', userAuthorization: 'explicit', rationale: '' }),
         });
         reg.define(IBashParserService, BashParserService);
         reg.define(IAgentPermissionPolicyService, AgentPermissionPolicyService);

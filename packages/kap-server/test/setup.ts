@@ -51,5 +51,5 @@ afterEach(async () => {
 
 afterAll(async () => {
   await sharedServerHandle.close();
-  await rm(sharedHome, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+  await rm(sharedHome, { recursive: true, force: true, maxRetries: 25, retryDelay: 100 }).catch(() => undefined);
 });

@@ -7,7 +7,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { afterEach, describe, expect, it, jest } from 'bun:test';
 import { setGlobal } from './helpers/stubs';
-import { waitUntil } from './helpers/waitFor';
+import { waitForAssertion, waitUntil } from './helpers/waitFor';
 
 import {
   flushTelemetrySync,
@@ -1127,7 +1127,7 @@ describe('telemetry bootstrap', () => {
       version: '1.2.3',
       endpoint: 'https://mock.test/events',
     });
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(fetchImpl).toHaveBeenCalledTimes(1);
     });
     await shutdownTelemetry();

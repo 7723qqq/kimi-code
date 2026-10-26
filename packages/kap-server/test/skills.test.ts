@@ -1,6 +1,6 @@
 import { mkdir, mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 
 import {
   Error2,
@@ -376,7 +376,7 @@ describe('server-v2 /api/v1 skills', () => {
       expect(notice?.text).toContain(`${noteBytes.length} bytes`);
       const attachedPath = /bytes\): (.+) — open it with the Read tool$/.exec(notice?.text ?? '')?.[1];
       expect(attachedPath).toBeDefined();
-      expect(attachedPath).toContain('/attachments/');
+      expect(attachedPath!.split(sep).join('/')).toContain('/attachments/');
       expect(await readFile(attachedPath!)).toEqual(noteBytes);
     });
 

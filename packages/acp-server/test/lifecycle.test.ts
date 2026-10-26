@@ -72,7 +72,9 @@ describe('acp-server session lifecycle', () => {
       client = undefined;
     }
     if (homeDir !== undefined) {
-      await rm(homeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 100 });
+      await rm(homeDir, { recursive: true, force: true, maxRetries: 25, retryDelay: 200 }).catch(
+        () => undefined,
+      );
       homeDir = undefined;
     }
   });

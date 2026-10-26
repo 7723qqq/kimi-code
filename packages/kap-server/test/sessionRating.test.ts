@@ -22,9 +22,9 @@ import {
   type CompactionResult,
   type TelemetryAppenderRecord,
 } from '@moonshot-ai/agent-core-v2';
-import { ContextAppendMessage } from '@moonshot-ai/agent-core-v2';
-import { TurnStarted } from '@moonshot-ai/agent-core-v2';
-import { TurnEnded, TurnPrompt } from '@moonshot-ai/agent-core-v2';
+import { ContextAppendMessage } from '@moonshot-ai/agent-core-v2/agent/contextMemory/contextEvents';
+import { TurnStarted } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
+import { TurnEnded, TurnPrompt } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
 import {
   ToolCallStarted,
   ToolResultEvent,
@@ -33,7 +33,7 @@ import type { TranscriptItem } from '@moonshot-ai/transcript';
 import type { SessionRatingResult } from '../src/protocol/rest-session-rating';
 import { pino } from 'pino';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'bun:test';
-import { waitUntil } from './helpers/waitFor';
+import { waitForAssertion, waitUntil } from './helpers/waitFor';
 
 import { type RunningServer, startServer } from '../src/start';
 import { ensureMainAgent } from '../src/transport/mainAgent';
@@ -166,7 +166,7 @@ describe('session rating preview', () => {
 
   afterAll(async () => {
     await server.close();
-    await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    await rm(home, { recursive: true, force: true, maxRetries: 25, retryDelay: 100 }).catch(() => undefined);
   });
 
   function previewEvents(): [unknown, unknown, unknown][] {
@@ -246,7 +246,7 @@ describe('session rating preview outside development', () => {
 
   afterAll(async () => {
     await server.close();
-    await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    await rm(home, { recursive: true, force: true, maxRetries: 25, retryDelay: 100 }).catch(() => undefined);
   });
 
   it('ignores the preview switch when debug endpoints are off', async () => {
@@ -302,7 +302,7 @@ describe('session rating lifecycle', () => {
     const id = await ratings.createSession(home);
     await ratings.finishUserTurn(id);
     await expect(ratings.evaluate(id)).resolves.toMatchObject({ data: { appearance: null } });
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       if (configRequests === 0) throw new Error('survey_popup has not been fetched yet');
     });
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -339,7 +339,7 @@ describe('session rating lifecycle', () => {
   afterAll(async () => {
     await server.close();
     await new Promise((resolve) => configServer.close(resolve));
-    await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    await rm(home, { recursive: true, force: true, maxRetries: 25, retryDelay: 100 }).catch(() => undefined);
   });
 
   it('does not settle on close and accepts an answer after the scope is disposed', async () => {

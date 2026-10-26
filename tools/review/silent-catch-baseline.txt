@@ -8,6 +8,7 @@
 # Regenerate with:
 #   ./tools/review/zig-out/bin/review --check=silent-catch --json
 
+
 apps/kimi-code/src/cli/run-shell.ts  6
 apps/kimi-code/src/cli/sub/login-flow.ts  2
 apps/kimi-code/src/cli/sub/upgrade.ts  3
@@ -65,6 +66,7 @@ packages/agent-core-v2/src/agent/modeMutex/modeMutexService.ts  1
 packages/agent-core-v2/src/agent/profile/profileService.ts  1
 packages/agent-core-v2/src/agent/task/taskService.ts  3
 packages/agent-core-v2/src/agent/toolExecutor/toolExecutorService.ts  1
+packages/agent-core-v2/src/agent/tools/agent/agentTool.ts  1
 packages/agent-core-v2/src/agent/tools/os/bash/bashTool.ts  3
 packages/agent-core-v2/src/agent/tools/os/bash/process-task.ts  3
 packages/agent-core-v2/src/agent/tools/os/glob/globTool.ts  2
@@ -92,6 +94,7 @@ packages/agent-core-v2/src/features/externalHooks/session/sessionExternalHooksSe
 packages/agent-core-v2/src/features/goal/goalService.ts  1
 packages/agent-core-v2/src/features/lsp/lspInstance.ts  3
 packages/agent-core-v2/src/features/lsp/lspStdioProvider.ts  1
+packages/agent-core-v2/src/features/plan/tools/exit-plan-mode/exitPlanModeTool.ts  1
 packages/agent-core-v2/src/features/reminder/reminderService.ts  1
 packages/agent-core-v2/src/features/spec/specService.ts  1
 packages/agent-core-v2/src/features/tower/protocol/store.ts  2
@@ -99,16 +102,14 @@ packages/agent-core-v2/src/human/llm-kimi/schema.ts  2
 packages/agent-core-v2/src/human/llm/requester/bases/antigravity/antigravity.ts  3
 packages/agent-core-v2/src/human/llm/requester/bases/google-genai/lower.ts  1
 packages/agent-core-v2/src/mcpCore/client-stdio.ts  1
-packages/agent-core-v2/src/mcpCore/connection-manager.ts  1
+packages/agent-core-v2/src/mcpCore/connection-manager.ts  2
 packages/agent-core-v2/src/mcpCore/oauth/service.ts  1
 packages/agent-core-v2/src/os/backends/host/hostProcessService.ts  2
-packages/agent-core-v2/src/os/backends/host/hostTerminalService.ts  1
 packages/agent-core-v2/src/os/backends/host/tools/runRg.ts  4
 packages/agent-core-v2/src/session/agentLifecycle/agentLifecycleService.ts  2
 packages/agent-core-v2/src/session/agentLifecycle/profile/gitContext.ts  3
 packages/agent-core-v2/src/session/subagent/backend/acpBackend.ts  1
 packages/agent-core-v2/src/session/subagent/backend/codexBackend.ts  1
-packages/agent-core-v2/src/session/terminal/terminalService.ts  1
 packages/agent-core-v2/src/workspace/workspaceFs/fsService.ts  2
 packages/agent-core-v2/src/workspace/workspaceFs/internal/runRg.ts  4
 packages/i18n-shared/src/detect.ts  1
@@ -162,20 +163,20 @@ packages/oauth/src/identity.ts  2
 packages/oauth/src/oauth-manager.ts  3
 packages/oauth/src/oauth.ts  1
 packages/oauth/src/open-platform.ts  1
+packages/oauth/src/region-cache.ts  3
 packages/oauth/src/storage.ts  2
 packages/pi-tui/src/autocomplete.ts  1
 packages/pi-tui/src/native-module-path.ts  1
 packages/pi-tui/src/native-platform.ts  1
 packages/pi-tui/src/terminal.ts  4
 packages/pi-tui/src/tui-alt-screen.ts  2
-packages/remote-control/src/remote-control.ts  1
-packages/telemetry/src/crash.ts  1
-packages/telemetry/src/index.ts  1
-packages/telemetry/src/sink.ts  1
-packages/telemetry/src/transport.ts  3
-packages/agent-core-v2/src/agent/tools/agent/agentTool.ts  1
 packages/product/src/client-configs/node/client-configs.ts  1
 packages/product/src/session-rating/node/engine.ts  1
 packages/product/src/session-rating/node/ledger.ts  1
 packages/product/src/shared/node/json-file.ts  1
 packages/remote-control/src/device-client.ts  1
+packages/remote-control/src/remote-control.ts  1
+packages/telemetry/src/crash.ts  1
+packages/telemetry/src/index.ts  1
+packages/telemetry/src/sink.ts  1
+packages/telemetry/src/transport.ts  4

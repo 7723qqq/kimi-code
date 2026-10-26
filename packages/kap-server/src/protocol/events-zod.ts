@@ -31,7 +31,7 @@ import type {
   GoalStatus,
   GoalToolResult,
 } from '@moonshot-ai/agent-core-v2';
-import type { WarningEvent } from '@moonshot-ai/agent-core-v2';
+import { type WarningEvent } from '@moonshot-ai/agent-core-v2/errors';
 import type { PluginCommandActivatedPayload } from '@moonshot-ai/agent-core-v2';
 import type {
   ShellCompletedPayload,

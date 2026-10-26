@@ -3,7 +3,7 @@ import { getMaxListeners } from 'node:events';
 import { type ToolCall } from '#human/llm/message';
 import { emptyUsage } from '#human/llm/usage';
 import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
-import { waitUntil } from '#test/helpers/waitFor';
+import { waitForAssertion, waitUntil } from '#test/helpers/waitFor';
 
 import type { IDisposable } from '#/_base/di/lifecycle';
 import { Event } from '#/_base/event';
@@ -610,7 +610,7 @@ describe('Agent loop', () => {
 
       const { turn } = submitTurn(local.get(IAgentLoopService), 'use both tools');
       await slowStarted.promise;
-      await waitUntil(() => {
+      await waitForAssertion(() => {
         expect(toolResults().some((event) => event.toolCallId === 'call-fast-1')).toBe(true);
       });
       slowGate.resolve();
@@ -1267,7 +1267,7 @@ describe('Agent loop', () => {
         toolCalls: [],
       },
     });
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(loop.promptHandle('seed-1')).toBeDefined();
     });
     await expect(loop.promptHandle('seed-1')!.completion).resolves.toMatchObject({

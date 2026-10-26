@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
-import { waitUntil } from '#test/helpers/waitFor';
+import { waitForAssertion, waitUntil } from '#test/helpers/waitFor';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { Disposable, DisposableStore } from '#/_base/di/lifecycle';
@@ -1133,7 +1133,7 @@ describe('AgentLifecycleService', () => {
       created = true;
       return agent;
     });
-    await waitUntil(() => { expect(registerAgent).toHaveBeenCalledOnce(); });
+    await waitForAssertion(() => expect(registerAgent).toHaveBeenCalledOnce());
 
     expect(created).toBe(false);
 

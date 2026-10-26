@@ -922,8 +922,8 @@ describe('refreshProviderModels', () => {
     expect(result.failed).toEqual([]);
     expect(host.current().models?.['kimi-code/kimi-deep-coder']?.capabilities).toEqual([
       'thinking',
-      'always_thinking',
       'tool_use',
+      'always_thinking',
     ]);
     expect(host.current().defaultModel).toBe('kimi-code/kimi-deep-coder');
     expect(host.current().thinking?.enabled).toBe(true);
@@ -1007,8 +1007,8 @@ describe('refreshProviderModels', () => {
     // Upstream-owned fields merge; the dropped model disappears; the new one appears.
     expect(host.current().models?.['my-kimi/kimi-for-coding']?.displayName).toBe('Fresh Kimi');
     expect(host.current().models?.['my-kimi/kimi-for-coding']?.capabilities).toEqual([
-      'thinking',
       'tool_use',
+      'thinking',
     ]);
     expect(host.current().models?.['my-kimi/kimi-k2']).toBeDefined();
     expect(host.current().models?.['my-kimi/kimi-old']).toBeUndefined();
@@ -1293,7 +1293,12 @@ describe('refreshProviderModels', () => {
       resolveOAuthToken: jest.fn(),
     });
 
-    expect(result).toEqual({ changed: [], unchanged: [], failed: [] });
+    expect(result).toEqual({
+      changed: [],
+      unchanged: [],
+      failed: [{ provider: 'my-kimi', reason: 'provider returned no models' }],
+      retiredDefault: undefined,
+    });
     expect(host.setConfig).not.toHaveBeenCalled();
     expect(host.current().models?.['my-kimi/kimi-for-coding']).toBeDefined();
   });

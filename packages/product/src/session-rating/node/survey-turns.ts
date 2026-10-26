@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto';
 
 import type { DurableAgentRuntimeParticipant, IEventDispatcher, IDisposable } from '@moonshot-ai/agent-core-v2';
-import { ContextAppendMessage } from '@moonshot-ai/agent-core-v2';
-import { TurnEnded, TurnPrompt } from '@moonshot-ai/agent-core-v2';
+import { ContextAppendMessage } from '@moonshot-ai/agent-core-v2/agent/contextMemory/contextEvents';
+import { TurnEnded, TurnPrompt } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
 
 interface SurveyTurnHistory {
   readonly count: number;

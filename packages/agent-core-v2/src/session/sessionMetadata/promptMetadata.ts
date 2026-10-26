@@ -5,8 +5,10 @@ import { titleFromPromptMetadataText } from '#/agent/prompt/promptMetadataText';
 import type { ISessionMetadata } from './sessionMetadata';
 import { SessionMetaUpdated } from './sessionMetaEvents';
 
+export const DEFAULT_SESSION_TITLE = 'New Session';
+
 export function isUntitled(title: string | undefined): boolean {
-  return title === undefined || title.trim().length === 0 || title === 'New Session';
+  return title === undefined || title.trim().length === 0 || title === DEFAULT_SESSION_TITLE;
 }
 
 export interface PromptMetadataUpdateTarget {

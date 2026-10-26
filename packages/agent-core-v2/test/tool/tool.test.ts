@@ -15,7 +15,7 @@ import type { TokenUsage } from '#human/llm/usage';
 import { IModelCatalog, type Model } from '#/llm-adapter/model/catalog';
 import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 import { setEnv, restoreEnvs } from '#test/helpers/stubs';
-import { waitUntil } from '#test/helpers/waitFor';
+import { waitForAssertion, waitUntil } from '#test/helpers/waitFor';
 
 import { IAgentTaskService } from '#/agent/task/task';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
@@ -2732,7 +2732,7 @@ describe('Agent tool execution contract', () => {
       description: 'Continue work',
       resume: 'agent-existing',
     });
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(gatedReadStarted).toBe(true);
     });
     await lifecycle.remove(stubAgentContext('agent-existing', 1));
@@ -2766,7 +2766,7 @@ describe('Agent tool execution contract', () => {
         { prompt: 'Continue', description: 'Continue work', resume: 'agent-existing' },
         controller.signal,
       );
-      await waitUntil(() => {
+      await waitForAssertion(() => {
         expect(lifecycle.create).toHaveBeenCalled();
       });
       controller.abort(userCancellationReason());
@@ -3310,7 +3310,7 @@ describe('Agent tool execution contract', () => {
       prompt: 'Investigate',
       description: 'Find cause',
     });
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(tasks.list(false)).toHaveLength(1);
     });
     const task = tasks.list(false)[0]!;
@@ -3350,7 +3350,7 @@ describe('Agent tool execution contract', () => {
       prompt: 'Investigate',
       description: 'Find cause',
     });
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(tasks.list(false)).toHaveLength(1);
     });
     const task = tasks.list(false)[0]!;
@@ -3455,7 +3455,7 @@ describe('Agent tool execution contract', () => {
       { prompt: 'Investigate', description: 'Find cause' },
       controller.signal,
     );
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(context.get(IAgentTaskService).list(false)).toHaveLength(1);
     });
     controller.abort(userCancellationReason());
@@ -3485,7 +3485,7 @@ describe('Agent tool execution contract', () => {
       prompt: 'Investigate',
       description: 'Find cause',
     });
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(context.get(IAgentTaskService).list(false)).toHaveLength(1);
     });
     const [task] = context.get(IAgentTaskService).list(false);
@@ -3522,7 +3522,7 @@ describe('Agent tool execution contract', () => {
       prompt: 'Investigate',
       description: 'Find cause',
     });
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(context.get(IAgentTaskService).list(false)).toHaveLength(1);
     });
     await jest.advanceTimersByTime(DEFAULT_SUBAGENT_TIMEOUT_MS);
@@ -3562,7 +3562,7 @@ describe('Agent tool execution contract', () => {
       prompt: 'Investigate',
       description: 'Find cause',
     });
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(context.get(IAgentTaskService).list(false)).toHaveLength(1);
     });
     await jest.advanceTimersByTime(1000);
@@ -4408,7 +4408,7 @@ describe('Agent tools', () => {
 
       await ctx.untilTurnEnd();
 
-      await waitUntil(() => {
+      await waitForAssertion(() => {
         expect(resolved).toEqual([
           ['PreToolUse', 'Bash', 'allow'],
           ['PostToolUse', 'Bash', 'allow'],
@@ -4458,7 +4458,7 @@ describe('Agent tools', () => {
 
       await ctx.untilTurnEnd();
 
-      await waitUntil(() => {
+      await waitForAssertion(() => {
         expect(resolved).toEqual([['PostToolUseFailure', 'Bash', 'allow']]);
       });
     });
@@ -4604,7 +4604,7 @@ describe('Agent tools', () => {
       ctx.mockNextResponse({ type: 'text', text: 'The lookup failed.' });
       await ctx.untilTurnEnd();
 
-      await waitUntil(() => {
+      await waitForAssertion(() => {
         expect(resolved).toEqual([['PostToolUseFailure', 'Lookup', 'allow']]);
       });
     });

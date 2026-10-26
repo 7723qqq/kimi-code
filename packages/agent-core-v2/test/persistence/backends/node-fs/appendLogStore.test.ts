@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
-import { waitUntil } from '#test/helpers/waitFor';
+import { waitForAssertion, waitUntil } from '#test/helpers/waitFor';
 
 import { mkdtempSync, rmSync, appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -904,7 +904,7 @@ describe('AppendLogStore session lock integration', () => {
     await readAll();
     log.append<Rec>(SCOPE, KEY, { n: 1 });
     const flushing = log.flush();
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(existsSync(join(homeDir, SCOPE, KEY))).toBe(true);
     });
     expect(log.externallyModified(SCOPE, KEY)).toBe(false);
@@ -950,7 +950,7 @@ describe('AppendLogStore session lock integration', () => {
     await readAll();
     log.append<Rec>(SCOPE, KEY, { n: 1234567 });
     const flushing = log.flush();
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(existsSync(join(homeDir, SCOPE, KEY))).toBe(true);
     });
     expect(log.externallyModified(SCOPE, KEY)).toBe(false);
@@ -971,7 +971,7 @@ describe('AppendLogStore session lock integration', () => {
 
     await readAll();
     const rewriting = log.rewrite<Rec>(SCOPE, KEY, [{ n: 1 }, { n: 2 }]);
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(existsSync(join(homeDir, SCOPE, KEY))).toBe(true);
     });
     expect(log.externallyModified(SCOPE, KEY)).toBe(false);

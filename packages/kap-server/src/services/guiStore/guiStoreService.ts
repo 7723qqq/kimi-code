@@ -2,7 +2,8 @@ import { randomBytes } from 'node:crypto';
 import { mkdir, readFile, rename, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 
-import { Error2, ErrorCodes } from '@moonshot-ai/agent-core-v2';
+import {Error2} from '@moonshot-ai/agent-core-v2';
+import { ErrorCodes } from '@moonshot-ai/agent-core-v2/errors';
 import { parse as parseToml, stringify as stringifyToml } from 'smol-toml';
 
 import type { IGuiStoreService } from './guiStore';

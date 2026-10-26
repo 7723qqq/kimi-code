@@ -1,10 +1,10 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { join, sep } from 'node:path';
 
 import { afterAll, beforeAll, describe, expect, it, jest, vi } from 'bun:test';
 import { setEnv, restoreEnvs } from './helpers/stubs';
-import { waitUntil } from './helpers/waitFor';
+import { waitForAssertion, waitUntil } from './helpers/waitFor';
 
 import { IAtomicDocumentStore, IWorkspaceInstanceManager } from '@moonshot-ai/agent-core-v2';
 import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
@@ -248,7 +248,7 @@ describe('server-v2 /api/v1/workspaces', () => {
     await seedBucket(typedId, 's-typed', {});
     await seedBucket(lowerId, 's-lower', { archived: true, updatedAt: 2 });
 
-    await waitUntil(async () => {
+    await waitForAssertion(async () => {
       const { body } = await getJson<ListWire>('/api/v1/workspaces');
       expect(body.code).toBe(0);
       const unions = body.data.items.filter((w) => [typedId, lowerId].includes(w.id));
@@ -270,12 +270,16 @@ describe('server-v2 /api/v1/workspaces', () => {
     expect(status).toBe(200);
     expect(body.code).toBe(0);
     expect(body.data.persisted).toBe(true);
-    expect(body.data.additional_dirs).toContain(extra);
-    expect(body.data.project_root).toBe(root);
-    expect(body.data.config_path).toBe(join(root, '.kimi-code', 'local.toml'));
+    expect(body.data.additional_dirs.map((dir) => dir.split(sep).join('/'))).toContain(
+      extra.split(sep).join('/'),
+    );
+    expect(body.data.project_root.split(sep).join('/')).toBe(root.split(sep).join('/'));
+    expect(body.data.config_path.split(sep).join('/')).toBe(
+      join(root, '.kimi-code', 'local.toml').split(sep).join('/'),
+    );
     const toml = await readFile(body.data.config_path, 'utf8');
     expect(toml).toContain('additional_dir');
-    expect(toml).toContain(extra);
+    expect(toml).toContain(extra.split(sep).join('/'));
   });
 
   it('adds a relative directory without persisting when persist is false', async () => {
@@ -291,7 +295,9 @@ describe('server-v2 /api/v1/workspaces', () => {
     });
     expect(body.code).toBe(0);
     expect(body.data.persisted).toBe(false);
-    expect(body.data.additional_dirs).toContain(extra);
+    expect(body.data.additional_dirs.map((dir) => dir.split(sep).join('/'))).toContain(
+      extra.split(sep).join('/'),
+    );
     await expect(readFile(body.data.config_path, 'utf8')).rejects.toThrow();
     await rm(root, { recursive: true, force: true });
   });
@@ -468,7 +474,7 @@ describe('server-v2 /api/v1/workspaces', () => {
         expect(trusted.body.data.trusted).toBe(true);
         expect(workspace.program.trust.isTrusted()).toBe(true);
 
-        await waitUntil(() => {
+        await waitForAssertion(() => {
           expect(workspace.program.mcpConfig.servers()).toHaveProperty('projectOnly');
         });
         expect(recovered).toEqual([true]);
@@ -518,7 +524,7 @@ describe('server-v2 /api/v1/workspaces', () => {
         expect(revoked.body.code).toBe(0);
         expect(revoked.body.data.trusted).toBe(true);
 
-        await waitUntil(() => {
+        await waitForAssertion(() => {
           expect(workspace.program.mcpConfig.servers()).toHaveProperty('projectOnly');
         });
       } finally {

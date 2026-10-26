@@ -22,6 +22,7 @@ import { IEventBus } from '#/app/event/eventBus';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IBlobStore } from '#/persistence/interface/blobStore';
+import { IAgentTodoService } from '#/features/todo/todoService';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { IEventDispatcher } from '#/state/eventDispatcher';
@@ -34,6 +35,7 @@ import {
   type PlanFilePath,
 } from './plan';
 import { ExitPlanModeReview } from './exitPlanModeReview';
+import { tryConvertPlanToTodos } from './planToTodoConverter';
 import {
   PlanModeCancel,
   PlanModeEnter,
@@ -60,6 +62,7 @@ export class AgentPlanService extends Service implements IAgentPlanService {
     @IAgentToolApprovalService private readonly toolApproval: IAgentToolApprovalService,
     @ITelemetryService private readonly telemetry: ITelemetryService,
     @IAgentStateService private readonly agentState: IAgentStateService,
+    @IAgentTodoService private readonly todo: IAgentTodoService,
   ) {
     super();
     this.agentState.contributeState(planKey);
@@ -197,8 +200,20 @@ export class AgentPlanService extends Service implements IAgentPlanService {
   }
 
   exit(id?: string): void {
+    void this.maybeSeedTodoFromPlan();
     void this.dispatcher.dispatch(new PlanModeExit({ agentId: this.agentCtx.agentId, id }));
     this.telemetry.setContext({ mode: 'agent' });
+  }
+
+  private async maybeSeedTodoFromPlan(): Promise<void> {
+    const planData = await this.status();
+    if (planData === null) return;
+    const outcome = await tryConvertPlanToTodos(planData, this.todo, this.agentCtx.agentContext);
+    if (outcome.kind === 'converted') {
+      this.telemetry.track2('plan_to_todo_converted', {
+        item_count: outcome.count,
+      });
+    }
   }
 
   async recordRevision(): Promise<void> {

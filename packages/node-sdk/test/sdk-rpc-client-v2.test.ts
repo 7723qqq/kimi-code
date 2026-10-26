@@ -21,7 +21,7 @@ import {
 } from '@moonshot-ai/kimi-code-oauth';
 import { afterEach, describe, expect, it, jest, mock } from 'bun:test';
 import { setEnv, restoreEnvs, setGlobal, restoreGlobals } from './helpers/stubs';
-import { waitUntil } from './helpers/waitFor';
+import { waitForAssertion, waitUntil } from './helpers/waitFor';
 
 import {
   buildDaemonFileUrl,
@@ -103,7 +103,7 @@ afterEach(async () => {
   await drainSessionIndexMirror();
   await drainQueryStoreDisposals();
   for (const dir of tempDirs.splice(0)) {
-    await rm(dir, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
+    await rm(dir, { recursive: true, force: true, maxRetries: 25, retryDelay: 100 }).catch(() => undefined);
   }
 });
 
@@ -483,7 +483,7 @@ describe('SDKRpcClientV2 (agent-core-v2 wiring)', () => {
       const closePromise = client.close().then(() => {
         closed = true;
       });
-      await waitUntil(() => {
+      await waitForAssertion(() => {
         expect(shutdownSpy).toHaveBeenCalled();
       });
       await new Promise((resolve) => setImmediate(resolve));

@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
 import { describe, expect, it, jest } from 'bun:test';
-import { waitUntil } from '#test/helpers/waitFor';
+import { waitForAssertion, waitUntil } from '#test/helpers/waitFor';
 
 import {
   resetUnexpectedErrorHandler,
@@ -263,7 +263,7 @@ describe('Agent resume', () => {
       await ctx.rpc.prompt({ input: [{ type: 'text', text: 'hello' }] });
       await ctx.untilTurnEnd();
 
-      await waitUntil(() => {
+      await waitForAssertion(() => {
         const types = persistence.appended.map((record) => record.type);
         expect(types).toContain('prompt.completed');
       });

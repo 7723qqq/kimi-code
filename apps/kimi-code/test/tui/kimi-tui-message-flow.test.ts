@@ -24,7 +24,7 @@ import {
 } from '@moonshot-ai/kimi-code-sdk';
 import { afterEach, describe, expect, it, jest, vi } from 'bun:test';
 import { setGlobal } from '../helpers/stubs';
-import { waitUntil } from '../helpers/waitFor';
+import { waitForAssertion, waitUntil } from '../helpers/waitFor';
 import { mocked } from '../helpers/mocked';
 import { readAs } from '../helpers/readAs';
 import { runAllTimersAsync, runOnlyPendingTimersAsync } from '../helpers/timers';
@@ -442,7 +442,7 @@ function renderTranscript(driver: MessageDriver): string {
 }
 
 async function confirmUndoSelection(driver: MessageDriver): Promise<void> {
-  await waitUntil(() => {
+  await waitForAssertion(() => {
     expect(driver.state.editorContainer.children[0]).toBeInstanceOf(UndoSelectorComponent);
   });
   (driver.state.editorContainer.children[0] as UndoSelectorComponent).handleInput('\r');
@@ -470,7 +470,7 @@ async function openBtwPanel(
   prompt = 'side question',
 ): Promise<void> {
   driver.handleUserInput(`/btw ${prompt}`);
-  await waitUntil(() => {
+  await waitForAssertion(() => {
     expect(session.startBtw).toHaveBeenCalled();
     expect(driver.state.btwPanelContainer.children).toHaveLength(2);
   });
@@ -593,7 +593,7 @@ describe('KimiTUI message flow', () => {
 
     driver.handleUserInput('hello');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.prompt).toHaveBeenCalledWith('hello', { promptId: undefined });
     });
     expect(harness.createSession).toHaveBeenCalledTimes(1);
@@ -619,7 +619,7 @@ describe('KimiTUI message flow', () => {
 
     driver.handleUserInput('/compact');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.compact).toHaveBeenCalledWith({ instruction: undefined });
     });
     expect(harness.createSession).toHaveBeenCalledTimes(1);
@@ -655,7 +655,7 @@ describe('KimiTUI message flow', () => {
 
     driver.handleUserInput('/skill:my-skill src/app.ts');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.promptWithSkills).toHaveBeenCalledWith(
         '/skill:my-skill src/app.ts',
         [{ name: 'my-skill', args: 'src/app.ts' }],
@@ -692,7 +692,7 @@ describe('KimiTUI message flow', () => {
 
     driver.handleUserInput('please /skill:review and /skill:security this change');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.promptWithSkills).toHaveBeenCalledWith(
         'please /skill:review and /skill:security this change',
         [{ name: 'review' }, { name: 'security' }],
@@ -725,7 +725,7 @@ describe('KimiTUI message flow', () => {
 
     driver.handleUserInput('/skill:review check this /skill:security');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.promptWithSkills).toHaveBeenCalledWith(
         '/skill:review check this /skill:security',
         [{ name: 'review' }, { name: 'security' }],
@@ -756,7 +756,7 @@ describe('KimiTUI message flow', () => {
 
     driver.handleUserInput('/skill:review check /skill:review');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.promptWithSkills).toHaveBeenCalledWith('/skill:review check /skill:review', [
         { name: 'review' },
       ]);
@@ -789,7 +789,7 @@ describe('KimiTUI message flow', () => {
 
     driver.handleUserInput(`/skill:review inspect ${attachment.placeholder} /skill:security`);
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.promptWithSkills).toHaveBeenCalledWith(
         [
           { type: 'text', text: '/skill:review inspect ' },
@@ -824,7 +824,7 @@ describe('KimiTUI message flow', () => {
 
     driver.handleUserInput('/skill:review\ncheck this /skill:security');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.promptWithSkills).toHaveBeenCalledWith(
         '/skill:review\ncheck this /skill:security',
         [{ name: 'review' }, { name: 'security' }],
@@ -855,7 +855,7 @@ describe('KimiTUI message flow', () => {
 
     driver.handleUserInput('/dance please use /skill:review');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.promptWithSkills).toHaveBeenCalledWith(
         '/dance please use /skill:review',
         [{ name: 'review' }],
@@ -898,7 +898,7 @@ describe('KimiTUI message flow', () => {
     driver.state.editor.setText(input);
     driver.state.editor.handleInput('\r');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.promptWithSkills).toHaveBeenCalledWith(input, skills);
     });
     expect(driver.state.queuedMessages).toEqual([]);
@@ -970,10 +970,10 @@ describe('KimiTUI message flow', () => {
 
     driver.handleUserInput('please /skill:review');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.promptWithSkills).toHaveBeenCalled();
     });
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.appState.streamingPhase).toBe('idle');
     });
     expect(driver.state.transcriptEntries.filter((entry) => entry.kind === 'user')).toMatchObject([
@@ -999,7 +999,7 @@ describe('KimiTUI message flow', () => {
     const { driver, harness } = await makeDriver(session, { reloadSession: jest.fn() });
 
     driver.handleUserInput('original message');
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.prompt).toHaveBeenCalledTimes(1);
     });
     driver.handleUserInput('queued while reloading');
@@ -1033,7 +1033,7 @@ describe('KimiTUI message flow', () => {
     driver.handleUserInput('/undo');
     await confirmUndoSelection(driver);
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(stripSgr(renderTranscript(driver))).toContain('run /undo again');
     });
     expect(harness.reloadSession).not.toHaveBeenCalled();
@@ -1057,7 +1057,7 @@ describe('KimiTUI message flow', () => {
         activatePluginCommand(s: unknown, pluginId: string, command: string, value: string): void;
       }
     ).activatePluginCommand(session, 'plug', 'cmd', args);
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorReplacementMounted).toBe(true);
     });
     const picker = driver.state.editorContainer.children[0] as {
@@ -1088,14 +1088,14 @@ describe('KimiTUI message flow', () => {
     const picker = (): Picker => driver.state.editorContainer.children[0] as Picker;
 
     driver.handleUserInput('hello');
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(stripSgr(picker().render(80).join(' '))).toContain('Session in use');
     });
     const first = stripSgr(picker().render(80).join(' '));
     expect(first).not.toContain('Take over');
     picker().handleInput('\r');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(stripSgr(picker().render(80).join(' '))).toContain('Session still in use');
     });
     expect(stripSgr(picker().render(120).join(' '))).toContain(
@@ -1105,12 +1105,12 @@ describe('KimiTUI message flow', () => {
     picker().handleInput('\r');
 
     if (takeOver) {
-      await waitUntil(() => {
+      await waitForAssertion(() => {
         expect(prompt).toHaveBeenCalledTimes(3);
       });
       expect(takeOverLock).toHaveBeenCalledTimes(1);
     } else {
-      await waitUntil(() => {
+      await waitForAssertion(() => {
         expect(driver.state.editor.getText()).toBe('hello');
       });
       expect(prompt).toHaveBeenCalledTimes(2);
@@ -1577,7 +1577,7 @@ describe('KimiTUI message flow', () => {
 
     driver.handleUserInput('please /skill:review');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.promptWithSkills).toHaveBeenCalled();
     });
     driver.sessionEventHandler.handleEvent(
@@ -1593,7 +1593,7 @@ describe('KimiTUI message flow', () => {
     );
     release();
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.transcriptEntries.map((entry) => entry.kind)).toEqual(['user']);
     });
     expect(driver.state.transcriptEntries[0]).toEqual(expect.objectContaining({
@@ -1618,7 +1618,7 @@ describe('KimiTUI message flow', () => {
       ).refreshSkillCommands(session);
       driver.state.editor.setText(input);
       driver.state.editor.handleInput('\r');
-      await waitUntil(() => { expect(session.promptWithSkills).toHaveBeenCalledOnce(); });
+      await waitForAssertion(() => expect(session.promptWithSkills).toHaveBeenCalledOnce());
       driver.sessionEventHandler.handleEvent({
         type: 'turn.started', sessionId: session.id, agentId: 'main', turnId: 1,
         origin: { kind: 'user' },
@@ -1632,7 +1632,7 @@ describe('KimiTUI message flow', () => {
         toolCallId: 'tc-review', name: 'Bash', args: { command: 'printf review' },
       } as Event, () => {});
       resolveSkill();
-      await waitUntil(() => {
+      await waitForAssertion(() => {
         expect(driver.state.transcriptEntries.some((entry) => entry.content === input)).toBe(true);
       });
       const entries = driver.state.transcriptEntries;
@@ -1668,7 +1668,7 @@ describe('KimiTUI message flow', () => {
 
     driver.handleUserInput('/skill:review src/app.ts');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.transcriptEntries.some((entry) => entry.content === '/skill:review src/app.ts')).toBe(true);
     });
     driver.appendTranscriptEntry({
@@ -1724,7 +1724,7 @@ describe('KimiTUI message flow', () => {
       .mockResolvedValueOnce(newSession);
     const ensure = (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession;
     const pending = ensure.call(driver);
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(harness.createSession).toHaveBeenCalledTimes(1);
     });
 
@@ -1734,7 +1734,7 @@ describe('KimiTUI message flow', () => {
 
     resolveCreate(lazySession);
     await pending;
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(harness.createSession).toHaveBeenCalledTimes(2);
       expect(driver.getCurrentSessionId()).toBe('ses-new');
     });
@@ -1754,13 +1754,13 @@ describe('KimiTUI message flow', () => {
     );
 
     driver.handleUserInput('hello');
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(harness.createSession).toHaveBeenCalledTimes(1);
     });
     driver.handleUserInput('/new');
 
     resolveCreate(lazySession);
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(lazySession.prompt).toHaveBeenCalledWith('hello', { promptId: undefined });
       expect(stripSgr(renderTranscript(driver))).toContain('Cannot /new while streaming');
     });
@@ -1801,13 +1801,13 @@ describe('KimiTUI message flow', () => {
     );
 
     driver.handleUserInput('hello');
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(harness.createSession).toHaveBeenCalledTimes(1);
     });
     driver.handleUserInput('/effort low');
 
     resolveCreate(lazySession);
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(lazySession.prompt).toHaveBeenCalledWith('hello', { promptId: undefined });
       expect(stripSgr(renderTranscript(driver))).toContain('Cannot switch models while streaming');
     });
@@ -1835,7 +1835,7 @@ describe('KimiTUI message flow', () => {
     );
     const ensure = (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession;
     const pending = ensure.call(driver);
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(harness.createSession).toHaveBeenCalledTimes(1);
     });
 
@@ -1845,7 +1845,7 @@ describe('KimiTUI message flow', () => {
 
     resolveCreate(lazySession);
     await pending;
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(lazySession.setThinking).toHaveBeenCalledWith('low');
     });
   });
@@ -1872,7 +1872,7 @@ describe('KimiTUI message flow', () => {
     );
 
     driver.handleUserInput('hello');
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(harness.createSession).toHaveBeenCalledTimes(1);
     });
 
@@ -1881,7 +1881,7 @@ describe('KimiTUI message flow', () => {
     picker.handleInput('\r');
 
     resolveCreate(lazySession);
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(lazySession.prompt).toHaveBeenCalledWith('hello', { promptId: undefined });
       expect(stripSgr(renderTranscript(driver))).toContain('Cannot switch sessions while streaming');
     });
@@ -1905,7 +1905,7 @@ describe('KimiTUI message flow', () => {
 
     driver.handleUserInput('hello');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.prompt).toHaveBeenCalledWith('hello', { promptId: undefined });
     });
     expect(harness.createSession).toHaveBeenCalledWith(
@@ -1936,7 +1936,7 @@ describe('KimiTUI message flow', () => {
 
     driver.handleUserInput('hello');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.prompt).toHaveBeenCalledWith('hello', { promptId: undefined });
     });
     expect(harness.createSession).toHaveBeenCalledWith(
@@ -1954,7 +1954,7 @@ describe('KimiTUI message flow', () => {
 
     driver.handleUserInput('hello');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.prompt).toHaveBeenCalledWith('hello', { promptId: undefined });
     });
     expect(harness.createSession).toHaveBeenCalledWith(
@@ -1976,7 +1976,7 @@ describe('KimiTUI message flow', () => {
     driver.state.editor.inputMode = 'bash';
     driver.handleUserInput('ls');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.prompt).toHaveBeenCalledWith('hello', { promptId: undefined });
     });
     expect(runShellCommand).not.toHaveBeenCalled();
@@ -2029,7 +2029,7 @@ describe('KimiTUI message flow', () => {
     driver.handleUserInput('hello');
     driver.handleUserInput('/skill:my-skill');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.prompt).toHaveBeenCalledWith('hello', { promptId: undefined });
     });
     expect(session.activateSkill).not.toHaveBeenCalled();
@@ -2048,7 +2048,7 @@ describe('KimiTUI message flow', () => {
 
     driver.handleUserInput('/plugins list');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(listPlugins).toHaveBeenCalled();
     });
     expect(harness.createSession).not.toHaveBeenCalled();
@@ -2080,7 +2080,7 @@ describe('KimiTUI message flow', () => {
 
     driver.handleUserInput('/add-dir /tmp/extra');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.getCurrentSessionId()).toBe('ses-lazy');
     });
     expect(harness.createSession).toHaveBeenCalledTimes(1);
@@ -2101,7 +2101,7 @@ describe('KimiTUI message flow', () => {
 
     driver.handleUserInput('/add-dir list');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(showStatus).toHaveBeenCalledWith(expect.stringContaining('/tmp/extra'));
     });
     expect(harness.createSession).not.toHaveBeenCalled();
@@ -2130,7 +2130,7 @@ describe('KimiTUI message flow', () => {
 
     driver.handleUserInput('/plugins reload');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(reloadPlugins).toHaveBeenCalled();
       expect(listPluginCommands).toHaveBeenCalled();
       expect(driver.pluginCommandMap.get('my-plugin:my-command')).toBe('do things');
@@ -2160,7 +2160,7 @@ describe('KimiTUI message flow', () => {
     });
     driver.handleUserInput('/reload');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.appState.model).toBe('k2');
     });
     expect(harness.createSession).not.toHaveBeenCalled();
@@ -2189,7 +2189,7 @@ describe('KimiTUI message flow', () => {
     });
     driver.handleUserInput('/reload');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.appState.model).toBe('');
     });
     expect(driver.state.appState.maxContextTokens).toBe(0);
@@ -2226,7 +2226,7 @@ describe('KimiTUI message flow', () => {
 
     driver.handleUserInput('/plan on');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(harness.createSession).toHaveBeenCalledTimes(1);
     });
     expect(session.setPlanMode).not.toHaveBeenCalled();
@@ -2261,7 +2261,7 @@ describe('KimiTUI message flow', () => {
     });
     driver.handleUserInput('/reload');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.appState.permissionMode).toBe('manual');
     });
   });
@@ -2297,7 +2297,7 @@ describe('KimiTUI message flow', () => {
 
     driver.handleUserInput('hello');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.prompt).toHaveBeenCalledWith('hello', { promptId: undefined });
     });
     expect(harness.createSession).toHaveBeenCalledWith(
@@ -2317,7 +2317,7 @@ describe('KimiTUI message flow', () => {
 
     driver.handleUserInput('/status');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(stripSgr(renderTranscript(driver))).toContain('Status');
     });
     expect(harness.createSession).not.toHaveBeenCalled();
@@ -2334,12 +2334,12 @@ describe('KimiTUI message flow', () => {
 
     driver.handleUserInput('/yolo');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(PermissionSelectorComponent);
     });
     (driver.state.editorContainer.children[0] as PermissionSelectorComponent).handleInput('\r');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.appState.permissionMode).toBe('yolo');
     });
     expect(harness.createSession).not.toHaveBeenCalled();
@@ -2347,7 +2347,7 @@ describe('KimiTUI message flow', () => {
 
     driver.handleUserInput('hello');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.prompt).toHaveBeenCalledWith('hello', { promptId: undefined });
     });
     expect(harness.createSession).toHaveBeenCalledWith(
@@ -2370,7 +2370,7 @@ describe('KimiTUI message flow', () => {
 
     const ensure = (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession;
     const first = ensure.call(driver);
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.setPermission).toHaveBeenCalled();
     });
 
@@ -2405,7 +2405,7 @@ describe('KimiTUI message flow', () => {
 
     driver.handleUserInput('/mcp');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(listWorkspaceMcpServers).toHaveBeenCalledWith('/tmp/proj-a');
     });
     expect(harness.createSession).not.toHaveBeenCalled();
@@ -2420,7 +2420,7 @@ describe('KimiTUI message flow', () => {
 
     driver.handleUserInput('/clear');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.getCurrentSessionId()).toBe('ses-2');
     });
     expect(harness.track).toHaveBeenCalledWith('input_command', { command: 'new' });
@@ -2434,7 +2434,7 @@ describe('KimiTUI message flow', () => {
 
     driver.handleUserInput('/theme light');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.appState.theme).toBe('light');
     });
     expect(harness.track).toHaveBeenCalledWith('input_command', { command: 'theme' });
@@ -2460,7 +2460,7 @@ command = "vim"
 
     driver.handleUserInput('/reload-tui');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.appState.theme).toBe('light');
     });
     expect(driver.state.appState.editorCommand).toBe('vim');
@@ -2480,13 +2480,13 @@ command = "vim"
 
     driver.handleUserInput('/reload');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(harness.reloadSession).toHaveBeenCalledWith({
         id: session.id,
         forcePluginSessionStartReminder: true,
       });
     });
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.appState.theme).toBe('light');
     });
     expect(session.reloadSession).not.toHaveBeenCalled();
@@ -2611,7 +2611,7 @@ command = "vim"
       settled = true;
     });
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(harness.exportSession).toHaveBeenCalledWith(
         expect.objectContaining({
           id: 'ses-1',
@@ -2681,7 +2681,7 @@ command = "vim"
       settled = true;
     });
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(uploadArchive).toHaveBeenCalledTimes(2);
     });
     expect(settled).toBe(false);
@@ -2922,7 +2922,7 @@ command = "vim"
 
     driver.handleUserInput('/new');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(harness.createSession).toHaveBeenCalledWith({
         workDir: '/tmp/proj-a',
         model: 'k2',
@@ -2949,7 +2949,7 @@ command = "vim"
 
     driver.handleUserInput('/new');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(stripSgr(renderTranscript(driver))).toContain(
         'Post-create setup failed: permission setup failed',
       );
@@ -2963,7 +2963,7 @@ command = "vim"
 
     driver.state.editor.onShiftTab?.();
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.setPlanMode).toHaveBeenCalledWith(true);
     });
     expect(harness.track).toHaveBeenCalledWith('shortcut_plan_toggle', { enabled: true });
@@ -2976,12 +2976,12 @@ command = "vim"
 
     driver.handleUserInput('/yolo');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(PermissionSelectorComponent);
     });
     (driver.state.editorContainer.children[0] as PermissionSelectorComponent).handleInput('\r');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.setPermission).toHaveBeenCalledWith('yolo');
     });
     expect(driver.state.appState).toMatchObject({
@@ -3165,10 +3165,10 @@ command = "vim"
     driver.handleUserInput('/undo');
     await confirmUndoSelection(driver);
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.undoHistory).toHaveBeenCalledWith(1);
     });
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(stripSgr(renderTranscript(driver))).toContain(
         'Error: Failed to undo: core rpc unavailable',
       );
@@ -3193,7 +3193,7 @@ command = "vim"
     driver.handleUserInput('/undo');
     await confirmUndoSelection(driver);
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.transcriptEntries).toEqual([]);
     });
 
@@ -3211,17 +3211,17 @@ command = "vim"
     driver.state.appState.streamingPhase = 'idle';
     driver.handleUserInput('/auto');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(PermissionSelectorComponent);
     });
     (driver.state.editorContainer.children[0] as PermissionSelectorComponent).handleInput('\r');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(stripSgr(renderTranscript(driver))).toContain('Permission mode: Never Ask');
     });
 
     driver.handleUserInput('/undo 10');
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(stripSgr(renderTranscript(driver))).toContain(
         'Cannot undo 10 prompts; only 1 prompt can be undone in the active context.',
       );
@@ -3230,7 +3230,7 @@ command = "vim"
     driver.handleUserInput('/undo');
     await confirmUndoSelection(driver);
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.undoHistory).toHaveBeenCalledWith(1);
     });
 
@@ -3270,7 +3270,7 @@ command = "vim"
       () => {},
     );
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       const transcript = stripSgr(renderTranscript(driver));
       expect(transcript).toContain('bash task started in background');
       expect(transcript).toContain('Run tests in background');
@@ -3279,7 +3279,7 @@ command = "vim"
     driver.handleUserInput('/undo');
     await confirmUndoSelection(driver);
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.undoHistory).toHaveBeenCalledWith(1);
     });
 
@@ -3326,7 +3326,7 @@ command = "vim"
     driver.handleUserInput('/undo');
     await confirmUndoSelection(driver);
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.undoHistory).toHaveBeenCalledWith(1);
     });
 
@@ -3357,20 +3357,20 @@ command = "vim"
       },
     });
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(ApprovalPanelComponent);
     });
     (driver.state.editorContainer.children[0] as ApprovalPanelComponent).handleInput('1');
     await expect(response).resolves.toMatchObject({ decision: 'approved' });
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(stripSgr(renderTranscript(driver))).toContain('Approved: Run shell command');
     });
 
     driver.handleUserInput('/undo');
     await confirmUndoSelection(driver);
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.undoHistory).toHaveBeenCalledWith(1);
     });
 
@@ -3398,7 +3398,7 @@ command = "vim"
         () => {},
       );
 
-      await waitUntil(() => {
+      await waitForAssertion(() => {
         expect(stripSgr(renderTranscript(driver))).toContain('[Debug]');
       });
 
@@ -3406,7 +3406,7 @@ command = "vim"
       driver.handleUserInput('/undo');
       await confirmUndoSelection(driver);
 
-      await waitUntil(() => {
+      await waitForAssertion(() => {
         expect(session.undoHistory).toHaveBeenCalledWith(1);
       });
 
@@ -3434,7 +3434,7 @@ command = "vim"
 
     driver.handleUserInput('/undo 2');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.undoHistory).toHaveBeenCalledWith(2);
     });
 
@@ -3458,7 +3458,7 @@ command = "vim"
 
     driver.handleUserInput('/undo 0');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(stripSgr(renderTranscript(driver))).toContain(
         'Error: Usage: /undo [count], where count is a positive integer.',
       );
@@ -3492,7 +3492,7 @@ command = "vim"
     driver.handleUserInput('/undo');
     await confirmUndoSelection(driver);
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.transcriptEntries).toEqual([]);
     });
 
@@ -3515,7 +3515,7 @@ command = "vim"
     driver.handleUserInput('hello');
     driver.state.appState.streamingPhase = 'idle';
     driver.handleUserInput('/skill:review');
-    await waitUntil(() => { expect(driver.state.transcriptEntries).toHaveLength(2); });
+    await waitForAssertion(() => expect(driver.state.transcriptEntries).toHaveLength(2));
     driver.sessionEventHandler.handleEvent(
       {
         type: 'skill.activated',
@@ -3531,7 +3531,7 @@ command = "vim"
     driver.handleUserInput('/undo');
     await confirmUndoSelection(driver);
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.transcriptEntries).toEqual([
         expect.objectContaining({
           kind: 'user',
@@ -3573,7 +3573,7 @@ command = "vim"
 
     emitTurn(driver, 1);
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(harness.deleteFile).toHaveBeenCalledWith('file-v1');
     });
     expect(attachment.fileId).toBeUndefined();
@@ -3663,7 +3663,7 @@ command = "vim"
     emitTurn(driver, 1, () => {
       expect(harness.deleteFile).not.toHaveBeenCalled();
     });
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(harness.deleteFile).toHaveBeenCalledWith('file-1');
     });
     expect(attachment.fileId).toBeUndefined();
@@ -3682,7 +3682,7 @@ command = "vim"
 
     driver.handleUserInput(attachment.placeholder);
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.prompt).toHaveBeenCalledWith(
         [{ type: 'image_url', imageUrl: { url: 'kimi-file://file-lazy' } }],
         { promptId: expect.any(String) },
@@ -3692,7 +3692,7 @@ command = "vim"
     emitTurn(driver, 1, () => {
       expect(harness.deleteFile).not.toHaveBeenCalled();
     });
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(harness.deleteFile).toHaveBeenCalledWith('file-lazy');
     });
   });
@@ -3712,7 +3712,7 @@ command = "vim"
     emitTurn(driver, 1, () => {
       expect(harness.deleteFile).not.toHaveBeenCalled();
     });
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(harness.deleteFile).toHaveBeenCalledWith('file-dismissed');
     });
     expect(harness.deleteFile).toHaveBeenCalledTimes(1);
@@ -3736,7 +3736,7 @@ command = "vim"
     expect(session.prompt).not.toHaveBeenCalled();
 
     finishIngestion();
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.prompt).toHaveBeenCalledWith(
         [
           { type: 'text', text: 'describe ' },
@@ -3762,7 +3762,7 @@ command = "vim"
       if (delivery === 'steer') driver.state.appState.streamingPhase = 'waiting';
       driver.state.editor.handleInput(delivery === 'enter' ? '\r' : '\u0013');
       if (separator === '\n') {
-        await waitUntil(() => {
+        await waitForAssertion(() => {
           expect(delivery === 'enter' ? session.prompt : session.steer).toHaveBeenCalled();
         });
         expect(session.promptWithSkills).not.toHaveBeenCalled();
@@ -3770,7 +3770,7 @@ command = "vim"
           '/skill:review\nexplain this',
         );
       } else {
-        await waitUntil(() => {
+        await waitForAssertion(() => {
           expect(session.promptWithSkills).toHaveBeenCalled();
         });
         if (delivery === 'enter') expect(session.promptWithSkills).toHaveBeenCalledWith(
@@ -3813,15 +3813,15 @@ command = "vim"
     driver.state.editor.setText(input);
     driver.state.editor.handleInput('\r');
     driver.handleUserInput('create the first session');
-    await waitUntil(() => { expect(session.prompt).toHaveBeenCalled(); });
+    await waitForAssertion(() => expect(session.prompt).toHaveBeenCalled());
     finishIngestion();
-    await waitUntil(() => { expect(driver.state.queuedMessages).toHaveLength(1); });
+    await waitForAssertion(() => expect(driver.state.queuedMessages).toHaveLength(1));
     expect(driver.state.queuedMessages[0]?.text).toBe(input);
     driver.sessionEventHandler.handleEvent(
       { type: 'turn.ended', agentId: 'main', turnId: 1, reason: 'completed' } as Event,
       (item) => { driver.sendQueuedMessage(session, item); },
     );
-    await waitUntil(() => { expect(session.promptWithSkills).toHaveBeenCalledOnce(); });
+    await waitForAssertion(() => expect(session.promptWithSkills).toHaveBeenCalledOnce());
     expect(stripSgr(renderTranscript(driver))).not.toContain('Session changed');
   });
 
@@ -3840,7 +3840,7 @@ command = "vim"
     ).sendInlineSkillUserInput(input, [{ skillName: 'review', args: `${first.placeholder} ${second.placeholder}` }], extraction);
     driver.state.appState.streamingPhase = 'idle';
     driver.sendQueuedMessage(session, driver.state.queuedMessages.shift()!);
-    await waitUntil(() => { expect(session.promptWithSkills).toHaveBeenCalledOnce(); });
+    await waitForAssertion(() => expect(session.promptWithSkills).toHaveBeenCalledOnce());
     const [parts] = (
       session.promptWithSkills as ReturnType<typeof jest.fn<(input: unknown, skills: unknown) => Promise<void>>>
     ).mock.calls[0]!;
@@ -3888,7 +3888,7 @@ command = "vim"
     else await (
       driver as unknown as { switchToSession(s: unknown, status: string): Promise<void> }
     ).switchToSession(nextSession, 'Resumed session');
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.getCurrentSessionId()).toBe(nextSession.id);
     });
     driver.state.editor.setText('keep this new draft');
@@ -3933,7 +3933,7 @@ command = "vim"
     } else {
       driver.state.editor.handleInput('\u0013');
     }
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.promptWithSkills).toHaveBeenCalledOnce();
     });
     const [parts, skills] = (
@@ -3952,7 +3952,7 @@ command = "vim"
     emitTurn(driver, 1);
     expect(existsSync(path!)).toBe(true);
     await driver.closeSession('test');
-    await waitUntil(() => { expect(existsSync(path!)).toBe(false); });
+    await waitForAssertion(() => expect(existsSync(path!)).toBe(false));
   });
 
   it.each(['image', 'video'])('preserves skill media arguments when the cache hint starts a new session (%s)', async (kind) => {
@@ -4003,7 +4003,7 @@ command = "vim"
       now.mockRestore();
       dialog!.handleInput!('\u001B[B');
       dialog!.handleInput!('\r');
-      await waitUntil(() => {
+      await waitForAssertion(() => {
         expect(nextSession.promptWithSkills).toHaveBeenCalledOnce();
       });
 
@@ -4026,7 +4026,7 @@ command = "vim"
       emitTurn(driver, 1);
       expect(existsSync(path!)).toBe(true);
       await driver.closeSession('test');
-      await waitUntil(() => { expect(existsSync(path!)).toBe(false); });
+      await waitForAssertion(() => expect(existsSync(path!)).toBe(false));
     } finally {
       now.mockRestore();
       peek.mockRestore();
@@ -4069,7 +4069,7 @@ command = "vim"
     expect(stripSgr(renderTranscript(driver))).not.toContain('Failed to prepare');
     finishIngestion();
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.promptWithSkills).toHaveBeenCalledWith(
         [
           { type: 'text', text: `${prefix} ` },
@@ -4082,7 +4082,7 @@ command = "vim"
       kind: 'user', content: input,
     }));
     emitTurn(driver, 1);
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(harness.deleteFile).toHaveBeenCalledTimes(1);
       expect(harness.deleteFile).toHaveBeenCalledWith('file-skill-video');
     });
@@ -4150,7 +4150,7 @@ command = "vim"
 
     driver.handleUserInput(attachment.placeholder);
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.appState.streamingPhase).toBe('idle');
     });
     expect(stripSgr(renderTranscript(driver))).toContain('Failed to send: session closed');
@@ -4206,7 +4206,7 @@ command = "vim"
       { type: 'turn.ended', agentId: 'main', turnId: 7, reason: 'completed' } as Event,
       () => {},
     );
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(harness.deleteFile).toHaveBeenCalledWith('file-goal');
     });
     expect(attachment.fileId).toBeUndefined();
@@ -4225,7 +4225,7 @@ command = "vim"
 
     driver.clearQueuedMessages();
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(harness.deleteFile).toHaveBeenCalledWith('file-queued');
     });
     expect(harness.deleteFile).toHaveBeenCalledTimes(1);
@@ -4255,7 +4255,7 @@ command = "vim"
       { type: 'turn.ended', agentId: 'main', turnId: 1, reason: 'completed' } as Event,
       () => {},
     );
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(harness.deleteFile).toHaveBeenCalledWith('file-shared-turn');
     });
   });
@@ -4275,7 +4275,7 @@ command = "vim"
 
     driver.state.editor.onCtrlS?.();
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.promptWithSkills).toHaveBeenCalledWith(
         '/skill:review src/app.ts',
         [{ name: 'review', args: 'src/app.ts' }],
@@ -4314,7 +4314,7 @@ command = "vim"
       driver.persistInputHistory = jest.fn(async (text) => { driver.state.editor.addToHistory(text); });
       driver.state.editor.setText(input);
       driver.state.editor.handleInput('\r');
-      await waitUntil(() => {
+      await waitForAssertion(() => {
         expect(session.promptWithSkills).toHaveBeenCalledOnce();
         expect(driver.state.appState.streamingPhase).toBe('idle');
       });
@@ -4324,12 +4324,12 @@ command = "vim"
       driver.state.editor.handleInput('\u001B[A');
       expect(driver.state.editor.getText()).toBe(input);
       driver.state.editor.handleInput('\r');
-      await waitUntil(() => { expect(session.promptWithSkills).toHaveBeenCalledTimes(2); });
+      await waitForAssertion(() => expect(session.promptWithSkills).toHaveBeenCalledTimes(2));
       expect(promptWithSkills.mock.calls[1]?.[0]).toContainEqual({
         type: 'video_url', videoUrl: { url: 'kimi-file://file-retry-video' },
       });
       emitTurn(driver, 1);
-      await waitUntil(() => {
+      await waitForAssertion(() => {
         expect(harness.deleteFile).toHaveBeenCalledTimes(1);
         expect(harness.deleteFile).toHaveBeenCalledWith('file-retry-video');
       });
@@ -4361,14 +4361,14 @@ command = "vim"
     driver.state.editor.handleInput('\u001B[A');
     expect(driver.state.editor.getText()).toBe(text);
     driver.state.editor.handleInput('\r');
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.promptWithSkills).toHaveBeenCalledWith([
         { type: 'text', text: 'watch /skill:review ' },
         { type: 'video_url', videoUrl: { url: 'kimi-file://file-retried-skill' } },
       ], [{ name: 'review' }]);
     });
     emitTurn(driver, 1);
-    await waitUntil(() => { expect(harness.deleteFile).toHaveBeenCalledWith('file-retried-skill'); });
+    await waitForAssertion(() => expect(harness.deleteFile).toHaveBeenCalledWith('file-retried-skill'));
   });
 
   it.each(['/skill:review file.ts', 'check /skill:review file.ts'])(
@@ -4388,7 +4388,7 @@ command = "vim"
       driver.persistInputHistory = jest.fn(async (text) => { driver.state.editor.addToHistory(text); });
       driver.state.editor.setText(input);
       driver.state.editor.handleInput('\r');
-      await waitUntil(() => {
+      await waitForAssertion(() => {
         expect(driver.state.appState.streamingPhase).toBe('idle');
         expect(stripSgr(renderTranscript(driver))).toContain('Skill unavailable');
       });
@@ -4435,7 +4435,7 @@ command = "vim"
         (item) => { driver.sendQueuedMessage(session, item); },
       );
     }
-    await waitUntil(() => { expect(session.promptWithSkills).toHaveBeenCalledOnce(); });
+    await waitForAssertion(() => expect(session.promptWithSkills).toHaveBeenCalledOnce());
     const nextSession = makeSession({ id: 'ses-next' });
     await driver.setSession(nextSession);
     driver.state.appState.streamingPhase = 'idle';
@@ -4464,7 +4464,7 @@ command = "vim"
     ).refreshSkillCommands(session);
     driver.state.editor.setText('/skill:review CHANGE');
     driver.state.editor.handleInput('\r');
-    await waitUntil(() => { expect(session.promptWithSkills).toHaveBeenCalledOnce(); });
+    await waitForAssertion(() => expect(session.promptWithSkills).toHaveBeenCalledOnce());
     driver.sessionEventHandler.handleEvent(
       { type: 'turn.started', agentId: 'main', turnId: 1, origin: { kind: 'system_trigger', name: 'goal_continuation' } } as Event,
       () => {},
@@ -4502,7 +4502,7 @@ command = "vim"
       { type: 'turn.ended', agentId: 'main', turnId: 1, reason: 'completed' } as Event,
       (item) => { driver.sendQueuedMessage(session, item); },
     );
-    await waitUntil(() => { expect(session.promptWithSkills).toHaveBeenCalledOnce(); });
+    await waitForAssertion(() => expect(session.promptWithSkills).toHaveBeenCalledOnce());
     expect(driver.state.queuedMessages).toEqual([]);
   });
 
@@ -4528,17 +4528,17 @@ command = "vim"
       { type: 'turn.ended', agentId: 'main', turnId: 1, reason: 'completed' } as Event,
       (item) => { driver.sendQueuedMessage(session, item); },
     );
-    await waitUntil(() => { expect(promptWithSkills).toHaveBeenCalledOnce(); });
+    await waitForAssertion(() => expect(promptWithSkills).toHaveBeenCalledOnce());
     driver.handleUserInput('OUTSIDE');
     rejectSkill(new Error('Skill unavailable'));
-    await waitUntil(() => { expect(driver.state.appState.streamingPhase).toBe('idle'); });
+    await waitForAssertion(() => expect(driver.state.appState.streamingPhase).toBe('idle'));
     driver.state.editor.setText('NEXT');
     driver.state.editor.handleInput('\r');
     driver.sessionEventHandler.handleEvent(
       { type: 'turn.ended', agentId: 'main', turnId: 2, reason: 'completed' } as Event,
       (item) => { driver.sendQueuedMessage(session, item); },
     );
-    await waitUntil(() => { expect(session.prompt).toHaveBeenCalledTimes(2); });
+    await waitForAssertion(() => expect(session.prompt).toHaveBeenCalledTimes(2));
     expect(session.prompt).toHaveBeenLastCalledWith('QUEUED_TAIL', { promptId: undefined });
     expect(driver.state.queuedMessages.map((item) => item.text)).toEqual(['OUTSIDE']);
     expect(promptWithSkills).toHaveBeenCalledOnce();
@@ -4572,16 +4572,16 @@ command = "vim"
       { type: 'turn.ended', agentId: 'main', turnId: 1, reason: 'completed' } as Event,
       (item) => { driver.sendQueuedMessage(session, item); },
     );
-    await waitUntil(() => { expect(promptWithSkills).toHaveBeenCalledOnce(); });
+    await waitForAssertion(() => expect(promptWithSkills).toHaveBeenCalledOnce());
     rejectSkill(new Error('Skill unavailable'));
-    await waitUntil(() => { expect(driver.state.appState.streamingPhase).toBe('idle'); });
+    await waitForAssertion(() => expect(driver.state.appState.streamingPhase).toBe('idle'));
     driver.state.editor.setText('NEXT');
     driver.state.editor.handleInput('\r');
     driver.sessionEventHandler.handleEvent(
       { type: 'turn.ended', agentId: 'main', turnId: 2, reason: 'completed' } as Event,
       (item) => { driver.sendQueuedMessage(session, item); },
     );
-    await waitUntil(() => { expect(runShellCommand).toHaveBeenCalledOnce(); });
+    await waitForAssertion(() => expect(runShellCommand).toHaveBeenCalledOnce());
     expect(runShellCommand).toHaveBeenCalledWith('echo BASH_TAIL', expect.objectContaining({ commandId: expect.any(String) }));
     expect(session.prompt).toHaveBeenCalledOnce();
     expect(promptWithSkills).toHaveBeenCalledOnce();
@@ -4616,12 +4616,12 @@ command = "vim"
 
     expect(harness.deleteFile).not.toHaveBeenCalled();
     release();
-    await waitUntil(() => { expect(driver.state.queuedMessages).toEqual([]); });
+    await waitForAssertion(() => expect(driver.state.queuedMessages).toEqual([]));
     await new Promise((resolve) => setImmediate(resolve));
     expect(session.steer).not.toHaveBeenCalled();
     expect(harness.deleteFile).not.toHaveBeenCalled();
     emitTurn(driver, 1);
-    await waitUntil(() => { expect(harness.deleteFile).toHaveBeenCalledWith('file-dispatched-skill'); });
+    await waitForAssertion(() => expect(harness.deleteFile).toHaveBeenCalledWith('file-dispatched-skill'));
     expect(harness.deleteFile).toHaveBeenCalledTimes(1);
   });
 
@@ -4644,7 +4644,7 @@ command = "vim"
 
     driver.state.editor.onCtrlS?.();
 
-    await waitUntil(() => { expect(session.promptWithSkills).toHaveBeenCalledOnce(); });
+    await waitForAssertion(() => expect(session.promptWithSkills).toHaveBeenCalledOnce());
     driver.sessionEventHandler.handleEvent(
       { type: 'turn.ended', agentId: 'main', turnId: 1, reason: 'completed' } as Event,
       (item) => { driver.sendQueuedMessage(session, item); },
@@ -4653,7 +4653,7 @@ command = "vim"
     expect(harness.deleteFile).not.toHaveBeenCalled();
 
     emitTurn(driver, 2);
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(harness.deleteFile).toHaveBeenCalledTimes(1);
       expect(harness.deleteFile).toHaveBeenCalledWith('file-goal-skill');
     });
@@ -4687,7 +4687,7 @@ command = "vim"
 
     driver.state.editor.onCtrlS?.();
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(stripSgr(renderTranscript(driver))).toContain('Failed to prepare media attachment');
     });
     expect(readAs<TUIState['appState']['streamingPhase']>(driver.state.appState.streamingPhase)).toBe('idle');
@@ -4724,7 +4724,7 @@ command = "vim"
 
     driver.state.editor.onCtrlS?.();
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(stripSgr(renderTranscript(driver))).toContain('Skill unavailable');
     });
     expect(readAs<TUIState['appState']['streamingPhase']>(driver.state.appState.streamingPhase)).toBe('idle');
@@ -4753,7 +4753,7 @@ command = "vim"
 
     driver.state.editor.onCtrlS?.();
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(stripSgr(renderTranscript(driver))).toContain('Input unavailable');
     });
     expect(session.steer).toHaveBeenCalledWith('keep this input');
@@ -4791,13 +4791,13 @@ command = "vim"
     driver.handleUserInput('later');
     driver.state.editor.setText('draft /skill:security');
     driver.state.editor.onCtrlS?.();
-    await waitUntil(() => { expect(promptWithSkills).toHaveBeenCalledOnce(); });
+    await waitForAssertion(() => expect(promptWithSkills).toHaveBeenCalledOnce());
     expect(sent).toEqual(['first', 'check /skill:review']);
     driver.state.appState.streamingPhase = 'idle';
     driver.handleUserInput('newer');
     expect(session.prompt).not.toHaveBeenCalled();
     rejectSkill(new Error('Skill unavailable'));
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(sent).toEqual(['first', 'check /skill:review', 'later', 'draft /skill:security']);
       expect(driver.state.queuedMessages.map((item) => item.text)).toEqual(['newer']);
     });
@@ -4813,7 +4813,7 @@ command = "vim"
       { type: 'turn.ended', agentId: 'main', turnId: 2, reason: 'completed' } as Event,
       (item) => { driver.sendQueuedMessage(session, item); },
     );
-    await waitUntil(() => { expect(session.prompt).toHaveBeenCalledOnce(); });
+    await waitForAssertion(() => expect(session.prompt).toHaveBeenCalledOnce());
     expect(session.prompt).toHaveBeenCalledWith('newer', { promptId: undefined });
     expect(promptWithSkills).toHaveBeenCalledTimes(2);
     expect(driver.state.queuedMessages).toEqual([]);
@@ -4843,7 +4843,7 @@ command = "vim"
       driver.handleUserInput(text);
     }
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.promptWithSkills).toHaveBeenCalled();
     });
     const [input, skills] = mocked(session.promptWithSkills).mock.calls[0] as unknown as [
@@ -4864,7 +4864,7 @@ command = "vim"
 
     emitTurn(driver, 1);
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(harness.deleteFile).toHaveBeenCalledWith('file-skill-media');
     });
     expect(harness.deleteFile).toHaveBeenCalledTimes(1);
@@ -4948,7 +4948,7 @@ command = "vim"
 
     driver.sendQueuedMessage(session, queued);
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.promptWithSkills).toHaveBeenCalledWith(expect.any(Array), [{ name: 'review' }]);
     });
     expect(driver.state.queuedMessages).toEqual([]);
@@ -5022,7 +5022,7 @@ command = "vim"
       (item) => { driver.sendQueuedMessage(session, item); },
     );
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.compact).toHaveBeenCalledWith({ instruction: 'focus on src' });
     });
     expect(driver.state.queuedMessages).toEqual([]);
@@ -5047,7 +5047,7 @@ command = "vim"
       { type: 'turn.ended', agentId: 'main', turnId: 1, reason: 'completed' } as Event,
       sendQueued,
     );
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.prompt).toHaveBeenCalledWith('first', { promptId: undefined });
     });
     expect(session.compact).not.toHaveBeenCalled();
@@ -5056,7 +5056,7 @@ command = "vim"
       { type: 'turn.ended', agentId: 'main', turnId: 2, reason: 'completed' } as Event,
       sendQueued,
     );
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.compact).toHaveBeenCalledWith({ instruction: 'tidy up' });
     });
     expect(session.prompt).not.toHaveBeenCalledWith('second', { promptId: undefined });
@@ -5074,7 +5074,7 @@ command = "vim"
       } as Event,
       sendQueued,
     );
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.prompt).toHaveBeenCalledWith('second', { promptId: undefined });
     });
     expect(driver.state.queuedMessages).toEqual([]);
@@ -5149,13 +5149,13 @@ command = "vim"
     );
 
     driver.handleUserInput('hello');
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(harness.createSession).toHaveBeenCalledTimes(1);
     });
     driver.handleUserInput('/compact');
 
     resolveCreate(lazySession);
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(lazySession.prompt).toHaveBeenCalledWith('hello', { promptId: undefined });
     });
     expect(driver.state.queuedMessages).toEqual([
@@ -5179,14 +5179,14 @@ command = "vim"
     );
 
     driver.handleUserInput('hello');
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(harness.createSession).toHaveBeenCalledTimes(1);
     });
     driver.handleUserInput('/compact');
     driver.handleUserInput('/compact');
 
     resolveCreate(lazySession);
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(lazySession.prompt).toHaveBeenCalledWith('hello', { promptId: undefined });
       expect(stripSgr(renderTranscript(driver))).toContain('A /compact is already queued.');
     });
@@ -5218,7 +5218,7 @@ command = "vim"
       sendQueued,
     );
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.prompt).toHaveBeenCalledWith('after compact', { promptId: undefined });
     });
     expect(session.compact).not.toHaveBeenCalled();
@@ -5243,7 +5243,7 @@ command = "vim"
       sendQueued,
     );
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.compact).toHaveBeenCalledWith({ instruction: undefined });
     });
     expect(driver.state.queuedMessages).toEqual([]);
@@ -5292,7 +5292,7 @@ command = "vim"
 
     expect(session.steer).toHaveBeenCalledTimes(1);
     expect(session.steer).toHaveBeenCalledWith('msg1');
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.queuedMessages.map((m) => m.text)).toEqual(['/compact foo', 'msg2']);
     });
   });
@@ -5435,7 +5435,7 @@ command = "vim"
     driver.state.appState.streamingPhase = 'idle';
     driver.handleUserInput('/new');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.queuedMessages).toEqual([]);
     });
     expect(session.compact).not.toHaveBeenCalled();
@@ -5466,7 +5466,7 @@ command = "vim"
 
     expect(session.steer).toHaveBeenCalledWith('second objective');
     expect(session.prompt).not.toHaveBeenCalled();
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.queuedMessages).toEqual([]);
     });
     expect(driver.state.transcriptEntries).toEqual([
@@ -5522,7 +5522,7 @@ command = "vim"
 
     expect(session.steer).toHaveBeenCalledWith('stop waiting and check this');
     expect(session.prompt).not.toHaveBeenCalled();
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.queuedMessages).toEqual([]);
     });
   });
@@ -5538,7 +5538,7 @@ command = "vim"
 
     expect(session.steer).toHaveBeenCalledTimes(1);
     expect(session.steer).toHaveBeenCalledWith('first note\n\nsecond note');
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.queuedMessages).toEqual([]);
     });
   });
@@ -5598,7 +5598,7 @@ command = "vim"
     startWaitFor(driver);
     steer.reject(new Error('session closed'));
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.transcriptEntries.filter((entry) => entry.kind === 'user')).toEqual([]);
     });
     expect(driver.state.queuedMessages).toEqual(queued);
@@ -5635,7 +5635,7 @@ command = "vim"
     driver.state.queuedMessages.push({ text: 'make build', agentId: 'main', mode: 'bash' });
     steer.reject(new Error('session closed'));
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.transcriptEntries.filter((entry) => entry.kind === 'user')).toEqual([]);
     });
     expect(driver.state.queuedMessages).toEqual([
@@ -5655,7 +5655,7 @@ command = "vim"
     expect(steer.session.steer).toHaveBeenCalledTimes(1);
     steer.resolve();
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(steer.session.steer).toHaveBeenCalledTimes(2);
     });
     expect(steer.session.steer).toHaveBeenNthCalledWith(2, 'second');
@@ -5679,7 +5679,7 @@ command = "vim"
 
     steer.resolve();
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.prompt).toHaveBeenCalledTimes(1);
     });
     expect(mocked(session.prompt).mock.calls[0]?.[0]).toBe('later note');
@@ -5718,7 +5718,7 @@ command = "vim"
 
     steer.reject(new Error('turn cancelled'));
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.prompt).toHaveBeenCalledTimes(1);
     });
     expect(mocked(session.prompt).mock.calls[0]?.[0]).toBe('earlier note');
@@ -5742,7 +5742,7 @@ command = "vim"
     expect(harness.deleteFile).not.toHaveBeenCalledWith('file-v1');
     steer.reject(new Error('turn cancelled'));
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.prompt).toHaveBeenCalledTimes(1);
     });
     const parts = mocked(session.prompt).mock.calls[0]?.[0] as Array<{ type: string; videoUrl?: { url: string } }>;
@@ -5869,7 +5869,7 @@ command = "vim"
 
     expect(session.steer).toHaveBeenCalledWith('objective one\n\nobjective two');
     expect(session.prompt).not.toHaveBeenCalled();
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.queuedMessages).toEqual([]);
     });
   });
@@ -5902,7 +5902,7 @@ command = "vim"
     driver.handleUserInput('hello mid-goal');
 
     expect(driver.state.appState.streamingPhase).toBe('waiting');
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.appState.streamingPhase).toBe('idle');
     });
     expect(stripSgr(renderTranscript(driver))).toContain('Failed to steer: session closed');
@@ -5928,7 +5928,7 @@ command = "vim"
       },
     );
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.steer).toHaveBeenCalledWith('mid-goal note');
     });
     expect(session.prompt).not.toHaveBeenCalled();
@@ -5953,7 +5953,7 @@ command = "vim"
       },
     );
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.prompt).toHaveBeenCalledWith('after the turn', { promptId: undefined });
     });
     expect(session.steer).not.toHaveBeenCalled();
@@ -6051,7 +6051,7 @@ command = "vim"
 
     driver.handleUserInput('/clear');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.getCurrentSessionId()).toBe('ses-2');
     });
     expect(driver.state.appState.streamingPhase).toBe('idle');
@@ -6172,10 +6172,10 @@ capabilities = ["image_in", "video_in"]
       await uploadStarted;
       driver.state.editor.onEscape?.();
 
-      await waitUntil(() => {
+      await waitForAssertion(() => {
         expect(driver!.state.appState.streamingPhase).toBe('idle');
       });
-      await waitUntil(() => {
+      await waitForAssertion(() => {
         expect(uploadAborted).toBe(true);
       });
       expect(driver.state.activitySpinner).toBeNull();
@@ -6183,7 +6183,7 @@ capabilities = ["image_in", "video_in"]
 
       driver.handleUserInput('/clear');
 
-      await waitUntil(() => {
+      await waitForAssertion(() => {
         expect(driver!.getCurrentSessionId()).not.toBe(previousSessionId);
       });
       expect(driver.state.appState.streamingPhase).toBe('idle');
@@ -6310,7 +6310,7 @@ capabilities = ["image_in", "video_in"]
     driver.state.editor.onCtrlS?.();
 
     expect(session.steer).toHaveBeenCalledWith('focus on tests');
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.queuedMessages).toEqual([
         { text: 'ls', agentId: 'main', mode: 'bash' },
       ]);
@@ -6417,7 +6417,7 @@ capabilities = ["image_in", "video_in"]
       { type: 'text', text: 'look ' },
       { type: 'image_url', imageUrl: { url: 'data:image/png;base64,qrs=' } },
     ]);
-    await waitUntil(() => { expect(driver.state.queuedMessages).toEqual([]); });
+    await waitForAssertion(() => expect(driver.state.queuedMessages).toEqual([]));
   });
 
   it('releases every queued use of shared media after a batched steer', async () => {
@@ -6439,7 +6439,7 @@ capabilities = ["image_in", "video_in"]
       { type: 'turn.ended', agentId: 'main', turnId: 1, reason: 'completed' } as Event,
       () => {},
     );
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(harness.deleteFile).toHaveBeenCalledWith('file-batched');
     });
     expect(harness.deleteFile).toHaveBeenCalledTimes(1);
@@ -6466,7 +6466,7 @@ capabilities = ["image_in", "video_in"]
 
     driver.sendQueuedMessage(session, second!);
     emitTurn(driver, 2);
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(harness.deleteFile).toHaveBeenCalledWith('file-shared');
     });
     expect(harness.deleteFile).toHaveBeenCalledTimes(1);
@@ -6498,7 +6498,7 @@ capabilities = ["image_in", "video_in"]
 
     driver.sendQueuedMessage(session, requeued);
     emitTurn(driver, 1);
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(harness.deleteFile).toHaveBeenCalledWith('file-recall');
     });
     expect(harness.deleteFile).toHaveBeenCalledTimes(1);
@@ -6734,7 +6734,7 @@ capabilities = ["image_in", "video_in"]
     driver.state.editor.inputMode = 'bash';
 
     driver.handleUserInput('seq 30');
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       const transcript = stripSgr(driver.state.transcriptContainer.render(120).join('\n'));
       expect(transcript).toContain('… (20 more lines, ctrl+o to expand)');
     });
@@ -6791,7 +6791,7 @@ capabilities = ["image_in", "video_in"]
     expect(transcript).not.toContain('+25 lines');
 
     resolveCmd({ stdout, stderr: '', isError: false });
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       const finished = stripSgr(driver.state.transcriptContainer.render(120).join('\n'));
       expect(finished).toContain('row-30');
     });
@@ -7495,7 +7495,7 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/init');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.init).toHaveBeenCalledTimes(1);
     });
     expect(session.prompt).not.toHaveBeenCalled();
@@ -7504,7 +7504,7 @@ capabilities = ["image_in", "video_in"]
 
     resolveInit?.();
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.appState.streamingPhase).toBe('idle');
     });
     expect(driver.state.livePane.mode).toBe('idle');
@@ -7520,10 +7520,10 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/btw What are you working on right now?');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.startBtw).toHaveBeenCalledWith();
     });
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.prompt).toHaveBeenCalledWith('What are you working on right now?');
     });
     expect(session.steer).not.toHaveBeenCalled();
@@ -7538,7 +7538,7 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/btw');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.startBtw).toHaveBeenCalledWith();
     });
     expect(session.prompt).not.toHaveBeenCalled();
@@ -7546,7 +7546,7 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('What are you working on right now?');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.prompt).toHaveBeenCalledWith('What are you working on right now?');
     });
     expect(session.steer).not.toHaveBeenCalled();
@@ -7579,14 +7579,14 @@ capabilities = ["image_in", "video_in"]
     ).refreshSkillCommands();
 
     driver.handleUserInput('/btw');
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.startBtw).toHaveBeenCalledWith();
     });
     expect(stripSgr(renderBtwPanel(driver))).toContain('Ready for a side question…');
 
     driver.handleUserInput('check /skill:review');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.promptWithSkills).toHaveBeenCalledWith('check /skill:review', [
         { name: 'review' },
       ]);
@@ -7619,7 +7619,7 @@ capabilities = ["image_in", "video_in"]
     driver.state.editor.setText(input);
     driver.state.editor.handleInput('\r');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.promptWithSkills).toHaveBeenCalledWith([
         { type: 'text', text: `${prefix} ` },
         { type: 'image_url', imageUrl: { url: 'kimi-file://file-btw-image' } },
@@ -7637,7 +7637,7 @@ capabilities = ["image_in", "video_in"]
       type: 'turn.ended', sessionId: session.id, agentId: 'agent-btw',
       turnId: 1, reason: 'completed',
     } as Event, () => {});
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(harness.deleteFile).toHaveBeenCalledTimes(1);
       expect(harness.deleteFile).toHaveBeenCalledWith('file-btw-image');
     });
@@ -7731,11 +7731,11 @@ capabilities = ["image_in", "video_in"]
     const input = `/skill:review inspect ${attachment.placeholder}`;
     driver.state.editor.setText(input);
     driver.state.editor.handleInput('\r');
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(stripSgr(renderBtwPanel(driver))).toContain('Prompt rejected');
       expect(driver.state.editor.getText()).toBe('');
     });
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(harness.deleteFile).toHaveBeenCalledTimes(1);
       expect(harness.deleteFile).toHaveBeenCalledWith('file-btw-retry');
     });
@@ -7770,7 +7770,7 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/btw check this /skill:review');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.promptWithSkills).toHaveBeenCalledWith('check this /skill:review', [
         { name: 'review' },
       ]);
@@ -7809,7 +7809,7 @@ capabilities = ["image_in", "video_in"]
     expect(driver.btwPanelController.cancelRunning()).toBe(true);
     finishIngestion();
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(getMountedBtwPanel(driver).isRunning()).toBe(false);
     });
     expect(session.promptWithSkills).not.toHaveBeenCalled();
@@ -7843,7 +7843,7 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/btw /skill:review check this');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.promptWithSkills).toHaveBeenCalledWith('/skill:review check this', [
         { name: 'review' },
       ]);
@@ -7880,10 +7880,10 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/btw check /skill:review /skill:security');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.startBtw).toHaveBeenCalledWith();
     });
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.promptWithSkills).toHaveBeenCalledWith('check /skill:review /skill:security', [
         { name: 'review' },
         { name: 'security' },
@@ -7898,7 +7898,7 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/btw');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.startBtw).toHaveBeenCalledWith();
     });
     driver.state.editor.onEscape?.();
@@ -8268,7 +8268,7 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/new');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.getCurrentSessionId()).toBe('ses-next');
     });
     expect(initialSession.cancel).toHaveBeenCalledOnce();
@@ -8353,7 +8353,7 @@ capabilities = ["image_in", "video_in"]
     expect(panel.isRunning()).toBe(false);
     driver.handleUserInput('follow up');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.prompt).toHaveBeenCalledWith('follow up');
     });
     expect(session.prompt).toHaveBeenCalledTimes(2);
@@ -8424,10 +8424,10 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/btw second question');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.startBtw).toHaveBeenCalledTimes(2);
     });
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.prompt).toHaveBeenCalledWith('second question');
     });
 
@@ -8731,10 +8731,10 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/swarm Ship feature X');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.setSwarmMode).toHaveBeenCalledWith(true, 'task');
     });
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(countOccurrences(stripSgr(renderTranscript(driver)), 'Swarm activated')).toBe(1);
     });
     let transcript = stripSgr(renderTranscript(driver));
@@ -8771,7 +8771,7 @@ capabilities = ["image_in", "video_in"]
     const { driver } = await makeDriver(session);
 
     driver.handleUserInput('/init');
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.init).toHaveBeenCalledTimes(1);
     });
 
@@ -8786,7 +8786,7 @@ capabilities = ["image_in", "video_in"]
 
     resolveInit?.();
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.prompt).toHaveBeenCalledWith('apply after init', { promptId: undefined });
     });
     expect(driver.state.queuedMessages).toEqual([]);
@@ -8805,13 +8805,13 @@ capabilities = ["image_in", "video_in"]
     const { driver } = await makeDriver(session);
 
     driver.handleUserInput('/init');
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.init).toHaveBeenCalledTimes(1);
     });
 
     driver.state.editor.onEscape?.();
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.cancel).toHaveBeenCalledTimes(1);
     });
 
@@ -8990,7 +8990,7 @@ capabilities = ["image_in", "video_in"]
       jest.fn(),
     );
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       const transcript = stripSgr(renderTranscript(driver));
       expect(transcript).toContain('Current plan');
       expect(countOccurrences(transcript, 'non-duplicated plan work')).toBe(1);
@@ -9012,7 +9012,7 @@ capabilities = ["image_in", "video_in"]
       },
     });
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       const approval = stripSgr(driver.state.editorContainer.render(120).join('\n'));
       expect(approval).toContain('Ready to build with this plan?');
       expect(approval).not.toContain('non-duplicated plan work');
@@ -9667,7 +9667,7 @@ capabilities = ["image_in", "video_in"]
       jest.fn(),
     );
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       const transcript = stripSgr(renderTranscript(driver));
       expect(transcript).toContain('Reject Plan');
       expect(countOccurrences(transcript, 'keep this plan visible after reject')).toBe(1);
@@ -9689,7 +9689,7 @@ capabilities = ["image_in", "video_in"]
       },
     });
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(ApprovalPanelComponent);
     });
     (driver.state.editorContainer.children[0] as ApprovalPanelComponent).handleInput('2');
@@ -9708,7 +9708,7 @@ capabilities = ["image_in", "video_in"]
       jest.fn(),
     );
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       const transcript = stripSgr(renderTranscript(driver));
       expect(transcript).toContain('plan: reject-plan.md · Rejected');
       expect(transcript).toContain('Reject Plan');
@@ -9737,7 +9737,7 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/status');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(getStatus).toHaveBeenCalledTimes(previousStatusCalls + 1);
       const output = stripSgr(driver.state.transcriptContainer.render(120).join('\n'));
       expect(output).toContain(' Status ');
@@ -9787,7 +9787,7 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/mcp');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(listMcpServers).toHaveBeenCalledTimes(previousCalls + 1);
       const output = stripSgr(driver.state.transcriptContainer.render(140).join('\n'));
       expect(output).toContain(' MCP (4) ');
@@ -9816,7 +9816,7 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/mcp');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       const output = stripSgr(driver.state.transcriptContainer.render(120).join('\n'));
       expect(output).toContain('No MCP servers configured. Run /mcp-config to add one.');
     });
@@ -9832,7 +9832,7 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/mcp');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       const output = stripSgr(driver.state.transcriptContainer.render(120).join('\n'));
       expect(output).toContain('Error: Failed to load MCP servers: rpc unavailable');
     });
@@ -9844,7 +9844,7 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/plugins mcp enable kimi-datasource data');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.setPluginMcpServerEnabled).toHaveBeenCalledWith(
         'kimi-datasource',
         'data',
@@ -9859,7 +9859,7 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/plugins install');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(stripSgr(renderTranscript(driver))).toContain(
         'Usage: /plugins install <local-path-or-zip-url>',
       );
@@ -9873,7 +9873,7 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/plugins install ./plugins/kimi-datasource');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(
         PluginInstallTrustConfirmComponent,
       );
@@ -9882,7 +9882,7 @@ capabilities = ["image_in", "video_in"]
     confirm.handleInput('\u001B[B'); // switch from "Exit" to "Trust and install"
     confirm.handleInput('\r');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.installPlugin).toHaveBeenCalledWith(
         resolve('/tmp/proj-a', './plugins/kimi-datasource'),
       );
@@ -9911,7 +9911,7 @@ capabilities = ["image_in", "video_in"]
       '/plugins install https://code.kimi.com/kimi-code/plugins/official/kimi-datasource.zip',
     );
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       const transcript = stripSgr(renderTranscript(driver));
       expect(transcript).toContain('Run /new or /reload to apply plugin changes.');
       expect(transcript).toContain('Note: This plugin consumes your quota.');
@@ -9937,7 +9937,7 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/plugins install ./plugins/kimi-datasource-fork');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(
         PluginInstallTrustConfirmComponent,
       );
@@ -9946,7 +9946,7 @@ capabilities = ["image_in", "video_in"]
     confirm.handleInput('\u001B[B'); // switch from "Exit" to "Trust and install"
     confirm.handleInput('\r');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       const transcript = stripSgr(renderTranscript(driver));
       expect(transcript).toContain('Installed Kimi Datasource');
     });
@@ -9961,7 +9961,7 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/plugins install ./plugins/kimi-datasource');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(
         PluginInstallTrustConfirmComponent,
       );
@@ -9969,7 +9969,7 @@ capabilities = ["image_in", "video_in"]
     const confirm = driver.state.editorContainer.children[0] as PluginInstallTrustConfirmComponent;
     confirm.handleInput('\r'); // default option is "Exit"
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBe(driver.state.editor);
     });
     expect(session.installPlugin).not.toHaveBeenCalled();
@@ -9999,28 +9999,28 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/plugins marketplace');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(PluginsPanelComponent);
     });
     const panel = driver.state.editorContainer.children[0] as PluginsPanelComponent;
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(stripSgr(panel.render(120).join('\n'))).toContain('Kimi Datasource');
     });
     panel.handleInput('\u001B[B');
     panel.handleInput('\r');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.installPlugin).toHaveBeenCalledWith(
         'https://code.kimi.com/kimi-code/plugins/official/kimi-datasource.zip',
       );
     });
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       const transcript = stripSgr(renderTranscript(driver));
       expect(transcript).toContain('Installed Demo');
       expect(transcript).toContain('Run /new or /reload to apply plugin changes.');
       expect(transcript).not.toContain('Note: This plugin consumes your quota.');
     });
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBe(driver.state.editor);
     });
   });
@@ -10051,16 +10051,16 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/plugins marketplace');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(PluginsPanelComponent);
     });
     const panel = driver.state.editorContainer.children[0] as PluginsPanelComponent;
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(stripSgr(panel.render(120).join('\n'))).toContain('Kimi Datasource');
     });
     panel.handleInput('\r');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       const rendered = stripSgr(panel.render(120).join('\n'));
       expect(rendered).toContain('Kimi Datasource');
       expect(rendered).not.toContain('Installing');
@@ -10090,16 +10090,16 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput(`/plugins marketplace ${marketplacePath}`);
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(PluginsPanelComponent);
     });
     const panel = driver.state.editorContainer.children[0] as PluginsPanelComponent;
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(stripSgr(panel.render(120).join('\n'))).toContain('Superpowers');
     });
     panel.handleInput('\r');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(
         PluginInstallTrustConfirmComponent,
       );
@@ -10108,7 +10108,7 @@ capabilities = ["image_in", "video_in"]
     confirm.handleInput('\u001B[B'); // switch from "Exit" to "Trust and install"
     confirm.handleInput('\r');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.installPlugin).toHaveBeenCalledWith(join(marketplaceDir, 'superpowers'));
     });
   });
@@ -10138,16 +10138,16 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput(`/plugins marketplace ${marketplacePath}`);
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(PluginsPanelComponent);
     });
     const panel = driver.state.editorContainer.children[0] as PluginsPanelComponent;
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(stripSgr(panel.render(120).join('\n'))).toContain('Superpowers');
     });
     panel.handleInput('\r');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(
         PluginInstallTrustConfirmComponent,
       );
@@ -10156,7 +10156,7 @@ capabilities = ["image_in", "video_in"]
     confirm.handleInput('\u001B[B'); // switch from "Exit" to "Trust and install"
     confirm.handleInput('\r');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBe(panel);
     });
   });
@@ -10167,7 +10167,7 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/plugins remove kimi-webbridge');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(
         PluginRemoveConfirmComponent,
       );
@@ -10176,7 +10176,7 @@ capabilities = ["image_in", "video_in"]
     confirm.handleInput('\u001B[B');
     confirm.handleInput('\r');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.removePlugin).toHaveBeenCalledWith('kimi-webbridge');
     });
     expect(session.activateSkill).not.toHaveBeenCalled();
@@ -10201,17 +10201,17 @@ capabilities = ["image_in", "video_in"]
     try {
       driver.handleUserInput('/plugins marketplace');
 
-      await waitUntil(() => {
+      await waitForAssertion(() => {
         expect(driver.state.editorContainer.children[0]).toBeInstanceOf(PluginsPanelComponent);
       });
       const panel = driver.state.editorContainer.children[0] as PluginsPanelComponent;
-      await waitUntil(() => {
+      await waitForAssertion(() => {
         expect(stripSgr(panel.render(120).join('\n'))).toContain('Kimi Datasource');
       });
       panel.handleInput('\u001B[B');
       panel.handleInput('\r');
 
-      await waitUntil(() => {
+      await waitForAssertion(() => {
         expect(session.installPlugin).toHaveBeenCalledWith(
           'https://code.kimi.com/kimi-code/plugins/official/kimi-datasource.zip',
         );
@@ -10237,13 +10237,13 @@ capabilities = ["image_in", "video_in"]
     try {
       driver.handleUserInput('/plugins');
 
-      await waitUntil(() => {
+      await waitForAssertion(() => {
         expect(driver.state.editorContainer.children[0]).toBeInstanceOf(PluginsPanelComponent);
       });
       const panel = driver.state.editorContainer.children[0] as PluginsPanelComponent;
       panel.handleInput('\t'); // → Official, which lazily (and unsuccessfully) loads
 
-      await waitUntil(() => {
+      await waitForAssertion(() => {
         expect(stripSgr(panel.render(120).join('\n'))).toContain(
           'Marketplace unavailable: fetch failed',
         );
@@ -10279,7 +10279,7 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/plugins');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(PluginsPanelComponent);
     });
     const panel = driver.state.editorContainer.children[0] as PluginsPanelComponent;
@@ -10287,10 +10287,10 @@ capabilities = ["image_in", "video_in"]
 
     expect(driver.state.editorContainer.children[0]).toBeInstanceOf(PluginsPanelComponent);
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.setPluginEnabled).toHaveBeenCalledWith('demo', false);
     });
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       const refreshed = stripSgr(driver.state.editorContainer.children[0]!.render(120).join('\n'));
       expect(refreshed).toContain('❯ Demo  disabled  run /reload or /new to apply');
     });
@@ -10359,13 +10359,13 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/plugins');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(PluginsPanelComponent);
     });
     const panel = driver.state.editorContainer.children[0] as PluginsPanelComponent;
     panel.handleInput('m');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(
         PluginMcpSelectorComponent,
       );
@@ -10374,14 +10374,14 @@ capabilities = ["image_in", "video_in"]
     mcpPicker.handleInput('\u001B[B');
     mcpPicker.handleInput(' ');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.setPluginMcpServerEnabled).toHaveBeenCalledWith(
         'kimi-datasource',
         'data',
         false,
       );
     });
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(PluginMcpSelectorComponent);
     });
     const out = stripSgr(driver.state.editorContainer.children[0]!.render(120).join('\n'));
@@ -10397,7 +10397,7 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/plugins remove demo');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(
         PluginRemoveConfirmComponent,
       );
@@ -10408,7 +10408,7 @@ capabilities = ["image_in", "video_in"]
     expect(stripSgr(confirm.render(120).join('\n'))).toContain('Remove demo (demo)?');
     confirm.handleInput('\r');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(stripSgr(renderTranscript(driver))).toContain('Remove cancelled: demo.');
     });
     expect(session.removePlugin).not.toHaveBeenCalled();
@@ -10434,7 +10434,7 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/plugins demo');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.getPluginInfo).toHaveBeenCalledWith('demo');
     });
   });
@@ -10468,7 +10468,7 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/model turbo');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(TabbedModelSelectorComponent);
     });
     const picker = driver.state.editorContainer.children[0];
@@ -10483,7 +10483,7 @@ capabilities = ["image_in", "video_in"]
     expect(filteredOutput).not.toContain('Kimi K2');
     (picker as TabbedModelSelectorComponent).handleInput('\r');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.setModel).toHaveBeenCalledWith('turbo');
       expect(session.setThinking).toHaveBeenCalledWith('on');
       expect(setConfig).toHaveBeenCalledWith({
@@ -10524,13 +10524,13 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/model turbo');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(TabbedModelSelectorComponent);
     });
     const picker = driver.state.editorContainer.children[0];
     (picker as TabbedModelSelectorComponent).handleInput(`${ESC}s`);
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.setModel).toHaveBeenCalledWith('turbo');
       expect(session.setThinking).toHaveBeenCalledWith('on');
     });
@@ -10584,12 +10584,12 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/model turbo');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(TabbedModelSelectorComponent);
     });
     (driver.state.editorContainer.children[0] as TabbedModelSelectorComponent).handleInput('\r');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(setConfig).toHaveBeenCalledWith({
         defaultModel: 'turbo',
         thinking: { enabled: true, effort: 'mid' },
@@ -10622,13 +10622,13 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/model k2');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(TabbedModelSelectorComponent);
     });
     const picker = driver.state.editorContainer.children[0];
     (picker as TabbedModelSelectorComponent).handleInput('\r');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(setConfig).toHaveBeenCalledWith({
         defaultModel: 'k2',
         thinking: { enabled: false },
@@ -10672,12 +10672,12 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/effort');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(EffortSelectorComponent);
     });
     (driver.state.editorContainer.children[0] as EffortSelectorComponent).handleInput('\r');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(renderTranscript(driver)).toContain('Already using Kimi K2 with thinking high.');
     });
     expect(setConfig).not.toHaveBeenCalled();
@@ -10731,12 +10731,12 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/model turbo');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(TabbedModelSelectorComponent);
     });
     (driver.state.editorContainer.children[0] as TabbedModelSelectorComponent).handleInput('\r');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(setConfig).toHaveBeenCalledWith({
         defaultModel: 'turbo',
         thinking: { enabled: true },
@@ -10782,10 +10782,10 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/effort max');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.setThinking).toHaveBeenCalledWith('max');
     });
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(setConfig).toHaveBeenCalledWith({
         defaultModel: 'k2',
         thinking: { enabled: true, effort: 'max' },
@@ -10831,10 +10831,10 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/effort xhigh');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.setThinking).toHaveBeenCalledWith('xhigh');
     });
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(setConfig).toHaveBeenCalledWith({
         defaultModel: 'opus',
         thinking: { enabled: true },
@@ -10884,7 +10884,7 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/model');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       const picker = driver.state.editorContainer.children[0];
       expect(picker).toBeInstanceOf(TabbedModelSelectorComponent);
       const output = stripSgr((picker as TabbedModelSelectorComponent).render(120).join('\n'));
@@ -10981,7 +10981,7 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/new');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(harness.createSession).toHaveBeenCalledTimes(1);
       expect(driver.getCurrentSessionId()).toBe('ses-2');
     });
@@ -11030,7 +11030,7 @@ capabilities = ["image_in", "video_in"]
       process.title = 'kimi-test-runner';
       driver.handleUserInput('/fork ignored args');
 
-      await waitUntil(() => {
+      await waitForAssertion(() => {
         expect(forkSession).toHaveBeenCalledWith({ id: 'ses-source' });
         expect(driver.state.transcriptContainer.render(120).join('\n')).toContain(
           'Session forked (ses-fork). Still in the original session; switch to the fork via /sessions.',
@@ -11065,7 +11065,7 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/fork');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       const transcript = driver.state.transcriptContainer.render(120).join('\n');
       expect(transcript).toContain(
         "To enter the fork in a new process, run: cd '/tmp/proj-a' && kimi --resume 'ses-fork'",
@@ -11084,7 +11084,7 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/fork');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.transcriptContainer.render(120).join('\n')).toContain(
         'Command copied via terminal escape sequence (unverified)',
       );
@@ -11108,7 +11108,7 @@ capabilities = ["image_in", "video_in"]
 
       driver.handleUserInput('/fork');
 
-      await waitUntil(() => {
+      await waitForAssertion(() => {
         expect(copyTextToClipboard).toHaveBeenCalledWith(
           'pushd "D:\\proj" && kimi --resume "ses-fork"',
         );
@@ -11129,7 +11129,7 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/fork');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(forkSession).toHaveBeenCalledWith({ id: 'ses-source' });
       expect(driver.getCurrentSessionId()).toBe('ses-source');
       expect(driver.state.transcriptContainer.render(120).join('\n')).toContain(
@@ -11147,7 +11147,7 @@ capabilities = ["image_in", "video_in"]
 
     driver.handleUserInput('/fork');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(forked.close).toHaveBeenCalledOnce();
       expect(driver.getCurrentSessionId()).toBe('ses-source');
       expect(driver.state.transcriptContainer.render(120).join('\n')).toContain(
@@ -11396,7 +11396,7 @@ describe('auto session title', () => {
 
     emitTurn(driver, 1);
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(generateSessionTitle).toHaveBeenCalledWith({ id: 'ses-1', source: 'first_turn' });
     });
   });
@@ -11436,7 +11436,7 @@ describe('auto session title', () => {
     const { driver } = await makeDriver(makeSession(), { generateSessionTitle });
 
     emitTurn(driver, 1);
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(generateSessionTitle).toHaveBeenCalledTimes(1);
     });
     await flushAsync();
@@ -11510,12 +11510,12 @@ describe('/model status displayName override', () => {
 
     driver.handleUserInput('/model turbo');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(TabbedModelSelectorComponent);
     });
     (driver.state.editorContainer.children[0] as TabbedModelSelectorComponent).handleInput('\r');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(setConfig).toHaveBeenCalledWith({
         defaultModel: 'turbo',
         thinking: { enabled: true },
@@ -11554,10 +11554,10 @@ describe('/effort support_efforts override', () => {
 
     driver.handleUserInput('/effort max');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(session.setThinking).toHaveBeenCalledWith('max');
     });
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(renderTranscript(driver)).toContain('Thinking set to max.');
     });
     const transcript = renderTranscript(driver).replaceAll(/\s+/g, ' ');
@@ -11586,7 +11586,7 @@ describe('/effort support_efforts override', () => {
 
     driver.handleUserInput('/effort');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(EffortSelectorComponent);
     });
     const picker = driver.state.editorContainer.children[0] as EffortSelectorComponent;
@@ -11612,7 +11612,7 @@ describe('/effort support_efforts override', () => {
 
     driver.handleUserInput('/effort');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(EffortSelectorComponent);
     });
     const picker = driver.state.editorContainer.children[0] as EffortSelectorComponent;
@@ -11639,7 +11639,7 @@ describe('/effort support_efforts override', () => {
 
     driver.handleUserInput('/effort');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(EffortSelectorComponent);
     });
     const picker = driver.state.editorContainer.children[0] as EffortSelectorComponent;
@@ -11664,7 +11664,7 @@ describe('/effort support_efforts override', () => {
 
     driver.handleUserInput('/effort');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(driver.state.editorContainer.children[0]).toBeInstanceOf(EffortSelectorComponent);
     });
     const picker = driver.state.editorContainer.children[0] as EffortSelectorComponent;
@@ -11694,7 +11694,7 @@ describe('/effort support_efforts override', () => {
 
     driver.handleUserInput('/effort max');
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(renderTranscript(driver)).toContain(
         'Unsupported thinking effort "max" for k2. Available: off, low, high',
       );
@@ -11953,7 +11953,7 @@ describe('KimiTUI session rating survey', () => {
         const { driver, harness } = await makeDriver(session, {}, startup);
         if (creation === 'lazy') {
           driver.handleUserInput('first question');
-          await waitUntil(() => {
+          await waitForAssertion(() => {
             expect(session.prompt).toHaveBeenCalled();
           });
         } else {
@@ -12108,7 +12108,7 @@ describe('KimiTUI session rating survey', () => {
 
       jest.useRealTimers();
       const stateFile = join(homeDir, 'feedback-survey-state.json');
-      await waitUntil(() => {
+      await waitForAssertion(() => {
         expect(existsSync(stateFile)).toBe(true);
       });
       const persisted = JSON.parse(await readFile(stateFile, 'utf-8')) as {
@@ -12179,7 +12179,7 @@ describe('KimiTUI session rating survey', () => {
 
       jest.useRealTimers();
       const stateFile = join(homeDir, 'feedback-survey-state.json');
-      await waitUntil(() => {
+      await waitForAssertion(() => {
         expect(existsSync(stateFile)).toBe(true);
       });
       const persisted = JSON.parse(await readFile(stateFile, 'utf-8')) as {
@@ -12230,7 +12230,7 @@ describe('KimiTUI session rating survey', () => {
       expect(driver.state.surveyContainer.children).not.toHaveLength(0);
 
       jest.useRealTimers();
-      await waitUntil(() => {
+      await waitForAssertion(() => {
         expect(existsSync(join(process.env['KIMI_CODE_HOME']!, 'feedback-survey-state.json'))).toBe(
           true,
         );
@@ -12307,7 +12307,7 @@ describe('KimiTUI session rating survey', () => {
       expect(driver.state.surveyContainer.children).not.toHaveLength(0);
 
       jest.useRealTimers();
-      await waitUntil(() => {
+      await waitForAssertion(() => {
         expect(existsSync(join(process.env['KIMI_CODE_HOME']!, 'feedback-survey-state.json'))).toBe(
           true,
         );
@@ -12622,7 +12622,7 @@ describe('transcript fold block clicks', () => {
     driver.state.editor.inputMode = 'bash';
 
     driver.handleUserInput('echo-shell');
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       const transcript = stripSgr(renderTranscript(driver));
       expect(transcript).toContain('ctrl+o to expand');
       expect(transcript).not.toContain(marker);

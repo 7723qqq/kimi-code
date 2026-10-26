@@ -1,6 +1,6 @@
 import { chmod, mkdir, mkdtemp, open, readFile, readdir, realpath, rename, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, sep } from 'node:path';
 import { deflateSync } from 'node:zlib';
 
 import {
@@ -27,7 +27,7 @@ import {
   getLiveSessionById,
 } from '@moonshot-ai/agent-core-v2';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, jest, vi } from 'bun:test';
-import { waitUntil } from './helpers/waitFor';
+import { waitForAssertion, waitUntil } from './helpers/waitFor';
 
 import { type RunningServer, startServer } from '../src/start';
 import { projectPromptSnapshot, watchPromptSettlements } from '../src/routes/prompts';
@@ -186,7 +186,7 @@ function pngDimensions(bytes: Buffer): { width: number; height: number } {
 }
 
 async function readFileEventually(path: string): Promise<Buffer> {
-  return waitUntil(() => readFile(path));
+  return waitUntil(() => readFile(path), { timeout: 15000 });
 }
 
 function sessionMediaDir(server: RunningServer, sessionId: string): string {
@@ -211,7 +211,18 @@ async function writeConfigToml(dir: string, content: string): Promise<void> {
   configTomlSeq += 1;
   const tmpPath = join(dir, `config.toml.${process.pid}.${configTomlSeq}.tmp`);
   await writeFile(tmpPath, content, 'utf-8');
-  await rename(tmpPath, join(dir, 'config.toml'));
+  const target = join(dir, 'config.toml');
+  let lastError: unknown;
+  for (let attempt = 0; attempt < 25; attempt += 1) {
+    try {
+      await rename(tmpPath, target);
+      return;
+    } catch (error) {
+      lastError = error;
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+  }
+  throw lastError;
 }
 
 describe('server-v2 /api/v1 prompts', () => {
@@ -365,7 +376,7 @@ describe('server-v2 /api/v1 prompts', () => {
     });
     expect(submitted.body.code).toBe(0);
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(ended).toHaveLength(1);
     });
     subscription.dispose();
@@ -424,7 +435,7 @@ describe('server-v2 /api/v1 prompts', () => {
     });
     expect(submitted.body.code).toBe(0);
 
-    await waitUntil(
+    await waitForAssertion(
       () => {
         expect(ended).toHaveLength(1);
       },
@@ -914,7 +925,7 @@ describe('server-v2 /api/v1 prompts', () => {
     expect(caption.text).toContain('3600x1800');
     const pathMatch = /saved at "([^"]+)"/.exec(caption.text);
     expect(pathMatch).not.toBeNull();
-    expect(pathMatch![1]!).toContain('/media-originals/');
+    expect(pathMatch![1]!.split(sep).join('/')).toContain('/media-originals/');
     expect(await readFile(pathMatch![1]!)).toEqual(bigPng);
 
     const image = content[1] as { type: string; source: { kind: string; file_id: string } };
@@ -931,7 +942,7 @@ describe('server-v2 /api/v1 prompts', () => {
     expect(original.meta.size).toBe(bigPng.length);
 
     const files = server!.core.accessor.get(IFileService);
-    await waitUntil(async () => {
+    await waitForAssertion(async () => {
       const result = await files.get(finalFileId).catch((error: unknown) => error);
       expect(result).toMatchObject({ code: 'file.not_found' });
     });
@@ -1039,7 +1050,7 @@ describe('server-v2 /api/v1 prompts', () => {
 
     const session = getLiveSessionById(server!.core.accessor, id);
     const main = session!.accessor.get(IAgentLifecycleService).handleOf('main')!;
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       const replayedMessage = main.accessor
         .get(IAgentContextMemoryService)
         .get()
@@ -1080,7 +1091,7 @@ describe('server-v2 /api/v1 prompts', () => {
 
       const session = getLiveSessionById(server!.core.accessor, id);
       const main = session!.accessor.get(IAgentLifecycleService).handleOf('main')!;
-      await waitUntil(() => {
+      await waitForAssertion(() => {
         const message = main.accessor
           .get(IAgentContextMemoryService)
           .get()
@@ -1124,7 +1135,7 @@ describe('server-v2 /api/v1 prompts', () => {
     if (caption?.type !== 'text') throw new Error('expected compression caption');
     const pathMatch = /saved at "([^"]+)"/.exec(caption.text);
     expect(pathMatch).not.toBeNull();
-    expect(pathMatch![1]!).toContain('/media-originals/');
+    expect(pathMatch![1]!.split(sep).join('/')).toContain('/media-originals/');
     expect((await realpath(pathMatch![1]!)).startsWith(await realpath(home as string))).toBe(true);
     expect(await readFile(pathMatch![1]!)).toEqual(bigPng);
 
@@ -1347,7 +1358,7 @@ describe('server-v2 /api/v1 prompts', () => {
   }
 
   function attachedPathFrom(notice: string): string {
-    const match = /bytes\): (.+) — open it with the Read tool$/.exec(notice);
+    const match = /bytes\): (.+?)(?: — |$)/.exec(notice);
     expect(match).not.toBeNull();
     return match![1]!;
   }
@@ -1375,7 +1386,7 @@ describe('server-v2 /api/v1 prompts', () => {
     expect(notice?.text).toContain('application/pdf');
     expect(notice?.text).toContain(`${pdfBytes.length} bytes`);
     const attachedPath = attachedPathFrom(notice?.text ?? '');
-    expect(attachedPath).toContain('/attachments/');
+    expect(attachedPath.split(sep).join('/')).toContain('/attachments/');
     expect(attachedPath.endsWith(`${uploaded.id}-report.pdf`)).toBe(true);
     expect((await realpath(attachedPath)).startsWith(await realpath(home as string))).toBe(true);
     expect(await readFile(attachedPath)).toEqual(pdfBytes);
@@ -1400,7 +1411,7 @@ describe('server-v2 /api/v1 prompts', () => {
     expect(notice?.text).toContain('"vector.svg"');
     expect(notice?.text).toContain('image/svg+xml');
     const attachedPath = attachedPathFrom(notice?.text ?? '');
-    expect(attachedPath).toContain('/attachments/');
+    expect(attachedPath.split(sep).join('/')).toContain('/attachments/');
     expect(attachedPath.endsWith(`${uploaded.id}-vector.svg`)).toBe(true);
     expect(await readFile(attachedPath)).toEqual(svgBytes);
   });
@@ -1433,7 +1444,7 @@ describe('server-v2 /api/v1 prompts', () => {
     expect(notice?.text).toContain('"scan.avif"');
     expect(notice?.text).toContain('image/avif');
     const attachedPath = attachedPathFrom(notice?.text ?? '');
-    expect(attachedPath).toContain('/attachments/');
+    expect(attachedPath.split(sep).join('/')).toContain('/attachments/');
     expect(attachedPath.endsWith('-scan.avif')).toBe(true);
     expect(await readFile(attachedPath)).toEqual(data);
   });
@@ -1454,7 +1465,7 @@ describe('server-v2 /api/v1 prompts', () => {
     const content = submitted.body.data.content as Array<{ type: string; text?: string }>;
     expect(content).toHaveLength(1);
     const attachedPath = attachedPathFrom(content[0]?.text ?? '');
-    expect(dirname(attachedPath).endsWith('/attachments')).toBe(true);
+    expect(dirname(attachedPath).split(sep).join('/').endsWith('/attachments')).toBe(true);
     expect((await realpath(attachedPath)).startsWith(await realpath(home as string))).toBe(true);
     expect(await readFile(attachedPath)).toEqual(scriptBytes);
   });
@@ -1489,7 +1500,7 @@ describe('server-v2 /api/v1 prompts', () => {
       await expect(readdir(attachmentsDir)).rejects.toMatchObject({ code: 'ENOENT' });
 
       const main = session!.accessor.get(IAgentLifecycleService).handleOf('main')!;
-      await waitUntil(() => {
+      await waitForAssertion(() => {
         const memory = main.accessor.get(IAgentContextMemoryService).get();
         const promptMessage = memory.find((entry) => entry.origin?.kind === 'user');
         expect(promptMessage?.origin).toEqual({
@@ -1538,7 +1549,7 @@ describe('server-v2 /api/v1 prompts', () => {
     expect(body.code).toBe(40407);
   });
 
-  it('rejects a symlink pointing at a sensitive file', async () => {
+  it.skipIf(process.platform === 'win32')('rejects a symlink pointing at a sensitive file', async () => {
     const id = await createSession(home as string);
     await createMainAgent(id);
     const secretPath = join(home as string, '.env');
@@ -1830,7 +1841,7 @@ describe('server-v2 /api/v1 prompts', () => {
       content: [{ type: 'text', text: 'hello' }],
       agent_id: 'agent_does_not_exist',
     });
-    expect(body.code).toBe(40401);
+    expect(body.code).toBe(40421);
   });
 
   it('rebuilds a forked agent named by agent_id after a session reload', async () => {

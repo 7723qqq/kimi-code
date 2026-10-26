@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, jest, type Mock } from 'bun:test';
 import { setEnv, restoreEnvs, setGlobal, restoreGlobals } from '#test/helpers/stubs';
-import { waitUntil } from '#test/helpers/waitFor';
+import { waitForAssertion, waitUntil } from '#test/helpers/waitFor';
 import {
   clearManagedKimiCodeConfig,
   resolveKimiCodeOAuthKey,
@@ -324,8 +324,9 @@ describe('OAuthService', () => {
       }),
     );
 
-    await waitUntil(() => expect(svc.getFlow(OAUTH_PROVIDER)?.status).toBe('authenticated'));
-  });
+    await waitForAssertion(() => expect(svc.getFlow(OAUTH_PROVIDER)?.status).toBe('authenticated'));
+
+    });
 
   it('provisions the managed provider through the provider service after login', async () => {
     stubManagedModelsFetch();
@@ -559,7 +560,7 @@ describe('OAuthService', () => {
     });
     const svc = createService();
     await svc.startLogin(OAUTH_PROVIDER);
-    await waitUntil(() => expect(svc.getFlow(OAUTH_PROVIDER)?.status).toBe('authenticated'));
+    await waitForAssertion(() => expect(svc.getFlow(OAUTH_PROVIDER)?.status).toBe('authenticated'));
 
     await svc.status(OAUTH_PROVIDER);
     expect(toolkit.getCachedAccessToken).toHaveBeenCalledWith(
@@ -640,7 +641,7 @@ describe('OAuthService', () => {
       provider: OAUTH_PROVIDER,
       status: 'pending',
     });
-    await waitUntil(() => expect(svc.getFlow(OAUTH_PROVIDER)?.status).toBe('authenticated'));
+    await waitForAssertion(() => expect(svc.getFlow(OAUTH_PROVIDER)?.status).toBe('authenticated'));
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(configReplace).not.toHaveBeenCalledWith('defaultModel', expect.any(String));
   });
@@ -654,7 +655,7 @@ describe('OAuthService', () => {
     const svc = createService();
 
     await svc.startLogin(OAUTH_PROVIDER);
-    await waitUntil(() => expect(svc.getFlow(OAUTH_PROVIDER)?.status).toBe('authenticated'));
+    await waitForAssertion(() => expect(svc.getFlow(OAUTH_PROVIDER)?.status).toBe('authenticated'));
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
     expect(providerSet).toHaveBeenCalledWith(
@@ -734,8 +735,9 @@ describe('OAuthService', () => {
     resolveLogin({ providerName: OAUTH_PROVIDER, ok: true });
     providerChangedEmitter.fire({ added: [], removed: [], changed: [OAUTH_PROVIDER] });
 
-    await waitUntil(() => expect(svc.getFlow(OAUTH_PROVIDER)?.status).toBe('cancelled'));
-  });
+    await waitForAssertion(() => expect(svc.getFlow(OAUTH_PROVIDER)?.status).toBe('cancelled'));
+
+    });
 
   it('reports pending until provisioning finishes after the grant settles', async () => {
     stubManagedModelsFetch();
@@ -753,13 +755,13 @@ describe('OAuthService', () => {
     const svc = createService();
     await svc.startLogin(OAUTH_PROVIDER);
 
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(providerSet).toHaveBeenCalled();
     });
     expect(svc.getFlow(OAUTH_PROVIDER)?.status).toBe('pending');
 
     resolveProvision();
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(svc.getFlow(OAUTH_PROVIDER)?.status).toBe('authenticated');
     });
   });
@@ -778,8 +780,9 @@ describe('OAuthService', () => {
     const svc = createService();
     await svc.startLogin(OAUTH_PROVIDER);
 
-    await waitUntil(() => expect(svc.getFlow(OAUTH_PROVIDER)?.status).toBe('authenticated'));
-  });
+    await waitForAssertion(() => expect(svc.getFlow(OAUTH_PROVIDER)?.status).toBe('authenticated'));
+
+    });
 
   it('cancelLogin aborts a pending flow and marks it cancelled', async () => {
     let capturedSignal: AbortSignal | undefined;
@@ -1055,7 +1058,7 @@ describe('OAuthService', () => {
     const svc = createService();
 
     const pending = svc.refreshOAuthProviderModels();
-    await waitUntil(() => expect(fetchMock).toHaveBeenCalled());
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalled());
     providers = {
       ...providers,
       [OAUTH_PROVIDER]: { ...providers[OAUTH_PROVIDER]!, baseUrl: 'https://api.changed.example.com' },
@@ -1140,7 +1143,7 @@ describe('OAuthService', () => {
     const svc = createService();
 
     const refresh = svc.refreshOAuthProviderModels();
-    await waitUntil(() => { expect(fetchMock).toHaveBeenCalled(); });
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalled());
     await configReplace('defaultModel', 'kimi-code/kimi-k2.5');
     releaseFetch();
     const result = await refresh;
@@ -1168,7 +1171,7 @@ describe('OAuthService', () => {
     const svc = createService();
 
     const refresh = svc.refreshOAuthProviderModels();
-    await waitUntil(() => { expect(fetchMock).toHaveBeenCalled(); });
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalled());
     releaseFetch();
     const result = await refresh;
 
@@ -1202,7 +1205,7 @@ describe('OAuthService', () => {
     const svc = createService();
 
     const refresh = svc.refreshOAuthProviderModels();
-    await waitUntil(() => { expect(fetchMock).toHaveBeenCalled(); });
+    await waitForAssertion(() => expect(fetchMock).toHaveBeenCalled());
     await configReplace('thinking', { enabled: false });
     releaseFetch();
     const result = await refresh;

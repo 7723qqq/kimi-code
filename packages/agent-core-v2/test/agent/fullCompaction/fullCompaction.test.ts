@@ -16,7 +16,7 @@ import { fromLlmMessage } from '#/llm-adapter/contract/message';
 import type { TokenUsage } from '#human/llm/usage';
 import { afterEach, describe, expect, it, jest } from 'bun:test';
 import { setEnv, restoreEnvs } from '#test/helpers/stubs';
-import { waitUntil } from '#test/helpers/waitFor';
+import { waitForAssertion, waitUntil } from '#test/helpers/waitFor';
 
 import {
   DefaultCompactionStrategy,
@@ -572,7 +572,7 @@ describe('FullCompaction', () => {
     ctx.mockNextResponse({ type: 'text', text: 'Compacted summary.' });
     ctx.get(IAgentFullCompactionService).begin({ source: 'auto', instruction: undefined });
     await compacted;
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(readHookPayloads(hookLog).map((payload) => payload['hook_event_name'])).toEqual([
         'PreCompact',
         'PostCompact',
@@ -624,7 +624,7 @@ describe('FullCompaction', () => {
     ctx.appendExchange(2, 'recent user two', 'recent assistant two', 80);
 
     void ctx.rpc.beginCompaction({ instruction: undefined });
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(preCompactSignal).toBeInstanceOf(AbortSignal);
     });
     const canceled = ctx.once('compaction.cancelled');

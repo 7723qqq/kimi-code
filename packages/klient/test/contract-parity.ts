@@ -99,7 +99,7 @@ import type {
   CompactionStartedEvent,
 } from '@moonshot-ai/agent-core-v2';
 import type { PromptAbortedEvent, PromptCompletedEvent } from '@moonshot-ai/agent-core-v2';
-import type { WarningEvent } from '@moonshot-ai/agent-core-v2';
+import { type WarningEvent } from '@moonshot-ai/agent-core-v2/errors';
 import type {
   ToolCallDeltaEvent,
   ToolCallStartedEvent,

@@ -128,11 +128,11 @@
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2';
+import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
 import type { ScopeSeed } from '@moonshot-ai/agent-core-v2';
-import { McpConnectionManager } from '@moonshot-ai/agent-core-v2';
-import { readTowerStatusSummary } from '@moonshot-ai/agent-core-v2';
-import { loadMcpServers } from '@moonshot-ai/agent-core-v2';
+import { McpConnectionManager } from '@moonshot-ai/agent-core-v2/mcpCore/connection-manager';
+import { readTowerStatusSummary } from '@moonshot-ai/agent-core-v2/features/tower/tools/status/statusReader';
+import { loadMcpServers } from '@moonshot-ai/agent-core-v2/app/mcpConfig/configLoader';
 import { fsSuggestRequestSchema } from '@moonshot-ai/agent-core-v2';
 import { IAppendLogStore } from '@moonshot-ai/agent-core-v2';
 import { ISessionLockService } from '@moonshot-ai/agent-core-v2';

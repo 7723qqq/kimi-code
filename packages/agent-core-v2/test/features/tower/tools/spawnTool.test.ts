@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { promisify } from 'node:util';
 
 import { afterEach, beforeEach, describe, expect, it, jest, type Mock } from 'bun:test';
-import { waitUntil } from '#test/helpers/waitFor';
+import { waitForAssertion, waitUntil } from '#test/helpers/waitFor';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
@@ -462,7 +462,7 @@ describe('TowerSpawnTool', () => {
 
     expect(release).not.toHaveBeenCalled();
     completion.resolve({ summary: 'worker done' });
-    await waitUntil(() => {
+    await waitForAssertion(() => {
       expect(release).toHaveBeenCalledTimes(1);
     });
   });

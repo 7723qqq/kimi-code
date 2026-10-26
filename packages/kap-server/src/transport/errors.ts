@@ -1,4 +1,5 @@
-import { ErrorCodes, Error2 } from '@moonshot-ai/agent-core-v2';
+import {Error2} from '@moonshot-ai/agent-core-v2';
+import { ErrorCodes } from '@moonshot-ai/agent-core-v2/errors';
 
 import { errEnvelope } from '../protocol/envelope';
 import { ErrorCode } from '../protocol/error-codes';
