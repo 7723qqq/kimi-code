@@ -4,32 +4,8 @@ import { z } from 'zod';
 import { AgentEvent2 } from '#/app/event/event2';
 
 import type { TodoItem } from './todoItem';
-import { todoItemSchema } from './todoItem';
 
 export type TodoState = readonly TodoItem[];
-
-const todoUpdatedSchema = z.object({
-  agentId: z.string(),
-  todos: z.array(todoItemSchema),
-  rev: z.number().int().nonnegative(),
-});
-
-export class TodoUpdated extends AgentEvent2<z.infer<typeof todoUpdatedSchema>> {
-  static override readonly type = 'todo.updated';
-  static override readonly observable = true;
-  static override readonly schema = todoUpdatedSchema;
-}
-export interface TodoUpdated {
-  readonly agentId: string;
-  readonly todos: readonly TodoItem[];
-  readonly rev: number;
-}
-
-export interface TodoUpdatedEvent {
-  readonly type: 'todo.updated';
-  readonly todos: readonly TodoItem[];
-  readonly rev: number;
-}
 
 const toolsUpdateStoreSchema = z.object({
   agentId: z.string(),

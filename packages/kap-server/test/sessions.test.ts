@@ -1372,7 +1372,7 @@ describe('server-v2 /api/v1/sessions', () => {
       expect(response.body.code).toBe(40901);
     } finally {
       if (originalDescriptor === undefined) {
-        delete (compactionService as unknown as Record<string, unknown>)['compacting'];
+        delete (compactionService as Record<string, unknown>)['compacting'];
       } else {
         Object.defineProperty(compactionService, 'compacting', originalDescriptor);
       }

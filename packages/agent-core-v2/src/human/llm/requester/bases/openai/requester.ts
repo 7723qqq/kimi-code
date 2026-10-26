@@ -199,21 +199,11 @@ export function prepareOpenAIRequest(
     toolMessageConversion: input.toolMessageConversion ?? trait?.toolMessageConversion,
   });
   const converted = lowered.flatMap(({ source, message }) => {
-    const hooked = trait?.convertMessage?.(source, message, ctx);
-    if (hooked === null) return [];
-    const convertedMessage = hooked ?? message;
-    if (
-      source.role === 'system' &&
-      source.content.length === 0 &&
-      source.tools !== undefined &&
-      source.tools.length > 0 &&
-      convertedMessage.role === 'system' &&
-      convertedMessage.content === '' &&
-      !('tools' in convertedMessage)
-    ) {
-      return [];
+    if (trait?.convertMessage === undefined) {
+      return [message];
     }
-    return [convertedMessage];
+    const hooked = trait.convertMessage(source, message, ctx);
+    return hooked === null ? [] : [hooked];
   });
   const history: readonly OpenAIWireMessage[] = input.systemPrompt
     ? [{ role: 'system', content: input.systemPrompt }, ...converted]

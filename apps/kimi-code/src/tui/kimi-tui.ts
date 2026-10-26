@@ -1150,7 +1150,7 @@ export class KimiTUI {
     this.tasksBrowserController.close();
     this.btwPanelController.clear();
     this.stopActivitySpinner();
-    this.streamingUI.clearActiveCompaction();
+    this.streamingUI.disposeActiveCompactionBlock();
     this.streamingUI.resetToolUi();
     this.disposeTranscriptChildren();
     this.editorKeyboard.dispose();
@@ -3556,7 +3556,7 @@ export class KimiTUI {
   private clearTranscriptView(): void {
     this.streamingUI.discardPending();
     this.state.transcriptEntries = [];
-    this.streamingUI.clearActiveCompaction();
+    this.streamingUI.disposeActiveCompactionBlock();
     this.streamingUI.resetLiveText();
     this.streamingUI.resetToolUi();
     this.sessionEventHandler.stopAllMcpServerStatusSpinners();
@@ -3944,7 +3944,7 @@ export class KimiTUI {
   private resolveActivityPaneMode(): EffectiveActivityPaneMode {
     if (this.state.activeDialog === 'session-picker') return 'hidden';
     if (this.state.livePane.pendingApproval !== null) return 'hidden';
-    if (this.state.appState.isCompacting) return 'compacting';
+    if (this.state.appState.isCompacting) return 'hidden';
     if (this.state.livePane.pendingQuestion !== null) return 'hidden';
 
     const streamingPhase = this.state.appState.streamingPhase;
