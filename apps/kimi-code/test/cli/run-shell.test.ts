@@ -1,19 +1,17 @@
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import { execFileSync } from 'node:child_process';
 
 import type { createKimiDeviceId as createKimiDeviceIdFn } from '@moonshot-ai/kimi-code-oauth';
-import * as oauthModule from '@moonshot-ai/kimi-code-oauth';
-import * as sdkModule from '@moonshot-ai/kimi-code-sdk';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
+import { setEnv, restoreEnvs } from '../helpers/stubs';
 
-import { runShell as runShellWith, type RunShellChildProcess } from '#/cli/run-shell';
-import { refreshKimiRegion } from '#/utils/region';
-import { setEnv, restoreEnvs } from '#test/helpers/stubs';
+import { runShell } from '#/cli/run-shell';
+import { resetKimiRegionCache } from '#/utils/region';
 
-import * as migrationModule from '../../src/migration/index';
 import { captureProcessWrite, ExitCalled, mockProcessExit } from '../helpers/process';
 
 type CreateKimiDeviceId = typeof createKimiDeviceIdFn;
 
-const mocks = (() => {
+const mocks = {
   type TuiConfigFallback = {
     theme: 'dark' | 'light' | 'auto';
     editorCommand: string | null;
@@ -29,68 +27,50 @@ const mocks = (() => {
     }
   }
 
-  const lifecycleTrack = mock();
+  const lifecycleTrack = jest.fn();
 
   return {
-    loadTuiConfig: mock(),
-    detectTerminalTheme: mock(),
-    kimiHarnessConstructor: mock(),
-    harnessEnsureConfigFile: mock(),
-    harnessGetConfig: mock(async () => ({
+    loadTuiConfig: jest.fn(),
+    detectTerminalTheme: jest.fn(),
+    kimiHarnessConstructor: jest.fn(),
+    harnessEnsureConfigFile: jest.fn(),
+    harnessGetConfig: jest.fn(async () => ({
       providers: {},
       defaultModel: 'k2',
       telemetry: true,
     })),
-    harnessGetConfigDiagnostics: mock(async () => ({ warnings: [] as readonly string[] })),
-    harnessGetCachedAccessToken: mock(),
-    harnessClose: mock(),
-    detectPendingMigration: mock<() => Promise<unknown>>(async () => null),
-    harnessTrack: mock(),
-    harnessSetEngineLocale: mock(),
-    kimiTuiConstructor: mock(),
-    tuiStart: mock(),
-    tuiGetStartupMcpMs: mock(async () => 0),
-    tuiGetCurrentSessionId: mock(() => ''),
-    tuiHasSessionContent: mock(() => false),
-    createKimiDeviceId: mock<CreateKimiDeviceId>(() => 'device-1'),
-    initializeTelemetry: mock(),
-    setCrashPhase: mock(),
-    shutdownTelemetry: mock(),
-    telemetryTrack: mock(),
-    setTelemetryContext: mock(),
+    harnessGetConfigDiagnostics: jest.fn(async () => ({ warnings: [] as readonly string[] })),
+    harnessGetCachedAccessToken: jest.fn(),
+    harnessClose: jest.fn(),
+    detectPendingMigration: jest.fn<() => Promise<unknown>>(async () => null),
+    harnessTrack: jest.fn(),
+    kimiTuiConstructor: jest.fn(),
+    tuiStart: jest.fn(),
+    tuiGetStartupMcpMs: jest.fn(async () => 0),
+    tuiGetCurrentSessionId: jest.fn(() => ''),
+    tuiHasSessionContent: jest.fn(() => false),
+    createKimiDeviceId: jest.fn<CreateKimiDeviceId>(() => 'device-1'),
+    initializeTelemetry: jest.fn(),
+    setCrashPhase: jest.fn(),
+    shutdownTelemetry: jest.fn(),
+    telemetryTrack: jest.fn(),
+    setTelemetryContext: jest.fn(),
     lifecycleTrack,
-    withTelemetryContext: mock(() => ({
+    withTelemetryContext: jest.fn(() => ({
       track: lifecycleTrack,
     })),
-    resolveKimiHome: mock((homeDir?: string) => homeDir ?? '/tmp/kimi-code-test-home'),
-    flushDiagnosticLogsSync: mock(),
+    resolveKimiHome: jest.fn((homeDir?: string) => homeDir ?? '/tmp/kimi-code-test-home'),
+    flushDiagnosticLogsSync: jest.fn(),
     harnessCreatesDeviceIdOnConstruction: false,
-    execFileSync: mock(() => ''),
-    spawnSync: mock(),
-    resolveCommandPath: mock(() => '/bin/stty' as string | undefined),
+    execFileSync: jest.fn(() => ''),
+    spawnSync: jest.fn(),
+    resolveCommandPath: jest.fn(() => '/bin/stty' as string | undefined),
     TuiConfigParseError,
   };
-})();
+});
 
-/**
- * Drive `runShell` against the injected child-process surface. The startup
- * `stty` calls are a seam of the source, not something to module-mock: the
- * runner below is exactly what production passes by default.
- */
-const childProcessRunner = {
-  execFileSync: mocks.execFileSync,
-  spawnSync: mocks.spawnSync,
-} as unknown as RunShellChildProcess;
-
-function runShell(
-  opts: Parameters<typeof runShellWith>[0],
-  version: string,
-  runOptions: Parameters<typeof runShellWith>[2] = {},
-): Promise<void> {
-  return runShellWith(opts, version, { ...runOptions, childProcess: childProcessRunner });
-}
-
-void mock.module('@moonshot-ai/kimi-code-sdk', () => {
+jest.mock('@moonshot-ai/kimi-code-sdk', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@moonshot-ai/kimi-code-sdk')>();
   const makeHarnessStub = (args: unknown[]) => {
     const options = args[0] as { readonly homeDir?: string } | undefined;
     const homeDir = options?.homeDir ?? '/tmp/kimi-code-test-home';
@@ -104,11 +84,10 @@ void mock.module('@moonshot-ai/kimi-code-sdk', () => {
       getConfigDiagnostics: mocks.harnessGetConfigDiagnostics,
       close: mocks.harnessClose,
       track: mocks.harnessTrack,
-      setEngineLocale: mocks.harnessSetEngineLocale,
     };
   };
   return {
-    ...sdkModule,
+    ...actual,
     resolveKimiHome: mocks.resolveKimiHome,
     flushDiagnosticLogsSync: mocks.flushDiagnosticLogsSync,
     createKimiHarness: (...args: unknown[]) => {
@@ -123,15 +102,18 @@ void mock.module('@moonshot-ai/kimi-code-sdk', () => {
   };
 });
 
-void mock.module('@moonshot-ai/kimi-code-oauth', () => {
+jest.mock('@moonshot-ai/kimi-code-oauth', async () => {
+  const actual = await jest.importActual<typeof import('@moonshot-ai/kimi-code-oauth')>(
+    '@moonshot-ai/kimi-code-oauth',
+  );
   return {
-    ...oauthModule,
+    ...actual,
     createKimiDeviceId: mocks.createKimiDeviceId,
     KIMI_CODE_PROVIDER_NAME: 'kimi-code',
   };
 });
 
-void mock.module('@moonshot-ai/kimi-telemetry', () => ({
+jest.mock('@moonshot-ai/kimi-telemetry', () => ({
   initializeTelemetry: mocks.initializeTelemetry,
   setCrashPhase: mocks.setCrashPhase,
   shutdownTelemetry: mocks.shutdownTelemetry,
@@ -140,12 +122,12 @@ void mock.module('@moonshot-ai/kimi-telemetry', () => ({
   withTelemetryContext: mocks.withTelemetryContext,
 }));
 
-void mock.module('../../src/tui/config', () => ({
+jest.mock('../../src/tui/config', () => ({
   loadTuiConfig: mocks.loadTuiConfig,
   TuiConfigParseError: mocks.TuiConfigParseError,
 }));
 
-void mock.module('../../src/tui/index', () => ({
+jest.mock('../../src/tui/index', () => ({
   KimiTUI: class {
     onExit?: () => Promise<void>;
 
@@ -162,16 +144,21 @@ void mock.module('../../src/tui/index', () => ({
   },
 }));
 
-void mock.module('../../src/tui/theme/detect', () => ({
+jest.mock('../../src/tui/theme/detect', () => ({
   detectTerminalTheme: mocks.detectTerminalTheme,
 }));
 
-void mock.module('../../src/migration/index', () => ({
-  ...migrationModule,
+jest.mock('../../src/migration/index', async (importOriginal) => ({
+  ...(await importOriginal()),
   detectPendingMigration: mocks.detectPendingMigration,
 }));
 
-void mock.module('../../src/utils/process/resolve-command', () => ({
+jest.mock('node:child_process', () => ({
+  execFileSync: mocks.execFileSync,
+  spawnSync: mocks.spawnSync,
+}));
+
+jest.mock('../../src/utils/process/resolve-command', () => ({
   resolveCommandPath: mocks.resolveCommandPath,
 }));
 
@@ -180,13 +167,13 @@ describe('runShell', () => {
     // Pin region to cn: the telemetry endpoint assertion below must not
     // follow the dev machine's own login/marker state.
     setEnv('KIMI_CODE_OAUTH_HOST', 'https://auth.kimi.com');
-    refreshKimiRegion();
+    resetKimiRegionCache();
   });
 
   afterEach(() => {
-    mock.clearAllMocks();
+    jest.clearAllMocks();
     restoreEnvs();
-    refreshKimiRegion();
+    resetKimiRegionCache();
     mocks.harnessGetConfig.mockResolvedValue({
       providers: {},
       defaultModel: 'k2',
@@ -226,10 +213,7 @@ describe('runShell', () => {
     mocks.tuiStart.mockResolvedValue(undefined);
   }
 
-  function withEnv(
-    patch: Record<string, string | undefined>,
-    fn: () => Promise<void>,
-  ): Promise<void> {
+  function withEnv(patch: Record<string, string | undefined>, fn: () => Promise<void>): Promise<void> {
     const saved: Record<string, string | undefined> = {};
     for (const key of Object.keys(patch)) {
       saved[key] = process.env[key];
@@ -294,7 +278,7 @@ describe('runShell', () => {
         sessionStartedProperties: { yolo: true, auto: false, plan: true, afk: false },
       }),
     );
-    expect(mocks.harnessEnsureConfigFile).toHaveBeenCalledTimes(1);
+    expect(mocks.harnessEnsureConfigFile).toHaveBeenCalledOnce();
     expect(mocks.harnessEnsureConfigFile.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.harnessGetConfig.mock.invocationCallOrder[0]!,
     );
@@ -302,11 +286,11 @@ describe('runShell', () => {
     // entirely on Windows (a bare `stty` name would resolve into the
     // untrusted cwd).
     if (process.platform !== 'win32') {
-      expect(mocks.execFileSync).toHaveBeenCalledWith('/bin/stty', ['-ixon'], {
+      expect(execFileSync).toHaveBeenCalledWith('/bin/stty', ['-ixon'], {
         stdio: ['inherit', 'ignore', 'ignore'],
       });
     } else {
-      expect(mocks.execFileSync).not.toHaveBeenCalled();
+      expect(execFileSync).not.toHaveBeenCalled();
     }
     expect(mocks.kimiTuiConstructor).toHaveBeenCalledTimes(1);
     expect(mocks.createKimiDeviceId).toHaveBeenCalledWith(
@@ -322,6 +306,9 @@ describe('runShell', () => {
       uiMode: 'shell',
       model: 'k2',
       sessionId: undefined,
+      region: 'mainland-cn',
+      regionSource: 'env',
+      resolveRegion: expect.any(Function),
       endpoint: expect.any(Function),
       getAccessToken: expect.any(Function),
       onUnexpectedError: expect.any(Function),
@@ -334,7 +321,7 @@ describe('runShell', () => {
     expect(mocks.setCrashPhase).toHaveBeenCalledWith('runtime');
 
     const [, harness, startupInput] = mocks.kimiTuiConstructor.mock.calls[0]!;
-    expect(typeof harness).toBe('object');
+    expect(harness).toBeTypeOf('object');
     expect(startupInput).toMatchObject({
       cliOptions,
       additionalDirs: ['../shared', '/tmp/extra'],
@@ -347,7 +334,7 @@ describe('runShell', () => {
       workDir: process.cwd(),
       telemetryDisabled: false,
     });
-    expect(mocks.tuiStart).toHaveBeenCalledTimes(1);
+    expect(mocks.tuiStart).toHaveBeenCalledOnce();
     expect(mocks.withTelemetryContext).toHaveBeenCalledWith({ sessionId: 'ses-startup' });
     expect(mocks.lifecycleTrack).toHaveBeenCalledWith('startup_perf', {
       duration_ms: expect.any(Number),
@@ -364,7 +351,7 @@ describe('runShell', () => {
     Object.defineProperty(process, 'platform', { value: 'win32' });
     try {
       await runShell(minimalCliOptions, '1.2.3-test');
-      expect(mocks.execFileSync).not.toHaveBeenCalled();
+      expect(execFileSync).not.toHaveBeenCalled();
     } finally {
       Object.defineProperty(process, 'platform', { value: originalPlatform });
     }
@@ -376,7 +363,7 @@ describe('runShell', () => {
     mocks.resolveCommandPath.mockReturnValue(undefined);
     await runShell(minimalCliOptions, '1.2.3-test');
     expect(mocks.resolveCommandPath).toHaveBeenCalledWith('stty');
-    expect(mocks.execFileSync).not.toHaveBeenCalled();
+    expect(execFileSync).not.toHaveBeenCalled();
   });
 
   it('resolves the --agent profile into the TUI startup input', async () => {
@@ -658,7 +645,7 @@ describe('runShell', () => {
       '1.2.3-test',
     );
 
-    expect(mocks.detectTerminalTheme).toHaveBeenCalledTimes(1);
+    expect(mocks.detectTerminalTheme).toHaveBeenCalledOnce();
     const [, , startupInput] = mocks.kimiTuiConstructor.mock.calls[0]!;
     expect(startupInput).toMatchObject({
       startupNotice: 'Invalid TUI config in ~/.kimi-code/tui.toml; using defaults.',
@@ -668,45 +655,6 @@ describe('runShell', () => {
         notifications: { enabled: true, condition: 'always' },
       },
     });
-  });
-
-  it('folds worker-install startup warnings into the same startup notice', async () => {
-    mocks.loadTuiConfig.mockRejectedValue(
-      new mocks.TuiConfigParseError({
-        theme: 'dark',
-        editorCommand: null,
-        notifications: { enabled: true, condition: 'unfocused' },
-      }),
-    );
-    mocks.tuiStart.mockResolvedValue(undefined);
-
-    await runShell(minimalCliOptions, '1.2.3-test', {
-      startupWarnings: ['Native worker "kap-search" failed to install (EACCES).'],
-    });
-
-    const [, , startupInput] = mocks.kimiTuiConstructor.mock.calls[0]!;
-    // A parse warning and a degraded-worker warning must both survive: the
-    // notice is the only user-visible channel for either.
-    expect(startupInput).toMatchObject({
-      startupNotice:
-        'Invalid TUI config in ~/.kimi-code/tui.toml; using defaults.\nNative worker "kap-search" failed to install (EACCES).',
-    });
-  });
-
-  it('passes only the worker warnings when there is no config warning', async () => {
-    mocks.loadTuiConfig.mockResolvedValue({
-      theme: 'dark',
-      editorCommand: null,
-      notifications: { enabled: true, condition: 'unfocused' },
-    });
-    mocks.tuiStart.mockResolvedValue(undefined);
-
-    await runShell(minimalCliOptions, '1.2.3-test', {
-      startupWarnings: ['minidb degraded'],
-    });
-
-    const [, , startupInput] = mocks.kimiTuiConstructor.mock.calls[0]!;
-    expect(startupInput).toMatchObject({ startupNotice: 'minidb degraded' });
   });
 
   it('leaves config.toml diagnostics to the TUI instead of the startup notice', async () => {
@@ -754,7 +702,7 @@ describe('runShell', () => {
     });
     mocks.tuiStart.mockResolvedValue(undefined);
 
-    const processOnSpy = spyOn(process, 'on');
+    const processOnSpy = jest.spyOn(process, 'on');
     const stdout = captureProcessWrite('stdout');
     const exitSpy = mockProcessExit();
 
@@ -776,16 +724,16 @@ describe('runShell', () => {
         '1.2.3-test',
       );
 
-      const handler = (processOnSpy.mock.calls as Array<[string, (error: unknown) => void]>).find(
+      const handler = processOnSpy.mock.calls.find(
         ([event]) => event === 'uncaughtException',
-      )?.[1];
+      )?.[1] as ((error: unknown) => void) | undefined;
       expect(handler).toBeDefined();
 
       // The async log sink cannot flush before process.exit() runs, so the
       // crash handler must force a synchronous flush or the crash reason is
       // lost (regression: uncaughtException logs never reached disk).
       expect(() => handler?.(new Error('boom'))).toThrow(ExitCalled);
-      expect(mocks.flushDiagnosticLogsSync).toHaveBeenCalledTimes(1);
+      expect(mocks.flushDiagnosticLogsSync).toHaveBeenCalledOnce();
       expect(exitSpy).toHaveBeenCalledWith(1);
       expect(mocks.flushDiagnosticLogsSync.mock.invocationCallOrder[0]!).toBeLessThan(
         exitSpy.mock.invocationCallOrder[0]!,
@@ -805,7 +753,7 @@ describe('runShell', () => {
     });
     mocks.tuiStart.mockResolvedValue(undefined);
 
-    const processOnSpy = spyOn(process, 'on');
+    const processOnSpy = jest.spyOn(process, 'on');
     const stdout = captureProcessWrite('stdout');
     const exitSpy = mockProcessExit();
 
@@ -827,13 +775,13 @@ describe('runShell', () => {
         '1.2.3-test',
       );
 
-      const handler = (processOnSpy.mock.calls as Array<[string, (reason: unknown) => void]>).find(
+      const handler = processOnSpy.mock.calls.find(
         ([event]) => event === 'unhandledRejection',
-      )?.[1];
+      )?.[1] as ((reason: unknown) => void) | undefined;
       expect(handler).toBeDefined();
 
       expect(() => handler?.(new Error('boom'))).toThrow(ExitCalled);
-      expect(mocks.flushDiagnosticLogsSync).toHaveBeenCalledTimes(1);
+      expect(mocks.flushDiagnosticLogsSync).toHaveBeenCalledOnce();
       expect(exitSpy).toHaveBeenCalledWith(1);
       expect(mocks.flushDiagnosticLogsSync.mock.invocationCallOrder[0]!).toBeLessThan(
         exitSpy.mock.invocationCallOrder[0]!,
@@ -877,8 +825,8 @@ describe('runShell', () => {
       duration_ms: expect.any(Number),
       tui_mode: 'regular',
     });
-    expect(mocks.shutdownTelemetry).toHaveBeenCalledTimes(1);
-    expect(mocks.harnessClose).toHaveBeenCalledTimes(1);
+    expect(mocks.shutdownTelemetry).toHaveBeenCalledOnce();
+    expect(mocks.harnessClose).toHaveBeenCalledOnce();
   });
 
   it('tracks exit and prints resume instructions from the TUI exit handler', async () => {
@@ -928,7 +876,7 @@ describe('runShell', () => {
         tui_mode: 'regular',
       });
       expect(mocks.harnessTrack).not.toHaveBeenCalledWith('exit', expect.anything());
-      expect(mocks.shutdownTelemetry).toHaveBeenCalledTimes(1);
+      expect(mocks.shutdownTelemetry).toHaveBeenCalledOnce();
       expect(stdout.text()).toBe(' Bye!\n');
       expect(stderr.text()).toContain(' To resume this session: kimi -r ses-1');
     } finally {
@@ -1023,13 +971,13 @@ describe('runShell', () => {
   });
 
   it('refuses migration when KIMI_SHARE_DIR resolves to the Kimi Code home', async () => {
-    const stderrSpy = spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const stderrSpy = jest.spyOn(process.stderr, 'write').mockImplementation(() => true);
     try {
       await withEnv({ KIMI_SHARE_DIR: '/tmp/kimi-code-test-home' }, async () => {
         await runShell(minimalCliOptions, '1.2.3-test', { migrateOnly: true });
       });
       expect(mocks.detectPendingMigration).not.toHaveBeenCalled();
-      expect(mocks.harnessClose).toHaveBeenCalledTimes(1);
+      expect(mocks.harnessClose).toHaveBeenCalledOnce();
       expect(mocks.tuiStart).not.toHaveBeenCalled();
       expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('KIMI_SHARE_DIR'));
     } finally {

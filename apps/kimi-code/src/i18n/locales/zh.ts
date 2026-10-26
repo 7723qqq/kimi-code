@@ -429,8 +429,8 @@ export default {
     optionDescriptions: {
       session: '恢复会话。带 ID：恢复该会话；不带 ID：交互式选择。',
       continue: '继续当前工作目录的前一个会话。',
-      yolo: '自动批准所有操作。',
-      auto: '以自动权限模式启动。',
+      yolo: '以「必要时询问」模式启动：日常编辑与命令自动执行；有风险的操作、提问和计划仍会询问。',
+      auto: '以「从不询问」模式启动：一切自动执行并自动决策；只有计划模式下的计划会等你审核。',
       plan: '以计划模式启动。',
       spec: '先为这次改动写一份规格文档，再开始实现。',
       model: '本次调用使用的 LLM 模型别名。默认使用 config.toml 中的 default_model。',
@@ -1616,6 +1616,12 @@ export default {
       },
     },
     statusMessages: {
+      sessionReloadedAfterExternalUpdate:
+        '会话「{{sessionId}}」已被另一个客户端更新，已重新加载。',
+      planModeNotReviewableInPrint:
+        '会话「{{sessionId}}」处于计划模式，打印模式无法审核计划；请用 `kimi -r {{sessionId}}` 审核。',
+      defaultPlanModeNotAppliedInPrint:
+        '打印模式下不应用 default_plan_mode，因为计划模式需要你审核计划。',
       failedToSyncMcp: '同步 MCP 服务器状态失败：{{message}}',
       turnStoppedFiltered: '本轮已停止：供应商安全策略拦截了响应。',
       turnStoppedBlocked: '本轮已停止：提示词钩子拦截了请求。',

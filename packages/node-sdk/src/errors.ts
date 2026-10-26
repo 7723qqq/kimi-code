@@ -95,7 +95,6 @@ export const ErrorCodes = {
   AGENT_ALREADY_EXISTS: 'agent.already_exists',
   AGENT_ALREADY_RUNNING: 'agent.already_running',
   AGENT_MAX_TOKENS_EXCEEDED: 'agent.max_tokens_exceeded',
-  AGENT_NO_FINAL_MESSAGE: 'agent.no_final_message',
   AGENT_NOT_A_SUBAGENT: 'agent.not_a_subagent',
   AGENT_NOT_OWNED: 'agent.not_owned',
   SUBAGENT_DEPTH_EXCEEDED: 'agent.subagent_depth_exceeded',
@@ -193,7 +192,6 @@ export const ErrorCodes = {
   STORAGE_NOT_FOUND: 'storage.not_found',
   STORAGE_PERMISSION_DENIED: 'storage.permission_denied',
   TASK_LIMIT_EXCEEDED: 'task.limit_exceeded',
-  TERMINAL_NOT_FOUND: 'terminal.not_found',
   TURN_ID_CONFLICT: 'usage.turn_id_conflict',
   VALIDATION_FAILED: 'validation.failed',
   WEB_FETCH_FAILED: 'web.fetch_failed',
@@ -607,12 +605,6 @@ export const KIMI_ERROR_INFO = {
     retryable: false,
     public: true,
     action: 'Raise the agent token budget or compact the conversation.',
-  },
-  'agent.no_final_message': {
-    title: 'Agent produced no final message',
-    retryable: false,
-    public: true,
-    action: 'Retry the turn; the agent ended without a final assistant message.',
   },
   'agent.not_a_subagent': {
     title: 'Agent is not a subagent',
@@ -1185,12 +1177,6 @@ export const KIMI_ERROR_INFO = {
     retryable: true,
     public: true,
     action: 'Wait for running tasks to finish or raise the concurrency limit.',
-  },
-  'terminal.not_found': {
-    title: 'Terminal not found',
-    retryable: false,
-    public: true,
-    action: 'Check the terminal id or open a new terminal.',
   },
   'usage.turn_id_conflict': {
     title: 'Usage turn id conflict',

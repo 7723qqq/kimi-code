@@ -62,7 +62,9 @@ export class AsyncTransport {
   }
 
   async send(events: readonly EnrichedTelemetryEvent[], signal?: AbortSignal): Promise<void> {
-    if (events.length === 0 || this.resolvedEndpoint() === undefined) return;
+    if (events.length === 0) return;
+    const endpoint = this.resolvedEndpoint();
+    if (endpoint === undefined) return;
     let savedToDisk = false;
     const saveEventsToDisk = (): void => {
       if (savedToDisk) return;
@@ -84,7 +86,7 @@ export class AsyncTransport {
     try {
       for (let attempt = 0; attempt <= this.retryBackoffsMs.length; attempt++) {
         try {
-          await this.sendHttp(payload, signal);
+          await this.sendHttp(payload, signal, endpoint);
           return;
         } catch (error) {
           if (isSignalAborted(signal) || isAbortError(error)) {
@@ -123,7 +125,7 @@ export class AsyncTransport {
   }
 
   async retryDiskEvents(): Promise<void> {
-    if (this.resolvedEndpoint() === undefined) return;
+    const endpoint = this.resolvedEndpoint();
     let entries: string[];
     try {
       entries = await readdir(this.telemetryDir());
@@ -146,9 +148,23 @@ export class AsyncTransport {
       }
 
       let events: EnrichedTelemetryEvent[];
-      let payload: TelemetryPayload;
       try {
         events = await readJsonl(path);
+      } catch (error) {
+        if (error instanceof SyntaxError || error instanceof TypeError) {
+          try {
+            await unlink(path);
+          } catch {
+            // best effort cleanup.
+          }
+        }
+        continue;
+      }
+
+      if (endpoint === undefined) continue;
+
+      let payload: TelemetryPayload;
+      try {
         payload = buildPayload(events, this.deviceId);
       } catch (error) {
         if (error instanceof SyntaxError || error instanceof TypeError) {
@@ -162,7 +178,7 @@ export class AsyncTransport {
       }
 
       try {
-        await this.sendHttp(payload);
+        await this.sendHttp(payload, undefined, endpoint);
         await unlink(path);
       } catch (error) {
         if (error instanceof TransientTelemetryError) continue;
@@ -170,7 +186,11 @@ export class AsyncTransport {
     }
   }
 
-  private async sendHttp(payload: TelemetryPayload, signal?: AbortSignal): Promise<void> {
+  private async sendHttp(
+    payload: TelemetryPayload,
+    signal: AbortSignal | undefined,
+    endpoint: string,
+  ): Promise<void> {
     const token = this.getAccessToken === null ? null : await this.getAccessToken();
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -179,10 +199,10 @@ export class AsyncTransport {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
-    const response = await this.post(payload, headers, signal);
+    const response = await this.post(payload, headers, signal, endpoint);
     if (response.status === 401 && headers['Authorization'] !== undefined) {
       delete headers['Authorization'];
-      const retry = await this.post(payload, headers, signal);
+      const retry = await this.post(payload, headers, signal, endpoint);
       handleStatus(retry.status);
       return;
     }
@@ -192,13 +212,10 @@ export class AsyncTransport {
   private async post(
     payload: TelemetryPayload,
     headers: Record<string, string>,
-    signal?: AbortSignal,
+    signal: AbortSignal | undefined,
+    endpoint: string,
   ): Promise<Response> {
     try {
-      const endpoint = this.resolvedEndpoint();
-      if (endpoint === undefined) {
-        throw new TransientTelemetryError('telemetry endpoint is disabled');
-      }
       return await fetchWithTimeout(
         this.fetchImpl,
         endpoint,

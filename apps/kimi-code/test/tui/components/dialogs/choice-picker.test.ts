@@ -1,7 +1,7 @@
 import { stripVTControlCharacters } from 'node:util';
 
 import { visibleWidth } from '@moonshot-ai/pi-tui';
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it, vi } from 'bun:test';
 
 import { ChoicePickerComponent, type ChoiceOption } from '#/tui/components/dialogs/choice-picker';
 import { EditorSelectorComponent } from '#/tui/components/dialogs/editor-selector';
@@ -23,8 +23,8 @@ describe('ChoicePickerComponent', () => {
       title: 'Pick one',
       notice: '**Plain notice**',
       options: [{ value: 'keep', label: 'Keep current' }],
-      onSelect: mock(),
-      onCancel: mock(),
+      onSelect: jest.fn(),
+      onCancel: jest.fn(),
     });
 
     expect(picker.render(100).map(strip)).toContain(' **Plain notice**');
@@ -35,8 +35,8 @@ describe('ChoicePickerComponent', () => {
       title: 'Migration',
       notice: { markdown: '### Upgrade\n\nUse **next** model.\n\n- Faster replies\n- [Details](https://example.com/upgrade)' },
       options: [{ value: 'keep', label: 'Keep current' }],
-      onSelect: mock(),
-      onCancel: mock(),
+      onSelect: jest.fn(),
+      onCancel: jest.fn(),
     });
 
     const rendered = picker.render(width);
@@ -63,8 +63,8 @@ describe('ChoicePickerComponent', () => {
         { value: 'b', label: 'Beta' },
       ],
       searchable: true,
-      onSelect: mock(),
-      onCancel: mock(),
+      onSelect: jest.fn(),
+      onCancel: jest.fn(),
     });
     const lines = picker.render(120).map(strip);
 
@@ -100,8 +100,8 @@ describe('ChoicePickerComponent', () => {
         },
       ],
       currentValue: 'manual',
-      onSelect: mock(),
-      onCancel: mock(),
+      onSelect: jest.fn(),
+      onCancel: jest.fn(),
     });
 
     const out = picker.render(120).map(strip);
@@ -112,8 +112,8 @@ describe('ChoicePickerComponent', () => {
   });
 
   it('renders domain selector wrappers with their configured options', () => {
-    const onSelect = mock();
-    const onCancel = mock();
+    const onSelect = jest.fn();
+    const onCancel = jest.fn();
 
     const editor = new EditorSelectorComponent({
       currentValue: 'vim',
@@ -146,12 +146,8 @@ describe('ChoicePickerComponent', () => {
     const settingsOutput = settings.render(120).map(strip);
     expect(settingsOutput).toContain('  ❯ Model');
     expect(settingsOutput).toContain('    Switch the active model and thinking mode.');
-    // The fork's settings list carries more entries than upstream's (language,
-    // GitHub token), so with the 8-row page size the mermaid entry is still
-    // visible on page 1; `upgrade` now sits on page 2.
-    expect(settingsOutput).toContain(
-      '    Draw mermaid code blocks as diagrams, or keep them as source.',
-    );
+    expect(settingsOutput).toContain('    TUI mode');
+    expect(settingsOutput).toContain('    Choose the regular or fullscreen layout.');
 
     const upgradePreference = new UpdatePreferenceSelectorComponent({
       currentValue: true,
@@ -164,7 +160,7 @@ describe('ChoicePickerComponent', () => {
   });
 
   it('routes Space into the query for searchable lists instead of selecting', () => {
-    const onSelect = mock();
+    const onSelect = jest.fn();
     const picker = new ChoicePickerComponent({
       title: 'Select a provider',
       options: [
@@ -173,7 +169,7 @@ describe('ChoicePickerComponent', () => {
       ],
       searchable: true,
       onSelect,
-      onCancel: mock(),
+      onCancel: jest.fn(),
     });
 
     picker.handleInput(' ');
@@ -181,12 +177,12 @@ describe('ChoicePickerComponent', () => {
   });
 
   it('selects on Space when the list is not searchable', () => {
-    const onSelect = mock();
+    const onSelect = jest.fn();
     const picker = new ChoicePickerComponent({
       title: 'Pick one',
       options: [{ value: 'a', label: 'Alpha' }],
       onSelect,
-      onCancel: mock(),
+      onCancel: jest.fn(),
     });
 
     picker.handleInput(' ');
@@ -194,13 +190,13 @@ describe('ChoicePickerComponent', () => {
   });
 
   it.each([' ', '\u001B[32u'])('requires Enter when spaceSelect is disabled (%j)', (space) => {
-    const onSelect = mock();
+    const onSelect = jest.fn();
     const picker = new ChoicePickerComponent({
       title: 'Confirm migration',
       options: [{ value: 'switch', label: 'Switch model' }],
       spaceSelect: false,
       onSelect,
-      onCancel: mock(),
+      onCancel: jest.fn(),
     });
     picker.handleInput(space);
     expect(onSelect).not.toHaveBeenCalled();
@@ -224,8 +220,8 @@ describe('ChoicePickerComponent', () => {
         title: 'Share diagnostic info?',
         options,
         currentValue,
-        onSelect: mock(),
-        onCancel: mock(),
+        onSelect: jest.fn(),
+        onCancel: jest.fn(),
       });
       return picker.render(120).find((line) => strip(line).includes('Include your codebase'));
     };

@@ -4,12 +4,11 @@ import { join } from 'node:path';
 
 import { IConfigService } from '@moonshot-ai/agent-core-v2';
 import { parse as parseToml } from 'smol-toml';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { removeTempHome } from './helpers/tempHome';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'bun:test';
 
 import { type RunningServer, startServer } from '../src/start';
-import { authHeaders } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
+import { authHeaders } from './helpers/auth';
 
 interface Envelope<T> {
   code: number;
@@ -68,10 +67,7 @@ const POOL_TOML = [
   '',
 ].join('\n');
 
-const POOL_DANGLING_DEFAULT_TOML = POOL_TOML.replace(
-  'default_model = "k2"',
-  'default_model = "gpt4o"',
-);
+const POOL_DANGLING_DEFAULT_TOML = POOL_TOML.replace('default_model = "k2"', 'default_model = "gpt4o"');
 
 const MANAGED_TOML = [
   '[providers."managed:kimi-code"]',
@@ -140,7 +136,7 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await removeTempHome(home);
+      await rm(home, { recursive: true, force: true });
       home = undefined;
     }
     delete process.env['KIMI_CODE_MODEL_CATALOG_REFRESH_ON_START'];
@@ -271,37 +267,19 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     await boot();
     const { status, body } = await postJson<unknown>('/api/v1/providers', {
       id: 'vertex',
-      type: 'google-genai',
-      base_url: 'https://us-central1-aiplatform.googleapis.com/v1',
+      type: 'vertexai',
       models: [{ model: 'gemini-2.5-pro', max_context_size: 1048576 }],
     });
     expect(status).toBe(201);
     expect(body.code).toBe(0);
     expect(body.data).toEqual({
       id: 'vertex',
-      type: 'google-genai',
-      base_url: 'https://us-central1-aiplatform.googleapis.com/v1',
+      type: 'vertexai',
       default_model: 'vertex/gemini-2.5-pro',
       has_api_key: false,
       status: 'unconfigured',
       models: ['vertex/gemini-2.5-pro'],
     });
-  });
-
-  it('rejects the removed vertexai wire type with 40001 and writes nothing', async () => {
-    await boot();
-    const { status, body } = await postJson<unknown>('/api/v1/providers', {
-      id: 'vertex',
-      type: 'vertexai',
-      models: [{ model: 'gemini-2.5-pro', max_context_size: 1048576 }],
-    });
-    expect(status).toBe(200);
-    expect(body.code).toBe(40001);
-    expect(body.msg).toContain('type');
-
-    const onDisk = await readConfigToml();
-    expect(onDisk['providers']).toBeUndefined();
-    expect(onDisk['models']).toBeUndefined();
   });
 
   it('seeds the global default_model on a fresh setup (the provider default wins)', async () => {
@@ -715,86 +693,12 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
     });
   });
 
-  it('preserves existing protocol and max_output_size when replace omits them, and migrates bare default_model alias on in-place replace', async () => {
-    const PRESERVE_TOML = [
-      'default_model = "gpt4o"',
-      '',
-      '[providers.openai]',
-      'type = "openai"',
-      'api_key = "sk-openai"',
-      '',
-      '[models.gpt4o]',
-      'provider = "openai"',
-      'model = "gpt-4o"',
-      'max_context_size = 128000',
-      'protocol = "anthropic"',
-      'max_output_size = 16384',
-      '',
-    ].join('\n');
-    await boot(PRESERVE_TOML);
-    const { status, body } = await putJson<unknown>('/api/v1/providers/openai', {
-      type: 'openai',
-      models: [{ model: 'gpt-4o', max_context_size: 256000 }],
-    });
-    expect(status).toBe(200);
-    expect(body.code).toBe(0);
-
-    const onDisk = await readConfigToml();
-    expect(onDisk['default_model']).toBe('openai/gpt-4o');
-    expect(onDisk['models']).toEqual({
-      'openai/gpt-4o': {
-        provider: 'openai',
-        model: 'gpt-4o',
-        max_context_size: 256000,
-        protocol: 'anthropic',
-        max_output_size: 16384,
-      },
-    });
-  });
-
-  it('drops a capability the form omits from config.toml instead of unioning it back', async () => {
-    const CAPABILITY_TOML = [
-      '[providers.openai]',
-      'type = "openai"',
-      'api_key = "sk-openai"',
-      '',
-      '[models."openai/gpt-4o"]',
-      'provider = "openai"',
-      'model = "gpt-4o"',
-      'max_context_size = 128000',
-      'capabilities = ["thinking", "image_in"]',
-      '',
-    ].join('\n');
-    await boot(CAPABILITY_TOML);
-    const { status, body } = await putJson<unknown>('/api/v1/providers/openai', {
-      type: 'openai',
-      models: [
-        {
-          model: 'gpt-4o',
-          max_context_size: 128000,
-          capabilities: ['thinking'],
-        },
-      ],
-    });
-    expect(status).toBe(200);
-    expect(body.code).toBe(0);
-
-    let onDisk = await readConfigToml();
-    let models = onDisk['models'] as Record<string, Record<string, unknown>>;
-    expect(models['openai/gpt-4o']?.['capabilities']).toEqual(['thinking']);
-
-    await (server as RunningServer).core.accessor.get(IConfigService).reload();
-    onDisk = await readConfigToml();
-    models = onDisk['models'] as Record<string, Record<string, unknown>>;
-    expect(models['openai/gpt-4o']?.['capabilities']).toEqual(['thinking']);
-  });
-
   it('never touches default_model when the rebuild drops its alias (no rename)', async () => {
     await boot(DEFAULTED_TOML);
-    const { status, body } = await putJson<unknown>('/api/v1/providers/openai', {
-      ...REPLACE_BODY,
-      type: 'openai_responses',
-    });
+    const { status, body } = await putJson<unknown>(
+      '/api/v1/providers/openai',
+      { ...REPLACE_BODY, type: 'openai_responses' },
+    );
     expect(status).toBe(200);
     expect(body.code).toBe(0);
 
@@ -868,7 +772,7 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
       },
     });
     const models = await getJson<{
-      items: Array<{ model: string; upgrade?: { model: string; migration_markdown?: string } }>;
+      items: Array<{ model: string; upgrade?: { model: string } }>;
     }>('/api/v1/models');
     expect(models.body.data.items.find((item) => item.model === 'my-openai/gpt-4o')?.upgrade).toEqual({
       model: 'my-openai/gpt-4.1',
@@ -897,7 +801,7 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
       },
     });
     const models = await getJson<{
-      items: Array<{ model: string; upgrade?: { model: string; migration_markdown?: string } }>;
+      items: Array<{ model: string; upgrade?: { model: string } }>;
     }>('/api/v1/models');
     expect(models.body.data.items.find((item) => item.model === 'my-openai/gpt-4o')?.upgrade).toEqual({
       model: 'my-openai/gpt-4.1',
@@ -926,10 +830,10 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
 
   it('migrates default_provider on rename but leaves default_model alone when its model was dropped', async () => {
     await boot(DEFAULTED_TOML);
-    const { status, body } = await putJson<unknown>('/api/v1/providers/openai', {
-      ...REPLACE_BODY,
-      new_id: 'my-openai',
-    });
+    const { status, body } = await putJson<unknown>(
+      '/api/v1/providers/openai',
+      { ...REPLACE_BODY, new_id: 'my-openai' },
+    );
     expect(status).toBe(200);
     expect(body.code).toBe(0);
 
@@ -1020,7 +924,10 @@ describe('server-v2 /api/v1 provider write endpoints', () => {
 
   it('rejects replacing an OAuth-managed provider with 40003', async () => {
     await boot(MANAGED_TOML);
-    const { body } = await putJson<unknown>('/api/v1/providers/managed%3Akimi-code', REPLACE_BODY);
+    const { body } = await putJson<unknown>(
+      '/api/v1/providers/managed%3Akimi-code',
+      REPLACE_BODY,
+    );
     expect(body.code).toBe(40003);
     expect(body.msg).toContain('/oauth/logout');
 

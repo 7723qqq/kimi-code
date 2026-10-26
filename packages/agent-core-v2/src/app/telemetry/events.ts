@@ -1,5 +1,6 @@
 import type { AgentTelemetryContext } from './context';
 import type { TowerExitReason } from '#/features/tower/tower';
+import type { SessionCloseReason } from '#/workspace/sessionLifecycle/sessionLifecycle';
 
 import type { TelemetryPrimitive } from './telemetry';
 
@@ -199,8 +200,7 @@ export interface PlanResolvedEvent {
     | 'dismissed'
     | 'rejected_and_exited'
     | 'revise'
-    | 'rejected'
-    | 'auto_approved';
+    | 'rejected';
   chosen_option?: string;
   has_feedback?: boolean;
 }
@@ -646,7 +646,7 @@ export interface AgentCreateFailedEvent {
 }
 
 export interface SessionEndedEvent {
-  reason: 'exit' | 'archive';
+  reason: SessionCloseReason;
 }
 
 export interface WebFetchFallbackEvent {

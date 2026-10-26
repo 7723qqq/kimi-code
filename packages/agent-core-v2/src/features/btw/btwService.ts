@@ -1,15 +1,11 @@
-import type { IAgentScopeHandle } from '#/_base/di/scope';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { Disposable } from '#/_base/di/lifecycle';
+import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { denyToolExecution } from '#/agent/toolExecutor/beforeToolExecuteEvent';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { ErrorCodes, Error2 } from '#/errors';
-import { IAgentReminderService } from '#/features/reminder/reminderService';
-import {
-  IAgentLifecycleService,
-  MAIN_AGENT_ID,
-  type AgentScopeCreatedEvent,
-} from '#/session/agentLifecycle/agentLifecycle';
+import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 
 import {
   BTW_AGENT_LABEL,
@@ -19,14 +15,27 @@ import {
   TOOL_CALL_DISABLED_MESSAGE,
 } from './btw';
 
-export class SessionBtwService implements ISessionBtwService {
+export class SessionBtwService extends Disposable implements ISessionBtwService {
   declare readonly _serviceBrand: undefined;
 
-  constructor(@IAgentLifecycleService private readonly agentLifecycle: IAgentLifecycleService) {
-    this.agentLifecycle.onDidCreateScope(event => {
-      if (!this.isBtwScope(event)) return;
-      this.attachReadOnlyVeto(event.handle);
-    });
+  constructor(
+    @IAgentLifecycleService private readonly agentLifecycle: IAgentLifecycleService,
+  ) {
+    super();
+    this._register(
+      this.agentLifecycle.onDidCreateScope(({ meta, handle }) => {
+        if (meta?.labels?.[BTW_AGENT_LABEL] !== 'true') return;
+        const reason =
+          handle.accessor.get(IAgentToolApprovalService)?.formatDenyMessage(
+            TOOL_CALL_DISABLED_MESSAGE,
+          ) ?? TOOL_CALL_DISABLED_MESSAGE;
+        handle.accessor.get(IAgentToolExecutorService)?.onBeforeExecuteTool((event) => {
+          if (!BTW_READONLY_TOOLS.has(event.toolCall.name)) {
+            event.veto(denyToolExecution(reason));
+          }
+        });
+      }),
+    );
   }
 
   async start(): Promise<string> {
@@ -42,23 +51,6 @@ export class SessionBtwService implements ISessionBtwService {
     child.accessor
       .get(IAgentReminderService)
       .notify(SIDE_QUESTION_SYSTEM_REMINDER, { variant: 'btw' });
-    this.attachReadOnlyVeto(child);
     return childContext.agentId;
-  }
-
-  private isBtwScope(event: AgentScopeCreatedEvent): boolean {
-    return event.meta?.labels?.[BTW_AGENT_LABEL] === 'true';
-  }
-
-  private attachReadOnlyVeto(handle: IAgentScopeHandle): void {
-    const reason =
-      handle
-        .accessor.get(IAgentToolApprovalService)
-        ?.formatDenyMessage(TOOL_CALL_DISABLED_MESSAGE) ?? TOOL_CALL_DISABLED_MESSAGE;
-    handle.accessor.get(IAgentToolExecutorService)?.onBeforeExecuteTool((event) => {
-      if (!BTW_READONLY_TOOLS.has(event.toolCall.name)) {
-        event.veto(denyToolExecution(reason));
-      }
-    });
   }
 }

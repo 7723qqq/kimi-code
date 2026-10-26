@@ -206,7 +206,6 @@ export class McpManagementService extends Disposable implements IMcpManagementSe
             this.hostEnvironment,
             undefined,
             this.hostProcess,
-            undefined,
           ),
         );
         runtimeResolver = {

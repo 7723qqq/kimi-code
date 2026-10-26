@@ -88,12 +88,12 @@ class WorkspaceTrustEntry extends Disposable implements IWorkspaceTrustEntry {
   private mutate(trusted: boolean): Promise<void> {
     const mutation = this.mutationTail.catch(() => {}).then(async () => {
       await this.ready;
+      if (this.trusted === trusted) return;
       if (trusted) {
         await writeWorkspaceTrust(this.docs, this.root, Date.now());
       } else {
         await deleteWorkspaceTrust(this.docs, this.root);
       }
-      if (this.trusted === trusted) return;
       this.trusted = trusted;
       this.changeEmitter.fire({ trusted });
       this.telemetry.track2('workspace_trust_changed', { trusted });

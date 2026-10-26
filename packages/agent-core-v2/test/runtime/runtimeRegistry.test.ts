@@ -1,9 +1,5 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it, jest } from 'bun:test';
 
-import {
-  resetUnexpectedErrorHandler,
-  setUnexpectedErrorHandler,
-} from '#/_base/errors/unexpectedError';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
 import { RuntimeError, RuntimeRegistry } from '#/runtime/runtimeRegistry';
 
@@ -60,16 +56,22 @@ describe('RuntimeRegistry', () => {
 
   it('allows degraded generations only when every required capability remains available', () => {
     const registry = new RuntimeRegistry('workspace');
-    const current = runtime('one');
+    const current = Object.assign(
+      new FakeRuntime(
+        { workspaceId: 'workspace', runtimeId: 'local', generation: 'one' },
+        { capabilities: ['fs'] },
+      ),
+      { fs: {} as never },
+    );
     registry.register(current);
     current.setStatus('degraded');
 
-    const lease = registry.acquire({ workspaceId: 'workspace', runtimeId: 'local' }, ['fs', 'process']);
+    const lease = registry.acquire({ workspaceId: 'workspace', runtimeId: 'local' }, ['fs']);
     expect(lease.runtime).toBe(current);
     lease.dispose();
     expect(() => registry.acquire(
       { workspaceId: 'workspace', runtimeId: 'local' },
-      ['terminal'],
+      ['process'],
     )).toThrowError(expect.objectContaining({ code: 'runtime.unavailable' }));
   });
 
@@ -91,7 +93,7 @@ describe('RuntimeRegistry', () => {
     const first = runtime('one');
     const second = runtime('two');
     Object.assign(first, {
-      dispose: mock(async () => {
+      dispose: jest.fn(async () => {
         first.disposed = true;
         throw new Error('old runtime cleanup failed');
       }),
@@ -146,7 +148,7 @@ describe('RuntimeRegistry', () => {
     const registry = new RuntimeRegistry('workspace', 1);
     const first = runtime('one');
     const originalDispose = first.dispose.bind(first);
-    const dispose = mock(originalDispose);
+    const dispose = jest.fn(originalDispose);
     Object.assign(first, { dispose });
     const registration = registry.register(first);
     const lease = registry.acquire({ workspaceId: 'workspace', runtimeId: 'local' });
@@ -229,51 +231,6 @@ describe('RuntimeRegistry', () => {
     expect(counts.get('a')).toBe(1);
     expect(counts.get('b')).toBe(1);
     expect(counts.get('c')).toBe(1);
-  });
-
-  it('reports a resource that failed to dispose, after disposing the rest', async () => {
-    const registry = new RuntimeRegistry('workspace');
-    const registration = registry.register(runtime('one'));
-    const lease = registry.acquire({ workspaceId: 'workspace', runtimeId: 'local' });
-    const order: string[] = [];
-    const boom = new Error('dispose exploded');
-    lease.track({
-      dispose: () => {
-        order.push('bad');
-        throw boom;
-      },
-    });
-    lease.track({
-      dispose: () => {
-        order.push('good');
-      },
-    });
-
-    const replacement = registration.replace(runtime('two'));
-    lease.dispose();
-
-    await expect(replacement).rejects.toBeInstanceOf(AggregateError);
-    expect(order).toEqual(['good', 'bad']);
-  });
-
-  it('signals a lease that never came back before force-releasing', async () => {
-    const registry = new RuntimeRegistry('workspace', 1);
-    const registration = registry.register(runtime('one'));
-    const lease = registry.acquire({ workspaceId: 'workspace', runtimeId: 'local' });
-    const seen: unknown[] = [];
-    setUnexpectedErrorHandler((error) => seen.push(error));
-    try {
-      const replacement = registration.replace(runtime('two'));
-      await replacement;
-      expect(
-        seen.some(
-          (error) => error instanceof RuntimeError && error.code === 'runtime.drain_timeout',
-        ),
-      ).toBe(true);
-    } finally {
-      lease.dispose();
-      resetUnexpectedErrorHandler();
-    }
   });
 
   it('rejects track once the generation is draining', async () => {

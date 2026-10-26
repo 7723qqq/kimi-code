@@ -5,14 +5,9 @@ import { Emitter } from '#/_base/event';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IHostProcessService } from '#/os/interface/hostProcess';
-import { IHostTerminalService } from '#/os/interface/terminal';
 
 import type { Runtime, RuntimeCapability, RuntimePath, RuntimeStatus } from './runtime';
-import type {
-  RuntimeProviderAttachment,
-  RuntimeProviderContext,
-  RuntimeProviderFactory,
-} from './runtimeProvider';
+import type { RuntimeProviderAttachment, RuntimeProviderContext, RuntimeProviderFactory } from './runtimeProvider';
 import type { RuntimeProviderHost } from './runtimeUnitHost';
 
 let nextGeneration = 1;
@@ -25,7 +20,6 @@ export class LocalRuntime implements Runtime {
   readonly workspace: Runtime['workspace'];
   readonly fs;
   readonly process;
-  readonly terminal;
   private currentStatus: RuntimeStatus = 'ready';
   private readonly statusEmitter = new Emitter<RuntimeStatus>();
   readonly onDidChangeStatus = this.statusEmitter.event;
@@ -35,13 +29,11 @@ export class LocalRuntime implements Runtime {
     environment: IHostEnvironment,
     fs: IHostFileSystem | undefined,
     process: IHostProcessService | undefined,
-    terminal: IHostTerminalService | undefined,
   ) {
     this.identity = { workspaceId, runtimeId: 'local', generation: `local-${nextGeneration++}` };
     const capabilities = new Set<RuntimeCapability>();
     if (fs !== undefined) capabilities.add('fs');
     if (process !== undefined) capabilities.add('process');
-    if (terminal !== undefined) capabilities.add('terminal');
     this.capabilities = capabilities;
     this.environment = {
       osKind: environment.osKind,
@@ -51,7 +43,6 @@ export class LocalRuntime implements Runtime {
       shellPath: environment.shellPath,
       pathClass: environment.pathClass,
       homeDir: environment.homeDir,
-      jsRuntimes: environment.jsRuntimes,
     };
     const path = environment.pathClass === 'win32' ? win32Path : posixPath;
     this.path = {
@@ -72,7 +63,6 @@ export class LocalRuntime implements Runtime {
     };
     this.fs = fs;
     this.process = process;
-    this.terminal = terminal;
   }
 
   get status(): RuntimeStatus {
@@ -89,24 +79,22 @@ export class LocalRuntime implements Runtime {
 export class LocalRuntimeProviderFactory implements RuntimeProviderFactory {
   readonly id = 'local';
   readonly imports = {
-    root: [IHostEnvironment, IHostFileSystem, IHostProcessService, IHostTerminalService],
+    root: [
+      IHostEnvironment,
+      IHostFileSystem,
+      IHostProcessService,
+    ],
     imports: [],
     local: [],
   };
 
-  async attach(
-    context: RuntimeProviderContext,
-    host: RuntimeProviderHost,
-  ): Promise<RuntimeProviderAttachment> {
-    const handle = host.registerRuntime(
-      new LocalRuntime(
-        context.id,
-        host.get(IHostEnvironment),
-        host.get(IHostFileSystem),
-        host.get(IHostProcessService),
-        host.get(IHostTerminalService),
-      ),
-    );
+  async attach(context: RuntimeProviderContext, host: RuntimeProviderHost): Promise<RuntimeProviderAttachment> {
+    const handle = host.registerRuntime(new LocalRuntime(
+      context.id,
+      host.get(IHostEnvironment),
+      host.get(IHostFileSystem),
+      host.get(IHostProcessService),
+    ));
     return { dispose: () => handle.remove() };
   }
 }

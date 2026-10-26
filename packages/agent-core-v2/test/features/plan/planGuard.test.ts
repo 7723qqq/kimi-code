@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, jest, type Mock } from 'bun:test';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
@@ -25,23 +25,22 @@ import type {
 import { ITelemetryService } from '#/app/telemetry/telemetry';
 import type { ToolCall } from '#human/llm/message';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
+import { IAgentScopeContext, makeAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ToolAccesses } from '#/tool/toolContract';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 
-import { stubPermissionModeService } from '../../agent/permissionMode/stubs';
-import {
-  stubToolExecutorEvents,
-  type ToolExecutorEventStubs,
-} from '../../agent/toolExecutor/stubs';
 import { recordingTelemetry, type TelemetryRecord } from '../../app/telemetry/stubs';
 import { createFakeHostFs } from '../../tools/fixtures/fake-exec';
 import { registerTestAgentWireServices } from '../../wire/stubs';
+import { stubPermissionModeService } from '../../agent/permissionMode/stubs';
+import { stubToolExecutorEvents, type ToolExecutorEventStubs } from '../../agent/toolExecutor/stubs';
 
 const signal = new AbortController().signal;
 const SESSION_DIR = '/session';
 const PLAN_ID = 'plan-1';
-const PLAN_PATH = `${SESSION_DIR}/agents/test-agent/plans/${PLAN_ID}.md`;
+const PLAN_PATH = `${SESSION_DIR}/agents/${MAIN_AGENT_ID}/plans/${PLAN_ID}.md`;
 
 const options = [
   { label: 'Approach A', description: 'Small change.' },
@@ -114,8 +113,11 @@ function mapResolution(
   resolution: PermissionPolicyResolution | undefined,
 ): BeforeExecuteDecision | undefined {
   if (resolution === undefined) return undefined;
+  if (resolution.kind === 'deny') {
+    return { veto: { output: resolution.message ?? '', isError: true } };
+  }
   if (resolution.kind !== 'result') {
-    throw new Error('the review stub only resolves synthetic results');
+    throw new Error('the review stub only resolves synthetic results and denials');
   }
   return { veto: resolution.result };
 }
@@ -132,13 +134,15 @@ describe('AgentPlanService plan-guard listener', () => {
   let formatDenyMessage: Mock<(message: string) => string>;
   let mode: PermissionMode;
   let files: Map<string, string>;
+  let nonInteractive: boolean;
 
   beforeEach(() => {
     disposables = new DisposableStore();
     records = [];
     requests = [];
     approvalResponse = { decision: 'approved' };
-    formatDenyMessage = mock((message: string) => message);
+    nonInteractive = false;
+    formatDenyMessage = jest.fn((message: string) => message);
     mode = 'manual';
     files = new Map();
     permissionRan = false;
@@ -152,6 +156,7 @@ describe('AgentPlanService plan-guard listener', () => {
       },
       requestToolApproval: async (_context, ask, origin) => {
         requests.push({ ask, origin });
+        if (nonInteractive) return mapResolution(ask.resolveNonInteractive?.());
         return mapResolution(ask.resolveApproval?.(approvalResponse));
       },
       formatDenyMessage: (message: string) => formatDenyMessage(message),
@@ -161,13 +166,13 @@ describe('AgentPlanService plan-guard listener', () => {
 
     ix = createServices(disposables, {
       additionalServices: (reg) => {
-        registerTestAgentWireServices(reg);
+        registerTestAgentWireServices(reg, 'wire/main', MAIN_AGENT_ID);
         reg.defineInstance(
           IHostFileSystem,
           createFakeHostFs({
-            mkdir: mock().mockResolvedValue(undefined),
-            readText: mock(async (path: string) => files.get(path) ?? ''),
-            writeText: mock(async (path: string, content: string) => {
+            mkdir: jest.fn().mockResolvedValue(undefined),
+            readText: jest.fn(async (path: string) => files.get(path) ?? ''),
+            writeText: jest.fn(async (path: string, content: string) => {
               files.set(path, content);
             }),
           }),
@@ -180,10 +185,7 @@ describe('AgentPlanService plan-guard listener', () => {
         reg.defineInstance(IAgentReminderService, createReminderStub());
         reg.defineInstance(IAgentToolExecutorService, executorEvents.executor);
         reg.defineInstance(IAgentToolApprovalService, toolApproval);
-        reg.defineInstance(
-          IAgentPermissionModeService,
-          stubPermissionModeService(() => mode),
-        );
+        reg.defineInstance(IAgentPermissionModeService, stubPermissionModeService(() => mode));
         reg.defineInstance(ITelemetryService, recordingTelemetry(records));
         reg.defineInstance(IAgentStateService, new AgentStateService());
         reg.define(IAgentPlanService, AgentPlanService);
@@ -216,6 +218,34 @@ describe('AgentPlanService plan-guard listener', () => {
     }
     return executorEvents.fireBeforeExecute(ctx);
   }
+
+  describe('subagents', () => {
+    it('refuses plan mode for a subagent and leaves its tools unguarded', async () => {
+      ix.set(
+        IAgentScopeContext,
+        makeAgentScopeContext({ agentId: 'agent-0', agentScope: 'wire/agent-0' }),
+      );
+      const svc = plan();
+
+      await expect(svc.enter(PLAN_ID)).rejects.toThrow(
+        'Plan mode is only available to the main agent',
+      );
+      expect(await svc.status()).toBeNull();
+
+      const write = await run(
+        hookContext('Write', {
+          args: { path: '/workspace/src/main.ts' },
+          accesses: ToolAccesses.writeFile('/workspace/src/main.ts'),
+        }),
+      );
+      expect(write).toBeUndefined();
+      expect(permissionRan).toBe(true);
+
+      const exit = await run(hookContext('ExitPlanMode', { display: planReviewDisplay() }));
+      expect(exit).toBeUndefined();
+      expect(requests).toEqual([]);
+    });
+  });
 
   describe('guard', () => {
     it.each(['Write', 'Edit'] as const)(
@@ -265,7 +295,9 @@ describe('AgentPlanService plan-guard listener', () => {
         expect(decision?.veto?.isError).toBe(true);
         expect(decision?.veto?.output).toContain('current plan file');
         expect(decision?.veto?.output).toContain('ExitPlanMode');
-        expect(formatDenyMessage).toHaveBeenCalledWith(expect.stringContaining(PLAN_PATH));
+        expect(formatDenyMessage).toHaveBeenCalledWith(
+          expect.stringContaining(PLAN_PATH),
+        );
         expect(permissionRan).toBe(false);
       },
     );
@@ -350,7 +382,9 @@ describe('AgentPlanService plan-guard listener', () => {
   describe('exit plan mode review', () => {
     it('asks through toolApproval under the legacy origin and tracks plan_submitted', async () => {
       await enterPlan();
-      const decision = await run(hookContext('ExitPlanMode', { display: planReviewDisplay() }));
+      const decision = await run(
+        hookContext('ExitPlanMode', { display: planReviewDisplay() }),
+      );
 
       expect(requests).toHaveLength(1);
       expect(requests[0]?.origin).toBe('exit-plan-mode-review-ask');
@@ -371,8 +405,12 @@ describe('AgentPlanService plan-guard listener', () => {
       );
 
       expect(decision?.veto?.isError).toBe(false);
-      expect(decision?.veto?.output).toContain('Selected approach: Approach B');
-      expect(decision?.veto?.output).toContain('Execute ONLY the selected approach');
+      expect(decision?.veto?.output).toContain(
+        'Selected approach: Approach B',
+      );
+      expect(decision?.veto?.output).toContain(
+        'Execute ONLY the selected approach',
+      );
       expect(decision?.veto?.output).toContain('## Approved Plan:\n# Plan');
       expect(records).toContainEqual({
         event: 'plan_submitted',
@@ -387,9 +425,13 @@ describe('AgentPlanService plan-guard listener', () => {
 
     it('approves without a selected label and saves the plan path into the output', async () => {
       const svc = await enterPlan();
-      const decision = await run(hookContext('ExitPlanMode', { display: planReviewDisplay() }));
+      const decision = await run(
+        hookContext('ExitPlanMode', { display: planReviewDisplay() }),
+      );
 
-      expect(decision?.veto?.output).toContain(`Plan saved to: ${PLAN_PATH}`);
+      expect(decision?.veto?.output).toContain(
+        `Plan saved to: ${PLAN_PATH}`,
+      );
       expect(decision?.veto?.output).not.toContain('Selected approach:');
       expect(records).toContainEqual({
         event: 'plan_resolved',
@@ -413,7 +455,9 @@ describe('AgentPlanService plan-guard listener', () => {
     it('exits plan mode with a stopping error result when the user chooses Reject and Exit', async () => {
       const svc = await enterPlan();
       approvalResponse = { decision: 'rejected', selectedLabel: 'Reject and Exit' };
-      const decision = await run(hookContext('ExitPlanMode', { display: planReviewDisplay() }));
+      const decision = await run(
+        hookContext('ExitPlanMode', { display: planReviewDisplay() }),
+      );
 
       expect(decision?.veto).toMatchObject({
         isError: true,
@@ -434,7 +478,9 @@ describe('AgentPlanService plan-guard listener', () => {
         selectedLabel: 'Revise',
         feedback: 'Add verification.',
       };
-      const decision = await run(hookContext('ExitPlanMode', { display: planReviewDisplay() }));
+      const decision = await run(
+        hookContext('ExitPlanMode', { display: planReviewDisplay() }),
+      );
 
       expect(decision?.veto?.isError).toBe(false);
       expect(decision?.veto?.output).toContain('Add verification.');
@@ -448,7 +494,9 @@ describe('AgentPlanService plan-guard listener', () => {
     it('keeps plan mode active with a stopping error result when the user rejects the plan', async () => {
       const svc = await enterPlan();
       approvalResponse = { decision: 'rejected' };
-      const decision = await run(hookContext('ExitPlanMode', { display: planReviewDisplay() }));
+      const decision = await run(
+        hookContext('ExitPlanMode', { display: planReviewDisplay() }),
+      );
 
       expect(decision?.veto).toMatchObject({
         isError: true,
@@ -465,7 +513,9 @@ describe('AgentPlanService plan-guard listener', () => {
     it('keeps plan mode active with a dismissed result when the approval is cancelled', async () => {
       const svc = await enterPlan();
       approvalResponse = { decision: 'cancelled' };
-      const decision = await run(hookContext('ExitPlanMode', { display: planReviewDisplay() }));
+      const decision = await run(
+        hookContext('ExitPlanMode', { display: planReviewDisplay() }),
+      );
 
       expect(decision?.veto).toMatchObject({
         isError: false,
@@ -478,20 +528,63 @@ describe('AgentPlanService plan-guard listener', () => {
       expect(await svc.status()).not.toBeNull();
     });
 
-    it('skips the review in auto mode', async () => {
+    it('reviews the plan in auto mode as well', async () => {
       mode = 'auto';
-      await enterPlan();
-      const decision = await run(hookContext('ExitPlanMode', { display: planReviewDisplay() }));
+      const svc = await enterPlan();
+      const decision = await run(
+        hookContext('ExitPlanMode', { display: planReviewDisplay() }),
+      );
 
-      expect(requests).toHaveLength(0);
-      expect(records).toEqual([]);
-      expect(decision).toBeUndefined();
-      expect(permissionRan).toBe(true);
+      expect(requests).toHaveLength(1);
+      expect(decision?.veto?.isError).toBe(false);
+      expect(decision?.veto?.output).toContain('## Approved Plan:\n# Plan');
+      expect(records).toContainEqual({
+        event: 'plan_submitted',
+        properties: { has_options: false, mode: 'plan' },
+      });
+      expect(records).toContainEqual({
+        event: 'plan_resolved',
+        properties: { outcome: 'approved', mode: 'agent' },
+      });
+      expect(await svc.status()).toBeNull();
+    });
+
+    it('keeps plan mode active in auto mode until the user decides', async () => {
+      mode = 'auto';
+      const svc = await enterPlan();
+      approvalResponse = { decision: 'cancelled' };
+      const decision = await run(
+        hookContext('ExitPlanMode', { display: planReviewDisplay() }),
+      );
+
+      expect(requests).toHaveLength(1);
+      expect(decision?.veto?.output).toBe('Plan approval dismissed. Plan mode remains active.');
+      expect(await svc.status()).not.toBeNull();
+    });
+
+    it('keeps plan mode active and says why when nobody can review the plan', async () => {
+      nonInteractive = true;
+      mode = 'auto';
+      const svc = await enterPlan();
+      const decision = await run(
+        hookContext('ExitPlanMode', { display: planReviewDisplay() }),
+      );
+
+      expect(requests).toHaveLength(1);
+      expect(decision?.veto).toEqual({
+        isError: true,
+        output:
+          'Nobody can review this plan in a non-interactive run, so plan mode stays active for the rest of this run and you cannot edit files other than the plan file.',
+      });
+      expect(await svc.status()).not.toBeNull();
+      expect(records.some((record) => record.event === 'plan_resolved')).toBe(false);
     });
 
     it('skips the review when no plan is active', async () => {
       plan();
-      const decision = await run(hookContext('ExitPlanMode', { display: planReviewDisplay() }));
+      const decision = await run(
+        hookContext('ExitPlanMode', { display: planReviewDisplay() }),
+      );
 
       expect(requests).toHaveLength(0);
       expect(decision).toBeUndefined();

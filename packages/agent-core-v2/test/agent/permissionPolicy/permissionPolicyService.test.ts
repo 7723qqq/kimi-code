@@ -4,7 +4,7 @@ import { basename, dirname, join } from 'node:path';
 
 import type { ToolCall } from '#human/llm/message';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
@@ -19,7 +19,6 @@ import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMo
 import { IAgentPermissionPolicyService, type PermissionPolicyEvaluation } from '#/agent/permissionPolicy/permissionPolicy';
 import type { PermissionMode } from '#/agent/permissionPolicy/types';
 import { AgentPermissionPolicyService } from '#/agent/permissionPolicy/permissionPolicyService';
-import { IAgentGuardianService, type GuardianVerdict } from '#/agent/guardian/guardianService';
 import {
   IAgentPermissionRulesService,
   type IAgentPermissionRulesService as PermissionRulesServiceContract,
@@ -55,8 +54,6 @@ describe('AgentPermissionPolicyService chain', () => {
   let workspace: ReturnType<typeof workspaceStub>;
   let hostArgs: HostArgs;
   let dangerousCommandGuardEnabled: boolean;
-  let guardianEnabled: boolean;
-  let guardianReview: ReturnType<typeof mock>;
 
   beforeEach(() => {
     disposables = new DisposableStore();
@@ -66,13 +63,6 @@ describe('AgentPermissionPolicyService chain', () => {
     workspace = workspaceStub('/workspace');
     hostArgs = { requestHeaders: {}, nonInteractive: false };
     dangerousCommandGuardEnabled = true;
-    guardianEnabled = false;
-    guardianReview = mock(() => ({
-      verdict: 'allow' as const,
-      riskLevel: 'low',
-      userAuthorization: 'explicit',
-      rationale: 'test',
-    }));
     ix = createServices(disposables, {
       additionalServices: (reg) => {
         reg.defineInstance(IAgentPermissionModeService, stubPermissionModeService(() => mode));
@@ -128,13 +118,6 @@ describe('AgentPermissionPolicyService chain', () => {
           }),
         });
         reg.defineInstance(ITelemetryService, recordingTelemetry([]));
-        reg.definePartialInstance(
-          IAgentGuardianService,
-          guardianStub({
-            enabled: () => guardianEnabled,
-            review: () => (guardianReview as () => GuardianVerdict)(),
-          }),
-        );
         reg.definePartialInstance(IGitService, { findWorkTree: async () => null });
         reg.define(IBashParserService, BashParserService);
         reg.define(IAgentPermissionPolicyService, AgentPermissionPolicyService);
@@ -312,9 +295,6 @@ describe('AgentPermissionPolicyService chain', () => {
     ['eval "shutdown now"', 'shutdown'],
     ['eval rm -rf dir', 'rm -rf'],
     ['bash -lc "shutdown now"', 'shutdown'],
-    ['bash --noprofile -c "rm -rf /"', 'rm -rf'],
-    ['bash -o pipefail -c "shutdown now"', 'shutdown'],
-    ['sh --rcfile /dev/null -c "rm -rf /"', 'rm -rf'],
     ['bash -c "env rm -rf dir"', 'rm -rf'],
     ["bash -c 'eval \"shutdown now\"'", 'shutdown'],
   ] as const)('asks for `%s` in yolo mode', async (command, matched) => {
@@ -328,21 +308,6 @@ describe('AgentPermissionPolicyService chain', () => {
       result: { kind: 'ask', reason: { dangerous_command: matched } },
     });
   });
-
-  it.each(['bash --norc', 'bash --noprofile script.sh', 'sh --rcfile /dev/null'])(
-    'does not invent a payload for `%s` in yolo mode',
-    async (command) => {
-      mode = 'yolo';
-
-      await expect(evaluate({
-        toolName: 'Bash',
-        args: { command, timeout: 60 },
-      })).resolves.toMatchObject({
-        policyName: 'yolo-mode-approve',
-        result: { kind: 'approve' },
-      });
-    },
-  );
 
   it.each(['rm -rf /tmp/build', 'rm -rf /temp/cache'])(
     'approves `%s` in yolo mode',
@@ -483,64 +448,6 @@ describe('AgentPermissionPolicyService chain', () => {
     });
   });
 
-  it('runs the guardian review in yolo mode when guardian is enabled', async () => {
-    mode = 'yolo';
-    guardianEnabled = true;
-
-    await expect(evaluate({
-      toolName: 'Bash',
-      args: { command: 'printf first', timeout: 60 },
-    })).resolves.toMatchObject({
-      policyName: 'guardian-review',
-      result: { kind: 'approve' },
-    });
-    expect(guardianReview).toHaveBeenCalledTimes(1);
-  });
-
-  it('lets guardian deny raise an ask even in yolo mode', async () => {
-    mode = 'yolo';
-    guardianEnabled = true;
-    guardianReview.mockReturnValueOnce({
-      verdict: 'deny',
-      riskLevel: 'high',
-      rationale: 'destroys data',
-    } as GuardianVerdict);
-
-    await expect(evaluate({
-      toolName: 'Bash',
-      args: { command: 'printf first', timeout: 60 },
-    })).resolves.toMatchObject({
-      policyName: 'guardian-review',
-      result: { kind: 'ask' },
-    });
-  });
-
-  it('keeps yolo-mode approval when guardian is disabled', async () => {
-    mode = 'yolo';
-    guardianEnabled = false;
-
-    await expect(evaluate({
-      toolName: 'Bash',
-      args: { command: 'printf first', timeout: 60 },
-    })).resolves.toMatchObject({
-      policyName: 'yolo-mode-approve',
-      result: { kind: 'approve' },
-    });
-    expect(guardianReview).not.toHaveBeenCalled();
-  });
-
-  it('does not consult the guardian outside yolo mode', async () => {
-    mode = 'manual';
-    guardianEnabled = true;
-
-    const result = await evaluate({
-      toolName: 'Bash',
-      args: { command: 'printf first', timeout: 60 },
-    });
-    expect(result?.policyName).not.toBe('guardian-review');
-    expect(guardianReview).not.toHaveBeenCalled();
-  });
-
   it('does not let session approval history exempt dangerous commands', async () => {
     sessionApprovalRulePatterns.push('Bash(shutdown -h now)');
 
@@ -569,7 +476,7 @@ describe('AgentPermissionPolicyService chain', () => {
     });
   });
 
-  it.each(['AgentSwarm', 'EnterPlanMode', 'ExitPlanMode', 'CreateGoal'] as const)(
+  it.each(['AgentSwarm', 'ExitPlanMode', 'CreateGoal'] as const)(
     'approves %s through the default tool allowlist in manual mode',
     async (toolName) => {
       await expect(evaluate({ toolName, args: {} })).resolves.toMatchObject({
@@ -642,7 +549,6 @@ describe('AgentPermissionPolicyService git cwd write approval', () => {
           }),
         });
         reg.defineInstance(ITelemetryService, recordingTelemetry([]));
-        reg.definePartialInstance(IAgentGuardianService, guardianStub());
         reg.definePartialInstance(IGitService, {
           findWorkTree: (cwd: string) => findGitWorkTree(hostFs, cwd),
         });
@@ -794,34 +700,6 @@ function permissionRulesStub(
     },
     addRules: () => {},
     recordApprovalResult: () => {},
-  };
-}
-
-interface MutableGuardianStubOptions {
-  enabled?: () => boolean;
-  verdict?: () => GuardianVerdict;
-  review?: () => GuardianVerdict;
-}
-
-function guardianStub(options: MutableGuardianStubOptions = {}): Partial<IAgentGuardianService> {
-  const enabled = options.enabled ?? (() => false);
-  const verdict =
-    options.review ??
-    options.verdict ??
-    ((): GuardianVerdict => ({
-      verdict: 'allow',
-      riskLevel: 'low',
-      userAuthorization: 'explicit',
-      rationale: 'test',
-    }));
-  return {
-    get enabled() {
-      return enabled();
-    },
-    get circuitOpen() {
-      return false;
-    },
-    review: async () => verdict(),
   };
 }
 

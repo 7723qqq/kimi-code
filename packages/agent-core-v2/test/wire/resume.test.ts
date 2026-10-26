@@ -2,8 +2,8 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'pathe';
 
-import { describe, expect, it, mock, spyOn } from 'bun:test';
-import { waitForAssertion } from '#test/helpers/waitFor';
+import { describe, expect, it, jest } from 'bun:test';
+import { waitUntil } from '#test/helpers/waitFor';
 
 import {
   resetUnexpectedErrorHandler,
@@ -31,7 +31,6 @@ import {
   homeDirServices,
   testAgent,
 } from '../harness';
-import { renderSnapshot } from '../harness/snapshots';
 
 const MOCK_PROVIDER = {
   type: 'kimi',
@@ -201,16 +200,16 @@ describe('Agent resume', () => {
       await ctx.untilTurnEnd();
 
       expect(findRpcEvent(ctx.allEvents, 'error')).toBeUndefined();
-      expect(renderSnapshot(ctx.llmInputs())).toMatchInlineSnapshot(`
-        "call 1:
+      expect(ctx.llmInputs()).toMatchInlineSnapshot(`
+        call 1:
           system: <system-prompt>
-          tools: Agent, AgentSwarm, AskUserQuestion, Bash, CreateGoal, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, EnterSpecMode, ExitPlanMode, ExitSpecMode, FetchURL, GetGoal, Glob, Grep, Read, SetGoalBudget, Skill, TaskList, TaskOutput, TaskStop, TodoList, UpdateGoal, WaitFor, WebSearch, Write
+          tools: Agent, AgentSwarm, AskUserQuestion, Bash, CreateGoal, CronCreate, CronDelete, CronList, Edit, ExitPlanMode, EnterSpecMode, ExitSpecMode, FetchURL, GetGoal, Glob, Grep, Read, SetGoalBudget, Skill, TaskList, TaskOutput, TaskStop, TodoList, UpdateGoal, WaitFor, WebSearch, Write
           messages:
             user: text "Run lookup"
             assistant: []  calls call_open:Lookup { "query": "moon" }
             tool[call_open]: text "<system>ERROR: Tool execution failed.</system>\\nTool execution was interrupted before its result was recorded. Do not assume the tool completed successfully."
             user: text "Fresh prompt after resume"
-            user: text <date-reminder>"
+            user: text <date-reminder>
       `);
       await ctx.expectResumeMatches();
     } finally {
@@ -264,7 +263,7 @@ describe('Agent resume', () => {
       await ctx.rpc.prompt({ input: [{ type: 'text', text: 'hello' }] });
       await ctx.untilTurnEnd();
 
-      await waitForAssertion(() => {
+      await waitUntil(() => {
         const types = persistence.appended.map((record) => record.type);
         expect(types).toContain('prompt.completed');
       });
@@ -275,10 +274,10 @@ describe('Agent resume', () => {
 
   it('replays persisted records without restarting turns, compactions, plan turns, or tools', async () => {
     const persistence = new RecordingAgentPersistence(resumeHistory() as unknown as WireRecord[]);
-    const execWithEnv = mock().mockRejectedValue(new Error('Bash should not execute on resume'));
+    const execWithEnv = jest.fn().mockRejectedValue(new Error('Bash should not execute on resume'));
     const ctx = testAgent(
       execEnvServices({
-        hostFs: createFakeHostFs({ readText: mock().mockResolvedValue('') }),
+        hostFs: createFakeHostFs({ readText: jest.fn().mockResolvedValue('') }),
         processRunner: createFakeProcessRunner({ spawn: execWithEnv }),
       }),
       { autoConfigure: false, persistence },
@@ -287,7 +286,7 @@ describe('Agent resume', () => {
     await ctx.restorePersisted();
     const plan = await ctx.get(IAgentPlanService).status();
     expect(plan?.path).toContain('resume-plan');
-    expect(renderSnapshot(ctx.newEvents())).toMatchInlineSnapshot(`"[]"`);
+    expect(ctx.newEvents()).toMatchInlineSnapshot(`[]`);
     expect(ctx.llmCalls).toHaveLength(0);
     expect(execWithEnv).not.toHaveBeenCalled();
     expect(persistence.appended).toEqual([]);
@@ -306,15 +305,15 @@ describe('Agent resume', () => {
     });
     expect(findRpcEvent(ctx.allEvents, 'error')).toBeUndefined();
     expect(execWithEnv).not.toHaveBeenCalled();
-    expect(renderSnapshot(ctx.llmInputs())).toMatchInlineSnapshot(`
-      "call 1:
+    expect(ctx.llmInputs()).toMatchInlineSnapshot(`
+      call 1:
         system: <system-prompt>
         tools: Bash
         messages:
           user: text "Historical compacted summary."
           user: text "Fresh prompt after resume"
           user: text <date-reminder>
-          user: text <plan-mode-reminder>"
+          user: text <plan-mode-reminder>
     `);
   });
 
@@ -400,7 +399,7 @@ describe('Agent resume', () => {
     await live.rpc.prompt({ input: [{ type: 'text', text: 'Prompt before resume' }] });
     await live.untilTurnEnd();
     const liveTools = live.llmCalls.at(-1)!.tools.map((tool) => tool.name);
-    expect(liveTools).toContain('Read');
+    expect(liveTools).toContain('ReadMediaFile');
 
     const resumed = testAgent({
       persistence: new RecordingAgentPersistence(persistence.records as unknown as WireRecord[]),
@@ -551,10 +550,10 @@ describe('Agent resume', () => {
     });
     await ctx.untilTurnEnd();
 
-    expect(renderSnapshot(ctx.llmInputs())).toMatchInlineSnapshot(`
-      "call 1:
+    expect(ctx.llmInputs()).toMatchInlineSnapshot(`
+      call 1:
         system: <system-prompt>
-        tools: Agent, AgentSwarm, AskUserQuestion, Bash, CreateGoal, CronCreate, CronDelete, CronList, Edit, EnterPlanMode, EnterSpecMode, ExitPlanMode, ExitSpecMode, FetchURL, GetGoal, Glob, Grep, Read, SetGoalBudget, Skill, TaskList, TaskOutput, TaskStop, TodoList, UpdateGoal, WaitFor, WebSearch, Write
+        tools: Agent, AgentSwarm, AskUserQuestion, Bash, CreateGoal, CronCreate, CronDelete, CronList, Edit, ExitPlanMode, EnterSpecMode, ExitSpecMode, FetchURL, GetGoal, Glob, Grep, Read, SetGoalBudget, Skill, TaskList, TaskOutput, TaskStop, TodoList, UpdateGoal, WaitFor, WebSearch, Write
         messages:
           user: text "Historical prompt before skill"
           assistant: []  calls call_resume_write:Write { "path": "result.txt" }, call_resume_skill:Skill { "skill": "review" }
@@ -562,7 +561,7 @@ describe('Agent resume', () => {
           tool[call_resume_skill]: text "skill loaded"
           user: text "<system-reminder>\\nresume skill body\\n</system-reminder>"
           user: text "Fresh prompt after deferred resume"
-          user: text <date-reminder>"
+          user: text <date-reminder>
     `);
     await ctx.expectResumeMatches();
   });
@@ -652,7 +651,7 @@ describe('Agent resume', () => {
         'agent-seen0000',
         'already delivered summary',
       );
-      const steer = spyOn(ctx.get(IAgentLoopService), 'steer');
+      const steer = jest.spyOn(ctx.get(IAgentLoopService), 'steer');
 
       await ctx.restorePersisted();
       expect(
@@ -741,7 +740,7 @@ describe('Agent resume', () => {
         status: 'completed',
       });
       await backgroundPersistence.appendTaskOutput('agent-new00000', 'newly delivered summary');
-      const steer = spyOn(ctx.get(IAgentLoopService), 'steer');
+      const steer = jest.spyOn(ctx.get(IAgentLoopService), 'steer');
 
       await ctx.restorePersisted();
 
@@ -850,7 +849,7 @@ describe('Agent resume', () => {
   });
 
   it('restores an envelope-less active goal without charging offline time', async () => {
-    const now = spyOn(Date, 'now').mockReturnValue(6_000);
+    const now = jest.spyOn(Date, 'now').mockReturnValue(6_000);
     const persistence = new RecordingAgentPersistence(
       [
         {
@@ -913,7 +912,7 @@ describe('Agent resume', () => {
   });
 
   it('restores persisted elapsed time from a 1.3 checkpoint without charging offline time', async () => {
-    const now = spyOn(Date, 'now').mockReturnValue(6_000);
+    const now = jest.spyOn(Date, 'now').mockReturnValue(6_000);
     const persistence = new RecordingAgentPersistence([
       {
         type: 'metadata',

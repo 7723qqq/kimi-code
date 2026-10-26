@@ -88,7 +88,7 @@ function describeThrown(thrown: unknown): string {
 }
 
 /**
- * Bun has no `expect.poll` / `vi.waitFor`, so state that settles asynchronously
+ * Bun has no `expect.poll` / `jest.waitFor`, so state that settles asynchronously
  * is polled here instead. Re-throws the last probe error on timeout so a broken
  * probe is not mistaken for a slow one.
  */

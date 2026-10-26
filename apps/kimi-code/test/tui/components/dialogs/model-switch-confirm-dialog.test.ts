@@ -1,4 +1,4 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it, vi } from 'bun:test';
 
 import { ModelSwitchConfirmDialogComponent } from '#/tui/components/dialogs/model-switch-confirm-dialog';
 
@@ -12,8 +12,8 @@ function strip(text: string): string {
 }
 
 function renderDialog(fromModel = 'Kimi K2.5', toModel = 'Kimi K2 Turbo', hint: string | undefined = DEFAULT_HINT) {
-  const onSelect = mock();
-  const onCancel = mock();
+  const onSelect = jest.fn();
+  const onCancel = jest.fn();
   const dialog = new ModelSwitchConfirmDialogComponent({ fromModel, toModel, hint, onSelect, onCancel });
   return { dialog, onSelect, onCancel, lines: dialog.render(120).map(strip) };
 }
@@ -127,8 +127,8 @@ describe('ModelSwitchConfirmDialogComponent', () => {
       fromModel: 'Kimi K2.5',
       toModel: 'Kimi K2 Turbo',
       hint: undefined,
-      onSelect: mock(),
-      onCancel: mock(),
+      onSelect: jest.fn(),
+      onCancel: jest.fn(),
     });
     const lines = dialog.render(120).map(strip);
     expect(lines.some((l) => l.includes('Switch model?'))).toBe(true);

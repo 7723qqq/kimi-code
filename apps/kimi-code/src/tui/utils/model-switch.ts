@@ -12,6 +12,8 @@ import { t } from '#/i18n';
 import { formatErrorMessage } from './event-payload';
 import { thinkingEffortFromConfig, thinkingEffortToConfig } from './thinking-config';
 
+/** Localized on access: a module-level constant must not freeze the locale. */
+export const MODEL_SWITCH_CACHE_WARNING = (): string => t('tui.commands.configModelCachedWarning');
 /** True once the conversation has at least one user message: a switch from
  * then on resends the accumulated context, losing the cache. Shell-command
  * echoes are also 'user' transcript entries but carry an empty `bullet`, so

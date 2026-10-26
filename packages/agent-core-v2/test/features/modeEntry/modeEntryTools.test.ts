@@ -2,7 +2,6 @@ import { describe, expect, it, mock } from 'bun:test';
 
 import type { IAgentModeMutexService, ExclusiveReviewMode } from '#/agent/modeMutex/modeMutex';
 import { IAgentPlanService, type PlanData } from '#/features/plan/plan';
-import { EnterPlanModeTool } from '#/features/plan/tools/enter-plan-mode/enterPlanModeTool';
 import { IAgentSpecService, type SpecData } from '#/features/spec/spec';
 import { EnterSpecModeTool } from '#/features/spec/tools/enter-spec-mode/enterSpecModeTool';
 import type { ToolResult } from '#/tool/toolContract';
@@ -127,29 +126,5 @@ describe('EnterSpecModeTool — evicts conflicting modes', () => {
 
     expect(result.isError).toBe(true);
     expect(result.output).toContain('spec directory is not writable');
-  });
-});
-
-describe('EnterPlanModeTool — evicts conflicting modes', () => {
-  it('routes entry through the mutex rather than calling plan.enter directly', async () => {
-    const m = mutex();
-    m.active = 'spec';
-    const plan = planService(null);
-    const tool = new EnterPlanModeTool(plan, m.service, recordingTelemetry([], {}));
-
-    const result = await run(tool as never);
-
-    expect(m.switchTo).toHaveBeenCalledWith('plan');
-    expect(result.isError).toBeFalsy();
-  });
-
-  it('names the evicted mode in the output', async () => {
-    const m = mutex();
-    m.active = 'spec';
-    const tool = new EnterPlanModeTool(planService(null), m.service, recordingTelemetry([], {}));
-
-    const result = await run(tool as never);
-
-    expect(result.output).toContain('spec');
   });
 });

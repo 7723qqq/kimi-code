@@ -1,40 +1,22 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it, jest } from 'bun:test';
 
-import type { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import type { PermissionMode } from '#/agent/permissionPolicy/types';
-import type { ITelemetryService } from '#/app/telemetry/telemetry';
-import { makeAgentScopeContext, type IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import type { IAgentPlanService, PlanData } from '#/features/plan/plan';
-import type { TodoItem } from '#/features/todo/todoItem';
-import type { IAgentTodoService } from '#/features/todo/todoService';
 import {
   ExitPlanModeInputSchema,
   type ExitPlanModeInput,
 } from '#/features/plan/tools/exit-plan-mode/exit-plan-mode';
 import { ExitPlanModeTool } from '#/features/plan/tools/exit-plan-mode/exitPlanModeTool';
+import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 
 import { executeTool } from '../../../tools/fixtures/execute-tool';
 
 const signal = new AbortController().signal;
 
+
 const options = [
   { label: 'Approach A', description: 'Small change.' },
   { label: 'Approach B', description: 'Larger change.' },
 ] satisfies NonNullable<ExitPlanModeInput['options']>;
-
-function todoService(): IAgentTodoService {
-  return {
-    _serviceBrand: undefined,
-    onDidChange: () => ({ dispose: () => {} }),
-    get: () => [],
-    replace: mock(async () => {}),
-    clear: mock(async () => {}),
-  };
-}
-
-function scopeContext(): IAgentScopeContext {
-  return makeAgentScopeContext({ agentId: 'test-agent', agentScope: 'test-agent' });
-}
 
 function planService(): IAgentPlanService {
   return {
@@ -42,41 +24,26 @@ function planService(): IAgentPlanService {
     enter: async () => {},
     cancel: () => {},
     clear: async () => {},
-    exit: mock(),
+    exit: jest.fn(),
     recordRevision: async () => {},
     status: async () =>
       ({
         id: 'test-plan',
         content: '# Plan',
         path: '/tmp/kimi-plan.md',
-      }) satisfies NonNullable<PlanData>,
+      } satisfies NonNullable<PlanData>),
   };
 }
 
-function recordingTelemetry(): ITelemetryService {
-  return {
-    _serviceBrand: undefined,
-    track: mock(),
-    track2: mock(),
-    withContext: () => recordingTelemetry(),
-    setContext: () => {},
-    getContext: () => ({}),
-    addAppender: () => ({ dispose: () => {} }),
-    removeAppender: () => {},
-    setEnabled: () => {},
-    flush: () => Promise.resolve(),
-    shutdown: () => Promise.resolve(),
-  };
-}
-
-function permissionMode(mode: PermissionMode = 'auto'): IAgentPermissionModeService {
-  return {
-    _serviceBrand: undefined,
-    mode,
-    setMode: () => {},
-    setModeAndBroadcast: () => {},
-    onDidChangeMode: () => ({ dispose: () => {} }),
-  };
+async function reviewDisplay(
+  service: IAgentPlanService,
+  args: ExitPlanModeInput,
+): Promise<ToolInputDisplay | undefined> {
+  const execution = await new ExitPlanModeTool(service).resolveExecution(args);
+  if ('isError' in execution && execution.isError === true) {
+    throw new Error('expected a runnable ExitPlanMode execution');
+  }
+  return execution.display;
 }
 
 describe('ExitPlanMode options schema', () => {
@@ -97,22 +64,6 @@ describe('ExitPlanMode options schema', () => {
     ).toBe(true);
     expect(ExitPlanModeInputSchema.safeParse({}).success).toBe(true);
     expect(ExitPlanModeInputSchema.safeParse({ plan: 'Plan' }).success).toBe(false);
-  });
-
-  it('rejects options with empty descriptions', () => {
-    expect(
-      ExitPlanModeInputSchema.safeParse({
-        options: [{ label: 'A', description: '' }],
-      }).success,
-    ).toBe(true);
-  });
-
-  it('rejects options with Unicode reserved-matching labels', () => {
-    expect(
-      ExitPlanModeInputSchema.safeParse({
-        options: [{ label: 'Ｒeject', description: 'fullwidth R' }],
-      }).success,
-    ).toBe(true);
   });
 
   it('rejects too many options, duplicate labels, reserved labels, and invalid labels', () => {
@@ -170,219 +121,104 @@ describe('ExitPlanMode options schema', () => {
   });
 });
 
-describe('ExitPlanMode option output', () => {
+describe('ExitPlanMode review display', () => {
   it('treats a single option as plain plan approval', async () => {
-    const exit = mock();
-    const telemetry = recordingTelemetry();
+    const display = await reviewDisplay(planService(), {
+      options: [{ label: 'Approach A', description: 'Only path' }],
+    });
 
-    const result = await executeTool(
-      new ExitPlanModeTool({ ...planService(), exit }, permissionMode(), telemetry, todoService(), scopeContext()),
-      {
-        turnId: 7,
-        toolCallId: 'call_exit_plan',
-        args: { options: [{ label: 'Approach A', description: 'Only path' }] },
-        signal,
-      },
-    );
-
-    expect(exit).toHaveBeenCalledTimes(1);
-    expect(result.isError).toBeFalsy();
-    expect(result.output).toContain('Exited plan mode');
-  });
-
-  it('marks the direct-execution output as auto-approved, not user-reviewed, in auto mode', async () => {
-    const telemetry = recordingTelemetry();
-
-    const result = await executeTool(
-      new ExitPlanModeTool(planService(), permissionMode('auto'), telemetry, todoService(), scopeContext()),
-      {
-        turnId: 7,
-        toolCallId: 'call_exit_plan_auto',
-        args: {},
-        signal,
-      },
-    );
-
-    expect(result.isError).toBeFalsy();
-    expect(result.output).toContain('## Plan (auto-approved, not user-reviewed):');
-    expect(result.output).not.toContain('## Approved Plan:');
-    expect(result.output).toContain('the user has NOT explicitly approved it');
-    expect(result.output).toContain('# Plan');
-  });
-
-  it('keeps the user-approved output when a rule lets the call through outside auto mode', async () => {
-    const telemetry = recordingTelemetry();
-
-    const result = await executeTool(
-      new ExitPlanModeTool(planService(), permissionMode('manual'), telemetry, todoService(), scopeContext()),
-      {
-        turnId: 7,
-        toolCallId: 'call_exit_plan_rule',
-        args: {},
-        signal,
-      },
-    );
-
-    expect(result.isError).toBeFalsy();
-    expect(result.output).toContain('## Approved Plan:');
-    expect(result.output).not.toContain('auto-approved');
-    expect(telemetry.track2).toHaveBeenCalledWith('plan_resolved', {
-      outcome: 'approved',
+    expect(display).toEqual({
+      kind: 'plan_review',
+      plan: '# Plan',
+      path: '/tmp/kimi-plan.md',
     });
   });
 
-  it('returns success without a "User feedback:" prefix when revise has no feedback', async () => {
-    const telemetry = recordingTelemetry();
+  it('offers two or more options to the reviewer', async () => {
+    const display = await reviewDisplay(planService(), { options });
 
-    const result = await executeTool(
-      new ExitPlanModeTool(planService(), permissionMode(), telemetry, todoService(), scopeContext()),
-      {
-        turnId: 7,
-        toolCallId: 'call_exit_plan',
-        args: { options },
-        signal,
-      },
-    );
-
-    expect(result.isError).toBeFalsy();
-    expect(result.output).not.toContain('User feedback:');
+    expect(display).toEqual({
+      kind: 'plan_review',
+      plan: '# Plan',
+      path: '/tmp/kimi-plan.md',
+      options,
+    });
   });
 
   it('records a revision once per submission when the review display resolves', async () => {
-    const recordRevision = mock(async () => {});
+    const recordRevision = jest.fn(async () => {});
     const service: IAgentPlanService = { ...planService(), recordRevision };
 
-    const result = await executeTool(
-      new ExitPlanModeTool(service, permissionMode(), recordingTelemetry(), todoService(), scopeContext()),
-      {
-        turnId: 7,
-        toolCallId: 'call_exit_record',
-        args: {},
-        signal,
-      },
-    );
+    const display = await reviewDisplay(service, {});
 
-    expect(result.isError).toBeFalsy();
+    expect(display?.kind).toBe('plan_review');
     expect(recordRevision).toHaveBeenCalledTimes(1);
   });
 
-  it('still submits when revision recording fails', async () => {
-    const recordRevision = mock(async () => {
+  it('still builds the review display when revision recording fails', async () => {
+    const recordRevision = jest.fn(async () => {
       throw new Error('disk full');
     });
     const service: IAgentPlanService = { ...planService(), recordRevision };
 
-    const result = await executeTool(
-      new ExitPlanModeTool(service, permissionMode(), recordingTelemetry(), todoService(), scopeContext()),
-      {
-        turnId: 7,
-        toolCallId: 'call_exit_record_failure',
-        args: {},
-        signal,
-      },
-    );
+    const display = await reviewDisplay(service, {});
 
     expect(recordRevision).toHaveBeenCalledTimes(1);
-    expect(result.isError).toBeFalsy();
-    expect(result.output).toContain('Exited plan mode');
-    expect(result.output).toContain('could not be snapshotted');
-    expect(result.output).toContain('disk full');
+    expect(display?.kind).toBe('plan_review');
   });
 
   it('skips revision recording when the plan content is empty', async () => {
-    const recordRevision = mock(async () => {});
+    const recordRevision = jest.fn(async () => {});
     const service: IAgentPlanService = {
       ...planService(),
       recordRevision,
       status: async () => ({ id: 'test-plan', content: '   ', path: '/tmp/kimi-plan.md' }),
     };
 
-    const result = await executeTool(
-      new ExitPlanModeTool(service, permissionMode(), recordingTelemetry(), todoService(), scopeContext()),
-      {
-        turnId: 7,
-        toolCallId: 'call_exit_empty',
-        args: {},
-        signal,
-      },
-    );
+    const result = await executeTool(new ExitPlanModeTool(service), {
+      turnId: 7,
+      toolCallId: 'call_exit_empty',
+      args: {},
+      signal,
+    });
 
     expect(recordRevision).not.toHaveBeenCalled();
     expect(result.isError).toBe(true);
     expect(result.output).toContain('No plan file found');
   });
+});
 
-  it('seeds the todo list from the approved plan on exit', async () => {
-    const replace = mock<(todos: readonly TodoItem[]) => Promise<void>>(async () => {});
-    const structuredPlan = [
-      '## Implement feature',
-      '- Read current module',
-      '- Write the patch',
-      '- Run tests',
-    ].join('\n');
-    const service: IAgentPlanService = {
-      ...planService(),
-      status: () =>
-        Promise.resolve({
-          id: 'test-plan',
-          content: structuredPlan,
-          path: '/tmp/kimi-plan.md',
-        }),
-    };
-    const todo: IAgentTodoService = { ...todoService(), replace };
+describe('ExitPlanMode without a review', () => {
+  it('keeps plan mode active instead of exiting when the plan was not reviewed', async () => {
+    const exit = jest.fn();
 
-    const result = await executeTool(
-      new ExitPlanModeTool(service, permissionMode(), recordingTelemetry(), todo, scopeContext()),
-      {
-        turnId: 7,
-        toolCallId: 'call_exit_seed',
-        args: {},
-        signal,
-      },
-    );
+    const result = await executeTool(new ExitPlanModeTool({ ...planService(), exit }), {
+      turnId: 7,
+      toolCallId: 'call_exit_unreviewed',
+      args: { options },
+      signal,
+    });
 
-    expect(result.isError).toBeFalsy();
-    expect(result.output).toContain('seeded into the todo list as 4 items');
-    expect(replace).toHaveBeenCalledTimes(1);
-    expect(replace.mock.calls[0]![0].map((item) => item.title)).toEqual([
-      'Implement feature',
-      'Read current module',
-      'Write the patch',
-      'Run tests',
-    ]);
+    expect(exit).not.toHaveBeenCalled();
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('could not be shown to the user for review');
+    expect(result.output).not.toContain('## Approved Plan:');
   });
 
-  it('does not overwrite an existing todo list when exiting plan mode', async () => {
-    const replace = mock(async () => {});
-    const service: IAgentPlanService = {
-      ...planService(),
-      status: () =>
-        Promise.resolve({
-          id: 'test-plan',
-          content: '## Implement feature\n- Read current module',
-          path: '/tmp/kimi-plan.md',
-        }),
-    };
-    const todo: IAgentTodoService = {
-      ...todoService(),
-      replace,
-      get: () => [
-        { id: 'T1', parentId: null, kind: 'task', title: 'prior work', status: 'pending' },
-      ],
-    };
-
+  it('tells the model that only the user can turn plan mode on when plan mode is off', async () => {
     const result = await executeTool(
-      new ExitPlanModeTool(service, permissionMode(), recordingTelemetry(), todo, scopeContext()),
+      new ExitPlanModeTool({ ...planService(), status: async () => null }),
       {
         turnId: 7,
-        toolCallId: 'call_exit_seed_skip',
+        toolCallId: 'call_exit_inactive',
         args: {},
         signal,
       },
     );
 
-    expect(result.isError).toBeFalsy();
-    expect(result.output).not.toContain('seeded into the todo list');
-    expect(replace).not.toHaveBeenCalled();
+    expect(result.isError).toBe(true);
+    expect(result.output).toContain('only be called while plan mode is active');
+    expect(result.output).toContain('Only the user can turn plan mode on');
+    expect(result.output).not.toContain('EnterPlanMode');
   });
 });

@@ -1,13 +1,14 @@
+import { createHash } from 'node:crypto';
 import { createWriteStream, existsSync } from 'node:fs';
 import { chmod, copyFile, mkdir, mkdtemp, readFile, rename, rm, stat } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 
-import { kimiRegionProfile, resolveKimiRegion } from '@moonshot-ai/kimi-code-oauth';
-import { basename, join } from 'pathe';
+import { kimiRegionProfile, resolveKimiRegion, type KimiRegion } from '@moonshot-ai/kimi-code-oauth';
 import { extract as extractTar } from 'tar';
 import { type Entry, fromBuffer as yauzlFromBuffer } from 'yauzl';
+import { basename, join } from 'pathe';
 
 import { abortable } from '#/_base/utils/abort';
 import { ErrorCodes, Error2 } from '#/errors';
@@ -48,6 +49,7 @@ export interface EnsureRgPathOptions {
   readonly shareDir?: string | undefined;
   readonly signal?: AbortSignal | undefined;
   readonly allowCachedFallback?: boolean;
+  readonly resolveRegion?: () => KimiRegion | undefined;
 }
 
 function rgBinaryName(): string {
@@ -64,8 +66,9 @@ export function getShareBinRgPath(): string {
   return join(getShareDir(), 'bin', rgBinaryName());
 }
 
-function rgBaseUrl(): string {
-  return `${kimiRegionProfile(resolveKimiRegion()).cdnBase}/rg`;
+function rgBaseUrl(resolveRegion: (() => KimiRegion | undefined) | undefined): string {
+  const region = resolveRegion?.() ?? resolveKimiRegion();
+  return `${kimiRegionProfile(region).cdnBase}/rg`;
 }
 
 function throwIfAborted(signal: AbortSignal | undefined): void {
@@ -93,7 +96,7 @@ async function resolveRgPath(
   if (existing) return existing;
   throwIfAborted(options.signal);
   if (options.allowCachedFallback === true) {
-    return downloadRgWithLock(probe, shareDir);
+    return downloadRgWithLock(probe, shareDir, options.resolveRegion);
   }
   throw new Error2(ErrorCodes.OS_FS_UNAVAILABLE, 'ripgrep (rg) is not available on PATH');
 }
@@ -121,13 +124,17 @@ export async function findExistingRg(
 }
 
 let downloadPromise: Promise<RgResolution> | undefined;
-async function downloadRgWithLock(probe: RgProbe, shareDir: string): Promise<RgResolution> {
+async function downloadRgWithLock(
+  probe: RgProbe,
+  shareDir: string,
+  resolveRegion: (() => KimiRegion | undefined) | undefined,
+): Promise<RgResolution> {
   if (downloadPromise !== undefined) return downloadPromise;
   downloadPromise = (async () => {
     try {
       const existing = await findExistingRg(probe, shareDir, true);
       if (existing) return existing;
-      const binPath = await downloadAndInstallRg(shareDir);
+      const binPath = await downloadAndInstallRg(shareDir, resolveRegion);
       return { path: binPath, source: 'share-bin-downloaded' };
     } finally {
       downloadPromise = undefined;
@@ -154,9 +161,7 @@ async function findRgOnPath(): Promise<string | undefined> {
 
 async function isExecutableFile(path: string): Promise<boolean> {
   try {
-    const info = await stat(path);
-    if (!info.isFile()) return false;
-    return process.platform === 'win32' || (info.mode & 0o111) !== 0;
+    return (await stat(path)).isFile();
   } catch {
     return false;
   }
@@ -174,7 +179,10 @@ export function detectTarget(): string | undefined {
   return undefined;
 }
 
-async function downloadAndInstallRg(shareDir: string): Promise<string> {
+async function downloadAndInstallRg(
+  shareDir: string,
+  resolveRegion: (() => KimiRegion | undefined) | undefined,
+): Promise<string> {
   const target = detectTarget();
   if (target === undefined) {
     throw new Error2(
@@ -195,7 +203,7 @@ async function downloadAndInstallRg(shareDir: string): Promise<string> {
       { details: { archiveName } },
     );
   }
-  const url = `${rgBaseUrl()}/${archiveName}`;
+  const url = `${rgBaseUrl(resolveRegion)}/${archiveName}`;
 
   const binDir = join(shareDir, 'bin');
   await mkdir(binDir, { recursive: true });
@@ -267,7 +275,7 @@ export async function verifyArchiveChecksum(
   archiveName: string,
   expectedSha256: string,
 ): Promise<void> {
-  const actualSha256 = new Bun.CryptoHasher('sha256')
+  const actualSha256 = createHash('sha256')
     .update(await readFile(archivePath))
     .digest('hex');
   if (actualSha256 !== expectedSha256) {
@@ -314,20 +322,13 @@ export async function extractRgFromZip(archivePath: string, destination: string)
             zipfile.close();
             return;
           }
-          const staging = `${destination}.partial-${String(process.pid)}-${String(Date.now())}`;
-          const out = createWriteStream(staging);
+          const out = createWriteStream(destination);
           void (async () => {
             try {
               await pipeline(stream, out);
-              await chmod(staging, 0o755);
-              if (process.platform === 'win32') {
-                await chmod(destination, 0o644).catch(() => null);
-              }
-              await rename(staging, destination);
               zipfile.close();
               resolve();
             } catch (error) {
-              await rm(staging, { force: true }).catch(() => null);
               zipfile.close();
               reject(
                 new Error2(

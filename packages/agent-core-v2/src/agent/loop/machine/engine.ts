@@ -363,7 +363,7 @@ export function machineEngineAttachBundle(
   const baseJournal = options.journal;
   const initialTurnId = options.initialTurnId ?? 0;
   const journal = engineJournal(baseJournal, initialTurnId);
-  const store: AgentEventStore = createEventStoreSync({ journal, slices: agentSlices });
+  const store: AgentEventStore = createEventStoreSync({ journal, slices: agentSlices, mutableReplay: true });
   tools.sync();
   return {
     store,

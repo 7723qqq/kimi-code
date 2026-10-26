@@ -1,9 +1,6 @@
 import { randomBytes } from 'node:crypto';
 
-import { kimiRegionProfile, resolveKimiRegion } from '@moonshot-ai/kimi-code-oauth';
-
 import { isAbortError } from '#/_base/utils/abort';
-import type { FetchLike } from '#/_base/utils/fetchLike';
 import type { IFileSystemStorageService } from '#/persistence/interface/storage';
 
 export type CloudPrimitive = boolean | number | string | undefined | null;
@@ -21,6 +18,8 @@ export interface CloudEvent {
   readonly properties: CloudProperties;
 }
 
+import type { FetchLike } from '#/_base/utils/fetchLike';
+
 export interface EnrichedCloudEvent extends CloudEvent {
   readonly context: CloudContext;
 }
@@ -34,16 +33,15 @@ export interface CloudTransportOptions {
   readonly storage: IFileSystemStorageService;
   readonly deviceId: string;
   readonly endpoint?: string;
-  readonly homeDir?: string;
-  readonly readMarker?: boolean;
+  readonly resolveEndpoint?: () => string | undefined;
   readonly getAccessToken?: () => string | null | Promise<string | null>;
   readonly fetchImpl?: FetchLike;
   readonly retryBackoffsMs?: readonly number[];
   readonly requestTimeoutMs?: number;
-  readonly maxDiskFiles?: number;
-  readonly maxDiskBytes?: number;
   readonly sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
   readonly now?: () => number;
+  readonly maxDiskFiles?: number;
+  readonly maxDiskBytes?: number;
 }
 
 export const SERVER_EVENT_PREFIX = 'kfc_';
@@ -61,44 +59,44 @@ const JSONL_SUFFIX = '.jsonl';
 const textEncoder = new TextEncoder();
 const textDecoder = new TextDecoder();
 
-function defaultTelemetryEndpoint(homeDir?: string, readMarker = true): string | undefined {
-  return kimiRegionProfile(resolveKimiRegion({ readMarker, homeDir })).telemetryEndpoint;
+export interface DiskEventCaps {
+  readonly maxDiskFiles?: number;
+  readonly maxDiskBytes?: number;
 }
 
 export class CloudTransport {
   private readonly storage: IFileSystemStorageService;
   private readonly deviceId: string;
   private readonly endpoint: string | undefined;
+  private readonly resolveEndpoint: () => string | undefined;
   private readonly getAccessToken: (() => string | null | Promise<string | null>) | null;
   private readonly fetchImpl: FetchLike;
   private readonly retryBackoffsMs: readonly number[];
   private readonly requestTimeoutMs: number;
-  private readonly maxDiskFiles: number;
-  private readonly maxDiskBytes: number;
   private readonly sleepImpl: (ms: number, signal?: AbortSignal) => Promise<void>;
   private readonly now: () => number;
 
   constructor(options: CloudTransportOptions) {
     this.storage = options.storage;
     this.deviceId = options.deviceId;
-    this.endpoint =
-      options.endpoint ??
-      defaultTelemetryEndpoint(
-        options.homeDir,
-        options.readMarker ?? process.env['KIMI_CODE_REGION_MARKER'] !== 'off',
-      );
+    this.endpoint = options.endpoint;
+    this.resolveEndpoint = options.resolveEndpoint ?? (() => undefined);
     this.getAccessToken = options.getAccessToken ?? null;
     this.fetchImpl = options.fetchImpl ?? globalThis.fetch.bind(globalThis);
     this.retryBackoffsMs = options.retryBackoffsMs ?? RETRY_BACKOFFS_MS;
     this.requestTimeoutMs = options.requestTimeoutMs ?? DEFAULT_REQUEST_TIMEOUT_MS;
-    this.maxDiskFiles = options.maxDiskFiles ?? DISK_EVENT_MAX_FILES;
-    this.maxDiskBytes = options.maxDiskBytes ?? DISK_EVENT_MAX_BYTES;
     this.sleepImpl = options.sleep ?? abortableSleep;
     this.now = options.now ?? Date.now;
   }
 
+  private currentEndpoint(): string | undefined {
+    return this.endpoint ?? this.resolveEndpoint();
+  }
+
   async send(events: readonly EnrichedCloudEvent[], signal?: AbortSignal): Promise<void> {
-    if (events.length === 0 || this.endpoint === undefined) return;
+    if (events.length === 0) return;
+    const endpoint = this.currentEndpoint();
+    if (endpoint === undefined) return;
     let savedToDisk = false;
     const saveEventsToDisk = async (): Promise<void> => {
       if (savedToDisk) return;
@@ -120,7 +118,7 @@ export class CloudTransport {
     try {
       for (let attempt = 0; attempt <= this.retryBackoffsMs.length; attempt++) {
         try {
-          await this.sendHttp(payload, signal);
+          await this.sendHttp(payload, signal, endpoint);
           return;
         } catch (error) {
           if (isSignalAborted(signal) || isAbortError(error)) {
@@ -153,29 +151,51 @@ export class CloudTransport {
   }
 
   async retryDiskEvents(): Promise<void> {
-    if (this.endpoint === undefined) return;
-    await this.pruneExpiredDiskEvents();
+    const endpoint = this.currentEndpoint();
     const keys = await this.storage.list(TELEMETRY_SCOPE, FAILED_PREFIX);
+    const now = this.now();
     for (const key of keys) {
       if (!key.startsWith(FAILED_PREFIX) || !key.endsWith(JSONL_SUFFIX)) continue;
+      const createdAt = parseFailedTimestamp(key);
+      if (createdAt === undefined || now - createdAt > DISK_EVENT_MAX_AGE_MS) {
+        await this.storage.delete(TELEMETRY_SCOPE, key).catch(() => undefined);
+        continue;
+      }
 
       let events: EnrichedCloudEvent[];
-      let payload: CloudPayload;
       try {
         events = await this.readJsonl(key);
+      } catch (error) {
+        if (error instanceof SyntaxError || error instanceof TypeError) {
+          await this.storage.delete(TELEMETRY_SCOPE, key).catch(() => undefined);
+        }
+        continue;
+      }
+
+      if (endpoint === undefined) continue;
+
+      let payload: CloudPayload;
+      try {
         payload = buildPayload(events, this.deviceId);
-      } catch {
+      } catch (error) {
+        if (error instanceof SyntaxError || error instanceof TypeError) {
+          await this.storage.delete(TELEMETRY_SCOPE, key).catch(() => undefined);
+        }
         continue;
       }
 
       try {
-        await this.sendHttp(payload);
+        await this.sendHttp(payload, undefined, endpoint);
         await this.storage.delete(TELEMETRY_SCOPE, key);
       } catch (error) {
         if (error instanceof TransientCloudError) continue;
       }
     }
   }
+
+
+  readonly maxDiskFiles: number = DISK_EVENT_MAX_FILES;
+  readonly maxDiskBytes: number = DISK_EVENT_MAX_BYTES;
 
   async pruneExpiredDiskEvents(): Promise<void> {
     const listed = await this.storage.list(TELEMETRY_SCOPE, FAILED_PREFIX);
@@ -233,7 +253,11 @@ export class CloudTransport {
     return events;
   }
 
-  private async sendHttp(payload: CloudPayload, signal?: AbortSignal): Promise<void> {
+  private async sendHttp(
+    payload: CloudPayload,
+    signal: AbortSignal | undefined,
+    endpoint: string,
+  ): Promise<void> {
     const token = this.getAccessToken === null ? null : await this.getAccessToken();
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
@@ -242,10 +266,10 @@ export class CloudTransport {
       headers['Authorization'] = `Bearer ${token}`;
     }
 
-    const response = await this.post(payload, headers, signal);
+    const response = await this.post(payload, headers, signal, endpoint);
     if (response.status === 401 && headers['Authorization'] !== undefined) {
       delete headers['Authorization'];
-      const retry = await this.post(payload, headers, signal);
+      const retry = await this.post(payload, headers, signal, endpoint);
       handleStatus(retry.status);
       return;
     }
@@ -255,12 +279,9 @@ export class CloudTransport {
   private async post(
     payload: CloudPayload,
     headers: Record<string, string>,
-    signal?: AbortSignal,
+    signal: AbortSignal | undefined,
+    endpoint: string,
   ): Promise<Response> {
-    const endpoint = this.endpoint;
-    if (endpoint === undefined) {
-      throw new TransientCloudError('telemetry endpoint is disabled');
-    }
     try {
       return await fetchWithTimeout(
         this.fetchImpl,

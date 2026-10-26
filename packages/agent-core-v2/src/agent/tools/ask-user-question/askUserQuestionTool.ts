@@ -2,7 +2,30 @@ import { randomUUID } from 'node:crypto';
 
 import { CoreErrors } from '#/_base/errors/codes';
 import { Error2 } from '#/_base/errors/errors';
+import { toInputJsonSchema } from '#/tool/input-schema';
 import { isAbortError } from '#/_base/utils/abort';
+import { IAgentTaskService } from '#/agent/task/task';
+import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import type { QuestionAnsweredEvent, QuestionDismissedEvent } from '#/app/telemetry/events';
+import type {
+  ExecutableToolContext,
+  ExecutableToolResult,
+  ToolExecution,
+} from '#/tool/toolContract';
+import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
+
+import {
+  INTERACTION_TAG_AGENT_ID,
+  INTERACTION_TAG_SESSION_ID,
+  INTERACTION_TAG_TOOL_CALL_ID,
+  INTERACTION_TAG_TURN_ID,
+  isInteractionCancellation,
+  type InteractionTags,
+} from '#/human/interaction/interaction';
+import { interactions } from '#/human/interaction/facade';
 import type {
   QuestionAnswers,
   QuestionAnswerMethod,
@@ -10,30 +33,7 @@ import type {
   QuestionResponse,
   QuestionResult,
 } from '#/agent/interaction/question';
-import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { IAgentTaskService } from '#/agent/task/task';
-import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
-import { registerAgentToolService } from '#/agent/toolRegistry/toolContribution';
-import type { QuestionAnsweredEvent, QuestionDismissedEvent } from '#/app/telemetry/events';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { interactions } from '#/human/interaction/facade';
-import {
-  INTERACTION_TAG_AGENT_ID,
-  INTERACTION_TAG_SESSION_ID,
-  INTERACTION_TAG_TOOL_CALL_ID,
-  INTERACTION_TAG_TURN_ID,
-  isInteractionCancellation,
-  type InteractionCancellation,
-  type InteractionTags,
-} from '#/human/interaction/interaction';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import type {
-  ExecutableToolContext,
-  ExecutableToolResult,
-  ToolExecution,
-} from '#/tool/toolContract';
-
 import {
   AskUserQuestionInputSchema,
   AskUserQuestionInputSchemaWithBackground,
@@ -48,6 +48,8 @@ const QUESTION_DISMISSED_MESSAGE = 'User dismissed the question without answerin
 
 const QUESTION_UNSUPPORTED_FAILURE_MESSAGE =
   'The connected client does not support interactive questions. Do NOT call this tool again. Ask the user directly in your text response instead.';
+
+const QUESTION_NON_INTERACTIVE_MESSAGE = 'Nobody can answer questions in a non-interactive run.';
 
 const BACKGROUND_DESCRIPTION =
   '- Set background=true when you can keep working without the answer. This starts a background question task and returns a task_id immediately. The answer arrives automatically in a later turn — you do not need to poll, sleep, or check on it. Continue with other work; never fabricate or predict the answer.';
@@ -68,6 +70,7 @@ export class AskUserQuestionTool implements IAskUserQuestionTool {
     @IAgentTaskService private readonly tasks: IAgentTaskService,
     @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
     @IAgentToolPolicyService private readonly toolPolicy: IAgentToolPolicyService,
+    @IBootstrapService private readonly bootstrap: IBootstrapService,
   ) {}
 
   get description(): string {
@@ -93,6 +96,10 @@ export class AskUserQuestionTool implements IAskUserQuestionTool {
     args: AskUserQuestionInput,
     { toolCallId, signal, turnId, trace }: ExecutableToolContext,
   ): Promise<ExecutableToolResult> {
+    if (this.bootstrap.args.nonInteractive === true) {
+      return { isError: true, output: QUESTION_NON_INTERACTIVE_MESSAGE };
+    }
+
     if (args.background === true && !this.allowBackground()) {
       return { isError: true, output: BACKGROUND_UNAVAILABLE_MESSAGE };
     }
@@ -135,8 +142,7 @@ export class AskUserQuestionTool implements IAskUserQuestionTool {
     try {
       taskId = this.tasks.registerTask(
         new QuestionBackgroundTask(
-          (taskSignal) =>
-            this.executeQuestion(args, { toolCallId, turnId, signal: taskSignal, trace }),
+          (taskSignal) => this.executeQuestion(args, { toolCallId, turnId, signal: taskSignal, trace }),
           description,
           { questionCount: args.questions.length, toolCallId },
         ),
@@ -169,17 +175,9 @@ export class AskUserQuestionTool implements IAskUserQuestionTool {
     }: Pick<ExecutableToolContext, 'toolCallId' | 'signal' | 'turnId' | 'trace'>,
   ): Promise<ExecutableToolResult> {
     try {
-      const outcome = await this.requestQuestion(args, { toolCallId, turnId, signal });
-      if (isInteractionCancellation(outcome) && outcome.reason === 'unsupported') {
-        return {
-          isError: true,
-          output: QUESTION_UNSUPPORTED_FAILURE_MESSAGE,
-        };
-      }
+      const result = await this.requestQuestion(args, { toolCallId, turnId, signal });
 
-      const normalized = normalizeQuestionResult(
-        isInteractionCancellation(outcome) ? null : outcome,
-      );
+      const normalized = normalizeQuestionResult(result);
       if (normalized === null || Object.keys(normalized.answers).length === 0) {
         const properties: QuestionDismissedEvent = {
           trace_id: trace?.traceId,
@@ -214,8 +212,12 @@ export class AskUserQuestionTool implements IAskUserQuestionTool {
 
   private requestQuestion(
     args: AskUserQuestionInput,
-    { toolCallId, signal, turnId }: Pick<ExecutableToolContext, 'toolCallId' | 'signal' | 'turnId'>,
-  ): Promise<QuestionResult | InteractionCancellation> {
+    {
+      toolCallId,
+      signal,
+      turnId,
+    }: Pick<ExecutableToolContext, 'toolCallId' | 'signal' | 'turnId'>,
+  ): Promise<QuestionResult> {
     const id = `question_${randomUUID()}`;
     const tags: InteractionTags = {
       [INTERACTION_TAG_AGENT_ID]: this.scopeContext.agentId,
@@ -242,7 +244,7 @@ export class AskUserQuestionTool implements IAskUserQuestionTool {
         },
         tags,
       })
-      .then((response) => response as QuestionResult | InteractionCancellation);
+      .then((response) => (isInteractionCancellation(response) ? null : (response as QuestionResult)));
     if (signal.aborted) {
       interactions.respond(id, null);
     } else {
@@ -280,10 +282,9 @@ function dismissedQuestionResult(): ExecutableToolResult {
   };
 }
 
-function normalizeQuestionResult(result: QuestionResult): {
-  readonly answers: QuestionAnswers;
-  readonly method?: QuestionAnswerMethod | undefined;
-} | null {
+function normalizeQuestionResult(
+  result: QuestionResult,
+): { readonly answers: QuestionAnswers; readonly method?: QuestionAnswerMethod | undefined } | null {
   if (result === null) return null;
   if (isQuestionResponse(result)) {
     return {

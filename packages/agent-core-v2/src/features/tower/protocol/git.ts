@@ -1,3 +1,4 @@
+import { execFile } from 'node:child_process';
 import { realpath } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 
@@ -16,6 +17,7 @@ export class GitError extends Error {
 
 export interface GitOptions {
   readonly env?: Readonly<Record<string, string>>;
+  readonly input?: string;
 }
 
 export async function git(
@@ -23,22 +25,32 @@ export async function git(
   args: readonly string[],
   options: GitOptions = {},
 ): Promise<string> {
-  const proc = Bun.spawn(['git', ...args], {
-    cwd,
-    stdout: 'pipe',
-    stderr: 'pipe',
-    timeout: GIT_TIMEOUT_MS,
-    env: options.env === undefined ? process.env : { ...process.env, ...options.env },
+  return new Promise((resolve, reject) => {
+    const child = execFile(
+      'git',
+      [...args],
+      {
+        cwd,
+        timeout: GIT_TIMEOUT_MS,
+        maxBuffer: 16 * 1024 * 1024,
+        env: options.env === undefined ? process.env : { ...process.env, ...options.env },
+      },
+      (error, stdout, stderr) => {
+        if (error !== null) {
+          reject(
+            new GitError(
+              args,
+              stderr || error.message,
+              typeof error.code === 'number' ? error.code : undefined,
+            ),
+          );
+          return;
+        }
+        resolve(stdout.trimEnd());
+      },
+    );
+    if (options.input !== undefined) child.stdin?.end(options.input);
   });
-  const [stdout, stderr, code] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ]);
-  if (code !== 0) {
-    throw new GitError(args, stderr || `exit ${code}`, code);
-  }
-  return stdout.trimEnd();
 }
 
 export async function tryGit(cwd: string, args: readonly string[]): Promise<string | null> {
@@ -160,16 +172,8 @@ export async function isRegisteredWorktree(repoRoot: string, path: string): Prom
   return inside.length > 0 && !inside.startsWith('..') && !isAbsolute(inside);
 }
 
-export type WorktreeDirtyState = 'clean' | 'dirty' | 'unknown';
-
-export async function worktreeDirtyState(path: string): Promise<WorktreeDirtyState> {
-  const status = await tryGit(path, ['status', '--porcelain']);
-  if (status === null) return 'unknown';
-  return status.trim().length > 0 ? 'dirty' : 'clean';
-}
-
 export async function isWorktreeDirty(path: string): Promise<boolean> {
-  return (await worktreeDirtyState(path)) === 'dirty';
+  return (await git(path, ['status', '--porcelain'])).trim().length > 0;
 }
 
 async function hasMergeHead(cwd: string): Promise<boolean> {

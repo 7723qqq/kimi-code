@@ -10,14 +10,12 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { createKimiDeviceId as createKimiDeviceIdFn } from '@moonshot-ai/kimi-code-oauth';
-import * as oauthModule from '@moonshot-ai/kimi-code-oauth';
-import * as sdkModule from '@moonshot-ai/kimi-code-sdk';
 import { Command } from 'commander';
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { setEnv, restoreEnvs } from '#test/helpers/stubs';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
+import { setEnv, restoreEnvs } from '../helpers/stubs';
 
 import { handleExport, registerExportCommand } from '#/cli/sub/export';
-import { refreshKimiRegion } from '#/utils/region';
+import { resetKimiRegionCache } from '#/utils/region';
 import type { ExportDeps } from '#/cli/sub/export';
 import type {
   ExportSessionInput,
@@ -30,29 +28,30 @@ let tmp: string;
 
 type CreateKimiDeviceId = typeof createKimiDeviceIdFn;
 
-const mocks = (() => ({
-  kimiHarnessConstructor: mock(),
-  harnessEnsureConfigFile: mock(),
-  harnessGetConfig: mock(async () => ({
+const mocks = ({
+  kimiHarnessConstructor: jest.fn(),
+  harnessEnsureConfigFile: jest.fn(),
+  harnessGetConfig: jest.fn(async () => ({
     providers: {},
     defaultModel: 'k2',
     telemetry: true,
   })),
-  harnessGetCachedAccessToken: mock(),
-  harnessExportSession: mock(),
-  harnessClose: mock(async () => {}),
-  harnessTrack: mock(),
-  createKimiDeviceId: mock<CreateKimiDeviceId>(() => 'device-1'),
-  initializeTelemetry: mock(),
-  shutdownTelemetry: mock(),
-  telemetryTrack: mock(),
-  setTelemetryContext: mock(),
-  withTelemetryContext: mock(),
-  resolveKimiHome: mock((homeDir?: string) => homeDir ?? '/tmp/kimi-export-home'),
+  harnessGetCachedAccessToken: jest.fn(),
+  harnessExportSession: jest.fn(),
+  harnessClose: jest.fn(async () => {}),
+  harnessTrack: jest.fn(),
+  createKimiDeviceId: jest.fn<CreateKimiDeviceId>(() => 'device-1'),
+  initializeTelemetry: jest.fn(),
+  shutdownTelemetry: jest.fn(),
+  telemetryTrack: jest.fn(),
+  setTelemetryContext: jest.fn(),
+  withTelemetryContext: jest.fn(),
+  resolveKimiHome: jest.fn((homeDir?: string) => homeDir ?? '/tmp/kimi-export-home'),
   harnessCreatesDeviceIdOnConstruction: false,
-}))();
+}));
 
-void mock.module('@moonshot-ai/kimi-code-sdk', () => {
+jest.mock('@moonshot-ai/kimi-code-sdk', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@moonshot-ai/kimi-code-sdk')>();
   const createFakeHarness = (options: { readonly homeDir?: string } | undefined) => {
     const homeDir = options?.homeDir ?? '/tmp/kimi-export-home';
     if (mocks.harnessCreatesDeviceIdOnConstruction) {
@@ -71,7 +70,7 @@ void mock.module('@moonshot-ai/kimi-code-sdk', () => {
     };
   };
   return {
-    ...sdkModule,
+    ...actual,
     resolveKimiHome: mocks.resolveKimiHome,
     createKimiHarness: (...args: unknown[]) => {
       mocks.kimiHarnessConstructor(...args);
@@ -80,15 +79,18 @@ void mock.module('@moonshot-ai/kimi-code-sdk', () => {
   };
 });
 
-void mock.module('@moonshot-ai/kimi-code-oauth', () => {
+jest.mock('@moonshot-ai/kimi-code-oauth', async () => {
+  const actual = await jest.importActual<typeof import('@moonshot-ai/kimi-code-oauth')>(
+    '@moonshot-ai/kimi-code-oauth',
+  );
   return {
-    ...oauthModule,
+    ...actual,
     createKimiDeviceId: mocks.createKimiDeviceId,
     KIMI_CODE_PROVIDER_NAME: 'kimi-code',
   };
 });
 
-void mock.module('@moonshot-ai/kimi-telemetry', () => ({
+jest.mock('@moonshot-ai/kimi-telemetry', () => ({
   initializeTelemetry: mocks.initializeTelemetry,
   shutdownTelemetry: mocks.shutdownTelemetry,
   track: mocks.telemetryTrack,
@@ -100,15 +102,15 @@ beforeEach(() => {
   // Pin region to cn: the telemetry endpoint assertion must not follow the
   // dev machine's own login/marker state.
   setEnv('KIMI_CODE_OAUTH_HOST', 'https://auth.kimi.com');
-  refreshKimiRegion();
+  resetKimiRegionCache();
   tmp = mkdtempSync(join(tmpdir(), 'kimi-export-'));
 });
 
 afterEach(() => {
   restoreEnvs();
-  refreshKimiRegion();
+  resetKimiRegionCache();
   rmSync(tmp, { recursive: true, force: true });
-  mock.clearAllMocks();
+  jest.clearAllMocks();
   mocks.harnessGetConfig.mockResolvedValue({
     providers: {},
     defaultModel: 'k2',
@@ -172,7 +174,7 @@ function makeDeps(overrides: Partial<ExportDeps> = {}): {
       exportInputs.push(input);
       return makeResult(input.id, input.outputPath ?? join(tmp, `${input.id}.zip`));
     },
-    confirmPreviousSession: async () => 'yes',
+    confirmPreviousSession: async () => true,
     getInstallSource: async () => 'npm-global',
     getShellEnv: () => ({ term: 'xterm-256color', shell: '/bin/zsh' }),
     version: '1.0.0-test',
@@ -292,7 +294,7 @@ describe('kimi export', () => {
       listSessions: async () => [previous],
       confirmPreviousSession: async (summary) => {
         summaries.push(summary);
-        return 'no';
+        return false;
       },
     });
 
@@ -341,7 +343,7 @@ describe('kimi export', () => {
     const previous = makeSummary('ses_global_log');
     const { deps, stdout, exitCodes, exportInputs } = makeDeps({
       listSessions: async () => [previous],
-      confirmPreviousSession: async () => 'yes',
+      confirmPreviousSession: async () => true,
     });
     const program = new Command('kimi');
     registerExportCommand(program, deps);
@@ -408,8 +410,8 @@ describe('kimi export', () => {
         },
       }),
     );
-    expect(mocks.harnessEnsureConfigFile).toHaveBeenCalledTimes(1);
-    expect(mocks.harnessGetConfig).toHaveBeenCalledTimes(1);
+    expect(mocks.harnessEnsureConfigFile).toHaveBeenCalledOnce();
+    expect(mocks.harnessGetConfig).toHaveBeenCalledOnce();
     expect(mocks.createKimiDeviceId).toHaveBeenCalledWith(
       '/tmp/kimi-export-home',
       expect.objectContaining({ onFirstLaunch: expect.any(Function) }),
@@ -423,6 +425,9 @@ describe('kimi export', () => {
       uiMode: 'shell',
       model: 'k2',
       sessionId: undefined,
+      region: 'mainland-cn',
+      regionSource: 'env',
+      resolveRegion: expect.any(Function),
       endpoint: expect.any(Function),
       getAccessToken: expect.any(Function),
       onUnexpectedError: expect.any(Function),

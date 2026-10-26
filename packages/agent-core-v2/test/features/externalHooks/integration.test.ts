@@ -966,7 +966,7 @@ describe('IExternalHooksRunnerService integration', () => {
     expect(unmatched).toHaveLength(0);
   });
 
-  it('runs session external hooks from lifecycle callbacks', async () => {
+  it('runs session external hooks from lifecycle callbacks and skips idle reclaim and reload', async () => {
     const disposables = new DisposableStore();
     let ix: TestInstantiationService | undefined;
     try {
@@ -1025,7 +1025,9 @@ describe('IExternalHooksRunnerService integration', () => {
 
       await lifecycle.fireDidCreate('startup');
       await lifecycle.fireDidCreate('resume');
+      await lifecycle.fireDidCreate('reclaimed');
       await lifecycle.fireDidCreate('fork');
+      await lifecycle.fireWillClose('reclaim');
       await lifecycle.fireWillClose('exit');
       await lifecycle.fireWillClose('archive');
 

@@ -1,6 +1,5 @@
 import type { PromptOrigin } from '@moonshot-ai/agent-core-v2';
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import type { Mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
 
 import {
   mountSessionRating,
@@ -112,9 +111,7 @@ interface Harness {
   readonly host: FakeHost;
   readonly env: MutableEnvironment;
   readonly clock: { mono: number; wall: number };
-  readonly track: Mock<
-    (event: string, properties: Record<string, unknown>, context?: { sessionId: string }) => void
-  >;
+  readonly track: ReturnType<typeof jest.fn>;
   readonly writes: number[];
   readonly ledger: SessionRatingLedger;
   readonly randomCalls: () => number;
@@ -128,7 +125,7 @@ interface Harness {
 function createHarness(options: HarnessOptions = {}): Harness {
   const clock = { mono: 0, wall: 1_700_000_000_000 };
   const scheduler = createScheduler(clock);
-  const track = mock();
+  const track = jest.fn();
   const writes: number[] = [];
   let offer: RatingOffer | undefined;
   const ledger = new SessionRatingLedger({
@@ -452,7 +449,7 @@ describe('session rating mount end', () => {
     harness.mount.end();
     harness.mount.end();
     expect(harness.mount.evaluate()).toBeUndefined();
-    expect(harness.track.mock.calls.map((call) => call[1]['event_type'])).toEqual(['appeared']);
+    expect(harness.track.mock.calls.map((call) => call[1].event_type)).toEqual(['appeared']);
 
     harness.ledger.report('', { type: 'respond', appearanceId: 'appearance-1', response: 'fine' });
     expect(trackedEvent(harness, 'responded')).toMatchObject({ response: 'fine', user_turn_count: 1 });
@@ -1592,7 +1589,7 @@ describe('session rating event payload', () => {
 
   it('refreshes and defers when the config cache has gone stale', async () => {
     let fresh = true;
-    const refreshConfig = mock(() => {
+    const refreshConfig = jest.fn(() => {
       fresh = true;
     });
     const harness = createHarness({ configFresh: () => fresh, refreshConfig });
@@ -1617,7 +1614,7 @@ describe('session rating event payload', () => {
   it('defers the evaluation that triggers a refresh so a stale policy cannot open the survey', async () => {
     let region = 'region-a';
     let config = { ...DEFAULT_SURVEY_POPUP_PAYLOAD, probability: 1 };
-    const refreshConfig = mock(() => {
+    const refreshConfig = jest.fn(() => {
       config = { ...config, probability: 0 };
     });
     const harness = createHarness({
@@ -1646,7 +1643,7 @@ describe('session rating event payload', () => {
   it('evaluates with the refreshed policy on the next turn after the deferred evaluation', async () => {
     let region = 'region-a';
     let config = { ...DEFAULT_SURVEY_POPUP_PAYLOAD, probability: 1, on_for_models: ['other-model'] };
-    const refreshConfig = mock(() => {
+    const refreshConfig = jest.fn(() => {
       config = { ...config, on_for_models: ['*'] };
     });
     const harness = createHarness({
@@ -1675,7 +1672,7 @@ describe('session rating event payload', () => {
 
   it('re-refreshes the cloud config when the region changes', async () => {
     let region = 'region-a';
-    const refreshConfig = mock();
+    const refreshConfig = jest.fn();
     const harness = createHarness({ refreshConfig, configRegion: () => region });
     await harness.flush();
     expect(refreshConfig).toHaveBeenCalledTimes(1);
@@ -1687,7 +1684,7 @@ describe('session rating event payload', () => {
   });
 
   it('re-refreshes the cloud config once the previous refresh is over an hour old', async () => {
-    const refreshConfig = mock();
+    const refreshConfig = jest.fn();
     const harness = createHarness({ refreshConfig });
     await harness.flush();
     expect(refreshConfig).toHaveBeenCalledTimes(1);

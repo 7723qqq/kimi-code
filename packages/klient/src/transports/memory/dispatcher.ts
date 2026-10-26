@@ -2,10 +2,10 @@
  * In-process dispatcher — resolves a wire triple `(service, method, args)`
  * against a live engine scope and mirrors kap-server's dispatcher semantics
  * (reflection call, non-function members are property reads, `main` agent
- * auto-materialized via `ensureMainAgent`). Scope routing resolves live
- * sessions through the App `SessionManager`, matching the server's
- * `resolveScope`; a `workspaceId` scope is refused outright, since an engine
- * workspace instance is not a routable scope here. Every argument,
+ * auto-materialized via `ensureMainAgent`, other registered agents lazily
+ * rebuilt via `getOrRestoreAgent`). Scope routing resolves workspace
+ * instances through `IWorkspaceInstanceManager` and live sessions through the
+ * App `SessionManager`, matching the server's `resolveScope`. Every argument,
  * result, and event payload passes
  * through `wireClone` (a JSON round-trip), so consumers observe
  * byte-identical data no matter whether the call crossed a socket or stayed
@@ -17,23 +17,31 @@
 
 import { Readable } from 'node:stream';
 
-import type { ServiceIdentifier } from '@moonshot-ai/agent-core-v2';
-import type { IAgentScopeHandle } from '@moonshot-ai/agent-core-v2';
-import type { SkillActivationOrigin } from '@moonshot-ai/agent-core-v2';
-import type { FileMeta, GetResult, SaveOptions } from '@moonshot-ai/agent-core-v2';
-import { getOrRestoreAgent } from '@moonshot-ai/agent-core-v2';
+import type { ServiceIdentifier } from '@moonshot-ai/agent-core-v2/_base/di/instantiation';
+import type { IAgentScopeHandle } from '@moonshot-ai/agent-core-v2/_base/di/scope';
 import { IAgentLoopService } from '@moonshot-ai/agent-core-v2/agent/loop/loop';
+import { getLiveSessionById } from '@moonshot-ai/agent-core-v2/app/sessionManager/sessionLookup';
+import { ISessionManager } from '@moonshot-ai/agent-core-v2/app/sessionManager/sessionManager';
+import type {
+  FileMeta,
+  GetResult,
+  SaveOptions,
+} from '@moonshot-ai/agent-core-v2/app/file/fileService';
+import { IAgentLifecycleService } from '@moonshot-ai/agent-core-v2/session/agentLifecycle/agentLifecycle';
+import { MAIN_AGENT_ID } from '@moonshot-ai/agent-core-v2/session/agentLifecycle/agentLifecycle';
+import { ensureMainAgent } from '@moonshot-ai/agent-core-v2/session/agentLifecycle/mainAgent';
+import { getOrRestoreAgent } from '@moonshot-ai/agent-core-v2/session/agentLifecycle/getOrRestoreAgent';
+import { IWorkspaceInstanceManager } from '@moonshot-ai/agent-core-v2/workspace/workspaceInstance/workspaceInstanceManager';
 import { agentContextOf } from '@moonshot-ai/agent-core-v2/agent/scopeContext/scopeContext';
 import { IEventBus } from '@moonshot-ai/agent-core-v2/app/event/eventBus';
 import { FileErrors } from '@moonshot-ai/agent-core-v2/app/file/fileService';
-import { getLiveSessionById } from '@moonshot-ai/agent-core-v2/app/sessionManager/sessionLookup';
-import { ISessionManager } from '@moonshot-ai/agent-core-v2/app/sessionManager/sessionManager';
 import { ITelemetryService } from '@moonshot-ai/agent-core-v2/app/telemetry/telemetry';
 import type {
   PromptWithSkillsInput,
   SkillActivationInput,
 } from '@moonshot-ai/agent-core-v2/contract';
 import { Error2, ErrorCodes } from '@moonshot-ai/agent-core-v2/errors';
+import type { SkillActivationOrigin } from '@moonshot-ai/agent-core-v2/agent/contextMemory/types';
 import { IAgentSkillService } from '@moonshot-ai/agent-core-v2/features/skill/skillService';
 import { interactions } from '@moonshot-ai/agent-core-v2/human/interaction/facade';
 import {
@@ -43,9 +51,6 @@ import {
   type InteractionKind,
   type InteractionRequest,
 } from '@moonshot-ai/agent-core-v2/human/interaction/interaction';
-import { IAgentLifecycleService } from '@moonshot-ai/agent-core-v2/session/agentLifecycle/agentLifecycle';
-import { MAIN_AGENT_ID } from '@moonshot-ai/agent-core-v2/session/agentLifecycle/agentLifecycle';
-import { ensureMainAgent } from '@moonshot-ai/agent-core-v2/session/agentLifecycle/mainAgent';
 
 import type { CallOptions, EventSourceRef, IDisposable, ScopeRef } from '../../core/channel.js';
 import { RPCError } from '../../core/errors.js';

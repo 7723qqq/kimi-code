@@ -1,7 +1,8 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
 
 import type { KimiRegion } from '@moonshot-ai/kimi-code-oauth';
 import { z } from 'zod';
@@ -20,13 +21,10 @@ const client = new ClientConfigClient({
 
 const configSchema = z.object({
   version: z.literal(1),
-  config: z.record(
-    z.string(),
-    z.object({ min_tokens_to_hint: z.number(), cache_duration: z.number() }),
-  ),
+  config: z.record(z.string(), z.object({ min_tokens_to_hint: z.number(), cache_duration: z.number() })),
 });
 
-const CONFIG: z.infer<typeof configSchema> = {
+const CONFIG = {
   version: 1,
   config: { k3: { min_tokens_to_hint: 200000, cache_duration: 600 } },
 };
@@ -49,10 +47,10 @@ afterEach(() => {
 
 describe('fetchClientConfig', () => {
   it('POSTs the config name and unwraps the envelope', async () => {
-    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
 
     const result = await client.fetch('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
     });
 
     expect(result).toEqual(CONFIG);
@@ -66,10 +64,10 @@ describe('fetchClientConfig', () => {
   });
 
   it('sends the bearer token when provided, anonymous otherwise', async () => {
-    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
 
     await client.fetch('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
       accessToken: 'tok',
     });
     expect(fetchImpl).toHaveBeenCalledWith(
@@ -80,7 +78,7 @@ describe('fetchClientConfig', () => {
     );
 
     await client.fetch('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
     });
     expect(fetchImpl).toHaveBeenLastCalledWith(
       expect.any(String),
@@ -91,54 +89,56 @@ describe('fetchClientConfig', () => {
   });
 
   it('returns undefined on non-OK responses', async () => {
-    const fetchImpl = mock(async () => jsonResponse('no', 503));
+    const fetchImpl = jest.fn(async () => jsonResponse('no', 503));
 
     await expect(
       client.fetch('estimated_cache_duration', configSchema, {
-        fetchImpl: fetchImpl as unknown as typeof fetch,
+        fetchImpl: fetchImpl as typeof fetch,
       }),
     ).resolves.toBeUndefined();
   });
 
   it('returns undefined when the payload fails the caller schema', async () => {
-    const fetchImpl = mock(async () =>
+    const fetchImpl = jest.fn(async () =>
       jsonResponse({ name: 'estimated_cache_duration', config: { version: 2, config: {} } }),
     );
 
     await expect(
       client.fetch('estimated_cache_duration', configSchema, {
-        fetchImpl: fetchImpl as unknown as typeof fetch,
+        fetchImpl: fetchImpl as typeof fetch,
       }),
     ).resolves.toBeUndefined();
   });
 
   it('returns undefined when the envelope name does not match', async () => {
-    const fetchImpl = mock(async () => jsonResponse({ name: 'some_other_config', config: CONFIG }));
+    const fetchImpl = jest.fn(async () =>
+      jsonResponse({ name: 'some_other_config', config: CONFIG }),
+    );
 
     await expect(
       client.fetch('estimated_cache_duration', configSchema, {
-        fetchImpl: fetchImpl as unknown as typeof fetch,
+        fetchImpl: fetchImpl as typeof fetch,
       }),
     ).resolves.toBeUndefined();
   });
 
   it('returns undefined when fetch throws', async () => {
-    const fetchImpl = mock(async () => {
+    const fetchImpl = jest.fn(async () => {
       throw new Error('offline');
     });
 
     await expect(
       client.fetch('estimated_cache_duration', configSchema, {
-        fetchImpl: fetchImpl as unknown as typeof fetch,
+        fetchImpl: fetchImpl as typeof fetch,
       }),
     ).resolves.toBeUndefined();
   });
 
   it('POSTs to a custom path when provided', async () => {
-    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
 
     const result = await client.fetch('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
       path: '/resource_configs',
     });
 
@@ -155,16 +155,16 @@ describe('fetchClientConfig', () => {
 
 describe('getClientConfig', () => {
   it('serves the in-process cache within a day', async () => {
-    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
     const first = await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
       now,
       cacheFile: null,
     });
     const second = await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
       now: now + 60_000,
       cacheFile: null,
     });
@@ -175,16 +175,16 @@ describe('getClientConfig', () => {
   });
 
   it('refetches when the cache is older than a day', async () => {
-    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
     await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
       now,
       cacheFile: null,
     });
     const result = await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
       now: now + 25 * 60 * 60 * 1000,
       cacheFile: null,
     });
@@ -195,18 +195,18 @@ describe('getClientConfig', () => {
 
   it('caches each config name independently', async () => {
     const other = { name: 'other_config', config: CONFIG };
-    const fetchImpl = mock(async (url: unknown, init?: { body?: string }) =>
+    const fetchImpl = jest.fn(async (url: unknown, init?: { body?: string }) =>
       jsonResponse(init?.body?.includes('other') ? other : ENVELOPE),
     );
     const now = Date.now();
 
     await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
       now,
       cacheFile: null,
     });
     const second = await client.get('other_config', configSchema, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
       now,
       cacheFile: null,
     });
@@ -216,27 +216,27 @@ describe('getClientConfig', () => {
   });
 
   it('resolves to undefined when the refetch fails', async () => {
-    const fetchImpl = mock(async () => jsonResponse('no', 500));
+    const fetchImpl = jest.fn(async () => jsonResponse('no', 500));
 
     await expect(
       client.get('estimated_cache_duration', configSchema, {
-        fetchImpl: fetchImpl as unknown as typeof fetch,
+        fetchImpl: fetchImpl as typeof fetch,
         cacheFile: null,
       }),
     ).resolves.toBeUndefined();
   });
 
   it('partitions the cache by path', async () => {
-    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
     await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
       now,
       cacheFile: null,
     });
     const second = await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
       now,
       cacheFile: null,
       path: '/resource_configs',
@@ -247,28 +247,26 @@ describe('getClientConfig', () => {
   });
 
   it('peeks a custom-path entry only when the path matches', async () => {
-    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
     await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
       now,
       cacheFile: null,
       path: '/resource_configs',
     });
 
-    expect(client.peek('estimated_cache_duration', configSchema, now, '/resource_configs')).toEqual(
-      CONFIG,
-    );
+    expect(client.peek('estimated_cache_duration', configSchema, now, '/resource_configs')).toEqual(CONFIG);
     expect(client.peek('estimated_cache_duration', configSchema, now)).toBeUndefined();
   });
 });
 
 describe('peekClientConfig', () => {
   it('returns the cached config only while fresh', async () => {
-    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
     await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
       now,
       cacheFile: null,
     });
@@ -300,10 +298,10 @@ describe('getClientConfig disk cache', () => {
   it('serves a fresh disk entry without network and warms the in-process cache', async () => {
     const now = Date.now();
     await writeFile(file, JSON.stringify({ version: 1, fetchedAt: now, config: CONFIG }));
-    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
 
     const result = await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
       now: now + 60_000,
       cacheFile: file,
     });
@@ -315,19 +313,19 @@ describe('getClientConfig disk cache', () => {
 
   it('serves the disk entry after the in-process cache is dropped (restart)', async () => {
     const now = Date.now();
-    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
     await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
       now,
       cacheFile: file,
     });
 
     client.reset();
-    const offline = mock(async (): Promise<Response> => {
+    const offline = jest.fn(async (): Promise<Response> => {
       throw new Error('offline');
     });
     const result = await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: offline as unknown as typeof fetch,
+      fetchImpl: offline as typeof fetch,
       now: now + 60_000,
       cacheFile: file,
     });
@@ -342,15 +340,13 @@ describe('getClientConfig disk cache', () => {
       file,
       JSON.stringify({ version: 1, fetchedAt: now - 23 * 60 * 60 * 1000, config: CONFIG }),
     );
-    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
     await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
       now,
       cacheFile: file,
     });
-    expect(
-      client.peek('estimated_cache_duration', configSchema, now + 2 * 60 * 60 * 1000),
-    ).toBeUndefined();
+    expect(client.peek('estimated_cache_duration', configSchema, now + 2 * 60 * 60 * 1000)).toBeUndefined();
   });
 
   it('refetches and rewrites the file when the disk entry is stale', async () => {
@@ -359,10 +355,10 @@ describe('getClientConfig disk cache', () => {
       file,
       JSON.stringify({ version: 1, fetchedAt: now - 25 * 60 * 60 * 1000, config: CONFIG }),
     );
-    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
 
     const result = await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
       now,
       cacheFile: file,
     });
@@ -375,10 +371,10 @@ describe('getClientConfig disk cache', () => {
 
   it('treats a malformed cache file as missing', async () => {
     await writeFile(file, 'not json');
-    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
 
     const result = await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
       cacheFile: file,
     });
 
@@ -391,10 +387,10 @@ describe('getClientConfig disk cache', () => {
       file,
       JSON.stringify({ version: 1, fetchedAt: Date.now(), config: { version: 2 } }),
     );
-    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
 
     const result = await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
       cacheFile: file,
     });
 
@@ -405,10 +401,10 @@ describe('getClientConfig disk cache', () => {
   it('still resolves when the cache file cannot be written', async () => {
     const blocker = join(dir, 'blocker');
     await writeFile(blocker, 'x');
-    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
 
     const result = await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
       cacheFile: join(blocker, 'nested', 'config.json'),
     });
 
@@ -419,16 +415,16 @@ describe('getClientConfig disk cache', () => {
     const home = await mkdtemp(join(tmpdir(), 'client-configs-home-'));
     cacheDir = join(home, 'cache', 'client-configs');
     try {
-      const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
+      const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
       const now = Date.now();
 
       await client.get('estimated_cache_duration', configSchema, {
-        fetchImpl: fetchImpl as unknown as typeof fetch,
+        fetchImpl: fetchImpl as typeof fetch,
         now,
         path: '/client_configs',
       });
       await client.get('estimated_cache_duration', configSchema, {
-        fetchImpl: fetchImpl as unknown as typeof fetch,
+        fetchImpl: fetchImpl as typeof fetch,
         now,
         path: '/client:configs',
       });
@@ -447,10 +443,10 @@ describe('region awareness', () => {
   });
 
   it('fetches from the active region profile and partitions the cache by region', async () => {
-    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
 
     const data = await client.get('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
       cacheFile: null,
     });
 
@@ -466,10 +462,10 @@ describe('region awareness', () => {
 
   it('keeps honoring the KIMI_CODE_BASE_URL override ahead of the profile', async () => {
     baseUrlOverride = 'https://env-api.example.com';
-    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
 
     await client.fetch('estimated_cache_duration', configSchema, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
     });
 
     expect(fetchImpl).toHaveBeenCalledWith(

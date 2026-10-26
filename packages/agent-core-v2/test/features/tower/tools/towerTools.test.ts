@@ -1,27 +1,32 @@
 import { execFile } from 'node:child_process';
 import { mkdir, mkdtemp, readFile, readdir, stat, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join, sep } from 'node:path';
+import { dirname, join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 
-import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
-import { type ServiceIdentifier } from '#/_base/di/instantiation';
+import type { ServiceIdentifier } from '#/_base/di/instantiation';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
 import { userCancellationReason } from '#/_base/utils/abort';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentTaskService, type AgentTaskInfo } from '#/agent/task/task';
 import { IAgentLoopService } from '#/agent/loop/loop';
-import { type AnyAgentTool } from '#/agent/toolRegistry/toolContribution';
+import type { AnyAgentTool } from '#/agent/toolRegistry/toolContribution';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { TOWER_TOOL_CONTRIBUTIONS } from '#/features/tower/towerFeature';
 import { IAgentTowerService } from '#/features/tower/tower';
 import { ITowerRateLimitService } from '#/features/tower/towerRateLimit';
-import { TowerStore } from '#/features/tower/protocol/index';
+import {
+  TOWER_GIT_CONCURRENCY,
+  TowerStore,
+  parseFrontmatter,
+} from '#/features/tower/protocol/index';
 import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
 import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { type ExecutableTool } from '#/tool/toolContract';
+import type { ExecutableTool } from '#/tool/toolContract';
 
 import { ITowerInitTool } from '#/features/tower/tools/init/init';
 import { TowerInitTool } from '#/features/tower/tools/init/initTool';
@@ -51,7 +56,7 @@ import { TowerStatusTool } from '#/features/tower/tools/status/statusTool';
 
 import { executeTool } from '../../../tools/fixtures/execute-tool';
 import { stubAgentContext } from '../../../agent/agentContext/stubs';
-import { type AgentContext } from '#/agent/agentContext/agentContext';
+import type { AgentContext } from '#/agent/agentContext/agentContext';
 import { TOWER_MODE_USER_ENABLED_ONLY } from '#/features/tower/tools/support';
 
 const execFileAsync = promisify(execFile);
@@ -83,6 +88,7 @@ let currentAgentId: string;
 let currentSessionId: string;
 let liveSessionIds: string[];
 let liveAgentTaskIds: string[];
+let towerBudget: number;
 const agentContexts = new Map<string, AgentContext>();
 const agentLoops = new Map<string, { state: 'idle' | 'running'; submitted: string[] }>();
 
@@ -97,6 +103,7 @@ beforeEach(async () => {
   currentAgentId = 'main';
   liveSessionIds = [];
   liveAgentTaskIds = [];
+  towerBudget = 2;
   currentSessionId = 'session-test';
   agentContexts.clear();
   agentLoops.clear();
@@ -151,7 +158,7 @@ beforeEach(async () => {
         get: (id: string) => (liveSessionIds.includes(id) ? {} : undefined),
       } as unknown as ISessionManager);
       reg.definePartialInstance(ITowerRateLimitService, {
-        snapshot: () => ({ budget: 2, inflight: 0, blockedUntil: null }),
+        snapshot: () => ({ budget: towerBudget, inflight: 0, blockedUntil: null }),
       });
       reg.definePartialInstance(IAgentTaskService, {
         list: () =>
@@ -211,10 +218,6 @@ async function initViaTool() {
   const result = await run(ix.get(ITowerInitTool), {});
   expect(result.isError).toBeFalsy();
   return result;
-}
-
-function slashPath(value: string) {
-  return value.split(sep).join('/');
 }
 
 function readStatus() {
@@ -545,7 +548,7 @@ describe('TowerTeardownTool', () => {
     const result = await run(ix.get(ITowerTeardownTool), { force: true });
 
     expect(result.isError).toBeFalsy();
-    expect(slashPath(result.output as string)).toContain(
+    expect(result.output).toContain(
       `kept .tower/worktrees/${mission.worktree} (live agent: w1)`,
     );
     expect(
@@ -554,7 +557,7 @@ describe('TowerTeardownTool', () => {
 
     liveAgentTaskIds.length = 0;
     const settled = await run(ix.get(ITowerTeardownTool), {});
-    expect(slashPath(settled.output as string)).toContain(`removed .tower/worktrees/${mission.worktree}`);
+    expect(settled.output).toContain(`removed .tower/worktrees/${mission.worktree}`);
   });
 
   it('dry run reports the decisions and changes nothing', async () => {
@@ -570,8 +573,8 @@ describe('TowerTeardownTool', () => {
     const result = await run(ix.get(ITowerTeardownTool), { dry_run: true });
 
     expect(result.isError).toBeFalsy();
-    expect(slashPath(result.output as string)).toContain('tower teardown (dry run');
-    expect(slashPath(result.output as string)).toContain(`would remove .tower/worktrees/${mission.worktree}`);
+    expect(result.output).toContain('tower teardown (dry run');
+    expect(result.output).toContain(`would remove .tower/worktrees/${mission.worktree}`);
     expect(
       (await stat(join(repo, '.tower/worktrees', mission.worktree))).isDirectory(),
     ).toBe(true);
@@ -590,7 +593,7 @@ describe('TowerTeardownTool', () => {
     const result = await run(ix.get(ITowerTeardownTool), { exclude: [mission.worktree] });
 
     expect(result.isError).toBeFalsy();
-    expect(slashPath(result.output as string)).toContain(`kept .tower/worktrees/${mission.worktree} (excluded)`);
+    expect(result.output).toContain(`kept .tower/worktrees/${mission.worktree} (excluded)`);
     expect(
       (await stat(join(repo, '.tower/worktrees', mission.worktree))).isDirectory(),
     ).toBe(true);
@@ -878,6 +881,19 @@ describe('TowerStatusTool', () => {
     });
   });
 
+  it('renders a non-finite budget as unlimited in the dashboard and summary', async () => {
+    await initViaTool();
+    towerBudget = Number.POSITIVE_INFINITY;
+
+    const dashboard = await run(ix.get(ITowerStatusTool), {});
+    const summary = await readStatusSummary();
+
+    expect(dashboard.output).toContain('budget: unlimited agent(s) · inflight: 0 · spawns open');
+    expect(summary).toContain('Concurrency: budget: unlimited agent(s) · inflight: 0 · spawns open');
+    expect(dashboard.output).not.toContain('Infinity agent(s)');
+    expect(summary).not.toContain('Infinity agent(s)');
+  });
+
   it('keeps the Markdown dashboard available to tower workers', async () => {
     await initViaTool();
     await new TowerStore(repo).registerAgent({
@@ -1058,6 +1074,45 @@ describe('TowerStatusTool', () => {
     expect(workerStatus.output).toContain('BLOCKED reasons=worker-unknown');
     expect(workerStatus.output).toContain('unknown is not idle');
     expect(workerStatus.output).not.toContain('READY reasons=none');
+  });
+
+  it('computes independent mission gates with bounded parallelism and stable mission order', async () => {
+    await initViaTool();
+    await run(ix.get(ITowerPlanTool), {
+      missions: Array.from({ length: 6 }, (_, index) => ({
+        title: `Mission ${String(index)}`,
+        scope: [`src/m${String(index)}/**`],
+      })),
+    });
+    let active = 0;
+    let maximum = 0;
+    const gate = jest.spyOn(TowerStore.prototype, 'missionGate').mockImplementation(async () => {
+      active += 1;
+      maximum = Math.max(maximum, active);
+      await delay(5);
+      active -= 1;
+      return {
+        ready: false,
+        noop: false,
+        blocks: [{ reason: 'not-completed', message: 'blocked' }],
+        observations: {},
+      } as never;
+    });
+    try {
+      const status = await readStatus();
+      if (!status.initialized) throw new Error('expected initialized status');
+      expect(status.gate.map((mission) => mission.missionId)).toEqual([
+        'M1',
+        'M2',
+        'M3',
+        'M4',
+        'M5',
+        'M6',
+      ]);
+      expect(maximum).toBe(TOWER_GIT_CONCURRENCY);
+    } finally {
+      gate.mockRestore();
+    }
   });
 });
 
@@ -1265,7 +1320,8 @@ describe('TowerCompleteTool', () => {
 
   it('reports persisted completion on notification failure and reuses the message on retry', async () => {
     const { store } = await setupCompletable();
-    const failure = spyOn(TowerStore.prototype, 'appendLog')
+    const failure = jest
+      .spyOn(TowerStore.prototype, 'appendLog')
       .mockImplementationOnce(async () => {})
       .mockRejectedValueOnce(new Error('forced notification write failure'));
     try {
@@ -1366,7 +1422,8 @@ describe('TowerReviewTool', () => {
 
   it('preserves the review and recovers without a new round or duplicate after review.write log failure', async () => {
     const store = await setupReviewableBranch();
-    const failure = spyOn(TowerStore.prototype, 'appendLog')
+    const failure = jest
+      .spyOn(TowerStore.prototype, 'appendLog')
       .mockRejectedValueOnce(new Error('forced review.write activity log failure'));
     const input = {
       target: 'feat/build-engine',
@@ -1403,7 +1460,8 @@ describe('TowerReviewTool', () => {
 
   it('recovers an inbox.send log failure without a new review round or duplicate message', async () => {
     const store = await setupReviewableBranch();
-    const failure = spyOn(TowerStore.prototype, 'appendLog')
+    const failure = jest
+      .spyOn(TowerStore.prototype, 'appendLog')
       .mockImplementationOnce(async () => {})
       .mockRejectedValueOnce(new Error('forced inbox.send activity log failure'));
     const input = {

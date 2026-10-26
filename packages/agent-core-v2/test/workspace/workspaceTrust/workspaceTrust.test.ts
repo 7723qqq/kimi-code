@@ -60,10 +60,8 @@ describe('WorkspaceTrustService', () => {
     root: string,
     events?: WorkspaceTrustChange[],
     env: NodeJS.ProcessEnv = {},
-
     sharedStore?: IWorkspaceTrustStore,
   ): { service: IWorkspaceTrust; states: IWorkspaceStateService; trustStore: IWorkspaceTrustStore } {
-
     const ix = createServices(disposables, {
       strict: true,
       additionalServices: (reg) => {
@@ -163,44 +161,6 @@ describe('WorkspaceTrustService', () => {
 
     expect(service.isTrusted()).toBe(false);
     expect(events).toEqual([{ trusted: true }, { trusted: false }]);
-  });
-
-  it('deletes the on-disk record even when the in-memory flag is already false', async () => {
-    const root = '/home/test/revoked-workspace';
-    const backing = new JsonAtomicDocumentStore(new FileStorageService(homeDir));
-
-    const events: WorkspaceTrustChange[] = [];
-    const store = disposables.add(
-      new WorkspaceTrustStore(backing, noopTelemetryService, stubBootstrap(homeDir)),
-    );
-    const { service } = createService(root, events, {}, store);
-    await service.ready;
-    expect(service.isTrusted()).toBe(false);
-
-    await writeWorkspaceTrust(backing, root, 1);
-
-    await service.untrust();
-
-    expect(await readWorkspaceTrust(backing, root)).toBe(false);
-    expect(events).toEqual([]);
-  });
-
-  it('writes the record even when the in-memory flag is already true', async () => {
-    const root = '/home/test/re-trusted-workspace';
-    const backing = new JsonAtomicDocumentStore(new FileStorageService(homeDir));
-    const events: WorkspaceTrustChange[] = [];
-    const store = disposables.add(
-      new WorkspaceTrustStore(backing, noopTelemetryService, stubBootstrap(homeDir)),
-    );
-    const { service } = createService(root, events, {}, store);
-    await service.ready;
-
-    await service.trust();
-    await service.untrust();
-    await service.trust();
-
-    expect(await readWorkspaceTrust(backing, root)).toBe(true);
-    expect(events).toEqual([{ trusted: true }, { trusted: false }, { trusted: true }]);
   });
 
   it('keeps the marker across a restart', async () => {

@@ -1,5 +1,4 @@
-import { describe, expect, it, mock, spyOn, type Mock } from 'bun:test';
-import { createFakeClock } from '#test/helpers/fake-clock';
+import { describe, expect, it, vi } from 'bun:test';
 
 import { AgentSwarmProgressComponent } from '#/tui/components/messages/agent-swarm-progress';
 import type { SessionEventHandler } from '#/tui/controllers/session-event-handler';
@@ -33,7 +32,6 @@ function makeStartupInput(): KimiTUIStartupInput {
     tuiConfig: {
       theme: 'dark',
       disablePasteBurst: false,
-      locale: 'en',
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },
@@ -46,16 +44,14 @@ function makeStartupInput(): KimiTUIStartupInput {
 function makeDriverWithTerminalProgress(): {
   driver: ActivityDriver;
   state: TUIState;
-  setProgress: Mock<(active: boolean) => void>;
+  setProgress: ReturnType<typeof jest.fn<(active: boolean) => void>>;
 } {
-  const setProgress = mock<(active: boolean) => void>();
-  const driver = new KimiTUI({} as never, makeStartupInput()) as unknown as ActivityDriver;
-  // The activity spinner and the AgentSwarm rows animate off the state's clock.
-  // A clock the test never advances pins every frame to its first glyph, so the
-  // rendered text is compared against a fixed frame instead of whenever the
-  // process timer happens to tick.
-  driver.state.renderClock = createFakeClock(0);
-  spyOn(driver.state.ui, 'requestRender').mockImplementation(() => {});
+  const setProgress = jest.fn<(active: boolean) => void>();
+  const driver = new KimiTUI(
+    { onConfigSectionChanged: () => () => {} } as never,
+    makeStartupInput(),
+  ) as unknown as ActivityDriver;
+  jest.spyOn(driver.state.ui, 'requestRender').mockImplementation(() => {});
   driver.state.terminal = { columns: 80, setProgress } as unknown as TUIState['terminal'];
   driver.state.terminalState.supportsProgress = true;
   return { driver, state: driver.state, setProgress };
@@ -89,34 +85,44 @@ function startSwarmProgress(driver: ActivityDriver, state: TUIState): AgentSwarm
 
 describe('updateActivityPane terminal progress', () => {
   it('toggles terminal progress when the activity pane enters and leaves work mode', () => {
-    const { driver, state, setProgress } = makeDriverWithTerminalProgress();
+    jest.useFakeTimers();
+    try {
+      const { driver, state, setProgress } = makeDriverWithTerminalProgress();
 
-    state.livePane = { ...state.livePane, mode: 'waiting' };
-    driver.updateActivityPane();
+      state.livePane = { ...state.livePane, mode: 'waiting' };
+      driver.updateActivityPane();
 
-    expect(setProgress).toHaveBeenCalledTimes(1);
-    expect(setProgress).toHaveBeenLastCalledWith(true);
-    expect(state.terminalState.progressActive).toBe(true);
+      expect(setProgress).toHaveBeenCalledTimes(1);
+      expect(setProgress).toHaveBeenLastCalledWith(true);
+      expect(state.terminalState.progressActive).toBe(true);
 
-    state.livePane = { ...state.livePane, mode: 'idle' };
-    driver.updateActivityPane();
+      state.livePane = { ...state.livePane, mode: 'idle' };
+      driver.updateActivityPane();
 
-    expect(setProgress).toHaveBeenCalledTimes(2);
-    expect(setProgress).toHaveBeenLastCalledWith(false);
-    expect(state.terminalState.progressActive).toBe(false);
+      expect(setProgress).toHaveBeenCalledTimes(2);
+      expect(setProgress).toHaveBeenLastCalledWith(false);
+      expect(state.terminalState.progressActive).toBe(false);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('never emits terminal progress when the terminal does not support OSC 9;4', () => {
-    const { driver, state, setProgress } = makeDriverWithTerminalProgress();
-    state.terminalState.supportsProgress = false;
+    jest.useFakeTimers();
+    try {
+      const { driver, state, setProgress } = makeDriverWithTerminalProgress();
+      state.terminalState.supportsProgress = false;
 
-    state.livePane = { ...state.livePane, mode: 'waiting' };
-    driver.updateActivityPane();
-    state.livePane = { ...state.livePane, mode: 'idle' };
-    driver.updateActivityPane();
+      state.livePane = { ...state.livePane, mode: 'waiting' };
+      driver.updateActivityPane();
+      state.livePane = { ...state.livePane, mode: 'idle' };
+      driver.updateActivityPane();
 
-    expect(setProgress).not.toHaveBeenCalled();
-    expect(state.terminalState.progressActive).toBe(false);
+      expect(setProgress).not.toHaveBeenCalled();
+      expect(state.terminalState.progressActive).toBe(false);
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('keeps compaction visible as terminal progress even though the pane is hidden', () => {
@@ -139,65 +145,80 @@ describe('updateActivityPane terminal progress', () => {
   });
 
   it('keeps terminal progress active while showing the thinking spinner', () => {
-    const { driver, state, setProgress } = makeDriverWithTerminalProgress();
-    state.livePane = { ...state.livePane, mode: 'idle' };
-    state.appState.streamingPhase = 'thinking';
+    jest.useFakeTimers();
+    try {
+      const { driver, state, setProgress } = makeDriverWithTerminalProgress();
+      state.livePane = { ...state.livePane, mode: 'idle' };
+      state.appState.streamingPhase = 'thinking';
 
-    driver.updateActivityPane();
+      driver.updateActivityPane();
 
-    expect(setProgress).toHaveBeenCalledTimes(1);
-    expect(setProgress).toHaveBeenLastCalledWith(true);
-    expect(state.activitySpinner).not.toBeNull();
-    expect(state.activityContainer.children).toHaveLength(1);
+      expect(setProgress).toHaveBeenCalledTimes(1);
+      expect(setProgress).toHaveBeenLastCalledWith(true);
+      expect(state.activitySpinner).not.toBeNull();
+      expect(state.activityContainer.children).toHaveLength(1);
 
-    state.appState.streamingPhase = 'idle';
-    driver.updateActivityPane();
+      state.appState.streamingPhase = 'idle';
+      driver.updateActivityPane();
 
-    expect(setProgress).toHaveBeenCalledTimes(2);
-    expect(setProgress).toHaveBeenLastCalledWith(false);
-    expect(state.activitySpinner).toBeNull();
+      expect(setProgress).toHaveBeenCalledTimes(2);
+      expect(setProgress).toHaveBeenLastCalledWith(false);
+      expect(state.activitySpinner).toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('moves the moon spinner into the AgentSwarm progress row while active', () => {
-    const { driver, state, setProgress } = makeDriverWithTerminalProgress();
-    const progress = startSwarmProgress(driver, state);
-    state.livePane = { ...state.livePane, mode: 'tool' };
+    jest.useFakeTimers();
+    try {
+      const { driver, state, setProgress } = makeDriverWithTerminalProgress();
+      const progress = startSwarmProgress(driver, state);
+      state.livePane = { ...state.livePane, mode: 'tool' };
 
-    driver.updateActivityPane();
+      driver.updateActivityPane();
 
-    expect(setProgress).toHaveBeenCalledTimes(1);
-    expect(setProgress).toHaveBeenLastCalledWith(true);
-    expect(state.activitySpinner).not.toBeNull();
-    expect(state.activityContainer.children).toHaveLength(0);
-    expect(strip(progress.render(80).join('\n'))).toContain('🌑 Working…');
+      expect(setProgress).toHaveBeenCalledTimes(1);
+      expect(setProgress).toHaveBeenLastCalledWith(true);
+      expect(state.activitySpinner).not.toBeNull();
+      expect(state.activityContainer.children).toHaveLength(0);
+      expect(strip(progress.render(80).join('\n'))).toContain('🌑 Working…');
 
-    state.activitySpinner?.instance.stop();
-    driver.sessionEventHandler.clearAgentSwarmProgress();
+      state.activitySpinner?.instance.stop();
+      driver.sessionEventHandler.clearAgentSwarmProgress();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('keeps ended AgentSwarm progress on a placeholder instead of the moon spinner', () => {
-    const { driver, state } = makeDriverWithTerminalProgress();
-    const progress = startSwarmProgress(driver, state);
-    driver.sessionEventHandler.subAgentEventHandler.handleAgentSwarmToolResult(
-      'call_swarm',
-      {
-        tool_call_id: 'call_swarm',
-        output: 'Done',
-        is_error: false,
-      },
-      false,
-    );
-    state.livePane = { ...state.livePane, mode: 'tool' };
+    jest.useFakeTimers();
+    try {
+      const { driver, state } = makeDriverWithTerminalProgress();
+      const progress = startSwarmProgress(driver, state);
+      driver.sessionEventHandler.subAgentEventHandler.handleAgentSwarmToolResult(
+        'call_swarm',
+        {
+          tool_call_id: 'call_swarm',
+          output: 'Done',
+          is_error: false,
+        },
+        false,
+      );
+      state.livePane = { ...state.livePane, mode: 'tool' };
 
-    driver.updateActivityPane();
+      driver.updateActivityPane();
 
-    expect(state.activitySpinner).not.toBeNull();
-    expect(state.activityContainer.children).toHaveLength(1);
-    const output = strip(progress.render(80).join('\n'));
-    expect(output).toContain('  Working…');
-    expect(output).not.toContain('🌑 Working…');
+      expect(state.activitySpinner).not.toBeNull();
+      expect(state.activityContainer.children).toHaveLength(1);
+      const output = strip(progress.render(80).join('\n'));
+      expect(output).toContain('  Working…');
+      expect(output).not.toContain('🌑 Working…');
 
-    state.activitySpinner?.instance.stop();
-    driver.sessionEventHandler.clearAgentSwarmProgress();
+      state.activitySpinner?.instance.stop();
+      driver.sessionEventHandler.clearAgentSwarmProgress();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 });

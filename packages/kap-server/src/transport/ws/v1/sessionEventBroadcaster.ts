@@ -1,8 +1,44 @@
 import { isInstantiationServiceDisposedError } from '@moonshot-ai/agent-core-v2';
 import { rm } from 'node:fs/promises';
-import type { ApprovalResponse, Event2, IAgentScopeHandle, IDisposable, Interaction, InteractionKind, ISessionScopeHandle, Scope, SessionActivityState, Workspace } from '@moonshot-ai/agent-core-v2';
-import { IAgentLifecycleService, IAgentLoopService, IEventBus, IEventService, INTERACTION_TAG_SESSION_ID, ISessionActivityView, ISessionIndex, ISessionManager, MAIN_AGENT_ID, followSessionLifecycles, getLiveSessionById, interactions, toDisposable } from '@moonshot-ai/agent-core-v2';
-import type { ConfigWarningItem, DiUnitChangedEvent, ModelCatalogRefreshChange, ModelCatalogRefreshFailure, ModelCatalogRetiredDefault, SessionCreatedEvent, SessionMetaUpdatedEvent, Event } from './events';
+
+import type {
+  ApprovalResponse,
+  Event2,
+  IAgentScopeHandle,
+  IDisposable,
+  Interaction,
+  InteractionKind,
+  ISessionScopeHandle,
+  Scope,
+  SessionActivityState,
+  Workspace,
+} from '@moonshot-ai/agent-core-v2';
+import {
+  IAgentLifecycleService,
+  IAgentLoopService,
+  IEventBus,
+  IEventService,
+  INTERACTION_TAG_SESSION_ID,
+  ISessionActivityView,
+  ISessionIndex,
+  ISessionManager,
+  MAIN_AGENT_ID,
+  followSessionLifecycles,
+  getLiveSessionById,
+  resumeSessionById,
+  interactions,
+  toDisposable,
+} from '@moonshot-ai/agent-core-v2';
+import type {
+  ConfigWarningItem,
+  DiUnitChangedEvent,
+  ModelCatalogRefreshChange,
+  ModelCatalogRefreshFailure,
+  ModelCatalogRetiredDefault,
+  SessionCreatedEvent,
+  SessionMetaUpdatedEvent,
+  Event,
+} from './events';
 import { isVolatileEventType } from './events';
 import type { SessionCursor } from '../../../protocol/ws-control';
 import { configChangedEventSchema, modelCatalogChangedEventSchema } from '../../../protocol/events-zod';
@@ -113,11 +149,12 @@ export class SessionEventBroadcaster {
     },
   ) {
     this.maxBufferSize = opts.maxBufferSize ?? DEFAULT_MAX_BUFFER_SIZE;
-    this.deletionSubscription = opts.core.accessor
-      .get(ISessionManager)
-      .onWillDeleteSession?.((event) => {
+    const sessionManager = opts.core.accessor.get(ISessionManager);
+    this.deletionSubscription = sessionManager.onWillDeleteSession?.(
+      (event) => {
         event.waitUntil(this.purgeSession(event.sessionId));
-      });
+      },
+    );
     this.lifecycleSubscription = followSessionLifecycles(opts.core.accessor, (service) => {
       const closeSubscription = service.onDidCloseSession((event) => {
         this.detachSession(event.sessionId);
@@ -132,9 +169,7 @@ export class SessionEventBroadcaster {
         },
       };
     });
-    this.createSubscription = opts.core.accessor
-      .get(ISessionManager)
-      .onDidCreateSession?.((event) => {
+    this.createSubscription = sessionManager.onDidCreateSession?.((event) => {
       void this.reattachSession(event.sessionId).catch((error: unknown) =>
         this.opts.logger?.warn(
           { sessionId: event.sessionId, err: error },
@@ -167,8 +202,17 @@ export class SessionEventBroadcaster {
     transcriptGrades?: TranscriptGradeSpec,
     opts?: { deferTranscriptReset?: boolean; transcriptSince?: Record<string, number> },
   ): Promise<boolean> {
+    try {
+      await resumeSessionById(this.opts.core.accessor, sessionId);
+    } catch (error) {
+      this.opts.logger?.warn(
+        { sessionId, err: error instanceof Error ? error.message : String(error) },
+        'session subscribe resume failed',
+      );
+      return false;
+    }
     const state = await this.ensureState(sessionId);
-    if (state === undefined) return false;
+    if (state === undefined || this.sessions.get(sessionId) !== state) return false;
     const prev = state.targets.get(target);
     state.targets.set(target, { agentFilter: filter, transcriptGrades });
     if (transcriptGrades !== undefined) {
@@ -236,6 +280,7 @@ export class SessionEventBroadcaster {
     state.targets.delete(target);
     state.transcriptSeeded.delete(target);
     state.deferredTranscriptSeeds.delete(target);
+    this.evictDetachedSession(sessionId);
   }
 
   unsubscribeTranscript(
@@ -596,6 +641,13 @@ export class SessionEventBroadcaster {
     state.transcriptStream = undefined;
     this.dropActivityTrackers(sessionId);
     this.opts.transcriptService?.dropSession(sessionId);
+    this.evictDetachedSession(sessionId);
+  }
+
+  private evictDetachedSession(sessionId: string): void {
+    const state = this.sessions.get(sessionId);
+    if (state === undefined || state.detached !== true || state.targets.size > 0) return;
+    this.evictSession(sessionId);
   }
 
   private async reattachSession(sessionId: string): Promise<void> {

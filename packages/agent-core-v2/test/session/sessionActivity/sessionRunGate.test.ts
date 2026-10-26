@@ -62,22 +62,6 @@ function activityStub(disposables: DisposableStore) {
   };
 }
 
-const realSetImmediate = setImmediate;
-
-async function flushMicrotasks(): Promise<void> {
-  for (let i = 0; i < 8; i += 1) {
-    await Promise.resolve();
-    await new Promise<void>((resolve) => {
-      realSetImmediate(resolve);
-    });
-  }
-}
-
-async function advanceFakeTime(by: number): Promise<void> {
-  jest.advanceTimersByTime(by);
-  await flushMicrotasks();
-}
-
 describe('SessionRunGateService', () => {
   let homeDir: string;
   let disposables: DisposableStore;
@@ -224,12 +208,12 @@ describe('SessionRunGateService', () => {
     try {
       gate();
       serviceA.hold(SID);
-      await advanceFakeTime(3_000);
+      await jest.advanceTimersByTime(3_000);
       expect(serviceA.held(SID)).toBe(true);
       activity.setBusy(false);
-      await advanceFakeTime(2_999);
+      await jest.advanceTimersByTime(2_999);
       expect(serviceA.held(SID)).toBe(true);
-      await advanceFakeTime(1);
+      await jest.advanceTimersByTime(1);
       expect(serviceA.held(SID)).toBe(false);
     } finally {
       jest.useRealTimers();

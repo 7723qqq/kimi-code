@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
@@ -29,9 +29,9 @@ import { stubAgentContext } from '../../agent/agentContext/stubs';
 describe('SessionBtwService', () => {
   let disposables: DisposableStore;
   let ix: TestInstantiationService;
-  let fork: ReturnType<typeof mock>;
-  let appendReminder: ReturnType<typeof mock>;
-  let formatDenyMessage: ReturnType<typeof mock>;
+  let fork: ReturnType<typeof jest.fn>;
+  let appendReminder: ReturnType<typeof jest.fn>;
+  let formatDenyMessage: ReturnType<typeof jest.fn>;
   let executorEvents: ToolExecutorEventStubs;
   let onDidCreateScope: Emitter<AgentScopeCreatedEvent>;
   let childContext: AgentContext;
@@ -63,8 +63,8 @@ describe('SessionBtwService', () => {
   beforeEach(() => {
     disposables = new DisposableStore();
     ix = disposables.add(new TestInstantiationService());
-    appendReminder = mock(() => 'reminder-id');
-    formatDenyMessage = mock((message: string) => `${message} [worker guidance]`);
+    appendReminder = jest.fn(() => 'reminder-id');
+    formatDenyMessage = jest.fn((message: string) => `${message} [worker guidance]`);
     executorEvents = stubToolExecutorEvents();
     onDidCreateScope = disposables.add(new Emitter<AgentScopeCreatedEvent>());
     childContext = stubAgentContext('agent-btw-1', 2);
@@ -96,7 +96,10 @@ describe('SessionBtwService', () => {
         },
       },
     };
-    fork = mock(async () => stubAgentContext('agent-btw-1', 2));
+    fork = jest.fn(async (_source: unknown, opts?: { labels?: Readonly<Record<string, string>> }) => {
+      fireScopeCreated(child, opts?.labels);
+      return childContext;
+    });
     ix.stub(IAgentLifecycleService, {
       _serviceBrand: undefined,
       fork,

@@ -23,8 +23,8 @@ import {
   IAgentGoalService,
   IAgentLifecycleService,
   IAgentLoopService,
-  type PermissionMode,
   IAgentPermissionModeService,
+  IAgentPlanService,
   IAgentProfileService,
   IAgentTaskService,
   IAuthSummaryService,
@@ -66,8 +66,6 @@ import {
   type PrintBackgroundMode,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
-import type { GoalUpdated } from '@moonshot-ai/agent-core-v2';
-import type { HookResult } from '@moonshot-ai/agent-core-v2';
 import type {
   ToolCallStarted,
   ToolProgress,
@@ -77,13 +75,6 @@ import {
   loadMcpServersDetailed,
   resolveMcpJsonPaths,
 } from '@moonshot-ai/agent-core-v2/app/mcpConfig/configLoader';
-import type { TurnEnded } from '@moonshot-ai/agent-core-v2/contract';
-import type {
-  AssistantDelta,
-  ThinkingDelta,
-  ToolCallDelta,
-} from '@moonshot-ai/agent-core-v2/contract';
-import type { TurnStepRetrying } from '@moonshot-ai/agent-core-v2/contract';
 import {
   createKimiDefaultHeaders,
   createKimiDeviceId,
@@ -97,7 +88,16 @@ import {
   shouldEnableTelemetry,
   shutdownTelemetry,
 } from '@moonshot-ai/kimi-telemetry';
-
+import type { GoalUpdated } from '@moonshot-ai/agent-core-v2/features/goal/goalOps';
+import type { TurnEnded } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
+import type { PermissionMode } from '@moonshot-ai/agent-core-v2/agent/permissionPolicy/types';
+import type {
+  AssistantDelta,
+  ThinkingDelta,
+  ToolCallDelta,
+} from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
+import type { TurnStepRetrying } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
+import type { HookResult } from '@moonshot-ai/agent-core-v2/features/externalHooks/agent/agentExternalHooksService';
 import { resolve } from 'pathe';
 
 import {
@@ -106,7 +106,7 @@ import {
   PROMPT_CLEANUP_TIMEOUT_MS,
 } from '#/constant/app';
 import { t } from '#/i18n';
-import { currentKimiProfile } from '#/utils/region';
+import { currentKimiProfile, currentKimiRegionResolution } from '#/utils/region';
 
 import {
   formatGoalSummaryText,
@@ -280,6 +280,7 @@ export async function runV2Print(
       );
       // No `first_launch` on the v1 client: the v2 side already tracks it via
       // `telemetryService.track2` below, so tracking here would double-send.
+      const regionResolution = currentKimiRegionResolution();
       initializeTelemetry({
         homeDir,
         deviceId,
@@ -287,6 +288,9 @@ export async function runV2Print(
         version,
         uiMode: PROMPT_UI_MODE,
         model: opts.model ?? defaultModel,
+        region: regionResolution.region,
+        regionSource: regionResolution.source,
+        resolveRegion: () => currentKimiRegionResolution(),
         endpoint: () => currentKimiProfile().telemetryEndpoint,
         getAccessToken: async () =>
           (await auth.getCachedAccessToken(KIMI_CODE_PROVIDER_NAME)) ?? null,
@@ -353,7 +357,9 @@ export async function runV2Print(
         },
         {
           onReloaded: async (session) => {
-            stderr.write(`Session "${session.id}" was updated by another client; reloaded it.\n`);
+            stderr.write(
+              t('tui.statusMessages.sessionReloadedAfterExternalUpdate', { sessionId: session.id }) + '\n',
+            );
             const agentContext = await ensureMainAgent(session);
             const agent = session.accessor.get(IAgentLifecycleService).handleOf(agentContext.agentId)!;
             if (opts.model !== undefined) await agent.accessor.get(IAgentProfileService).setModel(opts.model);
@@ -453,6 +459,14 @@ async function resolveNativeSession(
     return session;
   };
 
+  // Plan mode waits for the user to review the plan, and nobody can review it
+  // in print mode: a resumed session still in Plan mode keeps running in Plan
+  // mode, and its plan stays unapproved until the user reviews it.
+  const notePlanMode = async (agent: IAgentScopeHandle, sessionId: string): Promise<void> => {
+    if ((await agent.accessor.get(IAgentPlanService).status()) === null) return;
+    stderr.write(t('tui.statusMessages.planModeNotReviewableInPrint', { sessionId }) + '\n');
+  };
+
   const forceAuto = (agent: IAgentScopeHandle): PermissionMode => {
     const permissionMode = agent.accessor.get(IAgentPermissionModeService);
     const previous = permissionMode.mode;
@@ -475,6 +489,7 @@ async function resolveNativeSession(
     const session = await resumeById(opts.session);
     const agentContext = await ensureMainAgent(session);
     const agent = session.accessor.get(IAgentLifecycleService).handleOf(agentContext.agentId)!;
+    await notePlanMode(agent, opts.session);
     const profile = agent.accessor.get(IAgentProfileService);
     await applyModelOverride(profile, opts.model);
     const currentModel = profile.getModel();
@@ -495,6 +510,7 @@ async function resolveNativeSession(
       const session = await resumeById(previous.id);
       const agentContext = await ensureMainAgent(session);
       const agent = session.accessor.get(IAgentLifecycleService).handleOf(agentContext.agentId)!;
+      await notePlanMode(agent, previous.id);
       const profile = agent.accessor.get(IAgentProfileService);
       await applyModelOverride(profile, opts.model);
       const currentModel = profile.getModel();
@@ -521,6 +537,13 @@ async function resolveNativeSession(
   });
   const agentContext = await ensureMainAgent(session);
   const agent = session.accessor.get(IAgentLifecycleService).handleOf(agentContext.agentId)!;
+  // `default_plan_mode` opens new sessions in Plan mode, but nobody can review
+  // a plan in print mode, so the setting is skipped for this run.
+  const plan = agent.accessor.get(IAgentPlanService);
+  if ((await plan.status()) !== null) {
+    plan.cancel();
+    stderr.write(t('tui.statusMessages.defaultPlanModeNotAppliedInPrint') + '\n');
+  }
   agent.accessor.get(IAgentPermissionModeService).setMode('auto');
   return {
     session,

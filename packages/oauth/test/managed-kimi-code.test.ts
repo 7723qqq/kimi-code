@@ -1,6 +1,5 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it, vi } from 'bun:test';
 
-import { OAuthUnauthorizedError } from '../src/errors';
 import {
   applyManagedApiKeyProviderModels,
   applyManagedKimiCodeLogoutConfig,
@@ -18,6 +17,7 @@ import {
   type ManagedKimiCodeModelInfo,
   type ManagedKimiConfigShape,
 } from '../src/managed-kimi-code';
+import { OAuthUnauthorizedError } from '../src/errors';
 
 function makeModelsResponse(): Response {
   return new Response(
@@ -205,8 +205,8 @@ describe('provisionManagedKimiCodeConfig', () => {
         },
       },
     };
-    const write = mock();
-    const fetchMock = mock(async () => makeModelsResponse());
+    const write = jest.fn();
+    const fetchMock = jest.fn(async () => makeModelsResponse());
 
     const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
@@ -284,10 +284,10 @@ describe('provisionManagedKimiCodeConfig', () => {
       baseUrl: 'https://api.dev.example.test/coding/v1',
       oauthKey,
       oauthHost: 'https://auth.dev.example.test',
-      fetchImpl: mock(async () => makeModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: jest.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
       adapter: {
         read: () => config,
-        write: mock(),
+        write: jest.fn(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -322,10 +322,10 @@ describe('provisionManagedKimiCodeConfig', () => {
     await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
       baseUrl,
-      fetchImpl: mock(async () => makeModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: jest.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
       adapter: {
         read: () => config,
-        write: mock(),
+        write: jest.fn(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -371,11 +371,11 @@ describe('provisionManagedKimiCodeConfig', () => {
 
     const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: mock(async () => makeModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: jest.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
-        write: mock(),
+        write: jest.fn(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -409,11 +409,11 @@ describe('provisionManagedKimiCodeConfig', () => {
 
     const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: mock(async () => makeModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: jest.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
-        write: mock(),
+        write: jest.fn(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -444,11 +444,11 @@ describe('provisionManagedKimiCodeConfig', () => {
 
     const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: mock(async () => makeModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: jest.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
-        write: mock(),
+        write: jest.fn(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -478,11 +478,11 @@ describe('provisionManagedKimiCodeConfig', () => {
 
     const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: mock(async () => makeModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: jest.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
-        write: mock(),
+        write: jest.fn(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -513,11 +513,11 @@ describe('provisionManagedKimiCodeConfig', () => {
 
     const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: mock(async () => makeModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: jest.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
-        write: mock(),
+        write: jest.fn(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -548,11 +548,11 @@ describe('provisionManagedKimiCodeConfig', () => {
 
     const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: mock(async () => makeModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: jest.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
-        write: mock(),
+        write: jest.fn(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -583,11 +583,11 @@ describe('provisionManagedKimiCodeConfig', () => {
 
     const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: mock(async () => makeModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: jest.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
-        write: mock(),
+        write: jest.fn(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -667,7 +667,7 @@ describe('provisionManagedKimiCodeConfig', () => {
   });
 
   it('rejects managed models that do not include a positive limit.context', async () => {
-    const fetchImpl = mock(
+    const fetchImpl = jest.fn(
       async () =>
         new Response(
           JSON.stringify({
@@ -686,7 +686,7 @@ describe('provisionManagedKimiCodeConfig', () => {
   });
 
   it('surfaces API error messages from model listing failures', async () => {
-    const fetchImpl = mock(
+    const fetchImpl = jest.fn(
       async () =>
         new Response(JSON.stringify({ error: { message: 'quota exceeded' } }), {
           status: 429,
@@ -703,7 +703,7 @@ describe('provisionManagedKimiCodeConfig', () => {
   });
 
   it('classifies model listing 401 responses as OAuth unauthorized', async () => {
-    const fetchImpl = mock(
+    const fetchImpl = jest.fn(
       async () =>
         new Response(
           JSON.stringify({
@@ -725,7 +725,7 @@ describe('provisionManagedKimiCodeConfig', () => {
   });
 
   it('classifies membership-check 402 responses as OAuth unauthorized', async () => {
-    const fetchImpl = mock(
+    const fetchImpl = jest.fn(
       async () =>
         new Response(
           JSON.stringify({
@@ -869,7 +869,7 @@ describe('reasoning', () => {
   it('parses reasoning.type and tools.dynamic_load from the models endpoint', async () => {
     const models = await fetchManagedKimiCodeModels({
       accessToken: 'oauth-access-token',
-      fetchImpl: mock(async () => makeReasoningModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: jest.fn(async () => makeReasoningModelsResponse()) as unknown as typeof fetch,
     });
 
     expect(models[0]?.supportsThinkingType).toBe('only');
@@ -884,14 +884,14 @@ describe('reasoning', () => {
   it('maps absent reasoning to no and leaves unknown reasoning types undefined', async () => {
     const absent = await fetchManagedKimiCodeModels({
       accessToken: 'oauth-access-token',
-      fetchImpl: mock(async () => makeModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: jest.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
     });
     expect(absent[1]?.supportsThinkingType).toBe('no');
     expect(absent[1]?.supportsReasoning).toBe(false);
 
     const invalid = await fetchManagedKimiCodeModels({
       accessToken: 'oauth-access-token',
-      fetchImpl: mock(
+      fetchImpl: jest.fn(
         async () =>
           new Response(
             JSON.stringify({
@@ -915,10 +915,10 @@ describe('reasoning', () => {
 
     await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: mock(async () => makeReasoningModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: jest.fn(async () => makeReasoningModelsResponse()) as unknown as typeof fetch,
       adapter: {
         read: () => config,
-        write: mock(),
+        write: jest.fn(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -946,10 +946,10 @@ describe('reasoning', () => {
 
     const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: mock(async () => makeReasoningModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: jest.fn(async () => makeReasoningModelsResponse()) as unknown as typeof fetch,
       adapter: {
         read: () => config,
-        write: mock(),
+        write: jest.fn(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -981,11 +981,11 @@ describe('reasoning', () => {
 
     const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: mock(async () => makeReasoningModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: jest.fn(async () => makeReasoningModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
-        write: mock(),
+        write: jest.fn(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -1017,11 +1017,11 @@ describe('reasoning', () => {
 
     const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: mock(async () => makeReasoningModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: jest.fn(async () => makeReasoningModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
-        write: mock(),
+        write: jest.fn(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -1053,11 +1053,11 @@ describe('reasoning', () => {
 
     const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: mock(async () => makeModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: jest.fn(async () => makeModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
-        write: mock(),
+        write: jest.fn(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -1090,11 +1090,11 @@ describe('reasoning', () => {
 
     const result = await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: mock(async () => makeReasoningModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: jest.fn(async () => makeReasoningModelsResponse()) as unknown as typeof fetch,
       preserveDefaultModel: true,
       adapter: {
         read: () => config,
-        write: mock(),
+        write: jest.fn(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -1134,7 +1134,7 @@ describe('reasoning.effort', () => {
   it('parses reasoning.effort from the models endpoint', async () => {
     const models = await fetchManagedKimiCodeModels({
       accessToken: 'oauth-access-token',
-      fetchImpl: mock(async () => makeEffortModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: jest.fn(async () => makeEffortModelsResponse()) as unknown as typeof fetch,
     });
 
     expect(models[0]?.supportEfforts).toEqual(['low', 'high', 'max']);
@@ -1203,10 +1203,10 @@ describe('reasoning.effort', () => {
 
     await provisionManagedKimiCodeConfig({
       accessToken: 'oauth-access-token',
-      fetchImpl: mock(async () => makeEffortModelsResponse()) as unknown as typeof fetch,
+      fetchImpl: jest.fn(async () => makeEffortModelsResponse()) as unknown as typeof fetch,
       adapter: {
         read: () => config,
-        write: mock(),
+        write: jest.fn(),
         apply: applyManagedKimiCodeConfig,
       },
     });
@@ -1437,7 +1437,7 @@ const KIMI_BASE_URL = 'https://api.kimi.com/coding/v1';
 
 describe('managed protocol routing', () => {
   it('reads protocol from the /models response', async () => {
-    const fetchImpl = mock(
+    const fetchImpl = jest.fn(
       async () =>
         new Response(
           JSON.stringify({
@@ -1453,7 +1453,7 @@ describe('managed protocol routing', () => {
   });
 
   it('maps the server "response" protocol value to openai_responses', async () => {
-    const fetchImpl = mock(
+    const fetchImpl = jest.fn(
       async () =>
         new Response(
           JSON.stringify({
@@ -1543,54 +1543,5 @@ describe('managed protocol routing', () => {
       baseUrl: KIMI_BASE_URL,
     });
     expect(config.models?.['kimi-code/kimi-for-coding']?.protocol).toBeUndefined();
-  });
-});
-
-describe('fetchManagedKimiCodeModels transport guards', () => {
-  it('passes a timeout signal on the models request', async () => {
-    const fetchImpl = mock(async () => makeModelsResponse()) as unknown as typeof fetch;
-
-    await fetchManagedKimiCodeModels({ accessToken: 't', fetchImpl });
-
-    const init = (fetchImpl as unknown as ReturnType<typeof mock>).mock
-      .calls[0]![1] as RequestInit;
-    expect(init.signal).toBeInstanceOf(AbortSignal);
-  });
-
-  it('rejects responses advertised above the body size cap via content-length', async () => {
-    const fetchImpl = mock(
-      async () =>
-        new Response(JSON.stringify({ data: [] }), {
-          status: 200,
-          headers: {
-            'Content-Type': 'application/json',
-            'Content-Length': String(10 * 1024 * 1024 + 1),
-          },
-        }),
-    ) as unknown as typeof fetch;
-
-    await expect(fetchManagedKimiCodeModels({ accessToken: 't', fetchImpl })).rejects.toThrow(
-      /Response body too large/,
-    );
-  });
-
-  it('rejects oversized bodies when no content-length is sent', async () => {
-    const body = new ReadableStream<Uint8Array>({
-      start(controller) {
-        controller.enqueue(new Uint8Array(11 * 1024 * 1024));
-        controller.close();
-      },
-    });
-    const fetchImpl = mock(
-      async () =>
-        new Response(body, {
-          status: 200,
-          headers: { 'Content-Type': 'application/json' },
-        }),
-    ) as unknown as typeof fetch;
-
-    await expect(fetchManagedKimiCodeModels({ accessToken: 't', fetchImpl })).rejects.toThrow(
-      /Response body too large/,
-    );
   });
 });

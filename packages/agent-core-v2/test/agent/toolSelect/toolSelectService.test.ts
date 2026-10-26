@@ -9,6 +9,7 @@ import { IFlagService } from '#/app/flag/flag';
 import { type ModelCapability } from '#/llm-adapter/contract/capability';
 import { type ToolCall } from '#human/llm/message';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { IAgentMcpService } from '#/agent/mcp/mcp';
 import { ContextSpliced } from '#/agent/contextMemory/contextEvents';
 import { type UndoCut } from '#/agent/contextMemory/contextOps';
 import { type ContextMessage } from '#/agent/contextMemory/types';
@@ -330,6 +331,9 @@ function registerSharedServices(
   registerStateServices(reg);
   reg.defineInstance(IEventBus, eventBus);
   reg.defineInstance(IAgentLoopService, loop);
+  reg.definePartialInstance(IAgentMcpService, {
+    waitForInitialLoad: () => Promise.resolve(),
+  });
   reg.defineInstance(IAgentContextMemoryService, contextMemory);
   reg.defineInstance(
     IAgentScopeContext,

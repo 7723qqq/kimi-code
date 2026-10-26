@@ -1,14 +1,11 @@
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import * as posixPath from 'node:path/posix';
-import * as win32Path from 'node:path/win32';
 import { basename, dirname, isAbsolute, join, normalize, relative, resolve } from 'pathe';
 
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 
 import { Emitter, Event } from '#/_base/event';
 import { HostFileSystem } from '#/os/backends/host/hostFsService';
-import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IAgentProfileService, type ResolvedAgentProfile } from '#/agent/profile/profile';
 import { IAgentChangeNotifierService } from '#/agent/changeNotifier/changeNotifier';
 import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
@@ -33,14 +30,12 @@ import {
   appService,
   createTestAgent,
   execEnvServices,
+  hostEnvironmentServices,
   sessionService,
   type TestAgentContext,
   type TestAgentOptions,
   type TestAgentServiceOverride,
 } from '../../harness';
-
-const HOST_PATH = process.platform === 'win32' ? win32Path : posixPath;
-const HOST_PATH_CLASS: 'posix' | 'win32' = process.platform === 'win32' ? 'win32' : 'posix';
 
 const profile: ResolvedAgentProfile = normalizeAgentProfile({
   name: 'agents-profile',
@@ -90,8 +85,8 @@ describe('AgentProfileService.applyProfile', () => {
   let workDir: string;
 
   beforeEach(async () => {
-    homeDir = HOST_PATH.resolve(await mkdtemp(join(tmpdir(), 'kimi-apply-home-')));
-    workDir = HOST_PATH.resolve(await mkdtemp(join(tmpdir(), 'kimi-apply-work-')));
+    homeDir = await mkdtemp(join(tmpdir(), 'kimi-apply-home-'));
+    workDir = await mkdtemp(join(tmpdir(), 'kimi-apply-work-'));
   });
 
   afterEach(async () => {
@@ -106,7 +101,7 @@ describe('AgentProfileService.applyProfile', () => {
     const fs = new HostFileSystem();
     ctx = createTestAgent(
       execEnvServices({ hostFs: fs }),
-      hostEnvironment(homeDir),
+      hostEnvironmentServices(homeDir),
       { cwd: workDir },
       ...extra,
     );
@@ -141,6 +136,22 @@ describe('AgentProfileService.applyProfile', () => {
     });
   });
 
+  it('marks plan mode available only when the profile can submit plans', async () => {
+    const planAware = (name: string, tools: readonly string[]): ResolvedAgentProfile =>
+      normalizeAgentProfile({
+        name,
+        systemPrompt: (context) => `plan:${context.planModeAvailable === true ? 'yes' : 'no'}`,
+        tools,
+      });
+    const { profile: svc } = buildContext();
+
+    await svc.applyProfile(planAware('with-exit-plan', ['Read', 'ExitPlanMode']));
+    expect(svc.data().systemPrompt).toBe('plan:yes');
+
+    await svc.applyProfile(planAware('without-exit-plan', ['Read']));
+    expect(svc.data().systemPrompt).toBe('plan:no');
+  });
+
   it('loads AGENTS.md into the rendered system prompt', async () => {
     await writeFile(join(workDir, 'AGENTS.md'), 'project instructions', 'utf-8');
     const { profile: svc } = buildContext();
@@ -153,7 +164,7 @@ describe('AgentProfileService.applyProfile', () => {
   });
 
   it('seeds change-notifier beliefs from the applied profile context', async () => {
-    const seedBeliefs = mock<IAgentChangeNotifierService['seedBeliefs']>();
+    const seedBeliefs = jest.fn<IAgentChangeNotifierService['seedBeliefs']>();
     await writeFile(join(workDir, 'AGENTS.md'), 'project instructions', 'utf-8');
     const { profile: svc } = buildContext(
       agentService(IAgentChangeNotifierService, {
@@ -171,7 +182,7 @@ describe('AgentProfileService.applyProfile', () => {
 
     expect(seedBeliefs).toHaveBeenCalledTimes(1);
     const seed = seedBeliefs.mock.calls[0]?.[0];
-    expect((seed?.agentsMdPaths ?? []).map(normalize)).toEqual([normalize(join(workDir, 'AGENTS.md'))]);
+    expect(seed?.agentsMdPaths).toEqual([normalize(join(workDir, 'AGENTS.md'))]);
     expect(seed?.agentsMd).toContain('project instructions');
   });
 
@@ -230,7 +241,7 @@ describe('AgentProfileService.applyProfile', () => {
     await svc.applyProfile(exactProfile);
 
     const prompt = svc.data().systemPrompt;
-    expect(prompt).toContain(`cwd:${resolve(workDir)}`);
+    expect(prompt).toContain(`cwd:${workDir}`);
     expect(prompt).toContain('ls:\nextra:');
   });
 
@@ -408,38 +419,6 @@ describe('AgentProfileService.applyProfile', () => {
     change.dispose();
   });
 
-  it('warns once when the skill catalog cannot be read', async () => {
-    const change = new Emitter<string>();
-    const rejecting = Promise.reject(new Error('catalog unavailable'));
-    rejecting.catch(() => {});
-    const { ctx: context, profile: svc } = buildContext(
-      skillCatalogWithChange(change, new InMemorySkillCatalog(), rejecting),
-    );
-
-    let seen: readonly { event: string; args?: { code?: string } }[] = [];
-    const drain = (): void => {
-      seen = [
-        ...seen,
-        ...(context.newEvents() as readonly { event: string; args?: { code?: string } }[]),
-      ];
-    };
-    const skillWarnings = (): readonly unknown[] =>
-      seen.filter(
-        (entry) => entry.event === 'warning' && entry.args?.['code'] === 'skill-listing-unavailable',
-      );
-
-    await svc.applyProfile(skillsProfile);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    drain();
-    expect(svc.data().systemPrompt).toBe('skills:');
-    expect(skillWarnings()).toHaveLength(1);
-
-    await svc.applyProfile(skillsProfile);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    drain();
-    expect(skillWarnings()).toHaveLength(1);
-  });
-
   it('does not rebuild the system prompt when the plugin skill source changes', async () => {
     let renders = 0;
     const countingProfile: ResolvedAgentProfile = normalizeAgentProfile({
@@ -515,29 +494,14 @@ describe('AgentProfileService.applyProfile', () => {
   });
 });
 
-function hostEnvironment(homeDir: string): TestAgentServiceOverride {
-  return appService(IHostEnvironment, {
-    _serviceBrand: undefined,
-    osKind: 'Linux',
-    osArch: 'x64',
-    osVersion: 'test',
-    shellName: 'bash',
-    shellPath: '/bin/bash',
-    pathClass: HOST_PATH_CLASS,
-    homeDir,
-    ready: Promise.resolve(),
-  } satisfies IHostEnvironment);
-}
-
 function skillCatalogWithChange(
   change: Emitter<string>,
   catalog: SkillCatalog = new InMemorySkillCatalog(),
-  ready: Promise<void> = Promise.resolve(),
 ): TestAgentServiceOverride {
   return sessionService(ISessionSkillCatalog, {
     _serviceBrand: undefined,
     catalog,
-    ready,
+    ready: Promise.resolve(),
     onDidChange: change.event,
     load: async () => {},
     reload: async () => {},

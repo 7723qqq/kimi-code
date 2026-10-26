@@ -34,9 +34,9 @@ export function resolveRemoteControlRelayOrigin(
 const MAX_HTTP_HEADER_BYTES = 64 * 1024;
 const MAX_HTTP_REQUEST_BYTES = 104 * 1024 * 1024;
 const MAX_RETAINED_HTTP_BYTES = 2 * MAX_HTTP_REQUEST_BYTES;
-const HTTP_FRAGMENT_OVERHEAD_BYTES = 1024;
 const MAX_SINGLE_FRAME_RESPONSE_BYTES = 10 * 1024 * 1024;
 const RESPONSE_CHUNK_BYTES = 5 * 1024 * 1024;
+const HTTP_FRAGMENT_OVERHEAD_BYTES = 1024;
 const HTTP_TUNNEL_CAPABILITIES = 'request_chunk,response_chunk,abort';
 
 export interface HttpTunnelLimits {
@@ -361,6 +361,8 @@ export async function startRemoteControl(
   if (localServerToken().length === 0) {
     throw new Error('Remote Control requires local server authentication.');
   }
+  const httpTunnelLimits = { ...DEFAULT_HTTP_TUNNEL_LIMITS, ...options.httpTunnelLimits };
+  validateHttpTunnelLimits(httpTunnelLimits);
   const auth = resolveKimiRemoteControlAuth({
     configuredOAuthHost: options.configuredOAuthHost,
     configuredOAuthKey: options.configuredOAuthKey,
@@ -388,6 +390,7 @@ export async function startRemoteControl(
   }
   const client = new RemoteControlClient({
     ...options,
+    httpTunnelLimits,
     localServerToken,
     relayOrigin,
     deviceId,
@@ -454,11 +457,12 @@ class RemoteControlClient {
   private initialReject: ((error: unknown) => void) | undefined;
 
   constructor(
-    options: Omit<RemoteControlOptions, 'localServerToken'> & {
+    options: Omit<RemoteControlOptions, 'localServerToken' | 'httpTunnelLimits'> & {
       readonly localServerToken: () => string;
       readonly relayOrigin: string;
       readonly deviceId: string;
       readonly refreshToken: string;
+      readonly httpTunnelLimits: HttpTunnelLimits;
     },
   ) {
     this.localOrigin = options.localOrigin.replace(/\/+$/, '');

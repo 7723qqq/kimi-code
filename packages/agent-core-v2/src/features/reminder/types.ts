@@ -9,6 +9,7 @@ export interface ContextInjectionContext<D = unknown> {
   readonly lastDisclosure?: D;
   readonly isNewTurn: boolean;
   readonly estimatedTokens?: number;
+  readonly signal?: AbortSignal;
 }
 
 export interface ContextInjectionMessage {

@@ -1,11 +1,9 @@
-import {
-  TurnPrompt,
-  flattenChain,
-  sliceMainRecordsAtTurn,
-  type WireRecord,
-} from '@moonshot-ai/agent-core-v2';
-import { describe, expect, it } from 'bun:test';
-import { waitForAssertion } from './helpers/waitFor';
+import { TurnPrompt } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
+import type { WireRecord } from '@moonshot-ai/agent-core-v2/wire/record';
+import { flattenChain } from '@moonshot-ai/agent-core-v2/wire/tree/index';
+import { sliceMainRecordsAtTurn } from '@moonshot-ai/agent-core-v2/workspace/sessionLifecycle/internal/forkTurnSlice';
+import { describe, expect, it, vi } from 'bun:test';
+import { waitUntil } from 'helpers/waitFor';
 
 import { InMemoryWireRecordPersistence, testAgent, type TestAgentContext } from '../../agent-core-v2/test/harness';
 import { isSurveyTurnOrigin, mountSurveyTurnCounter, SurveyTurnCounter } from '#/session-rating/node/index';
@@ -47,7 +45,7 @@ describe('survey history attachment', () => {
     await lateEntered.promise;
     const undo = ctx.rpc.undoHistory({ count: 1 });
     try {
-      await waitForAssertion(() => {
+      await waitUntil(() => {
         expect(ctx.dispatcher.restorePhase).toBe('restoring');
       });
       lateRead.release();

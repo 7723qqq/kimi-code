@@ -38,7 +38,7 @@ const seq: string[] = [];
 // The tracing layers below patch properties on the real node:fs/promises
 // exports object: every minidb module default-imports that one object, so the
 // wrapper is reached without re-importing the cluster sources (Bun has no
-// vi.resetModules, and mock.module cannot be undone). The afterEach restores
+// jest.resetModules, and mock.module cannot be undone). The afterEach restores
 // every patched property.
 const restores: (() => void)[] = [];
 

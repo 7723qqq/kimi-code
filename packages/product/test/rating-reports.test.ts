@@ -73,9 +73,7 @@ describe('session rating report ordering', () => {
       ]);
       const [appeared, responded] = h.events;
       expect(responded?.properties).toEqual({
-        ...appeared!.properties,
-        event_type: 'responded',
-        response: 'good',
+        ...appeared?.properties, event_type: 'responded', response: 'good',
       });
     },
   );

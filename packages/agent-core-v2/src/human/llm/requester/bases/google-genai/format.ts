@@ -1,7 +1,4 @@
-import {
-  ApiError as RawGoogleGenAISDKApiError,
-  type GenerateContentParameters,
-} from '@google/genai';
+import { ApiError as RawGoogleGenAISDKApiError, type GenerateContentParameters } from '@google/genai';
 
 import {
   isAbortError,
@@ -10,6 +7,7 @@ import {
   type LlmRemoteErrorMessage,
 } from '#/llm/errors';
 import { NO_FINISH, type FinishInfo, type FinishReason } from '#/llm/finish-reason';
+import type { FormatRequestInput, ProtocolFormat } from '#/llm/protocol/format';
 import type {
   Message,
   StreamedMessagePart,
@@ -17,15 +15,14 @@ import type {
   ToolCall,
   ToolDescription,
 } from '#/llm/message';
-import type { FormatRequestInput, ProtocolFormat } from '#/llm/protocol/format';
+import { ThinkingConfigError, type ThinkingEffort } from '#/llm/thinking';
 import { mergeConsecutiveUsers } from '#/llm/protocol/patterns';
 import { applyPatterns } from '#/llm/protocol/rewrite';
 import type { ResponseFormat } from '#/llm/response-format';
-import { ThinkingConfigError, type ThinkingEffort } from '#/llm/thinking';
 import type { TokenUsage } from '#/llm/usage';
 
-import type { GoogleContent } from './contract';
 import { buildToolNameById, lowerMessage } from './lower';
+import type { GoogleContent } from './contract';
 import { sortToolRunByCallOrder } from './patterns';
 
 export function defaultGoogleGenAITool(tool: ToolDescription): Record<string, unknown> {
@@ -252,7 +249,7 @@ export function createGoogleGenAIFormat(): ProtocolFormat {
           sink.onMessageId?.(responseId);
         }
         const usage = parseUsageMetadata(response);
-        if (usage !== undefined) {
+        if (usage !== undefined && rawFinish !== undefined && rawFinish !== null) {
           sink.onUsage?.(usage);
         }
         if (rawFinish !== undefined && rawFinish !== null) {
@@ -272,7 +269,9 @@ function parseUsageMetadata(response: Record<string, unknown>): TokenUsage | und
     return undefined;
   }
   const promptTokenCount =
-    typeof usageMetadata['promptTokenCount'] === 'number' ? usageMetadata['promptTokenCount'] : 0;
+    typeof usageMetadata['promptTokenCount'] === 'number'
+      ? usageMetadata['promptTokenCount']
+      : 0;
   const cachedContentTokenCount =
     typeof usageMetadata['cachedContentTokenCount'] === 'number'
       ? usageMetadata['cachedContentTokenCount']

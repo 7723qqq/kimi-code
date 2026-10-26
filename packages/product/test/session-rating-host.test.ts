@@ -19,11 +19,10 @@ import {
   type IAgentScopeHandle,
   type ISessionScopeHandle,
   type Scope,
-  TurnStarted,
-  TurnEnded,
-  TurnPrompt,
 } from '@moonshot-ai/agent-core-v2';
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import { TurnStarted } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
+import { TurnEnded, TurnPrompt } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
 
 import { SessionRatingHost } from '#/session-rating/node/index';
 
@@ -45,7 +44,7 @@ beforeEach(async () => {
   await core.accessor.get(IConfigService).ready;
   now = 0;
   records = [];
-  spyOn(performance, 'now').mockImplementation(() => now);
+  jest.spyOn(performance, 'now').mockImplementation(() => now);
 });
 
 afterEach(async () => {
@@ -57,7 +56,7 @@ afterEach(async () => {
   core.dispose();
   await drainSessionIndexMirror();
   await drainQueryStoreDisposals();
-  mock.restore();
+  jest.restoreAllMocks();
   await rm(home, { recursive: true, force: true, maxRetries: 5, retryDelay: 50 });
 });
 
@@ -102,7 +101,7 @@ describe('session rating host history', () => {
     const session = await manager.create({ workDir: home });
     await completeTurn(await mainAgent(session));
     await manager.close(session.id);
-    const read = spyOn(core.accessor.get(IAppendLogStore), 'read');
+    const read = jest.spyOn(core.accessor.get(IAppendLogStore), 'read');
     const historyReads = (): number => read.mock.calls.filter(
       ([scope, key]) => scope.endsWith('/agents/main') && key === 'wire.jsonl',
     ).length;

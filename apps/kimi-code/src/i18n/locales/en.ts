@@ -441,8 +441,10 @@ export default {
     optionDescriptions: {
       session: 'Resume a session. With ID: resume that session. Without ID: interactively pick.',
       continue: 'Continue the previous session for the working directory.',
-      yolo: 'Automatically approve all actions.',
-      auto: 'Start in auto permission mode.',
+      yolo:
+        'Start in Ask When Needed mode: routine edits and commands run automatically; risky actions, questions, and plans still ask.',
+      auto:
+        'Start in Never Ask mode: everything runs and is decided automatically; only plans in Plan mode wait for your review.',
       plan: 'Start in plan mode.',
       spec: 'Write a spec for the change before implementing it.',
       model:
@@ -1801,6 +1803,12 @@ export default {
       autoModeOnSub: 'Run all actions automatically, including risky ones.',
       autoModeAlreadyOff: 'Auto mode is already off',
       autoModeOff: 'Auto mode: OFF',
+            sessionReloadedAfterExternalUpdate:
+        'Session "{{sessionId}}" was updated by another client; reloaded it.',
+      planModeNotReviewableInPrint:
+        'Session "{{sessionId}}" is in Plan mode, and its plan cannot be approved in print mode; review it with `kimi -r {{sessionId}}`.',
+      defaultPlanModeNotAppliedInPrint:
+        'default_plan_mode is not applied in print mode, because Plan mode waits for your review.',
       // kimi-tui.ts
       warningLabel: 'Warning: {{warning}}',
       noSessionsToContinue:

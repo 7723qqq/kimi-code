@@ -1,11 +1,14 @@
-import { afterEach, describe, expect, it, mock, type Mock } from 'bun:test';
+import { describe, expect, it, vi, afterEach } from 'bun:test';
+import { waitUntil } from '../../helpers/waitFor';
 
-import { AuthFlowController, type AuthFlowHost } from '#/tui/controllers/auth-flow';
+import {
+  AuthFlowController,
+  type AuthFlowHost,
+} from '#/tui/controllers/auth-flow';
 import {
   refreshModelSwitchConfirmConfig,
   resetModelSwitchConfirmConfigCache,
 } from '#/utils/model-switch-confirm-config';
-import { waitForAssertion } from '#test/helpers/waitFor';
 
 function makeHost(
   options: {
@@ -25,46 +28,44 @@ function makeHost(
     options.withSession === true
       ? {
           id: 'ses-live',
-          getStatus: mock(async () => ({ model: options.boundModel ?? 'old-model' })),
-          setModel: mock(async () => ({ model: 'k2', providerName: 'managed' })),
-          setThinking: mock(async () => {}),
+          getStatus: jest.fn(async () => ({ model: options.boundModel ?? 'old-model' })),
+          setModel: jest.fn(async () => ({ model: 'k2', providerName: 'managed' })),
+          setThinking: jest.fn(async () => {}),
         }
       : undefined;
   const host = {
     state: { appState },
     session,
     harness: {
-      createSession: mock(async () => ({ id: 'ses-new', summary: { title: null } })),
-      getConfig: mock(async () => ({
+      createSession: jest.fn(async () => ({ id: 'ses-new', summary: { title: null } })),
+      getConfig: jest.fn(async () => ({
         defaultModel: options.defaultModel,
-        models: {
-          k2: { provider: 'managed:kimi-code', model: 'kimi-k2', maxContextSize: 200_000 },
-        },
+        models: { k2: { provider: 'managed:kimi-code', model: 'kimi-k2', maxContextSize: 200_000 } },
         providers: {},
       })),
     },
     options: { startup: {} },
-    setAppState: mock((patch: Record<string, unknown>) => Object.assign(appState, patch)),
-    setStartupReady: mock(),
-    resetSessionRuntime: mock(),
-    setSession: mock(async (next: unknown) => {
+    setAppState: jest.fn((patch: Record<string, unknown>) => Object.assign(appState, patch)),
+    setStartupReady: jest.fn(),
+    resetSessionRuntime: jest.fn(),
+    setSession: jest.fn(async (next: unknown) => {
       (host as { session: unknown }).session = next;
     }),
-    syncRuntimeState: mock(async () => {}),
-    appendStartupNotice: mock(),
-    hydrateLazyConfigDefaults: mock(async () => {}),
-    sessionEventHandler: { startSubscription: mock() },
-    fetchSessions: mock(async () => {}),
-    updateTerminalTitle: mock(),
-    refreshSkillCommands: mock(async () => {}),
-    refreshPluginCommands: mock(async () => {}),
+    syncRuntimeState: jest.fn(async () => {}),
+    appendStartupNotice: jest.fn(),
+    hydrateLazyConfigDefaults: jest.fn(async () => {}),
+    sessionEventHandler: { startSubscription: jest.fn() },
+    fetchSessions: jest.fn(async () => {}),
+    updateTerminalTitle: jest.fn(),
+    refreshSkillCommands: jest.fn(async () => {}),
+    refreshPluginCommands: jest.fn(async () => {}),
   } as unknown as AuthFlowHost & {
     session: unknown;
     harness: {
-      createSession: Mock<(...args: any[]) => any>;
-      getConfig: Mock<(...args: any[]) => any>;
+      createSession: ReturnType<typeof jest.fn>;
+      getConfig: ReturnType<typeof jest.fn>;
     };
-    setAppState: Mock<(...args: any[]) => any>;
+    setAppState: ReturnType<typeof jest.fn>;
   };
   return { host, appState, session };
 }
@@ -131,28 +132,6 @@ describe('refreshConfigAfterLogin', () => {
   });
 });
 
-describe('refreshConfigAfterLogout', () => {
-  it('clears the active model on a live session when the removed provider owned it and no default remains', async () => {
-    const { host, appState } = makeHost({ withSession: true });
-    const authFlow = new AuthFlowController(host);
-
-    await authFlow.refreshConfigAfterLogout();
-
-    expect(appState.model).toBe('');
-    expect(appState.thinkingEffort).toBe('off');
-  });
-
-  it('activates the fallback default model on a live session when the active model was removed', async () => {
-    const { host, appState, session } = makeHost({ withSession: true, defaultModel: 'k2' });
-    const authFlow = new AuthFlowController(host);
-
-    await authFlow.refreshConfigAfterLogout();
-
-    expect(session!.setModel).toHaveBeenCalledWith('k2');
-    expect(appState.model).toBe('k2');
-  });
-});
-
 describe('refreshConfigAfterLogin with a matching cloud rule', () => {
   afterEach(() => {
     resetModelSwitchConfirmConfigCache();
@@ -161,14 +140,10 @@ describe('refreshConfigAfterLogin with a matching cloud rule', () => {
   async function makeGateHost() {
     const { host, session, appState } = makeHost({ withSession: true, defaultModel: 'k2' });
     (appState as Record<string, unknown>)['streamingPhase'] = 'idle';
-    host.harness.getConfig = mock(async () => ({
+    host.harness.getConfig = jest.fn(async () => ({
       defaultModel: 'k2',
       models: {
-        'old-model': {
-          provider: 'managed:kimi-code',
-          model: 'upstream-old',
-          maxContextSize: 200_000,
-        },
+        'old-model': { provider: 'managed:kimi-code', model: 'upstream-old', maxContextSize: 200_000 },
         k2: { provider: 'managed:kimi-code', model: 'upstream-new', maxContextSize: 200_000 },
       },
       providers: {},
@@ -176,15 +151,15 @@ describe('refreshConfigAfterLogin with a matching cloud rule', () => {
     (host as unknown as { state: Record<string, unknown> }).state['transcriptEntries'] = [
       { kind: 'user', bullet: 'hi' },
     ];
-    const mountEditorReplacement = mock();
+    const mountEditorReplacement = jest.fn();
     (host as unknown as Record<string, unknown>)['mountEditorReplacement'] = mountEditorReplacement;
-    (host as unknown as Record<string, unknown>)['restoreEditor'] = mock();
-    (host as unknown as Record<string, unknown>)['showStatus'] = mock();
-    (host as unknown as Record<string, unknown>)['showError'] = mock();
-    (host as unknown as Record<string, unknown>)['showNotice'] = mock();
-    (host as unknown as Record<string, unknown>)['track'] = mock();
+    (host as unknown as Record<string, unknown>)['restoreEditor'] = jest.fn();
+    (host as unknown as Record<string, unknown>)['showStatus'] = jest.fn();
+    (host as unknown as Record<string, unknown>)['showError'] = jest.fn();
+    (host as unknown as Record<string, unknown>)['showNotice'] = jest.fn();
+    (host as unknown as Record<string, unknown>)['track'] = jest.fn();
     await refreshModelSwitchConfirmConfig({
-      fetchImpl: mock(
+      fetchImpl: jest.fn(
         async () =>
           new Response(
             JSON.stringify({
@@ -195,7 +170,7 @@ describe('refreshConfigAfterLogin with a matching cloud rule', () => {
               },
             }),
           ),
-      ) as unknown as unknown as typeof fetch,
+      ) as unknown as typeof fetch,
     });
     return { host, session, appState, mountEditorReplacement };
   }
@@ -235,6 +210,33 @@ describe('refreshConfigAfterLogin with a matching cloud rule', () => {
       opts: { onSelect: (action: string) => void };
     };
     dialog.opts.onSelect('continue');
-    await waitForAssertion(() => expect(session!.setThinking).toHaveBeenCalledWith('max'));
+    await waitUntil(() => expect(session!.setThinking).toHaveBeenCalledWith('max'));
+  });
+});
+
+describe('refreshProviderModels', () => {
+  it('reloads app-state providers and models even when the engine reports no model change', async () => {
+    // A config-only registry change (type, baseUrl, …) is persisted by the
+    // engine while the provider lands in `unchanged` — the TUI must still
+    // reload, or appState keeps the stale provider record.
+    const { host } = makeHost();
+    const refreshProviderModels = jest.fn(async () => ({
+      changed: [],
+      unchanged: ['custom'],
+      failed: [],
+    }));
+    (host.harness as unknown as { refreshProviderModels: unknown }).refreshProviderModels =
+      refreshProviderModels;
+
+    const result = await new AuthFlowController(host).refreshProviderModels({
+      providerId: 'custom',
+    });
+
+    expect(refreshProviderModels).toHaveBeenCalledWith({ providerId: 'custom' });
+    expect(result.unchanged).toEqual(['custom']);
+    expect(host.setAppState).toHaveBeenCalledWith({
+      availableModels: expect.anything(),
+      availableProviders: expect.anything(),
+    });
   });
 });

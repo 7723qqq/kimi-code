@@ -1,15 +1,12 @@
-
+import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import type { AgentContext } from '#/agent/agentContext/agentContext';
-import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { IAgentTaskService } from '#/agent/task/task';
 import { isAgentTaskTerminal } from '#/agent/task/taskService';
-import { SubagentTask, type SubagentHandle } from '#/agent/tools/agent/subagent-task';
-import { IConfigService } from '#/app/config/config';
 import {
   GitError,
   MISSIONS_DIR,
@@ -21,39 +18,46 @@ import {
   missionFileName,
   parseFrontmatter,
   resolveMissionByBranch,
-  resolveTowerRepoRoot,
   type TowerInboxItem,
   type TowerMission,
   type TowerState,
 } from '#/features/tower/protocol/index';
 import { IAgentTowerService, TOWER_WORKER_PROFILE } from '#/features/tower/tower';
 import { ITowerRateLimitService } from '#/features/tower/towerRateLimit';
+import { IConfigService } from '#/app/config/config';
 import { IModelCatalog } from '#/llm-adapter/model/catalog';
-import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
-import { subagentLabels } from '#/session/agentLifecycle/subagentMetadata';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import {
-  isSubagentModelForced,
-  resolveSubagentBinding,
-  resolveSubagentThinking,
-  resolveSubagentTimeoutMs,
-  wrapSubagentModelError,
-} from '#/session/subagent/configSection';
-import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/subagent/mirrorAgentRun';
-import { ISessionSubagentService } from '#/session/subagent/subagent';
 import { toInputJsonSchema } from '#/tool/input-schema';
 import {
   type ExecutableToolContext,
   type ExecutableToolResult,
   type ToolExecution,
 } from '#/tool/toolContract';
+import { IAgentLifecycleService, MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
+import { subagentLabels } from '#/session/agentLifecycle/subagentMetadata';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import {
+  buildSubagentModelDescriptions,
+  exposesSubagentModelChoice,
+  isSubagentModelForced,
+  resolveSubagentBinding,
+  resolveSubagentThinking,
+  resolveSubagentTimeoutMs,
+  stripSubagentModelParameter,
+  wrapSubagentModelError,
+} from '#/session/subagent/configSection';
+import { emitAgentRunSpawned, mirrorAgentRun } from '#/session/subagent/mirrorAgentRun';
+import { ISessionSubagentService } from '#/session/subagent/subagent';
 
-import { TOWER_MAIN_AGENT_ONLY, TOWER_MODE_USER_ENABLED_ONLY } from '../support';
+import { SubagentTask, type SubagentHandle } from '#/agent/tools/agent/subagent-task';
+
+import { newTowerStore, TOWER_MAIN_AGENT_ONLY, TOWER_MODE_USER_ENABLED_ONLY } from '../support';
 import { ITowerSpawnTool, TowerSpawnToolInputSchema, type TowerSpawnToolInput } from './spawn';
 import DESCRIPTION from './spawn.md?raw';
 
 type SubagentBinding = ReturnType<typeof resolveSubagentBinding>;
 
+const TOWER_SPAWN_PARAMETERS = toInputJsonSchema(TowerSpawnToolInputSchema);
+const TOWER_SPAWN_PARAMETERS_NO_MODEL = stripSubagentModelParameter(TOWER_SPAWN_PARAMETERS);
 const REVIEW_REQUEST_SCAN_LIMIT = 50;
 const REVIEW_HISTORY_ROUNDS = 5;
 const REVIEW_EXCERPT_MAX_CHARS = 8000;
@@ -64,7 +68,7 @@ function truncateSection(text: string, maxChars: number): string {
 }
 
 async function reviewExcerpt(store: TowerStore, file: string): Promise<string> {
-  const { body } = parseFrontmatter(await Bun.file(store.abs(file)).text());
+  const { body } = parseFrontmatter(await readFile(store.abs(file), 'utf8'));
   return truncateSection(body.trim(), REVIEW_EXCERPT_MAX_CHARS);
 }
 
@@ -80,8 +84,20 @@ async function findReviewRequest(
 export class TowerSpawnTool implements ITowerSpawnTool {
   declare readonly _serviceBrand: undefined;
   readonly name = 'TowerSpawn' as const;
-  readonly description: string = DESCRIPTION;
-  readonly parameters: Record<string, unknown> = toInputJsonSchema(TowerSpawnToolInputSchema);
+
+  get description(): string {
+    const modelLines = buildSubagentModelDescriptions(
+      this.config,
+      this.profile.data().modelAlias,
+    );
+    return modelLines === undefined ? DESCRIPTION : `${DESCRIPTION}\n\n${modelLines}`;
+  }
+
+  get parameters(): Record<string, unknown> {
+    return exposesSubagentModelChoice(this.config)
+      ? TOWER_SPAWN_PARAMETERS
+      : TOWER_SPAWN_PARAMETERS_NO_MODEL;
+  }
 
   private readonly callerAgentId: string;
 
@@ -115,7 +131,7 @@ export class TowerSpawnTool implements ITowerSpawnTool {
   }
 
   private newStore(): TowerStore {
-    return new TowerStore(resolveTowerRepoRoot(this.sessionContext.cwd));
+    return newTowerStore(this.sessionContext);
   }
 
   private async execution(
@@ -191,6 +207,30 @@ export class TowerSpawnTool implements ITowerSpawnTool {
         throw new TowerProtocolError('tower spawn could not resolve the branch lease');
       }
 
+      const own = this.profile.data();
+      if (args.model !== undefined && own.modelAlias === undefined) {
+        return { output: 'Caller agent has no model bound', isError: true };
+      }
+      let binding: SubagentBinding | undefined;
+      try {
+        binding =
+          own.modelAlias === undefined
+            ? undefined
+            : resolveSubagentBinding(
+                this.config,
+                { modelAlias: own.modelAlias, thinkingLevel: own.thinkingLevel },
+                args.model ??
+                  (args.kind === 'reviewer' && !isSubagentModelForced(this.config)
+                    ? 'primary'
+                    : undefined),
+              );
+      } catch (error) {
+        return {
+          output: error instanceof Error ? error.message : String(error),
+          isError: true,
+        };
+      }
+
       return await this.tower.withBranchLease(leaseBranch, async () => {
         const notes: string[] = [];
         if (mission !== undefined) {
@@ -240,17 +280,6 @@ export class TowerSpawnTool implements ITowerSpawnTool {
         let slotHeld = true;
         try {
           const controller = new AbortController();
-          const own = this.profile.data();
-          const binding =
-            own.modelAlias === undefined
-              ? undefined
-              : resolveSubagentBinding(
-                  this.config,
-                  { modelAlias: own.modelAlias, thinkingLevel: own.thinkingLevel },
-                  args.kind === 'reviewer' && !isSubagentModelForced(this.config)
-                    ? 'primary'
-                    : undefined,
-                );
           let handle: SubagentHandle;
           try {
             handle = await this.launch(prompt, description, toolCallId, controller, binding);
@@ -284,8 +313,8 @@ export class TowerSpawnTool implements ITowerSpawnTool {
             });
           slotHeld = false;
 
-          try {
-            await store.registerAgent({
+          await store.registerSpawnedAgent(
+            {
               name: args.name,
               agentId: handle.agentId,
               sessionId: this.sessionContext.sessionId,
@@ -296,66 +325,37 @@ export class TowerSpawnTool implements ITowerSpawnTool {
               worktree: mission?.worktree,
               branch: mission?.branch,
               spawnedAt: new Date().toISOString(),
-            });
-            const settled = this.tasks.getTask(taskId);
-            if (
-              settled !== undefined &&
-              isAgentTaskTerminal(settled.status) &&
-              settled.status !== 'completed'
-            ) {
-              await store.markAgentDied(
-                handle.agentId,
-                settled.status,
-                settled.stopReason,
-                this.sessionContext.sessionId,
-              );
-            }
-            if (mission !== undefined) {
-              await store.updateMission(
-                TOWER_NAME,
-                mission.id,
-                { status: 'active', owner: args.name },
-                { silent: true },
-              );
-            }
-            await store.appendLog(
-              TOWER_NAME,
-              'spawn',
-              {
-                name: args.name,
-                kind: args.kind,
-                agent: handle.agentId,
-                mission: mission?.id,
-                target: reviewTarget,
-                model: binding?.model,
-              },
-              mission !== undefined
-                ? join(MISSIONS_DIR, missionFileName(mission.id, mission.slug))
-                : undefined,
+            },
+            mission === undefined ? undefined : { id: mission.id, owner: args.name },
+          );
+          const settled = this.tasks.getTask(taskId);
+          if (
+            settled !== undefined &&
+            isAgentTaskTerminal(settled.status) &&
+            settled.status !== 'completed'
+          ) {
+            await store.markAgentDied(
+              handle.agentId,
+              settled.status,
+              settled.stopReason,
+              this.sessionContext.sessionId,
             );
-          } catch (error) {
-            const detail = error instanceof Error ? error.message : String(error);
-            controller.abort();
-            void handle.completion.catch(() => {});
-            try {
-              await store.markAgentDied(
-                handle.agentId,
-                'failed',
-                `registration failed: ${detail}`,
-                this.sessionContext.sessionId,
-              );
-            } catch (markError) {
-              onUnexpectedError(markError);
-            }
-            return {
-              output: [
-                `tower spawn failed after the worker started: ${detail}`,
-                `agent_id: ${handle.agentId}`,
-                'the worker has been aborted, so nothing runs outside the roster; work already on its branch is preserved — resume it with Agent(resume=..., run_in_background=true, prompt="...") instead of spawning a duplicate, and check that the worktree is idle before any fresh spawn.',
-              ].join('\n'),
-              isError: true,
-            };
           }
+          await store.appendLog(
+            TOWER_NAME,
+            'spawn',
+            {
+              name: args.name,
+              kind: args.kind,
+              agent: handle.agentId,
+              mission: mission?.id,
+              target: reviewTarget,
+              model: binding?.model,
+            },
+            mission !== undefined
+              ? join(MISSIONS_DIR, missionFileName(mission.id, mission.slug))
+              : undefined,
+          );
 
           return {
             output: [
@@ -468,7 +468,10 @@ export class TowerSpawnTool implements ITowerSpawnTool {
         ? `\n\n# Additional instructions from the tower\n${args.instructions.trim()}`
         : '';
     if (mission !== undefined) {
-      const missionText = await Bun.file(store.abs(join(MISSIONS_DIR, missionFileName(mission.id, mission.slug)))).text();
+      const missionText = await readFile(
+        store.abs(join(MISSIONS_DIR, missionFileName(mission.id, mission.slug))),
+        'utf8',
+      );
       const worktreeAbs = store.abs(join(WORKTREES_DIR, mission.worktree));
       const workplace =
         `# Your workplace\n` +
@@ -523,7 +526,10 @@ export class TowerSpawnTool implements ITowerSpawnTool {
     const missionSection =
       targetMission !== undefined
         ? `# Mission under review — verify the diff against this intent, not only against code health\n\n${(
-            await Bun.file(store.abs(join(MISSIONS_DIR, missionFileName(targetMission.id, targetMission.slug)))).text()
+            await readFile(
+              store.abs(join(MISSIONS_DIR, missionFileName(targetMission.id, targetMission.slug))),
+              'utf8',
+            )
           ).trim()}\n\n`
         : '';
     const reviewRequest = author !== undefined ? await findReviewRequest(store, author) : undefined;

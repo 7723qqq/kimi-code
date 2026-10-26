@@ -1,30 +1,20 @@
-import { UnauthorizedError } from '@modelcontextprotocol/sdk/client/auth.js';
+import { ErrorCodes, Error2 } from '#/errors';
+import type { McpServerConfig } from './config-schema';
+import type { ILogger as Logger } from '#/_base/log/log';
+import type { ToolDescription as Tool } from '#human/llm/message';
+import { HostProcessError, HostProcessErrorCode } from '#/os/interface/hostProcess';
 import { McpError } from '@modelcontextprotocol/sdk/types.js';
 
-import type { ILogger as Logger } from '#/_base/log/log';
 import { abortable } from '#/_base/utils/abort';
-import { ErrorCodes, Error2 } from '#/errors';
-import { createMcpOAuthFetch } from '#/mcpCore/oauth/provider';
-import type { McpOAuthService } from '#/mcpCore/oauth/service';
-import { HostProcessError, HostProcessErrorCode } from '#/os/interface/hostProcess';
-import type { IRuntimeResolver } from '#/workspace/workspaceInstance/workspaceInstanceManager';
-import type { ToolDescription as Tool } from '#human/llm/message';
-
 import { HttpMcpClient } from './client-http';
 import { isRemoteMcpConfig } from './client-remote';
-import type { UnexpectedCloseReason } from './client-shared';
 import { SseMcpClient } from './client-sse';
+import type { UnexpectedCloseReason } from './client-shared';
 import { StdioMcpClient } from './client-stdio';
-import type { McpServerConfig } from './config-schema';
+import type { McpOAuthService } from '#/mcpCore/oauth/service';
 import { assertMcpInputSchema, type MCPClient, type MCPToolDefinition } from './types';
 
-export type McpServerStatus =
-  | 'pending'
-  | 'connected'
-  | 'failed'
-  | 'disabled'
-  | 'needs-auth'
-  | 'removed';
+export type McpServerStatus = 'pending' | 'connected' | 'failed' | 'disabled' | 'needs-auth' | 'removed';
 
 export interface McpServerEntry {
   readonly name: string;
@@ -55,7 +45,9 @@ export interface McpConnectionView {
   list(): readonly McpServerEntry[];
   get(name: string): McpServerEntry | undefined;
   deferredOf(name: string): boolean;
-  resolved(name: string):
+  resolved(
+    name: string,
+  ):
     | {
         client: MCPClient;
         tools: readonly Tool[];
@@ -93,7 +85,7 @@ export interface McpDefaults {
 export interface McpConnectionManagerOptions {
   readonly envLookup?: (name: string) => string | undefined;
   readonly stdioCwd?: string;
-  readonly runtimeResolver?: IRuntimeResolver;
+  readonly runtimeResolver?: import('#/workspace/workspaceInstance/workspaceInstanceManager').IRuntimeResolver;
   readonly workspaceId?: string;
   readonly runtimeId?: string;
   readonly requireStdioRuntimeId?: boolean;
@@ -155,7 +147,9 @@ export class McpConnectionManager implements McpConnectionView {
     return config.deferred ?? this.options.resolveDefaults?.().defaultDeferred ?? false;
   }
 
-  resolved(name: string):
+  resolved(
+    name: string,
+  ):
     | {
         client: MCPClient;
         tools: readonly Tool[];
@@ -336,11 +330,7 @@ export class McpConnectionManager implements McpConnectionView {
     await this.closeClient(entry);
     if (!this.isCurrent(entry, attemptId)) return false;
     this.flipToNeedsAuth(entry);
-    if (
-      rejectedGrant !== undefined &&
-      oauthService !== undefined &&
-      isRemoteMcpConfig(entry.config)
-    ) {
+    if (rejectedGrant !== undefined && oauthService !== undefined && isRemoteMcpConfig(entry.config)) {
       try {
         await oauthService.invalidateTokensIfCurrent(name, entry.config.url, rejectedGrant.tokens);
       } catch (invalidateError) {
@@ -458,12 +448,7 @@ export class McpConnectionManager implements McpConnectionView {
       const runtimeResolver = this.options.runtimeResolver;
       const workspaceId = this.options.workspaceId;
       const runtimeId = config.runtime_id ?? this.options.runtimeId;
-      if (
-        runtimeResolver === undefined ||
-        workspaceId === undefined ||
-        runtimeId === undefined ||
-        (this.options.requireStdioRuntimeId === true && config.runtime_id === undefined)
-      ) {
+      if (runtimeResolver === undefined || workspaceId === undefined || runtimeId === undefined || (this.options.requireStdioRuntimeId === true && config.runtime_id === undefined)) {
         throw new Error('MCP stdio requires runtime_id and runtime binding');
       }
       return new StdioMcpClient(config, {
@@ -477,23 +462,19 @@ export class McpConnectionManager implements McpConnectionView {
       });
     }
     if (config.transport === 'sse') {
-      const oauthProvider = await this.resolveOAuthProvider(config, name);
       return new SseMcpClient(config, {
         startupTimeoutMs,
         toolCallTimeoutMs,
         envLookup: this.options.envLookup,
-        oauthProvider,
-        fetch: createMcpOAuthFetch(oauthProvider, undefined),
+        oauthProvider: await this.resolveOAuthProvider(config, name),
         clientName,
       });
     }
-    const oauthProvider = await this.resolveOAuthProvider(config, name);
     return new HttpMcpClient(config, {
       startupTimeoutMs,
       toolCallTimeoutMs,
       envLookup: this.options.envLookup,
-      oauthProvider,
-      fetch: createMcpOAuthFetch(oauthProvider, undefined),
+      oauthProvider: await this.resolveOAuthProvider(config, name),
       clientName,
     });
   }
@@ -543,7 +524,8 @@ export class McpConnectionManager implements McpConnectionView {
   private async closeRuntimeClient(client: RuntimeMcpClient): Promise<void> {
     try {
       await client.close();
-    } catch {}
+    } catch {
+    }
   }
 
   private isCurrent(entry: InternalEntry, attemptId: number): boolean {
@@ -563,11 +545,7 @@ export class McpConnectionManager implements McpConnectionView {
     for (const listener of this.listeners) {
       try {
         listener(view);
-      } catch (error) {
-        this.log.error('mcp status listener threw', {
-          server: view.name,
-          error: error instanceof Error ? error.message : String(error),
-        });
+      } catch {
       }
     }
   }
@@ -602,23 +580,21 @@ function computeEnabledNames(config: McpServerConfig, tools: readonly Tool[]): S
 }
 
 function isUnauthorizedLikeError(error: unknown): boolean {
-  if (error instanceof UnauthorizedError) return true;
   if (!(error instanceof Error)) return false;
   if (error instanceof McpError) return false;
   if (error.name === 'UnauthorizedError') return true;
   const code = (error as { code?: unknown }).code;
   if (typeof code === 'number' && code === 401) return true;
   if (typeof code === 'string' && code === '401') return true;
-  return false;
+  return /\b401\b/.test(error.message) || /unauthorized/i.test(error.message);
 }
 
 function formatStartupError(error: unknown, client: RuntimeMcpClient | undefined): string {
-  const source =
-    error instanceof HostProcessError &&
+  const source = error instanceof HostProcessError &&
     error.code === HostProcessErrorCode.SpawnFailed &&
     error.cause instanceof Error
-      ? error.cause
-      : error;
+    ? error.cause
+    : error;
   const base = source instanceof Error ? source.message : String(source);
   const tail = stderrTail(client);
   if (tail === undefined) return base;

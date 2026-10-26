@@ -68,6 +68,12 @@ export interface CustomRegistryModelUpgrade {
   readonly retirement_at?: string | null;
 }
 
+export interface CustomRegistryModelUpgrade {
+  readonly model: string;
+  readonly migration_markdown: string;
+  readonly retirement_at?: string | null;
+}
+
 export interface CustomRegistryModelEntry {
   readonly id: string;
   readonly name?: string;

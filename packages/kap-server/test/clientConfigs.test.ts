@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { KIMI_REGION_PROFILES } from '@moonshot-ai/kimi-code-oauth';
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
 
 import {
   clientConfigsBaseUrl,
@@ -48,7 +48,7 @@ describe('clientConfigsBaseUrl', () => {
 
 describe('fetchClientConfig', () => {
   it('posts the config name and parses the envelope payload', async () => {
-    const fetchImpl = mock(async () =>
+    const fetchImpl = jest.fn(async () =>
       jsonResponse({
         name: MODEL_SWITCH_CONFIRM_CONFIG_NAME,
         config: {
@@ -76,7 +76,7 @@ describe('fetchClientConfig', () => {
   });
 
   it('returns undefined for an unregistered name without hitting the network', async () => {
-    const fetchImpl = mock(async () => jsonResponse({}));
+    const fetchImpl = jest.fn(async () => jsonResponse({}));
     expect(
       await fetchClientConfig('nope', 'https://example.com', fetchImpl as unknown as typeof fetch),
     ).toBeUndefined();
@@ -84,7 +84,7 @@ describe('fetchClientConfig', () => {
   });
 
   it('returns undefined when the response is not ok or the envelope mismatches', async () => {
-    const notOk = mock(async () => jsonResponse({}, false));
+    const notOk = jest.fn(async () => jsonResponse({}, false));
     expect(
       await fetchClientConfig(
         MODEL_SWITCH_CONFIRM_CONFIG_NAME,
@@ -93,7 +93,7 @@ describe('fetchClientConfig', () => {
       ),
     ).toBeUndefined();
 
-    const wrongName = mock(async () =>
+    const wrongName = jest.fn(async () =>
       jsonResponse({ name: 'other', config: { enable: true, rules: [] } }),
     );
     expect(
@@ -104,7 +104,7 @@ describe('fetchClientConfig', () => {
       ),
     ).toBeUndefined();
 
-    const garbageBody = mock(async () => jsonResponse('garbage'));
+    const garbageBody = jest.fn(async () => jsonResponse('garbage'));
     expect(
       await fetchClientConfig(
         MODEL_SWITCH_CONFIRM_CONFIG_NAME,
@@ -115,7 +115,7 @@ describe('fetchClientConfig', () => {
   });
 
   it('tolerates malformed payloads: invalid rules dropped, invalid enable falls back to false', async () => {
-    const fetchImpl = mock(async () =>
+    const fetchImpl = jest.fn(async () =>
       jsonResponse({
         name: MODEL_SWITCH_CONFIRM_CONFIG_NAME,
         config: {
@@ -132,7 +132,7 @@ describe('fetchClientConfig', () => {
       ),
     ).toEqual({ enable: false, rules: [{ from: 'a', to: 'b' }] });
 
-    const nonObject = mock(async () =>
+    const nonObject = jest.fn(async () =>
       jsonResponse({ name: MODEL_SWITCH_CONFIRM_CONFIG_NAME, config: 42 }),
     );
     expect(
@@ -145,7 +145,7 @@ describe('fetchClientConfig', () => {
   });
 
   it('passes id lists through and drops rules with empty or mixed lists', async () => {
-    const fetchImpl = mock(async () =>
+    const fetchImpl = jest.fn(async () =>
       jsonResponse({
         name: MODEL_SWITCH_CONFIRM_CONFIG_NAME,
         config: {
@@ -176,7 +176,7 @@ describe('fetchClientConfig', () => {
   });
 
   it('returns undefined when the fetch throws', async () => {
-    const fetchImpl = mock(async () => {
+    const fetchImpl = jest.fn(async () => {
       throw new Error('network down');
     });
     expect(

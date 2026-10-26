@@ -1,5 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
-import { waitForAssertion } from '#test/helpers/waitFor';
+import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
+import { waitUntil } from '#test/helpers/waitFor';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
@@ -87,7 +87,7 @@ describe('SessionMetadata', () => {
 
   afterEach(() => {
     disposables.dispose();
-    mock.restore();
+    jest.restoreAllMocks();
   });
 
   it('creates an initial document on first read', async () => {
@@ -483,7 +483,7 @@ describe('SessionMetadata', () => {
 
     const first = ix.get(ISessionMetadata);
     await first.ready;
-    const setSpy = spyOn(store, 'set');
+    const setSpy = jest.spyOn(store, 'set');
     const fresh = createFreshMetadata(ix);
     await fresh.ready;
 
@@ -505,7 +505,7 @@ describe('SessionMetadata', () => {
       releaseWrite = resolve;
     });
     let shouldBlock = true;
-    spyOn(store, 'set').mockImplementation(async (scope, key, value) => {
+    jest.spyOn(store, 'set').mockImplementation(async (scope, key, value) => {
       if (shouldBlock) {
         shouldBlock = false;
         markWriteStarted?.();
@@ -730,13 +730,13 @@ describe('SessionMetadata', () => {
       release = resolve;
     });
     const realSet = store.set.bind(store);
-    spyOn(store, 'set').mockImplementation(async (...args: Parameters<typeof store.set>) => {
+    jest.spyOn(store, 'set').mockImplementation(async (...args: Parameters<typeof store.set>) => {
       await gate;
       return realSet(...args);
     });
 
     const writing = meta.setTitle('held');
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       expect(store.set).toHaveBeenCalled();
     });
     locks.release('s1');

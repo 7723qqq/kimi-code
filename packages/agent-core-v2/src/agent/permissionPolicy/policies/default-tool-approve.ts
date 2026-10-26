@@ -19,7 +19,6 @@ const DEFAULT_APPROVE_TOOLS = new Set([
   'AskUserQuestion',
   'NotifyUser',
   'Skill',
-  'EnterPlanMode',
   'ExitPlanMode',
   'EnterSpecMode',
   'ExitSpecMode',

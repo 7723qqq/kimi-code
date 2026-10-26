@@ -1,8 +1,8 @@
+import type * as ChildProcess from 'node:child_process';
 import { EventEmitter } from 'node:events';
 
-import { afterEach, beforeEach, describe, expect, it, mock } from 'bun:test';
-import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
-import { setEnv, restoreEnvs } from '#test/helpers/stubs';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
+import { setEnv, restoreEnvs } from '../../helpers/stubs';
 
 import { readUpdateCache } from '#/cli/update/cache';
 import {
@@ -11,11 +11,11 @@ import {
   writeUpdateInstallState,
 } from '#/cli/update/install-state';
 import { installCommandFor, runUpdatePreflight } from '#/cli/update/preflight';
-import * as promptModule from '#/cli/update/prompt';
 import { promptForInstallChoice } from '#/cli/update/prompt';
-import * as refreshModule from '#/cli/update/refresh';
+import type * as PromptModule from '#/cli/update/prompt';
 import { refreshUpdateCache } from '#/cli/update/refresh';
-import * as rolloutModule from '#/cli/update/rollout';
+import type * as RefreshModule from '#/cli/update/refresh';
+import type * as RolloutModule from '#/cli/update/rollout';
 import { detectInstallSource } from '#/cli/update/source';
 import {
   emptyUpdateCache,
@@ -24,38 +24,38 @@ import {
   type UpdateManifest,
 } from '#/cli/update/types';
 import type { TuiConfig } from '#/tui/config';
-import { refreshKimiRegion } from '#/utils/region';
+import { resetKimiRegionCache } from '#/utils/region';
 
-const mocks = (() => ({
-  readUpdateCache: mock(),
-  readUpdateInstallState: mock(),
-  writeUpdateInstallState: mock(),
-  tryAcquireUpdateInstallLock: mock(),
-  loadTuiConfig: mock(),
-  detectInstallSource: mock(),
-  promptForInstallChoice: mock(),
-  refreshUpdateCache: mock(),
-  resolveUpdateDeviceId: mock(),
-  appendRolloutDecisionLog: mock(),
-  spawn: mock(),
+const mocks = ({
+  readUpdateCache: jest.fn(),
+  readUpdateInstallState: jest.fn(),
+  writeUpdateInstallState: jest.fn(),
+  tryAcquireUpdateInstallLock: jest.fn(),
+  loadTuiConfig: jest.fn(),
+  detectInstallSource: jest.fn(),
+  promptForInstallChoice: jest.fn(),
+  refreshUpdateCache: jest.fn(),
+  resolveUpdateDeviceId: jest.fn(),
+  appendRolloutDecisionLog: jest.fn(),
+  spawn: jest.fn(),
   // Identity by default: resolution is covered by resolve-command.test.ts;
   // here we only care which command string reaches spawn().
-  resolveCommandPath: mock((cmd: string) => cmd as string | undefined),
-}))();
+  resolveCommandPath: jest.fn((cmd: string) => cmd as string | undefined),
+}));
 
-void mock.module('#/utils/process/resolve-command', () => ({
+jest.mock('#/utils/process/resolve-command', () => ({
   resolveCommandPath: mocks.resolveCommandPath,
 }));
 
-void mock.module('../../../src/cli/update/cache', () => ({
+jest.mock('../../../src/cli/update/cache', () => ({
   readUpdateCache: mocks.readUpdateCache,
 }));
 
-void mock.module('../../../src/cli/update/install-lock', () => ({
+jest.mock('../../../src/cli/update/install-lock', () => ({
   tryAcquireUpdateInstallLock: mocks.tryAcquireUpdateInstallLock,
 }));
 
-void mock.module('../../../src/cli/update/install-state', () => ({
+jest.mock('../../../src/cli/update/install-state', () => ({
   emptyUpdateInstallState: () => ({
     active: null,
     lastFailure: null,
@@ -65,7 +65,7 @@ void mock.module('../../../src/cli/update/install-state', () => ({
   writeUpdateInstallState: mocks.writeUpdateInstallState,
 }));
 
-void mock.module('../../../src/tui/config', () => ({
+jest.mock('../../../src/tui/config', () => ({
   loadTuiConfig: mocks.loadTuiConfig,
   TuiConfigParseError: class TuiConfigParseError extends Error {
     readonly fallback: TuiConfig;
@@ -77,43 +77,43 @@ void mock.module('../../../src/tui/config', () => ({
   },
 }));
 
-void mock.module('../../../src/cli/update/source', () => ({
+jest.mock('../../../src/cli/update/source', () => ({
   detectInstallSource: mocks.detectInstallSource,
 }));
 
-void mock.module('../../../src/cli/update/prompt', () => {
+jest.mock('../../../src/cli/update/prompt', async () => {
+  const actual = await jest.importActual<typeof PromptModule>('../../../src/cli/update/prompt.js');
   return {
-    ...promptModule,
+    ...actual,
     promptForInstallChoice: mocks.promptForInstallChoice,
   };
 });
 
-void mock.module('../../../src/cli/update/refresh', () => {
+jest.mock('../../../src/cli/update/refresh', async () => {
+  const actual = await jest.importActual<typeof RefreshModule>('../../../src/cli/update/refresh.js');
   return {
-    ...refreshModule,
+    ...actual,
     refreshUpdateCache: mocks.refreshUpdateCache,
   };
 });
 
-void mock.module('../../../src/cli/update/rollout', () => {
+jest.mock('../../../src/cli/update/rollout', async () => {
+  const actual = await jest.importActual<typeof RolloutModule>('../../../src/cli/update/rollout.js');
   return {
-    ...rolloutModule,
+    ...actual,
     resolveUpdateDeviceId: mocks.resolveUpdateDeviceId,
     // Stubbed so preflight tests never write a real rollout.log.
     appendRolloutDecisionLog: mocks.appendRolloutDecisionLog,
   };
 });
 
-/** Let the promise chains behind a settled clock tick run. */
-async function settle(): Promise<void> {
-  for (let i = 0; i < 10; i += 1) await Promise.resolve();
-}
-
-async function advanceAsync(clock: FakeClock, byMs: number): Promise<void> {
-  await settle();
-  clock.advance(byMs);
-  await settle();
-}
+jest.mock('node:child_process', async () => {
+  const actual = await jest.importActual<typeof ChildProcess>('node:child_process');
+  return {
+    ...actual,
+    spawn: mocks.spawn,
+  };
+});
 
 function cacheWith(version: string): UpdateCache {
   return {
@@ -169,7 +169,6 @@ function installState(overrides: Partial<UpdateInstallState> = {}): UpdateInstal
 function tuiConfig(overrides: Partial<TuiConfig> = {}): TuiConfig {
   return {
     theme: 'auto',
-    locale: 'en',
     disablePasteBurst: false,
     editorCommand: null,
     notifications: { enabled: true, condition: 'unfocused' },
@@ -182,16 +181,6 @@ function disableAutoInstall(): void {
   mocks.loadTuiConfig.mockResolvedValue(tuiConfig({ upgrade: { autoInstall: false } }));
 }
 
-// The spawn shape is platform-dependent (win32 quotes the .cmd shim and needs
-// `shell`), so the platform-agnostic spawn tests pin the POSIX shape instead of
-// following the host. Restored by the suite-level `afterEach`.
-let forcedPlatform: NodeJS.Platform | undefined;
-
-function forcePosixPlatform(): void {
-  forcedPlatform = process.platform;
-  Object.defineProperty(process, 'platform', { value: 'linux', configurable: true });
-}
-
 function captureOutput(): {
   stdout: string[];
   stderr: string[];
@@ -199,7 +188,6 @@ function captureOutput(): {
     stdout: { write(chunk: string): boolean };
     stderr: { write(chunk: string): boolean };
     isTTY: boolean;
-    spawn: typeof mocks.spawn;
   };
 } {
   const stdout: string[] = [];
@@ -211,14 +199,11 @@ function captureOutput(): {
       stdout: { write: (chunk: string) => { stdout.push(chunk); return true; } },
       stderr: { write: (chunk: string) => { stderr.push(chunk); return true; } },
       isTTY: true,
-      // Every case drives install children through the injected spawn; nothing
-      // in this suite may start a real process.
-      spawn: mocks.spawn,
     },
   };
 }
 
-type TestLogFn = ReturnType<typeof mock<(message: string, payload?: unknown) => void>>;
+type TestLogFn = ReturnType<typeof jest.fn<(message: string, payload?: unknown) => void>>;
 
 function captureLogger(): {
   info: TestLogFn;
@@ -227,16 +212,16 @@ function captureLogger(): {
   debug: TestLogFn;
 } {
   return {
-    info: mock<(message: string, payload?: unknown) => void>(),
-    warn: mock<(message: string, payload?: unknown) => void>(),
-    error: mock<(message: string, payload?: unknown) => void>(),
-    debug: mock<(message: string, payload?: unknown) => void>(),
+    info: jest.fn<(message: string, payload?: unknown) => void>(),
+    warn: jest.fn<(message: string, payload?: unknown) => void>(),
+    error: jest.fn<(message: string, payload?: unknown) => void>(),
+    debug: jest.fn<(message: string, payload?: unknown) => void>(),
   };
 }
 
 function mockSpawnExit(code: number, signal: NodeJS.Signals | null = null): void {
   mocks.spawn.mockImplementation(() => {
-    const child = Object.assign(new EventEmitter(), { unref: mock() });
+    const child = Object.assign(new EventEmitter(), { unref: jest.fn() });
     queueMicrotask(() => { child.emit('exit', code, signal); });
     return child;
   });
@@ -245,14 +230,6 @@ function mockSpawnExit(code: number, signal: NodeJS.Signals | null = null): void
 async function flushBackgroundInstall(): Promise<void> {
   await new Promise<void>((resolve) => {
     setImmediate(resolve);
-  });
-}
-
-function withPosixPlatform(run: () => Promise<void>): Promise<void> {
-  const originalPlatform = process.platform;
-  Object.defineProperty(process, 'platform', { value: 'linux' });
-  return run().finally(() => {
-    Object.defineProperty(process, 'platform', { value: originalPlatform });
   });
 }
 
@@ -265,7 +242,7 @@ describe('runUpdatePreflight', () => {
     // Pin the region to cn so address assertions don't follow the dev
     // machine's own login/marker state; global tests override below.
     setEnv('KIMI_CODE_OAUTH_HOST', 'https://auth.kimi.com');
-    refreshKimiRegion();
+    resetKimiRegionCache();
     mocks.readUpdateInstallState.mockResolvedValue(emptyUpdateInstallState());
     mocks.writeUpdateInstallState.mockResolvedValue(undefined);
     mocks.loadTuiConfig.mockResolvedValue(tuiConfig());
@@ -273,20 +250,12 @@ describe('runUpdatePreflight', () => {
     mocks.appendRolloutDecisionLog.mockResolvedValue(undefined);
     mocks.tryAcquireUpdateInstallLock.mockResolvedValue({
       filePath: '/tmp/kimi-update-install.lock',
-      release: mock().mockResolvedValue(undefined),
+      release: jest.fn().mockResolvedValue(undefined),
     });
     mocks.resolveCommandPath.mockImplementation((cmd: string) => cmd);
   });
 
-  afterEach(() => {
-    mock.clearAllMocks();
-    restoreEnvs();
-    refreshKimiRegion();
-    if (forcedPlatform !== undefined) {
-      Object.defineProperty(process, 'platform', { value: forcedPlatform, configurable: true });
-      forcedPlatform = undefined;
-    }
-  });
+  afterEach(() => { jest.clearAllMocks(); restoreEnvs(); resetKimiRegionCache(); });
 
   it('skips all update work when KIMI_CODE_NO_AUTO_UPDATE is set', async () => {
     setEnv('KIMI_CODE_NO_AUTO_UPDATE', '1');
@@ -314,27 +283,25 @@ describe('runUpdatePreflight', () => {
   });
 
   it('starts an automatic update from the first fresh check when the cache is empty', async () => {
-    await withPosixPlatform(async () => {
-      mocks.readUpdateCache.mockResolvedValue(emptyUpdateCache());
-      mocks.readUpdateInstallState.mockResolvedValue(installState());
-      mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-      mocks.detectInstallSource.mockResolvedValue('npm-global');
-      mockSpawnExit(0);
-      const { options } = captureOutput();
+    mocks.readUpdateCache.mockResolvedValue(emptyUpdateCache());
+    mocks.readUpdateInstallState.mockResolvedValue(installState());
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.detectInstallSource.mockResolvedValue('npm-global');
+    mockSpawnExit(0);
+    const { options } = captureOutput();
 
-      await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
-      await flushBackgroundInstall();
+    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
+    await flushBackgroundInstall();
 
-      expect(readUpdateCache).toHaveBeenCalledTimes(1);
-      expect(refreshUpdateCache).toHaveBeenCalledTimes(1);
-      expect(promptForInstallChoice).not.toHaveBeenCalled();
-      expect(detectInstallSource).toHaveBeenCalledTimes(1);
-      expect(mocks.spawn).toHaveBeenCalledWith(
-        expect.stringMatching(/^npm(\.cmd)?$/),
-        ['install', '-g', '@moonshot-ai/kimi-code@0.5.0'],
-        { detached: true, stdio: 'ignore' },
-      );
-    });
+    expect(readUpdateCache).toHaveBeenCalledTimes(1);
+    expect(refreshUpdateCache).toHaveBeenCalledTimes(1);
+    expect(promptForInstallChoice).not.toHaveBeenCalled();
+    expect(detectInstallSource).toHaveBeenCalledTimes(1);
+    expect(mocks.spawn).toHaveBeenCalledWith(
+      expect.stringMatching(/^npm(\.cmd)?$/),
+      ['install', '-g', '@moonshot-ai/kimi-code@0.5.0'],
+      { detached: true, stdio: 'ignore' },
+    );
   });
 
   it('does not start a fresh-check background install when automatic updates are disabled', async () => {
@@ -380,114 +347,149 @@ describe('runUpdatePreflight', () => {
   });
 
   it('npm-global: prompts and spawns npm install -g when automatic updates are disabled', async () => {
-    await withPosixPlatform(async () => {
-      disableAutoInstall();
-      mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-      mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-      mocks.detectInstallSource.mockResolvedValue('npm-global');
-      mocks.promptForInstallChoice.mockResolvedValue('install');
-      mockSpawnExit(0);
-      const { stdout, options } = captureOutput();
+    disableAutoInstall();
+    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.detectInstallSource.mockResolvedValue('npm-global');
+    mocks.promptForInstallChoice.mockResolvedValue('install');
+    mockSpawnExit(0);
+    const { stdout, options } = captureOutput();
 
-      await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('exit');
-      expect(mocks.promptForInstallChoice).toHaveBeenCalledWith(
-        expect.objectContaining({
-          installCommand: 'npm install -g @moonshot-ai/kimi-code@0.5.0',
-          installSource: 'npm-global',
-        }),
-      );
-      expect(mocks.spawn).toHaveBeenCalledWith(
-        expect.stringMatching(/^npm(\.cmd)?$/),
-        ['install', '-g', '@moonshot-ai/kimi-code@0.5.0'],
-        { stdio: 'inherit' },
-      );
-      expect(stdout.join('')).toContain('Updated @moonshot-ai/kimi-code to 0.5.0');
-    });
+    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('exit');
+    expect(mocks.promptForInstallChoice).toHaveBeenCalledWith(
+      expect.objectContaining({
+        installCommand: 'npm install -g @moonshot-ai/kimi-code@0.5.0',
+        installSource: 'npm-global',
+      }),
+    );
+    expect(mocks.spawn).toHaveBeenCalledWith(
+      expect.stringMatching(/^npm(\.cmd)?$/),
+      ['install', '-g', '@moonshot-ai/kimi-code@0.5.0'],
+      { stdio: 'inherit' },
+    );
+    expect(stdout.join('')).toContain('Updated @moonshot-ai/kimi-code to 0.5.0');
   });
 
   it('refreshes a stale cached target before showing the foreground install prompt', async () => {
-    await withPosixPlatform(async () => {
-      disableAutoInstall();
-      mocks.readUpdateCache.mockResolvedValue(cacheWith('0.6.0'));
-      mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.7.0'));
-      mocks.detectInstallSource.mockResolvedValue('npm-global');
-      mocks.promptForInstallChoice.mockResolvedValue('install');
-      mockSpawnExit(0);
-      const { stdout, options } = captureOutput();
+    disableAutoInstall();
+    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.6.0'));
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.7.0'));
+    mocks.detectInstallSource.mockResolvedValue('npm-global');
+    mocks.promptForInstallChoice.mockResolvedValue('install');
+    mockSpawnExit(0);
+    const { stdout, options } = captureOutput();
 
-      await expect(runUpdatePreflight('0.5.0', options)).resolves.toBe('exit');
+    await expect(runUpdatePreflight('0.5.0', options)).resolves.toBe('exit');
 
-      expect(refreshUpdateCache).toHaveBeenCalledTimes(1);
-      expect(mocks.promptForInstallChoice).toHaveBeenCalledWith(
-        expect.objectContaining({
-          target: { version: '0.7.0' },
-          installCommand: 'npm install -g @moonshot-ai/kimi-code@0.7.0',
-        }),
-      );
-      expect(mocks.spawn).toHaveBeenCalledWith(
-        expect.stringMatching(/^npm(\.cmd)?$/),
-        ['install', '-g', '@moonshot-ai/kimi-code@0.7.0'],
-        { stdio: 'inherit' },
-      );
-      expect(stdout.join('')).toContain('Updated @moonshot-ai/kimi-code to 0.7.0');
-    });
+    expect(refreshUpdateCache).toHaveBeenCalledTimes(1);
+    expect(mocks.promptForInstallChoice).toHaveBeenCalledWith(
+      expect.objectContaining({
+        target: { version: '0.7.0' },
+        installCommand: 'npm install -g @moonshot-ai/kimi-code@0.7.0',
+      }),
+    );
+    expect(mocks.spawn).toHaveBeenCalledWith(
+      expect.stringMatching(/^npm(\.cmd)?$/),
+      ['install', '-g', '@moonshot-ai/kimi-code@0.7.0'],
+      { stdio: 'inherit' },
+    );
+    expect(stdout.join('')).toContain('Updated @moonshot-ai/kimi-code to 0.7.0');
   });
 
   it('falls back to the cached foreground prompt target when the refresh hangs', async () => {
-    const clock = createFakeClock();
+    jest.useFakeTimers();
+    try {
+      disableAutoInstall();
+      mocks.readUpdateCache.mockResolvedValue(cacheWith('0.6.0'));
+      mocks.refreshUpdateCache.mockReturnValue(new Promise(() => {}));
+      mocks.detectInstallSource.mockResolvedValue('npm-global');
+      mocks.promptForInstallChoice.mockResolvedValue('skip');
+      const { options } = captureOutput();
+
+      const result = runUpdatePreflight('0.5.0', options);
+      await jest.advanceTimersByTime(1_000);
+
+      await expect(result).resolves.toBe('continue');
+      expect(mocks.promptForInstallChoice).toHaveBeenCalledWith(
+        expect.objectContaining({
+          target: { version: '0.6.0' },
+          installCommand: 'npm install -g @moonshot-ai/kimi-code@0.6.0',
+        }),
+      );
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('pnpm-global: spawns pnpm add -g', async () => {
     disableAutoInstall();
-    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.6.0'));
-    mocks.refreshUpdateCache.mockReturnValue(new Promise(() => {}));
-    mocks.detectInstallSource.mockResolvedValue('npm-global');
-    mocks.promptForInstallChoice.mockResolvedValue('skip');
+    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.detectInstallSource.mockResolvedValue('pnpm-global');
+    mocks.promptForInstallChoice.mockResolvedValue('install');
+    mockSpawnExit(0);
     const { options } = captureOutput();
-
-    const result = runUpdatePreflight('0.5.0', { ...options, clock });
-    await advanceAsync(clock, 1_000);
-
-    await expect(result).resolves.toBe('continue');
-    expect(mocks.promptForInstallChoice).toHaveBeenCalledWith(
-      expect.objectContaining({
-        target: { version: '0.6.0' },
-        installCommand: 'npm install -g @moonshot-ai/kimi-code@0.6.0',
-      }),
+    await runUpdatePreflight('0.4.0', options);
+    expect(mocks.spawn).toHaveBeenCalledWith(
+      expect.stringMatching(/^pnpm(\.cmd)?$/),
+      ['add', '-g', '@moonshot-ai/kimi-code@0.5.0'],
+      { stdio: 'inherit' },
     );
   });
 
-  it('yarn-global: spawns yarn global add', async () => {
-    await withPosixPlatform(async () => {
-      disableAutoInstall();
-      mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-      mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-      mocks.detectInstallSource.mockResolvedValue('yarn-global');
-      mocks.promptForInstallChoice.mockResolvedValue('install');
-      mockSpawnExit(0);
+  it('pnpm-global on win32: spawns pnpm.cmd through a shell', async () => {
+    disableAutoInstall();
+    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.detectInstallSource.mockResolvedValue('pnpm-global');
+    mocks.promptForInstallChoice.mockResolvedValue('install');
+    mockSpawnExit(0);
+    const originalPlatform = process.platform;
+    Object.defineProperty(process, 'platform', { value: 'win32' });
+    try {
       const { options } = captureOutput();
       await runUpdatePreflight('0.4.0', options);
       expect(mocks.spawn).toHaveBeenCalledWith(
-        expect.stringMatching(/^yarn(\.cmd)?$/),
-        ['global', 'add', '@moonshot-ai/kimi-code@0.5.0'],
-        { stdio: 'inherit' },
+        // Resolved to an absolute path and quoted for the cmd.exe shell.
+        '"pnpm.cmd"',
+        ['add', '-g', '@moonshot-ai/kimi-code@0.5.0'],
+        { stdio: 'inherit', shell: true },
       );
-    });
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform });
+    }
+  });
+
+  it('yarn-global: spawns yarn global add', async () => {
+    disableAutoInstall();
+    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.detectInstallSource.mockResolvedValue('yarn-global');
+    mocks.promptForInstallChoice.mockResolvedValue('install');
+    mockSpawnExit(0);
+    const { options } = captureOutput();
+    await runUpdatePreflight('0.4.0', options);
+    expect(mocks.spawn).toHaveBeenCalledWith(
+      expect.stringMatching(/^yarn(\.cmd)?$/),
+      ['global', 'add', '@moonshot-ai/kimi-code@0.5.0'],
+      { stdio: 'inherit' },
+    );
   });
 
   it('bun-global: spawns bun add -g', async () => {
-    await withPosixPlatform(async () => {
-      disableAutoInstall();
-      mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-      mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-      mocks.detectInstallSource.mockResolvedValue('bun-global');
-      mocks.promptForInstallChoice.mockResolvedValue('install');
-      mockSpawnExit(0);
-      const { options } = captureOutput();
-      await runUpdatePreflight('0.4.0', options);
-      expect(mocks.spawn).toHaveBeenCalledWith(
-        expect.stringMatching(/^bun(\.exe)?$/),
-        ['add', '-g', '@moonshot-ai/kimi-code@0.5.0'],
-        { stdio: 'inherit' },
-      );
-    });
+    disableAutoInstall();
+    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.detectInstallSource.mockResolvedValue('bun-global');
+    mocks.promptForInstallChoice.mockResolvedValue('install');
+    mockSpawnExit(0);
+    const { options } = captureOutput();
+    await runUpdatePreflight('0.4.0', options);
+    expect(mocks.spawn).toHaveBeenCalledWith(
+      expect.stringMatching(/^bun(\.exe)?$/),
+      ['add', '-g', '@moonshot-ai/kimi-code@0.5.0'],
+      { stdio: 'inherit' },
+    );
   });
 
   it('homebrew: prints manual brew upgrade command, does not spawn', async () => {
@@ -552,7 +554,7 @@ describe('runUpdatePreflight', () => {
 
   it('global region: derives install commands and site links from the .ai profile', async () => {
     setEnv('KIMI_CODE_OAUTH_HOST', 'https://auth.kimi.ai');
-    refreshKimiRegion();
+    resetKimiRegionCache();
     mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
     mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
     const originalPlatform = process.platform;
@@ -571,7 +573,7 @@ describe('runUpdatePreflight', () => {
       expect(mocks.spawn).not.toHaveBeenCalled();
     } finally {
       Object.defineProperty(process, 'platform', { value: originalPlatform });
-      refreshKimiRegion();
+      resetKimiRegionCache();
     }
   });
 
@@ -611,7 +613,6 @@ describe('runUpdatePreflight', () => {
   });
 
   it('spawns the resolved absolute path instead of the bare command name', async () => {
-    forcePosixPlatform();
     disableAutoInstall();
     mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
     mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
@@ -672,7 +673,6 @@ describe('runUpdatePreflight', () => {
   });
 
   it('starts an automatic update in the background by default', async () => {
-    forcePosixPlatform();
     mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
     mocks.readUpdateInstallState.mockResolvedValue(installState());
     mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
@@ -803,7 +803,7 @@ describe('runUpdatePreflight', () => {
     mocks.detectInstallSource.mockResolvedValue('npm-global');
     mockSpawnExit(0);
     const { options } = captureOutput();
-    const track = mock();
+    const track = jest.fn();
     const logger = captureLogger();
 
     await expect(runUpdatePreflight('0.4.0', { ...options, track, logger })).resolves.toBe('continue');
@@ -830,24 +830,22 @@ describe('runUpdatePreflight', () => {
   });
 
   it('defaults to automatic background updates when client preferences cannot be loaded', async () => {
-    await withPosixPlatform(async () => {
-      mocks.loadTuiConfig.mockRejectedValue(new Error('broken tui.toml'));
-      mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-      mocks.readUpdateInstallState.mockResolvedValue(installState());
-      mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
-      mocks.detectInstallSource.mockResolvedValue('npm-global');
-      mockSpawnExit(0);
-      const { options } = captureOutput();
+    mocks.loadTuiConfig.mockRejectedValue(new Error('broken tui.toml'));
+    mocks.readUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.readUpdateInstallState.mockResolvedValue(installState());
+    mocks.refreshUpdateCache.mockResolvedValue(cacheWith('0.5.0'));
+    mocks.detectInstallSource.mockResolvedValue('npm-global');
+    mockSpawnExit(0);
+    const { options } = captureOutput();
 
-      await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
+    await expect(runUpdatePreflight('0.4.0', options)).resolves.toBe('continue');
 
-      expect(promptForInstallChoice).not.toHaveBeenCalled();
-      expect(mocks.spawn).toHaveBeenCalledWith(
-        expect.stringMatching(/^npm(\.cmd)?$/),
-        ['install', '-g', '@moonshot-ai/kimi-code@0.5.0'],
-        { detached: true, stdio: 'ignore' },
-      );
-    });
+    expect(promptForInstallChoice).not.toHaveBeenCalled();
+    expect(mocks.spawn).toHaveBeenCalledWith(
+      expect.stringMatching(/^npm(\.cmd)?$/),
+      ['install', '-g', '@moonshot-ai/kimi-code@0.5.0'],
+      { detached: true, stdio: 'ignore' },
+    );
   });
 
   it('starts only one background update when two sessions preflight concurrently', async () => {
@@ -861,7 +859,7 @@ describe('runUpdatePreflight', () => {
       acquired = true;
       return {
         filePath: '/tmp/kimi-update-install.lock',
-        release: mock().mockResolvedValue(undefined),
+        release: jest.fn().mockResolvedValue(undefined),
       };
     });
     mockSpawnExit(0);
@@ -906,7 +904,7 @@ describe('runUpdatePreflight', () => {
     mocks.detectInstallSource.mockResolvedValue('npm-global');
     mockSpawnExit(1);
     const { stderr, options } = captureOutput();
-    const track = mock();
+    const track = jest.fn();
     const logger = captureLogger();
 
     await expect(runUpdatePreflight('0.4.0', { ...options, track, logger })).resolves.toBe('continue');
@@ -986,7 +984,7 @@ describe('runUpdatePreflight', () => {
     }));
     mocks.refreshUpdateCache.mockResolvedValue(emptyUpdateCache());
     const { stdout, options } = captureOutput();
-    const track = mock();
+    const track = jest.fn();
     const logger = captureLogger();
 
     await expect(runUpdatePreflight('0.5.0', { ...options, track, logger })).resolves.toBe('continue');
@@ -1045,7 +1043,7 @@ describe('runUpdatePreflight', () => {
     mocks.detectInstallSource.mockResolvedValue('npm-global');
     mocks.promptForInstallChoice.mockResolvedValue('skip');
     const { options } = captureOutput();
-    const track = mock();
+    const track = jest.fn();
     await runUpdatePreflight('0.4.0', { ...options, track });
     expect(track).toHaveBeenCalledWith('update_prompted', expect.objectContaining({
       current_version: '0.4.0',
@@ -1090,14 +1088,13 @@ describe('runUpdatePreflight', () => {
     });
 
     it('starts the background install once the device batch is eligible', async () => {
-      forcePosixPlatform();
       const released = cacheWithManifest(releasedForEveryone('0.5.0'));
       mocks.readUpdateCache.mockResolvedValue(released);
       mocks.refreshUpdateCache.mockResolvedValue(released);
       mocks.detectInstallSource.mockResolvedValue('npm-global');
       mockSpawnExit(0);
       const { options } = captureOutput();
-      const track = mock();
+      const track = jest.fn();
 
       await expect(runUpdatePreflight('0.4.0', { ...options, track })).resolves.toBe('continue');
       await flushBackgroundInstall();
@@ -1128,7 +1125,7 @@ describe('runUpdatePreflight', () => {
       mocks.detectInstallSource.mockResolvedValue('npm-global');
       mocks.promptForInstallChoice.mockResolvedValue('skip');
       const { options } = captureOutput();
-      const track = mock();
+      const track = jest.fn();
 
       await expect(runUpdatePreflight('0.4.0', { ...options, track })).resolves.toBe('continue');
 
@@ -1158,7 +1155,7 @@ describe('runUpdatePreflight', () => {
       mocks.detectInstallSource.mockResolvedValue('npm-global');
       mocks.promptForInstallChoice.mockResolvedValue('skip');
       const { options } = captureOutput();
-      const track = mock();
+      const track = jest.fn();
 
       await expect(runUpdatePreflight('0.5.0', { ...options, track })).resolves.toBe('continue');
 
@@ -1216,7 +1213,6 @@ describe('runUpdatePreflight', () => {
     });
 
     it('KIMI_CODE_EXPERIMENTAL_FLAG bypasses the rollout: held devices still update', async () => {
-      forcePosixPlatform();
       setEnv('KIMI_CODE_EXPERIMENTAL_FLAG', '1');
       const held = cacheWithManifest(heldForEveryone('0.5.0'));
       mocks.readUpdateCache.mockResolvedValue(held);
@@ -1224,7 +1220,7 @@ describe('runUpdatePreflight', () => {
       mocks.detectInstallSource.mockResolvedValue('npm-global');
       mockSpawnExit(0);
       const { options } = captureOutput();
-      const track = mock();
+      const track = jest.fn();
 
       await expect(runUpdatePreflight('0.4.0', { ...options, track })).resolves.toBe('continue');
       await flushBackgroundInstall();

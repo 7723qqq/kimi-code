@@ -2,7 +2,8 @@ import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, normalize, basename, dirname } from 'pathe';
 
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
+import { waitUntil } from '#test/helpers/waitFor';
 
 import { DisposableStore } from '#/_base/di/lifecycle';
 import { createServices, type TestInstantiationService } from '#/_base/di/test';
@@ -14,7 +15,6 @@ import { IEventDispatcher } from '#/state/eventDispatcher';
 import { HostFileSystem } from '#/os/backends/host/hostFsService';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
-import { waitForAssertion } from '#test/helpers/waitFor';
 import type { RuntimeLease } from '#/runtime/runtime';
 import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
@@ -225,7 +225,7 @@ function createHarness(options: {
         acquire: (): RuntimeLease => ({
           runtime: {
             identity: { workspaceId: 'workspace-1', runtimeId: 'local', generation: 'test' },
-            capabilities: new Set(['fs', 'process', 'terminal']),
+            capabilities: new Set(['fs', 'process']),
             environment: hostEnvironment,
             path: {
               separator: '/',
@@ -468,7 +468,7 @@ describe('notifyAgentsMdChanges', () => {
 
     await writeFile(agentsMdPath, 'v2 content');
     h.instructionsChange.fire([{ path: agentsMdPath, action: 'modified', kind: 'file' }]);
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       expect(h.reminders).toHaveLength(1);
     });
     expect(h.reminders[0]?.variant).toBe('agents_md_change');
@@ -488,7 +488,7 @@ describe('notifyAgentsMdChanges', () => {
 
     await writeFile(agentsMdPath, 'v2 content');
     h.instructionsChange.fire([{ path: agentsMdPath, action: 'modified', kind: 'file' }]);
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       expect(h.reminders).toHaveLength(1);
     });
 

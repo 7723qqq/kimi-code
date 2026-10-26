@@ -1,14 +1,20 @@
-import type { PermissionPolicy, PermissionPolicyResult } from '#/agent/permissionPolicy/types';
-import { isDangerousCommandGuardEnabled } from '#/agent/permissionRules/configSection';
-import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
 import type { ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
 import { IConfigService } from '#/app/config/config';
 import { IGitService } from '#/app/git/git';
 import type { IGitService as GitService } from '#/app/git/git';
+import { IAgentRuntimeService } from '#/agent/runtimeBinding/agentRuntime';
+import { isDangerousCommandGuardEnabled } from '#/agent/permissionRules/configSection';
 import { ISessionWorkspaceContext } from '#/session/workspaceContext/workspaceContext';
 import type { ISessionWorkspaceContext as WorkspaceContext } from '#/session/workspaceContext/workspaceContext';
-
-import { fileAccesses, hasGitPathComponent, isGitControlPath } from './path-utils';
+import type {
+  PermissionPolicy,
+  PermissionPolicyResult,
+} from '#/agent/permissionPolicy/types';
+import {
+  fileAccesses,
+  hasGitPathComponent,
+  isGitControlPath,
+} from './path-utils';
 
 export class GitControlPathAccessAskPermissionPolicyService implements PermissionPolicy {
   readonly name = 'git-control-path-access-ask';

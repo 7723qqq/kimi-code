@@ -5,7 +5,6 @@ import { chmod, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import type { ITelemetryService } from '@moonshot-ai/agent-core-v2';
 import {
   createKimiDeviceId,
   FileTokenStorage,
@@ -21,8 +20,9 @@ import {
   type RemoteControlDeviceClient,
   type RemoteControlManager,
 } from '@moonshot-ai/remote-control';
-import { IOAuthService, type Scope } from '@moonshot-ai/agent-core-v2';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'bun:test';
+import { IOAuthService, type ITelemetryService, type Scope } from '@moonshot-ai/agent-core-v2';
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'bun:test';
+import { setEnv, restoreEnvs } from 'helpers/stubs';
 import { WebSocketServer, type RawData, type WebSocket } from 'ws';
 
 import { ErrorCode } from '../src/protocol/error-codes';
@@ -36,7 +36,6 @@ import { writeServerToken } from '../src/services/auth/persistentToken';
 import { type RunningServer, startServer } from '../src/start';
 import { authedFetch } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
-import { setEnv, restoreEnvs } from './helpers/stubs';
 
 interface Envelope<T> {
   code: number;
@@ -186,9 +185,9 @@ describe('server-v2 /api/v1/remote-control', () => {
     expect(rotatedResponse).toContain('HTTP/1.1 200');
     expect(rotatedResponse).toContain('"ok":true');
 
-    relay.managementSockets
-      .at(-1)!
-      .send(JSON.stringify({ type: 'disconnect', payload: { reason: 'user_requested' } }));
+    relay.managementSockets.at(-1)!.send(
+      JSON.stringify({ type: 'disconnect', payload: { reason: 'user_requested' } }),
+    );
     await waitFor(async () => {
       const after = await authedFetch(server as RunningServer, base, '/api/v1/remote-control');
       const body = (await after.json()) as Envelope<RemoteControlStatusWire>;

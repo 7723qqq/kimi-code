@@ -1,4 +1,5 @@
-import { afterEach, describe, expect, it, jest, mock } from 'bun:test';
+import { afterEach, describe, expect, it, vi } from 'bun:test';
+import { waitUntil } from '../../helpers/waitFor';
 
 import type { Session } from '@moonshot-ai/kimi-code-sdk';
 
@@ -9,13 +10,12 @@ import {
   resetModelSwitchConfirmConfigCache,
   type ModelSwitchAction,
 } from '#/utils/model-switch-confirm-config';
-import { waitForAssertion } from '#test/helpers/waitFor';
 
 type TestEvent = { type: string; code?: string };
 
 function fakeSession() {
   const listeners = new Set<(event: TestEvent) => void>();
-  const compact = mock(async () => undefined);
+  const compact = jest.fn(async () => undefined);
   const session = {
     onEvent: (listener: (event: TestEvent) => void) => {
       listeners.add(listener);
@@ -38,8 +38,8 @@ function fakeSession() {
 function fakeHost(session: Session) {
   return {
     session,
-    showError: mock(),
-    showNotice: mock(),
+    showError: jest.fn(),
+    showNotice: jest.fn(),
   } as unknown as SlashCommandHost;
 }
 
@@ -110,13 +110,10 @@ describe('compactForModelSwitch', () => {
     const host = fakeHost(session);
 
     const pending = compactForModelSwitch(host, session);
-    jest.advanceTimersByTime(10 * 60 * 1000);
-    await Promise.resolve();
+    await jest.advanceTimersByTime(10 * 60 * 1000);
 
     await expect(pending).resolves.toBe(false);
-    expect(host.showError).toHaveBeenCalledWith(
-      'Timed out waiting for compaction — model unchanged.',
-    );
+    expect(host.showError).toHaveBeenCalledWith('Timed out waiting for compaction — model unchanged.');
   });
 });
 
@@ -136,16 +133,16 @@ function makeSwitchHost() {
     },
   };
   const session = {
-    setModel: mock(async () => ({})),
-    setThinking: mock(async () => ({})),
-    getStatus: mock(async () => ({ model: 'new-alias', thinkingEffort: 'high' })),
+    setModel: jest.fn(async () => ({})),
+    setThinking: jest.fn(async () => ({})),
+    getStatus: jest.fn(async () => ({ model: 'new-alias', thinkingEffort: 'high' })),
     onEvent: () => () => {},
-    compact: mock(async () => undefined),
+    compact: jest.fn(async () => undefined),
   } as unknown as Session;
-  const mountEditorReplacement = mock();
-  const restoreEditor = mock();
-  const createNewSession = mock(async () => {});
-  const activateModelAfterLogin = mock(async () => true);
+  const mountEditorReplacement = jest.fn();
+  const restoreEditor = jest.fn();
+  const createNewSession = jest.fn(async () => {});
+  const activateModelAfterLogin = jest.fn(async () => true);
   const host = {
     state: {
       appState,
@@ -155,33 +152,25 @@ function makeSwitchHost() {
     session,
     authFlow: { activateModelAfterLogin },
     createNewSession,
-    waitForLazyCreation: mock(async () => {}),
-    setAppState: mock((patch: Record<string, unknown>) => Object.assign(appState, patch)),
+    waitForLazyCreation: jest.fn(async () => {}),
+    setAppState: jest.fn((patch: Record<string, unknown>) => Object.assign(appState, patch)),
     mountEditorReplacement,
     restoreEditor,
-    showError: mock(),
-    showNotice: mock(),
-    showStatus: mock(),
-    track: mock(),
+    showError: jest.fn(),
+    showNotice: jest.fn(),
+    showStatus: jest.fn(),
+    track: jest.fn(),
   } as unknown as SlashCommandHost;
-  return {
-    host,
-    session,
-    appState,
-    mountEditorReplacement,
-    restoreEditor,
-    createNewSession,
-    activateModelAfterLogin,
-  };
+  return { host, session, appState, mountEditorReplacement, restoreEditor, createNewSession, activateModelAfterLogin };
 }
 
-function mountedDialog(mountEditorReplacement: ReturnType<typeof mock>): MountedDialog {
+function mountedDialog(mountEditorReplacement: ReturnType<typeof jest.fn>): MountedDialog {
   return mountEditorReplacement.mock.calls[0]?.[0] as unknown as MountedDialog;
 }
 
 async function enableRule(): Promise<void> {
   await refreshModelSwitchConfirmConfig({
-    fetchImpl: mock(
+    fetchImpl: jest.fn(
       async () =>
         new Response(
           JSON.stringify({
@@ -189,7 +178,7 @@ async function enableRule(): Promise<void> {
             config: { enable: true, rules: [{ from: 'upstream-old', to: 'upstream-new' }] },
           }),
         ),
-    ) as unknown as unknown as typeof fetch,
+    ) as unknown as typeof fetch,
   });
 }
 
@@ -204,7 +193,7 @@ describe('confirmThenPerformModelSwitch new-session action', () => {
     confirmThenPerformModelSwitch(host, 'new-alias', 'high', 'session');
 
     mountedDialog(mountEditorReplacement).opts.onSelect('new');
-    await waitForAssertion(() => expect(host.restoreEditor).toHaveBeenCalled());
+    await waitUntil(() => expect(host.restoreEditor).toHaveBeenCalled());
 
     expect(session.setModel).not.toHaveBeenCalled();
     expect(activateModelAfterLogin).not.toHaveBeenCalled();
@@ -231,7 +220,7 @@ describe('confirmThenPerformModelSwitch new-session action', () => {
     expect(restoreEditor).not.toHaveBeenCalled();
 
     releaseCreation();
-    await waitForAssertion(() => expect(restoreEditor).toHaveBeenCalled());
+    await waitUntil(() => expect(restoreEditor).toHaveBeenCalled());
     expect(session.setModel).not.toHaveBeenCalled();
     expect(appState.sessionId).toBe('ses-old');
   });
@@ -245,7 +234,7 @@ describe('confirmThenPerformModelSwitch new-session action', () => {
     confirmThenPerformModelSwitch(host, 'new-alias', 'high', 'session');
 
     mountedDialog(mountEditorReplacement).opts.onSelect('new');
-    await waitForAssertion(() => expect(host.restoreEditor).toHaveBeenCalled());
+    await waitUntil(() => expect(host.restoreEditor).toHaveBeenCalled());
 
     expect(session.setModel).toHaveBeenCalledWith('new-alias');
   });
@@ -280,7 +269,7 @@ describe('confirmThenPerformModelSwitch new-session action', () => {
     expect(restoreEditor).not.toHaveBeenCalled();
 
     releaseCreation();
-    await waitForAssertion(() => expect(restoreEditor).toHaveBeenCalled());
+    await waitUntil(() => expect(restoreEditor).toHaveBeenCalled());
   });
 
   it('does not dismiss a panel that displaced the dialog when creation settles', async () => {

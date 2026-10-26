@@ -48,6 +48,7 @@ export interface ISessionManager {
   ): Promise<T>;
   list(): readonly ISessionScopeHandle[];
   close(sessionId: string): Promise<void>;
+  closeIfIdle(sessionId: string, idleTimeoutMs: number): Promise<boolean>;
   archive(sessionId: string): Promise<void>;
   restore(
     sessionId: string,

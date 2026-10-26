@@ -1,15 +1,8 @@
 import type { ContextMessage } from '#/agent/contextMemory/types';
 
-import {
-  computeTodoProgress,
-  renderTodoList,
-  TODO_LIST_TOOL_NAME,
-  todoProgress,
-  type TodoItem,
-} from './todoItem';
+import { TODO_LIST_TOOL_NAME, todoProgress, type TodoItem } from './todoItem';
 
 export const TODO_LIST_REMINDER_VARIANT = 'todo_list_reminder';
-export const TODO_ACTIVE_REMINDER_VARIANT = 'todo_active';
 
 const TODO_LIST_REMINDER_STEPS_SINCE_WRITE = 5;
 const TODO_LIST_REMINDER_STEPS_BETWEEN_REMINDERS = 5;
@@ -82,31 +75,6 @@ export function todoListWriteStatsBefore(
   return { remindedSinceLastWrite: reminded };
 }
 
-export function todoActiveReminder(todos: readonly TodoItem[]): string | undefined {
-  if (todos.length === 0) return undefined;
-  const inProgress = todos.filter((item) => item.status === 'in_progress');
-  if (inProgress.length === 0) return undefined;
-
-  const digest = renderTodoDigest(todos, inProgress);
-  return (
-    'Active todo — your working reference for what is done, what is next, and what remains: ' +
-    digest
-  );
-}
-
-function renderTodoDigest(todos: readonly TodoItem[], inProgress: readonly TodoItem[]): string {
-  const progress = computeTodoProgress(todos);
-  const parts = inProgress.map((item) => {
-    const pct = item.progress !== undefined ? ` (${item.progress}%)` : '';
-    return `[in_progress] ${item.id}: ${item.title}${pct}`;
-  });
-  const next = todos.find((item) => item.status === 'pending');
-  if (next !== undefined) {
-    parts.push(`next: ${next.id}: ${next.title}`);
-  }
-  return `(${progress.done}/${progress.total} done · ${progress.overall}%): ${parts.join(' · ')}`;
-}
-
 function getTodoListReminderStepCounts(
   history: readonly ContextMessage[],
 ): TodoListReminderStepCounts {
@@ -147,9 +115,7 @@ function hasTodoListWrite(message: ContextMessage): boolean {
     if (typeof toolCall.arguments !== 'string') return false;
 
     try {
-      const args = JSON.parse(toolCall.arguments) as {
-        todos?: unknown;
-      };
+      const args = JSON.parse(toolCall.arguments) as { todos?: unknown };
       return Array.isArray(args.todos);
     } catch {
       return false;
@@ -159,7 +125,8 @@ function hasTodoListWrite(message: ContextMessage): boolean {
 
 function isTodoListReminder(message: ContextMessage): boolean {
   return (
-    message.origin?.kind === 'injection' && message.origin.variant === TODO_LIST_REMINDER_VARIANT
+    message.origin?.kind === 'injection' &&
+    message.origin.variant === TODO_LIST_REMINDER_VARIANT
   );
 }
 
@@ -174,6 +141,11 @@ function renderTodoListReminder(todos: readonly TodoItem[], stepsSinceLastWrite:
   return [
     `The todo list has not been updated in the last ${String(stepsSinceLastWrite)} steps (${status}). If an item is finished, mark it done now; the TodoList call can go in the same response as your next tool call. If the list no longer matches the current work, rewrite or clear it. Never mention this reminder to the user.`,
     '',
-    renderTodoList(todos, 'Current todo list:'),
+    'Current todo list:',
+    renderTodoItems(todos),
   ].join('\n');
+}
+
+function renderTodoItems(todos: readonly TodoItem[]): string {
+  return todos.map((todo, index) => `${index + 1}. [${todo.status}] ${todo.title}`).join('\n');
 }

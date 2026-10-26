@@ -12,15 +12,26 @@
  * **What it is NOT**: a server bootstrap helper. Connect to a server process
  * that's already running at `baseUrl` (default `http://127.0.0.1:58627`).
  */
-import type { FsBrowseResponse, FsHomeResponse } from '@moonshot-ai/agent-core-v2';
-import type { AuthSummary } from '@moonshot-ai/agent-core-v2';
-import type { FileMeta } from '@moonshot-ai/agent-core-v2';
-import type { ProviderCatalogItem, SetDefaultModelResponse } from '@moonshot-ai/agent-core-v2';
-import type { Terminal } from '@moonshot-ai/agent-core-v2';
+import type {
+  FsBrowseResponse,
+  FsHomeResponse,
+} from '@moonshot-ai/agent-core-v2/app/hostFolderBrowser/hostFolderBrowser';
+import type { AuthSummary } from '@moonshot-ai/agent-core-v2/app/authLegacy/authLegacy';
+import type { FileMeta } from '@moonshot-ai/agent-core-v2/app/file/fileService';
 import type { UpdateSessionProfileRequest as SessionUpdate } from '@moonshot-ai/agent-core-v2/app/sessionLegacy/sessionProtocol';
-import type { ApprovalRequest, ApprovalResponse } from '@moonshot-ai/kap-server/protocol/approval';
+import type {
+  ProviderCatalogItem,
+  SetDefaultModelResponse,
+} from '@moonshot-ai/agent-core-v2/llm-adapter/model/catalog';
+import type {
+  ApprovalRequest,
+  ApprovalResponse,
+} from '@moonshot-ai/kap-server/protocol/approval';
 import type { Message } from '@moonshot-ai/kap-server/protocol/message';
-import type { QuestionRequest, QuestionResponse } from '@moonshot-ai/kap-server/protocol/question';
+import type {
+  QuestionRequest,
+  QuestionResponse,
+} from '@moonshot-ai/kap-server/protocol/question';
 import type {
   ApprovalResolveResult,
   ListPendingApprovalsResponse,
@@ -50,11 +61,6 @@ import type {
   UndoSessionRequest,
   UndoSessionResponse,
 } from '@moonshot-ai/kap-server/protocol/rest-session';
-import type {
-  CloseTerminalResponse,
-  CreateTerminalRequest,
-  ListTerminalsResponse,
-} from '@moonshot-ai/kap-server/protocol/rest-terminal';
 import type {
   Session,
   SessionChildCreate,
@@ -126,40 +132,9 @@ export const DEFAULT_PROMPT_CONTROLS = {
  * `DEFAULT_PROMPT_CONTROLS` when omitted. `metadata` carries through
  * verbatim.
  */
-export type PromptSubmitInput = Pick<PromptSubmission, 'content'> &
-  Partial<
-    Pick<PromptSubmission, 'metadata' | 'model' | 'thinking' | 'permission_mode' | 'plan_mode'>
-  >;
-
-export interface TerminalAttachOptions {
-  sinceSeq?: number;
-  timeoutMs?: number;
-}
-
-export interface TerminalControlOptions {
-  timeoutMs?: number;
-}
-
-export interface TerminalAttachResult {
-  attached: true;
-  replayed: number;
-}
-
-export interface TerminalDetachResult {
-  detached: true;
-}
-
-export interface TerminalInputResult {
-  accepted: true;
-}
-
-export interface TerminalResizeResult {
-  resized: true;
-}
-
-export interface TerminalCloseResult {
-  closed: true;
-}
+export type PromptSubmitInput =
+  Pick<PromptSubmission, 'content'>
+  & Partial<Pick<PromptSubmission, 'metadata' | 'model' | 'thinking' | 'permission_mode' | 'plan_mode'>>;
 
 function fillPromptDefaults(input: PromptSubmitInput): PromptSubmission {
   return { ...DEFAULT_PROMPT_CONTROLS, ...input };
@@ -224,12 +199,9 @@ export class DaemonClient {
   getSession(sid: string): Promise<Session> {
     return this.http.getSession(sid);
   }
-  listSessions(query?: {
-    page_size?: number;
-    before_id?: string;
-    after_id?: string;
-    workspace_id?: string;
-  }): Promise<{ items: Session[]; has_more: boolean }> {
+  listSessions(
+    query?: { page_size?: number; before_id?: string; after_id?: string; workspace_id?: string },
+  ): Promise<{ items: Session[]; has_more: boolean }> {
     return this.http.listSessions(query);
   }
   updateSession(sid: string, body: SessionUpdate): Promise<Session> {
@@ -238,10 +210,16 @@ export class DaemonClient {
   forkSession(sid: string, body: ForkSessionRequest = {}): Promise<Session> {
     return this.http.forkSession(sid, body);
   }
-  compactSession(sid: string, body: CompactSessionRequest = {}): Promise<CompactSessionResponse> {
+  compactSession(
+    sid: string,
+    body: CompactSessionRequest = {},
+  ): Promise<CompactSessionResponse> {
     return this.http.compactSession(sid, body);
   }
-  undoSession(sid: string, body: UndoSessionRequest = { count: 1 }): Promise<UndoSessionResponse> {
+  undoSession(
+    sid: string,
+    body: UndoSessionRequest = { count: 1 },
+  ): Promise<UndoSessionResponse> {
     return this.http.undoSession(sid, body);
   }
   archiveSession(sid: string): Promise<{ archived: true }> {
@@ -255,20 +233,6 @@ export class DaemonClient {
   }
   createChild(sid: string, body: SessionChildCreate = {}): Promise<Session> {
     return this.http.createChild(sid, body);
-  }
-
-  // ── Terminals ──────────────────────────────────────────────────────────
-  listTerminals(sid: string): Promise<ListTerminalsResponse> {
-    return this.http.listTerminals(sid);
-  }
-  createTerminal(sid: string, body: CreateTerminalRequest = {}): Promise<Terminal> {
-    return this.http.createTerminal(sid, body);
-  }
-  getTerminal(sid: string, terminalId: string): Promise<Terminal> {
-    return this.http.getTerminal(sid, terminalId);
-  }
-  closeTerminal(sid: string, terminalId: string): Promise<CloseTerminalResponse> {
-    return this.http.closeTerminal(sid, terminalId);
   }
 
   // ── Workspaces + folder picker ──────────────────────────────────────────
@@ -317,7 +281,10 @@ export class DaemonClient {
    * legacy default-filled path) to first establish session state, then
    * exercise the "content-only prompt inherits session state" contract.
    */
-  submitPromptStateful(sid: string, body: PromptSubmission): Promise<PromptSubmitResult> {
+  submitPromptStateful(
+    sid: string,
+    body: PromptSubmission,
+  ): Promise<PromptSubmitResult> {
     return this.http.submitPrompt(sid, body);
   }
   listPrompts(sid: string): Promise<PromptListResponse> {
@@ -355,7 +322,10 @@ export class DaemonClient {
   listPendingQuestions(sid: string): Promise<ListPendingQuestionsResponse> {
     return this.http.listPendingQuestions(sid);
   }
-  dismissQuestion(sid: string, qid: string): Promise<{ dismissed: true; dismissed_at: string }> {
+  dismissQuestion(
+    sid: string,
+    qid: string,
+  ): Promise<{ dismissed: true; dismissed_at: string }> {
     return this.http.dismissQuestion(sid, qid);
   }
 
@@ -461,7 +431,10 @@ export class DaemonClient {
     predicate: (frame: AnyFrame) => boolean,
     opts?: { timeoutMs?: number },
   ): Promise<AnyFrame> {
-    return this._requireWs().waitForFrame(predicate, opts?.timeoutMs ?? DEFAULT_FRAME_TIMEOUT_MS);
+    return this._requireWs().waitForFrame(
+      predicate,
+      opts?.timeoutMs ?? DEFAULT_FRAME_TIMEOUT_MS,
+    );
   }
 
   /** Poll `/sessions/{sid}` until its aggregate work flag reaches `busy`. */
@@ -471,74 +444,6 @@ export class DaemonClient {
     opts?: { timeoutMs?: number; pollMs?: number },
   ): Promise<Session> {
     return waitForSessionBusy(this.http, sid, busy, opts);
-  }
-
-  // ── Terminal WS controls ───────────────────────────────────────────────
-  attachTerminal(
-    sid: string,
-    terminalId: string,
-    options: TerminalAttachOptions = {},
-  ): Promise<TerminalAttachResult> {
-    return this._sendWsControl<TerminalAttachResult>(
-      'terminal_attach',
-      {
-        session_id: sid,
-        terminal_id: terminalId,
-        since_seq: options.sinceSeq,
-      },
-      options.timeoutMs,
-    );
-  }
-
-  detachTerminal(
-    sid: string,
-    terminalId: string,
-    options: TerminalControlOptions = {},
-  ): Promise<TerminalDetachResult> {
-    return this._sendWsControl<TerminalDetachResult>(
-      'terminal_detach',
-      { session_id: sid, terminal_id: terminalId },
-      options.timeoutMs,
-    );
-  }
-
-  writeTerminalInput(
-    sid: string,
-    terminalId: string,
-    data: string,
-    options: TerminalControlOptions = {},
-  ): Promise<TerminalInputResult> {
-    return this._sendWsControl<TerminalInputResult>(
-      'terminal_input',
-      { session_id: sid, terminal_id: terminalId, data },
-      options.timeoutMs,
-    );
-  }
-
-  resizeTerminal(
-    sid: string,
-    terminalId: string,
-    cols: number,
-    rows: number,
-    options: TerminalControlOptions = {},
-  ): Promise<TerminalResizeResult> {
-    return this._sendWsControl<TerminalResizeResult>(
-      'terminal_resize',
-      { session_id: sid, terminal_id: terminalId, cols, rows },
-      options.timeoutMs,
-    );
-  }
-
-  closeTerminalControl(
-    sid: string,
-    terminalId: string,
-    options: TerminalControlOptions = {},
-  ): Promise<TerminalCloseResult> {
-    return this._sendWsControl<TerminalCloseResult>(
-      'terminal_close',
-      { session_id: sid, terminal_id: terminalId },
-      options.timeoutMs,
-    );
   }
 
   // ── Reverse RPC (approval + question) ───────────────────────────────────
@@ -653,24 +558,6 @@ export class DaemonClient {
       throw new Error('ws not connected — call `await client.connect()` first');
     }
     return this._ws;
-  }
-
-  private async _sendWsControl<T>(
-    type: string,
-    payload: Record<string, unknown>,
-    timeoutMs?: number,
-  ): Promise<T> {
-    const id = `${type}-${ulid()}`;
-    const ack = await this._requireWs().sendAndAwaitAck(
-      { type, id, payload },
-      timeoutMs ?? this._controlAckTimeoutMs,
-    );
-    if (ack.code !== 0) {
-      throw new Error(
-        `${type} rejected (code=${ack.code ?? 'unknown'}): ${ack.msg ?? 'no message'}`,
-      );
-    }
-    return (ack.payload ?? {}) as T;
   }
 }
 

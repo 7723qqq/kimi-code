@@ -1,22 +1,20 @@
 import { homedir } from 'node:os';
 
-import { KIMI_CODE_PROVIDER_NAME, resolveKimiRegion } from '@moonshot-ai/kimi-code-oauth';
-
-import { Disposable } from '#/_base/di/lifecycle';
+import { LifecycleScope } from '#/app/scopes';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
+import { Disposable } from '#/_base/di/lifecycle';
 import { Emitter, type Event } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
+import { Error2 } from '#/errors';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IPluginService } from '#/app/plugin/plugin';
-import { LifecycleScope } from '#/app/scopes';
-import { Error2 } from '#/errors';
-import { IProviderService } from '#/llm-adapter/provider/provider';
+import { IRegionService } from '#/app/region/region';
 import { IHostProcessService } from '#/os/interface/hostProcess';
 
 import { ICapabilityService } from './capability';
+import { CapabilityErrors } from './errors';
 import { createKimiCuEntry } from './entries/kimiCu';
 import { createKimiWebbridgeEntry } from './entries/kimiWebbridge';
-import { CapabilityErrors } from './errors';
 import type {
   CapabilityEntry,
   CapabilityId,
@@ -52,7 +50,7 @@ export class CapabilityService extends Disposable implements ICapabilityService 
     @IPluginService plugins: IPluginService,
     @IHostProcessService hostProcess: IHostProcessService,
     @ILogService private readonly log: ILogService,
-    @IProviderService providers: IProviderService,
+    @IRegionService regions: IRegionService,
     entriesOverride?: readonly CapabilityEntry[],
   ) {
     super();
@@ -66,17 +64,7 @@ export class CapabilityService extends Disposable implements ICapabilityService 
         userHomeDir: homedir(),
         plugins,
         hostProcess,
-        resolveRegion: () => {
-          const oauth = providers.get(KIMI_CODE_PROVIDER_NAME)?.oauth;
-          return resolveKimiRegion({
-            configuredOAuthHost: oauth?.oauthHost,
-            configuredOAuthKey: oauth?.key,
-            readMarker:
-              (bootstrap.getEnv('KIMI_CODE_REGION_MARKER') ??
-                process.env['KIMI_CODE_REGION_MARKER']) !== 'off',
-            homeDir: bootstrap.homeDir,
-          });
-        },
+        resolveRegion: () => regions.getRegionAsync(),
       };
       this.entries = new Map<CapabilityId, CapabilityEntry>([
         ['kimi-cu', createKimiCuEntry(ctx)],
@@ -116,8 +104,7 @@ export class CapabilityService extends Disposable implements ICapabilityService 
       throw new Error2(
         CapabilityErrors.codes.CAPABILITY_INSTALL_IN_PROGRESS,
         `Capability "${entry.id}" is already being installed`,
-        { details: { id: entry.id } },
-      );
+        { details: { id: entry.id } });
     }
 
     this.runningInstalls.add(entry.id);

@@ -1,8 +1,8 @@
 import { randomBytes } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-
 import { join } from 'pathe';
+
 import { afterEach, describe, expect, it } from 'bun:test';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
@@ -15,12 +15,13 @@ import {
   IAppendLogStore,
   type WireRecord,
 } from '#/index';
+import { IWireService } from '#/wire/wire';
 import { noopTelemetryService } from '#/app/telemetry/telemetry';
-import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
-import { ISessionLockService, sessionOccupiedError } from '#/persistence/interface/sessionLock';
-import { InMemorySessionLockService } from '#/persistence/backends/memory/sessionLockService';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
-import type { IWireService } from '#/wire/wire';
+import { sessionOccupiedError } from '#/persistence/interface/sessionLock';
+import { InMemorySessionLockService } from '#/persistence/backends/memory/sessionLockService';
+import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
+import { ISessionLockService } from '#/persistence/interface/sessionLock';
 
 import { noopLogger, registerTestAgentWire } from './stubs';
 
@@ -144,7 +145,10 @@ describe('AppendLogStore file persistence', () => {
 
     const lines = await readLines(join(dir, SCOPE, KEY));
     expect(lines).toHaveLength(2);
-    expect(lines.map((line) => JSON.parse(line)['type'])).toEqual(['turn.prompt', 'turn.prompt']);
+    expect(lines.map((line) => JSON.parse(line)['type'])).toEqual([
+      'turn.prompt',
+      'turn.prompt',
+    ]);
   });
 
   it('returns appended metadata records from read() output', async () => {
@@ -231,7 +235,10 @@ describe('AppendLogStore file persistence', () => {
     await log.flush();
 
     const lines = await readLines(join(dir, SCOPE, KEY));
-    expect(lines.map((line) => JSON.parse(line)['type'])).toEqual(['metadata', 'turn.prompt']);
+    expect(lines.map((line) => JSON.parse(line)['type'])).toEqual([
+      'metadata',
+      'turn.prompt',
+    ]);
     expect(JSON.parse(lines[1]!)['input'][0]['text']).toBe('new');
   });
 

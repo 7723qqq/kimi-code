@@ -1,12 +1,13 @@
 import { freeze, Immer, produce } from 'immer';
 
-import { type CollectionView } from '#/_base/di/collection';
-import { toDisposable, type IDisposable } from '#/_base/di/lifecycle';
-import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
-import { Service } from '#/_base/di/service';
 import { BugIndicatingError } from '#/_base/errors/errors';
 import { onUnexpectedError } from '#/_base/errors/unexpectedError';
 import { ILogService } from '#/_base/log/log';
+import { Service } from '#/_base/di/service';
+import { toDisposable, type IDisposable } from '#/_base/di/lifecycle';
+import { type CollectionView } from '#/_base/di/collection';
+import { LifecycleScope } from '#/app/scopes';
+import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { AgentSpaceImpl, type AgentSpaceHost } from '#/agent/agentContext/agentSpace';
 import { IAgentBlobService } from '#/agent/blob/agentBlobService';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
@@ -18,14 +19,13 @@ import {
   type Event2Class,
 } from '#/app/event/event2';
 import { IEventBus } from '#/app/event/eventBus';
-import { LifecycleScope } from '#/app/scopes';
+import type { ContentPart } from '#human/llm/message';
 import { OrderedHookSlot } from '#/hooks';
+import { IWireService } from '#/wire/wire';
 import { WireError, WireErrors } from '#/wire/errors';
 import { isHumanRecordType } from '#/wire/human';
-import type { PartsTransformer, WireRecord } from '#/wire/record';
 import { AGENT_SWITCHED_TYPE } from '#/wire/tree/index';
-import { IWireService } from '#/wire/wire';
-import type { ContentPart } from '#human/llm/message';
+import type { PartsTransformer, WireRecord } from '#/wire/record';
 
 import {
   AgentModelContribution,
@@ -33,12 +33,8 @@ import {
   type AgentModel,
   type AgentModelDefinition,
 } from './agentModel';
+import { IEventDispatcher, type DurableAgentRuntimeParticipant, type RestorePhase } from './eventDispatcher';
 import { StateError, StateErrors } from './errors';
-import {
-  IEventDispatcher,
-  type DurableAgentRuntimeParticipant,
-  type RestorePhase,
-} from './eventDispatcher';
 import {
   expandedModelAppliers,
   expandedRuntimeFolds,
@@ -54,8 +50,8 @@ import {
   type FoldedEventStateRegistry,
 } from './stateContribution';
 
-const MAX_DRAIN = 1_000;
-const MAX_DRAIN_PER_TYPE = 100;
+const MAX_DRAIN = 100;
+const DISPATCH_STUCK_WARN_MS = 30_000;
 
 const replayImmer = new Immer({ autoFreeze: false });
 
@@ -67,13 +63,10 @@ const UNREPORTED_WIRE_RECORD_TYPES: ReadonlySet<string> = new Set([
 ]);
 
 export class CycleError extends StateError {
-  constructor(
-    readonly depth: number,
-    readonly eventTypes: readonly string[],
-  ) {
+  constructor(readonly depth: number, readonly eventTypes: readonly string[]) {
     super(
       StateErrors.codes.STATE_CYCLE,
-      `Event dispatch cascade exceeded MAX_DRAIN (depth ${depth}, per-type ${MAX_DRAIN_PER_TYPE}); possible event cycle`,
+      `Event dispatch cascade exceeded MAX_DRAIN (${depth}); possible event cycle`,
       { details: { depth, eventTypes: eventTypes.slice(0, 20) } },
     );
     this.name = 'CycleError';
@@ -97,7 +90,11 @@ interface PreparedFold {
   readonly next: any;
 }
 
-type ParticipantApplier = (state: any, event: Event2<any>, ctx: FoldContextImpl) => unknown;
+type ParticipantApplier = (
+  state: any,
+  event: Event2<any>,
+  ctx: FoldContextImpl,
+) => unknown;
 
 interface ParticipantAttachment {
   readonly id: string;
@@ -172,6 +169,7 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
   private readonly metas = new Map<ReplayableStateKey<any>, StateMeta>();
   private readonly replayFreshKeys = new Set<ReplayableStateKey<any>>();
   private readonly replayFreshAttachments = new Set<ParticipantAttachment>();
+  private readonly replayMutableStates = new Map<ReplayableStateKey<any>, any>();
   private folded: FoldedEventStateRegistry;
 
   private activeModelDefs = new Map<string, AgentModelDefinition<any, any>>();
@@ -185,7 +183,8 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
   private readonly participantAttachments = new Map<string, ParticipantAttachment>();
 
   private readonly spaceHost: AgentSpaceHost = {
-    isActiveModelDefinition: (definition) => this.activeModelDefs.get(definition.id) === definition,
+    isActiveModelDefinition: (definition) =>
+      this.activeModelDefs.get(definition.id) === definition,
     registerModel: (definition, model) => this.registerModel(definition, model),
     dispatchModelEvent: (event) => this.dispatch(event),
     readLegacyState: (key) => this.agentState.get(key),
@@ -194,10 +193,11 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
   restorePhase: RestorePhase = 'new';
   private dispatching = false;
   private lateAttachmentTail: Promise<void> | undefined;
+  private dispatchingSince: number | undefined;
+  private queueStuckWarned = false;
   private disposed = false;
   private queue: QueuedEvent[] = [];
   private drainDepth = 0;
-  private drainCounts = new Map<string, number>();
   private didRunRestoreHooks = false;
   private lateAttachments: Array<{
     readonly participant: DurableAgentRuntimeParticipant;
@@ -280,9 +280,7 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
     }
     const attachment = this.buildParticipantAttachment(participant);
     this.attachParticipant(attachment);
-    return toDisposable(() => {
-      this.detachParticipant(attachment);
-    });
+    return toDisposable(() => { this.detachParticipant(attachment); });
   }
 
   async attachLate(participant: DurableAgentRuntimeParticipant): Promise<IDisposable> {
@@ -310,16 +308,17 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
 
   private async attachLateNow(participant: DurableAgentRuntimeParticipant): Promise<IDisposable> {
     if (this.disposed) {
-      throw new Error(
-        `Agent runtime participant '${participant.id}' late-attached to a disposed event dispatcher`,
-      );
+      throw new Error(`Agent runtime participant '${participant.id}' late-attached to a disposed event dispatcher`);
     }
     const attachment = this.buildParticipantAttachment(participant);
     this.dispatching = true;
+    this.dispatchingSince = Date.now();
     let replayFailure: { error: unknown } | undefined;
     try {
       await this.wire.flush();
-      const stream = participant.undoable ? this.wire.readRestorable() : this.wire.readJournal();
+      const stream = participant.undoable
+        ? this.wire.readRestorable()
+        : this.wire.readJournal();
       for await (const record of stream) {
         if (record.type === 'metadata') continue;
         const cls = this.folded.events.get(record.type);
@@ -328,8 +327,7 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
         if (cls.agentDomain) {
           if (this.agentScope === undefined) continue;
           const recordAgentId = record['agentId'];
-          if (recordAgentId === undefined)
-            eventRecord = { ...record, agentId: this.agentScope.agentId };
+          if (recordAgentId === undefined) eventRecord = { ...record, agentId: this.agentScope.agentId };
           else if (recordAgentId !== this.agentScope.agentId) continue;
         }
         const event = event2FromRecord(cls, eventRecord);
@@ -337,7 +335,10 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
         const applier = attachment.appliers.get(event.constructor as Event2Class);
         if (applier === undefined) continue;
         const ctx = new FoldContextImpl(this, true);
-        const next = produce(attachment.getState(), (draft: any) => applier(draft, event, ctx));
+        const next = produce(
+          attachment.getState(),
+          (draft: any) => applier(draft, event, ctx),
+        );
         if (ctx.pendingUndo !== undefined && next !== attachment.getState()) {
           throw new BugIndicatingError(
             `Fold of event '${event.type}' on durable participant '${attachment.id}' both mutates and undoes to a checkpoint`,
@@ -359,14 +360,13 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
       if (this.restorePhase !== 'restoring') {
         this.queue.length = 0;
         this.dispatching = false;
+        this.dispatchingSince = undefined;
+        this.queueStuckWarned = false;
         this.drainDepth = 0;
-        this.drainCounts.clear();
       }
     }
     if (replayFailure !== undefined) throw replayFailure.error;
-    return toDisposable(() => {
-      this.detachParticipant(attachment);
-    });
+    return toDisposable(() => { this.detachParticipant(attachment); });
   }
 
   private buildParticipantAttachment(
@@ -386,9 +386,7 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
       undoable: participant.undoable,
       initial: participant.getState(),
       getState: () => participant.getState(),
-      commit: (state) => {
-        participant.commit(state);
-      },
+      commit: (state) => { participant.commit(state); },
     };
   }
 
@@ -465,7 +463,10 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
     }
   }
 
-  private registerModel(definition: AgentModelDefinition<any, any>, model: AgentModel<any>): void {
+  private registerModel(
+    definition: AgentModelDefinition<any, any>,
+    model: AgentModel<any>,
+  ): void {
     if (this.modelAttachments.has(definition)) return;
     const domainAppliers = new Map<Event2Class<any, any>, EventApplier>();
     for (const [cls, applier] of model._appliersTable()) {
@@ -499,9 +500,7 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
       undoable: definition.undoable,
       initial: model._state(),
       getState: () => model._state(),
-      commit: (state) => {
-        model._commitState(state);
-      },
+      commit: (state) => { model._commitState(state); },
     };
     this.attachParticipant(attachment);
     this.modelAttachments.set(definition, attachment);
@@ -535,11 +534,24 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
       );
     }
     if (this.dispatching) {
+      if (
+        !this.queueStuckWarned &&
+        this.dispatchingSince !== undefined &&
+        Date.now() - this.dispatchingSince > DISPATCH_STUCK_WARN_MS
+      ) {
+        this.queueStuckWarned = true;
+        this.logger.warn('event dispatch is stuck; queueing event behind it', {
+          agentId: this.agentScope?.agentId,
+          event: event.type,
+          waitingMs: Date.now() - this.dispatchingSince,
+        });
+      }
       return new Promise<void>((resolve, reject) => {
         this.queue.push({ event, resolve, reject });
       });
     }
     this.dispatching = true;
+    this.dispatchingSince = Date.now();
     try {
       this.runDispatch(event);
       this.drainQueue();
@@ -552,28 +564,26 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
     } finally {
       this.queue.length = 0;
       this.dispatching = false;
+      this.dispatchingSince = undefined;
+      this.queueStuckWarned = false;
       this.drainDepth = 0;
-      this.drainCounts.clear();
     }
   }
 
   private drainQueue(): void {
     while (this.queue.length > 0) {
-      const next = this.queue[0]!;
-      const seenForType = (this.drainCounts.get(next.event.type) ?? 0) + 1;
-      this.drainCounts.set(next.event.type, seenForType);
-      if (++this.drainDepth > MAX_DRAIN || seenForType > MAX_DRAIN_PER_TYPE) {
+      if (++this.drainDepth > MAX_DRAIN) {
         throw new CycleError(
           this.drainDepth,
           this.queue.map((entry) => entry.event.type),
         );
       }
-      this.queue.shift();
+      const entry = this.queue.shift()!;
       try {
-        this.runDispatch(next.event);
-        next.resolve();
+        this.runDispatch(entry.event);
+        entry.resolve();
       } catch (error) {
-        next.reject(error);
+        entry.reject(error);
         throw error;
       }
     }
@@ -605,13 +615,25 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
         }
         const meta = this.ensureMeta(key);
         const ctx = new FoldContextImpl(this, silent);
-        const next = produceFor(this.agentState.get(key), (draft: any) => fold(draft, event, ctx));
-        if (ctx.pendingUndo !== undefined && next !== this.agentState.get(key)) {
+        const staged = this.replayMutableStates.has(key);
+        if (!silent && staged) this.agentState.set(key, this.replayMutableStates.get(key));
+        const current = staged ? this.replayMutableStates.get(key) : this.agentState.get(key);
+        const mutableReplay = silent && staged && !Object.isFrozen(current);
+        const produced = mutableReplay
+          ? fold(current, event, ctx)
+          : produceFor(current, (draft: any) => fold(draft, event, ctx));
+        const next = mutableReplay && produced === undefined ? current : produced;
+        if (ctx.pendingUndo !== undefined && next !== current) {
           throw new BugIndicatingError(
             `Fold of event '${event.type}' on state '${key.name}' both mutates and undoes to a checkpoint`,
           );
         }
         sanitizePendingUndo(ctx, meta);
+        if (silent && staged && (ctx.pendingCheckpoint || ctx.pendingUndo !== undefined)) {
+          throw new BugIndicatingError(
+            `State key '${key.name}' cannot use checkpoints during mutable replay`,
+          );
+        }
         prepared.push({ key, meta, ctx, next });
       }
     }
@@ -630,7 +652,10 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
         const applier = attachment.appliers.get(event.constructor as Event2Class);
         if (applier === undefined) continue;
         const ctx = new FoldContextImpl(this, silent);
-        const next = produceFor(attachment.getState(), (draft: any) => applier(draft, event, ctx));
+        const next = produceFor(
+          attachment.getState(),
+          (draft: any) => applier(draft, event, ctx),
+        );
         if (ctx.pendingUndo !== undefined && next !== attachment.getState()) {
           throw new BugIndicatingError(
             `Fold of event '${event.type}' on durable participant '${attachment.id}' both mutates and undoes to a checkpoint`,
@@ -682,10 +707,16 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
       meta.checkpoints.length = targetIndex;
       return;
     }
-    if (ctx.silent && next !== this.agentState.get(key)) {
+    const staged = this.replayMutableStates.has(key);
+    if (ctx.silent && (staged || next !== this.agentState.get(key))) {
       this.replayFreshKeys.add(key);
     }
-    this.agentState.set(key, next);
+    if (staged) {
+      if (!ctx.silent) this.agentState.set(key, next);
+      this.replayMutableStates.set(key, next);
+    } else {
+      this.agentState.set(key, next);
+    }
     if (ctx.pendingClear) {
       meta.checkpoints.length = 0;
     }
@@ -736,7 +767,10 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
     }
     const rerun = this.restorePhase !== 'new';
     this.restorePhase = 'restoring';
-    if (rerun) this.dispatching = true;
+    if (rerun) {
+      this.dispatching = true;
+      this.dispatchingSince = Date.now();
+    }
     try {
       if (this.lateAttachmentTail !== undefined) await this.lateAttachmentTail;
       if (rerun) {
@@ -756,6 +790,7 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
       }
       await this.drainLateAttachments();
     } catch (error) {
+      this.replayMutableStates.clear();
       this.restorePhase = 'failed';
       for (const pending of this.lateAttachments.splice(0)) pending.reject(error);
       if (rerun) {
@@ -766,8 +801,9 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
       if (rerun) {
         this.queue.length = 0;
         this.dispatching = false;
+        this.dispatchingSince = undefined;
+        this.queueStuckWarned = false;
         this.drainDepth = 0;
-        this.drainCounts.clear();
       }
     }
   }
@@ -783,6 +819,7 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
   }
 
   private resetReplayState(): void {
+    this.replayMutableStates.clear();
     for (const key of this.agentState.replayableKeys()) {
       this.agentState.set(key, key.initial());
     }
@@ -794,6 +831,10 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
   }
 
   private async replayRecords(): Promise<void> {
+    this.replayMutableStates.clear();
+    for (const key of this.agentState.replayableKeys()) {
+      if (key.replayable.mutableReplay) this.replayMutableStates.set(key, this.agentState.get(key));
+    }
     const chains = await this.wire.readRestoreChains();
     const resolved = new Map<WireRecord, ResolvedRecord>();
     this.replayFreshKeys.clear();
@@ -818,7 +859,10 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
       if (entry.event === undefined) {
         if (!undoable) {
           if (entry.cls === undefined) {
-            if (!UNREPORTED_WIRE_RECORD_TYPES.has(record.type) && !isHumanRecordType(record.type)) {
+            if (
+              !UNREPORTED_WIRE_RECORD_TYPES.has(record.type) &&
+              !isHumanRecordType(record.type)
+            ) {
               this.reportSkippedRecord(record.type, recordIndex, false);
             }
           } else {
@@ -855,13 +899,19 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
 
   private freezeReplayedStates(): void {
     for (const key of this.replayFreshKeys) {
-      this.agentState.set(key, freeze(this.agentState.get(key), true));
+      if (this.replayMutableStates.has(key)) {
+        this.agentState.set(key, freeze(this.replayMutableStates.get(key), true));
+        this.replayMutableStates.delete(key);
+      } else {
+        this.agentState.set(key, freeze(this.agentState.get(key), true));
+      }
     }
     this.replayFreshKeys.clear();
     for (const attachment of this.replayFreshAttachments) {
       attachment.commit(freeze(attachment.getState(), true));
     }
     this.replayFreshAttachments.clear();
+    this.replayMutableStates.clear();
   }
 
   private reportSkippedRecord(type: string, index: number, malformed: boolean): void {
@@ -883,10 +933,7 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
     for (const key of this.folded.states) {
       const codec = key.replayable.blobs;
       if (codec?.rehydrate === undefined) continue;
-      this.agentState.set(
-        key,
-        Object.freeze(await codec.rehydrate(this.agentState.get(key), transform)),
-      );
+      this.agentState.set(key, Object.freeze(await codec.rehydrate(this.agentState.get(key), transform)));
     }
   }
 

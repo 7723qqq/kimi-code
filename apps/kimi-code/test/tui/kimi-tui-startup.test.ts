@@ -1,22 +1,27 @@
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { log, type GoalSnapshot } from '@moonshot-ai/kimi-code-sdk';
 import type { MigrationPlan } from '@moonshot-ai/migration-legacy';
-import { beforeEach, describe, expect, it, mock, spyOn, type Mock } from 'bun:test';
-import { setEnv, setGlobal, restoreEnvs, restoreGlobals } from '#test/helpers/stubs';
-import { waitForAssertion } from '#test/helpers/waitFor';
+import type { Component, Focusable } from '@moonshot-ai/pi-tui';
+import { describe, expect, it, vi } from 'bun:test';
+import { setEnv, restoreEnvs } from '../helpers/stubs';
+import { waitUntil } from '../helpers/waitFor';
 
 import { BannerProvider } from '#/tui/banner/banner-provider';
 import { readBannerDisplayState } from '#/tui/banner/state';
 import { handleLoginCommand, handleLogoutCommand } from '#/tui/commands/auth';
 import { promptPlatformSelection, promptLogoutProviderSelection } from '#/tui/commands/prompts';
-import * as promptsModule from '#/tui/commands/prompts';
+import { ChoicePickerComponent } from '#/tui/components/dialogs/choice-picker';
 import { BannerComponent } from '#/tui/components/chrome/banner';
 import { WelcomeComponent } from '#/tui/components/chrome/welcome';
 import { KimiTUI, type KimiTUIStartupInput, type TUIState } from '#/tui/kimi-tui';
-import { REPLAY_TURN_LIMIT } from '#/tui/utils/message-replay';
+import { maybeShowModelMigrationPrompt } from '#/tui/controllers/model-migration';
+import type { ApprovalPanelData, QuestionPanelData } from '#/tui/reverse-rpc/types';
+import { REPLAY_FETCH_TURN_LIMIT } from '#/tui/utils/message-replay';
+import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
+import { quoteShellArg } from '#/utils/shell-quote';
 import {
   DISABLE_TERMINAL_THEME_REPORTING,
   ENABLE_TERMINAL_THEME_REPORTING,
@@ -24,43 +29,23 @@ import {
   QUERY_TERMINAL_THEME,
   TERMINAL_THEME_LIGHT,
 } from '#/tui/utils/terminal-theme';
-import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
-import { quoteShellArg } from '#/utils/shell-quote';
-import {
-  installMsys2,
-  markPrompted,
-  setUserShellPath,
-  shouldPromptMsys2,
-} from '#/cli/msys2-prompt';
 
-void mock.module('#/tui/commands/prompts', () => ({
-  ...promptsModule,
-  promptPlatformSelection: mock(),
-  promptLogoutProviderSelection: mock(),
+jest.mock('#/tui/commands/prompts', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('#/tui/commands/prompts')>();
+  return { ...actual, promptPlatformSelection: jest.fn(), promptLogoutProviderSelection: jest.fn() };
+});
+jest.mock('#/utils/clipboard/clipboard-text', () => ({
+  copyTextToClipboard: jest.fn(async () => {}),
 }));
-void mock.module('#/utils/clipboard/clipboard-text', () => ({
-  copyTextToClipboard: mock(async () => {}),
-}));
-void mock.module('#/cli/msys2-prompt', () => ({
-  createMsys2PromptDeps: mock(() => ({})),
-  shouldPromptMsys2: mock(async () => false),
-  installMsys2: mock(async () => ({ ok: true, bashPath: 'C:\\msys64\\usr\\bin\\bash.exe' })),
-  setUserShellPath: mock(() => true),
-  markPrompted: mock(async () => {}),
+const modelMigrationState = ({ acknowledged: {} as Record<string, string> }));
+jest.mock('#/utils/model-migration-state', () => ({
+  readModelMigrationAcknowledgements: jest.fn(async () => ({ ...modelMigrationState.acknowledged })),
+  acknowledgeModelMigration: jest.fn(async (fromAlias: string, toModel: string) => {
+    modelMigrationState.acknowledged = { ...modelMigrationState.acknowledged, [fromAlias]: toModel };
+  }),
 }));
 
-const copyTextToClipboardMock = copyTextToClipboard as Mock<typeof copyTextToClipboard>;
-const promptPlatformSelectionMock = promptPlatformSelection as Mock<
-  typeof promptPlatformSelection
->;
-const promptLogoutProviderSelectionMock = promptLogoutProviderSelection as Mock<
-  typeof promptLogoutProviderSelection
->;
-const shouldPromptMsys2Mock = shouldPromptMsys2 as Mock<typeof shouldPromptMsys2>;
-const installMsys2Mock = installMsys2 as Mock<typeof installMsys2>;
-const setUserShellPathMock = setUserShellPath as Mock<typeof setUserShellPath>;
-
-type EditorChild = TUIState['editorContainer']['children'][number];
+const copyTextToClipboardMock = (copyTextToClipboard);
 
 interface StartupDriver {
   state: TUIState;
@@ -124,7 +109,6 @@ function makeStartupInput(
     tuiConfig: {
       theme: 'dark',
       disablePasteBurst: false,
-      locale: 'en',
       editorCommand: null,
       notifications: { enabled: true, condition: 'unfocused' },
       upgrade: { autoInstall: true },
@@ -141,7 +125,7 @@ function makeSession(overrides: Record<string, unknown> = {}) {
     id: 'ses-1',
     model: 'k2',
     summary: { title: 'Session title' },
-    getStatus: mock(async () => ({
+    getStatus: jest.fn(async () => ({
       model: 'k2',
       thinkingEffort: 'off',
       permission: 'manual',
@@ -150,17 +134,18 @@ function makeSession(overrides: Record<string, unknown> = {}) {
       maxContextTokens: 100,
       contextUsage: 0.1,
     })),
-    setApprovalHandler: mock(),
-    setQuestionHandler: mock(),
-    setModel: mock(async () => {}),
-    setThinking: mock(async () => {}),
-    setPermission: mock(async () => {}),
-    setPlanMode: mock(async () => {}),
-    getGoal: mock(async () => ({ goal: null })),
-    onEvent: mock(() => () => {}),
-    getResumeState: mock(() => null),
-    listSkills: mock(async () => []),
-    close: mock(async () => {}),
+    setApprovalHandler: jest.fn(),
+    setQuestionHandler: jest.fn(),
+    setStaleReloadHandler: jest.fn(),
+    setModel: jest.fn(async () => {}),
+    setThinking: jest.fn(async () => {}),
+    setPermission: jest.fn(async () => {}),
+    setPlanMode: jest.fn(async () => {}),
+    getGoal: jest.fn(async () => ({ goal: null })),
+    onEvent: jest.fn(() => () => {}),
+    getResumeState: jest.fn(() => null),
+    listSkills: jest.fn(async () => []),
+    close: jest.fn(async () => {}),
     ...overrides,
   };
 }
@@ -172,11 +157,7 @@ function goalSnapshot(overrides: Partial<GoalSnapshot> = {}): GoalSnapshot {
     status: 'paused',
     turnsUsed: 2,
     tokensUsed: 100,
-    inputTokensUsed: 0,
-    outputTokensUsed: 0,
     wallClockMs: 1000,
-    createdAt: 1000,
-    updatedAt: 2000,
     budget: {
       tokenBudget: null,
       turnBudget: null,
@@ -188,8 +169,6 @@ function goalSnapshot(overrides: Partial<GoalSnapshot> = {}): GoalSnapshot {
       turnBudgetReached: false,
       wallClockBudgetReached: false,
       overBudget: false,
-      inputTokensUsed: 0,
-      outputTokensUsed: 0,
     },
     ...overrides,
   };
@@ -233,26 +212,27 @@ function loginRequiredError(): Error & { readonly code: string } {
 
 function makeHarness(session = makeSession(), overrides: Record<string, unknown> = {}) {
   const harness = {
-    getConfig: mock(async () => ({
+    getConfig: jest.fn(async () => ({
       models: {
         k2: { model: 'moonshot-v1', maxContextSize: 100 },
       },
     })),
-    createSession: mock(async () => session),
-    resumeSession: mock(async () => session),
-    listSessions: mock(async () => []),
-    close: mock(async () => {}),
-    track: mock(),
-    setTelemetryContext: mock(),
-    getExperimentalFeatures: mock(async () => []),
-    getWorkspaceTrustInfo: mock(async () => ({ trusted: true, gatedMcpServers: [], gatedAdditionalDirs: [], additionalDirSources: [], warnings: [], instructionSources: { agentsMdPaths: [], skills: [], agentProfiles: [], paths: [] } })),
-    supportsAtomicSectionReplace: mock(() => false),
+    onConfigSectionChanged: jest.fn(() => jest.fn()),
+    createSession: jest.fn(async () => session),
+    resumeSession: jest.fn(async () => session),
+    listSessions: jest.fn(async () => []),
+    close: jest.fn(async () => {}),
+    track: jest.fn(),
+    setTelemetryContext: jest.fn(),
+    getExperimentalFeatures: jest.fn(async () => []),
+    getWorkspaceTrustInfo: jest.fn(async () => ({ trusted: true, gatedMcpServers: [], gatedAdditionalDirs: [], additionalDirSources: [], warnings: [], instructionSources: { agentsMdPaths: [], skills: [], agentProfiles: [], paths: [] } })),
+    refreshProviderModels: jest.fn(async () => ({ changed: [], unchanged: [], failed: [] })),
     auth: {
-      status: mock(async () => ({ providers: [] })),
-      login: mock(async () => {}),
-      logout: mock(),
-      getManagedUsage: mock(),
-      getCachedAccessToken: mock(async () => undefined),
+      status: jest.fn(async () => ({ providers: [] })),
+      login: jest.fn(async () => {}),
+      logout: jest.fn(),
+      getManagedUsage: jest.fn(),
+      getCachedAccessToken: jest.fn(async () => undefined),
     },
     ...overrides,
   };
@@ -262,10 +242,12 @@ function makeHarness(session = makeSession(), overrides: Record<string, unknown>
       sessionId?: string;
     }) => Promise<unknown[]>;
     Object.assign(harness, {
-      listSessionsPage: mock(async (input: { workDir?: string; sessionId?: string } = {}) => ({
-        items: await listSessions({ workDir: input.workDir, sessionId: input.sessionId }),
-        nextCursor: undefined,
-      })),
+      listSessionsPage: jest.fn(
+        async (input: { workDir?: string; sessionId?: string } = {}) => ({
+          items: await listSessions({ workDir: input.workDir, sessionId: input.sessionId }),
+          nextCursor: undefined,
+        }),
+      ),
     });
   }
   return harness;
@@ -273,8 +255,8 @@ function makeHarness(session = makeSession(), overrides: Record<string, unknown>
 
 function makeDriver(harness: ReturnType<typeof makeHarness>, input: KimiTUIStartupInput) {
   const driver = new KimiTUI(harness as never, input) as unknown as StartupDriver;
-  spyOn(driver.state.ui, 'requestRender').mockImplementation(() => {});
-  spyOn(driver.state.terminal, 'setProgress').mockImplementation(() => {});
+  jest.spyOn(driver.state.ui, 'requestRender').mockImplementation(() => {});
+  jest.spyOn(driver.state.terminal, 'setProgress').mockImplementation(() => {});
   return driver;
 }
 
@@ -284,9 +266,10 @@ const LIGHT_OSC11_REPORT = '\u001B]11;rgb:fafa/fbfb/fcfc\u0007';
 
 function captureInputListeners(driver: StartupDriver) {
   const listeners: InputListener[] = [];
-  const removeInputListener = mock<() => void>();
-  const write = spyOn(driver.state.terminal, 'write').mockImplementation(() => {});
-  const addInputListener = spyOn(driver.state.ui, 'addInputListener')
+  const removeInputListener = jest.fn<() => void>();
+  const write = jest.spyOn(driver.state.terminal, 'write').mockImplementation(() => {});
+  const addInputListener = vi
+    .spyOn(driver.state.ui, 'addInputListener')
     .mockImplementation((listener: InputListener) => {
       listeners.push(listener);
       return removeInputListener;
@@ -298,7 +281,7 @@ function captureInputListeners(driver: StartupDriver) {
 describe('KimiTUI startup', () => {
   it('starts session-less on the v2 engine and carries startup flags to appState', async () => {
     const harness = makeHarness(makeSession(), {
-      getConfig: mock(async () => ({
+      getConfig: jest.fn(async () => ({
         models: {
           k2: { model: 'moonshot-v1', maxContextSize: 200 },
         },
@@ -306,9 +289,10 @@ describe('KimiTUI startup', () => {
         defaultPermissionMode: 'auto',
       })),
     });
-    const driver = makeDriver(harness, {
-      ...makeStartupInput({ model: 'k2', yolo: true }),
-    });
+    const driver = makeDriver(
+      harness,
+      { ...makeStartupInput({ model: 'k2', yolo: true }) },
+    );
 
     await expect(driver.init()).resolves.toBe(false);
 
@@ -331,25 +315,8 @@ describe('KimiTUI startup', () => {
     await expect(driver.init()).resolves.toBe(false);
     (driver as unknown as { mountFooter(): void }).mountFooter();
 
-    // Dock = 7 chrome rows + footer wrap, below the transcript viewport. The
-    // todo list and the updates share one row, so they count once here. The
-    // background-tasks mini panel is docked here (empty until opened).
+    // Dock = 7 chrome containers + footer wrap, below the transcript viewport.
     expect(driver.state.dockContainer?.children).toHaveLength(8);
-  });
-
-  it('mounts the status surface as a root child in regular mode', async () => {
-    const harness = makeHarness(makeSession());
-    const driver = makeDriver(harness, makeStartupInput({}));
-
-    await expect(driver.init()).resolves.toBe(false);
-
-    // The todo list, the updates and a pending approval are all regions of one
-    // component; nothing else holds them. Mounting the two legacy containers
-    // instead left the whole strip unrendered while approvals still took
-    // focus and blocked submission.
-    expect(driver.state.ui.children).toContain(driver.state.statusSurfaceContainer);
-    expect(driver.state.ui.children).not.toContain(driver.state.todoPanelContainer);
-    expect(driver.state.ui.children).not.toContain(driver.state.notifyPanelContainer);
   });
 
   it('shows a session-less notice on v2 startup', async () => {
@@ -365,9 +332,120 @@ describe('KimiTUI startup', () => {
     expect(transcript).toContain('No session yet — one will be created on your first message.');
   });
 
+  it('reports the legacy survey setting migration and applies the migrated value', async () => {
+    const homeDir = mkdtempSync(join(tmpdir(), 'kimi-tui-survey-home-'));
+    const previousHome = process.env['KIMI_CODE_HOME'];
+    process.env['KIMI_CODE_HOME'] = homeDir;
+    try {
+      writeFileSync(join(homeDir, 'tui.toml'), 'disable_feedback_survey = true\n');
+      const setConfig = jest.fn(async () => ({}));
+      const harness = makeHarness(makeSession(), {
+        getConfig: jest.fn(async () => ({
+          models: {
+            k2: { model: 'moonshot-v1', maxContextSize: 100 },
+          },
+        })),
+        setConfig,
+      });
+      const driver = makeDriver(harness, {
+        ...makeStartupInput({}, { disableFeedbackSurvey: true }),
+      });
+
+      await expect(driver.init()).resolves.toBe(false);
+      await (
+        driver as unknown as { finishStartup(shouldReplayHistory: boolean): Promise<void> }
+      ).finishStartup(false);
+
+      await waitUntil(() => {
+        expect(harness.track).toHaveBeenCalledWith('survey_setting_migration', {
+          legacy: true,
+          configured: 'absent',
+          action: 'written',
+        });
+      });
+      expect(setConfig).toHaveBeenCalledWith({ disableFeedbackSurvey: true });
+      expect(driver.state.appState.disableFeedbackSurvey).toBe(true);
+      expect(readFileSync(join(homeDir, 'tui.toml'), 'utf-8')).not.toContain(
+        'disable_feedback_survey',
+      );
+    } finally {
+      if (previousHome === undefined) delete process.env['KIMI_CODE_HOME'];
+      else process.env['KIMI_CODE_HOME'] = previousHome;
+      rmSync(homeDir, { recursive: true, force: true });
+    }
+  });
+
+  it.each([
+    { legacy: true, configured: false, action: 'kept_existing', reportedConfigured: false },
+    { legacy: false, configured: undefined, action: 'dropped_default', reportedConfigured: 'absent' },
+  ])(
+    'reports $action for the legacy survey setting migration',
+    async ({ legacy, configured, action, reportedConfigured }) => {
+      const homeDir = mkdtempSync(join(tmpdir(), 'kimi-tui-survey-home-'));
+      const previousHome = process.env['KIMI_CODE_HOME'];
+      process.env['KIMI_CODE_HOME'] = homeDir;
+      try {
+        writeFileSync(join(homeDir, 'tui.toml'), `disable_feedback_survey = ${String(legacy)}\n`);
+        const setConfig = jest.fn(async () => ({}));
+        const harness = makeHarness(makeSession(), {
+          getConfig: jest.fn(async () => ({
+            models: {
+              k2: { model: 'moonshot-v1', maxContextSize: 100 },
+            },
+            disableFeedbackSurvey: configured,
+          })),
+          setConfig,
+        });
+        const driver = makeDriver(harness, {
+          ...makeStartupInput({}, { disableFeedbackSurvey: legacy }),
+        });
+
+        await expect(driver.init()).resolves.toBe(false);
+        await (
+          driver as unknown as { finishStartup(shouldReplayHistory: boolean): Promise<void> }
+        ).finishStartup(false);
+
+        await waitUntil(() => {
+          expect(harness.track).toHaveBeenCalledWith('survey_setting_migration', {
+            legacy,
+            configured: reportedConfigured,
+            action,
+          });
+        });
+        expect(setConfig).not.toHaveBeenCalled();
+        expect(readFileSync(join(homeDir, 'tui.toml'), 'utf-8')).not.toContain(
+          'disable_feedback_survey',
+        );
+      } finally {
+        if (previousHome === undefined) delete process.env['KIMI_CODE_HOME'];
+        else process.env['KIMI_CODE_HOME'] = previousHome;
+        rmSync(homeDir, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it('does not report the survey setting migration without a legacy key', async () => {
+    const harness = makeHarness(makeSession());
+    const driver = makeDriver(harness, { ...makeStartupInput() });
+
+    await expect(driver.init()).resolves.toBe(false);
+    await (
+      driver as unknown as { finishStartup(shouldReplayHistory: boolean): Promise<void> }
+    ).finishStartup(false);
+
+    await waitUntil(() => {
+      expect(harness.getConfig).toHaveBeenCalled();
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(harness.track).not.toHaveBeenCalledWith(
+      'survey_setting_migration',
+      expect.anything(),
+    );
+  });
+
   it('shows config defaults in appState before the lazy session exists (v2)', async () => {
     const harness = makeHarness(makeSession(), {
-      getConfig: mock(async () => ({
+      getConfig: jest.fn(async () => ({
         models: {
           k2: { model: 'moonshot-v1', maxContextSize: 200 },
         },
@@ -394,7 +472,7 @@ describe('KimiTUI startup', () => {
 
   it('hydrates the model default effort when thinking is enabled without an effort (v2)', async () => {
     const harness = makeHarness(makeSession(), {
-      getConfig: mock(async () => ({
+      getConfig: jest.fn(async () => ({
         models: {
           k2: {
             model: 'moonshot-v1',
@@ -418,7 +496,7 @@ describe('KimiTUI startup', () => {
 
   it('hydrates the model default effort when no [thinking] section exists (v2)', async () => {
     const harness = makeHarness(makeSession(), {
-      getConfig: mock(async () => ({
+      getConfig: jest.fn(async () => ({
         models: {
           k2: {
             model: 'moonshot-v1',
@@ -440,7 +518,7 @@ describe('KimiTUI startup', () => {
   it('hydrates permission/plan defaults after a session-less v2 login', async () => {
     let loggedIn = false;
     const harness = makeHarness(makeSession(), {
-      getConfig: mock(async () =>
+      getConfig: jest.fn(async () =>
         loggedIn
           ? {
               models: { k2: { model: 'moonshot-v1', maxContextSize: 100 } },
@@ -451,12 +529,12 @@ describe('KimiTUI startup', () => {
           : { models: {} },
       ),
       auth: {
-        status: mock(async () => ({ providers: [] })),
-        login: mock(async () => {
+        status: jest.fn(async () => ({ providers: [] })),
+        login: jest.fn(async () => {
           loggedIn = true;
         }),
-        logout: mock(),
-        getManagedUsage: mock(),
+        logout: jest.fn(),
+        getManagedUsage: jest.fn(),
       },
     });
     const driver = makeDriver(harness, { ...makeStartupInput() });
@@ -469,7 +547,7 @@ describe('KimiTUI startup', () => {
       planMode: false,
     });
 
-    promptPlatformSelectionMock.mockResolvedValue('kimi-code');
+    (promptPlatformSelection).mockResolvedValue('kimi-code');
     await handleLoginCommand(driver as any);
 
     expect(harness.createSession).not.toHaveBeenCalled();
@@ -485,7 +563,7 @@ describe('KimiTUI startup', () => {
   it('hydrates permission defaults after a session-less v2 login without a default model', async () => {
     let loggedIn = false;
     const harness = makeHarness(makeSession(), {
-      getConfig: mock(async () =>
+      getConfig: jest.fn(async () =>
         loggedIn
           ? {
               models: { k2: { model: 'moonshot-v1', maxContextSize: 100 } },
@@ -494,19 +572,19 @@ describe('KimiTUI startup', () => {
           : { models: {} },
       ),
       auth: {
-        status: mock(async () => ({ providers: [] })),
-        login: mock(async () => {
+        status: jest.fn(async () => ({ providers: [] })),
+        login: jest.fn(async () => {
           loggedIn = true;
         }),
-        logout: mock(),
-        getManagedUsage: mock(),
+        logout: jest.fn(),
+        getManagedUsage: jest.fn(),
       },
     });
     const driver = makeDriver(harness, { ...makeStartupInput() });
 
     await expect(driver.init()).resolves.toBe(false);
 
-    promptPlatformSelectionMock.mockResolvedValue('kimi-code');
+    (promptPlatformSelection).mockResolvedValue('kimi-code');
     await handleLoginCommand(driver as any);
 
     expect(harness.createSession).not.toHaveBeenCalled();
@@ -519,10 +597,13 @@ describe('KimiTUI startup', () => {
 
   it('carries the --agent/--agent-file binding for the lazy-created first session (v2)', async () => {
     const harness = makeHarness(makeSession());
-    const driver = makeDriver(harness, {
-      ...makeStartupInput({ model: 'k2', agentFiles: ['agent.md'] }),
-      agentProfile: 'reviewer',
-    });
+    const driver = makeDriver(
+      harness,
+      {
+        ...makeStartupInput({ model: 'k2', agentFiles: ['agent.md'] }),
+        agentProfile: 'reviewer',
+      },
+    );
 
     await expect(driver.init()).resolves.toBe(false);
 
@@ -536,7 +617,7 @@ describe('KimiTUI startup', () => {
   it('resumes the latest session for --continue and marks history for replay', async () => {
     const session = makeSession({ id: 'ses-latest' });
     const harness = makeHarness(session, {
-      listSessions: mock(async () => [{ id: 'ses-latest' }, { id: 'ses-old' }]),
+      listSessions: jest.fn(async () => [{ id: 'ses-latest' }, { id: 'ses-old' }]),
     });
     const driver = makeDriver(harness, makeStartupInput({ continue: true }));
 
@@ -544,7 +625,7 @@ describe('KimiTUI startup', () => {
 
     expect(harness.resumeSession).toHaveBeenCalledWith({
       id: 'ses-latest',
-      replayTurnLimit: REPLAY_TURN_LIMIT,
+      replayTurnLimit: REPLAY_FETCH_TURN_LIMIT,
     });
     expect(harness.createSession).not.toHaveBeenCalled();
     expect(driver.state.startupState).toBe('ready');
@@ -555,7 +636,7 @@ describe('KimiTUI startup', () => {
     let permission = 'manual';
     const session = makeSession({
       id: 'ses-latest',
-      getStatus: mock(async () => ({
+      getStatus: jest.fn(async () => ({
         model: 'k2',
         thinkingEffort: 'off',
         permission,
@@ -564,12 +645,12 @@ describe('KimiTUI startup', () => {
         maxContextTokens: 100,
         contextUsage: 0.1,
       })),
-      setPermission: mock(async (mode: string) => {
+      setPermission: jest.fn(async (mode: string) => {
         permission = mode;
       }),
     });
     const harness = makeHarness(session, {
-      listSessions: mock(async () => [{ id: 'ses-latest' }]),
+      listSessions: jest.fn(async () => [{ id: 'ses-latest' }]),
     });
     const driver = makeDriver(harness, makeStartupInput({ continue: true, auto: true }));
 
@@ -583,7 +664,7 @@ describe('KimiTUI startup', () => {
     let permission = 'manual';
     const session = makeSession({
       id: 'ses-latest',
-      getStatus: mock(async () => ({
+      getStatus: jest.fn(async () => ({
         model: 'k2',
         thinkingEffort: 'off',
         permission,
@@ -592,12 +673,12 @@ describe('KimiTUI startup', () => {
         maxContextTokens: 100,
         contextUsage: 0.1,
       })),
-      setPermission: mock(async (mode: string) => {
+      setPermission: jest.fn(async (mode: string) => {
         permission = mode;
       }),
     });
     const harness = makeHarness(session, {
-      listSessions: mock(async () => [{ id: 'ses-latest' }]),
+      listSessions: jest.fn(async () => [{ id: 'ses-latest' }]),
     });
     const driver = makeDriver(harness, makeStartupInput({ continue: true, yolo: true }));
 
@@ -611,7 +692,7 @@ describe('KimiTUI startup', () => {
     let planMode = false;
     const session = makeSession({
       id: 'ses-latest',
-      getStatus: mock(async () => ({
+      getStatus: jest.fn(async () => ({
         model: 'k2',
         thinkingEffort: 'off',
         permission: 'manual',
@@ -620,12 +701,12 @@ describe('KimiTUI startup', () => {
         maxContextTokens: 100,
         contextUsage: 0.1,
       })),
-      setPlanMode: mock(async (enabled: boolean) => {
+      setPlanMode: jest.fn(async (enabled: boolean) => {
         planMode = enabled;
       }),
     });
     const harness = makeHarness(session, {
-      listSessions: mock(async () => [{ id: 'ses-latest' }]),
+      listSessions: jest.fn(async () => [{ id: 'ses-latest' }]),
     });
     const driver = makeDriver(harness, makeStartupInput({ continue: true, plan: true }));
 
@@ -638,7 +719,7 @@ describe('KimiTUI startup', () => {
   it('skips setPlanMode when the resumed session is already in plan mode', async () => {
     const session = makeSession({
       id: 'ses-latest',
-      getStatus: mock(async () => ({
+      getStatus: jest.fn(async () => ({
         model: 'k2',
         thinkingEffort: 'off',
         permission: 'manual',
@@ -647,12 +728,12 @@ describe('KimiTUI startup', () => {
         maxContextTokens: 100,
         contextUsage: 0.1,
       })),
-      setPlanMode: mock(async () => {
+      setPlanMode: jest.fn(async () => {
         throw new Error('Already in plan mode');
       }),
     });
     const harness = makeHarness(session, {
-      listSessions: mock(async () => [{ id: 'ses-latest' }]),
+      listSessions: jest.fn(async () => [{ id: 'ses-latest' }]),
     });
     const driver = makeDriver(harness, makeStartupInput({ continue: true, plan: true }));
 
@@ -665,7 +746,7 @@ describe('KimiTUI startup', () => {
   it('forces footer state to reflect --auto even if getStatus lags behind', async () => {
     const session = makeSession({
       id: 'ses-latest',
-      getStatus: mock(async () => ({
+      getStatus: jest.fn(async () => ({
         model: 'k2',
         thinkingEffort: 'off',
         permission: 'manual',
@@ -674,10 +755,10 @@ describe('KimiTUI startup', () => {
         maxContextTokens: 100,
         contextUsage: 0.1,
       })),
-      setPermission: mock(async () => {}),
+      setPermission: jest.fn(async () => {}),
     });
     const harness = makeHarness(session, {
-      listSessions: mock(async () => [{ id: 'ses-latest' }]),
+      listSessions: jest.fn(async () => [{ id: 'ses-latest' }]),
     });
     const driver = makeDriver(harness, makeStartupInput({ continue: true, auto: true }));
 
@@ -690,7 +771,7 @@ describe('KimiTUI startup', () => {
   it('forces footer state to reflect --plan even if getStatus lags behind', async () => {
     const session = makeSession({
       id: 'ses-latest',
-      getStatus: mock(async () => ({
+      getStatus: jest.fn(async () => ({
         model: 'k2',
         thinkingEffort: 'off',
         permission: 'manual',
@@ -699,10 +780,10 @@ describe('KimiTUI startup', () => {
         maxContextTokens: 100,
         contextUsage: 0.1,
       })),
-      setPlanMode: mock(async () => {}),
+      setPlanMode: jest.fn(async () => {}),
     });
     const harness = makeHarness(session, {
-      listSessions: mock(async () => [{ id: 'ses-latest' }]),
+      listSessions: jest.fn(async () => [{ id: 'ses-latest' }]),
     });
     const driver = makeDriver(harness, makeStartupInput({ continue: true, plan: true }));
 
@@ -715,10 +796,10 @@ describe('KimiTUI startup', () => {
   it('keeps --auto in the footer after session replay hydration', async () => {
     const session = makeSession({
       id: 'ses-latest',
-      getResumeState: mock(() => createResumeState({ permissionMode: 'manual', planMode: false })),
+      getResumeState: jest.fn(() => createResumeState({ permissionMode: 'manual', planMode: false })),
     });
     const harness = makeHarness(session, {
-      listSessions: mock(async () => [{ id: 'ses-latest' }]),
+      listSessions: jest.fn(async () => [{ id: 'ses-latest' }]),
     });
     const driver = makeDriver(harness, makeStartupInput({ continue: true, auto: true }));
 
@@ -735,10 +816,10 @@ describe('KimiTUI startup', () => {
   it('keeps --plan in the footer after session replay hydration', async () => {
     const session = makeSession({
       id: 'ses-latest',
-      getResumeState: mock(() => createResumeState({ permissionMode: 'manual', planMode: false })),
+      getResumeState: jest.fn(() => createResumeState({ permissionMode: 'manual', planMode: false })),
     });
     const harness = makeHarness(session, {
-      listSessions: mock(async () => [{ id: 'ses-latest' }]),
+      listSessions: jest.fn(async () => [{ id: 'ses-latest' }]),
     });
     const driver = makeDriver(harness, makeStartupInput({ continue: true, plan: true }));
 
@@ -756,7 +837,7 @@ describe('KimiTUI startup', () => {
     let permission = 'manual';
     const session = makeSession({
       id: 'ses-target',
-      getStatus: mock(async () => ({
+      getStatus: jest.fn(async () => ({
         model: 'k2',
         thinkingEffort: 'off',
         permission,
@@ -765,12 +846,12 @@ describe('KimiTUI startup', () => {
         maxContextTokens: 100,
         contextUsage: 0.1,
       })),
-      setPermission: mock(async (mode: string) => {
+      setPermission: jest.fn(async (mode: string) => {
         permission = mode;
       }),
     });
     const harness = makeHarness(session, {
-      listSessions: mock(async () => [{ id: 'ses-target', workDir: '/tmp/proj-a' }]),
+      listSessions: jest.fn(async () => [{ id: 'ses-target', workDir: '/tmp/proj-a' }]),
     });
     const driver = makeDriver(harness, makeStartupInput({ session: 'ses-target', auto: true }));
 
@@ -784,24 +865,24 @@ describe('KimiTUI startup', () => {
     const goal = goalSnapshot({ status: 'blocked', terminalReason: 'needs input' });
     const session = makeSession({
       id: 'ses-latest',
-      getGoal: mock(async () => ({ goal })),
+      getGoal: jest.fn(async () => ({ goal })),
     });
     const harness = makeHarness(session, {
-      listSessions: mock(async () => [{ id: 'ses-latest' }]),
-      getExperimentalFeatures: mock(async () => [{ id: 'micro_compaction', enabled: true }]),
+      listSessions: jest.fn(async () => [{ id: 'ses-latest' }]),
+      getExperimentalFeatures: jest.fn(async () => [{ id: 'micro_compaction', enabled: true }]),
     });
     const driver = makeDriver(harness, makeStartupInput({ continue: true }));
 
     await expect(driver.init()).resolves.toBe(true);
 
-    expect(session.getGoal).toHaveBeenCalledTimes(1);
+    expect(session.getGoal).toHaveBeenCalledOnce();
     expect(driver.state.appState.goal).toEqual(goal);
   });
 
   it('syncs goal state regardless of the goal flag', async () => {
     const goal = goalSnapshot();
     const session = makeSession({
-      getGoal: mock(async () => ({ goal })),
+      getGoal: jest.fn(async () => ({ goal })),
     });
     const harness = makeHarness(session);
     const driver = makeDriver(harness, makeStartupInput());
@@ -810,33 +891,23 @@ describe('KimiTUI startup', () => {
     await driver.setSession(session);
     await driver.syncRuntimeState(session);
 
-    // Materialize the startup session through the lazy-creation path (fresh
-    // startup no longer creates one during init).
-    if (driver.state.appState.model.length === 0) driver.state.appState.model = 'k2';
-    await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession();
-
-    expect(session.getGoal).toHaveBeenCalled();
+    expect(session.getGoal).toHaveBeenCalledOnce();
     expect(driver.state.appState.goal).toEqual(goal);
   });
 
   it('clears goal state when closing the current session', async () => {
     const goal = goalSnapshot();
     const session = makeSession({
-      getGoal: mock(async () => ({ goal })),
+      getGoal: jest.fn(async () => ({ goal })),
     });
     const harness = makeHarness(session, {
-      getExperimentalFeatures: mock(async () => [{ id: 'micro_compaction', enabled: true }]),
+      getExperimentalFeatures: jest.fn(async () => [{ id: 'micro_compaction', enabled: true }]),
     });
     const driver = makeDriver(harness, makeStartupInput()) as unknown as RuntimeStateDriver;
 
     await expect(driver.init()).resolves.toBe(false);
-await driver.setSession(session);
-await driver.syncRuntimeState(session);
-
-// Materialize the startup session through the lazy-creation path (fresh
-// startup no longer creates one during init).
-if (driver.state.appState.model.length === 0) driver.state.appState.model = 'k2';
-await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession();
+    await driver.setSession(session);
+    await driver.syncRuntimeState(session);
     expect(driver.state.appState.goal).toEqual(goal);
 
     await driver.closeSession('test close');
@@ -847,10 +918,10 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
   it('applies the CLI model override when resuming a startup session', async () => {
     let model = 'k2';
     const session = makeSession({
-      setModel: mock(async (nextModel: string) => {
+      setModel: jest.fn(async (nextModel: string) => {
         model = nextModel;
       }),
-      getStatus: mock(async () => ({
+      getStatus: jest.fn(async () => ({
         model,
         thinkingEffort: 'off',
         permission: 'manual',
@@ -861,7 +932,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
       })),
     });
     const harness = makeHarness(session, {
-      listSessions: mock(async () => [{ id: 'ses-latest' }]),
+      listSessions: jest.fn(async () => [{ id: 'ses-latest' }]),
     });
     const driver = makeDriver(
       harness,
@@ -889,7 +960,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     let permission = 'manual';
     const session = makeSession({
       id: 'ses-picked',
-      getStatus: mock(async () => ({
+      getStatus: jest.fn(async () => ({
         model: 'k2',
         thinkingEffort: 'off',
         permission,
@@ -898,12 +969,12 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
         maxContextTokens: 100,
         contextUsage: 0.1,
       })),
-      setPermission: mock(async (mode: string) => {
+      setPermission: jest.fn(async (mode: string) => {
         permission = mode;
       }),
     });
     const harness = makeHarness(session, {
-      listSessions: mock(async () => [
+      listSessions: jest.fn(async () => [
         {
           id: 'ses-picked',
           title: 'Picked session',
@@ -916,11 +987,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
 
     await (driver as unknown as { initMainTui(): Promise<boolean> }).initMainTui();
     expect(driver.state.startupState).toBe('picker');
-    await (
-      driver as unknown as {
-        dialogController: { bootstrapFromPicker(): Promise<void> };
-      }
-    ).dialogController.bootstrapFromPicker();
+    await (driver as unknown as { bootstrapFromPicker(): Promise<void> }).bootstrapFromPicker();
 
     const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
     picker.handleInput('\r');
@@ -933,7 +1000,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
   it('skips setPlanMode after picking a session already in plan mode', async () => {
     const session = makeSession({
       id: 'ses-picked',
-      getStatus: mock(async () => ({
+      getStatus: jest.fn(async () => ({
         model: 'k2',
         thinkingEffort: 'off',
         permission: 'manual',
@@ -942,12 +1009,12 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
         maxContextTokens: 100,
         contextUsage: 0.1,
       })),
-      setPlanMode: mock(async () => {
+      setPlanMode: jest.fn(async () => {
         throw new Error('Already in plan mode');
       }),
     });
     const harness = makeHarness(session, {
-      listSessions: mock(async () => [
+      listSessions: jest.fn(async () => [
         {
           id: 'ses-picked',
           title: 'Picked session',
@@ -960,11 +1027,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
 
     await (driver as unknown as { initMainTui(): Promise<boolean> }).initMainTui();
     expect(driver.state.startupState).toBe('picker');
-    await (
-      driver as unknown as {
-        dialogController: { bootstrapFromPicker(): Promise<void> };
-      }
-    ).dialogController.bootstrapFromPicker();
+    await (driver as unknown as { bootstrapFromPicker(): Promise<void> }).bootstrapFromPicker();
 
     const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
     picker.handleInput('\r');
@@ -987,7 +1050,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
       workDir: '/tmp/proj-b',
       updatedAt: Date.now() - 1000,
     };
-    const listSessions = mock(async (input: { workDir?: string } = {}) => {
+    const listSessions = jest.fn(async (input: { workDir?: string } = {}) => {
       if (input.workDir === '/tmp/proj-a') return [currentWorkDirSession];
       return [currentWorkDirSession, otherWorkDirSession];
     });
@@ -1022,7 +1085,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
       workDir: '/tmp/proj-b',
       updatedAt: Date.now() - 1000,
     };
-    const listSessions = mock(async (input: { workDir?: string } = {}) => {
+    const listSessions = jest.fn(async (input: { workDir?: string } = {}) => {
       if (input.workDir === '/tmp/proj-a') return [currentWorkDirSession];
       return [currentWorkDirSession, otherWorkDirSession];
     });
@@ -1031,14 +1094,10 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     await expect(driver.init()).resolves.toBe(false);
 
     await (driver as unknown as { showSessionPicker(): Promise<void> }).showSessionPicker();
-    const firstPicker = driver.state.editorContainer.children[0] as {
-      handleInput(data: string): void;
-    };
+    const firstPicker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
     firstPicker.handleInput('\u0001');
     await new Promise((resolve) => setImmediate(resolve));
-    const allPicker = driver.state.editorContainer.children[0] as {
-      handleInput(data: string): void;
-    };
+    const allPicker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
     allPicker.handleInput('\u0001');
     await new Promise((resolve) => setImmediate(resolve));
 
@@ -1061,7 +1120,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
       updatedAt: Date.now() - 1000,
     };
     let resolveAllSessions: ((value: unknown[]) => void) | undefined;
-    const listSessions = mock((input: { workDir?: string } = {}) => {
+    const listSessions = jest.fn((input: { workDir?: string } = {}) => {
       if (input.workDir === '/tmp/proj-a') return Promise.resolve([currentWorkDirSession]);
       return new Promise<unknown[]>((resolve) => {
         resolveAllSessions = resolve;
@@ -1069,12 +1128,8 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     });
     const harness = makeHarness(makeSession({ id: 'ses-current' }), { listSessions });
     const driver = makeDriver(harness, makeStartupInput());
-    const mountSessionPicker = spyOn(
-      (
-        driver as unknown as {
-          dialogController: { mountSessionPicker(options: unknown): void };
-        }
-      ).dialogController,
+    const mountSessionPicker = jest.spyOn(
+      driver as unknown as { mountSessionPicker(options: unknown): void },
       'mountSessionPicker',
     );
     await expect(driver.init()).resolves.toBe(false);
@@ -1098,7 +1153,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
       workDir: '/tmp/proj-a',
       updatedAt: Date.now() - index * 1000,
     }));
-    return mock(async (input: { workDir?: string; before?: string } = {}) =>
+    return jest.fn(async (input: { workDir?: string; before?: string } = {}) =>
       input.before === undefined
         ? { items: firstPage, nextCursor: 'ses-page1-49' }
         : {
@@ -1122,7 +1177,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     for (let i = 0; i < 49; i++) {
       picker.handleInput('\u001B[B');
     }
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       expect(driver.state.sessions).toHaveLength(51);
     });
 
@@ -1145,7 +1200,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
 
     const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
     picker.handleInput('x');
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       expect(driver.state.sessions).toHaveLength(51);
     });
 
@@ -1163,7 +1218,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
       updatedAt: Date.now() - index * 1000,
     }));
     let resolveScrollPage!: (page: { items: unknown[]; nextCursor?: string }) => void;
-    const listSessionsPage = mock((input: { workDir?: string; before?: string } = {}) => {
+    const listSessionsPage = jest.fn((input: { workDir?: string; before?: string } = {}) => {
       if (input.before === undefined) {
         return Promise.resolve({ items: firstPage, nextCursor: 'ses-page1-49' });
       }
@@ -1186,7 +1241,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     for (let i = 0; i < 49; i++) {
       picker.handleInput('\u001B[B');
     }
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       expect(listSessionsPage).toHaveBeenCalledWith({
         workDir: '/tmp/proj-a',
         limit: 50,
@@ -1199,7 +1254,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
       items: [{ id: 'ses-page2-0', workDir: '/tmp/proj-a', updatedAt: 1 }],
       nextCursor: 'ses-page2-0',
     });
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       expect(driver.state.sessions).toHaveLength(52);
     });
     expect(listSessionsPage).toHaveBeenLastCalledWith({
@@ -1222,7 +1277,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
       workDir: '/tmp/proj-b',
       updatedAt: Date.now() - 1000,
     };
-    const listSessions = mock(async (input: { workDir?: string } = {}) => {
+    const listSessions = jest.fn(async (input: { workDir?: string } = {}) => {
       if (input.workDir === '/tmp/proj-a') return [currentWorkDirSession];
       return [currentWorkDirSession, otherWorkDirSession];
     });
@@ -1264,8 +1319,8 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
       updatedAt: Date.now() - 1000,
     };
     let deleted = false;
-    const listSessions = mock(async () => (deleted ? [sesB] : [sesA, sesB]));
-    const deleteSession = mock(async () => {
+    const listSessions = jest.fn(async () => (deleted ? [sesB] : [sesA, sesB]));
+    const deleteSession = jest.fn(async () => {
       deleted = true;
     });
     const harness = makeHarness(makeSession({ id: 'ses-current' }), { listSessions, deleteSession });
@@ -1281,10 +1336,10 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     expect(picker.render(160).join('\n')).toContain('Delete session "Session A"? [y/N]');
     picker.handleInput('y');
 
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       expect(deleteSession).toHaveBeenCalledWith('ses-a');
     });
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       const remounted = driver.state.editorContainer.children[0] as {
         render(width: number): string[];
       };
@@ -1302,14 +1357,14 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
       updatedAt: Date.now(),
     };
     let resolveDelete!: () => void;
-    const deleteSession = mock(
+    const deleteSession = jest.fn(
       () =>
         new Promise<void>((resolve) => {
           resolveDelete = resolve;
         }),
     );
     const harness = makeHarness(session, {
-      listSessions: mock(async () => [sesCurrent]),
+      listSessions: jest.fn(async () => [sesCurrent]),
       deleteSession,
     });
     const driver = makeDriver(harness, makeStartupInput({ model: 'k2' }));
@@ -1318,7 +1373,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     await (driver as unknown as { createNewSession(): Promise<void> }).createNewSession();
     expect(driver.state.appState.sessionId).toBe('ses-current');
     // Contentless current sessions are filtered out of picker rows; fake content so the row exists.
-    spyOn(driver as unknown as { hasSessionContent(): boolean }, 'hasSessionContent')
+    jest.spyOn(driver as unknown as { hasSessionContent(): boolean }, 'hasSessionContent')
       .mockReturnValue(true);
 
     await (driver as unknown as { showSessionPicker(): Promise<void> }).showSessionPicker();
@@ -1328,13 +1383,13 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
 
     // The picker (and its input lock) stays mounted until the replacement
     // session is ready; the editor must not accept input mid-flight.
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       expect(deleteSession).toHaveBeenCalledWith('ses-current');
     });
     expect(driver.state.activeDialog).toBe('session-picker');
     resolveDelete();
 
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       expect(harness.createSession).toHaveBeenCalledTimes(2);
     });
     expect(session.close).toHaveBeenCalled();
@@ -1349,18 +1404,18 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
       workDir: '/tmp/proj-a',
       updatedAt: Date.now(),
     };
-    const deleteSession = mock(async () => {
+    const deleteSession = jest.fn(async () => {
       throw new Error('boom');
     });
     const harness = makeHarness(session, {
-      listSessions: mock(async () => [sesCurrent]),
+      listSessions: jest.fn(async () => [sesCurrent]),
       deleteSession,
     });
     const driver = makeDriver(harness, makeStartupInput({ model: 'k2' }));
     await expect(driver.init()).resolves.toBe(false);
 
     await (driver as unknown as { createNewSession(): Promise<void> }).createNewSession();
-    spyOn(driver as unknown as { hasSessionContent(): boolean }, 'hasSessionContent')
+    jest.spyOn(driver as unknown as { hasSessionContent(): boolean }, 'hasSessionContent')
       .mockReturnValue(true);
 
     await (driver as unknown as { showSessionPicker(): Promise<void> }).showSessionPicker();
@@ -1368,13 +1423,13 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     picker.handleInput('\u0018');
     picker.handleInput('y');
 
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       expect(harness.resumeSession).toHaveBeenCalledWith({
         id: 'ses-current',
-        replayTurnLimit: REPLAY_TURN_LIMIT,
+        replayTurnLimit: REPLAY_FETCH_TURN_LIMIT,
       });
     });
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       expect(driver.state.appState.sessionId).toBe('ses-current');
     });
     const transcript = driver.state.transcriptContainer.render(160).join('\n');
@@ -1385,7 +1440,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
   it('reattaches when closing the current session fails during deletion', async () => {
     const session = makeSession({
       id: 'ses-current',
-      close: mock(async () => {
+      close: jest.fn(async () => {
         throw new Error('close boom');
       }),
     });
@@ -1395,16 +1450,16 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
       workDir: '/tmp/proj-a',
       updatedAt: Date.now(),
     };
-    const deleteSession = mock(async () => {});
+    const deleteSession = jest.fn(async () => {});
     const harness = makeHarness(session, {
-      listSessions: mock(async () => [sesCurrent]),
+      listSessions: jest.fn(async () => [sesCurrent]),
       deleteSession,
     });
     const driver = makeDriver(harness, makeStartupInput({ model: 'k2' }));
     await expect(driver.init()).resolves.toBe(false);
 
     await (driver as unknown as { createNewSession(): Promise<void> }).createNewSession();
-    spyOn(driver as unknown as { hasSessionContent(): boolean }, 'hasSessionContent')
+    jest.spyOn(driver as unknown as { hasSessionContent(): boolean }, 'hasSessionContent')
       .mockReturnValue(true);
 
     await (driver as unknown as { showSessionPicker(): Promise<void> }).showSessionPicker();
@@ -1412,14 +1467,14 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     picker.handleInput('\u0018');
     picker.handleInput('y');
 
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       expect(harness.resumeSession).toHaveBeenCalledWith({
         id: 'ses-current',
-        replayTurnLimit: REPLAY_TURN_LIMIT,
+        replayTurnLimit: REPLAY_FETCH_TURN_LIMIT,
       });
     });
     expect(deleteSession).not.toHaveBeenCalled();
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       expect(driver.state.appState.sessionId).toBe('ses-current');
     });
     const transcript = driver.state.transcriptContainer.render(160).join('\n');
@@ -1435,12 +1490,12 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
       updatedAt: Date.now() - 1000,
     };
     let refreshCalls = 0;
-    const listSessions = mock(async () => {
+    const listSessions = jest.fn(async () => {
       refreshCalls += 1;
       if (refreshCalls > 1) throw new Error('refresh boom');
       return [sesA, sesB];
     });
-    const deleteSession = mock(async () => {});
+    const deleteSession = jest.fn(async () => {});
     const harness = makeHarness(makeSession({ id: 'ses-current' }), { listSessions, deleteSession });
     const driver = makeDriver(harness, makeStartupInput());
     await expect(driver.init()).resolves.toBe(false);
@@ -1450,10 +1505,10 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     picker.handleInput('\u0018');
     picker.handleInput('y');
 
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       expect(deleteSession).toHaveBeenCalledWith('ses-a');
     });
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       const remounted = driver.state.editorContainer.children[0] as {
         render(width: number): string[];
       };
@@ -1466,11 +1521,11 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
 
   it('keeps the picker open and surfaces an error when deletion fails', async () => {
     const sesA = { id: 'ses-a', title: 'Session A', workDir: '/tmp/proj-a', updatedAt: Date.now() };
-    const deleteSession = mock(async () => {
+    const deleteSession = jest.fn(async () => {
       throw new Error('boom');
     });
     const harness = makeHarness(makeSession({ id: 'ses-current' }), {
-      listSessions: mock(async () => [sesA]),
+      listSessions: jest.fn(async () => [sesA]),
       deleteSession,
     });
     const driver = makeDriver(harness, makeStartupInput());
@@ -1481,7 +1536,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     picker.handleInput('\u0018');
     picker.handleInput('y');
 
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       const transcript = driver.state.transcriptContainer.render(160).join('\n');
       expect(transcript).toContain('Failed to delete session ses-a');
     });
@@ -1491,17 +1546,17 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
   it('does not arm deletion while a picker selection is in flight', async () => {
     const picked = makeSession({ id: 'ses-2' });
     let resolveResume!: (session: unknown) => void;
-    const resumeSession = mock(
+    const resumeSession = jest.fn(
       () =>
         new Promise((resolve) => {
           resolveResume = resolve;
         }),
     );
-    const deleteSession = mock(async () => {});
+    const deleteSession = jest.fn(async () => {});
     const harness = makeHarness(makeSession({ id: 'ses-current' }), {
       resumeSession,
       deleteSession,
-      listSessions: mock(async () => [
+      listSessions: jest.fn(async () => [
         { id: 'ses-2', title: 'Other session', workDir: '/tmp/proj-a', updatedAt: Date.now() },
       ]),
     });
@@ -1514,7 +1569,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
       render(width: number): string[];
     };
     picker.handleInput('\r');
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       expect(resumeSession).toHaveBeenCalled();
     });
 
@@ -1523,7 +1578,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     expect(deleteSession).not.toHaveBeenCalled();
 
     resolveResume(picked);
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       expect(driver.state.activeDialog).toBeNull();
     });
   });
@@ -1539,7 +1594,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     let resolveAllSessions: ((value: unknown[]) => void) | undefined;
     let resolveDelete: (() => void) | undefined;
     let allFetchPending = true;
-    const listSessions = mock((input: { workDir?: string } = {}) => {
+    const listSessions = jest.fn((input: { workDir?: string } = {}) => {
       if (input.workDir === '/tmp/proj-a') return Promise.resolve([sesA, sesB]);
       if (allFetchPending) {
         allFetchPending = false;
@@ -1549,7 +1604,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
       }
       return Promise.resolve([sesA, sesB]);
     });
-    const deleteSession = mock(
+    const deleteSession = jest.fn(
       () =>
         new Promise<void>((resolve) => {
           resolveDelete = resolve;
@@ -1557,12 +1612,8 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     );
     const harness = makeHarness(makeSession({ id: 'ses-current' }), { listSessions, deleteSession });
     const driver = makeDriver(harness, makeStartupInput());
-    const mountSessionPicker = spyOn(
-      (
-        driver as unknown as {
-          dialogController: { mountSessionPicker(options: unknown): void };
-        }
-      ).dialogController,
+    const mountSessionPicker = jest.spyOn(
+      driver as unknown as { mountSessionPicker(options: unknown): void },
       'mountSessionPicker',
     );
     await expect(driver.init()).resolves.toBe(false);
@@ -1574,7 +1625,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     picker.handleInput('\u0001');
     picker.handleInput('\u0018');
     picker.handleInput('y');
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       expect(deleteSession).toHaveBeenCalledWith('ses-a');
     });
 
@@ -1582,10 +1633,10 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     await new Promise((resolve) => setImmediate(resolve));
 
     expect(mountSessionPicker).toHaveBeenCalledTimes(1);
-    expect(driver.state.editorContainer.children[0]).toBe(picker as EditorChild);
+    expect(driver.state.editorContainer.children[0]).toBe(picker);
 
     resolveDelete?.();
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       expect(mountSessionPicker).toHaveBeenCalledTimes(2);
     });
   });
@@ -1595,13 +1646,13 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     const ses2 = { id: 'ses-2', title: 'Other session', workDir: '/tmp/proj-a', updatedAt: Date.now() };
     let resolveAllSessions: ((value: unknown[]) => void) | undefined;
     let resolveResume: ((value: unknown) => void) | undefined;
-    const listSessions = mock((input: { workDir?: string } = {}) => {
+    const listSessions = jest.fn((input: { workDir?: string } = {}) => {
       if (input.workDir === '/tmp/proj-a') return Promise.resolve([ses2]);
       return new Promise<unknown[]>((resolve) => {
         resolveAllSessions = resolve;
       });
     });
-    const resumeSession = mock(
+    const resumeSession = jest.fn(
       () =>
         new Promise((resolve) => {
           resolveResume = resolve;
@@ -1609,12 +1660,8 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     );
     const harness = makeHarness(makeSession({ id: 'ses-current' }), { listSessions, resumeSession });
     const driver = makeDriver(harness, makeStartupInput());
-    const mountSessionPicker = spyOn(
-      (
-        driver as unknown as {
-          dialogController: { mountSessionPicker(options: unknown): void };
-        }
-      ).dialogController,
+    const mountSessionPicker = jest.spyOn(
+      driver as unknown as { mountSessionPicker(options: unknown): void },
       'mountSessionPicker',
     );
     await expect(driver.init()).resolves.toBe(false);
@@ -1625,7 +1672,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
     picker.handleInput('\u0001');
     picker.handleInput('\r');
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       expect(resumeSession).toHaveBeenCalled();
     });
 
@@ -1633,10 +1680,10 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     await new Promise((resolve) => setImmediate(resolve));
 
     expect(mountSessionPicker).toHaveBeenCalledTimes(1);
-    expect(driver.state.editorContainer.children[0]).toBe(picker as EditorChild);
+    expect(driver.state.editorContainer.children[0]).toBe(picker);
 
     resolveResume?.(picked);
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       expect(driver.state.activeDialog).toBeNull();
     });
   });
@@ -1649,9 +1696,9 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
       workDir: '/tmp/proj-a',
       updatedAt: Date.now(),
     };
-    const deleteSession = mock(async () => {});
+    const deleteSession = jest.fn(async () => {});
     const harness = makeHarness(session, {
-      listSessions: mock(async () => [sesCurrent]),
+      listSessions: jest.fn(async () => [sesCurrent]),
       deleteSession,
     });
     const driver = makeDriver(harness, makeStartupInput({ model: 'k2' }));
@@ -1660,7 +1707,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     await (driver as unknown as { createNewSession(): Promise<void> }).createNewSession();
     expect(driver.state.appState.sessionId).toBe('ses-current');
     // Contentless current sessions are filtered out of picker rows; fake content so the row exists.
-    spyOn(driver as unknown as { hasSessionContent(): boolean }, 'hasSessionContent')
+    jest.spyOn(driver as unknown as { hasSessionContent(): boolean }, 'hasSessionContent')
       .mockReturnValue(true);
     harness.createSession.mockRejectedValueOnce(new Error('create boom'));
 
@@ -1669,7 +1716,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     picker.handleInput('\u0018');
     picker.handleInput('y');
 
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       const transcript = driver.state.transcriptContainer.render(160).join('\n');
       expect(transcript).toContain('Failed to start a new session');
     });
@@ -1687,14 +1734,14 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
       workDir: '/tmp/proj-a',
       updatedAt: Date.now(),
     };
-    const deleteSession = mock(async () => {
+    const deleteSession = jest.fn(async () => {
       throw new Error('delete boom');
     });
-    const resumeSession = mock(async () => {
+    const resumeSession = jest.fn(async () => {
       throw new Error('resume boom');
     });
     const harness = makeHarness(session, {
-      listSessions: mock(async () => [sesCurrent]),
+      listSessions: jest.fn(async () => [sesCurrent]),
       deleteSession,
       resumeSession,
     });
@@ -1704,7 +1751,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     await (driver as unknown as { createNewSession(): Promise<void> }).createNewSession();
     expect(driver.state.appState.sessionId).toBe('ses-current');
     // Contentless current sessions are filtered out of picker rows; fake content so the row exists.
-    spyOn(driver as unknown as { hasSessionContent(): boolean }, 'hasSessionContent')
+    jest.spyOn(driver as unknown as { hasSessionContent(): boolean }, 'hasSessionContent')
       .mockReturnValue(true);
     harness.createSession.mockRejectedValueOnce(new Error('create boom'));
 
@@ -1713,7 +1760,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     picker.handleInput('\u0018');
     picker.handleInput('y');
 
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       const transcript = driver.state.transcriptContainer.render(160).join('\n');
       expect(transcript).toContain('Failed to delete session ses-current');
     });
@@ -1736,10 +1783,10 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
       workDir: '/tmp/proj-b',
       updatedAt: Date.now() - 1000,
     };
-    const resumeSession = mock(async () => makeSession({ id: 'ses-other-cwd' }));
+    const resumeSession = jest.fn(async () => makeSession({ id: 'ses-other-cwd' }));
     const harness = makeHarness(makeSession({ id: 'ses-current' }), {
       resumeSession,
-      listSessions: mock(async () => [currentWorkDirSession, otherWorkDirSession]),
+      listSessions: jest.fn(async () => [currentWorkDirSession, otherWorkDirSession]),
     });
     const driver = makeDriver(harness, makeStartupInput());
     await expect(driver.init()).resolves.toBe(false);
@@ -1775,10 +1822,10 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
       workDir: '/tmp/proj$(touch /tmp/pwned)',
       updatedAt: Date.now() - 1000,
     };
-    const resumeSession = mock(async () => makeSession({ id: 'ses-other-cwd' }));
+    const resumeSession = jest.fn(async () => makeSession({ id: 'ses-other-cwd' }));
     const harness = makeHarness(makeSession({ id: 'ses-current' }), {
       resumeSession,
-      listSessions: mock(async () => [currentWorkDirSession, otherWorkDirSession]),
+      listSessions: jest.fn(async () => [currentWorkDirSession, otherWorkDirSession]),
     });
     const driver = makeDriver(harness, makeStartupInput());
     await expect(driver.init()).resolves.toBe(false);
@@ -1810,21 +1857,17 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
       workDir: '/tmp/proj-b',
       updatedAt: Date.now() - 1000,
     };
-    const resumeSession = mock(async () => makeSession({ id: 'ses-other-cwd' }));
+    const resumeSession = jest.fn(async () => makeSession({ id: 'ses-other-cwd' }));
     const harness = makeHarness(makeSession({ id: 'ses-current' }), {
       resumeSession,
-      listSessions: mock(async () => [currentWorkDirSession, otherWorkDirSession]),
+      listSessions: jest.fn(async () => [currentWorkDirSession, otherWorkDirSession]),
     });
     const driver = makeDriver(harness, makeStartupInput({ session: '' }));
-    const stop = spyOn(driver, 'stop').mockResolvedValue();
+    const stop = jest.spyOn(driver, 'stop').mockResolvedValue(undefined);
     copyTextToClipboardMock.mockClear();
 
     await expect((driver as unknown as MigrateExitDriver).initMainTui()).resolves.toBe(false);
-    await (
-      driver as unknown as {
-        dialogController: { bootstrapFromPicker(): Promise<void> };
-      }
-    ).dialogController.bootstrapFromPicker();
+    await (driver as unknown as { bootstrapFromPicker(): Promise<void> }).bootstrapFromPicker();
 
     const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
     picker.handleInput('\u001B[B');
@@ -1834,7 +1877,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     expect(resumeSession).not.toHaveBeenCalled();
     const expectedResumeCmd = `cd ${quoteShellArg('/tmp/proj-b')} && kimi --resume ${quoteShellArg('ses-other-cwd')}`;
     expect(copyTextToClipboardMock).toHaveBeenCalledWith(expectedResumeCmd);
-    expect(stop).toHaveBeenCalledTimes(1);
+    expect(stop).toHaveBeenCalledOnce();
     expect(stop).toHaveBeenCalledWith(0);
   });
 
@@ -1842,14 +1885,14 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     const initial = makeSession({ id: 'ses-1' });
     const picked = makeSession({
       id: 'ses-2',
-      setPermission: mock(async () => {}),
-      setPlanMode: mock(async () => {
+      setPermission: jest.fn(async () => {}),
+      setPlanMode: jest.fn(async () => {
         throw new Error('Already in plan mode');
       }),
     });
     const harness = makeHarness(initial, {
-      resumeSession: mock(async () => picked),
-      listSessions: mock(async () => [
+      resumeSession: jest.fn(async () => picked),
+      listSessions: jest.fn(async () => [
         {
           id: 'ses-2',
           title: 'Other session',
@@ -1876,7 +1919,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
   it('clears startup picker exit confirmation before resuming a selected session', async () => {
     const session = makeSession({ id: 'ses-picked' });
     const harness = makeHarness(session, {
-      listSessions: mock(async () => [
+      listSessions: jest.fn(async () => [
         {
           id: 'ses-picked',
           title: 'Picked session',
@@ -1886,14 +1929,10 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
       ]),
     });
     const driver = makeDriver(harness, makeStartupInput({ session: '' }));
-    const stop = spyOn(driver, 'stop').mockResolvedValue();
+    const stop = jest.spyOn(driver, 'stop').mockResolvedValue(undefined);
 
     await expect((driver as unknown as MigrateExitDriver).initMainTui()).resolves.toBe(false);
-    await (
-      driver as unknown as {
-        dialogController: { bootstrapFromPicker(): Promise<void> };
-      }
-    ).dialogController.bootstrapFromPicker();
+    await (driver as unknown as { bootstrapFromPicker(): Promise<void> }).bootstrapFromPicker();
 
     const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
     picker.handleInput('\u0003');
@@ -1915,7 +1954,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
 
     driver.refreshTerminalThemeTracking();
 
-    expect(addInputListener).toHaveBeenCalledTimes(1);
+    expect(addInputListener).toHaveBeenCalledOnce();
     expect(write).toHaveBeenCalledWith(ENABLE_TERMINAL_THEME_REPORTING);
     expect(write).toHaveBeenCalledWith(OSC11_QUERY);
     expect(write).toHaveBeenCalledWith(QUERY_TERMINAL_THEME);
@@ -1959,13 +1998,672 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     driver.state.appState.theme = 'dark';
     driver.refreshTerminalThemeTracking();
 
-    expect(removeInputListener).toHaveBeenCalledTimes(1);
+    expect(removeInputListener).toHaveBeenCalledOnce();
     expect(write).toHaveBeenCalledWith(DISABLE_TERMINAL_THEME_REPORTING);
+  });
+
+  it("only shows provider refresh status for added models", async () => {
+    const harness = makeHarness();
+    const driver = makeDriver(harness, makeStartupInput());
+    const showStatus = jest.spyOn(driver as any, "showStatus").mockImplementation(() => {});
+    jest.spyOn((driver as any).authFlow, "refreshProviderModels").mockResolvedValue({
+      changed: [
+        { provider_id: "new-models", provider_name: "New Models", added: 2, removed: 0 },
+        { provider_id: "removed-models", provider_name: "Removed Models", added: 0, removed: 3 },
+        { provider_id: "metadata-only", provider_name: "Metadata Only", added: 0, removed: 0 },
+      ],
+      unchanged: [],
+      failed: [],
+    });
+
+    await (driver as any).refreshProviderModelsInBackground();
+
+    expect(showStatus).toHaveBeenCalledTimes(1);
+    expect(showStatus).toHaveBeenCalledWith("New Models · +2 models.");
+  });
+
+  async function flushMigrationCheck(): Promise<void> {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+
+  function installMigrationModels(driver: StartupDriver): void {
+    modelMigrationState.acknowledged = {};
+    driver.state.appState.model = 'acme/current';
+    driver.state.appState.thinkingEffort = 'off';
+    driver.state.appState.availableProviders = {
+      acme: { type: 'openai' },
+    };
+    driver.state.appState.availableModels = {
+      'acme/current': {
+        provider: 'acme',
+        model: 'current',
+        maxContextSize: 100,
+        capabilities: ['tool_use'],
+        upgrade: {
+          model: 'acme/next',
+          migrationMarkdown: 'Use current to next',
+          retirementAt: undefined,
+        },
+      },
+      'acme/next': {
+        provider: 'acme',
+        model: 'next',
+        maxContextSize: 100,
+        capabilities: ['tool_use', 'thinking'],
+        supportEfforts: ['low', 'high'],
+        defaultEffort: 'high',
+      },
+    };
+  }
+
+  it.each(['off', 'high'])('persists the migration default effort when the live effort is %s', async (liveEffort) => {
+    const session = makeSession({
+      getStatus: jest.fn(async () => ({
+        model: 'acme/next',
+        thinkingEffort: 'high',
+        permission: 'manual',
+        planMode: false,
+        contextTokens: 10,
+        maxContextTokens: 100,
+        contextUsage: 0.1,
+      })),
+    });
+    const setConfig = jest.fn(async () => ({}));
+    const harness = makeHarness(session, {
+      setConfig,
+      getConfig: jest.fn(async () => ({
+        defaultModel: 'acme/current',
+        thinking: { enabled: true, effort: 'low' },
+      })),
+    });
+    const driver = makeDriver(harness, makeStartupInput());
+    await driver.setSession(session);
+    installMigrationModels(driver);
+    driver.state.appState.thinkingEffort = liveEffort;
+
+    const prompt = maybeShowModelMigrationPrompt(driver as any, {});
+    const picker = driver.state.editorContainer.children[0] as {
+      handleInput(data: string): void;
+      render(width: number): string[];
+    };
+    expect(picker.render(100).join('\n')).toContain('Use current to next');
+    picker.handleInput('\r');
+    await prompt;
+
+    expect(session.setModel).toHaveBeenCalledWith('acme/next');
+    if (liveEffort === 'high') {
+      expect(session.setThinking).not.toHaveBeenCalled();
+    } else {
+      expect(session.setThinking).toHaveBeenCalledWith('high');
+    }
+    expect(setConfig).toHaveBeenCalledWith({
+      defaultModel: 'acme/next',
+      thinking: { enabled: true, effort: 'high' },
+    });
+    expect(modelMigrationState.acknowledged).toEqual({ 'acme/current': 'next' });
+  });
+
+  it.each([
+    ['low', ['low', 'high'], 'low'],
+    ['off', ['low', 'high'], 'off'],
+    ['max', ['max'], 'high'],
+  ] as const)('resolves a live %s effort on a thinking source to the migration effort', async (liveEffort, sourceEfforts, expected) => {
+    const session = makeSession({
+      getStatus: jest.fn(async () => ({
+        model: 'acme/next',
+        thinkingEffort: expected,
+        permission: 'manual',
+        planMode: false,
+        contextTokens: 10,
+        maxContextTokens: 100,
+        contextUsage: 0.1,
+      })),
+    });
+    const setConfig = jest.fn(async () => ({}));
+    const harness = makeHarness(session, {
+      setConfig,
+      getConfig: jest.fn(async () => ({ defaultModel: 'acme/current', thinking: { enabled: true } })),
+    });
+    const driver = makeDriver(harness, makeStartupInput());
+    await driver.setSession(session);
+    installMigrationModels(driver);
+    Object.assign(driver.state.appState.availableModels['acme/current']!, {
+      capabilities: ['tool_use', 'thinking'],
+      supportEfforts: [...sourceEfforts],
+    });
+    driver.state.appState.thinkingEffort = liveEffort;
+
+    const prompt = maybeShowModelMigrationPrompt(driver as any, {});
+    const picker = driver.state.editorContainer.children[0] as ChoicePickerComponent;
+    expect(picker.render(100).join('\n')).toContain(`thinking ${expected}`);
+    picker.handleInput('\r');
+    await prompt;
+
+    expect(session.setModel).toHaveBeenCalledWith('acme/next');
+    if (expected === liveEffort) {
+      expect(session.setThinking).not.toHaveBeenCalled();
+    } else {
+      expect(session.setThinking).toHaveBeenCalledWith(expected);
+    }
+    expect(setConfig).toHaveBeenCalledWith({
+      defaultModel: 'acme/next',
+      thinking: expected === 'off' ? { enabled: false } : { enabled: true, effort: expected },
+    });
+  });
+
+  it.each(['draft', 'streaming', 'dialog', 'compaction', 'replay', 'external-editor', 'shutdown'])('defers the startup migration during %s', async (blockedBy) => {
+    const session = makeSession();
+    const setConfig = jest.fn();
+    const driver = makeDriver(makeHarness(session, { setConfig }), makeStartupInput());
+    installMigrationModels(driver);
+    const startup = driver as unknown as {
+      backgroundRefreshPromise: Promise<void>;
+      finishStartup(replay: boolean): Promise<void>;
+      setAppState(patch: Record<string, unknown>): void;
+      restoreEditor(): void;
+      setExternalEditorRunning(running: boolean): void;
+      aborted: boolean;
+    };
+    let completeRefresh!: () => void;
+    startup.backgroundRefreshPromise = new Promise((resolve) => { completeRefresh = resolve; });
+    await startup.finishStartup(false);
+    if (blockedBy === 'draft') driver.state.editor.setText('Please help');
+    if (blockedBy === 'streaming') startup.setAppState({ streamingPhase: 'waiting' });
+    if (blockedBy === 'dialog') driver.state.editorReplacementMounted = true;
+    if (blockedBy === 'compaction') startup.setAppState({ isCompacting: true });
+    if (blockedBy === 'replay') startup.setAppState({ isReplaying: true });
+    if (blockedBy === 'external-editor') startup.setExternalEditorRunning(true);
+    if (blockedBy === 'shutdown') startup.aborted = true;
+
+    completeRefresh();
+    await flushMigrationCheck();
+    expect(driver.state.editorContainer.children[0]).not.toBeInstanceOf(ChoicePickerComponent);
+    if (blockedBy === 'draft') {
+      driver.state.editor.handleInput(' ');
+      expect(driver.state.editor.getText()).toBe('Please help ');
+      driver.state.editor.setText('');
+    }
+    if (blockedBy === 'streaming') startup.setAppState({ streamingPhase: 'idle' });
+    if (blockedBy === 'dialog') startup.restoreEditor();
+    if (blockedBy === 'compaction') startup.setAppState({ isCompacting: false });
+    if (blockedBy === 'replay') startup.setAppState({ isReplaying: false });
+    if (blockedBy === 'external-editor') startup.setExternalEditorRunning(false);
+    await flushMigrationCheck();
+    expect(session.setModel).not.toHaveBeenCalled();
+    expect(setConfig).not.toHaveBeenCalled();
+    if (blockedBy === 'shutdown') {
+      expect(driver.state.editorReplacementMounted).toBe(false);
+      return;
+    }
+    const picker = driver.state.editorContainer.children[0] as ChoicePickerComponent;
+    expect(picker).toBeInstanceOf(ChoicePickerComponent);
+    picker.handleInput(' ');
+    expect(driver.state.editorReplacementMounted).toBe(true);
+    expect(modelMigrationState.acknowledged).toEqual({});
+    picker.handleInput('\u001B');
+    await flushMigrationCheck();
+    expect(driver.state.editorReplacementMounted).toBe(false);
+  });
+
+  it('does not mount a migration while a submitted draft is creating its first session', async () => {
+    const prompt = jest.fn(async () => {});
+    const session = makeSession({
+      prompt,
+      getStatus: jest.fn(async () => ({
+        model: 'acme/current', thinkingEffort: 'off', permission: 'manual', planMode: false,
+        contextTokens: 10, maxContextTokens: 100, contextUsage: 0.1,
+      })),
+    });
+    let completeCreation!: () => void;
+    const harness = makeHarness(session, {
+      createSession: jest.fn(async () => {
+        await new Promise<void>((resolve) => { completeCreation = resolve; });
+        return session;
+      }),
+    });
+    const driver = makeDriver(harness, makeStartupInput());
+    installMigrationModels(driver);
+    const startup = driver as unknown as {
+      backgroundRefreshPromise: Promise<void>;
+      finishStartup(replay: boolean): Promise<void>;
+      persistInputHistory(text: string): Promise<void>;
+      setAppState(patch: Record<string, unknown>): void;
+    };
+    jest.spyOn(startup, 'persistInputHistory').mockResolvedValue(undefined);
+    driver.state.editor.setText('First prompt');
+    startup.backgroundRefreshPromise = Promise.resolve();
+    await startup.finishStartup(false);
+    await flushMigrationCheck();
+
+    driver.state.editor.handleInput('\r');
+    await flushMigrationCheck();
+    expect(harness.createSession).toHaveBeenCalledTimes(1);
+    expect(driver.state.editorReplacementMounted).toBe(false);
+    expect(prompt).not.toHaveBeenCalled();
+    completeCreation();
+    await flushMigrationCheck();
+    expect(prompt).toHaveBeenCalled();
+    expect(driver.state.appState.streamingPhase).toBe('waiting');
+    expect(driver.state.editorReplacementMounted).toBe(false);
+
+    startup.setAppState({ streamingPhase: 'idle' });
+    await flushMigrationCheck();
+    const picker = driver.state.editorContainer.children[0] as ChoicePickerComponent;
+    expect(picker).toBeInstanceOf(ChoicePickerComponent);
+    picker.handleInput('\u001B');
+  });
+
+  it('does not mount a migration while /new is replacing the session', async () => {
+    const getStatus = jest.fn(async () => ({
+      model: 'acme/current', thinkingEffort: 'off', permission: 'manual', planMode: false,
+      contextTokens: 10, maxContextTokens: 100, contextUsage: 0.1,
+    }));
+    const oldSession = makeSession({ getStatus });
+    const newSession = makeSession({ id: 'ses-2', getStatus });
+    let completeCreation!: () => void;
+    const harness = makeHarness(newSession, {
+      createSession: jest.fn(async () => {
+        await new Promise<void>((resolve) => { completeCreation = resolve; });
+        return newSession;
+      }),
+    });
+    const driver = makeDriver(harness, makeStartupInput());
+    installMigrationModels(driver);
+    await driver.setSession(oldSession);
+    const startup = driver as unknown as {
+      modelMigration: { request(): void };
+      createNewSession(): Promise<void>;
+    };
+
+    startup.modelMigration.request();
+    const replacing = startup.createNewSession();
+    await flushMigrationCheck();
+    expect(harness.createSession).toHaveBeenCalledTimes(1);
+    expect(driver.state.editorReplacementMounted).toBe(false);
+    expect(newSession.setModel).not.toHaveBeenCalled();
+
+    completeCreation();
+    await replacing;
+    await flushMigrationCheck();
+    const picker = driver.state.editorContainer.children[0] as ChoicePickerComponent;
+    expect(picker).toBeInstanceOf(ChoicePickerComponent);
+    expect(picker.render(100).join('\n')).toContain('Model migration available');
+    picker.handleInput('\u001B');
+  });
+
+  it.each([true, false])('checks migrations after the startup session picker (refresh first: %s)', async (refreshFirst) => {
+    const session = makeSession({ getStatus: jest.fn(async () => ({
+      model: 'acme/current', thinkingEffort: 'off', permission: 'manual', planMode: false,
+      contextTokens: 10, maxContextTokens: 100, contextUsage: 0.1,
+    })) });
+    const harness = makeHarness(session, {
+      listSessions: jest.fn(async () => [{
+        id: session.id, title: 'Picked', workDir: '/tmp/proj-a', updatedAt: Date.now(),
+      }]),
+    });
+    const driver = makeDriver(harness, makeStartupInput({ session: '' }));
+    installMigrationModels(driver);
+    harness.getConfig.mockResolvedValue({ models: driver.state.appState.availableModels } as never);
+    const startup = driver as unknown as {
+      authFlow: { refreshProviderModels(): Promise<unknown> };
+      sessionReplay: { hydrateFromReplay(session: unknown): Promise<void> };
+      initMainTui(): Promise<boolean>;
+      finishStartup(replay: boolean): Promise<void>;
+    };
+    let completeRefresh!: () => void;
+    jest.spyOn(startup.authFlow, 'refreshProviderModels').mockImplementation(async () => {
+      await new Promise<void>((resolve) => { completeRefresh = resolve; });
+      return { changed: [], unchanged: [], failed: [] };
+    });
+    jest.spyOn(startup.sessionReplay, 'hydrateFromReplay').mockResolvedValue(undefined);
+    await startup.initMainTui();
+    await startup.finishStartup(false);
+    await flushMigrationCheck();
+    expect(driver.state.activeDialog).toBe('session-picker');
+    if (refreshFirst) {
+      completeRefresh();
+      await flushMigrationCheck();
+      expect(driver.state.activeDialog).toBe('session-picker');
+    }
+    const sessionPicker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
+    sessionPicker.handleInput('\r');
+    await flushMigrationCheck();
+    expect(harness.resumeSession).toHaveBeenCalled();
+    if (!refreshFirst) {
+      expect(driver.state.editorReplacementMounted).toBe(false);
+      completeRefresh();
+      await flushMigrationCheck();
+    }
+    const migrationPicker = driver.state.editorContainer.children[0] as ChoicePickerComponent;
+    expect(migrationPicker).toBeInstanceOf(ChoicePickerComponent);
+    expect(migrationPicker.render(100).join('\n')).toContain('Model migration available');
+    migrationPicker.handleInput('\u001B');
+  });
+
+  it('keeps the current model and acknowledges the migration', async () => {
+    const session = makeSession();
+    const driver = makeDriver(makeHarness(session), makeStartupInput());
+    await driver.setSession(session);
+    installMigrationModels(driver);
+
+    const prompt = maybeShowModelMigrationPrompt(driver as any, {});
+    const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
+    picker.handleInput('\u001B[B');
+    picker.handleInput('\r');
+    await prompt;
+
+    expect(session.setModel).not.toHaveBeenCalled();
+    expect(session.setThinking).not.toHaveBeenCalled();
+    expect(driver.state.appState.model).toBe('acme/current');
+    expect(modelMigrationState.acknowledged).toEqual({ 'acme/current': 'next' });
+  });
+
+  it('renders provider migration Markdown', async () => {
+    const driver = makeDriver(makeHarness(), makeStartupInput());
+    installMigrationModels(driver);
+    driver.state.appState.availableModels['acme/current']!.upgrade!.migrationMarkdown =
+      '### Upgrade\n\nSwitch **current** to **next**.\n\n- Faster replies';
+
+    const prompt = maybeShowModelMigrationPrompt(driver as any, {});
+    const picker = driver.state.editorContainer.children[0] as ChoicePickerComponent;
+    const output = picker.render(100).join('\n');
+    expect(output).not.toContain('###');
+    expect(output).not.toContain('**');
+    expect(output).toContain('current');
+    expect(output).toContain('next');
+    picker.handleInput('\u001B');
+    await prompt;
+  });
+
+  it('strips terminal control sequences from registry-provided migration text', async () => {
+    const driver = makeDriver(makeHarness(), makeStartupInput());
+    installMigrationModels(driver);
+    driver.state.appState.availableModels['acme/current']!.upgrade!.migrationMarkdown =
+      'Move to next\u001B]0;pwned\u0007 soon\u001B[2J';
+    driver.state.appState.availableModels['acme/next']!.displayName =
+      'Next\u001B]8;;https://example.test\u0007';
+
+    const prompt = maybeShowModelMigrationPrompt(driver as any, {});
+    const picker = driver.state.editorContainer.children[0] as ChoicePickerComponent;
+    const output = picker.render(100).join('\n');
+    expect(output).toContain('Move to next soon');
+    expect(output).toContain('Switch to Next');
+    expect(output).not.toContain('pwned');
+    expect(output).not.toContain('\u001B[2J');
+    expect(output).not.toContain('example.test');
+    picker.handleInput('\u001B');
+    await prompt;
+  });
+
+  it.each([true, false])('warns about losing the prompt cache only when the conversation has history: %s', async (withHistory) => {
+    const driver = makeDriver(makeHarness(), makeStartupInput());
+    installMigrationModels(driver);
+    if (withHistory) {
+      driver.state.transcriptEntries.push({ id: 'u1', kind: 'user', renderMode: 'plain', content: 'hello' });
+    }
+
+    const prompt = maybeShowModelMigrationPrompt(driver as any, {});
+    const picker = driver.state.editorContainer.children[0] as ChoicePickerComponent;
+    const output = picker.render(200).join('\n');
+    if (withHistory) {
+      expect(output).toContain('Switching models invalidates the existing prompt cache');
+    } else {
+      expect(output).not.toContain('prompt cache');
+    }
+    picker.handleInput('\u001B');
+    await prompt;
+  });
+
+  it.each(['replace', 'restore'])('settles a displaced migration on editor %s without saving', async (action) => {
+    const setConfig = jest.fn();
+    const driver = makeDriver(makeHarness(makeSession(), { setConfig }), makeStartupInput());
+    installMigrationModels(driver);
+    const host = driver as unknown as KimiTUI;
+    const onDisplaced = jest.fn();
+    const settled = jest.fn();
+    const prompt = maybeShowModelMigrationPrompt(host, {}, onDisplaced).then(settled);
+    const oldPicker = driver.state.editorContainer.children[0] as ChoicePickerComponent;
+    const replacement = new ChoicePickerComponent({
+      title: 'Another dialog', options: [], onSelect: jest.fn(), onCancel: jest.fn(),
+    });
+
+    if (action === 'replace') host.mountEditorReplacement(replacement);
+    else host.restoreEditor();
+    await flushMigrationCheck();
+    expect(settled).toHaveBeenCalledOnce();
+    await prompt;
+    expect(onDisplaced).toHaveBeenCalledOnce();
+    oldPicker.handleInput('\r');
+    oldPicker.handleInput('\u001B');
+    expect(driver.state.editorContainer.children[0]).toBe(action === 'replace' ? replacement : driver.state.editor);
+    expect(setConfig).not.toHaveBeenCalled();
+    expect(modelMigrationState.acknowledged).toEqual({});
+    host.restoreEditor();
+    expect(onDisplaced).toHaveBeenCalledOnce();
+  });
+
+  it.each(['approval', 'question'])('requeues a migration displaced by a background %s', async (modal) => {
+    const session = makeSession();
+    const setConfig = jest.fn();
+    const driver = makeDriver(makeHarness(session, { setConfig }), makeStartupInput({}, {
+      notifications: { enabled: false, condition: 'unfocused' },
+    }));
+    installMigrationModels(driver);
+    const host = driver as unknown as {
+      modelMigration: { request(): void };
+      showApprovalPanel(data: ApprovalPanelData): void;
+      hideApprovalPanel(): void;
+      showQuestionDialog(data: QuestionPanelData): void;
+      hideQuestionDialog(): void;
+      setAppState(patch: Record<string, unknown>): void;
+      restoreEditor(): void;
+    };
+    host.modelMigration.request();
+    await flushMigrationCheck();
+    const oldPicker = driver.state.editorContainer.children[0] as ChoicePickerComponent;
+    expect(oldPicker).toBeInstanceOf(ChoicePickerComponent);
+
+    if (modal === 'approval') {
+      host.showApprovalPanel({
+        id: 'approval-1', tool_call_id: 'tool-1', tool_name: 'WriteFile',
+        action: 'Write file', description: '', display: [],
+        choices: [{ label: 'Approve once', response: 'approved' }],
+      });
+    } else {
+      host.showQuestionDialog({
+        id: 'question-1', tool_call_id: 'tool-1',
+        questions: [{ question: 'Choose a path', multi_select: false, options: [{ label: 'A' }] }],
+      });
+    }
+    const panel = driver.state.editorContainer.children[0] as Component & Focusable;
+    await flushMigrationCheck();
+    expect(panel).not.toBe(oldPicker);
+    expect(panel.focused).toBe(true);
+    oldPicker.handleInput('\r');
+    oldPicker.handleInput('\u001B');
+    expect(driver.state.editorContainer.children[0]).toBe(panel);
+    expect(panel.focused).toBe(true);
+    expect(session.setModel).not.toHaveBeenCalled();
+    expect(setConfig).not.toHaveBeenCalled();
+    expect(modelMigrationState.acknowledged).toEqual({});
+
+    host.setAppState({ streamingPhase: 'waiting' });
+    if (modal === 'approval') host.hideApprovalPanel();
+    else host.hideQuestionDialog();
+    await flushMigrationCheck();
+    expect(driver.state.editorReplacementMounted).toBe(false);
+    host.setAppState({ streamingPhase: 'idle' });
+    await flushMigrationCheck();
+    const retried = driver.state.editorContainer.children[0] as ChoicePickerComponent;
+    expect(retried).toBeInstanceOf(ChoicePickerComponent);
+    expect(retried).not.toBe(oldPicker);
+    retried.handleInput('\u001B');
+    host.restoreEditor();
+    await flushMigrationCheck();
+    expect(driver.state.editorReplacementMounted).toBe(false);
+    expect(modelMigrationState.acknowledged).toEqual({});
+  });
+
+  it('cancels a model migration without acknowledging it', async () => {
+    const session = makeSession();
+    const driver = makeDriver(makeHarness(session), makeStartupInput());
+    await driver.setSession(session);
+    installMigrationModels(driver);
+
+    const prompt = maybeShowModelMigrationPrompt(driver as any, {});
+    const picker = driver.state.editorContainer.children[0] as { handleInput(data: string): void };
+    picker.handleInput('\u001B');
+    await prompt;
+
+    expect(session.setModel).not.toHaveBeenCalled();
+    expect(driver.state.editorReplacementMounted).toBe(false);
+    expect(modelMigrationState.acknowledged).toEqual({});
+  });
+
+  it('skips acknowledged migrations and targets outside the current provider', async () => {
+    const driver = makeDriver(makeHarness(), makeStartupInput());
+    installMigrationModels(driver);
+
+    await maybeShowModelMigrationPrompt(driver as any, { 'acme/current': 'next' });
+    expect(driver.state.editorReplacementMounted).toBe(false);
+
+    driver.state.appState.availableModels = {
+      'acme/current': driver.state.appState.availableModels['acme/current']!,
+      'other/next': {
+        provider: 'other',
+        model: 'next',
+        maxContextSize: 100,
+      },
+    };
+    await maybeShowModelMigrationPrompt(driver as any, {});
+    expect(driver.state.editorReplacementMounted).toBe(false);
+  });
+
+  it('skips a startup migration acknowledged in the state file', async () => {
+    const driver = makeDriver(makeHarness(), makeStartupInput());
+    installMigrationModels(driver);
+    modelMigrationState.acknowledged = { 'acme/current': 'next' };
+    const startup = driver as unknown as {
+      backgroundRefreshPromise: Promise<void>;
+      finishStartup(replay: boolean): Promise<void>;
+    };
+    startup.backgroundRefreshPromise = Promise.resolve();
+
+    await startup.finishStartup(false);
+    await flushMigrationCheck();
+
+    expect(driver.state.editorReplacementMounted).toBe(false);
+  });
+
+  describe('when a refresh finds the default model dropped by its registry', () => {
+    const retiredDefault = { from: 'acme/current', to: 'acme/next', from_display_name: 'Current' };
+
+    async function refreshDroppingDefault(options: {
+      readonly withSession: boolean;
+      readonly model: string;
+      readonly lazySessionThinking?: 'high';
+    }) {
+      const session = makeSession();
+      const setConfig = jest.fn(async () => ({}));
+      const harness = makeHarness(session, {
+        setConfig,
+        getConfig: jest.fn(async () => ({
+          providers: { acme: { type: 'openai' } },
+          models: { 'acme/next': { provider: 'acme', model: 'next', maxContextSize: 200 } },
+          defaultModel: 'acme/next',
+          thinking: { enabled: true, effort: 'medium' },
+        })),
+      });
+      const driver = makeDriver(harness, makeStartupInput());
+      if (options.withSession) await driver.setSession(session);
+      installMigrationModels(driver);
+      const remaining = { ...driver.state.appState.availableModels };
+      delete remaining['acme/current'];
+      driver.state.appState.model = options.model;
+      driver.state.appState.thinkingEffort = options.lazySessionThinking ?? 'low';
+      driver.state.appState.lazySessionThinking = options.lazySessionThinking;
+      const showStatus = jest.spyOn(driver as any, 'showStatus');
+      const startup = driver as unknown as {
+        authFlow: { refreshProviderModels(): Promise<unknown> };
+        refreshProviderModelsInBackground(): Promise<void>;
+        modelMigration: { retry(): void };
+      };
+      jest.spyOn(startup.authFlow, 'refreshProviderModels').mockImplementation(async () => {
+        driver.state.appState.availableModels = remaining;
+        return { changed: [], unchanged: [], failed: [], retired_default: retiredDefault };
+      });
+      driver.state.activeDialog = 'session-picker';
+      driver.state.editor.setText('draft');
+
+      await startup.refreshProviderModelsInBackground();
+      await flushMigrationCheck();
+      expect(showStatus).not.toHaveBeenCalled();
+      driver.state.activeDialog = null;
+      startup.modelMigration.retry();
+      await flushMigrationCheck();
+
+      expect(showStatus).toHaveBeenCalledWith(
+        'Current is no longer offered by its provider; the default model is now next.',
+        'warning',
+      );
+      return { driver, session, setConfig };
+    }
+
+    it('warns once the session picker closes and leaves the live session to the engine', async () => {
+      const { session, setConfig } = await refreshDroppingDefault({
+        withSession: true,
+        model: 'acme/current',
+      });
+
+      expect(session.setModel).not.toHaveBeenCalled();
+      expect(session.setThinking).not.toHaveBeenCalled();
+      expect(setConfig).not.toHaveBeenCalled();
+    });
+
+    it('moves a session-less selection onto the new default with the configured thinking', async () => {
+      const { driver, setConfig } = await refreshDroppingDefault({
+        withSession: false,
+        model: 'acme/current',
+      });
+
+      expect(driver.state.appState).toMatchObject({
+        model: 'acme/next',
+        maxContextTokens: 200,
+        thinkingEffort: 'medium',
+        lazySessionThinking: undefined,
+      });
+      expect(setConfig).not.toHaveBeenCalled();
+    });
+
+    it('keeps a session-only effort picked before the first prompt', async () => {
+      const { driver } = await refreshDroppingDefault({
+        withSession: false,
+        model: 'acme/current',
+        lazySessionThinking: 'high',
+      });
+
+      expect(driver.state.appState).toMatchObject({
+        model: 'acme/next',
+        thinkingEffort: 'high',
+        lazySessionThinking: 'high',
+      });
+    });
+
+    it('leaves a session-less selection on another model alone', async () => {
+      const { driver } = await refreshDroppingDefault({ withSession: false, model: 'acme/next' });
+
+      expect(driver.state.appState).toMatchObject({
+        model: 'acme/next',
+        thinkingEffort: 'low',
+        lazySessionThinking: undefined,
+      });
+    });
   });
 
   it('preserves fresh startup yolo and plan intent after OAuth login', async () => {
     const session = makeSession({
-      getStatus: mock(async () => ({
+      getStatus: jest.fn(async () => ({
         model: 'k2',
         thinkingEffort: 'off',
         permission: 'yolo',
@@ -1975,11 +2673,12 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
         contextUsage: 0.1,
       })),
     });
-    const createSession = mock()
+    const createSession = vi
+      .fn()
       .mockRejectedValueOnce(loginRequiredError())
       .mockResolvedValueOnce(session);
     const harness = makeHarness(session, {
-      getConfig: mock(async () => ({
+      getConfig: jest.fn(async () => ({
         defaultModel: 'k2',
         thinking: { enabled: false },
         models: {
@@ -1999,7 +2698,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
       planMode: true,
     });
 
-    promptPlatformSelectionMock.mockResolvedValue('kimi-code');
+    (promptPlatformSelection).mockResolvedValue('kimi-code');
     await handleLoginCommand(driver as any);
 
     expect(createSession).not.toHaveBeenCalled();
@@ -2014,7 +2713,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
   it('does not override active session thinking when configured thinking is enabled after OAuth login', async () => {
     const session = makeSession();
     const harness = makeHarness(session, {
-      getConfig: mock(async () => ({
+      getConfig: jest.fn(async () => ({
         defaultModel: 'k2',
         thinking: { enabled: true },
         models: {
@@ -2025,16 +2724,11 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     const driver = makeDriver(harness, makeStartupInput());
 
     await expect(driver.init()).resolves.toBe(false);
-await driver.setSession(session);
-await driver.syncRuntimeState(session);
-
-// Materialize the startup session through the lazy-creation path (fresh
-// startup no longer creates one during init).
-if (driver.state.appState.model.length === 0) driver.state.appState.model = 'k2';
-await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession();
+    await driver.setSession(session);
+    await driver.syncRuntimeState(session);
     expect(driver.state.appState.thinkingEffort).toBe('off');
 
-    promptPlatformSelectionMock.mockResolvedValue('kimi-code');
+    (promptPlatformSelection).mockResolvedValue('kimi-code');
     await handleLoginCommand(driver as any);
 
     expect(session.setModel).toHaveBeenCalledWith('k2');
@@ -2055,12 +2749,12 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     const session = makeSession();
     const harness = makeHarness(session, {
       auth: {
-        status: mock(async () => ({
+        status: jest.fn(async () => ({
           providers: [{ providerName: 'managed:kimi-code', hasToken: true }],
         })),
-        login: mock(async () => {}),
-        logout: mock(),
-        getManagedUsage: mock(),
+        login: jest.fn(async () => {}),
+        logout: jest.fn(),
+        getManagedUsage: jest.fn(),
       },
     });
     const driver = makeDriver(harness, makeStartupInput());
@@ -2068,7 +2762,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     await expect(driver.init()).resolves.toBe(false);
     harness.track.mockClear();
 
-    promptPlatformSelectionMock.mockResolvedValue('kimi-code');
+    (promptPlatformSelection).mockResolvedValue('kimi-code');
     await handleLoginCommand(driver as any);
 
     expect(harness.auth.login).toHaveBeenCalledWith(
@@ -2086,17 +2780,17 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
   });
 
   it('logs login failures with session context', async () => {
-    const warn = spyOn(log, 'warn').mockImplementation(() => {});
+    const warn = jest.spyOn(log, 'warn').mockImplementation(() => {});
     const session = makeSession();
     const loginError = new Error('Failed to list Kimi Code models (HTTP 402).');
     const harness = makeHarness(session, {
       auth: {
-        status: mock(async () => ({ providers: [] })),
-        login: mock(async () => {
+        status: jest.fn(async () => ({ providers: [] })),
+        login: jest.fn(async () => {
           throw loginError;
         }),
-        logout: mock(),
-        getManagedUsage: mock(),
+        logout: jest.fn(),
+        getManagedUsage: jest.fn(),
       },
     });
     const driver = makeDriver(harness, makeStartupInput());
@@ -2106,12 +2800,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
       await driver.setSession(session);
       await driver.syncRuntimeState(session);
 
-      // Materialize the startup session through the lazy-creation path (fresh
-      // startup no longer creates one during init).
-      if (driver.state.appState.model.length === 0) driver.state.appState.model = 'k2';
-      await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession();
-
-      promptPlatformSelectionMock.mockResolvedValue('kimi-code');
+      (promptPlatformSelection).mockResolvedValue('kimi-code');
       await handleLoginCommand(driver as any);
 
       expect(harness.auth.login).toHaveBeenCalledWith(
@@ -2140,24 +2829,13 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
   it('tracks logout while preserving the active session model', async () => {
     let loggedOut = false;
     const session = makeSession();
-    const logout = mock(async () => {
+    const logout = jest.fn(async () => {
       loggedOut = true;
     });
     const harness = makeHarness(session, {
-      // Logging out drops the provider, but the model alias itself stays in
-      // config — that is the case where an active session keeps its model.
-      getConfig: mock(async () =>
+      getConfig: jest.fn(async () =>
         loggedOut
-          ? {
-              models: {
-                k2: {
-                  provider: 'managed:kimi-code',
-                  model: 'moonshot-v1',
-                  maxContextSize: 100,
-                },
-              },
-              providers: {},
-            }
+          ? { models: {}, providers: {} }
           : {
               models: {
                 k2: {
@@ -2170,27 +2848,22 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
             },
       ),
       auth: {
-        status: mock(async () => ({
+        status: jest.fn(async () => ({
           providers: [{ providerName: 'managed:kimi-code', hasToken: true }],
         })),
-        login: mock(async () => {}),
+        login: jest.fn(async () => {}),
         logout,
-        getManagedUsage: mock(),
+        getManagedUsage: jest.fn(),
       },
     });
     const driver = makeDriver(harness, makeStartupInput());
 
     await expect(driver.init()).resolves.toBe(false);
-await driver.setSession(session);
-await driver.syncRuntimeState(session);
-
-// Materialize the startup session through the lazy-creation path (fresh
-// startup no longer creates one during init).
-if (driver.state.appState.model.length === 0) driver.state.appState.model = 'k2';
-await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession();
+    await driver.setSession(session);
+    await driver.syncRuntimeState(session);
     harness.track.mockClear();
 
-    promptLogoutProviderSelectionMock.mockResolvedValue('managed:kimi-code');
+    (promptLogoutProviderSelection).mockResolvedValue('managed:kimi-code');
     await handleLogoutCommand(driver as any);
 
     expect(harness.auth.logout).toHaveBeenCalledWith('managed:kimi-code');
@@ -2209,11 +2882,11 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
 
   it('clears the config-derived model when logging out without an active session', async () => {
     let loggedOut = false;
-    const logout = mock(async () => {
+    const logout = jest.fn(async () => {
       loggedOut = true;
     });
     const harness = makeHarness(makeSession(), {
-      getConfig: mock(async () =>
+      getConfig: jest.fn(async () =>
         loggedOut
           ? { models: {}, providers: {} }
           : {
@@ -2229,12 +2902,12 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
             },
       ),
       auth: {
-        status: mock(async () => ({
+        status: jest.fn(async () => ({
           providers: [{ providerName: 'managed:kimi-code', hasToken: true }],
         })),
-        login: mock(async () => {}),
+        login: jest.fn(async () => {}),
         logout,
-        getManagedUsage: mock(),
+        getManagedUsage: jest.fn(),
       },
     });
     const driver = makeDriver(harness, { ...makeStartupInput() });
@@ -2242,7 +2915,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     await expect(driver.init()).resolves.toBe(false);
     expect(driver.state.appState.model).toBe('k2');
 
-    promptLogoutProviderSelectionMock.mockResolvedValue('managed:kimi-code');
+    (promptLogoutProviderSelection).mockResolvedValue('managed:kimi-code');
     await handleLogoutCommand(driver as any);
 
     expect(harness.createSession).not.toHaveBeenCalled();
@@ -2258,9 +2931,9 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
 
   it('keeps the active session when logging out a different provider', async () => {
     const session = makeSession();
-    const removeProvider = mock(async () => {});
+    const removeProvider = jest.fn(async () => {});
     const harness = makeHarness(session, {
-      getConfig: mock(async () => ({
+      getConfig: jest.fn(async () => ({
         models: {
           k2: { provider: 'managed:kimi-code', model: 'moonshot-v1', maxContextSize: 100 },
         },
@@ -2271,27 +2944,22 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
       })),
       removeProvider,
       auth: {
-        status: mock(async () => ({
+        status: jest.fn(async () => ({
           providers: [{ providerName: 'managed:kimi-code', hasToken: true }],
         })),
-        login: mock(async () => {}),
-        logout: mock(),
-        getManagedUsage: mock(),
+        login: jest.fn(async () => {}),
+        logout: jest.fn(),
+        getManagedUsage: jest.fn(),
       },
     });
     const driver = makeDriver(harness, makeStartupInput());
 
     await expect(driver.init()).resolves.toBe(false);
-await driver.setSession(session);
-await driver.syncRuntimeState(session);
-
-// Materialize the startup session through the lazy-creation path (fresh
-// startup no longer creates one during init).
-if (driver.state.appState.model.length === 0) driver.state.appState.model = 'k2';
-await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession();
+    await driver.setSession(session);
+    await driver.syncRuntimeState(session);
     harness.track.mockClear();
 
-    promptLogoutProviderSelectionMock.mockResolvedValue('openai');
+    (promptLogoutProviderSelection).mockResolvedValue('openai');
     await handleLogoutCommand(driver as any);
 
     expect(removeProvider).toHaveBeenCalledWith('openai');
@@ -2307,26 +2975,26 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
   it('can log out a stale managed entry even after the OAuth token is gone', async () => {
     const session = makeSession();
     const harness = makeHarness(session, {
-      getConfig: mock(async () => ({
+      getConfig: jest.fn(async () => ({
         models: {
           k2: { provider: 'managed:kimi-code', model: 'moonshot-v1', maxContextSize: 100 },
         },
         providers: { 'managed:kimi-code': { type: 'kimi' } },
       })),
       auth: {
-        status: mock(async () => ({
+        status: jest.fn(async () => ({
           providers: [{ providerName: 'managed:kimi-code', hasToken: false }],
         })),
-        login: mock(async () => {}),
-        logout: mock(),
-        getManagedUsage: mock(),
+        login: jest.fn(async () => {}),
+        logout: jest.fn(),
+        getManagedUsage: jest.fn(),
       },
     });
     const driver = makeDriver(harness, makeStartupInput());
 
     await expect(driver.init()).resolves.toBe(false);
 
-    promptLogoutProviderSelectionMock.mockResolvedValue('managed:kimi-code');
+    (promptLogoutProviderSelection).mockResolvedValue('managed:kimi-code');
     await handleLogoutCommand(driver as any);
 
     expect(harness.auth.logout).toHaveBeenCalledWith('managed:kimi-code');
@@ -2334,8 +3002,8 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
 
   it('starts TUI without replaying when --continue needs OAuth login', async () => {
     const harness = makeHarness(makeSession(), {
-      listSessions: mock(async () => [{ id: 'ses-latest' }]),
-      resumeSession: mock(async () => {
+      listSessions: jest.fn(async () => [{ id: 'ses-latest' }]),
+      resumeSession: jest.fn(async () => {
         throw loginRequiredError();
       }),
     });
@@ -2345,7 +3013,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
 
     expect(harness.resumeSession).toHaveBeenCalledWith({
       id: 'ses-latest',
-      replayTurnLimit: REPLAY_TURN_LIMIT,
+      replayTurnLimit: REPLAY_FETCH_TURN_LIMIT,
     });
     expect(harness.createSession).not.toHaveBeenCalled();
     expect(driver.state.startupState).toBe('ready');
@@ -2354,8 +3022,8 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
 
   it('starts TUI without replaying when an explicit resume needs OAuth login', async () => {
     const harness = makeHarness(makeSession(), {
-      listSessions: mock(async () => [{ id: 'ses-target', workDir: '/tmp/proj-a' }]),
-      resumeSession: mock(async () => {
+      listSessions: jest.fn(async () => [{ id: 'ses-target', workDir: '/tmp/proj-a' }]),
+      resumeSession: jest.fn(async () => {
         throw loginRequiredError();
       }),
     });
@@ -2365,7 +3033,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
 
     expect(harness.resumeSession).toHaveBeenCalledWith({
       id: 'ses-target',
-      replayTurnLimit: REPLAY_TURN_LIMIT,
+      replayTurnLimit: REPLAY_FETCH_TURN_LIMIT,
     });
     expect(driver.state.startupState).toBe('ready');
     expect(driver.state.appState.sessionId).toBe('');
@@ -2378,11 +3046,11 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
       migrationPlan: MIGRATION_PLAN,
       migrateOnly: true,
     }) as unknown as MigrateExitDriver;
-    spyOn(driver.state.ui, 'start').mockImplementation(() => {});
-    spyOn(driver.state.ui, 'stop').mockImplementation(() => {});
-    spyOn(driver.state.terminal, 'write').mockImplementation(() => {});
-    spyOn(driver, 'runMigrationScreen').mockResolvedValue({ decision: 'later' });
-    const onExit = mock(async () => {});
+    jest.spyOn(driver.state.ui, 'start').mockImplementation(() => {});
+    jest.spyOn(driver.state.ui, 'stop').mockImplementation(() => {});
+    jest.spyOn(driver.state.terminal, 'write').mockImplementation(() => {});
+    jest.spyOn(driver, 'runMigrationScreen').mockResolvedValue({ decision: 'later' });
+    const onExit = jest.fn(async () => {});
     driver.onExit = onExit;
 
     await driver.start();
@@ -2398,11 +3066,11 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
       migrationPlan: MIGRATION_PLAN,
       migrateOnly: false,
     }) as unknown as MigrateExitDriver;
-    spyOn(driver.state.ui, 'start').mockImplementation(() => {});
-    spyOn(driver.state.ui, 'stop').mockImplementation(() => {});
-    spyOn(driver.state.terminal, 'write').mockImplementation(() => {});
-    spyOn(driver, 'runMigrationScreen').mockResolvedValue({ decision: 'later' });
-    spyOn(driver, 'initMainTui').mockRejectedValue(new Error('resume boom'));
+    jest.spyOn(driver.state.ui, 'start').mockImplementation(() => {});
+    jest.spyOn(driver.state.ui, 'stop').mockImplementation(() => {});
+    jest.spyOn(driver.state.terminal, 'write').mockImplementation(() => {});
+    jest.spyOn(driver, 'runMigrationScreen').mockResolvedValue({ decision: 'later' });
+    jest.spyOn(driver, 'initMainTui').mockRejectedValue(new Error('resume boom'));
 
     await expect(driver.start()).rejects.toThrow('resume boom');
 
@@ -2410,7 +3078,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
   });
 
   it('checks workspace trust before entering the migration screen', async () => {
-    const getWorkspaceTrustInfo = mock(async () => ({
+    const getWorkspaceTrustInfo = jest.fn(async () => ({
       trusted: true,
       gatedMcpServers: [],
       gatedAdditionalDirs: [], additionalDirSources: [], warnings: [],
@@ -2422,12 +3090,13 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
       migrationPlan: MIGRATION_PLAN,
       migrateOnly: true,
     }) as unknown as MigrateExitDriver;
-    spyOn(driver.state.ui, 'start').mockImplementation(() => {});
-    spyOn(driver.state.ui, 'stop').mockImplementation(() => {});
-    spyOn(driver.state.terminal, 'write').mockImplementation(() => {});
-    const migrationSpy = spyOn(driver, 'runMigrationScreen')
+    jest.spyOn(driver.state.ui, 'start').mockImplementation(() => {});
+    jest.spyOn(driver.state.ui, 'stop').mockImplementation(() => {});
+    jest.spyOn(driver.state.terminal, 'write').mockImplementation(() => {});
+    const migrationSpy = vi
+      .spyOn(driver, 'runMigrationScreen')
       .mockResolvedValue({ decision: 'later' });
-    const onExit = mock(async () => {});
+    const onExit = jest.fn(async () => {});
     driver.onExit = onExit;
 
     await driver.start();
@@ -2440,13 +3109,13 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
   });
 
   it('prompts for workspace trust before migrating an untrusted workspace', async () => {
-    const getWorkspaceTrustInfo = mock(async () => ({
+    const getWorkspaceTrustInfo = jest.fn(async () => ({
       trusted: false,
       gatedMcpServers: [],
       gatedAdditionalDirs: [], additionalDirSources: [], warnings: [],
       instructionSources: { agentsMdPaths: [], skills: [], agentProfiles: [], paths: [] },
       }));
-    const trustWorkspace = mock(async () => {});
+    const trustWorkspace = jest.fn(async () => {});
     const harness = makeHarness(makeSession(), { getWorkspaceTrustInfo, trustWorkspace });
     const driver = makeDriver(harness, {
       ...makeStartupInput(),
@@ -2455,17 +3124,18 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     }) as unknown as MigrateExitDriver & {
       mountEditorReplacement(panel: { handleInput(data: string): void }): void;
     };
-    spyOn(driver.state.ui, 'start').mockImplementation(() => {});
-    spyOn(driver.state.ui, 'stop').mockImplementation(() => {});
-    spyOn(driver.state.terminal, 'write').mockImplementation(() => {});
-    const migrationSpy = spyOn(driver, 'runMigrationScreen')
+    jest.spyOn(driver.state.ui, 'start').mockImplementation(() => {});
+    jest.spyOn(driver.state.ui, 'stop').mockImplementation(() => {});
+    jest.spyOn(driver.state.terminal, 'write').mockImplementation(() => {});
+    const migrationSpy = vi
+      .spyOn(driver, 'runMigrationScreen')
       .mockResolvedValue({ decision: 'later' });
-    const mountSpy = spyOn(driver, 'mountEditorReplacement');
-    const onExit = mock(async () => {});
+    const mountSpy = jest.spyOn(driver, 'mountEditorReplacement');
+    const onExit = jest.fn(async () => {});
     driver.onExit = onExit;
 
     const startPromise = driver.start();
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       expect(mountSpy).toHaveBeenCalled();
     });
     mountSpy.mock.calls[0]![0].handleInput('\u001B[A');
@@ -2480,10 +3150,10 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
   });
 
   it('prompts for workspace trust when trust info cannot be read', async () => {
-    const getWorkspaceTrustInfo = mock(async () => {
+    const getWorkspaceTrustInfo = jest.fn(async () => {
       throw new Error('unavailable');
     });
-    const trustWorkspace = mock(async () => {});
+    const trustWorkspace = jest.fn(async () => {});
     const harness = makeHarness(makeSession(), { getWorkspaceTrustInfo, trustWorkspace });
     const driver = makeDriver(harness, {
       ...makeStartupInput(),
@@ -2492,16 +3162,16 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     }) as unknown as MigrateExitDriver & {
       mountEditorReplacement(panel: { handleInput(data: string): void }): void;
     };
-    spyOn(driver.state.ui, 'start').mockImplementation(() => {});
-    spyOn(driver.state.ui, 'stop').mockImplementation(() => {});
-    spyOn(driver.state.terminal, 'write').mockImplementation(() => {});
-    spyOn(driver, 'runMigrationScreen').mockResolvedValue({ decision: 'later' });
-    const mountSpy = spyOn(driver, 'mountEditorReplacement');
-    const onExit = mock(async () => {});
+    jest.spyOn(driver.state.ui, 'start').mockImplementation(() => {});
+    jest.spyOn(driver.state.ui, 'stop').mockImplementation(() => {});
+    jest.spyOn(driver.state.terminal, 'write').mockImplementation(() => {});
+    jest.spyOn(driver, 'runMigrationScreen').mockResolvedValue({ decision: 'later' });
+    const mountSpy = jest.spyOn(driver, 'mountEditorReplacement');
+    const onExit = jest.fn(async () => {});
     driver.onExit = onExit;
 
     const startPromise = driver.start();
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       expect(mountSpy).toHaveBeenCalled();
     });
     mountSpy.mock.calls[0]![0].handleInput('\u001B[A');
@@ -2513,13 +3183,13 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
   });
 
   it('continues startup when persisting trust fails', async () => {
-    const getWorkspaceTrustInfo = mock(async () => ({
+    const getWorkspaceTrustInfo = jest.fn(async () => ({
       trusted: false,
       gatedMcpServers: [],
       gatedAdditionalDirs: [], additionalDirSources: [], warnings: [],
       instructionSources: { agentsMdPaths: [], skills: [], agentProfiles: [], paths: [] },
       }));
-    const trustWorkspace = mock(async (): Promise<void> => {
+    const trustWorkspace = jest.fn(async (): Promise<void> => {
       throw new Error('disk full');
     });
     const harness = makeHarness(makeSession(), { getWorkspaceTrustInfo, trustWorkspace });
@@ -2530,17 +3200,18 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     }) as unknown as MigrateExitDriver & {
       mountEditorReplacement(panel: { handleInput(data: string): void }): void;
     };
-    spyOn(driver.state.ui, 'start').mockImplementation(() => {});
-    spyOn(driver.state.ui, 'stop').mockImplementation(() => {});
-    spyOn(driver.state.terminal, 'write').mockImplementation(() => {});
-    const migrationSpy = spyOn(driver, 'runMigrationScreen')
+    jest.spyOn(driver.state.ui, 'start').mockImplementation(() => {});
+    jest.spyOn(driver.state.ui, 'stop').mockImplementation(() => {});
+    jest.spyOn(driver.state.terminal, 'write').mockImplementation(() => {});
+    const migrationSpy = vi
+      .spyOn(driver, 'runMigrationScreen')
       .mockResolvedValue({ decision: 'later' });
-    const mountSpy = spyOn(driver, 'mountEditorReplacement');
-    const onExit = mock(async () => {});
+    const mountSpy = jest.spyOn(driver, 'mountEditorReplacement');
+    const onExit = jest.fn(async () => {});
     driver.onExit = onExit;
 
     const startPromise = driver.start();
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       expect(mountSpy).toHaveBeenCalled();
     });
     mountSpy.mock.calls[0]![0].handleInput('\u001B[A');
@@ -2554,7 +3225,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
 
   it('does not mount the footer when resuming a missing session fails', async () => {
     const harness = makeHarness(makeSession(), {
-      listSessions: mock(async () => []),
+      listSessions: jest.fn(async () => []),
     });
     const driver = makeDriver(
       harness,
@@ -2568,7 +3239,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
   it('mounts the footer once startup reaches the main TUI', async () => {
     const session = makeSession({ id: 'ses-target' });
     const harness = makeHarness(session, {
-      listSessions: mock(async () => [{ id: 'ses-target', workDir: '/tmp/proj-a' }]),
+      listSessions: jest.fn(async () => [{ id: 'ses-target', workDir: '/tmp/proj-a' }]),
     });
     const driver = makeDriver(
       harness,
@@ -2590,10 +3261,10 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
       subText: null,
       display: 'always' as const,
     };
-    const loadSpy = spyOn(BannerProvider.prototype, 'load').mockResolvedValue(banner);
+    const loadSpy = jest.spyOn(BannerProvider.prototype, 'load').mockResolvedValue(banner);
     const session = makeSession({ id: 'ses-target' });
     const harness = makeHarness(session, {
-      listSessions: mock(async () => [{ id: 'ses-target', workDir: '/tmp/proj-a' }]),
+      listSessions: jest.fn(async () => [{ id: 'ses-target', workDir: '/tmp/proj-a' }]),
     });
     const driver = makeDriver(
       harness,
@@ -2602,7 +3273,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
 
     await driver.initMainTui();
 
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       expect(
         driver.state.transcriptContainer.children.some((child) => child instanceof BannerComponent),
       ).toBe(true);
@@ -2633,10 +3304,10 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
         subText: null,
         display: 'once' as const,
       };
-      const loadSpy = spyOn(BannerProvider.prototype, 'load').mockResolvedValue(banner);
+      const loadSpy = jest.spyOn(BannerProvider.prototype, 'load').mockResolvedValue(banner);
       const session = makeSession({ id: 'ses-target' });
       const harness = makeHarness(session, {
-        listSessions: mock(async () => [{ id: 'ses-target', workDir: '/tmp/proj-a' }]),
+        listSessions: jest.fn(async () => [{ id: 'ses-target', workDir: '/tmp/proj-a' }]),
       });
       const driver = makeDriver(
         harness,
@@ -2645,15 +3316,13 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
 
       await driver.initMainTui();
 
-      await waitForAssertion(() => {
+      await waitUntil(() => {
         expect(
-          driver.state.transcriptContainer.children.some(
-            (child) => child instanceof BannerComponent,
-          ),
+          driver.state.transcriptContainer.children.some((child) => child instanceof BannerComponent),
         ).toBe(true);
       });
 
-      await waitForAssertion(
+      await waitUntil(
         async () => {
           const state = await readBannerDisplayState();
           expect(state.shown['once-banner']?.lastShownAt).toBeDefined();
@@ -2689,10 +3358,10 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
         subText: null,
         display: 'always' as const,
       };
-      const loadSpy = spyOn(BannerProvider.prototype, 'load').mockResolvedValue(banner);
+      const loadSpy = jest.spyOn(BannerProvider.prototype, 'load').mockResolvedValue(banner);
       const session = makeSession({ id: 'ses-target' });
       const harness = makeHarness(session, {
-        listSessions: mock(async () => [{ id: 'ses-target', workDir: '/tmp/proj-a' }]),
+        listSessions: jest.fn(async () => [{ id: 'ses-target', workDir: '/tmp/proj-a' }]),
       });
       const driver = makeDriver(
         harness,
@@ -2701,11 +3370,9 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
 
       await driver.initMainTui();
 
-      await waitForAssertion(() => {
+      await waitUntil(() => {
         expect(
-          driver.state.transcriptContainer.children.some(
-            (child) => child instanceof BannerComponent,
-          ),
+          driver.state.transcriptContainer.children.some((child) => child instanceof BannerComponent),
         ).toBe(true);
       });
 
@@ -2730,15 +3397,15 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
       display: 'always' as const,
     };
     let capturedAudience: unknown;
-    const loadSpy = spyOn(BannerProvider.prototype, 'load').mockImplementation(async (options) => {
+    const loadSpy = jest.spyOn(BannerProvider.prototype, 'load').mockImplementation(async (options) => {
       capturedAudience = await options?.audience;
       return banner;
     });
     const session = makeSession({ id: 'ses-target' });
     const harness = makeHarness(session, {
-      listSessions: mock(async () => [{ id: 'ses-target', workDir: '/tmp/proj-a' }]),
+      listSessions: jest.fn(async () => [{ id: 'ses-target', workDir: '/tmp/proj-a' }]),
     });
-    harness.auth.getCachedAccessToken = mock(async () => {
+    harness.auth.getCachedAccessToken = jest.fn(async () => {
       throw new Error('credential storage broken');
     });
     const driver = makeDriver(
@@ -2748,7 +3415,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
 
     await driver.initMainTui();
 
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       expect(
         driver.state.transcriptContainer.children.some((child) => child instanceof BannerComponent),
       ).toBe(true);
@@ -2761,7 +3428,7 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
   it('resumes a startup session when Windows workdir uses backslashes', async () => {
     const session = makeSession({ id: 'ses-target' });
     const harness = makeHarness(session, {
-      listSessions: mock(async () => [{ id: 'ses-target', workDir: 'C:/Users/kimi/project' }]),
+      listSessions: jest.fn(async () => [{ id: 'ses-target', workDir: 'C:/Users/kimi/project' }]),
     });
     const driver = makeDriver(harness, {
       ...makeStartupInput({ session: 'ses-target' }),
@@ -2776,140 +3443,9 @@ await (driver as unknown as { ensureSession(): Promise<unknown> }).ensureSession
     });
     expect(harness.resumeSession).toHaveBeenCalledWith({
       id: 'ses-target',
-      replayTurnLimit: REPLAY_TURN_LIMIT,
+      replayTurnLimit: REPLAY_FETCH_TURN_LIMIT,
     });
     expect(driver.state.appState.sessionId).toBe('ses-target');
-  });
-});
-
-describe('MSYS2 install gate', () => {
-  beforeEach(() => {
-    mock.clearAllMocks();
-  });
-
-  interface Msys2GateDriver extends StartupDriver {
-    start(): Promise<void>;
-    mountEditorReplacement(panel: { handleInput(data: string): void }): void;
-  }
-
-  function makeGateDriver() {
-    const harness = makeHarness(makeSession());
-    const driver = makeDriver(harness, makeStartupInput()) as unknown as Msys2GateDriver;
-    spyOn(driver.state.ui, 'start').mockImplementation(() => {});
-    spyOn(driver.state.ui, 'stop').mockImplementation(() => {});
-    spyOn(driver.state.terminal, 'write').mockImplementation(() => {});
-    return { harness, driver };
-  }
-
-  it('skips the gate when the prompt is not needed', async () => {
-    shouldPromptMsys2Mock.mockResolvedValue(false);
-    const { driver } = makeGateDriver();
-    const mountSpy = spyOn(driver, 'mountEditorReplacement');
-
-    await driver.start();
-
-    expect(shouldPromptMsys2).toHaveBeenCalled();
-    expect(mountSpy).not.toHaveBeenCalled();
-    expect(markPrompted).not.toHaveBeenCalled();
-  });
-
-  it('asks to install MSYS2 and marks prompted when skipped', async () => {
-    shouldPromptMsys2Mock.mockResolvedValue(true);
-    const { driver } = makeGateDriver();
-    const mountSpy = spyOn(driver, 'mountEditorReplacement');
-
-    const startPromise = driver.start();
-    await waitForAssertion(() => {
-      expect(mountSpy).toHaveBeenCalled();
-    });
-    // Move from the default (install) to skip, then confirm.
-    mountSpy.mock.calls[0]![0].handleInput('\u001B[B');
-    mountSpy.mock.calls[0]![0].handleInput('\r');
-    await startPromise;
-
-    expect(markPrompted).toHaveBeenCalled();
-    expect(installMsys2).not.toHaveBeenCalled();
-  });
-
-  it('installs MSYS2 and switches the shell when confirmed', async () => {
-    shouldPromptMsys2Mock.mockResolvedValue(true);
-    installMsys2Mock.mockResolvedValue({
-      ok: true,
-      bashPath: 'C:\\msys64\\usr\\bin\\bash.exe',
-    });
-    setUserShellPathMock.mockReturnValue(true);
-    const { driver } = makeGateDriver();
-    const mountSpy = spyOn(driver, 'mountEditorReplacement');
-
-    const startPromise = driver.start();
-    await waitForAssertion(() => {
-      expect(mountSpy).toHaveBeenCalled();
-    });
-    mountSpy.mock.calls[0]![0].handleInput('\r');
-    await startPromise;
-
-    expect(installMsys2).toHaveBeenCalled();
-    expect(setUserShellPath).toHaveBeenCalledWith(
-      'C:\\msys64\\usr\\bin\\bash.exe',
-      expect.anything(),
-    );
-    expect(markPrompted).toHaveBeenCalled();
-  });
-
-  it('does not mark prompted when the install fails', async () => {
-    shouldPromptMsys2Mock.mockResolvedValue(true);
-    installMsys2Mock.mockResolvedValue({ ok: false, error: 'winget not found' });
-    const { driver } = makeGateDriver();
-    const mountSpy = spyOn(driver, 'mountEditorReplacement');
-
-    const startPromise = driver.start();
-    await waitForAssertion(() => {
-      expect(mountSpy).toHaveBeenCalled();
-    });
-    mountSpy.mock.calls[0]![0].handleInput('\r');
-    await startPromise;
-
-    expect(markPrompted).not.toHaveBeenCalled();
-  });
-
-  it('marks prompted and skips the shell switch when setx fails', async () => {
-    shouldPromptMsys2Mock.mockResolvedValue(true);
-    installMsys2Mock.mockResolvedValue({
-      ok: true,
-      bashPath: 'C:\\msys64\\usr\\bin\\bash.exe',
-    });
-    setUserShellPathMock.mockReturnValue(false);
-    const { driver } = makeGateDriver();
-    const mountSpy = spyOn(driver, 'mountEditorReplacement');
-
-    const startPromise = driver.start();
-    await waitForAssertion(() => {
-      expect(mountSpy).toHaveBeenCalled();
-    });
-    mountSpy.mock.calls[0]![0].handleInput('\r');
-    await startPromise;
-
-    expect(setUserShellPath).toHaveBeenCalledWith(
-      'C:\\msys64\\usr\\bin\\bash.exe',
-      expect.anything(),
-    );
-    expect(markPrompted).toHaveBeenCalled();
-  });
-
-  it('treats Esc as skip and marks prompted', async () => {
-    shouldPromptMsys2Mock.mockResolvedValue(true);
-    const { driver } = makeGateDriver();
-    const mountSpy = spyOn(driver, 'mountEditorReplacement');
-
-    const startPromise = driver.start();
-    await waitForAssertion(() => {
-      expect(mountSpy).toHaveBeenCalled();
-    });
-    mountSpy.mock.calls[0]![0].handleInput('\u001B');
-    await startPromise;
-
-    expect(markPrompted).toHaveBeenCalled();
-    expect(installMsys2).not.toHaveBeenCalled();
   });
 });
 

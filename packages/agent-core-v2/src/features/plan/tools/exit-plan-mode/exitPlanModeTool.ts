@@ -1,22 +1,17 @@
-import { onUnexpectedError } from '#/_base/errors/unexpectedError';
-import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
-import { agentContextOfScope, IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { IAgentPlanService } from '#/features/plan/plan';
-import type { PlanData } from '#/features/plan/plan';
-import { IAgentTodoService } from '#/features/todo/todoService';
-import { toInputJsonSchema } from '#/tool/input-schema';
-import type { ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
 import type { ToolInputDisplay } from '#/tool/toolInputDisplay';
 
-import type { IExitPlanModeTool } from './exit-plan-mode';
+import type { ExecutableToolResult, ToolExecution } from '#/tool/toolContract';
+import { toInputJsonSchema } from '#/tool/input-schema';
+import { IAgentPlanService } from '#/features/plan/plan';
+import type { PlanData } from '#/features/plan/plan';
+
+import DESCRIPTION from './exit-plan-mode.md?raw';
 import {
   ExitPlanModeInputSchema,
+  IExitPlanModeTool,
   type ExitPlanModeInput,
   type ExitPlanModePlanSource,
 } from './exit-plan-mode';
-import { tryConvertPlanToTodos, type PlanToTodoOutcome } from '../../planToTodoConverter';
-import DESCRIPTION from './exit-plan-mode.md?raw';
 
 type ResolvePlanResult =
   | { readonly ok: true; readonly plan: string; readonly path?: string | undefined }
@@ -28,22 +23,14 @@ export class ExitPlanModeTool implements IExitPlanModeTool {
   readonly description: string = DESCRIPTION;
   readonly parameters: Record<string, unknown> = toInputJsonSchema(ExitPlanModeInputSchema);
 
-  private revisionError: Error | undefined;
-
-  constructor(
-    @IAgentPlanService private readonly planMode: IAgentPlanService,
-    @IAgentPermissionModeService private readonly permissionMode: IAgentPermissionModeService,
-    @ITelemetryService private readonly telemetry: ITelemetryService,
-    @IAgentTodoService private readonly todo: IAgentTodoService,
-    @IAgentScopeContext private readonly scopeContext: IAgentScopeContext,
-  ) {}
+  constructor(@IAgentPlanService private readonly planMode: IAgentPlanService) {}
 
   async resolveExecution(args: ExitPlanModeInput): Promise<ToolExecution> {
     return {
       description: 'Presenting plan and exiting plan mode',
       display: await this.resolvePlanReviewDisplay(args),
       approvalRule: this.name,
-      execute: () => this.execution(args),
+      execute: () => this.execution(),
     };
   }
 
@@ -59,10 +46,7 @@ export class ExitPlanModeTool implements IExitPlanModeTool {
     if (data === null || data.content.trim().length === 0) return undefined;
     try {
       await this.planMode.recordRevision();
-      this.revisionError = undefined;
-    } catch (error) {
-      onUnexpectedError(error);
-      this.revisionError = error instanceof Error ? error : new Error(String(error));
+    } catch {
     }
     const display: ToolInputDisplay = {
       kind: 'plan_review',
@@ -75,76 +59,24 @@ export class ExitPlanModeTool implements IExitPlanModeTool {
     return display;
   }
 
-  private takeRevisionWarning(): string {
-    const error = this.revisionError;
-    if (error === undefined) return '';
-    this.revisionError = undefined;
-    return `\n\nWarning: this revision could not be snapshotted (${error.message}) — it will not appear in history.`;
-  }
-
-  private async execution(args: ExitPlanModeInput): Promise<ExecutableToolResult> {
+  private async execution(): Promise<ExecutableToolResult> {
     const status = await this.planMode.status();
     if (status === null) {
       return {
         isError: true,
         output:
-          'ExitPlanMode can only be called while plan mode is active. Use EnterPlanMode (or /plan) first.',
+          'ExitPlanMode can only be called while plan mode is active. Only the user can turn plan mode on.',
       };
     }
 
     const resolvedPlan = await this.resolvePlan();
     if (!resolvedPlan.ok) return resolvedPlan.error;
 
-    this.telemetry.track2('plan_submitted', {
-      has_options: args.options !== undefined && args.options.length >= 2,
-    });
-
-    const failed = this.exitPlanMode();
-    if (failed !== undefined) return failed;
-
-    const seeded = await this.seedTodosFromPlan(status);
-
-    if (this.permissionMode.mode === 'auto') {
-      this.telemetry.track2('plan_resolved', {
-        outcome: 'auto_approved',
-      });
-      return {
-        isError: false,
-        output: `Exited plan mode. ${formatAutoApprovedPlanForOutput(resolvedPlan.plan, resolvedPlan.path)}${seeded}${this.takeRevisionWarning()}`,
-      };
-    }
-
-    this.telemetry.track2('plan_resolved', {
-      outcome: 'approved',
-    });
     return {
-      isError: false,
-      output: `Exited plan mode. ${formatPlanForOutput(resolvedPlan.plan, resolvedPlan.path)}${seeded}${this.takeRevisionWarning()}`,
+      isError: true,
+      output:
+        'The plan could not be shown to the user for review, so plan mode is still active. Call ExitPlanMode again.',
     };
-  }
-
-  private async seedTodosFromPlan(plan: PlanData): Promise<string> {
-    if (plan === null) return '';
-    let outcome: PlanToTodoOutcome;
-    try {
-      outcome = await tryConvertPlanToTodos(plan, this.todo, agentContextOfScope(this.scopeContext));
-    } catch {
-      return '';
-    }
-    if (outcome.kind !== 'converted') return '';
-    return `\n\nThe plan was seeded into the todo list as ${outcome.count} items. Track progress with TodoList; do not re-create the list from the plan text.`;
-  }
-
-  private exitPlanMode(): ExecutableToolResult | undefined {
-    try {
-      this.planMode.exit();
-    } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to exit plan mode.';
-      return {
-        isError: true,
-        output: `Failed to exit plan mode: ${message}`,
-      };
-    }
   }
 
   private async resolvePlan(): Promise<ResolvePlanResult> {
@@ -181,14 +113,4 @@ export class ExitPlanModeTool implements IExitPlanModeTool {
       },
     };
   }
-}
-
-function formatAutoApprovedPlanForOutput(plan: string, path: string | undefined): string {
-  const savedTo = path !== undefined ? `Plan saved to: ${path}\n\n` : '';
-  return `Plan mode deactivated. All tools are now available.\nNote: this plan was auto-approved without user review — the user has NOT explicitly approved it. Follow the user's original instructions on whether to proceed with execution; if they asked you to stop, wait, or only summarize after planning, do not start executing.\n${savedTo}## Plan (auto-approved, not user-reviewed):\n${plan}`;
-}
-
-function formatPlanForOutput(plan: string, path: string | undefined): string {
-  const savedTo = path !== undefined ? `Plan saved to: ${path}\n\n` : '';
-  return `Plan mode deactivated. All tools are now available.\n${savedTo}## Approved Plan:\n${plan}`;
 }

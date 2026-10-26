@@ -63,8 +63,7 @@ const HISTORICAL_OR_HEADER_TYPES = new Set([
 ]);
 
 describe('wire renderers', () => {
-  it('covers every durable record in the current core-v2 wire manifest', async () => {
-    const manifestPath = resolve(
+  it('covers every durable record in the current core-v2 wire manifest', async () => {    const manifestPath = resolve(
       import.meta.dirname,
       '../../../../packages/agent-core-v2/docs/wire-manifest.d.ts',
     );

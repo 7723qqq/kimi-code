@@ -1,36 +1,28 @@
-import type { ModelAlias } from '@moonshot-ai/kimi-code-sdk';
 import chalk from 'chalk';
-import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  mock,
-  spyOn,
-  type Mock,
-} from 'bun:test';
-import { createFakeClock, type FakeClock } from '#test/helpers/fake-clock';
-import { waitForAssertion } from '#test/helpers/waitFor';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
 
 import { FooterComponent } from '#/tui/components/chrome/footer';
 import { setRainbowDance, type RainbowDanceController } from '#/tui/easter-eggs/dance';
 import { currentTheme, darkColors, lightColors } from '#/tui/theme';
+import type { ModelAlias } from '@moonshot-ai/kimi-code-sdk';
 import type { AppState } from '#/tui/types';
-import { createEmptySessionStats } from '#/tui/utils/session-stats';
-import * as gitStatusModule from '#/utils/git/git-status';
 
-const gitStatusMocks = {
-  createGitStatusCache: spyOn(gitStatusModule, 'createGitStatusCache'),
-};
+const gitStatusMocks = ({
+  createGitStatusCache: jest.fn(),
+}));
+
+jest.mock('#/utils/git/git-status', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('#/utils/git/git-status')>();
+  return { ...actual, createGitStatusCache: gitStatusMocks.createGitStatusCache };
+});
 
 beforeEach(() => {
   gitStatusMocks.createGitStatusCache.mockClear();
-  gitStatusMocks.createGitStatusCache.mockImplementation((() => ({
-    getStatus: mock(() => null),
-    refresh: mock(() => {}),
-    dispose: mock(() => {}),
-  })) as never);
+  gitStatusMocks.createGitStatusCache.mockImplementation(() => ({
+    getStatus: jest.fn(() => null),
+    refresh: jest.fn(),
+    dispose: jest.fn(),
+  }));
 });
 
 const TRUECOLOR_PATTERN = /\[38;2;(\d+);(\d+);(\d+)m/g;
@@ -68,26 +60,16 @@ const appState: AppState = {
   permissionMode: 'manual',
   thinkingEffort: 'off',
   contextUsage: 0,
-  cacheReadTokens: 0,
-  cacheMissTokens: 0,
-  cacheOtherTokens: 0,
-  tokenSpeed: 0,
-  tokenSpeedAverage: 0,
-  sessionStats: createEmptySessionStats(),
   contextTokens: 0,
   maxContextTokens: 0,
   isCompacting: false,
   isReplaying: false,
   streamingPhase: 'idle',
   streamingStartTime: 0,
-  outputTokens: 0,
-  locale: 'en',
   stepRetry: null,
   planMode: false,
-    specMode: false,
   inputMode: 'prompt',
   swarmMode: false,
-  helloWorldMode: false,
   towerMode: false,
   theme: 'dark',
   editorCommand: null,
@@ -100,13 +82,13 @@ const appState: AppState = {
 
 describe('FooterComponent', () => {
   it('asks the git cache to refresh and disposes it with the footer', () => {
-    const refresh = mock(() => {});
-    const dispose = mock(() => {});
-    gitStatusMocks.createGitStatusCache.mockImplementation((() => ({
+    const refresh = jest.fn();
+    const dispose = jest.fn();
+    gitStatusMocks.createGitStatusCache.mockImplementation(() => ({
       getStatus: () => null,
       refresh,
       dispose,
-    })) as never);
+    }));
     const footer = new FooterComponent(appState);
     footer.refreshGitStatus();
     expect(refresh).toHaveBeenCalledTimes(1);
@@ -150,13 +132,13 @@ describe('FooterComponent', () => {
     const footer = new FooterComponent(appState);
     const before = footer.render(120).join('\n');
 
-    currentTheme.setPalette(lightColors, 'light');
+    currentTheme.setPalette(lightColors);
     try {
       const after = footer.render(120).join('\n');
       // Reads currentTheme live, so a palette swap changes the emitted colours.
       expect(after).not.toBe(before);
     } finally {
-      currentTheme.setPalette(darkColors, 'dark');
+      currentTheme.setPalette(darkColors);
     }
   });
 
@@ -204,70 +186,6 @@ describe('FooterComponent', () => {
     const off = new FooterComponent(appState);
     expect(off.render(120).join('\n')).not.toContain('tower');
   });
-
-  it('shows the spec stage only while spec mode is on', () => {
-    const on = new FooterComponent({ ...appState, specMode: true, specStage: 'tasks' });
-    expect(on.render(120).join('\n')).toContain('spec:tasks');
-
-    const off = new FooterComponent({ ...appState, specMode: false, specStage: 'tasks' });
-    expect(off.render(120).join('\n')).not.toContain('spec');
-  });
-
-  it('falls back to a bare spec chip when the stage is unknown', () => {
-    const footer = new FooterComponent({ ...appState, specMode: true });
-
-    expect(footer.render(120).join('\n')).toContain('spec');
-    expect(footer.render(120).join('\n')).not.toContain('spec:');
-  });
-
-  it('renders spec mode alongside plan mode', () => {
-    const footer = new FooterComponent({
-      ...appState,
-      planMode: true,
-      specMode: true,
-      specStage: 'plan',
-    });
-
-    const rendered = footer.render(120).join('\n');
-    expect(rendered).toContain('plan');
-    expect(rendered).toContain('spec');
-  });
-
-  it('shows the hello-world stage on the badge only while hello-world mode is on', () => {
-    const on = new FooterComponent({
-      ...appState,
-      helloWorldMode: true,
-      helloWorldStage: 'requirements',
-    });
-    expect(on.render(120).join('\n')).toContain('hello-world:requirements');
-
-    const off = new FooterComponent({
-      ...appState,
-      helloWorldMode: false,
-      helloWorldStage: 'requirements',
-    });
-    expect(off.render(120).join('\n')).not.toContain('hello-world');
-  });
-
-  it('falls back to a bare hello-world chip when the stage is unknown', () => {
-    const footer = new FooterComponent({ ...appState, helloWorldMode: true });
-
-    expect(footer.render(120).join('\n')).toContain('hello-world');
-    expect(footer.render(120).join('\n')).not.toContain('hello-world:');
-  });
-
-  it('carries the stage on the hello-world-plan badge', () => {
-    const footer = new FooterComponent({
-      ...appState,
-      planMode: true,
-      helloWorldMode: true,
-      helloWorldStage: 'design',
-    });
-
-    const rendered = footer.render(120).join('\n').replaceAll(/\u001B\[[0-9;]*m/g, '');
-    expect(rendered).toContain('plan');
-    expect(rendered).toContain('hello-world-plan:design');
-  });
 });
 
 describe('FooterComponent overrides', () => {
@@ -313,71 +231,9 @@ describe('FooterComponent displayName override', () => {
   });
 });
 
-describe('FooterComponent swarm-plan badge', () => {
-  const prevLevel = chalk.level;
-
-  beforeEach(() => {
-    chalk.level = 3;
-  });
-
-  afterEach(() => {
-    chalk.level = prevLevel;
-    setRainbowDance(undefined);
-  });
-  it('renders a single swarm-plan badge with rainbow gradient when both modes are active', () => {
-    const state: AppState = { ...appState, planMode: true, swarmMode: true };
-    const footer = new FooterComponent(state);
-
-    const rendered = footer.render(120).join('\n');
-
-    // Strip ANSI to check plain text
-    const plain = rendered.replaceAll(/\u001B\[[0-9;]*m/g, '');
-    expect(plain).toContain('swarm-plan');
-
-    // Rainbow gradient uses multiple different truecolor codes
-    const codes = Array.from(truecolorCodes(rendered));
-    expect(codes.length).toBeGreaterThanOrEqual(4);
-  });
-
-  it('renders plan badge alone when only planMode is active', () => {
-    const state: AppState = { ...appState, planMode: true, swarmMode: false };
-    const footer = new FooterComponent(state);
-
-    const rendered = footer.render(120).join('\n');
-
-    expect(rendered).toContain('plan');
-    expect(rendered).not.toContain('swarm-plan');
-    // When plan alone, should NOT have rainbow colors (single color)
-    const envCodes = Array.from(truecolorCodes(rendered));
-    // The rendered line will have multiple color codes from other elements
-    // (model, cwd, etc.), but the 'plan' text itself uses a single color.
-    // We verify swarm-plan text is absent as the strongest signal.
-  });
-
-  it('renders swarm badge alone when only swarmMode is active', () => {
-    const state: AppState = { ...appState, planMode: false, swarmMode: true };
-    const footer = new FooterComponent(state);
-
-    const rendered = footer.render(120).join('\n');
-
-    expect(rendered).toContain('swarm');
-    expect(rendered).not.toContain('swarm-plan');
-  });
-
-  it('renders neither badge when both modes are off', () => {
-    const state: AppState = { ...appState, planMode: false, swarmMode: false };
-    const footer = new FooterComponent(state);
-
-    const rendered = footer.render(120).join('\n');
-
-    expect(rendered).not.toContain('plan');
-    expect(rendered).not.toContain('swarm-plan');
-  });
-});
-
 describe('FooterComponent line-2 hints', () => {
   function stripAnsi(text: string): string {
-    return text.replaceAll(/\u001B\[[0-9;]*m/g, '');
+    return text.replaceAll(/\[[0-9;]*m/g, '');
   }
 
   it('shows the warning hint on line 2', () => {
@@ -457,16 +313,11 @@ describe('FooterComponent ctrl+o hint with a status_line command', () => {
   it('moves the hint to line 2 when a command owns line 1', async () => {
     const footer = new FooterComponent({
       ...appState,
-      statusLine: { items: null, command: 'echo my-custom-status' },
+      statusLine: { items: null, command: 'printf "my-custom-status"' },
     });
     footer.setExpandHintProvider(() => 'expand');
     footer.render(120);
-    await waitForAssertion(
-      () => {
-        expect(footer.render(120)[0] ?? '').toContain('my-custom-status');
-      },
-      { timeout: 5_000, interval: 100 },
-    );
+    await new Promise((resolve) => setTimeout(resolve, 200));
 
     const [line1, line2] = footer.render(120).map((line) => line.replaceAll(/\[[0-9;]*m/g, ''));
     expect(line1).toContain('my-custom-status');
@@ -499,81 +350,6 @@ describe('FooterComponent ctrl+o hint beside an inline tips slot', () => {
     const line1 = plain(footer.render(width)[0] ?? '');
     expect(line1.endsWith('ctrl+o expand')).toBe(true);
     expect(line1.length).toBeLessThanOrEqual(width);
-    footer.dispose();
-  });
-});
-
-describe('FooterComponent thinking pulse', () => {
-  // Pins the cadence in footer.ts (THINKING_PULSE_INTERVAL_MS / _STEP): the pulse
-  // timer is private, so this test file is the only place the numbers are
-  // restated. 8 steps x 200 ms = the 1.6 s breathing cycle.
-  const PULSE_INTERVAL_MS = 200;
-  const PULSE_STEPS_PER_CYCLE = 8;
-  const previousChalkLevel = chalk.level;
-
-  // The gate is `thinkingEffort !== 'off' && streamingPhase !== 'idle'`.
-  const thinkingState: AppState = {
-    ...appState,
-    thinkingEffort: 'high',
-    streamingPhase: 'thinking',
-  };
-
-  afterEach(() => {
-    chalk.level = previousChalkLevel;
-  });
-
-  function armPulse(): {
-    footer: FooterComponent;
-    onRefresh: Mock<(...args: any[]) => any>;
-    clock: FakeClock;
-  } {
-    const clock = createFakeClock();
-    const onRefresh = mock();
-    const footer = new FooterComponent(thinkingState, onRefresh, clock);
-    // A fresh footer arms no pulse timer: the gate lives on setState.
-    footer.setState(thinkingState);
-    return { footer, onRefresh, clock };
-  }
-
-  it('skips the repaint while the pulse renders the same badge text', () => {
-    // Colour level 0 (NO_COLOR, a dumb terminal, piped output): chalk returns the
-    // bare suffix, so every phase produces the identical string.
-    chalk.level = 0;
-    const { footer, onRefresh, clock } = armPulse();
-
-    clock.advance(PULSE_INTERVAL_MS * PULSE_STEPS_PER_CYCLE);
-
-    // One repaint — the first tick, which has nothing to compare against — and
-    // then none, instead of one full TUI repaint per tick.
-    expect(onRefresh).toHaveBeenCalledTimes(1);
-    footer.dispose();
-  });
-
-  it('still repaints on every step while the ramp changes colour', () => {
-    chalk.level = 3;
-    const { footer, onRefresh, clock } = armPulse();
-
-    clock.advance(PULSE_INTERVAL_MS * PULSE_STEPS_PER_CYCLE);
-
-    // The palette's text and textDim are far enough apart that each of the 8
-    // phases rounds to a different colour, so the guard never fires here: the
-    // animation is intact, only its cadence changed (20 ticks -> 8 per cycle).
-    expect(onRefresh).toHaveBeenCalledTimes(PULSE_STEPS_PER_CYCLE);
-    footer.dispose();
-  });
-
-  it('clears the pulse timer when the gate goes false', () => {
-    chalk.level = 3;
-    const { footer, onRefresh, clock } = armPulse();
-    clock.advance(PULSE_INTERVAL_MS);
-    expect(onRefresh).toHaveBeenCalledTimes(1);
-
-    footer.setState({ ...thinkingState, streamingPhase: 'idle' });
-
-    // Cleared, not merely neutered: no interval is left on the clock.
-    expect(clock.activeTimers).toBe(0);
-    clock.advance(PULSE_INTERVAL_MS * 5);
-    expect(onRefresh).toHaveBeenCalledTimes(1);
     footer.dispose();
   });
 });

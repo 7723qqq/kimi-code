@@ -1,13 +1,13 @@
 import { execFile } from 'node:child_process';
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setTimeout as delay } from 'node:timers/promises';
 import { promisify } from 'node:util';
 
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn, type Mock } from 'bun:test';
-import { TOWER_MODE_TOOLS } from '#/features/tower/towerService';
-import { waitForAssertion } from '#test/helpers/waitFor';
+import { afterEach, beforeEach, describe, expect, it, jest, type Mock } from 'bun:test';
+import { waitForAssertion, waitUntil } from '#test/helpers/waitFor';
 
 import { SyncDescriptor } from '#/_base/di/descriptors';
 import { DisposableStore } from '#/_base/di/lifecycle';
@@ -17,7 +17,7 @@ import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle'
 import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { createReminderStub } from '../reminder/stubs';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import { type ContextMessage } from '#/agent/contextMemory/types';
+import type { ContextMessage } from '#/agent/contextMemory/types';
 import { IAgentLoopService } from '#/agent/loop/loop';
 import { TurnStarted } from '#/agent/loop/turnEvents';
 import { TurnEnded } from '#/agent/loop/turnOps';
@@ -29,14 +29,22 @@ import { IAgentToolPolicyService } from '#/agent/toolPolicy/toolPolicy';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
-import { type BeforeExecuteDecision, type ResolvedToolExecutionHookContext } from '#/agent/toolExecutor/toolHooks';
+import type {
+  BeforeExecuteDecision,
+  ResolvedToolExecutionHookContext,
+} from '#/agent/toolExecutor/toolHooks';
 import { STATE_FILE, TowerStore, type TowerState } from '#/features/tower/protocol/index';
 import { TowerSendTool } from '#/features/tower/tools/send/sendTool';
 import { TowerReviewTool } from '#/features/tower/tools/review/reviewTool';
 import { TowerCompleteTool } from '#/features/tower/tools/complete/completeTool';
-import { IAgentTowerService, TOWER_FLAG_ID, towerEnterFailureMessage, type TowerEnterFailure } from '#/features/tower/tower';
+import {
+  IAgentTowerService,
+  TOWER_FLAG_ID,
+  towerEnterFailureMessage,
+  type TowerEnterFailure,
+} from '#/features/tower/tower';
 import { _setTowerFeatureAssembledForTests } from '#/features/tower/towerFeature';
-import { AgentTowerService, TOWER_INBOX_WAKE_VARIANT } from '#/features/tower/towerService';
+import { AgentTowerService, TOWER_INBOX_WAKE_VARIANT, TOWER_MODE_TOOLS } from '#/features/tower/towerService';
 import { towerKey, TowerInboxSent, type TowerInboxSentPayload } from '#/features/tower/towerOps';
 import { TaskTerminatedNotice } from '#/agent/task/taskOps';
 import { IAgentTaskService } from '#/agent/task/task';
@@ -53,9 +61,12 @@ import { IFeatureManager } from '#/app/feature/featureManager';
 import { IFlagService } from '#/app/flag/flag';
 import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
-import { ISessionActivityView, type SessionPendingInteraction } from '#/session/sessionActivity/sessionActivity';
+import {
+  ISessionActivityView,
+  type SessionPendingInteraction,
+} from '#/session/sessionActivity/sessionActivity';
 import { ISessionMetadata } from '#/session/sessionMetadata/sessionMetadata';
-import { type ToolCall } from '#human/llm/message';
+import type { ToolCall } from '#human/llm/message';
 import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
@@ -68,8 +79,17 @@ import { stubToolExecutorEvents, type ToolExecutorEventStubs } from '../../agent
 import { executeTool } from '../../tools/fixtures/execute-tool';
 import { stubFlag } from '../../app/flag/stubs';
 import { stubLog } from '../../_base/log/stubs';
-import { appService, createTestAgent, type TestAgentContext } from '../../harness';
-import { registerTestAgentWire, registerTestEventDispatcher, restoreTestEventDispatcher, testWireScope } from '../../wire/stubs';
+import {
+  appService,
+  createTestAgent,
+  type TestAgentContext,
+} from '../../harness';
+import {
+  registerTestAgentWire,
+  registerTestEventDispatcher,
+  restoreTestEventDispatcher,
+  testWireScope,
+} from '../../wire/stubs';
 
 const execFileAsync = promisify(execFile);
 
@@ -156,9 +176,9 @@ describe('AgentTowerService', () => {
     executorEvents = stubToolExecutorEvents();
     permissionGateRan = false;
     ix.stub(IAgentToolExecutorService, executorEvents.executor);
-    formatDenyMessage = mock((message: string) => message);
+    formatDenyMessage = jest.fn((message: string) => message);
     ix.stub(IAgentToolApprovalService, { formatDenyMessage });
-    telemetryTrack2 = mock();
+    telemetryTrack2 = jest.fn();
     ix.stub(ITelemetryService, { track2: telemetryTrack2 });
     towerFlagOn = true;
     ix.stub(IFlagService, stubFlag((id) => towerFlagOn && id === TOWER_FLAG_ID));
@@ -644,7 +664,7 @@ describe('AgentTowerService', () => {
         }),
       );
 
-      await waitForAssertion(async () => {
+      await waitUntil(async () => {
         const state = await store.load();
         expect(state.roster.agents[0]?.deathStatus).toBe('failed');
       });
@@ -703,7 +723,8 @@ describe('AgentTowerService', () => {
       };
       let deathSettled = Promise.resolve();
       const originalMarkDied = TowerStore.prototype.markAgentDied;
-      const markSpy = spyOn(TowerStore.prototype, 'markAgentDied')
+      const markSpy = jest
+        .spyOn(TowerStore.prototype, 'markAgentDied')
         .mockImplementation(function (this: TowerStore, agentId, status, reason, sessionId) {
           const pending = originalMarkDied.call(this, agentId, status, reason, sessionId);
           deathSettled = pending.then(
@@ -725,7 +746,7 @@ describe('AgentTowerService', () => {
           }),
         );
 
-        await waitForAssertion(() => expect(markSpy).toHaveBeenCalledTimes(1));
+        await waitUntil(() => expect(markSpy).toHaveBeenCalledTimes(1));
         expect(markSpy).toHaveBeenCalledWith('agent-stranger', 'failed', undefined, 'session-main');
         await deathSettled;
         const state = await store.load();
@@ -769,7 +790,7 @@ describe('AgentTowerService', () => {
 
       publishAsMain(ix, new SubagentStarted({ subagentId: 'agent-w1' }));
 
-      await waitForAssertion(async () => {
+      await waitUntil(async () => {
         const state = await store.load();
         expect(state.roster.agents[0]?.diedAt).toBeUndefined();
       });
@@ -820,8 +841,8 @@ describe('AgentTowerService', () => {
       const tower = ix.get(IAgentTowerService);
       expect(tower.isActive).toBe(false);
 
-      const markSpy = spyOn(TowerStore.prototype, 'markAgentDied');
-      const clearSpy = spyOn(TowerStore.prototype, 'clearAgentDied');
+      const markSpy = jest.spyOn(TowerStore.prototype, 'markAgentDied');
+      const clearSpy = jest.spyOn(TowerStore.prototype, 'clearAgentDied');
       try {
         publishAsMain(
           ix,
@@ -917,7 +938,7 @@ describe('AgentTowerService', () => {
       );
       publishAsMain(ix, new SubagentStarted({ subagentId: 'agent-w2' }));
 
-      await waitForAssertion(() => {
+      await waitUntil(() => {
         expect(infos.filter((entry) => entry.msg.includes('skipping'))).toHaveLength(2);
       });
       const state = await store.load();
@@ -936,14 +957,6 @@ describe('AgentTowerService', () => {
       expect(skips.find((entry) => entry.msg.includes('death mark'))?.payload).toMatchObject({
         event: 'TaskTerminatedNotice',
         agentId: 'agent-w1',
-        sessionId: 'session-main',
-        owner: 'session-other',
-        pid: process.pid,
-      });
-      const clearSkip = skips.find((entry) => entry.msg.includes('death clear'));
-      expect(clearSkip?.payload).toMatchObject({
-        event: 'SubagentStarted',
-        agentId: 'agent-w2',
         sessionId: 'session-main',
         owner: 'session-other',
         pid: process.pid,
@@ -1304,7 +1317,7 @@ describe('AgentTowerService', () => {
     id: string,
     init: { busy?: boolean; pendingInteraction?: SessionPendingInteraction; title?: string; metadataReadFails?: boolean } = {},
   ): Mock<() => Promise<void>> {
-    const exit = mock(() => Promise.resolve());
+    const exit = jest.fn(() => Promise.resolve());
     liveSessions.set(id, {
       busy: init.busy ?? false,
       pendingInteraction: init.pendingInteraction ?? 'none',
@@ -1590,12 +1603,12 @@ describe('AgentTowerService', () => {
           }),
       );
       ix.stub(ISessionContext, { cwd: repo, sessionId: 'session-fork' } as unknown as ISessionContext);
-      const adoptSpy = spyOn(TowerStore.prototype, 'adopt');
+      const adoptSpy = jest.spyOn(TowerStore.prototype, 'adopt');
       try {
         const tower = ix.get(IAgentTowerService);
         const entered = tower.enter();
 
-        await waitForAssertion(() => expect(ownerExit).toHaveBeenCalled());
+        await waitUntil(() => expect(ownerExit).toHaveBeenCalled());
         await new Promise((resolve) => setTimeout(resolve, 20));
         expect(adoptSpy).not.toHaveBeenCalled();
 
@@ -1731,7 +1744,7 @@ describe('AgentTowerService', () => {
       await tower.exit();
 
       expect(tower.isActive).toBe(false);
-      await waitForAssertion(async () => {
+      await waitUntil(async () => {
         expect((await store.load()).sessionId).toBeUndefined();
       });
       const log = await store.recentLog(5);
@@ -1759,7 +1772,8 @@ describe('AgentTowerService', () => {
 
       let releaseSettled = Promise.resolve();
       const originalRelease = TowerStore.prototype.release;
-      const releaseSpy = spyOn(TowerStore.prototype, 'release')
+      const releaseSpy = jest
+        .spyOn(TowerStore.prototype, 'release')
         .mockImplementation(function (this: TowerStore, sessionId) {
           const pending = originalRelease.call(this, sessionId);
           releaseSettled = pending.then(
@@ -1771,7 +1785,7 @@ describe('AgentTowerService', () => {
       try {
         await tower.exit();
 
-        await waitForAssertion(() => expect(releaseSpy).toHaveBeenCalledWith('session-fork'));
+        await waitUntil(() => expect(releaseSpy).toHaveBeenCalledWith('session-fork'));
         await releaseSettled;
         expect(tower.isActive).toBe(false);
         expect((await store.load()).sessionId).toBe('session-third');
@@ -1856,7 +1870,6 @@ describe('AgentTowerService', () => {
 
     const ix2 = disposables.add(new TestInstantiationService());
     ix2.stub(IFileSystemStorageService, new InMemoryStorageService());
-    ix2.stub(ILogService, stubLog());
     ix2.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
     ix2.set(IEventBus, new SyncDescriptor(EventBusService));
     ix2.stub(IAgentToolExecutorService, stubToolExecutorEvents().executor);
@@ -1959,7 +1972,6 @@ describe('AgentTowerService', () => {
 
     const ix2 = disposables.add(new TestInstantiationService());
     ix2.stub(IFileSystemStorageService, new InMemoryStorageService());
-    ix2.stub(ILogService, stubLog());
     ix2.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
     ix2.set(IEventBus, new SyncDescriptor(EventBusService));
     ix2.stub(IAgentToolExecutorService, stubToolExecutorEvents().executor);
@@ -2027,7 +2039,6 @@ describe('AgentTowerService', () => {
 
     const ix2 = disposables.add(new TestInstantiationService());
     ix2.stub(IFileSystemStorageService, new InMemoryStorageService());
-    ix2.stub(ILogService, stubLog());
     ix2.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
     ix2.set(IEventBus, new SyncDescriptor(EventBusService));
     ix2.stub(IAgentToolExecutorService, stubToolExecutorEvents().executor);
@@ -2102,7 +2113,6 @@ describe('AgentTowerService', () => {
 
       const ix2 = disposables.add(new TestInstantiationService());
       ix2.stub(IFileSystemStorageService, new InMemoryStorageService());
-    ix2.stub(ILogService, stubLog());
       ix2.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
       ix2.set(IEventBus, new SyncDescriptor(EventBusService));
       ix2.stub(IAgentToolExecutorService, stubToolExecutorEvents().executor);
@@ -2151,7 +2161,8 @@ describe('AgentTowerService', () => {
 
       let releaseSettled = Promise.resolve();
       const originalRelease = TowerStore.prototype.release;
-      const releaseSpy = spyOn(TowerStore.prototype, 'release')
+      const releaseSpy = jest
+        .spyOn(TowerStore.prototype, 'release')
         .mockImplementation(function (this: TowerStore, sessionId) {
           const pending = originalRelease.call(this, sessionId);
           releaseSettled = pending.then(
@@ -2171,7 +2182,7 @@ describe('AgentTowerService', () => {
         expect(restored.isActive).toBe(false);
         expect(restoredAdded).toEqual([]);
         expect(events).toContainEqual({ type: 'agent.status.updated', towerMode: false });
-        await waitForAssertion(() => expect(releaseSpy).toHaveBeenCalledWith('session-fork'));
+        await waitUntil(() => expect(releaseSpy).toHaveBeenCalledWith('session-fork'));
         await releaseSettled;
         expect((await new TowerStore(repo).load()).sessionId).toBe('session-original');
       } finally {
@@ -2351,7 +2362,8 @@ describe('AgentTowerService', () => {
       );
       const restored = ix2.get(IAgentTowerService);
 
-      const adoptSpy = spyOn(TowerStore.prototype, 'adopt')
+      const adoptSpy = jest
+        .spyOn(TowerStore.prototype, 'adopt')
         .mockRejectedValue(new Error('EACCES: permission denied'));
       try {
         await restoreTestEventDispatcher(
@@ -2483,7 +2495,6 @@ describe('AgentTowerService', () => {
     ix2.stub(IAgentToolExecutorService, stubToolExecutorEvents().executor);
     ix2.stub(IAgentToolApprovalService, { formatDenyMessage });
     ix2.stub(ITelemetryService, { track2: () => {} });
-    ix2.stub(ILogService, stubLog());
     ix2.stub(IFlagService, stubFlag((id) => id === TOWER_FLAG_ID));
     ix2.stub(ILogService, stubLog());
     ix2.stub(ISessionManager, {
@@ -2556,7 +2567,6 @@ describe('AgentTowerService', () => {
 
     const ix2 = disposables.add(new TestInstantiationService());
     ix2.stub(IFileSystemStorageService, new InMemoryStorageService());
-    ix2.stub(ILogService, stubLog());
     ix2.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
     ix2.set(IEventBus, new SyncDescriptor(EventBusService));
     ix2.stub(IAgentToolExecutorService, stubToolExecutorEvents().executor);
@@ -2615,7 +2625,6 @@ describe('AgentTowerService', () => {
   it('restore does not touch the profile tool overlay while tower mode is inactive', async () => {
     const ix2 = disposables.add(new TestInstantiationService());
     ix2.stub(IFileSystemStorageService, new InMemoryStorageService());
-    ix2.stub(ILogService, stubLog());
     ix2.set(IAppendLogStore, new SyncDescriptor(AppendLogStore));
     ix2.set(IEventBus, new SyncDescriptor(EventBusService));
     ix2.stub(IAgentToolExecutorService, stubToolExecutorEvents().executor);
@@ -3032,7 +3041,7 @@ describe('AgentTowerService', () => {
         { list: () => [] } as unknown as IAgentTaskService,
         { handleOf: () => undefined } as unknown as IAgentLifecycleService,
       );
-      const publish = spyOn(bus, 'publish').mockImplementationOnce(() => {
+      const publish = jest.spyOn(bus, 'publish').mockImplementationOnce(() => {
         throw new Error('forced publish failure');
       });
       try {
@@ -3248,7 +3257,7 @@ describe('AgentTowerService', () => {
         missionId: 'M1',
       });
       await flushWake();
-      await waitForAssertion(() => {
+      await waitUntil(() => {
         expect(loop.snapshot().hasPendingRequests).toBe(true);
       });
       const messages = drainWakeMessages();
@@ -3260,9 +3269,23 @@ describe('AgentTowerService', () => {
       expect(text).toContain('TowerInbox');
     });
 
-    it('includes message references and computes each related mission gate once', async () => {
+    it('includes message references and computes each related mission gate once in parallel', async () => {
       const repo = await mkdtemp(join(tmpdir(), 'tower-wake-digest-'));
-      const gate = spyOn(TowerStore.prototype, 'missionGate');
+      const original = TowerStore.prototype.missionGate;
+      let active = 0;
+      let maximum = 0;
+      const gate = jest.spyOn(TowerStore.prototype, 'missionGate').mockImplementation(
+        async function (this: TowerStore, state, mission, runtime) {
+          active += 1;
+          maximum = Math.max(maximum, active);
+          try {
+            await delay(5);
+            return await original.call(this, state, mission, runtime);
+          } finally {
+            active -= 1;
+          }
+        },
+      );
       try {
         await initGitRepo(repo);
         await writeFile(join(repo, 'README.md'), '# fixture\n');
@@ -3307,7 +3330,7 @@ describe('AgentTowerService', () => {
           missionId: 'M2',
         });
         await flushWake();
-        await waitForAssertion(() => {
+        await waitUntil(() => {
           expect(loop.snapshot().hasPendingRequests).toBe(true);
         });
         const messages = drainWakeMessages();
@@ -3323,6 +3346,8 @@ describe('AgentTowerService', () => {
         expect(gate.mock.calls.filter(([, mission]) => mission.id === 'M1')).toHaveLength(1);
         expect(gate.mock.calls.filter(([, mission]) => mission.id === 'M2')).toHaveLength(1);
         expect(gate.mock.calls[0]?.[2]?.activeAgentIds).toEqual(new Set());
+        expect(maximum).toBe(2);
+        expect(text.indexOf('M1: gate=')).toBeLessThan(text.indexOf('M2: gate='));
       } finally {
         gate.mockRestore();
         await rm(repo, { recursive: true, force: true });
@@ -3335,7 +3360,7 @@ describe('AgentTowerService', () => {
       const pending = new Promise<void>((resolve) => {
         release = resolve;
       });
-      const gate = spyOn(TowerStore.prototype, 'missionGate').mockImplementationOnce(async () => {
+      const gate = jest.spyOn(TowerStore.prototype, 'missionGate').mockImplementationOnce(async () => {
         await pending;
         return { ready: false, blocks: [], observations: {} } as never;
       });
@@ -3358,7 +3383,7 @@ describe('AgentTowerService', () => {
           messageId: 'msg-old-flush',
           missionId: 'M1',
         });
-        await waitForAssertion(() => {
+        await waitUntil(() => {
           expect(gate).toHaveBeenCalled();
         });
 
@@ -3741,7 +3766,7 @@ describe('AgentTowerService', () => {
     let slot: string;
 
     beforeEach(async () => {
-      repo = realpathSync.native(await mkdtemp(join(tmpdir(), 'tower-bash-guard-')));
+      repo = await mkdtemp(join(tmpdir(), 'tower-bash-guard-'));
       await initGitRepo(repo);
       await writeFile(join(repo, 'README.md'), '# fixture\n');
       await execFileAsync('git', ['add', 'README.md'], { cwd: repo });
@@ -3759,13 +3784,12 @@ describe('AgentTowerService', () => {
 
     function bashHookContext(command: string, cwd?: string): ResolvedToolExecutionHookContext {
       const call = toolCall('Bash', 'call_bash');
-      const bashCommand = command.replaceAll('\\', '/');
       return {
         turnId: 0,
         signal,
         toolCall: call,
         toolCalls: [call],
-        args: cwd === undefined ? { command: bashCommand } : { command: bashCommand, cwd },
+        args: cwd === undefined ? { command } : { command, cwd },
         execution: { approvalRule: 'Bash', execute: async () => ({ output: '' }) },
       };
     }
@@ -4023,7 +4047,7 @@ describe('AgentTowerService', () => {
     });
 
     it('passes commands without dangerous keywords with zero parse cost', async () => {
-      const parse = mock();
+      const parse = jest.fn();
       ix.stub(IBashParserService, { parse } as unknown as IBashParserService);
       ix.get(IAgentTowerService);
 
@@ -4039,7 +4063,7 @@ describe('AgentTowerService', () => {
       const plain = await mkdtemp(join(tmpdir(), 'tower-bash-guard-plain-'));
       try {
         ix.stub(ISessionContext, { cwd: plain, sessionId: 'session-plain' } as unknown as ISessionContext);
-        const parse = mock();
+        const parse = jest.fn();
         ix.stub(IBashParserService, { parse } as unknown as IBashParserService);
         ix.get(IAgentTowerService);
 
@@ -4053,7 +4077,7 @@ describe('AgentTowerService', () => {
     });
 
     it('vetoes conservatively when the command cannot be parsed', async () => {
-      const parse = mock(() => ({ ok: false as const, reason: 'aborted' as const }));
+      const parse = jest.fn(() => ({ ok: false as const, reason: 'aborted' as const }));
       ix.stub(IBashParserService, { parse } as unknown as IBashParserService);
       ix.get(IAgentTowerService);
 
@@ -4073,7 +4097,7 @@ describe('AgentTowerService', () => {
         isNamed: true,
         children: [],
       };
-      const parse = mock(() => ({ ok: true as const, hasError: true, root }));
+      const parse = jest.fn(() => ({ ok: true as const, hasError: true, root }));
       ix.stub(IBashParserService, { parse } as unknown as IBashParserService);
       ix.get(IAgentTowerService);
 

@@ -1,21 +1,22 @@
-import { afterEach, describe, expect, it, mock } from 'bun:test';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { afterEach, describe, expect, it, vi } from 'bun:test';
+
 import { ClientConfigClient } from '#/client-configs/node/client-configs';
-import {
-  DEFAULT_SURVEY_POPUP_CONFIG,
-  DEFAULT_SURVEY_POPUP_PAYLOAD,
-  resolveSurveyPopupConfig,
-  type SurveyPopupPayload,
-} from '#/session-rating/common/survey-popup-config';
 import {
   cloudSurveyPopupConfigFeed,
   getSurveyPopupConfig,
   peekSurveyPopupConfig,
   resetSurveyPopupConfigCache,
 } from '#/session-rating/node/survey-popup-config-feed';
+import {
+  DEFAULT_SURVEY_POPUP_CONFIG,
+  DEFAULT_SURVEY_POPUP_PAYLOAD,
+  resolveSurveyPopupConfig,
+  type SurveyPopupPayload,
+} from '#/session-rating/common/survey-popup-config';
 
 const client = new ClientConfigClient({
   region: () => 'mainland-cn',
@@ -33,7 +34,7 @@ const CLOUD_CONFIG = {
   min_time_between_global_feedback_ms: 240_000,
   long_context_survey_threshold: 100_000,
   long_context_probability: 0.9,
-  long_context_trigger_mode: 'virtual_context' as const,
+  long_context_trigger_mode: 'virtual_context',
 };
 
 const ENVELOPE = { name: 'survey_popup', config: CLOUD_CONFIG };
@@ -77,10 +78,10 @@ describe('DEFAULT_SURVEY_POPUP_CONFIG', () => {
 
 describe('getSurveyPopupConfig', () => {
   it('POSTs the survey_popup name and returns the cloud config over the defaults', async () => {
-    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
       cacheFile: null,
     });
 
@@ -95,12 +96,12 @@ describe('getSurveyPopupConfig', () => {
   });
 
   it('fills fields the cloud payload omits from the built-in defaults', async () => {
-    const fetchImpl = mock(async () =>
+    const fetchImpl = jest.fn(async () =>
       jsonResponse({ name: 'survey_popup', config: { probability: 0.5 } }),
     );
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
       cacheFile: null,
     });
 
@@ -108,7 +109,7 @@ describe('getSurveyPopupConfig', () => {
   });
 
   it('drops only the invalid field and keeps the rest', async () => {
-    const fetchImpl = mock(async () =>
+    const fetchImpl = jest.fn(async () =>
       jsonResponse({
         name: 'survey_popup',
         config: {
@@ -121,7 +122,7 @@ describe('getSurveyPopupConfig', () => {
     );
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
       cacheFile: null,
     });
 
@@ -135,7 +136,7 @@ describe('getSurveyPopupConfig', () => {
   });
 
   it('drops negative pacing values and fractional turn counts back to defaults', async () => {
-    const fetchImpl = mock(async () =>
+    const fetchImpl = jest.fn(async () =>
       jsonResponse({
         name: 'survey_popup',
         config: {
@@ -149,7 +150,7 @@ describe('getSurveyPopupConfig', () => {
     );
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
       cacheFile: null,
     });
 
@@ -157,7 +158,7 @@ describe('getSurveyPopupConfig', () => {
   });
 
   it('accepts zero pacing values as the documented no-limit semantics', async () => {
-    const fetchImpl = mock(async () =>
+    const fetchImpl = jest.fn(async () =>
       jsonResponse({
         name: 'survey_popup',
         config: {
@@ -171,7 +172,7 @@ describe('getSurveyPopupConfig', () => {
     );
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
       cacheFile: null,
     });
 
@@ -186,7 +187,7 @@ describe('getSurveyPopupConfig', () => {
   });
 
   it('drops out-of-range probabilities back to the built-in defaults', async () => {
-    const fetchImpl = mock(async () =>
+    const fetchImpl = jest.fn(async () =>
       jsonResponse({
         name: 'survey_popup',
         config: { probability: 2, long_context_probability: -0.5 },
@@ -194,7 +195,7 @@ describe('getSurveyPopupConfig', () => {
     );
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
       cacheFile: null,
     });
 
@@ -205,12 +206,12 @@ describe('getSurveyPopupConfig', () => {
   });
 
   it('drops a non-numeric long-context threshold back to the built-in default', async () => {
-    const fetchImpl = mock(async () =>
+    const fetchImpl = jest.fn(async () =>
       jsonResponse({ name: 'survey_popup', config: { long_context_survey_threshold: 'never' } }),
     );
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
       cacheFile: null,
     });
 
@@ -220,12 +221,12 @@ describe('getSurveyPopupConfig', () => {
   });
 
   it('keeps a non-positive threshold so the policy layer can close the long-context arm', async () => {
-    const fetchImpl = mock(async () =>
+    const fetchImpl = jest.fn(async () =>
       jsonResponse({ name: 'survey_popup', config: { long_context_survey_threshold: 0 } }),
     );
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
       cacheFile: null,
     });
 
@@ -233,10 +234,10 @@ describe('getSurveyPopupConfig', () => {
   });
 
   it('falls back to the defaults when the payload is not an object', async () => {
-    const fetchImpl = mock(async () => jsonResponse({ name: 'survey_popup', config: 'nope' }));
+    const fetchImpl = jest.fn(async () => jsonResponse({ name: 'survey_popup', config: 'nope' }));
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
       cacheFile: null,
     });
 
@@ -244,12 +245,12 @@ describe('getSurveyPopupConfig', () => {
   });
 
   it('falls back to the defaults when the fetch fails', async () => {
-    const fetchImpl = mock(async () => {
+    const fetchImpl = jest.fn(async () => {
       throw new Error('offline');
     });
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
       cacheFile: null,
     });
 
@@ -257,16 +258,12 @@ describe('getSurveyPopupConfig', () => {
   });
 
   it('serves the in-process cache within a day and refetches after it', async () => {
-    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
-    await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-      now,
-      cacheFile: null,
-    });
+    await getSurveyPopupConfig(client, { fetchImpl: fetchImpl as typeof fetch, now, cacheFile: null });
     const cached = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
       now: now + 60_000,
       cacheFile: null,
     });
@@ -274,7 +271,7 @@ describe('getSurveyPopupConfig', () => {
     expect(fetchImpl).toHaveBeenCalledTimes(1);
 
     await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
       now: now + 25 * 60 * 60 * 1000,
       cacheFile: null,
     });
@@ -283,23 +280,19 @@ describe('getSurveyPopupConfig', () => {
 
   it('persists the fetched config to the disk cache for the next process', async () => {
     const cacheFile = await makeCacheFile();
-    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
-    await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-      now,
-      cacheFile,
-    });
+    await getSurveyPopupConfig(client, { fetchImpl: fetchImpl as typeof fetch, now, cacheFile });
 
     const persisted = JSON.parse(await readFile(cacheFile, 'utf-8')) as { config: unknown };
     expect(persisted.config).toEqual(CLOUD_CONFIG);
 
     resetSurveyPopupConfigCache(client);
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: mock(async () => {
+      fetchImpl: jest.fn(async () => {
         throw new Error('must not fetch');
-      }) as unknown as unknown as typeof fetch,
+      }) as unknown as typeof fetch,
       now: now + 60_000,
       cacheFile,
     });
@@ -308,18 +301,14 @@ describe('getSurveyPopupConfig', () => {
 
   it('ignores a stale disk cache and falls back to the defaults when the refetch fails', async () => {
     const cacheFile = await makeCacheFile();
-    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
-    await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-      now,
-      cacheFile,
-    });
+    await getSurveyPopupConfig(client, { fetchImpl: fetchImpl as typeof fetch, now, cacheFile });
     resetSurveyPopupConfigCache(client);
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: mock(async () => jsonResponse('no', 503)) as unknown as unknown as typeof fetch,
+      fetchImpl: jest.fn(async () => jsonResponse('no', 503)) as unknown as typeof fetch,
       now: now + 25 * 60 * 60 * 1000,
       cacheFile,
     });
@@ -333,28 +322,19 @@ describe('peekSurveyPopupConfig', () => {
   });
 
   it('sees the fetched config once the cache is warm', async () => {
-    const fetchImpl = mock(async () => jsonResponse(ENVELOPE));
+    const fetchImpl = jest.fn(async () => jsonResponse(ENVELOPE));
     const now = Date.now();
 
-    await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
-      now,
-      cacheFile: null,
-    });
+    await getSurveyPopupConfig(client, { fetchImpl: fetchImpl as typeof fetch, now, cacheFile: null });
 
-    expect(peekSurveyPopupConfig(client, now + 60_000)).toEqual({
-      ...CLOUD_CONFIG,
-      model_overrides: {},
-    });
-    expect(peekSurveyPopupConfig(client, now + 25 * 60 * 60 * 1000)).toEqual(
-      DEFAULT_SURVEY_POPUP_PAYLOAD,
-    );
+    expect(peekSurveyPopupConfig(client, now + 60_000)).toEqual({ ...CLOUD_CONFIG, model_overrides: {} });
+    expect(peekSurveyPopupConfig(client, now + 25 * 60 * 60 * 1000)).toEqual(DEFAULT_SURVEY_POPUP_PAYLOAD);
   });
 });
 
 describe('model_overrides parsing', () => {
   it('parses override entries keyed by model id', async () => {
-    const fetchImpl = mock(async () =>
+    const fetchImpl = jest.fn(async () =>
       jsonResponse({
         name: 'survey_popup',
         config: {
@@ -365,7 +345,7 @@ describe('model_overrides parsing', () => {
     );
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
       cacheFile: null,
     });
 
@@ -375,7 +355,7 @@ describe('model_overrides parsing', () => {
   });
 
   it('drops an entire override entry when any of its fields is invalid', async () => {
-    const fetchImpl = mock(async () =>
+    const fetchImpl = jest.fn(async () =>
       jsonResponse({
         name: 'survey_popup',
         config: {
@@ -386,7 +366,7 @@ describe('model_overrides parsing', () => {
     );
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
       cacheFile: null,
     });
 
@@ -394,7 +374,7 @@ describe('model_overrides parsing', () => {
   });
 
   it('keeps sibling entries when one entry is invalid', async () => {
-    const fetchImpl = mock(async () =>
+    const fetchImpl = jest.fn(async () =>
       jsonResponse({
         name: 'survey_popup',
         config: {
@@ -408,7 +388,7 @@ describe('model_overrides parsing', () => {
     );
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
       cacheFile: null,
     });
 
@@ -416,7 +396,7 @@ describe('model_overrides parsing', () => {
   });
 
   it('strips unknown keys inside an override entry', async () => {
-    const fetchImpl = mock(async () =>
+    const fetchImpl = jest.fn(async () =>
       jsonResponse({
         name: 'survey_popup',
         config: {
@@ -427,7 +407,7 @@ describe('model_overrides parsing', () => {
     );
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
       cacheFile: null,
     });
 
@@ -435,28 +415,25 @@ describe('model_overrides parsing', () => {
   });
 
   it('drops non-object entries and treats a non-object table as empty', async () => {
-    const fetchImpl = mock(async () =>
+    const fetchImpl = jest.fn(async () =>
       jsonResponse({
         name: 'survey_popup',
-        config: {
-          ...CLOUD_CONFIG,
-          model_overrides: { k3: 42, 'other-model': { probability: 0.5 } },
-        },
+        config: { ...CLOUD_CONFIG, model_overrides: { k3: 42, 'other-model': { probability: 0.5 } } },
       }),
     );
 
     const result = await getSurveyPopupConfig(client, {
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl as typeof fetch,
       cacheFile: null,
     });
     expect(result.model_overrides).toEqual({ 'other-model': { probability: 0.5 } });
 
     resetSurveyPopupConfigCache(client);
-    const stringTable = mock(async () =>
+    const stringTable = jest.fn(async () =>
       jsonResponse({ name: 'survey_popup', config: { ...CLOUD_CONFIG, model_overrides: 'yes' } }),
     );
     const fallback = await getSurveyPopupConfig(client, {
-      fetchImpl: stringTable as unknown as typeof fetch,
+      fetchImpl: stringTable as typeof fetch,
       cacheFile: null,
     });
     expect(fallback.model_overrides).toEqual({});
@@ -490,10 +467,10 @@ describe('resolveSurveyPopupConfig', () => {
 describe('cloudSurveyPopupConfigFeed', () => {
   function stubClient() {
     return {
-      get: mock(async () => undefined),
-      peek: mock(() => undefined),
+      get: jest.fn(async () => undefined),
+      peek: jest.fn(() => undefined),
       region: () => 'mainland-cn' as const,
-      reset: mock(),
+      reset: jest.fn(),
     };
   }
 
@@ -536,7 +513,10 @@ describe('cloudSurveyPopupConfigFeed', () => {
     ],
   ])('skips the fetch when the token provider %s', async (_kind, accessToken) => {
     const stub = stubClient();
-    const feed = cloudSurveyPopupConfigFeed(stub, accessToken as () => Promise<string | undefined>);
+    const feed = cloudSurveyPopupConfigFeed(
+      stub,
+      accessToken as () => Promise<string | undefined>,
+    );
     await flush();
     expect(stub.get).not.toHaveBeenCalled();
     expect(feed.readyForEvaluation()).toBe(true);

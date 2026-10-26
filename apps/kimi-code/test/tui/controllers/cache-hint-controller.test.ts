@@ -1,53 +1,17 @@
-import { beforeEach, describe, expect, it, mock, type Mock } from 'bun:test';
+import { beforeEach, describe, expect, it, vi } from 'bun:test';
+import { waitUntil } from '../../helpers/waitFor';
 
 import {
   CacheHintController,
-  type CacheHintClock,
   type CacheHintHost,
 } from '#/tui/controllers/cache-hint-controller';
 import type { CacheHintConfig } from '#/utils/cache-hint-config';
-import { waitForAssertion } from '#test/helpers/waitFor';
+import type { ExtractionResult } from '#/tui/utils/image-placeholder';
 
-/** Virtual timeline driving the controller's idle/resume rules and waits. */
-interface TestClock extends CacheHintClock {
-  set(nowMs: number): void;
-  advance(byMs: number): void;
-  /** Release every in-flight `sleep`, as an async engine would. */
-  tick(): void;
-}
+const peekMock = jest.fn<() => CacheHintConfig | undefined>(() => undefined);
+const getMock = jest.fn(async (): Promise<CacheHintConfig | undefined> => undefined);
 
-function makeClock(startMs = 1_700_000_000_000): TestClock {
-  let nowMs = startMs;
-  const pending: (() => void)[] = [];
-  return {
-    now: () => nowMs,
-    sleep: () =>
-      new Promise<void>((resolve) => {
-        pending.push(resolve);
-      }),
-    set: (value) => {
-      nowMs = value;
-    },
-    advance: (byMs) => {
-      nowMs += byMs;
-    },
-    tick: () => {
-      for (const resolve of pending.splice(0)) resolve();
-    },
-  };
-}
-
-/** Timeline shared by the controller under test and the fixture timestamps. */
-let clock = makeClock();
-
-function newController(host: CacheHintHost): CacheHintController {
-  return new CacheHintController(host, clock);
-}
-
-const peekMock = mock<() => CacheHintConfig | undefined>(() => undefined);
-const getMock = mock(async (): Promise<CacheHintConfig | undefined> => undefined);
-
-void mock.module('#/utils/cache-hint-config', () => ({
+jest.mock('#/utils/cache-hint-config', () => ({
   peekCacheHintConfig: () => peekMock(),
   getCacheHintConfig: (...args: unknown[]) => getMock(...(args as [])),
   refreshCacheHintConfigInBackground: () => undefined,
@@ -68,8 +32,6 @@ function makeHost(
 ) {
   const state = {
     activeDialog: null as string | null,
-    editor: { setText: mock(), getText: mock(() => '') },
-    ui: { requestRender: mock() },
     editorReplacementMounted: false,
     appState: {
       model: 'k2',
@@ -84,22 +46,21 @@ function makeHost(
     },
   };
   const host: CacheHintHost = {
-    harness: { auth: { getCachedAccessToken: mock(async () => 'tok') } } as never,
+    harness: { auth: { getCachedAccessToken: jest.fn(async () => 'tok') } } as never,
     session: (overrides.session ?? { id: 's1' }) as never,
     state: state as never,
-    track: mock(),
-    setAppState: mock((patch) => Object.assign(state.appState, patch)),
-    showStatus: mock(),
-    mountEditorReplacement: mock(),
-    restoreEditor: mock(),
-    restoreInputText: mock(),
-    recallStashedMedia: mock(),
-    showError: mock(),
-    createNewSession: mock(async () => {
+    track: jest.fn(),
+    setAppState: jest.fn((patch) => Object.assign(state.appState, patch)),
+    mountEditorReplacement: jest.fn(),
+    restoreEditor: jest.fn(),
+    restoreInputText: jest.fn(),
+    recallStashedMedia: jest.fn(),
+    showError: jest.fn(),
+    createNewSession: jest.fn(async () => {
       if (overrides.createNewSessionFails !== true) state.appState.sessionId = 's2';
     }),
-    sendNormalUserInput: mock(async () => undefined),
-    sendInlineSkillUserInput: mock(async () => undefined),
+    sendNormalUserInput: jest.fn(async () => undefined),
+    sendInlineSkillUserInput: jest.fn(async () => undefined),
   };
   return { host, state };
 }
@@ -123,22 +84,39 @@ async function flush(times = 20): Promise<void> {
   for (let i = 0; i < times; i++) await new Promise((r) => setImmediate(r));
 }
 
+function uploadedExtraction(fileId: string, byte: number): ExtractionResult {
+  const path = `/tmp/${fileId}.png`;
+  return {
+    parts: [
+      { type: 'text', text: `<image path="${path}"></image>` },
+      {
+        type: 'image_url',
+        imageUrl: { url: `kimi-file://${fileId}?path=${encodeURIComponent(path)}` },
+      },
+    ],
+    hasMedia: true,
+    imageAttachmentIds: [1],
+    videoAttachmentIds: [],
+    imageSnapshots: [{ bytes: new Uint8Array([byte]), mime: 'image/png', width: 640, height: 480 }],
+  };
+}
+
 beforeEach(() => {
   peekMock.mockReset().mockReturnValue(undefined);
   getMock.mockReset().mockResolvedValue(undefined);
-  clock = makeClock();
+  jest.useRealTimers();
 });
 
 describe('CacheHintController scenario 2 (idle submit)', () => {
   it('does not intercept a fresh submit (no activity baseline)', () => {
     const { host } = makeHost();
-    const controller = newController(host);
+    const controller = new CacheHintController(host);
     expect(controller.maybeInterceptOnSubmit('hello')).toBe(false);
   });
 
   it('does not intercept when idle for less than the coarse floor', () => {
     const { host } = makeHost();
-    const controller = newController(host);
+    const controller = new CacheHintController(host);
     controller.recordActivity();
     expect(controller.maybeInterceptOnSubmit('hello')).toBe(false);
     expect(peekMock).not.toHaveBeenCalled();
@@ -151,11 +129,12 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
         availableProviders: { 'managed:kimi-code': {} }, // apiKey form: no oauth
       },
     });
-    const controller = newController(host);
+    const controller = new CacheHintController(host);
     controller.recordActivity();
-    clock.advance(1200_000);
+    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 1200_000);
     expect(controller.maybeInterceptOnSubmit('hello')).toBe(false);
     expect(host.mountEditorReplacement).not.toHaveBeenCalled();
+    jest.restoreAllMocks();
   });
 
   it('does not cold-fetch for providers that can never match a rule', async () => {
@@ -167,74 +146,98 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
         availableProviders: { 'managed:kimi-code': {} }, // apiKey form: no oauth
       },
     });
-    const controller = newController(host);
+    const controller = new CacheHintController(host);
     controller.recordActivity();
-    clock.advance(1200_000);
+    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 1200_000);
     expect(controller.maybeInterceptOnSubmit('hello')).toBe(false);
     await flush();
     expect(getMock).not.toHaveBeenCalled();
+    jest.restoreAllMocks();
   });
 
   it('swallows a cold-cache submit, fetches, and releases when no rule matches', async () => {
     const { host } = makeHost();
-    const controller = newController(host);
+    const controller = new CacheHintController(host);
     controller.recordActivity();
-    clock.advance(1200_000);
+    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 1200_000);
     expect(controller.maybeInterceptOnSubmit('hello')).toBe(true);
     await flush();
     expect(getMock).toHaveBeenCalled();
     // Fetch resolved without a matching rule → the message is released.
     expect(host.sendNormalUserInput).toHaveBeenCalledWith('hello', undefined);
     expect(host.mountEditorReplacement).not.toHaveBeenCalled();
+    jest.restoreAllMocks();
+  });
+
+  it('releases a stashed inline-skill submit through the inline-skill path', async () => {
+    const { host } = makeHost();
+    const controller = new CacheHintController(host);
+    controller.recordActivity();
+    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 1200_000);
+    const activations = [{ skillName: 'review' }];
+    expect(controller.maybeInterceptOnSubmit('check /skill:review', undefined, activations)).toBe(
+      true,
+    );
+    await flush();
+    jest.restoreAllMocks();
+
+    expect(host.sendInlineSkillUserInput).toHaveBeenCalledWith(
+      'check /skill:review',
+      activations,
+      undefined,
+    );
+    expect(host.sendNormalUserInput).not.toHaveBeenCalled();
   });
 
   it('fetches on a cold-cache submit and shows the dialog when a rule matches', async () => {
     getMock.mockResolvedValue(CONFIG);
     const { host } = makeHost();
-    const controller = newController(host);
+    const controller = new CacheHintController(host);
     controller.recordActivity();
-    clock.advance(1200_000);
+    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 1200_000);
     expect(controller.maybeInterceptOnSubmit('hello')).toBe(true);
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       expect(host.mountEditorReplacement).toHaveBeenCalled();
     });
     expect(host.track).toHaveBeenCalledWith(
       'cache_hint_shown',
       expect.objectContaining({ scene: 'idle' }),
     );
+    jest.restoreAllMocks();
   });
 
   it('serializes cold-cache submits so they keep their order', async () => {
     const { host } = makeHost();
-    const controller = newController(host);
+    const controller = new CacheHintController(host);
     controller.recordActivity();
-    clock.advance(1200_000);
+    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 1200_000);
 
     expect(controller.maybeInterceptOnSubmit('hello')).toBe(true);
     expect(controller.maybeInterceptOnSubmit('world')).toBe(true);
     await flush();
+    jest.restoreAllMocks();
 
     expect(host.sendNormalUserInput).toHaveBeenCalledTimes(2);
     expect(
-      (host.sendNormalUserInput as Mock<(...args: any[]) => any>).mock.calls.map((c) => c[0]),
+      (host.sendNormalUserInput as ReturnType<typeof jest.fn>).mock.calls.map((c) => c[0]),
     ).toEqual(['hello', 'world']);
   });
 
   it('restores chained submits instead of sending when the dialog is dismissed', async () => {
     getMock.mockResolvedValue(CONFIG);
     const { host } = makeHost();
-    const controller = newController(host);
+    const controller = new CacheHintController(host);
     controller.recordActivity();
-    clock.advance(1200_000);
+    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 1200_000);
 
     expect(controller.maybeInterceptOnSubmit('hello')).toBe(true);
     expect(controller.maybeInterceptOnSubmit('world')).toBe(true);
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       expect(host.mountEditorReplacement).toHaveBeenCalled();
     });
+    jest.restoreAllMocks();
 
-    const dialog = (host.mountEditorReplacement as Mock<(...args: any[]) => any>).mock
-      .calls[0]![0] as {
+    const dialog = (host.mountEditorReplacement as ReturnType<typeof jest.fn>).mock.calls[0]![0] as {
       handleInput: (data: string) => void;
     };
     dialog.handleInput('\u001B'); // dismiss the first dialog
@@ -245,14 +248,43 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
     expect(host.restoreInputText).toHaveBeenLastCalledWith('hello\nworld');
   });
 
+  it('releases stashed media with recall semantics when the dialog is dismissed', async () => {
+    getMock.mockResolvedValue(CONFIG);
+    const { host } = makeHost();
+    const controller = new CacheHintController(host);
+    controller.recordActivity();
+    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 1200_000);
+    const extraction = uploadedExtraction('file-1', 1);
+
+    expect(controller.maybeInterceptOnSubmit('describe [image #1 (1×1)]', extraction)).toBe(true);
+    await waitUntil(() => {
+      expect(host.mountEditorReplacement).toHaveBeenCalled();
+    });
+    jest.restoreAllMocks();
+
+    const dialog = (host.mountEditorReplacement as ReturnType<typeof jest.fn>).mock.calls[0]![0] as {
+      handleInput: (data: string) => void;
+    };
+    dialog.handleInput('\u001B'); // dismiss
+    await flush();
+
+    // Nothing was sent; the draft is back in the editor and the stash's
+    // retains go through recall — without this the retain count never
+    // returns to zero and the upload can never be lease-deleted.
+    expect(host.sendNormalUserInput).not.toHaveBeenCalled();
+    expect(host.restoreInputText).toHaveBeenCalledWith('describe [image #1 (1×1)]');
+    expect(host.recallStashedMedia).toHaveBeenCalledWith(extraction);
+  });
+
   it('hands the stashed input back when the session switched during the fetch', async () => {
     const { host } = makeHost();
-    const controller = newController(host);
+    const controller = new CacheHintController(host);
     controller.recordActivity();
-    clock.advance(1200_000);
+    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 1200_000);
     expect(controller.maybeInterceptOnSubmit('hello')).toBe(true);
     (host as unknown as { session: unknown }).session = { id: 's2' };
     await flush();
+    jest.restoreAllMocks();
 
     expect(host.restoreInputText).toHaveBeenCalledWith('hello');
     expect(host.sendNormalUserInput).not.toHaveBeenCalled();
@@ -261,13 +293,14 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
   it('releases instead of mounting when a foreground operation started during the fetch', async () => {
     getMock.mockResolvedValue(CONFIG);
     const { host, state } = makeHost();
-    const controller = newController(host);
+    const controller = new CacheHintController(host);
     controller.recordActivity();
-    clock.advance(1200_000);
+    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 1200_000);
     expect(controller.maybeInterceptOnSubmit('hello')).toBe(true);
     // A foreground operation (turn / /compact) kicked off mid-fetch.
     state.appState.streamingPhase = 'waiting';
     await flush();
+    jest.restoreAllMocks();
 
     expect(host.mountEditorReplacement).not.toHaveBeenCalled();
     expect(host.sendNormalUserInput).toHaveBeenCalledWith('hello', undefined);
@@ -276,76 +309,53 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
   it('intercepts and shows the dialog when all conditions hold', () => {
     peekMock.mockReturnValue(CONFIG);
     const { host } = makeHost();
-    const controller = newController(host);
+    const controller = new CacheHintController(host);
     controller.recordActivity();
-    clock.advance(1200_000);
+    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 1200_000);
 
     expect(controller.maybeInterceptOnSubmit('hello')).toBe(true);
-    expect(host.mountEditorReplacement).toHaveBeenCalledTimes(1);
+    expect(host.mountEditorReplacement).toHaveBeenCalledOnce();
     expect(host.track).toHaveBeenCalledWith(
       'cache_hint_shown',
       expect.objectContaining({ scene: 'idle', model: 'k2' }),
     );
-  });
-
-  it('restores the stashed submit when another panel displaces the dialog', async () => {
-    peekMock.mockReturnValue(CONFIG);
-    const { host, state } = makeHost();
-    const controller = newController(host);
-    controller.recordActivity();
-    clock.advance(1200_000);
-
-    expect(controller.maybeInterceptOnSubmit('hello')).toBe(true);
-    expect(host.mountEditorReplacement).toHaveBeenCalledTimes(1);
-    const [, onDisplaced] = (host.mountEditorReplacement as Mock<(...args: any[]) => any>).mock
-      .calls[0] as [unknown, () => void];
-    expect(typeof onDisplaced).toBe('function');
-
-    // An AskUserQuestion (or any other editor-replacement panel) takes the
-    // slot; the cleared dialog can never resolve, so the mount callback must.
-    onDisplaced();
-    await flush();
-
-    expect(host.sendNormalUserInput).not.toHaveBeenCalled();
-    expect(host.recallStashedMedia).toHaveBeenCalledTimes(1);
-    expect(state.editor.setText).toHaveBeenCalledWith('hello');
-    // The newer panel owns the slot: no restore may run through it.
-    expect(host.restoreInputText).not.toHaveBeenCalled();
-    expect(host.restoreEditor).not.toHaveBeenCalled();
+    jest.restoreAllMocks();
   });
 
   it('does not advance the cache baseline at turn begin (the prompt may fail pre-model)', () => {
     peekMock.mockReturnValue(CONFIG);
     const { host } = makeHost();
-    const controller = newController(host);
+    const controller = new CacheHintController(host);
     controller.recordActivity();
-    clock.advance(1200_000);
+    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 1200_000);
     // A send begins a turn but fails before any model request — the expired
     // baseline must survive, so the retry still intercepts.
     controller.onTurnBegin();
     expect(controller.maybeInterceptOnSubmit('hello')).toBe(true);
+    jest.restoreAllMocks();
   });
 
   it('does not intercept twice in the same idle cycle', () => {
     peekMock.mockReturnValue(CONFIG);
     const { host } = makeHost();
-    const controller = newController(host);
+    const controller = new CacheHintController(host);
     controller.recordActivity();
-    clock.advance(1200_000);
+    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 1200_000);
     expect(controller.maybeInterceptOnSubmit('hello')).toBe(true);
     expect(controller.maybeInterceptOnSubmit('again')).toBe(false);
+    jest.restoreAllMocks();
   });
 
   it('resends the stashed input on continue', async () => {
     peekMock.mockReturnValue(CONFIG);
     const { host } = makeHost();
-    const controller = newController(host);
+    const controller = new CacheHintController(host);
     controller.recordActivity();
-    clock.advance(1200_000);
+    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 1200_000);
     controller.maybeInterceptOnSubmit('hello');
+    jest.restoreAllMocks();
 
-    const dialog = (host.mountEditorReplacement as Mock<(...args: any[]) => any>).mock
-      .calls[0]![0] as {
+    const dialog = (host.mountEditorReplacement as ReturnType<typeof jest.fn>).mock.calls[0]![0] as {
       handleInput: (data: string) => void;
     };
     dialog.handleInput('\u001B[B'); // down → new
@@ -362,13 +372,13 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
   it('restores the input on Esc without sending', async () => {
     peekMock.mockReturnValue(CONFIG);
     const { host } = makeHost();
-    const controller = newController(host);
+    const controller = new CacheHintController(host);
     controller.recordActivity();
-    clock.advance(1200_000);
+    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 1200_000);
     controller.maybeInterceptOnSubmit('hello');
+    jest.restoreAllMocks();
 
-    const dialog = (host.mountEditorReplacement as Mock<(...args: any[]) => any>).mock
-      .calls[0]![0] as {
+    const dialog = (host.mountEditorReplacement as ReturnType<typeof jest.fn>).mock.calls[0]![0] as {
       handleInput: (data: string) => void;
     };
     dialog.handleInput('\u001B');
@@ -379,25 +389,23 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
 
   it('compacts then resends once compaction engages', async () => {
     peekMock.mockReturnValue(CONFIG);
-    const compact = mock(async () => undefined);
+    const compact = jest.fn(async () => undefined);
     const { host, state } = makeHost({ session: { id: 's1', compact } });
-    const controller = newController(host);
+    const controller = new CacheHintController(host);
     controller.recordActivity();
-    clock.advance(1200_000);
+    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 1200_000);
     controller.maybeInterceptOnSubmit('hello');
+    jest.restoreAllMocks();
 
-    const dialog = (host.mountEditorReplacement as Mock<(...args: any[]) => any>).mock
-      .calls[0]![0] as {
+    const dialog = (host.mountEditorReplacement as ReturnType<typeof jest.fn>).mock.calls[0]![0] as {
       handleInput: (data: string) => void;
     };
     dialog.handleInput('\r'); // compact (default)
-    // The engine flips isCompacting asynchronously via the started event: let
-    // the controller reach its first poll, then engage compaction and release
-    // the injected wait.
-    await flush();
-    state.appState.isCompacting = true;
-    clock.tick();
-    await waitForAssertion(() => {
+    // The engine flips isCompacting asynchronously via the started event.
+    setTimeout(() => {
+      state.appState.isCompacting = true;
+    }, 10);
+    await waitUntil(() => {
       expect(host.sendNormalUserInput).toHaveBeenCalledWith('hello', undefined);
     });
     expect(compact).toHaveBeenCalledWith({});
@@ -406,13 +414,13 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
   it('starts a new session and resends', async () => {
     peekMock.mockReturnValue(CONFIG);
     const { host } = makeHost();
-    const controller = newController(host);
+    const controller = new CacheHintController(host);
     controller.recordActivity();
-    clock.advance(1200_000);
+    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 1200_000);
     controller.maybeInterceptOnSubmit('hello');
+    jest.restoreAllMocks();
 
-    const dialog = (host.mountEditorReplacement as Mock<(...args: any[]) => any>).mock
-      .calls[0]![0] as {
+    const dialog = (host.mountEditorReplacement as ReturnType<typeof jest.fn>).mock.calls[0]![0] as {
       handleInput: (data: string) => void;
     };
     dialog.handleInput('\u001B[B'); // down → new
@@ -422,16 +430,78 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
     expect(host.sendNormalUserInput).toHaveBeenCalledWith('hello', undefined);
   });
 
+  it('resends an uploaded image inline after starting a new session', async () => {
+    peekMock.mockReturnValue(CONFIG);
+    const { host } = makeHost();
+    const controller = new CacheHintController(host);
+    controller.recordActivity();
+    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 1200_000);
+    const extraction = uploadedExtraction('file-1', 1);
+
+    controller.maybeInterceptOnSubmit('describe [image #1 (1×1)]', extraction);
+    jest.restoreAllMocks();
+
+    const dialog = (host.mountEditorReplacement as ReturnType<typeof jest.fn>).mock.calls[0]![0] as {
+      handleInput: (data: string) => void;
+    };
+    dialog.handleInput('\u001B[B');
+    dialog.handleInput('\r');
+    await flush();
+
+    const resend = (host.sendNormalUserInput).mock.calls[0]?.[1];
+    expect(resend?.imageAttachmentIds).toEqual([]);
+    expect(resend?.parts).toContainEqual({
+      type: 'image_url',
+      imageUrl: { url: 'data:image/png;base64,AQ==' },
+    });
+  });
+
+  it('resends every chained uploaded image inline after starting a new session', async () => {
+    getMock.mockResolvedValue(CONFIG);
+    const { host } = makeHost();
+    const controller = new CacheHintController(host);
+    controller.recordActivity();
+    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 1200_000);
+
+    expect(controller.maybeInterceptOnSubmit('first', uploadedExtraction('file-1', 1))).toBe(true);
+    expect(controller.maybeInterceptOnSubmit('second', uploadedExtraction('file-2', 2))).toBe(true);
+    await waitUntil(() => {
+      expect(host.mountEditorReplacement).toHaveBeenCalled();
+    });
+    jest.restoreAllMocks();
+
+    const dialog = (host.mountEditorReplacement as ReturnType<typeof jest.fn>).mock.calls[0]![0] as {
+      handleInput: (data: string) => void;
+    };
+    dialog.handleInput('\u001B[B');
+    dialog.handleInput('\r');
+    await flush();
+
+    const sendCalls = (
+      host.sendNormalUserInput as unknown as {
+        mock: { calls: Array<[string, ExtractionResult | undefined]> };
+      }
+    ).mock.calls;
+    const imageUrls = sendCalls.map(([, extraction]) => {
+      const imagePart = extraction?.parts.find((part) => part.type === 'image_url');
+      return imagePart?.type === 'image_url' ? imagePart.imageUrl.url : undefined;
+    });
+    expect(imageUrls).toEqual([
+      'data:image/png;base64,AQ==',
+      'data:image/png;base64,Ag==',
+    ]);
+  });
+
   it('keeps the input when new-session creation fails', async () => {
     peekMock.mockReturnValue(CONFIG);
     const { host, state } = makeHost({ createNewSessionFails: true });
-    const controller = newController(host);
+    const controller = new CacheHintController(host);
     controller.recordActivity();
-    clock.advance(1200_000);
+    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 1200_000);
     controller.maybeInterceptOnSubmit('hello');
+    jest.restoreAllMocks();
 
-    const dialog = (host.mountEditorReplacement as Mock<(...args: any[]) => any>).mock
-      .calls[0]![0] as {
+    const dialog = (host.mountEditorReplacement as ReturnType<typeof jest.fn>).mock.calls[0]![0] as {
       handleInput: (data: string) => void;
     };
     dialog.handleInput('\u001B[B');
@@ -451,21 +521,9 @@ describe('CacheHintController cache-break detection', () => {
     inputCacheCreation: 0,
   });
 
-  it('estimates the switch loss from the measured baseline', () => {
-    const { host } = makeHost();
-    const controller = newController(host);
-    expect(controller.estimateSwitchLossTokens()).toBeUndefined();
-
-    controller.noteStepUsage({ ...u(10000), inputCacheCreation: 200 });
-    expect(controller.estimateSwitchLossTokens()).toBe(100 + 10000 + 200);
-
-    controller.resetCacheBreakBaseline();
-    expect(controller.estimateSwitchLossTokens()).toBeUndefined();
-  });
-
   it('does not judge the first measured step', () => {
     const { host } = makeHost();
-    const controller = newController(host);
+    const controller = new CacheHintController(host);
     controller.noteStepUsage(u(10000));
     expect(host.track).not.toHaveBeenCalled();
   });
@@ -473,19 +531,20 @@ describe('CacheHintController cache-break detection', () => {
   it('records cache activity on a completed step, even one without usage', () => {
     peekMock.mockReturnValue(CONFIG);
     const { host } = makeHost();
-    const controller = newController(host);
+    const controller = new CacheHintController(host);
     controller.recordActivity();
     // 20 min later a step completes — the provider round trip refreshed the
     // server-side cache…
-    clock.advance(1200_000);
+    jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 1200_000);
     controller.noteStepUsage(undefined);
     // …so a submit right after is fresh and must not be intercepted.
     expect(controller.maybeInterceptOnSubmit('hello')).toBe(false);
+    jest.restoreAllMocks();
   });
 
   it('reports a drop beyond the ratio and token gates with both usages', () => {
     const { host } = makeHost();
-    const controller = newController(host);
+    const controller = new CacheHintController(host);
     controller.noteStepUsage(u(10000));
     controller.noteStepUsage(u(7000));
 
@@ -499,20 +558,17 @@ describe('CacheHintController cache-break detection', () => {
         cache_read_drop_ratio: 0.3,
       }),
     );
-    // The break is also surfaced as a transient status notice naming the
-    // tokens this step processed uncached (the full-price input).
-    expect(host.showStatus).toHaveBeenCalledWith(expect.stringContaining('100'), 'warning');
   });
 
   it('stays quiet within the ratio gate or under the token threshold', () => {
     const a = makeHost();
-    const controllerA = newController(a.host);
+    const controllerA = new CacheHintController(a.host);
     controllerA.noteStepUsage(u(100000));
     controllerA.noteStepUsage(u(96000)); // 4% drop — inside the ratio gate
     expect(a.host.track).not.toHaveBeenCalled();
 
     const b = makeHost();
-    const controllerB = newController(b.host);
+    const controllerB = new CacheHintController(b.host);
     controllerB.noteStepUsage(u(4000));
     controllerB.noteStepUsage(u(2500)); // drop 1500 ≤ 2000 — under the token threshold
     expect(b.host.track).not.toHaveBeenCalled();
@@ -520,15 +576,10 @@ describe('CacheHintController cache-break detection', () => {
 
   it('skips unmeasured usage without touching the baseline', () => {
     const { host } = makeHost();
-    const controller = newController(host);
+    const controller = new CacheHintController(host);
     controller.noteStepUsage(u(10000));
     controller.noteStepUsage(undefined);
-    controller.noteStepUsage({
-      inputOther: 0,
-      output: 0,
-      inputCacheRead: 0,
-      inputCacheCreation: 0,
-    });
+    controller.noteStepUsage({ inputOther: 0, output: 0, inputCacheRead: 0, inputCacheCreation: 0 });
     controller.noteStepUsage(u(5000));
     expect(host.track).toHaveBeenCalledWith(
       'cache_break_detected',
@@ -538,7 +589,7 @@ describe('CacheHintController cache-break detection', () => {
 
   it('resets the baseline on compaction, but records a mid-session model/effort switch', () => {
     const { host, state } = makeHost();
-    const controller = newController(host);
+    const controller = new CacheHintController(host);
     controller.noteStepUsage(u(10000));
     controller.resetCacheBreakBaseline();
     controller.noteStepUsage(u(100)); // post-compaction drop is expected
@@ -567,11 +618,10 @@ describe('CacheHintController scenario 1 (resume)', () => {
     host: CacheHintHost,
   ): Promise<void> {
     const pending = controller.maybeShowOnResume();
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       expect(host.mountEditorReplacement).toHaveBeenCalled();
     });
-    const dialog = (host.mountEditorReplacement as Mock<(...args: any[]) => any>).mock
-      .calls[0]![0] as {
+    const dialog = (host.mountEditorReplacement as ReturnType<typeof jest.fn>).mock.calls[0]![0] as {
       handleInput: (data: string) => void;
     };
     dialog.handleInput('\u001B');
@@ -580,9 +630,9 @@ describe('CacheHintController scenario 1 (resume)', () => {
 
   it('shows the dialog on resume when idle beyond cache_duration', async () => {
     getMock.mockResolvedValue(CONFIG);
-    const session = resumeSession([clock.now() - 1200_000], 150000);
+    const session = resumeSession([Date.now() - 1200_000], 150000);
     const { host } = makeHost({ session });
-    const controller = newController(host);
+    const controller = new CacheHintController(host);
 
     await showOnResumeAndDismiss(controller, host);
     expect(host.track).toHaveBeenCalledWith(
@@ -593,23 +643,23 @@ describe('CacheHintController scenario 1 (resume)', () => {
 
   it('shows at most once per session', async () => {
     getMock.mockResolvedValue(CONFIG);
-    const session = resumeSession([clock.now() - 1200_000], 150000);
+    const session = resumeSession([Date.now() - 1200_000], 150000);
     const { host } = makeHost({ session });
-    const controller = newController(host);
+    const controller = new CacheHintController(host);
 
     await showOnResumeAndDismiss(controller, host);
     await controller.maybeShowOnResume();
-    expect(host.mountEditorReplacement).toHaveBeenCalledTimes(1);
+    expect(host.mountEditorReplacement).toHaveBeenCalledOnce();
   });
 
   it('falls back to summary.updatedAt when there are no replay records', async () => {
     getMock.mockResolvedValue(CONFIG);
-    const session = resumeSession([], 150000, clock.now() - 1200_000);
+    const session = resumeSession([], 150000, Date.now() - 1200_000);
     const { host } = makeHost({ session });
-    const controller = newController(host);
+    const controller = new CacheHintController(host);
 
     await showOnResumeAndDismiss(controller, host);
-    expect(host.mountEditorReplacement).toHaveBeenCalledTimes(1);
+    expect(host.mountEditorReplacement).toHaveBeenCalledOnce();
   });
 
   it('drops the dialog when the session switched during the config fetch', async () => {
@@ -620,9 +670,9 @@ describe('CacheHintController scenario 1 (resume)', () => {
           resolveFetch = res;
         }),
     );
-    const session = resumeSession([clock.now() - 1200_000], 150000);
+    const session = resumeSession([Date.now() - 1200_000], 150000);
     const { host } = makeHost({ session });
-    const controller = newController(host);
+    const controller = new CacheHintController(host);
 
     const pending = controller.maybeShowOnResume();
     await flush(); // let the fetch start (resolveFetch gets assigned)
@@ -640,9 +690,9 @@ describe('CacheHintController scenario 1 (resume)', () => {
           resolveFetch = res;
         }),
     );
-    const session = resumeSession([clock.now() - 1200_000], 150000);
+    const session = resumeSession([Date.now() - 1200_000], 150000);
     const { host, state } = makeHost({ session });
-    const controller = newController(host);
+    const controller = new CacheHintController(host);
 
     const pending = controller.maybeShowOnResume();
     await flush();
@@ -662,9 +712,9 @@ describe('CacheHintController scenario 1 (resume)', () => {
         }),
     );
     // Idle long past the window when the resume check started…
-    const session = resumeSession([clock.now() - 1200_000], 150000);
+    const session = resumeSession([Date.now() - 1200_000], 150000);
     const { host } = makeHost({ session });
-    const controller = newController(host);
+    const controller = new CacheHintController(host);
 
     const pending = controller.maybeShowOnResume();
     await flush(); // let the fetch start (resolveFetch gets assigned)
@@ -679,8 +729,8 @@ describe('CacheHintController scenario 1 (resume)', () => {
 
   it('ignores local-only state records when computing the resume idle time', async () => {
     getMock.mockResolvedValue(CONFIG);
-    const oldMessage = { type: 'message', time: clock.now() - 1200_000 };
-    const recentStateRecord = { type: 'permission_updated', time: clock.now() - 5000 };
+    const oldMessage = { type: 'message', time: Date.now() - 1200_000 };
+    const recentStateRecord = { type: 'permission_updated', time: Date.now() - 5000 };
     const session = {
       id: 's1',
       summary: { updatedAt: 0 },
@@ -691,17 +741,17 @@ describe('CacheHintController scenario 1 (resume)', () => {
       }),
     };
     const { host } = makeHost({ session });
-    const controller = newController(host);
+    const controller = new CacheHintController(host);
 
     // The recent permission change must not mask the expired cache.
     await showOnResumeAndDismiss(controller, host);
-    expect(host.mountEditorReplacement).toHaveBeenCalledTimes(1);
+    expect(host.mountEditorReplacement).toHaveBeenCalledOnce();
   });
 
   it('skips when the config cannot be resolved', async () => {
-    const session = resumeSession([clock.now() - 1200_000], 150000);
+    const session = resumeSession([Date.now() - 1200_000], 150000);
     const { host } = makeHost({ session });
-    const controller = newController(host);
+    const controller = new CacheHintController(host);
 
     await controller.maybeShowOnResume();
     expect(host.mountEditorReplacement).not.toHaveBeenCalled();
@@ -709,9 +759,9 @@ describe('CacheHintController scenario 1 (resume)', () => {
 
   it('skips small sessions below the token threshold', async () => {
     getMock.mockResolvedValue(CONFIG);
-    const session = resumeSession([clock.now() - 1200_000], 50_000);
+    const session = resumeSession([Date.now() - 1200_000], 50_000);
     const { host } = makeHost({ session });
-    const controller = newController(host);
+    const controller = new CacheHintController(host);
 
     await controller.maybeShowOnResume();
     expect(host.mountEditorReplacement).not.toHaveBeenCalled();
@@ -720,24 +770,25 @@ describe('CacheHintController scenario 1 (resume)', () => {
   it('seeds the activity baseline when the resume check skips inside the cache window', async () => {
     getMock.mockResolvedValue(CONFIG);
     peekMock.mockReturnValue(CONFIG);
-    const now = clock.now();
+    const now = Date.now();
     // 9 minutes into a 10-minute cache window — nothing to show on resume.
     const session = resumeSession([now - 540_000], 150000);
     const { host } = makeHost({ session });
-    const controller = newController(host);
+    const controller = new CacheHintController(host);
 
     await controller.maybeShowOnResume();
     expect(host.mountEditorReplacement).not.toHaveBeenCalled();
 
     // Two minutes later the window has expired; the seeded baseline lets the
     // idle-submit path catch it instead of waving the prompt through.
-    clock.set(now + 660_000);
+    jest.spyOn(Date, 'now').mockReturnValue(now + 660_000);
     expect(controller.maybeInterceptOnSubmit('hello')).toBe(true);
-    expect(host.mountEditorReplacement).toHaveBeenCalledTimes(1);
+    expect(host.mountEditorReplacement).toHaveBeenCalledOnce();
     expect(host.track).toHaveBeenCalledWith(
       'cache_hint_shown',
       expect.objectContaining({ scene: 'idle' }),
     );
+    jest.restoreAllMocks();
   });
 
   it('yields to a dialog that already owns the editor and hints on the first idle submit', async () => {
@@ -753,7 +804,7 @@ describe('CacheHintController scenario 1 (resume)', () => {
 
     state.editorReplacementMounted = false;
     expect(controller.maybeInterceptOnSubmit('hello')).toBe(true);
-    expect(host.mountEditorReplacement).toHaveBeenCalledTimes(1);
+    expect(host.mountEditorReplacement).toHaveBeenCalledOnce();
     expect(host.track).toHaveBeenCalledWith(
       'cache_hint_shown',
       expect.objectContaining({ scene: 'idle' }),

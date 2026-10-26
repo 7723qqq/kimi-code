@@ -27,7 +27,7 @@
 // references become '(circular)', and class instances collapse to a '(ClassName)'
 // marker — the wire shape of an entry is the JSON projection of the type here.
 //
-// Index (App: 0 keys · Workspace: 6 keys · Session: 9 keys · Agent: 79 keys)
+// Index (App: 0 keys · Workspace: 6 keys · Session: 9 keys · Agent: 78 keys)
 //   App
 //   Workspace
 //     workspaceDirs.ephemeralDirs          src/workspace/workspaceDirs/workspaceDirsService.ts
@@ -95,7 +95,6 @@
 //     profile.emittedPluginBudgetWarnings             src/agent/profile/profileService.ts
 //     profile.emittedThinkingEffortWarnings           src/agent/profile/profileService.ts
 //     profile.emittedToolPatternWarnings              src/agent/profile/profileService.ts
-//     profile.skillListingWarningEmitted              src/agent/profile/profileService.ts
 //     runtime.binding                                 src/agent/runtimeBinding/runtimeBindingService.ts
 //     runtimeBinding                                  src/agent/runtimeBinding/runtimeBindingOps.ts
 //     shellCommand.tasks                              src/agent/shellCommand/shellCommandService.ts
@@ -866,6 +865,7 @@ export interface AgentStateSnapshot {
     } | /* SystemTriggerOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
       readonly kind: 'system_trigger';
       readonly name: string;
+      readonly backgroundHelper?: string;
     } | /* TaskOrigin — packages/agent-core-v2/src/agent/contextMemory/types.ts */ {
       readonly kind: 'task';
       readonly taskId: string;
@@ -1197,7 +1197,6 @@ export interface AgentStateSnapshot {
   'profile.emittedPluginBudgetWarnings': Set<string>;
   'profile.emittedThinkingEffortWarnings': Set<string>;
   'profile.emittedToolPatternWarnings': Set<string>;
-  'profile.skillListingWarningEmitted': boolean;
   // src/agent/runtimeBinding/runtimeBindingOps.ts
   // replayable · durable — folds: RuntimeSetBinding
   'runtimeBinding': /* RuntimeBinding — packages/agent-core-v2/src/runtime/runtime.ts */ {

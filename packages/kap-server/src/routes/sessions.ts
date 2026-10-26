@@ -34,7 +34,6 @@ import {
   resumeSessionById,
   setSessionArchived,
   Error2,
-  ISessionLockService,
   type ContextMessage,
   type IAgentScopeHandle,
   type ISessionScopeHandle,
@@ -42,6 +41,7 @@ import {
   type SessionSummary,
   type SubagentModelPoolSnapshot,
 } from '@moonshot-ai/agent-core-v2';
+import { ISessionLockService } from '@moonshot-ai/agent-core-v2/persistence/interface/sessionLock';
 import { SessionMetaUpdated } from '@moonshot-ai/agent-core-v2/session/sessionMetadata/sessionMetaEvents';
 import { z } from 'zod';
 

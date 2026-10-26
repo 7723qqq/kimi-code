@@ -3,89 +3,89 @@ import { join } from 'pathe';
 import { IInstantiationService } from '#/_base/di/instantiation';
 import type { InstantiationService } from '#/_base/di/instantiationService';
 import { Disposable, toDisposable } from '#/_base/di/lifecycle';
+import { Emitter } from '#/_base/event';
+import { onUnexpectedError } from '#/_base/errors/unexpectedError';
+import { ILogService } from '#/_base/log/log';
+import { setRootActorErrorReporter } from '#/human/xstate2';
+import { Error2, ErrorCodes } from '#/errors';
+import { LifecycleScope } from '#/app/scopes';
 import {
   createScopedChildHandle,
   type IAgentScopeHandle,
   ScopeActivation,
   registerScopedService,
 } from '#/_base/di/scope';
-import { onUnexpectedError } from '#/_base/errors/unexpectedError';
-import { Emitter } from '#/_base/event';
-import { ILogService } from '#/_base/log/log';
-import { abortError } from '#/_base/utils/abort';
-import type { AgentContext } from '#/agent/agentContext/agentContext';
-import { IAgentBlobService } from '#/agent/blob/agentBlobService';
-import { AgentBlobServiceImpl } from '#/agent/blob/agentBlobServiceImpl';
-import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
-import { closeTrailingOpenToolExchange } from '#/agent/contextMemory/openToolExchange';
-import type { ContextMessage } from '#/agent/contextMemory/types';
-import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
-import {
-  attachInteractionAgent,
-  cancelInteractionsForTurn,
-  detachInteractionAgent,
-} from '#/agent/interaction/interactionWiring';
-import { IAgentLoopService } from '#/agent/loop/loop';
-import { MACHINE_LOOP_MODEL, type MachineEngineAttachRef } from '#/agent/loop/machine/engine';
-import { TurnEnded } from '#/agent/loop/turnOps';
+import { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import { IConfigService } from '#/app/config/config';
+import { ISessionEventBus } from '#/app/event/eventBus';
 import { DEFAULT_PERMISSION_MODE_SECTION } from '#/agent/permissionMode/configSection';
-import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
 import { permissionModeConfiguredKey } from '#/agent/permissionMode/permissionModeOps';
 import type { PermissionMode } from '#/agent/permissionPolicy/types';
-import { IAgentProfileService } from '#/agent/profile/profile';
 import { profileKey } from '#/agent/profile/profileOps';
-import {
-  IAgentRuntimeBindingSeed,
-  IAgentRuntimeBindingService,
-} from '#/agent/runtimeBinding/runtimeBinding';
+import { hasPinnedPermissionMode } from '#/features/tower/tower';
+import { IAgentTaskService } from '#/agent/task/task';
+import { ISessionContext } from '#/session/sessionContext/sessionContext';
+import { ISessionMetadata, type AgentMeta } from '#/session/sessionMetadata/sessionMetadata';
+import { withSubagentProfile } from '#/session/agentLifecycle/subagentMetadata';
 import {
   agentContextOf,
   IAgentScopeContext,
   makeAgentScopeContext,
 } from '#/agent/scopeContext/scopeContext';
-import { IAgentStateService } from '#/agent/state/agentState';
-import { IAgentTaskService } from '#/agent/task/task';
-import { IAgentToolActivationService } from '#/agent/toolActivation/toolActivation';
-import { IBootstrapService } from '#/app/bootstrap/bootstrap';
-import { IConfigService } from '#/app/config/config';
-import { ISessionEventBus } from '#/app/event/eventBus';
-import { LifecycleScope } from '#/app/scopes';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
-import '#/agent/runtimeBinding/runtimeBindingService';
-import { bindTelemetryScope } from '#/app/telemetry/telemetryService';
-import { Error2, ErrorCodes } from '#/errors';
-import { hasPinnedPermissionMode } from '#/features/tower/tower';
+import { IAgentLoopService } from '#/agent/loop/loop';
+import {
+  MACHINE_LOOP_MODEL,
+  type MachineEngineAttachRef,
+} from '#/agent/loop/machine/engine';
+import { TurnEnded } from '#/agent/loop/turnOps';
+import {
+  attachInteractionAgent,
+  cancelInteractionsForTurn,
+  detachInteractionAgent,
+} from '#/agent/interaction/interactionWiring';
 import { interactions } from '#/human/interaction/facade';
-import { setRootActorErrorReporter } from '#/human/xstate2';
+import { IAgentProfileService } from '#/agent/profile/profile';
+import { abortError } from '#/_base/utils/abort';
+import { IAgentPermissionModeService } from '#/agent/permissionMode/permissionMode';
+import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
+import { closeTrailingOpenToolExchange } from '#/agent/contextMemory/openToolExchange';
+import { IAgentRuntimeBindingSeed, IAgentRuntimeBindingService } from '#/agent/runtimeBinding/runtimeBinding';
+import '#/agent/runtimeBinding/runtimeBindingService';
+import { IAgentFullCompactionService } from '#/agent/fullCompaction/fullCompaction';
+import { IAgentToolActivationService } from '#/agent/toolActivation/toolActivation';
+import { IWireService } from '#/wire/wire';
+import { WireService } from '#/wire/wireService';
+import { IAgentBlobService } from '#/agent/blob/agentBlobService';
+import { AgentBlobServiceImpl } from '#/agent/blob/agentBlobServiceImpl';
 import { IAppendLogStore } from '#/persistence/interface/appendLogStore';
 import { ISessionLockService } from '#/persistence/interface/sessionLock';
 import { IBlobStore } from '#/persistence/interface/blobStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import { IHostClock } from '#/os/interface/hostClock';
-import { IHostTimers, type IHostTimerHandle } from '#/os/interface/hostTimers';
-import { withSubagentProfile } from '#/session/agentLifecycle/subagentMetadata';
-import { ISessionContext } from '#/session/sessionContext/sessionContext';
-import { ISessionMetadata, type AgentMeta } from '#/session/sessionMetadata/sessionMetadata';
+import { IAgentStateService } from '#/agent/state/agentState';
 import { IEventDispatcher } from '#/state/eventDispatcher';
-import { IWireService } from '#/wire/wire';
-import { WireService } from '#/wire/wireService';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { bindTelemetryScope } from '#/app/telemetry/telemetryService';
+import type { AgentContext } from '#/agent/agentContext/agentContext';
+import { createActor, waitFor } from '#human/xstate2';
 import {
   createAgentMachine,
   type AgentMachineSelf,
   type ScopeFactoryOutput,
 } from '#human/agent/machine';
-import { createSessionMachine, type AgentActorRef, type AgentEntry } from '#human/session/machine';
-import { createActor, waitFor } from '#human/xstate2';
+import {
+  createSessionMachine,
+  type AgentActorRef,
+  type AgentEntry,
+} from '#human/session/machine';
 
+import { ManagedAgent } from './managedAgent';
 import {
   type AgentListFilter,
   type AgentScopeCreatedEvent,
   type CreateAgentOptions,
   type ForkAgentOptions,
-  type InheritedHistoryOptions,
   IAgentLifecycleService,
 } from './agentLifecycle';
-import { ManagedAgent } from './managedAgent';
 
 let nextAgentId = 0;
 
@@ -131,8 +131,6 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     @IBlobStore private readonly blobStore: IBlobStore,
     @IFileSystemStorageService private readonly storage: IFileSystemStorageService,
     @ILogService private readonly logger: ILogService,
-    @IHostClock private readonly clock: IHostClock,
-    @IHostTimers private readonly timers: IHostTimers,
   ) {
     super();
     setRootActorErrorReporter((err) => {
@@ -234,9 +232,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       subscription.unsubscribe();
     }
     if (failure !== undefined) {
-      throw failure instanceof Error
-        ? failure
-        : new Error('Agent linking failed', { cause: failure });
+      throw failure instanceof Error ? failure : new Error('Agent linking failed', { cause: failure });
     }
     const managed = this.roster.get(agentId);
     if (managed === undefined) {
@@ -261,8 +257,8 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
       generation,
     });
     const agent = scopeContext.agentContext;
-    const eventBus = this.instantiation.invokeFunction(
-      (accessor) => accessor.get(ISessionEventBus) as ISessionEventBus | undefined,
+    const eventBus = this.instantiation.invokeFunction((accessor) =>
+      accessor.get(ISessionEventBus) as ISessionEventBus | undefined,
     );
     eventBus?.activateAgent(agent);
     let managed: ManagedAgent | undefined;
@@ -289,40 +285,39 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
         this.ctx,
       );
       wireView = wire;
-      const handle = createScopedChildHandle(this.instantiation, LifecycleScope.Agent, agentId, {
-        seeds: [
-          [IAgentScopeContext, scopeContext],
-          [ITelemetryService, telemetryBinding.telemetry],
-          [
-            IAgentRuntimeBindingSeed,
-            {
+      const handle = createScopedChildHandle(
+        this.instantiation,
+        LifecycleScope.Agent,
+        agentId,
+        {
+          seeds: [
+            [IAgentScopeContext, scopeContext],
+            [ITelemetryService, telemetryBinding.telemetry],
+            [IAgentRuntimeBindingSeed, {
               _serviceBrand: undefined,
               binding: { workspaceId: this.ctx.workspaceId, runtimeId: opts.runtimeId ?? 'local' },
-            },
+            }],
+            [IAgentBlobService, blobView],
+            [IWireService, wire],
           ],
-          [IAgentBlobService, blobView],
-          [IWireService, wire],
-        ],
-        configureContainer: (container) => {
-          container.anchorKernelEntry(() => telemetryBinding.dispose(), 'telemetry:agent-context');
-          container.anchorKernelEntry(() => {
-            wire.dispose();
-          }, 'wire-view-dispose');
-          container.anchorKernelFinalizer(() => {
-            eventBus?.deactivateAgent(agent);
-          }, 'agent-event-bus-deactivate');
-          finalizerArmed = true;
-          containerRef = container;
+          configureContainer: (container) => {
+            container.anchorKernelEntry(
+              () => telemetryBinding.dispose(),
+              'telemetry:agent-context',
+            );
+            container.anchorKernelEntry(() => {
+              wire.dispose();
+            }, 'wire-view-dispose');
+            container.anchorKernelFinalizer(() => {
+              eventBus?.deactivateAgent(agent);
+            }, 'agent-event-bus-deactivate');
+            finalizerArmed = true;
+            containerRef = container;
+          },
         },
-      }) as IAgentScopeHandle;
+      ) as IAgentScopeHandle;
       createdHandle = handle;
-      signal.addEventListener(
-        'abort',
-        () => {
-          void handle.dispose();
-        },
-        { once: true },
-      );
+      signal.addEventListener('abort', () => { void handle.dispose(); }, { once: true });
       const container = containerRef!;
       const scopeHandle: IAgentScopeHandle = {
         id: agentId,
@@ -384,12 +379,12 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
         managed.killSpace();
         try {
           await managed.handle.dispose();
-        } catch {}
+        } catch { }
       } else {
         if (createdHandle !== undefined) {
           try {
             await createdHandle.dispose();
-          } catch {}
+          } catch { }
         }
         wireView?.dispose();
         telemetryBinding.dispose();
@@ -400,7 +395,10 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     }
   }
 
-  private async bindBootstrap(handle: IAgentScopeHandle, opts: CreateAgentOptions): Promise<void> {
+  private async bindBootstrap(
+    handle: IAgentScopeHandle,
+    opts: CreateAgentOptions,
+  ): Promise<void> {
     if (opts.binding !== undefined) {
       await handle.accessor.get(IAgentProfileService).bind(opts.binding);
     }
@@ -453,10 +451,9 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
 
     const sourceMessages = source.accessor.get(IAgentContextMemoryService)?.get();
     if (sourceMessages !== undefined && sourceMessages.length > 0) {
-      const windowed = inheritHistoryWindow(sourceMessages, opts?.inheritedHistory);
       child.accessor
         .get(IAgentContextMemoryService)
-        ?.append(...closeTrailingOpenToolExchange(windowed));
+        ?.append(...closeTrailingOpenToolExchange(sourceMessages));
     }
     return childContext;
   }
@@ -480,9 +477,7 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     for (const managed of this.roster.values()) {
       if (managed.closing || !managed.active) continue;
       const handle = managed.handle;
-      if (
-        hasPinnedPermissionMode(handle.accessor.get(IAgentStateService).get(profileKey).profileName)
-      ) {
+      if (hasPinnedPermissionMode(handle.accessor.get(IAgentStateService).get(profileKey).profileName)) {
         continue;
       }
       handle.accessor.get(IAgentPermissionModeService).setMode(mode);
@@ -530,24 +525,14 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     try {
       this.rosterAdopt(handle);
       const managed = this.roster.get(agent.agentId);
-      signal.addEventListener(
-        'abort',
-        () => {
-          void handle.dispose();
-        },
-        { once: true },
-      );
+      signal.addEventListener('abort', () => { void handle.dispose(); }, { once: true });
       const loop = handle.accessor.get(IAgentLoopService);
       const bundle = loop.buildAttachBundle();
       loop.attachEngine(self as unknown as MachineEngineAttachRef, bundle);
       if (managed !== undefined) managed.bundle = bundle;
       this.onDidCreateEmitter.fire(agent);
       this.onDidCreateScopeEmitter.fire({ context: agent, handle });
-      attachInteractionAgent(
-        agent.agentId,
-        this.ctx.sessionId,
-        handle.accessor.get(IEventDispatcher),
-      );
+      attachInteractionAgent(agent.agentId, this.ctx.sessionId, handle.accessor.get(IEventDispatcher));
       return Promise.resolve({
         handle: { disposeAsync: () => Promise.resolve(handle.dispose()) },
         store: bundle.store,
@@ -601,26 +586,26 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
     if (compaction !== null && !compaction.abortController.signal.aborted) {
       compaction.abortController.abort(reason);
     }
-    const promptIdleDeadline = this.clock.now().getTime() + REMOVE_PROMPT_QUIESCE_TIMEOUT_MS;
+    const promptIdleDeadline = Date.now() + REMOVE_PROMPT_QUIESCE_TIMEOUT_MS;
     let releaseQuiescence: (() => void) | undefined;
     for (;;) {
       for (const queueId of loop.snapshot().queue.map((item) => item.meta?.promptId)) {
         if (queueId !== undefined) loop.cancel({ promptId: queueId }, reason);
       }
       loop.cancel(undefined, reason);
-      let deadlineTimer: IHostTimerHandle | undefined;
+      let deadlineTimer: ReturnType<typeof setTimeout> | undefined;
       let settled: boolean;
       try {
         settled = await Promise.race([
           Promise.all([loop.settled(), compactionSettled]).then(() => true),
           new Promise<false>((resolve) => {
-            deadlineTimer = this.timers.setTimeout(() => {
+            deadlineTimer = setTimeout(() => {
               resolve(false);
-            }, promptIdleDeadline - this.clock.now().getTime());
+            }, promptIdleDeadline - Date.now());
           }),
         ]);
       } finally {
-        if (deadlineTimer !== undefined) this.timers.clearTimeout(deadlineTimer);
+        clearTimeout(deadlineTimer);
       }
       if (!settled) break;
       let idle = true;
@@ -641,12 +626,8 @@ export class AgentLifecycleService extends Disposable implements IAgentLifecycle
           break;
         }
       }
-      if (this.clock.now().getTime() >= promptIdleDeadline) break;
-      await new Promise((resolve) => {
-        this.timers.setTimeout(() => {
-          resolve(undefined);
-        }, REMOVE_PROMPT_QUIESCE_POLL_MS);
-      });
+      if (Date.now() >= promptIdleDeadline) break;
+      await new Promise((resolve) => setTimeout(resolve, REMOVE_PROMPT_QUIESCE_POLL_MS));
     }
     let stopError: Error | undefined;
     try {
@@ -696,60 +677,3 @@ registerScopedService(
   ScopeActivation.OnScopeCreated,
   'agentLifecycle',
 );
-
-function inheritHistoryWindow(
-  history: readonly ContextMessage[],
-  options: InheritedHistoryOptions | undefined,
-): readonly ContextMessage[] {
-  const maxUserTurns = options?.maxUserTurns;
-  const maxChars = options?.maxChars;
-  if (maxUserTurns === undefined && maxChars === undefined) return history;
-  if (maxUserTurns !== undefined && maxUserTurns < 0) return history;
-  if (maxUserTurns === 0) return [];
-
-  let start = 0;
-  if (maxUserTurns !== undefined) {
-    let seen = 0;
-    for (let index = history.length - 1; index >= 0; index -= 1) {
-      const message = history[index];
-      if (message === undefined || message.role !== 'user' || !isRealUserTurn(message)) continue;
-      seen += 1;
-      if (seen === maxUserTurns) {
-        start = index;
-        break;
-      }
-    }
-  }
-
-  if (maxChars !== undefined) {
-    let chars = 0;
-    for (let index = history.length - 1; index >= 0; index -= 1) {
-      const message = history[index];
-      if (message === undefined) continue;
-      chars += messageLength(message);
-      if (chars > maxChars) {
-        start = Math.max(start, index + 1);
-        break;
-      }
-    }
-  }
-
-  return start === 0 ? history : history.slice(start);
-}
-
-function isRealUserTurn(message: ContextMessage): boolean {
-  const origin = message.origin;
-  if (origin === undefined) return true;
-  return origin.kind === 'user';
-}
-
-function messageLength(message: ContextMessage): number {
-  let total = 0;
-  for (const part of message.content) {
-    total += part.type === 'text' ? part.text.length : JSON.stringify(part).length;
-  }
-  for (const call of message.toolCalls ?? []) {
-    total += call.name.length + (call.arguments?.length ?? 0);
-  }
-  return total;
-}

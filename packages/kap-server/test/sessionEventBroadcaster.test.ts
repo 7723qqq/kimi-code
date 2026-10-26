@@ -31,33 +31,28 @@ import {
   IWorkspaceInstanceManager,
   IWorkspaceSessions,
   MAIN_AGENT_ID,
-  ErrorCodes,
   interactions,
   makeAgentScopeContext,
 } from '@moonshot-ai/agent-core-v2';
-import type { AgentActivitySnapshot } from '@moonshot-ai/agent-core-v2';
 import { TurnStarted } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
 import { Event2 } from '@moonshot-ai/agent-core-v2/app/event/event2';
 import {
   AgentEventBusView,
   EventBusService,
 } from '@moonshot-ai/agent-core-v2/app/event/eventBusService';
-import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
+import type { AgentActivitySnapshot } from '@moonshot-ai/agent-core-v2/agent/loop/loop';
+import type { AgentEvent } from '../src/transport/ws/v1/events';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'bun:test';
+import { waitUntil } from 'helpers/waitFor';
 
 import { sessionEventMessageSchema } from '../src/protocol/ws-control';
-import { kimiErrorCodeSchema } from '../src/protocol/events-zod';
-import { TranscriptService } from '../src/services/transcript/transcriptService';
-import type { AgentEvent } from '../src/transport/ws/v1/events';
 import {
   type BroadcastDelivery,
   type BroadcastTarget,
   SessionEventBroadcaster,
 } from '../src/transport/ws/v1/sessionEventBroadcaster';
-import {
-  SessionEventJournal,
-  type EventEnvelope,
-} from '../src/transport/ws/v1/sessionEventJournal';
-import { waitForAssertion } from './helpers/waitFor';
+import { SessionEventJournal, type EventEnvelope } from '../src/transport/ws/v1/sessionEventJournal';
+import { TranscriptService } from '../src/services/transcript/transcriptService';
 
 type FakeBusEvent = { type: string };
 
@@ -66,10 +61,7 @@ class FakeAgentBus {
   private perType = new Map<string, Array<(e: FakeBusEvent) => void>>();
   subscribe(handler: (e: FakeBusEvent) => void): { dispose(): void };
   subscribe(type: string, handler: (e: FakeBusEvent) => void): { dispose(): void };
-  subscribe(
-    typeOrHandler: string | ((e: FakeBusEvent) => void),
-    handler?: (e: FakeBusEvent) => void,
-  ) {
+  subscribe(typeOrHandler: string | ((e: FakeBusEvent) => void), handler?: (e: FakeBusEvent) => void) {
     if (typeof typeOrHandler === 'function') {
       this.allHandlers.push(typeOrHandler);
       return {
@@ -285,11 +277,7 @@ class FakeSessionActivityView {
   private readonly listeners = new Set<(change: SessionActivityChangedEvent) => void>();
   private readonly folds = new Map<
     string,
-    {
-      turnActive: boolean;
-      background: number;
-      lastTurnReason?: 'completed' | 'cancelled' | 'failed';
-    }
+    { turnActive: boolean; background: number; lastTurnReason?: 'completed' | 'cancelled' | 'failed' }
   >();
   private readonly busSubscriptions = new Map<string, { dispose(): void }>();
   private readonly lifecycle: FakeLifecycle;
@@ -452,12 +440,7 @@ function makeCore(
         return undefined;
       },
     };
-    const handle = {
-      id: sid,
-      kind: LifecycleScope.Session,
-      accessor: sessionAccessor,
-      dispose: () => {},
-    } as unknown as IScopeHandle;
+    const handle = { id: sid, kind: LifecycleScope.Session, accessor: sessionAccessor, dispose: () => {} } as unknown as IScopeHandle;
     handles.set(lifecycle, handle);
     return handle;
   };
@@ -480,6 +463,7 @@ function makeCore(
       if (token === ISessionManager) {
         return {
           get: sessionFor,
+          resume: async (sessionId: string) => sessionFor(sessionId),
           list: () => [...sessions.keys()].map((sessionId) => sessionFor(sessionId)),
           onWillDeleteSession: managerEvents?.onWillDeleteSession,
           onDidCloseSession: managerEvents?.onDidCloseSession,
@@ -554,13 +538,9 @@ describe('SessionEventBroadcaster', () => {
     const journal = await SessionEventJournal.open(join(dir, 's1.jsonl'));
     let enter!: () => void;
     let release!: () => void;
-    const entered = new Promise<void>((resolve) => {
-      enter = resolve;
-    });
-    const gate = new Promise<void>((resolve) => {
-      release = resolve;
-    });
-    const opening = spyOn(SessionEventJournal, 'open').mockImplementation(async () => {
+    const entered = new Promise<void>((resolve) => { enter = resolve; });
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const opening = jest.spyOn(SessionEventJournal, 'open').mockImplementation(async () => {
       enter();
       await gate;
       return journal;
@@ -980,12 +960,7 @@ describe('SessionEventBroadcaster', () => {
         type === 'prompt.steered'
           ? { activePromptId: 'p1', promptIds: ['p2'], steeredAt: '2026-01-01T00:00:02.000Z' }
           : type === 'prompt.submitted'
-            ? {
-                promptId: 'p2',
-                userMessageId: 'p2',
-                status: 'queued',
-                createdAt: '2026-01-01T00:00:01.000Z',
-              }
+            ? { promptId: 'p2', userMessageId: 'p2', status: 'queued', createdAt: '2026-01-01T00:00:01.000Z' }
             : { promptId: 'p2', queueLength: 1 };
       main.bus.emit(
         agentEvent(type, {
@@ -1062,7 +1037,10 @@ describe('SessionEventBroadcaster', () => {
     );
     sub.set(
       IEventBus,
-      new AgentEventBusView(sessionBus, sub.accessor.get(IAgentScopeContext) as IAgentScopeContext),
+      new AgentEventBusView(
+        sessionBus,
+        sub.accessor.get(IAgentScopeContext) as IAgentScopeContext,
+      ),
     );
     const { target, envelopes } = collectingTarget();
     await bc.subscribe('s1', target);
@@ -1126,7 +1104,7 @@ describe('SessionEventBroadcaster', () => {
       type: 'event.session.archived',
       payload: { sessionId: 's1', workspaceId: 'wd' },
     });
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       expect(first.envelopes.map((e) => e.type)).toContain('event.session.archived');
     });
     sessions.delete('s1');
@@ -1192,7 +1170,10 @@ describe('SessionEventBroadcaster', () => {
 
     const result = await bc.getBufferedSince('s1', { seq: 0 });
     expect(result.resyncRequired).toBe(false);
-    expect(result.events.map((e) => e.envelope.type)).toEqual(['agent.created', 'agent.disposed']);
+    expect(result.events.map((e) => e.envelope.type)).toEqual([
+      'agent.created',
+      'agent.disposed',
+    ]);
   });
 
   it('getSnapshotState returns the in-flight turn', async () => {
@@ -1292,6 +1273,39 @@ describe('SessionEventBroadcaster', () => {
     expect(after.subagents).toEqual([]);
   });
 
+  it('releases a detached state with no targets and rebuilds from the preserved journal', async () => {
+    const managerEvents = new FakeManagerEvents();
+    await bc.close();
+    bc = new SessionEventBroadcaster({
+      eventsDir: dir,
+      core: makeCore(sessions, eventBus, {}, managerEvents),
+      maxBufferSize: 3,
+    });
+    const lc = new FakeLifecycle();
+    const main = lc.addAgent('main');
+    sessions.set('s1', lc);
+    const { target } = collectingTarget();
+    await bc.subscribe('s1', target);
+    main.bus.emit(agentEvent('turn.started', { turnId: 1 }));
+    const before = await bc.getCursor('s1');
+    expect(before.seq).toBeGreaterThan(0);
+
+    bc.unsubscribe('s1', target);
+    managerEvents.fireDidClose('s1');
+    await waitUntil(() => {
+      expect((bc as unknown as { sessions: Map<string, unknown> }).sessions.has('s1')).toBe(false);
+    });
+    await waitUntil(async () => {
+      const contents = await readFile(join(dir, 's1.jsonl'), 'utf8');
+      expect(contents).toContain(before.epoch);
+      expect(contents).toContain(`"seq":${before.seq}`);
+    });
+
+    sessions.set('s1', new FakeLifecycle());
+    expect(await bc.subscribe('s1', collectingTarget().target)).toBe(true);
+    expect(await bc.getCursor('s1')).toEqual(before);
+  });
+
   it('subscribe returns false for an unknown session', async () => {
     const { target } = collectingTarget();
     expect(await bc.subscribe('nope', target)).toBe(false);
@@ -1317,8 +1331,8 @@ describe('SessionEventBroadcaster', () => {
       },
     });
 
-    await waitForAssertion(() => expect(s1View.envelopes).toHaveLength(1));
-    await waitForAssertion(() => expect(s2View.envelopes).toHaveLength(1));
+    await waitUntil(() => expect(s1View.envelopes).toHaveLength(1));
+    await waitUntil(() => expect(s2View.envelopes).toHaveLength(1));
 
     expect(s1View.envelopes[0]).toMatchObject({
       type: 'session.meta.updated',
@@ -1351,8 +1365,8 @@ describe('SessionEventBroadcaster', () => {
       payload: { agentId: 'main', sessionId: 's1', session },
     });
 
-    await waitForAssertion(() => expect(s1View.envelopes).toHaveLength(1));
-    await waitForAssertion(() => expect(s2View.envelopes).toHaveLength(1));
+    await waitUntil(() => expect(s1View.envelopes).toHaveLength(1));
+    await waitUntil(() => expect(s2View.envelopes).toHaveLength(1));
 
     expect(s1View.envelopes[0]).toMatchObject({
       type: 'event.session.created',
@@ -1378,7 +1392,7 @@ describe('SessionEventBroadcaster', () => {
       payload: { sessionId: 'cold-1', workspaceId: 'wd_cold' },
     });
 
-    await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
+    await waitUntil(() => expect(globalView.envelopes).toHaveLength(1));
     expect(globalView.envelopes[0]).toMatchObject({
       type: 'event.session.archived',
       session_id: '__global__',
@@ -1401,7 +1415,7 @@ describe('SessionEventBroadcaster', () => {
       payload: { sessionId: 'cold-1', workspaceId: 'wd_cold' },
     });
 
-    await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
+    await waitUntil(() => expect(globalView.envelopes).toHaveLength(1));
     expect(globalView.envelopes[0]).toMatchObject({
       type: 'event.session.deleted',
       session_id: '__global__',
@@ -1428,7 +1442,7 @@ describe('SessionEventBroadcaster', () => {
     };
     eventBus.emit({ type: 'event.workspace.created', payload: { workspace } });
 
-    await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
+    await waitUntil(() => expect(globalView.envelopes).toHaveLength(1));
     expect(globalView.envelopes[0]).toMatchObject({
       type: 'event.workspace.created',
       session_id: '__global__',
@@ -1451,7 +1465,7 @@ describe('SessionEventBroadcaster', () => {
       type: 'event.workspace.updated',
       payload: { workspace: { ...workspace, name: 'renamed' } },
     });
-    await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(2));
+    await waitUntil(() => expect(globalView.envelopes).toHaveLength(2));
     expect(globalView.envelopes[1]).toMatchObject({
       type: 'event.workspace.updated',
       payload: {
@@ -1471,7 +1485,7 @@ describe('SessionEventBroadcaster', () => {
       payload: { workspaceId: 'wd_a', root: '/repo/a' },
     });
 
-    await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
+    await waitUntil(() => expect(globalView.envelopes).toHaveLength(1));
     expect(globalView.envelopes[0]).toMatchObject({
       type: 'event.workspace.deleted',
       session_id: '__global__',
@@ -1485,7 +1499,7 @@ describe('SessionEventBroadcaster', () => {
     });
 
     const journalPath = join(dir, '__global__.jsonl');
-    await waitForAssertion(async () => {
+    await waitUntil(async () => {
       expect(await readFile(journalPath, 'utf8').catch(() => '')).toContain('wd_a');
     });
     const before = await readFile(journalPath, 'utf8');
@@ -1510,7 +1524,7 @@ describe('SessionEventBroadcaster', () => {
       payload: { scope: 'app', token: 'debugCascadeService', state: 'Active' },
     });
 
-    await waitForAssertion(() => expect(diView.envelopes).toHaveLength(1));
+    await waitUntil(() => expect(diView.envelopes).toHaveLength(1));
     expect(diView.envelopes[0]).toMatchObject({
       type: 'event.di.unit_changed',
       session_id: '__global__',
@@ -1557,7 +1571,7 @@ describe('SessionEventBroadcaster', () => {
         payload: { agentId: 'main', sessionId: 's1', session },
       });
 
-      await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
+      await waitUntil(() => expect(globalView.envelopes).toHaveLength(1));
       expect(globalView.envelopes[0]).toMatchObject({
         type: 'event.session.created',
         session_id: 's1',
@@ -1590,7 +1604,9 @@ describe('SessionEventBroadcaster', () => {
         session_id: 's1',
         payload: { busy: false, last_turn_reason: 'completed' },
       });
-      expect(globalView.envelopes.filter((e) => e.type === 'turn.started')).toHaveLength(0);
+      expect(
+        globalView.envelopes.filter((e) => e.type === 'turn.started'),
+      ).toHaveLength(0);
     });
 
     it('stops delivering after removeGlobalTarget', async () => {
@@ -1621,7 +1637,7 @@ describe('SessionEventBroadcaster', () => {
         payload: { agentId: 'main', sessionId: 's1', session: { id: 's1' } },
       });
 
-      await waitForAssertion(() => expect(both.envelopes).toHaveLength(1));
+      await waitUntil(() => expect(both.envelopes).toHaveLength(1));
       await bc.getCursor('s1');
       expect(both.envelopes).toHaveLength(1);
     });
@@ -1640,7 +1656,7 @@ describe('SessionEventBroadcaster', () => {
       ];
       eventBus.emit({ type: 'event.config.warning', payload: { warnings } });
 
-      await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
+      await waitUntil(() => expect(globalView.envelopes).toHaveLength(1));
       expect(globalView.envelopes[0]).toMatchObject({
         type: 'event.config.warning',
         session_id: '__global__',
@@ -1662,7 +1678,7 @@ describe('SessionEventBroadcaster', () => {
         },
       });
 
-      await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(2));
+      await waitUntil(() => expect(globalView.envelopes).toHaveLength(2));
       expect(globalView.envelopes[0]).toMatchObject({
         type: 'event.plugin.changed',
         session_id: '__global__',
@@ -1698,7 +1714,7 @@ describe('SessionEventBroadcaster', () => {
         payload: { capability_id: 'kimi-cu', install: { running: false } },
       });
 
-      await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
+      await waitUntil(() => expect(globalView.envelopes).toHaveLength(1));
       expect(globalView.envelopes[0]).toMatchObject({
         type: 'event.capability.changed',
         payload: { capability_id: 'kimi-cu', install: { running: false } },
@@ -1716,7 +1732,7 @@ describe('SessionEventBroadcaster', () => {
       const warnings = [{ message: 'something deprecated' }];
       eventBus.emit({ type: 'event.config.warning', payload: { warnings } });
 
-      await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
+      await waitUntil(() => expect(globalView.envelopes).toHaveLength(1));
       expect(globalView.envelopes[0]).toMatchObject({
         type: 'event.config.warning',
         payload: { warnings },
@@ -1733,7 +1749,7 @@ describe('SessionEventBroadcaster', () => {
         payload: { changedFields: ['defaultModel'], config },
       });
 
-      await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
+      await waitUntil(() => expect(globalView.envelopes).toHaveLength(1));
       expect(globalView.envelopes[0]).toMatchObject({
         type: 'event.config.changed',
         session_id: '__global__',
@@ -1746,17 +1762,13 @@ describe('SessionEventBroadcaster', () => {
       const globalView = collectingTarget();
       bc.addGlobalTarget(globalView.target);
 
-      const config = {
-        default_model: 'k2',
-        providers: {},
-        mcp: { servers: { fs: { command: 'npx' } } },
-      };
+      const config = { default_model: 'k2', providers: {}, mcp: { servers: { fs: { command: 'npx' } } } };
       eventBus.emit({
         type: 'event.config.changed',
         payload: { changedFields: ['mcp'], config },
       });
 
-      await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
+      await waitUntil(() => expect(globalView.envelopes).toHaveLength(1));
       expect(globalView.envelopes[0]).toMatchObject({
         type: 'event.config.changed',
         session_id: '__global__',
@@ -1792,7 +1804,7 @@ describe('SessionEventBroadcaster', () => {
         payload: { changedFields: ['models'], config: { models: {} } },
       });
 
-      await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
+      await waitUntil(() => expect(globalView.envelopes).toHaveLength(1));
       expect(globalView.envelopes[0]).toMatchObject({
         type: 'event.config.changed',
         payload: { changedFields: ['models'], config: { models: {} } },
@@ -1812,7 +1824,7 @@ describe('SessionEventBroadcaster', () => {
         payload: { changed, unchanged: ['openai-main'], failed },
       });
 
-      await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
+      await waitUntil(() => expect(globalView.envelopes).toHaveLength(1));
       expect(globalView.envelopes[0]).toMatchObject({
         type: 'event.model_catalog.changed',
         session_id: '__global__',
@@ -1836,7 +1848,7 @@ describe('SessionEventBroadcaster', () => {
         payload: { changed, unchanged: [], failed: [], retired_default: retiredDefault },
       });
 
-      await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
+      await waitUntil(() => expect(globalView.envelopes).toHaveLength(1));
       expect(globalView.envelopes[0]).toMatchObject({
         type: 'event.model_catalog.changed',
         session_id: '__global__',
@@ -1908,7 +1920,7 @@ describe('SessionEventBroadcaster', () => {
         payload: { changed, unchanged: [], failed: [] },
       });
 
-      await waitForAssertion(() => expect(globalView.envelopes).toHaveLength(1));
+      await waitUntil(() => expect(globalView.envelopes).toHaveLength(1));
       expect(globalView.envelopes[0]).toMatchObject({
         type: 'event.model_catalog.changed',
         payload: { changed, unchanged: [], failed: [] },
@@ -2015,13 +2027,7 @@ describe('SessionEventBroadcaster', () => {
     main.bus.emit(
       agentEvent('task.started', {
         agentId: 'main',
-        info: {
-          taskId: 'bash-1',
-          kind: 'process',
-          description: 'bash-1',
-          status: 'running',
-          startedAt: 100,
-        },
+        info: { taskId: 'bash-1', kind: 'process', description: 'bash-1', status: 'running', startedAt: 100 },
       }),
     );
     await bc.getCursor('s1');
@@ -2047,13 +2053,7 @@ describe('SessionEventBroadcaster', () => {
     late.bus.emit(
       agentEvent('task.started', {
         agentId: 'agent-0',
-        info: {
-          taskId: 'bash-1',
-          kind: 'process',
-          description: 'bash-1',
-          status: 'running',
-          startedAt: 100,
-        },
+        info: { taskId: 'bash-1', kind: 'process', description: 'bash-1', status: 'running', startedAt: 100 },
       }),
     );
     await bc.getCursor('s1');
@@ -2074,13 +2074,7 @@ describe('SessionEventBroadcaster', () => {
     sub.bus.emit(
       agentEvent('task.started', {
         agentId: 'agent-0',
-        info: {
-          taskId: 'bash-1',
-          kind: 'process',
-          description: 'bash-1',
-          status: 'running',
-          startedAt: 100,
-        },
+        info: { taskId: 'bash-1', kind: 'process', description: 'bash-1', status: 'running', startedAt: 100 },
       }),
     );
     await bc.getCursor('s1');
@@ -2173,16 +2167,7 @@ describe('SessionEventBroadcaster', () => {
         question_id: 'q1',
         session_id: 's1',
         tool_call_id: 'call_1',
-        questions: [
-          {
-            id: 'q_0',
-            question: 'Pick one',
-            options: [
-              { id: 'opt_0_0', label: 'A' },
-              { id: 'opt_0_1', label: 'B' },
-            ],
-          },
-        ],
+        questions: [{ id: 'q_0', question: 'Pick one', options: [{ id: 'opt_0_0', label: 'A' }, { id: 'opt_0_1', label: 'B' }] }],
       },
     });
     expect(envelopes[1]!.volatile).toBeUndefined();
@@ -2200,7 +2185,7 @@ describe('SessionEventBroadcaster', () => {
         answers: { q_0: 'opt_0_0' },
       },
     });
-    expect(typeof (envelopes[2]!.payload as { resolved_at?: string }).resolved_at).toBe('string');
+    expect((envelopes[2]!.payload as { resolved_at?: string }).resolved_at).toBeTypeOf('string');
     expect(envelopes[3]).toMatchObject({
       type: 'event.session.work_changed',
       seq: 4,
@@ -2232,7 +2217,7 @@ describe('SessionEventBroadcaster', () => {
     ]);
     expect(envelopes[0]!.payload).toMatchObject({ pending_interaction: 'question' });
     expect(envelopes[2]!.payload).toMatchObject({ question_id: 'q1' });
-    expect(typeof (envelopes[2]!.payload as { dismissed_at?: string }).dismissed_at).toBe('string');
+    expect((envelopes[2]!.payload as { dismissed_at?: string }).dismissed_at).toBeTypeOf('string');
     expect(envelopes[3]!.payload).toMatchObject({ pending_interaction: 'none' });
   });
 
@@ -2254,17 +2239,15 @@ describe('SessionEventBroadcaster', () => {
       tags: { agentId: 'sub-1', sessionId: 's1' },
     });
     await bc.getCursor('s1');
-    expect(envelopes.find((e) => e.type === 'event.question.requested')?.payload).toMatchObject({
-      agentId: 'sub-1',
-      question_id: 'q-sub',
-    });
+    expect(
+      envelopes.find((e) => e.type === 'event.question.requested')?.payload,
+    ).toMatchObject({ agentId: 'sub-1', question_id: 'q-sub' });
 
     interactions.respond('q-sub', { answers: { q_0: 'opt_0_0' } });
     await bc.getCursor('s1');
-    expect(envelopes.find((e) => e.type === 'event.question.answered')?.payload).toMatchObject({
-      agentId: 'sub-1',
-      question_id: 'q-sub',
-    });
+    expect(
+      envelopes.find((e) => e.type === 'event.question.answered')?.payload,
+    ).toMatchObject({ agentId: 'sub-1', question_id: 'q-sub' });
   });
 
   it('broadcasts approval requested / resolved as durable v1 events', async () => {
@@ -2323,7 +2306,7 @@ describe('SessionEventBroadcaster', () => {
         scope: 'session',
       },
     });
-    expect(typeof (envelopes[2]!.payload as { resolved_at?: string }).resolved_at).toBe('string');
+    expect((envelopes[2]!.payload as { resolved_at?: string }).resolved_at).toBeTypeOf('string');
     expect(envelopes[3]).toMatchObject({
       type: 'event.session.work_changed',
       seq: 4,
@@ -2352,19 +2335,16 @@ describe('SessionEventBroadcaster', () => {
     });
     await bc.getCursor('s1');
 
-    expect(envelopes.find((e) => e.type === 'event.approval.requested')?.payload).toMatchObject({
-      agentId: 'agent-0',
-      agent_id: 'agent-0',
-      approval_id: 'a-sub',
-    });
+    expect(
+      envelopes.find((e) => e.type === 'event.approval.requested')?.payload,
+    ).toMatchObject({ agentId: 'agent-0', agent_id: 'agent-0', approval_id: 'a-sub' });
 
     interactions.respond('a-sub', { decision: 'approved' });
     await bc.getCursor('s1');
 
-    expect(envelopes.find((e) => e.type === 'event.approval.resolved')?.payload).toMatchObject({
-      agentId: 'agent-0',
-      approval_id: 'a-sub',
-    });
+    expect(
+      envelopes.find((e) => e.type === 'event.approval.resolved')?.payload,
+    ).toMatchObject({ agentId: 'agent-0', approval_id: 'a-sub' });
 
     const replay = await bc.getBufferedSince('s1', { seq: 1 }, new Set(['main']));
     expect(replay.resyncRequired).toBe(false);
@@ -2394,19 +2374,16 @@ describe('SessionEventBroadcaster', () => {
     });
     await bc.getCursor('s1');
 
-    expect(envelopes.find((e) => e.type === 'event.question.requested')?.payload).toMatchObject({
-      agentId: 'agent-0',
-      agent_id: 'agent-0',
-      question_id: 'q-sub',
-    });
+    expect(
+      envelopes.find((e) => e.type === 'event.question.requested')?.payload,
+    ).toMatchObject({ agentId: 'agent-0', agent_id: 'agent-0', question_id: 'q-sub' });
 
     interactions.respond('q-sub', { answers: { q_0: 'opt_0_0' } });
     await bc.getCursor('s1');
 
-    expect(envelopes.find((e) => e.type === 'event.question.answered')?.payload).toMatchObject({
-      agentId: 'agent-0',
-      question_id: 'q-sub',
-    });
+    expect(
+      envelopes.find((e) => e.type === 'event.question.answered')?.payload,
+    ).toMatchObject({ agentId: 'agent-0', question_id: 'q-sub' });
   });
 
   it('fans event.session.work_changed out to every connection, bypassing agent filters', async () => {
@@ -2500,35 +2477,6 @@ describe('SessionEventBroadcaster', () => {
     expect(envelopes.map((e) => e.seq)).toEqual([1, 2, 3, 4, 5, 6]);
   });
 
-  it('fans out task.output as the volatile background.task.output alias', async () => {
-    const lc = new FakeLifecycle();
-    const main = lc.addAgent('main');
-    sessions.set('s1', lc);
-    const { target, envelopes } = collectingTarget();
-    await bc.subscribe('s1', target);
-
-    main.bus.emit(
-      agentEvent('task.output', {
-        agentId: 'main',
-        taskId: 't1',
-        chunk: 'hello\n',
-        outputSizeBytes: 6,
-      }),
-    );
-    await bc.getCursor('s1');
-
-    expect(envelopes.map((e) => e.type)).toEqual(['background.task.output']);
-    expect(envelopes[0]!.volatile).toBe(true);
-    expect(envelopes[0]!.payload).toMatchObject({
-      type: 'background.task.output',
-      agentId: 'main',
-      sessionId: 's1',
-      taskId: 't1',
-      chunk: 'hello\n',
-      outputSizeBytes: 6,
-    });
-  });
-
   it('delivers only the allowlisted agent events on live fan-out', async () => {
     const lc = new FakeLifecycle();
     const main = lc.addAgent('main');
@@ -2547,9 +2495,9 @@ describe('SessionEventBroadcaster', () => {
 
     const agentEnvs = envelopes.filter((e) => e.type === 'turn.started' || e.type === 'turn.ended');
     expect(agentEnvs).toHaveLength(2);
-    expect(agentEnvs.every((e) => (e.payload as { agentId: string }).agentId === 'main')).toBe(
-      true,
-    );
+    expect(
+      agentEnvs.every((e) => (e.payload as { agentId: string }).agentId === 'main'),
+    ).toBe(true);
     const workChanged = envelopes.filter((e) => e.type === 'event.session.work_changed');
     expect(workChanged).toHaveLength(2);
   });
@@ -2591,7 +2539,7 @@ describe('SessionEventBroadcaster', () => {
       },
     });
 
-    await waitForAssertion(() => expect(envelopes).toHaveLength(1));
+    await waitUntil(() => expect(envelopes).toHaveLength(1));
     expect(envelopes[0]!.type).toBe('session.meta.updated');
   });
 
@@ -2686,7 +2634,9 @@ describe('SessionEventBroadcaster', () => {
     }
 
     function transcriptEnvelopes(envelopes: readonly EventEnvelope[]): EventEnvelope[] {
-      return envelopes.filter((e) => e.type === 'transcript.reset' || e.type === 'transcript.ops');
+      return envelopes.filter(
+        (e) => e.type === 'transcript.reset' || e.type === 'transcript.ops',
+      );
     }
 
     interface OpsPayload {
@@ -2850,20 +2800,12 @@ describe('SessionEventBroadcaster', () => {
       await bc.subscribe('s1', view.target, undefined, { main: 'delta' });
       expect(transcriptEnvelopes(view.envelopes)).toHaveLength(1);
 
-      await bc.subscribe(
-        's1',
-        view.target,
-        undefined,
-        { main: 'delta' },
-        { deferTranscriptReset: true },
-      );
+      await bc.subscribe('s1', view.target, undefined, { main: 'delta' }, { deferTranscriptReset: true });
       main.bus.emit(agentEvent('assistant.delta', { turnId: 1, delta: 'x' }));
       expect(transcriptEnvelopes(view.envelopes)).toHaveLength(1);
 
       await bc.flushTranscriptSeed('s1', view.target);
-      const resets = transcriptEnvelopes(view.envelopes).filter(
-        (e) => e.type === 'transcript.reset',
-      );
+      const resets = transcriptEnvelopes(view.envelopes).filter((e) => e.type === 'transcript.reset');
       expect(resets).toHaveLength(2);
     });
 
@@ -2909,7 +2851,8 @@ describe('SessionEventBroadcaster', () => {
         releaseBackfill = resolve;
       });
       const original = service.ensureAgentHistory.bind(service);
-      const backfillSpy = spyOn(service, 'ensureAgentHistory')
+      const backfillSpy = vi
+        .spyOn(service, 'ensureAgentHistory')
         .mockImplementation(async (sessionId, agentId) => {
           if (agentId === 'sub-1') await gate;
           return original(sessionId, agentId);
@@ -2923,7 +2866,7 @@ describe('SessionEventBroadcaster', () => {
 
       const view = collectingTarget();
       const pending = bc.subscribe('s1', view.target, undefined, { 'sub-1': 'delta' });
-      await waitForAssertion(() => {
+      await waitUntil(() => {
         expect(backfillSpy).toHaveBeenCalledWith('s1', 'sub-1');
       });
       bc.unsubscribe('s1', view.target);
@@ -2993,9 +2936,7 @@ describe('SessionEventBroadcaster', () => {
 
       const view = collectingTarget();
       await bc.subscribe('s1', view.target, new Set(['main']), { '*': 'delta' });
-      const resets = transcriptEnvelopes(view.envelopes).filter(
-        (e) => e.type === 'transcript.reset',
-      );
+      const resets = transcriptEnvelopes(view.envelopes).filter((e) => e.type === 'transcript.reset');
       expect(resets.map((e) => (e.payload as { agent_id: string }).agent_id)).toEqual([
         'main',
         'sub-1',
@@ -3046,9 +2987,7 @@ describe('SessionEventBroadcaster', () => {
 
       const late = collectingTarget();
       await bc.subscribe('s1', late.target, undefined, { main: 'turn' });
-      const resets = transcriptEnvelopes(late.envelopes).filter(
-        (e) => e.type === 'transcript.reset',
-      );
+      const resets = transcriptEnvelopes(late.envelopes).filter((e) => e.type === 'transcript.reset');
       expect(resets).toHaveLength(1);
       const payload = resets[0]!.payload as {
         snapshot: {
@@ -3064,7 +3003,7 @@ describe('SessionEventBroadcaster', () => {
       };
       expect(payload.snapshot.items).toEqual([]);
       expect(payload.has_more_older).toBe(true);
-      expect(typeof payload.seq).toBe('number');
+      expect(payload.seq).toBeTypeOf('number');
       expect(payload.snapshot).toMatchObject({
         tasks: [],
         interactions: [],
@@ -3104,7 +3043,7 @@ describe('SessionEventBroadcaster', () => {
       const reset = transcriptEnvelopes(view.envelopes)[0]!;
       expect(reset.type).toBe('transcript.reset');
       const watermark = (reset.payload as { seq?: number }).seq;
-      expect(typeof watermark).toBe('number');
+      expect(watermark).toBeTypeOf('number');
 
       main.bus.emit(agentEvent('turn.started', { turnId: 1, origin: { kind: 'user' } }));
       main.bus.emit(agentEvent('turn.ended', { turnId: 1, reason: 'completed' }));
@@ -3126,21 +3065,17 @@ describe('SessionEventBroadcaster', () => {
       const first = collectingTarget();
       await bc.subscribe('s1', first.target, undefined, { '*': 'delta' });
       main.bus.emit(agentEvent('turn.started', { turnId: 1, origin: { kind: 'user' } }));
-      const cursor = (transcriptEnvelopes(first.envelopes).at(-1)!.payload as { seq: number }).seq;
+      const cursor = (
+        transcriptEnvelopes(first.envelopes).at(-1)!.payload as { seq: number }
+      ).seq;
 
       main.bus.emit(agentEvent('assistant.delta', { turnId: 1, delta: 'hi' }));
       main.bus.emit(agentEvent('turn.ended', { turnId: 1, reason: 'completed' }));
 
       const second = collectingTarget();
-      await bc.subscribe(
-        's1',
-        second.target,
-        undefined,
-        { '*': 'delta' },
-        {
-          transcriptSince: { main: cursor },
-        },
-      );
+      await bc.subscribe('s1', second.target, undefined, { '*': 'delta' }, {
+        transcriptSince: { main: cursor },
+      });
       const frames = transcriptEnvelopes(second.envelopes);
       expect(frames.some((e) => e.type === 'transcript.reset')).toBe(false);
       const replayed = frames.filter((e) => e.type === 'transcript.ops');
@@ -3162,18 +3097,14 @@ describe('SessionEventBroadcaster', () => {
       const first = collectingTarget();
       await bc.subscribe('s1', first.target, undefined, { '*': 'delta' });
       main.bus.emit(agentEvent('turn.started', { turnId: 1, origin: { kind: 'user' } }));
-      const cursor = (transcriptEnvelopes(first.envelopes).at(-1)!.payload as { seq: number }).seq;
+      const cursor = (
+        transcriptEnvelopes(first.envelopes).at(-1)!.payload as { seq: number }
+      ).seq;
 
       const second = collectingTarget();
-      await bc.subscribe(
-        's1',
-        second.target,
-        undefined,
-        { '*': 'delta' },
-        {
-          transcriptSince: { main: cursor },
-        },
-      );
+      await bc.subscribe('s1', second.target, undefined, { '*': 'delta' }, {
+        transcriptSince: { main: cursor },
+      });
       expect(transcriptEnvelopes(second.envelopes)).toHaveLength(0);
     });
 
@@ -3188,26 +3119,19 @@ describe('SessionEventBroadcaster', () => {
       main.bus.emit(agentEvent('turn.started', { turnId: 1, origin: { kind: 'user' } }));
 
       const second = collectingTarget();
-      await bc.subscribe(
-        's1',
-        second.target,
-        undefined,
-        { '*': 'delta' },
-        {
-          transcriptSince: { main: 9999 },
-        },
-      );
+      await bc.subscribe('s1', second.target, undefined, { '*': 'delta' }, {
+        transcriptSince: { main: 9999 },
+      });
       const resets = transcriptEnvelopes(second.envelopes).filter(
         (e) => e.type === 'transcript.reset',
       );
       expect(resets).toHaveLength(1);
       const watermark = (resets[0]!.payload as { seq?: number }).seq;
-      expect(typeof watermark).toBe('number');
+      expect(watermark).toBeTypeOf('number');
       expect(
         (
-          transcriptEnvelopes(first.envelopes)
-            .filter((e) => e.type === 'transcript.ops')
-            .at(-1)!.payload as { seq: number }
+          transcriptEnvelopes(first.envelopes).filter((e) => e.type === 'transcript.ops').at(-1)!
+            .payload as { seq: number }
         ).seq,
       ).toBeLessThanOrEqual(watermark!);
     });
@@ -3328,9 +3252,7 @@ describe('SessionEventBroadcaster', () => {
       sub.bus.emit(agentEvent('turn.started', { turnId: 1, origin: { kind: 'user' } }));
       await bc.getCursor('s1');
       expect(view.envelopes.map((e) => e.type)).not.toContain('turn.started');
-      const opsBefore = transcriptEnvelopes(view.envelopes).filter(
-        (e) => e.type === 'transcript.ops',
-      );
+      const opsBefore = transcriptEnvelopes(view.envelopes).filter((e) => e.type === 'transcript.ops');
       expect(new Set(opsBefore.map((e) => (e.payload as OpsPayload).agent_id))).toEqual(
         new Set(['main', 'agent-0']),
       );
@@ -3394,13 +3316,7 @@ describe('SessionEventBroadcaster', () => {
       bc = makeBroadcasterWithTranscript();
 
       const view = collectingTarget();
-      await bc.subscribe(
-        's1',
-        view.target,
-        undefined,
-        { '*': 'delta' },
-        { deferTranscriptReset: true },
-      );
+      await bc.subscribe('s1', view.target, undefined, { '*': 'delta' }, { deferTranscriptReset: true });
       bc.unsubscribeTranscript('s1', view.target);
       await bc.flushTranscriptSeed('s1', view.target);
 
@@ -3495,15 +3411,5 @@ describe('sessionEventMessageSchema', () => {
         }),
       ).success,
     ).toBe(false);
-  });
-});
-
-describe('kimiErrorCodeSchema', () => {
-  it('declares exactly the engine registry codes and never drops one from the stream', () => {
-    const declared = new Set<string>(kimiErrorCodeSchema.options);
-    const engine = new Set<string>(Object.values(ErrorCodes));
-
-    expect([...declared].filter((code) => !engine.has(code))).toEqual([]);
-    expect([...engine].filter((code) => !declared.has(code))).toEqual([]);
   });
 });

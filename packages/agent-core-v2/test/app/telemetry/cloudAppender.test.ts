@@ -1,17 +1,16 @@
-import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import { resolveKimiRegionDetailed } from '@moonshot-ai/kimi-code-oauth';
 
 import {
   resetUnexpectedErrorHandler,
   setUnexpectedErrorHandler,
 } from '#/_base/errors/unexpectedError';
-import type { FetchLike } from '#/_base/utils/fetchLike';
-import { CloudAppender, type CloudAppenderOptions } from '#/app/telemetry/cloudAppender';
-import { DISK_EVENT_MAX_AGE_MS } from '#/app/telemetry/cloudTransport';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
-import { waitForAssertion } from '#test/helpers/waitFor';
+import { CloudAppender, type CloudAppenderOptions } from '#/app/telemetry/cloudAppender';
 
 import { stubBootstrap, stubClientIdentity } from '../bootstrap/stubs';
 
@@ -26,7 +25,7 @@ interface CapturedRequest {
 
 type Responder = (req: CapturedRequest) => Response | Promise<Response>;
 
-function makeFetch(responder: Responder): FetchLike {
+function makeFetch(responder: Responder): typeof fetch {
   return (async (input: unknown, init: unknown) => {
     const requestInit = init as { headers: Record<string, string>; body: string };
     const req: CapturedRequest = {
@@ -35,7 +34,7 @@ function makeFetch(responder: Responder): FetchLike {
       body: JSON.parse(requestInit.body) as CapturedRequest['body'],
     };
     return responder(req);
-  }) as unknown as FetchLike;
+  }) as unknown as typeof fetch;
 }
 
 function okResponse(): Response {
@@ -47,18 +46,22 @@ function statusResponse(status: number): Response {
 }
 
 function baseOptions(
-  overrides: Partial<CloudAppenderOptions> & {
-    homeDir?: string;
-    bootstrapEnv?: NodeJS.ProcessEnv;
-  } = {},
+  overrides: Partial<CloudAppenderOptions> & { homeDir?: string; bootstrapEnv?: NodeJS.ProcessEnv } = {},
 ): CloudAppenderOptions {
   const { homeDir: dir = '', storage, bootstrapEnv, ...rest } = overrides;
+  const env = { ...process.env, ...bootstrapEnv };
   return {
     storage: storage ?? new FileStorageService(dir),
     bootstrap: {
       ...stubBootstrap(dir === '' ? undefined : dir, bootstrapEnv),
       clientIdentity: { ...stubClientIdentity, version: '1.0.0' },
     },
+    resolveRegion: () =>
+      resolveKimiRegionDetailed({
+        env,
+        homeDir: dir === '' ? undefined : dir,
+        readMarker: env['KIMI_CODE_REGION_MARKER'] !== 'off',
+      }),
     deviceId: 'dev',
     appName: 'test-app',
     sleep: async () => {},
@@ -121,6 +124,8 @@ describe('CloudAppender', () => {
     expect(event?.['context_app_name']).toBe('test-app');
     expect(event?.['context_client_version']).toBe('1.0.0');
     expect(event?.['context_version']).toBe('1.0.0');
+    expect(event?.['context_region']).toBe('mainland-cn');
+    expect(event?.['context_region_source']).toBe('default');
     expect(typeof event?.['context_core_version']).toBe('string');
     expect(typeof event?.['event_id']).toBe('string');
     expect(typeof event?.['timestamp']).toBe('number');
@@ -392,7 +397,7 @@ describe('CloudAppender', () => {
     expect(seenAuths).toEqual(['Bearer tok', undefined]);
   });
 
-  it('retryDiskEvents resends saved events and removes the file on success', async () => {
+  it('retries disk events and requeues the whole batch when the disk write fails', async () => {
     let shouldFail = true;
     const appender = new CloudAppender(
       baseOptions({
@@ -412,100 +417,38 @@ describe('CloudAppender', () => {
     expect(
       readdirSync(join(homeDir, 'telemetry')).filter((f) => f.startsWith('failed_')),
     ).toHaveLength(0);
-  });
 
-  it('prunes expired failed batches when the periodic flush starts', async () => {
-    const telemetryDir = join(homeDir, 'telemetry');
-    mkdirSync(telemetryDir, { recursive: true });
-    const staleName = `failed_${Date.now() - DISK_EVENT_MAX_AGE_MS - 60_000}_aaaa.jsonl`;
-    writeFileSync(join(telemetryDir, staleName), '{}\n');
-
-    const appender = new CloudAppender(
+    const storage = new FileStorageService(homeDir);
+    const write = storage.write.bind(storage);
+    let failWrite = true;
+    storage.write = async (scope, key, data) => {
+      if (failWrite) throw new Error('disk full');
+      return write(scope, key, data);
+    };
+    const requests: CapturedRequest[] = [];
+    const requeued = new CloudAppender(
       baseOptions({
         homeDir,
-        fetchImpl: makeFetch(() => statusResponse(500)),
+        storage,
+        retryBackoffsMs: [],
+        fetchImpl: makeFetch((req) => {
+          requests.push(req);
+          return failWrite ? statusResponse(500) : okResponse();
+        }),
       }),
     );
-    appender.track({ event: 'evt', context: {}, properties: {} });
-    await appender.flush();
-    expect(readdirSync(telemetryDir).filter((f) => f.startsWith('failed_'))).toHaveLength(2);
+    requeued.track({ event: 'first', context: {}, properties: {} });
+    requeued.track({ event: 'second', context: {}, properties: {} });
+    await expect(requeued.flush()).rejects.toThrow('disk full');
+    expect(requests).toHaveLength(1);
 
-    try {
-      appender.startPeriodicFlush();
-      await waitForAssertion(() => {
-        expect(readdirSync(telemetryDir).filter((f) => f.startsWith('failed_'))).toHaveLength(1);
-      });
-    } finally {
-      appender.stopPeriodicFlush();
-    }
-    const remaining = readdirSync(telemetryDir).filter((f) => f.startsWith('failed_'));
-    expect(remaining).not.toContain(staleName);
-  });
-
-  it('caps the number of failed batches by deleting the oldest first', async () => {
-    const telemetryDir = join(homeDir, 'telemetry');
-    mkdirSync(telemetryDir, { recursive: true });
-    const base = Date.now();
-    for (let i = 0; i < 5; i += 1) {
-      writeFileSync(join(telemetryDir, `failed_${base - i * 1000}_k${i}.jsonl`), '{}\n');
-    }
-
-    const appender = new CloudAppender(
-      baseOptions({
-        homeDir,
-        fetchImpl: makeFetch(() => okResponse()),
-        maxDiskFiles: 2,
-      }),
-    );
-    await appender.pruneDiskEvents();
-
-    const remaining = readdirSync(telemetryDir)
-      .filter((f) => f.startsWith('failed_'))
-      .toSorted();
-    expect(remaining).toHaveLength(2);
-    expect(remaining).toEqual([`failed_${base - 1000}_k1.jsonl`, `failed_${base}_k0.jsonl`]);
-  });
-
-  it('caps the total bytes of failed batches by deleting the oldest first', async () => {
-    const telemetryDir = join(homeDir, 'telemetry');
-    mkdirSync(telemetryDir, { recursive: true });
-    const base = Date.now();
-    const line = `${JSON.stringify({ pad: 'x'.repeat(100) })}\n`;
-    for (let i = 0; i < 3; i += 1) {
-      writeFileSync(join(telemetryDir, `failed_${base - i * 1000}_b${i}.jsonl`), line);
-    }
-
-    const appender = new CloudAppender(
-      baseOptions({
-        homeDir,
-        fetchImpl: makeFetch(() => okResponse()),
-        maxDiskBytes: 250,
-      }),
-    );
-    await appender.pruneDiskEvents();
-
-    const remaining = readdirSync(telemetryDir).filter((f) => f.startsWith('failed_'));
-    expect(remaining).toHaveLength(2);
-    expect(remaining).not.toContain(`failed_${base - 2000}_b2.jsonl`);
-  });
-
-  it('prunes corrupt failed batches without touching valid ones', async () => {
-    const telemetryDir = join(homeDir, 'telemetry');
-    mkdirSync(telemetryDir, { recursive: true });
-    const base = Date.now();
-    writeFileSync(join(telemetryDir, `failed_${base}_corrupt.jsonl`), 'not json\n');
-    writeFileSync(join(telemetryDir, `failed_${base - 1000}_valid.jsonl`), '{}\n');
-
-    const appender = new CloudAppender(
-      baseOptions({
-        homeDir,
-        fetchImpl: makeFetch(() => okResponse()),
-      }),
-    );
-    await appender.pruneDiskEvents();
-
-    const remaining = readdirSync(telemetryDir).filter((f) => f.startsWith('failed_'));
-    expect(remaining).toEqual([`failed_${base - 1000}_valid.jsonl`]);
+    failWrite = false;
+    await requeued.flush();
+    expect(requests).toHaveLength(2);
+    expect(requests[1]?.body.events.map((event) => event['event'])).toEqual([
+      'kfc_first',
+      'kfc_second',
+    ]);
   });
 
   it('drops null values from the outbound payload', async () => {

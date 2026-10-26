@@ -12,6 +12,13 @@ describe('ErrorCode', () => {
   });
 });
 
+describe('ErrorCode', () => {
+  it('has unique numeric values', () => {
+    const values = Object.values(ErrorCode);
+    expect(new Set(values).size).toBe(values.length);
+  });
+});
+
 describe('/api/v1/debug transport mapError', () => {
   it.each([
     [ErrorCodes.OS_FS_NOT_FOUND, ErrorCode.FS_PATH_NOT_FOUND],

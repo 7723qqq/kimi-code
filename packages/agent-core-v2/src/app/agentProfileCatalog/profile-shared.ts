@@ -143,6 +143,9 @@ export const NOTIFY_USER_GUIDANCE =
 export const TODO_LIST_GUIDANCE =
   'When you track work in `TodoList`, keep it in step with what you have actually done: mark an item done as soon as it is finished, before you start the next one, and make sure the list matches what you did before you write your final message.';
 
+export const PLAN_MODE_GUIDANCE =
+  'Plan mode is a read-only planning state that only the user can turn on, from the app (for example with Shift-Tab or `/plan` in the terminal); you cannot enter it yourself. If the user asks for plan mode, tell them how to turn it on. When they ask you to plan first, wait for their go-ahead before changing code.';
+
 export function renderAgentProfilePrompt(
   profile: AgentProfile,
   context: AgentProfileContext,
@@ -259,6 +262,7 @@ const MINIMAL_OMITTED_REASONS: Readonly<Record<string, string>> = {
   cwd_listing: 'the minimal profile carries no directory listing',
   reply_style_guide: 'the minimal profile keeps only its short reply rule',
   todo_list_guidance: 'the minimal profile does not carry the TodoList reminder text',
+  plan_mode_guidance: '',
   windows_notes: 'operating-system notes are not carried by the minimal profile',
   runtime_notes: 'runtime notes are not carried by the minimal profile',
 };

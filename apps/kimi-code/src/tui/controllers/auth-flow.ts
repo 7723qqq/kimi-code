@@ -1,5 +1,6 @@
 import {
   type KimiHarness,
+  type RefreshProviderModelsOptions,
   type RefreshProviderModelsResponse,
   type Session,
   type ThinkingEffort,
@@ -11,12 +12,11 @@ import {
 } from '../commands/config';
 import type { SlashCommandHost } from '../commands/dispatch';
 import { getOauthLoginRequiredStartupNotice } from '../constant/kimi-tui';
-import type { AppState, KimiTUIOptions } from '../types';
 import { thinkingEffortFromConfig } from '../utils/thinking-config';
+import type { AppState, KimiTUIOptions } from '../types';
 
 export interface AuthFlowHost {
   session: Session | undefined;
-  readonly state?: { readonly appState: AppState };
   readonly harness: KimiHarness;
   readonly options: KimiTUIOptions;
 
@@ -157,33 +157,8 @@ export class AuthFlowController {
     const availableProviders = config.providers ?? {};
 
     if (this.host.session !== undefined) {
-      const currentModel = this.host.state?.appState.model;
-      if (
-        currentModel !== undefined &&
-        currentModel !== '' &&
-        availableModels[currentModel] !== undefined
-      ) {
-        this.host.setAppState({ availableModels, availableProviders });
-        return;
-      }
-      const fallbackModel =
-        config.defaultModel !== undefined && availableModels[config.defaultModel] !== undefined
-          ? config.defaultModel
-          : undefined;
-      if (fallbackModel !== undefined) {
-        const selected = availableModels[fallbackModel]!;
-        await this.activateModelAfterLogin(
-          fallbackModel,
-          thinkingEffortFromConfig(config.thinking),
-        );
-        this.host.setAppState({
-          availableModels,
-          availableProviders,
-          model: fallbackModel,
-          maxContextTokens: selected.maxContextSize,
-        });
-        return;
-      }
+      this.host.setAppState({ availableModels, availableProviders });
+      return;
     }
 
     this.host.setAppState({
@@ -203,11 +178,14 @@ export class AuthFlowController {
    * config.  Runs best-effort: individual provider failures are collected
    * and returned instead of thrown.
    */
-  async refreshProviderModels(): Promise<RefreshProviderModelsResponse> {
-    const result = await this.host.harness.refreshProviderModels();
-    if (result.changed.length > 0) {
-      await this.refreshAvailableModels();
-    }
+  async refreshProviderModels(
+    options?: RefreshProviderModelsOptions,
+  ): Promise<RefreshProviderModelsResponse> {
+    const result = await this.host.harness.refreshProviderModels(options);
+    // The engine persists provider-only config changes (type, baseUrl, …)
+    // while reporting the provider as unchanged, so reload even when no model
+    // changed.
+    await this.refreshAvailableModels();
     return result;
   }
 

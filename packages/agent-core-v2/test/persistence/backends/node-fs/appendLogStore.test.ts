@@ -1,6 +1,5 @@
-import { afterEach, beforeEach, describe, expect, it, spyOn } from 'bun:test';
-import { expectRejection } from '#test/helpers/assertions';
-import { waitForAssertion } from '#test/helpers/waitFor';
+import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
+import { waitUntil } from '#test/helpers/waitFor';
 
 import { mkdtempSync, rmSync, appendFileSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -11,10 +10,7 @@ import { DisposableStore } from '#/_base/di/lifecycle';
 import { TestInstantiationService } from '#/_base/di/test';
 import { AppendLogCorruptedError, IAppendLogStore, type AppendLogTruncation } from '#/persistence/interface/appendLogStore';
 import { IFileSystemStorageService } from '#/persistence/interface/storage';
-import {
-  AppendLogStore,
-  drainAppendLogRetirements,
-} from '#/persistence/backends/node-fs/appendLogStore';
+import { AppendLogStore } from '#/persistence/backends/node-fs/appendLogStore';
 import { FileStorageService } from '#/persistence/backends/node-fs/fileStorageService';
 import { InMemoryStorageService } from '#/persistence/backends/memory/inMemoryStorageService';
 
@@ -63,10 +59,7 @@ describe('AppendLogStore', () => {
     record = ix.get(IAppendLogStore);
   });
 
-  afterEach(async () => {
-    disposables.dispose();
-    await drainAppendLogRetirements().catch(() => undefined);
-  });
+  afterEach(() => disposables.dispose());
 
   async function collect<R>(scope: string, key: string): Promise<readonly R[]> {
     const out: R[] = [];
@@ -400,9 +393,11 @@ describe('AppendLogStore', () => {
     record.append<Rec>(SCOPE, KEY, { n: 2 });
     await appendStarted;
 
-    const rewriteRejected = record.rewrite<Rec>(SCOPE, KEY, [{ n: 9 }]);
+    const rewriteRejected = expect(
+      record.rewrite<Rec>(SCOPE, KEY, [{ n: 9 }]),
+    ).rejects.toBe(failure);
     releaseAppend();
-    await expect(rewriteRejected).rejects.toBe(failure);
+    await rewriteRejected;
 
     await expect(record.flush()).rejects.toBe(failure);
     expect(appendAttempts).toBe(1);
@@ -429,9 +424,11 @@ describe('AppendLogStore', () => {
     record.append<Rec>(SCOPE, KEY, { n: 2 });
     await appendStarted;
 
-    const invalid = record.rewrite<unknown>(SCOPE, KEY, [{ n: 9n }]);
+    const invalid = expect(
+      record.rewrite<unknown>(SCOPE, KEY, [{ n: 9n }]),
+    ).rejects.toBeInstanceOf(TypeError);
     releaseAppend();
-    await expect(invalid).rejects.toBeInstanceOf(TypeError);
+    await invalid;
     await record.flush();
 
     expect(appendAttempts).toBe(1);
@@ -468,9 +465,11 @@ describe('AppendLogStore', () => {
     record.append<Rec>(SCOPE, KEY, { n: 2 });
     await appendStarted;
 
-    const failedRewrite = record.rewrite<Rec>(SCOPE, KEY, [{ n: 9 }]);
+    const failedRewrite = expect(
+      record.rewrite<Rec>(SCOPE, KEY, [{ n: 9 }]),
+    ).rejects.toBe(failure);
     releaseAppend();
-    await expect(failedRewrite).rejects.toBe(failure);
+    await failedRewrite;
     await expect(record.flush()).rejects.toBe(failure);
     await expect(collect<Rec>(SCOPE, KEY)).rejects.toBe(failure);
     await expect(record.close()).rejects.toBe(failure);
@@ -633,7 +632,7 @@ describe('AppendLogStore', () => {
     const raw = `${JSON.stringify({ n: 1 })}\nGARBAGE\n${JSON.stringify({ n: 3 })}\n`;
     await storage.append(SCOPE, KEY, enc.encode(raw));
 
-    await expectRejection(collect<Rec>(SCOPE, KEY), (error: unknown) => {
+    await expect(collect<Rec>(SCOPE, KEY)).rejects.toSatisfy((error: unknown) => {
       expect(error).toBeInstanceOf(AppendLogCorruptedError);
       const corrupted = error as AppendLogCorruptedError;
       expect(corrupted.code).toBe('storage.corrupted');
@@ -871,14 +870,14 @@ describe('AppendLogStore session lock integration', () => {
   });
 
   it('keeps writes in memory while the session lock binding rejects, then flushes when released', async () => {
-    const warn = spyOn(console, 'warn').mockImplementation(() => undefined);
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     let acquired = false;
     const binding = log.bindWriteGuard(SCOPE, KEY, () => acquired);
 
     log.append<Rec>(SCOPE, KEY, { n: 1 });
     await log.flush();
     expect(existsSync(join(homeDir, SCOPE, KEY))).toBe(false);
-    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn).toHaveBeenCalledOnce();
 
     acquired = true;
     await log.flush();
@@ -905,7 +904,7 @@ describe('AppendLogStore session lock integration', () => {
     await readAll();
     log.append<Rec>(SCOPE, KEY, { n: 1 });
     const flushing = log.flush();
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       expect(existsSync(join(homeDir, SCOPE, KEY))).toBe(true);
     });
     expect(log.externallyModified(SCOPE, KEY)).toBe(false);
@@ -951,7 +950,7 @@ describe('AppendLogStore session lock integration', () => {
     await readAll();
     log.append<Rec>(SCOPE, KEY, { n: 1234567 });
     const flushing = log.flush();
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       expect(existsSync(join(homeDir, SCOPE, KEY))).toBe(true);
     });
     expect(log.externallyModified(SCOPE, KEY)).toBe(false);
@@ -972,7 +971,7 @@ describe('AppendLogStore session lock integration', () => {
 
     await readAll();
     const rewriting = log.rewrite<Rec>(SCOPE, KEY, [{ n: 1 }, { n: 2 }]);
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       expect(existsSync(join(homeDir, SCOPE, KEY))).toBe(true);
     });
     expect(log.externallyModified(SCOPE, KEY)).toBe(false);

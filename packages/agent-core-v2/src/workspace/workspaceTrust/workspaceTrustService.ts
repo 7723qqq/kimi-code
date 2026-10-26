@@ -12,7 +12,10 @@ import {
 
 export { TRUST_WORKSPACE_ENV, trustWorkspaceEnvTrusted } from './trustEnv';
 
-export const workspaceTrustTrustedKey = defineState<boolean>('workspaceTrust.trusted', () => false);
+export const workspaceTrustTrustedKey = defineState<boolean>(
+  'workspaceTrust.trusted',
+  () => false,
+);
 
 export class WorkspaceTrustService extends Disposable implements IWorkspaceTrust {
   declare readonly _serviceBrand: undefined;

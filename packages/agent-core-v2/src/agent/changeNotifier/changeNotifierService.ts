@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 
 import { normalize } from 'pathe';
 
@@ -335,7 +336,7 @@ export class AgentChangeNotifierService extends Disposable implements IAgentChan
 }
 
 function hashText(text: string): string {
-  return new Bun.CryptoHasher('sha256').update(text).digest('hex');
+  return createHash('sha256').update(text).digest('hex');
 }
 
 function difference(left: readonly string[], right: readonly string[]): string[] {

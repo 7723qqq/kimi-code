@@ -1,3 +1,4 @@
+import { strictEqual } from 'node:assert';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -12,6 +13,7 @@ import {
   IEventBus,
   IAgentProfileService,
   IEventDispatcher,
+  ISessionManager,
   ISessionMetadata,
   ITelemetryService,
   MAIN_AGENT_ID,
@@ -19,22 +21,24 @@ import {
   SubagentSpawned,
   type CompactionResult,
   type TelemetryAppenderRecord,
-  TurnStarted,
-  TurnEnded,
-  TurnPrompt,
+} from '@moonshot-ai/agent-core-v2';
+import { ContextAppendMessage } from '@moonshot-ai/agent-core-v2/agent/contextMemory/contextEvents';
+import { TurnStarted } from '@moonshot-ai/agent-core-v2/agent/loop/turnEvents';
+import { TurnEnded, TurnPrompt } from '@moonshot-ai/agent-core-v2/agent/loop/turnOps';
+import {
   ToolCallStarted,
   ToolResultEvent,
-} from '@moonshot-ai/agent-core-v2';
+} from '@moonshot-ai/agent-core-v2/agent/toolExecutor/toolExecutorEvents';
 import type { TranscriptItem } from '@moonshot-ai/transcript';
 import type { SessionRatingResult } from '../src/protocol/rest-session-rating';
 import { pino } from 'pino';
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'bun:test';
+import { waitUntil } from 'helpers/waitFor';
 
 import { type RunningServer, startServer } from '../src/start';
 import { ensureMainAgent } from '../src/transport/mainAgent';
 import { authHeaders } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
-import { waitForAssertion } from './helpers/waitFor';
 
 interface Envelope<T> {
   code: number;
@@ -81,17 +85,17 @@ class RatingClient {
     return ensureMainAgent(session);
   }
 
-  async finishUserTurn(sessionId: string, during?: (bus: IEventBus) => void): Promise<void> {
+  async finishUserTurn(sessionId: string, during?: (bus: IEventBus) => void, turnId = 1): Promise<void> {
     const agent = await this.mainAgent(sessionId);
-    expect((await this.request(`/api/v1/sessions/${sessionId}/transcript?agent_id=main`)).code).toBe(0);
+    strictEqual((await this.request(`/api/v1/sessions/${sessionId}/transcript?agent_id=main`)).code, 0);
     const bus = agent.accessor.get(IEventBus);
     const dispatcher = agent.accessor.get(IEventDispatcher);
     const origin = { kind: 'user' } as const;
     await dispatcher.dispatch(new TurnPrompt({ agentId: MAIN_AGENT_ID, input: [], origin }));
-    bus.publish(new TurnStarted({ agentId: MAIN_AGENT_ID, turnId: 1, origin }));
+    bus.publish(new TurnStarted({ agentId: MAIN_AGENT_ID, turnId, origin }));
     during?.(bus);
     bus.publish(new TurnEnded({
-      agentId: MAIN_AGENT_ID, turnId: 1, reason: 'completed', traceId: 'trace-1',
+      agentId: MAIN_AGENT_ID, turnId, reason: 'completed', traceId: 'trace-1',
     }));
   }
 
@@ -298,7 +302,7 @@ describe('session rating lifecycle', () => {
     const id = await ratings.createSession(home);
     await ratings.finishUserTurn(id);
     await expect(ratings.evaluate(id)).resolves.toMatchObject({ data: { appearance: null } });
-    await waitForAssertion(() => {
+    await waitUntil(() => {
       if (configRequests === 0) throw new Error('survey_popup has not been fetched yet');
     });
     await new Promise((resolve) => setTimeout(resolve, 50));
@@ -499,6 +503,42 @@ describe('session rating lifecycle', () => {
     } finally {
       await client.request('/api/v1/config', { telemetry: true });
     }
+  });
+
+  it('resumes and evaluates a completed turn for a cold session', async () => {
+    const id = await client.createSession(home);
+    await (await client.mainAgent(id)).accessor.get(IAgentProfileService).setModel('kimi-code/k3');
+    await client.finishUserTurn(id, undefined, 0);
+    const agent = await client.mainAgent(id);
+    const dispatcher = agent.accessor.get(IEventDispatcher);
+    await dispatcher.dispatch(
+      new ContextAppendMessage({
+        agentId: MAIN_AGENT_ID,
+        message: {
+          role: 'user',
+          content: [{ type: 'text', text: 'Please review this answer.' }],
+          toolCalls: [],
+          origin: { kind: 'user' },
+        },
+      }),
+    );
+    await dispatcher.dispatch(
+      new TurnEnded({ agentId: MAIN_AGENT_ID, turnId: 0, reason: 'completed', traceId: 'trace-1' }),
+    );
+    const turnId = await client.latestTurnId(id);
+    expect(await server.core.accessor.get(ISessionManager).closeIfIdle(id, 0)).toBe(true);
+    const result = await client.evaluate(id, turnId);
+    expect(result.data.appearance).toMatchObject({ survey: 'session' });
+    expect(getLiveSessionById(server.core.accessor, id)).not.toBeUndefined();
+    if (result.data.appearance === null) throw new Error('expected a rating offer');
+    await client.report(id, result.data.appearance.id, 'shown');
+    const appeared = records.find(
+      (record) =>
+        record.event === 'feedback_survey' &&
+        record.context['session_id'] === id &&
+        record.properties['event_type'] === 'appeared',
+    );
+    expect(appeared?.properties).toMatchObject({ kfc_trace_id: 'trace-1', user_turn_count: 1 });
   });
 
   it('does not load sessions when evaluating or reporting unknown appearances', async () => {

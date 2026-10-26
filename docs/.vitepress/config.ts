@@ -32,17 +32,52 @@ const config = withMermaid(
 
     srcExclude: ['AGENTS.md', 'superpowers/**'],
 
-    locales: {
-      zh: {
-        label: '简体中文',
-        lang: 'zh-CN',
-        link: '/zh/',
-        title: 'Kimi Code CLI 文档',
-        description: 'Kimi Code CLI 用户文档',
-        themeConfig: {
-          nav: [
-            { text: '指南', link: '/zh/guides/getting-started', activeMatch: '/zh/guides/' },
-            { text: '定制化', link: '/zh/customization/mcp', activeMatch: '/zh/customization/' },
+  locales: {
+    zh: {
+      label: '简体中文',
+      lang: 'zh-CN',
+      link: '/zh/',
+      title: 'Kimi Code CLI 文档',
+      description: 'Kimi Code CLI 用户文档',
+      themeConfig: {
+        nav: [
+          { text: '指南', link: '/zh/guides/getting-started', activeMatch: '/zh/guides/' },
+          { text: '定制化', link: '/zh/customization/mcp', activeMatch: '/zh/customization/' },
+          { text: '配置', link: '/zh/configuration/config-files', activeMatch: '/zh/configuration/' },
+          { text: '参考手册', link: '/zh/reference/kimi-command', activeMatch: '/zh/reference/' },
+          { text: '发布说明', link: '/zh/release-notes/changelog', activeMatch: '/zh/release-notes/' },
+        ],
+        sidebar: {
+          '/zh/guides/': [
+            {
+              text: '指南',
+              items: [
+                { text: '开始使用', link: '/zh/guides/getting-started' },
+                { text: '从 kimi-cli 迁移', link: '/zh/guides/migration' },
+                { text: '常见使用案例', link: '/zh/guides/use-cases' },
+                { text: 'Tower 多 Agent 协作', link: '/zh/guides/tower' },
+                { text: '交互与输入', link: '/zh/guides/interaction' },
+                { text: '会话与上下文', link: '/zh/guides/sessions' },
+                { text: '在 IDE 中使用', link: '/zh/guides/ides' },
+                { text: '在网页中使用', link: '/zh/guides/web' },
+                { text: '远程控制', link: '/zh/guides/remote-control' },
+              ],
+            },
+          ],
+          '/zh/customization/': [
+            {
+              text: '定制化',
+              items: [
+                { text: 'Model Context Protocol', link: '/zh/customization/mcp' },
+                { text: 'Agent Skills', link: '/zh/customization/skills' },
+                { text: 'Plugins', link: '/zh/customization/plugins' },
+                { text: 'Agent 与 subagent', link: '/zh/customization/agents' },
+                { text: 'Hooks', link: '/zh/customization/hooks' },
+                { text: '自定义主题', link: '/zh/customization/themes' },
+              ],
+            },
+          ],
+          '/zh/configuration/': [
             {
               text: '配置',
               link: '/zh/configuration/config-files',
@@ -121,15 +156,39 @@ const config = withMermaid(
           },
         },
       },
-      en: {
-        label: 'English',
-        lang: 'en-US',
-        link: '/en/',
-        title: 'Kimi Code CLI Docs',
-        description: 'Kimi Code CLI User Documentation',
-        themeConfig: {
-          nav: [
-            { text: 'Guides', link: '/en/guides/getting-started', activeMatch: '/en/guides/' },
+    },
+    en: {
+      label: 'English',
+      lang: 'en-US',
+      link: '/en/',
+      title: 'Kimi Code CLI Docs',
+      description: 'Kimi Code CLI User Documentation',
+      themeConfig: {
+        nav: [
+          { text: 'Guides', link: '/en/guides/getting-started', activeMatch: '/en/guides/' },
+          { text: 'Customization', link: '/en/customization/mcp', activeMatch: '/en/customization/' },
+          { text: 'Configuration', link: '/en/configuration/config-files', activeMatch: '/en/configuration/' },
+          { text: 'Reference', link: '/en/reference/kimi-command', activeMatch: '/en/reference/' },
+          { text: 'Release Notes', link: '/en/release-notes/changelog', activeMatch: '/en/release-notes/' },
+        ],
+        sidebar: {
+          '/en/guides/': [
+            {
+              text: 'Guides',
+              items: [
+                { text: 'Getting Started', link: '/en/guides/getting-started' },
+                { text: 'Migrating from kimi-cli', link: '/en/guides/migration' },
+                { text: 'Common Use Cases', link: '/en/guides/use-cases' },
+                { text: 'Tower multi-agent collaboration', link: '/en/guides/tower' },
+                { text: 'Interaction and Input', link: '/en/guides/interaction' },
+                { text: 'Sessions and Context', link: '/en/guides/sessions' },
+                { text: 'Using in IDEs', link: '/en/guides/ides' },
+                { text: 'Using Kimi Code in the browser', link: '/en/guides/web' },
+                { text: 'Remote Control', link: '/en/guides/remote-control' },
+              ],
+            },
+          ],
+          '/en/customization/': [
             {
               text: 'Customization',
               link: '/en/customization/mcp',
@@ -218,9 +277,10 @@ const config = withMermaid(
         },
       },
     },
+  },
 
-    themeConfig: {
-      outline: [2, 3],
+  themeConfig: {
+    outline: [2, 3],
       search: { provider: 'local' },
       socialLinks: [{ icon: 'github', link: 'https://github.com/MoonshotAI/kimi-code' }],
     },

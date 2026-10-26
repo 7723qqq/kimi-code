@@ -1,4 +1,4 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it, jest, afterEach, beforeEach } from 'bun:test';
 
 import { Emitter, Event } from '#/_base/event';
 import type { ISessionScopeHandle } from '#/_base/di/scope';
@@ -9,14 +9,20 @@ import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { reloadOnStale } from '#/app/sessionManager/sessionLookup';
 import { SessionManager } from '#/app/sessionManager/sessionManagerService';
 import { ErrorCodes } from '#/errors';
+import { IAgentCronService } from '#/features/cron/cronService';
+import { InMemorySessionLockService } from '#/persistence/backends/memory/sessionLockService';
 import { Program } from '#/program/program';
 import type { ProgramSessionControllerInput } from '#/program/programDependencies';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
 import { RuntimeRegistry } from '#/runtime/runtimeRegistry';
+import { IAgentLifecycleService } from '#/session/agentLifecycle/agentLifecycle';
+import { ISessionActivityView } from '#/session/sessionActivity/sessionActivity';
 import type {
   SessionArchivedEvent,
+  SessionCloseReason,
   SessionClosedEvent,
   SessionCreatedEvent,
+  SessionCreateSource,
   SessionWillCreateEvent,
 } from '#/workspace/sessionLifecycle/sessionLifecycle';
 import type { SessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycleService';
@@ -109,7 +115,7 @@ describe('SessionManager', () => {
     const index = {
       get: async () => ({ workspaceId: 'workspace-1', cwd: '/workspace' }),
     } as unknown as ISessionIndex;
-    const manager = new SessionManager(workspaces, index);
+    const manager = new SessionManager(workspaces, index, new InMemorySessionLockService());
 
     const resumePromise = manager.resume('session-1');
     const section = manager.withLifecycleSerialization('session-1', async () => {
@@ -137,7 +143,7 @@ describe('SessionManager', () => {
     const index = {
       get: async () => ({ workspaceId: 'workspace-1', cwd: '/workspace' }),
     } as unknown as ISessionIndex;
-    const manager = new SessionManager(workspaces, index);
+    const manager = new SessionManager(workspaces, index, new InMemorySessionLockService());
 
     let releaseSection!: () => void;
     const sectionGate = new Promise<void>((resolve) => {
@@ -178,7 +184,7 @@ describe('SessionManager', () => {
     const index = {
       get: async () => ({ workspaceId: 'workspace-1', cwd: '/workspace' }),
     } as unknown as ISessionIndex;
-    const manager = new SessionManager(workspaces, index);
+    const manager = new SessionManager(workspaces, index, new InMemorySessionLockService());
 
     let releaseSection!: () => void;
     const sectionGate = new Promise<void>((resolve) => {
@@ -216,7 +222,7 @@ describe('SessionManager', () => {
     const index = {
       get: async () => ({ workspaceId: 'workspace-1', cwd: '/workspace' }),
     } as unknown as ISessionIndex;
-    const manager = new SessionManager(workspaces, index);
+    const manager = new SessionManager(workspaces, index, new InMemorySessionLockService());
 
     let releaseSection!: () => void;
     const sectionGate = new Promise<void>((resolve) => {
@@ -254,7 +260,7 @@ describe('SessionManager', () => {
     const index = {
       get: async () => ({ workspaceId: 'workspace-1', cwd: '/workspace' }),
     } as unknown as ISessionIndex;
-    const manager = new SessionManager(workspaces, index);
+    const manager = new SessionManager(workspaces, index, new InMemorySessionLockService());
 
     let releaseSection!: () => void;
     const sectionGate = new Promise<void>((resolve) => {
@@ -292,7 +298,7 @@ describe('SessionManager', () => {
     const index = {
       get: async () => ({ workspaceId: 'workspace-1', cwd: '/workspace' }),
     } as unknown as ISessionIndex;
-    const manager = new SessionManager(workspaces, index);
+    const manager = new SessionManager(workspaces, index, new InMemorySessionLockService());
 
     let releaseSection!: () => void;
     const sectionGate = new Promise<void>((resolve) => {
@@ -330,7 +336,7 @@ describe('SessionManager', () => {
     const index = {
       get: async () => ({ workspaceId: 'workspace-1', cwd: '/workspace' }),
     } as unknown as ISessionIndex;
-    const manager = new SessionManager(workspaces, index);
+    const manager = new SessionManager(workspaces, index, new InMemorySessionLockService());
 
     let releaseSection!: () => void;
     const sectionGate = new Promise<void>((resolve) => {
@@ -367,7 +373,7 @@ describe('SessionManager', () => {
     const index = {
       get: async () => ({ workspaceId: 'workspace-1', cwd: '/workspace' }),
     } as unknown as ISessionIndex;
-    const manager = new SessionManager(workspaces, index);
+    const manager = new SessionManager(workspaces, index, new InMemorySessionLockService());
 
     let releaseSection!: () => void;
     const sectionGate = new Promise<void>((resolve) => {
@@ -405,7 +411,7 @@ describe('SessionManager', () => {
     const index = {
       get: async () => ({ workspaceId: 'workspace-1', cwd: '/workspace' }),
     } as unknown as ISessionIndex;
-    const manager = new SessionManager(workspaces, index);
+    const manager = new SessionManager(workspaces, index, new InMemorySessionLockService());
 
     await expect(manager.resume('session-1')).rejects.toThrow('boom');
     await expect(manager.whenResumeSettled('session-1')).rejects.toThrow('boom');
@@ -427,7 +433,7 @@ describe('SessionManager', () => {
       get: (workspaceId: string) => workspaceId === workspace.id ? workspace : undefined,
     } as unknown as IWorkspaceInstanceManager;
     const index = { get: async () => undefined } as unknown as ISessionIndex;
-    const manager = new SessionManager(workspaces, index);
+    const manager = new SessionManager(workspaces, index, new InMemorySessionLockService());
     const created = await manager.create({ workDir: '/workspace' });
     expect(created).toBe(fake.handle);
     expect(manager.get('session-1')).toBe(fake.handle);
@@ -456,6 +462,7 @@ describe('SessionManager', () => {
     const manager = new SessionManager(
       workspaces,
       { get: async () => undefined } as unknown as ISessionIndex,
+      new InMemorySessionLockService(),
     );
 
     expect(await manager.create({ workDir: '/workspace' })).toBe(first.handle);
@@ -475,7 +482,7 @@ describe('SessionManager', () => {
     (first.service as { create: unknown }).create = async () => {
       throw new Error('boom');
     };
-    const disposeFirst = mock();
+    const disposeFirst = jest.fn();
     (first.service as { dispose: unknown }).dispose = disposeFirst;
     let generation = 'generation-1';
     const workspace = {
@@ -492,6 +499,7 @@ describe('SessionManager', () => {
     const manager = new SessionManager(
       workspaces,
       { get: async () => undefined } as unknown as ISessionIndex,
+      new InMemorySessionLockService(),
     );
 
     await expect(manager.create({ workDir: '/workspace' })).rejects.toThrow('boom');
@@ -502,6 +510,164 @@ describe('SessionManager', () => {
     expect(manager.get('session-2')).toBe(second.handle);
     manager.dispose();
     expect(disposeFirst).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('SessionManager closeIfIdle', () => {
+  interface Guards {
+    readonly busy?: boolean;
+    readonly pending?: 'none' | 'approval' | 'question';
+    readonly cronTasks?: number;
+  }
+
+  const managers: SessionManager[] = [];
+
+  function setup(guards: Guards = {}) {
+    const didCreate = new Emitter<SessionCreatedEvent>();
+    const didClose = new Emitter<SessionClosedEvent>();
+    const locks = new InMemorySessionLockService();
+    const state = {
+      busy: false,
+      pending: 'none' as const,
+      cronTasks: 0,
+      activeAt: Date.now(),
+      ...guards,
+    };
+    const agent = {
+      accessor: {
+        get: (token: unknown) => token === IAgentCronService
+          ? { list: () => Array.from({ length: state.cronTasks }) }
+          : undefined,
+      },
+    };
+    const handle = {
+      id: 'session-1',
+      accessor: {
+        get: (token: unknown) => {
+          if (token === ISessionActivityView) {
+            return {
+              state: () => ({ busy: state.busy, mainTurnActive: false, pendingInteraction: state.pending }),
+              lastActiveAt: () => state.activeAt,
+            };
+          }
+          if (token === IAgentLifecycleService) {
+            return { list: () => [{ agentId: 'main' }], handleOf: () => agent };
+          }
+          return undefined;
+        },
+      },
+    } as unknown as ISessionScopeHandle;
+    let manager: SessionManager;
+    const resume = jest.fn(async (
+      sessionId: string,
+      _options: unknown,
+      source: SessionCreateSource = 'resume',
+    ) => {
+      if (manager.get(sessionId) === undefined) didCreate.fire({ sessionId, handle, source });
+      return handle;
+    });
+    const close = jest.fn(async (sessionId: string, _reason: SessionCloseReason = 'exit') => {
+      didClose.fire({ sessionId });
+    });
+    const service = {
+      onWillCreateSession: Event.None,
+      onDidCreateSession: didCreate.event,
+      onWillCloseSession: Event.None,
+      onDidCloseSession: didClose.event,
+      onDidArchiveSession: Event.None,
+      onDidForkSession: Event.None,
+      create: async () => {
+        didCreate.fire({ sessionId: 'session-1', handle, source: 'startup' });
+        return handle;
+      },
+      resume,
+      close,
+      dispose: () => {},
+    } as unknown as SessionLifecycleService;
+    const workspace = {
+      id: 'workspace-1',
+      program: { sessionControllerGeneration: 'generation-1', createSessionController: () => service },
+    } as unknown as WorkspaceInstance;
+    manager = new SessionManager(
+      { getOrCreate: async () => workspace, get: () => workspace } as unknown as IWorkspaceInstanceManager,
+      { get: async () => ({ workspaceId: 'workspace-1', cwd: '/workspace' }) } as unknown as ISessionIndex,
+      locks,
+    );
+    managers.push(manager);
+    return { manager, handle, resume, close, locks };
+  }
+
+  const create = (fake: ReturnType<typeof setup>): Promise<ISessionScopeHandle> =>
+    fake.manager.create({ sessionId: 'session-1', workDir: '/workspace' } as never);
+
+  beforeEach(() => jest.useFakeTimers());
+
+  afterEach(() => {
+    for (const manager of managers) manager.dispose();
+    managers.length = 0;
+    jest.useRealTimers();
+  });
+
+  it('reclaims after the activity idle timeout and reloads only once', async () => {
+    const fake = setup();
+    expect(await fake.manager.closeIfIdle('session-1', 0)).toBe(false);
+    await create(fake);
+    jest.setSystemTime(Date.now() + 999);
+    expect(await fake.manager.closeIfIdle('session-1', 1000)).toBe(false);
+    await fake.manager.resume('session-1');
+    jest.setSystemTime(Date.now() + 1);
+    expect(await fake.manager.closeIfIdle('session-1', 1000)).toBe(true);
+    expect(fake.manager.get('session-1')).toBeUndefined();
+    await fake.manager.resume('session-1');
+    await fake.manager.close('session-1');
+    await fake.manager.resume('session-1');
+    expect(fake.close.mock.calls[0]?.[1]).toBe('reclaim');
+    expect(fake.resume.mock.calls.map((call) => call[2])).toEqual(['resume', 'reclaimed', 'resume']);
+  });
+
+  const eligibilityCases: Array<[string, Guards]> = [
+    ['a busy turn', { busy: true }],
+    ['a pending approval', { pending: 'approval' }],
+    ['a pending question', { pending: 'question' }],
+    ['pending cron tasks', { cronTasks: 1 }],
+  ];
+
+  it.each(eligibilityCases)('retains sessions with %s', async (_label, guards) => {
+    const fake = setup(guards);
+    await create(fake);
+    expect(await fake.manager.closeIfIdle('session-1', 0)).toBe(false);
+    expect(fake.manager.get('session-1')).toBeDefined();
+  });
+
+  it('releases the lease when the close path fails', async () => {
+    const fake = setup();
+    fake.close.mockRejectedValue(new Error('boom'));
+    await create(fake);
+    await expect(fake.manager.closeIfIdle('session-1', 0)).rejects.toThrow('boom');
+    expect(fake.locks.held('session-1')).toBe(false);
+    expect(fake.manager.get('session-1')).toBeDefined();
+  });
+
+  it('serializes a reclaim with a racing resume', async () => {
+    const fake = setup();
+    await create(fake);
+    let releaseClose!: () => void;
+    const closeGate = new Promise<void>((resolve) => {
+      releaseClose = resolve;
+    });
+    const close = fake.close.getMockImplementation();
+    fake.close.mockImplementation(async (id, reason) => {
+      await closeGate;
+      await close?.(id, reason);
+    });
+    const reclaim = fake.manager.closeIfIdle('session-1', 0);
+    const resumed = fake.manager.resume('session-1');
+    await drainMicrotasks();
+    expect(fake.resume).not.toHaveBeenCalled();
+    releaseClose();
+    expect(await reclaim).toBe(true);
+    expect(await resumed).toBe(fake.handle);
+    expect(fake.manager.get('session-1')).toBe(fake.handle);
   });
 });
 
@@ -519,10 +685,10 @@ describe('SessionManager controller retirement', () => {
   function liveProgram(drainTimeoutMs: number): {
     readonly registry: RuntimeRegistry;
     readonly program: Program;
-    readonly controllers: { readonly service: SessionLifecycleService; readonly dispose: ReturnType<typeof mock> }[];
+    readonly controllers: { readonly service: SessionLifecycleService; readonly dispose: ReturnType<typeof jest.fn> }[];
   } {
     const registry = new RuntimeRegistry('workspace', drainTimeoutMs);
-    const controllers: { readonly service: SessionLifecycleService; readonly dispose: ReturnType<typeof mock> }[] = [];
+    const controllers: { readonly service: SessionLifecycleService; readonly dispose: ReturnType<typeof jest.fn> }[] = [];
     let nextSession = 0;
     const program = new Program(
       'workspace',
@@ -548,7 +714,7 @@ describe('SessionManager controller retirement', () => {
           const didClose = new Emitter<SessionClosedEvent>();
           const didArchive = new Emitter<SessionArchivedEvent>();
           const live = new Map<string, ISessionScopeHandle>();
-          const dispose = mock(() => {
+          const dispose = jest.fn(() => {
             input.onDispose();
             didCreate.dispose();
             didClose.dispose();
@@ -593,7 +759,7 @@ describe('SessionManager controller retirement', () => {
         },
       } as never,
     );
-    const createGeneration = mock(() => {
+    const createGeneration = jest.fn(() => {
       const lease = registry.acquire(program.binding, ['fs', 'process']);
       const id = lease.runtime.identity.generation;
       const behavior = {
@@ -644,6 +810,7 @@ describe('SessionManager controller retirement', () => {
     return new SessionManager(
       workspaces,
       { get: async () => undefined } as unknown as ISessionIndex,
+      new InMemorySessionLockService(),
     );
   }
 
@@ -725,10 +892,11 @@ describe('reloadOnStale', () => {
 
   it('reloads the session and retries once after a stale rejection', async () => {
     const { accessor, order, reloaded } = staleAccessor();
-    const run = mock<() => Promise<string>>()
+    const run = jest
+      .fn<() => Promise<string>>()
       .mockRejectedValueOnce(new Error2(ErrorCodes.SESSION_STALE, 'stale'))
       .mockResolvedValue('done');
-    const onReloaded = mock(async (session: ISessionScopeHandle) => {
+    const onReloaded = jest.fn(async (session: ISessionScopeHandle) => {
       order.push(`reloaded:${session === reloaded}`);
     });
 
@@ -741,7 +909,7 @@ describe('reloadOnStale', () => {
   it('reloads but rethrows the stale rejection when retry is off', async () => {
     const { accessor, order } = staleAccessor();
     const stale = new Error2(ErrorCodes.SESSION_STALE, 'stale');
-    const run = mock(async () => {
+    const run = jest.fn(async () => {
       throw stale;
     });
 

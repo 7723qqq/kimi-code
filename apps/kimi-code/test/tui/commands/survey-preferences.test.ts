@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { KimiConfig } from '@moonshot-ai/kimi-code-sdk';
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it, vi } from 'bun:test';
 
 import { applySurveyPreferenceChoice } from '#/tui/commands/config';
 import { loadTuiConfig, removeLegacySurveySetting, saveTuiConfig } from '#/tui/config';
@@ -12,9 +12,9 @@ import { migrateLegacySurveySetting } from '#/utils/survey-setting';
 function makeHost(disableFeedbackSurvey: boolean) {
   return {
     state: { appState: { disableFeedbackSurvey } },
-    harness: { setConfig: mock(async () => ({})) },
-    setAppState: mock(),
-    showStatus: mock(),
+    harness: { setConfig: jest.fn(async () => ({})) },
+    setAppState: jest.fn(),
+    showStatus: jest.fn(),
   };
 }
 
@@ -67,10 +67,10 @@ describe('legacy survey setting migration', () => {
   function deps(legacyValue: boolean | undefined, configured: boolean | undefined) {
     return {
       legacyValue,
-      getConfig: mock(async () => ({ disableFeedbackSurvey: configured }) as KimiConfig),
-      setConfig: mock(async () => ({})),
-      dropLegacy: mock(async () => {}),
-      warn: mock(),
+      getConfig: jest.fn(async () => ({ disableFeedbackSurvey: configured }) as KimiConfig),
+      setConfig: jest.fn(async () => ({})),
+      dropLegacy: jest.fn(async () => {}),
+      warn: jest.fn(),
     };
   }
 

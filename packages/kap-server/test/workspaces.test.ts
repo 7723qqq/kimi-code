@@ -1,17 +1,17 @@
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, sep } from 'node:path';
+import { join } from 'node:path';
+
+import { afterAll, beforeAll, describe, expect, it, vi } from 'bun:test';
+import { setEnv, restoreEnvs } from 'helpers/stubs';
+import { waitUntil } from 'helpers/waitFor';
 
 import { IAtomicDocumentStore, IWorkspaceInstanceManager } from '@moonshot-ai/agent-core-v2';
 import { encodeWorkDirKey } from '@moonshot-ai/agent-core-v2/_base/utils/workdir-slug';
-import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
-import { removeTempHome } from './helpers/tempHome';
 
 import { type RunningServer, startServer } from '../src/start';
-import { authHeaders } from './helpers/auth';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
-import { setEnv, restoreEnvs } from './helpers/stubs';
-import { waitForAssertion } from './helpers/waitFor';
+import { authHeaders } from './helpers/auth';
 
 interface Envelope<T> {
   code: number;
@@ -54,7 +54,6 @@ describe('server-v2 /api/v1/workspaces', () => {
       port: 0,
       homeDir: home,
       logLevel: 'silent',
-      debugEndpoints: true,
     });
     base = `http://127.0.0.1:${server.port}`;
   });
@@ -65,7 +64,7 @@ describe('server-v2 /api/v1/workspaces', () => {
       server = undefined;
     }
     if (home !== undefined) {
-      await removeTempHome(home);
+      await rm(home, { recursive: true, force: true });
       home = undefined;
     }
   });
@@ -248,9 +247,8 @@ describe('server-v2 /api/v1/workspaces', () => {
     };
     await seedBucket(typedId, 's-typed', {});
     await seedBucket(lowerId, 's-lower', { archived: true, updatedAt: 2 });
-    await postJson<void>('/api/v1/debug/sessionIndex/reconcileNow', {});
 
-    await waitForAssertion(async () => {
+    await waitUntil(async () => {
       const { body } = await getJson<ListWire>('/api/v1/workspaces');
       expect(body.code).toBe(0);
       const unions = body.data.items.filter((w) => [typedId, lowerId].includes(w.id));
@@ -272,12 +270,12 @@ describe('server-v2 /api/v1/workspaces', () => {
     expect(status).toBe(200);
     expect(body.code).toBe(0);
     expect(body.data.persisted).toBe(true);
-    expect(body.data.additional_dirs).toContain(extra.split(sep).join('/'));
-    expect(body.data.project_root).toBe(root.split(sep).join('/'));
-    expect(body.data.config_path).toBe(join(root, '.kimi-code', 'local.toml').split(sep).join('/'));
+    expect(body.data.additional_dirs).toContain(extra);
+    expect(body.data.project_root).toBe(root);
+    expect(body.data.config_path).toBe(join(root, '.kimi-code', 'local.toml'));
     const toml = await readFile(body.data.config_path, 'utf8');
     expect(toml).toContain('additional_dir');
-    expect(toml).toContain(extra.split(sep).join('/'));
+    expect(toml).toContain(extra);
   });
 
   it('adds a relative directory without persisting when persist is false', async () => {
@@ -293,7 +291,7 @@ describe('server-v2 /api/v1/workspaces', () => {
     });
     expect(body.code).toBe(0);
     expect(body.data.persisted).toBe(false);
-    expect(body.data.additional_dirs).toContain(extra.split(sep).join('/'));
+    expect(body.data.additional_dirs).toContain(extra);
     await expect(readFile(body.data.config_path, 'utf8')).rejects.toThrow();
     await rm(root, { recursive: true, force: true });
   });
@@ -343,7 +341,7 @@ describe('server-v2 /api/v1/workspaces', () => {
       expect(created.body.code).toBe(0);
       const id = created.body.data.id;
       const manager = (server as RunningServer).core.accessor.get(IWorkspaceInstanceManager);
-      const getOrCreate = spyOn(manager, 'getOrCreate').mockRejectedValue(
+      const getOrCreate = jest.spyOn(manager, 'getOrCreate').mockRejectedValue(
         new Error('runtime environment unavailable'),
       );
       try {
@@ -374,7 +372,7 @@ describe('server-v2 /api/v1/workspaces', () => {
       const id = created.body.data.id;
       const docs = (server as RunningServer).core.accessor.get(IAtomicDocumentStore);
       const failure = new Error('trust storage unavailable');
-      const read = spyOn(docs, 'get').mockRejectedValue(failure);
+      const read = jest.spyOn(docs, 'get').mockRejectedValue(failure);
       try {
         const responses = [
           await getJson<{ trusted: boolean }>(`/api/v1/workspaces/${id}/trust`),
@@ -403,7 +401,7 @@ describe('server-v2 /api/v1/workspaces', () => {
       await getJson<{ trusted: boolean }>(`/api/v1/workspaces/${id}/trust`);
 
       const writeFailure = new Error('trust marker write failed');
-      const write = spyOn(docs, 'set').mockRejectedValueOnce(writeFailure);
+      const write = jest.spyOn(docs, 'set').mockRejectedValueOnce(writeFailure);
       const writeError = await postJson<{ trusted: boolean }>(`/api/v1/workspaces/${id}/trust`);
       expect(writeError.body.code).toBe(50001);
       expect(writeError.body.msg).toBe(writeFailure.message);
@@ -415,7 +413,7 @@ describe('server-v2 /api/v1/workspaces', () => {
       expect(trusted.body.data.trusted).toBe(true);
 
       const deleteFailure = new Error('trust marker delete failed');
-      const deletion = spyOn(docs, 'delete').mockRejectedValueOnce(deleteFailure);
+      const deletion = jest.spyOn(docs, 'delete').mockRejectedValueOnce(deleteFailure);
       const deleteError = await postJson<{ trusted: boolean }>(`/api/v1/workspaces/${id}/untrust`);
       expect(deleteError.body.code).toBe(50001);
       expect(deleteError.body.msg).toBe(deleteFailure.message);
@@ -447,7 +445,7 @@ describe('server-v2 /api/v1/workspaces', () => {
       const read = docs.get.bind(docs);
       let shouldFail = true;
       let failed = false;
-      const get = spyOn(docs, 'get').mockImplementation(async <T>(scope: string, key: string) => {
+      const get = jest.spyOn(docs, 'get').mockImplementation(async <T>(scope: string, key: string) => {
         if (shouldFail && scope === 'workspace-trust') {
           shouldFail = false;
           failed = true;
@@ -470,7 +468,7 @@ describe('server-v2 /api/v1/workspaces', () => {
         expect(trusted.body.data.trusted).toBe(true);
         expect(workspace.program.trust.isTrusted()).toBe(true);
 
-        await waitForAssertion(() => {
+        await waitUntil(() => {
           expect(workspace.program.mcpConfig.servers()).toHaveProperty('projectOnly');
         });
         expect(recovered).toEqual([true]);
@@ -500,7 +498,7 @@ describe('server-v2 /api/v1/workspaces', () => {
       const read = docs.get.bind(docs);
       let shouldFail = true;
       let failed = false;
-      const get = spyOn(docs, 'get').mockImplementation(async <T>(scope: string, key: string) => {
+      const get = jest.spyOn(docs, 'get').mockImplementation(async <T>(scope: string, key: string) => {
         if (shouldFail && scope === 'workspace-trust') {
           shouldFail = false;
           failed = true;
@@ -520,7 +518,7 @@ describe('server-v2 /api/v1/workspaces', () => {
         expect(revoked.body.code).toBe(0);
         expect(revoked.body.data.trusted).toBe(true);
 
-        await waitForAssertion(() => {
+        await waitUntil(() => {
           expect(workspace.program.mcpConfig.servers()).toHaveProperty('projectOnly');
         });
       } finally {

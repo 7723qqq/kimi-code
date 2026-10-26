@@ -1,4 +1,4 @@
-import { describe, expect, it, mock } from 'bun:test';
+import { describe, expect, it, vi } from 'bun:test';
 
 import {
   buildSurveyEventProperties,
@@ -12,7 +12,6 @@ import {
   type LongContextArmGateInput,
   type SessionArmGateInput,
   type SurveyGateInput,
-  type SurveyGateSkipReason,
 } from '#/session-rating/common/gates';
 import {
   DEFAULT_SURVEY_POPUP_CONFIG,
@@ -72,7 +71,7 @@ describe('evaluateSurveyGate (session arm)', () => {
     expect(evaluateSurveyGate(gate())).toEqual({ show: true, survey: 'session' });
   });
 
-  it.each<[Partial<SessionArmGateInput>, SurveyGateSkipReason]>([
+  it.each<[Partial<SessionArmGateInput>, string]>([
     [{ turnInProgress: true }, 'turn-in-progress'],
     [{ feedbackSurveyDisabled: true }, 'feature-disabled'],
     [{ telemetryDisabled: true }, 'telemetry-disabled'],
@@ -191,7 +190,7 @@ describe('evaluateLongContextArm', () => {
     [{ virtualContextTokens: 199_999 }, 'below-threshold'],
     [{ msSinceGlobalLastShown: 99_999_999 }, 'global-cooldown'],
   ])('skips with %j → %s', (overrides, reason) => {
-    expect(arm(overrides)).toEqual({ show: false, reason: reason as SurveyGateSkipReason });
+    expect(arm(overrides)).toEqual({ show: false, reason });
   });
 
   it('checks the mount cap first: a shown survey reports mount-survey-shown, not later reasons', () => {
@@ -249,7 +248,7 @@ describe('evaluateLongContextArm', () => {
 
   describe('mount one-shot', () => {
     it('does not draw the dice below the threshold, so the roll stays unspent', () => {
-      const drawMountRoll = mock(() => 0);
+      const drawMountRoll = jest.fn(() => 0);
       expect(arm({ virtualContextTokens: 199_999, drawMountRoll })).toEqual({
         show: false,
         reason: 'below-threshold',
@@ -258,7 +257,7 @@ describe('evaluateLongContextArm', () => {
     });
 
     it('does not draw the dice inside the shared global cooldown, so the roll stays unspent', () => {
-      const drawMountRoll = mock(() => 0);
+      const drawMountRoll = jest.fn(() => 0);
       expect(arm({ msSinceGlobalLastShown: 1000, drawMountRoll })).toEqual({
         show: false,
         reason: 'global-cooldown',
@@ -291,7 +290,7 @@ describe('evaluateLongContextArm', () => {
     });
 
     it('never draws again once the roll is spent', () => {
-      const drawMountRoll = mock(() => 0);
+      const drawMountRoll = jest.fn(() => 0);
       expect(arm({ mountRollConsumed: true, drawMountRoll })).toEqual({
         show: false,
         reason: 'mount-roll-consumed',

@@ -1,27 +1,25 @@
-import { afterEach, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
 import fs, { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
+import { afterEach, beforeEach, describe, expect, it, jest, mock } from 'bun:test';
+
 import { isError2 } from '#/_base/errors/errors';
 import type { IBootstrapService } from '#/app/bootstrap/bootstrap';
+import type { SessionLockHolder } from '#/persistence/interface/sessionLock';
 import {
   SESSION_LOCK_ENV,
   SessionLockService,
 } from '#/persistence/backends/node-fs/sessionLockService';
-import type { SessionLockHolder } from '#/persistence/interface/sessionLock';
-
 import { noopLogger } from '../../../wire/stubs';
 
-const execFileSyncMock = mock(() => '');
+const mocks = {
+  execFileSync: jest.fn(),
+};
 
 void mock.module('node:child_process', () => ({
-  execFileSync: execFileSyncMock,
+  execFileSync: mocks.execFileSync,
 }));
-
-const mocks = {
-  execFileSync: execFileSyncMock,
-};
 
 const SID = 'session-1';
 
@@ -168,7 +166,7 @@ describe('SessionLockService', () => {
     serviceA.hold('warmup');
     serviceA.release('warmup');
     writeFileSync(lockPath(homeDir, SID), JSON.stringify(stale), { mode: 0o600 });
-    const killSpy = spyOn(process, 'kill').mockReturnValue(true);
+    const killSpy = jest.spyOn(process, 'kill').mockReturnValue(true);
     mocks.execFileSync.mockReturnValue('Z\n');
     try {
       expect(() => serviceA.hold(SID)).not.toThrow();
@@ -251,7 +249,7 @@ describe('SessionLockService', () => {
   it('takeover reports a lock file it cannot remove', () => {
     serviceB.hold(SID);
     const denied = Object.assign(new Error('operation not permitted'), { code: 'EPERM' });
-    const unlinkSpy = spyOn(fs, 'unlinkSync').mockImplementation(() => {
+    const unlinkSpy = jest.spyOn(fs, 'unlinkSync').mockImplementation(() => {
       throw denied;
     });
     try {
@@ -308,8 +306,8 @@ describe('SessionLockService', () => {
   });
 
   it('releases held locks when the process exit hook fires', () => {
-    const onSpy = spyOn(process, 'on');
-    const offSpy = spyOn(process, 'off');
+    const onSpy = jest.spyOn(process, 'on');
+    const offSpy = jest.spyOn(process, 'off');
     try {
       serviceA.hold(SID);
       serviceA.hold('other');

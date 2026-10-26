@@ -8,6 +8,7 @@ import type {
   TelemetryEvent,
   TelemetryPrimitive,
   TelemetryTransport,
+  TelemetryRegionResolution,
 } from './types';
 
 export interface EventSinkContextOptions {
@@ -18,12 +19,15 @@ export interface EventSinkContextOptions {
   readonly buildSha?: string;
   readonly terminal?: string;
   readonly locale?: string;
+  readonly region?: TelemetryRegionResolution['region'];
+  readonly regionSource?: string;
   readonly env?: NodeJS.ProcessEnv;
 }
 
 export interface EventSinkOptions {
   readonly transport: TelemetryTransport;
   readonly context: EventSinkContextOptions;
+  readonly resolveRegion?: () => TelemetryRegionResolution;
   readonly flushIntervalMs?: number;
   readonly flushThreshold?: number;
 }
@@ -34,6 +38,7 @@ const DEFAULT_FLUSH_THRESHOLD = 50;
 export class EventSink {
   private readonly transport: TelemetryTransport;
   private readonly context: TelemetryContext;
+  private readonly resolveRegion: (() => TelemetryRegionResolution) | undefined;
   private readonly flushIntervalMs: number;
   private readonly flushThreshold: number;
   private buffer: EnrichedTelemetryEvent[] = [];
@@ -42,11 +47,14 @@ export class EventSink {
   constructor(options: EventSinkOptions) {
     this.transport = options.transport;
     this.context = buildContext(options.context);
+    this.resolveRegion = options.resolveRegion;
+    this.refreshRegion();
     this.flushIntervalMs = options.flushIntervalMs ?? DEFAULT_FLUSH_INTERVAL_MS;
     this.flushThreshold = options.flushThreshold ?? DEFAULT_FLUSH_THRESHOLD;
   }
 
   accept(event: TelemetryEvent): void {
+    this.refreshRegion();
     const cleaned = cleanTelemetryProperties(event.properties);
     const enriched: EnrichedTelemetryEvent = {
       ...event,
@@ -57,6 +65,13 @@ export class EventSink {
     if (this.buffer.length >= this.flushThreshold) {
       void this.flush().catch(() => {});
     }
+  }
+
+  private refreshRegion(): void {
+    const resolution = this.resolveRegion?.();
+    if (resolution === undefined) return;
+    setPrimitive(this.context, 'region', resolution.region);
+    setPrimitive(this.context, 'region_source', resolution.source);
   }
 
   setModel(model: string): void {
@@ -136,6 +151,8 @@ function buildContext(options: EventSinkContextOptions): TelemetryContext {
   };
   setPrimitive(context, 'model', options.model);
   setPrimitive(context, 'build_sha', options.buildSha);
+  setPrimitive(context, 'region', options.region);
+  setPrimitive(context, 'region_source', options.regionSource);
   return context;
 }
 
