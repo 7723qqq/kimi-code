@@ -8,6 +8,7 @@ import { Disposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { ILogService } from '#/_base/log/log';
 import { abortable, userCancellationReason } from '#/_base/utils/abort';
+import { codePointBoundaryStart } from '#/_base/text/code-points';
 import { escapeXml, escapeXmlAttr, escapeXmlTags } from '#/_base/utils/xml-escape';
 import { ContextAppendMessage, ContextSpliced } from '#/agent/contextMemory/contextEvents';
 import { IAgentContextMemoryService } from '#/agent/contextMemory/contextMemory';
@@ -638,10 +639,11 @@ export class AgentTaskService extends Disposable implements IAgentTaskService {
   }
 
   async readOutput(taskId: string, tail?: number): Promise<string> {
-    if (tail === undefined) {
-      return (await this.getOutputSnapshot(taskId, Number.MAX_SAFE_INTEGER)).preview;
-    }
-    return (await this.getOutputSnapshot(taskId, Math.max(0, Math.trunc(tail)))).preview;
+    const output = (await this.getOutputSnapshot(taskId, Number.MAX_SAFE_INTEGER)).preview;
+    if (tail === undefined) return output;
+    const tailChars = Math.max(0, Math.trunc(tail));
+    if (tailChars === 0) return output;
+    return output.slice(codePointBoundaryStart(output, Math.max(0, output.length - tailChars)));
   }
 
   async suppressTerminalNotification(taskId: string): Promise<void> {
