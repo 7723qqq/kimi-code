@@ -252,7 +252,7 @@ type LoadingTipKind = 'moon' | 'braille';
 
 function loadingTipKind(mode: EffectiveActivityPaneMode): LoadingTipKind | undefined {
   if (mode === 'waiting' || mode === 'tool') return 'moon';
-  if (mode === 'composing' || mode === 'thinking') return 'braille';
+  if (mode === 'composing' || mode === 'thinking' || mode === 'compacting') return 'braille';
   return undefined;
 }
 
@@ -1099,7 +1099,7 @@ export class KimiTUI {
     this.tasksBrowserController.close();
     this.btwPanelController.clear();
     this.stopActivitySpinner();
-    this.streamingUI.disposeActiveCompactionBlock();
+    this.streamingUI.clearActiveCompaction();
     this.streamingUI.resetToolUi();
     this.disposeTranscriptChildren();
     this.editorKeyboard.dispose();
@@ -3490,7 +3490,7 @@ export class KimiTUI {
   private clearTranscriptView(): void {
     this.streamingUI.discardPending();
     this.state.transcriptEntries = [];
-    this.streamingUI.disposeActiveCompactionBlock();
+    this.streamingUI.clearActiveCompaction();
     this.streamingUI.resetLiveText();
     this.streamingUI.resetToolUi();
     this.sessionEventHandler.stopAllMcpServerStatusSpinners();
@@ -3861,9 +3861,9 @@ export class KimiTUI {
     const effectiveMode = this.resolveActivityPaneMode();
     const tipKind = loadingTipKind(effectiveMode);
     // Pick a fresh loading tip when the loading kind changes: waiting/tool
-    // share the moon kind and thinking/composing share the braille kind, so a
-    // burst of tool calls or thinking/composing alternation does not flip
-    // tips. Clear the cache only when there is no loading UI at all.
+    // share the moon kind and thinking/composing/compacting share the braille
+    // kind, so a burst of tool calls or thinking/composing alternation does
+    // not flip tips. Clear the cache only when there is no loading UI at all.
     if (effectiveMode === 'idle' || effectiveMode === 'session' || effectiveMode === 'hidden') {
       this.currentLoadingTip = undefined;
     } else if (
@@ -3888,7 +3888,10 @@ export class KimiTUI {
 
     if (
       activityModeKey === this.lastActivityMode &&
-      (effectiveMode === 'waiting' || effectiveMode === 'thinking' || effectiveMode === 'tool')
+      (effectiveMode === 'waiting' ||
+        effectiveMode === 'thinking' ||
+        effectiveMode === 'tool' ||
+        effectiveMode === 'compacting')
     ) {
       if (placeSpinnerInAgentSwarm) {
         this.syncAgentSwarmActivitySpinner(this.state.activitySpinner?.instance);
@@ -3905,6 +3908,20 @@ export class KimiTUI {
         this.syncAgentSwarmActivitySpinner(undefined);
         this.state.ui.requestRender();
         return;
+      case 'compacting': {
+        const spinner = this.ensureActivitySpinner('braille', 'Compacting…', (s) =>
+          currentTheme.fg('primary', s),
+        );
+        this.syncAgentSwarmActivitySpinner(undefined);
+        this.state.activityContainer.addChild(
+          new ActivityPaneComponent({
+            mode: 'compacting',
+            spinner,
+            tip: this.currentLoadingTip?.tip,
+          }),
+        );
+        break;
+      }
       case 'waiting': {
         const stepRetry = this.state.appState.stepRetry;
         const spinner = this.ensureActivitySpinner('moon', waitingSpinnerLabel(stepRetry));
@@ -3978,8 +3995,8 @@ export class KimiTUI {
   private resolveActivityPaneMode(): EffectiveActivityPaneMode {
     if (this.state.activeDialog === 'session-picker') return 'hidden';
     if (this.state.livePane.pendingApproval !== null) return 'hidden';
-    if (this.state.appState.isCompacting) return 'hidden';
     if (this.state.livePane.pendingQuestion !== null) return 'hidden';
+    if (this.state.appState.isCompacting) return 'compacting';
 
     const streamingPhase = this.state.appState.streamingPhase;
 
