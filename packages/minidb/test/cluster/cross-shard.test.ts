@@ -3,7 +3,6 @@
 // Cross-shard semantics: best-effort mset, 'none' mode rejection, per-shard
 // secondary/text indexes with global merge, and cluster-wide compaction.
 
-import assert from 'node:assert/strict';
 import path from 'node:path';
 
 import { expect, test } from 'bun:test';
@@ -24,14 +23,11 @@ test("crossShard 'none' rejects multi-shard writes but allows single-shard ones"
     });
     const a = keyOnShard('cs', 0, 4);
     const b = keyOnShard('cs', 1, 4);
-    await assert.rejects(
-      () =>
+    await expect((() =>
         db.mset([
           [a, 1],
           [b, 2],
-        ]),
-      /spans 2 shards/,
-    );
+        ]))()).rejects.toThrow(/spans 2 shards/);
 
     const sameShard = [keyOnShard('one', 0, 4), keyOnShard('one-x', 0, 4)];
     await db.mset(sameShard.map((k, i) => [k, i] as [string, number]));
@@ -39,7 +35,7 @@ test("crossShard 'none' rejects multi-shard writes but allows single-shard ones"
     await db.close();
 
     // '2pc' is explicitly reserved.
-    await assert.rejects(() => ClusterDb.open({ dir, crossShard: '2pc' }), /2pc/);
+    await expect((() => ClusterDb.open({ dir, crossShard: '2pc' }))()).rejects.toThrow(/2pc/);
   } finally {
     await rmrf(dir);
   }
@@ -87,7 +83,7 @@ test('secondary index: create, findEq/findRange merged across shards, maintained
     expect(defs.map((d) => d.name).toSorted()).toStrictEqual(['by-age', 'by-city']);
 
     expect(await db.dropIndex('by-city')).toBe(true);
-    await assert.rejects(() => db.findEq('by-city', 'bj'), /no such index/);
+    await expect((() => db.findEq('by-city', 'bj'))()).rejects.toThrow(/no such index/);
     expect(await db.dropIndex('by-city')).toBe(false);
     await db.close();
   } finally {
@@ -125,7 +121,7 @@ test('text index: search merges per-shard results by score', async () => {
     expect(limited.length).toBe(2);
 
     expect(await db.dropTextIndex('txt')).toBe(true);
-    await assert.rejects(() => db.search('txt', 'log'), /no such text index/);
+    await expect((() => db.search('txt', 'log'))()).rejects.toThrow(/no such text index/);
     await db.close();
   } finally {
     await rmrf(dir);
@@ -274,10 +270,7 @@ test('a failed unique createIndex rolls back the shards it already created on', 
     for (let id = 0; id < shardCount; id++)
       await db.set(keyOnShard('rb', id, shardCount), { u: 9 });
     await db.set(keyOnShard('rb-dup', shardCount - 1, shardCount), { u: 9 });
-    await assert.rejects(
-      () => db.createIndex('u-idx', { field: 'u', unique: true }),
-      /unique index "u-idx" violation/,
-    );
+    await expect((() => db.createIndex('u-idx', { field: 'u', unique: true }))()).rejects.toThrow(/unique index "u-idx" violation/);
     await db.close();
 
     // Every shard sidecar must be clean (not just the registry).

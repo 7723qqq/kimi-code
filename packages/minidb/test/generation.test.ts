@@ -8,7 +8,6 @@
 // path-predicated wrappers, plus the barrier facility from helpers.ts for
 // deterministic mid-build crash points.
 
-import assert from 'node:assert/strict';
 import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';

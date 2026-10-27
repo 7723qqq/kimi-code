@@ -1,4 +1,3 @@
-import assert from "node:assert";
 import { expect, describe, it, setSystemTime } from "bun:test";
 import { stripVTControlCharacters } from "node:util";
 import { type AutocompleteProvider, CombinedAutocompleteProvider } from "../src/autocomplete.ts";
@@ -4319,7 +4318,7 @@ describe("Editor component", () => {
 			expect(!after.endsWith("[")).toBeTruthy();
 			expect(editor.getCursor()).toStrictEqual({ line: 0, col: 180 });
 			expect(after.startsWith("[paste #9 "), `head is ${after.slice(0, 20)}`).toBeTruthy();
-			assert.strictEqual(new Set(after.match(/\[paste #(\d+)/g)).size, 9);
+			expect(new Set(after.match(/\[paste #(\d+)/g)).size).toBe(9);
 			expect(!editor.getExpandedText().includes("tag80")).toBeTruthy();
 			expect(editor.getExpandedText().includes("ten0")).toBeTruthy();
 		});

@@ -1,4 +1,3 @@
-import assert from "node:assert";
 import { expect, describe, it } from "bun:test";
 import { SelectList } from "../src/components/select-list.ts";
 import { visibleWidth } from "../src/utils.ts";

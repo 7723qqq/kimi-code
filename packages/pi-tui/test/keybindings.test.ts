@@ -1,4 +1,3 @@
-import assert from "node:assert";
 import { expect, describe, it } from "bun:test";
 import { KeybindingsManager, TUI_KEYBINDINGS } from "../src/keybindings.ts";
 

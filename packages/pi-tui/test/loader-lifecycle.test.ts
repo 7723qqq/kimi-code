@@ -1,4 +1,3 @@
-import assert from "node:assert";
 import { expect, describe, it } from "bun:test";
 import { Loader } from "../src/components/loader.ts";
 import type { TUI } from "../src/tui.ts";

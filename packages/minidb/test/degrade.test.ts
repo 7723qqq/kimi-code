@@ -1,4 +1,3 @@
-import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -46,7 +45,7 @@ test('openOrRebuild does NOT delete a live-locked db', async () => {
   const db1 = await MiniDb.open({ dir, valueCodec: 'string' });
   await db1.set('a', '1');
   try {
-    await assert.rejects(() => MiniDb.openOrRebuild({ dir, valueCodec: 'string' }), LockError);
+    await expect((() => MiniDb.openOrRebuild({ dir, valueCodec: 'string' }))()).rejects.toThrow(LockError);
     // data still there
     expect(await fs.stat(path.join(dir, 'db.wal'))).toBeTruthy();
   } finally {
@@ -65,15 +64,12 @@ test('openOrRebuild with onLockFail readonly must not mutate a live writer: corr
   // files.
   await fs.writeFile(path.join(dir, 'db.indexes.json'), '{broken-json');
   try {
-    await assert.rejects(
-      MiniDb.openOrRebuild<string>({
+    await expect(MiniDb.openOrRebuild<string>({
         dir,
         valueCodec: 'string',
         fsyncPolicy: 'no',
         onLockFail: 'readonly',
-      }),
-      SyntaxError,
-    );
+      })).rejects.toThrow(SyntaxError);
     const sidecar = await fs.readFile(path.join(dir, 'db.indexes.json'), 'utf8');
     expect(sidecar, 'the live writer’s sidecar is untouched').toBe('{broken-json');
     expect(writer.get('kept'), 'the live writer is undisturbed').toBe('value');
@@ -137,9 +133,8 @@ test('openOrRebuild refuses to destructively rebuild by default when the data fi
     }),
   );
 
-  await assert.rejects(
-    MiniDb.openOrRebuild({ dir, valueCodec: 'json' }),
-    (e: unknown) => e instanceof Error && /allowDestructiveRebuild/.test(e.message),
+  await expect(MiniDb.openOrRebuild({ dir, valueCodec: 'json' })).rejects.toThrow(
+    /allowDestructiveRebuild/,
   );
   expect((await fs.stat(walPath)).size > walLenBefore, 'WAL untouched by the refused rebuild').toBeTruthy();
   // dropping the appended poison frame repairs the db: the data was never erased
@@ -206,25 +201,19 @@ test('classifyStorageError and retryEperm drive the rebuild/transient recovery p
   expect(attempts).toBe(3);
 
   attempts = 0;
-  await assert.rejects(
-    retryEperm(async () => {
+  await expect(retryEperm(async () => {
       attempts += 1;
       throw new Error('not eperm');
-    }),
-    /not eperm/,
-  );
+    })).rejects.toThrow(/not eperm/);
   expect(attempts).toBe(1);
 
   attempts = 0;
-  await assert.rejects(
-    retryEperm(
+  await expect(retryEperm(
       async () => {
         attempts += 1;
         throw eperm();
       },
       { retries: 2, baseDelayMs: 1 },
-    ),
-    /operation not permitted/,
-  );
+    )).rejects.toThrow(/operation not permitted/);
   expect(attempts).toBe(3);
 });

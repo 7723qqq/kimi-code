@@ -1,4 +1,3 @@
-import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -17,7 +16,7 @@ test('a second writer on the same dir is rejected with LockError', async () => {
   const dir = await tmpDir();
   const db1 = await MiniDb.open({ dir, valueCodec: 'string' });
   try {
-    await assert.rejects(() => MiniDb.open({ dir, valueCodec: 'string' }), LockError);
+    await expect((() => MiniDb.open({ dir, valueCodec: 'string' }))()).rejects.toThrow(LockError);
   } finally {
     await db1.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -44,7 +43,7 @@ test('readOnly open succeeds alongside a writer and rejects writes', async () =>
     const ro = await MiniDb.open({ dir, valueCodec: 'string', readOnly: true });
     expect(ro.readOnly).toBe(true);
     expect(ro.get('a')).toBe('1');
-    await assert.rejects(() => ro.set('b', '2'), /read-only/);
+    await expect((() => ro.set('b', '2'))()).rejects.toThrow(/read-only/);
     await ro.close();
   } finally {
     await db1.close();
@@ -273,8 +272,8 @@ test('close() aggregates every cleanup error instead of stopping at the first', 
         () => false,
       ), 'lock released on the retry').toBe(false);
     // The instance refused use from the first 'closing' transition on.
-    await assert.rejects(() => db.set('b', '2'), /MiniDb is closed/);
-    await assert.rejects(() => db.compact(), /MiniDb is closed/);
+    await expect((() => db.set('b', '2'))()).rejects.toThrow(/MiniDb is closed/);
+    await expect((() => db.compact())()).rejects.toThrow(/MiniDb is closed/);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }

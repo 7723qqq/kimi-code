@@ -4,7 +4,6 @@
 // the TextIndex (delta + tombstones + disk-backed base + cache).
 
 import { expect, test } from 'bun:test';
-import assert from 'node:assert/strict';
 import fssync from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -76,7 +75,7 @@ test('record frame: CRC detects corruption', () => {
 
   const bad = Buffer.from(rec);
   bad[2] ^= 0xff; // flip a byte inside the term
-  assert.throws(() => decodeRecord(bad), /crc mismatch/);
+  expect(() => decodeRecord(bad)).toThrow(/crc mismatch/);
 });
 
 // ---- PostingsFile --------------------------------------------------------
@@ -141,7 +140,7 @@ test('PostingsFile: corrupt record throws on read', async () => {
     fssync.closeSync(fd);
 
     const pf = PostingsFile.open(p);
-    assert.throws(() => pf.read(e), /crc mismatch/);
+    expect(() => pf.read(e)).toThrow(/crc mismatch/);
     pf.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -530,7 +529,7 @@ test('trigram: hash terms are stable and width-tagged', () => {
   expect(ngramTerm('ab').startsWith('2')).toBeTruthy();
   expect(ngramTerm('abc').startsWith('3')).toBeTruthy();
   expect(ngramTerm('ab')).not.toBe(ngramTerm('abc'));
-  assert.throws(() => ngramTerm('a'), /2- or 3-gram/);
+  expect(() => ngramTerm('a')).toThrow(/2- or 3-gram/);
 });
 
 test('trigram: index vs query tokenizer shapes', () => {
@@ -729,12 +728,9 @@ test('MiniDb: createTextIndex rejects an unknown tokenizer', async () => {
   const dir = await tmpDir();
   try {
     const db = await MiniDb.open({ dir, valueCodec: 'json' });
-    await assert.rejects(
-      db.createTextIndex('x', { tokenizer: 'bogus' as 'ngram' }),
-      /unknown text index tokenizer/,
-    );
+    await expect(db.createTextIndex('x', { tokenizer: 'bogus' as 'ngram' })).rejects.toThrow(/unknown text index tokenizer/);
     // the failed creation left nothing behind
-    assert.throws(() => db.search('x', 'q'), /no such text index/);
+    expect(() => db.search('x', 'q')).toThrow(/no such text index/);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -997,11 +993,11 @@ test('MiniDb: createTextIndex persist failure: no phantom, postings removed, ori
     const restore = stubTextPersist(db, async () => {
       throw boom;
     });
-    await assert.rejects(db.createTextIndex('body', { fields: ['text'] }), (e) => e === boom);
+    await expect(db.createTextIndex('body', { fields: ['text'] })).rejects.toBe(boom);
     restore();
     // No phantom: the index is gone from memory and from the sidecar, and its
     // derived postings file was removed (exactly like dropTextIndex would).
-    assert.throws(() => db.search('body', 'hello'), /no such text index/);
+    expect(() => db.search('body', 'hello')).toThrow(/no such text index/);
     expect(await textSidecarNames(dir)).toStrictEqual([]);
     expect((await fs.readdir(dir)).filter((f) => f.includes('postings'))).toStrictEqual([]);
     // Retry succeeds — no phantom "already exists".
@@ -1024,7 +1020,7 @@ test('MiniDb: dropTextIndex persist failure: the index stays searchable and the 
     const restore = stubTextPersist(db, async () => {
       throw boom;
     });
-    await assert.rejects(db.dropTextIndex('body'), (e) => e === boom);
+    await expect(db.dropTextIndex('body')).rejects.toBe(boom);
     restore();
     // The index is still live: searchable, and its postings file intact.
     expect(db.search('body', 'hello').map((r) => r.key)).toStrictEqual(['a']);
@@ -1119,9 +1115,9 @@ test('TextIndex: a throwing tokenizer leaves the live view, delta and buildQueue
   // Overwrite with a failing tokenizer: rejected BEFORE any mutation, so the
   // old document stays searchable instead of being tombstoned into a ghost.
   fail = true;
-  assert.throws(() => {
+  expect(() => {
     ti.add('k', { bio: 'goodbye world' });
-  }, /boom/);
+  }).toThrow(/boom/);
   expect(ti.N).toBe(1);
   expect(ti.search('hello').map((h) => h.key), 'old doc survives the failed overwrite').toStrictEqual(['k']);
   expect(ti.search('goodbye')).toStrictEqual([]);
@@ -1130,9 +1126,9 @@ test('TextIndex: a throwing tokenizer leaves the live view, delta and buildQueue
   expect(priv.deltaCount, 'delta holds exactly the old doc’s terms').toBe(2);
 
   // A fresh key fails just as cleanly.
-  assert.throws(() => {
+  expect(() => {
     ti.add('fresh', { bio: 'quux' });
-  }, /boom/);
+  }).toThrow(/boom/);
   expect(ti.N).toBe(1);
   expect(priv.keyToId.has('fresh')).toBe(false);
 
@@ -1142,9 +1138,9 @@ test('TextIndex: a throwing tokenizer leaves the live view, delta and buildQueue
   const b = ti.beginBuild();
   b.add('staged', { bio: 'staged doc' });
   fail = true;
-  assert.throws(() => {
+  expect(() => {
     ti.add('q', { bio: 'queued?' });
-  }, /boom/);
+  }).toThrow(/boom/);
   expect((priv.buildQueue as unknown[] | null)?.length, 'the failed add was never queued').toBe(0);
   expect(ti.search('hello').map((h) => h.key), 'live view intact during the build').toStrictEqual(['k']);
   b.abort();
@@ -1161,17 +1157,14 @@ test('TextIndex: an overlong custom-tokenizer term is rejected before any mutati
     const priv = ti as unknown as TiPrivates;
     // '你'.repeat(30000) is 90000 utf8 bytes > 0xffff — it would have made
     // every postings rebuild throw RangeError, permanently poisoning the index.
-    assert.throws(() => {
+    expect(() => {
       ti.add('k', { bio: 'x' });
-    }, /longer than 65535 utf8 bytes/);
+    }).toThrow(/longer than 65535 utf8 bytes/);
     expect(ti.N).toBe(0);
     expect(priv.docLen.size).toBe(0);
     expect(priv.deltaCount).toBe(0);
     // The build path validates at the same boundary (and aborts cleanly).
-    await assert.rejects(
-      ti.build([{ key: 'k', value: { bio: 'x' } }]),
-      /longer than 65535 utf8 bytes/,
-    );
+    await expect(ti.build([{ key: 'k', value: { bio: 'x' } }])).rejects.toThrow(/longer than 65535 utf8 bytes/);
     ti.close();
 
     // A healthy index over the same postings path builds and searches fine.
@@ -1201,11 +1194,11 @@ test('MiniDb: a throwing tokenizer rejects set with zero side effects; the old d
     };
 
     // Insert rejected: store, delta, buildQueue, N, docLen all untouched.
-    await assert.rejects(db.set('k2', { t: 'bad insert' }), /boom/);
+    await expect(db.set('k2', { t: 'bad insert' })).rejects.toThrow(/boom/);
     expect(db.get('k2')).toBe(undefined);
     expect(db.size).toBe(1);
     // Overwrite rejected: the old document is fully intact.
-    await assert.rejects(db.set('k1', { t: 'goodbye' }), /boom/);
+    await expect(db.set('k1', { t: 'goodbye' })).rejects.toThrow(/boom/);
     expect(db.get('k1')).toStrictEqual({ t: 'hello world' });
     expect(db.search('ft', 'hello').map((h) => h.key), 'old doc still searchable').toStrictEqual(['k1']);
     expect(db.search('ft', 'goodbye')).toStrictEqual([]);
@@ -1250,11 +1243,8 @@ test('MiniDb: an overlong tokenizer term rejects set/batch; the postings rebuild
     ti.customTokenizer = true;
     ti.tokenizer = () => ['你'.repeat(30000)];
 
-    await assert.rejects(db.set('bad', { t: 'x' }), /longer than 65535 utf8 bytes/);
-    await assert.rejects(
-      db.batch([{ op: 'set', key: 'bad2', value: { t: 'x' } }]),
-      /longer than 65535 utf8 bytes/,
-    );
+    await expect(db.set('bad', { t: 'x' })).rejects.toThrow(/longer than 65535 utf8 bytes/);
+    await expect(db.batch([{ op: 'set', key: 'bad2', value: { t: 'x' } }])).rejects.toThrow(/longer than 65535 utf8 bytes/);
     expect(db.get('bad'), 'the poisonous doc never enters the store').toBe(undefined);
     expect(db.get('bad2')).toBe(undefined);
 
@@ -1422,7 +1412,7 @@ test('commitRebase adopts a disk base over a memory-base index (read-only scratc
     // unavailable until the commit lands.
     ti.basePending = true;
     ti.beginRebase();
-    assert.throws(() => ti.search('gamma'), /still building/);
+    expect(() => ti.search('gamma')).toThrow(/still building/);
     ti.add('new', { text: 'delta two' });
     const containers = await TextIndex.prepareRebaseContainers(
       [...built.dict],
@@ -1505,12 +1495,15 @@ test('TextIndexBuildingError while the base is pending (sync + async + query)', 
   // Pending base: every search entry raises the typed signal instead of
   // silently serving the delta alone.
   ti.basePending = true;
-  assert.throws(
-    () => ti.search('hello'),
-    (e: unknown) => e instanceof Error && e.name === 'TextIndexBuildingError',
-  );
-  assert.throws(() => ti.searchBounded('hello'), /still building/);
-  await assert.rejects(ti.searchBoundedAsync('hello'), /still building/);
+  let buildingError: unknown;
+  try {
+    ti.search('hello');
+  } catch (error) {
+    buildingError = error;
+  }
+  expect((buildingError as Error | undefined)?.name).toBe('TextIndexBuildingError');
+  expect(() => ti.searchBounded('hello')).toThrow(/still building/);
+  await expect(ti.searchBoundedAsync('hello')).rejects.toThrow(/still building/);
   // A base build with a LIVE old base underneath does NOT set the flag:
   // staged builds keep serving (beginBuild alone must not trip the guard).
   ti.basePending = false;
@@ -1532,9 +1525,9 @@ test('a base read with no open handle raises TextIndexBuildingError instead of s
     // empty silently drops the base's hits.
     ti.pf!.close();
     ti.pf = null;
-    assert.throws(() => ti.search('hello'), TextIndexBuildingError);
-    assert.throws(() => ti.searchBounded('hello'), /still building/);
-    await assert.rejects(ti.searchBoundedAsync('hello'), /still building/);
+    expect(() => ti.search('hello')).toThrow(TextIndexBuildingError);
+    expect(() => ti.searchBounded('hello')).toThrow(/still building/);
+    await expect(ti.searchBoundedAsync('hello')).rejects.toThrow(/still building/);
 
     // A disk index whose FIRST build has not committed yet is genuinely
     // baseless (createTextIndex relies on it): it keeps serving its delta.
@@ -1561,12 +1554,9 @@ test('PostingsFile: a replace that cannot land (EPERM) throws instead of renamin
     // The real EPERM window spans ~2.5 s of retries; the injected seam is the
     // same call the retry would ultimately make, and it fails ONLY on the
     // fixed name — so a fallback that renames aside would succeed and return.
-    await assert.rejects(
-      PostingsFile.rebuild(p, [{ term: 'bye', entries: [[0, 1]] }], {
+    await expect(PostingsFile.rebuild(p, [{ term: 'bye', entries: [[0, 1]] }], {
         rename: epermOn(p),
-      }),
-      /EPERM/,
-    );
+      })).rejects.toThrow(/EPERM/);
     // The previous file is byte-identical and no renamed-aside copy exists:
     // the fixed name is the only one the generation manifest records and the
     // loader verifies, so a second name would be a guaranteed ENOENT there.
@@ -1591,7 +1581,7 @@ test('TextIndex: a failed postings replace keeps the previous base and the retry
     // Phase 1: every replace fails.
     PostingsFile.rebuild = () => Promise.reject(eperm());
 
-    await assert.rejects(ti.build([{ key: 'b', value: { text: 'beta hello' } }]), /EPERM/);
+    await expect(ti.build([{ key: 'b', value: { text: 'beta hello' } }])).rejects.toThrow(/EPERM/);
     // The commit never happened, so the previous base is still served whole
     // (and the staged keys never leaked into the live view).
     expect(ti.search('hello').map((h) => h.key)).toStrictEqual(['a']);

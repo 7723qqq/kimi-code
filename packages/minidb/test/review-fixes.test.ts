@@ -1,4 +1,3 @@
-import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -114,13 +113,10 @@ test('batch() rejects intra-batch unique violations', async () => {
   try {
     const db = await MiniDb.open({ dir, valueCodec: 'json' });
     await db.createIndex('byMail', { field: 'email', unique: true });
-    await assert.rejects(
-      db.batch([
+    await expect(db.batch([
         { op: 'set', key: 'a', value: { email: 'duplicate@example.test' } },
         { op: 'set', key: 'b', value: { email: 'duplicate@example.test' } },
-      ]),
-      /unique/i,
-    );
+      ])).rejects.toThrow(/unique/i);
     expect(db.get('a'), 'nothing committed on failure').toBe(undefined);
     expect(db.get('b')).toBe(undefined);
     await db.close();

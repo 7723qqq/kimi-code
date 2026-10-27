@@ -1,4 +1,3 @@
-import assert from "node:assert";
 import { expect, describe, it } from "bun:test";
 import { compositeTuiLine } from "../src/tui.ts";
 import { extractSegments, sliceByColumn, visibleWidth } from "../src/utils.ts";

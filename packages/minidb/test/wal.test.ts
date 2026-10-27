@@ -1,4 +1,3 @@
-import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -159,22 +158,19 @@ test('seal(): rejects new appends with WAL_SEALED, queued frames stay flushable'
     await wal.append(encodeFrame({ type: TYPE_SET, key: B('a'), value: B('1') }));
     wal.seal();
     wal.seal(); // idempotent
-    await assert.rejects(
-      wal.append(encodeFrame({ type: TYPE_SET, key: B('b'), value: B('2') })),
-      (err) => {
-        assert.equal(err.code, 'WAL_SEALED');
-        return true;
-      },
-    );
+    const sealedError = await wal
+      .append(encodeFrame({ type: TYPE_SET, key: B('b'), value: B('2') }))
+      .then(
+        () => undefined,
+        (error: unknown) => error as { code?: string },
+      );
+    expect(sealedError?.code).toBe('WAL_SEALED');
     await wal.close(); // flushes the pre-seal frame
     const frames = parseAll(await fs.readFile(file));
     expect(frames.length).toBe(1);
     expect(frames[0].key.toString()).toBe('a');
     // after close the legacy "WAL is closed" rejection is preserved
-    await assert.rejects(
-      wal.append(encodeFrame({ type: TYPE_SET, key: B('c'), value: B('3') })),
-      /WAL is closed/,
-    );
+    await expect(wal.append(encodeFrame({ type: TYPE_SET, key: B('c'), value: B('3') }))).rejects.toThrow(/WAL is closed/);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -420,17 +416,18 @@ test('a failed flush poisons the WAL: WAL_POISONED rejections until truncate + r
 
     // While poisoned: appends reject WAL_POISONED (distinct from WAL_SEALED),
     // flush() throws, sync() is a silent no-op.
-    await assert.rejects(
-      wal.append(encodeFrame({ type: TYPE_SET, key: B('later'), value: B('z') })),
-      (err) => {
-        assert.equal((err as { code?: string }).code, 'WAL_POISONED');
-        return true;
-      },
+    const poisonedAppend = await wal
+      .append(encodeFrame({ type: TYPE_SET, key: B('later'), value: B('z') }))
+      .then(
+        () => undefined,
+        (error: unknown) => error as { code?: string },
+      );
+    expect(poisonedAppend?.code).toBe('WAL_POISONED');
+    const poisonedFlush = await wal.flush().then(
+      () => undefined,
+      (error: unknown) => error as { code?: string },
     );
-    await assert.rejects(wal.flush(), (err) => {
-      assert.equal((err as { code?: string }).code, 'WAL_POISONED');
-      return true;
-    });
+    expect(poisonedFlush?.code).toBe('WAL_POISONED');
     await wal.sync();
 
     // In-place recovery (what MiniDb does): truncate the un-acked tail,
@@ -460,10 +457,7 @@ test("an fsync failure with fsyncPolicy 'always' poisons the WAL and counts as w
     const fh = (wal as unknown as { fh: { sync: () => Promise<void> } }).fh;
     fh.sync = () => Promise.reject(new Error('injected fsync failure'));
 
-    await assert.rejects(
-      wal.append(encodeFrame({ type: TYPE_SET, key: B('k'), value: B('v') })),
-      /injected fsync failure/,
-    );
+    await expect(wal.append(encodeFrame({ type: TYPE_SET, key: B('k'), value: B('v') }))).rejects.toThrow(/injected fsync failure/);
     expect(stats.walFsyncErrors, 'fsync-class failure counted by sync() itself').toBe(1);
     expect(stats.walWriteErrors, 'not a writev-class failure').toBe(0);
     expect(wal.poison, 'an unacknowledged batch poisons even though its bytes landed').toBeTruthy();

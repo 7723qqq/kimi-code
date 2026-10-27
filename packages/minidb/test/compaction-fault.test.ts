@@ -18,7 +18,6 @@
 // NOTE: each test patches the shared fs object and the afterEach below restores
 // every patched property, so no test inherits another test's fault.
 
-import assert from 'node:assert/strict';
 import type { PathLike } from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -78,7 +77,7 @@ test('copyFileRange throws when the destination short-writes (bytesWritten === 0
       close: async () => {},
     };
   });
-  await assert.rejects(() => copyFileRange('/tmp/src', '/tmp/dst', 0, 16), /short write/);
+  await expect((() => copyFileRange('/tmp/src', '/tmp/dst', 0, 16))()).rejects.toThrow(/short write/);
 });
 
 test('copyFileRange tolerates a source close() failure (best-effort close)', async () => {
@@ -132,7 +131,7 @@ test('fsyncDir strict mode propagates a sync() failure and still closes the hand
       closed = true;
     },
   }));
-  await assert.rejects(fsyncDir('/tmp/whatever', { strict: true }), /sync failed/);
+  await expect(fsyncDir('/tmp/whatever', { strict: true })).rejects.toThrow(/sync failed/);
   expect(closed, 'close() is called even after sync() throws').toBe(true);
 });
 
@@ -244,7 +243,7 @@ test('wal.close() propagates a final-sync failure but still releases the file ha
       wal.sync = origSync; // one-shot
       throw new Error('injected fsync failure');
     };
-    await assert.rejects(wal.close(), /injected fsync failure/);
+    await expect(wal.close()).rejects.toThrow(/injected fsync failure/);
     // The failed close still released the handle (compaction's recovery swap
     // abandons this WAL object and must not leak its fd)...
     expect((wal as unknown as { fh: unknown }).fh).toBe(null);
@@ -291,7 +290,7 @@ test('rotation: a WAL close() failure leaves the db writable and compact() retri
       parked = db.set('parked', 'during-failed-rotation');
       throw new Error('injected close failure');
     };
-    await assert.rejects(db.compact(), /injected close failure/);
+    await expect(db.compact()).rejects.toThrow(/injected close failure/);
     expect(db.stats.compactions).toBe(0);
     expect(db.stats.compactErrors).toBe(1);
     expect(String(String(db.lastCompactError))).toMatch(/injected close failure/);
@@ -348,7 +347,7 @@ test('rotation: a WAL rename failure (new snapshot already in place) leaves the 
     const N = 200;
     for (let i = 0; i < N; i++) await db.set(`k${i}`, `v${i}`);
 
-    await assert.rejects(db.compact(), /injected rename failure/);
+    await expect(db.compact()).rejects.toThrow(/injected rename failure/);
     expect(db.stats.compactions).toBe(0);
     expect(db.stats.compactErrors).toBe(1);
 
@@ -409,7 +408,7 @@ test('rotation: a new-WAL open() failure after the renames leaves the db writabl
     const N = 200;
     for (let i = 0; i < N; i++) await db.set(`k${i}`, `v${i}`);
 
-    await assert.rejects(db.compact(), /injected open failure/);
+    await expect(db.compact()).rejects.toThrow(/injected open failure/);
     expect(db.stats.compactions).toBe(0);
     expect(db.stats.compactErrors).toBe(1);
 
@@ -459,7 +458,7 @@ test('rotation: the first directory fsync failure aborts the rotation; rollback 
     for (let i = 0; i < N; i++) await db.set(`k${i}`, `v${i}`);
 
     // The strict fsyncDir turns the failure into an abort, not a swallow.
-    await assert.rejects(db.compact(), /injected dir fsync failure/);
+    await expect(db.compact()).rejects.toThrow(/injected dir fsync failure/);
     expect(db.stats.compactions).toBe(0);
     expect(db.stats.compactErrors).toBe(1);
     expect(String(String(db.lastCompactError))).toMatch(/injected dir fsync failure/);
@@ -512,7 +511,7 @@ test('rotation: the second directory fsync failure aborts after both renames; ro
     const N = 200;
     for (let i = 0; i < N; i++) await db.set(`k${i}`, `v${i}`);
 
-    await assert.rejects(db.compact(), /injected dir fsync failure/);
+    await expect(db.compact()).rejects.toThrow(/injected dir fsync failure/);
     expect(db.stats.compactions).toBe(0);
     expect(db.stats.compactErrors).toBe(1);
     expect(String(String(db.lastCompactError))).toMatch(/injected dir fsync failure/);
@@ -564,7 +563,7 @@ test('a compaction whose onCompacted hook throws counts as a compactError, not a
       if (failHook) throw new Error('injected hook failure');
       await hook();
     };
-    await assert.rejects(db.compact(), /injected hook failure/);
+    await expect(db.compact()).rejects.toThrow(/injected hook failure/);
     // The hook is part of the compaction: compactions counts only fully
     // successful runs, even though the rotation itself had already succeeded.
     expect(db.stats.compactions).toBe(0);
@@ -645,12 +644,12 @@ test('a WAL poison during the snapshot phase aborts this compaction; the next co
       }
       return orig(...a);
     };
-    await assert.rejects(db.set('bad', 'x'), /injected WAL failure/);
+    await expect(db.set('bad', 'x')).rejects.toThrow(/injected WAL failure/);
 
     // The compaction's next flush hits the poison and aborts the whole round
     // through its existing catch (the recovery's truncate is still gated).
     releaseSnapshot();
-    await assert.rejects(compactPromise, /poisoned/);
+    await expect(compactPromise).rejects.toThrow(/poisoned/);
     expect(db.stats.compactions).toBe(0);
     expect(db.stats.compactErrors).toBe(1);
 

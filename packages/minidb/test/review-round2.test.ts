@@ -1,4 +1,3 @@
-import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import net from 'node:net';
 import os from 'node:os';
@@ -115,7 +114,7 @@ test('set rolls back store + indexes when the WAL write fails', async () => {
     return orig(...a);
   };
 
-  await assert.rejects(db.set('new', { city: 'London' }), /injected/);
+  await expect(db.set('new', { city: 'London' })).rejects.toThrow(/injected/);
   expect(db.get('new'), 'failed set must not be visible').toBe(undefined);
   expect(db.findEq('byCity', 'London'), 'index must not contain rolled-back key').toStrictEqual([]);
   // Further writes still work after the injected failure clears.
@@ -143,13 +142,10 @@ test('batch rolls back atomically when the WAL write fails', async () => {
     return orig(...a);
   };
 
-  await assert.rejects(
-    db.batch([
+  await expect(db.batch([
       { op: 'set', key: 'a', value: { n: 99 } },
       { op: 'set', key: 'b', value: { n: 2 } },
-    ]),
-    /injected/,
-  );
+    ])).rejects.toThrow(/injected/);
   expect(db.get('a'), 'a must be restored to pre-batch value').toStrictEqual({ n: 1 });
   expect(db.get('b'), 'b must not exist').toBe(undefined);
   await db.close();
@@ -240,10 +236,7 @@ test('batch still rejects genuine unique violations', async () => {
   const db = await MiniDb.open({ dir, valueCodec: 'json' });
   await db.createIndex('byMail', { field: 'email', unique: true });
   await db.set('u1', { email: 'duplicate@example.test' });
-  await assert.rejects(
-    db.batch([{ op: 'set', key: 'u2', value: { email: 'duplicate@example.test' } }]),
-    /unique/i,
-  );
+  await expect(db.batch([{ op: 'set', key: 'u2', value: { email: 'duplicate@example.test' } }])).rejects.toThrow(/unique/i);
   expect(db.get('u2')).toBe(undefined);
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
@@ -256,7 +249,7 @@ test('createIndex(unique) rejects existing duplicate data', async () => {
   const db = await MiniDb.open({ dir, valueCodec: 'json' });
   await db.set('a', { email: 'duplicate@example.test' });
   await db.set('b', { email: 'duplicate@example.test' });
-  await assert.rejects(db.createIndex('byMail', { field: 'email', unique: true }), /unique/i);
+  await expect(db.createIndex('byMail', { field: 'email', unique: true })).rejects.toThrow(/unique/i);
   expect(db.listIndexes().length, 'index must not persist after failed create').toBe(0);
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
@@ -268,7 +261,7 @@ test('batch rejects keys longer than 128 chars', async () => {
   const dir = await tmpDir();
   const db = await MiniDb.open({ dir, valueCodec: 'json' });
   const longKey = 'k'.repeat(200);
-  await assert.rejects(db.batch([{ op: 'set', key: longKey, value: { v: 1 } }]), /key too long/i);
+  await expect(db.batch([{ op: 'set', key: longKey, value: { v: 1 } }])).rejects.toThrow(/key too long/i);
   expect(db.get(longKey)).toBe(undefined);
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
@@ -391,7 +384,7 @@ test('open failure on corrupt index JSON releases the lock', async () => {
   await db.close();
   await fs.writeFile(path.join(dir, 'db.indexes.json'), '{ not valid json', 'utf8');
 
-  await assert.rejects(MiniDb.open({ dir, valueCodec: 'json' }), /JSON|Unexpected/i);
+  await expect(MiniDb.open({ dir, valueCodec: 'json' })).rejects.toThrow(/JSON|Unexpected/i);
   // Lock must be released so a subsequent open can proceed. Remove the corrupt
   // definition file so recovery can continue from the snapshot/WAL.
   await fs.rm(path.join(dir, 'db.indexes.json'), { force: true });
@@ -571,7 +564,7 @@ test('WAL poison: same-key ops failing in one group restore the pre-group value;
   db = await MiniDb.open<string>({ dir: dir2, ...MEM_OPTS });
   await db.set('k', 'A');
   failNextWritev(db as MiniDb<unknown>);
-  await assert.rejects(db.set('k', 'B'), /injected WAL failure/);
+  await expect(db.set('k', 'B')).rejects.toThrow(/injected WAL failure/);
   expect(db.get('k'), 'a failed later group must not roll back a committed value').toBe('A');
   await db.close();
   db = await MiniDb.open<string>({ dir: dir2, ...MEM_OPTS });
@@ -647,15 +640,15 @@ test('WAL poison: when the recovery truncate fails the instance is write-disable
     throw new Error('injected truncate failure');
   };
   try {
-    await assert.rejects(db.set('bad', 'x'), /injected WAL failure/);
+    await expect(db.set('bad', 'x')).rejects.toThrow(/injected WAL failure/);
     await waitFor(() => db.writeDisabled !== null, 'writeDisabled to be set');
   } finally {
     (fs as unknown as { truncate: unknown }).truncate = origTruncate;
   }
   expect(String(String(db.writeDisabled))).toMatch(/injected truncate failure/);
 
-  await assert.rejects(db.set('more', 'x'), /writes are disabled/);
-  await assert.rejects(db.batch([{ op: 'set', key: 'b2', value: 'x' }]), /writes are disabled/);
+  await expect(db.set('more', 'x')).rejects.toThrow(/writes are disabled/);
+  await expect(db.batch([{ op: 'set', key: 'b2', value: 'x' }])).rejects.toThrow(/writes are disabled/);
   expect(db.get('k'), 'reads keep working').toBe('v');
   await db.close(); // must not throw
   await fs.rm(dir, { recursive: true, force: true });
@@ -734,7 +727,7 @@ test('WAL poison: an applyOp violation queued behind an in-flight batch still le
     }
     origAdd(k, t);
   };
-  await assert.rejects(db.set('b', { t: 'second' }), /injected apply failure/);
+  await expect(db.set('b', { t: 'second' })).rejects.toThrow(/injected apply failure/);
   expect(db.wal.poison, 'the apply violation poisoned the pending queue').toBeTruthy();
 
   releaseWritev();
@@ -875,7 +868,7 @@ test('WAL poison: close() in the same tick as a failing write resolves cleanly a
   await waitFor(() => calls === 1, 'the failing writev to be in flight');
   const closing = db.close();
   releaseWritev();
-  await assert.rejects(op, /injected WAL failure/);
+  await expect(op).rejects.toThrow(/injected WAL failure/);
   await closing; // must not throw even though the failure landed mid-close
 
   db = await MiniDb.open<string>({ dir, ...MEM_OPTS });
@@ -902,7 +895,7 @@ test('backup waits out an in-flight WAL recovery instead of copying the un-acked
     return origTruncate(p as Parameters<typeof origTruncate>[0], len);
   };
   try {
-    await assert.rejects(db.set('bad', 'x'), /injected WAL failure/);
+    await expect(db.set('bad', 'x')).rejects.toThrow(/injected WAL failure/);
     const backingUp = db.backup(backupDir, { compact: false });
     releaseTruncate();
     await backingUp;
@@ -952,7 +945,7 @@ test('a unique-conflicting insert is rejected before any eviction side effect (r
 
     // The conflicting value fails the unique check; before stage 11 the
     // eviction ran FIRST and the rejected insert still deleted the victim.
-    await assert.rejects(db.set('bad', { u: 'taken', pad: 'z'.repeat(100) }), UniqueViolationError);
+    await expect(db.set('bad', { u: 'taken', pad: 'z'.repeat(100) })).rejects.toThrow(UniqueViolationError);
     expect(db.get('bad')).toBe(undefined);
     expect(db.get('owner'), 'untouched keys stay').toBeTruthy();
     expect(db.get('victim'), 'the failed insert must not evict the LRU victim').toBeTruthy();

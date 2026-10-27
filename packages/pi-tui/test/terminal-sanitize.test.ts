@@ -1,4 +1,3 @@
-import assert from "node:assert/strict";
 import { expect, describe, it } from "bun:test";
 
 import {

@@ -1,4 +1,3 @@
-import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -211,13 +210,12 @@ test('createCompoundIndex persist failure: no phantom in memory or sidecar; retr
     const restore = stubCompoundPersist(db, async () => {
       throw boom;
     });
-    await assert.rejects(
+    await expect(
       db.createCompoundIndex('byWsUpdated', { groupBy: 'workspaceId', orderBy: 'updatedAt' }),
-      (e) => e === boom,
-    );
+    ).rejects.toBe(boom);
     restore();
     expect(db.listCompoundIndexes()).toStrictEqual([]);
-    assert.throws(() => db.compoundRange('byWsUpdated', 'W1'), /no such compound index/);
+    expect(() => db.compoundRange('byWsUpdated', 'W1')).toThrow(/no such compound index/);
     expect(await compoundSidecarNames(dir)).toStrictEqual([]);
     await db.createCompoundIndex('byWsUpdated', { groupBy: 'workspaceId', orderBy: 'updatedAt' });
     expect(db.compoundRange('byWsUpdated', 'W1').map((r) => r.key)).toStrictEqual(['a']);
@@ -238,7 +236,7 @@ test('dropCompoundIndex persist failure: the live index stays usable and the sid
     const restore = stubCompoundPersist(db, async () => {
       throw boom;
     });
-    await assert.rejects(db.dropCompoundIndex('byWsUpdated'), (e) => e === boom);
+    await expect(db.dropCompoundIndex('byWsUpdated')).rejects.toBe(boom);
     restore();
     expect(db.compoundRange('byWsUpdated', 'W1').map((r) => r.key)).toStrictEqual(['a']);
     expect(await fs.readFile(path.join(dir, 'db.compound-indexes.json'), 'utf8')).toBe(before);

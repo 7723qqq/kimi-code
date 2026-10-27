@@ -1,4 +1,3 @@
-import assert from "node:assert";
 import { expect, describe, it } from "bun:test";
 import type { Terminal as XtermTerminalType } from "@xterm/headless";
 import type { Component, TUI } from "../src/tui.ts";

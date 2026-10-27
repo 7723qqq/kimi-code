@@ -1,4 +1,3 @@
-import assert from "node:assert";
 import { expect, describe, it } from "bun:test";
 import type { Component, Focusable } from "../src/tui.ts";
 import { Container, type TUI } from "../src/tui.ts";

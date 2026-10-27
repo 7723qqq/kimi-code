@@ -1,4 +1,3 @@
-import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -128,7 +127,7 @@ test('maxMemory reject policy blocks writes over budget', async () => {
     await db.set('b', '1234567890');
     await db.set('c', '1234567890');
     await db.set('d', '1234567890');
-    await assert.rejects(() => db.set('e', '1234567890'), /maxMemory exceeded/);
+    await expect((() => db.set('e', '1234567890'))()).rejects.toThrow(/maxMemory exceeded/);
     expect(db.get('e')).toBe(undefined);
     expect(db.stats.maxMemoryRejections >= 1).toBeTruthy();
     await db.close();
@@ -221,14 +220,12 @@ test('backup fences writes at a linearization point: every pre-fence ack is in, 
     });
 
     // Writes submitted behind the fence reject with a clear, retryable error.
-    await assert.rejects(
-      db.set('late', 'd'),
-      (e: unknown) => (e as { code?: string }).code === 'BACKUP_IN_PROGRESS',
+    const fencedWrite = await db.set('late', 'd').then(
+      () => undefined,
+      (error: unknown) => error as { code?: string },
     );
-    await assert.rejects(
-      db.batch([{ op: 'set', key: 'late2', value: 'd' }]),
-      /backup is in progress/i,
-    );
+    expect(fencedWrite?.code).toBe('BACKUP_IN_PROGRESS');
+    await expect(db.batch([{ op: 'set', key: 'late2', value: 'd' }])).rejects.toThrow(/backup is in progress/i);
     // The backup cannot complete while the fenced-in write is still parked.
     for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
     expect(backupDone, 'backup waits for the in-flight write (its linearization point)').toBe(false);
@@ -284,7 +281,7 @@ test('backup copy failure leaves no partial backup behind and reopens the write 
     const origCopy = fs.copyFile;
     (fs as unknown as { copyFile: unknown }).copyFile = () => Promise.reject(boom);
     try {
-      await assert.rejects(db.backup(backupDir, { compact: false }), /injected copy failure/);
+      await expect(db.backup(backupDir, { compact: false })).rejects.toThrow(/injected copy failure/);
     } finally {
       (fs as unknown as { copyFile: unknown }).copyFile = origCopy;
     }
@@ -312,10 +309,11 @@ test('readOnly open of a non-existent directory fails with ENOENT and creates no
   const parent = await tmpDir();
   const dir = path.join(parent, 'missing');
   try {
-    await assert.rejects(
-      MiniDb.open({ dir, valueCodec: 'string', readOnly: true }),
-      (e: unknown) => (e as NodeJS.ErrnoException).code === 'ENOENT',
+    const enoent = await MiniDb.open({ dir, valueCodec: 'string', readOnly: true }).then(
+      () => undefined,
+      (error: unknown) => error as NodeJS.ErrnoException,
     );
+    expect(enoent?.code).toBe('ENOENT');
     expect(await fs.stat(dir).then(
         () => true,
         () => false,
@@ -407,7 +405,7 @@ test('valueMode disk maxMemory excludes value bulk', async () => {
     await db.set('c', 'z'.repeat(1000));
     expect(db.get('a')).toBe('x'.repeat(1000));
     expect(db.store.bytes < 200).toBeTruthy();
-    await assert.rejects(() => db.set('d', 'w'.repeat(1000)), /maxMemory exceeded/);
+    await expect((() => db.set('d', 'w'.repeat(1000)))()).rejects.toThrow(/maxMemory exceeded/);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -491,7 +489,7 @@ test('openOrRebuild preserves data when only a sidecar definition file is corrup
     await db.close();
     await fs.writeFile(path.join(dir, 'db.indexes.json'), 'corrupt{{{');
     // plain open still throws on the corrupt sidecar...
-    await assert.rejects(MiniDb.open({ dir, valueCodec: 'json' }), SyntaxError);
+    await expect(MiniDb.open({ dir, valueCodec: 'json' })).rejects.toThrow(SyntaxError);
     // ...but openOrRebuild drops the derived sidecars instead of wiping the data
     db = await MiniDb.openOrRebuild<Record<string, number>>({
       dir,
@@ -519,8 +517,8 @@ test('open removes stale compaction temp files', async () => {
     await fs.writeFile(path.join(dir, 'db.wal.tmp'), 'stale');
     db = await MiniDb.open({ dir, valueCodec: 'string' });
     expect(db.get('a')).toBe('1');
-    await assert.rejects(fs.stat(path.join(dir, 'db.snapshot.tmp')), /ENOENT/);
-    await assert.rejects(fs.stat(path.join(dir, 'db.wal.tmp')), /ENOENT/);
+    await expect(fs.stat(path.join(dir, 'db.snapshot.tmp'))).rejects.toThrow(/ENOENT/);
+    await expect(fs.stat(path.join(dir, 'db.wal.tmp'))).rejects.toThrow(/ENOENT/);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });

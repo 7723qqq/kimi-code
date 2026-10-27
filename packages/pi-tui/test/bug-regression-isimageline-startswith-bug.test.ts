@@ -12,7 +12,6 @@
  * 2. That the fix works correctly
  */
 
-import assert from "node:assert";
 import { expect, describe, it } from "bun:test";
 
 describe("Bug regression: isImageLine() crash with image escape sequences", () => {
@@ -174,7 +173,7 @@ describe("Bug regression: isImageLine() crash with image escape sequences", () =
 				" end of output";
 
 			// Verify line is very long
-			assert(crashLine.length > 300000, "Test line should be > 300KB");
+			expect(crashLine.length).toBeGreaterThan(300000);
 
 			// New implementation should detect it (prevents crash)
 			const detected = isImageLine(crashLine);

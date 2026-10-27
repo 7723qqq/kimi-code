@@ -2,7 +2,6 @@
  * Tests for keyboard input handling
  */
 
-import assert from "node:assert";
 import { expect, describe, it } from "bun:test";
 import {
 	decodeKittyPrintable,

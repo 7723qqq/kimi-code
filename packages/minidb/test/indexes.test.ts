@@ -1,4 +1,3 @@
-import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -52,7 +51,7 @@ test('unique index rejects duplicates', async () => {
     const db = await MiniDb.open({ dir, valueCodec: 'json' });
     await db.createIndex('byEmail', { field: 'email', unique: true });
     await db.set('a', { email: 'user@example.test' });
-    await assert.rejects(() => db.set('b', { email: 'user@example.test' }), UniqueViolationError);
+    await expect((() => db.set('b', { email: 'user@example.test' }))()).rejects.toThrow(UniqueViolationError);
     // Re-setting the same key with the same value is allowed.
     await db.set('a', { email: 'user@example.test' });
     expect(db.size).toBe(1);

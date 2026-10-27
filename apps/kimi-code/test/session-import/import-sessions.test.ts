@@ -100,21 +100,29 @@ describe('importing sessions', () => {
       stopped: false,
     });
     const sessionDir = importedSessionDir(kimiHome, project, 'ses_claude-one');
-    expect(JSON.parse(await readFile(join(sessionDir, 'state.json'), 'utf8'))).toMatchObject({
-      id: 'ses_claude-one',
-      cwd: project,
-      title: 'Fix the login flow',
-      lastPrompt: 'Fix the login flow',
-      updatedAt: claudeTime,
-      custom: { imported_from: 'claude-code', imported_source_id: 'claude-one' },
-    });
+    const state = JSON.parse(await readFile(join(sessionDir, 'state.json'), 'utf8')) as Record<
+      string,
+      unknown
+    >;
+    expect(state['id']).toBe('ses_claude-one');
+    expect(state['cwd']).toBe(project);
+    expect(state['title']).toBe('Fix the login flow');
+    expect(state['lastPrompt']).toBe('Fix the login flow');
+    expect(state['updatedAt']).toBe(claudeTime);
+    const custom = state['custom'] as Record<string, unknown>;
+    expect(custom['imported_from']).toBe('claude-code');
+    expect(custom['imported_source_id']).toBe('claude-one');
     const wire = await readFile(join(sessionDir, 'agents', 'main', 'wire.jsonl'), 'utf8');
     expect(wire).toContain('Fix the login flow');
     expect(wire).toContain('<imported_conversation>');
     expect((await readdir(join(sessionDir, 'attachments'))).some((name) => name.startsWith('effective-history-'))).toBe(true);
     expect(await readdir(join(sessionDir, 'attachments', 'source'))).toEqual(['claude-one.jsonl']);
     expect(await readdir(join(importedSessionDir(kimiHome, project, 'ses_thread-one'), 'attachments', 'source', 'subagents'))).toEqual(['rollout-2026-10-01T10-05-00-helper.jsonl']);
-    expect(JSON.parse(await readFile(join(importedSessionDir(kimiHome, project, 'ses_thread-one'), 'state.json'), 'utf8'))).toMatchObject({ title: 'Renamed in Codex', lastPrompt: 'Add tests' });
+    const renamed = JSON.parse(
+      await readFile(join(importedSessionDir(kimiHome, project, 'ses_thread-one'), 'state.json'), 'utf8'),
+    ) as Record<string, unknown>;
+    expect(renamed['title']).toBe('Renamed in Codex');
+    expect(renamed['lastPrompt']).toBe('Add tests');
 
     expect(await scanImportableSessions({ kimiHome, claudeHome, codexHome, now: NOW })).toEqual({ candidates: [], alreadyImported: 2, missingFolder: 0 });
   });
@@ -171,7 +179,8 @@ describe('importing sessions', () => {
       },
       shouldStop: () => started >= 2,
     });
-    expect(stopped).toMatchObject({ stopped: true, missingFolder: 2 });
+    expect(stopped.stopped).toBe(true);
+    expect(stopped.missingFolder).toBe(2);
   });
 
 
@@ -330,7 +339,7 @@ describe('/import-sessions', () => {
       expect(render(screen)).toContain('Imported 1 session.');
     });
     expect(host.harness.listSessions).toHaveBeenCalledWith({ sessionId: 'ses_claude-one' });
-    expect(host.harness.getConfig).toHaveBeenCalledOnce();
+    expect(host.harness.getConfig).toHaveBeenCalledTimes(1);
   });
 
   it('replaces the editor with the import page while idle and restores it on close', async () => {
@@ -342,7 +351,7 @@ describe('/import-sessions', () => {
     });
 
     screen.handleInput('\r');
-    expect(host.restoreEditor).toHaveBeenCalledOnce();
+    expect(host.restoreEditor).toHaveBeenCalledTimes(1);
   });
 
 });
@@ -355,7 +364,7 @@ describe('registerImportSessionsCommand', () => {
 
     expect(program.commands.find((command) => command.name() === 'import-sessions')?.description()).toContain('Claude Code and Codex');
     await program.parseAsync(['import-sessions'], { from: 'user' });
-    expect(run).toHaveBeenCalledOnce();
+    expect(run).toHaveBeenCalledTimes(1);
     expect(process.exitCode).toBe(0);
     process.exitCode = undefined;
   });

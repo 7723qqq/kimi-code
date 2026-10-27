@@ -1,4 +1,3 @@
-import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -33,9 +32,9 @@ test('createIndex validates field and duplicate names', async () => {
   const dir = await tmpDir();
   try {
     const db = await MiniDb.open({ dir, valueCodec: 'json' });
-    await assert.rejects(() => db.createIndex('bad', {} as never), /requires a field/);
+    await expect((() => db.createIndex('bad', {} as never))()).rejects.toThrow(/requires a field/);
     await db.createIndex('byCity', { field: 'city' });
-    await assert.rejects(() => db.createIndex('byCity', { field: 'city' }), /already exists/);
+    await expect((() => db.createIndex('byCity', { field: 'city' }))()).rejects.toThrow(/already exists/);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -49,8 +48,8 @@ test('findEq / findRange reject the wrong index type', async () => {
     await db.createIndex('eq', { field: 'n' });
     await db.createIndex('rg', { field: 'n', type: 'range' });
     await db.set('a', { n: 1 });
-    assert.throws(() => db.findEq('rg', 1), /not an equality index/);
-    assert.throws(() => db.findRange('eq', {}), /not a range index/);
+    expect(() => db.findEq('rg', 1)).toThrow(/not an equality index/);
+    expect(() => db.findRange('eq', {})).toThrow(/not a range index/);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -84,7 +83,7 @@ test('unique range index rejects duplicate numeric values', async () => {
     const db = await MiniDb.open({ dir, valueCodec: 'json' });
     await db.createIndex('byScore', { field: 'score', type: 'range', unique: true });
     await db.set('a', { score: 10 });
-    await assert.rejects(() => db.set('b', { score: 10 }), UniqueViolationError);
+    await expect((() => db.set('b', { score: 10 }))()).rejects.toThrow(UniqueViolationError);
     // Re-setting the same key with the same value is still allowed.
     await db.set('a', { score: 10 });
     expect(db.size).toBe(1);
@@ -113,7 +112,7 @@ test('secondary indexes require the json codec', async () => {
   const dir = await tmpDir();
   try {
     const db = await MiniDb.open({ dir, valueCodec: 'string' });
-    await assert.rejects(() => db.createIndex('x', { field: 'n' }), /require valueCodec: "json"/);
+    await expect((() => db.createIndex('x', { field: 'n' }))()).rejects.toThrow(/require valueCodec: "json"/);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -137,10 +136,7 @@ test('unique range index: batch swap, del+reuse, and conflict', async () => {
     expect(db.get('b')?.score).toBe(1);
 
     // Claiming an untouched owner's value is still rejected, batch-atomically.
-    await assert.rejects(
-      db.batch([{ op: 'set', key: 'c', value: { score: 2 } }]),
-      UniqueViolationError,
-    );
+    await expect(db.batch([{ op: 'set', key: 'c', value: { score: 2 } }])).rejects.toThrow(UniqueViolationError);
     expect(db.get('c'), 'nothing committed on failure').toBe(undefined);
 
     // Deleting the holder and reusing its value in the same batch is valid.
@@ -152,13 +148,10 @@ test('unique range index: batch swap, del+reuse, and conflict', async () => {
     expect(db.get('c')?.score).toBe(2);
 
     // Two batch keys claiming the same fresh value is an intra-batch conflict.
-    await assert.rejects(
-      db.batch([
+    await expect(db.batch([
         { op: 'set', key: 'd', value: { score: 9 } },
         { op: 'set', key: 'e', value: { score: 9 } },
-      ]),
-      UniqueViolationError,
-    );
+      ])).rejects.toThrow(UniqueViolationError);
     expect(db.get('d')).toBe(undefined);
     expect(db.get('e')).toBe(undefined);
     await db.close();
@@ -242,11 +235,11 @@ test('createIndex persist failure: no phantom in memory or sidecar, original err
     const restore = stubPersist(db, 'persistIndexDefinitions', async () => {
       throw boom;
     });
-    await assert.rejects(db.createIndex('byA', { field: 'a' }), (e) => e === boom);
+    await expect(db.createIndex('byA', { field: 'a' })).rejects.toBe(boom);
     restore();
     // The live registry carries no phantom and the old index keeps serving.
     expect(db.listIndexes().map((x) => x.name)).toStrictEqual(['keep']);
-    assert.throws(() => db.findEq('byA', 1), /no such index/);
+    expect(() => db.findEq('byA', 1)).toThrow(/no such index/);
     expect(db.findEq('keep', 1).map((r) => r.key)).toStrictEqual(['k1']);
     // The sidecar never gained the definition.
     expect(await sidecarNames(dir, 'db.indexes.json')).toStrictEqual(['keep']);
@@ -270,7 +263,7 @@ test('dropIndex persist failure: the live index stays usable and the sidecar is 
     const restore = stubPersist(db, 'persistIndexDefinitions', async () => {
       throw boom;
     });
-    await assert.rejects(db.dropIndex('byA'), (e) => e === boom);
+    await expect(db.dropIndex('byA')).rejects.toBe(boom);
     restore();
     // The index is still live and answering queries.
     expect(db.findEq('byA', 1).map((r) => r.key)).toStrictEqual(['k1']);
@@ -296,7 +289,7 @@ test('createIndex rebuild failure: no phantom, existing indexes keep serving, un
     db.indexes.rebuildStaged = () => {
       throw boom;
     };
-    await assert.rejects(db.createIndex('byA', { field: 'a' }), (e) => e === boom);
+    await expect(db.createIndex('byA', { field: 'a' })).rejects.toBe(boom);
     db.indexes.rebuildStaged = saved;
     // No phantom in the registry; the pre-existing index is untouched.
     expect(db.listIndexes().map((x) => x.name)).toStrictEqual(['keep']);
@@ -307,7 +300,7 @@ test('createIndex rebuild failure: no phantom, existing indexes keep serving, un
     // leaves nothing behind either.
     await db.set('k2', { keep: 2, u: 'dup' });
     await db.set('k3', { keep: 3, u: 'dup' });
-    await assert.rejects(db.createIndex('byU', { field: 'u', unique: true }), /unique/i);
+    await expect(db.createIndex('byU', { field: 'u', unique: true })).rejects.toThrow(/unique/i);
     expect(db.listIndexes().map((x) => x.name)).toStrictEqual(['keep']);
     expect(await sidecarNames(dir, 'db.indexes.json')).toStrictEqual(['keep']);
     // And the staged path still recovers: a valid create lands fine.
@@ -356,7 +349,7 @@ test('mixed create/drop across the three sidecar types: every op lands serialize
         .map((x) => x.name)
         .toSorted()).toStrictEqual(expectCmp);
     expect(db.search('txtA', 'hello').map((r) => r.key)).toStrictEqual(['d1']);
-    assert.throws(() => db.search('txtOld', 'hello'), /no such text index/);
+    expect(() => db.search('txtOld', 'hello')).toThrow(/no such text index/);
     // The staged rebuild also caught the pre-existing document.
     expect(db.findEq('secA', 1).map((r) => r.key)).toStrictEqual(['d1']);
     expect(db.compoundRange('cmpA', 'W').map((r) => r.key)).toStrictEqual(['d1']);
@@ -376,7 +369,7 @@ test('mixed create/drop across the three sidecar types: every op lands serialize
         .map((x) => x.name)
         .toSorted()).toStrictEqual(expectCmp);
     expect(db.search('txtA', 'hello').map((r) => r.key)).toStrictEqual(['d1']);
-    assert.throws(() => db.search('txtOld', 'hello'), /no such text index/);
+    expect(() => db.search('txtOld', 'hello')).toThrow(/no such text index/);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -432,7 +425,7 @@ test('open cleans up unique-suffixed sidecar tmp leftovers (but never a lock tmp
   const lockTmp = path.join(dir, 'db.lock.tmp-99999-1');
   await fs.writeFile(lockTmp, 'lock');
   const db2 = await MiniDb.open({ dir, valueCodec: 'json' });
-  await assert.rejects(fs.stat(orphan), /ENOENT/);
+  await expect(fs.stat(orphan)).rejects.toThrow(/ENOENT/);
   await fs.stat(lockTmp); // untouched
   await db2.close();
   await fs.rm(dir, { recursive: true, force: true });
@@ -456,11 +449,8 @@ test('a staged unique index constrains writes during its persist window', async 
     // fully built and must already be enforced, or a write in this window
     // could break the constraint the publish is about to enforce.
     await inPersist;
-    await assert.rejects(db.set('k2', { u: 'taken' }), UniqueViolationError);
-    await assert.rejects(
-      db.batch([{ op: 'set', key: 'k4', value: { u: 'taken' } }]),
-      UniqueViolationError,
-    );
+    await expect(db.set('k2', { u: 'taken' })).rejects.toThrow(UniqueViolationError);
+    await expect(db.batch([{ op: 'set', key: 'k4', value: { u: 'taken' } }])).rejects.toThrow(UniqueViolationError);
     // A conforming write lands and is reflected by the index once published.
     await db.set('k3', { u: 'free' });
     release();
@@ -535,11 +525,8 @@ test('toJSON/getter/Proxy docs: get, secondary/compound/text indexes and unique 
 
     // Unique checks consume the canonical view too: a conflicting plain doc
     // is rejected against the value the getter/toJSON/Proxy actually stored.
-    await assert.rejects(db.set('k4', { u: 'u1' }), UniqueViolationError);
-    await assert.rejects(
-      db.batch([{ op: 'set', key: 'k5', value: { u: 'u3' } }]),
-      UniqueViolationError,
-    );
+    await expect(db.set('k4', { u: 'u1' })).rejects.toThrow(UniqueViolationError);
+    await expect(db.batch([{ op: 'set', key: 'k5', value: { u: 'u3' } }])).rejects.toThrow(UniqueViolationError);
     // And re-setting k1 (holder = same key) stays legal despite the getter.
     await db.set('k1', getterDoc);
     expect((db.get('k1') as { v: string }).v, 're-set re-encodes (one more getter read)').toBe('v-2');
@@ -555,7 +542,7 @@ test('toJSON/getter/Proxy docs: get, secondary/compound/text indexes and unique 
     expect(db.compoundRange('byG', 'G').map((r) => r.key)).toStrictEqual(['k1']);
     expect(db.search('ft', 'alpha').map((r) => r.key)).toStrictEqual(['k1']);
     expect(db.search('ft', 'proxied').map((r) => r.key)).toStrictEqual(['k3']);
-    await assert.rejects(db.set('k6', { u: 'u1' }), UniqueViolationError);
+    await expect(db.set('k6', { u: 'u1' })).rejects.toThrow(UniqueViolationError);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });

@@ -1,4 +1,3 @@
-import assert from 'node:assert/strict';
 import type { PathLike } from 'node:fs';
 import fs from 'node:fs/promises';
 import os from 'node:os';
@@ -608,17 +607,17 @@ test('generation pairing: churn beyond the retry budget throws RECOVERY_GENERATI
         swaps++;
       },
     });
-    await assert.rejects(
-      MiniDb.open<string>({
-        dir,
-        valueCodec: 'string',
-        readOnly: true,
-        indexGenerations: false,
-      }),
-      (e: unknown) =>
-        (e as { code?: string }).code === 'RECOVERY_GENERATION_CHURN' &&
-        (e as Error).name === 'RecoveryGenerationChurnError',
+    const churn = await MiniDb.open<string>({
+      dir,
+      valueCodec: 'string',
+      readOnly: true,
+      indexGenerations: false,
+    }).then(
+      () => undefined,
+      (error: unknown) => error as { code?: string; name?: string },
     );
+    expect(churn?.code).toBe('RECOVERY_GENERATION_CHURN');
+    expect(churn?.name).toBe('RecoveryGenerationChurnError');
     expect(swaps, 'one swap per pass: the initial attempt plus 4 retries').toBe(5);
 
     // No partial application state survived the failed open: the swaps
@@ -760,16 +759,17 @@ test('generation pairing (disk mode): a failing ValueReader open() closes the pa
       origClose.call(this);
     };
     try {
-      await assert.rejects(
-        MiniDb.open<string>({
-          dir,
-          valueCodec: 'string',
-          valueMode: 'disk',
-          readOnly: true,
-          indexGenerations: false,
-        }),
-        (e: unknown) => (e as { code?: string }).code === 'EMFILE',
+      const emfile = await MiniDb.open<string>({
+        dir,
+        valueCodec: 'string',
+        valueMode: 'disk',
+        readOnly: true,
+        indexGenerations: false,
+      }).then(
+        () => undefined,
+        (error: unknown) => error as { code?: string },
       );
+      expect(emfile?.code).toBe('EMFILE');
     } finally {
       ValueReader.prototype.close = origClose;
     }
@@ -1007,10 +1007,11 @@ test('async scanner: cancellation aborts the scan with AbortError', async () => 
     try {
       const controller = new AbortController();
       controller.abort(); // pre-aborted: the scan must not even start
-      await assert.rejects(
-        scanFrameRefsFdAsync(fd, { signal: controller.signal }),
-        (e) => (e as Error).name === 'AbortError',
+      const aborted = await scanFrameRefsFdAsync(fd, { signal: controller.signal }).then(
+        () => undefined,
+        (error: unknown) => error as { name?: string },
       );
+      expect(aborted?.name).toBe('AbortError');
     } finally {
       fsSync.closeSync(fd);
     }

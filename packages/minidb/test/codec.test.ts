@@ -1,4 +1,3 @@
-import assert from 'node:assert/strict';
 
 // test/codec.test.ts
 import { expect, test } from 'bun:test';
@@ -73,14 +72,14 @@ test('crc mismatch throws CorruptFrameError with offset', () => {
   const f = encodeFrame({ type: TYPE_SET, key: B('bad'), value: B('data') });
   const corrupted = Buffer.from(f);
   corrupted[HEADER_SIZE + 1] ^= 0xff; // flip a byte inside the payload
-  assert.throws(
-    () => [...new FrameParser().feed(corrupted)],
-    (e) => {
-      assert.ok(e instanceof CorruptFrameError);
-      assert.equal(e.offset, 0);
-      return true;
-    },
-  );
+  let crcError: unknown;
+  try {
+    void [...new FrameParser().feed(corrupted)];
+  } catch (error) {
+    crcError = error;
+  }
+  expect(crcError).toBeInstanceOf(CorruptFrameError);
+  expect((crcError as { offset?: number }).offset).toBe(0);
 });
 
 test('finish() reports a torn trailing partial frame at the valid-data offset', () => {
@@ -88,10 +87,14 @@ test('finish() reports a torn trailing partial frame at the valid-data offset', 
   const good = encodeFrame({ type: TYPE_SET, key: B('ok'), value: B('v') });
   void [...p.feed(good)];
   void [...p.feed(Buffer.from([0x4d, 0x44, 0x01]))]; // magic + type: incomplete header
-  assert.throws(
-    () => p.finish(),
-    (e) => e instanceof CorruptFrameError && e.offset === good.length,
-  );
+  let tornError: unknown;
+  try {
+    p.finish();
+  } catch (error) {
+    tornError = error;
+  }
+  expect(tornError).toBeInstanceOf(CorruptFrameError);
+  expect((tornError as { offset?: number }).offset).toBe(good.length);
 });
 
 test('finish() returns the clean EOF offset when there is no leftover', () => {
@@ -163,8 +166,8 @@ test('batch decoders reject an unknown sub-op type', () => {
     { type: TYPE_SET, key: 'accepted', value: 'yes' },
     { type: 99, key: 'unknown', value: 'ignored' },
   ]);
-  assert.throws(() => decodeBatchOps(body), /batch op has unknown type 99/);
-  assert.throws(() => scanBatchOpRefs(body, 0), /batch op has unknown type 99/);
+  expect(() => decodeBatchOps(body)).toThrow(/batch op has unknown type 99/);
+  expect(() => scanBatchOpRefs(body, 0)).toThrow(/batch op has unknown type 99/);
 });
 
 test('batch decoders reject trailing bytes after the last op', () => {
@@ -172,18 +175,15 @@ test('batch decoders reject trailing bytes after the last op', () => {
     { type: TYPE_SET, key: B('a'), value: B('1'), meta: null, expireAt: 0 },
   ]);
   const body = Buffer.concat([valid, Buffer.from([0xde, 0xad])]);
-  assert.throws(() => decodeBatchOps(body), /batch body has 2 trailing byte\(s\)/);
-  assert.throws(() => scanBatchOpRefs(body, 0), /batch body has 2 trailing byte\(s\)/);
+  expect(() => decodeBatchOps(body)).toThrow(/batch body has 2 trailing byte\(s\)/);
+  expect(() => scanBatchOpRefs(body, 0)).toThrow(/batch body has 2 trailing byte\(s\)/);
 });
 
 test('batch decoders reject a body shorter than the count field', () => {
-  assert.throws(() => decodeBatchOps(Buffer.alloc(1)), /batch body truncated: op count/);
-  assert.throws(() => scanBatchOpRefs(Buffer.alloc(1), 0), /batch body truncated: op count/);
+  expect(() => decodeBatchOps(Buffer.alloc(1))).toThrow(/batch body truncated: op count/);
+  expect(() => scanBatchOpRefs(Buffer.alloc(1), 0)).toThrow(/batch body truncated: op count/);
 });
 
 test('encodeBatchOps refuses to emit a non-SET/DEL sub-op (encode-side assertion)', () => {
-  assert.throws(
-    () => encodeBatchOps([{ type: 99, key: B('x'), value: B('y'), meta: null, expireAt: 0 }]),
-    /batch op type must be SET or DEL, got 99/,
-  );
+  expect(() => encodeBatchOps([{ type: 99, key: B('x'), value: B('y'), meta: null, expireAt: 0 }])).toThrow(/batch op type must be SET or DEL, got 99/);
 });

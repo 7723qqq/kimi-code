@@ -5,7 +5,6 @@
  * MIT License - Copyright (c) 2025 opentui
  */
 
-import assert from "node:assert";
 import { expect, beforeEach, describe, it } from "bun:test";
 import { matchesKey } from "../src/keys.ts";
 import { StdinBuffer } from "../src/stdin-buffer.ts";

@@ -1,4 +1,3 @@
-import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -59,14 +58,12 @@ test('batch unique violation rejects the whole batch', async () => {
   await db.createIndex('byEmail', { field: 'email', unique: true });
   await db.set('a', { email: 'duplicate@example.test' });
   try {
-    await assert.rejects(
-      () =>
-        db.batch([
-          { op: 'set', key: 'b', value: { email: 'unique@example.test' } },
-          { op: 'set', key: 'c', value: { email: 'duplicate@example.test' } },
-        ]),
-      /unique/,
-    );
+    await expect(
+      db.batch([
+        { op: 'set', key: 'b', value: { email: 'unique@example.test' } },
+        { op: 'set', key: 'c', value: { email: 'duplicate@example.test' } },
+      ]),
+    ).rejects.toThrow(/unique/);
     // neither op applied
     expect(db.get('b')).toBe(undefined);
     expect(db.get('c')).toBe(undefined);

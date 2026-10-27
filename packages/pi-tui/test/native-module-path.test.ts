@@ -1,4 +1,3 @@
-import assert from "node:assert";
 import { dirname, join, resolve } from "node:path";
 import { expect, describe, it } from "bun:test";
 import { pathToFileURL } from "node:url";

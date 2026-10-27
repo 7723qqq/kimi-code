@@ -1,4 +1,3 @@
-import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -114,8 +113,8 @@ test('set with a non-finite ttl is rejected with a clear error and stores nothin
   const dir = await tmpDir();
   const db = await MiniDb.open({ dir, valueCodec: 'string' });
   try {
-    await assert.rejects(db.set('a', 'v', { ttl: Infinity }), /ttl/i);
-    await assert.rejects(db.set('b', 'v', { ttl: NaN }), /ttl/i);
+    await expect(db.set('a', 'v', { ttl: Infinity })).rejects.toThrow(/ttl/i);
+    await expect(db.set('b', 'v', { ttl: NaN })).rejects.toThrow(/ttl/i);
     expect(db.get('a'), 'rejected set must not be stored').toBe(undefined);
     expect(db.get('b')).toBe(undefined);
   } finally {

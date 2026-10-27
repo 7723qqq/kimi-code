@@ -1,4 +1,3 @@
-import assert from "node:assert";
 import { expect, describe, it } from "bun:test";
 import { setKittyProtocolActive } from "../src/keys.ts";
 import type { StdinBufferTimerHandle, StdinBufferTimers } from "../src/stdin-buffer.ts";
@@ -98,7 +97,7 @@ describe("ProcessTerminal setTitle", () => {
 
 		expect(!output.includes("\x1b]52"), 'no injected OSC 52 sequence').toBeTruthy();
 		expect(output.indexOf("\x1b]0;")).toBe(0);
-		assert.equal(output.match(/\x1b\]/g)!.length, 1);
+		expect(output.match(/\x1b\]/g)!.length).toBe(1);
 		expect(output.endsWith("\x07")).toBeTruthy();
 		expect(output).toBe("\x1b]0;x]52;c;b64\x07");
 	});

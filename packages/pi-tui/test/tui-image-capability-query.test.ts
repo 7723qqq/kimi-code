@@ -6,7 +6,6 @@
  * `consumeImageCapabilityResponse` and upgrade the cached capabilities.
  */
 
-import assert from "node:assert";
 import { expect, describe, it } from "bun:test";
 import { getCapabilities, resetCapabilitiesCache } from "../src/terminal-image.ts";
 import type { Component, TUI } from "../src/tui.ts";

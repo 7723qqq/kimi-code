@@ -2,7 +2,6 @@
 //
 // Boundary / resource edge cases.
 
-import assert from 'node:assert/strict';
 
 import { expect, test } from 'bun:test';
 
@@ -15,8 +14,8 @@ test('boundary: key length limits', async () => {
   try {
     await db.set('a'.repeat(128), 'ok'); // exactly at limit
     expect(db.get('a'.repeat(128))).toBe('ok');
-    await assert.rejects(() => db.set('a'.repeat(129), 'no'), /key too long/);
-    await assert.rejects(() => db.set('', 'no'), /non-empty/);
+    await expect((() => db.set('a'.repeat(129), 'no'))()).rejects.toThrow(/key too long/);
+    await expect((() => db.set('', 'no'))()).rejects.toThrow(/non-empty/);
   } finally {
     await db.close();
     await rmrf(dir);

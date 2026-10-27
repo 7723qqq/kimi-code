@@ -2,7 +2,6 @@
  * Tests for terminal image detection and line handling
  */
 
-import assert from "node:assert";
 import { homedir } from "node:os";
 import { join, sep } from "node:path";
 import { expect, describe, it } from "bun:test";

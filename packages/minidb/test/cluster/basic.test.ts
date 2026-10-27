@@ -3,7 +3,6 @@
 // Single-process ClusterDb behavior: topology creation/validation, basic KV
 // across shards, multi-key ops, merged scans, hash distribution, stats.
 
-import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -39,13 +38,13 @@ test('cluster open creates meta + shard dirs; reload validates topology', async 
     await db2.close();
 
     // Explicit mismatches are rejected.
-    await assert.rejects(() => ClusterDb.open({ dir, shardCount: 8 }), /shardCount=4/);
-    await assert.rejects(() => ClusterDb.open({ dir, valueCodec: 'string' }), /valueCodec=json/);
+    await expect((() => ClusterDb.open({ dir, shardCount: 8 }))()).rejects.toThrow(/shardCount=4/);
+    await expect((() => ClusterDb.open({ dir, valueCodec: 'string' }))()).rejects.toThrow(/valueCodec=json/);
 
     // Invalid creation parameter is rejected upfront.
     const dir2 = await tmpDir('minidb-cluster-');
     try {
-      await assert.rejects(() => ClusterDb.open({ dir: dir2, shardCount: 0 }), RangeError);
+      await expect((() => ClusterDb.open({ dir: dir2, shardCount: 0 }))()).rejects.toThrow(RangeError);
     } finally {
       await rmrf(dir2);
     }
@@ -230,7 +229,7 @@ test('stats reflect writer usage', async () => {
     expect(s.writersCached <= 2, `pool bounded, got ${s.writersCached}`).toBeTruthy();
     expect(s.evictions >= 1, 'LRU eviction happened with tiny pool').toBeTruthy();
     await db.close();
-    await assert.rejects(() => db.get('st:0'), /closed/);
+    await expect((() => db.get('st:0'))()).rejects.toThrow(/closed/);
   } finally {
     await rmrf(dir);
   }
@@ -303,10 +302,7 @@ test('compound index definitions fan out to all shards and survive reopen', asyn
     }
 
     // A duplicate create is rejected, and the registry round-trips a reopen.
-    await assert.rejects(
-      () => db.createCompoundIndex('byGN', { groupBy: 'g', orderBy: 'n' }),
-      /already exists/,
-    );
+    await expect((() => db.createCompoundIndex('byGN', { groupBy: 'g', orderBy: 'n' }))()).rejects.toThrow(/already exists/);
     await db.close();
     const db2 = await ClusterDb.open<QueryDoc>({ dir, shardCount: 4, valueCodec: 'json' });
     expect(await db2.listCompoundIndexes()).toStrictEqual(info);

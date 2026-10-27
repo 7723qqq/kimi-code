@@ -1,6 +1,8 @@
 {
   "node-assert": {
-    "apps/vscode/test/extension-host/index.cjs": "Runs inside a real VS Code Extension Host as extensionTestsPath, not under bun test; bun:test is not resolvable in that process, so expect cannot replace Node assert there. The bun-side coverage of the same smoke is apps/vscode/test/extension-host-smoke.test.ts, which is Bun-native."
+    "apps/vscode/test/extension-host/index.cjs": "Runs inside a real VS Code Extension Host as extensionTestsPath, not under bun test; bun:test is not resolvable in that process, so expect cannot replace Node assert there. The bun-side coverage of the same smoke is apps/vscode/test/extension-host-smoke.test.ts, which is Bun-native.",
+    "packages/pi-tui/test/fixtures/clipboard-reader.cjs": "Standalone .cjs fixture executed as a child process by its test, not by bun test: it has no bun:test module to import, so node:assert is the only assertion available in that process.",
+    "packages/pi-tui/test/fixtures/clipboard-worker-test.cjs": "Standalone .cjs fixture executed as a child process by its test, not by bun test: it has no bun:test module to import, so node:assert is the only assertion available in that process."
   },
   "handwritten-vitest-shim": {
     "packages/minidb/test/cluster/registry-durability.test.ts": "Comment only. The code spies on the real node:fs/promises exports with Bun spyOn; the note records why fs patching replaces vitest's doMock+resetModules, which Bun has no equivalent for. No stand-in API is defined.",

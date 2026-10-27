@@ -1,4 +1,3 @@
-import assert from "node:assert";
 import { expect, describe, it } from "bun:test";
 import { fuzzyFilter, fuzzyMatch } from "../src/fuzzy.ts";
 

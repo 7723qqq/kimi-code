@@ -1,4 +1,3 @@
-import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import net from 'node:net';
 import os from 'node:os';
@@ -26,30 +25,21 @@ const B = (s: string) => Buffer.from(s);
 // --- codec.encodeFrame input validation ------------------------------------
 
 test('encodeFrame rejects a non-buffer key', () => {
-  assert.throws(
-    () => encodeFrame({ type: TYPE_SET, key: 'x' as unknown as Buffer, value: B('v') }),
-    /key must be a Buffer/,
-  );
+  expect(() => encodeFrame({ type: TYPE_SET, key: 'x' as unknown as Buffer, value: B('v') })).toThrow(/key must be a Buffer/);
 });
 
 test('encodeFrame rejects an oversized key', () => {
   const big = Buffer.alloc(0xffff + 1);
-  assert.throws(() => encodeFrame({ type: TYPE_SET, key: big, value: B('v') }), /key too large/);
+  expect(() => encodeFrame({ type: TYPE_SET, key: big, value: B('v') })).toThrow(/key too large/);
 });
 
 test('encodeFrame rejects a SET with a non-buffer value', () => {
-  assert.throws(
-    () => encodeFrame({ type: TYPE_SET, key: B('k'), value: 'not-a-buffer' as unknown as Buffer }),
-    /value must be a Buffer for SET/,
-  );
+  expect(() => encodeFrame({ type: TYPE_SET, key: B('k'), value: 'not-a-buffer' as unknown as Buffer })).toThrow(/value must be a Buffer for SET/);
 });
 
 test('encodeFrame rejects a non-buffer meta', () => {
-  assert.throws(
-    () =>
-      encodeFrame({ type: TYPE_SET, key: B('k'), value: B('v'), meta: 'x' as unknown as Buffer }),
-    /meta must be a Buffer/,
-  );
+  expect(() =>
+      encodeFrame({ type: TYPE_SET, key: B('k'), value: B('v'), meta: 'x' as unknown as Buffer })).toThrow(/meta must be a Buffer/);
 });
 
 // --- codec.decodeBatchOps bounds checks ------------------------------------
@@ -57,15 +47,15 @@ test('encodeFrame rejects a non-buffer meta', () => {
 test('decodeBatchOps rejects a body shorter than the count field', () => {
   // Strict structure validation (stage 11, review #9): a body that cannot
   // even carry the op count is malformed — never a silent empty batch.
-  assert.throws(() => decodeBatchOps(Buffer.alloc(0)), /batch body truncated: op count/);
-  assert.throws(() => decodeBatchOps(Buffer.alloc(1)), /batch body truncated: op count/);
+  expect(() => decodeBatchOps(Buffer.alloc(0))).toThrow(/batch body truncated: op count/);
+  expect(() => decodeBatchOps(Buffer.alloc(1))).toThrow(/batch body truncated: op count/);
 });
 
 test('decodeBatchOps throws on a truncated op header', () => {
   // count = 1 but no op bytes follow.
   const body = Buffer.alloc(2);
   body.writeUInt16LE(1, 0);
-  assert.throws(() => decodeBatchOps(body), /batch op header truncated/);
+  expect(() => decodeBatchOps(body)).toThrow(/batch op header truncated/);
 });
 
 test('decodeBatchOps throws on a truncated op payload', () => {
@@ -82,13 +72,13 @@ test('decodeBatchOps throws on a truncated op payload', () => {
   o += 4;
   header.writeBigInt64LE(0n, o);
   const body = Buffer.concat([Buffer.from([1, 0]), header]); // count=1 + header, no payload
-  assert.throws(() => decodeBatchOps(body), /batch op payload truncated/);
+  expect(() => decodeBatchOps(body)).toThrow(/batch op payload truncated/);
 });
 
 // --- WAL input/state validation --------------------------------------------
 
 test('WAL constructor rejects an unknown fsyncPolicy', () => {
-  assert.throws(() => new WAL('/tmp/x', { fsyncPolicy: 'bogus' as never }), /unknown fsyncPolicy/);
+  expect(() => new WAL('/tmp/x', { fsyncPolicy: 'bogus' as never })).toThrow(/unknown fsyncPolicy/);
 });
 
 test('WAL append rejects a non-buffer frame', async () => {
@@ -96,7 +86,7 @@ test('WAL append rejects a non-buffer frame', async () => {
   const wal = new WAL(path.join(dir, 'db.wal'), { fsyncPolicy: 'no' });
   await wal.open();
   try {
-    await assert.rejects(() => wal.append('x' as unknown as Buffer), /frame must be a Buffer/);
+    await expect((() => wal.append('x' as unknown as Buffer))()).rejects.toThrow(/frame must be a Buffer/);
   } finally {
     await wal.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -108,10 +98,7 @@ test('WAL append after close rejects', async () => {
   const wal = new WAL(path.join(dir, 'db.wal'), { fsyncPolicy: 'no' });
   await wal.open();
   await wal.close();
-  await assert.rejects(
-    () => wal.append(encodeFrame({ type: TYPE_SET, key: B('a'), value: B('1') })),
-    /WAL is closed/,
-  );
+  await expect((() => wal.append(encodeFrame({ type: TYPE_SET, key: B('a'), value: B('1') })))()).rejects.toThrow(/WAL is closed/);
   await fs.rm(dir, { recursive: true, force: true });
 });
 
@@ -160,8 +147,8 @@ test('a lock file with a non-numeric pid is treated as stale', async () => {
 test('LockFile release/releaseSync are no-ops when not held', async () => {
   const dir = await tmpDir();
   const lock = new LockFile(path.join(dir, 'db.lock'));
-  await assert.doesNotReject(() => lock.release());
-  assert.doesNotThrow(() => lock.releaseSync());
+  await expect(Promise.resolve(lock.release())).resolves.toBeUndefined();
+  expect(() => lock.releaseSync()).not.toThrow();
   await fs.rm(dir, { recursive: true, force: true });
 });
 
@@ -201,7 +188,7 @@ test('a second concurrent compact() reuses the in-flight compaction', async () =
 test('set rejects an empty key', async () => {
   const dir = await tmpDir();
   const db = await MiniDb.open({ dir, valueCodec: 'string' });
-  await assert.rejects(() => db.set('', 'v'), /key must be non-empty/);
+  await expect((() => db.set('', 'v'))()).rejects.toThrow(/key must be non-empty/);
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -209,10 +196,7 @@ test('set rejects an empty key', async () => {
 test('batch rejects an empty key', async () => {
   const dir = await tmpDir();
   const db = await MiniDb.open({ dir, valueCodec: 'string' });
-  await assert.rejects(
-    () => db.batch([{ op: 'set', key: '', value: 'v' }]),
-    /key must be non-empty/,
-  );
+  await expect((() => db.batch([{ op: 'set', key: '', value: 'v' }]))()).rejects.toThrow(/key must be non-empty/);
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -221,9 +205,9 @@ test('del / expire validate the key before probing the store', async () => {
   const dir = await tmpDir();
   const db = await MiniDb.open({ dir, valueCodec: 'string' });
   const tooLong = 'k'.repeat(200);
-  await assert.rejects(() => db.del(tooLong), /key too long/);
+  await expect((() => db.del(tooLong))()).rejects.toThrow(/key too long/);
   await db.set('present', 'v');
-  await assert.rejects(() => db.expire(tooLong, 1000), /key too long/);
+  await expect((() => db.expire(tooLong, 1000))()).rejects.toThrow(/key too long/);
   expect(await db.del('absent'), 'deleting a missing valid key is still false').toBe(false);
   expect(await db.expire('absent', 1000), 'expiring a missing valid key is still false').toBe(false);
   expect(await db.get('present')).toBe('v');
@@ -236,8 +220,8 @@ test('del / expire validate the key before probing the store', async () => {
 test('findEq / findRange on a missing index throw', async () => {
   const dir = await tmpDir();
   const db = await MiniDb.open({ dir, valueCodec: 'json' });
-  assert.throws(() => db.findEq('nope', 'x'), /no such index/);
-  assert.throws(() => db.findRange('nope', {}), /no such index/);
+  expect(() => db.findEq('nope', 'x')).toThrow(/no such index/);
+  expect(() => db.findRange('nope', {})).toThrow(/no such index/);
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -245,7 +229,7 @@ test('findEq / findRange on a missing index throw', async () => {
 test('compoundRange on a missing index throws', async () => {
   const dir = await tmpDir();
   const db = await MiniDb.open({ dir, valueCodec: 'json' });
-  assert.throws(() => db.compoundRange('nope', 'g'), /no such compound index/);
+  expect(() => db.compoundRange('nope', 'g')).toThrow(/no such compound index/);
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });

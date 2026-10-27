@@ -1,4 +1,3 @@
-import assert from 'node:assert/strict';
 
 import { expect, test } from 'bun:test';
 
@@ -64,9 +63,9 @@ test('L8: size rejects after close, like get/has/scan', async () => {
     expect(db.size, 'size is live while open').toBe(3);
     await db.close();
 
-    assert.throws(() => db.size, /MiniDb is closed/);
-    assert.throws(() => db.get('a'), /MiniDb is closed/);
-    assert.throws(() => db.has('a'), /MiniDb is closed/);
+    expect(() => db.size).toThrow(/MiniDb is closed/);
+    expect(() => db.get('a')).toThrow(/MiniDb is closed/);
+    expect(() => db.has('a')).toThrow(/MiniDb is closed/);
   } finally {
     await rmrf(dir);
   }

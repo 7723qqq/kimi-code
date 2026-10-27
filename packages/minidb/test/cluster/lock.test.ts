@@ -4,7 +4,6 @@
 // acquire timeout, per-shard independence, read-only coexistence, lock lease
 // renewal, and cluster-wipe exclusion while a writer is held.
 
-import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
@@ -36,10 +35,11 @@ test('two writers contend on the same shard; loser times out with LockError', as
     await db1.set(kOnShard0a, { owner: 1 }); // db1 now holds shard 0
 
     const t0 = performance.now();
-    await assert.rejects(
-      () => db2.set(kOnShard0b, { owner: 2 }),
-      (e: unknown) => (e as { code?: string }).code === 'ELOCKED',
+    const lockError = await db2.set(kOnShard0b, { owner: 2 }).then(
+      () => undefined,
+      (error: unknown) => error as { code?: string },
     );
+    expect(lockError?.code).toBe('ELOCKED');
     const waited = performance.now() - t0;
     // The pool retries with backoff and gives up on the first attempt whose
     // next delay would cross the deadline, so effective waits undershoot the
@@ -74,10 +74,12 @@ test('createIndex takes the cross-process registry lock; a held lock makes it fa
     });
     const registryLock = new LockFile(path.join(dir, 'cluster.indexes.json.lock'));
     expect(await registryLock.acquire()).toBe(true);
-    await assert.rejects(
-      () => db.createIndex('byCity', { field: 'city' }),
-      (e: unknown) => e instanceof LockError && e.code === 'ELOCKED',
+    const indexError = await db.createIndex('byCity', { field: 'city' }).then(
+      () => undefined,
+      (error: unknown) => error,
     );
+    expect(indexError).toBeInstanceOf(LockError);
+    expect((indexError as { code?: string }).code).toBe('ELOCKED');
     expect(await db.listIndexes(), 'the blocked attempt published nothing').toStrictEqual([]);
 
     await registryLock.release();
@@ -133,11 +135,7 @@ test('wipe refuses while any shard writer is held and proceeds once released', a
           () => true,
           () => false,
         ), 'release after the rename neither follows the moved corpse nor errors').toBe(true);
-      await assert.rejects(
-        () => MiniDb.open({ dir: single, valueCodec: 'string' }),
-        LockError,
-        "release after the rename never unlinks the new owner's lock",
-      );
+      await expect(MiniDb.open({ dir: single, valueCodec: 'string' })).rejects.toThrow(LockError);
       await fresh.close();
       await rmrf(moved);
     } finally {
@@ -162,11 +160,13 @@ test('read-only instance coexists with a live writer and sees its commits', asyn
     expect(await reader.get('ro:k2')).toStrictEqual({ v: 2 });
 
     // Writes on the read-only instance are rejected.
-    await assert.rejects(() => reader.set('ro:k3', { v: 3 }), /read-only/);
-    await assert.rejects(
-      () => reader.mset([['ro:k3', { v: 3 }]]),
-      (e: unknown) => e instanceof AggregateError && String(e.errors[0]).includes('read-only'),
+    await expect((() => reader.set('ro:k3', { v: 3 }))()).rejects.toThrow(/read-only/);
+    const msetError = await reader.mset([['ro:k3', { v: 3 }]]).then(
+      () => undefined,
+      (error: unknown) => error,
     );
+    expect(msetError).toBeInstanceOf(AggregateError);
+    expect(String((msetError as AggregateError).errors[0])).toContain('read-only');
 
     await reader.close();
     await writer.close();
@@ -332,10 +332,7 @@ test('closeAll() drains in-flight callbacks before closing handles — no MiniDb
 
     // New ops reject at the closed gate; the shard lock is released for the
     // next pool.
-    await assert.rejects(
-      pool.withWriter(2, shardDir, (db) => db.get('x')),
-      /ClusterDb is closed/,
-    );
+    await expect(pool.withWriter(2, shardDir, (db) => db.get('x'))).rejects.toThrow(/ClusterDb is closed/);
     const pool2 = new ShardLockPool({
       writerOpts: { valueCodec: 'json' },
       readerOpts: { valueCodec: 'json' },

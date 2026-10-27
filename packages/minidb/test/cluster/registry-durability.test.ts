@@ -21,7 +21,6 @@
 // and closed, the rename must publish it, the finally removes the (already
 // renamed) tmp, and the destination directory is fsynced strictly last.
 
-import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import type { ChildProcess } from 'node:child_process';
 import fs from 'node:fs/promises';
@@ -231,10 +230,7 @@ test('a registry write that fails mid-way leaves no tmp behind', async () => {
   recordRealFsWithFailingTmpWrite(dir);
   try {
     const db = await ClusterDb.open({ dir, shardCount: 4, valueCodec: 'json' });
-    await assert.rejects(
-      () => db.createIndex('byCity', { field: 'city' }),
-      /simulated crash mid registry write/,
-    );
+    await expect((() => db.createIndex('byCity', { field: 'city' }))()).rejects.toThrow(/simulated crash mid registry write/);
     const failedWrite = seq.find((e) => e.startsWith('writeFile-throws:'));
     expect(failedWrite !== undefined, `the handle-based tmp write (the fixed path) was the one injected: ${seq.join(' | ')}`).toBeTruthy();
     expect(registryTemps(await fs.readdir(dir)), 'the failed write cleans up its own tmp').toStrictEqual([]);

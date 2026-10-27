@@ -1,4 +1,3 @@
-import assert from "node:assert";
 import { expect, describe, it } from "bun:test";
 import type { Terminal } from "../src/terminal.ts";
 import type { Component } from "../src/tui.ts";
