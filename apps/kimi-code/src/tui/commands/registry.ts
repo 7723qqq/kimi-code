@@ -571,6 +571,15 @@ export const BUILTIN_SLASH_COMMANDS = [
     priority: 40,
   },
   {
+    name: 'import-sessions',
+    aliases: [],
+    get description() {
+      return t('tui.slashCommands.importSessions');
+    },
+    priority: 40,
+    availability: 'idle-only',
+  },
+  {
     name: 'web',
     aliases: [],
     get description() {

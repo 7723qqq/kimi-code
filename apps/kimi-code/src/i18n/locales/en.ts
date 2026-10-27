@@ -739,6 +739,7 @@ export default {
       exportMd: 'Export current session as a Markdown file',
       exportDebugZip: 'Export current session as a debug ZIP archive',
       copy: 'Copy the last assistant message to the clipboard',
+      importSessions: 'Import recent Claude Code and Codex sessions',
       web: 'Open the current session in the Web UI and exit the terminal',
       remoteControl: 'Open the current session through Kimi Remote Control (experimental)',
       tower: 'Report tower status, toggle tower mode, or set the tower objective',

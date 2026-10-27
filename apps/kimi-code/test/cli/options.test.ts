@@ -606,6 +606,7 @@ describe('CLI options parsing', () => {
         'install-desktop',
         'app',
         'migrate',
+        'import-sessions',
         'upgrade',
       ]);
     });

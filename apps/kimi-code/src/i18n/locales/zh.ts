@@ -716,6 +716,7 @@ export default {
       exportMd: '将会话导出为 Markdown 文件',
       exportDebugZip: '将会话导出为调试 ZIP 归档',
       copy: '复制最后一条助手消息到剪贴板',
+      importSessions: '导入最近的 Claude Code 与 Codex 会话',
       web: '在 Web UI 中打开当前会话并退出终端',
       remoteControl: '通过 Kimi Remote Control 打开当前会话（实验性）',
       tower: '查看 tower 状态、切换 tower 模式或设置 tower 目标',
