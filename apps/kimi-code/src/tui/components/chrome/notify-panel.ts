@@ -32,7 +32,11 @@
  */
 
 import type { Component, TuiMouseEvent, TuiMouseEventResult } from '@moonshot-ai/pi-tui';
-import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from '@moonshot-ai/pi-tui';
+import {
+  truncateToWidth,
+  visibleWidth,
+  wrapTextWithAnsi,
+} from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 
 import { t } from '#/i18n';
