@@ -1,5 +1,5 @@
 import assert from "node:assert";
-import { describe, it } from "bun:test";
+import { describe, it, setSystemTime } from "bun:test";
 import {
 	AltScreenSearchComponent,
 	AltScreenSearchIndex,
@@ -1033,6 +1033,60 @@ describe("TuiAltScreen", () => {
 		assert.deepStrictEqual(pagerInputs, inputs);
 		assert.strictEqual(tui.viewportTop, topBefore);
 
+		tui.stop();
+	});
+
+	it("ignores the mouse gesture that refocuses the terminal and accepts the next deliberate click", async () => {
+		setSystemTime(1_000);
+		try {
+			const terminal = new VirtualTerminal(20, 2);
+			const tui = new TuiAltScreen(terminal, undefined, undefined, { refocusMouseGuardMs: 300 });
+			let clicks = 0;
+			tui.addChild(
+				new MouseRegion(new Text("clickable", 0, 0), (event) => {
+					if (event.type !== "click") return undefined;
+					clicks += 1;
+					return { handled: true };
+				}),
+			);
+			tui.start();
+			await terminal.waitForRender();
+
+			terminal.sendInput("\x1b[O");
+			terminal.sendInput("\x1b[I");
+			terminal.sendInput("\x1b[<0;2;1M");
+			terminal.sendInput("\x1b[<0;2;1m");
+			assert.strictEqual(clicks, 0);
+
+			setSystemTime(1_300);
+			terminal.sendInput("\x1b[<0;2;1M");
+			terminal.sendInput("\x1b[<0;2;1m");
+			assert.strictEqual(clicks, 1);
+			tui.stop();
+		} finally {
+			setSystemTime();
+		}
+	});
+
+	it("keeps refocusing clicks enabled when the guard is not configured", async () => {
+		const terminal = new VirtualTerminal(20, 2);
+		const tui = new TuiAltScreen(terminal);
+		let clicks = 0;
+		tui.addChild(
+			new MouseRegion(new Text("clickable", 0, 0), (event) => {
+				if (event.type !== "click") return undefined;
+				clicks += 1;
+				return { handled: true };
+			}),
+		);
+		tui.start();
+		await terminal.waitForRender();
+
+		terminal.sendInput("\x1b[O");
+		terminal.sendInput("\x1b[I");
+		terminal.sendInput("\x1b[<0;2;1M");
+		terminal.sendInput("\x1b[<0;2;1m");
+		assert.strictEqual(clicks, 1);
 		tui.stop();
 	});
 
