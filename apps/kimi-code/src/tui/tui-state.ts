@@ -25,6 +25,7 @@ import type { SessionRow } from './components/dialogs/session-picker';
 import { CustomEditor } from './components/editor/custom-editor';
 import { DEFAULT_MARKDOWN_CONFIG, DEFAULT_TUI_CONFIG } from './config';
 import { CHROME_GUTTER } from './constant/rendering';
+import { CLICK_GUARD_MS } from './constant/terminal';
 import type { TasksBrowserState } from './controllers/tasks-browser';
 import type { BackgroundTasksMiniState } from './controllers/background-tasks-mini';
 import { currentTheme, type Theme } from './theme';
@@ -145,6 +146,7 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
           // Mouse capture takes over the terminal's native link activation, so
           // route OSC 8 clicks through our own opener.
           openUrl,
+          refocusMouseGuardMs: CLICK_GUARD_MS,
           // Likewise, on Windows the terminal's native right-click paste is
           // intercepted; feed the clipboard to the focused component as a
           // bracketed paste instead (renderer only calls this on win32).
