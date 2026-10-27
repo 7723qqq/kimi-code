@@ -1,11 +1,10 @@
-import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
 // Drives the query engine through the real db.query() path to cover the
 // operators and path handling that the higher-level tests do not exercise.
-import { test } from 'bun:test';
+import { expect, test } from 'bun:test';
 
 import { MiniDb } from '../src/index.js';
 
@@ -40,36 +39,21 @@ async function seed() {
 test('comparison operators $eq $ne $gt $gte $lt $lte', async () => {
   const { dir, db } = await seed();
   try {
-    assert.deepEqual(
-      db.query({ filter: { age: { $eq: 25 } } }).map((r) => r.key),
-      ['c'],
-    );
-    assert.deepEqual(
-      db
+    expect(db.query({ filter: { age: { $eq: 25 } } }).map((r) => r.key)).toStrictEqual(['c']);
+    expect(db
         .query({ filter: { age: { $ne: 25 } } })
         .map((r) => r.key)
-        .toSorted(),
-      ['a', 'b', 'd'],
-    );
-    assert.deepEqual(
-      db
+        .toSorted()).toStrictEqual(['a', 'b', 'd']);
+    expect(db
         .query({ filter: { age: { $gte: 30 } } })
         .map((r) => r.key)
-        .toSorted(),
-      ['a', 'd'],
-    );
-    assert.deepEqual(
-      db
+        .toSorted()).toStrictEqual(['a', 'd']);
+    expect(db
         .query({ filter: { age: { $lte: 25 } } })
         .map((r) => r.key)
-        .toSorted(),
-      ['b', 'c'],
-    );
+        .toSorted()).toStrictEqual(['b', 'c']);
     // Combine two operators in one cond object (both must hold).
-    assert.deepEqual(
-      db.query({ filter: { age: { $gt: 17, $lt: 30 } } }).map((r) => r.key),
-      ['c'],
-    );
+    expect(db.query({ filter: { age: { $gt: 17, $lt: 30 } } }).map((r) => r.key)).toStrictEqual(['c']);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -79,29 +63,17 @@ test('comparison operators $eq $ne $gt $gte $lt $lte', async () => {
 test('$in / $nin membership', async () => {
   const { dir, db } = await seed();
   try {
-    assert.deepEqual(
-      db
+    expect(db
         .query({ filter: { city: { $in: ['Paris', 'Berlin'] } } })
         .map((r) => r.key)
-        .toSorted(),
-      ['a', 'c', 'd'],
-    );
-    assert.deepEqual(
-      db
+        .toSorted()).toStrictEqual(['a', 'c', 'd']);
+    expect(db
         .query({ filter: { city: { $nin: ['Paris'] } } })
         .map((r) => r.key)
-        .toSorted(),
-      ['b', 'd'],
-    );
+        .toSorted()).toStrictEqual(['b', 'd']);
     // Non-array argument never matches.
-    assert.deepEqual(
-      db.query({ filter: { city: { $in: 'Paris' as unknown as string[] } } }).map((r) => r.key),
-      [],
-    );
-    assert.deepEqual(
-      db.query({ filter: { city: { $nin: 'Paris' as unknown as string[] } } }).map((r) => r.key),
-      [],
-    );
+    expect(db.query({ filter: { city: { $in: 'Paris' as unknown as string[] } } }).map((r) => r.key)).toStrictEqual([]);
+    expect(db.query({ filter: { city: { $nin: 'Paris' as unknown as string[] } } }).map((r) => r.key)).toStrictEqual([]);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -112,28 +84,16 @@ test('$exists and $type', async () => {
   const { dir, db } = await seed();
   try {
     // 'active' is set on a, b, d but not c.
-    assert.deepEqual(
-      db
+    expect(db
         .query({ filter: { active: { $exists: true } } })
         .map((r) => r.key)
-        .toSorted(),
-      ['a', 'b', 'd'],
-    );
-    assert.deepEqual(
-      db.query({ filter: { active: { $exists: false } } }).map((r) => r.key),
-      ['c'],
-    );
-    assert.deepEqual(
-      db
+        .toSorted()).toStrictEqual(['a', 'b', 'd']);
+    expect(db.query({ filter: { active: { $exists: false } } }).map((r) => r.key)).toStrictEqual(['c']);
+    expect(db
         .query({ filter: { name: { $type: 'string' } } })
         .map((r) => r.key)
-        .toSorted(),
-      ['a', 'b', 'c', 'd'],
-    );
-    assert.deepEqual(
-      db.query({ filter: { age: { $type: 'string' } } }).map((r) => r.key),
-      [],
-    );
+        .toSorted()).toStrictEqual(['a', 'b', 'c', 'd']);
+    expect(db.query({ filter: { age: { $type: 'string' } } }).map((r) => r.key)).toStrictEqual([]);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -143,34 +103,19 @@ test('$exists and $type', async () => {
 test('$regex with string, [pattern, flags], RegExp and stateful global RegExp', async () => {
   const { dir, db } = await seed();
   try {
-    assert.deepEqual(
-      db.query({ filter: { name: { $regex: '^A' } } }).map((r) => r.key),
-      ['a'],
-    );
+    expect(db.query({ filter: { name: { $regex: '^A' } } }).map((r) => r.key)).toStrictEqual(['a']);
     // Tuple form supplies flags.
-    assert.deepEqual(
-      db
+    expect(db
         .query({ filter: { name: { $regex: ['^a', 'i'] as unknown as string } } })
-        .map((r) => r.key),
-      ['a'],
-    );
+        .map((r) => r.key)).toStrictEqual(['a']);
     // RegExp instance form.
-    assert.deepEqual(
-      db.query({ filter: { name: { $regex: /^B/ } } }).map((r) => r.key),
-      ['b'],
-    );
+    expect(db.query({ filter: { name: { $regex: /^B/ } } }).map((r) => r.key)).toStrictEqual(['b']);
     // A global RegExp is stateful; the engine must reset lastIndex so every
     // document is tested from the start.
     const g = /^E/g;
-    assert.deepEqual(
-      db.query({ filter: { name: { $regex: g } } }).map((r) => r.key),
-      ['c'],
-    );
+    expect(db.query({ filter: { name: { $regex: g } } }).map((r) => r.key)).toStrictEqual(['c']);
     // Non-string field never matches a regex.
-    assert.deepEqual(
-      db.query({ filter: { age: { $regex: '3' } } }).map((r) => r.key),
-      [],
-    );
+    expect(db.query({ filter: { age: { $regex: '3' } } }).map((r) => r.key)).toStrictEqual([]);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -181,15 +126,9 @@ test('scalar RegExp value resets lastIndex between documents', async () => {
   const { dir, db } = await seed();
   try {
     const g = /^A/g;
-    assert.deepEqual(
-      db.query({ filter: { name: g } }).map((r) => r.key),
-      ['a'],
-    );
+    expect(db.query({ filter: { name: g } }).map((r) => r.key)).toStrictEqual(['a']);
     // Non-string value against a scalar RegExp never matches.
-    assert.deepEqual(
-      db.query({ filter: { age: /^3/ } }).map((r) => r.key),
-      [],
-    );
+    expect(db.query({ filter: { age: /^3/ } }).map((r) => r.key)).toStrictEqual([]);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -199,32 +138,20 @@ test('scalar RegExp value resets lastIndex between documents', async () => {
 test('logical operators $and $or $nor $not', async () => {
   const { dir, db } = await seed();
   try {
-    assert.deepEqual(
-      db
+    expect(db
         .query({ filter: { $and: [{ city: 'Paris' }, { age: { $gt: 20 } }] } })
         .map((r) => r.key)
-        .toSorted(),
-      ['a', 'c'],
-    );
-    assert.deepEqual(
-      db
+        .toSorted()).toStrictEqual(['a', 'c']);
+    expect(db
         .query({ filter: { $or: [{ name: 'Ann' }, { name: 'Bob' }] } })
         .map((r) => r.key)
-        .toSorted(),
-      ['a', 'b'],
-    );
+        .toSorted()).toStrictEqual(['a', 'b']);
     // $nor: matches documents that satisfy NONE of the branches.
-    assert.deepEqual(
-      db.query({ filter: { $nor: [{ city: 'Paris' }, { city: 'London' }] } }).map((r) => r.key),
-      ['d'],
-    );
-    assert.deepEqual(
-      db
+    expect(db.query({ filter: { $nor: [{ city: 'Paris' }, { city: 'London' }] } }).map((r) => r.key)).toStrictEqual(['d']);
+    expect(db
         .query({ filter: { $not: { city: 'Paris' } } })
         .map((r) => r.key)
-        .toSorted(),
-      ['b', 'd'],
-    );
+        .toSorted()).toStrictEqual(['b', 'd']);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -235,23 +162,11 @@ test('unknown operator and non-array logical args never match', async () => {
   const { dir, db } = await seed();
   try {
     // Unknown operator falls through to the default case (no match).
-    assert.deepEqual(
-      db.query({ filter: { age: { $bogus: 1 } as never } }).map((r) => r.key),
-      [],
-    );
+    expect(db.query({ filter: { age: { $bogus: 1 } as never } }).map((r) => r.key)).toStrictEqual([]);
     // $and/$or/$nor with a non-array argument are treated as non-matching.
-    assert.deepEqual(
-      db.query({ filter: { $and: { city: 'Paris' } as never } }).map((r) => r.key),
-      [],
-    );
-    assert.deepEqual(
-      db.query({ filter: { $or: { city: 'Paris' } as never } }).map((r) => r.key),
-      [],
-    );
-    assert.deepEqual(
-      db.query({ filter: { $nor: { city: 'Paris' } as never } }).map((r) => r.key),
-      [],
-    );
+    expect(db.query({ filter: { $and: { city: 'Paris' } as never } }).map((r) => r.key)).toStrictEqual([]);
+    expect(db.query({ filter: { $or: { city: 'Paris' } as never } }).map((r) => r.key)).toStrictEqual([]);
+    expect(db.query({ filter: { $nor: { city: 'Paris' } as never } }).map((r) => r.key)).toStrictEqual([]);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -269,34 +184,25 @@ test('nested dot + bracket paths in filter and projection', async () => {
     await db.set('p2', { user: { name: 'Bob', addr: { zip: '12345' } }, items: [{ sku: 'A' }] });
     await db.set('p3', { user: { name: 'Eve' }, items: [] });
 
-    assert.deepEqual(
-      db.query({ filter: { 'user.name': 'Bob' } }).map((r) => r.key),
-      ['p2'],
-    );
-    assert.deepEqual(
-      db.query({ filter: { 'user.addr.zip': '75001' } }).map((r) => r.key),
-      ['p1'],
-    );
+    expect(db.query({ filter: { 'user.name': 'Bob' } }).map((r) => r.key)).toStrictEqual(['p2']);
+    expect(db.query({ filter: { 'user.addr.zip': '75001' } }).map((r) => r.key)).toStrictEqual(['p1']);
     // Bracket index into an array element.
-    assert.deepEqual(
-      db.query({ filter: { 'items[1].sku': 'B' } }).map((r) => r.key),
-      ['p1'],
-    );
+    expect(db.query({ filter: { 'items[1].sku': 'B' } }).map((r) => r.key)).toStrictEqual(['p1']);
     // Missing intermediate path does not match.
-    assert.deepEqual(db.query({ filter: { 'user.addr.zip': 'x' } }).map((r) => r.key).length, 0);
+    expect(db.query({ filter: { 'user.addr.zip': 'x' } }).map((r) => r.key).length).toStrictEqual(0);
 
     // Nested projection rebuilds the nested shape in the output.
     const projected = db.query({
       filter: { 'user.name': 'Ann' },
       project: ['user.addr.zip', 'items[0].sku'],
     });
-    assert.deepEqual(projected[0]!.value, {
+    expect(projected[0]!.value).toStrictEqual({
       user: { addr: { zip: '75001' } },
       items: [{ sku: 'A' }],
     });
 
     // Projecting a missing path drops it; empty project list returns the doc.
-    assert.deepEqual(db.query({ project: [] })[0]!.value, await db.get('p1'));
+    expect(db.query({ project: [] })[0]!.value).toStrictEqual(await db.get('p1'));
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -306,20 +212,11 @@ test('nested dot + bracket paths in filter and projection', async () => {
 test('sort ascending/descending, skip and limit', async () => {
   const { dir, db } = await seed();
   try {
-    assert.deepEqual(
-      db.query({ sort: { age: 1 } }).map((r) => r.key),
-      ['b', 'c', 'a', 'd'],
-    );
-    assert.deepEqual(
-      db.query({ sort: { age: -1 } }).map((r) => r.key),
-      ['d', 'a', 'c', 'b'],
-    );
-    assert.deepEqual(
-      db.query({ sort: { age: 1 }, skip: 1, limit: 2 }).map((r) => r.key),
-      ['c', 'a'],
-    );
+    expect(db.query({ sort: { age: 1 } }).map((r) => r.key)).toStrictEqual(['b', 'c', 'a', 'd']);
+    expect(db.query({ sort: { age: -1 } }).map((r) => r.key)).toStrictEqual(['d', 'a', 'c', 'b']);
+    expect(db.query({ sort: { age: 1 }, skip: 1, limit: 2 }).map((r) => r.key)).toStrictEqual(['c', 'a']);
     // No filter / sort returns every document.
-    assert.equal(db.query().length, 4);
+    expect(db.query().length).toBe(4);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -338,11 +235,8 @@ test('bare RegExp filter is never answered from an equality index', async () => 
       .query({ filter: { name: /^ab/ } })
       .map((r) => r.key)
       .toSorted();
-    assert.deepEqual(before, ['a', 'b']);
-    assert.deepEqual(
-      db.query({ dt: { seq: {} }, filter: { name: /^ab/ }, limit: 2 }).map((r) => r.key),
-      ['a', 'b'],
-    );
+    expect(before).toStrictEqual(['a', 'b']);
+    expect(db.query({ dt: { seq: {} }, filter: { name: /^ab/ }, limit: 2 }).map((r) => r.key)).toStrictEqual(['a', 'b']);
 
     await db.createIndex('byName', { field: 'name' });
 
@@ -350,33 +244,21 @@ test('bare RegExp filter is never answered from an equality index', async () => 
       .query({ filter: { name: /^ab/ } })
       .map((r) => r.key)
       .toSorted();
-    assert.deepEqual(after, before);
-    assert.ok(after.length > 0);
+    expect(after).toStrictEqual(before);
+    expect(after.length > 0).toBeTruthy();
     // The bare RegExp form and the explicit $regex form agree.
-    assert.deepEqual(
-      after,
-      db
+    expect(after).toStrictEqual(db
         .query({ filter: { name: { $regex: '^ab' } } })
         .map((r) => r.key)
-        .toSorted(),
-    );
-    assert.deepEqual(
-      await db
+        .toSorted());
+    expect(await db
         .queryAsync({ filter: { name: /^ab/ } })
-        .then((rs) => rs.map((r) => r.key).toSorted()),
-      before,
-    );
+        .then((rs) => rs.map((r) => r.key).toSorted())).toStrictEqual(before);
     // dt fast path variant: every candidate would be rejected by hasEq.
-    assert.deepEqual(
-      db.query({ dt: { seq: {} }, filter: { name: /^ab/ }, limit: 2 }).map((r) => r.key),
-      ['a', 'b'],
-    );
-    assert.deepEqual(
-      (await db.queryAsync({ dt: { seq: {} }, filter: { name: /^ab/ }, limit: 2 })).map(
+    expect(db.query({ dt: { seq: {} }, filter: { name: /^ab/ }, limit: 2 }).map((r) => r.key)).toStrictEqual(['a', 'b']);
+    expect((await db.queryAsync({ dt: { seq: {} }, filter: { name: /^ab/ }, limit: 2 })).map(
         (r) => r.key,
-      ),
-      ['a', 'b'],
-    );
+      )).toStrictEqual(['a', 'b']);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -398,24 +280,21 @@ test('dt sort orders identically with and without limit', async () => {
       const bounded = db
         .query({ dt: { seq: {} }, sort: { seq: sortDir }, limit: 2 })
         .map((r) => r.key);
-      assert.deepEqual(bounded, unbounded.slice(0, 2));
+      expect(bounded).toStrictEqual(unbounded.slice(0, 2));
       const asyncUnbounded = (
         await db.queryAsync({ dt: { seq: {} }, sort: { seq: sortDir } })
       ).map((r) => r.key);
       const asyncBounded = (
         await db.queryAsync({ dt: { seq: {} }, sort: { seq: sortDir }, limit: 2 })
       ).map((r) => r.key);
-      assert.deepEqual(asyncUnbounded, unbounded);
-      assert.deepEqual(asyncBounded, bounded);
+      expect(asyncUnbounded).toStrictEqual(unbounded);
+      expect(asyncBounded).toStrictEqual(bounded);
     }
 
-    assert.deepEqual(
-      db.query({ dt: { seq: {} }, sort: { seq: 1 } }).map((r) => r.key),
-      ['a', 'b', 'c'],
-    );
+    expect(db.query({ dt: { seq: {} }, sort: { seq: 1 } }).map((r) => r.key)).toStrictEqual(['a', 'b', 'c']);
     const desc = db.query({ dt: { seq: {} }, sort: { seq: -1 } }).map((r) => r.key);
-    assert.deepEqual(desc, ['c', 'b', 'a']);
-    assert.equal(desc[0], 'c'); // dt largest first
+    expect(desc).toStrictEqual(['c', 'b', 'a']);
+    expect(desc[0]).toBe('c'); // dt largest first
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });

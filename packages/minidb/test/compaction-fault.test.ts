@@ -133,7 +133,7 @@ test('fsyncDir strict mode propagates a sync() failure and still closes the hand
     },
   }));
   await assert.rejects(fsyncDir('/tmp/whatever', { strict: true }), /sync failed/);
-  assert.equal(closed, true, 'close() is called even after sync() throws');
+  expect(closed, 'close() is called even after sync() throws').toBe(true);
 });
 
 test('fsyncDir marks unsupported directory fsync and continues without logging', async () => {
@@ -143,15 +143,15 @@ test('fsyncDir marks unsupported directory fsync and continues without logging',
     },
     close: async () => {},
   }));
-  assert.equal(isUnsupportedDirectoryFsyncError('EPERM', 'win32'), true);
-  assert.equal(isUnsupportedDirectoryFsyncError('EPERM', 'linux'), false);
+  expect(isUnsupportedDirectoryFsyncError('EPERM', 'win32')).toBe(true);
+  expect(isUnsupportedDirectoryFsyncError('EPERM', 'linux')).toBe(false);
   const stats: { dirFsyncUnsupported?: boolean } = {};
   // Even strict mode does NOT reject on unsupported directory fsync errors:
   // POSIX commonly reports EINVAL/ENOTSUP, while Windows reports EPERM.
   await fsyncDir('/tmp/whatever', { strict: true, stats });
-  assert.equal(stats.dirFsyncUnsupported, true);
+  expect(stats.dirFsyncUnsupported).toBe(true);
   await fsyncDir('/tmp/whatever', { strict: true, stats });
-  assert.equal(stats.dirFsyncUnsupported, true);
+  expect(stats.dirFsyncUnsupported).toBe(true);
 });
 
 test('fsyncDir non-strict mode keeps swallowing ordinary failures (legacy callers)', async () => {
@@ -165,7 +165,7 @@ test('fsyncDir non-strict mode keeps swallowing ordinary failures (legacy caller
     },
   }));
   await expect(fsyncDir('/tmp/whatever')).resolves.toBeUndefined();
-  assert.equal(closed, true);
+  expect(closed).toBe(true);
 });
 
 async function tmpDir(): Promise<string> {
@@ -247,24 +247,21 @@ test('wal.close() propagates a final-sync failure but still releases the file ha
     await assert.rejects(wal.close(), /injected fsync failure/);
     // The failed close still released the handle (compaction's recovery swap
     // abandons this WAL object and must not leak its fd)...
-    assert.equal((wal as unknown as { fh: unknown }).fh, null);
+    expect((wal as unknown as { fh: unknown }).fh).toBe(null);
     // ...the WAL stays closed...
     await wal.close();
     // ...and the flushed frame stayed durable, so a fresh WAL — which is what
     // rotation recovery swaps in — continues the same file at the real EOF.
     const fresh = new WAL(file, { fsyncPolicy: 'no' });
     await fresh.open();
-    assert.ok(fresh.size > 0);
+    expect(fresh.size > 0).toBeTruthy();
     await fresh.append(
       encodeFrame({ type: TYPE_SET, key: Buffer.from('b'), value: Buffer.from('2') }),
     );
     await fresh.close();
 
     const frames = [...new FrameParser().feed(await fs.readFile(file))];
-    assert.deepEqual(
-      frames.map((f) => f.key.toString()),
-      ['a', 'b'],
-    );
+    expect(frames.map((f) => f.key.toString())).toStrictEqual(['a', 'b']);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -295,30 +292,30 @@ test('rotation: a WAL close() failure leaves the db writable and compact() retri
       throw new Error('injected close failure');
     };
     await assert.rejects(db.compact(), /injected close failure/);
-    assert.equal(db.stats.compactions, 0);
-    assert.equal(db.stats.compactErrors, 1);
-    assert.match(String(db.lastCompactError), /injected close failure/);
+    expect(db.stats.compactions).toBe(0);
+    expect(db.stats.compactErrors).toBe(1);
+    expect(String(String(db.lastCompactError))).toMatch(/injected close failure/);
 
     // The parked write and every later write hit the recovered (swapped-in)
     // WAL, not the sealed/closed old one.
     await parked;
     await db.set('post', 'still-writable');
-    assert.equal(db.get('parked'), 'during-failed-rotation');
-    assert.equal(db.get('post'), 'still-writable');
+    expect(db.get('parked')).toBe('during-failed-rotation');
+    expect(db.get('post')).toBe('still-writable');
 
     // An explicit compact() retries cleanly after the failed rotation.
     await db.compact();
-    assert.equal(db.stats.compactions, 1);
-    assert.equal(db.stats.compactErrors, 1);
-    assert.equal(db.lastCompactError, null);
+    expect(db.stats.compactions).toBe(1);
+    expect(db.stats.compactErrors).toBe(1);
+    expect(db.lastCompactError).toBe(null);
     await db.close();
 
     db = await MiniDb.open<string>({ dir, valueCodec: 'string' });
-    assert.equal(db.size, N + 2);
-    assert.equal(db.get('k0'), 'v0');
-    assert.equal(db.get(`k${N - 1}`), `v${N - 1}`);
-    assert.equal(db.get('parked'), 'during-failed-rotation');
-    assert.equal(db.get('post'), 'still-writable');
+    expect(db.size).toBe(N + 2);
+    expect(db.get('k0')).toBe('v0');
+    expect(db.get(`k${N - 1}`)).toBe(`v${N - 1}`);
+    expect(db.get('parked')).toBe('during-failed-rotation');
+    expect(db.get('post')).toBe('still-writable');
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -352,25 +349,25 @@ test('rotation: a WAL rename failure (new snapshot already in place) leaves the 
     for (let i = 0; i < N; i++) await db.set(`k${i}`, `v${i}`);
 
     await assert.rejects(db.compact(), /injected rename failure/);
-    assert.equal(db.stats.compactions, 0);
-    assert.equal(db.stats.compactErrors, 1);
+    expect(db.stats.compactions).toBe(0);
+    expect(db.stats.compactErrors).toBe(1);
 
     await db.set('post', 'still-writable');
-    assert.equal(db.get('k0'), 'v0');
-    assert.equal(db.get('post'), 'still-writable');
+    expect(db.get('k0')).toBe('v0');
+    expect(db.get('post')).toBe('still-writable');
 
     // An explicit compact() retries cleanly on top of the partial rotation.
     await db.compact();
-    assert.equal(db.stats.compactions, 1);
-    assert.equal(db.stats.compactErrors, 1);
-    assert.equal(db.lastCompactError, null);
+    expect(db.stats.compactions).toBe(1);
+    expect(db.stats.compactErrors).toBe(1);
+    expect(db.lastCompactError).toBe(null);
     await db.close();
 
     db = await MiniDb.open<string>({ dir, valueCodec: 'string' });
-    assert.equal(db.size, N + 1);
-    assert.equal(db.get('k0'), 'v0');
-    assert.equal(db.get(`k${N - 1}`), `v${N - 1}`);
-    assert.equal(db.get('post'), 'still-writable');
+    expect(db.size).toBe(N + 1);
+    expect(db.get('k0')).toBe('v0');
+    expect(db.get(`k${N - 1}`)).toBe(`v${N - 1}`);
+    expect(db.get('post')).toBe('still-writable');
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -413,35 +410,32 @@ test('rotation: a new-WAL open() failure after the renames leaves the db writabl
     for (let i = 0; i < N; i++) await db.set(`k${i}`, `v${i}`);
 
     await assert.rejects(db.compact(), /injected open failure/);
-    assert.equal(db.stats.compactions, 0);
-    assert.equal(db.stats.compactErrors, 1);
+    expect(db.stats.compactions).toBe(0);
+    expect(db.stats.compactErrors).toBe(1);
 
     // The renames had already committed the new snapshot/WAL layout when the
     // open failed, so recovery also applied the store-pointer remap.
     const sawSnapshotRef = [...db.store.map.values()].some(
       (r) => r.ref.kind === 'disk' && r.ref.loc.file === 'snapshot',
     );
-    assert.ok(
-      sawSnapshotRef,
-      'store pointers were remapped to the new snapshot after the failed rotation',
-    );
+    expect(sawSnapshotRef, 'store pointers were remapped to the new snapshot after the failed rotation').toBeTruthy();
 
     // Disk-backed reads stay correct and the db is writable again.
-    assert.equal(db.get('k0'), 'v0');
-    assert.equal(db.get(`k${N - 1}`), `v${N - 1}`);
+    expect(db.get('k0')).toBe('v0');
+    expect(db.get(`k${N - 1}`)).toBe(`v${N - 1}`);
     await db.set('post', 'still-writable');
-    assert.equal(db.get('post'), 'still-writable');
+    expect(db.get('post')).toBe('still-writable');
 
     await db.compact();
-    assert.equal(db.stats.compactions, 1);
-    assert.equal(db.get('k42'), 'v42');
+    expect(db.stats.compactions).toBe(1);
+    expect(db.get('k42')).toBe('v42');
     await db.close();
 
     db = await MiniDb.open<string>(opts);
-    assert.equal(db.size, N + 1);
-    assert.equal(db.get('k0'), 'v0');
-    assert.equal(db.get(`k${N - 1}`), `v${N - 1}`);
-    assert.equal(db.get('post'), 'still-writable');
+    expect(db.size).toBe(N + 1);
+    expect(db.get('k0')).toBe('v0');
+    expect(db.get(`k${N - 1}`)).toBe(`v${N - 1}`);
+    expect(db.get('post')).toBe('still-writable');
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -466,40 +460,36 @@ test('rotation: the first directory fsync failure aborts the rotation; rollback 
 
     // The strict fsyncDir turns the failure into an abort, not a swallow.
     await assert.rejects(db.compact(), /injected dir fsync failure/);
-    assert.equal(db.stats.compactions, 0);
-    assert.equal(db.stats.compactErrors, 1);
-    assert.match(String(db.lastCompactError), /injected dir fsync failure/);
-    assert.notEqual(
-      db.stats.dirFsyncUnsupported,
-      true,
-      'an I/O error is not the platform-degrade path',
-    );
+    expect(db.stats.compactions).toBe(0);
+    expect(db.stats.compactErrors).toBe(1);
+    expect(String(String(db.lastCompactError))).toMatch(/injected dir fsync failure/);
+    expect(db.stats.dirFsyncUnsupported, 'an I/O error is not the platform-degrade path').not.toBe(true);
 
     // The abort went through the existing rollback: the write path is back.
     await db.set('post', 'still-writable');
-    assert.equal(db.get('k0'), 'v0');
-    assert.equal(db.get('post'), 'still-writable');
+    expect(db.get('k0')).toBe('v0');
+    expect(db.get('post')).toBe('still-writable');
 
     // The rotation died right after the snapshot rename: the disk holds the
     // NEW snapshot paired with the OLD full WAL — the crash-safe intermediate
     // pairing, which a fresh open recovers completely.
     const probe = await MiniDb.open<string>({ dir, valueCodec: 'string', readOnly: true });
-    assert.equal(probe.size, N + 1, 'new snapshot + old full WAL is a consistent complete pairing');
-    assert.equal(probe.get('k0'), 'v0');
-    assert.equal(probe.get('post'), 'still-writable');
+    expect(probe.size, 'new snapshot + old full WAL is a consistent complete pairing').toBe(N + 1);
+    expect(probe.get('k0')).toBe('v0');
+    expect(probe.get('post')).toBe('still-writable');
     await probe.close();
 
     // The fault was one-shot: an explicit retry compacts cleanly.
     await db.compact();
-    assert.equal(db.stats.compactions, 1);
-    assert.equal(db.stats.compactErrors, 1);
-    assert.equal(db.lastCompactError, null);
+    expect(db.stats.compactions).toBe(1);
+    expect(db.stats.compactErrors).toBe(1);
+    expect(db.lastCompactError).toBe(null);
     await db.close();
 
     db = await MiniDb.open<string>({ dir, valueCodec: 'string' });
-    assert.equal(db.size, N + 1);
-    assert.equal(db.get(`k${N - 1}`), `v${N - 1}`);
-    assert.equal(db.get('post'), 'still-writable');
+    expect(db.size).toBe(N + 1);
+    expect(db.get(`k${N - 1}`)).toBe(`v${N - 1}`);
+    expect(db.get('post')).toBe('still-writable');
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -523,34 +513,34 @@ test('rotation: the second directory fsync failure aborts after both renames; ro
     for (let i = 0; i < N; i++) await db.set(`k${i}`, `v${i}`);
 
     await assert.rejects(db.compact(), /injected dir fsync failure/);
-    assert.equal(db.stats.compactions, 0);
-    assert.equal(db.stats.compactErrors, 1);
-    assert.match(String(db.lastCompactError), /injected dir fsync failure/);
+    expect(db.stats.compactions).toBe(0);
+    expect(db.stats.compactErrors).toBe(1);
+    expect(String(String(db.lastCompactError))).toMatch(/injected dir fsync failure/);
 
     // The write path recovered through the rotation-failure rollback.
     await db.set('post', 'still-writable');
-    assert.equal(db.get('k0'), 'v0');
-    assert.equal(db.get('post'), 'still-writable');
+    expect(db.get('k0')).toBe('v0');
+    expect(db.get('post')).toBe('still-writable');
 
     // Both renames had landed when the second fsync failed: the disk holds
     // the NEW snapshot + NEW WAL — the complete new generation.
     const probe = await MiniDb.open<string>({ dir, valueCodec: 'string', readOnly: true });
-    assert.equal(probe.size, N + 1, 'new snapshot + new WAL is the complete new generation');
-    assert.equal(probe.get(`k${N - 1}`), `v${N - 1}`);
-    assert.equal(probe.get('post'), 'still-writable');
+    expect(probe.size, 'new snapshot + new WAL is the complete new generation').toBe(N + 1);
+    expect(probe.get(`k${N - 1}`)).toBe(`v${N - 1}`);
+    expect(probe.get('post')).toBe('still-writable');
     await probe.close();
 
     await db.compact();
-    assert.equal(db.stats.compactions, 1);
-    assert.equal(db.stats.compactErrors, 1);
-    assert.equal(db.lastCompactError, null);
+    expect(db.stats.compactions).toBe(1);
+    expect(db.stats.compactErrors).toBe(1);
+    expect(db.lastCompactError).toBe(null);
     await db.close();
 
     db = await MiniDb.open<string>({ dir, valueCodec: 'string' });
-    assert.equal(db.size, N + 1);
-    assert.equal(db.get('k0'), 'v0');
-    assert.equal(db.get(`k${N - 1}`), `v${N - 1}`);
-    assert.equal(db.get('post'), 'still-writable');
+    expect(db.size).toBe(N + 1);
+    expect(db.get('k0')).toBe('v0');
+    expect(db.get(`k${N - 1}`)).toBe(`v${N - 1}`);
+    expect(db.get('post')).toBe('still-writable');
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -577,19 +567,19 @@ test('a compaction whose onCompacted hook throws counts as a compactError, not a
     await assert.rejects(db.compact(), /injected hook failure/);
     // The hook is part of the compaction: compactions counts only fully
     // successful runs, even though the rotation itself had already succeeded.
-    assert.equal(db.stats.compactions, 0);
-    assert.equal(db.stats.compactErrors, 1);
-    assert.match(String(db.lastCompactError), /injected hook failure/);
+    expect(db.stats.compactions).toBe(0);
+    expect(db.stats.compactErrors).toBe(1);
+    expect(String(String(db.lastCompactError))).toMatch(/injected hook failure/);
 
     // The rotation succeeded, so the db keeps working normally.
     await db.set('post', 'ok');
-    assert.equal(db.size, 51);
+    expect(db.size).toBe(51);
 
     failHook = false;
     await db.compact();
-    assert.equal(db.stats.compactions, 1);
-    assert.equal(db.stats.compactErrors, 1);
-    assert.equal(db.lastCompactError, null);
+    expect(db.stats.compactions).toBe(1);
+    expect(db.stats.compactErrors).toBe(1);
+    expect(db.lastCompactError).toBe(null);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -661,30 +651,26 @@ test('a WAL poison during the snapshot phase aborts this compaction; the next co
     // through its existing catch (the recovery's truncate is still gated).
     releaseSnapshot();
     await assert.rejects(compactPromise, /poisoned/);
-    assert.equal(db.stats.compactions, 0);
-    assert.equal(db.stats.compactErrors, 1);
+    expect(db.stats.compactions).toBe(0);
+    expect(db.stats.compactErrors).toBe(1);
 
     // Let the in-place recovery run; later writes queue behind it. Then the
     // next compaction round succeeds on the truncated WAL.
     releaseTruncate();
     await db.set('post', 'ok');
     await db.compact();
-    assert.equal(db.stats.compactions, 1);
-    assert.equal(db.stats.compactErrors, 1);
-    assert.equal(
-      db.get('bad'),
-      undefined,
-      'the rejected write never reached the snapshot or the WAL',
-    );
-    assert.equal(db.get('k0'), 'v0');
-    assert.equal(db.get('post'), 'ok');
+    expect(db.stats.compactions).toBe(1);
+    expect(db.stats.compactErrors).toBe(1);
+    expect(db.get('bad'), 'the rejected write never reached the snapshot or the WAL').toBe(undefined);
+    expect(db.get('k0')).toBe('v0');
+    expect(db.get('post')).toBe('ok');
     await db.close();
 
     db = await MiniDb.open<string>({ dir, valueCodec: 'string' });
-    assert.equal(db.size, N + 1);
-    assert.equal(db.get('bad'), undefined);
-    assert.equal(db.get(`k${N - 1}`), `v${N - 1}`);
-    assert.equal(db.get('post'), 'ok');
+    expect(db.size).toBe(N + 1);
+    expect(db.get('bad')).toBe(undefined);
+    expect(db.get(`k${N - 1}`)).toBe(`v${N - 1}`);
+    expect(db.get('post')).toBe('ok');
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });

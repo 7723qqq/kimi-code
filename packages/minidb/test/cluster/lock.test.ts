@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { test } from 'bun:test';
+import { expect, test } from 'bun:test';
 
 import { ClusterDb, wipeCluster } from '../../src/cluster/index.js';
 import { ShardLockPool } from '../../src/cluster/lock-pool.js';
@@ -44,15 +44,12 @@ test('two writers contend on the same shard; loser times out with LockError', as
     // The pool retries with backoff and gives up on the first attempt whose
     // next delay would cross the deadline, so effective waits undershoot the
     // configured timeout slightly.
-    assert.ok(
-      waited >= 50 && waited < 5_000,
-      `waited roughly the acquire timeout (${Math.round(waited)}ms)`,
-    );
+    expect(waited >= 50 && waited < 5_000, `waited roughly the acquire timeout (${Math.round(waited)}ms)`).toBeTruthy();
 
     // A key routed to a different shard is unaffected by the contention.
     const kOther = keyOnShard('other', 1, 4);
     await db2.set(kOther, { owner: 2 });
-    assert.deepEqual(await db2.get(kOther), { owner: 2 });
+    expect(await db2.get(kOther)).toStrictEqual({ owner: 2 });
 
     await db2.close();
     await db1.close();
@@ -76,32 +73,24 @@ test('createIndex takes the cross-process registry lock; a held lock makes it fa
       lockAcquireTimeoutMs: 300,
     });
     const registryLock = new LockFile(path.join(dir, 'cluster.indexes.json.lock'));
-    assert.equal(await registryLock.acquire(), true);
+    expect(await registryLock.acquire()).toBe(true);
     await assert.rejects(
       () => db.createIndex('byCity', { field: 'city' }),
       (e: unknown) => e instanceof LockError && e.code === 'ELOCKED',
     );
-    assert.deepEqual(await db.listIndexes(), [], 'the blocked attempt published nothing');
+    expect(await db.listIndexes(), 'the blocked attempt published nothing').toStrictEqual([]);
 
     await registryLock.release();
     await db.createIndex('byCity', { field: 'city' });
-    assert.deepEqual(
-      (await db.listIndexes()).map((d) => d.name),
-      ['byCity'],
-      'the same call succeeds once the lock is free',
-    );
+    expect((await db.listIndexes()).map((d) => d.name), 'the same call succeeds once the lock is free').toStrictEqual(['byCity']);
     const raw = JSON.parse(
       await fs.readFile(path.join(dir, 'cluster.indexes.json'), 'utf8'),
     ) as { indexes: { name: string }[] };
-    assert.deepEqual(
-      raw.indexes.map((i) => i.name),
-      ['byCity'],
-      'the registry on disk is complete',
-    );
+    expect(raw.indexes.map((i) => i.name), 'the registry on disk is complete').toStrictEqual(['byCity']);
 
     // The lock is released after every mutation, so a later drop can publish.
-    assert.equal(await db.dropIndex('byCity'), true);
-    assert.deepEqual(await db.listIndexes(), []);
+    expect(await db.dropIndex('byCity')).toBe(true);
+    expect(await db.listIndexes()).toStrictEqual([]);
     await db.close();
   } finally {
     await rmrf(dir);
@@ -115,43 +104,35 @@ test('wipe refuses while any shard writer is held and proceeds once released', a
     const db1 = await ClusterDb.open({ dir, shardCount: 4, valueCodec: 'json', lockHoldMs: 0 });
     await db1.set(key, { v: 1 });
 
-    assert.equal(await wipeCluster({ dir }), 'locked');
-    assert.deepEqual(await db1.get(key), { v: 1 });
+    expect(await wipeCluster({ dir })).toBe('locked');
+    expect(await db1.get(key)).toStrictEqual({ v: 1 });
 
     await db1.close();
-    assert.equal(await wipeCluster({ dir }), 'wiped');
-    assert.equal(await fs.stat(dir).catch(() => null), null);
+    expect(await wipeCluster({ dir })).toBe('wiped');
+    expect(await fs.stat(dir).catch(() => null)).toBe(null);
 
     const db2 = await ClusterDb.open({ dir, shardCount: 4, valueCodec: 'json' });
-    assert.equal(await db2.get(key), undefined);
+    expect(await db2.get(key)).toBe(undefined);
     await db2.set('after', { v: 2 });
-    assert.deepEqual(await db2.get('after'), { v: 2 });
+    expect(await db2.get('after')).toStrictEqual({ v: 2 });
     await db2.close();
 
     const siblings = await fs.readdir(path.dirname(dir));
-    assert.equal(
-      siblings.filter((entry) => entry.startsWith(`${path.basename(dir)}.wiping-`)).length,
-      0,
-      'wipe leaves no isolated-tree residue behind',
-    );
+    expect(siblings.filter((entry) => entry.startsWith(`${path.basename(dir)}.wiping-`)).length, 'wipe leaves no isolated-tree residue behind').toBe(0);
 
     const single = await tmpDir('minidb-cluster-single-');
     try {
       const wiper = new LockFile(path.join(single, 'db.lock'));
-      assert.equal(await wiper.acquire(), true);
+      expect(await wiper.acquire()).toBe(true);
       const moved = `${single}.isolated`;
       await fs.rename(single, moved);
       const fresh = await MiniDb.open({ dir: single, valueCodec: 'string' });
       await fresh.set('k', 'v');
       await wiper.release();
-      assert.equal(
-        await fs.stat(path.join(moved, 'db.lock')).then(
+      expect(await fs.stat(path.join(moved, 'db.lock')).then(
           () => true,
           () => false,
-        ),
-        true,
-        'release after the rename neither follows the moved corpse nor errors',
-      );
+        ), 'release after the rename neither follows the moved corpse nor errors').toBe(true);
       await assert.rejects(
         () => MiniDb.open({ dir: single, valueCodec: 'string' }),
         LockError,
@@ -174,11 +155,11 @@ test('read-only instance coexists with a live writer and sees its commits', asyn
     await writer.set('ro:k1', { v: 1 });
 
     const reader = await ClusterDb.open({ dir, shardCount: 4, valueCodec: 'json', readOnly: true });
-    assert.deepEqual(await reader.get('ro:k1'), { v: 1 });
+    expect(await reader.get('ro:k1')).toStrictEqual({ v: 1 });
 
     // Fresh reads observe new commits without reopening the cluster.
     await writer.set('ro:k2', { v: 2 });
-    assert.deepEqual(await reader.get('ro:k2'), { v: 2 });
+    expect(await reader.get('ro:k2')).toStrictEqual({ v: 2 });
 
     // Writes on the read-only instance are rejected.
     await assert.rejects(() => reader.set('ro:k3', { v: 3 }), /read-only/);
@@ -211,10 +192,10 @@ test('lock lease: db.lock timestamp advances while a writer is held', async () =
     const read = async () =>
       JSON.parse(await fs.readFile(lockPath, 'utf8')) as { pid: number; ts: number };
     const first = await read();
-    assert.equal(first.pid, process.pid);
+    expect(first.pid).toBe(process.pid);
     await sleep(300);
     const second = await read();
-    assert.ok(second.ts > first.ts, `timestamp renewed (${first.ts} -> ${second.ts})`);
+    expect(second.ts > first.ts, `timestamp renewed (${first.ts} -> ${second.ts})`).toBeTruthy();
     await db.close();
   } finally {
     await rmrf(dir);
@@ -246,8 +227,8 @@ test('close releases every shard lock it holds', async () => {
       [keyOnShard('c', 2, 4), { v: 12 }],
       [keyOnShard('c', 3, 4), { v: 13 }],
     ]);
-    assert.deepEqual(await db2.get(keyOnShard('c', 0, 4)), { v: 10 });
-    assert.deepEqual(await db2.get(keyOnShard('c', 3, 4)), { v: 13 });
+    expect(await db2.get(keyOnShard('c', 0, 4))).toStrictEqual({ v: 10 });
+    expect(await db2.get(keyOnShard('c', 3, 4))).toStrictEqual({ v: 13 });
     await db2.close();
   } finally {
     await rmrf(dir);
@@ -283,10 +264,7 @@ test('close() waits for an in-flight shard open and releases its lock', async ()
     await pendingSet.catch(() => {}); // may resolve or reject; either is fine
     await closing;
     const waited = performance.now() - t0;
-    assert.ok(
-      waited >= 80,
-      `close() waited for the in-flight open to settle (${Math.round(waited)}ms)`,
-    );
+    expect(waited >= 80, `close() waited for the in-flight open to settle (${Math.round(waited)}ms)`).toBeTruthy();
 
     // No leaked handle holds the shard lock: a fresh instance writes at once.
     const db3 = await ClusterDb.open({
@@ -297,7 +275,7 @@ test('close() waits for an in-flight shard open and releases its lock', async ()
       lockHoldMs: 0,
     });
     await db3.set(key, { holder: 3 });
-    assert.deepEqual(await db3.get(key), { holder: 3 });
+    expect(await db3.get(key)).toStrictEqual({ holder: 3 });
     await db3.close();
   } finally {
     await rmrf(dir);
@@ -345,16 +323,12 @@ test('closeAll() drains in-flight callbacks before closing handles — no MiniDb
     // closeAll's only path to resolution goes through the parked callback's
     // drain, so no amount of yielding can settle it here.
     for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
-    assert.equal(closeReturned, false, 'closeAll waits for the in-flight callback');
+    expect(closeReturned, 'closeAll waits for the in-flight callback').toBe(false);
 
     gate.resolve();
-    assert.deepEqual(
-      await op,
-      { v: 1 },
-      'the in-flight callback ran to completion on a live handle',
-    );
+    expect(await op, 'the in-flight callback ran to completion on a live handle').toStrictEqual({ v: 1 });
     await closing;
-    assert.equal(opSettled, true, 'every callback is settled by the time closeAll returns');
+    expect(opSettled, 'every callback is settled by the time closeAll returns').toBe(true);
 
     // New ops reject at the closed gate; the shard lock is released for the
     // next pool.
@@ -373,11 +347,7 @@ test('closeAll() drains in-flight callbacks before closing handles — no MiniDb
       readOnly: false,
       applyDefs: async () => {},
     });
-    assert.deepEqual(
-      await pool2.withWriter(2, shardDir, (db) => db.get('late')),
-      { v: 1 },
-      'the callback’s write is durable',
-    );
+    expect(await pool2.withWriter(2, shardDir, (db) => db.get('late')), 'the callback’s write is durable').toStrictEqual({ v: 1 });
     await pool2.closeAll();
   } finally {
     await rmrf(dir);
@@ -400,7 +370,7 @@ test('closeAll() waits for the lockHold timer’s in-flight writer close', async
     });
     const shardDir = path.join(dir, shardDirName(1, 4));
     await pool.withWriter(1, shardDir, (db) => db.set('k', { v: 1 }));
-    assert.equal(pool.writersCached, 1);
+    expect(pool.writersCached).toBe(1);
 
     const closeStarted = deferred<void>();
     const closeGate = deferred<void>();
@@ -414,17 +384,17 @@ test('closeAll() waits for the lockHold timer’s in-flight writer close', async
     };
     try {
       await closeStarted.promise;
-      assert.equal(pool.writersCached, 0, 'the hold timer already dropped the writer entry');
+      expect(pool.writersCached, 'the hold timer already dropped the writer entry').toBe(0);
 
       const closing = pool.closeAll();
       let closeReturned = false;
       void closing.then(() => (closeReturned = true));
       for (let i = 0; i < 5; i++) await new Promise((r) => setImmediate(r));
-      assert.equal(closeReturned, false, 'closeAll waits for the timer-fired close to drain');
+      expect(closeReturned, 'closeAll waits for the timer-fired close to drain').toBe(false);
 
       closeGate.resolve();
       await closing;
-      assert.equal(closeFinished, true, 'the timer-fired close completed before closeAll returned');
+      expect(closeFinished, 'the timer-fired close completed before closeAll returned').toBe(true);
     } finally {
       ShardHandle.prototype.close = origClose;
     }
@@ -440,11 +410,7 @@ test('closeAll() waits for the lockHold timer’s in-flight writer close', async
       readOnly: false,
       applyDefs: async () => {},
     });
-    assert.deepEqual(
-      await pool2.withWriter(1, shardDir, (db) => db.get('k')),
-      { v: 1 },
-      'the shard lock was released',
-    );
+    expect(await pool2.withWriter(1, shardDir, (db) => db.get('k')), 'the shard lock was released').toStrictEqual({ v: 1 });
     await pool2.closeAll();
   } finally {
     await rmrf(dir);
@@ -488,7 +454,7 @@ test('a writer retired during a READ borrow is released instead of holding the s
     // The reader left: the entry must be closed now, without any further write.
     releaseReader.resolve();
     await borrowing;
-    assert.equal(pool.writersCached, 0, 'the retired entry is dropped from the cache');
+    expect(pool.writersCached, 'the retired entry is dropped from the cache').toBe(0);
 
     const pool2 = new ShardLockPool({
       writerOpts: { valueCodec: 'json' },
@@ -501,11 +467,7 @@ test('a writer retired during a READ borrow is released instead of holding the s
       readOnly: false,
       applyDefs: async () => {},
     });
-    assert.deepEqual(
-      await pool2.withWriter(2, shardDir, (db) => db.get('k')),
-      { v: 1 },
-      'the shard lock was released by the reader path',
-    );
+    expect(await pool2.withWriter(2, shardDir, (db) => db.get('k')), 'the shard lock was released by the reader path').toStrictEqual({ v: 1 });
 
     await pool2.closeAll();
     await pool.closeAll();

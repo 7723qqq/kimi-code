@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 // test/degrade.test.ts
-import { test } from 'bun:test';
+import { expect, test } from 'bun:test';
 
 import { encodeFrame, TYPE_SET, CorruptFrameError } from '../src/codec.js';
 import { MiniDb, classifyStorageError } from '../src/index.js';
@@ -27,16 +27,16 @@ test('openOrRebuild preserves data when only a sidecar definition file is corrup
 
   let rebuilt = null;
   db = await MiniDb.openOrRebuild({ dir, valueCodec: 'json' }, { onRebuild: (e) => (rebuilt = e) });
-  assert.ok(rebuilt instanceof Error, 'onRebuild called with the original error');
+  expect(rebuilt instanceof Error, 'onRebuild called with the original error').toBeTruthy();
   // the sidecar (pure derived state) is dropped, the data is NOT wiped
-  assert.equal(db.size, 1);
-  assert.deepEqual(db.get('important'), { x: 1 });
-  assert.deepEqual(db.listIndexes(), []);
+  expect(db.size).toBe(1);
+  expect(db.get('important')).toStrictEqual({ x: 1 });
+  expect(db.listIndexes()).toStrictEqual([]);
   // indexes can be recreated and the db is usable again
   await db.createIndex('byX', { field: 'x' });
-  assert.equal(db.findEq('byX', 1).length, 1);
+  expect(db.findEq('byX', 1).length).toBe(1);
   await db.set('fresh', { v: 1 });
-  assert.deepEqual(db.get('fresh'), { v: 1 });
+  expect(db.get('fresh')).toStrictEqual({ v: 1 });
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -48,7 +48,7 @@ test('openOrRebuild does NOT delete a live-locked db', async () => {
   try {
     await assert.rejects(() => MiniDb.openOrRebuild({ dir, valueCodec: 'string' }), LockError);
     // data still there
-    assert.ok(await fs.stat(path.join(dir, 'db.wal')));
+    expect(await fs.stat(path.join(dir, 'db.wal'))).toBeTruthy();
   } finally {
     await db1.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -75,8 +75,8 @@ test('openOrRebuild with onLockFail readonly must not mutate a live writer: corr
       SyntaxError,
     );
     const sidecar = await fs.readFile(path.join(dir, 'db.indexes.json'), 'utf8');
-    assert.equal(sidecar, '{broken-json', 'the live writer’s sidecar is untouched');
-    assert.equal(writer.get('kept'), 'value', 'the live writer is undisturbed');
+    expect(sidecar, 'the live writer’s sidecar is untouched').toBe('{broken-json');
+    expect(writer.get('kept'), 'the live writer is undisturbed').toBe('value');
   } finally {
     await writer.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -101,18 +101,18 @@ test('openOrRebuild with onLockFail readonly + a garbage WAL (strict) degrades t
       recovery: 'strict',
       onLockFail: 'readonly',
     });
-    assert.equal(rebuilt.readOnly, true, 'degraded to read-only behind the live writer');
-    assert.equal(rebuilt.get('kept'), undefined, 'the garbage WAL replays nothing');
+    expect(rebuilt.readOnly, 'degraded to read-only behind the live writer').toBe(true);
+    expect(rebuilt.get('kept'), 'the garbage WAL replays nothing').toBe(undefined);
     await rebuilt.close();
     const walAfter = await fs.readFile(path.join(dir, 'db.wal'));
-    assert.ok(walBefore.equals(walAfter), 'the live writer’s WAL is byte-identical');
-    assert.equal(writer.get('kept'), 'value', 'the live writer is undisturbed');
+    expect(walBefore.equals(walAfter), 'the live writer’s WAL is byte-identical').toBeTruthy();
+    expect(writer.get('kept'), 'the live writer is undisturbed').toBe('value');
     // The writer's own lock line is still on disk (no fresh db was opened
     // over the directory).
     const lockRaw = JSON.parse(await fs.readFile(path.join(dir, 'db.lock'), 'utf8')) as {
       token?: string;
     };
-    assert.equal(typeof lockRaw.token, 'string', 'lock file intact');
+    expect(typeof lockRaw.token, 'lock file intact').toBe('string');
   } finally {
     await writer.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -141,11 +141,11 @@ test('openOrRebuild refuses to destructively rebuild by default when the data fi
     MiniDb.openOrRebuild({ dir, valueCodec: 'json' }),
     (e: unknown) => e instanceof Error && /allowDestructiveRebuild/.test(e.message),
   );
-  assert.ok((await fs.stat(walPath)).size > walLenBefore, 'WAL untouched by the refused rebuild');
+  expect((await fs.stat(walPath)).size > walLenBefore, 'WAL untouched by the refused rebuild').toBeTruthy();
   // dropping the appended poison frame repairs the db: the data was never erased
   await fs.truncate(walPath, walLenBefore);
   const recovered = await MiniDb.open({ dir, valueCodec: 'json' });
-  assert.deepEqual(recovered.get('precious'), { keep: true });
+  expect(recovered.get('precious')).toStrictEqual({ keep: true });
   await recovered.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -171,10 +171,10 @@ test('openOrRebuild wipes and reopens empty only with allowDestructiveRebuild', 
     { dir, valueCodec: 'json' },
     { allowDestructiveRebuild: true, onRebuild: (e) => (rebuilt = e) },
   );
-  assert.ok(rebuilt instanceof Error, 'onRebuild called with the original error');
-  assert.equal(db2.size, 0);
+  expect(rebuilt instanceof Error, 'onRebuild called with the original error').toBeTruthy();
+  expect(db2.size).toBe(0);
   await db2.set('fresh', { v: 1 });
-  assert.deepEqual(db2.get('fresh'), { v: 1 });
+  expect(db2.get('fresh')).toStrictEqual({ v: 1 });
   await db2.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -182,24 +182,15 @@ test('openOrRebuild wipes and reopens empty only with allowDestructiveRebuild', 
 test('classifyStorageError and retryEperm drive the rebuild/transient recovery policy', async () => {
   const walDisabled = Object.assign(new Error('disabled'), { code: 'WAL_WRITE_DISABLED' });
   const walPoisoned = Object.assign(new Error('poisoned'), { code: 'WAL_POISONED' });
-  assert.equal(classifyStorageError(walDisabled), 'rebuild');
-  assert.equal(classifyStorageError(walPoisoned), 'rebuild');
-  assert.equal(classifyStorageError(new CorruptFrameError('bad frame', 0)), 'rebuild');
-  assert.equal(classifyStorageError(new SyntaxError('unexpected token')), 'rebuild');
-  assert.equal(
-    classifyStorageError(new AggregateError([new Error('x'), walPoisoned], 'partial')),
-    'rebuild',
-  );
-  assert.equal(
-    classifyStorageError(new AggregateError([new Error('x'), new LockError('locked')], 'partial')),
-    'transient',
-  );
-  assert.equal(classifyStorageError(new LockError('locked')), 'transient');
-  assert.equal(
-    classifyStorageError(Object.assign(new Error('perm'), { code: 'EPERM' })),
-    'transient',
-  );
-  assert.equal(classifyStorageError(new Error('unknown')), 'transient');
+  expect(classifyStorageError(walDisabled)).toBe('rebuild');
+  expect(classifyStorageError(walPoisoned)).toBe('rebuild');
+  expect(classifyStorageError(new CorruptFrameError('bad frame', 0))).toBe('rebuild');
+  expect(classifyStorageError(new SyntaxError('unexpected token'))).toBe('rebuild');
+  expect(classifyStorageError(new AggregateError([new Error('x'), walPoisoned], 'partial'))).toBe('rebuild');
+  expect(classifyStorageError(new AggregateError([new Error('x'), new LockError('locked')], 'partial'))).toBe('transient');
+  expect(classifyStorageError(new LockError('locked'))).toBe('transient');
+  expect(classifyStorageError(Object.assign(new Error('perm'), { code: 'EPERM' }))).toBe('transient');
+  expect(classifyStorageError(new Error('unknown'))).toBe('transient');
 
   const eperm = () => Object.assign(new Error('operation not permitted'), { code: 'EPERM' });
   let attempts = 0;
@@ -211,8 +202,8 @@ test('classifyStorageError and retryEperm drive the rebuild/transient recovery p
     },
     { baseDelayMs: 1 },
   );
-  assert.equal(recovered, 'ok');
-  assert.equal(attempts, 3);
+  expect(recovered).toBe('ok');
+  expect(attempts).toBe(3);
 
   attempts = 0;
   await assert.rejects(
@@ -222,7 +213,7 @@ test('classifyStorageError and retryEperm drive the rebuild/transient recovery p
     }),
     /not eperm/,
   );
-  assert.equal(attempts, 1);
+  expect(attempts).toBe(1);
 
   attempts = 0;
   await assert.rejects(
@@ -235,5 +226,5 @@ test('classifyStorageError and retryEperm drive the rebuild/transient recovery p
     ),
     /operation not permitted/,
   );
-  assert.equal(attempts, 3);
+  expect(attempts).toBe(3);
 });

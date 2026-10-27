@@ -3,7 +3,7 @@
 // Larger-than-RAM full-text index: postings codec, on-disk postings file, and
 // the TextIndex (delta + tombstones + disk-backed base + cache).
 
-import { test } from 'bun:test';
+import { expect, test } from 'bun:test';
 import assert from 'node:assert/strict';
 import fssync from 'node:fs';
 import fs from 'node:fs/promises';
@@ -51,13 +51,13 @@ test('postings codec: roundtrip + delta compression', () => {
     [40000, 7],
   ];
   const enc = encodePostingList(entries);
-  assert.deepEqual(decodePostingList(enc), entries);
+  expect(decodePostingList(enc)).toStrictEqual(entries);
   // delta+varint should beat a naive 8 bytes/pair for dense-ish ids.
-  assert.ok(enc.length < entries.length * 8, `expected compression, got ${enc.length} bytes`);
+  expect(enc.length < entries.length * 8, `expected compression, got ${enc.length} bytes`).toBeTruthy();
 });
 
 test('postings codec: empty list', () => {
-  assert.deepEqual(decodePostingList(encodePostingList([])), []);
+  expect(decodePostingList(encodePostingList([]))).toStrictEqual([]);
 });
 
 test('record frame: CRC detects corruption', () => {
@@ -67,9 +67,9 @@ test('record frame: CRC detects corruption', () => {
   ]);
   const rec = encodeRecord('hello', 2, payload);
   const good = decodeRecord(rec);
-  assert.equal(good.term, 'hello');
-  assert.equal(good.df, 2);
-  assert.deepEqual(decodePostingList(good.payload), [
+  expect(good.term).toBe('hello');
+  expect(good.df).toBe(2);
+  expect(decodePostingList(good.payload)).toStrictEqual([
     [1, 1],
     [2, 3],
   ]);
@@ -103,16 +103,16 @@ test('PostingsFile: rebuild + positioned read', async () => {
       },
       { term: 'empty', entries: [] }, // must be skipped
     ]);
-    assert.equal(dict.size, 2);
-    assert.ok(!dict.has('empty'));
+    expect(dict.size).toBe(2);
+    expect(!dict.has('empty')).toBeTruthy();
 
     const pf = PostingsFile.open(p);
-    assert.deepEqual(pf.read(dict.get('hello')!), [
+    expect(pf.read(dict.get('hello')!)).toStrictEqual([
       [0, 1],
       [5, 2],
       [9, 1],
     ]);
-    assert.deepEqual(pf.read(dict.get('北京')!), [
+    expect(pf.read(dict.get('北京')!)).toStrictEqual([
       [1, 3],
       [2, 1],
     ]);
@@ -120,9 +120,9 @@ test('PostingsFile: rebuild + positioned read', async () => {
 
     // rebuild is atomic: a second rebuild replaces the file and dict.
     const { dict: dict2 } = await PostingsFile.rebuild(p, [{ term: 'only', entries: [[7, 1]] }]);
-    assert.equal(dict2.size, 1);
+    expect(dict2.size).toBe(1);
     const pf2 = PostingsFile.open(p);
-    assert.deepEqual(pf2.read(dict2.get('only')!), [[7, 1]]);
+    expect(pf2.read(dict2.get('only')!)).toStrictEqual([[7, 1]]);
     pf2.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -158,26 +158,14 @@ test('TextIndex: add + search (AND/OR) disk-backed', async () => {
     ti.add('b', { bio: '我住在北京，喜欢编程' });
     ti.add('c', { bio: '我在上海写代码' });
 
-    assert.deepEqual(
-      ti.search('hello').map((h) => h.key),
-      ['a'],
-    );
-    assert.deepEqual(
-      ti.search('北京').map((h) => h.key),
-      ['b'],
-    );
-    assert.deepEqual(
-      ti
+    expect(ti.search('hello').map((h) => h.key)).toStrictEqual(['a']);
+    expect(ti.search('北京').map((h) => h.key)).toStrictEqual(['b']);
+    expect(ti
         .search('北京 上海', { op: 'OR' })
         .map((h) => h.key)
-        .toSorted(),
-      ['b', 'c'],
-    );
+        .toSorted()).toStrictEqual(['b', 'c']);
     // AND across two terms only present together in 'b'
-    assert.deepEqual(
-      ti.search('北京 编程').map((h) => h.key),
-      ['b'],
-    );
+    expect(ti.search('北京 编程').map((h) => h.key)).toStrictEqual(['b']);
     ti.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -189,21 +177,12 @@ test('TextIndex: overwrite tombstones old postings', async () => {
   try {
     const ti = new TextIndex({ postingsPath: path.join(dir, 't.postings') });
     ti.add('a', { bio: 'hello world' });
-    assert.deepEqual(
-      ti.search('hello').map((h) => h.key),
-      ['a'],
-    );
+    expect(ti.search('hello').map((h) => h.key)).toStrictEqual(['a']);
     // overwrite 'a' with different text -> old 'hello' posting must be gone
     ti.add('a', { bio: 'goodbye world' });
-    assert.deepEqual(
-      ti.search('hello').map((h) => h.key),
-      [],
-    );
-    assert.deepEqual(
-      ti.search('goodbye').map((h) => h.key),
-      ['a'],
-    );
-    assert.equal(ti.N, 1);
+    expect(ti.search('hello').map((h) => h.key)).toStrictEqual([]);
+    expect(ti.search('goodbye').map((h) => h.key)).toStrictEqual(['a']);
+    expect(ti.N).toBe(1);
     ti.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -217,11 +196,8 @@ test('TextIndex: remove deletes postings', async () => {
     ti.add('a', { bio: 'hello world' });
     ti.add('b', { bio: 'hello there' });
     ti.remove('a');
-    assert.deepEqual(
-      ti.search('hello').map((h) => h.key),
-      ['b'],
-    );
-    assert.equal(ti.N, 1);
+    expect(ti.search('hello').map((h) => h.key)).toStrictEqual(['b']);
+    expect(ti.N).toBe(1);
     ti.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -237,21 +213,15 @@ test('TextIndex: build persists to disk + merges delta after build', async () =>
       { key: 'a', value: { bio: 'hello world' } },
       { key: 'b', value: { bio: '我住在北京' } },
     ]);
-    assert.ok(fssync.existsSync(p), 'postings file should exist after build');
-    assert.deepEqual(
-      ti.search('hello').map((h) => h.key),
-      ['a'],
-    );
+    expect(fssync.existsSync(p), 'postings file should exist after build').toBeTruthy();
+    expect(ti.search('hello').map((h) => h.key)).toStrictEqual(['a']);
 
     // new writes after build go to the in-memory delta and are still found
     ti.add('c', { bio: 'hello from c' });
-    assert.deepEqual(
-      ti
+    expect(ti
         .search('hello')
         .map((h) => h.key)
-        .toSorted(),
-      ['a', 'c'],
-    );
+        .toSorted()).toStrictEqual(['a', 'c']);
     ti.close();
 
     // a fresh TextIndex over the same file sees the base but not the lost delta
@@ -262,10 +232,7 @@ test('TextIndex: build persists to disk + merges delta after build', async () =>
       { key: 'a', value: { bio: 'hello world' } },
       { key: 'b', value: { bio: '我住在北京' } },
     ]);
-    assert.deepEqual(
-      ti2.search('hello').map((h) => h.key),
-      ['a'],
-    );
+    expect(ti2.search('hello').map((h) => h.key)).toStrictEqual(['a']);
     ti2.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -293,24 +260,15 @@ test('TextIndex: writes landing mid-build are replayed onto the new base', async
       ti.remove('d1'); // delete a staged key
     });
     await buildP;
-    assert.ok(landedMidBuild, 'writes landed while the build was in flight');
+    expect(landedMidBuild, 'writes landed while the build was in flight').toBeTruthy();
 
     // Live view during the build stayed correct, and the queue replay made
     // the new base exact: 3000 staged + extra − replaced-d0 − removed-d1.
-    assert.equal(ti.N, 3000);
-    assert.deepEqual(
-      ti.search('extra').map((h) => h.key),
-      ['extra'],
-    );
-    assert.deepEqual(
-      ti.search('goodbye').map((h) => h.key),
-      ['d0'],
-    );
-    assert.deepEqual(
-      ti.search('doc1').map((h) => h.key),
-      [],
-    );
-    assert.equal(ti.search('hello', { limit: 10_000 }).length, 2999);
+    expect(ti.N).toBe(3000);
+    expect(ti.search('extra').map((h) => h.key)).toStrictEqual(['extra']);
+    expect(ti.search('goodbye').map((h) => h.key)).toStrictEqual(['d0']);
+    expect(ti.search('doc1').map((h) => h.key)).toStrictEqual([]);
+    expect(ti.search('hello', { limit: 10_000 }).length).toBe(2999);
     ti.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -321,15 +279,9 @@ test('TextIndex: memory-only mode (no postingsPath)', () => {
   const ti = new TextIndex(); // memory base
   ti.add('a', { bio: 'hello world' });
   ti.add('b', { bio: '北京天安门' });
-  assert.deepEqual(
-    ti.search('hello').map((h) => h.key),
-    ['a'],
-  );
-  assert.deepEqual(
-    ti.search('北京').map((h) => h.key),
-    ['b'],
-  );
-  assert.equal(ti.termCount() > 0, true);
+  expect(ti.search('hello').map((h) => h.key)).toStrictEqual(['a']);
+  expect(ti.search('北京').map((h) => h.key)).toStrictEqual(['b']);
+  expect(ti.termCount() > 0).toBe(true);
   ti.close();
 });
 
@@ -337,18 +289,9 @@ test('TextIndex: default tokenizer NFKC-folds fullwidth latin so halfwidth queri
   const ti = new TextIndex(); // memory base
   ti.add('a', { bio: 'ＫＩＭＩ ｃｏｄｅ' });
   ti.add('b', { bio: '北京天安门' });
-  assert.deepEqual(
-    ti.search('kimi').map((h) => h.key),
-    ['a'],
-  );
-  assert.deepEqual(
-    ti.search('code').map((h) => h.key),
-    ['a'],
-  );
-  assert.deepEqual(
-    ti.search('北京').map((h) => h.key),
-    ['b'],
-  );
+  expect(ti.search('kimi').map((h) => h.key)).toStrictEqual(['a']);
+  expect(ti.search('code').map((h) => h.key)).toStrictEqual(['a']);
+  expect(ti.search('北京').map((h) => h.key)).toStrictEqual(['b']);
   ti.close();
 });
 
@@ -363,25 +306,16 @@ test('MiniDb: text postings written to disk, search survives reopen', async () =
     await db.set('b', { bio: '今天天气不错' });
     await db.close();
 
-    assert.ok(fssync.existsSync(path.join(dir, 'db.text-bio.postings')), 'postings file exists');
+    expect(fssync.existsSync(path.join(dir, 'db.text-bio.postings')), 'postings file exists').toBeTruthy();
 
     db = await MiniDb.open({ dir, valueCodec: 'json' });
-    assert.deepEqual(
-      db.search('bio', '北京').map((r) => r.key),
-      ['a'],
-    );
+    expect(db.search('bio', '北京').map((r) => r.key)).toStrictEqual(['a']);
     // overwrite then reopen -> tombstone must not resurrect old text
     await db.set('a', { bio: '我爱上海' });
     await db.close();
     db = await MiniDb.open({ dir, valueCodec: 'json' });
-    assert.deepEqual(
-      db.search('bio', '北京').map((r) => r.key),
-      [],
-    );
-    assert.deepEqual(
-      db.search('bio', '上海').map((r) => r.key),
-      ['a'],
-    );
+    expect(db.search('bio', '北京').map((r) => r.key)).toStrictEqual([]);
+    expect(db.search('bio', '上海').map((r) => r.key)).toStrictEqual(['a']);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -405,9 +339,9 @@ for (const indexGenerations of [false, true]) {
         // The background generation build may already have re-published the
         // base (root file reclaimed) — either location proves persistence.
         const inGen = fssync.existsSync(path.join(dir, 'CURRENT'));
-        assert.ok(fssync.existsSync(p) || inGen, 'postings persisted (root or generation)');
+        expect(fssync.existsSync(p) || inGen, 'postings persisted (root or generation)').toBeTruthy();
       } else {
-        assert.ok(fssync.existsSync(p));
+        expect(fssync.existsSync(p)).toBeTruthy();
       }
       // overwrite everything to create tombstones, then add more (delta grows)
       for (let i = 0; i < 50; i++) await db.set('k' + i, { bio: 'goodbye world ' + i });
@@ -416,20 +350,17 @@ for (const indexGenerations of [false, true]) {
       await db.compact(); // should rebuild postings from the live store
 
       // after compaction the postings reflect the latest values only
-      assert.equal(db.search('bio', 'hello').length, 30); // k50..k79
-      assert.equal(db.search('bio', 'goodbye').length, 50); // k0..k49
+      expect(db.search('bio', 'hello').length).toBe(30); // k50..k79
+      expect(db.search('bio', 'goodbye').length).toBe(50); // k0..k49
       if (indexGenerations) {
         // The base moved into the published generation: the legacy root file
         // is reclaimed and CURRENT's generation carries the fresh postings.
-        assert.ok(!fssync.existsSync(p), 'root postings reclaimed after generation publish');
+        expect(!fssync.existsSync(p), 'root postings reclaimed after generation publish').toBeTruthy();
         const gen = db.getIndexGeneration()!;
-        assert.ok(gen, 'compaction published a generation');
-        assert.ok(
-          fssync.existsSync(path.join(dir, 'generations', gen.id, 'text-bio.postings')),
-          'postings live in the generation',
-        );
+        expect(gen, 'compaction published a generation').toBeTruthy();
+        expect(fssync.existsSync(path.join(dir, 'generations', gen.id, 'text-bio.postings')), 'postings live in the generation').toBeTruthy();
       } else {
-        assert.ok(fssync.existsSync(p), 'legacy path keeps the root postings file');
+        expect(fssync.existsSync(p), 'legacy path keeps the root postings file').toBeTruthy();
       }
       await db.close();
     } finally {
@@ -458,11 +389,8 @@ test('MiniDb: compaction skips the postings rebuild when the index is clean [leg
     await db.set('a', { bio: 'hello world' });
     await db.compact(); // delta dirty -> rebuild #2
     await db.compact(); // clean now -> rebuild skipped
-    assert.equal(builds, 2);
-    assert.deepEqual(
-      db.search('bio', 'hello').map((h) => h.key),
-      ['a'],
-    );
+    expect(builds).toBe(2);
+    expect(db.search('bio', 'hello').map((h) => h.key)).toStrictEqual(['a']);
     await db.close();
   } finally {
     TextIndex.prototype.build = orig;
@@ -487,11 +415,8 @@ test('MiniDb: compaction skips the postings rebuild when the index is clean [gen
     await db.set('a', { bio: 'hello world' });
     await db.compact(); // delta dirty -> generation build rewrites postings (#2)
     await db.compact(); // clean now -> re-published by link, no rewrite
-    assert.equal(rebuilds, 2);
-    assert.deepEqual(
-      db.search('bio', 'hello').map((h) => h.key),
-      ['a'],
-    );
+    expect(rebuilds).toBe(2);
+    expect(db.search('bio', 'hello').map((h) => h.key)).toStrictEqual(['a']);
     await db.close();
   } finally {
     PostingsFile.rebuild = orig;
@@ -509,10 +434,7 @@ test('MiniDb: a generation build leaves the non-override rebuild target intact [
     // generation's tmp directory, which the publish rename then takes away.
     await db.compact();
     const ti = (db as unknown as { text: Map<string, TextIndex> }).text.get('bio')!;
-    assert.ok(
-      ti.currentPostingsPath?.includes('generations'),
-      `expected the live base inside a generation, got ${ti.currentPostingsPath}`,
-    );
+    expect(ti.currentPostingsPath?.includes('generations'), `expected the live base inside a generation, got ${ti.currentPostingsPath}`).toBeTruthy();
 
     // A later NON-override rebuild (the legacy postings maintenance path) must
     // still target the index's own root postings file — never the vanished
@@ -522,16 +444,9 @@ test('MiniDb: a generation build leaves the non-override rebuild target intact [
     await priv.textRegistry.rebuildTextPostings();
 
     const rootPostings = path.join(dir, 'db.text-bio.postings');
-    assert.equal(ti.currentPostingsPath, rootPostings);
-    assert.equal(
-      fssync.existsSync(rootPostings),
-      true,
-      'postings landed in the expected directory',
-    );
-    assert.deepEqual(
-      db.search('bio', 'hello', { limit: 10 }).map((h) => h.key),
-      ['a', 'b'],
-    );
+    expect(ti.currentPostingsPath).toBe(rootPostings);
+    expect(fssync.existsSync(rootPostings), 'postings landed in the expected directory').toBe(true);
+    expect(db.search('bio', 'hello', { limit: 10 }).map((h) => h.key)).toStrictEqual(['a', 'b']);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -574,30 +489,18 @@ for (const indexGenerations of [false, true]) {
       gate.release();
       await writes;
       await compactP;
-      assert.equal(db.stats.compactions, 1);
+      expect(db.stats.compactions).toBe(1);
 
-      assert.equal(db.search('bio', 'hello', { limit: 10_000 }).length, 49);
-      assert.deepEqual(
-        db.search('bio', 'extra').map((h) => h.key),
-        ['extra'],
-      );
-      assert.deepEqual(
-        db.search('bio', 'goodbye').map((h) => h.key),
-        ['d0'],
-      );
-      assert.deepEqual(
-        db.search('bio', 'doc1').map((h) => h.key),
-        [],
-      );
+      expect(db.search('bio', 'hello', { limit: 10_000 }).length).toBe(49);
+      expect(db.search('bio', 'extra').map((h) => h.key)).toStrictEqual(['extra']);
+      expect(db.search('bio', 'goodbye').map((h) => h.key)).toStrictEqual(['d0']);
+      expect(db.search('bio', 'doc1').map((h) => h.key)).toStrictEqual([]);
       await db.close();
 
       // The mid-compaction writes are durable and consistent across a reopen.
       const db2 = await MiniDb.open({ dir, valueCodec: 'json' });
-      assert.equal(db2.search('bio', 'hello', { limit: 10_000 }).length, 49);
-      assert.deepEqual(
-        db2.search('bio', 'extra').map((h) => h.key),
-        ['extra'],
-      );
+      expect(db2.search('bio', 'hello', { limit: 10_000 }).length).toBe(49);
+      expect(db2.search('bio', 'extra').map((h) => h.key)).toStrictEqual(['extra']);
       await db2.close();
     } finally {
       gate?.restore();
@@ -609,24 +512,24 @@ for (const indexGenerations of [false, true]) {
 // ---- trigram (n-gram literal tokenizer) ------------------------------------
 
 test('trigram: normalization (case, NFKC, code points)', () => {
-  assert.equal(normalizeLiteral('AbC'), 'abc');
+  expect(normalizeLiteral('AbC')).toBe('abc');
   // NFKC folds compatibility glyphs: fullwidth dollar -> ascii dollar
-  assert.equal(normalizeLiteral('＄100'), '$100');
+  expect(normalizeLiteral('＄100')).toBe('$100');
   // surrogate pairs count as one code point and survive normalization
-  assert.equal(Array.from(normalizeLiteral('A🙂')).length, 2);
-  assert.equal(normalizeLiteral('🙂'), '🙂');
+  expect(Array.from(normalizeLiteral('A🙂')).length).toBe(2);
+  expect(normalizeLiteral('🙂')).toBe('🙂');
 });
 
 test('trigram: hash terms are stable and width-tagged', () => {
   // crc32 of the utf8 bytes, low 22 bits, base 36 — pinned so every process
   // derives the same term for the same n-gram.
-  assert.equal(ngramTerm('ab'), '24m0d');
-  assert.equal(ngramTerm('abc'), '31exfm');
-  assert.equal(ngramTerm('🚀🎉'), '217syy');
+  expect(ngramTerm('ab')).toBe('24m0d');
+  expect(ngramTerm('abc')).toBe('31exfm');
+  expect(ngramTerm('🚀🎉')).toBe('217syy');
   // 2-grams and 3-grams live in different tag namespaces and can never alias
-  assert.ok(ngramTerm('ab').startsWith('2'));
-  assert.ok(ngramTerm('abc').startsWith('3'));
-  assert.notEqual(ngramTerm('ab'), ngramTerm('abc'));
+  expect(ngramTerm('ab').startsWith('2')).toBeTruthy();
+  expect(ngramTerm('abc').startsWith('3')).toBeTruthy();
+  expect(ngramTerm('ab')).not.toBe(ngramTerm('abc'));
   assert.throws(() => ngramTerm('a'), /2- or 3-gram/);
 });
 
@@ -634,47 +537,41 @@ test('trigram: index vs query tokenizer shapes', () => {
   const ix = createNgramTokenizer();
   const q = createNgramTokenizer({ forQuery: true });
   // shorter than 2 normalized code points -> no terms (upper layer rejects)
-  assert.deepEqual(q('a'), []);
-  assert.deepEqual(ix('a'), []);
-  assert.deepEqual(q(''), []);
+  expect(q('a')).toStrictEqual([]);
+  expect(ix('a')).toStrictEqual([]);
+  expect(q('')).toStrictEqual([]);
   // length 2: both sides emit exactly the one 2-gram
-  assert.deepEqual(q('AB'), [ngramTerm('ab')]);
-  assert.deepEqual(ix('AB'), [ngramTerm('ab')]);
+  expect(q('AB')).toStrictEqual([ngramTerm('ab')]);
+  expect(ix('AB')).toStrictEqual([ngramTerm('ab')]);
   // length >= 3: query side only 3-grams; index side 3-grams + 2-grams
-  assert.deepEqual(q('abcd'), [ngramTerm('abc'), ngramTerm('bcd')]);
-  assert.deepEqual(
-    ix('abcd').toSorted(),
-    [
+  expect(q('abcd')).toStrictEqual([ngramTerm('abc'), ngramTerm('bcd')]);
+  expect(ix('abcd').toSorted()).toStrictEqual([
       ngramTerm('ab'),
       ngramTerm('abc'),
       ngramTerm('bc'),
       ngramTerm('bcd'),
       ngramTerm('cd'),
-    ].toSorted(),
-  );
+    ].toSorted());
   // emoji are single code points: '🙂a' has length 2 -> one 2-gram, not a
   // 3-gram over split UTF-16 surrogates
-  assert.deepEqual(q('🙂a'), [ngramTerm('🙂a')]);
+  expect(q('🙂a')).toStrictEqual([ngramTerm('🙂a')]);
 });
 
 test('trigram: normalization can change length (single ligature ﬀ becomes a legal query)', () => {
   // 'ﬀ' (U+FB00) is one code point, but NFKC folds it to 'ff' — so the query
   // side emits exactly one 2-gram and the search layer's >=2 check (judged
   // after normalization) accepts what looks like a 1-character query.
-  assert.equal(normalizeLiteral('ﬀ'), 'ff');
-  assert.deepEqual(createNgramTokenizer({ forQuery: true })('ﬀ'), [ngramTerm('ff')]);
+  expect(normalizeLiteral('ﬀ')).toBe('ff');
+  expect(createNgramTokenizer({ forQuery: true })('ﬀ')).toStrictEqual([ngramTerm('ff')]);
 });
 
 test('trigram: query of exactly 3 code points emits its single 3-gram', () => {
   const q = createNgramTokenizer({ forQuery: true });
   // the boundary where the query side switches from 2-grams to 3-grams
-  assert.deepEqual(q('abc'), [ngramTerm('abc')]);
-  assert.deepEqual(q('已通过'), [ngramTerm('已通过')]);
+  expect(q('abc')).toStrictEqual([ngramTerm('abc')]);
+  expect(q('已通过')).toStrictEqual([ngramTerm('已通过')]);
   // the index side of a 3-char text still emits both widths
-  assert.deepEqual(
-    createNgramTokenizer()('abc').toSorted(),
-    [ngramTerm('abc'), ngramTerm('ab'), ngramTerm('bc')].toSorted(),
-  );
+  expect(createNgramTokenizer()('abc').toSorted()).toStrictEqual([ngramTerm('abc'), ngramTerm('ab'), ngramTerm('bc')].toSorted());
 });
 
 test('TextIndex: injected n-gram tokenizer matches symbol substrings', async () => {
@@ -694,36 +591,15 @@ test('TextIndex: injected n-gram tokenizer matches symbol substrings', async () 
     ti.add('latex', { text: 'inline math $\\frac{a}{b}$ here' });
     ti.add('emoji', { text: 'launch 🚀🎉 today' });
 
-    assert.deepEqual(
-      ti.search('C++').map((h) => h.key),
-      ['cpp'],
-    );
-    assert.deepEqual(
-      ti.search('c++').map((h) => h.key),
-      ['cpp'],
-    ); // case-insensitive
-    assert.deepEqual(
-      ti.search('->').map((h) => h.key),
-      ['arrow'],
-    ); // 2-char query via 2-gram
-    assert.deepEqual(
-      ti.search('a->b').map((h) => h.key),
-      ['arrow'],
-    ); // distractor 'a-b' excluded
-    assert.deepEqual(
-      ti.search('已通过').map((h) => h.key),
-      ['done'],
-    );
-    assert.deepEqual(
-      ti.search('\\frac{a}{b}').map((h) => h.key),
-      ['latex'],
-    );
-    assert.deepEqual(
-      ti.search('🚀🎉').map((h) => h.key),
-      ['emoji'],
-    );
+    expect(ti.search('C++').map((h) => h.key)).toStrictEqual(['cpp']);
+    expect(ti.search('c++').map((h) => h.key)).toStrictEqual(['cpp']); // case-insensitive
+    expect(ti.search('->').map((h) => h.key)).toStrictEqual(['arrow']); // 2-char query via 2-gram
+    expect(ti.search('a->b').map((h) => h.key)).toStrictEqual(['arrow']); // distractor 'a-b' excluded
+    expect(ti.search('已通过').map((h) => h.key)).toStrictEqual(['done']);
+    expect(ti.search('\\frac{a}{b}').map((h) => h.key)).toStrictEqual(['latex']);
+    expect(ti.search('🚀🎉').map((h) => h.key)).toStrictEqual(['emoji']);
     // single character yields no terms, hence no hits
-    assert.deepEqual(ti.search('a'), []);
+    expect(ti.search('a')).toStrictEqual([]);
     ti.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -739,38 +615,23 @@ test('TextIndex: n-gram tokenizer delta add/remove/overwrite', async () => {
       queryTokenizer: createNgramTokenizer({ forQuery: true }),
     });
     await ti.build([{ key: 'a', value: { text: 'C++ guide' } }]);
-    assert.deepEqual(
-      ti.search('c++').map((h) => h.key),
-      ['a'],
-    );
+    expect(ti.search('c++').map((h) => h.key)).toStrictEqual(['a']);
 
     // writes after build land in the delta and stay searchable
     ti.add('b', { text: 'C++ cookbook' });
-    assert.deepEqual(
-      ti
+    expect(ti
         .search('c++')
         .map((h) => h.key)
-        .toSorted(),
-      ['a', 'b'],
-    );
+        .toSorted()).toStrictEqual(['a', 'b']);
 
     ti.remove('a');
-    assert.deepEqual(
-      ti.search('c++').map((h) => h.key),
-      ['b'],
-    );
-    assert.equal(ti.N, 1);
+    expect(ti.search('c++').map((h) => h.key)).toStrictEqual(['b']);
+    expect(ti.N).toBe(1);
 
     // overwrite tombstones the old n-grams
     ti.add('b', { text: 'plain c guide' });
-    assert.deepEqual(
-      ti.search('c++').map((h) => h.key),
-      [],
-    );
-    assert.deepEqual(
-      ti.search('c guide').map((h) => h.key),
-      ['b'],
-    );
+    expect(ti.search('c++').map((h) => h.key)).toStrictEqual([]);
+    expect(ti.search('c guide').map((h) => h.key)).toStrictEqual(['b']);
     ti.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -788,7 +649,7 @@ test('TextIndex: queryTokenizer tokenizes searches when given, falls back otherw
       queryTokenizer: () => ['query-term'],
     });
     ti.add('a', { text: 'whatever' });
-    assert.deepEqual(ti.search('anything'), []); // looks up 'query-term', never indexed
+    expect(ti.search('anything')).toStrictEqual([]); // looks up 'query-term', never indexed
     ti.close();
 
     // Without a queryTokenizer, search falls back to the index tokenizer.
@@ -797,10 +658,7 @@ test('TextIndex: queryTokenizer tokenizes searches when given, falls back otherw
       tokenizer: () => ['idx-term'],
     });
     fallback.add('a', { text: 'whatever' });
-    assert.deepEqual(
-      fallback.search('anything').map((h) => h.key),
-      ['a'],
-    );
+    expect(fallback.search('anything').map((h) => h.key)).toStrictEqual(['a']);
     fallback.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -817,12 +675,9 @@ test('MiniDb: n-gram text index tokenizes queries with the forQuery shape', asyn
     // would surface it via 'ab'; the forQuery side emits only the 'abc'
     // 3-gram, so nothing matches.
     await db.set('partial', { text: 'ab only' });
-    assert.deepEqual(db.search('tri', 'abc', { op: 'OR' }), []);
+    expect(db.search('tri', 'abc', { op: 'OR' })).toStrictEqual([]);
     await db.set('full', { text: 'abc here' });
-    assert.deepEqual(
-      db.search('tri', 'abc', { op: 'OR' }).map((r) => r.key),
-      ['full'],
-    );
+    expect(db.search('tri', 'abc', { op: 'OR' }).map((r) => r.key)).toStrictEqual(['full']);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -846,33 +701,24 @@ test('MiniDb: n-gram text index persists tokenizer, survives reopen', async () =
       name: string;
       tokenizer?: string;
     }[];
-    assert.equal(defs.find((d) => d.name === 'tri')!.tokenizer, 'ngram');
-    assert.ok(!('tokenizer' in defs.find((d) => d.name === 'body')!));
+    expect(defs.find((d) => d.name === 'tri')!.tokenizer).toBe('ngram');
+    expect(!('tokenizer' in defs.find((d) => d.name === 'body')!)).toBeTruthy();
 
     db = await MiniDb.open({ dir, valueCodec: 'json' });
     // n-gram index restored as n-gram: 'C++' matches only the real substring
-    assert.deepEqual(
-      db.search('tri', 'C++').map((r) => r.key),
-      ['a'],
-    );
+    expect(db.search('tri', 'C++').map((r) => r.key)).toStrictEqual(['a']);
     // default index restored as default: 'C++' still tokenizes to the word 'c'
-    assert.deepEqual(
-      db
+    expect(db
         .search('body', 'C++')
         .map((r) => r.key)
-        .toSorted(),
-      ['a', 'b'],
-    );
+        .toSorted()).toStrictEqual(['a', 'b']);
 
     // delta writes after reopen use the restored tokenizer too
     await db.set('c', { text: 'another C++ note' });
-    assert.deepEqual(
-      db
+    expect(db
         .search('tri', 'c++')
         .map((r) => r.key)
-        .toSorted(),
-      ['a', 'c'],
-    );
+        .toSorted()).toStrictEqual(['a', 'c']);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -908,16 +754,9 @@ test('TextIndex: top-K ranks score desc with a stable key tie-break', async () =
       { key: 'k1', value: { bio: 'common pad' } },
       { key: 'k2', value: { bio: 'common pad' } },
     ]);
-    assert.deepEqual(
-      ti.search('common', { limit: 2 }).map((h) => h.key),
-      ['k1', 'k2'],
-      'equal scores -> key asc',
-    );
-    assert.deepEqual(
-      ti.search('common', { limit: 10 }).map((h) => h.key),
-      ['k1', 'k2', 'k3'],
-    );
-    assert.deepEqual(ti.search('common', { limit: 0 }), [], 'limit 0 stays empty');
+    expect(ti.search('common', { limit: 2 }).map((h) => h.key), 'equal scores -> key asc').toStrictEqual(['k1', 'k2']);
+    expect(ti.search('common', { limit: 10 }).map((h) => h.key)).toStrictEqual(['k1', 'k2', 'k3']);
+    expect(ti.search('common', { limit: 0 }), 'limit 0 stays empty').toStrictEqual([]);
     ti.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -942,22 +781,18 @@ test('TextIndex: top-K over many candidates matches the full-ranking reference',
     // The full ranking (limit above the candidate count returns everything).
     const all = ti.search('x', { limit: 1_000_000 });
     const matching = entries.filter((e) => e.value.bio.includes('x')).length;
-    assert.equal(all.length, matching, 'unbounded search returns every scoring doc');
+    expect(all.length, 'unbounded search returns every scoring doc').toBe(matching);
     for (let i = 1; i < all.length; i++) {
       const [p, c] = [all[i - 1]!, all[i]!];
-      assert.ok(p.score > c.score || (p.score === c.score && p.key < c.key), `rank order at ${i}`);
+      expect(p.score > c.score || (p.score === c.score && p.key < c.key), `rank order at ${i}`).toBeTruthy();
     }
     const rank = new Map(all.map((h, i) => [h.key, i]));
     for (const limit of [1, 5, 10, 50, 499]) {
       const hits = ti.search('x', { limit });
-      assert.equal(hits.length, Math.min(limit, all.length));
+      expect(hits.length).toBe(Math.min(limit, all.length));
       // Exactly the first `limit` rows of the full ranking, in the same order.
-      assert.deepEqual(
-        hits.map((h) => h.key),
-        all.slice(0, limit).map((h) => h.key),
-        `limit=${limit} is the full ranking's prefix`,
-      );
-      for (const h of hits) assert.ok(rank.get(h.key)! < limit);
+      expect(hits.map((h) => h.key), `limit=${limit} is the full ranking's prefix`).toStrictEqual(all.slice(0, limit).map((h) => h.key));
+      for (const h of hits) expect(rank.get(h.key)! < limit).toBeTruthy();
     }
     ti.close();
   } finally {
@@ -969,29 +804,17 @@ test('TextIndex: overwrite/remove prune the delta via the doc reverse map', () =
   const ti = new TextIndex(); // memory base; adds go to the delta
   ti.add('a', { bio: 'apple banana' });
   ti.add('b', { bio: 'cherry' });
-  assert.equal(ti.termCount(), 3);
+  expect(ti.termCount()).toBe(3);
 
   ti.add('a', { bio: 'mango' }); // overwrite: apple/banana leave the delta
-  assert.deepEqual(
-    ti.search('apple').map((h) => h.key),
-    [],
-  );
-  assert.deepEqual(
-    ti.search('banana').map((h) => h.key),
-    [],
-  );
-  assert.deepEqual(
-    ti.search('mango').map((h) => h.key),
-    ['a'],
-  );
-  assert.equal(ti.termCount(), 2, 'pruned terms leave the vocabulary (cherry, mango)');
+  expect(ti.search('apple').map((h) => h.key)).toStrictEqual([]);
+  expect(ti.search('banana').map((h) => h.key)).toStrictEqual([]);
+  expect(ti.search('mango').map((h) => h.key)).toStrictEqual(['a']);
+  expect(ti.termCount(), 'pruned terms leave the vocabulary (cherry, mango)').toBe(2);
 
   ti.remove('b');
-  assert.deepEqual(
-    ti.search('cherry').map((h) => h.key),
-    [],
-  );
-  assert.equal(ti.termCount(), 1, 'only mango remains');
+  expect(ti.search('cherry').map((h) => h.key)).toStrictEqual([]);
+  expect(ti.termCount(), 'only mango remains').toBe(1);
   ti.close();
 });
 
@@ -1007,26 +830,23 @@ test('TextIndex: maxVisits truncates a hot term and reports visits (disk-backed)
     await ti.build(entries);
 
     const full = ti.searchBounded('x', { limit: 1_000 });
-    assert.equal(full.hits.length, 500);
-    assert.equal(full.truncated, false);
-    assert.ok(full.visits >= 500);
+    expect(full.hits.length).toBe(500);
+    expect(full.truncated).toBe(false);
+    expect(full.visits >= 500).toBeTruthy();
 
     const bounded = ti.searchBounded('x', { limit: 1_000, maxVisits: 100 });
-    assert.equal(bounded.truncated, true, 'the budget cut the hot list short');
-    assert.ok(bounded.visits <= 100, `visits stay within the budget, got ${bounded.visits}`);
-    assert.ok(bounded.hits.length > 0 && bounded.hits.length <= 100);
+    expect(bounded.truncated, 'the budget cut the hot list short').toBe(true);
+    expect(bounded.visits <= 100, `visits stay within the budget, got ${bounded.visits}`).toBeTruthy();
+    expect(bounded.hits.length > 0 && bounded.hits.length <= 100).toBeTruthy();
     // A truncated result is a SUBSET of the full matches — never false hits.
     const fullKeys = new Set(full.hits.map((h) => h.key));
-    for (const h of bounded.hits) assert.ok(fullKeys.has(h.key), `${h.key} is a real match`);
+    for (const h of bounded.hits) expect(fullKeys.has(h.key), `${h.key} is a real match`).toBeTruthy();
 
     // The same options through plain search() keep returning just the hits.
-    assert.deepEqual(
-      ti.search('x', { limit: 1_000, maxVisits: 100 }).map((h) => h.key),
-      bounded.hits.map((h) => h.key),
-    );
+    expect(ti.search('x', { limit: 1_000, maxVisits: 100 }).map((h) => h.key)).toStrictEqual(bounded.hits.map((h) => h.key));
     // Unbudgeted callers are unaffected, and a capped read never poisoned the
     // postings cache with a partial list.
-    assert.equal(ti.search('x', { limit: 1_000 }).length, 500);
+    expect(ti.search('x', { limit: 1_000 }).length).toBe(500);
     ti.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -1038,10 +858,10 @@ test('TextIndex: maxVisits caps the memory base the same way', async () => {
   for (let i = 0; i < 200; i++) ti.add(`k${String(i).padStart(4, '0')}`, { bio: 'x pad' });
 
   const bounded = ti.searchBounded('x', { limit: 1_000, maxVisits: 50 });
-  assert.equal(bounded.truncated, true);
-  assert.ok(bounded.visits <= 50);
-  assert.ok(bounded.hits.length > 0 && bounded.hits.length <= 50);
-  assert.equal(ti.search('x', { limit: 1_000 }).length, 200, 'unbudgeted search unaffected');
+  expect(bounded.truncated).toBe(true);
+  expect(bounded.visits <= 50).toBeTruthy();
+  expect(bounded.hits.length > 0 && bounded.hits.length <= 50).toBeTruthy();
+  expect(ti.search('x', { limit: 1_000 }).length, 'unbudgeted search unaffected').toBe(200);
   ti.close();
 });
 
@@ -1058,7 +878,7 @@ test('TextIndex: AND under a budget yields a subset with complete per-doc scores
     await ti.build(entries);
 
     const full = ti.searchBounded('hot rare', { limit: 1_000 });
-    assert.equal(full.hits.length, 3);
+    expect(full.hits.length).toBe(3);
 
     // The budget is exhausted by the hot term, but the selective term decodes
     // first; the intersection can only shrink — a subset, never false hits.
@@ -1066,18 +886,18 @@ test('TextIndex: AND under a budget yields a subset with complete per-doc scores
     // the decoded list, whose df the cap shrinks. The `truncated` flag is
     // what tells the caller not to trust completeness.)
     const bounded = ti.searchBounded('hot rare', { limit: 1_000, maxVisits: 60 });
-    assert.equal(bounded.truncated, true);
+    expect(bounded.truncated).toBe(true);
     const fullKeys = new Set(full.hits.map((h) => h.key));
-    assert.ok(bounded.hits.length <= full.hits.length);
+    expect(bounded.hits.length <= full.hits.length).toBeTruthy();
     for (const h of bounded.hits) {
-      assert.ok(fullKeys.has(h.key), `${h.key} is a true AND match`);
-      assert.ok(h.score > 0);
+      expect(fullKeys.has(h.key), `${h.key} is a true AND match`).toBeTruthy();
+      expect(h.score > 0).toBeTruthy();
     }
 
     // A zero budget cannot assemble any AND candidate set: empty + flagged.
     const zero = ti.searchBounded('hot rare', { limit: 1_000, maxVisits: 0 });
-    assert.equal(zero.truncated, true);
-    assert.equal(zero.hits.length, 0);
+    expect(zero.truncated).toBe(true);
+    expect(zero.hits.length).toBe(0);
     ti.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -1094,16 +914,16 @@ test('MiniDb: searchBounded surfaces values, visits and the truncated flag', asy
     }
 
     const bounded = db.searchBounded('body', 'x', { limit: 1_000, maxVisits: 80 });
-    assert.equal(bounded.truncated, true);
-    assert.ok(bounded.visits <= 80);
-    assert.ok(bounded.hits.length > 0 && bounded.hits.length <= 80);
+    expect(bounded.truncated).toBe(true);
+    expect(bounded.visits <= 80).toBeTruthy();
+    expect(bounded.hits.length > 0 && bounded.hits.length <= 80).toBeTruthy();
     for (const h of bounded.hits)
-      assert.equal(typeof h.value.n, 'number', 'hits carry decoded values');
+      expect(typeof h.value.n, 'hits carry decoded values').toBe('number');
 
     const full = db.search('body', 'x', { limit: 1_000 });
-    assert.equal(full.length, 300);
+    expect(full.length).toBe(300);
     const fullKeys = new Set(full.map((h) => h.key));
-    for (const h of bounded.hits) assert.ok(fullKeys.has(h.key));
+    for (const h of bounded.hits) expect(fullKeys.has(h.key)).toBeTruthy();
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -1153,27 +973,15 @@ test('MiniDb: concurrent createTextIndex calls are serialized; memory == sidecar
       db.createTextIndex('body', { fields: ['body'] }),
       db.dropTextIndex('neverThere'),
     ]);
-    assert.deepEqual(
-      results.map((r) => (r.status === 'rejected' ? String(r.reason) : r.status)),
-      ['fulfilled', 'fulfilled', 'fulfilled'],
-    );
-    assert.deepEqual(await textSidecarNames(dir), ['body', 'title']);
+    expect(results.map((r) => (r.status === 'rejected' ? String(r.reason) : r.status))).toStrictEqual(['fulfilled', 'fulfilled', 'fulfilled']);
+    expect(await textSidecarNames(dir)).toStrictEqual(['body', 'title']);
     // Both builds (registered before building) saw the pre-existing document.
-    assert.deepEqual(
-      db.search('title', 'hello').map((r) => r.key),
-      ['a'],
-    );
-    assert.deepEqual(
-      db.search('body', 'text').map((r) => r.key),
-      ['a'],
-    );
+    expect(db.search('title', 'hello').map((r) => r.key)).toStrictEqual(['a']);
+    expect(db.search('body', 'text').map((r) => r.key)).toStrictEqual(['a']);
     await db.close();
     db = await MiniDb.open({ dir, valueCodec: 'json', fsyncPolicy: 'no', autoCompact: false });
-    assert.deepEqual(await textSidecarNames(dir), ['body', 'title']);
-    assert.deepEqual(
-      db.search('title', 'hello').map((r) => r.key),
-      ['a'],
-    );
+    expect(await textSidecarNames(dir)).toStrictEqual(['body', 'title']);
+    expect(db.search('title', 'hello').map((r) => r.key)).toStrictEqual(['a']);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -1194,17 +1002,11 @@ test('MiniDb: createTextIndex persist failure: no phantom, postings removed, ori
     // No phantom: the index is gone from memory and from the sidecar, and its
     // derived postings file was removed (exactly like dropTextIndex would).
     assert.throws(() => db.search('body', 'hello'), /no such text index/);
-    assert.deepEqual(await textSidecarNames(dir), []);
-    assert.deepEqual(
-      (await fs.readdir(dir)).filter((f) => f.includes('postings')),
-      [],
-    );
+    expect(await textSidecarNames(dir)).toStrictEqual([]);
+    expect((await fs.readdir(dir)).filter((f) => f.includes('postings'))).toStrictEqual([]);
     // Retry succeeds — no phantom "already exists".
     await db.createTextIndex('body', { fields: ['text'] });
-    assert.deepEqual(
-      db.search('body', 'hello').map((r) => r.key),
-      ['a'],
-    );
+    expect(db.search('body', 'hello').map((r) => r.key)).toStrictEqual(['a']);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -1225,14 +1027,11 @@ test('MiniDb: dropTextIndex persist failure: the index stays searchable and the 
     await assert.rejects(db.dropTextIndex('body'), (e) => e === boom);
     restore();
     // The index is still live: searchable, and its postings file intact.
-    assert.deepEqual(
-      db.search('body', 'hello').map((r) => r.key),
-      ['a'],
-    );
-    assert.equal(await fs.readFile(path.join(dir, 'db.textindexes.json'), 'utf8'), before);
+    expect(db.search('body', 'hello').map((r) => r.key)).toStrictEqual(['a']);
+    expect(await fs.readFile(path.join(dir, 'db.textindexes.json'), 'utf8')).toBe(before);
     // A later successful drop persists fine.
-    assert.equal(await db.dropTextIndex('body'), true);
-    assert.deepEqual(await textSidecarNames(dir), []);
+    expect(await db.dropTextIndex('body')).toBe(true);
+    expect(await textSidecarNames(dir)).toStrictEqual([]);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -1269,24 +1068,21 @@ test('MiniDb: dropTextIndex persist window: a compaction postings rebuild skips 
       text: Map<string, TextIndex>;
     };
     const ti = priv.text.get('body')!;
-    assert.equal(ti.needsRebuild(), true, 'setup: the index is a rebuild candidate');
+    expect(ti.needsRebuild(), 'setup: the index is a rebuild candidate').toBe(true);
     // A background compaction's postings rebuild lands in the window. The
     // build (if started) sets ti.building synchronously, so this assertion is
     // not timing-dependent.
     const rebuild = priv.rebuildTextPostings();
-    assert.equal(ti.building, false, 'a dropping index must not start a postings build');
+    expect(ti.building, 'a dropping index must not start a postings build').toBe(false);
     release();
-    assert.equal(await drop, true);
+    expect(await drop).toBe(true);
     await rebuild;
     restore();
     // No late build commit: no orphan postings file re-created after the
     // drop's close+rm, and no live handle left on the dropped index.
-    assert.deepEqual(
-      (await fs.readdir(dir)).filter((f) => f.includes('postings')),
-      [],
-    );
-    assert.equal((ti as unknown as { pf: unknown }).pf, null);
-    assert.deepEqual(await textSidecarNames(dir), []);
+    expect((await fs.readdir(dir)).filter((f) => f.includes('postings'))).toStrictEqual([]);
+    expect((ti as unknown as { pf: unknown }).pf).toBe(null);
+    expect(await textSidecarNames(dir)).toStrictEqual([]);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -1318,10 +1114,7 @@ test('TextIndex: a throwing tokenizer leaves the live view, delta and buildQueue
   const priv = ti as unknown as TiPrivates;
 
   ti.add('k', { bio: 'hello world' });
-  assert.deepEqual(
-    ti.search('hello').map((h) => h.key),
-    ['k'],
-  );
+  expect(ti.search('hello').map((h) => h.key)).toStrictEqual(['k']);
 
   // Overwrite with a failing tokenizer: rejected BEFORE any mutation, so the
   // old document stays searchable instead of being tombstoned into a ghost.
@@ -1329,23 +1122,19 @@ test('TextIndex: a throwing tokenizer leaves the live view, delta and buildQueue
   assert.throws(() => {
     ti.add('k', { bio: 'goodbye world' });
   }, /boom/);
-  assert.equal(ti.N, 1);
-  assert.deepEqual(
-    ti.search('hello').map((h) => h.key),
-    ['k'],
-    'old doc survives the failed overwrite',
-  );
-  assert.deepEqual(ti.search('goodbye'), []);
-  assert.equal(priv.docLen.size, 1, 'no ghost docLen entry');
-  assert.equal(priv.keys.length, 1, 'no ghost docID');
-  assert.equal(priv.deltaCount, 2, 'delta holds exactly the old doc’s terms');
+  expect(ti.N).toBe(1);
+  expect(ti.search('hello').map((h) => h.key), 'old doc survives the failed overwrite').toStrictEqual(['k']);
+  expect(ti.search('goodbye')).toStrictEqual([]);
+  expect(priv.docLen.size, 'no ghost docLen entry').toBe(1);
+  expect(priv.keys.length, 'no ghost docID').toBe(1);
+  expect(priv.deltaCount, 'delta holds exactly the old doc’s terms').toBe(2);
 
   // A fresh key fails just as cleanly.
   assert.throws(() => {
     ti.add('fresh', { bio: 'quux' });
   }, /boom/);
-  assert.equal(ti.N, 1);
-  assert.equal(priv.keyToId.has('fresh'), false);
+  expect(ti.N).toBe(1);
+  expect(priv.keyToId.has('fresh')).toBe(false);
 
   // Mid-build: the failed write never reaches the build queue either, so the
   // swap-time replay cannot re-throw half-way through the queue.
@@ -1356,12 +1145,8 @@ test('TextIndex: a throwing tokenizer leaves the live view, delta and buildQueue
   assert.throws(() => {
     ti.add('q', { bio: 'queued?' });
   }, /boom/);
-  assert.equal((priv.buildQueue as unknown[] | null)?.length, 0, 'the failed add was never queued');
-  assert.deepEqual(
-    ti.search('hello').map((h) => h.key),
-    ['k'],
-    'live view intact during the build',
-  );
+  expect((priv.buildQueue as unknown[] | null)?.length, 'the failed add was never queued').toBe(0);
+  expect(ti.search('hello').map((h) => h.key), 'live view intact during the build').toStrictEqual(['k']);
   b.abort();
   ti.close();
 });
@@ -1379,9 +1164,9 @@ test('TextIndex: an overlong custom-tokenizer term is rejected before any mutati
     assert.throws(() => {
       ti.add('k', { bio: 'x' });
     }, /longer than 65535 utf8 bytes/);
-    assert.equal(ti.N, 0);
-    assert.equal(priv.docLen.size, 0);
-    assert.equal(priv.deltaCount, 0);
+    expect(ti.N).toBe(0);
+    expect(priv.docLen.size).toBe(0);
+    expect(priv.deltaCount).toBe(0);
     // The build path validates at the same boundary (and aborts cleanly).
     await assert.rejects(
       ti.build([{ key: 'k', value: { bio: 'x' } }]),
@@ -1393,10 +1178,7 @@ test('TextIndex: an overlong custom-tokenizer term is rejected before any mutati
     const ti2 = new TextIndex({ postingsPath: path.join(dir, 't.postings') });
     ti2.add('k', { bio: 'hello world' });
     await ti2.build([{ key: 'k', value: { bio: 'hello world' } }]);
-    assert.deepEqual(
-      ti2.search('hello').map((h) => h.key),
-      ['k'],
-    );
+    expect(ti2.search('hello').map((h) => h.key)).toStrictEqual(['k']);
     ti2.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -1420,33 +1202,26 @@ test('MiniDb: a throwing tokenizer rejects set with zero side effects; the old d
 
     // Insert rejected: store, delta, buildQueue, N, docLen all untouched.
     await assert.rejects(db.set('k2', { t: 'bad insert' }), /boom/);
-    assert.equal(db.get('k2'), undefined);
-    assert.equal(db.size, 1);
+    expect(db.get('k2')).toBe(undefined);
+    expect(db.size).toBe(1);
     // Overwrite rejected: the old document is fully intact.
     await assert.rejects(db.set('k1', { t: 'goodbye' }), /boom/);
-    assert.deepEqual(db.get('k1'), { t: 'hello world' });
-    assert.deepEqual(
-      db.search('ft', 'hello').map((h) => h.key),
-      ['k1'],
-      'old doc still searchable',
-    );
-    assert.deepEqual(db.search('ft', 'goodbye'), []);
-    assert.equal(priv.N, 1);
-    assert.equal(priv.docLen.size, 1);
-    assert.equal(priv.deltaCount, 2, 'delta holds exactly the old doc’s terms');
-    assert.equal(priv.buildQueue, null);
+    expect(db.get('k1')).toStrictEqual({ t: 'hello world' });
+    expect(db.search('ft', 'hello').map((h) => h.key), 'old doc still searchable').toStrictEqual(['k1']);
+    expect(db.search('ft', 'goodbye')).toStrictEqual([]);
+    expect(priv.N).toBe(1);
+    expect(priv.docLen.size).toBe(1);
+    expect(priv.deltaCount, 'delta holds exactly the old doc’s terms').toBe(2);
+    expect(priv.buildQueue).toBe(null);
 
     // Restored tokenizer: writes flow again; reopen agrees.
     ti.tokenizer = origTokenizer;
     await db.set('k2', { t: 'fine' });
     await db.close();
     db = await MiniDb.open({ dir, valueCodec: 'json', fsyncPolicy: 'no', autoCompact: false });
-    assert.deepEqual(db.get('k1'), { t: 'hello world' });
-    assert.deepEqual(db.get('k2'), { t: 'fine' });
-    assert.deepEqual(
-      db.search('ft', 'hello').map((h) => h.key),
-      ['k1'],
-    );
+    expect(db.get('k1')).toStrictEqual({ t: 'hello world' });
+    expect(db.get('k2')).toStrictEqual({ t: 'fine' });
+    expect(db.search('ft', 'hello').map((h) => h.key)).toStrictEqual(['k1']);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -1480,22 +1255,16 @@ test('MiniDb: an overlong tokenizer term rejects set/batch; the postings rebuild
       db.batch([{ op: 'set', key: 'bad2', value: { t: 'x' } }]),
       /longer than 65535 utf8 bytes/,
     );
-    assert.equal(db.get('bad'), undefined, 'the poisonous doc never enters the store');
-    assert.equal(db.get('bad2'), undefined);
+    expect(db.get('bad'), 'the poisonous doc never enters the store').toBe(undefined);
+    expect(db.get('bad2')).toBe(undefined);
 
     // Back to a healthy tokenizer: writes and the postings rebuild both work.
     ti.customTokenizer = false;
     ti.tokenizer = origTokenizer;
     await db.set('good2', { t: 'another doc' });
     await db.compact(); // rotates + rebuilds text postings from the store
-    assert.deepEqual(
-      db.search('ft', 'hello').map((h) => h.key),
-      ['good'],
-    );
-    assert.deepEqual(
-      db.search('ft', 'another').map((h) => h.key),
-      ['good2'],
-    );
+    expect(db.search('ft', 'hello').map((h) => h.key)).toStrictEqual(['good']);
+    expect(db.search('ft', 'another').map((h) => h.key)).toStrictEqual(['good2']);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -1527,9 +1296,9 @@ test('decoded postings cache honors the byte budget, not just the term count', a
     ti.search('gamma');
     ti.search('common');
     const cacheSize = (ti as unknown as { cache: Map<string, unknown> }).cache.size;
-    assert.ok(cacheSize < 4, `byte budget evicted big lists (cache holds ${cacheSize})`);
+    expect(cacheSize < 4, `byte budget evicted big lists (cache holds ${cacheSize})`).toBeTruthy();
     // Results stay correct after eviction.
-    assert.equal(ti.search('alpha', { limit: 300 }).length, 200);
+    expect(ti.search('alpha', { limit: 300 }).length).toBe(200);
     await fs.rm(dir, { recursive: true, force: true });
   } catch (error) {
     await fs.rm(dir, { recursive: true, force: true });
@@ -1549,17 +1318,10 @@ test('searchBoundedAsync matches searchBounded on a disk-backed index', async ()
       })),
     );
     for (const q of ['hello', '异步', 'hello world', 'missing-term']) {
-      assert.deepEqual(
-        await ti.searchBoundedAsync(q, { limit: 25 }),
-        ti.searchBounded(q, { limit: 25 }),
-        q,
-      );
+      expect(await ti.searchBoundedAsync(q, { limit: 25 }), q).toStrictEqual(ti.searchBounded(q, { limit: 25 }));
     }
     // With a visit budget too (capped decodes must match as well).
-    assert.deepEqual(
-      await ti.searchBoundedAsync('hello', { maxVisits: 10 }),
-      ti.searchBounded('hello', { maxVisits: 10 }),
-    );
+    expect(await ti.searchBoundedAsync('hello', { maxVisits: 10 })).toStrictEqual(ti.searchBounded('hello', { maxVisits: 10 }));
     ti.close();
     await fs.rm(dir, { recursive: true, force: true });
   } catch (error) {
@@ -1577,7 +1339,7 @@ test('commitRebase swaps in an externally built base and replays the capture', a
       { key: 'a', value: { text: 'alpha one' } },
       { key: 'b', value: { text: 'beta two' } },
     ]);
-    assert.equal(ti.search('alpha').length, 1);
+    expect(ti.search('alpha').length).toBe(1);
 
     // Stage a "worker-produced" base by hand: a fresh postings file with a
     // different doc set, then commit it through the rebase machinery while
@@ -1609,15 +1371,9 @@ test('commitRebase swaps in an externally built base and replays the capture', a
       postingsFileInfo: { bytes: built.bytes, crc32: built.crc32 },
     });
     // New base visible; old base gone; captured ops replayed.
-    assert.deepEqual(
-      ti.search('gamma').map((h) => h.key),
-      ['c'],
-    );
-    assert.equal(ti.search('alpha').length, 0);
-    assert.deepEqual(
-      ti.search('delta').map((h) => h.key),
-      ['d'],
-    );
+    expect(ti.search('gamma').map((h) => h.key)).toStrictEqual(['c']);
+    expect(ti.search('alpha').length).toBe(0);
+    expect(ti.search('delta').map((h) => h.key)).toStrictEqual(['d']);
     ti.close();
     await fs.rm(dir, { recursive: true, force: true });
   } catch (error) {
@@ -1635,9 +1391,9 @@ test('abortRebase discards the capture and keeps the previous base', async () =>
     ti.beginRebase();
     ti.add('b', { text: 'beta two' });
     ti.abortRebase();
-    assert.equal(ti.rebasing, false);
-    assert.equal(ti.search('alpha').length, 1);
-    assert.equal(ti.search('beta').length, 1);
+    expect(ti.rebasing).toBe(false);
+    expect(ti.search('alpha').length).toBe(1);
+    expect(ti.search('beta').length).toBe(1);
     ti.close();
     await fs.rm(dir, { recursive: true, force: true });
   } catch (error) {
@@ -1653,7 +1409,7 @@ test('commitRebase adopts a disk base over a memory-base index (read-only scratc
     // disk base from a caller-owned location instead of throwing — the same
     // flip a generation attach makes.
     const ti = new TextIndex({});
-    assert.ok(ti.memBase !== null);
+    expect(ti.memBase !== null).toBeTruthy();
     ti.add('old', { text: 'stale one' });
 
     const workerPostings = path.join(dir, 'w.postings');
@@ -1679,19 +1435,13 @@ test('commitRebase adopts a disk base over a memory-base index (read-only scratc
       liveCount: 1,
       postingsFileInfo: { bytes: built.bytes, crc32: built.crc32 },
     });
-    assert.equal(ti.memBase, null); // flipped to the adopted disk base
-    assert.equal(ti.basePending, false);
-    assert.equal(ti.currentPostingsPath, workerPostings);
+    expect(ti.memBase).toBe(null); // flipped to the adopted disk base
+    expect(ti.basePending).toBe(false);
+    expect(ti.currentPostingsPath).toBe(workerPostings);
     // The old memory base is gone; the captured write replayed onto the new one.
-    assert.deepEqual(
-      ti.search('gamma').map((h) => h.key),
-      ['c'],
-    );
-    assert.equal(ti.search('stale').length, 0);
-    assert.deepEqual(
-      ti.search('delta').map((h) => h.key),
-      ['new'],
-    );
+    expect(ti.search('gamma').map((h) => h.key)).toStrictEqual(['c']);
+    expect(ti.search('stale').length).toBe(0);
+    expect(ti.search('delta').map((h) => h.key)).toStrictEqual(['new']);
     ti.close();
     await fs.rm(dir, { recursive: true, force: true });
   } catch (error) {
@@ -1708,7 +1458,7 @@ test('an async base read straddling a base commit re-reads the fresh base instea
     await ti.build([{ key: 'a', value: { text: 'alpha' } }]);
     // Count terms instead of searching here — a search would warm the
     // decoded-postings cache and the straddle below would never reach the file.
-    assert.equal(ti.termCount(), 1);
+    expect(ti.termCount()).toBe(1);
 
     // Park the async postings read on a gate; a base commit lands meanwhile.
     const realPf = ti.pf!;
@@ -1738,9 +1488,9 @@ test('an async base read straddling a base commit re-reads the fresh base instea
     const res = await readP;
     // The straddled read must NOT serve the stale base's hit, and the cache
     // must not be poisoned either: the next query sees only the fresh base.
-    assert.deepEqual(res.hits, []);
-    assert.deepEqual(ti.searchBounded('alpha').hits, []);
-    assert.equal(ti.searchBounded('beta').hits.length, 1);
+    expect(res.hits).toStrictEqual([]);
+    expect(ti.searchBounded('alpha').hits).toStrictEqual([]);
+    expect(ti.searchBounded('beta').hits.length).toBe(1);
     ti.close();
     await fs.rm(dir, { recursive: true, force: true });
   } catch (error) {
@@ -1765,9 +1515,9 @@ test('TextIndexBuildingError while the base is pending (sync + async + query)', 
   // staged builds keep serving (beginBuild alone must not trip the guard).
   ti.basePending = false;
   const b = ti.beginBuild();
-  assert.equal(ti.search('hello').length, 1);
+  expect(ti.search('hello').length).toBe(1);
   b.abort();
-  assert.equal(ti.search('hello').length, 1);
+  expect(ti.search('hello').length).toBe(1);
 });
 
 test('a base read with no open handle raises TextIndexBuildingError instead of serving delta-only', async () => {
@@ -1790,17 +1540,11 @@ test('a base read with no open handle raises TextIndexBuildingError instead of s
     // baseless (createTextIndex relies on it): it keeps serving its delta.
     const fresh = new TextIndex({ postingsPath: path.join(dir, 'q.postings') });
     fresh.add('k', { text: 'hello world' });
-    assert.deepEqual(
-      fresh.search('hello').map((h) => h.key),
-      ['k'],
-    );
+    expect(fresh.search('hello').map((h) => h.key)).toStrictEqual(['k']);
 
     // The handle comes back: the base is served whole again.
     ti.pf = PostingsFile.open(postingsPath);
-    assert.deepEqual(
-      ti.search('hello').map((h) => h.key),
-      ['a'],
-    );
+    expect(ti.search('hello').map((h) => h.key)).toStrictEqual(['a']);
     ti.close();
     fresh.close();
   } finally {
@@ -1826,8 +1570,8 @@ test('PostingsFile: a replace that cannot land (EPERM) throws instead of renamin
     // The previous file is byte-identical and no renamed-aside copy exists:
     // the fixed name is the only one the generation manifest records and the
     // loader verifies, so a second name would be a guaranteed ENOENT there.
-    assert.deepEqual(await fs.readFile(p), before);
-    assert.deepEqual((await fs.readdir(dir)).toSorted(), ['x.postings', 'x.postings.tmp']);
+    expect(await fs.readFile(p)).toStrictEqual(before);
+    expect((await fs.readdir(dir)).toSorted()).toStrictEqual(['x.postings', 'x.postings.tmp']);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -1850,11 +1594,8 @@ test('TextIndex: a failed postings replace keeps the previous base and the retry
     await assert.rejects(ti.build([{ key: 'b', value: { text: 'beta hello' } }]), /EPERM/);
     // The commit never happened, so the previous base is still served whole
     // (and the staged keys never leaked into the live view).
-    assert.deepEqual(
-      ti.search('hello').map((h) => h.key),
-      ['a'],
-    );
-    assert.equal(ti.search('beta').length, 0);
+    expect(ti.search('hello').map((h) => h.key)).toStrictEqual(['a']);
+    expect(ti.search('beta').length).toBe(0);
 
     // Phase 2: the retry is a normal rebuild and lands.
     PostingsFile.rebuild = orig;
@@ -1862,10 +1603,7 @@ test('TextIndex: a failed postings replace keeps the previous base and the retry
       { key: 'a', value: { text: 'hello alpha' } },
       { key: 'b', value: { text: 'beta hello' } },
     ]);
-    assert.deepEqual(
-      ti.search('hello', { limit: 10 }).map((h) => h.key),
-      ['a', 'b'],
-    );
+    expect(ti.search('hello', { limit: 10 }).map((h) => h.key)).toStrictEqual(['a', 'b']);
     ti.close();
   } finally {
     PostingsFile.rebuild = orig;
@@ -1886,7 +1624,7 @@ test('a postings rebuild reclaims renamed-aside files from the retired EPERM fal
     await fs.writeFile(path.join(dir, 'other.postings.3k5x1ymfc8k2x9'), 'other stem');
 
     await PostingsFile.rebuild(p, [{ term: 'hello', entries: [[0, 2]] }]);
-    assert.deepEqual((await fs.readdir(dir)).toSorted(), [
+    expect((await fs.readdir(dir)).toSorted()).toStrictEqual([
       'other.postings.3k5x1ymfc8k2x9',
       'x.postings',
       'x.postings.rebuild',

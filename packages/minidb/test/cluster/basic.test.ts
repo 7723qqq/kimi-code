@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { test } from 'bun:test';
+import { expect, test } from 'bun:test';
 
 import { ClusterDb, shardDirName } from '../../src/cluster/index.js';
 import { shardFor } from '../../src/cluster/utils.js';
@@ -24,18 +24,18 @@ test('cluster open creates meta + shard dirs; reload validates topology', async 
   const dir = await tmpDir('minidb-cluster-');
   try {
     const db = await ClusterDb.open({ dir, shardCount: 4, valueCodec: 'json' });
-    assert.equal(db.shardCount, 4);
+    expect(db.shardCount).toBe(4);
     const meta = JSON.parse(await fs.readFile(path.join(dir, 'cluster.meta.json'), 'utf8'));
-    assert.equal(meta.version, 1);
-    assert.equal(meta.shardCount, 4);
-    assert.equal(meta.valueCodec, 'json');
+    expect(meta.version).toBe(1);
+    expect(meta.shardCount).toBe(4);
+    expect(meta.valueCodec).toBe('json');
     const entries = await fs.readdir(dir);
-    for (let i = 0; i < 4; i++) assert.ok(entries.includes(`shard-0${i}`), `shard-0${i} exists`);
+    for (let i = 0; i < 4; i++) expect(entries.includes(`shard-0${i}`), `shard-0${i} exists`).toBeTruthy();
     await db.close();
 
     // Reopen without options: inherits the on-disk topology.
     const db2 = await ClusterDb.open({ dir });
-    assert.equal(db2.shardCount, 4);
+    expect(db2.shardCount).toBe(4);
     await db2.close();
 
     // Explicit mismatches are rejected.
@@ -63,13 +63,13 @@ test('single-key ops round-trip across shards', async () => {
     const k1 = keyOnShard('round', 1, 4);
     await db.set(k0, { name: 'alice', age: 30 });
     await db.set(k1, { name: 'bob', age: 25 });
-    assert.deepEqual(await db.get(k0), { name: 'alice', age: 30 });
-    assert.deepEqual(await db.get(k1), { name: 'bob', age: 25 });
-    assert.equal(await db.has(k0), true);
-    assert.equal(await db.has('round:nope'), false);
-    assert.equal(await db.del(k0), true);
-    assert.equal(await db.del(k0), false);
-    assert.equal(await db.get(k0), undefined);
+    expect(await db.get(k0)).toStrictEqual({ name: 'alice', age: 30 });
+    expect(await db.get(k1)).toStrictEqual({ name: 'bob', age: 25 });
+    expect(await db.has(k0)).toBe(true);
+    expect(await db.has('round:nope')).toBe(false);
+    expect(await db.del(k0)).toBe(true);
+    expect(await db.del(k0)).toBe(false);
+    expect(await db.get(k0)).toBe(undefined);
     await db.close();
   } finally {
     await rmrf(dir);
@@ -82,15 +82,15 @@ test('ttl and expire work per key', async () => {
     const db = await ClusterDb.open<string>({ dir, shardCount: 2, valueCodec: 'string' });
     await db.set('temp', 'v', { ttl: 50 });
     const left = await db.ttl('temp');
-    assert.ok(left > 0 && left <= 50, `ttl in range, got ${left}`);
-    assert.equal(await db.ttl('missing'), -2);
+    expect(left > 0 && left <= 50, `ttl in range, got ${left}`).toBeTruthy();
+    expect(await db.ttl('missing')).toBe(-2);
     await db.set('forever', 'v');
-    assert.equal(await db.ttl('forever'), -1);
-    assert.equal(await db.expire('forever', 30), true);
-    assert.equal(await db.expire('missing', 30), false);
+    expect(await db.ttl('forever')).toBe(-1);
+    expect(await db.expire('forever', 30)).toBe(true);
+    expect(await db.expire('missing', 30)).toBe(false);
     await new Promise((r) => setTimeout(r, 80));
-    assert.equal(await db.get('temp'), undefined);
-    assert.equal(await db.get('forever'), undefined);
+    expect(await db.get('temp')).toBe(undefined);
+    expect(await db.get('forever')).toBe(undefined);
     await db.close();
   } finally {
     await rmrf(dir);
@@ -102,26 +102,23 @@ test('mset/mget/mdel span shards (atomic per shard)', async () => {
   try {
     const db = await ClusterDb.open<number>({ dir, shardCount: 8, valueCodec: 'json' });
     const grouped = keysByShard('multi', 200, 8);
-    assert.ok(grouped.size >= 3, `keys hit multiple shards, got ${grouped.size}`);
+    expect(grouped.size >= 3, `keys hit multiple shards, got ${grouped.size}`).toBeTruthy();
 
     const entries = [...grouped.values()].flat().map((k, i) => [k, i] as [string, number]);
     await db.mset(entries);
 
     const keys = entries.map(([k]) => k);
     const got = await db.mget(keys);
-    assert.deepEqual(
-      got,
-      entries.map(([, v]) => v),
-    );
+    expect(got).toStrictEqual(entries.map(([, v]) => v));
 
     // mdel counts real deletions and spans shards.
     const some = keys.filter((_, i) => i % 2 === 0);
     const removed = await db.mdel([...some, 'multi:never-existed']);
-    assert.equal(removed, some.length);
+    expect(removed).toBe(some.length);
     const after = await db.mget(some);
-    assert.ok(after.every((v) => v === undefined));
+    expect(after.every((v) => v === undefined)).toBeTruthy();
     const rest = await db.mget(keys.filter((_, i) => i % 2 === 1));
-    assert.ok(rest.every((v) => typeof v === 'number'));
+    expect(rest.every((v) => typeof v === 'number')).toBeTruthy();
     await db.close();
   } finally {
     await rmrf(dir);
@@ -139,8 +136,8 @@ test('batch applies per-shard atomically with ttl/dt', async () => {
     ]);
     await db.batch(ops);
     const all = await db.scan({ prefix: 'batch:' });
-    assert.equal(all.length, 40);
-    assert.ok(all.every((e) => e.dt && typeof e.dt.created === 'number'));
+    expect(all.length).toBe(40);
+    expect(all.every((e) => e.dt && typeof e.dt.created === 'number')).toBeTruthy();
     await db.close();
   } finally {
     await rmrf(dir);
@@ -165,45 +162,27 @@ test(
       );
 
       const all = await db.scan();
-      assert.equal(all.length, 300);
-      assert.deepEqual(
-        all.map((e) => e.key),
-        byteSorted,
-        'globally sorted by key bytes',
-      );
+      expect(all.length).toBe(300);
+      expect(all.map((e) => e.key), 'globally sorted by key bytes').toStrictEqual(byteSorted);
 
       // Interleaved writes land in every shard; the merge must be complete.
       const range = await db.scan({ gte: 's:0010', lt: 's:0020' });
-      assert.deepEqual(
-        range.map((e) => e.key),
-        byteSorted.filter((k) => k >= 's:0010' && k < 's:0020'),
-      );
+      expect(range.map((e) => e.key)).toStrictEqual(byteSorted.filter((k) => k >= 's:0010' && k < 's:0020'));
 
       const pref = await db.prefix('s:01', 10);
-      assert.equal(pref.length, 10);
-      assert.deepEqual(
-        pref.map((e) => e.key),
-        byteSorted.filter((k) => k.startsWith('s:01')).slice(0, 10),
-      );
+      expect(pref.length).toBe(10);
+      expect(pref.map((e) => e.key)).toStrictEqual(byteSorted.filter((k) => k.startsWith('s:01')).slice(0, 10));
 
       const limited = await db.scan({ limit: 7 });
-      assert.equal(limited.length, 7);
-      assert.deepEqual(
-        limited.map((e) => e.key),
-        byteSorted.slice(0, 7),
-      );
+      expect(limited.length).toBe(7);
+      expect(limited.map((e) => e.key)).toStrictEqual(byteSorted.slice(0, 7));
 
       const rev = await db.scan({ reverse: true, limit: 5 });
-      assert.deepEqual(
-        rev.map((e) => e.key),
-        [...byteSorted].toReversed().slice(0, 5),
-      );
+      expect(rev.map((e) => e.key)).toStrictEqual([...byteSorted].toReversed().slice(0, 5));
 
       // Prefix within ScanOptions beats range bounds.
       const prefOpt = await db.scan({ prefix: 's:029', gte: 'zzz' });
-      assert.deepEqual(
-        prefOpt.map((e) => e.key),
-        [
+      expect(prefOpt.map((e) => e.key)).toStrictEqual([
           's:0290',
           's:0291',
           's:0292',
@@ -214,8 +193,7 @@ test(
           's:0297',
           's:0298',
           's:0299',
-        ].filter((k) => k.startsWith('s:029')),
-      );
+        ].filter((k) => k.startsWith('s:029')));
       await db.close();
     } finally {
       await rmrf(dir);
@@ -228,12 +206,12 @@ test('hash routing distributes keys over all shards and is deterministic', async
   for (let i = 0; i < 4000; i++) counts[shardFor(`dist:${i}`, 16)]++;
   const avg = 4000 / 16;
   for (let s = 0; s < 16; s++) {
-    assert.ok(counts[s]! > 0, `shard ${s} got keys`);
-    assert.ok(counts[s]! < avg * 3, `shard ${s} not hot (${counts[s]} vs avg ${avg})`);
+    expect(counts[s]! > 0, `shard ${s} got keys`).toBeTruthy();
+    expect(counts[s]! < avg * 3, `shard ${s} not hot (${counts[s]} vs avg ${avg})`).toBeTruthy();
   }
   // Stable across calls (crypto-free pure function).
-  assert.equal(shardFor('dist:42', 16), shardFor('dist:42', 16));
-  assert.equal(shardFor('', 16), shardFor('', 16)); // empty key hashes fine
+  expect(shardFor('dist:42', 16)).toBe(shardFor('dist:42', 16));
+  expect(shardFor('', 16)).toBe(shardFor('', 16)); // empty key hashes fine
 });
 
 test('stats reflect writer usage', async () => {
@@ -247,10 +225,10 @@ test('stats reflect writer usage', async () => {
     });
     for (let i = 0; i < 20; i++) await db.set(`st:${i}`, 'v');
     const s = db.stats();
-    assert.equal(s.shardCount, 4);
-    assert.ok(s.writerOpens >= 2, `writers opened, got ${s.writerOpens}`);
-    assert.ok(s.writersCached <= 2, `pool bounded, got ${s.writersCached}`);
-    assert.ok(s.evictions >= 1, 'LRU eviction happened with tiny pool');
+    expect(s.shardCount).toBe(4);
+    expect(s.writerOpens >= 2, `writers opened, got ${s.writerOpens}`).toBeTruthy();
+    expect(s.writersCached <= 2, `pool bounded, got ${s.writersCached}`).toBeTruthy();
+    expect(s.evictions >= 1, 'LRU eviction happened with tiny pool').toBeTruthy();
     await db.close();
     await assert.rejects(() => db.get('st:0'), /closed/);
   } finally {
@@ -282,22 +260,19 @@ test('query() merges filter + sort + skip/limit across shards', async () => {
 
     const sorted = (rows: { value: QueryDoc | undefined }[]) => rows.map((e) => e.value!.n);
     const page1 = await db.query({ filter: { g: 'x' }, sort: { n: -1 }, limit: 2 });
-    assert.deepEqual(sorted(page1), [103, 102]);
+    expect(sorted(page1)).toStrictEqual([103, 102]);
     const page2 = await db.query({ filter: { g: 'x' }, sort: { n: -1 }, skip: 2, limit: 2 });
-    assert.deepEqual(sorted(page2), [101, 100]);
+    expect(sorted(page2)).toStrictEqual([101, 100]);
     const page3 = await db.query({ filter: { g: 'x' }, sort: { n: -1 }, skip: 4, limit: 2 });
-    assert.deepEqual(sorted(page3), [39, 38]);
+    expect(sorted(page3)).toStrictEqual([39, 38]);
 
     // Without an explicit sort the global order is key bytes (as in scan).
     const unordered = await db.query({ key: { prefix: 'q:' } });
-    assert.deepEqual(
-      unordered.map((e) => e.key),
-      filler.toSorted(),
-    );
+    expect(unordered.map((e) => e.key)).toStrictEqual(filler.toSorted());
 
     // An unfiltered, unbounded query sees every doc exactly once.
     const all = await db.query();
-    assert.equal(all.length, 44);
+    expect(all.length).toBe(44);
     await db.close();
   } finally {
     await rmrf(dir);
@@ -311,7 +286,7 @@ test('compound index definitions fan out to all shards and survive reopen', asyn
     await db.set(keyOnShard('ci', 0, 4), { g: 'x', n: 1 });
     await db.createCompoundIndex('byGN', { groupBy: 'g', orderBy: 'n' });
     const info = [{ name: 'byGN', groupBy: 'g', orderBy: 'n', orderType: 'number' }];
-    assert.deepEqual(await db.listCompoundIndexes(), info);
+    expect(await db.listCompoundIndexes()).toStrictEqual(info);
 
     // Every shard applied the definition (verified through its own sidecar).
     for (let id = 0; id < 4; id++) {
@@ -321,10 +296,7 @@ test('compound index definitions fan out to all shards and survive reopen', asyn
         readOnly: true,
       });
       try {
-        assert.ok(
-          shard.listCompoundIndexes().some((i) => i.name === 'byGN'),
-          `shard ${id} has the index`,
-        );
+        expect(shard.listCompoundIndexes().some((i) => i.name === 'byGN'), `shard ${id} has the index`).toBeTruthy();
       } finally {
         await shard.close();
       }
@@ -337,10 +309,10 @@ test('compound index definitions fan out to all shards and survive reopen', asyn
     );
     await db.close();
     const db2 = await ClusterDb.open<QueryDoc>({ dir, shardCount: 4, valueCodec: 'json' });
-    assert.deepEqual(await db2.listCompoundIndexes(), info);
-    assert.equal(await db2.dropCompoundIndex('byGN'), true);
-    assert.deepEqual(await db2.listCompoundIndexes(), []);
-    assert.equal(await db2.dropCompoundIndex('byGN'), false);
+    expect(await db2.listCompoundIndexes()).toStrictEqual(info);
+    expect(await db2.dropCompoundIndex('byGN')).toBe(true);
+    expect(await db2.listCompoundIndexes()).toStrictEqual([]);
+    expect(await db2.dropCompoundIndex('byGN')).toBe(false);
     await db2.close();
   } finally {
     await rmrf(dir);

@@ -1,6 +1,6 @@
 import assert from "node:assert";
 import { dirname, join, resolve } from "node:path";
-import { describe, it } from "bun:test";
+import { expect, describe, it } from "bun:test";
 import { pathToFileURL } from "node:url";
 import { getNativeModuleCandidates } from "../src/native-module-path.ts";
 
@@ -14,13 +14,13 @@ describe("getNativeModuleCandidates", () => {
 			moduleUrl: pathToFileURL(bundledModule).href,
 			execPath: resolve("virtual", "node", "node.exe"),
 			resolvePackage: (specifier) => {
-				assert.equal(specifier, "@moonshot-ai/pi-tui");
+				expect(specifier).toBe("@moonshot-ai/pi-tui");
 				return join(packageRoot, "dist", "index.js");
 			},
 		});
 
-		assert.equal(candidates[0], join(packageRoot, nativePath));
-		assert.ok(candidates.includes(join(dirname(bundledModule), "..", nativePath)));
+		expect(candidates[0]).toBe(join(packageRoot, nativePath));
+		expect(candidates.includes(join(dirname(bundledModule), "..", nativePath))).toBeTruthy();
 	});
 
 	it("keeps standalone binary fallbacks when the TUI package is unavailable", () => {
@@ -36,7 +36,7 @@ describe("getNativeModuleCandidates", () => {
 			},
 		});
 
-		assert.deepEqual(candidates, [
+		expect(candidates).toStrictEqual([
 			join(dirname(bundledModule), "..", nativePath),
 			join(dirname(bundledModule), nativePath),
 			join(dirname(execPath), nativePath),

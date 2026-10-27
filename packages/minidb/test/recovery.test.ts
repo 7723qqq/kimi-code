@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 // test/recovery.test.ts
-import { afterEach, test } from 'bun:test';
+import { expect, afterEach, test } from 'bun:test';
 
 import { HEADER_SIZE, CRC_SIZE, encodeFrame, TYPE_SET } from '../src/codec.js';
 import { MiniDb } from '../src/index.js';
@@ -62,24 +62,24 @@ test('resync: a single corrupt frame mid-file only loses that frame', async () =
     await writeFive(dir);
     const walPath = path.join(dir, 'db.wal');
     const buf = await fs.readFile(walPath);
-    assert.equal(buf.length, FRAME * 5);
+    expect(buf.length).toBe(FRAME * 5);
 
     // Corrupt k2's value (frame at offset 2*FRAME; value starts after header+key).
     buf[2 * FRAME + HEADER_SIZE + 2] ^= 0xff;
     await fs.writeFile(walPath, buf);
 
     const db = await MiniDb.open({ dir, valueCodec: 'string', recovery: 'resync' });
-    assert.equal(db.recoveryInfo.corruptRanges.length, 1);
-    assert.deepEqual(db.recoveryInfo.corruptRanges[0], [2 * FRAME, 3 * FRAME]);
-    assert.equal(db.recoveryInfo.lostBytes, FRAME);
+    expect(db.recoveryInfo.corruptRanges.length).toBe(1);
+    expect(db.recoveryInfo.corruptRanges[0]).toStrictEqual([2 * FRAME, 3 * FRAME]);
+    expect(db.recoveryInfo.lostBytes).toBe(FRAME);
 
     // k2 lost, everything else recovered.
-    assert.equal(db.get('k0'), 'v0');
-    assert.equal(db.get('k1'), 'v1');
-    assert.equal(db.get('k2'), undefined);
-    assert.equal(db.get('k3'), 'v3');
-    assert.equal(db.get('k4'), 'v4');
-    assert.equal(db.size, 4);
+    expect(db.get('k0')).toBe('v0');
+    expect(db.get('k1')).toBe('v1');
+    expect(db.get('k2')).toBe(undefined);
+    expect(db.get('k3')).toBe('v3');
+    expect(db.get('k4')).toBe('v4');
+    expect(db.size).toBe(4);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -97,13 +97,10 @@ test('resync: multiple corrupt frames are each skipped', async () => {
     await fs.writeFile(walPath, buf);
 
     const db = await MiniDb.open({ dir, valueCodec: 'string' });
-    assert.equal(db.recoveryInfo.corruptRanges.length, 2);
-    assert.deepEqual(
-      [
+    expect(db.recoveryInfo.corruptRanges.length).toBe(2);
+    expect([
         ...new Set(['k0', 'k1', 'k2', 'k3', 'k4'].filter((k) => db.get(k) !== undefined)),
-      ].toSorted(),
-      ['k0', 'k2', 'k4'],
-    );
+      ].toSorted()).toStrictEqual(['k0', 'k2', 'k4']);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -120,8 +117,8 @@ test('resync: torn tail is still truncated', async () => {
     await fs.appendFile(walPath, valid.subarray(0, 11));
 
     const db = await MiniDb.open({ dir, valueCodec: 'string' });
-    assert.equal(db.recoveryInfo.truncatedWal, true);
-    assert.equal(db.size, 5);
+    expect(db.recoveryInfo.truncatedWal).toBe(true);
+    expect(db.size).toBe(5);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -139,9 +136,9 @@ test('strict mode truncates at the first bad frame', async () => {
 
     const db = await MiniDb.open({ dir, valueCodec: 'string', recovery: 'strict' });
     // strict recovers k0,k1 then stops at k2; k3,k4 are NOT recovered.
-    assert.equal(db.get('k0'), 'v0');
-    assert.equal(db.get('k1'), 'v1');
-    assert.equal(db.size, 2);
+    expect(db.get('k0')).toBe('v0');
+    expect(db.get('k1')).toBe('v1');
+    expect(db.size).toBe(2);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -186,8 +183,8 @@ for (const valueMode of ['memory', 'disk'] as const) {
           readOnly: true,
         });
         const ri = reader.recoveryInfo!;
-        assert.ok(ri.walScanEnd > 0);
-        assert.ok(ri.walIno !== 0);
+        expect(ri.walScanEnd > 0).toBeTruthy();
+        expect(ri.walIno !== 0).toBeTruthy();
 
         // Mixed storm: updates, new sets, dels, one BATCH frame, short/long TTL,
         // dt-only change. 500 + 500 + 300 + 1 + 2 = 1303 appended frames.
@@ -214,9 +211,9 @@ for (const valueMode of ['memory', 'disk'] as const) {
         await writer.set('s:long', doc(9101), { ttl: 3_600_000 });
 
         const res = await reader.catchUpFromWal(ri.walScanEnd);
-        assert.ok(res, 'clean watermark must catch up');
-        assert.equal(res.appliedFrames, 1303);
-        assert.ok(res.offset > ri.walScanEnd);
+        expect(res, 'clean watermark must catch up').toBeTruthy();
+        expect(res.appliedFrames).toBe(1303);
+        expect(res.offset > ri.walScanEnd).toBeTruthy();
 
         // Reference: a full from-scratch replay of the same files.
         const ref = await MiniDb.open<Record<string, unknown>>({
@@ -227,40 +224,28 @@ for (const valueMode of ['memory', 'disk'] as const) {
         });
         const sortByKey = (a: { key: string }, b: { key: string }): number =>
           a.key < b.key ? -1 : a.key > b.key ? 1 : 0;
-        assert.equal(reader.size, ref.size);
-        assert.deepEqual(reader.scan(), ref.scan());
-        assert.deepEqual(reader.dtColumns(), ref.dtColumns());
-        assert.deepEqual(
-          reader.findEq('c', 'c3').toSorted(sortByKey),
-          ref.findEq('c', 'c3').toSorted(sortByKey),
-        );
-        assert.deepEqual(reader.findEq('u', 'u1700'), ref.findEq('u', 'u1700'));
-        assert.deepEqual(
-          reader.findRange('n', { min: 100, max: 500 }).toSorted(sortByKey),
-          ref.findRange('n', { min: 100, max: 500 }).toSorted(sortByKey),
-        );
-        assert.deepEqual(
-          reader.dtRange('created', { gte: 1700000009000, limit: 20 }),
-          ref.dtRange('created', { gte: 1700000009000, limit: 20 }),
-        );
-        assert.deepEqual(
-          reader.compoundRange('cg', 'c2', { limit: 25 }),
-          ref.compoundRange('cg', 'c2', { limit: 25 }),
-        );
-        assert.deepEqual(reader.search('t', 'alpha'), ref.search('t', 'alpha'));
-        assert.deepEqual(reader.search('t', 'changed'), ref.search('t', 'changed'));
-        assert.deepEqual(reader.search('t', 'batch'), ref.search('t', 'batch'));
-        assert.equal(reader.get('s:short'), undefined);
-        assert.equal(ref.get('s:short'), undefined);
-        assert.deepEqual(reader.get('s:long'), ref.get('s:long'));
+        expect(reader.size).toBe(ref.size);
+        expect(reader.scan()).toStrictEqual(ref.scan());
+        expect(reader.dtColumns()).toStrictEqual(ref.dtColumns());
+        expect(reader.findEq('c', 'c3').toSorted(sortByKey)).toStrictEqual(ref.findEq('c', 'c3').toSorted(sortByKey));
+        expect(reader.findEq('u', 'u1700')).toStrictEqual(ref.findEq('u', 'u1700'));
+        expect(reader.findRange('n', { min: 100, max: 500 }).toSorted(sortByKey)).toStrictEqual(ref.findRange('n', { min: 100, max: 500 }).toSorted(sortByKey));
+        expect(reader.dtRange('created', { gte: 1700000009000, limit: 20 })).toStrictEqual(ref.dtRange('created', { gte: 1700000009000, limit: 20 }));
+        expect(reader.compoundRange('cg', 'c2', { limit: 25 })).toStrictEqual(ref.compoundRange('cg', 'c2', { limit: 25 }));
+        expect(reader.search('t', 'alpha')).toStrictEqual(ref.search('t', 'alpha'));
+        expect(reader.search('t', 'changed')).toStrictEqual(ref.search('t', 'changed'));
+        expect(reader.search('t', 'batch')).toStrictEqual(ref.search('t', 'batch'));
+        expect(reader.get('s:short')).toBe(undefined);
+        expect(ref.get('s:short')).toBe(undefined);
+        expect(reader.get('s:long')).toStrictEqual(ref.get('s:long'));
 
         // No new writes: catch-up is a cheap no-op at the same offset.
-        assert.deepEqual(await reader.catchUpFromWal(res.offset), {
+        expect(await reader.catchUpFromWal(res.offset)).toStrictEqual({
           offset: res.offset,
           appliedFrames: 0,
         });
         // Not a frame boundary (byte 3 of the first frame's header: flags=0).
-        assert.equal(await reader.catchUpFromWal(3), null);
+        expect(await reader.catchUpFromWal(3)).toBe(null);
 
         await ref.close();
         await reader.close();
@@ -297,14 +282,14 @@ test('catchUpFromWal: a torn tail pauses the catch-up and a later call completes
     const walPath = path.join(dir, 'db.wal');
     await fs.appendFile(walPath, frame.subarray(0, half));
     const paused = await reader.catchUpFromWal(ri.walScanEnd);
-    assert.deepEqual(paused, { offset: ri.walScanEnd, appliedFrames: 0 });
-    assert.equal(reader.get('torn'), undefined);
+    expect(paused).toStrictEqual({ offset: ri.walScanEnd, appliedFrames: 0 });
+    expect(reader.get('torn')).toBe(undefined);
 
     // The writev lands: the tail's CRC now validates and the frame applies.
     await fs.appendFile(walPath, frame.subarray(half));
     const done = await reader.catchUpFromWal(ri.walScanEnd);
-    assert.deepEqual(done, { offset: ri.walScanEnd + frame.length, appliedFrames: 1 });
-    assert.deepEqual(reader.get('torn'), { n: 99 });
+    expect(done).toStrictEqual({ offset: ri.walScanEnd + frame.length, appliedFrames: 1 });
+    expect(reader.get('torn')).toStrictEqual({ n: 99 });
 
     await reader.close();
     await writer.close();
@@ -328,8 +313,8 @@ test('catchUpFromWal: an in-place truncate + rewrite below the watermark is decl
     const reader = await MiniDb.open({ dir, valueCodec: 'json', readOnly: true });
     const ri = reader.recoveryInfo!;
     const walPath = path.join(dir, 'db.wal');
-    assert.ok(ri.walScanEnd > 4096, 'the scanned WAL is longer than the fingerprint window');
-    assert.ok(ri.walScanTail, 'recovery anchors the replica on a WAL content fingerprint');
+    expect(ri.walScanEnd > 4096, 'the scanned WAL is longer than the fingerprint window').toBeTruthy();
+    expect(ri.walScanTail, 'recovery anchors the replica on a WAL content fingerprint').toBeTruthy();
 
     // The writer's WAL is poisoned (e.g. ENOSPC mid-batch): recoverWalInPlace
     // truncates db.wal to the poison's failedAtOffset ON THE SAME INODE, and the
@@ -354,13 +339,13 @@ test('catchUpFromWal: an in-place truncate + rewrite below the watermark is decl
     );
 
     const st = await fs.stat(walPath);
-    assert.equal(st.ino, ri.walIno, 'same inode: the rewrite is in place, not a rotation');
-    assert.ok(st.size > ri.walScanEnd, 'size alone says "append", which is the trap');
+    expect(st.ino, 'same inode: the rewrite is in place, not a rotation').toBe(ri.walIno);
+    expect(st.size > ri.walScanEnd, 'size alone says "append", which is the trap').toBeTruthy();
     const fh = await fs.open(walPath, 'r');
     try {
       const head = Buffer.alloc(2);
       await fh.read(head, 0, 2, ri.walScanEnd);
-      assert.deepEqual(head, MAGIC, 'the bytes at the watermark do start a valid frame');
+      expect(head, 'the bytes at the watermark do start a valid frame').toStrictEqual(MAGIC);
     } finally {
       await fh.close();
     }
@@ -368,16 +353,16 @@ test('catchUpFromWal: an in-place truncate + rewrite below the watermark is decl
     // Only the content fingerprint can falsify the continuation: the catch-up
     // must decline, leave the already-applied state untouched, and hand the
     // reopen decision to the caller.
-    assert.equal(await reader.catchUpFromWal(ri.walScanEnd), null);
-    assert.equal(reader.get('ghost'), undefined, 'no frame rewritten below the watermark applies');
-    assert.equal(reader.get('rewritten'), undefined, 'the appended rewrite is not applied either');
-    assert.ok(reader.get('pre:0'), 'the already-applied state stays untouched');
+    expect(await reader.catchUpFromWal(ri.walScanEnd)).toBe(null);
+    expect(reader.get('ghost'), 'no frame rewritten below the watermark applies').toBe(undefined);
+    expect(reader.get('rewritten'), 'the appended rewrite is not applied either').toBe(undefined);
+    expect(reader.get('pre:0'), 'the already-applied state stays untouched').toBeTruthy();
 
     // Reference: a full reopen replays exactly the rewritten history.
     await reader.close();
     const ref = await MiniDb.open({ dir, valueCodec: 'json', readOnly: true });
-    assert.deepEqual(ref.get('ghost'), { n: 1 });
-    assert.deepEqual(ref.get('rewritten'), { n: 2, pad: 'B'.repeat(8192) });
+    expect(ref.get('ghost')).toStrictEqual({ n: 1 });
+    expect(ref.get('rewritten')).toStrictEqual({ n: 2, pad: 'B'.repeat(8192) });
     await ref.close();
     await writer.close();
   } finally {
@@ -397,20 +382,20 @@ test('catchUpFromWal: a compaction rotation swaps the WAL inode and the catch-up
     for (let i = 0; i < 100; i++) await writer.set(`k${i}`, { n: i });
     const reader = await MiniDb.open({ dir, valueCodec: 'json', readOnly: true });
     const ri = reader.recoveryInfo!;
-    assert.ok(ri.walScanEnd > 0);
+    expect(ri.walScanEnd > 0).toBeTruthy();
 
     // Rotation: compaction swaps db.snapshot/db.wal in two renames, so the
     // WAL the reader anchored on is gone — incremental catch-up must decline
     // (null) and leave the reopen decision to the caller.
     await writer.compact();
-    assert.equal(await reader.catchUpFromWal(ri.walScanEnd), null);
+    expect(await reader.catchUpFromWal(ri.walScanEnd)).toBe(null);
 
     // A fresh read-only reopen sees every write, including post-rotation ones.
     await writer.set('post-rotation', { n: 101 });
     await reader.close();
     const reopened = await MiniDb.open({ dir, valueCodec: 'json', readOnly: true });
-    assert.equal(reopened.size, 101);
-    assert.deepEqual(reopened.get('post-rotation'), { n: 101 });
+    expect(reopened.size).toBe(101);
+    expect(reopened.get('post-rotation')).toStrictEqual({ n: 101 });
     await reopened.close();
     await writer.close();
   } finally {
@@ -440,9 +425,9 @@ test('catchUpFromWal: concurrent calls are serialized instead of interleaving mi
       reader.catchUpFromWal(ri.walScanEnd),
       reader.catchUpFromWal(ri.walScanEnd),
     ]);
-    assert.ok(first && first.appliedFrames === 100);
-    assert.equal(second, null);
-    assert.equal(reader.size, 150);
+    expect(first && first.appliedFrames === 100).toBeTruthy();
+    expect(second).toBe(null);
+    expect(reader.size).toBe(150);
 
     await reader.close();
     await writer.close();
@@ -487,13 +472,10 @@ test(
       catchUpDone = true;
       await probe;
 
-      assert.ok(res && res.appliedFrames === 8000);
-      assert.ok(
-        loopTurns >= 3,
-        `expected the sliced apply to yield repeatedly, observed ${loopTurns} loop turn(s)`,
-      );
-      assert.equal(reader.size, 8100);
-      assert.ok(reader.search('t', 'beta').length > 0);
+      expect(res && res.appliedFrames === 8000).toBeTruthy();
+      expect(loopTurns >= 3, `expected the sliced apply to yield repeatedly, observed ${loopTurns} loop turn(s)`).toBeTruthy();
+      expect(reader.size).toBe(8100);
+      expect(reader.search('t', 'beta').length > 0).toBeTruthy();
 
       await reader.close();
       await writer.close();
@@ -590,15 +572,11 @@ test.skipIf(process.platform === 'win32')(
         readOnly: true,
         indexGenerations: false,
       });
-      assert.equal(swaps, 1);
-      assert.equal(
-        reader.recoveryInfo!.generationRetries,
-        1,
-        'the swapped inode forced exactly one retry',
-      );
-      assert.equal(reader.size, 50);
-      assert.equal(reader.get('k0'), 'v0');
-      assert.equal(reader.get('k49'), 'v49');
+      expect(swaps).toBe(1);
+      expect(reader.recoveryInfo!.generationRetries, 'the swapped inode forced exactly one retry').toBe(1);
+      expect(reader.size).toBe(50);
+      expect(reader.get('k0')).toBe('v0');
+      expect(reader.get('k49')).toBe('v49');
       await reader.close();
       await writer.close();
     } finally {
@@ -641,16 +619,16 @@ test('generation pairing: churn beyond the retry budget throws RECOVERY_GENERATI
         (e as { code?: string }).code === 'RECOVERY_GENERATION_CHURN' &&
         (e as Error).name === 'RecoveryGenerationChurnError',
     );
-    assert.equal(swaps, 5, 'one swap per pass: the initial attempt plus 4 retries');
+    expect(swaps, 'one swap per pass: the initial attempt plus 4 retries').toBe(5);
 
     // No partial application state survived the failed open: the swaps
     // preserved content, and a clean open recovers every key (with the real fs
     // restored, so the WAL stays stable).
     restorePatches();
     const db = await MiniDb.open<string>({ dir, valueCodec: 'string', readOnly: true });
-    assert.equal(db.size, 50);
-    assert.equal(db.get('k0'), 'v0');
-    assert.equal(db.get('k49'), 'v49');
+    expect(db.size).toBe(50);
+    expect(db.get('k0')).toBe('v0');
+    expect(db.get('k49')).toBe('v49');
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -690,16 +668,12 @@ test('generation pairing: append-only WAL growth between the forensic rounds doe
       readOnly: true,
       indexGenerations: false,
     });
-    assert.equal(
-      reader.recoveryInfo!.generationRetries,
-      0,
-      'append-only growth must not be retried',
-    );
-    assert.equal(reader.size, 50);
+    expect(reader.recoveryInfo!.generationRetries, 'append-only growth must not be retried').toBe(0);
+    expect(reader.size).toBe(50);
     // The late frame landed after the scan: outside the recovered view, to be
     // picked up by a later catch-up instead.
-    assert.equal(reader.get('late'), undefined);
-    assert.equal(reader.get('k49'), 'v49');
+    expect(reader.get('late')).toBe(undefined);
+    expect(reader.get('k49')).toBe('v49');
     await reader.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -740,16 +714,12 @@ test('generation pairing (disk mode): a ValueReader attach to the wrong inode re
       readOnly: true,
       indexGenerations: false,
     });
-    assert.equal(swaps, 1);
-    assert.equal(
-      reader.recoveryInfo!.generationRetries,
-      1,
-      'the mismatched attach forced exactly one retry',
-    );
+    expect(swaps).toBe(1);
+    expect(reader.recoveryInfo!.generationRetries, 'the mismatched attach forced exactly one retry').toBe(1);
     // Every pointer reads back the right bytes through the correctly-attached
     // reader.
-    assert.equal(reader.size, 50);
-    for (let i = 0; i < 50; i++) assert.equal(reader.get(`k${i}`), `v${i}`);
+    expect(reader.size).toBe(50);
+    for (let i = 0; i < 50; i++) expect(reader.get(`k${i}`)).toBe(`v${i}`);
     await reader.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -803,11 +773,7 @@ test('generation pairing (disk mode): a failing ValueReader open() closes the pa
     } finally {
       ValueReader.prototype.close = origClose;
     }
-    assert.equal(
-      closes,
-      1,
-      'the partially attached ValueReader was closed instead of leaking its snapshot fd',
-    );
+    expect(closes, 'the partially attached ValueReader was closed instead of leaking its snapshot fd').toBe(1);
 
     // The injected failure was transient: a clean open recovers everything
     // (with the real node:fs restored, so no further openSync throws).
@@ -818,8 +784,8 @@ test('generation pairing (disk mode): a failing ValueReader open() closes the pa
       valueMode: 'disk',
       readOnly: true,
     });
-    assert.equal(db.size, 50);
-    assert.equal(db.get('k49'), 'v49');
+    expect(db.size).toBe(50);
+    expect(db.get('k49')).toBe('v49');
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -839,8 +805,8 @@ test('generation pairing: a stable writer costs a read-only open zero retries', 
     for (let i = 0; i < 20; i++) await writer.set(`k${i}`, `v${i}`);
 
     const reader = await MiniDb.open<string>({ dir, valueCodec: 'string', readOnly: true });
-    assert.equal(reader.recoveryInfo!.generationRetries, 0);
-    assert.equal(reader.size, 20);
+    expect(reader.recoveryInfo!.generationRetries).toBe(0);
+    expect(reader.size).toBe(20);
     await reader.close();
     await writer.close();
   } finally {
@@ -897,10 +863,10 @@ test(
         readOnly: true,
         indexGenerations: false,
       });
-      assert.equal(midReader.size, N);
-      assert.equal(midReader.get('k0'), 'v0');
-      assert.equal(midReader.get(`k${N - 1}`), `v${N - 1}`);
-      assert.equal(midReader.recoveryInfo!.generationRetries, 0);
+      expect(midReader.size).toBe(N);
+      expect(midReader.get('k0')).toBe('v0');
+      expect(midReader.get(`k${N - 1}`)).toBe(`v${N - 1}`);
+      expect(midReader.recoveryInfo!.generationRetries).toBe(0);
       await midReader.close();
 
       release();
@@ -913,10 +879,10 @@ test(
         readOnly: true,
         indexGenerations: false,
       });
-      assert.equal(postReader.size, N);
-      assert.equal(postReader.get('k0'), 'v0');
-      assert.equal(postReader.get(`k${N - 1}`), `v${N - 1}`);
-      assert.equal(postReader.recoveryInfo!.generationRetries, 0);
+      expect(postReader.size).toBe(N);
+      expect(postReader.get('k0')).toBe('v0');
+      expect(postReader.get(`k${N - 1}`)).toBe(`v${N - 1}`);
+      expect(postReader.recoveryInfo!.generationRetries).toBe(0);
       await postReader.close();
       await writer.close();
     } finally {
@@ -965,26 +931,23 @@ test('async scanner: results match the sync scanner on clean and corrupt files',
       } finally {
         fsSync.closeSync(fd2);
       }
-      assert.deepEqual(
-        asyncRes.frames.map((f) => [
+      expect(asyncRes.frames.map((f) => [
           f.type,
           f.frameOff,
           f.valueOff,
           f.valLen,
           f.frameLen,
           f.key.toString('binary'),
-        ]),
-        syncRes.frames.map((f) => [
+        ])).toStrictEqual(syncRes.frames.map((f) => [
           f.type,
           f.frameOff,
           f.valueOff,
           f.valLen,
           f.frameLen,
           f.key.toString('binary'),
-        ]),
-      );
-      assert.deepEqual(asyncRes.corruptRanges, syncRes.corruptRanges);
-      assert.equal(asyncRes.eofOffset, syncRes.eofOffset);
+        ]));
+      expect(asyncRes.corruptRanges).toStrictEqual(syncRes.corruptRanges);
+      expect(asyncRes.eofOffset).toBe(syncRes.eofOffset);
     }
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -1016,13 +979,10 @@ test('async scanner: frames larger than the read window scan identically (chunke
     } finally {
       fsSync.closeSync(fd2);
     }
-    assert.equal(asyncRes.frames.length, 3);
-    assert.deepEqual(
-      asyncRes.frames.map((f) => [f.frameOff, f.valLen, f.frameLen]),
-      syncRes.frames.map((f) => [f.frameOff, f.valLen, f.frameLen]),
-    );
-    assert.equal(asyncRes.eofOffset, syncRes.eofOffset);
-    assert.deepEqual(asyncRes.corruptRanges, []);
+    expect(asyncRes.frames.length).toBe(3);
+    expect(asyncRes.frames.map((f) => [f.frameOff, f.valLen, f.frameLen])).toStrictEqual(syncRes.frames.map((f) => [f.frameOff, f.valLen, f.frameLen]));
+    expect(asyncRes.eofOffset).toBe(syncRes.eofOffset);
+    expect(asyncRes.corruptRanges).toStrictEqual([]);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -1078,17 +1038,17 @@ test('async scanner: resync candidate budget bounds fake-magic storms', async ()
       const t0 = performance.now();
       res = await scanFrameRefsFdAsync(fd, { onCorrupt: 'resync', maxResyncCandidates: 128 });
       // The budget caps the work: 128 candidate validations, not 65k+.
-      assert.ok(performance.now() - t0 < 10_000, 'budget-bounded resync must be fast');
+      expect(performance.now() - t0 < 10_000, 'budget-bounded resync must be fast').toBeTruthy();
     } finally {
       fsSync.closeSync(fd);
     }
     // Only the head frame was recovered; the whole storm+tail is one corrupt
     // range (the strict outcome for the tail), and the scan stopped there.
-    assert.equal(res.frames.length, 1);
-    assert.equal(res.frames[0]!.key.toString(), 'head');
-    assert.equal(res.corruptRanges.length, 1);
-    assert.equal(res.corruptRanges[0]![0], head.length);
-    assert.equal(res.eofOffset, head.length);
+    expect(res.frames.length).toBe(1);
+    expect(res.frames[0]!.key.toString()).toBe('head');
+    expect(res.corruptRanges.length).toBe(1);
+    expect(res.corruptRanges[0]![0]).toBe(head.length);
+    expect(res.eofOffset).toBe(head.length);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -1100,17 +1060,17 @@ import { walApplySlicer, WAL_APPLY_OPS_PER_SLICE, WAL_APPLY_SLICE_MS } from '../
 
 test('walApplySlicer trips on the op budget, then resets; the time budget trips independently', () => {
   const slice = walApplySlicer();
-  for (let i = 1; i < WAL_APPLY_OPS_PER_SLICE; i++) assert.equal(slice(), false);
-  assert.equal(slice(), true); // the op budget trips exactly at the cap
-  assert.equal(slice(), false); // counters reset for the next slice
+  for (let i = 1; i < WAL_APPLY_OPS_PER_SLICE; i++) expect(slice()).toBe(false);
+  expect(slice()).toBe(true); // the op budget trips exactly at the cap
+  expect(slice()).toBe(false); // counters reset for the next slice
   // The time budget trips below the op cap once the slice ran long enough.
   const timed = walApplySlicer();
-  assert.equal(timed(), false); // one op, well under the op cap
+  expect(timed()).toBe(false); // one op, well under the op cap
   const t0 = performance.now();
   while (performance.now() - t0 < WAL_APPLY_SLICE_MS + 5) {
     // busy-wait: keep this slice over its time budget with ops to spare
   }
-  assert.equal(timed(), true);
+  expect(timed()).toBe(true);
 });
 
 test('a generation WAL delta of large batch frames replays every op through the sliced apply loop', async () => {
@@ -1146,20 +1106,20 @@ test('a generation WAL delta of large batch frames replays every op through the 
       );
     }
     await db.close();
-    assert.equal(db.getIndexGeneration()?.id, gen); // no close-time republish: the delta must be replayed
+    expect(db.getIndexGeneration()?.id).toBe(gen); // no close-time republish: the delta must be replayed
 
     db = await MiniDb.open({ dir, valueCodec: 'json', autoCompact: false });
     try {
-      assert.ok(db.recoveryInfo?.indexGeneration);
-      assert.equal(db.recoveryInfo?.walDeltaAppliedOps, 3000);
-      assert.equal(db.size, 5000);
-      assert.deepEqual(db.get('d0'), { n: 0 });
-      assert.deepEqual(db.get('d2999'), { n: 2999 });
-      assert.deepEqual(db.get('b1999'), { n: 1999 });
+      expect(db.recoveryInfo?.indexGeneration).toBeTruthy();
+      expect(db.recoveryInfo?.walDeltaAppliedOps).toBe(3000);
+      expect(db.size).toBe(5000);
+      expect(db.get('d0')).toStrictEqual({ n: 0 });
+      expect(db.get('d2999')).toStrictEqual({ n: 2999 });
+      expect(db.get('b1999')).toStrictEqual({ n: 1999 });
       const status = db.lifecycleStatus();
-      assert.equal(status.state, 'ready');
-      assert.deepEqual(status.path, ['no-generation', 'generation-load', 'wal-catch-up', 'ready']);
-      assert.ok(status.phases.walApplyMs > 0);
+      expect(status.state).toBe('ready');
+      expect(status.path).toStrictEqual(['no-generation', 'generation-load', 'wal-catch-up', 'ready']);
+      expect(status.phases.walApplyMs > 0).toBeTruthy();
     } finally {
       await db.close();
     }

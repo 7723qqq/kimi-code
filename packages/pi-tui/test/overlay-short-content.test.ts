@@ -1,5 +1,5 @@
 import assert from "node:assert";
-import { describe, it } from "bun:test";
+import { expect, describe, it } from "bun:test";
 import type { Component, TUI } from "../src/tui.ts";
 import { TuiMainScreen } from "../src/tui-main-screen.ts";
 import { VirtualTerminal } from "./virtual-terminal.ts";
@@ -55,7 +55,7 @@ describe("TUI overlay with short content", () => {
 			}
 		}
 
-		assert.ok(hasOverlay, "Overlay should be visible when content is shorter than terminal");
+		expect(hasOverlay, "Overlay should be visible when content is shorter than terminal").toBeTruthy();
 
 		tui.stop();
 	});

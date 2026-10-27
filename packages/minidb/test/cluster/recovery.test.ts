@@ -4,10 +4,9 @@
 // any shard, recovered data is a contiguous prefix of the write order, and a
 // db.lock left behind by a dead process is taken over by the next writer.
 
-import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 
-import { test } from 'bun:test';
+import { expect, test } from 'bun:test';
 
 import { ClusterDb } from '../../src/cluster/index.js';
 import { tmpDir } from '../e2e/helpers/tmp.js';
@@ -68,12 +67,12 @@ test(
             last = i - 1;
             break;
           }
-          assert.equal(v.i, i, `run${r}: value mismatch at k${i}`);
+          expect(v.i, `run${r}: value mismatch at k${i}`).toBe(i);
         }
-        assert.ok(last >= 2, `run${r}: expected several durable keys, got k0..k${last}`);
+        expect(last >= 2, `run${r}: expected several durable keys, got k0..k${last}`).toBeTruthy();
         // Writable after takeover.
         await db.set(`post`, { i: -1 });
-        assert.deepEqual(await db.get('post'), { i: -1 });
+        expect(await db.get('post')).toStrictEqual({ i: -1 });
         await db.close();
       } finally {
         await rmrf(dir);
@@ -125,8 +124,8 @@ test(
       const sameShardKey = keyOnShard('rescuer', 1, shardCount);
       await db.set(sameShardKey, { ok: 1 });
       const elapsed = performance.now() - t0;
-      assert.ok(elapsed < 5_000, `takeover was prompt (${Math.round(elapsed)}ms)`);
-      assert.equal((await db.get(sameShardKey)) !== undefined, true);
+      expect(elapsed < 5_000, `takeover was prompt (${Math.round(elapsed)}ms)`).toBeTruthy();
+      expect((await db.get(sameShardKey)) !== undefined).toBe(true);
       await db.close();
     } finally {
       await rmrf(dir);

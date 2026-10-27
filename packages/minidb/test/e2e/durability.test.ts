@@ -2,11 +2,10 @@
 //
 // Durability semantics for the three fsync policies and close().
 
-import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { test } from 'bun:test';
+import { expect, test } from 'bun:test';
 
 import { MiniDb } from '../../src/index.js';
 import { tmpDir, rmrf } from './helpers/tmp.js';
@@ -20,8 +19,8 @@ for (const policy of ['always', 'everysec', 'no']) {
       for (let i = 0; i < N; i++) await db.set('k' + i, 'v' + i);
       await db.close();
       db = await MiniDb.open({ dir, valueCodec: 'string' });
-      assert.equal(db.size, N);
-      for (let i = 0; i < N; i++) assert.equal(db.get('k' + i), 'v' + i);
+      expect(db.size).toBe(N);
+      for (let i = 0; i < N; i++) expect(db.get('k' + i)).toBe('v' + i);
     } finally {
       await db.close().catch(() => {});
       await rmrf(dir);
@@ -37,7 +36,7 @@ test("durability: 'always' writes each frame to the file before set() resolves",
     for (let i = 0; i < 20; i++) {
       await db.set('k' + i, 'v' + i);
       const buf = await fs.readFile(walPath);
-      assert.ok(buf.includes(Buffer.from('k' + i)), `frame for k${i} already in WAL`);
+      expect(buf.includes(Buffer.from('k' + i)), `frame for k${i} already in WAL`).toBeTruthy();
     }
   } finally {
     await db.close();
@@ -54,8 +53,8 @@ test('durability: data survives many open/close cycles', async () => {
       await db.close();
     }
     const db = await MiniDb.open({ dir, valueCodec: 'string' });
-    assert.equal(db.size, 20);
-    for (let cycle = 0; cycle < 20; cycle++) assert.equal(db.get('cycle' + cycle), 'v' + cycle);
+    expect(db.size).toBe(20);
+    for (let cycle = 0; cycle < 20; cycle++) expect(db.get('cycle' + cycle)).toBe('v' + cycle);
     await db.close();
   } finally {
     await rmrf(dir);

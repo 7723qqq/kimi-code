@@ -7,7 +7,7 @@
  */
 
 import assert from "node:assert";
-import { describe, it } from "bun:test";
+import { expect, describe, it } from "bun:test";
 import { getCapabilities, resetCapabilitiesCache } from "../src/terminal-image.ts";
 import type { Component, TUI } from "../src/tui.ts";
 import { TuiMainScreen } from "../src/tui-main-screen.ts";
@@ -71,14 +71,14 @@ describe("TUI image capability query", () => {
 
 			tui.setFocus(recorder);
 			tui.start();
-			assert.strictEqual(getCapabilities().images, null);
+			expect(getCapabilities().images).toBe(null);
 
 			terminal.sendInput("\x1b_Gi=1;OK\x1b\\");
-			assert.strictEqual(getCapabilities().images, "kitty");
-			assert.deepStrictEqual(recorder.inputs, [], "the reply must be consumed, not forwarded");
+			expect(getCapabilities().images).toBe("kitty");
+			expect(recorder.inputs, "the reply must be consumed, not forwarded").toStrictEqual([]);
 
 			terminal.sendInput("q");
-			assert.deepStrictEqual(recorder.inputs, ["q"], "later user input still forwards");
+			expect(recorder.inputs, "later user input still forwards").toStrictEqual(["q"]);
 			tui.stop();
 		});
 	});
@@ -93,8 +93,8 @@ describe("TUI image capability query", () => {
 			tui.start();
 
 			terminal.sendInput("\x1b[?1;2;62c");
-			assert.strictEqual(getCapabilities().images, "sixel");
-			assert.deepStrictEqual(recorder.inputs, []);
+			expect(getCapabilities().images).toBe("sixel");
+			expect(recorder.inputs).toStrictEqual([]);
 			tui.stop();
 		});
 	});
@@ -109,8 +109,8 @@ describe("TUI image capability query", () => {
 			tui.start();
 
 			terminal.sendInput("\x1b_Gi=1;ENOENT\x1b\\");
-			assert.strictEqual(getCapabilities().images, null);
-			assert.deepStrictEqual(recorder.inputs, [], "the unsupported reply must be consumed too");
+			expect(getCapabilities().images).toBe(null);
+			expect(recorder.inputs, "the unsupported reply must be consumed too").toStrictEqual([]);
 			tui.stop();
 		});
 	});
@@ -125,7 +125,7 @@ describe("TUI image capability query", () => {
 			tui.start();
 
 			terminal.sendInput("hello");
-			assert.deepStrictEqual(recorder.inputs, ["hello"]);
+			expect(recorder.inputs).toStrictEqual(["hello"]);
 			tui.stop();
 		});
 	});
@@ -143,8 +143,8 @@ describe("TUI image capability query", () => {
 				tui.start();
 
 				terminal.sendInput("\x1b_Gi=1;OK\x1b\\");
-				assert.strictEqual(getCapabilities().images, null);
-				assert.deepStrictEqual(recorder.inputs, ["\x1b_Gi=1;OK\x1b\\"], "unqueried replies pass through");
+				expect(getCapabilities().images).toBe(null);
+				expect(recorder.inputs, "unqueried replies pass through").toStrictEqual(["\x1b_Gi=1;OK\x1b\\"]);
 				tui.stop();
 			} finally {
 				delete process.env.TMUX;

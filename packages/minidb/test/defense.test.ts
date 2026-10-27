@@ -131,9 +131,9 @@ test('LockFile.acquire returns false when a live process holds the lock', async 
   const dir = await tmpDir();
   const p = path.join(dir, 'db.lock');
   const a = new LockFile(p);
-  assert.equal(await a.acquire(), true);
+  expect(await a.acquire()).toBe(true);
   const b = new LockFile(p);
-  assert.equal(await b.acquire(), false); // same PID is alive -> not stale
+  expect(await b.acquire()).toBe(false); // same PID is alive -> not stale
   await a.release();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -143,7 +143,7 @@ test('a corrupt lock file is treated as stale and taken over', async () => {
   await fs.writeFile(path.join(dir, 'db.lock'), 'not-json');
   const db = await MiniDb.open({ dir, valueCodec: 'string' });
   await db.set('a', '1');
-  assert.equal(db.get('a'), '1');
+  expect(db.get('a')).toBe('1');
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -152,7 +152,7 @@ test('a lock file with a non-numeric pid is treated as stale', async () => {
   const dir = await tmpDir();
   await fs.writeFile(path.join(dir, 'db.lock'), JSON.stringify({ pid: 'abc' }));
   const db = await MiniDb.open({ dir, valueCodec: 'string' });
-  assert.equal(db.readOnly, false);
+  expect(db.readOnly).toBe(false);
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -171,13 +171,13 @@ test('compacting an empty database produces an empty snapshot and keeps data int
   const dir = await tmpDir();
   let db = await MiniDb.open({ dir, valueCodec: 'string', fsyncPolicy: 'no' });
   await db.compact(); // empty store -> flushBatch early-return
-  assert.equal(db.stats.compactions, 1);
+  expect(db.stats.compactions).toBe(1);
   const snap = await fs.stat(path.join(dir, 'db.snapshot'));
-  assert.equal(snap.size, 0);
+  expect(snap.size).toBe(0);
   await db.close();
 
   db = await MiniDb.open({ dir, valueCodec: 'string' });
-  assert.equal(db.size, 0);
+  expect(db.size).toBe(0);
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -191,7 +191,7 @@ test('a second concurrent compact() reuses the in-flight compaction', async () =
   // (compact is `async`, so each call wraps the shared _compactDone in a fresh
   //  promise; the guard is what prevents a second compaction from running.)
   await Promise.all([p1, p2]);
-  assert.equal(db.stats.compactions, 1);
+  expect(db.stats.compactions).toBe(1);
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -224,9 +224,9 @@ test('del / expire validate the key before probing the store', async () => {
   await assert.rejects(() => db.del(tooLong), /key too long/);
   await db.set('present', 'v');
   await assert.rejects(() => db.expire(tooLong, 1000), /key too long/);
-  assert.equal(await db.del('absent'), false, 'deleting a missing valid key is still false');
-  assert.equal(await db.expire('absent', 1000), false, 'expiring a missing valid key is still false');
-  assert.equal(await db.get('present'), 'v');
+  expect(await db.del('absent'), 'deleting a missing valid key is still false').toBe(false);
+  expect(await db.expire('absent', 1000), 'expiring a missing valid key is still false').toBe(false);
+  expect(await db.get('present')).toBe('v');
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -267,7 +267,7 @@ test('RESP server replies with -ERR when a command throws', async () => {
       const key = 'x'.repeat(129);
       sock.write(`*3\r\n$3\r\nSET\r\n$${key.length}\r\n${key}\r\n$1\r\nv\r\n`);
     });
-    assert.ok(r.startsWith('-ERR'), r);
+    expect(r.startsWith('-ERR'), r).toBeTruthy();
     sock.end();
   } finally {
     await srv.close();

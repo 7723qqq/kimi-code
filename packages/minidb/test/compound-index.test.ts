@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 // test/compound-index.test.ts
-import { test } from 'bun:test';
+import { expect, test } from 'bun:test';
 
 import { MiniDb } from '../src/index.js';
 
@@ -23,23 +23,14 @@ test('compound index orders sessions within a workspace by updatedAt', async () 
     await db.set('d', { workspaceId: 'W2', title: 'd' }, { dt: { updatedAt: 500 } });
 
     const asc = db.compoundRange('byWsUpdated', 'W1', { count: 10 });
-    assert.deepEqual(
-      asc.map((r) => r.key),
-      ['b', 'c', 'a'],
-    );
+    expect(asc.map((r) => r.key)).toStrictEqual(['b', 'c', 'a']);
 
     const desc = db.compoundRange('byWsUpdated', 'W1', { reverse: true, count: 10 });
-    assert.deepEqual(
-      desc.map((r) => r.key),
-      ['a', 'c', 'b'],
-    );
+    expect(desc.map((r) => r.key)).toStrictEqual(['a', 'c', 'b']);
 
     // pagination
     const page = db.compoundRange('byWsUpdated', 'W1', { reverse: true, offset: 1, count: 1 });
-    assert.deepEqual(
-      page.map((r) => r.key),
-      ['c'],
-    );
+    expect(page.map((r) => r.key)).toStrictEqual(['c']);
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -56,14 +47,8 @@ test('multiple dt columns each get their own compound index', async () => {
     await db.set('b', { workspaceId: 'W1' }, { dt: { updatedAt: 100, createdAt: 30 } });
     await db.set('c', { workspaceId: 'W1' }, { dt: { updatedAt: 200, createdAt: 20 } });
 
-    assert.deepEqual(
-      db.compoundRange('byWsUpdated', 'W1').map((r) => r.key),
-      ['b', 'c', 'a'],
-    );
-    assert.deepEqual(
-      db.compoundRange('byWsCreated', 'W1').map((r) => r.key),
-      ['a', 'c', 'b'],
-    );
+    expect(db.compoundRange('byWsUpdated', 'W1').map((r) => r.key)).toStrictEqual(['b', 'c', 'a']);
+    expect(db.compoundRange('byWsCreated', 'W1').map((r) => r.key)).toStrictEqual(['a', 'c', 'b']);
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -77,16 +62,10 @@ test('updating the order key moves the entry', async () => {
   try {
     await db.set('a', { workspaceId: 'W1' }, { dt: { updatedAt: 100 } });
     await db.set('b', { workspaceId: 'W1' }, { dt: { updatedAt: 200 } });
-    assert.deepEqual(
-      db.compoundRange('byWsUpdated', 'W1').map((r) => r.key),
-      ['a', 'b'],
-    );
+    expect(db.compoundRange('byWsUpdated', 'W1').map((r) => r.key)).toStrictEqual(['a', 'b']);
     // bump 'a' to the top
     await db.set('a', { workspaceId: 'W1' }, { dt: { updatedAt: 999 } });
-    assert.deepEqual(
-      db.compoundRange('byWsUpdated', 'W1').map((r) => r.key),
-      ['b', 'a'],
-    );
+    expect(db.compoundRange('byWsUpdated', 'W1').map((r) => r.key)).toStrictEqual(['b', 'a']);
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -102,14 +81,8 @@ test('compound index persists and rebuilds across reopen', async () => {
   await db.close();
 
   db = await MiniDb.open({ dir, valueCodec: 'json' });
-  assert.deepEqual(
-    db.listCompoundIndexes().map((i) => i.name),
-    ['byWsUpdated'],
-  );
-  assert.deepEqual(
-    db.compoundRange('byWsUpdated', 'W1').map((r) => r.key),
-    ['b', 'a'],
-  );
+  expect(db.listCompoundIndexes().map((i) => i.name)).toStrictEqual(['byWsUpdated']);
+  expect(db.compoundRange('byWsUpdated', 'W1').map((r) => r.key)).toStrictEqual(['b', 'a']);
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -121,10 +94,7 @@ test('delete removes from the compound index', async () => {
   await db.set('a', { workspaceId: 'W1' }, { dt: { updatedAt: 100 } });
   await db.set('b', { workspaceId: 'W1' }, { dt: { updatedAt: 200 } });
   await db.del('a');
-  assert.deepEqual(
-    db.compoundRange('byWsUpdated', 'W1').map((r) => r.key),
-    ['b'],
-  );
+  expect(db.compoundRange('byWsUpdated', 'W1').map((r) => r.key)).toStrictEqual(['b']);
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -143,15 +113,15 @@ test('remove() reaps emptied groups: the groups map stays bounded after high-car
     const N = 300;
     for (let i = 0; i < N; i++)
       await db.set(`k${i}`, { workspaceId: `W${i}` }, { dt: { updatedAt: i } });
-    assert.equal(entry.groups.size, N);
+    expect(entry.groups.size).toBe(N);
 
     // Remove half via del (the removeFromEntry path), half by overwriting
     // with a doc that no longer belongs to any group (the addToEntry path):
     // both must reap the emptied group.
     for (let i = 0; i < N; i += 2) await db.del(`k${i}`);
     for (let i = 1; i < N; i += 2) await db.set(`k${i}`, { other: 1 });
-    assert.equal(entry.groups.size, 0, 'every emptied group is reaped, del and overwrite alike');
-    assert.equal(entry.byPk.size, 0);
+    expect(entry.groups.size, 'every emptied group is reaped, del and overwrite alike').toBe(0);
+    expect(entry.byPk.size).toBe(0);
 
     // Churn again to prove the map does not grow monotonically across rounds.
     for (let round = 0; round < 3; round++) {
@@ -159,7 +129,7 @@ test('remove() reaps emptied groups: the groups map stays bounded after high-car
         await db.set(`k${i}`, { workspaceId: `W${i}` }, { dt: { updatedAt: i } });
       for (let i = 0; i < N; i++) await db.del(`k${i}`);
     }
-    assert.equal(entry.groups.size, 0, 'bounded across add/remove rounds');
+    expect(entry.groups.size, 'bounded across add/remove rounds').toBe(0);
     await db.close();
   } finally {
     await db.close().catch(() => {});
@@ -210,34 +180,22 @@ test('concurrent createCompoundIndex calls are serialized: zero failures; memory
       db.createCompoundIndex('byWsCreated', { groupBy: 'workspaceId', orderBy: 'createdAt' }),
       db.dropCompoundIndex('neverThere'),
     ]);
-    assert.deepEqual(
-      results.map((r) => (r.status === 'rejected' ? String(r.reason) : r.status)),
-      ['fulfilled', 'fulfilled', 'fulfilled'],
-    );
+    expect(results.map((r) => (r.status === 'rejected' ? String(r.reason) : r.status))).toStrictEqual(['fulfilled', 'fulfilled', 'fulfilled']);
     const memory = db
       .listCompoundIndexes()
       .map((x) => x.name)
       .toSorted();
-    assert.deepEqual(memory, ['byWsCreated', 'byWsUpdated']);
-    assert.deepEqual(await compoundSidecarNames(dir), memory);
+    expect(memory).toStrictEqual(['byWsCreated', 'byWsUpdated']);
+    expect(await compoundSidecarNames(dir)).toStrictEqual(memory);
     // Both staged rebuilds saw the pre-existing document.
-    assert.deepEqual(
-      db.compoundRange('byWsUpdated', 'W1').map((r) => r.key),
-      ['a'],
-    );
-    assert.deepEqual(
-      db.compoundRange('byWsCreated', 'W1').map((r) => r.key),
-      ['a'],
-    );
+    expect(db.compoundRange('byWsUpdated', 'W1').map((r) => r.key)).toStrictEqual(['a']);
+    expect(db.compoundRange('byWsCreated', 'W1').map((r) => r.key)).toStrictEqual(['a']);
     await db.close();
     db = await MiniDb.open({ dir, valueCodec: 'json', fsyncPolicy: 'no', autoCompact: false });
-    assert.deepEqual(
-      db
+    expect(db
         .listCompoundIndexes()
         .map((x) => x.name)
-        .toSorted(),
-      memory,
-    );
+        .toSorted()).toStrictEqual(memory);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -258,14 +216,11 @@ test('createCompoundIndex persist failure: no phantom in memory or sidecar; retr
       (e) => e === boom,
     );
     restore();
-    assert.deepEqual(db.listCompoundIndexes(), []);
+    expect(db.listCompoundIndexes()).toStrictEqual([]);
     assert.throws(() => db.compoundRange('byWsUpdated', 'W1'), /no such compound index/);
-    assert.deepEqual(await compoundSidecarNames(dir), []);
+    expect(await compoundSidecarNames(dir)).toStrictEqual([]);
     await db.createCompoundIndex('byWsUpdated', { groupBy: 'workspaceId', orderBy: 'updatedAt' });
-    assert.deepEqual(
-      db.compoundRange('byWsUpdated', 'W1').map((r) => r.key),
-      ['a'],
-    );
+    expect(db.compoundRange('byWsUpdated', 'W1').map((r) => r.key)).toStrictEqual(['a']);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -285,13 +240,10 @@ test('dropCompoundIndex persist failure: the live index stays usable and the sid
     });
     await assert.rejects(db.dropCompoundIndex('byWsUpdated'), (e) => e === boom);
     restore();
-    assert.deepEqual(
-      db.compoundRange('byWsUpdated', 'W1').map((r) => r.key),
-      ['a'],
-    );
-    assert.equal(await fs.readFile(path.join(dir, 'db.compound-indexes.json'), 'utf8'), before);
-    assert.equal(await db.dropCompoundIndex('byWsUpdated'), true);
-    assert.deepEqual(db.listCompoundIndexes(), []);
+    expect(db.compoundRange('byWsUpdated', 'W1').map((r) => r.key)).toStrictEqual(['a']);
+    expect(await fs.readFile(path.join(dir, 'db.compound-indexes.json'), 'utf8')).toBe(before);
+    expect(await db.dropCompoundIndex('byWsUpdated')).toBe(true);
+    expect(db.listCompoundIndexes()).toStrictEqual([]);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });

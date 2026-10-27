@@ -4,9 +4,8 @@
 // compaction is triggered frequently (both auto and manual) must not lose any
 // write, must not throw, and must leave a recoverable database.
 
-import assert from 'node:assert/strict';
 
-import { test } from 'bun:test';
+import { expect, test } from 'bun:test';
 
 import { MiniDb } from '../../src/index.js';
 import { tmpDir, rmrf } from './helpers/tmp.js';
@@ -36,16 +35,16 @@ test(
       await Promise.all(ops);
       if (db.compacting) await db._compactDone;
 
-      for (const [k, v] of written) assert.deepEqual(db.get(k), v, `get(${k})`);
-      assert.equal(db.size, N);
+      for (const [k, v] of written) expect(db.get(k), `get(${k})`).toStrictEqual(v);
+      expect(db.size).toBe(N);
       const compactionsRan = db.stats.compactions;
 
       // recoverable + still correct
       await db.close();
       db = await MiniDb.open({ dir, valueCodec: 'json' });
-      for (const [k, v] of written) assert.deepEqual(db.get(k), v, `reopen get(${k})`);
-      assert.equal(db.size, N);
-      assert.ok(compactionsRan >= 1, 'at least one compaction ran');
+      for (const [k, v] of written) expect(db.get(k), `reopen get(${k})`).toStrictEqual(v);
+      expect(db.size).toBe(N);
+      expect(compactionsRan >= 1, 'at least one compaction ran').toBeTruthy();
     } finally {
       await db.close().catch(() => {});
       await rmrf(dir);
@@ -67,7 +66,7 @@ test('compaction-race: reads remain available during compaction', { timeout: 30_
     const cp = db.compact();
     for (let i = 0; i < 200; i++) {
       const v = db.get('k' + i);
-      assert.deepEqual(v, { i }, `read during compaction k${i}`);
+      expect(v, `read during compaction k${i}`).toStrictEqual({ i });
     }
     await cp;
   } finally {
@@ -119,19 +118,15 @@ test('compaction-race: snapshot phase does not block writes', { timeout: 30_000 
       cp.then(() => 'compact' as const),
       first.then(() => 'write' as const),
     ]);
-    assert.equal(
-      winner,
-      'write',
-      'a write issued during compaction completes before compaction finishes (non-blocking snapshot)',
-    );
+    expect(winner, 'a write issued during compaction completes before compaction finishes (non-blocking snapshot)').toBe('write');
     await first;
 
     const M = 500;
     for (let i = 1; i < M; i++) await db.set('w' + i, { i });
     await cp;
 
-    for (let i = 0; i < M; i++) assert.deepEqual(db.get('w' + i), { i }, `get(w${i})`);
-    assert.equal(db.size, N + M);
+    for (let i = 0; i < M; i++) expect(db.get('w' + i), `get(w${i})`).toStrictEqual({ i });
+    expect(db.size).toBe(N + M);
   } finally {
     await db.close().catch(() => {});
     await rmrf(dir);
@@ -177,9 +172,9 @@ test(
 
       db = await MiniDb.open({ dir, valueCodec: 'json' });
       for (let i = 0; i < M; i++)
-        assert.deepEqual(db.get('k' + i), { i, bumped: true }, `bumped k${i}`);
-      for (let i = M; i < N; i++) assert.deepEqual(db.get('k' + i), { i }, `untouched k${i}`);
-      assert.equal(db.size, N);
+        expect(db.get('k' + i), `bumped k${i}`).toStrictEqual({ i, bumped: true });
+      for (let i = M; i < N; i++) expect(db.get('k' + i), `untouched k${i}`).toStrictEqual({ i });
+      expect(db.size).toBe(N);
     } finally {
       await db.close().catch(() => {});
       await rmrf(dir);
@@ -213,15 +208,15 @@ test(
       await Promise.all(ops);
       if (db.compacting) await db._compactDone;
 
-      for (const [k, v] of written) assert.deepEqual(db.get(k), v, `get(${k})`);
-      assert.equal(db.size, N);
+      for (const [k, v] of written) expect(db.get(k), `get(${k})`).toStrictEqual(v);
+      expect(db.size).toBe(N);
       const sawDiskRef = [...db.store.map.values()].some((r) => r.ref.kind === 'disk');
-      assert.ok(sawDiskRef, 'expected disk-backed value refs after compaction');
+      expect(sawDiskRef, 'expected disk-backed value refs after compaction').toBeTruthy();
 
       await db.close();
       db = await MiniDb.open({ dir, valueCodec: 'json', valueMode: 'disk' });
-      for (const [k, v] of written) assert.deepEqual(db.get(k), v, `reopen get(${k})`);
-      assert.equal(db.size, N);
+      for (const [k, v] of written) expect(db.get(k), `reopen get(${k})`).toStrictEqual(v);
+      expect(db.size).toBe(N);
     } finally {
       await db.close().catch(() => {});
       await rmrf(dir);
@@ -265,18 +260,15 @@ test(
       }
       stop = true;
       await Promise.all(writers);
-      assert.equal(writeError, null, `write failed during compaction storm: ${String(writeError)}`);
-      assert.ok(
-        db.stats.compactions >= 2,
-        `expected auto compactions to complete during the storm, got ${db.stats.compactions} (written=${written})`,
-      );
+      expect(writeError, `write failed during compaction storm: ${String(writeError)}`).toBe(null);
+      expect(db.stats.compactions >= 2, `expected auto compactions to complete during the storm, got ${db.stats.compactions} (written=${written})`).toBeTruthy();
       await db.close();
 
       // every acknowledged write must survive compaction rotations + recovery
       db = await MiniDb.open({ dir, valueCodec: 'string' });
-      assert.equal(db.size, written, `size=${db.size} vs written=${written}`);
-      assert.equal(db.get('k0'), val);
-      assert.equal(db.get(`k${written - 1}`), val);
+      expect(db.size, `size=${db.size} vs written=${written}`).toBe(written);
+      expect(db.get('k0')).toBe(val);
+      expect(db.get(`k${written - 1}`)).toBe(val);
     } finally {
       await db.close().catch(() => {});
       await rmrf(dir);

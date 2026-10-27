@@ -1,5 +1,5 @@
 import assert from "node:assert";
-import { describe, it } from "bun:test";
+import { expect, describe, it } from "bun:test";
 import { getCellDimensions, resetCapabilitiesCache, setCellDimensions } from "../src/terminal-image.ts";
 import type { Component, TUI } from "../src/tui.ts";
 import { TuiMainScreen } from "../src/tui-main-screen.ts";
@@ -54,7 +54,7 @@ describe("TUI cell size responses", () => {
 
 			terminal.sendInput("\x1b");
 
-			assert.deepStrictEqual(recorder.inputs, ["\x1b"]);
+			expect(recorder.inputs).toStrictEqual(["\x1b"]);
 			tui.stop();
 		});
 	});
@@ -71,11 +71,11 @@ describe("TUI cell size responses", () => {
 			tui.start();
 
 			terminal.sendInput("\x1b[6;20;10t");
-			assert.deepStrictEqual(recorder.inputs, []);
-			assert.deepStrictEqual(getCellDimensions(), { widthPx: 10, heightPx: 20 });
+			expect(recorder.inputs).toStrictEqual([]);
+			expect(getCellDimensions()).toStrictEqual({ widthPx: 10, heightPx: 20 });
 
 			terminal.sendInput("q");
-			assert.deepStrictEqual(recorder.inputs, ["q"]);
+			expect(recorder.inputs).toStrictEqual(["q"]);
 			tui.stop();
 		});
 	});

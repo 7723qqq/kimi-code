@@ -1,11 +1,10 @@
-import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
 // Verifies the SSD-pressure instrumentation on db.stats: WAL bytes written,
 // fsync count, snapshot bytes written, and compaction count.
-import { test } from 'bun:test';
+import { expect, test } from 'bun:test';
 
 import { MiniDb } from '../src/index.js';
 
@@ -20,7 +19,7 @@ test('walBytesWritten accumulates the exact frame bytes written', async () => {
   const dir = await tmpDir();
   const db = await MiniDb.open({ dir, valueCodec: 'string', fsyncPolicy: 'no' });
   try {
-    assert.equal(db.stats.walBytesWritten, 0);
+    expect(db.stats.walBytesWritten).toBe(0);
     let expected = 0;
     for (let i = 0; i < 10; i++) {
       const k = `k${i}`;
@@ -28,7 +27,7 @@ test('walBytesWritten accumulates the exact frame bytes written', async () => {
       await db.set(k, v);
       expected += FRAME_OVERHEAD + Buffer.byteLength(k) + Buffer.byteLength(v);
     }
-    assert.equal(db.stats.walBytesWritten, expected);
+    expect(db.stats.walBytesWritten).toBe(expected);
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -42,7 +41,7 @@ test("walFsyncs counts one fsync per flush under fsyncPolicy 'always'", async ()
     const N = 5;
     for (let i = 0; i < N; i++) await db.set(`k${i}`, `v${i}`);
     // Sequential awaited sets each flush + fsync independently.
-    assert.ok(db.stats.walFsyncs >= N, `expected >= ${N} fsyncs, got ${db.stats.walFsyncs}`);
+    expect(db.stats.walFsyncs >= N, `expected >= ${N} fsyncs, got ${db.stats.walFsyncs}`).toBeTruthy();
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -55,7 +54,7 @@ test("walFsyncs stays low under fsyncPolicy 'no'", async () => {
   try {
     for (let i = 0; i < 50; i++) await db.set(`k${i}`, `v${i}`);
     // 'no' never fsyncs on the write path (only on close).
-    assert.equal(db.stats.walFsyncs, 0);
+    expect(db.stats.walFsyncs).toBe(0);
   } finally {
     await db.close(); // close fsyncs once, counted after our assertion above
     await fs.rm(dir, { recursive: true, force: true });
@@ -66,12 +65,12 @@ test('snapshotBytesWritten and compactions update on compact', async () => {
   const dir = await tmpDir();
   const db = await MiniDb.open({ dir, valueCodec: 'string', fsyncPolicy: 'no' });
   try {
-    assert.equal(db.stats.snapshotBytesWritten, 0);
-    assert.equal(db.stats.compactions, 0);
+    expect(db.stats.snapshotBytesWritten).toBe(0);
+    expect(db.stats.compactions).toBe(0);
     for (let i = 0; i < 100; i++) await db.set(`k${i}`, `value-${i}`);
     await db.compact();
-    assert.equal(db.stats.compactions, 1);
-    assert.ok(db.stats.snapshotBytesWritten > 0, 'snapshot wrote some bytes');
+    expect(db.stats.compactions).toBe(1);
+    expect(db.stats.snapshotBytesWritten > 0, 'snapshot wrote some bytes').toBeTruthy();
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -91,10 +90,7 @@ test('batch writes a single frame (lower write amplification than per-key sets)'
     // One TYPE_BATCH frame: 26 + (2-byte count + sum of per-op subframes).
     // Just assert it is far less than 10 individual SET frames would be.
     const individual = 10 * (FRAME_OVERHEAD + 2 + 2); // ~10 * 30 = 300
-    assert.ok(
-      db.stats.walBytesWritten < individual,
-      `batch wrote ${db.stats.walBytesWritten} < ${individual}`,
-    );
+    expect(db.stats.walBytesWritten < individual, `batch wrote ${db.stats.walBytesWritten} < ${individual}`).toBeTruthy();
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -117,19 +113,19 @@ test('everysec: idle db performs zero background fsyncs; a dirty window syncs on
   const tick = (): Promise<void> | null =>
     (db.wal as unknown as { backgroundTick(): Promise<void> | null }).backgroundTick();
   try {
-    assert.equal(await tick(), null, 'idle ticks are skipped');
-    assert.equal(db.stats.walFsyncs, 0, 'idle everysec db must not fsync in the background');
+    expect(await tick(), 'idle ticks are skipped').toBe(null);
+    expect(db.stats.walFsyncs, 'idle everysec db must not fsync in the background').toBe(0);
 
     await db.set('k', 'v');
     await tick();
-    assert.equal(db.stats.walFsyncs, 1, 'the dirty window fsyncs once');
+    expect(db.stats.walFsyncs, 'the dirty window fsyncs once').toBe(1);
 
-    assert.equal(await tick(), null, 'clean again: the next tick is skipped');
-    assert.equal(db.stats.walFsyncs, 1, 'no fsync growth after the writes stopped');
+    expect(await tick(), 'clean again: the next tick is skipped').toBe(null);
+    expect(db.stats.walFsyncs, 'no fsync growth after the writes stopped').toBe(1);
 
     await db.set('k2', 'v2');
     await tick();
-    assert.equal(db.stats.walFsyncs, 2, 'the next dirty window fsyncs once more');
+    expect(db.stats.walFsyncs, 'the next dirty window fsyncs once more').toBe(2);
   } finally {
     await db.close(); // final close sync runs after our assertions
     await fs.rm(dir, { recursive: true, force: true });
@@ -157,14 +153,14 @@ test('everysec background sync failure is observable in stats but does not chang
     // page cache even while every background fsync fails.
     await db.set('k', 'v');
     await tick();
-    assert.equal(db.stats.walFsyncErrors, 1, 'the failing tick records exactly one error');
-    assert.equal(db.stats.lastWalFsyncError, boom, 'the failure is observable via stats');
-    assert.equal(db.stats.walFsyncs, 0, 'no successful fsync yet');
+    expect(db.stats.walFsyncErrors, 'the failing tick records exactly one error').toBe(1);
+    expect(db.stats.lastWalFsyncError, 'the failure is observable via stats').toBe(boom);
+    expect(db.stats.walFsyncs, 'no successful fsync yet').toBe(0);
 
     fh.sync = orig;
     await tick();
-    assert.equal(db.stats.walFsyncs, 1, 'background sync recovers once the failure clears');
-    assert.equal(db.stats.lastWalFsyncError, boom, 'sticky error survives later successes');
+    expect(db.stats.walFsyncs, 'background sync recovers once the failure clears').toBe(1);
+    expect(db.stats.lastWalFsyncError, 'sticky error survives later successes').toBe(boom);
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -195,11 +191,11 @@ test('recovery stats capture scanned bytes, frames and duration at open', async 
     indexGenerations: false,
   });
   try {
-    assert.equal(reopened.stats.recoveryFrames, N, 'one frame per set replayed');
-    assert.equal(reopened.stats.recoveryBytes, walBytes, 'WAL bytes accounted (no snapshot yet)');
-    assert.ok(reopened.stats.recoveryDurationMs >= 0, 'duration recorded');
-    assert.equal(reopened.recoveryInfo.walBytes, walBytes);
-    assert.equal(reopened.recoveryInfo.snapshotBytes, 0);
+    expect(reopened.stats.recoveryFrames, 'one frame per set replayed').toBe(N);
+    expect(reopened.stats.recoveryBytes, 'WAL bytes accounted (no snapshot yet)').toBe(walBytes);
+    expect(reopened.stats.recoveryDurationMs >= 0, 'duration recorded').toBeTruthy();
+    expect(reopened.recoveryInfo.walBytes).toBe(walBytes);
+    expect(reopened.recoveryInfo.snapshotBytes).toBe(0);
   } finally {
     await reopened.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -215,17 +211,14 @@ test('compaction phase stats break down into snapshot/rotation/postings/total', 
       await db.set(`k${i}`, { body: `message number ${i} hello world` });
     await db.compact();
 
-    assert.equal(db.stats.compactions, 1);
-    assert.ok(db.stats.compactionDurationMs > 0, 'total recorded');
-    assert.ok(db.stats.compactionSnapshotDurationMs > 0, 'snapshot phase recorded');
-    assert.ok(db.stats.compactionRotationDurationMs > 0, 'rotation phase recorded');
-    assert.ok(db.stats.compactionPostingsDurationMs > 0, 'postings rebuild recorded');
-    assert.ok(db.stats.textRebuildDurationMs > 0, 'postings rebuild also counts as a text rebuild');
-    assert.ok(
-      db.stats.compactionSnapshotDurationMs + db.stats.compactionRotationDurationMs <=
-        db.stats.compactionDurationMs,
-      'phases are bounded by the total',
-    );
+    expect(db.stats.compactions).toBe(1);
+    expect(db.stats.compactionDurationMs > 0, 'total recorded').toBeTruthy();
+    expect(db.stats.compactionSnapshotDurationMs > 0, 'snapshot phase recorded').toBeTruthy();
+    expect(db.stats.compactionRotationDurationMs > 0, 'rotation phase recorded').toBeTruthy();
+    expect(db.stats.compactionPostingsDurationMs > 0, 'postings rebuild recorded').toBeTruthy();
+    expect(db.stats.textRebuildDurationMs > 0, 'postings rebuild also counts as a text rebuild').toBeTruthy();
+    expect(db.stats.compactionSnapshotDurationMs + db.stats.compactionRotationDurationMs <=
+        db.stats.compactionDurationMs, 'phases are bounded by the total').toBeTruthy();
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -244,25 +237,21 @@ test('query stats count candidates, decodes and sorted rows', async () => {
 
     // Full-scan filter without sort: every candidate is decoded, nothing sorted.
     const filtered = db.query({ filter: { grp: 'x' } });
-    assert.equal(filtered.length, 10);
-    assert.equal(db.stats.queryCandidates - c0, 100, 'every record was a candidate');
-    assert.equal(
-      db.stats.queryDecoded - d0,
-      100,
-      'every candidate was decoded to match the filter',
-    );
-    assert.equal(db.stats.querySortedRows - s0, 0, 'no sort without sort/text');
+    expect(filtered.length).toBe(10);
+    expect(db.stats.queryCandidates - c0, 'every record was a candidate').toBe(100);
+    expect(db.stats.queryDecoded - d0, 'every candidate was decoded to match the filter').toBe(100);
+    expect(db.stats.querySortedRows - s0, 'no sort without sort/text').toBe(0);
 
     // Same query with a sort: only the matched rows reach the sort.
     const sorted = db.query({ filter: { grp: 'x' }, sort: { n: -1 } });
-    assert.equal(sorted.length, 10);
-    assert.equal(db.stats.querySortedRows - s0, 10, 'only matched rows are sorted');
+    expect(sorted.length).toBe(10);
+    expect(db.stats.querySortedRows - s0, 'only matched rows are sorted').toBe(10);
 
     // A bounded query decodes only until the limit is filled.
     const c1 = db.stats.queryCandidates;
     const page = db.query({ filter: { grp: 'x' }, limit: 3 });
-    assert.equal(page.length, 3);
-    assert.ok(db.stats.queryCandidates - c1 < 100, 'early exit stops before the full scan');
+    expect(page.length).toBe(3);
+    expect(db.stats.queryCandidates - c1 < 100, 'early exit stops before the full scan').toBeTruthy();
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -290,12 +279,8 @@ test('index rebuild stats: values decoded once per record, 0 without value-deriv
     indexGenerations: false,
   });
   try {
-    assert.equal(db.stats.indexRebuildDecoded, 0, 'no decodes without value-derived indexes');
-    assert.equal(
-      db.dtRange('created', { gte: 0 }).length,
-      20,
-      'dt index rebuilt from metadata alone',
-    );
+    expect(db.stats.indexRebuildDecoded, 'no decodes without value-derived indexes').toBe(0);
+    expect(db.dtRange('created', { gte: 0 }).length, 'dt index rebuilt from metadata alone').toBe(20);
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -326,15 +311,11 @@ test('index rebuild stats: values decoded once per record, 0 without value-deriv
     indexGenerations: false,
   });
   try {
-    assert.equal(
-      db.stats.indexRebuildDecoded,
-      20,
-      'one decode per record fanned out to all builders',
-    );
-    assert.equal(db.search('body', 'b1').length, 1);
-    assert.equal(db.search('title', 't2').length, 1);
-    assert.equal(db.findEq('byN', 3).length, 1);
-    assert.equal(db.compoundRange('byGrpN', 'g').length, 20);
+    expect(db.stats.indexRebuildDecoded, 'one decode per record fanned out to all builders').toBe(20);
+    expect(db.search('body', 'b1').length).toBe(1);
+    expect(db.search('title', 't2').length).toBe(1);
+    expect(db.findEq('byN', 3).length).toBe(1);
+    expect(db.compoundRange('byGrpN', 'g').length).toBe(20);
   } finally {
     await db.close();
     await fs.rm(dir2, { recursive: true, force: true });

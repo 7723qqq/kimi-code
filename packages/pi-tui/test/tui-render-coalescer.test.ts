@@ -1,5 +1,5 @@
 import assert from "node:assert";
-import { describe, it } from "bun:test";
+import { expect, describe, it } from "bun:test";
 import type { Terminal } from "../src/terminal.ts";
 import type { Component } from "../src/tui.ts";
 import { TuiAltScreen } from "../src/tui-alt-screen.ts";
@@ -101,10 +101,7 @@ describe("render coalescer clean-frame guard", () => {
 			tui.renderNow();
 			await delay(200);
 			// Every frame changed a row, so every request it raised deserves another frame.
-			assert.ok(
-				tui.frames >= 4,
-				`a frame that produced output must keep the chain alive, saw ${tui.frames} frames`,
-			);
+			expect(tui.frames >= 4, `a frame that produced output must keep the chain alive, saw ${tui.frames} frames`).toBeTruthy();
 		} finally {
 			tui.stop();
 		}
@@ -121,17 +118,10 @@ describe("render coalescer clean-frame guard", () => {
 			await delay(200);
 			// Frame 1 wrote the line. The two frames the guard allows after it emit nothing, then
 			// the chain must end: without the guard this window holds ~13 frames and keeps going.
-			assert.ok(
-				tui.frames <= 3,
-				`a clean frame must not hold a render chain, saw ${tui.frames} frames`,
-			);
+			expect(tui.frames <= 3, `a clean frame must not hold a render chain, saw ${tui.frames} frames`).toBeTruthy();
 			const framesAfterChain = tui.frames;
 			await delay(200);
-			assert.strictEqual(
-				tui.frames,
-				framesAfterChain,
-				"the chain must stop, not merely slow down",
-			);
+			expect(tui.frames, "the chain must stop, not merely slow down").toBe(framesAfterChain);
 		} finally {
 			tui.stop();
 		}
@@ -151,12 +141,8 @@ describe("render coalescer clean-frame guard", () => {
 			const framesBeforeInput = tui.frames;
 			terminal.sendInput("hello");
 			await new Promise<void>((resolve) => process.nextTick(resolve));
-			assert.strictEqual(
-				tui.frames,
-				framesBeforeInput + 1,
-				"input must render on its own frame after the guard dropped a request",
-			);
-			assert.strictEqual(component.text, "typed hello");
+			expect(tui.frames, "input must render on its own frame after the guard dropped a request").toBe(framesBeforeInput + 1);
+			expect(component.text).toBe("typed hello");
 		} finally {
 			tui.stop();
 		}
@@ -174,17 +160,10 @@ describe("render coalescer clean-frame guard", () => {
 			// A forced frame clears the previous-screen cache before it runs, so it repaints every
 			// row and reports output whatever the content is: the clean-frame test cannot end this
 			// chain. The forced cap answers the frame's own request once, then drops it.
-			assert.ok(
-				tui.frames >= 2 && tui.frames <= 3,
-				`a forced self-request must not hold a render chain, saw ${tui.frames} frames`,
-			);
+			expect(tui.frames >= 2 && tui.frames <= 3, `a forced self-request must not hold a render chain, saw ${tui.frames} frames`).toBeTruthy();
 			const framesAfterChain = tui.frames;
 			await delay(200);
-			assert.strictEqual(
-				tui.frames,
-				framesAfterChain,
-				"the forced chain must stop, not merely slow down",
-			);
+			expect(tui.frames, "the forced chain must stop, not merely slow down").toBe(framesAfterChain);
 		} finally {
 			tui.stop();
 		}
@@ -204,11 +183,7 @@ describe("render coalescer clean-frame guard", () => {
 			const framesBeforeForce = tui.frames;
 			tui.requestRender(true);
 			await new Promise<void>((resolve) => process.nextTick(resolve));
-			assert.strictEqual(
-				tui.frames,
-				framesBeforeForce + 1,
-				"a forced render must not wait for the throttled timer path",
-			);
+			expect(tui.frames, "a forced render must not wait for the throttled timer path").toBe(framesBeforeForce + 1);
 		} finally {
 			tui.stop();
 		}

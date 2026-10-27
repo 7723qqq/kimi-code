@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 // test/indexes.test.ts
-import { test } from 'bun:test';
+import { expect, test } from 'bun:test';
 
 import { UniqueViolationError } from '../src/index-manager.js';
 import { MiniDb } from '../src/index.js';
@@ -25,7 +25,7 @@ test('equality index findEq', async () => {
       .findEq('byCity', 'Paris')
       .map((r) => r.key)
       .toSorted();
-    assert.deepEqual(res, ['u1', 'u2']);
+    expect(res).toStrictEqual(['u1', 'u2']);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -39,7 +39,7 @@ test('range index findRange with bounds + limit', async () => {
     await db.createIndex('byAge', { field: 'age', type: 'range' });
     for (let i = 1; i <= 10; i++) await db.set(`p${i}`, { age: i * 10 });
     const ages = db.findRange('byAge', { min: 30, max: 70, count: 3 }).map((r) => r.field);
-    assert.deepEqual(ages, [30, 40, 50]);
+    expect(ages).toStrictEqual([30, 40, 50]);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -55,7 +55,7 @@ test('unique index rejects duplicates', async () => {
     await assert.rejects(() => db.set('b', { email: 'user@example.test' }), UniqueViolationError);
     // Re-setting the same key with the same value is allowed.
     await db.set('a', { email: 'user@example.test' });
-    assert.equal(db.size, 1);
+    expect(db.size).toBe(1);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -69,7 +69,7 @@ test('index is updated on delete', async () => {
     await db.createIndex('byCity', { field: 'city' });
     await db.set('u1', { city: 'Paris' });
     await db.del('u1');
-    assert.deepEqual(db.findEq('byCity', 'Paris'), []);
+    expect(db.findEq('byCity', 'Paris')).toStrictEqual([]);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -83,17 +83,11 @@ test('array field is indexed per element', async () => {
     await db.createIndex('byTag', { field: 'tags' });
     await db.set('a', { tags: ['red', 'blue'] });
     await db.set('b', { tags: ['blue', 'green'] });
-    assert.deepEqual(
-      db.findEq('byTag', 'red').map((r) => r.key),
-      ['a'],
-    );
-    assert.deepEqual(
-      db
+    expect(db.findEq('byTag', 'red').map((r) => r.key)).toStrictEqual(['a']);
+    expect(db
         .findEq('byTag', 'blue')
         .map((r) => r.key)
-        .toSorted(),
-      ['a', 'b'],
-    );
+        .toSorted()).toStrictEqual(['a', 'b']);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -109,14 +103,8 @@ test('index definitions + data rebuild across reopen', async () => {
     await db.close();
 
     db = await MiniDb.open({ dir, valueCodec: 'json' });
-    assert.deepEqual(
-      db.listIndexes().map((i) => i.name),
-      ['byAge'],
-    );
-    assert.deepEqual(
-      db.findRange('byAge', { min: 2, max: 4 }).map((r) => r.key),
-      ['p2', 'p3', 'p4'],
-    );
+    expect(db.listIndexes().map((i) => i.name)).toStrictEqual(['byAge']);
+    expect(db.findRange('byAge', { min: 2, max: 4 }).map((r) => r.key)).toStrictEqual(['p2', 'p3', 'p4']);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });

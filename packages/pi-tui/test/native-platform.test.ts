@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { createRequire, Module } from "node:module";
-import { mock, test } from "bun:test";
+import { expect, mock, test } from "bun:test";
 import { fileURLToPath } from "node:url";
 import { getNativeClipboard, getNativePlatformHelper } from "../src/native-platform.ts";
 
@@ -9,7 +9,7 @@ test("Linux ARM64 prebuild supports 64 KB system pages", () => {
 	const binary = readFileSync(
 		new URL("../native/linux/prebuilds/linux-arm64/linux-platform-x11.node", import.meta.url),
 	);
-	assert.equal(binary.subarray(0, 4).toString(), "\x7fELF");
+	expect(binary.subarray(0, 4).toString()).toBe("\x7fELF");
 	const offset = Number(binary.readBigUInt64LE(32));
 	const entrySize = binary.readUInt16LE(54);
 	const count = binary.readUInt16LE(56);
@@ -20,10 +20,10 @@ test("Linux ARM64 prebuild supports 64 KB system pages", () => {
 		loadSegments++;
 		const fileOffset = binary.readBigUInt64LE(entry + 8);
 		const address = binary.readBigUInt64LE(entry + 16);
-		assert.equal((address - fileOffset) % 65536n, 0n);
-		assert.ok(binary.readBigUInt64LE(entry + 48) >= 65536n);
+		expect((address - fileOffset) % 65536n).toBe(0n);
+		expect(binary.readBigUInt64LE(entry + 48) >= 65536n).toBeTruthy();
 	}
-	assert.ok(loadSegments > 0);
+	expect(loadSegments > 0).toBeTruthy();
 });
 
 // Opt in on a Windows test desktop: this replaces the system clipboard contents.
@@ -31,11 +31,11 @@ test.skipIf(process.platform !== "win32" || process.env.PI_TEST_NATIVE_CLIPBOARD
 	"writes Windows clipboard text through the native helper without command fallbacks",
 	async () => {
 		const clipboard = getNativeClipboard();
-		assert.ok(clipboard?.setText);
+		expect(clipboard?.setText).toBeTruthy();
 		for (const text of ["clipboard café 日本語", "", "second write"]) {
 			await clipboard.setText(text);
-			assert.equal(await clipboard.getText(), text);
-			assert.equal(await clipboard.getImage(), null);
+			expect(await clipboard.getText()).toBe(text);
+			expect(await clipboard.getImage()).toBe(null);
 		}
 	},
 );
@@ -44,12 +44,12 @@ test.skipIf(!["darwin", "win32"].includes(process.platform) || !["arm64", "x64"]
 	"uses the native platform helper directly as the clipboard API",
 	() => {
 		const clipboard = getNativeClipboard();
-		assert.ok(clipboard);
-		assert.equal(typeof clipboard.getText, "function");
-		assert.equal(typeof clipboard.getImage, "function");
-		assert.equal(typeof clipboard.setText, "function");
-		assert.equal(clipboard, getNativePlatformHelper());
-		assert.equal(clipboard, getNativeClipboard());
+		expect(clipboard).toBeTruthy();
+		expect(typeof clipboard.getText).toBe("function");
+		expect(typeof clipboard.getImage).toBe("function");
+		expect(typeof clipboard.setText).toBe("function");
+		expect(clipboard).toBe(getNativePlatformHelper());
+		expect(clipboard).toBe(getNativeClipboard());
 	},
 );
 
@@ -68,7 +68,7 @@ test.skipIf(!["arm64", "x64"].includes(process.arch))(
 			Object.defineProperty(process, "platform", { value: "linux" });
 			delete process.env.DISPLAY;
 			process.env.WAYLAND_DISPLAY = "wayland-0";
-			assert.equal(getNativeClipboard(), undefined); // Wayland paste uses wl-paste.
+			expect(getNativeClipboard()).toBe(undefined); // Wayland paste uses wl-paste.
 			let available = false;
 			const helper = {
 				getText: mock(async () => (available ? "X11" : undefined)),
@@ -79,16 +79,16 @@ test.skipIf(!["arm64", "x64"].includes(process.arch))(
 			require.cache[modulePath] = module;
 			process.env.DISPLAY = ":0";
 			const clipboard = getNativeClipboard()!;
-			assert.equal(clipboard, helper);
-			assert.equal(helper.getText.mock.calls.length, 0);
-			assert.equal(await clipboard.getText(), undefined);
+			expect(clipboard).toBe(helper);
+			expect(helper.getText.mock.calls.length).toBe(0);
+			expect(await clipboard.getText()).toBe(undefined);
 			available = true;
-			assert.equal(await clipboard.getText(), "X11");
-			assert.equal(await clipboard.getImage(), null);
+			expect(await clipboard.getText()).toBe("X11");
+			expect(await clipboard.getImage()).toBe(null);
 			delete process.env.DISPLAY;
-			assert.equal(getNativeClipboard(), undefined);
+			expect(getNativeClipboard()).toBe(undefined);
 			process.env.DISPLAY = ":1";
-			assert.equal(getNativeClipboard(), clipboard);
+			expect(getNativeClipboard()).toBe(clipboard);
 		} finally {
 			Object.defineProperty(process, "platform", platform);
 			if (display === undefined) delete process.env.DISPLAY;

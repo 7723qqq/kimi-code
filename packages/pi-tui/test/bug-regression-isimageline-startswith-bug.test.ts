@@ -13,7 +13,7 @@
  */
 
 import assert from "node:assert";
-import { describe, it } from "bun:test";
+import { expect, describe, it } from "bun:test";
 
 describe("Bug regression: isImageLine() crash with image escape sequences", () => {
 	describe("Bug scenario: Terminal without image support", () => {
@@ -48,11 +48,7 @@ describe("Bug regression: isImageLine() crash with image escape sequences", () =
 
 			// Old implementation would return false (BUG!)
 			const oldResult = oldIsImageLine(lineWithImageSequence, terminalWithoutImageSupport);
-			assert.strictEqual(
-				oldResult,
-				false,
-				"Bug: old implementation returns false for line containing image sequence when terminal has no image support",
-			);
+			expect(oldResult, "Bug: old implementation returns false for line containing image sequence when terminal has no image support").toBe(false);
 		});
 
 		it("new implementation returns true correctly", async () => {
@@ -64,7 +60,7 @@ describe("Bug regression: isImageLine() crash with image escape sequences", () =
 
 			// New implementation should return true (FIX!)
 			const newResult = isImageLine(lineWithImageSequence);
-			assert.strictEqual(newResult, true, "Fix: new implementation returns true for line containing image sequence");
+			expect(newResult, "Fix: new implementation returns true for line containing image sequence").toBe(true);
 		});
 
 		it("new implementation detects Kitty sequences in any position", async () => {
@@ -80,7 +76,7 @@ describe("Bug regression: isImageLine() crash with image escape sequences", () =
 			];
 
 			for (const line of scenarios) {
-				assert.strictEqual(isImageLine(line), true, `Should detect Kitty sequence in: ${line.slice(0, 50)}...`);
+				expect(isImageLine(line), `Should detect Kitty sequence in: ${line.slice(0, 50)}...`).toBe(true);
 			}
 		});
 
@@ -97,7 +93,7 @@ describe("Bug regression: isImageLine() crash with image escape sequences", () =
 			];
 
 			for (const line of scenarios) {
-				assert.strictEqual(isImageLine(line), true, `Should detect iTerm2 sequence in: ${line.slice(0, 50)}...`);
+				expect(isImageLine(line), `Should detect iTerm2 sequence in: ${line.slice(0, 50)}...`).toBe(true);
 			}
 		});
 	});
@@ -127,7 +123,7 @@ describe("Bug regression: isImageLine() crash with image escape sequences", () =
 			// The line might have text from the read result plus the image escape sequence
 			const toolOutputLine = "Read image file [image/jpeg]\x1b]1337;File=size=800,600;inline=1:base64image...\x07";
 
-			assert.strictEqual(isImageLine(toolOutputLine), true, "Should detect image sequence in tool output line");
+			expect(isImageLine(toolOutputLine), "Should detect image sequence in tool output line").toBe(true);
 		});
 
 		it("detects Kitty sequences from Image component", async () => {
@@ -136,7 +132,7 @@ describe("Bug regression: isImageLine() crash with image escape sequences", () =
 			// Kitty image component creates multi-line output with escape sequences
 			const kittyLine = "\x1b_Ga=T,f=100,t=f,d=base64data...\x1b\\\x1b_Gm=i=1;\x1b\\";
 
-			assert.strictEqual(isImageLine(kittyLine), true, "Should detect Kitty image component output");
+			expect(isImageLine(kittyLine), "Should detect Kitty image component output").toBe(true);
 		});
 
 		it("handles ANSI codes before image sequences", async () => {
@@ -150,11 +146,7 @@ describe("Bug regression: isImageLine() crash with image escape sequences", () =
 			];
 
 			for (const line of lines) {
-				assert.strictEqual(
-					isImageLine(line),
-					true,
-					`Should detect image sequence after ANSI codes: ${line.slice(0, 30)}...`,
-				);
+				expect(isImageLine(line), `Should detect image sequence after ANSI codes: ${line.slice(0, 30)}...`).toBe(true);
 			}
 		});
 	});
@@ -186,7 +178,7 @@ describe("Bug regression: isImageLine() crash with image escape sequences", () =
 
 			// New implementation should detect it (prevents crash)
 			const detected = isImageLine(crashLine);
-			assert.strictEqual(detected, true, "Should detect image sequence in very long line, preventing TUI crash");
+			expect(detected, "Should detect image sequence in very long line, preventing TUI crash").toBe(true);
 		});
 
 		it("handles lines exactly matching crash log dimensions", async () => {
@@ -204,8 +196,8 @@ describe("Bug regression: isImageLine() crash with image escape sequences", () =
 			const padding = "A".repeat(targetWidth - prefix.length - sequence.length - suffix.length);
 			const line = `${prefix}${sequence}${padding}${suffix}`;
 
-			assert.strictEqual(line.length, 58649);
-			assert.strictEqual(isImageLine(line), true, "Should detect image sequence in 58649-char line");
+			expect(line.length).toBe(58649);
+			expect(isImageLine(line), "Should detect image sequence in 58649-char line").toBe(true);
 		});
 	});
 
@@ -216,7 +208,7 @@ describe("Bug regression: isImageLine() crash with image escape sequences", () =
 			// Very long line WITHOUT image sequences
 			const longText = "A".repeat(100000);
 
-			assert.strictEqual(isImageLine(longText), false, "Should not detect images in plain long text");
+			expect(isImageLine(longText), "Should not detect images in plain long text").toBe(false);
 		});
 
 		it("does not detect images in lines with file paths", async () => {
@@ -230,7 +222,7 @@ describe("Bug regression: isImageLine() crash with image escape sequences", () =
 			];
 
 			for (const path of filePaths) {
-				assert.strictEqual(isImageLine(path), false, `Should not falsely detect image sequence in path: ${path}`);
+				expect(isImageLine(path), `Should not falsely detect image sequence in path: ${path}`).toBe(false);
 			}
 		});
 	});

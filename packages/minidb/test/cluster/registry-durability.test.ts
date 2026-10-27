@@ -27,7 +27,7 @@ import type { ChildProcess } from 'node:child_process';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { afterEach, test } from 'bun:test';
+import { expect, afterEach, test } from 'bun:test';
 
 import { ClusterDb } from '../../src/cluster/index.js';
 import { rmrf, tmpDir } from '../e2e/helpers/tmp.js';
@@ -201,16 +201,11 @@ test('createIndex fsyncs the registry tmp before the rename and fsyncs the dir l
     await db.close();
 
     const openAt = seq.findIndex((e) => e.startsWith('open:') && e.includes(`${REGISTRY}.tmp-`));
-    assert.ok(openAt >= 0, `no registry tmp was written: ${seq.join(' | ')}`);
+    expect(openAt >= 0, `no registry tmp was written: ${seq.join(' | ')}`).toBeTruthy();
     const tmp = seq[openAt]!.slice('open:'.length);
     const dirSyncAt = seq.findIndex((e, i) => i > openAt && e === `dsync:${dir}`);
-    assert.ok(
-      dirSyncAt > openAt,
-      `no directory fsync followed the registry rename: ${seq.join(' | ')}`,
-    );
-    assert.deepEqual(
-      seq.slice(openAt, dirSyncAt + 1),
-      [
+    expect(dirSyncAt > openAt, `no directory fsync followed the registry rename: ${seq.join(' | ')}`).toBeTruthy();
+    expect(seq.slice(openAt, dirSyncAt + 1), 'wrong syscall order for the registry write').toStrictEqual([
         `open:${tmp}`,
         `writeFile:${tmp}`,
         `sync:${tmp}`,
@@ -218,19 +213,14 @@ test('createIndex fsyncs the registry tmp before the rename and fsyncs the dir l
         `rename:${tmp}->${path.join(dir, REGISTRY)}`,
         `rm:${tmp}`,
         `dsync:${dir}`,
-      ],
-      'wrong syscall order for the registry write',
-    );
+      ]);
 
     // The published registry is complete and no tmp is left behind.
     const raw = JSON.parse(await fs.readFile(path.join(dir, REGISTRY), 'utf8')) as {
       indexes: { name: string }[];
     };
-    assert.deepEqual(
-      raw.indexes.map((i) => i.name),
-      ['byCity'],
-    );
-    assert.deepEqual(registryTemps(await fs.readdir(dir)), [], 'no stranded registry tmp');
+    expect(raw.indexes.map((i) => i.name)).toStrictEqual(['byCity']);
+    expect(registryTemps(await fs.readdir(dir)), 'no stranded registry tmp').toStrictEqual([]);
   } finally {
     await rmrf(dir);
   }
@@ -246,24 +236,14 @@ test('a registry write that fails mid-way leaves no tmp behind', async () => {
       /simulated crash mid registry write/,
     );
     const failedWrite = seq.find((e) => e.startsWith('writeFile-throws:'));
-    assert.ok(
-      failedWrite !== undefined,
-      `the handle-based tmp write (the fixed path) was the one injected: ${seq.join(' | ')}`,
-    );
-    assert.deepEqual(
-      registryTemps(await fs.readdir(dir)),
-      [],
-      'the failed write cleans up its own tmp',
-    );
+    expect(failedWrite !== undefined, `the handle-based tmp write (the fixed path) was the one injected: ${seq.join(' | ')}`).toBeTruthy();
+    expect(registryTemps(await fs.readdir(dir)), 'the failed write cleans up its own tmp').toStrictEqual([]);
     // The registry itself was never published: the failed create left no
     // half-written definition file behind.
-    assert.equal(
-      await fs.stat(path.join(dir, REGISTRY)).then(
+    expect(await fs.stat(path.join(dir, REGISTRY)).then(
         () => true,
         () => false,
-      ),
-      false,
-    );
+      )).toBe(false);
     await db.close();
   } finally {
     await rmrf(dir);
@@ -273,7 +253,7 @@ test('a registry write that fails mid-way leaves no tmp behind', async () => {
 test('open sweeps a dead owner’s stranded registry tmp and leaves a live owner’s in flight tmp', async () => {
   const dir = await tmpDir('minidb-cluster-registry-');
   const reaped = spawnSync(process.execPath, ['-e', '']);
-  assert.equal(reaped.status, 0);
+  expect(reaped.status).toBe(0);
   const deadPid = reaped.pid!;
   // A live peer whose tmp could still be renamed into place.
   const peer: ChildProcess = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 30000)'], {
@@ -286,11 +266,7 @@ test('open sweeps a dead owner’s stranded registry tmp and leaves a live owner
     await fs.writeFile(deadTmp, '{"indexes":');
 
     const db = await ClusterDb.open({ dir, shardCount: 4, valueCodec: 'json' });
-    assert.deepEqual(
-      registryTemps(await fs.readdir(dir)),
-      [`${REGISTRY}.tmp-${peer.pid}-1`],
-      'only the dead owner’s tmp is swept',
-    );
+    expect(registryTemps(await fs.readdir(dir)), 'only the dead owner’s tmp is swept').toStrictEqual([`${REGISTRY}.tmp-${peer.pid}-1`]);
     await db.close();
 
     // Once the peer is gone, its tmp is stranded too and the next open takes it.
@@ -299,7 +275,7 @@ test('open sweeps a dead owner’s stranded registry tmp and leaves a live owner
       peer.kill('SIGKILL');
     });
     const db2 = await ClusterDb.open({ dir, shardCount: 4, valueCodec: 'json' });
-    assert.deepEqual(registryTemps(await fs.readdir(dir)), [], 'the stranded tmp is gone');
+    expect(registryTemps(await fs.readdir(dir)), 'the stranded tmp is gone').toStrictEqual([]);
     await db2.close();
   } finally {
     if (peer.exitCode === null && peer.signalCode === null) peer.kill('SIGKILL');

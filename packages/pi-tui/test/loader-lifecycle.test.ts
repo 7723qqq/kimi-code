@@ -1,5 +1,5 @@
 import assert from "node:assert";
-import { describe, it } from "bun:test";
+import { expect, describe, it } from "bun:test";
 import { Loader } from "../src/components/loader.ts";
 import type { TUI } from "../src/tui.ts";
 
@@ -32,7 +32,7 @@ function captureInterval(build: () => void): NodeJS.Timeout {
 	} finally {
 		globalThis.setInterval = realSetInterval;
 	}
-	assert.ok(captured, "the loader should have armed a frame interval");
+	expect(captured, "the loader should have armed a frame interval").toBeTruthy();
 	return captured;
 }
 
@@ -47,11 +47,7 @@ describe("Loader frame-timer lifecycle", () => {
 			loader = createLoader().loader;
 		});
 		try {
-			assert.strictEqual(
-				timer.hasRef(),
-				false,
-				"a spinner must not be the reason its host process stays alive",
-			);
+			expect(timer.hasRef(), "a spinner must not be the reason its host process stays alive").toBe(false);
 		} finally {
 			loader?.dispose();
 		}
@@ -60,13 +56,13 @@ describe("Loader frame-timer lifecycle", () => {
 	it("stops repainting after dispose()", async () => {
 		const { loader, repaints } = createLoader();
 		await delay(30);
-		assert.ok(repaints.count > 0, "the loader should paint frames while it is running");
+		expect(repaints.count > 0, "the loader should paint frames while it is running").toBeTruthy();
 
 		loader.dispose();
 		const painted = repaints.count;
 		await delay(30);
 
-		assert.strictEqual(repaints.count, painted, "a disposed loader must not repaint");
+		expect(repaints.count, "a disposed loader must not repaint").toBe(painted);
 	});
 
 	it("does not stack frame intervals when the indicator is replaced", async () => {
@@ -96,7 +92,7 @@ describe("Loader frame-timer lifecycle", () => {
 		const live = armed;
 
 		try {
-			assert.strictEqual(live, 1, "each new indicator must clear the interval it replaces");
+			expect(live, "each new indicator must clear the interval it replaces").toBe(1);
 			await delay(30);
 		} finally {
 			loader!.dispose();

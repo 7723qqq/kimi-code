@@ -7,11 +7,10 @@
 //   - every recovered key's value is correct.
 // This is the durability contract for sequential 'always' writes.
 
-import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 
-import { test } from 'bun:test';
+import { expect, test } from 'bun:test';
 
 import { MiniDb } from '../../src/index.js';
 import { tmpDir, rmrf } from './helpers/tmp.js';
@@ -55,7 +54,7 @@ async function verifyContiguous(dir, label) {
       last = i - 1;
       break;
     }
-    assert.equal(v.i, i, `${label}: value mismatch at k${i}`);
+    expect(v.i, `${label}: value mismatch at k${i}`).toBe(i);
   }
   await db.close();
   return last; // highest contiguous index
@@ -74,7 +73,7 @@ test(
         const runMs = Math.floor(Math.random() * 150);
         await crashWriter(dir, 0, runMs);
         const last = await verifyContiguous(dir, `run${r}`);
-        assert.ok(last >= 2, `run${r}: expected several durable keys, got up to k${last}`);
+        expect(last >= 2, `run${r}: expected several durable keys, got up to k${last}`).toBeTruthy();
       } finally {
         await rmrf(dir);
       }
@@ -90,7 +89,7 @@ test('crash-recovery: kill during compaction, still consistent', { timeout: 60_0
       const runMs = Math.floor(Math.random() * 150);
       await crashWriter(dir, 40, runMs); // compact every 40 writes
       const last = await verifyContiguous(dir, `compact-run${r}`);
-      assert.ok(last >= 2, `compact-run${r}: expected several durable keys, got up to k${last}`);
+      expect(last >= 2, `compact-run${r}: expected several durable keys, got up to k${last}`).toBeTruthy();
     } finally {
       await rmrf(dir);
     }

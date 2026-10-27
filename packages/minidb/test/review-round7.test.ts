@@ -1,8 +1,7 @@
-import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { test } from 'bun:test';
+import { expect, test } from 'bun:test';
 
 import { classifyStorageError, MiniDb } from '../src/index.js';
 import { rmrf, tmpDir } from './helpers.js';
@@ -23,8 +22,8 @@ async function expectRejected(label: string, open: () => Promise<unknown>): Prom
   } catch (error) {
     threw = error;
   }
-  assert.ok(threw instanceof RangeError, `${label}: expected a RangeError`);
-  assert.match((threw as Error).message, /unknown|must be/, `${label}: message was ${String((threw as Error).message)}`);
+  expect(threw instanceof RangeError, `${label}: expected a RangeError`).toBeTruthy();
+  expect(String((threw as Error).message), `${label}: message was ${String((threw as Error).message)}`).toMatch(/unknown|must be/);
 }
 
 test('H: unrecognized enum options are rejected at open', async () => {
@@ -100,7 +99,7 @@ test('H: valid options still open, and auto valueMode still resolves', async () 
       maxMemoryBytes: 1024 * 1024,
     });
     await db.set('k', 'v');
-    assert.equal(await db.get('k'), 'v');
+    expect(await db.get('k')).toBe('v');
     await db.close();
   } finally {
     await rmrf(dir);
@@ -114,11 +113,7 @@ test('F3: the default text-build memory budget is 128 MiB and is documented as s
   ]);
   try {
     const defaulted = await MiniDb.open({ dir: dirs[0]!, valueCodec: 'string' });
-    assert.equal(
-      defaulted.textBuildMemoryBytes,
-      128 * 1024 * 1024,
-      'an omitted textBuildMemoryBytes must resolve to the documented 128 MiB',
-    );
+    expect(defaulted.textBuildMemoryBytes, 'an omitted textBuildMemoryBytes must resolve to the documented 128 MiB').toBe(128 * 1024 * 1024);
     await defaulted.close();
 
     const explicit = await MiniDb.open({
@@ -126,11 +121,7 @@ test('F3: the default text-build memory budget is 128 MiB and is documented as s
       valueCodec: 'string',
       textBuildMemoryBytes: 32 * 1024 * 1024,
     });
-    assert.equal(
-      explicit.textBuildMemoryBytes,
-      32 * 1024 * 1024,
-      'an explicit textBuildMemoryBytes must still win over the default',
-    );
+    expect(explicit.textBuildMemoryBytes, 'an explicit textBuildMemoryBytes must still win over the default').toBe(32 * 1024 * 1024);
     await explicit.close();
   } finally {
     for (const d of dirs) await rmrf(d);
@@ -148,7 +139,7 @@ test('D4: a negative or non-finite TTL is rejected', async () => {
       } catch (error) {
         threw = error;
       }
-      assert.ok(threw instanceof RangeError, `ttl ${String(ttl)} must be rejected`);
+      expect(threw instanceof RangeError, `ttl ${String(ttl)} must be rejected`).toBeTruthy();
     }
     await db.set('real', 'v');
     for (const ttl of [-5, Number.NaN]) {
@@ -158,9 +149,9 @@ test('D4: a negative or non-finite TTL is rejected', async () => {
       } catch (error) {
         threw = error;
       }
-      assert.ok(threw instanceof RangeError, `expire(${String(ttl)}) must be rejected`);
+      expect(threw instanceof RangeError, `expire(${String(ttl)}) must be rejected`).toBeTruthy();
     }
-    assert.equal(await db.expire('real', 60_000), true, 'a valid expire still works');
+    expect(await db.expire('real', 60_000), 'a valid expire still works').toBe(true);
     await db.close();
   } finally {
     await rmrf(dir);
@@ -181,7 +172,7 @@ test('a23/F3: a truncated db.textindexes.json makes open fail with a SyntaxError
     await db.createTextIndex('ft', { fields: ['t'] });
     await db.set('a', { t: 'hello' });
     await db.close();
-    assert.notEqual(await fs.readFile(path.join(dir, 'db.textindexes.json'), 'utf8'), '');
+    expect(await fs.readFile(path.join(dir, 'db.textindexes.json'), 'utf8')).not.toBe('');
 
     // A crash-torn sidecar: 0 bytes instead of the JSON the writer believed it
     // had made durable.
@@ -194,16 +185,12 @@ test('a23/F3: a truncated db.textindexes.json makes open fail with a SyntaxError
     } catch (error) {
       threw = error;
     }
-    assert.ok(threw instanceof SyntaxError, `expected a SyntaxError, got ${String(threw)}`);
-    assert.equal(
-      classifyStorageError(threw),
-      'rebuild',
-      'the consumer policy for a torn definition file is a full rebuild',
-    );
+    expect(threw instanceof SyntaxError, `expected a SyntaxError, got ${String(threw)}`).toBeTruthy();
+    expect(classifyStorageError(threw), 'the consumer policy for a torn definition file is a full rebuild').toBe('rebuild');
     // The authoritative data itself is untouched — the damage is entirely the
     // definition file, so a durable-by-construction sidecar write is what
     // stands between one power loss and a wiped search index.
-    assert.equal((await fs.readdir(dir)).includes('db.wal'), true);
+    expect((await fs.readdir(dir)).includes('db.wal')).toBe(true);
   } finally {
     await rmrf(dir);
   }

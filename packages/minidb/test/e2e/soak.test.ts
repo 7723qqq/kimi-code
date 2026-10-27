@@ -5,9 +5,8 @@
 //
 //   SOAK=30 bun run test
 
-import assert from 'node:assert/strict';
 
-import { test } from 'bun:test';
+import { expect, test } from 'bun:test';
 
 import { MiniDb } from '../../src/index.js';
 import { Model } from './helpers/model.js';
@@ -56,15 +55,12 @@ test.skipIf(!SOAK)('soak: sustained random ops do not leak memory or corrupt', a
     const finalHeap = process.memoryUsage().heapUsed;
     const mib = (n) => (n / 1024 / 1024).toFixed(1);
     console.log(`  soak: ${ops} ops, heap ${mib(firstHeap)} -> ${mib(finalHeap)} MiB`);
-    assert.ok(
-      finalHeap < firstHeap * 3 + 50 * 1024 * 1024,
-      `heap grew too much: ${firstHeap} -> ${finalHeap}`,
-    );
+    expect(finalHeap < firstHeap * 3 + 50 * 1024 * 1024, `heap grew too much: ${firstHeap} -> ${finalHeap}`).toBeTruthy();
 
     // integrity after reopen
     await db.close();
     db = await MiniDb.open({ dir, valueCodec: 'json' });
-    for (const k of KEYS) assert.deepEqual(db.get(k), model.get(k), `soak reopen ${k}`);
+    for (const k of KEYS) expect(db.get(k), `soak reopen ${k}`).toStrictEqual(model.get(k));
   } finally {
     await db.close().catch(() => {});
     await rmrf(dir);

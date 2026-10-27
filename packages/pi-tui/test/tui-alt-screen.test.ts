@@ -1,5 +1,4 @@
-import assert from "node:assert";
-import { describe, it, setSystemTime } from "bun:test";
+import { expect, describe, it, setSystemTime } from "bun:test";
 import {
 	AltScreenSearchComponent,
 	AltScreenSearchIndex,
@@ -102,7 +101,7 @@ describe("TuiAltScreen", () => {
 		requested = false;
 		tui.renderNow();
 		await tui.copyActiveSelectionToClipboard();
-		assert.deepStrictEqual(copied, ["alpha", "alpha"]);
+		expect(copied).toStrictEqual(["alpha", "alpha"]);
 		tui.stop();
 	});
 
@@ -122,7 +121,7 @@ describe("TuiAltScreen", () => {
 		const observed: number[] = [];
 		const dispose = tui.addLayoutEffect(() => {
 			observed.push(scroll.scrollTop);
-			assert.strictEqual(tui.viewportTop, scroll.scrollTop);
+			expect(tui.viewportTop).toBe(scroll.scrollTop);
 			const next = `top ${scroll.scrollTop}`;
 			if (next === heading) return;
 			heading = next;
@@ -131,19 +130,16 @@ describe("TuiAltScreen", () => {
 		});
 		tui.start();
 		await terminal.waitForRender();
-		assert.deepStrictEqual(observed, [3, 4, 4]);
-		assert.deepStrictEqual(
-			terminal.getViewport().map((line) => line.trimEnd()),
-			["top 4", "five", "six"],
-		);
-		assert.strictEqual(invalidations, 0);
+		expect(observed).toStrictEqual([3, 4, 4]);
+		expect(terminal.getViewport().map((line) => line.trimEnd())).toStrictEqual(["top 4", "five", "six"]);
+		expect(invalidations).toBe(0);
 		const frames = terminal.events.filter((event) => event.type === "write" && event.data.includes("\x1b[?2026h"));
-		assert.strictEqual(frames.length, 1);
+		expect(frames.length).toBe(1);
 		dispose();
 		scroll.scrollBy(-1);
 		await terminal.waitForRender();
-		assert.deepStrictEqual(observed, [3, 4, 4]);
-		assert.strictEqual(terminal.getViewport()[1]?.trimEnd(), "four");
+		expect(observed).toStrictEqual([3, 4, 4]);
+		expect(terminal.getViewport()[1]?.trimEnd()).toBe("four");
 		tui.stop();
 	});
 
@@ -162,11 +158,11 @@ describe("TuiAltScreen", () => {
 			force = false;
 			tui.requestRender(true);
 		});
-		tui.addLayoutEffect(() => assert.strictEqual(tui.viewportTop, scroll.scrollTop));
+		tui.addLayoutEffect(() => expect(tui.viewportTop).toBe(scroll.scrollTop));
 		tui.requestRender();
 		await terminal.waitForRender();
-		assert.strictEqual(tui.fullRedraws, redraws + 1);
-		assert.strictEqual(terminal.events.filter((event) => event.type === "write").length, 1);
+		expect(tui.fullRedraws).toBe(redraws + 1);
+		expect(terminal.events.filter((event) => event.type === "write").length).toBe(1);
 		tui.stop();
 	});
 
@@ -176,7 +172,7 @@ describe("TuiAltScreen", () => {
 		tui.start();
 		await terminal.waitForRender();
 		const dispose = tui.addLayoutEffect(() => tui.requestRender());
-		assert.throws(() => tui.renderNow(), /Layout effects did not stabilize/);
+		expect(() => tui.renderNow()).toThrow(/Layout effects did not stabilize/);
 		dispose();
 		tui.renderNow();
 		tui.stop();
@@ -214,17 +210,13 @@ describe("TuiAltScreen", () => {
 		terminal.sendInput("\x1b[102;6u");
 		terminal.sendInput("needle");
 		await terminal.waitForRender();
-		assert.ok(terminal.getViewport().some((line) => line.includes("1/2")));
-		assert.ok(
-			terminal.events.some(
+		expect(terminal.getViewport().some((line) => line.includes("1/2"))).toBeTruthy();
+		expect(terminal.events.some(
 				(event) => event.type === "write" && event.data.includes("\x1b[42mneedle\x1b[49m first"),
-			),
-		);
-		assert.ok(
-			terminal.events.every(
+			)).toBeTruthy();
+		expect(terminal.events.every(
 				(event) => event.type !== "write" || !event.data.includes("\x1b[42mneedle\x1b[49m pill"),
-			),
-		);
+			)).toBeTruthy();
 		tui.stop();
 	});
 
@@ -236,28 +228,19 @@ describe("TuiAltScreen", () => {
 		tui.start();
 		await terminal.waitForRender();
 
-		assert.deepStrictEqual(
-			terminal.getViewport().map((line) => line.trimEnd()),
-			["line 7", "line 8", "line 9", "line 10"],
-		);
-		assert.strictEqual(tui.isFollowingOutput, true);
+		expect(terminal.getViewport().map((line) => line.trimEnd())).toStrictEqual(["line 7", "line 8", "line 9", "line 10"]);
+		expect(tui.isFollowingOutput).toBe(true);
 
 		terminal.sendInput("\x1b[<64;1;1M");
 		await terminal.waitForRender();
-		assert.deepStrictEqual(
-			terminal.getViewport().map((line) => line.trimEnd()),
-			["line 6", "line 7", "line 8", "line 9"],
-		);
-		assert.strictEqual(tui.viewportTop, 5);
-		assert.strictEqual(tui.isFollowingOutput, false);
+		expect(terminal.getViewport().map((line) => line.trimEnd())).toStrictEqual(["line 6", "line 7", "line 8", "line 9"]);
+		expect(tui.viewportTop).toBe(5);
+		expect(tui.isFollowingOutput).toBe(false);
 
 		text.setText(Array.from({ length: 12 }, (_, index) => `line ${index + 1}`).join("\n"));
 		tui.requestRender();
 		await terminal.waitForRender();
-		assert.deepStrictEqual(
-			terminal.getViewport().map((line) => line.trimEnd()),
-			["line 6", "line 7", "line 8", "line 9"],
-		);
+		expect(terminal.getViewport().map((line) => line.trimEnd())).toStrictEqual(["line 6", "line 7", "line 8", "line 9"]);
 
 		tui.stop();
 	});
@@ -279,28 +262,25 @@ describe("TuiAltScreen", () => {
 		);
 		tui.start();
 		await terminal.waitForRender();
-		assert.ok(!terminal.getViewport().some((line) => line.includes("Jump to end")));
+		expect(!terminal.getViewport().some((line) => line.includes("Jump to end"))).toBeTruthy();
 
 		terminal.sendInput("\x1b[<64;1;1M");
 		await terminal.waitForRender();
-		assert.strictEqual(transcript.isFollowingEnd, false);
-		assert.strictEqual(terminal.getViewport()[3], "line 7  ↓ Jump to end         ");
-		assert.strictEqual(terminal.getViewport()[4]?.trimEnd(), "editor");
+		expect(transcript.isFollowingEnd).toBe(false);
+		expect(terminal.getViewport()[3]).toBe("line 7  ↓ Jump to end         ");
+		expect(terminal.getViewport()[4]?.trimEnd()).toBe("editor");
 
 		// Pressing next to the label starts a selection instead of jumping.
 		terminal.sendInput("\x1b[<0;2;4M");
 		terminal.sendInput("\x1b[<0;2;4m");
 		await terminal.waitForRender();
-		assert.strictEqual(transcript.isFollowingEnd, false);
+		expect(transcript.isFollowingEnd).toBe(false);
 
 		terminal.sendInput("\x1b[<0;15;4M");
 		terminal.sendInput("\x1b[<0;15;4m");
 		await terminal.waitForRender();
-		assert.strictEqual(transcript.isFollowingEnd, true);
-		assert.deepStrictEqual(
-			terminal.getViewport().map((line) => line.trimEnd()),
-			["line 5", "line 6", "line 7", "line 8", "editor", "footer"],
-		);
+		expect(transcript.isFollowingEnd).toBe(true);
+		expect(terminal.getViewport().map((line) => line.trimEnd())).toStrictEqual(["line 5", "line 6", "line 7", "line 8", "editor", "footer"]);
 		tui.stop();
 	});
 
@@ -324,13 +304,13 @@ describe("TuiAltScreen", () => {
 
 		terminal.sendInput("\x1b[<64;1;1M");
 		await terminal.waitForRender();
-		assert.strictEqual(transcript.isFollowingEnd, false);
+		expect(transcript.isFollowingEnd).toBe(false);
 
 		// The indicator must not intercept a press on the scrollbar's last column.
 		terminal.sendInput("\x1b[<0;30;4M");
 		terminal.sendInput("\x1b[<0;30;4m");
 		await terminal.waitForRender();
-		assert.strictEqual(transcript.isFollowingEnd, false);
+		expect(transcript.isFollowingEnd).toBe(false);
 		tui.stop();
 	});
 
@@ -344,8 +324,8 @@ describe("TuiAltScreen", () => {
 		tui.start();
 		await terminal.waitForRender();
 
-		assert.strictEqual(transcript.isFollowingEnd, false);
-		assert.ok(!terminal.getViewport().some((line) => line.includes("Jump to end")));
+		expect(transcript.isFollowingEnd).toBe(false);
+		expect(!terminal.getViewport().some((line) => line.includes("Jump to end"))).toBeTruthy();
 		tui.stop();
 	});
 
@@ -364,34 +344,22 @@ describe("TuiAltScreen", () => {
 		tui.start();
 		await terminal.waitForRender();
 
-		assert.deepStrictEqual(
-			terminal.getViewport().map((line) => line.trimEnd()),
-			["line 5", "line 6", "line 7", "line 8", "editor", "footer"],
-		);
+		expect(terminal.getViewport().map((line) => line.trimEnd())).toStrictEqual(["line 5", "line 6", "line 7", "line 8", "editor", "footer"]);
 
 		// Wheel over the dock falls back to the primary transcript scroll view.
 		terminal.sendInput("\x1b[<64;1;6M");
 		await terminal.waitForRender();
-		assert.deepStrictEqual(
-			terminal.getViewport().map((line) => line.trimEnd()),
-			["line 4", "line 5", "line 6", "line 7", "editor", "footer"],
-		);
-		assert.strictEqual(transcript.isFollowingEnd, false);
+		expect(terminal.getViewport().map((line) => line.trimEnd())).toStrictEqual(["line 4", "line 5", "line 6", "line 7", "editor", "footer"]);
+		expect(transcript.isFollowingEnd).toBe(false);
 
 		transcriptText.setText(Array.from({ length: 10 }, (_, index) => `line ${index + 1}`).join("\n"));
 		tui.requestRender();
 		await terminal.waitForRender();
-		assert.deepStrictEqual(
-			terminal.getViewport().map((line) => line.trimEnd()),
-			["line 4", "line 5", "line 6", "line 7", "editor", "footer"],
-		);
+		expect(terminal.getViewport().map((line) => line.trimEnd())).toStrictEqual(["line 4", "line 5", "line 6", "line 7", "editor", "footer"]);
 
 		tui.scrollToBottom();
 		await terminal.waitForRender();
-		assert.deepStrictEqual(
-			terminal.getViewport().map((line) => line.trimEnd()),
-			["line 7", "line 8", "line 9", "line 10", "editor", "footer"],
-		);
+		expect(terminal.getViewport().map((line) => line.trimEnd())).toStrictEqual(["line 7", "line 8", "line 9", "line 10", "editor", "footer"]);
 		tui.stop();
 	});
 
@@ -407,7 +375,7 @@ describe("TuiAltScreen", () => {
 
 		tui.invalidate();
 
-		assert.strictEqual(invalidated, true);
+		expect(invalidated).toBe(true);
 		tui.stop();
 	});
 
@@ -430,12 +398,9 @@ describe("TuiAltScreen", () => {
 
 		terminal.sendInput("\x1b[<64;15;1M");
 		await terminal.waitForRender();
-		assert.strictEqual(left.scrollTop, 3);
-		assert.strictEqual(right.scrollTop, 2);
-		assert.deepStrictEqual(
-			terminal.getViewport().map((line) => line.trimEnd()),
-			["a4        b3", "a5        b4", "a6        b5", "a7        b6"],
-		);
+		expect(left.scrollTop).toBe(3);
+		expect(right.scrollTop).toBe(2);
+		expect(terminal.getViewport().map((line) => line.trimEnd())).toStrictEqual(["a4        b3", "a5        b4", "a6        b5", "a7        b6"]);
 		tui.stop();
 	});
 
@@ -446,12 +411,12 @@ describe("TuiAltScreen", () => {
 		tui.addChild(text);
 		tui.start();
 		await terminal.waitForRender();
-		assert.strictEqual(tui.viewportTop, 8);
+		expect(tui.viewportTop).toBe(8);
 
 		// Alt modifier sets bit 8 on the wheel button (72 = 64 + 8).
 		terminal.sendInput("\x1b[<72;1;1M");
 		await terminal.waitForRender();
-		assert.strictEqual(tui.viewportTop, 3);
+		expect(tui.viewportTop).toBe(3);
 		tui.stop();
 	});
 
@@ -488,7 +453,7 @@ describe("TuiAltScreen", () => {
 		terminal.sendInput("\x1b[<0;15;1M");
 		terminal.sendInput("\x1b[<0;15;1m");
 		await terminal.waitForRender();
-		assert.strictEqual(selections, 0);
+		expect(selections).toBe(0);
 		tui.stop();
 	});
 
@@ -505,7 +470,7 @@ describe("TuiAltScreen", () => {
 				.filter((event): event is { type: "write"; data: string } => event.type === "write")
 				.map((event) => event.data)
 				.join("");
-			assert.ok(directWrites.includes("\x1b[?1003h"));
+			expect(directWrites.includes("\x1b[?1003h")).toBeTruthy();
 			directTui.stop();
 
 			const multiplexers = [
@@ -525,9 +490,9 @@ describe("TuiAltScreen", () => {
 					.filter((event): event is { type: "write"; data: string } => event.type === "write")
 					.map((event) => event.data)
 					.join("");
-				assert.ok(writes.includes("\x1b[?1002h"), `${name} should enable button-motion tracking`);
-				assert.ok(!writes.includes("\x1b[?1003h"), `${name} should not enable all-motion tracking`);
-				assert.ok(writes.includes("\x1b[?1006h"), `${name} should enable SGR mouse encoding`);
+				expect(writes.includes("\x1b[?1002h"), `${name} should enable button-motion tracking`).toBeTruthy();
+				expect(!writes.includes("\x1b[?1003h"), `${name} should not enable all-motion tracking`).toBeTruthy();
+				expect(writes.includes("\x1b[?1006h"), `${name} should enable SGR mouse encoding`).toBeTruthy();
 				tui.stop();
 			}
 		} finally {
@@ -542,7 +507,7 @@ describe("TuiAltScreen", () => {
 	it("invokes the right-click paste handler only on Windows outside VS Code", () => {
 		const platformDescriptor = Object.getOwnPropertyDescriptor(process, "platform");
 		const termProgram = process.env.TERM_PROGRAM;
-		assert.ok(platformDescriptor);
+		expect(platformDescriptor).toBeTruthy();
 		const terminal = new VirtualTerminal();
 		let pasteCount = 0;
 		const tui = new TuiAltScreen(terminal, undefined, undefined, {
@@ -556,16 +521,16 @@ describe("TuiAltScreen", () => {
 			tui.start();
 			terminal.sendInput("\x1b[<2;1;1M");
 			terminal.sendInput("\x1b[<2;1;1m");
-			assert.strictEqual(pasteCount, 1);
+			expect(pasteCount).toBe(1);
 
 			process.env.TERM_PROGRAM = "vscode";
 			terminal.sendInput("\x1b[<2;1;1M");
-			assert.strictEqual(pasteCount, 1);
+			expect(pasteCount).toBe(1);
 
 			Object.defineProperty(process, "platform", { configurable: true, value: "linux" });
 			delete process.env.TERM_PROGRAM;
 			terminal.sendInput("\x1b[<2;1;1M");
-			assert.strictEqual(pasteCount, 1);
+			expect(pasteCount).toBe(1);
 		} finally {
 			tui.stop();
 			Object.defineProperty(process, "platform", platformDescriptor);
@@ -584,18 +549,18 @@ describe("TuiAltScreen", () => {
 		tui.setLayoutRoot(scrollView);
 		tui.start();
 		await terminal.waitForRender();
-		assert.strictEqual(scrollView.isScrollbarVisible, false);
+		expect(scrollView.isScrollbarVisible).toBe(false);
 
 		terminal.sendInput("\x1b[<35;10;3M");
 		await terminal.waitForRender();
-		assert.strictEqual(scrollView.isScrollbarVisible, true);
-		assert.strictEqual(scrollView.isScrollbarActive, true);
-		assert.ok(terminal.getViewport().some((line) => /[│█]/.test(line)));
+		expect(scrollView.isScrollbarVisible).toBe(true);
+		expect(scrollView.isScrollbarActive).toBe(true);
+		expect(terminal.getViewport().some((line) => /[│█]/.test(line))).toBeTruthy();
 
 		terminal.sendInput("\x1b[<35;9;3M");
 		await new Promise((resolve) => setTimeout(resolve, 40));
 		await terminal.waitForRender();
-		assert.strictEqual(scrollView.isScrollbarVisible, false);
+		expect(scrollView.isScrollbarVisible).toBe(false);
 		tui.stop();
 	});
 
@@ -609,19 +574,19 @@ describe("TuiAltScreen", () => {
 		tui.setLayoutRoot(scrollView);
 		tui.start();
 		await terminal.waitForRender();
-		assert.strictEqual(scrollView.scrollTop, 0);
+		expect(scrollView.scrollTop).toBe(0);
 
 		terminal.sendInput("\x1b[<0;10;6M");
 		await terminal.waitForRender();
-		assert.strictEqual(scrollView.scrollTop, 20);
+		expect(scrollView.scrollTop).toBe(20);
 
 		terminal.sendInput("\x1b[<32;10;10M");
 		await terminal.waitForRender();
-		assert.strictEqual(scrollView.scrollTop, 40);
+		expect(scrollView.scrollTop).toBe(40);
 
 		terminal.sendInput("\x1b[<0;10;10m");
 		await terminal.waitForRender();
-		assert.ok(terminal.events.every((event) => event.type !== "write" || !event.data.includes("\x1b]52;c;")));
+		expect(terminal.events.every((event) => event.type !== "write" || !event.data.includes("\x1b]52;c;"))).toBeTruthy();
 		tui.stop();
 	});
 
@@ -639,13 +604,13 @@ describe("TuiAltScreen", () => {
 
 		terminal.sendInput("\x1b[<65;1;1M");
 		await terminal.waitForRender();
-		assert.strictEqual(inner.scrollTop, 3);
-		assert.strictEqual(outer.scrollTop, 0);
+		expect(inner.scrollTop).toBe(3);
+		expect(outer.scrollTop).toBe(0);
 
 		terminal.sendInput("\x1b[<65;1;1M");
 		await terminal.waitForRender();
-		assert.strictEqual(inner.scrollTop, 4);
-		assert.strictEqual(outer.scrollTop, 2);
+		expect(inner.scrollTop).toBe(4);
+		expect(outer.scrollTop).toBe(2);
 		tui.stop();
 	});
 
@@ -659,38 +624,26 @@ describe("TuiAltScreen", () => {
 		terminal.sendInput("\x1b[57421u");
 		terminal.sendInput("\x1b[57421;1:3u");
 		await terminal.waitForRender();
-		assert.deepStrictEqual(
-			terminal.getViewport().map((line) => line.trimEnd()),
-			["line 1", "line 2", "line 3", "line 4", "line 5", "line 6", "line 7", "line 8"],
-		);
+		expect(terminal.getViewport().map((line) => line.trimEnd())).toStrictEqual(["line 1", "line 2", "line 3", "line 4", "line 5", "line 6", "line 7", "line 8"]);
 
 		terminal.sendInput("\x1b[57422u");
 		terminal.sendInput("\x1b[57422;1:3u");
 		await terminal.waitForRender();
-		assert.deepStrictEqual(
-			terminal.getViewport().map((line) => line.trimEnd()),
-			["line 5", "line 6", "line 7", "line 8", "line 9", "line 10", "line 11", "line 12"],
-		);
+		expect(terminal.getViewport().map((line) => line.trimEnd())).toStrictEqual(["line 5", "line 6", "line 7", "line 8", "line 9", "line 10", "line 11", "line 12"]);
 
 		terminal.sendInput("\x1bOH");
 		await terminal.waitForRender();
-		assert.deepStrictEqual(
-			terminal.getViewport().map((line) => line.trimEnd()),
-			["line 1", "line 2", "line 3", "line 4", "line 5", "line 6", "line 7", "line 8"],
-		);
+		expect(terminal.getViewport().map((line) => line.trimEnd())).toStrictEqual(["line 1", "line 2", "line 3", "line 4", "line 5", "line 6", "line 7", "line 8"]);
 
 		terminal.sendInput("\x1bOF");
 		await terminal.waitForRender();
-		assert.deepStrictEqual(
-			terminal.getViewport().map((line) => line.trimEnd()),
-			["line 5", "line 6", "line 7", "line 8", "line 9", "line 10", "line 11", "line 12"],
-		);
+		expect(terminal.getViewport().map((line) => line.trimEnd())).toStrictEqual(["line 5", "line 6", "line 7", "line 8", "line 9", "line 10", "line 11", "line 12"]);
 
 		tui.stop();
 	});
 
 	it("searches normalized rendered transcript text across rows", () => {
-		assert.deepStrictEqual(findAltScreenSearchMatches(["alpha QUICK", "brown fox"], "quick brown"), [
+		expect(findAltScreenSearchMatches(["alpha QUICK", "brown fox"], "quick brown")).toStrictEqual([
 			{
 				segments: [
 					{ row: 0, startCol: 6, endCol: 11 },
@@ -701,7 +654,7 @@ describe("TuiAltScreen", () => {
 	});
 
 	it("maps normalized ASCII and Unicode search matches back to rendered columns", () => {
-		assert.deepStrictEqual(findAltScreenSearchMatches(["\x1b[31mfoo  bar\x1b[0m", "A界🙂éZ"], "oo   bar\nA界🙂é"), [
+		expect(findAltScreenSearchMatches(["\x1b[31mfoo  bar\x1b[0m", "A界🙂éZ"], "oo   bar\nA界🙂é")).toStrictEqual([
 			{
 				segments: [
 					{ row: 0, startCol: 1, endCol: 3 },
@@ -715,21 +668,21 @@ describe("TuiAltScreen", () => {
 	it("reuses indexed transcript matches until the query or rendered lines change", () => {
 		const index = new AltScreenSearchIndex();
 		const initial = index.search(["alpha needle", "omega"], "needle");
-		assert.strictEqual(initial.changed, true);
-		assert.strictEqual(initial.matches.length, 1);
+		expect(initial.changed).toBe(true);
+		expect(initial.matches.length).toBe(1);
 
 		const cached = index.search(["alpha needle", "omega"], "needle");
-		assert.strictEqual(cached.changed, false);
-		assert.strictEqual(cached.matches, initial.matches);
+		expect(cached.changed).toBe(false);
+		expect(cached.matches).toBe(initial.matches);
 
 		const changedQuery = index.search(["alpha needle", "omega"], "omega");
-		assert.strictEqual(changedQuery.changed, true);
-		assert.notStrictEqual(changedQuery.matches, initial.matches);
-		assert.deepStrictEqual(changedQuery.matches[0]?.segments, [{ row: 1, startCol: 0, endCol: 5 }]);
+		expect(changedQuery.changed).toBe(true);
+		expect(changedQuery.matches).not.toBe(initial.matches);
+		expect(changedQuery.matches[0]?.segments).toStrictEqual([{ row: 1, startCol: 0, endCol: 5 }]);
 
 		const changedLines = index.search(["alpha needle", "no match"], "omega");
-		assert.strictEqual(changedLines.changed, true);
-		assert.deepStrictEqual(changedLines.matches, []);
+		expect(changedLines.changed).toBe(true);
+		expect(changedLines.matches).toStrictEqual([]);
 	});
 
 	it("renders transcript search with a muted placeholder and right-aligned controls", () => {
@@ -737,27 +690,27 @@ describe("TuiAltScreen", () => {
 		const rendered = component.render(48);
 		const lines = rendered.map((line) => stripTerminalSequences(line));
 
-		assert.strictEqual(lines.length, 3);
-		assert.ok(lines.every((line) => visibleWidth(line) === 48));
-		assert.match(lines[0] ?? "", /^┌─+┐$/);
-		assert.match(lines[1] ?? "", /^│ Find in transcript +│$/);
-		assert.ok(rendered[1]?.includes("\x1b[2m"));
-		assert.match(lines[2] ?? "", /^└─+ ↑ Shift\+Enter · ↓ Enter ─┘$/);
+		expect(lines.length).toBe(3);
+		expect(lines.every((line) => visibleWidth(line) === 48)).toBeTruthy();
+		expect(String(lines[0] ?? "")).toMatch(/^┌─+┐$/);
+		expect(String(lines[1] ?? "")).toMatch(/^│ Find in transcript +│$/);
+		expect(rendered[1]?.includes("\x1b[2m")).toBeTruthy();
+		expect(String(lines[2] ?? "")).toMatch(/^└─+ ↑ Shift\+Enter · ↓ Enter ─┘$/);
 		const controls = lines[2] ?? "";
-		assert.strictEqual(component.getNavigationDirectionAt(2, controls.indexOf("↑")), -1);
-		assert.strictEqual(component.getNavigationDirectionAt(2, controls.indexOf("Shift+Enter") + 5), -1);
-		assert.strictEqual(component.getNavigationDirectionAt(2, controls.indexOf("·")), undefined);
-		assert.strictEqual(component.getNavigationDirectionAt(2, controls.indexOf("↓")), 1);
-		assert.strictEqual(component.getNavigationDirectionAt(2, controls.lastIndexOf("Enter") + 2), 1);
+		expect(component.getNavigationDirectionAt(2, controls.indexOf("↑"))).toBe(-1);
+		expect(component.getNavigationDirectionAt(2, controls.indexOf("Shift+Enter") + 5)).toBe(-1);
+		expect(component.getNavigationDirectionAt(2, controls.indexOf("·"))).toBe(undefined);
+		expect(component.getNavigationDirectionAt(2, controls.indexOf("↓"))).toBe(1);
+		expect(component.getNavigationDirectionAt(2, controls.lastIndexOf("Enter") + 2)).toBe(1);
 
 		component.handleInput("n");
 		component.setResult(0, 2);
 		const populatedRender = component.render(48);
 		const populated = populatedRender.map((line) => stripTerminalSequences(line));
-		assert.ok(populated[1]?.includes("n"));
-		assert.ok(populated[1]?.includes("1/2"));
-		assert.ok(populatedRender[1]?.includes("\x1b[2m 1/2 \x1b[22m"));
-		assert.ok(!populated.some((line) => line.includes("Find in transcript")));
+		expect(populated[1]?.includes("n")).toBeTruthy();
+		expect(populated[1]?.includes("1/2")).toBeTruthy();
+		expect(populatedRender[1]?.includes("\x1b[2m 1/2 \x1b[22m")).toBeTruthy();
+		expect(!populated.some((line) => line.includes("Find in transcript"))).toBeTruthy();
 	});
 
 	it("navigates transcript search with hoverable arrow buttons and toggles it with its shortcut", async () => {
@@ -773,37 +726,35 @@ describe("TuiAltScreen", () => {
 		terminal.sendInput("needle");
 		await terminal.waitForRender();
 		let viewport = terminal.getViewport();
-		assert.ok(viewport.some((line) => line.includes("1/2")));
-		assert.ok(viewport.some((line) => line.includes("↑ Shift+Enter · ↓ Enter")));
+		expect(viewport.some((line) => line.includes("1/2"))).toBeTruthy();
+		expect(viewport.some((line) => line.includes("↑ Shift+Enter · ↓ Enter"))).toBeTruthy();
 
 		let arrowRow = viewport.findIndex((line) => line.includes("↑") && line.includes("↓"));
 		let arrowColumn = viewport[arrowRow]?.lastIndexOf("Enter") ?? -1;
-		assert.ok(arrowRow >= 0 && arrowColumn >= 0);
+		expect(arrowRow >= 0 && arrowColumn >= 0).toBeTruthy();
 		const hoverEventCount = terminal.events.length;
 		terminal.sendInput(`\x1b[<35;${arrowColumn + 1};${arrowRow + 1}M`);
 		await terminal.waitForRender();
-		assert.ok(
-			terminal.events
+		expect(terminal.events
 				.slice(hoverEventCount)
-				.some((event) => event.type === "write" && event.data.includes("\x1b[45m↓ Enter\x1b[49m")),
-		);
+				.some((event) => event.type === "write" && event.data.includes("\x1b[45m↓ Enter\x1b[49m"))).toBeTruthy();
 		terminal.sendInput(`\x1b[<0;${arrowColumn + 1};${arrowRow + 1}M`);
 		await terminal.waitForRender();
 		viewport = terminal.getViewport();
-		assert.ok(viewport.some((line) => line.includes("2/2")));
-		assert.ok(viewport.some((line) => line.includes("↑ Shift+Enter · ↓ Enter")));
+		expect(viewport.some((line) => line.includes("2/2"))).toBeTruthy();
+		expect(viewport.some((line) => line.includes("↑ Shift+Enter · ↓ Enter"))).toBeTruthy();
 
 		arrowRow = viewport.findIndex((line) => line.includes("↑") && line.includes("↓"));
 		arrowColumn = (viewport[arrowRow]?.indexOf("Shift+Enter") ?? -3) + 3;
-		assert.ok(arrowRow >= 0 && arrowColumn >= 0);
+		expect(arrowRow >= 0 && arrowColumn >= 0).toBeTruthy();
 		terminal.sendInput(`\x1b[<0;${arrowColumn + 1};${arrowRow + 1}M`);
 		await terminal.waitForRender();
-		assert.ok(terminal.getViewport().some((line) => line.includes("1/2")));
-		assert.ok(terminal.getViewport().some((line) => line.includes("↑ Shift+Enter · ↓ Enter")));
+		expect(terminal.getViewport().some((line) => line.includes("1/2"))).toBeTruthy();
+		expect(terminal.getViewport().some((line) => line.includes("↑ Shift+Enter · ↓ Enter"))).toBeTruthy();
 
 		terminal.sendInput("\x1b[102;6u");
 		await terminal.waitForRender();
-		assert.ok(!terminal.getViewport().some((line) => line.includes("↑ Shift+Enter · ↓ Enter")));
+		expect(!terminal.getViewport().some((line) => line.includes("↑ Shift+Enter · ↓ Enter"))).toBeTruthy();
 		tui.stop();
 	});
 
@@ -833,17 +784,17 @@ describe("TuiAltScreen", () => {
 		terminal.sendInput("needle");
 		await terminal.waitForRender();
 		let viewport = terminal.getViewport();
-		assert.ok(viewport.some((line) => line.includes("1/2")));
-		assert.ok(!viewport.some((line) => line.includes("2/2")));
+		expect(viewport.some((line) => line.includes("1/2"))).toBeTruthy();
+		expect(!viewport.some((line) => line.includes("2/2"))).toBeTruthy();
 
 		const boxBottomRow = viewport.findIndex((line) => line.startsWith("└"));
-		assert.ok(boxBottomRow >= 0);
+		expect(boxBottomRow >= 0).toBeTruthy();
 		terminal.sendInput(`\x1b[<0;24;${boxBottomRow + 1}M`);
 		await terminal.waitForRender();
 
 		viewport = terminal.getViewport();
-		assert.ok(viewport.some((line) => line.includes("1/2")));
-		assert.ok(!viewport.some((line) => line.includes("2/2")));
+		expect(viewport.some((line) => line.includes("1/2"))).toBeTruthy();
+		expect(!viewport.some((line) => line.includes("2/2"))).toBeTruthy();
 		tui.stop();
 	});
 
@@ -861,12 +812,8 @@ describe("TuiAltScreen", () => {
 		terminal.sendInput("needle");
 		await terminal.waitForRender();
 
-		assert.ok(
-			terminal.events.some((event) => event.type === "write" && event.data.includes("\x1b[42mneedle\x1b[49m")),
-		);
-		assert.ok(
-			terminal.events.some((event) => event.type === "write" && event.data.includes("\x1b[41mneedle\x1b[49m")),
-		);
+		expect(terminal.events.some((event) => event.type === "write" && event.data.includes("\x1b[42mneedle\x1b[49m"))).toBeTruthy();
+		expect(terminal.events.some((event) => event.type === "write" && event.data.includes("\x1b[41mneedle\x1b[49m"))).toBeTruthy();
 		tui.stop();
 	});
 
@@ -903,35 +850,33 @@ describe("TuiAltScreen", () => {
 		terminal.sendInput("\x1b[102;6u");
 		terminal.sendInput("needle");
 		await terminal.waitForRender();
-		assert.strictEqual(transcript.isFollowingEnd, false);
-		assert.ok(terminal.getViewport().some((line) => line.includes("2/2")));
-		assert.ok(terminal.getViewport().some((line) => line.includes("↑ Shift+Enter · ↓ Enter")));
-		assert.ok(terminal.getViewport().some((line) => line.includes("line 10 needle two")));
-		assert.deepStrictEqual(editorInputs, []);
-		assert.ok(
-			terminal.events.some((event) => event.type === "write" && event.data.includes("\x1b[1;7mneedle\x1b[22;27m")),
-		);
+		expect(transcript.isFollowingEnd).toBe(false);
+		expect(terminal.getViewport().some((line) => line.includes("2/2"))).toBeTruthy();
+		expect(terminal.getViewport().some((line) => line.includes("↑ Shift+Enter · ↓ Enter"))).toBeTruthy();
+		expect(terminal.getViewport().some((line) => line.includes("line 10 needle two"))).toBeTruthy();
+		expect(editorInputs).toStrictEqual([]);
+		expect(terminal.events.some((event) => event.type === "write" && event.data.includes("\x1b[1;7mneedle\x1b[22;27m"))).toBeTruthy();
 
 		for (let index = 0; index < 6; index++) terminal.sendInput("\x1b[<64;1;4M");
 		await terminal.waitForRender();
-		assert.strictEqual(transcript.scrollTop, 0);
-		assert.ok(terminal.getViewport().some((line) => line.includes("needle") && line.includes("2/2")));
+		expect(transcript.scrollTop).toBe(0);
+		expect(terminal.getViewport().some((line) => line.includes("needle") && line.includes("2/2"))).toBeTruthy();
 
 		terminal.sendInput("\x07");
 		await terminal.waitForRender();
-		assert.ok(terminal.getViewport().some((line) => line.includes("1/2")));
-		assert.ok(terminal.getViewport().some((line) => line.includes("line 5 needle one")));
+		expect(terminal.getViewport().some((line) => line.includes("1/2"))).toBeTruthy();
+		expect(terminal.getViewport().some((line) => line.includes("line 5 needle one"))).toBeTruthy();
 
 		terminal.sendInput("\x1b[103;6u");
 		await terminal.waitForRender();
-		assert.ok(terminal.getViewport().some((line) => line.includes("2/2")));
-		assert.ok(terminal.getViewport().some((line) => line.includes("line 10 needle two")));
+		expect(terminal.getViewport().some((line) => line.includes("2/2"))).toBeTruthy();
+		expect(terminal.getViewport().some((line) => line.includes("line 10 needle two"))).toBeTruthy();
 
 		terminal.sendInput("\x1b");
 		terminal.sendInput("x");
 		await terminal.waitForRender();
-		assert.ok(!terminal.getViewport().some((line) => line.includes("↑ Shift+Enter · ↓ Enter")));
-		assert.deepStrictEqual(editorInputs, ["x"]);
+		expect(!terminal.getViewport().some((line) => line.includes("↑ Shift+Enter · ↓ Enter"))).toBeTruthy();
+		expect(editorInputs).toStrictEqual(["x"]);
 
 		tui.stop();
 	});
@@ -950,15 +895,15 @@ describe("TuiAltScreen", () => {
 			tui.addChild(new Text(Array.from({ length: 30 }, (_, index) => `line ${index + 1}`).join("\n"), 0, 0));
 			tui.start();
 			await terminal.waitForRender();
-			assert.strictEqual(tui.viewportTop, 20);
+			expect(tui.viewportTop).toBe(20);
 
 			terminal.sendInput("\x15");
 			await terminal.waitForRender();
-			assert.strictEqual(tui.viewportTop, 15);
+			expect(tui.viewportTop).toBe(15);
 
 			terminal.sendInput("\x04");
 			await terminal.waitForRender();
-			assert.strictEqual(tui.viewportTop, 20);
+			expect(tui.viewportTop).toBe(20);
 		} finally {
 			tui.stop();
 			setKeybindings(originalKeybindings);
@@ -992,8 +937,8 @@ describe("TuiAltScreen", () => {
 		const inputs = ["\x1b[5~", "\x1b[6~", "\x1b[H", "\x1b[F"];
 		for (const input of inputs) terminal.sendInput(input);
 		await terminal.waitForRender();
-		assert.strictEqual(transcript.scrollTop, 0);
-		assert.deepStrictEqual(editorInputs, inputs);
+		expect(transcript.scrollTop).toBe(0);
+		expect(editorInputs).toStrictEqual(inputs);
 
 		tui.stop();
 	});
@@ -1030,8 +975,8 @@ describe("TuiAltScreen", () => {
 		for (const input of inputs) terminal.sendInput(input);
 		await terminal.waitForRender();
 
-		assert.deepStrictEqual(pagerInputs, inputs);
-		assert.strictEqual(tui.viewportTop, topBefore);
+		expect(pagerInputs).toStrictEqual(inputs);
+		expect(tui.viewportTop).toBe(topBefore);
 
 		tui.stop();
 	});
@@ -1056,12 +1001,12 @@ describe("TuiAltScreen", () => {
 			terminal.sendInput("\x1b[I");
 			terminal.sendInput("\x1b[<0;2;1M");
 			terminal.sendInput("\x1b[<0;2;1m");
-			assert.strictEqual(clicks, 0);
+			expect(clicks).toBe(0);
 
 			setSystemTime(1_300);
 			terminal.sendInput("\x1b[<0;2;1M");
 			terminal.sendInput("\x1b[<0;2;1m");
-			assert.strictEqual(clicks, 1);
+			expect(clicks).toBe(1);
 			tui.stop();
 		} finally {
 			setSystemTime();
@@ -1086,7 +1031,7 @@ describe("TuiAltScreen", () => {
 		terminal.sendInput("\x1b[I");
 		terminal.sendInput("\x1b[<0;2;1M");
 		terminal.sendInput("\x1b[<0;2;1m");
-		assert.strictEqual(clicks, 1);
+		expect(clicks).toBe(1);
 		tui.stop();
 	});
 
@@ -1117,8 +1062,8 @@ describe("TuiAltScreen", () => {
 		terminal.sendInput("\x1b[5~");
 		await terminal.waitForRender();
 
-		assert.deepStrictEqual(pillInputs, []);
-		assert.ok(tui.viewportTop < topBefore);
+		expect(pillInputs).toStrictEqual([]);
+		expect(tui.viewportTop < topBefore).toBeTruthy();
 
 		tui.stop();
 	});
@@ -1147,8 +1092,8 @@ describe("TuiAltScreen", () => {
 
 		terminal.sendInput("\x1b[102;6u");
 		await terminal.waitForRender();
-		assert.ok(!terminal.getViewport().some((line) => line.includes("Find in transcript")));
-		assert.deepStrictEqual(readerInputs, ["\x1b[102;6u"]);
+		expect(!terminal.getViewport().some((line) => line.includes("Find in transcript"))).toBeTruthy();
+		expect(readerInputs).toStrictEqual(["\x1b[102;6u"]);
 
 		tui.stop();
 	});
@@ -1175,7 +1120,7 @@ describe("TuiAltScreen", () => {
 
 		terminal.sendInput("\x1b[102;6u");
 		await terminal.waitForRender();
-		assert.ok(terminal.getViewport().some((line) => line.includes("Find in transcript")));
+		expect(terminal.getViewport().some((line) => line.includes("Find in transcript"))).toBeTruthy();
 
 		tui.stop();
 	});
@@ -1198,7 +1143,7 @@ describe("TuiAltScreen", () => {
 		terminal.sendInput("\x1b[O"); // FOCUS_OUT
 		terminal.sendInput("\x1b[I"); // FOCUS_IN
 		await terminal.waitForRender();
-		assert.deepStrictEqual(seenByApp, ["\x1b[O", "\x1b[I"]);
+		expect(seenByApp).toStrictEqual(["\x1b[O", "\x1b[I"]);
 
 		tui.stop();
 	});
@@ -1217,15 +1162,15 @@ describe("TuiAltScreen", () => {
 			tui.addChild(new Text(Array.from({ length: 30 }, (_, index) => `line ${index + 1}`).join("\n"), 0, 0));
 			tui.start();
 			await terminal.waitForRender();
-			assert.strictEqual(tui.viewportTop, 20);
+			expect(tui.viewportTop).toBe(20);
 
 			terminal.sendInput("\x19");
 			await terminal.waitForRender();
-			assert.strictEqual(tui.viewportTop, 19);
+			expect(tui.viewportTop).toBe(19);
 
 			terminal.sendInput("\x05");
 			await terminal.waitForRender();
-			assert.strictEqual(tui.viewportTop, 20);
+			expect(tui.viewportTop).toBe(20);
 		} finally {
 			tui.stop();
 			setKeybindings(originalKeybindings);
@@ -1258,20 +1203,20 @@ describe("TuiAltScreen", () => {
 
 		terminal.sendInput("\x1bOH");
 		await terminal.waitForRender();
-		assert.strictEqual(transcript.scrollTop, 0);
-		assert.deepStrictEqual(editorInputs, []);
+		expect(transcript.scrollTop).toBe(0);
+		expect(editorInputs).toStrictEqual([]);
 
 		const modifiedInputs = ["\x1b[1;5H", "\x1b[1;5F", "\x1b[5;5~", "\x1b[6;5~", "\x1b[57423;5u"];
 		for (const input of modifiedInputs) terminal.sendInput(input);
 		terminal.sendInput("\x1b[57423;5:3u");
 		await terminal.waitForRender();
-		assert.strictEqual(transcript.scrollTop, 0);
-		assert.deepStrictEqual(editorInputs, modifiedInputs);
+		expect(transcript.scrollTop).toBe(0);
+		expect(editorInputs).toStrictEqual(modifiedInputs);
 
 		terminal.sendInput("\x1b[6~");
 		await terminal.waitForRender();
-		assert.strictEqual(transcript.scrollTop, 1);
-		assert.deepStrictEqual(editorInputs, modifiedInputs);
+		expect(transcript.scrollTop).toBe(1);
+		expect(editorInputs).toStrictEqual(modifiedInputs);
 
 		tui.stop();
 	});
@@ -1288,30 +1233,30 @@ describe("TuiAltScreen", () => {
 		);
 		tui.start();
 		await terminal.waitForRender();
-		assert.strictEqual(tui.viewportTop, 5);
+		expect(tui.viewportTop).toBe(5);
 
 		terminal.sendInput("\x1b[57419;6u");
 		terminal.sendInput("\x1b[57419;6:3u");
 		await terminal.waitForRender();
-		assert.strictEqual(tui.viewportTop, 4);
-		assert.strictEqual(terminal.getViewport()[0]?.trimEnd(), "message 3");
+		expect(tui.viewportTop).toBe(4);
+		expect(terminal.getViewport()[0]?.trimEnd()).toBe("message 3");
 
 		terminal.sendInput("\x1b[1;6A");
 		await terminal.waitForRender();
-		assert.strictEqual(tui.viewportTop, 2);
-		assert.strictEqual(terminal.getViewport()[0]?.trimEnd(), "message 2");
+		expect(tui.viewportTop).toBe(2);
+		expect(terminal.getViewport()[0]?.trimEnd()).toBe("message 2");
 
 		terminal.sendInput("\x1b[57420;6u");
 		terminal.sendInput("\x1b[57420;6:3u");
 		await terminal.waitForRender();
-		assert.strictEqual(tui.viewportTop, 4);
-		assert.strictEqual(terminal.getViewport()[0]?.trimEnd(), "message 3");
+		expect(tui.viewportTop).toBe(4);
+		expect(terminal.getViewport()[0]?.trimEnd()).toBe("message 3");
 
 		terminal.sendInput("\x1b[1;6B");
 		await terminal.waitForRender();
-		assert.strictEqual(tui.viewportTop, 5);
-		assert.strictEqual(terminal.getViewport()[1]?.trimEnd(), "message 4");
-		assert.strictEqual(tui.isFollowingOutput, true);
+		expect(tui.viewportTop).toBe(5);
+		expect(terminal.getViewport()[1]?.trimEnd()).toBe("message 4");
+		expect(tui.isFollowingOutput).toBe(true);
 
 		tui.stop();
 	});
@@ -1337,10 +1282,10 @@ describe("TuiAltScreen", () => {
 			tui.start();
 			await terminal.waitForRender();
 			tui.stop();
-			assert.ok(terminal.events.every((event) => event.type !== "write" || !event.data.includes("\x1b_G")));
-			assert.ok(terminal.events.every((event) => event.type !== "write" || !event.data.includes("\x1b]133;")));
-			assert.ok(terminal.events.every((event) => event.type !== "write" || !event.data.includes("\x1b]1337;File=")));
-			assert.ok(terminal.events.some((event) => event.type === "write" && event.data.includes("[Image:")));
+			expect(terminal.events.every((event) => event.type !== "write" || !event.data.includes("\x1b_G"))).toBeTruthy();
+			expect(terminal.events.every((event) => event.type !== "write" || !event.data.includes("\x1b]133;"))).toBeTruthy();
+			expect(terminal.events.every((event) => event.type !== "write" || !event.data.includes("\x1b]1337;File="))).toBeTruthy();
+			expect(terminal.events.some((event) => event.type === "write" && event.data.includes("[Image:"))).toBeTruthy();
 		} finally {
 			resetCapabilitiesCache();
 		}
@@ -1364,9 +1309,7 @@ describe("TuiAltScreen", () => {
 
 			tui.scrollBy(1);
 			await terminal.waitForRender();
-			assert.ok(
-				terminal.events.slice(eventCount).some((event) => event.type === "write" && event.data.includes("\x1b[2J")),
-			);
+			expect(terminal.events.slice(eventCount).some((event) => event.type === "write" && event.data.includes("\x1b[2J"))).toBeTruthy();
 			tui.stop();
 		} finally {
 			resetCapabilitiesCache();
@@ -1386,12 +1329,10 @@ describe("TuiAltScreen", () => {
 		tui.start();
 		await terminal.waitForRender();
 
-		assert.strictEqual(tui.viewportTop, 3);
-		assert.ok(
-			terminal.events.some(
+		expect(tui.viewportTop).toBe(3);
+		expect(terminal.events.some(
 				(event) => event.type === "write" && event.data.includes("i=123") && event.data.includes("y=66,h=34,r=1"),
-			),
-		);
+			)).toBeTruthy();
 
 		tui.stop();
 	});
@@ -1422,7 +1363,7 @@ describe("TuiAltScreen", () => {
 			);
 			tui.start();
 			await terminal.waitForRender();
-			assert.ok(terminal.events.some((event) => event.type === "write" && event.data.includes("\x1b_Ga=T")));
+			expect(terminal.events.some((event) => event.type === "write" && event.data.includes("\x1b_Ga=T"))).toBeTruthy();
 
 			const eventCount = terminal.events.length;
 			label.setText("changed");
@@ -1435,11 +1376,11 @@ describe("TuiAltScreen", () => {
 				.map((event) => event.data)
 				.join("");
 			const placementIndex = redrawWrites.indexOf("\x1b_Ga=p,q=2");
-			assert.ok(redrawWrites.includes("\x1b_Ga=d,d=a,q=2\x1b\\"));
-			assert.ok(placementIndex > redrawWrites.indexOf("changed"));
-			assert.ok(!redrawWrites.includes("\x1b_Ga=T"));
-			assert.ok(redrawWrites.length < 2000, `expected placement-only redraw, got ${redrawWrites.length} bytes`);
-			assert.ok(terminal.getViewport().some((line) => line.trimEnd() === "changed"));
+			expect(redrawWrites.includes("\x1b_Ga=d,d=a,q=2\x1b\\")).toBeTruthy();
+			expect(placementIndex > redrawWrites.indexOf("changed")).toBeTruthy();
+			expect(!redrawWrites.includes("\x1b_Ga=T")).toBeTruthy();
+			expect(redrawWrites.length < 2000, `expected placement-only redraw, got ${redrawWrites.length} bytes`).toBeTruthy();
+			expect(terminal.getViewport().some((line) => line.trimEnd() === "changed")).toBeTruthy();
 			tui.stop();
 		} finally {
 			resetCapabilitiesCache();
@@ -1465,7 +1406,7 @@ describe("TuiAltScreen", () => {
 			);
 			tui.start();
 			await terminal.waitForRender();
-			assert.ok(terminal.events.some((event) => event.type === "write" && event.data.includes("\x1b_Ga=T")));
+			expect(terminal.events.some((event) => event.type === "write" && event.data.includes("\x1b_Ga=T"))).toBeTruthy();
 
 			const eventCount = terminal.events.length;
 			tui.scrollBy(1);
@@ -1477,9 +1418,9 @@ describe("TuiAltScreen", () => {
 				.filter((event): event is { type: "write"; data: string } => event.type === "write")
 				.map((event) => event.data)
 				.join("");
-			assert.ok(reentryWrites.includes("\x1b_Ga=p,q=2"));
-			assert.ok(!reentryWrites.includes("\x1b_Ga=T"));
-			assert.ok(!reentryWrites.includes(`\x1b_Ga=d,d=I,i=${imageId},q=2\x1b\\`));
+			expect(reentryWrites.includes("\x1b_Ga=p,q=2")).toBeTruthy();
+			expect(!reentryWrites.includes("\x1b_Ga=T")).toBeTruthy();
+			expect(!reentryWrites.includes(`\x1b_Ga=d,d=I,i=${imageId},q=2\x1b\\`)).toBeTruthy();
 			tui.stop();
 		} finally {
 			resetCapabilitiesCache();
@@ -1512,11 +1453,9 @@ describe("TuiAltScreen", () => {
 				tui.scrollBy(1);
 				await terminal.waitForRender();
 			}
-			assert.ok(
-				terminal.events.some(
+			expect(terminal.events.some(
 					(event) => event.type === "write" && event.data.includes(`\x1b_Ga=d,d=I,i=${firstImageId},q=2\x1b\\`),
-				),
-			);
+				)).toBeTruthy();
 
 			const eventCount = terminal.events.length;
 			tui.scrollToTop();
@@ -1526,7 +1465,7 @@ describe("TuiAltScreen", () => {
 				.filter((event): event is { type: "write"; data: string } => event.type === "write")
 				.map((event) => event.data)
 				.join("");
-			assert.ok(reentryWrites.includes("\x1b_Ga=T"));
+			expect(reentryWrites.includes("\x1b_Ga=T")).toBeTruthy();
 			tui.stop();
 		} finally {
 			resetCapabilitiesCache();
@@ -1559,11 +1498,9 @@ describe("TuiAltScreen", () => {
 				tui.scrollBy(1);
 				await terminal.waitForRender();
 			}
-			assert.ok(
-				terminal.events.some(
+			expect(terminal.events.some(
 					(event) => event.type === "write" && event.data.includes(`\x1b_Ga=d,d=I,i=${firstImageId},q=2\x1b\\`),
-				),
-			);
+				)).toBeTruthy();
 			tui.stop();
 		} finally {
 			resetCapabilitiesCache();
@@ -1592,23 +1529,23 @@ describe("TuiAltScreen", () => {
 		terminal.sendInput("\x1b[<0;2;1M");
 		terminal.sendInput("\x1b[<3;2;1m");
 		await terminal.waitForRender();
-		assert.deepStrictEqual(openedUrls, [url]);
+		expect(openedUrls).toStrictEqual([url]);
 
 		terminal.sendInput("\x1b[<0;2;2M");
 		terminal.sendInput("\x1b[<0;2;2m");
 		await terminal.waitForRender();
-		assert.deepStrictEqual(openedUrls, [url, belUrl]);
+		expect(openedUrls).toStrictEqual([url, belUrl]);
 
 		terminal.sendInput("\x1b[<0;2;3M");
 		terminal.sendInput("\x1b[<0;2;3m");
 		await terminal.waitForRender();
-		assert.deepStrictEqual(openedUrls, [url, belUrl, emojiUrl]);
+		expect(openedUrls).toStrictEqual([url, belUrl, emojiUrl]);
 
 		terminal.sendInput("\x1b[<0;2;1M");
 		terminal.sendInput("\x1b[<32;4;1M");
 		terminal.sendInput("\x1b[<0;4;1m");
 		await terminal.waitForRender();
-		assert.deepStrictEqual(openedUrls, [url, belUrl, emojiUrl]);
+		expect(openedUrls).toStrictEqual([url, belUrl, emojiUrl]);
 
 		tui.stop();
 	});
@@ -1629,16 +1566,10 @@ describe("TuiAltScreen", () => {
 		const clipboardWrites = terminal.events.filter(
 			(event) => event.type === "write" && event.data.includes("\x1b]52;c;"),
 		);
-		assert.ok(
-			clipboardWrites.some((event) => event.type === "write" && event.data.includes(expectedClipboardSequence)),
-			JSON.stringify(clipboardWrites),
-		);
-		assert.ok(terminal.events.some((event) => event.type === "write" && event.data.includes("\x1b[7m")));
-		assert.ok(
-			terminal.events.some((event) => event.type === "write" && event.data.includes("al\x1b[0m\x1b[7mpha")),
-			"selection inverse must be reapplied after a reset inside the selection",
-		);
-		assert.ok(terminal.getViewport().some((line) => line.includes("Copied!")));
+		expect(clipboardWrites.some((event) => event.type === "write" && event.data.includes(expectedClipboardSequence)), JSON.stringify(clipboardWrites)).toBeTruthy();
+		expect(terminal.events.some((event) => event.type === "write" && event.data.includes("\x1b[7m"))).toBeTruthy();
+		expect(terminal.events.some((event) => event.type === "write" && event.data.includes("al\x1b[0m\x1b[7mpha")), "selection inverse must be reapplied after a reset inside the selection").toBeTruthy();
+		expect(terminal.getViewport().some((line) => line.includes("Copied!"))).toBeTruthy();
 
 		tui.stop();
 	});
@@ -1661,12 +1592,9 @@ describe("TuiAltScreen", () => {
 		terminal.sendInput("\x1b[<0;4;2m");
 		await terminal.waitForRender();
 
-		assert.deepStrictEqual(copied, ["alpha\nbeta"]);
-		assert.ok(
-			terminal.events.every((event) => event.type !== "write" || !event.data.includes("\x1b]52;c;")),
-			"must not emit OSC 52 when a copySelection handler is provided",
-		);
-		assert.ok(terminal.getViewport().some((line) => line.includes("Copied!")));
+		expect(copied).toStrictEqual(["alpha\nbeta"]);
+		expect(terminal.events.every((event) => event.type !== "write" || !event.data.includes("\x1b]52;c;")), "must not emit OSC 52 when a copySelection handler is provided").toBeTruthy();
+		expect(terminal.getViewport().some((line) => line.includes("Copied!"))).toBeTruthy();
 
 		tui.stop();
 	});
@@ -1690,10 +1618,10 @@ describe("TuiAltScreen", () => {
 		terminal.sendInput("\x1b[<0;4;2m");
 		await terminal.waitForRender();
 
-		assert.deepStrictEqual(copied, []);
-		assert.strictEqual(tui.hasActiveSelection(), true);
-		assert.ok(terminal.events.some((event) => event.type === "write" && event.data.includes("\x1b[7m")));
-		assert.ok(terminal.getViewport().every((line) => !line.includes("Copied!")));
+		expect(copied).toStrictEqual([]);
+		expect(tui.hasActiveSelection()).toBe(true);
+		expect(terminal.events.some((event) => event.type === "write" && event.data.includes("\x1b[7m"))).toBeTruthy();
+		expect(terminal.getViewport().every((line) => !line.includes("Copied!"))).toBeTruthy();
 
 		tui.stop();
 	});
@@ -1711,23 +1639,23 @@ describe("TuiAltScreen", () => {
 		tui.start();
 		await terminal.waitForRender();
 
-		assert.strictEqual(tui.hasActiveSelection(), false);
-		assert.strictEqual(await tui.copyActiveSelectionToClipboard(), false);
+		expect(tui.hasActiveSelection()).toBe(false);
+		expect(await tui.copyActiveSelectionToClipboard()).toBe(false);
 
 		terminal.sendInput("\x1b[<0;1;1M");
 		terminal.sendInput("\x1b[<32;4;2M");
 		terminal.sendInput("\x1b[<0;4;2m");
 		await terminal.waitForRender();
 
-		assert.deepStrictEqual(copied, ["alpha\nbeta"]);
-		assert.strictEqual(tui.hasActiveSelection(), true);
+		expect(copied).toStrictEqual(["alpha\nbeta"]);
+		expect(tui.hasActiveSelection()).toBe(true);
 
 		copied.length = 0;
-		assert.strictEqual(await tui.copyActiveSelectionToClipboard(), true);
+		expect(await tui.copyActiveSelectionToClipboard()).toBe(true);
 		await terminal.waitForRender();
 
-		assert.deepStrictEqual(copied, ["alpha\nbeta"]);
-		assert.ok(terminal.getViewport().some((line) => line.includes("Copied!")));
+		expect(copied).toStrictEqual(["alpha\nbeta"]);
+		expect(terminal.getViewport().some((line) => line.includes("Copied!"))).toBeTruthy();
 
 		tui.stop();
 	});
@@ -1746,11 +1674,8 @@ describe("TuiAltScreen", () => {
 		terminal.sendInput("\x1b[<0;4;2m");
 		await terminal.waitForRender();
 
-		assert.ok(terminal.getViewport().some((line) => line.includes("Copy failed")));
-		assert.ok(
-			terminal.events.every((event) => event.type !== "write" || !event.data.includes("\x1b]52;c;")),
-			"must not emit OSC 52 when a copySelection handler is provided",
-		);
+		expect(terminal.getViewport().some((line) => line.includes("Copy failed"))).toBeTruthy();
+		expect(terminal.events.every((event) => event.type !== "write" || !event.data.includes("\x1b]52;c;")), "must not emit OSC 52 when a copySelection handler is provided").toBeTruthy();
 
 		tui.stop();
 	});
@@ -1767,7 +1692,7 @@ describe("TuiAltScreen", () => {
 		terminal.sendInput("\x1b[<0;3;1M");
 		await terminal.waitForRender();
 
-		assert.ok(terminal.events.some((event) => event.type === "write" && event.data.includes("foo\x1b[27m")));
+		expect(terminal.events.some((event) => event.type === "write" && event.data.includes("foo\x1b[27m"))).toBeTruthy();
 		tui.stop();
 	});
 
@@ -1795,7 +1720,7 @@ describe("TuiAltScreen", () => {
 			terminal.sendInput(`\x1b[<0;${oneBasedClickColumn};1m`);
 			await terminal.waitForRender();
 
-			assert.deepStrictEqual(copied, [line]);
+			expect(copied).toStrictEqual([line]);
 			tui.stop();
 		}
 	});
@@ -1813,7 +1738,7 @@ describe("TuiAltScreen", () => {
 		terminal.sendInput("\x1b[<32;4;1M");
 		await terminal.waitForRender();
 
-		assert.ok(terminal.events.some((event) => event.type === "write" && event.data.includes("foo  \x1b[27m")));
+		expect(terminal.events.some((event) => event.type === "write" && event.data.includes("foo  \x1b[27m"))).toBeTruthy();
 		tui.stop();
 	});
 
@@ -1831,7 +1756,7 @@ describe("TuiAltScreen", () => {
 		terminal.sendInput("\x1b[<0;10;1m");
 		await terminal.waitForRender();
 		const alpha = `\x1b]52;c;${Buffer.from("alpha").toString("base64")}\x07`;
-		assert.ok(terminal.events.some((event) => event.type === "write" && event.data.includes(alpha)));
+		expect(terminal.events.some((event) => event.type === "write" && event.data.includes(alpha))).toBeTruthy();
 
 		// A double-click drag includes each word touched, rather than partial words.
 		terminal.sendInput("\x1b[<0;12;1M");
@@ -1841,7 +1766,7 @@ describe("TuiAltScreen", () => {
 		terminal.sendInput("\x1b[<0;3;2m");
 		await terminal.waitForRender();
 		const words = `\x1b]52;c;${Buffer.from("beta\ngamma").toString("base64")}\x07`;
-		assert.ok(terminal.events.some((event) => event.type === "write" && event.data.includes(words)));
+		expect(terminal.events.some((event) => event.type === "write" && event.data.includes(words))).toBeTruthy();
 
 		terminal.sendInput("\x1b[<0;7;2M");
 		terminal.sendInput("\x1b[<0;7;2m");
@@ -1851,7 +1776,7 @@ describe("TuiAltScreen", () => {
 		terminal.sendInput("\x1b[<0;11;2m");
 		await terminal.waitForRender();
 		const line = `\x1b]52;c;${Buffer.from("gamma delta").toString("base64")}\x07`;
-		assert.ok(terminal.events.some((event) => event.type === "write" && event.data.includes(line)));
+		expect(terminal.events.some((event) => event.type === "write" && event.data.includes(line))).toBeTruthy();
 
 		tui.stop();
 	});
@@ -1871,7 +1796,7 @@ describe("TuiAltScreen", () => {
 		terminal.sendInput("\x1b[O");
 		terminal.sendInput("\x1b[I");
 		await terminal.waitForRender();
-		assert.strictEqual(writeCount(), idleWriteCount);
+		expect(writeCount()).toBe(idleWriteCount);
 
 		// A completed click leaves a zero-width anchor, but later orphaned drag/release events must not extend it.
 		terminal.sendInput("\x1b[<0;1;1M");
@@ -1879,7 +1804,7 @@ describe("TuiAltScreen", () => {
 		terminal.sendInput("\x1b[<32;4;2M");
 		terminal.sendInput("\x1b[<0;4;2m");
 		await terminal.waitForRender();
-		assert.strictEqual(clipboardWriteCount(), 0);
+		expect(clipboardWriteCount()).toBe(0);
 
 		// Losing focus after a press without a drag cancels the press without repainting.
 		terminal.sendInput("\x1b[<0;1;3M");
@@ -1888,15 +1813,15 @@ describe("TuiAltScreen", () => {
 		terminal.sendInput("\x1b[O");
 		terminal.sendInput("\x1b[I");
 		await terminal.waitForRender();
-		assert.strictEqual(writeCount(), pressedWriteCount);
+		expect(writeCount()).toBe(pressedWriteCount);
 		terminal.sendInput("\x1b[<32;4;2M");
 		terminal.sendInput("\x1b[<0;4;2m");
 		await terminal.waitForRender();
-		assert.strictEqual(clipboardWriteCount(), 0);
-		assert.ok(terminal.events.some((event) => event.type === "write" && event.data.includes("\x1b[?1004h")));
+		expect(clipboardWriteCount()).toBe(0);
+		expect(terminal.events.some((event) => event.type === "write" && event.data.includes("\x1b[?1004h"))).toBeTruthy();
 
 		tui.stop();
-		assert.ok(terminal.events.some((event) => event.type === "write" && event.data.includes("\x1b[?1004l")));
+		expect(terminal.events.some((event) => event.type === "write" && event.data.includes("\x1b[?1004l"))).toBeTruthy();
 	});
 
 	it("clears an active visible selection on focus loss and ignores orphan events", async () => {
@@ -1918,14 +1843,14 @@ describe("TuiAltScreen", () => {
 			.filter((event): event is { type: "write"; data: string } => event.type === "write")
 			.map((event) => event.data)
 			.join("");
-		assert.ok(focusLossWrites.includes("alpha"));
-		assert.ok(focusLossWrites.includes("beta"));
-		assert.ok(!focusLossWrites.includes("\x1b[7m"));
+		expect(focusLossWrites.includes("alpha")).toBeTruthy();
+		expect(focusLossWrites.includes("beta")).toBeTruthy();
+		expect(!focusLossWrites.includes("\x1b[7m")).toBeTruthy();
 
 		terminal.sendInput("\x1b[<32;4;2M");
 		terminal.sendInput("\x1b[<0;4;2m");
 		await terminal.waitForRender();
-		assert.ok(terminal.events.every((event) => event.type !== "write" || !event.data.includes("\x1b]52;c;")));
+		expect(terminal.events.every((event) => event.type !== "write" || !event.data.includes("\x1b]52;c;"))).toBeTruthy();
 		tui.stop();
 	});
 
@@ -1944,7 +1869,7 @@ describe("TuiAltScreen", () => {
 		terminal.sendInput("\x1b[O");
 		terminal.sendInput("\x1b[I");
 		await terminal.waitForRender();
-		assert.strictEqual(terminal.events.filter((event) => event.type === "write").length, completedWriteCount);
+		expect(terminal.events.filter((event) => event.type === "write").length).toBe(completedWriteCount);
 
 		const redrawEventCount = terminal.events.length;
 		tui.renderNow(true);
@@ -1953,9 +1878,9 @@ describe("TuiAltScreen", () => {
 			.filter((event): event is { type: "write"; data: string } => event.type === "write")
 			.map((event) => event.data)
 			.join("");
-		assert.ok(redrawWrites.includes("alpha"));
-		assert.ok(redrawWrites.includes("beta"));
-		assert.ok(redrawWrites.includes("\x1b[7m"));
+		expect(redrawWrites.includes("alpha")).toBeTruthy();
+		expect(redrawWrites.includes("beta")).toBeTruthy();
+		expect(redrawWrites.includes("\x1b[7m")).toBeTruthy();
 		tui.stop();
 	});
 
@@ -1970,14 +1895,14 @@ describe("TuiAltScreen", () => {
 		tui.flash("Second", 500);
 		await terminal.waitForRender();
 		let viewport = terminal.getViewport();
-		assert.ok(viewport[0]?.endsWith(" First "));
-		assert.ok(viewport[1]?.endsWith(" Second "));
+		expect(viewport[0]?.endsWith(" First ")).toBeTruthy();
+		expect(viewport[1]?.endsWith(" Second ")).toBeTruthy();
 
 		await new Promise((resolve) => setTimeout(resolve, 100));
 		await terminal.waitForRender();
 		viewport = terminal.getViewport();
-		assert.ok(viewport[0]?.endsWith(" Second "));
-		assert.ok(!viewport.some((line) => line.includes("First")));
+		expect(viewport[0]?.endsWith(" Second ")).toBeTruthy();
+		expect(!viewport.some((line) => line.includes("First"))).toBeTruthy();
 
 		tui.stop();
 	});
@@ -1988,7 +1913,7 @@ describe("TuiAltScreen", () => {
 		tui.addChild(new Text(Array.from({ length: 10 }, (_, index) => `line ${index + 1}`).join("\n"), 0, 0));
 		tui.start();
 		await terminal.waitForRender();
-		assert.strictEqual(tui.viewportTop, 6);
+		expect(tui.viewportTop).toBe(6);
 
 		terminal.sendInput("\x1b[<0;1;3M");
 		terminal.sendInput("\x1b[<32;1;1M");
@@ -1996,17 +1921,14 @@ describe("TuiAltScreen", () => {
 		await terminal.waitForRender();
 
 		const selectionTop = tui.viewportTop;
-		assert.ok(selectionTop < 6, `expected auto-scroll above row 6, got ${selectionTop}`);
+		expect(selectionTop < 6, `expected auto-scroll above row 6, got ${selectionTop}`).toBeTruthy();
 		terminal.sendInput("\x1b[<0;1;1m");
 		await terminal.waitForRender();
 
 		const selectedLines = Array.from({ length: 8 - selectionTop }, (_, index) => `line ${selectionTop + index + 1}`);
 		selectedLines.push("l");
 		const expectedClipboardSequence = `\x1b]52;c;${Buffer.from(selectedLines.join("\n")).toString("base64")}\x07`;
-		assert.ok(
-			terminal.events.some((event) => event.type === "write" && event.data.includes(expectedClipboardSequence)),
-			JSON.stringify(terminal.events.filter((event) => event.type === "write" && event.data.includes("\x1b]52;c;"))),
-		);
+		expect(terminal.events.some((event) => event.type === "write" && event.data.includes(expectedClipboardSequence)), JSON.stringify(terminal.events.filter((event) => event.type === "write" && event.data.includes("\x1b]52;c;")))).toBeTruthy();
 		tui.stop();
 	});
 
@@ -2022,26 +1944,20 @@ describe("TuiAltScreen", () => {
 		terminal.sendInput("\x1b[<32;4;1M");
 		terminal.sendInput("\x1b[<0;4;1m");
 		await terminal.waitForRender();
-		assert.strictEqual(
-			terminal.events.filter((event) => event.type === "write" && event.data.includes(wideSelection)).length,
-			1,
-		);
+		expect(terminal.events.filter((event) => event.type === "write" && event.data.includes(wideSelection)).length).toBe(1);
 
 		terminal.sendInput("\x1b[<0;5;1M");
 		terminal.sendInput("\x1b[<32;2;1M");
 		terminal.sendInput("\x1b[<0;2;1m");
 		await terminal.waitForRender();
-		assert.strictEqual(
-			terminal.events.filter((event) => event.type === "write" && event.data.includes(wideSelection)).length,
-			2,
-		);
+		expect(terminal.events.filter((event) => event.type === "write" && event.data.includes(wideSelection)).length).toBe(2);
 
 		const combiningSelection = `\x1b]52;c;${Buffer.from("éZ").toString("base64")}\x07`;
 		terminal.sendInput("\x1b[<0;6;1M");
 		terminal.sendInput("\x1b[<32;7;1M");
 		terminal.sendInput("\x1b[<0;7;1m");
 		await terminal.waitForRender();
-		assert.ok(terminal.events.some((event) => event.type === "write" && event.data.includes(combiningSelection)));
+		expect(terminal.events.some((event) => event.type === "write" && event.data.includes(combiningSelection))).toBeTruthy();
 
 		tui.stop();
 	});
@@ -2056,11 +1972,8 @@ describe("TuiAltScreen", () => {
 		terminal.sendInput("\x1b[<66;1;1M");
 		terminal.sendInput("\x1b[<67;1;1M");
 		await terminal.waitForRender();
-		assert.strictEqual(tui.viewportTop, 4);
-		assert.deepStrictEqual(
-			terminal.getViewport().map((line) => line.trimEnd()),
-			["line 5", "line 6", "line 7", "line 8"],
-		);
+		expect(tui.viewportTop).toBe(4);
+		expect(terminal.getViewport().map((line) => line.trimEnd())).toStrictEqual(["line 5", "line 6", "line 7", "line 8"]);
 
 		tui.stop();
 	});
@@ -2082,14 +1995,14 @@ describe("TuiAltScreen", () => {
 		terminal.sendInput("\x1b[<0;2;1M");
 		terminal.sendInput("\x1b[<0;2;1m");
 		await terminal.waitForRender();
-		assert.strictEqual(clicks, 1);
+		expect(clicks).toBe(1);
 
 		terminal.sendInput("\x1b[<0;1;1M");
 		terminal.sendInput("\x1b[<32;4;2M");
 		terminal.sendInput("\x1b[<0;4;2m");
 		await terminal.waitForRender();
-		assert.strictEqual(clicks, 1);
-		assert.ok(terminal.events.some((event) => event.type === "write" && event.data.includes("\x1b]52;c;")));
+		expect(clicks).toBe(1);
+		expect(terminal.events.some((event) => event.type === "write" && event.data.includes("\x1b]52;c;"))).toBeTruthy();
 		tui.stop();
 	});
 
@@ -2114,8 +2027,8 @@ describe("TuiAltScreen", () => {
 		terminal.sendInput("\x1b[<0;5;2m");
 		await terminal.waitForRender();
 
-		assert.deepStrictEqual(events, ["press", "drag", "release"]);
-		assert.strictEqual(tui.getFocusedComponent(), component);
+		expect(events).toStrictEqual(["press", "drag", "release"]);
+		expect(tui.getFocusedComponent()).toBe(component);
 		tui.stop();
 	});
 
@@ -2143,7 +2056,7 @@ describe("TuiAltScreen", () => {
 			terminal.sendInput("\x1b[<0;1;1m");
 		}
 		await terminal.waitForRender();
-		assert.deepStrictEqual(clickCounts, [1, 2, 3]);
+		expect(clickCounts).toStrictEqual([1, 2, 3]);
 		tui.stop();
 	});
 
@@ -2166,8 +2079,8 @@ describe("TuiAltScreen", () => {
 
 		terminal.sendInput("\x1b[<35;1;1M");
 		await terminal.waitForRender();
-		assert.strictEqual(renderCount, renderedBeforeMotion);
-		assert.strictEqual(terminal.events.filter((event) => event.type === "write").length, writesBeforeMotion);
+		expect(renderCount).toBe(renderedBeforeMotion);
+		expect(terminal.events.filter((event) => event.type === "write").length).toBe(writesBeforeMotion);
 		tui.stop();
 	});
 
@@ -2191,8 +2104,8 @@ describe("TuiAltScreen", () => {
 
 		terminal.sendInput("\x1b[<64;1;1M");
 		await terminal.waitForRender();
-		assert.strictEqual(wheelEvents, 1);
-		assert.strictEqual(tui.viewportTop, viewportTop);
+		expect(wheelEvents).toBe(1);
+		expect(tui.viewportTop).toBe(viewportTop);
 		tui.stop();
 	});
 
@@ -2221,26 +2134,26 @@ describe("TuiAltScreen", () => {
 			(event, index) =>
 				index > mainScreenRestoreIndex && event.type === "write" && event.data.includes("first"),
 		);
-		assert.ok(altScreenEnterIndex >= 0 && altScreenEnterIndex < startIndex);
-		assert.ok(mouseDisableIndex >= 0 && mouseDisableIndex < stopIndex);
-		assert.ok(mainScreenRestoreIndex > stopIndex);
-		assert.ok(documentReplayIndex > mainScreenRestoreIndex);
+		expect(altScreenEnterIndex >= 0 && altScreenEnterIndex < startIndex).toBeTruthy();
+		expect(mouseDisableIndex >= 0 && mouseDisableIndex < stopIndex).toBeTruthy();
+		expect(mainScreenRestoreIndex > stopIndex).toBeTruthy();
+		expect(documentReplayIndex > mainScreenRestoreIndex).toBeTruthy();
 
 		const restoreEvent = terminal.events[mainScreenRestoreIndex];
-		assert.strictEqual(restoreEvent?.type, "write");
+		expect(restoreEvent?.type).toBe("write");
 		if (restoreEvent?.type === "write") {
-			assert.ok(!restoreEvent.data.includes("first"));
+			expect(!restoreEvent.data.includes("first")).toBeTruthy();
 		}
 		const replayEvent = terminal.events[documentReplayIndex];
-		assert.strictEqual(replayEvent?.type, "write");
+		expect(replayEvent?.type).toBe("write");
 		if (replayEvent?.type === "write") {
-			assert.ok(replayEvent.data.includes("first"));
-			assert.ok(replayEvent.data.includes("second"));
-			assert.ok(replayEvent.data.includes("third"));
-			assert.ok(replayEvent.data.includes("fourth"));
-			assert.ok(replayEvent.data.includes("fifth"));
-			assert.ok(replayEvent.data.includes("sixth"));
-			assert.ok(replayEvent.data.indexOf("first") < replayEvent.data.indexOf("sixth"));
+			expect(replayEvent.data.includes("first")).toBeTruthy();
+			expect(replayEvent.data.includes("second")).toBeTruthy();
+			expect(replayEvent.data.includes("third")).toBeTruthy();
+			expect(replayEvent.data.includes("fourth")).toBeTruthy();
+			expect(replayEvent.data.includes("fifth")).toBeTruthy();
+			expect(replayEvent.data.includes("sixth")).toBeTruthy();
+			expect(replayEvent.data.indexOf("first") < replayEvent.data.indexOf("sixth")).toBeTruthy();
 		}
 	});
 
@@ -2254,21 +2167,21 @@ describe("TuiAltScreen", () => {
 		const topBefore = tui.viewportTop;
 		const handle = tui.showOverlay(overlay);
 		await terminal.waitForRender();
-		assert.strictEqual(overlay.focused, true);
+		expect(overlay.focused).toBe(true);
 
 		const wheel = "\x1b[<64;10;3M";
 		const keys = ["\x1b[5~", "\x1b[6~", "\x1bOH", "\x1bOF", wheel];
 		for (const key of keys) terminal.sendInput(key);
 		await terminal.waitForRender();
 
-		assert.deepStrictEqual(overlay.inputs, keys);
-		assert.strictEqual(tui.viewportTop, topBefore);
+		expect(overlay.inputs).toStrictEqual(keys);
+		expect(tui.viewportTop).toBe(topBefore);
 
 		handle.hide();
 		await terminal.waitForRender();
 		terminal.sendInput("\x1b[5~");
 		await terminal.waitForRender();
-		assert.ok(tui.viewportTop < topBefore);
+		expect(tui.viewportTop < topBefore).toBeTruthy();
 		tui.stop();
 	});
 
@@ -2290,15 +2203,15 @@ describe("TuiAltScreen", () => {
 		const unfocusedHandle = tui.showOverlay(unfocused);
 		unfocusedHandle.unfocus();
 		await terminal.waitForRender();
-		assert.strictEqual(nonCapturing.focused, false);
-		assert.strictEqual(unfocused.focused, false);
+		expect(nonCapturing.focused).toBe(false);
+		expect(unfocused.focused).toBe(false);
 
 		terminal.sendInput("\x1b[5~");
 		terminal.sendInput("\x1b[<64;10;3M");
 		await terminal.waitForRender();
-		assert.ok(tui.viewportTop < topBefore);
-		assert.deepStrictEqual(nonCapturing.inputs, []);
-		assert.deepStrictEqual(unfocused.inputs, []);
+		expect(tui.viewportTop < topBefore).toBeTruthy();
+		expect(nonCapturing.inputs).toStrictEqual([]);
+		expect(unfocused.inputs).toStrictEqual([]);
 		tui.stop();
 	});
 
@@ -2312,13 +2225,13 @@ describe("TuiAltScreen", () => {
 
 		terminal.sendInput("\x1b[102;6u");
 		await terminal.waitForRender();
-		assert.ok(terminal.getViewport().some((line) => line.includes("↑ ↓")));
+		expect(terminal.getViewport().some((line) => line.includes("↑ ↓"))).toBeTruthy();
 
 		terminal.sendInput("\x1b[5~");
 		terminal.sendInput("\x1b[<64;1;4M");
 		await terminal.waitForRender();
-		assert.ok(tui.viewportTop < topBefore);
-		assert.ok(terminal.getViewport().some((line) => line.includes("↑ ↓")));
+		expect(tui.viewportTop < topBefore).toBeTruthy();
+		expect(terminal.getViewport().some((line) => line.includes("↑ ↓"))).toBeTruthy();
 		tui.stop();
 	});
 });

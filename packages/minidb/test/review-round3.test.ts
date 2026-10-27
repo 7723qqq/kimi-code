@@ -1,4 +1,3 @@
-import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -6,7 +5,7 @@ import path from 'node:path';
 // Regression tests for the third deep-review round:
 //   A) Non-ASCII (multi-byte UTF-8) string keys must work on every surface.
 //   B) readOnly open must never mutate the database files (no WAL truncation).
-import { test } from 'bun:test';
+import { expect, test } from 'bun:test';
 
 import { MiniDb } from '../src/index.js';
 
@@ -23,11 +22,11 @@ test('non-ASCII key: set/get/has works (live, no restart)', async () => {
     await db.set('é', 'accent');
     await db.set('北京', 'cjk');
     await db.set('key🎉', 'emoji');
-    assert.equal(db.get('é'), 'accent');
-    assert.equal(db.get('北京'), 'cjk');
-    assert.equal(db.get('key🎉'), 'emoji');
-    assert.equal(db.has('é'), true);
-    assert.equal(db.has('missing-é'), false);
+    expect(db.get('é')).toBe('accent');
+    expect(db.get('北京')).toBe('cjk');
+    expect(db.get('key🎉')).toBe('emoji');
+    expect(db.has('é')).toBe(true);
+    expect(db.has('missing-é')).toBe(false);
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -39,10 +38,10 @@ test('non-ASCII key: del removes it and reports existence', async () => {
   const db = await MiniDb.open({ dir, valueCodec: 'string' });
   try {
     await db.set('café', 'x');
-    assert.equal(await db.del('café'), true, 'del must report the key existed');
-    assert.equal(db.get('café'), undefined);
-    assert.equal(db.has('café'), false);
-    assert.equal(await db.del('café'), false, 'second del reports missing');
+    expect(await db.del('café'), 'del must report the key existed').toBe(true);
+    expect(db.get('café')).toBe(undefined);
+    expect(db.has('café')).toBe(false);
+    expect(await db.del('café'), 'second del reports missing').toBe(false);
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -58,9 +57,9 @@ test('non-ASCII key survives close + reopen (WAL recovery)', async () => {
 
   db = await MiniDb.open({ dir, valueCodec: 'string' });
   try {
-    assert.equal(db.get('北京'), 'v1');
-    assert.equal(db.get('上海'), 'v2');
-    assert.equal(db.has('北京'), true);
+    expect(db.get('北京')).toBe('v1');
+    expect(db.get('上海')).toBe('v2');
+    expect(db.has('北京')).toBe(true);
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -83,8 +82,8 @@ test('non-ASCII key survives compaction (snapshot recovery)', async () => {
 
   db = await MiniDb.open({ dir, valueCodec: 'string' });
   try {
-    assert.equal(db.get('城市'), 'Beijing');
-    assert.equal(db.get('要删除'), undefined, 'tombstone must survive compaction');
+    expect(db.get('城市')).toBe('Beijing');
+    expect(db.get('要删除'), 'tombstone must survive compaction').toBe(undefined);
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -99,10 +98,10 @@ test('non-ASCII key: scan returns the original key and value', async () => {
     await db.set('a-é', '2');
     await db.set('c-北京', '3');
     const keys = new Set(db.scan().map((r) => r.key));
-    assert.ok(keys.has('a-é'), 'scan must include the accented key');
-    assert.ok(keys.has('c-北京'), 'scan must include the CJK key');
-    assert.equal(db.get('a-é'), '2');
-    assert.equal(db.get('c-北京'), '3');
+    expect(keys.has('a-é'), 'scan must include the accented key').toBeTruthy();
+    expect(keys.has('c-北京'), 'scan must include the CJK key').toBeTruthy();
+    expect(db.get('a-é')).toBe('2');
+    expect(db.get('c-北京')).toBe('3');
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -120,7 +119,7 @@ test('non-ASCII key: prefix scan matches', async () => {
       .prefix('用户:')
       .map((r) => r.key)
       .toSorted();
-    assert.deepEqual(keys, ['用户:1', '用户:2']);
+    expect(keys).toStrictEqual(['用户:1', '用户:2']);
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -135,14 +134,8 @@ test('non-ASCII key: secondary equality index returns key and value', async () =
     await db.set('用户1', { city: 'Paris', n: 1 });
     await db.set('用户2', { city: 'Paris', n: 2 });
     const r = db.findEq('byCity', 'Paris').toSorted((a, b) => (a.key < b.key ? -1 : 1));
-    assert.deepEqual(
-      r.map((x) => x.key),
-      ['用户1', '用户2'],
-    );
-    assert.deepEqual(
-      r.map((x) => (x.value as { n: number }).n),
-      [1, 2],
-    );
+    expect(r.map((x) => x.key)).toStrictEqual(['用户1', '用户2']);
+    expect(r.map((x) => (x.value as { n: number }).n)).toStrictEqual([1, 2]);
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -159,9 +152,9 @@ test('non-ASCII key: secondary index is consistent after recovery', async () => 
   db = await MiniDb.open({ dir, valueCodec: 'json' });
   try {
     const r = db.findEq('byCity', 'Paris');
-    assert.equal(r.length, 1);
-    assert.equal(r[0]!.key, '用户1');
-    assert.deepEqual(r[0]!.value, { city: 'Paris' });
+    expect(r.length).toBe(1);
+    expect(r[0]!.key).toBe('用户1');
+    expect(r[0]!.value).toStrictEqual({ city: 'Paris' });
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -178,24 +171,12 @@ test('non-ASCII key: range index, dt index, compound index, text index', async (
     await db.set('用户A', { age: 30, ws: 'W1', bio: 'hello world' }, { dt: { created: 100 } });
     await db.set('用户B', { age: 40, ws: 'W1', bio: 'hello there' }, { dt: { created: 200 } });
 
-    assert.deepEqual(
-      db.findRange('byAge', { min: 25, max: 35 }).map((r) => r.key),
-      ['用户A'],
-    );
-    assert.deepEqual(
-      db.dtRange('created', { gte: 100, lte: 100 }).map((r) => r.key),
-      ['用户A'],
-    );
-    assert.deepEqual(
-      db.compoundRange('byWs', 'W1').map((r) => r.key),
-      ['用户A', '用户B'],
-    );
-    assert.deepEqual(
-      db.search('body', 'world').map((r) => r.key),
-      ['用户A'],
-    );
+    expect(db.findRange('byAge', { min: 25, max: 35 }).map((r) => r.key)).toStrictEqual(['用户A']);
+    expect(db.dtRange('created', { gte: 100, lte: 100 }).map((r) => r.key)).toStrictEqual(['用户A']);
+    expect(db.compoundRange('byWs', 'W1').map((r) => r.key)).toStrictEqual(['用户A', '用户B']);
+    expect(db.search('body', 'world').map((r) => r.key)).toStrictEqual(['用户A']);
     // values resolve too
-    assert.equal(db.findRange('byAge', { min: 25, max: 35 })[0]!.value?.age, 30);
+    expect(db.findRange('byAge', { min: 25, max: 35 })[0]!.value?.age).toBe(30);
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -208,15 +189,12 @@ test('non-ASCII key: unified query by exact key and by prefix', async () => {
   try {
     await db.set('post:北京', { tag: 'a' });
     await db.set('post:上海', { tag: 'b' });
-    assert.deepEqual(
-      db.query({ key: 'post:北京' }).map((r) => r.key),
-      ['post:北京'],
-    );
+    expect(db.query({ key: 'post:北京' }).map((r) => r.key)).toStrictEqual(['post:北京']);
     const pref = db
       .query({ key: { prefix: 'post:' } })
       .map((r) => r.key)
       .toSorted();
-    assert.deepEqual(pref, ['post:上海', 'post:北京']);
+    expect(pref).toStrictEqual(['post:上海', 'post:北京']);
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -235,8 +213,8 @@ test('non-ASCII key: batch set + del survives recovery', async () => {
 
   db = await MiniDb.open({ dir, valueCodec: 'string' });
   try {
-    assert.equal(db.get('批1'), undefined);
-    assert.equal(db.get('批2'), 'two');
+    expect(db.get('批1')).toBe(undefined);
+    expect(db.get('批2')).toBe('two');
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -261,10 +239,10 @@ test('readOnly open does not truncate a torn WAL tail', async () => {
   // Opening read-only must NOT mutate the file, even though the tail is torn.
   db = await MiniDb.open({ dir, valueCodec: 'string', readOnly: true });
   try {
-    assert.equal(db.get('a'), '1', 'valid record is still readable');
+    expect(db.get('a'), 'valid record is still readable').toBe('1');
   } finally {
     await db.close();
   }
   const sizeAfter = (await fs.stat(walPath)).size;
-  assert.equal(sizeAfter, sizeBefore, 'readOnly open must not truncate the WAL');
+  expect(sizeAfter, 'readOnly open must not truncate the WAL').toBe(sizeBefore);
 });
