@@ -4,6 +4,7 @@ import {
   TERMINAL_FOCUS_IN,
   TERMINAL_FOCUS_OUT,
 } from '#/tui/constant/terminal';
+import { CLICK_GUARD_MS } from '#/tui/constant/terminal';
 import type { TUIState } from '#/tui/tui-state';
 import type { TerminalState } from '#/tui/utils/terminal-state';
 
@@ -44,4 +45,9 @@ export function handleTerminalFocusInput(
     return { consume: true };
   }
   return undefined;
+}
+
+/** Whether a click lands too soon after a prompt appeared to be deliberate. */
+export function isSettlingClick(since: number, now = Date.now()): boolean {
+  return now - since < CLICK_GUARD_MS;
 }

@@ -487,4 +487,23 @@ describe('ApprovalPanelComponent', () => {
       { response: 'rejected', feedback: 'no', selected_label: 'Revise' },
     ]);
   });
+  it('prints each choice description under its label', () => {
+    const pending = makePending();
+    pending.data.choices = [
+      { label: 'Plan without edits', response: 'approved', description: 'Explore the codebase and write a plan file.' },
+      { label: 'Plan with edits', response: 'approved_for_session', description: 'May edit files while writing the plan.' },
+      { label: 'Reject', response: 'rejected' },
+    ];
+    const dialog = new ApprovalPanelComponent(pending, () => {});
+    const out = strip(dialog.render(100).join('\n'));
+    expect(out).toContain('Plan without edits');
+    expect(out).toContain('Explore the codebase and write a plan file.');
+    expect(out).toContain('Plan with edits');
+    expect(out).toContain('May edit files while writing the plan.');
+    // A choice without a description adds no blank helper line of its own.
+    const lines = out.split('\n');
+    const rejectRow = lines.findIndex((line) => line.includes('Reject') && !line.includes('with feedback'));
+    expect(rejectRow).toBeGreaterThan(0);
+  });
+
 });
