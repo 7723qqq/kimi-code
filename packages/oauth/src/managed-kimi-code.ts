@@ -1,3 +1,4 @@
+import type { FetchLike } from './types';
 import { readApiErrorMessage } from './api-error';
 import { DEFAULT_KIMI_CODE_OAUTH_HOST } from './constants';
 import { OAuthUnauthorizedError } from './errors';
@@ -54,7 +55,7 @@ export interface ManagedKimiCodeProvisionResult {
 export interface FetchManagedKimiCodeModelsOptions {
   readonly accessToken: string;
   readonly baseUrl?: string | undefined;
-  readonly fetchImpl?: typeof fetch | undefined;
+  readonly fetchImpl?: FetchLike | undefined;
   readonly headers?: Record<string, string> | undefined;
   /**
    * What `accessToken` actually is; only affects auth-error wording. Defaults
@@ -215,7 +216,7 @@ export interface ProvisionManagedKimiCodeConfigOptions<TConfig> {
   readonly oauthKey?: string | undefined;
   readonly oauthHost?: string | undefined;
   readonly preserveDefaultModel?: boolean | undefined;
-  readonly fetchImpl?: typeof fetch | undefined;
+  readonly fetchImpl?: FetchLike | undefined;
   readonly headers?: Record<string, string> | undefined;
 }
 

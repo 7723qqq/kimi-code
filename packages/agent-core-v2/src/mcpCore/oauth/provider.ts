@@ -11,6 +11,7 @@ import {
   type OAuthClientMetadata,
   type OAuthTokens,
 } from '@modelcontextprotocol/sdk/shared/auth.js';
+import type { FetchLike } from '@moonshot-ai/kimi-code-oauth';
 import { OAuthTokenTransaction } from '@moonshot-ai/kimi-code-oauth';
 
 import { BugIndicatingError } from '#/errors';
@@ -182,7 +183,7 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
     await this.tokenTransaction.save(tokens);
   }
 
-  createOAuthFetch(fetchFn: typeof fetch = globalThis.fetch): typeof fetch {
+  createOAuthFetch(fetchFn: FetchLike = globalThis.fetch): FetchLike {
     return this.tokenTransaction.createFetch(fetchFn);
   }
 
@@ -287,7 +288,7 @@ function registeredRedirectUri(info: OAuthClientInformationMixed | undefined): s
 
 export function createMcpOAuthFetch(
   provider: OAuthClientProvider | undefined,
-  fetchFn: typeof fetch | undefined,
-): typeof fetch | undefined {
+  fetchFn: FetchLike | undefined,
+): FetchLike | undefined {
   return provider instanceof McpOAuthClientProvider ? provider.createOAuthFetch(fetchFn) : fetchFn;
 }

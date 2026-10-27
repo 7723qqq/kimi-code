@@ -1,3 +1,4 @@
+import type { FetchLike } from '@moonshot-ai/kimi-code-oauth';
 import {
   UnauthorizedError,
   type OAuthClientProvider,
@@ -27,7 +28,7 @@ export interface SseMcpClientOptions {
   readonly startupTimeoutMs?: number;
   readonly toolCallTimeoutMs?: number;
   readonly envLookup?: (name: string) => string | undefined;
-  readonly fetch?: typeof fetch;
+  readonly fetch?: FetchLike;
   readonly oauthProvider?: OAuthClientProvider;
 }
 

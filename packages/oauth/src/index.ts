@@ -10,6 +10,7 @@ export {
 
 export type {
   DeviceAuthorization,
+  FetchLike,
   DeviceHeaders,
   OAuthFlowConfig,
   OAuthStorageBackend,
