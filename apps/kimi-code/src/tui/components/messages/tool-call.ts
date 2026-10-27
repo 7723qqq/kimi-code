@@ -61,6 +61,12 @@ import { ShellExecutionComponent } from './shell-execution';
 import { pickChip } from './tool-renderers/chip';
 import { buildGoalToolHeader, parseGoalToolOutput } from './tool-renderers/goal';
 import { searchNoticeOnly } from './tool-renderers/grep-output';
+import {
+  isTodoListRead,
+  TodoCardBody,
+  todoCardHidesItems,
+  todoListFromResult,
+} from './tool-renderers/todo';
 import { parseReadMediaOutput } from './tool-renderers/media';
 import { nonEmptyLines, outcomeLine, outcomeRows } from './tool-renderers/outcome';
 import { isGenericToolResult, pickResultRenderer } from './tool-renderers/registry';
@@ -939,9 +945,10 @@ export class ToolCallComponent extends Container {
       case 'SetGoalBudget':
       case 'UpdateGoal':
       case 'AgentSwarm':
-      case 'TodoList':
       case 'EnterPlanMode':
         return false;
+      case 'TodoList':
+        return todoCardHidesItems(todoListFromResult(result.output));
       default:
         return nonEmptyLines(result.output).length > OUTCOME_MAX_LINES;
     }
@@ -1892,7 +1899,9 @@ export class ToolCallComponent extends Container {
     }
 
     const verb = isFinished
-      ? t('tui.messages.toolCall.verbUsed')
+      ? toolCall.name === 'TodoList' && isTodoListRead(toolCall.args)
+        ? t('tui.messages.toolCall.verbRead')
+        : t('tui.messages.toolCall.verbUsed')
       : isTruncated
         ? t('tui.messages.toolCall.verbTruncated')
         : t('tui.messages.toolCall.verbUsing');
@@ -2646,10 +2655,11 @@ export class ToolCallComponent extends Container {
       return;
     }
 
-    // TodoList: the authoritative list is shown in the dedicated
-    // TodoPanel before the input area, so repeating the text dump here is
-    // pure clutter. Keep the headline, drop the body.
+    // TodoList: the card shows the reported list instead of the text dump, so
+    // a resumed session still reads the list from the transcript.
     if (this.toolCall.name === 'TodoList' && !result.is_error) {
+      const todos = todoListFromResult(result.output);
+      if (todos.length > 0) this.addChild(new TodoCardBody(todos, this.expanded));
       return;
     }
 

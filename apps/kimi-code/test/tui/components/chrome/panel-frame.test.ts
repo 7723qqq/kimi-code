@@ -4,7 +4,6 @@ import { afterEach, describe, expect, it } from 'bun:test';
 import { setLocale } from '#/i18n';
 import { DeviceCodeBoxComponent } from '#/tui/components/chrome/device-code-box';
 import { renderPanelFrame } from '#/tui/components/chrome/panel-frame';
-import { TodoPanelComponent } from '#/tui/components/chrome/todo-panel';
 import { UsagePanelComponent } from '#/tui/components/messages/usage-panel';
 import {
   PANEL_BOTTOM_LEFT,
@@ -98,9 +97,7 @@ describe('panel frame adoption', () => {
       .map(strip);
 
     // usage / device-code are transcript panels (indent 2). Both share the
-    // same glyphs. The todo panel is not in this list on purpose: it is a
-    // status-strip region, and the strip's frame belongs to the status
-    // surface (see the next case).
+    // same glyphs.
     const cases: ReadonlyArray<{ lines: readonly string[]; indent: string; title: string }> = [
       { lines: usage, indent: '  ', title: 'Usage' },
       { lines: device, indent: '  ', title: 'Sign in' },
@@ -127,17 +124,4 @@ describe('panel frame adoption', () => {
     }
   });
 
-  it('the todo panel draws content only: the strip\'s frame belongs to the status surface', () => {
-    setLocale('en');
-
-    const todoPanel = new TodoPanelComponent();
-    todoPanel.setTodos([{ title: 'task', status: 'pending' }]);
-    const lines = todoPanel.render(40).map(strip);
-
-    // The "Todo" label heads the progress row, and the panel paints no box of
-    // its own — the status surface draws the one frame around the strip.
-    expect(lines[0]).toContain('Todo');
-    expect(lines.join('\n')).not.toMatch(/[╭╮╰╯│]/);
-    for (const line of lines) expect(visibleWidth(line)).toBeLessThanOrEqual(40);
-  });
 });

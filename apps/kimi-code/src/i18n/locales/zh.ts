@@ -2467,6 +2467,7 @@ export default {
         failedPeriod: '失败。',
         abortedPeriod: '已中止。',
         planAutoApproved: ' · 自动批准',
+        verbRead: '已读取',
         verbUsed: '已使用',
         verbTruncated: '已截断',
         verbUsing: '正在使用',

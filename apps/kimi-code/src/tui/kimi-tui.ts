@@ -3143,7 +3143,6 @@ export class KimiTUI {
     this.backgroundTasksMiniController.close();
     this.btwPanelController.clear();
     this.state.footer.setBackgroundCounts({ bashTasks: 0, agentTasks: 0 });
-    this.streamingUI.setTodoList([]);
     this.sessionEventHandler.notifications.clear();
     this.streamingUI.setTurnId(undefined);
     this.setAppState({ mcpServersSummary: null });
@@ -3564,8 +3563,6 @@ export class KimiTUI {
     this.state.transcriptContainer.clear();
     this.btwPanelController.clear();
     this.clearTerminalInlineImages();
-    this.state.todoPanel.clear();
-    this.state.todoPanelContainer.clear();
     this.sessionEventHandler.notifications.clear();
     this.renderWelcome();
     // No forced full render on session reset: let the differential renderer

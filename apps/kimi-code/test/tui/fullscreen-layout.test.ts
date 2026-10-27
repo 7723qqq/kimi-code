@@ -855,12 +855,8 @@ describe('fullscreen layout', () => {
     state.ui.stop();
   });
 
-  it('shows a pending approval in the todo slot and answers it on click', async () => {
+  it('shows a pending approval in the status strip and answers it on click', async () => {
     const { state, vt } = await mountFullscreen();
-    state.todoRegion.setTodos([
-      { title: 'todo one', status: 'pending' },
-      { title: 'todo two', status: 'in_progress' },
-    ]);
     const onRespond = mock();
     const data = {
       id: 'req-1',
@@ -883,8 +879,6 @@ describe('fullscreen layout', () => {
     await vt.flush();
 
     const viewport = vt.getViewport().map((line) => stripAnsi(line));
-    // The blocking prompt takes over the todo list's slot while it waits.
-    expect(viewport.some((line) => line.includes('todo one'))).toBe(false);
     expect(viewport.some((line) => line.includes('Run this command?'))).toBe(true);
     // Each option keeps a summary row of its own, so the click lands on the
     // row that prints the label rather than on a shared run-on line.
@@ -898,13 +892,13 @@ describe('fullscreen layout', () => {
     await vt.waitForRender();
     expect(onRespond).toHaveBeenCalled();
 
-    // Resolving the request gives the todo list its slot back.
+    // Resolving the request clears the strip.
     state.approvalRegion.clear();
     state.statusSurface.focusRegion(null);
     alt.renderNow();
     await vt.flush();
-    expect(vt.getViewport().map((line) => stripAnsi(line)).some((l) => l.includes('todo one'))).toBe(
-      true,
+    expect(vt.getViewport().map((line) => stripAnsi(line)).some((l) => l.includes('Run this command?'))).toBe(
+      false,
     );
     alt.stop();
   });

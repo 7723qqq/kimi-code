@@ -26,7 +26,7 @@ import type {
 } from '../types';
 import { formatBackgroundAgentTranscript } from '../utils/background-agent-status';
 import { formatBackgroundTaskTranscript } from '../utils/background-task-status';
-import { formatErrorMessage, normalizeTodoItems } from '../utils/event-payload';
+import { formatErrorMessage } from '../utils/event-payload';
 import { buildGoalCompletionMessage } from '../utils/goal-completion';
 import {
   appStateFromResumeAgent,
@@ -149,29 +149,7 @@ export class SessionReplayRenderer {
 
   private hydrateSnapshot(agent: ResumedAgentState): void {
     this.host.setAppState(appStateFromResumeAgent(agent));
-    this.hydrateTodoPanel(agent);
     this.hydrateBackgroundState(agent);
-  }
-
-  /**
-   * Seed the todo region from the replay fold.
-   *
-   * `toolStore['todo']` is the same value the engine rebuilds its own list
-   * from, so this needs no field-level translation beyond the shared
-   * normalizer — and it goes through the region rather than the panel so the
-   * replay path and the live path cannot drift apart.
-   *
-   * A completed list is deliberately not shown: it was the last thing the
-   * previous session did, and the strip is for work in progress.
-   */
-  private hydrateTodoPanel(agent: ResumedAgentState): void {
-    const rawTodos = agent.toolStore?.['todo'];
-    const todos = Array.isArray(rawTodos) ? normalizeTodoItems(rawTodos) : [];
-    if (todos.length > 0 && todos.every((todo) => todo.status === 'done')) {
-      this.host.state.todoRegion.clear();
-      return;
-    }
-    this.host.state.todoRegion.setTodos(todos);
   }
 
   /**

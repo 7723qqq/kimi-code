@@ -348,7 +348,6 @@ describe('KimiTUI startup', () => {
     // instead left the whole strip unrendered while approvals still took
     // focus and blocked submission.
     expect(driver.state.ui.children).toContain(driver.state.statusSurfaceContainer);
-    expect(driver.state.ui.children).not.toContain(driver.state.todoPanelContainer);
     expect(driver.state.ui.children).not.toContain(driver.state.notifyPanelContainer);
   });
 

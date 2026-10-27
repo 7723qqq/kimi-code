@@ -2564,6 +2564,7 @@ export default {
         failedPeriod: 'Failed.',
         abortedPeriod: 'Aborted.',
         planAutoApproved: ' · Auto-approved',
+        verbRead: 'Read',
         verbUsed: 'Used',
         verbTruncated: 'Truncated',
         verbUsing: 'Using',
