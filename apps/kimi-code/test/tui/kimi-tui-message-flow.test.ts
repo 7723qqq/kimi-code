@@ -73,6 +73,19 @@ import {
 } from '#/tui/utils/transcript-window';
 import * as cacheHintConfig from '#/utils/cache-hint-config';
 import { clientConfigs } from '#/utils/client-configs';
+
+// Isolate the flow from the machine's cloud configuration: the region feeds
+// endpoint selection, so leaving it live would make these cases depend on
+// whoever runs them. Mirrors upstream #4363.
+void mock.module('#/utils/client-configs', () => ({
+  clientConfigs: {
+    region: mock(() => 'mainland-cn'),
+    get: mock(async () => undefined),
+    fetch: mock(async () => undefined),
+    peek: mock(() => undefined),
+    reset: mock(),
+  },
+}));
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
 import { openUrl } from '#/utils/open-url';
 import { readE2EFlags } from '#test/helpers/e2e-flags';
