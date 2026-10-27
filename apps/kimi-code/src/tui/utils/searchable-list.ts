@@ -84,6 +84,10 @@ export class SearchableList<T> {
     };
   }
 
+  moveTo(index: number): void {
+    this.cursor = Math.max(0, Math.min(index, this.filtered().length - 1));
+  }
+
   moveUp(): void {
     this.cursor = Math.max(0, this.cursor - 1);
   }
