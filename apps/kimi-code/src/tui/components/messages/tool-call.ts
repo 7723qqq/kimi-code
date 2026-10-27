@@ -911,6 +911,7 @@ export class ToolCallComponent extends Container {
   setExpanded(expanded: boolean): void {
     if (this.expanded === expanded) return;
     this.expanded = expanded;
+    if (this.headerText instanceof NotifyUserHeader) this.headerText.setExpanded(expanded);
     // rebuildBody (not rebuildContent) so the args-driven call preview
     // — which is what carries Write content / Edit diff — re-renders
     // with the new line cap. rebuildContent only touches result-driven
@@ -980,6 +981,11 @@ export class ToolCallComponent extends Container {
     // Arguments cut off by max_tokens: the card shows a fixed "call never
     // executed" note in place of any preview, so there is nothing to expand.
     if (this.toolCall.truncated === true && this.result === undefined) return false;
+    // A NotifyUser card has its whole body in the argument, so the toggle is
+    // live as soon as the message arrives, before any result exists.
+    if (name === 'NotifyUser' && isExperimentalFlagEnabled('notify_user') && this.result === undefined) {
+      return str(notifyUserLiveArgs(this.toolCall)['message']).trim().length > 0;
+    }
     if (this.result === undefined && this.toolCall.streamingArguments !== undefined) {
       // While the arguments stream, the Write tail and the Edit progress row
       // ignore the toggle; only Bash reveals its partial command when expanded.

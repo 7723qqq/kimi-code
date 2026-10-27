@@ -658,6 +658,34 @@ describe('ToolCallComponent', () => {
       expect(output).toContain('Update shown to the user.');
     });
 
+
+    it("wraps an expanded title using each row's own available width", () => {
+      const title = 'x'.repeat(114);
+      const component = new ToolCallComponent(
+        { id: 'call_notify_wrap', name: 'NotifyUser', args: { title, message: 'Body' } },
+        {
+          tool_call_id: 'call_notify_wrap',
+          output: 'Update shown to the user.',
+          is_error: false,
+        },
+      );
+
+      const collapsed = component.render(60).map(strip).filter((line) => line.trim().length > 0);
+      expect(collapsed).toHaveLength(1);
+      expect(collapsed[0]).toContain('…');
+      expect(visibleWidth(collapsed[0]!)).toBeLessThanOrEqual(60);
+
+      component.setExpanded(true);
+      const rows = component.render(60).map(strip).filter((line) => line.trim().length > 0);
+      const titleRows = rows.filter((line) => line.includes('x'));
+      expect(titleRows).toHaveLength(3);
+      expect(titleRows[0]!.replace(`${NOTIFY_USER_MARK} `, '')).toHaveLength(51);
+      expect(titleRows[1]).toBe(`  ${'x'.repeat(58)}`);
+      expect(titleRows[2]).toBe(`  ${'x'.repeat(5)}`);
+      expect(rows.at(-1)!.trimEnd()).toBe('  Body');
+      for (const row of rows) expect(visibleWidth(row)).toBeLessThanOrEqual(60);
+    });
+
     it('shows the Update badge while the message streams in', () => {
       const component = new ToolCallComponent(
         { id: 'call_notify_live', name: 'NotifyUser', args: {}, streamingArguments: '{"mess' },
