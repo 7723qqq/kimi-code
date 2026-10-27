@@ -1,7 +1,7 @@
 import { writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { SESSION_META_VERSION } from '@moonshot-ai/agent-core-v2/session/sessionMetadata/sessionMetadata';
+import { SESSION_META_VERSION } from '@moonshot-ai/agent-core-v2';
 
 import { targetSessionsDir } from './paths.js';
 import { ensureSessionIndexEntry } from './session-index.js';
