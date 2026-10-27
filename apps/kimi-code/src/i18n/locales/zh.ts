@@ -2410,6 +2410,17 @@ export default {
         message_one: '{{count}} 条消息',
         message_other: '{{count}} 条消息',
       },
+      hoverColor: {
+        badHex: '需要六位十六进制颜色值：{{value}}',
+      },
+      todoCard: {
+        status: {
+          done: '{{count}} 项完成',
+          in_progress: '{{count}} 项进行中',
+          pending: '{{count}} 项待办',
+        },
+        hiddenMore: ' 另有 {{count}} 项{{distribution}} · ctrl+o 展开',
+      },
       toolCall: {
         detachHint: '按 Ctrl+B 在后台运行',
         backgroundLost: '后台智能体已丢失（会话在完成前已重启）',

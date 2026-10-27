@@ -167,7 +167,9 @@ export function todoProgress(todos: readonly TodoItem[]): TodoProgress {
   };
 }
 
-export function renderTodoList(todos: readonly TodoItem[], title = 'Current todo list:'): string {
+export const TODO_LIST_HEADER = 'Current todo list:';
+
+export function renderTodoList(todos: readonly TodoItem[], title = TODO_LIST_HEADER): string {
   if (todos.length === 0) {
     return 'Todo list is empty.';
   }

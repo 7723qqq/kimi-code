@@ -21,3 +21,7 @@ export const SELECT_POINTER = '❯';
 export function getCurrentMark(): string {
   return t('tui.labels.current');
 }
+
+// Notification badge, including its horizontal padding.
+export const NOTIFY_USER_MARK = ' Update ';
+export const NOTIFY_USER_MARK_FOREGROUND = '#FFFFFF';

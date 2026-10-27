@@ -2507,6 +2507,17 @@ export default {
         message_one: '{{count}} message',
         message_other: '{{count}} messages',
       },
+      hoverColor: {
+        badHex: 'Expected a six-digit hex color: {{value}}',
+      },
+      todoCard: {
+        status: {
+          done: '{{count}} done',
+          in_progress: '{{count}} in progress',
+          pending: '{{count}} pending',
+        },
+        hiddenMore: ' +{{count}} more{{distribution}} · ctrl+o to expand',
+      },
       toolCall: {
         detachHint: 'Press Ctrl+B to run in background',
         backgroundLost: 'Background agent lost (session restarted before completion)',

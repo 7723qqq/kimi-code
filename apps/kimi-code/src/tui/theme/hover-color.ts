@@ -1,3 +1,4 @@
+import { t } from '#/i18n';
 interface Rgb {
   readonly r: number;
   readonly g: number;
@@ -33,7 +34,9 @@ export function deriveHoverBackground(backgroundHex: string, foregroundHex: stri
 }
 
 function parseHex(hex: string): Rgb {
-  if (!/^#[0-9a-fA-F]{6}$/.test(hex)) throw new Error(`Expected a six-digit hex color: ${hex}`);
+  if (!/^#[0-9a-fA-F]{6}$/.test(hex)) {
+    throw new Error(t('tui.messages.hoverColor.badHex', { value: hex }));
+  }
   return {
     r: parseInt(hex.slice(1, 3), 16),
     g: parseInt(hex.slice(3, 5), 16),

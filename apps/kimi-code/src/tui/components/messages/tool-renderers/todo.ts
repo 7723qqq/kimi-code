@@ -8,6 +8,9 @@
 import { truncateToWidth, type Component } from '@moonshot-ai/pi-tui';
 
 import { OUTCOME_ROW_INDENT, TRUNCATION_ELLIPSIS } from '#/tui/constant/rendering';
+import { TODO_LIST_HEADER } from '@moonshot-ai/agent-core-v2';
+
+import { t } from '#/i18n';
 import { currentTheme } from '#/tui/theme';
 
 export type TodoStatus = 'pending' | 'in_progress' | 'done';
@@ -30,7 +33,7 @@ export interface VisibleTodos {
 // session keeps only this text, not the structured display, so the card
 // parses it for both. Rows end at the first blank line (a write appends a
 // hint after one).
-const LIST_HEADER = 'Current todo list:';
+
 const RESULT_ROW = /^ {2}\[(pending|in_progress|done)\] (.+)$/;
 
 /**
@@ -40,7 +43,7 @@ const RESULT_ROW = /^ {2}\[(pending|in_progress|done)\] (.+)$/;
  */
 export function todoListFromResult(output: string): TodoItem[] {
   const lines = output.split('\n');
-  const start = lines.indexOf(LIST_HEADER);
+  const start = lines.indexOf(TODO_LIST_HEADER);
   if (start === -1) return [];
   const end = lines.indexOf('', start + 1);
   const todos: TodoItem[] = [];
@@ -130,15 +133,15 @@ export function selectVisibleTodos(todos: readonly TodoItem[]): VisibleTodos {
   };
 }
 
-const STATUS_LABELS: readonly { status: TodoStatus; label: string }[] = [
-  { status: 'done', label: 'done' },
-  { status: 'in_progress', label: 'in progress' },
-  { status: 'pending', label: 'pending' },
+const STATUS_LABELS: readonly { status: TodoStatus; key: TodoStatus }[] = [
+  { status: 'done', key: 'done' },
+  { status: 'in_progress', key: 'in_progress' },
+  { status: 'pending', key: 'pending' },
 ];
 
 export function formatHiddenCounts(counts: Record<TodoStatus, number>): string {
   return STATUS_LABELS.filter(({ status }) => counts[status] > 0)
-    .map(({ status, label }) => `${String(counts[status])} ${label}`)
+    .map(({ status, key }) => t(`tui.messages.todoCard.status.${key}`, { count: counts[status] }))
     .join(' · ');
 }
 
@@ -162,7 +165,7 @@ export class TodoCardBody implements Component {
         const suffix = distribution.length > 0 ? ` (${distribution})` : '';
         lines.push(
           currentTheme.dim(
-            `${OUTCOME_ROW_INDENT}${TRUNCATION_ELLIPSIS} +${String(hidden)} more${suffix} · ctrl+o to expand`,
+            `${OUTCOME_ROW_INDENT}${TRUNCATION_ELLIPSIS}${t('tui.messages.todoCard.hiddenMore', { count: hidden, distribution: suffix })}`,
           ),
         );
       }

@@ -6,7 +6,16 @@
 import { isAbsolute, relative, sep } from 'node:path';
 
 import type { TokenUsage } from '@moonshot-ai/kimi-code-sdk';
-import { Container, Spacer, Text, truncateToWidth, visibleWidth } from '@moonshot-ai/pi-tui';
+import {
+  Container,
+  Spacer,
+  stripTerminalSequences,
+  Text,
+  truncateToWidth,
+  visibleWidth,
+  wrapTextWithAnsi,
+} from '@moonshot-ai/pi-tui';
+import chalk from 'chalk';
 import type { Component, TUI } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
@@ -20,6 +29,7 @@ import {
   COMMAND_PREVIEW_LINES,
   MAX_SUBAGENT_STREAM_TEXT_CHARS,
   MAX_SUB_TOOL_ACTIVITIES,
+  MESSAGE_INDENT,
   OUTCOME_MAX_LINES,
   RESULT_PREVIEW_LINES,
   SUBAGENT_TOOL_OUTPUT_MAX_CHARS,
@@ -29,7 +39,14 @@ import {
   STREAMING_ARGS_FIELD_RE,
   STREAMING_ARGS_PREVIEW_MAX_CHARS,
 } from '#/tui/constant/streaming';
-import { FAILURE_MARK, STATUS_BULLET, STATUS_DOT, SUCCESS_MARK } from '#/tui/constant/symbols';
+import {
+  FAILURE_MARK,
+  NOTIFY_USER_MARK,
+  NOTIFY_USER_MARK_FOREGROUND,
+  STATUS_BULLET,
+  STATUS_DOT,
+  SUCCESS_MARK,
+} from '#/tui/constant/symbols';
 import { currentTheme } from '#/tui/theme';
 import { createMarkdownTheme } from '#/tui/theme/pi-tui-theme';
 import type { ToolCallBlockData, ToolResultBlockData } from '#/tui/types';
@@ -77,6 +94,7 @@ import {
   renderHeaderContent,
   TruncatedHeaderLine,
   type HeaderContent,
+  type HeaderSegments,
 } from './truncated-header-line';
 
 const MAX_ARG_LENGTH = 60;
@@ -98,6 +116,40 @@ const TAIL_TRUNCATION_MARKER = '[…truncated]\n';
 // time so theme switches still apply.
 const dimHeaderStyle = (text: string): string => currentTheme.dim(text);
 
+const notifyTitleStyle = (text: string): string => currentTheme.boldFg('textStrong', text);
+
+/** The "Update" badge that marks a NotifyUser card. */
+function notifyUserBadge(): string {
+  return currentTheme.bg('primary', chalk.hex(NOTIFY_USER_MARK_FOREGROUND)(NOTIFY_USER_MARK));
+}
+
+/** The call's own arguments, with a streaming title/message filled in as it arrives. */
+function notifyUserLiveArgs(toolCall: ToolCallBlockData): Record<string, unknown> {
+  const stream = toolCall.streamingArguments;
+  if (stream === undefined) return toolCall.args;
+  return {
+    ...toolCall.args,
+    title: extractPartialStringField(stream, 'title') ?? toolCall.args['title'],
+    message: extractPartialStringField(stream, 'message') ?? toolCall.args['message'],
+  };
+}
+
+/** The card's title: the explicit `title`, else the message's first meaningful line. */
+function notifyUserTitle(args: Record<string, unknown>): string {
+  const title = stripTerminalSequences(str(args['title']))
+    .replaceAll(/[\r\n]+/g, ' ')
+    .trim();
+  if (title.length > 0) return title;
+  const firstLine = str(args['message'])
+    .split(/\r\n|\r|\n/)
+    .find((line) => line.trim().length > 0)
+    ?.trim();
+  if (firstLine === undefined) return '';
+  return stripTerminalSequences(firstLine)
+    .replace(/^[-*#>\s]+/, '')
+    .replaceAll('**', '');
+}
+
 /** Delay before a long-running foreground Bash/Agent card advertises Ctrl+B. */
 const DETACH_HINT_DELAY_MS = 10_000;
 function getDetachHintText(): string {
@@ -113,6 +165,70 @@ function tailCapped(text: string, maxChars: number): string {
 
 type SubagentTextKind = 'thinking' | 'text';
 type SubagentPhase = 'queued' | 'spawning' | 'running' | 'done' | 'failed' | 'backgrounded';
+
+interface NotifyUserHeaderContent extends HeaderSegments {
+  readonly notifyUserTitle: string;
+}
+
+function isNotifyUserHeaderContent(content: HeaderContent): content is NotifyUserHeaderContent {
+  return typeof content !== 'string' && 'notifyUserTitle' in content;
+}
+
+/**
+ * The header of a NotifyUser card: an Update badge plus the notification's
+ * title. Expanded, a long title wraps onto continuation rows instead of being
+ * clipped, so the whole update stays readable without opening a dialog.
+ */
+class NotifyUserHeader extends TruncatedHeaderLine {
+  private title: string | undefined;
+  private expanded = false;
+  private expandedCache: { width: number; lines: string[] } | undefined;
+
+  constructor(content: HeaderContent) {
+    super(content);
+    this.setText(content);
+  }
+
+  override setText(content: HeaderContent): void {
+    this.title = isNotifyUserHeaderContent(content) ? content.notifyUserTitle : undefined;
+    this.expandedCache = undefined;
+    super.setText(content);
+  }
+
+  setExpanded(expanded: boolean): void {
+    if (this.expanded === expanded) return;
+    this.expanded = expanded;
+    this.invalidate();
+  }
+
+  override invalidate(): void {
+    this.expandedCache = undefined;
+    super.invalidate();
+  }
+
+  override render(width: number): string[] {
+    if (this.title === undefined || !this.expanded) return super.render(width);
+    const safeWidth = Math.max(1, width);
+    if (isRenderCacheEnabled() && this.expandedCache?.width === safeWidth) {
+      return this.expandedCache.lines;
+    }
+    const firstPrefix = `${notifyUserBadge()} `;
+    const firstWidth = Math.max(1, safeWidth - visibleWidth(firstPrefix));
+    const continuationWidth = Math.max(1, safeWidth - visibleWidth(MESSAGE_INDENT));
+    const first = wrapTextWithAnsi(this.title, firstWidth)[0] ?? '';
+    const remainder = this.title.slice(first.length).trimStart();
+    const continuation = remainder.length > 0 ? wrapTextWithAnsi(remainder, continuationWidth) : [];
+    const lines = [first, ...continuation].map((row, index) =>
+      truncateToWidth(
+        `${index === 0 ? firstPrefix : MESSAGE_INDENT}${notifyTitleStyle(row)}`,
+        safeWidth,
+        '…',
+      ),
+    );
+    if (isRenderCacheEnabled()) this.expandedCache = { width: safeWidth, lines };
+    return lines;
+  }
+}
 
 interface FinishedSubCall {
   readonly name: string;
@@ -708,7 +824,10 @@ export class ToolCallComponent extends Container {
     this.applySubagentReplay(toolCall.subagent);
 
     this.addChild(new Spacer(1));
-    this.headerText = new TruncatedHeaderLine(this.buildHeader());
+    this.headerText =
+      toolCall.name === 'NotifyUser'
+        ? new NotifyUserHeader(this.buildHeader())
+        : new TruncatedHeaderLine(this.buildHeader());
     this.addChild(this.headerText);
     this.buildCallPreview();
     this.callPreviewEndIndex = this.children.length;
@@ -1784,6 +1903,20 @@ export class ToolCallComponent extends Container {
       // Solid bullet for in-flight tools — the previous marker ↔ blank
       // toggle caused visible flicker on every re-render.
       bullet = currentTheme.fg('text', STATUS_BULLET);
+    }
+
+    if (toolCall.name === 'NotifyUser' && isExperimentalFlagEnabled('notify_user')) {
+      // An update card: the badge marks it as a notification rather than a tool
+      // call, and the title rides the header so a long update stays one row
+      // until ctrl+o expands it.
+      const title = notifyUserTitle(isFinished ? toolCall.args : notifyUserLiveArgs(toolCall));
+      const content: NotifyUserHeaderContent = {
+        head: `${notifyUserBadge()} `,
+        flex: { text: title, style: notifyTitleStyle, keep: 'head' },
+        tail: '',
+        notifyUserTitle: title,
+      };
+      return content;
     }
 
     if (toolCall.name === 'ExitPlanMode') {
