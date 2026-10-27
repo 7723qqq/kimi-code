@@ -3,6 +3,7 @@ import type { Component, Focusable } from '@moonshot-ai/pi-tui';
 import { resolve } from 'pathe';
 
 import { t } from '#/i18n';
+import { DOCK_APPROVAL_ROWS } from '#/tui/constant/rendering';
 
 import type { KimiSlashCommand } from '../commands';
 import {
@@ -309,12 +310,11 @@ export class DialogHostController {
   }
 
   /**
-   * Show a pending approval as an inline region of the status surface.
+   * Show a pending approval by replacing the editor with the panel.
    *
-   * The panel does not replace the editor: the draft stays visible and typed
-   * text survives the prompt, which is the point of moving approvals into the
-   * strip. `livePane.pendingApproval` is still patched because the activity
-   * pane and the survey gate read it as "the user owes an answer".
+   * Docked in fullscreen, a long request scrolls while the choices stay on
+   * screen. `livePane.pendingApproval` is patched because the activity pane
+   * and the survey gate read it as "the user owes an answer".
    */
   showApprovalPanel(payload: ApprovalPanelData): void {
     this.host.patchLivePane({ pendingApproval: { data: payload } });
@@ -333,11 +333,14 @@ export class DialogHostController {
       (block) => {
         this.openApprovalPreview(panel, block);
       },
+      {
+        layout:
+          this.host.state.dockContainer === undefined ? undefined : { maxBodyRows: DOCK_APPROVAL_ROWS },
+        isTerminalFocused: () => this.host.state.terminalState.focused,
+      },
     );
     this.activeApprovalPanel = panel;
-    this.host.state.approvalRegion.show(payload, panel);
-    this.host.state.statusSurface.focusRegion('approval');
-    this.host.state.ui.requestRender();
+    this.mountEditorReplacement(panel);
   }
 
   hideApprovalPanel(): void {
@@ -345,10 +348,7 @@ export class DialogHostController {
     // screen state is restored before the region goes away.
     if (this.approvalPreview !== undefined) this.closeApprovalPreview();
     this.activeApprovalPanel = undefined;
-    this.host.state.approvalRegion.clear();
-    // Hand the keyboard back: the approval had it, and leaving focus on an
-    // empty region would strand the next keystroke.
-    this.host.state.statusSurface.focusRegion(null);
+    this.restoreEditor();
     this.host.patchLivePane({ pendingApproval: null });
     this.host.state.ui.requestRender();
   }

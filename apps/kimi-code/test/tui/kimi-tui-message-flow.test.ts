@@ -3676,17 +3676,17 @@ command = "vim"
       },
     });
 
+    const approvalPanel = () =>
+      driver.state.editorContainer.children.find(
+        (child) => child instanceof ApprovalPanelComponent,
+      ) as ApprovalPanelComponent | undefined;
     await waitForAssertion(() => {
-      expect(driver.state.approvalRegion.panelComponent()).toBeInstanceOf(ApprovalPanelComponent);
+      expect(approvalPanel()).toBeInstanceOf(ApprovalPanelComponent);
     });
-    // The approval is a region of the status strip, so it never takes the
-    // editor's slot. (`editorReplacementMounted` is the other mechanism —
-    // dialogs that really do swap the input area out — and an approval must
-    // leave it false.)
-    expect(driver.state.approvalRegion.isEmpty()).toBe(false);
-    expect(driver.state.statusSurface.hasBlockingRegion()).toBe(true);
-    expect(driver.state.editorReplacementMounted).toBe(false);
-    driver.state.approvalRegion.panelComponent()!.handleInput('1');
+    // The approval replaces the editor: it is the one dialog that must own the
+    // input area, so a half-typed draft cannot sit under a key it no longer has.
+    expect(driver.state.editorReplacementMounted).toBe(true);
+    approvalPanel()!.handleInput('1');
     await expect(response).resolves.toMatchObject({ decision: 'approved' });
 
     await waitForAssertion(() => {
@@ -10082,9 +10082,9 @@ capabilities = ["image_in", "video_in"]
     });
 
     await waitForAssertion(() => {
-      // The approval is a region of the status strip now, so the rendered
-      // prompt lives there rather than in the editor's slot.
-      const approval = stripSgr(driver.state.statusSurface.render(120).join('\n'));
+      // The approval replaces the editor, so the rendered prompt lives there
+      // rather than in the status strip.
+      const approval = stripSgr(driver.state.editorContainer.render(120).join('\n'));
       expect(approval).toContain('Ready to build with this plan?');
       expect(approval).not.toContain('non-duplicated plan work');
       expect(approval).not.toContain('/tmp/no-duplicate-plan.md');
@@ -10759,10 +10759,14 @@ capabilities = ["image_in", "video_in"]
       },
     });
 
+    const mountedApproval = () =>
+      driver.state.editorContainer.children.find(
+        (child) => child instanceof ApprovalPanelComponent,
+      ) as ApprovalPanelComponent | undefined;
     await waitForAssertion(() => {
-      expect(driver.state.approvalRegion.panelComponent()).toBeInstanceOf(ApprovalPanelComponent);
+      expect(mountedApproval()).toBeInstanceOf(ApprovalPanelComponent);
     });
-    driver.state.approvalRegion.panelComponent()!.handleInput('2');
+    mountedApproval()!.handleInput('2');
     await expect(response).resolves.toMatchObject({ decision: 'rejected' });
 
     driver.sessionEventHandler.handleEvent(

@@ -1,22 +1,27 @@
 /**
- * ApprovalPanel — pi-tui version of the approval request UI.
+ * ApprovalPanel — the approval request UI that replaces the editor.
  *
- * Container-based component with keyboard navigation.
+ * A DockSection: the title is the head, the request (command, diff, …) is the
+ * body, and the choices with their key hints are the foot. Docked in
+ * fullscreen, a long request scrolls while the choices stay on screen.
  */
 
 import {
-  Container,
   Input,
   matchesKey,
   Key,
   decodeKittyPrintable,
   type Focusable,
+  type TuiMouseEvent,
+  type TuiMouseEventResult,
   truncateToWidth,
   visibleWidth,
   wrapTextWithAnsi,
 } from '@moonshot-ai/pi-tui';
 
 import { t } from '#/i18n';
+import { isSettlingClick } from '#/tui/utils/terminal-focus';
+import { DockSection, type DockLayout, type DockPart } from '#/tui/components/chrome/dock-section';
 import { highlightLines, langFromPath } from '#/tui/components/media/code-highlight';
 import { renderDiffLinesClustered } from '#/tui/components/media/diff-preview';
 import type {
@@ -218,7 +223,16 @@ function headerFor(toolName: string): string {
   }
 }
 
-export class ApprovalPanelComponent extends Container implements Focusable {
+export interface ApprovalPanelOptions {
+  /** Dock the panel (fullscreen): the request body scrolls past this many rows. */
+  readonly layout?: DockLayout;
+  /** Whether the terminal window has focus; the panel fades while it does not. */
+  readonly isTerminalFocused?: () => boolean;
+  /** `Ctrl+N`: hand the keyboard to the Updates panel; false when it has nothing to show. */
+  readonly onFocusUpdates?: () => boolean;
+}
+
+export class ApprovalPanelComponent extends DockSection implements Focusable {
   focused = false;
   private selectedIndex = 0;
   private feedbackMode = false;
@@ -229,18 +243,29 @@ export class ApprovalPanelComponent extends Container implements Focusable {
   private readonly onOpenPreview:
     | ((block: DiffDisplayBlock | FileContentDisplayBlock) => void)
     | undefined;
+  private readonly isTerminalFocused: () => boolean;
+  private readonly onFocusUpdates: (() => boolean) | undefined;
+  /** A click this soon after the panel appeared was aimed at what was there before. */
+  private readonly shownAt = Date.now();
+  /** Foot row of each choice in the last render, for mouse hit-testing. */
+  private choiceRows: readonly number[] = [];
+  /** Choice under the pointer: highlighted, but not selected. */
+  private hoverIndex: number | undefined;
 
   constructor(
     request: PendingApproval,
     onResponse: (response: ApprovalPanelResponse) => void,
     onToggleToolOutput?: () => void,
     onOpenPreview?: (block: DiffDisplayBlock | FileContentDisplayBlock) => void,
+    options: ApprovalPanelOptions = {},
   ) {
-    super();
+    super(options.layout);
     this.request = request;
     this.onResponse = onResponse;
     this.onToggleToolOutput = onToggleToolOutput;
     this.onOpenPreview = onOpenPreview;
+    this.isTerminalFocused = options.isTerminalFocused ?? (() => true);
+    this.onFocusUpdates = options.onFocusUpdates;
     this.feedbackInput.onSubmit = (value) => {
       this.submit(this.selectedIndex, value);
     };
@@ -401,8 +426,7 @@ export class ApprovalPanelComponent extends Container implements Focusable {
     return false;
   }
 
-  override render(width: number): string[] {
-    this.clear();
+  protected renderPart(part: DockPart, width: number): string[] {
     this.ensureValidSelection();
     this.feedbackInput.focused = this.focused && this.feedbackMode;
     const { data } = this.request;
@@ -411,11 +435,8 @@ export class ApprovalPanelComponent extends Container implements Focusable {
     const dim = (text: string) => currentTheme.fg('textDim', text);
     const strong = (text: string) => currentTheme.fg('textStrong', text);
     const indent = (s: string): string => `  ${s}`;
-
-    // Body rows live inside the shared frame: its borders and inner padding
-    // cost four columns, so the wrap widths below are the panel's own 2-space
-    // indent plus that overhead narrower than the render width.
-    const body: string[] = [];
+    const fade = (text: string): string => (this.isTerminalFocused() ? text : currentTheme.fg('textDim', text));
+    const clipped = (lines: string[]): string[] => lines.map((line) => truncateToWidth(line, width));
 
     const dedupedBlocks = data.display.filter(
       (block) => !isDuplicateBriefBlock(block, data.description),
@@ -425,22 +446,31 @@ export class ApprovalPanelComponent extends Container implements Focusable {
       (block) => block.type === 'diff' || block.type === 'file_content',
     );
 
-    if (visibleBlocks.length > 0) {
-      body.push('');
-      for (const block of visibleBlocks) {
-        const blockLines = renderDisplayBlock(block, blockStyles, Math.max(1, width - 6));
-        for (const line of blockLines) {
-          body.push(indent(line));
-        }
-      }
-    } else if (data.description) {
-      body.push('');
-      for (const descLine of data.description.split('\n')) {
-        body.push(indent(dim(descLine)));
-      }
+    if (part === 'head') {
+      return clipped([
+        fade(`  ${currentTheme.boldFg('borderFocus', '▶')} ${currentTheme.boldFg('borderFocus', headerFor(data.tool_name))}`),
+      ]);
     }
 
-    body.push('');
+    if (part === 'body') {
+      const body: string[] = [];
+      if (visibleBlocks.length > 0) {
+        body.push('');
+        for (const block of visibleBlocks) {
+          const blockLines = renderDisplayBlock(block, blockStyles, Math.max(1, width - 6));
+          for (const line of blockLines) body.push(indent(line));
+        }
+      } else if (data.description) {
+        body.push('');
+        for (const descLine of data.description.split('\n')) {
+          body.push(indent(dim(descLine)));
+        }
+      }
+      return clipped(body);
+    }
+
+    const foot: string[] = [''];
+    const rows: number[] = [];
     for (let idx = 0; idx < data.choices.length; idx++) {
       const option = data.choices[idx];
       if (option === undefined) continue;
@@ -448,33 +478,32 @@ export class ApprovalPanelComponent extends Container implements Focusable {
       const num = idx + 1;
 
       const labelWithNum = `${String(num)}. ${option.label}`;
+      rows.push(foot.length);
       if (this.feedbackMode && option.requires_feedback === true && isSelected) {
-        body.push(indent(this.renderInlineFeedbackLine(width - 6, labelWithNum)));
+        foot.push(indent(this.renderInlineFeedbackLine(width - 6, labelWithNum)));
       } else if (isSelected) {
-        body.push(indent(`${selectColorBold('▶')} ${selectColorBold(labelWithNum)}`));
+        foot.push(indent(`${selectColorBold('▶')} ${selectColorBold(labelWithNum)}`));
       } else {
-        body.push(indent(strong(`  ${labelWithNum}`)));
+        foot.push(indent(strong(`  ${labelWithNum}`)));
       }
 
-      // Optional helper text under the label, aligned past the pointer/number.
-      // Choices without a description render exactly as before.
       if (
         option.description !== undefined &&
         option.description.length > 0 &&
         !(this.feedbackMode && option.requires_feedback === true && isSelected)
       ) {
         for (const descLine of wrapTextWithAnsi(option.description, Math.max(20, width - 11))) {
-          body.push(indent(`     ${dim(descLine)}`));
+          foot.push(indent(`     ${dim(descLine)}`));
         }
       }
     }
 
-    body.push('');
+    foot.push('');
     if (this.feedbackMode) {
-      body.push(indent(dim(t('tui.dialogs.approvalPanel.feedbackHint'))));
+      foot.push(indent(dim(t('tui.dialogs.approvalPanel.feedbackHint'))));
     } else {
       const expandHint = hasPreviewable ? t('tui.dialogs.approvalPanel.expandHint') : '';
-      body.push(
+      foot.push(
         indent(
           dim(
             t('tui.dialogs.approvalPanel.navHint', {
@@ -485,11 +514,37 @@ export class ApprovalPanelComponent extends Container implements Focusable {
         ),
       );
     }
+    this.choiceRows = rows;
+    return clipped(foot);
+  }
 
-    // The strip's frame belongs to the status surface, so the panel draws the
-    // body only. The tool-specific question heads the region's summary row,
-    // which stays visible in both fold states.
-    return body.map((line) => truncateToWidth(line, width));
+  protected override handlePartMouse(
+    part: DockPart,
+    event: TuiMouseEvent,
+  ): TuiMouseEventResult | undefined {
+    const index = part === 'foot' ? this.choiceRows.indexOf(event.y) : -1;
+    if (event.type === 'move') {
+      const hovered = index === -1 || this.feedbackMode || !this.focused ? undefined : index;
+      if (hovered === this.hoverIndex) return index === -1 ? undefined : { handled: true };
+      this.hoverIndex = hovered;
+      return { handled: true, render: true };
+    }
+    if (event.button !== 'left') return undefined;
+    if (event.type === 'click' && !this.focused) return { handled: true, focus: true };
+    if (index === -1) return undefined;
+    if (event.type === 'click' && !isSettlingClick(this.shownAt)) {
+      this.clickChoice(index);
+    }
+    return { handled: true };
+  }
+
+  private clickChoice(index: number): void {
+    if (!this.feedbackMode) {
+      this.selectAndSubmit(index);
+      return;
+    }
+    this.selectedIndex = index;
+    this.feedbackMode = this.choiceAt(index)?.requires_feedback === true;
   }
 
   private findPreviewableBlock(): DiffDisplayBlock | FileContentDisplayBlock | undefined {
