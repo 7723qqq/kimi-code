@@ -11,7 +11,7 @@ This is a TypeScript monorepo built for agent-assisted development. This file is
 - **Author**: Moonshot AI
 - **License**: MIT
 - **Homepage**: https://github.com/MoonshotAI/kimi-code
-- **Version**: `@moonshot-ai/kimi-code` 2.3.1 (the main CLI app — follows upstream)
+- **Version**: `@moonshot-ai/kimi-code` 2.3.3 (the main CLI app — upstream 2.3.3 plus this fork's own patch stream)
 
 > **Note**: This repository is a personal experimental fork of MoonshotAI/kimi-code. Not affiliated with Moonshot AI. Use at your own risk — do not submit PRs from this fork to upstream.
 
@@ -299,12 +299,70 @@ cd tools/review && zig build          # needs Zig 0.17 (the devShell provides it
 | `workflow-triggers` | A CI job the docs list that no pull request ever runs |
 | `dangling-refs` | A tool name in a `*TOOLS` list that no tool registers |
 | `scripts-wiring` | A package script nothing invokes |
+| `bun-native` | A `node:` API call where Bun's own native API has the same semantics |
+| `node-launch` | A command, script, or launcher that starts Node by name |
+| `bun-gap` | A `node:` endpoint Bun does not implement, or implements wrongly |
 
 Findings at `error` severity fail the run; `warn` and `info` do not. The four
 baseline ledgers (`dangling-refs-`, `orphan-exports-`, `scripts-wiring-`,
 `silent-catch-baseline.txt`) record findings someone has already looked at: a
 finding listed there is suppressed, and an entry that stops matching anything is
 reported so the ledger cannot rot. Regenerate one with `--check=<name> --json`.
+`bun-native-baseline.txt`, `node-launch-baseline.txt` and `bun-gap-baseline.txt`
+follow the same rule.
+
+### Bun's node layer, and the three checks that keep it honest
+
+Bun implements the `node:*` modules itself. That is why `node:fs` and
+`node:child_process` work under `bun` with no Node installed — `process.versions.node`
+is populated by Bun's own implementation, and the published CLI is a Bun
+single-file binary that ships no Node at all. Call this the **node layer**: it is
+the floor this repository stands on, not a target.
+
+Three rules follow, and `bun-native` / `node-launch` / `bun-gap` are their gates:
+
+1. **Where Bun also exposes a native API, write the native call.** The native path
+   is the one Bun optimises, and the one that keeps working in a compiled binary.
+   `Bun.file(path).text()` replaces `readFile(path, 'utf8')`; `Bun.CryptoHasher`
+   replaces `createHash`; `Bun.which` replaces a PATH walk. This is a
+   recommendation, so it reports as `warn` and carries a shrink-only ledger.
+2. **Never start Node by name.** A `node foo.mjs` command, a `"node"` argv entry,
+   or a `node` line in a launcher escapes the node layer and runs whatever Node
+   happens to be on `PATH` — the runtime this repository does not install
+   (`no CI job installs Node`, above). Run the script with `bun <path>` instead
+   and Bun's node layer serves it. This reports as `error`.
+3. **A `node:` endpoint Bun does not have is not a fallback, it is a hole.** The
+   node layer is broad but not complete, and its gaps come in two shapes that
+   fail differently. A *missing* endpoint (`v8.queryObjects`,
+   `module.registerHooks`, `crypto.encapsulate`, `tls.SNICallback`) throws
+   `TypeError` or `ERR_NOT_IMPLEMENTED` the first time it runs — loud, cheap, so
+   it reports as `warn`. A *degraded* endpoint accepts the call and returns a
+   plausible wrong answer — `eventLoopUtilization()` is always zero, a Worker's
+   `resourceLimits` is ignored, `v8.serialize` emits JavaScriptCore's wire format
+   rather than V8's — and that never announces itself, so it reports as `error`.
+   The gap table is transcribed from Bun's Node.js Compatibility page, and each
+   entry names the replacement in its evidence line.
+
+The three rules are ordered, not alternatives: prefer the native API, fall back to
+the node layer, never fall through to a real Node binary, and never assume the
+node layer covers an endpoint just because the module imports. `bun --bun <script>`
+and a `node`-named symlink to Bun both *enter* the node layer (`bunfig.toml`'s
+`[run] bun = true` does it for every `bun run`); neither is a substitute for
+calling the native API where one exists.
+
+`bun-native` only reads packages that may call `Bun.*` — `pi-tui`
+(`engines.node >= 22.19.0`), `transcript` and `i18n-shared` (browser-safe), and
+the two extension/webview apps are excluded by name in the check, because the
+repository contains zero `Bun.*` calls in any of them. `bun-gap` is not scoped
+that way: a missing endpoint is missing for every package, including the ones
+that cannot use `Bun.*` as a workaround.
+
+A file that already decides whether to pass an ignored Worker option based on the
+runtime (`RUNTIME_IS_BUN ? new BunWorker(…) : new Worker({ resourceLimits })`) is
+not reported — the guard is the fix, and flagging it would punish it. Detect that
+by reading the file, not by counting occurrences: both guarded sites in this
+repository mention the option exactly once.
+
 
 ### A check that cannot run says so
 

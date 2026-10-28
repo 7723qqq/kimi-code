@@ -855,12 +855,8 @@ describe('fullscreen layout', () => {
     state.ui.stop();
   });
 
-  it('shows a pending approval in the todo slot and answers it on click', async () => {
+  it('shows a pending approval in place of the editor and answers it on click', async () => {
     const { state, vt } = await mountFullscreen();
-    state.todoRegion.setTodos([
-      { title: 'todo one', status: 'pending' },
-      { title: 'todo two', status: 'in_progress' },
-    ]);
     const onRespond = mock();
     const data = {
       id: 'req-1',
@@ -875,16 +871,27 @@ describe('fullscreen layout', () => {
         { label: 'Reject', response: 'rejected' as const },
       ],
     };
-    const panel = new ApprovalPanelComponent({ data }, onRespond);
-    state.approvalRegion.show(data, panel);
-    state.statusSurface.focusRegion('approval');
+    const panel = new ApprovalPanelComponent(
+      { data },
+      onRespond,
+      undefined,
+      undefined,
+      {
+        layout: { maxBodyRows: 6 },
+        isTerminalFocused: () => true,
+      },
+    );
+    // The click guard ignores a click within CLICK_GUARD_MS of the panel
+    // appearing; age the panel past it so this case tests selection.
+    (panel as unknown as { shownAt: number }).shownAt = Date.now() - 1_000;
+    state.editorContainer.clear();
+    state.editorContainer.addChild(panel);
     const alt = state.ui as TuiAltScreen;
+    alt.setFocus(panel);
     alt.renderNow();
     await vt.flush();
 
     const viewport = vt.getViewport().map((line) => stripAnsi(line));
-    // The blocking prompt takes over the todo list's slot while it waits.
-    expect(viewport.some((line) => line.includes('todo one'))).toBe(false);
     expect(viewport.some((line) => line.includes('Run this command?'))).toBe(true);
     // Each option keeps a summary row of its own, so the click lands on the
     // row that prints the label rather than on a shared run-on line.
@@ -893,18 +900,19 @@ describe('fullscreen layout', () => {
     const allowColumn = viewport[rowIndex]!.indexOf('Allow');
     expect(allowColumn).toBeGreaterThan(0);
 
-    vt.sendInput(`\u001B[<0;${allowColumn + 1};${rowIndex + 1}M`);
-    vt.sendInput(`\u001B[<0;${allowColumn + 1};${rowIndex + 1}m`);
+    vt.sendInput(`[<0;${allowColumn + 1};${rowIndex + 1}M`);
+    vt.sendInput(`[<0;${allowColumn + 1};${rowIndex + 1}m`);
     await vt.waitForRender();
     expect(onRespond).toHaveBeenCalled();
 
-    // Resolving the request gives the todo list its slot back.
-    state.approvalRegion.clear();
-    state.statusSurface.focusRegion(null);
+    // Resolving the request puts the editor back.
+    state.editorContainer.clear();
+    state.editorContainer.addChild(state.editor);
+    alt.setFocus(state.editor);
     alt.renderNow();
     await vt.flush();
-    expect(vt.getViewport().map((line) => stripAnsi(line)).some((l) => l.includes('todo one'))).toBe(
-      true,
+    expect(vt.getViewport().map((line) => stripAnsi(line)).some((l) => l.includes('Run this command?'))).toBe(
+      false,
     );
     alt.stop();
   });

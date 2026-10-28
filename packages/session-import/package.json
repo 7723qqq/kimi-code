@@ -1,0 +1,26 @@
+{
+  "name": "@moonshot-ai/session-import",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Convert external coding sessions into portable textual history and attachments.",
+  "license": "MIT",
+  "files": [
+    "dist"
+  ],
+  "type": "module",
+  "imports": {
+    "#/*": "./src/*.ts"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.ts",
+      "default": "./src/index.ts"
+    }
+  },
+  "scripts": {
+    "build": "tsdown",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "bun ../../scripts/run-package-tests.mjs --root=test",
+    "clean": "bun -e \"import { rmSync } from 'node:fs'; rmSync('dist', { recursive: true, force: true })\""
+  }
+}

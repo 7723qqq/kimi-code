@@ -1,0 +1,24 @@
+# Sites that start Node by name, accepted at their current count.
+#
+# Format: `<path> <count>` for a TypeScript file, `<path>:launch` for a package
+# script, launcher, or the Nix build. An entry that stops matching is reported,
+# so this file cannot rot silently.
+#
+# These are the sites where the Node binary is genuinely required — the check
+# exists to make each one a decision rather than an accident, not to eliminate
+# the category.
+#
+# `flake.nix` is the load-bearing one. The Nix build runs in a pure sandbox that
+# has no `/usr/bin/env`, so a script is invoked through `node <js-entry>` rather
+# than its bin shim (DEVELOP.md → "Nix build maintenance"). Bun is on PATH there,
+# but this specific call documents the sandbox constraint and switching it to
+# `bun` would leave the reason unstated.
+#
+# `start-desktop.bat` and `apps/vis/package.json` are ordinary Windows/Node
+# launcher debt: both run a script that `bun` serves identically, and both are
+# candidates for conversion. They are listed rather than fixed here so the
+# check lands green without an unrelated behaviour change riding along.
+
+flake.nix:launch
+start-desktop.bat:launch
+apps/vis/package.json:launch

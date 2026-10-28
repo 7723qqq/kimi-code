@@ -1,4 +1,3 @@
-import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import net from 'node:net';
 import os from 'node:os';
@@ -9,7 +8,7 @@ import path from 'node:path';
 // aliasing, batch unique swap/del+set, unique-on-existing-dups, batch key
 // length, TTL heap growth, size vs expiry, range-array, dtColumns, MSET
 // atomicity, openOrRebuild scope, open-failure cleanup).
-import { test } from 'bun:test';
+import { expect, test } from 'bun:test';
 
 import { encodeBatchOps, encodeFrame, TYPE_BATCH, TYPE_SET } from '../src/codec.js';
 import { MiniDb, UniqueViolationError } from '../src/index.js';
@@ -29,12 +28,9 @@ test('compound index: re-set with same group+order does not duplicate', async ()
     await db.set('a', { workspaceId: 'W1' }, { dt: { updatedAt: 100 } });
     await db.set('a', { workspaceId: 'W1' }, { dt: { updatedAt: 100 } });
     await db.set('a', { workspaceId: 'W1' }, { dt: { updatedAt: 100 } });
-    assert.deepEqual(
-      db.compoundRange('byWs', 'W1').map((r) => r.key),
-      ['a'],
-    );
+    expect(db.compoundRange('byWs', 'W1').map((r) => r.key)).toStrictEqual(['a']);
     await db.del('a');
-    assert.deepEqual(db.compoundRange('byWs', 'W1'), []);
+    expect(db.compoundRange('byWs', 'W1')).toStrictEqual([]);
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -48,7 +44,7 @@ test('compound index: becoming invalid removes the entry cleanly', async () => {
   try {
     await db.set('a', { workspaceId: 'W1' }, { dt: { updatedAt: 100 } });
     await db.set('a', { other: 1 }); // no workspaceId -> removed from index
-    assert.deepEqual(db.compoundRange('byWs', 'W1'), []);
+    expect(db.compoundRange('byWs', 'W1')).toStrictEqual([]);
   } finally {
     await db.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -89,8 +85,8 @@ test('WAL and snapshot tolerate short writes (fragmented writev)', async () => {
     await db.close();
 
     const db2 = await MiniDb.open({ dir, valueCodec: 'string' });
-    for (let i = 0; i < 30; i++) assert.equal(db2.get(`k${i}`), `value-${i}-${'x'.repeat(40)}`);
-    assert.equal(db2.get('after'), 'tail');
+    for (let i = 0; i < 30; i++) expect(db2.get(`k${i}`)).toBe(`value-${i}-${'x'.repeat(40)}`);
+    expect(db2.get('after')).toBe('tail');
     await db2.close();
   } finally {
     proto.writev = orig;
@@ -118,13 +114,13 @@ test('set rolls back store + indexes when the WAL write fails', async () => {
     return orig(...a);
   };
 
-  await assert.rejects(db.set('new', { city: 'London' }), /injected/);
-  assert.equal(db.get('new'), undefined, 'failed set must not be visible');
-  assert.deepEqual(db.findEq('byCity', 'London'), [], 'index must not contain rolled-back key');
+  await expect(db.set('new', { city: 'London' })).rejects.toThrow(/injected/);
+  expect(db.get('new'), 'failed set must not be visible').toBe(undefined);
+  expect(db.findEq('byCity', 'London'), 'index must not contain rolled-back key').toStrictEqual([]);
   // Further writes still work after the injected failure clears.
   boom = false;
   await db.set('ok', { city: 'Berlin' });
-  assert.equal(db.get('ok')?.city, 'Berlin');
+  expect(db.get('ok')?.city).toBe('Berlin');
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -146,15 +142,12 @@ test('batch rolls back atomically when the WAL write fails', async () => {
     return orig(...a);
   };
 
-  await assert.rejects(
-    db.batch([
+  await expect(db.batch([
       { op: 'set', key: 'a', value: { n: 99 } },
       { op: 'set', key: 'b', value: { n: 2 } },
-    ]),
-    /injected/,
-  );
-  assert.deepEqual(db.get('a'), { n: 1 }, 'a must be restored to pre-batch value');
-  assert.equal(db.get('b'), undefined, 'b must not exist');
+    ])).rejects.toThrow(/injected/);
+  expect(db.get('a'), 'a must be restored to pre-batch value').toStrictEqual({ n: 1 });
+  expect(db.get('b'), 'b must not exist').toBe(undefined);
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -184,10 +177,7 @@ test('RESP GET returns correct UTF-8 bulk for non-ASCII values', async () => {
       Buffer.from('北京', 'utf8'),
       Buffer.from('\r\n', 'binary'),
     ]);
-    assert.ok(
-      raw.includes(expected),
-      `expected bulk reply, got ${JSON.stringify(raw.toString('binary'))}`,
-    );
+    expect(raw.includes(expected), `expected bulk reply, got ${JSON.stringify(raw.toString('binary'))}`).toBeTruthy();
   } finally {
     await close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -202,7 +192,7 @@ test('buffer codec: mutating a returned value does not corrupt the store', async
   await db.set('k', Buffer.from('hello'));
   const b = db.get('k')!;
   b[0] = 0xff;
-  assert.equal(db.get('k')![0], 0x68, 'stored value must be unchanged');
+  expect(db.get('k')![0], 'stored value must be unchanged').toBe(0x68);
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -219,8 +209,8 @@ test('batch allows swapping a unique value between two keys', async () => {
     { op: 'set', key: 'u1', value: { email: 'bob@example.test' } },
     { op: 'set', key: 'u2', value: { email: 'alice@example.test' } },
   ]);
-  assert.equal(db.get('u1')?.email, 'bob@example.test');
-  assert.equal(db.get('u2')?.email, 'alice@example.test');
+  expect(db.get('u1')?.email).toBe('bob@example.test');
+  expect(db.get('u2')?.email).toBe('alice@example.test');
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -234,12 +224,9 @@ test('batch allows del(u1) + set(u2) reusing u1 unique value', async () => {
     { op: 'del', key: 'u1' },
     { op: 'set', key: 'u2', value: { email: 'shared@example.test' } },
   ]);
-  assert.equal(db.get('u1'), undefined);
-  assert.equal(db.get('u2')?.email, 'shared@example.test');
-  assert.deepEqual(
-    db.findEq('byMail', 'shared@example.test').map((r) => r.key),
-    ['u2'],
-  );
+  expect(db.get('u1')).toBe(undefined);
+  expect(db.get('u2')?.email).toBe('shared@example.test');
+  expect(db.findEq('byMail', 'shared@example.test').map((r) => r.key)).toStrictEqual(['u2']);
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -249,11 +236,8 @@ test('batch still rejects genuine unique violations', async () => {
   const db = await MiniDb.open({ dir, valueCodec: 'json' });
   await db.createIndex('byMail', { field: 'email', unique: true });
   await db.set('u1', { email: 'duplicate@example.test' });
-  await assert.rejects(
-    db.batch([{ op: 'set', key: 'u2', value: { email: 'duplicate@example.test' } }]),
-    /unique/i,
-  );
-  assert.equal(db.get('u2'), undefined);
+  await expect(db.batch([{ op: 'set', key: 'u2', value: { email: 'duplicate@example.test' } }])).rejects.toThrow(/unique/i);
+  expect(db.get('u2')).toBe(undefined);
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -265,8 +249,8 @@ test('createIndex(unique) rejects existing duplicate data', async () => {
   const db = await MiniDb.open({ dir, valueCodec: 'json' });
   await db.set('a', { email: 'duplicate@example.test' });
   await db.set('b', { email: 'duplicate@example.test' });
-  await assert.rejects(db.createIndex('byMail', { field: 'email', unique: true }), /unique/i);
-  assert.equal(db.listIndexes().length, 0, 'index must not persist after failed create');
+  await expect(db.createIndex('byMail', { field: 'email', unique: true })).rejects.toThrow(/unique/i);
+  expect(db.listIndexes().length, 'index must not persist after failed create').toBe(0);
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -277,8 +261,8 @@ test('batch rejects keys longer than 128 chars', async () => {
   const dir = await tmpDir();
   const db = await MiniDb.open({ dir, valueCodec: 'json' });
   const longKey = 'k'.repeat(200);
-  await assert.rejects(db.batch([{ op: 'set', key: longKey, value: { v: 1 } }]), /key too long/i);
-  assert.equal(db.get(longKey), undefined);
+  await expect(db.batch([{ op: 'set', key: longKey, value: { v: 1 } }])).rejects.toThrow(/key too long/i);
+  expect(db.get(longKey)).toBe(undefined);
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -290,7 +274,7 @@ test('repeated TTL updates on one key do not bloat the heap', { timeout: 30_000 
   const db = await MiniDb.open({ dir, valueCodec: 'string', activeExpireIntervalMs: 0 });
   for (let i = 0; i < 5000; i++) await db.set('k', 'v', { ttl: 1_000_000 });
   const heapSize = (db as unknown as { store: { heap: { size: number } } }).store.heap.size;
-  assert.ok(heapSize < 100, `heap should stay small, got ${heapSize}`);
+  expect(heapSize < 100, `heap should stay small, got ${heapSize}`).toBeTruthy();
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -303,8 +287,8 @@ test('size excludes expired-but-not-yet-reaped keys', async () => {
   await db.set('e', 'v', { ttl: 1 });
   await db.set('s', 'ok');
   await new Promise((r) => setTimeout(r, 10));
-  assert.equal(db.size, 1);
-  assert.equal(db.scan().length, 1);
+  expect(db.size).toBe(1);
+  expect(db.scan().length).toBe(1);
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -318,17 +302,11 @@ test('range index indexes array fields per element', async () => {
   await db.set('a', { scores: [10, 20, 30] });
   await db.set('b', { scores: [25] });
   const r = db.findRange('byScore', { min: 0, max: 100 });
-  assert.equal(r.length, 4, `expected 4 indexed elements, got ${r.length}`);
-  assert.deepEqual(
-    db.findRange('byScore', { min: 20, max: 20 }).map((x) => x.key),
-    ['a'],
-  );
+  expect(r.length, `expected 4 indexed elements, got ${r.length}`).toBe(4);
+  expect(db.findRange('byScore', { min: 20, max: 20 }).map((x) => x.key)).toStrictEqual(['a']);
   // update removes old elements
   await db.set('a', { scores: [99] });
-  assert.deepEqual(
-    db.findRange('byScore', { min: 10, max: 30 }).map((x) => x.key),
-    ['b'],
-  );
+  expect(db.findRange('byScore', { min: 10, max: 30 }).map((x) => x.key)).toStrictEqual(['b']);
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -340,7 +318,7 @@ test('dtColumns drops columns that no record has anymore', async () => {
   const db = await MiniDb.open({ dir, valueCodec: 'json' });
   await db.set('a', { v: 1 }, { dt: { created: 100 } });
   await db.del('a');
-  assert.deepEqual(db.dtColumns(), []);
+  expect(db.dtColumns()).toStrictEqual([]);
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -364,10 +342,10 @@ test('RESP MSET sets all keys', async () => {
       sock.on('error', reject);
     });
     const s = raw.toString('binary');
-    assert.ok(s.includes('+OK'));
-    assert.ok(s.includes('$1\r\n1\r\n'));
-    assert.ok(s.includes('$1\r\n2\r\n'));
-    assert.ok(s.includes('$1\r\n3\r\n'));
+    expect(s.includes('+OK')).toBeTruthy();
+    expect(s.includes('$1\r\n1\r\n')).toBeTruthy();
+    expect(s.includes('$1\r\n2\r\n')).toBeTruthy();
+    expect(s.includes('$1\r\n3\r\n')).toBeTruthy();
   } finally {
     await close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -389,10 +367,10 @@ test('openOrRebuild rebuilds on corrupt index-definition JSON', async () => {
     { dir, valueCodec: 'json' },
     { onRebuild: () => (rebuilt = true) },
   );
-  assert.ok(rebuilt, 'onRebuild should be called');
+  expect(rebuilt, 'onRebuild should be called').toBeTruthy();
   // the corrupt sidecar (derived state) is dropped; the data is preserved
-  assert.deepEqual(db2.get('k'), { v: 1 });
-  assert.deepEqual(db2.listIndexes(), []);
+  expect(db2.get('k')).toStrictEqual({ v: 1 });
+  expect(db2.listIndexes()).toStrictEqual([]);
   await db2.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -406,12 +384,12 @@ test('open failure on corrupt index JSON releases the lock', async () => {
   await db.close();
   await fs.writeFile(path.join(dir, 'db.indexes.json'), '{ not valid json', 'utf8');
 
-  await assert.rejects(MiniDb.open({ dir, valueCodec: 'json' }), /JSON|Unexpected/i);
+  await expect(MiniDb.open({ dir, valueCodec: 'json' })).rejects.toThrow(/JSON|Unexpected/i);
   // Lock must be released so a subsequent open can proceed. Remove the corrupt
   // definition file so recovery can continue from the snapshot/WAL.
   await fs.rm(path.join(dir, 'db.indexes.json'), { force: true });
   const db2 = await MiniDb.open({ dir, valueCodec: 'json' });
-  assert.equal(db2.get('k')?.v, 1, 'data intact after failed open');
+  expect(db2.get('k')?.v, 'data intact after failed open').toBe(1);
   await db2.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -472,29 +450,21 @@ test('WAL poison: a failed writev is truncated away — the rejected key never r
     },
     (error) => error as Error,
   );
-  assert.match(String(err), /injected WAL failure/);
-  assert.equal(
-    (err as { ambiguous?: boolean }).ambiguous,
-    true,
-    'a failure past the commit point is marked ambiguous',
-  );
-  assert.equal(
-    db.get('failed'),
-    undefined,
-    'the group rollback hides the rejected write in-memory',
-  );
-  assert.equal(db.stats.walWriteErrors, 1, 'writev-class failure counted');
-  assert.equal(db.stats.walFsyncErrors, 0);
+  expect(String(String(err))).toMatch(/injected WAL failure/);
+  expect((err as { ambiguous?: boolean }).ambiguous, 'a failure past the commit point is marked ambiguous').toBe(true);
+  expect(db.get('failed'), 'the group rollback hides the rejected write in-memory').toBe(undefined);
+  expect(db.stats.walWriteErrors, 'writev-class failure counted').toBe(1);
+  expect(db.stats.walFsyncErrors).toBe(0);
 
   // The next write queues behind the in-place recovery, then lands at the
   // real EOF: disk-mode get() must not short-read a stale predicted offset.
   await db.set('ok', 'persisted');
-  assert.equal(db.get('ok'), 'persisted');
+  expect(db.get('ok')).toBe('persisted');
   await db.close();
 
   db = await MiniDb.open<string>({ dir, ...MEM_OPTS, valueMode: 'disk' });
-  assert.equal(db.get('failed'), undefined, 'rejected write must not reappear after reopen');
-  assert.equal(db.get('ok'), 'persisted');
+  expect(db.get('failed'), 'rejected write must not reappear after reopen').toBe(undefined);
+  expect(db.get('ok')).toBe('persisted');
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -517,21 +487,14 @@ test('WAL poison: a half-written group is fully revoked — in-memory and reopen
     db.set('first', 'should-fail'),
     db.set('second', 'should-fail'),
   ]);
-  assert.deepEqual(
-    results.map((r) => r.status),
-    ['rejected', 'rejected'],
-  );
-  assert.equal(db.get('first'), undefined, 'in-memory state must match what reopen replays');
-  assert.equal(db.get('second'), undefined);
+  expect(results.map((r) => r.status)).toStrictEqual(['rejected', 'rejected']);
+  expect(db.get('first'), 'in-memory state must match what reopen replays').toBe(undefined);
+  expect(db.get('second')).toBe(undefined);
   await db.close();
 
   db = await MiniDb.open<string>({ dir, ...MEM_OPTS });
-  assert.equal(
-    db.get('first'),
-    undefined,
-    'the half-written frame was truncated by the in-place recovery',
-  );
-  assert.equal(db.get('second'), undefined);
+  expect(db.get('first'), 'the half-written frame was truncated by the in-place recovery').toBe(undefined);
+  expect(db.get('second')).toBe(undefined);
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -561,11 +524,11 @@ test("WAL poison: an fsync failure (fsyncPolicy 'always') revokes the rejected w
     },
     (error) => error as Error,
   );
-  assert.match(String(err), /injected fsync failure/);
-  assert.equal((err as { ambiguous?: boolean }).ambiguous, true);
-  assert.equal(db.get('rejected'), undefined);
-  assert.equal(db.stats.walFsyncErrors, 1, 'fsync-class failure counted separately');
-  assert.equal(db.stats.walWriteErrors, 0, 'not a writev-class failure');
+  expect(String(String(err))).toMatch(/injected fsync failure/);
+  expect((err as { ambiguous?: boolean }).ambiguous).toBe(true);
+  expect(db.get('rejected')).toBe(undefined);
+  expect(db.stats.walFsyncErrors, 'fsync-class failure counted separately').toBe(1);
+  expect(db.stats.walWriteErrors, 'not a writev-class failure').toBe(0);
   await db.close();
 
   db = await MiniDb.open<string>({
@@ -574,7 +537,7 @@ test("WAL poison: an fsync failure (fsyncPolicy 'always') revokes the rejected w
     fsyncPolicy: 'always',
     activeExpireIntervalMs: 0,
   });
-  assert.equal(db.get('rejected'), undefined, 'rejected write must not reappear after reopen');
+  expect(db.get('rejected'), 'rejected write must not reappear after reopen').toBe(undefined);
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -587,18 +550,11 @@ test('WAL poison: same-key ops failing in one group restore the pre-group value;
   await db.set('k', 'old');
   failNextWritev(db as MiniDb<unknown>);
   const results = await Promise.allSettled([db.set('k', 'A'), db.set('k', 'B')]);
-  assert.deepEqual(
-    results.map((r) => r.status),
-    ['rejected', 'rejected'],
-  );
-  assert.equal(
-    db.get('k'),
-    'old',
-    'group rollback restores the pre-group value, not an intermediate one',
-  );
+  expect(results.map((r) => r.status)).toStrictEqual(['rejected', 'rejected']);
+  expect(db.get('k'), 'group rollback restores the pre-group value, not an intermediate one').toBe('old');
   await db.close();
   db = await MiniDb.open<string>({ dir: dir1, ...MEM_OPTS });
-  assert.equal(db.get('k'), 'old', 'reopen agrees with the in-memory state');
+  expect(db.get('k'), 'reopen agrees with the in-memory state').toBe('old');
   await db.close();
   await fs.rm(dir1, { recursive: true, force: true });
 
@@ -608,11 +564,11 @@ test('WAL poison: same-key ops failing in one group restore the pre-group value;
   db = await MiniDb.open<string>({ dir: dir2, ...MEM_OPTS });
   await db.set('k', 'A');
   failNextWritev(db as MiniDb<unknown>);
-  await assert.rejects(db.set('k', 'B'), /injected WAL failure/);
-  assert.equal(db.get('k'), 'A', 'a failed later group must not roll back a committed value');
+  await expect(db.set('k', 'B')).rejects.toThrow(/injected WAL failure/);
+  expect(db.get('k'), 'a failed later group must not roll back a committed value').toBe('A');
   await db.close();
   db = await MiniDb.open<string>({ dir: dir2, ...MEM_OPTS });
-  assert.equal(db.get('k'), 'A');
+  expect(db.get('k')).toBe('A');
   await db.close();
   await fs.rm(dir2, { recursive: true, force: true });
 });
@@ -650,15 +606,15 @@ test('WAL poison: an applyOp contract violation poisons the WAL and rolls the gr
     },
     (error) => error as Error,
   );
-  assert.match(String(err), /injected apply failure/);
-  assert.equal((err as { ambiguous?: boolean }).ambiguous, true);
-  assert.equal(db.get('doc'), undefined, 'no half-commit in the store');
-  assert.deepEqual(db.search('ft', 'hello'), [], 'no half-commit in the text index');
+  expect(String(String(err))).toMatch(/injected apply failure/);
+  expect((err as { ambiguous?: boolean }).ambiguous).toBe(true);
+  expect(db.get('doc'), 'no half-commit in the store').toBe(undefined);
+  expect(db.search('ft', 'hello'), 'no half-commit in the text index').toStrictEqual([]);
 
   // The defensive poison triggers the same in-place recovery as a write
   // failure; later writes land normally.
   await db.set('after', { t: 'fine' });
-  assert.equal(db.get('after')?.t, 'fine');
+  expect(db.get('after')?.t).toBe('fine');
   await db.close();
 
   db = await MiniDb.open<{ t: string }>({
@@ -667,8 +623,8 @@ test('WAL poison: an applyOp contract violation poisons the WAL and rolls the gr
     fsyncPolicy: 'no',
     activeExpireIntervalMs: 0,
   });
-  assert.equal(db.get('doc'), undefined, 'the half-applied write never reached disk');
-  assert.equal(db.get('after')?.t, 'fine');
+  expect(db.get('doc'), 'the half-applied write never reached disk').toBe(undefined);
+  expect(db.get('after')?.t).toBe('fine');
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -684,16 +640,16 @@ test('WAL poison: when the recovery truncate fails the instance is write-disable
     throw new Error('injected truncate failure');
   };
   try {
-    await assert.rejects(db.set('bad', 'x'), /injected WAL failure/);
+    await expect(db.set('bad', 'x')).rejects.toThrow(/injected WAL failure/);
     await waitFor(() => db.writeDisabled !== null, 'writeDisabled to be set');
   } finally {
     (fs as unknown as { truncate: unknown }).truncate = origTruncate;
   }
-  assert.match(String(db.writeDisabled), /injected truncate failure/);
+  expect(String(String(db.writeDisabled))).toMatch(/injected truncate failure/);
 
-  await assert.rejects(db.set('more', 'x'), /writes are disabled/);
-  await assert.rejects(db.batch([{ op: 'set', key: 'b2', value: 'x' }]), /writes are disabled/);
-  assert.equal(db.get('k'), 'v', 'reads keep working');
+  await expect(db.set('more', 'x')).rejects.toThrow(/writes are disabled/);
+  await expect(db.batch([{ op: 'set', key: 'b2', value: 'x' }])).rejects.toThrow(/writes are disabled/);
+  expect(db.get('k'), 'reads keep working').toBe('v');
   await db.close(); // must not throw
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -716,11 +672,11 @@ test('everysec background sync failure neither poisons the WAL nor rejects write
     // fsync never rejects them.
     await db.set('k', 'v');
     await waitFor(() => db.stats.walFsyncErrors >= 1, 'walFsyncErrors to be counted');
-    assert.equal(db.stats.lastWalFsyncError, boom, 'sticky error is observable');
-    assert.equal(db.wal.poison, null, 'a background sync failure must not poison the WAL');
+    expect(db.stats.lastWalFsyncError, 'sticky error is observable').toBe(boom);
+    expect(db.wal.poison, 'a background sync failure must not poison the WAL').toBe(null);
     await db.set('k2', 'v2');
-    assert.equal(db.get('k'), 'v');
-    assert.equal(db.get('k2'), 'v2');
+    expect(db.get('k')).toBe('v');
+    expect(db.get('k2')).toBe('v2');
   } finally {
     fh.sync = origSync; // let close()'s final sync succeed
   }
@@ -771,15 +727,15 @@ test('WAL poison: an applyOp violation queued behind an in-flight batch still le
     }
     origAdd(k, t);
   };
-  await assert.rejects(db.set('b', { t: 'second' }), /injected apply failure/);
-  assert.ok(db.wal.poison, 'the apply violation poisoned the pending queue');
+  await expect(db.set('b', { t: 'second' })).rejects.toThrow(/injected apply failure/);
+  expect(db.wal.poison, 'the apply violation poisoned the pending queue').toBeTruthy();
 
   releaseWritev();
   await opA; // A's batch was in flight before the poison: it commits
   await waitFor(() => db.wal.poison === null, 'the in-place recovery to finish');
 
-  assert.equal(db.get('a')?.t, 'first');
-  assert.equal(db.get('b'), undefined);
+  expect(db.get('a')?.t).toBe('first');
+  expect(db.get('b')).toBe(undefined);
   await db.set('c', { t: 'third' });
   await db.close();
 
@@ -789,9 +745,9 @@ test('WAL poison: an applyOp violation queued behind an in-flight batch still le
     fsyncPolicy: 'no',
     activeExpireIntervalMs: 0,
   });
-  assert.equal(db.get('a')?.t, 'first', 'the committed in-flight batch survives reopen');
-  assert.equal(db.get('b'), undefined);
-  assert.equal(db.get('c')?.t, 'third');
+  expect(db.get('a')?.t, 'the committed in-flight batch survives reopen').toBe('first');
+  expect(db.get('b')).toBe(undefined);
+  expect(db.get('c')?.t).toBe('third');
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -830,15 +786,11 @@ test('WAL poison: an applyOp violation on a never-enqueued frame (sealed WAL) do
     },
     (error) => error as Error,
   );
-  assert.match(String(err), /injected apply failure/);
-  assert.equal(db.wal.poison, null, 'a never-enqueued frame poisons nothing');
-  assert.equal(db.get('bad'), undefined, 'the partial apply was undone');
-  assert.equal(db.get('old')?.t, 'keep');
-  assert.deepEqual(
-    db.search('ft', 'keep').map((h) => h.key),
-    ['old'],
-    'derived indexes stayed consistent',
-  );
+  expect(String(String(err))).toMatch(/injected apply failure/);
+  expect(db.wal.poison, 'a never-enqueued frame poisons nothing').toBe(null);
+  expect(db.get('bad'), 'the partial apply was undone').toBe(undefined);
+  expect(db.get('old')?.t).toBe('keep');
+  expect(db.search('ft', 'keep').map((h) => h.key), 'derived indexes stayed consistent').toStrictEqual(['old']);
   await db.close(); // the sealed WAL still flushes its (empty) queue and closes
 
   db = await MiniDb.open<{ t: string }>({
@@ -847,8 +799,8 @@ test('WAL poison: an applyOp violation on a never-enqueued frame (sealed WAL) do
     fsyncPolicy: 'no',
     activeExpireIntervalMs: 0,
   });
-  assert.equal(db.get('bad'), undefined);
-  assert.equal(db.get('old')?.t, 'keep');
+  expect(db.get('bad')).toBe(undefined);
+  expect(db.get('old')?.t).toBe('keep');
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -862,12 +814,12 @@ test('WAL poison: in-place recovery skips the truncate when the WAL file was rep
   for (let i = 0; i < 10; i++) await db.set(`k${i}`, `v${i}`);
   await db.wal.flush();
   const staleOffset = (await fs.stat(path.join(dir, 'db.wal'))).size;
-  assert.ok(staleOffset > 0);
+  expect(staleOffset > 0).toBeTruthy();
 
   // Poison the WAL directly (no op rejection, so no recovery is kicked yet).
   db.wal.poisonPending(new Error('injected poison'));
   const poison = db.wal.poison!;
-  assert.equal(poison.failedAtOffset, staleOffset);
+  expect(poison.failedAtOffset).toBe(staleOffset);
 
   // Simulate a successful rotation committing a NEW, shorter WAL at the same
   // path: the recorded offset now belongs to the old file's coordinates.
@@ -878,19 +830,15 @@ test('WAL poison: in-place recovery skips the truncate when the WAL file was rep
   await (db as unknown as { recoverWalInPlace(w: unknown): Promise<void> }).recoverWalInPlace(
     db.wal,
   );
-  assert.equal(
-    (await fs.stat(path.join(dir, 'db.wal'))).size,
-    0,
-    'the new file was not zero-extended',
-  );
-  assert.equal(db.wal.poison, null, 'the poison is cleared');
+  expect((await fs.stat(path.join(dir, 'db.wal'))).size, 'the new file was not zero-extended').toBe(0);
+  expect(db.wal.poison, 'the poison is cleared').toBe(null);
 
   await db.set('post', 'ok');
-  assert.equal(db.get('post'), 'ok');
+  expect(db.get('post')).toBe('ok');
   await db.close();
   db = await MiniDb.open<string>({ dir, ...MEM_OPTS });
-  assert.equal(db.size, 1, 'only the post-recovery write is in the fresh WAL');
-  assert.equal(db.get('post'), 'ok');
+  expect(db.size, 'only the post-recovery write is in the fresh WAL').toBe(1);
+  expect(db.get('post')).toBe('ok');
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -920,11 +868,11 @@ test('WAL poison: close() in the same tick as a failing write resolves cleanly a
   await waitFor(() => calls === 1, 'the failing writev to be in flight');
   const closing = db.close();
   releaseWritev();
-  await assert.rejects(op, /injected WAL failure/);
+  await expect(op).rejects.toThrow(/injected WAL failure/);
   await closing; // must not throw even though the failure landed mid-close
 
   db = await MiniDb.open<string>({ dir, ...MEM_OPTS });
-  assert.equal(db.get('bad'), undefined, 'the revoked write did not survive close+reopen');
+  expect(db.get('bad'), 'the revoked write did not survive close+reopen').toBe(undefined);
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -947,14 +895,14 @@ test('backup waits out an in-flight WAL recovery instead of copying the un-acked
     return origTruncate(p as Parameters<typeof origTruncate>[0], len);
   };
   try {
-    await assert.rejects(db.set('bad', 'x'), /injected WAL failure/);
+    await expect(db.set('bad', 'x')).rejects.toThrow(/injected WAL failure/);
     const backingUp = db.backup(backupDir, { compact: false });
     releaseTruncate();
     await backingUp;
   } finally {
     (fs as unknown as { truncate: unknown }).truncate = origTruncate;
   }
-  assert.equal(db.get('bad'), undefined);
+  expect(db.get('bad')).toBe(undefined);
   await db.close();
 
   // The backup carries the recovered state: the acknowledged write is in,
@@ -963,8 +911,8 @@ test('backup waits out an in-flight WAL recovery instead of copying the un-acked
     ...MEM_OPTS,
     force: true,
   });
-  assert.equal(restored.get('k'), 'v');
-  assert.equal(restored.get('bad'), undefined, 'the un-acked tail never reached the backup');
+  expect(restored.get('k')).toBe('v');
+  expect(restored.get('bad'), 'the un-acked tail never reached the backup').toBe(undefined);
   await restored.close();
   await fs.rm(dir, { recursive: true, force: true });
   await fs.rm(backupDir, { recursive: true, force: true });
@@ -997,16 +945,16 @@ test('a unique-conflicting insert is rejected before any eviction side effect (r
 
     // The conflicting value fails the unique check; before stage 11 the
     // eviction ran FIRST and the rejected insert still deleted the victim.
-    await assert.rejects(db.set('bad', { u: 'taken', pad: 'z'.repeat(100) }), UniqueViolationError);
-    assert.equal(db.get('bad'), undefined);
-    assert.ok(db.get('owner'), 'untouched keys stay');
-    assert.ok(db.get('victim'), 'the failed insert must not evict the LRU victim');
-    assert.equal(db.stats.evictions, evictionsBefore, 'zero side effects: no eviction ran');
+    await expect(db.set('bad', { u: 'taken', pad: 'z'.repeat(100) })).rejects.toThrow(UniqueViolationError);
+    expect(db.get('bad')).toBe(undefined);
+    expect(db.get('owner'), 'untouched keys stay').toBeTruthy();
+    expect(db.get('victim'), 'the failed insert must not evict the LRU victim').toBeTruthy();
+    expect(db.stats.evictions, 'zero side effects: no eviction ran').toBe(evictionsBefore);
 
     // Sanity: a LEGAL oversized write under the same budget still evicts —
     // the eviction pressure is real, only the ordering changed.
     await db.set('big', { u: 'new', pad: 'z'.repeat(100) });
-    assert.ok(db.stats.evictions > evictionsBefore, 'a legal write still evicts under pressure');
+    expect(db.stats.evictions > evictionsBefore, 'a legal write still evicts under pressure').toBeTruthy();
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -1069,12 +1017,12 @@ test('recovery skips a batch with an unknown sub-op type wholesale (review #9)',
   ]);
   const { dir, db } = await reopenWithAppendedBatch(body);
   try {
-    assert.equal(db.get('accepted'), undefined, 'the whole batch is skipped, not half-applied');
-    assert.equal(db.get('unknown'), undefined);
-    assert.equal(db.recoveryInfo!.corruptBatches, 1, 'the skipped batch is accounted');
+    expect(db.get('accepted'), 'the whole batch is skipped, not half-applied').toBe(undefined);
+    expect(db.get('unknown')).toBe(undefined);
+    expect(db.recoveryInfo!.corruptBatches, 'the skipped batch is accounted').toBe(1);
     // The db stays fully usable after the skip.
     await db.set('after', 'ok');
-    assert.equal(db.get('after'), 'ok');
+    expect(db.get('after')).toBe('ok');
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -1094,10 +1042,10 @@ test('recovery skips a batch with trailing bytes wholesale (review #9)', async (
   const body = Buffer.concat([valid, Buffer.from([0xde, 0xad])]);
   const { dir, db } = await reopenWithAppendedBatch(body);
   try {
-    assert.equal(db.get('accepted'), undefined, 'trailing bytes invalidate the whole batch');
-    assert.equal(db.recoveryInfo!.corruptBatches, 1);
+    expect(db.get('accepted'), 'trailing bytes invalidate the whole batch').toBe(undefined);
+    expect(db.recoveryInfo!.corruptBatches).toBe(1);
     await db.set('after', 'ok');
-    assert.equal(db.get('after'), 'ok');
+    expect(db.get('after')).toBe('ok');
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -1141,12 +1089,12 @@ test('a mid-batch applyOp violation rolls the whole batch back — memory and re
       },
       (error) => error as Error,
     );
-  assert.match(String(err), /injected mid-batch apply failure/);
-  assert.equal((err as { ambiguous?: boolean }).ambiguous, true);
-  assert.equal(db.get('x1'), undefined, 'the op applied before the failure is rolled back too');
-  assert.equal(db.get('x2'), undefined);
-  assert.deepEqual(db.search('ft', 'first'), [], 'no half-batch in the text index');
-  assert.deepEqual(db.search('ft', 'second'), []);
+  expect(String(String(err))).toMatch(/injected mid-batch apply failure/);
+  expect((err as { ambiguous?: boolean }).ambiguous).toBe(true);
+  expect(db.get('x1'), 'the op applied before the failure is rolled back too').toBe(undefined);
+  expect(db.get('x2')).toBe(undefined);
+  expect(db.search('ft', 'first'), 'no half-batch in the text index').toStrictEqual([]);
+  expect(db.search('ft', 'second')).toStrictEqual([]);
 
   // Later writes land after the in-place recovery; reopen agrees with memory.
   await db.set('after', { t: 'fine' });
@@ -1157,9 +1105,9 @@ test('a mid-batch applyOp violation rolls the whole batch back — memory and re
     fsyncPolicy: 'no',
     activeExpireIntervalMs: 0,
   });
-  assert.equal(db.get('x1'), undefined, 'the revoked batch never reached disk');
-  assert.equal(db.get('x2'), undefined);
-  assert.equal(db.get('after')?.t, 'fine');
+  expect(db.get('x1'), 'the revoked batch never reached disk').toBe(undefined);
+  expect(db.get('x2')).toBe(undefined);
+  expect(db.get('after')?.t).toBe('fine');
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });

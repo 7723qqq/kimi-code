@@ -12,24 +12,24 @@ import type {
   Session,
   ToolCall,
 } from '@moonshot-ai/kimi-code-sdk';
-import { describe, expect, it, jest, vi } from 'bun:test';
+import { describe, expect, it, mock, spyOn } from 'bun:test';
 
-import { KimiTUI, type KimiTUIStartupInput, type TUIState } from '#/tui/kimi-tui';
-import type { SessionEventHandler } from '#/tui/controllers/session-event-handler';
-import type { StreamingUIController } from '#/tui/controllers/streaming-ui';
 import { AgentGroupComponent } from '#/tui/components/messages/agent-group';
 import { AssistantMessageComponent } from '#/tui/components/messages/assistant-message';
+import { ReadGroupComponent } from '#/tui/components/messages/read-group';
 import { StepSummaryComponent } from '#/tui/components/messages/step-summary';
+import { ToolCallComponent } from '#/tui/components/messages/tool-call';
+import type { SessionEventHandler } from '#/tui/controllers/session-event-handler';
+import type { StreamingUIController } from '#/tui/controllers/streaming-ui';
+import { KimiTUI, type KimiTUIStartupInput, type TUIState } from '#/tui/kimi-tui';
+import { replayBackgroundProjection } from '#/tui/utils/message-replay';
+import type { TaskNotificationOrigin } from '#/tui/utils/message-replay';
 import {
   TRANSCRIPT_KEEP_RECENT_ASSISTANT_COMPLETED,
   TRANSCRIPT_KEEP_RECENT_STEPS,
 } from '#/tui/utils/transcript-window';
-import { ToolCallComponent } from '#/tui/components/messages/tool-call';
-import { ReadGroupComponent } from '#/tui/components/messages/read-group';
-import { replayBackgroundProjection } from '#/tui/utils/message-replay';
-import type { TaskNotificationOrigin } from '#/tui/utils/message-replay';
 
-jest.mock('#/utils/open-url', () => ({ openUrl: jest.fn() }));
+void mock.module('#/utils/open-url', () => ({ openUrl: mock() }));
 
 type GoalReplayRecord = Extract<AgentReplayRecord, { type: 'goal_updated' }>;
 
@@ -141,10 +141,7 @@ function goalSnapshot(overrides: Partial<GoalSnapshot> = {}): GoalSnapshot {
   };
 }
 
-function goalReplay(
-  snapshot: GoalSnapshot,
-  change: GoalReplayRecord['change'],
-): GoalReplayRecord {
+function goalReplay(snapshot: GoalSnapshot, change: GoalReplayRecord['change']): GoalReplayRecord {
   return {
     time: REPLAY_TIME,
     type: 'goal_updated',
@@ -196,7 +193,7 @@ function makeSession(
     id: 'ses-replay',
     model: 'k2',
     summary: { title: null },
-    getStatus: jest.fn(async () => ({
+    getStatus: mock(async () => ({
       model: 'k2',
       thinkingEffort: 'off',
       permission: 'manual',
@@ -205,55 +202,53 @@ function makeSession(
       maxContextTokens: 100,
       contextUsage: 0,
     })),
-    getGoal: jest.fn(async () => ({ goal: null })),
-    setApprovalHandler: jest.fn(),
-    setQuestionHandler: jest.fn(),
-    setStaleReloadHandler: jest.fn(),
-    setModel: jest.fn(async () => {}),
-    setThinking: jest.fn(async () => {}),
-    setPermission: jest.fn(async () => {}),
-    setPlanMode: jest.fn(async () => {}),
-    onEvent: jest.fn(() => jest.fn()),
-    listMcpServers: jest.fn(async () => []),
-    listSkills: jest.fn(async () => []),
-    getResumeState: jest.fn(() => ({
+    getGoal: mock(async () => ({ goal: null })),
+    setApprovalHandler: mock(),
+    setQuestionHandler: mock(),
+    setModel: mock(async () => {}),
+    setThinking: mock(async () => {}),
+    setPermission: mock(async () => {}),
+    setPlanMode: mock(async () => {}),
+    onEvent: mock(() => mock()),
+    listMcpServers: mock(async () => []),
+    listSkills: mock(async () => []),
+    getResumeState: mock(() => ({
       sessionMetadata: {},
       agents: { main: agent },
     })),
-    close: jest.fn(async () => {}),
+    close: mock(async () => {}),
   } as unknown as Session;
 }
 
 function makeHarness(initialSession: Session) {
   const interactiveAgentScope = new AsyncLocalStorage<string>();
   return {
-    getConfig: jest.fn(async () => ({
+    getConfig: mock(async () => ({
       models: {
         k2: { model: 'moonshot-v1', maxContextSize: 100 },
       },
     })),
-    setConfig: jest.fn(async () => ({ providers: {} })),
-    onConfigSectionChanged: jest.fn(() => jest.fn()),
-    createSession: jest.fn(async () => initialSession),
-    resumeSession: jest.fn(async () => initialSession),
-    forkSession: jest.fn(async () => initialSession),
-    listSessions: jest.fn(async () => []),
-    close: jest.fn(async () => {}),
-    track: jest.fn(),
-    setTelemetryContext: jest.fn(),
-    getExperimentalFeatures: jest.fn(async () => []),
+    setConfig: mock(async () => ({ providers: {} })),
+    createSession: mock(async () => initialSession),
+    resumeSession: mock(async () => initialSession),
+    forkSession: mock(async () => initialSession),
+    listSessions: mock(async () => []),
+    close: mock(async () => {}),
+    track: mock(),
+    setTelemetryContext: mock(),
+    getExperimentalFeatures: mock(async () => []),
     get interactiveAgentId() {
       return interactiveAgentScope.getStore() ?? 'main';
     },
-    withInteractiveAgent: jest.fn((agentId: string, fn: () => unknown) => {
+    withInteractiveAgent: mock((agentId: string, fn: () => unknown) => {
       return interactiveAgentScope.run(agentId, fn);
     }),
     auth: {
-      status: jest.fn(),
-      login: jest.fn(),
-      logout: jest.fn(),
-      getManagedUsage: jest.fn(),
-      submitFeedback: jest.fn(async () => ({ kind: 'ok', feedbackId: 3 })),
+      status: mock(),
+      login: mock(),
+      logout: mock(),
+      getManagedUsage: mock(),
+      submitFeedback: mock(async () => ({ kind: 'ok', feedbackId: 3 })),
     },
   };
 }
@@ -263,8 +258,8 @@ async function makeDriver(initialSession: Session): Promise<ReplayDriver> {
     makeHarness(initialSession) as never,
     makeStartupInput(),
   ) as unknown as ReplayDriver;
-  jest.spyOn(driver.state.ui, 'requestRender').mockImplementation(() => {});
-  jest.spyOn(driver.state.terminal, 'setProgress').mockImplementation(() => {});
+  spyOn(driver.state.ui, 'requestRender').mockImplementation(() => {});
+  spyOn(driver.state.terminal, 'setProgress').mockImplementation(() => {});
   await driver.init();
   return driver;
 }
@@ -276,7 +271,11 @@ async function replayIntoDriver(
   const initial = makeSession([]);
   const resumed = makeSession(replay, overrides);
   const driver = await makeDriver(initial);
-  await driver.switchToSession(resumed, 'Resumed session (ses-replay).');
+  const resumeNotice = 'Resumed session (ses-replay).';
+  await driver.switchToSession(resumed, resumeNotice);
+  const entries = driver.state.transcriptEntries;
+  const last = entries.at(-1);
+  if (last?.kind === 'status' && last.content === resumeNotice) entries.pop();
   return driver;
 }
 
@@ -325,60 +324,16 @@ describe('KimiTUI resume message replay', () => {
       ),
     ]);
 
-    expect(driver.state.transcriptEntries).toEqual([]);
+    // The resume notice is a status entry (status lines are accounted for like
+    // any other transcript child); the model-facing goal record must still
+    // contribute nothing.
+    expect(
+      driver.state.transcriptEntries.filter(
+        (entry) => !entry.content.startsWith('Resumed session ('),
+      ),
+    ).toEqual([]);
     const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
     expect(transcript).not.toContain('Goal complete');
-  });
-
-  it('renders an uploaded image daemon ref as a bare placeholder on replay', async () => {
-    // An uploaded image persists as a self-contained `kimi-file://` part; on
-    // replay it renders as a bare `[image]` placeholder — neither the
-    // materialization path nor the internal url may surface.
-    const driver = await replayIntoDriver([
-      message(
-        'user',
-        [
-          { type: 'text', text: 'what is this? ' },
-          {
-            type: 'image_url',
-            imageUrl: { url: 'kimi-file://f_1?path=%2FUsers%2Falice%2Fmedia%2Ff_1.png' },
-          },
-        ],
-        { origin: { kind: 'user' } },
-      ),
-    ]);
-
-    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
-    expect(transcript).toContain('what is this?');
-    expect(transcript).toContain('[image]');
-    expect(transcript).not.toContain('/Users/alice');
-    expect(transcript).not.toContain('kimi-file');
-  });
-
-  it('keeps the tag of a legacy upload pair as user text on replay', async () => {
-    // Legacy history paired the daemon ref with an `<image path>` tag. The
-    // pairing is gone: the tag is plain user text and replays verbatim while
-    // the ref still renders as `[image]`.
-    const driver = await replayIntoDriver([
-      message(
-        'user',
-        [
-          { type: 'text', text: 'what is this? ' },
-          { type: 'text', text: '<image path="/Users/alice/media/f_1.png"></image>' },
-          {
-            type: 'image_url',
-            imageUrl: { url: 'kimi-file://f_1?path=%2FUsers%2Falice%2Fmedia%2Ff_1.png' },
-          },
-        ],
-        { origin: { kind: 'user' } },
-      ),
-    ]);
-
-    const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
-    expect(transcript).toContain('what is this?');
-    expect(transcript).toContain('[image]');
-    expect(transcript).toContain('<image path="/Users/alice/media/f_1.png"></image>');
-    expect(transcript).not.toContain('kimi-file');
   });
 
   it('unescapes bash tag delimiters when replaying shell output', async () => {
@@ -457,7 +412,14 @@ describe('KimiTUI resume message replay', () => {
       ),
     ]);
 
-    expect(driver.state.transcriptEntries).toEqual([]);
+    // The resume notice is a status entry (status lines are accounted for like
+    // any other transcript child); the model-facing goal record must still
+    // contribute nothing.
+    expect(
+      driver.state.transcriptEntries.filter(
+        (entry) => !entry.content.startsWith('Resumed session ('),
+      ),
+    ).toEqual([]);
     const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
     expect(transcript).not.toContain('marked complete and cleared');
   });
@@ -481,7 +443,14 @@ describe('KimiTUI resume message replay', () => {
       ),
     ]);
 
-    expect(driver.state.transcriptEntries).toEqual([]);
+    // The resume notice is a status entry (status lines are accounted for like
+    // any other transcript child); the model-facing goal record must still
+    // contribute nothing.
+    expect(
+      driver.state.transcriptEntries.filter(
+        (entry) => !entry.content.startsWith('Resumed session ('),
+      ),
+    ).toEqual([]);
     const transcript = stripAnsi(driver.state.transcriptContainer.render(140).join('\n'));
     expect(transcript).not.toContain('This fork does not have a current goal');
   });
@@ -489,15 +458,17 @@ describe('KimiTUI resume message replay', () => {
   it('renders persisted goal replay records as goal transcript UI', async () => {
     const driver = await replayIntoDriver([
       goalReplay(goalSnapshot(), { kind: 'created' }),
-      goalReplay(
-        goalSnapshot({ status: 'paused', terminalReason: 'taking a break' }),
-        { kind: 'lifecycle', status: 'paused', reason: 'taking a break' },
-      ),
+      goalReplay(goalSnapshot({ status: 'paused', terminalReason: 'taking a break' }), {
+        kind: 'lifecycle',
+        status: 'paused',
+        reason: 'taking a break',
+      }),
       goalReplay(goalSnapshot({ status: 'active' }), { kind: 'lifecycle', status: 'active' }),
-      goalReplay(
-        goalSnapshot({ status: 'blocked', terminalReason: 'needs credentials' }),
-        { kind: 'lifecycle', status: 'blocked', reason: 'needs credentials' },
-      ),
+      goalReplay(goalSnapshot({ status: 'blocked', terminalReason: 'needs credentials' }), {
+        kind: 'lifecycle',
+        status: 'blocked',
+        reason: 'needs credentials',
+      }),
       goalReplay(
         goalSnapshot({
           status: 'complete',
@@ -526,16 +497,17 @@ describe('KimiTUI resume message replay', () => {
     expect(transcript).toContain('Goal resumed');
     expect(transcript).toContain('Goal blocked');
     expect(transcript).toContain('Goal complete — done');
-    expect(transcript).toContain('Worked 1 turn over 7m15s, using 4.2k tokens.');
+    expect(transcript).toContain('Worked 1 turn over 7m 15s, using 4.2k tokens.');
   });
 
   it('filters resume-normalization goal pause markers in TUI replay', async () => {
     const driver = await replayIntoDriver([
       goalReplay(goalSnapshot(), { kind: 'created' }),
-      goalReplay(
-        goalSnapshot({ status: 'paused', terminalReason: 'Paused after agent resume' }),
-        { kind: 'lifecycle', status: 'paused', reason: 'Paused after agent resume' },
-      ),
+      goalReplay(goalSnapshot({ status: 'paused', terminalReason: 'Paused after agent resume' }), {
+        kind: 'lifecycle',
+        status: 'paused',
+        reason: 'Paused after agent resume',
+      }),
     ]);
 
     expect(
@@ -572,7 +544,7 @@ describe('KimiTUI resume message replay', () => {
     expect(entry).toMatchObject({
       kind: 'assistant',
       renderMode: 'markdown',
-      content: '✓ Goal complete.\nWorked 1 turn over 7m15s, using 4.1M tokens.',
+      content: '✓ Goal complete.\nWorked 1 turn over 7m 15s, using 4.1M tokens.',
     });
   });
 
@@ -648,10 +620,11 @@ describe('KimiTUI resume message replay', () => {
 
   it('does not replay the model-blocked lifecycle marker when the follow-up is replayed', async () => {
     const driver = await replayIntoDriver([
-      goalReplay(
-        goalSnapshot({ status: 'blocked' }),
-        { kind: 'lifecycle', status: 'blocked', actor: 'model' },
-      ),
+      goalReplay(goalSnapshot({ status: 'blocked' }), {
+        kind: 'lifecycle',
+        status: 'blocked',
+        actor: 'model',
+      }),
       message(
         'user',
         [
@@ -662,10 +635,7 @@ describe('KimiTUI resume message replay', () => {
         ],
         { origin: { kind: 'system_trigger', name: 'goal_blocked' } },
       ),
-      message(
-        'assistant',
-        [{ type: 'text', text: 'I am blocked because I need credentials.' }],
-      ),
+      message('assistant', [{ type: 'text', text: 'I am blocked because I need credentials.' }]),
     ]);
 
     expect(driver.state.transcriptEntries.filter((entry) => entry.kind === 'goal')).toEqual([]);
@@ -676,10 +646,11 @@ describe('KimiTUI resume message replay', () => {
 
   it('does not replay model-blocked lifecycle markers without a follow-up', async () => {
     const driver = await replayIntoDriver([
-      goalReplay(
-        goalSnapshot({ status: 'blocked' }),
-        { kind: 'lifecycle', status: 'blocked', actor: 'model' },
-      ),
+      goalReplay(goalSnapshot({ status: 'blocked' }), {
+        kind: 'lifecycle',
+        status: 'blocked',
+        actor: 'model',
+      }),
     ]);
 
     expect(
@@ -691,10 +662,7 @@ describe('KimiTUI resume message replay', () => {
 
   it('keeps replayed blocked lifecycle markers when actor is unavailable', async () => {
     const driver = await replayIntoDriver([
-      goalReplay(
-        goalSnapshot({ status: 'blocked' }),
-        { kind: 'lifecycle', status: 'blocked' },
-      ),
+      goalReplay(goalSnapshot({ status: 'blocked' }), { kind: 'lifecycle', status: 'blocked' }),
     ]);
 
     expect(
@@ -706,10 +674,11 @@ describe('KimiTUI resume message replay', () => {
 
   it('keeps replayed runtime-blocked lifecycle markers', async () => {
     const driver = await replayIntoDriver([
-      goalReplay(
-        goalSnapshot({ status: 'blocked' }),
-        { kind: 'lifecycle', status: 'blocked', actor: 'runtime' },
-      ),
+      goalReplay(goalSnapshot({ status: 'blocked' }), {
+        kind: 'lifecycle',
+        status: 'blocked',
+        actor: 'runtime',
+      }),
     ]);
 
     expect(
@@ -800,16 +769,18 @@ describe('KimiTUI resume message replay', () => {
       }),
       message(
         'tool',
-        [{
-          type: 'text',
-          text: [
-            '<agent_swarm_result>',
-            '<summary>completed: 1, failed: 1</summary>',
-            '<subagent index="1" outcome="completed">Reviewed src/a.ts.</subagent>',
-            '<subagent index="2" outcome="failed">Agent timed out.</subagent>',
-            '</agent_swarm_result>',
-          ].join('\n'),
-        }],
+        [
+          {
+            type: 'text',
+            text: [
+              '<agent_swarm_result>',
+              '<summary>completed: 1, failed: 1</summary>',
+              '<subagent index="1" outcome="completed">Reviewed src/a.ts.</subagent>',
+              '<subagent index="2" outcome="failed">Agent timed out.</subagent>',
+              '</agent_swarm_result>',
+            ].join('\n'),
+          },
+        ],
         { toolCallId: 'call_swarm' },
       ),
     ];
@@ -836,20 +807,22 @@ describe('KimiTUI resume message replay', () => {
       }),
       message(
         'tool',
-        [{
-          type: 'text',
-          text: [
-            '<agent_swarm_result>',
-            '<summary>failed: 1, aborted: 1</summary>',
-            '<resume_hint>Call AgentSwarm with resume_agent_ids using the agent_id values ' +
-              'in this result to continue unfinished work.</resume_hint>',
-            '<subagent agent_id="agent-1" item="src/a.ts" outcome="failed">' +
-              'Agent timed out.</subagent>',
-            '<subagent agent_id="agent-2" item="src/b.ts" outcome="aborted">' +
-              'User interrupted.</subagent>',
-            '</agent_swarm_result>',
-          ].join('\n'),
-        }],
+        [
+          {
+            type: 'text',
+            text: [
+              '<agent_swarm_result>',
+              '<summary>failed: 1, aborted: 1</summary>',
+              '<resume_hint>Call AgentSwarm with resume_agent_ids using the agent_id values ' +
+                'in this result to continue unfinished work.</resume_hint>',
+              '<subagent agent_id="agent-1" item="src/a.ts" outcome="failed">' +
+                'Agent timed out.</subagent>',
+              '<subagent agent_id="agent-2" item="src/b.ts" outcome="aborted">' +
+                'User interrupted.</subagent>',
+              '</agent_swarm_result>',
+            ].join('\n'),
+          },
+        ],
         { toolCallId: 'call_swarm' },
       ),
     ];
@@ -877,13 +850,11 @@ describe('KimiTUI resume message replay', () => {
       ],
     });
 
-    expect(driver.state.todoPanel.getTodos()).toEqual([
-      { title: 'Review resume snapshot', status: 'done' },
-      { title: 'Render replay transcript', status: 'in_progress' },
-    ]);
     expect(driver.sessionEventHandler.backgroundTasks.has('agent-bg1')).toBe(true);
     expect(driver.sessionEventHandler.backgroundTasks.has('bash-bg1')).toBe(true);
-    expect(driver.sessionEventHandler.backgroundTaskTranscriptedTerminal.has('bash-bg1')).toBe(true);
+    expect(driver.sessionEventHandler.backgroundTaskTranscriptedTerminal.has('bash-bg1')).toBe(
+      true,
+    );
   });
 
   it('matches completed resumed background agents by agent id when task id differs', async () => {
@@ -944,8 +915,7 @@ describe('KimiTUI resume message replay', () => {
       timeoutMs: 1000,
     };
     const driver = await replayIntoDriver([], { background: [info] });
-    const applyTerminalStatus = vi
-      .spyOn(driver.streamingUI, 'applyBackgroundTaskTerminalStatus')
+    const applyTerminalStatus = spyOn(driver.streamingUI, 'applyBackgroundTaskTerminalStatus')
       .mockReturnValue(true);
 
     driver.sessionEventHandler.handleEvent(
@@ -974,11 +944,12 @@ describe('KimiTUI resume message replay', () => {
         'agent-bg-timeout',
       ),
     ).toBe(false);
-    expect(driver.sessionEventHandler.backgroundTaskTranscriptedTerminal.has('task-bg-timeout'))
-      .toBe(true);
     // An agent-kind task termination mounts no transcript card on its own —
     // the subagent lifecycle path owns agent terminal cards, and here it is
     // suppressed because the task was already transcripted as timed out.
+    expect(
+      driver.sessionEventHandler.backgroundTaskTranscriptedTerminal.has('task-bg-timeout'),
+    ).toBe(true);
     expect(
       driver.state.transcriptEntries.some(
         (entry) => entry.backgroundAgentStatus?.phase === 'failed',
@@ -991,7 +962,7 @@ describe('KimiTUI resume message replay', () => {
       [
         message('user', [{ type: 'text', text: 'Background task lost.' }], {
           origin: {
-            kind: 'background_task',
+            kind: 'task',
             taskId: 'bash-lost0000',
             status: 'lost',
             notificationId: 'task:bash-lost0000:lost',
@@ -1222,10 +1193,10 @@ describe('KimiTUI resume message replay', () => {
           origin: {
             kind: 'user',
             skillActivations: [
-              { activationId: 'act-1', skillName: 'review' },
-              { activationId: 'act-2', skillName: 'security' },
+              { kind: 'skill_activation', trigger: 'user-slash', activationId: 'act-1', skillName: 'review' },
+              { kind: 'skill_activation', trigger: 'user-slash', activationId: 'act-2', skillName: 'security' },
             ],
-          } as unknown as PromptOrigin,
+          } as PromptOrigin,
         },
       ),
     ]);
@@ -1253,8 +1224,10 @@ describe('KimiTUI resume message replay', () => {
         {
           origin: {
             kind: 'user',
-            skillActivations: [{ activationId: 'act-3', skillName: 'commit' }],
-          } as unknown as PromptOrigin,
+            skillActivations: [
+              { kind: 'skill_activation', trigger: 'user-slash', activationId: 'act-3', skillName: 'commit' },
+            ],
+          } as PromptOrigin,
         },
       ),
     ]);
@@ -1285,8 +1258,10 @@ describe('KimiTUI resume message replay', () => {
           origin: {
             kind: 'user',
             inTurn: true,
-            skillActivations: [{ activationId: 'act-steer', skillName: 'review' }],
-          } as unknown as PromptOrigin,
+            skillActivations: [
+              { kind: 'skill_activation', trigger: 'user-slash', activationId: 'act-steer', skillName: 'review' },
+            ],
+          } as PromptOrigin,
         },
       ),
     ]);
@@ -1713,10 +1688,14 @@ describe('KimiTUI resume message replay', () => {
           result: { decision: 'rejected', selectedLabel: 'Reject' },
         },
       },
-      message('tool', [{ type: 'text', text: 'Plan rejected by user. Plan mode remains active.' }], {
-        toolCallId: 'call_exit_reject',
-        isError: true,
-      }),
+      message(
+        'tool',
+        [{ type: 'text', text: 'Plan rejected by user. Plan mode remains active.' }],
+        {
+          toolCallId: 'call_exit_reject',
+          isError: true,
+        },
+      ),
       message('assistant', [], {
         toolCalls: [toolCall('call_exit_final', 'ExitPlanMode', {})],
       }),

@@ -1,5 +1,17 @@
 # @moonshot-ai/kimi-code
 
+## 2.3.3
+
+### Patch Changes
+
+- Agent swarms now start only when you turn on swarm mode: the agent can no longer launch `AgentSwarm` by itself, so swarms are no longer available in `kimi -p` or ACP clients such as Zed.
+
+- Handle tasks directly by default instead of proactively launching subagents; request delegation explicitly in your message, AGENTS.md, a skill, or an enabled multi-agent mode.
+
+### Minor Changes
+
+- Add `/import-sessions` and `kimi import-sessions` to import recent Claude Code and Codex sessions: pick the last 15 or 30 days, import the newest 100 with progress, and see what was imported and skipped. Imported sessions land in the workspace of their original folder and show a badge in `/sessions`. Reruns skip sessions imported before.
+
 ## 2.3.1
 
 ### Patch Changes

@@ -32,10 +32,15 @@
  */
 
 import type { Component, TuiMouseEvent, TuiMouseEventResult } from '@moonshot-ai/pi-tui';
-import { truncateToWidth, visibleWidth, wrapTextWithAnsi } from '@moonshot-ai/pi-tui';
+import {
+  truncateToWidth,
+  visibleWidth,
+  wrapTextWithAnsi,
+} from '@moonshot-ai/pi-tui';
 import chalk from 'chalk';
 
 import { t } from '#/i18n';
+import { DockSection, type DockLayout, type DockPart } from '#/tui/components/chrome/dock-section';
 import { NOTIFY_AUTOSCROLL_INTERVAL_MS } from '#/tui/constant/rendering';
 import { Markdown } from '#/tui/components/markdown/markdown';
 import { MAIN_AGENT_ID } from '#/tui/constant/kimi-tui';
@@ -173,7 +178,7 @@ function padToVisibleWidth(text: string, target: number): string {
   return gap > 0 ? truncated + ' '.repeat(gap) : truncated;
 }
 
-export class NotifyPanelComponent implements Component {
+export class NotifyPanelComponent extends DockSection implements Component {
   private readonly channels: NotifyChannel[] = [];
   /** Key of the channel on display; channels themselves are append-only. */
   private activeKey = MAIN_AGENT_ID;
@@ -213,7 +218,10 @@ export class NotifyPanelComponent implements Component {
   constructor(
     private readonly terminalRows: TerminalRowsProvider = () => undefined,
     private readonly requestRender?: () => void,
-  ) {}
+    layout?: DockLayout,
+  ) {
+    super(layout);
+  }
 
   /**
    * Total rows the status surface granted this box, or `undefined` while the
@@ -404,7 +412,11 @@ export class NotifyPanelComponent implements Component {
    * the wheel to the primary scroll view (the transcript), so scrolling over the
    * box would move the conversation instead of the update the user is pointing at.
    */
-  handleMouse(event: TuiMouseEvent): TuiMouseEventResult | undefined {
+  protected override handlePartMouse(
+    part: DockPart,
+    event: TuiMouseEvent,
+  ): TuiMouseEventResult | undefined {
+    if (part === 'foot') return undefined;
     if (this.channels.length === 0) return undefined;
 
     if (event.type === 'wheel') {
@@ -432,7 +444,7 @@ export class NotifyPanelComponent implements Component {
     // Anything else is left unhandled on purpose: `GutterContainer` turns an
     // unhandled click into the fold toggle, so clicking the body folds and
     // unfolds the panel exactly like clicking a tool card does.
-    if (event.y !== 0) return undefined;
+    if (part !== 'head' || event.y !== 0) return undefined;
     const key = this.tabKeyAt(event.x);
     if (key === undefined) return undefined;
 
@@ -484,7 +496,7 @@ export class NotifyPanelComponent implements Component {
     return true;
   }
 
-  clear(): void {
+  override clear(): void {
     this.channels.length = 0;
     this.activeKey = MAIN_AGENT_ID;
     this.focused = false;
@@ -770,7 +782,7 @@ export class NotifyPanelComponent implements Component {
     return Math.max(0, this.lastBodyHeight - Math.max(MIN_BODY_ROWS, this.bodyBudget()));
   }
 
-  invalidate(): void {}
+  override invalidate(): void {}
 
   /**
    * The body layout at `width`: what the displayed entry renders to, and the
@@ -804,14 +816,20 @@ export class NotifyPanelComponent implements Component {
     return { bodyRows, budget, maxScroll: Math.max(0, bodyRows.length - budget) };
   }
 
-  render(width: number): string[] {
+  protected renderPart(part: DockPart, width: number): string[] {
     if (this.channels.length === 0) return [];
-    // The strip's frame belongs to the status surface, so the panel draws
-    // content only: the tab strip that used to be the box's top border opens
-    // the body as its own row.
+    // The head is the channel strip; the body is the selected channel's rows.
+    // Neither part draws a frame: the editor replacement's box supplies it.
     if (this.mustCollapse()) {
-      return [this.stubLine(width)].map((line) => truncateToWidth(line, width));
+      return part === 'head'
+        ? [this.stubLine(width)].map((line) => truncateToWidth(line, width))
+        : [];
     }
+
+    if (part === 'head') {
+      return [truncateToWidth(this.headerRow(width), width)];
+    }
+    if (part === 'foot') return [];
 
     const ch = this.activeChannel();
     const { bodyRows, budget, maxScroll } = this.layoutBody(width);
@@ -831,11 +849,7 @@ export class NotifyPanelComponent implements Component {
     const windowRows = bodyRows.slice(ch.scroll, ch.scroll + budget);
 
     const padRow = (row: string): string => `   ${padToVisibleWidth(row, width - 6)}   `;
-    const lines: string[] = [this.headerRow(width)];
-    for (const row of windowRows) {
-      lines.push(padRow(row));
-    }
-    return lines.map((line) => truncateToWidth(line, width));
+    return windowRows.map((row) => truncateToWidth(padRow(row), width));
   }
 
   private channelFor(entry: NotifyEntry): NotifyChannel {

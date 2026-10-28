@@ -10,6 +10,15 @@ export function parseOsc11BackgroundTheme(data: string): ResolvedTheme | null {
   return themeFromHexChannels(r, g, b);
 }
 
+/** The terminal's background as a six-digit hex colour, or null when the reply is not one. */
+export function parseOsc11Background(data: string): string | null {
+  const match = OSC11_RESPONSE.exec(data);
+  if (match === null) return null;
+  const [, r, g, b] = match;
+  if (r === undefined || g === undefined || b === undefined) return null;
+  return `#${[r, g, b].map(channelByteHex).join('')}`;
+}
+
 export function themeFromHexChannels(rHex: string, gHex: string, bHex: string): ResolvedTheme {
   const r = normalizeChannel(rHex);
   const g = normalizeChannel(gHex);
@@ -25,4 +34,8 @@ function normalizeChannel(hex: string): number {
   const max = (1 << (hex.length * 4)) - 1;
   const value = parseInt(hex, 16);
   return Number.isFinite(value) ? value / max : 0;
+}
+
+function channelByteHex(hex: string): string {
+  return Math.round(normalizeChannel(hex) * 255).toString(16).padStart(2, '0').toUpperCase();
 }

@@ -12,13 +12,16 @@
 import chalk from 'chalk';
 
 import type { ColorPalette, ResolvedTheme } from './colors';
+import { SGR_FAINT, SGR_NORMAL_INTENSITY, SGR_SEQUENCE } from '#/tui/constant/terminal';
 import { darkColors } from './colors';
+import { deriveHoverBackground } from './hover-color';
 
 export type ColorToken = keyof ColorPalette;
 
 export class Theme {
   private _palette: ColorPalette;
   private _resolved: ResolvedTheme;
+  private _terminalBackground: string | undefined;
 
   constructor(palette: ColorPalette, resolved: ResolvedTheme = 'dark') {
     this._palette = palette;
@@ -45,6 +48,23 @@ export class Theme {
 
   color(token: ColorToken): string {
     return this._palette[token];
+  }
+
+  /** The terminal's own background colour, once the OSC 11 query answered. */
+  setTerminalBackground(background: string | undefined): void {
+    this._terminalBackground = background;
+  }
+
+  /**
+   * The background a hovered row is painted with: the terminal background
+   * nudged until the foreground keeps its contrast. Undefined until the
+   * terminal answered the OSC 11 query, so a row is never painted with a
+   * colour derived from a background nobody reported.
+   */
+  hoverBackground(): string | undefined {
+    return this._terminalBackground === undefined
+      ? undefined
+      : deriveHoverBackground(this._terminalBackground, this.color('textStrong'));
   }
 
   /* ── Foreground helpers ── */
@@ -100,6 +120,34 @@ export class Theme {
   strikethrough(text: string): string {
     return chalk.strikethrough(text);
   }
+
+  /**
+   * Fade an already styled line, keeping its hues: faint from start to end,
+   * re-entered after every reset inside it that would end faint early.
+   * Unlike `dim`, a bold segment inside cannot cut the fade short.
+   */
+  fade(text: string): string {
+    if (chalk.level === 0 || text.length === 0) return text;
+    const faded = text.replaceAll(SGR_SEQUENCE, (sequence: string, params: string) =>
+      endsFaint(params) ? `${sequence}${SGR_FAINT}` : sequence,
+    );
+    return `${SGR_FAINT}${faded}${SGR_NORMAL_INTENSITY}`;
+  }
+}
+
+/** Whether an SGR parameter list resets intensity; extended color arguments are skipped, not read as codes. */
+function endsFaint(params: string): boolean {
+  const codes = params.split(';');
+  for (let index = 0; index < codes.length; index += 1) {
+    const code = codes[index]!;
+    if (code === '38' || code === '48' || code === '58') {
+      const kind = codes[index + 1];
+      index += kind === '5' ? 2 : kind === '2' ? 4 : 0;
+      continue;
+    }
+    if (code === '' || code === '22' || Number(code) === 0) return true;
+  }
+  return false;
 }
 
 /** Global singleton.  Initialise with dark palette; switch via `setPalette`. */

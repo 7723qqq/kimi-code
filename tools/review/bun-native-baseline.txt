@@ -1,0 +1,54 @@
+# Pre-existing `readFile` / `createHash` sites accepted at their current count.
+#
+# Format: `<path>:<node call> <count>`. The count is per file and per pairing,
+# so a new call in a file already listed here still fails the run. The ledger
+# records what existed when the check was added; it is not permission for more.
+#
+# These are shrink-only debt, not deliberate design. Almost every entry is a
+# `readFile` that arrives in a multi-symbol import — `{ readdir, readFile, stat,
+# unlink } from 'node:fs/promises'` — where the sibling functions have no Bun
+# native equivalent, so converting the one call would leave a mixed import for
+# no structural gain. Convert the whole file's import when the file is next
+# touched, then lower or delete its count here.
+#
+# A stale entry (a count that no longer matches) is reported as `info`, so this
+# file cannot rot silently.
+
+apps/kimi-code/src/cli/agent-selection.ts:readFile 1
+apps/kimi-code/src/cli/sub/doctor.ts:readFile 1
+apps/kimi-code/src/cli/sub/web/legacy-kill.ts:readFile 1
+apps/kimi-code/src/cli/update/install-lock.ts:readFile 5
+apps/kimi-code/src/cli/update/native-stage.ts:readFile 2
+apps/kimi-code/src/cli/update/native-swap.ts:readFile 4
+apps/kimi-code/src/cli/v2/run-v2-print.ts:readFile 1
+apps/kimi-code/src/tui/config.ts:readFile 3
+apps/kimi-code/src/tui/controllers/editor-keyboard.ts:readFile 1
+apps/kimi-code/src/tui/goal-queue-store.ts:readFile 1
+apps/kimi-code/src/tui/theme/custom-theme-loader.ts:readFile 1
+apps/kimi-code/src/utils/persistence.ts:readFile 2
+packages/agent-core-v2/src/human/persist/v2/migrate.ts:readFile 2
+packages/agent-core-v2/src/os/backends/host/hostFsService.ts:readFile 3
+packages/agent-core-v2/src/os/backends/host/tools/rgLocator.ts:readFile 2
+packages/agent-core-v2/src/persistence/backends/node-fs/fileStorageService.ts:readFile 1
+packages/kap-server/src/instanceRegistry.ts:readFile 1
+packages/kap-server/src/lib/promptMedia.ts:readFile 1
+packages/kap-server/src/search/worker/host.ts:readFile 3
+packages/kap-server/src/services/auth/privateFiles.ts:readFile 1
+packages/kap-server/src/services/guiStore/guiStoreService.ts:readFile 1
+packages/kap-server/src/services/transcript/transcriptService.ts:readFile 1
+packages/migration-legacy/src/detect.ts:readFile 2
+packages/migration-legacy/src/marker.ts:readFile 1
+packages/migration-legacy/src/migration-errors-log.ts:readFile 1
+packages/migration-legacy/src/session-index.ts:readFile 1
+packages/migration-legacy/src/sessions/classify.ts:readFile 1
+packages/migration-legacy/src/sessions/index.ts:readFile 1
+packages/migration-legacy/src/sessions/migrate-one.ts:readFile 3
+packages/migration-legacy/src/sessions/source.ts:readFile 2
+packages/migration-legacy/src/sessions/subagents.ts:readFile 5
+packages/migration-legacy/src/source-config.ts:readFile 2
+packages/migration-legacy/src/steps/config.ts:readFile 2
+packages/migration-legacy/src/steps/mcp.ts:readFile 2
+packages/migration-legacy/src/stub-detect.ts:readFile 2
+packages/node-sdk/src/v2/resume-replay.ts:readFile 1
+packages/product/src/shared/node/json-file.ts:readFile 1
+packages/telemetry/src/transport.ts:readFile 1

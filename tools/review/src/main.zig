@@ -32,6 +32,8 @@ test {
     _ = @import("checks/upstream_drift.zig");
     _ = @import("checks/workflow_triggers.zig");
     _ = @import("checks/scripts_wiring.zig");
+    _ = @import("checks/node_semantics.zig");
+    _ = @import("checks/bun_gap.zig");
 }
 
 pub const VERSION = "0.1.0";

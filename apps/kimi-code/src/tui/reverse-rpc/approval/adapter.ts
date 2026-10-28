@@ -250,6 +250,23 @@ function describeApproval(display: ToolInputDisplay, action: string): string {
   }
 }
 
+/**
+ * Command shapes worth flagging in the approval panel.
+ *
+ * These are hints, not a security boundary — the panel asks the user to read the
+ * command, and a determined evader defeats any regex. What each pattern buys is
+ * that the *common* destructive spellings are named on screen instead of relying
+ * on the reader to spot them.
+ *
+ * Two rules kept this list honest while it was extended. First, a pattern has to
+ * be something the shell actually expands: an earlier version flagged
+ * `$(curl …)` by looking for `curl` inside the substitution, which is just as
+ * true of `$(which curl)` and would have made the label meaningless. It now
+ * flags command substitution itself, which is the construct that hides a command
+ * from the reader. Second, only irreversible or off-workspace effects qualify;
+ * `git push --force` is recoverable through the reflog on the remote and is a
+ * normal part of a force-push workflow, so it is deliberately absent.
+ */
 function getDangerPatterns(): Array<{ pattern: RegExp; label: string }> {
   return [
     {
@@ -258,20 +275,97 @@ function getDangerPatterns(): Array<{ pattern: RegExp; label: string }> {
     },
     { pattern: /\bsudo\b/i, label: t('tui.dangerPatterns.sudo') },
     {
-      pattern: /\b(curl|wget)\b[^|]*\|\s*(sh|bash|zsh)\b/i,
+      // `curl … | sh`, and the `bash -c "$(curl …)"` form that the pipe rule
+      // cannot see because the shell never builds a literal pipe.
+      pattern: /\b(curl|wget)\b[^|]*\|\s*(sh|bash|zsh)\b|\b(ba|z|)sh\s+-c\s+["'][^"']*\$\(/i,
       label: t('tui.dangerPatterns.pipeToShell'),
+    },
+    {
+      // Any command substitution at the start of a word: this is the construct
+      // that lets a command run without appearing where the reader looks.
+      pattern: /\$\([^)]*\)|`[^`]+`/,
+      label: t('tui.dangerPatterns.commandSubstitution'),
     },
     { pattern: /\bdd\b[^|]*\bof=/i, label: t('tui.dangerPatterns.ddWrite') },
     { pattern: /\bmkfs\b/i, label: t('tui.dangerPatterns.mkfs') },
     { pattern: />\s*\/dev\/(sd|nvme|disk|hd)/i, label: t('tui.dangerPatterns.writeToRawDevice') },
     { pattern: /\bchmod\s+-R?\s*777\b/i, label: t('tui.dangerPatterns.chmod777') },
     { pattern: /:\(\)\s*\{\s*:\|:&\s*\}/i, label: t('tui.dangerPatterns.forkBomb') },
+    // `find / -delete` and `xargs rm` delete a tree without ever spelling `rm -rf`.
+    {
+      pattern: /\bfind\b[^|]*\s-delete\b|\bxargs\b[^|]*\brm\s+-/i,
+      label: t('tui.dangerPatterns.recursiveDelete'),
+    },
+    // `rsync --delete` mirrors a deletion onto the destination.
+    {
+      pattern: /\brsync\b[^|]*--delete/i,
+      label: t('tui.dangerPatterns.recursiveDelete'),
+    },
+    // Writing to shell startup files or authorized_keys is persistence, not a
+    // normal file write: it survives the session and runs on every future shell.
+    {
+      pattern: />\s*[^\s]*(\.(bashrc|zshrc|profile|bash_profile)|authorized_keys)/i,
+      label: t('tui.dangerPatterns.massWriteToHome'),
+    },
+    // `git reset --hard` throws away uncommitted work with no recovery path.
+    {
+      pattern: /\bgit\s+(reset\s+--hard|clean\s+-[a-zA-Z]*[fd])/i,
+      label: t('tui.dangerPatterns.historyRewrite'),
+    },
   ];
 }
 
+/**
+ * Strip quoted and escaped regions before scanning.
+ *
+ * A pattern that matches inside a quoted literal is matching *data*, not a
+ * command: `grep -r "rm -rf" docs/` searches for that string, and
+ * `npm test -- --grep sudo` passes it to a filter. Both were reported as
+ * dangerous before this ran, and both are ordinary things a coding agent does.
+ *
+ * The one quoted region that *is* a command is the argument of `sh -c`:
+ * `bash -c 'curl … | sh'` runs what the quotes enclose. That argument is kept
+ * (re-inserted unquoted) so the patterns underneath still see it, and its own
+ * quotes are stripped on the way back through.
+ */
+function stripQuotedLiterals(command: string): string {
+  const singleQuoted = /'(?:[^'\\]|\\.)*'/g;
+  const withoutSingle = command.replaceAll(singleQuoted, ' ');
+  const withoutDouble = withoutSingle.replaceAll(/"(?:[^"\\]|\\.)*"/g, (literal) => {
+    // The shell does not expand `$(…)` inside single quotes, but it does inside
+    // double quotes, so only the substitutions survive.
+    const substitutions = literal.match(/\$\([^)]*\)|`[^`]*`/g);
+    return substitutions === null ? ' ' : substitutions.join(' ');
+  });
+
+  // Re-inlay the body of any `sh -c '<script>'` so its commands stay visible.
+  const shellScript = /\b(?:ba|z|)sh\s+-c\s+'((?:[^'\\]|\\.)*)'/gi;
+  const bodies = [...command.matchAll(shellScript)].map((match) => match[1] ?? '');
+  return bodies.length === 0 ? withoutDouble : `${withoutDouble} ${bodies.join(' ')}`;
+}
+
+/**
+ * Whether a match is a command word rather than a flag value or a path segment.
+ *
+ * `sudo` is a real danger only when it begins a command, which in practice means
+ * it follows the start of the line, a separator, or an option terminator. In
+ * `npm test -- --grep sudo` it is the value of a grep filter.
+ */
+function appearsAsCommandWord(command: string, word: string): boolean {
+  const asCommand = new RegExp(`(?:^|[;&|(\\n]|&&|\\|\\|)\\s*(?:\\S*/)?${word}\\b`, 'i');
+  return asCommand.test(command);
+}
+
 function detectDanger(command: string): string | undefined {
+  const scannable = stripQuotedLiterals(command);
   for (const { pattern, label } of getDangerPatterns()) {
-    if (pattern.test(command)) return label;
+    if (!pattern.test(scannable)) continue;
+    // `sudo` is common enough as a bare word that the pattern alone is too
+    // loose; every other pattern is specific enough to stand on its own.
+    if (label === t('tui.dangerPatterns.sudo') && !appearsAsCommandWord(scannable, 'sudo')) {
+      continue;
+    }
+    return label;
   }
   return undefined;
 }
@@ -428,6 +522,7 @@ function adaptSpecReviewChoices(display: ToolInputDisplay): ApprovalPanelChoice[
           label: option.label,
           response: 'approved' as const,
           selected_label: option.label,
+          description: option.description,
         }))
       : [
           {
@@ -469,6 +564,7 @@ function adaptPlanReviewChoices(display: ToolInputDisplay): ApprovalPanelChoice[
           label: option.label,
           response: 'approved' as const,
           selected_label: option.label,
+          description: option.description,
         }))
       : [
           {

@@ -19,13 +19,12 @@
 // -> rm(tmp) -> openDir -> syncDir. In particular sync() precedes the rename
 // and the strict directory fsync is last.
 
-import assert from 'node:assert/strict';
 import { PathLike } from 'node:fs';
 import fs from 'node:fs/promises';
 const realFs: typeof fs = { ...fs };
 import path from 'node:path';
 
-import { afterEach, test } from 'bun:test';
+import { expect, afterEach, test } from 'bun:test';
 
 import { rmrf, tmpDir } from './helpers.js';
 
@@ -120,13 +119,11 @@ function mockRecordingFs(): void {
  *  fsynced strictly last. */
 function assertAtomicOrder(file: string, dir: string): void {
   const openAt = seq.findIndex((e) => e.startsWith('open:') && e.includes(`${file}.tmp-`));
-  assert.ok(openAt >= 0, `no tmp open was recorded for ${file}: ${seq.join(' | ')}`);
+  expect(openAt >= 0, `no tmp open was recorded for ${file}: ${seq.join(' | ')}`).toBeTruthy();
   const tmp = seq[openAt]!.slice('open:'.length);
   const dirSyncAt = seq.findIndex((e, i) => i > openAt && e === `dsync:${dir}`);
-  assert.ok(dirSyncAt > openAt, `no directory fsync followed the ${file} rename: ${seq.join(' | ')}`);
-  assert.deepEqual(
-    seq.slice(openAt, dirSyncAt + 1),
-    [
+  expect(dirSyncAt > openAt, `no directory fsync followed the ${file} rename: ${seq.join(' | ')}`).toBeTruthy();
+  expect(seq.slice(openAt, dirSyncAt + 1), `wrong syscall order for ${file}`).toStrictEqual([
       `open:${tmp}`,
       `writeFile:${tmp}`,
       `sync:${tmp}`,
@@ -135,9 +132,7 @@ function assertAtomicOrder(file: string, dir: string): void {
       `rm:${tmp}`,
       `dopen:${dir}`,
       `dsync:${dir}`,
-    ],
-    `wrong syscall order for ${file}`,
-  );
+    ]);
 }
 
 test('writeFileAtomic fsyncs the tmp content before renaming and fsyncs the dir last', async () => {
@@ -152,15 +147,11 @@ test('writeFileAtomic fsyncs the tmp content before renaming and fsyncs the dir 
   await writeFileAtomic(file, payload, { stats });
 
   assertAtomicOrder('db.indexes.json', dir);
-  assert.equal(writes.length, 1);
-  assert.ok(writes[0]!.file.startsWith(`${file}.tmp-`), `unexpected tmp name ${writes[0]!.file}`);
-  assert.equal(writes[0]!.data, payload, 'the payload reaches the tmp file byte-for-byte');
-  assert.equal(tmpEncodings[0], 'utf8', 'the tmp content is written as explicit utf8');
-  assert.equal(
-    seq.some((e) => e.startsWith('writeFile-unsynced:')),
-    false,
-    'fs.writeFile(tmp) would bypass the content fsync',
-  );
+  expect(writes.length).toBe(1);
+  expect(writes[0]!.file.startsWith(`${file}.tmp-`), `unexpected tmp name ${writes[0]!.file}`).toBeTruthy();
+  expect(writes[0]!.data, 'the payload reaches the tmp file byte-for-byte').toBe(payload);
+  expect(tmpEncodings[0], 'the tmp content is written as explicit utf8').toBe('utf8');
+  expect(seq.some((e) => e.startsWith('writeFile-unsynced:')), 'fs.writeFile(tmp) would bypass the content fsync').toBe(false);
 });
 
 test('every definition sidecar write is fsynced before its rename (real filesystem)', async () => {
@@ -232,13 +223,13 @@ test('every definition sidecar write is fsynced before its rename (real filesyst
 
     for (const file of SIDECARS) {
       const openAt = seq.findIndex((e) => e.startsWith('open:') && e.includes(`${file}.tmp-`));
-      assert.ok(openAt >= 0, `no tmp write was recorded for ${file}: ${seq.join(' | ')}`);
+      expect(openAt >= 0, `no tmp write was recorded for ${file}: ${seq.join(' | ')}`).toBeTruthy();
       const tmp = seq[openAt]!.slice('open:'.length);
       assertAtomicOrder(file, dir);
       const last = writes.findLast((w) => w.file === tmp)!;
       const onDisk = await realFs.readFile(path.join(dir, file), 'utf8');
-      assert.equal(onDisk, last.data, `${file} on disk must be exactly the fsynced payload`);
-      assert.deepEqual(JSON.parse(onDisk), JSON.parse(last.data));
+      expect(onDisk, `${file} on disk must be exactly the fsynced payload`).toBe(last.data);
+      expect(JSON.parse(onDisk)).toStrictEqual(JSON.parse(last.data));
     }
   } finally {
     await rmrf(dir);

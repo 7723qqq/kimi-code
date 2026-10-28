@@ -1,6 +1,5 @@
+import type { FetchLike } from './types';
 import { isDeepStrictEqual } from 'node:util';
-
-type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 const REQUEST_TIMEOUT_MS = 30_000;
 

@@ -7,7 +7,6 @@
 // a worker failure never breaks the currently published generation, and the
 // inline fallback produces byte-identical artifacts.
 
-import assert from 'node:assert/strict';
 import fsSync from 'node:fs';
 import fs from 'node:fs/promises';
 import path from 'node:path';
@@ -1093,7 +1092,7 @@ describe('worker slot queue (TUI-safe slot pressure policy)', () => {
     const held: (() => void)[] = [];
     for (let i = 0; i < defaultWorkerSlots.total; i++) {
       const r = defaultWorkerSlots.tryAcquire();
-      assert.ok(r !== null);
+      expect(r !== null).toBeTruthy();
       held.push(r);
     }
     db.textBuildSlotWaitMs = 60_000; // the grant, not the timeout, must end the wait
@@ -1134,7 +1133,7 @@ describe('worker slot queue (TUI-safe slot pressure policy)', () => {
     const held: (() => void)[] = [];
     for (let i = 0; i < defaultWorkerSlots.total; i++) {
       const r = defaultWorkerSlots.tryAcquire();
-      assert.ok(r !== null);
+      expect(r !== null).toBeTruthy();
       held.push(r);
     }
     try {

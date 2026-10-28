@@ -3,6 +3,7 @@ import { Command, InvalidArgumentError, Option } from 'commander';
 import { CLI_COMMAND_NAME } from '#/constant/app';
 import { t } from '#/i18n';
 import { registerMigrateCommand, type MigrateCommandOptions } from '#/migration/index';
+import { registerImportSessionsCommand } from '#/session-import/index';
 
 import type { CLIOptions } from './options';
 import { registerAcpCommand } from './sub/acp';
@@ -114,6 +115,7 @@ export function createProgram(
   registerInstallDesktopCommand(program);
   registerAppCommand(program);
   registerMigrateCommand(program, onMigrate);
+  registerImportSessionsCommand(program);
   program
     .command('upgrade')
     .alias('update')

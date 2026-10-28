@@ -1,3 +1,4 @@
+import type { FetchLike } from './types';
 import { readApiErrorMessage } from './api-error';
 import { DEFAULT_KIMI_CODE_OAUTH_HOST } from './constants';
 import { OAuthUnauthorizedError } from './errors';
@@ -5,8 +6,6 @@ import { parseKimiCodeCustomHeaders } from './identity';
 import { DEFAULT_KIMI_CODE_BASE_URL, kimiCodeBaseUrl } from './managed-usage';
 import { MANAGED_KIMI_MODEL_FIELDS, mergeRefreshedModelAlias } from './model-alias-merge';
 import { isRecord, MAX_HTTP_RESPONSE_BYTES, readResponseBodyWithLimit } from './utils';
-
-export type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 
 export const KIMI_CODE_PLATFORM_ID = 'kimi-code';
 export const KIMI_CODE_PROVIDER_NAME = 'managed:kimi-code';

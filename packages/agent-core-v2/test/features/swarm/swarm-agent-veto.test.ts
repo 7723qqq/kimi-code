@@ -160,7 +160,7 @@ describe('AgentSwarmService —Agent tool veto in swarm mode', () => {
 
       swarm.enter('task');
       swarm.exit();
-      swarm.enter('tool');
+      swarm.enter('manual');
       swarm.exit();
 
       const decision = await fire(makeHookContext([makeToolCall('Agent', 'call_agent')]));
@@ -217,8 +217,8 @@ describe('AgentSwarmService —Agent tool veto in swarm mode', () => {
       expect(permissionGateRan).toBe(false);
     });
 
-    it('vetoes Agent for every trigger type (manual / task / tool)', async () => {
-      const triggers: Array<'manual' | 'task' | 'tool'> = ['manual', 'task', 'tool'];
+    it('vetoes Agent for every user trigger type (manual / task)', async () => {
+      const triggers: Array<'manual' | 'task'> = ['manual', 'task'];
 
       for (const trigger of triggers) {
         const swarm = ix.get(IAgentSwarmService);

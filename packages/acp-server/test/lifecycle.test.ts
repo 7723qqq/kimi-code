@@ -62,6 +62,30 @@ function createFakeOAuthToolkit(): {
   return { seed: [IOAuthToolkit, fake], hasToken: () => token !== undefined };
 }
 
+
+const RETRYABLE_RM = new Set(['EBUSY', 'EPERM', 'ENOTEMPTY', 'EACCES']);
+
+/**
+ * Remove a case's home directory. A workspace instance closed by the engine can
+ * still hold handles inside it for a moment, which Windows reports as EBUSY long
+ * before the recursive rm's own retries run out, so back off and try again.
+ */
+async function removeTempHome(home: string | undefined): Promise<void> {
+  if (home === undefined) return;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    try {
+      await rm(home, { recursive: true, force: true });
+      return;
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === undefined || !RETRYABLE_RM.has(code)) throw error;
+      await new Promise<void>((resolve) => {
+        setTimeout(resolve, 25 * (attempt + 1));
+      });
+    }
+  }
+}
+
 describe('acp-server session lifecycle', () => {
   let homeDir: string | undefined;
   let client: TestClient | undefined;
@@ -71,12 +95,8 @@ describe('acp-server session lifecycle', () => {
       await client.close();
       client = undefined;
     }
-    if (homeDir !== undefined) {
-      await rm(homeDir, { recursive: true, force: true, maxRetries: 25, retryDelay: 200 }).catch(
-        () => undefined,
-      );
-      homeDir = undefined;
-    }
+    await removeTempHome(homeDir);
+    homeDir = undefined;
   });
 
   async function boot(): Promise<TestClient> {

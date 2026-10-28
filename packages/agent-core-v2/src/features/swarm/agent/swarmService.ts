@@ -9,7 +9,9 @@ import { IAgentToolApprovalService } from '#/agent/toolApproval/toolApproval';
 import { denyToolExecution } from '#/agent/toolExecutor/beforeToolExecuteEvent';
 import { IAgentToolExecutorService } from '#/agent/toolExecutor/toolExecutor';
 import { IEventBus } from '#/app/event/eventBus';
+import type { SwarmModeTransitionEvent } from '#/app/telemetry/events';
 import { ITelemetryService } from '#/app/telemetry/telemetry';
+import { Error2, ErrorCodes } from '#/errors';
 import { IAgentReminderService } from '#/features/reminder/reminderService';
 import { IEventDispatcher } from '#/state/eventDispatcher';
 
@@ -58,6 +60,7 @@ export class AgentSwarmService extends Service implements IAgentSwarmService {
     );
     this._register(
       toolExecutor.onBeforeExecuteTool((event) => {
+        if (!this.isActive) return;
         const agentSwarmCount = event.toolCalls.filter(
           (toolCall) => toolCall.name === 'AgentSwarm',
         ).length;
@@ -78,9 +81,13 @@ export class AgentSwarmService extends Service implements IAgentSwarmService {
   }
 
   enter(trigger: SwarmModeTrigger): void {
+    if (trigger === 'tool') {
+      throw new Error2(ErrorCodes.VALIDATION_FAILED, 'Only the user can turn on swarm mode.');
+    }
     if (this.agentState.get(swarmKey) !== null) return;
     void this.dispatcher.dispatch(new SwarmModeEnter({ agentId: this.agentCtx.agentId, trigger }));
-    this.telemetry.track2('swarm_mode_entered', { trigger });
+    const properties: SwarmModeTransitionEvent = { trigger };
+    this.telemetry.track2('swarm_mode_entered', properties);
   }
 
   exit(): void {

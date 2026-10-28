@@ -1,10 +1,9 @@
-import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
 // Regression tests for the deep-review fixes.
-import { test } from 'bun:test';
+import { expect, test } from 'bun:test';
 
 import { MiniDb } from '../src/index.js';
 import { WAL } from '../src/wal.js';
@@ -37,7 +36,7 @@ test('WAL.flush() drains frames queued behind an in-flight batch', async () => {
     await wal.close();
     await pA;
     await pB;
-    assert.equal(pending, 0, 'flush() must leave nothing queued');
+    expect(pending, 'flush() must leave nothing queued').toBe(0);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -69,7 +68,7 @@ for (const policy of ['always', 'everysec', 'no'] as const) {
       const lost: string[] = [];
       for (let i = 0; i < N; i++) if (db2.get(`live${i}`) !== big) lost.push(`live${i}`);
       await db2.close();
-      assert.deepEqual(lost, [], `lost ${lost.length}/${N} keys: ${lost.slice(0, 5).join(',')}`);
+      expect(lost, `lost ${lost.length}/${N} keys: ${lost.slice(0, 5).join(',')}`).toStrictEqual([]);
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
     }
@@ -85,8 +84,8 @@ test('expired keys are removed from secondary indexes', async () => {
     await db.createIndex('byCity', { field: 'city' });
     await db.set('u1', { city: 'Paris' }, { ttl: 30 });
     await new Promise((r) => setTimeout(r, 120));
-    assert.equal(db.get('u1'), undefined);
-    assert.deepEqual(db.findEq('byCity', 'Paris'), []);
+    expect(db.get('u1')).toBe(undefined);
+    expect(db.findEq('byCity', 'Paris')).toStrictEqual([]);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -100,7 +99,7 @@ test('expired keys are removed from the full-text index', async () => {
     await db.createTextIndex('body');
     await db.set('p1', { bio: 'hello world' }, { ttl: 30 });
     await new Promise((r) => setTimeout(r, 120));
-    assert.deepEqual(db.search('body', 'hello'), []);
+    expect(db.search('body', 'hello')).toStrictEqual([]);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -114,15 +113,12 @@ test('batch() rejects intra-batch unique violations', async () => {
   try {
     const db = await MiniDb.open({ dir, valueCodec: 'json' });
     await db.createIndex('byMail', { field: 'email', unique: true });
-    await assert.rejects(
-      db.batch([
+    await expect(db.batch([
         { op: 'set', key: 'a', value: { email: 'duplicate@example.test' } },
         { op: 'set', key: 'b', value: { email: 'duplicate@example.test' } },
-      ]),
-      /unique/i,
-    );
-    assert.equal(db.get('a'), undefined, 'nothing committed on failure');
-    assert.equal(db.get('b'), undefined);
+      ])).rejects.toThrow(/unique/i);
+    expect(db.get('a'), 'nothing committed on failure').toBe(undefined);
+    expect(db.get('b')).toBe(undefined);
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -141,10 +137,10 @@ test('recovery drops expired records (size consistent with scan)', async () => {
     await db.close();
 
     db = await MiniDb.open({ dir, valueCodec: 'string', activeExpireIntervalMs: 0 });
-    assert.equal(db.size, 1);
-    assert.equal(db.scan().length, 1);
-    assert.equal(db.get('ephemeral'), undefined);
-    assert.equal(db.get('stable'), 'ok');
+    expect(db.size).toBe(1);
+    expect(db.scan().length).toBe(1);
+    expect(db.get('ephemeral')).toBe(undefined);
+    expect(db.get('stable')).toBe('ok');
     await db.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -165,8 +161,8 @@ test('concurrent sets cannot both commit the same unique value', async () => {
     const committed = results.filter((r) => r.status === 'fulfilled').length;
     const hits = db.findEq('byMail', 'shared@example.test');
     await db.close();
-    assert.ok(committed <= 1, `both committed: ${JSON.stringify(hits)}`);
-    assert.ok(hits.length <= 1, `unique violated: ${JSON.stringify(hits)}`);
+    expect(committed <= 1, `both committed: ${JSON.stringify(hits)}`).toBeTruthy();
+    expect(hits.length <= 1, `unique violated: ${JSON.stringify(hits)}`).toBeTruthy();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }

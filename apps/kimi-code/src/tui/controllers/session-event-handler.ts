@@ -9,10 +9,8 @@ import type {
 import { log } from '@moonshot-ai/kimi-code-sdk';
 import type { Component, Focusable } from '@moonshot-ai/pi-tui';
 
-import { MAIN_AGENT_ID } from '#/tui/constant/kimi-tui';
 
 /** Narrowed event shapes consumed by the private handlers below. */
-type TodoUpdated = Extract<Event, { type: 'tools.update_store' }>;
 type StatusUpdatedEvent = Extract<Event, { type: 'agent.status.updated' }>;
 type TurnStartedEvent = Extract<Event, { type: 'turn.started' }>;
 type TurnEndedEvent = Extract<Event, { type: 'turn.ended' }>;
@@ -87,7 +85,6 @@ import { formatLocalizedError } from '../utils/error-display';
 import {
   argsRecord,
   formatErrorMessage,
-  normalizeTodoItems,
   serializeToolResultOutput,
   stringValue,
 } from '../utils/event-payload';
@@ -401,9 +398,6 @@ export class SessionEventHandler {
       case 'goal.updated':
         this.handleGoalUpdated(event);
         break;
-      case 'tools.update_store':
-        this.handleTodoUpdated(event);
-        break;
       case 'skill.activated':
         this.handleSkillActivated(event);
         break;
@@ -529,10 +523,6 @@ export class SessionEventHandler {
     }
     if (event.reason === 'blocked') {
       this.host.showStatus(t('tui.statusMessages.turnStoppedBlocked'), 'error');
-    }
-    const todos = this.host.state.todoPanel.getTodos();
-    if (todos.length > 0 && todos.every((t) => t.status === 'done')) {
-      this.host.streamingUI.setTodoList([]);
     }
     this.host.streamingUI.resetToolUi();
     this.host.streamingUI.finalizeTurn(sendQueued);
@@ -967,24 +957,6 @@ export class SessionEventHandler {
       );
       this.host.state.ui.requestRender();
     }
-  }
-
-  /**
-   * Project the engine's authoritative todo list into the panel.
-   *
-   * This is the only path that feeds the panel. Reading the `TodoList` tool's
-   * arguments instead — what used to happen — meant a read-only call (no
-   * `todos` key) cleared the panel while the list was intact, and a list the
-   * engine wrote without a tool call (the plan-mode seeding) never appeared at
-   * all. The engine now publishes every committed list, so the panel follows
-   * the same source the model sees.
-   */
-  private handleTodoUpdated(event: TodoUpdated): void {
-    if (event.agentId !== MAIN_AGENT_ID) return;
-    if (event.key !== 'todo') return;
-    const todos = Array.isArray(event.value) ? normalizeTodoItems(event.value) : [];
-    this.host.state.todoRegion.setTodos(todos.map((todo) => ({ ...todo })));
-    this.host.state.ui.requestRender();
   }
 
   private renderSwarmModeMarker(state: SwarmModeMarkerState): void {

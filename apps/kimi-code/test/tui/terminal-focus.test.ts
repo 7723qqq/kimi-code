@@ -41,6 +41,9 @@ describe('terminal focus tracking', () => {
       terminal: {
         write: mock(),
       },
+      editor: {
+        terminalFocused: true,
+      },
       ui: {
         addInputListener: mock((listener) => {
           listeners.push(listener);
@@ -70,6 +73,7 @@ describe('terminal focus tracking', () => {
     const state = {
       terminalState: { focused: false },
       terminal: { write: mock() },
+      editor: { terminalFocused: true },
       ui: { addInputListener: mock(() => removeInputListener) },
     } as unknown as TUIState;
 

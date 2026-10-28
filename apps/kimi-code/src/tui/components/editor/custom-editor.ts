@@ -142,6 +142,9 @@ interface CustomEditorOptions {
   onAutocompleteError?: (error: unknown) => void;
 }
 
+// pi-tui's fake cursor: the grapheme under the caret in reverse video.
+const BLOCK_CURSOR = /\u001B\[7m(.*?)\u001B\[0m/u;
+
 export class CustomEditor extends Editor {
   /**
    * The prompt keeps Home/End for cursor movement and routes PageUp/PageDown
@@ -216,6 +219,8 @@ export class CustomEditor extends Editor {
   public onInputModeChange?: (mode: 'prompt' | 'bash') => void;
   public connectedAbove = false;
   public borderHighlighted = false;
+  /** Terminal window focus, tracked separately from this component's keyboard focus. */
+  public terminalFocused = true;
   /**
    * True while a prompt rewrite is in flight. The border takes a distinct
    * colour and carries a label, so the wait is visible instead of looking like
@@ -432,10 +437,19 @@ export class CustomEditor extends Editor {
       : isBash
         ? ` ${currentTheme.boldFg('shellMode', t('tui.messages.shellModeLabel'))} `
         : undefined;
-    return wrapWithSideBorders(lines, paint, {
-      connectedAbove: this.connectedAbove && !this.borderHighlighted && !this.optimizing,
-      label,
-    });
+    // While another component holds the keyboard or the terminal window is
+    // inactive, the editor looks inactive: no block cursor (pi-tui draws it
+    // focused or not), and the whole box fades.
+    const inactive = !this.focused || !this.terminalFocused;
+    const framed = wrapWithSideBorders(
+      inactive ? lines.map((line) => line.replace(BLOCK_CURSOR, '$1')) : lines,
+      paint,
+      {
+        connectedAbove: this.connectedAbove && !this.borderHighlighted && !this.optimizing,
+        label,
+      },
+    );
+    return inactive ? framed.map((line) => currentTheme.fade(line)) : framed;
   }
 
   private computeArgumentHint(): string | undefined {

@@ -6,6 +6,13 @@ import { join } from 'node:path';
 import type { EnrichedTelemetryEvent, TelemetryPrimitive } from './types';
 import { isTelemetryPrimitive } from './types';
 
+/**
+ * The part of `fetch` this package calls. Narrower than `typeof fetch` on
+ * purpose: under Bun that type also carries `preconnect`, so a test double or
+ * a caller's own transport would have to fake a method nothing here uses.
+ */
+export type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+
 export const SERVER_EVENT_PREFIX = 'kfc_';
 export const USER_ID_PREFIX = 'kfc_device_id_';
 export const DISK_EVENT_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -18,7 +25,7 @@ export interface AsyncTransportOptions {
       switch (login/logout) takes effect without rebuilding the transport. */
   readonly endpoint?: string | (() => string | undefined);
   readonly getAccessToken?: () => string | null | Promise<string | null>;
-  readonly fetchImpl?: typeof fetch;
+  readonly fetchImpl?: FetchLike;
   readonly retryBackoffsMs?: readonly number[];
   readonly requestTimeoutMs?: number;
   readonly sleep?: (ms: number, signal?: AbortSignal) => Promise<void>;
@@ -37,7 +44,7 @@ export class AsyncTransport {
   private readonly deviceId: string;
   private readonly endpoint: string | (() => string | undefined) | undefined;
   private readonly getAccessToken: (() => string | null | Promise<string | null>) | null;
-  private readonly fetchImpl: typeof fetch;
+  private readonly fetchImpl: FetchLike;
   private readonly retryBackoffsMs: readonly number[];
   private readonly requestTimeoutMs: number;
   private readonly sleepImpl: (ms: number, signal?: AbortSignal) => Promise<void>;
@@ -326,7 +333,7 @@ async function readJsonl(path: string): Promise<EnrichedTelemetryEvent[]> {
 }
 
 async function fetchWithTimeout(
-  fetchImpl: typeof fetch,
+  fetchImpl: FetchLike,
   url: string,
   init: RequestInit,
   timeoutMs: number,

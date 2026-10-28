@@ -44,6 +44,12 @@ export class UpdatesRegion implements StatusRegion {
    * once the keyboard is there.
    */
   readonly defaultFocusTarget = true;
+  /**
+   * With nothing focused, `Ctrl+T` folds and unfolds the box, and the
+   * arrow-key scroll fallback scrolls it. It is the only foldable region the
+   * strip has left, so it is what those keys act on.
+   */
+  readonly defaultKeyTarget = true;
 
   constructor(panel: NotifyPanelComponent) {
     this.panel = panel;

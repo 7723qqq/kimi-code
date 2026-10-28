@@ -1,5 +1,4 @@
-import assert from "node:assert";
-import { describe, it } from "bun:test";
+import { expect, describe, it } from "bun:test";
 import { visibleWidth, wrapTextWithAnsi } from "../src/utils.ts";
 
 describe("wrapTextWithAnsi", () => {
@@ -13,11 +12,11 @@ describe("wrapTextWithAnsi", () => {
 			const wrapped = wrapTextWithAnsi(text, 40);
 
 			// First line should NOT contain underline code - it's just "read this thread"
-			assert.strictEqual(wrapped[0], "read this thread");
+			expect(wrapped[0]).toBe("read this thread");
 
 			// Second line should start with underline, have URL content
-			assert.strictEqual(wrapped[1].startsWith(underlineOn), true);
-			assert.ok(wrapped[1].includes("https://"));
+			expect(wrapped[1].startsWith(underlineOn)).toBe(true);
+			expect(wrapped[1].includes("https://")).toBeTruthy();
 		});
 
 		it("should not have whitespace before underline reset code", () => {
@@ -27,7 +26,7 @@ describe("wrapTextWithAnsi", () => {
 
 			const wrapped = wrapTextWithAnsi(textWithUnderlinedTrailingSpace, 18);
 
-			assert.ok(!wrapped[0].includes(` ${underlineOff}`));
+			expect(!wrapped[0].includes(` ${underlineOff}`)).toBeTruthy();
 		});
 
 		it("should not bleed underline to padding - each line should end with reset for underline only", () => {
@@ -44,8 +43,8 @@ describe("wrapTextWithAnsi", () => {
 				const line = wrapped[i];
 				if (line.includes(underlineOn)) {
 					// Should end with underline off, NOT full reset
-					assert.strictEqual(line.endsWith(underlineOff), true);
-					assert.strictEqual(line.endsWith("\x1b[0m"), false);
+					expect(line.endsWith(underlineOff)).toBe(true);
+					expect(line.endsWith("\x1b[0m")).toBe(false);
 				}
 			}
 		});
@@ -61,12 +60,12 @@ describe("wrapTextWithAnsi", () => {
 
 			// Each line should have background color
 			for (const line of wrapped) {
-				assert.ok(line.includes(bgBlue));
+				expect(line.includes(bgBlue)).toBeTruthy();
 			}
 
 			// Middle lines should NOT end with full reset (kills background for padding)
 			for (let i = 0; i < wrapped.length - 1; i++) {
-				assert.strictEqual(wrapped[i].endsWith("\x1b[0m"), false);
+				expect(wrapped[i].endsWith("\x1b[0m")).toBe(false);
 			}
 		});
 
@@ -82,7 +81,7 @@ describe("wrapTextWithAnsi", () => {
 			// All lines should have background color 41 (either as \x1b[41m or combined like \x1b[4;41m)
 			for (const line of wrapped) {
 				const hasBgColor = line.includes("[41m") || line.includes(";41m") || line.includes("[41;");
-				assert.ok(hasBgColor);
+				expect(hasBgColor).toBeTruthy();
 			}
 
 			// Lines with underlined content should use underline-off at end, not full reset
@@ -93,8 +92,8 @@ describe("wrapTextWithAnsi", () => {
 					(line.includes("[4m") || line.includes("[4;") || line.includes(";4m")) &&
 					!line.includes(underlineOff)
 				) {
-					assert.strictEqual(line.endsWith(underlineOff), true);
-					assert.strictEqual(line.endsWith("\x1b[0m"), false);
+					expect(line.endsWith(underlineOff)).toBe(true);
+					expect(line.endsWith("\x1b[0m")).toBe(false);
 				}
 			}
 		});
@@ -102,7 +101,7 @@ describe("wrapTextWithAnsi", () => {
 
 	describe("basic wrapping", () => {
 		it("should handle LF, CRLF, and CR line endings", () => {
-			assert.deepStrictEqual(wrapTextWithAnsi("first\nsecond\r\nthird\rfourth", 80), [
+			expect(wrapTextWithAnsi("first\nsecond\r\nthird\rfourth", 80)).toStrictEqual([
 				"first",
 				"second",
 				"third",
@@ -114,7 +113,7 @@ describe("wrapTextWithAnsi", () => {
 			const red = "\x1b[31m";
 			const reset = "\x1b[0m";
 
-			assert.deepStrictEqual(wrapTextWithAnsi(`${red}first\r\nsecond\rthird${reset}`, 80), [
+			expect(wrapTextWithAnsi(`${red}first\r\nsecond\rthird${reset}`, 80)).toStrictEqual([
 				`${red}first`,
 				`${red}second`,
 				`${red}third${reset}`,
@@ -125,9 +124,9 @@ describe("wrapTextWithAnsi", () => {
 			const text = "hello world this is a test";
 			const wrapped = wrapTextWithAnsi(text, 10);
 
-			assert.ok(wrapped.length > 1);
+			expect(wrapped.length > 1).toBeTruthy();
 			for (const line of wrapped) {
-				assert.ok(visibleWidth(line) <= 10);
+				expect(visibleWidth(line) <= 10).toBeTruthy();
 			}
 		});
 
@@ -135,9 +134,9 @@ describe("wrapTextWithAnsi", () => {
 			const text = "This is an example 中文汉字测试段落内容中文汉字测试段落内容.";
 			const wrapped = wrapTextWithAnsi(text, 40);
 
-			assert.deepStrictEqual(wrapped, ["This is an example 中文汉字测试段落内容", "中文汉字测试段落内容."]);
+			expect(wrapped).toStrictEqual(["This is an example 中文汉字测试段落内容", "中文汉字测试段落内容."]);
 			for (const line of wrapped) {
-				assert.ok(visibleWidth(line) <= 40);
+				expect(visibleWidth(line) <= 40).toBeTruthy();
 			}
 		});
 
@@ -147,32 +146,32 @@ describe("wrapTextWithAnsi", () => {
 			const text = `${red}This is an example 中文汉字测试段落内容中文汉字测试段落内容.${reset}`;
 			const wrapped = wrapTextWithAnsi(text, 40);
 
-			assert.strictEqual(wrapped.length, 2);
-			assert.strictEqual(wrapped[0], `${red}This is an example 中文汉字测试段落内容`);
-			assert.strictEqual(wrapped[1], `${red}中文汉字测试段落内容.${reset}`);
+			expect(wrapped.length).toBe(2);
+			expect(wrapped[0]).toBe(`${red}This is an example 中文汉字测试段落内容`);
+			expect(wrapped[1]).toBe(`${red}中文汉字测试段落内容.${reset}`);
 			for (const line of wrapped) {
-				assert.ok(visibleWidth(line) <= 40);
+				expect(visibleWidth(line) <= 40).toBeTruthy();
 			}
 		});
 
 		it("should ignore OSC 133 semantic markers in visible width", () => {
 			const text = "\x1b]133;A\x07hello\x1b]133;B\x07";
-			assert.strictEqual(visibleWidth(text), 5);
+			expect(visibleWidth(text)).toBe(5);
 		});
 
 		it("should ignore OSC sequences terminated with ST in visible width", () => {
 			const text = "\x1b]133;A\x1b\\hello\x1b]133;B\x1b\\";
-			assert.strictEqual(visibleWidth(text), 5);
+			expect(visibleWidth(text)).toBe(5);
 		});
 
 		it("should treat isolated regional indicators as width 2", () => {
-			assert.strictEqual(visibleWidth("🇨"), 2);
-			assert.strictEqual(visibleWidth("🇨🇳"), 2);
+			expect(visibleWidth("🇨")).toBe(2);
+			expect(visibleWidth("🇨🇳")).toBe(2);
 		});
 
 		it("should truncate trailing whitespace that exceeds width", () => {
 			const twoSpacesWrappedToWidth1 = wrapTextWithAnsi("  ", 1);
-			assert.ok(visibleWidth(twoSpacesWrappedToWidth1[0]) <= 1);
+			expect(visibleWidth(twoSpacesWrappedToWidth1[0]) <= 1).toBeTruthy();
 		});
 
 		it("should preserve color codes across wraps", () => {
@@ -184,12 +183,12 @@ describe("wrapTextWithAnsi", () => {
 
 			// Each continuation line should start with red code
 			for (let i = 1; i < wrapped.length; i++) {
-				assert.strictEqual(wrapped[i].startsWith(red), true);
+				expect(wrapped[i].startsWith(red)).toBe(true);
 			}
 
 			// Middle lines should not end with full reset
 			for (let i = 0; i < wrapped.length - 1; i++) {
-				assert.strictEqual(wrapped[i].endsWith("\x1b[0m"), false);
+				expect(wrapped[i].endsWith("\x1b[0m")).toBe(false);
 			}
 		});
 	});
@@ -210,10 +209,7 @@ describe("wrapTextWithAnsi with OSC 8 hyperlinks", () => {
 			// OR it is the line where the close appeared with no following content.
 			const stripped = line.replace(/\x1b\]8;;[^\x1b\x07]*\x1b\\/g, "").replace(/\x1b\[[0-9;]*m/g, "");
 			if (stripped.trim().length > 0) {
-				assert.ok(
-					line.startsWith(`\x1b]8;;${url}\x1b\\`) || line.includes(`\x1b]8;;${url}\x1b\\`),
-					`Line "${line}" has visible text but no OSC 8 re-open`,
-				);
+				expect(line.startsWith(`\x1b]8;;${url}\x1b\\`) || line.includes(`\x1b]8;;${url}\x1b\\`), `Line "${line}" has visible text but no OSC 8 re-open`).toBeTruthy();
 			}
 		}
 	});
@@ -227,10 +223,7 @@ describe("wrapTextWithAnsi with OSC 8 hyperlinks", () => {
 			const line = lines[i];
 			// Every non-final line that is inside a hyperlink should end with the close
 			if (line.includes(`\x1b]8;;${url}\x1b\\`)) {
-				assert.ok(
-					line.endsWith("\x1b]8;;\x1b\\"),
-					`Non-final line "${line}" is inside a hyperlink but does not close it`,
-				);
+				expect(line.endsWith("\x1b]8;;\x1b\\"), `Non-final line "${line}" is inside a hyperlink but does not close it`).toBeTruthy();
 			}
 		}
 	});
@@ -240,13 +233,13 @@ describe("wrapTextWithAnsi with OSC 8 hyperlinks", () => {
 		const input = `\x1b]8;;${url}\x07${url}\x1b]8;;\x07`;
 		const lines = wrapTextWithAnsi(input, 20);
 
-		assert.ok(lines.length > 1);
+		expect(lines.length > 1).toBeTruthy();
 		for (const line of lines) {
-			assert.ok(line.includes(`\x1b]8;;${url}\x07`), `Line "${line}" does not reopen the hyperlink with BEL`);
-			assert.ok(!line.includes(`\x1b]8;;${url}\x1b\\`), `Line "${line}" reopens the hyperlink with ST`);
+			expect(line.includes(`\x1b]8;;${url}\x07`), `Line "${line}" does not reopen the hyperlink with BEL`).toBeTruthy();
+			expect(!line.includes(`\x1b]8;;${url}\x1b\\`), `Line "${line}" reopens the hyperlink with ST`).toBeTruthy();
 		}
 		for (const line of lines.slice(0, -1)) {
-			assert.ok(line.endsWith("\x1b]8;;\x07"), `Line "${line}" does not close the hyperlink with BEL`);
+			expect(line.endsWith("\x1b]8;;\x07"), `Line "${line}" does not close the hyperlink with BEL`).toBeTruthy();
 		}
 	});
 
@@ -257,10 +250,10 @@ describe("wrapTextWithAnsi with OSC 8 hyperlinks", () => {
 
 		// With width 80 everything fits on one line; there should be exactly one
 		// OSC 8 open and one OSC 8 close.
-		assert.strictEqual(lines.length, 1);
+		expect(lines.length).toBe(1);
 		const openCount = (lines[0].match(/\x1b\]8;;https:[^\x1b]+\x1b\\/g) ?? []).length;
 		const closeCount = (lines[0].match(/\x1b\]8;;\x1b\\/g) ?? []).length;
-		assert.strictEqual(openCount, 1);
-		assert.strictEqual(closeCount, 1);
+		expect(openCount).toBe(1);
+		expect(closeCount).toBe(1);
 	});
 });

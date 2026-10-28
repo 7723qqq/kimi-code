@@ -5,6 +5,8 @@ import {
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
 
+import type { FetchLike } from '@moonshot-ai/kimi-code-oauth';
+
 import { ErrorCodes, Error2 } from '#/errors';
 
 import { buildMcpRemoteHeaders } from './client-remote';
@@ -27,7 +29,7 @@ export interface HttpMcpClientOptions {
   readonly startupTimeoutMs?: number;
   readonly toolCallTimeoutMs?: number;
   readonly envLookup?: (name: string) => string | undefined;
-  readonly fetch?: typeof fetch;
+  readonly fetch?: FetchLike;
   readonly oauthProvider?: OAuthClientProvider;
 }
 

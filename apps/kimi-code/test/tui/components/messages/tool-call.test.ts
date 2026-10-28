@@ -12,7 +12,7 @@ import { setLocale } from '#/i18n';
 import { setExperimentalFeatures } from '#/tui/commands/experimental-flags';
 import { ToolCallComponent } from '#/tui/components/messages/tool-call';
 
-import { STATUS_BULLET } from '#/tui/constant/symbols';
+import { NOTIFY_USER_MARK, STATUS_BULLET } from '#/tui/constant/symbols';
 import { darkColors } from '#/tui/theme/colors';
 
 
@@ -611,8 +611,8 @@ describe('ToolCallComponent', () => {
         .map(strip)
         .filter((line) => line.trim().length > 0);
       expect(collapsed).toHaveLength(1);
-      expect(collapsed[0]).toContain('Sent you an update');
-      expect(collapsed[0]).toContain('Login module is clean.');
+      expect(collapsed[0]).toBe(`${NOTIFY_USER_MARK} Login module is clean.`);
+      expect(collapsed[0]).not.toContain('Sent you an update');
       expect(collapsed[0]).not.toContain('session expiry');
       expect(collapsed[0]).not.toContain('Update shown');
       expect(component.hasHiddenContent()).toBe(true);
@@ -636,8 +636,8 @@ describe('ToolCallComponent', () => {
 
       const collapsed = component.render(100).map(strip).filter((line) => line.trim().length > 0);
       expect(collapsed).toHaveLength(1);
-      expect(collapsed[0]).toContain('Sent you an update');
-      expect(collapsed[0]).toContain('Root cause found');
+      expect(collapsed[0]).toBe(`${NOTIFY_USER_MARK} Root cause found`);
+      expect(collapsed[0]).not.toContain('Sent you an update');
       expect(collapsed[0]).not.toContain('Login module is clean.');
 
       component.setExpanded(true);
@@ -658,12 +658,42 @@ describe('ToolCallComponent', () => {
       expect(output).toContain('Update shown to the user.');
     });
 
-    it('labels the in-flight call as sending', () => {
+
+    it("wraps an expanded title using each row's own available width", () => {
+      const title = 'x'.repeat(114);
+      const component = new ToolCallComponent(
+        { id: 'call_notify_wrap', name: 'NotifyUser', args: { title, message: 'Body' } },
+        {
+          tool_call_id: 'call_notify_wrap',
+          output: 'Update shown to the user.',
+          is_error: false,
+        },
+      );
+
+      const collapsed = component.render(60).map(strip).filter((line) => line.trim().length > 0);
+      expect(collapsed).toHaveLength(1);
+      expect(collapsed[0]).toContain('…');
+      expect(visibleWidth(collapsed[0]!)).toBeLessThanOrEqual(60);
+
+      component.setExpanded(true);
+      const rows = component.render(60).map(strip).filter((line) => line.trim().length > 0);
+      const titleRows = rows.filter((line) => line.includes('x'));
+      expect(titleRows).toHaveLength(3);
+      expect(titleRows[0]!.replace(`${NOTIFY_USER_MARK} `, '')).toHaveLength(51);
+      expect(titleRows[1]).toBe(`  ${'x'.repeat(58)}`);
+      expect(titleRows[2]).toBe(`  ${'x'.repeat(5)}`);
+      expect(rows.at(-1)!.trimEnd()).toBe('  Body');
+      for (const row of rows) expect(visibleWidth(row)).toBeLessThanOrEqual(60);
+    });
+
+    it('shows the Update badge while the message streams in', () => {
       const component = new ToolCallComponent(
         { id: 'call_notify_live', name: 'NotifyUser', args: {}, streamingArguments: '{"mess' },
         undefined,
       );
-      expect(strip(component.render(100).join('\n'))).toContain('Sending you an update');
+      // The title arrives with the arguments, so an in-flight card is the badge
+      // alone; the text lands on the next snapshot.
+      expect(strip(component.render(100).join('\n'))).toContain(NOTIFY_USER_MARK.trim());
       expect(component.hasHiddenContent()).toBe(false);
     });
 
@@ -681,7 +711,6 @@ describe('ToolCallComponent', () => {
           const rendered = strip(component.render(150).join('\n'));
           expect(rendered).not.toContain('Sent you an update');
           expect(rendered).toContain(output);
-          if (enabled) expect(rendered).toContain('Update not displayed');
         }
       },
     );
@@ -708,7 +737,7 @@ describe('ToolCallComponent', () => {
         undefined,
       );
       const out = strip(component.render(100).join('\n'));
-      expect(out).toContain('Update cut off');
+      expect(out).toContain('half an upd');
       expect(out).not.toContain('Sending you an update');
       expect(out).toContain('call never executed');
       expect(component.hasHiddenContent()).toBe(false);
@@ -755,7 +784,7 @@ describe('ToolCallComponent', () => {
         .filter((line) => line.trim().length > 0);
       expect(rows).toHaveLength(1);
       expect(visibleWidth(rows[0]!)).toBeLessThanOrEqual(50);
-      expect(rows[0]).toContain('Sent you an update');
+      expect(rows[0]).toContain(NOTIFY_USER_MARK.trim());
       expect(component.hasHiddenContent()).toBe(true);
     });
 

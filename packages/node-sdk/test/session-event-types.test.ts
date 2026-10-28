@@ -147,7 +147,7 @@ describe('Event public types', () => {
         case 'prompt.completed':
         case 'prompt.aborted':
         case 'prompt.steered':
-        case 'tools.update_store':
+        case 'todo.updated':
           return;
         default:
           assertNever(event);

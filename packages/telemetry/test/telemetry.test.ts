@@ -712,7 +712,7 @@ describe('AsyncTransport', () => {
       deviceId: 'dev',
       endpoint: 'https://mock.test/events',
       getAccessToken: () => 'token-1',
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl,
       retryBackoffsMs: [],
     });
 
@@ -726,7 +726,7 @@ describe('AsyncTransport', () => {
   });
 
   it('resolves a function endpoint per send, so an in-process switch needs no rebuild', async () => {
-    const fetchImpl = jest.fn(async (_url: string | URL, _init?: RequestInit) =>
+    const fetchImpl = jest.fn(async (_url: string | URL | Request, _init?: RequestInit) =>
       new Response('', { status: 200 }),
     );
     let endpoint: string | undefined = 'https://cn.test/events';
@@ -735,7 +735,7 @@ describe('AsyncTransport', () => {
       homeDir,
       deviceId: 'dev',
       endpoint: () => endpoint,
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl,
       retryBackoffsMs: [],
     });
 
@@ -757,7 +757,7 @@ describe('AsyncTransport', () => {
       homeDir: blockedHome,
       deviceId: 'dev',
       endpoint: 'https://cn.test/events',
-      fetchImpl: jest.fn(async () => new Response('', { status: 500 })) as unknown as typeof fetch,
+      fetchImpl: jest.fn(async () => new Response('', { status: 500 })),
       retryBackoffsMs: [],
     });
     await expect(failingTransport.send([sampleEvent('spooled')])).rejects.toThrow();
@@ -773,7 +773,7 @@ describe('AsyncTransport', () => {
       deviceId: 'dev',
       endpoint: 'https://mock.test/events',
       getAccessToken: () => 'token-1',
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl,
       retryBackoffsMs: [],
     });
 
@@ -796,7 +796,7 @@ describe('AsyncTransport', () => {
       deviceId: 'dev',
       endpoint: 'https://mock.test/events',
       getAccessToken: () => 'token-1',
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl,
       retryBackoffsMs: [],
     });
 
@@ -822,7 +822,7 @@ describe('AsyncTransport', () => {
       deviceId: 'dev',
       endpoint: 'https://mock.test/events',
       getAccessToken: () => 'token-1',
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl,
       retryBackoffsMs: [],
     });
 
@@ -842,7 +842,7 @@ describe('AsyncTransport', () => {
       homeDir,
       deviceId: 'dev',
       endpoint: 'https://mock.test/events',
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl,
       retryBackoffsMs: [],
     });
 
@@ -860,7 +860,7 @@ describe('AsyncTransport', () => {
       homeDir,
       deviceId: 'dev',
       endpoint: 'https://mock.test/events',
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl,
       retryBackoffsMs: [],
     });
 
@@ -885,7 +885,7 @@ describe('AsyncTransport', () => {
       homeDir,
       deviceId: 'dev',
       endpoint: () => endpoint,
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl,
     });
 
     await transport.retryDiskEvents();
@@ -915,7 +915,7 @@ describe('AsyncTransport', () => {
       homeDir,
       deviceId: 'dev',
       endpoint: 'https://mock.test/events',
-      fetchImpl: jest.fn(async () => new Response('', { status: 200 })) as unknown as typeof fetch,
+      fetchImpl: jest.fn(async () => new Response('', { status: 200 })),
       now: () => now + DISK_EVENT_MAX_AGE_MS + 1,
     });
 
@@ -933,7 +933,7 @@ describe('AsyncTransport', () => {
       endpoint: 'https://mock.test/events',
       fetchImpl: jest.fn(async () => {
         throw new TransientTelemetryError('nope');
-      }) as unknown as typeof fetch,
+      }),
       retryBackoffsMs: [10_000],
     });
     const controller = new AbortController();
@@ -954,7 +954,7 @@ describe('AsyncTransport', () => {
       homeDir,
       deviceId: 'dev',
       endpoint: 'https://mock.test/events',
-      fetchImpl: jest.fn(async () => new Response('', { status: 429 })) as unknown as typeof fetch,
+      fetchImpl: jest.fn(async () => new Response('', { status: 429 })),
       retryBackoffsMs: [10_000],
       sleep: async () => {
         controller.abort();
@@ -977,7 +977,7 @@ describe('AsyncTransport', () => {
       homeDir,
       deviceId: 'dev',
       endpoint: 'https://mock.test/events',
-      fetchImpl: jest.fn(async () => new Response('', { status: 500 })) as unknown as typeof fetch,
+      fetchImpl: jest.fn(async () => new Response('', { status: 500 })),
       retryBackoffsMs: [],
     });
 
@@ -1002,7 +1002,7 @@ describe('AsyncTransport', () => {
       homeDir,
       deviceId: 'dev',
       endpoint: 'https://mock.test/events',
-      fetchImpl: fetchImpl as unknown as typeof fetch,
+      fetchImpl: fetchImpl,
     });
 
     transport.saveToDisk([]);

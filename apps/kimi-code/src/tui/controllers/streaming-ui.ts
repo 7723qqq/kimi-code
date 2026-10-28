@@ -22,7 +22,6 @@ import type {
 } from '../types';
 import {
   appendStreamingArgsPreview,
-  type NormalizedTodoItem,
   parseStreamingArgs,
 } from '../utils/event-payload';
 import {
@@ -826,15 +825,6 @@ export class StreamingUIController {
     this.host.mergeCurrentTurnSteps();
   }
 
-  setTodoList(todos: readonly NormalizedTodoItem[]): void {
-    const { state } = this.host;
-    // The todo panel is a region of the status surface now; the region owns
-    // mounting and repaint. The mount/unmount dance that used to live here
-    // existed because the panel was a sibling in the dock and had to be added
-    // and removed by hand.
-    state.todoRegion.setTodos(todos);
-    state.ui.requestRender();
-  }
 
   beginCompaction(instruction?: string): void {
     const { state } = this.host;

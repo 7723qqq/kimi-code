@@ -120,15 +120,35 @@ function spawnWorker(
     maxOldGenerationSizeMb: opts.workerMaxOldSpaceMb ?? DEFAULT_MAX_OLD_SPACE_MB,
   };
   if (entry.kind === 'packaged') {
-    return new Worker(entry.path, { workerData: spec, execArgv: [], resourceLimits });
+    return new Worker(entry.path, {
+      workerData: spec,
+      execArgv: [],
+      ...WORKER_LIMITS_OPTION(resourceLimits),
+    });
   }
   return new Worker(entry.url, {
     workerData: spec,
     // --experimental-transform-types runs the TS worker source directly in dev;
     // silence its experimental warning so it does not bleed into the TUI.
     execArgv: ['--experimental-transform-types', '--disable-warning=ExperimentalWarning'],
-    resourceLimits,
+    ...WORKER_LIMITS_OPTION(resourceLimits),
   });
+}
+
+/// `resourceLimits` under Node, nothing under Bun.
+///
+/// Bun's `Worker` accepts the option and ignores it (its Node.js compatibility
+/// page says so, and `tools/review`'s `bun-gap` check enforces that claim), so
+/// passing it reads as "this worker is capped at N MB" when nothing caps it.
+/// Omitting it makes the absence explicit instead of misleading. The workers
+/// this package spawns are bounded by the item budget they are given, so the
+/// cap was never the mechanism holding memory in check.
+function WORKER_LIMITS_OPTION(
+  limits: { maxOldGenerationSizeMb: number },
+): { resourceLimits?: { maxOldGenerationSizeMb: number } } {
+  return typeof (globalThis as { Bun?: unknown }).Bun === 'undefined'
+    ? { resourceLimits: limits }
+    : {};
 }
 
 type WorkerMessage = {

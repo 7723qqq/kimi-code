@@ -39,6 +39,7 @@ import {
   showSettingsSelector,
 } from './config';
 import { handleCopyCommand } from './copy';
+import { handleImportSessionsCommand } from './import-sessions';
 import { handleDesktopCommand } from './desktop';
 import { handleGoalCommand } from './goal';
 import { handleHelloWorldCommand } from './hello-world';
@@ -80,6 +81,7 @@ import { handleWorkflowCommand } from './workflow';
 export { handleLoginCommand, handleLogoutCommand } from './auth';
 export { handleBtwCommand } from './btw';
 export { handleCopyCommand } from './copy';
+export { handleImportSessionsCommand } from './import-sessions';
 export { handleDesktopCommand } from './desktop';
 import { handleAddDirCommand } from './add-dir';
 export { handleAddDirCommand } from './add-dir';
@@ -561,6 +563,9 @@ async function handleBuiltInSlashCommand(
       return;
     case 'copy':
       await handleCopyCommand(host);
+      return;
+    case 'import-sessions':
+      handleImportSessionsCommand(host);
       return;
     case 'login':
       await handleLoginCommand(host);

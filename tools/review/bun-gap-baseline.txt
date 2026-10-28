@@ -1,0 +1,42 @@
+# Node endpoints Bun is missing or silently degrades, accepted at their current
+# count.
+#
+# Format: `<path>:<endpoint> <count>`. An entry that stops matching is reported
+# as stale, so this file cannot rot silently.
+#
+# Severity is deliberately inverted from intuition: a *missing* endpoint is only
+# a `warn` because the call throws the first time it runs, which is loud and
+# cheap. A *degraded* endpoint is an `error`, because it returns a plausible
+# wrong answer and nothing ever tells you.
+#
+# Every entry in ENDPOINTS was verified by running the same probe under Node
+# 24.9.0 and Bun 1.4.4 and diffing the results — not by reading a compatibility
+# page. That process removed four claims a docs-only reading produced:
+#   * `eventLoopUtilization()` returns all zeros under Node >= 23 as well;
+#   * `executionAsyncId()`/`triggerAsyncId()` return 0 outside a hook in Node too;
+#   * `tls.pskCallback`/`requestOCSP`/`SNICallback` are socket options, present
+#     in neither runtime's module exports, so they are not gaps at all;
+#   * `moveMessagePortToContext`, `takeCoverage`, `stopCoverage` and
+#     `promiseHooks` all exist in Bun (the last three throw when called).
+
+# `navigator.language` is undefined in Bun, so `detectLocaleWeb()` cannot read a
+# browser locale there and falls through to 'en'.
+#
+# Accepted, not fixed: `detectLocale()` dispatches on the presence of a
+# `process.env`, which Bun has, so this function is only reached in a real
+# browser — where `navigator.language` exists. Under Bun the guard evaluates
+# false and the fallback is the same 'en' the Node branch already returns.
+# Verified: `detectLocale()` under `bun` returns 'en' via `detectLocaleNode()`,
+# never touching this line's browser branch.
+packages/i18n-shared/src/detect.ts:navigator.language 1
+
+# Runs untrusted user code in a Worker with `maxOldGenerationSizeMb: 256`.
+# Bun's Worker ignores `resourceLimits` — verified: with a 16 MB cap the same
+# allocation load throws ERR_WORKER_OUT_OF_MEMORY under Node and survives under
+# Bun — so under Bun the only enforced bounds are the wall-clock timeout and the
+# output cap, and a runaway allocation takes down the whole process.
+#
+# Recorded, not fixed: enforcing a heap cap on Bun needs an out-of-process
+# sandbox, which is a design change rather than a guard. Whoever picks that up
+# should delete this entry.
+packages/agent-core-v2/src/features/codeRuntime/codeExecutor.ts:resourceLimits 1

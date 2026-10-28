@@ -4,9 +4,8 @@
 // stay consistent with the primary store under random operations, including
 // after an index rebuild on reopen.
 
-import assert from 'node:assert/strict';
 
-import { test } from 'bun:test';
+import { expect, test } from 'bun:test';
 
 import { UniqueViolationError } from '../../src/index-manager.js';
 import { MiniDb } from '../../src/index.js';
@@ -69,11 +68,7 @@ test(
       const expectedKeys = [...live.keys()].toSorted();
 
       // 1) key order index
-      assert.deepEqual(
-        db.scan().map((r) => r.key),
-        expectedKeys,
-        'key order scan',
-      );
+      expect(db.scan().map((r) => r.key), 'key order scan').toStrictEqual(expectedKeys);
 
       // 2) equality index
       for (const city of CITIES) {
@@ -85,7 +80,7 @@ test(
           .filter(([, d]) => d.city === city)
           .map(([k]) => k)
           .toSorted();
-        assert.deepEqual(fromIdx, expected, `byCity ${city}`);
+        expect(fromIdx, `byCity ${city}`).toStrictEqual(expected);
       }
 
       // 3) range index
@@ -98,17 +93,13 @@ test(
         .filter(([, d]) => d.age >= min && d.age <= max)
         .map(([k]) => k)
         .toSorted();
-      assert.deepEqual(fromRange, expectedRange, 'byAge range');
+      expect(fromRange, 'byAge range').toStrictEqual(expectedRange);
 
       // 4) dt index
-      assert.deepEqual(
-        db
+      expect(db
           .dtRange('created', { gte: 0 })
           .map((r) => r.key)
-          .toSorted(),
-        expectedKeys,
-        'dt created all',
-      );
+          .toSorted(), 'dt created all').toStrictEqual(expectedKeys);
 
       // 5) text index: search results == docs whose bio contains the term
       const term = '北京';
@@ -120,7 +111,7 @@ test(
         .filter(([, d]) => d.bio.includes(term))
         .map(([k]) => k)
         .toSorted();
-      assert.deepEqual(hits, expectedHits, 'text search 北京');
+      expect(hits, 'text search 北京').toStrictEqual(expectedHits);
 
       // 5b) second text index over the city field
       const cityHits = db
@@ -131,7 +122,7 @@ test(
         .filter(([, d]) => d.city === 'Paris')
         .map(([k]) => k)
         .toSorted();
-      assert.deepEqual(cityHits, expectedCityHits, 'text search city=Paris');
+      expect(cityHits, 'text search city=Paris').toStrictEqual(expectedCityHits);
 
       // 5c) compound index: group ordered by (age, key)
       const parisOrdered = db.compoundRange('byCityAge', 'Paris').map((r) => r.key);
@@ -139,7 +130,7 @@ test(
         .filter(([, d]) => d.city === 'Paris')
         .toSorted((a, b) => a[1].age - b[1].age || (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0))
         .map(([k]) => k);
-      assert.deepEqual(parisOrdered, expectedParis, 'compound Paris ordered by age');
+      expect(parisOrdered, 'compound Paris ordered by age').toStrictEqual(expectedParis);
 
       // 6) after rebuild on reopen, indexes still match
       await db.close();
@@ -152,43 +143,23 @@ test(
         .filter(([, d]) => d.city === 'Paris')
         .map(([k]) => k)
         .toSorted();
-      assert.deepEqual(fromIdx2, expected2, 'byCity Paris after rebuild');
-      assert.deepEqual(
-        db.scan().map((r) => r.key),
-        expectedKeys,
-        'key order after rebuild',
-      );
+      expect(fromIdx2, 'byCity Paris after rebuild').toStrictEqual(expected2);
+      expect(db.scan().map((r) => r.key), 'key order after rebuild').toStrictEqual(expectedKeys);
       // The shared rebuild walk fanned out to every staged builder: all derived
       // index families match the reference model again after reopen.
-      assert.deepEqual(
-        db
+      expect(db
           .search('cityText', 'Paris', { limit: 1000 })
           .map((r) => r.key)
-          .toSorted(),
-        expectedCityHits,
-        'cityText Paris after rebuild',
-      );
-      assert.deepEqual(
-        db
+          .toSorted(), 'cityText Paris after rebuild').toStrictEqual(expectedCityHits);
+      expect(db
           .search('body', term, { limit: 1000 })
           .map((r) => r.key)
-          .toSorted(),
-        expectedHits,
-        'text search 北京 after rebuild',
-      );
-      assert.deepEqual(
-        db.compoundRange('byCityAge', 'Paris').map((r) => r.key),
-        expectedParis,
-        'compound Paris after rebuild',
-      );
-      assert.deepEqual(
-        db
+          .toSorted(), 'text search 北京 after rebuild').toStrictEqual(expectedHits);
+      expect(db.compoundRange('byCityAge', 'Paris').map((r) => r.key), 'compound Paris after rebuild').toStrictEqual(expectedParis);
+      expect(db
           .dtRange('created', { gte: 0 })
           .map((r) => r.key)
-          .toSorted(),
-        expectedKeys,
-        'dt after rebuild',
-      );
+          .toSorted(), 'dt after rebuild').toStrictEqual(expectedKeys);
     } finally {
       await db.close().catch(() => {});
       await rmrf(dir);

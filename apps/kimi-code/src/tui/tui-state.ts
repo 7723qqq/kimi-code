@@ -19,14 +19,12 @@ import type { MoonLoader, SpinnerStyle } from './components/chrome/moon-loader';
 import { NotifyPanelComponent } from './components/chrome/notify-panel';
 import { STATUS_SURFACE_MAX_ROWS } from './components/chrome/status-surface/budget';
 import { StatusSurfaceComponent } from './components/chrome/status-surface/index';
-import { ApprovalRegion } from './components/chrome/status-surface/regions/approval-region';
-import { TodoRegion } from './components/chrome/status-surface/regions/todo-region';
 import { UpdatesRegion } from './components/chrome/status-surface/regions/updates-region';
-import { TodoPanelComponent } from './components/chrome/todo-panel';
 import type { SessionRow } from './components/dialogs/session-picker';
 import { CustomEditor } from './components/editor/custom-editor';
 import { DEFAULT_MARKDOWN_CONFIG, DEFAULT_TUI_CONFIG } from './config';
 import { CHROME_GUTTER } from './constant/rendering';
+import { CLICK_GUARD_MS } from './constant/terminal';
 import type { TasksBrowserState } from './controllers/tasks-browser';
 import type { BackgroundTasksMiniState } from './controllers/background-tasks-mini';
 import { currentTheme, type Theme } from './theme';
@@ -66,14 +64,10 @@ export interface TUIState {
    */
   statusSurface: StatusSurfaceComponent;
   statusSurfaceContainer: GutterContainer;
-  todoPanelContainer: Container;
-  todoPanel: TodoPanelComponent;
-  todoRegion: TodoRegion;
   notifyPanelContainer: GutterContainer;
   notifyPanel: NotifyPanelComponent;
   updatesRegion: UpdatesRegion;
   /** Inline approval prompt; empty except while a request is pending. */
-  approvalRegion: ApprovalRegion;
   queueContainer: Container;
   btwPanelContainer: Container;
   surveyContainer: Container;
@@ -150,6 +144,7 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
           // Mouse capture takes over the terminal's native link activation, so
           // route OSC 8 clicks through our own opener.
           openUrl,
+          refocusMouseGuardMs: CLICK_GUARD_MS,
           // Likewise, on Windows the terminal's native right-click paste is
           // intercepted; feed the clipboard to the focused component as a
           // bracketed paste instead (renderer only calls this on win32).
@@ -189,31 +184,24 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
   const transcriptContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const activityContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const backgroundTasksMiniContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
-  const todoPanelContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
-  const todoPanel = new TodoPanelComponent({ terminalRows: () => terminal.rows });
   const notifyPanelContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   const notifyPanel = new NotifyPanelComponent(
     () => terminal.rows,
     () => ui.requestRender(),
   );
-  // One status strip above the editor, holding the todo list, the mid-turn
-  // updates and (when it arrives) an approval. The three used to be separate
-  // mounts with separate data paths and separate height rules; the surface
-  // owns the budget, the focus and the mouse routing for all of them. Regions
-  // stack instead of sharing a row because a blocking approval needs the full
-  // width for its diff, and columns would force every neighbour to re-flow.
+  // One status strip above the editor, holding the mid-turn updates and (when
+  // it arrives) an approval. The surface owns the budget, the focus and the
+  // mouse routing for both. Regions stack instead of sharing a row because a
+  // blocking approval needs the full width for its diff, and columns would
+  // force every neighbour to re-flow.
   const statusSurface = new StatusSurfaceComponent({
     terminalRows: () => terminal.rows,
     onRequestRender: () => ui.requestRender(),
   });
-  const todoRegion = new TodoRegion(todoPanel);
   const updatesRegion = new UpdatesRegion(notifyPanel);
   // The approval region renders the panel the dialog host builds for each
   // request, so it holds no panel of its own until one arrives.
-  const approvalRegion = new ApprovalRegion();
-  statusSurface.setRegion(todoRegion);
   statusSurface.setRegion(updatesRegion);
-  statusSurface.setRegion(approvalRegion);
   const statusSurfaceContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
   statusSurfaceContainer.addChild(statusSurface);
   const queueContainer = new GutterContainer(CHROME_GUTTER, CHROME_GUTTER);
@@ -285,13 +273,9 @@ export function createTUIState(options: KimiTUIOptions): TUIState {
     backgroundTasksMiniContainer,
     statusSurface,
     statusSurfaceContainer,
-    todoPanelContainer,
-    todoPanel,
-    todoRegion,
     notifyPanelContainer,
     notifyPanel,
     updatesRegion,
-    approvalRegion,
     queueContainer,
     btwPanelContainer,
     surveyContainer,

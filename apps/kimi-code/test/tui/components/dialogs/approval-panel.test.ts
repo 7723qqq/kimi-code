@@ -175,6 +175,72 @@ describe('ApprovalPanelComponent', () => {
     expect(out).not.toContain('\n  > ');
   });
 
+  it('moves the feedback field to its own line when the label leaves no room', () => {
+    const { dialog } = makeDialog();
+    dialog.handleInput('4');
+    for (const char of '需要更多测试') dialog.handleInput(char);
+
+    // 40 columns: the label alone is wider than the inline field's floor, so the
+    // field wraps instead of being squeezed to a few columns.
+    const out = strip(dialog.render(40).join('\n'));
+    for (const line of out.split('\n')) {
+      expect(line.length).toBeLessThanOrEqual(40);
+    }
+    expect(out).toContain('需要更多测试');
+  });
+
+  it('names only the numeric shortcuts it can actually deliver', () => {
+    const withChoices = (count: number): string => {
+      const dialog = new ApprovalPanelComponent(
+        {
+          data: {
+            id: 'a',
+            tool_call_id: 't',
+            tool_name: 'Bash',
+            action: 'run',
+            description: '',
+            display: [{ type: 'shell', language: 'bash', command: 'ls' }],
+            choices: Array.from({ length: count }, (_, index) => ({
+              label: `Option ${index + 1}`,
+              response: 'approved',
+            })),
+          },
+        },
+        () => {},
+      );
+      dialog.focused = true;
+      return strip(dialog.render(80).join('\n'));
+    };
+
+    expect(withChoices(4)).toContain('1/2/3/4 choose');
+    // Item 10 needs two keystrokes, so the hint stops at 9 and says where the
+    // rest are instead of advertising a reachable count.
+    const many = withChoices(10);
+    expect(many).toContain('1/2/3/4/5/6/7/8/9');
+    expect(many).toContain('for the rest');
+  });
+
+  it('tells the user what esc does when there is nothing to choose', () => {
+    const dialog = new ApprovalPanelComponent(
+      {
+        data: {
+          id: 'a',
+          tool_call_id: 't',
+          tool_name: 'Bash',
+          action: 'run',
+          description: 'something',
+          display: [],
+          choices: [],
+        },
+      },
+      () => {},
+    );
+    dialog.focused = true;
+    const out = strip(dialog.render(80).join('\n'));
+    expect(out).toContain('no options to choose');
+    expect(out).toContain('esc reject');
+  });
+
   it('legacy y/a/n/f shortcuts no longer trigger approval actions', () => {
     for (const key of ['y', 'a', 'n', 'f']) {
       const { dialog, responses } = makeDialog();
@@ -486,5 +552,135 @@ describe('ApprovalPanelComponent', () => {
     expect(responses).toEqual([
       { response: 'rejected', feedback: 'no', selected_label: 'Revise' },
     ]);
+  });
+  it('prints each choice description under its label', () => {
+    const pending = makePending();
+    pending.data.choices = [
+      { label: 'Plan without edits', response: 'approved', description: 'Explore the codebase and write a plan file.' },
+      { label: 'Plan with edits', response: 'approved_for_session', description: 'May edit files while writing the plan.' },
+      { label: 'Reject', response: 'rejected' },
+    ];
+    const dialog = new ApprovalPanelComponent(pending, () => {});
+    const out = strip(dialog.render(100).join('\n'));
+    expect(out).toContain('Plan without edits');
+    expect(out).toContain('Explore the codebase and write a plan file.');
+    expect(out).toContain('Plan with edits');
+    expect(out).toContain('May edit files while writing the plan.');
+    // A choice without a description adds no blank helper line of its own.
+    const lines = out.split('\n');
+    const rejectRow = lines.findIndex((line) => line.includes('Reject') && !line.includes('with feedback'));
+    expect(rejectRow).toBeGreaterThan(0);
+  });
+
+});
+
+describe('ApprovalPanelComponent — interrupting an approval', () => {
+  const choices = [
+    { label: 'Approve once', response: 'approved' as const },
+    { label: 'Approve for this session', response: 'approved_for_session' as const },
+    { label: 'Reject', response: 'rejected' as const },
+    { label: 'Reject with feedback', response: 'rejected' as const, requires_feedback: true },
+  ];
+
+  const make = (wasTyping?: boolean) => {
+    const responses: Array<{ response: string; feedback?: string | undefined }> = [];
+    const panel = new ApprovalPanelComponent(
+      {
+        data: {
+          id: 'a',
+          tool_call_id: 't',
+          tool_name: 'Bash',
+          action: 'run',
+          description: '',
+          display: [{ type: 'shell', language: 'bash', command: 'rm -rf /' }],
+          choices,
+        },
+      },
+      (response) => responses.push(response),
+      undefined,
+      undefined,
+      { wasTyping },
+    );
+    panel.focused = true;
+    return { panel, responses };
+  };
+
+  it('drops the first approving keystroke when the prompt interrupted typing', () => {
+    const { panel, responses } = make(true);
+    panel.handleInput('\r');
+    expect(responses).toHaveLength(0);
+    panel.handleInput('\r');
+    expect(responses).toHaveLength(1);
+    expect(responses[0]?.response).toBe('approved');
+  });
+
+  it('drops the first numeric approval too', () => {
+    const { panel, responses } = make(true);
+    panel.handleInput('2');
+    expect(responses).toHaveLength(0);
+    panel.handleInput('2');
+    expect(responses[0]?.response).toBe('approved_for_session');
+  });
+
+  it('never drops a rejection', () => {
+    const { panel, responses } = make(true);
+    panel.handleInput('3');
+    expect(responses[0]?.response).toBe('rejected');
+  });
+
+  it('never drops Esc', () => {
+    const { panel, responses } = make(true);
+    panel.handleInput('\u001B');
+    expect(responses[0]?.response).toBe('rejected');
+  });
+
+  it('does not swallow when the editor was empty', () => {
+    const { panel, responses } = make(false);
+    panel.handleInput('\r');
+    expect(responses).toHaveLength(1);
+  });
+
+  it('does not swallow for callers that never report typing', () => {
+    const { panel, responses } = make(undefined);
+    panel.handleInput('\r');
+    expect(responses).toHaveLength(1);
+  });
+
+  it('does not swallow a choice that only opens the feedback input', () => {
+    const { panel, responses } = make(true);
+    panel.handleInput('4');
+    expect(panel.isTextEntryActive()).toBe(true);
+    expect(responses).toHaveLength(0);
+  });
+});
+
+describe('ApprovalPanelComponent — what the panel does not draw', () => {
+  const bodyLines = (blockCount: number): string[] => {
+    const panel = new ApprovalPanelComponent(
+      {
+        data: {
+          id: 'a',
+          tool_call_id: 't',
+          tool_name: 'Edit',
+          action: 'edit',
+          description: '',
+          display: Array.from({ length: blockCount }, (_, index) => ({
+            type: 'file_op' as const,
+            operation: 'edit' as const,
+            path: `file${index}.ts`,
+          })),
+          choices: [{ label: 'Approve', response: 'approved' }],
+        },
+      },
+      () => {},
+    );
+    panel.focused = true;
+    return panel['renderPart']('body', 60).map(strip);
+  };
+
+  it('says how many changes it left out', () => {
+    expect(bodyLines(5).join('\n')).not.toContain('not shown');
+    expect(bodyLines(7).join('\n')).toContain('2 more changes not shown');
+    expect(bodyLines(6).join('\n')).toContain('1 more change not shown');
   });
 });

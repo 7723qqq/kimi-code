@@ -8,6 +8,14 @@
  * contract; in-process types use camelCase per TS convention.
  */
 
+
+/**
+ * The part of `fetch` this package calls. Narrower than `typeof fetch` on
+ * purpose: under Bun that type also carries `preconnect`, so a test double or
+ * a caller's own transport would have to fake a method nothing here uses.
+ */
+export type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+
 export type OAuthStorageBackend = 'file';
 
 /** A persisted OAuth token bundle. */

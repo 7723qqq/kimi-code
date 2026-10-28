@@ -3,6 +3,7 @@ import type { Component, Focusable } from '@moonshot-ai/pi-tui';
 import { resolve } from 'pathe';
 
 import { t } from '#/i18n';
+import { DOCK_APPROVAL_ROWS } from '#/tui/constant/rendering';
 
 import type { KimiSlashCommand } from '../commands';
 import {
@@ -309,12 +310,11 @@ export class DialogHostController {
   }
 
   /**
-   * Show a pending approval as an inline region of the status surface.
+   * Show a pending approval by replacing the editor with the panel.
    *
-   * The panel does not replace the editor: the draft stays visible and typed
-   * text survives the prompt, which is the point of moving approvals into the
-   * strip. `livePane.pendingApproval` is still patched because the activity
-   * pane and the survey gate read it as "the user owes an answer".
+   * Docked in fullscreen, a long request scrolls while the choices stay on
+   * screen. `livePane.pendingApproval` is patched because the activity pane
+   * and the survey gate read it as "the user owes an answer".
    */
   showApprovalPanel(payload: ApprovalPanelData): void {
     this.host.patchLivePane({ pendingApproval: { data: payload } });
@@ -333,11 +333,37 @@ export class DialogHostController {
       (block) => {
         this.openApprovalPreview(panel, block);
       },
+      {
+        layout:
+          this.host.state.dockContainer === undefined ? undefined : { maxBodyRows: DOCK_APPROVAL_ROWS },
+        isTerminalFocused: () => this.host.state.terminalState.focused,
+        wasTyping: this.isEditorMidComposition(),
+      },
     );
     this.activeApprovalPanel = panel;
-    this.host.state.approvalRegion.show(payload, panel);
-    this.host.state.statusSurface.focusRegion('approval');
-    this.host.state.ui.requestRender();
+    this.mountEditorReplacement(panel);
+  }
+
+  /**
+   * Whether the editor holds an unsent draft, which means the keystroke that
+   * submits the next approval probably belonged to that draft.
+   *
+   * Reading the draft is the honest signal available: pi-tui delivers input
+   * synchronously with no buffer to inspect, so "was the user typing" has to be
+   * inferred from whether they left text behind. A prompt arriving while they
+   * were mid-word is exactly the case that must not approve on their behalf;
+   * a prompt arriving to an empty editor cannot have interrupted anything.
+   *
+   * A non-empty draft is a conservative over-estimate — the user may have
+   * parked text there minutes ago — but the failure it produces is one extra
+   * Enter, while the failure it prevents is an unwanted approval.
+   */
+  private isEditorMidComposition(): boolean {
+    try {
+      return this.host.state.editor.getText().trim().length > 0;
+    } catch {
+      return false;
+    }
   }
 
   hideApprovalPanel(): void {
@@ -345,10 +371,7 @@ export class DialogHostController {
     // screen state is restored before the region goes away.
     if (this.approvalPreview !== undefined) this.closeApprovalPreview();
     this.activeApprovalPanel = undefined;
-    this.host.state.approvalRegion.clear();
-    // Hand the keyboard back: the approval had it, and leaving focus on an
-    // empty region would strand the next keystroke.
-    this.host.state.statusSurface.focusRegion(null);
+    this.restoreEditor();
     this.host.patchLivePane({ pendingApproval: null });
     this.host.state.ui.requestRender();
   }
@@ -400,6 +423,7 @@ export class DialogHostController {
       () => {
         this.host.toggleToolOutputExpansion();
       },
+      { isTerminalFocused: () => this.host.state.terminalState.focused },
     );
     this.mountEditorReplacement(dialog);
   }

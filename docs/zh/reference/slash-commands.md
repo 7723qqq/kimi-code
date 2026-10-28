@@ -55,7 +55,7 @@
 | `/plan clear` | — | 清除当前 plan 方案 | 否 |
 | `/spec [on\|off]` | — | 切换 Spec 模式。不带参数时翻转；显式传 `on`/`off` 时强制设置。与 Plan 模式不同，spec 会作为长期产物写入你的仓库——见[内置工具](./tools.md#spec-模式) | 否 |
 | `/effort` | `/thinking` | 切换思考模式 | 是 |
-| `/swarm on\|off` | — | 开启或关闭 swarm mode，但不发送提示词。 | 否 |
+| `/swarm on\|off` | — | 开启或关闭 swarm mode，但不发送提示词。`AgentSwarm` 仅在 swarm mode 开启时才会运行。 | 否 |
 | `/swarm <task>` | — | 先开启 swarm mode，再把 `<task>` 作为普通提示词发送。如果该轮次正常完成，swarm mode 会自动关闭。若当前是 `manual` 权限模式，启动前会提示是否切换到「必要时询问」或「完全自动」模式。 | 否 |
 | `/hello-world` | — | 翻转 hello-world 模式。该模式是带阶段门禁的开发 run 模式（requirements→design→implement→test→review→docs→deliver），产物落 `specs/<id>/` 四件套 | 否 |
 | `/hello-world on\|off` | — | 开启或关闭 hello-world 模式，但不发送提示词 | 否 |

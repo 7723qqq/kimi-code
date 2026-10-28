@@ -1,10 +1,9 @@
-import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
 // test/lock.test.ts
-import { test } from 'bun:test';
+import { expect, test } from 'bun:test';
 
 import { MiniDb } from '../src/index.js';
 import { LockError, LockFile } from '../src/lockfile.js';
@@ -17,7 +16,7 @@ test('a second writer on the same dir is rejected with LockError', async () => {
   const dir = await tmpDir();
   const db1 = await MiniDb.open({ dir, valueCodec: 'string' });
   try {
-    await assert.rejects(() => MiniDb.open({ dir, valueCodec: 'string' }), LockError);
+    await expect((() => MiniDb.open({ dir, valueCodec: 'string' }))()).rejects.toThrow(LockError);
   } finally {
     await db1.close();
     await fs.rm(dir, { recursive: true, force: true });
@@ -31,7 +30,7 @@ test('lock is released on close, allowing another writer', async () => {
   await db1.close();
 
   const db2 = await MiniDb.open({ dir, valueCodec: 'string' });
-  assert.equal(db2.get('a'), '1');
+  expect(db2.get('a')).toBe('1');
   await db2.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -42,9 +41,9 @@ test('readOnly open succeeds alongside a writer and rejects writes', async () =>
   await db1.set('a', '1');
   try {
     const ro = await MiniDb.open({ dir, valueCodec: 'string', readOnly: true });
-    assert.equal(ro.readOnly, true);
-    assert.equal(ro.get('a'), '1');
-    await assert.rejects(() => ro.set('b', '2'), /read-only/);
+    expect(ro.readOnly).toBe(true);
+    expect(ro.get('a')).toBe('1');
+    await expect((() => ro.set('b', '2'))()).rejects.toThrow(/read-only/);
     await ro.close();
   } finally {
     await db1.close();
@@ -57,7 +56,7 @@ test("onLockFail: 'readonly' degrades instead of throwing", async () => {
   const db1 = await MiniDb.open({ dir, valueCodec: 'string' });
   try {
     const db2 = await MiniDb.open({ dir, valueCodec: 'string', onLockFail: 'readonly' });
-    assert.equal(db2.readOnly, true);
+    expect(db2.readOnly).toBe(true);
     await db2.close();
   } finally {
     await db1.close();
@@ -69,9 +68,9 @@ test('a stale lock (dead PID) is taken over', async () => {
   const dir = await tmpDir();
   await fs.writeFile(path.join(dir, 'db.lock'), JSON.stringify({ pid: 999999, ts: Date.now() }));
   const db = await MiniDb.open({ dir, valueCodec: 'string' });
-  assert.equal(db.readOnly, false);
+  expect(db.readOnly).toBe(false);
   await db.set('a', '1');
-  assert.equal(db.get('a'), '1');
+  expect(db.get('a')).toBe('1');
   await db.close();
   await fs.rm(dir, { recursive: true, force: true });
 });
@@ -90,18 +89,14 @@ test(
         const a = new LockFile(lockPath);
         const b = new LockFile(lockPath);
         const wins = await Promise.all([a.acquire(), b.acquire()]);
-        assert.equal(wins.filter(Boolean).length, 1, `iteration ${i}: exactly one winner`);
+        expect(wins.filter(Boolean).length, `iteration ${i}: exactly one winner`).toBe(1);
         await a.release();
         await b.release();
         // The winner's release unlinked its own lock; nothing may be left.
-        assert.equal(
-          await fs.stat(lockPath).then(
+        expect(await fs.stat(lockPath).then(
             () => true,
             () => false,
-          ),
-          false,
-          `iteration ${i}: lock released`,
-        );
+          ), `iteration ${i}: lock released`).toBe(false);
       }
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
@@ -118,17 +113,13 @@ test(
       for (let i = 0; i < 100; i++) {
         const lockPath = path.join(dir, `db-${i}.lock`);
         const lock = new LockFile(lockPath);
-        assert.equal(await lock.acquire(), true);
+        expect(await lock.acquire()).toBe(true);
         await Promise.all([lock.renew(), lock.release()]);
-        assert.equal(lock.held, false);
-        assert.equal(
-          await fs.stat(lockPath).then(
+        expect(lock.held).toBe(false);
+        expect(await fs.stat(lockPath).then(
             () => true,
             () => false,
-          ),
-          false,
-          `iteration ${i}: no ghost lock`,
-        );
+          ), `iteration ${i}: no ghost lock`).toBe(false);
       }
     } finally {
       await fs.rm(dir, { recursive: true, force: true });
@@ -141,19 +132,16 @@ test('renew() keeps the owner token, so release() still recognizes the lock', as
   try {
     const lockPath = path.join(dir, 'db.lock');
     const lock = new LockFile(lockPath);
-    assert.equal(await lock.acquire(), true);
+    expect(await lock.acquire()).toBe(true);
     const before = JSON.parse(await fs.readFile(lockPath, 'utf8')) as { token?: string };
     await lock.renew();
     const after = JSON.parse(await fs.readFile(lockPath, 'utf8')) as { token?: string };
-    assert.equal(after.token, before.token, 'renew preserves the owner token');
+    expect(after.token, 'renew preserves the owner token').toBe(before.token);
     await lock.release();
-    assert.equal(
-      await fs.stat(lockPath).then(
+    expect(await fs.stat(lockPath).then(
         () => true,
         () => false,
-      ),
-      false,
-    );
+      )).toBe(false);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -164,20 +152,16 @@ test('acquire() on an already-held lock is an idempotent true and does not re-mi
   try {
     const lockPath = path.join(dir, 'db.lock');
     const lock = new LockFile(lockPath);
-    assert.equal(await lock.acquire(), true);
+    expect(await lock.acquire()).toBe(true);
     const before = JSON.parse(await fs.readFile(lockPath, 'utf8')) as { token?: string };
-    assert.equal(await lock.acquire(), true, 're-entrant acquire reports the held lock');
+    expect(await lock.acquire(), 're-entrant acquire reports the held lock').toBe(true);
     const after = JSON.parse(await fs.readFile(lockPath, 'utf8')) as { token?: string };
-    assert.equal(after.token, before.token, 'token is not re-minted');
+    expect(after.token, 'token is not re-minted').toBe(before.token);
     await lock.release();
-    assert.equal(
-      await fs.stat(lockPath).then(
+    expect(await fs.stat(lockPath).then(
         () => true,
         () => false,
-      ),
-      false,
-      'release still recognizes and unlinks its own lock',
-    );
+      ), 'release still recognizes and unlinks its own lock').toBe(false);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -192,24 +176,21 @@ test('a legacy tokenless lock file is respected while alive and taken over when 
     const legacyLive = JSON.stringify({ pid: process.pid, ts: Date.now() });
     await fs.writeFile(livePath, legacyLive);
     const contender = new LockFile(livePath);
-    assert.equal(await contender.acquire(), false);
-    assert.equal(await fs.readFile(livePath, 'utf8'), legacyLive, 'live legacy lock untouched');
+    expect(await contender.acquire()).toBe(false);
+    expect(await fs.readFile(livePath, 'utf8'), 'live legacy lock untouched').toBe(legacyLive);
 
     // Dead-pid owner without a token: taken over via the stale rules, and the
     // new lock line carries the instance token.
     const deadPath = path.join(dir, 'dead.lock');
     await fs.writeFile(deadPath, JSON.stringify({ pid: 999999, ts: Date.now() }));
     const taker = new LockFile(deadPath);
-    assert.equal(await taker.acquire(), true);
+    expect(await taker.acquire()).toBe(true);
     const taken = JSON.parse(await fs.readFile(deadPath, 'utf8')) as {
       pid: number;
       token?: string;
     };
-    assert.equal(taken.pid, process.pid);
-    assert.ok(
-      typeof taken.token === 'string' && taken.token.startsWith(`${process.pid}:`),
-      'taken-over lock line carries the owner token',
-    );
+    expect(taken.pid).toBe(process.pid);
+    expect(typeof taken.token === 'string' && taken.token.startsWith(`${process.pid}:`), 'taken-over lock line carries the owner token').toBeTruthy();
     await taker.release();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -234,24 +215,20 @@ test('close() still releases the lock when the WAL close fails; a retry finishes
       }
     };
     const err = await db.close().catch((error: unknown) => error);
-    assert.ok(err instanceof AggregateError, 'close failure is aggregated');
-    assert.equal(err.errors.length, 1);
-    assert.match(String(err.errors[0]), /injected close failure/);
+    expect(err instanceof AggregateError, 'close failure is aggregated').toBeTruthy();
+    expect(err.errors.length).toBe(1);
+    expect(String(String(err.errors[0]))).toMatch(/injected close failure/);
     // The lock release was NOT skipped by the WAL failure.
-    assert.equal(
-      await fs.stat(path.join(dir, 'db.lock')).then(
+    expect(await fs.stat(path.join(dir, 'db.lock')).then(
         () => true,
         () => false,
-      ),
-      false,
-      'lock released despite the WAL close failure',
-    );
+      ), 'lock released despite the WAL close failure').toBe(false);
     // Idempotent continuation: the second pass completes the cleanup.
     await db.close();
     await db.close(); // fully closed now: a no-op
     // The directory is free: a fresh writer opens with no LockError.
     const reopened = await MiniDb.open({ dir, valueCodec: 'string', fsyncPolicy: 'no' });
-    assert.equal(reopened.get('a'), '1');
+    expect(reopened.get('a')).toBe('1');
     await reopened.close();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
@@ -286,25 +263,17 @@ test('close() aggregates every cleanup error instead of stopping at the first', 
       return originalRelease();
     };
     const err = await db.close().catch((error: unknown) => error);
-    assert.ok(err instanceof AggregateError, 'close failure is aggregated');
-    assert.deepEqual(
-      err.errors.map((e) => (e instanceof Error ? e.message : String(e))),
-      ['injected wal close failure', 'injected lock release failure'],
-      'AggregateError carries every cleanup error',
-    );
+    expect(err instanceof AggregateError, 'close failure is aggregated').toBeTruthy();
+    expect(err.errors.map((e) => (e instanceof Error ? e.message : String(e))), 'AggregateError carries every cleanup error').toStrictEqual(['injected wal close failure', 'injected lock release failure']);
     // Retry: the WAL close is now a no-op, the lock release runs for real.
     await db.close();
-    assert.equal(
-      await fs.stat(path.join(dir, 'db.lock')).then(
+    expect(await fs.stat(path.join(dir, 'db.lock')).then(
         () => true,
         () => false,
-      ),
-      false,
-      'lock released on the retry',
-    );
+      ), 'lock released on the retry').toBe(false);
     // The instance refused use from the first 'closing' transition on.
-    await assert.rejects(() => db.set('b', '2'), /MiniDb is closed/);
-    await assert.rejects(() => db.compact(), /MiniDb is closed/);
+    await expect((() => db.set('b', '2'))()).rejects.toThrow(/MiniDb is closed/);
+    await expect((() => db.compact())()).rejects.toThrow(/MiniDb is closed/);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -333,15 +302,11 @@ test('close() waits out a failing in-flight compaction and still cleans up every
     // The compaction failure is accounted on the instance, but close() must
     // not reject with it and must not skip the cleanup.
     await closing;
-    assert.match(String(db.lastCompactError), /injected compaction failure/);
-    assert.equal(
-      await fs.stat(path.join(dir, 'db.lock')).then(
+    expect(String(String(db.lastCompactError))).toMatch(/injected compaction failure/);
+    expect(await fs.stat(path.join(dir, 'db.lock')).then(
         () => true,
         () => false,
-      ),
-      false,
-      'lock released despite the failed compaction',
-    );
+      ), 'lock released despite the failed compaction').toBe(false);
     await db.close(); // fully closed now: a no-op
     const reopened = await MiniDb.open({ dir, valueCodec: 'string', fsyncPolicy: 'no' });
     await reopened.close();
@@ -363,10 +328,10 @@ test('onLockAcquired fires with the held token; read-only fallback opens skip it
   try {
     // Fired before open() resolved, and matches the published lock line —
     // a supervisor learns the lock identity before any heavy recovery ran.
-    assert.ok(reported);
+    expect(reported).toBeTruthy();
     const line = JSON.parse(await fs.readFile(path.join(dir, 'db.lock'), 'utf8'));
-    assert.equal(line.token, reported);
-    assert.equal(line.pid, process.pid);
+    expect(line.token).toBe(reported);
+    expect(line.pid).toBe(process.pid);
 
     // A read-only fallback open (the lock is busy) never fires the callback.
     let second;
@@ -378,8 +343,8 @@ test('onLockAcquired fires with the held token; read-only fallback opens skip it
         second = info.token;
       },
     });
-    assert.equal(ro.readOnly, true);
-    assert.equal(second, undefined);
+    expect(ro.readOnly).toBe(true);
+    expect(second).toBe(undefined);
     await ro.close();
   } finally {
     await db1.close();

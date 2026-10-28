@@ -1,5 +1,4 @@
-import assert from "node:assert";
-import { afterAll, describe, it } from "bun:test";
+import { expect, afterAll, describe, it } from "bun:test";
 import { refreshTerminalDimensions } from "../src/terminal.ts";
 
 describe("refreshTerminalDimensions", () => {
@@ -19,9 +18,9 @@ describe("refreshTerminalDimensions", () => {
 			};
 		})();
 
-		assert.doesNotThrow(() => {
+		expect(() => {
 			refreshTerminalDimensions();
-		});
+		}).not.toThrow();
 	});
 
 	it("does not call kill on win32", () => {
@@ -36,7 +35,7 @@ describe("refreshTerminalDimensions", () => {
 
 		refreshTerminalDimensions();
 
-		assert.strictEqual(killCalled, false, "kill should not be called on win32");
+		expect(killCalled, "kill should not be called on win32").toBe(false);
 	});
 
 	it("preserves other error codes", () => {
@@ -50,9 +49,9 @@ describe("refreshTerminalDimensions", () => {
 		})();
 
 		// EPERM is also ignored - the refresh is best-effort
-		assert.doesNotThrow(() => {
+		expect(() => {
 			refreshTerminalDimensions();
-		});
+		}).not.toThrow();
 	});
 
 	afterAll(() => {

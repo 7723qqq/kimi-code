@@ -1,6 +1,4 @@
 import { randomBytes } from 'node:crypto';
-import type { FetchLike } from '#/_base/utils/fetchLike';
-
 import type {
   OAuthClientProvider,
   OAuthDiscoveryState,
@@ -12,6 +10,7 @@ import {
   type OAuthClientMetadata,
   type OAuthTokens,
 } from '@modelcontextprotocol/sdk/shared/auth.js';
+import type { FetchLike } from '@moonshot-ai/kimi-code-oauth';
 import { OAuthTokenTransaction } from '@moonshot-ai/kimi-code-oauth';
 
 import { BugIndicatingError } from '#/errors';

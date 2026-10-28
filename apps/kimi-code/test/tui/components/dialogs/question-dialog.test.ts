@@ -52,6 +52,9 @@ function makeDialog(
     6,
     onToggleToolOutput,
   );
+  // The dialog fades while it is not focused, so the assertions below that
+  // compare exact ANSI need a focused dialog.
+  dialog.focused = true;
   return { dialog, collected, methods };
 }
 
@@ -455,6 +458,31 @@ describe('QuestionDialogComponent', () => {
     dialog.handleInput(key);
     expect(collected).toEqual([[]]);
   });
+  it('fades while it does not hold the keyboard or the terminal window is inactive', () => {
+    const pending = makePending([
+      { question: 'Pick one?', multi_select: false, options: [{ label: 'A' }, { label: 'B' }] },
+    ]);
+    let terminalFocused = true;
+    const dialog = new QuestionDialogComponent(
+      pending,
+      () => undefined,
+      6,
+      undefined,
+      { isTerminalFocused: () => terminalFocused },
+    );
+    const faint = '[2m';
+
+    dialog.focused = true;
+    expect(dialog.render(80).every((line) => line.length === 0 || !line.startsWith(faint))).toBe(true);
+
+    dialog.focused = false;
+    expect(dialog.render(80).every((line) => line.length === 0 || line.startsWith(faint))).toBe(true);
+
+    dialog.focused = true;
+    terminalFocused = false;
+    expect(dialog.render(80).every((line) => line.length === 0 || line.startsWith(faint))).toBe(true);
+  });
+
   it('forwards ctrl+o to the global tool-output toggle without answering', () => {
     let toggles = 0;
     const pending = makePending([

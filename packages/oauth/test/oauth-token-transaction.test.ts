@@ -1,6 +1,5 @@
-import { describe, expect, it, jest, mock } from 'bun:test';
-
-type FetchLike = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
+import type { FetchLike } from '../src/types';
+import { describe, expect, it, mock } from 'bun:test';
 
 import { OAuthTokenTransaction } from '../src/oauth-token-transaction';
 

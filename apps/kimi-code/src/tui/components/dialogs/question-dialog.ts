@@ -82,6 +82,11 @@ function appendWrapped(
   }
 }
 
+export interface QuestionDialogOptions {
+  /** Whether the terminal window has focus; the dialog fades while it does not. */
+  readonly isTerminalFocused?: () => boolean;
+}
+
 export class QuestionDialogComponent extends Container implements Focusable {
   focused = false;
 
@@ -110,18 +115,21 @@ export class QuestionDialogComponent extends Container implements Focusable {
   private readonly answers: (string | undefined)[];
 
   private readonly onToggleToolOutput: (() => void) | undefined;
+  private readonly isTerminalFocused: () => boolean;
 
   constructor(
     request: PendingQuestion,
     onAnswer: (response: QuestionPanelResponse) => void,
     maxVisibleOptions = 6,
     onToggleToolOutput?: () => void,
+    options: QuestionDialogOptions = {},
   ) {
     super();
     this.request = request;
     this.onAnswer = onAnswer;
     this.maxVisibleOptions = maxVisibleOptions;
     this.onToggleToolOutput = onToggleToolOutput;
+    this.isTerminalFocused = options.isTerminalFocused ?? (() => true);
     this.otherInput.onSubmit = (value) => {
       this.commitOtherInput(value, 'enter');
     };
@@ -453,7 +461,13 @@ export class QuestionDialogComponent extends Container implements Focusable {
 
   override render(width: number): string[] {
     this.otherInput.focused = this.focused && this.isEditingOther();
-    return this.isSubmitTab() ? this.renderSubmitTab(width) : this.renderQuestionTab(width);
+    const lines = this.isSubmitTab() ? this.renderSubmitTab(width) : this.renderQuestionTab(width);
+    // Faded while another panel holds the keyboard or the terminal window is
+    // inactive: a question the user cannot read is a question they cannot
+    // answer.
+    return this.focused && this.isTerminalFocused()
+      ? lines
+      : lines.map((line) => currentTheme.fade(line));
   }
 
   private renderQuestionTab(width: number): string[] {

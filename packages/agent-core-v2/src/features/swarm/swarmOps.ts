@@ -38,7 +38,8 @@ export const swarmKey = defineState('swarm', (): SwarmModeTrigger | null => null
   .replayable({
     schema: z.custom<SwarmModeTrigger | null>(),
   })
-  .on(SwarmModeEnter, (_s, e, ctx) => {
+  .on(SwarmModeEnter, (s, e, ctx) => {
+    if (e.trigger === 'tool') return s;
     ctx.emit(new AgentStatusUpdated({ agentId: e.agentId, swarmMode: true }));
     return e.trigger;
   })

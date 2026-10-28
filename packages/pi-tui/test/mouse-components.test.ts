@@ -1,5 +1,4 @@
-import assert from "node:assert";
-import { describe, it } from "bun:test";
+import { expect, describe, it } from "bun:test";
 import { AltScreenSearchComponent } from "../src/alt-screen-search.ts";
 import { Editor, type EditorTheme } from "../src/components/editor.ts";
 import { Input } from "../src/components/input.ts";
@@ -66,9 +65,9 @@ describe("mouse-aware components", () => {
 		input.setValue("hello");
 		input.render(20);
 
-		assert.strictEqual(input.handleMouse(mouse("press", 4, 0, 20, 1))?.handled, true);
+		expect(input.handleMouse(mouse("press", 4, 0, 20, 1))?.handled).toBe(true);
 		input.handleInput("X");
-		assert.strictEqual(input.getValue(), "heXllo");
+		expect(input.getValue()).toBe("heXllo");
 	});
 
 	it("positions the input cursor relative to a custom prompt", () => {
@@ -76,9 +75,9 @@ describe("mouse-aware components", () => {
 		input.setValue("hello");
 		input.render(20);
 
-		assert.strictEqual(input.handleMouse(mouse("press", 3, 0, 20, 1))?.handled, true);
+		expect(input.handleMouse(mouse("press", 3, 0, 20, 1))?.handled).toBe(true);
 		input.handleInput("X");
-		assert.strictEqual(input.getValue(), "heXllo");
+		expect(input.getValue()).toBe("heXllo");
 	});
 
 	it("routes search field presses to the embedded input", () => {
@@ -89,9 +88,9 @@ describe("mouse-aware components", () => {
 		component.render(40);
 		component.handleInput("hello");
 
-		assert.strictEqual(component.handleMouse(mouse("press", 4, 1, 40, 3))?.handled, true);
+		expect(component.handleMouse(mouse("press", 4, 1, 40, 3))?.handled).toBe(true);
 		component.handleInput("X");
-		assert.strictEqual(query, "heXllo");
+		expect(query).toBe("heXllo");
 	});
 
 	it("selects and activates list rows", () => {
@@ -111,10 +110,10 @@ describe("mouse-aware components", () => {
 			selected = item.value;
 		};
 
-		assert.strictEqual(list.handleMouse(mouse("press", 1, 2, 40, 3))?.handled, true);
-		assert.strictEqual(list.getSelectedItem()?.value, "c");
-		assert.strictEqual(list.handleMouse(mouse("click", 1, 2, 40, 3))?.handled, true);
-		assert.strictEqual(selected, "c");
+		expect(list.handleMouse(mouse("press", 1, 2, 40, 3))?.handled).toBe(true);
+		expect(list.getSelectedItem()?.value).toBe("c");
+		expect(list.handleMouse(mouse("click", 1, 2, 40, 3))?.handled).toBe(true);
+		expect(selected).toBe("c");
 	});
 
 	it("activates settings rows", () => {
@@ -134,7 +133,7 @@ describe("mouse-aware components", () => {
 
 		list.handleMouse(mouse("press", 1, 2, 40, 5));
 		list.handleMouse(mouse("click", 1, 2, 40, 5));
-		assert.deepStrictEqual(changes, [{ id: "third", value: "high" }]);
+		expect(changes).toStrictEqual([{ id: "third", value: "high" }]);
 	});
 
 	for (const row of [0, 4]) {
@@ -152,24 +151,24 @@ describe("mouse-aware components", () => {
 			};
 			list.setSelectedIndex(5);
 			list.handleMouse({ ...mouse("wheel", 1, row), wheelDelta: 1 });
-			assert.strictEqual(list.getSelectedItem()?.value, "item-6");
-			assert.deepStrictEqual(changes, ["item-6"]);
+			expect(list.getSelectedItem()?.value).toBe("item-6");
+			expect(changes).toStrictEqual(["item-6"]);
 			const before = list.render(80);
-			assert.match(before[row], new RegExp(`Item ${4 + row}$`));
+			expect(String(before[row])).toMatch(new RegExp(`Item ${4 + row}$`));
 
 			for (const y of [0, 1, 2, 3, 4, row]) {
-				assert.strictEqual(list.handleMouse({ ...mouse("move", 1, y), button: "none" }), undefined);
-				assert.deepStrictEqual(list.render(80), before);
+				expect(list.handleMouse({ ...mouse("move", 1, y), button: "none" })).toBe(undefined);
+				expect(list.render(80)).toStrictEqual(before);
 			}
-			assert.strictEqual(list.getSelectedItem()?.value, "item-6");
-			assert.deepStrictEqual(changes, ["item-6"]);
-			assert.strictEqual(selected, undefined);
+			expect(list.getSelectedItem()?.value).toBe("item-6");
+			expect(changes).toStrictEqual(["item-6"]);
+			expect(selected).toBe(undefined);
 
 			list.handleMouse(mouse("press", 1, row));
 			list.render(80);
 			list.handleMouse(mouse("click", 1, row));
-			assert.strictEqual(selected, `item-${4 + row}`);
-			assert.deepStrictEqual(changes, ["item-6", `item-${4 + row}`]);
+			expect(selected).toBe(`item-${4 + row}`);
+			expect(changes).toStrictEqual(["item-6", `item-${4 + row}`]);
 		});
 
 		it(`ignores hover and clicks visible settings row ${row} after scrolling`, () => {
@@ -191,19 +190,19 @@ describe("mouse-aware components", () => {
 			list.selectItem("item-5");
 			list.handleMouse({ ...mouse("wheel", 1, row + 2), wheelDelta: 1 });
 			const before = list.render(80);
-			assert.match(before[4], /^> Item 6/);
-			assert.match(before[row + 2], new RegExp(`Item ${4 + row} `));
+			expect(String(before[4])).toMatch(/^> Item 6/);
+			expect(String(before[row + 2])).toMatch(new RegExp(`Item ${4 + row} `));
 
 			for (const y of [0, 1, 2, 3, 4, row]) {
-				assert.strictEqual(list.handleMouse({ ...mouse("move", 1, y + 2), button: "none" }), undefined);
-				assert.deepStrictEqual(list.render(80), before);
+				expect(list.handleMouse({ ...mouse("move", 1, y + 2), button: "none" })).toBe(undefined);
+				expect(list.render(80)).toStrictEqual(before);
 			}
-			assert.deepStrictEqual(changes, []);
+			expect(changes).toStrictEqual([]);
 
 			list.handleMouse(mouse("press", 1, row + 2));
 			list.render(80);
 			list.handleMouse(mouse("click", 1, row + 2));
-			assert.deepStrictEqual(changes, [{ id: `item-${4 + row}`, value: "on" }]);
+			expect(changes).toStrictEqual([{ id: `item-${4 + row}`, value: "on" }]);
 		});
 	}
 
@@ -221,8 +220,8 @@ describe("mouse-aware components", () => {
 		terminal.sendInput("!");
 		await terminal.waitForRender();
 
-		assert.strictEqual(overlay.input.getValue(), "hi!");
-		assert.strictEqual(tui.getFocusedComponent(), overlay);
+		expect(overlay.input.getValue()).toBe("hi!");
+		expect(tui.getFocusedComponent()).toBe(overlay);
 		tui.stop();
 	});
 
@@ -240,8 +239,8 @@ describe("mouse-aware components", () => {
 		terminal.sendInput("X");
 		await terminal.waitForRender();
 
-		assert.strictEqual(editor.getText(), "heXllo");
-		assert.strictEqual(tui.getFocusedComponent(), editor);
+		expect(editor.getText()).toBe("heXllo");
+		expect(tui.getFocusedComponent()).toBe(editor);
 		tui.stop();
 	});
 
@@ -262,7 +261,7 @@ describe("mouse-aware components", () => {
 		terminal.sendInput("X");
 		await terminal.waitForRender();
 
-		assert.strictEqual(editor.getText(), "l1\nl2\nl3\nl4\nl5\nl6\nlX7\nl8\nl9\nl10");
+		expect(editor.getText()).toBe("l1\nl2\nl3\nl4\nl5\nl6\nlX7\nl8\nl9\nl10");
 		tui.stop();
 	});
 
@@ -291,7 +290,7 @@ describe("mouse-aware components", () => {
 		terminal.sendInput("X");
 		await terminal.waitForRender();
 
-		assert.strictEqual(editor.getText(), "l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9\nlX10");
+		expect(editor.getText()).toBe("l1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9\nlX10");
 		tui.stop();
 	});
 
@@ -306,9 +305,9 @@ describe("mouse-aware components", () => {
 
 		// "a" is the first displayed character; clicking it must place the
 		// cursor after "😀" rather than at the raw scroll column.
-		assert.strictEqual(input.handleMouse(mouse("press", 0, 0, 5, 1))?.handled, true);
+		expect(input.handleMouse(mouse("press", 0, 0, 5, 1))?.handled).toBe(true);
 		input.handleInput("X");
-		assert.strictEqual(input.getValue(), "😀Xa😀bc");
+		expect(input.getValue()).toBe("😀Xa😀bc");
 	});
 
 	it("selects and copies editor text on drag instead of moving the cursor", async () => {
@@ -332,8 +331,8 @@ describe("mouse-aware components", () => {
 		terminal.sendInput("\x1b[<0;5;2m");
 		await terminal.waitForRender();
 
-		assert.deepStrictEqual(copied, ["hello"]);
-		assert.deepStrictEqual(editor.getCursor(), cursorBefore);
+		expect(copied).toStrictEqual(["hello"]);
+		expect(editor.getCursor()).toStrictEqual(cursorBefore);
 		tui.stop();
 	});
 });

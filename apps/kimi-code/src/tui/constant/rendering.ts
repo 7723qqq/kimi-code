@@ -104,3 +104,6 @@ export const MOON_SPINNER_INTERVAL_MS = 120;
  * pace is copy the user reads at, not a component's private choice.
  */
 export const NOTIFY_AUTOSCROLL_INTERVAL_MS = 320;
+
+// Rows of the docked approval request body; a longer request scrolls.
+export const DOCK_APPROVAL_ROWS = 6;

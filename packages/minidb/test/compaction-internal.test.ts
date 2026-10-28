@@ -9,7 +9,6 @@
 // their dynamic imports + query-string cache busting do not distort the
 // coverage report of this file (Node's coverage keys scripts by URL).
 
-import assert from 'node:assert/strict';
 import fs from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -36,8 +35,8 @@ test('copyFileRange copies an arbitrary byte range verbatim', async () => {
     await copyFileRange(src, dst, 1000, 6000);
 
     const out = await fs.readFile(dst);
-    assert.equal(out.length, 5000);
-    assert.ok(out.equals(data.subarray(1000, 6000)));
+    expect(out.length).toBe(5000);
+    expect(out.equals(data.subarray(1000, 6000))).toBeTruthy();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -57,8 +56,8 @@ test('copyFileRange copies a range larger than one internal chunk', async () => 
     await copyFileRange(src, dst, 0, data.length);
 
     const out = await fs.readFile(dst);
-    assert.equal(out.length, data.length);
-    assert.ok(out.equals(data));
+    expect(out.length).toBe(data.length);
+    expect(out.equals(data)).toBeTruthy();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -78,7 +77,7 @@ test('copyFileRange stops at EOF when end exceeds the source size', async () => 
     await copyFileRange(src, dst, 0, 1000); // ask for far more than exists
 
     const out = await fs.readFile(dst);
-    assert.ok(out.equals(Buffer.from('hello')));
+    expect(out.equals(Buffer.from('hello'))).toBeTruthy();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -95,7 +94,7 @@ test('copyFileRange with start===end creates an empty file in create mode', asyn
     await copyFileRange(src, dst, 2, 2); // empty range, 'w' truncates
 
     const out = await fs.readFile(dst);
-    assert.equal(out.length, 0);
+    expect(out.length).toBe(0);
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -112,7 +111,7 @@ test('copyFileRange with start===end in append mode leaves existing content inta
     await copyFileRange(src, dst, 3, 3, { append: true });
 
     const out = await fs.readFile(dst);
-    assert.ok(out.equals(Buffer.from('existing'))); // unchanged
+    expect(out.equals(Buffer.from('existing'))).toBeTruthy(); // unchanged
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
@@ -129,14 +128,14 @@ test('copyFileRange in append mode appends the range to existing content', async
     await copyFileRange(src, dst, 2, 5, { append: true });
 
     const out = await fs.readFile(dst);
-    assert.ok(out.equals(Buffer.from('abc234')));
+    expect(out.equals(Buffer.from('abc234'))).toBeTruthy();
   } finally {
     await fs.rm(dir, { recursive: true, force: true });
   }
 });
 
 test('copyFileRange rejects end < start', async () => {
-  await assert.rejects(() => copyFileRange('/tmp/a', '/tmp/b', 10, 5), /end \(5\) < start \(10\)/);
+  await expect((() => copyFileRange('/tmp/a', '/tmp/b', 10, 5))()).rejects.toThrow(/end \(5\) < start \(10\)/);
 });
 
 // --- fsyncDir ----------------------------------------------------------------

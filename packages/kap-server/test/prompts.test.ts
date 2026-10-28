@@ -13,6 +13,7 @@ import {
   IAgentProfileService,
   IAgentLoopService,
   IAgentStateService,
+  IAgentSwarmService,
   IAgentToolPolicyService,
   IBootstrapService,
   IConfigService,
@@ -26,8 +27,10 @@ import {
   closeSessionById,
   getLiveSessionById,
 } from '@moonshot-ai/agent-core-v2';
-import { afterAll, beforeAll, beforeEach, describe, expect, it, jest, vi } from 'bun:test';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, mock, spyOn } from 'bun:test';
+import { knowledgeClose } from '@moonshot-ai/agent-core-v2/agent/knowledge/sqliteKnowledge';
 import { waitForAssertion, waitUntil } from './helpers/waitFor';
+import { removeTempHome } from './helpers/tempHome';
 
 import { type RunningServer, startServer } from '../src/start';
 import { projectPromptSnapshot, watchPromptSettlements } from '../src/routes/prompts';
@@ -249,7 +252,8 @@ describe('server-v2 /api/v1 prompts', () => {
       await new Promise((resolve) => setTimeout(resolve, 25));
     }
     if (home !== undefined) {
-      await rm(home, { recursive: true, force: true, maxRetries: 3, retryDelay: 25 } as never);
+      knowledgeClose();
+      await removeTempHome(home);
       home = undefined;
     }
   });
@@ -320,6 +324,40 @@ describe('server-v2 /api/v1 prompts', () => {
       expect(list.body.data.active.prompt_id).toBe(submitted.body.data.prompt_id);
     }
     expect(Array.isArray(list.body.data.queued)).toBe(true);
+  });
+
+  it('applies swarm_mode before submitting the prompt', async () => {
+    const id = await createSession(home as string);
+    await createMainAgent(id);
+    const session = getLiveSessionById(server!.core.accessor, id)!;
+    const agent = session.accessor.get(IAgentLifecycleService).handleOf('main')!;
+    const swarm = agent.accessor.get(IAgentSwarmService);
+    const loop = agent.accessor.get(IAgentLoopService);
+    const enter = spyOn(swarm, 'enter');
+    const exit = spyOn(swarm, 'exit');
+    const submit = spyOn(loop, 'submit');
+    const post = (swarmMode: boolean) =>
+      call<PromptItemWire>('POST', `/api/v1/sessions/${id}/prompts`, {
+        content: [{ type: 'text', text: 'hello' }],
+        swarm_mode: swarmMode,
+      });
+
+    const on = await post(true);
+    expect(on.body.code).toBe(0);
+    expect(enter).toHaveBeenCalledTimes(1);
+    expect(enter).toHaveBeenCalledWith('manual');
+    expect(swarm.isActive).toBe(true);
+    expect(enter.mock.invocationCallOrder[0]!).toBeLessThan(submit.mock.invocationCallOrder[0]!);
+
+    const repeated = await post(true);
+    expect(repeated.body.code).toBe(0);
+    expect(enter).toHaveBeenCalledTimes(1);
+
+    const off = await post(false);
+    expect(off.body.code).toBe(0);
+    expect(exit).toHaveBeenCalledTimes(1);
+    expect(swarm.isActive).toBe(false);
+    expect(exit.mock.invocationCallOrder[0]!).toBeLessThan(submit.mock.invocationCallOrder[2]!);
   });
 
   it('accepts a prompt-carried model when default_model is not configured', async () => {
@@ -542,8 +580,8 @@ describe('server-v2 /api/v1 prompts', () => {
       createdAt: '2026-01-01T00:00:00.000Z',
       message: { role: 'user', content: [{ type: 'text', text: 'User activated the skill' }], toolCalls: [], origin: { kind: 'skill_activation', activationId: 'act-1', skillName: 'update-config', trigger: 'user-slash', clientMetadata: metadata } },
     };
-    const listing = jest.spyOn(loop, 'snapshot').mockReturnValue({ ...loop.snapshot(), activePromptId: 'active-skill', queue: [] });
-    const lookup = jest.spyOn(loop, 'promptHandle').mockImplementation((promptId) => (promptId === 'active-skill' ? handle : undefined) as never);
+    const listing = spyOn(loop, 'snapshot').mockReturnValue({ ...loop.snapshot(), activePromptId: 'active-skill', queue: [] });
+    const lookup = spyOn(loop, 'promptHandle').mockImplementation((promptId) => (promptId === 'active-skill' ? handle : undefined) as never);
     try {
       const result = await call<{ prompts: unknown[] }>('GET', `/api/v1/sessions/${id}/transcript?agent_id=main`);
       expect(result.body.code).toBe(0);
@@ -562,7 +600,7 @@ describe('server-v2 /api/v1 prompts', () => {
     const metadata = [{ display_text: 'Save button', kimi_code_composer: { version: 1 } }];
     const loop = agent.accessor.get(IAgentLoopService);
     const origin = { kind: 'user', clientMetadata: metadata };
-    const listing = jest.spyOn(loop, 'snapshot').mockReturnValue({
+    const listing = spyOn(loop, 'snapshot').mockReturnValue({
       ...loop.snapshot(),
       queue: [{ message: { role: 'user', content: [{ type: 'text', text: 'browser wire' }] }, meta: { promptId: 'queued-example', userMessageId: 'queued-example', tracked: true, createdAt: '2026-01-01T00:00:00.000Z', origin } }],
     });
@@ -596,7 +634,7 @@ describe('server-v2 /api/v1 prompts', () => {
       .get(IAgentLifecycleService)
       .handleOf('main')!
       .accessor.get(IAgentLoopService);
-    const submit = jest.spyOn(loop, 'submit').mockImplementation(() => {
+    const submit = spyOn(loop, 'submit').mockImplementation(() => {
       throw new Error2(ErrorCodes.SESSION_STALE, 'stale');
     });
 
@@ -768,11 +806,11 @@ describe('server-v2 /api/v1 prompts', () => {
         handler: (event: { type: string; promptId?: string; promptIds?: string[]; activePromptId?: string }) => void,
       ) {
         handlers.push(handler);
-        return { dispose: jest.fn() };
+        return { dispose: mock() };
       },
     };
 
-    const discard = jest.fn();
+    const discard = mock();
     const tracker = watchPromptSettlements(events as never);
     tracker.settle('msg_1', discard);
     handlers[0]!({ type: 'prompt.completed', promptId: 'msg_other' });
@@ -781,13 +819,13 @@ describe('server-v2 /api/v1 prompts', () => {
     handlers[0]!({ type: 'prompt.completed', promptId: 'msg_1' });
     expect(discard).toHaveBeenCalledTimes(1);
 
-    const blockedDiscard = jest.fn();
+    const blockedDiscard = mock();
     const blockedTracker = watchPromptSettlements(events as never);
     handlers[1]!({ type: 'prompt.completed', promptId: 'msg_blocked' });
     blockedTracker.settle('msg_blocked', blockedDiscard);
     expect(blockedDiscard).toHaveBeenCalledTimes(1);
 
-    const steered = jest.fn();
+    const steered = mock();
     const steeredTracker = watchPromptSettlements(events as never);
     steeredTracker.settle('msg_3', steered);
     handlers[2]!({ type: 'prompt.steered', promptIds: ['msg_3'], activePromptId: 'msg_parent' });
@@ -797,13 +835,13 @@ describe('server-v2 /api/v1 prompts', () => {
     handlers[2]!({ type: 'prompt.completed', promptId: 'msg_parent' });
     expect(steered).toHaveBeenCalledTimes(1);
 
-    const aborted = jest.fn();
+    const aborted = mock();
     const abortedTracker = watchPromptSettlements(events as never);
     abortedTracker.settle('msg_4', aborted);
     handlers[3]!({ type: 'prompt.aborted', promptId: 'msg_4' });
     expect(aborted).toHaveBeenCalledTimes(1);
 
-    const rejected = jest.fn();
+    const rejected = mock();
     const rejectedTracker = watchPromptSettlements(events as never);
     rejectedTracker.settle('msg_5', rejected);
     rejectedTracker.dispose();
@@ -968,13 +1006,13 @@ describe('server-v2 /api/v1 prompts', () => {
     const originalSave = files.save.bind(files);
     let secondGets = 0;
     let compressedFileId: string | undefined;
-    const getSpy = jest.spyOn(files, 'get').mockImplementation(async (fileId) => {
+    const getSpy = spyOn(files, 'get').mockImplementation(async (fileId) => {
       if (fileId === second.id && ++secondGets === 2) {
         throw new Error('injected second-part failure');
       }
       return originalGet(fileId);
     });
-    const saveSpy = jest.spyOn(files, 'save').mockImplementation(async (...args) => {
+    const saveSpy = spyOn(files, 'save').mockImplementation(async (...args) => {
       const saved = await originalSave(...args);
       compressedFileId = saved.id;
       return saved;

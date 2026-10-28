@@ -1,3 +1,4 @@
+import type { FetchLike } from './types';
 import { readApiErrorMessage } from './api-error';
 import {
   KIMI_CODE_PLATFORM_ID,
@@ -51,7 +52,7 @@ export function readCustomRegistrySource(provider: unknown): CustomRegistrySourc
 
 export interface FetchCustomRegistryOptions {
   readonly signal?: AbortSignal;
-  readonly fetchImpl?: typeof fetch;
+  readonly fetchImpl?: FetchLike;
   readonly userAgent?: string;
 }
 

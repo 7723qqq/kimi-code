@@ -4,7 +4,6 @@
 // reference model, and assert they always agree. Seeded so any failure is
 // reproducible by re-running with the same seed.
 
-import assert from 'node:assert/strict';
 
 import { expect, test } from 'bun:test';
 
@@ -44,23 +43,23 @@ async function runSeed(seed, steps) {
         await db.del(key);
         model.del(key);
       } else if (op === 2) {
-        assert.deepEqual(db.get(key), model.get(key), `${ctx()} ${i}: get(${key})`);
+        expect(db.get(key), `${ctx()} ${i}: get(${key})`).toStrictEqual(model.get(key));
       } else if (op === 3) {
         const ttl = 60000;
         const a = await db.expire(key, ttl);
         const e = model.expire(key, ttl);
-        assert.equal(a, e, `${ctx()} ${i}: expire(${key})`);
+        expect(a, `${ctx()} ${i}: expire(${key})`).toBe(e);
       } else {
         // reopen, then compare everything
         await db.close();
         db = await MiniDb.open({ dir, valueCodec: 'json', fsyncPolicy: 'no', autoCompact: false });
         for (const k of KEYS) {
-          assert.deepEqual(db.get(k), model.get(k), `${ctx()} ${i}: after reopen get(${k})`);
+          expect(db.get(k), `${ctx()} ${i}: after reopen get(${k})`).toStrictEqual(model.get(k));
         }
       }
     }
     // final full compare
-    for (const k of KEYS) assert.deepEqual(db.get(k), model.get(k), `final get(${k}) seed=${seed}`);
+    for (const k of KEYS) expect(db.get(k), `final get(${k}) seed=${seed}`).toStrictEqual(model.get(k));
   } finally {
     await db.close().catch(() => {});
     await rmrf(dir);

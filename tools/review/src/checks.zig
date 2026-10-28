@@ -10,6 +10,8 @@ const dangling_refs = @import("checks/dangling_refs.zig");
 const workflow_triggers = @import("checks/workflow_triggers.zig");
 const scripts_wiring = @import("checks/scripts_wiring.zig");
 const text_as_protocol = @import("checks/text_as_protocol.zig");
+const node_semantics = @import("checks/node_semantics.zig");
+const bun_gap = @import("checks/bun_gap.zig");
 
 /// Every check the tool knows about, in report order.
 pub const all = [_]check.Check{
@@ -72,5 +74,23 @@ pub const all = [_]check.Check{
         .description = "Message text compared as a value across layers",
         .severity = .err,
         .run = text_as_protocol.run,
+    },
+    .{
+        .name = "bun-native",
+        .description = "Node API calls where Bun's native equivalent applies",
+        .severity = .warn,
+        .run = node_semantics.runNative,
+    },
+    .{
+        .name = "node-launch",
+        .description = "Commands that start Node by name instead of Bun",
+        .severity = .err,
+        .run = node_semantics.runNodeLaunch,
+    },
+    .{
+        .name = "bun-gap",
+        .description = "Node endpoints Bun is missing or silently degrades",
+        .severity = .err,
+        .run = bun_gap.run,
     },
 };
