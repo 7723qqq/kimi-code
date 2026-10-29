@@ -34,23 +34,30 @@ export interface VisibleTodos {
 // parses it for both. Rows end at the first blank line (a write appends a
 // hint after one).
 
-const RESULT_ROW = /^ {2}\[(pending|in_progress|done)\] (.+)$/;
+const RESULT_ROW = /^\s+\[(pending|in_progress|done)\] (?:(\S+): )?(.+)$/;
 
 /**
  * The list a successful TodoList result reports. Empty when it reports none
  * (a cleared list) or when a row does not parse (e.g. a title spanning lines),
  * so the card falls back to its headline instead of showing a wrong list.
+ *
+ * The header the tool prints carries a progress suffix
+ * (`Current todo list: (overall 3/10 · 30%)`), so it is matched as a prefix
+ * rather than by whole-line equality. Rows are indented by depth and carry the
+ * item id before the title (`  [pending] s1: Read the file`); both the extra
+ * indentation and the id are optional so a hand-written or older list still
+ * parses.
  */
 export function todoListFromResult(output: string): TodoItem[] {
   const lines = output.split('\n');
-  const start = lines.indexOf(TODO_LIST_HEADER);
+  const start = lines.findIndex((line) => line.startsWith(TODO_LIST_HEADER));
   if (start === -1) return [];
   const end = lines.indexOf('', start + 1);
   const todos: TodoItem[] = [];
   for (const line of lines.slice(start + 1, end === -1 ? undefined : end)) {
     const match = RESULT_ROW.exec(line);
     if (match === null) return [];
-    todos.push({ status: match[1] as TodoStatus, title: match[2]! });
+    todos.push({ status: match[1] as TodoStatus, title: match[3]! });
   }
   return todos;
 }

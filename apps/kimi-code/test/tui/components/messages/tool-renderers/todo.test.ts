@@ -14,7 +14,12 @@ function strip(text: string): string {
 const todo = (title: string, status: TodoItem['status']): TodoItem => ({ title, status });
 
 function resultText(todos: readonly TodoItem[]): string {
-  return ['Current todo list:', ...todos.map((item) => `  [${item.status}] ${item.title}`)].join('\n');
+  const done = todos.filter((item) => item.status === 'done').length;
+  const pct = todos.length === 0 ? 0 : Math.round((done / todos.length) * 100);
+  return [
+    `Current todo list: (overall ${done}/${todos.length} · ${pct}%)`,
+    ...todos.map((item, i) => `  [${item.status}] s${i + 1}: ${item.title}`),
+  ].join('\n');
 }
 
 function todoCard(todos: readonly TodoItem[], isError = false): ToolCallComponent {
@@ -94,6 +99,40 @@ describe('TodoList card', () => {
     );
     expect(cardLines(cleared)).toEqual(['● Used TodoList']);
     expect(cardLines(todoCard([todo('a', 'pending')], true)).join('\n')).not.toContain('○ a');
+  });
+  it('parses the header progress suffix and the per-row id the tool actually prints', () => {
+    const output = [
+      'Todo list updated.',
+      'Current todo list: (overall 1/2 · 50%)',
+      '  [pending] s1: Read the file',
+      '  [done] s2: Fix the bug',
+      '',
+      'Mark the next item in_progress.',
+    ].join('\n');
+    const card = new ToolCallComponent(
+      { id: 'call_real', name: 'TodoList', args: { todos: [] } },
+      { tool_call_id: 'call_real', output, is_error: false },
+    );
+    expect(cardLines(card)).toEqual([
+      '● Used TodoList',
+      '  ○ Read the file',
+      '  ✓ Fix the bug',
+    ]);
+  });
+
+  it('parses nested child rows, which are indented one level deeper', () => {
+    const output = [
+      'Current todo list: (overall 0/2 · 0%)',
+      '  [in_progress] m1: Milestone (0/1 · 0%)',
+      '    [pending] c1: Child task',
+    ].join('\n');
+    const card = new ToolCallComponent(
+      { id: 'call_nested', name: 'TodoList', args: { todos: [] } },
+      { tool_call_id: 'call_nested', output, is_error: false },
+    );
+    const lines = cardLines(card);
+    expect(lines.some((line) => line.includes('Milestone'))).toBe(true);
+    expect(lines.some((line) => line.includes('Child task'))).toBe(true);
   });
 });
 
