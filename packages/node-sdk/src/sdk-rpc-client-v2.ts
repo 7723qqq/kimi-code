@@ -1,9 +1,14 @@
 /**
- * v2 wiring MVP — an `SDKRpcClientBase` backed by the agent-core-v2 engine
- * (DI × Scope) instead of the v1 `KimiCore` RPC pair. The engine is
+ * v2 wiring — an `SDKRpcClientBase` backed by the agent-core-v2 engine
+ * (DI × Scope). The engine is
  * bootstrapped in-process and reached through the klient facade over the
  * memory transport, so every call crosses the same contract validation and
  * JSON round-trip as the networked transports.
+ *
+ * This is the only concrete `SDKRpcClientBase`. The `v1` mentions below name
+ * the retired engine whose wire shape this class had to preserve, not a
+ * second implementation that still ships: they mark where a result is
+ * restored to a shape the SDK's public types promise.
  *
  * Migrated so far:
  * - `getExperimentalFeatures` → `klient.global.flags.list()`
@@ -11,8 +16,7 @@
  *   through the `engineAccessor` escape hatch (the workspace handler's
  *   `IWorkspaceSkillCatalog`) instead.
  * - `suggestFiles` → same escape hatch (the workspace handler's
- *   `IWorkspaceFsService`); the v1 client inherits the base's `undefined`
- *   (capability absent).
+ *   `IWorkspaceFsService`).
  * - `getConfig` / `setConfig` / `removeProvider` / `getConfigDiagnostics` →
  *   `klient.global.config.*`, with the v1 `KimiConfig` shape restored by the
  *   pure mapping layer in `src/v2/config-mapper.ts`.

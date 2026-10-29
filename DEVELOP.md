@@ -49,11 +49,11 @@ User-level global instructions (`~/.kimi-code/AGENTS.md`) and a local `SYSTEM.md
 
 | Layer | Technology |
 |-------|-----------|
-| Primary language | **TypeScript** 6.0.2 (strict mode) |
+| Primary language | **TypeScript** 7.0.2 (strict mode) — root `devDependencies.typescript`; the `typescript-legacy` alias pins 6.0.2 for `scripts/check-no-comments.mjs`, which parses with the TS 6 compiler API |
 | Module system | ESM (`"type": "module"` in every package) |
 | Dev runtime | **Bun** >= 1.4.4 — install, build, lint, typecheck, and the test suites (`bun run test`) all run through bun |
 | Published CLI runtime | **Bun** >= 1.4.4 (`engines` floor of the published package) |
-| Web UI (peer) | **Vue 3** + **Vite** |
+| Web UIs | **React 19** + **Vite** — `apps/vis/web`, `apps/kimi-inspect`, and the VS Code webview. There is no Vue in this repository |
 | VS Code extension | **React 19** + **TailwindCSS 4** + **shadcn/ui** |
 
 ### Package Management & Build
@@ -61,8 +61,8 @@ User-level global instructions (`~/.kimi-code/AGENTS.md`) and a local `SYSTEM.md
 | Tool | Purpose |
 |------|---------|
 | **Bun** >= 1.4 | Package manager and script runner (hoisted workspace via root package.json; `bun.lock` is the lockfile). Also compiles the release binary (`build-bun.mjs`) |
-| **tsdown** 0.22.0 | ESM bundler for TypeScript packages |
-| **vite** 6.x | Web app bundler (vis-web, vscode webview) |
+| **tsdown** 0.23.1 | ESM bundler for TypeScript packages |
+| **vite** 6.x | Web app bundler (vis-web, kimi-inspect, vscode webview) |
 | **Nix flake** | Reproducible builds for Linux/macOS |
 
 ### Quality Tooling
@@ -126,9 +126,9 @@ src/
   generated/          — Generated asset references
 ```
 
-**CLI subcommands:** `acp`, `doctor`, `export`, `fork`, `install-desktop`, `login`, `migrate`, `provider`, `session`, `upgrade`, `vis`, `web` (plus the hidden `install-app`, `__update_download`, and `__plugin_run_node`)
+**CLI subcommands:** `acp`, `app`, `doctor`, `export`, `fork`, `import-sessions`, `install-desktop`, `login`, `migrate`, `provider`, `session`, `upgrade`, `vis`, `web` (plus the hidden `install-app`, `__update_download`, and `__plugin_run_node`)
 
-**TUI slash commands (46 built-in, see `src/tui/commands/registry.ts`):** `yolo`, `auto`, `permission`, `settings`, `plan`, `spec`, `swarm`, `hello-world`, `workflow`, `tower`, `model`, `secondary-model`, `effort`, `provider`, `btw`, `help`, `new`, `sessions`, `tasks`, `mcp`, `plugins`, `add-dir`, `experiments`, `reload`, `reload-tui`, `compact`, `goal`, `init`, `fork`, `title`, `usage`, `status`, `feedback`, `undo`, `editor`, `theme`, `logout`, `login`, `export-md`, `export-debug-zip`, `copy`, `web`, `desktop`, `remote-control`, `exit`, `version`
+**TUI slash commands (47 built-in, see `src/tui/commands/registry.ts`):** `yolo`, `auto`, `permission`, `settings`, `plan`, `spec`, `swarm`, `hello-world`, `workflow`, `tower`, `model`, `secondary-model`, `effort`, `provider`, `btw`, `help`, `new`, `sessions`, `tasks`, `mcp`, `plugins`, `add-dir`, `experiments`, `reload`, `reload-tui`, `compact`, `goal`, `init`, `fork`, `title`, `usage`, `status`, `feedback`, `undo`, `editor`, `theme`, `logout`, `login`, `export-md`, `export-debug-zip`, `copy`, `import-sessions`, `web`, `desktop`, `remote-control`, `exit`, `version`
 
 **Build output:**
 | Output | Path |
@@ -146,7 +146,7 @@ The shipped `apps/kimi-code/dist-web` bundle is a committed, prebuilt bundle syn
 
 #### `apps/vscode` — VS Code Extension
 
-Full-featured VS Code extension (`kimi-code` in marketplace). React 19 webview UI with TailwindCSS 4, communicates with the main kimi-code server over local REST/WS.
+Full-featured VS Code extension (`kimi-code` in marketplace). React 19 webview UI with TailwindCSS 4. The extension host builds an **in-process** SDK harness (`createKimiHarness` in `src/runtime/kimi-runtime.ts`) rather than connecting to a `kimi web` server, so it needs no local REST/WS endpoint; `kap-server` is not a dependency of this package.
 
 Key contributions:
 - Sidebar webview panel
@@ -178,7 +178,9 @@ packages/
   node-sdk/            — Public TypeScript SDK (@moonshot-ai/kimi-code-sdk)
   oauth/               — Kimi OAuth and managed auth utilities
   pi-tui/              — Terminal UI framework (upstream dependency, bun:test suite)
+  product/             — Product-surface policy shared by server and tools (client configs, session-rating engine)
   remote-control/      — Kimi Remote Control tunnel client (relay registration + HTTP/WS forwarding)
+  session-import/      — Import sessions from other agent CLIs (Claude Code JSONL → kimi-code session)
   telemetry/           — Shared client-side telemetry infrastructure
   transcript/          — Isomorphic transcript rendering data layer
   tree-sitter-bash/    — Pure-TypeScript bash parser (deterministic budget)
@@ -186,22 +188,23 @@ packages/
 
 #### Key Package Details
 
-**`agent-core-v2`** (v0.4.3) — Next-gen agent engine with DI × Scope architecture. Service interfaces, DI containers, scope-bound session management. Consumed by `kap-server` and `klient`. Includes dependency graph analysis, domain layer linting, and contract type generation scripts.
+**`agent-core-v2`** (v0.5.1) — Next-gen agent engine with DI × Scope architecture. Service interfaces, DI containers, scope-bound session management. Consumed by `kap-server`, `klient`, `acp-server`, `product`, `remote-control`, `migration-legacy` and the `apps/kimi-inspect` debug client. Includes dependency graph analysis, domain layer linting, and contract type generation scripts.
 
   - **Three** `LifecycleScope` tiers — `App` / `Session` / `Agent` (`app/scopes.ts`, mirrored in `SCOPE_TOPOLOGY`). `Workspace` is a **directory namespace prefix** inside the engine (`app/workspaceLifecycle/`, `app/workspaceSessions/`), **not** a fourth tier: there is no `LifecycleScope.Workspace`, and adding one is not a valid change.
   - There is no App-level session lifecycle facade. Callers compose `ISessionIndex` → `IWorkspaceLifecycleService.handlerFor` → the handler.
+  - `bootstrap()` (`src/app/bootstrap/bootstrap.ts`) is the only composition root; `kap-server`, `acp-server` and `node-sdk` call it and receive an App `Scope`.
 
 **`kosong`** (v0.5.6) — The frozen legacy LLM / provider kernel. Owns the contract types (`Message` / `ChatProvider` / `Tool` / `TokenUsage` / `ModelCapability`), the coded-error infrastructure (`Error2` + provider error taxonomy), and the pure-function layer (`generate()`, token estimation, error classification, provider wire helpers). It is retained for the published SDK and `oauth`; `agent-core-v2` **does not import it** — provider and request code lives in `packages/agent-core-v2/src/human/llm/`, and the v2 compatibility boundary is `packages/agent-core-v2/src/llm-adapter/`. The import path is rejected outright by `packages/agent-core-v2/scripts/check-import-boundaries.mjs`; see `docs/en/llm.md` for the layering rules. Because both packages carry a copy of the wire rules, `packages/kosong/test/cache-field-parity.test.ts` is the only thing keeping the two copies honest. Supports Anthropic, Google Gemini, and OpenAI-compatible providers. Uses `zod-to-json-schema` for tool schema conversion.
 
-**`klient`** (v0.1.2) — Client SDK. A contract-driven facade over agent-core-v2 with aggregated `global.*` / `session(id).*` / `agent(id).*` methods, zod validation on every call, and transport abstraction (ipc or memory). Also hosts e2e suites.
+**`klient`** (v0.1.3) — Client SDK. A contract-driven facade over agent-core-v2 with aggregated `global.*` / `session(id).*` / `agent(id).*` methods, zod validation on every call, and transport abstraction. Both declared transports exist; only `memory` (in-process) has a consumer today — `acp-server/src/start.ts` and `node-sdk/src/sdk-rpc-client-v2.ts` both call `createKlient({ scope })`, and nothing imports `@moonshot-ai/klient/ipc`. Also hosts e2e suites.
 
-**`kap-server`** — The Kimi Code local server. Backed by DI × Scope agent engine. Exposes sessions over REST + WebSocket (`/api/v1` + `/api/v1/ws`). Debug surface at `/api/v1/debug/*`. Bootstrapped from `src/start.ts`.
+**`kap-server`** — The Kimi Code local server. Backed by DI × Scope agent engine. Exposes sessions over REST + WebSocket (`/api/v1` + `/api/v1/ws`), plus a `/api/v2` route group and the `/api/v1/debug/*` debug surface. Bootstrapped from `src/start.ts`.
 
 **`transcript`** (v0.0.2) — Isomorphic transcript rendering data layer. Pure TypeScript (browser-safe). Agent-granular L1 store, idempotent L2 operations, granularity-gated L3 subscriptions (`off/turn/block/delta`), framework-free L4 view registry. Owns all transcript contract types in `src/contract/`.
 
 **`minidb`** (v0.2.0) — Pure-Node.js embedded key-value database. Combines Redis-style in-memory KV with SQLite-style WAL + snapshot persistence. Includes cluster support.
 
-**`node-sdk`** — Public SDK, and the one package whose `tsconfig.json` deliberately differs from what its compiler and bundler read. Its `#/*` subpath imports are resolved by Bun from `compilerOptions.paths` (Bun does not honour `package.json#imports` here), so the package tsconfig keeps them for the test run. A project-wide alias also captures the `#/*` specifiers inside the `agent-core-v2` sources this package pulls in, so both readers that see those sources use a view with an empty `paths`: `tsconfig.build.json` for `tsdown`, `tsconfig.typecheck.json` for `tsc`, and `tsconfig.dts.json` for the declaration build.
+**`node-sdk`** (v0.21.1) — Public SDK, and the one package whose `tsconfig.json` deliberately differs from what its compiler and bundler read. Its `#/*` subpath imports are resolved by Bun from `compilerOptions.paths` (Bun does not honour `package.json#imports` here), so the package tsconfig keeps them for the test run. A project-wide alias also captures the `#/*` specifiers inside the `agent-core-v2` sources this package pulls in, so both readers that see those sources use a view with an empty `paths`: `tsconfig.build.json` for `tsdown`, `tsconfig.typecheck.json` for `tsc`, and `tsconfig.dts.json` for the declaration build. Its engine dependencies are `devDependencies` because `tsdown` bundles them (`alwaysBundle: [/^@moonshot-ai\//]`), not because they are optional at runtime.
 
 ### Plugins
 
@@ -231,12 +234,17 @@ scripts/
 ```
 
 Each of these has a root script, and the root script names are the `check:*` form
-(`check:t-coverage`, `check:locale-keys`, …). `check:no-comments`,
-`check:locale-placeholders`, `check:no-hardcoded-prose`, `check:t-coverage`,
-`check:locale-keys`, `check:status-surface-i18n`, `check:service-naming` and
-`tools/review/check-catalog-versions.mjs` run in CI's `lint` job; `check:nix-workspace`
-runs in the Nix workflow. By hand: `scan:hardcoded` (finds a source literal that already
-exists in a locale file) and `measure:image-tokens` (needs a live endpoint).
+(`check:t-coverage`, `check:locale-keys`, …). The CI `lint` job runs, in order:
+`check:deep-imports`, `check:boundaries`, `check:no-comments`,
+`scripts/scan-test-residue.mjs`, `scripts/check-locale-keys.mjs`,
+`check:locale-placeholders`, `scripts/check-t-call-coverage.mjs`,
+`check:status-surface-i18n`, `check:no-hardcoded-prose`,
+`tools/review/check-strict-request-bodies.mjs`,
+`tools/review/check-catalog-versions.mjs` and `scripts/check-service-naming.mjs`.
+`check:nix-workspace` runs in the Nix workflow. By hand: `scan:hardcoded` (finds a
+source literal that already exists in a locale file) and `measure:image-tokens`
+(needs a live endpoint). `check:prompt-ownership` is not in CI — run it after
+touching `AGENTS.md`, `DEVELOP.md` or the prompt-ownership table below.
 
 ### Structural review (`tools/review`)
 
@@ -255,7 +263,12 @@ tools/review/
   scripts-wiring-baseline.txt   — accepted findings, one per line
   silent-catch-baseline.txt     — accepted findings, one per line
   text-as-protocol-baseline.txt — accepted text matches, one `path  count` per file
+  bun-native-baseline.txt       — accepted `node:`-instead-of-`Bun.*` findings
+  node-launch-baseline.txt      — accepted "starts Node by name" findings
+  bun-gap-baseline.txt          — accepted missing/degraded `node:` endpoint findings
   upstream-drift-allow.txt      — deliberate deletions relative to upstream/main
+  check-strict-request-bodies.mjs — gate for HTTP `body` schemas (see below)
+  check-catalog-versions.mjs    — gate for `catalog:` reuse (see below)
 ```
 
 `tools/review/check-strict-request-bodies.mjs` is the gate for "an unknown input must
@@ -303,13 +316,13 @@ cd tools/review && zig build          # needs Zig 0.17 (the devShell provides it
 | `node-launch` | A command, script, or launcher that starts Node by name |
 | `bun-gap` | A `node:` endpoint Bun does not implement, or implements wrongly |
 
-Findings at `error` severity fail the run; `warn` and `info` do not. The four
-baseline ledgers (`dangling-refs-`, `orphan-exports-`, `scripts-wiring-`,
-`silent-catch-baseline.txt`) record findings someone has already looked at: a
-finding listed there is suppressed, and an entry that stops matching anything is
-reported so the ledger cannot rot. Regenerate one with `--check=<name> --json`.
-`bun-native-baseline.txt`, `node-launch-baseline.txt` and `bun-gap-baseline.txt`
-follow the same rule.
+Findings at `error` severity fail the run; `warn` and `info` do not. Six
+baseline ledgers record findings someone has already looked at:
+`dangling-refs-`, `orphan-exports-`, `scripts-wiring-`, `silent-catch-`,
+`bun-native-` and `node-launch-baseline.txt`, plus `bun-gap-baseline.txt`
+for the gap table. A finding listed there is suppressed, and an entry that stops
+matching anything is reported so the ledger cannot rot. Regenerate one with
+`--check=<name> --json`.
 
 ### Bun's node layer, and the three checks that keep it honest
 
@@ -499,10 +512,11 @@ The macOS and Windows signing steps degrade safely when their secrets are unset:
 ### Test Framework
 
 - **`bun:test`** for every TypeScript/JavaScript suite in the workspace, run through each package's own `bun test`. Bun 1.4.4 is both the runtime and the runner; the repository no longer contains a vitest dependency or config.
-- Each package's `bunfig.toml` supplies `[test] preload` (setup modules) and `pathIgnorePatterns` (the heavy/e2e set). A CLI `--path-ignore-patterns` overrides the file, which is how the heavy scripts opt back in.
-- Every package `test` script passes `--isolate`: each test file gets a fresh global and module registry, which is what keeps `mock.module` registrations from leaking into the next file.
-- **`--timeout` is the only knob that reaches hooks.** Bun 1.4.2 applies `bunfig.toml`'s `[test] timeout` to test bodies only; a `beforeEach` that builds a real `git` fixture still dies at the built-in 5s. Every package script therefore passes a CLI `--timeout` (30s in `agent-core-v2`/`kimi-code`/`minidb`, 15s in `kap-server`). On a Windows host the first external spawn in a process also costs a one-off ~3s, which lands inside whichever hook spawns first.
-- **Platform gates are runtime probes, not platform branches.** A case that needs a capability the host may lack — creating a symlink (`EPERM` on Windows without Developer Mode), executing a `#!/usr/bin/env` fixture — probes the capability and skips visibly instead of failing, so the case still runs on a host that has it. Cases that pin a byte-for-byte POSIX prompt (the `fullCompaction` golden) are gated to Linux, because the expected bytes contain POSIX paths and `ls` output. One case — `mcpCore/oauth/service-lifecycle.test.ts` → "detaches a joined caller…" — is gated to non-Windows because Bun 1.4.2 segfaults on Windows when it follows the single-flight refresh case; every case in that file passes when run alone, so the fault is in the runtime, not the fixture.
+- **A package `test` script is a one-line delegation to `scripts/run-package-tests.mjs`.** Each package passes only `--root=<dir>` (default `test`, plus `src/human/test` for `agent-core-v2`) and, where it wants a different bound, `--test-timeout`. The wrapper owns the rest: it walks the roots for `*.test.ts`/`*.spec.ts` files, filters them through the package's own `bunfig.toml` `pathIgnorePatterns`, and spawns one `bun test --isolate --timeout <n> ./<file>` per file, up to `--parallel` (default: available cores, capped at 8) at a time. `pi-tui` is the exception — no `bunfig.toml`, so it still calls `bun test --isolate --timeout 30000` directly.
+- Because `--isolate` is on every spawn, each test file gets a fresh global and module registry, which is what keeps `mock.module` registrations from leaking into the next file.
+- Each package's `bunfig.toml` still supplies `[test] preload`, which Bun honours for every file the wrapper spawns.
+- **`--timeout` is the only knob that reaches hooks.** Bun's `bunfig.toml` `[test] timeout` applies to test bodies only; a `beforeEach` that builds a real `git` fixture still dies at the built-in 5s. The wrapper therefore always passes a CLI `--timeout`, defaulting to 30s and lowered to 15s by `kap-server`, `node-sdk` and `product` via `--test-timeout`. On a Windows host the first external spawn in a process also costs a one-off ~3s, which lands inside whichever hook spawns first.
+- **Platform gates are runtime probes, not platform branches.** A case that needs a capability the host may lack probes it and skips visibly instead of failing, so the case still runs on a host that has it: `test/_support/symlinkSupport.ts` and `test/helpers/symlinks.ts` probe symlink creation (`EPERM` on Windows without Developer Mode) and feed the `it.skipIf(!SYMLINKS)` sites. A handful of cases gate on `process.platform` directly because they assert platform-specific behavior rather than probe a capability — POSIX directory modes (`task/persist.test.ts`), worktree/rebase failure modes (`features/tower/store.test.ts`), and the Windows-only `HostProcessService` suite, which skips everywhere else.
 - **Coverage**: `bun test --coverage` (lcov reporter), per package.
 
 ### Test layout
@@ -526,7 +540,19 @@ bun run test:watch            # Every package's watcher, concurrently
 bun run test:coverage         # With an lcov coverage report per package
 bun run test:minidb           # minidb only — see below
 bun run test:heavy            # Includes the heavy/e2e sets (KIMI_TEST_HEAVY=1, KIMI_E2E=1)
+bun run test:timings          # Same run, and append every file's duration to test-timings.jsonl
 ```
+
+`bun run test --package=<name>` narrows the all-suites runner to one workspace member without
+leaving the root, which is the cheapest way to run a package's own script exactly as CI does.
+
+**Test timings are archived, not measured from scratch.** `bun run test:timings` runs the full
+suite and appends one JSON line per package to `test-timings.jsonl`: the recorded time, the
+package, the totals, and every test file's wall-clock duration, slowest first. The file is
+append-only and committed, so before a large change you can read the previous run as the
+baseline instead of guessing, and after it you can see which files actually moved. The same
+`--timings=<path>` option works on a single package
+(`bun run test --package=<name> --timings=...`) when only one suite needs a before/after.
 
 `minidb`'s `bunfig.toml` ignores `test/e2e/**`, `test/cluster/**` and `test/bench-json.test.ts` for
 speed; `bun run test:heavy` — or `bun test --isolate --path-ignore-patterns='**/node_modules/**'`

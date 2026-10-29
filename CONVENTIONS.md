@@ -30,6 +30,7 @@
 ### Linting (oxlint)
 
 - **Plugins**: typescript, import, unicorn, promise, node
+- **Categories**: `correctness: error`, `suspicious: warn`, `pedantic: warn`, `perf: warn` — so most findings are warnings and only correctness violations fail the run
 - **Key rules**:
   - `eqeqeq: error`, `no-throw-literal: off`
   - `typescript/no-misused-promises: error`, `typescript/return-await: error`
@@ -88,19 +89,18 @@ The rules that follow from it:
 
 - All user-facing strings (C1) must use `t()` calls from the i18n framework.
 - Supported locales: `en` (English), `zh` (Chinese).
-- The per-tree `locales/*.ts` files are the single source of truth for translations. Locale data reaches the engine as an in-memory JSON string (`JSON.stringify(en)` in `apps/kimi-code/src/i18n/index.ts`), so there is no generated locale JSON to regenerate or commit.
+- The per-tree `locales/*.ts` files are the single source of truth for translations. Each tree keeps its own in-process copy: `apps/kimi-code/src/i18n/index.ts` flattens its `en`/`zh` trees into `Map`s at module load and looks keys up directly, and the engine reads `@moonshot-ai/kimi-i18n`, which owns `packages/i18n/src/locales`. There is no generated locale JSON in either path and nothing to regenerate or commit.
 - **Never localize a value that code compares.** If a branch keys off a string, that string is C3: export a constant from the producing package (`ReviewDecision`, `GoalPauseReason`, `InstantiationServiceDisposedError`) and compare that. `tools/review`'s `text-as-protocol` check fails the build on a comparison against sentence-shaped text.
 - **Never put a localized label on the wire.** A UI choice that round-trips back to the engine carries a stable id (`reject`, `revise`, `auto`), not the rendered label; the label stays in the locale tree.
 - Error codes are a contract: every code in the engine registry (`packages/agent-core-v2/src/errors.ts`) needs `errorCodes.<camelCaseCode>` in **both** locale trees. The engine's own `ErrorInfo` carries only `retryable`/`public` — titles and actions were removed so there is one place to change a sentence.
 - Language follows the user at runtime: the TUI pushes its locale into the engine with `harness.setEngineLocale(...)`, so engine-side strings do not stay in the launch language after a `/settings` switch.
 
-Gates (all wired into CI's `lint` job):
+Gates (the first two run in CI's `lint` job; the manual pair and the Zig check do not):
 
 - `bun scripts/check-no-hardcoded-prose.mjs` — prose literals outside `t()` in every UI tree. Shrink-only ledger at `scripts/no-hardcoded-prose-baseline.txt`; a new hardcoded string fails the run, and localizing strings lowers the number (regenerate with `--print-counts`).
-- `bun scripts/check-t-call-coverage.mjs` — every `t()` key exists (across kimi-code, agent-core-v2 + kap-server + klient, kimi-inspect, vis-web, and the VS Code webview, `.vue`/`.tsx` templates included), every engine error code has en+zh entries, and no `errorCodes.*` value in `zh` is a copy of its English sentence. Scaffold missing codes with `bun scripts/gen-error-locale-skeleton.mjs`.
-- `bun scripts/check-locale-keys.mjs`, `bun scripts/check-locale-placeholders.cjs` — en/zh parity and `{{param}}` consistency.
+- `bun scripts/check-t-call-coverage.mjs` — every `t()` key exists (across kimi-code, agent-core-v2 + kap-server + klient, kimi-inspect, vis-web, and the VS Code webview, `.tsx` templates included and `.vue` accepted even though none remains), every engine error code has en+zh entries, and no `errorCodes.*` value in `zh` is a copy of its English sentence. Scaffold missing codes with `bun scripts/gen-error-locale-skeleton.mjs`. `check-locale-keys.mjs` and `check-locale-placeholders.cjs` run in the same job for en/zh parity and `{{param}}` consistency.
 - `bun scripts/scan-hardcoded-v2.mjs` — by hand: finds a source literal that already exists in a locale file (the narrower, value-level complement to the prose scan).
-- `./tools/review/zig-out/bin/review --check=text-as-protocol` — cross-layer comparisons against message text.
+- `./tools/review/zig-out/bin/review --check=text-as-protocol` — cross-layer comparisons against message text; runs in the separate `review` job, not `lint`.
 
 When you add user-visible text: add the key to **both** locales in the same change, prefer a `{{param}}` over string concatenation, and do not add a baseline entry — a new entry is a review decision, and the answer is normally "use `t()`".
 
@@ -113,7 +113,7 @@ review:
 | Tree | Surface | Owner |
 | --- | --- | --- |
 | `apps/kimi-code/src/i18n/locales` | CLI/TUI copy, `errorCodes.*` (the error-code display contract) | TUI maintainers |
-| `packages/i18n/src/locales` | engine-side strings reached through `@moonshot-ai/kimi-i18n` | engine maintainers |
+| `packages/i18n/src/locales` | engine-side strings reached through `@moonshot-ai/kimi-i18n`; `packages/kap-server/src/i18n-locales` is a checked-in copy that `kap-server/test/i18n-consistency.test.ts` keeps as a strict subset of it | engine maintainers |
 | `apps/kimi-inspect/src/i18n/locales`, `apps/vis/web/src/i18n/locales`, `apps/vscode/webview-ui/src/i18n/locales` | developer-facing tools | tool maintainers |
 
 The count to watch is the prose ledger, not the number of locale keys: a shrinking ledger means

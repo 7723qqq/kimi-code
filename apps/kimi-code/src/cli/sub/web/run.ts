@@ -445,8 +445,8 @@ async function runServerInProcess(
     disableAuth: options.dangerousBypassAuth,
     webTitle: options.webTitle,
     // Attach the engine's cloud telemetry appender (still gated by the config
-    // `telemetry` toggle). Complements the v1 client registered above, which
-    // only covers host-level events.
+    // `telemetry` toggle). Complements the CLI-side provider registered by
+    // `initializeServerTelemetry` above, which only covers host-level events.
     telemetry: true,
     webAssetsDir,
   });

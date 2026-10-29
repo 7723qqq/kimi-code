@@ -44,6 +44,8 @@ Some commands are only available in the idle state. Executing these commands whi
 | `/add-dir [<path>]` | — | Add an extra workspace directory to the current session. Run without a path (or with `list`) to list configured directories. When adding, choose whether to remember the directory for the project in `.kimi-code/local.toml` | No |
 | `/web` | — | Open the current session in the web UI: pick a running server to connect to, or start a new foreground server after the TUI exits. See [`kimi web`](./kimi-command.md#kimi-web) | Yes |
 | `/desktop` | `/install-desktop` | Open the Kimi Code desktop app page in your browser (URL follows the active region: `https://www.kimi.com/code` or `https://www.kimi.ai/code`). See [`kimi install-desktop`](./kimi-command.md#kimi-install-desktop) | Yes |
+| `/remote-control` | `/rc` | Open the current session through Kimi Remote Control. See [Remote Control](../guides/remote-control.md) | Yes |
+| `/import-sessions` | — | Import recent Claude Code and Codex sessions | No |
 
 ## Modes & Run Control
 
@@ -53,6 +55,9 @@ Some commands are only available in the idle state. Executing these commands whi
 | `/auto` | — | Open the permission mode list with Never Ask preselected; press `Enter` to confirm. In this mode, everything runs and is decided automatically; only plans in Plan mode wait for your review | Yes |
 | `/plan [on\|off]` | — | Toggle Plan mode. Without arguments, flips the current state; explicitly passing `on`/`off` forces the setting. Simply toggling does not create an empty plan file | Yes |
 | `/plan clear` | — | Clear the current plan | No |
+| `/spec [on\|off]` | — | Toggle Spec mode. Without arguments, flips the current state; explicitly passing `on`/`off` forces the setting. Unlike Plan mode, a spec is written into your repository as a long-lived artifact — see [Built-in Tools](./tools.md#spec-mode) | No |
+| `/effort` | `/thinking` | Switch the thinking effort | Yes |
+| `/workflow <name> [<args>...]` | — | Run or manage workflows (list, status, cancel, or run by name) | Yes |
 | `/swarm on\|off` | — | Turn swarm mode on or off without sending a prompt. `AgentSwarm` only runs while swarm mode is on. | Yes |
 | `/swarm <task>` | — | Turn swarm mode on, then send `<task>` as a normal prompt. If the turn completes normally, swarm mode turns off automatically. In `manual` permission mode, Kimi Code asks whether to switch to Ask When Needed or Never Ask mode before starting. | No |
 | `/hello-world` | — | Flip hello-world mode. The mode is a staged development run workflow with phase gates (requirements→design→implement→test→review→docs→deliver); its artifacts land in the four files under `specs/<id>/` | No |
@@ -148,6 +153,7 @@ Kimi Code CLI ships with a set of built-in Skills that appear directly as `/<nam
 | `/check-kimi-code-docs` | Answer Kimi Code product questions (CLI usage, configuration, membership, error codes) against the official docs |
 | `/import-from-cc-codex` | Import Claude Code and Codex instructions, skills, and MCP settings into Kimi Code |
 | `/sub-skill` | Discover and reorganize the local skill inventory into hierarchical sub-skill bundles. Includes `/sub-skill.review` (read-only proposal) and `/sub-skill.consolidate` (apply the reorganization) |
+| `/write-goal` | Turn a rough intention into a well-specified `/goal` objective — a completion contract with a finish line, proof, boundaries, and a stop rule. See [Goal mode](../guides/interaction.md#goal-mode) |
 
 All built-in Skill commands are only available in the idle state.
 

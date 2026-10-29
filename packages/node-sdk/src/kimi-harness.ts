@@ -331,8 +331,7 @@ export class KimiHarness {
 
   /**
    * One keyset page of the session listing (`limit` / `before` in
-   * `ListSessionsOptions`). Paged on the v2 engine; the v1 engine serves the
-   * whole filtered set as a single terminal page.
+   * `ListSessionsOptions`).
    */
   async listSessionsPage(options: ListSessionsOptions = {}): Promise<SessionSummaryPage> {
     return this.rpc.listSessionsPage(options);
@@ -345,8 +344,7 @@ export class KimiHarness {
 
   /**
    * File suggestions for @ mention-style completion under `workDir`, no
-   * session required. `undefined` on the v1 engine, which has no equivalent
-   * capability; callers fall back to their own file search there.
+   * session required.
    */
   async suggestFiles(
     workDir: string,
@@ -356,27 +354,26 @@ export class KimiHarness {
   }
 
   /**
-   * App-global plugin command list, no session required. Empty on the v1
-   * engine, which only exposes plugin commands through a live session.
+   * App-global plugin command list, no session required.
    */
   async listPluginCommands(): Promise<readonly PluginCommandDef[]> {
     return this.rpc.listPluginCommandsGlobal();
   }
 
   /**
-   * App-global plugin management, no session required. The v2 engine keeps
+   * App-global plugin management, no session required. The engine keeps
    * plugin state app-global (these calls are routed through the klient
    * `global.plugins` facade), so `/plugins` works before the first session
-   * exists; the v1 engine only exposes plugins through a live session.
+   * exists.
    */
   async listPlugins(): Promise<readonly PluginSummary[]> {
     return this.rpc.listPlugins();
   }
 
   /**
-   * Workspace-level MCP server list, no session required. The v2 engine owns
-   * one shared connection set per workspace handler, so `/mcp` is inspectable
-   * before the first session exists; empty on the v1 engine.
+   * Workspace-level MCP server list, no session required. The engine owns one
+   * shared connection set per workspace handler, so `/mcp` is inspectable
+   * before the first session exists.
    */
   async listWorkspaceMcpServers(workDir: string): Promise<readonly McpServerInfo[]> {
     return this.rpc.listWorkspaceMcpServers(workDir);
@@ -425,8 +422,7 @@ export class KimiHarness {
   }
 
   /**
-   * Trust state of `workDir` (agent-core-v2 only; the v1 engine reports an
-   * always-trusted workspace). Querying may register the workDir as a
+   * Trust state of `workDir`. Querying may register the workDir as a
    * workspace, which session creation would do anyway.
    */
   async getWorkspaceTrustInfo(workDir: string): Promise<WorkspaceTrustInfo> {
@@ -458,7 +454,6 @@ export class KimiHarness {
   /**
    * Upload media bytes to the engine's file store; pair the returned meta
    * with `buildDaemonFileUrl` to reference the file from a prompt.
-   * agent-core-v2 only — the v1 engine throws `not_implemented`.
    */
   async uploadFile(data: Uint8Array, options: UploadFileOptions): Promise<FileMeta> {
     return this.rpc.uploadFile(data, options);

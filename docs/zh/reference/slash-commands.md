@@ -64,6 +64,11 @@
 | `/hello-world next` | — | 手动推进到下一阶段；已在最后阶段时无操作 | 否 |
 | `/hello-world phase <stage>` | — | 手动切到指定阶段；阶段只进不退 | 否 |
 | `/hello-world skip <item>` | — | 豁免一项 checklist 并留痕（该项记为 `waived`） | 否 |
+| `/tower` 或 `/tower status` | — | 显示基地、使命、名册、评审门禁、收件箱、并发与最近活动，不触发模型轮次 | 是 |
+| `/tower on` | — | 开启 Tower 模式，不改变已记录的基地、也不发送提示词；首次初始化默认取当前本地分支 | 是 |
+| `/tower off` | — | 退出 Tower 模式，不停止正在运行的后台 agent，也不删除 `.tower/` 状态 | 是 |
+| `/tower <base-branch>` | — | 开启 Tower 并设置或重设使命合并所用的本地基地分支；不会发送目标 | 是 |
+| `/tower teardown` | — | 要求 agent 清理符合条件的使命 worktree，同时保护有未提交改动或有活跃 agent 的 worktree；保留分支与 `.tower/comms/`，Tower 模式保持开启 | 是 |
 | `/workflow <name> [<args>...]` | — | 运行或管理工作流（列表、状态、取消或按名称运行） | 是 |
 | `/goal [...]` | — | 开始或管理目标模式 | 见下文 |
 

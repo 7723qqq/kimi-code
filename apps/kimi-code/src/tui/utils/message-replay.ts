@@ -315,13 +315,12 @@ export function skillActivationFromOrigin(
 }
 
 /**
- * The v2 engine bundles a prompt's inline skill activations into the prompt
+ * The engine bundles a prompt's inline skill activations into the prompt
  * message itself: the rendered skill blocks precede the caller's parts in
  * the content, and this origin field carries every activation's metadata so
- * replay can rebuild the per-skill cards from the single message. The SDK's
- * origin union is typed from the v1 engine, which never sets the field, so
- * read it structurally here instead of widening the deprecated v1 package's
- * types.
+ * replay can rebuild the per-skill cards from the single message. Read it
+ * defensively — a message replayed from an older session may carry a `user`
+ * origin without the field.
  */
 export function bundledSkillsFromOrigin(
   origin: PromptOrigin | undefined,

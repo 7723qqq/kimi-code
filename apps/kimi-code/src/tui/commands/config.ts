@@ -474,8 +474,9 @@ async function applyEditorChoice(host: SlashCommandHost, value: string): Promise
 /**
  * The models a picker may offer: the user's configured aliases with
  * host-effective provider resolution applied, minus the synthesized
- * `__secondary__` derived entry — a runtime artifact of the v1 engine's
- * `[secondary_model]` recipe that must never be selectable as a model.
+ * `__secondary__` derived entry — an in-memory artifact of the
+ * `[secondary_model]` recipe (`node-sdk/src/config/secondary-model.ts`) that
+ * must never be selectable as a model.
  */
 function pickerModelsForHost(host: SlashCommandHost): Record<string, ModelAlias> {
   return Object.fromEntries(

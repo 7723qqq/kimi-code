@@ -62,9 +62,9 @@ function* walkFiles(dir) {
       yield* walkFiles(fullPath);
     } else if (entry.isFile()) {
       const ext = extname(entry.name);
-      // `.vue` matters for the Vue trees (vis-web, the VS Code
-      // webview): their templates call `t('key')` too, and a `.ts`-only walk
-      // reported "0 unique keys" for a tree with hundreds of calls.
+      // `.vue` is still accepted even though no `.vue` file remains in the
+      // repository (all web trees are React today): a tree reintroduced with
+      // SFCs would otherwise report "0 unique keys" instead of failing.
       if (
         (ext === '.ts' || ext === '.vue' || ext === '.tsx') &&
         !entry.name.endsWith('.test.ts') &&
