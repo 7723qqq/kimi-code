@@ -14,7 +14,7 @@
  */
 
 import { t } from '#/i18n';
-import { fitSessionStatsText, type SessionStatsGroup } from '#/tui/utils/session-stats';
+import type { SessionStatsGroup } from '#/tui/utils/session-stats';
 
 import type {
   RegionId,
@@ -33,6 +33,12 @@ export class StatsRegion implements StatusRegion {
   private expanded = true;
   private segmentsProvider: () => SessionStatsGroup[] = () => [];
   private hasSibling: (() => boolean) | undefined;
+  /**
+   * Width of the last paint. `hasHiddenContent` is asked between frames, when
+   * no render context exists, so it measures against the width the region was
+   * last laid out at.
+   */
+  private lastWidth = 80;
 
   constructor(segments?: () => SessionStatsGroup[]) {
     if (segments !== undefined) this.segmentsProvider = segments;
@@ -65,15 +71,24 @@ export class StatsRegion implements StatusRegion {
     return this.segments().length === 0;
   }
 
+  /**
+   * Rows this region would like. Unlike the footer, which has one line and must
+   * drop items to fit it, the strip can grow downward: the groups wrap instead
+   * of being discarded, so a narrow left column loses no information — it takes
+   * a second row. `minRows` therefore only bounds the folded form.
+   */
+  private rowsAt(width: number): string[] {
+    return wrapSegments(this.segments(), width);
+  }
+
   measure(width: number): number {
-    const text = fitSessionStatsText(this.segments(), width);
-    return text.length === 0 ? 0 : wrapRows(text, width).length;
+    return this.rowsAt(width).length;
   }
 
   render(ctx: RegionRenderContext): string[] {
-    const text = fitSessionStatsText(this.segments(), ctx.width);
-    if (text.length === 0) return [];
-    const rows = wrapRows(text, ctx.width);
+    this.lastWidth = ctx.width;
+    const rows = this.rowsAt(ctx.width);
+    if (rows.length === 0) return [];
     if (!this.expanded && rows.length > this.minRows) {
       const visible = rows.slice(0, this.minRows - 1);
       visible.push(
@@ -92,7 +107,7 @@ export class StatsRegion implements StatusRegion {
   }
 
   hasHiddenContent(): boolean {
-    return this.expanded && this.segments().length > 0;
+    return this.rowsAt(this.lastWidth).length > this.minRows;
   }
 
   handleKey(_key: RegionKey): boolean {
@@ -100,20 +115,56 @@ export class StatsRegion implements StatusRegion {
   }
 }
 
-/** Greedy word wrap over the already width-fitted stat text. */
-function wrapRows(text: string, width: number): string[] {
+/**
+ * Lay the stat groups out across as many rows as they need.
+ *
+ * Within a row, items are joined with ` · ` and groups with ` | ` — the same
+ * separators the footer uses, so the two readouts look like one family. When a
+ * group does not fit the remaining space it starts the next row instead of
+ * being truncated or dropped.
+ */
+function wrapSegments(groups: readonly SessionStatsGroup[], width: number): string[] {
   const limit = Math.max(1, width);
   const rows: string[] = [];
   let current = '';
-  for (const word of text.split(' ')) {
-    const candidate = current.length === 0 ? word : `${current} ${word}`;
-    if (candidate.length > limit && current.length > 0) {
-      rows.push(current);
-      current = word;
+  for (const group of groups) {
+    const text = group.items.map((item) => item.text).join(' · ');
+    if (text.length === 0) continue;
+    if (current.length === 0) {
+      current = text;
       continue;
     }
-    current = candidate;
+    const joined = `${current} | ${text}`;
+    if (joined.length <= limit) {
+      current = joined;
+      continue;
+    }
+    rows.push(current);
+    current = text;
   }
   if (current.length > 0) rows.push(current);
-  return rows;
+  return hardWrap(rows, limit);
+}
+
+/** Split any row still wider than the column at word boundaries. */
+function hardWrap(rows: readonly string[], limit: number): string[] {
+  const out: string[] = [];
+  for (const row of rows) {
+    if (row.length <= limit) {
+      out.push(row);
+      continue;
+    }
+    let current = '';
+    for (const word of row.split(' ')) {
+      const candidate = current.length === 0 ? word : `${current} ${word}`;
+      if (candidate.length > limit && current.length > 0) {
+        out.push(current);
+        current = word;
+        continue;
+      }
+      current = candidate;
+    }
+    if (current.length > 0) out.push(current);
+  }
+  return out;
 }
