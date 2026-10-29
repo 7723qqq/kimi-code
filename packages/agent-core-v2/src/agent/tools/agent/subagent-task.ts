@@ -1,4 +1,5 @@
 import { isAbortError } from '#/_base/utils/abort';
+import { errorMessage } from '#/_base/utils/errorMessage';
 import { type AgentTask, type AgentTaskInfoBase, type AgentTaskSink } from '#/agent/task/types';
 import { REPEAT_BREAKER_STOP_REASON } from '#/agent/toolDedupe/toolDedupe';
 import { ErrorCodes, isError2 } from '#/errors';
@@ -38,10 +39,6 @@ declare module '#/agent/task/types' {
   interface AgentTaskInfoByKind {
     readonly agent: SubagentTaskInfo;
   }
-}
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 function stopCodeOf(error: unknown): string | undefined {

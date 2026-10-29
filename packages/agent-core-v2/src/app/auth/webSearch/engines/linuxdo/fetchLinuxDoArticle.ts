@@ -1,3 +1,4 @@
+import { isAbortError } from '#/_base/utils/abort';
 import { Error2, ErrorCodes } from '#/errors';
 
 import { loadHtml } from '../engine-html';
@@ -28,12 +29,6 @@ const FALLBACK_HEADERS: Record<string, string> = {
 
 interface LinuxDoTopicResponse {
   post_stream?: { posts?: Array<{ cooked?: string }> };
-}
-
-function isAbortError(error: unknown): boolean {
-  return (
-    typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError'
-  );
 }
 
 async function fetchTopicJson(topicId: string, options: SearchEngineOptions): Promise<string> {

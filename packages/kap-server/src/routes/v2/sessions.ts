@@ -13,6 +13,7 @@ import { z } from 'zod';
 
 import { requestLog } from '../../lib/requestLog';
 import { defineRoute } from '../../middleware/defineRoute';
+import { detailsSchema } from '../../protocol/common';
 import { errEnvelope, okEnvelope } from '../../protocol/envelope';
 import { ErrorCode } from '../../protocol/error-codes';
 import { resolveSessionFacts, type SessionFacts } from '../sessions';
@@ -254,7 +255,6 @@ const v2SessionGroupPageSchema = z.object({
   scan_truncated: z.boolean().optional(),
 });
 
-const detailsSchema = z.array(z.object({ path: z.string(), message: z.string() }));
 
 const BATCH_IDS_MAX = 5000;
 

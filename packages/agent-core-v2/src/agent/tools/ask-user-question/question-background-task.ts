@@ -1,4 +1,5 @@
 import { isAbortError } from '#/_base/utils/abort';
+import { errorMessage } from '#/_base/utils/errorMessage';
 import { type AgentTask, type AgentTaskInfoBase, type AgentTaskSink } from '#/agent/task/types';
 import type { ExecutableToolResult } from '#/tool/toolContract';
 
@@ -12,10 +13,6 @@ declare module '#/agent/task/types' {
   interface AgentTaskInfoByKind {
     readonly question: QuestionTaskInfo;
   }
-}
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }
 
 export class QuestionBackgroundTask implements AgentTask {

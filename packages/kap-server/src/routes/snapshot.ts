@@ -9,10 +9,10 @@ import {
   type IAgentScopeHandle,
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
-import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';
 import { defineRoute } from '../middleware/defineRoute';
+import { sessionIdParamSchema } from '../protocol/common';
 import { ErrorCode } from '../protocol/error-codes';
 import { toWireQuestion } from '../protocol/question-wire';
 import {
@@ -36,10 +36,6 @@ class SnapshotNotFoundError extends Error {
     this.name = 'SnapshotNotFoundError';
   }
 }
-
-const sessionIdParamSchema = z.object({
-  session_id: z.string().min(1),
-});
 
 interface SnapshotRouteHost {
   get(

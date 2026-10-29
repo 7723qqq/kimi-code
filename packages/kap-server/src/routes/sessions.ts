@@ -49,6 +49,7 @@ import { errEnvelope, okEnvelope } from '../envelope';
 import { t } from '../i18n';
 import { requestLog } from '../lib/requestLog';
 import { defineRoute } from '../middleware/defineRoute';
+import { detailsSchema, sessionIdParamSchema } from '../protocol/common';
 import { ErrorCode } from '../protocol/error-codes';
 import { pageResponseSchema } from '../protocol/pagination';
 import { booleanQueryParam } from '../protocol/query-params';
@@ -139,9 +140,6 @@ const sessionsListQueryCoercion = z
     }
   }).strict();
 
-const sessionIdParamSchema = z.object({
-  session_id: z.string().min(1),
-});
 
 const sessionChildrenListQueryCoercion = z
   .object({
@@ -178,7 +176,6 @@ const sessionActionRequestSchema = z.preprocess(
   }).strict(),
 );
 
-const detailsSchema = z.array(z.object({ path: z.string(), message: z.string() }));
 
 export interface SessionsRoutesDeps {
   readonly sessionEventCursor: (sessionId: string) => Promise<{ seq: number; epoch: string }>;

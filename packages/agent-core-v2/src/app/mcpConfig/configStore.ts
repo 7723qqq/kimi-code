@@ -4,6 +4,7 @@ import { createDecorator, type ServiceIdentifier } from '#/_base/di/instantiatio
 import { Disposable } from '#/_base/di/lifecycle';
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { AsyncEmitter, type Event, type IWaitUntil } from '#/_base/event';
+import { isRecord } from '#/_base/utils/guards';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { LifecycleScope } from '#/app/scopes';
 import { ErrorCodes, Error2 } from '#/errors';
@@ -210,10 +211,6 @@ function configError(message: string, cause?: unknown): Error2 {
 
 function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 registerScopedService(

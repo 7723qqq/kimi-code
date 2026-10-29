@@ -1,3 +1,4 @@
+import { isAbortError } from '#/_base/utils/abort';
 import { Error2, ErrorCodes } from '#/errors';
 
 import { loadHtml, type EngineElement, type EngineQueryResult } from '../engine-html';
@@ -60,12 +61,6 @@ function extractArticleContent(html: string): string {
     content = body.length > 0 ? body.text().trim() : '';
   }
   return content;
-}
-
-function isAbortError(error: unknown): boolean {
-  return (
-    typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError'
-  );
 }
 
 async function fetchArticleHtml(url: string, options: SearchEngineOptions): Promise<string> {

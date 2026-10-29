@@ -1,3 +1,4 @@
+import { errorMessage } from '#/_base/utils/errorMessage';
 import { formatTaskList } from '#/agent/tools/task/task-list/taskListTool';
 import { randomBytes } from 'node:crypto';
 
@@ -1758,10 +1759,6 @@ function createForegroundRelease(): ForegroundRelease {
   return { promise, resolve };
 }
 
-function errorMessage(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return String(error);
-}
 
 function previousSessionTaskLine(info: AgentTaskInfo): string {
   if (info.kind === 'agent' && info.agentId !== undefined) {

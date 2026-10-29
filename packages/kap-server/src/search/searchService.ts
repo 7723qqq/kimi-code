@@ -4,6 +4,7 @@ import { join } from 'node:path';
 
 import {
   createDecorator,
+  errorMessage,
   databaseSearchEnabled,
   databaseSearchSyncTuning,
   IBootstrapService,
@@ -69,10 +70,6 @@ const QUERY_DEADLINE_MS = 500;
 const QUERY_TEXT_BUDGET_CHARS = 16_000_000;
 const MAX_TEXT_HITS = 100_000;
 const LITERAL_CANDIDATE_CAP = 10_000;
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 async function pathExists(path: string): Promise<boolean> {
   try {

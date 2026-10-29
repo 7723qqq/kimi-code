@@ -13,6 +13,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { mkdir, open } from 'node:fs/promises';
 import { dirname } from 'node:path';
 
+import { isRecord } from '@moonshot-ai/runtime-shared';
 import { parse as parseToml, stringify as stringifyToml, TomlError } from 'smol-toml';
 
 import { ErrorCodes, KimiError } from '#/errors';
@@ -248,7 +249,7 @@ function salvageConfigData(transformed: Record<string, unknown>): SalvageResult 
       if (
         ENTRY_KEYED_SECTIONS.has(section) &&
         typeof entry === 'string' &&
-        isPlainObject(sectionValue)
+        isRecord(sectionValue)
       ) {
         // Issues on entry-keyed sections only ever drop that entry. An entry
         // with several issues is deleted by the first one; later issues are
@@ -330,35 +331,35 @@ export function transformTomlData(data: Record<string, unknown>): Record<string,
   for (const [key, value] of Object.entries(data)) {
     const targetKey = snakeToCamel(key);
 
-    if (targetKey === 'providers' && isPlainObject(value)) {
+    if (targetKey === 'providers' && isRecord(value)) {
       result[targetKey] = transformRecord(value, transformProviderData);
-    } else if (targetKey === 'models' && isPlainObject(value)) {
+    } else if (targetKey === 'models' && isRecord(value)) {
       result[targetKey] = transformRecord(value, transformModelData);
-    } else if (targetKey === 'thinking' && isPlainObject(value)) {
+    } else if (targetKey === 'thinking' && isRecord(value)) {
       result[targetKey] = transformPlainObject(value);
-    } else if (targetKey === 'permission' && isPlainObject(value)) {
+    } else if (targetKey === 'permission' && isRecord(value)) {
       result[targetKey] = transformPermissionData(value);
-    } else if (targetKey === 'services' && isPlainObject(value)) {
+    } else if (targetKey === 'services' && isRecord(value)) {
       result[targetKey] = transformRecord(value, transformServiceData, snakeToCamel);
-    } else if (targetKey === 'loopControl' && isPlainObject(value)) {
+    } else if (targetKey === 'loopControl' && isRecord(value)) {
       result[targetKey] = transformLoopControlData(value);
-    } else if (targetKey === 'background' && isPlainObject(value)) {
+    } else if (targetKey === 'background' && isRecord(value)) {
       result[targetKey] = transformPlainObject(value);
-    } else if (targetKey === 'image' && isPlainObject(value)) {
+    } else if (targetKey === 'image' && isRecord(value)) {
       result[targetKey] = transformPlainObject(value);
-    } else if (targetKey === 'experimental' && isPlainObject(value)) {
+    } else if (targetKey === 'experimental' && isRecord(value)) {
       result[targetKey] = cloneRecord(value);
-    } else if (targetKey === 'github' && isPlainObject(value)) {
+    } else if (targetKey === 'github' && isRecord(value)) {
       result[targetKey] = transformPlainObject(value);
-    } else if (targetKey === 'subagent' && isPlainObject(value)) {
+    } else if (targetKey === 'subagent' && isRecord(value)) {
       result[targetKey] = transformPlainObject(value);
-    } else if (targetKey === 'secondaryModel' && isPlainObject(value)) {
+    } else if (targetKey === 'secondaryModel' && isRecord(value)) {
       result[targetKey] = transformPlainObject(value);
-    } else if (targetKey === 'mcp' && isPlainObject(value)) {
+    } else if (targetKey === 'mcp' && isRecord(value)) {
       result[targetKey] = transformPlainObject(value);
-    } else if (targetKey === 'modelCatalog' && isPlainObject(value)) {
+    } else if (targetKey === 'modelCatalog' && isRecord(value)) {
       result[targetKey] = transformPlainObject(value);
-    } else if (!isPlainObject(value)) {
+    } else if (!isRecord(value)) {
       result[targetKey] = value;
     }
   }
@@ -372,7 +373,7 @@ function transformRecord(
 ): Record<string, unknown> {
   const record: Record<string, unknown> = {};
   for (const [entryName, entryConfig] of Object.entries(value)) {
-    record[transformName(entryName)] = isPlainObject(entryConfig)
+    record[transformName(entryName)] = isRecord(entryConfig)
       ? transformEntry(entryConfig)
       : entryConfig;
   }
@@ -392,7 +393,7 @@ function transformProviderData(data: Record<string, unknown>): Record<string, un
   for (const [key, value] of Object.entries(data)) {
     const targetKey = snakeToCamel(key);
     if (targetKey === 'oauth') {
-      out[targetKey] = isPlainObject(value) ? transformPlainObject(value) : value;
+      out[targetKey] = isRecord(value) ? transformPlainObject(value) : value;
     } else if (targetKey === 'env' || targetKey === 'customHeaders') {
       out[targetKey] = cloneObjectValue(value);
     } else {
@@ -404,10 +405,10 @@ function transformProviderData(data: Record<string, unknown>): Record<string, un
 
 function transformModelData(data: Record<string, unknown>): Record<string, unknown> {
   const out = transformPlainObject(data);
-  if (isPlainObject(out['overrides'])) {
+  if (isRecord(out['overrides'])) {
     out['overrides'] = transformPlainObject(out['overrides']);
   }
-  if (isPlainObject(out['upgrade'])) {
+  if (isRecord(out['upgrade'])) {
     out['upgrade'] = transformPlainObject(out['upgrade']);
   }
   return out;
@@ -441,7 +442,7 @@ function appendPermissionRules(
 }
 
 function transformPermissionRule(value: unknown, decision?: 'allow' | 'deny' | 'ask'): unknown {
-  if (!isPlainObject(value)) return value;
+  if (!isRecord(value)) return value;
 
   const rule = transformPlainObject(value);
   const tool = rule['tool'];
@@ -472,7 +473,7 @@ function transformServiceData(data: Record<string, unknown>): Record<string, unk
   for (const [key, value] of Object.entries(data)) {
     const targetKey = snakeToCamel(key);
     if (targetKey === 'oauth') {
-      out[targetKey] = isPlainObject(value) ? transformPlainObject(value) : value;
+      out[targetKey] = isRecord(value) ? transformPlainObject(value) : value;
     } else if (targetKey === 'customHeaders') {
       out[targetKey] = cloneObjectValue(value);
     } else {
@@ -633,11 +634,11 @@ function modelToToml(model: ModelAlias, rawModel: unknown): Record<string, unkno
         if (typeof c === 'string' && c.trim().length > 0) union.add(c.trim());
       }
       out[camelToSnake(key)] = [...union];
-    } else if (key === 'overrides' && isPlainObject(value)) {
-      const rawOverrides = isPlainObject(rawModel) ? rawModel['overrides'] : undefined;
+    } else if (key === 'overrides' && isRecord(value)) {
+      const rawOverrides = isRecord(rawModel) ? rawModel['overrides'] : undefined;
       out['overrides'] = modelOverridesToToml(value, rawOverrides);
     } else if (key === 'upgrade') {
-      out['upgrade'] = isPlainObject(value) ? modelOverridesToToml(value, undefined) : undefined;
+      out['upgrade'] = isRecord(value) ? modelOverridesToToml(value, undefined) : undefined;
     } else {
       setDefined(out, camelToSnake(key), value);
     }
@@ -844,12 +845,9 @@ function oauthToToml(oauth: OAuthRef): Record<string, unknown> {
 /*  Utilities                                                          */
 /* ------------------------------------------------------------------ */
 
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 function cloneRecord(value: unknown): Record<string, unknown> {
-  if (!isPlainObject(value)) return {};
+  if (!isRecord(value)) return {};
   return cloneUnknown(value);
 }
 
@@ -858,7 +856,7 @@ function cloneUnknown<T>(value: T): T {
 }
 
 function cloneObjectValue(value: unknown): unknown {
-  return isPlainObject(value) ? cloneUnknown(value) : value;
+  return isRecord(value) ? cloneUnknown(value) : value;
 }
 
 function setDefined(target: Record<string, unknown>, key: string, value: unknown): void {

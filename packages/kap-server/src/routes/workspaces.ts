@@ -11,11 +11,11 @@ import {
   type Scope,
   type Workspace,
 } from '@moonshot-ai/agent-core-v2';
-import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';
 import { requestLog } from '../lib/requestLog';
 import { defineRoute } from '../middleware/defineRoute';
+import { detailsSchema } from '../protocol/common';
 import { ErrorCode } from '../protocol/error-codes';
 import {
   addDirRequestSchema,
@@ -65,8 +65,6 @@ interface WorkspaceRouteHost {
     ) => Promise<void> | void,
   ): unknown;
 }
-
-const detailsSchema = z.array(z.object({ path: z.string(), message: z.string() }));
 
 export function registerWorkspacesRoutes(app: WorkspaceRouteHost, core: Scope): void {
   const listRoute = defineRoute(

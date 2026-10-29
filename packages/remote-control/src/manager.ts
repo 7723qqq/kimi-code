@@ -5,6 +5,7 @@ import {
   setup,
   waitFor,
 } from '@moonshot-ai/agent-core-v2/human/xstate2';
+import { errorMessage } from '@moonshot-ai/runtime-shared';
 
 import {
   inspectRemoteControlLock,
@@ -187,8 +188,7 @@ export function createRemoteControlManager(
       deviceId: handle?.deviceId,
       deviceName: handle?.deviceName,
       error: error === undefined ? undefined : errorMessage(error),
-      conflict:
-        error instanceof RemoteControlAlreadyRunningError ? error.holder : undefined,
+      conflict: error instanceof RemoteControlAlreadyRunningError ? error.holder : undefined,
     };
   };
 
@@ -279,10 +279,6 @@ export function createRemoteControlManager(
   };
 
   return { status, enable, disable, close };
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function fail(error: unknown): never {

@@ -14,6 +14,7 @@ import {
 import { z } from 'zod';
 
 import { defineRoute } from '../../middleware/defineRoute';
+import { detailsSchema } from '../../protocol/common';
 import { errEnvelope, okEnvelope } from '../../protocol/envelope';
 import { ErrorCode } from '../../protocol/error-codes';
 
@@ -165,8 +166,6 @@ const mcpServerAuthBeginResultSchema = z.union([
   }),
   z.object({ status: z.literal('already-authorized') }),
 ]);
-
-const detailsSchema = z.array(z.object({ path: z.string(), message: z.string() }));
 
 const baseErrorSchemas = {
   [ErrorCode.VALIDATION_FAILED]: { detailsSchema },

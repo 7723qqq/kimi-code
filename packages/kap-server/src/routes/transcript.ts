@@ -17,6 +17,7 @@ import { z } from 'zod';
 
 import { errEnvelope, okEnvelope } from '../envelope';
 import { defineRoute } from '../middleware/defineRoute';
+import { detailsSchema, sessionIdParamSchema } from '../protocol/common';
 import { ErrorCode } from '../protocol/error-codes';
 import type { TranscriptService } from '../services/transcript/transcriptService';
 
@@ -30,10 +31,6 @@ interface TranscriptRouteHost {
     ) => Promise<void> | void,
   ): unknown;
 }
-
-const sessionIdParamSchema = z.object({
-  session_id: z.string().min(1),
-});
 
 const transcriptQueryCoercion = z
   .object({
@@ -61,8 +58,6 @@ const transcriptQueryCoercion = z
       });
     }
   });
-
-const detailsSchema = z.array(z.object({ path: z.string(), message: z.string() }));
 
 const transcriptOpsQueryCoercion = z
   .object({

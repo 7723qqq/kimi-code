@@ -51,6 +51,7 @@ import {
 } from '../lib/promptMedia';
 import { requestLog } from '../lib/requestLog';
 import { defineRoute } from '../middleware/defineRoute';
+import { sessionIdParamSchema } from '../protocol/common';
 import { ErrorCode } from '../protocol/error-codes';
 import { ensureMainAgent as ensureMainAgentHandle } from '../transport/mainAgent';
 import {
@@ -82,9 +83,6 @@ interface SkillsRouteHost {
   ): unknown;
 }
 
-const sessionIdParamSchema = z.object({
-  session_id: z.string().min(1),
-});
 
 const skillTailParamsSchema = z.object({
   session_id: z.string().min(1),

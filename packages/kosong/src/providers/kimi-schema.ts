@@ -8,6 +8,8 @@
  * remaining local `$ref` pointers stay resolvable to a JSON Schema validator.
  */
 
+import { isRecord } from '@moonshot-ai/runtime-shared';
+
 import { PROVIDER_API_ERROR_CODE } from '../errors';
 import { Error2 } from '../errors/errors';
 
@@ -486,10 +488,6 @@ function cloneJsonValue(value: unknown): unknown {
     return cloned;
   }
   return value;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function hasOwn(obj: Record<string, unknown>, key: string): boolean {

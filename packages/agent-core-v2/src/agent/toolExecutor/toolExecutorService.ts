@@ -3,6 +3,7 @@ import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { AsyncEmitter, type Event } from '#/_base/event';
 import { ILogService } from '#/_base/log/log';
 import { isAbortError, isUserCancellation } from '#/_base/utils/abort';
+import { errorMessage } from '#/_base/utils/errorMessage';
 import { IAgentScopeContext } from '#/agent/scopeContext/scopeContext';
 import { IAgentStateService } from '#/agent/state/agentState';
 import type {
@@ -979,10 +980,6 @@ async function raceWithAbortGrace<Result>(
       } catch {}
     }
   }
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 registerScopedService(

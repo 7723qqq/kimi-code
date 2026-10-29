@@ -12,6 +12,7 @@ import {
 
 import { ScopeActivation, registerScopedService } from '#/_base/di/scope';
 import { Error2 } from '#/_base/errors/errors';
+import { isRecord } from '#/_base/utils/guards';
 import { IAgentIdentity } from '#/app/agentIdentity/agentIdentity';
 import { IConfigService } from '#/app/config/config';
 import { LifecycleScope } from '#/app/scopes';
@@ -330,10 +331,6 @@ function registryKeyFromExisting(providers: ProvidersSection, url: string): stri
     }
   }
   return undefined;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function truncateUpstreamMessage(err: unknown, limit = 300): string {

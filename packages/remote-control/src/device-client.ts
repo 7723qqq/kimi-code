@@ -7,6 +7,7 @@ import {
   type KimiRemoteControlAuth,
   type TokenInfo,
 } from '@moonshot-ai/kimi-code-oauth';
+import { errorMessage, isRecord } from '@moonshot-ai/runtime-shared';
 
 import { resolveRemoteControlRelayOrigin } from './remote-control';
 
@@ -310,10 +311,3 @@ function cloudErrorMessage(value: unknown): string | undefined {
   return message.length === 0 ? undefined : message;
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}

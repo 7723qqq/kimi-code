@@ -64,6 +64,7 @@ import {
 } from '../lib/promptMedia';
 import { requestLog } from '../lib/requestLog';
 import { defineRoute } from '../middleware/defineRoute';
+import { sessionIdParamSchema } from '../protocol/common';
 import { ensureMainAgent, MAIN_AGENT_ID } from '../transport/mainAgent';
 import { type ActionTable, resolveActionTarget, runAction } from './action-dispatch';
 
@@ -86,9 +87,6 @@ interface PromptRouteHost {
   ): unknown;
 }
 
-const sessionIdParamSchema = z.object({
-  session_id: z.string().min(1),
-});
 
 const validationDetailsSchema = z.array(z.object({ path: z.string(), message: z.string() }));
 

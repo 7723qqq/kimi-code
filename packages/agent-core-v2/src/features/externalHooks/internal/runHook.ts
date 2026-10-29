@@ -2,6 +2,8 @@ import { type SpawnOptionsWithoutStdio } from 'node:child_process';
 
 import { z } from 'zod';
 
+import { errorMessage } from '#/_base/utils/errorMessage';
+import { isRecord } from '#/_base/utils/guards';
 import type { IHostProcessService } from '#/os/interface/hostProcess';
 import { type IHostProcess } from '#/os/interface/hostProcess';
 
@@ -300,9 +302,6 @@ function killProcess(proc: IHostProcess): void {
   killTimer.unref();
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 function blockResult(
   reason: string,
@@ -320,6 +319,3 @@ function blockResult(
   };
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}

@@ -1,6 +1,7 @@
 import fs from 'node:fs/promises';
 import { join, relative } from 'node:path';
 
+import { errorMessage } from '@moonshot-ai/agent-core-v2';
 import {
   classifyStorageError,
   MiniDb,
@@ -76,10 +77,6 @@ interface SyncRoundBudget {
 
 function syncBudgetExhausted(budget: SyncRoundBudget): boolean {
   return budget.bytesLeft <= 0 || Date.now() >= budget.deadline;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 const statFn: { current: typeof fs.stat } = { current: fs.stat };

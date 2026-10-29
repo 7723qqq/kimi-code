@@ -1,3 +1,4 @@
+import { isAbortError } from '#/_base/utils/abort';
 import type { WebSearchResult } from '#/agent/tools/web-search/web-search';
 import { Error2, ErrorCodes } from '#/errors';
 
@@ -17,12 +18,6 @@ const COMMON_HEADERS: Record<string, string> = {
   'Accept-Language': 'zh-CN,zh;q=0.9,en;q=0.8',
   Referer: 'https://www.sogou.com/',
 };
-
-function isAbortError(error: unknown): boolean {
-  return (
-    typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError'
-  );
-}
 
 function isAllowedSogouRedirectUrl(url: URL): boolean {
   const hostname = url.hostname.toLowerCase();

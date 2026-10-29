@@ -1,5 +1,6 @@
 import { dirname, join, normalize } from 'pathe';
 
+import { isRecord } from '#/_base/utils/guards';
 import { resolvePath } from '#/_base/utils/paths';
 import { resolveKimiHome } from '#/app/bootstrap/bootstrap';
 import { findGitWorkTree } from '#/app/git/workTree';
@@ -173,10 +174,6 @@ function mapValuesToPath(
     origins[name] = path;
   }
   return origins;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function isFileNotFound(error: unknown): boolean {

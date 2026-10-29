@@ -1,5 +1,6 @@
 import { join } from 'pathe';
 
+import { errorMessage } from '#/_base/utils/errorMessage';
 import { findUpwardRoot } from '#/_base/utils/paths';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
@@ -125,8 +126,4 @@ async function pushExistingRoot(
 
 function isUnavailable(error: unknown): boolean {
   return error instanceof HostFsError && error.code === OsFsErrors.codes.OS_FS_UNAVAILABLE;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

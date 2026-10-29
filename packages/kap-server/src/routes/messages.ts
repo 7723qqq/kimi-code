@@ -5,6 +5,7 @@ import { errEnvelope, okEnvelope } from '../envelope';
 import { t } from '../i18n';
 import { requestLog } from '../lib/requestLog';
 import { defineRoute } from '../middleware/defineRoute';
+import { detailsSchema, sessionIdParamSchema } from '../protocol/common';
 import { ErrorCode } from '../protocol/error-codes';
 import { messageRoleSchema } from '../protocol/message';
 import { getMessageResponseSchema, listMessagesResponseSchema } from '../protocol/rest-message';
@@ -45,16 +46,12 @@ const messagesListQueryCoercion = z
     }
   }).strict();
 
-const sessionIdParamSchema = z.object({
-  session_id: z.string().min(1),
-});
 
 const messageIdParamSchema = z.object({
   session_id: z.string().min(1),
   message_id: z.string().min(1),
 });
 
-const detailsSchema = z.array(z.object({ path: z.string(), message: z.string() }));
 
 export function registerMessagesRoutes(app: MessageRouteHost, core: Scope): void {
   const listRoute = defineRoute(

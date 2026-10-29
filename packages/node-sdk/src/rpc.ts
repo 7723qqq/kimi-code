@@ -6,6 +6,7 @@ import type {
   HelloWorldRunItemId,
   HelloWorldStage,
 } from '@moonshot-ai/agent-core-v2/features/helloWorld/agent/helloWorld';
+import { errorMessage } from '@moonshot-ai/runtime-shared';
 
 import type { AgentContextData } from '#/context';
 import { ErrorCodes, KimiError, makeErrorPayload } from '#/errors';
@@ -642,6 +643,3 @@ export abstract class SDKRpcClientBase {
   }
 }
 
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}

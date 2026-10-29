@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { gt, valid } from 'semver';
 
 import type { FetchLike } from '#/_base/utils/fetchLike';
+import { isRecord } from '#/_base/utils/guards';
 
 export const KIMI_CODE_PLUGIN_MARKETPLACE_URL =
   'https://code.kimi.com/kimi-code/plugins/marketplace.json';
@@ -365,10 +366,6 @@ function stringArrayField(
     .map((item) => item.trim())
     .filter((item) => item.length > 0);
   return out.length > 0 ? out : undefined;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function formatParseError(error: unknown): string {

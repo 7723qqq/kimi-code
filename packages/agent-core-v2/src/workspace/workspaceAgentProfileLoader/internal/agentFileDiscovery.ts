@@ -1,5 +1,6 @@
 import { join } from 'pathe';
 
+import { errorMessage } from '#/_base/utils/errorMessage';
 import type { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { HostFsError, OsFsErrors } from '#/os/interface/hostFsErrors';
 
@@ -135,8 +136,4 @@ export async function discoverAgentFiles(
     skipped,
     scannedRoots: roots.map((root) => root.path),
   };
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

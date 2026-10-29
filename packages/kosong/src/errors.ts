@@ -1,3 +1,5 @@
+import { errorMessage } from '@moonshot-ai/runtime-shared';
+
 import type { FinishReason } from './provider';
 
 export interface ChatProviderErrorOptions {
@@ -617,10 +619,6 @@ function getStatusCode(error: unknown): number | undefined {
   if (typeof responseStatusCode === 'number') return responseStatusCode;
   const responseStatus = responseRecord['status'];
   return typeof responseStatus === 'number' ? responseStatus : undefined;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 /**

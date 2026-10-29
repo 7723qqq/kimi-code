@@ -1,3 +1,4 @@
+import { isAbortError } from '#/_base/utils/abort';
 import type { WebSearchResult } from '#/agent/tools/web-search/web-search';
 import { Error2, ErrorCodes } from '#/errors';
 
@@ -33,12 +34,6 @@ interface ExaApiItem {
 
 interface ExaApiResponse {
   results?: ExaApiItem[];
-}
-
-function isAbortError(error: unknown): boolean {
-  return (
-    typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError'
-  );
 }
 
 export async function searchExa(

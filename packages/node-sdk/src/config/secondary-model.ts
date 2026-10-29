@@ -2,6 +2,8 @@
  * Localized port of v1's secondary-model runtime overlay
  * (`agent-core/src/config/secondary-model.ts`).
  */
+import { isRecord } from '@moonshot-ai/runtime-shared';
+
 import type { KimiConfig, ModelAlias, ModelAliasOverrides, SecondaryModelConfig } from './schema';
 
 /**
@@ -132,7 +134,7 @@ export function stripSecondaryModelConfig(config: KimiConfig, env: Env = process
   const envModel = trimmed(env[SECONDARY_MODEL_ENV]);
   const envEffort = trimmed(env[SECONDARY_MODEL_EFFORT_ENV]);
   if ((envModel !== undefined || envEffort !== undefined) && next.secondaryModel !== undefined) {
-    const raw = isPlainObject(config.raw?.['secondary_model']) ? config.raw['secondary_model'] : {};
+    const raw = isRecord(config.raw?.['secondary_model']) ? config.raw['secondary_model'] : {};
     const restored = { ...next.secondaryModel };
     // Restore from raw only when the value being written still IS the env
     // value (a round-trip of the overlaid runtime view). A different value is
@@ -152,8 +154,4 @@ export function stripSecondaryModelConfig(config: KimiConfig, env: Env = process
   }
 
   return next;
-}
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

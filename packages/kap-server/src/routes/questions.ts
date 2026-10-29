@@ -12,6 +12,7 @@ import { z } from 'zod';
 import { errEnvelope, okEnvelope } from '../envelope';
 import { requestLog } from '../lib/requestLog';
 import { defineRoute } from '../middleware/defineRoute';
+import { detailsSchema, sessionIdParamSchema } from '../protocol/common';
 import { ErrorCode } from '../protocol/error-codes';
 import {
   type QuestionItem as ProtocolQuestionItem,
@@ -50,16 +51,10 @@ interface QuestionRouteHost {
   ): unknown;
 }
 
-const sessionIdParamSchema = z.object({
-  session_id: z.string().min(1),
-});
-
 const tailParamsSchema = z.object({
   session_id: z.string().min(1),
   tail: z.string().min(1),
 });
-
-const detailsSchema = z.array(z.object({ path: z.string(), message: z.string() }));
 
 export function registerQuestionsRoutes(app: QuestionRouteHost, core: Scope): void {
   const listRoute = defineRoute(

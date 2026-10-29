@@ -5,6 +5,8 @@ import path from 'node:path';
 
 import { kimiCdnContentUrl } from '@moonshot-ai/kimi-code-oauth';
 
+import { errorMessage } from '#/_base/utils/errorMessage';
+
 import { downloadToFile, runCommand, type FetchLike } from '../host';
 import type {
   CapabilityDetectResult,
@@ -155,10 +157,6 @@ export async function readAppBundleVersion(infoPlistPath: string): Promise<strin
 
 function appleScriptQuote(script: string): string {
   return script.replaceAll('\\', '\\\\').replaceAll('"', '\\"');
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function powerShellStringLiteral(value: string): string {

@@ -1,3 +1,4 @@
+import { isAbortError } from '#/_base/utils/abort';
 import type { WebSearchResult } from '#/agent/tools/web-search/web-search';
 import { Error2, ErrorCodes } from '#/errors';
 
@@ -26,12 +27,6 @@ const FALLBACK_HEADERS: Record<string, string> = {
   referer: 'https://duckduckgo.com/',
   'accept-language': 'zh-CN,zh;q=0.9,en;q=0.8',
 };
-
-function isAbortError(error: unknown): boolean {
-  return (
-    typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError'
-  );
-}
 
 function directChildAnchor(element: EngineElement): EngineElement | null {
   const children = (

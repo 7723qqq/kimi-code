@@ -53,6 +53,7 @@ import {
 import { parseRangeHeader, pickHeader } from '../lib/httpRange';
 import { requestLog } from '../lib/requestLog';
 import { defineRoute } from '../middleware/defineRoute';
+import { detailsSchema } from '../protocol/common';
 import { ErrorCode } from '../protocol/error-codes';
 import {
   fsOpenInRequestSchema,
@@ -112,7 +113,6 @@ const rootFsSuggestBodySchema = fsSuggestRequestSchema.extend({
   runtime_id: z.string().min(1).optional(),
 }).strict();
 
-const detailsSchema = z.array(z.object({ path: z.string(), message: z.string() }));
 
 const FS_ACTIONS = [
   'list',

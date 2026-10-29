@@ -1,3 +1,4 @@
+import { isAbortError } from '#/_base/utils/abort';
 import { Error2, ErrorCodes } from '#/errors';
 
 import { debugLog, engineFetch, type EngineHttpResponse } from '../engine-http';
@@ -25,12 +26,6 @@ const README_HEADERS: Record<string, string> = {
 interface RepoInfo {
   owner: string;
   repo: string;
-}
-
-function isAbortError(error: unknown): boolean {
-  return (
-    typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError'
-  );
 }
 
 function extractOwnerAndRepo(url: string): RepoInfo | null {

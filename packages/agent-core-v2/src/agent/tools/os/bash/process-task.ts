@@ -1,5 +1,6 @@
 import type { Readable } from 'node:stream';
 
+import { errorMessage } from '#/_base/utils/errorMessage';
 import type { IHostProcess } from '#/os/interface/hostProcess';
 
 type ProcessHandle = Omit<IHostProcess, '_serviceBrand'>;
@@ -314,8 +315,4 @@ function createPrematureCloseError(): Error {
   const error = new Error('Premature close') as NodeJS.ErrnoException;
   error.code = 'ERR_STREAM_PREMATURE_CLOSE';
   return error;
-}
-
-function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
 }

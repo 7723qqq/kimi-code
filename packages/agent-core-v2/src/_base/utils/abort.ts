@@ -4,8 +4,11 @@ export function abortError(message = 'Aborted'): Error {
   return error;
 }
 
-export function isAbortError(error: unknown): error is Error {
-  return error instanceof Error && error.name === 'AbortError';
+export function isAbortError(error: unknown): boolean {
+  if (error instanceof Error && error.name === 'AbortError') return true;
+  return (
+    typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError'
+  );
 }
 
 export class UserCancellationError extends Error {

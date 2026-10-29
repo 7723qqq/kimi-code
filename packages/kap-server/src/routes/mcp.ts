@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { errEnvelope, okEnvelope } from '../envelope';
 import { requestLog } from '../lib/requestLog';
 import { defineRoute } from '../middleware/defineRoute';
+import { sessionIdParamSchema } from '../protocol/common';
 import { ErrorCode } from '../protocol/error-codes';
 import {
   listMcpServersResponseSchema,
@@ -30,10 +31,6 @@ interface McpRouteHost {
     ) => Promise<void> | void,
   ): unknown;
 }
-
-const sessionIdParamSchema = z.object({
-  session_id: z.string().min(1),
-});
 
 const sessionAndServerNameParamSchema = z.object({
   session_id: z.string().min(1),

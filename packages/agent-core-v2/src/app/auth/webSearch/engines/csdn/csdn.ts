@@ -1,3 +1,4 @@
+import { isAbortError } from '#/_base/utils/abort';
 import type { WebSearchResult } from '#/agent/tools/web-search/web-search';
 import { Error2, ErrorCodes } from '#/errors';
 
@@ -26,12 +27,6 @@ interface CsdnSearchResultItem {
 
 interface CsdnSearchResponse {
   result_vos?: CsdnSearchResultItem[];
-}
-
-function isAbortError(error: unknown): boolean {
-  return (
-    typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError'
-  );
 }
 
 async function fetchSearchPage(

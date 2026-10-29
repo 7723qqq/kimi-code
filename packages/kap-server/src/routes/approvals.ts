@@ -15,6 +15,7 @@ import { z } from 'zod';
 import { errEnvelope, okEnvelope } from '../envelope';
 import { requestLog } from '../lib/requestLog';
 import { defineRoute } from '../middleware/defineRoute';
+import { detailsSchema, sessionIdParamSchema } from '../protocol/common';
 import { ErrorCode } from '../protocol/error-codes';
 import {
   approvalAlreadyResolvedDataSchema,
@@ -43,16 +44,10 @@ interface ApprovalRouteHost {
   ): unknown;
 }
 
-const sessionIdParamSchema = z.object({
-  session_id: z.string().min(1),
-});
-
 const approvalParamsSchema = z.object({
   session_id: z.string().min(1),
   approval_id: z.string().min(1),
 });
-
-const detailsSchema = z.array(z.object({ path: z.string(), message: z.string() }));
 
 const APPROVAL_EXPIRY_MS = 24 * 60 * 60 * 1000;
 

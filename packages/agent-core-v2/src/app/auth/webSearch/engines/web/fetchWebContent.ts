@@ -5,6 +5,7 @@ import { isIP } from 'node:net';
 import { Readability } from '@mozilla/readability';
 import { parseHTML as rawParseHTML } from 'linkedom';
 
+import { isAbortError } from '#/_base/utils/abort';
 import { isBlockedIpAddress } from '#/_base/utils/private-address';
 import { Error2, ErrorCodes } from '#/errors';
 
@@ -42,7 +43,6 @@ interface DomParseResult {
 const parseHTML = rawParseHTML as unknown as (html: string) => DomParseResult;
 
 export interface FetchWebContentOptions extends SearchEngineOptions {
-
   maxChars?: number;
 
   readability?: boolean;
@@ -99,12 +99,6 @@ function logReadabilityFallback(message: string, error?: unknown): void {
     return;
   }
   debugLog(`[fetchWebContent/readability] ${message}`);
-}
-
-function isAbortError(error: unknown): boolean {
-  return (
-    typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError'
-  );
 }
 
 function removeAll($: ReturnType<typeof loadHtml>, selector: string): void {

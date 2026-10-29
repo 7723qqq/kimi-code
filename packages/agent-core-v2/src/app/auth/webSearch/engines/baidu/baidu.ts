@@ -1,3 +1,4 @@
+import { isAbortError } from '#/_base/utils/abort';
 import type { WebSearchResult } from '#/agent/tools/web-search/web-search';
 import { Error2, ErrorCodes } from '#/errors';
 
@@ -37,12 +38,6 @@ function buildBaiduSearchUrl(query: string, pageNumber: number): string {
   url.searchParams.set('csor', '5');
   url.searchParams.set('_cr1', '30385');
   return url.toString();
-}
-
-function isAbortError(error: unknown): boolean {
-  return (
-    typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError'
-  );
 }
 
 async function fetchSearchPage(url: string, options: SearchEngineOptions): Promise<string> {

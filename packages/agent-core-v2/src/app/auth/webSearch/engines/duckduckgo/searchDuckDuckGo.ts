@@ -1,3 +1,4 @@
+import { isAbortError } from '#/_base/utils/abort';
 import type { WebSearchResult } from '#/agent/tools/web-search/web-search';
 import { Error2, ErrorCodes } from '#/errors';
 
@@ -37,12 +38,6 @@ const HTML_HEADERS: Record<string, string> = {
 };
 
 const HTML_RESULT_URL = 'https://html.duckduckgo.com/html/';
-
-function isAbortError(error: unknown): boolean {
-  return (
-    typeof error === 'object' && error !== null && 'name' in error && error.name === 'AbortError'
-  );
-}
 
 async function fetchDuckDuckGoText(
   url: string,

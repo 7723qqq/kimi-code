@@ -3,6 +3,7 @@ import { z } from 'zod';
 
 import type { IAgentScopeHandle } from '#/_base/di/scope';
 import { isAbortError, isUserCancellation, userCancellationReason } from '#/_base/utils/abort';
+import { errorMessage } from '#/_base/utils/errorMessage';
 import { IAgentProfileService } from '#/agent/profile/profile';
 import { tryAgentContextOf } from '#/agent/scopeContext/scopeContext';
 import { Event2, registerEvent2Class } from '#/app/event/event2';
@@ -288,10 +289,6 @@ function terminalEventFor(
 
 function suppressesRateLimitFailure(options: MirrorAgentRunOptions, error: unknown): boolean {
   return options.suppressRateLimitFailureEvent === true && isProviderRateLimitError(error);
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function childContextTokens(
