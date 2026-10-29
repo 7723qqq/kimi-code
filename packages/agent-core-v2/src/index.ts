@@ -665,7 +665,6 @@ export * from '#/features/reminder/reminderService';
 export * from '#/features/reminder/systemReminder';
 export * from '#/features/reminder/types';
 import '#/features/reminder/reminderFeature';
-import '#/features/deepseekAdaptation/deepseekAdaptationFeature';
 export * from '#/features/dateChange/dateChange';
 export * from '#/features/dateChange/dateChangeService';
 export * from '#/agent/contextProjector/contextProjector';
@@ -714,6 +713,7 @@ export * from '#/agent/interruptionReminder/interruptionReminderOps';
 export * from '#/agent/mcp/mcp';
 export * from '#/agent/mcp/mcpService';
 export * from '#/agent/mcp/mcpDiscoveryOps';
+export * from '#/agent/mcp/mcpFailureOps';
 export * from '#/mcpCore/config-schema';
 export * from '#/agent/media/mediaReadContext';
 export {

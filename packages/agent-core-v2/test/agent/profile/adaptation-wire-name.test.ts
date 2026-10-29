@@ -35,7 +35,7 @@ describe('model adaptation lookup follows the wire name', () => {
     ctx = undefined;
   });
 
-  it('keeps the deepseek system prompt minimal instead of embedding the adaptation', async () => {
+  it('embeds the deepseek adaptation in the global system prompt', async () => {
     ctx = createTestAgent({
       autoConfigure: false,
       initialConfig: deepseekConfig('deepseek-v4-pro') as never,
@@ -46,12 +46,13 @@ describe('model adaptation lookup follows the wire name', () => {
 
     expect(profile.getModelWireName()).toBe('deepseek-v4-pro');
     const prompt = profile.getSystemPrompt();
-    expect(prompt).toContain('helpful software engineer assistant');
-    expect(prompt).not.toContain('# Model Adaptation');
-    expect(prompt).not.toContain('# Tool use');
+    expect(prompt).toContain('# Working contract');
+    expect(prompt).toContain('# Model Adaptation: deepseek-v4-pro');
+    expect(prompt).toContain('## Reasoning history');
+    expect(prompt).toContain('## Token budget');
   });
 
-  it('resolves the wire name even though the prompt stays minimal', async () => {
+  it('resolves the wire name and carries the adaptation for it', async () => {
     ctx = createTestAgent({
       autoConfigure: false,
       initialConfig: deepseekConfig('deepseek-v3') as never,
@@ -62,11 +63,10 @@ describe('model adaptation lookup follows the wire name', () => {
 
     expect(profile.getModel()).toBe('ds');
     expect(profile.getModelWireName()).toBe('deepseek-v3');
-    expect(profile.getSystemPrompt()).not.toContain('# Model Adaptation');
+    expect(profile.getSystemPrompt()).toContain('# Model Adaptation: deepseek-v3');
   });
 
   it('injects nothing for a family with no curated guidance', async () => {
-
     ctx = createTestAgent({
       autoConfigure: false,
       initialConfig: deepseekConfig('gpt-4o') as never,

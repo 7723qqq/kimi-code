@@ -1,17 +1,9 @@
 import { expect, it } from 'bun:test';
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
-
 import { describe } from 'bun:test';
 
 import { loadCuratedAdaptation } from '#/app/agentProfileCatalog/modelAdaptations';
 
 const MAX_ADAPTATION_BYTES = 32 * 1024;
-
-const minimalPrompt = readFileSync(
-  join(import.meta.dirname, '../../../src/app/agentProfileCatalog/system.minimal.md'),
-  'utf8',
-);
 
 describe('deepseek curated adaptation', () => {
   it('carries the three v4.1 sections', async () => {
@@ -32,23 +24,17 @@ describe('deepseek curated adaptation', () => {
     expect(await loadCuratedAdaptation('gpt-4o')).toBeUndefined();
   });
 
-  it('delegates the v4.1 operating notes to the reminder instead of restating them', async () => {
+  it('states that the token budget is unlimited', async () => {
     const adaptation = (await loadCuratedAdaptation('deepseek-v4.1-flash')) ?? '';
+    expect(adaptation).toContain('## Token budget');
+    expect(adaptation).toContain('unlimited');
+  });
 
+  it('carries the operating notes as standing guidance', async () => {
+    const adaptation = (await loadCuratedAdaptation('deepseek-v4.1-flash')) ?? '';
     expect(adaptation).toContain('## Reasoning history');
     expect(adaptation).toContain('## Tool arguments');
     expect(adaptation).toContain('## Long context');
-
-    expect(minimalPrompt).toContain('${behavior_contract}');
-    expect(minimalPrompt).not.toContain('Replay earlier reasoning in full');
-    expect(minimalPrompt).not.toContain('## Reasoning history');
-  });
-
-  it('keeps the minimal prompt free of the variables the shape drops', () => {
-    expect(minimalPrompt).not.toContain('${agents_md}');
-    expect(minimalPrompt).not.toContain('${skills_section}');
-    expect(minimalPrompt).not.toContain('${model_adaptation_section}');
-    expect(minimalPrompt).toContain('${product_name}');
-    expect(minimalPrompt).toContain('${cwd}');
+    expect(adaptation).not.toContain('## Working rules delegated by the minimal prompt');
   });
 });

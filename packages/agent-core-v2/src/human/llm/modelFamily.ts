@@ -6,8 +6,6 @@ export interface ImageTokenPricing {
   readonly fallbackTokens: number;
 }
 
-export type PromptShape = 'minimal';
-
 export interface ModelFamilyPrefix {
   readonly value: string;
   readonly glued?: boolean;
@@ -23,7 +21,6 @@ export interface ModelFamilyProfile {
   readonly prefixes: readonly ModelFamilyPrefix[];
   readonly adaptationPrefixes: readonly string[];
   readonly curatedAdaptation?: boolean;
-  readonly promptShape?: PromptShape;
   readonly imagePricing?: ImageTokenPricing;
   readonly reasoningEffort?: FamilyReasoningEffort;
   readonly thinkingHistory?: FamilyThinkingHistory;
@@ -60,11 +57,7 @@ const DEEPSEEK_MAX_OUTPUT_DEFAULTS: FamilyMaxOutputDefaults = Object.freeze({
 
 const DEEPSEEK_THINKING_HISTORY: FamilyThinkingHistory = Object.freeze({
   fullEchoWithTools: true,
-  ignoredWhileThinking: Object.freeze([
-    'temperature',
-    'presence_penalty',
-    'frequency_penalty',
-  ]),
+  ignoredWhileThinking: Object.freeze(['temperature', 'presence_penalty', 'frequency_penalty']),
 });
 
 const DEEPSEEK_PREFIXES: readonly ModelFamilyPrefix[] = Object.freeze([
@@ -78,7 +71,6 @@ const MODEL_FAMILIES: readonly ModelFamilyProfile[] = Object.freeze([
     prefixes: DEEPSEEK_PREFIXES,
     adaptationPrefixes: Object.freeze(['deepseek']),
     curatedAdaptation: true,
-    promptShape: 'minimal',
     imagePricing: DEEPSEEK_IMAGE_PRICING,
     reasoningEffort: DEEPSEEK_REASONING_EFFORT,
     thinkingHistory: DEEPSEEK_THINKING_HISTORY,
@@ -168,10 +160,7 @@ export function thinkingHistoryForModel(
   return resolveModelFamily(name)?.thinkingHistory;
 }
 
-export function fullReasoningEchoRequired(
-  name: string | undefined,
-  hasTools: boolean,
-): boolean {
+export function fullReasoningEchoRequired(name: string | undefined, hasTools: boolean): boolean {
   if (name === undefined || !hasTools) return false;
   return thinkingHistoryForModel(name)?.fullEchoWithTools === true;
 }
@@ -179,9 +168,4 @@ export function fullReasoningEchoRequired(
 export function ignoredSamplingParamsForModel(name: string | undefined): readonly string[] {
   if (name === undefined) return [];
   return thinkingHistoryForModel(name)?.ignoredWhileThinking ?? [];
-}
-
-export function promptShapeForModel(name: string | undefined): PromptShape | undefined {
-  if (name === undefined) return undefined;
-  return resolveModelFamily(name)?.promptShape;
 }

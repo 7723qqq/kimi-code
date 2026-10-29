@@ -1,32 +1,16 @@
 import { readdir } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 
 import type { ILogger } from '#/_base/log/log';
-import {
-  familyAdaptationPrefixes,
-  promptShapeForModel,
-  resolveModelFamily,
-} from '#/llm-adapter/contract/modelFamily';
+import { familyAdaptationPrefixes, resolveModelFamily } from '#/llm-adapter/contract/modelFamily';
 
-import { renderDelegatedBehaviorContract } from './behaviorContract';
-
-const ADAPTATIONS_DIR_TAIL = 'agentProfileCatalog/model-adaptations/curated';
+import DEEPSEEK_ADAPTATION from './model-adaptations/curated/deepseek.md?raw';
 
 const MAX_ADAPTATION_BYTES = 32 * 1024;
 
-export function adaptationDirectoryCandidates(
-  moduleDir: string = import.meta.dirname,
-): readonly string[] {
-  const out: string[] = [];
-  let dir = moduleDir;
-  for (let depth = 0; depth < 4; depth += 1) {
-    out.push(resolve(dir, 'model-adaptations', 'curated'));
-    dir = resolve(dir, '..');
-  }
-  out.push(resolve(moduleDir, 'src/app', ADAPTATIONS_DIR_TAIL));
-  out.push(resolve(moduleDir, 'app', ADAPTATIONS_DIR_TAIL));
-  return out;
-}
+const BUILTIN_ADAPTATIONS: Readonly<Record<string, string>> = {
+  deepseek: DEEPSEEK_ADAPTATION,
+};
 
 export function adaptationFileStem(model: string): string {
   const tail = model.includes('/') ? model.slice(model.lastIndexOf('/') + 1) : model;
@@ -44,20 +28,34 @@ export interface LoadAdaptationInput {
   readonly dir?: string;
 }
 
-export async function loadModelAdaptation(
-  input: LoadAdaptationInput,
-): Promise<string | undefined> {
-  const stems = input.candidates ?? [adaptationFileStem(input.model)];
+export async function loadModelAdaptation(input: LoadAdaptationInput): Promise<string | undefined> {
+  const stems =
+    input.candidates ??
+    (input.dir === undefined
+      ? familyAdaptationPrefixes(input.model)
+      : [adaptationFileStem(input.model)]);
   const usable = stems.filter((stem) => stem.length > 0);
   if (usable.length === 0) return undefined;
 
-  const dirs =
-    input.dir === undefined ? adaptationDirectoryCandidates(import.meta.dirname) : [input.dir];
-  for (const dir of dirs) {
-    const adaptation = await loadFrom(dir, usable, input.log);
-    if (adaptation !== undefined) return adaptation;
+  if (input.dir === undefined) {
+    for (const stem of usable) {
+      const builtin = BUILTIN_ADAPTATIONS[stem];
+      if (builtin !== undefined) return clampAdaptation(builtin, stem, input.log);
+    }
+    return undefined;
   }
-  return undefined;
+  return loadFrom(input.dir, usable, input.log);
+}
+
+function clampAdaptation(text: string, stem: string, log: ILogger | undefined): string | undefined {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return undefined;
+  if (trimmed.length <= MAX_ADAPTATION_BYTES) return trimmed;
+  const truncated = truncateAtSection(trimmed, MAX_ADAPTATION_BYTES);
+  log?.warn(
+    `model adaptation ${stem}.md exceeds ${MAX_ADAPTATION_BYTES} bytes; truncated to ${truncated.length}`,
+  );
+  return truncated;
 }
 
 async function loadFrom(
@@ -89,16 +87,7 @@ async function loadFrom(
 
   try {
     const text = await Bun.file(join(dir, match)).text();
-    const trimmed = text.trim();
-    if (trimmed.length === 0) return undefined;
-    if (trimmed.length > MAX_ADAPTATION_BYTES) {
-      const truncated = truncateAtSection(trimmed, MAX_ADAPTATION_BYTES);
-      log?.warn(
-        `model adaptation ${match} exceeds ${MAX_ADAPTATION_BYTES} bytes; truncated to ${truncated.length}`,
-      );
-      return truncated;
-    }
-    return trimmed;
+    return clampAdaptation(text, match.replace(/\.md$/, ''), log);
   } catch (error: unknown) {
     log?.warn(`model adaptation ${match} unreadable: ${describe(error)}`);
     return undefined;
@@ -156,12 +145,7 @@ export function renderCuratedAdaptation(model: string, adaptation: string): stri
     '',
     'Curated guidance for this model family, authored for this repository and hand-written.',
     'These are standing instructions for how to work, not measured tendencies and not model probes.',
-    'They carry the working rules the minimal system prompt delegates to this reminder.',
     'Where they conflict with the instructions above, the instructions above win.',
-    '',
-    '## Working rules delegated by the minimal prompt',
-    '',
-    renderDelegatedBehaviorContract(),
     '',
     stripGeneratedHeader(adaptation),
   ].join('\n');
@@ -169,10 +153,6 @@ export function renderCuratedAdaptation(model: string, adaptation: string): stri
 
 export function hasCuratedAdaptation(name: string): boolean {
   return resolveModelFamily(name)?.curatedAdaptation === true;
-}
-
-export function adaptationDeliveredByReminder(name: string): boolean {
-  return hasCuratedAdaptation(name) && promptShapeForModel(name) === 'minimal';
 }
 
 export async function loadCuratedAdaptation(

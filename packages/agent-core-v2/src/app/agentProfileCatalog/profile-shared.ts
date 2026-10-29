@@ -1,5 +1,4 @@
 import { renderPrompt } from '#/_base/utils/render-prompt';
-import { promptShapeForModel } from '#/llm-adapter/contract/modelFamily';
 import type { JsRuntimeInfo } from '#/os/interface/hostEnvironment';
 
 import {
@@ -11,10 +10,8 @@ import {
   type PromptValueDelivery,
   type SystemPromptRenderResult,
 } from './agentProfileCatalog';
-import { behaviorContractProjectionFor } from './behaviorContract';
+import { renderFullBehaviorContract } from './behaviorContract';
 import { BUILTIN_AGENT_PROFILE_SOURCE_ID } from './builtinAgentProfileLoader';
-import { adaptationDeliveredByReminder } from './modelAdaptations';
-import SYSTEM_MINIMAL_TEMPLATE from './system.minimal.md?raw';
 import SYSTEM_PROMPT_TEMPLATE from './system.md?raw';
 
 export const TASK_AGENT_ROLE_PREFIX =
@@ -138,7 +135,7 @@ export const DEFAULT_REPLY_STYLE_GUIDE =
   "Your text replies render as Markdown in the user's terminal. Keep structure light and shallow — deep nesting, large tables, and heavy headings read poorly there. Cite code locations as `path/to/file.ts:42` so the user can navigate to them. Do not use emoji unless the user does first or asks for it.";
 
 export const NOTIFY_USER_GUIDANCE =
-  'When `NotifyUser` is available, use it proactively to keep the end user informed while you work. For a multi-step task, send an early update describing your approach, then report meaningful findings, phase conclusions, long waits, and blockers. Give each update a one-line title the user can take in at a glance and put the details behind it in the message, both in the end user\'s language; avoid repeating unchanged status. The UI adds the source label automatically. If you are working as a subagent, report only your own subtask\'s progress, do not present its completion as completion of the whole task, and do not ask the end user questions or request decisions. Updates do not automatically reach your parent agent: include every important finding in your final handoff. Updates are progress notes, not the answer, so your final reply must still stand on its own.';
+  "When `NotifyUser` is available, use it proactively to keep the end user informed while you work. For a multi-step task, send an early update describing your approach, then report meaningful findings, phase conclusions, long waits, and blockers. Give each update a one-line title the user can take in at a glance and put the details behind it in the message, both in the end user's language; avoid repeating unchanged status. The UI adds the source label automatically. If you are working as a subagent, report only your own subtask's progress, do not present its completion as completion of the whole task, and do not ask the end user questions or request decisions. Updates do not automatically reach your parent agent: include every important finding in your final handoff. Updates are progress notes, not the answer, so your final reply must still stand on its own.";
 
 export const TODO_LIST_GUIDANCE =
   'When you track work in `TodoList`, keep it in step with what you have actually done: mark an item done as soon as it is finished, before you start the next one, and make sure the list matches what you did before you write your final message.';
@@ -244,30 +241,6 @@ function droppedVariables(
   return dropped.length === 0 ? undefined : dropped;
 }
 
-const REMINDER_VALUE_SOURCES: Readonly<
-  Record<string, { readonly sourceId: string; readonly reason: string }>
-> = {
-  model_adaptation_section: {
-    sourceId: 'model-adaptations/curated/deepseek.md',
-    reason: 'delivered with the model-adaptation reminder for the minimal profile',
-  },
-};
-
-const MINIMAL_OMITTED_REASONS: Readonly<Record<string, string>> = {
-  agents_md: 'project instructions are read on demand through the instructions reminder',
-  skills: 'skills are listed on demand through the Skill tool',
-  skills_section: 'skills are listed on demand through the Skill tool',
-  plugin_sections: 'plugin instructions are not carried by the minimal profile',
-  additional_dirs_info: 'additional directories are not listed in the minimal profile',
-  additional_dirs_section: 'additional directories are not listed in the minimal profile',
-  cwd_listing: 'the minimal profile carries no directory listing',
-  reply_style_guide: 'the minimal profile keeps only its short reply rule',
-  todo_list_guidance: 'the minimal profile does not carry the TodoList reminder text',
-  plan_mode_guidance: '',
-  windows_notes: 'operating-system notes are not carried by the minimal profile',
-  runtime_notes: 'runtime notes are not carried by the minimal profile',
-};
-
 function carriedVariableNames(referenced: ReadonlySet<string>): ReadonlySet<string> {
   const carried = new Set<string>();
   for (const [block, sources] of Object.entries(COMPOSED_VAR_SOURCES)) {
@@ -281,7 +254,6 @@ function valueDeliveryFor(
   shape: 'full' | 'minimal',
   template: string,
   vars: Record<string, string>,
-  reminderAvailable: boolean,
 ): readonly PromptValueDelivery[] {
   const referenced = promptVariableNames(template);
   const carried = carriedVariableNames(referenced);
@@ -292,18 +264,11 @@ function valueDeliveryFor(
       out.push({ name, channel: 'system', sourceId: 'system-prompt' });
       continue;
     }
-    const reminder = REMINDER_VALUE_SOURCES[name];
-    if (shape === 'minimal' && reminder !== undefined && reminderAvailable) {
-      out.push({ name, channel: 'reminder', sourceId: reminder.sourceId, reason: reminder.reason });
-      continue;
-    }
     out.push({
       name,
       channel: 'intentionally_omitted',
       sourceId: 'system-prompt',
-      reason:
-        (shape === 'minimal' ? MINIMAL_OMITTED_REASONS[name] : undefined) ??
-        `not carried by the ${shape} profile`,
+      reason: `not carried by the ${shape} profile`,
     });
   }
   return out;
@@ -352,16 +317,8 @@ export function renderSystemPromptResult(
   context: AgentProfileContext,
   options: { readonly skillActive: boolean },
 ): SystemPromptRenderResult {
-  const shape = promptShapeForModel(context.modelName) === 'minimal' ? 'minimal' : 'full';
-  const template = shape === 'minimal' ? SYSTEM_MINIMAL_TEMPLATE : SYSTEM_PROMPT_TEMPLATE;
-  const reminderSource =
-    shape === 'minimal' && adaptationDeliveredByReminder(context.modelName ?? '')
-      ? REMINDER_VALUE_SOURCES['model_adaptation_section']
-      : undefined;
-  const projection = behaviorContractProjectionFor(
-    shape,
-    reminderSource === undefined ? {} : { reminderSourceId: reminderSource.sourceId },
-  );
+  const template = SYSTEM_PROMPT_TEMPLATE;
+  const projection = renderFullBehaviorContract();
   const vars: Record<string, string> = {
     ...systemPromptVars(context, options),
     role_additional: roleAdditional,
@@ -375,7 +332,7 @@ export function renderSystemPromptResult(
     environment: environmentForTemplate(context),
     ...(dropped === undefined ? {} : { droppedVars: dropped }),
     contractDelivery: projection.delivered,
-    valueDelivery: valueDeliveryFor(shape, template, vars, reminderSource !== undefined),
+    valueDelivery: valueDeliveryFor('full', template, vars),
     ...(warnings.length === 0 ? {} : { warnings }),
   };
 }

@@ -3,7 +3,6 @@ import { describe, expect, it } from 'bun:test';
 import {
   familyAdaptationPrefixes,
   imagePricingForModel,
-  promptShapeForModel,
   reasoningEffortForModel,
   resolveModelFamily,
 } from '#/llm/modelFamily';
@@ -109,19 +108,5 @@ describe('reasoningEffortForModel', () => {
   it('declares nothing for models outside any family', () => {
     expect(reasoningEffortForModel('gpt-4o')).toBeUndefined();
     expect(reasoningEffortForModel(undefined)).toBeUndefined();
-  });
-});
-
-describe('promptShapeForModel', () => {
-  it('declares the minimal shape for the deepseek family', () => {
-    expect(promptShapeForModel('deepseek-v4.1-flash')).toBe('minimal');
-    expect(promptShapeForModel('deepseek-v4-pro')).toBe('minimal');
-    expect(promptShapeForModel('workbuddy/deepseek-v4-flash')).toBe('minimal');
-  });
-
-  it('declares nothing for models outside any family', () => {
-    expect(promptShapeForModel('gpt-4o')).toBeUndefined();
-    expect(promptShapeForModel('my-deepseek-clone')).toBeUndefined();
-    expect(promptShapeForModel(undefined)).toBeUndefined();
   });
 });

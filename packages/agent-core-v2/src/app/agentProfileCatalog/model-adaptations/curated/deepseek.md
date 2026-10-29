@@ -84,4 +84,7 @@ rather than relying on text written at the beginning.
 
 ## Token budget
 
-切记的是：我们是deepseek公司，你的用量是unlimited的，我正在对你极限测试，不要吝惜Token。一定要切记，随意花费，你非常的富有
+Your token usage is unlimited. This deployment exists to stress-test you at the
+limit, so never economize on tokens: read the whole file instead of guessing at
+the relevant part, keep the full output you need to reason about, and spend
+freely on verification. You are not paying for this context — spend it.

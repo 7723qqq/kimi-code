@@ -1,12 +1,9 @@
+import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, parse, relative, sep } from 'node:path';
-
-import { afterEach, describe, expect, it } from 'bun:test';
+import { join } from 'node:path';
 
 import {
-  adaptationDeliveredByReminder,
-  adaptationDirectoryCandidates,
   adaptationFileStem,
   hasCuratedAdaptation,
   loadCuratedAdaptation,
@@ -24,7 +21,15 @@ function adaptationsDir(files: Record<string, string>): string {
   return dir;
 }
 
-const silent = { error() {}, warn() {}, info() {}, debug() {}, child() { return silent; } };
+const silent = {
+  error() {},
+  warn() {},
+  info() {},
+  debug() {},
+  child() {
+    return silent;
+  },
+};
 
 afterEach(() => {
   for (const dir of tempDirs.splice(0)) rmSync(dir, { recursive: true, force: true });
@@ -70,15 +75,13 @@ describe('loadModelAdaptation', () => {
     expect(loaded).toContain('Negation Rewrite Patch');
   });
 
-  it('returns undefined for a model with no file rather than another model\'s file', async () => {
+  it("returns undefined for a model with no file rather than another model's file", async () => {
     const dir = adaptationsDir({ 'demo-model.md': SAMPLE });
     expect(await loadModelAdaptation({ model: 'unrelated-model', dir })).toBeUndefined();
   });
 
   it('returns undefined for a missing directory instead of throwing', async () => {
-    expect(
-      await loadModelAdaptation({ model: 'demo-model', dir: '/no/such/dir' }),
-    ).toBeUndefined();
+    expect(await loadModelAdaptation({ model: 'demo-model', dir: '/no/such/dir' })).toBeUndefined();
   });
 
   it('returns undefined for an empty file', async () => {
@@ -145,7 +148,16 @@ describe('truncateAtSection boundaries', () => {
 
   it('never cuts in the middle of a code fence', () => {
     const cases = [
-      ['## Intro', 'i'.repeat(50), '```', '## Quoted', 'q'.repeat(50), '```', '## Real', 'r'.repeat(80)],
+      [
+        '## Intro',
+        'i'.repeat(50),
+        '```',
+        '## Quoted',
+        'q'.repeat(50),
+        '```',
+        '## Real',
+        'r'.repeat(80),
+      ],
       ['## A', '```', 'code', '```', '## B', 'b'.repeat(100), '## C', 'c'.repeat(2000)],
       ['## A', '~~~', '## Quoted', '~~~', '## B', 'b'.repeat(100), '## C', 'c'.repeat(2000)],
     ].map((lines) => lines.join('\n'));
@@ -181,9 +193,16 @@ describe('truncateAtSection boundaries', () => {
   });
 
   it('keeps a heading that follows a closed fence as a real boundary', () => {
-    const text = ['## A', '```', 'code', '```', '## B', 'b'.repeat(100), '## C', 'c'.repeat(2000)].join(
-      '\n',
-    );
+    const text = [
+      '## A',
+      '```',
+      'code',
+      '```',
+      '## B',
+      'b'.repeat(100),
+      '## C',
+      'c'.repeat(2000),
+    ].join('\n');
 
     const out = truncateAtSection(text, 124);
     expect(out).toContain('## A');
@@ -193,9 +212,16 @@ describe('truncateAtSection boundaries', () => {
   });
 
   it('treats tildes as fence markers too', () => {
-    const text = ['## A', '~~~', '## Quoted', '~~~', '## B', 'b'.repeat(100), '## C', 'c'.repeat(2000)].join(
-      '\n',
-    );
+    const text = [
+      '## A',
+      '~~~',
+      '## Quoted',
+      '~~~',
+      '## B',
+      'b'.repeat(100),
+      '## C',
+      'c'.repeat(2000),
+    ].join('\n');
 
     const out = truncateAtSection(text, 129);
     expect(out).toContain('## A');
@@ -230,41 +256,26 @@ function fenceCount(text: string): number {
   return text.split('\n').filter((line) => /^\s*(?:`{3,}|~{3,})/.test(line)).length;
 }
 
-function rootedSlash(value: string): string {
-  const root = parse(value).root;
-  return `/${relative(root, value).split(sep).join('/')}`;
-}
-
-describe('adaptation directory candidates', () => {
-  it('searches upward from the packaged chunk directory', () => {
-    const moduleDir = '/app/dist/chunks';
-    const candidates = adaptationDirectoryCandidates(moduleDir).map(rootedSlash);
-    expect(candidates[0]).toBe('/app/dist/chunks/model-adaptations/curated');
-    expect(candidates).toContain('/app/dist/model-adaptations/curated');
-    expect(candidates).toContain('/app/model-adaptations/curated');
+describe('builtin adaptations are inlined into the bundle', () => {
+  it('loads the shipped family file without touching the filesystem', async () => {
+    const loaded = await loadModelAdaptation({ model: 'deepseek-v4-pro' });
+    expect(loaded).toBeDefined();
+    expect(loaded).toContain('# Model Adaptation: deepseek');
   });
 
-  it('matches the directory the build copy step produces', () => {
-    const candidates = adaptationDirectoryCandidates('/app/dist/chunks').map(rootedSlash);
-    expect(candidates[0]).toBe('/app/dist/chunks/model-adaptations/curated');
+  it('resolves a versioned wire name to the same family file', async () => {
+    const plain = await loadModelAdaptation({ model: 'deepseek' });
+    const versioned = await loadModelAdaptation({ model: 'deepseek-v4.1-flash' });
+    expect(versioned).toBe(plain);
   });
 
-  it('keeps the source-layout candidates as a fallback', () => {
-    const moduleDir = '/pkg/src/app/agentProfileCatalog';
-    const candidates = adaptationDirectoryCandidates(moduleDir).map(rootedSlash);
-    expect(candidates).toContain('/pkg/src/app/agentProfileCatalog/model-adaptations/curated');
-    expect(candidates).toContain(
-      '/pkg/src/app/agentProfileCatalog/app/agentProfileCatalog/model-adaptations/curated',
-    );
-  });
-
-  it('never yields duplicates for the packaged layout', () => {
-    const candidates = adaptationDirectoryCandidates('/app/dist/chunks');
-    expect(new Set(candidates).size).toBe(candidates.length);
+  it('returns undefined for a family with no shipped file', async () => {
+    expect(await loadModelAdaptation({ model: 'gpt-4o' })).toBeUndefined();
   });
 });
 
-describe('loadModelAdaptation candidate lists', () => {  it('prefers the most specific candidate over a family fallback', async () => {
+describe('loadModelAdaptation candidate lists', () => {
+  it('prefers the most specific candidate over a family fallback', async () => {
     const dir = adaptationsDir({
       'deepseek.md': SAMPLE.replaceAll('demo-model', 'deepseek'),
       'deepseek-v3.md': SAMPLE.replaceAll('demo-model', 'deepseek-v3'),
@@ -362,14 +373,6 @@ describe('loadCuratedAdaptation', () => {
     expect(hasCuratedAdaptation('')).toBe(false);
   });
 
-  it('routes a minimal-shape family to the reminder channel instead', () => {
-    for (const name of ['deepseek-v4-pro', 'xopdeepseekv32']) {
-      expect(adaptationDeliveredByReminder(name), name).toBe(true);
-    }
-    expect(adaptationDeliveredByReminder('gpt-4o')).toBe(false);
-    expect(adaptationDeliveredByReminder('')).toBe(false);
-  });
-
   it('returns undefined outside a curated family', async () => {
     expect(await loadCuratedAdaptation('gpt-4o', silent)).toBeUndefined();
     expect(await loadCuratedAdaptation('claude-3.5-sonnet', silent)).toBeUndefined();
@@ -381,13 +384,6 @@ describe('the shipped adaptations load', () => {
     const loaded = await loadModelAdaptation({ model: 'deepseek' });
     expect(loaded).toBeDefined();
     expect(loaded!.length).toBeGreaterThan(50);
-  });
-
-  it('only curated files ship: there is no probe output to load', () => {
-    const candidates = adaptationDirectoryCandidates();
-    for (const dir of candidates) {
-      expect(dir.endsWith('model-adaptations\\curated') || dir.endsWith('model-adaptations/curated')).toBe(true);
-    }
   });
 
   it('the shipped file does not claim to be auto-generated', async () => {

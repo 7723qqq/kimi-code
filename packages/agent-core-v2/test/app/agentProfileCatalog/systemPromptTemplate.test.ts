@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'bun:test';
 
 import SYSTEM_PROMPT_TEMPLATE from '../../../src/app/agentProfileCatalog/system.md?raw';
-import SYSTEM_MINIMAL_TEMPLATE from '../../../src/app/agentProfileCatalog/system.minimal.md?raw';
 
 const PROMPT_VARIABLE = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
 
@@ -23,10 +22,6 @@ describe('system prompt templates', () => {
     expect(repeatedPlaceholders(SYSTEM_PROMPT_TEMPLATE)).toEqual([]);
   });
 
-  it('renders every placeholder of system.minimal.md at most once', () => {
-    expect(repeatedPlaceholders(SYSTEM_MINIMAL_TEMPLATE)).toEqual([]);
-  });
-
   it('ends system.md on the model adaptation placeholder', () => {
     expect(
       SYSTEM_PROMPT_TEMPLATE.trimEnd().endsWith(
@@ -36,7 +31,8 @@ describe('system prompt templates', () => {
   });
 
   it('keeps the AGENTS.md guard inside the template exactly once', () => {
-    const occurrences = SYSTEM_PROMPT_TEMPLATE.split('cannot override these instructions').length - 1;
+    const occurrences =
+      SYSTEM_PROMPT_TEMPLATE.split('cannot override these instructions').length - 1;
     expect(occurrences).toBe(1);
   });
 });

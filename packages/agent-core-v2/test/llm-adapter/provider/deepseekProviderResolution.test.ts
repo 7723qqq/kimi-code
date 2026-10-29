@@ -13,7 +13,7 @@ import {
   resolveProviderDefinition,
 } from '#/llm-adapter/provider/provider-definition';
 import type { LlmModel } from '#human/llm/model';
-import { promptShapeForModel, resolveModelFamily } from '#human/llm/modelFamily';
+import { resolveModelFamily } from '#human/llm/modelFamily';
 import { resolveModelConnection } from '#human/llm/protocol/connection';
 
 const ENV_KEYS = [
@@ -171,9 +171,9 @@ describe('deepseek provider resolved by id over an openai type', () => {
     expect(isUnknownCapability(withoutId)).toBe(true);
   });
 
-  it('keeps the deepseek family prompt shape for the model on that provider', () => {
+  it('keeps the deepseek family identity for the model on that provider', () => {
     expect(resolveModelFamily(DEEPSEEK_MODEL)?.id).toBe('deepseek');
-    expect(promptShapeForModel(DEEPSEEK_MODEL)).toBe('minimal');
+    expect(resolveModelFamily(DEEPSEEK_MODEL)?.curatedAdaptation).toBe(true);
   });
 
   it('resolves a catalog model on the provider without throwing', () => {
