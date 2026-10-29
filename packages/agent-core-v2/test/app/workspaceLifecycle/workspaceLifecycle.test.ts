@@ -70,6 +70,23 @@ function managerStub(
   const changeListeners = new Set<
     (change: { workspaceId: string; instance?: WorkspaceInstance }) => void
   >();
+  let liveLeases = 0;
+  let minLiveLeases = Number.POSITIVE_INFINITY;
+  let disposedLeases = 0;
+  const trackLease = (instance: WorkspaceInstance) => {
+    liveLeases += 1;
+    minLiveLeases = Math.min(minLiveLeases, liveLeases);
+    let released = false;
+    return {
+      instance,
+      dispose: () => {
+        if (released) return;
+        released = true;
+        liveLeases -= 1;
+        disposedLeases += 1;
+      },
+    };
+  };
   const acquire = mock(async (ref: WorkspaceInstanceRef) => {
     const found = (() => {
       if ('workspaceId' in ref && ref.workspaceId !== undefined) {
@@ -78,7 +95,7 @@ function managerStub(
       }
       return [...instances.values()].find((instance) => instance.root === ref.root);
     })();
-    if (found !== undefined) return { instance: found, dispose: () => {} };
+    if (found !== undefined) return trackLease(found);
     if (createInstance === undefined) {
       throw new Error2(
         ErrorCodes.WORKSPACE_NOT_FOUND,
@@ -88,7 +105,7 @@ function managerStub(
     const instance = createInstance(ref);
     instances.set(instance.id, instance);
     for (const listener of changeListeners) listener({ workspaceId: instance.id, instance });
-    return { instance, dispose: () => {} };
+    return trackLease(instance);
   });
   const manager: IWorkspaceInstanceManager = {
     _serviceBrand: undefined,
@@ -108,7 +125,14 @@ function managerStub(
     instances.set(workspaceId, instance);
     for (const listener of changeListeners) listener({ workspaceId, instance });
   };
-  return { manager, fire, acquire };
+  return {
+    manager,
+    fire,
+    acquire,
+    liveLeases: () => liveLeases,
+    minLiveLeases: () => minLiveLeases,
+    disposedLeases: () => disposedLeases,
+  };
 }
 
 function sessionManagerStub(
@@ -229,6 +253,53 @@ describe('WorkspaceLifecycleService', () => {
 
     expect(a).toBe(b);
     expect(lifecycle.handlers.list()).toHaveLength(1);
+  });
+
+  it('keeps one live lease per handler when handlerFor is called repeatedly', async () => {
+    const controller = controllerStub('controller');
+    const { lifecycle, manager } = build({
+      instances: [fakeInstance('wd_proj', '/tmp/proj', controller)],
+    });
+
+    const first = await lifecycle.handlerFor({ workspaceId: 'wd_proj' });
+    const second = await lifecycle.handlerFor({ workspaceId: 'wd_proj' });
+
+    expect(second).toBe(first);
+    expect(manager.acquire).toHaveBeenCalledTimes(2);
+    expect(manager.liveLeases()).toBe(1);
+    expect(manager.disposedLeases()).toBe(1);
+    expect(manager.minLiveLeases()).toBe(1);
+  });
+
+  it('keeps one live lease per handler for concurrent handlerFor calls', async () => {
+    const controller = controllerStub('controller');
+    const { lifecycle, manager } = build({
+      instances: [fakeInstance('wd_proj', '/tmp/proj', controller)],
+    });
+
+    const [a, b] = await Promise.all([
+      lifecycle.handlerFor({ workspaceId: 'wd_proj' }),
+      lifecycle.handlerFor({ workspaceId: 'wd_proj' }),
+    ]);
+
+    expect(a).toBe(b);
+    expect(manager.acquire).toHaveBeenCalledTimes(2);
+    expect(manager.liveLeases()).toBe(1);
+    expect(manager.disposedLeases()).toBe(1);
+    expect(manager.minLiveLeases()).toBe(1);
+  });
+
+  it('releases the retained lease when the handler is disposed', async () => {
+    const controller = controllerStub('controller');
+    const { lifecycle, manager } = build({
+      instances: [fakeInstance('wd_proj', '/tmp/proj', controller)],
+    });
+
+    const handler = await lifecycle.handlerFor({ workspaceId: 'wd_proj' });
+    handler.dispose();
+
+    expect(manager.liveLeases()).toBe(0);
+    expect(manager.disposedLeases()).toBe(1);
   });
 
   it('handlerFor by unknown workspaceId without a root hint throws workspace.not_found', async () => {

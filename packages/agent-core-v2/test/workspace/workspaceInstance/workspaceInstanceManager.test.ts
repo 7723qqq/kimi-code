@@ -1,6 +1,9 @@
 import { describe, expect, it, mock } from 'bun:test';
 
 import type { Workspace, IWorkspaceService } from '#/app/workspace/workspace';
+import { ISessionManager } from '#/app/sessionManager/sessionManager';
+import { WorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLifecycleService';
+import { ErrorCodes } from '#/errors';
 import { FakeRuntime } from '#/runtime/fakeRuntime';
 import type { Runtime } from '#/runtime/runtime';
 import type { RuntimeProviderFactory } from '#/runtime/runtimeProvider';
@@ -338,5 +341,101 @@ describe('WorkspaceInstanceManager', () => {
       repo.dispose();
       await value.dispose();
     });
+  });
+});
+
+describe('WorkspaceLifecycleService over the real manager', () => {
+  function sessionManager(): ISessionManager {
+    return {
+      _serviceBrand: undefined,
+      list: () => [],
+      get: () => undefined,
+      resume: async () => undefined,
+      close: async () => undefined,
+    } as unknown as ISessionManager;
+  }
+
+  const flush = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0));
+
+  it('keeps one live lease across repeated and concurrent handlerFor calls, then releases the instance', async () => {
+    const events: string[] = [];
+    const value = manager([workspace('one')], Promise.resolve(), events);
+    const lifecycle = new WorkspaceLifecycleService(value, sessionManager());
+    try {
+      const handler = await lifecycle.handlerFor({ workspaceId: 'one' });
+      const more = await Promise.all([
+        lifecycle.handlerFor({ workspaceId: 'one' }),
+        lifecycle.handlerFor({ workspaceId: 'one' }),
+        lifecycle.handlerFor({ workspaceId: 'one' }),
+      ]);
+      expect(more.every((entry) => entry === handler)).toBe(true);
+      expect(lifecycle.handlers.list().map((entry) => entry.id)).toEqual(['one']);
+
+      const references = (value as unknown as { references: Map<string, number> }).references;
+      expect(references.get('one')).toBe(1);
+      expect(value.get('one')).toBeDefined();
+
+      handler.dispose();
+      handler.dispose();
+      await flush();
+
+      expect(references.get('one')).toBeUndefined();
+      expect(value.get('one')).toBeUndefined();
+      expect(events).toEqual(['attach:local:one', 'detach:local:one']);
+    } finally {
+      lifecycle.dispose();
+      await value.dispose();
+    }
+  });
+
+  it('leaves no instance or lease behind when the workspace cannot be acquired', async () => {
+    const events: string[] = [];
+    const value = manager([], Promise.resolve(), events);
+    const lifecycle = new WorkspaceLifecycleService(value, sessionManager());
+    try {
+      await expect(lifecycle.handlerFor({ workspaceId: 'missing' })).rejects.toMatchObject({
+        code: ErrorCodes.WORKSPACE_NOT_FOUND,
+      });
+
+      const references = (value as unknown as { references: Map<string, number> }).references;
+      expect(lifecycle.handlers.list()).toEqual([]);
+      expect(value.list()).toEqual([]);
+      expect(references.size).toBe(0);
+      expect(events).toEqual([]);
+    } finally {
+      lifecycle.dispose();
+      await value.dispose();
+    }
+  });
+
+  it('follows the manager order and hands back the same handle per workspace', async () => {
+    const events: string[] = [];
+    const value = manager([workspace('one'), workspace('two')], Promise.resolve(), events);
+    const lifecycle = new WorkspaceLifecycleService(value, sessionManager());
+    try {
+      const two = await lifecycle.handlerFor({ workspaceId: 'two' });
+      const one = await lifecycle.handlerFor({ workspaceId: 'one' });
+
+      expect(lifecycle.handlers.list().map((entry) => entry.id)).toEqual(
+        value.list().map((instance) => instance.id),
+      );
+      expect(await lifecycle.handlerFor({ workspaceId: 'two' })).toBe(two);
+      expect(await lifecycle.handlerFor({ workspaceId: 'one' })).toBe(one);
+
+      one.dispose();
+      two.dispose();
+      await flush();
+
+      expect(value.list()).toEqual([]);
+      expect(events.toSorted()).toEqual([
+        'attach:local:one',
+        'attach:local:two',
+        'detach:local:one',
+        'detach:local:two',
+      ]);
+    } finally {
+      lifecycle.dispose();
+      await value.dispose();
+    }
   });
 });

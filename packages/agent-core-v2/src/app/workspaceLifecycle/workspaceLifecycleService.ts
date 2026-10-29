@@ -59,7 +59,9 @@ export class WorkspaceLifecycleService extends Service implements IWorkspaceLife
   async handlerFor(ref: WorkspaceRef): Promise<IWorkspaceScopeHandle> {
     const lease = await this.manager.acquire(ref);
     const handle = this.handleOf(lease.instance);
+    const replaced = this.leases.get(handle.id);
     this.leases.set(handle.id, lease);
+    replaced?.dispose();
     return handle;
   }
 
