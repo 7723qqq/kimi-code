@@ -8,7 +8,10 @@ import { ISessionContext } from '#/session/sessionContext/sessionContext';
 import { ISessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycle';
 import type { SessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycleService';
 import type { WorkspaceInstance } from '#/workspace/workspaceInstance/workspaceInstance';
-import { IWorkspaceInstanceManager } from '#/workspace/workspaceInstance/workspaceInstanceManager';
+import {
+  IWorkspaceInstanceManager,
+  type WorkspaceInstanceLease,
+} from '#/workspace/workspaceInstance/workspaceInstanceManager';
 
 import {
   IWorkspaceLifecycleService,
@@ -22,6 +25,7 @@ export class WorkspaceLifecycleService extends Service implements IWorkspaceLife
   declare readonly _serviceBrand: undefined;
   private readonly controllers = new Map<string, SessionLifecycleService>();
   private readonly handles = new Map<string, IWorkspaceScopeHandle>();
+  private readonly leases = new Map<string, WorkspaceInstanceLease>();
   private readonly _onDidMaterializeHandler = this._register(new Emitter<IWorkspaceScopeHandle>());
   readonly onDidMaterializeHandler: Event<IWorkspaceScopeHandle> =
     this._onDidMaterializeHandler.event;
@@ -53,8 +57,10 @@ export class WorkspaceLifecycleService extends Service implements IWorkspaceLife
   }
 
   async handlerFor(ref: WorkspaceRef): Promise<IWorkspaceScopeHandle> {
-    const instance = await this.manager.getOrCreate(ref);
-    return this.handleOf(instance);
+    const lease = await this.manager.acquire(ref);
+    const handle = this.handleOf(lease.instance);
+    this.leases.set(handle.id, lease);
+    return handle;
   }
 
   private handleOf(instance: WorkspaceInstance): IWorkspaceScopeHandle {
@@ -78,6 +84,11 @@ export class WorkspaceLifecycleService extends Service implements IWorkspaceLife
         if (controller !== undefined) {
           this.controllers.delete(instance.id);
           controller.dispose();
+        }
+        const lease = this.leases.get(instance.id);
+        if (lease !== undefined) {
+          this.leases.delete(instance.id);
+          lease.dispose();
         }
       },
     };

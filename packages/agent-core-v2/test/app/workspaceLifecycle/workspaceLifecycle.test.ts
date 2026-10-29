@@ -8,13 +8,13 @@ import {
 import { type ScopedTestHost, createScopedTestHost, stubPair } from '#/_base/di/test';
 import { LifecycleScope } from '#/app/scopes';
 import { ISessionIndex } from '#/app/sessionIndex/sessionIndex';
-import { ISessionManager } from '#/app/sessionManager/sessionManager';
-import { ITelemetryService } from '#/app/telemetry/telemetry';
 import {
   followWorkspaceHandlers,
   getLiveSessionById,
   resumeSessionById,
 } from '#/app/sessionManager/sessionLookup';
+import { ISessionManager } from '#/app/sessionManager/sessionManager';
+import { ITelemetryService } from '#/app/telemetry/telemetry';
 import { IWorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLifecycle';
 import { WorkspaceLifecycleService } from '#/app/workspaceLifecycle/workspaceLifecycleService';
 import { Error2, ErrorCodes } from '#/errors';
@@ -70,7 +70,7 @@ function managerStub(
   const changeListeners = new Set<
     (change: { workspaceId: string; instance?: WorkspaceInstance }) => void
   >();
-  const getOrCreate = mock(async (ref: WorkspaceInstanceRef) => {
+  const acquire = mock(async (ref: WorkspaceInstanceRef) => {
     const found = (() => {
       if ('workspaceId' in ref && ref.workspaceId !== undefined) {
         const byId = instances.get(ref.workspaceId);
@@ -78,7 +78,7 @@ function managerStub(
       }
       return [...instances.values()].find((instance) => instance.root === ref.root);
     })();
-    if (found !== undefined) return found;
+    if (found !== undefined) return { instance: found, dispose: () => {} };
     if (createInstance === undefined) {
       throw new Error2(
         ErrorCodes.WORKSPACE_NOT_FOUND,
@@ -88,7 +88,7 @@ function managerStub(
     const instance = createInstance(ref);
     instances.set(instance.id, instance);
     for (const listener of changeListeners) listener({ workspaceId: instance.id, instance });
-    return instance;
+    return { instance, dispose: () => {} };
   });
   const manager: IWorkspaceInstanceManager = {
     _serviceBrand: undefined,
@@ -96,20 +96,19 @@ function managerStub(
       changeListeners.add(listener);
       return { dispose: () => changeListeners.delete(listener) };
     },
-    getOrCreate,
+    acquire,
     get: (workspaceId) => instances.get(workspaceId),
     findByRoot: (root) => [...instances.values()].find((instance) => instance.root === root),
     findContaining: () => undefined,
     list: () => [...instances.values()],
     snapshot: () => ({ workspaces: [] }),
-    close: async () => {},
     addProvider: async () => ({ dispose: () => {} }),
   };
   const fire = (workspaceId: string, instance: WorkspaceInstance): void => {
     instances.set(workspaceId, instance);
     for (const listener of changeListeners) listener({ workspaceId, instance });
   };
-  return { manager, fire, getOrCreate };
+  return { manager, fire, acquire };
 }
 
 function sessionManagerStub(
@@ -199,7 +198,7 @@ describe('WorkspaceLifecycleService', () => {
 
     const handler = await lifecycle.handlerFor({ workspaceId: 'wd_proj' });
 
-    expect(manager.getOrCreate).toHaveBeenCalledWith({ workspaceId: 'wd_proj' });
+    expect(manager.acquire).toHaveBeenCalledWith({ workspaceId: 'wd_proj' });
     expect(handler.id).toBe('wd_proj');
     expect(lifecycle.handlers.list().map((h) => h.id)).toEqual(['wd_proj']);
     expect(handler).toBe(lifecycle.handlers.list()[0]!);
@@ -213,7 +212,7 @@ describe('WorkspaceLifecycleService', () => {
 
     const handler = await lifecycle.handlerFor({ root: '/tmp/proj' });
 
-    expect(manager.getOrCreate).toHaveBeenCalledWith({ root: '/tmp/proj' });
+    expect(manager.acquire).toHaveBeenCalledWith({ root: '/tmp/proj' });
     expect(handler.id).toBe('wd_proj');
   });
 

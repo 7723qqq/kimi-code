@@ -135,6 +135,7 @@ describe('WorkspaceMcpService', () => {
       servers: () => current,
       tunables: () => tunablesFn() as McpTunables,
       onDidChange: configChanges.event,
+      onDidChangeTunables: disposables.add(new Emitter<McpTunables>()).event,
     };
   }
 

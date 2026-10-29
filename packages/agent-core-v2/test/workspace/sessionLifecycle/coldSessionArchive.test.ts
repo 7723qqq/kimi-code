@@ -1,21 +1,22 @@
-
 import { describe, expect, it } from 'bun:test';
-import { waitForAssertion } from '#test/helpers/waitFor';
 
 import type { ServiceIdentifier, ServicesAccessor } from '#/_base/di/instantiation';
 import type { ISessionScopeHandle } from '#/_base/di/scope';
 import { Emitter, Event } from '#/_base/event';
 import { IBootstrapService } from '#/app/bootstrap/bootstrap';
 import { IEventService } from '#/app/event/event';
-import { ISessionManager, type UnguardedSessionLifecycle } from '#/app/sessionManager/sessionManager';
-import { SessionManager } from '#/app/sessionManager/sessionManagerService';
 import {
   ISessionIndex,
   ISessionIndexMirror,
   type SessionSummary,
 } from '#/app/sessionIndex/sessionIndex';
-import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
+import {
+  ISessionManager,
+  type UnguardedSessionLifecycle,
+} from '#/app/sessionManager/sessionManager';
+import { SessionManager } from '#/app/sessionManager/sessionManagerService';
 import { InMemorySessionLockService } from '#/persistence/backends/memory/sessionLockService';
+import { IAtomicDocumentStore } from '#/persistence/interface/atomicDocumentStore';
 import { ISessionLockService } from '#/persistence/interface/sessionLock';
 import type { SessionMeta } from '#/session/sessionMetadata/sessionMetadata';
 import {
@@ -26,6 +27,7 @@ import type { SessionCreatedEvent } from '#/workspace/sessionLifecycle/sessionLi
 import type { SessionLifecycleService } from '#/workspace/sessionLifecycle/sessionLifecycleService';
 import type { WorkspaceInstance } from '#/workspace/workspaceInstance/workspaceInstance';
 import type { IWorkspaceInstanceManager } from '#/workspace/workspaceInstance/workspaceInstanceManager';
+import { waitForAssertion } from '#test/helpers/waitFor';
 
 function accessor(
   entries: ReadonlyArray<readonly [ServiceIdentifier<unknown>, unknown]>,
@@ -235,10 +237,16 @@ function sessionManagerResuming(sessionId: string): SessionManager {
   } as unknown as SessionLifecycleService;
   const workspace = {
     id: summary.workspaceId,
-    program: { sessionControllerGeneration: 'generation-1', createSessionController: () => controller },
+    program: {
+      sessionControllerGeneration: 'generation-1',
+      createSessionController: () => controller,
+    },
   } as unknown as WorkspaceInstance;
   return new SessionManager(
-    { getOrCreate: async () => workspace, get: () => workspace } as unknown as IWorkspaceInstanceManager,
+    {
+      acquire: async () => ({ instance: workspace, dispose: () => {} }),
+      get: () => workspace,
+    } as unknown as IWorkspaceInstanceManager,
     { get: async () => summary } as unknown as ISessionIndex,
     new InMemorySessionLockService(),
   );
@@ -254,9 +262,10 @@ describe('setSessionArchived', () => {
     let releaseEarlierTransition!: () => void;
     const earlierTransition = manager.withLifecycleSerialization(
       's1',
-      () => new Promise<void>((resolve) => {
-        releaseEarlierTransition = resolve;
-      }),
+      () =>
+        new Promise<void>((resolve) => {
+          releaseEarlierTransition = resolve;
+        }),
     );
     let archiveOutcome: string | undefined;
     void setSessionArchived(

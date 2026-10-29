@@ -1,12 +1,12 @@
 import { describe, expect, it, jest, afterEach, beforeEach } from 'bun:test';
 
-import { Emitter, Event } from '#/_base/event';
-import type { ISessionScopeHandle } from '#/_base/di/scope';
-import type { ISessionIndex } from '#/app/sessionIndex/sessionIndex';
 import type { ServicesAccessor } from '#/_base/di/instantiation';
+import type { ISessionScopeHandle } from '#/_base/di/scope';
 import { Error2 } from '#/_base/errors/errors';
-import { ISessionManager } from '#/app/sessionManager/sessionManager';
+import { Emitter, Event } from '#/_base/event';
+import type { ISessionIndex } from '#/app/sessionIndex/sessionIndex';
 import { reloadOnStale } from '#/app/sessionManager/sessionLookup';
+import { ISessionManager } from '#/app/sessionManager/sessionManager';
 import { SessionManager } from '#/app/sessionManager/sessionManagerService';
 import { ErrorCodes } from '#/errors';
 import { IAgentCronService } from '#/features/cron/cronService';
@@ -48,10 +48,12 @@ function controller(sessionId = 'session-1'): {
       didCreate.fire({ sessionId, handle, source: 'startup' });
       return handle;
     },
-    get: (id: string) => id === sessionId ? handle : undefined,
+    get: (id: string) => (id === sessionId ? handle : undefined),
     list: () => [handle],
     resume: async () => handle,
-    close: async (sessionId: string) => { didClose.fire({ sessionId }); },
+    close: async (sessionId: string) => {
+      didClose.fire({ sessionId });
+    },
     archive: async () => {},
     restore: async () => handle,
     delete: async () => {},
@@ -106,10 +108,13 @@ describe('SessionManager', () => {
     } as unknown as SessionLifecycleService;
     const workspace = {
       id: 'workspace-1',
-      program: { sessionControllerGeneration: 'generation-1', createSessionController: () => service },
+      program: {
+        sessionControllerGeneration: 'generation-1',
+        createSessionController: () => service,
+      },
     } as unknown as WorkspaceInstance;
     const workspaces = {
-      getOrCreate: async () => workspace,
+      acquire: async () => ({ instance: workspace, dispose: () => {} }),
       get: () => workspace,
     } as unknown as IWorkspaceInstanceManager;
     const index = {
@@ -134,10 +139,13 @@ describe('SessionManager', () => {
     const fake = controller();
     const workspace = {
       id: 'workspace-1',
-      program: { sessionControllerGeneration: 'generation-1', createSessionController: () => fake.service },
+      program: {
+        sessionControllerGeneration: 'generation-1',
+        createSessionController: () => fake.service,
+      },
     } as unknown as WorkspaceInstance;
     const workspaces = {
-      getOrCreate: async () => workspace,
+      acquire: async () => ({ instance: workspace, dispose: () => {} }),
       get: () => workspace,
     } as unknown as IWorkspaceInstanceManager;
     const index = {
@@ -175,10 +183,13 @@ describe('SessionManager', () => {
     };
     const workspace = {
       id: 'workspace-1',
-      program: { sessionControllerGeneration: 'generation-1', createSessionController: () => fake.service },
+      program: {
+        sessionControllerGeneration: 'generation-1',
+        createSessionController: () => fake.service,
+      },
     } as unknown as WorkspaceInstance;
     const workspaces = {
-      getOrCreate: async () => workspace,
+      acquire: async () => ({ instance: workspace, dispose: () => {} }),
       get: () => workspace,
     } as unknown as IWorkspaceInstanceManager;
     const index = {
@@ -213,10 +224,13 @@ describe('SessionManager', () => {
     };
     const workspace = {
       id: 'workspace-1',
-      program: { sessionControllerGeneration: 'generation-1', createSessionController: () => fake.service },
+      program: {
+        sessionControllerGeneration: 'generation-1',
+        createSessionController: () => fake.service,
+      },
     } as unknown as WorkspaceInstance;
     const workspaces = {
-      getOrCreate: async () => workspace,
+      acquire: async () => ({ instance: workspace, dispose: () => {} }),
       get: () => workspace,
     } as unknown as IWorkspaceInstanceManager;
     const index = {
@@ -251,10 +265,13 @@ describe('SessionManager', () => {
     };
     const workspace = {
       id: 'workspace-1',
-      program: { sessionControllerGeneration: 'generation-1', createSessionController: () => fake.service },
+      program: {
+        sessionControllerGeneration: 'generation-1',
+        createSessionController: () => fake.service,
+      },
     } as unknown as WorkspaceInstance;
     const workspaces = {
-      getOrCreate: async () => workspace,
+      acquire: async () => ({ instance: workspace, dispose: () => {} }),
       get: () => workspace,
     } as unknown as IWorkspaceInstanceManager;
     const index = {
@@ -271,7 +288,10 @@ describe('SessionManager', () => {
       await sectionGate;
       order.push('section:end');
     });
-    const forkPromise = manager.fork({ sourceSessionId: 'session-1', newSessionId: 'session-2' } as never);
+    const forkPromise = manager.fork({
+      sourceSessionId: 'session-1',
+      newSessionId: 'session-2',
+    } as never);
     await drainMicrotasks();
     expect(order).toEqual(['section:start']);
     releaseSection();
@@ -289,10 +309,13 @@ describe('SessionManager', () => {
     };
     const workspace = {
       id: 'workspace-1',
-      program: { sessionControllerGeneration: 'generation-1', createSessionController: () => fake.service },
+      program: {
+        sessionControllerGeneration: 'generation-1',
+        createSessionController: () => fake.service,
+      },
     } as unknown as WorkspaceInstance;
     const workspaces = {
-      getOrCreate: async () => workspace,
+      acquire: async () => ({ instance: workspace, dispose: () => {} }),
       get: () => workspace,
     } as unknown as IWorkspaceInstanceManager;
     const index = {
@@ -309,7 +332,10 @@ describe('SessionManager', () => {
       await sectionGate;
       order.push('section:end');
     });
-    const childPromise = manager.createChild({ sourceSessionId: 'session-1', newSessionId: 'session-2' } as never);
+    const childPromise = manager.createChild({
+      sourceSessionId: 'session-1',
+      newSessionId: 'session-2',
+    } as never);
     await drainMicrotasks();
     expect(order).toEqual(['section:start']);
     releaseSection();
@@ -327,10 +353,13 @@ describe('SessionManager', () => {
     };
     const workspace = {
       id: 'workspace-1',
-      program: { sessionControllerGeneration: 'generation-1', createSessionController: () => fake.service },
+      program: {
+        sessionControllerGeneration: 'generation-1',
+        createSessionController: () => fake.service,
+      },
     } as unknown as WorkspaceInstance;
     const workspaces = {
-      getOrCreate: async () => workspace,
+      acquire: async () => ({ instance: workspace, dispose: () => {} }),
       get: () => workspace,
     } as unknown as IWorkspaceInstanceManager;
     const index = {
@@ -347,7 +376,10 @@ describe('SessionManager', () => {
       await sectionGate;
       order.push('section:end');
     });
-    const createPromise = manager.create({ sessionId: 'session-1', workDir: '/workspace' } as never);
+    const createPromise = manager.create({
+      sessionId: 'session-1',
+      workDir: '/workspace',
+    } as never);
     await drainMicrotasks();
     expect(order).toEqual(['section:start']);
     releaseSection();
@@ -364,10 +396,13 @@ describe('SessionManager', () => {
     };
     const workspace = {
       id: 'workspace-1',
-      program: { sessionControllerGeneration: 'generation-1', createSessionController: () => fake.service },
+      program: {
+        sessionControllerGeneration: 'generation-1',
+        createSessionController: () => fake.service,
+      },
     } as unknown as WorkspaceInstance;
     const workspaces = {
-      getOrCreate: async () => workspace,
+      acquire: async () => ({ instance: workspace, dispose: () => {} }),
       get: () => workspace,
     } as unknown as IWorkspaceInstanceManager;
     const index = {
@@ -402,10 +437,13 @@ describe('SessionManager', () => {
     };
     const workspace = {
       id: 'workspace-1',
-      program: { sessionControllerGeneration: 'generation-1', createSessionController: () => fake.service },
+      program: {
+        sessionControllerGeneration: 'generation-1',
+        createSessionController: () => fake.service,
+      },
     } as unknown as WorkspaceInstance;
     const workspaces = {
-      getOrCreate: async () => workspace,
+      acquire: async () => ({ instance: workspace, dispose: () => {} }),
       get: () => workspace,
     } as unknown as IWorkspaceInstanceManager;
     const index = {
@@ -426,11 +464,14 @@ describe('SessionManager', () => {
     const fake = controller();
     const workspace = {
       id: 'workspace-1',
-      program: { sessionControllerGeneration: 'generation-1', createSessionController: () => fake.service },
+      program: {
+        sessionControllerGeneration: 'generation-1',
+        createSessionController: () => fake.service,
+      },
     } as unknown as WorkspaceInstance;
     const workspaces = {
-      getOrCreate: async () => workspace,
-      get: (workspaceId: string) => workspaceId === workspace.id ? workspace : undefined,
+      acquire: async () => ({ instance: workspace, dispose: () => {} }),
+      get: (workspaceId: string) => (workspaceId === workspace.id ? workspace : undefined),
     } as unknown as IWorkspaceInstanceManager;
     const index = { get: async () => undefined } as unknown as ISessionIndex;
     const manager = new SessionManager(workspaces, index, new InMemorySessionLockService());
@@ -451,12 +492,15 @@ describe('SessionManager', () => {
     const workspace = {
       id: 'workspace-1',
       program: {
-        get sessionControllerGeneration() { return generation; },
-        createSessionController: () => generation === 'generation-1' ? first.service : second.service,
+        get sessionControllerGeneration() {
+          return generation;
+        },
+        createSessionController: () =>
+          generation === 'generation-1' ? first.service : second.service,
       },
     } as unknown as WorkspaceInstance;
     const workspaces = {
-      getOrCreate: async () => workspace,
+      acquire: async () => ({ instance: workspace, dispose: () => {} }),
       get: () => workspace,
     } as unknown as IWorkspaceInstanceManager;
     const manager = new SessionManager(
@@ -476,7 +520,7 @@ describe('SessionManager', () => {
     manager.dispose();
   });
 
-  it('retires a superseded controller that never came to own a session', async () => {
+  it('releases a controller whose create failed without waiting for supersession', async () => {
     const first = controller('session-1');
     const second = controller('session-2');
     (first.service as { create: unknown }).create = async () => {
@@ -488,12 +532,15 @@ describe('SessionManager', () => {
     const workspace = {
       id: 'workspace-1',
       program: {
-        get sessionControllerGeneration() { return generation; },
-        createSessionController: () => generation === 'generation-1' ? first.service : second.service,
+        get sessionControllerGeneration() {
+          return generation;
+        },
+        createSessionController: () =>
+          generation === 'generation-1' ? first.service : second.service,
       },
     } as unknown as WorkspaceInstance;
     const workspaces = {
-      getOrCreate: async () => workspace,
+      acquire: async () => ({ instance: workspace, dispose: () => {} }),
       get: () => workspace,
     } as unknown as IWorkspaceInstanceManager;
     const manager = new SessionManager(
@@ -503,7 +550,7 @@ describe('SessionManager', () => {
     );
 
     await expect(manager.create({ workDir: '/workspace' })).rejects.toThrow('boom');
-    expect(disposeFirst).not.toHaveBeenCalled();
+    expect(disposeFirst).toHaveBeenCalledTimes(1);
     generation = 'generation-2';
     expect(await manager.create({ workDir: '/workspace' })).toBe(second.handle);
     expect(disposeFirst).toHaveBeenCalledTimes(1);
@@ -535,9 +582,10 @@ describe('SessionManager closeIfIdle', () => {
     };
     const agent = {
       accessor: {
-        get: (token: unknown) => token === IAgentCronService
-          ? { list: () => Array.from({ length: state.cronTasks }) }
-          : undefined,
+        get: (token: unknown) =>
+          token === IAgentCronService
+            ? { list: () => Array.from({ length: state.cronTasks }) }
+            : undefined,
       },
     };
     const handle = {
@@ -546,7 +594,11 @@ describe('SessionManager closeIfIdle', () => {
         get: (token: unknown) => {
           if (token === ISessionActivityView) {
             return {
-              state: () => ({ busy: state.busy, mainTurnActive: false, pendingInteraction: state.pending }),
+              state: () => ({
+                busy: state.busy,
+                mainTurnActive: false,
+                pendingInteraction: state.pending,
+              }),
               lastActiveAt: () => state.activeAt,
             };
           }
@@ -558,14 +610,12 @@ describe('SessionManager closeIfIdle', () => {
       },
     } as unknown as ISessionScopeHandle;
     let manager: SessionManager;
-    const resume = jest.fn(async (
-      sessionId: string,
-      _options: unknown,
-      source: SessionCreateSource = 'resume',
-    ) => {
-      if (manager.get(sessionId) === undefined) didCreate.fire({ sessionId, handle, source });
-      return handle;
-    });
+    const resume = jest.fn(
+      async (sessionId: string, _options: unknown, source: SessionCreateSource = 'resume') => {
+        if (manager.get(sessionId) === undefined) didCreate.fire({ sessionId, handle, source });
+        return handle;
+      },
+    );
     const close = jest.fn(async (sessionId: string, _reason: SessionCloseReason = 'exit') => {
       didClose.fire({ sessionId });
     });
@@ -586,11 +636,19 @@ describe('SessionManager closeIfIdle', () => {
     } as unknown as SessionLifecycleService;
     const workspace = {
       id: 'workspace-1',
-      program: { sessionControllerGeneration: 'generation-1', createSessionController: () => service },
+      program: {
+        sessionControllerGeneration: 'generation-1',
+        createSessionController: () => service,
+      },
     } as unknown as WorkspaceInstance;
     manager = new SessionManager(
-      { getOrCreate: async () => workspace, get: () => workspace } as unknown as IWorkspaceInstanceManager,
-      { get: async () => ({ workspaceId: 'workspace-1', cwd: '/workspace' }) } as unknown as ISessionIndex,
+      {
+        acquire: async () => ({ instance: workspace, dispose: () => {} }),
+        get: () => workspace,
+      } as unknown as IWorkspaceInstanceManager,
+      {
+        get: async () => ({ workspaceId: 'workspace-1', cwd: '/workspace' }),
+      } as unknown as ISessionIndex,
       locks,
     );
     managers.push(manager);
@@ -622,7 +680,11 @@ describe('SessionManager closeIfIdle', () => {
     await fake.manager.close('session-1');
     await fake.manager.resume('session-1');
     expect(fake.close.mock.calls[0]?.[1]).toBe('reclaim');
-    expect(fake.resume.mock.calls.map((call) => call[2])).toEqual(['resume', 'reclaimed', 'resume']);
+    expect(fake.resume.mock.calls.map((call) => call[2])).toEqual([
+      'resume',
+      'reclaimed',
+      'resume',
+    ]);
   });
 
   const eligibilityCases: Array<[string, Guards]> = [
@@ -685,10 +747,16 @@ describe('SessionManager controller retirement', () => {
   function liveProgram(drainTimeoutMs: number): {
     readonly registry: RuntimeRegistry;
     readonly program: Program;
-    readonly controllers: { readonly service: SessionLifecycleService; readonly dispose: ReturnType<typeof jest.fn> }[];
+    readonly controllers: {
+      readonly service: SessionLifecycleService;
+      readonly dispose: ReturnType<typeof jest.fn>;
+    }[];
   } {
     const registry = new RuntimeRegistry('workspace', drainTimeoutMs);
-    const controllers: { readonly service: SessionLifecycleService; readonly dispose: ReturnType<typeof jest.fn> }[] = [];
+    const controllers: {
+      readonly service: SessionLifecycleService;
+      readonly dispose: ReturnType<typeof jest.fn>;
+    }[] = [];
     let nextSession = 0;
     const program = new Program(
       'workspace',
@@ -797,15 +865,16 @@ describe('SessionManager controller retirement', () => {
         retired: false,
       };
     });
-    (program as unknown as { createGeneration: typeof createGeneration }).createGeneration = createGeneration;
+    (program as unknown as { createGeneration: typeof createGeneration }).createGeneration =
+      createGeneration;
     return { registry, program, controllers };
   }
 
   function managerFor(program: Program): SessionManager {
     const workspace = { id: 'workspace', program } as unknown as WorkspaceInstance;
     const workspaces = {
-      getOrCreate: async () => workspace,
-      get: (workspaceId: string) => workspaceId === workspace.id ? workspace : undefined,
+      acquire: async () => ({ instance: workspace, dispose: () => {} }),
+      get: (workspaceId: string) => (workspaceId === workspace.id ? workspace : undefined),
     } as unknown as IWorkspaceInstanceManager;
     return new SessionManager(
       workspaces,
