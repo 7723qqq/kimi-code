@@ -64,11 +64,17 @@ const UNREPORTED_WIRE_RECORD_TYPES: ReadonlySet<string> = new Set([
 ]);
 
 export class CycleError extends StateError {
-  constructor(readonly depth: number, readonly eventTypes: readonly string[]) {
+  constructor(
+    readonly depth: number,
+    readonly eventTypes: readonly string[],
+    readonly repeatedType?: string,
+  ) {
     super(
       StateErrors.codes.STATE_CYCLE,
-      `Event dispatch cascade exceeded MAX_DRAIN (depth ${depth}, per-type ${MAX_DRAIN_PER_TYPE}); possible event cycle`,
-      { details: { depth, eventTypes: eventTypes.slice(0, 20) } },
+      `Event dispatch cascade exceeded MAX_DRAIN (depth ${depth}, per-type ${MAX_DRAIN_PER_TYPE}); possible event cycle` +
+        (repeatedType === undefined ? '' : ` [repeated: ${repeatedType}]`) +
+        (eventTypes.length > 0 ? ` [queued: ${eventTypes.slice(0, 20).join(', ')}]` : ''),
+      { details: { depth, eventTypes: eventTypes.slice(0, 20), repeatedType } },
     );
     this.name = 'CycleError';
   }
@@ -584,6 +590,7 @@ export class EventDispatcherService extends Service implements IEventDispatcher 
         throw new CycleError(
           this.drainDepth,
           this.queue.map((entry) => entry.event.type),
+          next.event.type,
         );
       }
       this.queue.shift();

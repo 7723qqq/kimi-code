@@ -346,7 +346,13 @@ describe('EventDispatcherService', () => {
       }),
     );
 
-    await expect(dispatcher.dispatch(new LoopBack({}))).rejects.toBeInstanceOf(CycleError);
+    const failure = await dispatcher.dispatch(new LoopBack({})).then(
+      () => undefined,
+      (error: unknown) => error,
+    );
+    expect(failure).toBeInstanceOf(CycleError);
+    expect((failure as CycleError).repeatedType).toBe('state.test.loopback');
+    expect((failure as CycleError).message).toContain('repeated: state.test.loopback');
     const settled = await Promise.allSettled(queued);
 
     expect(settled).toHaveLength(101);
