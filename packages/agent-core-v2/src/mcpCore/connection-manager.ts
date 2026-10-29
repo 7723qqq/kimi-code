@@ -583,6 +583,7 @@ function isUnauthorizedLikeError(error: unknown): boolean {
   if (!(error instanceof Error)) return false;
   if (error instanceof McpError) return false;
   if (error.name === 'UnauthorizedError') return true;
+  if (error.name === 'InvalidGrantError') return true;
   const code = (error as { code?: unknown }).code;
   if (typeof code === 'number' && code === 401) return true;
   if (typeof code === 'string' && code === '401') return true;

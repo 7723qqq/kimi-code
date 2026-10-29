@@ -27,9 +27,9 @@ in this directory:
 | `tsconfig.json` → `paths` (typecheck) | `#/*` → `["./src/*.ts", "./src/human/*.ts"]` | `#/xstate2` falls through to `src/human/xstate2.ts`. |
 
 So a bare `#/...` specifier written inside `human/` frequently has **no file under `src/`** and
-relies on the second `paths` root to typecheck. This is pervasive, not incidental: 109 distinct
-specifiers rely on it across 99 non-test files, spanning nearly every kernel subdirectory —
-among them `human/session/machine.ts` (imports `#/agent/machine`, `#/agent/turn`,
+relies on the second `paths` root to typecheck. This is pervasive, not incidental: about 110
+distinct specifiers rely on it across roughly 100 non-test files, spanning nearly every kernel
+subdirectory — among them `human/session/machine.ts` (imports `#/agent/machine`, `#/agent/turn`,
 `#/llm/requester/requester`, `#/tool/executor`, `#/xstate2`) and `human/agent/`, `human/eventStore/`,
 `human/store/`, the whole of `human/llm/`, and `human/persist/`.
 

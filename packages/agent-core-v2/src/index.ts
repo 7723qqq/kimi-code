@@ -356,6 +356,8 @@ export * from '#/features/plan/planOps';
 export * from '#/features/plan/planService';
 import '#/features/dateChange/dateChangeFeature';
 import '#/agent/knowledge/knowledgeService';
+export * from '#/agent/knowledge/knowledge';
+export { knowledgeClose } from '#/agent/knowledge/sqliteKnowledge';
 import '#/features/plan/planFeature';
 export * from '#/features/fileHistory/fileHistory';
 export * from '#/features/fileHistory/fileHistoryOps';

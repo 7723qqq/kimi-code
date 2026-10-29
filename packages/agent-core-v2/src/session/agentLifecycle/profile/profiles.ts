@@ -56,7 +56,6 @@ const CODER_TOOLS = [
   'CronDelete',
   'CronList',
   'Edit',
-  'ExitPlanMode',
   'ExitSpecMode',
   'Glob',
   'Grep',

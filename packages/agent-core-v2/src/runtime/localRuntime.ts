@@ -2,6 +2,7 @@ import * as posixPath from 'node:path/posix';
 import * as win32Path from 'node:path/win32';
 
 import { Emitter } from '#/_base/event';
+import { isWindowsAbsolutePath } from '#/_base/utils/paths';
 import { IHostEnvironment } from '#/os/interface/hostEnvironment';
 import { IHostFileSystem } from '#/os/interface/hostFileSystem';
 import { IHostProcessService } from '#/os/interface/hostProcess';
@@ -45,20 +46,28 @@ export class LocalRuntime implements Runtime {
       homeDir: environment.homeDir,
     };
     const path = environment.pathClass === 'win32' ? win32Path : posixPath;
+    const hostResolve = (...paths: readonly string[]): string => {
+      const last = paths[paths.length - 1] ?? '';
+      if (path !== posixPath || !paths.some((p) => isWindowsAbsolutePath(p))) {
+        return path.resolve(...paths);
+      }
+      if (paths.length === 1 && isWindowsAbsolutePath(last)) return last;
+      return win32Path.resolve(...paths).replaceAll('\\', '/');
+    };
     this.path = {
       separator: path.sep as '/' | '\\',
       delimiter: path.delimiter as ':' | ';',
       isAbsolute: (p) => path.isAbsolute(p),
       join: (...paths) => path.join(...paths),
       relative: (from, to) => path.relative(from, to),
-      resolve: (...paths) => path.resolve(...paths),
+      resolve: (...paths) => hostResolve(...paths),
       basename: (p) => path.basename(p),
       dirname: (p) => path.dirname(p),
     };
     this.workspace = {
       mapRoots: (roots) => ({
-        workDir: path.resolve(roots.workDir),
-        additionalDirs: roots.additionalDirs?.map((root) => path.resolve(root)),
+        workDir: hostResolve(roots.workDir),
+        additionalDirs: roots.additionalDirs?.map((root) => hostResolve(root)),
       }),
     };
     this.fs = fs;

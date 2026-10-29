@@ -267,8 +267,8 @@ function describeMcpServer(
       name,
       transport: config.transport,
       command: config.command,
-      args: config.args,
-      cwd: config.cwd,
+      ...(config.args === undefined ? {} : { args: config.args }),
+      ...(config.cwd === undefined ? {} : { cwd: config.cwd }),
       origin,
     };
   }

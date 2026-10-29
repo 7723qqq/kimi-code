@@ -244,7 +244,16 @@ export class AskUserQuestionTool implements IAskUserQuestionTool {
         },
         tags,
       })
-      .then((response) => (isInteractionCancellation(response) ? null : (response as QuestionResult)));
+      .then((response) => {
+        if (!isInteractionCancellation(response)) return response as QuestionResult;
+        if (response.reason === 'unsupported') {
+          throw new Error2(
+            CoreErrors.codes.NOT_IMPLEMENTED,
+            'The connected client does not support interactive questions.',
+          );
+        }
+        return null;
+      });
     if (signal.aborted) {
       interactions.respond(id, null);
     } else {
@@ -252,9 +261,11 @@ export class AskUserQuestionTool implements IAskUserQuestionTool {
         interactions.respond(id, null);
       };
       signal.addEventListener('abort', onAbort, { once: true });
-      void pending.finally(() => {
-        signal.removeEventListener('abort', onAbort);
-      });
+      void pending
+        .catch(() => undefined)
+        .finally(() => {
+          signal.removeEventListener('abort', onAbort);
+        });
     }
     return pending;
   }

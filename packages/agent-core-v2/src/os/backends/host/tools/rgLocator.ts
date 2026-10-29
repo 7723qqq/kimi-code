@@ -322,13 +322,18 @@ export async function extractRgFromZip(archivePath: string, destination: string)
             zipfile.close();
             return;
           }
-          const out = createWriteStream(destination);
+          const staging = `${destination}.partial-${String(process.pid)}-${String(Date.now())}`;
+          const out = createWriteStream(staging);
           void (async () => {
             try {
               await pipeline(stream, out);
+              await chmod(staging, 0o755);
+              await chmod(destination, 0o644).catch(() => null);
+              await rename(staging, destination);
               zipfile.close();
               resolve();
             } catch (error) {
+              await rm(staging, { force: true }).catch(() => null);
               zipfile.close();
               reject(
                 new Error2(

@@ -188,6 +188,7 @@ export function systemPromptVars(
     reply_style_guide: context.replyStyleGuide ?? DEFAULT_REPLY_STYLE_GUIDE,
     notify_user_guidance: context.notifyUserActive === true ? ` ${NOTIFY_USER_GUIDANCE}` : '',
     todo_list_guidance: context.todoListActive === true ? `${TODO_LIST_GUIDANCE}\n\n` : '',
+    plan_mode_guidance: context.planModeAvailable === true ? `${PLAN_MODE_GUIDANCE}\n\n` : '',
     os: context.osKind ?? '',
     windows_notes: context.osKind === 'Windows' ? `\n\n${WINDOWS_NOTES}\n\n` : '',
     runtime_notes: runtimeNotesFor(context.jsRuntimes),

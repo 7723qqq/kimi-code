@@ -249,7 +249,7 @@ export function createGoogleGenAIFormat(): ProtocolFormat {
           sink.onMessageId?.(responseId);
         }
         const usage = parseUsageMetadata(response);
-        if (usage !== undefined && rawFinish !== undefined && rawFinish !== null) {
+        if (usage !== undefined) {
           sink.onUsage?.(usage);
         }
         if (rawFinish !== undefined && rawFinish !== null) {

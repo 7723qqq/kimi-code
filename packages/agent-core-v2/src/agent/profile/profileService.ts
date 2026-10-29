@@ -67,6 +67,7 @@ import { IAgentProfileService, ProfileError, ProfileErrors } from './profile';
 import { TOOLS_SECTION, type ToolsConfig } from '#/agent/toolPolicy/configSection';
 import { isToolActiveComposed, findInactiveToolPatterns, literalToolNames, type InactiveToolPattern } from '#/agent/toolPolicy/evaluate';
 import { IAgentToolRegistryService } from '#/agent/toolRegistry/toolRegistry';
+import { ILogService, type ILogger } from '#/_base/log/log';
 import { ISessionNotify } from '#/features/notify/sessionNotify';
 import { NOTIFY_USER_TOOL_NAME } from '#/features/notify/tools/notify-user/notify-user';
 import { EXIT_PLAN_MODE_TOOL_NAME } from '#/features/plan/tools/exit-plan-mode/exit-plan-mode';
@@ -77,6 +78,7 @@ import {
   subagentAllowlistFor,
   withoutDelegatingTargets,
 } from '#/app/agentProfileCatalog/profile-shared';
+import type { SystemPromptRenderResult } from '#/app/agentProfileCatalog/agentProfileCatalog';
 import { MAIN_AGENT_ID } from '#/session/agentLifecycle/agentLifecycle';
 import { getAgentToolContributions } from '#/agent/toolRegistry/toolContribution';
 import {
@@ -176,6 +178,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     @IAgentAgentsMdReminderService private readonly agentsMdReminder: IAgentAgentsMdReminderService,
     @IProviderDiscoveryService private readonly discovery: IProviderDiscoveryService,
     @IInstantiationService private readonly instantiation: IInstantiationService,
+    @ILogService private readonly log: ILogger,
   ) {
     super();
     this.states.contributeState(profileKey);
@@ -356,7 +359,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     }
 
     await this.sessionToolPolicy.ready;
-    const context = await this.buildSystemPromptContext(profile);
+    const context = await this.buildSystemPromptContext(profile, { pendingModelAlias: alias });
     this.assertBindable(profile.name);
     const currentProfileName = this.profileName;
     const rendered = renderAgentProfilePrompt(profile, context);
@@ -388,7 +391,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
       systemPrompt: rendered.text,
       disallowedTools: profile.disallowedTools ?? [],
     });
-    this.seedAgentsMdReminder(context);
+    this.seedAgentsMdReminder(context, rendered);
     await this.seedChangeNotifierBeliefs(context);
 
     this.publishAgentsMdWarning();
@@ -444,7 +447,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     return this.modelAlias ?? '';
   }
 
-  useProfile(profile: ResolvedAgentProfile, context: SystemPromptContext): void {
+  useProfile(profile: ResolvedAgentProfile, context: SystemPromptContext): SystemPromptRenderResult {
     this.activeProfile = profile;
     const rendered = renderAgentProfilePrompt(profile, context);
     this.update({
@@ -455,23 +458,41 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
       disallowedTools: profile.disallowedTools ?? [],
     });
     this.setActiveTools(profile.tools);
+    return rendered;
   }
 
   async applyProfile(profile: ResolvedAgentProfile, options?: ApplyProfileOptions): Promise<void> {
     const context = await this.buildSystemPromptContext(profile, options);
-    this.useProfile(profile, context);
-    this.seedAgentsMdReminder(context);
+    const rendered = this.useProfile(profile, context);
+    this.warnAboutDroppedVars(rendered, profile.name);
+    this.seedAgentsMdReminder(context, rendered);
     await this.seedChangeNotifierBeliefs(context);
     this.cacheAgentsMdWarning(context);
     this.publishAgentsMdWarning();
     this.publishToolPatternWarnings(profile);
   }
 
-  private seedAgentsMdReminder(context: SystemPromptContext): void {
+  private warnAboutDroppedVars(rendered: SystemPromptRenderResult, profileName: string): void {
+    const dropped = rendered.droppedVars;
+    if (dropped === undefined || dropped.length === 0) return;
+    this.log.warn(
+      `system prompt template for profile "${profileName}" ignored supplied variables: ${dropped.join(', ')}`,
+    );
+  }
+
+  private seedAgentsMdReminder(
+    context: SystemPromptContext,
+    rendered: SystemPromptRenderResult,
+  ): void {
+    if (this.promptDroppedAgentsMd(rendered)) return;
     this.agentsMdReminder.seedInjected(
       context.agentsMdPaths ?? [],
       context.cwd ?? this.sessionContext.cwd,
     );
+  }
+
+  private promptDroppedAgentsMd(rendered: SystemPromptRenderResult): boolean {
+    return rendered.droppedVars?.includes('agents_md') === true;
   }
 
   private async seedChangeNotifierBeliefs(context: SystemPromptContext): Promise<void> {
@@ -896,7 +917,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
 
   private async buildSystemPromptContext(
     profile: ResolvedAgentProfile,
-    options?: ApplyProfileOptions,
+    options?: ApplyProfileOptions & { readonly pendingModelAlias?: string },
   ): Promise<SystemPromptContext> {
     await this.notify.ready;
     const preloadedAgentsMd = await this.workspaceInstructionsSnapshot();
@@ -927,6 +948,7 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
     const pluginSections = await this.resolvePluginSections();
     return {
       ...base,
+      modelName: this.wireModelNameFor(options?.pendingModelAlias),
       cwd: view.workDir,
       osKind: env.osKind,
       shellName: env.shellName,
@@ -942,6 +964,12 @@ export class AgentProfileService extends Disposable implements IAgentProfileServ
       todoListActive: this.isToolActiveForProfile(profile, TODO_LIST_TOOL_NAME),
       planModeAvailable: this.isToolActiveForProfile(profile, EXIT_PLAN_MODE_TOOL_NAME),
     };
+  }
+
+  private wireModelNameFor(pendingModelAlias?: string): string | undefined {
+    const alias = this.modelAlias ?? pendingModelAlias;
+    if (alias === undefined || alias === '') return undefined;
+    return this.resolveModelForThinking(alias)?.name;
   }
 
   private async workspaceInstructionsSnapshot(): Promise<LoadedAgentsMd> {
