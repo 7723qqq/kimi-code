@@ -1,4 +1,4 @@
-import { describe, expect, it, jest, vi } from 'bun:test';
+import { describe, expect, it, jest } from 'bun:test';
 
 import { AgentSwarmProgressComponent } from '#/tui/components/messages/agent-swarm-progress';
 import type { SessionEventHandler } from '#/tui/controllers/session-event-handler';

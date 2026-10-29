@@ -1,5 +1,5 @@
 import chalk from 'chalk';
-import { afterEach, beforeEach, describe, expect, it, jest, vi } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 
 import * as actualGitStatus from '#/utils/git/git-status';
 import { FooterComponent } from '#/tui/components/chrome/footer';

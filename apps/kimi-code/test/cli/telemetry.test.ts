@@ -3,7 +3,7 @@
  * `kimi web` / `kimi server run` host wiring added in `cli/telemetry.ts`.
  */
 
-import { afterEach, beforeEach, describe, expect, it, jest, vi } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 import { createRequire } from 'node:module';
 import { setEnv, restoreEnvs } from '../helpers/stubs';
 import { resetKimiRegionCache } from '#/utils/region';

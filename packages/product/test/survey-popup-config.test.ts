@@ -2,7 +2,7 @@ import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { afterEach, describe, expect, it, jest, vi } from 'bun:test';
+import { afterEach, describe, expect, it, jest } from 'bun:test';
 
 import { ClientConfigClient } from '#/client-configs/node/client-configs';
 import {

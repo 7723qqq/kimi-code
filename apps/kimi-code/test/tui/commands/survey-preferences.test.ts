@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import type { KimiConfig } from '@moonshot-ai/kimi-code-sdk';
-import { describe, expect, it, jest, vi } from 'bun:test';
+import { describe, expect, it, jest } from 'bun:test';
 
 import { applySurveyPreferenceChoice } from '#/tui/commands/config';
 import { loadTuiConfig, removeLegacySurveySetting, saveTuiConfig } from '#/tui/config';

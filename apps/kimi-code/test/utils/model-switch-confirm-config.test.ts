@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, jest, vi } from 'bun:test';
+import { afterEach, describe, expect, it, jest } from 'bun:test';
 
 import {
   matchModelSwitchRule,

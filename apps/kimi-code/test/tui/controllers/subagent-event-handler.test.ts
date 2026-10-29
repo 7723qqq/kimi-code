@@ -1,5 +1,5 @@
 import type { Event } from '@moonshot-ai/kimi-code-sdk';
-import { afterEach, describe, expect, it, jest, vi } from 'bun:test';
+import { afterEach, describe, expect, it, jest } from 'bun:test';
 
 import type { AgentSwarmProgressComponent } from '#/tui/components/messages/agent-swarm-progress';
 import {

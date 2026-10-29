@@ -1,7 +1,7 @@
 import { TurnPrompt } from '@moonshot-ai/agent-core-v2';
 import type { WireRecord } from '@moonshot-ai/agent-core-v2';
 import { flattenChain, sliceMainRecordsAtTurn } from '@moonshot-ai/agent-core-v2';
-import { describe, expect, it, vi } from 'bun:test';
+import { describe, expect, it } from 'bun:test';
 import { waitForAssertion, waitUntil } from './helpers/waitFor';
 
 import { InMemoryWireRecordPersistence, testAgent, type TestAgentContext } from '../../agent-core-v2/test/harness';

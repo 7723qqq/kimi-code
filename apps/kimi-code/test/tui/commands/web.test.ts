@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, jest, vi } from 'bun:test';
+import { beforeEach, describe, expect, it, jest } from 'bun:test';
 
 import { setCapabilities } from '@moonshot-ai/pi-tui';
 
@@ -104,7 +104,7 @@ describe('handleWebCommand', () => {
 
     await handleWebCommand(host);
 
-    expect(host.showError).toHaveBeenCalledOnce();
+    expect(host.showError).toHaveBeenCalledTimes(1);
     expect(host.setExitForegroundTask).not.toHaveBeenCalled();
     expect(host.stop).not.toHaveBeenCalled();
   });
@@ -114,8 +114,8 @@ describe('handleWebCommand', () => {
 
     await handleWebCommand(host);
 
-    expect(host.setExitForegroundTask).toHaveBeenCalledOnce();
-    expect(host.stop).toHaveBeenCalledOnce();
+    expect(host.setExitForegroundTask).toHaveBeenCalledTimes(1);
+    expect(host.stop).toHaveBeenCalledTimes(1);
     expect(host.mountEditorReplacement).not.toHaveBeenCalled();
     expect(mocks.openUrl).not.toHaveBeenCalled();
   });
@@ -136,7 +136,7 @@ describe('handleWebCommand', () => {
     ) => Promise<void>;
     await task(0);
 
-    expect(mocks.startServerForeground).toHaveBeenCalledOnce();
+    expect(mocks.startServerForeground).toHaveBeenCalledTimes(1);
     expect(mocks.openUrl).toHaveBeenCalledWith(
       'http://127.0.0.1:58627/sessions/ses-1#token=tok-1',
     );
@@ -253,7 +253,7 @@ describe('handleRemoteControlCommand', () => {
       );
       expect(written).not.toContain(`${entryUrl}#token=`);
       expect(written).not.toContain(`${sessionUrl}#token=`);
-      expect(close).toHaveBeenCalledOnce();
+      expect(close).toHaveBeenCalledTimes(1);
     } finally {
       writeSpy.mockRestore();
       rmSync(tempRoot, { recursive: true, force: true });
@@ -301,10 +301,10 @@ describe('handleRemoteControlCommand', () => {
     try {
       await handleRemoteControlCommand(host);
 
-      expect(host.waitForSessionAssembly).toHaveBeenCalledOnce();
+      expect(host.waitForSessionAssembly).toHaveBeenCalledTimes(1);
       expect(host.showError).not.toHaveBeenCalled();
-      expect(host.setExitForegroundTask).toHaveBeenCalledOnce();
-      expect(host.stop).toHaveBeenCalledOnce();
+      expect(host.setExitForegroundTask).toHaveBeenCalledTimes(1);
+      expect(host.stop).toHaveBeenCalledTimes(1);
 
       const task = host.setExitForegroundTask.mock.calls[0]![0] as () => Promise<void>;
       await task();
@@ -316,7 +316,7 @@ describe('handleRemoteControlCommand', () => {
       expect(readAs<Buffer>(readFileSync(join(dataDir, 'rc-qrcode.png')))).toEqual(
         await QRCode.toBuffer(entryUrl),
       );
-      expect(close).toHaveBeenCalledOnce();
+      expect(close).toHaveBeenCalledTimes(1);
     } finally {
       writeSpy.mockRestore();
       rmSync(tempRoot, { recursive: true, force: true });

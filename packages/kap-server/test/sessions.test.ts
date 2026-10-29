@@ -8,7 +8,7 @@ import { mcpResultToExecutableOutput } from '@moonshot-ai/agent-core-v2/agent/mc
 import { renderToolResultForModel } from '@moonshot-ai/agent-core-v2/agent/contextMemory/toolResultRender';
 import { IReadTool, ReadInputSchema, type ReadInput } from '@moonshot-ai/agent-core-v2';
 
-import { afterAll, afterEach, beforeAll, describe, expect, it, jest, vi } from 'bun:test';
+import { afterAll, afterEach, beforeAll, describe, expect, it, jest, spyOn } from 'bun:test';
 import { restoreEnvs } from './helpers/stubs';
 import { waitForAssertion, waitUntil } from './helpers/waitFor';
 
@@ -781,24 +781,21 @@ describe('server-v2 /api/v1/sessions', () => {
     const handle = getLiveSessionById((server as RunningServer).core.accessor, id)!;
     const occupied = new Error2(ErrorCodes.SESSION_OCCUPIED, 'occupied');
 
-    const setTitle = vi
-      .spyOn(handle.accessor.get(ISessionMetadata), 'setTitle')
+    const setTitle = spyOn(handle.accessor.get(ISessionMetadata), 'setTitle')
       .mockRejectedValue(occupied);
     const profile = await postJson(`/api/v1/sessions/${id}/profile`, { title: 'occupied' });
     expect(profile.status).toBe(200);
     expect(profile.body.code).toBe(40931);
     setTitle.mockRestore();
 
-    const generateTitle = vi
-      .spyOn(handle.accessor.get(ISessionTitleService), 'generateTitle')
+    const generateTitle = spyOn(handle.accessor.get(ISessionTitleService), 'generateTitle')
       .mockRejectedValue(occupied);
     const generated = await postJson(`/api/v1/sessions/${id}/title/generate`);
     expect(generated.status).toBe(200);
     expect(generated.body.code).toBe(40931);
     generateTitle.mockRestore();
 
-    const createChild = vi
-      .spyOn((server as RunningServer).core.accessor.get(ISessionManager), 'createChild')
+    const createChild = spyOn((server as RunningServer).core.accessor.get(ISessionManager), 'createChild')
       .mockRejectedValue(occupied);
     const child = await postJson(`/api/v1/sessions/${id}/children`, {});
     expect(child.status).toBe(200);
@@ -1333,8 +1330,7 @@ describe('server-v2 /api/v1/sessions', () => {
       .get(IAgentLifecycleService)
       .create({ agentId: MAIN_AGENT_ID });
     const agent = session.accessor.get(IAgentLifecycleService).handleOf(MAIN_AGENT_ID)!;
-    const undo = vi
-      .spyOn(agent.accessor.get(IAgentConversationUndoService), 'undo')
+    const undo = spyOn(agent.accessor.get(IAgentConversationUndoService), 'undo')
       .mockRejectedValue(new Error2(ErrorCodes.SESSION_BUSY, 'session is busy'));
 
     try {

@@ -876,7 +876,7 @@ describe('AppendLogStore session lock integration', () => {
     log.append<Rec>(SCOPE, KEY, { n: 1 });
     await log.flush();
     expect(existsSync(join(homeDir, SCOPE, KEY))).toBe(false);
-    expect(warn).toHaveBeenCalledOnce();
+    expect(warn).toHaveBeenCalledTimes(1);
 
     acquired = true;
     await log.flush();

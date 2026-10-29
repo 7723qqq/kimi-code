@@ -12,7 +12,7 @@ import { join } from 'node:path';
 
 import type { createKimiDeviceId as createKimiDeviceIdFn } from '@moonshot-ai/kimi-code-oauth';
 import { Command } from 'commander';
-import { afterEach, beforeEach, describe, expect, it, jest, vi } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 import { setEnv, restoreEnvs } from '../helpers/stubs';
 
 import { handleExport, registerExportCommand } from '#/cli/sub/export';
@@ -407,8 +407,8 @@ describe('kimi export', () => {
         },
       }),
     );
-    expect(mocks.harnessEnsureConfigFile).toHaveBeenCalledOnce();
-    expect(mocks.harnessGetConfig).toHaveBeenCalledOnce();
+    expect(mocks.harnessEnsureConfigFile).toHaveBeenCalledTimes(1);
+    expect(mocks.harnessGetConfig).toHaveBeenCalledTimes(1);
     expect(mocks.createKimiDeviceId).toHaveBeenCalledWith(
       '/tmp/kimi-export-home',
       expect.objectContaining({ onFirstLaunch: expect.any(Function) }),

@@ -2,7 +2,7 @@ import type * as ChildProcess from 'node:child_process';
 import { EventEmitter } from 'node:events';
 import { createRequire } from 'node:module';
 
-import { afterEach, beforeEach, describe, expect, it, jest, vi } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 import { setEnv, restoreEnvs } from '../../helpers/stubs';
 
 const requireReal = createRequire(import.meta.url);

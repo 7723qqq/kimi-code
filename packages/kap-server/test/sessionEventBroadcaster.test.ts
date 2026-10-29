@@ -42,7 +42,7 @@ import {
 } from '@moonshot-ai/agent-core-v2/app/event/eventBusService';
 import type { AgentActivitySnapshot } from '@moonshot-ai/agent-core-v2/agent/loop/loop';
 import type { AgentEvent } from '../src/transport/ws/v1/events';
-import { afterEach, beforeEach, describe, expect, it, jest, vi } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, jest, spyOn } from 'bun:test';
 import { waitForAssertion, waitUntil } from './helpers/waitFor';
 
 import { sessionEventMessageSchema } from '../src/protocol/ws-control';
@@ -2185,7 +2185,7 @@ describe('SessionEventBroadcaster', () => {
         answers: { q_0: 'opt_0_0' },
       },
     });
-    expect((envelopes[2]!.payload as { resolved_at?: string }).resolved_at).toBeTypeOf('string');
+    expect(typeof (envelopes[2]!.payload as { resolved_at?: string }).resolved_at).toBe('string');
     expect(envelopes[3]).toMatchObject({
       type: 'event.session.work_changed',
       seq: 4,
@@ -2217,7 +2217,7 @@ describe('SessionEventBroadcaster', () => {
     ]);
     expect(envelopes[0]!.payload).toMatchObject({ pending_interaction: 'question' });
     expect(envelopes[2]!.payload).toMatchObject({ question_id: 'q1' });
-    expect((envelopes[2]!.payload as { dismissed_at?: string }).dismissed_at).toBeTypeOf('string');
+    expect(typeof (envelopes[2]!.payload as { dismissed_at?: string }).dismissed_at).toBe('string');
     expect(envelopes[3]!.payload).toMatchObject({ pending_interaction: 'none' });
   });
 
@@ -2306,7 +2306,7 @@ describe('SessionEventBroadcaster', () => {
         scope: 'session',
       },
     });
-    expect((envelopes[2]!.payload as { resolved_at?: string }).resolved_at).toBeTypeOf('string');
+    expect(typeof (envelopes[2]!.payload as { resolved_at?: string }).resolved_at).toBe('string');
     expect(envelopes[3]).toMatchObject({
       type: 'event.session.work_changed',
       seq: 4,
@@ -2851,8 +2851,7 @@ describe('SessionEventBroadcaster', () => {
         releaseBackfill = resolve;
       });
       const original = service.ensureAgentHistory.bind(service);
-      const backfillSpy = vi
-        .spyOn(service, 'ensureAgentHistory')
+      const backfillSpy = spyOn(service, 'ensureAgentHistory')
         .mockImplementation(async (sessionId, agentId) => {
           if (agentId === 'sub-1') await gate;
           return original(sessionId, agentId);
@@ -3003,7 +3002,7 @@ describe('SessionEventBroadcaster', () => {
       };
       expect(payload.snapshot.items).toEqual([]);
       expect(payload.has_more_older).toBe(true);
-      expect(payload.seq).toBeTypeOf('number');
+      expect(typeof payload.seq).toBe('number');
       expect(payload.snapshot).toMatchObject({
         tasks: [],
         interactions: [],
@@ -3043,7 +3042,7 @@ describe('SessionEventBroadcaster', () => {
       const reset = transcriptEnvelopes(view.envelopes)[0]!;
       expect(reset.type).toBe('transcript.reset');
       const watermark = (reset.payload as { seq?: number }).seq;
-      expect(watermark).toBeTypeOf('number');
+      expect(typeof watermark).toBe('number');
 
       main.bus.emit(agentEvent('turn.started', { turnId: 1, origin: { kind: 'user' } }));
       main.bus.emit(agentEvent('turn.ended', { turnId: 1, reason: 'completed' }));
@@ -3127,7 +3126,7 @@ describe('SessionEventBroadcaster', () => {
       );
       expect(resets).toHaveLength(1);
       const watermark = (resets[0]!.payload as { seq?: number }).seq;
-      expect(watermark).toBeTypeOf('number');
+      expect(typeof watermark).toBe('number');
       expect(
         (
           transcriptEnvelopes(first.envelopes).filter((e) => e.type === 'transcript.ops').at(-1)!

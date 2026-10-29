@@ -2,7 +2,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, sep } from 'node:path';
 
-import { afterAll, beforeAll, describe, expect, it, jest, vi } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it, jest } from 'bun:test';
 import { setEnv, restoreEnvs } from './helpers/stubs';
 import { waitForAssertion, waitUntil } from './helpers/waitFor';
 

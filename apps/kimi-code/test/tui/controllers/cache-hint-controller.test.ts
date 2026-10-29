@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, jest, vi } from 'bun:test';
+import { beforeEach, describe, expect, it, jest } from 'bun:test';
 import { waitForAssertion, waitUntil } from '../../helpers/waitFor';
 import { mocked } from '../../helpers/mocked';
 
@@ -315,7 +315,7 @@ describe('CacheHintController scenario 2 (idle submit)', () => {
     jest.spyOn(Date, 'now').mockReturnValue(Date.now() + 1200_000);
 
     expect(controller.maybeInterceptOnSubmit('hello')).toBe(true);
-    expect(host.mountEditorReplacement).toHaveBeenCalledOnce();
+    expect(host.mountEditorReplacement).toHaveBeenCalledTimes(1);
     expect(host.track).toHaveBeenCalledWith(
       'cache_hint_shown',
       expect.objectContaining({ scene: 'idle', model: 'k2' }),
@@ -650,7 +650,7 @@ describe('CacheHintController scenario 1 (resume)', () => {
 
     await showOnResumeAndDismiss(controller, host);
     await controller.maybeShowOnResume();
-    expect(host.mountEditorReplacement).toHaveBeenCalledOnce();
+    expect(host.mountEditorReplacement).toHaveBeenCalledTimes(1);
   });
 
   it('falls back to summary.updatedAt when there are no replay records', async () => {
@@ -660,7 +660,7 @@ describe('CacheHintController scenario 1 (resume)', () => {
     const controller = new CacheHintController(host);
 
     await showOnResumeAndDismiss(controller, host);
-    expect(host.mountEditorReplacement).toHaveBeenCalledOnce();
+    expect(host.mountEditorReplacement).toHaveBeenCalledTimes(1);
   });
 
   it('drops the dialog when the session switched during the config fetch', async () => {
@@ -746,7 +746,7 @@ describe('CacheHintController scenario 1 (resume)', () => {
 
     // The recent permission change must not mask the expired cache.
     await showOnResumeAndDismiss(controller, host);
-    expect(host.mountEditorReplacement).toHaveBeenCalledOnce();
+    expect(host.mountEditorReplacement).toHaveBeenCalledTimes(1);
   });
 
   it('skips when the config cannot be resolved', async () => {
@@ -784,7 +784,7 @@ describe('CacheHintController scenario 1 (resume)', () => {
     // idle-submit path catch it instead of waving the prompt through.
     jest.spyOn(Date, 'now').mockReturnValue(now + 660_000);
     expect(controller.maybeInterceptOnSubmit('hello')).toBe(true);
-    expect(host.mountEditorReplacement).toHaveBeenCalledOnce();
+    expect(host.mountEditorReplacement).toHaveBeenCalledTimes(1);
     expect(host.track).toHaveBeenCalledWith(
       'cache_hint_shown',
       expect.objectContaining({ scene: 'idle' }),
@@ -805,7 +805,7 @@ describe('CacheHintController scenario 1 (resume)', () => {
 
     state.editorReplacementMounted = false;
     expect(controller.maybeInterceptOnSubmit('hello')).toBe(true);
-    expect(host.mountEditorReplacement).toHaveBeenCalledOnce();
+    expect(host.mountEditorReplacement).toHaveBeenCalledTimes(1);
     expect(host.track).toHaveBeenCalledWith(
       'cache_hint_shown',
       expect.objectContaining({ scene: 'idle' }),

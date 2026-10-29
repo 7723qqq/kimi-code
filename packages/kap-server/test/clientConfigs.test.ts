@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 import { KIMI_REGION_PROFILES } from '@moonshot-ai/kimi-code-oauth';
-import { afterEach, beforeEach, describe, expect, it, jest, vi } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 
 import {
   clientConfigsBaseUrl,

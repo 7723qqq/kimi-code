@@ -4,7 +4,7 @@ import { join } from 'node:path';
 
 import { IConfigService } from '@moonshot-ai/agent-core-v2';
 import { parse as parseToml } from 'smol-toml';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 
 import { type RunningServer, startServer } from '../src/start';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';

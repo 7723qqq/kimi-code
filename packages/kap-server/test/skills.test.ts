@@ -14,7 +14,7 @@ import {
   activateSkillResultSchema,
   listSkillsResponseSchema,
 } from '../src/protocol/rest-skill';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it, spyOn } from 'bun:test';
 
 import { type RunningServer, startServer } from '../src/start';
 import { TEST_HOST_IDENTITY } from './helpers/hostIdentity';
@@ -275,8 +275,7 @@ describe('server-v2 /api/v1 skills', () => {
       await createMainAgent(id);
       const handle = getLiveSessionById(server!.core.accessor, id)!;
       const agent = handle.accessor.get(IAgentLifecycleService).handleOf('main')!;
-      const activate = vi
-        .spyOn(agent.accessor.get(IAgentSkillService), 'activate')
+      const activate = spyOn(agent.accessor.get(IAgentSkillService), 'activate')
         .mockRejectedValue(new Error2(ErrorCodes.SESSION_OCCUPIED, 'occupied'));
 
       const result = await postJson(`/api/v1/sessions/${id}/skills/update-config:activate`);
@@ -291,8 +290,7 @@ describe('server-v2 /api/v1 skills', () => {
       await createMainAgent(id);
       const handle = getLiveSessionById(server!.core.accessor, id)!;
       const agent = handle.accessor.get(IAgentLifecycleService).handleOf('main')!;
-      const activate = vi
-        .spyOn(agent.accessor.get(IAgentSkillService), 'activate')
+      const activate = spyOn(agent.accessor.get(IAgentSkillService), 'activate')
         .mockRejectedValue(new Error2(ErrorCodes.SESSION_STALE, 'stale'));
 
       const result = await postJson(`/api/v1/sessions/${id}/skills/update-config:activate`);

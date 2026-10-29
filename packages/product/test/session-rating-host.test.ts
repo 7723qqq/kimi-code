@@ -21,7 +21,7 @@ import {
   type Scope,
 } from '@moonshot-ai/agent-core-v2';
 import { TurnEnded, TurnPrompt, TurnStarted } from '@moonshot-ai/agent-core-v2';
-import { afterEach, beforeEach, describe, expect, it, jest, vi } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 
 import { SessionRatingHost } from '#/session-rating/node/index';
 

@@ -11,7 +11,7 @@
  * Run: pnpm -C apps/kimi-code exec vitest run test/tui/commands/provider.test.ts
  */
 import type { ModelAlias, RefreshProviderModelsResponse } from '@moonshot-ai/kimi-code-sdk';
-import { describe, expect, it, jest, vi } from 'bun:test';
+import { describe, expect, it, jest } from 'bun:test';
 
 import type { SlashCommandHost } from '#/tui/commands';
 import { handleProviderCommand, setDefaultModel } from '#/tui/commands/provider';

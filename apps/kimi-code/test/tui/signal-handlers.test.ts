@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, jest, vi } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, jest, spyOn } from 'bun:test';
 
 import { KimiTUI, type KimiTUIStartupInput, type TUIState } from '#/tui/kimi-tui';
 
@@ -139,8 +139,7 @@ describe('KimiTUI signal handlers', () => {
   let platformDescriptor: PropertyDescriptor | undefined;
 
   beforeEach(() => {
-    exitSpy = vi
-      .spyOn(process, 'exit')
+    exitSpy = spyOn(process, 'exit')
       .mockImplementation((() => undefined) as unknown as typeof process.exit);
     platformDescriptor = Object.getOwnPropertyDescriptor(process, 'platform');
   });
@@ -326,9 +325,9 @@ describe('KimiTUI signal handlers', () => {
 
     await tui.stop();
 
-    expect(drainInput).toHaveBeenCalledOnce();
-    expect(uiStop).toHaveBeenCalledOnce();
-    expect(tui.onExit).toHaveBeenCalledOnce();
+    expect(drainInput).toHaveBeenCalledTimes(1);
+    expect(uiStop).toHaveBeenCalledTimes(1);
+    expect(tui.onExit).toHaveBeenCalledTimes(1);
     expect(events).toEqual(['drain', 'ui.stop', 'exit']);
   });
 

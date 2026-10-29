@@ -30,7 +30,7 @@ import {
 import type { TranscriptItem } from '@moonshot-ai/transcript';
 import type { SessionRatingResult } from '../src/protocol/rest-session-rating';
 import { pino } from 'pino';
-import { afterAll, beforeAll, describe, expect, it, vi } from 'bun:test';
+import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { waitForAssertion, waitUntil } from './helpers/waitFor';
 
 import { type RunningServer, startServer } from '../src/start';

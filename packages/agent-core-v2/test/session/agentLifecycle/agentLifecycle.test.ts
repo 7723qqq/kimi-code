@@ -781,7 +781,7 @@ describe('AgentLifecycleService', () => {
 
     expect(stopAllOnExit).toHaveBeenCalledWith('Session closed');
     expect(loopSettled).toHaveBeenCalled();
-    expect(suppressAllTerminalNotifications).toHaveBeenCalledOnce();
+    expect(suppressAllTerminalNotifications).toHaveBeenCalledTimes(1);
     expect(suppressAllTerminalNotifications.mock.invocationCallOrder[0]).toBeLessThan(
       loopSettled.mock.invocationCallOrder[0]!,
     );
@@ -804,7 +804,7 @@ describe('AgentLifecycleService', () => {
     expect(closed).toEqual(['main']);
 
     await svc.remove(main);
-    expect(stopAllOnExit).toHaveBeenCalledOnce();
+    expect(stopAllOnExit).toHaveBeenCalledTimes(1);
   });
 
   it('remove waits for prompt intake to drain before disposing the agent scope', async () => {
@@ -868,7 +868,7 @@ describe('AgentLifecycleService', () => {
       { promptId: 'q3' },
       undefined,
     ]);
-    expect(loopSettled).toHaveBeenCalledOnce();
+    expect(loopSettled).toHaveBeenCalledTimes(1);
   });
 
   it('remove waits for an active full compaction to reject after aborting it', async () => {
@@ -1135,7 +1135,7 @@ describe('AgentLifecycleService', () => {
       created = true;
       return agent;
     });
-    await waitForAssertion(() => expect(registerAgent).toHaveBeenCalledOnce());
+    await waitForAssertion(() => expect(registerAgent).toHaveBeenCalledTimes(1));
 
     expect(created).toBe(false);
 

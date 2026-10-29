@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process';
 import { createRequire } from 'node:module';
 
 import type { createKimiDeviceId as createKimiDeviceIdFn } from '@moonshot-ai/kimi-code-oauth';
-import { afterEach, beforeEach, describe, expect, it, jest, vi } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 import { setEnv, restoreEnvs } from '../helpers/stubs';
 
 import { runShell } from '#/cli/run-shell';
@@ -277,7 +277,7 @@ describe('runShell', () => {
         sessionStartedProperties: { yolo: true, auto: false, plan: true, afk: false },
       }),
     );
-    expect(mocks.harnessEnsureConfigFile).toHaveBeenCalledOnce();
+    expect(mocks.harnessEnsureConfigFile).toHaveBeenCalledTimes(1);
     expect(mocks.harnessEnsureConfigFile.mock.invocationCallOrder[0]).toBeLessThan(
       mocks.harnessGetConfig.mock.invocationCallOrder[0]!,
     );
@@ -320,7 +320,7 @@ describe('runShell', () => {
     expect(mocks.setCrashPhase).toHaveBeenCalledWith('runtime');
 
     const [, harness, startupInput] = mocks.kimiTuiConstructor.mock.calls[0]!;
-    expect(harness).toBeTypeOf('object');
+    expect(typeof harness).toBe('object');
     expect(startupInput).toMatchObject({
       cliOptions,
       additionalDirs: ['../shared', '/tmp/extra'],
@@ -333,7 +333,7 @@ describe('runShell', () => {
       workDir: process.cwd(),
       telemetryDisabled: false,
     });
-    expect(mocks.tuiStart).toHaveBeenCalledOnce();
+    expect(mocks.tuiStart).toHaveBeenCalledTimes(1);
     expect(mocks.withTelemetryContext).toHaveBeenCalledWith({ sessionId: 'ses-startup' });
     expect(mocks.lifecycleTrack).toHaveBeenCalledWith('startup_perf', {
       duration_ms: expect.any(Number),
@@ -644,7 +644,7 @@ describe('runShell', () => {
       '1.2.3-test',
     );
 
-    expect(mocks.detectTerminalTheme).toHaveBeenCalledOnce();
+    expect(mocks.detectTerminalTheme).toHaveBeenCalledTimes(1);
     const [, , startupInput] = mocks.kimiTuiConstructor.mock.calls[0]!;
     expect(startupInput).toMatchObject({
       startupNotice: 'Invalid TUI config in ~/.kimi-code/tui.toml; using defaults.',
@@ -732,7 +732,7 @@ describe('runShell', () => {
       // crash handler must force a synchronous flush or the crash reason is
       // lost (regression: uncaughtException logs never reached disk).
       expect(() => handler?.(new Error('boom'))).toThrow(ExitCalled);
-      expect(mocks.flushDiagnosticLogsSync).toHaveBeenCalledOnce();
+      expect(mocks.flushDiagnosticLogsSync).toHaveBeenCalledTimes(1);
       expect(exitSpy).toHaveBeenCalledWith(1);
       expect(mocks.flushDiagnosticLogsSync.mock.invocationCallOrder[0]!).toBeLessThan(
         exitSpy.mock.invocationCallOrder[0]!,
@@ -780,7 +780,7 @@ describe('runShell', () => {
       expect(handler).toBeDefined();
 
       expect(() => handler?.(new Error('boom'))).toThrow(ExitCalled);
-      expect(mocks.flushDiagnosticLogsSync).toHaveBeenCalledOnce();
+      expect(mocks.flushDiagnosticLogsSync).toHaveBeenCalledTimes(1);
       expect(exitSpy).toHaveBeenCalledWith(1);
       expect(mocks.flushDiagnosticLogsSync.mock.invocationCallOrder[0]!).toBeLessThan(
         exitSpy.mock.invocationCallOrder[0]!,
@@ -824,8 +824,8 @@ describe('runShell', () => {
       duration_ms: expect.any(Number),
       tui_mode: 'regular',
     });
-    expect(mocks.shutdownTelemetry).toHaveBeenCalledOnce();
-    expect(mocks.harnessClose).toHaveBeenCalledOnce();
+    expect(mocks.shutdownTelemetry).toHaveBeenCalledTimes(1);
+    expect(mocks.harnessClose).toHaveBeenCalledTimes(1);
   });
 
   it('tracks exit and prints resume instructions from the TUI exit handler', async () => {
@@ -875,7 +875,7 @@ describe('runShell', () => {
         tui_mode: 'regular',
       });
       expect(mocks.harnessTrack).not.toHaveBeenCalledWith('exit', expect.anything());
-      expect(mocks.shutdownTelemetry).toHaveBeenCalledOnce();
+      expect(mocks.shutdownTelemetry).toHaveBeenCalledTimes(1);
       expect(stdout.text()).toBe(' Bye!\n');
       expect(stderr.text()).toContain(' To resume this session: kimi -r ses-1');
     } finally {
@@ -976,7 +976,7 @@ describe('runShell', () => {
         await runShell(minimalCliOptions, '1.2.3-test', { migrateOnly: true });
       });
       expect(mocks.detectPendingMigration).not.toHaveBeenCalled();
-      expect(mocks.harnessClose).toHaveBeenCalledOnce();
+      expect(mocks.harnessClose).toHaveBeenCalledTimes(1);
       expect(mocks.tuiStart).not.toHaveBeenCalled();
       expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining('KIMI_SHARE_DIR'));
     } finally {

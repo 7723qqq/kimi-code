@@ -1,5 +1,5 @@
 import type { PromptOrigin } from '@moonshot-ai/agent-core-v2';
-import { afterEach, beforeEach, describe, expect, it, jest, vi } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 
 import {
   mountSessionRating,

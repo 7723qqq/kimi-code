@@ -4,7 +4,7 @@ import {
   SurveyPopupConfigFeed,
   type SurveyPopupPayload,
 } from '@moonshot-ai/kimi-code-product/session-rating/node';
-import { afterEach, beforeEach, describe, expect, it, jest, vi } from 'bun:test';
+import { afterEach, beforeEach, describe, expect, it, jest } from 'bun:test';
 
 import { GutterContainer } from '#/tui/components/chrome/gutter-container';
 import {
