@@ -1125,8 +1125,8 @@ describe('McpConnectionManager', () => {
         },
         (error: unknown) => error,
       );
-      await expect(cm.markNeedsAuth('hyper', callError, client)).resolves.toBe(false);
-      expect(cm.get('hyper')?.status).toBe('failed');
+      await expect(cm.markNeedsAuth('hyper', callError, client)).resolves.toBe(true);
+      expect(cm.get('hyper')?.status).toBe('needs-auth');
       expect(await oauthService.hasTokens('hyper', server.url)).toBe(false);
     } finally {
       await cm.shutdown();
