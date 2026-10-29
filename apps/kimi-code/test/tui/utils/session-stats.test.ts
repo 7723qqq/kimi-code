@@ -3,14 +3,14 @@ import { describe, expect, it } from 'bun:test';
 import {
   accumulateStepCompleted,
   accumulateToolDuration,
+  buildSessionStatSegments,
   bumpTurnCount,
   createEmptySessionStats,
   firstTokenAverageMs,
-  fitSessionStatsText,
+  formatCacheHitRate,
   formatOneDecimal,
   formatStatDuration,
   formatTokenSpeed,
-  type SessionStatsGroup,
 } from '#/tui/utils/session-stats';
 
 function sampleStats(): ReturnType<typeof createEmptySessionStats> {
@@ -21,10 +21,19 @@ function sampleStats(): ReturnType<typeof createEmptySessionStats> {
     stepCount: 7,
     llmTotalMs: 186_000,
     toolTotalMs: 900,
-    firstTokenSamples: [1_800, 1_600],
+    firstTokenTotalMs: 3_400,
+    firstTokenSampleCount: 2,
     inputTokens: 176_128,
     outputTokens: 18_739,
   };
+}
+
+function buildStats(steps: number): ReturnType<typeof createEmptySessionStats> {
+  let stats = createEmptySessionStats();
+  for (let i = 0; i < steps; i += 1) {
+    stats = accumulateStepCompleted(stats, undefined, undefined, 1_000 + ((i * 37) % 4_000));
+  }
+  return stats;
 }
 
 describe('createEmptySessionStats / counters', () => {
@@ -34,7 +43,8 @@ describe('createEmptySessionStats / counters', () => {
       stepCount: 0,
       llmTotalMs: 0,
       toolTotalMs: 0,
-      firstTokenSamples: [],
+      firstTokenTotalMs: 0,
+      firstTokenSampleCount: 0,
       inputTokens: 0,
       outputTokens: 0,
     });
@@ -65,7 +75,8 @@ describe('accumulateStepCompleted', () => {
     expect(next.llmTotalMs).toBe(191_000);
     expect(next.inputTokens).toBe(176_728);
     expect(next.outputTokens).toBe(18_779);
-    expect(next.firstTokenSamples).toEqual([1_800, 1_600, 1_500]);
+    expect(next.firstTokenTotalMs).toBe(4_900);
+    expect(next.firstTokenSampleCount).toBe(3);
   });
 
   it('skips undefined usage/timing without disturbing other counters', () => {
@@ -73,13 +84,15 @@ describe('accumulateStepCompleted', () => {
     expect(next.stepCount).toBe(8);
     expect(next.llmTotalMs).toBe(186_000);
     expect(next.inputTokens).toBe(176_128);
-    expect(next.firstTokenSamples).toEqual([1_800, 1_600]);
+    expect(next.firstTokenTotalMs).toBe(3_400);
+    expect(next.firstTokenSampleCount).toBe(2);
   });
 
   it('ignores negative or non-finite timing values', () => {
     const next = accumulateStepCompleted(sampleStats(), undefined, -1, Number.NaN);
     expect(next.llmTotalMs).toBe(186_000);
-    expect(next.firstTokenSamples).toEqual([1_800, 1_600]);
+    expect(next.firstTokenTotalMs).toBe(3_400);
+    expect(next.firstTokenSampleCount).toBe(2);
   });
 });
 
@@ -90,6 +103,51 @@ describe('firstTokenAverageMs', () => {
 
   it('averages the samples', () => {
     expect(firstTokenAverageMs(sampleStats())).toBe(1_700);
+  });
+});
+
+describe('firstTokenAverageMs — constant-time accumulation', () => {
+  it('averages every sample exactly after 10k steps', () => {
+    let stats = createEmptySessionStats();
+    const samples: number[] = [];
+    for (let i = 0; i < 10_000; i += 1) {
+      const sample = 1_000 + ((i * 37) % 4_000);
+      samples.push(sample);
+      stats = accumulateStepCompleted(stats, undefined, undefined, sample);
+    }
+    const reference = samples.reduce((sum, sample) => sum + sample, 0) / samples.length;
+
+    expect(stats.firstTokenSampleCount).toBe(samples.length);
+    expect(firstTokenAverageMs(stats)).toBe(reference);
+  });
+
+  it('keeps the stats object free of per-sample storage', () => {
+    const large = buildStats(10_000);
+
+    expect(large.firstTokenSampleCount).toBe(10_000);
+    expect(Object.values(large).filter((value) => Array.isArray(value))).toHaveLength(0);
+    expect(Object.keys(large).toSorted()).toEqual(
+      Object.keys(createEmptySessionStats()).toSorted(),
+    );
+  });
+
+  it('does not slow down as the step count grows', () => {
+    const small = buildStats(1_000);
+    const large = buildStats(10_000);
+    const time = (stats: ReturnType<typeof createEmptySessionStats>): number => {
+      const started = performance.now();
+      for (let i = 0; i < 20_000; i += 1) {
+        firstTokenAverageMs(accumulateStepCompleted(stats, undefined, undefined, 1_200));
+      }
+      return performance.now() - started;
+    };
+
+    time(small);
+    time(large);
+    const smallMs = Math.min(time(small), time(small));
+    const largeMs = Math.min(time(large), time(large));
+
+    expect(largeMs).toBeLessThan(smallMs * 3);
   });
 });
 
@@ -147,53 +205,65 @@ describe('formatStatDuration', () => {
   });
 });
 
-describe('fitSessionStatsText', () => {
-  function groups(): SessionStatsGroup[] {
-    return [
-      { items: [{ text: 'A', priority: 6 }] },
-      {
-        items: [
-          { text: 'B', priority: 4 },
-          { text: 'C', priority: 1 },
-        ],
-      },
-      {
-        items: [
-          { text: 'D', priority: 2 },
-          { text: 'E', priority: 3 },
-        ],
-      },
-      { items: [{ text: 'KEEP1', priority: Number.POSITIVE_INFINITY }] },
-      { items: [{ text: 'F', priority: 5 }] },
-      { items: [{ text: 'KEEP2', priority: Number.POSITIVE_INFINITY }] },
-    ];
-  }
-
-  it('joins groups with " | " and items within a group with " · "', () => {
-    expect(fitSessionStatsText(groups(), 100)).toBe('A | B · C | D · E | KEEP1 | F | KEEP2');
+describe('formatCacheHitRate', () => {
+  it('reads cache reads over reads plus writes when writes are reported', () => {
+    expect(formatCacheHitRate(1_792, 99, 0)).toBe('cache hit 95%');
   });
 
-  it('drops the lowest-priority item first, keeping its group-mates joined', () => {
-    // C (priority 1) goes first: B survives alone in its group.
-    expect(fitSessionStatsText(groups(), 34)).toBe('A | B | D · E | KEEP1 | F | KEEP2');
-    // Then D (priority 2): E stays.
-    expect(fitSessionStatsText(groups(), 30)).toBe('A | B | E | KEEP1 | F | KEEP2');
+  it('falls back to the share of total input when writes are never reported', () => {
+    // DeepSeek's Anthropic-compatible endpoint reports reads but no writes:
+    // 200 read / (200 read + 800 plain) = 20%, not a fake 100%.
+    expect(formatCacheHitRate(200, 0, 800)).toBe('cache hit 20%');
   });
 
-  it('keeps Infinity items until the end and then stops dropping', () => {
-    const tight = fitSessionStatsText(groups(), 16);
-    expect(tight).toBe('KEEP1 | KEEP2');
-    // Infinity-only text that still overflows is returned as-is (the caller
-    // truncates at the render boundary).
-    expect(
-      fitSessionStatsText(
-        [{ items: [{ text: 'KEEP1 | KEEP2', priority: Number.POSITIVE_INFINITY }] }],
-        1,
-      ),
-    ).toBe('KEEP1 | KEEP2');
+  it('reads 0% when only uncached input has been sent', () => {
+    expect(formatCacheHitRate(0, 0, 800)).toBe('cache hit 0%');
   });
 
-  it('returns empty for an empty group list', () => {
-    expect(fitSessionStatsText([], 100)).toBe('');
+  it('returns null when no input has been seen at all', () => {
+    expect(formatCacheHitRate(0, 0, 0)).toBeNull();
+  });
+});
+
+describe('buildSessionStatSegments', () => {
+  const context = 'context: 36% (350k/977k)';
+
+  it('omits the counters and timings until a turn reports numbers', () => {
+    const groups = buildSessionStatSegments(createEmptySessionStats(), null, null, null, context);
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.items[0]!.text).toBe(context);
+  });
+
+  it('orders the readings the way the strip reads them', () => {
+    const stats = {
+      ...sampleStats(),
+      firstTokenTotalMs: 1_800,
+      firstTokenSampleCount: 1,
+      inputTokens: 176_128,
+      outputTokens: 18_739,
+    };
+    const groups = buildSessionStatSegments(stats, 'cache hit 88%', '107 tok/s now', null, context);
+    const texts = groups.map((group) => group.items.map((item) => item.text).join(' · '));
+    expect(texts).toEqual([
+      '4 turns · 7 steps',
+      'LLM 3m6s · tools 0.9s',
+      'first token avg 1.8s · 107 tok/s now',
+      'cache hit 88%',
+      'in 172k tok · out 18.3k tok',
+      context,
+    ]);
+  });
+
+  it('keeps the step rate and the session average in one segment', () => {
+    const groups = buildSessionStatSegments(
+      { ...sampleStats(), firstTokenTotalMs: 0, firstTokenSampleCount: 0 },
+      null,
+      '107 tok/s now',
+      '95 tok/s avg',
+      context,
+    );
+    const rates = groups.find((group) => group.items.some((item) => item.text.includes('tok/s')));
+    expect(rates?.items).toHaveLength(1);
+    expect(rates?.items[0]?.text).toBe('107 tok/s now · 95 tok/s avg');
   });
 });

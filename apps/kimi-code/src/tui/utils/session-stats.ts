@@ -1,11 +1,11 @@
 /**
- * Session-level stats accumulated from the session event stream and rendered
- * on the footer's second line (e.g. `4 turns · 8 steps | LLM 3m6s · tools 0.9s`).
+ * Session-level stats accumulated from the session event stream and rendered in
+ * the status strip above the editor (e.g. `4 turns · 8 steps | LLM 3m6s · tools 0.9s`).
  *
  * The accumulation helpers are pure — they take a `SessionStats` and return a
  * new object — so the TUI host only needs to store the latest value on
  * `AppState.sessionStats`. Rendering lives here too (kept free of UI state) so
- * both the accumulator and the width-adaptive segment dropping are unit-testable.
+ * both the accumulator and the group composition are unit-testable.
  */
 
 import type { TokenUsage } from '@moonshot-ai/kimi-code-sdk';
@@ -14,9 +14,10 @@ import { t } from '#/i18n';
 import type { SessionStats } from '#/tui/types';
 import { formatTokenCount, usagePercent, usagePercentFromRatio } from '#/utils/usage/usage-format';
 
-/** One renderable stat item. `priority` is the drop order when the footer
- *  is too narrow: lower = dropped first. `Infinity` = never dropped on its
- *  own (cache hit / context readout). */
+/** One renderable stat item. `priority` is the drop order the status strip
+ *  does not use — it wraps instead of dropping — and is kept as the
+ *  declaration of which reading outranks which: lower = dropped first.
+ *  `Infinity` = never dropped on its own (cache hit / context readout). */
 export interface SessionStatsSegment {
   readonly text: string;
   readonly priority: number;
@@ -34,7 +35,8 @@ export function createEmptySessionStats(): SessionStats {
     stepCount: 0,
     llmTotalMs: 0,
     toolTotalMs: 0,
-    firstTokenSamples: [],
+    firstTokenTotalMs: 0,
+    firstTokenSampleCount: 0,
     inputTokens: 0,
     outputTokens: 0,
   };
@@ -74,7 +76,8 @@ export function accumulateStepCompleted(
     Number.isFinite(llmFirstTokenLatencyMs) &&
     llmFirstTokenLatencyMs >= 0
   ) {
-    next.firstTokenSamples = [...stats.firstTokenSamples, llmFirstTokenLatencyMs];
+    next.firstTokenTotalMs += llmFirstTokenLatencyMs;
+    next.firstTokenSampleCount += 1;
   }
   if (usage !== undefined) {
     next.inputTokens +=
@@ -85,9 +88,8 @@ export function accumulateStepCompleted(
 }
 
 export function firstTokenAverageMs(stats: SessionStats): number | null {
-  if (stats.firstTokenSamples.length === 0) return null;
-  const sum = stats.firstTokenSamples.reduce((acc, s) => acc + s, 0);
-  return sum / stats.firstTokenSamples.length;
+  if (stats.firstTokenSampleCount === 0) return null;
+  return stats.firstTokenTotalMs / stats.firstTokenSampleCount;
 }
 
 /**
@@ -138,58 +140,26 @@ export function formatTokenSpeed(speed: number): string {
 }
 
 /**
- * Compose the footer's right-hand readout from ordered stat groups. Items
- * within a group join with ` · `, groups join with ` | `. When the combined
- * text would exceed `maxWidth`, the lowest-priority item is dropped and the
- * join is retried until it fits (empty groups disappear). Cache hit and
- * context carry `Infinity` priority, so a bare `context 43%` readout always
- * survives; if even that overflows it is returned as-is and the caller's
- * render truncation takes over.
+ * The status strip's readout as ordered groups: items in a group join with
+ * ` · `, groups with ` | `. Display order: turns/steps, LLM time · tool time,
+ * first-token avg · tok/s, cache hit, input/output, context.
+ *
+ * The strip wraps these groups onto as many rows as it needs rather than
+ * dropping them, so a narrow column loses no information. `priority` survives
+ * as the declaration of which reading outranks which — the order the footer
+ * used when it had a single line to fit: the counters and the cumulative
+ * timings are totals that keep growing on screen whether or not they are shown
+ * right now, so they rank first when something has to give; first-token
+ * latency describes a reply the phase indicator already carried the user
+ * through; `tok/s` is the reading that keeps moving while a reply streams, so
+ * it ranks last among the optional items. Cache hit and context carry
+ * `Infinity` and only disappear when their data is absent entirely.
+ *
+ * The step rate and the session average share one slot and one priority: they
+ * only mean anything side by side, and either alone reads like the whole
+ * answer. Neither is instantaneous — the step rate is the step that just
+ * closed; see `utils/token-speed.ts`.
  */
-export function fitSessionStatsText(
-  groups: readonly SessionStatsGroup[],
-  maxWidth: number,
-): string {
-  if (groups.length === 0) return '';
-  let pending = groups.map((g) => ({ items: [...g.items] }));
-  let text = joinGroups(pending);
-  while (visibleTextWidth(text) > maxWidth) {
-    const droppable = pending
-      .flatMap((group, groupIndex) =>
-        group.items
-          .filter((item) => Number.isFinite(item.priority))
-          .map((item) => ({ item, groupIndex })),
-      )
-      .toSorted((a, b) => a.item.priority - b.item.priority);
-    const toDrop = droppable[0];
-    if (toDrop === undefined) {
-      // Only Infinity items remain and they still don't fit — keep them all;
-      // render() truncates the final line.
-      return text;
-    }
-    pending = pending
-      .map((group, groupIndex) =>
-        groupIndex === toDrop.groupIndex
-          ? { items: group.items.filter((item) => item !== toDrop.item) }
-          : group,
-      )
-      .filter((group) => group.items.length > 0);
-    if (pending.length === 0) return '';
-    text = joinGroups(pending);
-  }
-  return text;
-}
-
-function joinGroups(groups: readonly { items: readonly SessionStatsSegment[] }[]): string {
-  return groups.map((group) => group.items.map((item) => item.text).join(' · ')).join(' | ');
-}
-
-/** Visible (ANSI-stripped) width — mirrors the footer's own width helpers. */
-function visibleTextWidth(text: string): number {
-  // eslint-disable-next-line no-control-regex
-  return text.replaceAll(/\u001B\[[0-9;]*m/g, '').length;
-}
-
 export function buildSessionStatSegments(
   stats: SessionStats,
   hitRateText: string | null,
@@ -239,11 +209,9 @@ export function buildSessionStatSegments(
       priority: 4,
     });
   }
-  // The two rates share one drop slot: they are only meaningful read together,
-  // and dropping one would leave the survivor looking like the only answer. So
-  // they are emitted as a single segment — `fitSessionStatsText` drops items,
-  // not halves of one, and two items at the same priority would be dropped one
-  // at a time and split the pair.
+  // The two rates share one slot: they are only meaningful read together, and
+  // splitting them would leave the survivor looking like the only answer. One
+  // segment keeps them inseparable no matter how the group wraps.
   const speedText = [speedStepText, speedAverageText].filter((s) => s !== null);
   if (speedText.length > 0) {
     latencySpeed.push({ text: speedText.join(' · '), priority: 5 });
@@ -283,13 +251,15 @@ export function formatContextStatus(usage: number, tokens?: number, maxTokens?: 
 }
 
 /**
- * Live cache hit rate readout, e.g. `cache hit 87%`. Hidden until at least one
- * step reported usage (no session traffic yet).
+ * Live cache hit rate readout, e.g. `cache hit 87%`. Hidden only when no step
+ * has reported input yet (no session traffic).
  *
  * Hit rate: reads / (reads + writes) when the provider reports cache writes.
  * OpenAI-compatible endpoints (Kimi/DeepSeek/OpenAI) never surface cache
  * writes — their miss lands in `input_other` — so the share-of-total-input
  * fallback is the norm for them, otherwise the readout would always read 100%.
+ * A session that has sent only uncached input reads 0%, matching the
+ * every-write case instead of blanking the reading.
  */
 export function formatCacheHitRate(
   cacheReadTokens: number,
@@ -305,34 +275,10 @@ export function formatCacheHitRate(
   } else if (read > 0) {
     const inputTotal = read + other;
     pct = inputTotal > 0 ? Math.round((read / inputTotal) * 100) : 0;
+  } else if (other > 0) {
+    pct = 0;
   } else {
     return null;
   }
   return t('tui.chrome.footer.cacheHit', { pct: String(pct) });
 }
-
-/**
- * Compose the footer's right-hand readout as ordered groups (items in a group
- * join with ` · `, groups with ` | `). Display order: turns/steps, LLM time ·
- * tool time, first-token avg · tok/s, cache hit, input/output, context. The
- * cache-hit and context readouts carry `Infinity` priority and only disappear
- * when their data is absent entirely.
- *
- * Item drop priority (lower = dropped first when the terminal narrows):
- * turn/step counters (1) → tools time (2) → LLM time (2) → input/output (2) →
- * first-token avg (4) → tok/s (5), with cache hit and context never dropped.
- *
- * The rule behind that order: information a later render cannot reconstruct
- * outranks information that is merely decorative, and live information outranks
- * both. The counters and the cumulative timings are session totals that keep
- * growing on screen whether or not they are shown right now, so they go first.
- * First-token latency describes the reply that already started, which the
- * phase indicator has already carried the user through. `tok/s` is the one item
- * that keeps moving as the session continues — it is what the user watches
- * while a reply streams — so it is the last optional item to go. A narrow pane
- * that keeps `context` and a stale token total while dropping the rates has kept
- * the decorations and lost the measurement. The step rate and the session
- * average share one slot and one priority: they only mean anything side by side,
- * and either alone reads like the whole answer. Neither is instantaneous — the
- * step rate is the step that just closed; see `utils/token-speed.ts`.
- */

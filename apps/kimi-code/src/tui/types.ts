@@ -92,7 +92,7 @@ export interface AppState {
   tokenSpeed: number;
   /** 会话累计输出速度（tokens/秒），即"这场会话平均多快"；0 表示尚无读数。 */
   tokenSpeedAverage: number;
-  /** 会话级累计统计（轮次/步数/耗时/token），footer 第二行展示；TUI 生命周期内有效。 */
+  /** 会话级累计统计（轮次/步数/耗时/token），输入框上方的状态条展示；TUI 生命周期内有效。 */
   sessionStats: SessionStats;
   cumulativeTokens?: number;
   isCompacting: boolean;
@@ -132,7 +132,7 @@ export interface AppState {
 }
 
 /**
- * 会话级累计统计，供 footer 第二行展示。
+ * 会话级累计统计，供输入框上方的状态条展示。
  * 数据来自 `turn.started` / `turn.step.completed` / `tool.call.started`→`tool.result`
  * 事件，在 TUI 生命周期内累计（新会话/重启后自然清零，与 cache* 字段一致）。
  */
@@ -145,8 +145,10 @@ export interface SessionStats {
   llmTotalMs: number;
   /** 累计工具调用耗时（TUI 侧 `tool.call.started`→`tool.result` 计时），毫秒。 */
   toolTotalMs: number;
-  /** `llmFirstTokenLatencyMs` 样本，渲染时求平均。 */
-  firstTokenSamples: number[];
+  /** 所有 `llmFirstTokenLatencyMs` 样本的累加和，毫秒。 */
+  firstTokenTotalMs: number;
+  /** 参与平均的样本数。 */
+  firstTokenSampleCount: number;
   /** 累计输入 token（inputOther + inputCacheRead + inputCacheCreation）。 */
   inputTokens: number;
   /** 累计输出 token（usage.output 精确值）。 */

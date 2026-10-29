@@ -52,7 +52,8 @@ describe('FooterComponent — session stats line', () => {
       stepCount: 8,
       llmTotalMs: 186_000,
       toolTotalMs: 900,
-      firstTokenSamples: [1_800],
+      firstTokenTotalMs: 1_800,
+      firstTokenSampleCount: 1,
       inputTokens: 176_128,
       outputTokens: 18_739,
     },
@@ -66,65 +67,25 @@ describe('FooterComponent — session stats line', () => {
     maxContextTokens: 977_000,
   });
 
-  it('renders the full stats bar followed by context on a wide terminal', () => {
-    const out = line2(statsState, 170);
-    expect(out).toContain('4 turns · 8 steps');
-    expect(out).toContain('LLM 3m6s');
-    expect(out).toContain('tools 0.9s');
-    expect(out).toContain('first token avg 1.8s');
-    expect(out).toContain('107 tok/s now');
-    expect(out).toContain('95 tok/s avg');
-    expect(out).toContain('cache hit 88%');
-    expect(out).toContain('in 172k tok · out 18.3k tok');
-    expect(out).toContain('context: 11% (104k/954k)');
-  });
-
-  it('drops the session totals before the rates, and never splits the pair', () => {
-    // The rates answer a question only the moment can answer, so they outlive
-    // every cumulative reading. Widest first.
+  it('keeps the session totals out of the footer entirely', () => {
+    // The totals live in the status strip above the editor now. Rendering them
+    // here as well put the same five readings on screen twice, one above the
+    // other, and the footer copy is the one that scrolls away with the frame.
     const wide = line2(statsState, 170);
-    expect(wide).toContain('4 turns · 8 steps');
-    expect(wide).toContain('107 tok/s now');
-    expect(wide).toContain('95 tok/s avg');
-
-    // 95: the turn/step counters and the cumulative timings have gone; every
-    // reading describing the reply in flight is still there.
-    const withTotals = line2(statsState, 95);
-    expect(withTotals).not.toContain('turns ·');
-    expect(withTotals).not.toContain('LLM 3m6s');
-    expect(withTotals).not.toContain('tools 0.9s');
-    expect(withTotals).toContain('first token avg 1.8s');
-    expect(withTotals).toContain('107 tok/s now');
-    expect(withTotals).toContain('95 tok/s avg');
-
-    // 88: first-token latency goes; the rates are the last optional item left.
-    const mid = line2(statsState, 88);
-    expect(mid).not.toContain('first token avg');
-    expect(mid).toContain('107 tok/s now');
-    expect(mid).toContain('95 tok/s avg');
-
-    // 70: the rates go as one item. The two figures are read together or not
-    // at all — a width that drops one must drop the other, or the survivor
-    // reads like the only answer. Pinned at the boundary and below it.
-    for (const width of [70, 62]) {
-      const narrow = line2(statsState, width);
-      expect(narrow).not.toContain('tok/s now');
-      expect(narrow).not.toContain('tok/s avg');
-      expect(narrow).toContain('cache hit 88%');
-      expect(narrow).toContain('context:');
+    for (const reading of [
+      '4 turns · 8 steps',
+      'LLM 3m6s',
+      'tools 0.9s',
+      'first token avg 1.8s',
+      '107 tok/s now',
+      '95 tok/s avg',
+      'cache hit 88%',
+      'in 172k tok · out 18.3k tok',
+    ]) {
+      expect(wide).not.toContain(reading);
     }
-  });
-
-  it('shows one label when only one figure has a reading', () => {
-    // The first step of a session has a step rate before it has an average,
-    // and an unavailable figure is omitted rather than shown as a zero.
-    const stepOnly = line2(baseState({ ...statsState, tokenSpeed: 107, tokenSpeedAverage: 0 }), 88);
-    expect(stepOnly).toContain('107 tok/s now');
-    expect(stepOnly).not.toContain('tok/s avg');
-
-    const averageOnly = line2(baseState({ ...statsState, tokenSpeed: 0, tokenSpeedAverage: 95 }), 88);
-    expect(averageOnly).not.toContain('tok/s now');
-    expect(averageOnly).toContain('95 tok/s avg');
+    expect(wide).toContain('context: 11% (104k/954k)');
+    expect(wide.trim().startsWith('context:')).toBe(true);
   });
 
   it('falls back to the plain context readout before any session traffic', () => {
@@ -140,16 +101,31 @@ describe('FooterComponent — session stats line', () => {
     expect(out).not.toContain(' | ');
   });
 
-  it('renders singular turn/step labels for a single turn', () => {
-    const out = line2(
-      baseState({
-        sessionStats: { ...createEmptySessionStats(), turnCount: 1, stepCount: 1 },
-        contextUsage: 0.1,
-        contextTokens: 102_400,
+  it('hands the context readout over to the strip once it has numbers', () => {
+    // The strip carries the context figure as its last group. Rendering it here
+    // too would put the same percentage on screen twice, so the footer keeps it
+    // only while the strip is still empty.
+    const footer = new FooterComponent({
+      ...baseState({
+        contextUsage: 0.43,
+        contextTokens: 440_320,
         maxContextTokens: 1_024_000,
       }),
-      120,
-    );
-    expect(out).toContain('1 turn · 1 step');
+    });
+    let stripHasNumbers = false;
+    footer.setStatsShownProbe(() => stripHasNumbers);
+
+    const before = strip(footer.render(120)[1] ?? '');
+    expect(before).toContain('context: 43%');
+
+    stripHasNumbers = true;
+    const after = strip(footer.render(120)[1] ?? '');
+    expect(after).not.toContain('context:');
+
+    // The hint keeps its row: the input box still owns line 2.
+    footer.setTransientHint('Press Ctrl-C again to exit');
+    const withHint = strip(footer.render(120)[1] ?? '');
+    expect(withHint).toContain('Press Ctrl-C again to exit');
+    expect(withHint).not.toContain('context:');
   });
 });
