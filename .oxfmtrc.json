@@ -15,5 +15,11 @@
     "order": "asc"
   },
   "sortPackageJson": true,
-  "ignorePatterns": ["dist/", "coverage/", "bun.lock", "*.generated.ts"]
+  "ignorePatterns": [
+    "dist/",
+    "coverage/",
+    "bun.lock",
+    "*.generated.ts",
+    "packages/agent-core-v2/docs/*-manifest.*"
+  ]
 }
