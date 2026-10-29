@@ -325,7 +325,7 @@ describe('FooterComponent ctrl+o hint with a status_line command', () => {
   it('moves the hint to line 2 when a command owns line 1', async () => {
     const footer = new FooterComponent({
       ...appState,
-      statusLine: { items: null, command: 'printf "my-custom-status"' },
+      statusLine: { items: null, command: 'echo my-custom-status' },
     });
     footer.setExpandHintProvider(() => 'expand');
     footer.render(120);
