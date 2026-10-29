@@ -36,7 +36,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { appendFileSync, existsSync, readFileSync, readdirSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import { basename, join, relative, sep } from 'node:path';
 
@@ -44,6 +44,7 @@ import { killProcessTree } from './lib/kill-process-tree.mjs';
 
 const args = process.argv.slice(2);
 const ROOT = join(import.meta.dirname, '..');
+const TIMINGS_MAX_RECORDS = 200;
 
 function flag(name) {
   const prefix = `--${name}=`;
@@ -71,7 +72,9 @@ const defaultParallel = Math.max(
 const rawParallel = flag('parallel');
 const requestedParallel = rawParallel === undefined ? defaultParallel : Number(rawParallel);
 const parallel =
-  Number.isInteger(requestedParallel) && requestedParallel >= 1 ? requestedParallel : defaultParallel;
+  Number.isInteger(requestedParallel) && requestedParallel >= 1
+    ? requestedParallel
+    : defaultParallel;
 if (rawParallel !== undefined && parallel !== requestedParallel) {
   process.stderr.write(
     `--parallel=${String(rawParallel)} is not a positive integer; falling back to ${String(defaultParallel)}\n`,
@@ -117,7 +120,12 @@ let selected = includeHeavy
 if (shardArg !== undefined) {
   const parts = shardArg.split('/').map(Number);
   const [index, count] = parts;
-  if (index === undefined || count === undefined || !Number.isInteger(index) || !Number.isInteger(count)) {
+  if (
+    index === undefined ||
+    count === undefined ||
+    !Number.isInteger(index) ||
+    !Number.isInteger(count)
+  ) {
     console.error(`bad shard: ${shardArg}`);
     process.exit(2);
   }
@@ -259,13 +267,17 @@ if (timingsPath !== undefined) {
     files: selected.length,
     wallSeconds: Number(seconds),
     totals: { ...totals, hangs: hangs.length, failingFiles: failures.length },
-    durations: durations.toSorted((a, b) => b.ms - a.ms).map((entry) => ({
-      file: entry.rel,
-      ms: Math.round(entry.ms),
-    })),
+    durations: durations
+      .toSorted((a, b) => b.ms - a.ms)
+      .map((entry) => ({
+        file: entry.rel,
+        ms: Math.round(entry.ms),
+      })),
   };
   const target = join(ROOT, timingsPath);
-  appendFileSync(target, `${JSON.stringify(record)}\n`);
+  const lines = existsSync(target) ? readFileSync(target, 'utf8').split('\n').filter(Boolean) : [];
+  const kept = [...lines, JSON.stringify(record)].slice(-TIMINGS_MAX_RECORDS);
+  writeFileSync(target, `${kept.join('\n')}\n`);
   process.stdout.write(`timings appended to ${timingsPath}\n`);
 }
 if (hangs.length > 0 || failures.length > 0) {

@@ -549,8 +549,10 @@ leaving the root, which is the cheapest way to run a package's own script exactl
 **Test timings are archived, not measured from scratch.** `bun run test:timings` runs the full
 suite and appends one JSON line per package to `test-timings.jsonl`: the recorded time, the
 package, the totals, and every test file's wall-clock duration, slowest first. The file is
-append-only and committed, so before a large change you can read the previous run as the
-baseline instead of guessing, and after it you can see which files actually moved. The same
+committed, so before a large change you can read the previous run as the baseline instead of
+guessing, and after it you can see which files actually moved. It keeps the most recent 200
+records and drops the oldest, which is roughly a hundred full runs — enough history for a
+before/after without letting the file grow without bound. The same
 `--timings=<path>` option works on a single package
 (`bun run test --package=<name> --timings=...`) when only one suite needs a before/after.
 
