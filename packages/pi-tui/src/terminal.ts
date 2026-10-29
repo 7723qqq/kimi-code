@@ -1,3 +1,16 @@
+import {
+  formatProgramStatus,
+  isProgramStatusReply,
+  PROGRAM_STATUS_QUERY,
+  type ProgramStatus,
+} from './program-status.ts';
+function formatProgramStatusOutput(status: ProgramStatus): string {
+  const formatted = formatProgramStatus(status);
+  if (process.env['TMUX'] === undefined) return formatted;
+  const escaped = formatted.split('\x1b').join('\x1b' + '\x1b');
+  return '\x1b' + 'Ptmux;' + escaped + '\x1b' + '\\';
+}
+
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
@@ -18,7 +31,8 @@ const TERMINAL_PROGRESS_CLEAR_SEQUENCE = '\x1b]9;4;0\x07';
 const NATIVE_SHIFT_ENTER_SEQUENCE = '\x1b[13;2u';
 const DESIRED_KITTY_KEYBOARD_PROTOCOL_FLAGS = 7;
 const KEYBOARD_PROTOCOL_RESPONSE_FRAGMENT_TIMEOUT_MS = 150;
-const KITTY_KEYBOARD_PROTOCOL_QUERY = `\x1b[>${DESIRED_KITTY_KEYBOARD_PROTOCOL_FLAGS}u\x1b[?u\x1b[c`;
+const KITTY_KEYBOARD_PROTOCOL_QUERY = `\x1b[>${DESIRED_KITTY_KEYBOARD_PROTOCOL_FLAGS}u\x1b[?u`;
+const DEVICE_ATTRIBUTES_QUERY = '\x1b[c';
 
 export type KeyboardProtocolNegotiationSequence =
   | { type: 'kitty-flags'; flags: number }
@@ -88,12 +102,27 @@ export interface Terminal {
   stop(): void;
 
   /**
+   * Report what the program is doing (OSC 7501). Sent only to terminals that
+   * support it; the latest status is re-sent when support is confirmed or the
+   * terminal restarts.
+   */
+  setProgramStatus?(status: ProgramStatus): void;
+
+  /**
    * Drain stdin before exiting to prevent Kitty key release events from
    * leaking to the parent shell over slow SSH connections.
    * @param maxMs - Maximum time to drain (default: 1000ms)
    * @param idleMs - Exit early if no input arrives within this time (default: 50ms)
    */
   drainInput(maxMs?: number, idleMs?: number): Promise<void>;
+
+  /**
+   * Write the exit-time restore sequence synchronously, including the OSC 7501
+   * clear so the terminal does not keep showing a stale program status.
+   * @param before - Sequence emitted before the clear
+   * @param after - Sequence emitted last
+   */
+  restoreOnExit?(before: string, after: string): void;
 
   // Write output to terminal
   write(data: string): void;
@@ -155,6 +184,10 @@ export class ProcessTerminal implements Terminal {
   private keyboardProtocolPushed = false;
   private keyboardProtocolNegotiationBuffer = '';
   private keyboardProtocolBufferFlushTimer?: StdinBufferTimerHandle;
+  private readonly programStatuses = new Map<string | undefined, ProgramStatus>();
+  private programStatusSupported = false;
+  private programStatusQueryPending = false;
+  private pendingKeyboardProtocolDeviceAttributes = 0;
   private stdinBuffer?: StdinBuffer;
   private stdinDataHandler?: (data: string) => void;
   private progressInterval?: ReturnType<typeof setInterval>;
@@ -239,6 +272,10 @@ export class ProcessTerminal implements Terminal {
 
     // Forward individual sequences to the input handler
     this.stdinBuffer.on('data', (sequence) => {
+      if (isProgramStatusReply(sequence)) {
+        this.confirmProgramStatusSupport();
+        return;
+      }
       const negotiationSequence = this.readKeyboardProtocolNegotiationSequence(sequence);
       if (negotiationSequence === 'pending') {
         this.scheduleKeyboardProtocolNegotiationBufferFlush();
@@ -281,8 +318,26 @@ export class ProcessTerminal implements Terminal {
     this.setupStdinBuffer();
     process.stdin.on('data', this.stdinDataHandler!);
     this.keyboardProtocolPushed = true;
+    this.pendingKeyboardProtocolDeviceAttributes += 1;
     this.clearKeyboardProtocolNegotiationBuffer();
-    process.stdout.write(KITTY_KEYBOARD_PROTOCOL_QUERY);
+    const programStatusOverride = process.env['PI_PROGRAM_STATUS'];
+    const rexProgramStatus = Boolean(process.env['REX_SESSION'] || process.env['REX_BLOCK']);
+    const multiplexerWithoutQuery =
+      process.env['TMUX'] !== undefined ||
+      process.env['STY'] !== undefined ||
+      process.env['ZELLIJ'] !== undefined ||
+      process.env['ZELLIJ_SESSION_NAME'] !== undefined;
+    this.programStatusSupported =
+      programStatusOverride === '1' || (programStatusOverride !== '0' && rexProgramStatus);
+    this.programStatusQueryPending =
+      programStatusOverride !== '1' &&
+      programStatusOverride !== '0' &&
+      !rexProgramStatus &&
+      !multiplexerWithoutQuery;
+    const programStatusQuery = this.programStatusQueryPending ? PROGRAM_STATUS_QUERY : '';
+    process.stdout.write(
+      `${KITTY_KEYBOARD_PROTOCOL_QUERY}${programStatusQuery}${DEVICE_ATTRIBUTES_QUERY}`,
+    );
   }
 
   private handleKeyboardProtocolNegotiationSequence(
@@ -290,6 +345,12 @@ export class ProcessTerminal implements Terminal {
   ): boolean {
     if (!negotiationSequence) return false;
     this.clearKeyboardProtocolNegotiationBuffer();
+    if (negotiationSequence.type === 'device-attributes') {
+      if (this.pendingKeyboardProtocolDeviceAttributes === 0) return false;
+      this.pendingKeyboardProtocolDeviceAttributes -= 1;
+      if (this.pendingKeyboardProtocolDeviceAttributes === 0)
+        this.programStatusQueryPending = false;
+    }
     if (negotiationSequence.type === 'kitty-flags') {
       if (negotiationSequence.flags !== 0) {
         this.disableModifyOtherKeys();
@@ -307,6 +368,23 @@ export class ProcessTerminal implements Terminal {
       this.enableModifyOtherKeys();
     }
     return true;
+  }
+
+  setProgramStatus(status: ProgramStatus): void {
+    this.programStatuses.set(status.id, status);
+    if (!this.programStatusSupported) return;
+    this.writeProgramStatus(status);
+  }
+
+  private confirmProgramStatusSupport(): void {
+    this.programStatusQueryPending = false;
+    if (this.programStatusSupported) return;
+    this.programStatusSupported = true;
+    for (const status of this.programStatuses.values()) this.writeProgramStatus(status);
+  }
+
+  private writeProgramStatus(status: ProgramStatus): void {
+    process.stdout.write(formatProgramStatusOutput(status));
   }
 
   private readKeyboardProtocolNegotiationSequence(
@@ -405,6 +483,23 @@ export class ProcessTerminal implements Terminal {
     }
   }
 
+  restoreOnExit(before: string, after: string): void {
+    let sequence = before;
+    if (this.progressInterval !== undefined) sequence += TERMINAL_PROGRESS_CLEAR_SEQUENCE;
+    if (this.programStatusSupported && this.programStatuses.size > 0) {
+      sequence += formatProgramStatusOutput({ state: 'clear' });
+    }
+    sequence += '\x1b[?2004l';
+    if (this.keyboardProtocolPushed || this._kittyProtocolActive) sequence += '\x1b[<u';
+    if (this._modifyOtherKeysActive) sequence += '\x1b[>4;0m';
+    sequence += after;
+    try {
+      fs.writeSync(process.stdout.fd, sequence);
+    } catch {
+      // The terminal may already be gone.
+    }
+  }
+
   async drainInput(maxMs = 1000, idleMs = 50): Promise<void> {
     const shouldDisableKittyProtocol = this.keyboardProtocolPushed || this._kittyProtocolActive;
     this.clearKeyboardProtocolNegotiationBuffer();
@@ -447,6 +542,11 @@ export class ProcessTerminal implements Terminal {
     if (this.clearProgressInterval()) {
       process.stdout.write(TERMINAL_PROGRESS_CLEAR_SEQUENCE);
     }
+    if (this.programStatusSupported && this.programStatuses.size > 0) {
+      process.stdout.write(formatProgramStatusOutput({ state: 'clear' }));
+    }
+    this.programStatusSupported = false;
+    this.programStatusQueryPending = false;
 
     // Disable bracketed paste mode
     process.stdout.write('\x1b[?2004l');

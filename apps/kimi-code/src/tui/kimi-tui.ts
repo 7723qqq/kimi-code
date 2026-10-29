@@ -39,23 +39,32 @@ import {
 } from '@moonshot-ai/pi-tui';
 import { resolve } from 'pathe';
 
-import { getLocale, t } from '#/i18n';
+import {
+  createMsys2PromptDeps,
+  installMsys2,
+  markPrompted,
+  setUserShellPath,
+  shouldPromptMsys2,
+} from '#/cli/msys2-prompt';
 import type { CLIOptions } from '#/cli/options';
+import { CLI_MSH_PLATFORM } from '#/constant/app';
+import { getLocale, t } from '#/i18n';
 import { MigrationScreenComponent, type MigrationScreenResult } from '#/migration/index';
 import { copyTextToClipboard } from '#/utils/clipboard/clipboard-text';
 import { appendInputHistory, loadInputHistory } from '#/utils/history/input-history';
+import { refreshModelSwitchConfirmConfig } from '#/utils/model-switch-confirm-config';
 import { openUrl } from '#/utils/open-url';
 import { getInputHistoryFile } from '#/utils/paths';
-import { refreshModelSwitchConfirmConfig } from '#/utils/model-switch-confirm-config';
+import { detectFdPath, ensureFdPath } from '#/utils/process/fd-detect';
 import { applyRecommendedEffort } from '#/utils/recommended-effort';
 import { getRecommendedEffortConfig } from '#/utils/recommended-effort-config';
-import { migrateLegacySurveySetting } from '#/utils/survey-setting';
-import { detectFdPath, ensureFdPath } from '#/utils/process/fd-detect';
 import { quoteShellArg } from '#/utils/shell-quote';
+import { startupTrace } from '#/utils/startup-trace';
+import { migrateLegacySurveySetting } from '#/utils/survey-setting';
 import { restoreTerminalModes } from '#/utils/terminal-restore';
 
-import { BannerProvider } from './banner/banner-provider';
 import { resolveBannerAudienceContext, type BannerAudienceContext } from './banner/audience';
+import { BannerProvider } from './banner/banner-provider';
 import { readBannerDisplayState, writeBannerDisplayState } from './banner/state';
 import {
   BUILTIN_SLASH_COMMANDS,
@@ -69,13 +78,14 @@ import {
   type SkillListSession,
 } from './commands';
 import * as slashCommands from './commands/dispatch';
-import { CacheHintController } from './controllers/cache-hint-controller';
 import { BannerComponent } from './components/chrome/banner';
 import { DeviceCodeBoxComponent } from './components/chrome/device-code-box';
 import { GutterContainer } from './components/chrome/gutter-container';
 import { MoonLoader, type SpinnerStyle } from './components/chrome/moon-loader';
+import type { StatusSurfaceKey } from './components/chrome/status-surface/region';
 import { WelcomeComponent } from './components/chrome/welcome';
 import { CompactionComponent } from './components/dialogs/compaction';
+import { Msys2PromptComponent, type Msys2PromptChoice } from './components/dialogs/msys2-prompt';
 import type { SessionRow } from './components/dialogs/session-picker';
 import { TrustPromptComponent, type TrustPromptChoice } from './components/dialogs/trust-prompt';
 import {
@@ -120,32 +130,31 @@ import {
 import { MEDIA_INGESTION_SUBMIT_WAIT_MS } from './constant/media';
 import { CHROME_GUTTER } from './constant/rendering';
 import { MAX_TERMINAL_TITLE_LENGTH } from './constant/terminal';
-import { AuthFlowController } from './controllers/auth-flow';
-import { createMsys2PromptDeps, installMsys2, markPrompted, setUserShellPath, shouldPromptMsys2 } from '#/cli/msys2-prompt';
 import { ActivityPaneController } from './controllers/activity-pane';
+import { AuthFlowController } from './controllers/auth-flow';
+import { BackgroundTasksMiniController } from './controllers/background-tasks-mini';
+import { BtwPanelController } from './controllers/btw-panel';
+import { CacheHintController } from './controllers/cache-hint-controller';
+import { ClipboardImageHintController } from './controllers/clipboard-image-hint';
 import { DialogHostController } from './controllers/dialog-host';
-import { MessageDispatchController } from './controllers/message-dispatch';
-import { Msys2PromptComponent, type Msys2PromptChoice } from './components/dialogs/msys2-prompt';
 import { type ActiveExclusiveMode, type ReviewCycleMode } from './controllers/editor-keyboard';
-import type { StatusSurfaceKey } from './components/chrome/status-surface/region';
+import { EditorKeyboardController } from './controllers/editor-keyboard';
+import { MessageDispatchController } from './controllers/message-dispatch';
+import { ModelMigrationController } from './controllers/model-migration';
+import { ProgramStatusController } from './controllers/program-status';
 import { PromptOptimizerController } from './controllers/prompt-optimizer';
 import { PromptOptimizerActivityController } from './controllers/prompt-optimizer-activity';
-import { showSessionOccupancyPrompt, type SessionOccupancyPrompt } from './controllers/session-occupancy';
-import { TranscriptRendererController } from './controllers/transcript-renderer';
-import { accumulateStepCompleted, accumulateToolDuration, bumpTurnCount, createEmptySessionStats } from './utils/session-stats';
-import { TokenSpeedSampler } from './utils/token-speed';
-
-import { BtwPanelController } from './controllers/btw-panel';
-import { ClipboardImageHintController } from './controllers/clipboard-image-hint';
-import { EditorKeyboardController } from './controllers/editor-keyboard';
-import { ModelMigrationController } from './controllers/model-migration';
 import { SessionEventHandler } from './controllers/session-event-handler';
+import {
+  showSessionOccupancyPrompt,
+  type SessionOccupancyPrompt,
+} from './controllers/session-occupancy';
 import { SessionReplayRenderer } from './controllers/session-replay';
 import { StagingLeaseTracker, type StagingLease } from './controllers/staging-leases';
 import { StreamingUIController } from './controllers/streaming-ui';
 import { SurveyController, type SurveyControllerDeps } from './controllers/survey-controller';
 import { TasksBrowserController } from './controllers/tasks-browser';
-import { BackgroundTasksMiniController } from './controllers/background-tasks-mini';
+import { TranscriptRendererController } from './controllers/transcript-renderer';
 import { installRainbowDance } from './easter-eggs/dance';
 import { ApprovalController } from './reverse-rpc/approval/controller';
 import { createApprovalRequestHandler } from './reverse-rpc/approval/handler';
@@ -181,7 +190,11 @@ import {
 import { isDeadTerminalError } from './utils/dead-terminal';
 import { formatErrorMessage } from './utils/event-payload';
 import { pickForegroundTasks } from './utils/foreground-task';
-import { ImageAttachmentStore, type ImageAttachment, type MediaAttachment } from './utils/image-attachment-store';
+import {
+  ImageAttachmentStore,
+  type ImageAttachment,
+  type MediaAttachment,
+} from './utils/image-attachment-store';
 import {
   extractMediaAttachments,
   omitExpiredVideoFileRefs,
@@ -193,18 +206,23 @@ import {
 } from './utils/image-placeholder';
 import type { ExtractionResult } from './utils/image-placeholder';
 import { installInputLatencyProbe } from './utils/input-latency';
-import { combineSteerInput } from './utils/steer-input';
-import { startupTrace } from '#/utils/startup-trace';
 import { REPLAY_TURN_LIMIT } from './utils/message-replay';
+import { lazyModelSelection } from './utils/model-switch';
 import { hasPatchChanges } from './utils/object-patch';
 import { sessionRowsForPicker } from './utils/session-picker-rows';
-import { CLI_MSH_PLATFORM } from '#/constant/app';
+import {
+  accumulateStepCompleted,
+  accumulateToolDuration,
+  bumpTurnCount,
+  createEmptySessionStats,
+} from './utils/session-stats';
 import { formatBashOutputForDisplay } from './utils/shell-output';
-import { lazyModelSelection } from './utils/model-switch';
 import { combineStartupNotice, isOAuthLoginRequiredError } from './utils/startup';
+import { combineSteerInput } from './utils/steer-input';
 import { installTerminalFocusTracking } from './utils/terminal-focus';
 import { installTerminalThemeTracking } from './utils/terminal-theme';
 import { detectTmuxKeyboardWarning } from './utils/tmux-keyboard';
+import { TokenSpeedSampler } from './utils/token-speed';
 import {
   getTranscriptComponentEntry,
   markTranscriptComponent,
@@ -251,7 +269,6 @@ export interface KimiTUIStartupInput {
 
 type EffectiveActivityPaneMode = ActivityPaneMode | 'idle' | 'session';
 type LoadingTipKind = 'moon' | 'braille';
-
 
 function sameStringArrays(a: readonly string[], b: readonly string[]): boolean {
   return a.length === b.length && a.every((value, index) => value === b[index]);
@@ -424,6 +441,7 @@ export class KimiTUI {
     { entry: TranscriptEntry; component: ShellRunComponent; taskId?: string }
   >();
   readonly streamingUI: StreamingUIController;
+  readonly programStatus: ProgramStatusController;
   readonly authFlow: AuthFlowController;
   readonly btwPanelController: BtwPanelController;
   readonly sessionEventHandler: SessionEventHandler;
@@ -499,10 +517,9 @@ export class KimiTUI {
     this.telemetryDisabled = startupInput.telemetryDisabled ?? false;
     this.startupNotice = startupInput.startupNotice;
     this.state = createTUIState(tuiOptions);
+    this.programStatus = new ProgramStatusController(this.state, this.state.terminal);
     this.state.footer.setExpandHintProvider(() => this.toolOutputExpandHint());
-    this.state.transcriptContainer.setUnhandledClick((index) =>
-      this.toggleClickedFoldBlock(index),
-    );
+    this.state.transcriptContainer.setUnhandledClick((index) => this.toggleClickedFoldBlock(index));
     this.uninstallRainbowDance = installRainbowDance(() => {
       this.state.ui.requestRender();
     });
@@ -832,6 +849,7 @@ export class KimiTUI {
     // event loop (e.g. a future TUI reconnect) can't stack duplicate listeners.
     this.disposeTerminalTracking();
     this.state.ui.start();
+    this.programStatus.refresh();
     this.startClipboardImageHintController();
     this.terminalFocusTrackingDispose = installTerminalFocusTracking(this.state);
     this.refreshTerminalThemeTracking();
@@ -1664,7 +1682,10 @@ export class KimiTUI {
           continue;
         }
         const rewrite = rewriteMediaPlaceholders(
-          activation.args, this.imageStore, 'plain', mediaSnapshots,
+          activation.args,
+          this.imageStore,
+          'plain',
+          mediaSnapshots,
         );
         this.imageStore.retainFileIds(rewrite.videoAttachmentIds);
         prepared.skills.push({ name: activation.skillName, args: rewrite.text });
@@ -1707,9 +1728,10 @@ export class KimiTUI {
         : text;
     } catch (error) {
       if (prepared !== undefined) this.releaseSkillArgumentMedia(prepared);
-      this.staging.releaseMedia([
-        ...extraction.imageAttachmentIds, ...extraction.videoAttachmentIds,
-      ], []);
+      this.staging.releaseMedia(
+        [...extraction.imageAttachmentIds, ...extraction.videoAttachmentIds],
+        [],
+      );
       this.failSessionRequest(
         t('tui.statusMessages.failedToPrepareMediaAttachment', {
           error: formatErrorMessage(error),
@@ -1736,7 +1758,10 @@ export class KimiTUI {
         extraction.imageAttachmentIds.length > 0 ? extraction.imageAttachmentIds : undefined,
     };
     this.appendTranscriptEntry(entry);
-    const request = this.messageDispatch.trackPendingEntries([entry], session.promptWithSkills(input, prepared.skills));
+    const request = this.messageDispatch.trackPendingEntries(
+      [entry],
+      session.promptWithSkills(input, prepared.skills),
+    );
     this.staging.trackDispatch(stagingLease, request, (error) => {
       const recovered = this.messageDispatch.handlePromptConflict({
         session,
@@ -1756,7 +1781,11 @@ export class KimiTUI {
         this.staging.defer(stagingLease);
         return;
       }
-      if (this.session === session && stagingLease !== undefined && stagingLease.turnId === undefined) {
+      if (
+        this.session === session &&
+        stagingLease !== undefined &&
+        stagingLease.turnId === undefined
+      ) {
         this.staging.defer(stagingLease);
         for (const id of stagingLease.mediaAttachmentIds) this.staging.releaseRecalled([id]);
         this.staging.releaseMedia([], stagingLease.paths);
@@ -1937,6 +1966,7 @@ export class KimiTUI {
   }
 
   failSessionRequest(message: string): void {
+    this.programStatus.failRequest(message);
     this.setAppState({ streamingPhase: 'idle' });
     this.resetLivePane();
     this.showError(message);
@@ -2022,8 +2052,10 @@ export class KimiTUI {
       const extraction: ExtractionResult = {
         parts: refreshed,
         hasMedia: refreshed.length > 0,
-        imageAttachmentIds: item.imageAttachmentIds !== undefined ? [...item.imageAttachmentIds] : [],
-        videoAttachmentIds: item.videoAttachmentIds !== undefined ? [...item.videoAttachmentIds] : [],
+        imageAttachmentIds:
+          item.imageAttachmentIds !== undefined ? [...item.imageAttachmentIds] : [],
+        videoAttachmentIds:
+          item.videoAttachmentIds !== undefined ? [...item.videoAttachmentIds] : [],
         imageSnapshots: [],
         mediaSnapshots: item.mediaSnapshots,
       };
@@ -2034,11 +2066,7 @@ export class KimiTUI {
     const parts =
       item.parts === undefined
         ? undefined
-        : refreshExpiringImageFileRefs(
-            item.parts,
-            item.imageAttachmentIds ?? [],
-            this.imageStore,
-          );
+        : refreshExpiringImageFileRefs(item.parts, item.imageAttachmentIds ?? [], this.imageStore);
     this.harness.withInteractiveAgent(item.agentId ?? MAIN_AGENT_ID, () => {
       this.sendMessageInternal(session, item.text, {
         parts,
@@ -2052,11 +2080,13 @@ export class KimiTUI {
   handleTurnStarted(event: TurnStartedEvent & { agentId: string; sessionId: string }): void {
     this.staging.handleTurnStarted(event);
     this.surveyController.notifyTurnStarted(event.origin);
+    this.programStatus.beginTurn(event.origin);
   }
 
   handleTurnEnded(event: TurnEndedEvent & { agentId: string; sessionId: string }): void {
     this.staging.handleTurnEnded(event);
     this.surveyController.notifyTurnEnded(event.traceId);
+    this.programStatus.finishTurn(event);
     this.state.footer.refreshGitStatus();
     if (event.reason === 'completed') void this.maybeAutoGenerateSessionTitle();
   }
@@ -2117,7 +2147,8 @@ export class KimiTUI {
     // (finalizeTurn clears the id at turn end; a queued dispatch can land
     // while the goal driver's next continuation turn is already streaming).
     const runningTurnId =
-      this.state.appState.streamingPhase === 'idle' || this.state.appState.streamingPhase === 'shell'
+      this.state.appState.streamingPhase === 'idle' ||
+      this.state.appState.streamingPhase === 'shell'
         ? undefined
         : this.streamingUI.getTurnContext().turnId;
     this.beginSessionRequest();
@@ -2296,7 +2327,9 @@ export class KimiTUI {
           retry: () => this.activatePluginCommand(session, pluginId, commandName, args, true),
           restore: () => {
             this.staging.releaseRecalled(rewrite.imageAttachmentIds);
-            this.restoreInputText(`/${pluginId}:${commandName}${args.length > 0 ? ` ${args}` : ''}`);
+            this.restoreInputText(
+              `/${pluginId}:${commandName}${args.length > 0 ? ` ${args}` : ''}`,
+            );
           },
         });
         if (recovered) {
@@ -2371,7 +2404,9 @@ export class KimiTUI {
     // A queued /compact is a FIFO barrier for steering, manual or automatic:
     // messages behind it must wait for the compaction, not jump into the
     // pre-compaction context.
-    const firstCompact = this.state.queuedMessages.findIndex((message) => message.mode === 'compact');
+    const firstCompact = this.state.queuedMessages.findIndex(
+      (message) => message.mode === 'compact',
+    );
     const beforeBarrier = this.state.queuedMessages.slice(
       0,
       firstCompact === -1 ? this.state.queuedMessages.length : firstCompact,
@@ -2384,7 +2419,8 @@ export class KimiTUI {
     const sendNext = (): void => {
       if (this.deferUserMessages || this.state.appState.isCompacting) return;
       let first = pending.shift();
-      while (first !== undefined && !this.state.queuedMessages.includes(first)) first = pending.shift();
+      while (first !== undefined && !this.state.queuedMessages.includes(first))
+        first = pending.shift();
       if (first === undefined) {
         this.updateQueueDisplay();
         if (!manual && this.canSteerQueueIntoRunningTurn()) {
@@ -2415,20 +2451,29 @@ export class KimiTUI {
           ),
         };
       });
-      this.steerMessage(session, items, (steered) => {
-        for (const message of group) this.steeringQueuedMessages.delete(message);
-        if (this.session !== session) return;
-        if (steered || manual) {
-          const done = new Set(group);
-          this.state.queuedMessages = this.state.queuedMessages.filter((message) => !done.has(message));
-        }
-        if (!steered) {
-          this.staging.releaseQueued(group.filter((message) => !this.state.queuedMessages.includes(message)));
-        }
-        this.updateQueueDisplay();
-        if (steered || manual) sendNext();
-        else this.drainQueueIfIdle();
-      }, manual);
+      this.steerMessage(
+        session,
+        items,
+        (steered) => {
+          for (const message of group) this.steeringQueuedMessages.delete(message);
+          if (this.session !== session) return;
+          if (steered || manual) {
+            const done = new Set(group);
+            this.state.queuedMessages = this.state.queuedMessages.filter(
+              (message) => !done.has(message),
+            );
+          }
+          if (!steered) {
+            this.staging.releaseQueued(
+              group.filter((message) => !this.state.queuedMessages.includes(message)),
+            );
+          }
+          this.updateQueueDisplay();
+          if (steered || manual) sendNext();
+          else this.drainQueueIfIdle();
+        },
+        manual,
+      );
     };
     sendNext();
   }
@@ -2493,7 +2538,9 @@ export class KimiTUI {
           : {
               ...item,
               parts: resolveOriginalCaptions(
-                prepared === undefined ? item.parts : omitExpiredVideoFileRefs(item.parts, prepared.cachedVideos),
+                prepared === undefined
+                  ? item.parts
+                  : omitExpiredVideoFileRefs(item.parts, prepared.cachedVideos),
                 item.imageAttachmentIds ?? [],
                 this.imageStore,
                 originalsDirForSession(session),
@@ -2540,16 +2587,15 @@ export class KimiTUI {
     // media when that unrelated turn ends. Leave skill leases unclaimed so
     // the submission's own turn.started claims them; a merged steer simply
     // retires its media at session close instead.
-    if (currentTurnId !== undefined && prepared === undefined) this.staging.bindToTurn(stagingLease, currentTurnId);
+    if (currentTurnId !== undefined && prepared === undefined)
+      this.staging.bindToTurn(stagingLease, currentTurnId);
     const request = this.messageDispatch.trackPendingEntries(
       steeredEntries,
       prepared === undefined
         ? session.steer(combineSteerInput(resolvedInput))
-        : session.promptWithSkills(
-            combineSteerInput(resolvedInput),
-            prepared.skills,
-            { steerIfActive: true },
-          ),
+        : session.promptWithSkills(combineSteerInput(resolvedInput), prepared.skills, {
+            steerIfActive: true,
+          }),
     );
     if (onSettled !== undefined) {
       void request.then(
@@ -2622,7 +2668,9 @@ export class KimiTUI {
   clearQueuedMessages(): void {
     const queued = this.state.queuedMessages;
     this.state.queuedMessages = [];
-    this.staging.releaseQueued(queued.filter((message) => !this.steeringQueuedMessages.has(message)));
+    this.staging.releaseQueued(
+      queued.filter((message) => !this.steeringQueuedMessages.has(message)),
+    );
   }
 
   shiftQueuedMessage(): QueuedMessage | undefined {
@@ -2682,12 +2730,17 @@ export class KimiTUI {
     }
   }
 
+  handleBackgroundTaskStatus(info: BackgroundTaskInfo): void {
+    this.programStatus.updateBackgroundTask(info);
+  }
+
   setAppState(patch: Partial<AppState>): void {
     if (!hasPatchChanges(this.state.appState, patch)) return;
     const additionalDirsChanged =
       'additionalDirs' in patch &&
       !sameStringArrays(this.state.appState.additionalDirs, patch.additionalDirs ?? []);
     const busyChanged = 'streamingPhase' in patch || 'isCompacting' in patch;
+    const sessionTitleChanged = 'sessionTitle' in patch;
     Object.assign(this.state.appState, patch);
     if ('planMode' in patch) this.updateEditorBorderHighlight();
     this.state.footer.setState(this.state.appState);
@@ -2696,6 +2749,7 @@ export class KimiTUI {
       this.updateQueueDisplay();
       this.sessionEventHandler.retryQueuedGoalPromotion();
     }
+    if (sessionTitleChanged) this.programStatus.refresh();
     if (additionalDirsChanged) this.setupAutocomplete();
     this.modelMigration.retry();
     this.state.ui.requestRender();
@@ -2927,8 +2981,7 @@ export class KimiTUI {
       contextTokens: status.contextTokens,
       maxContextTokens: status.maxContextTokens,
       contextUsage: status.contextUsage,
-      cumulativeTokens:
-        status.usage?.total === undefined ? 0 : sumTokenUsage(status.usage.total),
+      cumulativeTokens: status.usage?.total === undefined ? 0 : sumTokenUsage(status.usage.total),
       sessionTitle: session.summary?.title ?? null,
       goal: goalResult.goal,
     });
@@ -3010,11 +3063,17 @@ export class KimiTUI {
   private registerSessionHandlers(session: Session): void {
     session.setStaleReloadHandler?.(() => this.refreshAfterStaleReload(session));
     session.setApprovalHandler(
-      createApprovalRequestHandler(this.approvalController, (request, response) => {
-        this.appendApprovalTranscriptEntry(request, response);
-      }),
+      createApprovalRequestHandler(
+        this.approvalController,
+        (request, response) => {
+          this.appendApprovalTranscriptEntry(request, response);
+        },
+        this.programStatus,
+      ),
     );
-    session.setQuestionHandler(createQuestionAskHandler(this.questionController));
+    session.setQuestionHandler(
+      createQuestionAskHandler(this.questionController, this.programStatus),
+    );
   }
 
   async fetchSessions(scope: 'cwd' | 'all' = this.state.sessionsScope): Promise<void> {
@@ -3134,6 +3193,7 @@ export class KimiTUI {
     this.surveyController.reset();
     this.streamingUI.discardPending();
     if (options?.keepQueuedMessages !== true) this.clearQueuedMessages();
+    this.programStatus.resetSession();
     this.state.swarmModeEntry = undefined;
     this.state.helloWorldModeEntry = undefined;
     this.streamingUI.resetToolCallState();
@@ -3472,9 +3532,7 @@ export class KimiTUI {
     entries.splice(entryIndex, 1);
     entries.push(entry);
     const children = this.state.transcriptContainer.children;
-    const childIndex = children.findIndex(
-      (child) => getTranscriptComponentEntry(child) === entry,
-    );
+    const childIndex = children.findIndex((child) => getTranscriptComponentEntry(child) === entry);
     if (childIndex >= 0) {
       const [component] = children.splice(childIndex, 1);
       children.push(component!);
@@ -4438,8 +4496,7 @@ export class KimiTUI {
     this.restoreEditor();
     try {
       await this.harness.trustWorkspace(workDir);
-    } catch {
-    }
+    } catch {}
     return true;
   }
 
@@ -4627,11 +4684,7 @@ export class KimiTUI {
     this.transcriptRenderer.mountTranscriptComponent(entry, component);
   }
 
-  replaceTranscriptChild(
-    previous: Component,
-    next: Component,
-    entry?: TranscriptEntry,
-  ): boolean {
+  replaceTranscriptChild(previous: Component, next: Component, entry?: TranscriptEntry): boolean {
     return this.transcriptRenderer.replaceTranscriptChild(previous, next, entry);
   }
 
@@ -4745,5 +4798,4 @@ function toSteerInputItem(message: QueuedMessage): SteerInputItem {
     mediaSnapshots: message.mediaSnapshots,
     inlineSkillActivations: message.inlineSkillActivations,
   };
-
 }

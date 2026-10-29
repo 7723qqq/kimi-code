@@ -10,6 +10,7 @@ export {
   type SlashCommand,
 } from './autocomplete.ts';
 // Components
+export { formatProgramStatus, type ProgramStatus } from './program-status.ts';
 export { Box } from './components/box.ts';
 export { CancellableLoader } from './components/cancellable-loader.ts';
 export { Editor, type EditorOptions, type EditorTheme } from './components/editor.ts';

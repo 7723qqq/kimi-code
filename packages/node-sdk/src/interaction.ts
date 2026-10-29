@@ -1,3 +1,4 @@
+import type { QuestionRequest as CoreQuestionRequest } from '@moonshot-ai/agent-core-v2/agent/interaction/question';
 import type { ToolInputDisplay } from '@moonshot-ai/agent-core-v2/contract';
 import type { ContentPart } from '@moonshot-ai/kosong';
 
@@ -7,7 +8,6 @@ export type {
   QuestionAnswers,
   QuestionItem,
   QuestionOption,
-  QuestionRequest,
   QuestionResponse,
   QuestionResult,
 } from '@moonshot-ai/agent-core-v2/contract';
@@ -15,11 +15,16 @@ export type {
 export type ApprovalScope = 'session';
 
 export interface ApprovalRequest {
+  readonly agentId?: string;
   readonly turnId?: number | undefined;
   readonly toolCallId: string;
   readonly toolName: string;
   readonly action: string;
   readonly display: ToolInputDisplay;
+}
+
+export interface QuestionRequest extends CoreQuestionRequest {
+  readonly agentId?: string;
 }
 
 export interface ToolCallRequest {

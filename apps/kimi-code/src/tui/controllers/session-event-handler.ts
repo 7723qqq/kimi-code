@@ -9,7 +9,6 @@ import type {
 import { log } from '@moonshot-ai/kimi-code-sdk';
 import type { Component, Focusable } from '@moonshot-ai/pi-tui';
 
-
 /** Narrowed event shapes consumed by the private handlers below. */
 type StatusUpdatedEvent = Extract<Event, { type: 'agent.status.updated' }>;
 type TurnStartedEvent = Extract<Event, { type: 'turn.started' }>;
@@ -48,12 +47,12 @@ import { formatStepDebugTiming } from '#/utils/usage/debug-timing';
 import { createGoal as startGoalCommand } from '../commands/goal';
 import { MoonLoader } from '../components/chrome/moon-loader';
 import { buildGoalMarker } from '../components/messages/goal-markers';
-import { StatusMessageComponent } from '../components/messages/status-message';
 import {
   HelloWorldModeMarkerComponent,
   HelloWorldStageMarkerComponent,
   type HelloWorldModeMarkerState,
 } from '../components/messages/hello-world-markers';
+import { StatusMessageComponent } from '../components/messages/status-message';
 import {
   SwarmModeMarkerComponent,
   type SwarmModeMarkerState,
@@ -150,6 +149,7 @@ export interface SessionEventHost {
   noteCompactionFinished(): void;
   handleTurnStarted?(event: Extract<Event, { type: 'turn.started' }>): void;
   handleTurnEnded?(event: Extract<Event, { type: 'turn.ended' }>): void;
+  handleBackgroundTaskStatus?(info: BackgroundTaskInfo): void;
   mountEditorReplacement(panel: Component & Focusable, onDisplaced?: () => void): void;
   restoreEditor(): void;
   restoreInputText(text: string): void;
@@ -933,10 +933,7 @@ export class SessionEventHandler {
     }
     const previousHelloWorldStage = this.host.state.appState.helloWorldStage;
     if (Object.keys(patch).length > 0) this.host.setAppState(patch);
-    if (
-      event.helloWorldStage !== undefined &&
-      event.helloWorldStage !== previousHelloWorldStage
-    ) {
+    if (event.helloWorldStage !== undefined && event.helloWorldStage !== previousHelloWorldStage) {
       this.renderHelloWorldStageMarker(event.helloWorldStage);
     }
     if (event.swarmMode === false) {
@@ -1473,6 +1470,7 @@ export class SessionEventHandler {
     const { info } = event;
     const previous = this.backgroundTasks.get(info.taskId);
     this.backgroundTasks.set(info.taskId, info);
+    this.host.handleBackgroundTaskStatus?.(info);
 
     if (state.tasksBrowser?.selectedTaskId === info.taskId) {
       void this.host.tasksBrowserController.refreshOutputViewer({ silent: true });
@@ -1566,10 +1564,7 @@ export class SessionEventHandler {
    * anchor the turn's end-of-turn fold would extend into the previous turn's
    * output and collapse its final answer into the step summary.
    */
-  private anchorTaskNotificationTurn(
-    taskId: string,
-    status: BackgroundTaskInfo['status'],
-  ): void {
+  private anchorTaskNotificationTurn(taskId: string, status: BackgroundTaskInfo['status']): void {
     const mounted = this.backgroundTaskTerminalEntries.get(taskId);
     if (mounted !== undefined && this.host.moveTranscriptEntryToEnd(mounted)) return;
     const task = this.backgroundTasks.get(taskId);
