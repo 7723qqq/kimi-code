@@ -2,7 +2,7 @@
  * Offline render check for the built-in prompt profiles.
  *
  * Uses the same production renderer the benchmark uses, so this shows what a
- * session actually receives: the system text, the DeepSeek adaptation reminder,
+ * session actually receives: the system text with the family adaptation embedded,
  * the contract channels, the token estimate and any renderer warning. No DI
  * runtime, no network, no user home file.
  */
@@ -32,7 +32,7 @@ const profile = flag('profile') ?? 'full';
 if (!isPromptProfile(profile)) {
   throw new Error(`--profile must be one of: ${PROMPT_PROFILES.join(', ')}`);
 }
-const model = flag('model') ?? (profile === 'deepseek-adapted' ? 'deepseek-v4-pro' : 'kimi-k3-1');
+const model = flag('model') ?? (profile === 'full' ? 'kimi-k3-1' : 'kimi-k3-1');
 const printPayload = argv.includes('--print');
 const asJson = argv.includes('--json');
 
@@ -45,9 +45,7 @@ const rendered = await renderProfile({
 const unresolved = [...rendered.system.matchAll(/\$\{[A-Za-z_][A-Za-z0-9_]*\}/g)].map(
   (match) => match[1],
 );
-const coverage = contractCoverageFor(rendered.contractDelivery, {
-  reminderPresent: rendered.reminder !== undefined,
-});
+const coverage = contractCoverageFor(rendered.contractDelivery);
 const gaps = contractCoverageGaps(coverage);
 const summary = {
   profile: rendered.profile,
@@ -67,7 +65,7 @@ if (asJson) {
 } else {
   console.log(`profile=${rendered.profile} model=${rendered.model}`);
   console.log(`sourceHash=${rendered.sourceHash}`);
-  console.log(`tokens: system=${rendered.tokens.system} reminder=${rendered.tokens.reminder}`);
+  console.log(`tokens: system=${rendered.tokens.system}`);
   if (rendered.reminderSourceId !== undefined) {
     console.log(`reminder: ${rendered.reminderSourceId}`);
   }
@@ -86,10 +84,6 @@ if (asJson) {
 if (printPayload) {
   console.log('\n===== SYSTEM =====\n');
   console.log(rendered.system);
-  if (rendered.reminder !== undefined) {
-    console.log('\n===== REMINDER =====\n');
-    console.log(rendered.reminder);
-  }
 }
 
 const failed = gaps.length > 0 || unresolved.length > 0 || rendered.warnings.length > 0;

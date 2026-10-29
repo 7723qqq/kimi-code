@@ -2,7 +2,7 @@
  * Prompt Optimizer — CLI entry point.
  *
  * Usage:
- *   bun src/cli.ts bench [--profile <full|minimal|deepseek-adapted>] [--model <model>]
+ *   bun src/cli.ts bench [--profile <full>] [--model <model>]
  *   bun src/cli.ts bench --compare <a,b>   Raw-template prune experiment
  *   bun src/cli.ts prune [--model <model>] [--dry-run]
  *   bun src/cli.ts ab    [--model <model>] [--experiment <file>] [--dry-run]
@@ -30,13 +30,6 @@ import { runProbe, formatProbeReport } from './probe/probe';
 import { loadPrompt, generateBaselineVariant, generatePruneVariant } from './prompt-parser';
 import { runPruner, formatPruneReport } from './pruner/pruner';
 import {
-  ContractCoverageError,
-  buildEvaluationReport,
-  formatEvaluationReport,
-  generateComparisonReport,
-  type CompareInput,
-} from './report/report';
-import {
   benchmarkFixture,
   contractCoverageFor,
   contractCoverageGaps,
@@ -45,6 +38,13 @@ import {
   PROMPT_PROFILES,
   type PromptProfile,
 } from './rendered-prompt';
+import {
+  ContractCoverageError,
+  buildEvaluationReport,
+  formatEvaluationReport,
+  generateComparisonReport,
+  type CompareInput,
+} from './report/report';
 
 /**
  * A model id is not a filename: `workbuddy/deepseek-v4.1-flash` contains a
@@ -131,11 +131,7 @@ async function benchRendered(options: {
   // Refuse before spending calls. A profile that delivers a core contract through
   // no channel cannot produce a report, and discovering that after 41 API calls
   // buys an answer already known.
-  const gaps = contractCoverageGaps(
-    contractCoverageFor(rendered.contractDelivery, {
-      reminderPresent: (rendered.reminder ?? '').length > 0,
-    }),
-  );
+  const gaps = contractCoverageGaps(contractCoverageFor(rendered.contractDelivery));
   if (gaps.length > 0) throw new ContractCoverageError(profile, gaps);
 
   // A dry run answers every case from the same template, so its numbers cannot
@@ -154,7 +150,6 @@ async function benchRendered(options: {
     {
       name: profile,
       system: rendered.system,
-      ...(rendered.reminder === undefined ? {} : { reminder: rendered.reminder }),
       profile: rendered.profile,
       sourceHash: rendered.sourceHash,
       fixtureSummary: { ...rendered.fixtureSummary },
@@ -171,7 +166,6 @@ async function benchRendered(options: {
     sourceHash: rendered.sourceHash,
     fixtureSummary: { ...rendered.fixtureSummary },
     contractDelivery: rendered.contractDelivery,
-    reminderPresent: (rendered.reminder ?? '').length > 0,
     tokens: rendered.tokens,
     cases: BENCHMARK_CASES,
     results: run.results,
@@ -238,7 +232,10 @@ async function benchRawTemplate(options: {
 
     console.log('\n' + generateComparisonReport(compareInputs));
 
-    const reportPath = resolve(config.outputDir, `compare-${slugifyModel(model)}-${Date.now()}.json`);
+    const reportPath = resolve(
+      config.outputDir,
+      `compare-${slugifyModel(model)}-${Date.now()}.json`,
+    );
     writeFileSync(
       reportPath,
       JSON.stringify(
@@ -436,7 +433,7 @@ Options:
 
 Examples:
   bun src/cli.ts bench --dry-run --profile full --model kimi-k3-1
-  bun src/cli.ts bench --profile deepseek-adapted --model deepseek-v4-pro
+  bun src/cli.ts bench --profile full --model deepseek-v4-pro
   bun src/cli.ts bench --compare base,prune:Coding --dry-run --model kimi-k3-1
   bun src/cli.ts prune --model gpt-4o
   bun src/cli.ts probe --model deepseek-v3 --reps 5`);

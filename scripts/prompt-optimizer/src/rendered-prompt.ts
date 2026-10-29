@@ -1,11 +1,13 @@
 /**
- * Prompt Optimizer — Production-rendered prompt profiles.
+ * Prompt Optimizer — Production-rendered prompt profile.
  *
  * The benchmark used to measure `system.md`'s raw template, which is not what a
- * session receives: the template still carries `${...}` placeholders, the model
- * family decides which of the two templates is used, and a minimal-shape family
- * gets part of its ruleset through a separate adaptation reminder. This module
- * asks agent-core's pure rendering boundary for the actual text instead.
+ * session receives: the template still carries `${...}` placeholders. This
+ * module asks agent-core's pure rendering boundary for the actual text instead.
+ *
+ * Every model family renders the same `system.md`, so there is one production
+ * shape. Family-specific guidance arrives inside it through the
+ * `${model_adaptation_section}` block rather than through a separate reminder.
  *
  * Nothing here starts the DI runtime or reads a user home file. The one
  * exception is explicit and fail-closed: `actualGlobalPath` must be exactly the
@@ -15,6 +17,7 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 
+import type { PromptValueDelivery } from '../../../packages/agent-core-v2/src/app/agentProfileCatalog/agentProfileCatalog';
 import {
   CORE_BEHAVIOR_CONTRACT_IDS,
   type ContractDelivery,
@@ -22,13 +25,9 @@ import {
 } from '../../../packages/agent-core-v2/src/app/agentProfileCatalog/behaviorContract';
 import {
   DEEPSEEK_ADAPTATION_SOURCE_ID,
-  adaptationDeliveredByReminder,
   loadCuratedAdaptation,
 } from '../../../packages/agent-core-v2/src/app/agentProfileCatalog/modelAdaptations';
 import { renderSystemPromptResult } from '../../../packages/agent-core-v2/src/app/agentProfileCatalog/profile-shared';
-import type { PromptValueDelivery } from '../../../packages/agent-core-v2/src/app/agentProfileCatalog/agentProfileCatalog';
-import { promptShapeForModel } from '../../../packages/agent-core-v2/src/llm-adapter/contract/modelFamily';
-
 import { estimateTokens } from './prompt-parser';
 
 // ─── Profiles ───────────────────────────────────────────────────────────────
@@ -36,13 +35,12 @@ import { estimateTokens } from './prompt-parser';
 /**
  * What the benchmark renders.
  *
- * `full` and `minimal` map onto agent-core's two templates. `deepseek-adapted`
- * is the production minimal shape: the short system prompt plus the curated
- * adaptation reminder that carries the delegated contract clauses.
+ * There is one production shape: `system.md`, with the family's curated
+ * adaptation embedded by the `${model_adaptation_section}` placeholder.
  */
-export type PromptProfile = 'full' | 'minimal' | 'deepseek-adapted';
+export type PromptProfile = 'full';
 
-export const PROMPT_PROFILES: readonly PromptProfile[] = ['full', 'minimal', 'deepseek-adapted'];
+export const PROMPT_PROFILES: readonly PromptProfile[] = ['full'];
 
 export const DEFAULT_PROMPT_PROFILE: PromptProfile = 'full';
 
@@ -147,12 +145,11 @@ export interface RenderedPrompt {
   readonly profile: PromptProfile;
   readonly model: string;
   readonly system: string;
-  readonly reminder?: string;
   readonly reminderSourceId?: string;
   readonly contractDelivery: readonly ContractDelivery[];
   readonly valueDelivery: readonly PromptValueDelivery[];
   readonly warnings: readonly RenderedPromptWarning[];
-  /** Truncated sha256 over profile, model, system and reminder. */
+  /** Truncated sha256 over profile, model, system and the embedded adaptation. */
   readonly sourceHash: string;
   readonly tokens: { readonly system: number; readonly reminder: number };
   readonly fixtureSummary: FixtureSummary;
@@ -173,42 +170,11 @@ export interface RenderProfileInput {
 
 // ─── Rendering ──────────────────────────────────────────────────────────────
 
-/**
- * The shape a model renders, as a two-valued fact.
- *
- * `promptShapeForModel` returns `'minimal'` for a minimal family and
- * `undefined` otherwise — there is no literal `'full'` value — so the full
- * shape is expressed as "not minimal" rather than by string equality.
- */
-function isMinimalShape(model: string): boolean {
-  return promptShapeForModel(model) === 'minimal';
-}
-
-function assertProfileMatchesModel(profile: PromptProfile, model: string): void {
-  const minimal = isMinimalShape(model);
-  const adapted = adaptationDeliveredByReminder(model);
-  if (profile === 'full') {
-    if (minimal) {
-      throw new RenderedPromptError(
-        'profile_model_mismatch',
-        `Profile "full" needs a full-shape model, but "${model}" renders the minimal template. ` +
-          `Use --profile ${adapted ? 'deepseek-adapted' : 'minimal'} for this model.`,
-      );
-    }
-    return;
-  }
-  if (!minimal) {
+function assertProfileMatchesModel(profile: PromptProfile, _model: string): void {
+  if (profile !== 'full') {
     throw new RenderedPromptError(
       'profile_model_mismatch',
-      `Profile "${profile}" needs a minimal-shape model, but "${model}" renders the full template. ` +
-        'Use --profile full for this model.',
-    );
-  }
-  if (profile === 'deepseek-adapted' && !adapted) {
-    throw new RenderedPromptError(
-      'profile_model_mismatch',
-      `Profile "deepseek-adapted" needs a model whose curated adaptation is delivered by the ` +
-        `reminder, but "${model}" has none. Use --profile minimal for this model.`,
+      `Unknown profile "${String(profile)}". Every model family renders the same prompt.`,
     );
   }
 }
@@ -319,17 +285,7 @@ export async function renderProfile(input: RenderProfileInput): Promise<Rendered
     agentsMdSource = 'actual';
   }
 
-  const reminder =
-    input.profile === 'deepseek-adapted'
-      ? await loadCuratedAdaptation(input.model)
-      : undefined;
-  if (input.profile === 'deepseek-adapted' && reminder === undefined) {
-    throw new RenderedPromptError(
-      'fixture_incomplete',
-      `the curated adaptation for "${input.model}" could not be loaded; the reminder this profile ` +
-        'claims to deliver is missing, so the render would silently drop those rules.',
-    );
-  }
+  const adaptation = await loadCuratedAdaptation(input.model);
 
   const rendered = renderSystemPromptResult(
     '',
@@ -350,24 +306,23 @@ export async function renderProfile(input: RenderProfileInput): Promise<Rendered
         : { notifyUserActive: fixture.notifyUserActive }),
       ...(fixture.todoListActive === undefined ? {} : { todoListActive: fixture.todoListActive }),
       ...(fixture.skillActive === undefined ? {} : { skillActive: fixture.skillActive }),
+      ...(adaptation === undefined ? {} : { modelAdaptation: adaptation }),
       modelName: input.model,
     },
     { skillActive: fixture.skillActive === true },
   );
 
-  const reminderText = reminder ?? '';
   const agentsMdChars = (fixture.agentsMd ?? '').length;
   return {
     profile: input.profile,
     model: input.model,
     system: rendered.text,
-    ...(reminder === undefined ? {} : { reminder }),
-    ...(reminder === undefined ? {} : { reminderSourceId: DEEPSEEK_ADAPTATION_SOURCE_ID }),
+    ...(adaptation === undefined ? {} : { reminderSourceId: DEEPSEEK_ADAPTATION_SOURCE_ID }),
     contractDelivery: rendered.contractDelivery ?? [],
     valueDelivery: rendered.valueDelivery ?? [],
     warnings: rendered.warnings ?? [],
-    sourceHash: sourceHashFor(input.profile, input.model, rendered.text, reminderText),
-    tokens: { system: estimateTokens(rendered.text), reminder: estimateTokens(reminderText) },
+    sourceHash: sourceHashFor(input.profile, input.model, rendered.text, adaptation ?? ''),
+    tokens: { system: estimateTokens(rendered.text), reminder: 0 },
     fixtureSummary: fixtureSummaryFor(fixture, agentsMdSource, agentsMdChars),
   };
 }
@@ -377,13 +332,11 @@ export async function renderProfile(input: RenderProfileInput): Promise<Rendered
 /**
  * Count each core contract id by the channel that carries it.
  *
- * A `reminder` channel only counts as covered when the reminder text is actually
- * part of this run: a delivery record that promises a reminder nobody rendered
- * is a gap, not coverage.
+ * Every contract arrives through the system prompt now, so the record is kept
+ * channel-shaped only to stay comparable with older reports.
  */
 export function contractCoverageFor(
   delivery: readonly { readonly id: string; readonly channel: string }[],
-  options: { readonly reminderPresent: boolean },
 ): ContractCoverage {
   const counts: Record<string, { system: number; reminder: number; omitted: number }> = {};
   for (const id of CORE_BEHAVIOR_CONTRACT_IDS) {
@@ -393,7 +346,6 @@ export function contractCoverageFor(
     const count = counts[entry.id];
     if (count === undefined) continue;
     if (entry.channel === 'system') count.system += 1;
-    else if (entry.channel === 'reminder' && options.reminderPresent) count.reminder += 1;
     else count.omitted += 1;
   }
   const coverage = {} as ContractCoverage;
@@ -458,9 +410,6 @@ export const DEFAULT_FIXTURE_AGENTS_MD = [
 ].join('\n');
 
 /** The fixture the CLI benchmarks by default: this machine plus the stable fixture. */
-export function benchmarkFixture(
-  cwd: string,
-  platform: string = process.platform,
-): RenderFixture {
+export function benchmarkFixture(cwd: string, platform: string = process.platform): RenderFixture {
   return { ...hostFixture(cwd, platform), agentsMd: DEFAULT_FIXTURE_AGENTS_MD };
 }

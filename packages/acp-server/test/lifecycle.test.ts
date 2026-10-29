@@ -1,3 +1,4 @@
+import { afterEach, describe, expect, it } from 'bun:test';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -10,7 +11,6 @@ import {
   IWorkspaceInstanceManager,
 } from '@moonshot-ai/agent-core-v2';
 import type { SessionSummary } from '@moonshot-ai/klient';
-import { afterEach, describe, expect, it } from 'bun:test';
 
 import { filterSessionSummariesByCwd } from '../src/server';
 import { createTestClient, type TestClient } from './_helpers/acpClient';
@@ -61,7 +61,6 @@ function createFakeOAuthToolkit(): {
   } as unknown as IOAuthToolkit;
   return { seed: [IOAuthToolkit, fake], hasToken: () => token !== undefined };
 }
-
 
 const RETRYABLE_RM = new Set(['EBUSY', 'EPERM', 'ENOTEMPTY', 'EACCES']);
 
@@ -117,7 +116,10 @@ describe('acp-server session lifecycle', () => {
   ): Promise<
     readonly { readonly name: string; readonly status: string; readonly error?: string }[]
   > {
-    await c.server.core.accessor.get(IWorkspaceInstanceManager).getOrCreate({ root: homeDir! });
+    const warmup = await c.server.core.accessor
+      .get(IWorkspaceInstanceManager)
+      .acquire({ root: homeDir! });
+    warmup.dispose();
     const handle = c.server.core.accessor.get(ISessionManager).get(sessionId);
     expect(handle).toBeDefined();
     const mcp = handle!.accessor.get(ISessionMcpHandle);
@@ -335,14 +337,18 @@ describe('acp-server session lifecycle', () => {
 
     // The workspace handler merges create-time dirs into its
     // (ephemeral) additional-dir set.
-    const workspace = await c.server.core.accessor
+    const lease = await c.server.core.accessor
       .get(IWorkspaceInstanceManager)
-      .getOrCreate({ root: homeDir! });
-    const dirs = workspace.program.dirs;
-    await dirs.ready;
-    expect(dirs.additionalDirs.map((d) => d.replaceAll('\\', '/'))).toContain(
-      extraDir.replaceAll('\\', '/'),
-    );
+      .acquire({ root: homeDir! });
+    try {
+      const dirs = lease.instance.program.dirs;
+      await dirs.ready;
+      expect(dirs.additionalDirs.map((d) => d.replaceAll('\\', '/'))).toContain(
+        extraDir.replaceAll('\\', '/'),
+      );
+    } finally {
+      lease.dispose();
+    }
   }, 30_000);
 
   it('a title change pushes session_info_update', async () => {
